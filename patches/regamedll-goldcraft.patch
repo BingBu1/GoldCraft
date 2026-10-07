@@ -1,3 +1,26 @@
+diff --git a/regamedll/dlls/bot/cs_bot_chatter.cpp b/regamedll/dlls/bot/cs_bot_chatter.cpp
+index d48898a..30da234 100644
+--- a/regamedll/dlls/bot/cs_bot_chatter.cpp
++++ b/regamedll/dlls/bot/cs_bot_chatter.cpp
+@@ -373,9 +373,17 @@ char *BotPhrase::GetSpeakable(int bankIndex, float *duration) const
+ // Randomly shuffle the speakable order
+ void BotPhrase::Randomize()
+ {
++	// C++20 removed random_shuffle. Retain the original C RNG source while
++	// supplying the uniform-generator contract required by std::shuffle.
++	struct PhraseRandom {
++		using result_type = unsigned;
++		static constexpr result_type min() { return 0; }
++		static constexpr result_type max() { return RAND_MAX; }
++		result_type operator()() { return static_cast<unsigned>(rand()); }
++	} random;
+ 	for (size_t i = 0; i < m_voiceBank.size(); i++)
+ 	{
+-		std::random_shuffle(m_voiceBank[i]->begin(), m_voiceBank[i]->end());
++		std::shuffle(m_voiceBank[i]->begin(), m_voiceBank[i]->end(), random);
+ 	}
+ }
+ 
 diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
 index e6edc87..126e307 100644
 --- a/regamedll/dlls/cbase.cpp
@@ -177,3 +200,118 @@ index 8a219ea..55fbd98 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
+diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
+index 6663e2e..c803696 100644
+--- a/regamedll/dlls/weapons.cpp
++++ b/regamedll/dlls/weapons.cpp
+@@ -1,22 +1,22 @@
+ #include "precompiled.h"
+ 
+-short g_sModelIndexLaser;		// holds the index for the laser beam
+-short g_sModelIndexLaserDot;	// holds the index for the laser beam dot
+-short g_sModelIndexFireball;	// holds the index for the fireball
+-short g_sModelIndexSmoke;		// holds the index for the smoke cloud
+-short g_sModelIndexWExplosion;	// holds the index for the underwater explosion
+-short g_sModelIndexBubbles;		// holds the index for the bubbles model
+-short g_sModelIndexBloodDrop;	// holds the sprite index for the initial blood
+-short g_sModelIndexBloodSpray;	// holds the sprite index for splattered blood
+-short g_sModelIndexSmokePuff;
+-short g_sModelIndexFireball2;
+-short g_sModelIndexFireball3;
+-short g_sModelIndexFireball4;
+-short g_sModelIndexRadio;
+-
+-short int g_sModelIndexCTGhost;
+-short int g_sModelIndexTGhost;
+-short int g_sModelIndexC4Glow;
++int g_sModelIndexLaser;		// holds the index for the laser beam
++int g_sModelIndexLaserDot;	// holds the index for the laser beam dot
++int g_sModelIndexFireball;	// holds the index for the fireball
++int g_sModelIndexSmoke;		// holds the index for the smoke cloud
++int g_sModelIndexWExplosion;	// holds the index for the underwater explosion
++int g_sModelIndexBubbles;		// holds the index for the bubbles model
++int g_sModelIndexBloodDrop;	// holds the sprite index for the initial blood
++int g_sModelIndexBloodSpray;	// holds the sprite index for splattered blood
++int g_sModelIndexSmokePuff;
++int g_sModelIndexFireball2;
++int g_sModelIndexFireball3;
++int g_sModelIndexFireball4;
++int g_sModelIndexRadio;
++
++int g_sModelIndexCTGhost;
++int g_sModelIndexTGhost;
++int g_sModelIndexC4Glow;
+ 
+ int giAmmoIndex;
+ 
+diff --git a/regamedll/dlls/weapons.h b/regamedll/dlls/weapons.h
+index f7294b7..750f6bd 100644
+--- a/regamedll/dlls/weapons.h
++++ b/regamedll/dlls/weapons.h
+@@ -2134,24 +2134,24 @@ public:
+ #endif
+ };
+ 
+-extern short g_sModelIndexLaser;
+-extern short g_sModelIndexLaserDot;
+-
+-extern short g_sModelIndexFireball;
+-extern short g_sModelIndexSmoke;
+-extern short g_sModelIndexWExplosion;
+-extern short g_sModelIndexBubbles;
+-extern short g_sModelIndexBloodDrop;
+-extern short g_sModelIndexBloodSpray;
+-extern short g_sModelIndexSmokePuff;
+-extern short g_sModelIndexFireball2;
+-extern short g_sModelIndexFireball3;
+-extern short g_sModelIndexFireball4;
+-extern short g_sModelIndexCTGhost;
+-extern short g_sModelIndexTGhost;
+-extern short g_sModelIndexC4Glow;
+-
+-extern short g_sModelIndexRadio;
++extern int g_sModelIndexLaser;
++extern int g_sModelIndexLaserDot;
++
++extern int g_sModelIndexFireball;
++extern int g_sModelIndexSmoke;
++extern int g_sModelIndexWExplosion;
++extern int g_sModelIndexBubbles;
++extern int g_sModelIndexBloodDrop;
++extern int g_sModelIndexBloodSpray;
++extern int g_sModelIndexSmokePuff;
++extern int g_sModelIndexFireball2;
++extern int g_sModelIndexFireball3;
++extern int g_sModelIndexFireball4;
++extern int g_sModelIndexCTGhost;
++extern int g_sModelIndexTGhost;
++extern int g_sModelIndexC4Glow;
++
++extern int g_sModelIndexRadio;
+ extern MULTIDAMAGE gMultiDamage;
+ 
+ void WeaponsPrecache();
+diff --git a/regamedll/msvc/mp.def b/regamedll/msvc/mp.def
+index 2a12a7c..8d5ca0f 100644
+--- a/regamedll/msvc/mp.def
++++ b/regamedll/msvc/mp.def
+@@ -1,5 +1,3 @@
+ LIBRARY mp
+ EXPORTS
+ 	GiveFnptrsToDll			@1
+-SECTIONS
+-	.data READ WRITE
+diff --git a/regamedll/regamedll/classes_dummy.cpp b/regamedll/regamedll/classes_dummy.cpp
+index a7ce4d7..c7e5580 100644
+--- a/regamedll/regamedll/classes_dummy.cpp
++++ b/regamedll/regamedll/classes_dummy.cpp
+@@ -103,5 +103,7 @@ class CDummyWeaponClassExtra:
+ 	virtual BOOL UseDecrement() { return FALSE; }
+ };
+ 
+-volatile CDummyWeaponClass *g_pDummyWeaponClass = &CDummyWeaponClass();
+-volatile CDummyWeaponClassExtra *g_pCDummyWeaponClassExtra = &CDummyWeaponClassExtra();
++static CDummyWeaponClass g_DummyWeaponClass;
++static CDummyWeaponClassExtra g_DummyWeaponClassExtra;
++volatile CDummyWeaponClass *g_pDummyWeaponClass = &g_DummyWeaponClass;
++volatile CDummyWeaponClassExtra *g_pCDummyWeaponClassExtra = &g_DummyWeaponClassExtra;

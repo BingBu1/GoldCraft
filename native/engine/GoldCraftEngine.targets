@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\precache.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\engine;$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

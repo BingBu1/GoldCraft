@@ -41,6 +41,22 @@ python .\tools\GoldSrc-Command.py 'gc_zp_status'
 python .\tools\Exercise-ZombieBots.py --seconds 120
 ```
 
-观察器不传送 Bot、不指定目标、不伪造伤害。它使用实际 ReAPI 出生计数排除重生位移，记录自主行走、双方身份/装备、真实扣血和自然感染。120 秒运行的六项检查全部通过；MC 配对玩家交互、内外全部区域连通及完整回合生命周期仍需验证。超过 512 项的双端预缓存扩展也尚未实现。
+观察器不传送 Bot、不指定目标、不伪造伤害。它使用实际 ReAPI 出生计数排除重生位移，记录自主行走、双方身份/装备、真实扣血和自然感染。120 秒运行的六项检查全部通过；MC 配对玩家交互、内外全部区域连通及完整回合生命周期仍需验证。双端预缓存扩展已通过超过 512 项的真实连接；边界与兼容范围见[验证状态](VALIDATION.md)。
 
 `gc_zp_status` 是服务器管理命令，状态写入本地 AMXX 日志目录。Pawn 更新通过换图载入，ReHLDS 进程保留；换图按 GoldCraft 规则清理当前 MC 方块和非玩家实体，`sv_restart` 不重载 Pawn。
+
+## 中文菜单
+
+构建时从原包生成七份本地化 Pawn 源，保留原包和上游版权。字典包含 244 个中文字条，并为带空格的职业、武器和模式键生成 `GC_` 前缀的无空格别名。AMXX 1.9 的真实 INI 解析器会截断带空格的键，仅把文本翻译成中文仍会查词失败。
+
+已有安装更新中文时，先编译，再停止记录中的沙箱 ReHLDS，最后安装完整的匹配插件与字典：
+
+```powershell
+python .\tools\Prepare-ZombiePlague.py
+.\tools\Stop-Sandbox.ps1 -Role CsServer -Instance cs-server
+python .\tools\Localize-ZombiePlague.py --install
+.\tools\Start-Sandbox.ps1 -Role CsServer -Instance cs-server -Map sy_zombie2_Bloodmoon
+python .\tools\GoldSrc-Command.py gc_zp_locale
+```
+
+ReHLDS 启动需在有控制台输入句柄的终端执行。安装器核对源文件与编译产物哈希；原配置只保留一份小备份。它设置服务器语言为 `cn`，关闭每个客户端的语言覆盖。自定义购买开启时，原生 `buy` / `buyequip` 命令进入 ZP 菜单，B 键绑定无需改动；关闭自定义购买后继续原生命令处理。

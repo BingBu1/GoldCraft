@@ -4,9 +4,13 @@
 
 ## 固定工具链与源码
 
-需要 Git、Python 3.11+、Visual Studio 2026 的 C++ x86/x64 工具和 Windows SDK 10.0.26100.0。构建脚本使用 v145。`Prepare-NativeBuild.ps1` 在工作区安装 CMake 3.31.10（MetaHook/Renderer 的 Ninja 构建）与 4.3.4（支持 VS 2026 的 GoldCraft 构建）。`Prepare-JavaBuild.ps1` 下载并校验 Java 21.0.12.1+1、Gradle 8.10.2。
+需要 Git、Python 3.11+、Arkari Clang 22.1.7、Visual Studio 2026 的 C++ x86/x64 工具和 Windows SDK 10.0.26100.0。运行 `Configure-Clang.ps1 -LLVMRoot <LLVM安装目录>` 保存本机编译器选择；也可设置 `GOLDCRAFT_LLVM_ROOT`。路径只存入被忽略的 `.tools/clang-toolchain.json`。
 
-`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、ReGameDLL_CS、ReHLDS、AMXX、ReAPI 和 SyPB 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
+所有项目 C++ 构建使用 x86 clang-cl、C++20、lld-link；VS 的 v145 提供 Windows ABI 兼容的头文件、SDK 和 CRT。Release 使用 O3、ThinLTO、AVX2、函数/数据分节及链接时合并/清除。保留精确浮点，因为碰撞及协议校验依赖 NaN/有限数语义。运行机器须支持 AVX2。当前没有采集代表性 PGO 数据，也没有宣称具体性能提升比例。
+
+`Verify-ClangBuilds.py` 审核实际 CMake 编译命令、MSBuild clang-cl/lld tlog、编译器身份和 x86 PE 产物；修改工具链后需重新构建并运行。`Prepare-NativeBuild.ps1` 在工作区安装 CMake 3.31.10 与 4.3.4，C++ 项目均使用 Ninja 或以 Clang 工具替换后的 MSBuild。`Prepare-JavaBuild.ps1` 下载并校验 Java 21.0.12.1+1、Gradle 8.10.2。
+
+`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI 和 SyPB 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
 按 README 的顺序准备、编译。`Build-Native.ps1 -Server` 产生客户端插件、AMXX 模块和修改后的 ReGameDLL；`Build-ReHLDS.ps1` 单独编译服务器引擎。`Build-NeoForge.ps1` 编译正式映射 JAR、JUnit 测试与独立启动所需的开发运行清单。Yarn/Loom 用于编译和开发映射，不是 Fabric Loader 运行依赖。
 
@@ -40,6 +44,8 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 部署必须停止目标实例。客户端私有符号只接受实际校验通过的模块；当前 `Build-ClientGameData.py` 的客户端白名单是复制的 build 10210。它校验 SHA-256、CRC64、指令/虚表与符号目录中的 RVA；不能通过改版本字符串支持其他 `client.dll`。`hw.dll` 由 MetaHook 的实际模块匹配机制解析，不能用 ReHLDS 的地址代替。
 
 `Initialize-AMXX -TestFixtures` 为开发验证启用测试 Pawn 命令。正式服务器只安装需要的插件。沙箱端口与 RCON、桥接凭据自动生成在未跟踪配置中；当前启动器是本机回环开发配置，未实现远程分发。
+
+预缓存压力测试额外使用 `Prepare-PrecacheFixture.py` 和 `Start-Sandbox.ps1 -Role CsServer -Instance cs-server -Map sy_zombie2_Bloodmoon -PrecacheFixture`，并连接 B。该显式夹具用约 3 MB 的 4,454 个真实文件与稀疏槽位跨越 65535/65536；`python tools/Exercise-Precache.py` 检查实际收包和 AMXX/ReAPI 消息钩子。普通启动不启用夹具，不应把它的稀疏编号当成 65k 独立资源规模测试。
 
 `Prepare-XmclModpack` 还会准备并校验官方 NeoForge 正式运行环境。X 主实例使用工作区内的共享版本和库目录，避免额外复制，也不指向个人 Minecraft 安装。旧版主实例保留用于回退；运行脚本始终读取锁文件指定的新版本。
 

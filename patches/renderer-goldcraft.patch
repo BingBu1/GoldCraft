@@ -1,3 +1,15 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f9943f5..0aa1f88 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -72,6 +72,7 @@ unset(freeimage_target)
+ add_library(renderer_settings INTERFACE)
+ target_compile_features(renderer_settings INTERFACE cxx_std_20)
+ target_include_directories(renderer_settings INTERFACE
++    "${GOLDCRAFT_INCLUDE_DIR}"
+     src
+     include/Interface
+     "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
 diff --git a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl b/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
 index df2097c..f61be0b 100644
 --- a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
@@ -38,8 +50,87 @@ index df2097c..f61be0b 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
+index 6ce4285..44e2731 100644
+--- a/cmake/Sources.cmake
++++ b/cmake/Sources.cmake
+@@ -127,6 +127,8 @@ set(RENDERER_SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_studio_shadow.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_gbuffer.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_water.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
+     "${PROJECT_SOURCE_DIR}/src/LambdaThreadedTask.cpp"
+diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
+index a7700ba..a551382 100644
+--- a/src/exportfuncs.cpp
++++ b/src/exportfuncs.cpp
+@@ -37,6 +37,7 @@ static hook_t* g_phook_studioapi_SetupRenderer = NULL;
+ static hook_t* g_phook_studioapi_RestoreRenderer = NULL;
+ static hook_t* g_phook_studioapi_StudioDynamicLight = NULL;
+ static hook_t* g_phook_studioapi_StudioCheckBBox = NULL;
++static hook_t* g_phook_studioapi_StudioRenderShadow = NULL;
+ 
+ static hook_t* g_phook_CL_FxBlend = NULL;
+ 
+@@ -47,6 +48,7 @@ void EngineStudio_UninstallHooks(void)
+ 	Uninstall_Hook(studioapi_RestoreRenderer);
+ 	Uninstall_Hook(studioapi_StudioDynamicLight);
+ 	Uninstall_Hook(studioapi_StudioCheckBBox);
++	Uninstall_Hook(studioapi_StudioRenderShadow);
+ 
+ 	Uninstall_Hook(CL_FxBlend);
+ 
+@@ -144,6 +146,8 @@ void EngineStudio_InstalHooks()
+ 	Install_InlineHook(studioapi_RestoreRenderer);
+ 	Install_InlineHook(studioapi_StudioDynamicLight);
+ 	Install_InlineHook(studioapi_StudioCheckBBox);
++	if (gPrivateFuncs.studioapi_StudioRenderShadow)
++		Install_InlineHook(studioapi_StudioRenderShadow);
+ 	Install_InlineHook(CL_FxBlend);
+ }
+ 
+@@ -247,6 +251,7 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppint
+ 	gPrivateFuncs.studioapi_RestoreRenderer = pstudio->RestoreRenderer;
+ 	gPrivateFuncs.studioapi_StudioDynamicLight = pstudio->StudioDynamicLight;
+ 	gPrivateFuncs.studioapi_StudioCheckBBox = pstudio->StudioCheckBBox;
++	gPrivateFuncs.studioapi_StudioRenderShadow = pstudio->StudioRenderShadow;
+ 
+ 	EngineStudio_InstalHooks();
+ 
+diff --git a/src/gl_draw.h b/src/gl_draw.h
+index 62ca365..71d78e5 100644
+--- a/src/gl_draw.h
++++ b/src/gl_draw.h
+@@ -18,7 +18,7 @@ gltexture_t *gltextures_get();
+ 
+ typedef struct gl_mipmap_texture_data_s
+ {
+-	struct gl_mipmap_texture_data_s()
++	gl_mipmap_texture_data_s()
+ 	{
+ 		level = 0;
+ 		data = NULL;
+@@ -28,13 +28,13 @@ typedef struct gl_mipmap_texture_data_s
+ 		data_ctx = NULL;
+ 	}
+ 
+-	struct gl_mipmap_texture_data_s(int _level, const void* _data, int _size, int _width, int _height) :
++	gl_mipmap_texture_data_s(int _level, const void* _data, int _size, int _width, int _height) :
+ 		level(_level), data(_data), size(_size), width(_width), height(_height)
+ 	{
+ 
+ 	}
+ 
+-	struct gl_mipmap_texture_data_s(int _level, const void* _data, int _size, int _width, int _height, void* _data_ctx) :
++	gl_mipmap_texture_data_s(int _level, const void* _data, int _size, int _width, int _height, void* _data_ctx) :
+ 		level(_level), data(_data), size(_size), width(_width), height(_height), data_ctx(_data_ctx)
+ 	{
+ 
 diff --git a/src/gl_light.cpp b/src/gl_light.cpp
-index c2d3714..4217e11 100644
+index c2d3714..b62a3a9 100644
 --- a/src/gl_light.cpp
 +++ b/src/gl_light.cpp
 @@ -1,4 +1,5 @@
@@ -48,7 +139,87 @@ index c2d3714..4217e11 100644
  #include "pm_defs.h"
  #include <sstream>
  
-@@ -1961,6 +1962,18 @@ void R_ProcessEngineDynamicLights()
+@@ -33,9 +34,6 @@ MapConVar *r_ssr_fade = nullptr;
+ 
+ bool r_draw_gbuffer = false;
+ 
+-int gbuffer_mask = -1;
+-GLuint gbuffer_attachments[GBUFFER_INDEX_MAX] = {0};
+-int gbuffer_attachment_count = 0;
+ 
+ GLuint r_sphere_vbo = 0;
+ GLuint r_sphere_ebo = 0;
+@@ -604,51 +602,6 @@ bool R_IsDLightFlashlight(dlight_t *dl)
+ 	return false;
+ }
+ 
+-void R_SetGBufferBlend(int blendsrc, int blenddst)
+-{
+-	if (!R_IsRenderingGBuffer())
+-		return;
+-
+-	for (int i = 0; i < gbuffer_attachment_count; ++i)
+-	{
+-		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_DIFFUSE)
+-			glBlendFunci(i, blendsrc, blenddst);
+-
+-		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_LIGHTMAP)
+-			glBlendFunci(i, blendsrc, blenddst);
+-
+-		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_WORLDNORM)
+-			glBlendFunci(i, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-
+-		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_SPECULAR)
+-			glBlendFunci(i, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-	}
+-}
+-
+-void R_SetGBufferMask(int mask)
+-{
+-	if (!R_IsRenderingGBuffer())
+-		return;
+-
+-	if (gbuffer_mask == mask)
+-		return;
+-
+-	gbuffer_mask = mask;
+-
+-	gbuffer_attachment_count = 0;
+-
+-	for (int i = 0; i < GBUFFER_INDEX_MAX; ++i)
+-	{
+-		if (mask & (1 << i))
+-		{
+-			gbuffer_attachments[gbuffer_attachment_count] = GL_COLOR_ATTACHMENT0 + i;
+-			gbuffer_attachment_count++;
+-		}
+-	}
+-	
+-	glDrawBuffers(gbuffer_attachment_count, gbuffer_attachments);
+-}
+-
+ bool R_IsDeferredRenderingEnabled(void)
+ {
+ 	if ((int)r_deferred_lighting->value < 1)
+@@ -696,7 +649,7 @@ void R_BeginRenderGBuffer(void)
+ 	GL_BeginDebugGroup("R_BeginRenderGBuffer");
+ 
+ 	r_draw_gbuffer = true;
+-	gbuffer_mask = -1;
++	R_ResetGBufferMask();
+ 
+ 	GL_BindFrameBuffer(&s_GBufferFBO);
+ 
+@@ -1677,7 +1630,7 @@ void R_EndRenderGBuffer(FBO_Container_t *dst)
+ 	R_FinalShadingPass(dst);
+ 
+ 	r_draw_gbuffer = false;
+-	gbuffer_mask = -1;
++	R_ResetGBufferMask();
+ }
+ 
+ void R_BlitGBufferToFrameBuffer(FBO_Container_t *dst, bool color, bool depth, bool stencil)
+@@ -1961,6 +1914,18 @@ void R_ProcessEngineDynamicLights()
  			float specularpow = r_dynlight_specularpow->GetValue();
  
  			float radius = math_clamp(dl->radius, 0, 999999);
@@ -67,7 +238,7 @@ index c2d3714..4217e11 100644
  
  			vec3_t distToLight;
  			VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
-@@ -1974,9 +1987,9 @@ void R_ProcessEngineDynamicLights()
+@@ -1974,9 +1939,9 @@ void R_ProcessEngineDynamicLights()
  			dynamicLight->specular = specular;
  			dynamicLight->specularpow = specularpow;
  
@@ -80,8 +251,27 @@ index c2d3714..4217e11 100644
  		}
  	}
  }
+diff --git a/src/gl_light.h b/src/gl_light.h
+index 38c7ef6..74c855e 100644
+--- a/src/gl_light.h
++++ b/src/gl_light.h
+@@ -213,10 +213,12 @@ bool R_CanRenderGBuffer(void);
+ void R_BeginRenderGBuffer(void);
+ void R_EndRenderGBuffer(FBO_Container_t* dst);
+ void R_SetGBufferMask(int mask);
++int R_GetGBufferMask();
++void R_ResetGBufferMask();
+ void R_SetGBufferBlend(int blendsrc, int blenddst);
+ void R_SaveDLightProgramStates(void);
+ void R_SaveDFinalProgramStates(void);
+ void R_LoadDLightProgramStates(void);
+ void R_LoadDFinalProgramStates(void);
+ void R_BlitGBufferToFrameBuffer(FBO_Container_t* fbo, bool color, bool depth, bool stencil);
+-GLuint R_GetEmptyVAO();
+\ No newline at end of file
++GLuint R_GetEmptyVAO();
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index 98fc3e1..b09763c 100644
+index 98fc3e1..c73b29b 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,6 @@
@@ -99,7 +289,49 @@ index 98fc3e1..b09763c 100644
  	R_EndRenderOpaque();
  
  	R_InhibitRenderingFog();
-@@ -6632,6 +6634,56 @@ uint32_t R_GetSwapChainHeight()
+@@ -4735,13 +4737,17 @@ int EngineGetMaxGLTextures()
+ 	return MAX_GLTEXTURES;
+ }
+ 
++#include "goldcraft/precache_api.h"
++
+ int EngineGetNumKnownModel()
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+ 	return (*mod_numknown);
+ }
+ 
+ int EngineGetMaxKnownModel(void)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+ 	if (g_iEngineType == ENGINE_SVENGINE)
+ 		return MAX_KNOWN_MODELS_SVENGINE;
+ 
+@@ -4750,6 +4756,7 @@ int EngineGetMaxKnownModel(void)
+ 
+ int EngineGetModelIndex(model_t* mod)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_index(mod);
+ 	int index = (mod - (model_t*)(mod_known));
+ 
+ 	if (index >= 0 && index < *mod_numknown)
+@@ -4760,6 +4767,7 @@ int EngineGetModelIndex(model_t* mod)
+ 
+ model_t* EngineGetModelByIndex(int index)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_at(index);
+ 	auto pmod_known = (model_t*)(mod_known);
+ 
+ 	if (index >= 0 && index < *mod_numknown)
+@@ -4813,6 +4821,7 @@ int EngineGetMaxLightmapTextures(void)
+ 
+ int EngineGetMaxClientModels(void)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->client_model_capacity();
+ 	if (g_iEngineType == ENGINE_SVENGINE)
+ 		return MAX_MODELS_SVENGINE;
+ 
+@@ -6632,6 +6641,56 @@ uint32_t R_GetSwapChainHeight()
  	return glheight;
  }
  
@@ -156,6 +388,142 @@ index 98fc3e1..b09763c 100644
  class CMetaRenderer : public IMetaRenderer
  {
  public:
+diff --git a/src/gl_shader.h b/src/gl_shader.h
+index 573a0ea..377f81b 100644
+--- a/src/gl_shader.h
++++ b/src/gl_shader.h
+@@ -22,5 +22,5 @@ void R_SaveProgramStatesCaches(const char *filename, const std::vector<program_s
+ 
+ #define SHADER_DEFINE(name) name##_program_t name;
+ 
+-#define SHADER_UNIFORM(name, loc, locstring) name##.loc = glGetUniformLocation(name.program, locstring);
+-#define SHADER_ATTRIB(name, loc, locstring) name##.loc = glGetAttribLocation(name.program, locstring);
++#define SHADER_UNIFORM(name, loc, locstring) name.loc = glGetUniformLocation(name.program, locstring);
++#define SHADER_ATTRIB(name, loc, locstring) name.loc = glGetAttribLocation(name.program, locstring);
+diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
+index bdc1885..9299f43 100644
+--- a/src/gl_studio.cpp
++++ b/src/gl_studio.cpp
+@@ -9,6 +9,8 @@
+ #include "MurmurHash2.h"
+ #include <sstream>
+ #include <algorithm>
++#include <array>
++#include <deque>
+ 
+ static GLuint g_hStudioUBO{};
+ 
+@@ -26,7 +28,8 @@ static CStudioBoneCache* g_pStudioBoneFreeCaches{};
+ 
+ static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
+ 
+-static cache_user_t model_texture_cache[MAX_KNOWN_MODELS_SVENGINE][MAX_SKINS];
++// Cache_Alloc retains the cache_user_t address. deque preserves it on growth.
++static std::deque<std::array<cache_user_t, MAX_SKINS>> model_texture_cache;
+ 
+ class CEnginePlayerInfoStorage
+ {
+@@ -1895,11 +1898,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+ 	byte* pbase;
+ 	int size;
+ 
+-	modelindex = pModel - mod_known;
++	modelindex = EngineGetModelIndex(pModel);
+ 
+ 	if (modelindex < 0 || modelindex >= EngineGetMaxKnownModel())
+ 		return NULL;
+ 
++	if (index < 0 || index >= MAX_SKINS)
++		return NULL;
++	if (model_texture_cache.size() <= (size_t)modelindex)
++		model_texture_cache.resize(modelindex + 1);
+ 	pCache = &model_texture_cache[modelindex][index];
+ 
+ 	if (Cache_Check(pCache))
+diff --git a/src/gl_studio.h b/src/gl_studio.h
+index 7c010fa..9fe3de5 100644
+--- a/src/gl_studio.h
++++ b/src/gl_studio.h
+@@ -361,6 +361,7 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+ 
+ void studioapi_StudioDynamicLight(cl_entity_t *ent, alight_t *plight);
+ qboolean studioapi_StudioCheckBBox(void);
++void studioapi_StudioRenderShadow(int sprite, float* p1, float* p2, float* p3, float* p4);
+ void studioapi_GL_SetRenderMode(int rendermode);
+ void studioapi_SetupRenderer(int rendermode);
+ void studioapi_RestoreRenderer(void);
+diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
+index 9a5ad08..e9f5b49 100644
+--- a/src/gl_wsurf.cpp
++++ b/src/gl_wsurf.cpp
+@@ -4555,7 +4555,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+ 
+ 		if (!pFile)
+ 		{
+-			gEngfuncs.Con_DPrintf("R_LoadExternalEntities: Could not load \"%s\".\n", fullPath);
++			gEngfuncs.Con_DPrintf("R_LoadExternalEntities: Could not load \"%s\".\n", fullPath.c_str());
+ 			return;
+ 		}
+ 	}
+diff --git a/src/privatehook.h b/src/privatehook.h
+index 23919f0..1e62c0e 100644
+--- a/src/privatehook.h
++++ b/src/privatehook.h
+@@ -165,6 +165,7 @@ typedef struct
+ 	//Engine Studio Exported API
+ 	void (*studioapi_StudioDynamicLight)(struct cl_entity_s* ent, struct alight_s* plight);
+ 	qboolean(*studioapi_StudioCheckBBox)(void);
++	void(*studioapi_StudioRenderShadow)(int sprite, float* p1, float* p2, float* p3, float* p4);
+ 	void(*studioapi_GL_SetRenderMode)(int rendermode);
+ 	void(*studioapi_SetupRenderer)(int rendermode);
+ 	void(*studioapi_RestoreRenderer)(void);
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index 93166e2..47d7ee5 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -31,7 +31,7 @@ foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_te
+     target_link_libraries(${test} PRIVATE renderer_settings)
+     # These tests include production translation units and discard unused handlers.
+     # Assertions must remain enabled in Release as in the original test runner.
+-    target_compile_options(${test} PRIVATE /UNDEBUG /Gy $<$<CONFIG:Release>:/O1>)
++    target_compile_options(${test} PRIVATE /UNDEBUG /Gy)
+     target_link_options(${test} PRIVATE /OPT:REF /INCREMENTAL:NO)
+     add_test(NAME ${test} COMMAND ${test})
+ endforeach()
+@@ -47,3 +47,11 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+ # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
+ # marks the test skipped instead of failing the build.
+ set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
++
++add_executable(studio_shadow_gl_tests studio_shadow_gl_tests.cpp)
++target_compile_definitions(studio_shadow_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    TRIAPI_FRAGMENT_PATH="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader/triapi_shader.frag.glsl")
++target_compile_options(studio_shadow_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(studio_shadow_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME studio_shadow_gl_tests COMMAND studio_shadow_gl_tests)
++set_tests_properties(studio_shadow_gl_tests PROPERTIES SKIP_RETURN_CODE 2)
+diff --git a/tests/sc_client_tests.cpp b/tests/sc_client_tests.cpp
+index f897394..f5473d8 100644
+--- a/tests/sc_client_tests.cpp
++++ b/tests/sc_client_tests.cpp
+@@ -141,7 +141,16 @@ static void TestPortalScopes(void* manager, void* source)
+             // The real client supplies ECX=this and one stack argument; EDX is
+             // not an argument. Exercise that ABI rather than calling fastcall.
+             using ClientRenderPortals = void(__thiscall*)(void*, ref_params_t*);
+-            auto render = reinterpret_cast<ClientRenderPortals>(ClientPortalManager_RenderPortals);
++            ClientRenderPortals render{};
++            auto nativeEntry = &ClientPortalManager_RenderPortals;
++            // Obtain an opaque binary entry just as an external engine hook
++            // does. A direct C++ cast of the known fastcall function permits
++            // LTO to discard this ABI test as undefined. Keep the invocation
++            // in C++ so exception cleanup/unwinding is tested as well.
++            __asm {
++                mov eax, nativeEntry
++                mov render, eax
++            }
+             uintptr_t stackBefore{}, stackAfter{};
+             __asm mov stackBefore, esp
+             render(manager, &portalViewParams);
 diff --git a/include/Interface/IMetaRendererScene.h b/include/Interface/IMetaRendererScene.h
 new file mode 100644
 index 0000000..e6a38e0
@@ -203,3 +571,304 @@ index 0000000..5bf0295
 +#include <IMetaRendererScene.h>
 +void R_DrawExternalOpaqueScene();
 +unsigned R_GetExternalDlightShadowSize(int key);
+diff --git a/src/gl_gbuffer.cpp b/src/gl_gbuffer.cpp
+new file mode 100644
+index 0000000..02861bd
+--- /dev/null
++++ b/src/gl_gbuffer.cpp
+@@ -0,0 +1,57 @@
++#include "gl_local.h"
++
++namespace
++{
++int gbuffer_mask = -1;
++GLuint gbuffer_attachments[GBUFFER_INDEX_MAX] = { 0 };
++int gbuffer_attachment_count = 0;
++}
++
++int R_GetGBufferMask()
++{
++	return gbuffer_mask;
++}
++
++void R_ResetGBufferMask()
++{
++	gbuffer_mask = -1;
++}
++
++void R_SetGBufferBlend(int blendsrc, int blenddst)
++{
++	if (!R_IsRenderingGBuffer())
++		return;
++
++	for (int i = 0; i < gbuffer_attachment_count; ++i)
++	{
++		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_DIFFUSE)
++			glBlendFunci(i, blendsrc, blenddst);
++
++		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_LIGHTMAP)
++			glBlendFunci(i, blendsrc, blenddst);
++
++		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_WORLDNORM)
++			glBlendFunci(i, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++
++		if (gbuffer_attachments[i] == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_SPECULAR)
++			glBlendFunci(i, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	}
++}
++
++void R_SetGBufferMask(int mask)
++{
++	if (!R_IsRenderingGBuffer() || gbuffer_mask == mask)
++		return;
++
++	gbuffer_mask = mask;
++	gbuffer_attachment_count = 0;
++	for (int i = 0; i < GBUFFER_INDEX_MAX; ++i)
++	{
++		if (mask & (1 << i))
++		{
++			gbuffer_attachments[gbuffer_attachment_count] = GL_COLOR_ATTACHMENT0 + i;
++			gbuffer_attachment_count++;
++		}
++	}
++	glDrawBuffers(gbuffer_attachment_count, gbuffer_attachments);
++}
+diff --git a/src/gl_studio_shadow.cpp b/src/gl_studio_shadow.cpp
+new file mode 100644
+index 0000000..9c9c777
+--- /dev/null
++++ b/src/gl_studio_shadow.cpp
+@@ -0,0 +1,29 @@
++#include "gl_local.h"
++
++void studioapi_StudioRenderShadow(int sprite, float* p1, float* p2, float* p3, float* p4)
++{
++	// The legacy contact shadow is an alpha-blended sprite on the receiving
++	// floor. It must never become geometry in a light's shadow/depth pass.
++	if (R_IsRenderingShadowView() || r_draw_lineardepth)
++		return;
++
++	if (!R_IsRenderingGBuffer())
++	{
++		gPrivateFuncs.studioapi_StudioRenderShadow(sprite, p1, p2, p3, p4);
++		return;
++	}
++
++	const int mask = R_GetGBufferMask();
++	if (!(mask & GBUFFER_MASK_DIFFUSE))
++		return;
++
++	// TriAPI writes only fragment output 0. Other MRT outputs are undefined;
++	// letting them overwrite the floor lightmap/normal produces a black quad.
++	struct RestoreMask
++	{
++		int value;
++		~RestoreMask() { R_SetGBufferMask(value); }
++	} restore{ mask };
++	R_SetGBufferMask(GBUFFER_MASK_DIFFUSE);
++	gPrivateFuncs.studioapi_StudioRenderShadow(sprite, p1, p2, p3, p4);
++}
+diff --git a/tests/studio_shadow_gl_tests.cpp b/tests/studio_shadow_gl_tests.cpp
+new file mode 100644
+index 0000000..e3dd649
+--- /dev/null
++++ b/tests/studio_shadow_gl_tests.cpp
+@@ -0,0 +1,197 @@
++// Real MRT readback through the production StudioRenderShadow wrapper and
++// GBuffer routing. A hidden test context never takes focus or operates CS.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <array>
++#include <cassert>
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <sstream>
++#include <stdexcept>
++#include "../src/gl_gbuffer.cpp"
++#include "../src/gl_studio_shadow.cpp"
++
++private_funcs_t gPrivateFuncs{};
++bool r_draw_lineardepth = false;
++static bool deferred = true, shadow = false;
++bool R_IsRenderingGBuffer() { return deferred; }
++bool R_IsRenderingShadowView() { return shadow; }
++
++constexpr int kSize = 64;
++using Pixels = std::array<float, kSize * kSize * 4>;
++static GLuint program{}, vao{};
++static int calls{};
++static float vertices[4][3]{};
++
++static GLuint Compile(GLenum type, const std::string& source)
++{
++	GLuint shader = glCreateShader(type);
++	const char* text = source.c_str();
++	glShaderSource(shader, 1, &text, nullptr);
++	glCompileShader(shader);
++	GLint ok{};
++	glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++	if (!ok) { char log[4096]{}; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++	assert(ok);
++	return shader;
++}
++
++static GLuint MakeProgram(const std::string& fragment)
++{
++	const auto vs = Compile(GL_VERTEX_SHADER, R"(#version 430
++out vec3 v_worldpos; out vec2 v_diffusetexcoord; out vec4 v_color; out vec4 v_projpos;
++void main() {
++    vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
++    v_diffusetexcoord = p; v_color = vec4(1); v_worldpos = vec3(p,0);
++    gl_Position = vec4(p * 2 - 1, 0, 1); v_projpos = gl_Position;
++})");
++	const auto fs = Compile(GL_FRAGMENT_SHADER, fragment);
++	GLuint result = glCreateProgram();
++	glAttachShader(result, vs); glAttachShader(result, fs); glLinkProgram(result);
++	GLint ok{}; glGetProgramiv(result, GL_LINK_STATUS, &ok); assert(ok);
++	glDeleteShader(vs); glDeleteShader(fs);
++	return result;
++}
++
++static void EngineShadow(int sprite, float* p1, float* p2, float* p3, float* p4)
++{
++	assert(sprite == 65536 && p1 == vertices[0] && p2 == vertices[1] && p3 == vertices[2] && p4 == vertices[3]);
++	++calls;
++	glUseProgram(program); glBindVertexArray(vao);
++	glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	R_SetGBufferBlend(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	glDepthMask(GL_FALSE);
++	glDrawArrays(GL_TRIANGLES, 0, 3);
++	glDepthMask(GL_TRUE); glDisable(GL_BLEND); glUseProgram(0);
++}
++
++static void DrawShadow() { studioapi_StudioRenderShadow(65536, vertices[0], vertices[1], vertices[2], vertices[3]); }
++
++static Pixels ReadColor(int attachment)
++{
++	Pixels pixels{};
++	glReadBuffer(GL_COLOR_ATTACHMENT0 + attachment);
++	glReadPixels(0, 0, kSize, kSize, GL_RGBA, GL_FLOAT, pixels.data());
++	return pixels;
++}
++
++static void ClearFloor()
++{
++	R_SetGBufferMask(GBUFFER_MASK_ALL);
++	for (int i = 0; i < 4; ++i)
++	{
++		const float value[] = { .2f + i * .1f, .8f - i * .1f, .3f, 1.f };
++		glClearBufferfv(GL_COLOR, i, value);
++	}
++	const float depth = .8f;
++	glClearBufferfv(GL_DEPTH, 0, &depth);
++}
++
++int main()
++{
++	if (!glfwInit()) return 2;
++	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
++	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
++	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++	auto* window = glfwCreateWindow(kSize, kSize, "studio shadow regression", nullptr, nullptr);
++	if (!window) { glfwTerminate(); return 2; }
++	glfwMakeContextCurrent(window);
++	glewExperimental = GL_TRUE;
++	if (glewInit() != GLEW_OK) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++	while (glGetError() != GL_NO_ERROR) {}
++	std::printf("Driver: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
++
++	GLuint fbo{}, textures[5]{}, circle{};
++	glGenFramebuffers(1, &fbo); glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++	glGenTextures(5, textures);
++	for (int i = 0; i < 5; ++i)
++	{
++		glBindTexture(GL_TEXTURE_2D, textures[i]);
++		glTexImage2D(GL_TEXTURE_2D, 0, i == 4 ? GL_DEPTH_COMPONENT32F : GL_RGBA32F,
++			kSize, kSize, 0, i == 4 ? GL_DEPTH_COMPONENT : GL_RGBA, GL_FLOAT, nullptr);
++		glFramebufferTexture2D(GL_FRAMEBUFFER, i == 4 ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0 + i,
++			GL_TEXTURE_2D, textures[i], 0);
++	}
++	R_SetGBufferMask(GBUFFER_MASK_ALL);
++	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
++	glViewport(0, 0, kSize, kSize); glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS);
++	glGenVertexArrays(1, &vao);
++
++	Pixels pixels{};
++	for (int y = 0; y < kSize; ++y) for (int x = 0; x < kSize; ++x)
++	{
++		const float dx = (x + .5f - kSize / 2.f) / (kSize * .4f);
++		const float dy = (y + .5f - kSize / 2.f) / (kSize * .4f);
++		pixels[(y * kSize + x) * 4 + 3] = .75f * (std::max)(0.f, 1.f - std::sqrt(dx * dx + dy * dy));
++	}
++	glGenTextures(1, &circle); glBindTexture(GL_TEXTURE_2D, circle);
++	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, kSize, kSize, 0, GL_RGBA, GL_FLOAT, pixels.data());
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++
++	// Compile the actual TriAPI color shader's simple branch. Its single MRT
++	// output and texture alpha are the same contract as the world-space branch.
++	std::ifstream input(TRIAPI_FRAGMENT_PATH);
++	assert(input.good());
++	std::ostringstream buffer; buffer << input.rdbuf();
++	std::string fragment = buffer.str();
++	const auto include = fragment.find("#include \"common.h\""); assert(include != std::string::npos);
++	fragment.replace(include, std::strlen("#include \"common.h\""), "#define TRIAPI_HUD_SPACE_ENABLED");
++	const auto realProgram = MakeProgram(fragment);
++	program = realProgram;
++	gPrivateFuncs.studioapi_StudioRenderShadow = EngineShadow;
++	ClearFloor(); const auto lightBefore = ReadColor(1);
++	EngineShadow(65536, vertices[0], vertices[1], vertices[2], vertices[3]);
++	const auto lightLegacy = ReadColor(1);
++	int changed{};
++	for (size_t i = 0; i < lightBefore.size(); ++i) if (lightBefore[i] != lightLegacy[i]) ++changed;
++	std::printf("Unprotected single-output TriAPI changed %d lightmap components (driver-dependent undefined outputs).\n", changed);
++
++	// Also use explicit poison outputs: preservation must not depend on a
++	// particular driver's choice for unspecified shader outputs.
++	const auto poisonProgram = MakeProgram(R"(#version 430
++layout(binding=0) uniform sampler2D diffuseTex; in vec2 v_diffusetexcoord;
++layout(location=0) out vec4 diffuse; layout(location=1) out vec4 lightmap;
++layout(location=2) out vec4 normal; layout(location=3) out vec4 specular;
++void main() { diffuse=texture(diffuseTex,v_diffusetexcoord); lightmap=normal=specular=vec4(0,0,0,1); }
++)");
++	for (const auto selected : {realProgram, poisonProgram})
++	{
++		program = selected;
++		ClearFloor();
++		const auto diffuseBefore = ReadColor(0), light = ReadColor(1), normal = ReadColor(2), specular = ReadColor(3);
++		DrawShadow();
++		assert(ReadColor(1) == light && ReadColor(2) == normal && ReadColor(3) == specular);
++		const auto diffuse = ReadColor(0);
++		for (int i = 0; i < 4; ++i) assert(diffuse[i] == diffuseBefore[i]);
++		const int center = ((kSize / 2) * kSize + kSize / 2) * 4;
++		assert(diffuse[center + 1] < diffuseBefore[center + 1] * .5f);
++		std::array<float, kSize * kSize> depth{};
++		glReadPixels(0, 0, kSize, kSize, GL_DEPTH_COMPONENT, GL_FLOAT, depth.data());
++		for (auto value : depth) assert(value == .8f);
++		assert(R_GetGBufferMask() == GBUFFER_MASK_ALL);
++		for (int i = 0; i < 4; ++i) { GLint target{}; glGetIntegerv(GL_DRAW_BUFFER0 + i, &target); assert(target == GL_COLOR_ATTACHMENT0 + i); }
++	}
++	R_SetGBufferMask(GBUFFER_MASK_DIFFUSE | GBUFFER_MASK_WORLDNORM);
++	DrawShadow();
++	GLint target{}; glGetIntegerv(GL_DRAW_BUFFER1, &target); assert(target == GL_COLOR_ATTACHMENT0 + GBUFFER_INDEX_WORLDNORM);
++	const int beforeSkip = calls;
++	shadow = true; DrawShadow(); shadow = false;
++	r_draw_lineardepth = true; DrawShadow(); r_draw_lineardepth = false;
++	R_SetGBufferMask(GBUFFER_MASK_LIGHTMAP); DrawShadow();
++	assert(calls == beforeSkip);
++	R_SetGBufferMask(GBUFFER_MASK_DIFFUSE);
++	deferred = false; DrawShadow(); deferred = true;
++	assert(calls == beforeSkip + 1);
++	gPrivateFuncs.studioapi_StudioRenderShadow = [](int, float*, float*, float*, float*) { throw std::runtime_error("probe"); };
++	R_SetGBufferMask(GBUFFER_MASK_ALL);
++	try { DrawShadow(); assert(false); } catch (const std::runtime_error&) {}
++	assert(R_GetGBufferMask() == GBUFFER_MASK_ALL);
++	assert(glGetError() == GL_NO_ERROR);
++	std::puts("PASS: transparent corners, shaded center, lightmap/normal/specular/depth preservation, full/partial mask restoration, shadow/depth exclusion, forward path and unwind.");
++	glDeleteProgram(realProgram); glDeleteProgram(poisonProgram);
++	glDeleteVertexArrays(1, &vao); glDeleteTextures(1, &circle); glDeleteTextures(5, textures); glDeleteFramebuffers(1, &fbo);
++	glfwDestroyWindow(window); glfwTerminate();
++	return 0;
++}

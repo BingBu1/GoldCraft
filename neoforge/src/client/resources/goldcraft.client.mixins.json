@@ -30,7 +30,9 @@
     "HostKeyStateMixin",
     "MouseAccessor",
     "HostMouseMixin",
-    "EpicFightInputMixin"
+    "EpicFightInputMixin",
+    "EpicFightPlayerRendererMixin",
+    "RenderSystemAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -1,0 +1,10 @@
+#pragma once
+#include <iosfwd>
+struct metahook_api_s;
+namespace goldcraft::client_precache {
+bool install(metahook_api_s* api);
+const char* install_error();
+void register_commands();
+void create_entities();
+void write_status(std::ostream& out);
+}

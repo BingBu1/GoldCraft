@@ -78,7 +78,8 @@ foreach($line in Get-Content -LiteralPath (Join-Path $normal 'config.cfg')){
 }
 $cfg=Assert-WorkspacePath (Join-Path $stage 'cstrike/goldcraft_renderer.cfg')
 @('// Lighting values copied from normal CS; no key bindings are changed.',
-  'r_shadow 1','r_dynamic 1','r_deferred_lighting 1','r_gamma_blend 0') |
+  'r_shadow 1','r_dynamic 1','r_deferred_lighting 1','r_gamma_blend 0',
+  'r_drawlowerbody 0','r_drawlowerbodyattachments 0') |
     Set-Content -LiteralPath $cfg -Encoding ascii
 foreach($key in $lighting.Keys){"$key $($lighting[$key])" | Add-Content -LiteralPath $cfg -Encoding ascii}
 $normalMap=Join-Path $normal 'maps/cs_assault_entity.txt'

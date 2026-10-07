@@ -1,5 +1,6 @@
 #include "render_backend.hpp"
 #include "host_ui.hpp"
+#include "precache_client.hpp"
 #include <metahook.h>
 #include <cl_entity.h>
 #include <usercmd.h>
@@ -310,12 +311,13 @@ void Status() {
 void WriteDiagnostics() {
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) {
         std::ofstream out(path);
+        out<<'{'; client_precache::write_status(out); out<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
         const auto depth_batches=std::count_if(entity_batches.begin(),entity_batches.end(),[](const auto& b){return (b.flags&2)!=0;});
         const auto translucent_batches=std::count_if(entity_batches.begin(),entity_batches.end(),[](const auto& b){return (b.flags&1)!=0;});
-        out<<"{\"engine\":"<<api->GetEngineBuildnum()<<",\"connected\":"<<(link.connected()?"true":"false")
+        out<<"\"engine\":"<<api->GetEngineBuildnum()<<",\"connected\":"<<(link.connected()?"true":"false")
            <<",\"world\":\""<<world<<"\",\"playerSlot\":"<<player_slot<<",\"playerSerial\":"<<player_serial<<",\"playerLife\":"<<minecraft_life<<",\"sections\":"<<sections.size()<<",\"vertices\":"<<vertices
            <<",\"drawFrames\":"<<frames_drawn<<",\"glError\":"<<last_gl_error<<",\"lights\":"<<lamps.size()<<",\"entities\":"<<entity_count<<",\"blockEntities\":"<<block_entity_count<<",\"entityBatches\":"<<entity_batches.size()<<",\"inputEchoMs\":"<<input_latency_ms<<",\"minecraftControl\":"<<(HasControl()?"true":"false")<<",\"inputSequence\":"<<input_sequence<<",\"poseSequence\":"<<pose_sequence
            <<",\"smoothing\":"<<((!view_smoothing||view_smoothing->value!=0)?"true":"false")<<",\"frameWorkMs\":"<<frame_work_ms<<",\"frameWorkMaxMs\":"<<frame_work_max_ms<<",\"viewFrameMaxMs\":"<<view_frame_max_ms
@@ -423,6 +425,7 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 }
 void InitHud() {
     gExportfuncs.HUD_Init();
+    client_precache::register_commands();
     host_ui::install(api,[](int down,int key,const char* binding_text){
         if(gEngfuncs.Con_IsVisible()||(binding_text&&std::strcmp(binding_text,"toggleconsole")==0))return false;
         if(form_menu.active(Seconds())||DefaultFormMenuKey(key,binding_text)){
@@ -1004,6 +1007,7 @@ int Redraw(float time,int intermission) {
     return result;
 }
 void DrawNormal() { gExportfuncs.HUD_DrawNormalTriangles(); if(!render::scene_active())Draw(false); }
+void CreateEntities() { gExportfuncs.HUD_CreateEntities(); client_precache::create_entities(); }
 void DrawTransparent() { gExportfuncs.HUD_DrawTransparentTriangles(); Draw(true); }
 }
 
@@ -1014,6 +1018,8 @@ void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
 }
 void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     gEngfuncs=*engine;
+    Log(client_precache::install(api) ? "dynamic precache installed" :
+        std::string("dynamic precache unavailable: ") + client_precache::install_error());
     try {
         if(auto config=goldcraft::environment_config("GOLDCRAFT_CLIENT",goldcraft::Role::host_client,goldcraft::Role::fabric_client)) {
             link.start(*config); Log("loopback endpoint listening on "+std::to_string(link.port()));
@@ -1030,6 +1036,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_PlayerMove=PlayerMove;
     functions->HUD_Key_Event=KeyEvent;
     functions->HUD_AddEntity=AddEntity;
+    functions->HUD_CreateEntities=CreateEntities;
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }

@@ -19,6 +19,7 @@ import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.DiffuseLighting;
 import net.minecraft.client.render.RenderTickCounter;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fStack;
 import org.joml.Quaternionf;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
@@ -36,6 +37,7 @@ public final class HudExporter implements AutoCloseable {
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
     private final Staging[] staging={new Staging(),new Staging(),new Staging()};
+    private final Matrix4fStack modelView=new Matrix4fStack(16);
     private SimpleFramebuffer target;
     private long viewportEpoch,viewportId,revision,menuGeneration,lastRender,sent,bytes,skipped;
     private long handFrames,lastSent;
@@ -110,8 +112,7 @@ public final class HudExporter implements AutoCloseable {
             if(screen!=null&&(screen.width!=width||screen.height!=height))screen.resize(client,width,height);
             RenderSystem.disableScissor();RenderSystem.colorMask(true,true,true,true);RenderSystem.depthMask(true);
             target.clear(MinecraftClient.IS_SYSTEM_MAC);target.beginWrite(true);
-            var modelView=RenderSystem.getModelViewStack();modelView.pushMatrix();
-            try {
+            try(var matrices=ModelViewScope.begin(modelView)) {
                 rendering=true;
                 tickDelta=client.getRenderTickCounter().getTickDelta(false);
                 modelView.identity();RenderSystem.applyModelViewMatrix();
@@ -145,7 +146,7 @@ public final class HudExporter implements AutoCloseable {
                     screen.renderWithTooltip(context,(int)HostUi.mouseX(),(int)HostUi.mouseY(),tickDelta);
                     context.draw();
                 }
-            }finally{rendering=false;modelView.popMatrix();RenderSystem.applyModelViewMatrix();}
+            }finally{rendering=false;RenderSystem.applyModelViewMatrix();}
             slot.epoch=viewportEpoch;slot.viewport=viewportId;slot.revision=++revision;slot.menu=menuId();
             slot.viewWidth=viewWidth;slot.viewHeight=viewHeight;slot.width=width;slot.height=height;slot.flags=2|(HostInput.controlling()?4:8)|(screen!=null?1:0);
             slot.life=HostInput.life();slot.produced=System.nanoTime();

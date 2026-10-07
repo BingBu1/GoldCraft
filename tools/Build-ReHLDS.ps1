@@ -1,12 +1,18 @@
 param()
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
+. (Join-Path $PSScriptRoot 'ClangToolchain.ps1')
+$compiler=Initialize-GoldCraftCompiler
+$clangArgs=Get-GoldCraftClangMSBuildArguments $compiler
 $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if(-not $vs){throw 'MSVC installation not found'}
 $msbuild=Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe'
 $out=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/rehlds/Release')
+$targets=Join-Path $script:GoldCraftRoot 'native/engine/GoldCraftEngine.targets'
+# clang-cl and lld keep the x86 MSVC ABI while performing O3/ThinLTO.
 & $msbuild (Join-Path $script:GoldCraftRoot 'external/ReHLDS/msvc/ReHLDS.sln') /m:4 /nologo /v:minimal `
-    '/t:ReHLDS,dedicated,filesystem_stdio' /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v145 `
+    '/t:ReHLDS,dedicated,filesystem_stdio' /p:Configuration=Release /p:Platform=Win32 @clangArgs `
+    "/p:GoldCraftRoot=$script:GoldCraftRoot" "/p:ForceImportBeforeCppTargets=$targets" `
     "/p:OutDir=$out/" /p:PostBuildEventUseInBuild=false
 if($LASTEXITCODE){throw 'ReHLDS build failed'}
 $dist=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/rehlds')

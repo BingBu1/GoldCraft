@@ -9,6 +9,7 @@ import struct
 import subprocess
 import urllib.request
 import zipfile
+import importlib.util
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'external/ZombiePlague-5.0.8a'
@@ -53,6 +54,10 @@ def extract(archive):
 
 
 def compile_plugins():
+    spec = importlib.util.spec_from_file_location('zombie_localization', ROOT / 'tools/Localize-ZombiePlague.py')
+    localization = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(localization)
+    translated_sources, _, _ = localization.prepare()
     scripting = SOURCE / 'addons/amxmodx/scripting'
     compiler = ROOT / '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe'
     load_list = SOURCE / 'addons/amxmodx/configs/plugins-zp50_ammopacks.ini'
@@ -65,12 +70,13 @@ def compile_plugins():
             if len(files) != 1:
                 raise ValueError(f'Ambiguous or absent plugin source: {name}')
             target = destination(OUT / 'plugins' / (name + '.amxx'))
-            result = subprocess.run([str(compiler), str(files[0]), '-i' + str(scripting / 'include'),
+            plugin_source = translated_sources.get(name, files[0])
+            result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(scripting / 'include'),
                                      '-i' + str(compiler.parent / 'include'), '-o' + str(target)],
                                     cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
             if result.returncode or not target.is_file():
                 raise RuntimeError(f'Pawn compilation failed: {name}; see {log}')
-            compiled.append({'name': name, 'sha256': digest(target)})
+            compiled.append({'name': name, 'sha256': digest(target), 'sourceSha256': digest(plugin_source)})
     return compiled
 
 

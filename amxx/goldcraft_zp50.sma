@@ -16,6 +16,7 @@ public plugin_init()
     gMaxPlayers=get_maxplayers();
     register_event("HLTV", "OnNewRound", "a", "1=0", "2=0");
     register_srvcmd("gc_zp_status", "Status");
+    register_srvcmd("gc_zp_locale", "LocaleStatus");
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "BeforeDamage", false);
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "AfterDamage", true);
 }
@@ -84,5 +85,19 @@ public Status()
     }
     fprintf(file,"]}^n");fclose(file);
     server_print("[GoldCraft ZP] SyPB API=%.2f mode=%d players=%d naturalInfections=%d botDamage=%d",sypb_api_version(),get_cvar_num("sypb_gamemod"),count,gNaturalInfections,gDamageEvents);
+    return PLUGIN_HANDLED;
+}
+
+// Query AMXX's loaded dictionaries, rather than inferring language from a cfg file.
+public LocaleStatus()
+{
+    new language[8], clients[32], count;
+    get_cvar_string("amx_language",language,charsmax(language));
+    get_players(clients,count,"ch");
+    new player=count?clients[0]:LANG_SERVER;
+    server_print("[GoldCraft ZP] language=%s clientLanguages=%d player=%d",language,get_cvar_num("amx_client_languages"),player);
+    server_print("[GoldCraft ZP] server-buy=%L | player-buy=%L | cn-buy=%L",LANG_SERVER,"MENU_BUY1_TITLE",player,"MENU_BUY1_TITLE","cn","MENU_BUY1_TITLE");
+    server_print("[GoldCraft ZP] zombie=%L | weapon=%L",player,"GC_ZOMBIENAME_Classic_Zombie",player,"GC_WEAPONNAME_weapon_m4a1");
+    server_print("[GoldCraft ZP] human=%L | item=%L | mode=%L | title=%L",player,"GC_HUMANNAME_Classic_Human",player,"GC_ITEMNAME_Infection_Bomb",player,"GC_MODENAME_Infection_Mode",player,"GC_ZP_TITLE");
     return PLUGIN_HANDLED;
 }

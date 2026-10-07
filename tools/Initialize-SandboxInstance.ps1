@@ -93,10 +93,19 @@ foreach($file in $runtime.files){
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/GoldCraft.dll') -Destination (Join-Path $pluginDir 'GoldCraft.dll') -Force
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'build/regamedll/Release/mp.dll') -Destination (Join-Path $game 'cstrike/dlls/mp.dll') -Force
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/metahook/MetaHook.exe') -Destination (Join-Path $game 'MetaHook.exe') -Force
+$bulletDist=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll')
+if(-not(Test-Path -LiteralPath $bulletDist)){throw 'Build-BulletPhysics.ps1 must run before deploying the dynamic-precache client.'}
+Copy-Item -LiteralPath $bulletDist -Destination (Join-Path $pluginDir 'BulletPhysics.dll') -Force
+Copy-Item -LiteralPath $bulletDist -Destination (Join-Path $pluginDir 'BulletPhysics_AVX2.dll') -Force
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/metahook/svencoop/metahook/gamedata') -File){
     Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $gameDataDir $file.Name) -Force
 }
 $pluginsFile=Join-Path $configDir 'plugins.lst'
+& python (Join-Path $PSScriptRoot 'Build-PrecacheGameData.py') --engine (Join-Path $game 'hw.dll')
+if($LASTEXITCODE){throw 'Precache engine identity verification failed'}
+$precacheCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-precache')
+New-Item -ItemType Directory -Path $precacheCatalog -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-precache') -Filter '*.json' | Copy-Item -Destination $precacheCatalog -Force
 $enableRenderer=$Renderer -or ((Test-Path -LiteralPath $pluginsFile) -and ((Get-Content -LiteralPath $pluginsFile) -contains 'Renderer_AVX2.dll'))
 if($enableRenderer) {
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $game 'cstrike/cl_dlls/client.dll') --existing-catalog $gameDataDir
@@ -145,6 +154,9 @@ developer 1
 log on
 mh_pluginlist
 '@ | Set-Content -LiteralPath (Join-Path $game 'cstrike/goldcraft_test.cfg') -Encoding ascii
+if(Test-Path -LiteralPath (Join-Path $instanceRoot 'zombie-deployment.json')){
+    'exec addons/sypb/sypb.cfg' | Add-Content -LiteralPath (Join-Path $game 'cstrike/goldcraft_test.cfg') -Encoding ascii
+}
 if($enableRenderer) {
     @('exec goldcraft_renderer.cfg','r_version') | Add-Content -LiteralPath (Join-Path $game 'cstrike/goldcraft_test.cfg') -Encoding ascii
 }

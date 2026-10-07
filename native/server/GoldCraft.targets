@@ -11,6 +11,7 @@
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
     <Link>
+      <AdditionalOptions>/SECTION:.data,RW %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib;ws2_32.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

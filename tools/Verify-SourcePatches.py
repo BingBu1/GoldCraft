@@ -21,8 +21,9 @@ def main():
     scratch = ROOT / "build/source-patch-validation" / str(time.time_ns())
     scratch.mkdir(parents=True)
     reports = []
-    for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS", "SyPB"):
-        entry = lock["sources"][name]
+    for name, entry in lock["sources"].items():
+        if "patch" not in entry:
+            continue
         source, patch = ROOT / entry["path"], ROOT / entry["patch"]
         actual = run(source, "rev-parse", "HEAD").stdout.decode().strip()
         if actual != entry["commit"]:

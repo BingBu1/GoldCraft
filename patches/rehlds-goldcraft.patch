@@ -1,3 +1,1284 @@
+diff --git a/rehlds/engine/host.cpp b/rehlds/engine/host.cpp
+index 9cd73e6..f44c604 100644
+--- a/rehlds/engine/host.cpp
++++ b/rehlds/engine/host.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ double realtime;
+ double rolling_fps;
+@@ -590,6 +591,7 @@ void Host_ShutdownServer(qboolean crash)
+ 	SV_ClearCaches();
+ 	FreeAllEntPrivateData();
+ 	Q_memset(&g_psv, 0, sizeof(server_t));
++	gc_precache.Reset();
+ 	CL_ClearClientState();
+ 
+ 	SV_ClearClientStates();
+@@ -656,6 +658,7 @@ void Host_ClearMemory(qboolean bQuiet)
+ 	g_pcls.signon = 0;
+ 	SV_ClearCaches();
+ 	Q_memset(&g_psv, 0, sizeof(server_t));
++	gc_precache.Reset();
+ 	CL_ClearClientState();
+ 	SV_ClearClientStates();
+ }
+diff --git a/rehlds/engine/host_cmd.cpp b/rehlds/engine/host_cmd.cpp
+index 04e4fa5..4ef116a 100644
+--- a/rehlds/engine/host_cmd.cpp
++++ b/rehlds/engine/host_cmd.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ typedef int(*SV_BLENDING_INTERFACE_FUNC)(int, struct sv_blending_interface_s **, struct server_studio_api_s *, float *, float *);
+ 
+@@ -3149,9 +3150,9 @@ void Host_ResourcesCount_f()
+ 	}
+ 
+ 	Con_Printf("\n  %-4s    : %-5s %-5s\n\n", "Type", "Total", "Limit");
+-	Con_Printf("  model   : %-5d %-5d\n", SV_CountResourceByType(t_model), MAX_MODELS - 2); // CL_LoadModel expects last model slot is empty
+-	Con_Printf("  sound   : %-5d %-5d\n", SV_CountResourceByType(t_sound), MAX_SOUNDS - 1);
+-	Con_Printf("  generic : %-5d %-5d\n", SV_CountResourceByType(t_generic), ARRAYSIZE(g_rehlds_sv.precachedGenericResourceNames));
++	Con_Printf("  model   : %-5d %-5d\n", SV_CountResourceByType(t_model), goldcraft::precache::max_media_index); // Growable table; message index range
++	Con_Printf("  sound   : %-5d %-5d\n", SV_CountResourceByType(t_sound), goldcraft::precache::max_media_index);
++	Con_Printf("  generic : %-5d %-5d\n", SV_CountResourceByType(t_generic), 0x7fffffff);
+ 	Con_Printf("  event   : %-5d %-5d\n", SV_CountResourceByType(t_eventscript), MAX_EVENTS - 1);
+ 	Con_Printf("  decal   : %-5d %-5d\n", SV_CountResourceByType(t_decal), MAX_DECALS - 1);
+ 	Con_Printf("------------------------\n%d Total of precached resource count\n\n", g_psv.num_resources, RESOURCE_MAX_COUNT);
+diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
+index e69d2c9..f1f01b9 100644
+--- a/rehlds/engine/model.cpp
++++ b/rehlds/engine/model.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ model_t *loadmodel;
+ char loadname[MAX_MODEL_NAME];
+@@ -114,8 +115,9 @@ void Mod_ClearAll(void)
+ {
+ 	int i;
+ 	model_t *mod;
+-	for (i = 0, mod = mod_known; i < mod_numknown; i++, mod++)
++	for (i = 0; i < mod_numknown; ++i)
+ 	{
++		mod = GC_CachedModel(i);
+ 		if (mod->type != mod_alias && mod->needload != (NL_NEEDS_LOADED | NL_UNREFERENCED))
+ 		{
+ 			mod->needload = NL_UNREFERENCED;
+@@ -129,7 +131,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+ {
+ 	mod_known_info_t *p;
+ 
+-	p = &mod_known_info[model_number];
++	p = GC_ModelCRC(model_number);
+ 	p->shouldCRC = trackCRC;
+ 	p->firstCRCDone = 0;
+ 	p->initialCRC = 0;
+@@ -137,48 +139,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+ 
+ model_t *Mod_FindName(qboolean trackCRC, const char *name)
+ {
+-	model_t *avail;
+-	int i;
+-	model_t *mod;
+-
+-	avail = NULL;
+-	if (!name[0])
++	if (!name || !name[0])
+ 		Sys_Error("%s: NULL name", __func__);
+-
+-	for (i = 0, mod = mod_known; i < mod_numknown; i++, mod++)
+-	{
+-		if (!Q_stricmp(mod->name, name))
+-			break;
+-
+-		if (mod->needload == NL_UNREFERENCED)
+-		{
+-			if (!avail || (mod->type != mod_alias && mod->type != mod_studio))
+-				avail = mod;
+-		}
+-	}
+-
+-	if (i == mod_numknown)
++	for (int i = 0; i < mod_numknown; ++i)
+ 	{
+-		if (mod_numknown < MAX_KNOWN_MODELS)
+-		{
+-			Mod_FillInCRCInfo(trackCRC, mod_numknown);
+-			++mod_numknown;
+-		}
+-		else
+-		{
+-			if (!avail)
+-				Sys_Error("%s: mod_numknown >= MAX_KNOWN_MODELS", __func__);
+-			mod = avail;
+-			Mod_FillInCRCInfo(trackCRC, avail - mod_known);
+-		}
+-		Q_strncpy(mod->name, name, 63);
+-		mod->name[63] = 0;
+-
+-		if (mod->needload != (NL_NEEDS_LOADED | NL_UNREFERENCED))
+-			mod->needload = NL_NEEDS_LOADED;
++		auto *model = GC_CachedModel(i);
++		if (!Q_stricmp(model->name, name))
++			return model;
+ 	}
+-
+-	return mod;
++	auto *model = GC_NewCachedModel(trackCRC);
++	Q_strlcpy(model->name, name);
++	model->needload = NL_NEEDS_LOADED;
++	return model;
+ }
+ 
+ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
+@@ -188,7 +160,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
+ 	mod_known_info_t *p;
+ 
+ 	mod = Mod_FindName(TRUE, name);
+-	p = &mod_known_info[mod - mod_known];
++	p = GC_ModelCRC(mod);
+ 
+ 	if (p->firstCRCDone)
+ 	{
+@@ -205,7 +177,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
+ 	mod_known_info_t *p;
+ 
+ 	mod = Mod_FindName(FALSE, name);
+-	p = &mod_known_info[mod - mod_known];
++	p = GC_ModelCRC(mod);
+ 
+ 	p->shouldCRC = needCRC;
+ }
+@@ -296,7 +268,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+ 
+ 	if (trackCRC)
+ 	{
+-		mod_known_info_t *p = &mod_known_info[mod - mod_known];
++		mod_known_info_t *p = GC_ModelCRC(mod);
+ 		if (p->shouldCRC)
+ 		{
+ 			CRC32_Init(&currentCRC);
+@@ -1888,8 +1860,9 @@ void Mod_Print(void)
+ 	int i;
+ 	model_t *mod;
+ 	Con_Printf("Cached models:\n");
+-	for (i = 0, mod = mod_known; i < mod_numknown; i++, mod++)
++	for (i = 0; i < mod_numknown; ++i)
+ 	{
++		mod = GC_CachedModel(i);
+ 		Con_Printf("%8p : %s", mod->cache.data, mod->name);
+ 		if (mod->needload & NL_UNREFERENCED)
+ 			Con_Printf(" (!R)");
+@@ -1908,7 +1881,7 @@ NOXREF void Mod_ChangeGame(void)
+ 
+ 	for (i = 0; i < mod_numknown; i++)
+ 	{
+-		mod = &mod_known[i];
++		mod = GC_CachedModel(i);
+ 
+ 		if (mod->type == mod_studio)
+ 		{
+@@ -1916,7 +1889,7 @@ NOXREF void Mod_ChangeGame(void)
+ 				Cache_Free(&mod->cache);
+ 		}
+ 
+-		p = &mod_known_info[i];
++		p = GC_ModelCRC(i);
+ 
+ 		p->firstCRCDone = FALSE;
+ 		p->initialCRC = 0;
+@@ -1926,12 +1899,12 @@ NOXREF void Mod_ChangeGame(void)
+ model_t *Mod_Handle(int modelindex)
+ {
+ #ifdef REHLDS_FIXES
+-	if (modelindex < 0 || modelindex > MAX_MODELS - 1) {
++	if (modelindex < 0 || modelindex >= (int)gc_precache.models.size()) {
+ 		Sys_Error("%s: bad modelindex #%i\n", __func__, modelindex);
+ 	}
+ #endif
+ 
+-	return g_psv.models[modelindex];
++	return gc_precache.models[modelindex];
+ }
+ 
+ modtype_t Mod_GetType(int modelindex)
+diff --git a/rehlds/engine/pr_cmds.cpp b/rehlds/engine/pr_cmds.cpp
+index 4f88929..4a2a20f 100644
+--- a/rehlds/engine/pr_cmds.cpp
++++ b/rehlds/engine/pr_cmds.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ vec_t gHullMins[4][3] = {
+ 		{ 0.0f,   0.0f,   0.0f },
+@@ -112,45 +113,22 @@ void EXT_FUNC PF_setsize_I(edict_t *e, const float *rgflMin, const float *rgflMa
+ 
+ void EXT_FUNC PF_setmodel_I(edict_t *e, const char *m)
+ {
+-	const char** check = &g_psv.model_precache[0];
+-	int i = 0;
+-
+-#ifdef REHLDS_CHECKS
+-	for (; *check && i < MAX_MODELS; i++, check++)
+-#else
+-	for (; *check; i++, check++)
++    if (!m) Host_Error("%s: NULL model name", __func__);
++    int i = gc_precache.ModelIndex(m);
++#ifndef REHLDS_FIXES
++    for (size_t n = 0; !i && n < gc_precache.modelNames.size(); ++n)
++        if (gc_precache.modelNames[n] && !Q_stricmp(gc_precache.modelNames[n], m)) i = int(n);
+ #endif
+-	{
+-
+-		//use case-sensitive names to increase performance
++    if (!i && *m) Host_Error("%s: no precache: %s\n", __func__, m);
++    e->v.modelindex = i;
+ #ifdef REHLDS_FIXES
+-		if (!Q_strcmp(*check, m))
++    e->v.model = gc_precache.modelNames[i] - pr_strings;
+ #else
+-		if (!Q_stricmp(*check, m))
++    e->v.model = m - pr_strings;
+ #endif
+-
+-		{
+-			e->v.modelindex = i;
+-			model_t *mod = g_psv.models[i];
+-#ifdef REHLDS_FIXES
+-			e->v.model = *check - pr_strings;
+-#else // REHLDS_FIXES
+-			e->v.model = m - pr_strings;
+-#endif // REHLDS_FIXES
+-			if (mod)
+-			{
+-				SetMinMaxSize(e, mod->mins, mod->maxs, 1);
+-			}
+-			else
+-			{
+-				SetMinMaxSize(e, vec3_origin, vec3_origin, 1);
+-			}
+-
+-			return;
+-		}
+-	}
+-
+-	Host_Error("%s: no precache: %s\n", __func__, m);
++    model_t *mod = gc_precache.models[i];
++    if (mod) SetMinMaxSize(e, mod->mins, mod->maxs, 1);
++    else SetMinMaxSize(e, vec3_origin, vec3_origin, 1);
+ }
+ 
+ int EXT_FUNC PF_modelindex(const char *pstr)
+@@ -160,13 +138,13 @@ int EXT_FUNC PF_modelindex(const char *pstr)
+ 
+ int EXT_FUNC ModelFrames(int modelIndex)
+ {
+-	if (modelIndex <= 0 || modelIndex >= MAX_MODELS)
++	if (modelIndex <= 0 || modelIndex >= (int)gc_precache.models.size())
+ 	{
+ 		Con_DPrintf("Bad sprite index!\n");
+ 		return 1;
+ 	}
+ 
+-	return ModelFrameCount(g_psv.models[modelIndex]);
++	return ModelFrameCount(gc_precache.models[modelIndex]);
+ }
+ 
+ void EXT_FUNC PF_bprint(char *s)
+@@ -276,16 +254,16 @@ void EXT_FUNC PF_ambientsound_I(edict_t *entity, float *pos, const char *samp, f
+ 	}
+ 	else
+ 	{
+-		for (i = 0; i < MAX_SOUNDS; i++)
++		for (i = 0; i < (int)gc_precache.sounds.size(); i++)
+ 		{
+-			if (g_psv.sound_precache[i] && !Q_stricmp(g_psv.sound_precache[i], samp))
++			if (gc_precache.sounds[i] && !Q_stricmp(gc_precache.sounds[i], samp))
+ 			{
+ 				soundnum = i;
+ 				break;
+ 			}
+ 		}
+ 
+-		if (i == MAX_SOUNDS)
++		if (i == (int)gc_precache.sounds.size())
+ 		{
+ 			Con_Printf("no precache: %s\n", samp);
+ 			return;
+@@ -302,7 +280,7 @@ void EXT_FUNC PF_ambientsound_I(edict_t *entity, float *pos, const char *samp, f
+ 	MSG_WriteCoord(pout, pos[1]);
+ 	MSG_WriteCoord(pout, pos[2]);
+ 
+-	MSG_WriteShort(pout, soundnum);
++	GC_WriteMediaIndex(pout, soundnum);
+ 	MSG_WriteByte(pout, (vol * 255.0));
+ 	MSG_WriteByte(pout, (attenuation * 64.0));
+ 	MSG_WriteShort(pout, ent);
+@@ -393,7 +371,7 @@ void EXT_FUNC TraceModel(const float *v1, const float *v2, int hullNumber, edict
+ 	if (hullNumber < 0 || hullNumber > 3)
+ 		hullNumber = 0;
+ 
+-	model_t* pmodel = g_psv.models[pent->v.modelindex];
++	model_t* pmodel = gc_precache.models[pent->v.modelindex];
+ 	if (pmodel && pmodel->type == mod_brush)
+ 	{
+ 		oldMovetype = pent->v.movetype;
+@@ -498,7 +476,7 @@ const char* EXT_FUNC TraceTexture(edict_t *pTextureEntity, const float *v1, cons
+ 	firstnode = 0;
+ 	if (pTextureEntity)
+ 	{
+-		pmodel = g_psv.models[pTextureEntity->v.modelindex];
++		pmodel = gc_precache.models[pTextureEntity->v.modelindex];
+ 		if (!pmodel || pmodel->type)
+ 			return NULL;
+ 
+@@ -1017,49 +995,14 @@ int EXT_FUNC PF_precache_sound_I(const char *s)
+ 
+ int EXT_FUNC PF_precache_sound_I_internal(const char *s)
+ {
+-	if (!s)
+-		Host_Error("%s: NULL pointer", __func__);
+-
+-	if (PR_IsEmptyString(s))
+-		Host_Error("%s: Bad string '%s'", __func__, s);
+-
+-	if (s[0] == '!')
+-		Host_Error("%s: '%s' do not precache sentence names!", __func__, s);
+-
+-	if (g_psv.state == ss_loading)
+-	{
+-		g_psv.sound_precache_hashedlookup_built = 0;
+-
+-		for (int i = 0; i < MAX_SOUNDS; i++)
+-		{
+-			if (!g_psv.sound_precache[i])
+-			{
+-#ifdef REHLDS_FIXES
+-				// For more information, see EV_Precache
+-				g_psv.sound_precache[i] = ED_NewString(s);
+-#else
+-				g_psv.sound_precache[i] = s;
+-#endif // REHLDS_FIXES
+-				return i;
+-			}
+-
+-			if (!Q_stricmp(g_psv.sound_precache[i], s))
+-				return i;
+-		}
+-
+-		Host_Error("%s: Sound '%s' failed to precache because the item count is over the %d limit.\n"
+-			"Reduce the number of brush models and/or regular models in the map to correct this.", __func__,
+-			s, MAX_SOUNDS);
+-	}
+-
+-	// precaching not enabled. check if already exists.
+-	for (int i = 0; i < MAX_SOUNDS; i++)
+-	{
+-		if (g_psv.sound_precache[i] && !Q_stricmp(g_psv.sound_precache[i], s))
+-			return i;
+-	}
+-
+-	Host_Error("%s: '%s' Precache can only be done in spawn functions", __func__, s);
++	if (!s || PR_IsEmptyString(s))
++		Host_Error("%s: invalid sound name", __func__);
++	if (*s == '!') Host_Error("%s: do not precache sentence names", __func__);
++	int existing = gc_precache.SoundIndex(s);
++	if (existing) return existing;
++	if (g_psv.state != ss_loading)
++		Host_Error("%s: '%s' Precache can only be done in spawn functions", __func__, s);
++	return gc_precache.AddSound(s);
+ }
+ 
+ unsigned short EXT_FUNC EV_Precache(int type, const char *psz)
+@@ -1364,26 +1307,7 @@ void EXT_FUNC EV_SV_Playback(int flags, int clientindex, unsigned short eventind
+ 
+ int SV_LookupModelIndex(const char *name)
+ {
+-	if (!name || !name[0])
+-		return 0;
+-
+-#ifdef REHLDS_OPT_PEDANTIC
+-	auto node = g_rehlds_sv.modelsMap.get(name);
+-	if (node) {
+-		return node->val;
+-	}
+-#else // REHLDS_OPT_PEDANTIC
+-	for (int i = 0; i < MAX_MODELS; i++)
+-	{
+-		if (!g_psv.model_precache[i])
+-			break;
+-
+-		if (!Q_stricmp(g_psv.model_precache[i], name))
+-			return i;
+-	};
+-#endif // REHLDS_OPT_PEDANTIC
+-
+-	return 0;
++	return gc_precache.ModelIndex(name);
+ }
+ 
+ int EXT_FUNC PF_precache_model_I(const char *s)
+@@ -1393,74 +1317,16 @@ int EXT_FUNC PF_precache_model_I(const char *s)
+ 
+ int EXT_FUNC PF_precache_model_I_internal(const char *s)
+ {
+-	int iOptional = 0;
+-	if (!s)
+-		Host_Error("%s: NULL pointer", __func__);
+-
+-	if (PR_IsEmptyString(s))
+-		Host_Error("%s: Bad string '%s'", __func__, s);
+-
+-	if (*s == '!')
+-	{
+-		s++;
+-		iOptional = 1;
+-	}
+-
+-	if (g_psv.state == ss_loading)
+-	{
+-		for (int i = 0; i < MAX_MODELS; i++)
+-		{
+-			if (!g_psv.model_precache[i])
+-			{
+-#ifdef REHLDS_FIXES
+-				// For more information, see EV_Precache
+-				g_psv.model_precache[i] = ED_NewString(s);
+-#else
+-				g_psv.model_precache[i] = s;
+-#endif // REHLDS_FIXES
+-
+-#ifdef REHLDS_OPT_PEDANTIC
+-				g_rehlds_sv.modelsMap.put(g_psv.model_precache[i], i);
+-#endif //REHLDS_OPT_PEDANTIC
+-
+-				g_psv.models[i] = Mod_ForName(s, TRUE, TRUE);
+-				if (!iOptional)
+-					g_psv.model_precache_flags[i] |= RES_FATALIFMISSING;
+-
+-				return i;
+-			}
+-
+-			// use case-sensitive names to increase performance
+-#ifdef REHLDS_FIXES
+-			if (!Q_strcmp(g_psv.model_precache[i], s))
+-				return i;
+-#else
+-			if (!Q_stricmp(g_psv.model_precache[i], s))
+-				return i;
+-#endif
+-		}
+-		Host_Error("%s: Model '%s' failed to precache because the item count is over the %d limit.\n"
+-			"Reduce the number of brush models and/or regular models in the map to correct this.", __func__,
+-			s, MAX_MODELS);
+-	}
+-	else
+-	{
+-		for (int i = 0; i < MAX_MODELS; i++)
+-		{
+-			if (!g_psv.model_precache[i])
+-				continue;
+-
+-			// use case-sensitive names to increase performance
+-#ifdef REHLDS_FIXES
+-			if (!Q_strcmp(g_psv.model_precache[i], s))
+-				return i;
+-#else
+-			if (!Q_stricmp(g_psv.model_precache[i], s))
+-				return i;
+-#endif
+-		}
++	if (!s || PR_IsEmptyString(s))
++		Host_Error("%s: invalid model name", __func__);
++	bool optional = *s == '!';
++	if (optional) ++s;
++	if (PR_IsEmptyString(s)) Host_Error("%s: empty model name", __func__);
++	int existing = gc_precache.ModelIndex(s);
++	if (existing) return existing;
++	if (g_psv.state != ss_loading)
+ 		Host_Error("%s: '%s' Precache can only be done in spawn functions", __func__, s);
+-	}
++	return gc_precache.AddModel(s, Mod_ForName(s, TRUE, TRUE), optional ? 0 : RES_FATALIFMISSING);
+ }
+ 
+ int EXT_FUNC PF_precache_generic_I(const char *s)
+@@ -1489,31 +1355,12 @@ int EXT_FUNC PF_precache_generic_I_internal(const char *s)
+ 	bool isSoundPrefixed = !Q_strnicmp(resName, "sound/", soundPrefixLength);
+ 
+ 	// TODO: check sound with index 0?
+-	// UPD: no, not need, because engine do this: g_psv.sound_precache[0] = pr_strings;
++	// UPD: no, not need, because engine do this: gc_precache.sounds[0] = pr_strings;
+ 	if ((isSoundPrefixed && SV_LookupSoundIndex(&resName[soundPrefixLength])) ||
+ 		SV_LookupModelIndex(resName))
+ 		return 0;
+ 
+-	size_t resCount = g_rehlds_sv.precachedGenericResourceCount;
+-	for (size_t i = 0; i < resCount; i++)
+-	{
+-		if (!Q_stricmp(g_rehlds_sv.precachedGenericResourceNames[i], resName))
+-			return i;
+-	}
+-
+-	if (g_psv.state != ss_loading)
+-		Host_Error("%s: '%s' Precache can only be done in spawn functions", __func__, resName);
+-
+-	if (resCount >= ARRAYSIZE(g_rehlds_sv.precachedGenericResourceNames))
+-	{
+-		Host_Error("%s: Generic item '%s' failed to precache because the item count is over the %d limit.\n"
+-			"Reduce the number of brush models and/or regular models in the map to correct this.", __func__,
+-			resName, ARRAYSIZE(g_rehlds_sv.precachedGenericResourceNames));
+-	}
+-
+-	Q_strcpy(g_rehlds_sv.precachedGenericResourceNames[resCount], resName);
+-
+-	return g_rehlds_sv.precachedGenericResourceCount++;
++	return gc_precache.AddGeneric(resName);
+ }
+ #else // REHLDS_FIXES
+ int EXT_FUNC PF_precache_generic_I_internal(const char *s)
+@@ -2144,6 +1991,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
+ 
+ 	gMsgBuffer.flags = SIZEBUF_ALLOW_OVERFLOW;
+ 	gMsgBuffer.cursize = 0;
++	GC_MessageBegin();
+ }
+ 
+ // Validates user message type and checks to see if it's variable length
+@@ -2374,7 +2222,7 @@ void EXT_FUNC PF_WriteShort_I(int iValue)
+ {
+ 	if (!gMsgStarted)
+ 		Sys_Error("%s: called with no active message\n", __func__);
+-	MSG_WriteShort(&gMsgBuffer, iValue);
++	if (!GC_WriteMessageMedia(iValue)) MSG_WriteShort(&gMsgBuffer, iValue);
+ }
+ 
+ void EXT_FUNC PF_WriteLong_I(int iValue)
+@@ -2415,7 +2263,7 @@ void EXT_FUNC PF_WriteEntity_I(int iValue)
+ void EXT_FUNC PF_makestatic_I(edict_t *ent)
+ {
+ 	MSG_WriteByte(&g_psv.signon, svc_spawnstatic);
+-	MSG_WriteShort(&g_psv.signon, SV_ModelIndex(&pr_strings[ent->v.model]));
++	GC_WriteMediaIndex(&g_psv.signon, SV_ModelIndex(&pr_strings[ent->v.model]));
+ 	MSG_WriteByte(&g_psv.signon, ent->v.sequence);
+ 	MSG_WriteByte(&g_psv.signon, (int)ent->v.frame);
+ 	MSG_WriteWord(&g_psv.signon, ent->v.colormap);
+@@ -2451,7 +2299,7 @@ void EXT_FUNC PF_StaticDecal(const float *origin, int decalIndex, int entityInde
+ 	MSG_WriteShort(&g_psv.signon, entityIndex);
+ 
+ 	if (entityIndex)
+-		MSG_WriteShort(&g_psv.signon, modelIndex);
++		GC_WriteMediaIndex(&g_psv.signon, modelIndex);
+ }
+ 
+ void EXT_FUNC PF_setspawnparms_I(edict_t *ent)
+diff --git a/rehlds/engine/pr_edict.cpp b/rehlds/engine/pr_edict.cpp
+index 2d380c5..32cf4ab 100644
+--- a/rehlds/engine/pr_edict.cpp
++++ b/rehlds/engine/pr_edict.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ void ED_ClearEdict(edict_t *e)
+ {
+@@ -284,29 +285,9 @@ char *ED_ParseEdict(char *data, edict_t *ent)
+ 					// make sure that local model not pre-cached yet
+ 					if (!SV_LookupModelIndex(com_token))
+ 					{
+-						// find empty slot
+-						int i;
+-						for (i = 0; i < MAX_MODELS; i++)
+-						{
+-							if (!g_psv.model_precache[i])
+-								break;
+-						}
+-
+ 						int index = Q_atoi(com_token + 1);
+-						if (i == MAX_MODELS)
+-						{
+-							Host_Error("%s: Model '%s' failed to precache because the item count is over the %d limit.\n"
+-								"Reduce the number of brush models and/or regular models in the map to correct this.", __func__,
+-								localmodels[index], MAX_MODELS);
+-						}
+-
+-						g_psv.model_precache[i] = localmodels[index];
+-						g_psv.models[i] = Mod_ForName(localmodels[index], FALSE, FALSE);
+-						g_psv.model_precache_flags[i] |= RES_FATALIFMISSING;
+-
+-#ifdef REHLDS_OPT_PEDANTIC
+-						g_rehlds_sv.modelsMap.put(g_psv.model_precache[i], i);
+-#endif
++						const char *name = gc_precache.InlineName(index);
++						gc_precache.AddModel(name, Mod_ForName(name, FALSE, FALSE), RES_FATALIFMISSING);
+ 					}
+ 				}
+ 			}
+diff --git a/rehlds/engine/r_studio.cpp b/rehlds/engine/r_studio.cpp
+index 4124bf6..cfbe70d 100644
+--- a/rehlds/engine/r_studio.cpp
++++ b/rehlds/engine/r_studio.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ typedef struct r_studiocache_s
+ {
+@@ -764,7 +765,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+ 	if (pEdict->v.gamestate == 1 && (g_eGameType == GT_TerrorStrike || g_eGameType == GT_CStrike || g_eGameType == GT_CZero))
+ 		bSkipShield = 1;
+ 
+-	if ((g_psv.models[pEdict->v.modelindex]->flags & FL_ONGROUND) || useComplexHull == TRUE)
++	if ((gc_precache.models[pEdict->v.modelindex]->flags & FL_ONGROUND) || useComplexHull == TRUE)
+ 	{
+ 		VectorScale(size, factor, size);
+ 		offset[0] = 0;
+@@ -772,7 +773,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+ 		offset[2] = 0;
+ 		if (pEdict->v.flags & FL_CLIENT)
+ 		{
+-			pstudiohdr = (studiohdr_t *)Mod_Extradata(g_psv.models[pEdict->v.modelindex]);
++			pstudiohdr = (studiohdr_t *)Mod_Extradata(gc_precache.models[pEdict->v.modelindex]);
+ 
+ 			mstudioseqdesc_t* pseqdesc = (mstudioseqdesc_t *)((char*)pstudiohdr + pstudiohdr->seqindex);
+ 			pseqdesc += pEdict->v.sequence;
+@@ -788,7 +789,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+ 			unsigned char blending[2] = { (unsigned char)iBlend, 0 };
+ 			unsigned char controller[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
+ 			return R_StudioHull(
+-				g_psv.models[pEdict->v.modelindex],
++				gc_precache.models[pEdict->v.modelindex],
+ 				pEdict->v.frame,
+ 				pEdict->v.sequence,
+ 				angles,
+@@ -803,7 +804,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+ 		else
+ 		{
+ 			return R_StudioHull(
+-				g_psv.models[pEdict->v.modelindex],
++				gc_precache.models[pEdict->v.modelindex],
+ 				pEdict->v.frame,
+ 				pEdict->v.sequence,
+ 				pEdict->v.angles,
+@@ -863,7 +864,7 @@ qboolean SV_CheckSphereIntersection(edict_t *ent, const vec_t *start, const vec_
+ 	traceDir[1] = end[1] - start[1];
+ 	traceDir[2] = end[2] - start[2];
+ 
+-	studiohdr = (studiohdr_t *)Mod_Extradata(g_psv.models[ent->v.modelindex]);
++	studiohdr = (studiohdr_t *)Mod_Extradata(gc_precache.models[ent->v.modelindex]);
+ 	pseqdesc = (mstudioseqdesc_t *)((char *)studiohdr + studiohdr->seqindex);
+ 	pseqdesc += ent->v.sequence;
+ 	for (int i = 0; i < 3; i++)
+@@ -880,7 +881,7 @@ void EXT_FUNC AnimationAutomove(const edict_t *pEdict, float flTime)
+ 
+ void EXT_FUNC GetBonePosition(const edict_t *pEdict, int iBone, float *rgflOrigin, float *rgflAngles)
+ {
+-	pstudiohdr = (studiohdr_t *)Mod_Extradata(g_psv.models[pEdict->v.modelindex]);
++	pstudiohdr = (studiohdr_t *)Mod_Extradata(gc_precache.models[pEdict->v.modelindex]);
+ 
+ #ifdef REHLDS_FIXES
+ 	if (!pstudiohdr)
+@@ -891,7 +892,7 @@ void EXT_FUNC GetBonePosition(const edict_t *pEdict, int iBone, float *rgflOrigi
+ #endif
+ 
+ 	g_pSvBlendingAPI->SV_StudioSetupBones(
+-		g_psv.models[pEdict->v.modelindex],
++		gc_precache.models[pEdict->v.modelindex],
+ 		pEdict->v.frame,
+ 		pEdict->v.sequence,
+ 		pEdict->v.angles,
+@@ -915,7 +916,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
+ 	mstudioattachment_t *pattachment;
+ 	vec3_t angles;
+ 
+-	pstudiohdr = (studiohdr_t *)Mod_Extradata(g_psv.models[pEdict->v.modelindex]);
++	pstudiohdr = (studiohdr_t *)Mod_Extradata(gc_precache.models[pEdict->v.modelindex]);
+ 
+ #ifdef REHLDS_FIXES
+ 	if (!pstudiohdr)
+@@ -933,7 +934,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
+ 	angles[2] = pEdict->v.angles[2];
+ 
+ 	g_pSvBlendingAPI->SV_StudioSetupBones(
+-		g_psv.models[pEdict->v.modelindex],
++		gc_precache.models[pEdict->v.modelindex],
+ 		pEdict->v.frame,
+ 		pEdict->v.sequence,
+ 		angles,
+diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
+index dfd68c2..c94cb57 100644
+--- a/rehlds/engine/sv_main.cpp
++++ b/rehlds/engine/sv_main.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ typedef struct full_packet_entities_s
+ {
+@@ -655,17 +656,17 @@ void SV_FindModelNumbers(void)
+ {
+ 	sv_playermodel = -1;
+ 
+-	for (int i = 0; i < MAX_MODELS; i++)
++	for (int i = 0; i < (int)gc_precache.modelNames.size(); i++)
+ 	{
+-		if (!g_psv.model_precache[i])
+-			break;
++		if (!gc_precache.modelNames[i])
++			continue;
+ 
+ 		// use case-sensitive names to increase performance
+ #ifdef REHLDS_FIXES
+-		if (!Q_strcmp(g_psv.model_precache[i], "models/player.mdl"))
++		if (!Q_strcmp(gc_precache.modelNames[i], "models/player.mdl"))
+ 			sv_playermodel = i;
+ #else
+-		if (!Q_stricmp(g_psv.model_precache[i], "models/player.mdl"))
++		if (!Q_stricmp(gc_precache.modelNames[i], "models/player.mdl"))
+ 			sv_playermodel = i;
+ #endif
+ 	}
+@@ -775,7 +776,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
+ 	else
+ 	{
+ 		sound_num = SV_LookupSoundIndex(sample);
+-		if (!sound_num || !g_psv.sound_precache[sound_num])
++		if (!sound_num || !gc_precache.sounds[sound_num])
+ 		{
+ 			Con_Printf("%s: %s not precached (%d)\n", __func__, sample, sound_num);
+ 			return FALSE;
+@@ -802,7 +803,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
+ 		MSG_WriteBits((uint32)(attenuation * 64.0f), 8);
+ 	MSG_WriteBits(channel, 3);
+ 	MSG_WriteBits(ent, MAX_EDICT_BITS);
+-	MSG_WriteBits(sound_num, (field_mask & SND_FL_LARGE_INDEX) ? 16 : 8);
++	GC_WriteSoundIndex(sound_num, (field_mask & SND_FL_LARGE_INDEX) ? 16 : 8);
+ 	MSG_WriteBitVec3Coord(origin);
+ 	if (field_mask & SND_FL_PITCH)
+ 		MSG_WriteBits(pitch, 8);
+@@ -826,48 +827,19 @@ int SV_HashString(const char *string, int iBounds)
+ 
+ int EXT_FUNC SV_LookupSoundIndex(const char *sample)
+ {
+-	int index;
+-
+-	if (!g_psv.sound_precache_hashedlookup_built)
+-	{
+-		if (g_psv.state == ss_loading)
+-		{
+-			for (index = 1; index < MAX_SOUNDS && g_psv.sound_precache[index]; index++) // TODO: why from 1?
+-			{
+-				if (!Q_stricmp(sample, g_psv.sound_precache[index]))
+-					return index;
+-			}
+-			return 0;
+-		}
+-		SV_BuildHashedSoundLookupTable();
+-	}
+-
+-	int starting_index = SV_HashString(sample, 1023);
+-	index = starting_index;
+-	while (g_psv.sound_precache_hashedlookup[index])
+-	{
+-		if (!Q_stricmp(sample, g_psv.sound_precache[g_psv.sound_precache_hashedlookup[index]]))
+-			return g_psv.sound_precache_hashedlookup[index];
+-
+-		index++;
+-		if (index >= MAX_SOUNDS_HASHLOOKUP_SIZE)
+-			index = 0;
+-		if (index == starting_index)
+-			return 0;
+-	}
+-	return 0;
++	return gc_precache.SoundIndex(sample);
+ }
+ 
+ void SV_BuildHashedSoundLookupTable(void)
+ {
+ 	Q_memset(g_psv.sound_precache_hashedlookup, 0, sizeof(g_psv.sound_precache_hashedlookup));
+ 
+-	for (int sound_num = 0; sound_num < MAX_SOUNDS; sound_num++)
++	for (int sound_num = 0; sound_num < (int)gc_precache.sounds.size(); sound_num++)
+ 	{
+-		if (!g_psv.sound_precache[sound_num])
+-			break;
++		if (!gc_precache.sounds[sound_num])
++			continue;
+ 
+-		SV_AddSampleToHashedLookupTable(g_psv.sound_precache[sound_num], sound_num);
++		if (sound_num < MAX_SOUNDS) SV_AddSampleToHashedLookupTable(gc_precache.sounds[sound_num], sound_num);
+ 	}
+ 
+ 	g_psv.sound_precache_hashedlookup_built = TRUE;
+@@ -1219,6 +1191,7 @@ void SV_SendResources(sizebuf_t *msg)
+ 
+ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
+ {
++	if (GC_WriteResourceChunk(msg)) return;
+ 	unsigned char nullbuffer[32];
+ 	Q_memset(nullbuffer, 0, sizeof(nullbuffer));
+ 
+@@ -1237,12 +1210,13 @@ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
+ 	MSG_WriteBits(g_psv.num_resources, RESOURCE_INDEX_BITS);
+ 
+ #ifdef REHLDS_FIXES
+-	resource_t *r = g_rehlds_sv.resources;
++	resource_t *r = nullptr;
+ #else // REHLDS_FIXES
+ 	resource_t *r = g_psv.resourcelist;
+ #endif
+-	for (int i = 0; i < g_psv.num_resources; i++, r++)
++	for (int i = 0; i < g_psv.num_resources; i++)
+ 	{
++		r = &gc_precache.resources[i];
+ 		MSG_WriteBits(r->type, 4);
+ 		MSG_WriteBitString(r->szFileName);
+ 		MSG_WriteBits(r->nIndex, RESOURCE_INDEX_BITS);
+@@ -1626,6 +1600,8 @@ void SV_SendRes_f(void)
+ 		if (g_psvs.maxclients <= 1 || host_client->m_sendrescount <= 1)
+ 		{
+ 			host_client->m_sendrescount++;
++			if (!GC_CheckPrecacheClient(host_client)) return;
++			if (GC_PrecacheClient(host_client)) { GC_SendResourceManifest(host_client); return; }
+ 			SV_SendResources(&msg);
+ 			Netchan_CreateFragments(true, &host_client->netchan, &msg);
+ 			Netchan_FragSend(&host_client->netchan);
+@@ -4982,9 +4958,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+ 					// Prevent crash "Cache_UnlinkLRU: NULL link" on client-side
+ 					// if aiment with sprite model will be to render as a studio model
+ 					edict_t *ent = &g_psv.edicts[entityState.aiment];
+-					if (ent->v.modelindex >= 0 && ent->v.modelindex < MAX_MODELS
+-						&& (!g_psv.models[ent->v.modelindex]
+-						|| g_psv.models[ent->v.modelindex]->type != mod_studio))
++					if (ent->v.modelindex >= 0 && ent->v.modelindex < (int)gc_precache.models.size()
++						&& (!gc_precache.models[ent->v.modelindex]
++						|| gc_precache.models[ent->v.modelindex]->type != mod_studio))
+ 					{
+ 						entityState.aiment = 0;
+ 						entityState.movetype = MOVETYPE_NONE;
+@@ -4999,9 +4975,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+ 
+ 			// Prevent spam "Non-sprite set to glow!" in console on client-side
+ 			if (entityState.rendermode == kRenderGlow
+-				&& (entityState.modelindex >= 0 && entityState.modelindex < MAX_MODELS)
+-				&& g_psv.models[entityState.modelindex]
+-				&& g_psv.models[entityState.modelindex]->type != mod_sprite)
++				&& (entityState.modelindex >= 0 && entityState.modelindex < (int)gc_precache.models.size())
++				&& gc_precache.models[entityState.modelindex]
++				&& gc_precache.models[entityState.modelindex]->type != mod_sprite)
+ 			{
+ 				entityState.rendermode = kRenderNormal;
+ 			}
+@@ -5417,26 +5393,10 @@ void SV_ExtractFromUserinfo(client_t *cl)
+ 
+ int SV_ModelIndex(const char *name)
+ {
+-	if (!name || !name[0])
+-		return 0;
+-
+-#ifdef REHLDS_OPT_PEDANTIC
+-	auto node = g_rehlds_sv.modelsMap.get(name);
+-	if (node) {
+-		return node->val;
+-	}
+-#else
+-	for (int i = 0; i < MAX_MODELS; i++)
+-	{
+-		if (!g_psv.model_precache[i])
+-			break;
+-
+-		if (!Q_stricmp(g_psv.model_precache[i], name))
+-			return i;
+-	};
+-#endif
+-
+-	Sys_Error("%s: SV_ModelIndex: model %s not precached", __func__, name);
++	if (!name || !*name) return 0;
++	int index = gc_precache.ModelIndex(name);
++	if (index) return index;
++	Sys_Error("%s: model %s not precached", __func__, name);
+ }
+ 
+ void EXT_FUNC SV_AddResource_hook(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
+@@ -5451,29 +5411,16 @@ void EXT_FUNC SV_AddResource(resourcetype_t type, const char *name, int size, un
+ 
+ void SV_AddResource_internal(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
+ {
+-	resource_t *r;
+-#ifdef REHLDS_FIXES
+-	if (g_psv.num_resources >= ARRAYSIZE(g_rehlds_sv.resources))
+-#else
+-	if (g_psv.num_resources >= MAX_RESOURCE_LIST)
+-#endif
+-	{
+-		Sys_Error("%s: Too many resources on server.", __func__);
+-	}
+-
+-#ifdef REHLDS_FIXES
+-	r = &g_rehlds_sv.resources[g_psv.num_resources++];
+-	Q_memset(r, 0, sizeof(*r));
+-#else
+-	r = &g_psv.resourcelist[g_psv.num_resources++];
+-#endif
+-
+-	r->type = type;
+-	r->ucFlags = flags;
+-	r->nDownloadSize = size;
+-	r->nIndex = index;
+-
+-	Q_strlcpy(r->szFileName, name);
++	if (gc_precache.resources.size() >= 0x7fffffff)
++		Sys_Error("GoldCraft: resource count exceeds the signed 32-bit API range");
++	resource_t resource{};
++	resource.type = type;
++	resource.ucFlags = flags;
++	resource.nDownloadSize = size;
++	resource.nIndex = index;
++	Q_strlcpy(resource.szFileName, name);
++	gc_precache.resources.push_back(resource);
++	g_psv.num_resources = (int)gc_precache.resources.size();
+ }
+ 
+ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, size_t nListMax, size_t *nWidthFileNameMax)
+@@ -5486,14 +5433,15 @@ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, s
+ 
+ 	resource_t *r;
+ #ifdef REHLDS_FIXES
+-	r = &g_rehlds_sv.resources[0];
++	r = nullptr;
+ #else
+ 	r = &g_psv.resourcelist[0];
+ #endif
+ 
+ 	size_t nCount = 0;
+-	for (int i = 0; i < g_psv.num_resources; i++, r++)
++	for (int i = 0; i < g_psv.num_resources; i++)
+ 	{
++		r = &gc_precache.resources[i];
+ 		if (r->type != type)
+ 			continue;
+ 
+@@ -5765,17 +5713,18 @@ void SV_CreateResourceList(void)
+ 	event_t *ep;
+ 
+ 	g_psv.num_resources = 0;
++	gc_precache.resources.clear();
+ 
+ #ifdef REHLDS_FIXES
+ 	// Generic resources can be indexed from 0, because client ignores resourceIndex for generic resources
+-	for (size_t i = 0; i < g_rehlds_sv.precachedGenericResourceCount; i++)
++	for (size_t i = 0; i < gc_precache.generics.size(); i++)
+ 	{
+ 		if (g_psvs.maxclients > 1)
+-			nSize = FS_FileSize(g_rehlds_sv.precachedGenericResourceNames[i]);
++			nSize = FS_FileSize(gc_precache.generics[i].c_str());
+ 		else
+ 			nSize = 0;
+ 
+-		SV_AddResource(t_generic, g_rehlds_sv.precachedGenericResourceNames[i], nSize, RES_FATALIFMISSING, i);
++		SV_AddResource(t_generic, gc_precache.generics[i].c_str(), nSize, RES_FATALIFMISSING, i);
+ 	}
+ #else // REHLDS_FIXES
+ #ifdef REHLDS_CHECKS
+@@ -5794,11 +5743,13 @@ void SV_CreateResourceList(void)
+ #endif // REHLDS_FIXES
+ 
+ #ifdef REHLDS_CHECKS
+-	for (i = 1, s = &g_psv.sound_precache[1]; i < MAX_SOUNDS && *s != NULL; i++, s++)
++	for (i = 1; i < (int)gc_precache.sounds.size(); i++)
+ #else // REHLDS_CHECKS
+-	for (i = 1, s = &g_psv.sound_precache[1]; *s != NULL; i++, s++)
++	for (i = 1; i < (int)gc_precache.sounds.size(); i++)
+ #endif // REHLDS_CHECKS
+ 	{
++		s = &gc_precache.sounds[i];
++		if (!*s) continue;
+ 		if (**s == '!')
+ 		{
+ 			if (!ffirstsent)
+@@ -5816,17 +5767,19 @@ void SV_CreateResourceList(void)
+ 		}
+ 	}
+ #ifdef REHLDS_CHECKS
+-	for (i = 1, s = &g_psv.model_precache[1]; i < MAX_MODELS && *s != NULL; i++, s++)
++	for (i = 1; i < (int)gc_precache.modelNames.size(); i++)
+ #else // REHLDS_CHECKS
+-	for (i = 1, s = &g_psv.model_precache[1]; *s != NULL; i++, s++)
++	for (i = 1; i < (int)gc_precache.modelNames.size(); i++)
+ #endif // REHLDS_CHECKS
+ 	{
++		s = &gc_precache.modelNames[i];
++		if (!*s) continue;
+ 		if (g_psvs.maxclients > 1 && **s != '*')
+ 			nSize = FS_FileSize(*s);
+ 		else
+ 			nSize = 0;
+ 
+-		SV_AddResource(t_model, *s, nSize, g_psv.model_precache_flags[i], i);
++		SV_AddResource(t_model, *s, nSize, gc_precache.modelFlags[i], i);
+ 	}
+ 	for (i = 0; i < sv_decalnamecount; i++)
+ 		SV_AddResource(t_decal, sv_decalnames[i].name, Draw_DecalSize(i), 0, i);
+@@ -6182,13 +6135,14 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
+ 
+ void PrecacheModelSpecifiedFiles()
+ {
+-	const char **s = &g_psv.model_precache[1];
+-	for (size_t i = 1; i < ARRAYSIZE(g_psv.model_precache) && *s && g_psv.models[i]; i++, s++)
++	for (size_t i = 1; i < gc_precache.modelNames.size(); i++)
+ 	{
+-		if (g_psv.models[i]->type != mod_studio)
++		const char **s = &gc_precache.modelNames[i];
++		if (!*s) continue;
++		if (!gc_precache.models[i] || gc_precache.models[i]->type != mod_studio)
+ 			continue;
+ 
+-		studiohdr_t *pStudioHeader = (studiohdr_t *)Mod_Extradata(g_psv.models[i]);
++		studiohdr_t *pStudioHeader = (studiohdr_t *)Mod_Extradata(gc_precache.models[i]);
+ 
+ 		PrecacheModelTexture(*s, pStudioHeader);
+ 		PrecacheModelSeqGroups(pStudioHeader);
+@@ -6201,7 +6155,7 @@ void PrecacheModelSpecifiedFiles()
+ #ifdef REHLDS_FIXES
+ void MoveCheckedResourcesToFirstPositions()
+ {
+-	resource_t *pResources = g_rehlds_sv.resources;
++	auto &pResources = gc_precache.resources;
+ 	size_t j = 0;
+ 	for (size_t i = 0; i < (size_t)g_psv.num_resources; i++)
+ 	{
+@@ -6448,6 +6402,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+ 
+ 	SV_AllocClientFrames();
+ 	Q_memset(&g_psv, 0, sizeof(server_t));
++	gc_precache.Reset();
+ 
+ #ifdef REHLDS_OPT_PEDANTIC
+ 	g_rehlds_sv.modelsMap.clear();
+@@ -6594,18 +6549,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+ 		CM_CalcPAS(g_psv.worldmodel);
+ 	}
+ 
+-	g_psv.models[1] = g_psv.worldmodel;
++	gc_precache.AddModel(g_psv.modelname, g_psv.worldmodel, RES_FATALIFMISSING);
+ 	SV_ClearWorld();
+-	g_psv.model_precache_flags[1] |= RES_FATALIFMISSING;
+-	g_psv.model_precache[1] = g_psv.modelname;
+-
+-#ifdef REHLDS_OPT_PEDANTIC
+-	{
+-		int __itmp = 1;
+-		g_rehlds_sv.modelsMap.put(ED_NewString(g_psv.modelname), __itmp);
+-	}
+-#endif
+-
+ 	g_psv.sound_precache[0] = pr_strings;
+ 	g_psv.model_precache[0] = pr_strings;
+ #ifndef REHLDS_FIXES
+@@ -6613,14 +6558,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+ 
+ 	for (i = 1; i < g_psv.worldmodel->numsubmodels; i++)
+ 	{
+-		g_psv.model_precache[i + 1] = localmodels[i];
+-		g_psv.models[i + 1] = Mod_ForName(localmodels[i], FALSE, FALSE);
+-		g_psv.model_precache_flags[i + 1] |= RES_FATALIFMISSING;
++		const char *inlineName = gc_precache.InlineName(i);
++		gc_precache.AddModel(inlineName, Mod_ForName(inlineName, FALSE, FALSE), RES_FATALIFMISSING);
+ 
+ #ifdef REHLDS_OPT_PEDANTIC
+ 		{
+ 			int __itmp = i + 1;
+-			g_rehlds_sv.modelsMap.put(g_psv.model_precache[i + 1], __itmp);
++			g_rehlds_sv.modelsMap.put(gc_precache.modelNames[i + 1], __itmp);
+ 		}
+ #endif
+ 	}
+@@ -8351,6 +8295,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
+ 	p->delta = pdesc;
+ 	p->next = g_sv_delta;
+ 	g_sv_delta = p;
++	GC_WidenModelDelta(pdesc);
+ 
+ #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
+ 	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
+@@ -8417,6 +8362,7 @@ void SV_InitEncoders(void)
+ 
+ void SV_Init(void)
+ {
++	GC_PrecacheInit();
+ 	Cmd_AddCommand("banid", SV_BanId_f);
+ 	Cmd_AddCommand("removeid", SV_RemoveId_f);
+ 	Cmd_AddCommand("listid", SV_ListId_f);
+diff --git a/rehlds/engine/sv_user.cpp b/rehlds/engine/sv_user.cpp
+index 4e0d26e..90546f0 100644
+--- a/rehlds/engine/sv_user.cpp
++++ b/rehlds/engine/sv_user.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ sv_adjusted_positions_t truepositions[MAX_CLIENTS];
+ qboolean g_balreadymoved;
+@@ -107,7 +108,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+ 
+ 	while (MSG_ReadBits(1))
+ 	{
+-		int idx = MSG_ReadBits(12);
++		int idx = MSG_ReadBits(GC_PrecacheClient(pSenderClient) ? 32 : 12);
+ 		if (idx < 0 || idx >= g_psv.num_resources)
+ 		{
+ 			c = -1;
+@@ -115,7 +116,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+ 		}
+ 
+ #ifdef REHLDS_FIXES
+-		resource_t *r = &g_rehlds_sv.resources[idx];
++		resource_t *r = &gc_precache.resources[idx];
+ #else // REHLDS_FIXES
+ 		resource_t *r = &g_psv.resourcelist[idx];
+ #endif // REHLDS_FIXES
+@@ -205,12 +206,12 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+ #ifdef REHLDS_FIXES
+ 		dropmessage[0] = '\0';
+ 
+-		if (gEntityInterface.pfnInconsistentFile(host_client->edict, g_rehlds_sv.resources[c - 1].szFileName, dropmessage))
++		if (gEntityInterface.pfnInconsistentFile(host_client->edict, gc_precache.resources[c - 1].szFileName, dropmessage))
+ 		{
+ 			if (dropmessage[0])
+ 				SV_ClientPrintf("%s", dropmessage);
+ 
+-			SV_DropClient(host_client, FALSE, "Bad file %s", g_rehlds_sv.resources[c - 1].szFileName); // only filename. reason was printed in console if exists.
++			SV_DropClient(host_client, FALSE, "Bad file %s", gc_precache.resources[c - 1].szFileName); // only filename. reason was printed in console if exists.
+ 			return;
+ 		}
+ #else // REHLDS_FIXES
+@@ -260,7 +261,7 @@ int EXT_FUNC SV_TransferConsistencyInfo_internal(void)
+ 	for (int i = 0; i < g_psv.num_resources; i++)
+ 	{
+ #ifdef REHLDS_FIXES
+-		resource_t *r = &g_rehlds_sv.resources[i];
++		resource_t *r = &gc_precache.resources[i];
+ #else // REHLDS_FIXES
+ 		resource_t *r = &g_psv.resourcelist[i];
+ #endif // REHLDS_FIXES
+@@ -346,15 +347,16 @@ void SV_SendConsistencyList(sizebuf_t *msg)
+ 	int delta = 0;
+ 	int lastcheck = 0;
+ #ifdef REHLDS_FIXES
+-	resource_t *r = g_rehlds_sv.resources;
++	resource_t *r = nullptr;
+ #else // REHLDS_FIXES
+ 	resource_t *r = g_psv.resourcelist;
+ #endif // REHLDS_FIXES
+ 
+ 	MSG_WriteBits(1, 1);
+ 
+-	for (int i = 0; i < g_psv.num_resources; i++, r++)
++	for (int i = 0; i < g_psv.num_resources; i++)
+ 	{
++		r = &gc_precache.resources[i];
+ 		if (r && (r->ucFlags & RES_CHECKFILE) != 0)
+ 		{
+ 			MSG_WriteBits(1, 1);
+@@ -363,7 +365,7 @@ void SV_SendConsistencyList(sizebuf_t *msg)
+ 			if (delta > 31)
+ 			{
+ 				MSG_WriteBits(0, 1);
+-				MSG_WriteBits(i, 10);	// LIMIT: Here it write index, not a diff, with resolution of 10 bits. So, it limits not adjacent index to 1023 max.
++				MSG_WriteBits(i, GC_PrecacheClient(host_client) ? 32 : 10);
+ 			}
+ 			else
+ 			{
+@@ -412,7 +414,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+ 
+ 	if (check->v.solid == SOLID_BSP)
+ 	{
+-		pe->model = g_psv.models[check->v.modelindex];
++		pe->model = gc_precache.models[check->v.modelindex];
+ 		Q_strncpy(pe->name, pe->model->name, sizeof(pe->name) - 1);
+ 		pe->name[sizeof(pe->name) - 1] = 0;
+ 	}
+@@ -420,7 +422,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+ 	{
+ 		if (check->v.modelindex)
+ 		{
+-			pe->model = g_psv.models[check->v.modelindex];
++			pe->model = gc_precache.models[check->v.modelindex];
+ 			Q_strncpy(pe->name, pe->model->name, sizeof(pe->name) - 1);
+ 			pe->name[sizeof(pe->name) - 1] = 0;
+ 		}
+@@ -455,7 +457,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+ 		{
+ 			if (check->v.modelindex)
+ 			{
+-				pModel = g_psv.models[check->v.modelindex];
++				pModel = gc_precache.models[check->v.modelindex];
+ 				if (pModel)
+ 				{
+ 					if (pModel->flags & STUDIO_TRACE_HITBOX)
+diff --git a/rehlds/engine/world.cpp b/rehlds/engine/world.cpp
+index 8038ab7..8f1cd7c 100644
+--- a/rehlds/engine/world.cpp
++++ b/rehlds/engine/world.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ hull_t box_hull;
+ hull_t beam_hull;
+@@ -1036,7 +1037,7 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
+ #ifdef REHLDS_FIXES
+ 	if (Mod_GetType(ent->v.modelindex) == mod_studio)
+ #else
+-	if (g_psv.models[ent->v.modelindex]->type == mod_studio)
++	if (gc_precache.models[ent->v.modelindex]->type == mod_studio)
+ #endif // REHLDS_FIXES
+ 	{
+ 		// get the clipping hull from studio model
+@@ -1452,7 +1453,7 @@ void SV_SingleClipMoveToPoint(const vec_t *start, const vec_t *end, trace_t *tra
+ 	trace->allsolid = TRUE;
+ 	VectorCopy(end, trace->endpos);
+ 
+-	hull_t *hull = &g_psv.models[1]->hulls[0]; // world point hull
++	hull_t *hull = &gc_precache.models[1]->hulls[0]; // world point hull
+ 	SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start, end, trace);
+ 
+ 	if (trace->fraction != 1.0f)
+diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
+index 85c04cb..5b189a1 100644
+--- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
++++ b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
+@@ -1367,7 +1367,7 @@ bool CBaseFileSystem::FindNextFileHelper(FindData_t *pFindData)
+ 
+ 		if (pFindData->m_LimitedPathID != -1)
+ 		{
+-			if (pSearchPath->GetPath() != pFindData->m_LimitedPathID) {
++			if (static_cast<UtlSymId_t>(pSearchPath->GetPath()) != pFindData->m_LimitedPathID) {
+ 				return false;
+ 			}
+ 		}
 diff --git a/rehlds/rehlds/rehlds_api_impl.cpp b/rehlds/rehlds/rehlds_api_impl.cpp
 index a7d9ec3..6cf1e3d 100644
 --- a/rehlds/rehlds/rehlds_api_impl.cpp
@@ -51,3 +1332,158 @@ index a7d9ec3..6cf1e3d 100644
  
  struct plugin_api_t
  {
+diff --git a/rehlds/rehlds/rehlds_interfaces_impl.cpp b/rehlds/rehlds/rehlds_interfaces_impl.cpp
+index 0eaee07..043bc61 100644
+--- a/rehlds/rehlds/rehlds_interfaces_impl.cpp
++++ b/rehlds/rehlds/rehlds_interfaces_impl.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ CGameClient** g_GameClients;
+ 
+@@ -683,12 +684,14 @@ double EXT_FUNC CRehldsServerData::GetOldTime() {
+ }
+ 
+ void EXT_FUNC CRehldsServerData::SetResourcesNum(int num) {
++	if (num < 0) return;
++	gc_precache.resources.resize(num);
+ 	g_psv.num_resources = num;
+ }
+ 
+ struct resource_s *EXT_FUNC CRehldsServerData::GetResource(int index) {
+ #ifdef REHLDS_FIXES
+-	return &g_rehlds_sv.resources[index];
++	return index >= 0 && index < (int)gc_precache.resources.size() ? &gc_precache.resources[index] : nullptr;
+ #else // REHLDS_FIXES
+ 	return &g_psv.resourcelist[index];
+ #endif // REHLDS_FIXES
+@@ -776,10 +779,10 @@ consistency_t *EXT_FUNC CRehldsServerData::GetConsistency(int index)
+ 
+ model_t *EXT_FUNC CRehldsServerData::GetModel(int index)
+ {
+-	if (index < 0 || index >= MAX_MODELS)
++	if (index < 0 || index >= (int)gc_precache.models.size())
+ 		return NULL;
+ 
+-	return g_psv.models[index];
++	return gc_precache.models[index];
+ }
+ 
+ event_t *EXT_FUNC CRehldsServerData::GetEventPrecache(int index)
+diff --git a/rehlds/rehlds/rehlds_messagemngr_impl.cpp b/rehlds/rehlds/rehlds_messagemngr_impl.cpp
+index e8fe42e..aacdd27 100644
+--- a/rehlds/rehlds/rehlds_messagemngr_impl.cpp
++++ b/rehlds/rehlds/rehlds_messagemngr_impl.cpp
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "precache.h"
+ 
+ /**
+  * @brief Implementation interface for defining message parameters and behavior for a game message object
+@@ -257,6 +258,7 @@ private:
+ #pragma pack(push, 1)
+ 	struct Param_t
+ 	{
++		bool        media;        // GoldCraft media handle; preserves IMessage::Short ABI
+ 		bool		modified : 1; // Flag indicating whether the message param has been modified
+ 		ParamType	type     : 3; // The type of the parameter
+ 		size_t		posBack  : 9; // The current position of the parameter in the buffer
+@@ -374,6 +376,7 @@ void MessageImpl::addParam(IMessage::ParamType type, bool sign, size_t length)
+ {
+ 	Param_t &param = m_params[m_paramCount++];
+ 	param.type       = type;
++	param.media      = type == IMessage::ParamType::Short && GC_MessageMediaField();
+ 	param.newlen     = param.oldlen = (length == -1) ? SIZEOF_PARAMTYPE[static_cast<size_t>(type)] : length;
+ 	param.posBack    = param.posFront = gMsgBuffer.cursize;
+ 	param.sign[BACK] = param.sign[FRONT] = sign;
+@@ -402,6 +405,19 @@ void MessageImpl::setParamPrimitive(size_t index, T value, bool sign)
+ 
+ 	Param_t &param = m_params[index];
+ 	void *pbuf = m_Storage[BACK].buf.data + param.posBack;
++	if (param.media)
++	{
++		if (value < 0 || double(value) > goldcraft::precache::max_media_index)
++			Host_Error("GoldCraft: invalid media index in message hook");
++		const unsigned length = goldcraft::precache::media_bytes(uint32(value));
++		setTxformBuffer(index, param.posBack, param.newlen, length);
++		goldcraft::precache::encode_media(static_cast<uint8*>(pbuf), uint32(value));
++		param.newlen = length;
++		param.modified = true;
++		param.sign[BACK] = false;
++		setModifiedDataBit(DataType::Param);
++		return;
++	}
+ 
+ 	// Set value based on parameter type
+ 	switch (param.type)
+@@ -483,6 +499,7 @@ int MessageImpl::getParamInt(size_t index) const
+ 	// Get the parameter value based on its type
+ 	const Param_t &param = m_params[index];
+ 	const void *buf = m_Storage[BACK].buf.data + param.posBack;
++	if (param.media) return int(goldcraft::precache::decode_media(static_cast<const uint8*>(buf)));
+ 	switch (param.type)
+ 	{
+ 	case IMessage::ParamType::Byte:
+@@ -546,6 +563,7 @@ int MessageImpl::getOriginalParamInt(size_t index) const
+ 	// Get the parameter value based on its type
+ 	const Param_t &param = m_params[index];
+ 	const void *buf = m_Storage[FRONT].buf.data + param.posFront;
++	if (param.media) return int(goldcraft::precache::decode_media(static_cast<const uint8*>(buf)));
+ 	switch (param.type)
+ 	{
+ 	case IMessage::ParamType::Byte:
+@@ -723,6 +741,15 @@ void MessageImpl::resetParam(size_t index)
+ 
+ 	void *pbackbuf = m_Storage[BACK].buf.data + param.posBack;
+ 	const void *pfrontbuf = m_Storage[FRONT].buf.data + param.posFront;
++	if (param.media)
++	{
++		setTxformBuffer(index, param.posBack, param.newlen, param.oldlen);
++		Q_memcpy(pbackbuf, pfrontbuf, param.oldlen);
++		param.newlen = param.oldlen;
++		param.modified = false;
++		param.sign[BACK] = param.sign[FRONT];
++		return;
++	}
+ 
+ 	// Set value based on parameter type
+ 	switch (param.type)
+@@ -1028,7 +1055,8 @@ void EXT_FUNC PF_WriteChar_Intercept(int iValue)
+ 
+ void EXT_FUNC PF_WriteShort_Intercept(int iValue)
+ {
+-	if (MessageManager().WriteParam(IMessage::ParamType::Short, iValue < 0))
++	const size_t length = GC_MessageMediaField() ? goldcraft::precache::media_bytes(uint32(iValue)) : sizeof(int16);
++	if (MessageManager().WriteParam(IMessage::ParamType::Short, iValue < 0, length))
+ 		PF_WriteShort_I(iValue);
+ }
+ 
+diff --git a/rehlds/testsuite/funccalls.cpp b/rehlds/testsuite/funccalls.cpp
+index 1f01cf4..8e00a46 100644
+--- a/rehlds/testsuite/funccalls.cpp
++++ b/rehlds/testsuite/funccalls.cpp
+@@ -274,14 +274,17 @@ void CGetSystemTimeCall::readEpilogue(std::istream &stream) {
+ ============================================================================ */
+ std::string CGetTimeZoneInfoCall::toString()
+ {
++	char standardName[128] = {}, daylightName[128] = {};
++	WideCharToMultiByte(CP_UTF8, 0, m_Res.StandardName, 32, standardName, sizeof(standardName) - 1, nullptr, nullptr);
++	WideCharToMultiByte(CP_UTF8, 0, m_Res.DaylightName, 32, daylightName, sizeof(daylightName) - 1, nullptr, nullptr);
+ 	std::stringstream ss;
+ 	ss << "GetTimeZoneInfo() => {"
+ 		<< " Bias: " << m_Res.Bias
+-		<< " StandardName: " << m_Res.StandardName
++		<< " StandardName: " << standardName
+ 		<< " StandardDate: "; PrintSystemTime(&m_Res.StandardDate, ss);
+ 
+ 	ss << " StandardBias: " << m_Res.StandardBias
+-		<< " DaylightName: " << m_Res.DaylightName
++		<< " DaylightName: " << daylightName
+ 		<< " DaylightDate: "; PrintSystemTime(&m_Res.DaylightDate, ss);
+ 	ss << " DaylightBias: " << m_Res.DaylightBias
+ 		<< " }";

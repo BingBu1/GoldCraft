@@ -1,3 +1,38 @@
+diff --git a/Project SyPB/SyPB_BOT/source/basecode.cpp b/Project SyPB/SyPB_BOT/source/basecode.cpp
+index 43071b2..c52f4c6 100644
+--- a/Project SyPB/SyPB_BOT/source/basecode.cpp	
++++ b/Project SyPB/SyPB_BOT/source/basecode.cpp	
+@@ -4581,7 +4581,7 @@ void Bot::RunTask (void)
+ 
+          MakeVectors (nullvec);
+ 
+-         TraceLine (EyePosition (), EyePosition () + (g_pGlobals->v_up + 999.0f), false, true, m_iEntity, &tr);
++         TraceLine (EyePosition (), EyePosition () + (g_pGlobals->v_up * 999.0f), false, true, m_iEntity, &tr);
+ 
+          if (tr.flFraction < 1.0f && tr.pHit == m_doubleJumpEntity)
+          {
+diff --git a/Project SyPB/SyPB_BOT/source/combat.cpp b/Project SyPB/SyPB_BOT/source/combat.cpp
+index f07a42c..7e9bd75 100644
+--- a/Project SyPB/SyPB_BOT/source/combat.cpp	
++++ b/Project SyPB/SyPB_BOT/source/combat.cpp	
+@@ -115,8 +115,8 @@ void Bot::ResetCheckEnemy()
+ 
+ 			if (m_allEnemyDistance[i] == m_checkEnemyDistance[y])
+ 			{
+-				if ((pev->origin - GetEntityOrigin(m_allEnemy[i]).GetLength()) >
+-					(pev->origin - GetEntityOrigin(m_checkEnemy[y]).GetLength()))
++				if ((pev->origin - GetEntityOrigin(m_allEnemy[i])).GetLength() >
++					(pev->origin - GetEntityOrigin(m_checkEnemy[y])).GetLength())
+ 					continue;
+ 			}
+ 
+@@ -2008,4 +2008,4 @@ int Bot::CheckMaxClip(int weaponId, int *weaponIndex)
+ 	}
+ 
+ 	return maxClip;
+-}
+\ No newline at end of file
++}
 diff --git a/Project SyPB/SyPB_BOT/source/support.cpp b/Project SyPB/SyPB_BOT/source/support.cpp
 index 3950d1b..23fa85a 100644
 --- a/Project SyPB/SyPB_BOT/source/support.cpp	

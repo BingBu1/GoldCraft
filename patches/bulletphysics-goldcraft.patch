@@ -1,0 +1,103 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aed50f5..915e8ab 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -72,6 +72,7 @@ endforeach()
+ add_library(bulletphysics_settings INTERFACE)
+ target_compile_features(bulletphysics_settings INTERFACE cxx_std_20)
+ target_include_directories(bulletphysics_settings INTERFACE
++    "${GOLDCRAFT_INCLUDE_DIR}"
+     src
+     "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
+     "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface/VGUI"
+diff --git a/src/BasePhysicManager.cpp b/src/BasePhysicManager.cpp
+index 74146bd..1d9cc43 100644
+--- a/src/BasePhysicManager.cpp
++++ b/src/BasePhysicManager.cpp
+@@ -3315,8 +3315,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::LoadPhysicObjectC
+ 
+ 	if (modelindex >= (int)m_physicObjectConfigs.size())
+ 	{
+-		g_pMetaHookAPI->SysError("LoadPhysicObjectConfigForModel: Invalid model index %d!\n", modelindex);
+-		return nullptr;
++		m_physicObjectConfigs.resize(modelindex + 1);
+ 	}
+ 
+ 	auto& Storage = m_physicObjectConfigs[modelindex];
+@@ -3348,8 +3347,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+ 
+ 	if (modelindex >= (int)m_physicObjectConfigs.size())
+ 	{
+-		g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
+-		return nullptr;
++		m_physicObjectConfigs.resize(modelindex + 1);
+ 	}
+ 
+ 	auto& Storage = m_physicObjectConfigs[modelindex];
+@@ -3377,8 +3375,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+ 
+ 	if (modelindex >= (int)m_physicObjectConfigs.size())
+ 	{
+-		g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
+-		return nullptr;
++		m_physicObjectConfigs.resize(modelindex + 1);
+ 	}
+ 
+ 	auto& Storage = m_physicObjectConfigs[modelindex];
+diff --git a/src/ClientPhysicConfig.h b/src/ClientPhysicConfig.h
+index 219d969..b820f0a 100644
+--- a/src/ClientPhysicConfig.h
++++ b/src/ClientPhysicConfig.h
+@@ -2,6 +2,7 @@
+ 
+ #include <string>
+ #include <vector>
++#include <deque>
+ #include <memory>
+ 
+ #include "mathlib2.h"
+@@ -215,4 +216,4 @@ public:
+ 	std::shared_ptr<CClientPhysicObjectConfig> pConfig{};
+ };
+ 
+-using CClientPhysicObjectConfigs = std::vector<CClientPhysicObjectConfigStorage>;
+\ No newline at end of file
++using CClientPhysicObjectConfigs = std::deque<CClientPhysicObjectConfigStorage>;
+diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
+index 9c7e333..b6bbde2 100644
+--- a/src/exportfuncs.cpp
++++ b/src/exportfuncs.cpp
+@@ -174,13 +174,17 @@ TEMPENTITY* EngineGetTempTentByIndex(int index)
+ 	return &gTempEnts[index];
+ }
+ 
++#include "goldcraft/precache_api.h"
++
+ int EngineGetNumKnownModel()
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+ 	return (*mod_numknown);
+ }
+ 
+ int EngineGetMaxKnownModel()
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+ 	if (g_iEngineType == ENGINE_SVENGINE)
+ 		return 16384;
+ 
+@@ -189,6 +193,7 @@ int EngineGetMaxKnownModel()
+ 
+ int EngineGetModelIndex(model_t *mod)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_index(mod);
+ 	auto start = (model_t*)(mod_known);
+ 	auto end = (model_t*)(mod_known);
+ 	end  += (*mod_numknown);
+@@ -205,6 +210,7 @@ int EngineGetModelIndex(model_t *mod)
+ 
+ model_t *EngineGetModelByIndex(int index)
+ {
++	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_at(index);
+ 	auto pmod_known = (model_t *)(mod_known);
+ 	
+ 	if (index >= 0 && index < EngineGetNumKnownModel())

@@ -2,19 +2,21 @@
 
 把真实的 Minecraft 1.21.1 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前僵尸测试使用 `sy_zombie2_Bloodmoon`，保留 `cs_assault` 回归场景。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
 
-项目正在开发。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形 A/B 客户端和完整多人玩法仍待验收，室内光照修复也需要继续实测。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
+项目正在开发。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形客户端和完整多人玩法仍待验收。目前优先排查原生 CS 的人物可见性、原始鼠标输入和阴影回归，详见[原生回归记录](docs/NATIVE_REGRESSIONS.md)。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
 
 ## 构建与使用
 
-在 Windows 上安装 Git、PowerShell 7.5+、Python 3.11+、Visual Studio 2026 C++ x86 工具和 Windows SDK 10.0.26100.0。脚本把 Java、Gradle、CMake 和其他下载依赖放到工作区 `.tools`。
+在 Windows 上安装 Git、PowerShell 7.5+、Python 3.11+、Arkari Clang 22.1.7、Visual Studio 2026 C++ x86 工具和 Windows SDK 10.0.26100.0。C++ 使用 clang-cl / C++20，Release 启用 O3、ThinLTO、AVX2 和 lld；VS 提供兼容的头文件、SDK 与 CRT。运行机器需要支持 AVX2。脚本把 Java、Gradle、CMake 和其他下载依赖放到工作区 `.tools`。
 
 ```powershell
 .\tools\Prepare-Sources.ps1
 .\tools\Prepare-NativeBuild.ps1
 .\tools\Prepare-JavaBuild.ps1
 .\tools\Prepare-AMXX.ps1
+.\tools\Configure-Clang.ps1 -LLVMRoot (Read-Host 'Arkari / LLVM 安装路径')
 .\tools\Build-Loader.ps1
 .\tools\Build-Renderer.ps1
+.\tools\Build-BulletPhysics.ps1
 .\tools\Build-Native.ps1 -Server
 .\tools\Build-ReHLDS.ps1
 .\tools\Build-AMXX.ps1 -Plugins goldcraft,goldcraft_test
@@ -37,7 +39,9 @@ CS 形态可叠加真实 Minecraft 聊天和死亡消息；MC 形态按 `/` 打�
 
 建筑和非玩家 MC 实体只属于当前 CS 地图会话：换图或 ReHLDS 重启清除，普通客户端重连保留。15 项 NeoForge GameTest 包含已加载及磁盘实体的旧会话清理。AMXX Pawn 插件通常通过换图重载，`sv_restart` 只重启回合。脚本接口见 [服务器 API](docs/SERVER_API.md)。
 
-Zombie Plague 5.0.8a 与 SyPB/API 1.50 已在独立 ReHLDS 中完成 6 Bot 的自主移动、武器伤害和自然感染检查。默认只启动沙箱 B 及其 MC 配对客户端，Mod 文件仍同步 A/B/server。安装与测试见 [僵尸模式](docs/ZOMBIE_TESTING.md)。超过 512 项的客户端/服务端预缓存扩容仍在开发，尚未宣称支持。
+Zombie Plague 5.0.8a 与 SyPB/API 1.50 已在独立 ReHLDS 中完成 6 Bot 的自主移动、武器伤害和自然感染检查。中文生成器适配 AMXX 1.9 的实际字典解析规则；原生购买命令接入僵尸菜单，保留键位。默认只启动沙箱 B 及其 MC 配对客户端，Mod 文件仍同步 A/B/server。安装与测试见 [僵尸模式](docs/ZOMBIE_TESTING.md)。
+
+双端动态预缓存和协商的 32 位媒体协议已实现，实际客户端连接通过逾 5,300 项资源清单，以及 65535/65536 模型、精灵、动态/环境声音和 AMXX/ReAPI 消息修改检查。测试夹具使用稀疏编号，不代表加载了 65,536 个独立文件；旧客户端和清理回归仍有待验证。它受可用内存和原生接口范围限制，不是数学意义的无限容量。
 
 ## 源码入口
 

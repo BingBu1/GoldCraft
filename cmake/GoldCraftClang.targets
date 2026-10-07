@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <IntDir>$(GoldCraftRoot)\build\clang-msbuild\obj\$(MSBuildProjectName)\$(Configuration)\$(GoldCraftHeadlessFixture)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <FloatingPointModel>Precise</FloatingPointModel>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
+      <AdditionalOptions>%(AdditionalOptions) --target=i686-pc-windows-msvc -Wno-unused-command-line-argument /arch:AVX2</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <AdditionalOptions>%(AdditionalOptions) /clang:-O3 /clang:-flto=thin</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <TurnOffAssemblyGeneration>false</TurnOffAssemblyGeneration>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <AdditionalOptions>%(AdditionalOptions) /OPT:LLDLTO=3</AdditionalOptions>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

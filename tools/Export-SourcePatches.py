@@ -5,9 +5,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parent.parent
 lock = json.loads((ROOT / "sources.lock.json").read_text(encoding="utf-8"))
-new_renderer_files = ("include/Interface/IMetaRendererScene.h", "src/gl_external_scene.h")
-for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS", "SyPB"):
-    entry = lock["sources"][name]
+new_renderer_files = ("include/Interface/IMetaRendererScene.h", "src/gl_external_scene.h",
+                      "src/gl_gbuffer.cpp", "src/gl_studio_shadow.cpp", "tests/studio_shadow_gl_tests.cpp")
+for name, entry in lock["sources"].items():
+    if "patch" not in entry:
+        continue
     source = ROOT / entry["path"]
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     if actual != entry["commit"]:

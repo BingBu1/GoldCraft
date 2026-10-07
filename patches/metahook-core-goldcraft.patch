@@ -1,7 +1,167 @@
+diff --git a/include/SourceSDK/mathlib/sse.cpp b/include/SourceSDK/mathlib/sse.cpp
+index d86a190..a25ec77 100644
+--- a/include/SourceSDK/mathlib/sse.cpp
++++ b/include/SourceSDK/mathlib/sse.cpp
+@@ -745,69 +745,27 @@ void VectorRotateSSE( const float *in1, const matrix3x4_t& in2, float *out1 )
+ #endif
+ }
+ 
+-#if 1
+-void _declspec(naked) _SSE_VectorMA( const float *start, float scale, const float *direction, float *dest )
++// A Vector contains exactly three floats. The old naked implementation
++// read/wrote a fourth float and did not return; let the compiler generate
++// the three-lane operation and its ABI-correct prologue/epilogue.
++void __cdecl _SSE_VectorMA( const float *start, float scale, const float *direction, float *dest )
+ {
+-	// FIXME: This don't work!! It will overwrite memory in the write to dest
+-
+-	Assert( s_bMathlibInitialized );
+-	_asm {  // Intel SSE only routine
+-		mov	eax, DWORD PTR [esp+0x04]	; *start, s0..s2
+-		mov ecx, DWORD PTR [esp+0x0c]	; *direction, d0..d2
+-		mov edx, DWORD PTR [esp+0x10]	; *dest
+-		movss	xmm2, [esp+0x08]		; x2 = scale, 0, 0, 0
+-#ifdef ALIGNED_VECTOR
+-		movaps	xmm3, [ecx]				; x3 = dir0,dir1,dir2,X
+-		pshufd	xmm2, xmm2, 0			; x2 = scale, scale, scale, scale
+-		movaps	xmm1, [eax]				; x1 = start1, start2, start3, X
+-		mulps	xmm3, xmm2				; x3 *= x2
+-		addps	xmm3, xmm1				; x3 += x1
+-		movaps	[edx], xmm3				; *dest = x3
+-#else
+-		movups	xmm3, [ecx]				; x3 = dir0,dir1,dir2,X
+-		pshufd	xmm2, xmm2, 0			; x2 = scale, scale, scale, scale
+-		movups	xmm1, [eax]				; x1 = start1, start2, start3, X
+-		mulps	xmm3, xmm2				; x3 *= x2
+-		addps	xmm3, xmm1				; x3 += x1
+-		movups	[edx], xmm3				; *dest = x3
+-#endif
+-	}
++    Assert( s_bMathlibInitialized );
++    const float x = start[0] + scale * direction[0];
++    const float y = start[1] + scale * direction[1];
++    const float z = start[2] + scale * direction[2];
++    dest[0] = x;
++    dest[1] = y;
++    dest[2] = z;
+ }
+-#endif
+ 
+ #ifdef _WIN32
+ #ifdef PFN_VECTORMA
+-void _declspec(naked) __cdecl _SSE_VectorMA( const Vector &start, float scale, const Vector &direction, Vector &dest )
++void __cdecl _SSE_VectorMA( const Vector &start, float scale, const Vector &direction, Vector &dest )
+ {
+-	// FIXME: This don't work!! It will overwrite memory in the write to dest
+-	Assert(0);
+-
+-	Assert( s_bMathlibInitialized );
+-	_asm 
+-	{  
+-		// Intel SSE only routine
+-		mov	eax, DWORD PTR [esp+0x04]	; *start, s0..s2
+-		mov ecx, DWORD PTR [esp+0x0c]	; *direction, d0..d2
+-		mov edx, DWORD PTR [esp+0x10]	; *dest
+-		movss	xmm2, [esp+0x08]		; x2 = scale, 0, 0, 0
+-#ifdef ALIGNED_VECTOR
+-		movaps	xmm3, [ecx]				; x3 = dir0,dir1,dir2,X
+-		pshufd	xmm2, xmm2, 0			; x2 = scale, scale, scale, scale
+-		movaps	xmm1, [eax]				; x1 = start1, start2, start3, X
+-		mulps	xmm3, xmm2				; x3 *= x2
+-		addps	xmm3, xmm1				; x3 += x1
+-		movaps	[edx], xmm3				; *dest = x3
+-#else
+-		movups	xmm3, [ecx]				; x3 = dir0,dir1,dir2,X
+-		pshufd	xmm2, xmm2, 0			; x2 = scale, scale, scale, scale
+-		movups	xmm1, [eax]				; x1 = start1, start2, start3, X
+-		mulps	xmm3, xmm2				; x3 *= x2
+-		addps	xmm3, xmm1				; x3 += x1
+-		movups	[edx], xmm3				; *dest = x3
+-#endif
+-	}
++    _SSE_VectorMA( &start[0], scale, &direction[0], &dest[0] );
+ }
+-float (__cdecl *pfVectorMA)(Vector& v) = _VectorMA;
++void (__cdecl *pfVectorMA)(const Vector &, float, const Vector &, Vector &) = _SSE_VectorMA;
+ #endif
+ #endif
+ 
+diff --git a/include/SourceSDK/tier0/cpu.cpp b/include/SourceSDK/tier0/cpu.cpp
+index b09eb74..c09372a 100644
+--- a/include/SourceSDK/tier0/cpu.cpp
++++ b/include/SourceSDK/tier0/cpu.cpp
+@@ -14,6 +14,7 @@
+ #if defined(_WIN32) && !defined(_X360)
+ #define WINDOWS_LEAN_AND_MEAN
+ #include <windows.h>
++#include <intrin.h>
+ #elif defined(_LINUX)
+ #include <stdio.h>
+ #endif
+@@ -25,37 +26,22 @@ static bool cpuid(unsigned long function, unsigned long& out_eax, unsigned long&
+ #elif defined( _X360 )
+ 	return false;
+ #else
+-	bool retval = true;
+-	unsigned long local_eax, local_ebx, local_ecx, local_edx;
+-	_asm pushad;
+-
++	int registers[4]{};
+ 	__try
+ 	{
+-        _asm
+-		{
+-			xor edx, edx		// Clue the compiler that EDX is about to be used.
+-            mov eax, function   // set up CPUID to return processor version and features
+-								//      0 = vendor string, 1 = version info, 2 = cache info
+-            cpuid				// code bytes = 0fh,  0a2h
+-            mov local_eax, eax	// features returned in eax
+-            mov local_ebx, ebx	// features returned in ebx
+-            mov local_ecx, ecx	// features returned in ecx
+-            mov local_edx, edx	// features returned in edx
+-		}
+-    } 
+-	__except(EXCEPTION_EXECUTE_HANDLER) 
+-	{ 
+-		retval = false; 
++		// Keep register clobbers and stack layout visible to the optimizer.
++		// pushad/popad around C++/SEH corrupts optimized Clang stack accesses.
++		__cpuidex(registers, static_cast<int>(function), 0);
+ 	}
+-
+-	out_eax = local_eax;
+-	out_ebx = local_ebx;
+-	out_ecx = local_ecx;
+-	out_edx = local_edx;
+-
+-	_asm popad
+-
+-	return retval;
++	__except(EXCEPTION_EXECUTE_HANDLER)
++	{
++		return false;
++	}
++	out_eax = static_cast<unsigned long>(registers[0]);
++	out_ebx = static_cast<unsigned long>(registers[1]);
++	out_ecx = static_cast<unsigned long>(registers[2]);
++	out_edx = static_cast<unsigned long>(registers[3]);
++	return true;
+ #endif
+ }
+ 
 diff --git a/src/metahook.cpp b/src/metahook.cpp
-index d62c4a5..50b327b 100644
+index d62c4a5..5e69c24 100644
 --- a/src/metahook.cpp
 +++ b/src/metahook.cpp
+@@ -69,7 +69,7 @@ union tagHOOKDATA
+ 
+ typedef struct hook_s
+ {
+-	struct hook_s() {
++	hook_s() {
+ 		iType = 0;
+ 		bCommitted = false;
+ 		pOldFuncAddr = NULL;
 @@ -224,6 +224,18 @@ extern "C"
  
  		msg[MAX_SYS_ERROR_LENGTH - 1] = 0;

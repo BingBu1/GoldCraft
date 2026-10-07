@@ -40,6 +40,8 @@ foreach($name in @('goldcraft_zp50','goldcraft_bloodmoon')){
     Copy-Verified (Join-Path $script:GoldCraftRoot "dist/amxx/$name.amxx") (Join-Path $amxx "plugins/$name.amxx")
     Copy-Verified (Join-Path $script:GoldCraftRoot "amxx/$name.sma") (Join-Path $amxx "scripting/$name.sma")
 }
+& python (Join-Path $PSScriptRoot 'Localize-ZombiePlague.py') --install
+if($LASTEXITCODE){throw 'Zombie Plague Chinese localization failed'}
 Add-Line (Join-Path $amxx 'configs/plugins-zp50_ammopacks.ini') 'goldcraft_zp50.amxx'
 Add-Line (Join-Path $amxx 'configs/plugins.ini') 'goldcraft_bloodmoon.amxx'
 Copy-Verified (Join-Path $script:GoldCraftRoot 'build/sypb/Release/sypb.dll') (Join-Path $game 'cstrike/addons/sypb/sypb.dll')
@@ -67,6 +69,9 @@ sypb_download_waypoint 0
 sypb_chat 0
 sypb_nametag 0
 "@ | Set-Content -LiteralPath (Join-Path $botRoot 'sypb.cfg') -Encoding ascii
+# server.cfg can execute the base test cfg after plugin_cfg and command-line
+# cvars. Apply the zombie settings at the end of that cfg on every map load.
+Add-Line (Join-Path $game 'cstrike/goldcraft_test.cfg') 'exec addons/sypb/sypb.cfg'
 if(-not(Test-Path -LiteralPath (Join-Path $botRoot 'language/en_names.cfg'))){
     1..16 | ForEach-Object {"GoldCraft_Bot$_"} | Set-Content -LiteralPath (Join-Path $botRoot 'language/en_names.cfg') -Encoding ascii
 }

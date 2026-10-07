@@ -7,6 +7,7 @@ param(
     [switch]$ListenServer,
     [switch]$Capture,
     [switch]$ConsoleLog,
+    [switch]$PrecacheFixture,
     [switch]$WithDebugger,
     [switch]$Wait
 )
@@ -24,6 +25,7 @@ if(Test-Path -LiteralPath $runningRecord){
     }
 }
 if($ListenServer){throw 'Use the ReHLDS dedicated server: -Role CsServer -Instance cs-server; clients join without -ListenServer.'}
+if($PrecacheFixture -and $Role -ne 'CsServer'){throw 'PrecacheFixture is only valid for the dedicated sandbox server.'}
 if($Role -in @('MinecraftClient','MinecraftServer') -and (Test-Path -LiteralPath (Join-Path $script:GoldCraftRoot "sandbox/$packName/instance.json"))) {
     & python (Join-Path $PSScriptRoot 'Modpack.py') sync --quiet
     if($LASTEXITCODE){throw 'Modpack is not synchronized. Use tools/Sync-Modpack.ps1 -Restart after resolving the reported conflict.'}
@@ -94,6 +96,7 @@ if($Role -in @('CsClient','CsServer')){
     }
     # ReHLDS net_ws.cpp registers the ip cvar; it does not parse a -ip option.
     $arguments=@('-game','cstrike','-insecure','-nomaster','-console','+ip','127.0.0.1','-port',[string]$hostPort)
+    if($PrecacheFixture){$arguments+='-goldcraft_precache_test'}
     # qconsole duplicates the normal diagnostics and can grow without limit.
     if($ConsoleLog -or $WithDebugger){$arguments+='-condebug'}
     if($Role -eq 'CsClient'){
@@ -106,7 +109,9 @@ if($Role -in @('CsClient','CsServer')){
         # The sandbox server's mp_auto_join_team/humans_join_team choose team/model after signon.
         # Issuing +jointeam immediately after asynchronous +connect would run too early.
         else {$arguments+=@('+connect',"127.0.0.1:$($cluster.csPort)")}
-    }else{$arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','1','+map',$Map,'+exec','goldcraft_test.cfg')}
+    }else{
+        $arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','1','+map',$Map,'+exec','goldcraft_test.cfg')
+    }
     if($WithDebugger){
         $executable=$start.FileName
         $start.FileName='C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\cdb.exe'

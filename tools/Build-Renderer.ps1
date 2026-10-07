@@ -1,19 +1,18 @@
 param([ValidateSet('Release','Debug')][string]$Configuration='Release')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
-$vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
-$vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if(-not $vs){throw 'MSVC installation not found'}
-Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
-Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x86 -host_arch=x64 -winsdk=10.0.26100.0' | Out-Null
-$env:VSLANG='1033'
+. (Join-Path $PSScriptRoot 'ClangToolchain.ps1')
+$compiler=Initialize-GoldCraftCompiler
+$clangArgs=Get-GoldCraftClangCMakeArguments $compiler
+$vs=$compiler.VisualStudio
 $cmake=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/cmake331/cmake/data/bin/cmake.exe')
 $ninja=Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
 $source=Get-MetaHookSourceRoot
-$build=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/renderer-20261007-avx2-$Configuration")
+$build=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/renderer-clang-avx2-$Configuration")
 $prefix=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer')
-& $cmake -S "$source/Plugins/Renderer" -B $build -G Ninja `
+& $cmake -S "$source/Plugins/Renderer" -B $build -G Ninja @clangArgs `
     "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_MAKE_PROGRAM=$ninja" "-DCMAKE_INSTALL_PREFIX=$prefix" `
     '-DRENDERER_BUILD_AVX2=ON' '-DRENDERER_BUILD_TESTS=ON' `
+    "-DGOLDCRAFT_INCLUDE_DIR=$script:GoldCraftRoot/native/include" `
     "-DMETAHOOK_SOURCE_PATH=$source/MetaHook" "-DVGUI2EXTENSION_SOURCE_PATH=$source/Plugins/VGUI2Extension" `
     "-DUTILTHREADTASK_SOURCE_PATH=$source/PluginLibs/UtilThreadTask" `
     "-DFREEIMAGE_SOURCE_PATH=$source/thirdparty/FreeImage_clone" "-DGLEW_SOURCE_PATH=$source/thirdparty/glew_fork" `
@@ -35,8 +34,8 @@ if($LASTEXITCODE){throw 'Renderer regression tests failed'}
 & $cmake --install $build
 if($LASTEXITCODE){throw 'Renderer staging failed'}
 $utilitySource=Join-Path $source 'PluginLibs/UtilThreadTask'
-$utilityBuild=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/utilthreadtask-20261007-$Configuration")
-& $cmake -S $utilitySource -B $utilityBuild -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" `
+$utilityBuild=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/utilthreadtask-clang-$Configuration")
+& $cmake -S $utilitySource -B $utilityBuild -G Ninja @clangArgs "-DCMAKE_BUILD_TYPE=$Configuration" `
     "-DCMAKE_MAKE_PROGRAM=$ninja" "-DCMAKE_INSTALL_PREFIX=$prefix" `
     "-DMETAHOOK_SOURCE_PATH=$source/MetaHook" "-DVC_LTL_Root=$source/MetaHook/thirdparty/cache/VC-LTL-5.3.1"
 if($LASTEXITCODE){throw 'UtilThreadTask configure failed'}
