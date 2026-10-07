@@ -99,7 +99,7 @@ index daee11d..d214ee7 100644
  
  	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..e4ba996 100644
+index 8a219ea..55fbd98 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,7 @@
@@ -110,7 +110,19 @@ index 8a219ea..e4ba996 100644
  
  BOOL gInitHUD = TRUE;
  
-@@ -987,7 +988,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -908,6 +909,11 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+ // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
+ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
+ {
++	// The paired Minecraft server owns falling in MC form. Vanilla creative
++	// ignores it; survival commits its one authoritative result through vitals.
++	if ((bitsDamageType & DMG_FALL) && GoldCraft_MinecraftFallAuthority(edict()))
++		return FALSE;
++
+ 	BOOL bTookDamage;
+ 	float flRatio = ARMOR_RATIO;
+ 	float flBonus = ARMOR_BONUS;
+@@ -987,7 +993,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -119,7 +131,7 @@ index 8a219ea..e4ba996 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1182,7 +1183,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1182,7 +1188,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -128,7 +140,7 @@ index 8a219ea..e4ba996 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1254,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1259,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -137,7 +149,7 @@ index 8a219ea..e4ba996 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -2230,6 +2231,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2236,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -145,7 +157,18 @@ index 8a219ea..e4ba996 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -6132,6 +6134,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5375,6 +5382,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+ 	// do weapon stuff
+ 	ItemPostFrame();
+ 
++	// Do not accumulate a second fall from the mirrored Minecraft velocity.
++	if (GoldCraft_MinecraftFallAuthority(edict()))
++		m_flFallVelocity = 0;
++
+ 	// check to see if player landed hard enough to make a sound
+ 	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
+ 	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
+@@ -6132,6 +6143,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  

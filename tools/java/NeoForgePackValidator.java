@@ -25,7 +25,7 @@ import net.neoforged.neoforgespi.locating.ModFileDiscoveryAttributes;
 import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
 
 /**
- * Offline metadata preflight using the unmodified, pinned FML 4.0.23 parser,
+ * Offline metadata preflight using the unmodified, pinned FML parser,
  * ModSorter and JarJarSelector 0.4.1. Does not load or execute third-party Mods.
  * Real JVM startup/gameplay remains a separate acceptance step.
  */
@@ -48,7 +48,7 @@ public final class NeoForgePackValidator {
         // FML normally sets this in setupLaunchHandler. This standalone metadata
         // tool has no ModLauncher/game layer, so provide only that version input.
         var field=FMLLoader.class.getDeclaredField("versionInfo");field.setAccessible(true);
-        field.set(null,new VersionInfo(request.get("neoforge").getAsString(),request.get("fml").getAsString(),request.get("minecraft").getAsString(),"20240613.152323"));
+        field.set(null,new VersionInfo(request.get("neoforge").getAsString(),request.get("fml").getAsString(),request.get("minecraft").getAsString(),request.get("neoform").getAsString()));
     }
     private static byte[] resource(Candidate candidate,Path relative) throws IOException {
         String name=relative.toString().replace('\\','/');
@@ -131,7 +131,7 @@ public final class NeoForgePackValidator {
         output=result.getParent();
         if(!output.toRealPath().startsWith(Path.of(request.get("workspace").getAsString()).resolve("sandbox").toRealPath()))throw new IllegalArgumentException("Validation output is outside sandbox");
         Path platform=platform(request);var report=new JsonObject();boolean valid=true;
-        report.addProperty("validator","FML 4.0.23 ModFileParser/ModSorter; JarJarSelector 0.4.1");
+        report.addProperty("validator","FML "+request.get("fml").getAsString()+" ModFileParser/ModSorter; JarJarSelector 0.4.1");
         for(String side:List.of("client","server")){
             JsonObject checked;
             try{checked=validate(side,request,platform);}

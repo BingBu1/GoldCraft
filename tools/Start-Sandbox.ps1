@@ -2,15 +2,19 @@ param(
     [Parameter(Mandatory)][ValidateSet('CsClient','CsServer','MinecraftClient','MinecraftServer','MinecraftGameTest')][string]$Role,
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,40}$')][string]$Instance='cs-client-a',
     [ValidatePattern('^[A-Za-z0-9_]{1,64}$')][string]$Map='cs_assault',
+    [ValidateRange(2,32)][int]$MaxPlayers=12,
     [ValidateSet('neoforge','fabric')][string]$Loader='neoforge',
     [switch]$ListenServer,
     [switch]$Capture,
+    [switch]$ConsoleLog,
     [switch]$WithDebugger,
     [switch]$Wait
 )
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
+. (Join-Path $PSScriptRoot 'SandboxLogs.ps1')
 $env:GOLDCRAFT_MOD_LOADER=$Loader
-$packName=if($Loader -eq 'neoforge'){'modpack-neoforge/GoldCraft-1.21-NeoForge'}else{'modpack/GoldCraft-1.21'}
+$mcPin=(Get-Content -LiteralPath (Join-Path $script:GoldCraftRoot 'sources.lock.json') -Raw | ConvertFrom-Json).minecraft
+$packName=if($Loader -eq 'neoforge'){"modpack-neoforge/GoldCraft-$($mcPin.version)-NeoForge"}else{'modpack/GoldCraft-1.21'}
 $runningRecord=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$Instance/process-$Role.json")
 if(Test-Path -LiteralPath $runningRecord){
     $existing=Get-Content -LiteralPath $runningRecord -Raw | ConvertFrom-Json
@@ -89,7 +93,9 @@ if($Role -in @('CsClient','CsServer')){
         $hostPort=$config.csHostPort
     }
     # ReHLDS net_ws.cpp registers the ip cvar; it does not parse a -ip option.
-    $arguments=@('-game','cstrike','-insecure','-nomaster','-console','-condebug','+ip','127.0.0.1','-port',[string]$hostPort)
+    $arguments=@('-game','cstrike','-insecure','-nomaster','-console','+ip','127.0.0.1','-port',[string]$hostPort)
+    # qconsole duplicates the normal diagnostics and can grow without limit.
+    if($ConsoleLog -or $WithDebugger){$arguments+='-condebug'}
     if($Role -eq 'CsClient'){
         $arguments+=@('-nomutex','-gl','-windowed','-w','1280','-h','720')
         # GoldSrc has separate NS_SERVER and NS_CLIENT sockets, even in a joining client.
@@ -100,7 +106,7 @@ if($Role -in @('CsClient','CsServer')){
         # The sandbox server's mp_auto_join_team/humans_join_team choose team/model after signon.
         # Issuing +jointeam immediately after asynchronous +connect would run too early.
         else {$arguments+=@('+connect',"127.0.0.1:$($cluster.csPort)")}
-    }else{$arguments+=@('-maxplayers','4','+sv_lan','1','+map',$Map,'+exec','goldcraft_test.cfg')}
+    }else{$arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','1','+map',$Map,'+exec','goldcraft_test.cfg')}
     if($WithDebugger){
         $executable=$start.FileName
         $start.FileName='C:\Program Files (x86)\Windows Kits\10\Debuggers\x86\cdb.exe'
@@ -115,9 +121,15 @@ g
     foreach($arg in $arguments){$start.ArgumentList.Add($arg)}
 }else{
     $task=switch($Role){'MinecraftClient'{'runClient'} 'MinecraftServer'{'runServer'} default{'runGameTestServer'}}
-    $manifestPath=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/$Loader-runtime/$task.json")
-    if(-not(Test-Path -LiteralPath $manifestPath)){throw "Prepare the $Loader runtime first with its Build script and writeRuntimeManifests task"}
+    $production=$Loader -eq 'neoforge' -and $Role -ne 'MinecraftGameTest'
+    $runtimeDirectory=if($production){'neoforge-production'}else{"$Loader-runtime"}
+    $manifestPath=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/$runtimeDirectory/$task.json")
+    if(-not(Test-Path -LiteralPath $manifestPath)){throw "Prepare the $Loader runtime first; NeoForge managed clients/server require tools/Prepare-NeoForgeRuntime.py"}
     $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if($production -and $manifest.runtimeKind -ne 'production'){throw 'Managed NeoForge instances require the production runtime for ordinary Mod compatibility'}
+    if($manifest.PSObject.Properties['clearEnvironment']){
+        foreach($key in $manifest.clearEnvironment){$start.Environment.Remove($key)|Out-Null}
+    }
     if($manifest.PSObject.Properties['environment']){
         foreach($entry in $manifest.environment.PSObject.Properties){$start.Environment[$entry.Name]=[string]$entry.Value}
     }
@@ -125,7 +137,17 @@ g
     $start.FileName=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/java/jdk-21.0.12.1+1/bin/java.exe')
     $arguments=[Collections.Generic.List[string]]::new()
     foreach($arg in $manifest.jvm){$arguments.Add($arg)}
-    $arguments.Add('-cp');$arguments.Add(($manifest.classpath -join ';'));$arguments.Add($manifest.main)
+    if($production){
+        $temporary=Assert-SandboxPath (Join-Path $start.WorkingDirectory 'tmp')
+        $natives=Assert-SandboxPath (Join-Path $start.WorkingDirectory 'natives')
+        foreach($directory in @($temporary,$natives)){New-Item -ItemType Directory -Path $directory -Force|Out-Null}
+        $arguments.Add("-Djava.io.tmpdir=$temporary")
+        foreach($key in @('java.library.path','jna.tmpdir','org.lwjgl.system.SharedLibraryExtractPath','io.netty.native.workdir')){
+            $arguments.Add("-D$key=$natives")
+        }
+    }
+    if($manifest.classpath.Count){$arguments.Add('-cp');$arguments.Add(($manifest.classpath -join ';'))}
+    $arguments.Add($manifest.main)
     # Instance-sensitive program arguments are supplied here, never frozen in a shared Gradle manifest.
     for($i=0;$i -lt $manifest.args.Count;$i++){
         if($manifest.args[$i] -in @('--username','--quickPlayMultiplayer','--gameDir')){$i++;continue}
@@ -135,7 +157,16 @@ g
         $arguments.Add('--username');$arguments.Add($start.Environment['GOLDCRAFT_MC_USERNAME'])
         # NeoForge's Loom launch.cfg already supplies --gameDir .; jopt-simple
         # rejects a second value. Its working directory is the isolated instance.
-        if($Loader -eq 'fabric'){$arguments.Add('--gameDir');$arguments.Add($start.WorkingDirectory)}
+        if($Loader -eq 'fabric' -or $production){$arguments.Add('--gameDir');$arguments.Add($start.WorkingDirectory)}
+        if($production){
+            # Stable identity for the existing loopback/offline development server.
+            # Java UUID.nameUUIDFromBytes uses network-order MD5 bytes, unlike Guid(byte[]).
+            $uuidBytes=[Security.Cryptography.MD5]::HashData([Text.Encoding]::UTF8.GetBytes('OfflinePlayer:'+$start.Environment['GOLDCRAFT_MC_USERNAME']))
+            $uuidBytes[6]=($uuidBytes[6] -band 15) -bor 48
+            $uuidBytes[8]=($uuidBytes[8] -band 63) -bor 128
+            $uuidHex=[Convert]::ToHexString($uuidBytes).ToLowerInvariant()
+            $arguments.Add('--uuid');$arguments.Add($uuidHex)
+        }
         $arguments.Add('--quickPlayMultiplayer');$arguments.Add($start.Environment['GOLDCRAFT_MC_CONNECT'])
     }
     $argumentFile=Assert-SandboxPath (Join-Path $instanceRoot "$Role.args")
@@ -144,6 +175,8 @@ g
     $start.ArgumentList.Add('@'+$argumentFile)
 }
 if($Wait){$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true}
+$prunedLogs=Remove-OldSandboxRunLogs -LogDirectory $logDir -Role $Role -ReserveRun:$Wait
+if($prunedLogs){Write-Host "Removed $prunedLogs old $Role log files; retaining the latest runs."}
 $process=[Diagnostics.Process]::Start($start)
 if($Wait){
     $stamp=[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')

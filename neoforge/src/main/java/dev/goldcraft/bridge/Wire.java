@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public final class Wire {
     private Wire() {}
-    public static final int MAGIC = 0x31464347, VERSION = 16, HEADER_BYTES = 32;
+    public static final int MAGIC = 0x31464347, VERSION = 18, HEADER_BYTES = 32;
     public static final int MAX_PAYLOAD = 32 * 1024 * 1024, MAX_QUEUED = 64 * 1024 * 1024;
     public static final float UNITS_PER_BLOCK = 32.0f, Y_OFFSET = 64.0f;
     public static final int HOST_CLIENT = 1, FABRIC_CLIENT = 2, HOST_SERVER = 3, FABRIC_SERVER = 4;
@@ -22,6 +22,7 @@ public final class Wire {
     public static final int SCENE_RESET = 29, ATLAS_PATCHES = 32;
     public static final int HUD_FRAME = 33, VIEWPORT = 34, UI_INPUT = 35;
     public static final int PARTICLE_TEXTURE = 36, PARTICLE_MESH = 37;
+    public static final int BLOCK_FEEDBACK = 38, CAMERA = 39, KEY_INPUT = 55;
     public static final int TRACE_QUERY = 40, TRACE_RESULT = 41, AUTHORITATIVE_POSE = 50;
     public static final int MINECRAFT_OBJECTS = 51, OBJECT_ACTION = 52, HOST_ENTITIES = 53, VITALS_DELTA = 54;
 
@@ -30,7 +31,7 @@ public final class Wire {
 
     public static boolean knownType(int type) {
         return switch (type) {
-            case HELLO, WELCOME, HEARTBEAT, WORLD, ACTORS, CLIENT_BINDING, PAIR_PLAYER, PAIR_RESULT,
+            case HELLO, WELCOME, HEARTBEAT, WORLD, ACTORS, CLIENT_BINDING, PAIR_PLAYER, PAIR_RESULT, BLOCK_FEEDBACK, CAMERA, KEY_INPUT,
                  INPUT, PLAYER_POSE, ATLAS, SECTION_MESH, REMOVE_SECTION, DAMAGE_REQUEST, DAMAGE_RESULT,
                  BSP, BRUSHES, CONTROL, LIGHTS, ENTITY_TEXTURE, ENTITY_MESH, SCENE_RESET, ATLAS_PATCHES, HUD_FRAME, VIEWPORT, UI_INPUT, PARTICLE_TEXTURE, PARTICLE_MESH, TRACE_QUERY, TRACE_RESULT, AUTHORITATIVE_POSE, MINECRAFT_OBJECTS, OBJECT_ACTION, HOST_ENTITIES, VITALS_DELTA -> true;
             default -> false;

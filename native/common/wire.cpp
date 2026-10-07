@@ -60,6 +60,7 @@ bool known_type(Type t) {
     case Type::scene_reset: case Type::atlas_patches:
     case Type::hud_frame: case Type::viewport: case Type::ui_input:
     case Type::particle_texture: case Type::particle_mesh:
+    case Type::block_feedback: case Type::camera: case Type::key_input:
     case Type::authoritative_pose: case Type::minecraft_objects: case Type::object_action: case Type::host_entities:
     case Type::damage_request: case Type::damage_result: case Type::vitals_delta: return true;
     default: return false;

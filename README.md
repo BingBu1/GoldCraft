@@ -1,8 +1,8 @@
 # GoldCraft
 
-把真实的 Minecraft 1.21 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前开发地图是 `cs_assault`（72 街仓库）。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
+把真实的 Minecraft 1.21.1 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前僵尸测试使用 `sy_zombie2_Bloodmoon`，保留 `cs_assault` 回归场景。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
 
-项目正在开发。NeoForge 客户端、服务端及双 CS/MC 配对已启动验证，完整玩法与联机验收仍未完成；室内光照修复也需要继续实测。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
+项目正在开发。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形 A/B 客户端和完整多人玩法仍待验收，室内光照修复也需要继续实测。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
 
 ## 构建与使用
 
@@ -25,15 +25,19 @@
 
 ## 集中管理 Mod
 
-用 X Minecraft Launcher 管理 `sandbox/modpack-neoforge/GoldCraft-1.21-NeoForge` 这一份主实例。关闭 X 后运行生成的 `Add-to-XMCL.cmd` 注册，在主实例增删 Mod，再运行 `Sync-and-Start.cmd` 验证依赖、同步到 A/B 与服务端并重启。
+用 X Minecraft Launcher 管理 `sandbox/modpack-neoforge/GoldCraft-1.21.1-NeoForge` 这一份主实例。关闭 X 后运行生成的 `Add-to-XMCL.cmd` 注册，在主实例增删 Mod，再运行 `Sync-and-Start.cmd` 验证依赖、同步到 A/B 与服务端并重启。
 
-Minecraft 必须是 **1.21**，NeoForge 为 **21.0.167**。1.21.1、1.21.11、Fabric 或 Forge 的 Mod 不可视为相同版本。客户端专用和服务端专用 Mod 通过明确的运行端规则分配；详见 [Mod 管理](docs/MOD_MANAGEMENT.md)。NeoForge 的真实三端增删更新测试和第三方 Mod 兼容性仍在验证中。
+当前固定 **Minecraft 1.21.1 / NeoForge 21.1.256 / FML 4.0.45**，使用官方安装器准备的正式映射运行环境。Mod 依赖由匹配的 FML/JarJar 解析，包含加载器官方兼容规则；客户端专用和服务端专用 Mod 通过明确的运行端规则分配。JEI 19.57.0.451、MezzConfig 0.6.8 已实际加载到独立服务器，完整三端增删更新及界面效果仍在验证。详见 [Mod 管理](docs/MOD_MANAGEMENT.md)。
 
 ## 交互与服务器
 
-保留原有 CS 绑定，`/mc` 请求服务器切换 CS/MC 形态，`/cs` 返回 CS。MC 形态中 I 打开或关闭背包，Escape 关闭菜单，E 保留原生 Use，鼠标中键转发给 Minecraft 选取物品。菜单搜索仍使用正常文字输入。这些行为已实现，迁移后的完整输入回归尚未完成。
+保留原有 CS 绑定。未被占用的 F6 打开服务器形态菜单，1 选择 CS、2 选择 MC；F6、Escape 或 0 关闭。已有 F6 绑定继续生效，也可通过 `goldcraft_menu` 命令打开菜单。`/mc` 切换形态，`/cs` 返回 CS。MC 形态中 I 打开或关闭背包，Escape 关闭菜单，E 保留原生 Use，鼠标中键转发给 Minecraft 选取物品。
 
-建筑只属于当前 CS 地图会话：换图或 ReHLDS 重启清除，普通客户端重连保留。AMXX Pawn 插件通常通过换图重载，`sv_restart` 只重启回合。脚本接口见 [服务器 API](docs/SERVER_API.md)。
+CS 形态可叠加真实 Minecraft 聊天和死亡消息；MC 形态按 `/` 打开原版指令输入。MC 掌控移动时由 Minecraft 计算坠落伤害，保留创造免伤和生存扣血。这些改动已编译，图形客户端中的菜单、聊天与实际坠落仍待验收。
+
+建筑和非玩家 MC 实体只属于当前 CS 地图会话：换图或 ReHLDS 重启清除，普通客户端重连保留。15 项 NeoForge GameTest 包含已加载及磁盘实体的旧会话清理。AMXX Pawn 插件通常通过换图重载，`sv_restart` 只重启回合。脚本接口见 [服务器 API](docs/SERVER_API.md)。
+
+Zombie Plague 5.0.8a 与 SyPB/API 1.50 已在独立 ReHLDS 中完成 6 Bot 的自主移动、武器伤害和自然感染检查。默认只启动沙箱 B 及其 MC 配对客户端，Mod 文件仍同步 A/B/server。安装与测试见 [僵尸模式](docs/ZOMBIE_TESTING.md)。超过 512 项的客户端/服务端预缓存扩容仍在开发，尚未宣称支持。
 
 ## 源码入口
 

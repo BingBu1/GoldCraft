@@ -11,6 +11,9 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 | [ReHLDS](https://github.com/rehlds/rehlds) | 专用服务器与原生实体扩展补丁 | [MIT](notices/ReHLDS-LICENSE.txt) |
 | [AMX Mod X](https://github.com/alliedmodders/amxmodx) | 模块 SDK、Pawn 插件接口 | [许可及 HL Engine/MOD 例外](notices/AMXModX-LICENSE.txt)、[GPL v3](notices/GPLv3.txt) |
 | [ReAPI](https://github.com/rehlds/ReAPI) | 版本匹配的 Pawn hook/native 声明 | [GPL v3](notices/ReAPI-LICENSE.txt) |
+| [SyPB](https://github.com/CCNHsK-Dev/SyPB) | 僵尸模式 Bot、AMXX API 与日志修复补丁 | 上游根目录 [GPL v3](notices/GPLv3.txt)，补丁文件保留原有版权与许可声明 |
+
+Zombie Plague 5.0.8a 由使用者提供的校验匹配源码包构建；仓库只发布安装和适配脚本，不包含该压缩包或游戏模型、声音、贴图。资源补齐使用固定 Git 提交并验证内容哈希，来源记录只保存在本地部署清单。
 
 许可证原文来自锁定的上游工作树，版权和许可声明保持原样。构建依赖仍受其各自许可约束；尤其 AMXX SDK 派生模块/插件需遵循其 GPL 与列明例外。新增 GoldCraft 源码目前没有单独授予统一的开源许可证；公开源码不会改变上游部分已有的许可。
 

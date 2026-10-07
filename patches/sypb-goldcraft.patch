@@ -1,0 +1,24 @@
+diff --git a/Project SyPB/SyPB_BOT/source/support.cpp b/Project SyPB/SyPB_BOT/source/support.cpp
+index 3950d1b..23fa85a 100644
+--- a/Project SyPB/SyPB_BOT/source/support.cpp	
++++ b/Project SyPB/SyPB_BOT/source/support.cpp	
+@@ -1412,6 +1412,9 @@ void MOD_AddLogEntry(int mod, const char* format)
+ 		modName, mod_bV16[0], mod_bV16[1], mod_bV16[2], mod_bV16[3]), "rb");
+ 	File fp(FormatBuffer("%s/addons/sypb/logs/%s_build_%u_%u_%u_%u.txt", GetModName(),
+ 		modName, mod_bV16[0], mod_bV16[1], mod_bV16[2], mod_bV16[3]), "at");
++	// A missing/unwritable log directory must not call vfprintf with NULL.
++	if (!fp.IsValid())
++		return;
+ 
+ 	if (!checkLogFP.IsValid())
+ 	{
+@@ -1424,9 +1427,6 @@ void MOD_AddLogEntry(int mod, const char* format)
+ 
+ 	checkLogFP.Close();
+ 
+-	if (!fp.IsValid())
+-		return;
+-
+ 	const time_t tickTime = time(null);
+ 	const tm* time = localtime(&tickTime);
+ 

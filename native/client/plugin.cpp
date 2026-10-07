@@ -16,6 +16,10 @@
 #include "goldcraft/avatar.hpp"
 #include "goldcraft/hud.hpp"
 #include "goldcraft/particles.hpp"
+#include "goldcraft/form_menu.hpp"
+#include "goldcraft/block_feedback.hpp"
+#include "goldcraft/camera.hpp"
+#include "goldcraft/host_keys.hpp"
 #include <array>
 #include <cstring>
 #include <cstdlib>
@@ -62,7 +66,15 @@ std::chrono::steady_clock::time_point last_pose{};
 Vec3 minecraft_feet{};
 float minecraft_eye=1.62f;
 bool minecraft_control=false,minecraft_menu=false;
+FormMenu form_menu;
+pfnUserMsgHook previous_show_menu=nullptr;
+std::uint64_t form_menu_draws=0,form_menu_selections=0;
 ViewInterpolator view_interpolator;
+CameraInterpolator camera_interpolator;
+CameraPose camera_pose;
+std::uint64_t camera_revision=0,camera_frames=0;
+unsigned camera_life=0;
+double last_camera=0;
 cvar_t* view_smoothing=nullptr;
 cvar_t* replace_players=nullptr;
 cvar_t* minecraft_hud=nullptr;
@@ -92,6 +104,8 @@ double motion_end=0,motion_start=0,last_view_time=0,frame_work_ms=0,frame_work_m
 unsigned last_input_buttons=0;
 unsigned input_buttons_observed=0;
 std::uint64_t key_events=0;
+std::uint64_t forwarded_key_events=0,key_sequence=0;
+std::array<bool,256> forwarded_keys{};
 int last_key=0,last_key_down=0;
 bool last_input_active=false;
 bool window_focused=false;
@@ -113,6 +127,12 @@ struct Texture {GLuint id;unsigned width,height;};
 struct EntityBatch {unsigned texture,flags;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>();};
 std::map<unsigned,Texture> entity_textures;
 std::vector<EntityBatch> entity_batches;
+std::vector<Vertex> outline_vertices;
+std::shared_ptr<render::Mesh> outline_gpu=std::make_shared<render::Mesh>();
+std::vector<EntityBatch> crack_batches;
+std::uint64_t feedback_revision=0,feedback_frames=0,feedback_draws=0;
+unsigned feedback_life=0;
+double last_feedback=0;
 std::map<unsigned,Texture> particle_textures;
 std::vector<EntityBatch> particle_batches;
 std::uint64_t particle_generation=0,particle_revision=0,particle_frames=0,particle_draws=0,particle_bytes=0;
@@ -132,6 +152,7 @@ std::array<std::pair<std::uint64_t,std::chrono::steady_clock::time_point>,256> i
 float input_latency_ms=0;
 void Draw(bool transparent,std::uint32_t flags=0);
 int KeyEvent(int down,int key,const char* binding_text);
+void ReleaseMinecraftKeys();
 class SceneCallbacks final : public IMetaRendererSceneCallbacks {
 public:
     void DrawOpaqueScene(std::uint32_t flags) override {Draw(false,flags);}
@@ -144,6 +165,9 @@ void ClearParticles(bool delete_textures=true){
 }
 void ClearDynamic(bool delete_textures=true) {
     ClearParticles(delete_textures);
+    outline_vertices.clear();crack_batches.clear();outline_gpu=std::make_shared<render::Mesh>();
+    feedback_revision=feedback_life=0;last_feedback=0;
+    camera_interpolator.clear();camera_revision=camera_life=0;last_camera=0;
     if(delete_textures&&render::owns_context())for(auto& [key,texture]:entity_textures)glDeleteTextures(1,&texture.id);
     entity_textures.clear();entity_batches.clear();entity_revision=0;entity_count=block_entity_count=0;
     rendered_players.clear();last_entity_frame=0;entity_drawn_revision=0;
@@ -166,6 +190,8 @@ void ReleaseHostUse(){
     host_use_sources=0;host_use_sent=false;host_use_world=0;host_use_life=0;next_host_use=0;
 }
 void ResetWorld() {
+    ReleaseMinecraftKeys();
+    form_menu.clear();
     ReleaseHostUse();
     RestoreViewModel();
     sections.clear();lamps.clear();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
@@ -175,6 +201,24 @@ void ResetWorld() {
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;
 }
 bool HasControl(){return server_minecraft_form&&minecraft_life==server_player_life&&minecraft_control&&link.connected()&&std::chrono::steady_clock::now()-last_pose<std::chrono::milliseconds(350);}
+bool CameraFresh(){return HasControl()&&camera_revision&&camera_life==minecraft_life&&Seconds()-last_camera<0.25;}
+void SendKey(unsigned kind,int code,int action,float amount=0){
+    Writer w;w.u64(world);w.u64(++key_sequence);w.u32(minecraft_life);w.u32(kind);w.i32(code);w.i32(action);w.u32(ui_modifiers);w.f32(amount);
+    if(link.send(Type::key_input,w.data))++forwarded_key_events;
+}
+void ReleaseMinecraftKeys(){
+    if(std::any_of(forwarded_keys.begin(),forwarded_keys.end(),[](bool value){return value;})&&world&&link.connected())SendKey(0,0,0);
+    forwarded_keys.fill(false);ui_modifiers=0;
+}
+bool ForwardKey(int down,int key){
+    if(key<0||key>=256)return false;
+    if(key==K_MWHEELUP||key==K_MWHEELDOWN){if(down)SendKey(3,0,0,key==K_MWHEELUP?1.0f:-1.0f);return true;}
+    const bool mouse=key>=K_MOUSE1&&key<=K_MOUSE5;
+    const int code=mouse?key-K_MOUSE1:glfw_key(key);if(code<0)return false;
+    if(!down&&!forwarded_keys[key])return true;
+    const int action=down?(forwarded_keys[key]?2:1):0;
+    forwarded_keys[key]=down!=0;SendKey(mouse?2:1,code,action);return true;
+}
 void UpdateHostUse(){
     DWORD foreground=0;GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
     const bool allowed=HasControl()&&world&&minecraft_life&&foreground==GetCurrentProcessId()
@@ -188,7 +232,7 @@ void UpdateHostUse(){
 }
 void BeginHostUse(){host_use_sources|=1;UpdateHostUse();}
 void EndHostUse(){host_use_sources&=~1u;UpdateHostUse();}
-bool HudFresh(){return link.connected()&&(HasControl()||(!server_minecraft_form&&minecraft_menu))&&hud_texture&&hud_revision&&hud_life==minecraft_life&&hud_life==server_player_life&&(!minecraft_hud||minecraft_hud->value!=0)&&Seconds()-last_hud<0.5;}
+bool HudFresh(){return link.connected()&&(HasControl()||(hud_flags&8)||minecraft_menu)&&hud_texture&&hud_revision&&hud_life==minecraft_life&&hud_life==server_player_life&&(!minecraft_hud||minecraft_hud->value!=0)&&Seconds()-last_hud<0.5;}
 void ClearHud(){hud_revision=hud_menu_id=0;hud_flags=hud_life=0;last_hud=next_viewport=0;RestoreViewModel();}
 void UpdateViewModel(){
     if(HudFresh()&&(hud_flags&4)&&host_viewmodel){
@@ -229,7 +273,7 @@ void ReadHud(Reader& r){
     const auto screen_width=r.u32(),screen_height=r.u32(),width=r.u32(),height=r.u32(),flags=r.u32(),life=r.u32(),slot=r.u32();
     const auto health=r.f32();const auto food=r.u32(),armor=r.u32(),level=r.u32();const auto experience=r.f32();
     if(epoch!=world||viewport!=viewport_id||life!=minecraft_life||screen_width!=viewport_width||screen_height!=viewport_height||revision<=hud_revision)return;
-    if((flags&~7u)||((flags&1)!=0)!=(menu!=0)||!width||!height||width>1024||height>1024||slot>8||health<0||food>20||armor>1024||experience<0||experience>1)throw ProtocolError("Invalid HUD state");
+    if((flags&~15u)||((flags&12)==12)||((flags&1)!=0)!=(menu!=0)||!width||!height||width>1024||height>1024||slot>8||health<0||food>20||armor>1024||experience<0||experience>1)throw ProtocolError("Invalid HUD state");
     const auto pixel_width=(flags&2)?screen_width:width,pixel_height=(flags&2)?screen_height:height;
     const auto pixels=read_hud_pixels(r,pixel_width,pixel_height);
     render::upload_texture(hud_texture,hud_width,hud_height,pixel_width,pixel_height,pixels);
@@ -244,7 +288,21 @@ void SendControl(unsigned action) {
 }
 void CloseMinecraftMenu(){SendControl(14);}
 void OpenMinecraftInventory(){SendControl(10);}
+void OpenMinecraftCommand(){SendControl(17);}
 void ToggleForm(){gEngfuncs.pfnServerCmd("goldcraft_form toggle\n");}
+void SelectFormMenu(int index){
+    form_menu.clear();
+    auto command="menuselect "+std::to_string(index)+"\n";
+    gEngfuncs.pfnServerCmd(command.data());++form_menu_selections;
+}
+void OpenFormMenu(){
+    if(form_menu.active(Seconds())){SelectFormMenu(10);return;}
+    if(!world)return;
+    CloseMinecraftMenu();ReleaseHostUse();
+    gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
+    gEngfuncs.pfnServerCmd("goldcraft_menu\n");
+}
+bool DefaultFormMenuKey(int key,const char* binding_text){return key==K_F6&&(!binding_text||!*binding_text);}
 void ReloadMinecraftResources(){SendControl(15);}
 void Status() {
     gEngfuncs.Con_Printf("[GoldCraft] protocol=%d engine=%d connected=%d local-port=%d sections=%u\n",protocol_version,api->GetEngineBuildnum(),link.connected()?1:0,link.port(),static_cast<unsigned>(sections.size()));
@@ -261,6 +319,10 @@ void WriteDiagnostics() {
            <<",\"world\":\""<<world<<"\",\"playerSlot\":"<<player_slot<<",\"playerSerial\":"<<player_serial<<",\"playerLife\":"<<minecraft_life<<",\"sections\":"<<sections.size()<<",\"vertices\":"<<vertices
            <<",\"drawFrames\":"<<frames_drawn<<",\"glError\":"<<last_gl_error<<",\"lights\":"<<lamps.size()<<",\"entities\":"<<entity_count<<",\"blockEntities\":"<<block_entity_count<<",\"entityBatches\":"<<entity_batches.size()<<",\"inputEchoMs\":"<<input_latency_ms<<",\"minecraftControl\":"<<(HasControl()?"true":"false")<<",\"inputSequence\":"<<input_sequence<<",\"poseSequence\":"<<pose_sequence
            <<",\"smoothing\":"<<((!view_smoothing||view_smoothing->value!=0)?"true":"false")<<",\"frameWorkMs\":"<<frame_work_ms<<",\"frameWorkMaxMs\":"<<frame_work_max_ms<<",\"viewFrameMaxMs\":"<<view_frame_max_ms
+           <<",\"cameraFrames\":"<<camera_frames<<",\"cameraFresh\":"<<(CameraFresh()?"true":"false")<<",\"perspective\":"<<camera_pose.perspective
+           <<",\"cameraAgeMs\":"<<(last_camera?(Seconds()-last_camera)*1000:-1)<<",\"cameraVerticalFov\":"<<camera_pose.vertical_fov
+           <<",\"cameraPosition\":["<<camera_pose.position.x<<','<<camera_pose.position.y<<','<<camera_pose.position.z<<']'
+           <<",\"cameraAngles\":["<<camera_pose.angles.x<<','<<camera_pose.angles.y<<','<<camera_pose.angles.z<<']'
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")
            <<",\"atlasUploads\":"<<atlas_uploads<<",\"atlasGeneration\":"<<atlas_generation<<",\"atlasAnimationPackets\":"<<atlas_animation_packets<<",\"atlasPatchBytes\":"<<atlas_patch_bytes<<",\"atlasAnimationIntervalMs\":"<<atlas_animation_interval_ms
@@ -268,6 +330,9 @@ void WriteDiagnostics() {
            <<",\"avatarCount\":"<<rendered_players.size()<<",\"suppressedModels\":"<<suppressed_models<<",\"replacePlayers\":"<<((!replace_players||replace_players->value!=0)?"true":"false")
            <<",\"entityDepthWriteBatches\":"<<depth_batches<<",\"entityTranslucentBatches\":"<<translucent_batches
            <<",\"entityTextures\":"<<entity_textures.size()<<",\"entityRevision\":"<<entity_revision
+           <<",\"outlineEdges\":"<<outline_vertices.size()/2<<",\"crackBatches\":"<<crack_batches.size()
+           <<",\"feedbackFrames\":"<<feedback_frames<<",\"feedbackDraws\":"<<feedback_draws
+           <<",\"feedbackAgeMs\":"<<(last_feedback?(Seconds()-last_feedback)*1000:-1)
            <<",\"entityFrames\":"<<entity_frames<<",\"entityPresentedFrames\":"<<entity_presented_frames<<",\"entityIntervalMs\":"<<entity_interval_ms
            <<",\"entityTextureUploads\":"<<entity_texture_uploads<<",\"entityTextureBytes\":"<<entity_texture_bytes
            <<",\"sceneReady\":"<<(atlas_generation?"true":"false")<<",\"pendingSceneMeshes\":"<<pending_scene_meshes
@@ -278,13 +343,17 @@ void WriteDiagnostics() {
            <<",\"particlesEnabled\":"<<((!render_particles||render_particles->value!=0)?"true":"false")
            <<",\"hudVisible\":"<<(HudFresh()?"true":"false")<<",\"hudFrames\":"<<hud_frames<<",\"hudDraws\":"<<hud_draws<<",\"hudWidth\":"<<hud_gui_width<<",\"hudHeight\":"<<hud_gui_height
            <<",\"hudTextureWidth\":"<<hud_width<<",\"hudTextureHeight\":"<<hud_height
-           <<",\"minecraftHands\":"<<(HudFresh()&&(hud_flags&4)?"true":"false")<<",\"viewModelSuppressed\":"<<(viewmodel_suppressed?"true":"false")
+           <<",\"minecraftHands\":"<<(HudFresh()&&(hud_flags&4)?"true":"false")<<",\"minecraftChatOverlay\":"<<(HudFresh()&&(hud_flags&8)?"true":"false")
+           <<",\"viewModelSuppressed\":"<<(viewmodel_suppressed?"true":"false")
            <<",\"hostViewModel\":"<<(host_viewmodel?host_viewmodel->value:-1)<<",\"viewModelSuppressedFrames\":"<<suppressed_viewmodel_frames<<",\"hudIntervalMs\":"<<hud_interval_ms
            <<",\"hudRevision\":"<<hud_revision<<",\"hudAgeMs\":"<<(last_hud?(Seconds()-last_hud)*1000:-1)<<",\"hudWorkMs\":"<<hud_work_ms<<",\"hudMenuId\":"<<hud_menu_id
+           <<",\"formMenuVisible\":"<<(form_menu.active(Seconds())?"true":"false")<<",\"formMenuSlots\":"<<form_menu.keys()
+           <<",\"formMenuDraws\":"<<form_menu_draws<<",\"formMenuSelections\":"<<form_menu_selections
            <<",\"hudSlot\":"<<hud_slot<<",\"hudHealth\":"<<hud_health<<",\"hudFood\":"<<hud_food<<",\"hudArmor\":"<<hud_armor<<",\"hudLevel\":"<<hud_level<<",\"hudExperience\":"<<hud_experience
            <<",\"uiActive\":"<<(ui_active?"true":"false")<<",\"uiX\":"<<ui_x<<",\"uiY\":"<<ui_y<<",\"viewportId\":"<<viewport_id<<",\"viewportWidth\":"<<viewport_width<<",\"viewportHeight\":"<<viewport_height
            <<",\"testCommand\":"<<test_command_id<<",\"minecraftMenu\":"<<(minecraft_menu?"true":"false")<<",\"inputActive\":"<<(last_input_active?"true":"false")<<",\"inputButtons\":"<<last_input_buttons<<",\"inputForward\":"<<last_input_forward<<",\"minecraftEye\":"<<minecraft_eye
            <<",\"inputButtonsObserved\":"<<input_buttons_observed<<",\"keyEvents\":"<<key_events<<",\"lastKey\":"<<last_key<<",\"lastKeyDown\":"<<last_key_down
+           <<",\"forwardedKeys\":"<<forwarded_key_events
            <<",\"consoleVisible\":"<<(gEngfuncs.Con_IsVisible()?"true":"false")
            <<",\"hostUiHook\":"<<(host_menu.hooked?"true":"false")<<",\"hostGameMenu\":"<<(host_menu.game_menu?"true":"false")
            <<",\"hostUiKeyboard\":"<<(host_menu.keyboard?"true":"false")<<",\"hostUiFocus\":\""<<host_menu.focus<<"\""
@@ -320,6 +389,9 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
+            ReleaseMinecraftKeys();
+            camera_interpolator.clear();camera_revision=0;last_camera=0;
+            form_menu.clear();
             ReleaseHostUse();ClearHud();view_interpolator.clear();minecraft_control=minecraft_menu=ui_active=false;
             gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
         }
@@ -352,14 +424,34 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 void InitHud() {
     gExportfuncs.HUD_Init();
     host_ui::install(api,[](int down,int key,const char* binding_text){
-        if(!ui_active||!HudFresh()||gEngfuncs.Con_IsVisible())return false;
-        KeyEvent(down,key,binding_text);return true;
+        if(gEngfuncs.Con_IsVisible()||(binding_text&&std::strcmp(binding_text,"toggleconsole")==0))return false;
+        if(form_menu.active(Seconds())||DefaultFormMenuKey(key,binding_text)){
+            if(host_ui::state().keyboard)return false;
+            KeyEvent(down,key,binding_text);return true;
+        }
+        if(ui_active&&HudFresh()){KeyEvent(down,key,binding_text);return true;}
+        // Plus-commands must reach the native command builder (movement/use).
+        // Intercept other gameplay keys here exactly once, before native menus.
+        if(HasControl()&&!host_ui::state().keyboard&&(!binding_text||binding_text[0]!='+')){
+            KeyEvent(down,key,binding_text);return true;
+        }
+        return false;
     });
     gEngfuncs.pfnAddCommand("goldcraft_status",Status);
     gEngfuncs.pfnAddCommand("goldcraft_close_menu",CloseMinecraftMenu);
     gEngfuncs.pfnAddCommand("goldcraft_reload_resources",ReloadMinecraftResources);
     gEngfuncs.pfnAddCommand("goldcraft_inventory",OpenMinecraftInventory);
+    gEngfuncs.pfnAddCommand("goldcraft_command",OpenMinecraftCommand);
     gEngfuncs.pfnAddCommand("goldcraft_toggle",ToggleForm);
+    gEngfuncs.pfnAddCommand("goldcraft_menu",OpenFormMenu);
+    previous_show_menu=api->HookUserMsg("ShowMenu",[](const char* name,int size,void* data)->int {
+        const int result=previous_show_menu?previous_show_menu(name,size,data):1;
+        try{
+            if(size<0)throw ProtocolError("Invalid ShowMenu length");
+            form_menu.message(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)),Seconds());
+        }catch(const ProtocolError& e){form_menu.clear();Log(e.what());}
+        return result;
+    });
     gEngfuncs.pfnAddCommand("+goldcraft_use",BeginHostUse);
     gEngfuncs.pfnAddCommand("-goldcraft_use",EndHostUse);
     view_smoothing=gEngfuncs.pfnRegisterVariable("goldcraft_view_smoothing","1",0);
@@ -411,6 +503,13 @@ void CalcRefDef(ref_params_t* params) {
         Vec3 feet=to_goldsrc(pose.feet);
         params->vieworg[0]=feet.x;params->vieworg[1]=feet.y;params->vieworg[2]=feet.z+pose.eye*units_per_block;
         params->simorg[0]=feet.x;params->simorg[1]=feet.y;params->simorg[2]=feet.z+36;
+        if(CameraFresh()){
+            const auto camera=(!view_smoothing||view_smoothing->value!=0)?camera_interpolator.at(now):camera_pose;
+            const auto position=to_goldsrc(camera.position);
+            params->vieworg[0]=position.x;params->vieworg[1]=position.y;params->vieworg[2]=position.z;
+            params->viewangles[0]=camera.angles.x;params->viewangles[1]=camera.angles.y;params->viewangles[2]=camera.angles.z;
+            gEngfuncs.pfnAngleVectors(params->viewangles,params->forward,params->right,params->up);
+        }
         if(motion_capture.is_open()) {
             if(now>=motion_end)motion_capture.close();
             else motion_capture<<now-motion_start<<','<<minecraft_feet.x<<','<<minecraft_feet.y<<','<<minecraft_feet.z<<','<<pose.feet.x<<','<<pose.feet.y<<','<<pose.feet.z<<','<<pose.eye<<','<<pose_sequence<<','<<input_sequence<<','<<last_input_buttons<<','<<last_input_forward<<','<<last_input_side<<','<<input_latency_ms<<'\n';
@@ -419,6 +518,21 @@ void CalcRefDef(ref_params_t* params) {
     observed_origin={params->simorg[0],params->simorg[1],params->simorg[2]};
     observed_angles={params->viewangles[0],params->viewangles[1],params->viewangles[2]};
     have_view=true;
+}
+int UpdateClientData(client_data_t* data,float time){
+    const int result=gExportfuncs.HUD_UpdateClientData?gExportfuncs.HUD_UpdateClientData(data,time):1;
+    if(!data||!CameraFresh())return result;
+    const float vertical=camera_interpolator.at(Seconds()).vertical_fov;
+    const bool vertical_input=gEngfuncs.pfnGetCvarFloat("r_vertical_fov")>0;
+    float aspect=viewport_height?static_cast<float>(viewport_width)/viewport_height:4.0f/3;
+    const int wide=static_cast<int>(gEngfuncs.pfnGetCvarFloat("gl_widescreen_yfov"));
+    const bool standard=std::abs(aspect-4.0f/3)<0.001f||std::abs(aspect-1.25f)<0.001f;
+    float factor=1;
+    if(vertical_input){if(!standard&&wide==1&&aspect<4.0f/3)factor=aspect/(4.0f/3);}
+    else factor=!standard&&wide==2?4.0f/3:(!standard&&wide==1?std::min(aspect,4.0f/3):aspect);
+    constexpr float radians=0.0174532925199433f;
+    data->fov=std::clamp(2*std::atan(std::tan(vertical*radians/2)*factor)/radians,1.0f,178.0f);
+    return 1;
 }
 void ReadAtlas(Reader& r) {
     const auto epoch=r.u64(),generation=r.u64();if(epoch!=world)return;
@@ -477,10 +591,10 @@ void ReadEntityMesh(Reader& r) {
     std::vector<EntityBatch> next;std::size_t vertices=0;
     for(unsigned i=0;i<groups;i++) {
         auto texture=r.u32(),flags=r.u32(),n=r.u32();vertices+=n;
-        if(texture>256||(flags&~3u)||n%4||vertices>349525||std::size_t(n)*24>r.remaining())throw ProtocolError("invalid dynamic scene vertices");
+        if(texture>256||(flags&~3u)||n%4||vertices>299592||std::size_t(n)*28>r.remaining())throw ProtocolError("invalid dynamic scene vertices");
         EntityBatch batch{texture,flags,{}};batch.vertices.reserve(n);
         if(i<entity_batches.size()&&entity_batches[i].texture==texture&&entity_batches[i].flags==flags)batch.gpu=entity_batches[i].gpu;
-        for(unsigned j=0;j<n;j++){Vec3 mc{r.f32(),r.f32(),r.f32()};auto gs=to_goldsrc(mc);batch.vertices.push_back({gs.x,gs.y,gs.z,r.f32(),r.f32(),r.u32()});}
+        for(unsigned j=0;j<n;j++){Vec3 mc{r.f32(),r.f32(),r.f32()};auto gs=to_goldsrc(mc);batch.vertices.push_back({gs.x,gs.y,gs.z,r.f32(),r.f32(),r.u32(),r.u32()});}
         next.push_back(std::move(batch));
     }
     auto avatars=read_rendered_players(r);
@@ -509,6 +623,21 @@ void ReadParticleTexture(Reader& r){
     if(size>64*1024*1024)throw ProtocolError("Particle texture memory budget exceeded");
     if(generation!=particle_generation){ClearParticles();particle_generation=generation;}
     auto& texture=particle_textures[key];render::upload_texture(texture.id,texture.width,texture.height,width,height,r.bytes(r.remaining()));
+}
+void ReadBlockFeedback(Reader& r){
+    const auto frame=read_block_feedback(r);
+    if(!atlas_generation||frame.epoch!=world||frame.life!=minecraft_life||frame.life!=server_player_life||frame.revision<=feedback_revision)return;
+    std::vector<Vertex> lines;lines.reserve(frame.lines.size());
+    for(const auto& point:frame.lines){const auto p=to_goldsrc(point);lines.push_back({p.x,p.y,p.z,0,0,0x66000000});}
+    std::vector<EntityBatch> cracks;
+    for(const auto& source:frame.cracks){
+        EntityBatch batch{0,source.stage,{}};batch.vertices.reserve(source.vertices.size());
+        if(cracks.size()<crack_batches.size())batch.gpu=crack_batches[cracks.size()].gpu;
+        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color});}
+        cracks.push_back(std::move(batch));
+    }
+    outline_vertices=std::move(lines);crack_batches=std::move(cracks);
+    feedback_revision=frame.revision;feedback_life=frame.life;last_feedback=Seconds();++feedback_frames;
 }
 void ReadParticles(Reader& r){
     auto snapshot=read_particles(r);
@@ -545,6 +674,7 @@ void TestCommands() {
     else if(action=="form"){int form=0;if(input>>form&&form>=0&&form<=1){auto command="goldcraft_form "+std::to_string(form)+"\n";gEngfuncs.pfnServerCmd(command.data());}}
     else if(action=="toggle_form")ToggleForm();
     else if(action=="engine_key"){int key=0;if(input>>key&&key>=1&&key<=255){gEngfuncs.Key_Event(key,1);gEngfuncs.Key_Event(key,0);}}
+    else if(action=="engine_key_state"){int key=0,down=0;if(input>>key>>down&&key>=1&&key<=255&&down>=0&&down<=1)gEngfuncs.Key_Event(key,down);}
     else if(action=="resume_game")host_ui::resume_game();
     else if(action=="hideconsole")gEngfuncs.pfnClientCmd(const_cast<char*>("hideconsole\n"));
     else if(action=="resource_reload")ReloadMinecraftResources();
@@ -631,6 +761,17 @@ void Frame(double time) {
             else if(message.type==Type::entity_mesh)ReadEntityMesh(r);
             else if(message.type==Type::particle_texture)ReadParticleTexture(r);
             else if(message.type==Type::particle_mesh)ReadParticles(r);
+            else if(message.type==Type::block_feedback)ReadBlockFeedback(r);
+            else if(message.type==Type::camera){
+                const auto frame=read_camera(r);
+                if(frame.epoch==world&&frame.life==server_player_life&&frame.life==minecraft_life&&frame.revision>camera_revision){
+                    if(camera_life!=frame.life)camera_interpolator.clear();
+                    const auto now=Seconds();
+                    if(camera_interpolator.push(frame.pose,static_cast<double>(frame.produced)*1e-9,now)){
+                        camera_pose=frame.pose;camera_life=frame.life;camera_revision=frame.revision;last_camera=now;++camera_frames;
+                    }
+                }
+            }
             else if(message.type==Type::hud_frame)ReadHud(r);
             else if(message.type==Type::scene_reset){auto epoch=r.u64();r.finish();if(epoch==world){sections.clear();lamps.clear();ClearDynamic();atlas_generation=0;}}
             else if(message.type==Type::player_pose) {
@@ -703,7 +844,9 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
         if(ui_x!=old_x||ui_y!=old_y)SendUi(1);
         cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;
     }
+    if(form_menu.active(Seconds())){cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->impulse=0;}
     const bool input_active=active&&window_focused;
+    if(!input_active||!HasControl()||ui_active||form_menu.active(Seconds())||gEngfuncs.Con_IsVisible()||host_ui::state().game_menu)ReleaseMinecraftKeys();
     // Preserve the user's actual +use binding; only its destination changes
     // while MC owns movement. R/+reload and all CS-form commands remain native.
     if(HasControl()&&input_active&&(cmd->buttons&IN_USE)&&!ui_active)host_use_sources|=2;
@@ -738,20 +881,20 @@ void PlayerMove(playermove_t* move,int server){
 }
 int KeyEvent(int down,int key,const char* binding_text) {
     ++key_events;last_key=key;last_key_down=down;
+    if(DefaultFormMenuKey(key,binding_text)){if(down)OpenFormMenu();return 0;}
+    if(form_menu.active(Seconds())){
+        if(down){
+            if(key==K_ESCAPE)SelectFormMenu(10);
+            else if(const int selection=form_menu.selection(key,Seconds());selection>0)SelectFormMenu(selection);
+        }
+        return 0;
+    }
     unsigned modifier=key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0;
     if(modifier){if(down)ui_modifiers|=modifier;else ui_modifiers&=~modifier;}
     if(ui_active&&HudFresh()){
         if(key>=K_MOUSE1&&key<=K_MOUSE3){SendUi(2,key-K_MOUSE1,down?1:0);return 0;}
         if(key==K_MWHEELUP||key==K_MWHEELDOWN){if(down)SendUi(3,0,0,key==K_MWHEELUP?1.0f:-1.0f);return 0;}
-        int glfw=key;
-        if(key>='a'&&key<='z')glfw=key-'a'+'A';
-        else switch(key){
-            case K_ESCAPE:glfw=256;break;case K_ENTER:case K_KP_ENTER:glfw=257;break;case K_TAB:glfw=258;break;case K_BACKSPACE:glfw=259;break;
-            case K_INS:glfw=260;break;case K_DEL:glfw=261;break;case K_RIGHTARROW:glfw=262;break;case K_LEFTARROW:glfw=263;break;
-            case K_DOWNARROW:glfw=264;break;case K_UPARROW:glfw=265;break;case K_PGUP:glfw=266;break;case K_PGDN:glfw=267;break;
-            case K_HOME:glfw=268;break;case K_END:glfw=269;break;case K_SHIFT:glfw=340;break;case K_CTRL:glfw=341;break;case K_ALT:glfw=342;break;
-            default:if(key>=K_F1&&key<=K_F12)glfw=290+key-K_F1;break;
-        }
+        const int glfw=glfw_key(key);
         if(glfw>=32&&glfw<=348)SendUi(4,glfw,down?1:0);
         if(down&&key>=32&&key<127&&(ui_modifiers&6)==0){
             int character=key;
@@ -763,16 +906,10 @@ int KeyEvent(int down,int key,const char* binding_text) {
         }
         return 0;
     }
-    if(HasControl()&&down) {
-        unsigned action=0;
-        if(key>='1'&&key<='9')action=key-'0';
-        else if(key=='i'||key=='I')action=10;
-        else if(key==K_MOUSE3)action=16;
-        else if(key=='q'||key=='Q')action=11;
-        else if(binding_text&&std::strcmp(binding_text,"invnext")==0)action=12;
-        else if(binding_text&&std::strcmp(binding_text,"invprev")==0)action=13;
-        else if(key==27&&minecraft_menu)action=14;
-        if(action){SendControl(action);return 0;}
+    if(HasControl()&&!host_ui::state().keyboard) {
+        if(key=='i'||key=='I'){if(down)SendControl(10);return 0;}
+        const bool native_use=binding_text&&std::strcmp(binding_text,"+use")==0;
+        if(!native_use&&ForwardKey(down,key)&&(!binding_text||binding_text[0]!='+'))return 0;
     }
     return gExportfuncs.HUD_Key_Event?gExportfuncs.HUD_Key_Event(down,key,binding_text):1;
 }
@@ -804,17 +941,61 @@ void Draw(bool transparent,std::uint32_t flags) {
             pass.depth_write((batch.flags&1)!=0);pass.texture(texture);batch.gpu->draw(batch.vertices,particle_revision,true);++particle_draws;
         }
     }
+    // Feedback uses the current scene depth; never include outlines/cracks in lighting or shadow maps.
+    if(transparent&&flags==0&&feedback_life==minecraft_life&&feedback_life==server_player_life&&Seconds()-last_feedback<0.25){
+        pass.texture(atlas_texture);pass.feedback(1);
+        for(const auto& batch:crack_batches){batch.gpu->draw(batch.vertices,feedback_revision,true);++feedback_draws;}
+        if(HasControl()&&!minecraft_menu&&!outline_vertices.empty()){
+            pass.feedback(2);outline_gpu->draw(outline_vertices,feedback_revision,true,true);++feedback_draws;
+        }
+    }
     }
     last_gl_error=render::statistics().error;++frames_drawn;
     if(section_logged&&!draw_logged){draw_logged=true;Log("Minecraft scene draw reached OpenGL, error="+std::to_string(last_gl_error));}
 }
+void DrawFormMenu(){
+    if(!form_menu.active(Seconds())||gEngfuncs.Con_IsVisible())return;
+    SCREENINFO screen{};screen.iSize=sizeof(screen);gEngfuncs.pfnGetScreenInfo(&screen);
+    if(screen.iWidth<320||screen.iHeight<240)return;
+    std::vector<std::pair<std::string,char>> lines;
+    std::istringstream input(form_menu.text());std::string line;char color='w';int width=240,font_height=14;
+    while(std::getline(input,line)){
+        std::string text;
+        for(std::size_t i=0;i<line.size();++i){
+            if(line[i]=='\\'&&i+1<line.size()&&std::strchr("wrydg",line[i+1])){color=line[++i];continue;}
+            text+=line[i];
+        }
+        int measured=0,height=0;gEngfuncs.pfnDrawConsoleStringLen(text.c_str(),&measured,&height);
+        width=std::max(width,measured);font_height=std::max(font_height,height);
+        lines.emplace_back(std::move(text),color);
+    }
+    const int step=font_height+4,panel_width=std::min(width+32,screen.iWidth-32);
+    const int panel_height=std::min(static_cast<int>(lines.size())*step+32,screen.iHeight-32);
+    const int x=(screen.iWidth-panel_width)/2,y=(screen.iHeight-panel_height)/2;
+    gEngfuncs.pfnFillRGBA(x,y,panel_width,panel_height,12,17,23,235);
+    int row=y+16;
+    for(const auto& [text,tint]:lines){
+        if(row+font_height>y+panel_height)break;
+        if(tint=='y')gEngfuncs.pfnDrawSetTextColor(1.0f,0.8f,0.25f);
+        else if(tint=='d')gEngfuncs.pfnDrawSetTextColor(0.55f,0.55f,0.55f);
+        else gEngfuncs.pfnDrawSetTextColor(1,1,1);
+        gEngfuncs.pfnDrawConsoleString(x+16,row,const_cast<char*>(text.c_str()));row+=step;
+    }
+    gEngfuncs.pfnDrawSetTextColor(1,1,1);++form_menu_draws;
+}
 int Redraw(float time,int intermission) {
     const double began=Seconds();
     const bool visible=HudFresh();
+    const bool native_hud=!visible||(hud_flags&8);
     int result=1;
-    if(!visible)result=gExportfuncs.HUD_Redraw(time,intermission);
-    else if(render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height))++hud_draws;
-    else result=gExportfuncs.HUD_Redraw(time,intermission);
+    if(native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
+    if(visible){
+        if(render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height))++hud_draws;
+        else if(!native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
+    }
+    // The Minecraft compositor suppresses the native HUD, including ShowMenu.
+    // Repaint this server-owned menu with the engine's native-resolution text.
+    if(visible&&!native_hud)DrawFormMenu();
     hud_work_ms=(Seconds()-began)*1000;last_gl_error=render::statistics().error;
     const char* path=std::getenv("GOLDCRAFT_CAPTURE_PATH");
     if(!path||!capture_requested)return result;
@@ -844,6 +1025,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_Init=InitHud; functions->HUD_VidInit=VidInit; functions->HUD_Frame=Frame;
     functions->HUD_Redraw=Redraw;
     functions->V_CalcRefdef=CalcRefDef;
+    functions->HUD_UpdateClientData=UpdateClientData;
     functions->CL_CreateMove=CreateMove;
     functions->HUD_PlayerMove=PlayerMove;
     functions->HUD_Key_Event=KeyEvent;

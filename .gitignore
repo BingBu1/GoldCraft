@@ -16,6 +16,7 @@
 !/docs/MOD_MANAGEMENT.md
 !/docs/VALIDATION.md
 !/docs/SERVER_API.md
+!/docs/ZOMBIE_TESTING.md
 /patches/metahook-profile-isolation.patch
 /tools/Build-Fabric.ps1
 /tools/check_skycraft_protocol.py

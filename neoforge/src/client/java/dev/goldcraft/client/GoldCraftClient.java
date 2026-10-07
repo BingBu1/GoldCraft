@@ -70,6 +70,7 @@ public final class GoldCraftClient {
                     if(message.type()==Wire.CLIENT_BINDING&&message.payload().length==32) {binding=message.payload();exporter.bind(new Wire.Reader(binding).i64());lastBindingSend=0;}
                     else if(message.type()==Wire.INPUT)HostInput.input(message.payload());
                     else if(message.type()==Wire.CONTROL)HostInput.action(message.payload());
+                    else if(message.type()==Wire.KEY_INPUT)HostKeys.input(message.payload());
                     else if(message.type()==Wire.VIEWPORT)hud.viewport(message.payload());
                     else if(message.type()==Wire.UI_INPUT)HostUi.input(message.payload());
                     else if(message.type()==Wire.SCENE_RESET&&message.payload().length==8)exporter.resendScene(new Wire.Reader(message.payload()).i64());
@@ -94,6 +95,6 @@ public final class GoldCraftClient {
         GoldCraft.LOGGER.info("GoldCraft client initialized");
     }
     public static void presentationFrame(net.minecraft.client.MinecraftClient client) {
-        if(active!=null&&active.hud!=null){active.hud.frame(client);active.exporter.presentationFrame();}
+        if(active!=null&&active.hud!=null){HostCamera.frame(client,active.link);active.hud.frame(client);active.exporter.presentationFrame();}
     }
 }

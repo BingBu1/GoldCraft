@@ -32,6 +32,7 @@ public final class WorldExporter {
     private final BridgeLink link;
     private final EntityExporter entities;
     private final ParticleExporter particles;
+    private final BlockFeedbackExporter feedback;
     private final LinkedHashSet<Section> dirty=new LinkedHashSet<>();
     private final LinkedHashSet<Section> changed=new LinkedHashSet<>();
     private final Map<Section,byte[][]> sent=new HashMap<>();
@@ -45,9 +46,9 @@ public final class WorldExporter {
     private final AtlasAnimationState animations=new AtlasAnimationState();
     private static WorldExporter active;
 
-    public WorldExporter(BridgeLink link) { this.link=link;entities=new EntityExporter(link);particles=new ParticleExporter(link); active=this; }
+    public WorldExporter(BridgeLink link) { this.link=link;entities=new EntityExporter(link);particles=new ParticleExporter(link);feedback=new BlockFeedbackExporter(link); active=this; }
     public void presentationFrame(){
-        if(atlasSent&&sourceWorld==MinecraftClient.getInstance().world){entities.frame(worldEpoch);particles.frame(worldEpoch);}
+        if(atlasSent&&sourceWorld==MinecraftClient.getInstance().world){entities.frame(worldEpoch);particles.frame(worldEpoch);feedback.frame(worldEpoch);}
     }
     public void bind(long epoch) {
         if(epoch!=worldEpoch) { reset(); worldEpoch=epoch; }
@@ -218,19 +219,33 @@ public final class WorldExporter {
     static final class Collector implements VertexConsumer {
         private final Wire.Writer writer=new Wire.Writer();
         private float x,y,z,u,v,offsetX,offsetY,offsetZ;
-        private int red=255,green=255,blue=255,alpha=255,count;
+        private int red=255,green=255,blue=255,alpha=255,count,sourceCount,overlayColor;
+        private final boolean withOverlay,triangles;
+        private int hurtVertices;
         private boolean pending;
+        Collector(){this(false,false);}
+        Collector(boolean withOverlay,boolean triangles){this.withOverlay=withOverlay;this.triangles=triangles;}
+        int hurtVertices(){return hurtVertices;}
         void offset(float x,float y,float z) { offsetX=x;offsetY=y;offsetZ=z; }
         private void flush() {
             if(!pending) return;
-            if(++count>262144) throw new IllegalArgumentException("Section vertex budget exceeded");
-            writer.f32(x).f32(y).f32(z).f32(u).f32(v).u8(red).u8(green).u8(blue).u8(alpha); pending=false;
+            sourceCount++;
+            writeVertex();
+            // A repeated final triangle vertex produces one valid and one degenerate
+            // indexed triangle, preserving Epic Fight's triangulated mesh topology.
+            if(triangles&&sourceCount%3==0)writeVertex();
+            pending=false;
         }
-        byte[] finish() { flush(); if(count%4!=0) throw new IllegalArgumentException("Expected baked quads"); return writer.toByteArray(); }
-        @Override public VertexConsumer vertex(float x,float y,float z) { flush(); this.x=x+offsetX;this.y=y+offsetY;this.z=z+offsetZ;pending=true;return this; }
+        private void writeVertex(){
+            if(++count>262144)throw new IllegalArgumentException("Section vertex budget exceeded");
+            writer.f32(x).f32(y).f32(z).f32(u).f32(v).u8(red).u8(green).u8(blue).u8(alpha);
+            if(withOverlay){writer.i32(overlayColor);if(overlayColor==0x4d0000ff)hurtVertices++;}
+        }
+        byte[] finish() { flush(); if(sourceCount%(triangles?3:4)!=0) throw new IllegalArgumentException("Incomplete model primitive"); return writer.toByteArray(); }
+        @Override public VertexConsumer vertex(float x,float y,float z) { flush(); this.x=x+offsetX;this.y=y+offsetY;this.z=z+offsetZ;overlayColor=0;pending=true;return this; }
         @Override public VertexConsumer color(int red,int green,int blue,int alpha) {this.red=red;this.green=green;this.blue=blue;this.alpha=alpha;return this;}
         @Override public VertexConsumer texture(float u,float v) {this.u=u;this.v=v;return this;}
-        @Override public VertexConsumer overlay(int u,int v) {return this;}
+        @Override public VertexConsumer overlay(int u,int v) {overlayColor=dev.goldcraft.bridge.OverlayColor.fromUv(u,v);return this;}
         @Override public VertexConsumer light(int u,int v) {return this;}
         @Override public VertexConsumer normal(float x,float y,float z) {return this;}
     }

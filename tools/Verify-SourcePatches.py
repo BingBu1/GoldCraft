@@ -21,7 +21,7 @@ def main():
     scratch = ROOT / "build/source-patch-validation" / str(time.time_ns())
     scratch.mkdir(parents=True)
     reports = []
-    for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS"):
+    for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS", "SyPB"):
         entry = lock["sources"][name]
         source, patch = ROOT / entry["path"], ROOT / entry["patch"]
         actual = run(source, "rev-parse", "HEAD").stdout.decode().strip()
@@ -33,14 +33,14 @@ def main():
         names = []
         for line in patch.read_text(encoding="utf-8").splitlines():
             if line.startswith("--- a/"):
-                relative = line[6:]
+                relative = line[6:].split("\t", 1)[0]
                 target = work / relative
                 if not target.resolve().is_relative_to(work):
                     raise ValueError("Patch path outside scratch repository")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(run(source, "show", entry["commit"] + ":" + relative).stdout)
             elif line.startswith("+++ b/"):
-                names.append(line[6:])
+                names.append(line[6:].split("\t", 1)[0])
         run(work, "apply", "--check", str(patch))
         run(work, "apply", str(patch))
         for relative in names:

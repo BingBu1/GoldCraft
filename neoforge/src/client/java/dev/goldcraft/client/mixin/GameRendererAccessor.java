@@ -8,6 +8,8 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 
 @Mixin(GameRenderer.class)
 public interface GameRendererAccessor {
+    @Invoker("getFov")
+    double goldcraft$fov(Camera camera,float tickDelta,boolean changingFov);
     @Invoker("renderHand")
     void goldcraft$renderHand(Camera camera, float tickDelta, Matrix4f viewRotation);
 }

@@ -37,6 +37,7 @@ public final class HostInput {
     public static boolean active(){return link!=null&&link.connected()&&active!=0&&System.nanoTime()-lastInput<250_000_000L;}
     public static boolean attacking(){return controlling&&active()&&(buttons&1)!=0;}
     public static void clear(){
+        HostKeys.reset();
         if(controlling){var o=MinecraftClient.getInstance().options;for(var key:new KeyBinding[]{o.forwardKey,o.backKey,o.leftKey,o.rightKey,o.jumpKey,o.sneakKey,o.sprintKey,o.attackKey,o.useKey})key.setPressed(false);}
         epoch=sequence=lastInput=lastReady=0;buttons=presses=active=serial=life=0;controlling=false;playerInstance=null;
     }
@@ -60,6 +61,7 @@ public final class HostInput {
         else if(code==12)client.player.getInventory().selectedSlot=(client.player.getInventory().selectedSlot+1)%9;
         else if(code==13)client.player.getInventory().selectedSlot=(client.player.getInventory().selectedSlot+8)%9;
         else if(code==16&&client.currentScreen==null)press(client.options.pickItemKey);
+        else if(code==17&&client.currentScreen==null)press(client.options.commandKey);
         else if(code==14&&client.currentScreen!=null&&client.currentScreen.shouldCloseOnEsc())client.currentScreen.close();
         else if(code==15) {
             GoldCraft.LOGGER.info("Minecraft resource reload requested from CS");
@@ -73,7 +75,7 @@ public final class HostInput {
     public static void tick(MinecraftClient client) {
         var actor=client.player==null?null:GoldCraftClient.HOST.actor(client.player.getUuid());
         boolean changed=actor!=null&&(serial!=actor.serial()||life!=actor.life()||playerInstance!=client.player);
-        if(changed){serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;}
+        if(changed){HostKeys.reset();serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;}
         boolean ready=link!=null&&link.connected()&&GoldCraftClient.HOST.geometry()!=null&&actor!=null&&client.player.isAlive()
             &&client.world.getRegistryKey().getValue().toString().equals(GoldCraftClient.HOST.dimension())
             &&actor.minecraftForm()&&actor.life()!=0&&(actor.flags()&1)!=0&&(actor.flags()&4)==0&&epoch==GoldCraftClient.HOST.epoch()&&System.nanoTime()-lastInput<500_000_000L;
@@ -81,9 +83,10 @@ public final class HostInput {
             PacketDistributor.sendToServer(new ControlPayload(GoldCraftClient.HOST.epoch(),serial,life,ready));lastReady=System.nanoTime();
         }
         boolean wasControlling=controlling;controlling=ready&&(actor.flags()&32)!=0&&!changed;
+        if(!controlling||!active()||client.currentScreen!=null)HostKeys.releaseAll();
         if(wasControlling&&!controlling&&actor!=null&&!actor.minecraftForm()&&client.currentScreen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?>)client.player.closeHandledScreen();
         if(!controlling&&!wasControlling)return;
-        boolean move=controlling&&active!=0&&!GoldCraftClient.HOST.freeze()&&client.currentScreen==null;
+        boolean move=controlling&&active()&&!GoldCraftClient.HOST.freeze()&&client.currentScreen==null;
         var options=client.options;
         options.forwardKey.setPressed(move&&forward>0);options.backKey.setPressed(move&&forward<0);
         options.leftKey.setPressed(move&&side<0);options.rightKey.setPressed(move&&side>0);
@@ -94,9 +97,10 @@ public final class HostInput {
             client.player.setYaw(-yaw-90);client.player.setPitch(pitch);
             client.player.prevYaw=client.player.getYaw();client.player.prevPitch=pitch;
             client.gameRenderer.updateCrosshairTarget(1);
-            if((presses&1)!=0)press(options.attackKey);if((presses&2048)!=0)press(options.useKey);
+            if((presses&1)!=0&&!HostKeys.attackEvent())press(options.attackKey);if((presses&2048)!=0&&!HostKeys.useEvent())press(options.useKey);
         }
         presses=0;
+        HostKeys.endTick();
         if(controlling&&!wasControlling)GoldCraft.LOGGER.info("CS input now drives the authoritative Minecraft player");
     }
     public static void sendPose(MinecraftClient client) {
@@ -119,11 +123,16 @@ public final class HostInput {
         data.addProperty("inputButtons",buttons);data.addProperty("forward",forward);data.addProperty("side",side);
         data.addProperty("freeze",GoldCraftClient.HOST.freeze());
         data.addProperty("screen",client.currentScreen==null?"":client.currentScreen.getClass().getName());
+        data.addProperty("chatScreen",client.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen);
+        data.addProperty("operatorCommands",client.player!=null&&client.player.hasPermissionLevel(2));
         data.addProperty("overlay",client.getOverlay()==null?"":client.getOverlay().getClass().getName());
         if(client.player!=null)data.addProperty("player",client.player.getUuid().toString());
         hud.diagnostics(data);
         ParticleExporter.diagnostics(data);
         EntityExporter.diagnostics(data);
+        BlockFeedbackExporter.diagnostics(data);
+        HostCamera.diagnostics(data);
+        HostKeys.diagnostics(data);
         GoldCraftClient.presentationDiagnostics(data);
         HostAudio.diagnostics(client,data);
         HostFootsteps.diagnostics(data);

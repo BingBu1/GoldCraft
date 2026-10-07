@@ -7,6 +7,7 @@
 #include "goldcraft/particles.hpp"
 #include "goldcraft/world_objects.hpp"
 #include "goldcraft/combat.hpp"
+#include "goldcraft/form_menu.hpp"
 #include <bit>
 #include <cmath>
 #include <functional>
@@ -187,6 +188,28 @@ int main() {
         check(!current_vitals_delta(loss,123,6,4,3,token),"another player UUID cannot claim health");
         auto badVitals=vitals.data;badVitals.pop_back();reject([&]{read_vitals_delta(badVitals);},"truncated vitals rejected");
         badVitals=vitals.data;for(int i=44;i<48;i++)badVitals[i]=0;reject([&]{read_vitals_delta(badVitals);},"zero vitals change rejected");
+        auto showMenu=[](unsigned keys,unsigned lifetime,bool more,const std::string& text){
+            Writer out;out.u16(static_cast<std::uint16_t>(keys));out.u8(static_cast<std::uint8_t>(lifetime));out.u8(more?1:0);
+            out.data.insert(out.data.end(),text.begin(),text.end());out.u8(0);return out.data;
+        };
+        FormMenu menuA,menuB;
+        menuA.message(showMenu(514,255,false,"\\yGoldCraft forms\n\\w2. Minecraft\n0. Close"),10);
+        check(menuA.active(1000)&&!menuB.active(1000),"form menu is per-client and supports indefinite server lifetime");
+        check(menuA.selection('2',11)==2&&menuA.selection('0',11)==10,"menu keys select authoritative options and zero exits");
+        check(menuA.selection('1',11)==-1&&menuA.selection('9',11)==-1,"disabled form/hotbar keys cannot become a menu selection");
+        menuB.message(showMenu(513,255,true,"\\yGoldCraft "),10);
+        check(!menuB.active(10),"a fragmented server menu is not shown partially");
+        menuB.message(showMenu(513,255,false,"forms\n1. CS 1.6"),10);
+        check(menuB.active(10)&&menuB.selection('1',10)==1,"AMXX ShowMenu fragments assemble before input");
+        menuA.message(showMenu(1023,255,false,"Choose a team"),12);
+        check(!menuA.active(12),"unrelated CS menus retain normal HUD and input ownership");
+        menuB.message(showMenu(0,255,false,""),13);
+        check(!menuB.active(13),"server menu cancellation clears displayed selections");
+        menuB.message(showMenu(513,2,false,"GoldCraft forms"),20);
+        check(menuB.active(21)&&!menuB.active(22)&&menuB.selection('1',22)==-1,"expired menus cannot send stale selections");
+        auto badMenu=showMenu(513,255,false,"GoldCraft forms");badMenu.pop_back();
+        reject([&]{menuB.message(badMenu,23);},"truncated menu terminator rejected");
+        check(!menuB.active(23),"malformed replacement cannot leave previous menu active");
         std::cout << "{\"passed\":true,\"checks\":" << checks << ",\"pointerBits\":" << sizeof(void*)*8 << "}\n";
         return 0;
     } catch(const std::exception& e) { std::cerr << "FAIL: " << e.what() << '\n'; return 1; }

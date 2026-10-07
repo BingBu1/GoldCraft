@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 @Mixin(HandledScreen.class)
 abstract class HandledInventoryKeyMixin {
-    // NeoForge 21.0.167 replaces vanilla matchesKey with its context-aware
+    // NeoForge replaces vanilla matchesKey with its context-aware
     // extension. Text fields still get first refusal before this comparison.
     @Redirect(method="keyPressed",at=@At(value="INVOKE",target="Lnet/minecraft/client/option/KeyBinding;isActiveAndMatches(Lnet/minecraft/client/util/InputUtil$Key;)Z"))
     private boolean goldcraft$inventoryToggle(KeyBinding binding,InputUtil.Key key){

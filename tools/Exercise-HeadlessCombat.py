@@ -2,6 +2,7 @@
 
 The fake client uses an actual ReGameDLL CBasePlayer. ReAPI FireBullets3 exercises
 the native trace/damage path; it does not claim graphical weapon-input acceptance.
+Prepare with Initialize-HeadlessCombat.ps1 -PlayerFixtures for the native fall check.
 """
 import importlib.util
 import hashlib
@@ -14,6 +15,7 @@ import socket
 import subprocess
 import time
 import zlib
+import Modpack
 
 ROOT = Path(__file__).resolve().parent.parent
 LOADER = os.environ.get('GOLDCRAFT_MOD_LOADER', 'neoforge')
@@ -44,7 +46,8 @@ class CombatRun:
         self.stamp = str(time.time_ns())
         self.processes = {}
         self.files = []
-        self.report = {'source': 'Independent real ReHLDS/ReGameDLL/AMXX/ReAPI and Minecraft 1.21 servers',
+        version = Modpack.PLATFORM['minecraft'] if LOADER == 'neoforge' else '1.21'
+        self.report = {'source': f'Independent real ReHLDS/ReGameDLL/AMXX/ReAPI and Minecraft {version} servers',
                        'scope': 'Unpaired native fake-client CBasePlayer; native FireBullets3 and vanilla mob AI. No desktop/client input.',
                        'checks': {}, 'commands': [], 'samples': [], 'processes': {}}
         self.report['artifacts'] = {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -84,12 +87,14 @@ class CombatRun:
             time.sleep(.08)
         raise TimeoutError(f'{label}; last transient observation={last!r}')
 
-    def launch(self, name, executable, args, cwd, environment=None):
+    def launch(self, name, executable, args, cwd, environment=None, clear_environment=()):
         if not Path(executable).resolve().is_relative_to(ROOT):
             raise ValueError('Executable outside workspace')
         if not Path(cwd).resolve().is_relative_to(TEST):
             raise ValueError('Working directory outside independent test')
         env = {key: value for key, value in os.environ.items() if not key.startswith('GOLDCRAFT_')}
+        for key in clear_environment:
+            env.pop(key, None)
         env.update(environment or {})
         for key in ('PORT', 'SESSION', 'TOKEN'):
             env['GOLDCRAFT_SERVER_'+key] = str(self.config['server'+key.title()])
@@ -186,10 +191,20 @@ class CombatRun:
 
     def run(self):
         game = TEST/'Half-Life'
+        if LOADER == 'neoforge':
+            with Modpack.pack_lock():
+                pack = Modpack.snapshot()
+                Modpack.validate(pack)
+                state = TEST/'modpack-deployed.json'
+                plan = Modpack.deployment_plan(pack, {'headless': ('server', TEST/'minecraft')}, state)
+                Modpack.apply(pack, plan, state)
+            self.report['managedPackFingerprint'] = pack['fingerprint']
+            for name, entry in plan['targets']['headless']['files'].items():
+                self.report['artifacts'][str((TEST/'minecraft'/name).relative_to(ROOT))] = entry['sha256']
         crc = zlib.crc32((game/'cstrike/maps/cs_assault.bsp').read_bytes())
         self.check('test map matches the prepared Minecraft dimension', crc == 0xf6725c06)
         self.launch('ReHLDS', game/'hlds.exe', ['-game', 'cstrike', '-insecure', '-nomaster', '-console',
-                    '-condebug', '+ip', '127.0.0.1', '-port', str(self.config['csPort']), '-maxplayers', '4',
+                    '+ip', '127.0.0.1', '-port', str(self.config['csPort']), '-maxplayers', '4',
                     '+sv_lan', '1', '+map', 'cs_assault', '+exec', 'server.cfg'], game)
         self.wait(lambda: 'ReHLDS' in self.cs('version', record=False), 'ReHLDS RCON ready', 50)
         self.report['serverStatus'] = self.cs('status')
@@ -198,12 +213,16 @@ class CombatRun:
         self.report['modules'] = self.cs('amxx modules')
         self.check('actual ReAPI and GoldCraft modules loaded',
                    'ReAPI' in self.report['modules'] and 'GoldCraft' in self.report['modules'])
-        manifest = json.loads((ROOT/f'build/{LOADER}-runtime/runServer.json').read_text(encoding='utf-8'))
+        runtime = 'neoforge-production' if LOADER == 'neoforge' else 'fabric-runtime'
+        manifest = json.loads((ROOT/f'build/{runtime}/runServer.json').read_text(encoding='utf-8'))
+        self.report['runtime'] = runtime
+        classpath = ['-cp', ';'.join(manifest['classpath'])] if manifest['classpath'] else []
         args = ['-Xms256m', '-Xmx1536m', *[a for a in manifest['jvm'] if not a.startswith(('-Xms', '-Xmx'))],
-                '-cp', ';'.join(manifest['classpath']), manifest['main'], *manifest['args']]
+                *classpath, manifest['main'], *manifest['args']]
         argfile = TEST/'server.args'
         argfile.write_text('\n'.join('"'+a.replace('\\', '\\\\').replace('"', '\\"')+'"' for a in args), encoding='utf-8')
-        self.launch('Minecraft', ROOT/'.tools/java/jdk-21.0.12.1+1/bin/java.exe', ['@'+str(argfile)], TEST/'minecraft', manifest.get('environment'))
+        self.launch('Minecraft', ROOT/'.tools/java/jdk-21.0.12.1+1/bin/java.exe', ['@'+str(argfile)], TEST/'minecraft',
+                    manifest.get('environment'), manifest.get('clearEnvironment', []))
         self.wait(lambda: 'players online' in self.mc('list', record=False), 'Minecraft RCON ready', 90)
         self.wait(lambda: self.state(True)['map'] == 'cs_assault', 'authenticated real server bridge', 45)
         self.wait(lambda: self.state()['map'] == 'cs_assault', 'first native authority diagnostic')
@@ -221,6 +240,12 @@ class CombatRun:
         self.check('ordinary native player is unpaired and uses native movement',
                    self.actor()['uuid'] == '0'*32 and not self.actor()['minecraftForm'] and not self.actor()['controlled'])
         self.check('Minecraft server has zero network players', '0 of a max' in self.mc('list'))
+
+        self.cs(f'gc_test_fall #{self.actor()["userid"]} 10')
+        self.wait(lambda: abs(self.actor()['health']-90)<.01, 'native CS fall damage remains enabled')
+        self.check('ordinary CS fall damage remains native after the Minecraft fall fix',
+                   not self.actor()['minecraftFallAuthority'] and abs(self.actor()['health']-90)<.01)
+        self.reset_player()
 
         self.clear_mobs()
         proxy = self.spawn('wolf')

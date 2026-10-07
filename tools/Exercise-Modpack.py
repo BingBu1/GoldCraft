@@ -16,6 +16,8 @@ spec.loader.exec_module(modpack)
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--powershell", required=True)
+    parser.add_argument("--update-client-runtime", action="store_true",
+                        help="Deploy the newly built native client during the first guarded restart")
     args = parser.parse_args()
     stamp = str(time.time_ns())
     output = ROOT / "analysis/goldcraft-tests" / f"modpack-runtime-{stamp}.json"
@@ -46,17 +48,25 @@ import java.nio.file.Files;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.loading.FMLPaths;
+import net.minecraft.resources.ResourceLocation;
 @Mod("{mod_id}")
 public final class {cls} {{
     public {cls}() {{
         String side = FMLEnvironment.dist.isClient() ? "client" : "server";
+        String minecraftId = ResourceLocation.fromNamespaceAndPath("{mod_id}", side).toString();
         String data = "{{\\\"version\\\":\\\"{version}\\\",\\\"environment\\\":\\\"" + side
-            + "\\\",\\\"pid\\\":" + ProcessHandle.current().pid() + "}}";
+            + "\\\",\\\"pid\\\":" + ProcessHandle.current().pid()
+            + ",\\\"minecraftId\\\":\\\"" + minecraftId + "\\\"}}";
         try {{ Files.writeString(FMLPaths.GAMEDIR.get().resolve("goldcraft-sync-probe-{kind}.json"), data); }}
         catch (Exception error) {{ throw new IllegalStateException(error); }}
     }}
 }}''', encoding="utf-8")
-            loader = ";".join(modpack.read_json(ROOT / "build/neoforge-runtime/runServer.json")["classpath"])
+            neo = modpack.PLATFORM["loader"]
+            game = modpack.PLATFORM["minecraft"] + "-" + modpack.MINECRAFT_PIN["neoform"]
+            libraries = ROOT / f".tools/neoforge-runtime/{neo}/libraries"
+            loader = ";".join([str(libraries / f"net/neoforged/neoforge/{neo}/neoforge-{neo}-client.jar"),
+                str(libraries / f"net/minecraft/client/{game}/client-{game}-srg.jar"),
+                *modpack.read_json(ROOT / "build/neoforge-production/runClient.json")["classpath"]])
         else:
             source.write_text(f'''package dev.goldcraft.packprobe;
 import java.nio.file.Files;
@@ -115,6 +125,8 @@ version="{version}"
     def restart(phase):
         logfile = build / f"{phase}-restart.log"
         command = [args.powershell, "-NoLogo", "-NoProfile", "-File", str(ROOT / "tools/Sync-Modpack.ps1"), "-Restart", "-Start", "-Loader", modpack.LOADER]
+        if args.update_client_runtime and phase == "added":
+            command.append("-UpdateClientRuntime")
         report["commands"].append({"phase": phase, "command": command, "log": str(logfile)})
         print(json.dumps({"phase": phase, "status": "restarting isolated cluster"}), flush=True)
         with logfile.open("w", encoding="utf-8") as stream:
@@ -134,7 +146,7 @@ version="{version}"
                     if removed:
                         log = directory / "logs/latest.log"
                         text = log.read_text(encoding="utf-8", errors="replace")
-                        loader_started = ("NeoForge mod loading, version 21.0.167, for MC 1.21" in text if modpack.IS_NEOFORGE
+                        loader_started = (f"NeoForge mod loading, version {modpack.PLATFORM['loader']}, for MC {modpack.PLATFORM['minecraft']}" in text if modpack.IS_NEOFORGE
                                           else "Loading Minecraft 1.21 with Fabric Loader 0.16.14" in text)
                         if log.stat().st_mtime < time.time() - 180 or not loader_started:
                             raise ValueError("New Loader startup not observed")
@@ -148,6 +160,8 @@ version="{version}"
                             expected = shared_version if kind == "shared" else "1.0.0"
                             if marker_data["pid"] != process["pid"] or marker_data["version"] != expected or marker_data["environment"].lower() != side:
                                 raise ValueError("Probe belongs to an earlier process or version")
+                            if modpack.IS_NEOFORGE and marker_data.get("minecraftId") != f"goldcraft_sync_probe_{kind}:{side}":
+                                raise ValueError("The probe did not resolve ordinary Mojang-named Minecraft classes")
                             data["markers"][kind] = marker_data
                     result[name] = data
                 report["phases"][phase] = result

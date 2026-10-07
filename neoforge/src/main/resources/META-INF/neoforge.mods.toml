@@ -6,7 +6,7 @@ license="All Rights Reserved; third-party patches retain their upstream licenses
 modId="goldcraft"
 version="${version}"
 displayName="GoldCraft"
-description="Minecraft 1.21 / NeoForge bridge for Counter-Strike 1.6."
+description="Minecraft 1.21.1 / NeoForge bridge for Counter-Strike 1.6."
 
 [[mixins]]
 config="goldcraft.mixins.json"
@@ -16,12 +16,12 @@ config="goldcraft.client.mixins.json"
 [[dependencies.goldcraft]]
 modId="neoforge"
 type="required"
-versionRange="[21.0.167,21.1)"
+versionRange="[21.1.256,21.2)"
 ordering="NONE"
 side="BOTH"
 [[dependencies.goldcraft]]
 modId="minecraft"
 type="required"
-versionRange="[1.21]"
+versionRange="[1.21.1]"
 ordering="NONE"
 side="BOTH"

@@ -65,9 +65,12 @@ $destination = Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$Ins
 if (Test-Path -LiteralPath $destination) { throw "Copy already exists; refusing overwrite: $destination" }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $copied = 0
+$copyPolicy=Get-Content -LiteralPath (Join-Path $script:GoldCraftRoot 'sandbox-policy.json') -Raw | ConvertFrom-Json
 foreach ($entry in $baseline.files) {
-    # Existing reverse-engineering databases and unrelated launcher web cache are unnecessary.
-    if ($entry.path -match '(?i)\.(i64|idb|id0|id1|id2|nam|til)$' -or $entry.path.StartsWith('htmlcache\')) { continue }
+    # CS server downloads and unrelated game data can dwarf the actual runtime.
+    $topDirectory=($entry.path -split '[\\/]')[0]
+    if ($entry.path -match '(?i)\.(i64|idb|id0|id1|id2|nam|til)$' -or
+        $topDirectory -in $copyPolicy.excludedCopiedDirectories) { continue }
     $source = [IO.Path]::GetFullPath((Join-Path $script:GoldCraftOriginal $entry.path))
     if (-not $source.StartsWith($script:GoldCraftOriginal + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid baseline relative path.' }
     Assert-NoReparsePath $source

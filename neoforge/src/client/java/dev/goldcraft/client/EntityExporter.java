@@ -29,7 +29,7 @@ import java.util.*;
 
 /** Uses the actual Minecraft entity and block-entity renderers, preserving animated model vertices. */
 public final class EntityExporter {
-    private record Material(Identifier texture,boolean translucent,boolean depthWrite) {}
+    private record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles) {}
     private record TextureStamp(AbstractTexture texture,int glId,long revision) {}
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
@@ -41,6 +41,7 @@ public final class EntityExporter {
     private long lastFrame,revision,frames,meshBytes,textureUploads,textureBytes,sendFailures;
     private double intervalMs;
     private float tickDelta;
+    private int hurtVertices,triangleBatches;
     private String lastError="";
     public EntityExporter(BridgeLink link){this.link=link;active=this;}
     public void reset(){textures.clear();uploaded.clear();pacing.reset();lastFrame=revision=0;}
@@ -53,6 +54,7 @@ public final class EntityExporter {
         JsonObject e=new JsonObject();e.addProperty("frames",active.frames);e.addProperty("intervalMs",active.intervalMs);
         e.addProperty("tickDelta",active.tickDelta);e.addProperty("meshBytes",active.meshBytes);e.addProperty("textureUploads",active.textureUploads);
         e.addProperty("textureBytes",active.textureBytes);e.addProperty("sendFailures",active.sendFailures);e.addProperty("error",active.lastError);data.add("entityExport",e);
+        e.addProperty("hurtVertices",active.hurtVertices);e.addProperty("triangleBatches",active.triangleBatches);
     }
     public void frame(long epoch) {
         MinecraftClient client=MinecraftClient.getInstance();
@@ -65,26 +67,26 @@ public final class EntityExporter {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
             Map<Material,WorldExporter.Collector> batches=new LinkedHashMap<>();
             VertexConsumerProvider provider=layer-> {
-                if(layer.getDrawMode()!=VertexFormat.DrawMode.QUADS||!(layer instanceof RenderLayer.MultiPhase phase))return new WorldExporter.Collector();
+                boolean triangles=layer.getDrawMode()==VertexFormat.DrawMode.TRIANGLES;
+                if((!triangles&&layer.getDrawMode()!=VertexFormat.DrawMode.QUADS)||!(layer instanceof RenderLayer.MultiPhase phase))return new WorldExporter.Collector();
                 var parameters=((RenderLayerAccessor)(Object)phase).goldcraft$phases();
                 var texture=((RenderTextureAccessor)((RenderParametersAccessor)(Object)parameters).goldcraft$texture()).goldcraft$id();
                 if(texture.isEmpty())return new WorldExporter.Collector();
                 var mask=((RenderParametersAccessor)(Object)parameters).goldcraft$writeMask();
                 // Translucent layers can still write depth: vanilla player skins do.
                 // Sorting/blending and depth writes are independent material properties.
-                Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth());
-                return batches.computeIfAbsent(material,ignored->new WorldExporter.Collector());
+                Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles);
+                return batches.computeIfAbsent(material,ignored->new WorldExporter.Collector(true,triangles));
             };
             var camera=client.gameRenderer.getCamera();
-            camera.update(client.world,client.player,!client.options.getPerspective().isFirstPerson(),client.options.getPerspective().isFrontView(),tickDelta);
             var dispatcher=client.getEntityRenderDispatcher();dispatcher.configure(client.world,camera,client.targetedEntity);
             int entityCount=0;
             List<HostWorldState.Actor> avatars=new ArrayList<>();
             boolean drawShadows=((EntityRenderDispatcherAccessor)dispatcher).goldcraft$renderShadows();
             dispatcher.setRenderShadows(false);
-            try {
+            try (var capture=ModMeshCapture.begin()) {
             for(var entity:client.world.getEntities()) {
-                if(entity==client.player||entity instanceof dev.goldcraft.world.NativePlayerHitboxEntity||entity.isRemoved()||entity.isSpectator()||entity.squaredDistanceTo(client.player)>64*64)continue;
+                if(entity==client.player&&(!HostInput.controlling()||client.options.getPerspective().isFirstPerson())||entity instanceof dev.goldcraft.world.NativePlayerHitboxEntity||entity.isRemoved()||entity.isSpectator()||entity.squaredDistanceTo(client.player)>64*64)continue;
                 var actor=GoldCraftClient.HOST.actor(entity.getUuid());
                 if(actor!=null&&((actor.flags()&113)!=113||(actor.flags()&12)!=0))continue;
                 if(entityCount>=128)break;entityCount++;
@@ -110,9 +112,10 @@ public final class EntityExporter {
                 }
             }
             record Batch(int texture,int flags,byte[] vertices) {}
-            List<Batch> ready=new ArrayList<>();int bytes=0;
+            List<Batch> ready=new ArrayList<>();int bytes=0;hurtVertices=triangleBatches=0;
             for(var entry:batches.entrySet()) {
                 byte[] vertices=entry.getValue().finish();if(vertices.length==0)continue;
+                hurtVertices+=entry.getValue().hurtVertices();if(entry.getKey().triangles)triangleBatches++;
                 if(ready.size()>=128||bytes+vertices.length>8*1024*1024)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
                 Identifier id=entry.getKey().texture;
                 // Reuse the block atlas and its CPU animation patches, including
@@ -128,7 +131,7 @@ public final class EntityExporter {
                 ready.add(new Batch(number,flags,vertices));bytes+=vertices.length;
             }
             Wire.Writer writer=new Wire.Writer().i64(epoch).i64(++revision).i32(entityCount).i32(blockCount).i32(ready.size());
-            for(Batch batch:ready)writer.i32(batch.texture).i32(batch.flags).i32(batch.vertices.length/24).bytes(batch.vertices);
+            for(Batch batch:ready)writer.i32(batch.texture).i32(batch.flags).i32(batch.vertices.length/28).bytes(batch.vertices);
             // Publish identities atomically with the mesh. A prior mesh must never
             // suppress a new CS player who happens to occupy the same slot.
             writer.i32(avatars.size());

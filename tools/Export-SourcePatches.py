@@ -6,7 +6,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 lock = json.loads((ROOT / "sources.lock.json").read_text(encoding="utf-8"))
 new_renderer_files = ("include/Interface/IMetaRendererScene.h", "src/gl_external_scene.h")
-for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS"):
+for name in ("MetaHook", "Renderer", "ReGameDLL_CS", "ReHLDS", "SyPB"):
     entry = lock["sources"][name]
     source = ROOT / entry["path"]
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()

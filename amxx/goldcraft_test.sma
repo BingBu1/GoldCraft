@@ -15,6 +15,7 @@ public plugin_init()
     register_srvcmd("gc_test_equip", "Equip");
     register_srvcmd("gc_test_vitals", "Vitals");
     register_srvcmd("gc_test_damage", "Damage");
+    register_srvcmd("gc_test_fall", "FallDamage");
     register_srvcmd("gc_test_respawn", "Respawn");
     register_srvcmd("gc_test_damage_filter", "DamageFilter");
     register_srvcmd("gc_test_combat_status", "CombatStatus");
@@ -40,12 +41,21 @@ public Vitals()
 }
 public Damage()
 {
+    // Unarmored host damage independent of which runtime owns falling.
+    return FixtureDamage(DMG_DROWN);
+}
+public FallDamage()
+{
+    return FixtureDamage(DMG_FALL);
+}
+stock FixtureDamage(bits)
+{
     new id=FixturePlayer();if(read_argc()!=3||!is_user_alive(id))return PLUGIN_HANDLED;
     new arg[32];read_argv(2,arg,charsmax(arg));new Float:amount=str_to_float(arg);
     if(amount<=0.0||amount>500.0)return PLUGIN_HANDLED;
     // Exact ReAPI 5.29 natives_misc.cpp: accumulator -> CBasePlayer::TakeDamage.
     set_member(id,m_LastHitGroup,HIT_GENERIC);
-    rg_multidmg_clear();rg_multidmg_add(0,id,amount,DMG_FALL);rg_multidmg_apply(0,0);
+    rg_multidmg_clear();rg_multidmg_add(0,id,amount,bits);rg_multidmg_apply(0,0);
     server_print("[GoldCraft fixture] damage slot=%d health=%.3f",id,Float:get_entvar(id,var_health));
     return PLUGIN_HANDLED;
 }

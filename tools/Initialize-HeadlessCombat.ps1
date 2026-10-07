@@ -12,10 +12,15 @@ if($existing){throw 'The headless fixture is running; preserve it and stop its e
 foreach($dir in @($game,$mc,(Join-Path $testRoot 'logs'))){New-Item -ItemType Directory -Path $dir -Force | Out-Null}
 $source=Assert-SandboxPath (Join-Path $script:GoldCraftRoot 'sandbox/cs-server/Half-Life')
 function Copy-TestFile([string]$From,[string]$To){
+    $existingPath=[IO.Path]::GetFullPath($To)
+    if(-not $existingPath.StartsWith($testRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Test asset destination outside fixture'}
+    # Retained immutable assets need no write or parent-directory recreation.
+    # Validate source/destination ancestors again whenever a copy is necessary.
+    if(Test-Path -LiteralPath $existingPath -PathType Leaf){return}
     $fromPath=Assert-WorkspacePath $From
-    $toPath=Assert-SandboxPath $To
+    $toPath=Assert-SandboxPath $existingPath
     New-Item -ItemType Directory -Path (Split-Path $toPath) -Force | Out-Null
-    if(-not(Test-Path -LiteralPath $toPath)){Copy-Item -LiteralPath $fromPath -Destination $toPath}
+    Copy-Item -LiteralPath $fromPath -Destination $toPath
 }
 foreach($name in @('hlds.exe','swds.dll','filesystem_stdio.dll','steam_api.dll')){
     Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot "dist/rehlds/$name") -Destination (Assert-SandboxPath (Join-Path $game $name)) -Force

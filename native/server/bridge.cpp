@@ -130,6 +130,7 @@ void ReleaseControl(unsigned slot) {
     controlled[slot].active=false;
     ApplyNativeUse(slot,false);controlled[slot].use_requested=false;
     if(!e->free&&player_lives[slot]==life){
+        if(auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e)))player->m_flFallVelocity=0;
         Vector feet=e->v.origin;feet.z+=e->v.mins.z;
         e->v.movetype=controlled[slot].saved_movetype;e->v.velocity=g_vecZero;
         SET_SIZE(e,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MIN:VEC_HULL_MIN,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MAX:VEC_HULL_MAX);
@@ -352,7 +353,8 @@ void SendActors() {
             out<<"{\"slot\":"<<slot<<",\"serial\":"<<pair->serial<<",\"engineSerial\":"<<e->serialnumber<<",\"userid\":"<<pair->userid<<",\"uuid\":\""<<UuidText(pair->uuid)
                <<"\",\"team\":"<<player->m_iTeam<<",\"health\":"<<e->v.health<<",\"armor\":"<<e->v.armorvalue
                <<",\"alive\":"<<(player->IsAlive()?"true":"false")<<",\"life\":"<<player_lives[slot]<<",\"spawn\":"<<player_births[slot]<<",\"vitalsAck\":"<<vitals_ack[slot]<<",\"poseSequence\":"<<controlled[slot].sequence
-               <<",\"controlled\":"<<(controlled[slot].active?"true":"false")<<",\"spawnFeet\":["<<player_spawns[slot].x<<','<<player_spawns[slot].y<<','<<player_spawns[slot].z
+               <<",\"controlled\":"<<(controlled[slot].active?"true":"false")<<",\"minecraftFallAuthority\":"<<(GoldCraft_MinecraftFallAuthority(e)?"true":"false")
+               <<",\"nativeFallVelocity\":"<<player->m_flFallVelocity<<",\"spawnFeet\":["<<player_spawns[slot].x<<','<<player_spawns[slot].y<<','<<player_spawns[slot].z
                <<"],\"minecraftForm\":"<<(minecraft_forms[slot]?"true":"false")<<",\"moveType\":"<<e->v.movetype<<",\"buttons\":"<<e->v.button
                <<",\"origin\":["<<e->v.origin.x<<','<<e->v.origin.y<<','<<e->v.origin.z<<"],\"mins\":["<<e->v.mins.x<<','<<e->v.mins.y<<','<<e->v.mins.z<<"]}";
         }out<<"],\"hostEntities\":[";first=true;
@@ -529,6 +531,12 @@ void GoldCraft_PlayerKilled(edict_t* player) {
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
 bool GoldCraft_MinecraftAttack(edict_t* player){return player&&(player==final_minecraft_damage||player==minecraft_attack);}
+bool GoldCraft_MinecraftFallAuthority(edict_t* player){
+    if(!player||!edicts||!link.connected()||player==final_minecraft_damage)return false;
+    const int slot=ENTINDEX(player);
+    return slot>=1&&slot<=max_clients&&minecraft_forms[slot]&&controlled[slot].active
+        &&gpGlobals->time-controlled[slot].last_update<=1.0f;
+}
 bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
     if(std::strcmp(command,"goldcraft_form")==0){
         const auto slot=ENTINDEX(player);

@@ -21,7 +21,7 @@ def jar_bytes(mod_id, version="1.0.0", environment="*", depends=None, breaks=Non
     for identity in [mod_id, *(provides or [])]:
         text += f'[[mods]]\nmodId="{identity}"\nversion="{version}"\n'
     requirements = [{"modId": key, "versionRange": value, "type": "required", "side": "BOTH"}
-                    for key, value in (depends if depends is not None else {"minecraft": "[1.21]", "neoforge": "[21.0.167]"}).items()]
+                    for key, value in (depends if depends is not None else {"minecraft": f"[{pack.PLATFORM['minecraft']}]", "neoforge": f"[{pack.PLATFORM['loader']}]"}).items()]
     requirements += [{"modId": key, "versionRange": value, "type": "incompatible", "side": "BOTH"}
                      for key, value in (breaks or {}).items()]
     requirements += dependencies or []
@@ -41,7 +41,7 @@ class ModpackTest(unittest.TestCase):
         self.root = pack.safe(Path(self.temporary.name))
         self.source = self.root / "source"
         (self.source / "mods").mkdir(parents=True)
-        pack.write_json(self.source / "instance.json", {"runtime": {"minecraft": "1.21", "neoForged": "21.0.167"}})
+        pack.write_json(self.source / "instance.json", {"runtime": {"minecraft": pack.PLATFORM["minecraft"], "neoForged": pack.PLATFORM["loader"]}})
         for file in pack.core_jars().values():
             shutil.copy2(file, self.source / "mods" / file.name)
         self.rules = self.root / "rules.json"
@@ -78,16 +78,62 @@ class ModpackTest(unittest.TestCase):
         self.add("client_example", environment="client")
         self.add("server_example", environment="server")
         self.deploy()
+        core_files = {file.name for file in pack.core_jars().values()}
         for name in ("a", "b"):
-            self.assertEqual({f.name for f in (self.root / name / "mods").glob("*.jar")}, {"shared_example.jar", "client_example.jar"})
-        self.assertEqual({f.name for f in (self.root / "server/mods").glob("*.jar")}, {"shared_example.jar", "server_example.jar"})
+            self.assertEqual({f.name for f in (self.root / name / "mods").glob("*.jar")}, core_files | {"shared_example.jar", "client_example.jar"})
+        self.assertEqual({f.name for f in (self.root / "server/mods").glob("*.jar")}, core_files | {"shared_example.jar", "server_example.jar"})
         self.assertEqual(pack.sha(self.root / "a/mods/shared_example.jar"), pack.sha(self.root / "b/mods/shared_example.jar"))
 
     def test_actual_loader_rejects_wrong_minecraft_version(self):
-        self.add("newer_game", depends={"minecraft": "[1.21.1,)"})
+        self.add("newer_game", depends={"minecraft": "[1.21.2,)"})
         with self.assertRaisesRegex(pack.PackError, "NeoForge dependency"):
             self.prepare()
         self.assertFalse(self.state.exists())
+
+    def test_manifest_only_library_loads_selected_nested_mod_on_all_sides(self):
+        wrapper = io.BytesIO()
+        with ZipFile(wrapper, "w") as jar:
+            jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\nFMLModType: GAMELIBRARY\r\nAutomatic-Module-Name: fixture.distribution\r\nImplementation-Version: 1.0\r\n\r\n")
+            jar.writestr("META-INF/jarjar/library.jar", jar_bytes("nested_config"))
+            jar.writestr("META-INF/jarjar/metadata.json", json.dumps({"jars": [{
+                "identifier": {"group": "fixture", "artifact": "config"},
+                "version": {"range": "[1.0,)", "artifactVersion": "1.0"},
+                "path": "META-INF/jarjar/library.jar", "isObfuscated": False}]}))
+        pack.atomic_bytes(self.source / "mods/config-standalone.jar", wrapper.getvalue())
+        snapshot = pack.snapshot(self.source, self.rules)
+        resolved = pack.validate(snapshot)
+        for side in ("client", "server"):
+            self.assertIn("nested_config", {m["id"] for m in resolved[side]["resolved"]})
+        self.deploy()
+        for _, directory in self.targets.values():
+            self.assertEqual((directory / "mods/config-standalone.jar").read_bytes(), wrapper.getvalue())
+
+    def test_library_manifest_does_not_hide_a_missing_nested_jar(self):
+        wrapper = io.BytesIO()
+        with ZipFile(wrapper, "w") as jar:
+            jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nFMLModType: GAMELIBRARY\n\n")
+            jar.writestr("META-INF/jarjar/metadata.json", '{"jars":[{"path":"META-INF/jarjar/missing.jar"}]}')
+        pack.atomic_bytes(self.source / "mods/broken-library.jar", wrapper.getvalue())
+        with self.assertRaisesRegex(pack.PackError, "Not a complete NeoForge mod"):
+            self.prepare()
+
+    def test_development_deployment_migrates_to_identical_production_core_jars(self):
+        # The old managed runtime got GoldCraft from MOD_CLASSES, so its recorded
+        # Mod directories did not contain the core. Preserve private user files.
+        previous = {"fingerprint": "development-runtime", "targets": {}}
+        for name, (side, directory) in self.targets.items():
+            pack.atomic_bytes(directory / "options.txt", b"private control settings\n")
+            previous["targets"][name] = {"side": side, "directory": str(directory), "files": {}}
+        pack.write_json(self.state, previous)
+        snapshot, plan = self.prepare()
+        self.assertFalse(snapshot["coreFromDevelopmentClasspath"])
+        self.assertEqual(len(plan["changes"]), 3)
+        pack.apply(snapshot, plan, self.state, check_processes=False)
+        core = pack.core_jars()["goldcraft"]
+        for _, directory in self.targets.values():
+            self.assertEqual(pack.sha(directory / "mods" / core.name), pack.sha(core))
+            self.assertEqual((directory / "options.txt").read_bytes(), b"private control settings\n")
+        self.assertFalse(self.prepare()[1]["restartRequired"])
 
     def test_actual_loader_rejects_missing_or_wrong_dependency(self):
         self.add("library_mod", version="1.0.0")
@@ -279,7 +325,7 @@ class ModpackTest(unittest.TestCase):
             self.assertEqual((Path(result["backup"]) / "previous/mod-source/mods" / source_jar.name).read_bytes(), before)
             self.assertFalse(self.prepare()[1]["restartRequired"])
             for _, directory in self.targets.values():
-                self.assertFalse((directory / "mods" / source_jar.name).exists())
+                self.assertEqual((directory / "mods" / source_jar.name).read_bytes(), cores["goldcraft"].read_bytes())
 
     def test_incompatible_core_candidate_never_replaces_the_source(self):
         self.deploy()
@@ -323,6 +369,7 @@ class ModpackTest(unittest.TestCase):
         self.assertEqual(source_jar.read_bytes(), old_core)
         self.assertEqual(self.state.read_bytes(), old_state)
         for _, directory in self.targets.values():
+            self.assertEqual((directory / "mods" / source_jar.name).read_bytes(), old_core)
             self.assertEqual((directory / "mods/transaction_mod.jar").read_bytes(), old_jar)
 
 

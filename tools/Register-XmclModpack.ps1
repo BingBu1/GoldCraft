@@ -1,7 +1,8 @@
 param([switch]$DryRun,[ValidateSet('neoforge','fabric')][string]$Loader='neoforge')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $packFolder=if($Loader -eq 'neoforge'){'modpack-neoforge'}else{'modpack'}
-$profile=if($Loader -eq 'neoforge'){'GoldCraft-1.21-NeoForge'}else{'GoldCraft-1.21'}
+$mcPin=(Get-Content -LiteralPath (Join-Path $script:GoldCraftRoot 'sources.lock.json') -Raw | ConvertFrom-Json).minecraft
+$profile=if($Loader -eq 'neoforge'){"GoldCraft-$($mcPin.version)-NeoForge"}else{'GoldCraft-1.21'}
 $source=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$packFolder/$profile")
 if(-not(Test-Path -LiteralPath (Join-Path $source 'instance.json'))){throw 'Run Prepare-XmclModpack.ps1 first.'}
 
@@ -35,5 +36,5 @@ try {
 }
 $actual=Get-Content -LiteralPath $registry -Raw | ConvertFrom-Json
 if(-not(@($actual.instances | Where-Object {$_ -eq $source}).Count)){throw 'XMCL registration verification failed; the previous registry is preserved in the sandbox backup.'}
-Write-Output "Registered $source. Reopen X Minecraft Launcher and select GoldCraft 1.21 · Mod 管理."
+Write-Output "Registered $source. Reopen X Minecraft Launcher and select $profile · Mod 管理."
 Write-Output "Previous launcher registry backed up at $backup"

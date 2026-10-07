@@ -22,10 +22,33 @@ import net.minecraft.test.TestContext;
 import net.minecraft.world.GameMode;
 import java.util.UUID;
 
-/** Real 1.21 player/packet lifecycle; host snapshots are the controlled test input. */
+/** Real player/packet lifecycle; host snapshots are the controlled test input. */
 @GameTestHolder("goldcraft_tests")
 @PrefixGameTestTemplate(false)
 public final class SharedVitalsTest {
+    @GameTest(templateName="empty",batchId="vitals_fall",tickLimit=80)
+    public void vanillaCreativeAndSurvivalOwnFalling(TestContext context){
+        try(var f=new Fixture(context)){
+            var player=f.player();player.changeGameMode(GameMode.CREATIVE);
+            context.assertTrue(!player.handleFallDamage(30,1,player.getDamageSources().fall()),"Creative fall was not immune");
+            SharedVitals.capture(f.map.world().getServer(),f.map.host());
+            context.assertTrue(player.getHealth()==20&&SharedVitals.pending(f.uuid)==0,"Creative falling generated a health delta");
+            // TestServer is not a dedicated PvP server: vanilla also protects
+            // falls during the first 60 player ticks after joining. Advance the
+            // actual tick path before testing ordinary survival fall damage.
+            for(int i=0;i<60;i++)player.tick();
+            player.changeGameMode(GameMode.SURVIVAL);
+            context.assertTrue(player.handleFallDamage(10,1,player.getDamageSources().fall()),"Survival falling lost vanilla damage");
+            context.assertTrue(player.getHealth()==13,"Survival 10-block fall was not the vanilla 7 damage; health="
+                +player.getHealth()+" age="+player.age+" invulnerable="+player.isInvulnerableTo(player.getDamageSources().fall())
+                +" ability="+player.getAbilities().invulnerable+" dedicated="+player.getServer().isDedicated());
+            SharedVitals.capture(f.map.world().getServer(),f.map.host());
+            SharedVitals.capture(f.map.world().getServer(),f.map.host());
+            context.assertTrue(SharedVitals.pending(f.uuid)==1,"One landing generated multiple native health commits");
+        }
+        context.complete();
+    }
+
     private static final class Fixture implements AutoCloseable {
         final NavigationTest.Fixture map;
         final UUID uuid=UUID.randomUUID();

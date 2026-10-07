@@ -19,7 +19,7 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前固定宽度协议为 GCF1/version 16，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前固定宽度协议为 GCF1/version 17，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
 
 坐标变换在协议实现中统一：每个 MC 方块对应 32 GoldSrc 单位，MC 的水平 Z 对应 GoldSrc 的反向 Y，MC 高度 Y 转换为 GoldSrc Z；MC 高度基准为 64。玩家脚部、原生角色中心与相机眼高分别处理，避免死亡/重生后人物落在地图下。
 
@@ -29,6 +29,8 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 CS 形态也保留 MC 世界交互。ReGameDLL 中的方块和实体代理参与原生运动与武器 trace；命中再交给 MC 权威处理。原生玩家的 MC 代理保留可识别的攻击者身份，使狼的反击和敌对生物主动寻敌沿原版 AI 路径执行。共享生命记录处理确认、拒绝、并发变化与重生。
 
+MC 移动权限有效时，原生玩家镜像的下落速度不能再次触发 CS 坠落伤害。ReGameDLL 根据已认证服务端连接和有效移动状态，把坠落计算交给 Minecraft：创造免伤、生存扣血最终通过共享生命路径提交。退出 MC 形态时清除原生累计下落速度，普通 CS 形态继续使用自身伤害规则。
+
 ## 绘制和输入
 
 MetaHookSv 接入客户端回调，Renderer_AVX2 提供 OpenGL 场景通道。GoldCraft 使用三角形/VAO/VBO 和着色器，在 Renderer 的实际深度与阴影流程中绘制 MC 几何。实体按渲染帧插值；动画纹理采用局部更新。手部、持物和 HUD 从 MC 自己的渲染流程导出。
@@ -36,6 +38,8 @@ MetaHookSv 接入客户端回调，Renderer_AVX2 提供 OpenGL 场景通道。Go
 MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 GoldCraft 前面，使 Renderer 包裹最终的 GoldCraft 摄像机结果；不能随意交换顺序。每个 MC 发光源请求阴影，静态 BSP 遮挡可缓存，动态实体与 MC 几何按帧更新；新版室内效果仍需实测。
 
 输入拥有者由服务器决定。MC 形态转发动作并抑制原生武器展示；CS 形态恢复原生武器、HUD 和控制。背包输入只接受当前显示菜单的代次。NeoForge 对容器按键 API 有补丁，迁移版针对 `isActiveAndMatches` 适配，正常 MC 窗口仍保留其自身绑定。
+
+形态菜单通过 AMXX 的 ShowMenu/menuselect 在服务器执行选择；MC 形态由合成器补绘菜单。被动 Minecraft 聊天使用独立 HUD 标志，在原生 CS HUD 之后叠加，不触发手部模式。MC 游戏中 `/` 转发到原版命令键；已有菜单里的斜杠继续作为文字输入。
 
 ## 地图会话与版本边界
 

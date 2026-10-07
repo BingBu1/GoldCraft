@@ -1,6 +1,6 @@
 # 在 X Minecraft Launcher 集中管理 Mod
 
-当前只管理本机 A、B 两个 MC 客户端及一个 MC 专用服务器。Minecraft 版本固定 **1.21**，加载器固定 **NeoForge 21.0.167**。现有个人 Minecraft 安装、存档和 X 管理的其他实例不会成为同步目标。
+当前只管理本机 A、B 两个 MC 客户端及一个 MC 专用服务器。Minecraft 版本固定 **1.21.1**，加载器固定 **NeoForge 21.1.256 / FML 4.0.45**。现有个人 Minecraft 安装、存档和 X 管理的其他实例不会成为同步目标。
 
 ## 一次准备
 
@@ -10,11 +10,11 @@
 .\tools\Prepare-XmclModpack.ps1 -Loader neoforge
 ```
 
-关闭 X Minecraft Launcher，然后运行 `sandbox/modpack-neoforge/Add-to-XMCL.cmd`。脚本只向现有 X 实例注册表追加外部主实例，备份原表并保留其他实例和当前选择；X 运行时拒绝并发写入。重新打开 X，选择新增的 GoldCraft 1.21 实例管理 Mod。
+关闭 X Minecraft Launcher，然后运行 `sandbox/modpack-neoforge/Add-to-XMCL.cmd`。脚本只向现有 X 实例注册表追加外部主实例，备份原表并保留其他实例和当前选择；X 运行时拒绝并发写入。重新打开 X，选择新增的 GoldCraft 1.21.1 实例管理 Mod。实例的版本标识和库目录来自工作区内已校验的官方安装结果。
 
 | 路径 | 用途 |
 |---|---|
-| `sandbox/modpack-neoforge/GoldCraft-1.21-NeoForge` | 在 X 中管理的唯一 Mod 主实例 |
+| `sandbox/modpack-neoforge/GoldCraft-1.21.1-NeoForge` | 在 X 中管理的当前 Mod 主实例 |
 | `sandbox/neoforge-cs-client-a` | A 的实际运行目录 |
 | `sandbox/neoforge-cs-client-b` | B 的实际运行目录 |
 | `sandbox/neoforge-server` | 专用 MC 服务端运行目录 |
@@ -52,6 +52,12 @@ NeoForge 的 `dependencies.side` 限定一条依赖在何端生效，**不是整
 
 依赖预检调用固定 FML 的真实 ModFileParser、ModSorter 及 JarJarSelector。支持 `javafml` 和 `lowcodefml`，其他语言加载器目前明确拒绝；不会根据文件名猜兼容性。预检通过只能说明已检查的依赖关系成立，不能证明任意 Mod 的渲染/Mixin/玩法一定兼容 GoldCraft。
 
+支持通过 manifest 声明的 `GAMELIBRARY` / `LIBRARY` 容器，并由真实 JarJar 选择嵌套依赖。容器在管理清单中的 `library:<模块名>` 是分配规则标识；实际加载的 Mod ID 仍取自 FML。依赖判定包含 FML 的 `VersionSupportMatrix`：例如当前加载器允许部分声明支持 1.21 的 Mod 在 1.21.1 运行。
+
+从旧 1.21 主实例升级时，保留旧目录，将新版本 Mod 放入 1.21.1 主实例并重新预检。不要同时把旧、新两个 JAR 安装到同一主实例；重复 Mod ID 会被拒绝。A/B 和服务器自己的按键、账号、桥接凭据及存档路径继续保留。
+
 ## 当前验证范围
 
-NeoForge 构建、主实例注册、文件同步和 A/B/服务端启动已验证；25 项依赖与文件事务测试通过。NeoForge 的真实三 JVM 增删更新回归尚待完成，当前开发映射运行环境中的第三方 Mod 也需要逐个实际加载验证。旧 Fabric 的运行记录不能替代本版本验收。
+1.21.1 主实例已准备，GoldCraft、JEI 19.57.0.451 和 MezzConfig 0.6.8 已同步到本机 A/B/服务端，三端文件哈希一致、独立配置保持不变。正式运行环境的独立服务端已真实加载这三个 Mod，并核对了实际版本；28 项依赖与文件事务测试通过。
+
+升级后的 X 实例登记、图形客户端 JEI 界面，以及真实三个 JVM 的增删更新回归尚待完成。此前 1.21 的双客户端启动或 Fabric 运行记录不能替代这些验收。

@@ -1,0 +1,5 @@
+{
+  "excludedCopiedDirectories": ["cstrike_downloads", "czero_downloads", "valve_downloads", "czeror", "htmlcache"],
+  "keepRunsPerRole": 2,
+  "keepDeploymentBackups": 2
+}

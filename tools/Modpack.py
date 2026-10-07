@@ -18,12 +18,13 @@ import tomllib
 from zipfile import ZipFile, BadZipFile
 
 ROOT = Path(__file__).resolve().parent.parent
+MINECRAFT_PIN = json.loads((ROOT / "sources.lock.json").read_text(encoding="utf-8"))["minecraft"]
 LOADER = os.environ.get("GOLDCRAFT_MOD_LOADER", "neoforge")
 if LOADER not in ("neoforge", "fabric"):
     raise ValueError("GOLDCRAFT_MOD_LOADER must be neoforge or fabric")
 IS_NEOFORGE = LOADER == "neoforge"
 PACK = ROOT / ("sandbox/modpack-neoforge" if IS_NEOFORGE else "sandbox/modpack")
-SOURCE = PACK / ("GoldCraft-1.21-NeoForge" if IS_NEOFORGE else "GoldCraft-1.21")
+SOURCE = PACK / (f"GoldCraft-{MINECRAFT_PIN['version']}-NeoForge" if IS_NEOFORGE else "GoldCraft-1.21")
 TARGETS = {
     "cs-client-a": ("client", ROOT / ("sandbox/neoforge-cs-client-a" if IS_NEOFORGE else "sandbox/minecraft-cs-client-a")),
     "cs-client-b": ("client", ROOT / ("sandbox/neoforge-cs-client-b" if IS_NEOFORGE else "sandbox/minecraft-cs-client-b")),
@@ -31,7 +32,7 @@ TARGETS = {
 }
 JAVA = ROOT / ".tools/java/jdk-21.0.12.1+1/bin/java.exe"
 JAVAC = JAVA.with_name("javac.exe")
-PLATFORM = ({"minecraft": "1.21", "loader": "21.0.167", "kind": "neoforge", "fml": "4.0.23"} if IS_NEOFORGE
+PLATFORM = ({"minecraft": MINECRAFT_PIN["version"], "loader": MINECRAFT_PIN["neoforge"], "kind": "neoforge", "fml": MINECRAFT_PIN["fml"]} if IS_NEOFORGE
             else {"minecraft": "1.21", "loader": "0.16.14", "fabricApi": "0.102.0+1.21"})
 
 
@@ -102,7 +103,7 @@ def initialize():
     profile = SOURCE / "instance.json"
     if not profile.exists():
         write_json(profile, {
-            "name": f"GoldCraft 1.21 {LOADER} · Mod 管理", "path": str(SOURCE),
+            "name": f"GoldCraft {PLATFORM['minecraft']} {LOADER} · Mod 管理", "path": str(SOURCE),
             "description": "在此管理 Mod；使用工作区的同步并启动入口运行 CS/MC 联动。",
             "runtime": {"minecraft": PLATFORM["minecraft"], "fabricLoader": "" if IS_NEOFORGE else PLATFORM["loader"],
                         "forge": "", "neoForged": PLATFORM["loader"] if IS_NEOFORGE else "",
@@ -121,28 +122,46 @@ def initialize():
         write_json(rules, {"format": 1, "sideOverrides": {}, "sharedConfigs": []})
 
 
+def jar_manifest(jar):
+    if "META-INF/MANIFEST.MF" not in jar.namelist():
+        return {}
+    entry = jar.getinfo("META-INF/MANIFEST.MF")
+    if entry.file_size > 2 * 1024 * 1024:
+        raise PackError("Oversized JAR manifest")
+    text = jar.read(entry).decode("utf-8").replace("\r\n", "\n").replace("\n ", "")
+    return dict(line.split(": ", 1) for line in text.split("\n\n", 1)[0].splitlines() if ": " in line)
+
+
 def scan_neoforge_jar(data, label, depth=0):
     if depth > 12:
         raise PackError(f"Nested jars are too deep: {label}")
     try:
         with ZipFile(io.BytesIO(data)) as jar:
-            entry = jar.getinfo("META-INF/neoforge.mods.toml")
-            if entry.file_size > 2 * 1024 * 1024:
-                raise PackError(f"Oversized NeoForge metadata: {label}")
-            metadata = tomllib.loads(jar.read(entry).decode("utf-8"))
-            mods = metadata.get("mods", [])
-            if not mods:
-                raise PackError(f"No NeoForge mods declared: {label}")
-            ids = [mod.get("modId", "") for mod in mods]
-            if any(not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", value) for value in ids) or len(set(ids)) != len(ids):
-                raise PackError(f"Invalid or duplicate NeoForge mod ids: {label}")
-            version = mods[0].get("version", "1")
-            if not isinstance(version, str):
-                raise PackError(f"Invalid NeoForge version: {label}")
-            if "${file.jarVersion}" in version:
-                manifest = jar.read("META-INF/MANIFEST.MF").decode("utf-8").replace("\r\n ", "")
-                match = re.search(r"(?m)^Implementation-Version: (.+?)\r?$", manifest)
-                version = version.replace("${file.jarVersion}", match.group(1) if match else "0.0NONE")
+            manifest = jar_manifest(jar)
+            if "META-INF/neoforge.mods.toml" in jar.namelist():
+                entry = jar.getinfo("META-INF/neoforge.mods.toml")
+                if entry.file_size > 2 * 1024 * 1024:
+                    raise PackError(f"Oversized NeoForge metadata: {label}")
+                metadata = tomllib.loads(jar.read(entry).decode("utf-8"))
+                mods = metadata.get("mods", [])
+                if not mods:
+                    raise PackError(f"No NeoForge mods declared: {label}")
+                ids = [mod.get("modId", "") for mod in mods]
+                if any(not re.fullmatch(r"[a-z][a-z0-9_]{1,63}", value) for value in ids) or len(set(ids)) != len(ids):
+                    raise PackError(f"Invalid or duplicate NeoForge mod ids: {label}")
+                version = mods[0].get("version", "1")
+                if not isinstance(version, str):
+                    raise PackError(f"Invalid NeoForge version: {label}")
+                version = version.replace("${file.jarVersion}", manifest.get("Implementation-Version", "0.0NONE"))
+            elif manifest.get("FMLModType") in ("GAMELIBRARY", "LIBRARY"):
+                # FML's JarModsDotTomlModFileReader accepts explicit manifest-only
+                # libraries. JarJar may then select actual Mods inside this file.
+                # This label is a pack identity, never an invented FML mod id.
+                ids = ["library:" + manifest.get("Automatic-Module-Name", Path(label).name)]
+                version = manifest.get("Implementation-Version", "0.0NONE")
+                metadata = {"libraryType": manifest["FMLModType"]}
+            else:
+                raise PackError(f"No NeoForge metadata or supported FML library manifest: {label}. Install the Minecraft {PLATFORM['minecraft']} NeoForge edition.")
             # JarJar selects shared nested versions; its real selector validates
             # those below. A dependency's side must never classify this outer jar.
             if "META-INF/jarjar/metadata.json" in jar.namelist():
@@ -155,7 +174,7 @@ def scan_neoforge_jar(data, label, depth=0):
             return {"path": label, "metadata": {"id": ids[0], "ids": ids, "version": version,
                     "environment": "*", "neoforge": metadata}, "children": []}
     except (BadZipFile, KeyError, UnicodeError, tomllib.TOMLDecodeError, json.JSONDecodeError) as error:
-        raise PackError(f"Not a complete NeoForge mod: {label}. Install the Minecraft 1.21 NeoForge edition. {error}") from error
+        raise PackError(f"Not a complete NeoForge mod: {label}. Install the Minecraft {PLATFORM['minecraft']} NeoForge edition. {error}") from error
 
 
 def scan_jar(data, label, depth=0):
@@ -215,7 +234,7 @@ def snapshot(source=SOURCE, rules_path=PACK / "rules.json", refresh_core=False):
     versions = profile.get("runtime", {})
     loader_key = "neoForged" if IS_NEOFORGE else "fabricLoader"
     if versions.get("minecraft") != PLATFORM["minecraft"] or versions.get(loader_key) != PLATFORM["loader"]:
-        raise PackError(f"GoldCraft requires Minecraft 1.21 and {LOADER} {PLATFORM['loader']}; keep other versions in other instances")
+        raise PackError(f"GoldCraft requires Minecraft {PLATFORM['minecraft']} and {LOADER} {PLATFORM['loader']}; keep other versions in other instances")
     if any(versions.get(key) for key in ("forge", "fabricLoader" if IS_NEOFORGE else "neoForged", "quiltLoader", "optifine")):
         raise PackError(f"The GoldCraft profile must use {LOADER} without an additional loader")
     rules = read_json(rules_path)
@@ -270,7 +289,8 @@ def snapshot(source=SOURCE, rules_path=PACK / "rules.json", refresh_core=False):
             raise PackError(f"Shared configuration is missing: {relative}")
         configs.append({"name": item.as_posix(), "path": str(file), "sha256": sha(file)})
     contract = {"platform": PLATFORM, "jars": [{k: n[k] for k in ("name", "id", "version", "sha256", "sides")} for n in jars],
-                "configs": [{k: n[k] for k in ("name", "sha256")} for n in configs], "coreFromDevelopmentClasspath": True}
+                "configs": [{k: n[k] for k in ("name", "sha256")} for n in configs],
+                "coreFromDevelopmentClasspath": not IS_NEOFORGE}
     fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
     return {**contract, "fingerprint": fingerprint, "nodes": jars, "configNodes": configs, "coreChanges": core_changes,
             "unusedOverrides": sorted(set(overrides) - ids.keys())}
@@ -314,7 +334,7 @@ def validate_neoforge(pack):
         atomic_bytes(compiled_key, key.encode())
     request = folder / "request.json"
     write_json(request, {"workspace": str(ROOT), "minecraft": PLATFORM["minecraft"], "neoforge": PLATFORM["loader"],
-                         "fml": PLATFORM["fml"], "jars": pack["nodes"]})
+                         "fml": PLATFORM["fml"], "neoform": MINECRAFT_PIN["neoform"], "jars": pack["nodes"]})
     result = run_java(JAVA, ["--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
         "--add-exports=java.base/sun.security.util=ALL-UNNAMED", "-Dfile.encoding=UTF-8",
         "-cp", str(build) + os.pathsep + classpath, "dev.goldcraft.tools.NeoForgePackValidator", request, result_path], "validate")
@@ -420,7 +440,7 @@ def deployment_plan(pack, targets=TARGETS, state_path=PACK / "deployed.json"):
     for name, (side, directory) in targets.items():
         directory = safe(directory)
         files = {"mods/" + n["name"]: {"source": n["path"], "sha256": n["sha256"]} for n in pack["nodes"]
-                 if side in n["sides"] and n["id"] not in ("goldcraft", "fabric-api")}
+                 if side in n["sides"] and not (pack["coreFromDevelopmentClasspath"] and n["id"] in ("goldcraft", "fabric-api"))}
         files.update({n["name"]: {"source": n["path"], "sha256": n["sha256"]} for n in pack["configNodes"]})
         old = previous.get("targets", {}).get(name, {}).get("files", {})
         if (directory / "config/fabric_loader_dependencies.json").exists():

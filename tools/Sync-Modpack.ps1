@@ -1,4 +1,6 @@
 param([switch]$Restart,[switch]$Start,[switch]$ValidateOnly,[switch]$UpdateClientRuntime,
+      [ValidateSet('cs-client-a','cs-client-b')][string[]]$Clients=@('cs-client-b'),
+      [ValidatePattern('^[A-Za-z0-9_]{1,64}$')][string]$Map='sy_zombie2_Bloodmoon',
       [ValidateSet('neoforge','fabric')][string]$Loader='neoforge')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $env:GOLDCRAFT_MOD_LOADER=$Loader
@@ -7,6 +9,10 @@ if($PSVersionTable.PSVersion.Major -lt 7){throw 'Use PowerShell 7, or the genera
 # Validate all three environments before interrupting a running game.
 & python (Join-Path $PSScriptRoot 'Modpack.py') plan --refresh-core
 if($LASTEXITCODE){throw 'The modpack has a conflict. No running process was stopped and no runtime mods were changed.'}
+if($Loader -eq 'neoforge'){
+    & python (Join-Path $PSScriptRoot 'Prepare-NeoForgeRuntime.py') --verify
+    if($LASTEXITCODE){throw 'Prepare the production NeoForge runtime before restarting. Running instances have not been stopped.'}
+}
 if($UpdateClientRuntime){& (Join-Path $PSScriptRoot 'Deploy-ClientRuntime.ps1') -ValidateOnly -Loader $Loader}
 if($ValidateOnly){return}
 
@@ -51,14 +57,15 @@ if($UpdateClientRuntime){& (Join-Path $PSScriptRoot 'Deploy-ClientRuntime.ps1') 
 & python (Join-Path $PSScriptRoot 'Modpack.py') sync --refresh-core
 if($LASTEXITCODE){throw 'Mod synchronization did not complete. Runtime startup was cancelled.'}
 
-$requested=if($Start){$roles}elseif($Restart){$running}else{@()}
+$selectedRoles=@($roles | Where-Object { $_.Instance -eq 'cs-server' -or $_.Instance -in $Clients })
+$requested=if($Start){$selectedRoles}elseif($Restart){@($running | Where-Object { $_.Instance -eq 'cs-server' -or $_.Instance -in $Clients })}else{@()}
 foreach($item in $requested) {
     if($null -ne (Get-ManagedRuntime $item)){continue}
     $launchScript=Assert-WorkspacePath (Join-Path $PSScriptRoot 'Start-Sandbox.ps1')
     $logDirectory=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$($item.Instance)/logs")
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
     $stamp=[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')
-    $arguments=@('-NoLogo','-NoProfile','-File',('"'+$launchScript+'"'),'-Role',$item.Role,'-Instance',$item.Instance,'-Map','cs_assault','-Loader',$Loader,'-Wait')
+    $arguments=@('-NoLogo','-NoProfile','-File',('"'+$launchScript+'"'),'-Role',$item.Role,'-Instance',$item.Instance,'-Map',$Map,'-Loader',$Loader,'-Wait')
     if($item.Role -eq 'CsClient'){$arguments+='-Capture'}
     # A hidden real console gives ReHLDS its required console input handle.
     $launch=@{FilePath=(Join-Path $PSHOME 'pwsh.exe');ArgumentList=$arguments;WindowStyle='Hidden';PassThru=$true;WorkingDirectory=$script:GoldCraftRoot}
@@ -77,14 +84,14 @@ foreach($item in $requested) {
     Write-Output "$($item.Instance) $($item.Role) running as PID $($runtime.ProcessId)"
 }
 if($Start) {
-    Write-Output 'Waiting for both actual CS/Minecraft pairs to connect...'
+    Write-Output "Waiting for selected CS/Minecraft pairs: $($Clients -join ', ')..."
     $deadline=[DateTime]::UtcNow.AddSeconds(120)
     do {
         $ready=$true
-        foreach($role in $roles){
+        foreach($role in $selectedRoles){
             if(-not(Get-ManagedRuntime $role)){throw "$($role.Instance) $($role.Role) exited during startup; inspect its sandbox log before retrying."}
         }
-        foreach($instance in @('cs-client-a','cs-client-b')) {
+        foreach($instance in $Clients) {
             $item=@{Role='CsClient';Instance=$instance}
             $runtime=Get-ManagedRuntime $item
             if(-not $runtime){throw "$instance exited during startup; inspect its sandbox logs."}
@@ -98,5 +105,5 @@ if($Start) {
         if(-not $ready){Start-Sleep -Milliseconds 500}
     } while(-not $ready -and [DateTime]::UtcNow -lt $deadline)
     if(-not $ready){throw 'Mod files are synchronized, but CS/Minecraft pairing did not become ready. Check the actual CS dialogs and sandbox logs; process creation alone is not a successful launch.'}
-    Write-Output 'Both actual CS/Minecraft pairs are connected with the synchronized Mod set.'
+    Write-Output 'Selected CS/Minecraft pairs are connected with the synchronized Mod set.'
 }else{Write-Output 'Mod files are synchronized.'}

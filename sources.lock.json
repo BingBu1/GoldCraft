@@ -9,9 +9,10 @@
     "ReHLDS": {"url": "https://github.com/rehlds/rehlds", "commit": "550f2d62f13f4ebeb029c1d9d1c212133202611d", "path": "external/ReHLDS", "patch": "patches/rehlds-goldcraft.patch", "role": "dedicated authority and engine reference, not hw.dll"},
     "AMXModX": {"url": "https://github.com/alliedmodders/amxmodx", "commit": "b88b763a63bc7165f48e326c226eb05f9db0e54a", "path": "external/amxmodx"},
     "ReAPI": {"url": "https://github.com/rehlds/ReAPI", "commit": "1c448d06e8c1cebaea061d6b81b94e85f6262649", "path": "external/ReAPI"},
+    "SyPB": {"url": "https://github.com/CCNHsK-Dev/SyPB", "commit": "4c364fbe40d8356154f66527827bb75100aa7265", "path": "external/SyPB", "patch": "patches/sypb-goldcraft.patch", "api": "1.50"},
     "GoldSrc_VibeSignatures": {"url": "https://github.com/HLND2T/GoldSrc_VibeSignatures", "observedHead": "0212b4c540786fb966355b5a0d23f6dd01be6ff5", "index": "https://hlnd2t.github.io/GoldSrc_VibeSignatures/gamesymbols/index.json", "role": "module-identity-matched symbol catalog; built snapshots pin their content hashes"}
   },
-  "minecraft": {"version": "1.21", "loader": "neoforge", "neoforge": "21.0.167", "fml": "4.0.23", "yarn": "1.21+build.9", "yarnNeoForgePatch": "1.21+build.6", "loom": "1.7.435", "java": "21", "gradle": "8.10.2", "jarJarSelector": "0.4.1"},
+  "minecraft": {"version": "1.21.1", "loader": "neoforge", "neoforge": "21.1.256", "fml": "4.0.45", "neoform": "20240808.144430", "yarn": "1.21.1+build.3", "yarnNeoForgePatch": "1.21+build.6", "loom": "1.7.435", "java": "21", "gradle": "8.10.2", "jarJarSelector": "0.4.1", "installerVersion": "3.0.48", "installerSourcesSha256": "fc8e579efcef927264a92206845f767b1649526bd82473c42ac9f59997604b26", "installerSha256": "4aad931e8fd85fbf6ba35bab647811069d35ff010900492e39db1cb8b017348c", "metadataSha1": "cedfc3b6dcbca34e2b478d498bf1d56a8fa2f404"},
   "metahookRelease": {"tag": "v20261007a", "url": "https://github.com/MetaHookSv/MetaHookSv/releases/download/v20261007a/MetaHookSv-windows-x86.7z", "sha256": "141af1250d09a39ce964b105d26ce7224d13adccd1fd9fbc13f5cbb8aaa4197c"},
   "nativeToolchain": {"visualStudio": "2026", "platformToolset": "v145", "windowsSdk": "10.0.26100.0", "cmakeNative": "4.3.4", "cmakeNinja": "3.31.10", "architecture": "x86"}
 }

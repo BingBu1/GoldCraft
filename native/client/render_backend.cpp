@@ -109,7 +109,7 @@ Mesh::~Mesh(){
         if(ebo_)glDeleteBuffers(1,&ebo_);
     }
 }
-void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dynamic) {
+void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dynamic,bool lines) {
     if(vertices.empty())return;
     const auto context=wglGetCurrentContext();
     if(context_!=context){context_=context;vao_=vbo_=ebo_=0;revision_=0;capacity_=index_capacity_=0;}
@@ -119,6 +119,7 @@ void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dyn
         glEnableVertexAttribArray(0);glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),nullptr);
         glEnableVertexAttribArray(1);glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),reinterpret_cast<void*>(12));
         glEnableVertexAttribArray(2);glVertexAttribPointer(2,4,GL_UNSIGNED_BYTE,GL_TRUE,sizeof(Vertex),reinterpret_cast<void*>(20));
+        glEnableVertexAttribArray(3);glVertexAttribPointer(3,4,GL_UNSIGNED_BYTE,GL_TRUE,sizeof(Vertex),reinterpret_cast<void*>(24));
     }else glBindVertexArray(vao_);
     if(revision_!=revision||vertices_!=vertices.size()){
         glBindBuffer(GL_ARRAY_BUFFER,vbo_);
@@ -131,7 +132,7 @@ void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dyn
             glBufferSubData(GL_ARRAY_BUFFER,0,vertices.size_bytes(),vertices.data());
         }
         const std::size_t count=vertices.size()/4*6;
-        if(count>index_capacity_){
+        if(!lines&&count>index_capacity_){
             std::vector<std::uint32_t> indices;indices.reserve(count);
             for(std::uint32_t i=0;i<vertices.size();i+=4)indices.insert(indices.end(),{i,i+1,i+2,i,i+2,i+3});
             glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*sizeof(std::uint32_t),indices.data(),GL_STATIC_DRAW);
@@ -139,12 +140,15 @@ void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dyn
         }
         revision_=revision;vertices_=vertices.size();++stats.uploads;stats.upload_bytes+=vertices.size_bytes();
     }
-    glDrawElements(GL_TRIANGLES,static_cast<GLsizei>(vertices.size()/4*6),GL_UNSIGNED_INT,nullptr);++stats.draws;
+    if(lines)glDrawArrays(GL_LINES,0,static_cast<GLsizei>(vertices.size()));
+    else glDrawElements(GL_TRIANGLES,static_cast<GLsizei>(vertices.size()/4*6),GL_UNSIGNED_INT,nullptr);
+    ++stats.draws;
 }
 
 struct DrawState {
     GLint shader,vao,array_buffer,active,texture,sampler,depth_func;
-    GLboolean depth,cull,stencil,depth_mask;
+    GLboolean depth,cull,stencil,depth_mask,polygon_offset;
+    GLfloat line_width,offset_factor,offset_units;
     struct Blend {GLboolean enabled,mask[4];GLint src_rgb,dst_rgb,src_alpha,dst_alpha,eq_rgb,eq_alpha;}blend[4];
     struct Stencil {GLint func,ref,mask,write_mask,fail,zfail,zpass;}front,back;
     static Stencil stencil_state(bool back){
@@ -158,6 +162,8 @@ struct DrawState {
         glGetIntegerv(back?GL_STENCIL_BACK_PASS_DEPTH_PASS:GL_STENCIL_PASS_DEPTH_PASS,&s.zpass);return s;
     }
     DrawState(){
+        polygon_offset=glIsEnabled(GL_POLYGON_OFFSET_FILL);glGetFloatv(GL_LINE_WIDTH,&line_width);
+        glGetFloatv(GL_POLYGON_OFFSET_FACTOR,&offset_factor);glGetFloatv(GL_POLYGON_OFFSET_UNITS,&offset_units);
         glGetIntegerv(GL_CURRENT_PROGRAM,&shader);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
         glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&array_buffer);glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
         glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);glGetIntegeri_v(GL_SAMPLER_BINDING,0,&sampler);
@@ -172,6 +178,7 @@ struct DrawState {
         }
     }
     ~DrawState(){
+        enabled(GL_POLYGON_OFFSET_FILL,polygon_offset);glPolygonOffset(offset_factor,offset_units);glLineWidth(line_width);
         glUseProgram(shader);glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,array_buffer);
         renderer->BindTextureUnit(0,GL_TEXTURE_2D,texture);glBindSampler(0,sampler);glActiveTexture(active);
         enabled(GL_DEPTH_TEST,depth);glDepthFunc(depth_func);glDepthMask(depth_mask);enabled(GL_CULL_FACE,cull);enabled(GL_STENCIL_TEST,stencil);
@@ -191,6 +198,7 @@ Pass::Pass(bool transparent,std::uint32_t flags){
     if(renderer->IsDrawGammaBlendEnabled())flags|=META_SCENE_GAMMA_BLEND;
     state_=new DrawState;
     const auto shader=program(flags);glUseProgram(shader);glBindSampler(0,0);
+    glUniform1i(glGetUniformLocation(shader,"u_feedback"),0);glDisable(GL_POLYGON_OFFSET_FILL);
     emissive_location_=glGetUniformLocation(shader,"u_emissive");
     shadow_=(flags&META_SCENE_SHADOW)!=0;emissive(false);
     glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(transparent?GL_FALSE:GL_TRUE);glDisable(GL_CULL_FACE);
@@ -210,6 +218,12 @@ Pass::~Pass(){
 }
 void Pass::texture(GLuint id){renderer->BindTextureUnit(0,GL_TEXTURE_2D,id);}
 void Pass::depth_write(bool value){glDepthMask(value?GL_TRUE:GL_FALSE);}
+void Pass::feedback(unsigned mode){
+    GLint shader=0;glGetIntegerv(GL_CURRENT_PROGRAM,&shader);glUniform1i(glGetUniformLocation(shader,"u_feedback"),static_cast<int>(mode));
+    glDepthMask(GL_FALSE);glDisable(GL_STENCIL_TEST);emissive(true);
+    if(mode==1){glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-3.0f,-3.0f);glBlendFuncSeparatei(0,GL_DST_COLOR,GL_SRC_COLOR,GL_ZERO,GL_ONE);}
+    else{glDisable(GL_POLYGON_OFFSET_FILL);glBlendFuncSeparatei(0,GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);GLfloat range[2];glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE,range);glLineWidth(std::clamp(2.0f,range[0],range[1]));}
+}
 void Pass::emissive(bool value){
     glUniform1i(emissive_location_,value?1:0);
     glStencilFunc(GL_ALWAYS,value&&!shadow_?STENCIL_MASK_NO_LIGHTING:0,0xff);

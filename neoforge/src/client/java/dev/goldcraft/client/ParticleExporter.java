@@ -76,7 +76,6 @@ public final class ParticleExporter {
         try {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
             var camera=client.gameRenderer.getCamera();
-            camera.update(client.world,client.player,!client.options.getPerspective().isFirstPerson(),client.options.getPerspective().isFrontView(),tickDelta);
             cameraPosition=camera.getPos();
             var dispatcher=client.getEntityRenderDispatcher();dispatcher.configure(client.world,camera,client.targetedEntity);
             boolean shadows=((EntityRenderDispatcherAccessor)dispatcher).goldcraft$renderShadows();

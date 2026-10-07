@@ -105,6 +105,8 @@ public final class GoldCraft {
                 try {
                     switch(message.type()) {
                         case Wire.WORLD -> {
+                            long epoch=new Wire.Reader(message.payload()).i64();
+                            if(HOST_WORLD.epoch()!=0&&HOST_WORLD.epoch()!=epoch)reset(server);
                             HOST_WORLD.world(message.payload());worldPayload=message.payload();
                             LOGGER.info("Host map {} epoch {}",HOST_WORLD.map(),Long.toUnsignedString(HOST_WORLD.epoch()));
                         }
@@ -132,7 +134,7 @@ public final class GoldCraft {
             MinecraftObjects.tick(server,HOST_WORLD);
             Performance.flush();
         });
-        LOGGER.info("GoldCraft initialized: Minecraft 1.21 / NeoForge 21.0.167, protocol {}",Wire.VERSION);
+        LOGGER.info("GoldCraft initialized: Minecraft 1.21.1 / NeoForge 21.1.256, protocol {}",Wire.VERSION);
     }
     private void registerPayloads(net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent event) {
         var registrar=event.registrar(Integer.toString(Wire.VERSION));

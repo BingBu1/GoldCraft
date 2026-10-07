@@ -77,7 +77,7 @@ public final class HudExporter implements AutoCloseable {
     private void clearPending(){for(var s:staging)if(s.fence!=0){GL32.glDeleteSync(s.fence);s.fence=0;}}
     @Override public void close(){reset();if(target!=null){target.delete();target=null;}for(var s:staging)if(s.buffer!=0){GL15.glDeleteBuffers(s.buffer);s.buffer=0;}}
     public void frame(MinecraftClient client) {
-        if(!enabled||!link.connected()||!HostInput.hosted()||(!HostInput.controlling()&&client.currentScreen==null)||client.player==null||client.world==null
+        if(!enabled||!link.connected()||!HostInput.hosted()||client.player==null||client.world==null
             ||viewportEpoch!=GoldCraftClient.HOST.epoch()||viewportId==0||client.getOverlay()!=null)return;
         long began=Performance.begin();
         try {
@@ -118,11 +118,10 @@ public final class HudExporter implements AutoCloseable {
                 RenderSystem.setShaderColor(1,1,1,1);RenderSystem.enableDepthTest();RenderSystem.depthFunc(GL11.GL_LEQUAL);
                 RenderSystem.enableCull();RenderSystem.disableBlend();DiffuseLighting.enableForLevel();
                 var camera=client.gameRenderer.getCamera();
-                camera.update(client.world,client.player,!client.options.getPerspective().isFirstPerson(),client.options.getPerspective().isFrontView(),tickDelta);
                 client.getEntityRenderDispatcher().configure(client.world,camera,client.targetedEntity);
                 client.gameRenderer.getLightmapTextureManager().update(tickDelta);
                 // Preserve vanilla equip/swing, skin, map, bow, shield, eating and overlay rendering.
-                if(HostInput.controlling())((GameRendererAccessor)client.gameRenderer).goldcraft$renderHand(camera,tickDelta,
+                if(HostInput.controlling()&&client.options.getPerspective().isFirstPerson())((GameRendererAccessor)client.gameRenderer).goldcraft$renderHand(camera,tickDelta,
                     new Matrix4f().rotation(camera.getRotation().conjugate(new Quaternionf())));
                 handVisible=HostInput.controlling()&&client.options.getPerspective().isFirstPerson()&&!client.options.hudHidden
                     &&!client.player.isSleeping()&&!client.player.isSpectator();
@@ -133,7 +132,14 @@ public final class HudExporter implements AutoCloseable {
                 RenderSystem.setShaderColor(1,1,1,1);RenderSystem.disableCull();RenderSystem.enableBlend();
                 RenderSystem.defaultBlendFunc();DiffuseLighting.enableGuiDepthLighting();
                 var context=new DrawContext(client,client.getBufferBuilders().getEntityVertexConsumers());
-                if(HostInput.controlling()){client.inGameHud.render(context,client.getRenderTickCounter());context.draw();}
+                if(HostInput.controlling())client.inGameHud.render(context,client.getRenderTickCounter());
+                else if(!client.options.hudHidden&&!client.inGameHud.getChatHud().isChatFocused()) {
+                    // Preserve vanilla message formatting, death notices and fading.
+                    // Native CS still draws its own weapon, health and ammunition HUD.
+                    client.inGameHud.getChatHud().render(context,client.inGameHud.getTicks(),
+                        (int)HostUi.mouseX(),(int)HostUi.mouseY(),false);
+                }
+                context.draw();
                 if(screen!=null) {
                     RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT,MinecraftClient.IS_SYSTEM_MAC);
                     screen.renderWithTooltip(context,(int)HostUi.mouseX(),(int)HostUi.mouseY(),tickDelta);
@@ -141,7 +147,7 @@ public final class HudExporter implements AutoCloseable {
                 }
             }finally{rendering=false;modelView.popMatrix();RenderSystem.applyModelViewMatrix();}
             slot.epoch=viewportEpoch;slot.viewport=viewportId;slot.revision=++revision;slot.menu=menuId();
-            slot.viewWidth=viewWidth;slot.viewHeight=viewHeight;slot.width=width;slot.height=height;slot.flags=2|(HostInput.controlling()?4:0)|(screen!=null?1:0);
+            slot.viewWidth=viewWidth;slot.viewHeight=viewHeight;slot.width=width;slot.height=height;slot.flags=2|(HostInput.controlling()?4:8)|(screen!=null?1:0);
             slot.life=HostInput.life();slot.produced=System.nanoTime();
             var player=client.player;slot.slot=player.getInventory().selectedSlot;slot.health=player.getHealth();
             slot.food=player.getHungerManager().getFoodLevel();slot.armor=player.getArmor();slot.level=player.experienceLevel;slot.experience=player.experienceProgress;

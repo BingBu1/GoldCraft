@@ -9,8 +9,8 @@
 #include "goldcraft/atlas.hpp"
 
 namespace goldcraft::render {
-struct Vertex { float x,y,z,u,v; std::uint32_t color; };
-static_assert(sizeof(Vertex)==24);
+struct Vertex { float x,y,z,u,v; std::uint32_t color,overlay=0; };
+static_assert(sizeof(Vertex)==28);
 
 class Mesh {
 public:
@@ -18,7 +18,7 @@ public:
     Mesh(const Mesh&)=delete;
     Mesh& operator=(const Mesh&)=delete;
     ~Mesh();
-    void draw(std::span<const Vertex> vertices, std::uint64_t revision, bool dynamic);
+    void draw(std::span<const Vertex> vertices, std::uint64_t revision, bool dynamic, bool lines=false);
 private:
     HGLRC context_=nullptr;
     GLuint vao_=0,vbo_=0,ebo_=0;
@@ -51,6 +51,7 @@ public:
     void texture(GLuint id);
     void emissive(bool value);
     void depth_write(bool value);
+    void feedback(unsigned mode);
 private:
     DrawState* state_=nullptr;
     bool ready_=false;
