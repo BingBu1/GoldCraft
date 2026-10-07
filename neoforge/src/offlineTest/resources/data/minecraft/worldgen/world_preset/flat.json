@@ -1,0 +1,58 @@
+{
+  "dimensions": {
+    "minecraft:overworld": {
+      "type": "minecraft:overworld",
+      "generator": {
+        "type": "minecraft:flat",
+        "settings": {
+          "biome": "minecraft:plains",
+          "features": false,
+          "lakes": false,
+          "layers": [
+            {
+              "height": 1,
+              "block": "minecraft:air"
+            }
+          ],
+          "structure_overrides": []
+        }
+      }
+    },
+    "goldcraft:nav_fixture_850c13c5": {
+      "type": "minecraft:overworld",
+      "generator": {
+        "type": "minecraft:flat",
+        "settings": {
+          "biome": "minecraft:plains",
+          "features": false,
+          "lakes": false,
+          "layers": [
+            {
+              "height": 1,
+              "block": "minecraft:air"
+            }
+          ],
+          "structure_overrides": []
+        }
+      }
+    },
+    "goldcraft:cs_assault_f6725c06": {
+      "type": "minecraft:overworld",
+      "generator": {
+        "type": "minecraft:flat",
+        "settings": {
+          "biome": "minecraft:plains",
+          "features": false,
+          "lakes": false,
+          "layers": [
+            {
+              "height": 1,
+              "block": "minecraft:air"
+            }
+          ],
+          "structure_overrides": []
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+diff --git a/src/metahook.cpp b/src/metahook.cpp
+index d62c4a5..50b327b 100644
+--- a/src/metahook.cpp
++++ b/src/metahook.cpp
+@@ -224,6 +224,18 @@ extern "C"
+ 
+ 		msg[MAX_SYS_ERROR_LENGTH - 1] = 0;
+ 
++		// Optional launcher diagnostics for isolated, unattended test instances.
++		// Fatal SDL dialogs may not be capturable before the first GL frame.
++		if (const char* errorLog = getenv("METAHOOK_ERROR_LOG"))
++		{
++			FILE* file = nullptr;
++			if (fopen_s(&file, errorLog, "a") == 0 && file)
++			{
++				fprintf(file, "%s\n", msg);
++				fclose(file);
++			}
++		}
++
+ #if 1
+ 		if (gMetaSave.pEngineFuncs)
+ 		{
+diff --git a/src/registry.cpp b/src/registry.cpp
+index 91a6c79..dd1922b 100644
+--- a/src/registry.cpp
++++ b/src/registry.cpp
+@@ -112,7 +112,25 @@ void CRegistry::Init(void)
+ 	DWORD dwDisposition;
+ 
+ 	char szModelKey[1024];
+-	wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
++	char profile[33] = { 0 };
++	DWORD profileLength = GetEnvironmentVariableA("GOLDCRAFT_PROFILE_ID", profile, sizeof(profile));
++	if (profileLength)
++	{
++		// Each isolated GoldCraft instance has its own launcher settings.
++		if (profileLength != 32)
++			return;
++		for (DWORD i = 0; i < profileLength; ++i)
++		{
++			const char c = profile[i];
++			if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
++				return;
++		}
++		wsprintfA(szModelKey, "Software\\GoldCraft\\Sandbox\\%s\\Settings\\", profile);
++	}
++	else
++	{
++		wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
++	}
+ 	lResult = RegCreateKeyEx(HKEY_CURRENT_USER, szModelKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &m_hKey, &dwDisposition);
+ 
+ 	if (lResult != ERROR_SUCCESS)
+@@ -131,4 +149,4 @@ void CRegistry::Shutdown(void)
+ 
+ 	m_bValid = false;
+ 	RegCloseKey(m_hKey);
+-}
+\ No newline at end of file
++}

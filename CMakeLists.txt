@@ -1,0 +1,69 @@
+cmake_minimum_required(VERSION 3.21)
+project(GoldCraft LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(NOT WIN32 OR NOT MSVC)
+    message(FATAL_ERROR "GoldCraft native components currently require Windows/MSVC.")
+endif()
+
+add_library(goldcraft_common STATIC native/common/wire.cpp native/common/endpoint.cpp)
+target_include_directories(goldcraft_common PUBLIC native/include)
+target_compile_definitions(goldcraft_common PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+target_link_libraries(goldcraft_common PUBLIC ws2_32 bcrypt)
+target_compile_options(goldcraft_common PRIVATE /W4 /WX /utf-8)
+
+if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/amxmodx/public/sdk/amxxmodule.cpp")
+    add_library(goldcraft_amxx SHARED native/amxx/module.cpp external/amxmodx/public/sdk/amxxmodule.cpp)
+    target_include_directories(goldcraft_amxx PRIVATE native/amxx native/include external/amxmodx/public/sdk
+        external/amxmodx/public external/ReGameDLL_CS/regamedll/public)
+    target_compile_definitions(goldcraft_amxx PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX HAVE_STDINT_H _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(goldcraft_amxx PRIVATE /W3 /utf-8)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(goldcraft_native_tests tests/native/bridge_tests.cpp)
+    target_link_libraries(goldcraft_native_tests PRIVATE goldcraft_common)
+    add_test(NAME goldcraft_native COMMAND goldcraft_native_tests)
+    add_executable(goldcraft_link_probe tests/native/link_probe.cpp)
+    target_link_libraries(goldcraft_link_probe PRIVATE goldcraft_common)
+    add_executable(goldcraft_audio_probe tools/audio_session_probe.cpp)
+    target_compile_definitions(goldcraft_audio_probe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(goldcraft_audio_probe PRIVATE ole32)
+endif()
+
+option(GOLDCRAFT_BUILD_CLIENT "Build the x86 MetaHook plugin" ON)
+if(GOLDCRAFT_BUILD_CLIENT)
+    if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
+        message(FATAL_ERROR "GoldSrc client plugin requires -A Win32; x64 can build tests with GOLDCRAFT_BUILD_CLIENT=OFF.")
+    endif()
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/sources.lock.json" GOLDCRAFT_SOURCE_LOCK)
+    string(JSON GOLDCRAFT_METAHOOK_PATH GET "${GOLDCRAFT_SOURCE_LOCK}" sources MetaHookSv path)
+    set(METAHOOKSV_SOURCE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/${GOLDCRAFT_METAHOOK_PATH}" CACHE PATH "MetaHookSv aggregate source")
+    set(METAHOOK_SOURCE_PATH "${METAHOOKSV_SOURCE_PATH}/MetaHook" CACHE PATH "MetaHook core source")
+    if(NOT EXISTS "${METAHOOK_SOURCE_PATH}/include/metahook.h")
+        message(FATAL_ERROR "MetaHook SDK checkout is missing.")
+    endif()
+    set(USE_VCLTL OFF CACHE BOOL "" FORCE)
+    set(glew-cmake_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+    set(glew-cmake_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(ONLY_LIBS ON CACHE BOOL "" FORCE)
+    add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
+    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/render_backend.cpp
+        "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
+    target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static)
+    target_include_directories(GoldCraft PRIVATE
+        "${METAHOOK_SOURCE_PATH}/include" "${METAHOOK_SOURCE_PATH}/include/Interface"
+        "${METAHOOK_SOURCE_PATH}/include/HLSDK/common" "${METAHOOK_SOURCE_PATH}/include/HLSDK/cl_dll"
+        "${METAHOOK_SOURCE_PATH}/include/HLSDK/engine" "${METAHOOK_SOURCE_PATH}/include/HLSDK/pm_shared"
+        "${METAHOOK_SOURCE_PATH}/include/HLSDK/public"
+        "${METAHOOK_SOURCE_PATH}/include/Interface/VGUI" "${METAHOOK_SOURCE_PATH}/include/VGUI"
+        "${METAHOOK_SOURCE_PATH}/include/SourceSDK" "${METAHOOK_SOURCE_PATH}/include/SourceSDK/tier0"
+        "${METAHOOK_SOURCE_PATH}/include/SourceSDK/tier1"
+        "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/include/Interface" "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/src")
+    target_compile_definitions(GoldCraft PRIVATE WIN32 _WINDOWS _MBCS NOMINMAX WIN32_LEAN_AND_MEAN GLEW_STATIC _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(GoldCraft PRIVATE /W3 /utf-8 /Zi /wd4311 /wd4312 /wd4996)
+    target_link_options(GoldCraft PRIVATE /DEBUG:FULL)
+    install(TARGETS GoldCraft RUNTIME DESTINATION cstrike/metahook/plugins)
+endif()

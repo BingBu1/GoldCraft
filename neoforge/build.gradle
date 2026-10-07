@@ -1,0 +1,144 @@
+plugins {
+    id 'dev.architectury.loom' version '1.7.435'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.architectury.dev/' }
+    maven { url = 'https://maven.neoforged.net/releases/' }
+}
+
+sourceSets {
+    main {
+        java.srcDir 'src/client/java'
+        resources.srcDir 'src/client/resources'
+    }
+    offlineTest {
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+        runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
+    }
+    testmod {
+        compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+        runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
+    }
+}
+
+loom {
+    mods {
+        goldcraft { sourceSet sourceSets.main }
+    }
+    runs {
+        client {
+            runDir '../sandbox/neoforge-cs-client-a'
+            programArgs '--username', 'GoldCraft_A'
+        }
+        server {
+            runDir '../sandbox/neoforge-server'
+            programArg 'nogui'
+        }
+        offlineTestServer {
+            server()
+            source sourceSets.offlineTest
+            mods {
+                goldcraft { sourceSet sourceSets.main }
+                goldcraft_tests { sourceSet sourceSets.offlineTest }
+            }
+            runDir '../sandbox/neoforge-offline-tests'
+            vmArg '-Dneoforge.gameTestServer=true'
+            vmArg '-Dneoforge.enabledGameTestNamespaces=goldcraft_tests'
+            vmArg "-Dgoldcraft.test.root=${file('..')}"
+        }
+        gameTestServer {
+            server()
+            source sourceSets.testmod
+            mods {
+                goldcraft { sourceSet sourceSets.main }
+                goldcraft_tests { sourceSet sourceSets.testmod }
+            }
+            runDir '../sandbox/neoforge-host-tests'
+            vmArg '-Dneoforge.gameTestServer=true'
+            vmArg '-Dneoforge.enabledGameTestNamespaces=goldcraft_tests'
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        mappings "net.fabricmc:yarn:${yarn_mappings}:v2"
+        mappings "dev.architectury:yarn-mappings-patch-neoforge:${yarn_neoforge_patch}"
+    }
+    neoForge "net.neoforged:neoforge:${neoforge_version}"
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') { expand version: project.version }
+}
+// A generated one-block air template keeps binary game/test assets out of Git.
+def testResources = layout.buildDirectory.dir('generated/test-resources')
+tasks.register('generateTestTemplate') {
+    def template = testResources.map { it.file('data/goldcraft_tests/structure/empty.nbt') }
+    outputs.file(template)
+    doLast {
+        def output = template.get().asFile
+        output.parentFile.mkdirs()
+        new DataOutputStream(new java.util.zip.GZIPOutputStream(new FileOutputStream(output))).withCloseable { nbt ->
+            nbt.writeByte(10); nbt.writeUTF('')
+            nbt.writeByte(3); nbt.writeUTF('DataVersion'); nbt.writeInt(3953)
+            nbt.writeByte(9); nbt.writeUTF('size'); nbt.writeByte(3); nbt.writeInt(3)
+            3.times { nbt.writeInt(1) }
+            nbt.writeByte(9); nbt.writeUTF('palette'); nbt.writeByte(10); nbt.writeInt(1)
+            nbt.writeByte(8); nbt.writeUTF('Name'); nbt.writeUTF('minecraft:air'); nbt.writeByte(0)
+            ['blocks', 'entities'].each { name ->
+                nbt.writeByte(9); nbt.writeUTF(name); nbt.writeByte(10); nbt.writeInt(0)
+            }
+            nbt.writeByte(0)
+        }
+    }
+}
+sourceSets.offlineTest.resources.srcDir(testResources)
+processOfflineTestResources.dependsOn 'generateTestTemplate'
+processTestmodResources {
+    dependsOn 'generateTestTemplate'
+    from('src/offlineTest/resources')
+    from(testResources)
+}
+tasks.withType(JavaCompile).configureEach {
+    options.release = 21
+    options.encoding = 'UTF-8'
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withSourcesJar()
+}
+test {
+    useJUnitPlatform()
+    testLogging { events 'passed', 'failed'; exceptionFormat 'full' }
+}
+
+// Each JVM starts independently, with no shared Gradle project lock.
+tasks.register('writeRuntimeManifests') {
+    dependsOn 'classes', 'offlineTestClasses', 'testmodClasses', 'configureLaunch', 'downloadAssets'
+    doLast {
+        def directory = file('../build/neoforge-runtime')
+        directory.mkdirs()
+        ['runClient', 'runServer', 'runOfflineTestServer', 'runGameTestServer'].each { taskName ->
+            def launch = tasks.named(taskName).get()
+            def config = net.fabricmc.loom.configuration.ide.RunConfig.runConfig(project,
+                loom.runs.getByName(taskName.substring(3).uncapitalize()))
+            def data = [loader: 'neoforge', loaderVersion: project.neoforge_version, minecraft: project.minecraft_version,
+                        main: config.mainClass, jvm: launch.allJvmArgs + config.vmArgs,
+                        args: config.programArgs, classpath: launch.classpath.files.collect { it.absolutePath },
+                        environment: config.environmentVariables, workdir: file(config.runDir).absolutePath]
+            new File(directory, taskName + '.json').text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(data))
+        }
+    }
+}

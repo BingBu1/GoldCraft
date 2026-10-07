@@ -1,0 +1,205 @@
+diff --git a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl b/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
+index df2097c..f61be0b 100644
+--- a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
++++ b/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
+@@ -173,7 +173,9 @@ float CalcShadowIntensity(sampler2DShadow shadowTex, vec3 World, vec3 Norm, vec3
+         float NdotL = max(dot(Norm, -LightDirection), 0.0);
+         float slopeBias = 0.001 * (1.0 - NdotL);
+         float constBias = 0.5 * shadowTexel.y; // scale with texel size
+-        shadowCoords.z += max(slopeBias, constBias);
++        // Shadow textures use GL_LEQUAL and increasing depth away from the
++        // light. Move the receiver toward the light to avoid self-shadowing.
++        shadowCoords.z -= max(slopeBias, constBias) * shadowCoords.w;
+ 
+         float texRes = shadowTexel.x;
+         float invRes = shadowTexel.y;
+@@ -271,7 +273,7 @@ float CalcCSMShadowIntensity(sampler2DArrayShadow shadowTex, vec3 World, vec3 No
+     // Calculate shadow coordinates for selected cascade
+     vec4 shadowCoords = csmMatrix[cascadeIndex] * vec4(World, 1.0);
+ 
+-    shadowCoords.z += 0.001 * (cascadeIndex * 0.5 + 0.5);
++    shadowCoords.z -= 0.001 * (cascadeIndex * 0.5 + 0.5) * shadowCoords.w;
+ 
+     float texRes = shadowTexel.x;
+     float invRes = shadowTexel.y;
+@@ -308,7 +310,7 @@ float CalcCSMShadowIntensity(sampler2DArrayShadow shadowTex, vec3 World, vec3 No
+ 
+         float bias = 0.001 * (nextCascadeIndex * 0.5 + 0.5);
+ 
+-        nextShadowCoords.z += bias;
++        nextShadowCoords.z -= bias * nextShadowCoords.w;
+ 
+         float nextVisibility = 0.0;
+ 
+@@ -696,4 +698,4 @@ void main()
+     out_FragColor = CalcDirectionalLight(worldpos, normal, vBaseTexCoord);
+ #endif
+ 
+-}
+\ No newline at end of file
++}
+diff --git a/src/gl_light.cpp b/src/gl_light.cpp
+index c2d3714..4217e11 100644
+--- a/src/gl_light.cpp
++++ b/src/gl_light.cpp
+@@ -1,4 +1,5 @@
+ #include "gl_local.h"
++#include "gl_external_scene.h"
+ #include "pm_defs.h"
+ #include <sstream>
+ 
+@@ -1961,6 +1962,18 @@ void R_ProcessEngineDynamicLights()
+ 			float specularpow = r_dynlight_specularpow->GetValue();
+ 
+ 			float radius = math_clamp(dl->radius, 0, 999999);
++			const unsigned externalShadowSize = R_GetExternalDlightShadowSize(dl->key);
++			// Exported lights use stable engine slots, but a slot can represent a
++			// different emitter after the nearest-light list changes. Keep only
++			// immutable BSP occlusion cached, and invalidate it on relocation.
++			if (externalShadowSize && dynamicLight->pStaticShadowTexture &&
++				(dynamicLight->size != radius ||
++				 dynamicLight->origin[0] != dl->origin[0] ||
++				 dynamicLight->origin[1] != dl->origin[1] ||
++				 dynamicLight->origin[2] != dl->origin[2]))
++			{
++				dynamicLight->pStaticShadowTexture->SetReady(false);
++			}
+ 
+ 			vec3_t distToLight;
+ 			VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
+@@ -1974,9 +1987,9 @@ void R_ProcessEngineDynamicLights()
+ 			dynamicLight->specular = specular;
+ 			dynamicLight->specularpow = specularpow;
+ 
+-			dynamicLight->static_shadow_size = 0;
+-			dynamicLight->dynamic_shadow_size = 0;
+-			dynamicLight->shadow = 0;
++			dynamicLight->static_shadow_size = externalShadowSize;
++			dynamicLight->dynamic_shadow_size = externalShadowSize;
++			dynamicLight->shadow = dynamicLight->dynamic_shadow_size > 0 ? 1 : 0;
+ 		}
+ 	}
+ }
+diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
+index 98fc3e1..b09763c 100644
+--- a/src/gl_rmain.cpp
++++ b/src/gl_rmain.cpp
+@@ -1,5 +1,6 @@
+ #include "gl_local.h"
+ #include "gl_common.h"
++#include "gl_external_scene.h"
+ #include "pm_defs.h"
+ #include "CounterStrike.h"
+ #include <event_api.h>
+@@ -4700,6 +4701,7 @@ void R_RenderScene(void)
+ 		R_DrawEntitiesOnList();
+ 	}
+ 
++	R_DrawExternalOpaqueScene();
+ 	R_EndRenderOpaque();
+ 
+ 	R_InhibitRenderingFog();
+@@ -6632,6 +6634,56 @@ uint32_t R_GetSwapChainHeight()
+ 	return glheight;
+ }
+ 
++namespace {
++std::vector<IMetaRendererSceneCallbacks*> externalSceneCallbacks;
++std::unordered_map<int, unsigned> externalLightShadowSizes;
++}
++
++void R_DrawExternalOpaqueScene()
++{
++	// Static shadow textures are cached. Mutable plugin geometry belongs in
++	// dynamic entity shadow passes, never the cached world-only pass.
++	if (!(r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES) || externalSceneCallbacks.empty())
++		return;
++	uint32_t flags = 0;
++	if (R_IsRenderingGBuffer()) flags |= META_SCENE_GBUFFER;
++	if (R_IsRenderingShadowView()) flags |= META_SCENE_SHADOW;
++	if (R_IsRenderingMultiView()) flags |= META_SCENE_MULTIVIEW;
++	if (R_IsRenderingLinearDepth()) flags |= META_SCENE_LINEAR_DEPTH;
++	if (R_IsRenderingGammaBlending()) flags |= META_SCENE_GAMMA_BLEND;
++	R_SetGBufferMask(GBUFFER_MASK_ALL);
++	for (auto* callback : externalSceneCallbacks) callback->DrawOpaqueScene(flags);
++}
++
++unsigned R_GetExternalDlightShadowSize(int key)
++{
++	auto it = externalLightShadowSizes.find(key);
++	return it == externalLightShadowSizes.end() ? 0 : it->second;
++}
++
++class CMetaRendererScene : public IMetaRendererScene
++{
++public:
++	void RegisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) override
++	{
++		if (callbacks && externalSceneCallbacks.size() < 16 &&
++			std::find(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), callbacks) == externalSceneCallbacks.end())
++			externalSceneCallbacks.push_back(callbacks);
++	}
++	void UnregisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) override
++	{
++		externalSceneCallbacks.erase(std::remove(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), callbacks), externalSceneCallbacks.end());
++	}
++	void SetDynamicLightShadowSize(int key, unsigned size) override
++	{
++		if (size == 0) externalLightShadowSizes.erase(key);
++		else if ((size == 128 || size == 256 || size == 512) &&
++			(externalLightShadowSizes.size() < 32 || externalLightShadowSizes.count(key)))
++			externalLightShadowSizes[key] = size;
++	}
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererScene, IMetaRendererScene, METARENDERER_SCENE_INTERFACE_VERSION);
++
+ class CMetaRenderer : public IMetaRenderer
+ {
+ public:
+diff --git a/include/Interface/IMetaRendererScene.h b/include/Interface/IMetaRendererScene.h
+new file mode 100644
+index 0000000..e6a38e0
+--- /dev/null
++++ b/include/Interface/IMetaRendererScene.h
+@@ -0,0 +1,31 @@
++#pragma once
++#include <interface.h>
++#include <stdint.h>
++
++// Optional scene extension. The existing MetaRenderer_API_002 ABI is unchanged.
++enum MetaRendererSceneFlags : uint32_t {
++    META_SCENE_GBUFFER = 1u << 0,
++    META_SCENE_SHADOW = 1u << 1,
++    META_SCENE_MULTIVIEW = 1u << 2,
++    META_SCENE_LINEAR_DEPTH = 1u << 3,
++    META_SCENE_GAMMA_BLEND = 1u << 4
++};
++
++class IMetaRendererSceneCallbacks : public IBaseInterface {
++public:
++    // Called after host opaque geometry and before deferred lighting, also in
++    // dynamic shadow passes. CameraUBO/SceneUBO and the target FBO are bound.
++    // Restore all changed GL state before returning; do not recurse RenderScene.
++    virtual void DrawOpaqueScene(uint32_t flags) = 0;
++};
++
++class IMetaRendererScene : public IBaseInterface {
++public:
++    virtual void RegisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) = 0;
++    virtual void UnregisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) = 0;
++    // Opt in by the public CL_AllocDlight key. 0 removes the override; otherwise
++    // use 128, 256 or 512. Geometry changes require dynamic, not static, shadows.
++    virtual void SetDynamicLightShadowSize(int key, unsigned size) = 0;
++};
++
++#define METARENDERER_SCENE_INTERFACE_VERSION "MetaRendererScene_API_001"
+diff --git a/src/gl_external_scene.h b/src/gl_external_scene.h
+new file mode 100644
+index 0000000..5bf0295
+--- /dev/null
++++ b/src/gl_external_scene.h
+@@ -0,0 +1,4 @@
++#pragma once
++#include <IMetaRendererScene.h>
++void R_DrawExternalOpaqueScene();
++unsigned R_GetExternalDlightShadowSize(int key);

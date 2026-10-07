@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /wd4828 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+      <PreprocessorDefinitions Condition="'$(GoldCraftHeadlessFixture)' == 'true'">GOLDCRAFT_HEADLESS_FIXTURE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <Link>
+      <AdditionalDependencies>$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib;ws2_32.lib;bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <PropertyGroup>
+    <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GoldCraftHeadlessFixture)' == 'true'">
+    <IntDir>$(GoldCraftRoot)\build\regamedll-headless\obj\$(MSBuildProjectName)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+</Project>

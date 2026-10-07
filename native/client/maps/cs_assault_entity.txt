@@ -1,0 +1,16 @@
+// GoldCraft lighting for 72 Street Warehouse, BSP CRC32 f6725c06.
+// Matches its light_environment pitch -60, angle 45, _light "155 107 235 50".
+{
+    "classname" "light_dynamic"
+    "type" "directional"
+    "angles" "60 45 0"
+    "origin" "-1536 256 1024"
+    "color" "155 107 235"
+    "size" "4096"
+    "ambient" "0.0"
+    "diffuse" "0.50"
+    "specular" "0.0"
+    "shadow" "1"
+    "static_shadow_size" "2048"
+    "dynamic_shadow_size" "512"
+}

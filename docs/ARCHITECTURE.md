@@ -1,0 +1,44 @@
+# GoldCraft 的工作原理
+
+GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体接入它。方块规则、物品、背包、生物 AI 和声音仍由 MC 运行时执行。
+
+## 进程与权威
+
+每位玩家运行一组 CS 客户端和 MC 客户端。本地私有桥接把这一组的 CS 输入送到 MC，并把 MC 的网格、纹理、HUD、手部和粒子送回 CS。A/B 使用不同身份、端口与进程记录，每组有独立摄像机和输入队列。
+
+所有玩家连接同一个 ReHLDS 专用服务器及 MC 专用服务器。ReGameDLL 负责 CS 玩家、原生实体、队伍/生命/重生与形态权限；MC 服务器负责方块、物品和生物模拟。两台权威通过独立桥接交换受验证的状态和动作。本地渲染桥接不能自行授予服务器控制权。
+
+| 数据 | 生产方 | 接收与用途 |
+|---|---|---|
+| 地图 BSP、clip hull、动态原生实体 | ReHLDS/ReGameDLL | MC 世界碰撞、攀爬、路径支持和交互 |
+| MC 玩家预测位置 | MC 客户端/服务器 | 服务器验证，CS 摄像机插值 |
+| 方块/生物/粒子网格与纹理 | MC 客户端实际渲染器 | MetaHook/Renderer 的深度、材质和阴影通道 |
+| MC 方块/实体代理 | MC 专用服务器 | 原生移动碰撞、子弹/刀/投射物命中 |
+| 伤害、治疗、攻击者身份 | 相应权威 | 对端验证，避免重复扣血并保留正常 AI 仇恨 |
+| 菜单像素和输入事件 | MC 菜单与 CS 输入 | 原始分辨率 HUD，带菜单代次的输入投递 |
+
+## 协议和坐标
+
+当前固定宽度协议为 GCF1/version 16，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+
+坐标变换在协议实现中统一：每个 MC 方块对应 32 GoldSrc 单位，MC 的水平 Z 对应 GoldSrc 的反向 Y，MC 高度 Y 转换为 GoldSrc Z；MC 高度基准为 64。玩家脚部、原生角色中心与相机眼高分别处理，避免死亡/重生后人物落在地图下。
+
+## 碰撞、原生实体与生物
+
+静态 BSP 可见面不足以表达空气墙。MC 玩家路径结合 GoldSrc 站立/蹲伏 clip hull，生物的支撑和路径查询读取主世界及动态障碍；梯子保留原生体积与行为。门、人质、按钮、触发器和移动实体还需要实际 Touch、Use、伤害和生命周期适配。完整支持范围由实际测试决定，导出碰撞盒仅覆盖其中一部分。
+
+CS 形态也保留 MC 世界交互。ReGameDLL 中的方块和实体代理参与原生运动与武器 trace；命中再交给 MC 权威处理。原生玩家的 MC 代理保留可识别的攻击者身份，使狼的反击和敌对生物主动寻敌沿原版 AI 路径执行。共享生命记录处理确认、拒绝、并发变化与重生。
+
+## 绘制和输入
+
+MetaHookSv 接入客户端回调，Renderer_AVX2 提供 OpenGL 场景通道。GoldCraft 使用三角形/VAO/VBO 和着色器，在 Renderer 的实际深度与阴影流程中绘制 MC 几何。实体按渲染帧插值；动画纹理采用局部更新。手部、持物和 HUD 从 MC 自己的渲染流程导出。
+
+MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 GoldCraft 前面，使 Renderer 包裹最终的 GoldCraft 摄像机结果；不能随意交换顺序。每个 MC 发光源请求阴影，静态 BSP 遮挡可缓存，动态实体与 MC 几何按帧更新；新版室内效果仍需实测。
+
+输入拥有者由服务器决定。MC 形态转发动作并抑制原生武器展示；CS 形态恢复原生武器、HUD 和控制。背包输入只接受当前显示菜单的代次。NeoForge 对容器按键 API 有补丁，迁移版针对 `isActiveAndMatches` 适配，正常 MC 窗口仍保留其自身绑定。
+
+## 地图会话与版本边界
+
+地图与会话代次共同确定 MC 宿主维度。换图或 ReHLDS 重启产生新会话并清除建筑；断线重连、区块卸载及资源重载不能被误判成新地图。
+
+ReHLDS 是服务器引擎参考，不是闭源客户端 `hw.dll`。客户端 Hook 按实际二进制身份和 MetaHook `ResolveGameSymbol` 合同匹配模块相对地址；[GoldSrc_VibeSignatures](https://github.com/HLND2T/GoldSrc_VibeSignatures) 提供参考目录，不允许跨版本照搬偏移。全部上游版本记录在 `sources.lock.json`。

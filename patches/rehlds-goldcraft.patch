@@ -1,0 +1,53 @@
+diff --git a/rehlds/rehlds/rehlds_api_impl.cpp b/rehlds/rehlds/rehlds_api_impl.cpp
+index a7d9ec3..6cf1e3d 100644
+--- a/rehlds/rehlds/rehlds_api_impl.cpp
++++ b/rehlds/rehlds/rehlds_api_impl.cpp
+@@ -27,6 +27,48 @@
+ */
+ 
+ #include "precompiled.h"
++#include "../../../../native/include/goldcraft/host_entity_api.hpp"
++
++// GoldCraft uses the actual server's spatial links/impact dispatch, rather than
++// duplicating trigger hull rules or relying on private client-engine addresses.
++class GoldCraftHostEntityPhysics final : public goldcraft::IHostEntityPhysics
++{
++public:
++    unsigned int TouchPlayerContacts(edict_t* player) override
++    {
++        if(!player || player->free || !(player->v.flags & (FL_CLIENT|FL_FAKECLIENT)) || player->v.deadflag || (player->v.flags & (FL_KILLME|FL_SPECTATOR)))return 0;
++        vec3_t submitted;
++        VectorCopy(player->v.origin,submitted);
++        SV_LinkEdict(player,TRUE);
++        // Teleport/kill/remove triggers can change this entity during dispatch.
++        if(player->free || player->v.deadflag || (player->v.flags & FL_KILLME) || !VectorCompare(player->v.origin,submitted))return 0;
++
++        const float halfHeight=(player->v.flags & FL_DUCKING)?18.0f:36.0f;
++        vec3_t center,mins={-16,-16,-halfHeight},maxs={16,16,halfHeight};
++        VectorCopy(player->v.origin,center);
++        center[2]+=player->v.mins[2]+halfHeight;
++        edict_t* touched[6]={};unsigned count=0;
++        if(player->v.flags & FL_ONGROUND)player->v.groundentity=nullptr;
++        // MC already clips to the GoldSrc player hull, leaving the engine's
++        // small trace epsilon at a wall. Probe only that contact neighbourhood.
++        for(int axis=0;axis<3;++axis)for(int sign=-1;sign<=1;sign+=2)
++        {
++            vec3_t end;VectorCopy(center,end);end[axis]+=sign*0.25f;
++            trace_t trace=SV_Move(center,mins,maxs,end,MOVE_NORMAL,player,FALSE);
++            if(!trace.ent || trace.fraction>=1.0f)continue;
++            if(axis==2 && sign<0 && (player->v.flags & FL_ONGROUND) && trace.plane.normal[2]>0.7f)player->v.groundentity=trace.ent;
++            if(trace.ent==g_psv.edicts || trace.ent==player || trace.ent->free)continue;
++            bool duplicate=false;for(unsigned i=0;i<count;++i)if(touched[i]==trace.ent)duplicate=true;
++            if(duplicate)continue;
++            touched[count++]=trace.ent;
++            SV_Impact(player,trace.ent,&trace);
++            if(player->free || player->v.deadflag || (player->v.flags & FL_KILLME) || !VectorCompare(player->v.origin,submitted))return count;
++        }
++        return count;
++    }
++};
++using goldcraft::IHostEntityPhysics;
++EXPOSE_SINGLE_INTERFACE(GoldCraftHostEntityPhysics,IHostEntityPhysics,goldcraft::host_entity_api_version);
+ 
+ struct plugin_api_t
+ {

@@ -1,0 +1,156 @@
+diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
+index e6edc87..126e307 100644
+--- a/regamedll/dlls/cbase.cpp
++++ b/regamedll/dlls/cbase.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ DLL_FUNCTIONS gFunctionTable =
+ {
+@@ -394,6 +395,7 @@ void DispatchKeyValue(edict_t *pentKeyvalue, KeyValueData *pkvd)
+ // while it builds the graph
+ void DispatchTouch(edict_t *pentTouched, edict_t *pentOther)
+ {
++    GoldCraft_EntityTouched(pentTouched,pentOther);
+ 	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pentTouched);
+ 	CBaseEntity *pOther = GET_PRIVATE<CBaseEntity>(pentOther);
+ 
+@@ -1257,7 +1259,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
+ 
+ bool EXT_FUNC IsPenetrableEntity_default(Vector &vecSrc, Vector &vecEnd, entvars_t *pevAttacker, edict_t *pHit)
+ {
+-	return true;
++	return !GoldCraft_ObjectBlocksPenetration(pHit);
+ }
+ 
+ 
+diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
+index daee11d..d214ee7 100644
+--- a/regamedll/dlls/client.cpp
++++ b/regamedll/dlls/client.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ int gmsgWeapPickup = 0;
+ int gmsgHudText = 0;
+@@ -310,11 +311,13 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
+ 
+ BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *pszAddress, char *szRejectReason)
+ {
++	GoldCraft_ClientConnect(pEntity);
+ 	return g_pGameRules->ClientConnected(pEntity, pszName, pszAddress, szRejectReason);
+ }
+ 
+ void EXT_FUNC ClientDisconnect(edict_t *pEntity)
+ {
++	GoldCraft_ClientDisconnect(pEntity);
+ 	CBasePlayer *pPlayer = CBasePlayer::Instance(pEntity);
+ 
+ 	if (!g_pGameRules->IsGameOver())
+@@ -615,6 +618,7 @@ void CheckStartMoney()
+ 
+ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+ {
++	GoldCraft_ClientPutInServer(pEntity);
+ 	entvars_t *pev = &pEntity->v;
+ 	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
+ 
+@@ -3738,6 +3742,8 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
+ 	static char command[128] = "";
+ 	Q_strncpy(command, CMD_ARGV_(0), sizeof command - 1);
+ 	command[sizeof command - 1] = '\0';
++	if (GoldCraft_ClientCommand(pEntity, command))
++		return;
+ 
+ 	g_ReGameHookchains.m_InternalCommand.callChain(InternalCommand, pEntity, command, CMD_ARGV_(1));
+ }
+@@ -3793,6 +3799,7 @@ void EXT_FUNC ServerDeactivate()
+ 		return;
+ 
+ 	g_bServerActive = false;
++	GoldCraft_ServerDeactivate();
+ 
+ 	// Peform any shutdown operations here...
+ 	g_pGameRules->ServerDeactivate();
+@@ -3813,6 +3820,7 @@ void EXT_FUNC ServerDeactivate()
+ 
+ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
+ {
++	GoldCraft_ServerActivate(pEdictList, clientMax);
+ 	g_pEdicts = pEdictList;
+ 
+ #ifdef REGAMEDLL_ADD
+@@ -3926,6 +3934,7 @@ void EXT_FUNC ParmsChangeLevel()
+ 
+ void EXT_FUNC StartFrame()
+ {
++	GoldCraft_StartFrame();
+ 	if (g_pGameRules)
+ 	{
+ 		g_pGameRules->Think();
+@@ -3956,6 +3965,7 @@ void EndFrame()
+ 
+ void ClientPrecache()
+ {
++	GoldCraft_ObjectsPrecache();
+ 	int i;
+ 
+ 	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
+diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index 8a219ea..e4ba996 100644
+--- a/regamedll/dlls/player.cpp
++++ b/regamedll/dlls/player.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ BOOL gInitHUD = TRUE;
+ 
+@@ -987,7 +988,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 		if (!FNullEnt(ENT(pevInflictor)))
+ 			m_vBlastVector = pev->origin - pevInflictor->origin;
+ 
+-		if (pev->armorvalue != 0.0f && IsArmored(m_LastHitGroup))
++		if (!GoldCraft_FinalMinecraftDamage(edict()) && pev->armorvalue != 0.0f && IsArmored(m_LastHitGroup))
+ 		{
+ 			real_t flNew = flRatio * flDamage;
+ 			real_t flArmor = (flDamage - flNew) * flBonus;
+@@ -1182,7 +1183,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ #endif
+ 		}
+ 
+-		if (pAttack->m_pActiveItem)
++		if (pAttack->m_pActiveItem && !GoldCraft_MinecraftAttack(edict()))
+ 		{
+ 			iGunType = pAttack->m_pActiveItem->m_iId;
+ 			flRatio += flShieldRatio;
+@@ -1253,7 +1254,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 
+ 	// Armor
+ 	// armor doesn't protect against fall or drown damage!
+-	if (pev->armorvalue != 0.0f && !(bitsDamageType & (DMG_DROWN | DMG_FALL)) && IsArmored(m_LastHitGroup))
++	if (!GoldCraft_FinalMinecraftDamage(edict()) && pev->armorvalue != 0.0f && !(bitsDamageType & (DMG_DROWN | DMG_FALL)) && IsArmored(m_LastHitGroup))
+ 	{
+ 		real_t flNew = flRatio * flDamage;
+ 		real_t flArmor = (flDamage - flNew) * flBonus;
+@@ -2230,6 +2231,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+ {
++	GoldCraft_PlayerKilled(edict());
+ 	m_canSwitchObserverModes = false;
+ 
+ 	if (m_LastHitGroup == HITGROUP_HEAD)
+@@ -6132,6 +6134,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+ 	for (i = 0; i < COMMANDS_TO_TRACK; i++)
+ 		m_flLastCommandTime[i] = -1;
+ 
++	GoldCraft_PlayerSpawn(edict());
++
+ #ifdef REGAMEDLL_FIXES
+ 	// everything that comes after this, this spawn of the player a the game.
+ 	if (m_bJustConnected)

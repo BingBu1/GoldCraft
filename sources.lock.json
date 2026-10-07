@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "sources": {
+    "SkyCraft": {"url": "https://github.com/chasmlol/SkyCraft", "commit": "bfcaf178524b92c2cdeb88e4ce0f13ef9ded6f32", "path": "references/SkyCraft"},
+    "MetaHookSv": {"url": "https://github.com/MetaHookSv/MetaHookSv", "commit": "e5748e97b3358ea8ef797404128557c33a5266e7", "path": "external/MetaHookSv-20261007"},
+    "MetaHook": {"url": "https://github.com/MetaHookSv/MetaHook", "commit": "fd65851fd6607e0e063b41812f178e52d72f27e9", "path": "external/MetaHookSv-20261007/MetaHook", "patch": "patches/metahook-core-goldcraft.patch"},
+    "Renderer": {"url": "https://github.com/MetaHookSv/Renderer", "commit": "421e73ded6bd202ddd613d010c5328507608feaa", "path": "external/MetaHookSv-20261007/Plugins/Renderer", "patch": "patches/renderer-goldcraft.patch"},
+    "ReGameDLL_CS": {"url": "https://github.com/rehlds/ReGameDLL_CS", "commit": "4a50c42e85fd3778c2b7d24731c7d30c83bbab01", "path": "external/ReGameDLL_CS", "patch": "patches/regamedll-goldcraft.patch"},
+    "ReHLDS": {"url": "https://github.com/rehlds/rehlds", "commit": "550f2d62f13f4ebeb029c1d9d1c212133202611d", "path": "external/ReHLDS", "patch": "patches/rehlds-goldcraft.patch", "role": "dedicated authority and engine reference, not hw.dll"},
+    "AMXModX": {"url": "https://github.com/alliedmodders/amxmodx", "commit": "b88b763a63bc7165f48e326c226eb05f9db0e54a", "path": "external/amxmodx"},
+    "ReAPI": {"url": "https://github.com/rehlds/ReAPI", "commit": "1c448d06e8c1cebaea061d6b81b94e85f6262649", "path": "external/ReAPI"},
+    "GoldSrc_VibeSignatures": {"url": "https://github.com/HLND2T/GoldSrc_VibeSignatures", "observedHead": "0212b4c540786fb966355b5a0d23f6dd01be6ff5", "index": "https://hlnd2t.github.io/GoldSrc_VibeSignatures/gamesymbols/index.json", "role": "module-identity-matched symbol catalog; built snapshots pin their content hashes"}
+  },
+  "minecraft": {"version": "1.21", "loader": "neoforge", "neoforge": "21.0.167", "fml": "4.0.23", "yarn": "1.21+build.9", "yarnNeoForgePatch": "1.21+build.6", "loom": "1.7.435", "java": "21", "gradle": "8.10.2", "jarJarSelector": "0.4.1"},
+  "metahookRelease": {"tag": "v20261007a", "url": "https://github.com/MetaHookSv/MetaHookSv/releases/download/v20261007a/MetaHookSv-windows-x86.7z", "sha256": "141af1250d09a39ce964b105d26ce7224d13adccd1fd9fbc13f5cbb8aaa4197c"},
+  "nativeToolchain": {"visualStudio": "2026", "platformToolset": "v145", "windowsSdk": "10.0.26100.0", "cmakeNative": "4.3.4", "cmakeNinja": "3.31.10", "architecture": "x86"}
+}

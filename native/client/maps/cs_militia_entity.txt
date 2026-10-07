@@ -1,0 +1,18 @@
+// GoldCraft sandbox lighting for cs_militia, BSP CRC32 66f1b9b6.
+// The BSP's four light_environment entities agree on pitch -60 and
+// _light "255 255 128 90". Renderer takes the forward direction of the
+// incoming light, so use +60 for its downward-facing directional light.
+{
+    "classname" "light_dynamic"
+    "type" "directional"
+    "angles" "60 0 0"
+    "origin" "0 0 512"
+    "color" "255 255 128"
+    "size" "4096"
+    "ambient" "0.0"
+    "diffuse" "0.65"
+    "specular" "0.0"
+    "shadow" "1"
+    "static_shadow_size" "2048"
+    "dynamic_shadow_size" "512"
+}

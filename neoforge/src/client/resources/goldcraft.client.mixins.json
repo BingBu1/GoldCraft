@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "dev.goldcraft.client.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["ClientWorldMixin", "MinecraftInputMixin", "RenderLayerAccessor", "RenderParametersAccessor", "RenderTextureAccessor", "RenderWriteMaskAccessor", "EntityRenderDispatcherAccessor", "SpriteAtlasTextureMixin", "SpriteContentsMixin", "NativeTextureUploadMixin", "SkinTextureUploadMixin", "HudOverlayMixin", "HudScreenMixin", "HudBlendMixin", "HandledScreenAccessor", "HandledInventoryKeyMixin", "GameRendererAccessor", "PresentationFrameMixin", "HostPresentationMixin", "ParticleManagerAccessor", "ParticleBuffersMixin", "SoundListenerMixin", "SoundSystemMixin"],
+  "injectors": {"defaultRequire": 1}
+}
