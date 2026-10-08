@@ -241,11 +241,45 @@ index 62ca365..71d78e5 100644
  		level(_level), data(_data), size(_size), width(_width), height(_height), data_ctx(_data_ctx)
  	{
  
+diff --git a/src/gl_entity.cpp b/src/gl_entity.cpp
+index 89bfcea..7ed4270 100644
+--- a/src/gl_entity.cpp
++++ b/src/gl_entity.cpp
+@@ -1,5 +1,6 @@
+ #include "gl_local.h"
+ #include "pm_defs.h"
++#include "goldcraft/visible_entities_api.h"
+ #include <vector>
+ #include <map>
+ #include <algorithm>
+@@ -136,6 +137,7 @@ int EngineGetMaxTempEnts(void)
+ 
+ int EngineGetMaxVisEdicts(void)
+ {
++	if (auto gc = GoldCraftVisibleEntitiesInterface()) return gc->capacity;
+ 	if (g_iEngineType == ENGINE_SVENGINE && g_dwEngineBuildnum >= 10152)
+ 		return MAX_VISEDICTS_10152;
+ 
 diff --git a/src/gl_hooks.cpp b/src/gl_hooks.cpp
-index 767114a..e09a437 100644
+index 767114a..bda5c56 100644
 --- a/src/gl_hooks.cpp
 +++ b/src/gl_hooks.cpp
-@@ -1208,15 +1208,21 @@ void Engine_InstallHooks(void)
+@@ -833,10 +833,14 @@ void Engine_FillAddress_Mod_LoadSpriteModel(const mh_dll_info_t& RealDllInfo)
+ 	gPrivateFuncs.Mod_LoadSpriteModel = (decltype(gPrivateFuncs.Mod_LoadSpriteModel))GamedataResolvePtr(RealDllInfo.ImageBase, "engine", "Mod_LoadSpriteModel", MH_GAMESYMBOL_KIND_FUNCTION);
+ }
+ 
++#include "goldcraft/visible_entities_api.h"
++
+ void Engine_FillAddress_VisEdicts(const mh_dll_info_t& RealDllInfo)
+ {
+ 	cl_numvisedicts = (decltype(cl_numvisedicts))GamedataResolvePtr(RealDllInfo.ImageBase, "engine", "cl_numvisedicts", MH_GAMESYMBOL_KIND_GLOBAL);
+ 	cl_visedicts = (decltype(cl_visedicts))GamedataResolvePtr(RealDllInfo.ImageBase, "engine", "cl_visedicts", MH_GAMESYMBOL_KIND_GLOBAL);
++	if (auto gc = GoldCraftVisibleEntitiesInterface())
++		gc->bind_consumer(1, &cl_visedicts, &cl_numvisedicts);
+ }
+ 
+ void Engine_FillAddress_CL_SimOrgVars(const mh_dll_info_t& RealDllInfo)
+@@ -1208,15 +1212,21 @@ void Engine_InstallHooks(void)
  	Install_InlineHook(CVideoMode_Common_DrawStartupGraphic);
  	Install_InlineHook(CGame_DrawStartupVideo);
  	Install_InlineHook(Draw_Frame);
@@ -743,6 +777,30 @@ index eb0a749..6c5397f 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/src/gl_sprite.cpp b/src/gl_sprite.cpp
+index 73b6080..bc7f13c 100644
+--- a/src/gl_sprite.cpp
++++ b/src/gl_sprite.cpp
+@@ -490,6 +490,8 @@ bool R_SpriteAllowLerping(cl_entity_t* ent, msprite_t* pSprite)
+ 	return true;
+ }
+ 
++#include "goldcraft/visible_entities_api.h"
++
+ void R_DrawSpriteModelInterpFrames(cl_entity_t* ent, CSpriteModelRenderData *pRenderData, msprite_t* pSprite, mspriteframe_t* frame, mspriteframe_t* oldframe, float lerp)
+ {
+ 	GL_BeginDebugGroupFormat("R_DrawSpriteModelInterpFrames - %s", ent->model ? ent->model->name : "<empty>");
+@@ -780,6 +782,10 @@ void R_DrawSpriteModelInterpFrames(cl_entity_t* ent, CSpriteModelRenderData *pRe
+ 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, indices);
+ 	}
+ 
++	if (!R_IsRenderingShadowView() && !R_IsRenderingLinearDepth() &&
++		!R_IsRenderingWaterView() && !R_IsRenderingPortal())
++		if (auto gc = GoldCraftVisibleEntitiesInterface()) gc->sprite_drawn(ent);
++
+ 	GL_BindTextureUnit(0, GL_TEXTURE_2D, 0);
+ 
+ 	GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
 index bdc1885..6b048d9 100644
 --- a/src/gl_studio.cpp

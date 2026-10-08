@@ -329,6 +329,32 @@ index 9c7e333..87f3557 100644
  	ClientStudio_FillAddress(g_ClientDLLInfo.ImageBase);
  	ClientStudio_InstallHooks();
  
+diff --git a/src/plugins.cpp b/src/plugins.cpp
+index 8537f59..f5f084b 100644
+--- a/src/plugins.cpp
++++ b/src/plugins.cpp
+@@ -100,8 +100,14 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t *pEngfuncs)
+ 	glewInit();
+ }
+ 
++#include "goldcraft/visible_entities_api.h"
++
+ void IPluginsV4::LoadClient(cl_exportfuncs_t *pExportFunc)
+ {
++	// GoldCraft LoadEngine may run after Bullet's LoadEngine. All plugins have
++	// completed that phase here, before any entity consumer runs.
++	if (auto gc = GoldCraftVisibleEntitiesInterface())
++		gc->bind_consumer(2, &cl_visedicts, &cl_numvisedicts);
+ 	memcpy(&gExportfuncs, pExportFunc, sizeof(gExportfuncs));
+ 
+ 	pExportFunc->HUD_Init = HUD_Init;
+@@ -154,4 +160,4 @@ const char *IPluginsV4::GetVersion(void)
+ 	return completeVersion;
+ }
+ 
+-EXPOSE_SINGLE_INTERFACE(IPluginsV4, IPluginsV4, METAHOOK_PLUGIN_API_VERSION_V4);
+\ No newline at end of file
++EXPOSE_SINGLE_INTERFACE(IPluginsV4, IPluginsV4, METAHOOK_PLUGIN_API_VERSION_V4);
 diff --git a/src/privatehook.cpp b/src/privatehook.cpp
 index 34e4d39..77ef592 100644
 --- a/src/privatehook.cpp

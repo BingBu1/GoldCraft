@@ -1,6 +1,7 @@
 #include "render_backend.hpp"
 #include "host_ui.hpp"
 #include "precache_client.hpp"
+#include "visible_entities.hpp"
 #include <metahook.h>
 #include <cl_entity.h>
 #include <usercmd.h>
@@ -59,6 +60,7 @@ std::uint64_t frames_drawn=0;
 GLenum last_gl_error=0;
 std::chrono::steady_clock::time_point next_diagnostic{};
 Vec3 observed_origin{},observed_angles{};
+std::array<float, 3> native_view_origin{};
 bool have_view=false;
 std::uint64_t input_sequence=0,pose_sequence=0;
 std::uint32_t minecraft_life=0;
@@ -359,6 +361,7 @@ void WriteDiagnostics() {
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) {
         std::ofstream out(path);
         out<<'{'; client_precache::write_status(out); out<<',';
+        visible_entities::write_status(out); out<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
@@ -544,6 +547,7 @@ void InitHud() {
     Log("client HUD hooks registered");
 }
 int VidInit() {
+    visible_entities::fixture_clear();
     sections.clear();ClearDynamic();ClearHud();
     next_scene_request=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -578,6 +582,7 @@ void CalcRefDef(ref_params_t* params) {
         }
     }
     observed_origin={params->simorg[0],params->simorg[1],params->simorg[2]};
+    std::copy_n(params->vieworg, 3, native_view_origin.begin());
     observed_angles={params->viewangles[0],params->viewangles[1],params->viewangles[2]};
     have_view=true;
 }
@@ -818,6 +823,11 @@ void TestCommands() {
     else if(action=="render_demo_stop")gEngfuncs.pfnClientCmd("stop\n");
     else if(action=="render_demo_play")gEngfuncs.pfnClientCmd("playdemo goldcraft_native_reference\n");
     else if(action=="render_demo_end")gEngfuncs.pfnClientCmd("stopdemo\n");
+    else if(action=="visible_fixture"){
+        int count=0;double seconds=0;
+        if(input>>count>>seconds)visible_entities::fixture_start(count,seconds);
+    }
+    else if(action=="visible_fixture_clear")visible_entities::fixture_clear();
     else if(action=="framerate"){int fps=100,vsync=0;if(input>>fps>>vsync&&fps>=30&&fps<=100&&vsync>=0&&vsync<=1){gEngfuncs.Cvar_SetValue("fps_max",static_cast<float>(fps));gEngfuncs.Cvar_SetValue("gl_vsync",static_cast<float>(vsync));}}
     else if(action=="profile") {
         double seconds=0;if(input>>seconds&&seconds>0&&seconds<=30)if(const char* destination=std::getenv("GOLDCRAFT_MOTION_CAPTURE")){
@@ -1123,7 +1133,13 @@ int Redraw(float time,int intermission) {
     return result;
 }
 void DrawNormal() { gExportfuncs.HUD_DrawNormalTriangles(); if(!render::scene_active())Draw(false); }
-void CreateEntities() { gExportfuncs.HUD_CreateEntities(); client_precache::create_entities(); }
+void CreateEntities() {
+    gExportfuncs.HUD_CreateEntities(); client_precache::create_entities();
+    if(have_view){
+        const float angles[]{observed_angles.x,observed_angles.y,observed_angles.z};
+        visible_entities::create_entities(native_view_origin.data(),angles);
+    }
+}
 void DrawTransparent() { gExportfuncs.HUD_DrawTransparentTriangles(); Draw(true); }
 }
 
@@ -1134,6 +1150,8 @@ void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
 }
 void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     gEngfuncs=*engine;
+    Log(visible_entities::install(api) ? "visible entity capacity 4096 installed" :
+        std::string("visible entity expansion unavailable: ") + visible_entities::install_error());
     Log(client_precache::install(api) ? "dynamic precache installed" :
         std::string("dynamic precache unavailable: ") + client_precache::install_error());
     try {

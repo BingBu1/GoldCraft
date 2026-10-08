@@ -58,7 +58,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     set(ONLY_LIBS ON CACHE BOOL "" FORCE)
     add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
     add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/render_backend.cpp
-        native/client/precache_client.cpp native/client/GoldCraft.def
+        native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static)
     target_include_directories(GoldCraft PRIVATE
@@ -84,5 +84,11 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_compile_definitions(goldcraft_precache_client_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
         target_compile_options(goldcraft_precache_client_tests PRIVATE /W3 /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_precache_client COMMAND goldcraft_precache_client_tests)
+        add_executable(goldcraft_visible_entities_tests tests/native/visible_entities_tests.cpp)
+        target_include_directories(goldcraft_visible_entities_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_link_libraries(goldcraft_visible_entities_tests PRIVATE goldcraft_common)
+        target_compile_definitions(goldcraft_visible_entities_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(goldcraft_visible_entities_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_visible_entities COMMAND goldcraft_visible_entities_tests)
     endif()
 endif()

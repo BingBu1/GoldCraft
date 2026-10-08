@@ -31,6 +31,8 @@ if(-not $ClientOnly){
 }
 foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
+    & python (Join-Path $PSScriptRoot 'Build-VisibleEntityGameData.py') --engine (Join-Path $script:GoldCraftRoot "$game/hw.dll")
+    if($LASTEXITCODE){throw 'Visible-entity engine identity verification failed.'}
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $script:GoldCraftRoot "$game/cstrike/cl_dlls/client.dll") --existing-catalog (Join-Path $script:GoldCraftRoot "$game/cstrike/metahook/gamedata")
     if($LASTEXITCODE){throw 'CS media-reader catalog identity verification failed.'}
     Queue-File 'dist/metahook/MetaHook.exe' "$game/MetaHook.exe"
@@ -57,7 +59,7 @@ foreach($instance in $Clients){
     foreach($file in Get-ChildItem -LiteralPath $uiDirectory -File -Filter '*.json'){
         Queue-File "$uiGameData/$($file.Name)" "$game/cstrike/metahook/gamedata/vgui2extension/$($file.Name)"
     }
-    foreach($relative in @('dist/gamedata/goldcraft-precache','dist/gamedata/goldcraft-cs','dist/metahook/svencoop/metahook/gamedata')){
+    foreach($relative in @('dist/gamedata/goldcraft-precache','dist/gamedata/goldcraft-visible','dist/gamedata/goldcraft-cs','dist/metahook/svencoop/metahook/gamedata')){
         $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $relative)
         $destination=if($relative -like 'dist/gamedata/*'){'metahook/gamedata/'+(Split-Path $relative -Leaf)}else{'metahook/gamedata'}
         foreach($file in Get-ChildItem -LiteralPath $directory -File -Filter '*.json'){

@@ -106,6 +106,11 @@ if($LASTEXITCODE){throw 'Precache engine identity verification failed'}
 $precacheCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-precache')
 New-Item -ItemType Directory -Path $precacheCatalog -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-precache') -Filter '*.json' | Copy-Item -Destination $precacheCatalog -Force
+& python (Join-Path $PSScriptRoot 'Build-VisibleEntityGameData.py') --engine (Join-Path $game 'hw.dll')
+if($LASTEXITCODE){throw 'Visible-entity engine identity verification failed'}
+$visibleCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-visible')
+New-Item -ItemType Directory -Path $visibleCatalog -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-visible') -Filter '*.json' | Copy-Item -Destination $visibleCatalog -Force
 $enableRenderer=$Renderer -or ((Test-Path -LiteralPath $pluginsFile) -and ((Get-Content -LiteralPath $pluginsFile) -contains 'Renderer_AVX2.dll'))
 if($enableRenderer) {
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $game 'cstrike/cl_dlls/client.dll') --existing-catalog $gameDataDir

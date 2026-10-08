@@ -45,6 +45,10 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 
 部署必须停止目标实例。客户端私有符号只接受实际校验通过的模块；当前 `Build-ClientGameData.py` 的客户端白名单是复制的 build 10210。它校验 SHA-256、CRC64、指令/虚表与符号目录中的 RVA；不能通过改版本字符串支持其他 `client.dll`。`hw.dll` 由 MetaHook 的实际模块匹配机制解析，不能用 ReHLDS 的地址代替。
 
+客户端可见实体表由独立组件扩至 4096，模型／声音预缓存保持原有动态增长。构建和部署 GoldCraft、Renderer、BulletPhysics 时应使用同一源码检查点；后两者通过进程内接口绑定相同的表和原生计数。初始化及部署脚本调用 `Build-VisibleEntityGameData.py`，验证匹配的 `hw.dll` 身份、全局元数据和 14 段指令，再生成本地符号目录。未知引擎拒绝补丁；不要只改容量数字或套用其他版本的 RVA。
+
+`Test-VisibleEntityEngine.py --engine <工作区内的hw.dll>` 需 Python `unicorn`，执行实际 x86 入队函数的 512／513、4096／4097 和越界保护检查。`Exercise-VisibleEntities.py` 则需要单 B、24 Bot 主服和已验证的人类观察者 demo；它通过限时本地精灵验证真正入队、主画面绘制、自动回收和重连清理，并保存帧缓冲。此测试不修改服务器实体数或资源表，也不证明任意复杂模型在 4096 数量下的性能。
+
 `Initialize-AMXX -TestFixtures` 为开发验证启用测试 Pawn 命令。正式服务器只安装需要的插件。沙箱端口与 RCON、桥接凭据自动生成在未跟踪配置中；当前启动器是本机回环开发配置，未实现远程分发。
 
 预缓存压力测试额外使用 `Prepare-PrecacheFixture.py` 和 `Start-Sandbox.ps1 -Role CsServer -Instance cs-server -Map sy_zombie2_Bloodmoon -PrecacheFixture`，并连接 B。该显式夹具用约 3 MB 的 4,454 个真实文件与稀疏槽位跨越 65535/65536；`python tools/Exercise-Precache.py` 检查实际收包和 AMXX/ReAPI 消息钩子。普通启动不启用夹具，不应把它的稀疏编号当成 65k 独立资源规模测试。
