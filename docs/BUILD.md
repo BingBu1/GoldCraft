@@ -12,6 +12,8 @@
 
 `sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI 和 SyPB 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
+可选的 [Nade Modes](../amxx/nade_modes/README.md) 通过三个官方附件和独立 SHA-256 清单重建。其 Pawn 使用 AMXX 1.9.0.5303 编译；只把字节码、语言和配置部署到服务器，源码留在分类后的 `amxx/nade_modes`。
+
 按 README 的顺序准备、编译。`Build-Native.ps1 -Server` 产生客户端插件、AMXX 模块和修改后的 ReGameDLL；`Build-ReHLDS.ps1` 单独编译服务器引擎。`Build-NeoForge.ps1` 编译正式映射 JAR、JUnit 测试与独立启动所需的开发运行清单。Yarn/Loom 用于编译和开发映射，不是 Fabric Loader 运行依赖。
 
 `Build-ReHLDS.ps1 -TestSteamCallbacks` 使用相同 Clang/C++20/O3/ThinLTO 配置构建 ReHLDS 的测试程序及依赖，在 `build/rehlds/Tests` 验证内部 Bot 与真人认证回调的边界；测试产物不会覆盖正式引擎或运行实例。

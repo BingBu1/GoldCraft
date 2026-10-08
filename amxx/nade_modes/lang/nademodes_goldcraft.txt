@@ -1,0 +1,23 @@
+[en]
+NM_MODE = Mode: %L
+NM_LIMIT = No grenade mode available (limit reached or disabled).
+NM_NORMAL = Normal
+NM_PROXIMITY = Proximity
+NM_IMPACT = Impact
+NM_TRIP = Trip laser
+NM_MOTION = Motion sensor
+NM_SATCHEL = Remote charge
+NM_HOMING = Homing
+NM_HELP = <html><meta charset="utf-8"><body bgcolor="#181818" text="#eeeeee"><h2>Nade Modes</h2><p>Hold HE, flash or smoke and right-click to cycle modes. Throw with your usual attack key.</p><p>Normal: original fuse. Proximity: enemies near the armed trap. Impact: collision. Trip: attach to a wall; enemies cross the beam. Motion: fast-moving enemies. Remote: arm, then press your existing Use key (E by default). Homing: steer towards an enemy.</p><p>ZP fire, frost, flare and infection effects remain. Traps respect teams. MC controls remain unchanged.</p><p>Admins: amx_nmm opens settings. /nadehelp shows this help.</p></body></html>
+
+[cn]
+NM_MODE = 手雷模式：%L
+NM_LIMIT = 当前没有可用模式（已达数量上限或已禁用）。
+NM_NORMAL = 普通定时
+NM_PROXIMITY = 接近感应
+NM_IMPACT = 碰撞引爆
+NM_TRIP = 激光绊线
+NM_MOTION = 移动感应
+NM_SATCHEL = 遥控引爆
+NM_HOMING = 自动追踪
+NM_HELP = <html><meta charset="utf-8"><body bgcolor="#181818" text="#eeeeee"><h2>手雷模式</h2><p>手持高爆弹、闪光弹或烟雾弹，右键切换模式，原攻击键投掷。</p><p>普通：原版定时引信。接近感应：布防后侦测附近敌人。碰撞：接触固体后引爆。激光绊线：附着墙面，敌人穿过激光后触发。移动感应：侦测快速移动的敌人。遥控：布防后按原有使用键（默认 E）引爆。自动追踪：向敌人转向。</p><p>保留僵尸模式的火焰、冰冻、照明和感染效果；同队不会触发陷阱。MC 形态按键保持不变。</p><p>管理员输入 amx_nmm 打开设置；聊天输入 /nadehelp 查看帮助。</p></body></html>

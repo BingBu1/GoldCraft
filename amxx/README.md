@@ -16,10 +16,13 @@
 | `zombie_plague/configs/` | 插件清单、玩法参数、职业／道具配置；`csdm/` 按地图保存出生点 |
 | `zombie_plague/docs/` | 原作者说明、许可条款和更新记录 |
 | `zombie_plague/tests/` | ReAPI 迁移的独立服务器回归，不在日常服加载 |
+| `nade_modes/` | Nade Modes 七模式手雷；接入头文件、中文、配置、许可和独立测试分别分类保存 |
 | `maps/` | 地图实体／出生点适配，包括 72 街仓库的 32 人容量 |
 | `tests/` | 显式启用的测试插件，不属于日常配置 |
 
 新增 Mod 建立自己的目录，保留相关 `include`、`lang`、配置及许可证。插件文件名须唯一；编译脚本按名称搜索分类目录，并自动读取所属 Mod 的 `include`。遇到同名源码会报错。
+
+修改 Pawn 时优先使用匹配源码的 ReAPI hookchain、具名成员和 AMXX 1.9.0 API，核对参数、返回值与前后置时机。已有等价接口时移除固定 pdata 偏移；缺少等价阶段的实体 Think／Touch 等保留 Ham/Fakemeta。Nade Modes 的具体实现、安装和操作见 [手雷模式说明](nade_modes/README.md)。
 
 ```powershell
 .\tools\Build-AMXX.ps1 -Plugins goldcraft

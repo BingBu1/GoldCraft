@@ -14,8 +14,11 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 | [AMX Mod X](https://github.com/alliedmodders/amxmodx) | 模块 SDK、Pawn 插件接口 | [许可及 HL Engine/MOD 例外](notices/AMXModX-LICENSE.txt)、[GPL v3](notices/GPLv3.txt) |
 | [ReAPI](https://github.com/rehlds/ReAPI) | 版本匹配的 Pawn hook/native 声明 | [GPL v3](notices/ReAPI-LICENSE.txt) |
 | [SyPB](https://github.com/CCNHsK-Dev/SyPB) | 僵尸模式 Bot、AMXX API 与日志修复补丁 | 上游根目录 [GPL v3](notices/GPLv3.txt)，补丁文件保留原有版权与许可声明 |
+| [Nade Modes 11.2](https://forums.alliedmods.net/showthread.php?t=75322) | Nomexous & OT 的七模式手雷；ReAPI 适配补丁、中文资源与测试 | GPL-3.0-or-later，保留原作者声明及 [GPL v3](notices/GPLv3.txt) |
 
 Zombie Plague 5.0.8a 由使用者提供的校验匹配源码包构建；仓库发布最小 ReAPI 适配补丁、汉化及构建／测试工具，不包含完整第三方源码包或游戏模型、声音、贴图。ZP Dev Team、MeRcyLeZZ、WiLS 等原作者及 GPL 声明保留在工作源和补丁上下文；原包的许可说明随导入保存在 `amxx/zombie_plague/docs/`。资源补齐使用固定 Git 提交并验证内容哈希，来源记录只保存在本地部署清单。
+
+Nade Modes 的三份官方附件地址及原始字节 SHA-256 固定在 [补丁清单](patches/nademodes-reapi.json)。[重建工具](tools/Prepare-NadeModes.py) 校验附件后应用最小补丁；完整上游源码、头文件、基础多语言字典和许可副本仅保留在本地 `amxx/nade_modes`，不随公开仓库重复上传。
 
 许可证原文来自锁定的上游工作树，版权和许可声明保持原样。构建依赖仍受其各自许可约束；尤其 AMXX SDK 派生模块/插件需遵循其 GPL 与列明例外。新增 GoldCraft 源码目前没有单独授予统一的开源许可证；公开源码不会改变上游部分已有的许可。
 

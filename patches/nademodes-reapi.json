@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "upstream": {
+    "project": "Nade Modes",
+    "version": "11.2",
+    "authors": "Nomexous & OT",
+    "topic": "https://forums.alliedmods.net/showthread.php?t=75322",
+    "license": "GPL-3.0-or-later",
+    "attachments": [
+      {
+        "name": "nademodes.sma",
+        "sha256": "17beafcfb59c73139913f212e87249d55341c7a7075db72c759035463f101cc5",
+        "url": "https://forums.alliedmods.net/attachment.php?attachmentid=100910&d=1332418604"
+      },
+      {
+        "name": "nademodes.txt",
+        "sha256": "59b6d03f028eae335bf6e45a6fbbfd384a3dbb0817ae3190c6473ab6bae7f03b",
+        "url": "https://forums.alliedmods.net/attachment.php?attachmentid=100328&d=1331160708"
+      },
+      {
+        "name": "nademodes.inc",
+        "sha256": "134b18778bc2dca9aa69b6022b29512b3aaaee0156596e35577cfd3273da8657",
+        "url": "https://forums.alliedmods.net/attachment.php?attachmentid=98762&d=1327933943"
+      }
+    ]
+  },
+  "normalization": "UTF-8 without BOM, LF, stripped line-end whitespace, final newline",
+  "patchSha256": "5533406dcad615dc328fc489525478d51601e018a96c9f4b708c50467a18d52e",
+  "files": [
+    {
+      "path": "nademodes.sma",
+      "upstreamName": "nademodes.sma",
+      "seedSha256Normalized": "286459a2252f375b3738217fe374f0a46740f43ed5902cd426aa42cd01f27f3b",
+      "resultSha256Normalized": "f8060c506e158a5d5dc1271528c756bc12eff816d4bbcf869a0d11b7b49a70f0"
+    },
+    {
+      "path": "include/nademodes.inc",
+      "upstreamName": "nademodes.inc",
+      "seedSha256Normalized": "081ad3ab026b4d31fd12e14715206d46f06222acbd8a9bd030dc7cf99d7cc10f",
+      "resultSha256Normalized": "c2aec67bfeb97a265ddb2056d7a2f65d228be6f70c318f7e5baa9ba3ac0622a5"
+    }
+  ]
+}

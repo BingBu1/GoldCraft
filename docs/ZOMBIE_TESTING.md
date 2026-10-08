@@ -34,7 +34,7 @@ python .\tools\Prepare-ZombiePlague.py --archive $zpArchive --map cs_assault
 
 ## ReAPI 迁移与更新
 
-ZP 工作源现在使用 **ReAPI 5.29.0.358 / AMXX 1.9.0.5303**。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；39 个文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
+ZP 工作源现在使用匹配的 **ReAPI / AMXX 1.9.0.5303**；ReAPI SDK 压缩包名为 5.29.0.358，实际匹配模块报告 5.29.0.359，以固定源码和产物身份为准。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；39 个文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
 
 迁移包含 39 处标准玩家 HookChain 注册和全部直接 pdata 固定偏移的替换。模型通过 `rg_set_user_model` / `rg_reset_user_model` 即时更新，不再临时换成 `gordon`；队伍通过 `rg_set_user_team` 维护原生人数和 AMXX 缓存；速度使用 `RG_CBasePlayer_ResetMaxSpeed`，保留冻结期。`SET MODELINDEX OFFSET` 继续控制自定义命中盒，原配置的两项 SVC_BAD 延迟参数保留但不再使用。完整武器 Deploy、GiveAmmo、Retire、Kill 及地图实体 Touch／Use／Think 仍使用阶段匹配的 Ham 接口，避免用内层 ReAPI 回调改变原有行为。
 
@@ -61,6 +61,12 @@ python .\tools\Exercise-ZombieReAPI.py
 正式构建的 71 个产物已经再次独立测试，并逐一核对主服部署哈希。主服三次实际回合重置通过 7 项生命周期检查，981 个新鲜存活包围盒无错位；随后 24 Bot 的 180 秒自主观察通过 8 项检查，包括 7 次新增的真实刀伤感染（起止计数 3 → 10）。测试通过真实管理命令选取多重感染回合，没有指定战斗目标、传送或直接施加伤害。完整角度的视觉验收仍保留。
 
 观察器同时记录 ZP 的 `gameMode`／`allowInfection` 和 SyPB 的 `mode`，二者不能混同；Nemesis、Swarm 等特殊回合未必允许感染。还会检查 `sypb_stopbots`／`sypb_ignore_enemies`，避免把暂停 Bot 的观察当成自主战斗。此前无感染增量和暂停条件下的失败报告保留，不以通过结果覆盖。
+
+## Nade Modes 七模式手雷
+
+[Nade Modes 接入说明](../amxx/nade_modes/README.md) 包含官方附件校验、ReAPI 适配、AMXX 1.9.0 构建和中文操作。它保留 ZP 火焰、冰冻、照明和感染效果，不覆盖 ZP 的手雷专用字段。部署器将其置于 ZP 前，保证布防／触发逻辑先于 ZP grenade Think 爆炸处理；不能在其他插件列表中重复加载。
+
+手持手雷右键切换，遥控使用原 Use 键；`/nadehelp` 查看中文帮助。Bot 保持已发布的 SyPB AI，在实际投雷时进入模式适配。独立夹具使用受控实体检查 28 种模式／效果组合；Bot 是否自主投雷不作为本次手雷接入的验收条件，24 Bot 人数与 ZP 战斗检查仍保留。
 
 ## 24 Bot 与真人优先
 

@@ -13,6 +13,10 @@
 /amxx/zombie_plague/docs/
 /amxx/zombie_plague/lang/zombie_plague.txt
 /amxx/zombie_plague/lang/zombie_plague50.txt
+/amxx/nade_modes/nademodes.sma
+/amxx/nade_modes/include/nademodes.inc
+/amxx/nade_modes/lang/nademodes.txt
+/amxx/nade_modes/LICENSE.txt
 *.amxx
 /fabric/
 /AGENTS.md
