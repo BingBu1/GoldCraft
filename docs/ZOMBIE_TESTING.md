@@ -32,6 +32,36 @@ python .\tools\Prepare-ZombiePlague.py --archive $zpArchive --map cs_assault
 
 脚本核对提供包的 SHA-256，编译加载列表中的 71 个 Pawn 插件；按实际源配置和地图依赖准备 100 项资源。缺失资源从固定提交补齐并校验 Git blob/SHA-256，资源和运行二进制不进入仓库。SyPB 补丁防止无法打开日志文件时调用 `vfprintf(NULL)`，安装器也会创建日志目录。
 
+## ReAPI 迁移与更新
+
+ZP 工作源现在使用 **ReAPI 5.29.0.358 / AMXX 1.9.0.5303**。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；39 个文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
+
+迁移包含 39 处标准玩家 HookChain 注册和全部直接 pdata 固定偏移的替换。模型通过 `rg_set_user_model` / `rg_reset_user_model` 即时更新，不再临时换成 `gordon`；队伍通过 `rg_set_user_team` 维护原生人数和 AMXX 缓存；速度使用 `RG_CBasePlayer_ResetMaxSpeed`，保留冻结期。`SET MODELINDEX OFFSET` 继续控制自定义命中盒，原配置的两项 SVC_BAD 延迟参数保留但不再使用。完整武器 Deploy、GiveAmmo、Retire、Kill 及地图实体 Touch／Use／Think 仍使用阶段匹配的 Ham 接口，避免用内层 ReAPI 回调改变原有行为。
+
+伤害保护在 PRE 阶段归零伤害并取消原始调用，感染判断在所有保护钩子注册完成后执行。实际测试曾发现出生保护期间仍会感染，已修复这个顺序问题；护甲打空的当次攻击仍保留原 ZP 的防感染行为。
+
+已有服务器只更新 Pawn 时：
+
+```powershell
+python .\tools\Prepare-ZombiePlague.py --compile-only
+python .\tools\Deploy-ZombiePlague.py --reload-map
+```
+
+部署核对当前源码／产物哈希及已启用列表，只更新 71 个 ZP 字节码，保留配置、汉化、SyPB 接入和 ReHLDS 进程。小型旧产物备份最多保留两份；换图会按既定规则清除当前 MC 建筑与非玩家实体。`sv_restart` 只重开回合，不加载新 Pawn。
+
+独立原生回归需先准备 `sandbox/headless-combat`，且该独立服务器未运行：
+
+```powershell
+.\tools\Build-AMXX.ps1 -Plugins goldcraft_zp_reapi_test
+python .\tools\Exercise-ZombieReAPI.py
+```
+
+测试插件在 `amxx/zombie_plague/tests/`，不加入日常插件列表。两个命中盒设置分别通过 65 项真实 ReHLDS 检查，覆盖模型／队伍／速度、冻结期、护甲／友伤／感染、出生保护、冰冻／狂暴、Nemesis／Survivor，以及每种设置三次真正回合重置；无 AMXX 错误，测试进程结束并恢复改动配置。TraceAttack 使用受控 TraceResult 验证伤害链，不代表地图射线检测或客户端视觉验收。
+
+正式构建的 71 个产物已经再次独立测试，并逐一核对主服部署哈希。主服三次实际回合重置通过 7 项生命周期检查，981 个新鲜存活包围盒无错位；随后 24 Bot 的 180 秒自主观察通过 8 项检查，包括 7 次新增的真实刀伤感染（起止计数 3 → 10）。测试通过真实管理命令选取多重感染回合，没有指定战斗目标、传送或直接施加伤害。完整角度的视觉验收仍保留。
+
+观察器同时记录 ZP 的 `gameMode`／`allowInfection` 和 SyPB 的 `mode`，二者不能混同；Nemesis、Swarm 等特殊回合未必允许感染。还会检查 `sypb_stopbots`／`sypb_ignore_enemies`，避免把暂停 Bot 的观察当成自主战斗。此前无感染增量和暂停条件下的失败报告保留，不以通过结果覆盖。
+
 ## 24 Bot 与真人优先
 
 日常安装使用 `Initialize-ZombieServer.ps1 -Bots 24`，ReHLDS 以 `Start-Sandbox.ps1 -Role CsServer -Instance cs-server -MaxPlayers 32` 启动。配置源在 `amxx/zombie_plague/integration/configs/sypb.cfg`。SyPB 的 `sypb_auto_players 25` 表示总人数目标：空服 25 Bot，1 名真人时 24 Bot，2 名真人时 23 Bot；真人离开后自动补回，并给连接保留 7 个空位。

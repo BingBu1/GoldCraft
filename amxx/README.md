@@ -15,6 +15,7 @@
 | `zombie_plague/lang/` | 基础多语言字典及简体中文汉化 |
 | `zombie_plague/configs/` | 插件清单、玩法参数、职业／道具配置；`csdm/` 按地图保存出生点 |
 | `zombie_plague/docs/` | 原作者说明、许可条款和更新记录 |
+| `zombie_plague/tests/` | ReAPI 迁移的独立服务器回归，不在日常服加载 |
 | `maps/` | 地图实体／出生点适配，包括 72 街仓库的 32 人容量 |
 | `tests/` | 显式启用的测试插件，不属于日常配置 |
 
@@ -30,3 +31,5 @@
 第三方 ZP 源码和配套文件由准备脚本从固定版本的本地来源导入，后续构建保留人工修改。配置用于首次安装，已有服务器配置的调整仍需明确部署。AMXX、ReAPI、SyPB 的固定版本 SDK 留在依赖目录。
 
 第三方完整副本仅留本机；公开仓库收录原创插件、汉化、必要补丁和重建工具。
+
+ZP 的 ReAPI 补丁由 `Prepare-ZombiePlague.py` 自动应用；更新命令和保留的兼容接口见 [ZP 测试文档](../docs/ZOMBIE_TESTING.md#reapi-迁移与更新)。

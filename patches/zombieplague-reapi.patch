@@ -1,0 +1,2438 @@
+diff --git a/admin/zp50_admin_commands.sma b/admin/zp50_admin_commands.sma
+index 9684022..d2e9272 100644
+--- a/admin/zp50_admin_commands.sma
++++ b/admin/zp50_admin_commands.sma
+@@ -10,9 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <amxmisc>
+ #include <cstrike>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+ #include <zp50_gamemodes>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+@@ -706,7 +706,7 @@ command_respawn(id, player)
+ respawn_player_manually(id)
+ {
+ 	// Respawn!
+-	ExecuteHamB(Ham_CS_RoundRespawn, id)
++	rg_round_respawn(id)
+ }
+ 
+ // Admin Command. zp_start_game_mode
+diff --git a/admin/zp50_admin_menu.sma b/admin/zp50_admin_menu.sma
+index 6969062..fbd6186 100644
+--- a/admin/zp50_admin_menu.sma
++++ b/admin/zp50_admin_menu.sma
+@@ -10,10 +10,10 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <amxmisc>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+ #include <zp50_core>
+ #include <zp50_gamemodes>
+@@ -50,8 +50,6 @@ enum
+ // Menu keys
+ const KEYSMENU = MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9|MENU_KEY_0
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+ #define MAXPLAYERS 32
+ 
+@@ -183,7 +181,7 @@ show_menu_admin(id)
+ 	len += formatex(menu[len], charsmax(menu) - len, "^n\r0.\w %L", id, "MENU_EXIT")
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	show_menu(id, KEYSMENU, menu, -1, "Admin Menu")
+ }
+ 
+@@ -284,7 +282,7 @@ show_menu_player_list(id)
+ 	MENU_PAGE_PLAYERS = min(MENU_PAGE_PLAYERS, menu_pages(menuid)-1)
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	menu_display(id, menuid, MENU_PAGE_PLAYERS)
+ }
+ 
+@@ -333,7 +331,7 @@ show_menu_game_mode_list(id)
+ 	MENU_PAGE_GAME_MODES = min(MENU_PAGE_GAME_MODES, menu_pages(menuid)-1)
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	menu_display(id, menuid, MENU_PAGE_GAME_MODES)
+ }
+ 
+diff --git a/api/cs_maxspeed_api.sma b/api/cs_maxspeed_api.sma
+index e3fc999..6cf17a0 100644
+--- a/api/cs_maxspeed_api.sma
++++ b/api/cs_maxspeed_api.sma
+@@ -11,16 +11,11 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
+-#include <fun>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
++#include <reapi>
+ #include <cs_maxspeed_api_const>
+ 
+ #define MAXPLAYERS 32
+ 
+-// Hack to be able to use Ham_Player_ResetMaxSpeed (by joaquimandrade)
+-new Ham:Ham_Player_ResetMaxSpeed = Ham_Item_PreFrame
+-
+ #define flag_get(%1,%2)		(%1 & (1 << (%2 & 31)))
+ #define flag_set(%1,%2)		%1 |= (1 << (%2 & 31))
+ #define flag_unset(%1,%2)	%1 &= ~(1 << (%2 & 31))
+@@ -28,15 +23,11 @@ new Ham:Ham_Player_ResetMaxSpeed = Ham_Item_PreFrame
+ new g_HasCustomMaxSpeed
+ new g_MaxSpeedIsMultiplier
+ new Float:g_CustomMaxSpeed[MAXPLAYERS+1]
+-new g_FreezeTime
+ 
+ public plugin_init()
+ {
+-	register_plugin("[CS] MaxSpeed API", "1.0", "WiLS")
+-	register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
+-	register_logevent("logevent_round_start",2, "1=Round_Start")
+-	RegisterHam(Ham_Player_ResetMaxSpeed, "player", "fw_ResetMaxSpeed_Post", 1)
+-	RegisterHamBots(Ham_Player_ResetMaxSpeed, "fw_ResetMaxSpeed_Post", 1)
++	register_plugin("[CS] MaxSpeed API", "1.1-ReAPI", "WiLS / GoldCraft")
++	RegisterHookChain(RG_CBasePlayer_ResetMaxSpeed, "fw_ResetMaxSpeed_Post", true)
+ }
+ 
+ public plugin_cfg()
+@@ -80,7 +71,7 @@ public native_set_player_maxspeed(plugin_id, num_params)
+ 	else
+ 		flag_unset(g_MaxSpeedIsMultiplier, id)
+ 	
+-	ExecuteHamB(Ham_Player_ResetMaxSpeed, id)
++	rg_reset_maxspeed(id)
+ 	return true;
+ }
+ 
+@@ -100,32 +91,22 @@ public native_reset_player_maxspeed(plugin_id, num_params)
+ 	
+ 	flag_unset(g_HasCustomMaxSpeed, id)
+ 	
+-	ExecuteHamB(Ham_Player_ResetMaxSpeed, id)
++	rg_reset_maxspeed(id)
+ 	return true;
+ }
+ 
+-public client_disconnect(id)
++public client_disconnected(id)
+ {
+ 	flag_unset(g_HasCustomMaxSpeed, id)
+ }
+ 
+-public event_round_start()
+-{
+-	g_FreezeTime = true
+-}
+-
+-public logevent_round_start()
+-{
+-	g_FreezeTime = false
+-}
+-
+ public fw_ResetMaxSpeed_Post(id)
+ {
+-	if (g_FreezeTime || !is_user_alive(id) || !flag_get(g_HasCustomMaxSpeed, id))
++	if (get_member_game(m_bFreezePeriod) || !is_user_alive(id) || !flag_get(g_HasCustomMaxSpeed, id))
+ 		return;
+ 	
+ 	if (flag_get(g_MaxSpeedIsMultiplier, id))
+-		set_user_maxspeed(id, get_user_maxspeed(id) * g_CustomMaxSpeed[id])
++		set_entvar(id, var_maxspeed, Float:get_entvar(id, var_maxspeed) * g_CustomMaxSpeed[id])
+ 	else
+-		set_user_maxspeed(id, g_CustomMaxSpeed[id])
+-}
+\ No newline at end of file
++		set_entvar(id, var_maxspeed, g_CustomMaxSpeed[id])
++}
+diff --git a/api/cs_player_models_api.sma b/api/cs_player_models_api.sma
+index 709397c..b66b452 100644
+--- a/api/cs_player_models_api.sma
++++ b/api/cs_player_models_api.sma
+@@ -1,82 +1,32 @@
+ /*================================================================================
+-	
+-	----------------------------------
+-	-*- [CS] Player Models API 1.2 -*-
+-	----------------------------------
+-	
+-	- Allows easily setting and restoring custom player models in CS and CZ
+-	   (models last until player disconnects or are manually reset)
+-	- Built-in SVC_BAD prevention
+-	- Support for custom hitboxes (model index offset setting)
+-	- You still need to precache player models in your plugin!
+-	
+-	Original thread:
+-	http://forums.alliedmods.net/showthread.php?t=161255
+-	
+-================================================================================*/
+-
+-// Delay between model changes (increase if getting SVC_BAD kicks)
+-new Float:g_ModelChangeDelay = 0.2
+-
+-// Delay after roundstart (increase if getting kicks at round start)
+-new Float:g_RoundStartDelay = 2.0
+-
+-// Enable custom hitboxes (experimental, might lag your server badly with some models)
+-new g_SetModelindexOffset = 0
+ 
+-// Uncomment to load settings from zombieplague.ini
+-#define LOAD_ZP_SETTINGS
++    -*- [CS] Player Models API (ReAPI) -*-
++    Original API by WiLS: http://forums.alliedmods.net/showthread.php?t=161255
++    Models last until player disconnects or are manually reset.
++    Callers must still precache their player models.
++    GoldCraft port: ReGameDLL's persistent model override replaces delayed
++    userinfo interception and the temporary "gordon" reset.
+ 
+-/*=============================================================================*/
++================================================================================*/
+ 
+ #include <amxmodx>
+-#include <cstrike>
+-#include <fakemeta>
++#include <reapi>
++#include <amx_settings_api>
+ 
+-#define MAXPLAYERS 32
+ #define MODELNAME_MAXLENGTH 32
+ 
+-#define TASK_MODELCHANGE 100
+-#define ID_MODELCHANGE (taskid - TASK_MODELCHANGE)
+-
+-new const DEFAULT_MODELINDEX_T[] = "models/player/terror/terror.mdl"
+-new const DEFAULT_MODELINDEX_CT[] = "models/player/urban/urban.mdl"
+-
+-#if defined LOAD_ZP_SETTINGS
+-#include <amx_settings_api>
+ new const ZP_SETTINGS_FILE[] = "zombieplague.ini"
+-#endif
+-
+-// CS Player PData Offsets (win32)
+-#define PDATA_SAFE 2
+-#define OFFSET_CSTEAMS 114
+-#define OFFSET_MODELINDEX 491 // Orangutanz
+-
+-#define flag_get(%1,%2)		(%1 & (1 << (%2 & 31)))
+-#define flag_set(%1,%2)		%1 |= (1 << (%2 & 31))
+-#define flag_unset(%1,%2)	%1 &= ~(1 << (%2 & 31))
+-
+-new g_MaxPlayers
+-new g_HasCustomModel
+-new Float:g_ModelChangeTargetTime
+-new g_CustomPlayerModel[MAXPLAYERS+1][MODELNAME_MAXLENGTH]
+-new g_CustomModelIndex[MAXPLAYERS+1]
++new g_SetModelindexOffset
++new bool:g_HasCustomModel[MAX_PLAYERS+1]
+ 
+ public plugin_init()
+ {
+-	register_plugin("[CS] Player Models API", "1.2", "WiLS")
+-	register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
+-	register_forward(FM_SetClientKeyValue, "fw_SetClientKeyValue")
+-	g_MaxPlayers = get_maxplayers()
+-	
+-#if defined LOAD_ZP_SETTINGS
+-	if (!amx_load_setting_float(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "MODELCHANGE DELAY", g_ModelChangeDelay))
+-		amx_save_setting_float(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "MODELCHANGE DELAY", g_ModelChangeDelay)
+-	if (!amx_load_setting_float(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "ROUNDSTART DELAY", g_RoundStartDelay))
+-		amx_save_setting_float(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "ROUNDSTART DELAY", g_RoundStartDelay)
++	register_plugin("[CS] Player Models API", "1.3-ReAPI", "WiLS / GoldCraft")
++
++	// Preserve the custom-hitbox option. The two legacy SVC_BAD delay keys stay
++	// in the ini for rollback; ReGameDLL model updates are immediate.
+ 	if (!amx_load_setting_int(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "SET MODELINDEX OFFSET", g_SetModelindexOffset))
+ 		amx_save_setting_int(ZP_SETTINGS_FILE, "SVC_BAD Prevention", "SET MODELINDEX OFFSET", g_SetModelindexOffset)
+-#endif
+ }
+ 
+ public plugin_natives()
+@@ -89,169 +39,40 @@ public plugin_natives()
+ public native_set_player_model(plugin_id, num_params)
+ {
+ 	new id = get_param(1)
+-	
+ 	if (!is_user_connected(id))
+ 	{
+ 		log_error(AMX_ERR_NATIVE, "[CS] Player is not in game (%d)", id)
+ 		return false;
+ 	}
+-	
+-	new newmodel[MODELNAME_MAXLENGTH]
+-	get_string(2, newmodel, charsmax(newmodel))
+-	
+-	remove_task(id+TASK_MODELCHANGE)
+-	flag_set(g_HasCustomModel, id)
+-	
+-	copy(g_CustomPlayerModel[id], charsmax(g_CustomPlayerModel[]), newmodel)
+-	
+-	if (g_SetModelindexOffset)
+-	{
+-		new modelpath[32+(2*MODELNAME_MAXLENGTH)]
+-		formatex(modelpath, charsmax(modelpath), "models/player/%s/%s.mdl", newmodel, newmodel)
+-		g_CustomModelIndex[id] = engfunc(EngFunc_ModelIndex, modelpath)
+-	}
+-	
+-	new currentmodel[MODELNAME_MAXLENGTH]
+-	fm_cs_get_user_model(id, currentmodel, charsmax(currentmodel))
+-	
+-	if (!equal(currentmodel, newmodel))
+-		fm_cs_user_model_update(id+TASK_MODELCHANGE)
+-	
++
++	new model[MODELNAME_MAXLENGTH]
++	get_string(2, model, charsmax(model))
++	if (!rg_set_user_model(id, model, bool:g_SetModelindexOffset))
++		return false;
++
++	g_HasCustomModel[id] = true
+ 	return true;
+ }
+ 
+ public native_reset_player_model(plugin_id, num_params)
+ {
+ 	new id = get_param(1)
+-	
+ 	if (!is_user_connected(id))
+ 	{
+ 		log_error(AMX_ERR_NATIVE, "[CS] Player is not in game (%d)", id)
+ 		return false;
+ 	}
+-	
+-	// Player doesn't have a custom model, no need to reset
+-	if (!flag_get(g_HasCustomModel, id))
+-		return true;
+-	
+-	remove_task(id+TASK_MODELCHANGE)
+-	flag_unset(g_HasCustomModel, id)
+-	fm_cs_reset_user_model(id)
+-	
+-	return true;
+-}
+-
+-public client_disconnect(id)
+-{
+-	remove_task(id+TASK_MODELCHANGE)
+-	flag_unset(g_HasCustomModel, id)
+-}
+-
+-public event_round_start()
+-{
+-	// An additional delay is offset at round start
+-	// since SVC_BAD is more likely to be triggered there
+-	g_ModelChangeTargetTime = get_gametime() + g_RoundStartDelay
+-	
+-	// If a player has a model change task in progress,
+-	// reschedule the task, since it could potentially
+-	// be executed during roundstart
+-	new player
+-	for (player = 1; player <= g_MaxPlayers; player++)
+-	{
+-		if (task_exists(player+TASK_MODELCHANGE))
+-		{
+-			remove_task(player+TASK_MODELCHANGE)
+-			fm_cs_user_model_update(player+TASK_MODELCHANGE)
+-		}
+-	}
+-}
+ 
+-public fw_SetClientKeyValue(id, const infobuffer[], const key[], const value[])
+-{
+-	if (flag_get(g_HasCustomModel, id) && equal(key, "model"))
+-	{
+-		static currentmodel[MODELNAME_MAXLENGTH]
+-		fm_cs_get_user_model(id, currentmodel, charsmax(currentmodel))
+-		
+-		if (!equal(currentmodel, g_CustomPlayerModel[id]) && !task_exists(id+TASK_MODELCHANGE))
+-			fm_cs_set_user_model(id+TASK_MODELCHANGE)
+-		
+-		if (g_SetModelindexOffset)
+-			fm_cs_set_user_model_index(id)
+-		
+-		return FMRES_SUPERCEDE;
+-	}
+-	
+-	return FMRES_IGNORED;
+-}
+-
+-public fm_cs_set_user_model(taskid)
+-{
+-	set_user_info(ID_MODELCHANGE, "model", g_CustomPlayerModel[ID_MODELCHANGE])
+-}
+-
+-stock fm_cs_set_user_model_index(id)
+-{
+-	if (pev_valid(id) != PDATA_SAFE)
+-		return;
+-	
+-	set_pdata_int(id, OFFSET_MODELINDEX, g_CustomModelIndex[id])
+-}
+-
+-stock fm_cs_reset_user_model_index(id)
+-{
+-	if (pev_valid(id) != PDATA_SAFE)
+-		return;
+-	
+-	switch (fm_cs_get_user_team(id))
+-	{
+-		case CS_TEAM_T:
+-		{
+-			set_pdata_int(id, OFFSET_MODELINDEX, engfunc(EngFunc_ModelIndex, DEFAULT_MODELINDEX_T))
+-		}
+-		case CS_TEAM_CT:
+-		{
+-			set_pdata_int(id, OFFSET_MODELINDEX, engfunc(EngFunc_ModelIndex, DEFAULT_MODELINDEX_CT))
+-		}
+-	}
+-}
+-
+-stock fm_cs_get_user_model(id, model[], len)
+-{
+-	get_user_info(id, "model", model, len)
+-}
++	if (!g_HasCustomModel[id])
++		return true;
+ 
+-stock fm_cs_reset_user_model(id)
+-{
+-	// Set some generic model and let CS automatically reset player model to default
+-	copy(g_CustomPlayerModel[id], charsmax(g_CustomPlayerModel[]), "gordon")
+-	fm_cs_user_model_update(id+TASK_MODELCHANGE)
+-	if (g_SetModelindexOffset)
+-		fm_cs_reset_user_model_index(id)
++	if (!rg_reset_user_model(id, bool:g_SetModelindexOffset))
++		return false;
++	g_HasCustomModel[id] = false
++	return true;
+ }
+ 
+-stock fm_cs_user_model_update(taskid)
++public client_disconnected(id)
+ {
+-	new Float:current_time
+-	current_time = get_gametime()
+-	
+-	if (current_time - g_ModelChangeTargetTime >= g_ModelChangeDelay)
+-	{
+-		fm_cs_set_user_model(taskid)
+-		g_ModelChangeTargetTime = current_time
+-	}
+-	else
+-	{
+-		set_task((g_ModelChangeTargetTime + g_ModelChangeDelay) - current_time, "fm_cs_set_user_model", taskid)
+-		g_ModelChangeTargetTime = g_ModelChangeTargetTime + g_ModelChangeDelay
+-	}
++	g_HasCustomModel[id] = false
+ }
+-
+-stock CsTeams:fm_cs_get_user_team(id)
+-{
+-	if (pev_valid(id) != PDATA_SAFE)
+-		return CS_TEAM_UNASSIGNED;
+-	
+-	return CsTeams:get_pdata_int(id, OFFSET_CSTEAMS);
+-}
+\ No newline at end of file
+diff --git a/api/cs_teams_api.sma b/api/cs_teams_api.sma
+index fd182d8..9aaa4c7 100644
+--- a/api/cs_teams_api.sma
++++ b/api/cs_teams_api.sma
+@@ -1,43 +1,21 @@
+ /*================================================================================
+-	
+-	--------------------------
+-	-*- [CS] Teams API 1.2 -*-
+-	--------------------------
+-	
+-	- Allows easily setting a player's team in CS and CZ
+-	- Lets you decide whether to send the TeamInfo message to update scoreboard
+-	- Prevents server crashes when changing all teams at once
+-	
++
++    -*- [CS] Teams API (ReAPI) -*-
++    Original API by WiLS. GoldCraft port for ReGameDLL_CS.
++    Preserves the public native and optional scoreboard updates.
++
+ ================================================================================*/
+ 
+ #include <amxmodx>
+ #include <cstrike>
+-#include <fakemeta>
+-
+-#define TEAMCHANGE_DELAY 0.1
+-
+-#define TASK_TEAMMSG 200
+-#define ID_TEAMMSG (taskid - TASK_TEAMMSG)
+-
+-// CS Player PData Offsets (win32)
+-#define PDATA_SAFE 2
+-#define OFFSET_CSTEAMS 114
+-
+-new const CS_TEAM_NAMES[][] = { "UNASSIGNED", "TERRORIST", "CT", "SPECTATOR" }
++#include <reapi>
+ 
+-new Float:g_TeamMsgTargetTime
+-new g_MsgTeamInfo, g_MsgScoreInfo
+-new g_MaxPlayers
++new g_MsgScoreInfo
+ 
+ public plugin_init()
+ {
+-	register_plugin("[CS] Teams API", "1.2", "WiLS")
+-	
+-	register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
+-	
+-	g_MsgTeamInfo = get_user_msgid("TeamInfo")
++	register_plugin("[CS] Teams API", "1.3-ReAPI", "WiLS / GoldCraft")
+ 	g_MsgScoreInfo = get_user_msgid("ScoreInfo")
+-	g_MaxPlayers = get_maxplayers()
+ }
+ 
+ public plugin_natives()
+@@ -49,96 +27,38 @@ public plugin_natives()
+ public native_set_player_team(plugin_id, num_params)
+ {
+ 	new id = get_param(1)
+-	
+ 	if (!is_user_connected(id))
+ 	{
+ 		log_error(AMX_ERR_NATIVE, "[CS] Player is not in game (%d)", id)
+ 		return false;
+ 	}
+-	
++
+ 	new CsTeams:team = CsTeams:get_param(2)
+-	
+ 	if (team < CS_TEAM_UNASSIGNED || team > CS_TEAM_SPECTATOR)
+ 	{
+ 		log_error(AMX_ERR_NATIVE, "[CS] Invalid team %d", _:team)
+ 		return false;
+ 	}
+-	
+-	new update = get_param(3)
+-	
+-	fm_cs_set_user_team(id, team, update)
+-	return true;
+-}
+-
+-// Event Round Start
+-public event_round_start()
+-{
+-	// CS automatically sends TeamInfo messages
+-	// at roundstart for all players
+-	new id
+-	for (id = 1; id <= g_MaxPlayers; id++)
+-		remove_task(id+TASK_TEAMMSG)
+-}
++	if (get_member(id, m_iTeam) == _:team)
++		return true;
+ 
+-public client_disconnect(id)
+-{
+-	remove_task(id+TASK_TEAMMSG)
+-}
+-
+-// Set a Player's Team
+-stock fm_cs_set_user_team(id, CsTeams:team, send_message)
+-{
+-	// Prevent server crash if entity's private data not initalized
+-	if (pev_valid(id) != PDATA_SAFE)
+-		return;
+-	
+-	// Already belongs to the team
+-	if (cs_get_user_team(id) == team)
+-		return;
+-	
+-	// Remove previous team message task
+-	remove_task(id+TASK_TEAMMSG)
+-	
+-	// Set team offset
+-	set_pdata_int(id, OFFSET_CSTEAMS, _:team)
+-	
+-	// Send message to update team?
+-	if (send_message) fm_user_team_update(id)
+-}
+-
+-// Send User Team Message (Note: this next message can be received by other plugins)
+-public fm_cs_set_user_team_msg(taskid)
+-{
+-	// Tell everyone my new team
+-	emessage_begin(MSG_ALL, g_MsgTeamInfo)
+-	ewrite_byte(ID_TEAMMSG) // player
+-	ewrite_string(CS_TEAM_NAMES[_:cs_get_user_team(ID_TEAMMSG)]) // team
+-	emessage_end()
+-	
+-	// Fix for AMXX/CZ bots which update team paramater from ScoreInfo message
+-	emessage_begin(MSG_BROADCAST, g_MsgScoreInfo)
+-	ewrite_byte(ID_TEAMMSG) // id
+-	ewrite_short(pev(ID_TEAMMSG, pev_frags)) // frags
+-	ewrite_short(cs_get_user_deaths(ID_TEAMMSG)) // deaths
+-	ewrite_short(0) // class?
+-	ewrite_short(_:cs_get_user_team(ID_TEAMMSG)) // team
+-	emessage_end()
+-}
++	new bool:update = bool:get_param(3)
++	// Retain ZP class models and game-mode win checks. ReGameDLL also updates
++	// team counts, equipment and AMXX's team cache, unlike a raw pdata write.
++	if (!rg_set_user_team(id, _:team, MODEL_UNASSIGNED, update, false))
++		return false;
+ 
+-// Update Player's Team on all clients (adding needed delays)
+-stock fm_user_team_update(id)
+-{	
+-	new Float:current_time
+-	current_time = get_gametime()
+-	
+-	if (current_time - g_TeamMsgTargetTime >= TEAMCHANGE_DELAY)
++	if (update)
+ 	{
+-		set_task(0.1, "fm_cs_set_user_team_msg", id+TASK_TEAMMSG)
+-		g_TeamMsgTargetTime = current_time + TEAMCHANGE_DELAY
+-	}
+-	else
+-	{
+-		set_task((g_TeamMsgTargetTime + TEAMCHANGE_DELAY) - current_time, "fm_cs_set_user_team_msg", id+TASK_TEAMMSG)
+-		g_TeamMsgTargetTime = g_TeamMsgTargetTime + TEAMCHANGE_DELAY
++		// TeamChangeUpdate sends TeamInfo, not ScoreInfo. Retain this notification
++		// for bots/plugins that track teams from scoreboard messages.
++		emessage_begin(MSG_BROADCAST, g_MsgScoreInfo)
++		ewrite_byte(id)
++		ewrite_short(get_user_frags(id))
++		ewrite_short(get_member(id, m_iDeaths))
++		ewrite_short(0)
++		ewrite_short(_:team)
++		emessage_end()
+ 	}
++	return true;
+ }
+diff --git a/api/cs_weap_models_api.sma b/api/cs_weap_models_api.sma
+index 6dc187f..60d692b 100644
+--- a/api/cs_weap_models_api.sma
++++ b/api/cs_weap_models_api.sma
+@@ -9,6 +9,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+ #include <hamsandwich>
+@@ -18,13 +19,8 @@
+ #define CSW_LAST_WEAPON CSW_P90
+ #define POSITION_NULL -1
+ 
+-// CS Weapon CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_WEAPONOWNER = 41
+-const OFFSET_LINUX_WEAPONS = 4 // weapon offsets are only 4 steps higher on Linux
+ 
+-// CS Player CBase Offsets (win32)
+-const OFFSET_ACTIVE_ITEM = 373
+ 
+ // Weapon entity names
+ new const WEAPONENTNAMES[][] = { "", "weapon_p228", "", "weapon_scout", "weapon_hegrenade", "weapon_xm1014", "weapon_c4", "weapon_mac10",
+@@ -339,7 +335,7 @@ stock fm_cs_get_weapon_ent_owner(ent)
+ 	if (pev_valid(ent) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(ent, OFFSET_WEAPONOWNER, OFFSET_LINUX_WEAPONS);
++	return get_member(ent, m_pPlayer);
+ }
+ 
+ // Get User Current Weapon Entity
+@@ -349,5 +345,5 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+\ No newline at end of file
+diff --git a/api/cs_weap_restrict_api.sma b/api/cs_weap_restrict_api.sma
+index ba67d1e..fa45659 100644
+--- a/api/cs_weap_restrict_api.sma
++++ b/api/cs_weap_restrict_api.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <cstrike>
+ #include <fakemeta>
+@@ -18,16 +19,8 @@
+ #define MAXPLAYERS 32
+ #define NO_WEAPON 0
+ 
+-// CS Weapon CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_WEAPONOWNER = 41
+-const OFFSET_LINUX_WEAPONS = 4 // weapon offsets are only 4 steps higher on Linux
+-const OFFSET_NEXTPRIMARYATTACK = 46
+-const OFFSET_NEXTSECONDARYATTACK = 47
+ 
+-// CS Player CBase Offsets (win32)
+-const OFFSET_ACTIVE_ITEM = 373
+-const OFFSSET_NEXTATTACK = 83
+ 
+ // Weapon entity names
+ new const WEAPONENTNAMES[][] = { "", "weapon_p228", "", "weapon_scout", "weapon_hegrenade", "weapon_xm1014", "weapon_c4", "weapon_mac10",
+@@ -184,7 +177,7 @@ stock fm_cs_get_weapon_ent_owner(ent)
+ 	if (pev_valid(ent) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(ent, OFFSET_WEAPONOWNER, OFFSET_LINUX_WEAPONS);
++	return get_member(ent, m_pPlayer);
+ }
+ 
+ // Get User Current Weapon Entity
+@@ -194,7 +187,7 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+ 
+ stock fm_cs_set_user_next_attack(id, Float:next_attack)
+@@ -203,15 +196,15 @@ stock fm_cs_set_user_next_attack(id, Float:next_attack)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return false;
+ 	
+-	set_pdata_float(id, OFFSSET_NEXTATTACK, next_attack)
++	set_member(id, m_flNextAttack, next_attack)
+ 	return true;
+ }
+ 
+ // ConnorMcLeod
+ // 99999.0 = 27hours, should be enough.
+ // want to block attack1 ?
+-//set_pdata_float(weapon_ent, OFFSET_NEXTPRIMARYATTACK, 99999.0, OFFSET_LINUX_WEAPONS)
++//set_member(weapon_ent, m_Weapon_flNextPrimaryAttack, 99999.0)
+ // want to block attack2 ?
+-//set_pdata_float(weapon_ent, OFFSET_NEXTSECONDARYATTACK, 99999.0, OFFSET_LINUX_WEAPONS)
++//set_member(weapon_ent, m_Weapon_flNextSecondaryAttack, 99999.0)
+ // also want to block +use ? (may block other things as impulse(impulse are put in a queue))
+-//set_pdata_float(owner, OFFSSET_NEXTATTACK, 99999.0)
++//set_member(owner, m_flNextAttack, 99999.0)
+diff --git a/classes/zp50_class_human.sma b/classes/zp50_class_human.sma
+index 89754e6..026cf26 100644
+--- a/classes/zp50_class_human.sma
++++ b/classes/zp50_class_human.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <fakemeta>
+ #include <amx_settings_api>
+@@ -40,8 +41,6 @@ new g_model_vknife_human[MODEL_MAX_LENGTH] = "models/v_knife.mdl"
+ #define HUMANS_DEFAULT_SPEED 1.0
+ #define HUMANS_DEFAULT_GRAVITY 1.0
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+ // For class list menu handlers
+ #define MENU_PAGE_CLASS g_menu_data[id]
+@@ -217,7 +216,7 @@ public show_menu_humanclass(id)
+ 	MENU_PAGE_CLASS = min(MENU_PAGE_CLASS, menu_pages(menuid)-1)
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	menu_display(id, menuid, MENU_PAGE_CLASS)
+ }
+ 
+diff --git a/classes/zp50_class_nemesis.sma b/classes/zp50_class_nemesis.sma
+index 1636d37..bf53aca 100644
+--- a/classes/zp50_class_nemesis.sma
++++ b/classes/zp50_class_nemesis.sma
+@@ -10,14 +10,13 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+ #include <cs_maxspeed_api>
+ #include <cs_player_models_api>
+ #include <cs_weap_models_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_GRENADE_FROST "zp50_grenade_frost"
+ #include <zp50_grenade_frost>
+@@ -59,10 +58,8 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Class: Nemesis", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	register_forward(FM_ClientDisconnect, "fw_ClientDisconnect_Post", 1)
+ 	
+ 	g_MaxPlayers = get_maxplayers()
+@@ -174,12 +171,12 @@ public fw_ClientDisconnect_Post(id)
+ 	flag_unset(g_IsNemesis, id)
+ }
+ 
+-// Ham Take Damage Forward
++// ReAPI Take Damage Forward
+ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Nemesis attacking human
+ 	if (flag_get(g_IsNemesis, attacker) && !zp_core_is_zombie(victim))
+@@ -189,22 +186,22 @@ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ 		if (inflictor == attacker)
+ 		{
+ 			// Set nemesis damage
+-			SetHamParamFloat(4, damage * get_pcvar_float(cvar_nemesis_damage))
+-			return HAM_HANDLED;
++			SetHookChainArg(4, ATYPE_FLOAT, damage * get_pcvar_float(cvar_nemesis_damage))
++			return HC_CONTINUE;
+ 		}
+ 	}
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	if (flag_get(g_IsNemesis, victim))
+ 	{
+ 		// Nemesis explodes!
+ 		if (get_pcvar_num(cvar_nemesis_kill_explode))
+-			SetHamParamInteger(3, 2)
++			SetHookChainArg(3, ATYPE_INTEGER, 2)
+ 		
+ 		// Remove nemesis aura
+ 		if (get_pcvar_num(cvar_nemesis_aura))
+diff --git a/classes/zp50_class_survivor.sma b/classes/zp50_class_survivor.sma
+index 0a8ab0e..7664192 100644
+--- a/classes/zp50_class_survivor.sma
++++ b/classes/zp50_class_survivor.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <cstrike>
+ #include <fakemeta>
+@@ -18,7 +19,6 @@
+ #include <cs_maxspeed_api>
+ #include <cs_player_models_api>
+ #include <cs_weap_models_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ 
+ // Settings file
+@@ -42,9 +42,7 @@ new g_models_survivor_weapon[MODEL_MAX_LENGTH] = "models/v_m249.mdl"
+ #define flag_set(%1,%2) %1 |= (1 << (%2 & 31))
+ #define flag_unset(%1,%2) %1 &= ~(1 << (%2 & 31))
+ 
+-// CS Player CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_ACTIVE_ITEM = 373
+ 
+ // Weapon bitsums
+ const PRIMARY_WEAPONS_BIT_SUM = (1<<CSW_SCOUT)|(1<<CSW_XM1014)|(1<<CSW_MAC10)|(1<<CSW_AUG)|(1<<CSW_UMP45)|(1<<CSW_SG550)|(1<<CSW_GALIL)|(1<<CSW_FAMAS)|(1<<CSW_AWP)|(1<<CSW_MP5NAVY)|(1<<CSW_M249)|(1<<CSW_M3)|(1<<CSW_M4A1)|(1<<CSW_TMP)|(1<<CSW_G3SG1)|(1<<CSW_SG552)|(1<<CSW_AK47)|(1<<CSW_P90)
+@@ -80,8 +78,7 @@ public plugin_init()
+ 	RegisterHam(Ham_Touch, "weaponbox", "fw_TouchWeapon")
+ 	RegisterHam(Ham_Touch, "armoury_entity", "fw_TouchWeapon")
+ 	RegisterHam(Ham_Touch, "weapon_shield", "fw_TouchWeapon")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	register_forward(FM_ClientDisconnect, "fw_ClientDisconnect_Post", 1)
+ 	
+ 	g_MaxPlayers = get_maxplayers()
+@@ -185,7 +182,7 @@ public fw_TouchWeapon(weapon, id)
+ 	return HAM_IGNORED;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	if (flag_get(g_IsSurvivor, victim))
+@@ -446,5 +443,5 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+\ No newline at end of file
+diff --git a/classes/zp50_class_zombie.sma b/classes/zp50_class_zombie.sma
+index 26b77a3..efd8783 100644
+--- a/classes/zp50_class_zombie.sma
++++ b/classes/zp50_class_zombie.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <fakemeta>
+ #include <amx_settings_api>
+@@ -39,8 +40,6 @@ new const ZP_ZOMBIECLASSES_FILE[] = "zp_zombieclasses.ini"
+ const ZOMBIE_ALLOWED_WEAPONS_BITSUM = (1<<CSW_KNIFE)|(1<<CSW_HEGRENADE)|(1<<CSW_FLASHBANG)|(1<<CSW_SMOKEGRENADE)|(1<<CSW_C4)
+ const ZOMBIE_DEFAULT_ALLOWED_WEAPON = CSW_KNIFE
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+ // For class list menu handlers
+ #define MENU_PAGE_CLASS g_menu_data[id]
+@@ -233,7 +232,7 @@ public show_menu_zombieclass(id)
+ 	MENU_PAGE_CLASS = min(MENU_PAGE_CLASS, menu_pages(menuid)-1)
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	menu_display(id, menuid, MENU_PAGE_CLASS)
+ }
+ 
+diff --git a/classes/zp50_class_zombie_leech.sma b/classes/zp50_class_zombie_leech.sma
+index 5c0c89e..4e30c65 100644
+--- a/classes/zp50_class_zombie_leech.sma
++++ b/classes/zp50_class_zombie_leech.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_class_zombie>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -47,8 +46,7 @@ public plugin_precache()
+ 	for (index = 0; index < sizeof zombieclass5_clawmodels; index++)
+ 		zp_class_zombie_register_claw(g_ZombieClassID, zombieclass5_clawmodels[index])
+ 	
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	// HP rewarded for infection/kills
+ 	if (!amx_load_setting_int(ZP_ZOMBIECLASSES_FILE, zombieclass5_name, "HP REWARD", zombieclass5_hp_reward))
+diff --git a/core/zp50_buy_zones.sma b/core/zp50_buy_zones.sma
+index 3ff3a36..bf30bff 100644
+--- a/core/zp50_buy_zones.sma
++++ b/core/zp50_buy_zones.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+ #include <hamsandwich>
+@@ -28,10 +29,7 @@ new const CS_BUYZONE_ENT[] = "func_buyzone"
+ // CS sounds
+ new const g_sound_buyammo[] = "items/9mmclip1.wav"
+ 
+-// CS Player CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_MAPZONE = 235
+-const PLAYER_IN_BUYZONE = (1<<0)
+ 
+ // Weapon IDs for ammo types
+ new const AMMOWEAPON[] = { 0, CSW_AWP, CSW_SCOUT, CSW_M249, CSW_AUG, CSW_XM1014, CSW_MAC10, CSW_FIVESEVEN, CSW_DEAGLE,
+@@ -337,9 +335,14 @@ stock fm_cs_set_user_buyzone_offset(id, set = true)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return false;
+ 	
++	// CUnifiedSignals contains both a pending signal and the current state.
++	// The old offset 235 addressed state; preserve all other signal bits.
++	new signals[UnifiedSignals]
++	get_member(id, m_signals, signals)
+ 	if (set)
+-		set_pdata_int(id, OFFSET_MAPZONE, get_pdata_int(id, OFFSET_MAPZONE) | PLAYER_IN_BUYZONE)
++		signals[US_State] |= _:SIGNAL_BUY
+ 	else
+-		set_pdata_int(id, OFFSET_MAPZONE, get_pdata_int(id, OFFSET_MAPZONE) & ~PLAYER_IN_BUYZONE)
++		signals[US_State] &= ~_:SIGNAL_BUY
++	set_member(id, m_signals, signals)
+ 	return true;
+ }
+\ No newline at end of file
+diff --git a/core/zp50_core.sma b/core/zp50_core.sma
+index 0026c9e..c0afb9a 100644
+--- a/core/zp50_core.sma
++++ b/core/zp50_core.sma
+@@ -10,11 +10,10 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <amxmisc>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core_const>
+ 
+ #define MAXPLAYERS 32
+@@ -68,10 +67,8 @@ public plugin_init()
+ 	
+ 	g_Forwards[FW_USER_SPAWN_POST] = CreateMultiForward("zp_fw_core_spawn_post", ET_IGNORE, FP_CELL)
+ 	
+-	RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
+-	RegisterHamBots(Ham_Spawn, "fw_PlayerSpawn_Post", 1)
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Spawn, "fw_PlayerSpawn_Post", true)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	register_forward(FM_ClientDisconnect, "fw_ClientDisconnect_Post", 1)
+ 	
+ 	g_MaxPlayers = get_maxplayers()
+@@ -136,7 +133,7 @@ public fw_PlayerSpawn_Post(id)
+ 	flag_unset(g_RespawnAsZombie, id)
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post()
+ {
+ 	CheckLastZombieHuman()
+diff --git a/core/zp50_deathmatch.sma b/core/zp50_deathmatch.sma
+index 177b759..b7a5cb3 100644
+--- a/core/zp50_deathmatch.sma
++++ b/core/zp50_deathmatch.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_gamemodes>
+ 
+ #define TASK_RESPAWN 100
+@@ -38,10 +37,8 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Deathmatch", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
+-	RegisterHamBots(Ham_Spawn, "fw_PlayerSpawn_Post", 1)
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Spawn, "fw_PlayerSpawn_Post", true)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	cvar_deathmatch = register_cvar("zp_deathmatch", "0")
+ 	cvar_respawn_delay = register_cvar("zp_respawn_delay", "5")
+@@ -54,7 +51,7 @@ public plugin_init()
+ 	g_Forwards[FW_USER_RESPAWN_PRE] = CreateMultiForward("zp_fw_deathmatch_respawn_pre", ET_CONTINUE, FP_CELL)
+ }
+ 
+-// Ham Player Spawn Post Forward
++// ReAPI Player Spawn Post Forward
+ public fw_PlayerSpawn_Post(id)
+ {
+ 	// Not alive or didn't join a team yet
+@@ -65,7 +62,7 @@ public fw_PlayerSpawn_Post(id)
+ 	remove_task(id+TASK_RESPAWN)
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ {
+ 	// Respawn if deathmatch is enabled
+@@ -117,7 +114,7 @@ public respawn_player_task(taskid)
+ respawn_player_manually(id)
+ {
+ 	// Respawn!
+-	ExecuteHamB(Ham_CS_RoundRespawn, id)
++	rg_round_respawn(id)
+ }
+ 
+ public client_disconnect(id)
+diff --git a/core/zp50_gameplay_fixes.sma b/core/zp50_gameplay_fixes.sma
+index 2f1b68c..ef88401 100644
+--- a/core/zp50_gameplay_fixes.sma
++++ b/core/zp50_gameplay_fixes.sma
+@@ -10,13 +10,13 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <cstrike>
+ #include <fakemeta>
+ #include <hamsandwich>
+ #include <amx_settings_api>
+ #include <cs_teams_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_gamemodes>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -38,10 +38,8 @@ const STATIONARY_USING = 2
+ #define TASK_RESPAWN 100
+ #define ID_RESPAWN (taskid - TASK_RESPAWN)
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+-#define MENUCODE_TEAMSELECT 1
++#define Menu_ChooseTeam 1
+ 
+ new g_MaxPlayers
+ new g_fwSpawn
+@@ -70,8 +68,7 @@ public plugin_init()
+ 	register_clcmd("jointeam", "clcmd_changeteam")
+ 	
+ 	register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
+-	RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
+-	RegisterHamBots(Ham_Spawn, "fw_PlayerSpawn_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Spawn, "fw_PlayerSpawn_Post", true)
+ 	RegisterHam(Ham_Use, "func_tank", "fw_UseStationary")
+ 	RegisterHam(Ham_Use, "func_tankmortar", "fw_UseStationary")
+ 	RegisterHam(Ham_Use, "func_tankrocket", "fw_UseStationary")
+@@ -215,7 +212,7 @@ public fw_Spawn(entity)
+ 	return FMRES_IGNORED;
+ }
+ 
+-// Ham Player Spawn Post Forward
++// ReAPI Player Spawn Post Forward
+ public fw_PlayerSpawn_Post(id)
+ {
+ 	// Not alive or didn't join a team yet
+@@ -255,7 +252,7 @@ public respawn_player_check_task(taskid)
+ respawn_player_manually(id)
+ {
+ 	// Respawn!
+-	ExecuteHamB(Ham_CS_RoundRespawn, id)
++	rg_round_respawn(id)
+ }
+ 
+ // Client Disconnecting (prevent Game Commencing bug after last player on a team leaves)
+@@ -360,8 +357,8 @@ public zp_fw_gamemodes_start()
+ 				continue;
+ 			
+ 			// Disable any opened team change menus (bugfix)
+-			if (get_pdata_int(id, OFFSET_CSMENUCODE) == MENUCODE_TEAMSELECT)
+-				set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++			if (get_member(id, m_iMenu) == Menu_ChooseTeam)
++				set_member(id, m_iMenu, Menu_OFF)
+ 		}
+ 	}
+ }
+diff --git a/core/zp50_knockback.sma b/core/zp50_knockback.sma
+index 6d70f7f..288426e 100644
+--- a/core/zp50_knockback.sma
++++ b/core/zp50_knockback.sma
+@@ -10,11 +10,10 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <xs>
+ #include <amx_settings_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_class_zombie>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -74,8 +73,7 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Knockback", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack_Post", 1)
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack_Post", true)
+ 	
+ 	cvar_knockback_damage = register_cvar("zp_knockback_damage", "1")
+ 	cvar_knockback_power = register_cvar("zp_knockback_power", "1")
+@@ -122,7 +120,7 @@ public native_filter(const name[], index, trap)
+ 	return PLUGIN_CONTINUE;
+ }
+ 
+-// Ham Trace Attack Post Forward
++// ReAPI Trace Attack Post Forward
+ public fw_TraceAttack_Post(victim, attacker, Float:damage, Float:direction[3], tracehandle, damage_type)
+ {
+ 	// Non-player damage or self damage
+@@ -138,7 +136,7 @@ public fw_TraceAttack_Post(victim, attacker, Float:damage, Float:direction[3], t
+ 		return;
+ 	
+ 	// Knockback only if damage is done to victim
+-	if (damage <= 0.0 || GetHamReturnStatus() == HAM_SUPERCEDE || get_tr2(tracehandle, TR_pHit) != victim)
++	if (damage <= 0.0 || !IsReapiHookOriginalWasCalled(RG_CBasePlayer_TraceAttack) || get_tr2(tracehandle, TR_pHit) != victim)
+ 		return;
+ 	
+ 	// Nemesis knockback disabled, nothing else to do here
+diff --git a/core/zp50_painshockfree.sma b/core/zp50_painshockfree.sma
+index b49a7d5..e549ed4 100644
+--- a/core/zp50_painshockfree.sma
++++ b/core/zp50_painshockfree.sma
+@@ -10,17 +10,14 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+ #define LIBRARY_SURVIVOR "zp50_class_survivor"
+ #include <zp50_class_survivor>
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_PAINSHOCK = 108 // ConnorMcLeod
+ 
+ new cvar_painshockfree_zombie, cvar_painshockfree_human, cvar_painshockfree_nemesis, cvar_painshockfree_survivor
+ 
+@@ -39,8 +36,7 @@ public plugin_init()
+ 	if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library))
+ 		cvar_painshockfree_survivor = register_cvar("zp_painshockfree_survivor", "1")
+ 	
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage_Post", 1)
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage_Post", true)
+ }
+ 
+ public plugin_natives()
+@@ -63,7 +59,7 @@ public native_filter(const name[], index, trap)
+ 	return PLUGIN_CONTINUE;
+ }
+ 
+-// Ham Take Damage Post Forward
++// ReAPI Take Damage Post Forward
+ public fw_TakeDamage_Post(victim)
+ {
+ 	// Is zombie?
+@@ -104,5 +100,5 @@ public fw_TakeDamage_Post(victim)
+ 	}
+ 	
+ 	// Set pain shock free offset
+-	set_pdata_float(victim, OFFSET_PAINSHOCK, 1.0)
++	set_member(victim, m_flVelocityModifier, 1.0)
+ }
+diff --git a/core/zp50_spawn_protection.sma b/core/zp50_spawn_protection.sma
+index 91ca4cb..f76d7cc 100644
+--- a/core/zp50_spawn_protection.sma
++++ b/core/zp50_spawn_protection.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <zp50_reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ 
+ #define TASK_SPAWNPROTECT 100
+@@ -32,21 +31,17 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Spawn Protection", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
+-	RegisterHamBots(Ham_Spawn, "fw_PlayerSpawn_Post", 1)
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack")
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack")
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Spawn, "fw_PlayerSpawn_Post", true)
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack", false)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	cvar_spawn_protection_time = register_cvar("zp_spawn_protection_time", "3")
+ 	cvar_spawn_protection_humans = register_cvar("zp_spawn_protection_humans", "1")
+ 	cvar_spawn_protection_zombies = register_cvar("zp_spawn_protection_zombies", "1")
+ }
+ 
+-// Ham Player Spawn Post Forward
++// ReAPI Player Spawn Post Forward
+ public fw_PlayerSpawn_Post(id)
+ {
+ 	// Not alive or didn't join a team yet
+@@ -81,35 +76,35 @@ public fw_PlayerSpawn_Post(id)
+ 	}
+ }
+ 
+-// Ham Trace Attack Forward
++// ReAPI Trace Attack Forward
+ public fw_TraceAttack(victim, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when victim has spawn protection
+ 	if (flag_get(g_SpawnProtectBlockDamage, victim))
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Take Damage Forward (needed to block explosion damage too)
++// ReAPI Take Damage Forward (needed to block explosion damage too)
+ public fw_TakeDamage(victim, inflictor, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when victim has spawn protection
+ 	if (flag_get(g_SpawnProtectBlockDamage, victim))
+-		return HAM_SUPERCEDE;
++		return zp_reapi_block_damage();
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ {
+ 	// Remove spawn protection task
+diff --git a/core/zp50_zombie_damage.sma b/core/zp50_zombie_damage.sma
+index 70b1276..5a497fc 100644
+--- a/core/zp50_zombie_damage.sma
++++ b/core/zp50_zombie_damage.sma
+@@ -10,9 +10,8 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -26,10 +25,8 @@ public plugin_init()
+ 	cvar_zombie_defense = register_cvar("zp_zombie_defense", "0.75")
+ 	cvar_zombie_hitzones = register_cvar("zp_zombie_hitzones", "0")
+ 	
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack")
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack")
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack", false)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
+ }
+ 
+ public plugin_natives()
+@@ -52,46 +49,46 @@ public native_filter(const name[], index, trap)
+ 	return PLUGIN_CONTINUE;
+ }
+ 
+-// Ham Trace Attack Forward
++// ReAPI Trace Attack Forward
+ public fw_TraceAttack(victim, attacker, Float:damage, Float:direction[3], tracehandle, damage_type)
+ {
+ 	// Zombie custom hitzones disabled
+ 	if (!get_pcvar_num(cvar_zombie_hitzones))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Not bullet damage or victim isn't a zombie
+ 	if (!(damage_type & DMG_BULLET) || !zp_core_is_zombie(victim))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Check whether we hit an allowed one
+ 	if (!(get_pcvar_num(cvar_zombie_hitzones) & (1<<get_tr2(tracehandle, TR_iHitgroup))))
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Take Damage Forward
++// ReAPI Take Damage Forward
+ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Human attacking zombie...
+ 	if (!zp_core_is_zombie(attacker) && zp_core_is_zombie(victim))
+ 	{
+ 		// Ignore for Nemesis
+ 		if (LibraryExists(LIBRARY_NEMESIS, LibType_Library) && zp_class_nemesis_get(attacker))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Armor multiplier for the final damage
+-		SetHamParamFloat(4, damage * get_pcvar_float(cvar_zombie_defense))
+-		return HAM_HANDLED;
++		SetHookChainArg(4, ATYPE_FLOAT, damage * get_pcvar_float(cvar_zombie_defense))
++		return HC_CONTINUE;
+ 	}
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+diff --git a/core/zp50_zombie_features.sma b/core/zp50_zombie_features.sma
+index 0c971a6..3332c92 100644
+--- a/core/zp50_zombie_features.sma
++++ b/core/zp50_zombie_features.sma
+@@ -10,11 +10,10 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -47,8 +46,7 @@ public plugin_init()
+ 	cvar_zombie_silent = register_cvar("zp_zombie_silent", "1")
+ 	cvar_zombie_bleeding = register_cvar("zp_zombie_bleeding", "1")
+ 	
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	
+ 	// Check if it's a CZ server
+ 	new mymod[6]
+@@ -96,7 +94,7 @@ public native_filter(const name[], index, trap)
+ 	return PLUGIN_CONTINUE;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Remove bleeding task
+diff --git a/core/zp50_zp43_compat.sma b/core/zp50_zp43_compat.sma
+index 661bac4..70a151c 100644
+--- a/core/zp50_zp43_compat.sma
++++ b/core/zp50_zp43_compat.sma
+@@ -10,9 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+ #include <cs_player_models_api>
+ #include <zp50_class_zombie>
+@@ -705,7 +705,7 @@ public native_respawn_user(plugin_id, num_params)
+ 		zp_core_respawn_as_zombie(id, false)
+ 	
+ 	// Respawn!
+-	ExecuteHamB(Ham_CS_RoundRespawn, id)
++	rg_round_respawn(id)
+ 	return true;
+ }
+ 
+diff --git a/effects/zp50_flashlight.sma b/effects/zp50_flashlight.sma
+index 837f9ab..28841c7 100644
+--- a/effects/zp50_flashlight.sma
++++ b/effects/zp50_flashlight.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <xs>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ 
+ #define TASK_FLASHLIGHT 100
+@@ -21,9 +20,7 @@
+ #define ID_FLASHLIGHT (taskid - TASK_FLASHLIGHT)
+ #define ID_CHARGE (taskid - TASK_CHARGE)
+ 
+-// CS Player PData Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_FLASHLIGHT_BATTERIES = 244
+ 
+ const IMPULSE_FLASHLIGHT = 100
+ 
+@@ -53,8 +50,7 @@ public plugin_init()
+ 	register_plugin("[ZP] Flashlight", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+ 	register_forward(FM_CmdStart, "fw_CmdStart")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	
+ 	g_MsgFlashlight = get_user_msgid("Flashlight")
+ 	g_MsgFlashBat = get_user_msgid("FlashBat")
+@@ -195,7 +191,7 @@ public fw_CmdStart(id, handle)
+ 	}
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Reset flashlight flags
+@@ -364,7 +360,7 @@ stock fm_cs_set_flash_batteries(id, value)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return;
+ 	
+-	set_pdata_int(id, OFFSET_FLASHLIGHT_BATTERIES, value)
++	set_member(id, m_iFlashBattery, value)
+ }
+ 
+ // Get entity's aim origins (from fakemeta_util)
+diff --git a/effects/zp50_nightvision.sma b/effects/zp50_nightvision.sma
+index 1927099..cf738c8 100644
+--- a/effects/zp50_nightvision.sma
++++ b/effects/zp50_nightvision.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -48,8 +47,7 @@ public plugin_init()
+ 	
+ 	register_clcmd("nightvision", "clcmd_nightvision_toggle")
+ 	register_event("ResetHUD", "event_reset_hud", "b")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	cvar_nvision_custom = register_cvar("zp_nvision_custom", "0")
+ 	cvar_nvision_radius = register_cvar("zp_nvision_radius", "80")
+@@ -242,7 +240,7 @@ public event_reset_hud(id)
+ 		cs_set_user_nvg_active(id, 1)
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ {
+ 	// Enable spectators nightvision?
+diff --git a/effects/zp50_zombie_sounds.sma b/effects/zp50_zombie_sounds.sma
+index 5dbb446..4dc6545 100644
+--- a/effects/zp50_zombie_sounds.sma
++++ b/effects/zp50_zombie_sounds.sma
+@@ -10,10 +10,9 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -57,8 +56,7 @@ public plugin_init()
+ 	register_plugin("[ZP] Zombie Sounds", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+ 	register_forward(FM_EmitSound, "fw_EmitSound")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	
+ 	cvar_zombie_sounds_pain = register_cvar("zp_zombie_sounds_pain", "1")
+ 	cvar_zombie_sounds_attack = register_cvar("zp_zombie_sounds_attack", "1")
+@@ -332,7 +330,7 @@ public fw_EmitSound(id, channel, const sample[], Float:volume, Float:attn, flags
+ 	return FMRES_IGNORED;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Remove idle sounds task
+diff --git a/items/zp50_ammopacks.sma b/items/zp50_ammopacks.sma
+index 3d75766..aecd4f2 100644
+--- a/items/zp50_ammopacks.sma
++++ b/items/zp50_ammopacks.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+ #include <zp50_core>
+ 
+@@ -18,9 +19,7 @@
+ #define TASK_HIDEMONEY 100
+ #define ID_HIDEMONEY (taskid - TASK_HIDEMONEY)
+ 
+-// CS Player PData Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_CSMONEY = 115
+ 
+ const HIDE_MONEY_BIT = (1<<5)
+ 
+@@ -131,5 +130,5 @@ stock fm_cs_set_user_money(id, value)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return;
+ 	
+-	set_pdata_int(id, OFFSET_CSMONEY, value)
++	set_member(id, m_iAccount, value)
+ }
+\ No newline at end of file
+diff --git a/items/zp50_item_zombie_madness.sma b/items/zp50_item_zombie_madness.sma
+index 071e224..5461522 100644
+--- a/items/zp50_item_zombie_madness.sma
++++ b/items/zp50_item_zombie_madness.sma
+@@ -13,10 +13,9 @@
+ #define ITEM_COST 15
+ 
+ #include <amxmodx>
++#include <zp50_reapi>
+ #include <cstrike>
+-#include <hamsandwich>
+ #include <amx_settings_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_items>
+ #define LIBRARY_GRENADE_FROST "zp50_grenade_frost"
+ #include <zp50_grenade_frost>
+@@ -55,14 +54,10 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Item: Zombie Madness", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_Spawn, "player", "fw_PlayerSpawn_Post", 1)
+-	RegisterHamBots(Ham_Spawn, "fw_PlayerSpawn_Post", 1)
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack")
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack")
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_Spawn, "fw_PlayerSpawn_Post", true)
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack", false)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	cvar_zombie_madness_time = register_cvar("zp_zombie_madness_time", "5.0")
+ 	cvar_madness_aura_color_R = register_cvar("zp_madness_aura_color_R", "150")
+@@ -178,7 +173,7 @@ public zp_fw_items_select_post(id, itemid, ignorecost)
+ 	set_task(get_pcvar_float(cvar_zombie_madness_time), "remove_zombie_madness", id+TASK_MADNESS)
+ }
+ 
+-// Ham Player Spawn Post Forward
++// ReAPI Player Spawn Post Forward
+ public fw_PlayerSpawn_Post(id)
+ {
+ 	// Not alive or didn't join a team yet
+@@ -191,32 +186,32 @@ public fw_PlayerSpawn_Post(id)
+ 	flag_unset(g_MadnessBlockDamage, id)
+ }
+ 
+-// Ham Trace Attack Forward
++// ReAPI Trace Attack Forward
+ public fw_TraceAttack(victim, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when victim has zombie madness
+ 	if (flag_get(g_MadnessBlockDamage, victim))
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Take Damage Forward (needed to block explosion damage too)
++// ReAPI Take Damage Forward (needed to block explosion damage too)
+ public fw_TakeDamage(victim, inflictor, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when victim has zombie madness
+ 	if (flag_get(g_MadnessBlockDamage, victim))
+-		return HAM_SUPERCEDE;
++		return zp_reapi_block_damage();
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+ public zp_fw_grenade_frost_pre(id)
+@@ -245,7 +240,7 @@ public zp_fw_core_cure(id, attacker)
+ 	flag_unset(g_MadnessBlockDamage, id)
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ {
+ 	// Remove zombie madness task
+diff --git a/items/zp50_items.sma b/items/zp50_items.sma
+index 082bf20..10fc364 100644
+--- a/items/zp50_items.sma
++++ b/items/zp50_items.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fakemeta>
+ #include <amx_settings_api>
+ #include <zp50_colorchat>
+@@ -19,8 +20,6 @@
+ // Extra Items file
+ new const ZP_EXTRAITEMS_FILE[] = "zp_extraitems.ini"
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+ #define MAXPLAYERS 32
+ 
+@@ -302,7 +301,7 @@ show_items_menu(id)
+ 	MENU_PAGE_ITEMS = min(MENU_PAGE_ITEMS, menu_pages(menuid)-1)
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	menu_display(id, menuid, MENU_PAGE_ITEMS)
+ }
+ 
+diff --git a/items/zp50_rewards_ammopacks.sma b/items/zp50_rewards_ammopacks.sma
+index d8a978b..6c452fc 100644
+--- a/items/zp50_rewards_ammopacks.sma
++++ b/items/zp50_rewards_ammopacks.sma
+@@ -10,8 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
++#include <reapi>
+ #include <zp50_gamemodes>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -54,10 +53,8 @@ public plugin_init()
+ 	if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library))
+ 		cvar_ammop_survivor_ignore = register_cvar("zp_ammop_survivor_ignore", "0")
+ 	
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage_Post", 1)
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage_Post", 1)
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage_Post", true)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
+ 	
+ 	g_MaxPlayers = get_maxplayers()
+ }
+@@ -89,7 +86,7 @@ public zp_fw_core_infect_post(id, attacker)
+ 		zp_ammopacks_set(attacker, zp_ammopacks_get(attacker) + get_pcvar_num(cvar_ammop_human_infected))
+ }
+ 
+-// Ham Take Damage Post Forward
++// ReAPI Take Damage Post Forward
+ public fw_TakeDamage_Post(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+@@ -142,7 +139,7 @@ public fw_TakeDamage_Post(victim, inflictor, attacker, Float:damage, damage_type
+ 	}
+ }
+ 
+-// Ham Player Killed Post Forward
++// ReAPI Player Killed Post Forward
+ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ {
+ 	// Non-player kill or self kill
+diff --git a/items/zp50_rewards_frags_hp.sma b/items/zp50_rewards_frags_hp.sma
+index 9786515..010fb71 100644
+--- a/items/zp50_rewards_frags_hp.sma
++++ b/items/zp50_rewards_frags_hp.sma
+@@ -10,21 +10,18 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <cs_teams_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_gamemodes>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+ #define LIBRARY_SURVIVOR "zp50_class_survivor"
+ #include <zp50_class_survivor>
+ 
+-// CS Player PData Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_CSDEATHS = 444
+ 
+ new g_MsgScoreInfo
+ new g_LastHumanHealthRewarded
+@@ -43,8 +40,7 @@ public plugin_init()
+ 	
+ 	g_MsgScoreInfo = get_user_msgid("ScoreInfo")
+ 	
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	
+ 	cvar_frags_zombie_killed = register_cvar("zp_frags_zombie_killed", "1")
+ 	cvar_frags_human_killed = register_cvar("zp_frags_human_killed", "1")
+@@ -82,7 +78,7 @@ public native_filter(const name[], index, trap)
+ 	return PLUGIN_CONTINUE;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Killed by a non-player entity or self killed
+@@ -194,5 +190,5 @@ stock fm_cs_set_user_deaths(id, value)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return;
+ 	
+-	set_pdata_int(id, OFFSET_CSDEATHS, value)
++	set_member(id, m_iDeaths, value)
+ }
+diff --git a/menus/zp50_buy_menus.sma b/menus/zp50_buy_menus.sma
+index 2e70fd6..7090ae7 100644
+--- a/menus/zp50_buy_menus.sma
++++ b/menus/zp50_buy_menus.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <amxmisc>
+ #include <fun>
+ #include <cstrike>
+@@ -96,12 +97,8 @@ const MENU_KEY_EXIT = 9
+ // Menu keys
+ const KEYSMENU = MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9|MENU_KEY_0
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+-// CS Player CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_ACTIVE_ITEM = 373
+ 
+ new g_CanBuyPrimary
+ new g_CanBuySecondary
+@@ -357,7 +354,7 @@ show_menu_buy_primary(id)
+ 	len += formatex(menu[len], charsmax(menu) - len, "^n^n\r9.\w %L/%L^n^n\r0.\w %L", id, "MENU_NEXT", id, "MENU_BACK", id, "MENU_EXIT")
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	show_menu(id, KEYSMENU, menu, menu_time, "Buy Menu Primary")
+ }
+ 
+@@ -392,7 +389,7 @@ show_menu_buy_secondary(id)
+ 	len += formatex(menu[len], charsmax(menu) - len, "^n^n\r0.\w %L", id, "MENU_EXIT")
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	show_menu(id, KEYSMENU, menu, menu_time, "Buy Menu Secondary")
+ }
+ 
+@@ -427,7 +424,7 @@ show_menu_buy_grenades(id)
+ 	len += formatex(menu[len], charsmax(menu) - len, "^n^n\r0.\w %L", id, "MENU_EXIT")
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	show_menu(id, KEYSMENU, menu, menu_time, "Buy Menu Grenades")
+ }
+ 
+@@ -710,7 +707,7 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+ // GoldCraft localization: keep the original weapon IDs and purchase behavior.
+ stock localized_weapon_name(id, const classname[], name[], length)
+diff --git a/menus/zp50_main_menu.sma b/menus/zp50_main_menu.sma
+index 7538b4d..260217c 100644
+--- a/menus/zp50_main_menu.sma
++++ b/menus/zp50_main_menu.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <amxmisc>
+ #include <fakemeta>
+ #define LIBRARY_BUYMENUS "zp50_buy_menus"
+@@ -28,8 +29,6 @@
+ 
+ #define TASK_WELCOMEMSG 100
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_CSMENUCODE = 205
+ 
+ // Menu keys
+ const KEYSMENU = MENU_KEY_1|MENU_KEY_2|MENU_KEY_3|MENU_KEY_4|MENU_KEY_5|MENU_KEY_6|MENU_KEY_7|MENU_KEY_8|MENU_KEY_9|MENU_KEY_0
+@@ -180,7 +179,7 @@ show_menu_main(id)
+ 	len += formatex(menu[len], charsmax(menu) - len, "^n^n\r0.\w %L", id, "MENU_EXIT")
+ 	
+ 	// Fix for AMXX custom menus
+-	set_pdata_int(id, OFFSET_CSMENUCODE, 0)
++	set_member(id, m_iMenu, Menu_OFF)
+ 	show_menu(id, KEYSMENU, menu, -1, "Main Menu")
+ }
+ 
+diff --git a/modes/zp50_gamemodes.sma b/modes/zp50_gamemodes.sma
+index 77fca36..e6ba3dd 100644
+--- a/modes/zp50_gamemodes.sma
++++ b/modes/zp50_gamemodes.sma
+@@ -12,11 +12,10 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <zp50_reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+ #include <cs_teams_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #include <zp50_gamemodes_const>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+@@ -67,12 +66,8 @@ public plugin_init()
+ 	register_event("TextMsg", "event_game_restart", "a", "2=#Game_will_restart_in")
+ 	
+ 	register_forward(FM_ClientDisconnect, "fw_ClientDisconnect_Post", 1)
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled_Post", 1)
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled_Post", 1)
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack")
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack")
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled_Post", true)
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack", false)
+ 	
+ 	cvar_gamemode_delay = register_cvar("zp_gamemode_delay", "10")
+ 	cvar_round_start_show_hud = register_cvar("zp_round_start_show_hud", "1")
+@@ -87,6 +82,14 @@ public plugin_init()
+ 	g_HudSync = CreateHudSyncObj()
+ }
+ 
++public plugin_cfg()
++{
++	// Resolve infection after all ZP protection hooks registered in plugin_init.
++	// They propagate zero damage when armor, spawn protection, frost or madness
++	// cancels the hit; infection must not run before those decisions.
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
++}
++
+ public plugin_natives()
+ {
+ 	register_library("zp50_gamemodes")
+@@ -468,68 +471,68 @@ public fw_PlayerKilled_Post(victim, attacker, shouldgib)
+ 	}
+ }
+ 
+-// Ham Trace Attack Forward
++// ReAPI Trace Attack Forward
+ public fw_TraceAttack(victim, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when no game mode is active
+ 	if (g_CurrentGameMode == ZP_NO_GAME_MODE)
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+ 	// Prevent friendly fire
+ 	if (zp_core_is_zombie(attacker) == zp_core_is_zombie(victim))
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Take Damage Forward (needed to block explosion damage too)
++// ReAPI Take Damage Forward (needed to block explosion damage too)
+ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Prevent attacks when no game mode is active
+ 	if (g_CurrentGameMode == ZP_NO_GAME_MODE)
+-		return HAM_SUPERCEDE;
++		return zp_reapi_block_damage();
+ 	
+ 	// Prevent friendly fire
+ 	if (zp_core_is_zombie(attacker) == zp_core_is_zombie(victim))
+-		return HAM_SUPERCEDE;
++		return zp_reapi_block_damage();
+ 	
+ 	// Mode allows infection and zombie attacking human...
+ 	if (g_AllowInfection && zp_core_is_zombie(attacker) && !zp_core_is_zombie(victim))
+ 	{
+ 		// Nemesis shouldn't be infecting
+ 		if (LibraryExists(LIBRARY_NEMESIS, LibType_Library) && zp_class_nemesis_get(attacker))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Survivor shouldn't be infected
+ 		if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library) && zp_class_survivor_get(victim))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Prevent infection/damage by HE grenade (bugfix)
+ 		if (damage_type & DMG_HEGRENADE)
+-			return HAM_SUPERCEDE;
++			return zp_reapi_block_damage();
+ 		
+ 		// Last human is killed to trigger round end
+ 		if (zp_core_get_human_count() == 1)
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Infect only if damage is done to victim
+-		if (damage > 0.0 && GetHamReturnStatus() != HAM_SUPERCEDE)
++		if (damage > 0.0)
+ 		{
+ 			// Infect victim!
+ 			zp_core_infect(victim, attacker)
+-			return HAM_SUPERCEDE;
++			return zp_reapi_block_damage();
+ 		}
+ 	}
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+ public zp_fw_core_infect_post(id, attacker)
+diff --git a/weapons/zp50_grenade_fire.sma b/weapons/zp50_grenade_fire.sma
+index 43b055a..4f78a94 100644
+--- a/weapons/zp50_grenade_fire.sma
++++ b/weapons/zp50_grenade_fire.sma
+@@ -10,13 +10,13 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <fun>
+ #include <fakemeta>
+ #include <hamsandwich>
+ #include <xs>
+ #include <amx_settings_api>
+ #include <cs_weap_models_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+@@ -75,8 +75,7 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Grenade: Fire", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	register_forward(FM_SetModel, "fw_SetModel")
+ 	RegisterHam(Ham_Think, "grenade", "fw_ThinkGrenade")
+ 	
+@@ -249,7 +248,7 @@ public zp_fw_core_infect(id, attacker)
+ 	cs_reset_player_view_model(id, CSW_HEGRENADE)
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Stop burning
+diff --git a/weapons/zp50_grenade_frost.sma b/weapons/zp50_grenade_frost.sma
+index 8127965..48d77cb 100644
+--- a/weapons/zp50_grenade_frost.sma
++++ b/weapons/zp50_grenade_frost.sma
+@@ -10,12 +10,12 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <zp50_reapi>
+ #include <fun>
+ #include <fakemeta>
+ #include <hamsandwich>
+ #include <amx_settings_api>
+ #include <cs_weap_models_api>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ 
+ // Settings file
+@@ -55,8 +55,6 @@ new Array:g_sound_grenade_frost_break
+ #define flag_set(%1,%2) %1 |= (1 << (%2 & 31))
+ #define flag_unset(%1,%2) %1 &= ~(1 << (%2 & 31))
+ 
+-// Hack to be able to use Ham_Player_ResetMaxSpeed (by joaquimandrade)
+-new Ham:Ham_Player_ResetMaxSpeed = Ham_Item_PreFrame
+ 
+ // Explosion radius for custom grenades
+ const Float:NADE_EXPLOSION_RADIUS = 240.0
+@@ -67,7 +65,6 @@ const NADE_TYPE_FROST = 3333
+ 
+ // Some constants
+ const UNIT_SECOND = (1<<12)
+-const BREAK_GLASS = 0x01
+ const FFADE_IN = 0x0000
+ const FFADE_STAYOUT = 0x0004
+ 
+@@ -96,14 +93,10 @@ public plugin_init()
+ {
+ 	register_plugin("[ZP] Grenade: Frost", ZP_VERSION_STRING, "ZP Dev Team")
+ 	
+-	RegisterHam(Ham_Player_ResetMaxSpeed, "player", "fw_ResetMaxSpeed_Post", 1)
+-	RegisterHamBots(Ham_Player_ResetMaxSpeed, "fw_ResetMaxSpeed_Post", 1)
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
+-	RegisterHam(Ham_TraceAttack, "player", "fw_TraceAttack")
+-	RegisterHamBots(Ham_TraceAttack, "fw_TraceAttack")
+-	RegisterHam(Ham_Killed, "player", "fw_PlayerKilled")
+-	RegisterHamBots(Ham_Killed, "fw_PlayerKilled")
++	RegisterHookChain(RG_CBasePlayer_ResetMaxSpeed, "fw_ResetMaxSpeed_Post", true)
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
++	RegisterHookChain(RG_CBasePlayer_TraceAttack, "fw_TraceAttack", false)
++	RegisterHookChain(RG_CBasePlayer_Killed, "fw_PlayerKilled", false)
+ 	register_forward(FM_PlayerPreThink, "fw_PlayerPreThink")
+ 	register_forward(FM_SetModel, "fw_SetModel")
+ 	RegisterHam(Ham_Think, "grenade", "fw_ThinkGrenade")
+@@ -290,35 +283,35 @@ public fw_ResetMaxSpeed_Post(id)
+ 	set_user_maxspeed(id, 1.0)
+ }
+ 
+-// Ham Trace Attack Forward
++// ReAPI Trace Attack Forward
+ public fw_TraceAttack(victim, attacker)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Block damage while frozen, as it makes killing zombies too easy
+ 	if (flag_get(g_IsFrozen, victim))
+-		return HAM_SUPERCEDE;
++		return HC_SUPERCEDE;
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Take Damage Forward (needed to block explosion damage too)
++// ReAPI Take Damage Forward (needed to block explosion damage too)
+ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Block damage while frozen, as it makes killing zombies too easy
+ 	if (flag_get(g_IsFrozen, victim))
+-		return HAM_SUPERCEDE;
++		return zp_reapi_block_damage();
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+ 
+-// Ham Player Killed Forward
++// ReAPI Player Killed Forward
+ public fw_PlayerKilled(victim, attacker, shouldgib)
+ {
+ 	// Frozen player being killed (usually caused by a 3rd party plugin, e.g. lasermines)
+@@ -526,7 +519,7 @@ set_freeze(victim)
+ 	ApplyFrozenGravity(victim)
+ 	
+ 	// Update player's maxspeed
+-	ExecuteHamB(Ham_Player_ResetMaxSpeed, victim)
++	rg_reset_maxspeed(victim)
+ 	
+ 	// Set a task to remove the freeze
+ 	set_task(get_pcvar_float(cvar_grenade_frost_duration), "remove_freeze", victim+TASK_FROST_REMOVE)
+@@ -587,7 +580,7 @@ public remove_freeze(taskid)
+ 	set_pev(ID_FROST_REMOVE, pev_gravity, g_FrozenGravity[ID_FROST_REMOVE])
+ 	
+ 	// Update player's maxspeed
+-	ExecuteHamB(Ham_Player_ResetMaxSpeed, ID_FROST_REMOVE)
++	rg_reset_maxspeed(ID_FROST_REMOVE)
+ 	
+ 	// Restore rendering
+ 	fm_set_rendering_float(ID_FROST_REMOVE, g_FrozenRenderingFx[ID_FROST_REMOVE], g_FrozenRenderingColor[ID_FROST_REMOVE], g_FrozenRenderingRender[ID_FROST_REMOVE], g_FrozenRenderingAmount[ID_FROST_REMOVE])
+@@ -725,4 +718,4 @@ stock fm_set_rendering_float(entity, fx = kRenderFxNone, Float:color[3], render
+ 	set_pev(entity, pev_rendercolor, color)
+ 	set_pev(entity, pev_rendermode, render)
+ 	set_pev(entity, pev_renderamt, amount)
+-}
+\ No newline at end of file
++}
+diff --git a/weapons/zp50_human_ammo.sma b/weapons/zp50_human_ammo.sma
+index 9ffa811..cda1c3e 100644
+--- a/weapons/zp50_human_ammo.sma
++++ b/weapons/zp50_human_ammo.sma
+@@ -10,6 +10,7 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+ #include <hamsandwich>
+@@ -17,9 +18,7 @@
+ #define LIBRARY_SURVIVOR "zp50_class_survivor"
+ #include <zp50_class_survivor>
+ 
+-// CS Player CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_ACTIVE_ITEM = 373
+ 
+ // Weapon IDs for ammo types
+ new const AMMOWEAPON[] = { 0, CSW_AWP, CSW_SCOUT, CSW_M249, CSW_AUG, CSW_XM1014, CSW_MAC10, CSW_FIVESEVEN, CSW_DEAGLE,
+@@ -191,5 +190,5 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+\ No newline at end of file
+diff --git a/weapons/zp50_human_armor.sma b/weapons/zp50_human_armor.sma
+index 8432efd..837ca49 100644
+--- a/weapons/zp50_human_armor.sma
++++ b/weapons/zp50_human_armor.sma
+@@ -10,18 +10,15 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <zp50_reapi>
+ #include <cstrike>
+ #include <fakemeta>
+-#include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ #define LIBRARY_NEMESIS "zp50_class_nemesis"
+ #include <zp50_class_nemesis>
+ #define LIBRARY_SURVIVOR "zp50_class_survivor"
+ #include <zp50_class_survivor>
+ 
+-// CS Player PData Offsets (win32)
+-const OFFSET_PAINSHOCK = 108 // ConnorMcLeod
+ 
+ // Some constants
+ const DMG_HEGRENADE = (1<<24)
+@@ -44,8 +41,7 @@ public plugin_init()
+ 	if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library))
+ 		cvar_survivor_armor_protect = register_cvar("zp_survivor_armor_protect", "1")
+ 	
+-	RegisterHam(Ham_TakeDamage, "player", "fw_TakeDamage")
+-	RegisterHamBots(Ham_TakeDamage, "fw_TakeDamage")
++	RegisterHookChain(RG_CBasePlayer_TakeDamage, "fw_TakeDamage", false)
+ }
+ 
+ public plugin_natives()
+@@ -82,31 +78,31 @@ public zp_fw_core_cure_post(id, attacker)
+ 		set_pev(id, pev_armorvalue, get_pcvar_float(cvar_human_armor_default))
+ }
+ 
+-// Ham Take Damage Forward
++// ReAPI Take Damage Forward
+ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ {
+ 	// Non-player damage or self damage
+ 	if (victim == attacker || !is_user_alive(attacker))
+-		return HAM_IGNORED;
++		return HC_CONTINUE;
+ 	
+ 	// Zombie attacking human...
+ 	if (zp_core_is_zombie(attacker) && !zp_core_is_zombie(victim))
+ 	{
+ 		// Ignore damage coming from a HE grenade (bugfix)
+ 		if (damage_type & DMG_HEGRENADE)
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Does human armor need to be reduced before infecting/damaging?
+ 		if (!get_pcvar_num(cvar_human_armor_protect))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Should armor protect against nemesis attacks?
+ 		if (LibraryExists(LIBRARY_NEMESIS, LibType_Library) && !get_pcvar_num(cvar_armor_protect_nemesis) && zp_class_nemesis_get(attacker))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Should armor protect survivor too?
+ 		if (LibraryExists(LIBRARY_SURVIVOR, LibType_Library) && !get_pcvar_num(cvar_survivor_armor_protect) && zp_class_survivor_get(victim))
+-			return HAM_IGNORED;
++			return HC_CONTINUE;
+ 		
+ 		// Get victim armor
+ 		static Float:armor
+@@ -123,10 +119,10 @@ public fw_TakeDamage(victim, inflictor, attacker, Float:damage, damage_type)
+ 				cs_set_user_armor(victim, 0, CS_ARMOR_NONE)
+ 			
+ 			// Block damage, but still set the pain shock offset
+-			set_pdata_float(victim, OFFSET_PAINSHOCK, 0.5)
+-			return HAM_SUPERCEDE;
++			set_member(victim, m_flVelocityModifier, 0.5)
++			return zp_reapi_block_damage();
+ 		}
+ 	}
+ 	
+-	return HAM_IGNORED;
++	return HC_CONTINUE;
+ }
+\ No newline at end of file
+diff --git a/weapons/zp50_weapon_drop_strip.sma b/weapons/zp50_weapon_drop_strip.sma
+index 049f655..df94b7a 100644
+--- a/weapons/zp50_weapon_drop_strip.sma
++++ b/weapons/zp50_weapon_drop_strip.sma
+@@ -10,15 +10,13 @@
+ ================================================================================*/
+ 
+ #include <amxmodx>
++#include <reapi>
+ #include <cstrike>
+ #include <fakemeta>
+ #include <hamsandwich>
+-#include <cs_ham_bots_api>
+ #include <zp50_core>
+ 
+-// CS Player CBase Offsets (win32)
+ const PDATA_SAFE = 2
+-const OFFSET_ACTIVE_ITEM = 373
+ 
+ // HACK: pev_ field used to store additional ammo on weapons
+ const PEV_ADDITIONAL_AMMO = pev_iuser1
+@@ -62,8 +60,7 @@ public plugin_init()
+ 	cvar_remove_dropped_weapons = register_cvar("zp_remove_dropped_weapons", "0")
+ 	
+ 	register_forward(FM_SetModel, "fw_SetModel")
+-	RegisterHam(Ham_AddPlayerItem, "player", "fw_AddPlayerItem")
+-	RegisterHamBots(Ham_AddPlayerItem, "fw_AddPlayerItem")
++	RegisterHookChain(RG_CBasePlayer_AddPlayerItem, "fw_AddPlayerItem", false)
+ 	RegisterHam(Ham_Touch, "weaponbox", "fw_TouchWeapon")
+ 	RegisterHam(Ham_Touch, "armoury_entity", "fw_TouchWeapon")
+ 	RegisterHam(Ham_Touch, "weapon_shield", "fw_TouchWeapon")
+@@ -138,7 +135,7 @@ public fw_TouchWeapon(weapon, id)
+ 	return HAM_IGNORED;
+ }
+ 
+-// Ham Weapon Pickup Forward
++// ReAPI Weapon Pickup Forward
+ public fw_AddPlayerItem(id, weapon_ent)
+ {
+ 	// HACK: Retrieve our custom extra ammo from the weapon
+@@ -276,5 +273,5 @@ stock fm_cs_get_current_weapon_ent(id)
+ 	if (pev_valid(id) != PDATA_SAFE)
+ 		return -1;
+ 	
+-	return get_pdata_cbase(id, OFFSET_ACTIVE_ITEM);
++	return get_member(id, m_pActiveItem);
+ }
+\ No newline at end of file
+diff --git a/include/zp50_reapi.inc b/include/zp50_reapi.inc
+new file mode 100644
+index 0000000..7060037
+--- /dev/null
++++ b/include/zp50_reapi.inc
+@@ -0,0 +1,17 @@
++// GoldCraft's ReAPI adaptation of ZP 5.0.8a. See ZP_ReadMe.txt for its GPL terms.
++#if defined _zp50_reapi_included
++	#endinput
++#endif
++#define _zp50_reapi_included
++
++#include <reapi>
++
++// Use only in a PRE RG_CBasePlayer_TakeDamage callback. Preserve later hook
++// notifications, but propagate zero damage so infection/reward handlers cannot
++// treat a cancelled hit as damage. ReAPI requires an explicit int return value.
++stock zp_reapi_block_damage()
++{
++	SetHookChainArg(4, ATYPE_FLOAT, 0.0)
++	SetHookChainReturn(ATYPE_INTEGER, 0)
++	return HC_SUPERCEDE;
++}

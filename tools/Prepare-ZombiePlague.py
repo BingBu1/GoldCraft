@@ -122,7 +122,14 @@ def compile_plugins():
         seed = translated_sources.get(name, files[0])
         sources[name] = import_editable(seed, WORKING / source_category(name) / (name + '.sma'),
                                         name, previous, imported)
+    spec = importlib.util.spec_from_file_location('zombie_reapi_patch', ROOT / 'tools/Apply-ZombiePlaguePatch.py')
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    patch_result = migration.apply_migration(WORKING)
+    for entry in imported.values():
+        entry['sourceSha256'] = digest(ROOT / entry['source'])
     ledger_path.write_text(json.dumps(imported, indent=2) + '\n', encoding='utf-8')
+    destination(ROOT / 'build/amxx/zp-reapi-patch.json').write_text(json.dumps(patch_result, indent=2) + '\n', encoding='utf-8')
     compiled = []
     log = destination(ROOT / 'build/logs/zombieplague-build.log')
     with log.open('w', encoding='utf-8') as output:
@@ -130,6 +137,7 @@ def compile_plugins():
             target = destination(ROOT / 'build/amxx/plugins' / (name + '.amxx'))
             plugin_source = sources[name]
             result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(WORKING / 'include'),
+                                     '-i' + str(ROOT / '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include'),
                                      '-i' + str(compiler.parent / 'include'), '-o' + str(target)],
                                     cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
             if result.returncode or not target.is_file():
@@ -214,18 +222,23 @@ def stage_media(map_name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archive', type=Path)
-    parser.add_argument('--map', default='sy_zombie2_Bloodmoon')
+    parser.add_argument('--map', default='cs_assault')
+    parser.add_argument('--compile-only', action='store_true', help='Keep existing staged media and rebuild editable Pawn sources only')
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_]{1,31}', args.map):
         parser.error('Invalid SyPB map name')
     if args.archive:
         extract(args.archive)
     plugins = compile_plugins()
-    result = stage_media(args.map)
-    result.update({'archiveSha256': ARCHIVE_SHA, 'amxx': '1.9.0.5303', 'plugins': plugins,
+    if args.compile_only:
+        previous_manifest = OUT / 'manifest.json'
+        result = json.loads(previous_manifest.read_text(encoding='utf-8')) if previous_manifest.exists() else {'resources': []}
+    else:
+        result = stage_media(args.map)
+    result.update({'archiveSha256': ARCHIVE_SHA, 'amxx': '1.9.0.5303', 'reapi': '5.29.0.358', 'plugins': plugins,
                    'mediaRepository': MEDIA_REPO, 'mediaCommit': MEDIA_COMMIT})
     destination(OUT / 'manifest.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
-    print(f"Compiled {len(plugins)} ZP plugins; staged {len(result['resources'])} required resources.")
+    print(f"Compiled {len(plugins)} ZP/ReAPI plugins; {'retained' if args.compile_only else 'staged'} {len(result['resources'])} required resources.")
 
 
 if __name__ == '__main__':
