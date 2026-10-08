@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "0130bb5256d3f3e5698d2ddad5417398d6e01a13d93d3850dd873b5660bcb035",
+  "patchSha256": "b00fb286a28d4fdc532c2ed69cac0f2af9f00c0c4e95f016f7005fccf8977f5a",
   "files": [
     {
       "path": "api/cs_maxspeed_api.sma",
@@ -104,7 +104,7 @@
     {
       "path": "core/zp50_gameplay_fixes.sma",
       "seedSha256LF": "d21e095beb51a596491c6a288be4684dfcd3fc6bc39c4cc80514d6fc61ce5a35",
-      "resultSha256LF": "c43e156a503eef0a61ecc5de8b3411cbd229ce40d0dab904437360530d1bdb70"
+      "resultSha256LF": "f62c246bf807a1055ab9a045f7e8ecabb92400c76631aa2473b4c3f2f31e628f"
     },
     {
       "path": "weapons/zp50_grenade_fire.sma",

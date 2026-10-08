@@ -2,6 +2,7 @@
 #include "host_ui.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
+#include "vitals.hpp"
 #include <metahook.h>
 #include <cl_entity.h>
 #include <usercmd.h>
@@ -362,6 +363,7 @@ void WriteDiagnostics() {
         std::ofstream out(path);
         out<<'{'; client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
+        client_vitals::write_status(out); out<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
@@ -488,6 +490,8 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 void InitHud() {
     gExportfuncs.HUD_Init();
     client_precache::register_commands();
+    Log(client_vitals::install(api) ? "32-bit health/armor HUD installed" :
+        std::string("integer vitals unavailable: ") + client_vitals::error());
     host_ui::install(api,[](int down,int key,const char* binding_text){
         if(gEngfuncs.Con_IsVisible()||(binding_text&&std::strcmp(binding_text,"toggleconsole")==0))return false;
         if(form_menu.active(Seconds())||DefaultFormMenuKey(key,binding_text)){
@@ -548,6 +552,7 @@ void InitHud() {
 }
 int VidInit() {
     visible_entities::fixture_clear();
+    client_vitals::reset();
     sections.clear();ClearDynamic();ClearHud();
     next_scene_request=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);

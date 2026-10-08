@@ -1089,7 +1089,6 @@ index 177b759..b7a5cb3 100644
  
  public client_disconnect(id)
 diff --git a/core/zp50_gameplay_fixes.sma b/core/zp50_gameplay_fixes.sma
-index 2f1b68c..ef88401 100644
 --- a/core/zp50_gameplay_fixes.sma
 +++ b/core/zp50_gameplay_fixes.sma
 @@ -10,13 +10,13 @@
@@ -1107,19 +1106,20 @@ index 2f1b68c..ef88401 100644
  #include <zp50_gamemodes>
  #define LIBRARY_NEMESIS "zp50_class_nemesis"
  #include <zp50_class_nemesis>
-@@ -38,10 +38,8 @@ const STATIONARY_USING = 2
+@@ -38,10 +38,8 @@
  #define TASK_RESPAWN 100
  #define ID_RESPAWN (taskid - TASK_RESPAWN)
  
 -// CS Player PData Offsets (win32)
 -const OFFSET_CSMENUCODE = 205
- 
+-
 -#define MENUCODE_TEAMSELECT 1
++
 +#define Menu_ChooseTeam 1
  
  new g_MaxPlayers
  new g_fwSpawn
-@@ -70,8 +68,7 @@ public plugin_init()
+@@ -70,8 +68,7 @@
  	register_clcmd("jointeam", "clcmd_changeteam")
  	
  	register_event("HLTV", "event_round_start", "a", "1=0", "2=0")
@@ -1129,7 +1129,7 @@ index 2f1b68c..ef88401 100644
  	RegisterHam(Ham_Use, "func_tank", "fw_UseStationary")
  	RegisterHam(Ham_Use, "func_tankmortar", "fw_UseStationary")
  	RegisterHam(Ham_Use, "func_tankrocket", "fw_UseStationary")
-@@ -215,7 +212,7 @@ public fw_Spawn(entity)
+@@ -215,7 +212,7 @@
  	return FMRES_IGNORED;
  }
  
@@ -1138,7 +1138,7 @@ index 2f1b68c..ef88401 100644
  public fw_PlayerSpawn_Post(id)
  {
  	// Not alive or didn't join a team yet
-@@ -255,7 +252,7 @@ public respawn_player_check_task(taskid)
+@@ -255,7 +252,7 @@
  respawn_player_manually(id)
  {
  	// Respawn!
@@ -1147,7 +1147,7 @@ index 2f1b68c..ef88401 100644
  }
  
  // Client Disconnecting (prevent Game Commencing bug after last player on a team leaves)
-@@ -360,8 +357,8 @@ public zp_fw_gamemodes_start()
+@@ -360,8 +357,8 @@
  				continue;
  			
  			// Disable any opened team change menus (bugfix)
@@ -1158,6 +1158,25 @@ index 2f1b68c..ef88401 100644
  		}
  	}
  }
+@@ -410,6 +407,11 @@
+ // Fix for the HL engine bug when HP is multiples of 256
+ public message_health(msg_id, msg_dest, msg_entity)
+ {
++	// Negotiated GoldCraft LONG messages already carry the full native HUD value.
++	// The legacy byte workaround must neither clamp them nor add authoritative HP.
++	if (get_msg_argtype(1) == ARG_LONG)
++		return;
++
+ 	// Get player's health
+ 	new health = get_msg_arg_int(1)
+ 	
+@@ -509,4 +511,4 @@
+ 	}
+ 	
+ 	return -1;
+-}
+\ No newline at end of file
++}
 diff --git a/core/zp50_knockback.sma b/core/zp50_knockback.sma
 index 6d70f7f..288426e 100644
 --- a/core/zp50_knockback.sma

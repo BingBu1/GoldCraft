@@ -49,16 +49,17 @@ index e6edc87..126e307 100644
  
  
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..c2af069 100644
+index daee11d..d853c0a 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  #include "precompiled.h"
 +#include "../../../../native/server/bridge.h"
++#include "../../../../native/server/vitals.hpp"
  
  int gmsgWeapPickup = 0;
  int gmsgHudText = 0;
-@@ -138,7 +139,7 @@ bool g_bServerActive = false;
+@@ -138,7 +140,7 @@ bool g_bServerActive = false;
  bool g_bItemCreatedByBuying = false;
  PLAYERPVSSTATUS g_PVSStatus[MAX_CLIENTS];
  unsigned short m_usResetDecals;
@@ -67,7 +68,37 @@ index daee11d..c2af069 100644
  
  void LinkUserMessages()
  {
-@@ -310,11 +311,13 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
+@@ -149,9 +151,9 @@ void LinkUserMessages()
+ 	gmsgGeigerRange   = REG_USER_MSG("Geiger", 1);
+ 	gmsgFlashlight    = REG_USER_MSG("Flashlight", 2);
+ 	gmsgFlashBattery  = REG_USER_MSG("FlashBat", 1);
+-	gmsgHealth        = REG_USER_MSG("Health", 1);
++	gmsgHealth        = REG_USER_MSG("Health", -1); // Per-client BYTE or negotiated LONG.
+ 	gmsgDamage        = REG_USER_MSG("Damage", 12);
+-	gmsgBattery       = REG_USER_MSG("Battery", 2);
++	gmsgBattery       = REG_USER_MSG("Battery", -1);
+ 	gmsgTrain         = REG_USER_MSG("Train", 1);
+ 	gmsgHudTextPro    = REG_USER_MSG("HudTextPro", -1);
+ 	gmsgHudText       = REG_USER_MSG("HudText", -1);
+@@ -205,7 +207,7 @@ void LinkUserMessages()
+ 	gmsgHostagePos    = REG_USER_MSG("HostagePos", 8);
+ 	gmsgHostageK      = REG_USER_MSG("HostageK", 1);
+ 	gmsgHLTV          = REG_USER_MSG("HLTV", 2);
+-	gmsgSpecHealth    = REG_USER_MSG("SpecHealth", 1);
++	gmsgSpecHealth    = REG_USER_MSG("SpecHealth", -1);
+ 	gmsgForceCam      = REG_USER_MSG("ForceCam", 3);
+ 	gmsgADStop        = REG_USER_MSG("ADStop", 0);
+ 	gmsgReceiveW      = REG_USER_MSG("ReceiveW", 1);
+@@ -216,7 +218,7 @@ void LinkUserMessages()
+ 	gmsgScenarioIcon  = REG_USER_MSG("Scenario", -1);
+ 	gmsgBotVoice      = REG_USER_MSG("BotVoice", 2);
+ 	gmsgBuyClose      = REG_USER_MSG("BuyClose", 0);
+-	gmsgSpecHealth2   = REG_USER_MSG("SpecHealth2", 2);
++	gmsgSpecHealth2   = REG_USER_MSG("SpecHealth2", -1);
+ 	gmsgBarTime2      = REG_USER_MSG("BarTime2", 4);
+ 	gmsgItemStatus    = REG_USER_MSG("ItemStatus", 1);
+ 	gmsgLocation      = REG_USER_MSG("Location", -1);
+@@ -310,11 +312,13 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
  
  BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *pszAddress, char *szRejectReason)
  {
@@ -81,7 +112,7 @@ index daee11d..c2af069 100644
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pEntity);
  
  	if (!g_pGameRules->IsGameOver())
-@@ -615,6 +618,7 @@ void CheckStartMoney()
+@@ -615,6 +619,7 @@ void CheckStartMoney()
  
  void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  {
@@ -89,7 +120,7 @@ index daee11d..c2af069 100644
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
  
-@@ -3738,6 +3742,8 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
+@@ -3738,6 +3743,8 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
  	static char command[128] = "";
  	Q_strncpy(command, CMD_ARGV_(0), sizeof command - 1);
  	command[sizeof command - 1] = '\0';
@@ -98,7 +129,18 @@ index daee11d..c2af069 100644
  
  	g_ReGameHookchains.m_InternalCommand.callChain(InternalCommand, pEntity, command, CMD_ARGV_(1));
  }
-@@ -3793,6 +3799,7 @@ void EXT_FUNC ServerDeactivate()
+@@ -3751,6 +3758,10 @@ void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
+ 
+ 	CBasePlayer *pPlayer = CBasePlayer::Instance(pEntity);
+ 	char *szBufferName = GET_KEY_VALUE(infobuffer, "name");
++	// Resend HUD values after userinfo/capability changes, even if gameplay
++	// values are unchanged. No client field changes authoritative health/armor.
++	pPlayer->m_iClientHealth = -1;
++	pPlayer->m_iClientBattery = -1;
+ 
+ 	// msg everyone if someone changes their name, and it isn't the first time (changing no name to current name)
+ 	if (pEntity->v.netname && STRING(pEntity->v.netname)[0] != '\0' && !FStrEq(STRING(pEntity->v.netname), szBufferName))
+@@ -3793,6 +3804,7 @@ void EXT_FUNC ServerDeactivate()
  		return;
  
  	g_bServerActive = false;
@@ -106,7 +148,7 @@ index daee11d..c2af069 100644
  
  	// Peform any shutdown operations here...
  	g_pGameRules->ServerDeactivate();
-@@ -3813,6 +3820,7 @@ void EXT_FUNC ServerDeactivate()
+@@ -3813,6 +3825,7 @@ void EXT_FUNC ServerDeactivate()
  
  void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  {
@@ -114,7 +156,7 @@ index daee11d..c2af069 100644
  	g_pEdicts = pEdictList;
  
  #ifdef REGAMEDLL_ADD
-@@ -3926,6 +3934,7 @@ void EXT_FUNC ParmsChangeLevel()
+@@ -3926,6 +3939,7 @@ void EXT_FUNC ParmsChangeLevel()
  
  void EXT_FUNC StartFrame()
  {
@@ -122,7 +164,7 @@ index daee11d..c2af069 100644
  	if (g_pGameRules)
  	{
  		g_pGameRules->Think();
-@@ -3956,6 +3965,7 @@ void EndFrame()
+@@ -3956,6 +3970,7 @@ void EndFrame()
  
  void ClientPrecache()
  {
@@ -130,6 +172,15 @@ index daee11d..c2af069 100644
  	int i;
  
  	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
+@@ -5036,7 +5051,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+ 
+ 	cd->flags = pev->flags;
+ #ifdef REGAMEDLL_FIXES
+-	cd->health = max(pev->health, 0.0f);
++	cd->health = goldcraft::vitals::prediction_health(pev->health);
+ #else
+ 	cd->health = pev->health;
+ #endif
 diff --git a/regamedll/dlls/client.h b/regamedll/dlls/client.h
 index 2682778..f1f636a 100644
 --- a/regamedll/dlls/client.h
@@ -143,19 +194,39 @@ index 2682778..f1f636a 100644
  
  #ifdef REGAMEDLL_API
  void SendSayMessage_OrigFunc(CBasePlayer *pPlayer, const char *pszCmd, BOOL teamonly, const char *pszText, const char *pszFormat, const char *pszConsoleFormat, bool bSenderDead, const char *placeName, bool consoleUsesPlaceName);
+diff --git a/regamedll/dlls/observer.cpp b/regamedll/dlls/observer.cpp
+index 3ccefc4..da9ec23 100644
+--- a/regamedll/dlls/observer.cpp
++++ b/regamedll/dlls/observer.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/vitals.hpp"
+ 
+ LINK_HOOK_CHAIN(int, GetForceCamera, (CBasePlayer *pObserver), pObserver)
+ 
+@@ -196,7 +197,7 @@ void CBasePlayer::__API_HOOK(Observer_FindNextPlayer)(bool bReverse, const char
+ 			m_hObserverTarget->pev->health = 0.0f;
+ 
+ 		MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth2, nullptr, pev);
+-			WRITE_BYTE(int(m_hObserverTarget->pev->health));
++			GoldCraft_WriteHealth(edict(), m_hObserverTarget->pev->health);
+ 			WRITE_BYTE(ENTINDEX(m_hObserverTarget->edict()));
+ 		MESSAGE_END();
+ 
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..55fbd98 100644
+index 8a219ea..4c14c9e 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "../../../../native/server/bridge.h"
++#include "../../../../native/server/vitals.hpp"
  
  BOOL gInitHUD = TRUE;
  
-@@ -908,6 +909,11 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+@@ -908,6 +910,11 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
@@ -167,7 +238,7 @@ index 8a219ea..55fbd98 100644
  	BOOL bTookDamage;
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
-@@ -987,7 +993,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -987,7 +994,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -176,7 +247,16 @@ index 8a219ea..55fbd98 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1182,7 +1188,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1096,7 +1103,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 				continue;
+ 
+ 			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
+-				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
++				GoldCraft_WriteHealth(pPlayer->edict(), pev->health);
+ 			MESSAGE_END();
+ 		}
+ 
+@@ -1182,7 +1189,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -185,7 +265,7 @@ index 8a219ea..55fbd98 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1259,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1260,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -194,7 +274,16 @@ index 8a219ea..55fbd98 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -2230,6 +2236,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -1353,7 +1360,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 		if (pPlayer->m_hObserverTarget == this)
+ 		{
+ 			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
+-				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
++				GoldCraft_WriteHealth(pPlayer->edict(), pev->health);
+ 			MESSAGE_END();
+ 		}
+ 	}
+@@ -2230,6 +2237,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -202,7 +291,25 @@ index 8a219ea..55fbd98 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -5375,6 +5382,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -2551,7 +2559,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+ 
+ 	m_iClientHealth = 0;
+ 	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
+-		WRITE_BYTE(m_iClientHealth);
++		GoldCraft_WriteHealth(edict(), m_iClientHealth);
+ 	MESSAGE_END();
+ 
+ 	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
+@@ -3924,7 +3932,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+ 
+ 	m_iClientHealth = 0;
+ 	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
+-		WRITE_BYTE(m_iClientHealth);
++		GoldCraft_WriteHealth(edict(), m_iClientHealth);
+ 	MESSAGE_END();
+ 
+ 	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
+@@ -5375,6 +5383,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -213,7 +320,7 @@ index 8a219ea..55fbd98 100644
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -6132,6 +6143,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6144,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -222,6 +329,43 @@ index 8a219ea..55fbd98 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
+@@ -7746,28 +7760,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+ 		gDisplayTitle = FALSE;
+ 	}
+ 
+-	if (int(pev->health) != m_iClientHealth)
++	const int hudHealth = goldcraft::vitals::integer(pev->health, true);
++	if (hudHealth != m_iClientHealth)
+ 	{
+-		int iHealth = clamp(int(pev->health), 0, 255);
+-
+-		if (pev->health > 0.0f && pev->health <= 1.0f)
+-			iHealth = 1;
+-
+ 		// send "health" update message
+ 		MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
+-			WRITE_BYTE(iHealth);
++			GoldCraft_WriteHealth(edict(), pev->health);
+ 		MESSAGE_END();
+ 
+-		m_iClientHealth = int(pev->health);
++		m_iClientHealth = hudHealth;
+ 	}
+ 
+-	if (int(pev->armorvalue) != m_iClientBattery)
++	const int hudArmor = goldcraft::vitals::integer(pev->armorvalue, false);
++	if (hudArmor != m_iClientBattery)
+ 	{
+-		m_iClientBattery = int(pev->armorvalue);
++		m_iClientBattery = hudArmor;
+ 
+ 		// send "armor" update message
+ 		MESSAGE_BEGIN(MSG_ONE, gmsgBattery, nullptr, pev);
+-			WRITE_SHORT(int(pev->armorvalue));
++			GoldCraft_WriteArmor(edict(), pev->armorvalue);
+ 		MESSAGE_END();
+ 	}
+ 
 diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
 index 6663e2e..c803696 100644
 --- a/regamedll/dlls/weapons.cpp

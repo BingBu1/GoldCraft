@@ -46,6 +46,27 @@ Renderer 构建执行 9 项 CTest；`studio_shadow_gl_tests` 验证透明角落�
 
 ## 实际运行检查
 
+### 生命值和护甲的 32 位通信
+
+更新后的 ReGameDLL 向已适配客户端发送 `Health`、`Battery` 的非负有符号 32 位整数；`SpecHealth` 同样使用 LONG，`SpecHealth2` 为 LONG 生命值加 BYTE 玩家编号。四种用户消息改为可变长度，通过 `_gcvitals=1` 按接收客户端选择格式。未声明能力的客户端保留 BYTE 生命值和 SHORT 护甲，分别饱和到 255、32767。升级客户端也接受旧服务器消息。
+
+适配只在已核对身份和调用指令的 CS 10210 客户端启用。保留原 HUD 的状态更新、护甲类型、字体、颜色和淡出；四位以上数字逐位调用原生绘制，避免原三位数函数索引越界。ZP 的旧生命值补丁遇到 `ARG_LONG` 不再截断到 255，也不再对 256 的倍数加血。
+
+服务器实际生命值／护甲仍是 GoldSrc 的 float，只有 HUD 通信改为 int32。极大整数仍受 float 精度影响；通信不改变游戏计算存储。独立的旧 `clientdata.health` 视角通道会先做 float 到 int 转换；超过安全范围时限制这一视角副本，避免存活玩家被当作死亡，不修改实际血量或完整 HUD 数值。
+
+证据链：匹配客户端的 `Health` BYTE 读取和 `Battery` SHORT 读取，以及三位数字 sprite 索引（E12），定位出消息截断和大数贴图越界（F12）；服务器按接收方写 LONG → 客户端按消息长度读取 → 原生 HUD 字段 → 逐位绘制（P12）。原生 6 项 CTest、真实 x86 16 项检查、独立 ReHLDS 生命周期及 B 实机 HUD 检查覆盖 255、256、512、1000、32768、65536、1000000 和 int32 上界。主 ZP 服务器另验证 6 组高数值、原生 HUD、视角和 24 Bot 人数。1280×720 帧缓冲确认实际数字；其他分辨率的十位数布局尚未逐一验收。
+
+```powershell
+.\tools\Build-Native.ps1 -Server
+.\tools\Build-AMXX.ps1 -Plugins goldcraft_vitals_test
+python .\tools\Prepare-ZombiePlague.py --compile-only
+python .\tools\Test-VitalsClient.py
+# 从控制台/PTY 运行，B 需以 -Capture 启动；自动恢复主服连接。
+python .\tools\Exercise-Vitals.py --client
+```
+
+测试插件默认关闭，选中玩家的修改 120 秒后自动恢复。正常主服撤下临时插件列表后执行地图重载，确认测试插件不再加载；`sv_restart` 不能替代 Pawn 插件重载。第三方插件自行构造旧 BYTE/SHORT 消息时仍按旧长度解码；要显示完整高数值，插件需发送 LONG。
+
 ### 客户端可见实体 512 → 4096
 
 模型、声音的预缓存已动态增长，本次保持不变。独立可见实体组件替换引擎的 7 处表指针、5 处 512 比较，并让 Renderer/BulletPhysics 绑定同一张 4096 表。保留原生计数和逐帧重置，通过引擎原分配器保证透明排序容量至少 4096；不替换其释放路径。所有写入前验证精确引擎身份、符号和旧操作数，不支持的版本拒绝安装。

@@ -113,6 +113,35 @@ def main():
                     "payload": {"gv_rva": hex(shadow_index), "gv_va": hex(IMAGE_BASE + shadow_index),
                                 "gv_sig": "A3 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + shadow_store),
                                 "gv_inst_offset": "0x0", "gv_inst_disp": "0x1", "gv_inst_length": "0x5"}})
+    # Integer vitals: real message readers, two HUD number calls and their
+    # native int fields. Keep the second SpecHealth2 player-index read intact.
+    vitals = json.loads((ROOT / "native/client/vitals_10210.json").read_text())
+    if vitals["clientSha256"] != identity["sha256"]:
+        raise ValueError("Integer vitals catalog identity mismatch")
+    vitals_functions = {name: int(rva, 16) for name, rva, _ in vitals["functions"]}
+    for rva, expected in vitals["verification"]:
+        expected = bytes.fromhex(expected)
+        if raw(int(rva, 16), len(expected)) != expected:
+            raise ValueError(f"Integer vitals ABI verification failed at {rva}")
+    for name, rva, size in vitals["functions"]:
+        raw(int(rva, 16), int(size, 16))
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftVitals_" + name,
+                        "kind": "function", "payload": {"func_rva": rva, "func_size": size}})
+    for name, rva, function in vitals["calls"]:
+        call = int(rva, 16)
+        instruction = raw(call, 5)
+        if instruction[0] != 0xe8 or call + 5 + struct.unpack_from("<i", instruction, 1)[0] != vitals_functions[function]:
+            raise ValueError(f"Integer vitals CALL changed: {name}")
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftVitals_" + name,
+                        "kind": "patch", "payload": {"patch_rva": rva}})
+    for name, rva, reference in vitals["globals"]:
+        address = IMAGE_BASE + int(rva, 16)
+        if raw(int(reference, 16), 5) != b"\xa3" + struct.pack("<I", address):
+            raise ValueError(f"Integer vitals global changed: {name}")
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftVitals_" + name,
+                        "kind": "global", "payload": {"gv_rva": rva, "gv_va": hex(address),
+                            "gv_sig": "A3 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + int(reference, 16)),
+                            "gv_inst_offset": "0x0", "gv_inst_disp": "0x1", "gv_inst_length": "0x5"}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

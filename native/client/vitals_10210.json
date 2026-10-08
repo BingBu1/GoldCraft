@@ -1,0 +1,30 @@
+{
+  "clientSha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "functions": [
+    ["ReadByte", "0x5d040", "0x2f"],
+    ["ReadShort", "0x5d1c0", "0x4a"],
+    ["ReadLong", "0x5d150", "0x53"],
+    ["DrawNumber", "0x53ad0", "0x294"],
+    ["HealthMessage", "0x4ff60", "0x3b"],
+    ["ArmorMessage", "0x472e0", "0x4e"],
+    ["SpecHealthMessage", "0x51d60", "0x3d"],
+    ["SpecHealth2Message", "0x51d10", "0x46"]
+  ],
+  "calls": [
+    ["HealthRead", "0x4ff71", "ReadByte"],
+    ["ArmorRead", "0x472f8", "ReadShort"],
+    ["SpecHealthRead", "0x51d71", "ReadByte"],
+    ["SpecHealth2Read", "0x51d22", "ReadByte"],
+    ["HealthDraw", "0x4dbd1", "DrawNumber"],
+    ["ArmorDraw", "0x471c8", "DrawNumber"]
+  ],
+  "globals": [
+    ["Health", "0x117d50", "0x4ff8f"],
+    ["Armor", "0x119644", "0x47319"]
+  ],
+  "verification": [
+    ["0x53d55", "c21c00"],
+    ["0x53d61", "c21c00"],
+    ["0x51d29", "e812b30000"]
+  ]
+}

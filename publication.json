@@ -13,6 +13,7 @@
     "tools/Build-NeoForge.ps1", "tools/Build-ReHLDS.ps1", "tools/Build-Renderer.ps1", "tools/Check-PublicSource.py",
     "tools/Build-BulletPhysics.ps1", "tools/Build-VGUI2Extension.ps1", "tools/Build-PrecacheGameData.py", "tools/ClangToolchain.ps1", "tools/Configure-Clang.ps1",
     "tools/Build-VisibleEntityGameData.py", "tools/Test-VisibleEntityEngine.py", "tools/Exercise-VisibleEntities.py",
+    "tools/Test-VitalsClient.py", "tools/Exercise-Vitals.py", "amxx/tests/goldcraft_vitals_test.sma",
     "tools/Inspect-MetaHookRuntime.py", "tools/Exercise-StudioLifecycle.py", "tools/Exercise-RendererPerformance.py", "tools/Exercise-RendererReference.py", "tools/Exercise-NativeJoin.py",
     "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Exercise-Precache.py",
     "tools/Legacy-ProtocolServer.ps1", "tools/Exercise-PrecacheTransitions.py",
