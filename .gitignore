@@ -5,6 +5,14 @@
 /dist/
 /build/
 /analysis/
+/amxx/zombie_plague/*/*.sma
+!/amxx/zombie_plague/integration/goldcraft_zp50.sma
+/amxx/zombie_plague/include/
+/amxx/zombie_plague/configs/
+/amxx/zombie_plague/docs/
+/amxx/zombie_plague/lang/zombie_plague.txt
+/amxx/zombie_plague/lang/zombie_plague50.txt
+*.amxx
 /fabric/
 /AGENTS.md
 /PROJECT_STATE.md

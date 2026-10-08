@@ -1,5 +1,5 @@
 // Opt-in fixture, never enabled by normal server installation. Sources/API:
-// AMXX1.9.0.5303, ReAPI5.29.0.358 and the paired GoldCraft precache-v2 engine.
+// AMXX1.9.0.5303, ReAPI5.29.0.358 and the paired GoldCraft precache-v3 engine.
 #include <amxmodx>
 #include <fakemeta>
 #include <reapi>
@@ -8,6 +8,8 @@ new gModel, gSprite, gSoundA, gSoundB, gLowSprite;
 new gModelCount, gSoundCount, gGenericCount, gProbes;
 new gAmxxChecks, gReapiChecks, gFailures, gMode, bool:gSending;
 new gEntities[2];
+new gBrass, gLowModel, gBrassHigh, gAmxxBrassChecks, gReapiBrassChecks;
+new gShadowExpected, gShadowObserved, gShadowMessages;
 new const gHighModel[] = "models/gc_probe/high.mdl";
 new const gHighSprite[] = "sprites/gc_probe/high.spr";
 new const gHighSoundA[] = "gc_probe/high_a.wav";
@@ -15,7 +17,8 @@ new const gHighSoundB[] = "gc_probe/high_b.wav";
 
 public plugin_precache()
 {
-    if(get_cvar_num("gc_precache_protocol")!=2){set_fail_state("GoldCraft precache v2 engine required");return;}
+    if(get_cvar_num("gc_precache_protocol")!=3){set_fail_state("GoldCraft precache v3 engine required");return;}
+    gLowModel=precache_model("models/rshell.mdl");
     new path[64];
     for(new i=0;i<1150;i++){
         formatex(path,charsmax(path),"sprites/gc_probe/m%04d.spr",i);
@@ -39,14 +42,41 @@ public plugin_precache()
 
 public plugin_init()
 {
-    register_plugin("GoldCraft precache boundary fixture","2.0","GoldCraft contributors");
+    register_plugin("GoldCraft precache boundary fixture","3.0","GoldCraft contributors");
     register_srvcmd("gc_precache_probe","Probe");
     register_srvcmd("gc_precache_probe_status","Status");
+    register_srvcmd("gc_precache_probe_clear","ClearProbe");
     register_message(SVC_TEMPENTITY,"AmxxMessage");
     RegisterMessage(SVC_TEMPENTITY,"EngineMessage");
+    gBrass=get_user_msgid("Brass");
+    if(!gBrass){set_fail_state("Matching CS Brass registration required");return;}
+    register_message(gBrass,"AmxxBrass");
+    RegisterMessage(gBrass,"EngineBrass");
+    gShadowExpected=engfunc(EngFunc_ModelIndex,"sprites/shadow_circle.spr");
+    register_message(get_user_msgid("ShadowIdx"),"ShadowIndex");
+}
+
+public ShadowIndex(type,dest,id)
+{
+    gShadowObserved=get_msg_arg_int(1);gShadowMessages++;
+    Check(gShadowObserved==gShadowExpected);
+    return PLUGIN_CONTINUE;
 }
 
 stock Check(bool:ok){if(!ok)gFailures++;}
+
+public ClearProbe()
+{
+    remove_task(9301);
+    for(new i=0;i<sizeof gEntities;i++){
+        if(pev_valid(gEntities[i])){
+            new classname[32];pev(gEntities[i],pev_classname,classname,charsmax(classname));
+            if(equal(classname,"gc_precache_probe"))engfunc(EngFunc_RemoveEntity,gEntities[i]);
+        }
+        gEntities[i]=0;
+    }
+    Status();return PLUGIN_HANDLED;
+}
 
 public AmxxMessage(type,dest,id)
 {
@@ -98,10 +128,62 @@ stock SpriteMessage(id,const Float:pos[3],mode,bool:withAmxxHooks=false)
     gSending=false;
 }
 
+public AmxxBrass(type,dest,id)
+{
+    if(!gSending)return PLUGIN_CONTINUE;
+    Check(get_msg_arg_int(12)==((gMode==1 || gMode==4)?gLowModel:gBrassHigh));
+    if(gMode==4){set_msg_arg_int(12,ARG_SHORT,gBrassHigh);Check(get_msg_arg_int(12)==gBrassHigh);}
+    else if(gMode==5){set_msg_arg_int(12,ARG_SHORT,gLowModel);Check(get_msg_arg_int(12)==gLowModel);}
+    Check(get_msg_arg_int(13)==0 && get_msg_arg_int(14)==25 && get_msg_arg_int(15)==id);
+    gAmxxBrassChecks++;return PLUGIN_CONTINUE;
+}
+
+public EngineBrass(type,dest,id)
+{
+    if(!gSending)return HC_CONTINUE;
+    Check(GetMessageData(MsgArg,12)==((gMode==1 || gMode==5)?gLowModel:gBrassHigh));
+    if(gMode==1){
+        SetMessageData(MsgArg,12,gBrassHigh);
+        Check(GetMessageData(MsgArg,12)==gBrassHigh && GetMessageOrigData(MsgArg,12)==gLowModel);
+    }else if(gMode==2){
+        SetMessageData(MsgArg,12,gLowModel);
+        Check(GetMessageData(MsgArg,12)==gLowModel && GetMessageOrigData(MsgArg,12)==gBrassHigh);
+    }else if(gMode==3){
+        SetMessageData(MsgArg,12,gLowModel);ResetModifiedMessageData(MsgArg,12);
+        Check(GetMessageData(MsgArg,12)==gBrassHigh && !IsMessageDataModified(MsgArg,12));
+    }
+    Check(GetMessageData(MsgArg,13)==0 && GetMessageData(MsgArg,14)==25 && GetMessageData(MsgArg,15)==id);
+    gReapiBrassChecks++;return HC_CONTINUE;
+}
+
+stock BrassMessage(id,const Float:pos[3],mode,high,bool:withAmxxHooks=false)
+{
+    gMode=mode;gBrassHigh=high;gSending=true;
+    // Exact ReGameDLL EjectBrass CS schema: subtype, origin, left, velocity,
+    // rotation, model, bounce sound type, lifetime, player. Only model expands.
+    if(withAmxxHooks){
+        emessage_begin(MSG_ONE,gBrass,_,id);ewrite_byte(TE_MODEL);
+        for(new i=0;i<3;i++)ewrite_coord(floatround(pos[i]));
+        for(new i=0;i<6;i++)ewrite_coord(0);
+        ewrite_angle(0);ewrite_short((mode==1 || mode==4)?gLowModel:high);
+        ewrite_byte(0);ewrite_byte(25);ewrite_byte(id);emessage_end();
+    }else{
+        message_begin(MSG_ONE,gBrass,_,id);write_byte(TE_MODEL);
+        for(new i=0;i<3;i++)write_coord(floatround(pos[i]));
+        for(new i=0;i<6;i++)write_coord(0);
+        write_angle(0);write_short(mode==1?gLowModel:high);
+        write_byte(0);write_byte(25);write_byte(id);message_end();
+    }
+    gSending=false;
+}
+
 public Probe()
 {
     new id;for(new i=1;i<=get_maxplayers();i++)if(is_user_connected(i)&&!is_user_bot(i)&&!is_user_hltv(i)){id=i;break;}
     if(!id){server_print("GoldCraft precache probe needs the single B client");return PLUGIN_HANDLED;}
+    ClearProbe();
+    // Automatic cleanup also runs when the external observer exits or fails.
+    set_task(10.0,"ClearProbe",9301);
     new Float:pos[3],Float:angles[3],Float:direction[3],Float:view[3];
     pev(id,pev_origin,pos);pev(id,pev_view_ofs,view);pev(id,pev_v_angle,angles);
     engfunc(EngFunc_MakeVectors,angles);global_get(glb_v_forward,direction);
@@ -118,6 +200,10 @@ public Probe()
     for(new mode=0;mode<4;mode++)SpriteMessage(id,pos,mode);
     for(new mode=0;mode<6;mode++)SpriteMessage(id,pos,mode,true);
     Check(gAmxxChecks-amxxBefore==6 && gReapiChecks-reapiBefore==10);
+    amxxBefore=gAmxxBrassChecks;reapiBefore=gReapiBrassChecks;
+    for(new mode=0;mode<4;mode++)BrassMessage(id,pos,mode,gModel);
+    for(new mode=0;mode<6;mode++)BrassMessage(id,pos,mode,gSprite,true);
+    Check(gAmxxBrassChecks-amxxBefore==6 && gReapiBrassChecks-reapiBefore==10);
     // Two consecutive expanded model fields test positional bookkeeping.
     message_begin(MSG_ONE,SVC_TEMPENTITY,_,id);write_byte(TE_BLOODSPRITE);
     for(new i=0;i<3;i++)write_coord(floatround(pos[i]));
@@ -140,7 +226,10 @@ public Probe()
 
 public Status()
 {
+    // Query actual live edicts, not only our cached IDs after cleanup.
+    new active,ent;
+    while((ent=engfunc(EngFunc_FindEntityByString,ent,"classname","gc_precache_probe"))>0)active++;
     new file=fopen("addons/amxmodx/logs/goldcraft-precache.json","wt");if(!file)return PLUGIN_HANDLED;
-    fprintf(file,"{^"models^":%d,^"sounds^":%d,^"generic^":%d,^"highModel^":%d,^"highSprite^":%d,^"highSounds^":[%d,%d],^"probes^":%d,^"amxxChecks^":%d,^"reapiChecks^":%d,^"failures^":%d,^"entities^":[%d,%d]}",gModelCount,gSoundCount,gGenericCount,gModel,gSprite,gSoundA,gSoundB,gProbes,gAmxxChecks,gReapiChecks,gFailures,gEntities[0],gEntities[1]);
+    fprintf(file,"{^"models^":%d,^"sounds^":%d,^"generic^":%d,^"highModel^":%d,^"highSprite^":%d,^"highSounds^":[%d,%d],^"probes^":%d,^"amxxChecks^":%d,^"reapiChecks^":%d,^"amxxBrassChecks^":%d,^"reapiBrassChecks^":%d,^"failures^":%d,^"entities^":[%d,%d],^"shadowExpected^":%d,^"shadowObserved^":%d,^"shadowMessages^":%d,^"activeEntities^":%d}",gModelCount,gSoundCount,gGenericCount,gModel,gSprite,gSoundA,gSoundB,gProbes,gAmxxChecks,gReapiChecks,gAmxxBrassChecks,gReapiBrassChecks,gFailures,gEntities[0],gEntities[1],gShadowExpected,gShadowObserved,gShadowMessages,active);
     fclose(file);return PLUGIN_HANDLED;
 }

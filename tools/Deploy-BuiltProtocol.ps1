@@ -30,7 +30,7 @@ foreach($instance in @('cs-client-a','cs-client-b')){
 }
 Deploy-One 'build/regamedll/Release/mp.dll' 'sandbox/cs-server/Half-Life/cstrike/dlls/mp.dll'
 foreach($name in @('goldcraft','goldcraft_test')){
-    Deploy-One "dist/amxx/$name.amxx" "sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/plugins/$name.amxx"
+    Deploy-One "build/amxx/plugins/$name.amxx" "sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/plugins/$name.amxx"
 }
 foreach($name in @('rehlds-deployment.json','amxx-deployment.json')){
     $path=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/cs-server/$name")

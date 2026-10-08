@@ -150,7 +150,7 @@ mp_limitteams 0
 mp_auto_join_team 1
 humans_join_team "CT"
 sv_password ""
-developer 1
+developer 0
 log on
 mh_pluginlist
 '@ | Set-Content -LiteralPath (Join-Path $game 'cstrike/goldcraft_test.cfg') -Encoding ascii

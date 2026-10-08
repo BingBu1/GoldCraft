@@ -49,7 +49,7 @@ index e6edc87..126e307 100644
  
  
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..d214ee7 100644
+index daee11d..c2af069 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,5 @@
@@ -58,6 +58,15 @@ index daee11d..d214ee7 100644
  
  int gmsgWeapPickup = 0;
  int gmsgHudText = 0;
+@@ -138,7 +139,7 @@ bool g_bServerActive = false;
+ bool g_bItemCreatedByBuying = false;
+ PLAYERPVSSTATUS g_PVSStatus[MAX_CLIENTS];
+ unsigned short m_usResetDecals;
+-unsigned short g_iShadowSprite;
++int g_iShadowSprite;
+ 
+ void LinkUserMessages()
+ {
 @@ -310,11 +311,13 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
  
  BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *pszAddress, char *szRejectReason)
@@ -121,6 +130,19 @@ index daee11d..d214ee7 100644
  	int i;
  
  	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
+diff --git a/regamedll/dlls/client.h b/regamedll/dlls/client.h
+index 2682778..f1f636a 100644
+--- a/regamedll/dlls/client.h
++++ b/regamedll/dlls/client.h
+@@ -106,7 +106,7 @@ extern bool g_bItemCreatedByBuying;
+ extern bool g_skipCareerInitialSpawn;
+ 
+ extern unsigned short m_usResetDecals;
+-extern unsigned short g_iShadowSprite;
++extern int g_iShadowSprite;
+ 
+ #ifdef REGAMEDLL_API
+ void SendSayMessage_OrigFunc(CBasePlayer *pPlayer, const char *pszCmd, BOOL teamonly, const char *pszText, const char *pszFormat, const char *pszConsoleFormat, bool bSenderDead, const char *placeName, bool consoleUsesPlaceName);
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
 index 8a219ea..55fbd98 100644
 --- a/regamedll/dlls/player.cpp
@@ -291,6 +313,18 @@ index f7294b7..750f6bd 100644
  extern MULTIDAMAGE gMultiDamage;
  
  void WeaponsPrecache();
+diff --git a/regamedll/game_shared/bot/bot_util.cpp b/regamedll/game_shared/bot/bot_util.cpp
+index 8857d4e..2c044dc 100644
+--- a/regamedll/game_shared/bot/bot_util.cpp
++++ b/regamedll/game_shared/bot/bot_util.cpp
+@@ -1,6 +1,6 @@
+ #include "precompiled.h"
+ 
+-short s_iBeamSprite = 0;
++int s_iBeamSprite = 0;
+ 
+ constexpr int COS_TABLE_SIZE = 256;
+ float cosTable[COS_TABLE_SIZE];
 diff --git a/regamedll/msvc/mp.def b/regamedll/msvc/mp.def
 index 2a12a7c..8d5ca0f 100644
 --- a/regamedll/msvc/mp.def

@@ -22,7 +22,7 @@
 | `gc_set_form(id, form)` | 1 已切换、0 未变化、-1 参数无效、-2 未配对、-3 不可用、-4 代次耗尽 |
 | `goldcraft_form_changed(id, previous, current)` | 实际形态变更后的 forward |
 
-`gc_set_form` 在权威游戏服务器执行，撤销旧移动更新权限。实际示例是 `amxx/goldcraft.sma`：注册 `goldcraft_menu`、`/mc`、`/cs`、`amx_gc_form` 和 `gc_amxx_status`，并通过匹配的 ReAPI `RG_CBasePlayer_Spawn` 后置钩子观察出生。菜单使用 AMXX ShowMenu/menuselect，选择仍受服务器配对和状态检查。
+`gc_set_form` 在权威游戏服务器执行，撤销旧移动更新权限。实际示例是 `amxx/goldcraft/goldcraft.sma`：注册 `goldcraft_menu`、`/mc`、`/cs`、`amx_gc_form` 和 `gc_amxx_status`，并通过匹配的 ReAPI `RG_CBasePlayer_Spawn` 后置钩子观察出生。菜单使用 AMXX ShowMenu/menuselect，选择仍受服务器配对和状态检查。
 
 ```powershell
 .\tools\Build-AMXX.ps1 -Plugins goldcraft
@@ -31,6 +31,18 @@
 ReAPI 的 native 参数、成员类型和 hook 回调以下载的对应源码及 Pawn 声明为准。版本不匹配时先更新锁文件、检查 API 并重新验证，不能用另一个版本的内存偏移替代声明。
 
 ## 编译后重载
+
+新增和修改的插件统一放到 `amxx/<所属 Mod 或用途>/`，保留源码及配套头文件、汉化字典和配置。GoldCraft API 在 `amxx/goldcraft/include`，僵尸汉化在 `amxx/zombie_plague/lang`；分类见 [AMXX 目录说明](../amxx/README.md)。只有编译产物 `.amxx` 放到 `build/amxx/plugins`。固定版本第三方 SDK 保留在依赖目录中。安装脚本向服务器部署运行所需的字节码、配置和资源。
+
+例如新增 `amxx/my_mod/my_plugin.sma` 后，编译并登记到沙箱服务器：
+
+```powershell
+.\tools\Build-AMXX.ps1 -Plugins my_plugin -Deploy
+```
+
+所属 Mod 的 `include` 会自动加入编译路径，其他 SDK 头文件使用 `-Includes` 指定工作区内的目录；`-PluginList` 可选择 `plugins-xxx.ini`。未加 `-Deploy` 时只编译。每次编译的源码与产物哈希记录在 `build/amxx/last-build.json`。
+
+僵尸插件准备工具先把全部选用的 `.sma`、头文件、配置、基础字典和作者说明导入 `amxx/zombie_plague` 的分类目录，再从这里编译；导入记录保存在 `build/amxx/imported-sources.json`。后续构建保留人工修改，固定上游副本仍在 `external`。首次安装从分类目录读取配置；已有运行配置按原部署规则保留。本地第三方完整源码不随公开仓库上传；公开清单只收录原创插件、汉化、必要补丁和构建工具。
 
 标准 Pawn 插件通常在下一次地图加载时重新载入。`sv_restart` / `sv_restartround` 是回合重启，不会重新载入 `.amxx`；暂停/取消暂停也不会重新读取新字节码。开发中替换 Pawn 文件后通过 `changelevel cs_assault` 换图可以保留 ReHLDS 进程，但会清空当前地图会话的 MC 建筑。
 

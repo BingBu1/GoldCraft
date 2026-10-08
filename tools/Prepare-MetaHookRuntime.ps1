@@ -48,12 +48,16 @@ if(-not $plugins.Contains('GoldCraft.dll')){throw 'Normal CS must have Renderer 
 foreach($name in $plugins){
     if($name -in @('GoldCraft.dll','Renderer.dll','Renderer_AVX2.dll')){continue}
     $dll=Join-Path $upstream "svencoop/metahook/plugins/$name"
+    if($name -eq 'VGUI2Extension.dll'){
+        $dll=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll')
+    }
     if(-not(Test-Path -LiteralPath $dll)){throw "The pinned release does not contain normal plugin $name"}
     Copy-StageFile $dll "cstrike/metahook/plugins/$name"
 }
 foreach($directory in @('captionmod','bulletphysics','studioevents','vgui2ext','metahook/gamedata')){
     Copy-StageTree (Join-Path $upstream "svencoop/$directory") "cstrike/$directory"
 }
+Copy-StageTree (Join-Path $script:GoldCraftRoot 'dist/vgui2extension/svencoop/metahook/gamedata/vgui2extension') 'cstrike/metahook/gamedata/vgui2extension'
 Copy-StageTree (Join-Path $upstream 'platform') 'platform'
 foreach($name in @('SDL2.dll','SDL3.dll')){Copy-StageFile (Join-Path $upstream $name) $name}
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $upstream 'svencoop/metahook/dlls') -File -Recurse){
@@ -79,7 +83,8 @@ foreach($line in Get-Content -LiteralPath (Join-Path $normal 'config.cfg')){
 $cfg=Assert-WorkspacePath (Join-Path $stage 'cstrike/goldcraft_renderer.cfg')
 @('// Lighting values copied from normal CS; no key bindings are changed.',
   'r_shadow 1','r_dynamic 1','r_deferred_lighting 1','r_gamma_blend 0',
-  'r_drawlowerbody 0','r_drawlowerbodyattachments 0') |
+  'r_drawlowerbody 0','r_drawlowerbodyattachments 0',
+    'r_studio_diagnostics 0','r_renderer_profile 0','r_shadow_caster_cull 1') |
     Set-Content -LiteralPath $cfg -Encoding ascii
 foreach($key in $lighting.Keys){"$key $($lighting[$key])" | Add-Content -LiteralPath $cfg -Encoding ascii}
 $normalMap=Join-Path $normal 'maps/cs_assault_entity.txt'

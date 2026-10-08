@@ -48,7 +48,10 @@ $amxx=Assert-SandboxPath (Join-Path $game 'cstrike/addons/amxmodx')
 $meta=Assert-SandboxPath (Join-Path $game 'cstrike/addons/metamod')
 if(-not(Test-Path -LiteralPath $amxx)){
     New-Item -ItemType Directory -Path (Split-Path $amxx) -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx') -Destination $amxx -Recurse
+    New-Item -ItemType Directory -Path $amxx -Force | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx') | Where-Object Name -ne 'scripting' | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $amxx -Recurse
+    }
 }
 if(-not(Test-Path -LiteralPath $meta)){
     Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/metamod-1.3.0.149/addons/metamod') -Destination $meta -Recurse
@@ -58,7 +61,7 @@ Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358
 $plugins=@('goldcraft','goldcraft_headless_test')
 if($PlayerFixtures){$plugins+='goldcraft_test'}
 foreach($plugin in $plugins){
-    Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot "dist/amxx/$plugin.amxx") -Destination (Join-Path $amxx "plugins/$plugin.amxx") -Force
+    Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$plugin.amxx") -Destination (Join-Path $amxx "plugins/$plugin.amxx") -Force
 }
 @('goldcraft','reapi','engine','fakemeta') | Set-Content -LiteralPath (Join-Path $amxx 'configs/modules.ini') -Encoding ascii
 @($plugins | ForEach-Object {"$_.amxx"}) | Set-Content -LiteralPath (Join-Path $amxx 'configs/plugins.ini') -Encoding ascii

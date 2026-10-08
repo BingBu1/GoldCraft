@@ -22,10 +22,14 @@ std::unordered_map<model_t*, CachedModel*> modelRecords;
 client_t* manifestClient = nullptr;
 unsigned manifestFirst = 0;
 unsigned messageExtraBytes = 0;
-cvar_t precacheVersion = {"gc_precache_protocol", "2", FCVAR_SERVER};
+using goldcraft::precache::UserMediaMessage;
+std::array<UserMediaMessage, 256> userMessageSchemas{};
+UserMediaMessage currentUserMessage = UserMediaMessage::none;
+char precacheVersionText[] = "3";
+cvar_t precacheVersion = {"gc_precache_protocol", precacheVersionText, FCVAR_SERVER};
 
 void PrecacheStats() {
-    Con_Printf("GoldCraft precache v2 (32-bit media): models=%u sounds=%u generic=%u resources=%u cached=%u extended=%d\n",
+    Con_Printf("GoldCraft precache v3 (32-bit media): models=%u sounds=%u generic=%u resources=%u cached=%u extended=%d\n",
         unsigned(gc_precache.modelNames.size()), unsigned(gc_precache.sounds.size()),
         unsigned(gc_precache.generics.size()), unsigned(gc_precache.resources.size()),
         unsigned(cachedModels.size()), gc_precache.RequiresExtension());
@@ -48,6 +52,8 @@ void PrecacheFixturePad() {
 }
 
 void GoldCraftPrecache::Reset() {
+    userMessageSchemas.fill(UserMediaMessage::unknown);
+    currentUserMessage = UserMediaMessage::none;
     manifestClient = nullptr;
     manifestFirst = 0;
     modelNames.assign(1, pr_strings);
@@ -145,7 +151,7 @@ bool GC_PrecacheClient(const client_t* client) {
 
 bool GC_CheckPrecacheClient(client_t* client) {
     if (!gc_precache.RequiresExtension() || GC_PrecacheClient(client) || client->fakeclient) return true;
-    SV_DropClient(client, FALSE, "This map requires GoldCraft precache v2 (32-bit MetaHook extension).");
+    SV_DropClient(client, FALSE, "This map requires GoldCraft precache v3 (32-bit MetaHook extension).");
     return false;
 }
 
@@ -250,12 +256,36 @@ void GC_WriteSoundIndex(int index, int bits) {
     }
 }
 
-void GC_MessageBegin() { messageExtraBytes = 0; }
+void GC_MessageBegin() {
+    messageExtraBytes = 0;
+    currentUserMessage = UserMediaMessage::none;
+    if (gMsgType < svc_startofusermessages || unsigned(gMsgType) >= userMessageSchemas.size()) return;
+    auto& schema = userMessageSchemas[gMsgType];
+    if (schema == UserMediaMessage::unknown) {
+        // Registration IDs depend on the game/plugin load order. Resolve by
+        // the actual registered name, including messages not sent before.
+        for (auto* head : {sv_gpUserMsgs, sv_gpNewUserMsgs}) {
+            for (auto* message = head; message; message = message->next) {
+                if (message->iMsg != gMsgType) continue;
+                schema = UserMediaMessage::none;
+                if (message->iSize == -1 && !Q_strcmp(message->szName, "Brass")) {
+                    const bool cz = !Q_stricmp(com_gamedir, "czero");
+                    schema = cz ? UserMediaMessage::brass_cz : UserMediaMessage::brass_cs;
+                }
+                break;
+            }
+            if (schema != UserMediaMessage::unknown) break;
+        }
+    }
+    currentUserMessage = schema;
+}
 
 bool GC_MessageMediaField() {
     if (gMsgBuffer.cursize < int(messageExtraBytes)) return false;
+    const auto offset = unsigned(gMsgBuffer.cursize) - messageExtraBytes;
     return goldcraft::precache::message_media_field(gMsgType,
-        gMsgBuffer.cursize ? gMsgBuffer.data[0] : 0, unsigned(gMsgBuffer.cursize) - messageExtraBytes);
+        gMsgBuffer.cursize ? gMsgBuffer.data[0] : 0, offset) ||
+        goldcraft::precache::user_message_media_field(currentUserMessage, offset);
 }
 
 bool GC_WriteMessageMedia(int index) {

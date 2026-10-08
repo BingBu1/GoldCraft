@@ -16,9 +16,13 @@ STATUS = ROOT / "sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/logs/goldcra
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=int, default=180)
+    parser.add_argument("--bots", type=int, default=24)
     args = parser.parse_args()
     if not 10 <= args.seconds <= 600:
         raise ValueError("Observation must last 10..600 seconds")
+    if not 1 <= args.bots <= 31:
+        raise ValueError("Expected Bot count must be 1..31")
+    required_walkers = (args.bots * 2 + 2) // 3
     samples, walked, previous, paired_frames = [], {}, {}, 0
     start = time.monotonic()
     print("Observing autonomous SyPB play without gameplay commands.", flush=True)
@@ -40,16 +44,17 @@ def main():
                 if 1 < distance < 500 and math.hypot(*player["velocity"][:2]) > 1:
                     walked[player["userid"]] = walked.get(player["userid"], 0) + distance
             previous[key] = player
-        if len(sample["players"]) >= 6 and all(
+        bots = [p for p in sample["players"] if p["bot"]]
+        if len(bots) == args.bots and all(
                 p["team"] in (1, 2) and p["joining"] == 0 and
-                p["zombie"] == p["sypbZombie"] for p in sample["players"]):
+                p["zombie"] == p["sypbZombie"] for p in bots):
             paired_frames += 1
         time.sleep(1)
     first, last = samples[0], samples[-1]
     checks = {
         "matchingApiAndZombieMode": all(s["api"] == 1.5 and s["mode"] == 2 for s in samples),
-        "sixBotsJoinedWithMatchingZombieState": paired_frames >= 5,
-        "atLeastFourBotsWalkAutonomously": sum(v > 256 for v in walked.values()) >= 4,
+        "configuredBotsJoinedWithMatchingZombieState": paired_frames >= 5,
+        "atLeastTwoThirdsWalkAutonomously": sum(v > 256 for v in walked.values()) >= required_walkers,
         "naturalBotInfection": last["botInfections"] > first["botInfections"],
         "actualBotDamage": last["botDamageEvents"] > first["botDamageEvents"],
         "zombieAndArmedHumanObserved": any(
@@ -57,7 +62,8 @@ def main():
             any(not p["zombie"] and p["alive"] and p["weapon"] not in (0, 29) for p in s["players"])
             for s in samples),
     }
-    report = {"checks": checks, "passed": all(checks.values()), "walkedUnits": walked,
+    report = {"checks": checks, "passed": all(checks.values()), "expectedBots": args.bots,
+              "requiredWalkers": required_walkers, "walkedUnits": walked,
               "samples": samples, "scope": "Autonomous native SyPB/ZP only; paired Minecraft interaction is separate."}
     path = ROOT / "analysis/goldcraft-tests" / f"zombie-bots-{time.time_ns()}.json"
     path.parent.mkdir(parents=True, exist_ok=True)

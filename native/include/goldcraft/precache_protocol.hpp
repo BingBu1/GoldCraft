@@ -3,14 +3,14 @@
 #include <cstdint>
 
 namespace goldcraft { namespace precache {
-// GoldSrc and Pawn expose signed int handles. v2 carries the complete positive
+// GoldSrc and Pawn expose signed int handles. The wire carries the positive
 // 32-bit API range; memory, rather than a 16-bit wire field, limits table growth.
 constexpr std::uint32_t max_media_index = 0x7fffffff;
 constexpr std::uint32_t media_escape = 0xffff;
 constexpr std::uint32_t marker = 0xfff;
 constexpr std::uint32_t magic = 0x31504347; // "GCP1"
-constexpr std::uint32_t version = 2;
-constexpr const char* capability_value = "2";
+constexpr std::uint32_t version = 3;
+constexpr const char* capability_value = "3";
 constexpr std::uint32_t chunk_entries = 128;
 constexpr const char* capability = "gc_precache";
 
@@ -43,6 +43,23 @@ constexpr bool message_media_field(unsigned service, unsigned subtype, unsigned 
     return (service == 23 && temp_model_field(subtype, offset)) ||
         (service == 20 && offset == 0) || // svc_spawnstatic
         (service == 29 && offset == 6);   // svc_spawnstaticsound
+}
+
+// CS's Brass is a registered user message, not svc_temp_entity. Its unused
+// TE_MODEL/left-vector/lifetime fields are absent from the CZ variant.
+enum class UserMediaMessage : std::uint8_t { unknown, none, brass_cs, brass_cz };
+constexpr bool user_message_media_field(UserMediaMessage message, unsigned offset) {
+    return (message == UserMediaMessage::brass_cs && offset == 20) ||
+        (message == UserMediaMessage::brass_cz && offset == 13);
+}
+
+template<class ReadShort, class ReadLong, class BadRead>
+bool read_media_index(ReadShort read_short, ReadLong read_long, BadRead bad_read,
+                      bool extended, std::uint32_t& index) {
+    const auto prefix = static_cast<std::uint16_t>(read_short());
+    if (bad_read()) return false;
+    index = extended && prefix == media_escape ? std::uint32_t(read_long()) : prefix;
+    return !bad_read() && index <= max_media_index;
 }
 
 constexpr unsigned media_bytes(std::uint32_t index) {

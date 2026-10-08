@@ -1127,6 +1127,22 @@ index dfd68c2..c94cb57 100644
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
+diff --git a/rehlds/engine/sv_steam3.cpp b/rehlds/engine/sv_steam3.cpp
+index c35b293..76d2271 100644
+--- a/rehlds/engine/sv_steam3.cpp
++++ b/rehlds/engine/sv_steam3.cpp
+@@ -213,6 +213,11 @@ client_t *CSteam3Server::ClientFindFromSteamID(CSteamID &steamIDFind)
+ 		if (!cl->connected && !cl->active && !cl->spawned)
+ 			continue;
+ 
++		// CreateUnauthenticatedUserConnection tracks engine bots, not a user's
++		// authentication session. Only network clients can receive these callbacks.
++		if (cl->fakeclient)
++			continue;
++
+ 		if (cl->network_userid.idtype != AUTH_IDTYPE_STEAM)
+ 			continue;
+ 
 diff --git a/rehlds/engine/sv_user.cpp b/rehlds/engine/sv_user.cpp
 index 4e0d26e..90546f0 100644
 --- a/rehlds/engine/sv_user.cpp
@@ -1487,3 +1503,81 @@ index 1f01cf4..8e00a46 100644
  		<< " DaylightDate: "; PrintSystemTime(&m_Res.DaylightDate, ss);
  	ss << " DaylightBias: " << m_Res.DaylightBias
  		<< " }";
+diff --git a/rehlds/unittests/security_tests.cpp b/rehlds/unittests/security_tests.cpp
+index 859c1dc..df19d7b 100644
+--- a/rehlds/unittests/security_tests.cpp
++++ b/rehlds/unittests/security_tests.cpp
+@@ -2,6 +2,73 @@
+ #include "rehlds_tests_shared.h"
+ #include "cppunitlite/TestHarness.h"
+ 
++namespace {
++struct SteamClientFixture {
++	client_t clients[2]{};
++	client_t *previousClients = g_psvs.clients;
++	int previousCount = g_psvs.maxclients;
++	CSteam3Server server;
++	CSteamID identity{42, k_EUniversePublic, k_EAccountTypeAnonGameServer};
++
++	SteamClientFixture() {
++		g_psvs.clients = clients;
++		g_psvs.maxclients = 2;
++		clients[0].connected = TRUE;
++		clients[0].fakeclient = TRUE;
++		clients[0].network_userid.idtype = AUTH_IDTYPE_STEAM;
++		clients[0].network_userid.m_SteamID = identity.ConvertToUint64();
++	}
++	~SteamClientFixture() {
++		g_psvs.clients = previousClients;
++		g_psvs.maxclients = previousCount;
++	}
++};
++}
++
++TEST(FakeClientsIgnoreAuthenticationCallbacks, GoldCraftSteam, 1000)
++{
++	SteamClientFixture fixture;
++	CHECK("Engine fakeclients are not user-authentication targets",
++		fixture.server.ClientFindFromSteamID(fixture.identity) == nullptr);
++	GSClientApprove_t approve{};
++	approve.m_SteamID = fixture.identity;
++	fixture.server.OnGSClientApprove(&approve);
++	GSClientDeny_t deny{};
++	deny.m_SteamID = fixture.identity;
++	deny.m_eDenyReason = k_EDenyGeneric;
++	fixture.server.OnGSClientDeny(&deny);
++	GSClientKick_t kick{};
++	kick.m_SteamID = fixture.identity;
++	kick.m_eDenyReason = k_EDenySteamOwnerLeftGuestUser;
++	fixture.server.OnGSClientKick(&kick);
++	CHECK("Approve, deny and kick callbacks preserve the fakeclient", fixture.clients[0].connected);
++}
++
++TEST(NetworkClientsRemainAuthenticationTargets, GoldCraftSteam, 1000)
++{
++	SteamClientFixture fixture;
++	fixture.identity = CSteamID(42, k_EUniversePublic, k_EAccountTypeIndividual);
++	fixture.clients[0].network_userid.m_SteamID = fixture.identity.ConvertToUint64();
++	auto &client = fixture.clients[1];
++	client.connected = TRUE;
++	client.network_userid.idtype = AUTH_IDTYPE_STEAM;
++	client.network_userid.m_SteamID = fixture.identity.ConvertToUint64();
++	CHECK("A fakeclient cannot shadow a network client's callback",
++		fixture.server.ClientFindFromSteamID(fixture.identity) == &client);
++	client.connected = FALSE;
++	CHECK("Disconnected slots cannot receive callbacks", fixture.server.ClientFindFromSteamID(fixture.identity) == nullptr);
++	client.active = TRUE;
++	CHECK("Active network clients retain authentication", fixture.server.ClientFindFromSteamID(fixture.identity) == &client);
++	client.active = FALSE;
++	client.spawned = TRUE;
++	CHECK("Spawned network clients retain authentication", fixture.server.ClientFindFromSteamID(fixture.identity) == &client);
++	client.network_userid.idtype = AUTH_IDTYPE_LOCAL;
++	CHECK("Local proxy identities remain outside user authentication", fixture.server.ClientFindFromSteamID(fixture.identity) == nullptr);
++	client.network_userid.idtype = AUTH_IDTYPE_STEAM;
++	++client.network_userid.m_SteamID;
++	CHECK("Callbacks must match the actual identity", fixture.server.ClientFindFromSteamID(fixture.identity) == nullptr);
++}
++
+ TEST(IsSafeFileExtension, SecurityChecks, 1000)
+ {
+ 	struct testdata_t

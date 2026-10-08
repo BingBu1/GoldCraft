@@ -13,6 +13,7 @@ import importlib.util
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'external/ZombiePlague-5.0.8a'
+WORKING = ROOT / 'amxx/zombie_plague'
 OUT = ROOT / 'dist/zombieplague'
 ARCHIVE_SHA = '883f0988e7beb86cfec41487a2722925b98e2df29268e70770cd0cd9e093ad7c'
 MEDIA_REPO = 'mostten/ZombiePlague-for-CS1.6'
@@ -53,36 +54,95 @@ def extract(archive):
             path.write_bytes(data)
 
 
+def source_category(name):
+    if name.endswith('_api'):
+        return 'api'
+    if name.startswith('zp50_admin_'):
+        return 'admin'
+    if name.startswith('zp50_class_'):
+        return 'classes'
+    if name.startswith('zp50_gamemode'):
+        return 'modes'
+    if name.startswith(('zp50_item', 'zp50_reward', 'zp50_ammopacks')):
+        return 'items'
+    if 'menu' in name or name == 'zp50_hud_info':
+        return 'menus'
+    if name.startswith(('zp50_effect', 'zp50_ambience')) or name in ('zp50_zombie_sounds', 'zp50_flashlight', 'zp50_nightvision'):
+        return 'effects'
+    if name.startswith(('zp50_grenade_', 'zp50_weapon_', 'zp50_human_ammo', 'zp50_human_armor')):
+        return 'weapons'
+    return 'core'
+
+
+def import_editable(seed, working, key, previous, imported):
+    working = destination(working)
+    seed_hash = digest(seed)
+    if not working.exists() or digest(working) == previous.get(key, {}).get('seedSha256'):
+        working.write_bytes(seed.read_bytes())
+    elif digest(working) != seed_hash and key not in previous:
+        raise ValueError(f'Preserving an unregistered source with the same name: {working.name}')
+    imported[key] = {'seed': seed.relative_to(ROOT).as_posix(), 'seedSha256': seed_hash,
+                     'source': working.relative_to(ROOT).as_posix(), 'sourceSha256': digest(working)}
+    return working
+
+
 def compile_plugins():
+    # Keep the complete editable Mod together, including its headers, language
+    # bases, configuration and author/license notices. Third-party SDKs remain
+    # pinned dependencies; compiled files never enter this source tree.
+    ledger_path = destination(ROOT / 'build/amxx/imported-sources.json')
+    previous = json.loads(ledger_path.read_text(encoding='utf-8')) if ledger_path.exists() else {}
+    imported, sources = {}, {}
+    support = (
+        ('addons/amxmodx/scripting/include', 'include', ('.inc',)),
+        ('addons/amxmodx/configs', 'configs', ('.cfg', '.ini')),
+        ('addons/amxmodx/data/lang', 'lang', ('.txt',)),
+    )
+    for source_folder, category, extensions in support:
+        origin = SOURCE / source_folder
+        for seed in sorted(origin.rglob('*')):
+            if seed.is_file() and seed.suffix in extensions:
+                relative = Path(category) / seed.relative_to(origin)
+                import_editable(seed, WORKING / relative, 'support/' + relative.as_posix(), previous, imported)
+    for seed in sorted(SOURCE.glob('*.txt')):
+        import_editable(seed, WORKING / 'docs' / seed.name, 'support/docs/' + seed.name, previous, imported)
     spec = importlib.util.spec_from_file_location('zombie_localization', ROOT / 'tools/Localize-ZombiePlague.py')
     localization = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(localization)
     translated_sources, _, _ = localization.prepare()
     scripting = SOURCE / 'addons/amxmodx/scripting'
     compiler = ROOT / '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe'
-    load_list = SOURCE / 'addons/amxmodx/configs/plugins-zp50_ammopacks.ini'
+    load_list = WORKING / 'configs/plugins-zp50_ammopacks.ini'
     plugins = re.findall(r'^([a-z0-9_]+)\.amxx', load_list.read_text(), re.M)
+    # Root amxx is the editable source; pinned seeds stay outside that folder.
+    for name in plugins:
+        files = list(scripting.rglob(name + '.sma'))
+        if len(files) != 1:
+            raise ValueError(f'Ambiguous or absent plugin source: {name}')
+        seed = translated_sources.get(name, files[0])
+        sources[name] = import_editable(seed, WORKING / source_category(name) / (name + '.sma'),
+                                        name, previous, imported)
+    ledger_path.write_text(json.dumps(imported, indent=2) + '\n', encoding='utf-8')
     compiled = []
     log = destination(ROOT / 'build/logs/zombieplague-build.log')
     with log.open('w', encoding='utf-8') as output:
         for name in plugins:
-            files = list(scripting.rglob(name + '.sma'))
-            if len(files) != 1:
-                raise ValueError(f'Ambiguous or absent plugin source: {name}')
-            target = destination(OUT / 'plugins' / (name + '.amxx'))
-            plugin_source = translated_sources.get(name, files[0])
-            result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(scripting / 'include'),
+            target = destination(ROOT / 'build/amxx/plugins' / (name + '.amxx'))
+            plugin_source = sources[name]
+            result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(WORKING / 'include'),
                                      '-i' + str(compiler.parent / 'include'), '-o' + str(target)],
                                     cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
             if result.returncode or not target.is_file():
                 raise RuntimeError(f'Pawn compilation failed: {name}; see {log}')
-            compiled.append({'name': name, 'sha256': digest(target), 'sourceSha256': digest(plugin_source)})
+            compiled.append({'name': name, 'sha256': digest(target), 'sourceSha256': digest(plugin_source),
+                             'source': plugin_source.relative_to(ROOT).as_posix(),
+                             'artifact': target.relative_to(ROOT).as_posix()})
     return compiled
 
 
 def stage_media(map_name):
     game = ROOT / 'sandbox/cs-server/Half-Life'
-    amxx = SOURCE / 'addons/amxmodx'
+    amxx = WORKING
     text = '\n'.join(p.read_text(errors='replace') for p in amxx.rglob('*') if p.suffix in ('.ini', '.sma'))
     required = set(re.findall(r'(?:models|sprites)/[\w/+.\-]+\.(?:mdl|spr)', text))
     required.update('sound/' + p for p in re.findall(r'[\w/+.\-]+\.(?:wav|mp3)', text) if '/' in p)
@@ -97,7 +157,9 @@ def stage_media(map_name):
     start, size = struct.unpack_from('<ii', b, 4)
     entities = [dict(re.findall(r'"([^"]*)"\s*"([^"]*)"', e))
                 for e in re.findall(r'\{(.*?)\}', b[start:start+size].decode('latin1'), re.S)]
-    required.update(p for p in entities[0].get('wad', '').split(';') if p)
+    # BSP authors often embed their own drive/path. Engines load the WAD by
+    # basename from the game search path; never use that build-machine path.
+    required.update(PurePosixPath(p.replace('\\', '/')).name for p in entities[0].get('wad', '').split(';') if p)
     for entity in entities:
         for value in entity.values():
             if value.lower().endswith(('.mdl', '.spr')):
@@ -112,7 +174,7 @@ def stage_media(map_name):
     tree = None
     records = []
     for rel in sorted(required):
-        if PurePosixPath(rel).is_absolute() or '..' in PurePosixPath(rel).parts:
+        if PurePosixPath(rel).is_absolute() or '..' in PurePosixPath(rel).parts or ':' in rel or '\\' in rel:
             raise ValueError(f'Unsafe resource path: {rel}')
         source = next((game / folder / rel for folder in ('cstrike', 'valve') if (game / folder / rel).is_file()), None)
         origin = 'existing-sandbox'

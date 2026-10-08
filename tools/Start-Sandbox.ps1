@@ -2,7 +2,7 @@ param(
     [Parameter(Mandatory)][ValidateSet('CsClient','CsServer','MinecraftClient','MinecraftServer','MinecraftGameTest')][string]$Role,
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,40}$')][string]$Instance='cs-client-a',
     [ValidatePattern('^[A-Za-z0-9_]{1,64}$')][string]$Map='cs_assault',
-    [ValidateRange(2,32)][int]$MaxPlayers=12,
+    [ValidateRange(2,32)][int]$MaxPlayers=32,
     [ValidateSet('neoforge','fabric')][string]$Loader='neoforge',
     [switch]$ListenServer,
     [switch]$Capture,

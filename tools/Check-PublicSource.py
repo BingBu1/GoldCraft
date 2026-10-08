@@ -42,7 +42,8 @@ def candidates():
 
 def local_private_values():
     values = {str(ROOT), str(ROOT).replace("\\", "/")}
-    paths = [ROOT / "sandbox/cluster.json", ROOT / "settings.local.json", ROOT / ".tools/clang-toolchain.json"]
+    paths = [ROOT / "sandbox/cluster.json", ROOT / "sandbox/headless-combat/cluster.json",
+             ROOT / "settings.local.json", ROOT / ".tools/clang-toolchain.json"]
     paths += [ROOT / f"sandbox/{name}/instance.json" for name in ("cs-client-a", "cs-client-b", "cs-server")]
 
     def visit(value, key=""):

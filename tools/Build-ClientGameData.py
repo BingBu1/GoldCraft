@@ -86,6 +86,33 @@ def main():
             "gv_inst_offset": "0x0", "gv_inst_disp": "0x3", "gv_inst_length": "0x7",
         },
     })
+    # Matched Brass parser: the annotation at5315a is the result store;
+    # the actual READ_SHORT CALL starts at53155. Preserve all other shorts.
+    brass_call, read_short, read_long, bad_read = 0x53155, 0x5D1C0, 0x5D150, 0x127C08
+    instruction = raw(brass_call, 5)
+    if instruction != b"\xe8\x66\xa0\x00\x00" or brass_call + 5 + struct.unpack_from("<i", instruction, 1)[0] != read_short:
+        raise ValueError("Brass media read is no longer the verified CALL")
+    if raw(0x5D1D2, 10) != b"\xc7\x05" + struct.pack("<I", IMAGE_BASE + bad_read) + b"\x01\x00\x00\x00":
+        raise ValueError("Client message bad-read store changed")
+    for name, rva, size in (("ReadShort", read_short, 0x4A), ("ReadLong", read_long, 0x53)):
+        raw(rva, size)
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraft_CS_" + name,
+                        "kind": "function", "payload": {"func_rva": hex(rva), "func_size": hex(size)}})
+    records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraft_CS_BrassModelRead",
+                    "kind": "patch", "payload": {"patch_rva": hex(brass_call)}})
+    records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraft_CS_BadRead", "kind": "global",
+                    "payload": {"gv_rva": hex(bad_read), "gv_va": hex(IMAGE_BASE + bad_read),
+                                "gv_sig": "C7 05 ?? ?? ?? ?? 01 00 00 00", "gv_sig_va": hex(IMAGE_BASE + 0x5D1D2),
+                                "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0xa"}})
+    # ShadowIdx reads a long, then the verified setter stores eax directly.
+    # Observe the real client field to catch truncation in server-side storage.
+    shadow_index, shadow_store = 0x12E974, 0x686E6
+    if raw(shadow_store, 5) != b"\xa3" + struct.pack("<I", IMAGE_BASE + shadow_index):
+        raise ValueError("Client ShadowIdx setter changed")
+    records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraft_CS_ShadowSprite", "kind": "global",
+                    "payload": {"gv_rva": hex(shadow_index), "gv_va": hex(IMAGE_BASE + shadow_index),
+                                "gv_sig": "A3 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + shadow_store),
+                                "gv_inst_offset": "0x0", "gv_inst_disp": "0x1", "gv_inst_length": "0x5"}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)
@@ -104,7 +131,7 @@ def main():
                 if name not in wanted or candidate.get("module") != "client" or candidate.get("platform") != "windows":
                     continue
                 verified = wanted[name]
-                address_key = "gv_rva" if verified["kind"] == "global" else "func_rva"
+                address_key = {"global": "gv_rva", "patch": "patch_rva"}.get(verified["kind"], "func_rva")
                 payload = candidate.get("payload", {})
                 if (candidate.get("kind") != verified["kind"] or
                     int(str(payload.get(address_key, "-1")), 0) != int(str(verified["payload"][address_key]), 0) or

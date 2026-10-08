@@ -12,7 +12,7 @@
       <AdditionalOptions>%(AdditionalOptions) --target=i686-pc-windows-msvc -Wno-unused-command-line-argument /arch:AVX2</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
-  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release'">
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release' Or '$(GoldCraftOptimizedTests)' == 'true'">
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <AdditionalOptions>%(AdditionalOptions) /clang:-O3 /clang:-flto=thin</AdditionalOptions>

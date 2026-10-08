@@ -14,6 +14,8 @@
 
 按 README 的顺序准备、编译。`Build-Native.ps1 -Server` 产生客户端插件、AMXX 模块和修改后的 ReGameDLL；`Build-ReHLDS.ps1` 单独编译服务器引擎。`Build-NeoForge.ps1` 编译正式映射 JAR、JUnit 测试与独立启动所需的开发运行清单。Yarn/Loom 用于编译和开发映射，不是 Fabric Loader 运行依赖。
 
+`Build-ReHLDS.ps1 -TestSteamCallbacks` 使用相同 Clang/C++20/O3/ThinLTO 配置构建 ReHLDS 的测试程序及依赖，在 `build/rehlds/Tests` 验证内部 Bot 与真人认证回调的边界；测试产物不会覆盖正式引擎或运行实例。
+
 ## 先建立原安装基线
 
 用环境变量指定原 CS 安装的绝对路径。也可在未跟踪的 `settings.local.json` 中设置 `originalGame`。以下交互式输入不会把个人路径写进仓库源码：

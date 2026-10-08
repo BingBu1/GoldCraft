@@ -28,7 +28,32 @@ int main() {
             check(std::equal(bytes.begin(), bytes.begin() + test.length, test.bytes.begin()), "exact wire bytes");
             check(bytes.back() == 0x5a, "adjacent field preserved");
             check(decode_media(test.bytes.data()) == test.index, "decode independently specified bytes");
+            // Both the engine and CS user-message parser return a signed
+            // short. Exercise the production reader with bounded callbacks.
+            for (unsigned available = 0; available <= test.length; ++available) {
+                unsigned cursor = 0;
+                bool bad = false;
+                auto read = [&](unsigned width) {
+                    if (width > available - cursor) { bad = true; return -1; }
+                    std::uint32_t value = 0;
+                    for (unsigned i = 0; i < width; ++i) value |= std::uint32_t(test.bytes[cursor++]) << (8 * i);
+                    return width == 2 ? int(static_cast<std::int16_t>(value)) : int(value);
+                };
+                std::uint32_t value = 0;
+                const bool valid = read_media_index([&] { return read(2); }, [&] { return read(4); }, [&] { return bad; }, true, value);
+                check(valid == (available == test.length), "truncated media fails before another message field");
+                if (valid) check(value == test.index && cursor == test.length, "signed client reader restores full ID");
+            }
         }
+        for (unsigned offset = 0; offset < 32; ++offset) {
+            check(user_message_media_field(UserMediaMessage::brass_cs, offset) == (offset == 20), "CS Brass model alone is expanded");
+            check(user_message_media_field(UserMediaMessage::brass_cz, offset) == (offset == 13), "CZ Brass model alone is expanded");
+            check(!user_message_media_field(UserMediaMessage::none, offset), "other user messages retain their schema");
+        }
+        std::uint32_t invalid = 0;
+        check(!read_media_index([] { return -1; }, [] { return -1; }, [] { return false; }, true, invalid), "negative 32-bit media rejected");
+        check(read_media_index([] { return -1; }, [] { throw std::runtime_error("legacy overread"); return 0; },
+            [] { return false; }, false, invalid) && invalid == 65535, "unextended escape remains a legacy short");
         // Consecutive high indices must not shift the second media field's
         // schema offset or consume the following color/scale bytes.
         const std::array<std::uint8_t, 15> blood{

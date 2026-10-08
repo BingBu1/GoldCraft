@@ -7,6 +7,7 @@
 #include <ref_params.h>
 #include <r_efx.h>
 #include <dlight.h>
+#include <demo_api.h>
 #include <cvardef.h>
 #include <keydefs.h>
 #include <in_buttons.h>
@@ -117,6 +118,52 @@ std::uint32_t host_use_life=0;
 double next_host_use=0;
 float last_input_forward=0,last_input_side=0;
 std::uint64_t test_command_id=0;
+struct NativeProfileFrame {
+    double elapsed, cpu;
+    float clientTime;
+    Vec3 origin, angles;
+    bool focused, playback;
+};
+std::vector<NativeProfileFrame> native_profile;
+double native_profile_start=0,native_profile_end=0,native_profile_cpu=0;
+int NativeMouseLookState() {
+    // The public KB_Find result is SDK kbutton_s: two key slots, then state.
+    // MetaHook's SDK forward-declares it; copy the three ints without relying
+    // on a private client address or modifying the client's input state.
+    const auto* button=gExportfuncs.KB_Find?gExportfuncs.KB_Find("in_mlook"):nullptr;
+    if(!button)return -1;
+    std::array<int,3> value{};std::memcpy(value.data(),button,sizeof(value));
+    return value[2];
+}
+double NativeThreadCpuMs() {
+    FILETIME created{},exited{},kernel{},user{};
+    if(!GetThreadTimes(GetCurrentThread(),&created,&exited,&kernel,&user))return -1;
+    const auto ticks=[](FILETIME t){return (std::uint64_t(t.dwHighDateTime)<<32)|t.dwLowDateTime;};
+    return double(ticks(kernel)+ticks(user))/10000.0;
+}
+void NativeProfileFrameEnd(float clientTime) {
+    if(!native_profile_end)return;
+    const double now=Seconds(),cpu=NativeThreadCpuMs();
+    DWORD foreground=0;GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
+    native_profile.push_back({(now-native_profile_start)*1000,cpu<0?-1:cpu-native_profile_cpu,
+        clientTime,observed_origin,observed_angles,foreground==GetCurrentProcessId(),
+        gEngfuncs.pDemoAPI&&gEngfuncs.pDemoAPI->IsPlayingback()!=0});
+    if(now<native_profile_end&&native_profile.size()<8192)return;
+    native_profile_end=0;
+    if(const char* path=std::getenv("GOLDCRAFT_MOTION_CAPTURE")) {
+        std::ofstream out(std::filesystem::path(path).parent_path()/"native-frame-profile.json");
+        out<<"{\"schema\":1,\"scope\":\"Main-thread CPU and wall time between HUD callbacks, inclusive of native engine and plugins\",\"frames\":[";
+        bool first=true;
+        for(const auto& f:native_profile){
+            if(!first)out<<',';first=false;
+            out<<"{\"time\":"<<f.elapsed<<",\"cpu\":"<<f.cpu<<",\"clientTime\":"<<f.clientTime
+               <<",\"focused\":"<<(f.focused?1:0)<<",\"playback\":"<<(f.playback?1:0)
+               <<",\"origin\":["<<f.origin.x<<','<<f.origin.y<<','<<f.origin.z
+               <<"],\"angles\":["<<f.angles.x<<','<<f.angles.y<<','<<f.angles.z<<"]}";
+        }
+        out<<"]}";
+    }
+}
 bool capture_requested=false;
 struct Lamp {Vec3 origin;float radius;std::uint32_t color;};
 std::vector<Lamp> lamps;
@@ -327,6 +374,7 @@ void WriteDiagnostics() {
            <<",\"cameraAngles\":["<<camera_pose.angles.x<<','<<camera_pose.angles.y<<','<<camera_pose.angles.z<<']'
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")
+           <<",\"developerLevel\":"<<gEngfuncs.pfnGetCvarFloat("developer")
            <<",\"atlasUploads\":"<<atlas_uploads<<",\"atlasGeneration\":"<<atlas_generation<<",\"atlasAnimationPackets\":"<<atlas_animation_packets<<",\"atlasPatchBytes\":"<<atlas_patch_bytes<<",\"atlasAnimationIntervalMs\":"<<atlas_animation_interval_ms
            <<",\"gpuUploads\":"<<gpu.uploads<<",\"gpuUploadBytes\":"<<gpu.upload_bytes<<",\"gpuDraws\":"<<gpu.draws<<",\"opaquePasses\":"<<gpu.opaque_passes<<",\"shadowPasses\":"<<gpu.shadow_passes
            <<",\"avatarCount\":"<<rendered_players.size()<<",\"suppressedModels\":"<<suppressed_models<<",\"replacePlayers\":"<<((!replace_players||replace_players->value!=0)?"true":"false")
@@ -360,7 +408,18 @@ void WriteDiagnostics() {
            <<",\"hostUiHook\":"<<(host_menu.hooked?"true":"false")<<",\"hostGameMenu\":"<<(host_menu.game_menu?"true":"false")
            <<",\"hostUiKeyboard\":"<<(host_menu.keyboard?"true":"false")<<",\"hostUiFocus\":\""<<host_menu.focus<<"\""
            <<",\"hostUiEvents\":"<<host_menu.events<<",\"hostUiConsumed\":"<<host_menu.consumed
+           <<",\"hostCursorVisible\":"<<(host_menu.cursor_visible?"true":"false")<<",\"mouseCaptureApi\":"<<(host_menu.mouse_api?"true":"false")
+           <<",\"rawInput\":"<<gEngfuncs.pfnGetCvarFloat("m_rawinput")<<",\"relativeMouseMode\":"<<host_menu.relative_mouse
+           <<",\"mouseLookState\":"<<NativeMouseLookState()
+           <<",\"mousePitch\":"<<gEngfuncs.pfnGetCvarFloat("m_pitch")<<",\"mouseYaw\":"<<gEngfuncs.pfnGetCvarFloat("m_yaw")
+           <<",\"pitchUp\":"<<gEngfuncs.pfnGetCvarFloat("cl_pitchup")<<",\"pitchDown\":"<<gEngfuncs.pfnGetCvarFloat("cl_pitchdown")
+           <<",\"demoPlayback\":"<<(gEngfuncs.pDemoAPI&&gEngfuncs.pDemoAPI->IsPlayingback()?"true":"false")
+           <<",\"demoRecording\":"<<(gEngfuncs.pDemoAPI&&gEngfuncs.pDemoAPI->IsRecording()?"true":"false")
+           <<",\"mouseCaptureRepairs\":"<<host_menu.mouse_repairs<<",\"mouseCaptureErrors\":"<<host_menu.mouse_errors
            <<",\"windowFocused\":"<<(window_focused?"true":"false")<<",\"hostVolume\":"<<gEngfuncs.pfnGetCvarFloat("volume")
+           <<",\"rendererDeferred\":"<<gEngfuncs.pfnGetCvarFloat("r_deferred_lighting")<<",\"rendererDiagnostics\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_diagnostics")
+           <<",\"rendererProfile\":"<<gEngfuncs.pfnGetCvarFloat("r_renderer_profile")
+           <<",\"rendererShadowCull\":"<<gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull")
            <<",\"hostUseHeld\":"<<(host_use_sent?"true":"false")<<",\"hostUseMessages\":"<<host_use_messages
            <<",\"minecraftForm\":"<<(server_minecraft_form?"true":"false")<<",\"serverPlayerLife\":"<<server_player_life
            <<",\"nativeColliders\":"<<native_colliders.size()<<",\"predictionObjects\":"<<prediction_objects<<",\"predictionFrames\":"<<prediction_frames<<",\"predictionOverflow\":"<<prediction_overflow
@@ -699,11 +758,66 @@ void TestCommands() {
     else if(action=="ui_char"){int character=0;if(input>>character&&character>=32&&character<=65535)SendUi(5,character);}
     else if(action=="kill")gEngfuncs.pfnClientCmd(const_cast<char*>("kill\n"));
     else if(action=="team"){int team=0;if(input>>team&&team>=1&&team<=2){std::string command="jointeam "+std::to_string(team)+"\njoinclass 1\n";gEngfuncs.pfnClientCmd(command.data());}}
+    else if(action=="observer")gEngfuncs.pfnClientCmd("jointeam 6\n");
     else if(action=="disconnect")gEngfuncs.pfnClientCmd(const_cast<char*>("disconnect\n"));
     else if(action=="reconnect")gEngfuncs.pfnClientCmd(const_cast<char*>("retry\n"));
+    else if(action=="loopback_connect"){
+        int port=0;if(input>>port&&port>=1024&&port<=65535){
+            auto command="connect 127.0.0.1:"+std::to_string(port)+"\n";
+            gEngfuncs.pfnClientCmd(command.data());
+        }
+    }
     else if(action=="avatars"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_replace_players",static_cast<float>(enabled));}
     else if(action=="smoothing"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_view_smoothing",static_cast<float>(enabled));}
     else if(action=="shadows"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("r_shadow",static_cast<float>(enabled));}
+    else if(action=="render_options"){
+        int deferred=1,diagnostics=0;
+        if(input>>deferred>>diagnostics&&deferred>=0&&deferred<=1&&diagnostics>=0&&diagnostics<=2){
+            gEngfuncs.Cvar_SetValue("r_deferred_lighting",static_cast<float>(deferred));
+            gEngfuncs.Cvar_SetValue("r_studio_diagnostics",static_cast<float>(diagnostics));
+        }
+    }
+    else if(action=="render_profile"){
+        float seconds=0;int compare=0;
+        if(input>>seconds&&std::isfinite(seconds)&&seconds>0&&seconds<=30){
+            input>>compare;
+            if(compare>=0&&compare<=1){
+                gEngfuncs.Cvar_SetValue("r_renderer_profile_compare",static_cast<float>(compare));
+                gEngfuncs.Cvar_SetValue("r_renderer_profile",seconds);
+            }
+        }
+    }
+    else if(action=="render_shadow_cull"){
+        int enabled=1;
+        if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("r_shadow_caster_cull",static_cast<float>(enabled));
+    }
+    else if(action=="native_profile"){
+        float seconds=0;
+        if(input>>seconds&&std::isfinite(seconds)&&seconds>=3&&seconds<=30&&!native_profile_end&&
+           std::getenv("GOLDCRAFT_MOTION_CAPTURE")){
+            const double cpu=NativeThreadCpuMs();
+            if(cpu>=0){
+                native_profile.clear();native_profile.reserve(8192);
+                native_profile_start=Seconds();native_profile_end=native_profile_start+seconds;native_profile_cpu=cpu;
+            }
+        }
+    }
+    else if(action=="native_profile_stop"){native_profile_end=0;native_profile.clear();}
+    else if(action=="native_mlook"){
+        int enabled=-1;
+        if(input>>enabled&&(enabled==0||enabled==1)&&NativeMouseLookState()>=0)
+            gEngfuncs.pfnClientCmd(enabled?"+mlook\n":"-mlook\n");
+    }
+    else if(action=="native_developer"){
+        int enabled=-1;
+        if(input>>enabled&&(enabled==0||enabled==1))gEngfuncs.Cvar_SetValue("developer",float(enabled));
+    }
+    // Fixed-name native demo commands for repeatable Renderer comparisons.
+    // This opt-in test channel is configured only by the sandbox launcher.
+    else if(action=="render_demo_record")gEngfuncs.pfnClientCmd("record goldcraft_native_reference\n");
+    else if(action=="render_demo_stop")gEngfuncs.pfnClientCmd("stop\n");
+    else if(action=="render_demo_play")gEngfuncs.pfnClientCmd("playdemo goldcraft_native_reference\n");
+    else if(action=="render_demo_end")gEngfuncs.pfnClientCmd("stopdemo\n");
     else if(action=="framerate"){int fps=100,vsync=0;if(input>>fps>>vsync&&fps>=30&&fps<=100&&vsync>=0&&vsync<=1){gEngfuncs.Cvar_SetValue("fps_max",static_cast<float>(fps));gEngfuncs.Cvar_SetValue("gl_vsync",static_cast<float>(vsync));}}
     else if(action=="profile") {
         double seconds=0;if(input>>seconds&&seconds>0&&seconds<=30)if(const char* destination=std::getenv("GOLDCRAFT_MOTION_CAPTURE")){
@@ -830,6 +944,7 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
     window_focused=foreground_process==GetCurrentProcessId();
     UpdateUi();
+    host_ui::update_mouse_capture(active&&window_focused,gEngfuncs.pfnGetCvarFloat("m_rawinput")!=0);
     // Keep GoldSrc's normal relative mouse capture, converting its look delta to a GUI cursor.
     // A temporary zero angle avoids losing cursor motion at pitch/yaw clamps.
     if(ui_active){float zero[3]{};gEngfuncs.SetViewAngles(zero);}
@@ -1000,6 +1115,7 @@ int Redraw(float time,int intermission) {
     // Repaint this server-owned menu with the engine's native-resolution text.
     if(visible&&!native_hud)DrawFormMenu();
     hud_work_ms=(Seconds()-began)*1000;last_gl_error=render::statistics().error;
+    NativeProfileFrameEnd(time);
     const char* path=std::getenv("GOLDCRAFT_CAPTURE_PATH");
     if(!path||!capture_requested)return result;
     capture_requested=false;
@@ -1028,6 +1144,8 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     gExportfuncs=*functions;
+    Log(client_precache::install_client() ? "client media v3 installed" :
+        std::string("client media unavailable: ") + client_precache::install_error());
     functions->HUD_Init=InitHud; functions->HUD_VidInit=VidInit; functions->HUD_Frame=Frame;
     functions->HUD_Redraw=Redraw;
     functions->V_CalcRefdef=CalcRefDef;

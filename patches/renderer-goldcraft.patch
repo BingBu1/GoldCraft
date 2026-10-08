@@ -51,23 +51,65 @@ index df2097c..f61be0b 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..44e2731 100644
+index 6ce4285..0bd5972 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -127,6 +127,8 @@ set(RENDERER_SOURCES
+@@ -125,8 +125,14 @@ set(RENDERER_SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_shadow_cull.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
++    "${PROJECT_SOURCE_DIR}/src/studio_bone_cache.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_studio_shadow.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_studio_player.cpp"
++    "${PROJECT_SOURCE_DIR}/src/studio_diagnostics.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_gbuffer.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_water.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/LambdaThreadedTask.cpp"
+diff --git a/scripts/manifests/renderer.json b/scripts/manifests/renderer.json
+index 63c012a..6debb2d 100644
+--- a/scripts/manifests/renderer.json
++++ b/scripts/manifests/renderer.json
+@@ -97,7 +97,6 @@
+           "R_RenderView": "function",
+           "R_ResetLatched": "function",
+           "R_StudioDrawModel": "function",
+-          "R_StudioDrawPlayer": "function",
+           "R_StudioMergeBones": "function",
+           "R_StudioRenderFinal": "function",
+           "R_StudioRenderModel": "function",
+@@ -461,7 +460,6 @@
+       "symbols": {
+         "client": {
+           "GameStudioRenderer_StudioDrawModel": "virtualFunction",
+-          "GameStudioRenderer_StudioDrawPlayer": "virtualFunction",
+           "GameStudioRenderer_StudioMergeBones": "virtualFunction",
+           "GameStudioRenderer_StudioRenderFinal": "virtualFunction",
+           "GameStudioRenderer_StudioRenderModel": "virtualFunction",
 diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
-index a7700ba..a551382 100644
+index a7700ba..19ad5da 100644
 --- a/src/exportfuncs.cpp
 +++ b/src/exportfuncs.cpp
-@@ -37,6 +37,7 @@ static hook_t* g_phook_studioapi_SetupRenderer = NULL;
+@@ -18,14 +18,13 @@ bool g_bIsSvenCoop = false;
+ bool g_bIsCounterStrike = false;
+ bool g_bIsAoMDC = false;
+ 
+-static hook_t *g_phook_GameStudioRenderer_StudioDrawPlayer = NULL;
++static hook_t* g_phook_studiointerface_StudioDrawPlayer = NULL;
+ static hook_t *g_phook_GameStudioRenderer_StudioSetupBones = NULL;
+ static hook_t* g_phook_GameStudioRenderer_StudioSaveBones = NULL;
+ static hook_t *g_phook_GameStudioRenderer_StudioMergeBones = NULL;
+ static hook_t *g_phook_GameStudioRenderer_StudioRenderModel = NULL;
+ static hook_t *g_phook_GameStudioRenderer_StudioRenderFinal = NULL;
+ 
+-static hook_t* g_phook_R_StudioDrawPlayer = NULL;
+ static hook_t *g_phook_R_StudioSetupBones = NULL;
+ static hook_t *g_phook_R_StudioMergeBones = NULL;
+ static hook_t* g_phook_R_StudioSaveBones = NULL;
+@@ -37,6 +36,7 @@ static hook_t* g_phook_studioapi_SetupRenderer = NULL;
  static hook_t* g_phook_studioapi_RestoreRenderer = NULL;
  static hook_t* g_phook_studioapi_StudioDynamicLight = NULL;
  static hook_t* g_phook_studioapi_StudioCheckBBox = NULL;
@@ -75,7 +117,7 @@ index a7700ba..a551382 100644
  
  static hook_t* g_phook_CL_FxBlend = NULL;
  
-@@ -47,6 +48,7 @@ void EngineStudio_UninstallHooks(void)
+@@ -47,6 +47,7 @@ void EngineStudio_UninstallHooks(void)
  	Uninstall_Hook(studioapi_RestoreRenderer);
  	Uninstall_Hook(studioapi_StudioDynamicLight);
  	Uninstall_Hook(studioapi_StudioCheckBBox);
@@ -83,6 +125,14 @@ index a7700ba..a551382 100644
  
  	Uninstall_Hook(CL_FxBlend);
  
+@@ -59,6 +60,7 @@ void EngineStudio_UninstallHooks(void)
+ 
+ void ClientStudio_UninstallHooks(void)
+ {
++	Uninstall_Hook(studiointerface_StudioDrawPlayer);
+ 	Uninstall_Hook(GameStudioRenderer_StudioSetupBones);
+ 	Uninstall_Hook(GameStudioRenderer_StudioMergeBones);
+ 	Uninstall_Hook(GameStudioRenderer_StudioSaveBones);
 @@ -144,6 +146,8 @@ void EngineStudio_InstalHooks()
  	Install_InlineHook(studioapi_RestoreRenderer);
  	Install_InlineHook(studioapi_StudioDynamicLight);
@@ -92,7 +142,58 @@ index a7700ba..a551382 100644
  	Install_InlineHook(CL_FxBlend);
  }
  
-@@ -247,6 +251,7 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppint
+@@ -156,8 +160,9 @@ void ClientStudio_FillAddress(struct r_studio_interface_s** ppinterface)
+ 
+ 	gPrivateFuncs.GameStudioRenderer_StudioDrawModel = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawModel))
+ 		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawModel", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION);
+-	gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer))
+-		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawPlayer", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION);
++	// CS's public callback bypasses the base virtual StudioDrawPlayer method.
++	// Hook this one public boundary for both client and engine implementations.
++	gPrivateFuncs.studiointerface_StudioDrawPlayer = (*ppinterface)->StudioDrawPlayer;
+ 
+ 	gPrivateFuncs.GameStudioRenderer_StudioRenderModel = (decltype(gPrivateFuncs.GameStudioRenderer_StudioRenderModel))
+ 		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioRenderModel", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION);
+@@ -173,8 +178,6 @@ void ClientStudio_FillAddress(struct r_studio_interface_s** ppinterface)
+ 	//Engine Studio render pipeline resolved from gamedata
+ 	gPrivateFuncs.R_StudioDrawModel = (decltype(gPrivateFuncs.R_StudioDrawModel))
+ 		GamedataResolvePtr(engineBase, "engine", "R_StudioDrawModel", MH_GAMESYMBOL_KIND_FUNCTION);
+-	gPrivateFuncs.R_StudioDrawPlayer = (decltype(gPrivateFuncs.R_StudioDrawPlayer))
+-		GamedataResolvePtr(engineBase, "engine", "R_StudioDrawPlayer", MH_GAMESYMBOL_KIND_FUNCTION);
+ 	gPrivateFuncs.R_StudioRenderModel = (decltype(gPrivateFuncs.R_StudioRenderModel))
+ 		GamedataResolvePtr(engineBase, "engine", "R_StudioRenderModel", MH_GAMESYMBOL_KIND_FUNCTION);
+ 	gPrivateFuncs.R_StudioRenderFinal = (decltype(gPrivateFuncs.R_StudioRenderFinal))
+@@ -189,9 +192,9 @@ void ClientStudio_FillAddress(struct r_studio_interface_s** ppinterface)
+ 
+ void ClientStudio_InstallHooks()
+ {
+-	if (gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer)
++	if (gPrivateFuncs.studiointerface_StudioDrawPlayer)
+ 	{
+-		Install_InlineHook(GameStudioRenderer_StudioDrawPlayer);
++		Install_InlineHook(studiointerface_StudioDrawPlayer);
+ 	}
+ 	if (gPrivateFuncs.GameStudioRenderer_StudioRenderModel)
+ 	{
+@@ -214,10 +217,6 @@ void ClientStudio_InstallHooks()
+ 		Install_InlineHook(GameStudioRenderer_StudioMergeBones);
+ 	}
+ 
+-	if (gPrivateFuncs.R_StudioDrawPlayer)
+-	{
+-		Install_InlineHook(R_StudioDrawPlayer);
+-	}
+ 	if (gPrivateFuncs.R_StudioRenderModel)
+ 	{
+ 		Install_InlineHook(R_StudioRenderModel);
+@@ -242,11 +241,14 @@ void ClientStudio_InstallHooks()
+ 
+ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppinterface, struct engine_studio_api_s *pstudio)
+ {
++	if (!ppinterface || !pstudio || !gExportfuncs.HUD_GetStudioModelInterface)
++		return 0;
+ 	gPrivateFuncs.studioapi_GL_SetRenderMode = pstudio->GL_SetRenderMode;
+ 	gPrivateFuncs.studioapi_SetupRenderer = pstudio->SetupRenderer;
  	gPrivateFuncs.studioapi_RestoreRenderer = pstudio->RestoreRenderer;
  	gPrivateFuncs.studioapi_StudioDynamicLight = pstudio->StudioDynamicLight;
  	gPrivateFuncs.studioapi_StudioCheckBBox = pstudio->StudioCheckBBox;
@@ -100,6 +201,17 @@ index a7700ba..a551382 100644
  
  	EngineStudio_InstalHooks();
  
+@@ -264,7 +266,9 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppint
+ 	cl_sprite_white = IEngineStudio.Mod_ForName("sprites/white.spr", 1);
+ 	cl_sprite_shell = IEngineStudio.Mod_ForName("sprites/shellchrome.spr", 1);
+ 
+-	int result = gExportfuncs.HUD_GetStudioModelInterface ? gExportfuncs.HUD_GetStudioModelInterface(version, ppinterface, pstudio) : 1;
++	int result = gExportfuncs.HUD_GetStudioModelInterface(version, ppinterface, pstudio);
++	if (!result || !(*ppinterface) || !(*ppinterface)->StudioDrawPlayer || !(*ppinterface)->StudioDrawModel)
++		return 0;
+ 
+ 	ClientStudio_FillAddress(ppinterface);
+ 	ClientStudio_InstallHooks();
 diff --git a/src/gl_draw.h b/src/gl_draw.h
 index 62ca365..71d78e5 100644
 --- a/src/gl_draw.h
@@ -129,8 +241,41 @@ index 62ca365..71d78e5 100644
  		level(_level), data(_data), size(_size), width(_width), height(_height), data_ctx(_data_ctx)
  	{
  
+diff --git a/src/gl_hooks.cpp b/src/gl_hooks.cpp
+index 767114a..e09a437 100644
+--- a/src/gl_hooks.cpp
++++ b/src/gl_hooks.cpp
+@@ -1208,15 +1208,21 @@ void Engine_InstallHooks(void)
+ 	Install_InlineHook(CVideoMode_Common_DrawStartupGraphic);
+ 	Install_InlineHook(CGame_DrawStartupVideo);
+ 	Install_InlineHook(Draw_Frame);
+-	Install_InlineHook(Draw_SpriteFrameHoles);
+-	Install_InlineHook(Draw_SpriteFrameHoles_SvEngine);
+-	Install_InlineHook(Draw_SpriteFrameAdditive);
+-	Install_InlineHook(Draw_SpriteFrameAdditive_SvEngine);
+-	Install_InlineHook(Draw_SpriteFrameGeneric);
+-	Install_InlineHook(Draw_SpriteFrameGeneric_SvEngine);
++	if (g_iEngineType == ENGINE_SVENGINE)
++	{
++		Install_InlineHook(Draw_SpriteFrameHoles_SvEngine);
++		Install_InlineHook(Draw_SpriteFrameAdditive_SvEngine);
++		Install_InlineHook(Draw_SpriteFrameGeneric_SvEngine);
++		Install_InlineHook(Draw_FillRGBABuf);
++	}
++	else
++	{
++		Install_InlineHook(Draw_SpriteFrameHoles);
++		Install_InlineHook(Draw_SpriteFrameAdditive);
++		Install_InlineHook(Draw_SpriteFrameGeneric);
++	}
+ 	Install_InlineHook(Draw_FillRGBA);
+ 	Install_InlineHook(Draw_FillRGBABlend);
+-	Install_InlineHook(Draw_FillRGBABuf);
+ 	Install_InlineHook(Draw_Pic);
+ 	Install_InlineHook(D_FillRect);
+ 	Install_InlineHook(R_GetSpriteFrame);
 diff --git a/src/gl_light.cpp b/src/gl_light.cpp
-index c2d3714..b62a3a9 100644
+index c2d3714..b0a48d3 100644
 --- a/src/gl_light.cpp
 +++ b/src/gl_light.cpp
 @@ -1,4 +1,5 @@
@@ -210,8 +355,26 @@ index c2d3714..b62a3a9 100644
  
  	GL_BindFrameBuffer(&s_GBufferFBO);
  
-@@ -1677,7 +1630,7 @@ void R_EndRenderGBuffer(FBO_Container_t *dst)
- 	R_FinalShadingPass(dst);
+@@ -1668,16 +1621,22 @@ void R_EndRenderGBuffer(FBO_Container_t *dst)
+ {
+ 	if (R_IsAmbientOcclusionEnabled())
+ 	{
++		RProfileScope profileScope(RProfileStage::AmbientOcclusion);
+ 		R_LinearizeDepth(&s_GBufferFBO, &s_DepthLinearFBO);
+ 		R_AmbientOcclusion(&s_DepthLinearFBO, &s_GBufferFBO);
+ 	}
+ 
+-	R_LightShadingPass();
+-
+-	R_FinalShadingPass(dst);
++	{
++		RProfileScope profileScope(RProfileStage::Lights);
++		R_LightShadingPass();
++	}
++	{
++		RProfileScope profileScope(RProfileStage::Composite);
++		R_FinalShadingPass(dst);
++	}
  
  	r_draw_gbuffer = false;
 -	gbuffer_mask = -1;
@@ -219,7 +382,7 @@ index c2d3714..b62a3a9 100644
  }
  
  void R_BlitGBufferToFrameBuffer(FBO_Container_t *dst, bool color, bool depth, bool stencil)
-@@ -1961,6 +1914,18 @@ void R_ProcessEngineDynamicLights()
+@@ -1961,6 +1920,18 @@ void R_ProcessEngineDynamicLights()
  			float specularpow = r_dynlight_specularpow->GetValue();
  
  			float radius = math_clamp(dl->radius, 0, 999999);
@@ -238,7 +401,7 @@ index c2d3714..b62a3a9 100644
  
  			vec3_t distToLight;
  			VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
-@@ -1974,9 +1939,9 @@ void R_ProcessEngineDynamicLights()
+@@ -1974,9 +1945,9 @@ void R_ProcessEngineDynamicLights()
  			dynamicLight->specular = specular;
  			dynamicLight->specularpow = specularpow;
  
@@ -270,18 +433,148 @@ index 38c7ef6..74c855e 100644
 -GLuint R_GetEmptyVAO();
 \ No newline at end of file
 +GLuint R_GetEmptyVAO();
+diff --git a/src/gl_local.h b/src/gl_local.h
+index 4be78fe..7e7b00b 100644
+--- a/src/gl_local.h
++++ b/src/gl_local.h
+@@ -43,6 +43,7 @@
+ #include "gl_water.h"
+ #include "gl_sprite.h"
+ #include "gl_studio.h"
++#include "studio_diagnostics.h"
+ #include "gl_hud.h"
+ #include "gl_shadow.h"
+ #include "gl_light.h"
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index 98fc3e1..c73b29b 100644
+index 98fc3e1..d3fc784 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  #include "gl_local.h"
  #include "gl_common.h"
 +#include "gl_external_scene.h"
++#include "gl_shadow_cull.h"
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -4700,6 +4701,7 @@ void R_RenderScene(void)
+@@ -786,10 +788,14 @@ bool AllowCheats()
+ 
+ qboolean R_CullBox(vec3_t mins, vec3_t maxs)
+ {
++	if (R_CullPointShadowBox(mins, maxs))
++		return true;
+ 	if (r_draw_nofrustumcull)
+ 		return false;
+ 
+-	return gPrivateFuncs.R_CullBox(mins, maxs);
++	const auto culled = gPrivateFuncs.R_CullBox(mins, maxs);
++	R_StudioDiagnosticsCullBox(mins, maxs, culled != 0);
++	return culled;
+ }
+ 
+ /*
+@@ -1750,6 +1756,7 @@ void triapi_End()
+ 
+ 	triapi_program_t prog{};
+ 	R_UseTriAPIProgram(ProgramState, &prog);
++	R_StudioDiagnosticsShadowDraw();
+ 
+ 	if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
+ 	{
+@@ -2413,6 +2420,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+ 	}
+ 	case mod_studio:
+ 	{
++		RProfileScope profileScope(R_IsRenderingShadowView() ? RProfileStage::StudioShadow : RProfileStage::StudioMain);
+ 		R_DrawStudioEntity(bTransparent);
+ 		break;
+ 	}
+@@ -3066,6 +3074,8 @@ void GL_Finish2D()
+ 
+ void GL_BeginRendering(int* x, int* y, int* width, int* height)
+ {
++	R_ProfileFrameBegin();
++	RProfileScope profileScope(RProfileStage::Setup);
+ 	/*
+ 		if (gl_vsync.value != g_IsVSyncEnabled)
+ 		{
+@@ -3145,10 +3155,16 @@ void R_PreRenderView()
+ 	}
+ 
+ 	R_RenderViewStart();
++	R_ProfileMainView();
+ 
+-	R_RenderShadowMap();
+-
+-	R_RenderWaterPass();
++	{
++		RProfileScope profileScope(RProfileStage::Shadow);
++		R_RenderShadowMap();
++	}
++	{
++		RProfileScope profileScope(RProfileStage::Water);
++		R_RenderWaterPass();
++	}
+ 
+ 	//Restore states because it might be corrupted by R_RenderWaterPass.
+ 	if (R_IsGammaBlendEnabled())
+@@ -3447,14 +3463,20 @@ void R_RenderView_SvEngine(int viewIdx)
+ 			R_PreDrawViewModel();
+ 		}
+ 
+-		R_RenderScene();
++		{
++			RProfileScope profileScope(RProfileStage::Scene);
++			R_RenderScene();
++		}
+ 
+ 		if (!(*r_refdef.onlyClientDraws))
+ 		{
+ 			R_DrawViewModel();
+ 		}
+ 
+-		R_PostRenderView();
++		{
++			RProfileScope profileScope(RProfileStage::Post);
++			R_PostRenderView();
++		}
+ 
+ 		//This will switch to final framebuffer (RGBA8)
+ 		if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
+@@ -3520,7 +3542,10 @@ float GetYMouseAspectRatioAdjustment(void)
+ 
+ void GL_EndRendering(void)
+ {
+-	R_RenderEndFrame();
++	{
++		RProfileScope profileScope(RProfileStage::EndFrame);
++		R_RenderEndFrame();
++	}
+ 
+ 	int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
+ 
+@@ -3564,7 +3589,11 @@ void GL_EndRendering(void)
+ 	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+ 
+ 	//Let engine call VID_FlipScreen for us.
+-	gPrivateFuncs.GL_EndRendering();
++	{
++		RProfileScope profileScope(RProfileStage::Present);
++		gPrivateFuncs.GL_EndRendering();
++	}
++	R_ProfileFrameEnd();
+ }
+ 
+ #if 0
+@@ -3797,6 +3826,7 @@ void R_Init(void)
+ 
+ void R_Shutdown(void)
+ {
++	R_ProfileShutdown();
+ 	g_RenderCallbacks.clear();
+ 
+ 	R_ShutdownWater();
+@@ -4700,6 +4730,7 @@ void R_RenderScene(void)
  		R_DrawEntitiesOnList();
  	}
  
@@ -289,7 +582,7 @@ index 98fc3e1..c73b29b 100644
  	R_EndRenderOpaque();
  
  	R_InhibitRenderingFog();
-@@ -4735,13 +4737,17 @@ int EngineGetMaxGLTextures()
+@@ -4735,13 +4766,17 @@ int EngineGetMaxGLTextures()
  	return MAX_GLTEXTURES;
  }
  
@@ -307,7 +600,7 @@ index 98fc3e1..c73b29b 100644
  	if (g_iEngineType == ENGINE_SVENGINE)
  		return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4750,6 +4756,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4750,6 +4785,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -315,7 +608,7 @@ index 98fc3e1..c73b29b 100644
  	int index = (mod - (model_t*)(mod_known));
  
  	if (index >= 0 && index < *mod_numknown)
-@@ -4760,6 +4767,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4760,6 +4796,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -323,7 +616,7 @@ index 98fc3e1..c73b29b 100644
  	auto pmod_known = (model_t*)(mod_known);
  
  	if (index >= 0 && index < *mod_numknown)
-@@ -4813,6 +4821,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4813,6 +4850,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -331,7 +624,7 @@ index 98fc3e1..c73b29b 100644
  	if (g_iEngineType == ENGINE_SVENGINE)
  		return MAX_MODELS_SVENGINE;
  
-@@ -6632,6 +6641,56 @@ uint32_t R_GetSwapChainHeight()
+@@ -6632,6 +6670,56 @@ uint32_t R_GetSwapChainHeight()
  	return glheight;
  }
  
@@ -400,8 +693,58 @@ index 573a0ea..377f81b 100644
 -#define SHADER_ATTRIB(name, loc, locstring) name##.loc = glGetAttribLocation(name.program, locstring);
 +#define SHADER_UNIFORM(name, loc, locstring) name.loc = glGetUniformLocation(name.program, locstring);
 +#define SHADER_ATTRIB(name, loc, locstring) name.loc = glGetAttribLocation(name.program, locstring);
+diff --git a/src/gl_shadow.cpp b/src/gl_shadow.cpp
+index eb0a749..6c5397f 100644
+--- a/src/gl_shadow.cpp
++++ b/src/gl_shadow.cpp
+@@ -1,4 +1,5 @@
+ #include "gl_local.h"
++#include "gl_shadow_cull.h"
+ #include <sstream>
+ #include <math.h>
+ 
+@@ -305,6 +306,7 @@ std::shared_ptr<IShadowTexture> R_CreateCubemapShadowTexture(uint32_t size, bool
+ 
+ void R_InitShadow(void)
+ {
++	R_InitShadowCulling();
+ 	r_shadow = gEngfuncs.pfnRegisterVariable("r_shadow", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
+ }
+ 
+@@ -423,6 +425,8 @@ void R_RenderShadowmapForDynamicLights(void)
+ 
+ 		const auto PointLightCallback = [](PointLightCallbackArgs *args, void *context)
+ 		{
++			RProfileScope profileScope(RProfileStage::PointShadow);
++			RPointShadowCullScope cullScope(args->origin, args->radius);
+ 				if (args->ppStaticShadowTexture && args->staticShadowSize > 0)
+ 				{
+ 					if ((*args->ppStaticShadowTexture) == nullptr ||
+@@ -666,6 +670,7 @@ void R_RenderShadowmapForDynamicLights(void)
+ 
+ 		const auto SpotLightCallback = [](SpotLightCallbackArgs *args, void *context)
+ 		{
++			RProfileScope profileScope(RProfileStage::SpotShadow);
+ 			if (args->ppDynamicShadowTexture && args->dynamicShadowSize > 0)
+ 			{
+ 				if ((*args->ppDynamicShadowTexture) == nullptr || 
+@@ -766,6 +771,7 @@ void R_RenderShadowmapForDynamicLights(void)
+ 
+ 		const auto DirectionalLightCallback = [](DirectionalLightCallbackArgs* args, void* context)
+ 		{
++			RProfileScope profileScope(RProfileStage::DirectionalShadow);
+ 			if (args->ppStaticShadowTexture && args->staticShadowSize > 0)
+ 			{
+ 				if ((*args->ppStaticShadowTexture) == nullptr || 
+@@ -1070,4 +1076,4 @@ void R_RenderShadowMap(void)
+ 	{
+ 		R_RenderShadowmapForDynamicLights();
+ 	}
+-}
+\ No newline at end of file
++}
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index bdc1885..9299f43 100644
+index bdc1885..6b048d9 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -9,6 +9,8 @@
@@ -413,17 +756,128 @@ index bdc1885..9299f43 100644
  
  static GLuint g_hStudioUBO{};
  
-@@ -26,7 +28,8 @@ static CStudioBoneCache* g_pStudioBoneFreeCaches{};
+@@ -16,26 +18,12 @@ static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCa
  
+ static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
+ 
+-static std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> g_StudioBoneCacheManager;
+-
+ static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
+ 
+-static CStudioBoneCache g_StudioBoneCaches[MAX_STUDIO_BONE_CACHES];
+-
+-static CStudioBoneCache* g_pStudioBoneFreeCaches{};
+-
  static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
  
 -static cache_user_t model_texture_cache[MAX_KNOWN_MODELS_SVENGINE][MAX_SKINS];
+-
+-class CEnginePlayerInfoStorage
+-{
+-public:
+-	struct player_info_s SavedPlayerInfo{};
+-	bool Filled{};
+-};
+-
+-static CEnginePlayerInfoStorage g_PlayerInfoStorage[MAX_CLIENTS]{};
 +// Cache_Alloc retains the cache_user_t address. deque preserves it on growth.
 +static std::deque<std::array<cache_user_t, MAX_SKINS>> model_texture_cache;
  
- class CEnginePlayerInfoStorage
+ //Engine private vars
+ 
+@@ -154,83 +142,6 @@ bool R_StudioHasHairFaceColorMix()
+ 	return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
+ }
+ 
+-void R_FreeStudioBoneCache(CStudioBoneCache* pStudioBoneCache)
+-{
+-	pStudioBoneCache->m_next = g_pStudioBoneFreeCaches;
+-	g_pStudioBoneFreeCaches = pStudioBoneCache;
+-}
+-
+-void R_StudioClearAllBoneCaches()
+-{
+-	for (int i = 0; i < MAX_STUDIO_BONE_CACHES - 1; i++)
+-		g_StudioBoneCaches[i].m_next = &g_StudioBoneCaches[i + 1];
+-
+-	g_StudioBoneCaches[MAX_STUDIO_BONE_CACHES - 1].m_next = NULL;
+-
+-	g_pStudioBoneFreeCaches = &g_StudioBoneCaches[0];
+-
+-	g_StudioBoneCacheManager.clear();
+-}
+-
+-CStudioBoneCache* R_AllocStudioBoneCache()
+-{
+-	if (!g_pStudioBoneFreeCaches)
+-	{
+-		gEngfuncs.Con_DPrintf("R_AllocStudioBoneCache: Studio bone caches overflow!\n");
+-		return NULL;
+-	}
+-
+-	auto pStudioBoneCache = g_pStudioBoneFreeCaches;
+-	g_pStudioBoneFreeCaches = pStudioBoneCache->m_next;
+-
+-	pStudioBoneCache->m_next = NULL;
+-
+-	return pStudioBoneCache;
+-}
+-
+-void R_StudioSaveBoneCache(studiohdr_t* studiohdr, int modelindex, int sequence, int gaitsequence, float frame, const float* origin, const float* angles)
+-{
+-	auto cache = R_AllocStudioBoneCache();
+-
+-	if (cache)
+-	{
+-		CStudioBoneCacheHandle handle(
+-			modelindex,
+-			sequence,
+-			gaitsequence,
+-			frame,
+-			origin,
+-			angles);
+-
+-		memcpy(cache->m_bonetransform, (*pbonetransform), sizeof(cache->m_bonetransform));
+-		memcpy(cache->m_lighttransform, (*plighttransform), sizeof(cache->m_lighttransform));
+-
+-		g_StudioBoneCacheManager[handle] = cache;
+-	}
+-}
+-
+-bool R_StudioLoadBoneCache(studiohdr_t* studiohdr, int modelindex, int sequence, int gaitsequence, float frame, const float* origin, const float* angles)
+-{
+-	CStudioBoneCacheHandle handle(
+-		modelindex,
+-		sequence,
+-		gaitsequence,
+-		frame,
+-		origin,
+-		angles);
+-
+-	const auto& itor = g_StudioBoneCacheManager.find(handle);
+-
+-	if (itor != g_StudioBoneCacheManager.end())
+-	{
+-		memcpy((*pbonetransform), itor->second->m_bonetransform, sizeof(itor->second->m_bonetransform));
+-		memcpy((*plighttransform), itor->second->m_lighttransform, sizeof(itor->second->m_lighttransform));
+-		return true;
+-	}
+-
+-	return false;
+-}
+-
+ studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
-@@ -1895,11 +1898,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+ 	if (studiohdr->textureindex == 0 && texturemod)
+@@ -1591,6 +1502,7 @@ void R_InitStudio(void)
+ 
+ 	//Cache bones to save CPU resources?
+ 	r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
++	R_StudioDiagnosticsInit();
+ 
+ 	r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
+ 
+@@ -1895,11 +1807,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
  	byte* pbase;
  	int size;
  
@@ -440,11 +894,385 @@ index bdc1885..9299f43 100644
  	pCache = &model_texture_cache[modelindex][index];
  
  	if (Cache_Check(pCache))
+@@ -2400,6 +2316,7 @@ void R_StudioDrawMesh_DrawPass(
+ 	short* pskinref,
+ 	program_state_t StudioProgramState)
+ {
++	RProfileScope profileScope(RProfileStage::StudioMesh);
+ 	if (!pRenderMesh->iIndiceCount)
+ 		return;
+ 
+@@ -3117,7 +3034,11 @@ void R_StudioDrawMesh_DrawPass(
+ 		glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
+ 	}
+ 
+-	glDrawElements(GL_TRIANGLES, pRenderMesh->iIndiceCount, GL_UNSIGNED_INT, BUFFER_OFFSET(pRenderMesh->iStartIndex));
++	R_StudioDiagnosticsMesh();
++	{
++		RProfileScope profileScope(RProfileStage::StudioSubmit);
++		glDrawElements(GL_TRIANGLES, pRenderMesh->iIndiceCount, GL_UNSIGNED_INT, BUFFER_OFFSET(pRenderMesh->iStartIndex));
++	}
+ 
+ 	GL_UseProgram(0);
+ 
+@@ -3390,7 +3311,10 @@ qboolean studioapi_StudioCheckBBox(void)
+ {
+ 	if (!g_bIsSvenCoop)
+ 	{
+-		return gPrivateFuncs.studioapi_StudioCheckBBox();
++		R_StudioDiagnosticsBBoxBegin();
++		const auto visible = gPrivateFuncs.studioapi_StudioCheckBBox();
++		R_StudioDiagnosticsBBox(visible != 0);
++		return visible;
+ 	}
+ 
+ 	mplane_t			plane;
+@@ -3874,15 +3798,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+ 	StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
+ }
+ 
+-void CopyPlayerInfoStudioRenderData(const player_info_t* src, player_info_t* dst)
+-{
+-	dst->renderframe = src->renderframe;
+-	dst->gaitsequence = src->gaitsequence;
+-	dst->gaitframe = src->gaitframe;
+-	dst->gaityaw = src->gaityaw;
+-	VectorCopy(src->prevgaitorigin, dst->prevgaitorigin);
+-}
+-
+ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+ {
+ 	if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
+@@ -3893,161 +3808,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+ 	return pseqdesc->flags;
+ }
+ 
+-/*
+-
+-	Purpose : StudioDrawPlayer hook handler
+-
+-*/
+-
+-template<typename CallType>
+-__forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, struct entity_state_s* pplayer, void* pthis = nullptr, int dummy = 0)
+-{
+-	int playerindex = pplayer->number - 1;
+-
+-	int result = 0;
+-
+-	if (playerindex >= 0 && playerindex < gEngfuncs.GetMaxClients() && playerindex < MAX_CLIENTS)
+-	{
+-		auto pPlayerInfo = IEngineStudio.PlayerInfo(playerindex);
+-
+-		if (g_PlayerInfoStorage[playerindex].Filled)
+-		{
+-			CopyPlayerInfoStudioRenderData(&g_PlayerInfoStorage[playerindex].SavedPlayerInfo, pPlayerInfo);
+-		}
+-
+-		CopyPlayerInfoStudioRenderData(pPlayerInfo, &g_PlayerInfoStorage[playerindex].SavedPlayerInfo);
+-		g_PlayerInfoStorage[playerindex].Filled = true;
+-
+-		if (R_IsRenderingLowerBody())
+-		{
+-			bool bHideLowerbody = false;
+-			
+-			//Sniber NMSL
+-			vec3_t vecSavedModelOrigin = { 0 };
+-			float flSavedModelScale = 0;
+-			int iSavedViewEntityIndex_SCClient = 0;
+-
+-			float* pScale = &(*currententity)->curstate.scale;
+-			float* pModelPos = (*currententity)->origin;
+-			VectorCopy(pModelPos, vecSavedModelOrigin);
+-			
+-			//Don't emit event (muzzleflash or sound)
+-			flags &= ~STUDIO_EVENTS;
+-
+-			flSavedModelScale = (*pScale);
+-
+-			auto model = IEngineStudio.SetupPlayerModel(playerindex);
+-
+-			if (g_bIsCounterStrike)
+-			{
+-				//Counter-Strike redirects playermodel in a pretty tricky way
+-				int modelindex = 0;
+-				model = CounterStrike_RedirectPlayerModel(model, playerindex, &modelindex);
+-			}
+-
+-			if (model)
+-			{
+-				auto pRenderData = R_GetStudioRenderDataFromModel(model);
+-
+-				if (pRenderData)
+-				{
+-					vec3_t viewangles, forward, right, up;
+-					gEngfuncs.GetViewAngles(viewangles);
+-					viewangles[0] = 0;
+-					AngleVectors(viewangles, forward, right, up);
+-
+-					float model_scale = pRenderData->LowerBodyControl.model_scale.GetValue();
+-
+-					if (model_scale > 0)
+-					{
+-						(*pScale) = model_scale;
+-					}
+-
+-					if ((*currententity)->curstate.usehull)
+-					{
+-						vec3_t duck_model_origin = { 0 };
+-
+-						if (pRenderData->LowerBodyControl.duck_model_origin.GetValues(duck_model_origin))
+-						{
+-							VectorMA(pModelPos, duck_model_origin[0], forward, pModelPos);
+-							VectorMA(pModelPos, duck_model_origin[1], right, pModelPos);
+-							VectorMA(pModelPos, duck_model_origin[2], up, pModelPos);
+-						}
+-					}
+-					else
+-					{
+-						vec3_t model_origin = { 0 };
+-
+-						if (pRenderData->LowerBodyControl.model_origin.GetValues(model_origin))
+-						{
+-							VectorMA(pModelPos, model_origin[0], forward, pModelPos);
+-							VectorMA(pModelPos, model_origin[1], right, pModelPos);
+-							VectorMA(pModelPos, model_origin[2], up, pModelPos);
+-						}
+-					}
+-				}
+-
+-				auto pstudiohdr = (studiohdr_t *)IEngineStudio.Mod_Extradata(model);
+-
+-				if (pstudiohdr)
+-				{
+-					if (pplayer->gaitsequence > 0 && (R_GetStudioSequenceFlags(pstudiohdr, pplayer->gaitsequence) & STUDIO_SF_HIDE_LOWERBODY))
+-						bHideLowerbody = true;
+-					else if (pplayer->sequence > 0 && (R_GetStudioSequenceFlags(pstudiohdr, pplayer->sequence) & STUDIO_SF_HIDE_LOWERBODY))
+-						bHideLowerbody = true;
+-				}
+-			}
+-
+-			if (!bHideLowerbody)
+-			{
+-				if (g_ViewEntityIndex_SCClient)
+-				{
+-					iSavedViewEntityIndex_SCClient = (*g_ViewEntityIndex_SCClient);
+-					(*g_ViewEntityIndex_SCClient) = 0;
+-				}
+-
+-				result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
+-
+-				if (g_ViewEntityIndex_SCClient)
+-				{
+-					(*g_ViewEntityIndex_SCClient) = iSavedViewEntityIndex_SCClient;
+-				}
+-			}
+-
+-			VectorCopy(vecSavedModelOrigin, pModelPos);
+-			(*pScale) = flSavedModelScale;
+-		}
+-		else
+-		{
+-			result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
+-		}
+-	}
+-	else
+-	{
+-		result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
+-	}
+-
+-	return result;
+-}
+-
+-__forceinline int R_StudioDrawPlayer_originalcall_wrapper(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
+-{
+-	return gPrivateFuncs.R_StudioDrawPlayer(flags, pplayer);
+-}
+-
+-int R_StudioDrawPlayer(int flags, struct entity_state_s* pplayer)
+-{
+-	return StudioDrawPlayer_Template(R_StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
+-}
+-
+-int __fastcall GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
+-{
+-	return StudioDrawPlayer_Template(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer, flags, pplayer, pthis, dummy);
+-}
+-
+ template<typename CallType>
+ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis = nullptr, int dummy = 0)
+ {
++	RProfileScope profileScope(RProfileStage::StudioBoneSetup);
+ 	if (!(*pstudiohdr))
+ 	{
+ 		pfnSetupBones(pthis, dummy);
+@@ -4061,22 +3825,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+ 		return;
+ 	}
+ 
+-	CStudioBoneCacheHandle handle(
+-		(*pstudiohdr)->soundtable,
+-		(*currententity)->curstate.sequence,
+-		(*currententity)->curstate.gaitsequence,
+-		(*currententity)->curstate.frame,
+-		(*currententity)->origin,
+-		(*currententity)->angles);
+-
+-	const auto& itor = g_StudioBoneCacheManager.find(handle);
+-
+-	if (itor != g_StudioBoneCacheManager.end())
+-	{
+-		memcpy((*pbonetransform), itor->second->m_bonetransform, sizeof(itor->second->m_bonetransform));
+-		memcpy((*plighttransform), itor->second->m_lighttransform, sizeof(itor->second->m_lighttransform));
+-		return;
+-	}
++	const bool cached = R_StudioLoadBoneCache((*pstudiohdr), (*pstudiohdr)->soundtable,
++		(*currententity)->curstate.sequence, (*currententity)->curstate.gaitsequence,
++		(*currententity)->curstate.frame, (*currententity)->origin, (*currententity)->angles);
++	R_ProfileBoneCache(cached);
++	if (cached) return;
+ 
+ 	pfnSetupBones(pthis, dummy);
+ }
+@@ -4084,6 +3837,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+ template<typename CallType>
+ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
+ {
++	RProfileScope profileScope(RProfileStage::StudioBoneSave);
+ 	if (!(*pstudiohdr))
+ 	{
+ 		pfnSaveBones(pthis, dummy);
+@@ -4099,28 +3853,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+ 
+ 	pfnSaveBones(pthis, dummy);
+ 
+-	auto cache = R_AllocStudioBoneCache();
+-
+-	if (cache)
+-	{
+-		CStudioBoneCacheHandle handle(
+-			(*pstudiohdr)->soundtable,
+-			(*currententity)->curstate.sequence,
+-			(*currententity)->curstate.gaitsequence,
+-			(*currententity)->curstate.frame,
+-			(*currententity)->origin,
+-			(*currententity)->angles);
+-
+-		memcpy(cache->m_bonetransform, (*pbonetransform), sizeof(cache->m_bonetransform));
+-		memcpy(cache->m_lighttransform, (*plighttransform), sizeof(cache->m_lighttransform));
+-
+-		g_StudioBoneCacheManager[handle] = cache;
+-	}
++	R_StudioSaveBoneCache((*pstudiohdr), (*pstudiohdr)->soundtable,
++		(*currententity)->curstate.sequence, (*currententity)->curstate.gaitsequence,
++		(*currententity)->curstate.frame, (*currententity)->origin, (*currententity)->angles);
+ }
+ 
+ template<typename CallType>
+ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, int dummy, model_t* pSubModel)
+ {
++	RProfileScope profileScope(RProfileStage::StudioBoneMerge);
+ 	if (!(*pstudiohdr))
+ 	{
+ 		pfnMergeBones(pthis, dummy, pSubModel);
+@@ -4134,22 +3875,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+ 		return;
+ 	}
+ 
+-	CStudioBoneCacheHandle handle(
+-		(*pstudiohdr)->soundtable,
+-		(*currententity)->curstate.sequence,
+-		(*currententity)->curstate.gaitsequence,
+-		(*currententity)->curstate.frame,
+-		(*currententity)->origin,
+-		(*currententity)->angles);
+-
+-	const auto& itor = g_StudioBoneCacheManager.find(handle);
+-
+-	if (itor != g_StudioBoneCacheManager.end())
+-	{
+-		memcpy((*pbonetransform), itor->second->m_bonetransform, sizeof(itor->second->m_bonetransform));
+-		memcpy((*plighttransform), itor->second->m_lighttransform, sizeof(itor->second->m_lighttransform));
+-		return;
+-	}
++	if (R_StudioLoadBoneCache((*pstudiohdr), (*pstudiohdr)->soundtable,
++		(*currententity)->curstate.sequence, (*currententity)->curstate.gaitsequence,
++		(*currententity)->curstate.frame, (*currententity)->origin, (*currententity)->angles)) return;
+ 
+ 	pfnMergeBones(pthis, dummy, pSubModel);
+ }
+@@ -5039,19 +4767,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+ 
+ void R_StudioStartFrame(void)
+ {
+-	for (int i = 0; i < MAX_CLIENTS; ++i)
+-	{
+-		auto playerindex = i;
+-
+-		g_PlayerInfoStorage[playerindex].Filled = false;
+-	}
++	R_StudioPlayerStartFrame();
+ 
+ 	R_StudioClearAllBoneCaches();
+ }
+ 
+ void R_StudioEndFrame(void)
+ {
+-
++	R_StudioDiagnosticsEndFrame();
+ }
+ 
+ void UpdatePlayerPitch(cl_entity_t *ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index 7c010fa..9fe3de5 100644
+index 7c010fa..e8ed1d5 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
-@@ -361,6 +361,7 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -230,8 +230,8 @@ public:
+ 			m_sequence == a.m_sequence &&
+ 			m_gaitsequence == a.m_gaitsequence &&
+ 			m_frame == a.m_frame &&
+-			VectorCompare(m_origin, a.m_origin) &&
+-			VectorCompare(m_angles, a.m_angles);
++			m_origin[0] == a.m_origin[0] && m_origin[1] == a.m_origin[1] && m_origin[2] == a.m_origin[2] &&
++			m_angles[0] == a.m_angles[0] && m_angles[1] == a.m_angles[1] && m_angles[2] == a.m_angles[2];
+ 	}
+ 
+ 	int m_modelindex;
+@@ -247,18 +247,21 @@ class CStudioBoneCacheHasher
+ public:
+ 	std::size_t operator()(const CStudioBoneCacheHandle& key) const
+ 	{
+-		auto base = (std::size_t)(key.m_modelindex << 24);
+-
+-		base += ((std::size_t)key.m_sequence << 16);
+-		base += ((std::size_t)key.m_gaitsequence << 8);
+-		base += (std::size_t)(key.m_frame * 128.0);
+-		base += (std::size_t)(key.m_origin[0] * 128.0);
+-		base += (std::size_t)(key.m_origin[1] * 128.0);
+-		base += (std::size_t)(key.m_origin[2] * 128.0);
+-		base += (std::size_t)(key.m_angles[0] * 128.0);
+-		base += (std::size_t)(key.m_angles[1] * 128.0);
+-		base += (std::size_t)(key.m_angles[2] * 128.0);
+-
++		// Map coordinates and angles may be negative. Converting them to an
++		// unsigned integer is undefined when out of range. Float hashing also
++		// keeps signed zero consistent with the exact equality used by the key;
++		// epsilon comparisons are not an equivalence relation for unordered_map.
++		std::size_t base{};
++		const auto combine = [&base](std::size_t value)
++		{
++			base ^= value + 0x9e3779b9u + (base << 6) + (base >> 2);
++		};
++		combine(std::hash<int>{}(key.m_modelindex));
++		combine(std::hash<int>{}(key.m_sequence));
++		combine(std::hash<int>{}(key.m_gaitsequence));
++		combine(std::hash<float>{}(key.m_frame));
++		for (int i = 0; i < 3; ++i) combine(std::hash<float>{}(key.m_origin[i]));
++		for (int i = 0; i < 3; ++i) combine(std::hash<float>{}(key.m_angles[i]));
+ 		return base;
+ 	}
+ };
+@@ -361,20 +364,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void studioapi_StudioDynamicLight(cl_entity_t *ent, alight_t *plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -452,6 +1280,23 @@ index 7c010fa..9fe3de5 100644
  void studioapi_GL_SetRenderMode(int rendermode);
  void studioapi_SetupRenderer(int rendermode);
  void studioapi_RestoreRenderer(void);
+ 
+ void UpdatePlayerPitch(cl_entity_t* ent, float a2);
+ 
+-int __fastcall GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer);
++int studiointerface_StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
++void R_StudioPlayerStartFrame();
++int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence);
+ void __fastcall GameStudioRenderer_StudioRenderModel(void *pthis, int);
+ void __fastcall GameStudioRenderer_StudioRenderFinal(void *pthis, int);
+ void __fastcall GameStudioRenderer_StudioSetupBones(void *pthis, int);
+ void __fastcall GameStudioRenderer_StudioSaveBones(void* pthis, int);
+ void __fastcall GameStudioRenderer_StudioMergeBones(void *pthis, int, model_t *pSubModel);
+ 
+-int R_StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
+ void R_StudioRenderModel(void);
+ void R_StudioRenderFinal(void);
+ void R_StudioSetupBones(void);
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
 index 9a5ad08..e9f5b49 100644
 --- a/src/gl_wsurf.cpp
@@ -466,7 +1311,7 @@ index 9a5ad08..e9f5b49 100644
  		}
  	}
 diff --git a/src/privatehook.h b/src/privatehook.h
-index 23919f0..1e62c0e 100644
+index 23919f0..af14e74 100644
 --- a/src/privatehook.h
 +++ b/src/privatehook.h
 @@ -165,6 +165,7 @@ typedef struct
@@ -477,11 +1322,34 @@ index 23919f0..1e62c0e 100644
  	void(*studioapi_GL_SetRenderMode)(int rendermode);
  	void(*studioapi_SetupRenderer)(int rendermode);
  	void(*studioapi_RestoreRenderer)(void);
+@@ -174,7 +175,7 @@ typedef struct
+ 	void(__fastcall* GameStudioRenderer_StudioMergeBones)(void* pthis, int, model_t* pSubModel);
+ 	void(__fastcall* GameStudioRenderer_StudioSaveBones)(void* pthis, int);
+ 	int(__fastcall* GameStudioRenderer_StudioDrawModel)(void* pthis, int, int flags);
+-	int(__fastcall* GameStudioRenderer_StudioDrawPlayer)(void* pthis, int, int flags, struct entity_state_s* pplayer);
++	int(*studiointerface_StudioDrawPlayer)(int flags, struct entity_state_s* pplayer);
+ 	void(__fastcall* GameStudioRenderer_StudioRenderModel)(void* pthis, int);
+ 	void(__fastcall* GameStudioRenderer_StudioRenderFinal)(void* pthis, int);
+ 
+@@ -182,7 +183,6 @@ typedef struct
+ 
+ 	//Engine Studio
+ 	int (*R_StudioDrawModel)(int flags);
+-	int (*R_StudioDrawPlayer)(int flags, struct entity_state_s* pplayer);
+ 	void(*R_StudioRenderModel)(void);
+ 	void(*R_StudioRenderFinal)(void);
+ 	void(*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..47d7ee5 100644
+index 93166e2..6d811fd 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -31,7 +31,7 @@ foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_te
+@@ -26,15 +26,16 @@ if(NOT TARGET glfw)
+     add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
+ endif()
+ 
+-foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_tests sc_client_tests)
++foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_tests sc_client_tests studio_player_tests shadow_cull_tests studio_bone_cache_tests)
+     add_executable(${test} "${CMAKE_CURRENT_SOURCE_DIR}/${test}.cpp")
      target_link_libraries(${test} PRIVATE renderer_settings)
      # These tests include production translation units and discard unused handlers.
      # Assertions must remain enabled in Release as in the original test runner.
@@ -490,7 +1358,11 @@ index 93166e2..47d7ee5 100644
      target_link_options(${test} PRIVATE /OPT:REF /INCREMENTAL:NO)
      add_test(NAME ${test} COMMAND ${test})
  endforeach()
-@@ -47,3 +47,11 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
++set_tests_properties(studio_bone_cache_tests PROPERTIES TIMEOUT 20)
+ 
+ # Unlike the CPU regression suites above nothing here is patched out: the probe
+ # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
+@@ -47,3 +48,11 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -636,10 +1508,10 @@ index 0000000..02861bd
 +}
 diff --git a/src/gl_studio_shadow.cpp b/src/gl_studio_shadow.cpp
 new file mode 100644
-index 0000000..9c9c777
+index 0000000..9e1d7a0
 --- /dev/null
 +++ b/src/gl_studio_shadow.cpp
-@@ -0,0 +1,29 @@
+@@ -0,0 +1,39 @@
 +#include "gl_local.h"
 +
 +void studioapi_StudioRenderShadow(int sprite, float* p1, float* p2, float* p3, float* p4)
@@ -647,7 +1519,17 @@ index 0000000..9c9c777
 +	// The legacy contact shadow is an alpha-blended sprite on the receiving
 +	// floor. It must never become geometry in a light's shadow/depth pass.
 +	if (R_IsRenderingShadowView() || r_draw_lineardepth)
++	{
++		R_StudioDiagnosticsShadow(sprite, true);
 +		return;
++	}
++	R_StudioDiagnosticsShadow(sprite, false);
++	struct RestoreShadowContext
++	{
++		bool saved = g_bDrawingStudioShadow;
++		RestoreShadowContext() { g_bDrawingStudioShadow = true; }
++		~RestoreShadowContext() { g_bDrawingStudioShadow = saved; }
++	} context;
 +
 +	if (!R_IsRenderingGBuffer())
 +	{
@@ -671,10 +1553,10 @@ index 0000000..9c9c777
 +}
 diff --git a/tests/studio_shadow_gl_tests.cpp b/tests/studio_shadow_gl_tests.cpp
 new file mode 100644
-index 0000000..e3dd649
+index 0000000..8560ed7
 --- /dev/null
 +++ b/tests/studio_shadow_gl_tests.cpp
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,199 @@
 +// Real MRT readback through the production StudioRenderShadow wrapper and
 +// GBuffer routing. A hidden test context never takes focus or operates CS.
 +#include "../src/gl_local.h"
@@ -694,6 +1576,8 @@ index 0000000..e3dd649
 +static bool deferred = true, shadow = false;
 +bool R_IsRenderingGBuffer() { return deferred; }
 +bool R_IsRenderingShadowView() { return shadow; }
++bool g_bDrawingStudioShadow{};
++void R_StudioDiagnosticsShadow(int, bool) {}
 +
 +constexpr int kSize = 64;
 +using Pixels = std::array<float, kSize * kSize * 4>;
@@ -871,4 +1755,1193 @@ index 0000000..e3dd649
 +	glDeleteVertexArrays(1, &vao); glDeleteTextures(1, &circle); glDeleteTextures(5, textures); glDeleteFramebuffers(1, &fbo);
 +	glfwDestroyWindow(window); glfwTerminate();
 +	return 0;
++}
+diff --git a/src/gl_studio_player.cpp b/src/gl_studio_player.cpp
+new file mode 100644
+index 0000000..3a037d0
+--- /dev/null
++++ b/src/gl_studio_player.cpp
+@@ -0,0 +1,201 @@
++#include "gl_local.h"
++#include "CounterStrike.h"
++
++class CEnginePlayerInfoStorage
++{
++public:
++	struct player_info_s SavedPlayerInfo{};
++	bool Filled{};
++	bool EventsDispatched{};
++};
++
++static CEnginePlayerInfoStorage g_PlayerInfoStorage[MAX_CLIENTS]{};
++
++void CopyPlayerInfoStudioRenderData(const player_info_t* src, player_info_t* dst)
++{
++	dst->renderframe = src->renderframe;
++	dst->gaitsequence = src->gaitsequence;
++	dst->gaitframe = src->gaitframe;
++	dst->gaityaw = src->gaityaw;
++	VectorCopy(src->prevgaitorigin, dst->prevgaitorigin);
++}
++
++/*
++
++	Purpose : StudioDrawPlayer hook handler
++
++*/
++
++template<typename CallType>
++__forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, struct entity_state_s* pplayer, void* pthis = nullptr, int dummy = 0)
++{
++	int playerindex = pplayer->number - 1;
++
++	int result = 0;
++
++	if (playerindex >= 0 && playerindex < gEngfuncs.GetMaxClients() && playerindex < MAX_CLIENTS)
++	{
++		auto pPlayerInfo = IEngineStudio.PlayerInfo(playerindex);
++
++		if (g_PlayerInfoStorage[playerindex].Filled)
++		{
++			CopyPlayerInfoStudioRenderData(&g_PlayerInfoStorage[playerindex].SavedPlayerInfo, pPlayerInfo);
++		}
++
++		CopyPlayerInfoStudioRenderData(pPlayerInfo, &g_PlayerInfoStorage[playerindex].SavedPlayerInfo);
++		g_PlayerInfoStorage[playerindex].Filled = true;
++
++		if (R_IsRenderingLowerBody())
++		{
++			bool bHideLowerbody = false;
++			
++			//Sniber NMSL
++			vec3_t vecSavedModelOrigin = { 0 };
++			float flSavedModelScale = 0;
++			int iSavedViewEntityIndex_SCClient = 0;
++
++			float* pScale = &(*currententity)->curstate.scale;
++			float* pModelPos = (*currententity)->origin;
++			VectorCopy(pModelPos, vecSavedModelOrigin);
++			
++			//Don't emit event (muzzleflash or sound)
++			flags &= ~STUDIO_EVENTS;
++
++			flSavedModelScale = (*pScale);
++
++			auto model = IEngineStudio.SetupPlayerModel(playerindex);
++
++			if (g_bIsCounterStrike)
++			{
++				//Counter-Strike redirects playermodel in a pretty tricky way
++				int modelindex = 0;
++				model = CounterStrike_RedirectPlayerModel(model, pplayer->number, &modelindex);
++			}
++
++			if (model)
++			{
++				auto pRenderData = R_GetStudioRenderDataFromModel(model);
++
++				if (pRenderData)
++				{
++					vec3_t viewangles, forward, right, up;
++					gEngfuncs.GetViewAngles(viewangles);
++					viewangles[0] = 0;
++					AngleVectors(viewangles, forward, right, up);
++
++					float model_scale = pRenderData->LowerBodyControl.model_scale.GetValue();
++
++					if (model_scale > 0)
++					{
++						(*pScale) = model_scale;
++					}
++
++					if ((*currententity)->curstate.usehull)
++					{
++						vec3_t duck_model_origin = { 0 };
++
++						if (pRenderData->LowerBodyControl.duck_model_origin.GetValues(duck_model_origin))
++						{
++							VectorMA(pModelPos, duck_model_origin[0], forward, pModelPos);
++							VectorMA(pModelPos, duck_model_origin[1], right, pModelPos);
++							VectorMA(pModelPos, duck_model_origin[2], up, pModelPos);
++						}
++					}
++					else
++					{
++						vec3_t model_origin = { 0 };
++
++						if (pRenderData->LowerBodyControl.model_origin.GetValues(model_origin))
++						{
++							VectorMA(pModelPos, model_origin[0], forward, pModelPos);
++							VectorMA(pModelPos, model_origin[1], right, pModelPos);
++							VectorMA(pModelPos, model_origin[2], up, pModelPos);
++						}
++					}
++				}
++
++				auto pstudiohdr = (studiohdr_t *)IEngineStudio.Mod_Extradata(model);
++
++				if (pstudiohdr)
++				{
++					if (pplayer->gaitsequence > 0 && (R_GetStudioSequenceFlags(pstudiohdr, pplayer->gaitsequence) & STUDIO_SF_HIDE_LOWERBODY))
++						bHideLowerbody = true;
++					else if (pplayer->sequence > 0 && (R_GetStudioSequenceFlags(pstudiohdr, pplayer->sequence) & STUDIO_SF_HIDE_LOWERBODY))
++						bHideLowerbody = true;
++				}
++			}
++
++			if (!bHideLowerbody)
++			{
++				if (g_ViewEntityIndex_SCClient)
++				{
++					iSavedViewEntityIndex_SCClient = (*g_ViewEntityIndex_SCClient);
++					(*g_ViewEntityIndex_SCClient) = 0;
++				}
++
++				result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
++
++				if (g_ViewEntityIndex_SCClient)
++				{
++					(*g_ViewEntityIndex_SCClient) = iSavedViewEntityIndex_SCClient;
++				}
++			}
++
++			VectorCopy(vecSavedModelOrigin, pModelPos);
++			(*pScale) = flSavedModelScale;
++		}
++		else
++		{
++			result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
++		}
++	}
++	else
++	{
++		result = pfnDrawPlayer(pthis, dummy, flags, pplayer);
++	}
++
++	return result;
++}
++
++__forceinline int StudioDrawPlayer_originalcall_wrapper(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
++{
++	return gPrivateFuncs.studiointerface_StudioDrawPlayer(flags, pplayer);
++}
++
++int studiointerface_StudioDrawPlayer(int flags, struct entity_state_s* pplayer)
++{
++	if (!pplayer)
++		return 0;
++	const int playerindex = pplayer->number - 1;
++	auto storage = playerindex >= 0 && playerindex < MAX_CLIENTS ? &g_PlayerInfoStorage[playerindex] : nullptr;
++	const bool auxiliary = R_IsRenderingShadowView() || R_IsRenderingLinearDepth() ||
++		R_IsRenderingWaterView() || R_IsRenderingPortal();
++	if (auxiliary || (storage && storage->EventsDispatched))
++		flags &= ~STUDIO_EVENTS;
++
++	// Shadow-caster and reflected views may contain the local player even when
++	// it is absent from the engine's main visible list. In first person only the
++	// explicitly generated/clipped lower body may render in the main view.
++	bool hidden = false;
++	if (!auxiliary && (flags & STUDIO_RENDER) && R_IsRenderingFirstPersonView() &&
++		!R_IsRenderingLowerBody() && (*currententity) != cl_viewent &&
++		(*currententity)->player && (*currententity)->index == (*cl_viewentity))
++	{
++		flags &= ~STUDIO_RENDER;
++		hidden = true;
++	}
++	const int result = StudioDrawPlayer_Template(StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
++	if (storage && result && (flags & STUDIO_EVENTS))
++		storage->EventsDispatched = true;
++	R_StudioDiagnosticsPlayer(flags, result, hidden);
++	return result;
++}
++
++void R_StudioPlayerStartFrame()
++{
++	for (auto& storage : g_PlayerInfoStorage)
++	{
++		storage.Filled = false;
++		storage.EventsDispatched = false;
++	}
++}
+diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
+new file mode 100644
+index 0000000..fb971e1
+--- /dev/null
++++ b/src/studio_diagnostics.h
+@@ -0,0 +1,37 @@
++#pragma once
++
++void R_StudioDiagnosticsInit();
++void R_StudioDiagnosticsEndFrame();
++void R_StudioDiagnosticsPlayer(int flags, int result, bool hidden);
++void R_StudioDiagnosticsBBox(bool visible);
++void R_StudioDiagnosticsBBoxBegin();
++void R_StudioDiagnosticsCullBox(const float* mins, const float* maxs, bool culled);
++void R_StudioDiagnosticsMesh();
++void R_StudioDiagnosticsShadow(int sprite, bool skipped);
++void R_StudioDiagnosticsShadowDraw();
++extern bool g_bDrawingStudioShadow;
++
++// Bounded, opt-in timings. GPU timestamps are collected only when available.
++enum class RProfileStage { Setup, Shadow, Water, Scene, AmbientOcclusion, Lights, Composite, Post, EndFrame, Present,
++	PointShadow, SpotShadow, DirectionalShadow, StudioShadow, StudioMain,
++	StudioBoneSetup, StudioBoneSave, StudioBoneMerge, StudioMesh, StudioSubmit, Count };
++double R_ProfileBegin();
++void R_ProfileEnd(RProfileStage stage, double start);
++void R_ProfileShadowCull(bool culled);
++void R_ProfileBoneCache(bool hit);
++void R_ProfileBoneCacheStore(bool reused, bool overflow);
++int R_ProfileGpuBegin(RProfileStage stage);
++void R_ProfileGpuEnd(int span);
++void R_ProfileMainView();
++void R_ProfileFrameBegin();
++void R_ProfileFrameEnd();
++void R_ProfileShutdown();
++class RProfileScope
++{
++	RProfileStage stage_;
++	double start_;
++	int gpuSpan_;
++public:
++	explicit RProfileScope(RProfileStage stage) : stage_(stage), start_(R_ProfileBegin()), gpuSpan_(R_ProfileGpuBegin(stage)) {}
++	~RProfileScope() { R_ProfileGpuEnd(gpuSpan_); R_ProfileEnd(stage_, start_); }
++};
+diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
+new file mode 100644
+index 0000000..f613f87
+--- /dev/null
++++ b/src/studio_diagnostics.cpp
+@@ -0,0 +1,484 @@
++#include "gl_local.h"
++#include <algorithm>
++#include <array>
++#include <chrono>
++#include <iomanip>
++#include <vector>
++
++bool g_bDrawingStudioShadow{};
++namespace
++{
++cvar_t* diagnostics{};
++cvar_t* profile{};
++cvar_t* profileCompare{};
++struct Player
++{
++	unsigned calls{}, rendered{}, culled{}, shadow{}, events{}, hidden{};
++	unsigned bbox{}, bboxVisible{}, meshes{}, shadowMeshes{};
++	unsigned firstPersonMain{}, lowerBody{}, localPlayer{};
++	int model{}, sequence{}, gaitSequence{}, renderFrame{};
++	float gait{};
++	bool boundsCaptured{}, boundsCulled{};
++	vec3_t mins{}, maxs{}, origin{}, viewOrigin{}, viewAngles{}, forward{};
++	float transform[3][4]{};
++	mplane_t planes[4]{};
++	char modelName[64]{};
++	int boundsSequence{}, body{}, renderMode{}, renderAmount{};
++	unsigned boundsSerial{};
++	double boundsTime{};
++};
++Player players[MAX_CLIENTS]{};
++bool inStudioBBox{};
++unsigned frames{}, contactCalls{}, contactSkipped{}, contactDraws{};
++int sprite{}, texture{}, width{}, height{}, format{}, activeTexture{}, sampler{}, mask{};
++int drawBuffers[4]{};
++unsigned zeroAlpha{}, partialAlpha{}, opaqueAlpha{};
++int cornerAlpha = -1;
++auto nextWrite = std::chrono::steady_clock::time_point{};
++
++bool Enabled() { return diagnostics && diagnostics->value > 0; }
++Player* CurrentPlayer()
++{
++	if (!Enabled() || !currententity || !(*currententity) || !(*currententity)->player)
++		return nullptr;
++	const int index = (*currententity)->index - 1;
++	return index >= 0 && index < MAX_CLIENTS ? &players[index] : nullptr;
++}
++}
++
++void R_StudioDiagnosticsInit()
++{
++	diagnostics = gEngfuncs.pfnRegisterVariable("r_studio_diagnostics", "0", FCVAR_CLIENTDLL);
++	profile = gEngfuncs.pfnRegisterVariable("r_renderer_profile", "0", FCVAR_CLIENTDLL);
++	profileCompare = gEngfuncs.pfnRegisterVariable("r_renderer_profile_compare", "0", FCVAR_CLIENTDLL);
++}
++
++void R_StudioDiagnosticsPlayer(int flags, int result, bool hidden)
++{
++	auto p = CurrentPlayer();
++	if (!p) return;
++	++p->calls;
++	if (R_IsRenderingShadowView()) ++p->shadow;
++	else if (flags & STUDIO_RENDER) result ? ++p->rendered : ++p->culled;
++	if (result && (flags & STUDIO_EVENTS)) ++p->events;
++	if (hidden) ++p->hidden;
++	if (R_IsRenderingLowerBody()) ++p->lowerBody;
++	if ((*currententity)->index == (*cl_viewentity)) ++p->localPlayer;
++	if (R_IsRenderingFirstPersonView() && !R_IsRenderingShadowView() && !R_IsRenderingLinearDepth() &&
++		!R_IsRenderingWaterView() && !R_IsRenderingPortal()) ++p->firstPersonMain;
++	p->model = (*currententity)->curstate.modelindex;
++	p->sequence = (*currententity)->curstate.sequence;
++	if (auto info = IEngineStudio.PlayerInfo((*currententity)->index - 1))
++	{
++		p->gait = info->gaitframe;
++		p->gaitSequence = info->gaitsequence;
++		p->renderFrame = info->renderframe;
++	}
++}
++
++void R_StudioDiagnosticsBBox(bool visible)
++{
++	inStudioBBox = false;
++	if (auto p = CurrentPlayer(); p && !R_IsRenderingShadowView())
++	{
++		++p->bbox;
++		if (visible) ++p->bboxVisible;
++	}
++}
++
++void R_StudioDiagnosticsBBoxBegin()
++{
++	inStudioBBox = Enabled() && !R_IsRenderingShadowView() && !R_IsRenderingLinearDepth() &&
++		!R_IsRenderingWaterView() && !R_IsRenderingPortal();
++}
++
++void R_StudioDiagnosticsCullBox(const float* mins, const float* maxs, bool culled)
++{
++	if (!inStudioBBox) return;
++	auto p = CurrentPlayer();
++	if (!p) return;
++	p->boundsCaptured = true;
++	p->boundsCulled = culled;
++	++p->boundsSerial;
++	p->boundsTime = gEngfuncs.GetClientTime();
++	VectorCopy(mins, p->mins);
++	VectorCopy(maxs, p->maxs);
++	VectorCopy((*currententity)->origin, p->origin);
++	VectorCopy(r_origin, p->viewOrigin);
++	VectorCopy((*r_refdef.viewangles), p->viewAngles);
++	VectorCopy(vpn, p->forward);
++	memcpy(p->transform, *rotationmatrix, sizeof(p->transform));
++	memcpy(p->planes, frustum, sizeof(p->planes));
++	memcpy(p->modelName, (*pstudiohdr)->name, sizeof(p->modelName));
++	p->modelName[sizeof(p->modelName) - 1] = 0;
++	p->boundsSequence = (*currententity)->curstate.sequence;
++	p->body = (*currententity)->curstate.body;
++	p->renderMode = (*currententity)->curstate.rendermode;
++	p->renderAmount = (*currententity)->curstate.renderamt;
++}
++
++void R_StudioDiagnosticsMesh()
++{
++	if (auto p = CurrentPlayer())
++		R_IsRenderingShadowView() ? ++p->shadowMeshes : ++p->meshes;
++}
++
++void R_StudioDiagnosticsShadow(int index, bool skipped)
++{
++	if (!Enabled()) return;
++	if (skipped) ++contactSkipped;
++	else { ++contactCalls; sprite = index; }
++}
++
++void R_StudioDiagnosticsShadowDraw()
++{
++	if (!Enabled() || !g_bDrawingStudioShadow) return;
++	++contactDraws;
++	// Counters never synchronize the GPU. Mode 2 requests one explicit deep
++	// sample, then returns to counters-only mode even if diagnostics stays on.
++	if (diagnostics->value < 2) return;
++	gEngfuncs.Cvar_SetValue("r_studio_diagnostics", 1);
++	mask = R_GetGBufferMask();
++	for (int i = 0; i < 4; ++i) glGetIntegerv(GL_DRAW_BUFFER0 + i, &drawBuffers[i]);
++	glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
++	glActiveTexture(GL_TEXTURE0);
++	glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
++	glGetIntegerv(GL_SAMPLER_BINDING, &sampler);
++	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
++	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
++	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_INTERNAL_FORMAT, &format);
++	zeroAlpha = partialAlpha = opaqueAlpha = 0;
++	cornerAlpha = -1;
++	// Bounded numeric alpha statistics only; no framebuffer/image capture.
++	if (texture && width > 0 && width <= 256 && height > 0 && height <= 256)
++	{
++		int pack{}, alignment{}, rowLength{}, skipRows{}, skipPixels{};
++		glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack);
++		glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
++		glGetIntegerv(GL_PACK_ROW_LENGTH, &rowLength);
++		glGetIntegerv(GL_PACK_SKIP_ROWS, &skipRows);
++		glGetIntegerv(GL_PACK_SKIP_PIXELS, &skipPixels);
++		glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
++		glPixelStorei(GL_PACK_ALIGNMENT, 1);
++		glPixelStorei(GL_PACK_ROW_LENGTH, 0);
++		glPixelStorei(GL_PACK_SKIP_ROWS, 0);
++		glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
++		std::vector<unsigned char> rgba(size_t(width) * height * 4);
++		glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
++		cornerAlpha = rgba[3];
++		for (size_t i = 3; i < rgba.size(); i += 4)
++		{
++			if (rgba[i] == 0) ++zeroAlpha;
++			else if (rgba[i] == 255) ++opaqueAlpha;
++			else ++partialAlpha;
++		}
++		glPixelStorei(GL_PACK_ALIGNMENT, alignment);
++		glPixelStorei(GL_PACK_ROW_LENGTH, rowLength);
++		glPixelStorei(GL_PACK_SKIP_ROWS, skipRows);
++		glPixelStorei(GL_PACK_SKIP_PIXELS, skipPixels);
++		glBindBuffer(GL_PIXEL_PACK_BUFFER, pack);
++	}
++	glActiveTexture(activeTexture);
++}
++
++void R_StudioDiagnosticsEndFrame()
++{
++	if (!Enabled()) return;
++	++frames;
++	const auto now = std::chrono::steady_clock::now();
++	if (now < nextWrite) return;
++	nextWrite = now + std::chrono::seconds(2);
++	std::ostringstream out;
++	out << "{\"frames\":" << frames << ",\"time\":" << gEngfuncs.GetClientTime()
++		<< ",\"deferred\":" << R_IsDeferredRenderingEnabled() << ",\"lowerBodyEnabled\":" << r_drawlowerbody->value
++		<< ",\"firstPerson\":" << R_IsRenderingFirstPersonView() << ",\"viewEntity\":" << (*cl_viewentity)
++		<< ",\"shadow\":{\"calls\":" << contactCalls << ",\"skipped\":" << contactSkipped
++		<< ",\"draws\":" << contactDraws << ",\"sprite\":" << sprite << ",\"texture\":" << texture
++		<< ",\"width\":" << width << ",\"height\":" << height << ",\"format\":" << format
++		<< ",\"activeUnit\":" << activeTexture << ",\"sampler\":" << sampler << ",\"mask\":" << mask
++		<< ",\"drawBuffers\":[" << drawBuffers[0] << ',' << drawBuffers[1] << ',' << drawBuffers[2] << ',' << drawBuffers[3]
++		<< "],\"zeroAlpha\":" << zeroAlpha << ",\"partialAlpha\":" << partialAlpha
++		<< ",\"opaqueAlpha\":" << opaqueAlpha << ",\"cornerAlpha\":" << cornerAlpha << "},\"players\":[";
++	bool first = true;
++	for (int i = 0; i < MAX_CLIENTS; ++i)
++	{
++		const auto& p = players[i];
++		if (!p.calls) continue;
++		if (!first) out << ',';
++		first = false;
++		out << "{\"entity\":" << i + 1 << ",\"calls\":" << p.calls << ",\"rendered\":" << p.rendered
++			<< ",\"culled\":" << p.culled << ",\"shadow\":" << p.shadow << ",\"events\":" << p.events
++			<< ",\"hidden\":" << p.hidden << ",\"bbox\":" << p.bbox << ",\"bboxVisible\":" << p.bboxVisible
++			<< ",\"firstPersonMain\":" << p.firstPersonMain << ",\"lowerBody\":" << p.lowerBody << ",\"localPlayer\":" << p.localPlayer
++			<< ",\"meshes\":" << p.meshes << ",\"shadowMeshes\":" << p.shadowMeshes << ",\"model\":" << p.model
++			<< ",\"sequence\":" << p.sequence << ",\"gaitSequence\":" << p.gaitSequence
++			<< ",\"gait\":" << p.gait << ",\"renderFrame\":" << p.renderFrame;
++		if (p.boundsCaptured)
++		{
++			auto vector = [&out](const float* v) { out << '[' << v[0] << ',' << v[1] << ',' << v[2] << ']'; };
++			out << ",\"bounds\":{\"serial\":" << p.boundsSerial << ",\"time\":" << p.boundsTime
++				<< ",\"culled\":" << p.boundsCulled << ",\"modelName\":" << std::quoted(p.modelName)
++				<< ",\"sequence\":" << p.boundsSequence << ",\"body\":" << p.body
++				<< ",\"renderMode\":" << p.renderMode << ",\"renderAmount\":" << p.renderAmount << ",\"mins\":";
++			vector(p.mins); out << ",\"maxs\":"; vector(p.maxs);
++			out << ",\"origin\":"; vector(p.origin);
++			out << ",\"viewOrigin\":"; vector(p.viewOrigin);
++			out << ",\"viewAngles\":"; vector(p.viewAngles);
++			out << ",\"forward\":"; vector(p.forward);
++			out << ",\"planes\":[";
++			for (int j = 0; j < 4; ++j)
++			{
++				if (j) out << ',';
++				const auto& plane = p.planes[j];
++				out << '[' << plane.normal[0] << ',' << plane.normal[1] << ',' << plane.normal[2]
++					<< ',' << plane.dist << ',' << int(plane.signbits) << ']';
++			}
++			out << "],\"transform\":[";
++			for (int j = 0; j < 3; ++j)
++			{
++				if (j) out << ',';
++				out << '[' << p.transform[j][0] << ',' << p.transform[j][1] << ','
++					<< p.transform[j][2] << ',' << p.transform[j][3] << ']';
++			}
++			out << "]}";
++		}
++		out << '}';
++	}
++	out << "]}";
++	auto file = FILESYSTEM_ANY_OPEN("renderer/studio-diagnostics.json", "wt", "GAMECONFIG");
++	if (file)
++	{
++		const auto text = out.str();
++		FILESYSTEM_ANY_WRITE(text.data(), text.size(), file);
++		FILESYSTEM_ANY_CLOSE(file);
++	}
++}
++
++namespace
++{
++constexpr size_t MaxProfileFrames = 8192;
++constexpr size_t ProfileStages = static_cast<size_t>(RProfileStage::Count);
++constexpr const char* ProfileNames[ProfileStages] = {
++	"setup", "shadow", "water", "scene", "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
++	"pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
++	"studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit"
++};
++struct ProfileFrame
++{
++	double time{}, interval{}, render{};
++	std::array<double, ProfileStages> stages{};
++	std::array<unsigned, ProfileStages> calls{};
++	std::array<double, ProfileStages> gpuStages{};
++	unsigned cullTests{}, culled{};
++	unsigned boneCacheHits{}, boneCacheMisses{};
++	unsigned boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
++	vec3_t origin{}, angles{};
++	int focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
++	int shadowCull{}, views{}, gpuReady{};
++	float fpsMax{}, fpsOverride{}, vsync{};
++};
++std::vector<ProfileFrame> profileFrames;
++ProfileFrame profileFrame{};
++bool profileActive{};
++double profileStart{}, profileStop{}, frameStart{}, previousFrame{};
++bool compareCulling{};
++float savedCulling{};
++constexpr size_t GpuSlots = 16, GpuSpans = 32;
++struct GpuFrame
++{
++	std::array<GLuint, GpuSpans * 2> queries{};
++	std::array<RProfileStage, GpuSpans> stages{};
++	size_t frame{}, count{};
++	bool pending{};
++};
++std::array<GpuFrame, GpuSlots> gpuFrames{};
++GpuFrame* gpuFrame{};
++double ProfileNow() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
++
++void CollectGpuProfile()
++{
++	for (auto& slot : gpuFrames)
++	{
++		if (!slot.pending) continue;
++		// An end timestamp of a nested stage can precede its parent's end.
++		// Check every span before reading any result; never wait on the GPU.
++		bool ready = true;
++		for (size_t i = 0; i < slot.count; ++i)
++		{
++			GLint available{};
++			glGetQueryObjectiv(slot.queries[2 * i + 1], GL_QUERY_RESULT_AVAILABLE, &available);
++			if (!available) { ready = false; break; }
++		}
++		if (!ready) continue;
++		auto& frame = profileFrames[slot.frame];
++		for (size_t i = 0; i < slot.count; ++i)
++		{
++			GLuint64 begin{}, end{};
++			glGetQueryObjectui64v(slot.queries[2 * i], GL_QUERY_RESULT, &begin);
++			glGetQueryObjectui64v(slot.queries[2 * i + 1], GL_QUERY_RESULT, &end);
++			if (end >= begin) frame.gpuStages[static_cast<size_t>(slot.stages[i])] += double(end - begin) / 1000000;
++		}
++		frame.gpuReady = 1;
++		slot.pending = false;
++	}
++}
++
++void WriteProfile()
++{
++	CollectGpuProfile();
++	profileActive = false;
++	gEngfuncs.Cvar_SetValue("r_renderer_profile", 0);
++	if (compareCulling) gEngfuncs.Cvar_SetValue("r_shadow_caster_cull", savedCulling);
++	compareCulling = false;
++	gEngfuncs.Cvar_SetValue("r_renderer_profile_compare", 0);
++	std::ostringstream out;
++	out << std::fixed << std::setprecision(4)
++		<< "{\"schema\":2,\"clock\":\"steady_clock\",\"unit\":\"milliseconds\","
++		<< "\"stageTimesInclusive\":true,\"gpuClock\":\"GL_TIMESTAMP\",\"gpuWaits\":false,\"frames\":[";
++	bool first = true;
++	for (const auto& f : profileFrames)
++	{
++		if (!first) out << ',';
++		first = false;
++		out << "{\"time\":" << f.time << ",\"interval\":" << f.interval << ",\"render\":" << f.render
++			<< ",\"focused\":" << f.focused << ",\"deferred\":" << f.deferred << ",\"diagnostics\":" << f.diagnostics
++			<< ",\"shadows\":" << f.shadows << ",\"lightsVisible\":" << f.lights << ",\"width\":" << f.width << ",\"height\":" << f.height
++			<< ",\"origin\":[" << f.origin[0] << ',' << f.origin[1] << ',' << f.origin[2]
++			<< "],\"angles\":[" << f.angles[0] << ',' << f.angles[1] << ',' << f.angles[2] << ']';
++		out << ",\"shadowCullTests\":" << f.cullTests << ",\"shadowCulled\":" << f.culled;
++		out << ",\"boneCacheHits\":" << f.boneCacheHits << ",\"boneCacheMisses\":" << f.boneCacheMisses;
++		out << ",\"boneCacheAllocations\":" << f.boneCacheAllocations
++			<< ",\"boneCacheReuses\":" << f.boneCacheReuses << ",\"boneCacheOverflows\":" << f.boneCacheOverflows;
++		out << ",\"shadowCull\":" << f.shadowCull << ",\"mainViews\":" << f.views << ",\"gpuReady\":" << f.gpuReady
++			<< ",\"fpsMax\":" << f.fpsMax << ",\"fpsOverride\":" << f.fpsOverride << ",\"vsync\":" << f.vsync;
++		for (size_t i = 0; i < ProfileStages; ++i)
++			out << ",\"" << ProfileNames[i] << "\":" << f.stages[i] << ",\"" << ProfileNames[i] << "Calls\":" << f.calls[i]
++				<< ",\"gpu_" << ProfileNames[i] << "\":" << f.gpuStages[i];
++		out << '}';
++	}
++	out << "]}";
++	if (auto file = FILESYSTEM_ANY_OPEN("renderer/frame-profile.json", "wt", "GAMECONFIG"))
++	{
++		const auto result = out.str();
++		FILESYSTEM_ANY_WRITE(result.data(), result.size(), file);
++		FILESYSTEM_ANY_CLOSE(file);
++	}
++	R_ProfileShutdown();
++}
++}
++
++int R_ProfileGpuBegin(RProfileStage stage)
++{
++	if (!profileActive || !gpuFrame || stage == RProfileStage::Setup || stage >= RProfileStage::PointShadow ||
++		gpuFrame->count == GpuSpans || !glQueryCounter || !glGetQueryObjectui64v) return -1;
++	if (!gpuFrame->queries[0]) glGenQueries(static_cast<GLsizei>(gpuFrame->queries.size()), gpuFrame->queries.data());
++	const auto span = gpuFrame->count++;
++	gpuFrame->stages[span] = stage;
++	glQueryCounter(gpuFrame->queries[2 * span], GL_TIMESTAMP);
++	return static_cast<int>(span);
++}
++void R_ProfileGpuEnd(int span)
++{
++	if (span >= 0 && gpuFrame) glQueryCounter(gpuFrame->queries[2 * span + 1], GL_TIMESTAMP);
++}
++void R_ProfileMainView()
++{
++	if (!profileActive || R_IsRenderingPortal()) return;
++	if (!profileFrame.views++)
++	{
++		// Capture the actual view before shadow/water passes temporarily replace it.
++		VectorCopy((*r_refdef.vieworg), profileFrame.origin);
++		VectorCopy((*r_refdef.viewangles), profileFrame.angles);
++	}
++}
++void R_ProfileShutdown()
++{
++	if (compareCulling) gEngfuncs.Cvar_SetValue("r_shadow_caster_cull", savedCulling);
++	compareCulling = false;
++	profileActive = false;
++	gpuFrame = nullptr;
++	for (auto& slot : gpuFrames)
++	{
++		if (slot.queries[0]) glDeleteQueries(static_cast<GLsizei>(slot.queries.size()), slot.queries.data());
++		slot = {};
++	}
++}
++double R_ProfileBegin() { return profileActive ? ProfileNow() : 0; }
++void R_ProfileEnd(RProfileStage stage, double start)
++{
++	if (start && profileActive)
++	{
++		profileFrame.stages[static_cast<size_t>(stage)] += (ProfileNow() - start) * 1000;
++		++profileFrame.calls[static_cast<size_t>(stage)];
++	}
++}
++void R_ProfileShadowCull(bool culled)
++{
++	if (profileActive) { ++profileFrame.cullTests; if (culled) ++profileFrame.culled; }
++}
++void R_ProfileBoneCache(bool hit)
++{
++	if (profileActive) { if (hit) ++profileFrame.boneCacheHits; else ++profileFrame.boneCacheMisses; }
++}
++void R_ProfileBoneCacheStore(bool reused, bool overflow)
++{
++	if (!profileActive) return;
++	if (overflow) ++profileFrame.boneCacheOverflows;
++	else if (reused) ++profileFrame.boneCacheReuses;
++	else ++profileFrame.boneCacheAllocations;
++}
++void R_ProfileFrameBegin()
++{
++	if (!profile) return;
++	if (!profileActive)
++	{
++		if (!(profile->value > 0)) return;
++		profileFrames.clear();
++		profileFrames.reserve(MaxProfileFrames);
++		profileStart = ProfileNow();
++		profileStop = profileStart + (std::min)(profile->value, 30.0f);
++		previousFrame = 0;
++		compareCulling = profileCompare && profileCompare->value > 0;
++		savedCulling = gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull");
++		profileActive = true;
++	}
++	CollectGpuProfile();
++	if (compareCulling) gEngfuncs.Cvar_SetValue("r_shadow_caster_cull", static_cast<float>(profileFrames.size() % 2));
++	gpuFrame = nullptr;
++	for (auto& slot : gpuFrames)
++	{
++		if (slot.pending) continue;
++		slot.frame = profileFrames.size();
++		slot.count = 0;
++		gpuFrame = &slot;
++		break;
++	}
++	frameStart = ProfileNow();
++	profileFrame = {};
++	profileFrame.time = (frameStart - profileStart) * 1000;
++	profileFrame.interval = previousFrame ? (frameStart - previousFrame) * 1000 : 0;
++	previousFrame = frameStart;
++}
++void R_ProfileFrameEnd()
++{
++	if (!profileActive) return;
++	const auto now = ProfileNow();
++	profileFrame.render = (now - frameStart) * 1000;
++	DWORD foregroundProcess{};
++	GetWindowThreadProcessId(GetForegroundWindow(), &foregroundProcess);
++	profileFrame.focused = foregroundProcess == GetCurrentProcessId();
++	profileFrame.deferred = R_IsDeferredRenderingEnabled();
++	profileFrame.diagnostics = diagnostics ? static_cast<int>(diagnostics->value) : 0;
++	profileFrame.shadows = static_cast<int>(r_shadow->value);
++	profileFrame.lights = static_cast<int>(g_VisibleDynamicLights.size());
++	profileFrame.width = glwidth;
++	profileFrame.height = glheight;
++	profileFrame.shadowCull = static_cast<int>(gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull"));
++	profileFrame.fpsMax = gEngfuncs.pfnGetCvarFloat("fps_max");
++	profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
++	profileFrame.vsync = gEngfuncs.pfnGetCvarFloat("gl_vsync");
++	profileFrames.push_back(profileFrame);
++	if (gpuFrame) gpuFrame->pending = gpuFrame->count > 0;
++	gpuFrame = nullptr;
++	if (now >= profileStop || profileFrames.size() >= MaxProfileFrames || profile->value <= 0) WriteProfile();
++}
+diff --git a/tests/studio_player_tests.cpp b/tests/studio_player_tests.cpp
+new file mode 100644
+index 0000000..2614035
+--- /dev/null
++++ b/tests/studio_player_tests.cpp
+@@ -0,0 +1,102 @@
++// Exercise the production public player callback: CS invokes its derived core
++// directly, so protecting only the base C++ virtual entry is insufficient.
++#include "../src/gl_studio_player.cpp"
++#include <cstdio>
++
++private_funcs_t gPrivateFuncs{};
++cl_enginefunc_t gEngfuncs{};
++engine_studio_api_t IEngineStudio{};
++bool g_bIsCounterStrike{};
++int* g_ViewEntityIndex_SCClient{};
++cl_entity_t entity{}, viewmodel{};
++cl_entity_t* current = &entity;
++cl_entity_t** currententity = &current;
++cl_entity_t* cl_viewent = &viewmodel;
++int viewEntity = 1;
++int* cl_viewentity = &viewEntity;
++player_info_t info[2]{};
++static bool shadow{}, depth{}, water{}, portal{}, firstPerson{}, lowerBody{}, visible = true;
++static unsigned calls{}, events{}, renders{}, suppressed{};
++static int lastFlags{}, frame = 20;
++static int redirectedPlayerNumber = -1;
++
++bool R_IsRenderingShadowView() { return shadow; }
++bool R_IsRenderingLinearDepth() { return depth; }
++bool R_IsRenderingWaterView() { return water; }
++bool R_IsRenderingPortal() { return portal; }
++bool R_IsRenderingFirstPersonView() { return firstPerson; }
++bool R_IsRenderingLowerBody() { return lowerBody; }
++void R_StudioDiagnosticsPlayer(int, int, bool hidden) { if (hidden) ++suppressed; }
++std::shared_ptr<CStudioModelRenderData> R_GetStudioRenderDataFromModel(model_t*) { return nullptr; }
++model_t* CounterStrike_RedirectPlayerModel(model_t* model, int number, int*) { redirectedPlayerNumber = number; return model; }
++int R_GetStudioSequenceFlags(studiohdr_t*, int) { return 0; }
++void AngleVectors(const float*, float*, float*, float*) {}
++
++static int Draw(int flags, entity_state_t* state)
++{
++	++calls; lastFlags = flags;
++	auto& player = info[state->number - 1];
++	player.gaitframe += 1.25f;
++	player.gaityaw += 2.f;
++	player.prevgaitorigin[0] += 4.f;
++	player.renderframe = frame;
++	if (!visible && (flags & STUDIO_RENDER)) return 0;
++	if (flags & STUDIO_RENDER) ++renders;
++	if (flags & STUDIO_EVENTS) ++events;
++	return 1;
++}
++
++int main()
++{
++	gEngfuncs.GetMaxClients = [] { return 2; };
++	IEngineStudio.PlayerInfo = [](int index) { return &info[index]; };
++	IEngineStudio.SetupPlayerModel = [](int) -> model_t* { return nullptr; };
++	gPrivateFuncs.studiointerface_StudioDrawPlayer = Draw;
++	entity.player = 1; entity.index = 2; entity.curstate.number = 2;
++	auto* state = &entity.curstate;
++	info[1].gaitframe = 10.f; info[1].gaityaw = 90.f; info[1].ping = 42;
++	R_StudioPlayerStartFrame();
++	shadow = true;
++	for (int i = 0; i < 16; ++i) assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(calls == 16 && events == 0 && renders == 16);
++	shadow = false;
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(studiointerface_StudioDrawPlayer(0, state));
++	assert(info[1].gaitframe == 11.25f && info[1].gaityaw == 92.f && info[1].prevgaitorigin[0] == 4.f);
++	assert(events == 1 && info[1].ping == 42 && info[0].gaitframe == 0.f);
++
++	++frame; R_StudioPlayerStartFrame();
++	visible = false;
++	assert(!studiointerface_StudioDrawPlayer(3, state));
++	visible = true;
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(info[1].gaitframe == 12.5f && info[1].renderframe == frame && events == 2);
++
++	R_StudioPlayerStartFrame(); firstPerson = true; entity.index = viewEntity = state->number = 1;
++	const auto before = renders;
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(!(lastFlags & STUDIO_RENDER) && renders == before && suppressed == 1);
++	// Spectator/third-person, shadow, reflected and explicit clipped lower-body
++	// views retain their render path. They never replay gameplay events.
++	shadow = true; assert(studiointerface_StudioDrawPlayer(3, state)); shadow = false;
++	assert((lastFlags & STUDIO_RENDER) && !(lastFlags & STUDIO_EVENTS));
++	water = true; assert(studiointerface_StudioDrawPlayer(3, state)); water = false;
++	assert((lastFlags & STUDIO_RENDER) && !(lastFlags & STUDIO_EVENTS));
++	portal = true; assert(studiointerface_StudioDrawPlayer(3, state)); portal = false;
++	depth = true; assert(studiointerface_StudioDrawPlayer(3, state)); depth = false;
++	lowerBody = true; assert(studiointerface_StudioDrawPlayer(3, state)); lowerBody = false;
++	firstPerson = false; assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(lastFlags & STUDIO_RENDER);
++	assert(info[0].gaitframe == 1.25f && info[1].gaitframe == 12.5f);
++	assert(!studiointerface_StudioDrawPlayer(3, nullptr));
++	// CounterStrike's model/team helper consumes the one-based player number;
++	// the engine Studio player-info/setup-model API above consumes a zero-based index.
++	g_bIsCounterStrike = lowerBody = true;
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(redirectedPlayerNumber == 1);
++	entity.index = state->number = 2;
++	assert(studiointerface_StudioDrawPlayer(3, state));
++	assert(redirectedPlayerNumber == 2);
++	std::puts("PASS: public callback, 16 shadow passes, one gait step/event, culled-first pass, next frame, player isolation and first/third-person visibility.");
++}
+diff --git a/src/gl_shadow_cull.h b/src/gl_shadow_cull.h
+new file mode 100644
+index 0000000..006b55a
+--- /dev/null
++++ b/src/gl_shadow_cull.h
+@@ -0,0 +1,18 @@
++#pragma once
++
++// The six cubemap views cannot share one camera frustum, but casters outside
++// the point light's complete volume cannot shadow any lit receiver.
++class RPointShadowCullScope
++{
++	const RPointShadowCullScope* previous_;
++	float origin_[3];
++	float radius_;
++	friend bool R_CullPointShadowBox(const float* mins, const float* maxs);
++public:
++	RPointShadowCullScope(const float* origin, float radius);
++	~RPointShadowCullScope();
++	RPointShadowCullScope(const RPointShadowCullScope&) = delete;
++	RPointShadowCullScope& operator=(const RPointShadowCullScope&) = delete;
++};
++void R_InitShadowCulling();
++bool R_CullPointShadowBox(const float* mins, const float* maxs);
+diff --git a/src/gl_shadow_cull.cpp b/src/gl_shadow_cull.cpp
+new file mode 100644
+index 0000000..38b7ba4
+--- /dev/null
++++ b/src/gl_shadow_cull.cpp
+@@ -0,0 +1,43 @@
++#include "gl_local.h"
++#include "gl_shadow_cull.h"
++#include <cmath>
++
++namespace
++{
++const RPointShadowCullScope* pointShadowVolume{};
++cvar_t* shadowCasterCull{};
++}
++
++RPointShadowCullScope::RPointShadowCullScope(const float* origin, float radius)
++	: previous_(pointShadowVolume), origin_{origin[0], origin[1], origin[2]}, radius_(radius)
++{
++	pointShadowVolume = this;
++}
++RPointShadowCullScope::~RPointShadowCullScope() { pointShadowVolume = previous_; }
++
++void R_InitShadowCulling()
++{
++	shadowCasterCull = gEngfuncs.pfnRegisterVariable("r_shadow_caster_cull", "1", FCVAR_CLIENTDLL);
++}
++
++bool R_CullPointShadowBox(const float* mins, const float* maxs)
++{
++	if (!pointShadowVolume || !R_IsRenderingShadowView() || !shadowCasterCull || shadowCasterCull->value <= 0)
++		return false;
++	const auto& light = *pointShadowVolume;
++	if (!std::isfinite(light.radius_) || light.radius_ <= 0) return false;
++	double distanceSquared = 0;
++	for (int i = 0; i < 3; ++i)
++	{
++		if (!std::isfinite(mins[i]) || !std::isfinite(maxs[i]) || !std::isfinite(light.origin_[i]) || mins[i] > maxs[i])
++			return false;
++		const double offset = light.origin_[i] < mins[i] ? double(mins[i]) - light.origin_[i] :
++			(light.origin_[i] > maxs[i] ? double(light.origin_[i]) - maxs[i] : 0);
++		distanceSquared += offset * offset;
++	}
++	// Retain tangent/near-boundary geometry despite engine bounds rounding.
++	const double radius = double(light.radius_) + 1;
++	const bool culled = distanceSquared > radius * radius;
++	R_ProfileShadowCull(culled);
++	return culled;
++}
+diff --git a/tests/shadow_cull_tests.cpp b/tests/shadow_cull_tests.cpp
+new file mode 100644
+index 0000000..94be69b
+--- /dev/null
++++ b/tests/shadow_cull_tests.cpp
+@@ -0,0 +1,62 @@
++// Execute the production light-volume rejection and scope restoration.
++#include "../src/gl_shadow_cull.cpp"
++#include <cassert>
++#include <limits>
++
++cl_enginefunc_t gEngfuncs{};
++cvar_t enabled{};
++bool shadow{};
++bool R_IsRenderingShadowView() { return shadow; }
++void R_ProfileShadowCull(bool) {}
++
++int main()
++{
++	gEngfuncs.pfnRegisterVariable = [](const char*, const char*, int) { return &enabled; };
++	R_InitShadowCulling();
++	enabled.value = 1;
++	shadow = true;
++	const float origin[]{0, 0, 0};
++	const float farMin[]{300, -10, -10}, farMax[]{320, 10, 10};
++	assert(!R_CullPointShadowBox(farMin, farMax));
++	{
++		RPointShadowCullScope light(origin, 100);
++		assert(R_CullPointShadowBox(farMin, farMax));
++		const float insideMin[]{-10, -10, -10}, insideMax[]{10, 10, 10};
++		assert(!R_CullPointShadowBox(insideMin, insideMax));
++		const float enclosingMin[]{-200, -200, -200}, enclosingMax[]{200, 200, 200};
++		assert(!R_CullPointShadowBox(enclosingMin, enclosingMax));
++		for (int axis = 0; axis < 3; ++axis)
++			for (int sign : {-1, 1})
++			{
++				float low[]{-1, -1, -1}, high[]{1, 1, 1};
++				low[axis] = sign > 0 ? 100 : -110;
++				high[axis] = sign > 0 ? 110 : -100;
++				assert(!R_CullPointShadowBox(low, high)); // tangent retained
++				low[axis] += sign * 2; high[axis] += sign * 2;
++				assert(R_CullPointShadowBox(low, high));
++			}
++		// Outside the sphere although inside its enclosing cube.
++		const float diagonalMin[]{75, 75, -1}, diagonalMax[]{80, 80, 1};
++		assert(R_CullPointShadowBox(diagonalMin, diagonalMax));
++		shadow = false;
++		assert(!R_CullPointShadowBox(farMin, farMax)); // main/reflection untouched
++		shadow = true;
++		enabled.value = 0;
++		assert(!R_CullPointShadowBox(farMin, farMax));
++		enabled.value = 1;
++		const float other[]{310, 0, 0};
++		{
++			RPointShadowCullScope nested(other, 30);
++			assert(!R_CullPointShadowBox(farMin, farMax));
++		}
++		assert(R_CullPointShadowBox(farMin, farMax));
++		float invalid[]{std::numeric_limits<float>::quiet_NaN(), 0, 0};
++		assert(!R_CullPointShadowBox(invalid, farMax));
++		assert(!R_CullPointShadowBox(farMax, farMin));
++	}
++	assert(!R_CullPointShadowBox(farMin, farMax));
++	{
++		RPointShadowCullScope invalid(origin, 0);
++		assert(!R_CullPointShadowBox(farMin, farMax));
++	}
++}
+diff --git a/src/studio_bone_cache.cpp b/src/studio_bone_cache.cpp
+new file mode 100644
+index 0000000..7c8771c
+--- /dev/null
++++ b/src/studio_bone_cache.cpp
+@@ -0,0 +1,60 @@
++#include "gl_local.h"
++
++namespace
++{
++std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> caches;
++CStudioBoneCache storage[MAX_STUDIO_BONE_CACHES];
++unsigned used{};
++bool overflowReported{};
++}
++
++void R_StudioClearAllBoneCaches()
++{
++	caches.clear();
++	used = 0;
++	overflowReported = false;
++}
++
++void R_StudioSaveBoneCache(studiohdr_t*, int modelindex, int sequence, int gaitsequence,
++	float frame, const float* origin, const float* angles)
++{
++	const CStudioBoneCacheHandle handle(modelindex, sequence, gaitsequence, frame, origin, angles);
++	const auto existing = caches.find(handle);
++	CStudioBoneCache* cache = nullptr;
++	if (existing != caches.end())
++	{
++		// Repeated shadow/main passes save the same pose. Reuse its slot while
++		// preserving the existing last-save-wins transform semantics.
++		cache = existing->second;
++		R_ProfileBoneCacheStore(true, false);
++	}
++	else
++	{
++		if (used == MAX_STUDIO_BONE_CACHES)
++		{
++			R_ProfileBoneCacheStore(false, true);
++			if (!overflowReported)
++			{
++				gEngfuncs.Con_DPrintf("R_StudioSaveBoneCache: unique pose capacity reached; uncached poses use native bones.\n");
++				overflowReported = true;
++			}
++			return;
++		}
++		cache = &storage[used++];
++		caches.emplace(handle, cache);
++		R_ProfileBoneCacheStore(false, false);
++	}
++	memcpy(cache->m_bonetransform, (*pbonetransform), sizeof(cache->m_bonetransform));
++	memcpy(cache->m_lighttransform, (*plighttransform), sizeof(cache->m_lighttransform));
++}
++
++bool R_StudioLoadBoneCache(studiohdr_t*, int modelindex, int sequence, int gaitsequence,
++	float frame, const float* origin, const float* angles)
++{
++	const CStudioBoneCacheHandle handle(modelindex, sequence, gaitsequence, frame, origin, angles);
++	const auto existing = caches.find(handle);
++	if (existing == caches.end()) return false;
++	memcpy((*pbonetransform), existing->second->m_bonetransform, sizeof(existing->second->m_bonetransform));
++	memcpy((*plighttransform), existing->second->m_lighttransform, sizeof(existing->second->m_lighttransform));
++	return true;
++}
+diff --git a/tests/studio_bone_cache_tests.cpp b/tests/studio_bone_cache_tests.cpp
+new file mode 100644
+index 0000000..fde9863
+--- /dev/null
++++ b/tests/studio_bone_cache_tests.cpp
+@@ -0,0 +1,128 @@
++// Exercise the actual per-frame cache under repeated point-shadow passes.
++#include "../src/studio_bone_cache.cpp"
++#include <cassert>
++#include <cmath>
++#include <cstdio>
++
++cl_enginefunc_t gEngfuncs{};
++static float bones[MAXSTUDIOBONES][3][4]{}, lights[MAXSTUDIOBONES][3][4]{};
++float (*pbonetransform)[MAXSTUDIOBONES][3][4] = &bones;
++float (*plighttransform)[MAXSTUDIOBONES][3][4] = &lights;
++static unsigned allocations{}, reuses{}, overflows{}, warnings{};
++
++void R_ProfileBoneCacheStore(bool reused, bool overflow)
++{
++	if (overflow) ++overflows;
++	else if (reused) ++reuses;
++	else ++allocations;
++}
++
++static void Warning(const char*, ...) { ++warnings; }
++
++static void Transforms(float value)
++{
++	for (int bone = 0; bone < MAXSTUDIOBONES; ++bone)
++		for (int row = 0; row < 3; ++row)
++			for (int col = 0; col < 4; ++col)
++			{
++				bones[bone][row][col] = value + bone * 12 + row * 4 + col;
++				lights[bone][row][col] = -bones[bone][row][col] - 1.f;
++			}
++}
++
++static void VerifyTransforms(float value)
++{
++	for (int bone = 0; bone < MAXSTUDIOBONES; ++bone)
++		for (int row = 0; row < 3; ++row)
++			for (int col = 0; col < 4; ++col)
++			{
++				const float expected = value + bone * 12 + row * 4 + col;
++				assert(bones[bone][row][col] == expected);
++				assert(lights[bone][row][col] == -expected - 1.f);
++			}
++}
++
++int main()
++{
++	_set_error_mode(_OUT_TO_STDERR);
++	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
++	gEngfuncs.Con_DPrintf = Warning;
++	const float origin[]{-2527.5f, 1989.f, 66.f}, angles[]{0.f, 356.f, 0.f};
++	R_StudioClearAllBoneCaches();
++	// 24 point lights, six cube faces, 24 players: 3,456 saves but 24 poses.
++	for (int pass = 0; pass < 144; ++pass)
++		for (int player = 0; player < 24; ++player)
++		{
++			Transforms(static_cast<float>(pass * 100 + player));
++			R_StudioSaveBoneCache(nullptr, player + 1, 2, 3, 4.f, origin, angles);
++		}
++	assert(allocations == 24 && reuses == 3432 && overflows == 0 && warnings == 0);
++	for (int player = 0; player < 24; ++player)
++	{
++		Transforms(-10000.f);
++		assert(R_StudioLoadBoneCache(nullptr, player + 1, 2, 3, 4.f, origin, angles));
++		VerifyTransforms(static_cast<float>(14300 + player));
++	}
++	// Every pose component remains part of the lookup. A miss leaves the
++	// native transform buffers intact for the caller's uncached path.
++	float otherOrigin[]{origin[0] + 1, origin[1], origin[2]};
++	float otherAngles[]{angles[0], angles[1] + 1, angles[2]};
++	Transforms(-123.f);
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 20, 3, 4.f, origin, angles));
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 30, 4.f, origin, angles));
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 3, 4.5f, origin, angles));
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 3, 4.f, otherOrigin, angles));
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 3, 4.f, origin, otherAngles));
++	VerifyTransforms(-123.f);
++	R_StudioClearAllBoneCaches();
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 3, 4.f, origin, angles));
++	allocations = reuses = overflows = 0;
++	for (int pose = 0; pose < MAX_STUDIO_BONE_CACHES; ++pose)
++	{
++		Transforms(static_cast<float>(pose));
++		R_StudioSaveBoneCache(nullptr, pose + 1, 0, 0, 0.f, origin, angles);
++	}
++	assert(allocations == MAX_STUDIO_BONE_CACHES && overflows == 0);
++	// A genuine full frame must preserve existing entries, allow their
++	// refresh and report only once rather than flood every shadow pass.
++	for (int pass = 0; pass < 100; ++pass)
++		R_StudioSaveBoneCache(nullptr, MAX_STUDIO_BONE_CACHES + 1, 0, 0, 0.f, origin, angles);
++	assert(overflows == 100 && warnings == 1);
++	assert(!R_StudioLoadBoneCache(nullptr, MAX_STUDIO_BONE_CACHES + 1, 0, 0, 0.f, origin, angles));
++	for (int pose = 0; pose < MAX_STUDIO_BONE_CACHES; ++pose)
++	{
++		assert(R_StudioLoadBoneCache(nullptr, pose + 1, 0, 0, 0.f, origin, angles));
++		VerifyTransforms(static_cast<float>(pose));
++	}
++	Transforms(7777.f);
++	R_StudioSaveBoneCache(nullptr, 1, 0, 0, 0.f, origin, angles);
++	assert(reuses == 1 && overflows == 100);
++	Transforms(0.f);
++	assert(R_StudioLoadBoneCache(nullptr, 1, 0, 0, 0.f, origin, angles));
++	VerifyTransforms(7777.f);
++	R_StudioClearAllBoneCaches();
++	assert(!R_StudioLoadBoneCache(nullptr, 1, 0, 0, 0.f, origin, angles));
++	Transforms(8888.f);
++	R_StudioSaveBoneCache(nullptr, MAX_STUDIO_BONE_CACHES + 1, 0, 0, 0.f, origin, angles);
++	Transforms(0.f);
++	assert(R_StudioLoadBoneCache(nullptr, MAX_STUDIO_BONE_CACHES + 1, 0, 0, 0.f, origin, angles));
++	VerifyTransforms(8888.f);
++	assert(warnings == 1);
++	// Equal signed-zero keys must hash identically. Different representable
++	// coordinates must never receive another pose's transforms.
++	R_StudioClearAllBoneCaches();
++	const float zeros[]{0.f, 0.f, 0.f}, negativeZeros[]{-0.f, -0.f, -0.f};
++	Transforms(333.f);
++	R_StudioSaveBoneCache(nullptr, 65536, 0, 0, -0.f, negativeZeros, negativeZeros);
++	Transforms(0.f);
++	assert(R_StudioLoadBoneCache(nullptr, 65536, 0, 0, 0.f, zeros, zeros));
++	VerifyTransforms(333.f);
++	const float closeOrigin[]{std::nextafter(0.f, 1.f), 0.f, 0.f};
++	assert(!R_StudioLoadBoneCache(nullptr, 65536, 0, 0, 0.f, closeOrigin, zeros));
++	// Warning suppression resets per frame, while retained entries never do.
++	for (int pose = 1; pose < MAX_STUDIO_BONE_CACHES; ++pose)
++		R_StudioSaveBoneCache(nullptr, pose, 0, 0, 0.f, zeros, zeros);
++	R_StudioSaveBoneCache(nullptr, MAX_STUDIO_BONE_CACHES, 0, 0, 0.f, zeros, zeros);
++	assert(warnings == 2);
++	std::puts("PASS: 3,456 multipass saves use 24 slots; last-save transforms, pose isolation, full-capacity fallback and frame reset.");
 +}

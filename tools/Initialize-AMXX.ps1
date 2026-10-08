@@ -11,7 +11,10 @@ $amxx=Assert-SandboxPath (Join-Path $game 'cstrike/addons/amxmodx')
 $meta=Assert-SandboxPath (Join-Path $game 'cstrike/addons/metamod')
 if(-not(Test-Path -LiteralPath $amxx)){
     New-Item -ItemType Directory -Path (Split-Path $amxx) -Force | Out-Null
-    Copy-Item -LiteralPath $runtime -Destination $amxx -Recurse
+    New-Item -ItemType Directory -Path $amxx -Force | Out-Null
+    Get-ChildItem -LiteralPath $runtime | Where-Object Name -ne 'scripting' | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $amxx -Recurse
+    }
     $plugins=Assert-SandboxPath (Join-Path $amxx 'configs/plugins.ini')
     Copy-Item -LiteralPath $plugins -Destination (Join-Path $amxx 'configs/plugins.stock.ini')
     '; GoldCraft development server. Original defaults: plugins.stock.ini' | Set-Content -LiteralPath $plugins -Encoding ascii
@@ -34,17 +37,12 @@ Add-ConfigLine (Join-Path $meta 'plugins.ini') 'win32 addons/amxmodx/dlls/amxmod
 Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'goldcraft'
 Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'reapi'
 Copy-Item -LiteralPath (Join-Path $reapi 'modules/reapi_amxx.dll') -Destination (Join-Path $amxx 'modules/reapi_amxx.dll') -Force
-foreach($include in Get-ChildItem -LiteralPath (Join-Path $reapi 'scripting/include') -File){
-    Copy-Item -LiteralPath $include.FullName -Destination (Assert-SandboxPath (Join-Path $amxx "scripting/include/$($include.Name)")) -Force
-}
 Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/goldcraft_amxx.dll')) -Destination (Join-Path $amxx 'modules/goldcraft_amxx.dll') -Force
 $pluginNames=@('goldcraft');if($TestFixtures){$pluginNames+='goldcraft_test'}
 foreach($name in $pluginNames){
-    Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "dist/amxx/$name.amxx")) -Destination (Join-Path $amxx "plugins/$name.amxx") -Force
-    Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "amxx/$name.sma")) -Destination (Join-Path $amxx "scripting/$name.sma") -Force
+    Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$name.amxx")) -Destination (Join-Path $amxx "plugins/$name.amxx") -Force
     Add-ConfigLine (Join-Path $amxx 'configs/plugins.ini') "$name.amxx"
 }
-Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'amxx/include/goldcraft.inc') -Destination (Join-Path $amxx 'scripting/include/goldcraft.inc') -Force
 $files=@('cstrike/liblist.gam','cstrike/addons/metamod/metamod.dll','cstrike/addons/amxmodx/dlls/amxmodx_mm.dll','cstrike/addons/amxmodx/modules/goldcraft_amxx.dll','cstrike/addons/amxmodx/modules/reapi_amxx.dll')
 $files+=@($pluginNames | ForEach-Object {"cstrike/addons/amxmodx/plugins/$_.amxx"})
 $evidence=@($files | ForEach-Object { $path=Assert-SandboxPath (Join-Path $game $_); @{name=$_;sha256=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash} })

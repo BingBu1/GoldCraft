@@ -41,6 +41,13 @@ static_assert(sizeof(Sound) == 72 && sizeof(Consistency) == 44);
 metahook_api_t* api = nullptr;
 void* engine = nullptr;
 bool enabled = false, extended = false, receiving = false;
+bool legacy_manifest_received = false;
+bool client_media_enabled = false;
+unsigned brass_reads = 0, high_brass_reads = 0, last_brass_model = 0;
+int (__cdecl* client_read_short)() = nullptr;
+int (__cdecl* client_read_long)() = nullptr;
+int* client_bad_read = nullptr;
+int* client_shadow_index = nullptr;
 std::string install_failure;
 unsigned manifest_total = 0, manifest_next = 0, manifests = 0, resets = 0;
 unsigned high_model_reads = 0, high_sound_reads = 0, high_model_lookups = 0;
@@ -60,9 +67,13 @@ int sound_cache_epoch = -1;
 std::deque<cl_entity_t> static_entities;
 struct SoundObservation { unsigned index; bool ambient; std::string name; };
 std::deque<SoundObservation> sound_observations;
+struct BrassObservation { unsigned index; std::string name; };
+std::deque<BrassObservation> brass_observations;
 std::unordered_map<const model_t*, std::unique_ptr<std::array<cache_user_t, 32>>> skin_caches;
 
 model_t* original_models = nullptr;
+model_t** legacy_model_precache = nullptr;
+Sound** legacy_sound_precache = nullptr;
 CRC* original_crcs = nullptr;
 int* original_model_count = nullptr;
 Sound** original_sounds = nullptr;
@@ -101,6 +112,8 @@ int (__cdecl* clear_client_original)() = nullptr;
 void (__cdecl* parse_resources_original)() = nullptr;
 void (__cdecl* disconnect_original)() = nullptr;
 model_t* (__cdecl* model_for_index_original)(int) = nullptr;
+void (__cdecl* need_crc_original)(const char*, int) = nullptr;
+int (__cdecl* validate_crc_original)(const char*, unsigned) = nullptr;
 
 void* resolve(const char* name, mh_gamesymbol_kind_t kind) {
     const auto symbol = std::string("GoldCraft_") + name;
@@ -135,14 +148,53 @@ void* consistency_bits_patch = nullptr;
 std::array<void*, 5> model_limits{};
 std::vector<std::pair<void*, void*>> wire_calls;
 void* static_parser_slot = nullptr;
+DWORD legacy_sound_end = 0, legacy_consistency_table = 0;
+byte legacy_consistency_bits = 0;
+struct ConnectionPatch {
+    void* address;
+    std::vector<byte> original, replacement;
+};
+std::vector<ConnectionPatch> connection_patches;
+
+// Resolve/verify at plugin load, but leave stock instructions in place until
+// this connection receives a matching GoldCraft manifest. Restore exact bytes
+// at teardown; another server must never inherit a previous server's protocol.
+void prepare_patch(void* address, const void* replacement, unsigned size) {
+    const auto* before = static_cast<const byte*>(address);
+    const auto* after = static_cast<const byte*>(replacement);
+    connection_patches.push_back({address, {before, before + size}, {after, after + size}});
+    if (extended) api->WriteMemory(address, connection_patches.back().replacement.data(), size);
+}
 
 void update_tables() {
+    if (!extended) return;
     for (const auto& patch : table_patches) {
         const auto base = patch.table == Table::models ? static_cast<void*>(models.data()) : sounds.data();
         api->WriteDWORD(patch.address, DWORD(base) + patch.offset);
     }
     api->WriteDWORD(sound_end_patch, DWORD(sounds.data() + sounds.size()));
     for (auto patch : model_limits) api->WriteDWORD(patch, DWORD(models.size()));
+}
+
+void set_extension(bool active) {
+    if (extended == active) return;
+    extended = active;
+    for (auto& patch : connection_patches) {
+        auto& bytes = active ? patch.replacement : patch.original;
+        api->WriteMemory(patch.address, bytes.data(), DWORD(bytes.size()));
+    }
+    if (active) {
+        update_tables();
+    } else {
+        for (const auto& patch : table_patches) {
+            const auto base = patch.table == Table::models ? static_cast<void*>(legacy_model_precache) : legacy_sound_precache;
+            api->WriteDWORD(patch.address, DWORD(base) + patch.offset);
+        }
+        api->WriteDWORD(sound_end_patch, legacy_sound_end);
+        for (auto patch : model_limits) api->WriteDWORD(patch, 512);
+        api->WriteDWORD(consistency_table_patch, legacy_consistency_table);
+        api->WriteMemory(consistency_bits_patch, &legacy_consistency_bits, 1);
+    }
 }
 
 [[noreturn]] void malformed(const char* reason) {
@@ -152,7 +204,7 @@ void update_tables() {
     std::terminate();
 }
 
-int model_count() { return *original_model_count + int(extra_models.size()); }
+int model_count() { return *original_model_count + (extended ? int(extra_models.size()) : 0); }
 int model_index(const model_t* model) {
     const auto address = reinterpret_cast<uintptr_t>(model);
     const auto first = reinterpret_cast<uintptr_t>(original_models);
@@ -166,7 +218,7 @@ model_t* model_at(int index) {
     return index >= 1024 && size_t(index - 1024) < extra_models.size() ?
         &extra_models[index - 1024]->model : nullptr;
 }
-int model_capacity() { return int(models.size()); }
+int model_capacity() { return extended ? int(models.size()) : 512; }
 
 CRC* model_crc(model_t* model) {
     const int index = model_index(model);
@@ -175,6 +227,7 @@ CRC* model_crc(model_t* model) {
 }
 
 model_t* __cdecl find_model(int crc, const char* name) {
+    if (!extended) return find_model_original(crc, name);
     if (!name || !*name || std::strlen(name) >= sizeof(model_t::name))
         malformed("invalid model name");
     std::string key(name);
@@ -219,8 +272,12 @@ model_t* __cdecl find_model(int crc, const char* name) {
     return models_by_name[key] = &entry->model;
 }
 
-void __cdecl need_crc(const char* name, int required) { model_crc(find_model(0, name))->enabled = required; }
+void __cdecl need_crc(const char* name, int required) {
+    if (!extended) { need_crc_original(name, required); return; }
+    model_crc(find_model(0, name))->enabled = required;
+}
 int __cdecl validate_crc(const char* name, unsigned value) {
+    if (!extended) return validate_crc_original(name, value);
     auto* crc = model_crc(find_model(1, name));
     if (crc->checked) return crc->initial == value;
     crc->checked = 1; crc->initial = value;
@@ -302,6 +359,7 @@ void __cdecl clear_models() {
 }
 
 Sound* __cdecl find_sound(const char* name, int* cached) {
+    if (!extended) return find_sound_original(name, cached);
     if (!name || std::strlen(name) >= 64) malformed("invalid sound name");
     if (sound_cache_epoch != *server_count) {
         sound_cache_epoch = *server_count;
@@ -352,17 +410,31 @@ Sound* __cdecl find_sound(const char* name, int* cached) {
 }
 
 model_t* __cdecl model_for_index(int index) {
+    if (!extended) return model_for_index_original(index);
     if (index < 0 || size_t(index) >= models.size()) return nullptr;
     if (unsigned(index) >= precache::media_escape) { ++high_model_lookups; last_model_lookup = unsigned(index); }
     return model_for_index_original(index);
 }
 
 unsigned read_media_short() {
-    const auto prefix = static_cast<unsigned short>(read_short());
-    if (*bad_read) malformed("truncated media index");
-    const unsigned index = extended && prefix == precache::media_escape ? unsigned(read_long()) : prefix;
-    if (*bad_read || index > precache::max_media_index) malformed("invalid32-bit media index");
+    std::uint32_t index = 0;
+    if (!precache::read_media_index(read_short, read_long, [] { return *bad_read != 0; }, extended, index))
+        malformed("invalid or truncated 32-bit media index");
     return index;
+}
+
+int __cdecl read_brass_model() {
+    if (!extended) return client_read_short();
+    std::uint32_t index = 0;
+    if (!precache::read_media_index(client_read_short, client_read_long,
+        [] { return *client_bad_read != 0; }, extended, index) || index >= models.size())
+        malformed("invalid Brass model index");
+    ++brass_reads;
+    if (index >= precache::media_escape) ++high_brass_reads;
+    last_brass_model = index;
+    brass_observations.push_back({index, models[index] ? models[index]->name : ""});
+    if (brass_observations.size() > 32) brass_observations.pop_front();
+    return int(index);
 }
 
 int __cdecl read_model_index() {
@@ -439,20 +511,25 @@ void __cdecl parse_static_entity() {
 }
 
 void reset_client() {
+    set_extension(false);
     resources.clear(); checks.clear();
     static_entities.clear();
     sound_observations.clear();
+    brass_observations.clear();
+    brass_reads = high_brass_reads = last_brass_model = 0;
     high_model_reads = high_sound_reads = high_model_lookups = 0;
     last_model_read = last_sound_read = last_model_lookup = 0;
-    manifest_next = manifest_total = 0; receiving = extended = false;
-    std::fill(models.begin(), models.end(), nullptr);
-    std::fill(sounds.begin(), sounds.end(), nullptr);
+    manifest_next = manifest_total = 0; receiving = legacy_manifest_received = false;
+    models.assign(512, nullptr);
+    sounds.assign(512, nullptr);
     *consistency_count = *force_consistency = 0;
     ++resets;
 }
 int __cdecl clear_client() {
+    // The engine must release the old connection while its tables are valid.
+    const int result = clear_client_original();
     reset_client();
-    return clear_client_original();
+    return result;
 }
 void __cdecl disconnect() {
     disconnect_original();
@@ -495,27 +572,38 @@ void parse_consistency() {
 
 void __cdecl parse_resources() {
     const int saved_read = *read_count;
+    const int saved_bad_read = *bad_read;
     start_bits(net_message);
     unsigned count = read_bits(12);
     unsigned total = count, first = 0;
     bool is_extended = false;
     if (count == precache::marker) {
         is_extended = read_bits(32) == precache::magic;
-        if (!is_extended) {
-            // A legacy server may legitimately send4095 entries.
-            end_bits(net_message); *read_count = saved_read;
-            start_bits(net_message); count = read_bits(12);
-        } else {
+        if (is_extended) {
+            if (legacy_manifest_received) malformed("mixed resource formats");
             if (read_bits(8) != precache::version) malformed("unsupported manifest version");
+            if (!client_media_enabled) malformed("extended manifest requires the matched client media parser");
             total = read_bits(32); first = read_bits(32); count = read_bits(16);
             precache::ManifestChunk chunk{total, first, count};
             if (!chunk.valid(manifest_next) || (receiving && total != manifest_total))
                 malformed("out-of-order resource manifest");
         }
     }
+    if (!is_extended) {
+        if (extended || receiving) malformed("mixed resource formats");
+        // Including the valid legacy count4095: replay from the exact original
+        // position using the engine's resource, download and consistency code.
+        end_bits(net_message);
+        *read_count = saved_read; *bad_read = saved_bad_read;
+        parse_resources_original();
+        manifest_total = count;
+        legacy_manifest_received = true;
+        ++manifests;
+        return;
+    }
     if (!first) {
         if (!resources.empty()) malformed("duplicate resource manifest");
-        extended = is_extended; manifest_total = total; receiving = true;
+        set_extension(true); manifest_total = total; receiving = true;
     } else if (!extended || !is_extended) malformed("mixed resource formats");
 
     size_t model_size = models.size(), sound_size = sounds.size();
@@ -572,8 +660,8 @@ void __cdecl parse_resources() {
 }
 
 void stats() {
-    gEngfuncs.Con_Printf("GoldCraft precache v2: extended=%d receiving=%d resources=%u/%u models=%u sounds=%u cached_models=%d cached_sounds=%u consistency=%u manifests=%u resets=%u\n",
-        extended, receiving, unsigned(resources.size()), manifest_total, unsigned(models.size()), unsigned(sounds.size()),
+    gEngfuncs.Con_Printf("GoldCraft precache v%u: extended=%d receiving=%d resources=%u/%u models=%u sounds=%u cached_models=%d cached_sounds=%u consistency=%u manifests=%u resets=%u\n",
+        precache::version, extended, receiving, unsigned(resources.size()), manifest_total, unsigned(models.size()), unsigned(sounds.size()),
         model_count(), unsigned(*original_sound_count + extra_sounds.size()), unsigned(checks.size()), manifests, resets);
 }
 
@@ -584,7 +672,7 @@ void jump_patch(const char* name, void* target, unsigned size, void*& resume) {
     code[0] = 0xe9;
     const auto relative = DWORD(target) - DWORD(address) - 5;
     std::memcpy(code.data() + 1, &relative, 4);
-    api->WriteMemory(address, code.data(), DWORD(code.size()));
+    prepare_patch(address, code.data(), unsigned(code.size()));
 }
 }
 
@@ -618,6 +706,8 @@ bool install(metahook_api_t* value) {
         function(load_model, "Mod_LoadModel");
         const auto old_models = resolve("model_precache", MH_GAMESYMBOL_KIND_GLOBAL);
         const auto old_sounds = resolve("sound_precache", MH_GAMESYMBOL_KIND_GLOBAL);
+        legacy_model_precache = static_cast<model_t**>(old_models);
+        legacy_sound_precache = static_cast<Sound**>(old_sounds);
         for (const auto& patch : patches) {
             auto* address = resolve(patch.name, MH_GAMESYMBOL_KIND_PATCH);
             const DWORD expected = DWORD(patch.table == Table::models ? old_models : old_sounds) + patch.offset;
@@ -627,6 +717,9 @@ bool install(metahook_api_t* value) {
         sound_end_patch = resolve("sound_end", MH_GAMESYMBOL_KIND_PATCH);
         consistency_table_patch = resolve("consistency_send_table", MH_GAMESYMBOL_KIND_PATCH);
         consistency_bits_patch = resolve("consistency_send_bits", MH_GAMESYMBOL_KIND_PATCH);
+        legacy_sound_end = *static_cast<DWORD*>(sound_end_patch);
+        legacy_consistency_table = *static_cast<DWORD*>(consistency_table_patch);
+        legacy_consistency_bits = *static_cast<byte*>(consistency_bits_patch);
         for (unsigned i = 0; i < model_limits.size(); ++i) {
             const auto name = "model_limit_" + std::to_string(i);
             model_limits[i] = resolve(name.c_str(), MH_GAMESYMBOL_KIND_PATCH);
@@ -667,10 +760,12 @@ bool install(metahook_api_t* value) {
         OutputDebugStringA(error.what());
         return false;
     }
-    update_tables();
-    for (const auto& call : wire_calls)
-        api->WriteDWORD(static_cast<byte*>(call.first) + 1, DWORD(call.second) - DWORD(call.first) - 5);
-    api->WriteDWORD(static_parser_slot, DWORD(parse_static_entity));
+    for (const auto& call : wire_calls) {
+        const DWORD relative = DWORD(call.second) - DWORD(call.first) - 5;
+        prepare_patch(static_cast<byte*>(call.first) + 1, &relative, sizeof(relative));
+    }
+    const DWORD static_parser = DWORD(parse_static_entity);
+    prepare_patch(static_parser_slot, &static_parser, sizeof(static_parser));
     jump_patch("model_crc_operand", crc_thunk, 28, crc_resume);
     jump_patch("studio_skin_operand", skin_thunk, 52, skin_resume);
     hook("Mod_FindName", find_model, find_model_original);
@@ -680,10 +775,8 @@ bool install(metahook_api_t* value) {
     hook("CL_Disconnect", disconnect, disconnect_original);
     hook("CL_ModelForIndex", model_for_index, model_for_index_original);
     hook("CL_ParseResourceList", parse_resources, parse_resources_original);
-    void (__cdecl* old_need_crc)(const char*, int) = nullptr;
-    int (__cdecl* old_validate_crc)(const char*, unsigned) = nullptr;
-    hook("Mod_NeedCRC", need_crc, old_need_crc);
-    hook("Mod_ValidateCRC", validate_crc, old_validate_crc);
+    hook("Mod_NeedCRC", need_crc, need_crc_original);
+    hook("Mod_ValidateCRC", validate_crc, validate_crc_original);
     enabled = true;
     install_failure.clear();
     return true;
@@ -691,12 +784,46 @@ bool install(metahook_api_t* value) {
 
 const char* install_error() { return install_failure.c_str(); }
 
+bool install_client() {
+    if (client_media_enabled) return true;
+    if (!enabled) return false;
+    auto* client = api->GetClientBase();
+    uint64_t crc = 0;
+    if (!client || api->GetModuleCRC64(client, &crc) != MH_GAMESYMBOL_OK || crc != 0x124d6034a6b28b40ULL) {
+        install_failure = "unsupported client identity for 32-bit Brass";
+        return false;
+    }
+    try {
+        auto symbol = [&](const char* name, mh_gamesymbol_kind_t kind) {
+            void* address = nullptr;
+            const auto status = api->ResolveGameSymbol(client, name, kind, &address);
+            if (status != MH_GAMESYMBOL_OK)
+                throw std::runtime_error(std::string(name) + ": " + api->GetGameSymbolStatusString(status));
+            return address;
+        };
+        client_read_short = reinterpret_cast<decltype(client_read_short)>(symbol("GoldCraft_CS_ReadShort", MH_GAMESYMBOL_KIND_FUNCTION));
+        client_read_long = reinterpret_cast<decltype(client_read_long)>(symbol("GoldCraft_CS_ReadLong", MH_GAMESYMBOL_KIND_FUNCTION));
+        client_bad_read = static_cast<int*>(symbol("GoldCraft_CS_BadRead", MH_GAMESYMBOL_KIND_GLOBAL));
+        client_shadow_index = static_cast<int*>(symbol("GoldCraft_CS_ShadowSprite", MH_GAMESYMBOL_KIND_GLOBAL));
+        auto* call = static_cast<byte*>(symbol("GoldCraft_CS_BrassModelRead", MH_GAMESYMBOL_KIND_PATCH));
+        if (*call != 0xe8 || call + 5 + *reinterpret_cast<int*>(call + 1) != reinterpret_cast<void*>(client_read_short))
+            throw std::runtime_error("changed Brass model reader CALL");
+        const DWORD relative = DWORD(read_brass_model) - DWORD(call) - 5;
+        prepare_patch(call + 1, &relative, sizeof(relative));
+        client_media_enabled = true;
+        return true;
+    } catch (const std::exception& error) {
+        install_failure = error.what();
+        return false;
+    }
+}
+
 void register_commands() {
     if (!enabled) return;
-    gEngfuncs.pfnRegisterVariable(precache::capability, precache::capability_value, FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(precache::capability, client_media_enabled ? precache::capability_value : "0", FCVAR_USERINFO);
     // Registration only stores the cvar. A real set populates GoldSrc's
     // connection userinfo, including when the value equals its default.
-    gEngfuncs.Cvar_SetValue(precache::capability, float(precache::version));
+    gEngfuncs.Cvar_SetValue(precache::capability, client_media_enabled ? float(precache::version) : 0.f);
     gEngfuncs.pfnAddCommand("gc_precache_stats", stats);
 }
 
@@ -705,12 +832,21 @@ void create_entities() {
 }
 
 void write_status(std::ostream& out) {
-    out << "\"precache\":{\"version\":2,\"enabled\":" << enabled << ",\"error\":" << std::quoted(install_failure) << ",\"extended\":" << extended
-        << ",\"receiving\":" << receiving << ",\"resources\":" << resources.size()
-        << ",\"total\":" << manifest_total << ",\"models\":" << models.size() << ",\"sounds\":" << sounds.size()
+    const auto shadow_index = client_shadow_index ? *client_shadow_index : 0;
+    const auto* shadow = enabled && shadow_index >= 0 && shadow_index < model_capacity() ?
+        (extended ? models[shadow_index] : legacy_model_precache[shadow_index]) : nullptr;
+    out << "\"precache\":{\"version\":" << precache::version << ",\"enabled\":" << enabled
+        << ",\"clientMedia\":" << client_media_enabled << ",\"brassReads\":" << brass_reads
+        << ",\"highBrassReads\":" << high_brass_reads << ",\"lastBrassModel\":" << last_brass_model
+        << ",\"lastBrassName\":" << std::quoted(last_brass_model < models.size() && models[last_brass_model] ? models[last_brass_model]->name : "")
+        << ",\"error\":" << std::quoted(install_failure) << ",\"extended\":" << extended
+        << ",\"storage\":" << std::quoted(extended ? "goldcraft" : "native")
+        << ",\"shadowIndex\":" << shadow_index << ",\"shadowName\":" << std::quoted(shadow ? shadow->name : "")
+        << ",\"receiving\":" << receiving << ",\"resources\":" << (extended ? resources.size() : manifest_total)
+        << ",\"total\":" << manifest_total << ",\"models\":" << model_capacity() << ",\"sounds\":" << (extended ? sounds.size() : 512)
         << ",\"cachedModels\":" << (enabled ? model_count() : 0)
-        << ",\"cachedSounds\":" << (enabled ? *original_sound_count + extra_sounds.size() : 0)
-        << ",\"checks\":" << checks.size() << ",\"manifests\":" << manifests << ",\"resets\":" << resets
+        << ",\"cachedSounds\":" << (enabled ? *original_sound_count + (extended ? extra_sounds.size() : 0) : 0)
+        << ",\"checks\":" << (enabled ? *consistency_count : 0) << ",\"manifests\":" << manifests << ",\"resets\":" << resets
         << ",\"highModelReads\":" << high_model_reads << ",\"highSoundReads\":" << high_sound_reads
         << ",\"highModelLookups\":" << high_model_lookups << ",\"lastModelRead\":" << last_model_read
         << ",\"lastSoundRead\":" << last_sound_read << ",\"lastModelLookup\":" << last_model_lookup
@@ -722,6 +858,12 @@ void write_status(std::ostream& out) {
             << ",\"name\":" << std::quoted(sound.name) << '}';
     }
     const auto* view = gEngfuncs.GetViewModel ? gEngfuncs.GetViewModel() : nullptr;
+    out << "],\"brassObservations\":[";
+    count = 0;
+    for (const auto& brass : brass_observations) {
+        if (count++) out << ',';
+        out << "{\"index\":" << brass.index << ",\"name\":" << std::quoted(brass.name) << '}';
+    }
     out << "],\"viewModelIndex\":" << (view ? view->curstate.modelindex : 0)
         << ",\"viewModelName\":" << std::quoted(view && view->model ? view->model->name : "")
         << ",\"highEntities\":[";

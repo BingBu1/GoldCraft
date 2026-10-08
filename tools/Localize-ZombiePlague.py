@@ -94,8 +94,8 @@ def dictionaries():
     for name in LOCALES:
         # The supplied dictionary mixes UTF-8 with legacy bytes in unrelated
         # languages. Round-trip those bytes instead of corrupting translations.
-        original = safe(SOURCE / "data/lang" / f"{name}.txt").read_text(encoding="utf-8-sig", errors="surrogateescape")
-        overlay = safe(ROOT / "amxx/lang" / f"{name}_cn.txt").read_text(encoding="utf-8-sig")
+        original = safe(ROOT / "amxx/zombie_plague/lang" / f"{name}.txt").read_text(encoding="utf-8-sig", errors="surrogateescape")
+        overlay = safe(ROOT / "amxx/zombie_plague/lang" / f"{name}_cn.txt").read_text(encoding="utf-8-sig")
         english, chinese = entries(original, "en"), entries(overlay, "cn")
         missing = english.keys() - chinese.keys()
         if missing:
@@ -218,8 +218,11 @@ def install():
     updates = {}
     manifest = json.loads(safe(ROOT / "dist/zombieplague/manifest.json").read_text(encoding="utf-8"))
     built = {entry["name"]: entry for entry in manifest["plugins"]}
-    for name, source in sources.items():
-        plugin = safe(ROOT / "dist/zombieplague/plugins" / f"{name}.amxx").read_bytes()
+    for name in sources:
+        source = safe(ROOT / built[name]["source"])
+        if not source.is_relative_to(ROOT / "amxx/zombie_plague") or source.name != f"{name}.sma":
+            raise ValueError("Localized source must belong to the classified Zombie Plague tree")
+        plugin = safe(ROOT / "build/amxx/plugins" / f"{name}.amxx").read_bytes()
         if (built[name].get("sourceSha256") != hashlib.sha256(source.read_bytes()).hexdigest()
                 or built[name]["sha256"] != hashlib.sha256(plugin).hexdigest()):
             raise ValueError(f"Recompile the current localized plugin before installing: {name}")

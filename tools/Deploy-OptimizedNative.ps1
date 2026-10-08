@@ -31,22 +31,35 @@ if(-not $ClientOnly){
 }
 foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
+    & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $script:GoldCraftRoot "$game/cstrike/cl_dlls/client.dll") --existing-catalog (Join-Path $script:GoldCraftRoot "$game/cstrike/metahook/gamedata")
+    if($LASTEXITCODE){throw 'CS media-reader catalog identity verification failed.'}
     Queue-File 'dist/metahook/MetaHook.exe' "$game/MetaHook.exe"
     Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
     Queue-File 'dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll' "$game/cstrike/metahook/plugins/Renderer_AVX2.dll"
+    Queue-File 'dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll' "$game/cstrike/metahook/plugins/VGUI2Extension.dll"
     Queue-File 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll' "$game/cstrike/metahook/plugins/BulletPhysics.dll"
     # MetaHook prefers the AVX2-suffixed plugin before the unsuffixed fallback.
     Queue-File 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll' "$game/cstrike/metahook/plugins/BulletPhysics_AVX2.dll"
-    foreach($relative in @('metahook/dlls','metahook/gamedata/renderer')){
+    foreach($relative in @('metahook/dlls','metahook/gamedata/renderer','renderer/shader')){
         $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "dist/renderer/svencoop/$relative")
-        foreach($file in Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {$_.Extension -in @('.dll','.json')}){
+        foreach($file in Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {$_.Extension -in @('.dll','.json','.glsl')}){
             $suffix=$file.FullName.Substring($directory.Length+1).Replace('\','/')
             Queue-File "dist/renderer/svencoop/$relative/$suffix" "$game/cstrike/$relative/$suffix"
         }
     }
-    foreach($relative in @('dist/gamedata/goldcraft-precache','dist/metahook/svencoop/metahook/gamedata')){
+    $bulletGameData='dist/bulletphysics/svencoop/metahook/gamedata/bulletphysics'
+    $bulletDirectory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $bulletGameData)
+    foreach($file in Get-ChildItem -LiteralPath $bulletDirectory -File -Filter '*.json'){
+        Queue-File "$bulletGameData/$($file.Name)" "$game/cstrike/metahook/gamedata/bulletphysics/$($file.Name)"
+    }
+    $uiGameData='dist/vgui2extension/svencoop/metahook/gamedata/vgui2extension'
+    $uiDirectory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $uiGameData)
+    foreach($file in Get-ChildItem -LiteralPath $uiDirectory -File -Filter '*.json'){
+        Queue-File "$uiGameData/$($file.Name)" "$game/cstrike/metahook/gamedata/vgui2extension/$($file.Name)"
+    }
+    foreach($relative in @('dist/gamedata/goldcraft-precache','dist/gamedata/goldcraft-cs','dist/metahook/svencoop/metahook/gamedata')){
         $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $relative)
-        $destination=if($relative -like '*goldcraft-precache'){'metahook/gamedata/goldcraft-precache'}else{'metahook/gamedata'}
+        $destination=if($relative -like 'dist/gamedata/*'){'metahook/gamedata/'+(Split-Path $relative -Leaf)}else{'metahook/gamedata'}
         foreach($file in Get-ChildItem -LiteralPath $directory -File -Filter '*.json'){
             Queue-File "$relative/$($file.Name)" "$game/cstrike/$destination/$($file.Name)"
         }

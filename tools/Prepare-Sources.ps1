@@ -25,7 +25,7 @@ foreach($name in @('ReGameDLL_CS','ReHLDS','AMXModX','ReAPI')){
     & git -C $path submodule update --init --recursive --jobs 4
     if($LASTEXITCODE){throw "Dependency preparation failed: $name"}
 }
-foreach($name in @('MetaHook','Renderer','BulletPhysics','FreeImage','ReGameDLL_CS','ReHLDS','SyPB')){
+foreach($name in @('MetaHook','Renderer','BulletPhysics','VGUI2Extension','FreeImage','ReGameDLL_CS','ReHLDS','SyPB')){
     $entry=$lock.sources.$name
     $path=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.path)
     $patch=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.patch)
