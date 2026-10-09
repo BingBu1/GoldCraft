@@ -212,6 +212,88 @@ index e69d2c9..f1f01b9 100644
  }
  
  modtype_t Mod_GetType(int modelindex)
+diff --git a/rehlds/engine/pmovetst.cpp b/rehlds/engine/pmovetst.cpp
+index 0b36057..ad54dda 100644
+--- a/rehlds/engine/pmovetst.cpp
++++ b/rehlds/engine/pmovetst.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "map_physics.h"
+ 
+ int g_contentsresult;
+ hull_t box_hull_0;
+@@ -51,7 +52,8 @@ float EXT_FUNC PM_TraceModel(physent_t *pEnt, vec_t *start, vec_t *end, trace_t
+ 	end_l[0] = end[0] - offset[0];
+ 	end_l[1] = end[1] - offset[1];
+ 	end_l[2] = end[2] - offset[2];
+-	SV_RecursiveHullCheck(pHull, pHull->firstclipnode, 0.0, 1.0, start_l, end_l, trace);
++	if (!GoldCraft_MapTrace(pEnt->info, pEnt->model, pHull, start_l, end_l, trace))
++		SV_RecursiveHullCheck(pHull, pHull->firstclipnode, 0.0, 1.0, start_l, end_l, trace);
+ 	trace->ent = 0;
+ 	return trace->fraction;
+ }
+@@ -163,10 +165,10 @@ int EXT_FUNC PM_PointContents(vec_t *p, int *truecontents)
+ 
+ 	if ((int)pmove->physents[0].model != -208)
+ 	{
+-		int entityContents = PM_HullPointContents(
+-			pmove->physents[0].model->hulls,
+-			pmove->physents[0].model->hulls[0].firstclipnode,
+-			p);
++		int entityContents;
++		model_t* model = pmove->physents[0].model;
++		if (!GoldCraft_MapContents(0, model, model->hulls, p, entityContents))
++			entityContents = PM_HullPointContents(model->hulls, model->hulls[0].firstclipnode, p);
+ 		if (truecontents)
+ 			*truecontents = entityContents;
+ 		if (entityContents > -9 || entityContents < -14)
+@@ -198,7 +200,8 @@ int PM_WaterEntity(vec_t *p)
+ #endif
+ 
+ 	model_t* model = pmove->physents[0].model;
+-	cont = PM_HullPointContents(model->hulls, model->hulls[0].firstclipnode, p);
++	if (!GoldCraft_MapContents(0, model, model->hulls, p, cont))
++		cont = PM_HullPointContents(model->hulls, model->hulls[0].firstclipnode, p);
+ 	if (cont == -2) {
+ 		return -1;
+ 	}
+@@ -211,8 +214,12 @@ int EXT_FUNC PM_TruePointContents(vec_t *p)
+ {
+ 	if ((int)pmove->physents[0].model == -208)
+ 		return -1;
+-	else
+-		return PM_HullPointContents(pmove->physents[0].model->hulls, pmove->physents[0].model->hulls[0].firstclipnode, p);
++	else {
++		model_t* model = pmove->physents[0].model;
++		int contents;
++		if (GoldCraft_MapContents(0, model, model->hulls, p, contents)) return contents;
++		return PM_HullPointContents(model->hulls, model->hulls[0].firstclipnode, p);
++	}
+ }
+ 
+ hull_t *PM_HullForStudioModel(model_t *pModel, vec_t *offset, float frame, int sequence, const vec_t *angles, const vec_t *origin, const unsigned char *pcontroller, const unsigned char *pblending, int *pNumHulls)
+@@ -333,7 +340,8 @@ int _PM_TestPlayerPosition(vec_t *pos, pmtrace_t *ptrace, int(*pfnIgnore)(physen
+ 		}
+ 		else
+ 		{
+-			g_contentsresult = PM_HullPointContents(hull, hull->firstclipnode, test);
++			if (!GoldCraft_MapContents(pe->info, pe->model, hull, test, g_contentsresult))
++				g_contentsresult = PM_HullPointContents(hull, hull->firstclipnode, test);
+ 			if (g_contentsresult == CONTENTS_SOLID)
+ 				return i;
+ 		}
+@@ -494,7 +502,8 @@ pmtrace_t _PM_PlayerTrace(vec_t *start, vec_t *end, int traceFlags, int numphyse
+ 		{
+ 			if (pNumHulls == 1)
+ 			{
+-				PM_RecursiveHullCheck(hull, hull->firstclipnode, 0.0, 1.0, start_l, end_l, &total);
++				if (!GoldCraft_MapTrace(pe->info, pe->model, hull, start_l, end_l, &total))
++					PM_RecursiveHullCheck(hull, hull->firstclipnode, 0.0, 1.0, start_l, end_l, &total);
+ 			}
+ 			else
+ 			{
 diff --git a/rehlds/engine/pr_cmds.cpp b/rehlds/engine/pr_cmds.cpp
 index 4f88929..4a2a20f 100644
 --- a/rehlds/engine/pr_cmds.cpp
@@ -1253,18 +1335,38 @@ index 4e0d26e..90546f0 100644
  				{
  					if (pModel->flags & STUDIO_TRACE_HITBOX)
 diff --git a/rehlds/engine/world.cpp b/rehlds/engine/world.cpp
-index 8038ab7..8f1cd7c 100644
+index 8038ab7..05faef7 100644
 --- a/rehlds/engine/world.cpp
 +++ b/rehlds/engine/world.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "map_physics.h"
  
  hull_t box_hull;
  hull_t beam_hull;
-@@ -1036,7 +1037,7 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
+@@ -297,6 +299,7 @@ areanode_t *SV_CreateAreaNode(int depth, vec_t *mins, vec_t *maxs)
+ // called after the world model has been loaded, before linking any entities
+ void SV_ClearWorld()
+ {
++	GoldCraft_MapPhysicsReset();
+ 	SV_InitBoxHull();
+ 
+ 	Q_memset(sv_areanodes, 0, sizeof(sv_areanodes));
+@@ -694,7 +697,9 @@ int SV_LinkContents(areanode_t *node, const vec_t *pos)
+ // does not check any entities at all
+ int SV_PointContents(const vec_t *p)
+ {
+-	int cont = SV_HullPointContents(g_psv.worldmodel->hulls, 0, p);
++	int cont;
++	if (!GoldCraft_MapContents(0, g_psv.worldmodel, g_psv.worldmodel->hulls, p, cont))
++		cont = SV_HullPointContents(g_psv.worldmodel->hulls, 0, p);
+ 	if (cont <= CONTENTS_CURRENT_0 && cont >= CONTENTS_CURRENT_DOWN)
+ 	{
+ 		cont = CONTENTS_WATER;
+@@ -1036,7 +1041,7 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
  #ifdef REHLDS_FIXES
  	if (Mod_GetType(ent->v.modelindex) == mod_studio)
  #else
@@ -1273,15 +1375,28 @@ index 8038ab7..8f1cd7c 100644
  #endif // REHLDS_FIXES
  	{
  		// get the clipping hull from studio model
-@@ -1452,7 +1453,7 @@ void SV_SingleClipMoveToPoint(const vec_t *start, const vec_t *end, trace_t *tra
+@@ -1080,7 +1085,8 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
+ 	// trace a line through the appropriate clipping hull
+ 	if (numhulls == 1)
+ 	{
+-		SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start_l, end_l, trace);
++		if (!GoldCraft_MapTrace(NUM_FOR_EDICT(ent), Mod_Handle(ent->v.modelindex), hull, start_l, end_l, trace))
++			SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start_l, end_l, trace);
+ 	}
+ 	else
+ 	{
+@@ -1452,8 +1458,9 @@ void SV_SingleClipMoveToPoint(const vec_t *start, const vec_t *end, trace_t *tra
  	trace->allsolid = TRUE;
  	VectorCopy(end, trace->endpos);
  
 -	hull_t *hull = &g_psv.models[1]->hulls[0]; // world point hull
+-	SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start, end, trace);
 +	hull_t *hull = &gc_precache.models[1]->hulls[0]; // world point hull
- 	SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start, end, trace);
++	if (!GoldCraft_MapTrace(0, gc_precache.models[1], hull, start, end, trace))
++		SV_RecursiveHullCheck(hull, hull->firstclipnode, 0.0f, 1.0f, start, end, trace);
  
  	if (trace->fraction != 1.0f)
+ 	{
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
 index 85c04cb..5b189a1 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp

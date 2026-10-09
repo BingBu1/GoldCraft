@@ -1,4 +1,5 @@
 #include "goldcraft/world_volume.hpp"
+#include "goldcraft/edited_hull.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -251,6 +252,62 @@ void validation() {
     invalid_volume.cells[0].faces[0].plane.normal[0] = std::numeric_limits<double>::quiet_NaN();
     rejects<std::invalid_argument>([&] { expand_volume(invalid_volume, point); });
 }
+struct BoxHull {
+    std::vector<Plane> planes;
+    std::vector<HullNode> nodes;
+    explicit BoxHull(std::span<const Box> boxes) {
+        for(std::size_t b=0;b<boxes.size();++b)for(int axis=0;axis<3;++axis)for(int high=0;high<2;++high) {
+            const auto index=static_cast<std::uint32_t>(planes.size());Point normal{};normal[axis]=high?1:-1;
+            planes.push_back({normal,high?boxes[b].max[axis]:-boxes[b].min[axis]});
+            const auto next_box=b+1==boxes.size()?-1:static_cast<int>((b+1)*6);
+            nodes.push_back({index,{next_box,axis==2&&high?-2:static_cast<int>(index+1)}});
+        }
+    }
+    HullView view() const { return {planes,nodes,0}; }
+};
+void native_overlay() {
+    const Box wall{{-128,0,-128},{128,16,128}}, expanded{{-144,-16,-164},{144,32,164}};
+    const Box clip_only{{-12,50,-96},{12,54,96}}, unrelated{{70,-80,-96},{90,-70,96}};
+    const BoxHull point_source({&wall,1});
+    const std::array<Box,3> obstacles{expanded,clip_only,unrelated};
+    const BoxHull native(obstacles);
+    const Box body{{-16,-16,-36},{16,16,36}};
+    const std::array<Box,2> cuts{Box{{-32,-32,-48},{0,80,48}},Box{{0,-32,-48},{32,80,48}}};
+    const EditedHull edit(point_source.view(),native.view(),body,cuts);
+    auto hit=edit.trace({0,-64,0},{0,100,0},0);
+    close(hit.fraction,114.0/164);
+    close(hit.plane.normal[1],-1);
+    assert(hit.in_open&&!hit.start_solid&&!hit.all_solid);
+    assert(edit.contents({0,8,0})==-1);
+    assert(edit.contents({0,52,0})==-2);
+    assert(edit.contents({24,8,0})==-2);
+    assert(!edit.affects({80,-100,0},{80,-65,0}));
+    close(edit.trace({80,-100,0},{80,-65,0},0).fraction,20.0/35);
+    // Native hull conventions win outside material-removal space, including
+    // compiler-created empty space. Never add a new collision from the mesh.
+    const EditedHull native_empty(point_source.view(),empty,body,cuts);
+    assert(native_empty.contents({100,8,0})==-1);
+    assert(native_empty.trace({100,-64,0},{100,64,0}).fraction==1);
+    const EditedHull wet(point_source.view(),water,body,cuts);
+    hit=wet.trace({0,-64,0},{0,64,0});
+    assert(hit.in_water&&!hit.in_open&&hit.fraction==1);
+    assert(wet.contents({0,8,0})==-3);
+    const EditedHull first(point_source.view(),native.view(),body,{cuts.data(),1});
+    assert(first.trace({0,-64,0},{0,64,0}).fraction<.5);
+    const auto reversed=std::array<Box,2>{cuts[1],cuts[0]};
+    const EditedHull reverse_edit(point_source.view(),native.view(),body,reversed);
+    Random random;
+    for(int i=0;i<20000;++i) {
+        Point p{random()*96-48,random()*160-64,random()*96-48};
+        bool old=false;
+        for(const auto& b:obstacles)old|=p[0]>b.min[0]&&p[0]<b.max[0]&&p[1]>b.min[1]&&p[1]<b.max[1]&&p[2]>b.min[2]&&p[2]<b.max[2];
+        const bool opened=std::abs(p[0])<16&&std::abs(p[2])<12&&p[1]>-16&&p[1]<32;
+        assert((edit.contents(p)==-2)==(old&&!opened));
+        assert(edit.contents(p)==reverse_edit.contents(p));
+    }
+    rejects<std::invalid_argument>([&]{EditedHull(point_source.view(),native.view(),body,{});});
+    rejects<std::length_error>([&]{EditedHull(point_source.view(),native.view(),body,cuts,{4096,80});});
+}
 } // namespace
 
 int main() {
@@ -265,6 +322,8 @@ int main() {
         std::cout << "Traces passed\n";
         validation();
         std::cout << "Validation passed\n";
+        native_overlay();
+        std::cout << "Native overlay: 20000 oracle cases, retained clip-only obstacles, native empty/water, entrance and union traces passed\n";
         std::cout << "Carved volume: conservation/union/winding, 120000 analytic membership samples, "
                      "adjacent/low openings, asymmetric bodies, 3D bevels, shared-plane/solid traces and "
                      "atomic bounded failure passed\n";

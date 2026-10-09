@@ -46,6 +46,7 @@ public:
     bool add(Target target, Box box);
     bool remove(Target target);
     bool restore();
+    void swap(Ledger& other) noexcept;
     const Snapshot& state() const { return state_; }
     // Missing/expired history returns a complete snapshot. A disconnected
     // authority can recover even after the bounded delta journal has rolled.

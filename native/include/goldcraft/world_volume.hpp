@@ -39,6 +39,16 @@ struct VolumeTrace {
     Plane plane{};
     bool start_solid = false, all_solid = false;
 };
+struct CollisionSpan {
+    double begin, end;
+    Plane enter{}, leave{};
+};
+// Sorted, disjoint interior intervals on the line start+t*(end-start), clipped
+// only by their overlap with [0,1]. Unbounded endpoints are retained for CSG.
+std::vector<CollisionSpan> volume_spans(const CollisionVolume &volume, Point start, Point end);
+std::vector<CollisionSpan> merge_spans(std::vector<CollisionSpan> spans);
+VolumeTrace trace_spans(std::span<const CollisionSpan> spans, Point start, Point end,
+                       bool start_solid, bool end_solid, double margin);
 // Sweep the body center through the expanded cell union. Boundary ties use a
 // consistent global plane orientation, so shared partition faces cannot form
 // zero-width tunnels. Margin is a contact backoff distance, not hole expansion.

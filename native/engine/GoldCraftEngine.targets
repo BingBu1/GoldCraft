@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
-    <ClCompile Include="$(GoldCraftRoot)\native\engine\precache.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\precache.cpp;$(GoldCraftRoot)\native\engine\map_physics.cpp;$(GoldCraftRoot)\native\common\world_carving.cpp;$(GoldCraftRoot)\native\common\world_volume.cpp;$(GoldCraftRoot)\native\common\edited_hull.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>

@@ -76,6 +76,7 @@ Delta delta(std::span<const std::uint8_t> bytes) {
     r.finish(); validate(d); return d;
 }
 void Ledger::reset(std::uint64_t epoch) { state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); }
+void Ledger::swap(Ledger& other) noexcept { std::swap(state_,other.state_); journal_.swap(other.journal_); }
 void Ledger::commit(Delta d) {
     validate(d);
     // Allocate journal storage before changing the authoritative state. Roll it

@@ -360,23 +360,15 @@ bool contains(const CollisionVolume &volume, Point point) {
     return std::ranges::any_of(volume.cells,
                                [&](const CollisionCell &cell) { return occupied(cell, point); });
 }
-VolumeTrace trace_volume(const CollisionVolume &volume, Point start, Point end, double margin) {
+std::vector<CollisionSpan> volume_spans(const CollisionVolume &volume, Point start, Point end) {
     validate(start);
     validate(end);
-    if (!std::isfinite(margin) || margin < 0 || margin > 1)
-        throw std::invalid_argument("Carved collision margin");
-    struct Interval {
-        double begin, end;
-        Plane plane;
-    };
-    std::vector<Interval> intervals;
+    std::vector<CollisionSpan> intervals;
     const auto move = sub(end, start);
-    VolumeTrace result;
-    result.start_solid = contains(volume, start);
     for (const auto &cell : volume.cells) {
         double enter = -std::numeric_limits<double>::infinity(),
                exit = std::numeric_limits<double>::infinity();
-        Plane plane{};
+        Plane plane{}, leave{};
         bool miss = false;
         for (int axis = 0; axis < 3; ++axis)
             if (std::max(start[axis], end[axis]) < cell.bounds.min[axis] ||
@@ -399,35 +391,54 @@ VolumeTrace trace_volume(const CollisionVolume &volume, Point start, Point end, 
                     enter = t;
                     plane = p;
                 }
-            } else
-                exit = std::min(exit, t);
+            } else if (t < exit) {
+                exit = t;
+                leave = p;
+            }
             if (enter >= exit) {
                 miss = true;
                 break;
             }
         }
         if (!miss && enter < 1 && exit > 0)
-            intervals.push_back({enter, exit, plane});
+            intervals.push_back({enter, exit, plane, leave});
     }
+    return merge_spans(std::move(intervals));
+}
+std::vector<CollisionSpan> merge_spans(std::vector<CollisionSpan> intervals) {
     std::sort(intervals.begin(), intervals.end(),
-              [](const Interval &a, const Interval &b) { return a.begin < b.begin; });
-    std::vector<Interval> merged;
+              [](const CollisionSpan &a, const CollisionSpan &b) { return a.begin < b.begin; });
+    std::vector<CollisionSpan> merged;
     for (const auto &interval : intervals) {
         if (merged.empty() || interval.begin > merged.back().end)
             merged.push_back(interval);
-        else
-            merged.back().end = std::max(merged.back().end, interval.end);
+        else if (interval.end > merged.back().end) {
+            merged.back().end = interval.end;
+            merged.back().leave = interval.leave;
+        }
     }
-    result.all_solid =
-        result.start_solid && contains(volume, end) && !merged.empty() && merged.front().end >= 1;
-    for (const auto &interval : merged) {
+    return merged;
+}
+VolumeTrace trace_spans(std::span<const CollisionSpan> spans, Point start, Point end,
+                       bool start_solid, bool end_solid, double margin) {
+    validate(start); validate(end);
+    if (!std::isfinite(margin) || margin < 0 || margin > 1)
+        throw std::invalid_argument("Carved collision margin");
+    const auto move = sub(end, start);
+    VolumeTrace result;
+    result.start_solid = start_solid;
+    result.all_solid = start_solid && end_solid && !spans.empty() && spans.front().begin <= 0 && spans.front().end >= 1;
+    for (const auto &interval : spans) {
         if (interval.begin < 0 || (interval.begin == 0 && result.start_solid))
             continue;
-        const double speed = -dot(move, interval.plane.normal);
+        const double speed = -dot(move, interval.enter.normal);
         result.fraction = std::clamp(interval.begin - (speed > 0 ? margin / speed : 0), 0.0, 1.0);
-        result.plane = interval.plane;
+        result.plane = interval.enter;
         break;
     }
     return result;
+}
+VolumeTrace trace_volume(const CollisionVolume &volume, Point start, Point end, double margin) {
+    return trace_spans(volume_spans(volume,start,end), start,end,contains(volume,start),contains(volume,end),margin);
 }
 } // namespace goldcraft::carving
