@@ -48,6 +48,9 @@ struct HullView {
     std::span<const HullNode> nodes;
     std::int32_t root;
 };
+// Validate finite unit planes and the reachable acyclic graph. Returns work
+// consumed, so a caller can include validation in its total operation budget.
+std::size_t validate_hull(HullView hull, Limits limits = {});
 struct Wall {
     std::vector<Point> vertices;
     Point normal; // Points from remaining solid into the excavated cavity.

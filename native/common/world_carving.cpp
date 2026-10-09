@@ -248,10 +248,10 @@ Result subtract(const Triangle& triangle, std::span<const Box> boxes, Limits lim
     return result;
 }
 
-Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits) {
+std::size_t validate_hull(HullView hull, Limits limits) {
     if (!limits.fragments || !limits.operations)
         throw std::invalid_argument("World carving requires nonzero work limits");
-    if (hull.nodes.size() > limits.operations || hull.planes.size() > limits.operations || boxes.size() > limits.operations)
+    if (hull.nodes.size() > limits.operations || hull.planes.size() > limits.operations)
         throw std::length_error("World carving input exceeds operation budget");
     Result work;
     for (const auto& plane : hull.planes) {
@@ -264,6 +264,13 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
     std::vector<std::uint8_t> state(hull.nodes.size());
     std::vector<std::size_t> heights(hull.nodes.size());
     validate_node(hull, hull.root, state, heights, 1, work, limits);
+    return work.operations;
+}
+
+Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits) {
+    Result work;
+    work.operations = validate_hull(hull, limits);
+    if (boxes.size() > limits.operations) throw std::length_error("World carving input exceeds operation budget");
     for (const auto& box : boxes) {
         consume(work, limits, 1);
         validate(box.min); validate(box.max);

@@ -1,4 +1,5 @@
 #include "goldcraft/world_carving.hpp"
+#include "goldcraft/world_volume.hpp"
 #include "goldcraft/wire.hpp"
 
 #include <algorithm>
@@ -344,6 +345,137 @@ struct BspFile {
     }
 };
 
+// An independent feasibility oracle: enumerate triple-plane intersections of
+// the original BSP path and an AABB. No carved mesh or expanded plane from the
+// implementation participates in this query.
+bool feasible_interior(const std::vector<Plane>& constraints) {
+    Point mean{};
+    std::size_t count = 0;
+    for (std::size_t i = 0; i < constraints.size(); ++i)
+        for (std::size_t j = i + 1; j < constraints.size(); ++j)
+            for (std::size_t k = j + 1; k < constraints.size(); ++k) {
+                const auto& a = constraints[i]; const auto& b = constraints[j]; const auto& c = constraints[k];
+                const auto bc = cross(b.normal,c.normal), ca = cross(c.normal,a.normal), ab = cross(a.normal,b.normal);
+                const double det = dot(a.normal,bc);
+                if (std::abs(det) < 1e-12) continue;
+                Point p{};
+                for (int axis = 0; axis < 3; ++axis)
+                    p[axis] = (a.distance * bc[axis] + b.distance * ca[axis] + c.distance * ab[axis]) / det;
+                if (std::ranges::any_of(constraints,[&](const Plane& plane) { return dot(p,plane.normal) > plane.distance + 1e-7; })) continue;
+                ++count;
+                for (int axis = 0; axis < 3; ++axis) mean[axis] += (p[axis] - mean[axis]) / count;
+            }
+    return count && std::ranges::all_of(constraints,[&](const Plane& plane) { return dot(mean,plane.normal) < plane.distance - 1e-7; });
+}
+bool bsp_box(HullView hull, std::int32_t node, const Box& box, std::vector<Plane>& constraints) {
+    if (node < 0) return node == -2 && feasible_interior(constraints);
+    const auto& branch = hull.nodes[node]; const auto& plane = hull.planes[branch.plane];
+    double low = 0, high = 0;
+    for (int axis = 0; axis < 3; ++axis) {
+        low += plane.normal[axis] * (plane.normal[axis] >= 0 ? box.min[axis] : box.max[axis]);
+        high += plane.normal[axis] * (plane.normal[axis] >= 0 ? box.max[axis] : box.min[axis]);
+    }
+    if (low >= plane.distance) return bsp_box(hull,branch.children[0],box,constraints);
+    if (high <= plane.distance) return bsp_box(hull,branch.children[1],box,constraints);
+    constraints.push_back(plane);
+    bool found = bsp_box(hull,branch.children[1],box,constraints);
+    constraints.back().distance *= -1;
+    for (auto& value : constraints.back().normal) value *= -1;
+    if (!found) found = bsp_box(hull,branch.children[0],box,constraints);
+    constraints.pop_back();
+    return found;
+}
+bool independent_body(HullView hull, const Box& box, std::span<const Box> cuts) {
+    // Split the QUERY box on cut coordinates, then ask whether any remaining
+    // axis-aligned part meets the original BSP. This is distinct from slicing
+    // BSP convex cells and Minkowski-expanding their resulting vertices.
+    std::array<std::vector<double>,3> coordinates;
+    for (int axis = 0; axis < 3; ++axis) {
+        coordinates[axis] = {box.min[axis],box.max[axis]};
+        for (const auto& cut : cuts)
+            for (double value : {cut.min[axis],cut.max[axis]})
+                if (value > box.min[axis] && value < box.max[axis]) coordinates[axis].push_back(value);
+        std::ranges::sort(coordinates[axis]);
+        coordinates[axis].erase(std::unique(coordinates[axis].begin(),coordinates[axis].end()),coordinates[axis].end());
+    }
+    for (std::size_t x = 1; x < coordinates[0].size(); ++x)
+        for (std::size_t y = 1; y < coordinates[1].size(); ++y)
+            for (std::size_t z = 1; z < coordinates[2].size(); ++z) {
+                const std::array<std::size_t,3> indices{x,y,z}; Box part{}; Point middle{};
+                std::vector<Plane> constraints;
+                for (int axis = 0; axis < 3; ++axis) {
+                    part.min[axis] = coordinates[axis][indices[axis]-1]; part.max[axis] = coordinates[axis][indices[axis]];
+                    middle[axis] = (part.min[axis]+part.max[axis])/2;
+                    Point normal{}; normal[axis] = 1; constraints.push_back({normal,part.max[axis]});
+                    normal[axis] = -1; constraints.push_back({normal,-part.min[axis]});
+                }
+                if (std::ranges::any_of(cuts,[&](const Box& cut) { return inside(middle,cut); })) continue;
+                if (bsp_box(hull,hull.root,part,constraints)) return true;
+            }
+    return false;
+}
+bool remaining_solid(HullView hull, std::span<const Box> cuts, const Point& p) {
+    return point_contents(hull,p) == -2 && !std::ranges::any_of(cuts,[&](const Box& cut) { return inside(p,cut); });
+}
+double independent_trace(HullView hull, std::span<const Box> cuts, const Point& start, const Point& end) {
+    const auto delta = minus(end,start);
+    std::vector<double> crossing{0,1};
+    const auto append = [&](double t) { if (t > 0 && t < 1) crossing.push_back(t); };
+    for (const auto& plane : hull.planes) {
+        const double rate = dot(delta,plane.normal);
+        if (rate != 0) append((plane.distance-dot(start,plane.normal))/rate);
+    }
+    for (const auto& cut : cuts)
+        for (int axis = 0; axis < 3; ++axis)
+            if (delta[axis] != 0) {
+                append((cut.min[axis]-start[axis])/delta[axis]); append((cut.max[axis]-start[axis])/delta[axis]);
+            }
+    std::ranges::sort(crossing);
+    bool previous = remaining_solid(hull,cuts,start);
+    for (std::size_t i = 1; i < crossing.size(); ++i) {
+        if (crossing[i] - crossing[i-1] < 1e-12) continue;
+        Point p{};
+        for (int axis = 0; axis < 3; ++axis) p[axis] = start[axis] + delta[axis] * ((crossing[i]+crossing[i-1])/2);
+        const bool current = remaining_solid(hull,cuts,p);
+        if (current && !previous) return crossing[i-1];
+        previous = current;
+    }
+    return 1;
+}
+struct VolumeCoverage { std::size_t cells = 0, operations = 0, points = 0, bodies = 0, traces = 0; };
+void volume_coverage(HullView hull, std::span<const Box> cuts, VolumeCoverage& totals) {
+    const auto base = cuts[0].min;
+    Box region{};
+    for (int axis = 0; axis < 3; ++axis) { region.min[axis] = base[axis]-96; region.max[axis] = base[axis]+128; }
+    const auto volume = carve_volume(hull,region,cuts);
+    const Box point{{0,0,0},{0,0,0}};
+    const auto collision = expand_volume(volume,point);
+    totals.cells += volume.cells.size(); totals.operations += volume.operations + collision.operations;
+    std::uint32_t seed = 0x8e62c371;
+    const auto random = [&seed] { seed = seed * 1664525u + 1013904223u; return double(seed)/4294967296.0; };
+    const auto position = [&] { Point p{}; for (int axis = 0; axis < 3; ++axis) p[axis] = base[axis] - 32 + random()*96; return p; };
+    for (int sample = 0; sample < 600; ++sample) {
+        const auto p = position();
+        assert(contains(collision,p) == remaining_solid(hull,cuts,p)); ++totals.points;
+    }
+    const std::array<Box,3> bodies{Box{{-16,-16,-36},{16,16,36}}, Box{{-16,-16,-18},{16,16,18}}, Box{{-5,-8,0},{7,12,64}}};
+    for (const auto& body : bodies) {
+        const auto expanded = expand_volume(volume,body);
+        totals.operations += expanded.operations;
+        for (int sample = 0; sample < 12; ++sample) {
+            const auto p = position(); Box query{};
+            for (int axis = 0; axis < 3; ++axis) { query.min[axis] = p[axis]+body.min[axis]; query.max[axis] = p[axis]+body.max[axis]; }
+            assert(contains(expanded,p) == independent_body(hull,query,cuts)); ++totals.bodies;
+        }
+    }
+    for (int sample = 0; sample < 8; ++sample) {
+        const auto start = position(), end = position();
+        const auto trace = trace_volume(collision,start,end,0);
+        assert(trace.start_solid == remaining_solid(hull,cuts,start));
+        close(trace.fraction,independent_trace(hull,cuts,start,end)); ++totals.traces;
+    }
+}
+
 void actual_map(const char* path) {
     const BspFile bsp(path);
     const auto model = bsp.record(14, 0, 64);
@@ -402,6 +534,7 @@ void actual_map(const char* path) {
     const HullView hull{planes, nodes, std::bit_cast<std::int32_t>(bsp.u32(model + 36))};
     std::size_t cases = 0, walls = 0, operations = 0;
     Coverage interior_samples;
+    VolumeCoverage volume_samples;
     for (std::size_t f = first; f < first + std::size_t(count); f += std::max<std::size_t>(1, count / 96)) {
         const auto face = bsp.record(7, f, 20);
         const auto first_edge = bsp.u32(face + 4); const auto edge_count = bsp.u16(face + 8);
@@ -427,11 +560,16 @@ void actual_map(const char* path) {
         wall_area(interior); // Independently verify winding and nonnegative area.
         ++cases; walls += interior.walls.size(); operations += interior.operations;
         interior_samples.checked += coverage.checked; interior_samples.boundary += coverage.boundary;
+        try { volume_coverage(hull,cuts,volume_samples); }
+        catch (const std::exception& error) { throw std::runtime_error("Volume case " + std::to_string(cases) + ": " + error.what()); }
     }
     assert(cases >= 96 && walls > 100);
     std::cout << "{\"map\":\"cs_assault\",\"interiorCases\":" << cases << ",\"walls\":" << walls
               << ",\"operations\":" << operations << ",\"coverageSamples\":" << interior_samples.checked
               << ",\"boundarySamplesSkipped\":" << interior_samples.boundary << ",\"passed\":true}\n";
+    std::cout << "{\"map\":\"cs_assault\",\"volumeCases\":" << cases << ",\"cells\":" << volume_samples.cells
+              << ",\"operations\":" << volume_samples.operations << ",\"pointSamples\":" << volume_samples.points
+              << ",\"bodySamples\":" << volume_samples.bodies << ",\"traceSamples\":" << volume_samples.traces << ",\"passed\":true}\n";
 }
 } // namespace
 
