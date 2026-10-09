@@ -11,7 +11,7 @@
 - [ ] 验收已部署的 MetaHookSv `v20261008b` 十插件组合及新增 InterpFix 的实际效果。
 - [ ] 验收 XMCL 统一增删更新及 A/B/server 三端运行；核心 JAR 已统一。
 - [ ] 验收已同步三端的女仆 Epic Fight 扩展：CS 内动画、GEO/YSM 模型、技能菜单与多人玩法。
-- [ ] 完成 `mc_map_mining 2` 的洞壁、渲染、各类碰撞与会话同步；0/1 权限及原生实体伤害已过独立测试，实际 MC 输入仍待验收。[状态](docs/WORLD_CARVING.md)
+- [ ] 完成 `mc_map_mining 2` 的洞壁、渲染、碰撞与会话同步；原生 27 项／真实 NeoForge 联动 19 项已过，实际按键、材质与工具进度待验收。[状态](docs/WORLD_CARVING.md)
 - [ ] 实现 AMXX 通用效果层：原生表现保留、状态／外力同步、公共 Pawn 声明和统一目标；按能力复用，先验收 ZP／Nade Modes。[方案](docs/AMXX_INTEROP.md)
 
 ## 原生 CS 验收

@@ -194,7 +194,7 @@ class Run(base.Run):
             raise ValueError("Stale native status")
         return json.loads(path.read_text())
 
-    def start(self):
+    def start_native(self):
         self.prepare()
         env = {k: v for k, v in os.environ.items() if not k.startswith("GOLDCRAFT_")}
         for field in ("PORT", "SESSION", "TOKEN"):
@@ -208,6 +208,9 @@ class Run(base.Run):
                                        stdout=self.log, stderr=subprocess.STDOUT, stdin=None, creationflags=0)
         self.report["pid"] = self.process.pid
         print(json.dumps({"independentServer": self.process.pid, "mainServerStarted": False}), flush=True)
+
+    def start(self):
+        self.start_native()
         def ready():
             try:
                 self.peer = Peer(self.config)
@@ -370,13 +373,13 @@ class Run(base.Run):
         self.check("AMXX/ReAPI fixture has no new runtime errors", not self.report["runtimeErrors"])
         self.report["passed"] = True
 
-    def close(self):
+    def close(self, output=None):
         try:
             if self.peer:
                 self.peer.close()
         finally:
             # The base cleanup stops only this exact process and restores all writes.
-            super().close(output=ROOT / f"analysis/world-carving/mining-runtime-{STAMP}.json")
+            super().close(output=output or ROOT / f"analysis/world-carving/mining-runtime-{STAMP}.json")
         if hasattr(self, "log"):
             self.log.close()
         if LOG.exists():

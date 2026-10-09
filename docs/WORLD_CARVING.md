@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。原生独立测试通过，**实际 MC 输入以及整图挖洞尚未验收**。CPU 表面切割核心仍未接入 Renderer、原生碰撞或洞壁。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。27 项原生检查及 19 项真实 NeoForge→ReHLDS 检查通过，**实际客户端输入以及整图挖洞尚未验收**。CPU 表面切割核心仍未接入 Renderer、原生碰撞或洞壁。
 
 ## HLDS 权限
 
@@ -14,9 +14,22 @@
 
 客户端只提交持续攻击意图，不提交目标、距离或伤害。Minecraft 服务端根据真实玩家视线、工具、游戏模式和遮挡计算请求；HLDS 再核验配对 UUID、玩家生命与实体代次、MC 控制租约、地图会话、政策版本、距离、视角及原生射线。政策热更新拒绝旧请求，重复事件不会重复伤害。
 
-生存工具耐久在宿主实体实际被破坏后扣除。宿主材质尚未导出，当前使用 MC 石头作为 `postMine` 材质；细分材料、工具进度与实际 MC 联动仍待验证。
+生存工具耐久在宿主实体实际被破坏后扣除；真实 JVM 已验证部分伤害不扣耐久、确认破坏只扣一次、创造破坏不扣耐久。宿主材质尚未导出，当前使用 MC 石头作为 `postMine` 材质；细分材料、工具进度与第三方工具仍待验证。
 
 独立 `Exercise-MapMining.py` 在实际 ReHLDS／ReGameDLL／AMXX／ReAPI、`sv_lan 0` 上验证 27 项：启动 cvar、热切换、配对／代次／视线、Ham 取消、免伤实体、致死玻璃及普通 CS 子弹。它使用真实 `CBasePlayer` fake client 和受信权威协议测试端，不是 Minecraft JVM 或图形输入验收；结束后停止测试服并还原文件。
+
+[`Exercise-MapMiningJvm.py`](../tools/Exercise-MapMiningJvm.py) 进一步启动正式 Minecraft 1.21.1／NeoForge 21.1.256，与独立 ReHLDS 真实配对。19 项检查覆盖 0/1 权限与热关闭、射线与 MC 方块遮挡、攻击者身份、松键与输入心跳过期、冒险模式／使用物品限制、Ham 取消、生存／创造工具耐久和破坏后目标移除。两个测试进程均已停止，JVM 正常退出，临时部署文件按本次启动前内容还原。
+
+测试专用 [MapMiningProbe](../tools/java/MapMiningProbe.java) 使用 NeoForge `FakePlayer`，模拟玩家登记、朝向、装备属性及持续输入；生产 `HostMining`、桥接、原生伤害和工具回调保持原实现。它不验证网络登录、真实按键、移动物理、第三方 Mod 整包或图形表现，不能替代 B 客户端验收。
+
+先按[构建说明](BUILD.md)准备基础组件和正式 NeoForge runtime；专用 GameDLL 使用 `Build-Native.ps1 -Server -HeadlessFixture`，Pawn 需编译 `goldcraft`、`goldcraft_test`、`goldcraft_headless_test`、`goldcraft_map_mining_test`。首次通过 `Initialize-HeadlessCombat.ps1 -PlayerFixtures` 建立独立测试目录；重建前停止该目录的测试进程。在具有控制台输入的终端中依次运行：
+
+```powershell
+python .\tools\Exercise-MapMining.py
+python .\tools\Exercise-MapMiningJvm.py
+```
+
+两者共用独立测试服目录，必须串行运行；不会启动主服或 A/B。JVM 测试只临时部署核心 Mod 和测试探针，报告记录实际 JAR／DLL 哈希及检查结果。
 
 ## 已有接口
 
