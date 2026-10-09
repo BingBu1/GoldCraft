@@ -18,3 +18,11 @@ bool GoldCraft_MinecraftFallAuthority(edict_s* player);
 void GoldCraft_EntityTouched(edict_s* entity,edict_s* other);
 bool GoldCraft_ClientCommand(edict_s* player, const char* command);
 void GoldCraft_StartFrame();
+// Scope native round cleanup; explicit plugin entity restarts retain their semantics.
+struct GoldCraft_MapMiningRoundCleanup {
+    GoldCraft_MapMiningRoundCleanup();
+    ~GoldCraft_MapMiningRoundCleanup();
+    GoldCraft_MapMiningRoundCleanup(const GoldCraft_MapMiningRoundCleanup&) = delete;
+    GoldCraft_MapMiningRoundCleanup& operator=(const GoldCraft_MapMiningRoundCleanup&) = delete;
+};
+bool GoldCraft_MapMiningKeepEntity(edict_s* entity);

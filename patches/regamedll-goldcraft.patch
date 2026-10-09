@@ -212,6 +212,24 @@ index 7f3e810..e54c9b1 100644
  	// By default, direct dbg reporting...
  	SpewOutputFunc(GameDLL_SpewHandler);
  
+diff --git a/regamedll/dlls/multiplay_gamerules.cpp b/regamedll/dlls/multiplay_gamerules.cpp
+index 3c7176e..4b49106 100644
+--- a/regamedll/dlls/multiplay_gamerules.cpp
++++ b/regamedll/dlls/multiplay_gamerules.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ CCStrikeGameMgrHelper g_GameMgrHelper;
+ CHalfLifeMultiplay *g_pMPGameRules = nullptr;
+@@ -610,6 +611,7 @@ LINK_HOOK_CLASS_VOID_CUSTOM_CHAIN2(CHalfLifeMultiplay, CSGameRules, CleanUpMap)
+ 
+ void EXT_FUNC CHalfLifeMultiplay::__API_HOOK(CleanUpMap)()
+ {
++	GoldCraft_MapMiningRoundCleanup miningCleanup;
+ #ifdef REGAMEDLL_FIXES
+ 	UTIL_RestartOther("multi_manager");
+ 
 diff --git a/regamedll/dlls/observer.cpp b/regamedll/dlls/observer.cpp
 index 3ccefc4..da9ec23 100644
 --- a/regamedll/dlls/observer.cpp
@@ -384,6 +402,34 @@ index 8a219ea..4c14c9e 100644
  		MESSAGE_END();
  	}
  
+diff --git a/regamedll/dlls/util.cpp b/regamedll/dlls/util.cpp
+index e0ffed5..9d072f4 100644
+--- a/regamedll/dlls/util.cpp
++++ b/regamedll/dlls/util.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ unsigned int glSeed;
+ CUtlVector<hash_item_t> stringsHashTable;
+@@ -1495,6 +1496,8 @@ void UTIL_RestartOther(const char *szClassname)
+ 	CBaseEntity *pEntity = nullptr;
+ 	while ((pEntity = UTIL_FindEntityByClassname(pEntity, szClassname)))
+ 	{
++		if (GoldCraft_MapMiningKeepEntity(pEntity->edict()))
++			continue;
+ 		pEntity->Restart();
+ 
+ #ifdef REGAMEDLL_ADD
+@@ -1523,7 +1526,7 @@ void UTIL_ResetEntities()
+ 		if ((caps & FCAP_MUST_RELEASE) == FCAP_MUST_RELEASE)
+ 			UTIL_Remove(pEntity);
+ 
+-		else if ((caps & FCAP_MUST_RESET) == FCAP_MUST_RESET)
++		else if ((caps & FCAP_MUST_RESET) == FCAP_MUST_RESET && !GoldCraft_MapMiningKeepEntity(pEdict))
+ 			pEntity->Restart();
+ 	}
+ }
 diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
 index 6663e2e..c803696 100644
 --- a/regamedll/dlls/weapons.cpp

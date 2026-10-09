@@ -632,6 +632,7 @@ bool GoldCraft_ObjectAction(std::uint64_t key,unsigned action,edict_t* attacker,
 void GoldCraft_StartFrame() {
     if(!edicts) return;
     try {
+        GoldCraft_MapMiningFrame();
         link.poll();
         if(link.error()!=previous_error) { previous_error=link.error(); if(!previous_error.empty()) BridgeLog(previous_error); }
         if(link.connected() && link.generation()!=connection_generation) {

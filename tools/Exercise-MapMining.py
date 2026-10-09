@@ -274,7 +274,7 @@ class Run(base.Run):
         time.sleep(.05)
 
     def target(self, model):
-        answer = self.command("gc_mining_probe " + str(model))
+        answer = self.command(f"gc_mining_probe {model} {self.slot}")
         match = re.search(r"target=(\d+) eye=([^ ]+) point=([^ ]+) early=(\d+)", answer)
         if not match:
             raise RuntimeError("No native fixture approach: " + answer)

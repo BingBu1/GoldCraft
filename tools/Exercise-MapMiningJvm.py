@@ -154,7 +154,7 @@ class Run(mining.Run):
         return self.until(lambda: (p if (p := self.probe()).get("tick", 0) >= tick + count else None), "Minecraft ticks")
 
     def target(self, model):
-        answer = self.command("gc_mining_probe " + str(model))
+        answer = self.command(f"gc_mining_probe {model} {self.slot}")
         match = re.search(r"target=(\d+) eye=([^ ]+) point=([^ ]+)", answer)
         if not match:
             raise RuntimeError("No native target approach")
@@ -278,6 +278,19 @@ class Run(mining.Run):
         self.ticks(5)
         self.check("creative mode breaks native glass with paired attacker", destroyed["calls"] > 0 and destroyed["attacker"] == self.slot)
         self.check("creative native break consumes no durability", self.probe()["toolDamage"] == 1)
+        self.command("mc_map_mining_persist 1")
+        self.command("gc_mining_round end")
+        self.ticks(8)
+        self.check("persistent mined brush stays absent from real Minecraft raycast at round end",
+                   self.native_state().get("solid") == 0 and self.probe()["target"] != self.target_slot)
+        self.command("mc_map_mining_persist 0")
+        self.command("gc_mining_round restart")
+        self.until(lambda: self.native_state().get("solid") == 4, "Native glass restored at next round")
+        # Real respawn relocates the paired player. Restore only this fixture's
+        # view setup, then query the unchanged production host brush raycast.
+        self.target(77)
+        self.until(lambda: self.probe()["target"] == self.target_slot, "Restored brush reaches real JVM targeting")
+        self.check("restored native collision returns to real Minecraft targeting", self.probe()["target"] == self.target_slot)
         self.report["finalMinecraft"] = self.probe()
         self.report["runtimeErrors"] = {p.name: p.read_bytes()[self.error_offsets.get(p, 0):].decode("utf-8", errors="replace")
             for p in (mining.base.AMXX / "logs").glob("error_*.log") if p.stat().st_size > self.error_offsets.get(p, 0)}
