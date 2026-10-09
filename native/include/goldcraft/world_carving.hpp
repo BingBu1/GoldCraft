@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -36,5 +37,34 @@ struct Result {
 // length_error, without returning a partial mesh. This only constructs surface
 // geometry: it does not change engine hulls, PVS, map state, or authorization.
 Result subtract(const Triangle& triangle, std::span<const Box> boxes, Limits limits = {});
+
+// A point-contents BSP in model-local coordinates, independent of engine ABI.
+// children[0] is the normal-facing side; negative children are GoldSrc contents.
+// Callers translate render leaves to contents before supplying this view.
+struct Plane { Point normal; double distance; };
+struct HullNode { std::uint32_t plane; std::array<std::int32_t, 2> children; };
+struct HullView {
+    std::span<const Plane> planes;
+    std::span<const HullNode> nodes;
+    std::int32_t root;
+};
+struct Wall {
+    std::vector<Point> vertices;
+    Point normal; // Points from remaining solid into the excavated cavity.
+    std::size_t box;
+};
+struct Interior {
+    std::vector<Wall> walls;
+    std::size_t operations = 0;
+};
+
+// Construct the boundary of the cut-box union that faces remaining SOLID BSP
+// volume. Clip exactly against its point hull, preserve openings into air/water,
+// remove shared faces, and emit coincident exterior faces once. Coplanar BSP
+// boundaries use contents immediately outside the cavity. Output polygons are
+// convex and wound toward the cavity; no original texture/material is implied.
+// Invalid/cyclic/deeper-than-256 hulls fail; limits cover the whole operation.
+// This supplies missing interior surfaces, not player hulls or runtime state.
+Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits = {});
 
 } // namespace goldcraft::carving

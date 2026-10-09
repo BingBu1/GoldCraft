@@ -179,6 +179,135 @@ void unit_cases() {
     std::cout << "Surface carving: area, union/overlap, boundary ownership, winding, attributes, coverage and bounded failure passed\n";
 }
 
+double wall_area(const Interior& interior) {
+    double total = 0;
+    for (const auto& wall : interior.walls) {
+        assert(wall.vertices.size() >= 3);
+        close(dot(wall.normal, wall.normal), 1);
+        for (std::size_t i = 1; i + 1 < wall.vertices.size(); ++i) {
+            const Triangle triangle{wall.vertices[0], wall.vertices[i], wall.vertices[i + 1]};
+            assert(dot(cross(minus(triangle[1], triangle[0]), minus(triangle[2], triangle[0])), wall.normal) >= 0);
+            total += area(triangle);
+        }
+    }
+    return total;
+}
+
+int point_contents(HullView hull, const Point& point) {
+    auto node = hull.root;
+    while (node >= 0) {
+        const auto& branch = hull.nodes[node];
+        const auto& plane = hull.planes[branch.plane];
+        node = branch.children[dot(plane.normal, point) < plane.distance ? 1 : 0];
+    }
+    return node;
+}
+
+Coverage wall_coverage(HullView hull, std::span<const Box> boxes, const Interior& interior) {
+    Coverage samples;
+    for (const auto& wall : interior.walls) {
+        assert(wall.box < boxes.size());
+        for (const auto& point : wall.vertices) assert(inside(point, boxes[wall.box]));
+    }
+    std::uint32_t seed = 0xa791f35b;
+    auto random = [&seed] { seed = seed * 1664525u + 1013904223u; return (seed + 0.5) / 4294967296.0; };
+    for (const auto& box : boxes) for (int axis = 0; axis < 3; ++axis) for (bool upper : {false, true}) {
+        Point inward{}; inward[axis] = upper ? -1 : 1;
+        for (int sample = 0; sample < 64; ++sample) {
+            Point point{}, outside{};
+            for (int a = 0; a < 3; ++a)
+                point[a] = a == axis ? (upper ? box.max[a] : box.min[a]) : box.min[a] + (box.max[a] - box.min[a]) * random();
+            outside = point; outside[axis] -= inward[axis] * 1e-5;
+            // Independent contents/union membership at points on the material
+            // side detects missing walls and duplicate faces, not just area.
+            const bool expected = point_contents(hull, outside) == -2 &&
+                !std::any_of(boxes.begin(), boxes.end(), [&](const auto& other) { return inside(outside, other); });
+            unsigned coverage = 0;
+            bool boundary = false;
+            for (const auto& wall : interior.walls) {
+                if (wall.normal != inward || std::abs(wall.vertices[0][axis] - point[axis]) > 1e-9) continue;
+                bool contains = true, edge = false;
+                for (std::size_t i = 0; i < wall.vertices.size(); ++i) {
+                    const auto& a = wall.vertices[i]; const auto& b = wall.vertices[(i + 1) % wall.vertices.size()];
+                    const double side = dot(cross(minus(b, a), minus(point, a)), wall.normal);
+                    if (side < -1e-8) { contains = false; break; }
+                    edge |= std::abs(side) <= 1e-8;
+                }
+                if (contains) { ++coverage; boundary |= edge; }
+            }
+            if (boundary) ++samples.boundary;
+            else { assert(coverage == unsigned(expected)); ++samples.checked; }
+        }
+    }
+    return samples;
+}
+
+void interior_cases() {
+    const HullView solid{{}, {}, -2};
+    const Box cube{{0, 0, 0}, {2, 2, 2}};
+    const auto check = [&](HullView hull, std::span<const Box> boxes, double expected) {
+        const auto result = interior_walls(hull, boxes);
+        close(wall_area(result), expected);
+        wall_coverage(hull, boxes, result);
+    };
+    check(solid, {}, 0);
+    check(solid, {&cube, 1}, 24);
+    check(HullView{{}, {}, -1}, {&cube, 1}, 0);
+    check(HullView{{}, {}, -3}, {&cube, 1}, 0);
+    std::array<Box, 2> pair{cube, cube};
+    check(solid, pair, 24); // Coincident faces have exactly one owner.
+    pair[1] = {{2, 0, 0}, {4, 2, 2}};
+    check(solid, pair, 40); // Shared wall between adjacent cells disappears.
+    pair[1] = {{1, 0, 0}, {3, 2, 2}};
+    check(solid, pair, 32);
+    std::reverse(pair.begin(), pair.end()); check(solid, pair, 32);
+    pair = {cube, Box{{1, 1, 1}, {3, 3, 3}}};
+    check(solid, pair, 42);
+    pair = {Box{{-3, -3, -3}, {3, 3, 3}}, cube};
+    check(solid, pair, 216);
+    const std::array<Box, 3> corner{cube, Box{{2, 0, 0}, {4, 2, 2}}, Box{{0, 2, 0}, {2, 4, 2}}};
+    check(solid, corner, 56);
+
+    const Box crossing{{-1, -1, -1}, {1, 1, 1}}, flush{{0, -1, -1}, {1, 1, 1}}, touching{{-1, -1, -1}, {0, 1, 1}};
+    std::array<Plane, 2> planes{Plane{{1, 0, 0}, 0}, Plane{{1, 0, 0}, 0.125}};
+    std::array<HullNode, 2> nodes{HullNode{0, {-2, -1}}, HullNode{1, {-1, -2}}};
+    check(HullView{planes, nodes, 0}, {&crossing, 1}, 12);
+    check(HullView{planes, nodes, 0}, {&flush, 1}, 12);
+    check(HullView{planes, nodes, 0}, {&touching, 1}, 4); // Preserve the surface removed by a coplanar cut.
+    planes[0].normal = {std::sqrt(0.5), std::sqrt(0.5), 0};
+    check(HullView{planes, nodes, 0}, {&crossing, 1}, 12);
+    planes[0].normal = {1, 0, 0}; nodes[0].children[0] = 1;
+    check(HullView{planes, nodes, 0}, {&crossing, 1}, 1);
+    // The exact coplanar decision must not jump across very thin solids.
+    planes[1].distance = std::ldexp(1.0, -30);
+    close(wall_area(interior_walls(HullView{planes, nodes, 0}, {&crossing, 1})), 8 * planes[1].distance, 1e-15);
+    nodes[0].children = {-2, -2};
+    check(HullView{planes, nodes, 0}, {&crossing, 1}, 24);
+
+    rejects<std::length_error>([&] { interior_walls(solid, {&cube, 1}, Limits{1, 4096}); });
+    rejects<std::length_error>([&] { interior_walls(solid, {&cube, 1}, Limits{4096, 1}); });
+    rejects<std::invalid_argument>([&] { interior_walls(solid, {&cube, 1}, Limits{0, 4096}); });
+    nodes[0].children[0] = 0;
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    nodes[0].children[0] = 5;
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    nodes[0].children[0] = -16;
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    nodes[0].children[0] = -2; nodes[0].plane = 2;
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    nodes[0].plane = 0; planes[0].normal = {0, 0, 0};
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    planes[0].normal = {1, 0, 0}; planes[0].distance = std::numeric_limits<double>::quiet_NaN();
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, nodes, 0}, {&cube, 1}); });
+    const Box invalid{{0, 0, 0}, {0, 1, 1}};
+    rejects<std::invalid_argument>([&] { interior_walls(solid, {&invalid, 1}); });
+    std::vector<HullNode> deep(257, HullNode{0, {-2, -1}});
+    for (std::size_t i = 0; i + 1 < deep.size(); ++i) deep[i].children[0] = std::int32_t(i + 1);
+    planes[0].distance = 0;
+    rejects<std::invalid_argument>([&] { interior_walls(HullView{planes, deep, 0}, {&cube, 1}); });
+    std::cout << "Interior walls: exact solid clipping, diagonal/thin/coplanar boundaries, union ownership, inward winding, coverage and bounded failure passed\n";
+}
+
 // File layouts follow pinned ReHLDS public/rehlds/bspfile.h, not engine memory.
 // The actual-map test reads sandbox data only and never writes a BSP or engine.
 struct BspFile {
@@ -254,12 +383,61 @@ void actual_map(const char* path) {
               << ",\"changed\":" << changed << ",\"pieces\":" << pieces
               << ",\"coverageSamples\":" << samples.checked << ",\"boundarySamplesSkipped\":" << samples.boundary
               << ",\"passed\":true}\n";
+
+    std::vector<Plane> planes;
+    for (std::size_t i = 0; i < bsp.length[1] / 20; ++i) {
+        const auto at = bsp.record(1, i, 20);
+        planes.push_back({{bsp.f32(at), bsp.f32(at + 4), bsp.f32(at + 8)}, bsp.f32(at + 12)});
+    }
+    std::vector<HullNode> nodes;
+    for (std::size_t i = 0; i < bsp.length[5] / 24; ++i) {
+        const auto at = bsp.record(5, i, 24);
+        HullNode node{bsp.u32(at), {}};
+        for (int side = 0; side < 2; ++side) {
+            const auto child = std::bit_cast<std::int16_t>(bsp.u16(at + 4 + side * 2));
+            node.children[side] = child >= 0 ? child : std::bit_cast<std::int32_t>(bsp.u32(bsp.record(10, std::size_t(-1 - child), 28)));
+        }
+        nodes.push_back(node);
+    }
+    const HullView hull{planes, nodes, std::bit_cast<std::int32_t>(bsp.u32(model + 36))};
+    std::size_t cases = 0, walls = 0, operations = 0;
+    Coverage interior_samples;
+    for (std::size_t f = first; f < first + std::size_t(count); f += std::max<std::size_t>(1, count / 96)) {
+        const auto face = bsp.record(7, f, 20);
+        const auto first_edge = bsp.u32(face + 4); const auto edge_count = bsp.u16(face + 8);
+        if (edge_count < 3) continue;
+        Point center{};
+        for (std::size_t edge = 0; edge < edge_count; ++edge) {
+            const auto point = bsp.vertex(std::bit_cast<std::int32_t>(bsp.u32(bsp.record(13, first_edge + edge, 4))));
+            for (int axis = 0; axis < 3; ++axis) center[axis] += point[axis] / edge_count;
+        }
+        const auto& plane = planes[bsp.u16(face)];
+        const double side = bsp.u16(face + 2) ? -1 : 1;
+        Box hole;
+        for (int axis = 0; axis < 3; ++axis) {
+            hole.min[axis] = std::floor((center[axis] - side * plane.normal[axis] * 0.125) / 32) * 32;
+            hole.max[axis] = hole.min[axis] + 32;
+        }
+        std::array<Box, 3> cuts{hole, hole, hole};
+        const auto adjacent = cases % 3, overlapping = (cases + 1) % 3;
+        cuts[1].min[adjacent] += 32; cuts[1].max[adjacent] += 32;
+        cuts[2].min[overlapping] += 16; cuts[2].max[overlapping] += 16;
+        const auto interior = interior_walls(hull, cuts);
+        const auto coverage = wall_coverage(hull, cuts, interior);
+        wall_area(interior); // Independently verify winding and nonnegative area.
+        ++cases; walls += interior.walls.size(); operations += interior.operations;
+        interior_samples.checked += coverage.checked; interior_samples.boundary += coverage.boundary;
+    }
+    assert(cases >= 96 && walls > 100);
+    std::cout << "{\"map\":\"cs_assault\",\"interiorCases\":" << cases << ",\"walls\":" << walls
+              << ",\"operations\":" << operations << ",\"coverageSamples\":" << interior_samples.checked
+              << ",\"boundarySamplesSkipped\":" << interior_samples.boundary << ",\"passed\":true}\n";
 }
 } // namespace
 
 int main(int argc, char** argv) {
     try {
-        if (argc == 1) unit_cases();
+        if (argc == 1) { unit_cases(); interior_cases(); }
         else if (argc == 2) actual_map(argv[1]);
         else throw std::invalid_argument("Usage: goldcraft_world_carving_tests [isolated cs_assault.bsp]");
         return 0;
