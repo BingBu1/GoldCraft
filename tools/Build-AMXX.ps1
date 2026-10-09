@@ -1,28 +1,29 @@
-param([string[]]$Plugins=@('goldcraft'),[string[]]$Includes=@(),[switch]$Deploy,
+param([string[]]$Plugins=@(),[string[]]$Includes=@(),[switch]$Deploy,
       [ValidatePattern('^plugins(?:-[a-zA-Z0-9_]+)?\.ini$')][string]$PluginList='plugins.ini')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
-$compiler=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe')
-if(-not(Test-Path -LiteralPath $compiler)){& (Join-Path $PSScriptRoot 'Prepare-AMXX.ps1')}
+$Plugins=@($Plugins | ForEach-Object { $_.Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if($Deploy -and -not $Plugins.Count){throw 'Deployment requires explicit -Plugins names; compile-all does not enable test plugins.'}
 $out=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/amxx/plugins')
 New-Item -ItemType Directory -Path $out -Force | Out-Null
-$built=@()
-$extraIncludes=@($Includes | ForEach-Object { '-i'+(Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $_)) })
-foreach($plugin in $Plugins){
-    if($plugin -notmatch '^[a-z0-9_]+$'){throw 'Invalid plugin filename'}
-    $sourceMatches=@(Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'amxx') -Filter "$plugin.sma" -File -Recurse)
-    if($sourceMatches.Count -ne 1){throw "Expected one classified source for $plugin; found $($sourceMatches.Count)"}
-    $source=Assert-WorkspacePath $sourceMatches[0].FullName
-    $relative=[IO.Path]::GetRelativePath((Join-Path $script:GoldCraftRoot 'amxx'),$source)
-    $mod=$relative.Split([IO.Path]::DirectorySeparatorChar)[0]
-    $modInclude=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "amxx/$mod/include")
-    $localIncludes=@()
-    if(Test-Path -LiteralPath $modInclude){$localIncludes+=('-i'+$modInclude)}
-    & $compiler $source @localIncludes ("-i"+(Join-Path $script:GoldCraftRoot 'amxx/goldcraft/include')) ("-i"+(Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include')) ("-i"+(Join-Path (Split-Path $compiler) 'include')) @extraIncludes ("-o"+(Join-Path $out "$plugin.amxx"))
-    if($LASTEXITCODE){throw "Pawn compilation failed: $plugin"}
-    $artifact=Assert-WorkspacePath (Join-Path $out "$plugin.amxx")
-    $built+=@{name=$plugin;source=[IO.Path]::GetRelativePath($script:GoldCraftRoot,$source).Replace('\','/');sourceSha256=(Get-FileHash -LiteralPath $source).Hash;artifact="build/amxx/plugins/$plugin.amxx";sha256=(Get-FileHash -LiteralPath $artifact).Hash}
+$buildLock=Assert-WorkspacePath (Join-Path $out '../builder.lock')
+try{$guard=[IO.File]::Open($buildLock,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
+catch{throw 'Another AMXX build/deployment is active. Wait for it to finish.'}
+try{
+$compiler=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe')
+$reapi=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include/reapi.inc')
+$archives=@('amxmodx-1.9.0-git5303-base-windows.zip','amxmodx-1.9.0-git5303-cstrike-windows.zip','reapi-bin-5.29.0.358.zip')
+$missingArchives=@($archives | Where-Object { -not(Test-Path -LiteralPath (Join-Path $script:GoldCraftRoot ".tools/downloads/$_")) })
+if(-not(Test-Path -LiteralPath $compiler) -or -not(Test-Path -LiteralPath $reapi) -or $missingArchives.Count){
+    & (Join-Path $PSScriptRoot 'Prepare-AMXX.ps1')
 }
-$built | ConvertTo-Json -Depth 4 -AsArray | Set-Content -LiteralPath (Join-Path $out '../last-build.json') -Encoding utf8
+& (Join-Path $PSScriptRoot 'Prepare-AMXXBuilder.ps1')
+$node=(Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+$arguments=@()
+foreach($plugin in $Plugins){$arguments+=@('--plugin',$plugin)}
+foreach($include in $Includes){$arguments+=@('--include',$include)}
+& $node (Join-Path $PSScriptRoot 'Build-AMXX.cjs') @arguments
+if($LASTEXITCODE){throw 'amxx-builder compilation failed; last successful bytecode was preserved.'}
+$built=@(Get-Content -LiteralPath (Join-Path $out '../last-build.json') -Raw | ConvertFrom-Json)
 if($Deploy){
     $runtime=Assert-SandboxPath (Join-Path $script:GoldCraftRoot 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx')
     $config=Assert-SandboxPath (Join-Path $runtime "configs/$PluginList")
@@ -56,3 +57,4 @@ if($Deploy){
     }
     Write-Output 'Bytecode deployed; reload the map to load it. Source remains in amxx; sv_restart does not reload Pawn.'
 }
+}finally{$guard.Dispose()}

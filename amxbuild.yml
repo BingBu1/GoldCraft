@@ -1,0 +1,38 @@
+# Used by build-amxx.cmd / tools/Build-AMXX.ps1. Sources stay in amxx/.
+# The adapter stages the classified tree; never run with amxb's default build-dir.
+name: GoldCraft-AMXX
+version: "1.0.0"
+platform: windows
+
+amxmodx:
+  # amxx-builder uses major.minor.build: this means AMXX 1.9.0.5303.
+  version: "1.9.5303"
+  dir: build/amxx/builder-input
+  exclude_files: ["**"]
+  defines: []
+
+deps:
+  - source: local
+    name: reapi-5.29.0.358
+    path: .tools/reapi-5.29.0.358/addons/amxmodx/scripting/include
+    include_path: "."
+  - source: local
+    name: amxx-1.9.0.5303
+    path: .tools/amxx-1.9.0.5303/addons/amxmodx/scripting/include
+    include_path: "."
+  - source: local
+    name: sypb-1.50
+    path: external/SyPB/Project SyPB/AMXX
+    include_path: "."
+
+repos: []
+plugins:
+  defaults:
+    ini: false
+assets:
+  sources: []
+output:
+  dir: build/amxx
+  on_conflict: error
+  readme: false
+  pack: false

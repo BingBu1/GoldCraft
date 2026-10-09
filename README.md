@@ -6,7 +6,7 @@
 
 ## 构建与使用
 
-在 Windows 上安装 Git、PowerShell 7.5+、Python 3.11+、Arkari Clang 22.1.7、Visual Studio 2026 C++ x86 工具和 Windows SDK 10.0.26100.0。C++ 使用 clang-cl / C++20，Release 启用 O3、ThinLTO、AVX2 和 lld；VS 提供兼容的头文件、SDK 与 CRT。运行机器需要支持 AVX2。脚本把 Java、Gradle、CMake 和其他下载依赖放到工作区 `.tools`。
+在 Windows 上安装 Git、PowerShell 7.5+、Python 3.11+、Node.js（建议当前 LTS）、Arkari Clang 22.1.7、Visual Studio 2026 C++ x86 工具和 Windows SDK 10.0.26100.0。C++ 使用 clang-cl / C++20，Release 启用 O3、ThinLTO、AVX2 和 lld；VS 提供兼容的头文件、SDK 与 CRT。运行机器需要支持 AVX2。脚本把 Java、Gradle、CMake 和其他下载依赖放到工作区 `.tools`。
 
 ```powershell
 .\tools\Prepare-Sources.ps1
@@ -19,9 +19,11 @@
 .\tools\Build-BulletPhysics.ps1
 .\tools\Build-Native.ps1 -Server
 .\tools\Build-ReHLDS.ps1
-.\tools\Build-AMXX.ps1 -Plugins goldcraft,goldcraft_test
+.\build-amxx.cmd
 .\tools\Build-NeoForge.ps1 -Tasks build,writeRuntimeManifests
 ```
+
+AMXX 统一由固定版本的 [amxx-builder](https://github.com/AmxxModularEcosystem/amxx-builder) 编译。`.\build-amxx.cmd` 编译 `amxx` 下全部 SMA；`.\build-amxx.cmd -Plugins nademodes` 只编译手雷插件。输出位于 `build/amxx/plugins`，默认不部署；分类、依赖和可选部署见 [AMXX 说明](amxx/README.md)。
 
 需要自备合法安装的 CS 1.6，并先生成独立沙箱副本。详细部署、原安装校验和启动顺序见 [构建与沙箱](docs/BUILD.md)。已验证的客户端引擎为 GoldSrc build 10210；私有符号按实际模块身份校验，其他构建不能直接套用地址。
 

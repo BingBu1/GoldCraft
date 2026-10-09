@@ -1,7 +1,7 @@
 param()
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $lock=Get-Content -LiteralPath (Join-Path $script:GoldCraftRoot 'sources.lock.json') -Raw | ConvertFrom-Json
-foreach($name in @('MetaHookSv','ReGameDLL_CS','ReHLDS','AMXModX','ReAPI','SyPB')){
+foreach($name in @('MetaHookSv','ReGameDLL_CS','ReHLDS','AMXModX','ReAPI','SyPB','AMXXBuilder')){
     $entry=$lock.sources.$name
     $path=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.path)
     if(-not(Test-Path -LiteralPath $path)){

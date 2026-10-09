@@ -11,6 +11,7 @@
     "ReGameDLL_CS": {"url": "https://github.com/rehlds/ReGameDLL_CS", "commit": "4a50c42e85fd3778c2b7d24731c7d30c83bbab01", "path": "external/ReGameDLL_CS", "patch": "patches/regamedll-goldcraft.patch"},
     "ReHLDS": {"url": "https://github.com/rehlds/rehlds", "commit": "550f2d62f13f4ebeb029c1d9d1c212133202611d", "path": "external/ReHLDS", "patch": "patches/rehlds-goldcraft.patch", "role": "dedicated authority and engine reference, not hw.dll"},
     "AMXModX": {"url": "https://github.com/alliedmodders/amxmodx", "commit": "b88b763a63bc7165f48e326c226eb05f9db0e54a", "path": "external/amxmodx"},
+    "AMXXBuilder": {"url": "https://github.com/AmxxModularEcosystem/amxx-builder", "commit": "2a0ddf05f73c0af93c77435f7aafad63c3b8c19b", "version": "1.8.0-beta.1", "path": "external/amxx-builder"},
     "ReAPI": {"url": "https://github.com/rehlds/ReAPI", "commit": "1c448d06e8c1cebaea061d6b81b94e85f6262649", "path": "external/ReAPI"},
     "SyPB": {"url": "https://github.com/CCNHsK-Dev/SyPB", "commit": "4c364fbe40d8356154f66527827bb75100aa7265", "path": "external/SyPB", "patch": "patches/sypb-goldcraft.patch", "api": "1.50"},
     "GoldSrc_VibeSignatures": {"url": "https://github.com/HLND2T/GoldSrc_VibeSignatures", "observedHead": "0212b4c540786fb966355b5a0d23f6dd01be6ff5", "index": "https://hlnd2t.github.io/GoldSrc_VibeSignatures/gamesymbols/index.json", "role": "module-identity-matched symbol catalog; built snapshots pin their content hashes"}

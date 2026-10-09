@@ -10,11 +10,13 @@
 
 `Verify-ClangBuilds.py` 审核实际 CMake 编译命令、MSBuild clang-cl/lld tlog、编译器身份和 x86 PE 产物；修改工具链后需重新构建并运行。`Prepare-NativeBuild.ps1` 在工作区安装 CMake 3.31.10 与 4.3.4，C++ 项目均使用 Ninja 或以 Clang 工具替换后的 MSBuild。`Prepare-JavaBuild.ps1` 下载并校验 Java 21.0.12.1+1、Gradle 8.10.2。
 
-`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI 和 SyPB 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
+`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI、SyPB 和 amxx-builder 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
 可选的 [Nade Modes](../amxx/nade_modes/README.md) 通过三个官方附件和独立 SHA-256 清单重建。其 Pawn 使用 AMXX 1.9.0.5303 编译；只把字节码、语言和配置部署到服务器，源码留在分类后的 `amxx/nade_modes`。
 
 按 README 的顺序准备、编译。`Build-Native.ps1 -Server` 产生客户端插件、AMXX 模块和修改后的 ReGameDLL；`Build-ReHLDS.ps1` 单独编译服务器引擎。`Build-NeoForge.ps1` 编译正式映射 JAR、JUnit 测试与独立启动所需的开发运行清单。Yarn/Loom 用于编译和开发映射，不是 Fabric Loader 运行依赖。
+
+AMXX 使用 `build-amxx.cmd` 一次编译全部分类 SMA，或 `build-amxx.cmd -Plugins nademodes` 按名称编译。需要 Node.js 18.3+／npm；首次自动按上游 `package-lock.json` 安装固定 amxx-builder，禁用安装脚本，依赖和缓存均留在工作区。AMXX／ReAPI SDK 与官方归档逐文件核验，保持 AMXX 1.9.0.5303。ZP、手雷准备工具与可选部署共用此编译入口。目录、失败处理和命令详见 [AMXX 说明](../amxx/README.md)。
 
 `Build-ReHLDS.ps1 -TestSteamCallbacks` 使用相同 Clang/C++20/O3/ThinLTO 配置构建 ReHLDS 的测试程序及依赖，在 `build/rehlds/Tests` 验证内部 Bot 与真人认证回调的边界；测试产物不会覆盖正式引擎或运行实例。
 

@@ -40,7 +40,7 @@ ReAPI 的 native 参数、成员类型和 hook 回调以下载的对应源码及
 .\tools\Build-AMXX.ps1 -Plugins my_plugin -Deploy
 ```
 
-所属 Mod 的 `include` 会自动加入编译路径，其他 SDK 头文件使用 `-Includes` 指定工作区内的目录；`-PluginList` 可选择 `plugins-xxx.ini`。未加 `-Deploy` 时只编译。每次编译的源码与产物哈希记录在 `build/amxx/last-build.json`。
+各 Mod 的公开 `include` 自动加入编译路径，ReAPI／AMXX／SyPB 由固定的 `amxbuild.yml` 统一提供；其他头文件使用 `-Includes` 指定工作区内的目录。同名插件及冲突的公开头文件会报错。`-PluginList` 可选择 `plugins-xxx.ini`。未加 `-Deploy` 时只编译；全部编译用 `.\build-amxx.cmd`，部署必须显式指定插件名。最近成功编译的源码与产物哈希记录在 `build/amxx/last-build.json`。
 
 僵尸插件准备工具先把全部选用的 `.sma`、头文件、配置、基础字典和作者说明导入 `amxx/zombie_plague` 的分类目录，再从这里编译；导入记录保存在 `build/amxx/imported-sources.json`。后续构建保留人工修改，固定上游副本仍在 `external`。首次安装从分类目录读取配置；已有运行配置按原部署规则保留。本地第三方完整源码不随公开仓库上传；公开清单只收录原创插件、汉化、必要补丁和构建工具。
 

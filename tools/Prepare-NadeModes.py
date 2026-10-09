@@ -142,13 +142,9 @@ def prepare(upstream, check_only=False):
 
 
 def build():
-    compiler = safe(ROOT / ".tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe")
     output = safe(ROOT / "build/amxx/plugins/nademodes.amxx")
     output.parent.mkdir(parents=True, exist_ok=True)
-    command = [str(compiler), str(WORK / "nademodes.sma"), "-i" + str(WORK / "include"),
-               "-i" + str(ROOT / "amxx/goldcraft/include"),
-               "-i" + str(ROOT / ".tools/reapi-5.29.0.358/addons/amxmodx/scripting/include"),
-               "-i" + str(compiler.parent / "include"), "-o" + str(output)]
+    command = ["pwsh", "-NoProfile", "-File", str(ROOT / "tools/Build-AMXX.ps1"), "-Plugins", "nademodes"]
     subprocess.run(command, cwd=ROOT, check=True)
     sources = [WORK / "nademodes.sma", WORK / "include/goldcraft_nademodes.inc", WORK / "include/nademodes.inc",
                ROOT / "amxx/goldcraft/include/goldcraft_amxx.inc", ROOT / "amxx/goldcraft/include/goldcraft_menus.inc"]

@@ -111,7 +111,6 @@ def compile_plugins():
     spec.loader.exec_module(localization)
     translated_sources, _, _ = localization.prepare()
     scripting = SOURCE / 'addons/amxmodx/scripting'
-    compiler = ROOT / '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe'
     load_list = WORKING / 'configs/plugins-zp50_ammopacks.ini'
     plugins = re.findall(r'^([a-z0-9_]+)\.amxx', load_list.read_text(), re.M)
     # Root amxx is the editable source; pinned seeds stay outside that folder.
@@ -133,19 +132,17 @@ def compile_plugins():
     compiled = []
     log = destination(ROOT / 'build/logs/zombieplague-build.log')
     with log.open('w', encoding='utf-8') as output:
-        for name in plugins:
-            target = destination(ROOT / 'build/amxx/plugins' / (name + '.amxx'))
-            plugin_source = sources[name]
-            result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(WORKING / 'include'),
-                                     '-i' + str(ROOT / 'amxx/goldcraft/include'),
-                                     '-i' + str(ROOT / '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include'),
-                                     '-i' + str(compiler.parent / 'include'), '-o' + str(target)],
-                                    cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
-            if result.returncode or not target.is_file():
-                raise RuntimeError(f'Pawn compilation failed: {name}; see {log}')
-            compiled.append({'name': name, 'sha256': digest(target), 'sourceSha256': digest(plugin_source),
-                             'source': plugin_source.relative_to(ROOT).as_posix(),
-                             'artifact': target.relative_to(ROOT).as_posix()})
+        result = subprocess.run(['pwsh', '-NoProfile', '-File', str(ROOT / 'tools/Build-AMXX.ps1'),
+                                 '-Plugins', ','.join(plugins)], cwd=ROOT,
+                                stdout=output, stderr=subprocess.STDOUT)
+    if result.returncode:
+        raise RuntimeError(f'amxx-builder failed; see {log}')
+    for name in plugins:
+        target = destination(ROOT / 'build/amxx/plugins' / (name + '.amxx'))
+        plugin_source = sources[name]
+        compiled.append({'name': name, 'sha256': digest(target), 'sourceSha256': digest(plugin_source),
+                         'source': plugin_source.relative_to(ROOT).as_posix(),
+                         'artifact': target.relative_to(ROOT).as_posix()})
     return compiled
 
 
