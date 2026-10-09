@@ -8,7 +8,6 @@ import hashlib
 import json
 import runpy
 import struct
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -179,7 +178,9 @@ def main():
     index = {"schemaVersion": 4, "versions": [{
         "gameVersion": version, "url": version + ".json",
         "sha256": hashlib.sha256(snapshot_bytes).hexdigest(), "size": len(snapshot_bytes),
-        "snapshotSchemaVersion": 8, "fileCount": len(records), "lastPublishTime": datetime.now(timezone.utc).isoformat(),
+        # Content-addressed local snapshots must remain stable across preflight
+        # and deployment; the optional publication timestamp is not needed.
+        "snapshotSchemaVersion": 8, "fileCount": len(records),
     }]}
     output.mkdir(parents=True, exist_ok=True)
     (output / (version + ".json")).write_bytes(snapshot_bytes)

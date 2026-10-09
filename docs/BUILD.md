@@ -10,7 +10,7 @@
 
 `Verify-ClangBuilds.py` 审核实际 CMake 编译命令、MSBuild clang-cl/lld tlog、编译器身份和 x86 PE 产物；修改工具链后需重新构建并运行。`Prepare-NativeBuild.ps1` 在工作区安装 CMake 3.31.10 与 4.3.4，C++ 项目均使用 Ninja 或以 Clang 工具替换后的 MSBuild。`Prepare-JavaBuild.ps1` 下载并校验 Java 21.0.12.1+1、Gradle 8.10.2。
 
-`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI、SyPB 和 amxx-builder 版本。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
+`sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、InterpFix、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI、SyPB 和 amxx-builder 版本。当前 MetaHookSv 为 `v20261008b`，根提交 `063a18c2ad9f19c34a01bc6906a78c5a7270a5b3`；复用历史命名的 `external/MetaHookSv-20261007` 目录以保留依赖缓存，版本以锁文件和实际 Git 提交为准。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
 可选的 [Nade Modes](../amxx/nade_modes/README.md) 通过三个官方附件和独立 SHA-256 清单重建。其 Pawn 使用 AMXX 1.9.0.5303 编译；只把字节码、语言和配置部署到服务器，源码留在分类后的 `amxx/nade_modes`。
 
@@ -36,7 +36,7 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 
 ## 部署客户端和服务器
 
-普通安装需有可用的 MetaHook 插件配置。准备脚本只读取其插件清单、亮度参数和 `cs_assault` 灯光配置；插件代码来自固定的官方发布包，并校验 SHA-256。Renderer 与 GoldCraft 使用本地构建。当前已验证组合：VGUI2Extension、CaptionMod、Renderer_AVX2、GoldCraft、BulletPhysics、StudioEvents、PrecacheManager、HeapPatch、ResourceReplacer。
+普通安装需有可用的 MetaHook 插件配置。准备脚本只读取其插件清单、亮度参数和 `cs_assault` 灯光配置；官方发布包按 SHA-256 校验。MetaHook、Renderer、GoldCraft、BulletPhysics、VGUI2Extension、InterpFix 和 UtilThreadTask 使用本地 Clang 构建，其余启用插件使用锁定发布包。原有九插件组合追加上游默认的 InterpFix，保留列表中 Renderer 后紧接 GoldCraft 的顺序。新版组合仍需实际游戏验收。
 
 ```powershell
 .\tools\Prepare-MetaHookRuntime.ps1
@@ -48,6 +48,16 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 ```
 
 部署必须停止目标实例。客户端私有符号只接受实际校验通过的模块；当前 `Build-ClientGameData.py` 的客户端白名单是复制的 build 10210。它校验 SHA-256、CRC64、指令/虚表与符号目录中的 RVA；不能通过改版本字符串支持其他 `client.dll`。`hw.dll` 由 MetaHook 的实际模块匹配机制解析，不能用 ReHLDS 的地址代替。
+
+更新已有客户端时使用增量入口，先预检，再部署到已停止的实例：
+
+```powershell
+.\tools\Prepare-MetaHookRuntime.ps1
+.\tools\Deploy-ClientRuntime.ps1 -Clients cs-client-b -ValidateOnly
+.\tools\Deploy-ClientRuntime.ps1 -Clients cs-client-b
+```
+
+省略 `-Clients` 则更新 A/B。此入口不重新初始化实例：保留 CS 绑定、配对信息、现有光照／地图配置，仅给插件及依赖路径列表追加缺失项，备份并替换哈希不同的运行文件。`-ValidateOnly` 只生成工作区计划，不写入运行目录；普通完整 Mod 同步的 `-UpdateClientRuntime` 也使用这一入口。新副本仍使用上面的 `Initialize-SandboxInstance`。
 
 客户端可见实体表由独立组件扩至 4096，模型／声音预缓存保持原有动态增长。构建和部署 GoldCraft、Renderer、BulletPhysics 时应使用同一源码检查点；后两者通过进程内接口绑定相同的表和原生计数。初始化及部署脚本调用 `Build-VisibleEntityGameData.py`，验证匹配的 `hw.dll` 身份、全局元数据和 14 段指令，再生成本地符号目录。未知引擎拒绝补丁；不要只改容量数字或套用其他版本的 RVA。
 

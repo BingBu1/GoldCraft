@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index aed50f5..e3e56f8 100644
+index c8a0fe1..e6ee463 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -72,6 +72,7 @@ endforeach()
+@@ -78,6 +78,7 @@ endforeach()
  add_library(bulletphysics_settings INTERFACE)
  target_compile_features(bulletphysics_settings INTERFACE cxx_std_20)
  target_include_directories(bulletphysics_settings INTERFACE
@@ -10,7 +10,7 @@ index aed50f5..e3e56f8 100644
      src
      "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
      "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface/VGUI"
-@@ -175,7 +176,7 @@ if(BULLETPHYSICS_BUILD_TESTS)
+@@ -181,7 +182,7 @@ if(BULLETPHYSICS_BUILD_TESTS)
      target_compile_options(bulletphysics_test_support PUBLIC /UNDEBUG)
      # Release plugin objects carry /GL code.
      set_target_properties(bulletphysics_test_support PROPERTIES STATIC_LIBRARY_OPTIONS "$<$<CONFIG:Release>:/LTCG>")
@@ -19,7 +19,7 @@ index aed50f5..e3e56f8 100644
          add_executable(${test} "tests/${test}.cpp")
          target_link_libraries(${test} PRIVATE bulletphysics_test_support)
          target_link_options(${test} PRIVATE /INCREMENTAL:NO $<$<CONFIG:Release>:/LTCG>)
-@@ -183,6 +184,10 @@ if(BULLETPHYSICS_BUILD_TESTS)
+@@ -189,6 +190,10 @@ if(BULLETPHYSICS_BUILD_TESTS)
      add_test(NAME physic_config_tests COMMAND physic_config_tests)
      add_test(NAME shipped_physic_assets_tests COMMAND shipped_physic_assets_tests "${CMAKE_CURRENT_SOURCE_DIR}/assets/svencoop_downloads")
      add_test(NAME bullet_backend_tests COMMAND bullet_backend_tests)
@@ -52,110 +52,110 @@ index afde27d..e95b3bc 100644
            "cl_viewentity": "global", "mod_known": "global", "mod_numknown": "global",
            "cl_parsecount": "global", "cl_numvisedicts": "global",
 diff --git a/src/BasePhysicManager.cpp b/src/BasePhysicManager.cpp
-index 74146bd..16db9d5 100644
+index 70cc1c3..7d69e08 100644
 --- a/src/BasePhysicManager.cpp
 +++ b/src/BasePhysicManager.cpp
-@@ -3315,8 +3315,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::LoadPhysicObjectC
+@@ -3360,8 +3360,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::LoadPhysicObjectC
  
- 	if (modelindex >= (int)m_physicObjectConfigs.size())
- 	{
--		g_pMetaHookAPI->SysError("LoadPhysicObjectConfigForModel: Invalid model index %d!\n", modelindex);
--		return nullptr;
-+		m_physicObjectConfigs.resize(modelindex + 1);
- 	}
+     if (modelindex >= (int)m_physicObjectConfigs.size())
+     {
+-        g_pMetaHookAPI->SysError("LoadPhysicObjectConfigForModel: Invalid model index %d!\n", modelindex);
+-        return nullptr;
++        m_physicObjectConfigs.resize(modelindex + 1);
+     }
  
- 	auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3348,8 +3347,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+     auto& Storage = m_physicObjectConfigs[modelindex];
+@@ -3393,8 +3392,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
  
- 	if (modelindex >= (int)m_physicObjectConfigs.size())
- 	{
--		g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
--		return nullptr;
-+		m_physicObjectConfigs.resize(modelindex + 1);
- 	}
+     if (modelindex >= (int)m_physicObjectConfigs.size())
+     {
+-        g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
+-        return nullptr;
++        m_physicObjectConfigs.resize(modelindex + 1);
+     }
  
- 	auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3377,8 +3375,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+     auto& Storage = m_physicObjectConfigs[modelindex];
+@@ -3422,8 +3420,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
  
- 	if (modelindex >= (int)m_physicObjectConfigs.size())
- 	{
--		g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
--		return nullptr;
-+		m_physicObjectConfigs.resize(modelindex + 1);
- 	}
+     if (modelindex >= (int)m_physicObjectConfigs.size())
+     {
+-        g_pMetaHookAPI->SysError("CreateEmptyPhysicObjectConfigForModelIndex: Invalid model index %d!\n", modelindex);
+-        return nullptr;
++        m_physicObjectConfigs.resize(modelindex + 1);
+     }
  
- 	auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3616,7 +3613,7 @@ void CBasePhysicManager::SetupBonesForRagdoll(cl_entity_t* ent, entity_state_t*
+     auto& Storage = m_physicObjectConfigs[modelindex];
+@@ -3657,7 +3654,7 @@ void CBasePhysicManager::SetupBonesForRagdoll(cl_entity_t* ent, entity_state_t*
  
- 		(*gpStudioInterface)->StudioDrawModel(STUDIO_RAGDOLL_SETUP_BONES);
+         (*gpStudioInterface)->StudioDrawModel(STUDIO_RAGDOLL_SETUP_BONES);
  
--		ent->curstate.weaponmodel = 0;
-+		ent->curstate.weaponmodel = iWeaponModel;
- 	}
+-        ent->curstate.weaponmodel = 0;
++        ent->curstate.weaponmodel = iWeaponModel;
+     }
  
- 	(*currententity) = saved_currententity;
-@@ -3693,6 +3690,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
- 		int iSavedSequence = ent->curstate.sequence;
- 		int iSavedGaitSequence = ent->curstate.gaitsequence;
- 		float flSavedFrame = ent->curstate.frame;
-+		float flSavedAnimTime = ent->curstate.animtime;
-+		float flSavedFrameRate = ent->curstate.framerate;
- 		byte ubSavedController[4];
- 		byte ubSavedBlending[4];
+     (*currententity) = saved_currententity;
+@@ -3735,6 +3732,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
+         int   iSavedSequence     = ent->curstate.sequence;
+         int   iSavedGaitSequence = ent->curstate.gaitsequence;
+         float flSavedFrame       = ent->curstate.frame;
++        float flSavedAnimTime    = ent->curstate.animtime;
++        float flSavedFrameRate   = ent->curstate.framerate;
+         byte  ubSavedController[4];
+         byte  ubSavedBlending[4];
  
-@@ -3735,6 +3734,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
- 		ent->curstate.sequence = iSavedSequence;
- 		ent->curstate.gaitsequence = iSavedGaitSequence;
- 		ent->curstate.frame = flSavedFrame;
-+		ent->curstate.animtime = flSavedAnimTime;
-+		ent->curstate.framerate = flSavedFrameRate;
- 	}
+@@ -3778,6 +3777,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
+         ent->curstate.sequence     = iSavedSequence;
+         ent->curstate.gaitsequence = iSavedGaitSequence;
+         ent->curstate.frame        = flSavedFrame;
++        ent->curstate.animtime     = flSavedAnimTime;
++        ent->curstate.framerate    = flSavedFrameRate;
+     }
  
- 	(*currententity) = saved_currententity;
+     (*currententity) = saved_currententity;
 diff --git a/src/BaseRagdollObject.cpp b/src/BaseRagdollObject.cpp
-index 6904eea..7f53fa9 100644
+index 5eb5b0b..0e73753 100644
 --- a/src/BaseRagdollObject.cpp
 +++ b/src/BaseRagdollObject.cpp
 @@ -112,6 +112,8 @@ bool CBaseRagdollObject::Build(const CPhysicObjectCreationParameter& CreationPar
- 	auto pRagdollObjectConfig = (CClientRagdollObjectConfig*)CreationParam.m_pPhysicObjectConfig;
+     auto pRagdollObjectConfig = (CClientRagdollObjectConfig*)CreationParam.m_pPhysicObjectConfig;
  
- 	m_AnimControlConfigs = pRagdollObjectConfig->AnimControlConfigs;
-+	m_IdleAnimConfig.reset();
-+	m_DebugAnimConfig.reset();
+     m_AnimControlConfigs = pRagdollObjectConfig->AnimControlConfigs;
++    m_IdleAnimConfig.reset();
++    m_DebugAnimConfig.reset();
  
- 	for (const auto& pAnimConfig : m_AnimControlConfigs)
- 	{
-@@ -199,6 +201,8 @@ bool CBaseRagdollObject::Rebuild(const CPhysicObjectCreationParameter& CreationP
- 	m_PhysicBehaviorConfigs = pRagdollObjectConfig->PhysicBehaviorConfigs;
+     for (const auto& pAnimConfig : m_AnimControlConfigs)
+     {
+@@ -198,6 +200,8 @@ bool CBaseRagdollObject::Rebuild(const CPhysicObjectCreationParameter& CreationP
+     m_PhysicBehaviorConfigs = pRagdollObjectConfig->PhysicBehaviorConfigs;
  
- 	m_AnimControlConfigs = pRagdollObjectConfig->AnimControlConfigs;
-+	m_IdleAnimConfig.reset();
-+	m_DebugAnimConfig.reset();
+     m_AnimControlConfigs = pRagdollObjectConfig->AnimControlConfigs;
++    m_IdleAnimConfig.reset();
++    m_DebugAnimConfig.reset();
  
- 	for (const auto& pAnimConfig : m_AnimControlConfigs)
- 	{
+     for (const auto& pAnimConfig : m_AnimControlConfigs)
+     {
 diff --git a/src/ClientEntityManager.cpp b/src/ClientEntityManager.cpp
-index 123696f..1ba822d 100644
+index 65bf13c..3355a96 100644
 --- a/src/ClientEntityManager.cpp
 +++ b/src/ClientEntityManager.cpp
-@@ -195,7 +195,7 @@ public:
- 		if (IsEntityTempEntity(ent))
- 		{
- 			if (ent->curstate.iuser4 == PhyCorpseFlag &&
--				ent->curstate.owner >= 1 && (*currententity)->curstate.owner <= gEngfuncs.GetMaxClients())
-+				ent->curstate.owner >= 1 && ent->curstate.owner <= gEngfuncs.GetMaxClients())
- 			{
- 				return true;
- 			}
-@@ -458,4 +458,4 @@ static CClientEntityManager g_ClientEntityManager;
+@@ -194,7 +194,7 @@ public:
+         if (IsEntityTempEntity(ent))
+         {
+             if (ent->curstate.iuser4 == PhyCorpseFlag &&
+-                ent->curstate.owner >= 1 && (*currententity)->curstate.owner <= gEngfuncs.GetMaxClients())
++                ent->curstate.owner >= 1 && ent->curstate.owner <= gEngfuncs.GetMaxClients())
+             {
+                 return true;
+             }
+@@ -457,4 +457,4 @@ static CClientEntityManager g_ClientEntityManager;
  IClientEntityManager* ClientEntityManager()
  {
- 	return &g_ClientEntityManager;
+     return &g_ClientEntityManager;
 -}
 \ No newline at end of file
 +}
 diff --git a/src/ClientPhysicConfig.h b/src/ClientPhysicConfig.h
-index 219d969..b820f0a 100644
+index 9b95177..aba7dc7 100644
 --- a/src/ClientPhysicConfig.h
 +++ b/src/ClientPhysicConfig.h
 @@ -2,6 +2,7 @@
@@ -167,230 +167,230 @@ index 219d969..b820f0a 100644
  
  #include "mathlib2.h"
 @@ -215,4 +216,4 @@ public:
- 	std::shared_ptr<CClientPhysicObjectConfig> pConfig{};
+     std::shared_ptr<CClientPhysicObjectConfig> pConfig{};
  };
  
 -using CClientPhysicObjectConfigs = std::vector<CClientPhysicObjectConfigStorage>;
 \ No newline at end of file
 +using CClientPhysicObjectConfigs = std::deque<CClientPhysicObjectConfigStorage>;
 diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
-index 9c7e333..87f3557 100644
+index e8be0e2..957abf8 100644
 --- a/src/exportfuncs.cpp
 +++ b/src/exportfuncs.cpp
 @@ -21,10 +21,9 @@
  #include "Viewport.h"
  
- static hook_t *g_phook_GameStudioRenderer_StudioSetupBones = NULL;
--static hook_t *g_phook_GameStudioRenderer_StudioDrawPlayer = NULL;
-+static hook_t *g_phook_studiointerface_StudioDrawPlayer = NULL;
- static hook_t *g_phook_GameStudioRenderer_StudioDrawModel = NULL;
- static hook_t *g_phook_R_StudioSetupBones = NULL;
--static hook_t *g_phook_R_StudioDrawPlayer = NULL;
- static hook_t *g_phook_R_StudioDrawModel = NULL;
- static hook_t *g_phook_studioapi_StudioCheckBBox = NULL;
- static hook_t *g_phook_efxapi_R_TempModel = NULL;
+ static hook_t* g_phook_GameStudioRenderer_StudioSetupBones = NULL;
+-static hook_t* g_phook_GameStudioRenderer_StudioDrawPlayer = NULL;
++static hook_t* g_phook_studiointerface_StudioDrawPlayer    = NULL;
+ static hook_t* g_phook_GameStudioRenderer_StudioDrawModel  = NULL;
+ static hook_t* g_phook_R_StudioSetupBones                  = NULL;
+-static hook_t* g_phook_R_StudioDrawPlayer                  = NULL;
+ static hook_t* g_phook_R_StudioDrawModel                   = NULL;
+ static hook_t* g_phook_studioapi_StudioCheckBBox           = NULL;
+ static hook_t* g_phook_efxapi_R_TempModel                  = NULL;
 @@ -174,13 +173,17 @@ TEMPENTITY* EngineGetTempTentByIndex(int index)
- 	return &gTempEnts[index];
+     return &gTempEnts[index];
  }
  
 +#include "goldcraft/precache_api.h"
 +
  int EngineGetNumKnownModel()
  {
-+	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
- 	return (*mod_numknown);
++    if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+     return (*mod_numknown);
  }
  
  int EngineGetMaxKnownModel()
  {
-+	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
- 	if (g_iEngineType == ENGINE_SVENGINE)
- 		return 16384;
++    if (auto gc = GoldCraftPrecacheInterface()) return gc->model_count();
+     if (g_iEngineType == ENGINE_SVENGINE)
+         return 16384;
  
 @@ -189,6 +192,7 @@ int EngineGetMaxKnownModel()
  
- int EngineGetModelIndex(model_t *mod)
+ int EngineGetModelIndex(model_t* mod)
  {
-+	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_index(mod);
- 	auto start = (model_t*)(mod_known);
- 	auto end = (model_t*)(mod_known);
- 	end  += (*mod_numknown);
-@@ -205,6 +209,7 @@ int EngineGetModelIndex(model_t *mod)
++    if (auto gc = GoldCraftPrecacheInterface()) return gc->model_index(mod);
+     auto start = (model_t*)(mod_known);
+     auto end   = (model_t*)(mod_known);
+     end += (*mod_numknown);
+@@ -205,6 +209,7 @@ int EngineGetModelIndex(model_t* mod)
  
- model_t *EngineGetModelByIndex(int index)
+ model_t* EngineGetModelByIndex(int index)
  {
-+	if (auto gc = GoldCraftPrecacheInterface()) return gc->model_at(index);
- 	auto pmod_known = (model_t *)(mod_known);
- 	
- 	if (index >= 0 && index < EngineGetNumKnownModel())
++    if (auto gc = GoldCraftPrecacheInterface()) return gc->model_at(index);
+     auto pmod_known = (model_t*)(mod_known);
+ 
+     if (index >= 0 && index < EngineGetNumKnownModel())
 @@ -463,19 +468,15 @@ __forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, s
- 	return pfnDrawPlayer(pthis, 0, flags, pplayer);
+     return pfnDrawPlayer(pthis, 0, flags, pplayer);
  }
  
 -__forceinline int R_StudioDrawPlayer_originalcall_wrapper(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
 -{
--	return gPrivateFuncs.R_StudioDrawPlayer(flags, pplayer);
+-    return gPrivateFuncs.R_StudioDrawPlayer(flags, pplayer);
 -}
 -
--int R_StudioDrawPlayer(int flags, struct entity_state_s*pplayer)
+-int R_StudioDrawPlayer(int flags, struct entity_state_s* pplayer)
 +__forceinline int StudioDrawPlayer_originalcall_wrapper(void*, int, int flags, entity_state_t* player)
  {
--	return StudioDrawPlayer_Template(R_StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
-+	return gPrivateFuncs.studiointerface_StudioDrawPlayer(flags, player);
+-    return StudioDrawPlayer_Template(R_StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
++    return gPrivateFuncs.studiointerface_StudioDrawPlayer(flags, player);
  }
  
--int __fastcall GameStudioRenderer_StudioDrawPlayer(void *pthis, int dummy, int flags, struct entity_state_s*pplayer)
+-int __fastcall GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
 +int studiointerface_StudioDrawPlayer(int flags, entity_state_t* player)
  {
--	return StudioDrawPlayer_Template(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer, flags, pplayer, pthis, dummy);
-+	if (!player) return 0;
-+	return StudioDrawPlayer_Template(StudioDrawPlayer_originalcall_wrapper, flags, player);
+-    return StudioDrawPlayer_Template(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer, flags, pplayer, pthis, dummy);
++    if (!player) return 0;
++    return StudioDrawPlayer_Template(StudioDrawPlayer_originalcall_wrapper, flags, player);
  }
  
  int studioapi_StudioCheckBBox()
 @@ -501,8 +502,6 @@ void ClientStudio_FillAddress(PVOID clientBase)
- 	//The client studio renderer is optional: clients without these virtuals keep the engine-side hooks only.
- 	gPrivateFuncs.GameStudioRenderer_StudioDrawModel = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawModel))
- 		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawModel", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
--	gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer))
--		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawPlayer", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
- 	gPrivateFuncs.GameStudioRenderer_StudioSetupBones = (decltype(gPrivateFuncs.GameStudioRenderer_StudioSetupBones))
- 		GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioSetupBones", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
+     //The client studio renderer is optional: clients without these virtuals keep the engine-side hooks only.
+     gPrivateFuncs.GameStudioRenderer_StudioDrawModel = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawModel))
+         GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawModel", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
+-    gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer))
+-        GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawPlayer", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
+     gPrivateFuncs.GameStudioRenderer_StudioSetupBones = (decltype(gPrivateFuncs.GameStudioRenderer_StudioSetupBones))
+         GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioSetupBones", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
  }
 @@ -519,9 +518,12 @@ void ClientStudio_InstallHooks()
- 		Install_InlineHook(GameStudioRenderer_StudioSetupBones);
- 	}
+         Install_InlineHook(GameStudioRenderer_StudioSetupBones);
+     }
  
--	if (gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer)
-+	// CS's public callback calls its derived player implementation directly,
-+	// bypassing the base virtual method. Scope ragdoll/bone updates at the one
-+	// shared public entry so physics AABBs follow every restored player model.
-+	if (gPrivateFuncs.studiointerface_StudioDrawPlayer)
- 	{
--		Install_InlineHook(GameStudioRenderer_StudioDrawPlayer);
-+		Install_InlineHook(studiointerface_StudioDrawPlayer);
- 	}
+-    if (gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer)
++    // CS's public callback calls its derived player implementation directly,
++    // bypassing the base virtual method. Scope ragdoll/bone updates at the one
++    // shared public entry so physics AABBs follow every restored player model.
++    if (gPrivateFuncs.studiointerface_StudioDrawPlayer)
+     {
+-        Install_InlineHook(GameStudioRenderer_StudioDrawPlayer);
++        Install_InlineHook(studiointerface_StudioDrawPlayer);
+     }
  
- 	if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
+     if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
 @@ -538,11 +540,6 @@ void ClientStudio_InstallHooks()
- 		Install_InlineHook(R_StudioSetupBones);
- 	}
+         Install_InlineHook(R_StudioSetupBones);
+     }
  
--	if (gPrivateFuncs.R_StudioDrawPlayer)
--	{
--		Install_InlineHook(R_StudioDrawPlayer);
--	}
+-    if (gPrivateFuncs.R_StudioDrawPlayer)
+-    {
+-        Install_InlineHook(R_StudioDrawPlayer);
+-    }
 -
- 	if (gPrivateFuncs.R_StudioDrawModel)
- 	{
- 		Install_InlineHook(R_StudioDrawModel);
-@@ -573,9 +570,9 @@ void ClientStudio_UninstallHooks()
- 		Uninstall_Hook(GameStudioRenderer_StudioSetupBones);
- 	}
+     if (gPrivateFuncs.R_StudioDrawModel)
+     {
+         Install_InlineHook(R_StudioDrawModel);
+@@ -572,9 +569,9 @@ void ClientStudio_UninstallHooks()
+         Uninstall_Hook(GameStudioRenderer_StudioSetupBones);
+     }
  
--	if (gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer)
-+	if (gPrivateFuncs.studiointerface_StudioDrawPlayer)
- 	{
--		Uninstall_Hook(GameStudioRenderer_StudioDrawPlayer);
-+		Uninstall_Hook(studiointerface_StudioDrawPlayer);
- 	}
+-    if (gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer)
++    if (gPrivateFuncs.studiointerface_StudioDrawPlayer)
+     {
+-        Uninstall_Hook(GameStudioRenderer_StudioDrawPlayer);
++        Uninstall_Hook(studiointerface_StudioDrawPlayer);
+     }
  
- 	if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
-@@ -592,11 +589,6 @@ void ClientStudio_UninstallHooks()
- 		Uninstall_Hook(R_StudioSetupBones);
- 	}
+     if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
+@@ -591,11 +588,6 @@ void ClientStudio_UninstallHooks()
+         Uninstall_Hook(R_StudioSetupBones);
+     }
  
--	if (gPrivateFuncs.R_StudioDrawPlayer)
--	{
--		Uninstall_Hook(R_StudioDrawPlayer);
--	}
+-    if (gPrivateFuncs.R_StudioDrawPlayer)
+-    {
+-        Uninstall_Hook(R_StudioDrawPlayer);
+-    }
 -
- 	if (gPrivateFuncs.R_StudioDrawModel)
- 	{
- 		Uninstall_Hook(R_StudioDrawModel);
-@@ -618,6 +610,9 @@ void EngineStudio_UninstallHooks()
+     if (gPrivateFuncs.R_StudioDrawModel)
+     {
+         Uninstall_Hook(R_StudioDrawModel);
+@@ -616,6 +608,9 @@ void EngineStudio_UninstallHooks()
  
- int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppinterface, struct engine_studio_api_s *pstudio)
+ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppinterface, struct engine_studio_api_s* pstudio)
  {
-+	if (!ppinterface || !pstudio)
-+		return 0;
++    if (!ppinterface || !pstudio)
++        return 0;
 +
- 	memcpy(&IEngineStudio, pstudio, sizeof(IEngineStudio));
- 	gpStudioInterface = ppinterface;
+     memcpy(&IEngineStudio, pstudio, sizeof(IEngineStudio));
+     gpStudioInterface = ppinterface;
  
-@@ -632,6 +627,10 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s **ppint
+@@ -630,6 +625,10 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppint
  
- 	int result = gExportfuncs.HUD_GetStudioModelInterface ? gExportfuncs.HUD_GetStudioModelInterface(version, ppinterface, pstudio) : 1;
+     int result = gExportfuncs.HUD_GetStudioModelInterface ? gExportfuncs.HUD_GetStudioModelInterface(version, ppinterface, pstudio) : 1;
  
-+	if (!result || !*ppinterface)
-+		return result;
++    if (!result || !*ppinterface)
++        return result;
 +
-+	gPrivateFuncs.studiointerface_StudioDrawPlayer = (*ppinterface)->StudioDrawPlayer;
- 	ClientStudio_FillAddress(g_ClientDLLInfo.ImageBase);
- 	ClientStudio_InstallHooks();
++    gPrivateFuncs.studiointerface_StudioDrawPlayer = (*ppinterface)->StudioDrawPlayer;
+     ClientStudio_FillAddress(g_ClientDLLInfo.ImageBase);
+     ClientStudio_InstallHooks();
  
 diff --git a/src/plugins.cpp b/src/plugins.cpp
-index 8537f59..f5f084b 100644
+index d113b10..cff7331 100644
 --- a/src/plugins.cpp
 +++ b/src/plugins.cpp
-@@ -100,8 +100,14 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t *pEngfuncs)
- 	glewInit();
+@@ -100,8 +100,14 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* pEngfuncs)
+     glewInit();
  }
  
 +#include "goldcraft/visible_entities_api.h"
 +
- void IPluginsV4::LoadClient(cl_exportfuncs_t *pExportFunc)
+ void IPluginsV4::LoadClient(cl_exportfuncs_t* pExportFunc)
  {
-+	// GoldCraft LoadEngine may run after Bullet's LoadEngine. All plugins have
-+	// completed that phase here, before any entity consumer runs.
-+	if (auto gc = GoldCraftVisibleEntitiesInterface())
-+		gc->bind_consumer(2, &cl_visedicts, &cl_numvisedicts);
- 	memcpy(&gExportfuncs, pExportFunc, sizeof(gExportfuncs));
++    // GoldCraft LoadEngine may run after Bullet's LoadEngine. All plugins have
++    // completed that phase here, before any entity consumer runs.
++    if (auto gc = GoldCraftVisibleEntitiesInterface())
++        gc->bind_consumer(2, &cl_visedicts, &cl_numvisedicts);
+     memcpy(&gExportfuncs, pExportFunc, sizeof(gExportfuncs));
  
- 	pExportFunc->HUD_Init = HUD_Init;
-@@ -154,4 +160,4 @@ const char *IPluginsV4::GetVersion(void)
- 	return completeVersion;
+     pExportFunc->HUD_Init                     = HUD_Init;
+@@ -153,4 +159,4 @@ const char* IPluginsV4::GetVersion(void)
+     return completeVersion;
  }
  
 -EXPOSE_SINGLE_INTERFACE(IPluginsV4, IPluginsV4, METAHOOK_PLUGIN_API_VERSION_V4);
 \ No newline at end of file
 +EXPOSE_SINGLE_INTERFACE(IPluginsV4, IPluginsV4, METAHOOK_PLUGIN_API_VERSION_V4);
 diff --git a/src/privatehook.cpp b/src/privatehook.cpp
-index 34e4d39..77ef592 100644
+index 9f4b53b..12e2898 100644
 --- a/src/privatehook.cpp
 +++ b/src/privatehook.cpp
 @@ -76,7 +76,6 @@ void Engine_FillAddress(PVOID engineBase)
  
- 	//Engine Studio functions
- 	gPrivateFuncs.R_StudioDrawModel = (decltype(gPrivateFuncs.R_StudioDrawModel))GamedataResolvePtr(engineBase, "engine", "R_StudioDrawModel", MH_GAMESYMBOL_KIND_FUNCTION, true);
--	gPrivateFuncs.R_StudioDrawPlayer = (decltype(gPrivateFuncs.R_StudioDrawPlayer))GamedataResolvePtr(engineBase, "engine", "R_StudioDrawPlayer", MH_GAMESYMBOL_KIND_FUNCTION, true);
- 	gPrivateFuncs.R_StudioSetupBones = (decltype(gPrivateFuncs.R_StudioSetupBones))GamedataResolvePtr(engineBase, "engine", "R_StudioSetupBones", MH_GAMESYMBOL_KIND_FUNCTION, true);
+     //Engine Studio functions
+     gPrivateFuncs.R_StudioDrawModel  = (decltype(gPrivateFuncs.R_StudioDrawModel))GamedataResolvePtr(engineBase, "engine", "R_StudioDrawModel", MH_GAMESYMBOL_KIND_FUNCTION, true);
+-    gPrivateFuncs.R_StudioDrawPlayer = (decltype(gPrivateFuncs.R_StudioDrawPlayer))GamedataResolvePtr(engineBase, "engine", "R_StudioDrawPlayer", MH_GAMESYMBOL_KIND_FUNCTION, true);
+     gPrivateFuncs.R_StudioSetupBones = (decltype(gPrivateFuncs.R_StudioSetupBones))GamedataResolvePtr(engineBase, "engine", "R_StudioSetupBones", MH_GAMESYMBOL_KIND_FUNCTION, true);
  
- 	//Engine global slots
+     //Engine global slots
 diff --git a/src/privatehook.h b/src/privatehook.h
-index 646db95..9e50e69 100644
+index 032af3e..a2b0d0d 100644
 --- a/src/privatehook.h
 +++ b/src/privatehook.h
 @@ -15,12 +15,11 @@ typedef struct
- 	//Engine StudioRenderer
- 	void (*R_StudioSetupBones)(void);
- 	int (*R_StudioDrawModel)(int flags);
--	int (*R_StudioDrawPlayer)(int flags, struct entity_state_s *pplayer);
-+	int (*studiointerface_StudioDrawPlayer)(int flags, struct entity_state_s *pplayer);
+     //Engine StudioRenderer
+     void (*R_StudioSetupBones)(void);
+     int (*R_StudioDrawModel)(int flags);
+-    int (*R_StudioDrawPlayer)(int flags, struct entity_state_s* pplayer);
++    int (*studiointerface_StudioDrawPlayer)(int flags, struct entity_state_s* pplayer);
  
- 	//Client GameStudioRenderer
- 	void(__fastcall* GameStudioRenderer_StudioSetupBones)(void* pthis, int);
- 	int(__fastcall* GameStudioRenderer_StudioDrawModel)(void* pthis, int, int flags);
--	int(__fastcall* GameStudioRenderer_StudioDrawPlayer)(void* pthis, int, int flags, struct entity_state_s* pplayer);
+     //Client GameStudioRenderer
+     void(__fastcall* GameStudioRenderer_StudioSetupBones)(void* pthis, int);
+     int(__fastcall* GameStudioRenderer_StudioDrawModel)(void* pthis, int, int flags);
+-    int(__fastcall* GameStudioRenderer_StudioDrawPlayer)(void* pthis, int, int flags, struct entity_state_s* pplayer);
  
- 	//IEngineStudio / efxapi (public interface-derived, not game-private)
- 	int (*studioapi_StudioCheckBBox)(void);
+     //IEngineStudio / efxapi (public interface-derived, not game-private)
+     int (*studioapi_StudioCheckBBox)(void);
 diff --git a/tests/studio_lifecycle_tests.cpp b/tests/studio_lifecycle_tests.cpp
 new file mode 100644
-index 0000000..de129b2
+index 0000000..a9590d2
 --- /dev/null
 +++ b/tests/studio_lifecycle_tests.cpp
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,258 @@
 +// Link the production draw wrappers, object manager and real Bullet backend.
 +#include <cassert>
 +#include <cstddef>
@@ -405,227 +405,247 @@ index 0000000..de129b2
 +#include "privatehook.h"
 +#include "test_support.h"
 +
-+extern int studiointerface_StudioDrawPlayer(int, entity_state_t*);
++extern int             studiointerface_StudioDrawPlayer(int, entity_state_t*);
 +extern void __fastcall GameStudioRenderer_StudioSetupBones(void*, int);
-+extern int g_iRagdollRenderEntIndex;
-+extern int g_iRagdollRenderFlags;
-+extern cvar_t* bv_simrate;
++extern int             g_iRagdollRenderEntIndex;
++extern int             g_iRagdollRenderFlags;
++extern cvar_t*         bv_simrate;
 +
-+static cl_entity_t entities[33]{};
++static cl_entity_t  entities[33]{};
 +static cl_entity_t* entityBase = entities;
-+static cl_entity_t* current = &entities[1];
-+static int maxEdicts = 33;
-+static model_t models[2]{};
-+static struct StudioData { studiohdr_t header{}; mstudiobone_t bone{}; } studio;
-+static studiohdr_t* header = &studio.header;
-+static float bones[MAXSTUDIOBONES][3][4]{};
-+static float lights[MAXSTUDIOBONES][3][4]{};
-+static r_studio_interface_t api{};
++static cl_entity_t* current    = &entities[1];
++static int          maxEdicts  = 33;
++static model_t      models[2]{};
++static struct StudioData
++{
++    studiohdr_t   header{};
++    mstudiobone_t bone{};
++} studio;
++static studiohdr_t*          header = &studio.header;
++static float                 bones[MAXSTUDIOBONES][3][4]{};
++static float                 lights[MAXSTUDIOBONES][3][4]{};
++static r_studio_interface_t  api{};
 +static r_studio_interface_t* apiPointer = &api;
-+static int nativeDrawFlags{};
-+static int nativeSequence{};
++static int                   nativeDrawFlags{};
++static int                   nativeSequence{};
 +
 +static void __fastcall NativeBones(void*, int)
 +{
-+	for (int i = 0; i < 3; ++i)
-+	{
-+		bones[0][i][i] = 1;
-+		bones[0][i][3] = current->origin[i];
-+	}
++    for (int i = 0; i < 3; ++i)
++    {
++        bones[0][i][i] = 1;
++        bones[0][i][3] = current->origin[i];
++    }
 +}
 +
 +static int NativePlayer(int flags, entity_state_t* player)
 +{
-+	// The verified CS derived player entry invokes SetupBones directly; it
-+	// never calls the old base StudioDrawPlayer wrapper (vtable slot 3).
-+	nativeDrawFlags = flags;
-+	nativeSequence = player->sequence;
-+	GameStudioRenderer_StudioSetupBones(nullptr, 0);
-+	return 1;
++    // The verified CS derived player entry invokes SetupBones directly; it
++    // never calls the old base StudioDrawPlayer wrapper (vtable slot 3).
++    nativeDrawFlags = flags;
++    nativeSequence  = player->sequence;
++    GameStudioRenderer_StudioSetupBones(nullptr, 0);
++    return 1;
 +}
 +
 +static int NativeModel(int flags)
 +{
-+	nativeDrawFlags = flags;
-+	NativeBones(nullptr, 0);
-+	return 1;
++    nativeDrawFlags = flags;
++    NativeBones(nullptr, 0);
++    return 1;
 +}
 +
 +static void Init()
 +{
-+	TestInitPluginRuntime();
-+	ClientPhysicManager()->Init();
-+	cl_entities = &entityBase;
-+	cl_max_edicts = &maxEdicts;
-+	currententity = &current;
-+	pstudiohdr = &header;
-+	pbonetransform = &bones;
-+	plighttransform = &lights;
-+	gpStudioInterface = &apiPointer;
-+	api.version = 1;
-+	api.StudioDrawPlayer = studiointerface_StudioDrawPlayer;
-+	api.StudioDrawModel = NativeModel;
-+	gPrivateFuncs.studiointerface_StudioDrawPlayer = NativePlayer;
-+	gPrivateFuncs.GameStudioRenderer_StudioSetupBones = NativeBones;
-+	gEngfuncs.GetMaxClients = [] { return 32; };
-+	gEngfuncs.GetClientTime = [] { return 42.0f; };
-+	gEngfuncs.GetLocalPlayer = [] { return &entities[1]; };
-+	IEngineStudio.SetupPlayerModel = [](int) { return current->model; };
-+	IEngineStudio.GetPlayerState = [](int index) { return &entities[index + 1].curstate; };
-+	IEngineStudio.Mod_Extradata = [](model_t*) -> void* { return header; };
-+	studio.header.numbones = 1;
-+	studio.header.boneindex = offsetof(StudioData, bone);
-+	studio.bone.parent = -1;
-+	for (int i = 0; i < 2; ++i) models[i].type = mod_studio;
-+	current->index = current->curstate.number = 1;
-+	current->player = 1;
-+	current->model = &models[0];
++    TestInitPluginRuntime();
++    ClientPhysicManager()->Init();
++    cl_entities                                       = &entityBase;
++    cl_max_edicts                                     = &maxEdicts;
++    currententity                                     = &current;
++    pstudiohdr                                        = &header;
++    pbonetransform                                    = &bones;
++    plighttransform                                   = &lights;
++    gpStudioInterface                                 = &apiPointer;
++    api.version                                       = 1;
++    api.StudioDrawPlayer                              = studiointerface_StudioDrawPlayer;
++    api.StudioDrawModel                               = NativeModel;
++    gPrivateFuncs.studiointerface_StudioDrawPlayer    = NativePlayer;
++    gPrivateFuncs.GameStudioRenderer_StudioSetupBones = NativeBones;
++    gEngfuncs.GetMaxClients                           = [] {
++        return 32;
++    };
++    gEngfuncs.GetClientTime = [] {
++        return 42.0f;
++    };
++    gEngfuncs.GetLocalPlayer = [] {
++        return &entities[1];
++    };
++    IEngineStudio.SetupPlayerModel = [](int) {
++        return current->model;
++    };
++    IEngineStudio.GetPlayerState = [](int index) {
++        return &entities[index + 1].curstate;
++    };
++    IEngineStudio.Mod_Extradata = [](model_t*) -> void* {
++        return header;
++    };
++    studio.header.numbones  = 1;
++    studio.header.boneindex = offsetof(StudioData, bone);
++    studio.bone.parent      = -1;
++    for (int i = 0; i < 2; ++i) models[i].type = mod_studio;
++    current->index = current->curstate.number = 1;
++    current->player                           = 1;
++    current->model                            = &models[0];
 +}
 +
 +static void TestSamplingRestoresState()
 +{
-+	auto& entity = entities[2];
-+	entity.model = &models[0];
-+	entity.curstate.weaponmodel = 70000;
-+	entity.curstate.sequence = 4;
-+	entity.curstate.gaitsequence = 3;
-+	entity.curstate.frame = 19;
-+	entity.curstate.animtime = 17;
-+	entity.curstate.framerate = 0.75f;
-+	const auto saved = entity.curstate;
-+	ClientPhysicManager()->SetupBonesForRagdoll(&entity, &entity.curstate, entity.model, 2, 0);
-+	assert(entity.curstate.weaponmodel == saved.weaponmodel);
-+	assert(current == &entities[1]);
-+	CClientAnimControlConfig pose;
-+	pose.sequence = 1;
-+	pose.gaitsequence = 2;
-+	pose.animframe = 0;
-+	ClientPhysicManager()->SetupBonesForRagdollEx(&entity, &entity.curstate, entity.model, 2, 0, &pose);
-+	assert(entity.curstate.sequence == saved.sequence && entity.curstate.gaitsequence == saved.gaitsequence);
-+	assert(entity.curstate.frame == saved.frame && entity.curstate.weaponmodel == saved.weaponmodel);
-+	assert(entity.curstate.animtime == saved.animtime && entity.curstate.framerate == saved.framerate);
-+	assert(current == &entities[1]);
++    auto& entity                 = entities[2];
++    entity.model                 = &models[0];
++    entity.curstate.weaponmodel  = 70000;
++    entity.curstate.sequence     = 4;
++    entity.curstate.gaitsequence = 3;
++    entity.curstate.frame        = 19;
++    entity.curstate.animtime     = 17;
++    entity.curstate.framerate    = 0.75f;
++    const auto saved             = entity.curstate;
++    ClientPhysicManager()->SetupBonesForRagdoll(&entity, &entity.curstate, entity.model, 2, 0);
++    assert(entity.curstate.weaponmodel == saved.weaponmodel);
++    assert(current == &entities[1]);
++    CClientAnimControlConfig pose;
++    pose.sequence     = 1;
++    pose.gaitsequence = 2;
++    pose.animframe    = 0;
++    ClientPhysicManager()->SetupBonesForRagdollEx(&entity, &entity.curstate, entity.model, 2, 0, &pose);
++    assert(entity.curstate.sequence == saved.sequence && entity.curstate.gaitsequence == saved.gaitsequence);
++    assert(entity.curstate.frame == saved.frame && entity.curstate.weaponmodel == saved.weaponmodel);
++    assert(entity.curstate.animtime == saved.animtime && entity.curstate.framerate == saved.framerate);
++    assert(current == &entities[1]);
 +}
 +
 +static void TestCorpseIdentityUsesCandidate()
 +{
-+	std::vector<TEMPENTITY> temporary(EngineGetMaxTempEnts());
-+	gTempEnts = temporary.data();
-+	auto& corpse = temporary.front().entity;
-+	corpse.curstate.iuser4 = PhyCorpseFlag;
-+	corpse.curstate.owner = 1;
-+	current->curstate.owner = 100;
-+	assert(ClientEntityManager()->IsEntityClientCorpse(&corpse));
-+	current->curstate.owner = 0;
-+	corpse.curstate.owner = 33;
-+	assert(!ClientEntityManager()->IsEntityClientCorpse(&corpse));
-+	corpse.curstate.owner = 32;
-+	assert(ClientEntityManager()->IsEntityClientCorpse(&corpse));
-+	gTempEnts = nullptr;
++    std::vector<TEMPENTITY> temporary(EngineGetMaxTempEnts());
++    gTempEnts               = temporary.data();
++    auto& corpse            = temporary.front().entity;
++    corpse.curstate.iuser4  = PhyCorpseFlag;
++    corpse.curstate.owner   = 1;
++    current->curstate.owner = 100;
++    assert(ClientEntityManager()->IsEntityClientCorpse(&corpse));
++    current->curstate.owner = 0;
++    corpse.curstate.owner   = 33;
++    assert(!ClientEntityManager()->IsEntityClientCorpse(&corpse));
++    corpse.curstate.owner = 32;
++    assert(ClientEntityManager()->IsEntityClientCorpse(&corpse));
++    gTempEnts = nullptr;
 +}
 +
 +static void TestPlayerBoundsFollowPublicCallback()
 +{
-+	cvar_t rate{};
-+	rate.value = 64;
-+	bv_simrate = &rate;
-+	CClientRagdollObjectConfig config;
-+	config.flags |= PhysicObjectFlag_OverrideStudioCheckBBox;
-+	auto bodyConfig = std::make_shared<CClientRigidBodyConfig>();
-+	bodyConfig->name = "root";
-+	bodyConfig->boneindex = 0;
-+	bodyConfig->flags = PhysicRigidBodyFlag_AlwaysKinematic;
-+	bodyConfig->collisionShape = std::make_shared<CClientCollisionShapeConfig>();
-+	bodyConfig->collisionShape->type = PhysicShape_Box;
-+	bodyConfig->collisionShape->size[0] = 10;
-+	bodyConfig->collisionShape->size[1] = 10;
-+	bodyConfig->collisionShape->size[2] = 36;
-+	config.RigidBodyConfigs.push_back(bodyConfig);
-+	CPhysicObjectCreationParameter creation;
-+	creation.m_entity = current;
-+	creation.m_entstate = &current->curstate;
-+	creation.m_entindex = creation.m_playerindex = 1;
-+	creation.m_studiohdr = header;
-+	creation.m_pPhysicObjectConfig = &config;
-+	for (int model = 0; model < 2; ++model)
-+	{
-+		current->model = &models[model];
-+		creation.m_model = current->model;
-+		ClientPhysicManager()->RemovePhysicObject(1);
-+		auto ragdoll = static_cast<CBulletPhysicManager*>(ClientPhysicManager())->CreateRagdollObject(creation);
-+		assert(ragdoll && ragdoll->Build(creation));
-+		ClientPhysicManager()->AddPhysicObject(1, ragdoll);
-+		auto body = ragdoll->GetRigidBodyByName("root");
-+		assert(body);
-+		CPhysicObjectUpdateContext update;
-+		CPhysicComponentUpdateContext component(&update);
-+		component.bIsAddingPhysicComponent = true;
-+		body->Update(&component);
-+		ClientPhysicManager()->AddPhysicComponentsToWorld(ragdoll, {});
-+		auto centerX = [&] {
-+			vec3_t mins{}, maxs{};
-+			assert(body->GetAABB(mins, maxs));
-+			return (mins[0] + maxs[0]) * 0.5f;
-+		};
-+		const float initial = centerX();
-+		current->origin[0] += 2409;
-+		// Negative control: the old base hook is bypassed and the real Bullet
-+		// collider remains at its initial position after the native bones move.
-+		NativePlayer(0, &current->curstate);
-+		ClientPhysicManager()->StepSimulation(1.0 / 32.0);
-+		assert(IsNear(initial, centerX(), 0.01f));
-+		// Production public callback/update path must now move that same collider.
-+		ClientPhysicManager()->UpdateBonesForRagdoll(current, &current->curstate, current->model, 1, 1);
-+		ClientPhysicManager()->StepSimulation(1.0 / 32.0);
-+		assert(nativeDrawFlags == 0);
-+		assert(IsNear(current->origin[0], centerX(), 0.01f));
-+		assert(g_iRagdollRenderEntIndex == 0 && g_iRagdollRenderFlags == 0);
-+	}
-+	ClientPhysicManager()->RemovePhysicObject(1);
-+	bv_simrate = nullptr;
++    cvar_t rate{};
++    rate.value = 64;
++    bv_simrate = &rate;
++    CClientRagdollObjectConfig config;
++    config.flags |= PhysicObjectFlag_OverrideStudioCheckBBox;
++    auto bodyConfig                     = std::make_shared<CClientRigidBodyConfig>();
++    bodyConfig->name                    = "root";
++    bodyConfig->boneindex               = 0;
++    bodyConfig->flags                   = PhysicRigidBodyFlag_AlwaysKinematic;
++    bodyConfig->collisionShape          = std::make_shared<CClientCollisionShapeConfig>();
++    bodyConfig->collisionShape->type    = PhysicShape_Box;
++    bodyConfig->collisionShape->size[0] = 10;
++    bodyConfig->collisionShape->size[1] = 10;
++    bodyConfig->collisionShape->size[2] = 36;
++    config.RigidBodyConfigs.push_back(bodyConfig);
++    CPhysicObjectCreationParameter creation;
++    creation.m_entity   = current;
++    creation.m_entstate = &current->curstate;
++    creation.m_entindex = creation.m_playerindex = 1;
++    creation.m_studiohdr                         = header;
++    creation.m_pPhysicObjectConfig               = &config;
++    for (int model = 0; model < 2; ++model)
++    {
++        current->model   = &models[model];
++        creation.m_model = current->model;
++        ClientPhysicManager()->RemovePhysicObject(1);
++        auto ragdoll = static_cast<CBulletPhysicManager*>(ClientPhysicManager())->CreateRagdollObject(creation);
++        assert(ragdoll && ragdoll->Build(creation));
++        ClientPhysicManager()->AddPhysicObject(1, ragdoll);
++        auto body = ragdoll->GetRigidBodyByName("root");
++        assert(body);
++        CPhysicObjectUpdateContext    update;
++        CPhysicComponentUpdateContext component(&update);
++        component.bIsAddingPhysicComponent = true;
++        body->Update(&component);
++        ClientPhysicManager()->AddPhysicComponentsToWorld(ragdoll, {});
++        auto centerX = [&] {
++            vec3_t mins{}, maxs{};
++            assert(body->GetAABB(mins, maxs));
++            return (mins[0] + maxs[0]) * 0.5f;
++        };
++        const float initial = centerX();
++        current->origin[0] += 2409;
++        // Negative control: the old base hook is bypassed and the real Bullet
++        // collider remains at its initial position after the native bones move.
++        NativePlayer(0, &current->curstate);
++        ClientPhysicManager()->StepSimulation(1.0 / 32.0);
++        assert(IsNear(initial, centerX(), 0.01f));
++        // Production public callback/update path must now move that same collider.
++        ClientPhysicManager()->UpdateBonesForRagdoll(current, &current->curstate, current->model, 1, 1);
++        ClientPhysicManager()->StepSimulation(1.0 / 32.0);
++        assert(nativeDrawFlags == 0);
++        assert(IsNear(current->origin[0], centerX(), 0.01f));
++        assert(g_iRagdollRenderEntIndex == 0 && g_iRagdollRenderFlags == 0);
++    }
++    ClientPhysicManager()->RemovePhysicObject(1);
++    bv_simrate = nullptr;
 +}
 +
 +static void TestRebuildDropsRemovedPose()
 +{
-+	CClientRagdollObjectConfig config;
-+	auto idle = std::make_shared<CClientAnimControlConfig>();
-+	idle->activityType = StudioAnimActivityType_Idle;
-+	idle->sequence = 7;
-+	config.AnimControlConfigs.push_back(idle);
-+	auto debug = std::make_shared<CClientAnimControlConfig>();
-+	debug->activityType = StudioAnimActivityType_Debug;
-+	debug->sequence = 9;
-+	config.AnimControlConfigs.push_back(debug);
-+	std::weak_ptr<CClientAnimControlConfig> oldIdle = idle, oldDebug = debug;
-+	CPhysicObjectCreationParameter creation;
-+	creation.m_entity = current;
-+	creation.m_entstate = &current->curstate;
-+	creation.m_entindex = creation.m_playerindex = 1;
-+	creation.m_studiohdr = header;
-+	creation.m_model = current->model;
-+	creation.m_pPhysicObjectConfig = &config;
-+	current->curstate.sequence = 3;
-+	auto ragdoll = static_cast<CBulletPhysicManager*>(ClientPhysicManager())->CreateRagdollObject(creation);
-+	assert(ragdoll && ragdoll->Build(creation));
-+	assert(nativeSequence == 7);
-+	config.AnimControlConfigs.clear();
-+	idle.reset();
-+	debug.reset();
-+	assert(ragdoll->Rebuild(creation));
-+	assert(nativeSequence == 3);
-+	assert(oldIdle.expired() && oldDebug.expired());
++    CClientRagdollObjectConfig config;
++    auto                       idle = std::make_shared<CClientAnimControlConfig>();
++    idle->activityType              = StudioAnimActivityType_Idle;
++    idle->sequence                  = 7;
++    config.AnimControlConfigs.push_back(idle);
++    auto debug          = std::make_shared<CClientAnimControlConfig>();
++    debug->activityType = StudioAnimActivityType_Debug;
++    debug->sequence     = 9;
++    config.AnimControlConfigs.push_back(debug);
++    std::weak_ptr<CClientAnimControlConfig> oldIdle = idle, oldDebug = debug;
++    CPhysicObjectCreationParameter          creation;
++    creation.m_entity   = current;
++    creation.m_entstate = &current->curstate;
++    creation.m_entindex = creation.m_playerindex = 1;
++    creation.m_studiohdr                         = header;
++    creation.m_model                             = current->model;
++    creation.m_pPhysicObjectConfig               = &config;
++    current->curstate.sequence                   = 3;
++    auto ragdoll                                 = static_cast<CBulletPhysicManager*>(ClientPhysicManager())->CreateRagdollObject(creation);
++    assert(ragdoll && ragdoll->Build(creation));
++    assert(nativeSequence == 7);
++    config.AnimControlConfigs.clear();
++    idle.reset();
++    debug.reset();
++    assert(ragdoll->Rebuild(creation));
++    assert(nativeSequence == 3);
++    assert(oldIdle.expired() && oldDebug.expired());
 +}
 +
 +int main(int argc, char** argv)
 +{
-+	assert(argc == 2);
-+	Init();
-+	if (!strcmp(argv[1], "state")) TestSamplingRestoresState();
-+	else if (!strcmp(argv[1], "corpse")) TestCorpseIdentityUsesCandidate();
-+	else if (!strcmp(argv[1], "bounds")) TestPlayerBoundsFollowPublicCallback();
-+	else if (!strcmp(argv[1], "rebuild")) TestRebuildDropsRemovedPose();
-+	else return 2;
-+	ClientPhysicManager()->Shutdown();
-+	TestShutdownPluginRuntime();
-+	puts("Studio lifecycle check passed.");
++    assert(argc == 2);
++    Init();
++    if (!strcmp(argv[1], "state")) TestSamplingRestoresState();
++    else if (!strcmp(argv[1], "corpse"))
++        TestCorpseIdentityUsesCandidate();
++    else if (!strcmp(argv[1], "bounds"))
++        TestPlayerBoundsFollowPublicCallback();
++    else if (!strcmp(argv[1], "rebuild"))
++        TestRebuildDropsRemovedPose();
++    else
++        return 2;
++    ClientPhysicManager()->Shutdown();
++    TestShutdownPluginRuntime();
++    puts("Studio lifecycle check passed.");
 +}

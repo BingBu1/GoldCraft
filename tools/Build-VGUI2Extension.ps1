@@ -6,6 +6,7 @@ $clangArgs=Get-GoldCraftClangCMakeArguments $compiler
 $cmake=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/cmake331/cmake/data/bin/cmake.exe')
 $ninja=Join-Path $compiler.VisualStudio 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
 $source=Get-MetaHookSourceRoot
+$clangArgs+="-DFORMAT_VALIDATION_SOURCE_PATH=$source/thirdparty/FormatValidation"
 $build=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/vgui2extension-clang-$Configuration")
 $prefix=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/vgui2extension')
 & $cmake -S "$source/Plugins/VGUI2Extension" -B $build -G Ninja @clangArgs `

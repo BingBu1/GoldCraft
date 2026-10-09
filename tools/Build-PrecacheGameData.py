@@ -4,7 +4,6 @@ import hashlib
 import json
 import runpy
 import struct
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -62,7 +61,6 @@ def main():
     index = {"schemaVersion": 4, "versions": [{
         "gameVersion": version, "url": version + ".json", "sha256": hashlib.sha256(payload).hexdigest(),
         "size": len(payload), "snapshotSchemaVersion": 8, "fileCount": len(snapshot["records"]),
-        "lastPublishTime": datetime.now(timezone.utc).isoformat(),
     }]}
     output.mkdir(parents=True, exist_ok=True)
     (output / (version + ".json")).write_bytes(payload)

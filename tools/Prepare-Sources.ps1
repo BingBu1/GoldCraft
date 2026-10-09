@@ -17,8 +17,8 @@ foreach($name in @('MetaHookSv','ReGameDLL_CS','ReHLDS','AMXModX','ReAPI','SyPB'
     }
 }
 $meta=Get-MetaHookSourceRoot
-& git -C $meta submodule update --init --recursive --jobs 4 MetaHook Plugins/Renderer Plugins/VGUI2Extension Plugins/BulletPhysics `
-    PluginLibs/UtilThreadTask thirdparty/glew_fork thirdparty/ScopeExit thirdparty/FreeImage_clone thirdparty/tinyobjloader thirdparty/bullet3
+& git -C $meta submodule update --init --recursive --jobs 4 MetaHook Plugins/Renderer Plugins/VGUI2Extension Plugins/BulletPhysics Plugins/InterpFix `
+    PluginLibs/UtilThreadTask thirdparty/FormatValidation thirdparty/glew_fork thirdparty/ScopeExit thirdparty/FreeImage_clone thirdparty/tinyobjloader thirdparty/bullet3
 if($LASTEXITCODE){throw 'MetaHook component/dependency preparation failed'}
 foreach($name in @('ReGameDLL_CS','ReHLDS','AMXModX','ReAPI')){
     $path=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $lock.sources.$name.path)

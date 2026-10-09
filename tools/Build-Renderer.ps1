@@ -7,6 +7,7 @@ $vs=$compiler.VisualStudio
 $cmake=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/cmake331/cmake/data/bin/cmake.exe')
 $ninja=Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
 $source=Get-MetaHookSourceRoot
+$clangArgs+="-DFORMAT_VALIDATION_SOURCE_PATH=$source/thirdparty/FormatValidation"
 $build=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/renderer-clang-avx2-$Configuration")
 $prefix=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer')
 & $cmake -S "$source/Plugins/Renderer" -B $build -G Ninja @clangArgs `

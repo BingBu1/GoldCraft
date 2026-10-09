@@ -8,6 +8,7 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 | [MetaHookSv / MetaHook](https://github.com/MetaHookSv/MetaHookSv) | 客户端加载和 Hook；core 适配补丁 | [aggregate MIT](notices/MetaHookSv-LICENSE.txt)、[core MIT](notices/MetaHook-LICENSE.txt) |
 | [Renderer](https://github.com/MetaHookSv/Renderer) | OpenGL 渲染与场景接口补丁 | [MIT](notices/Renderer-LICENSE.txt) |
 | [BulletPhysics](https://github.com/MetaHookSv/BulletPhysics) | 动态模型缓存接口与 Clang 构建补丁 | [MIT](notices/BulletPhysics-LICENSE.txt) |
+| [InterpFix](https://github.com/MetaHookSv/InterpFix) | 上游插值历史耗尽修复；固定源码、本地 Clang 构建 | [MIT](notices/InterpFix-LICENSE.txt) |
 | [FreeImage](https://github.com/hzqst/FreeImage_clone) | 图像库 C++20 兼容补丁 | [FreeImage Public License](notices/FreeImage-license-fi.txt)、[GPL v2](notices/FreeImage-license-gplv2.txt)、[GPL v3](notices/GPLv3.txt)，按上游双重许可条款 |
 | [ReGameDLL_CS](https://github.com/rehlds/ReGameDLL_CS) | CS 游戏规则与服务器桥接补丁 | [MIT](notices/ReGameDLL_CS-LICENSE.txt) |
 | [ReHLDS](https://github.com/rehlds/rehlds) | 专用服务器与原生实体扩展补丁 | [MIT](notices/ReHLDS-LICENSE.txt) |

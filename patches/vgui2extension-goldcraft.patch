@@ -1,8 +1,8 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 95ff290..59d2e1b 100644
+index f116de4..b8437b9 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -71,12 +71,12 @@ if(VGUI2EXTENSION_SYNC_GAMEDATA)
+@@ -77,12 +77,12 @@ if(VGUI2EXTENSION_SYNC_GAMEDATA)
  endif()
  install(DIRECTORY "${VGUI2EXTENSION_GAMEDATA_DIR}/" DESTINATION svencoop/metahook/gamedata/vgui2extension OPTIONAL)
  
@@ -19,7 +19,7 @@ index 95ff290..59d2e1b 100644
          add_test(NAME ${test} COMMAND ${test})
      endforeach()
 diff --git a/src/ClientVGUI.cpp b/src/ClientVGUI.cpp
-index d6ab1b5..5a7c5ba 100644
+index bb8cbc7..ec93507 100644
 --- a/src/ClientVGUI.cpp
 +++ b/src/ClientVGUI.cpp
 @@ -18,6 +18,7 @@
@@ -38,196 +38,196 @@ index d6ab1b5..5a7c5ba 100644
 -//sanitizer stays scoped to the one caller that trashes Chinese map descriptions.
 -static bool g_bIsLoadMapPage = false;
 -
- static hook_t* g_phook_ClientVGUI_Panel_Init = NULL;
+ static hook_t* g_phook_ClientVGUI_Panel_Init             = NULL;
  static hook_t* g_phook_ClientVGUI_KeyValues_LoadFromFile = NULL;
- static hook_t* g_phook_ClientVGUI_LoadControlSettings = NULL;
+ static hook_t* g_phook_ClientVGUI_LoadControlSettings    = NULL;
 @@ -82,7 +79,7 @@ ClientVGUI inline hook
  //Valve populate SetTextW with invalid chars.
  void __fastcall ClientVGUI_RichText_SetTextW(void* pthis, int dummy, const wchar_t* text)
  {
--	if (g_bIsLoadMapPage && !strcmp(GetCurrentGameLanguage(), "schinese"))
-+	if (TeamMenuMapPageHook::InMapPage && text && !strcmp(GetCurrentGameLanguage(), "schinese"))
- 	{
- 		std::wstringstream wss;
+-    if (g_bIsLoadMapPage && !strcmp(GetCurrentGameLanguage(), "schinese"))
++    if (TeamMenuMapPageHook::InMapPage && text && !strcmp(GetCurrentGameLanguage(), "schinese"))
+     {
+         std::wstringstream wss;
  
 @@ -165,17 +162,6 @@ void __fastcall ClientVGUI_RichText_SetTextW(void* pthis, int dummy, const wchar
- 	gPrivateFuncs.ClientVGUI_RichText_SetTextW(pthis, dummy, text);
+     gPrivateFuncs.ClientVGUI_RichText_SetTextW(pthis, dummy, text);
  }
  
 -void __fastcall TeamMenu_LoadMapPage(void* pthis, int dummy, const char* mapname)
 -{
--	bool previous = g_bIsLoadMapPage;
+-    bool previous = g_bIsLoadMapPage;
 -
--	g_bIsLoadMapPage = true;
+-    g_bIsLoadMapPage = true;
 -
--	gPrivateFuncs.TeamMenu_LoadMapPage(pthis, dummy, mapname);
+-    gPrivateFuncs.TeamMenu_LoadMapPage(pthis, dummy, mapname);
 -
--	g_bIsLoadMapPage = previous;
+-    g_bIsLoadMapPage = previous;
 -}
 -
  void __fastcall ClientVGUI_Panel_Init(vgui::Panel* pthis, int dummy, int x, int y, int w, int h)
  {
- 	gPrivateFuncs.ClientVGUI_Panel_Init(pthis, 0, x, y, w, h);
-@@ -969,8 +955,18 @@ void NativeClientUI_FillAddress(const mh_dll_info_t& RealDllInfo)
+     gPrivateFuncs.ClientVGUI_Panel_Init(pthis, 0, x, y, w, h);
+@@ -966,8 +952,18 @@ void NativeClientUI_FillAddress(const mh_dll_info_t& RealDllInfo)
  
- 	if (g_bIsCounterStrike)
- 	{
--		gPrivateFuncs.TeamMenu_LoadMapPage = (decltype(gPrivateFuncs.TeamMenu_LoadMapPage))GamedataResolvePtr(
--			RealDllInfo.ImageBase, "client", "CTeamMenu::LoadMapPage(char const*)", MH_GAMESYMBOL_KIND_FUNCTION);
-+		const char* mapPageSymbol = "CTeamMenu::LoadMapPage(char const*)";
-+		auto mapPage = GamedataResolvePtr(RealDllInfo.ImageBase, "client", mapPageSymbol, MH_GAMESYMBOL_KIND_FUNCTION);
-+		mh_gamesymbol_t symbol = {};
-+		symbol.cbSize = sizeof(symbol);
-+		gPrivateFuncs.TeamMenu_LoadMapPage = nullptr;
-+		if (g_pMetaHookAPI->QueryGameSymbol(RealDllInfo.ImageBase, mapPageSymbol, &symbol) == MH_GAMESYMBOL_OK &&
-+			TeamMenuMapPageHook::Supports(symbol.moduleCRC64, static_cast<const unsigned char*>(mapPage), symbol.symbolSize))
-+		{
-+			gPrivateFuncs.TeamMenu_LoadMapPage = mapPage;
-+		}
-+		//The optional map-description sanitizer must not install an unverified
-+		//adapter. Other builds retain their native map-menu implementation.
- 		gPrivateFuncs.ClientVGUI_RichText_SetTextW = (decltype(gPrivateFuncs.ClientVGUI_RichText_SetTextW))GamedataResolvePtr(
- 			RealDllInfo.ImageBase, "client", "vgui2::RichText::SetText(wchar_t const*)", MH_GAMESYMBOL_KIND_FUNCTION);
- 	}
-@@ -978,7 +974,10 @@ void NativeClientUI_FillAddress(const mh_dll_info_t& RealDllInfo)
+     if (g_bIsCounterStrike)
+     {
+-        gPrivateFuncs.TeamMenu_LoadMapPage = (decltype(gPrivateFuncs.TeamMenu_LoadMapPage))GamedataResolvePtr(
+-            RealDllInfo.ImageBase, "client", "CTeamMenu::LoadMapPage(char const*)", MH_GAMESYMBOL_KIND_FUNCTION);
++        const char*     mapPageSymbol      = "CTeamMenu::LoadMapPage(char const*)";
++        auto            mapPage            = GamedataResolvePtr(RealDllInfo.ImageBase, "client", mapPageSymbol, MH_GAMESYMBOL_KIND_FUNCTION);
++        mh_gamesymbol_t symbol             = {};
++        symbol.cbSize                      = sizeof(symbol);
++        gPrivateFuncs.TeamMenu_LoadMapPage = nullptr;
++        if (g_pMetaHookAPI->QueryGameSymbol(RealDllInfo.ImageBase, mapPageSymbol, &symbol) == MH_GAMESYMBOL_OK &&
++            TeamMenuMapPageHook::Supports(symbol.moduleCRC64, static_cast<const unsigned char*>(mapPage), symbol.symbolSize))
++        {
++            gPrivateFuncs.TeamMenu_LoadMapPage = mapPage;
++        }
++        //The optional map-description sanitizer must not install an unverified
++        //adapter. Other builds retain their native map-menu implementation.
+         gPrivateFuncs.ClientVGUI_RichText_SetTextW = (decltype(gPrivateFuncs.ClientVGUI_RichText_SetTextW))GamedataResolvePtr(
+             RealDllInfo.ImageBase, "client", "vgui2::RichText::SetText(wchar_t const*)", MH_GAMESYMBOL_KIND_FUNCTION);
+     }
+@@ -975,7 +971,10 @@ void NativeClientUI_FillAddress(const mh_dll_info_t& RealDllInfo)
  
  void NativeClientUI_InstallHooks(void)
  {
--	Install_InlineHook(ClientVGUI_LoadControlSettings);
-+	if (gPrivateFuncs.ClientVGUI_LoadControlSettings)
-+	{
-+		Install_InlineHook(ClientVGUI_LoadControlSettings);
-+	}
- 	if (gPrivateFuncs.ClientVGUI_KeyValues_LoadFromFile)
- 	{
- 		Install_InlineHook(ClientVGUI_KeyValues_LoadFromFile);
-@@ -987,9 +986,10 @@ void NativeClientUI_InstallHooks(void)
- 	{
- 		Install_InlineHook(ClientVGUI_Panel_Init);
- 	}
--	if (gPrivateFuncs.TeamMenu_LoadMapPage)
-+	if (gPrivateFuncs.TeamMenu_LoadMapPage && !g_phook_TeamMenu_LoadMapPage)
- 	{
--		Install_InlineHook(TeamMenu_LoadMapPage);
-+		g_phook_TeamMenu_LoadMapPage = g_pMetaHookAPI->InlineHook(gPrivateFuncs.TeamMenu_LoadMapPage,
-+			TeamMenuMapPageHook::Invoke, reinterpret_cast<void**>(&TeamMenuMapPageHook::Original));
- 	}
- 	if (gPrivateFuncs.ClientVGUI_RichText_SetTextW)
- 	{
-@@ -1003,6 +1003,8 @@ void NativeClientUI_UninstallHooks(void)
- 	Uninstall_Hook(ClientVGUI_KeyValues_LoadFromFile);
- 	Uninstall_Hook(ClientVGUI_Panel_Init);
- 	Uninstall_Hook(TeamMenu_LoadMapPage);
-+	TeamMenuMapPageHook::Original = nullptr;
-+	TeamMenuMapPageHook::InMapPage = false;
- 	Uninstall_Hook(ClientVGUI_RichText_SetTextW);
+-    Install_InlineHook(ClientVGUI_LoadControlSettings);
++    if (gPrivateFuncs.ClientVGUI_LoadControlSettings)
++    {
++        Install_InlineHook(ClientVGUI_LoadControlSettings);
++    }
+     if (gPrivateFuncs.ClientVGUI_KeyValues_LoadFromFile)
+     {
+         Install_InlineHook(ClientVGUI_KeyValues_LoadFromFile);
+@@ -984,9 +983,10 @@ void NativeClientUI_InstallHooks(void)
+     {
+         Install_InlineHook(ClientVGUI_Panel_Init);
+     }
+-    if (gPrivateFuncs.TeamMenu_LoadMapPage)
++    if (gPrivateFuncs.TeamMenu_LoadMapPage && !g_phook_TeamMenu_LoadMapPage)
+     {
+-        Install_InlineHook(TeamMenu_LoadMapPage);
++        g_phook_TeamMenu_LoadMapPage = g_pMetaHookAPI->InlineHook(gPrivateFuncs.TeamMenu_LoadMapPage,
++                                                                  TeamMenuMapPageHook::Invoke, reinterpret_cast<void**>(&TeamMenuMapPageHook::Original));
+     }
+     if (gPrivateFuncs.ClientVGUI_RichText_SetTextW)
+     {
+@@ -1000,6 +1000,8 @@ void NativeClientUI_UninstallHooks(void)
+     Uninstall_Hook(ClientVGUI_KeyValues_LoadFromFile);
+     Uninstall_Hook(ClientVGUI_Panel_Init);
+     Uninstall_Hook(TeamMenu_LoadMapPage);
++    TeamMenuMapPageHook::Original  = nullptr;
++    TeamMenuMapPageHook::InMapPage = false;
+     Uninstall_Hook(ClientVGUI_RichText_SetTextW);
  }
  
 diff --git a/src/GameUI.cpp b/src/GameUI.cpp
-index 07375df..d33572b 100644
+index 13be5fa..1f45c3b 100644
 --- a/src/GameUI.cpp
 +++ b/src/GameUI.cpp
-@@ -65,27 +65,27 @@ namespace vgui
- 		auto panel_vftable = *(PVOID**)panel; \
- 		gPrivateFuncs.mod##_LoadControlSettings = (decltype(gPrivateFuncs.mod##_LoadControlSettings))panel_vftable[536 / 4];\
- 	}\
--	auto bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("resource/"##name);\
-+	auto bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("resource/" name);\
- 	if (bIsResourceExists)\
- 	{\
--		gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "resource/"##name, NULL);\
-+		gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "resource/" name, NULL);\
- 	}\
- 	else\
- 	{\
- 		if (g_iEngineType == ENGINE_GOLDSRC_HL25)\
- 		{\
--			bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource_hl25/"##name);\
-+			bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource_hl25/" name);\
- 			if (bIsResourceExists)\
- 			{\
--				gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource_hl25/"##name, NULL);\
-+				gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource_hl25/" name, NULL);\
- 			}\
- 		}\
- 		else\
- 		{\
--			bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource/"##name);\
-+			bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource/" name);\
- 			if (bIsResourceExists)\
- 			{\
--				gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource/"##name, NULL);\
-+				gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource/" name, NULL);\
- 			}\
- 		}\
- 	}\
+@@ -67,27 +67,27 @@ bool VGui_InitInterfacesList(const char* moduleName, CreateInterfaceFn* factoryL
+             auto panel_vftable                      = *(PVOID**)panel;                                                           \
+             gPrivateFuncs.mod##_LoadControlSettings = (decltype(gPrivateFuncs.mod##_LoadControlSettings))panel_vftable[536 / 4]; \
+         }                                                                                                                        \
+-        auto bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("resource/"##name);                                                   \
++        auto bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("resource/" name);                                                    \
+         if (bIsResourceExists)                                                                                                   \
+         {                                                                                                                        \
+-            gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "resource/"##name, NULL);                                          \
++            gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "resource/" name, NULL);                                           \
+         }                                                                                                                        \
+         else                                                                                                                     \
+         {                                                                                                                        \
+             if (g_iEngineType == ENGINE_GOLDSRC_HL25)                                                                            \
+             {                                                                                                                    \
+-                bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource_hl25/"##name);                                  \
++                bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource_hl25/" name);                                   \
+                 if (bIsResourceExists)                                                                                           \
+                 {                                                                                                                \
+-                    gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource_hl25/"##name, NULL);                    \
++                    gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource_hl25/" name, NULL);                     \
+                 }                                                                                                                \
+             }                                                                                                                    \
+             else                                                                                                                 \
+             {                                                                                                                    \
+-                bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource/"##name);                                       \
++                bIsResourceExists = FILESYSTEM_ANY_FILEEXISTS("vgui2ext/resource/" name);                                        \
+                 if (bIsResourceExists)                                                                                           \
+                 {                                                                                                                \
+-                    gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource/"##name, NULL);                         \
++                    gPrivateFuncs.mod##_LoadControlSettings(panel, 0, "vgui2ext/resource/" name, NULL);                          \
+                 }                                                                                                                \
+             }                                                                                                                    \
+         }                                                                                                                        \
 diff --git a/src/plugins.cpp b/src/plugins.cpp
-index 84d0329..672c2d3 100644
+index e64d98b..ba923da 100644
 --- a/src/plugins.cpp
 +++ b/src/plugins.cpp
-@@ -114,7 +114,9 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t *pExportFunc)
+@@ -114,7 +114,9 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* pExportFunc)
  
- 	g_hClientModule = g_pMetaHookAPI->GetClientModule();
+     g_hClientModule = g_pMetaHookAPI->GetClientModule();
  
--	//This must be called before Client_FillAddress
-+	// Native UI symbol selection needs the game flags before installing its hooks.
-+	Client_IdentifyGame();
-+	// This must stay before VisibleMouse resolution in Client_FillAddress.
- 	ClientVGUI_InstallHooks(pExportFunc);
- 	Client_FillAddress(g_ClientDLLInfo);
- 	Client_InstallHooks();
+-    //This must be called before Client_FillAddress
++    // Native UI symbol selection needs the game flags before installing its hooks.
++    Client_IdentifyGame();
++    // This must stay before VisibleMouse resolution in Client_FillAddress.
+     ClientVGUI_InstallHooks(pExportFunc);
+     Client_FillAddress(g_ClientDLLInfo);
+     Client_InstallHooks();
 diff --git a/src/privatefuncs.cpp b/src/privatefuncs.cpp
-index 3f0fb86..8fbad90 100644
+index 2af9df6..1f09a66 100644
 --- a/src/privatefuncs.cpp
 +++ b/src/privatefuncs.cpp
-@@ -160,23 +160,16 @@ void Client_FillAddress_VisibleMouse(const mh_dll_info_t& RealDllInfo)
- 	}
+@@ -168,23 +168,16 @@ void Client_FillAddress_VisibleMouse(const mh_dll_info_t& RealDllInfo)
+     }
  }
  
 -void Client_FillAddress(const mh_dll_info_t& RealDllInfo)
 +void Client_IdentifyGame()
  {
--	if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "cstrike") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czero") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
--	{
--		g_bIsCounterStrike = true;
--	}
+-    if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "cstrike") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czero") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
+-    {
+-        g_bIsCounterStrike = true;
+-    }
 -
--	if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "czero") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
--	{
--		g_bIsCZero = true;
--	}
+-    if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "czero") || !strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
+-    {
+-        g_bIsCZero = true;
+-    }
 -
--	if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
--	{
--		g_bIsCZDS = true;
--	}
-+	const auto directory = gEngfuncs.pfnGetGameDirectory();
-+	g_bIsCZDS = !strcmp(directory, "czeror");
-+	g_bIsCZero = g_bIsCZDS || !strcmp(directory, "czero");
-+	g_bIsCounterStrike = g_bIsCZero || !strcmp(directory, "cstrike");
+-    if (!strcmp(gEngfuncs.pfnGetGameDirectory(), "czeror"))
+-    {
+-        g_bIsCZDS = true;
+-    }
++    const auto directory = gEngfuncs.pfnGetGameDirectory();
++    g_bIsCZDS            = !strcmp(directory, "czeror");
++    g_bIsCZero           = g_bIsCZDS || !strcmp(directory, "czero");
++    g_bIsCounterStrike   = g_bIsCZero || !strcmp(directory, "cstrike");
 +}
  
 +void Client_FillAddress(const mh_dll_info_t& RealDllInfo)
 +{
- 	Client_FillAddress_VisibleMouse(RealDllInfo);
+     Client_FillAddress_VisibleMouse(RealDllInfo);
  }
  
 diff --git a/src/privatefuncs.h b/src/privatefuncs.h
-index 1b42dda..d2004da 100644
+index dacb90a..863c59e 100644
 --- a/src/privatefuncs.h
 +++ b/src/privatefuncs.h
-@@ -54,7 +54,9 @@ typedef struct
+@@ -52,7 +52,9 @@ typedef struct
  
- 	//Valve populate SetTextW with invalid chars, and CTeamMenu::LoadMapPage is the
- 	//only caller that hands it the corrupted map description text.
--	void(__fastcall* TeamMenu_LoadMapPage)(void* pthis, int dummy, const char* mapname);
-+	//Address only: the catalog name is not an ABI declaration. The matched
-+	//binary's typed adapter lives in TeamMenuMapPageHook.h.
-+	void* TeamMenu_LoadMapPage;
+     //Valve populate SetTextW with invalid chars, and CTeamMenu::LoadMapPage is the
+     //only caller that hands it the corrupted map description text.
+-    void(__fastcall* TeamMenu_LoadMapPage)(void* pthis, int dummy, const char* mapname);
++    //Address only: the catalog name is not an ABI declaration. The matched
++    //binary's typed adapter lives in TeamMenuMapPageHook.h.
++    void* TeamMenu_LoadMapPage;
  
- 	//void** ClientVGUI_BuildGroup_vftable;
- 	//void(__fastcall* ClientVGUI_BuildGroup_ApplySettings)(void* pthis, int dummy, void* resourceData);
-@@ -219,6 +221,7 @@ PVOID VGUIClient001_CreateInterface(HINTERFACEMODULE hModule);
+     //void** ClientVGUI_BuildGroup_vftable;
+     //void(__fastcall* ClientVGUI_BuildGroup_ApplySettings)(void* pthis, int dummy, void* resourceData);
+@@ -218,6 +220,7 @@ PVOID VGUIClient001_CreateInterface(HINTERFACEMODULE hModule);
  
  void* Sys_GetMainWindow();
  
@@ -237,10 +237,10 @@ index 1b42dda..d2004da 100644
  void Client_UninstallHooks(void);
 diff --git a/src/TeamMenuMapPageHook.h b/src/TeamMenuMapPageHook.h
 new file mode 100644
-index 0000000..c8ea673
+index 0000000..0c71e4c
 --- /dev/null
 +++ b/src/TeamMenuMapPageHook.h
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,36 @@
 +#pragma once
 +
 +#include <cstddef>
@@ -252,39 +252,37 @@ index 0000000..c8ea673
 +//client builds. Keep the extra argument slots opaque and preserve EAX as well.
 +struct TeamMenuMapPageHook
 +{
-+	using Function = std::uintptr_t(__fastcall*)(void*, std::uintptr_t,
-+		const char*, std::uintptr_t, std::uintptr_t, std::uintptr_t);
++    using Function = std::uintptr_t(__fastcall*)(void*, std::uintptr_t, const char*, std::uintptr_t, std::uintptr_t, std::uintptr_t);
 +
-+	inline static Function Original = nullptr;
-+	inline static bool InMapPage = false;
++    inline static Function Original  = nullptr;
++    inline static bool     InMapPage = false;
 +
-+	static bool Supports(std::uint64_t moduleCRC64, const unsigned char* code, std::size_t size)
-+	{
-+		return moduleCRC64 == 0x124D6034A6B28B40ULL && code && size >= 6 &&
-+			code[size - 6] == 0x8B && code[size - 5] == 0xE5 &&
-+			code[size - 4] == 0x5D && code[size - 3] == 0xC2 &&
-+			code[size - 2] == 0x10 && code[size - 1] == 0x00;
-+	}
++    static bool Supports(std::uint64_t moduleCRC64, const unsigned char* code, std::size_t size)
++    {
++        return moduleCRC64 == 0x124D6034A6B28B40ULL && code && size >= 6 &&
++            code[size - 6] == 0x8B && code[size - 5] == 0xE5 &&
++            code[size - 4] == 0x5D && code[size - 3] == 0xC2 &&
++            code[size - 2] == 0x10 && code[size - 1] == 0x00;
++    }
 +
-+	static std::uintptr_t __fastcall Invoke(void* pthis, std::uintptr_t dummy,
-+		const char* mapname, std::uintptr_t arg2, std::uintptr_t arg3, std::uintptr_t arg4)
-+	{
-+		struct Scope
-+		{
-+			bool previous = InMapPage;
-+			Scope() { InMapPage = true; }
-+			~Scope() { InMapPage = previous; }
-+		} scope;
++    static std::uintptr_t __fastcall Invoke(void* pthis, std::uintptr_t dummy, const char* mapname, std::uintptr_t arg2, std::uintptr_t arg3, std::uintptr_t arg4)
++    {
++        struct Scope
++        {
++            bool previous = InMapPage;
++            Scope() { InMapPage = true; }
++            ~Scope() { InMapPage = previous; }
++        } scope;
 +
-+		return Original(pthis, dummy, mapname, arg2, arg3, arg4);
-+	}
++        return Original(pthis, dummy, mapname, arg2, arg3, arg4);
++    }
 +};
 diff --git a/tests/team_menu_abi_tests.cpp b/tests/team_menu_abi_tests.cpp
 new file mode 100644
-index 0000000..385198e
+index 0000000..6b14471
 --- /dev/null
 +++ b/tests/team_menu_abi_tests.cpp
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,112 @@
 +#include "../src/TeamMenuMapPageHook.h"
 +
 +#include <cassert>
@@ -295,8 +293,8 @@ index 0000000..385198e
 +//This fixture intentionally crosses the x86 thiscall/fastcall detour boundary,
 +//including the old incompatible signature as a subprocess negative control.
 +#if defined(__clang__)
-+#pragma clang diagnostic push
-+#pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
++#    pragma clang diagnostic push
++#    pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
 +#endif
 +
 +static_assert(sizeof(void*) == 4, "Exercise the actual x86 client ABI");
@@ -304,11 +302,10 @@ index 0000000..385198e
 +//arguments, callee cleanup. Inline assembly avoids C++ optimizer assumptions
 +//about calls through incompatible function-pointer types. A stack mismatch
 +//returns zero after restoring ESP so the test fails without corrupting main.
-+static __declspec(naked) std::uintptr_t __cdecl NativeCall(void*, void*, const char*,
-+	std::uintptr_t, std::uintptr_t, std::uintptr_t)
++static __declspec(naked) std::uintptr_t __cdecl NativeCall(void*, void*, const char*, std::uintptr_t, std::uintptr_t, std::uintptr_t)
 +{
-+	__asm
-+	{
++    __asm
++    {
 +		push ebp
 +		mov ebp, esp
 +		push dword ptr [ebp + 28]
@@ -326,76 +323,75 @@ index 0000000..385198e
 +		mov esp, ebp
 +		pop ebp
 +		ret
-+	}
++    }
 +}
 +
-+static int object;
++static int        object;
 +static const char mapName[] = "cs_assault";
-+static unsigned calls;
-+static bool nested;
++static unsigned   calls;
++static bool       nested;
 +
-+static __declspec(noinline) std::uintptr_t __fastcall Original(void* self, std::uintptr_t dummy,
-+	const char* map, std::uintptr_t second, std::uintptr_t third, std::uintptr_t fourth)
++static __declspec(noinline) std::uintptr_t __fastcall Original(void* self, std::uintptr_t dummy, const char* map, std::uintptr_t second, std::uintptr_t third, std::uintptr_t fourth)
 +{
-+	//Distinct values catch missing, reordered or narrowed stack argument slots.
-+	//Exit immediately on a mismatch, before an invalid caller can corrupt ESP.
-+	if (self != &object || dummy != 0x76543210u || map != mapName || second != 0x12345678u ||
-+		third != 0x89ABCDEFu || fourth != 0xFEDCBA98u || !TeamMenuMapPageHook::InMapPage)
-+	{
-+		std::fprintf(stderr, "ABI argument/scope mismatch: %p %08x %p %08x %08x %08x scope=%d\n",
-+			self, dummy, static_cast<const void*>(map), second, third, fourth, int(TeamMenuMapPageHook::InMapPage));
-+		std::_Exit(86);
-+	}
-+	++calls;
-+	if (nested)
-+	{
-+		nested = false;
-+		assert(NativeCall(reinterpret_cast<void*>(&TeamMenuMapPageHook::Invoke),
-+			self, map, second, third, fourth) == 0xF1234567u);
-+		assert(TeamMenuMapPageHook::InMapPage);
-+	}
-+	return 0xF1234567u;
++    //Distinct values catch missing, reordered or narrowed stack argument slots.
++    //Exit immediately on a mismatch, before an invalid caller can corrupt ESP.
++    if (self != &object || dummy != 0x76543210u || map != mapName || second != 0x12345678u ||
++        third != 0x89ABCDEFu || fourth != 0xFEDCBA98u || !TeamMenuMapPageHook::InMapPage)
++    {
++        std::fprintf(stderr, "ABI argument/scope mismatch: %p %08x %p %08x %08x %08x scope=%d\n",
++                     self, dummy, static_cast<const void*>(map), second, third, fourth, int(TeamMenuMapPageHook::InMapPage));
++        std::_Exit(86);
++    }
++    ++calls;
++    if (nested)
++    {
++        nested = false;
++        assert(NativeCall(reinterpret_cast<void*>(&TeamMenuMapPageHook::Invoke),
++                          self, map, second, third, fourth) == 0xF1234567u);
++        assert(TeamMenuMapPageHook::InMapPage);
++    }
++    return 0xF1234567u;
 +}
 +
 +//Negative control reproduces the old production forwarding contract. It must
 +//exit in Original's argument check, without returning through the broken stack.
 +static void __fastcall OldOneArgumentHook(void* self, std::uintptr_t dummy, const char* map)
 +{
-+	const bool previous = TeamMenuMapPageHook::InMapPage;
-+	TeamMenuMapPageHook::InMapPage = true;
-+	using OldFunction = void(__fastcall*)(void*, std::uintptr_t, const char*);
-+	volatile OldFunction old = reinterpret_cast<OldFunction>(&Original);
-+	old(self, dummy, map);
-+	TeamMenuMapPageHook::InMapPage = previous;
++    const bool previous            = TeamMenuMapPageHook::InMapPage;
++    TeamMenuMapPageHook::InMapPage = true;
++    using OldFunction              = void(__fastcall*)(void*, std::uintptr_t, const char*);
++    volatile OldFunction old       = reinterpret_cast<OldFunction>(&Original);
++    old(self, dummy, map);
++    TeamMenuMapPageHook::InMapPage = previous;
 +}
 +
 +int main(int argc, char** argv)
 +{
-+	TeamMenuMapPageHook::Original = Original;
-+	void* callback = reinterpret_cast<void*>(&TeamMenuMapPageHook::Invoke);
-+	if (argc == 2 && std::strcmp(argv[1], "--legacy-negative-control") == 0)
-+		callback = reinterpret_cast<void*>(&OldOneArgumentHook);
++    TeamMenuMapPageHook::Original = Original;
++    void* callback                = reinterpret_cast<void*>(&TeamMenuMapPageHook::Invoke);
++    if (argc == 2 && std::strcmp(argv[1], "--legacy-negative-control") == 0)
++        callback = reinterpret_cast<void*>(&OldOneArgumentHook);
 +
-+	const auto result = NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u);
-+	assert(result == 0xF1234567u && calls == 1 && !TeamMenuMapPageHook::InMapPage);
++    const auto result = NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u);
++    assert(result == 0xF1234567u && calls == 1 && !TeamMenuMapPageHook::InMapPage);
 +
-+	nested = true;
-+	assert(NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u) == result);
-+	assert(calls == 3 && !TeamMenuMapPageHook::InMapPage);
-+	TeamMenuMapPageHook::InMapPage = true;
-+	NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u);
-+	assert(TeamMenuMapPageHook::InMapPage);
-+	TeamMenuMapPageHook::InMapPage = false;
++    nested = true;
++    assert(NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u) == result);
++    assert(calls == 3 && !TeamMenuMapPageHook::InMapPage);
++    TeamMenuMapPageHook::InMapPage = true;
++    NativeCall(callback, &object, mapName, 0x12345678u, 0x89ABCDEFu, 0xFEDCBA98u);
++    assert(TeamMenuMapPageHook::InMapPage);
++    TeamMenuMapPageHook::InMapPage = false;
 +
-+	const unsigned char verifiedTail[] = { 0x8B, 0xE5, 0x5D, 0xC2, 0x10, 0x00 };
-+	const unsigned char oldTail[] = { 0x8B, 0xE5, 0x5D, 0xC2, 0x04, 0x00 };
-+	assert(TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, verifiedTail, sizeof(verifiedTail)));
-+	assert(!TeamMenuMapPageHook::Supports(0, verifiedTail, sizeof(verifiedTail)));
-+	assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, oldTail, sizeof(oldTail)));
-+	assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, nullptr, 6));
-+	assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, verifiedTail, 2));
++    const unsigned char verifiedTail[] = {0x8B, 0xE5, 0x5D, 0xC2, 0x10, 0x00};
++    const unsigned char oldTail[]      = {0x8B, 0xE5, 0x5D, 0xC2, 0x04, 0x00};
++    assert(TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, verifiedTail, sizeof(verifiedTail)));
++    assert(!TeamMenuMapPageHook::Supports(0, verifiedTail, sizeof(verifiedTail)));
++    assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, oldTail, sizeof(oldTail)));
++    assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, nullptr, 6));
++    assert(!TeamMenuMapPageHook::Supports(0x124D6034A6B28B40ULL, verifiedTail, 2));
 +}
 +
 +#if defined(__clang__)
-+#pragma clang diagnostic pop
++#    pragma clang diagnostic pop
 +#endif

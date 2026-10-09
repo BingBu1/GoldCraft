@@ -150,72 +150,74 @@ index b09eb74..c09372a 100644
  }
  
 diff --git a/src/metahook.cpp b/src/metahook.cpp
-index d62c4a5..5e69c24 100644
+index 88d87e8..21af9a2 100644
 --- a/src/metahook.cpp
 +++ b/src/metahook.cpp
 @@ -69,7 +69,7 @@ union tagHOOKDATA
  
  typedef struct hook_s
  {
--	struct hook_s() {
-+	hook_s() {
- 		iType = 0;
- 		bCommitted = false;
- 		pOldFuncAddr = NULL;
-@@ -224,6 +224,18 @@ extern "C"
+-    struct hook_s()
++    hook_s()
+     {
+         iType        = 0;
+         bCommitted   = false;
+@@ -255,6 +255,18 @@ extern "C"
  
- 		msg[MAX_SYS_ERROR_LENGTH - 1] = 0;
+         msg[MAX_SYS_ERROR_LENGTH - 1] = 0;
  
-+		// Optional launcher diagnostics for isolated, unattended test instances.
-+		// Fatal SDL dialogs may not be capturable before the first GL frame.
-+		if (const char* errorLog = getenv("METAHOOK_ERROR_LOG"))
-+		{
-+			FILE* file = nullptr;
-+			if (fopen_s(&file, errorLog, "a") == 0 && file)
-+			{
-+				fprintf(file, "%s\n", msg);
-+				fclose(file);
-+			}
-+		}
++        // Optional launcher diagnostics for isolated, unattended test instances.
++        // Fatal SDL dialogs may not be capturable before the first GL frame.
++        if (const char* errorLog = getenv("METAHOOK_ERROR_LOG"))
++        {
++            FILE* file = nullptr;
++            if (fopen_s(&file, errorLog, "a") == 0 && file)
++            {
++                fprintf(file, "%s\n", msg);
++                fclose(file);
++            }
++        }
 +
  #if 1
- 		if (gMetaSave.pEngineFuncs)
- 		{
+         if (gMetaSave.pEngineFuncs)
+         {
 diff --git a/src/registry.cpp b/src/registry.cpp
-index 91a6c79..dd1922b 100644
+index 69447aa..f1ecb79 100644
 --- a/src/registry.cpp
 +++ b/src/registry.cpp
-@@ -112,7 +112,25 @@ void CRegistry::Init(void)
- 	DWORD dwDisposition;
+@@ -111,8 +111,26 @@ void CRegistry::Init(void)
+     LONG  lResult;
+     DWORD dwDisposition;
  
- 	char szModelKey[1024];
--	wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
-+	char profile[33] = { 0 };
-+	DWORD profileLength = GetEnvironmentVariableA("GOLDCRAFT_PROFILE_ID", profile, sizeof(profile));
-+	if (profileLength)
-+	{
-+		// Each isolated GoldCraft instance has its own launcher settings.
-+		if (profileLength != 32)
-+			return;
-+		for (DWORD i = 0; i < profileLength; ++i)
-+		{
-+			const char c = profile[i];
-+			if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
-+				return;
-+		}
-+		wsprintfA(szModelKey, "Software\\GoldCraft\\Sandbox\\%s\\Settings\\", profile);
-+	}
-+	else
-+	{
-+		wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
-+	}
- 	lResult = RegCreateKeyEx(HKEY_CURRENT_USER, szModelKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &m_hKey, &dwDisposition);
+-    char szModelKey[1024];
+-    wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
++    char  szModelKey[1024];
++    char  profile[33]   = {0};
++    DWORD profileLength = GetEnvironmentVariableA("GOLDCRAFT_PROFILE_ID", profile, sizeof(profile));
++    if (profileLength)
++    {
++        // Each isolated GoldCraft instance has its own launcher settings.
++        if (profileLength != 32)
++            return;
++        for (DWORD i = 0; i < profileLength; ++i)
++        {
++            const char c = profile[i];
++            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
++                return;
++        }
++        wsprintfA(szModelKey, "Software\\GoldCraft\\Sandbox\\%s\\Settings\\", profile);
++    }
++    else
++    {
++        wsprintf(szModelKey, "Software\\Valve\\%s\\Settings\\", GetPlatformName());
++    }
+     lResult = RegCreateKeyEx(HKEY_CURRENT_USER, szModelKey, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &m_hKey, &dwDisposition);
  
- 	if (lResult != ERROR_SUCCESS)
+     if (lResult != ERROR_SUCCESS)
 @@ -131,4 +149,4 @@ void CRegistry::Shutdown(void)
  
- 	m_bValid = false;
- 	RegCloseKey(m_hKey);
+     m_bValid = false;
+     RegCloseKey(m_hKey);
 -}
 \ No newline at end of file
 +}

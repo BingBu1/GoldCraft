@@ -20,10 +20,23 @@ function Initialize-GoldCraftCompiler {
     $vswhere=Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if(-not $vs){throw 'Visual Studio C++ headers and Windows SDK not found'}
-    Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
-    Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x86 -host_arch=x64 -winsdk=10.0.26100.0' | Out-Null
+    # Build scripts can run consecutively in one PowerShell. Reentering the
+    # same VS shell repeatedly grows PATH until vcvars exceeds cmd.exe's limit.
+    $sdkVersion=if($env:WindowsSDKVersion){$env:WindowsSDKVersion.TrimEnd('\')}else{''}
+    $vsDirectory=if($env:VSINSTALLDIR){$env:VSINSTALLDIR.TrimEnd('\')}else{''}
+    if($vsDirectory -ine $vs.TrimEnd('\') -or $env:VSCMD_ARG_TGT_ARCH -ne 'x86' -or
+       $env:VSCMD_ARG_HOST_ARCH -ne 'x64' -or $sdkVersion -ne '10.0.26100.0'){
+        Import-Module (Join-Path $vs 'Common7/Tools/Microsoft.VisualStudio.DevShell.dll')
+        Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x86 -host_arch=x64 -winsdk=10.0.26100.0' | Out-Null
+    }
     $env:VSLANG='1033'
-    $env:PATH=(Join-Path $llvmRoot 'bin')+';'+$env:PATH
+    $compilerBin=Join-Path $llvmRoot 'bin'
+    $pathEntries=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $orderedPath=[Collections.Generic.List[string]]::new()
+    foreach($entry in @($compilerBin)+@($env:PATH -split ';')){
+        if($entry -and $pathEntries.Add($entry.TrimEnd('\'))){$orderedPath.Add($entry)}
+    }
+    $env:PATH=$orderedPath -join ';'
     return @{Root=$llvmRoot;VisualStudio=$vs;Ninja=(Join-Path $vs 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe')}
 }
 

@@ -29,7 +29,7 @@ def main():
     reports = []
     for directory in ("native-clang-x86-Release", "metahook-clang-Release-sdk26100",
                       "renderer-clang-avx2-Release", "bulletphysics-clang-Release", "utilthreadtask-clang-Release",
-                      "vgui2extension-clang-Release"):
+                      "vgui2extension-clang-Release", "interpfix-clang-Release", "metahook-tests-clang-Release"):
         rows = json.loads((ROOT / "build" / directory / "compile_commands.json").read_text())
         cpp = [row for row in rows if Path(row["file"]).suffix.lower() in (".cc", ".cpp", ".cxx")]
         if not cpp or any(not validate_command(row["command"]) or
@@ -71,6 +71,7 @@ def main():
                      "dist/renderer/svencoop/metahook/dlls/UtilThreadTask.dll",
                      "dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll",
                      "dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll",
+                     "dist/interpfix/svencoop/metahook/plugins/InterpFix.dll",
                      "build/sypb/Release/sypb.dll", "build/sypb/Release/sypb_amxx.dll"):
         data = (ROOT / relative).read_bytes()
         header = struct.unpack_from("<I", data, 0x3c)[0]

@@ -13,7 +13,7 @@
     "patches/bulletphysics-goldcraft.patch", "patches/freeimage-cxx20.patch", "patches/vgui2extension-goldcraft.patch",
     "tools/Build-AMXX.ps1", "tools/Build-AMXX.cjs", "tools/Prepare-AMXXBuilder.ps1", "tools/Build-ClientGameData.py", "tools/Build-Loader.ps1", "tools/Build-Native.ps1",
     "tools/Build-NeoForge.ps1", "tools/Build-ReHLDS.ps1", "tools/Build-Renderer.ps1", "tools/Check-PublicSource.py",
-    "tools/Build-BulletPhysics.ps1", "tools/Build-VGUI2Extension.ps1", "tools/Build-PrecacheGameData.py", "tools/ClangToolchain.ps1", "tools/Configure-Clang.ps1",
+    "tools/Build-BulletPhysics.ps1", "tools/Build-VGUI2Extension.ps1", "tools/Build-InterpFix.ps1", "tools/Build-PrecacheGameData.py", "tools/ClangToolchain.ps1", "tools/Configure-Clang.ps1",
     "tools/Build-VisibleEntityGameData.py", "tools/Test-VisibleEntityEngine.py", "tools/Exercise-VisibleEntities.py",
     "tools/Test-VitalsClient.py", "tools/Exercise-Vitals.py", "amxx/tests/goldcraft_vitals_test.sma",
     "tools/Inspect-MetaHookRuntime.py", "tools/Exercise-StudioLifecycle.py", "tools/Exercise-RendererPerformance.py", "tools/Exercise-RendererReference.py", "tools/Exercise-NativeJoin.py",

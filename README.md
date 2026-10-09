@@ -15,6 +15,8 @@
 .\tools\Prepare-AMXX.ps1
 .\tools\Configure-Clang.ps1 -LLVMRoot (Read-Host 'Arkari / LLVM 安装路径')
 .\tools\Build-Loader.ps1
+.\tools\Build-InterpFix.ps1
+.\tools\Build-VGUI2Extension.ps1
 .\tools\Build-Renderer.ps1
 .\tools\Build-BulletPhysics.ps1
 .\tools\Build-Native.ps1 -Server

@@ -45,11 +45,23 @@ foreach($line in Get-Content -LiteralPath $pluginList){
     if($name -match '^Renderer(?:_AVX2)?\.dll$'){$plugins.Add('GoldCraft.dll')}
 }
 if(-not $plugins.Contains('GoldCraft.dll')){throw 'Normal CS must have Renderer enabled before preparing GoldCraft scene integration'}
+# New upstream defaults supplement the normal installation's plugin set.
+# Append without disturbing Renderer/GoldCraft's existing wrapper order.
+$defaults=Join-Path (Get-MetaHookSourceRoot) 'assets/svencoop/metahook/configs/plugins_goldsrc.lst'
+if((Get-Content -LiteralPath $defaults) -contains 'InterpFix.dll' -and -not $plugins.Contains('InterpFix.dll')){
+    $plugins.Add('InterpFix.dll')
+}
 foreach($name in $plugins){
     if($name -in @('GoldCraft.dll','Renderer.dll','Renderer_AVX2.dll')){continue}
     $dll=Join-Path $upstream "svencoop/metahook/plugins/$name"
     if($name -eq 'VGUI2Extension.dll'){
         $dll=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll')
+    }
+    elseif($name -eq 'InterpFix.dll'){
+        $dll=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/interpfix/svencoop/metahook/plugins/InterpFix.dll')
+    }
+    elseif($name -match '^BulletPhysics(?:_AVX2)?\.dll$'){
+        $dll=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll')
     }
     if(-not(Test-Path -LiteralPath $dll)){throw "The pinned release does not contain normal plugin $name"}
     Copy-StageFile $dll "cstrike/metahook/plugins/$name"
@@ -58,6 +70,9 @@ foreach($directory in @('captionmod','bulletphysics','studioevents','vgui2ext','
     Copy-StageTree (Join-Path $upstream "svencoop/$directory") "cstrike/$directory"
 }
 Copy-StageTree (Join-Path $script:GoldCraftRoot 'dist/vgui2extension/svencoop/metahook/gamedata/vgui2extension') 'cstrike/metahook/gamedata/vgui2extension'
+Copy-StageTree (Join-Path $script:GoldCraftRoot 'dist/interpfix/svencoop/metahook/gamedata/interpfix') 'cstrike/metahook/gamedata/interpfix'
+Copy-StageTree (Join-Path $script:GoldCraftRoot 'dist/renderer/svencoop/metahook/gamedata/renderer') 'cstrike/metahook/gamedata/renderer'
+Copy-StageTree (Join-Path $script:GoldCraftRoot 'dist/bulletphysics/svencoop/metahook/gamedata/bulletphysics') 'cstrike/metahook/gamedata/bulletphysics'
 Copy-StageTree (Join-Path $upstream 'platform') 'platform'
 foreach($name in @('SDL2.dll','SDL3.dll')){Copy-StageFile (Join-Path $upstream $name) $name}
 foreach($file in Get-ChildItem -LiteralPath (Join-Path $upstream 'svencoop/metahook/dlls') -File -Recurse){
