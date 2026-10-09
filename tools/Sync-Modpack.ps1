@@ -1,6 +1,6 @@
 param([switch]$Restart,[switch]$Start,[switch]$ValidateOnly,[switch]$UpdateClientRuntime,
       [ValidateSet('cs-client-a','cs-client-b')][string[]]$Clients=@('cs-client-b'),
-      [ValidatePattern('^[A-Za-z0-9_]{1,64}$')][string]$Map='sy_zombie2_Bloodmoon',
+      [ValidatePattern('^[A-Za-z0-9_]{1,64}$')][string]$Map='cs_assault',
       [ValidateSet('neoforge','fabric')][string]$Loader='neoforge')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $env:GOLDCRAFT_MOD_LOADER=$Loader

@@ -66,6 +66,10 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 
 启动器默认启动 ReHLDS、MC 服务端和 B 这一组 CS/MC 客户端，核对四个真实进程及桥接配对。Mod 文件仍然同步 A/B/server。当前使用 SyPB Bot 进行多人交互测试；不要为这一测试双开 A。若退出或超时，查看对应实例 `logs` 中的启动器、Java 和 MetaHook 日志，先确认旧进程的真实状态再重试。
 
+已经启动服务器时，双击 `sandbox/cs-client-b/Half-Life/Start-GoldCraft.cmd` 连接 B 的 CS/MetaHook 客户端。实例初始化会生成此入口；已有副本可运行 `tools/New-SandboxLauncher.ps1 -Instance cs-client-b` 补建。入口调用同一个 `Start-Sandbox.ps1`，保留 B 的配对配置、独立端口及运行日志。完整 CS/MC 组合由上方 `Sync-Modpack.ps1 -Start` 启动，默认地图为 `cs_assault`。
+
+直接双击名为 `MetaHook.exe` 的程序而不传 `-game`，上游启动器会把文件名 `MetaHook` 当成游戏目录，因而寻找 `Half-Life/MetaHook/metahook/gamedata/index.json`。沙箱的正确位置是 `Half-Life/cstrike/metahook/gamedata/index.json`。使用上述入口传入 `-game cstrike` 和配对环境即可；若手工创建普通 CS 快捷方式，也必须指定 `-game cstrike`，GoldCraft 配对仍需管理脚本提供环境。
+
 更新 Mod 后使用 `Sync-Modpack.ps1 -Restart -Start -Loader neoforge`。需要载入新 MetaHook/Renderer 构建时额外传 `-UpdateClientRuntime`；部署前保存旧客户端文件。**ReHLDS 重启会清空当前地图会话的 MC 建筑**。仅换图同样清空，客户端重连不会清空。
 
 停止单个实例通过保存的 PID、创建时间和可执行路径核实身份：

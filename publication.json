@@ -32,7 +32,7 @@
     "tools/Manage-Sandbox.ps1", "tools/Compact-Sandbox.py", "tools/SandboxLogs.ps1", "tools/Prepare-AMXX.ps1", "tools/Prepare-HostWorlds.py", "tools/Prepare-JavaBuild.ps1",
     "tools/Prepare-MetaHookRuntime.ps1", "tools/Prepare-NativeBuild.ps1", "tools/Prepare-OfflineTests.py", "tools/Prepare-Sources.ps1",
     "tools/Prepare-XmclModpack.ps1", "tools/Register-XmclModpack.ps1", "tools/Restore-SandboxBindings.ps1",
-    "tools/SandboxPaths.ps1", "tools/Seed-MinecraftAssets.py", "tools/Start-Sandbox.ps1", "tools/Stop-Sandbox.ps1",
+    "tools/SandboxPaths.ps1", "tools/Seed-MinecraftAssets.py", "tools/Start-Sandbox.ps1", "tools/Stop-Sandbox.ps1", "tools/New-SandboxLauncher.ps1",
     "tools/Sync-Modpack.ps1", "tools/Test-Bridge.ps1", "tools/Modpack.py", "tools/Minecraft-Command.py", "tools/GoldSrc-Command.py",
     "tools/HostMapQuery.java", "tools/HostMovementProbe.java", "tools/HostStepProbe.java", "tools/Observe-Presentation.py",
     "tools/Analyze-Motion.py", "tools/audio_session_probe.cpp", "tools/java/NeoForgePackValidator.java",

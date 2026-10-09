@@ -29,7 +29,7 @@
 
 用 X Minecraft Launcher 管理 `sandbox/modpack-neoforge/GoldCraft-1.21.1-NeoForge` 这一份主实例。关闭 X 后运行生成的 `Add-to-XMCL.cmd` 注册，在主实例增删 Mod，再运行 `Sync-and-Start.cmd` 验证依赖、同步到 A/B 与服务端并重启。
 
-当前固定 **Minecraft 1.21.1 / NeoForge 21.1.256 / FML 4.0.45**，使用官方安装器准备的正式映射运行环境。Mod 依赖由匹配的 FML/JarJar 解析，包含加载器官方兼容规则；客户端专用和服务端专用 Mod 通过明确的运行端规则分配。JEI 19.57.0.451、MezzConfig 0.6.8 已实际加载到独立服务器，完整三端增删更新及界面效果仍在验证。详见 [Mod 管理](docs/MOD_MANAGEMENT.md)。
+当前固定 **Minecraft 1.21.1 / NeoForge 21.1.256 / FML 4.0.45**，使用官方安装器准备的正式映射运行环境。Mod 依赖由匹配的 FML/JarJar 解析，包含加载器官方兼容规则；客户端专用和服务端专用 Mod 通过明确的运行端规则分配。主实例当前9个顶层安装包已完成独立服务端实际加载，核心 JAR 在主实例和 A/B/server 一致；客户端渲染、玩法和完整三端增删更新仍在验证。详见 [Mod 管理](docs/MOD_MANAGEMENT.md)。
 
 ## 交互与服务器
 

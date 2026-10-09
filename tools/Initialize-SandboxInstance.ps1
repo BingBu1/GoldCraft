@@ -174,4 +174,7 @@ $clientConfig=Assert-SandboxPath (Join-Path $game 'cstrike/config.cfg')
 @('console "1"','fps_max "100"','gl_vsync "0"','cl_filterstuffcmd "1"',('name "'+$config.playerName+'"')) |
     Add-Content -LiteralPath $clientConfig -Encoding ascii
 & (Join-Path $PSScriptRoot 'Initialize-MinecraftSandbox.ps1') -Instance $Instance -Loader $Loader
+if($Instance -in @('cs-client-a','cs-client-b')){
+    & (Join-Path $PSScriptRoot 'New-SandboxLauncher.ps1') -Instance $Instance -Loader $Loader
+}
 Write-Host "Deployed only to $game. Local client bridge port: $($config.clientPort)"
