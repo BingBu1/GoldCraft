@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。新增服务端洞口碰撞在独立 ReHLDS 通过 30 项检查；**客户端输入、预测、MC 碰撞和 Renderer 尚未接入完整挖洞，生产 mode2 仍不可用**。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；**原生客户端预测、Renderer／PVS 和实际挖掘输入仍待接入，生产 mode2 仍不可用**。
 
 ## HLDS 权限
 
@@ -19,6 +19,12 @@
 ## 回合还原
 
 服务端 `mc_map_mining_persist` 默认 `0`：
+
+```cfg
+// 写入 HLDS 的 server.cfg，或在服务器控制台执行其中一条：
+mc_map_mining_persist 0 // 回合结束还原（默认）
+mc_map_mining_persist 1 // 跨回合保留
+```
 
 | 值 | 行为 |
 |---|---|
@@ -76,7 +82,7 @@ NeoForge 服务端和配对客户端共享同一解码器。发送队列只合�
 
 `contains` 查询身体是否碰撞，`trace_volume` 求身体中心线段与这些凸片并集的首次碰撞；支持起点在实体中、完全被包围和离开后再次撞击。共享分割面使用一致的边界归属，接触回退距离默认 1/32 GoldSrc 单位。构建默认最多 4,096 个凸片、4,194,304 次计数操作；非法输入、预算或精度失败不返回部分结果。共面判定仅吸收双精度运算舍入，轴对齐交点投影回切割平面，避免重复切割产生零体积伪实体。
 
-这个体积只描述指定区域中的点 BSP 实体，不包含只存在于玩家 hull 的空气墙，不能直接替换原生玩家 hull。下面的服务端接入将它与原 hull 组合；Renderer 与 MC 碰撞接入仍未完成。
+这个体积只描述指定区域中的点 BSP 实体，不包含只存在于玩家 hull 的空气墙，不能直接替换原生玩家 hull。下面的 ReHLDS／NeoForge 接入将它与原 hull 组合；Renderer 接入仍未完成。
 
 ## 服务端洞口碰撞（独立测试）
 
@@ -88,7 +94,26 @@ NeoForge 服务端和配对客户端共享同一解码器。发送队列只合�
 
 [`Exercise-WorldCarving.py`](../tools/Exercise-WorldCarving.py) 在独立非 LAN 专服读取真实 `cs_assault`，通过 30 项检查：相邻洞口、洞边阻挡、点／站立／蹲伏射线、实际 `RunPlayerMove` 穿洞、低洞蹲行、0/1 回合政策、还原代次、重连、换图及空气墙保留。空气墙样本用独立 BSP 区间遍历证明整个身体走廊不含点实体，再比较原生阻挡位置；实际移动也停在同一位置。测试临时关闭重力并设置入射速度，使用真实 PM 步行路径；不等于真实键盘、普通落地行走、台阶或客户端预测验收。所有查询无错误回退，进程停止且临时文件还原。
 
-复现时先运行 `Build-ReHLDS.ps1` 和 `Build-Native.ps1 -Server -HeadlessFixture`，再在控制台执行 `python tools/Exercise-WorldCarving.py`。与其他独立挖掘测试共用测试服目录，必须串行运行。只有单独编译的测试 DLL 可提交洞口；本次没有部署主服／客户端，也没有开放生产几何挖掘。动态／旋转 BSP、多洞性能、实际 MC 与客户端物理、Renderer／PVS 仍需接入和验收。
+复现时先运行 `Build-ReHLDS.ps1` 和 `Build-Native.ps1 -Server -HeadlessFixture`，再在控制台执行 `python tools/Exercise-WorldCarving.py`。与其他独立挖掘测试共用测试服目录，必须串行运行。只有单独编译的测试 DLL 可提交洞口；主服／客户端未部署，生产几何挖掘未开启。
+
+## NeoForge 碰撞与回合还原（独立测试）
+
+[`CarvedMap`](../neoforge/src/main/java/dev/goldcraft/world/CarvedMap.java) 为每个实体身份准备四种 hull，使用同一 `H − (O − R)` 规则。`HostWorldState` 先完整构建碰撞，再提交修改 revision；失败保留先前的记录和碰撞。`HostMovement`、`HostRaycast`、碰撞体素与寻路障碍查询消费这份缓存，回合清空会让体素缓存失效。客户端和服务端世界均已接入源码，当前运行证据来自独立专服。
+
+证据：`CarvedMapTest` 使用真实 `cs_assault`，验证开洞、洞边、低洞、空气墙、事务失败和旧状态拒绝；Java 与 x86 原生核心的 4,800 条射线及 9,600 次内容查询一致。41 项 JUnit 和 16 项 CTest 通过；原生探针使用项目要求的 Clang／C++20 构建。
+
+[`Exercise-MapMiningJvm.py`](../tools/Exercise-MapMiningJvm.py) 共 36 项检查通过。实际 `Entity.move` 原先被墙阻挡，两个相邻洞口提交后可走完整段；`persist 1` 在回合结束及清理后保持通行，`persist 0` 在回合结束恢复原阻挡、选中射线和已缓存体素。低洞允许真实 MC 蹲姿但阻止站姿；材料之外的空气墙仍阻挡。测试明确区分 MC 蹲姿身体（48 GS 单位高）与原生蹲伏 hull（36 单位高）。300 条细小合成记录经完整快照构建／接收耗时约 0.51 秒，这不是实际分散洞口的性能验收。
+
+调用链：原生回合规则 → 修改记录清空／保留 → 协议快照／增量 → 原子碰撞缓存提交 → MC 移动、射线、体素查询。测试在独立匹配运行时中执行，JVM 正常退出、测试服停止、临时文件还原。可在已准备依赖和独立运行时的工作区控制台复现：
+
+```powershell
+./tools/Build-ReHLDS.ps1
+./tools/Build-Native.ps1 -Server -HeadlessFixture
+./tools/Build-NeoForge.ps1
+python tools/Exercise-MapMiningJvm.py
+```
+
+此验证使用测试专用接口提交洞口，并对 FakePlayer 调用受控移动；不证明真实客户端按键、地面行走、生物自主穿洞、动态旋转 BSP 或画面同步。新碰撞构建尚未部署到主沙盒，不单独更新协议 20 组件。
 
 ## 验证与依据
 
@@ -116,8 +141,8 @@ NeoForge 服务端和配对客户端共享同一解码器。发送队列只合�
 
 ## 尚需实现的完整路径
 
-1. 服务端核验挖掘目标、距离、模式、工具与进度，记录地图会话及修改代次；按 `mc_map_mining_persist` 处理回合还原，重连补全状态，换图／重启清除。
-2. 用同一修改状态生成剩余表面和洞壁，并更新 MC 碰撞、AI 支撑、GoldSrc 各尺寸 hull、客户端预测与武器射线；保留空气墙和动态实体行为。
+1. 将已验证的服务端会话／回合政策与真实几何挖掘目标、工具、材质及进度相连，验收实际输入和客户端同步。
+2. 在已接入的 ReHLDS／MC 碰撞基础上，补齐原生客户端预测，验收 AI 支撑、动态实体和多洞性能；以同一修改状态生成剩余表面和洞壁。
 3. 接入 Renderer 主画面、阴影、光照缓存及可见区域。只按修改代次重建受影响几何，不能在每帧或每个阴影通道重复切割。
 4. 用实际玩家／Bot 验证穿洞、洞边、蹲伏、坡面、射击、双方一致性和会话清理，再验收开启该功能。
 

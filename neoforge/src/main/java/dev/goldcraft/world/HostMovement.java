@@ -43,11 +43,11 @@ public final class HostMovement {
             &&Math.max(a.z(),b.z())+h+1>=brush.min().z()&&Math.min(a.z(),b.z())-h-1<=brush.max().z();
     }
     private static BspMap.Trace trace(HostWorldState host,int hull,BspMap.Vec from,BspMap.Vec to) {
-        var best=host.geometry().trace(0,hull,from,to);
+        var best=host.collision().trace(null,hull,from,to);
         if(best.startSolid()||best.allSolid())return best;
         for(var brush:host.brushes()) {
             if(!brush.solid()||!nearBrush(from,to,hull,brush))continue;
-            var hit=host.geometry().trace(brush.model(),hull,HostCollision.local(from,brush),HostCollision.local(to,brush));
+            var hit=host.collision().trace(brush,hull,HostCollision.local(from,brush),HostCollision.local(to,brush));
             if(hit.startSolid()||hit.allSolid()||hit.fraction()<best.fraction()) {
                 best=new BspMap.Trace(hit.fraction(),from.add(to.subtract(from).scale(hit.fraction())),
                     HostCollision.worldDirection(hit.normal(),brush),hit.planeDistance(),hit.startSolid(),hit.allSolid(),hit.inOpen(),hit.inWater());
@@ -58,9 +58,9 @@ public final class HostMovement {
     }
     private static boolean fits(HostWorldState host,int hull,Vec3d feet) {
         var point=center(feet,hull);
-        if(host.geometry().contents(0,hull,point)==BspMap.SOLID)return false;
+        if(host.collision().contents(null,hull,point)==BspMap.SOLID)return false;
         for(var brush:host.brushes())if(brush.solid()&&nearBrush(point,point,hull,brush)
-            &&host.geometry().contents(brush.model(),hull,HostCollision.local(point,brush))==BspMap.SOLID)return false;
+            &&host.collision().contents(brush,hull,HostCollision.local(point,brush))==BspMap.SOLID)return false;
         return true;
     }
     private static Vec3d exactUnchanged(Vec3d result,Vec3d requested) {

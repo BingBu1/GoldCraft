@@ -27,11 +27,11 @@ public final class HostRaycast {
     public static Hit trace(HostWorldState host,Vec3d from,Vec3d to){
         if(host.geometry()==null)return null;
         BspMap.Vec start=HostCollision.goldsrc(from.x,from.y,from.z),end=HostCollision.goldsrc(to.x,to.y,to.z);
-        BspMap.Trace trace=host.geometry().trace(0,0,start,end);float fraction=trace.startSolid()?1:trace.fraction();BspMap.Vec normal=trace.normal();
+        BspMap.Trace trace=host.collision().trace(null,0,start,end);float fraction=trace.startSolid()?1:trace.fraction();BspMap.Vec normal=trace.normal();
         int slot=0,serial=0,model=0;
         for(var brush:host.brushes()) {
             if(!brush.solid())continue;
-            BspMap.Trace candidate=host.geometry().trace(brush.model(),0,HostCollision.local(start,brush),HostCollision.local(end,brush));
+            BspMap.Trace candidate=host.collision().trace(brush,0,HostCollision.local(start,brush),HostCollision.local(end,brush));
             if(!candidate.startSolid()&&candidate.fraction()<fraction){
                 fraction=candidate.fraction();normal=HostCollision.worldDirection(candidate.normal(),brush);
                 slot=brush.slot();serial=brush.serial();model=brush.model();

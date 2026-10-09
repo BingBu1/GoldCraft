@@ -2,6 +2,7 @@ package dev.goldcraft.bridge;
 
 import java.util.*;
 import dev.goldcraft.world.BspMap;
+import dev.goldcraft.world.CarvedMap;
 
 /** Validated snapshots from the CS game server, kept separate from local client presentation. */
 public final class HostWorldState {
@@ -21,11 +22,17 @@ public final class HostWorldState {
     private List<Actor> actors=List.of();
     private List<Brush> brushes=List.of();
     private BspMap geometry;
+    private CarvedMap collision;
     private byte[] bspBytes;
     private long brushTick;
     private boolean freeze;
     private MapMining.Policy mining=MapMining.Policy.none();
-    private final MapEdits.Replica edits=new MapEdits.Replica();
+    // Prepare geometry before committing the edit revision. A failed candidate
+    // leaves both previous geometry and records intact for snapshot recovery.
+    private final MapEdits.Replica edits=new MapEdits.Replica(cuts->{
+        var prepared=geometry==null?null:new CarvedMap(geometry,cuts);
+        collision=prepared;
+    });
     public MapEdits.Replica edits(){return edits;}
     public long epoch(){return epoch;}
     public long tick(){return tick;}
@@ -35,6 +42,7 @@ public final class HostWorldState {
     public Actor actor(UUID id){return actors.stream().filter(a->(a.flags&16)!=0&&a.minecraftPlayer.equals(id)).findFirst().orElse(null);}
     public List<Brush> brushes(){return brushes;}
     public BspMap geometry(){return geometry;}
+    public CarvedMap collision(){return collision;}
     public byte[] bspBytes(){return bspBytes;}
     public boolean freeze(){return freeze;}
     public MapMining.Policy mining(){return mining;}
@@ -43,7 +51,7 @@ public final class HostWorldState {
         if(epoch==0||policy.epoch()!=epoch||Long.compareUnsigned(policy.revision(),mining.revision())<=0)return;
         mining=policy;
     }
-    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);}
+    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;collision=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);}
     private static Vector vector(Wire.Reader r){return new Vector(r.f32(),r.f32(),r.f32());}
     public void world(byte[] payload) {
         Wire.Reader r=new Wire.Reader(payload); long newEpoch=r.i64(); String newMap=r.string(128);r.finish();
@@ -72,7 +80,8 @@ public final class HostWorldState {
         if(length<124||length>BspMap.MAX_BYTES||length!=r.remaining())throw new IllegalArgumentException("BSP transfer length");
         byte[] bytes=r.bytes(length);r.finish();
         if(BspMap.checksum(bytes)!=crc)throw new IllegalArgumentException("BSP transfer checksum");
-        BspMap parsed=BspMap.read(bytes);geometry=parsed;bspBytes=bytes;brushes=List.of();brushTick=0;
+        BspMap parsed=BspMap.read(bytes);var prepared=new CarvedMap(parsed,edits.cuts());
+        geometry=parsed;collision=prepared;bspBytes=bytes;brushes=List.of();brushTick=0;
         dimension="goldcraft:"+map.toLowerCase(Locale.ROOT)+"_"+String.format(Locale.ROOT,"%08x",geometry.crc());
     }
     public void brushes(byte[] payload) {

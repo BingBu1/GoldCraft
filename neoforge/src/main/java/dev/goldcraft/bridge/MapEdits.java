@@ -65,9 +65,12 @@ public final class MapEdits {
     }
     public enum Applied { IGNORED, CHANGED, NEED_SNAPSHOT }
     public static final class Replica {
+        private final java.util.function.Consumer<List<Cut>> prepare;
         private long epoch,revision;
         private List<Cut> cuts=List.of();
         private boolean ready;
+        public Replica(){this(cuts->{});}
+        public Replica(java.util.function.Consumer<List<Cut>> prepare){this.prepare=java.util.Objects.requireNonNull(prepare);}
         public void reset(long epoch){this.epoch=epoch;revision=0;cuts=List.of();ready=false;}
         public boolean ready(){return ready;}
         public void invalidate(){ready=false;}
@@ -76,6 +79,7 @@ public final class MapEdits {
         public Snapshot snapshot(){if(!ready)throw new IllegalStateException("Map edits need snapshot");return new Snapshot(epoch,revision,cuts);}
         public Applied accept(Snapshot s){
             if(epoch==0||s.epoch()!=epoch||Long.compareUnsigned(s.revision(),revision)<0||(ready&&s.revision()==revision))return Applied.IGNORED;
+            prepare.accept(s.cuts());
             cuts=s.cuts();revision=s.revision();ready=true;return Applied.CHANGED;
         }
         public Applied accept(Delta d){
@@ -87,7 +91,9 @@ public final class MapEdits {
                 next.add(new Cut(d.revision(),d.target(),d.box()));
             }else if(d.operation()==REMOVE_TARGET)next.removeIf(c->c.target().equals(d.target()));
             else next.clear();
-            cuts=List.copyOf(next);revision=d.revision();return Applied.CHANGED;
+            var accepted=List.copyOf(next);
+            prepare.accept(accepted);
+            cuts=accepted;revision=d.revision();return Applied.CHANGED;
         }
     }
     private MapEdits(){}

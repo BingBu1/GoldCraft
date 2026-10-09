@@ -44,13 +44,14 @@ public final class HostCollision {
     private static final class Cache {
         final HostWorldState host;
         BspMap map;
+        CarvedMap collision;
         long revision;
         List<HostWorldState.Brush> snapshot=List.of();
         List<HostWorldState.Brush> brushState=List.of();
         final Map<Long,VoxelShape> staticShapes=lru(),movingShapes=lru();
         Cache(HostWorldState host){this.host=host;}
         private static Map<Long,VoxelShape> lru(){return new LinkedHashMap<>(256,0.75f,true){@Override protected boolean removeEldestEntry(Map.Entry<Long,VoxelShape> e){return size()>32768;}};}
-        void refresh(){if(map!=host.geometry()){map=host.geometry();staticShapes.clear();movingShapes.clear();revision++;}if(snapshot!=host.brushes()){snapshot=host.brushes();var solids=snapshot.stream().filter(HostWorldState.Brush::solid).toList();if(!brushState.equals(solids)){brushState=solids;movingShapes.clear();revision++;}}}
+        void refresh(){if(map!=host.geometry()||collision!=host.collision()){map=host.geometry();collision=host.collision();staticShapes.clear();movingShapes.clear();revision++;}if(snapshot!=host.brushes()){snapshot=host.brushes();var solids=snapshot.stream().filter(HostWorldState.Brush::solid).toList();if(!brushState.equals(solids)){brushState=solids;movingShapes.clear();revision++;}}}
         VoxelShape shape(BlockPos pos,boolean moving) {
             Map<Long,VoxelShape> shapes=moving?movingShapes:staticShapes;
             return shapes.computeIfAbsent(pos.asLong(),ignored->build(pos,moving));
@@ -66,10 +67,10 @@ public final class HostCollision {
             Box mc=new Box(block.getX()+(double)x/RESOLUTION,block.getY()+(double)y/RESOLUTION,block.getZ()+(double)z/RESOLUTION,
                 block.getX()+(double)(x+width)/RESOLUTION,block.getY()+(double)(y+width)/RESOLUTION,block.getZ()+(double)(z+width)/RESOLUTION);
             BspMap.Bounds gs=goldsrc(mc);int classification;
-            if(!moving)classification=map.classify(0,gs);
+            if(!moving)classification=collision.classify(null,gs);
             else {
                 classification=BspMap.CLEAR;
-                for(var brush:nearby){int value=map.classify(brush.model(),local(gs,brush));if(value==BspMap.FILLED){classification=value;break;}if(value==BspMap.MIXED)classification=value;}
+                for(var brush:nearby){int value=collision.classify(brush,local(gs,brush));if(value==BspMap.FILLED){classification=value;break;}if(value==BspMap.MIXED)classification=value;}
             }
             if(classification==BspMap.CLEAR)return;
             if(classification==BspMap.FILLED||width==1){for(int i=x;i<x+width;i++)for(int j=y;j<y+width;j++)for(int k=z;k<z+width;k++)cells.set(i,j,k);return;}

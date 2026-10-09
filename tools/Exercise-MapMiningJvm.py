@@ -3,7 +3,8 @@
 Uses a NeoForge FakePlayer registered in the isolated player list and a real
 native CBasePlayer fake client. Held intent is simulated; production HostMining,
 raycasts, pairing, sockets, native damage and item durability execute unchanged.
-This does not prove client input, network login, movement physics or excavation.
+Controlled Entity.move checks also exercise the actual JVM collision mixins and
+round cache invalidation. This does not prove client input, login or rendering.
 Never launches or stops the primary server. Run in a PTY, as required by ReHLDS.
 """
 import importlib.util
@@ -176,6 +177,75 @@ class Run(mining.Run):
         after = self.native_state()
         self.check(label, before["health"] == after["health"] and before["calls"] == after["calls"])
 
+    def geometry(self, *, start=(96,2784,406.4), end=(96,2976,406.4), crouch=False):
+        return self.action("geometry_probe", start=start, end=end, crouch=crouch,
+                           cell=(100,2888,400))["geometry"]
+
+    def cut(self, low, high, count):
+        response = self.command("gc_carve_fixture 0 " + " ".join(str(v) for v in (*low,*high)))
+        if "committed=" not in response:
+            raise RuntimeError("Native carving fixture rejected: " + response)
+        self.until(lambda: self.probe()["editCount"] == count, "Native collision commit reaches JVM")
+
+    def restore_geometry(self):
+        self.command("mc_map_mining_persist 0")
+        self.command("gc_mining_round restart")
+        self.until(lambda: self.probe()["editCount"] == 0, "Native restoration reaches JVM collision")
+
+    def geometry_checks(self):
+        self.restore_geometry()
+        baseline = self.geometry()
+        self.check("actual Minecraft Entity.move and ray stop at original host wall",
+                   0 < baseline["moved"] < 192 and baseline["rayBlocked"] and baseline["cellSolid"])
+        self.cut((64,2864,358.4),(96,2960,454.4),1)
+        partial = self.geometry()
+        self.check("Minecraft player body cannot pass a partial opening", partial["moved"] < 192)
+        self.cut((96,2864,358.4),(128,2960,454.4),2)
+        opened = self.geometry()
+        self.check("actual Minecraft Entity.move and ray pass adjacent authoritative cuts",
+                   abs(opened["moved"]-192) < .001 and not opened["rayBlocked"] and not opened["cellSolid"])
+        rim = self.geometry(start=(120,2784,406.4),end=(120,2976,406.4))
+        self.check("actual Minecraft body retains collision at the hole rim", rim["moved"] < 192)
+        self.command("mc_map_mining_persist 1")
+        self.command("gc_mining_round end")
+        self.ticks(5)
+        kept = self.geometry()
+        self.check("persist 1 keeps actual Minecraft passage at round end",
+                   abs(kept["moved"]-192) < .001 and kept["editRevision"] == opened["editRevision"])
+        self.command("gc_mining_round restart")
+        self.ticks(5)
+        self.check("persist 1 keeps actual Minecraft passage after round cleanup",
+                   abs(self.geometry()["moved"]-192) < .001)
+        self.action("forget_edits")
+        self.until(lambda: self.probe()["editsReady"] and self.probe()["editCount"] == 2, "Recover carved geometry snapshot")
+        self.check("JVM full snapshot recovery keeps carved collision", abs(self.geometry()["moved"]-192) < .001)
+        self.command("mc_map_mining_persist 0")
+        self.command("gc_mining_round end")
+        self.until(lambda: self.probe()["editCount"] == 0, "Round end restores actual JVM physics")
+        restored = self.geometry()
+        self.check("persist 0 restores actual movement ray and cached voxel at round end",
+                   abs(restored["moved"]-baseline["moved"]) < .001 and restored["rayBlocked"]
+                   and restored["cellSolid"] and restored["collisionRevision"] > opened["collisionRevision"])
+        self.restore_geometry()
+        # MC crouch is 48 GS units high, alongside the native 36-unit clip hull.
+        self.cut((64,2864,380),(128,2960,444.4),1)
+        standing = self.geometry()
+        crouched = self.geometry(crouch=True)
+        self.check("low carved opening passes actual Minecraft crouch but blocks standing",
+                   standing["moved"] < 192 and abs(crouched["moved"]-192) < .001
+                   and abs(crouched["height"]-48) < .001)
+        self.restore_geometry()
+        start=(-2021.544912,1689.130686,633.474396)
+        end=(-1925.544912,1689.130686,633.474396)
+        clip = self.geometry(start=start,end=end)
+        self.cut((-2069.544912,1641.130686,585.474396),(-1877.544912,1737.130686,681.474396),1)
+        after = self.geometry(start=start,end=end)
+        self.check("actual Minecraft movement retains native clip-only obstacle after carving",
+                   not clip["rayBlocked"] and not after["rayBlocked"] and 0 < clip["moved"] < 96
+                   and abs(after["moved"]-clip["moved"]) < .001)
+        physics = self.command("gc_carve_status")
+        self.check("JVM collision fixture has no native query fallback", "failures=0 " in physics)
+
     def run(self):
         inventory = subprocess.check_output(["powershell.exe", "-NoProfile", "-Command",
             "Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('java.exe','javaw.exe') } | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"],
@@ -303,11 +373,14 @@ class Run(mining.Run):
         self.command("gc_mining_round restart")
         self.until(lambda: self.probe()["editCount"] == 0, "Round restoration reaches NeoForge ledger")
         self.check("NeoForge applies clear with newer native revision", self.probe()["editRevision"] == revision + 1)
+        began = time.monotonic()
         self.command("gc_edits_fixture 300")
         self.until(lambda: self.probe()["editCount"] == 300, "Native journal overflow snapshot reaches NeoForge")
+        self.report["snapshot300Seconds"] = time.monotonic() - began
         self.action("forget_edits")
         self.until(lambda: self.probe()["editsReady"] and self.probe()["editCount"] == 300, "Production NeoForge requests lost full state")
         self.check("NeoForge resynchronizes without changing authoritative ledger", self.probe()["editRevision"] == self.state()["mapEditRevision"])
+        self.geometry_checks()
         self.report["finalMinecraft"] = self.probe()
         self.report["runtimeErrors"] = {p.name: p.read_bytes()[self.error_offsets.get(p, 0):].decode("utf-8", errors="replace")
             for p in (mining.base.AMXX / "logs").glob("error_*.log") if p.stat().st_size > self.error_offsets.get(p, 0)}

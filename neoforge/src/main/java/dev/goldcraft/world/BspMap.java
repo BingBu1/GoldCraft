@@ -21,10 +21,11 @@ public final class BspMap {
         public Bounds {if(min.x>max.x||min.y>max.y||min.z>max.z)throw invalid("Inverted bounds");}
     }
     public record Trace(float fraction,Vec end,Vec normal,float planeDistance,boolean startSolid,boolean allSolid,boolean inOpen,boolean inWater) {}
-    private record Plane(Vec normal,float distance,int type) {
+    record Plane(Vec normal,float distance,int type) {
         float signedDistance(Vec point){return (type<3?point.axis(type):normal.dot(point))-distance;}
     }
-    private record Node(int plane,int front,int back) {int child(int side){return side==0?front:back;}}
+    record Node(int plane,int front,int back) {int child(int side){return side==0?front:back;}}
+    record Hull(Plane[] planes,Node[] nodes,int root) {}
     private record Model(Bounds bounds,Vec origin,int[] heads) {}
     private final Plane[] planes;
     private final Node[] pointNodes,clipNodes;
@@ -43,6 +44,7 @@ public final class BspMap {
     public int nodeCount(){return pointNodes.length;}
     public Bounds bounds(int model){return model(model).bounds;}
     private Model model(int index){if(index<0||index>=models.length)throw invalid("Model index");return models[index];}
+    Hull hull(int model,int hull){if(hull<0||hull>3)throw invalid("Hull index");return new Hull(planes,hull==0?pointNodes:clipNodes,model(model).heads[hull]);}
 
     public static BspMap read(byte[] bytes) {
         if(bytes.length<124||bytes.length>MAX_BYTES)throw invalid("File size");

@@ -8,6 +8,7 @@ import dev.goldcraft.GoldCraft;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.net.MiningPayload;
 import dev.goldcraft.world.HostMining;
+import dev.goldcraft.world.HostCollision;
 import dev.goldcraft.world.HostRaycast;
 import dev.goldcraft.world.HostSession;
 import io.netty.channel.embedded.EmbeddedChannel;
@@ -27,6 +28,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.MoverType;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
@@ -36,6 +39,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
@@ -55,6 +59,7 @@ public final class MapMiningProbe {
     private boolean held, ready = true, renew = true;
     private String error;
     private BlockPos placedBlock;
+    private JsonObject geometryProbe;
 
     public MapMiningProbe() {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::tick);
@@ -112,6 +117,7 @@ public final class MapMiningProbe {
         if (player == null) return;
         switch (op) {
             case "forget_edits" -> GoldCraft.HOST_WORLD.edits().reset(GoldCraft.HOST_WORLD.epoch());
+            case "geometry_probe" -> probeGeometry(data);
             case "aim" -> {
                 var eye = data.getAsJsonArray("eye"); var point = data.getAsJsonArray("point");
                 double x=eye.get(0).getAsDouble(), y=eye.get(1).getAsDouble(), z=eye.get(2).getAsDouble();
@@ -181,6 +187,37 @@ public final class MapMiningProbe {
         writeStatus();
     }
 
+    private static Vec3 nativePoint(com.google.gson.JsonArray values) {
+        return new Vec3(values.get(0).getAsDouble()/32,values.get(2).getAsDouble()/32+64,-values.get(1).getAsDouble()/32);
+    }
+
+    private void probeGeometry(JsonObject data) {
+        var start=nativePoint(data.getAsJsonArray("start"));
+        var end=nativePoint(data.getAsJsonArray("end"));
+        boolean crouch=data.get("crouch").getAsBoolean();
+        player.setGameMode(GameType.CREATIVE);
+        player.noPhysics=false;
+        player.setPose(crouch?Pose.CROUCHING:Pose.STANDING);
+        player.refreshDimensions();
+        player.setOnGround(false);
+        player.moveTo(start.x,start.y-(crouch?18:36)/32.0,start.z,0,0);
+        player.setDeltaMovement(Vec3.ZERO);
+        var before=player.position();
+        // Execute the actual Entity.move -> voxel collision -> injected player
+        // hull path. This is controlled motion, not graphical keyboard input.
+        player.move(MoverType.SELF,end.subtract(start));
+        var moved=player.position().subtract(before);
+        var ray=player.level().clip(new ClipContext(start,end,ClipContext.Block.OUTLINE,ClipContext.Fluid.NONE,player));
+        var cell=BlockPos.containing(nativePoint(data.getAsJsonArray("cell")));
+        geometryProbe=new JsonObject();
+        geometryProbe.addProperty("moved",moved.length()*32);
+        geometryProbe.addProperty("height",player.getBbHeight()*32);
+        geometryProbe.addProperty("rayBlocked",ray.getType()!=HitResult.Type.MISS);
+        geometryProbe.addProperty("cellSolid",!HostCollision.shape(player.level(),cell).isEmpty());
+        geometryProbe.addProperty("collisionRevision",HostCollision.revision(player.level()));
+        geometryProbe.addProperty("editRevision",GoldCraft.HOST_WORLD.edits().revision());
+    }
+
     private void writeStatus() {
         try {
             var out=new JsonObject(); var host=GoldCraft.HOST_WORLD; var actor=host.actor(uuid);
@@ -192,6 +229,7 @@ public final class MapMiningProbe {
             out.addProperty("slot",slot); out.addProperty("actorFlags",actor==null?0:actor.flags());
             out.addProperty("held",held); out.addProperty("renew",renew); out.addProperty("error",error);
             out.addProperty("statusRetries",statusRetries);
+            if(geometryProbe!=null)out.add("geometry",geometryProbe);
             if (player!=null) {
                 out.addProperty("gameMode",player.gameMode.getGameModeForPlayer().getName());
                 out.addProperty("toolDamage",player.getMainHandItem().getDamageValue());
