@@ -11,7 +11,7 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 | [FreeImage](https://github.com/hzqst/FreeImage_clone) | 图像库 C++20 兼容补丁 | [FreeImage Public License](notices/FreeImage-license-fi.txt)、[GPL v2](notices/FreeImage-license-gplv2.txt)、[GPL v3](notices/GPLv3.txt)，按上游双重许可条款 |
 | [ReGameDLL_CS](https://github.com/rehlds/ReGameDLL_CS) | CS 游戏规则与服务器桥接补丁 | [MIT](notices/ReGameDLL_CS-LICENSE.txt) |
 | [ReHLDS](https://github.com/rehlds/rehlds) | 专用服务器与原生实体扩展补丁 | [MIT](notices/ReHLDS-LICENSE.txt) |
-| [AMX Mod X](https://github.com/alliedmodders/amxmodx) | 模块 SDK、Pawn 插件接口 | [许可及 HL Engine/MOD 例外](notices/AMXModX-LICENSE.txt)、[GPL v3](notices/GPLv3.txt) |
+| [AMX Mod X](https://github.com/alliedmodders/amxmodx) | 模块 SDK、Pawn 插件接口、Admin Base 现代化补丁 | [许可及 HL Engine/MOD 例外](notices/AMXModX-LICENSE.txt)、[GPL v3](notices/GPLv3.txt) |
 | [ReAPI](https://github.com/rehlds/ReAPI) | 版本匹配的 Pawn hook/native 声明 | [GPL v3](notices/ReAPI-LICENSE.txt) |
 | [SyPB](https://github.com/CCNHsK-Dev/SyPB) | 僵尸模式 Bot、AMXX API 与日志修复补丁 | 上游根目录 [GPL v3](notices/GPLv3.txt)，补丁文件保留原有版权与许可声明 |
 | [Nade Modes 11.2](https://forums.alliedmods.net/showthread.php?t=75322) | Nomexous & OT 的七模式手雷；ReAPI 适配补丁、中文资源与测试 | GPL-3.0-or-later，保留原作者声明及 [GPL v3](notices/GPLv3.txt) |

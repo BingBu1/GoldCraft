@@ -22,7 +22,8 @@ EXPECTED = {
     "configs/nade_modes.cfg": "amxx/nade_modes/configs/nade_modes.cfg",
 }
 SOURCES = {"amxx/nade_modes/nademodes.sma", "amxx/nade_modes/include/nademodes.inc",
-           "amxx/nade_modes/include/goldcraft_nademodes.inc"}
+           "amxx/nade_modes/include/goldcraft_nademodes.inc", "amxx/goldcraft/include/goldcraft_amxx.inc",
+           "amxx/goldcraft/include/goldcraft_menus.inc"}
 
 
 def safe(path):
@@ -86,6 +87,8 @@ def plan():
     # register its grenade Think stage before ZP consumes the explosion.
     pattern = rb"(?im)^[ \t]*nademodes\.amxx(?:[ \t][^\r\n]*)?(?:\r?\n|$)"
     for path in safe(RUNTIME / "configs").glob("plugins*.ini"):
+        if path.name != "plugins.ini" and not path.name.startswith("plugins-"):
+            continue  # AMXX does not load plugins.stock.ini or other backup names.
         if path != primary and re.search(pattern, safe(path).read_bytes()):
             raise ValueError("Nade Modes is also active in a secondary plugin list; preserve that list for review")
     content = primary.read_bytes()

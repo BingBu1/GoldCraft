@@ -1,5 +1,6 @@
 // Opt-in, bounded integer HUD fixture. Never enabled during ordinary play.
 #include <amxmodx>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <hamsandwich>
 #include <reapi>
@@ -12,7 +13,7 @@ new gCapability[8];
 public plugin_init()
 {
     register_plugin("GoldCraft integer vitals fixture", "1.0", "GoldCraft contributors");
-    gEnabled = register_cvar("goldcraft_vitals_test", "0");
+    gEnabled = create_cvar("goldcraft_vitals_test", "0");
     register_srvcmd("gc_vitals_create", "Create");
     register_srvcmd("gc_vitals_select", "Select");
     register_srvcmd("gc_vitals_set", "Set");
@@ -74,7 +75,7 @@ public Select()
 {
     if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
     new arg[24]; read_argv(1, arg, charsmax(arg));
-    new id = arg[0] == '#' ? find_player("k", str_to_num(arg[1])) : 0;
+    new id = arg[0] == '#' ? find_player_ex(FindPlayer_MatchUserId, str_to_num(arg[1])) : 0;
     if (!is_user_alive(id)) return PLUGIN_HANDLED;
     Clear(); gSelected = id; gUserid = get_user_userid(id);
     gHealth = get_entvar(id, var_health); gArmor = get_entvar(id, var_armorvalue);
@@ -83,7 +84,7 @@ public Select()
     get_user_info(id, "_gcvitals", gCapability, charsmax(gCapability));
     set_entvar(id, var_takedamage, DAMAGE_NO);
     set_entvar(id, var_max_health, 2147483648.0);
-    set_task(120.0, "Clear", 19071);
+    set_task_ex(120.0, "Clear", 19071);
     return Status();
 }
 public Set()

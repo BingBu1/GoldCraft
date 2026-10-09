@@ -22,7 +22,7 @@
 | `gc_set_form(id, form)` | 1 已切换、0 未变化、-1 参数无效、-2 未配对、-3 不可用、-4 代次耗尽 |
 | `goldcraft_form_changed(id, previous, current)` | 实际形态变更后的 forward |
 
-`gc_set_form` 在权威游戏服务器执行，撤销旧移动更新权限。实际示例是 `amxx/goldcraft/goldcraft.sma`：注册 `goldcraft_menu`、`/mc`、`/cs`、`amx_gc_form` 和 `gc_amxx_status`，并通过匹配的 ReAPI `RG_CBasePlayer_Spawn` 后置钩子观察出生。菜单使用 AMXX ShowMenu/menuselect，选择仍受服务器配对和状态检查。
+`gc_set_form` 在权威游戏服务器执行，撤销旧移动更新权限。实际示例是 `amxx/goldcraft/goldcraft.sma`：注册 `goldcraft_menu`、`/mc`、`/cs`、`amx_gc_form` 和 `gc_amxx_status`，并通过匹配的 ReAPI `RG_CBasePlayer_Spawn` 后置钩子观察出生。菜单使用 AMXX 新菜单 API，选择仍受服务器配对和状态检查，取消／超时会释放菜单资源。
 
 ```powershell
 .\tools\Build-AMXX.ps1 -Plugins goldcraft

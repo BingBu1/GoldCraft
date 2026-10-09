@@ -5,6 +5,7 @@
 | 目录 | 内容 |
 |---|---|
 | `goldcraft/` | CS／Minecraft 形态菜单与服务器接口，配套 API 在 `include/` |
+| `administration/` | Admin Base 源码、管理员字典和许可；实际账号只存服务器运行配置 |
 | `zombie_plague/api/`、`core/` | ZP 5.0.8a 公共 API、核心与基础玩法 |
 | `zombie_plague/classes/`、`modes/` | 人类／僵尸职业、感染等游戏模式 |
 | `zombie_plague/items/`、`weapons/` | 道具、弹药奖励、武器与手雷 |
@@ -35,4 +36,8 @@
 
 第三方完整副本仅留本机；公开仓库收录原创插件、汉化、必要补丁和重建工具。
 
-ZP 的 ReAPI 补丁由 `Prepare-ZombiePlague.py` 自动应用；更新命令和保留的兼容接口见 [ZP 测试文档](../docs/ZOMBIE_TESTING.md#reapi-迁移与更新)。
+ZP 的 ReAPI 补丁由 `Prepare-ZombiePlague.py` 自动应用；更新命令和保留的兼容接口见 [ZP 测试文档](../docs/ZOMBIE_TESTING.md#reapi-迁移与更新)。累计补丁现在覆盖 90 个源码／头文件，修改已写入本机分类目录；第三方完整副本被 Git 忽略，所以 GitHub 显示的是补丁变化。
+
+本轮现代化同时覆盖 ZP、Nade Modes、GoldCraft、地图和测试插件：具名成员、回合／断线生命周期、`create_cvar`、`set_task_ex`、命名事件／玩家筛选标记、文件句柄、字符串解析和新菜单 API。共享头文件保存重新登记碰撞、丢枪后备弹、菜单所有权及取消／超时等语义。86 份 SMA 编译零警告；独立服务器的 70 项现代化检查通过，包括管理员库、INI、菜单权限和真实槽位复用。
+
+管理员配置与非 LAN 身份认证见 [管理员说明](administration/README.md)。测试中的正向菜单选择是调用真实生产回调，购买菜单使用关闭 Bot 自动购买的专用测试变体，不能代替真人键鼠验收；这些测试插件不部署到日常服。

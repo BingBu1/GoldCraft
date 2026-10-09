@@ -1,7 +1,7 @@
 // Adapt the map's existing zmspawn markers to native CS player spawn entities.
 // Waypoint export uses actual ReHLDS standing hull traces, including brush entities.
 #include <amxmodx>
-#include <engine>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <reapi>
 
@@ -22,16 +22,16 @@ public plugin_init()
     if(!gMap)return;
     gTrace=create_tr2();
     new marker,count,name[64],Float:origin[3],Float:floor[3];
-    while((marker=find_ent_by_class(marker,"info_target"))>0){
-        pev(marker,pev_targetname,name,charsmax(name));
+    while((marker=rg_find_ent_by_class(marker, "info_target"))>0){
+        get_entvar(marker, var_targetname, name, charsmax(name));
         if(containi(name,"zmspawn")!=0)continue;
-        pev(marker,pev_origin,origin);
+        get_entvar(marker, var_origin, origin);
         if(!FindFloor(origin,floor))continue;
         // ReGameDLL's spawn selection/count uses its classname hash table.
         // engine.create_entity alone is invisible to UTIL_CountEntities.
         new entity=rg_create_entity((count%2)==0?"info_player_deathmatch":"info_player_start",true);
         if(!entity)continue;
-        entity_set_origin(entity,floor);DispatchSpawn(entity);count++;
+        gc_relink_origin(entity, floor);dllfunc(DLLFunc_Spawn, entity);count++;
     }
     server_print("[GoldCraft Bloodmoon] Added %d hull-checked CS spawn points from map markers.",count);
     // CheckLevelInitialized can run before AMXX plugin_init. Refresh the native
@@ -42,7 +42,7 @@ public plugin_init()
 stock CountSpawns(const classname[])
 {
     new entity,count;
-    while((entity=find_ent_by_class(entity,classname))>0)count++;
+    while((entity=rg_find_ent_by_class(entity, classname))>0)count++;
     return count;
 }
 public SpawnStatus()

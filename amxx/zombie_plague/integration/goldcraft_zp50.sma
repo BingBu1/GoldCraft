@@ -1,5 +1,6 @@
 // ZP 5.0.8a forwards and SyPB 1.50 API from the pinned source trees.
 #include <amxmodx>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <reapi>
 #include <zp50_core>
@@ -17,8 +18,8 @@ new Float:gLastInfectionTime;
 public plugin_init()
 {
     register_plugin("GoldCraft ZP SyPB integration", "0.1.0", "GoldCraft contributors");
-    gMaxPlayers=get_maxplayers();
-    register_event("HLTV", "OnNewRound", "a", "1=0", "2=0");
+    gMaxPlayers=MaxClients;
+    RegisterHookChain(RG_CSGameRules_RestartRound, "OnNewRound", false);
     register_srvcmd("gc_zp_status", "Status");
     register_srvcmd("gc_zp_locale", "LocaleStatus");
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "BeforeDamage", false);
@@ -37,7 +38,7 @@ public plugin_cfg()
     set_cvar_num("mp_auto_join_team",0);
     set_cvar_string("humans_join_team","any");
     gReady=true;
-    set_task(0.5,"Reconcile",70150,_,_,"b");
+    set_task_ex(0.5, "Reconcile", 70150, _, _, SetTask_Repeat);
 }
 stock SyncPlayer(id)
 {
@@ -101,11 +102,11 @@ public Status()
     new count,Float:origin[3],Float:velocity[3];
     for(new id=1;id<=gMaxPlayers;id++){
         if(!is_user_connected(id))continue;
-        pev(id,pev_origin,origin);
-        pev(id,pev_velocity,velocity);
+        get_entvar(id, var_origin, origin);
+        get_entvar(id, var_velocity, velocity);
         new bot=is_user_sypb(id)==1;
         fprintf(file,"%s{^"slot^":%d,^"userid^":%d,^"bot^":%d,^"alive^":%d,^"team^":%d,^"zombie^":%d,^"sypbZombie^":%d,^"health^":%.3f,^"enemy^":%d,^"moveTarget^":%d,^"weapon^":%d,^"spawns^":%d",count++?",":"",id,get_user_userid(id),bot,is_user_alive(id),get_user_team(id),zp_core_is_zombie(id),sypb_is_zombie_player(id),Float:get_entvar(id,var_health),bot?sypb_get_enemy(id):-1,bot?sypb_get_movetarget(id):-1,get_user_weapon(id),get_member(id,m_iNumSpawns));
-        fprintf(file,",^"armor^":%.3f,^"joining^":%d,^"menu^":%d,^"flags^":%d,^"origin^":[%.3f,%.3f,%.3f],^"velocity^":[%.3f,%.3f,%.3f]}",Float:get_entvar(id,var_armorvalue),get_member(id,m_iJoiningState),get_member(id,m_iMenu),pev(id,pev_flags),origin[0],origin[1],origin[2],velocity[0],velocity[1],velocity[2]);
+        fprintf(file,",^"armor^":%.3f,^"joining^":%d,^"menu^":%d,^"flags^":%d,^"origin^":[%.3f,%.3f,%.3f],^"velocity^":[%.3f,%.3f,%.3f]}",Float:get_entvar(id,var_armorvalue),get_member(id,m_iJoiningState),get_member(id,m_iMenu),get_entvar(id, var_flags),origin[0],origin[1],origin[2],velocity[0],velocity[1],velocity[2]);
     }
     fprintf(file,"]}^n");fclose(file);
     server_print("[GoldCraft ZP] SyPB API=%.2f mode=%d players=%d naturalInfections=%d botDamage=%d",sypb_api_version(),get_cvar_num("sypb_gamemod"),count,gNaturalInfections,gDamageEvents);
@@ -117,7 +118,7 @@ public LocaleStatus()
 {
     new language[8], clients[32], count;
     get_cvar_string("amx_language",language,charsmax(language));
-    get_players(clients,count,"ch");
+    get_players_ex(clients, count, GetPlayers_ExcludeBots | GetPlayers_ExcludeHLTV);
     new player=count?clients[0]:LANG_SERVER;
     server_print("[GoldCraft ZP] language=%s clientLanguages=%d player=%d",language,get_cvar_num("amx_client_languages"),player);
     server_print("[GoldCraft ZP] server-buy=%L | player-buy=%L | cn-buy=%L",LANG_SERVER,"MENU_BUY1_TITLE",player,"MENU_BUY1_TITLE","cn","MENU_BUY1_TITLE");

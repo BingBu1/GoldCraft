@@ -45,7 +45,7 @@ bool:nm_cs_form(id)
 
 nm_init_entities()
 {
-    g_maxplayers = get_maxplayers();
+
     gNmEntities = ArrayCreate(NMRecord);
     ArrayResize(gNmEntities, global_get(glb_maxEntities));
     new empty[NMRecord];
@@ -54,7 +54,7 @@ nm_init_entities()
 
 bool:nm_record(ent, data[NMRecord])
 {
-    if (gNmEntities == Invalid_Array || ent <= g_maxplayers || ent >= ArraySize(gNmEntities) || !pev_valid(ent))
+    if (gNmEntities == Invalid_Array || ent <= MaxClients || ent >= ArraySize(gNmEntities) || !pev_valid(ent))
         return false;
     ArrayGetArray(gNmEntities, ent, data);
     return data[NMRacePlusOne] >= 1 && data[NMRacePlusOne] <= 3 && data[NMSerial] == pev_serial(ent);
@@ -62,8 +62,8 @@ bool:nm_record(ent, data[NMRecord])
 
 bool:nm_owner_valid(ent)
 {
-    new data[NMRecord], owner = pev(ent, pev_owner);
-    return nm_record(ent, data) && 1 <= owner <= g_maxplayers &&
+    new data[NMRecord], owner = get_entvar(ent, var_owner);
+    return nm_record(ent, data) && 1 <= owner <= MaxClients &&
         is_user_connected(owner) && get_user_userid(owner) == data[NMOwnerUserId];
 }
 
@@ -75,14 +75,14 @@ public nm_native_race(plugin, params)
 public nm_native_get_mode(plugin, params)
 {
     new id = get_param(1), race = get_param(2);
-    if (!(1 <= id <= g_maxplayers) || !is_user_connected(id) || !(0 <= race < 3)) return -1;
+    if (!(1 <= id <= MaxClients) || !is_user_connected(id) || !(0 <= race < 3)) return -1;
     return _:mode[id][NadeRace:race];
 }
 
 public nm_native_set_mode(plugin, params)
 {
     new id = get_param(1), race = get_param(2), selected = get_param(3);
-    if (!(1 <= id <= g_maxplayers) || !is_user_alive(id) || !nm_cs_form(id) ||
+    if (!(1 <= id <= MaxClients) || !is_user_alive(id) || !nm_cs_form(id) ||
         !(0 <= race < 3) || !(0 <= selected <= _:NADE_HOMING)) return 0;
     if (!is_nademodes_enabled() || !grenade_can_be_used(NadeRace:race) ||
         !is_mode_enabled(id, NadeType:selected, NadeRace:race)) return 0;
@@ -105,8 +105,8 @@ public nm_smoke_thrown(id, Float:start[3], Float:velocity[3], Float:time, event)
 
 nm_track_throw(id, ent, NadeRace:race)
 {
-    if (!(1 <= id <= g_maxplayers) || !is_user_connected(id) ||
-        ent <= g_maxplayers || ent >= ArraySize(gNmEntities) || pev_valid(ent) != 2 ||
+    if (!(1 <= id <= MaxClients) || !is_user_connected(id) ||
+        ent <= MaxClients || ent >= ArraySize(gNmEntities) || !is_entity(ent) ||
         get_member(ent, m_Grenade_bIsC4)) return;
     new data[NMRecord];
     data[NMSerial] = pev_serial(ent);
@@ -115,8 +115,8 @@ nm_track_throw(id, ent, NadeRace:race)
     ArraySetArray(gNmEntities, ent, data);
     // ReGameDLL has finished initializing CGrenade and the ZP SetModel hooks.
     // Its identity is independent of replacement models or weapon pdata.
-    entity_set_int(ent, EV_INT_iuser1, _:NADE_NORMAL);
-    cl_team[id] = CsTeams:get_member(id, m_iTeam);
+    set_entvar(ent, var_iuser1, _:NADE_NORMAL);
+    cl_team[id] = TeamName:get_member(id, m_iTeam);
     if ((bs_forward_collection & FWD_SETMODEL) && nm_cs_form(id))
         grenade_process(id, ent, race);
     if (!is_grenade(ent)) return;
@@ -134,7 +134,7 @@ nm_remove(ent)
     nm_release_counter(ent);
     remove_task(NM_TASK_TRIP + ent);
     clear_line(ent);
-    entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME);
+    set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_KILLME);
     new empty[NMRecord];
     ArraySetArray(gNmEntities, ent, empty);
 }
@@ -142,7 +142,7 @@ nm_remove(ent)
 nm_release_counter(ent)
 {
     if (!is_grenade(ent)) return;
-    new type = _:get_grenade_type(ent), owner = pev(ent, pev_owner);
+    new type = _:get_grenade_type(ent), owner = get_entvar(ent, var_owner);
     if (type & NADE_DONT_COUNT) return;
     if (!(0 <= type <= _:NADE_HOMING) || (UNCOUNTABLE_NADE_MODES & (1 << (type + 1)))) return;
     if (nm_owner_valid(ent)) {
@@ -152,7 +152,7 @@ nm_release_counter(ent)
         refresh_can_use_nade(owner, GRENADE_FLASHBANG);
         refresh_can_use_nade(owner, GRENADE_SMOKEGREN);
     }
-    entity_set_int(ent, EV_INT_iuser1, type | NADE_DONT_COUNT);
+    set_entvar(ent, var_iuser1, type | NADE_DONT_COUNT);
 }
 
 public nm_entity_freed(ent)
@@ -175,8 +175,8 @@ nm_init_reapi_options()
 nm_remove_owner(id, bool:include_normal = false)
 {
     new ent = -1;
-    while ((ent = find_ent_by_class(ent, "grenade"))) {
-        if (is_grenade(ent) && pev(ent, pev_owner) == id &&
+    while ((ent = rg_find_ent_by_class(ent, "grenade"))) {
+        if (is_grenade(ent) && get_entvar(ent, var_owner) == id &&
             (include_normal || get_grenade_type(ent) != NADE_NORMAL)) nm_remove(ent);
     }
 }
@@ -184,12 +184,12 @@ nm_remove_owner(id, bool:include_normal = false)
 nm_detonate(ent)
 {
     if (!is_grenade(ent)) return;
-    entity_set_float(ent, EV_FL_dmgtime, 0.0);
+    set_entvar(ent, var_dmgtime, 0.0);
     if (get_grenade_race(ent) == _:GRENADE_SMOKEGREN && get_grenade_type(ent) != NADE_NORMAL) {
         // Both native smoke and ZP 5's flare wait for a stopped, grounded nade.
         // An explicitly triggered wall/remote trap must enter that same path.
-        entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND);
-        entity_set_vector(ent, EV_VEC_velocity, Float:{0.0, 0.0, 0.0});
+        set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND);
+        set_entvar(ent, var_velocity, Float:{0.0, 0.0, 0.0});
     }
 }
 
@@ -203,7 +203,7 @@ nm_attach(ent, surface)
     if (surface == -1) surface = 0;
     data[NMAttachedSerial] = surface > 0 && pev_valid(surface) ? pev_serial(surface) : 0;
     ArraySetArray(gNmEntities, ent, data);
-    entity_set_int(ent, EV_INT_iuser4, surface);
+    set_entvar(ent, var_iuser4, surface);
 }
 
 bool:nm_attachment_alive(ent)
@@ -217,17 +217,17 @@ nm_target(ent, target)
 {
     new data[NMRecord];
     if (!nm_record(ent, data)) return;
-    data[NMTargetToken] = target <= g_maxplayers ? get_user_userid(target) : pev_serial(target);
+    data[NMTargetToken] = target <= MaxClients ? get_user_userid(target) : pev_serial(target);
     ArraySetArray(gNmEntities, ent, data);
-    entity_set_int(ent, EV_INT_iuser2, target);
+    set_entvar(ent, var_iuser2, target);
 }
 
 bool:nm_target_valid(ent, target)
 {
     new data[NMRecord];
     if (!target || !pev_valid(target) || !nm_record(ent, data)) return false;
-    if (target <= g_maxplayers) {
-        new owner = pev(ent, pev_owner);
+    if (target <= MaxClients) {
+        new owner = get_entvar(ent, var_owner);
         return is_user_alive(target) && get_user_userid(target) == data[NMTargetToken] &&
             (!get_option(OPTION_TEAM_PLAY) || get_member(target, m_iTeam) != get_member(owner, m_iTeam));
     }
@@ -246,7 +246,7 @@ public nm_trip_charge(data[], task)
 {
     new ent = data[0];
     if (is_grenade(ent) && pev_serial(ent) == data[1] &&
-        !(pev(ent, pev_flags) & FL_KILLME) && get_grenade_type(ent) == NADE_TRIP)
+        !(get_entvar(ent, var_flags) & FL_KILLME) && get_grenade_type(ent) == NADE_TRIP)
         play_sound(ent, CHARGE);
 }
 
@@ -277,7 +277,7 @@ public nm_cvar_changed(pcvar, const previous[], const current[])
     // AMXX 1.9 notifies only actual changes, rather than polling every 2 s.
     if (gNmCvarsReady) {
         update_forward_registration();
-        for (new id = 1; id <= g_maxplayers; id++) {
+        for (new id = 1; id <= MaxClients; id++) {
             if (!is_user_connected(id)) continue;
             refresh_can_use_nade(id, GRENADE_EXPLOSIVE);
             refresh_can_use_nade(id, GRENADE_FLASHBANG);
@@ -303,11 +303,11 @@ Float:nm_option_float(Option:option)
 public nm_status()
 {
     new active, ent = -1;
-    while ((ent = find_ent_by_class(ent, "grenade")))
-        if (is_grenade(ent) && !(pev(ent, pev_flags) & FL_KILLME)) active++;
+    while ((ent = rg_find_ent_by_class(ent, "grenade")))
+        if (is_grenade(ent) && !(get_entvar(ent, var_flags) & FL_KILLME)) active++;
     server_print("[NadeModes] ReAPI=5.29 active=%d botsThrown=%d goldcraft=%d slots=%d zp=%d", active, gNmBotThrows, gNmHasGoldCraft, ArraySize(gNmEntities), _:g_zombie_mod);
     new alive, he, flash, smoke;
-    for (new id = 1; id <= g_maxplayers; id++) {
+    for (new id = 1; id <= MaxClients; id++) {
         if (!is_user_bot(id) || !is_user_alive(id)) continue;
         new weapons = get_entvar(id, var_weapons);
         alive++;

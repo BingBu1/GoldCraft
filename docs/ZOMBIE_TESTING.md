@@ -34,9 +34,13 @@ python .\tools\Prepare-ZombiePlague.py --archive $zpArchive --map cs_assault
 
 ## ReAPI 迁移与更新
 
-ZP 工作源现在使用匹配的 **ReAPI / AMXX 1.9.0.5303**；ReAPI SDK 压缩包名为 5.29.0.358，实际匹配模块报告 5.29.0.359，以固定源码和产物身份为准。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；39 个文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
+ZP 工作源现在使用匹配的 **ReAPI / AMXX 1.9.0.5303**；ReAPI SDK 压缩包名为 5.29.0.358，实际匹配模块报告 5.29.0.359，以固定源码和产物身份为准。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；累计 90 个源码／头文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
 
-迁移包含 39 处标准玩家 HookChain 注册和全部直接 pdata 固定偏移的替换。模型通过 `rg_set_user_model` / `rg_reset_user_model` 即时更新，不再临时换成 `gordon`；队伍通过 `rg_set_user_team` 维护原生人数和 AMXX 缓存；速度使用 `RG_CBasePlayer_ResetMaxSpeed`，保留冻结期。`SET MODELINDEX OFFSET` 继续控制自定义命中盒，原配置的两项 SVC_BAD 延迟参数保留但不再使用。完整武器 Deploy、GiveAmmo、Retire、Kill 及地图实体 Touch／Use／Think 仍使用阶段匹配的 Ham 接口，避免用内层 ReAPI 回调改变原有行为。
+最初 39 文件的核心迁移已进一步扩展到任务／事件／回合钩子、断线生命周期、新菜单、配置文件、字符串处理及可替换的 Engine/Fun/CStrike 接口。标准玩家阶段使用 ReAPI HookChain，移除全部直接 pdata 固定偏移。模型通过 `rg_set_user_model` / `rg_reset_user_model` 即时更新；队伍通过 `rg_set_user_team` 维护原生人数和 AMXX 缓存；速度使用 `RG_CBasePlayer_ResetMaxSpeed`，保留冻结期。`SET MODELINDEX OFFSET` 继续控制自定义命中盒，原配置的两项 SVC_BAD 延迟参数保留但不再使用。
+
+完整武器 Deploy、GiveAmmo、Retire、Kill 及地图实体 Touch／Use／Think 保留阶段匹配的 Ham 接口；匹配的 ReAPI 没有等价入口。碰撞重新登记使用实际引擎 SetSize／SetOrigin，武器命令使用 `rg_internal_cmd` 保留盾牌等原生分支。ZP 自己导出的 `cs_set_player_model` 等兼容 API、内部夜视镜辅助函数保留名称，其实现使用具名成员；不能按名称将它们误判为 CStrike 模块调用。
+
+菜单改用 AMXX 新菜单 API，保留原 1–9／0 键位，检查取消、超时和权限撤销；管理目标绑定 userid，防止旧菜单作用于复用槽位的新玩家。INI 辅助 API 使用文件句柄和 `strtok2`，覆盖 UTF-8、空数组及最后一个元素。ReGameDLL 的连接初始化 Spawn 早于旧队伍信息清除，核心现在检查 `m_bJustConnected`／`has_disconnected`，只处理真正入队后的出生。
 
 伤害保护在 PRE 阶段归零伤害并取消原始调用，感染判断在所有保护钩子注册完成后执行。实际测试曾发现出生保护期间仍会感染，已修复这个顺序问题；护甲打空的当次攻击仍保留原 ZP 的防感染行为。
 
@@ -54,11 +58,17 @@ python .\tools\Deploy-ZombiePlague.py --reload-map
 ```powershell
 .\tools\Build-AMXX.ps1 -Plugins goldcraft_zp_reapi_test
 python .\tools\Exercise-ZombieReAPI.py
+./tools/Build-AMXX.ps1 -Plugins admin,goldcraft,goldcraft_modern_test,goldcraft_buy_menu_fixture -Includes amxx/zombie_plague/include
+python tools/Exercise-AMXXModernization.py
 ```
 
 测试插件在 `amxx/zombie_plague/tests/`，不加入日常插件列表。两个命中盒设置分别通过 65 项真实 ReHLDS 检查，覆盖模型／队伍／速度、冻结期、护甲／友伤／感染、出生保护、冰冻／狂暴、Nemesis／Survivor，以及每种设置三次真正回合重置；无 AMXX 错误，测试进程结束并恢复改动配置。TraceAttack 使用受控 TraceResult 验证伤害链，不代表地图射线检测或客户端视觉验收。
 
-正式构建的 71 个产物已经再次独立测试，并逐一核对主服部署哈希。主服三次实际回合重置通过 7 项生命周期检查，981 个新鲜存活包围盒无错位；随后 24 Bot 的 180 秒自主观察通过 8 项检查，包括 7 次新增的真实刀伤感染（起止计数 3 → 10）。测试通过真实管理命令选取多重感染回合，没有指定战斗目标、传送或直接施加伤害。完整角度的视觉验收仍保留。
+2026-10-09 全面现代化后，正式 71 产物重新通过两组各 65 项检查；86 份分类 SMA 编译零警告。独立现代化夹具另通过 70 项：实际菜单显示／取消／替换／超时、管理员加载／重载／撤销、INI 与成员副作用、真实断线／槽位复用。正向菜单选择复制真实 item data 后调用生产回调；购买分支使用关闭 Bot 自动购买的专用测试变体，因此不宣称真实网络 menuselect 或图形输入验收。该变体不进入日常服。
+
+正式构建的 71 个产物已重新独立测试，并逐一核对主服部署哈希。本轮非 LAN 空服以 25 Bot 进行 180 秒自主观察，8 项检查全部通过：25 个 Bot 实际行走，新增 2 次刀伤感染和 980 次伤害事件；未出现新增 AMXX 运行错误。通过真实管理命令选取多重感染回合，随后恢复模式延迟，没有指定目标、传送或直接施加伤害。
+
+此前主服三次实际回合重置通过 7 项生命周期检查，981 个新鲜存活包围盒无错位；24 Bot 的 180 秒自主观察也通过 8 项。当前真人 B 未连接，非 LAN Steam 管理员登录、真人让位／补位与完整角度视觉体验仍需实机确认。
 
 观察器同时记录 ZP 的 `gameMode`／`allowInfection` 和 SyPB 的 `mode`，二者不能混同；Nemesis、Swarm 等特殊回合未必允许感染。还会检查 `sypb_stopbots`／`sypb_ignore_enemies`，避免把暂停 Bot 的观察当成自主战斗。此前无感染增量和暂停条件下的失败报告保留，不以通过结果覆盖。
 

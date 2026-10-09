@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "amxx": "1.9.0.5303",
+  "patchSha256": "9e357c60082053ced9ae61aa240a485d8946530b76d0213d0029a7508bdebce0",
+  "files": [
+    {
+      "path": "admin.sma",
+      "seedSha256LF": "641d11955acc9511502be2c892c4c4adfcf41d414b3edde1ac313d0692073037",
+      "resultSha256LF": "18af818ef05734a597ce1a832206d4cf168d2d35c8c60db7a41da070473b9e00"
+    },
+    {
+      "path": "lang/admin.txt",
+      "seedSha256LF": "428f2ac74da82d72d922e2a8e226b752c027a5b62472d2c8cc74d7a49ae90072",
+      "resultSha256LF": "428f2ac74da82d72d922e2a8e226b752c027a5b62472d2c8cc74d7a49ae90072"
+    },
+    {
+      "path": "lang/common.txt",
+      "seedSha256LF": "d5eaceb1b5c3a202d1fdf49ce92c24c2a4ead27cff03eb7f006c1c726d87e687",
+      "resultSha256LF": "d5eaceb1b5c3a202d1fdf49ce92c24c2a4ead27cff03eb7f006c1c726d87e687"
+    },
+    {
+      "path": "LICENSE.txt",
+      "seedSha256LF": "421628f28f790d3874b4843eea43ca4b2aa7913779161ef4e33fb408a361746c",
+      "resultSha256LF": "421628f28f790d3874b4843eea43ca4b2aa7913779161ef4e33fb408a361746c"
+    }
+  ]
+}

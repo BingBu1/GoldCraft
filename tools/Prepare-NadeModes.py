@@ -146,10 +146,12 @@ def build():
     output = safe(ROOT / "build/amxx/plugins/nademodes.amxx")
     output.parent.mkdir(parents=True, exist_ok=True)
     command = [str(compiler), str(WORK / "nademodes.sma"), "-i" + str(WORK / "include"),
+               "-i" + str(ROOT / "amxx/goldcraft/include"),
                "-i" + str(ROOT / ".tools/reapi-5.29.0.358/addons/amxmodx/scripting/include"),
                "-i" + str(compiler.parent / "include"), "-o" + str(output)]
     subprocess.run(command, cwd=ROOT, check=True)
-    sources = [WORK / "nademodes.sma", WORK / "include/goldcraft_nademodes.inc", WORK / "include/nademodes.inc"]
+    sources = [WORK / "nademodes.sma", WORK / "include/goldcraft_nademodes.inc", WORK / "include/nademodes.inc",
+               ROOT / "amxx/goldcraft/include/goldcraft_amxx.inc", ROOT / "amxx/goldcraft/include/goldcraft_menus.inc"]
     runtime = [(output, "plugins/nademodes.amxx"),
                (WORK / "lang/nademodes.txt", "data/lang/nademodes.txt"),
                (WORK / "lang/nademodes_goldcraft.txt", "data/lang/nademodes_goldcraft.txt"),

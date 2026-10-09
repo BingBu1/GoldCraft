@@ -27,6 +27,14 @@ if($Deploy){
     $runtime=Assert-SandboxPath (Join-Path $script:GoldCraftRoot 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx')
     $config=Assert-SandboxPath (Join-Path $runtime "configs/$PluginList")
     if(-not(Test-Path -LiteralPath (Join-Path $runtime 'plugins'))){throw 'Initialize AMXX before deploying Pawn plugins.'}
+    # Matched AMXX meta_api.cpp only loads plugins.ini and plugins-*.ini here.
+    # plugins.stock.ini is a backup, not an active registration.
+    $activeLists=@(Get-ChildItem -LiteralPath (Join-Path $runtime 'configs') -Filter '*.ini' -File |
+        Where-Object { $_.Name -eq 'plugins.ini' -or $_.Name -clike 'plugins-*.ini' })
+    foreach($entry in $built){
+        $disabledPattern='^\s*'+[Regex]::Escape("$($entry.name).amxx")+'[ \t]+disabled(?:[ \t;]|$)'
+        if($activeLists | Select-String -Pattern $disabledPattern){throw "Plugin explicitly disabled in an active list: $($entry.name)"}
+    }
     $pendingLines=@()
     foreach($entry in $built){
         $target=Assert-SandboxPath (Join-Path $runtime "plugins/$($entry.name).amxx")
@@ -34,7 +42,7 @@ if($Deploy){
         if((Get-FileHash -LiteralPath $target).Hash -ne $entry.sha256){throw 'Pawn deployment hash mismatch'}
         $line="$($entry.name).amxx"
         $pattern='^\s*'+[Regex]::Escape($line)+'(?:\s|$)'
-        $enabled=Get-ChildItem -LiteralPath (Join-Path $runtime 'configs') -Filter 'plugins*.ini' -File | Select-String -Pattern $pattern
+        $enabled=$activeLists | Select-String -Pattern $pattern
         if(-not $enabled -and $line -notin $pendingLines){$pendingLines+=$line}
     }
     if($pendingLines.Count){

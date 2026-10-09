@@ -136,12 +136,27 @@ class NadeModesPackaging(unittest.TestCase):
             self.deploy_files()
         self.assertEqual(self.snapshot(self.runtime), before)
 
+    def test_shared_header_change_requires_rebuild(self):
+        before = self.snapshot(self.runtime)
+        header = self.root / "amxx/goldcraft/include/goldcraft_menus.inc"
+        header.write_bytes(header.read_bytes() + b"\n// new menu behavior\n")
+        with self.assertRaisesRegex(ValueError, "Rebuild changed sources"):
+            self.deploy_files()
+        self.assertEqual(self.snapshot(self.runtime), before)
+
     def test_secondary_plugin_registration_is_preserved_for_review(self):
         (self.runtime / "configs/plugins-other.ini").write_bytes(b"nademodes.amxx\n")
         before = self.snapshot(self.runtime)
         with self.assertRaisesRegex(ValueError, "secondary plugin list"):
             self.deploy_files()
         self.assertEqual(self.snapshot(self.runtime), before)
+
+    def test_stock_backup_is_not_an_active_plugin_list(self):
+        backup = self.runtime / "configs/plugins.stock.ini"
+        backup.write_bytes(b"nademodes.amxx\n")
+        self.deploy_files()
+        self.assertEqual(backup.read_bytes(), b"nademodes.amxx\n")
+        self.assertIn(b"nademodes.amxx", (self.runtime / "configs/plugins.ini").read_bytes())
 
 
 if __name__ == "__main__":

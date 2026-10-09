@@ -110,7 +110,7 @@ if($Role -in @('CsClient','CsServer')){
         # Issuing +jointeam immediately after asynchronous +connect would run too early.
         else {$arguments+=@('+connect',"127.0.0.1:$($cluster.csPort)")}
     }else{
-        $arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','1','+map',$Map,'+exec','goldcraft_test.cfg')
+        $arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','0','+map',$Map,'+exec','goldcraft_test.cfg')
     }
     if($WithDebugger){
         $executable=$start.FileName

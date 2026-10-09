@@ -17,6 +17,9 @@
 /amxx/nade_modes/include/nademodes.inc
 /amxx/nade_modes/lang/nademodes.txt
 /amxx/nade_modes/LICENSE.txt
+/amxx/administration/admin.sma
+/amxx/administration/lang/
+/amxx/administration/LICENSE.txt
 *.amxx
 /fabric/
 /AGENTS.md

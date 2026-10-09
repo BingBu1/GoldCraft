@@ -137,6 +137,7 @@ def compile_plugins():
             target = destination(ROOT / 'build/amxx/plugins' / (name + '.amxx'))
             plugin_source = sources[name]
             result = subprocess.run([str(compiler), str(plugin_source), '-i' + str(WORKING / 'include'),
+                                     '-i' + str(ROOT / 'amxx/goldcraft/include'),
                                      '-i' + str(ROOT / '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include'),
                                      '-i' + str(compiler.parent / 'include'), '-o' + str(target)],
                                     cwd=ROOT, stdout=output, stderr=subprocess.STDOUT)
@@ -235,7 +236,9 @@ def main():
         result = json.loads(previous_manifest.read_text(encoding='utf-8')) if previous_manifest.exists() else {'resources': []}
     else:
         result = stage_media(args.map)
+    headers = sorted((WORKING / 'include').glob('*.inc')) + sorted((ROOT / 'amxx/goldcraft/include').glob('*.inc'))
     result.update({'archiveSha256': ARCHIVE_SHA, 'amxx': '1.9.0.5303', 'reapi': '5.29.0.358', 'plugins': plugins,
+                   'headers': [{'path': path.relative_to(ROOT).as_posix(), 'sha256': digest(path)} for path in headers],
                    'mediaRepository': MEDIA_REPO, 'mediaCommit': MEDIA_COMMIT})
     destination(OUT / 'manifest.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
     print(f"Compiled {len(plugins)} ZP/ReAPI plugins; {'retained' if args.compile_only else 'staged'} {len(result['resources'])} required resources.")

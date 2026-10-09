@@ -4,12 +4,37 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "b00fb286a28d4fdc532c2ed69cac0f2af9f00c0c4e95f016f7005fccf8977f5a",
+  "patchSha256": "49b3600daabd7e3fc3f40b812371a6bc60b7c71e55c207839bcbeabd74bcf42c",
   "files": [
+    {
+      "path": "admin/zp50_admin_commands.sma",
+      "seedSha256LF": "872b794ef1fd6d8cb7274867beba50cf5dadc74b6c9de1d9827eb849f11d1d6e",
+      "resultSha256LF": "6c732fd9a181317a7e820d37fe9718d579728b94bb42a1a985f13000c4bd6f0a"
+    },
+    {
+      "path": "admin/zp50_admin_menu.sma",
+      "seedSha256LF": "16e6c6748cda6e980ade450a1ecc9de74b08a7c177c033fb8ca9c3614dd6f47e",
+      "resultSha256LF": "4fd26db4dd04f92d14e9a4ce004ba19cc108f604e429f8f0086a69a17166b5d1"
+    },
+    {
+      "path": "admin/zp50_admin_models.sma",
+      "seedSha256LF": "fe53b29374ae279a879e9cbf996082c64d3189ba18aa6f79ced735f58396c428",
+      "resultSha256LF": "5077a5f0aeb2511eafc497a8afa8d9eb9c5ab8ad47b6750a8682fccfe98bb872"
+    },
+    {
+      "path": "api/amx_settings_api.sma",
+      "seedSha256LF": "6e5f1821b29165b4b1d384304a46575f229fdb91419aa3540c4ea118e3dbb3d6",
+      "resultSha256LF": "f424fbde5502705e55638f7d9b9d90621d79fedde05cfea40593a775b607d015"
+    },
+    {
+      "path": "api/cs_ham_bots_api.sma",
+      "seedSha256LF": "5cd28b1793be5957c824257a586f7c9ce8c8607b265c07c65c4f71b970dc5f3c",
+      "resultSha256LF": "b161500a49cc0c1aca7c7a50b17b76582e146a885966ec253dc51d315e10680f"
+    },
     {
       "path": "api/cs_maxspeed_api.sma",
       "seedSha256LF": "9194460c48980c8cf08c0a535962bea47d1e25dc5508fdc40e4394a5c2935f80",
-      "resultSha256LF": "35907e944bbf9cfc787212adc85743c14d62e1d1d8ce9455e2b84b443ce33e3b"
+      "resultSha256LF": "d2b17e89446141874d924821b9e9577179a8d9f6d6745d5be605f78e454fc600"
     },
     {
       "path": "api/cs_player_models_api.sma",
@@ -19,187 +44,417 @@
     {
       "path": "api/cs_teams_api.sma",
       "seedSha256LF": "956fc4e1c33e6e2a186093558037682844e88ba15dae062f33d07eba4ae33a92",
-      "resultSha256LF": "4f20a0b01e669c67c6abb437b24b8f27c59f673807d261ade61360ca19f73135"
+      "resultSha256LF": "56daf94b0244e509eda0a71d3f78b55d8eb93abdb573521b00f1aecd65c76b5a"
     },
     {
       "path": "api/cs_weap_models_api.sma",
       "seedSha256LF": "bd78a531b735e510c2dacf834eb9a7191a1db92b846773d88e542c39fc3eeb06",
-      "resultSha256LF": "2fc657f434c17b9a132e9f383ca6f206d1db38b270ff701539f4f4370e1afaf0"
+      "resultSha256LF": "1b18c801fcad4a29673a307c2ce718c867a440faeb5f3a02b8ed8fb5c5da9bfc"
     },
     {
       "path": "api/cs_weap_restrict_api.sma",
       "seedSha256LF": "abf351e65a13bde03bad47e039060ecd1bb5448e4f4157ca961118fde3248b62",
-      "resultSha256LF": "9ba6722a6e149f9e78c58dc7fa8ee3ef6f1cb054cc400451bb0726ba606df9bc"
-    },
-    {
-      "path": "admin/zp50_admin_commands.sma",
-      "seedSha256LF": "872b794ef1fd6d8cb7274867beba50cf5dadc74b6c9de1d9827eb849f11d1d6e",
-      "resultSha256LF": "37db9cdce029943466ac349ee2c156f85a328ddb39471c097cb01184d902dae9"
-    },
-    {
-      "path": "admin/zp50_admin_menu.sma",
-      "seedSha256LF": "16e6c6748cda6e980ade450a1ecc9de74b08a7c177c033fb8ca9c3614dd6f47e",
-      "resultSha256LF": "caaf4529b38c35c4e0ad67b71f035170e7c7318139bf64bc92d5c42377b50b6e"
-    },
-    {
-      "path": "items/zp50_ammopacks.sma",
-      "seedSha256LF": "6c8578e7b12acb19c1f73005997f810eed5669593e4abbae004f816c4e24659a",
-      "resultSha256LF": "f14de817ea65ff40adeb25f930308fd23cf16fd7c5db1b046f29cc3725ec7592"
-    },
-    {
-      "path": "menus/zp50_buy_menus.sma",
-      "seedSha256LF": "f9d302746600618967d9ffc8b0f71579cd29ca373cbbb2e78b587349cec8885f",
-      "resultSha256LF": "0583ab071254bfacc1e31c625755642bd68084b80809d13a966de24eddf317a0"
-    },
-    {
-      "path": "core/zp50_buy_zones.sma",
-      "seedSha256LF": "d14c74dd443f04cde0753e33dac7a018e4c9d44f9c9947d5312a4e05cb71e269",
-      "resultSha256LF": "04b6ddf155f83a14ae9901e4d597d1c22f6954852e8c180b4ea8d66f7f41a651"
+      "resultSha256LF": "fed6da2ab70cb7b4188719baddd5d09682e38bb5e6628f4407a15467c23647c3"
     },
     {
       "path": "classes/zp50_class_human.sma",
       "seedSha256LF": "581fbff9b5e69755aea2f9ceaa736a69cf5635feeb098eb6d4d735227eeb9521",
-      "resultSha256LF": "5af20115ad889c9156b411815610a0fb4d08660e67f22674be55a5418ad13a07"
+      "resultSha256LF": "a398e2e8c1e5dc54e9aebab8aaacc7890852384f7144da152fe83754a5c5b1f1"
+    },
+    {
+      "path": "classes/zp50_class_human_classic.sma",
+      "seedSha256LF": "b8db20078857f04220ad0695c8c83dbba26b574bdf2db29d83b27df3572133c3",
+      "resultSha256LF": "66e936166afe2a5de653692c6469793a17fb66a5b466e651968cac886d3ea952"
     },
     {
       "path": "classes/zp50_class_nemesis.sma",
       "seedSha256LF": "af0238440aed306bacc99efab1d8bdfbcb91daa62a8152be012785ff88744843",
-      "resultSha256LF": "44b7c35ae09a20aea4821afa246942c1651498d63c1f26f0a75fb21f9e021406"
+      "resultSha256LF": "debf808815ae81245cdd2c000f83732eca5c710a60da47cc0c45412dc94632e0"
     },
     {
       "path": "classes/zp50_class_survivor.sma",
       "seedSha256LF": "dc5f22d3c27e4b55e881f94256f03186fdc902cd5845231241589215b0c87788",
-      "resultSha256LF": "f58bad9561cf9b1e2440e454fb314103ce9c3d1bcfe08b34012bd4a4f17539ee"
+      "resultSha256LF": "151d7e4e6023b64145a551e2b27963808c081e8534f69228d8fedde54967b0d9"
     },
     {
       "path": "classes/zp50_class_zombie.sma",
       "seedSha256LF": "17e5b23b46c29483bc3d39f55bc270148a531ed20252f6fc8569a95a6e9ed609",
-      "resultSha256LF": "fdf4386a9177c4c37b6d537f35c33fb75ae68be353c5b584fa6641d5a589b741"
+      "resultSha256LF": "79269387ba1b5f698c2ef99789a634ba23f6078dceeb3f52228a6587f89cff1a"
     },
     {
       "path": "classes/zp50_class_zombie_leech.sma",
       "seedSha256LF": "01d47fc552b0e9ab5f85838c4da8de19299f2f348ef4456f71ef67f55d186f99",
-      "resultSha256LF": "edf2cb1fe7b27dad8decb38083f0b666eecf2632871ced05cbbd474d8d098348"
+      "resultSha256LF": "ecb94c3aa4637d276b371dc88e5aa8d00524966b19c31f5a616bc98f3f5061be"
+    },
+    {
+      "path": "classes/zp50_class_zombie_rage.sma",
+      "seedSha256LF": "622e594d3d439415a4f76d2f6ceec223343a00440637657e20f61b60284b78b8",
+      "resultSha256LF": "43ddd575efcb7d362405504d0bea6a13765d34a520815f6c29dda4694740cc6d"
+    },
+    {
+      "path": "core/zp50_buy_zones.sma",
+      "seedSha256LF": "d14c74dd443f04cde0753e33dac7a018e4c9d44f9c9947d5312a4e05cb71e269",
+      "resultSha256LF": "c4959fc95578d5fc59119d39b0847bcab2b7b398ecee8ab6f87766df686a5e6a"
     },
     {
       "path": "core/zp50_core.sma",
       "seedSha256LF": "cec91cdb095c8600c02ae8f57c4589ac1e20fb05652fde5709f402150d632b87",
-      "resultSha256LF": "e9df3a0f8bbfcdacd8b51976efcde1d09d6d81e1cbfcee5a7a2859eaf0c0a0ad"
+      "resultSha256LF": "90975752068fcf491f36bdfbae5e59147aa6f7418ef449ff2d36f9d3fdb44811"
     },
     {
       "path": "core/zp50_deathmatch.sma",
       "seedSha256LF": "e19b476905c9544c60ac2a9ad9c1703c29d4116277c1676a5119547b189fa173",
-      "resultSha256LF": "44113cef3d3e28dd32577e95f4f0f33557a837fa081c13e8b7265e20f8646685"
-    },
-    {
-      "path": "effects/zp50_flashlight.sma",
-      "seedSha256LF": "29b0ebdb162b6b8020b26a7906de630862e261869194c27d7d784be60a0573a5",
-      "resultSha256LF": "580b01e9bde6b486ff7e2b0dc3a73a416b40bd4222552e46e90907bb8c040d1d"
-    },
-    {
-      "path": "modes/zp50_gamemodes.sma",
-      "seedSha256LF": "c0b3533957b230111d85f6e2f665a453bde94b61ac355c60289405a321481914",
-      "resultSha256LF": "207f96658e560ea1ca594989eeca79f79c891d894860fcf55b00304dcf6b3cb4"
+      "resultSha256LF": "1980f6b16b93a2d183bf1bc222b36371e7f14a39175990bf3c158990669fe7ee"
     },
     {
       "path": "core/zp50_gameplay_fixes.sma",
       "seedSha256LF": "d21e095beb51a596491c6a288be4684dfcd3fc6bc39c4cc80514d6fc61ce5a35",
-      "resultSha256LF": "f62c246bf807a1055ab9a045f7e8ecabb92400c76631aa2473b4c3f2f31e628f"
-    },
-    {
-      "path": "weapons/zp50_grenade_fire.sma",
-      "seedSha256LF": "42d5134cadd4400db4e5509c7900af7573ec11f96672acbe83afab6771a93aaf",
-      "resultSha256LF": "5f4a9ead13bd0b9b02ad4f316e3e1d8ae016948af30573aede1351715c62319d"
-    },
-    {
-      "path": "weapons/zp50_grenade_frost.sma",
-      "seedSha256LF": "21eaa78d20f2993bbc098982d0e5ee293292219bcb88ddd987274074c4e17c1d",
-      "resultSha256LF": "fe3ffb46160ef383115ce9d6da48c53a7816b4ac29a1400560c41535f1532e3c"
-    },
-    {
-      "path": "weapons/zp50_human_ammo.sma",
-      "seedSha256LF": "69a00b7fb828cc5b9e38527b7ff00a5219ed5da701235b5c54b3ee8ed1af4209",
-      "resultSha256LF": "c3e9dbc91f6f40f18a09053f950ede383e0a0dd2b1faef451ec096d91da8f540"
-    },
-    {
-      "path": "weapons/zp50_human_armor.sma",
-      "seedSha256LF": "455b8654661a61ad014dd525e5b5a2e7f020bacd81895ae62129a2aaa489eec9",
-      "resultSha256LF": "9b9a0fae6d79b06f2db7213c0053b1b4bcc516fc63e2b5990faa3b0964a2d18d"
-    },
-    {
-      "path": "items/zp50_item_zombie_madness.sma",
-      "seedSha256LF": "e45618e3cc5d967c8d7100b79d5c5159b85966cbc66140259d22be7c7d05bbd7",
-      "resultSha256LF": "be758dee16bc7632a0cefe04e80cc9015fb207a065c617b8476cc7d51b98d686"
-    },
-    {
-      "path": "items/zp50_items.sma",
-      "seedSha256LF": "b4694afa6f1673de78c526f96415c9e9de5d493cfbf92801e312953bae92462f",
-      "resultSha256LF": "c07d27298cfaefbdc0620e6a33e939bde6c8c9e34fb118a134bf7bde0ba1b9ff"
+      "resultSha256LF": "2e2b88d5c314c520900803c7dc5cc23f4b81f3db237124bbbc746cdecb942cda"
     },
     {
       "path": "core/zp50_knockback.sma",
       "seedSha256LF": "ac9a6c57d89286835c7740649d25d64c6a5575ee49861313a91e27556d4380d4",
-      "resultSha256LF": "4c74add436f6e6b1f57a5ddb60a5ad534c4f416bba41fe7511da6e51dca08088"
+      "resultSha256LF": "9bebb6ef7d984dedc86bf2f9673995e14528258e839f7083afee9f6a4a9ee68d"
     },
     {
-      "path": "menus/zp50_main_menu.sma",
-      "seedSha256LF": "012bacc5273c9a41bdb799d993b9ec538c978b6a2a31e668f7a33da69148634e",
-      "resultSha256LF": "04e04c9291809a55da538551c1aee2eebf0337b4b0a7031121eb2aed1ea08c92"
+      "path": "core/zp50_leap.sma",
+      "seedSha256LF": "182cacd7acdb816a3a434d46a9bfe680edf242b349472aee7d82681b03f59175",
+      "resultSha256LF": "6163b6ce52f8ece31b03956dccfa430c2bfb0b9b6d9c859a99732060d4fcbafa"
     },
     {
-      "path": "effects/zp50_nightvision.sma",
-      "seedSha256LF": "8da8637e735c3604a84a25e20a8f0c7cffaf2dce2c885852005c97fa17c74283",
-      "resultSha256LF": "7240e8e16d1f04a2c7f1603c4da99bc2a17580cc27b17cb2c54805617950b7d4"
+      "path": "core/zp50_objective_remover.sma",
+      "seedSha256LF": "ce865400348ab8b1b78950ea6ff43e8ab9825a4c87f44f36dbf6a14e0820515a",
+      "resultSha256LF": "272449028b5c928b2607095b14b33cf6435338d5c9db962f523bb0a4fd4f967c"
     },
     {
       "path": "core/zp50_painshockfree.sma",
       "seedSha256LF": "03ca0345d2de6c14b7ae30186c1172328a66b22fd2b845db780312e144ea2b6d",
-      "resultSha256LF": "a862d26049313af5c411cb10492ce8e9003ee3c096252fd058e20f1580875ba7"
+      "resultSha256LF": "9ab35b81f4623f2a032f6918dccd6657938e1350a17e33b1df1220b71d7ae8a4"
     },
     {
-      "path": "items/zp50_rewards_ammopacks.sma",
-      "seedSha256LF": "ddafbd3946f1610c9ff9ae483acbb0d4ec18a9c873fb544c000116416be51589",
-      "resultSha256LF": "3ad680a5921a79739ae0823283b50496ce17f95ed3007ad4c4f928ff11623c12"
-    },
-    {
-      "path": "items/zp50_rewards_frags_hp.sma",
-      "seedSha256LF": "bb52b91c1fc0a39ff5afced2614d880873bc1b65ec08e149f2b8ab6de1e4f9ef",
-      "resultSha256LF": "e851d6b98f4296cb63e167acecdda732757d5ae2800e1fb00b25e0623d7f8533"
+      "path": "core/zp50_random_spawn.sma",
+      "seedSha256LF": "faace96528d42cde4bc18f555582a4c5c7ed9e5ef3d68c8ae03930843bb1f41b",
+      "resultSha256LF": "b9992271eee3bb420498c299b6a22431114d4da0d3b742c76d951118ff286539"
     },
     {
       "path": "core/zp50_spawn_protection.sma",
       "seedSha256LF": "2574e6fc0146fcb6c733b630399bd07f942024b63a0489dadcc512e9bf59d65a",
-      "resultSha256LF": "c43886f3b2e976a660d977c43698d37c8632fc6edfc388cdd8c789249a7438c7"
+      "resultSha256LF": "6051bccaff7301c8e3e1b45cd2071a7061f625bb0b1d02929dbad2d866f45524"
     },
     {
-      "path": "weapons/zp50_weapon_drop_strip.sma",
-      "seedSha256LF": "38c58b42849b50dc1e4347e97e6801629f495adbfdbe14468c449a306cd127fb",
-      "resultSha256LF": "d7fd4a71027c0da08e8c07dd04bfcdb14a1e54bc7e438b9c3a3eedc22cf42de1"
+      "path": "core/zp50_team_scoring.sma",
+      "seedSha256LF": "8e5bbb80d079348093c51bd572d5a8a079f39b139ee3be75aa4033f40e32b393",
+      "resultSha256LF": "cffc5ae8e47935675767fcd1c0fc53d4f86d4c75a557449a212b4d018749c655"
     },
     {
       "path": "core/zp50_zombie_damage.sma",
       "seedSha256LF": "925f89f6f5431990d9778f91ba615b5ed6bf588ed0f1c3ba560c5d53f6b5b97f",
-      "resultSha256LF": "307177855cad779b9bf797cf324a5d38e2acb907a0648d6428fdcc317b72e624"
+      "resultSha256LF": "46b198cd36238667eb96d08d89d21dfbd0fc5a417b2d7b9d133984ea3b003017"
     },
     {
       "path": "core/zp50_zombie_features.sma",
       "seedSha256LF": "4df67b71e4dd6f5f83706267989b9c421263c1066613c6ab84bc9267457d8603",
-      "resultSha256LF": "dc92e9868c6a3698948d590f35c8d394e31122e4245196a6dca69dd4eca69f1f"
-    },
-    {
-      "path": "effects/zp50_zombie_sounds.sma",
-      "seedSha256LF": "ea7a3d006c59911b4bd11eeee7ace812c1945c24ff7b2a6f1c553309397d89a3",
-      "resultSha256LF": "4642b02628c62c73dfd07322bc59178bdd576cba5cebe93373fce0aa12efdaf5"
+      "resultSha256LF": "f1c8f12f2dfdc3910b49631129c071c37b6a900cd20cb48e0b6f77125354b887"
     },
     {
       "path": "core/zp50_zp43_compat.sma",
       "seedSha256LF": "7868ef86c19b07ba141c49f00f4004ae75e7861b943f27f61bebdeadec49428d",
-      "resultSha256LF": "4a3f341fe108666ed9a00c937dc6d35692e9e560eae85af0406ecb88eadca1c9"
+      "resultSha256LF": "d37b52c3e190baf558573e3be8ba23f41d32367579c9818d3b0a012373ff859c"
+    },
+    {
+      "path": "effects/zp50_ambience_effects.sma",
+      "seedSha256LF": "412b752d26656fc84c87c4ad91fb630698d3c8988447b2b561f96e97477c7c02",
+      "resultSha256LF": "7b12aefaaf640d3bad1006ccf865fbacd3bfe1f46b7188ed8d3ceb336762fd23"
+    },
+    {
+      "path": "effects/zp50_ambience_sounds.sma",
+      "seedSha256LF": "8e393763df4b1746790cc044362ac1c5c0bd3ee84784e3c2e93a81d5dbf9fa3f",
+      "resultSha256LF": "3a2c6916d52e8b0eda4d03de1a87e8f569a9c731b345565b8491e5b0ae07292e"
+    },
+    {
+      "path": "effects/zp50_effects_cure.sma",
+      "seedSha256LF": "e57020019d36801932dc8e23be9612b758e4bacabe9e611bf27b4a0e5d852f31",
+      "resultSha256LF": "5d9b69f69af64957fae3afc9efafd4963f58321231b227501ba5e148e8829041"
+    },
+    {
+      "path": "effects/zp50_effects_infect.sma",
+      "seedSha256LF": "1c928f9bb2e0f14fb7dd1fcbdbbdc225f0e96f9acd601660dcccbaaf29c31cdd",
+      "resultSha256LF": "07e6e88b3ff6e11789e9528a7dd75bf27286a287dc9ae014be58f7e44e13db04"
+    },
+    {
+      "path": "effects/zp50_effects_lighting.sma",
+      "seedSha256LF": "a2140cfe05596790c2e7846d5f7b71076b5d5cd069d84e0bf730df3d4a5eb231",
+      "resultSha256LF": "bc2973c54875738a8b063658eada7439c793f4da4d5a8e8ae0c81572e6ae1960"
+    },
+    {
+      "path": "effects/zp50_flashlight.sma",
+      "seedSha256LF": "29b0ebdb162b6b8020b26a7906de630862e261869194c27d7d784be60a0573a5",
+      "resultSha256LF": "609a3ae2faed1754c2970b57dc0965283f7718a33c8e977fbae2e91b218b1573"
+    },
+    {
+      "path": "effects/zp50_nightvision.sma",
+      "seedSha256LF": "8da8637e735c3604a84a25e20a8f0c7cffaf2dce2c885852005c97fa17c74283",
+      "resultSha256LF": "4969288fb4dbb4288970427a5ed5456e6c18ae4c7313303f601c9f152ab548b9"
+    },
+    {
+      "path": "effects/zp50_zombie_sounds.sma",
+      "seedSha256LF": "ea7a3d006c59911b4bd11eeee7ace812c1945c24ff7b2a6f1c553309397d89a3",
+      "resultSha256LF": "af66426789ddd5611ff988a32f5c49e4f51080485516d3b13acd63d513337fd4"
+    },
+    {
+      "path": "include/amx_settings_api.inc",
+      "seedSha256LF": "d38958b7d43013872f2d02a180afa8efb8500c7bde888afb75920424fe296507",
+      "resultSha256LF": "948c99030b67acc15a5e7d170f0c0ca1cbe50b7c2aba5aa77011efbbe2227520"
+    },
+    {
+      "path": "include/cs_ham_bots_api.inc",
+      "seedSha256LF": "d7dc0711c13320481e417e4e9040c60f5d05eb8e058121f54b63b2eb6244e9af",
+      "resultSha256LF": "2950d0b81640791b15bed9c1544b09e33d451e8062e871548919399e0f38b5c5"
+    },
+    {
+      "path": "include/cs_maxspeed_api.inc",
+      "seedSha256LF": "bc57877442f7fef67a9e73e9c5023f4f03ee8d7765a6e9944b6e6060a1d7742c",
+      "resultSha256LF": "0a8d62137930b7340bf125b78e87f13520028d31abba9f57db76cb857df9419c"
+    },
+    {
+      "path": "include/cs_player_models_api.inc",
+      "seedSha256LF": "2756192a6685208cb4d6cf4eee198f97625862b3b5e542aafdead693ffd78ee1",
+      "resultSha256LF": "f324cfdad05cbc0b5d388e150997c910785ebbf9ca076e2141b5af82556eaaa1"
+    },
+    {
+      "path": "include/cs_teams_api.inc",
+      "seedSha256LF": "ed0f1661e98399c4e6ebcd16db791d4961463a478e922eeff12b12d6d91cead9",
+      "resultSha256LF": "bdbe801bd0750cd82224bc4beb1aba6bd5d960e97cfef638ee1fd0341ae865f0"
+    },
+    {
+      "path": "include/cs_weap_models_api.inc",
+      "seedSha256LF": "f4401def4e3c7998a32bff44031c5f9e74d210b08f28afd987d27b1a5c31d722",
+      "resultSha256LF": "6bb37c741fe6cc2fa36c498df31783ddaa29ed00978f84ea41f75bd9e768e1e7"
+    },
+    {
+      "path": "include/cs_weap_restrict_api.inc",
+      "seedSha256LF": "37cee1ae101633b910196614deb5685c403834538fa8ede7082ba96c1b0b264a",
+      "resultSha256LF": "1cc5b99aca048e9069a9bf3b5ddcf819c4bbbb66fd84ebf8d1f7a566d0ffd88c"
+    },
+    {
+      "path": "include/zp50_admin_commands.inc",
+      "seedSha256LF": "54553ae32b3768a54b737434eb4c590de778e1555c9a4105a6771cca0f152329",
+      "resultSha256LF": "d2229ee3a8240831b0e875cc2e89db3ded543788173206fbaf8875300bbc0310"
+    },
+    {
+      "path": "include/zp50_admin_menu.inc",
+      "seedSha256LF": "eedbffe053d65a5c9e256a5236043749e5e72ff06ff7f9b908291ddabb1281a6",
+      "resultSha256LF": "626cd4c68626b162a72dadd40e455b353083318b315fab7ad5d34a37392d707b"
+    },
+    {
+      "path": "include/zp50_ammopacks.inc",
+      "seedSha256LF": "2ee0e7ba380ad0635e401ff8064f1d37c01fc9cdf68d1654d2922ddb349c7d37",
+      "resultSha256LF": "5a57adc78b3cb9de6590b3a6174544c20be83f9fdee875712c0ede7344de8cb0"
+    },
+    {
+      "path": "include/zp50_buy_menus.inc",
+      "seedSha256LF": "39bbd3e5dff9111c36ac380ef9ab044dc5e611268093c1ff51fc85f5df748136",
+      "resultSha256LF": "a76dbf84eff4ba54e80ab43798ecefaa7960d9b36f53bc1a4f2a2455bf9cabe8"
+    },
+    {
+      "path": "include/zp50_class_human.inc",
+      "seedSha256LF": "7a044245fd6a2df8e456e21b3d159f675c8e754a386f00d30e5b50621acedb40",
+      "resultSha256LF": "d3fb1be011967d288ff5c79d63e03f4db341f70ba7b6dda877662f75d398d1c9"
+    },
+    {
+      "path": "include/zp50_class_nemesis.inc",
+      "seedSha256LF": "6b727e90ee7d5cbf36b730c31f853e184827e626d70c1427b3e13467598fb35e",
+      "resultSha256LF": "3d3a4844cd287aa9c960d2ceafc29c397258bfc26f9c72ce64c168f192e1d0d2"
+    },
+    {
+      "path": "include/zp50_class_survivor.inc",
+      "seedSha256LF": "dcb482396da6e70036b67135bfe40659cd408ed4a076b6cd528d7bcdc080e55e",
+      "resultSha256LF": "63d4203e1b3c4acebe2cab4802499bf1045e22d37e1d1eaa01c35a4663f759cf"
+    },
+    {
+      "path": "include/zp50_class_zombie.inc",
+      "seedSha256LF": "3a585f87ff9721b28a4a9310b9d3d6de9bebac7edf8139caa25e56bfb40cf44b",
+      "resultSha256LF": "088cf4e0d7ea220f3c68924456f21e8c7b99a6b9f22b34ee08ce13eed45b3b25"
+    },
+    {
+      "path": "include/zp50_colorchat.inc",
+      "seedSha256LF": "1c2859930eaee75c45c594d69af6bdb05b645979609da908201a277c4497e282",
+      "resultSha256LF": "a0304dc1395d1713c6fd890b010d731e43aac27b8a542a4231cacb795d4e60d6"
+    },
+    {
+      "path": "include/zp50_core.inc",
+      "seedSha256LF": "ebbecf78ea3c2229201015fe10011a02b3299b305597f57038b09210915fd5b6",
+      "resultSha256LF": "999be2aa66ebbf5349d2a3c7b14443e397aaf2c044c5401a1eeba74bdf80f564"
+    },
+    {
+      "path": "include/zp50_flashlight.inc",
+      "seedSha256LF": "f2e1ac5d113897b50fd4c9ae86b7426ac0531ca23b20ac6ce3a5a2dc4ddf7be5",
+      "resultSha256LF": "8bd71e750ee6dad319928b17fc0992ab8d917c64b4a9aa8c560b8cca45064c1a"
+    },
+    {
+      "path": "include/zp50_gamemodes.inc",
+      "seedSha256LF": "0837cb39b09fa6fe0b0a0fb714ca6997e5ab343eb6788f00534d27067962b2ca",
+      "resultSha256LF": "eca2fee971aec477bb1b580281c0ccd415d0a23ff8d136f60518d39922f83346"
+    },
+    {
+      "path": "include/zp50_grenade_fire.inc",
+      "seedSha256LF": "50395111477f3e31facd421c61c58b80baf6ab0c7650148bf850c7eedea16369",
+      "resultSha256LF": "4e47283c18e08937a13748f6ff94dc3639661b0a5b031264d6cf45035604409f"
+    },
+    {
+      "path": "include/zp50_grenade_frost.inc",
+      "seedSha256LF": "45f68c169e77a17fff866d9e22584a60d8ab48e61cb2dbd52cb427935fc04348",
+      "resultSha256LF": "df8a61f5e09b18c68031dad1671c5403cba1f9e3f6e0504147f858026fa8acfd"
+    },
+    {
+      "path": "include/zp50_item_zombie_madness.inc",
+      "seedSha256LF": "1989640e8e0b2952c0fd4088b537257ebe351de4374cfba94f62372b7a5d25be",
+      "resultSha256LF": "a69020507ab8c4e057c98fe14b1692223f0b9c6f556b55052ecaeb1fabda2f62"
+    },
+    {
+      "path": "include/zp50_items.inc",
+      "seedSha256LF": "4aeef1f9c8850638b980fd6de783c5bde9e8a0e48cc455ef1ea2216d168aa7b5",
+      "resultSha256LF": "b6c647f101318a68d9dd355c34b0b8476346ef579d62490753174e14191c60e4"
+    },
+    {
+      "path": "include/zp50_random_spawn.inc",
+      "seedSha256LF": "4d3f16d1547229f90b4daae1f3b0c076378d934385d266ce2044473715298101",
+      "resultSha256LF": "e126fe73b0f09bfb706d22fc90c171f2b862f7ced72e69e963ac11c276c86d43"
     },
     {
       "path": "include/zp50_reapi.inc",
       "seedSha256LF": null,
       "resultSha256LF": "de12210cf2b87c52dbcba23d3ec056b06a437a0d9c911a665bb44590a1131788"
+    },
+    {
+      "path": "items/zp50_ammopacks.sma",
+      "seedSha256LF": "6c8578e7b12acb19c1f73005997f810eed5669593e4abbae004f816c4e24659a",
+      "resultSha256LF": "8d750caaf4eed4869c34a3fa45bdf9f2192eca6fdb588bfecc23c81c8dcef485"
+    },
+    {
+      "path": "items/zp50_item_antidote.sma",
+      "seedSha256LF": "0d8eb752ef8f8196e816cc350ee2f2fbc28d1e902ece3dd61a8692c7dbf9005a",
+      "resultSha256LF": "ca0dd64c26dc3f5a9be075c81087c6ccadb869a89d278d814fbee772cce984b0"
+    },
+    {
+      "path": "items/zp50_item_infection_bomb.sma",
+      "seedSha256LF": "8b1db43ae2504bf53634be8223f3e1e6b5f2caa50374fdc371a2bb618980b4f6",
+      "resultSha256LF": "0b1a33c0732303c9e6587e242ad5968863aaede2ed72e698b9260188c927ae55"
+    },
+    {
+      "path": "items/zp50_item_nightvision.sma",
+      "seedSha256LF": "529e53697fb7518b3b7fd296009fee37a08dd5ba40fcb5f2c8daeea1db04a917",
+      "resultSha256LF": "95c823dac4a57ce2d12c37ca642e9271ca949d0eee5e724614da5c87a7b27bca"
+    },
+    {
+      "path": "items/zp50_item_weapons.sma",
+      "seedSha256LF": "c98ae6fc8479cb87eba69c7716fd17b34a9a3caa347c9f7870a8dad04b80c378",
+      "resultSha256LF": "2f2285404a63d53c7feba5cb9ca2adb19f0d1d0bad0d62dde8d1fce5f0e3a975"
+    },
+    {
+      "path": "items/zp50_item_zombie_madness.sma",
+      "seedSha256LF": "e45618e3cc5d967c8d7100b79d5c5159b85966cbc66140259d22be7c7d05bbd7",
+      "resultSha256LF": "3e8574b580937dd2fd323f4c2d8cc73264bf298fbcb6281e80d9c716bcb5d492"
+    },
+    {
+      "path": "items/zp50_items.sma",
+      "seedSha256LF": "b4694afa6f1673de78c526f96415c9e9de5d493cfbf92801e312953bae92462f",
+      "resultSha256LF": "3404b252b0968ef815bbbfcfe0e79ed09c93a30930c172120f8fcb27479be29d"
+    },
+    {
+      "path": "items/zp50_rewards_ammopacks.sma",
+      "seedSha256LF": "ddafbd3946f1610c9ff9ae483acbb0d4ec18a9c873fb544c000116416be51589",
+      "resultSha256LF": "9ea1ebfa1a0731aa3fc836f519b7b0f60cd138917d4e2f9dcf5c252f247344e2"
+    },
+    {
+      "path": "items/zp50_rewards_frags_hp.sma",
+      "seedSha256LF": "bb52b91c1fc0a39ff5afced2614d880873bc1b65ec08e149f2b8ab6de1e4f9ef",
+      "resultSha256LF": "695f0ec26497f77b0a47f8edfd1868982380e622238fe787e1b7ae3bf73af86d"
+    },
+    {
+      "path": "menus/zp50_buy_menus.sma",
+      "seedSha256LF": "f9d302746600618967d9ffc8b0f71579cd29ca373cbbb2e78b587349cec8885f",
+      "resultSha256LF": "9d3d92108b368657392e895182386a9805d87d7dae1f6a9367713f6447dcce94"
+    },
+    {
+      "path": "menus/zp50_hud_info.sma",
+      "seedSha256LF": "e853223ea9687943aec0d2d163de42c55e8f8198ad16b61836c8b56532fd4bd7",
+      "resultSha256LF": "a0fb9fd6f78d5c3d2a338785bdb50b9e89663ba779d4ba56103fb05b192aa7ec"
+    },
+    {
+      "path": "menus/zp50_main_menu.sma",
+      "seedSha256LF": "012bacc5273c9a41bdb799d993b9ec538c978b6a2a31e668f7a33da69148634e",
+      "resultSha256LF": "f63fa52b2e764d57ad7806ea56ee230f0db2c57969cb0c743d1d7ab5fd702ad1"
+    },
+    {
+      "path": "modes/zp50_gamemode_armageddon.sma",
+      "seedSha256LF": "a5ff96b9080549959cac0710c85f8acc51966648cbc7ec536a756c17aa569796",
+      "resultSha256LF": "43ac33079f3384d7aef3b7bc7d237e000c3af0d3466ea1b50f62feb181cea7e8"
+    },
+    {
+      "path": "modes/zp50_gamemode_infection.sma",
+      "seedSha256LF": "16c112bc70583d9b85a512af96d0e29631f3deabffff226b4584ef60dc1a25e9",
+      "resultSha256LF": "e5cf55052879aedc68b00906c1e3b52ae41e5266472ff6ceba29ebeff3153229"
+    },
+    {
+      "path": "modes/zp50_gamemode_multi.sma",
+      "seedSha256LF": "13b8ccf35d83a885275ffa0169ba176888496e3bd715d999d8c49c00d840d6b9",
+      "resultSha256LF": "dac5a8eb3a3494df1207556dfa72b4de606efd8e68f5cf6947436449de6507c7"
+    },
+    {
+      "path": "modes/zp50_gamemode_nemesis.sma",
+      "seedSha256LF": "cf923230b27d2e4834b95d93a137aebdd4950f409b4bd7347bdf367522cf8020",
+      "resultSha256LF": "882fd6a39f58406c36fc117c4aa8f9d17bbcf6a03a3ebf51ff5b192986fb9bac"
+    },
+    {
+      "path": "modes/zp50_gamemode_plague.sma",
+      "seedSha256LF": "41a2cf71b794b06b28c0f2293a7e5bf247efb75f9ac6ac8f553005ba3c3e4786",
+      "resultSha256LF": "ab3cdbe5c31ec2848278ed6b961e62d25754ff8f51e19e73b7a83e9e3bc4b75e"
+    },
+    {
+      "path": "modes/zp50_gamemode_survivor.sma",
+      "seedSha256LF": "0482a32f2eb7fcb2ab5bee0c19862a207a679362eacaa1b38b95a7461901d6f8",
+      "resultSha256LF": "1d97ff0b120dc86d38173929df98d45100f06ff1d1e14479b3d86167297a1b94"
+    },
+    {
+      "path": "modes/zp50_gamemode_swarm.sma",
+      "seedSha256LF": "6ad4d2f20c3ee084de5142fb91a85a763f959303ae9b4e2de09664303461a88e",
+      "resultSha256LF": "3d1ad730aaf3ca30a4ec47b1655b3b7cedaef30ff844f6240c0cb9cab0b1bee8"
+    },
+    {
+      "path": "modes/zp50_gamemodes.sma",
+      "seedSha256LF": "c0b3533957b230111d85f6e2f665a453bde94b61ac355c60289405a321481914",
+      "resultSha256LF": "c647c6d923eb1e163cb99f11c04086655a81de0f4a6f56f31a6b5ad6466300c2"
+    },
+    {
+      "path": "weapons/zp50_grenade_fire.sma",
+      "seedSha256LF": "42d5134cadd4400db4e5509c7900af7573ec11f96672acbe83afab6771a93aaf",
+      "resultSha256LF": "e795a1407d650fe828a635a77abb26d014aa3154b27a8e1d6ca302d692deead7"
+    },
+    {
+      "path": "weapons/zp50_grenade_flare.sma",
+      "seedSha256LF": "d99310463317e0d4622e7b2437ff3f93d8d64d006ed6e6910a5668ac121fe616",
+      "resultSha256LF": "7080afb72589c245e76634bf6eb6a0d1e145dee4fabc2dcd2127391f95d857c2"
+    },
+    {
+      "path": "weapons/zp50_grenade_frost.sma",
+      "seedSha256LF": "21eaa78d20f2993bbc098982d0e5ee293292219bcb88ddd987274074c4e17c1d",
+      "resultSha256LF": "c7d9af8b48efefab5e6618c57d6b72714f289f0e99209ad3a03ec0d1aae7fe02"
+    },
+    {
+      "path": "weapons/zp50_human_ammo.sma",
+      "seedSha256LF": "69a00b7fb828cc5b9e38527b7ff00a5219ed5da701235b5c54b3ee8ed1af4209",
+      "resultSha256LF": "1a62989971f84fb3f771630d4c7e6ef63b57b015c402be53cd98c436def82cf2"
+    },
+    {
+      "path": "weapons/zp50_human_armor.sma",
+      "seedSha256LF": "455b8654661a61ad014dd525e5b5a2e7f020bacd81895ae62129a2aaa489eec9",
+      "resultSha256LF": "e1f4c65cf4eaad5fa0bafecf7f94ca5bf1abb33e9a5227adc3336bfab54eba34"
+    },
+    {
+      "path": "weapons/zp50_weapon_drop_strip.sma",
+      "seedSha256LF": "38c58b42849b50dc1e4347e97e6801629f495adbfdbe14468c449a306cd127fb",
+      "resultSha256LF": "53a51c5a45ec5257f4900857d6460467b6a68b594edc5c633edc58deda7d6202"
     }
   ]
 }

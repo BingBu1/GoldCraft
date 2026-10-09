@@ -1,8 +1,8 @@
 # GoldCraft
 
-把真实的 Minecraft 1.21.1 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前僵尸测试使用 `sy_zombie2_Bloodmoon`，保留 `cs_assault` 回归场景。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
+把真实的 Minecraft 1.21.1 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前测试地图为 `cs_assault`（72 街仓库）。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
 
-项目正在开发。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形客户端和完整多人玩法仍待验收。目前优先排查原生 CS 的人物可见性、原始鼠标输入和阴影回归，详见[原生回归记录](docs/NATIVE_REGRESSIONS.md)。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
+项目正在开发。全部未完成事项集中在 [TODO](TODO.md)。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形客户端和完整多人玩法仍待验收。目前优先排查原生 CS 的人物可见性、原始鼠标输入和阴影回归，详见[原生回归记录](docs/NATIVE_REGRESSIONS.md)。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
 
 ## 构建与使用
 

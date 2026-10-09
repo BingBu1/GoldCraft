@@ -1,7 +1,47 @@
 diff --git a/nademodes.sma b/nademodes.sma
 --- a/nademodes.sma
 +++ b/nademodes.sma
-@@ -35,8 +35,9 @@
+@@ -11,32 +11,33 @@
+ 	* http://forums.alliedmods.net/showthread.php?t=175632
+ 
+ 	Terms:
+-    * Copyright (C) 2012  OT
+-
+-    * This program is free software: you can redistribute it and/or modify
+-    * it under the terms of the GNU General Public License as published by
+-    * the Free Software Foundation, either version 3 of the License, or
+-    * (at your option) any later version.
+-
+-    * This program is distributed in the hope that it will be useful,
+-    * but WITHOUT ANY WARRANTY; without even the implied warranty of
+-    * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-    * GNU General Public License for more details.
+-
+-    * You should have received a copy of the GNU General Public License
+-    * along with this program.  If not, see <http://www.gnu.org/licenses/>.
++	* Copyright (C) 2012  OT
++
++	* This program is free software: you can redistribute it and/or modify
++	* it under the terms of the GNU General Public License as published by
++	* the Free Software Foundation, either version 3 of the License, or
++	* (at your option) any later version.
++
++	* This program is distributed in the hope that it will be useful,
++	* but WITHOUT ANY WARRANTY; without even the implied warranty of
++	* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++	* GNU General Public License for more details.
++
++	* You should have received a copy of the GNU General Public License
++	* along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+ */
+ 
+ #include <amxmodx>
++#include <goldcraft_menus>
++#include <goldcraft_amxx>
+ #include <amxmisc>
+-#include <cstrike>
+-#include <engine>
  #include <fakemeta>
  #include <hamsandwich>
  #include <xs>
@@ -9,11 +49,19 @@ diff --git a/nademodes.sma b/nademodes.sma
 -#define VERSION "11.2"
 +#include <reapi>
 +
-+#define VERSION "11.2-gc.1"
++#define VERSION "11.2-gc.2"
  
  /* -------------------------------
  [Plugin Link]
-@@ -222,10 +223,7 @@
+@@ -200,7 +201,6 @@
+ new const SOUND_HIT[5][] = { "debris/bustmetal1.wav", "debris/bustmetal2.wav", "debris/metal1.wav", "debris/metal2.wav", "debris/metal3.wav" }
+ 
+ // Defines that can be modified
+-#define MAX_PLAYERS								32
+ 
+ #define ADMIN_ACCESS							ADMIN_RCON
+ 
+@@ -222,10 +222,7 @@
  #define RING_SIZE_CONSTANT_PROXIMITY 			2.1
  #define RING_SIZE_CONSTANT_MOTION	 			9.27
  
@@ -25,7 +73,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  #define SMART_DISTANCE_LINE_PVS					800.0
  #define SMART_RADIUS_RING_SHOW					1500.0
-@@ -262,15 +260,15 @@
+@@ -262,31 +259,31 @@
  
  #define get_option(%1) 							ccvars[%1]
  #define toggle_option(%1)						set_pcvar_num(pcvars[%1], !get_pcvar_num(pcvars[%1]))
@@ -33,29 +81,54 @@ diff --git a/nademodes.sma b/nademodes.sma
 +#define get_option_float(%1) nm_option_float(Option:%1)
  #define set_option_float(%1,%2)					set_pcvar_float(pcvars[%1], %2)
  
- #define is_player_alive(%1)						((cl_is_alive & (1<<%1)) && (0 < %1 <= g_maxplayers))
- 
+-#define is_player_alive(%1)						((cl_is_alive & (1<<%1)) && (0 < %1 <= g_maxplayers))
+-
 -#define is_grenade_c4(%1)						(get_pdata_int(%1, 96) & (1<<8))			// 96 is the C4 offset
 -
 -#define make_explode(%1) 						entity_set_float(%1, EV_FL_dmgtime, 0.0)
 -#define grenade_can_be_used(%1)					(get_option(OPTION_NADES_IN_EFFECT) & NADE_BIT[%1]) ? 1 : 0
+-#define allow_grenade_explode(%1)				(get_gametime() < entity_get_float(%1, EV_FL_fuser2)) ? 0 : 1
+-#define get_grenade_type(%1)					NadeType:entity_get_int(%1, EV_INT_iuser1)
+-#define set_grenade_allow_explode(%1,%2)		entity_set_float(%1, EV_FL_fuser2, get_gametime() + %2)
+-#define delay_explosion(%1)						entity_set_float(%1, EV_FL_dmgtime, get_gametime() + get_option_float(OPTION_EXPLOSION_DELAY_TIME))
+-#define get_trip_grenade_end_origin(%1,%2)		entity_get_vector(%1, EV_VEC_vuser1, %2)
+-#define set_trip_grenade_end_origin(%1,%2)		entity_set_vector(%1, EV_VEC_vuser1, %2)
+-#define set_trip_grenade_fly_velocity(%1,%2)	entity_set_vector(%1, EV_VEC_vuser2, %2)
+-#define get_trip_grenade_fly_velocity(%1,%2)	entity_get_vector(%1, EV_VEC_vuser2, %2)
+-#define get_trip_grenade_middle_origin(%1,%2)	entity_get_vector(%1, EV_VEC_vuser3, %2)
+-#define set_trip_grenade_middle_origin(%1,%2)	entity_set_vector(%1, EV_VEC_vuser3, %2)
+-#define get_trip_grenade_arm_time(%1)			entity_get_float(%1, EV_FL_fuser1)
+-#define set_trip_grenade_arm_time(%1,%2)		entity_set_float(%1, EV_FL_fuser1, get_gametime() + %2)
+-#define set_trip_grenade_attached_to(%1,%2) 	entity_set_int(%1, EV_INT_iuser4, %2)
+-#define get_trip_grenade_attached_to(%1) 		entity_get_int(%1, EV_INT_iuser4)
+-#define get_trip_grenade_mode(%1) 				TripNadeMode:entity_get_int(%1, EV_INT_iuser3)
+-#define set_trip_grenade_mode(%1,%2) 			entity_set_int(%1, EV_INT_iuser3, _:%2)
++#define is_player_alive(%1)						((cl_is_alive & (1<<%1)) && (0 < %1 <= MaxClients))
++
 +#define is_grenade_c4(%1) (get_member(%1, m_Grenade_bIsC4))
 +
 +#define make_explode(%1) nm_detonate(%1)
 +#define grenade_can_be_used(%1) ((get_option(OPTION_NADES_IN_EFFECT) & NADE_BIT[%1]) != 0)
- #define allow_grenade_explode(%1)				(get_gametime() < entity_get_float(%1, EV_FL_fuser2)) ? 0 : 1
- #define get_grenade_type(%1)					NadeType:entity_get_int(%1, EV_INT_iuser1)
- #define set_grenade_allow_explode(%1,%2)		entity_set_float(%1, EV_FL_fuser2, get_gametime() + %2)
-@@ -283,7 +281,7 @@
- #define set_trip_grenade_middle_origin(%1,%2)	entity_set_vector(%1, EV_VEC_vuser3, %2)
- #define get_trip_grenade_arm_time(%1)			entity_get_float(%1, EV_FL_fuser1)
- #define set_trip_grenade_arm_time(%1,%2)		entity_set_float(%1, EV_FL_fuser1, get_gametime() + %2)
--#define set_trip_grenade_attached_to(%1,%2) 	entity_set_int(%1, EV_INT_iuser4, %2)
++#define allow_grenade_explode(%1)				(get_gametime() < Float:get_entvar(%1, var_fuser2)) ? 0 : 1
++#define get_grenade_type(%1)					NadeType:get_entvar(%1, var_iuser1)
++#define set_grenade_allow_explode(%1,%2)		set_entvar(%1, var_fuser2, get_gametime() + %2)
++#define delay_explosion(%1)						set_entvar(%1, var_dmgtime, get_gametime() + get_option_float(OPTION_EXPLOSION_DELAY_TIME))
++#define get_trip_grenade_end_origin(%1,%2)		get_entvar(%1, var_vuser1, %2)
++#define set_trip_grenade_end_origin(%1,%2)		set_entvar(%1, var_vuser1, %2)
++#define set_trip_grenade_fly_velocity(%1,%2)	set_entvar(%1, var_vuser2, %2)
++#define get_trip_grenade_fly_velocity(%1,%2)	get_entvar(%1, var_vuser2, %2)
++#define get_trip_grenade_middle_origin(%1,%2)	get_entvar(%1, var_vuser3, %2)
++#define set_trip_grenade_middle_origin(%1,%2)	set_entvar(%1, var_vuser3, %2)
++#define get_trip_grenade_arm_time(%1)			Float:get_entvar(%1, var_fuser1)
++#define set_trip_grenade_arm_time(%1,%2)		set_entvar(%1, var_fuser1, get_gametime() + %2)
 +#define set_trip_grenade_attached_to(%1,%2) nm_attach(%1,%2)
- #define get_trip_grenade_attached_to(%1) 		entity_get_int(%1, EV_INT_iuser4)
- #define get_trip_grenade_mode(%1) 				TripNadeMode:entity_get_int(%1, EV_INT_iuser3)
- #define set_trip_grenade_mode(%1,%2) 			entity_set_int(%1, EV_INT_iuser3, _:%2)
-@@ -297,13 +295,6 @@
++#define get_trip_grenade_attached_to(%1) 		get_entvar(%1, var_iuser4)
++#define get_trip_grenade_mode(%1) 				TripNadeMode:get_entvar(%1, var_iuser3)
++#define set_trip_grenade_mode(%1,%2) 			set_entvar(%1, var_iuser3, _:%2)
+ #define play_sound(%1,%2) 						(get_option(OPTION_PLAY_SOUNDS)) ? emit_sound(%1, CHAN_WEAPON, %2, 1.0, ATTN_STATIC, 0, PITCH_NORM) : 0
+ #define play_sound2(%1,%2) 						(get_option(OPTION_PLAY_SOUNDS)) ? emit_sound(%1, CHAN_ITEM, %2, 1.0, ATTN_STATIC, 0, PITCH_NORM) : 0
+ #define refresh_can_use_nade(%1,%2)				get_enabled_modes(%1,%2) ? (cl_can_use_nade[%2] |= (1<<%1)) : (cl_can_use_nade[%2] &= ~(1<<%1))
+@@ -297,13 +294,6 @@
  	GRENADE_EXPLOSIVE = 0,
  	GRENADE_FLASHBANG,
  	GRENADE_SMOKEGREN,
@@ -69,7 +142,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  }
  
  new const NADE_WPID[NadeRace] =
-@@ -486,7 +477,7 @@
+@@ -486,7 +476,7 @@
  }
  
  // Mod texts that appear when right clicking for mode change
@@ -78,7 +151,30 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  // CFG data [name and file path]
  new const CFG_FILE_NAME[] = "nade_modes.cfg"
-@@ -540,7 +531,7 @@
+@@ -496,13 +486,12 @@
+ new NadeType:mode[MAX_PLAYERS + 1][NadeRace]
+ 
+ // Global server variables
+-new g_maxplayers
+ 
+ // Cached client data [bot,alive,weapon,team]
+ new cl_is_bot = 0
+ new cl_is_alive = 0
+ new cl_weapon[MAX_PLAYERS + 1]
+-new CsTeams:cl_team[MAX_PLAYERS + 1]
++new TeamName:cl_team[MAX_PLAYERS + 1]
+ 
+ // Limit system counter/blocker
+ new cl_counter[MAX_PLAYERS + 1][NadeRace][NadeType]
+@@ -528,7 +517,6 @@
+ new Fward:bs_forward_collection = FWD_NONE_ACTIVE
+ 
+ // Menu variables
+-new settingsmenu[MAX_PLAYERS + 1]   // Settings menu handler
+ new cvar_menu_pos[MAX_PLAYERS + 1]  // Cvar menu handler
+ new callbacks[2]					// Settings menu callbacks
+ 
+@@ -540,7 +528,7 @@
  
  // Mod dependent variables [CZ/ZM]
  new ZmFunc:g_zombie_mod
@@ -87,7 +183,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  // Forwards
  new g_FW_property, g_PFW_property
-@@ -555,8 +546,11 @@
+@@ -555,8 +543,11 @@
  /* -------------------------------
  [Plugin Start]
  ------------------------------- */
@@ -99,7 +195,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  	// Registered before all the nade plugins
  	RegisterHam(Ham_Think, "grenade", "fw_think")
  	RegisterHam(Ham_Think, "grenade", "fw_track_explosion")
-@@ -564,6 +558,8 @@
+@@ -564,6 +555,8 @@
  
  	// Trace attack register trie
  	trace_attack_reg_class = TrieCreate()
@@ -108,7 +204,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	// We register this here to track shots, it is also important
  	register_forward(FM_Spawn, "fw_spawn", 1)
-@@ -589,7 +585,8 @@
+@@ -589,7 +582,8 @@
  {
  	// Plugin registration (normal and net)
  	register_plugin("NadeModes", VERSION, "Nomexous & OT")
@@ -118,7 +214,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	// Commands
  	register_clcmd("amx_nade_mode_menu", "conjure_menu", ADMIN_ACCESS, "Shows settings menu for grenade modes.")
-@@ -600,6 +597,7 @@
+@@ -600,6 +594,7 @@
  
  	// General Settings Options
  	pcvars[OPTION_FRIENDLY_FIRE] = get_cvar_pointer("mp_friendlyfire")
@@ -126,11 +222,15 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	register_option(OPTION_ENABLE_NADE_MODES, "nademodes_enable", "1")
  	register_option(OPTION_NADES_IN_EFFECT, "nademodes_nades_in_effect", "7", TOPTION_CELL)
-@@ -768,9 +766,12 @@
+@@ -766,11 +761,14 @@
  
- 	register_event("CurWeapon", "event_armnade", "b", "1=1", "2=4", "2=9", "2=25")
- 	register_event("CurWeapon", "event_curweapon", "b", "1=1")
+ 	cacheCvars()
+ 
+-	register_event("CurWeapon", "event_armnade", "b", "1=1", "2=4", "2=9", "2=25")
+-	register_event("CurWeapon", "event_curweapon", "b", "1=1")
 -	register_event("HLTV", "event_new_round", "a", "1=0", "2=0")
++	register_event_ex("CurWeapon", "event_armnade", RegisterEvent_Single, "1=1", "2=4", "2=9", "2=25")
++	register_event_ex("CurWeapon", "event_curweapon", RegisterEvent_Single, "1=1")
 +	// Clean old traps before the game DLL resets the round and respawns players.
 +	RegisterHookChain(RG_CSGameRules_RestartRound, "event_new_round")
  
@@ -140,7 +240,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	g_firstenabledmode[GRENADE_EXPLOSIVE] = NADE_NORMAL
  	g_firstenabledmode[GRENADE_FLASHBANG] = NADE_NORMAL
-@@ -785,32 +786,35 @@
+@@ -785,32 +783,35 @@
  	callbacks[1] = menu_makecallback("callback_enabled")
  
  	// Register all the forwards
@@ -187,7 +287,13 @@ diff --git a/nademodes.sma b/nademodes.sma
  }
  
  public plugin_cfg()
-@@ -823,15 +827,19 @@
+@@ -818,20 +819,27 @@
+ 	// Get the config dir
+ 	new config[sizeof(CFG_FILE)]
+ 	get_configsdir(config, charsmax(CFG_FILE))
+-	format(CFG_FILE, charsmax(CFG_FILE), "%s/%s", config, CFG_FILE_NAME)
++	formatex(CFG_FILE, charsmax(CFG_FILE), "%s/%s", config, CFG_FILE_NAME)
+ 
  	// Execute the CFG file
  	if(file_exists(CFG_FILE))
  	{
@@ -199,7 +305,10 @@ diff --git a/nademodes.sma b/nademodes.sma
  
 -	AddMenuItem("Nade Mode Menu", "amx_nmm", ADMIN_ACCESS, "NadeModes")
 +	update_forward_registration()
-+	AddMenuItem("手雷模式设置", "amx_nmm", ADMIN_ACCESS, "NadeModes")
++	// The AMXX front-end is optional on a minimal ReAPI server. The standalone
++	// amx_nmm menu is always available; register its shortcut only if it exists.
++	if (is_plugin_loaded("Menus Front-End") >= 0)
++		AddMenuItem("手雷模式设置", "amx_nmm", ADMIN_ACCESS, "NadeModes")
  }
  
  public plugin_end()
@@ -474,7 +583,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  }
  
  /* -------------------------------
-@@ -1012,15 +1022,10 @@
+@@ -1012,51 +1022,47 @@
  ------------------------------- */
  public conjure_help(id)
  {
@@ -486,32 +595,27 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	write_file("nmm.htm", help_file)
 -	show_motd(id, "nmm.htm", "Mega-Nade Mod")
 -
--	return PLUGIN_CONTINUE
-+    new help[3000];
-+    formatex(help, charsmax(help), "%L", id, "NM_HELP");
-+    show_motd(id, help, "Nade Modes");
-+    return PLUGIN_HANDLED;
- }
- 
- public conjure_menu(id, level, cid)
-@@ -1036,19 +1041,20 @@
- stock main_menu(id)
- {
- 	static menu
--	settingsmenu[id] = menu_create("NadeModes - Main Menu", "menu_handler")
-+	settingsmenu[id] = menu_create("手雷模式 - 主菜单", "menu_handler")
- 	menu = settingsmenu[id]
- 
--	add_option_toggle(menu, OPTION_ENABLE_NADE_MODES, "Enable nade modes", "Yes", "No")
--
--	menu_additem(menu, "Execute config file")
--	menu_additem(menu, "General settings", _, _, get_option(OPTION_ENABLE_NADE_MODES) ? callbacks[1] : callbacks[0])
--	menu_additem(menu, "Mode control menu", _, _, get_option(OPTION_ENABLE_NADE_MODES) ? callbacks[1] : callbacks[0])
--	menu_additem(menu, "Mode limit & test menu", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
--	menu_additem(menu, "Hitpoints menu", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
--	menu_additem(menu, "Mode damage settings", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
--	menu_additem(menu, "Internal functional settings", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
--
++	new help[3000];
++	formatex(help, charsmax(help), "%L", id, "NM_HELP");
++	show_motd(id, help, "Nade Modes");
++	return PLUGIN_HANDLED;
++}
++
++public conjure_menu(id, level, cid)
++{
++	if (cmd_access(id, level, cid, 1))
++	{
++		main_menu(id)
++	}
++
++	return PLUGIN_HANDLED
++}
++
++stock main_menu(id)
++{
++	static menu
++	menu = gc_menu_create(id, "手雷模式 - 主菜单", "menu_handler")
++
 +	add_option_toggle(menu, OPTION_ENABLE_NADE_MODES, "启用手雷模式", "是", "否")
 +
 +	menu_additem(menu, "重新载入配置")
@@ -522,19 +626,52 @@ diff --git a/nademodes.sma b/nademodes.sma
 +	menu_additem(menu, "伤害设置", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
 +	menu_additem(menu, "触发参数", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
 +
-+	nm_menu_navigation(settingsmenu[id])
- 	menu_display(id, settingsmenu[id])
++	nm_menu_navigation(menu)
++	menu_display(id, menu)
  	return PLUGIN_CONTINUE
  }
-@@ -1057,6 +1063,7 @@
+ 
+-public conjure_menu(id, level, cid)
+-{
+-	if (cmd_access(id, level, cid, 1))
+-	{
+-		main_menu(id)
+-	}
+-
+-	return PLUGIN_HANDLED
+-}
+-
+-stock main_menu(id)
+-{
+-	static menu
+-	settingsmenu[id] = menu_create("NadeModes - Main Menu", "menu_handler")
+-	menu = settingsmenu[id]
+-
+-	add_option_toggle(menu, OPTION_ENABLE_NADE_MODES, "Enable nade modes", "Yes", "No")
+-
+-	menu_additem(menu, "Execute config file")
+-	menu_additem(menu, "General settings", _, _, get_option(OPTION_ENABLE_NADE_MODES) ? callbacks[1] : callbacks[0])
+-	menu_additem(menu, "Mode control menu", _, _, get_option(OPTION_ENABLE_NADE_MODES) ? callbacks[1] : callbacks[0])
+-	menu_additem(menu, "Mode limit & test menu", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
+-	menu_additem(menu, "Hitpoints menu", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
+-	menu_additem(menu, "Mode damage settings", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
+-	menu_additem(menu, "Internal functional settings", _, _, is_nademodes_enabled() ? callbacks[1] : callbacks[0])
+-
+-	menu_display(id, settingsmenu[id])
+-	return PLUGIN_CONTINUE
+-}
+-
+ public menu_handler(id, menu, item)
  {
- 	if (item < 0)
- 	{
-+		menu_destroy(menu)
+-	if (item < 0)
+-	{
++	if (item < 0 || !is_user_connected(id) || !(get_user_flags(id) & ADMIN_ACCESS))
++	{
++		gc_menu_release(menu)
  		return PLUGIN_HANDLED
  	}
  
-@@ -1071,12 +1078,13 @@
+@@ -1071,25 +1077,26 @@
  		{
  			if(file_exists(CFG_FILE))
  			{
@@ -550,14 +687,28 @@ diff --git a/nademodes.sma b/nademodes.sma
  			}
  		}
  
-@@ -1105,72 +1113,72 @@
+ 		default:
+ 		{
+-			menu_destroy(menu)
++			gc_menu_release(menu)
+ 			cvar_menu(id, 0, item - 1)
+ 			return PLUGIN_HANDLED
+ 		}
+ 	}
+ 
+ 
+-	menu_destroy(menu)
++	gc_menu_release(menu)
+ 	main_menu(id)
+ 	return PLUGIN_HANDLED
+ }
+@@ -1105,72 +1112,68 @@
  	{
  		case 1:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - General Settings", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 通用设置", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_nade_option(menu, OPTION_NADES_IN_EFFECT, "Grenades that can use the nademodes")
 -
 -			add_option_quatrotoggle(menu, OPTION_RESOURCE_USE, "Plugin effects", "\rOff", "\yNormal", "\ySmart Mode", "\yLow Bandwidth Mode")
@@ -576,6 +727,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			add_option_toggle(menu, OPTION_SUPPRESS_FITH, "Suppress ^"Fire in the hole!^"", "Yes^n", "No^n")
 -
 -			add_option_toggle(menu, OPTION_UNITS_SYSTEM, "Unit system:", "Metric", "Inch")
++			menu = gc_menu_create(id, "手雷模式 - 通用设置", "cvar_menu_handler")
++
 +			add_nade_option(menu, OPTION_NADES_IN_EFFECT, "允许的手雷类型")
 +
 +			add_option_quatrotoggle(menu, OPTION_RESOURCE_USE, "视觉特效", "\r关闭", "\y普通", "\y按可见范围发送", "\y节省带宽")
@@ -599,9 +752,8 @@ diff --git a/nademodes.sma b/nademodes.sma
  		case 2:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - Mode Control", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 模式开关", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_option_toggle(menu, OPTION_NORMAL_ENABLED, "Enable normal grenades", "Yes", "No")
 -			add_option_toggle(menu, OPTION_PROXIMITY_ENABLED, "Enable proximity grenades", "Yes", "No")
 -			add_option_toggle(menu, OPTION_IMPACT_ENABLED, "Enable impact grenades", "Yes", "No")
@@ -617,6 +769,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			add_option_toggle(menu, OPTION_PROXIMITY_LOS, "Proximity detonate only if player is in line of sight", "Yes", "No", OPTION_PROXIMITY_ENABLED)
 -			add_option_toggle(menu, OPTION_MOTION_LOS, "Motion detonate only if player is in line of sight", "Yes", "No", OPTION_MOTION_ENABLED)
 -			add_option_toggle(menu, OPTION_SATCHEL_DELAY, "Add delay between satchel explotions", "Yes", "No", OPTION_SATCHEL_ENABLED)
++			menu = gc_menu_create(id, "手雷模式 - 模式开关", "cvar_menu_handler")
++
 +			add_option_toggle(menu, OPTION_NORMAL_ENABLED, "普通定时", "是", "否")
 +			add_option_toggle(menu, OPTION_PROXIMITY_ENABLED, "接近感应", "是", "否")
 +			add_option_toggle(menu, OPTION_IMPACT_ENABLED, "碰撞引爆", "是", "否")
@@ -636,9 +790,8 @@ diff --git a/nademodes.sma b/nademodes.sma
  		case 3:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - Limit & Test Menu", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 限制与测试", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_option_tritoggle(menu, OPTION_LIMIT_SYSTEM, "Limit system", "\rOff^n", "\yAvailable for each nade^n", "\yAvailable for all nades summed up^n")
 -
 -			add_cell_option(menu, OPTION_LIMIT_PROXIMITY, "Proximity throw limit", "grenades", OPTION_LIMIT_SYSTEM)
@@ -649,6 +802,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			add_option_toggle(menu, OPTION_INFINITE_GRENADES, "Infinite grenades", "Yes", "No")
 -			add_option_toggle(menu, OPTION_INFINITE_FLASHES, "Infinite flashes", "Yes", "No")
 -			add_option_toggle(menu, OPTION_INFINITE_SMOKES, "Infinite smokes", "Yes", "No")
++			menu = gc_menu_create(id, "手雷模式 - 限制与测试", "cvar_menu_handler")
++
 +			add_option_tritoggle(menu, OPTION_LIMIT_SYSTEM, "数量限制", "\r关闭^n", "\y每种手雷单独计算^n", "\y三种手雷合计^n")
 +
 +			add_cell_option(menu, OPTION_LIMIT_PROXIMITY, "接近陷阱上限", "枚", OPTION_LIMIT_SYSTEM)
@@ -663,15 +818,16 @@ diff --git a/nademodes.sma b/nademodes.sma
  		case 4:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - Hitpoint Menu", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 耐久设置", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_option_tritoggle(menu, OPTION_MATERIAL_SYSTEM, "Interaction system", "\rOff", "\ySecondary Explosions", "\yHit Point System")
++			menu = gc_menu_create(id, "手雷模式 - 耐久设置", "cvar_menu_handler")
++
 +			add_option_tritoggle(menu, OPTION_MATERIAL_SYSTEM, "手雷互相作用", "\r关闭", "\y连锁触发", "\y可攻击的手雷耐久")
  
  
  
-@@ -1178,113 +1186,114 @@
+@@ -1178,351 +1181,241 @@
  			{
  				case 0:
  				{
@@ -736,13 +892,14 @@ diff --git a/nademodes.sma b/nademodes.sma
  		case 5:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - Damage Settings", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 伤害设置", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_option_tritoggle(menu, OPTION_DAMAGE_SYSTEM, "Damage system", "\rOff^n", "\yActive for every mode^n", "\yEach mode configurable^n")
 -
 -			add_float_option(menu, OPTION_DMG_SELF, "Nade self damage percent", "%", OPTION_DAMAGE_SYSTEM)
 -			add_float_option(menu, OPTION_DMG_THROUGH_WALL, "Nade through wall damage percent", "%", OPTION_DAMAGE_SYSTEM)
++			menu = gc_menu_create(id, "手雷模式 - 伤害设置", "cvar_menu_handler")
++
 +			add_option_tritoggle(menu, OPTION_DAMAGE_SYSTEM, "伤害倍率", "\r关闭^n", "\y全部模式共用^n", "\y每个模式独立配置^n")
 +
 +			add_float_option(menu, OPTION_DMG_SELF, "自身伤害比例", "%", OPTION_DAMAGE_SYSTEM)
@@ -792,9 +949,8 @@ diff --git a/nademodes.sma b/nademodes.sma
  		case 6:
  		{
 -			settingsmenu[id] = menu_create("NadeModes - Internal Functional Settings", "cvar_menu_handler")
-+			settingsmenu[id] = menu_create("手雷模式 - 触发参数", "cvar_menu_handler")
- 			menu = settingsmenu[id]
- 
+-			menu = settingsmenu[id]
+-
 -			add_float_option(menu, OPTION_EXPLOSION_DELAY_TIME, "Grenade general delay explode time", "seconds^n")
 -
 -			add_float_option(menu, OPTION_ARM_TIME_PROXIMITY, "Proximity arm time", "seconds", OPTION_PROXIMITY_ENABLED)
@@ -813,6 +969,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			add_float_unit_option(menu, OPTION_HOMING_SCAN_RANGE, "Homing grenade detection range", "", OPTION_HOMING_ENABLED)
 -			add_float_unit_option(menu, OPTION_HOMING_SUPER_RANGE, "Homing grenade superhoming range", "", OPTION_HOMING_ENABLED)
 -			add_float_unit_option(menu, OPTION_HOMING_SPEED_ADD, "Homing grenade air acceleration", "", OPTION_HOMING_ENABLED)
++			menu = gc_menu_create(id, "手雷模式 - 触发参数", "cvar_menu_handler")
++
 +			add_float_option(menu, OPTION_EXPLOSION_DELAY_TIME, "陷阱最长存在时间", "秒^n")
 +
 +			add_float_option(menu, OPTION_ARM_TIME_PROXIMITY, "接近布防时间", "秒", OPTION_PROXIMITY_ENABLED)
@@ -835,8 +993,10 @@ diff --git a/nademodes.sma b/nademodes.sma
  	}
  
  	cvar_menu_pos[id] = menu_set
-+	nm_menu_navigation(settingsmenu[id])
- 	menu_display(id, settingsmenu[id], page)
+-	menu_display(id, settingsmenu[id], page)
++	menu_additem(menu, "返回主菜单", "back")
++	nm_menu_navigation(menu)
++	menu_display(id, menu, page)
  	return PLUGIN_CONTINUE
  }
  
@@ -846,8 +1006,10 @@ diff --git a/nademodes.sma b/nademodes.sma
 +	static cmd[4], itemtext[256]
  	num_to_str(_:control_option, cmd, charsmax(cmd))
  
- 	format(itemtext, charsmax(itemtext), "%s: %s%s", basetext, (get_option(control_option) ? "\y" : "\r" ), (get_option(control_option) ? yestext : notext))
-@@ -1293,7 +1302,7 @@
+-	format(itemtext, charsmax(itemtext), "%s: %s%s", basetext, (get_option(control_option) ? "\y" : "\r" ), (get_option(control_option) ? yestext : notext))
++	formatex(itemtext, charsmax(itemtext), "%s: %s%s", basetext, (get_option(control_option) ? "\y" : "\r" ), (get_option(control_option) ? yestext : notext))
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_option_tritoggle(menu, Option:control_option, const basetext[], const text[], const text2[], const text3[], Option:displayif = Option:-1)
  {
@@ -855,8 +1017,10 @@ diff --git a/nademodes.sma b/nademodes.sma
 +	static cmd[4], itemtext[256]
  	num_to_str(_:control_option, cmd, charsmax(cmd))
  
- 	format(itemtext, charsmax(itemtext), "%s:\y %s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ))
-@@ -1302,7 +1311,7 @@
+-	format(itemtext, charsmax(itemtext), "%s:\y %s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ))
++	formatex(itemtext, charsmax(itemtext), "%s:\y %s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ))
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_option_quatrotoggle(menu, Option:control_option, const basetext[], const text[], const text2[], const text3[], const text4[], Option:displayif = Option:-1)
  {
@@ -864,8 +1028,10 @@ diff --git a/nademodes.sma b/nademodes.sma
 +	static cmd[4], itemtext[256]
  	num_to_str(_:control_option, cmd, charsmax(cmd))
  
- 	format(itemtext, charsmax(itemtext), "%s:\y %s%s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ), (get_option(control_option) == 3 ? text4 : "" ))
-@@ -1311,16 +1320,16 @@
+-	format(itemtext, charsmax(itemtext), "%s:\y %s%s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ), (get_option(control_option) == 3 ? text4 : "" ))
++	formatex(itemtext, charsmax(itemtext), "%s:\y %s%s%s%s", basetext, (get_option(control_option) == 0 ? text : "" ), (get_option(control_option) == 1 ? text2 : "" ), (get_option(control_option) == 2 ? text3 : "" ), (get_option(control_option) == 3 ? text4 : "" ))
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_nade_option(menu, Option:control_option, const basetext[])
  {
@@ -883,16 +1049,23 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	static cmd[4], itemtext[100], value[20]
 +	static cmd[4], itemtext[256], value[20]
  	float_to_str(get_option_float(control_option), value, charsmax(value))
- 	format(value, charsmax(value), "%0.2f", get_option_float(control_option))
+-	format(value, charsmax(value), "%0.2f", get_option_float(control_option))
++	formatex(value, charsmax(value), "%0.2f", get_option_float(control_option))
  
-@@ -1332,12 +1341,12 @@
+ 	num_to_str(_:control_option, cmd, charsmax(cmd))
+ 
+-	format(itemtext, charsmax(itemtext), "%s: \y%s \r%s", basetext, value, unit)
++	formatex(itemtext, charsmax(itemtext), "%s: \y%s \r%s", basetext, value, unit)
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_cell_option(menu, Option:control_option, const basetext[], const unit[], Option:displayif = Option:-1)
  {
 -	static cmd[4], itemtext[100], value[20]
 +	static cmd[4], itemtext[256], value[20]
  	num_to_str(get_option(control_option), value, charsmax(value))
- 	format(value, charsmax(value), "%d", get_option(control_option))
+-	format(value, charsmax(value), "%d", get_option(control_option))
++	formatex(value, charsmax(value), "%d", get_option(control_option))
  	if (!get_option(control_option))
  	{
 -		value = "Off"
@@ -900,14 +1073,19 @@ diff --git a/nademodes.sma b/nademodes.sma
  	}
  
  	num_to_str(_:control_option, cmd, charsmax(cmd))
-@@ -1348,12 +1357,12 @@
+ 
+-	format(itemtext, charsmax(itemtext), "%s: \y%s \r%s", basetext, value, get_option(control_option) ? unit : "")
++	formatex(itemtext, charsmax(itemtext), "%s: \y%s \r%s", basetext, value, get_option(control_option) ? unit : "")
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_cell_with_space_option(menu, Option:control_option, const basetext[], const unit[], Option:displayif = Option:-1)
  {
 -	static cmd[4], itemtext[100], value[20]
 +	static cmd[4], itemtext[256], value[20]
  	num_to_str(get_option(control_option), value, charsmax(value))
- 	format(value, charsmax(value), "%d", get_option(control_option))
+-	format(value, charsmax(value), "%d", get_option(control_option))
++	formatex(value, charsmax(value), "%d", get_option(control_option))
  	if (!get_option(control_option))
  	{
 -		value = "Off"
@@ -915,18 +1093,23 @@ diff --git a/nademodes.sma b/nademodes.sma
  	}
  
  	num_to_str(_:control_option, cmd, charsmax(cmd))
-@@ -1364,165 +1373,51 @@
+ 
+-	format(itemtext, charsmax(itemtext), "%s: \y%s \r%s^n", basetext, value, get_option(control_option) ? unit : "")
++	formatex(itemtext, charsmax(itemtext), "%s: \y%s \r%s^n", basetext, value, get_option(control_option) ? unit : "")
+ 	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
+ }
  
  stock add_float_unit_option(menu, Option:control_option, const basetext[], const extratext[], Option:displayif = Option:-1)
  {
 -	static cmd[4], itemtext[100], value[20]
+-	format(value, charsmax(value), "%0.2f", get_option(OPTION_UNITS_SYSTEM) ? CONVERT_TO_METERS(get_option_float(control_option)) : get_option_float(control_option))
 +	static cmd[4], itemtext[256], value[20]
- 	format(value, charsmax(value), "%0.2f", get_option(OPTION_UNITS_SYSTEM) ? CONVERT_TO_METERS(get_option_float(control_option)) : get_option_float(control_option))
++	formatex(value, charsmax(value), "%0.2f", get_option(OPTION_UNITS_SYSTEM) ? CONVERT_TO_METERS(get_option_float(control_option)) : get_option_float(control_option))
  
  	num_to_str(_:control_option, cmd, charsmax(cmd))
  
 -	format(itemtext, charsmax(itemtext), "%s: \y%s \r%s%s", basetext, value, get_option(OPTION_UNITS_SYSTEM) ? "meters" : "inches", extratext)
-+	format(itemtext, charsmax(itemtext), "%s: \y%s \r%s%s", basetext, value, get_option(OPTION_UNITS_SYSTEM) ? "米" : "英寸", extratext)
++	formatex(itemtext, charsmax(itemtext), "%s: \y%s \r%s%s", basetext, value, get_option(OPTION_UNITS_SYSTEM) ? "米" : "英寸", extratext)
  	menu_additem(menu, itemtext, cmd, _, (displayif != Option:-1 && !get_option(displayif)) ? callbacks[0] : callbacks[1])
  }
  
@@ -1080,43 +1263,47 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	cvar_menu(id, item / 7, cvar_menu_pos[id])
 -	save_cfg()
 -	return PLUGIN_HANDLED
-+    if (item < 0) {
-+        menu_destroy(menu);
-+        save_cfg();
-+        main_menu(id);
-+        return PLUGIN_HANDLED;
-+    }
-+    new access, info[8], callback;
-+    menu_item_getinfo(menu, item, access, info, charsmax(info), _, _, callback);
-+    new Option:option = Option:str_to_num(info);
-+    if (option_type[option] == TOPTION_TOGGLE) {
-+        toggle_option(option);
-+    } else {
-+        new remaining[CVAR_STRING_ALLOC + 1], tail[CVAR_STRING_ALLOC + 1];
-+        new token[CVAR_MAX_STRING_LENGTH], values[CVAR_MAX_ASSIGNED_VALUES];
-+        new count, selected = -1;
-+        ArrayGetString(option_value[option], 0, remaining, charsmax(remaining));
-+        while (remaining[0] && count < sizeof values) {
-+            strtok2(remaining, token, charsmax(token), tail, charsmax(tail), ';', TRIM_FULL);
-+            values[count] = option_type[option] == TOPTION_FLOAT ? (_:str_to_float(token)) : str_to_num(token);
-+            if (values[count] == get_option(option)) selected = count;
-+            count++;
-+            copy(remaining, charsmax(remaining), tail);
-+        }
-+        if (count) {
-+            new value = values[(selected + 1) % count];
-+            if (option_type[option] == TOPTION_FLOAT) set_pcvar_float(pcvars[option], Float:value);
-+            else set_pcvar_num(pcvars[option], value);
-+        }
-+    }
-+    menu_destroy(menu);
-+    cvar_menu(id, item / 7, cvar_menu_pos[id]);
-+    save_cfg();
-+    return PLUGIN_HANDLED;
++	if (item < 0 || !is_user_connected(id) || !(get_user_flags(id) & ADMIN_ACCESS)) {
++		gc_menu_release(menu);
++		save_cfg();
++		return PLUGIN_HANDLED;
++	}
++	new access, info[8], callback;
++	menu_item_getinfo(menu, item, access, info, charsmax(info), _, _, callback);
++	if (equal(info, "back")) {
++		gc_menu_release(menu);
++		main_menu(id);
++		return PLUGIN_HANDLED;
++	}
++	new Option:option = Option:str_to_num(info);
++	if (option_type[option] == TOPTION_TOGGLE) {
++		toggle_option(option);
++	} else {
++		new remaining[CVAR_STRING_ALLOC + 1], tail[CVAR_STRING_ALLOC + 1];
++		new token[CVAR_MAX_STRING_LENGTH], values[CVAR_MAX_ASSIGNED_VALUES];
++		new count, selected = -1;
++		ArrayGetString(option_value[option], 0, remaining, charsmax(remaining));
++		while (remaining[0] && count < sizeof values) {
++			strtok2(remaining, token, charsmax(token), tail, charsmax(tail), ';', TRIM_FULL);
++			values[count] = option_type[option] == TOPTION_FLOAT ? (_:str_to_float(token)) : str_to_num(token);
++			if (values[count] == get_option(option)) selected = count;
++			count++;
++			copy(remaining, charsmax(remaining), tail);
++		}
++		if (count) {
++			new value = values[(selected + 1) % count];
++			if (option_type[option] == TOPTION_FLOAT) set_pcvar_float(pcvars[option], Float:value);
++			else set_pcvar_num(pcvars[option], value);
++		}
++	}
++	gc_menu_release(menu);
++	cvar_menu(id, item / 7, cvar_menu_pos[id]);
++	save_cfg();
++	return PLUGIN_HANDLED;
  }
  
  public callback_disabled(id, menu, item)
-@@ -1540,6 +1435,11 @@
+@@ -1540,6 +1433,11 @@
  ------------------------------- */
  public client_connect(id)
  {
@@ -1128,7 +1315,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  	mode[id][GRENADE_EXPLOSIVE] = FirstEnabledMode(GRENADE_EXPLOSIVE)
  	mode[id][GRENADE_FLASHBANG] = FirstEnabledMode(GRENADE_FLASHBANG)
  	mode[id][GRENADE_SMOKEGREN] = FirstEnabledMode(GRENADE_SMOKEGREN)
-@@ -1549,45 +1449,19 @@
+@@ -1549,45 +1447,20 @@
  
  public client_putinserver(id)
  {
@@ -1171,15 +1358,16 @@ diff --git a/nademodes.sma b/nademodes.sma
 -
 -public client_disconnect(id)
 -{
-+    if (is_user_bot(id)) cl_is_bot |= (1<<id);
-+    else cl_is_bot &= ~(1<<id);
-+    fw_spawn_post(id);
++	if (is_user_bot(id)) cl_is_bot |= (1<<id);
++	else cl_is_bot &= ~(1<<id);
++	fw_spawn_post(id);
 +}
 +
 +
 +
 +public client_disconnected(id)
 +{
++	gc_menu_close(id)
 +	nm_remove_owner(id, true)
 +	cl_is_alive &= ~(1<<id)
 +	gNmAttack2[id] = false
@@ -1187,12 +1375,84 @@ diff --git a/nademodes.sma b/nademodes.sma
  	// Remove the bot property (doesn't matter wether it was true or false)
  	cl_is_bot &= ~(1<<id)
  
-@@ -1749,18 +1623,18 @@
+@@ -1599,7 +1472,7 @@
+ 
+ 	cl_nextusetime[id] = 0.0
+ 
+-	cl_team[id] = CS_TEAM_UNASSIGNED
++	cl_team[id] = TEAM_UNASSIGNED
+ }
+ 
+ /* -------------------------------
+@@ -1609,7 +1482,6 @@
+ {
+ 	// Here we also update some global constants
+ 	cacheCvars()
+-	g_maxplayers = get_maxplayers()
+ 
+ 	if (g_check_hpsystem == -1)
+ 	{
+@@ -1620,14 +1492,14 @@
+ 		if (!is_nademodes_enabled() && get_option(OPTION_MATERIAL_SYSTEM) == 2)
+ 		{
+ 			new i=-1
+-			while ((i = find_ent_by_class(i, "grenade")))
++			while ((i = rg_find_ent_by_class(i, "grenade")))
+ 			{
+ 				if (!is_grenade(i))
+ 					continue
+ 
+-				if (entity_get_float(i, EV_FL_health))
+-				{
+-					entity_set_float(i, EV_FL_takedamage, DAMAGE_NO)
++				if (Float:get_entvar(i, var_health))
++				{
++					set_entvar(i, var_takedamage, DAMAGE_NO)
+ 				}
+ 			}
+ 		}
+@@ -1637,14 +1509,14 @@
+ 			if ((get_option(OPTION_MATERIAL_SYSTEM) == 0 || get_option(OPTION_MATERIAL_SYSTEM) == 1) && g_check_hpsystem == 2)
+ 			{
+ 				new i=-1
+-				while ((i = find_ent_by_class(i, "grenade")))
++				while ((i = rg_find_ent_by_class(i, "grenade")))
+ 				{
+ 					if (!is_grenade(i))
+ 						continue
+ 
+-					if (entity_get_float(i, EV_FL_health))
++					if (Float:get_entvar(i, var_health))
+ 					{
+-						entity_set_float(i, EV_FL_takedamage, DAMAGE_NO)
++						set_entvar(i, var_takedamage, DAMAGE_NO)
+ 					}
+ 				}
+ 			}
+@@ -1653,14 +1525,14 @@
+ 			{
+ 
+ 				new i=-1
+-				while ((i = find_ent_by_class(i, "grenade")))
++				while ((i = rg_find_ent_by_class(i, "grenade")))
+ 				{
+ 					if (!is_grenade(i))
+ 						continue
+ 
+-					if (entity_get_float(i, EV_FL_health))
++					if (Float:get_entvar(i, var_health))
+ 					{
+-						entity_set_float(i, EV_FL_takedamage, DAMAGE_YES)
++						set_entvar(i, var_takedamage, DAMAGE_YES)
+ 					}
+ 				}
+ 			}
+@@ -1749,18 +1621,18 @@
  
  	if (get_option(OPTION_INFINITE_GRENADES + Option:nade))
  	{
 -		cs_set_user_bpammo(id, NADE_WPID[NadeRace:nade], 2000)
-+		rg_set_user_bpammo(id, WeaponIdType:NADE_WPID[NadeRace:nade], 2000)
++		gc_set_bpammo(id, WeaponIdType:NADE_WPID[NadeRace:nade], 2000)
  	}
  
  	if (!(cl_can_use_nade[NadeRace:nade] & (1<<id)))
@@ -1209,7 +1469,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  	}
  
  	if (!is_mode_enabled(id, mode[id][NadeRace:nade], NadeRace:nade))
-@@ -1778,8 +1652,8 @@
+@@ -1778,8 +1650,8 @@
  
  public event_new_round()
  {
@@ -1220,12 +1480,16 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	for (new i=0;i<count;i++)
  	{
-@@ -1792,15 +1666,14 @@
+@@ -1790,17 +1662,16 @@
+ 	static ent
+ 
  	ent = -1
- 	while ((ent = find_ent_by_class(ent, "grenade")))
- 	{
+-	while ((ent = find_ent_by_class(ent, "grenade")))
+-	{
 -		if(is_grenade(ent) && get_grenade_type(ent) != NADE_NORMAL)
 -			entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME)
++	while ((ent = rg_find_ent_by_class(ent, "grenade")))
++	{
 +		if (is_grenade(ent)) nm_remove(ent)
  	}
  
@@ -1238,7 +1502,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  }
  
  /* -------------------------------
-@@ -1853,27 +1726,24 @@
+@@ -1853,30 +1724,27 @@
  public fw_playerprethink(id)
  {
  	if (!is_user_connected(id) || is_user_connecting(id) || is_user_hltv(id))
@@ -1256,7 +1520,7 @@ diff --git a/nademodes.sma b/nademodes.sma
 +
 +	new weapon = get_member(id, m_pActiveItem)
 +	cl_weapon[id] = weapon > 0 ? get_member(weapon, m_iId) : 0
-+	cl_team[id] = CsTeams:get_member(id, m_iTeam)
++	cl_team[id] = TeamName:get_member(id, m_iTeam)
 +
 +	return HC_CONTINUE
  }
@@ -1273,8 +1537,23 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	static bool:key[MAX_PLAYERS + 1] = {false, ...}
  
  	static buttons
- 	buttons = get_uc(uc_handle, UC_Buttons)
-@@ -1895,7 +1765,7 @@
+-	buttons = get_uc(uc_handle, UC_Buttons)
++	buttons = get_ucmd(uc_handle, ucmd_buttons)
+ 
+ 	if (!(buttons & IN_USE))
+ 	{
+@@ -1887,15 +1755,15 @@
+ 	{
+ 		switch (cl_weapon[id])
+ 		{
+-			case CSW_HEGRENADE: 	if (!(cl_can_use_nade[GRENADE_EXPLOSIVE] & (1<<id))) set_uc(uc_handle, UC_Buttons, buttons & ~IN_ATTACK)
+-			case CSW_FLASHBANG: 	if (!(cl_can_use_nade[GRENADE_FLASHBANG] & (1<<id))) set_uc(uc_handle, UC_Buttons, buttons & ~IN_ATTACK)
+-			case CSW_SMOKEGRENADE: 	if (!(cl_can_use_nade[GRENADE_SMOKEGREN] & (1<<id))) set_uc(uc_handle, UC_Buttons, buttons & ~IN_ATTACK)
++			case CSW_HEGRENADE: 	if (!(cl_can_use_nade[GRENADE_EXPLOSIVE] & (1<<id))) set_ucmd(uc_handle, ucmd_buttons, buttons & ~IN_ATTACK)
++			case CSW_FLASHBANG: 	if (!(cl_can_use_nade[GRENADE_FLASHBANG] & (1<<id))) set_ucmd(uc_handle, ucmd_buttons, buttons & ~IN_ATTACK)
++			case CSW_SMOKEGRENADE: 	if (!(cl_can_use_nade[GRENADE_SMOKEGREN] & (1<<id))) set_ucmd(uc_handle, ucmd_buttons, buttons & ~IN_ATTACK)
+ 		}
+ 	}
  
  	if (buttons & IN_ATTACK2)
  	{
@@ -1283,7 +1562,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  		{
  			switch (cl_weapon[id])
  			{
-@@ -1905,44 +1775,17 @@
+@@ -1905,44 +1773,17 @@
  			}
  		}
  
@@ -1331,7 +1610,16 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  grenade_process(id, grenade, NadeRace:nade)
  {
-@@ -2117,7 +1960,7 @@
+@@ -1964,7 +1805,7 @@
+ 
+ 				new Float:origin[3], Float:end[3], Float:fdest[3], Float:calc_vector[3], Float:height, Float: minimum, Float:distance = 9999999.999, Float:fraction
+ 
+-				entity_get_vector(id, EV_VEC_origin, origin)
++				get_entvar(id, var_origin, origin)
+ 
+ 				xs_vec_copy(origin, end)
+ 				end[2] += 16000.0
+@@ -2117,13 +1958,13 @@
  
  				xs_vec_sub(fdest, origin, calc_vector)
  
@@ -1340,7 +1628,16 @@ diff --git a/nademodes.sma b/nademodes.sma
  				{
  					xs_vec_normalize(calc_vector, calc_vector)
  					xs_vec_mul_scalar(calc_vector, 20.0, calc_vector)
-@@ -2142,7 +1985,7 @@
+-					entity_set_vector(grenade, EV_VEC_velocity, calc_vector)
+-					entity_set_int(grenade, EV_INT_movetype, MOVETYPE_FLY)
+-					entity_set_origin(grenade, fdest)
++					set_entvar(grenade, var_velocity, calc_vector)
++					set_entvar(grenade, var_movetype, MOVETYPE_FLY)
++					gc_relink_origin(grenade, fdest)
+ 					set_grenade_type(grenade, mode[id][nade])
+ 
+ 				}
+@@ -2142,7 +1983,7 @@
  		}
  		else
  		{
@@ -1349,24 +1646,42 @@ diff --git a/nademodes.sma b/nademodes.sma
  			set_grenade_type(grenade, mode[id][nade])
  		}
  
-@@ -2186,6 +2029,7 @@
+@@ -2173,7 +2014,7 @@
+ 		return FMRES_IGNORED
+ 
+ 	static classname[32]
+-	pev(ent, pev_classname, classname, charsmax(classname))
++	get_entvar(ent, var_classname, classname, charsmax(classname))
+ 
+ 	if(!TrieKeyExists(trace_attack_reg_class, classname))
+ 	{
+@@ -2186,19 +2027,20 @@
  
  public fw_track_explosion(grenade)
  {
+-	if (entity_get_float(grenade, EV_FL_dmgtime) >= get_gametime())
 +	if (!is_grenade(grenade)) return HAM_IGNORED
- 	if (entity_get_float(grenade, EV_FL_dmgtime) >= get_gametime())
++	if (Float:get_entvar(grenade, var_dmgtime) >= get_gametime())
  		return HAM_IGNORED
  
-@@ -2196,7 +2040,7 @@
- 	owner = entity_get_edict(grenade, EV_ENT_owner)
+ 	if (is_grenade_c4(grenade))
+ 		return HAM_IGNORED
+ 
+ 	new NadeType:type, owner
+-	owner = entity_get_edict(grenade, EV_ENT_owner)
++	owner = max(0, get_entvar(grenade, var_owner))
  	type = get_grenade_type(grenade)
  
 -	if (!is_user_connected(owner) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
-+	if (!nm_owner_valid(grenade) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
- 	{
- 		entity_set_int(grenade, EV_INT_flags, entity_get_int(grenade, EV_INT_flags) | FL_KILLME)
+-	{
+-		entity_set_int(grenade, EV_INT_flags, entity_get_int(grenade, EV_INT_flags) | FL_KILLME)
++	if (!nm_owner_valid(grenade) || is_user_connecting(owner) || cl_team[owner] == TEAM_UNASSIGNED)
++	{
++		set_entvar(grenade, var_flags, get_entvar(grenade, var_flags) | FL_KILLME)
  		return HAM_IGNORED
-@@ -2210,31 +2054,15 @@
+ 	}
+ 
+@@ -2210,33 +2052,17 @@
  	{
  		type &= ~NadeType:NADE_DONT_COUNT
  
@@ -1395,6 +1710,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			refresh_can_use_nade(owner, GRENADE_FLASHBANG)
 -			refresh_can_use_nade(owner, GRENADE_SMOKEGREN)
 -		}
+-
+-		entity_set_int(grenade, EV_INT_iuser1, entity_get_int(grenade, EV_INT_iuser1) | NADE_DONT_COUNT)
 +		clear_line(grenade)
 +		if (NADE_NORMAL <= type <= NADE_HOMING)
 +		{
@@ -1404,10 +1721,75 @@ diff --git a/nademodes.sma b/nademodes.sma
 +		}
 +
 +		nm_release_counter(grenade)
- 
- 		entity_set_int(grenade, EV_INT_iuser1, entity_get_int(grenade, EV_INT_iuser1) | NADE_DONT_COUNT)
++
++		set_entvar(grenade, var_iuser1, get_entvar(grenade, var_iuser1) | NADE_DONT_COUNT)
  	}
-@@ -2310,7 +2138,7 @@
+ 
+ 	if (!(bs_forward_collection & FWD_SEC_EXPLODE))
+@@ -2244,22 +2070,22 @@
+ 
+ 	new Float:origin[3]
+ 	new Float:range
+-	entity_get_vector(grenade, EV_VEC_origin, origin)
++	get_entvar(grenade, var_origin, origin)
+ 	range = get_option_float(OPTION_RADIUS_SEC_EXPLOSION)
+ 
+ 	new i
+-	i = g_maxplayers
++	i = MaxClients
+ 
+ 	if (!get_option(OPTION_SEC_EXPLO_AFFECT) && get_grenade_race(grenade) == _:GRENADE_EXPLOSIVE)
+ 	{
+-		while ((i = find_ent_in_sphere(i, origin, range)))
++		while ((i = gc_find_in_sphere(i, origin, range)))
+ 		{
+ 			if (i == grenade)
+ 				continue
+ 
+ 			if (is_grenade(i, true))
+ 			{
+-				if (entity_get_float(i, EV_FL_animtime) == 0.0 && get_grenade_race(i) == _:GRENADE_SMOKEGREN)
++				if (Float:get_entvar(i, var_animtime) == 0.0 && get_grenade_race(i) == _:GRENADE_SMOKEGREN)
+ 				{
+ 					continue
+ 				}
+@@ -2268,7 +2094,7 @@
+ 
+ 				if (get_grenade_race(i) == _:GRENADE_SMOKEGREN)
+ 				{
+-					entity_set_int(i, EV_INT_flags, entity_get_int(i, EV_INT_flags) | FL_ONGROUND)
++					set_entvar(i, var_flags, get_entvar(i, var_flags) | FL_ONGROUND)
+ 					dllfunc(DLLFunc_Think, i)
+ 				}
+ 			}
+@@ -2279,7 +2105,7 @@
+ 		static race
+ 		race = get_grenade_race(grenade)
+ 
+-		while ((i = find_ent_in_sphere(i, origin, range)))
++		while ((i = gc_find_in_sphere(i, origin, range)))
+ 		{
+ 			if (i == grenade)
+ 				continue
+@@ -2288,7 +2114,7 @@
+ 			{
+ 				if (get_grenade_race(i) == race)
+ 				{
+-					if (entity_get_float(i, EV_FL_animtime) == 0.0 && race == _:GRENADE_SMOKEGREN)
++					if (Float:get_entvar(i, var_animtime) == 0.0 && race == _:GRENADE_SMOKEGREN)
+ 					{
+ 						continue
+ 					}
+@@ -2297,7 +2123,7 @@
+ 
+ 					if (race == _:GRENADE_SMOKEGREN)
+ 					{
+-						entity_set_int(i, EV_INT_flags, entity_get_int(i, EV_INT_flags) | FL_ONGROUND)
++						set_entvar(i, var_flags, get_entvar(i, var_flags) | FL_ONGROUND)
+ 						dllfunc(DLLFunc_Think, i)
+ 					}
+ 				}
+@@ -2310,7 +2136,7 @@
  
  public fw_think(ent)
  {
@@ -1416,16 +1798,79 @@ diff --git a/nademodes.sma b/nademodes.sma
  		return HAM_IGNORED
  
  	if (is_grenade_c4(ent))
-@@ -2329,7 +2157,7 @@
+@@ -2325,13 +2151,13 @@
+ 	affect_owner = get_option(OPTION_AFFECT_OWNER)
+ 	team_play = get_option(OPTION_TEAM_PLAY)
  
- 	owner = entity_get_edict(ent, EV_ENT_owner)
- 
+-	entity_get_vector(ent, EV_VEC_origin, origin)
+-
+-	owner = entity_get_edict(ent, EV_ENT_owner)
+-
 -	if (!is_user_connected(owner) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
-+	if (!nm_owner_valid(ent) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
- 	{
- 		entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME)
+-	{
+-		entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME)
++	get_entvar(ent, var_origin, origin)
++
++	owner = max(0, get_entvar(ent, var_owner))
++
++	if (!nm_owner_valid(ent) || is_user_connecting(owner) || cl_team[owner] == TEAM_UNASSIGNED)
++	{
++		set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_KILLME)
  		return HAM_IGNORED
-@@ -2509,7 +2337,7 @@
+ 	}
+ 
+@@ -2352,22 +2178,22 @@
+ 			if (!allow_grenade_explode(ent))
+ 				return HAM_IGNORED
+ 
+-			if (entity_get_float(ent, EV_FL_fuser4) <= get_gametime())
++			if (Float:get_entvar(ent, var_fuser4) <= get_gametime())
+ 				play_sound(ent, BUTTON);
+ 
+ 			i = -1
+ 			radius = get_option_float(OPTION_RADIUS_PROXIMITY)
+ 			los = get_option(OPTION_PROXIMITY_LOS)
+ 
+-			while ((i = find_ent_in_sphere(i, origin, radius)))
+-			{
+-				if (i > g_maxplayers)
++			while ((i = gc_find_in_sphere(i, origin, radius)))
++			{
++				if (i > MaxClients)
+ 				{
+ 					if (get_option(OPTION_MONSTERMOD_SUPPORT))
+ 					{
+ 						if (is_ent_monster(i))
+ 						{
+-							entity_get_vector(i, EV_VEC_origin, porigin)
++							get_entvar(i, var_origin, porigin)
+ 
+ 							engfunc(EngFunc_TraceLine, origin, porigin, IGNORE_MONSTERS, 0, g_ptrace[TH_LOS])
+ 							get_tr2(g_ptrace[TH_LOS], TR_flFraction, fraction)
+@@ -2390,7 +2216,7 @@
+ 
+ 				if (los)
+ 				{
+-					entity_get_vector(i, EV_VEC_origin, porigin)
++					get_entvar(i, var_origin, porigin)
+ 
+ 					engfunc(EngFunc_TraceLine, origin, porigin, IGNORE_MONSTERS, 0, g_ptrace[TH_LOS])
+ 					get_tr2(g_ptrace[TH_LOS], TR_flFraction, fraction)
+@@ -2499,17 +2325,17 @@
+ 
+ 							play_sound(ent, DEPLOY)
+ 
+-							entity_set_vector(ent, EV_VEC_velocity, Float:{0.0, 0.0, 0.0}) // Stop if from moving
+-
+-							entity_set_int(ent, EV_INT_sequence, 0) // Otherwise, grenade might make wierd motions.
++							set_entvar(ent, var_velocity, Float:{0.0, 0.0, 0.0}) // Stop if from moving
++
++							set_entvar(ent, var_sequence, 0) // Otherwise, grenade might make wierd motions.
+ 
+ 							vector_to_angle(normal, normal)
+ 
+-							entity_set_vector(ent, EV_VEC_angles, normal)
++							set_entvar(ent, var_angles, normal)
  
  							set_trip_grenade_mode(ent, TRIP_WAITING)
  
@@ -1434,7 +1879,16 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  							return HAM_IGNORED
  						}
-@@ -2532,7 +2360,7 @@
+@@ -2523,7 +2349,7 @@
+ 
+ 					if (NadeRace:get_grenade_race(ent) == GRENADE_SMOKEGREN)
+ 					{
+-						entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND)
++						set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND)
+ 					}
+ 
+ 					return HAM_IGNORED
+@@ -2532,13 +2358,13 @@
  				case TRIP_WAITING:
  				{
  
@@ -1443,7 +1897,14 @@ diff --git a/nademodes.sma b/nademodes.sma
  					{
  						make_explode(ent)
  
-@@ -2556,7 +2384,7 @@
+ 						if (NadeRace:get_grenade_race(ent) == GRENADE_SMOKEGREN)
+ 						{
+-							entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND)
++							set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND)
+ 							clear_line(ent)
+ 						}
+ 
+@@ -2556,13 +2382,13 @@
  
  				case TRIP_SCANNING:
  				{
@@ -1452,24 +1913,173 @@ diff --git a/nademodes.sma b/nademodes.sma
  					{
  						make_explode(ent)
  
-@@ -2768,7 +2596,7 @@
+ 						if (NadeRace:get_grenade_race(ent) == GRENADE_SMOKEGREN)
+ 						{
+-							entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND)
++							set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND)
+ 							clear_line(ent)
+ 						}
+ 
+@@ -2582,12 +2408,12 @@
+ 							if (affect_owner)
+ 							{
+ 								set_trip_grenade_mode(ent, TRIP_SHOULD_DETONATE)
+-								entity_set_float(ent, EV_FL_nextthink, get_gametime() + 0.001)
++								set_entvar(ent, var_nextthink, get_gametime() + 0.001)
+ 								return HAM_IGNORED
+ 							}
+ 							else
+ 							{
+-								entity_set_float(ent, EV_FL_nextthink, get_gametime() + 0.001)
++								set_entvar(ent, var_nextthink, get_gametime() + 0.001)
+ 								return HAM_IGNORED
+ 							}
+ 						}
+@@ -2607,7 +2433,7 @@
+ 						set_trip_grenade_mode(ent, TRIP_SHOULD_DETONATE)
+ 					}
+ 
+-					entity_set_float(ent, EV_FL_nextthink, get_gametime() + 0.001)
++					set_entvar(ent, var_nextthink, get_gametime() + 0.001)
+ 					return HAM_IGNORED
+ 				}
+ 
+@@ -2630,7 +2456,7 @@
+ 
+ 						get_trip_grenade_fly_velocity(ent, fly)
+ 						get_trip_grenade_end_origin(ent, end)
+-						entity_set_vector(ent, EV_VEC_velocity, fly) 			// Send the grenade on its way.
++						set_entvar(ent, var_velocity, fly) 			// Send the grenade on its way.
+ 						set_grenade_type(ent, NADE_IMPACT)		 				// Kaboom!
+ 					}
+ 					else
+@@ -2639,7 +2465,7 @@
+ 
+ 						if (NadeRace:get_grenade_race(ent) == GRENADE_SMOKEGREN)
+ 						{
+-							entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND)
++							set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND)
+ 							clear_line(ent)
+ 						}
+ 					}
+@@ -2661,17 +2487,17 @@
+ 			radius = get_option_float(OPTION_RADIUS_MOTION)
+ 			los = get_option(OPTION_MOTION_LOS)
+ 
+-			while ((i = find_ent_in_sphere(i, origin, radius)))
+-			{
+-				if (i > g_maxplayers)
+-				{
+-					entity_set_int(ent, EV_INT_iuser2, bs_holds)
++			while ((i = gc_find_in_sphere(i, origin, radius)))
++			{
++				if (i > MaxClients)
++				{
++					set_entvar(ent, var_iuser2, bs_holds)
+ 
+ 					if (get_option(OPTION_MONSTERMOD_SUPPORT))
+ 					{
+ 						if (is_ent_monster(i))
+ 						{
+-							entity_get_vector(i, EV_VEC_origin, porigin)
++							get_entvar(i, var_origin, porigin)
+ 
+ 							engfunc(EngFunc_TraceLine, origin, porigin, IGNORE_MONSTERS, 0, g_ptrace[TH_LOS])
+ 							get_tr2(g_ptrace[TH_LOS], TR_flFraction, fraction)
+@@ -2679,7 +2505,7 @@
+ 							if (fraction < 1.0)
+ 								continue
+ 
+-							entity_get_vector(i, EV_VEC_velocity, v)
++							get_entvar(i, var_velocity, v)
+ 							velocity = xs_vec_len(v)
+ 
+ 							if (velocity > 100.0)
+@@ -2700,7 +2526,7 @@
+ 
+ 				if (los)
+ 				{
+-					entity_get_vector(i, EV_VEC_origin, porigin)
++					get_entvar(i, var_origin, porigin)
+ 
+ 					engfunc(EngFunc_TraceLine, origin, porigin, IGNORE_MONSTERS, 0, g_ptrace[TH_LOS])
+ 					get_tr2(g_ptrace[TH_LOS], TR_flFraction, fraction)
+@@ -2709,7 +2535,7 @@
+ 						continue
+ 				}
+ 
+-				entity_get_vector(i, EV_VEC_velocity, v)
++				get_entvar(i, var_velocity, v)
+ 				velocity = xs_vec_len(v)
+ 
+ 				if (velocity > 200.0)
+@@ -2742,7 +2568,7 @@
+ 					}
+ 
+ 					bs_holds |= (1<<i)
+-					entity_set_int(ent, EV_INT_iuser2, bs_holds)
++					set_entvar(ent, var_iuser2, bs_holds)
+ 					play_sound(ent, GEIGER)
+ 				}
+ 				else if (velocity == 0.0)
+@@ -2759,7 +2585,7 @@
+ 
+ 			}
+ 
+-			entity_set_int(ent, EV_INT_iuser2, bs_holds)
++			set_entvar(ent, var_iuser2, bs_holds)
+ 			return HAM_IGNORED
+ 		}
+ 
+@@ -2768,7 +2594,7 @@
  			if (!allow_grenade_explode(ent))
  				return HAM_IGNORED
  
 -			if (entity_get_int(owner, EV_INT_button) & IN_USE)
-+			if (nm_cs_form(owner) && (entity_get_int(owner, EV_INT_button) & IN_USE))
++			if (nm_cs_form(owner) && (get_entvar(owner, var_button) & IN_USE))
  			{
  				if (get_option(OPTION_SATCHEL_DELAY))
  				{
-@@ -2798,6 +2626,7 @@
+@@ -2786,7 +2612,7 @@
+ 
+ 				if (NadeRace:get_grenade_race(ent) == GRENADE_SMOKEGREN)
+ 				{
+-					entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_ONGROUND)
++					set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_ONGROUND)
+ 				}
+ 			}
+ 
+@@ -2797,7 +2623,8 @@
+ 		case NADE_HOMING:
  		{
  			static target, Float:extravel
- 			target = entity_get_int(ent, EV_INT_iuser2)
-+			if (target && !nm_target_valid(ent, target)) { target = 0; entity_set_int(ent, EV_INT_iuser2, 0); }
+-			target = entity_get_int(ent, EV_INT_iuser2)
++			target = get_entvar(ent, var_iuser2)
++			if (target && !nm_target_valid(ent, target)) { target = 0; set_entvar(ent, var_iuser2, 0); }
  			extravel = get_option_float(OPTION_HOMING_SPEED_ADD)
  
  			if (target == 0)
-@@ -2822,7 +2651,7 @@
+@@ -2806,23 +2633,23 @@
+ 				i = -1
+ 				distance = get_option_float(OPTION_HOMING_SCAN_RANGE)
+ 
+-				while ((i = find_ent_in_sphere(i, origin, distance)))
+-				{
+-					if (i > g_maxplayers)
++				while ((i = gc_find_in_sphere(i, origin, distance)))
++				{
++					if (i > MaxClients)
+ 					{
+ 						if (get_option(OPTION_MONSTERMOD_SUPPORT))
+ 						{
+ 							if (is_ent_monster(i))
+ 							{
+ 								static Float:o[3]
+-								entity_get_vector(i, EV_VEC_origin, o)
++								get_entvar(i, var_origin, o)
+ 								static Float:new_distance
+ 								new_distance = get_distance_f(o, origin)
+ 
  								if (new_distance < distance)
  								{
  									distance = new_distance
@@ -1478,7 +2088,15 @@ diff --git a/nademodes.sma b/nademodes.sma
  								}
  							}
  							else
-@@ -2850,7 +2679,7 @@
+@@ -2843,32 +2670,31 @@
+ 					if ((cl_team[i] != cl_team[owner] && team_play) || !team_play)
+ 					{
+ 						static Float:o[3]
+-						entity_get_vector(i, EV_VEC_origin, o)
++						get_entvar(i, var_origin, o)
+ 						static Float:new_distance
+ 						new_distance = get_distance_f(o, origin)
+ 
  						if (new_distance < distance)
  						{
  							distance = new_distance
@@ -1487,7 +2105,49 @@ diff --git a/nademodes.sma b/nademodes.sma
  						}
  					}
  				}
-@@ -2926,15 +2755,11 @@
+ 
+ 				return HAM_IGNORED
+ 			}
+-			else if (!(cl_is_alive & (1<<target)) && target <= g_maxplayers)
++			else if (!(cl_is_alive & (1<<target)) && target <= MaxClients)
+ 			{
+ 				return HAM_IGNORED
+ 			}
+ 			else if (is_in_los(ent, target))
+ 			{
+-				//set_user_rendering(target)
+ 				static Float:velocity[3], Float:aim[3], Float:targetorigin[3], Float:velocity_normal[3], Float:aim_normal[3]
+ 
+-				entity_get_vector(target, EV_VEC_origin, targetorigin)
+-
+-				entity_get_vector(ent, EV_VEC_velocity, velocity)
++				get_entvar(target, var_origin, targetorigin)
++
++				get_entvar(ent, var_velocity, velocity)
+ 
+ 				xs_vec_sub(targetorigin, origin, aim)
+ 
+@@ -2906,16 +2732,16 @@
+ 
+ 				velocity[2] += 5.0
+ 
+-				entity_set_vector(ent, EV_VEC_velocity, velocity)
++				set_entvar(ent, var_velocity, velocity)
+ 
+ 				// When within blasting range, make our homing grenade think much much faster; results in better homing.
+ 				if (get_distance_f(origin, targetorigin) < get_option_float(OPTION_HOMING_SUPER_RANGE))
+ 				{
+-					entity_set_float(ent, EV_FL_nextthink, (get_gametime() + 0.05))
++					set_entvar(ent, var_nextthink, (get_gametime() + 0.05))
+ 				}
+ 				else
+ 				{
+-					entity_set_float(ent, EV_FL_nextthink, (get_gametime() + 0.15))
++					set_entvar(ent, var_nextthink, (get_gametime() + 0.15))
+ 				}
+ 			}
+ 
+@@ -2926,15 +2752,11 @@
  	return HAM_IGNORED
  }
  
@@ -1505,25 +2165,53 @@ diff --git a/nademodes.sma b/nademodes.sma
  		return HAM_IGNORED
  
  	if (is_grenade_c4(ent))
-@@ -2950,7 +2775,7 @@
- 	entity_get_vector(ent, EV_VEC_origin, origin)
- 	owner = entity_get_edict(ent, EV_ENT_owner)
+@@ -2944,15 +2766,15 @@
  
--	if (!is_user_connected(owner) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
-+	if (!nm_owner_valid(ent) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
- 	{
- 		entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME)
+ 	gametime = get_gametime()
+ 
+-	if (entity_get_float(ent, EV_FL_dmgtime) <= gametime)
++	if (Float:get_entvar(ent, var_dmgtime) <= gametime)
  		return HAM_IGNORED
-@@ -2969,7 +2794,7 @@
+ 
+-	entity_get_vector(ent, EV_VEC_origin, origin)
+-	owner = entity_get_edict(ent, EV_ENT_owner)
+-
+-	if (!is_user_connected(owner) || is_user_connecting(owner) || cl_team[owner] == CS_TEAM_UNASSIGNED)
+-	{
+-		entity_set_int(ent, EV_INT_flags, entity_get_int(ent, EV_INT_flags) | FL_KILLME)
++	get_entvar(ent, var_origin, origin)
++	owner = max(0, get_entvar(ent, var_owner))
++
++	if (!nm_owner_valid(ent) || is_user_connecting(owner) || cl_team[owner] == TEAM_UNASSIGNED)
++	{
++		set_entvar(ent, var_flags, get_entvar(ent, var_flags) | FL_KILLME)
+ 		return HAM_IGNORED
+ 	}
+ 
+@@ -2963,13 +2785,13 @@
+ 			case NADE_PROXIMITY:
+ 			{
+ 				// We do this for the sound of the entity
+-				if (entity_get_float(ent, EV_FL_fuser4) <= gametime)
+-					entity_set_float(ent, EV_FL_fuser4, gametime + 2.0)
++				if (Float:get_entvar(ent, var_fuser4) <= gametime)
++					set_entvar(ent, var_fuser4, gametime + 2.0)
+ 			}
  			case NADE_TRIP:
  			{
  				// We do this in order to make the trip nades be 10000% more accurate!
 -				entity_set_float(ent, EV_FL_nextthink, get_gametime() + 0.001)
-+				entity_set_float(ent, EV_FL_nextthink, get_gametime() + gNmTripInterval)
++				set_entvar(ent, var_nextthink, get_gametime() + gNmTripInterval)
  			}
  		}
  
-@@ -2999,10 +2824,10 @@
+@@ -2994,15 +2816,15 @@
+ 		}
+ 		else
+ 		{
+-			for (new i=1;i<=g_maxplayers;i++)
++			for (new i=1;i<=MaxClients;i++)
+ 			{
  				if (!is_user_connected(i))
  					continue
  
@@ -1536,16 +2224,207 @@ diff --git a/nademodes.sma b/nademodes.sma
  					bs_affected |= (1<<i)
  			}
  		}
-@@ -3188,7 +3013,7 @@
+@@ -3015,11 +2837,11 @@
+ 			if (!allow_grenade_explode(ent))
+ 				return HAM_IGNORED
+ 
+-			if (entity_get_float(ent, EV_FL_fuser4) <= gametime)
+-			{
+-				entity_set_float(ent, EV_FL_fuser4, gametime + 2.0)
+-
+-				if (entity_get_int(ent, EV_INT_flags) & FL_ONGROUND)
++			if (Float:get_entvar(ent, var_fuser4) <= gametime)
++			{
++				set_entvar(ent, var_fuser4, gametime + 2.0)
++
++				if (get_entvar(ent, var_flags) & FL_ONGROUND)
+ 				{
+ 					if (!get_option(OPTION_TEAM_PLAY) || ((g_zombie_mod & ZM_ZM_ACTIVE) && !(g_zombie_mod & ZM_CAN_THINK)))
+ 					{
+@@ -3032,9 +2854,9 @@
+ 							static i
+ 							i = -1
+ 
+-							while ( (i = find_ent_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
++							while ( (i = gc_find_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
+ 							{
+-								if (i > g_maxplayers)
++								if (i > MaxClients)
+ 									break
+ 
+ 								if (!(cl_is_alive & (1<<i)) || (cl_is_bot & (1<<i)))
+@@ -3049,7 +2871,7 @@
+ 					{
+ 						switch (cl_team[owner])
+ 						{
+-							case CS_TEAM_T:
++							case TEAM_TERRORIST:
+ 							{
+ 								if (get_option(OPTION_RESOURCE_USE) == 1)
+ 								{
+@@ -3060,9 +2882,9 @@
+ 									static i
+ 									i = -1
+ 
+-									while ( (i = find_ent_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
++									while ( (i = gc_find_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
+ 									{
+-										if (i > g_maxplayers)
++										if (i > MaxClients)
+ 											break
+ 
+ 										if (!(cl_is_alive & (1<<i)) || (cl_is_bot & (1<<i)))
+@@ -3074,7 +2896,7 @@
+ 								}
+ 
+ 							}
+-							case CS_TEAM_CT:
++							case TEAM_CT:
+ 							{
+ 								if (get_option(OPTION_RESOURCE_USE) == 1)
+ 								{
+@@ -3085,9 +2907,9 @@
+ 									static i
+ 									i = -1
+ 
+-									while ( (i = find_ent_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
++									while ( (i = gc_find_in_sphere(i, origin, SMART_RADIUS_RING_SHOW)) )
+ 									{
+-										if (i > g_maxplayers)
++										if (i > MaxClients)
+ 											break
+ 
+ 										if (!(cl_is_alive & (1<<i)) || (cl_is_bot & (1<<i)))
+@@ -3107,11 +2929,11 @@
+ 		case NADE_MOTION:
+ 		{
+ 			static bs_holds
+-			bs_holds = entity_get_int(ent, EV_INT_iuser2)
+-
+-			if (bs_holds && entity_get_float(ent, EV_FL_fuser4) <= gametime)
+-			{
+-				entity_set_float(ent, EV_FL_fuser4, get_gametime() + 0.1)
++			bs_holds = get_entvar(ent, var_iuser2)
++
++			if (bs_holds && Float:get_entvar(ent, var_fuser4) <= gametime)
++			{
++				set_entvar(ent, var_fuser4, get_gametime() + 0.1)
+ 
+ 				if (!get_option(OPTION_TEAM_PLAY) || ((g_zombie_mod & ZM_ZM_ACTIVE) && !(g_zombie_mod & ZM_CAN_THINK)))
+ 				{
+@@ -3121,7 +2943,7 @@
+ 					}
+ 					else
+ 					{
+-						for (new i=1;i<=g_maxplayers;i++)
++						for (new i=1;i<=MaxClients;i++)
+ 						{
+ 							if ((bs_holds & (1<<i)) && (bs_affected & (1<<i)))
+ 								show_ring(origin, get_option_float(OPTION_RADIUS_MOTION) * RING_SIZE_CONSTANT_MOTION, 1, _, _, _, i)
+@@ -3132,7 +2954,7 @@
+ 				{
+ 					switch (cl_team[owner])
+ 					{
+-						case CS_TEAM_T:
++						case TEAM_TERRORIST:
+ 						{
+ 							if ( get_option(OPTION_RESOURCE_USE) == 1 )
+ 							{
+@@ -3140,14 +2962,14 @@
+ 							}
+ 							else
+ 							{
+-								for (new i=1;i<=g_maxplayers;i++)
++								for (new i=1;i<=MaxClients;i++)
+ 								{
+ 									if ((bs_holds & (1<<i)) && (bs_affected & (1<<i)))
+ 										show_ring(origin, get_option_float(OPTION_RADIUS_MOTION) * RING_SIZE_CONSTANT_MOTION, 1, TEAMTE_RGB_R_COLOR, TEAMTE_RGB_G_COLOR, TEAMTE_RGB_B_COLOR, i)
+ 								}
+ 							}
+ 						}
+-						case CS_TEAM_CT:
++						case TEAM_CT:
+ 						{
+ 							if ( get_option(OPTION_RESOURCE_USE) == 1 )
+ 							{
+@@ -3155,7 +2977,7 @@
+ 							}
+ 							else
+ 							{
+-								for (new i=1;i<=g_maxplayers;i++)
++								for (new i=1;i<=MaxClients;i++)
+ 								{
+ 									if ((bs_holds & (1<<i)) && (bs_affected & (1<<i)))
+ 										show_ring(origin, get_option_float(OPTION_RADIUS_MOTION) * RING_SIZE_CONSTANT_MOTION, 1, TEAMCT_RGB_R_COLOR, TEAMCT_RGB_G_COLOR, TEAMCT_RGB_B_COLOR, i)
+@@ -3170,7 +2992,7 @@
+ 							}
+ 							else
+ 							{
+-								for (new i=1;i<=g_maxplayers;i++)
++								for (new i=1;i<=MaxClients;i++)
+ 								{
+ 									if ((bs_holds & (1<<i)) && (bs_affected & (1<<i)))
+ 										show_ring(origin, get_option_float(OPTION_RADIUS_MOTION) * RING_SIZE_CONSTANT_MOTION, 1, _, _, _, i)
+@@ -3188,9 +3010,9 @@
  				return HAM_IGNORED
  
  			// We do this in order to make the trip nades be 10000% more accurate!
 -			entity_set_float(ent, EV_FL_nextthink, get_gametime() + 0.001)
-+			entity_set_float(ent, EV_FL_nextthink, get_gametime() + gNmTripInterval)
- 
- 			if (entity_get_float(ent, EV_FL_fuser4) <= gametime)
+-
+-			if (entity_get_float(ent, EV_FL_fuser4) <= gametime)
++			set_entvar(ent, var_nextthink, get_gametime() + gNmTripInterval)
++
++			if (Float:get_entvar(ent, var_fuser4) <= gametime)
  			{
-@@ -3265,8 +3090,8 @@
+ 				new Float:end[3]
+ 				get_trip_grenade_end_origin(ent, end)
+@@ -3205,11 +3027,11 @@
+ 					{
+ 						switch (cl_team[owner])
+ 						{
+-							case CS_TEAM_T:
++							case TEAM_TERRORIST:
+ 							{
+ 								draw_line_from_entity_broadcast(ent, end, 5, TEAMTE_RGB_R_COLOR, TEAMTE_RGB_G_COLOR, TEAMTE_RGB_B_COLOR)
+ 							}
+-							case CS_TEAM_CT:
++							case TEAM_CT:
+ 							{
+ 								draw_line_from_entity_broadcast(ent, end, 5, TEAMCT_RGB_R_COLOR, TEAMCT_RGB_G_COLOR, TEAMCT_RGB_B_COLOR)
+ 							}
+@@ -3220,7 +3042,7 @@
+ 						}
+ 					}
+ 
+-					entity_set_float(ent, EV_FL_fuser4, gametime + 0.5)
++					set_entvar(ent, var_fuser4, gametime + 0.5)
+ 					return HAM_IGNORED
+ 				}
+ 
+@@ -3242,11 +3064,11 @@
+ 					{
+ 						switch (cl_team[owner])
+ 						{
+-							case CS_TEAM_T:
++							case TEAM_TERRORIST:
+ 							{
+ 								draw_line_from_entity(ent, end, 5, TEAMTE_RGB_R_COLOR, TEAMTE_RGB_G_COLOR, TEAMTE_RGB_B_COLOR, 0, first)
+ 							}
+-							case CS_TEAM_CT:
++							case TEAM_CT:
+ 							{
+ 								draw_line_from_entity(ent, end, 5, TEAMCT_RGB_R_COLOR, TEAMCT_RGB_G_COLOR, TEAMCT_RGB_B_COLOR, 0, first)
+ 							}
+@@ -3257,7 +3079,7 @@
+ 						}
+ 					}
+ 
+-					entity_set_float(ent, EV_FL_fuser4, gametime + 0.5)
++					set_entvar(ent, var_fuser4, gametime + 0.5)
+ 					return HAM_IGNORED
+ 				}
+ 
+@@ -3265,13 +3087,13 @@
  				xs_vec_sub(end,first,fourth)
  				xs_vec_add(origin,first,first)
  
@@ -1556,7 +2435,50 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  				for (new i=0;i<num;i++)
  				{
-@@ -3356,7 +3181,7 @@
+ 					id = players[i]
+-					entity_get_vector(id, EV_VEC_origin, porigin)
++					get_entvar(id, var_origin, porigin)
+ 
+ 					xs_vec_sub(porigin, fourth, second)
+ 					xs_vec_normalize(second, second)
+@@ -3297,11 +3119,11 @@
+ 							{
+ 								switch (cl_team[owner])
+ 								{
+-									case CS_TEAM_T:
++									case TEAM_TERRORIST:
+ 									{
+ 										draw_line_from_entity(ent, end, 5, TEAMTE_RGB_R_COLOR, TEAMTE_RGB_G_COLOR, TEAMTE_RGB_B_COLOR, id)
+ 									}
+-									case CS_TEAM_CT:
++									case TEAM_CT:
+ 									{
+ 										draw_line_from_entity(ent, end, 5, TEAMCT_RGB_R_COLOR, TEAMCT_RGB_G_COLOR, TEAMCT_RGB_B_COLOR, id)
+ 									}
+@@ -3324,11 +3146,11 @@
+ 								{
+ 									switch (cl_team[owner])
+ 									{
+-										case CS_TEAM_T:
++										case TEAM_TERRORIST:
+ 										{
+ 											draw_line_from_entity(ent, end, 5, TEAMTE_RGB_R_COLOR, TEAMTE_RGB_G_COLOR, TEAMTE_RGB_B_COLOR, id)
+ 										}
+-										case CS_TEAM_CT:
++										case TEAM_CT:
+ 										{
+ 											draw_line_from_entity(ent, end, 5, TEAMCT_RGB_R_COLOR, TEAMCT_RGB_G_COLOR, TEAMCT_RGB_B_COLOR, id)
+ 										}
+@@ -3343,7 +3165,7 @@
+ 					}
+ 				}
+ 
+-				entity_set_float(ent, EV_FL_fuser4, gametime + 0.5)
++				set_entvar(ent, var_fuser4, gametime + 0.5)
+ 
+ 			}
+ 		}
+@@ -3356,7 +3178,7 @@
  
  public fw_touch(toucher, touched)
  {
@@ -1565,7 +2487,39 @@ diff --git a/nademodes.sma b/nademodes.sma
  		return HAM_IGNORED
  
  	switch (get_grenade_type(toucher))
-@@ -3402,6 +3227,8 @@
+@@ -3367,11 +3189,11 @@
+ 			{
+ 				make_explode(toucher)
+ 
+-				entity_set_float(toucher, EV_FL_nextthink, get_gametime() + 0.001)
++				set_entvar(toucher, var_nextthink, get_gametime() + 0.001)
+ 
+ 				if (NadeRace:get_grenade_race(toucher) == GRENADE_SMOKEGREN)
+ 				{
+-					entity_set_int(toucher, EV_INT_flags, entity_get_int(toucher, EV_INT_flags) | FL_ONGROUND)
++					set_entvar(toucher, var_flags, get_entvar(toucher, var_flags) | FL_ONGROUND)
+ 				}
+ 			}
+ 		}
+@@ -3379,7 +3201,7 @@
+ 		case NADE_TRIP:
+ 		{
+ 			static classname[10]
+-			entity_get_string(touched, EV_SZ_classname, classname, charsmax(classname))
++			get_entvar(touched, var_classname, classname, charsmax(classname))
+ 
+ 			if (get_trip_grenade_mode(toucher) > TRIP_NOT_ATTACHED || is_user_connected(touched))
+ 			{
+@@ -3389,7 +3211,7 @@
+ 			{
+ 				if (is_solid(touched))
+ 				{
+-					entity_set_int(toucher, EV_INT_movetype, MOVETYPE_NONE)
++					set_entvar(toucher, var_movetype, MOVETYPE_NONE)
+ 					set_trip_grenade_mode(toucher, TRIP_ATTACHED)
+ 					return (containi(classname, "door") != -1) ? HAM_SUPERCEDE : HAM_IGNORED
+ 				}
+@@ -3402,6 +3224,8 @@
  
  public fw_spawn_post(id)
  {
@@ -1574,7 +2528,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  	if (is_user_alive(id))
  	{
  		cl_is_alive |= (1<<id)
-@@ -3411,11 +3238,13 @@
+@@ -3411,11 +3235,13 @@
  		cl_is_alive &= ~(1<<id)
  	}
  
@@ -1589,7 +2543,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  	if (is_user_alive(id))
  	{
  		cl_is_alive |= (1<<id)
-@@ -3426,7 +3255,7 @@
+@@ -3426,7 +3252,7 @@
  	}
  
  	if (!get_option(OPTION_REMOVE_IF_DIES))
@@ -1598,7 +2552,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	mode[id][GRENADE_EXPLOSIVE] = FirstEnabledMode(GRENADE_EXPLOSIVE)
  	mode[id][GRENADE_FLASHBANG] = FirstEnabledMode(GRENADE_FLASHBANG)
-@@ -3436,13 +3265,14 @@
+@@ -3436,18 +3262,119 @@
  	removeNades(id)
  
  
@@ -1609,57 +2563,276 @@ diff --git a/nademodes.sma b/nademodes.sma
  public fw_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
  {
 -	if (!(bs_forward_collection & FWD_TAKEDAMAGE))
--		return HAM_IGNORED
 +	if (!(bs_forward_collection & FWD_TAKEDAMAGE) || !is_grenade(inflictor) ||
-+		!(1 <= attacker <= g_maxplayers) || !is_user_connected(attacker))
++		!(1 <= attacker <= MaxClients) || !is_user_connected(attacker))
 +		return HC_CONTINUE
- 
- 	static aclassname[7], iclassname[8]
- 
-@@ -3450,10 +3280,10 @@
- 	entity_get_string(inflictor,  EV_SZ_classname, iclassname, charsmax(iclassname))
- 
- 	if ((damagebits & DMG_BLAST))
--		return HAM_IGNORED
++
++	static aclassname[7], iclassname[8]
++
++	get_entvar(attacker, var_classname, aclassname, charsmax(aclassname))
++	get_entvar(inflictor, var_classname, iclassname, charsmax(iclassname))
++
++	if ((damagebits & DMG_BLAST))
 +		return HC_CONTINUE
- 
- 	if (!equal(aclassname, "player") || !equal(iclassname, "grenade"))
--		return HAM_IGNORED
++
++	if (!equal(aclassname, "player") || !equal(iclassname, "grenade"))
 +		return HC_CONTINUE
- 
- 	if (attacker == victim)
- 	{
-@@ -3534,9 +3364,9 @@
- 		}
- 	}
- 
--	SetHamParamFloat(4, damage)
--
--	return HAM_HANDLED
++
++	if (attacker == victim)
++	{
++		damage *= (get_option_float(OPTION_DMG_SELF) / 100.0)
++	}
++	else
++	{
++		if (cl_team[attacker] == cl_team[victim] && get_option(OPTION_FRIENDLY_FIRE))
++		{
++			damage *= 0.02 * get_option_float(OPTION_DMG_TEAMMATES)
++		}
++	}
++
++	static Float:origin[3], Float:user_origin[3], Float:fraction
++
++	get_entvar(victim, var_origin, user_origin)
++	get_entvar(inflictor, var_origin, origin)
++	origin[2] += 2.0
++	engfunc(EngFunc_TraceLine, user_origin, origin, IGNORE_MONSTERS, victim, g_ptrace[TH_DMG])
++
++	get_tr2(g_ptrace[TH_DMG], TR_flFraction, fraction)
++
++	if (fraction < 1.0)
++	{
++		damage *= (get_option_float(OPTION_DMG_THROUGH_WALL) / 100.0)
++	}
++
++	if ( get_option(OPTION_DAMAGE_SYSTEM) == 1)
++	{
++		damage *= get_option_float(OPTION_DMG_NORMAL)
++	}
++	else
++	{
++		new type = _:get_grenade_type(inflictor)
++		type &= ~NADE_DONT_COUNT
++
++		switch ( type )
++		{
++			case NADE_NORMAL:
++			{
++				damage *= get_option_float(OPTION_DMG_NORMAL)
++			}
++
++			case NADE_PROXIMITY:
++			{
++				damage *= get_option_float(OPTION_DMG_PROXIMITY)
++			}
++
++			case NADE_IMPACT:
++			{
++				damage *= get_option_float(OPTION_DMG_IMPACT)
++			}
++
++			case NADE_TRIP:
++			{
++				damage *= get_option_float(OPTION_DMG_TRIP)
++			}
++
++			case NADE_MOTION:
++			{
++				damage *= get_option_float(OPTION_DMG_MOTION)
++			}
++
++			case NADE_SATCHEL:
++			{
++				damage *= get_option_float(OPTION_DMG_SATCHEL)
++			}
++
++			case NADE_HOMING:
++			{
++				damage *= get_option_float(OPTION_DMG_HOMING)
++			}
++
++			default:
++			{
++				damage *= get_option_float(OPTION_DMG_NORMAL)
++			}
++		}
++	}
++
 +	SetHookChainArg(4, ATYPE_FLOAT, damage)
 +
 +	return HC_CONTINUE
++}
++
++public fw_monster_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
++{
++	if (!(bs_forward_collection & FWD_TAKEDAMAGE) || !get_option(OPTION_MONSTERMOD_SUPPORT))
+ 		return HAM_IGNORED
+ 
+ 	static aclassname[7], iclassname[8]
+ 
+-	entity_get_string(attacker,  EV_SZ_classname, aclassname, charsmax(aclassname))
+-	entity_get_string(inflictor,  EV_SZ_classname, iclassname, charsmax(iclassname))
++	get_entvar(attacker, var_classname, aclassname, charsmax(aclassname))
++	get_entvar(inflictor, var_classname, iclassname, charsmax(iclassname))
+ 
+ 	if ((damagebits & DMG_BLAST))
+ 		return HAM_IGNORED
+@@ -3455,22 +3382,10 @@
+ 	if (!equal(aclassname, "player") || !equal(iclassname, "grenade"))
+ 		return HAM_IGNORED
+ 
+-	if (attacker == victim)
+-	{
+-		damage *= (get_option_float(OPTION_DMG_SELF) / 100.0)
+-	}
+-	else
+-	{
+-		if (cl_team[attacker] == cl_team[victim] && get_option(OPTION_FRIENDLY_FIRE))
+-		{
+-			damage *= 0.02 * get_option_float(OPTION_DMG_TEAMMATES)
+-		}
+-	}
+-
+ 	static Float:origin[3], Float:user_origin[3], Float:fraction
+ 
+-	entity_get_vector(victim, EV_VEC_origin, user_origin)
+-	entity_get_vector(inflictor, EV_VEC_origin, origin)
++	get_entvar(victim, var_origin, user_origin)
++	get_entvar(inflictor, var_origin, origin)
+ 	origin[2] += 2.0
+ 	engfunc(EngFunc_TraceLine, user_origin, origin, IGNORE_MONSTERS, victim, g_ptrace[TH_DMG])
+ 
+@@ -3539,96 +3454,9 @@
+ 	return HAM_HANDLED
  }
  
- public fw_monster_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
-@@ -3629,6 +3459,7 @@
- 
+-public fw_monster_takedamage(victim, inflictor, attacker, Float:damage, damagebits)
+-{
+-	if (!(bs_forward_collection & FWD_TAKEDAMAGE) || !get_option(OPTION_MONSTERMOD_SUPPORT))
+-		return HAM_IGNORED
+-
+-	static aclassname[7], iclassname[8]
+-
+-	entity_get_string(attacker,  EV_SZ_classname, aclassname, charsmax(aclassname))
+-	entity_get_string(inflictor,  EV_SZ_classname, iclassname, charsmax(iclassname))
+-
+-	if ((damagebits & DMG_BLAST))
+-		return HAM_IGNORED
+-
+-	if (!equal(aclassname, "player") || !equal(iclassname, "grenade"))
+-		return HAM_IGNORED
+-
+-	static Float:origin[3], Float:user_origin[3], Float:fraction
+-
+-	entity_get_vector(victim, EV_VEC_origin, user_origin)
+-	entity_get_vector(inflictor, EV_VEC_origin, origin)
+-	origin[2] += 2.0
+-	engfunc(EngFunc_TraceLine, user_origin, origin, IGNORE_MONSTERS, victim, g_ptrace[TH_DMG])
+-
+-	get_tr2(g_ptrace[TH_DMG], TR_flFraction, fraction)
+-
+-	if (fraction < 1.0)
+-	{
+-		damage *= (get_option_float(OPTION_DMG_THROUGH_WALL) / 100.0)
+-	}
+-
+-	if ( get_option(OPTION_DAMAGE_SYSTEM) == 1)
+-	{
+-		damage *= get_option_float(OPTION_DMG_NORMAL)
+-	}
+-	else
+-	{
+-		new type = _:get_grenade_type(inflictor)
+-		type &= ~NADE_DONT_COUNT
+-
+-		switch ( type )
+-		{
+-			case NADE_NORMAL:
+-			{
+-				damage *= get_option_float(OPTION_DMG_NORMAL)
+-			}
+-
+-			case NADE_PROXIMITY:
+-			{
+-				damage *= get_option_float(OPTION_DMG_PROXIMITY)
+-			}
+-
+-			case NADE_IMPACT:
+-			{
+-				damage *= get_option_float(OPTION_DMG_IMPACT)
+-			}
+-
+-			case NADE_TRIP:
+-			{
+-				damage *= get_option_float(OPTION_DMG_TRIP)
+-			}
+-
+-			case NADE_MOTION:
+-			{
+-				damage *= get_option_float(OPTION_DMG_MOTION)
+-			}
+-
+-			case NADE_SATCHEL:
+-			{
+-				damage *= get_option_float(OPTION_DMG_SATCHEL)
+-			}
+-
+-			case NADE_HOMING:
+-			{
+-				damage *= get_option_float(OPTION_DMG_HOMING)
+-			}
+-
+-			default:
+-			{
+-				damage *= get_option_float(OPTION_DMG_NORMAL)
+-			}
+-		}
+-	}
+-
+-	SetHamParamFloat(4, damage)
+-
+-	return HAM_HANDLED
+-}
+-
  public fw_grenade_takedamage(grenade, inflictor, attacker, Float:damage, bits)
  {
 +	if (!is_grenade(grenade) || !nm_owner_valid(grenade)) return HAM_IGNORED
  	if (!(bs_forward_collection & FWD_HPSYSTEM))
  		return HAM_IGNORED
  
-@@ -3641,7 +3472,7 @@
- 	new Float:health, Float:origin[3], ok = false
- 	health = entity_get_float(grenade, EV_FL_health)
+@@ -3639,24 +3467,24 @@
+ 	}
  
+ 	new Float:health, Float:origin[3], ok = false
+-	health = entity_get_float(grenade, EV_FL_health)
+-
 -	if (!(1 <= attacker <= g_maxplayers))
-+	if (!(1 <= attacker <= g_maxplayers) || !is_user_connected(attacker))
++	health = Float:get_entvar(grenade, var_health)
++
++	if (!(1 <= attacker <= MaxClients) || !is_user_connected(attacker))
  		return HAM_SUPERCEDE
  
- 	if ((entity_get_int(grenade, EV_INT_flags) & FL_GODMODE) || (entity_get_float(grenade, EV_FL_takedamage) == DAMAGE_NO))
-@@ -3668,11 +3499,6 @@
+-	if ((entity_get_int(grenade, EV_INT_flags) & FL_GODMODE) || (entity_get_float(grenade, EV_FL_takedamage) == DAMAGE_NO))
++	if ((get_entvar(grenade, var_flags) & FL_GODMODE) || (Float:get_entvar(grenade, var_takedamage) == DAMAGE_NO))
+ 		return HAM_SUPERCEDE
+ 
+-	entity_get_vector(grenade, EV_VEC_origin, origin)
+-
+-	if (entity_get_edict(grenade, EV_ENT_owner) != attacker && cl_team[entity_get_edict(grenade, EV_ENT_owner)] == cl_team[attacker])
++	get_entvar(grenade, var_origin, origin)
++
++	if (max(0, get_entvar(grenade, var_owner)) != attacker && cl_team[max(0, get_entvar(grenade, var_owner))] == cl_team[attacker])
+ 	{
+ 		damage *= get_option_float(OPTION_HITPOINT_FF) / 100.0
+ 		ok = true
+ 	}
+ 
+ 	new string[8]
+-	entity_get_string(inflictor, EV_SZ_classname, string, charsmax(string))
++	get_entvar(inflictor, var_classname, string, charsmax(string))
+ 
+ 	if (equal(string,"grenade"))
+ 	{
+@@ -3668,18 +3496,13 @@
  
  	if (floatcmp(damage,health) != -1)
  	{
@@ -1671,10 +2844,20 @@ diff --git a/nademodes.sma b/nademodes.sma
  		if (get_option(OPTION_HITPOINT_DEATH))
  		{
  			make_explode(grenade)
-@@ -3689,13 +3515,7 @@
  
- 		entity_set_int(grenade, EV_INT_flags, entity_get_int(grenade, EV_INT_flags) | FL_KILLME)
+ 			if (NadeRace:get_grenade_race(grenade) == GRENADE_SMOKEGREN)
+ 			{
+-				entity_set_int(grenade, EV_INT_flags, entity_get_int(grenade, EV_INT_flags) | FL_ONGROUND)
++				set_entvar(grenade, var_flags, get_entvar(grenade, var_flags) | FL_ONGROUND)
+ 				dllfunc(DLLFunc_Think, grenade)
+ 				clear_line(grenade)
+ 			}
+@@ -3687,15 +3510,9 @@
+ 			return HAM_SUPERCEDE
+ 		}
  
+-		entity_set_int(grenade, EV_INT_flags, entity_get_int(grenade, EV_INT_flags) | FL_KILLME)
+-
 -		if (!(_:UNCOUNTABLE_NADE_MODES & (1 << (_:type + 1))))
 -		{
 -			cl_counter[owner][NadeRace:get_grenade_race(grenade)][type] -= 1
@@ -1682,11 +2865,70 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			refresh_can_use_nade(owner, GRENADE_FLASHBANG)
 -			refresh_can_use_nade(owner, GRENADE_SMOKEGREN)
 -		}
++		set_entvar(grenade, var_flags, get_entvar(grenade, var_flags) | FL_KILLME)
++
 +		nm_release_counter(grenade)
  
  		if (get_option(OPTION_RESOURCE_USE))
  			metal_gibs(origin)
-@@ -3861,7 +3681,7 @@
+@@ -3729,16 +3546,16 @@
+ 		return FMRES_IGNORED
+ 
+ 	static Float:vec_end[3], i
+-	i = g_maxplayers
++	i = MaxClients
+ 
+ 	get_tr2(trace, TR_vecEndPos, vec_end)
+ 
+-	while ((i = find_ent_in_sphere(i, vec_end, SHOT_SECOND_TEST_RADIUS)))
++	while ((i = gc_find_in_sphere(i, vec_end, SHOT_SECOND_TEST_RADIUS)))
+ 	{
+ 		if (is_grenade(i, true))
+ 		{
+ 			static Float:origin[3]
+-			pev(i,pev_origin,origin)
++			get_entvar(i, var_origin, origin)
+ 			xs_vec_sub(origin,vec_end,origin)
+ 			if (xs_vec_len(origin) > SHOT_KNIFE_REAL_RADIUS)
+ 				continue
+@@ -3756,15 +3573,15 @@
+ 	if (!(bs_forward_collection & FWD_HPSYSTEM))
+ 		return FMRES_IGNORED
+ 
+-	if (attacker > g_maxplayers || attacker < 1)
++	if (attacker > MaxClients || attacker < 1)
+ 		return HAM_IGNORED
+ 
+ 	if (cl_weapon[attacker] == CSW_KNIFE)
+ 		return HAM_IGNORED
+ 
+ 	static Float:origin[3],Float:offs[3]
+-	pev(attacker,pev_origin,origin)
+-	pev(attacker,pev_view_ofs,offs)
++	get_entvar(attacker, var_origin, origin)
++	get_entvar(attacker, var_view_ofs, offs)
+ 	xs_vec_add(origin,offs,origin)
+ 
+ 	static Float:end[3], Float:point[3], Float:origin_nade[3], Float:track[3]
+@@ -3781,13 +3598,13 @@
+ 	grenade = -1
+ 	reset_queue = false
+ 
+-	while ((grenade = find_ent_by_class(grenade,"grenade")))
+-	{
+-		if (entity_get_float(grenade, EV_FL_dmgtime) < get_gametime())
++	while ((grenade = rg_find_ent_by_class(grenade, "grenade")))
++	{
++		if (Float:get_entvar(grenade, var_dmgtime) < get_gametime())
+ 			continue
+ 
+ 		ok = false
+-		entity_get_vector(grenade, EV_VEC_origin, origin_nade)
++		get_entvar(grenade, var_origin, origin_nade)
+ 
+ 		for (new i=0;i<SHOT_ENTITY_QUEUE_LENGTH;i++)
+ 		{
+@@ -3861,7 +3678,7 @@
  /* -------------------------------
  [Plugin Zombie Mod Compatibility Forwards]
  ------------------------------- */
@@ -1695,7 +2937,7 @@ diff --git a/nademodes.sma b/nademodes.sma
  {
  	g_zombie_mod |= ZM_DO_ALL
  
-@@ -4081,60 +3901,15 @@
+@@ -4081,60 +3898,15 @@
  
  public changemode(id, NadeRace:NADE_TYPE)
  {
@@ -1753,19 +2995,19 @@ diff --git a/nademodes.sma b/nademodes.sma
 -			changemode(id, NADE_TYPE)
 -		}
 -	}
-+    if (!grenade_can_be_used(NADE_TYPE)) return;
-+    for (new n = 0; n < 7; n++) {
-+        mode[id][NADE_TYPE] = NadeType:((_:mode[id][NADE_TYPE] + 1) % 7);
-+        if (is_mode_enabled(id, mode[id][NADE_TYPE], NADE_TYPE)) {
-+            client_print(id, print_center, "%L", id, "NM_MODE", id, modetext[_:mode[id][NADE_TYPE]]);
-+            return;
-+        }
-+    }
-+    client_print(id, print_center, "%L", id, "NM_LIMIT");
++	if (!grenade_can_be_used(NADE_TYPE)) return;
++	for (new n = 0; n < 7; n++) {
++		mode[id][NADE_TYPE] = NadeType:((_:mode[id][NADE_TYPE] + 1) % 7);
++		if (is_mode_enabled(id, mode[id][NADE_TYPE], NADE_TYPE)) {
++			client_print(id, print_center, "%L", id, "NM_MODE", id, modetext[_:mode[id][NADE_TYPE]]);
++			return;
++		}
++	}
++	client_print(id, print_center, "%L", id, "NM_LIMIT");
  }
  
  resetCounter(id)
-@@ -4161,21 +3936,7 @@
+@@ -4161,21 +3933,7 @@
  
  removeNades(id)
  {
@@ -1784,11 +3026,11 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	}
 -
 -	return
-+    nm_remove_owner(id);
++	nm_remove_owner(id);
  }
  
  /* -------------------------------
-@@ -4183,30 +3944,8 @@
+@@ -4183,61 +3941,33 @@
  ------------------------------- */
  is_grenade(ent, bool:enforce = false)
  {
@@ -1816,12 +3058,19 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	}
 -
 -	return 0
-+    new data[NMRecord];
-+    return nm_record(ent, data) && (!enforce || is_classname(ent, "grenade"));
++	new data[NMRecord];
++	return nm_record(ent, data) && (!enforce || is_classname(ent, "grenade"));
  }
  
  is_classname(ent, const string[])
-@@ -4220,19 +3959,13 @@
+ {
+ 	new classname[20]
+ 
+-	entity_get_string(ent, EV_SZ_classname, classname, charsmax(classname))
++	get_entvar(ent, var_classname, classname, charsmax(classname))
+ 
+ 	return equali(string, classname, strlen(string))
+ }
  
  public get_grenade_race(grenade)
  {
@@ -1833,8 +3082,8 @@ diff --git a/nademodes.sma b/nademodes.sma
 -	}
 -
 -	return -1
-+    new data[NMRecord];
-+    return nm_record(grenade, data) ? data[NMRacePlusOne] - 1 : -1;
++	new data[NMRecord];
++	return nm_record(grenade, data) ? data[NMRacePlusOne] - 1 : -1;
  }
  
  set_grenade_type(grenade, NadeType:g_type, bool:property = true)
@@ -1844,7 +3093,13 @@ diff --git a/nademodes.sma b/nademodes.sma
  
  	static NadeRace:nade
  	static owner
-@@ -4254,10 +3987,10 @@
+ 
+-	owner = entity_get_edict(grenade, EV_ENT_owner)
++	owner = max(0, get_entvar(grenade, var_owner))
+ 
+ 	nade = NadeRace:get_grenade_race(grenade)
+ 
+@@ -4254,20 +3984,20 @@
  			return
  		}
  
@@ -1857,29 +3112,179 @@ diff --git a/nademodes.sma b/nademodes.sma
 +	if (!is_grenade(grenade) || !nm_owner_valid(grenade)) return
 +	nm_release_counter(grenade)
  	// Set grenade properties and empty the slots so we can put some info
- 	entity_set_int(grenade, EV_INT_iuser1, _:g_type)
- 	entity_set_int(grenade, EV_INT_iuser2, 0)
-@@ -4391,6 +4124,11 @@
+-	entity_set_int(grenade, EV_INT_iuser1, _:g_type)
+-	entity_set_int(grenade, EV_INT_iuser2, 0)
+-	entity_set_int(grenade, EV_INT_iuser3, 0)
+-	entity_set_int(grenade, EV_INT_iuser4, 0)
+-
+-	entity_set_vector(grenade, EV_VEC_vuser1, Float:{0.0, 0.0, 0.0})
+-	entity_set_vector(grenade, EV_VEC_vuser2, Float:{0.0, 0.0, 0.0})
+-	entity_set_vector(grenade, EV_VEC_vuser3, Float:{0.0, 0.0, 0.0})
+-	entity_set_vector(grenade, EV_VEC_vuser4, Float:{0.0, 0.0, 0.0})
++	set_entvar(grenade, var_iuser1, _:g_type)
++	set_entvar(grenade, var_iuser2, 0)
++	set_entvar(grenade, var_iuser3, 0)
++	set_entvar(grenade, var_iuser4, 0)
++
++	set_entvar(grenade, var_vuser1, Float:{0.0, 0.0, 0.0})
++	set_entvar(grenade, var_vuser2, Float:{0.0, 0.0, 0.0})
++	set_entvar(grenade, var_vuser3, Float:{0.0, 0.0, 0.0})
++	set_entvar(grenade, var_vuser4, Float:{0.0, 0.0, 0.0})
+ 
+ 	if (property == true)
+ 	{
+@@ -4275,17 +4005,17 @@
+ 		{
+ 			case NADE_DUD:
+ 			{
+-				entity_set_int(grenade, EV_INT_movetype, MOVETYPE_BOUNCE)
+-				entity_set_vector(grenade, EV_VEC_velocity, Float:{0.0, 0.0, 0.0})
++				set_entvar(grenade, var_movetype, MOVETYPE_BOUNCE)
++				set_entvar(grenade, var_velocity, Float:{0.0, 0.0, 0.0})
  			}
- 		}
- 	}
+ 
+ 			case NADE_NORMAL:
+ 			{
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_NORMAL)))
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_NORMAL)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_NORMAL))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 			}
+ 
+@@ -4294,11 +4024,11 @@
+ 				delay_explosion(grenade)
+ 				set_grenade_allow_explode(grenade, get_option_float(OPTION_ARM_TIME_PROXIMITY))
+ 
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_PROXIMITY)))
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_PROXIMITY)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_PROXIMITY))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 
+ 				cl_counter[owner][nade][NADE_PROXIMITY] += 1
+@@ -4311,13 +4041,13 @@
+ 			case NADE_IMPACT:
+ 			{
+ 				delay_explosion(grenade)
+-				entity_set_int(grenade, EV_INT_movetype, MOVETYPE_BOUNCE)
+-
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_IMPACT)))
++				set_entvar(grenade, var_movetype, MOVETYPE_BOUNCE)
++
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_IMPACT)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_IMPACT))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 			}
+ 
+@@ -4326,11 +4056,11 @@
+ 			{
+ 				delay_explosion(grenade)
+ 
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_TRIP)))
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_TRIP)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_TRIP))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 
+ 				cl_counter[owner][nade][NADE_TRIP] += 1
+@@ -4345,11 +4075,11 @@
+ 				delay_explosion(grenade)
+ 				set_grenade_allow_explode(grenade, get_option_float(OPTION_ARM_TIME_MOTION))
+ 
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_MOTION)))
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_MOTION)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_MOTION))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 
+ 				cl_counter[owner][nade][NADE_MOTION] += 1
+@@ -4364,11 +4094,11 @@
+ 				delay_explosion(grenade)
+ 				set_grenade_allow_explode(grenade,  get_option_float(OPTION_ARM_TIME_SATCHEL))
+ 
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_SATCHEL)))
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_SATCHEL)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_SATCHEL))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
+ 				}
+ 
+ 				cl_counter[owner][nade][NADE_SATCHEL] += 1
+@@ -4380,16 +4110,21 @@
+ 
+ 			case NADE_HOMING:
+ 			{
+-				entity_set_float(grenade, EV_FL_dmgtime, entity_get_float(grenade, EV_FL_dmgtime) + get_option_float(OPTION_HOMING_EXTRATIME))
+-
+-				entity_set_float(grenade, EV_FL_health, floatabs(get_option_float(OPTION_HITPOINT_HOMING)))
++				set_entvar(grenade, var_dmgtime, Float:get_entvar(grenade, var_dmgtime) + get_option_float(OPTION_HOMING_EXTRATIME))
++
++				set_entvar(grenade, var_health, floatabs(get_option_float(OPTION_HITPOINT_HOMING)))
+ 
+ 				if (get_option(OPTION_MATERIAL_SYSTEM) == 2 && get_option(OPTION_HITPOINT_HOMING))
+ 				{
+-					entity_set_float(grenade, EV_FL_takedamage, DAMAGE_YES)
+-				}
+-			}
+-		}
++					set_entvar(grenade, var_takedamage, DAMAGE_YES)
++				}
++			}
++		}
++	}
 +	if (g_PFW_property > 0 && g_type != NADE_DUD)
 +	{
 +		new result
 +		ExecuteForward(g_PFW_property, result, grenade, g_type, false)
-+	}
+ 	}
  }
  
+@@ -4420,34 +4155,35 @@
+ 	if (!is_classname(ent, "func_wall"))
+ 		return false
  
-@@ -4432,6 +4170,7 @@
+-	return !!(pev(ent, pev_flags) & FL_MONSTER)
++	return !!(get_entvar(ent, var_flags) & FL_MONSTER)
+ }
+ 
+ public bool:is_solid(ent)
+ {
+ 	// Here we account for ent = 0, where 0 means it's part of the map (and therefore is solid)
+-	return ( ent ? ( (entity_get_int(ent, EV_INT_solid) > SOLID_TRIGGER) ? true : false ) : true )
++	return ( ent ? ( (get_entvar(ent, var_solid) > SOLID_TRIGGER) ? true : false ) : true )
+ }
+ 
  public bool:is_attachable_surface(entity)
  {
  	static Float:velocity[3]
+-
+-	if (is_valid_ent(entity))
 +	if (entity <= 0) return entity == 0 || entity == -1
- 
- 	if (is_valid_ent(entity))
++
++	if (is_entity(entity))
  	{
-@@ -4440,7 +4179,7 @@
+ 		if (!is_solid(entity)) return false 									// This is for func_breakables. The entity technically exists, but isn't solid.
+-		entity_get_vector(entity, EV_VEC_velocity, velocity) 					// This is for func_doors. The grenade touches the door, causing it to move.
++		get_entvar(entity, var_velocity, velocity) 					// This is for func_doors. The grenade touches the door, causing it to move.
  		return (xs_vec_equal(velocity, Float:{0.0, 0.0, 0.0}) ? true : false)
  	}
  
@@ -1888,6 +3293,121 @@ diff --git a/nademodes.sma b/nademodes.sma
  }
  
  public bool:is_in_los(grenade_ent, player)
+ {
+ 	static Float:start[3], Float:end[3]
+-	entity_get_vector(grenade_ent, EV_VEC_origin, start)
+-	entity_get_vector(player, EV_VEC_origin, end)
++	get_entvar(grenade_ent, var_origin, start)
++	get_entvar(player, var_origin, end)
+ 
+ 	start[2] += 2.0
+ 
+@@ -4510,12 +4246,12 @@
+ ------------------------------- */
+ draw_line_from_entity(entid, Float:end[3], staytime, R = NOTEAM_RGB_R_COLOR, G = NOTEAM_RGB_G_COLOR, B = NOTEAM_RGB_B_COLOR, id = 0, Float:pvs[3] = {0.0, 0.0, 0.0})
+ {
+-	( id == 0 ) ? engfunc(EngFunc_MessageBegin, MSG_PVS, SVC_TEMPENTITY, pvs, 0) : engfunc(EngFunc_MessageBegin, get_option(OPTION_MSG_SVC_BAD) ? MSG_ONE : MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, pvs, id)
++	( id == 0 ) ? message_begin_f(MSG_PVS, SVC_TEMPENTITY, pvs, 0) : message_begin_f(get_option(OPTION_MSG_SVC_BAD) ? MSG_ONE : MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, pvs, id)
+ 	write_byte(TE_BEAMENTPOINT)
+ 	write_short(entid)	// start entity
+-	engfunc(EngFunc_WriteCoord, end[0])
+-	engfunc(EngFunc_WriteCoord, end[1])
+-	engfunc(EngFunc_WriteCoord, end[2])
++	write_coord_f(end[0])
++	write_coord_f(end[1])
++	write_coord_f(end[2])
+ 	write_short(beampoint)
+ 	write_byte(0)
+ 	write_byte(0)
+@@ -4532,14 +4268,14 @@
+ 
+ stock draw_line(Float:start[3], Float:end[3], staytime, R = NOTEAM_RGB_R_COLOR, G = NOTEAM_RGB_G_COLOR, B = NOTEAM_RGB_B_COLOR)
+ {
+-	engfunc(EngFunc_MessageBegin, MSG_ALL, SVC_TEMPENTITY, Float:{0.0,0.0,0.0}, 0)
++	message_begin_f(MSG_ALL, SVC_TEMPENTITY, Float:{0.0,0.0,0.0}, 0)
+ 	write_byte(TE_BEAMPOINTS)
+-	engfunc(EngFunc_WriteCoord, start[0])
+-	engfunc(EngFunc_WriteCoord, start[1])
+-	engfunc(EngFunc_WriteCoord, start[2])
+-	engfunc(EngFunc_WriteCoord, end[0])
+-	engfunc(EngFunc_WriteCoord, end[1])
+-	engfunc(EngFunc_WriteCoord, end[2])
++	write_coord_f(start[0])
++	write_coord_f(start[1])
++	write_coord_f(start[2])
++	write_coord_f(end[0])
++	write_coord_f(end[1])
++	write_coord_f(end[2])
+ 	write_short(beampoint)
+ 	write_byte(0)
+ 	write_byte(0)
+@@ -4556,12 +4292,12 @@
+ 
+ draw_line_from_entity_broadcast(entid, Float:end[3], staytime, R = NOTEAM_RGB_R_COLOR, G = NOTEAM_RGB_G_COLOR, B = NOTEAM_RGB_B_COLOR)
+ {
+-	engfunc(EngFunc_MessageBegin, get_option(OPTION_MSG_SVC_BAD) ? MSG_ALL : MSG_BROADCAST, SVC_TEMPENTITY, {0.0, 0.0, 0.0}, 0)
++	message_begin_f(get_option(OPTION_MSG_SVC_BAD) ? MSG_ALL : MSG_BROADCAST, SVC_TEMPENTITY, Float:{0.0, 0.0, 0.0}, 0)
+ 	write_byte(TE_BEAMENTPOINT)
+ 	write_short(entid)	// start entity
+-	engfunc(EngFunc_WriteCoord, end[0])
+-	engfunc(EngFunc_WriteCoord, end[1])
+-	engfunc(EngFunc_WriteCoord, end[2])
++	write_coord_f(end[0])
++	write_coord_f(end[1])
++	write_coord_f(end[2])
+ 	write_short(beampoint)
+ 	write_byte(0)
+ 	write_byte(0)
+@@ -4586,14 +4322,17 @@
+ 
+ show_ring(Float:origin[3], Float:addict, staytime, R = NOTEAM_RGB_R_COLOR, G = NOTEAM_RGB_G_COLOR, B = NOTEAM_RGB_B_COLOR , id = 0)
+ {
+-	( id == 0 ) ? engfunc(EngFunc_MessageBegin, get_option(OPTION_MSG_SVC_BAD) ? MSG_ALL : MSG_BROADCAST, SVC_TEMPENTITY, {0.0, 0.0, 0.0}, 0) : engfunc(EngFunc_MessageBegin, get_option(OPTION_MSG_SVC_BAD) ? MSG_ONE : MSG_ONE_UNRELIABLE , SVC_TEMPENTITY, {0.0, 0.0, 0.0}, id)
++	if (id == 0)
++		message_begin(get_option(OPTION_MSG_SVC_BAD) ? MSG_ALL : MSG_BROADCAST, SVC_TEMPENTITY)
++	else
++		message_begin(get_option(OPTION_MSG_SVC_BAD) ? MSG_ONE : MSG_ONE_UNRELIABLE, SVC_TEMPENTITY, _, id)
+ 	write_byte(TE_BEAMCYLINDER)										 			 // TE_BEAMCYLINDER
+-	engfunc(EngFunc_WriteCoord, origin[0])										 // start X
+-	engfunc(EngFunc_WriteCoord, origin[1])										 // start Y
+-	engfunc(EngFunc_WriteCoord, origin[2])										 // start Z
+-	engfunc(EngFunc_WriteCoord, origin[0])										 // something X
+-	engfunc(EngFunc_WriteCoord, origin[1])										 // something Y
+-	engfunc(EngFunc_WriteCoord, origin[2] + addict)								 // something Z
++	write_coord_f(origin[0])										 // start X
++	write_coord_f(origin[1])										 // start Y
++	write_coord_f(origin[2])										 // start Z
++	write_coord_f(origin[0])										 // something X
++	write_coord_f(origin[1])										 // something Y
++	write_coord_f(origin[2] + addict)								 // something Z
+ 	write_short(shockwave) 														 // sprite
+ 	write_byte(0) 																 // startframe
+ 	write_byte(0) 																 // framerate
+@@ -4612,15 +4351,15 @@
+ {
+ 	message_begin(get_option(OPTION_MSG_SVC_BAD) ? MSG_ALL : MSG_BROADCAST, SVC_TEMPENTITY, {0, 0, 0}, 0)
+ 	write_byte(TE_BREAKMODEL)									 				 // TE_BREAKMODEL
+-	engfunc(EngFunc_WriteCoord,origin[0])						 				 // x
+-	engfunc(EngFunc_WriteCoord,origin[1])						 				 // y
+-	engfunc(EngFunc_WriteCoord,origin[2] + 24)					 				 // z
+-	engfunc(EngFunc_WriteCoord,20.0)											 // size x
+-	engfunc(EngFunc_WriteCoord,20.0)							 				 // size y
+-	engfunc(EngFunc_WriteCoord,20.0)											 // size z
+-	engfunc(EngFunc_WriteCoord,random_num(-50,50))				 				 // velocity x
+-	engfunc(EngFunc_WriteCoord,random_num(-50,50))								 // velocity y
+-	engfunc(EngFunc_WriteCoord,25.0)							 				 // velocity z
++	write_coord_f(origin[0])						 				 // x
++	write_coord_f(origin[1])						 				 // y
++	write_coord_f(origin[2] + 24)					 				 // z
++	write_coord_f(20.0)											 // size x
++	write_coord_f(20.0)							 				 // size y
++	write_coord_f(20.0)											 // size z
++	write_coord_f(random_float(-50.0, 50.0))				 				 // velocity x
++	write_coord_f(random_float(-50.0, 50.0))								 // velocity y
++	write_coord_f(25.0)							 				 // velocity z
+ 	write_byte(10)																 // random velocity
+ 	write_short(nadebits) 										 				 // model
+ 	write_byte(10) 												 				 // count
 diff --git a/include/nademodes.inc b/include/nademodes.inc
 --- a/include/nademodes.inc
 +++ b/include/nademodes.inc
@@ -1900,7 +3420,18 @@ diff --git a/include/nademodes.inc b/include/nademodes.inc
  */
  
  #if defined _nademodesAPI_included
-@@ -158,17 +158,13 @@
+@@ -10,9 +10,7 @@
+ #define _nademodesAPI_included
+ 
+ #include <amxmodx>
+-#include <cstrike>
+-#include <engine>
+-#include <hamsandwich>
++#include <reapi>
+ 
+ /* Constants */
+ 
+@@ -158,17 +156,13 @@
   * 		This stock is specially made for new scripters, if you will not use it,
   * 		it will not be included in the compiled code.
   */
@@ -1924,7 +3455,7 @@ diff --git a/include/nademodes.inc b/include/nademodes.inc
  
  
  /**
-@@ -183,28 +179,9 @@
+@@ -183,28 +177,9 @@
   */
  stock is_grenade(ent, bool:enforce = false)
  {
@@ -1956,3 +3487,74 @@ diff --git a/include/nademodes.inc b/include/nademodes.inc
  
  /**
   * Efficency note:
+@@ -221,7 +196,7 @@
+  * 		grenade -> The grenade entity
+  */
+ stock make_explode(grenade)
+-	entity_set_float(grenade, EV_FL_dmgtime, 0)
++	set_entvar(grenade, var_dmgtime, 0.0)
+ 
+ /**
+  * Description:
+@@ -230,7 +205,7 @@
+  * 		grenade -> The trip grenade entity
+  */
+ stock Float:get_trip_grenade_arm_time(grenade)
+-	return entity_get_float(grenade, EV_FL_fuser1)
++	return Float:get_entvar(grenade, var_fuser1)
+ 
+ /**
+  * Description:
+@@ -239,7 +214,7 @@
+  * 		grenade -> The grenade entity
+  */
+ stock can_the_nade_explode(grenade)
+-	return (get_gametime() < entity_get_float(grenade, EV_FL_fuser2)) ? 0 : 1
++	return get_gametime() >= Float:get_entvar(grenade, var_fuser2)
+ 
+ /**
+  * Description:
+@@ -248,7 +223,7 @@
+  * 		grenade -> The grenade entity
+  */
+ stock NadeType:get_grenade_type(grenade)
+-	return NadeType:entity_get_int(grenade, EV_INT_iuser1)
++	return NadeType:get_entvar(grenade, var_iuser1)
+ 
+ 
+ /**
+@@ -258,7 +233,7 @@
+  * 		grenade -> The grenade entity
+  */
+ stock TripNadeMode:get_trip_grenade_mode(grenade)
+-	return TripNadeMode:entity_get_int(grenade, EV_INT_iuser3)
++	return TripNadeMode:get_entvar(grenade, var_iuser3)
+ 
+ 
+ /**
+@@ -270,7 +245,7 @@
+  * 		grenade -> The grenade entity
+  */
+ stock get_trip_grenade_attached_to(grenade)
+-	return entity_get_int(grenade, EV_INT_iuser4)
++	return get_entvar(grenade, var_iuser4)
+ 
+ 
+ /**
+@@ -281,7 +256,7 @@
+  * 		vector -> returned origin
+  */
+ stock get_trip_grenade_end_origin(grenade, Float:vector[3])
+-	return TripNadeMode:entity_get_vector(grenade, EV_VEC_vuser1, vector)
++	return get_entvar(grenade, var_vuser1, vector)
+ 
+ 
+ /**
+@@ -291,5 +266,5 @@
+  * 		grenade -> The grenade entity
+  * 		vector -> returned velocity
+  */
+- stock get_trip_grenade_fly_velocity(grenade, Float:vector[3])
+-	return TripNadeMode:entity_get_vector(grenade, EV_VEC_vuser2, vector)
++stock get_trip_grenade_fly_velocity(grenade, Float:vector[3])
++	return get_entvar(grenade, var_vuser2, vector)

@@ -1,6 +1,6 @@
 // Development fixtures only. Enabled exclusively by Initialize-AMXX -TestFixtures.
 #include <amxmodx>
-#include <engine>
+#include <goldcraft_amxx>
 #include <reapi>
 #include <goldcraft>
 
@@ -26,7 +26,7 @@ stock FixturePlayer()
 {
     new who[20];read_argv(1,who,charsmax(who));
     if(who[0]!='#')return 0;
-    return find_player("k",str_to_num(who[1]));
+    return find_player_ex(FindPlayer_MatchUserId, str_to_num(who[1]));
 }
 public Vitals()
 {
@@ -89,24 +89,24 @@ public client_disconnected(id){gDamageCalls[id]=gDeathCalls[id]=gLastAttacker[id
 public Position()
 {
     if (read_argc()!=5) { server_print("Usage: gc_test_position #userid x y z (CS form only)"); return PLUGIN_HANDLED; }
-    new arg[32];read_argv(1,arg,charsmax(arg));new id=find_player("k",str_to_num(arg[1]));
+    new arg[32];read_argv(1,arg,charsmax(arg));new id=find_player_ex(FindPlayer_MatchUserId, str_to_num(arg[1]));
     if (!is_user_alive(id)||gc_get_form(id)!=GC_FORM_CS) return PLUGIN_HANDLED;
     new Float:pos[3],Float:zero[3];
     for (new i=0;i<3;i++){read_argv(i+2,arg,charsmax(arg));pos[i]=str_to_float(arg);if(floatabs(pos[i])>8192.0)return PLUGIN_HANDLED;}
-    entity_set_origin(id,pos);set_entvar(id,var_velocity,zero);
+    gc_relink_origin(id, pos);set_entvar(id,var_velocity,zero);
     server_print("[GoldCraft fixture] positioned slot=%d",id);return PLUGIN_HANDLED;
 }
 public Equip()
 {
     if (read_argc()!=3) { server_print("Usage: gc_test_equip #userid <weapon_usp|weapon_ak47|weapon_knife|weapon_hegrenade>"); return PLUGIN_HANDLED; }
     new who[20],name[32];read_argv(1,who,charsmax(who));read_argv(2,name,charsmax(name));
-    new id=find_player("k",str_to_num(who[1]));if(!is_user_alive(id))return PLUGIN_HANDLED;
+    new id=find_player_ex(FindPlayer_MatchUserId, str_to_num(who[1]));if(!is_user_alive(id))return PLUGIN_HANDLED;
     if (!equal(name,"weapon_usp")&&!equal(name,"weapon_ak47")&&!equal(name,"weapon_knife")&&!equal(name,"weapon_hegrenade"))return PLUGIN_HANDLED;
     // Exact ReAPI 5.29 declarations: rg_give_item returns the weapon entity;
     // rg_switch_weapon takes that entity index, not a CSW enum.
     new weapon=rg_give_item(id,name,GT_REPLACE);
     if(!is_nullent(weapon)){
-        new WeaponIdType:kind=get_member(weapon,m_iId);rg_set_user_bpammo(id,kind,120);
+        new WeaponIdType:kind=get_member(weapon,m_iId);gc_set_bpammo(id,kind,120);
         server_print("[GoldCraft fixture] slot=%d weapon=%d switched=%d",id,weapon,rg_switch_weapon(id,weapon));
     }
     return PLUGIN_HANDLED;
@@ -134,16 +134,16 @@ public CreatePortal()
     gDestination = rg_create_entity("info_target", true);
     if (is_nullent(gDestination)) return PLUGIN_HANDLED;
     set_entvar(gDestination, var_targetname, "goldcraft_test_destination");
-    entity_set_origin(gDestination, finish);
-    DispatchSpawn(gDestination);
+    gc_relink_origin(gDestination, finish);
+    dllfunc(DLLFunc_Spawn, gDestination);
     gPortal = rg_create_entity("trigger_teleport", true);
     if (is_nullent(gPortal)) { Cleanup(); return PLUGIN_HANDLED; }
     set_entvar(gPortal, var_target, "goldcraft_test_destination");
-    entity_set_origin(gPortal, start);
-    DispatchSpawn(gPortal); // Installs the real CBaseTrigger::TeleportTouch callback.
+    gc_relink_origin(gPortal, start);
+    dllfunc(DLLFunc_Spawn, gPortal); // Installs the real CBaseTrigger::TeleportTouch callback.
     new Float:mins[3] = {-20.0,-20.0,0.0}, Float:maxs[3] = {20.0,20.0,72.0};
-    entity_set_size(gPortal, mins, maxs);
-    entity_set_origin(gPortal, start);
+    engfunc(EngFunc_SetSize, gPortal, mins, maxs);
+    gc_relink_origin(gPortal, start);
     server_print("[GoldCraft fixture] portal=%d destination=%d", gPortal, gDestination);
     return PLUGIN_HANDLED;
 }

@@ -25,19 +25,19 @@
     ]
   },
   "normalization": "UTF-8 without BOM, LF, stripped line-end whitespace, final newline",
-  "patchSha256": "5533406dcad615dc328fc489525478d51601e018a96c9f4b708c50467a18d52e",
+  "patchSha256": "ee07e7b2d3fcbe665a98e21251e179fd74a3a062ec171754dbb945e4001dd634",
   "files": [
     {
       "path": "nademodes.sma",
       "upstreamName": "nademodes.sma",
       "seedSha256Normalized": "286459a2252f375b3738217fe374f0a46740f43ed5902cd426aa42cd01f27f3b",
-      "resultSha256Normalized": "f8060c506e158a5d5dc1271528c756bc12eff816d4bbcf869a0d11b7b49a70f0"
+      "resultSha256Normalized": "c3be0dc70e0c6483a5ec8ce08d2bbe3916a14fa86da92c2406a947af97970b38"
     },
     {
       "path": "include/nademodes.inc",
       "upstreamName": "nademodes.inc",
       "seedSha256Normalized": "081ad3ab026b4d31fd12e14715206d46f06222acbd8a9bd030dc7cf99d7cc10f",
-      "resultSha256Normalized": "c2aec67bfeb97a265ddb2056d7a2f65d228be6f70c318f7e5baa9ba3ac0622a5"
+      "resultSha256Normalized": "7714b18c998a1a44d98cf782ecccfaf33a9c7dfd663eec5a408eb7095f8648cf"
     }
   ]
 }

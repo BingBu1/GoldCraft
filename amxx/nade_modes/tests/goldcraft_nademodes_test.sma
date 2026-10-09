@@ -2,6 +2,7 @@
 // Uses real ReGameDLL grenade factories, Think/Touch, ZP effects and ReAPI.
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <amxmodx>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <hamsandwich>
 #include <reapi>
@@ -170,7 +171,7 @@ public CreatePlayers()
         Check("native_fakeclient_spawned", is_user_alive(id) && is_user_bot(id));
     }
     // Use an actual deterministic BSP spawn; players still spawn normally.
-    new anchorSpawn = find_ent_by_class(-1, "info_player_start");
+    new anchorSpawn = rg_find_ent_by_class(-1, "info_player_start");
     get_entvar(anchorSpawn > 0 ? anchorSpawn : gPlayer[0], var_origin, gAnchor);
     return Summary();
 }
@@ -186,7 +187,7 @@ Cleanup()
 {
     gInspectBeam = false;
     new ent = -1;
-    while ((ent = find_ent_by_class(ent, "grenade"))) {
+    while ((ent = rg_find_ent_by_class(ent, "grenade"))) {
         if (nm_get_grenade_race(ent) >= 0) engfunc(EngFunc_RemoveEntity, ent);
     }
     gObserve = false;
@@ -384,7 +385,7 @@ public ExtraCases()
     // RunPlayerMove reaches native CmdStart. These are fake-client commands,
     // not input sent to the user's B window or a direct changemode() call.
     new weapon = rg_give_item(gOwner, "weapon_hegrenade");
-    rg_set_user_bpammo(gOwner, WEAPON_HEGRENADE, 3);
+    gc_set_bpammo(gOwner, WEAPON_HEGRENADE, 3);
     // GiveNamedItemEx may consume the new entity when the inventory already
     // has this grenade. Select the owned item rather than the duplicate.
     weapon = rg_find_weapon_bpack_by_name(gOwner, "weapon_hegrenade");
@@ -545,7 +546,7 @@ public AfterMap()
 {
     if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
     new ent = -1, active;
-    while ((ent = find_ent_by_class(ent, "grenade")))
+    while ((ent = rg_find_ent_by_class(ent, "grenade")))
         if (nm_get_grenade_race(ent) >= 0) active++;
     Check("actual_map_reload_has_no_old_grenade_records", active == 0);
     return Summary();

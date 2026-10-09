@@ -1,9 +1,11 @@
 {
   "format": 1,
   "files": [
-    ".gitattributes", ".gitignore", "README.md", "THIRD_PARTY_NOTICES.md", "CMakeLists.txt", "sources.lock.json", "publication.json", "sandbox-policy.json",
+    ".gitattributes", ".gitignore", "README.md", "TODO.md", "THIRD_PARTY_NOTICES.md", "CMakeLists.txt", "sources.lock.json", "publication.json", "sandbox-policy.json",
     "docs/BUILD.md", "docs/ARCHITECTURE.md", "docs/MOD_MANAGEMENT.md", "docs/SERVER_API.md", "docs/VALIDATION.md", "docs/ZOMBIE_TESTING.md", "docs/NATIVE_REGRESSIONS.md",
     "amxx/goldcraft/goldcraft.sma", "amxx/tests/goldcraft_test.sma", "amxx/tests/goldcraft_headless_test.sma", "amxx/tests/goldcraft_precache_test.sma", "amxx/maps/goldcraft_bloodmoon.sma", "amxx/zombie_plague/integration/goldcraft_zp50.sma", "amxx/README.md",
+    "amxx/tests/goldcraft_modern_test.sma", "amxx/tests/goldcraft_buy_menu_fixture.sma", "tools/Exercise-AMXXModernization.py",
+    "amxx/administration/README.md", "tools/Prepare-AdminBase.py", "patches/amxx-admin-modern.patch", "patches/amxx-admin-modern.json",
     "amxx/zombie_plague/lang/zombie_plague_cn.txt", "amxx/zombie_plague/lang/zombie_plague50_cn.txt",
     "amxx/maps/goldcraft_spawn_capacity.sma", "amxx/zombie_plague/integration/configs/sypb.cfg",
     "neoforge/build.gradle", "neoforge/settings.gradle", "neoforge/gradle.properties",

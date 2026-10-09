@@ -43,7 +43,8 @@ def candidates():
 def local_private_values():
     values = {str(ROOT), str(ROOT).replace("\\", "/")}
     paths = [ROOT / "sandbox/cluster.json", ROOT / "sandbox/headless-combat/cluster.json",
-             ROOT / "settings.local.json", ROOT / ".tools/clang-toolchain.json"]
+             ROOT / "settings.local.json", ROOT / ".tools/clang-toolchain.json",
+             ROOT / "sandbox/cs-server/admin-deployment.json"]
     paths += [ROOT / f"sandbox/{name}/instance.json" for name in ("cs-client-a", "cs-client-b", "cs-server")]
 
     def visit(value, key=""):
@@ -53,7 +54,7 @@ def local_private_values():
         elif isinstance(value, list):
             for v in value:
                 visit(v, key)
-        elif isinstance(value, str) and len(value) >= 12 and re.search(r"token|secret|password|session|profileId|originalGame|^root$", key, re.I):
+        elif isinstance(value, str) and len(value) >= 12 and re.search(r"token|secret|password|session|profileId|steamId|authId|originalGame|^root$", key, re.I):
             values.update((value, value.replace("\\", "/"), value.replace("\\", "\\\\")))
 
     for path in paths:

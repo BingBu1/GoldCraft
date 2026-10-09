@@ -1,0 +1,219 @@
+--- a/admin.sma
++++ b/admin.sma
+@@ -20,7 +20,6 @@
+ #include <sqlx>
+ #endif
+ 
+-//new Vector:AdminList;
+ 
+ new AdminCount;
+ 
+@@ -48,32 +47,32 @@
+ #endif
+ 	register_dictionary("admin.txt")
+ 	register_dictionary("common.txt")
+-	amx_mode=register_cvar("amx_mode", "1", FCVAR_PROTECTED)
+-	amx_password_field=register_cvar("amx_password_field", "_pw", FCVAR_PROTECTED)
+-	amx_default_access=register_cvar("amx_default_access", "", FCVAR_PROTECTED)
+-
+-	register_cvar("amx_vote_ratio", "0.02")
+-	register_cvar("amx_vote_time", "10")
+-	register_cvar("amx_vote_answers", "1")
+-	register_cvar("amx_vote_delay", "60")
+-	register_cvar("amx_last_voting", "0")
+-	register_cvar("amx_show_activity", "2", FCVAR_PROTECTED)
+-	register_cvar("amx_votekick_ratio", "0.40")
+-	register_cvar("amx_voteban_ratio", "0.40")
+-	register_cvar("amx_votemap_ratio", "0.40")
++	amx_mode=create_cvar("amx_mode", "1", FCVAR_PROTECTED)
++	amx_password_field=create_cvar("amx_password_field", "_pw", FCVAR_PROTECTED)
++	amx_default_access=create_cvar("amx_default_access", "", FCVAR_PROTECTED)
++
++	create_cvar("amx_vote_ratio", "0.02")
++	create_cvar("amx_vote_time", "10")
++	create_cvar("amx_vote_answers", "1")
++	create_cvar("amx_vote_delay", "60")
++	create_cvar("amx_last_voting", "0")
++	create_cvar("amx_show_activity", "2", FCVAR_PROTECTED)
++	create_cvar("amx_votekick_ratio", "0.40")
++	create_cvar("amx_voteban_ratio", "0.40")
++	create_cvar("amx_votemap_ratio", "0.40")
+ 
+ 	set_cvar_float("amx_last_voting", 0.0)
+ 
+ #if defined USING_SQL
+ 	register_srvcmd("amx_sqladmins", "adminSql")
+-	register_cvar("amx_sql_table", "admins", FCVAR_PROTECTED)
++	create_cvar("amx_sql_table", "admins", FCVAR_PROTECTED)
+ #endif
+-	register_cvar("amx_sql_host", "127.0.0.1", FCVAR_PROTECTED)
+-	register_cvar("amx_sql_user", "root", FCVAR_PROTECTED)
+-	register_cvar("amx_sql_pass", "", FCVAR_PROTECTED)
+-	register_cvar("amx_sql_db", "amx", FCVAR_PROTECTED)
+-	register_cvar("amx_sql_type", "mysql", FCVAR_PROTECTED)
+-	register_cvar("amx_sql_timeout", "60", FCVAR_PROTECTED)
++	create_cvar("amx_sql_host", "127.0.0.1", FCVAR_PROTECTED)
++	create_cvar("amx_sql_user", "root", FCVAR_PROTECTED)
++	create_cvar("amx_sql_pass", "", FCVAR_PROTECTED)
++	create_cvar("amx_sql_db", "amx", FCVAR_PROTECTED)
++	create_cvar("amx_sql_type", "mysql", FCVAR_PROTECTED)
++	create_cvar("amx_sql_timeout", "60", FCVAR_PROTECTED)
+ 
+ 	register_concmd("amx_reloadadmins", "cmdReload", ADMIN_CFG)
+ 	register_concmd("amx_addadmin", "addadminfn", ADMIN_RCON, "<playername|auth> <accessflags> [password] [authtype] - add specified player as an admin to users.ini")
+@@ -85,14 +84,12 @@
+ 
+ 	server_cmd("exec %s/sql.cfg", configsDir)
+ 
+-	// Create a vector of 5 cells to store the info.
+-	//AdminList=vector_create(5);
+ 
+ 	
+ #if defined USING_SQL
+ 	server_cmd("amx_sqladmins")
+ #else
+-	format(configsDir, 63, "%s/users.ini", configsDir)
++	add(configsDir, charsmax(configsDir), "/users.ini")
+ 	loadSettings(configsDir)					// Load admins accounts
+ #endif
+ }
+@@ -145,7 +142,7 @@
+ 		} else {
+ 			new _steamid[44]
+ 			static _players[MAX_PLAYERS], _num, _pv
+-			get_players(_players, _num)
++			get_players_ex(_players, _num)
+ 			for (new _i=0; _i<_num; _i++)
+ 			{
+ 				_pv = _players[_i]
+@@ -196,7 +193,7 @@
+ 			if (dots != 3 || !chars || chars > 3)
+ 			{
+ 				idtype |= ADMIN_LOOKUP
+-				player = find_player("dh", arg)
++				player = find_player_ex(FindPlayer_MatchIP | FindPlayer_ExcludeBots, arg)
+ 			}
+ 		}
+ 	}
+@@ -239,14 +236,14 @@
+ 	new type[16], len
+ 	
+ 	if (idtype & ADMIN_STEAM)
+-		len += format(type[len], charsmax(type) - len, "c")
++		len += formatex(type[len], charsmax(type) - len, "c")
+ 	else if (idtype & ADMIN_IPADDR)
+-		len += format(type[len], charsmax(type) - len, "d")
++		len += formatex(type[len], charsmax(type) - len, "d")
+ 	
+ 	if (strlen(password) > 0)
+-		len += format(type[len], charsmax(type) - len, "a")
++		len += formatex(type[len], charsmax(type) - len, "a")
+ 	else
+-		len += format(type[len], charsmax(type) - len, "e")
++		len += formatex(type[len], charsmax(type) - len, "e")
+ 	
+ 	AddAdmin(id, auth, flags, password, type, Comment)
+ 	cmdReload(id, ADMIN_CFG, 0)
+@@ -277,7 +274,7 @@
+ 		// Make sure that the users.ini file exists.
+ 		new configsDir[64]
+ 		get_configsdir(configsDir, charsmax(configsDir))
+-		format(configsDir, charsmax(configsDir), "%s/users.ini", configsDir)
++		add(configsDir, charsmax(configsDir), "/users.ini")
+ 
+ 		if (!file_exists(configsDir))
+ 		{
+@@ -286,14 +283,22 @@
+ 		}
+ 
+ 		// Make sure steamid isn't already in file.
+-		new line = 0, textline[256], len
++		new textline[256]
++		new file = fopen(configsDir, "rt")
++		if (!file)
++		{
++			console_print(id, "[%s] Can't read %s!", PLUGINNAME, configsDir)
++			return
++		}
+ 		const SIZE = 63
+ 		new line_steamid[SIZE + 1], line_password[SIZE + 1], line_accessflags[SIZE + 1], line_flags[SIZE + 1], parsedParams
+ 		
+ 		// <name|ip|steamid> <password> <access flags> <account flags>
+-		while ((line = read_file(configsDir, line, textline, charsmax(textline), len)))
+-		{
+-			if (len == 0 || equal(textline, ";", 1))
++		while (!feof(file))
++		{
++			fgets(file, textline, charsmax(textline))
++			trim(textline)
++			if (!textline[0] || textline[0] == ';')
+ 				continue // comment line
+ 
+ 			parsedParams = parse(textline, line_steamid, SIZE, line_password, SIZE, line_accessflags, SIZE, line_flags, SIZE)
+@@ -304,9 +309,11 @@
+ 			if (containi(line_flags, flags) != -1 && equal(line_steamid, auth))
+ 			{
+ 				console_print(id, "[%s] %s already exists!", PLUGINNAME, auth)
++				fclose(file)
+ 				return
+ 			}
+ 		}
++		fclose(file)
+ 
+ 		// If we came here, steamid doesn't exist in users.ini. Add it.
+ 		new linetoadd[512]
+@@ -319,10 +326,15 @@
+ 		{
+ 			formatex(linetoadd, charsmax(linetoadd), "^r^n^"%s^" ^"%s^" ^"%s^" ^"%s^" ; %s", auth, password, accessflags, flags, comment)
+ 		}
+-		console_print(id, "Adding:^n%s", linetoadd)
+-
+-		if (!write_file(configsDir, linetoadd))
++		console_print(id, "[%s] Adding admin account %s (access %s).", PLUGINNAME, auth, accessflags)
++		file = fopen(configsDir, "at")
++		if (!file)
+ 			console_print(id, "[%s] Failed writing to %s!", PLUGINNAME, configsDir)
++		else
++		{
++			fprintf(file, "%s^n", linetoadd)
++			fclose(file)
++		}
+ #if defined USING_SQL
+ 	}
+ 	
+@@ -340,7 +352,7 @@
+ 	} else if (SQL_NumResults(query)) {
+ 		console_print(id, "[%s] %s already exists!", PLUGINNAME, auth)
+ 	} else {
+-		console_print(id, "Adding to database:^n^"%s^" ^"%s^" ^"%s^" ^"%s^"", auth, password, accessflags, flags)
++		console_print(id, "[%s] Adding database admin account %s (access %s).", PLUGINNAME, auth, accessflags)
+ 	
+ 		SQL_QueryAndIgnore(sql, "REPLACE INTO `%s` (`auth`, `password`, `access`, `flags`) VALUES ('%s', '%s', '%s', '%s')", table, auth, password, accessflags, flags)
+ 	}
+@@ -427,7 +439,7 @@
+ 		new configsDir[64]
+ 		
+ 		get_configsdir(configsDir, charsmax(configsDir))
+-		format(configsDir, charsmax(configsDir), "%s/users.ini", configsDir)
++		add(configsDir, charsmax(configsDir), "/users.ini")
+ 		loadSettings(configsDir) // Load admins accounts
+ 
+ 		return PLUGIN_HANDLED
+@@ -514,7 +526,7 @@
+ 	new filename[128]
+ 	
+ 	get_configsdir(filename, charsmax(filename))
+-	format(filename, charsmax(filename), "%s/users.ini", filename)
++	add(filename, charsmax(filename), "/users.ini")
+ 
+ 	AdminCount = 0;
+ 	loadSettings(filename);		// Re-Load admins accounts
+@@ -545,7 +557,7 @@
+ 
+ 	new players[MAX_PLAYERS], num, pv
+ 	new name[MAX_NAME_LENGTH]
+-	get_players(players, num)
++	get_players_ex(players, num)
+ 	for (new i=0; i<num; i++)
+ 	{
+ 		pv = players[i]

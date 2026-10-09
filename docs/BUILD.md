@@ -51,7 +51,7 @@ Baseline 只在首次执行，已有基线不会被覆盖。Copy 拷贝并逐文
 
 `Test-VisibleEntityEngine.py --engine <工作区内的hw.dll>` 需 Python `unicorn`，执行实际 x86 入队函数的 512／513、4096／4097 和越界保护检查。`Exercise-VisibleEntities.py` 则需要单 B、24 Bot 主服和已验证的人类观察者 demo；它通过限时本地精灵验证真正入队、主画面绘制、自动回收和重连清理，并保存帧缓冲。此测试不修改服务器实体数或资源表，也不证明任意复杂模型在 4096 数量下的性能。
 
-`Initialize-AMXX -TestFixtures` 为开发验证启用测试 Pawn 命令。正式服务器只安装需要的插件。沙箱端口与 RCON、桥接凭据自动生成在未跟踪配置中；当前启动器是本机回环开发配置，未实现远程分发。
+`Initialize-AMXX` 默认启用 Admin Base 和 GoldCraft；`-TestFixtures` 额外启用开发测试 Pawn 命令。日常服保持测试插件停用。正常 ReHLDS 使用 `sv_lan 0`，管理员按真实 SteamID 认证，见 [管理员配置](../amxx/administration/README.md)。沙箱端口与 RCON、桥接凭据自动生成在未跟踪配置中；当前启动器仍绑定本机回环地址，未对外开放服务器或实现远程分发。
 
 预缓存压力测试额外使用 `Prepare-PrecacheFixture.py` 和 `Start-Sandbox.ps1 -Role CsServer -Instance cs-server -Map sy_zombie2_Bloodmoon -PrecacheFixture`，并连接 B。该显式夹具用约 3 MB 的 4,454 个真实文件与稀疏槽位跨越 65535/65536；`python tools/Exercise-Precache.py` 检查实际收包和 AMXX/ReAPI 消息钩子。普通启动不启用夹具，不应把它的稀疏编号当成 65k 独立资源规模测试。
 

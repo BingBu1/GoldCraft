@@ -145,7 +145,7 @@ if($enableRenderer) {
 } else {'GoldCraft.dll' | Set-Content -LiteralPath $pluginsFile -Encoding ascii}
 @'
 hostname "GoldCraft isolated development"
-sv_lan 1
+sv_lan 0
 mp_freezetime 0
 mp_roundtime 9
 mp_timelimit 0

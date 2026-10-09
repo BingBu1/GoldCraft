@@ -1,6 +1,7 @@
 // Opt-in fixture, never enabled by normal server installation. Sources/API:
 // AMXX1.9.0.5303, ReAPI5.29.0.358 and the paired GoldCraft precache-v3 engine.
 #include <amxmodx>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <reapi>
 
@@ -70,7 +71,7 @@ public ClearProbe()
     remove_task(9301);
     for(new i=0;i<sizeof gEntities;i++){
         if(pev_valid(gEntities[i])){
-            new classname[32];pev(gEntities[i],pev_classname,classname,charsmax(classname));
+            new classname[32];get_entvar(gEntities[i], var_classname, classname, charsmax(classname));
             if(equal(classname,"gc_precache_probe"))engfunc(EngFunc_RemoveEntity,gEntities[i]);
         }
         gEntities[i]=0;
@@ -179,22 +180,22 @@ stock BrassMessage(id,const Float:pos[3],mode,high,bool:withAmxxHooks=false)
 
 public Probe()
 {
-    new id;for(new i=1;i<=get_maxplayers();i++)if(is_user_connected(i)&&!is_user_bot(i)&&!is_user_hltv(i)){id=i;break;}
+    new id;for(new i=1;i<=MaxClients;i++)if(is_user_connected(i)&&!is_user_bot(i)&&!is_user_hltv(i)){id=i;break;}
     if(!id){server_print("GoldCraft precache probe needs the single B client");return PLUGIN_HANDLED;}
     ClearProbe();
     // Automatic cleanup also runs when the external observer exits or fails.
-    set_task(10.0,"ClearProbe",9301);
+    set_task_ex(10.0, "ClearProbe", 9301);
     new Float:pos[3],Float:angles[3],Float:direction[3],Float:view[3];
-    pev(id,pev_origin,pos);pev(id,pev_view_ofs,view);pev(id,pev_v_angle,angles);
+    get_entvar(id, var_origin, pos);get_entvar(id, var_view_ofs, view);get_entvar(id, var_v_angle, angles);
     engfunc(EngFunc_MakeVectors,angles);global_get(glb_v_forward,direction);
     for(new i=0;i<3;i++)pos[i]+=view[i]+direction[i]*96.0;
     for(new i=0;i<2;i++){
         if(pev_valid(gEntities[i]))engfunc(EngFunc_RemoveEntity,gEntities[i]);
-        new ent=engfunc(EngFunc_CreateNamedEntity,engfunc(EngFunc_AllocString,"info_target"));gEntities[i]=ent;
-        set_pev(ent,pev_classname,"gc_precache_probe");set_pev(ent,pev_movetype,MOVETYPE_NONE);set_pev(ent,pev_solid,SOLID_NOT);
+        new ent=rg_create_entity("info_target");gEntities[i]=ent;
+        set_entvar(ent, var_classname, "gc_precache_probe");set_entvar(ent, var_movetype, MOVETYPE_NONE);set_entvar(ent, var_solid, SOLID_NOT);
         engfunc(EngFunc_SetModel,ent,i?gHighSprite:gHighModel);
         new Float:p[3];for(new j=0;j<3;j++)p[j]=pos[j];p[2]+=float(i*16);
-        engfunc(EngFunc_SetOrigin,ent,p);set_pev(ent,pev_renderamt,255.0);
+        engfunc(EngFunc_SetOrigin,ent,p);set_entvar(ent, var_renderamt, 255.0);
     }
     new amxxBefore=gAmxxChecks,reapiBefore=gReapiChecks;
     for(new mode=0;mode<4;mode++)SpriteMessage(id,pos,mode);
@@ -228,7 +229,7 @@ public Status()
 {
     // Query actual live edicts, not only our cached IDs after cleanup.
     new active,ent;
-    while((ent=engfunc(EngFunc_FindEntityByString,ent,"classname","gc_precache_probe"))>0)active++;
+    while((ent=rg_find_ent_by_class(ent,"gc_precache_probe"))>0)active++;
     new file=fopen("addons/amxmodx/logs/goldcraft-precache.json","wt");if(!file)return PLUGIN_HANDLED;
     fprintf(file,"{^"models^":%d,^"sounds^":%d,^"generic^":%d,^"highModel^":%d,^"highSprite^":%d,^"highSounds^":[%d,%d],^"probes^":%d,^"amxxChecks^":%d,^"reapiChecks^":%d,^"amxxBrassChecks^":%d,^"reapiBrassChecks^":%d,^"failures^":%d,^"entities^":[%d,%d],^"shadowExpected^":%d,^"shadowObserved^":%d,^"shadowMessages^":%d,^"activeEntities^":%d}",gModelCount,gSoundCount,gGenericCount,gModel,gSprite,gSoundA,gSoundB,gProbes,gAmxxChecks,gReapiChecks,gAmxxBrassChecks,gReapiBrassChecks,gFailures,gEntities[0],gEntities[1],gShadowExpected,gShadowObserved,gShadowMessages,active);
     fclose(file);return PLUGIN_HANDLED;

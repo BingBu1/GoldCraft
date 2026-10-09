@@ -7,6 +7,12 @@ $runtime=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.
 $metaSource=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/metamod-1.3.0.149/addons/metamod')
 $reapi=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358/addons/amxmodx')
 if(-not(Test-Path -LiteralPath $runtime)){& (Join-Path $PSScriptRoot 'Prepare-AMXX.ps1')}
+$adminSource=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'amxx/administration/admin.sma')
+if(-not(Test-Path -LiteralPath $adminSource)){
+    & python (Join-Path $PSScriptRoot 'Prepare-AdminBase.py')
+    if($LASTEXITCODE){throw 'Could not prepare the pinned Admin Base source.'}
+}
+& (Join-Path $PSScriptRoot 'Build-AMXX.ps1') -Plugins admin
 $amxx=Assert-SandboxPath (Join-Path $game 'cstrike/addons/amxmodx')
 $meta=Assert-SandboxPath (Join-Path $game 'cstrike/addons/metamod')
 if(-not(Test-Path -LiteralPath $amxx)){
@@ -38,10 +44,16 @@ Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'goldcraft'
 Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'reapi'
 Copy-Item -LiteralPath (Join-Path $reapi 'modules/reapi_amxx.dll') -Destination (Join-Path $amxx 'modules/reapi_amxx.dll') -Force
 Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/goldcraft_amxx.dll')) -Destination (Join-Path $amxx 'modules/goldcraft_amxx.dll') -Force
-$pluginNames=@('goldcraft');if($TestFixtures){$pluginNames+='goldcraft_test'}
+$pluginNames=@('admin','goldcraft');if($TestFixtures){$pluginNames+='goldcraft_test'}
 foreach($name in $pluginNames){
     Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$name.amxx")) -Destination (Join-Path $amxx "plugins/$name.amxx") -Force
     Add-ConfigLine (Join-Path $amxx 'configs/plugins.ini') "$name.amxx"
+}
+foreach($dictionary in @('admin.txt','common.txt')){
+    $destination=Assert-SandboxPath (Join-Path $amxx "data/lang/$dictionary")
+    if(-not(Test-Path -LiteralPath $destination)){
+        Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "amxx/administration/lang/$dictionary")) -Destination $destination
+    }
 }
 $files=@('cstrike/liblist.gam','cstrike/addons/metamod/metamod.dll','cstrike/addons/amxmodx/dlls/amxmodx_mm.dll','cstrike/addons/amxmodx/modules/goldcraft_amxx.dll','cstrike/addons/amxmodx/modules/reapi_amxx.dll')
 $files+=@($pluginNames | ForEach-Object {"cstrike/addons/amxmodx/plugins/$_.amxx"})

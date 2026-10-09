@@ -1,7 +1,7 @@
 // Expand native spawn capacity using nearby, standing-hull-verified positions.
 // ReAPI 5.29: rg_create_entity(..., true) also registers the classname hash.
 #include <amxmodx>
-#include <engine>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <reapi>
 
@@ -18,7 +18,7 @@ public plugin_init()
     new map[32]; get_mapname(map, charsmax(map));
     if (!equali(map, "cs_assault")) return;
     gTrace = create_tr2();
-    gTarget = (get_maxplayers() + 1) / 2;
+    gTarget = (MaxClients + 1) / 2;
     RememberSpawns("info_player_start");
     RememberSpawns("info_player_deathmatch");
     gAddedCT = ExpandTeam("info_player_start");
@@ -34,15 +34,15 @@ public plugin_end() { if (gTrace) free_tr2(gTrace); }
 stock CountSpawns(const classname[])
 {
     new entity, count;
-    while ((entity = find_ent_by_class(entity, classname)) > 0) count++;
+    while ((entity = rg_find_ent_by_class(entity, classname)) > 0) count++;
     return count;
 }
 
 stock RememberSpawns(const classname[])
 {
     new entity;
-    while ((entity = find_ent_by_class(entity, classname)) > 0 && gCount < MAX_SPAWNS)
-        pev(entity, pev_origin, gOrigins[gCount++]);
+    while ((entity = rg_find_ent_by_class(entity, classname)) > 0 && gCount < MAX_SPAWNS)
+        get_entvar(entity, var_origin, gOrigins[gCount++]);
 }
 
 stock bool:Clear(const Float:a[3], const Float:b[3])
@@ -78,12 +78,12 @@ stock bool:Separated(const Float:point[3])
 stock ExpandTeam(const classname[])
 {
     new seeds[32], seedCount, entity, added;
-    while ((entity = find_ent_by_class(entity, classname)) > 0 && seedCount < sizeof seeds)
+    while ((entity = rg_find_ent_by_class(entity, classname)) > 0 && seedCount < sizeof seeds)
         seeds[seedCount++] = entity;
     new Float:origin[3], Float:angles[3], Float:candidate[3], Float:floor[3];
     for (new radius = 64; radius <= 192 && seedCount + added < gTarget; radius += 32)
         for (new seed = 0; seed < seedCount && seedCount + added < gTarget; seed++) {
-            pev(seeds[seed], pev_origin, origin); pev(seeds[seed], pev_angles, angles);
+            get_entvar(seeds[seed], var_origin, origin); get_entvar(seeds[seed], var_angles, angles);
             for (new direction = 0; direction < 8 && seedCount + added < gTarget; direction++) {
                 if (gCount >= MAX_SPAWNS) return added;
                 candidate[0] = origin[0] + float(gDx[direction] * radius);
@@ -92,7 +92,7 @@ stock ExpandTeam(const classname[])
                 if (!FindFloor(candidate, floor) || !Separated(floor) || !Clear(origin, floor)) continue;
                 entity = rg_create_entity(classname, true);
                 if (!entity) continue;
-                entity_set_origin(entity, floor); set_pev(entity, pev_angles, angles); DispatchSpawn(entity);
+                gc_relink_origin(entity, floor); set_entvar(entity, var_angles, angles); dllfunc(DLLFunc_Spawn, entity);
                 for (new axis = 0; axis < 3; axis++) gOrigins[gCount][axis] = floor[axis];
                 gCount++; gAdded[gAddedCount++] = entity; added++;
             }
@@ -105,11 +105,11 @@ public Status()
     new blocked, Float:origin[3];
     for (new i = 0; i < gAddedCount; i++) {
         if (!pev_valid(gAdded[i])) { blocked++; continue; }
-        pev(gAdded[i], pev_origin, origin);
+        get_entvar(gAdded[i], var_origin, origin);
         if (!Clear(origin, origin)) blocked++;
     }
     server_print("[GoldCraft spawns] maxplayers=%d target=%d T=%d CT=%d addedT=%d addedCT=%d checked=%d blocked=%d",
-        get_maxplayers(), gTarget, get_member_game(m_iSpawnPointCount_Terrorist),
+        MaxClients, gTarget, get_member_game(m_iSpawnPointCount_Terrorist),
         get_member_game(m_iSpawnPointCount_CT), gAddedT, gAddedCT, gAddedCount, blocked);
     return PLUGIN_HANDLED;
 }

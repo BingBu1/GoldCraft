@@ -1,7 +1,7 @@
 // Installed only in the independent headless combat test server.
 // Uses public ReAPI 5.29 and AMXX interfaces, never private offsets.
 #include <amxmodx>
-#include <engine>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <reapi>
 
@@ -12,7 +12,7 @@ new gLastBits, gLastSource[64];
 public plugin_init()
 {
     register_plugin("GoldCraft headless combat fixtures", "0.1.0", "GoldCraft contributors");
-    gEnabled = register_cvar("goldcraft_headless_test", "0");
+    gEnabled = create_cvar("goldcraft_headless_test", "0");
     register_srvcmd("gc_headless_create", "CreatePlayer");
     register_srvcmd("gc_headless_reset", "ResetPlayer");
     register_srvcmd("gc_headless_fire", "FireBullet");
@@ -51,7 +51,7 @@ public SelectPlayer()
     if (!get_pcvar_num(gEnabled) || read_argc() != 2) return PLUGIN_HANDLED;
     new who[20]; read_argv(1, who, charsmax(who));
     if (who[0] != '#') return PLUGIN_HANDLED;
-    new id = find_player("k", str_to_num(who[1]));
+    new id = find_player_ex(FindPlayer_MatchUserId, str_to_num(who[1]));
     if (!is_user_connected(id) || !(get_entvar(id, var_flags) & FL_FAKECLIENT)) return PLUGIN_HANDLED;
     gBot = id; return Status();
 }
@@ -77,7 +77,7 @@ public ResetPlayer()
     if (health < 1.0 || health > 100.0 || armor < 0 || armor > 100) return PLUGIN_HANDLED;
     if (!is_user_alive(gBot)) rg_round_respawn(gBot);
     new Float:zero[3];
-    entity_set_origin(gBot, pos); set_entvar(gBot, var_velocity, zero);
+    gc_relink_origin(gBot, pos); set_entvar(gBot, var_velocity, zero);
     set_entvar(gBot, var_health, health);
     rg_set_user_armor(gBot, armor, armor ? ARMOR_VESTHELM : ARMOR_NONE);
     gDamageCalls = gApplied = gDeaths = 0;

@@ -33,10 +33,20 @@ def main():
     parser.add_argument("--reload-map", action="store_true", help="Load the new Pawn bytecode with changelevel cs_assault")
     args = parser.parse_args()
     manifest = json.loads((ROOT / "dist/zombieplague/manifest.json").read_text(encoding="utf-8"))
+    headers = {path.relative_to(ROOT).as_posix() for folder in ("amxx/zombie_plague/include", "amxx/goldcraft/include")
+               for path in safe(ROOT / folder).glob("*.inc")}
+    recorded_headers = manifest.get("headers", [])
+    if {entry["path"] for entry in recorded_headers} != headers or len(recorded_headers) != len(headers):
+        raise ValueError("Rebuild ZP with its complete header dependency manifest")
+    for entry in recorded_headers:
+        if digest(safe(ROOT / entry["path"]).read_bytes()) != entry["sha256"]:
+            raise ValueError("Rebuild ZP after changing an included header")
     plugins = manifest["plugins"]
     names = {entry["name"] for entry in plugins}
     enabled = set()
     for path in safe(RUNTIME / "configs").glob("plugins*.ini"):
+        if path.name != "plugins.ini" and not path.name.startswith("plugins-"):
+            continue  # Matched AMXX extra-list discovery excludes stock backups.
         enabled.update(re.findall(r"^\s*([a-z0-9_]+)\.amxx(?:\s|$)", path.read_text(errors="replace"), re.M))
     if len(names) != len(plugins) or not names or not names <= enabled:
         raise ValueError("Build manifest must contain only the currently enabled ZP plugins")

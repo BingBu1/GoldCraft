@@ -1,10 +1,10 @@
 // Independent local ReHLDS fixture only; not a normal-play plugin.
 // Exercises real ReGameDLL player objects and the complete migrated ZP stack.
 #include <amxmodx>
+#include <goldcraft_amxx>
 #include <fakemeta>
 #include <hamsandwich>
 #include <reapi>
-#include <cstrike>
 #include <cs_player_models_api>
 #include <cs_teams_api>
 #include <cs_maxspeed_api>
@@ -25,7 +25,7 @@ new bool:gObserve;
 public plugin_init()
 {
     register_plugin("GoldCraft ZP ReAPI regression", "0.1", "GoldCraft contributors");
-    gEnabled = register_cvar("goldcraft_zp_reapi_test", "0");
+    gEnabled = create_cvar("goldcraft_zp_reapi_test", "0");
     register_srvcmd("gc_zp_reapi_create", "CreatePlayers");
     register_srvcmd("gc_zp_reapi_api", "TestApis");
     register_srvcmd("gc_zp_reapi_combat", "TestCombat");
@@ -105,13 +105,13 @@ public TestApis()
 
     new oldT = get_member_game(m_iNumTerrorist), oldCT = get_member_game(m_iNumCT);
     new teamMessages = gTeamInfo[id], scoreMessages = gScoreInfo[id];
-    cs_set_player_team(id, CS_TEAM_T, false);
+    cs_set_player_team(id, TEAM_TERRORIST, false);
     Check("team_member_and_counts", get_member(id, m_iTeam) == TEAM_TERRORIST &&
         get_member_game(m_iNumTerrorist) == oldT + 1 && get_member_game(m_iNumCT) == oldCT - 1);
     Check("team_silent_option", gTeamInfo[id] == teamMessages && gScoreInfo[id] == scoreMessages);
-    cs_set_player_team(id, CS_TEAM_T, false);
+    cs_set_player_team(id, TEAM_TERRORIST, false);
     Check("repeated_team_does_not_drift_counts", get_member_game(m_iNumTerrorist) == oldT + 1 && get_member_game(m_iNumCT) == oldCT - 1);
-    cs_set_player_team(id, CS_TEAM_CT, true);
+    cs_set_player_team(id, TEAM_CT, true);
     Check("team_notifications", gTeamInfo[id] == teamMessages + 1 && gScoreInfo[id] == scoreMessages + 1);
     Check("amxx_team_cache", get_user_team(id) == 2);
     get_user_info(id, "model", model, charsmax(model));
