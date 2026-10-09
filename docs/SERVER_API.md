@@ -10,6 +10,8 @@
 | ReHLDS / ReGameDLL API | 3.15 / 5.30 |
 | GoldCraft Pawn API | 1 |
 
+AMXX 自定义效果的[通用互通方案](AMXX_INTEROP.md)已排队：按能力同步游戏状态，保留 CS 原生表现，私有语义使用公共声明。该效果 API 尚未实现；下面列出的形态 API 是当前实际接口。
+
 ## 使用形态接口
 
 Minecraft 相关游戏 cvar 统一使用 `mc_` 前缀。服务器控制项可写入 `server.cfg`，也可在 HLDS 控制台／RCON 运行时修改：
