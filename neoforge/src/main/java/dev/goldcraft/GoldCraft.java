@@ -4,6 +4,8 @@ import dev.goldcraft.bridge.BridgeLink;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.bridge.Performance;
 import dev.goldcraft.bridge.HostWorldState;
+import dev.goldcraft.bridge.HostDeliveryQueue;
+import dev.goldcraft.bridge.MapEdits;
 import dev.goldcraft.net.BindingPayload;
 import dev.goldcraft.net.HostPayload;
 import dev.goldcraft.net.ControlPayload;
@@ -16,6 +18,7 @@ import dev.goldcraft.world.NativePlayers;
 import dev.goldcraft.world.SharedVitals;
 import dev.goldcraft.world.HostMining;
 import dev.goldcraft.net.MiningPayload;
+import dev.goldcraft.net.EditRequestPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.slf4j.Logger;
@@ -27,6 +30,7 @@ public final class GoldCraft {
     public static final Logger LOGGER=LoggerFactory.getLogger("goldcraft");
     private static BridgeLink serverLink;
     private static long generation;
+    private static long nextEditQuery;
     public static final HostWorldState HOST_WORLD=new HostWorldState();
     public static final TraceValidation TRACE_VALIDATION=new TraceValidation();
     private static final Map<UUID,Binding> BINDINGS=new HashMap<>();
@@ -34,25 +38,25 @@ public final class GoldCraft {
     private static byte[] worldPayload,bspPayload,actorPayload,brushPayload,miningPayload;
     private record Binding(long world,int slot,int serial) {}
     private static final class Delivery {
-        final ArrayDeque<Wire.Message> queue=new ArrayDeque<>();
-        int offset;
+        final HostDeliveryQueue queue=new HostDeliveryQueue();
+        long nextEditRequest;
         void enqueue(int type,byte[] bytes) {
-            if(bytes==null)return;
-            Wire.Message first=queue.peekFirst();
-            queue.removeIf(m->m.type()==type&&(offset==0||m!=first));
-            queue.addLast(new Wire.Message(type,bytes));
+            if(type==Wire.MAP_EDIT_SNAPSHOT)queue.editSnapshot(bytes);
+            else if(type==Wire.MAP_EDIT_DELTA)queue.editDelta(bytes,()->HOST_WORLD.edits().snapshot().encode());
+            else queue.snapshot(type,bytes);
         }
         void flush(ServerPlayerEntity player) {
-            for(int sent=0;sent<8&&!queue.isEmpty();sent++) {
-                Wire.Message message=queue.peekFirst();byte[] data=message.payload();int end=Math.min(data.length,offset+HostPayload.FRAGMENT);
+            for(int sent=0;sent<8&&queue.first()!=null;sent++) {
+                Wire.Message message=queue.first();byte[] data=message.payload();int offset=queue.offset(),end=Math.min(data.length,offset+HostPayload.FRAGMENT);
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,new HostPayload(message.type(),data.length,offset,Arrays.copyOfRange(data,offset,end)));
-                offset=end;if(offset==data.length){queue.removeFirst();offset=0;}
+                queue.advance(end-offset);
             }
         }
     }
     public static boolean hostConnected(){return serverLink!=null&&serverLink.connected();}
     public static boolean sendToHost(int type,byte[] payload){return hostConnected()&&serverLink.send(type,payload);}
     private static void reset(MinecraftServer server) {
+        nextEditQuery=0;
         HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
     private static void broadcast(int type,byte[] data) {
@@ -70,6 +74,7 @@ public final class GoldCraft {
             delivery.enqueue(Wire.WORLD,worldPayload);delivery.enqueue(Wire.BSP,bspPayload);
             delivery.enqueue(Wire.ACTORS,actorPayload);delivery.enqueue(Wire.BRUSHES,brushPayload);
             delivery.enqueue(Wire.MAP_MINING_POLICY,miningPayload);
+            if(HOST_WORLD.edits().ready())delivery.enqueue(Wire.MAP_EDIT_SNAPSHOT,HOST_WORLD.edits().snapshot().encode());
             LOGGER.info("Authoritative player paired: slot={} serial={} epoch={}",slot,serial,Long.toUnsignedString(world));
         }
         if(first||status!=0)delivery.enqueue(Wire.PAIR_RESULT,bytes);
@@ -130,9 +135,21 @@ public final class GoldCraft {
                             }
                         }
                         case Wire.MAP_MINING_RESULT -> HostMining.result(server,HOST_WORLD,message.payload());
+                        case Wire.MAP_EDIT_SNAPSHOT,Wire.MAP_EDIT_DELTA -> {
+                            var result=message.type()==Wire.MAP_EDIT_SNAPSHOT?HOST_WORLD.edits().accept(MapEdits.snapshot(message.payload())):
+                                HOST_WORLD.edits().accept(MapEdits.delta(message.payload()));
+                            if(result==MapEdits.Applied.CHANGED)broadcast(message.type(),message.payload());
+                        }
                         default -> { }
                     }
-                }catch(IllegalArgumentException e){LOGGER.warn("Rejected host-server payload: {}",e.getMessage());}
+                }catch(IllegalArgumentException e){
+                    if(message.type()==Wire.MAP_EDIT_SNAPSHOT||message.type()==Wire.MAP_EDIT_DELTA)HOST_WORLD.edits().invalidate();
+                    LOGGER.warn("Rejected host-server payload: {}",e.getMessage());
+                }
+            }
+            if(HOST_WORLD.epoch()!=0&&!HOST_WORLD.edits().ready()&&System.nanoTime()>=nextEditQuery){
+                sendToHost(Wire.MAP_EDIT_QUERY,new Wire.Writer().i64(HOST_WORLD.epoch()).toByteArray());
+                nextEditQuery=System.nanoTime()+1_000_000_000L;
             }
             for(var entry:DELIVERIES.entrySet()) {
                 var player=server.getPlayerManager().getPlayer(entry.getKey());
@@ -159,6 +176,13 @@ public final class GoldCraft {
             if(context.player() instanceof ServerPlayerEntity player)HostMining.intent(player,payload);
         });
         registrar.playToClient(HostPayload.ID,HostPayload.CODEC,dev.goldcraft.net.HostNetwork::receive);
+        registrar.playToServer(EditRequestPayload.ID,EditRequestPayload.CODEC,(payload,context)->{
+            var id=context.player().getUuid();var binding=BINDINGS.get(id);var delivery=DELIVERIES.get(id);
+            if(binding==null||delivery==null||binding.world()!=payload.epoch()||payload.epoch()!=HOST_WORLD.epoch()||
+                !HOST_WORLD.edits().ready()||System.nanoTime()<delivery.nextEditRequest)return;
+            delivery.enqueue(Wire.MAP_EDIT_SNAPSHOT,HOST_WORLD.edits().snapshot().encode());
+            delivery.nextEditRequest=System.nanoTime()+1_000_000_000L;
+        });
     }
 
 }

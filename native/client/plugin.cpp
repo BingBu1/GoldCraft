@@ -25,6 +25,7 @@
 #include "goldcraft/block_feedback.hpp"
 #include "goldcraft/camera.hpp"
 #include "goldcraft/host_keys.hpp"
+#include "goldcraft/map_edits.hpp"
 #include <array>
 #include <cstring>
 #include <cstdlib>
@@ -44,6 +45,10 @@ using namespace goldcraft;
 Endpoint link;
 metahook_api_t* api = nullptr;
 Bytes binding;
+edits::Replica map_edits;
+edits::Assembler edit_assembler;
+double next_edit_query=0;
+bool edit_recovery=false;
 std::uint64_t world = 0, last_link_generation = 0;
 std::uint32_t player_slot=0,player_serial=0;
 struct NativeCollider {int slot;float min[3],max[3];};
@@ -242,6 +247,7 @@ void ResetWorld() {
     RestoreViewModel();
     sections.clear();lamps.clear();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
     native_colliders.clear();collider_sequence=0;last_colliders=0;
+    map_edits.reset(0);edit_assembler.reset(0);next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;
@@ -435,12 +441,32 @@ int BindingMessage(const char*,int size,void* data) {
         if(size!=32) throw ProtocolError("invalid GCBind length");
         auto view=std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size));
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
+        if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);next_edit_query=0;edit_recovery=true;}
         if(new_world!=world){sections.clear();lamps.clear();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
         if(new_world!=world||slot!=player_slot||serial!=player_serial){ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
         if(!section_logged) Log("received server pairing identity for current map");
     } catch(const std::exception& e) { Log(e.what()); }
+    return 1;
+}
+void RequestEdits(){
+    if(!world||Seconds()<next_edit_query)return;
+    const auto command="goldcraft_edits "+std::to_string(world)+"\n";
+    gEngfuncs.pfnServerCmd(command.c_str());next_edit_query=Seconds()+1;edit_recovery=false;
+}
+int EditMessage(const char*,int size,void* data){
+    try{
+        if(size<0||!data)throw ProtocolError("Invalid GCEdit message");
+        const auto message=edit_assembler.accept(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        if(!message)return 1;
+        const auto result=message->type==Type::map_edit_snapshot?map_edits.accept(edits::snapshot(message->payload)):
+            map_edits.accept(edits::delta(message->payload));
+        if(result==edits::Applied::need_snapshot)edit_recovery=true;
+        else if(map_edits.ready())edit_recovery=false;
+    }catch(const std::exception& error){
+        Log(error.what());map_edits.invalidate();edit_recovery=true;
+    }
     return 1;
 }
 int FormMessage(const char*,int size,void* data){
@@ -528,6 +554,7 @@ void InitHud() {
     host_viewmodel=gEngfuncs.pfnGetCvarPointer("r_drawviewmodel");
     render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
+    gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg("GCAvatar",AvatarMessage);
     gEngfuncs.pfnHookUserMsg("GCForm",FormMessage);
     gEngfuncs.pfnHookUserMsg("GCObj",[](const char*,int size,void* data)->int {
@@ -871,8 +898,15 @@ void Frame(double time) {
     TestCommands();
     link.poll();
     static double next_ready=0;
-    if(have_view&&link.connected()&&Seconds()>=next_ready){
-        gEngfuncs.pfnServerCmd("goldcraft_ready\n");next_ready=Seconds()+1;
+    const char* host_protocol=gEngfuncs.ServerInfo_ValueForKey?gEngfuncs.ServerInfo_ValueForKey("mc_protocol"):nullptr;
+    if(have_view&&host_protocol&&host_protocol==std::to_string(protocol_version)){
+        if(Seconds()>=next_ready){
+            const auto command="goldcraft_ready "+std::to_string(protocol_version)+"\n";
+            gEngfuncs.pfnServerCmd(command.c_str());next_ready=Seconds()+1;
+        }
+        if(edit_recovery)RequestEdits();
+    }else if(map_edits.state().epoch){
+        map_edits.reset(0);edit_assembler.reset(0);edit_recovery=false;
     }
     if(link.error()!=last_error) { last_error=link.error(); if(!last_error.empty()) Log(last_error); }
     if(link.connected()&&link.generation()!=last_link_generation) {

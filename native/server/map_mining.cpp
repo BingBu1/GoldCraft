@@ -13,6 +13,7 @@ cvar_t persist_cvar = {"mc_map_mining_persist", "0", FCVAR_SERVER, 0, nullptr};
 cvar_t* registered_cvar = nullptr;
 cvar_t* registered_persist = nullptr;
 mining::Policy policy;
+edits::Ledger map_edits;
 struct MinedEntity {
     int serial;
     CBaseEntity* object;
@@ -28,12 +29,28 @@ bool round_ended = false, cleanup_persist = false;
 unsigned cleanup_depth = 0;
 
 bool Persist() { return registered_persist && registered_persist->value == 1.0f; }
+#ifdef GOLDCRAFT_HEADLESS_FIXTURE
+// Only the isolated fixture DLL can populate the pending edit ledger. This
+// deliberately changes no collision/rendering and is not a mining success path.
+void EditFixture() {
+    if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS") || CMD_ARGC() != 2) return;
+    try {
+        char* end = nullptr; const auto count = std::strtoul(CMD_ARGV(1), &end, 10);
+        if (!*CMD_ARGV(1) || *end || count > 1024) return;
+        for (unsigned i = 0; i < count; ++i) {
+            const float x = static_cast<float>(i * 2);
+            map_edits.add({}, {{x, 0, 0}, {x + 1, 1, 1}});
+        }
+    } catch (const std::exception& error) { ALERT(at_console, "Map edit fixture: %s\n", error.what()); }
+}
+#endif
 void InvalidateRequests() {
     if (!policy.epoch) return;
     if (policy.revision == std::numeric_limits<std::uint64_t>::max()) throw ProtocolError("Mining policy revision exhausted");
     ++policy.revision;
 }
 void RestoreMinedEntities() {
+    map_edits.restore();
     // Drop records before invoking virtual callbacks: plugins can remove/reuse
     // edicts or reenter the round rules. Never copy private entity memory back.
     auto previous = std::exchange(mined_entities, {});
@@ -69,12 +86,16 @@ void GoldCraft_MapMiningInit() {
     if (!registered_persist) {
         CVAR_REGISTER(&persist_cvar);
         registered_persist = CVAR_GET_POINTER("mc_map_mining_persist");
+#ifdef GOLDCRAFT_HEADLESS_FIXTURE
+        ADD_SERVER_COMMAND("gc_edits_fixture", EditFixture);
+#endif
     }
 }
 
 void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     GoldCraft_MapMiningInit();
     mined_entities.clear(); round_ended = cleanup_persist = false; cleanup_depth = 0;
+    map_edits.reset(epoch);
     policy = {epoch, epoch ? 1u : 0u, mining::cvar_mode(registered_cvar ? registered_cvar->value : 0), mining::entity_damage};
 }
 
@@ -100,7 +121,7 @@ GoldCraft_MapMiningRoundCleanup::GoldCraft_MapMiningRoundCleanup() {
     // Handles direct rg_restart_round / sv_restart and no observed end frame.
     // Native cleanup performs the reset once when preservation is disabled.
     InvalidateRequests();
-    if (!cleanup_persist) mined_entities.clear();
+    if (!cleanup_persist) { mined_entities.clear(); map_edits.restore(); }
 }
 GoldCraft_MapMiningRoundCleanup::~GoldCraft_MapMiningRoundCleanup() {
     if (--cleanup_depth == 0) cleanup_persist = false;
@@ -121,6 +142,7 @@ goldcraft::mining::Policy GoldCraft_MapMiningPolicy() {
     }
     return policy;
 }
+const goldcraft::edits::Ledger& GoldCraft_MapEdits() { return map_edits; }
 
 goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Request& q, edict_t* player) {
     using namespace goldcraft::mining;

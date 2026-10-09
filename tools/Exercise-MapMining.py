@@ -104,7 +104,7 @@ class Peer:
                                 slot, serial, userid, team, flags, life = struct.unpack_from("<6I", body, offset)
                                 pitch, yaw = struct.unpack_from("<2f", body, offset + 56)
                                 self.actors[slot] = dict(slot=slot, serial=serial, userid=userid, team=team, flags=flags, life=life, pitch=pitch, yaw=yaw)
-                        elif kind in (14, 41, 58):
+                        elif kind in (14, 41, 58, 59, 60):
                             self.messages.append((kind, body))
         except Exception as exc:
             if not self.stop:

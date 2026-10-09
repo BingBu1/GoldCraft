@@ -19,7 +19,7 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前固定宽度协议为 GCF1/version 19，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前源码的固定宽度协议为 GCF1/version 20，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
 
 地图挖掘使用消息 56/57/58 分别传递 HLDS 政策、Minecraft 服务端请求和原生处理结果。客户端只发送挖掘按键意图；MC 服务端计算目标和工具伤害，HLDS 再检查配对、形态、代次、频率、距离与真实地图射线，最后执行实体原生伤害回调。`mc_map_mining` 的政策会同步和补发；整图几何的视觉／碰撞修改仍需接入，详见[地图挖掘](WORLD_CARVING.md)。
 

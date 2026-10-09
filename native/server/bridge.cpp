@@ -30,6 +30,17 @@ std::ofstream server_log;
 Bytes bsp_bytes;
 std::uint32_t bsp_crc=0;
 unsigned trace_queries=0;
+std::uint64_t edit_revision_sent=0,edit_transfer=0;
+float next_edit_query=0;
+int edit_message=0,edit_client_cursor=0;
+struct EditDelivery {
+    bool enabled=false;
+    std::uint64_t revision=0,transfer=0;
+    float next_query=0;
+    Message message{Type::map_edit_snapshot,{}};
+    std::size_t offset=0;
+};
+std::array<EditDelivery,65> edit_deliveries;
 IHostEntityPhysics* entity_physics=nullptr;
 struct ControlState {
     std::uint64_t sequence=0;
@@ -351,6 +362,7 @@ void SendActors() {
             <<",\"objectActions\":"<<object_actions<<",\"objectDamageActions\":"<<object_damage_actions<<",\"objectUseActions\":"<<object_use_actions
             <<",\"vitalsAccepted\":"<<vitals_accepted<<",\"vitalsRejected\":"<<vitals_rejected
             <<",\"mapMiningMode\":"<<static_cast<unsigned>(GoldCraft_MapMiningPolicy().mode)<<",\"mapMiningRevision\":"<<GoldCraft_MapMiningPolicy().revision
+            <<",\"mapEditRevision\":"<<GoldCraft_MapEdits().state().revision<<",\"mapEditCount\":"<<GoldCraft_MapEdits().state().cuts.size()
             <<",\"mapMiningApplied\":"<<mining_applied<<",\"mapMiningRejected\":"<<mining_rejected
             <<",\"mobDamageAccepted\":"<<mob_damage_accepted<<",\"mobDamageRejected\":"<<mob_damage_rejected<<",\"actors\":[";
         bool first=true;for(int slot:slots){
@@ -469,6 +481,37 @@ void SendMiningPolicy(){
     if(link.connected()&&policy.epoch&&policy.revision!=mining_policy_sent&&link.send(Type::map_mining_policy,mining::encode_policy(policy)))
         mining_policy_sent=policy.revision;
 }
+std::uint64_t EditRevision(const Message& message){
+    Reader r(message.payload);r.u64();const auto revision=r.u64();
+    return message.type==Type::map_edit_delta?r.u64():revision;
+}
+void SendEdits(){
+    const auto& ledger=GoldCraft_MapEdits();
+    if(link.connected())for(const auto& message:ledger.since(edit_revision_sent)){
+        if(!link.send(message.type,message.payload))break;
+        edit_revision_sent=EditRevision(message);
+    }
+    // Bound total work and rotate fairly through native clients. One fragment
+    // is at most186 bytes, below the engine's192-byte user-message ceiling.
+    for(int checked=0,sent=0;checked<max_clients&&sent<16;++checked){
+        const int slot=edit_client_cursor=edit_client_cursor%max_clients+1;
+        auto& delivery=edit_deliveries[slot];
+        if(!delivery.enabled||edicts[slot].free)continue;
+        if(delivery.message.payload.empty()){
+            auto changes=ledger.since(delivery.revision);if(changes.empty())continue;
+            if(edit_transfer==UINT64_MAX)throw ProtocolError("Map edit transfer exhausted");
+            delivery.message=std::move(changes.front());delivery.offset=0;delivery.transfer=++edit_transfer;
+        }
+        const auto bytes=edits::fragment(registry.world(),delivery.transfer,delivery.message,delivery.offset);
+        MESSAGE_BEGIN(MSG_ONE,edit_message,nullptr,edicts+slot);
+        for(auto byte:bytes)WRITE_BYTE(byte);
+        MESSAGE_END();++sent;
+        delivery.offset+=std::min(edits::fragment_bytes,delivery.message.payload.size()-delivery.offset);
+        if(delivery.offset==delivery.message.payload.size()){
+            delivery.revision=EditRevision(delivery.message);delivery.message.payload.clear();delivery.offset=0;
+        }
+    }
+}
 void HandleMining(std::span<const std::uint8_t> bytes){
     const auto request=mining::decode_request(bytes);
     const auto policy=GoldCraft_MapMiningPolicy();
@@ -513,12 +556,17 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         collision_sequence=0;next_colliders=0;client_colliders={};colliders_initialized={};
         mob_damage_event=mob_damage_accepted=mob_damage_rejected=0;
         GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_events={};next_mining={};
+        edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
         form_message=REG_USER_MSG("GCForm",16);
         object_message=REG_USER_MSG("GCObj",56);
+        edit_message=REG_USER_MSG("GCEdit",-1);
+        // The world edict selects serverinfo; nullptr selects localinfo in
+        // ReHLDS. Ordinary servers therefore never trigger the client handshake.
+        SET_KEY_VALUE(GET_INFO_BUFFER(edicts),"mc_protocol",std::to_string(protocol_version).c_str());
         BridgeLog("registered GCBind="+std::to_string(binding_message)+", GCAvatar="+std::to_string(avatar_message));
         if(auto config=environment_config("GOLDCRAFT_SERVER",Role::host_server,Role::fabric_server)) {
             auto factory=Sys_GetFactory("swds.dll");
@@ -535,6 +583,7 @@ void GoldCraft_ServerDeactivate() {
     for(int slot=1;slot<=max_clients;++slot)ReleaseControl(slot);
     GoldCraft_ObjectsReset(true);
     GoldCraft_MapMiningReset(0);
+    edit_deliveries={};edit_revision_sent=0;
     controlled={};client_ready={};avatar_payloads={};
     link.stop(); registry.new_world(0); bsp_bytes.clear();edicts=nullptr; max_clients=0; BridgeLog("server map deactivated; all bindings invalidated");
 }
@@ -552,6 +601,7 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
 }
 void GoldCraft_ClientDisconnect(edict_t* player) {
     const auto slot=ENTINDEX(player);if(slot<1||slot>=static_cast<int>(controlled.size()))return;
+    edit_deliveries[slot]={};
     ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
 }
 void GoldCraft_PlayerSpawn(edict_t* player) {
@@ -580,6 +630,15 @@ bool GoldCraft_MinecraftFallAuthority(edict_t* player){
         &&gpGlobals->time-controlled[slot].last_update<=1.0f;
 }
 bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
+    if(std::strcmp(command,"goldcraft_edits")==0){
+        const int slot=ENTINDEX(player);
+        if(!edicts||slot<1||slot>max_clients||!edit_deliveries[slot].enabled||CMD_ARGC()!=2)return true;
+        char* end=nullptr;const auto epoch=std::strtoull(CMD_ARGV(1),&end,10);
+        auto& delivery=edit_deliveries[slot];
+        if(!*CMD_ARGV(1)||*end||epoch!=registry.world()||gpGlobals->time<delivery.next_query)return true;
+        delivery.revision=0;delivery.message.payload.clear();delivery.offset=0;delivery.next_query=gpGlobals->time+1;
+        return true;
+    }
     if(std::strcmp(command,"goldcraft_form")==0){
         const auto slot=ENTINDEX(player);
         if(!edicts||slot<1||slot>max_clients||CMD_ARGC()!=2||allow_switch.value==0)return true;
@@ -605,6 +664,7 @@ bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
     const auto slot=ENTINDEX(player);
     if(edicts&&slot>=1&&slot<=max_clients&&registry.get(slot)&&player->pvPrivateData&&!player->free){
         const bool first=!client_ready[slot];client_ready[slot]=true;
+        if(CMD_ARGC()==2&&CMD_ARGV(1)==std::to_string(protocol_version))edit_deliveries[slot].enabled=true;
         if(first)SendBinding(player);
     }
     return true;
@@ -642,6 +702,7 @@ void GoldCraft_StartFrame() {
             for(int i=1;i<=max_clients;++i){ReleaseControl(i);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};mining_policy_sent=0;next_snapshot=0;
+            edit_revision_sent=0;next_edit_query=0;
             connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");
         }
         trace_queries=0;
@@ -654,12 +715,17 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
             else if(message.type==Type::map_mining_request)HandleMining(message.payload);
+            else if(message.type==Type::map_edit_query){
+                const auto epoch=r.u64();r.finish();
+                if(epoch==registry.world()&&gpGlobals->time>=next_edit_query){edit_revision_sent=0;next_edit_query=gpGlobals->time+1;}
+            }
             else if(message.type==Type::minecraft_objects){
                 auto snapshot=decode_world_objects(message.payload);
                 if(snapshot.epoch==registry.world()&&snapshot.revision>object_revision){GoldCraft_ObjectsUpdate(snapshot);object_revision=snapshot.revision;}
             }
         }
         GoldCraft_ObjectsExpire();
+        SendEdits();
         if(gpGlobals->time>=next_colliders){next_colliders=gpGlobals->time+0.05f;SendColliders();}
         for(int i=1;i<=max_clients;i++)if(controlled[i].active){
             auto& state=controlled[i];

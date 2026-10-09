@@ -111,6 +111,7 @@ public final class MapMiningProbe {
         }
         if (player == null) return;
         switch (op) {
+            case "forget_edits" -> GoldCraft.HOST_WORLD.edits().reset(GoldCraft.HOST_WORLD.epoch());
             case "aim" -> {
                 var eye = data.getAsJsonArray("eye"); var point = data.getAsJsonArray("point");
                 double x=eye.get(0).getAsDouble(), y=eye.get(1).getAsDouble(), z=eye.get(2).getAsDouble();
@@ -186,6 +187,8 @@ public final class MapMiningProbe {
             out.addProperty("tick",ticks); out.addProperty("command",acknowledged); out.addProperty("connected",GoldCraft.hostConnected());
             out.addProperty("map",host.map()); out.addProperty("mode",host.mining().mode());
             out.addProperty("policyRevision",host.mining().revision()); out.addProperty("freeze",host.freeze());
+            out.addProperty("editsReady",host.edits().ready());out.addProperty("editRevision",host.edits().revision());
+            out.addProperty("editCount",host.edits().cuts().size());
             out.addProperty("slot",slot); out.addProperty("actorFlags",actor==null?0:actor.flags());
             out.addProperty("held",held); out.addProperty("renew",renew); out.addProperty("error",error);
             out.addProperty("statusRetries",statusRetries);

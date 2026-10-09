@@ -8,6 +8,8 @@ import dev.goldcraft.net.BindingPayload;
 import dev.goldcraft.net.HostPayload;
 import dev.goldcraft.net.HostAssembler;
 import dev.goldcraft.bridge.HostWorldState;
+import dev.goldcraft.bridge.MapEdits;
+import dev.goldcraft.net.EditRequestPayload;
 import dev.goldcraft.world.HostCollision;
 import net.minecraft.client.world.ClientWorld;
 
@@ -18,6 +20,7 @@ public final class GoldCraftClient {
     private HudExporter hud;
     private byte[] binding;
     private long generation, lastBindingSend;
+    private long nextEditQuery;
     public static final HostWorldState HOST=new HostWorldState();
     private final HostAssembler assembler=new HostAssembler();
     private ClientWorld attachedWorld;
@@ -45,9 +48,14 @@ public final class GoldCraftClient {
                     case Wire.ACTORS -> HOST.actors(message.payload());
                     case Wire.BRUSHES -> HOST.brushes(message.payload());
                     case Wire.MAP_MINING_POLICY -> HOST.mining(message.payload());
+                    case Wire.MAP_EDIT_SNAPSHOT -> HOST.edits().accept(MapEdits.snapshot(message.payload()));
+                    case Wire.MAP_EDIT_DELTA -> HOST.edits().accept(MapEdits.delta(message.payload()));
                     default -> { }
                 }
-            }catch(IllegalArgumentException e){GoldCraft.LOGGER.warn("Rejected host map stream: {}",e.getMessage());assembler.clear();HOST.clear();}
+            }catch(IllegalArgumentException e){
+                GoldCraft.LOGGER.warn("Rejected host map stream: {}",e.getMessage());assembler.clear();
+                if(part.type()==Wire.MAP_EDIT_SNAPSHOT||part.type()==Wire.MAP_EDIT_DELTA)HOST.edits().invalidate();else HOST.clear();
+            }
         });
         try {
             BridgeLink.Config.environment("GOLDCRAFT_CLIENT",Wire.FABRIC_CLIENT,Wire.HOST_CLIENT).ifPresent(config->{
@@ -63,6 +71,11 @@ public final class GoldCraftClient {
             var client=net.minecraft.client.MinecraftClient.getInstance();
             tickStarted=Performance.begin();
             if(client.world!=attachedWorld){attachedWorld=client.world;if(attachedWorld!=null)HostCollision.attach(attachedWorld,HOST);else{assembler.clear();HOST.clear();}}
+            if(HOST.epoch()!=0&&!HOST.edits().ready()&&client.getNetworkHandler()!=null&&
+                client.getNetworkHandler().hasChannel(EditRequestPayload.ID)&&System.nanoTime()>=nextEditQuery){
+                net.neoforged.neoforge.network.PacketDistributor.sendToServer(new EditRequestPayload(HOST.epoch()));
+                nextEditQuery=System.nanoTime()+1_000_000_000L;
+            }
             if (link==null) return;
             if (!link.connected()) { binding=null;HostInput.clear(); exporter.reset();hud.reset(); return; }
             if (generation!=link.generation()) { generation=link.generation(); binding=null;HostInput.clear(); exporter.reset();hud.reset(); GoldCraft.LOGGER.info("Paired local CS client transport, generation {}",generation); }
