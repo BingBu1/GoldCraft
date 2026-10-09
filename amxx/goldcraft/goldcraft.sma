@@ -17,7 +17,7 @@ public plugin_init()
     register_clcmd("goldcraft_menu", "OpenFormMenu");
     register_clcmd("say /forms", "OpenFormMenu");
     register_clcmd("say_team /forms", "OpenFormMenu");
-    gAllowSwitch = get_cvar_pointer("goldcraft_allow_switch");
+    gAllowSwitch = get_cvar_pointer("mc_allow_switch");
     if (!gAllowSwitch) set_fail_state("GoldCraft form policy cvar is missing");
     register_concmd("amx_gc_form", "AdminForm", ADMIN_CFG, "<#userid> <0=CS|1=Minecraft>");
     register_srvcmd("gc_amxx_status", "ServerStatus");

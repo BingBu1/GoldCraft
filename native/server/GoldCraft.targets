@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp;$(GoldCraftRoot)\native\server\map_mining.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

@@ -24,6 +24,7 @@ public final class HostWorldState {
     private byte[] bspBytes;
     private long brushTick;
     private boolean freeze;
+    private MapMining.Policy mining=MapMining.Policy.none();
     public long epoch(){return epoch;}
     public long tick(){return tick;}
     public String map(){return map;}
@@ -34,7 +35,13 @@ public final class HostWorldState {
     public BspMap geometry(){return geometry;}
     public byte[] bspBytes(){return bspBytes;}
     public boolean freeze(){return freeze;}
-    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;bspBytes=null;freeze=false;}
+    public MapMining.Policy mining(){return mining;}
+    public void mining(byte[] bytes){
+        var policy=MapMining.policy(bytes);
+        if(epoch==0||policy.epoch()!=epoch||Long.compareUnsigned(policy.revision(),mining.revision())<=0)return;
+        mining=policy;
+    }
+    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();}
     private static Vector vector(Wire.Reader r){return new Vector(r.f32(),r.f32(),r.f32());}
     public void world(byte[] payload) {
         Wire.Reader r=new Wire.Reader(payload); long newEpoch=r.i64(); String newMap=r.string(128);r.finish();

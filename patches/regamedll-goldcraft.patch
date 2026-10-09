@@ -194,6 +194,24 @@ index 2682778..f1f636a 100644
  
  #ifdef REGAMEDLL_API
  void SendSayMessage_OrigFunc(CBasePlayer *pPlayer, const char *pszCmd, BOOL teamonly, const char *pszText, const char *pszFormat, const char *pszConsoleFormat, bool bSenderDead, const char *placeName, bool consoleUsesPlaceName);
+diff --git a/regamedll/dlls/game.cpp b/regamedll/dlls/game.cpp
+index 7f3e810..e54c9b1 100644
+--- a/regamedll/dlls/game.cpp
++++ b/regamedll/dlls/game.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ cvar_t *g_pskill          = nullptr;
+ cvar_t *g_psv_gravity     = nullptr;
+@@ -261,6 +262,7 @@ SpewRetval_t GameDLL_SpewHandler(SpewType_t spewType, int level, const char *pMs
+ 
+ void EXT_FUNC GameDLLInit()
+ {
++	GoldCraft_InitCvars();
+ 	// By default, direct dbg reporting...
+ 	SpewOutputFunc(GameDLL_SpewHandler);
+ 
 diff --git a/regamedll/dlls/observer.cpp b/regamedll/dlls/observer.cpp
 index 3ccefc4..da9ec23 100644
 --- a/regamedll/dlls/observer.cpp

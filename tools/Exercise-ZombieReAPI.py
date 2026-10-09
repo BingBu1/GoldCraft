@@ -216,7 +216,7 @@ goldcraft_zp_reapi_test 1
             self.report['passed'] = (len(self.report['variants']) == 2 and not errors and
                                      all(len(v['checks']) >= 50 and not v['failed'] for v in self.report['variants']))
 
-    def close(self):
+    def close(self, output=None):
         if self.process is not None and self.process.poll() is None:
             try:
                 self.command('quit')
@@ -235,7 +235,7 @@ goldcraft_zp_reapi_test 1
                 path.write_bytes(data)
         self.report['fixtureFilesRestored'] = all((not p.exists()) if data is None else p.read_bytes() == data for p, data in self.before.items())
         self.report['fixtureStopped'] = self.process is None or self.process.poll() is not None
-        output = ROOT / 'analysis/goldcraft-tests' / ('zp-reapi-' + STAMP + '.json')
+        output = output or ROOT / 'analysis/goldcraft-tests' / ('zp-reapi-' + STAMP + '.json')
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(self.report, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({'report': output.relative_to(ROOT).as_posix(), 'passed': self.report.get('passed', False),

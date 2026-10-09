@@ -1,5 +1,6 @@
 #pragma once
 struct edict_s;
+void GoldCraft_InitCvars();
 void GoldCraft_ObjectsPrecache();
 bool GoldCraft_ObjectBlocksPenetration(edict_s* entity);
 void GoldCraft_ServerActivate(edict_s* edicts, int max_clients);

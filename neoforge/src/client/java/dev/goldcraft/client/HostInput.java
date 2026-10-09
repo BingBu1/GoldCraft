@@ -38,6 +38,7 @@ public final class HostInput {
     public static boolean attacking(){return controlling&&active()&&(buttons&1)!=0;}
     public static void clear(){
         HostKeys.reset();
+        HostMiningInput.clear();
         if(controlling){var o=MinecraftClient.getInstance().options;for(var key:new KeyBinding[]{o.forwardKey,o.backKey,o.leftKey,o.rightKey,o.jumpKey,o.sneakKey,o.sprintKey,o.attackKey,o.useKey})key.setPressed(false);}
         epoch=sequence=lastInput=lastReady=0;buttons=presses=active=serial=life=0;controlling=false;playerInstance=null;
     }
@@ -122,6 +123,8 @@ public final class HostInput {
         data.addProperty("minecraftForm",actor!=null&&actor.minecraftForm());
         data.addProperty("inputButtons",buttons);data.addProperty("forward",forward);data.addProperty("side",side);
         data.addProperty("freeze",GoldCraftClient.HOST.freeze());
+        data.addProperty("mapMiningMode",GoldCraftClient.HOST.mining().mode());
+        data.addProperty("mapMiningRevision",Long.toUnsignedString(GoldCraftClient.HOST.mining().revision()));
         data.addProperty("screen",client.currentScreen==null?"":client.currentScreen.getClass().getName());
         data.addProperty("chatScreen",client.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen);
         data.addProperty("operatorCommands",client.player!=null&&client.player.hasPermissionLevel(2));

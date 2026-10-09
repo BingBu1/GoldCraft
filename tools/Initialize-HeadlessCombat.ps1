@@ -81,7 +81,7 @@ $cluster=@{csPort=(UniquePort $true);serverPort=(UniquePort $false);minecraftPor
     csRconToken=[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32));rconToken=[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))}
 $cluster | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $testRoot 'cluster.json') -Encoding utf8
 @('hostname "GoldCraft headless combat fixture"','sv_lan 1','mp_freezetime 0','mp_roundtime 9','mp_round_infinite 1','mp_timelimit 0',
-  'mp_autoteambalance 0','mp_limitteams 0','mp_autokick 0','mp_respawn_immunitytime 0','goldcraft_default_form 0','goldcraft_headless_test 1','log off',
+  'mp_autoteambalance 0','mp_limitteams 0','mp_autokick 0','mp_respawn_immunitytime 0','mc_default_form 0','goldcraft_headless_test 1','log off',
   ('rcon_password "'+$cluster.csRconToken+'"')) | Set-Content -LiteralPath (Join-Path $game 'cstrike/server.cfg') -Encoding ascii
 '// Independent test configuration.' | Set-Content -LiteralPath (Join-Path $game 'cstrike/autoexec.cfg') -Encoding ascii
 # Host_Init loads valve.rc; stuffcmds is what actually executes +map/+exec.

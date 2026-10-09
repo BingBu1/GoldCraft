@@ -521,12 +521,12 @@ void InitHud() {
     });
     gEngfuncs.pfnAddCommand("+goldcraft_use",BeginHostUse);
     gEngfuncs.pfnAddCommand("-goldcraft_use",EndHostUse);
-    view_smoothing=gEngfuncs.pfnRegisterVariable("goldcraft_view_smoothing","1",0);
-    replace_players=gEngfuncs.pfnRegisterVariable("goldcraft_replace_players","1",0);
-    minecraft_hud=gEngfuncs.pfnRegisterVariable("goldcraft_hud","1",0);
-    gui_scale=gEngfuncs.pfnRegisterVariable("goldcraft_gui_scale","0",0);
+    view_smoothing=gEngfuncs.pfnRegisterVariable("mc_view_smoothing","1",0);
+    replace_players=gEngfuncs.pfnRegisterVariable("mc_replace_players","1",0);
+    minecraft_hud=gEngfuncs.pfnRegisterVariable("mc_hud","1",0);
+    gui_scale=gEngfuncs.pfnRegisterVariable("mc_gui_scale","0",0);
     host_viewmodel=gEngfuncs.pfnGetCvarPointer("r_drawviewmodel");
-    render_particles=gEngfuncs.pfnRegisterVariable("goldcraft_particles","1",0);
+    render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCAvatar",AvatarMessage);
     gEngfuncs.pfnHookUserMsg("GCForm",FormMessage);
@@ -755,9 +755,9 @@ void TestCommands() {
             gEngfuncs.pfnServerCmd(command.data());
         }
     }
-    else if(action=="hud"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_hud",static_cast<float>(enabled));}
-    else if(action=="hud_scale"){int scale=0;if(input>>scale&&scale>=0&&scale<=8)gEngfuncs.Cvar_SetValue("goldcraft_gui_scale",static_cast<float>(scale));}
-    else if(action=="particles"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_particles",static_cast<float>(enabled));}
+    else if(action=="hud"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_hud",static_cast<float>(enabled));}
+    else if(action=="hud_scale"){int scale=0;if(input>>scale&&scale>=0&&scale<=8)gEngfuncs.Cvar_SetValue("mc_gui_scale",static_cast<float>(scale));}
+    else if(action=="particles"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_particles",static_cast<float>(enabled));}
     else if(action=="slot"){int slot=0;if(input>>slot&&slot>=1&&slot<=9)SendControl(slot);}
     else if(action=="ui_move"){float x=0,y=0;if(input>>x>>y&&x>=0&&x<=1&&y>=0&&y<=1){ui_x=x;ui_y=y;SendUi(1);}}
     else if(action=="ui_click"){int button=0;if(input>>button&&button>=0&&button<=2){SendUi(2,button,1);SendUi(2,button,0);}}
@@ -775,8 +775,8 @@ void TestCommands() {
             gEngfuncs.pfnClientCmd(command.data());
         }
     }
-    else if(action=="avatars"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_replace_players",static_cast<float>(enabled));}
-    else if(action=="smoothing"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("goldcraft_view_smoothing",static_cast<float>(enabled));}
+    else if(action=="avatars"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_replace_players",static_cast<float>(enabled));}
+    else if(action=="smoothing"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_view_smoothing",static_cast<float>(enabled));}
     else if(action=="shadows"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("r_shadow",static_cast<float>(enabled));}
     else if(action=="render_options"){
         int deferred=1,diagnostics=0;

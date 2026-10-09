@@ -44,6 +44,7 @@ public final class GoldCraftClient {
                     case Wire.BSP -> {HOST.bsp(message.payload());GoldCraft.LOGGER.info("Client received host BSP: map={} CRC32={} models={}",HOST.map(),HOST.geometry().crc(),HOST.geometry().modelCount());}
                     case Wire.ACTORS -> HOST.actors(message.payload());
                     case Wire.BRUSHES -> HOST.brushes(message.payload());
+                    case Wire.MAP_MINING_POLICY -> HOST.mining(message.payload());
                     default -> { }
                 }
             }catch(IllegalArgumentException e){GoldCraft.LOGGER.warn("Rejected host map stream: {}",e.getMessage());assembler.clear();HOST.clear();}
@@ -84,6 +85,7 @@ public final class GoldCraftClient {
             // Client ticks still run with the Minecraft window behind CS or minimized.
             // This thread also owns the GL context; world rendering callbacks alone can stop.
             HostInput.tick(client);
+            HostMiningInput.tick(client);
         });
         events.addListener((net.neoforged.neoforge.client.event.ClientTickEvent.Post event)->{
             var client=net.minecraft.client.MinecraftClient.getInstance();

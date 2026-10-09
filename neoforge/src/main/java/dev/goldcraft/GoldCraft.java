@@ -14,6 +14,8 @@ import dev.goldcraft.world.HostWorldReset;
 import dev.goldcraft.world.MinecraftObjects;
 import dev.goldcraft.world.NativePlayers;
 import dev.goldcraft.world.SharedVitals;
+import dev.goldcraft.world.HostMining;
+import dev.goldcraft.net.MiningPayload;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.slf4j.Logger;
@@ -29,7 +31,7 @@ public final class GoldCraft {
     public static final TraceValidation TRACE_VALIDATION=new TraceValidation();
     private static final Map<UUID,Binding> BINDINGS=new HashMap<>();
     private static final Map<UUID,Delivery> DELIVERIES=new HashMap<>();
-    private static byte[] worldPayload,bspPayload,actorPayload,brushPayload;
+    private static byte[] worldPayload,bspPayload,actorPayload,brushPayload,miningPayload;
     private record Binding(long world,int slot,int serial) {}
     private static final class Delivery {
         final ArrayDeque<Wire.Message> queue=new ArrayDeque<>();
@@ -51,7 +53,7 @@ public final class GoldCraft {
     public static boolean hostConnected(){return serverLink!=null&&serverLink.connected();}
     public static boolean sendToHost(int type,byte[] payload){return hostConnected()&&serverLink.send(type,payload);}
     private static void reset(MinecraftServer server) {
-        HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=null;
+        HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
     private static void broadcast(int type,byte[] data) {
         for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey()))entry.getValue().enqueue(type,data);
@@ -67,6 +69,7 @@ public final class GoldCraft {
             HostSession.paired(uuid,world);
             delivery.enqueue(Wire.WORLD,worldPayload);delivery.enqueue(Wire.BSP,bspPayload);
             delivery.enqueue(Wire.ACTORS,actorPayload);delivery.enqueue(Wire.BRUSHES,brushPayload);
+            delivery.enqueue(Wire.MAP_MINING_POLICY,miningPayload);
             LOGGER.info("Authoritative player paired: slot={} serial={} epoch={}",slot,serial,Long.toUnsignedString(world));
         }
         if(first||status!=0)delivery.enqueue(Wire.PAIR_RESULT,bytes);
@@ -84,7 +87,7 @@ public final class GoldCraft {
             if(event.getEntity() instanceof ServerPlayerEntity player && serverLink!=null && player.networkHandler.hasChannel(HostPayload.ID))HostSession.hold(player);
         });
         events.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event)-> {
-            if(event.getEntity() instanceof ServerPlayerEntity player){BINDINGS.remove(player.getUuid());DELIVERIES.remove(player.getUuid());HostSession.disconnect(player);}
+            if(event.getEntity() instanceof ServerPlayerEntity player){BINDINGS.remove(player.getUuid());DELIVERIES.remove(player.getUuid());HostMining.disconnect(player.getUuid());HostSession.disconnect(player);}
         });
         events.addListener((net.neoforged.neoforge.event.server.ServerStartedEvent event)-> {
             var server=event.getServer();
@@ -120,6 +123,13 @@ public final class GoldCraft {
                         case Wire.TRACE_RESULT -> TRACE_VALIDATION.result(message.payload(),HOST_WORLD);
                         case Wire.OBJECT_ACTION -> MinecraftObjects.action(server,HOST_WORLD,message.payload());
                         case Wire.DAMAGE_RESULT -> NativePlayers.result(message.payload());
+                        case Wire.MAP_MINING_POLICY -> {
+                            var previous=HOST_WORLD.mining();HOST_WORLD.mining(message.payload());
+                            if(!previous.equals(HOST_WORLD.mining())){
+                                miningPayload=HOST_WORLD.mining().encode();broadcast(Wire.MAP_MINING_POLICY,miningPayload);
+                            }
+                        }
+                        case Wire.MAP_MINING_RESULT -> HostMining.result(server,HOST_WORLD,message.payload());
                         default -> { }
                     }
                 }catch(IllegalArgumentException e){LOGGER.warn("Rejected host-server payload: {}",e.getMessage());}
@@ -130,6 +140,7 @@ public final class GoldCraft {
             }
             TRACE_VALIDATION.tick(HOST_WORLD);
             HostSession.tick(server,HOST_WORLD);
+            HostMining.tick(server,HOST_WORLD);
             NativePlayers.tick(server,HOST_WORLD);
             MinecraftObjects.tick(server,HOST_WORLD);
             Performance.flush();
@@ -144,6 +155,9 @@ public final class GoldCraft {
         });
         registrar.playToServer(ControlPayload.ID,ControlPayload.CODEC,(payload,context)->
             HostSession.ready(context.player().getUuid(),payload.epoch(),payload.serial(),payload.life(),payload.ready()));
+        registrar.playToServer(MiningPayload.ID,MiningPayload.CODEC,(payload,context)->{
+            if(context.player() instanceof ServerPlayerEntity player)HostMining.intent(player,payload);
+        });
         registrar.playToClient(HostPayload.ID,HostPayload.CODEC,dev.goldcraft.net.HostNetwork::receive);
     }
 

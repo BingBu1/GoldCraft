@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #include "bridge.h"
 #include "objects.h"
+#include "map_mining.h"
 #include "goldcraft/endpoint.hpp"
 #include "goldcraft/pairing.hpp"
 #include "interface.h"
@@ -48,12 +49,15 @@ std::array<Vec3,65> player_spawns{};
 std::array<bool,65> minecraft_forms{};
 std::array<float,65> next_form_change{};
 FormListener form_listener=nullptr;
-cvar_t default_form={"goldcraft_default_form","1",FCVAR_SERVER,1,nullptr};
-cvar_t allow_switch={"goldcraft_allow_switch","1",FCVAR_SERVER,1,nullptr};
+cvar_t default_form={"mc_default_form","1",FCVAR_SERVER,1,nullptr};
+cvar_t allow_switch={"mc_allow_switch","1",FCVAR_SERVER,1,nullptr};
 std::uint64_t form_changes=0,wrong_form_poses=0;
 std::uint64_t object_revision=0,object_actions=0,object_damage_actions=0,object_use_actions=0;
 std::uint64_t collision_sequence=0;
 std::uint64_t mob_damage_event=0,mob_damage_accepted=0,mob_damage_rejected=0;
+std::uint64_t mining_policy_sent=0,mining_applied=0,mining_rejected=0;
+std::array<std::uint64_t,65> mining_events{};
+std::array<float,65> next_mining{};
 float next_colliders=0;
 std::array<std::map<std::uint64_t,Bytes>,65> client_colliders;
 std::array<bool,65> colliders_initialized{};
@@ -346,6 +350,8 @@ void SendActors() {
             <<",\"minecraftObjects\":"<<GoldCraft_ObjectCount()<<",\"objectRevision\":"<<object_revision
             <<",\"objectActions\":"<<object_actions<<",\"objectDamageActions\":"<<object_damage_actions<<",\"objectUseActions\":"<<object_use_actions
             <<",\"vitalsAccepted\":"<<vitals_accepted<<",\"vitalsRejected\":"<<vitals_rejected
+            <<",\"mapMiningMode\":"<<static_cast<unsigned>(GoldCraft_MapMiningPolicy().mode)<<",\"mapMiningRevision\":"<<GoldCraft_MapMiningPolicy().revision
+            <<",\"mapMiningApplied\":"<<mining_applied<<",\"mapMiningRejected\":"<<mining_rejected
             <<",\"mobDamageAccepted\":"<<mob_damage_accepted<<",\"mobDamageRejected\":"<<mob_damage_rejected<<",\"actors\":[";
         bool first=true;for(int slot:slots){
             auto* e=edicts+slot;const auto* pair=registry.get(slot);auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e));
@@ -366,7 +372,7 @@ void SendActors() {
             if(!first)out<<',';first=false;
             out<<"{\"slot\":"<<i<<",\"serial\":"<<e->serialnumber<<",\"class\":"<<std::quoted(STRING(e->v.classname))
                 <<",\"model\":"<<std::quoted(STRING(e->v.model))<<",\"solid\":"<<e->v.solid<<",\"moveType\":"<<e->v.movetype
-                <<",\"health\":"<<e->v.health<<",\"useCaps\":"<<p->ObjectCaps()<<",\"touches\":"<<touches<<",\"minecraftKey\":"<<GoldCraft_ObjectKey(e)
+                <<",\"health\":"<<e->v.health<<",\"takeDamage\":"<<e->v.takedamage<<",\"useCaps\":"<<p->ObjectCaps()<<",\"touches\":"<<touches<<",\"minecraftKey\":"<<GoldCraft_ObjectKey(e)
                 <<",\"origin\":["<<e->v.origin.x<<','<<e->v.origin.y<<','<<e->v.origin.z<<"],\"angles\":["<<e->v.angles.x<<','<<e->v.angles.y<<','<<e->v.angles.z
                 <<"],\"min\":["<<e->v.absmin.x<<','<<e->v.absmin.y<<','<<e->v.absmin.z<<"],\"max\":["<<e->v.absmax.x<<','<<e->v.absmax.y<<','<<e->v.absmax.z<<']';
             if(FClassnameIs(e,"hostage_entity")){auto* leader=static_cast<CHostage*>(p)->GetLeader();out<<",\"leader\":"<<(leader?leader->entindex():0);}
@@ -458,8 +464,43 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes){
     Writer reply;reply.u64(registry.world());reply.u64(damage.event);reply.u32(damage.slot);reply.u32(damage.serial);reply.u32(damage.life);reply.u32(status);reply.f32(health);reply.f32(armor);
     link.send(Type::damage_result,reply.data);
 }
+void SendMiningPolicy(){
+    const auto policy=GoldCraft_MapMiningPolicy();
+    if(link.connected()&&policy.epoch&&policy.revision!=mining_policy_sent&&link.send(Type::map_mining_policy,mining::encode_policy(policy)))
+        mining_policy_sent=policy.revision;
+}
+void HandleMining(std::span<const std::uint8_t> bytes){
+    const auto request=mining::decode_request(bytes);
+    const auto policy=GoldCraft_MapMiningPolicy();
+    mining::Result result{registry.world(),request.event,policy.revision,request.slot,request.serial,request.life,request.target,request.target_serial};
+    const auto* pair=request.slot<=static_cast<unsigned>(max_clients)?registry.get(request.slot):nullptr;
+    const bool current=pair&&pair->paired&&request.epoch==registry.world()&&pair->serial==request.serial&&pair->uuid==request.uuid
+        &&request.life==player_lives[request.slot]&&minecraft_forms[request.slot]&&controlled[request.slot].active
+        &&gpGlobals->time-controlled[request.slot].last_update<=1.0f;
+    if(current){
+        if(request.event<=mining_events[request.slot])result.status=mining::Status::replay;
+        else{
+            mining_events[request.slot]=request.event;
+            if(request.revision!=policy.revision)result.status=mining::Status::stale_policy;
+            else if(policy.mode==mining::Mode::disabled)result.status=mining::Status::disabled;
+            else if(gpGlobals->time<next_mining[request.slot])result.status=mining::Status::cooldown;
+            else{
+                next_mining[request.slot]=gpGlobals->time+0.19f;
+                result=GoldCraft_MapMiningApply(request,edicts+request.slot);
+            }
+        }
+    }
+    if(result.status==mining::Status::applied)++mining_applied;else ++mining_rejected;
+    link.send(Type::map_mining_result,mining::encode_result(result));
+    SendMiningPolicy();
+}
 }
 
+void GoldCraft_InitCvars(){
+    static bool registered=false;
+    if(!registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);registered=true;}
+    GoldCraft_MapMiningInit();
+}
 void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
     try {
         if(!server_log.is_open()) if(const char* path=std::getenv("GOLDCRAFT_SERVER_LOG"))server_log.open(path,std::ios::app);
@@ -471,8 +512,8 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         GoldCraft_ObjectsReset(false);object_revision=object_actions=object_damage_actions=object_use_actions=0;
         collision_sequence=0;next_colliders=0;client_colliders={};colliders_initialized={};
         mob_damage_event=mob_damage_accepted=mob_damage_rejected=0;
-        static bool cvars_registered=false;
-        if(!cvars_registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);cvars_registered=true;}
+        GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_events={};next_mining={};
+        GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
@@ -493,6 +534,7 @@ void GoldCraft_ServerDeactivate() {
     // Restore live edicts before dropping the table, then leave no active leases.
     for(int slot=1;slot<=max_clients;++slot)ReleaseControl(slot);
     GoldCraft_ObjectsReset(true);
+    GoldCraft_MapMiningReset(0);
     controlled={};client_ready={};avatar_payloads={};
     link.stop(); registry.new_world(0); bsp_bytes.clear();edicts=nullptr; max_clients=0; BridgeLog("server map deactivated; all bindings invalidated");
 }
@@ -510,7 +552,7 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
 }
 void GoldCraft_ClientDisconnect(edict_t* player) {
     const auto slot=ENTINDEX(player);if(slot<1||slot>=static_cast<int>(controlled.size()))return;
-    ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
+    ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
 }
 void GoldCraft_PlayerSpawn(edict_t* player) {
     const auto slot=ENTINDEX(player);
@@ -598,10 +640,11 @@ void GoldCraft_StartFrame() {
             // and allow a restarted Minecraft server to publish its initial sequences.
             for(int i=1;i<=max_clients;++i){ReleaseControl(i);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
-            mob_damage_event=0;vitals_ack={};next_snapshot=0;
+            mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};mining_policy_sent=0;next_snapshot=0;
             connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");
         }
         trace_queries=0;
+        SendMiningPolicy();
         for(auto& message : link.take_messages()) {
             Reader r(message.payload);
             if(message.type==Type::pair_player)HandlePair(r);
@@ -609,6 +652,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::authoritative_pose)HandlePose(r);
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
+            else if(message.type==Type::map_mining_request)HandleMining(message.payload);
             else if(message.type==Type::minecraft_objects){
                 auto snapshot=decode_world_objects(message.payload);
                 if(snapshot.epoch==registry.world()&&snapshot.revision>object_revision){GoldCraft_ObjectsUpdate(snapshot);object_revision=snapshot.revision;}

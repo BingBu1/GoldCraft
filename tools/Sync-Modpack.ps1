@@ -34,6 +34,12 @@ function Get-ManagedRuntime($item) {
         elseif($item.Role -eq 'CsServer'){Join-Path $script:GoldCraftRoot 'sandbox/cs-server/Half-Life/hlds.exe'}
         else{Join-Path $script:GoldCraftRoot '.tools/java/jdk-21.0.12.1+1/bin/java.exe'}
     $expected=Assert-WorkspacePath $expected
+    # An old record can point to an unrelated process after Windows reuses its
+    # PID. Both image and creation time must differ before treating it as gone.
+    if($live.ExecutablePath -and $live.ExecutablePath -ne $expected -and
+        [Math]::Abs(($live.CreationDate.ToUniversalTime()-[DateTime]::Parse($record.startedUtc).ToUniversalTime()).TotalSeconds) -gt 1) {
+        return $null
+    }
     if($live.ExecutablePath -ne $expected -or $record.executable -ne $expected -or
         [Math]::Abs(($live.CreationDate.ToUniversalTime()-[DateTime]::Parse($record.startedUtc).ToUniversalTime()).TotalSeconds) -gt 1) {
         throw "Stale or mismatched process identity for $($item.Instance) $($item.Role); no process was stopped."

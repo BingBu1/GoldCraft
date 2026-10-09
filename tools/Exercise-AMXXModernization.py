@@ -55,7 +55,7 @@ class Run(base.Run):
         self.put(base.AMXX / "logs/goldcraft-modern.jsonl", b"")
         self.put(base.GAME / "cstrike/goldcraft_modern.cfg", b"""exec goldcraft_zp_reapi.cfg
 goldcraft_modern_test 1
-goldcraft_allow_switch 1
+mc_allow_switch 1
 zp_gamemode_delay 100000
 zp_prevent_consecutive_modes 0
 zp_random_primary 0

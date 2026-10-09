@@ -1,7 +1,8 @@
 param([ValidateSet('cs-client-a','cs-client-b')][string[]]$Clients=@('cs-client-b'), [switch]$ClientOnly,
-      [switch]$WithMetaHookRuntime, [switch]$ValidateOnly)
+      [switch]$WithMetaHookRuntime, [switch]$ValidateOnly, [switch]$BridgeOnly)
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 if($WithMetaHookRuntime -and -not $ClientOnly){throw 'Use -ClientOnly for a MetaHook runtime update.'}
+if($BridgeOnly -and $WithMetaHookRuntime){throw 'A bridge-only deployment does not update MetaHook runtime files.'}
 $instances=@($Clients | Select-Object -Unique)
 if(-not $ClientOnly){$instances=@('cs-server')+$instances}
 $running=Get-CimInstance Win32_Process | Where-Object {
@@ -67,16 +68,25 @@ function Merge-RuntimeList([string]$Instance,[string]$Relative){
     return $candidate
 }
 if(-not $ClientOnly){
-    foreach($name in @('hlds.exe','swds.dll','filesystem_stdio.dll')){
-        Queue-File "dist/rehlds/$name" "sandbox/cs-server/Half-Life/$name"
+    if(-not $BridgeOnly){
+        foreach($name in @('hlds.exe','swds.dll','filesystem_stdio.dll')){
+            Queue-File "dist/rehlds/$name" "sandbox/cs-server/Half-Life/$name"
+        }
     }
     Queue-File 'build/regamedll/Release/mp.dll' 'sandbox/cs-server/Half-Life/cstrike/dlls/mp.dll'
     Queue-File 'build/native-x86/Release/goldcraft_amxx.dll' 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/modules/goldcraft_amxx.dll'
-    Queue-File 'build/sypb/Release/sypb.dll' 'sandbox/cs-server/Half-Life/cstrike/addons/sypb/sypb.dll'
-    Queue-File 'build/sypb/Release/sypb_amxx.dll' 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/modules/sypb_amxx.dll'
+    Queue-File 'build/amxx/plugins/goldcraft.amxx' 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/plugins/goldcraft.amxx'
+    if(-not $BridgeOnly){
+        Queue-File 'build/sypb/Release/sypb.dll' 'sandbox/cs-server/Half-Life/cstrike/addons/sypb/sypb.dll'
+        Queue-File 'build/sypb/Release/sypb_amxx.dll' 'sandbox/cs-server/Half-Life/cstrike/addons/amxmodx/modules/sypb_amxx.dll'
+    }
 }
 foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
+    if($BridgeOnly){
+        Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
+        continue
+    }
     if($WithMetaHookRuntime){
         foreach($file in $runtime.files){
             $relative=$file.path.Replace('\','/')

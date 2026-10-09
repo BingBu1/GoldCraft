@@ -12,6 +12,28 @@
 
 ## 使用形态接口
 
+Minecraft 相关游戏 cvar 统一使用 `mc_` 前缀。服务器控制项可写入 `server.cfg`，也可在 HLDS 控制台／RCON 运行时修改：
+
+| cvar | 默认值 | 用途 |
+|---|---|---|
+| `mc_default_form` | `1` | 新配对玩家默认进入 MC 形态；`0` 保持 CS |
+| `mc_allow_switch` | `1` | 允许形态菜单和命令切换；`0` 禁止 |
+| `mc_map_mining` | `1` | `0` 禁止挖掘地图，`1` 仅可受伤地图实体，`2` 所有地图几何；整图挖洞仍在实现，见[挖掘状态](WORLD_CARVING.md) |
+
+客户端设置写入 CS 的 `userconfig.cfg`，或在客户端控制台修改：
+
+| cvar | 默认值 | 用途 |
+|---|---|---|
+| `mc_view_smoothing` | `1` | 平滑 MC 视角移动；`0` 关闭 |
+| `mc_replace_players` | `1` | 用配对 MC 人物替换对应 CS 人物绘制；`0` 关闭 |
+| `mc_hud` | `1` | 显示 MC HUD；`0` 关闭 |
+| `mc_gui_scale` | `0` | MC 界面缩放；`0` 自动 |
+| `mc_particles` | `1` | 绘制 MC 粒子；`0` 关闭 |
+
+原来八个对应的 `goldcraft_` 游戏 cvar 已更名，自定义 cfg 需将它们的前缀改为 `mc_`；不注册旧名别名。插件文件名、服务器命令和 Pawn API 保持原接口。`gc_precache_protocol` 等能力协商标识属于通用 CS 扩展协议，不属于 MC 游戏设置。
+
+服务器 cvar 在 `GameDLLInit` 注册，AMXX `plugin_init` 能直接获取。需要在首张地图创建前设值时使用 ReGameDLL 的 `game_init.cfg`；`autoexec.cfg` 可能先于游戏 DLL 加载，不适合这些游戏 cvar。`server.cfg` 和运行时 RCON 修改已纳入独立测试。改名与协议 19 必须随配套 native／NeoForge／Pawn 产物一起部署；文件更新后需重启对应进程。本轮配套文件已同步到关闭的沙盒 A/B、ReHLDS 与 Minecraft 服务端，主服未自动启动。
+
 包含 `goldcraft.inc`，以 AMXX 玩家槽位调用：
 
 | 接口 | 结果 |

@@ -19,7 +19,9 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前固定宽度协议为 GCF1/version 17，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前固定宽度协议为 GCF1/version 19，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+
+地图挖掘使用消息 56/57/58 分别传递 HLDS 政策、Minecraft 服务端请求和原生处理结果。客户端只发送挖掘按键意图；MC 服务端计算目标和工具伤害，HLDS 再检查配对、形态、代次、频率、距离与真实地图射线，最后执行实体原生伤害回调。`mc_map_mining` 的政策会同步和补发；整图几何的视觉／碰撞修改仍需接入，详见[地图挖掘](WORLD_CARVING.md)。
 
 坐标变换在协议实现中统一：每个 MC 方块对应 32 GoldSrc 单位，MC 的水平 Z 对应 GoldSrc 的反向 Y，MC 高度 Y 转换为 GoldSrc Z；MC 高度基准为 64。玩家脚部、原生角色中心与相机眼高分别处理，避免死亡/重生后人物落在地图下。
 
@@ -42,6 +44,8 @@ MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 G
 形态菜单通过 AMXX 的 ShowMenu/menuselect 在服务器执行选择；MC 形态由合成器补绘菜单。被动 Minecraft 聊天使用独立 HUD 标志，在原生 CS HUD 之后叠加，不触发手部模式。MC 游戏中 `/` 转发到原版命令键；已有菜单里的斜杠继续作为文字输入。
 
 ## 地图会话与版本边界
+
+宿主地图挖掘目前只有经过测试的表面切割核心，还未接入实际 Renderer、碰撞与服务器状态；接口和后续完整路径见[地图挖掘说明](WORLD_CARVING.md)。
 
 地图与会话代次共同确定 MC 宿主维度。换图或 ReHLDS 重启产生新会话并清除建筑；断线重连、区块卸载及资源重载不能被误判成新地图。
 

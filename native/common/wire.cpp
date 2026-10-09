@@ -62,7 +62,8 @@ bool known_type(Type t) {
     case Type::particle_texture: case Type::particle_mesh:
     case Type::block_feedback: case Type::camera: case Type::key_input:
     case Type::authoritative_pose: case Type::minecraft_objects: case Type::object_action: case Type::host_entities:
-    case Type::damage_request: case Type::damage_result: case Type::vitals_delta: return true;
+    case Type::damage_request: case Type::damage_result: case Type::vitals_delta:
+    case Type::map_mining_policy: case Type::map_mining_request: case Type::map_mining_result: return true;
     default: return false;
     }
 }

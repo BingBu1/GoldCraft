@@ -66,6 +66,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", choices=("production", "development"), default="production")
     parser.add_argument("--modpack", action="store_true", help="Load the actual managed server Mod set, including JarJar dependencies")
+    parser.add_argument("--refresh-core", action="store_true", help="Test the current core build in memory without updating the managed Mod source")
     parser.add_argument("--extra-mod", action="append", type=Path, default=[], help="Additional workspace Mod to test without changing the master")
     parser.add_argument("--replace-mod", action="append", type=Path, default=[], help="Test a replacement JAR with the same Mod ID only in this fixture")
     parser.add_argument("--exclude-mod", action="append", default=[], help="Omit one top-level Mod ID only from this isolated fixture; repeat for multiple IDs")
@@ -74,9 +75,9 @@ def main():
     runtime = options.runtime
     if options.modpack and runtime != "production":
         parser.error("Managed third-party Mods require the production runtime")
-    if (options.exclude_mod or options.replace_mod) and not options.modpack:
-        parser.error("--exclude-mod and --replace-mod require --modpack")
-    pack = Modpack.snapshot() if options.modpack else None
+    if (options.exclude_mod or options.replace_mod or options.refresh_core) and not options.modpack:
+        parser.error("--exclude-mod, --replace-mod and --refresh-core require --modpack")
+    pack = Modpack.snapshot(refresh_core=options.refresh_core) if options.modpack else None
     source_fingerprint = pack["fingerprint"] if pack else None
     if pack and (options.exclude_mod or options.extra_mod or options.replace_mod):
         pack = select_fixture_pack(pack, options.exclude_mod, options.extra_mod, options.replace_mod)
@@ -227,6 +228,7 @@ version="1.0.0"
               "goldcraftLoaded": f"GoldCraft initialized: Minecraft {MINECRAFT} / NeoForge {NEOFORGE}" in text,
               "missingMojangClass": "NoClassDefFoundError: net/minecraft/resources/ResourceLocation" in text,
               "managedPackFingerprint": source_fingerprint,
+              "candidateCore": options.refresh_core,
               "testedPackFingerprint": pack["fingerprint"] if pack else None,
               "excludedManagedMods": sorted(set(options.exclude_mod)),
               "replacementJars": [path.name for path in options.replace_mod],

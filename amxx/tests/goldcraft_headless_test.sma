@@ -37,12 +37,14 @@ public CreatePlayer()
     new reject[128];
     dllfunc(DLLFunc_ClientConnect, gBot, "GC_HeadlessNative", "127.0.0.1", reject);
     dllfunc(DLLFunc_ClientPutInServer, gBot);
-    set_entvar(gBot, var_flags, get_entvar(gBot, var_flags) | FL_FAKECLIENT);
     set_member(gBot, m_iJoiningState, JOINED);
     set_member(gBot, m_bJustConnected, false);
     set_member(gBot, m_iMenu, Menu_OFF);
     rg_set_user_team(gBot, TEAM_CT, MODEL_CT_URBAN);
     rg_round_respawn(gBot);
+    // CBasePlayer::Spawn clears all flags except FL_PROXY. This fixture has no
+    // Bot AI think to restore FL_FAKECLIENT, so restore it after the native spawn.
+    set_entvar(gBot, var_flags, get_entvar(gBot, var_flags) | FL_FAKECLIENT);
     return Status();
 }
 
@@ -76,6 +78,7 @@ public ResetPlayer()
     read_argv(5, arg, charsmax(arg)); new armor = str_to_num(arg);
     if (health < 1.0 || health > 100.0 || armor < 0 || armor > 100) return PLUGIN_HANDLED;
     if (!is_user_alive(gBot)) rg_round_respawn(gBot);
+    set_entvar(gBot, var_flags, get_entvar(gBot, var_flags) | FL_FAKECLIENT);
     new Float:zero[3];
     gc_relink_origin(gBot, pos); set_entvar(gBot, var_velocity, zero);
     set_entvar(gBot, var_health, health);
