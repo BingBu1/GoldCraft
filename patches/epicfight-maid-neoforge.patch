@@ -2056,7 +2056,7 @@ index 80b6956..b4b3cba 100644
  }
 diff --git a/src/main/resources/META-INF/neoforge.mods.toml b/src/main/resources/META-INF/neoforge.mods.toml
 new file mode 100644
-index 0000000..ef4b085
+index 0000000..ecc0b72
 --- /dev/null
 +++ b/src/main/resources/META-INF/neoforge.mods.toml
 @@ -0,0 +1,52 @@
@@ -2065,7 +2065,7 @@ index 0000000..ef4b085
 +license="All Rights Reserved"
 +[[mods]]
 +modId="ef_tlm"
-+version="1.3.5-goldcraft.1"
++version="1.3.5-goldcraft.2"
 +displayName="史诗战斗：车万女仆"
 +authors="XcS"
 +logoFile="LOGO.png"

@@ -232,18 +232,46 @@ index b400903..796d680 100644
          if (self instanceof YSMMesh mesh) {
              if (YsmCpuRenderPath.tryRender(mesh, poseStack, drawingFunction, packedLight,
 diff --git a/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java b/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
-index 1f90a5b..80856f4 100644
+index 1f90a5b..8d0da4c 100644
 --- a/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
 +++ b/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
-@@ -28,7 +28,7 @@ public final class YsmGeoMixinPlugin implements IMixinConfigPlugin {
+@@ -13,7 +13,7 @@ import java.util.Set;
+  * The guard mixin targets a YSM class. When the main YSM_EpicFight_Compat mod
+  * is installed it already applies the identical guard, and applying a second
+  * redirect from this mod would conflict with it. This plugin therefore
+- * disables the guard whenever ysm_epicfight_compat is present.
++ * applies the guard only when YSM is present and ysm_epicfight_compat is absent.
+  *
+  * Declared as the {@code "plugin"} of ysm_geo_compat.ysm.mixins.json, which is
+  * the only config that lists the guard (it must stay out of the required main
+@@ -24,14 +24,11 @@ public final class YsmGeoMixinPlugin implements IMixinConfigPlugin {
+     private static final String GUARD_MIXIN = "com.ysmef.geomodel.mixin.ysm.YsmAnimationTransitionGuardMixin";
+     private static final String MAIN_MOD = "ysm_epicfight_compat";
  
-     private static boolean isMainCompatInstalled() {
-         try {
+-    private final boolean mainCompatInstalled = isMainCompatInstalled();
++    private final boolean applyGuard = isModInstalled("yes_steve_model") && !isModInstalled(MAIN_MOD);
+ 
+-    private static boolean isMainCompatInstalled() {
+-        try {
 -            return net.minecraftforge.fml.loading.LoadingModList.get().getModFileById(MAIN_MOD) != null;
-+            return net.neoforged.fml.loading.LoadingModList.get().getModFileById(MAIN_MOD) != null;
-         } catch (Throwable t) {
-             return false;
-         }
+-        } catch (Throwable t) {
+-            return false;
+-        }
++    private static boolean isModInstalled(String modId) {
++        var mods = net.neoforged.fml.loading.LoadingModList.get();
++        return mods != null && mods.getModFileById(modId) != null;
+     }
+ 
+     @Override
+@@ -47,7 +44,7 @@ public final class YsmGeoMixinPlugin implements IMixinConfigPlugin {
+     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+         boolean isGuard = GUARD_MIXIN.equals(mixinClassName)
+                 || (mixinClassName != null && mixinClassName.endsWith("YsmAnimationTransitionGuardMixin"));
+-        return !isGuard || !mainCompatInstalled;
++        return !isGuard || applyGuard;
+     }
+ 
+     @Override
 diff --git a/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java b/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java
 index bfdf076..90d35e7 100644
 --- a/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java
@@ -510,7 +538,7 @@ index de09301..465bde2 100644
      "YsmAnimationTransitionGuardMixin"
 diff --git a/src/main/resources/META-INF/neoforge.mods.toml b/src/main/resources/META-INF/neoforge.mods.toml
 new file mode 100644
-index 0000000..2d11ebc
+index 0000000..b176359
 --- /dev/null
 +++ b/src/main/resources/META-INF/neoforge.mods.toml
 @@ -0,0 +1,41 @@
@@ -519,7 +547,7 @@ index 0000000..2d11ebc
 +license="MIT"
 +[[mods]]
 +modId="ysm_geo_compat"
-+version="1.0.3-goldcraft.1"
++version="1.0.3-goldcraft.2"
 +displayName="YSM GEO Compat"
 +description='''Converts Touhou Little Maid GEO models for Epic Fight animations.
 +Local Minecraft 1.21.1 / NeoForge port for GoldCraft.
@@ -552,6 +580,6 @@ index 0000000..2d11ebc
 +[[dependencies.ysm_geo_compat]]
 +modId="ef_tlm"
 +type="required"
-+versionRange="[1.3.5-goldcraft.1]"
++versionRange="[1.3.5-goldcraft.2]"
 +ordering="AFTER"
 +side="BOTH"

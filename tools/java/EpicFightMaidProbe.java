@@ -36,6 +36,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.ModList;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.loading.FMLPaths;
@@ -45,6 +46,7 @@ import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 
 /** Runs against the installed third-party Mods in a disposable production server. */
 @Mod("goldcraft_maid_probe")
@@ -94,7 +96,18 @@ public final class EpicFightMaidProbe extends OpenMaidSkillScreenPacket {
             for (int x = -4; x <= 12; x++) for (int z = -4; z <= 12; z++)
                 level.setBlockAndUpdate(new BlockPos(x, 0, z), Blocks.STONE.defaultBlockState());
             var skillId = MaidSkillManager.getNonWeaponSkillName().stream().sorted().findFirst().orElseThrow();
-            check("registered skills", MaidSkillManager.getSkillRegisterName().size() >= 5);
+            check("core skills registered", MaidSkillManager.getSkillRegisterName().containsAll(List.of(
+                    ResourceLocation.parse("ef_tlm:blade_clash"), ResourceLocation.parse("ef_tlm:step"))));
+            var optionalSkills = List.of("board_blade_innate", "hf_murasama_innate", "hf_blade_innate", "yamato_innate",
+                    "meen_innate", "claw_innate", "scythe_innate", "kusabimaru_innate", "blood_lust_innate");
+            boolean nightfall = ModList.get().isLoaded("efn");
+            check("NightFall skills follow optional Mod presence", optionalSkills.stream().allMatch(id ->
+                    MaidSkillManager.hasSkillFor(ResourceLocation.fromNamespaceAndPath("ef_tlm", id)) == nightfall));
+            var guard = (IMixinConfigPlugin) Class.forName("com.ysmef.geomodel.mixin.YsmGeoMixinPlugin").getConstructor().newInstance();
+            check("optional YSM mixin requires YSM and yields to its main compat", guard.shouldApplyMixin(
+                    "com.elfmcys.yesstevemodel.geckolib3.core.controller.AnimationControllerRuntime",
+                    "com.ysmef.geomodel.mixin.ysm.YsmAnimationTransitionGuardMixin")
+                    == (ModList.get().isLoaded("yes_steve_model") && !ModList.get().isLoaded("ysm_epicfight_compat")));
             fighter = new EntityMaid(level);
             fighter.moveTo(3.5, 1, 3.5, 0, 0);
             check("spawn actual maid", level.addFreshEntity(fighter));

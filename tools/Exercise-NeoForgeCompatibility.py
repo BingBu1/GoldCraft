@@ -5,6 +5,7 @@ cannot detect a mismatch between the game's and third-party Mods' mappings.
 No running CS/MC pair is addressed, stopped or restarted.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -26,17 +27,59 @@ def argfile(path, arguments):
     path.write_text("\n".join('"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"' for v in arguments), encoding="utf-8")
 
 
+def select_fixture_pack(pack, excluded, extra_mods, replacements=()):
+    """Select test inputs in memory; never edit the XMCL master or deployment state."""
+    excluded = set(excluded)
+    available = {mod_id for node in pack["nodes"] for mod_id in node["metadata"].get("ids", [node["id"]])}
+    if excluded - available:
+        raise ValueError(f"Not a top-level managed Mod: {sorted(excluded - available)}")
+    if "goldcraft" in excluded:
+        raise ValueError("The compatibility probe requires the managed GoldCraft core")
+    nodes = [node for node in pack["nodes"] if excluded.isdisjoint(node["metadata"].get("ids", [node["id"]]))]
+    for extra, replace in [*((path, True) for path in replacements), *((path, False) for path in extra_mods)]:
+        path = Modpack.safe(extra.resolve(), ROOT)
+        if not path.is_file() or path.suffix != ".jar":
+            raise ValueError("Extra Mod must be a distinct workspace JAR")
+        data = path.read_bytes()
+        node = Modpack.scan_jar(data, str(path))
+        old = next((value for value in nodes if value["id"] == node["metadata"]["id"]), None)
+        if replace:
+            if old is None:
+                raise ValueError(f"Replacement Mod is not in the selected pack: {node['metadata']['id']}")
+            nodes = [value for value in nodes if value is not old]
+        ids = {mod_id for value in nodes for mod_id in value["metadata"].get("ids", [value["id"]])}
+        names = {value["name"].lower() for value in nodes}
+        provided = set(node["metadata"].get("ids", [node["metadata"]["id"]]))
+        if ids.intersection(provided) or excluded.intersection(provided) or path.name.lower() in names:
+            raise ValueError(f"Extra Mod duplicates an included or excluded ID: {sorted(provided)}")
+        node.update(name=path.name, id=node["metadata"]["id"], version=node["metadata"]["version"],
+                    sha256=hashlib.sha256(data).hexdigest(), sides=old["sides"] if replace else Modpack.side_assignment(node, {}))
+        nodes.append(node)
+    nodes.sort(key=lambda node: node["name"].lower())
+    contract = {key: pack[key] for key in ("platform", "configs", "coreFromDevelopmentClasspath")}
+    contract["jars"] = [{key: node[key] for key in ("name", "id", "version", "sha256", "sides")} for node in nodes]
+    fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
+    return {**pack, **contract, "nodes": nodes, "fingerprint": fingerprint}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", choices=("production", "development"), default="production")
     parser.add_argument("--modpack", action="store_true", help="Load the actual managed server Mod set, including JarJar dependencies")
     parser.add_argument("--extra-mod", action="append", type=Path, default=[], help="Additional workspace Mod to test without changing the master")
+    parser.add_argument("--replace-mod", action="append", type=Path, default=[], help="Test a replacement JAR with the same Mod ID only in this fixture")
+    parser.add_argument("--exclude-mod", action="append", default=[], help="Omit one top-level Mod ID only from this isolated fixture; repeat for multiple IDs")
     parser.add_argument("--maid-checks", action="store_true", help="Exercise real maid creation, skill persistence, recipes, packets and combat ticks")
     options = parser.parse_args()
     runtime = options.runtime
     if options.modpack and runtime != "production":
         parser.error("Managed third-party Mods require the production runtime")
+    if (options.exclude_mod or options.replace_mod) and not options.modpack:
+        parser.error("--exclude-mod and --replace-mod require --modpack")
     pack = Modpack.snapshot() if options.modpack else None
+    source_fingerprint = pack["fingerprint"] if pack else None
+    if pack and (options.exclude_mod or options.extra_mod or options.replace_mod):
+        pack = select_fixture_pack(pack, options.exclude_mod, options.extra_mod, options.replace_mod)
     validated = Modpack.validate(pack) if pack else None
     stamp = str(time.time_ns())
     work = ROOT / "sandbox/neoforge-compatibility" / stamp
@@ -106,7 +149,7 @@ public final class RuntimeProbe {
         raise RuntimeError(f"Probe compilation failed: {work / 'javac.log'}")
     mods = work / "mods"
     mods.mkdir()
-    for extra in options.extra_mod:
+    for extra in options.extra_mod if pack is None else []:
         extra = extra.resolve()
         if not extra.is_relative_to(ROOT.resolve()) or not extra.is_file() or extra.suffix != ".jar" or (mods / extra.name).exists():
             raise RuntimeError("Extra Mod must be a distinct workspace JAR")
@@ -129,7 +172,7 @@ version="1.0.0"
     if pack:
         for node in pack["nodes"]:
             if "server" in node["sides"]:
-                source = Modpack.safe(Path(node["path"]))
+                source = Modpack.safe(Path(node["path"]), ROOT)
                 destination = Modpack.safe(mods / node["name"])
                 if destination.exists():
                     raise RuntimeError("Managed Mod conflicts with the reserved runtime probe")
@@ -183,7 +226,11 @@ version="1.0.0"
               "serverStartedWithMinecraftQueries": (work / "probe-server-ready.txt").exists(),
               "goldcraftLoaded": f"GoldCraft initialized: Minecraft {MINECRAFT} / NeoForge {NEOFORGE}" in text,
               "missingMojangClass": "NoClassDefFoundError: net/minecraft/resources/ResourceLocation" in text,
-              "managedPackFingerprint": pack["fingerprint"] if pack else None,
+              "managedPackFingerprint": source_fingerprint,
+              "testedPackFingerprint": pack["fingerprint"] if pack else None,
+              "excludedManagedMods": sorted(set(options.exclude_mod)),
+              "replacementJars": [path.name for path in options.replace_mod],
+              "excludedModsAbsent": all(mod_id not in actual for mod_id in options.exclude_mod),
               "loadedMods": loaded, "expectedManagedMods": expected,
               "managedModsMatch": all(actual.get(key) == value for key, value in expected.items()),
               "maidChecks": maid,
@@ -193,7 +240,7 @@ version="1.0.0"
     report.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(json.dumps({**result, "report": str(report)}, indent=2))
     return 0 if code == 0 and (not options.maid_checks or (maid and maid.get("passed"))) and all(result[key] for key in (
-        "ordinaryMojangNamedModLoaded", "serverStartedWithMinecraftQueries", "goldcraftLoaded", "managedModsMatch")) else 1
+        "ordinaryMojangNamedModLoaded", "serverStartedWithMinecraftQueries", "goldcraftLoaded", "managedModsMatch", "excludedModsAbsent")) else 1
 
 
 if __name__ == "__main__":
