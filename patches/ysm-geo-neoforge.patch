@@ -1,0 +1,557 @@
+diff --git a/src/main/java/com/ysmef/geomodel/YSMGeoCompat.java b/src/main/java/com/ysmef/geomodel/YSMGeoCompat.java
+index 198c29e..58f19a9 100644
+--- a/src/main/java/com/ysmef/geomodel/YSMGeoCompat.java
++++ b/src/main/java/com/ysmef/geomodel/YSMGeoCompat.java
+@@ -2,7 +2,7 @@ package com.ysmef.geomodel;
+ 
+ import com.ysmef.geomodel.config.YSMCompatConfig;
+ import com.ysmef.geomodel.ysm.script.Molang;
+-import net.minecraftforge.fml.common.Mod;
++import net.neoforged.fml.common.Mod;
+ import org.apache.logging.log4j.LogManager;
+ import org.apache.logging.log4j.Logger;
+ 
+diff --git a/src/main/java/com/ysmef/geomodel/config/YSMCompatConfig.java b/src/main/java/com/ysmef/geomodel/config/YSMCompatConfig.java
+index cc8df7d..353807d 100644
+--- a/src/main/java/com/ysmef/geomodel/config/YSMCompatConfig.java
++++ b/src/main/java/com/ysmef/geomodel/config/YSMCompatConfig.java
+@@ -1,8 +1,8 @@
+ package com.ysmef.geomodel.config;
+ 
+-import net.minecraftforge.common.ForgeConfigSpec;
+-import net.minecraftforge.fml.ModLoadingContext;
+-import net.minecraftforge.fml.config.ModConfig;
++import net.neoforged.neoforge.common.ModConfigSpec;
++import net.neoforged.fml.ModLoadingContext;
++import net.neoforged.fml.config.ModConfig;
+ 
+ public class YSMCompatConfig {
+ 
+@@ -16,7 +16,7 @@ public class YSMCompatConfig {
+      */
+     public static final boolean DIAG = Boolean.getBoolean("ysm_geo_compat.diag");
+ 
+-    public static final ForgeConfigSpec CLIENT_SPEC;
++    public static final ModConfigSpec CLIENT_SPEC;
+ 
+     /**
+      * ModernYSM-style GPU skinning: draw converted TLM meshes with a bone SSBO
+@@ -24,10 +24,10 @@ public class YSMCompatConfig {
+      * the GPU), instead of Epic Fight's per-frame compute dispatch. Falls back
+      * to Epic Fight's compute path automatically when unavailable.
+      */
+-    public static final ForgeConfigSpec.BooleanValue ENABLE_GPU_RENDER;
++    public static final ModConfigSpec.BooleanValue ENABLE_GPU_RENDER;
+ 
+     /** Async script evaluation for entities other than the local player. */
+-    public static final ForgeConfigSpec.BooleanValue ENABLE_SCRIPT_ASYNC_EVAL;
++    public static final ModConfigSpec.BooleanValue ENABLE_SCRIPT_ASYNC_EVAL;
+ 
+     /**
+      * Maximum number of converted maid models kept resident at once. Models
+@@ -35,10 +35,10 @@ public class YSMCompatConfig {
+      * recently used first; Epic Fight re-loads an evicted model from the
+      * generated mesh JSON on its next draw, so nothing is re-converted.
+      */
+-    public static final ForgeConfigSpec.IntValue LAZY_MODEL_CACHE_SIZE;
++    public static final ModConfigSpec.IntValue LAZY_MODEL_CACHE_SIZE;
+ 
+     static {
+-        ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
++        ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
+ 
+         builder.comment("YSM GEO Compat - Client Configuration").push("client");
+ 
+@@ -70,6 +70,6 @@ public class YSMCompatConfig {
+ 
+     @SuppressWarnings("removal")
+     public static void register() {
+-        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
++        ModLoadingContext.get().getActiveContainer().registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
+     }
+ }
+diff --git a/src/main/java/com/ysmef/geomodel/cpu/YsmCpuRenderPath.java b/src/main/java/com/ysmef/geomodel/cpu/YsmCpuRenderPath.java
+index 98c5dbb..f84c08a 100644
+--- a/src/main/java/com/ysmef/geomodel/cpu/YsmCpuRenderPath.java
++++ b/src/main/java/com/ysmef/geomodel/cpu/YsmCpuRenderPath.java
+@@ -690,7 +690,7 @@ public final class YsmCpuRenderPath {
+         // receives: proj, modelView (camera), inverse view rotation.
+         RenderSystem.getProjectionMatrix().get(projScratch);
+         RenderSystem.getModelViewMatrix().get(mvScratch);
+-        RenderSystem.getInverseViewRotationMatrix().get(ivrScratch);
++        new org.joml.Matrix3f(RenderSystem.getModelViewMatrix()).invert().get(ivrScratch);
+ 
+         // Save the GL state this path overrides and restore it in the finally
+         // below. Without an exception-safe restore the residue (cull disabled,
+diff --git a/src/main/java/com/ysmef/geomodel/event/YSMCompatClientEvents.java b/src/main/java/com/ysmef/geomodel/event/YSMCompatClientEvents.java
+index 9ab6a29..5accde9 100644
+--- a/src/main/java/com/ysmef/geomodel/event/YSMCompatClientEvents.java
++++ b/src/main/java/com/ysmef/geomodel/event/YSMCompatClientEvents.java
+@@ -7,17 +7,19 @@ import com.ysmef.geomodel.model.runtime.YSMRuntimeModel;
+ import net.minecraft.client.Minecraft;
+ import net.minecraft.network.chat.Component;
+ import net.minecraft.server.packs.PackType;
++import net.minecraft.server.packs.PackLocationInfo;
++import net.minecraft.server.packs.PackSelectionConfig;
+ import net.minecraft.server.packs.PathPackResources;
+ import net.minecraft.server.packs.repository.Pack;
+ import net.minecraft.server.packs.repository.PackSource;
+ import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
+ import net.minecraft.world.flag.FeatureFlags;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
+-import net.minecraftforge.event.AddPackFindersEvent;
+-import net.minecraftforge.eventbus.api.SubscribeEvent;
+-import net.minecraftforge.fml.common.Mod;
+-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
++import net.neoforged.neoforge.event.AddPackFindersEvent;
++import net.neoforged.bus.api.SubscribeEvent;
++import net.neoforged.fml.common.EventBusSubscriber;
++import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+ 
+ /**
+  * Client-side registration:
+@@ -25,9 +27,9 @@ import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+  *   see TlmModelLibrary)
+  * - triggers the TLM mesh generation at client setup and refreshes it on reload
+  */
+-@Mod.EventBusSubscriber(
++@EventBusSubscriber(
+         modid = YSMGeoCompat.MODID,
+-        bus = Mod.EventBusSubscriber.Bus.MOD,
++        bus = EventBusSubscriber.Bus.MOD,
+         value = Dist.CLIENT
+ )
+ public class YSMCompatClientEvents {
+@@ -43,18 +45,13 @@ public class YSMCompatClientEvents {
+         }
+         YSMMeshLibrary.preparePackFolder();
+         event.addRepositorySource((consumer) -> {
+-            // Pack.create is non-null for these arguments, so it is consumed
+-            // directly instead of behind a null check that can never be false.
+-            consumer.accept(Pack.create(
+-                    "ysm_geo_compat_generated",
+-                    Component.literal("YSM-GEO Generated Meshes"),
+-                    true,
+-                    (id) -> new PathPackResources(id, YSMMeshLibrary.getPackRoot(), true),
+-                    new Pack.Info(Component.literal("Generated Epic Fight base meshes"), 15, FeatureFlags.VANILLA_SET),
+-                    PackType.CLIENT_RESOURCES,
+-                    Pack.Position.TOP,
+-                    false,
+-                    PackSource.BUILT_IN));
++            Pack pack = Pack.readMetaAndCreate(
++                    new PackLocationInfo("ysm_geo_compat_generated", Component.literal("YSM-GEO Generated Meshes"),
++                            PackSource.BUILT_IN, java.util.Optional.empty()),
++                    new PathPackResources.PathResourcesSupplier(YSMMeshLibrary.getPackRoot()),
++                    PackType.CLIENT_RESOURCES, new PackSelectionConfig(true, Pack.Position.TOP, false));
++            if (pack == null) throw new IllegalStateException("Generated mesh pack metadata is invalid");
++            consumer.accept(pack);
+         });
+     }
+ 
+diff --git a/src/main/java/com/ysmef/geomodel/event/YSMGeoClientTickHandler.java b/src/main/java/com/ysmef/geomodel/event/YSMGeoClientTickHandler.java
+index 1a18f49..4c56157 100644
+--- a/src/main/java/com/ysmef/geomodel/event/YSMGeoClientTickHandler.java
++++ b/src/main/java/com/ysmef/geomodel/event/YSMGeoClientTickHandler.java
+@@ -3,10 +3,10 @@ package com.ysmef.geomodel.event;
+ import com.ysmef.geomodel.YSMGeoCompat;
+ import com.ysmef.geomodel.model.TlmModelLibrary;
+ import com.ysmef.geomodel.model.YSMMeshLibrary;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.event.TickEvent;
+-import net.minecraftforge.eventbus.api.SubscribeEvent;
+-import net.minecraftforge.fml.common.Mod;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.neoforge.client.event.ClientTickEvent;
++import net.neoforged.bus.api.SubscribeEvent;
++import net.neoforged.fml.common.EventBusSubscriber;
+ 
+ /**
+  * Client tick driver for the deferred GL work of the converted maid meshes.
+@@ -26,9 +26,9 @@ import net.minecraftforge.fml.common.Mod;
+  * Registered on the FORGE bus (the game bus), not the mod bus: client ticks are
+  * a game event, while {@link YSMCompatClientEvents} handles the mod lifecycle.
+  */
+-@Mod.EventBusSubscriber(
++@EventBusSubscriber(
+         modid = YSMGeoCompat.MODID,
+-        bus = Mod.EventBusSubscriber.Bus.FORGE,
++        bus = EventBusSubscriber.Bus.GAME,
+         value = Dist.CLIENT
+ )
+ public final class YSMGeoClientTickHandler {
+@@ -36,13 +36,10 @@ public final class YSMGeoClientTickHandler {
+     private YSMGeoClientTickHandler() {}
+ 
+     @SubscribeEvent
+-    public static void onClientTick(TickEvent.ClientTickEvent event) {
++    public static void onClientTick(ClientTickEvent.Post event) {
+         // END only: the tick has advanced, so the release delays measured here
+         // correspond to whole ticks, and the work runs after the frame's input
+         // handling rather than in the middle of it.
+-        if (event.phase != TickEvent.Phase.END) {
+-            return;
+-        }
+         try {
+             YSMMeshLibrary.tick();
+             TlmModelLibrary.prewarmMeshes();
+diff --git a/src/main/java/com/ysmef/geomodel/gpu/YsmGpuRenderPath.java b/src/main/java/com/ysmef/geomodel/gpu/YsmGpuRenderPath.java
+index b5df199..1f226c4 100644
+--- a/src/main/java/com/ysmef/geomodel/gpu/YsmGpuRenderPath.java
++++ b/src/main/java/com/ysmef/geomodel/gpu/YsmGpuRenderPath.java
+@@ -415,7 +415,7 @@ public final class YsmGpuRenderPath {
+         // The dispatcher translates the poseStack by the INTERPOLATED render
+         // position (LevelRenderer.renderEntity lerps xOld -> x), so compare
+         // against that same interpolation, not the raw tick position.
+-        float partialTick = mc.getFrameTime();
++        float partialTick = mc.getTimer().getGameTimeDeltaPartialTick(false);
+         double px = net.minecraft.util.Mth.lerp(partialTick, entity.xOld, entity.getX());
+         double py = net.minecraft.util.Mth.lerp(partialTick, entity.yOld, entity.getY());
+         double pz = net.minecraft.util.Mth.lerp(partialTick, entity.zOld, entity.getZ());
+@@ -795,7 +795,7 @@ public final class YsmGpuRenderPath {
+         projMVScratch.set(RenderSystem.getModelViewMatrix());
+         projMVScratch.mul(poseMatrix);
+         projMVScratch.get(mvScratch);
+-        RenderSystem.getInverseViewRotationMatrix().get(ivrScratch);
++        new org.joml.Matrix3f(RenderSystem.getModelViewMatrix()).invert().get(ivrScratch);
+ 
+         ByteBuffer boneBuf = gpu.perFrameBoneBuffer;
+         boneBuf.clear();
+diff --git a/src/main/java/com/ysmef/geomodel/mixin/SkinnedMeshCpuRenderMixin.java b/src/main/java/com/ysmef/geomodel/mixin/SkinnedMeshCpuRenderMixin.java
+index b400903..796d680 100644
+--- a/src/main/java/com/ysmef/geomodel/mixin/SkinnedMeshCpuRenderMixin.java
++++ b/src/main/java/com/ysmef/geomodel/mixin/SkinnedMeshCpuRenderMixin.java
+@@ -47,6 +47,7 @@ public abstract class SkinnedMeshCpuRenderMixin {
+                                        Mesh.DrawingFunction drawingFunction, int packedLight,
+                                        float r, float g, float b, float a, int overlay,
+                                        Armature armature, OpenMatrix4f[] poses, CallbackInfo ci) {
++        if (com.ysmef.geomodel.renderer.RenderPaths.externalVertexCapture) return;
+         SkinnedMesh self = (SkinnedMesh) (Object) this;
+         if (self instanceof YSMMesh mesh) {
+             if (YsmCpuRenderPath.tryRender(mesh, poseStack, drawingFunction, packedLight,
+diff --git a/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java b/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
+index 1f90a5b..80856f4 100644
+--- a/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
++++ b/src/main/java/com/ysmef/geomodel/mixin/YsmGeoMixinPlugin.java
+@@ -28,7 +28,7 @@ public final class YsmGeoMixinPlugin implements IMixinConfigPlugin {
+ 
+     private static boolean isMainCompatInstalled() {
+         try {
+-            return net.minecraftforge.fml.loading.LoadingModList.get().getModFileById(MAIN_MOD) != null;
++            return net.neoforged.fml.loading.LoadingModList.get().getModFileById(MAIN_MOD) != null;
+         } catch (Throwable t) {
+             return false;
+         }
+diff --git a/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java b/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java
+index bfdf076..90d35e7 100644
+--- a/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java
++++ b/src/main/java/com/ysmef/geomodel/model/TlmModelLibrary.java
+@@ -68,8 +68,8 @@ public final class TlmModelLibrary {
+         if (loaded == null) {
+             boolean result = false;
+             try {
+-                result = net.minecraftforge.fml.ModList.get() != null
+-                        && net.minecraftforge.fml.ModList.get().isLoaded("ef_tlm");
++                result = net.neoforged.fml.ModList.get() != null
++                        && net.neoforged.fml.ModList.get().isLoaded("ef_tlm");
+             } catch (Throwable ignored) {
+             }
+             eftlmLoaded = result;
+diff --git a/src/main/java/com/ysmef/geomodel/model/YSMMesh.java b/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
+index dd250cc..7c8a11e 100644
+--- a/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
++++ b/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
+@@ -198,7 +198,7 @@ public class YSMMesh extends HumanoidMesh {
+             // one glDrawArrays per model, vertex skinning fully on the GPU. Falls back
+             // to Epic Fight's compute-shader path automatically when unavailable.
+             RenderBridgeRegistry.GpuSkinRender gpu = RenderBridgeRegistry.gpu();
+-            if (texture != null && gpu != null && gpu.tryRender(this, poseStack, bufferSources, texture,
++            if (!com.ysmef.geomodel.renderer.RenderPaths.externalVertexCapture && texture != null && gpu != null && gpu.tryRender(this, poseStack, bufferSources, texture,
+                     packedLight, r, g, b, a, overlay, armature, poses)) {
+                 logRebindOnce(rebindApplied);
+                 return;
+@@ -247,6 +247,11 @@ public class YSMMesh extends HumanoidMesh {
+                                        Mesh.DrawingFunction drawingFunction, int packedLight,
+                                        float r, float g, float b, float a, int overlay,
+                                        @Nullable Armature armature, OpenMatrix4f[] poses) {
++        if (com.ysmef.geomodel.renderer.RenderPaths.externalVertexCapture) {
++            super.drawPosed(poseStack, bufferSources.getBuffer(EpicFightRenderTypes.getTriangulated(renderType)),
++                    drawingFunction, packedLight, r, g, b, a, overlay, armature, poses);
++            return;
++        }
+         ComputeShaderSetup setup = poses != null && armature != null ? computeShaderSetup() : null;
+         RenderBridgeRegistry.GpuSkinRender gpu = RenderBridgeRegistry.gpu();
+         RenderBridgeRegistry.CpuSkinRender cpu = RenderBridgeRegistry.cpu();
+diff --git a/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java b/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java
+index 0f76572..e0f7152 100644
+--- a/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java
++++ b/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java
+@@ -377,7 +377,7 @@ public final class YSMMeshLibrary {
+                         {
+                             "pack": {
+                                 "description": "YSM-GEO Compat generated meshes",
+-                                "pack_format": 15
++                                "pack_format": 34
+                             }
+                         }
+                         """, StandardCharsets.UTF_8);
+diff --git a/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java b/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
+index 52911e5..0f92c9a 100644
+--- a/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
++++ b/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
+@@ -14,7 +14,7 @@ import net.minecraft.world.entity.Pose;
+ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.item.ItemStack;
+ import net.minecraft.world.item.Items;
+-import net.minecraftforge.registries.ForgeRegistries;
++import net.minecraft.core.registries.BuiltInRegistries;
+ import org.joml.Matrix4f;
+ import yesman.epicfight.api.client.model.MeshPart;
+ import yesman.epicfight.api.utils.math.OpenMatrix4f;
+@@ -214,7 +214,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         if (mc.gameRenderer != null && mc.gameRenderer.getMainCamera() != null) {
+             cameraDistance = mc.gameRenderer.getMainCamera().getPosition().distanceTo(entity.position());
+         }
+-        return new EvalInputs(cameraDistance, mc.getFrameTime(),
++        return new EvalInputs(cameraDistance, mc.getTimer().getGameTimeDeltaPartialTick(false),
+                 mc.options.getCameraType() == CameraType.FIRST_PERSON);
+     }
+ 
+@@ -716,7 +716,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+             return "climbing";
+         }
+         if (entity.isPassenger()) {
+-            ResourceLocation vehicleId = ForgeRegistries.ENTITY_TYPES.getKey(entity.getVehicle().getType());
++            ResourceLocation vehicleId = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getVehicle().getType());
+             // Resolve the vehicle condition anim for the CURRENT vehicle only: a
+             // previous ride's anim must never survive a vehicle change, so an
+             // unknown or anim-less vehicle clears it.
+@@ -841,7 +841,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         if (stack.isEmpty()) {
+             return false;
+         }
+-        ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
++        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+         if (id == null) {
+             return false;
+         }
+@@ -975,13 +975,13 @@ public final class YSMPlayerAnimator implements Molang.Env {
+             if (stack.isEmpty()) {
+                 return false;
+             }
+-            ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
++            ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+             return id != null && id.toString().equals(pattern.substring(1));
+         }
+         if (stack.isEmpty()) {
+             return pattern.equals(":empty") || pattern.equals("empty");
+         }
+-        ResourceLocation id = ForgeRegistries.ITEMS.getKey(stack.getItem());
++        ResourceLocation id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+         if (id == null) {
+             return false;
+         }
+@@ -1133,7 +1133,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         setQuery(Q_QUERY_IS_EATING, entity.getUseItem().getUseAnimation() == net.minecraft.world.item.UseAnim.EAT ? 1.0 : 0.0);
+         setQuery(Q_QUERY_IS_FIRST_PERSON, inputs.firstPerson() ? 1.0 : 0.0);
+         setQuery(Q_QUERY_ITEM_IN_USE_DURATION, entity.getTicksUsingItem() / 20.0);
+-        setQuery(Q_QUERY_ITEM_MAX_USE_DURATION, entity.getUseItem().getUseDuration() / 20.0);
++        setQuery(Q_QUERY_ITEM_MAX_USE_DURATION, entity.getUseItem().getUseDuration(entity) / 20.0);
+         setQuery(Q_QUERY_ITEM_REMAINING_USE_DURATION, entity.getUseItemRemainingTicks() / 20.0);
+         setQuery(Q_QUERY_WALK_DISTANCE, (double) entity.moveDist);
+         setQuery(Q_QUERY_MODIFIED_DISTANCE_MOVED, (double) entity.walkDist);
+diff --git a/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeBridge.java b/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeBridge.java
+index 9a1af14..90412bc 100644
+--- a/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeBridge.java
++++ b/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeBridge.java
+@@ -72,7 +72,7 @@ public final class YSMRuntimeBridge {
+         if (model == null) {
+             return;
+         }
+-        float partialTick = Minecraft.getInstance().getFrameTime();
++        float partialTick = Minecraft.getInstance().getTimer().getGameTimeDeltaPartialTick(false);
+         model.animatorFor(entity).apply(mesh, entity, poses, partialTick);
+     }
+ 
+diff --git a/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java b/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java
+index e9afdd8..b153e42 100644
+--- a/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java
++++ b/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java
+@@ -24,6 +24,8 @@ import com.ysmef.geomodel.model.RenderBridgeRegistry;
+  * Called once from the client setup event (render thread).
+  */
+ public final class RenderPaths {
++    /** Render-thread scope used by host renderers collecting posed vertices. */
++    public static boolean externalVertexCapture;
+ 
+     private RenderPaths() {}
+ 
+diff --git a/src/main/resources/META-INF/mods.toml b/src/main/resources/META-INF/mods.toml
+deleted file mode 100644
+index 4c32cf4..0000000
+--- a/src/main/resources/META-INF/mods.toml
++++ /dev/null
+@@ -1,57 +0,0 @@
+-modLoader="javafml"
+-loaderVersion="[47,)"
+-license="MIT"
+-[[mods]]
+-modId="ysm_geo_compat"
+-version="1.0.3"
+-displayName="YSM GEO Compat"
+-description = '''
+-Bridges Touhou Little Maid model-pack GEO models into the Epic Fight combat animation system.
+-
+-Converts TLM GEO models (from tlm_custom_pack and jar-builtin maid_model.json entries) into Epic Fight SkinnedMesh at runtime, enabling custom maid models to use Epic Fight combat animations seamlessly.
+-
+-Gameplay:
+-- Combat mode: Epic Fight renders the model using combat animations
+-- Idle mode: the original renderer draws the model as normal
+-
+-YSM model support (players and maids using YSM models) is provided by the YSM_EpicFight_Compat mod; this mod yields YSM-model maids to it when both are installed.
+-'''
+-[[dependencies.ysm_geo_compat]]
+-modId="forge"
+-mandatory=true
+-versionRange="[47,)"
+-ordering="NONE"
+-side="BOTH"
+-[[dependencies.ysm_geo_compat]]
+-modId="minecraft"
+-mandatory=true
+-versionRange="[1.20.1,1.21)"
+-ordering="NONE"
+-side="BOTH"
+-[[dependencies.ysm_geo_compat]]
+-# Deliberately the same range as EpicFight_TouhouLittleMaid's own dependency:
+-# this mod ships jarJar-embedded inside EFTLM (libs/YSM_GEO_Compat.jar), so a
+-# narrower range here would fail the mandatory-dependency check for players who
+-# can load EFTLM itself - a nested mod error that is hard to diagnose. Anything
+-# newer than the validated 20.14.17 therefore has to degrade at runtime instead:
+-# the mixin targets, the reflected SkinnedMesh field and the ComputeShaderSetup
+-# API are all reached behind failure-tolerant lookups that fall back to Epic
+-# Fight's own render path. Re-validate those against 20.15 before widening EF's
+-# own range in EFTLM.
+-modId="epicfight"
+-mandatory=true
+-versionRange="[20.14,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ysm_geo_compat]]
+-modId="touhou_little_maid"
+-mandatory=false
+-versionRange="[1.5,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ysm_geo_compat]]
+-modId="ef_tlm"
+-mandatory=false
+-versionRange="[1.1,)"
+-ordering="AFTER"
+-side="BOTH"
+diff --git a/src/main/resources/pack.mcmeta b/src/main/resources/pack.mcmeta
+index de41d76..892827a 100644
+--- a/src/main/resources/pack.mcmeta
++++ b/src/main/resources/pack.mcmeta
+@@ -1,6 +1,6 @@
+ {
+-    "pack": {
+-        "description": "GEO Epic Fight Compat resources",
+-        "pack_format": 15
+-    }
++  "pack": {
++    "description": "GEO Epic Fight Compat resources",
++    "pack_format": 34
++  }
+ }
+diff --git a/src/main/resources/ysm_geo_compat.eftlm.mixins.json b/src/main/resources/ysm_geo_compat.eftlm.mixins.json
+index c61d486..cf32750 100644
+--- a/src/main/resources/ysm_geo_compat.eftlm.mixins.json
++++ b/src/main/resources/ysm_geo_compat.eftlm.mixins.json
+@@ -2,8 +2,7 @@
+   "required": false,
+   "minVersion": "0.8",
+   "package": "com.ysmef.geomodel.mixin.eftlm",
+-  "compatibilityLevel": "JAVA_17",
+-  "refmap": "ysm_geo_compat.refmap.json",
++  "compatibilityLevel": "JAVA_21",
+   "client": [
+     "YsmMaidRendererMixin"
+   ],
+diff --git a/src/main/resources/ysm_geo_compat.mixins.json b/src/main/resources/ysm_geo_compat.mixins.json
+index 23f2255..7269645 100644
+--- a/src/main/resources/ysm_geo_compat.mixins.json
++++ b/src/main/resources/ysm_geo_compat.mixins.json
+@@ -2,8 +2,7 @@
+   "required": true,
+   "minVersion": "0.8",
+   "package": "com.ysmef.geomodel.mixin",
+-  "compatibilityLevel": "JAVA_17",
+-  "refmap": "ysm_geo_compat.refmap.json",
++  "compatibilityLevel": "JAVA_21",
+   "client": [
+     "RenderSystemAccessorMixin",
+     "SkinnedMeshCpuRenderMixin",
+diff --git a/src/main/resources/ysm_geo_compat.ysm.mixins.json b/src/main/resources/ysm_geo_compat.ysm.mixins.json
+index de09301..465bde2 100644
+--- a/src/main/resources/ysm_geo_compat.ysm.mixins.json
++++ b/src/main/resources/ysm_geo_compat.ysm.mixins.json
+@@ -2,8 +2,7 @@
+   "required": false,
+   "minVersion": "0.8",
+   "package": "com.ysmef.geomodel.mixin.ysm",
+-  "compatibilityLevel": "JAVA_17",
+-  "refmap": "ysm_geo_compat.refmap.json",
++  "compatibilityLevel": "JAVA_21",
+   "plugin": "com.ysmef.geomodel.mixin.YsmGeoMixinPlugin",
+   "client": [
+     "YsmAnimationTransitionGuardMixin"
+diff --git a/src/main/resources/META-INF/neoforge.mods.toml b/src/main/resources/META-INF/neoforge.mods.toml
+new file mode 100644
+index 0000000..2d11ebc
+--- /dev/null
++++ b/src/main/resources/META-INF/neoforge.mods.toml
+@@ -0,0 +1,41 @@
++modLoader="javafml"
++loaderVersion="[4,)"
++license="MIT"
++[[mods]]
++modId="ysm_geo_compat"
++version="1.0.3-goldcraft.1"
++displayName="YSM GEO Compat"
++description='''Converts Touhou Little Maid GEO models for Epic Fight animations.
++Local Minecraft 1.21.1 / NeoForge port for GoldCraft.
++YSM player model support remains the responsibility of YSM_EpicFight_Compat.
++'''
++[[mixins]]
++config="ysm_geo_compat.mixins.json"
++[[mixins]]
++config="ysm_geo_compat.eftlm.mixins.json"
++[[mixins]]
++config="ysm_geo_compat.ysm.mixins.json"
++[[dependencies.ysm_geo_compat]]
++modId="neoforge"
++type="required"
++versionRange="[21.1.256,21.2)"
++ordering="NONE"
++side="BOTH"
++[[dependencies.ysm_geo_compat]]
++modId="minecraft"
++type="required"
++versionRange="[1.21.1]"
++ordering="NONE"
++side="BOTH"
++[[dependencies.ysm_geo_compat]]
++modId="epicfight"
++type="required"
++versionRange="[21.17.3.1,21.18)"
++ordering="AFTER"
++side="BOTH"
++[[dependencies.ysm_geo_compat]]
++modId="ef_tlm"
++type="required"
++versionRange="[1.3.5-goldcraft.1]"
++ordering="AFTER"
++side="BOTH"

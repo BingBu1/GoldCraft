@@ -1,7 +1,7 @@
 param()
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $lock=Get-Content -LiteralPath (Join-Path $script:GoldCraftRoot 'sources.lock.json') -Raw | ConvertFrom-Json
-foreach($name in @('MetaHookSv','ReGameDLL_CS','ReHLDS','AMXModX','ReAPI','SyPB','AMXXBuilder')){
+foreach($name in @('MetaHookSv','ReGameDLL_CS','ReHLDS','AMXModX','ReAPI','SyPB','AMXXBuilder','EpicFightMaid','YsmGeoCompat')){
     $entry=$lock.sources.$name
     $path=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.path)
     if(-not(Test-Path -LiteralPath $path)){
@@ -25,7 +25,7 @@ foreach($name in @('ReGameDLL_CS','ReHLDS','AMXModX','ReAPI')){
     & git -C $path submodule update --init --recursive --jobs 4
     if($LASTEXITCODE){throw "Dependency preparation failed: $name"}
 }
-foreach($name in @('MetaHook','Renderer','BulletPhysics','VGUI2Extension','FreeImage','ReGameDLL_CS','ReHLDS','SyPB')){
+foreach($name in @('MetaHook','Renderer','BulletPhysics','VGUI2Extension','FreeImage','ReGameDLL_CS','ReHLDS','SyPB','EpicFightMaid','YsmGeoCompat')){
     $entry=$lock.sources.$name
     $path=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.path)
     $patch=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $entry.patch)

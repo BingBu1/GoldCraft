@@ -60,6 +60,8 @@ NeoForge 的 `dependencies.side` 限定一条依赖在何端生效，**不是整
 
 2026-10-09：1.21.1 主实例已在 X 注册，GoldCraft 最新构建通过一次事务更新主实例和 A/B/服务端的四份 JAR，哈希一致；42 个其他已检查的 Mod／账号／配对文件保持不变，后续同步计划没有待改文件。此前的28 项依赖与文件事务测试证据继续保留。
 
-当前9个顶层安装包包含 GoldCraft、Epic Fight 21.17.3.1、GeckoLib 4.9.3、Invincible 21.15.8.2、JEI 19.57.0.451、MezzConfig 0.6.8、NightFall 3.4.0、Touhou Little Maid 1.5.3 和 Yes Steve Model 2.6.5。正式运行环境的独立服务端已真实加载完整组合，核对13个解析条目的版本（包含平台和嵌套 Mod），完成实际世界查询并正常停止。
+当前10个顶层安装包包含 GoldCraft、Epic Fight 21.17.3.1、GeckoLib 4.9.3、Invincible 21.15.8.2、JEI 19.57.0.451、MezzConfig 0.6.8、NightFall 3.4.0、Touhou Little Maid 1.5.3、Yes Steve Model 2.6.5 和女仆 Epic Fight 扩展 1.3.5-goldcraft.1。女仆扩展内含 YSM GEO Compat 1.0.3-goldcraft.1；四份主实例/A/B/服务端 JAR 哈希一致，此次新增4个文件，1390个已有 Mod/配置/账号相关文件未变，后续同步计划为空。
+
+正式运行环境的独立服务端已真实加载完整组合，核对15个解析条目的版本（包含平台和嵌套 Mod），并通过女仆学习、存档、技能删除权限/取消及自主攻击的27项检查，正常停止。构建与测试入口见 [女仆扩展说明](EPICFIGHT_MAID.md)。
 
 日志仍报告 Epic Fight／Invincible／NightFall 的部分技能、物品及武器类型缺失；完整玩法兼容还需检查。客户端的 YSM／Epic Fight 渲染、JEI 界面和真实三个 JVM 的增删更新回归尚待完成。此前1.21的双客户端或 Fabric 记录不能替代这些验收。

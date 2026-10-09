@@ -2,7 +2,7 @@
   "format": 1,
   "files": [
     ".gitattributes", ".gitignore", "README.md", "TODO.md", "THIRD_PARTY_NOTICES.md", "CMakeLists.txt", "sources.lock.json", "publication.json", "sandbox-policy.json", "amxbuild.yml", "build-amxx.cmd",
-    "docs/BUILD.md", "docs/ARCHITECTURE.md", "docs/MOD_MANAGEMENT.md", "docs/SERVER_API.md", "docs/VALIDATION.md", "docs/ZOMBIE_TESTING.md", "docs/NATIVE_REGRESSIONS.md",
+    "docs/BUILD.md", "docs/ARCHITECTURE.md", "docs/MOD_MANAGEMENT.md", "docs/EPICFIGHT_MAID.md", "docs/SERVER_API.md", "docs/VALIDATION.md", "docs/ZOMBIE_TESTING.md", "docs/NATIVE_REGRESSIONS.md",
     "amxx/goldcraft/goldcraft.sma", "amxx/tests/goldcraft_test.sma", "amxx/tests/goldcraft_headless_test.sma", "amxx/tests/goldcraft_precache_test.sma", "amxx/maps/goldcraft_bloodmoon.sma", "amxx/zombie_plague/integration/goldcraft_zp50.sma", "amxx/README.md",
     "amxx/tests/goldcraft_modern_test.sma", "amxx/tests/goldcraft_buy_menu_fixture.sma", "tools/Exercise-AMXXModernization.py",
     "amxx/administration/README.md", "tools/Prepare-AdminBase.py", "patches/amxx-admin-modern.patch", "patches/amxx-admin-modern.json",
@@ -20,6 +20,7 @@
     "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Exercise-Precache.py",
     "tools/Legacy-ProtocolServer.ps1", "tools/Exercise-PrecacheTransitions.py",
     "tools/Prepare-NeoForgeRuntime.py", "tools/Exercise-NeoForgeCompatibility.py",
+    "tools/Build-EpicFightMaid.py", "tools/java/EpicFightMaidProbe.java", "patches/epicfight-maid-neoforge.patch", "patches/ysm-geo-neoforge.patch",
     "tools/Prepare-ZombiePlague.py", "tools/Apply-ZombiePlaguePatch.py", "tools/Exercise-ZombieReAPI.py", "tools/Localize-ZombiePlague.py", "tools/Build-SyPB.ps1", "tools/Initialize-ZombieServer.ps1", "tools/Build-SyPBWaypoints.py", "tools/Exercise-ZombieBots.py", "tools/Exercise-BotPopulation.py",
     "patches/zombieplague-reapi.patch", "patches/zombieplague-reapi.json", "amxx/zombie_plague/tests/goldcraft_zp_reapi_test.sma", "tools/Deploy-ZombiePlague.py",
     "patches/nademodes-reapi.patch", "patches/nademodes-reapi.json", "amxx/nade_modes/README.md",

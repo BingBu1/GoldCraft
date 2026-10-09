@@ -13,6 +13,8 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 | [ReHLDS](https://github.com/rehlds/rehlds) | 专用服务器与原生实体扩展补丁 | [MIT](notices/ReHLDS-LICENSE.txt) |
 | [AMX Mod X](https://github.com/alliedmodders/amxmodx) | 模块 SDK、Pawn 插件接口、Admin Base 现代化补丁 | [许可及 HL Engine/MOD 例外](notices/AMXModX-LICENSE.txt)、[GPL v3](notices/GPLv3.txt) |
 | [amxx-builder](https://github.com/AmxxModularEcosystem/amxx-builder) | 固定修订的 AMXX 构建管理工具 | 从上游本地获取；本仓库不分发其源码或依赖 |
+| [EpicFight_TouhouLittleMaid](https://github.com/xssfww/EpicFight_TouhouLittleMaid) | XcS 的女仆 Epic Fight 扩展；1.21.1 NeoForge 本地移植补丁 | 上游元数据声明 All Rights Reserved；保留作者及声明，不上传资源、完整源码或构建 JAR |
+| [YSM GEO Compat](https://github.com/HSZK2017/ysm_geo_compat) | 女仆 GEO 模型适配 Epic Fight 及 GoldCraft 顶点导出 | [MIT](notices/YsmGeoCompat-LICENSE.txt)；本地构建嵌入女仆扩展 JAR |
 | [ReAPI](https://github.com/rehlds/ReAPI) | 版本匹配的 Pawn hook/native 声明 | [GPL v3](notices/ReAPI-LICENSE.txt) |
 | [SyPB](https://github.com/CCNHsK-Dev/SyPB) | 僵尸模式 Bot、AMXX API 与日志修复补丁 | 上游根目录 [GPL v3](notices/GPLv3.txt)，补丁文件保留原有版权与许可声明 |
 | [Nade Modes 11.2](https://forums.alliedmods.net/showthread.php?t=75322) | Nomexous & OT 的七模式手雷；ReAPI 适配补丁、中文资源与测试 | GPL-3.0-or-later，保留原作者声明及 [GPL v3](notices/GPLv3.txt) |

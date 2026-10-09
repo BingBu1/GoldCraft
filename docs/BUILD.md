@@ -100,6 +100,8 @@ python .\tools\Exercise-NeoForgeCompatibility.py --modpack
 
 该探针使用独立目录、动态服务器端口和正常 Mojang 命名的第三方 Mod，并核对服务器实际加载的 Mod 版本。它不操作现有 A/B 实例，也不能替代客户端渲染和完整联机验收。
 
+女仆 Epic Fight 扩展的固定源码、NeoForge 移植、构建及独立玩法探针见 [女仆扩展说明](EPICFIGHT_MAID.md)。
+
 `dist` 放置构建/准备产物，`analysis` 保存本地验证数据。`settings.local.json`、整个 `sandbox`、`external`、`.tools`、生成文件与私人连续性记录均不上传。`publication.json` 定义公开源文件范围，`tools/Check-PublicSource.py --staged` 检查最终暂存内容。
 
 ## 控制沙箱体积

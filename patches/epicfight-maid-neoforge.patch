@@ -1,0 +1,2132 @@
+diff --git a/src/main/java/net/EFTLM/EF/API/AbstractMaidEvent.java b/src/main/java/net/EFTLM/EF/API/AbstractMaidEvent.java
+index ddd281d..7942a4c 100644
+--- a/src/main/java/net/EFTLM/EF/API/AbstractMaidEvent.java
++++ b/src/main/java/net/EFTLM/EF/API/AbstractMaidEvent.java
+@@ -1,7 +1,7 @@
+ package net.EFTLM.EF.API;
+ 
+ import net.EFTLM.EF.Capability.MaidPatch;
+-import net.minecraftforge.eventbus.api.Event;
++import net.neoforged.bus.api.Event;
+ public class AbstractMaidEvent extends Event {
+     private final MaidPatch<?> MaidPatch;
+     public AbstractMaidEvent(MaidPatch<?> MaidPatch) {
+diff --git a/src/main/java/net/EFTLM/EF/API/Data/BehaviorReloadListener.java b/src/main/java/net/EFTLM/EF/API/Data/BehaviorReloadListener.java
+index 870c158..1b514c9 100644
+--- a/src/main/java/net/EFTLM/EF/API/Data/BehaviorReloadListener.java
++++ b/src/main/java/net/EFTLM/EF/API/Data/BehaviorReloadListener.java
+@@ -17,13 +17,13 @@ import net.minecraft.server.packs.resources.ResourceManager;
+ import net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener;
+ import net.minecraft.util.profiling.ProfilerFiller;
+ import net.minecraft.world.item.Item;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import net.minecraftforge.server.ServerLifecycleHooks;
++import net.minecraft.core.registries.BuiltInRegistries;
++import net.neoforged.neoforge.server.ServerLifecycleHooks;
+ import org.jetbrains.annotations.NotNull;
+ import yesman.epicfight.api.animation.AnimationManager;
+ import yesman.epicfight.api.animation.types.StaticAnimation;
+ import yesman.epicfight.data.conditions.Condition;
+-import yesman.epicfight.data.conditions.EpicFightConditions;
++import yesman.epicfight.registry.entries.EpicFightConditions;
+ import yesman.epicfight.gameasset.Armatures;
+ import yesman.epicfight.main.EpicFightMod;
+ import yesman.epicfight.model.armature.HumanoidArmature;
+@@ -91,7 +91,7 @@ public class BehaviorReloadListener extends SimpleJsonResourceReloadListener {
+         if (tag.contains("items", Tag.TAG_LIST)) {
+             ListTag itemsTag = tag.getList("items", Tag.TAG_STRING);
+             for (int i = 0; i < itemsTag.size(); i++) {
+-                Item item = ForgeRegistries.ITEMS.getValue(ResourceLocation.parse(itemsTag.getString(i)));
++                Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(itemsTag.getString(i)));
+                 if (item != null) items.add(item);
+             }
+         }
+diff --git a/src/main/java/net/EFTLM/EF/API/Event/CombatBehaviorsEvent.java b/src/main/java/net/EFTLM/EF/API/Event/CombatBehaviorsEvent.java
+index 83b93e9..86127ec 100644
+--- a/src/main/java/net/EFTLM/EF/API/Event/CombatBehaviorsEvent.java
++++ b/src/main/java/net/EFTLM/EF/API/Event/CombatBehaviorsEvent.java
+@@ -1,7 +1,7 @@
+ package net.EFTLM.EF.API.Event;
+ 
+ import net.minecraft.world.item.Item;
+-import net.minecraftforge.eventbus.api.Event;
++import net.neoforged.bus.api.Event;
+ import yesman.epicfight.model.armature.HumanoidArmature;
+ import yesman.epicfight.world.capabilities.entitypatch.HumanoidMobPatch;
+ import yesman.epicfight.world.capabilities.item.Style;
+diff --git a/src/main/java/net/EFTLM/EF/API/Event/MaidSkillBuildEvent.java b/src/main/java/net/EFTLM/EF/API/Event/MaidSkillBuildEvent.java
+index c22a07b..725eb9c 100644
+--- a/src/main/java/net/EFTLM/EF/API/Event/MaidSkillBuildEvent.java
++++ b/src/main/java/net/EFTLM/EF/API/Event/MaidSkillBuildEvent.java
+@@ -6,10 +6,9 @@ import net.EFTLM.EF.Skill.MaidSkillBuilder;
+ import net.EFTLM.EF.Skill.WeaponInnate.WeaponInnateSkill;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.world.item.Item;
+-import net.minecraftforge.eventbus.api.Event;
+-import net.minecraftforge.eventbus.api.GenericEvent;
+-import net.minecraftforge.fml.ModLoader;
+-import net.minecraftforge.fml.event.IModBusEvent;
++import net.neoforged.bus.api.Event;
++import net.neoforged.fml.ModLoader;
++import net.neoforged.fml.event.IModBusEvent;
+ import yesman.epicfight.world.capabilities.item.Style;
+ import yesman.epicfight.world.capabilities.item.WeaponCategory;
+ import java.util.Map;
+@@ -54,14 +53,13 @@ public class MaidSkillBuildEvent extends Event implements IModBusEvent {
+     }
+     private <S extends MaidSkill, B extends MaidSkillBuilder<?>> S createSkill(ResourceLocation RegisterName, Function<B, S> constructor, B builder) {
+         builder.setRegistryName(RegisterName);
+-        ModLoader.get().postEvent(new SkillCreateEvent<>(builder));
++        ModLoader.postEvent(new SkillCreateEvent<>(builder));
+         return constructor.apply(builder);
+     }
+     @SuppressWarnings("unchecked")
+-    public static class SkillCreateEvent<B extends MaidSkillBuilder<?>> extends GenericEvent<B> implements IModBusEvent {
++    public static class SkillCreateEvent<B extends MaidSkillBuilder<?>> extends Event implements IModBusEvent {
+         private final B builder;
+         private SkillCreateEvent(B builder) {
+-            super((Class<B>) builder.getClass());
+             this.builder = builder;
+         }
+         public B getSkillBuilder() {
+diff --git a/src/main/java/net/EFTLM/EF/API/Event/MaidSkillRemoveEvent.java b/src/main/java/net/EFTLM/EF/API/Event/MaidSkillRemoveEvent.java
+index 9d75fe0..8a8cb08 100644
+--- a/src/main/java/net/EFTLM/EF/API/Event/MaidSkillRemoveEvent.java
++++ b/src/main/java/net/EFTLM/EF/API/Event/MaidSkillRemoveEvent.java
+@@ -4,9 +4,8 @@ import net.EFTLM.EF.API.AbstractMaidEvent;
+ import net.EFTLM.EF.Capability.MaidPatch;
+ import net.EFTLM.EF.Skill.MaidSkill;
+ import net.minecraft.resources.ResourceLocation;
+-import net.minecraftforge.eventbus.api.Cancelable;
+-@Cancelable
+-public class MaidSkillRemoveEvent extends AbstractMaidEvent {
++import net.neoforged.bus.api.ICancellableEvent;
++public class MaidSkillRemoveEvent extends AbstractMaidEvent implements ICancellableEvent {
+     private final MaidSkill skill;
+     public MaidSkillRemoveEvent(MaidPatch<?> MaidPatch, MaidSkill skill) {
+         super(MaidPatch);
+diff --git a/src/main/java/net/EFTLM/EF/Animation/EFTLM_Animations.java b/src/main/java/net/EFTLM/EF/Animation/EFTLM_Animations.java
+index 28c646b..a705c76 100644
+--- a/src/main/java/net/EFTLM/EF/Animation/EFTLM_Animations.java
++++ b/src/main/java/net/EFTLM/EF/Animation/EFTLM_Animations.java
+@@ -2,13 +2,13 @@ package net.EFTLM.EF.Animation;
+ 
+ import com.merlin204.avalon.epicfight.animations.AvalonMovementAnimation;
+ import net.EFTLM.EFTLM;
+-import net.minecraftforge.eventbus.api.SubscribeEvent;
+-import net.minecraftforge.fml.common.Mod;
++import net.neoforged.bus.api.SubscribeEvent;
++import net.neoforged.fml.common.EventBusSubscriber;
+ import yesman.epicfight.api.animation.AnimationManager;
+ import yesman.epicfight.api.animation.types.StaticAnimation;
+ import yesman.epicfight.gameasset.Armatures;
+ import yesman.epicfight.model.armature.HumanoidArmature;
+-@Mod.EventBusSubscriber(modid = EFTLM.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
++@EventBusSubscriber(modid = EFTLM.MODID, bus = EventBusSubscriber.Bus.MOD)
+ public class EFTLM_Animations {
+     public static AnimationManager.AnimationAccessor<StaticAnimation> Biped_Hug;
+     public static AnimationManager.AnimationAccessor<StaticAnimation> Biped_Hug_Kneel;
+diff --git a/src/main/java/net/EFTLM/EF/Animation/EFTLM_Behaviors.java b/src/main/java/net/EFTLM/EF/Animation/EFTLM_Behaviors.java
+index 70ffe41..324f650 100644
+--- a/src/main/java/net/EFTLM/EF/Animation/EFTLM_Behaviors.java
++++ b/src/main/java/net/EFTLM/EF/Animation/EFTLM_Behaviors.java
+@@ -10,7 +10,7 @@ import yesman.epicfight.world.capabilities.item.CapabilityItem;
+ import yesman.epicfight.world.capabilities.item.Style;
+ import yesman.epicfight.world.capabilities.item.WeaponCategory;
+ import yesman.epicfight.world.entity.ai.goal.CombatBehaviors;
+-import yesman.epicfight.world.item.EpicFightItems;
++import yesman.epicfight.registry.entries.EpicFightItems;
+ import java.util.Map;
+ public class EFTLM_Behaviors {
+     public static final CombatBehaviors.Builder<HumanoidMobPatch<?>> Sword_OneHand;
+diff --git a/src/main/java/net/EFTLM/EF/Capability/ClientMaidPatch.java b/src/main/java/net/EFTLM/EF/Capability/ClientMaidPatch.java
+index b51776d..6178a6a 100644
+--- a/src/main/java/net/EFTLM/EF/Capability/ClientMaidPatch.java
++++ b/src/main/java/net/EFTLM/EF/Capability/ClientMaidPatch.java
+@@ -3,6 +3,9 @@ package net.EFTLM.EF.Capability;
+ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+ import yesman.epicfight.api.animation.LivingMotions;
+ public class ClientMaidPatch extends MaidPatch<EntityMaid> {
++    public ClientMaidPatch(EntityMaid entity) {
++        super(entity);
++    }
+     @Override
+     public boolean overrideRender() {
+         if (this.CheckState()) {
+diff --git a/src/main/java/net/EFTLM/EF/Capability/MaidPatch.java b/src/main/java/net/EFTLM/EF/Capability/MaidPatch.java
+index 31b6a01..8ff407c 100644
+--- a/src/main/java/net/EFTLM/EF/Capability/MaidPatch.java
++++ b/src/main/java/net/EFTLM/EF/Capability/MaidPatch.java
+@@ -29,11 +29,13 @@ import net.minecraft.world.entity.ai.goal.WrappedGoal;
+ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.item.Item;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraftforge.common.MinecraftForge;
+-import net.minecraftforge.common.util.INBTSerializable;
+-import net.minecraftforge.event.entity.EntityAttributeModificationEvent;
+-import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+-import net.minecraftforge.event.entity.living.LivingEvent;
++import net.neoforged.neoforge.common.NeoForge;
++import net.neoforged.neoforge.common.util.INBTSerializable;
++import net.neoforged.neoforge.event.entity.EntityAttributeModificationEvent;
++import net.minecraft.core.HolderLookup;
++import net.minecraft.world.level.Level;
++import yesman.epicfight.registry.entries.EpicFightExpandedEntityDataAccessors;
++import yesman.epicfight.world.entity.data.ExpandedSyncedData;
+ import yesman.epicfight.api.animation.AnimationManager;
+ import yesman.epicfight.api.animation.Animator;
+ import yesman.epicfight.api.animation.LivingMotions;
+@@ -52,13 +54,12 @@ import yesman.epicfight.world.capabilities.item.Style;
+ import yesman.epicfight.world.damagesource.EpicFightDamageSource;
+ import yesman.epicfight.world.damagesource.StunType;
+ import yesman.epicfight.world.entity.DodgeLocationIndicator;
+-import yesman.epicfight.world.entity.ai.attribute.EpicFightAttributes;
++import yesman.epicfight.registry.entries.EpicFightAttributes;
+ import yesman.epicfight.world.entity.ai.goal.AnimatedAttackGoal;
+ import yesman.epicfight.world.entity.ai.goal.CombatBehaviors;
+ import yesman.epicfight.world.entity.ai.goal.TargetChasingGoal;
+ import java.util.*;
+ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> implements INBTSerializable<CompoundTag> {
+-    public static final EntityDataAccessor<Float> Stamina = SynchedEntityData.defineId(EntityMaid.class, EntityDataSerializers.FLOAT);
+     protected static final String DEFAULT_MODEL_ID = "geckolib:winefox";
+     protected Map<Item, CombatBehaviors.Builder<HumanoidMobPatch<?>>> ItemAttackMotions;
+     protected Map<Item, Map<Style, CombatBehaviors.Builder<HumanoidMobPatch<?>>>> ItemStyleAttackMotions;
+@@ -70,36 +71,34 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+     protected List<ResourceLocation> LearnedSkills = new ArrayList<>();
+     protected boolean hasFightAi;
+     private boolean lastCheckState = false;
+-    public MaidPatch() {
+-        super(Factions.NEUTRAL);
++    public MaidPatch(T entity) {
++        super(entity, Factions.NEUTRAL);
+     }
+     public static void initAttribute(EntityAttributeModificationEvent event) {
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.ARMOR_NEGATION.get(), 0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.IMPACT.get(),0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.MAX_STRIKES.get(),999);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.STUN_ARMOR.get(),20);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_ATTACK_SPEED.get(), 0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_MAX_STRIKES.get(),0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_ARMOR_NEGATION.get(),0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_IMPACT.get(),0);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.MAX_STAMINA.get(),20);
+-        event.add(InitEntities.MAID.get(), EpicFightAttributes.STAMINA_REGEN.get(),1);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.ARMOR_NEGATION, 0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.IMPACT,0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.MAX_STRIKES,999);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.STUN_ARMOR,20);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_ATTACK_SPEED, 0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_MAX_STRIKES,0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_ARMOR_NEGATION,0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.OFFHAND_IMPACT,0);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.MAX_STAMINA,20);
++        event.add(InitEntities.MAID.get(), EpicFightAttributes.STAMINA_REGEN,1);
+     }
+     public float getMaxStamina() {
+-        AttributeInstance maxStamina = this.getOriginal().getAttribute(EpicFightAttributes.MAX_STAMINA.get());
++        AttributeInstance maxStamina = this.getOriginal().getAttribute(EpicFightAttributes.MAX_STAMINA);
+         return (float)(maxStamina == null ? 0.0 : maxStamina.getValue());
+     }
+     public float getStamina() {
+-        return this.getMaxStamina() <= 0.0F ? 0.0F : this.getOriginal().getEntityData().hasItem(Stamina) ? this.getOriginal().getEntityData().get(Stamina) : 0.0F;
++        return this.getMaxStamina() <= 0.0F ? 0.0F : this.expandedSynchedData.get(EpicFightExpandedEntityDataAccessors.STAMINA);
+     }
+     public boolean hasStamina(float amount) {
+         return this.getStamina() >= amount;
+     }
+     public void setStamina(float value) {
+-        if (this.getOriginal().getEntityData().hasItem(Stamina)) {
+-            float amount = Mth.clamp(value, 0.0F, this.getMaxStamina());
+-            this.getOriginal().getEntityData().set(Stamina, amount);
+-        }
++        float amount = Mth.clamp(value, 0.0F, this.getMaxStamina());
++        this.expandedSynchedData.set(EpicFightExpandedEntityDataAccessors.STAMINA, amount);
+     }
+     public List<ResourceLocation> getLearnedSkills() {
+         return this.LearnedSkills;
+@@ -108,17 +107,22 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         if (!this.hasLearnedSkill(RegistryName)) {
+             this.LearnedSkills.add(RegistryName);
+             this.saveToPersistent();
+-            MinecraftForge.EVENT_BUS.post(new MaidSkillInitEvent(this,RegistryName));
++            NeoForge.EVENT_BUS.post(new MaidSkillInitEvent(this,RegistryName));
+         }
+     }
+     public void removeLearnedSkill(ResourceLocation RegistryName) {
+         if (this.hasLearnedSkill(RegistryName)) {
+             this.LearnedSkills.remove(RegistryName);
++            MaidSkill skill = MaidSkillManager.getSkillFor(RegistryName);
++            if (skill != null) {
++                this.removeData(skill);
++            }
+             this.saveToPersistent();
+         }
+     }
+     public void clearLearnedSkills() {
+         this.LearnedSkills.clear();
++        this.SkillDataKey.clear();
+         this.saveToPersistent();
+     }
+     public boolean hasLearnedSkill(ResourceLocation RegistryName) {
+@@ -147,13 +151,13 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         return MathUtils.getModelMatrixIntegral(0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, yRotO, yRot, partialTicks, 0.8F, 0.8F, 0.8F);
+     }
+     @Override
+-    public void onConstructed(T entity) {
+-        super.onConstructed(entity);
+-        entity.getEntityData().define(Stamina, 0F);
++    protected void registerExpandedEntityDataAccessors(ExpandedSyncedData data) {
++        super.registerExpandedEntityDataAccessors(data);
++        data.register(EpicFightExpandedEntityDataAccessors.STAMINA);
+     }
+     @Override
+-    public void onJoinWorld(T entity, EntityJoinLevelEvent event) {
+-        super.onJoinWorld(entity, event);
++    public void onJoinWorld(T entity, Level level, boolean worldgenSpawn) {
++        super.onJoinWorld(entity, level, worldgenSpawn);
+         CompoundTag NBT = entity.getPersistentData();
+         if (NBT.contains(CompoundTagManager.MaidCap)) {
+             this.deserializeNBT(NBT);
+@@ -163,8 +167,8 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         this.CurrentMain = Main;
+         this.CurrentOff = Off;
+         this.CurrentStyle = this.getHoldingItemStyle();
+-        MinecraftForge.EVENT_BUS.post(new MaidSkillInitEvent(this));
+-        MinecraftForge.EVENT_BUS.post(new MaidChangeItemEvent(this));
++        NeoForge.EVENT_BUS.post(new MaidSkillInitEvent(this));
++        NeoForge.EVENT_BUS.post(new MaidChangeItemEvent(this));
+     }
+     @Override
+     public HumanoidArmature getArmature() {
+@@ -175,12 +179,12 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         return (HumanoidArmature) this.armature;
+     }
+     @Override
+-    public void serverTick(LivingEvent.LivingTickEvent event) {
+-        super.serverTick(event);
++    public void postTickServer() {
++        super.postTickServer();
+         if (!this.getOriginal().level().isClientSide()) {
+             float stamina = this.getStamina();
+             float maxStamina = this.getMaxStamina();
+-            float staminaRegen = (float) this.getOriginal().getAttributeValue(EpicFightAttributes.STAMINA_REGEN.get());
++            float staminaRegen = (float) this.getOriginal().getAttributeValue(EpicFightAttributes.STAMINA_REGEN);
+             if (this.getOriginal().isDeadOrDying()) {
+                 this.tickDeath();
+             }
+@@ -205,7 +209,7 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+                     this.CurrentOff = Off;
+                     this.CurrentStyle = style;
+                     this.lastCheckState = stateCheck;
+-                    MinecraftForge.EVENT_BUS.post(new MaidChangeItemEvent(this));
++                    NeoForge.EVENT_BUS.post(new MaidChangeItemEvent(this));
+                 }
+                 if (!this.hasFightAi && !stateCheck) {
+                     this.resetAi();
+@@ -278,7 +282,7 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         this.ItemStyleAttackMotions = Maps.newHashMap();
+         this.weaponAttackMotions = Maps.newHashMap();
+         EFTLM_Behaviors.SetWeaponMotions(this.weaponAttackMotions, this.ItemArmatures);
+-        MinecraftForge.EVENT_BUS.post(new CombatBehaviorsEvent(this.weaponAttackMotions, this.ItemStyleAttackMotions, this.ItemAttackMotions, this.ItemArmatures));
++        NeoForge.EVENT_BUS.post(new CombatBehaviorsEvent(this.weaponAttackMotions, this.ItemStyleAttackMotions, this.ItemAttackMotions, this.ItemArmatures));
+     }
+     @Override
+     protected CombatBehaviors.Builder<HumanoidMobPatch<?>> getHoldingItemWeaponMotionBuilder() {
+@@ -449,6 +453,9 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         return inner != null && inner.containsKey(key);
+     }
+     @Override
++    public CompoundTag serializeNBT(HolderLookup.Provider registries) {
++        return serializeNBT();
++    }
+     public CompoundTag serializeNBT() {
+         CompoundTag NBT = new CompoundTag();
+         ListTag SkillsList = new ListTag();
+@@ -480,6 +487,9 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         Key.getValueType().write(Nbt, Key.getId().toString(), Value);
+     }
+     @Override
++    public void deserializeNBT(HolderLookup.Provider registries, CompoundTag nbt) {
++        deserializeNBT(nbt);
++    }
+     public void deserializeNBT(CompoundTag NBT) {
+         CompoundTag MaidCap = NBT.getCompound(CompoundTagManager.MaidCap);
+         CompoundTag Source = MaidCap.contains(CompoundTagManager.LearnedSkills) ? MaidCap : NBT;
+@@ -491,6 +501,7 @@ public class MaidPatch<T extends EntityMaid> extends HumanoidMobPatch<T> impleme
+         deserializeSkillData(Source);
+     }
+     private void deserializeSkillData(CompoundTag NBT) {
++        this.SkillDataKey.clear();
+         if (!NBT.contains(CompoundTagManager.SkillData, Tag.TAG_COMPOUND)) return;
+         CompoundTag SkillData = NBT.getCompound(CompoundTagManager.SkillData);
+         for (String SkillId : SkillData.getAllKeys()) {
+diff --git a/src/main/java/net/EFTLM/EF/Command/MaidSkillCommand.java b/src/main/java/net/EFTLM/EF/Command/MaidSkillCommand.java
+index 8447a1a..1b27c4c 100644
+--- a/src/main/java/net/EFTLM/EF/Command/MaidSkillCommand.java
++++ b/src/main/java/net/EFTLM/EF/Command/MaidSkillCommand.java
+@@ -14,7 +14,7 @@ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.world.entity.Entity;
+-import net.minecraftforge.event.RegisterCommandsEvent;
++import net.neoforged.neoforge.event.RegisterCommandsEvent;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import java.util.Set;
+ public class MaidSkillCommand {
+@@ -100,7 +100,6 @@ public class MaidSkillCommand {
+                                     if (MaidPatch != null) {
+                                         if (MaidPatch.hasLearnedSkill(name)) {
+                                             MaidPatch.removeLearnedSkill(name);
+-                                            MaidPatch.removeData(Skill);
+                                             count++;
+                                         }
+                                     }
+diff --git a/src/main/java/net/EFTLM/EF/Compat/CompatModList.java b/src/main/java/net/EFTLM/EF/Compat/CompatModList.java
+index a2c4f53..79bebea 100644
+--- a/src/main/java/net/EFTLM/EF/Compat/CompatModList.java
++++ b/src/main/java/net/EFTLM/EF/Compat/CompatModList.java
+@@ -1,6 +1,6 @@
+ package net.EFTLM.EF.Compat;
+ 
+-import net.minecraftforge.fml.ModList;
++import net.neoforged.fml.ModList;
+ public class CompatModList {
+     public static String EFN = "efn";
+     public static String EFN_Enhance = "efn_enhance";
+diff --git a/src/main/java/net/EFTLM/EF/Compat/EFNCompat.java b/src/main/java/net/EFTLM/EF/Compat/EFNCompat.java
+index db96f1a..6581d60 100644
+--- a/src/main/java/net/EFTLM/EF/Compat/EFNCompat.java
++++ b/src/main/java/net/EFTLM/EF/Compat/EFNCompat.java
+@@ -267,7 +267,7 @@ public class EFNCompat {
+             }
+         }
+         static void clearMeenEffect(LivingEntityPatch<?> Patch) {
+-            Patch.getOriginal().removeEffect(EFNMobEffectRegistry.MEEN_LANCE.get());
++            Patch.getOriginal().removeEffect(EFNMobEffectRegistry.MEEN_LANCE);
+         }
+         static void summonAtWaist(LivingEntityPatch<?> Patch) {
+             if (Patch instanceof MaidPatch<?> MaidPatch) {
+@@ -339,7 +339,7 @@ public class EFNCompat {
+             if (Patch instanceof MaidPatch<?> MaidPatch) {
+                 EntityMaid owner = MaidPatch.getOriginal();
+                 if (owner.level() instanceof ServerLevel) {
+-                    return owner.hasEffect(EFNMobEffectRegistry.BLODDLUST.get());
++                    return owner.hasEffect(EFNMobEffectRegistry.BLODDLUST);
+                 }
+             }
+             return false;
+@@ -348,7 +348,7 @@ public class EFNCompat {
+             if (Patch instanceof MaidPatch<?> MaidPatch) {
+                 EntityMaid owner = MaidPatch.getOriginal();
+                 if (owner.level() instanceof ServerLevel) {
+-                    owner.addEffect(new MobEffectInstance(EFNMobEffectRegistry.BLODDLUST.get(),-1));
++                    owner.addEffect(new MobEffectInstance(EFNMobEffectRegistry.BLODDLUST,-1));
+                 }
+             }
+         }
+@@ -356,7 +356,7 @@ public class EFNCompat {
+             if (Patch instanceof MaidPatch<?> MaidPatch) {
+                 EntityMaid owner = MaidPatch.getOriginal();
+                 if (owner.level() instanceof ServerLevel) {
+-                    owner.removeEffect(EFNMobEffectRegistry.BLODDLUST.get());
++                    owner.removeEffect(EFNMobEffectRegistry.BLODDLUST);
+                 }
+             }
+         }
+diff --git a/src/main/java/net/EFTLM/EF/Crafting/RandomAltarRecipe.java b/src/main/java/net/EFTLM/EF/Crafting/RandomAltarRecipe.java
+index 4b63103..bf72034 100644
+--- a/src/main/java/net/EFTLM/EF/Crafting/RandomAltarRecipe.java
++++ b/src/main/java/net/EFTLM/EF/Crafting/RandomAltarRecipe.java
+@@ -1,69 +1,38 @@
+ package net.EFTLM.EF.Crafting;
+ 
+ import com.github.tartaricacid.touhoulittlemaid.crafting.AltarRecipe;
+-import com.github.tartaricacid.touhoulittlemaid.inventory.AltarRecipeInventory;
++import net.EFTLM.EF.Item.MaidSkillBookItem;
+ import net.EFTLM.EF.Register.EFTLM_Recipe;
+ import net.EFTLM.EF.Skill.MaidSkillManager;
+ import net.minecraft.core.BlockPos;
+-import net.minecraft.nbt.CompoundTag;
+-import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.level.ServerLevel;
+-import net.minecraft.world.entity.Entity;
+-import net.minecraft.world.entity.EntityType;
+-import net.minecraft.world.item.crafting.Ingredient;
++import net.minecraft.world.entity.item.ItemEntity;
++import net.minecraft.world.item.ItemStack;
+ import net.minecraft.world.item.crafting.RecipeSerializer;
+-import net.minecraft.world.item.crafting.RecipeType;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import org.jetbrains.annotations.NotNull;
+-import javax.annotation.Nullable;
+ import java.util.ArrayList;
+ import java.util.List;
+-import java.util.Objects;
+-import java.util.Set;
++import javax.annotation.Nullable;
++
+ public class RandomAltarRecipe extends AltarRecipe {
+-    private static final String SKILL_BOOK_ID = "ef_tlm:skillbook";
+-    public RandomAltarRecipe(ResourceLocation id, EntityType<?> entityType, @Nullable CompoundTag extraData, float powerCost, Ingredient copyInput, @Nullable String copyTag, Ingredient... inputs) {
+-        super(id, entityType, extraData, powerCost, copyInput, copyTag, inputs);
++    public RandomAltarRecipe(AltarRecipe recipe) {
++        super(recipe.getGroup(), recipe.getCategory(), recipe.getIngredients(), recipe.getPower(),
++              recipe.getResult(), recipe.getEntityType(), recipe.getLangKey());
+     }
+     @Override
+-    public void spawnOutputEntity(@NotNull ServerLevel world, @NotNull BlockPos pos, @Nullable AltarRecipeInventory inventory) {
+-        CompoundTag extra = getExtraData();
+-        if (extra == null) {
+-            super.spawnOutputEntity(world, pos, inventory);
++    public void spawnOutputEntity(ServerLevel world, BlockPos pos, @Nullable List<ItemStack> inputs) {
++        if (!isItemCraft() || !(getResult().getItem() instanceof MaidSkillBookItem)) {
++            super.spawnOutputEntity(world, pos, inputs);
+             return;
+         }
+-        CompoundTag nbt = extra.copy();
+-        if (nbt.contains("Item")) {
+-            CompoundTag itemTag = nbt.getCompound("Item");
+-            if (SKILL_BOOK_ID.equals(itemTag.getString("id"))) {
+-                CompoundTag tag = itemTag.contains("tag") ? itemTag.getCompound("tag") : new CompoundTag();
+-                if (!tag.contains("skill")) {
+-                    Set<ResourceLocation> pool = MaidSkillManager.getNonWeaponSkillName();
+-                    if (!pool.isEmpty()) {
+-                        List<ResourceLocation> list = new ArrayList<>(pool);
+-                        ResourceLocation chosen = list.get(world.random.nextInt(list.size()));
+-                        tag.putString("skill", chosen.toString());
+-                        itemTag.put("tag", tag);
+-                        nbt.put("Item", itemTag);
+-                    }
+-                }
+-            }
+-        }
+-        nbt.putString("id", Objects.requireNonNull(ForgeRegistries.ENTITY_TYPES.getKey(getEntityType())).toString());
+-        Entity resultEntity = EntityType.loadEntityRecursive(nbt, world, (e) -> {
+-            e.moveTo(pos.getX(), pos.getY(), pos.getZ(), e.getYRot(), e.getXRot());
+-            return e;
+-        });
+-        if (resultEntity != null) {
+-            world.tryAddFreshEntityWithPassengers(resultEntity);
++        ItemStack output = getResult().copy();
++        var skills = new ArrayList<>(MaidSkillManager.getNonWeaponSkillName());
++        if (MaidSkillBookItem.getContainSkill(output) == null && !skills.isEmpty()) {
++            MaidSkillBookItem.setContainingSkill(skills.get(world.random.nextInt(skills.size())), output);
+         }
++        world.addFreshEntity(new ItemEntity(world, pos.getX(), pos.getY(), pos.getZ(), output));
+     }
+     @Override
+-    public @NotNull RecipeSerializer<?> getSerializer() {
++    public RecipeSerializer<?> getSerializer() {
+         return EFTLM_Recipe.RANDOM_ALTAR_SERIALIZER.get();
+     }
+-    @Override
+-    public @NotNull RecipeType<?> getType() {
+-        return super.getType();
+-    }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Crafting/RandomAltarSerializer.java b/src/main/java/net/EFTLM/EF/Crafting/RandomAltarSerializer.java
+index 9c4e76c..f685b53 100644
+--- a/src/main/java/net/EFTLM/EF/Crafting/RandomAltarSerializer.java
++++ b/src/main/java/net/EFTLM/EF/Crafting/RandomAltarSerializer.java
+@@ -1,71 +1,17 @@
+ package net.EFTLM.EF.Crafting;
+ 
+-import com.github.tartaricacid.touhoulittlemaid.util.EntityCraftingHelper;
+-import com.google.common.collect.Lists;
+-import com.google.gson.JsonArray;
+-import com.google.gson.JsonElement;
+-import com.google.gson.JsonObject;
+-import com.google.gson.JsonParseException;
+-import net.minecraft.nbt.CompoundTag;
+-import net.minecraft.network.FriendlyByteBuf;
+-import net.minecraft.resources.ResourceLocation;
+-import net.minecraft.util.GsonHelper;
+-import net.minecraft.world.entity.EntityType;
+-import net.minecraft.world.item.crafting.Ingredient;
++import com.github.tartaricacid.touhoulittlemaid.crafting.AltarRecipeSerializer;
++import com.mojang.serialization.MapCodec;
++import net.minecraft.network.RegistryFriendlyByteBuf;
++import net.minecraft.network.codec.StreamCodec;
+ import net.minecraft.world.item.crafting.RecipeSerializer;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import org.apache.commons.lang3.StringUtils;
+-import org.jetbrains.annotations.NotNull;
+-import org.jetbrains.annotations.Nullable;
+-import java.util.List;
+-import java.util.Optional;
++
+ public class RandomAltarSerializer implements RecipeSerializer<RandomAltarRecipe> {
++    private static final MapCodec<RandomAltarRecipe> CODEC = AltarRecipeSerializer.CODEC.xmap(RandomAltarRecipe::new, recipe -> recipe);
++    private static final StreamCodec<RegistryFriendlyByteBuf, RandomAltarRecipe> STREAM_CODEC =
++        new AltarRecipeSerializer().streamCodec().map(RandomAltarRecipe::new, recipe -> recipe);
+     @Override
+-    public @NotNull RandomAltarRecipe fromJson(@NotNull ResourceLocation recipeId, @NotNull JsonObject json) {
+-        EntityCraftingHelper.Output output = EntityCraftingHelper.getEntityData(GsonHelper.getAsJsonObject(json, "output"));
+-        float powerCost = GsonHelper.getAsFloat(json, "power");
+-        JsonArray ingredients = GsonHelper.getAsJsonArray(json, "ingredients");
+-        List<Ingredient> inputs = Lists.newArrayList();
+-        for (JsonElement e : ingredients) {
+-            inputs.add(Ingredient.fromJson(e));
+-        }
+-        return new RandomAltarRecipe(recipeId, output.getType(), output.getData(), powerCost, output.getCopyInput(), output.getCopyTag(), inputs.toArray(new Ingredient[0]));
+-    }
+-    @Override
+-    public @Nullable RandomAltarRecipe fromNetwork(@NotNull ResourceLocation recipeId, FriendlyByteBuf buffer) {
+-        Optional<EntityType<?>> typeOptional = EntityType.byString(buffer.readUtf());
+-        if (typeOptional.isEmpty()) {
+-            throw new JsonParseException("Entity Type Tag Not Found");
+-        }
+-        EntityType<?> entityType = typeOptional.get();
+-        CompoundTag extraData = buffer.readNbt();
+-        float powerCost = buffer.readFloat();
+-        Ingredient copyInput = Ingredient.fromNetwork(buffer);
+-        String copyTag = buffer.readUtf();
+-        Ingredient[] inputs = new Ingredient[buffer.readVarInt()];
+-        for (int i = 0; i < inputs.length; i++) {
+-            inputs[i] = Ingredient.fromNetwork(buffer);
+-        }
+-        return new RandomAltarRecipe(recipeId, entityType, extraData, powerCost, copyInput, copyTag, inputs);
+-    }
++    public MapCodec<RandomAltarRecipe> codec() { return CODEC; }
+     @Override
+-    public void toNetwork(@NotNull FriendlyByteBuf buffer, RandomAltarRecipe recipe) {
+-        ResourceLocation name = ForgeRegistries.ENTITY_TYPES.getKey(recipe.getEntityType());
+-        if (name == null) {
+-            throw new JsonParseException("Entity Type Tag Not Found");
+-        }
+-        buffer.writeUtf(name.toString());
+-        buffer.writeNbt(recipe.getExtraData());
+-        buffer.writeFloat(recipe.getPowerCost());
+-        recipe.getCopyInput().toNetwork(buffer);
+-        if (StringUtils.isEmpty(recipe.getCopyTag())) {
+-            buffer.writeUtf("");
+-        } else {
+-            buffer.writeUtf(recipe.getCopyTag());
+-        }
+-        buffer.writeVarInt(recipe.getIngredients().size());
+-        for (Ingredient input : recipe.getIngredients()) {
+-            input.toNetwork(buffer);
+-        }
+-    }
++    public StreamCodec<RegistryFriendlyByteBuf, RandomAltarRecipe> streamCodec() { return STREAM_CODEC; }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Event/ClientEventBus.java b/src/main/java/net/EFTLM/EF/Event/ClientEventBus.java
+index a3352d4..614646b 100644
+--- a/src/main/java/net/EFTLM/EF/Event/ClientEventBus.java
++++ b/src/main/java/net/EFTLM/EF/Event/ClientEventBus.java
+@@ -15,17 +15,25 @@ import net.EFTLM.EFTLM;
+ import net.minecraft.client.Minecraft;
+ import net.minecraft.client.gui.screens.MenuScreens;
+ import net.minecraft.resources.ResourceLocation;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.client.event.RegisterClientReloadListenersEvent;
+-import net.minecraftforge.eventbus.api.SubscribeEvent;
+-import net.minecraftforge.fml.common.Mod;
+-import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
+-import yesman.epicfight.api.client.forgeevent.PatchedRenderersEvent;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
++import net.neoforged.bus.api.SubscribeEvent;
++import net.neoforged.fml.common.EventBusSubscriber;
++import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
++import yesman.epicfight.api.client.event.types.registry.RegisterPatchedRenderersEvent;
++import yesman.epicfight.api.client.event.EpicFightClientEventHooks;
++import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
++import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
++import net.EFTLM.EF.Item.MaidSkillBookItem;
++import net.EFTLM.EF.Register.EFTLM_Item;
+ import yesman.epicfight.client.gui.EntityUI;
+ public class ClientEventBus {
+-    @Mod.EventBusSubscriber(
++    public static void registerEpicFightHooks() {
++        EpicFightClientEventHooks.Registry.ADD_PATCHED_ENTITY.registerEvent(ModEvents::RegisterPatchedRenderer);
++    }
++    @EventBusSubscriber(
+             modid = EFTLM.MODID,
+-            bus = Mod.EventBusSubscriber.Bus.FORGE,
++            bus = EventBusSubscriber.Bus.GAME,
+             value = {Dist.CLIENT}
+     )
+     public static class ForgeEvents {
+@@ -41,14 +49,13 @@ public class ClientEventBus {
+             }
+         }
+     }
+-    @Mod.EventBusSubscriber(
++    @EventBusSubscriber(
+             modid = EFTLM.MODID,
+-            bus = Mod.EventBusSubscriber.Bus.MOD,
++            bus = EventBusSubscriber.Bus.MOD,
+             value = {Dist.CLIENT}
+     )
+     public static class ModEvents {
+-        @SubscribeEvent
+-        public static void RegisterPatchedRenderer(PatchedRenderersEvent.Add event) {
++        public static void RegisterPatchedRenderer(RegisterPatchedRenderersEvent.AddEntity event) {
+             event.addPatchedEntityRenderer(InitEntities.MAID.get(), entityType -> new PatchedLivingMaidRenderer(event.getContext(), entityType));
+         }
+         @SubscribeEvent
+@@ -57,9 +64,16 @@ public class ClientEventBus {
+         }
+         @SubscribeEvent
+         public static void ClientSetup(FMLClientSetupEvent event) {
+-            EntityUI.ENTITY_UI_LIST.add(MaidHealthBar.Instance);
++            MaidHealthBar.initialize();
+             EFTLM_Meshes.Load(Minecraft.getInstance().getResourceManager());
+-            MenuScreens.register(EFTLM_Menu.MaidSkillMenu.get(), MaidSkillMenuScreen::new);
++        }
++        @SubscribeEvent
++        public static void registerScreens(RegisterMenuScreensEvent event) {
++            event.register(EFTLM_Menu.MaidSkillMenu.get(), MaidSkillMenuScreen::new);
++        }
++        @SubscribeEvent
++        public static void registerItemExtensions(RegisterClientExtensionsEvent event) {
++            ((MaidSkillBookItem) EFTLM_Item.SKILLBOOK.get()).initializeClient(extension -> event.registerItem(extension, EFTLM_Item.SKILLBOOK.get()));
+         }
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Event/EventBus.java b/src/main/java/net/EFTLM/EF/Event/EventBus.java
+index 115bea1..29554cf 100644
+--- a/src/main/java/net/EFTLM/EF/Event/EventBus.java
++++ b/src/main/java/net/EFTLM/EF/Event/EventBus.java
+@@ -30,17 +30,17 @@ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.sounds.SoundEvents;
+ import net.minecraft.world.item.Item;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraftforge.common.MinecraftForge;
+-import net.minecraftforge.event.entity.EntityAttributeModificationEvent;
+-import net.minecraftforge.event.entity.living.LivingAttackEvent;
+-import net.minecraftforge.event.entity.living.LivingDeathEvent;
+-import net.minecraftforge.event.entity.living.LivingHurtEvent;
+-import net.minecraftforge.eventbus.api.SubscribeEvent;
+-import net.minecraftforge.fml.common.Mod;
+-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
++import net.neoforged.neoforge.common.NeoForge;
++import net.neoforged.neoforge.event.entity.EntityAttributeModificationEvent;
++import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
++import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
++import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
++import net.neoforged.bus.api.SubscribeEvent;
++import net.neoforged.fml.common.EventBusSubscriber;
++import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+ import yesman.epicfight.api.animation.Animator;
+-import yesman.epicfight.api.forgeevent.EntityPatchRegistryEvent;
+-import yesman.epicfight.api.forgeevent.InitAnimatorEvent;
++import yesman.epicfight.api.event.types.registry.EntityPatchRegistryEvent;
++import yesman.epicfight.api.event.types.animation.InitAnimatorEvent;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import yesman.epicfight.world.capabilities.entitypatch.HumanoidMobPatch;
+ import yesman.epicfight.world.capabilities.entitypatch.player.PlayerPatch;
+@@ -52,12 +52,11 @@ import java.util.List;
+ import java.util.Map;
+ import java.util.function.Consumer;
+ public class EventBus {
+-    @Mod.EventBusSubscriber(
++    @EventBusSubscriber(
+             modid = EFTLM.MODID,
+-            bus = Mod.EventBusSubscriber.Bus.FORGE
++            bus = EventBusSubscriber.Bus.GAME
+     )
+     public static class ForgeEvents {
+-        @SubscribeEvent
+         public static void RegisterAnimator(InitAnimatorEvent event) {
+             if (!(event.getEntityPatch() instanceof PlayerPatch<?>)) return;
+             Animator animator = event.getAnimator();
+@@ -73,23 +72,23 @@ public class EventBus {
+             if (!(event.getSource().getEntity() instanceof EntityMaid maid)) return;
+             MaidPatch<?> maidPatch = EpicFightCapabilities.getEntityPatch(maid, MaidPatch.class);
+             if (maidPatch == null) return;
+-            MinecraftForge.EVENT_BUS.post(new MaidKilledEvent(maidPatch, event.getEntity(), event.getSource()));
++            NeoForge.EVENT_BUS.post(new MaidKilledEvent(maidPatch, event.getEntity(), event.getSource()));
+         }
+         @SubscribeEvent
+-        public static void MaidAttackListener(LivingAttackEvent event) {
++        public static void MaidAttackListener(LivingIncomingDamageEvent event) {
+             if (!(event.getEntity().level() instanceof ServerLevel)) return;
+             if (!(event.getSource().getEntity() instanceof EntityMaid maid)) return;
+             MaidPatch<?> maidPatch = EpicFightCapabilities.getEntityPatch(maid, MaidPatch.class);
+             if (maidPatch == null) return;
+-            MinecraftForge.EVENT_BUS.post(new MaidHurtTargetEvent.Pre(maidPatch, event.getEntity(), event.getSource()));
++            NeoForge.EVENT_BUS.post(new MaidHurtTargetEvent.Pre(maidPatch, event.getEntity(), event.getSource()));
+         }
+         @SubscribeEvent
+-        public static void MaidHurtListener(LivingHurtEvent event) {
++        public static void MaidHurtListener(LivingDamageEvent.Pre event) {
+             if (!(event.getEntity().level() instanceof ServerLevel)) return;
+             if (!(event.getSource().getEntity() instanceof EntityMaid maid)) return;
+             MaidPatch<?> maidPatch = EpicFightCapabilities.getEntityPatch(maid, MaidPatch.class);
+             if (maidPatch == null) return;
+-            MinecraftForge.EVENT_BUS.post(new MaidHurtTargetEvent.Post(maidPatch, event.getEntity(), event.getSource(), event.getAmount()));
++            NeoForge.EVENT_BUS.post(new MaidHurtTargetEvent.Post(maidPatch, event.getEntity(), event.getSource(), event.getNewDamage()));
+         }
+         @SubscribeEvent
+         public static void MaidInteract(InteractMaidEvent event) {
+@@ -225,10 +224,7 @@ public class EventBus {
+             if (skill == null) return;
+             if (skill instanceof WeaponInnateSkill) {
+                 event.setCanceled(true);
+-                return;
+             }
+-            maidPatch.removeLearnedSkill(skill.getRegistryName());
+-            event.removeData();
+         }
+         @SubscribeEvent
+         public static void MaidCombatBehaviors(CombatBehaviorsEvent event) {
+@@ -261,18 +257,17 @@ public class EventBus {
+             }
+         }
+     }
+-    @Mod.EventBusSubscriber(
++    @EventBusSubscriber(
+             modid = EFTLM.MODID,
+-            bus = Mod.EventBusSubscriber.Bus.MOD
++            bus = EventBusSubscriber.Bus.MOD
+     )
+     public static class ModEvents {
+-        @SubscribeEvent
+         public static void RegistryPatch(EntityPatchRegistryEvent event) {
+-            event.getTypeEntry().put(InitEntities.MAID.get(), entity -> {
++            event.registerEntityPatch(InitEntities.MAID.get(), entity -> {
+                 if (entity.level().isClientSide()) {
+-                    return ClientMaidPatch::new;
++                    return new ClientMaidPatch(entity);
+                 } else {
+-                    return MaidPatch::new;
++                    return new MaidPatch<>(entity);
+                 }
+             });
+         }
+diff --git a/src/main/java/net/EFTLM/EF/Inventory/MaidSkillContainer.java b/src/main/java/net/EFTLM/EF/Inventory/MaidSkillContainer.java
+index 2c1d83d..90dcfde 100644
+--- a/src/main/java/net/EFTLM/EF/Inventory/MaidSkillContainer.java
++++ b/src/main/java/net/EFTLM/EF/Inventory/MaidSkillContainer.java
+@@ -9,11 +9,11 @@ import net.minecraft.world.entity.player.Inventory;
+ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.inventory.MenuType;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraftforge.common.extensions.IForgeMenuType;
++import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
+ import org.jetbrains.annotations.NotNull;
+ public class MaidSkillContainer extends AbstractMaidContainer {
+     protected final CompoundTag NBT;
+-    public static final MenuType<MaidSkillContainer> TYPE = IForgeMenuType.create((windowId, inv, data) -> new MaidSkillContainer(windowId, inv, data.readVarInt(),data.readNbt()));
++    public static final MenuType<MaidSkillContainer> TYPE = IMenuTypeExtension.create((windowId, inv, data) -> new MaidSkillContainer(windowId, inv, data.readVarInt(),data.readNbt()));
+     public MaidSkillContainer(int id, Inventory inventory, int entityId, CompoundTag nbt) {
+         super(TYPE, id, inventory, entityId);
+         this.NBT = nbt;
+diff --git a/src/main/java/net/EFTLM/EF/Item/MaidSkillBookItem.java b/src/main/java/net/EFTLM/EF/Item/MaidSkillBookItem.java
+index d74e0ca..233eeaa 100644
+--- a/src/main/java/net/EFTLM/EF/Item/MaidSkillBookItem.java
++++ b/src/main/java/net/EFTLM/EF/Item/MaidSkillBookItem.java
+@@ -18,10 +18,11 @@ import net.minecraft.world.item.Item;
+ import net.minecraft.world.item.ItemStack;
+ import net.minecraft.world.item.TooltipFlag;
+ import net.minecraft.world.level.Level;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.api.distmarker.OnlyIn;
+-import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+-import net.minecraftforge.fml.DistExecutor;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.api.distmarker.OnlyIn;
++import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
++import net.minecraft.core.component.DataComponents;
++import net.minecraft.world.item.component.CustomData;
+ import org.jetbrains.annotations.NotNull;
+ import javax.annotation.Nullable;
+ import java.util.List;
+@@ -32,31 +33,27 @@ public class MaidSkillBookItem extends Item {
+         super(Properties);
+     }
+     public static void setContainingSkill(ResourceLocation name, ItemStack stack) {
+-        stack.getOrCreateTag().put("skill", StringTag.valueOf(String.valueOf(name)));
++        CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putString("skill", name.toString()));
+     }
+     public static void setContainingSkill(MaidSkill skill, ItemStack stack) {
+         setContainingSkill(skill.getRegistryName(), stack);
+     }
+     public static MaidSkill getContainSkill(ItemStack stack) {
+-        if (stack.getTag() != null && stack.getTag().contains("skill")) {
+-            String skillName = stack.getTag().getString("skill");
+-            return MaidSkillManager.getSkillFor(ResourceLocation.parse(skillName));
+-        } else {
+-            return null;
+-        }
++        var data = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
++        ResourceLocation id = ResourceLocation.tryParse(data.getString("skill"));
++        return id == null ? null : MaidSkillManager.getSkillFor(id);
+     }
+     @Override
+     public boolean isFoil(ItemStack stack) {
+-        return (stack.getTag() != null && stack.getTag().contains("skill"));
++        return getContainSkill(stack) != null;
+     }
+     @Override
+-    public void appendHoverText(@NotNull ItemStack stack, @Nullable Level worldIn, @NotNull List<Component> tooltip, @NotNull TooltipFlag flagIn) {
++    public void appendHoverText(@NotNull ItemStack stack, @NotNull TooltipContext context, @NotNull List<Component> tooltip, @NotNull TooltipFlag flagIn) {
+         MaidSkill Skill = getContainSkill(stack);
+         if (Skill != null) {
+             tooltip.add(Skill.getTitle().withStyle(ChatFormatting.DARK_GRAY));
+         }
+     }
+-    @Override
+     @OnlyIn(Dist.CLIENT)
+     public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+         consumer.accept(new IClientItemExtensions() {
+@@ -72,7 +69,7 @@ public class MaidSkillBookItem extends Item {
+         if (world.isClientSide) {
+             MaidSkill skill = getContainSkill(itemstack);
+             if (skill != null) {
+-                DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> openScreen(skill));
++                openScreen(skill);
+             }
+         }
+         player.awardStat(Stats.ITEM_USED.get(this));
+diff --git a/src/main/java/net/EFTLM/EF/Model/Mesh/MaidMesh.java b/src/main/java/net/EFTLM/EF/Model/Mesh/MaidMesh.java
+index b7e8f3f..b0e4b7a 100644
+--- a/src/main/java/net/EFTLM/EF/Model/Mesh/MaidMesh.java
++++ b/src/main/java/net/EFTLM/EF/Model/Mesh/MaidMesh.java
+@@ -1,7 +1,7 @@
+ package net.EFTLM.EF.Model.Mesh;
+ 
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.api.distmarker.OnlyIn;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.api.distmarker.OnlyIn;
+ import yesman.epicfight.api.client.model.*;
+ import javax.annotation.Nullable;
+ import java.util.*;
+diff --git a/src/main/java/net/EFTLM/EF/Network/Packet/BasePacket.java b/src/main/java/net/EFTLM/EF/Network/Packet/BasePacket.java
+index 9695d6a..7616d67 100644
+--- a/src/main/java/net/EFTLM/EF/Network/Packet/BasePacket.java
++++ b/src/main/java/net/EFTLM/EF/Network/Packet/BasePacket.java
+@@ -1,12 +1,12 @@
+ package net.EFTLM.EF.Network.Packet;
+ 
+ import net.minecraft.network.FriendlyByteBuf;
+-import net.minecraftforge.network.NetworkEvent;
+-import java.util.function.Supplier;
+-public interface BasePacket {
++import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
++import net.neoforged.neoforge.network.handling.IPayloadContext;
++public interface BasePacket extends CustomPacketPayload {
+     void encode(FriendlyByteBuf var1);
+-    default void handle(Supplier<NetworkEvent.Context> context) {
+-        context.get().enqueueWork(this::execute);
++    default void handle(IPayloadContext context) {
++        context.enqueueWork(this::execute);
+     }
+     void execute();
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Network/Packet/Client/SyncMaidSkillsPacket.java b/src/main/java/net/EFTLM/EF/Network/Packet/Client/SyncMaidSkillsPacket.java
+index 2b72bc3..3890ec4 100644
+--- a/src/main/java/net/EFTLM/EF/Network/Packet/Client/SyncMaidSkillsPacket.java
++++ b/src/main/java/net/EFTLM/EF/Network/Packet/Client/SyncMaidSkillsPacket.java
+@@ -8,11 +8,17 @@ import net.minecraft.client.Minecraft;
+ import net.minecraft.nbt.CompoundTag;
+ import net.minecraft.network.FriendlyByteBuf;
+ import net.minecraft.world.entity.Entity;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.fml.DistExecutor;
++import net.neoforged.api.distmarker.Dist;
++import net.minecraft.network.RegistryFriendlyByteBuf;
++import net.minecraft.network.codec.StreamCodec;
++import net.minecraft.resources.ResourceLocation;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ 
+ public class SyncMaidSkillsPacket implements BasePacket {
++    public static final Type<SyncMaidSkillsPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("ef_tlm", "sync_skills"));
++    public static final StreamCodec<RegistryFriendlyByteBuf, SyncMaidSkillsPacket> CODEC = StreamCodec.of((buf, message) -> message.encode(buf), SyncMaidSkillsPacket::decode);
++    @Override
++    public Type<SyncMaidSkillsPacket> type() { return TYPE; }
+     private final int MaidId;
+     private final CompoundTag PatchNbt;
+     public SyncMaidSkillsPacket(int MaidId, CompoundTag PatchNbt) {
+@@ -29,7 +35,7 @@ public class SyncMaidSkillsPacket implements BasePacket {
+     }
+     @Override
+     public void execute() {
+-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientAction(this));
++        ClientAction(this);
+     }
+     protected static void ClientAction(SyncMaidSkillsPacket message) {
+         if (message.PatchNbt == null) return;
+diff --git a/src/main/java/net/EFTLM/EF/Network/Packet/Server/ForgetMaidSkillPacket.java b/src/main/java/net/EFTLM/EF/Network/Packet/Server/ForgetMaidSkillPacket.java
+index 46b4248..b6acace 100644
+--- a/src/main/java/net/EFTLM/EF/Network/Packet/Server/ForgetMaidSkillPacket.java
++++ b/src/main/java/net/EFTLM/EF/Network/Packet/Server/ForgetMaidSkillPacket.java
+@@ -12,13 +12,20 @@ import net.minecraft.network.chat.Component;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.world.entity.Entity;
+-import net.minecraftforge.common.MinecraftForge;
+-import net.minecraftforge.network.NetworkEvent;
++import net.neoforged.neoforge.common.NeoForge;
++import net.minecraft.network.RegistryFriendlyByteBuf;
++import net.minecraft.network.codec.StreamCodec;
++import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
++import net.neoforged.neoforge.network.handling.IPayloadContext;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import javax.annotation.Nullable;
+ import java.util.function.Supplier;
+ 
+-public class ForgetMaidSkillPacket {
++public class ForgetMaidSkillPacket implements CustomPacketPayload {
++    public static final Type<ForgetMaidSkillPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("ef_tlm", "forget_skill"));
++    public static final StreamCodec<RegistryFriendlyByteBuf, ForgetMaidSkillPacket> CODEC = StreamCodec.of((buf, message) -> encode(message, buf), ForgetMaidSkillPacket::decode);
++    @Override
++    public Type<ForgetMaidSkillPacket> type() { return TYPE; }
+     private final int MaidId;
+     private final ResourceLocation SkillName;
+     public ForgetMaidSkillPacket(int MaidId, ResourceLocation SkillName) {
+@@ -32,10 +39,8 @@ public class ForgetMaidSkillPacket {
+     public static ForgetMaidSkillPacket decode(FriendlyByteBuf buf) {
+         return new ForgetMaidSkillPacket(buf.readVarInt(), buf.readResourceLocation());
+     }
+-    public static void handle(ForgetMaidSkillPacket message, Supplier<NetworkEvent.Context> contextSupplier) {
+-        NetworkEvent.Context context = contextSupplier.get();
+-        context.enqueueWork(() -> Action(message, context.getSender()));
+-        context.setPacketHandled(true);
++    public static void handle(ForgetMaidSkillPacket message, IPayloadContext context) {
++        context.enqueueWork(() -> Action(message, (ServerPlayer) context.player()));
+     }
+     protected static void Action(ForgetMaidSkillPacket message, @Nullable ServerPlayer player) {
+         if (player == null) return;
+@@ -47,9 +52,11 @@ public class ForgetMaidSkillPacket {
+         MaidSkill Skill = MaidSkillManager.getSkillFor(message.SkillName);
+         if (Skill == null || !MaidPatch.hasLearnedSkill(message.SkillName)) return;
+         MaidSkillRemoveEvent event = new MaidSkillRemoveEvent(MaidPatch, Skill);
+-        if (MinecraftForge.EVENT_BUS.post(event)) {
++        if (NeoForge.EVENT_BUS.post(event).isCanceled()) {
+             return;
+         }
++        // Commit only after every listener has had an opportunity to cancel.
++        MaidPatch.removeLearnedSkill(Skill.getRegistryName());
+         PacketSend.sendToPlayer(new SyncMaidSkillsPacket(maid.getId(), MaidPatch.serializeNBT()), player);
+         player.sendSystemMessage(Component.translatable("message.eftlm.forget_skill_success", Skill.getTitle().getString()));
+     }
+diff --git a/src/main/java/net/EFTLM/EF/Network/Packet/Server/OpenMaidSkillScreenPacket.java b/src/main/java/net/EFTLM/EF/Network/Packet/Server/OpenMaidSkillScreenPacket.java
+index 376e730..a50067b 100644
+--- a/src/main/java/net/EFTLM/EF/Network/Packet/Server/OpenMaidSkillScreenPacket.java
++++ b/src/main/java/net/EFTLM/EF/Network/Packet/Server/OpenMaidSkillScreenPacket.java
+@@ -6,12 +6,19 @@ import net.EFTLM.EF.Inventory.MaidSkillContainer;
+ import net.minecraft.network.FriendlyByteBuf;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.world.entity.Entity;
+-import net.minecraftforge.network.NetworkEvent;
+-import net.minecraftforge.network.NetworkHooks;
++import net.minecraft.network.RegistryFriendlyByteBuf;
++import net.minecraft.network.codec.StreamCodec;
++import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
++import net.minecraft.resources.ResourceLocation;
++import net.neoforged.neoforge.network.handling.IPayloadContext;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import javax.annotation.Nullable;
+ import java.util.function.Supplier;
+-public class OpenMaidSkillScreenPacket {
++public class OpenMaidSkillScreenPacket implements CustomPacketPayload {
++    public static final Type<OpenMaidSkillScreenPacket> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("ef_tlm", "open_skill_menu"));
++    public static final StreamCodec<RegistryFriendlyByteBuf, OpenMaidSkillScreenPacket> CODEC = StreamCodec.of((buf, message) -> encode(message, buf), OpenMaidSkillScreenPacket::decode);
++    @Override
++    public Type<OpenMaidSkillScreenPacket> type() { return TYPE; }
+     private final int MaidId;
+     public OpenMaidSkillScreenPacket(int MaidId) {
+         this.MaidId = MaidId;
+@@ -22,10 +29,8 @@ public class OpenMaidSkillScreenPacket {
+     public static OpenMaidSkillScreenPacket decode(FriendlyByteBuf buf) {
+         return new OpenMaidSkillScreenPacket(buf.readVarInt());
+     }
+-    public static void handle(OpenMaidSkillScreenPacket message, Supplier<NetworkEvent.Context> contextSupplier) {
+-        NetworkEvent.Context context = contextSupplier.get();
+-        context.enqueueWork(() -> Action(message, context.getSender()));
+-        context.setPacketHandled(true);
++    public static void handle(OpenMaidSkillScreenPacket message, IPayloadContext context) {
++        context.enqueueWork(() -> Action(message, (ServerPlayer) context.player()));
+     }
+     protected static void Action(OpenMaidSkillScreenPacket message, @Nullable ServerPlayer player) {
+         if (player != null) {
+@@ -33,7 +38,7 @@ public class OpenMaidSkillScreenPacket {
+             if (entity instanceof EntityMaid maid && stillValid(player, maid)) {
+                 MaidPatch<?> DataPatch = EpicFightCapabilities.getEntityPatch(maid, MaidPatch.class);
+                 if (DataPatch != null) {
+-                    NetworkHooks.openScreen(player, MaidSkillContainer.create(maid.getId(),DataPatch.serializeNBT()), buf -> {
++                    player.openMenu(MaidSkillContainer.create(maid.getId(),DataPatch.serializeNBT()), buf -> {
+                         buf.writeVarInt(maid.getId());
+                         buf.writeNbt(DataPatch.serializeNBT());
+                     });
+@@ -42,6 +47,6 @@ public class OpenMaidSkillScreenPacket {
+         }
+     }
+     protected static boolean stillValid(ServerPlayer player, EntityMaid maid) {
+-        return maid.isOwnedBy(player) && !maid.isSleeping() && maid.isAlive() && player.canReach(maid, 3);
++        return maid.isOwnedBy(player) && !maid.isSleeping() && maid.isAlive() && player.canInteractWithEntity(maid, 3);
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Network/PacketHandler.java b/src/main/java/net/EFTLM/EF/Network/PacketHandler.java
+index 6718656..d25961f 100644
+--- a/src/main/java/net/EFTLM/EF/Network/PacketHandler.java
++++ b/src/main/java/net/EFTLM/EF/Network/PacketHandler.java
+@@ -1,34 +1,15 @@
+ package net.EFTLM.EF.Network;
+ 
+-import net.EFTLM.EF.Network.Packet.BasePacket;
+ import net.EFTLM.EF.Network.Packet.Client.SyncMaidSkillsPacket;
+ import net.EFTLM.EF.Network.Packet.Server.ForgetMaidSkillPacket;
+ import net.EFTLM.EF.Network.Packet.Server.OpenMaidSkillScreenPacket;
+-import net.EFTLM.EFTLM;
+-import net.minecraft.network.FriendlyByteBuf;
+-import net.minecraft.resources.ResourceLocation;
+-import net.minecraftforge.network.NetworkEvent;
+-import net.minecraftforge.network.NetworkRegistry;
+-import net.minecraftforge.network.simple.SimpleChannel;
+-import java.util.function.BiConsumer;
+-import java.util.function.Function;
+-import java.util.function.Supplier;
+-public class PacketHandler {
+-    protected static final String PROTOCOL_VERSION = "1";
+-    protected static int index;
+-    public static final SimpleChannel INSTANCE = NetworkRegistry.newSimpleChannel(
+-            ResourceLocation.fromNamespaceAndPath(EFTLM.MODID, "main"),
+-            () -> PROTOCOL_VERSION, PROTOCOL_VERSION::equals, PROTOCOL_VERSION::equals
+-    );
+-    public static synchronized void RegisterManager() {
+-        ServerRegister(OpenMaidSkillScreenPacket.class, OpenMaidSkillScreenPacket::encode, OpenMaidSkillScreenPacket::decode, OpenMaidSkillScreenPacket::handle);
+-        ServerRegister(ForgetMaidSkillPacket.class, ForgetMaidSkillPacket::encode, ForgetMaidSkillPacket::decode, ForgetMaidSkillPacket::handle);
+-        ClientRegister(SyncMaidSkillsPacket.class, SyncMaidSkillsPacket::decode);
+-    }
+-    protected static <MSG extends BasePacket> void ClientRegister(final Class<MSG> packet, Function<FriendlyByteBuf, MSG> decoder) {
+-        INSTANCE.messageBuilder(packet, index++).encoder(BasePacket::encode).decoder(decoder).consumerMainThread(BasePacket::handle).add();
+-    }
+-    protected static <MSG> void ServerRegister(final Class<MSG> packet, BiConsumer<MSG, FriendlyByteBuf> encoder, Function<FriendlyByteBuf, MSG> decoder, BiConsumer<MSG, Supplier<NetworkEvent.Context>> handle) {
+-        INSTANCE.messageBuilder(packet, index++).encoder(encoder).decoder(decoder).consumerMainThread(handle).add();
++import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
++
++public final class PacketHandler {
++    public static void register(RegisterPayloadHandlersEvent event) {
++        var registrar = event.registrar("2");
++        registrar.playToServer(OpenMaidSkillScreenPacket.TYPE, OpenMaidSkillScreenPacket.CODEC, OpenMaidSkillScreenPacket::handle);
++        registrar.playToServer(ForgetMaidSkillPacket.TYPE, ForgetMaidSkillPacket.CODEC, ForgetMaidSkillPacket::handle);
++        registrar.playToClient(SyncMaidSkillsPacket.TYPE, SyncMaidSkillsPacket.CODEC, (packet, context) -> packet.handle(context));
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Network/PacketSend.java b/src/main/java/net/EFTLM/EF/Network/PacketSend.java
+index 9af73f8..92d9f1d 100644
+--- a/src/main/java/net/EFTLM/EF/Network/PacketSend.java
++++ b/src/main/java/net/EFTLM/EF/Network/PacketSend.java
+@@ -1,23 +1,28 @@
+ package net.EFTLM.EF.Network;
+ 
++import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+ import net.minecraft.resources.ResourceKey;
+ import net.minecraft.server.level.ServerPlayer;
+ import net.minecraft.world.level.Level;
+-import net.minecraftforge.network.PacketDistributor;
+-public class PacketSend extends PacketHandler {
+-    public static <MSG> void sendToPlayer(MSG message, ServerPlayer player) {
+-        INSTANCE.send(PacketDistributor.PLAYER.with(() -> player), message);
++import net.neoforged.neoforge.network.PacketDistributor;
++import net.neoforged.neoforge.server.ServerLifecycleHooks;
++
++public final class PacketSend {
++    public static void sendToPlayer(CustomPacketPayload message, ServerPlayer player) {
++        PacketDistributor.sendToPlayer(player, message);
+     }
+-    public static <MSG> void sendToArea(MSG message, double x, double y, double z, double radius, ResourceKey<Level> dimension) {
+-        INSTANCE.send(PacketDistributor.NEAR.with(PacketDistributor.TargetPoint.p(x, y, z, radius, dimension)), message);
++    public static void sendToArea(CustomPacketPayload message, double x, double y, double z, double radius, ResourceKey<Level> dimension) {
++        var level = ServerLifecycleHooks.getCurrentServer().getLevel(dimension);
++        if (level != null) PacketDistributor.sendToPlayersNear(level, null, x, y, z, radius, message);
+     }
+-    public static <MSG> void sendToAll(MSG message) {
+-        INSTANCE.send(PacketDistributor.ALL.noArg(), message);
++    public static void sendToAll(CustomPacketPayload message) {
++        PacketDistributor.sendToAllPlayers(message);
+     }
+-    public static <MSG> void sendToServer(MSG message) {
+-        INSTANCE.sendToServer(message);
++    public static void sendToServer(CustomPacketPayload message) {
++        PacketDistributor.sendToServer(message);
+     }
+-    public static <MSG> void sendToLevel(MSG message, ResourceKey<Level> dimension) {
+-        INSTANCE.send(PacketDistributor.DIMENSION.with(() -> dimension), message);
++    public static void sendToLevel(CustomPacketPayload message, ResourceKey<Level> dimension) {
++        var level = ServerLifecycleHooks.getCurrentServer().getLevel(dimension);
++        if (level != null) PacketDistributor.sendToPlayersInDimension(level, message);
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Register/EFTLM_Item.java b/src/main/java/net/EFTLM/EF/Register/EFTLM_Item.java
+index 9dc18cd..47bcc0d 100644
+--- a/src/main/java/net/EFTLM/EF/Register/EFTLM_Item.java
++++ b/src/main/java/net/EFTLM/EF/Register/EFTLM_Item.java
+@@ -4,14 +4,14 @@ import net.EFTLM.EF.Item.MaidSkillBookItem;
+ import net.EFTLM.EFTLM;
+ import net.minecraft.world.item.Item;
+ import net.minecraft.world.item.Rarity;
+-import net.minecraftforge.registries.DeferredRegister;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import net.minecraftforge.registries.RegistryObject;
++import net.neoforged.neoforge.registries.DeferredRegister;
++import net.minecraft.core.registries.BuiltInRegistries;
++import net.neoforged.neoforge.registries.DeferredHolder;
+ public class EFTLM_Item {
+     public static final DeferredRegister<Item> ITEMS;
+-    public static final RegistryObject<Item> SKILLBOOK;
++    public static final DeferredHolder<Item, Item> SKILLBOOK;
+     static {
+-        ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, EFTLM.MODID);
++        ITEMS = DeferredRegister.create(BuiltInRegistries.ITEM, EFTLM.MODID);
+         SKILLBOOK = ITEMS.register("skillbook", () -> new MaidSkillBookItem((new Item.Properties()).rarity(Rarity.RARE).stacksTo(1)));
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Register/EFTLM_Menu.java b/src/main/java/net/EFTLM/EF/Register/EFTLM_Menu.java
+index 91a2fea..21bcf10 100644
+--- a/src/main/java/net/EFTLM/EF/Register/EFTLM_Menu.java
++++ b/src/main/java/net/EFTLM/EF/Register/EFTLM_Menu.java
+@@ -3,14 +3,14 @@ package net.EFTLM.EF.Register;
+ import net.EFTLM.EF.Inventory.MaidSkillContainer;
+ import net.EFTLM.EFTLM;
+ import net.minecraft.world.inventory.MenuType;
+-import net.minecraftforge.registries.DeferredRegister;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import net.minecraftforge.registries.RegistryObject;
++import net.neoforged.neoforge.registries.DeferredRegister;
++import net.minecraft.core.registries.BuiltInRegistries;
++import net.neoforged.neoforge.registries.DeferredHolder;
+ public class EFTLM_Menu {
+     public static final DeferredRegister<MenuType<?>> MENUS;
+-    public static final RegistryObject<MenuType<MaidSkillContainer>> MaidSkillMenu;
++    public static final DeferredHolder<MenuType<?>, MenuType<MaidSkillContainer>> MaidSkillMenu;
+     static {
+-        MENUS = DeferredRegister.create(ForgeRegistries.MENU_TYPES, EFTLM.MODID);
++        MENUS = DeferredRegister.create(BuiltInRegistries.MENU, EFTLM.MODID);
+         MaidSkillMenu = MENUS.register("maid_skill_menu", () -> MaidSkillContainer.TYPE);
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Register/EFTLM_Recipe.java b/src/main/java/net/EFTLM/EF/Register/EFTLM_Recipe.java
+index a4c6d4e..34ca476 100644
+--- a/src/main/java/net/EFTLM/EF/Register/EFTLM_Recipe.java
++++ b/src/main/java/net/EFTLM/EF/Register/EFTLM_Recipe.java
+@@ -3,14 +3,14 @@ package net.EFTLM.EF.Register;
+ import net.EFTLM.EF.Crafting.RandomAltarSerializer;
+ import net.EFTLM.EFTLM;
+ import net.minecraft.world.item.crafting.RecipeSerializer;
+-import net.minecraftforge.registries.DeferredRegister;
+-import net.minecraftforge.registries.ForgeRegistries;
+-import net.minecraftforge.registries.RegistryObject;
++import net.neoforged.neoforge.registries.DeferredRegister;
++import net.minecraft.core.registries.BuiltInRegistries;
++import net.neoforged.neoforge.registries.DeferredHolder;
+ public class EFTLM_Recipe {
+     public static final DeferredRegister<RecipeSerializer<?>> SERIALIZERS;
+-    public static final RegistryObject<RecipeSerializer<?>> RANDOM_ALTAR_SERIALIZER;
++    public static final DeferredHolder<RecipeSerializer<?>, RecipeSerializer<?>> RANDOM_ALTAR_SERIALIZER;
+     static {
+-        SERIALIZERS = DeferredRegister.create(ForgeRegistries.RECIPE_SERIALIZERS, EFTLM.MODID);
++        SERIALIZERS = DeferredRegister.create(BuiltInRegistries.RECIPE_SERIALIZER, EFTLM.MODID);
+         RANDOM_ALTAR_SERIALIZER = SERIALIZERS.register("random_skill_altar", RandomAltarSerializer::new);
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Register/EFTLM_Tab.java b/src/main/java/net/EFTLM/EF/Register/EFTLM_Tab.java
+index ab1b86f..2c5ca2c 100644
+--- a/src/main/java/net/EFTLM/EF/Register/EFTLM_Tab.java
++++ b/src/main/java/net/EFTLM/EF/Register/EFTLM_Tab.java
+@@ -6,16 +6,16 @@ import net.minecraft.network.chat.Component;
+ import net.minecraft.world.item.CreativeModeTab;
+ import net.minecraft.world.item.CreativeModeTabs;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraftforge.registries.DeferredRegister;
+-import net.minecraftforge.registries.RegistryObject;
++import net.neoforged.neoforge.registries.DeferredRegister;
++import net.neoforged.neoforge.registries.DeferredHolder;
+ public class EFTLM_Tab {
+     public static final DeferredRegister<CreativeModeTab> TABS;
+-    public static final RegistryObject<CreativeModeTab> SKILL;
++    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> SKILL;
+     static {
+         TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, EFTLM.MODID);
+         SKILL = TABS.register("skills", () -> CreativeModeTab.builder()
+                 .title(Component.translatable("itemGroup.eftlm.skills"))
+-                .withTabsBefore(CreativeModeTabs.SPAWN_EGGS)
++                .withTabsBefore(net.minecraft.resources.ResourceKey.create(Registries.CREATIVE_MODE_TAB, net.minecraft.resources.ResourceLocation.withDefaultNamespace("spawn_eggs")))
+                 .icon(() -> new ItemStack(EFTLM_Item.SKILLBOOK.get())).build());
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillBookScreen.java b/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillBookScreen.java
+index 6dbcefd..8354c46 100644
+--- a/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillBookScreen.java
++++ b/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillBookScreen.java
+@@ -21,7 +21,7 @@ import net.minecraft.util.FormattedCharSequence;
+ import net.minecraft.util.Mth;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.level.Level;
+-import net.minecraftforge.client.ForgeHooksClient;
++import net.neoforged.neoforge.client.ClientHooks;
+ import org.jetbrains.annotations.NotNull;
+ import org.joml.Matrix4f;
+ import yesman.epicfight.main.EpicFightMod;
+@@ -66,8 +66,9 @@ public class MaidSkillBookScreen extends Screen {
+         } else {
+             this.customScale = window.getGuiScale();
+         }
+-        this.skillTooltipList.updateSize(210, 400, this.height / 2 - 100, (this.height + 80) / 2);
+-        this.skillTooltipList.setLeftPos(this.width / 2 - 40);
++        this.skillTooltipList.setSize(210, 140);
++        this.skillTooltipList.setY(this.height / 2 - 100);
++        this.skillTooltipList.setX(this.width / 2 - 40);
+         this.addRenderableWidget(this.skillTooltipList);
+         if (this.canForget()) {
+             this.addRenderableWidget(new ForgetButton(Button.builder(Component.translatable("gui.ef_tlm.button.forget_skill"), button -> this.forgetSkill())
+@@ -94,11 +95,11 @@ public class MaidSkillBookScreen extends Screen {
+         double originalScale = window.getGuiScale();
+         if (originalScale != this.customScale) {
+             window.setGuiScale(this.customScale);
+-            Matrix4f matrix4f = (new Matrix4f()).setOrtho(0.0F, (float)((double)window.getWidth() / window.getGuiScale()), (float)((double)window.getHeight() / window.getGuiScale()), 0.0F, 1000.0F, ForgeHooksClient.getGuiFarPlane());
++            Matrix4f matrix4f = (new Matrix4f()).setOrtho(0.0F, (float)((double)window.getWidth() / window.getGuiScale()), (float)((double)window.getHeight() / window.getGuiScale()), 0.0F, 1000.0F, ClientHooks.getGuiFarPlane());
+             RenderSystem.setProjectionMatrix(matrix4f, VertexSorting.ORTHOGRAPHIC_Z);
+         }
+         if (!asBackground) {
+-            this.renderBackground(guiGraphics);
++            this.renderBackground(guiGraphics, mouseX, mouseY, partialTicks);
+         }
+         int posX = (this.width - 284) / 2;
+         int posY = (this.height - 165) / 2;
+@@ -113,12 +114,12 @@ public class MaidSkillBookScreen extends Screen {
+         guiGraphics.drawString(this.font, skillName, posX + 56 - width / 2, posY + 75, 0, false);
+         super.render(guiGraphics, (int)((double)mouseX * originalScale / this.customScale), (int)((double)mouseY * originalScale / this.customScale), partialTicks);
+         if (asBackground) {
+-            this.renderBackground(guiGraphics);
++            this.renderBackground(guiGraphics, mouseX, mouseY, partialTicks);
+         }
+         guiGraphics.pose().popPose();
+         if (originalScale != this.customScale) {
+             window.setGuiScale(originalScale);
+-            Matrix4f matrix4f = (new Matrix4f()).setOrtho(0.0F, (float)((double)window.getWidth() / window.getGuiScale()), (float)((double)window.getHeight() / window.getGuiScale()), 0.0F, 1000.0F, ForgeHooksClient.getGuiFarPlane());
++            Matrix4f matrix4f = (new Matrix4f()).setOrtho(0.0F, (float)((double)window.getWidth() / window.getGuiScale()), (float)((double)window.getHeight() / window.getGuiScale()), 0.0F, 1000.0F, ClientHooks.getGuiFarPlane());
+             RenderSystem.setProjectionMatrix(matrix4f, VertexSorting.ORTHOGRAPHIC_Z);
+         }
+     }
+@@ -148,9 +149,9 @@ public class MaidSkillBookScreen extends Screen {
+         return super.mouseDragged((int)(mouseX * window.getGuiScale() / this.customScale), (int)(mouseY * window.getGuiScale() / this.customScale), button, dx, dy);
+     }
+     @Override
+-    public boolean mouseScrolled(double pMouseX, double pMouseY, double pDelta) {
++    public boolean mouseScrolled(double pMouseX, double pMouseY, double scrollX, double pDelta) {
+         Window window = Minecraft.getInstance().getWindow();
+-        return super.mouseScrolled((int)(pMouseX * window.getGuiScale() / this.customScale), (int)(pMouseY * window.getGuiScale() / this.customScale), pDelta);
++        return super.mouseScrolled((int)(pMouseX * window.getGuiScale() / this.customScale), (int)(pMouseY * window.getGuiScale() / this.customScale), scrollX, pDelta);
+     }
+     protected static class ForgetButton extends Button {
+         protected ForgetButton(Button.Builder builder) {
+@@ -167,7 +168,7 @@ public class MaidSkillBookScreen extends Screen {
+                 texX = 156;
+             }
+             guiGraphics.pose().pushPose();
+-            guiGraphics.blitNineSliced(SKILLBOOK_BACKGROUND, this.getX(), this.getY(), this.getWidth(), this.getHeight(), 20, 4, 45, 15, texX, 193);
++            guiGraphics.blit(SKILLBOOK_BACKGROUND, this.getX(), this.getY(), this.getWidth(), this.getHeight(), texX, 193, 45, 15, 256, 256);
+             guiGraphics.setColor(1.0F, 1.0F, 1.0F, 1.0F);
+             guiGraphics.pose().popPose();
+             int color = this.getFGColor();
+@@ -176,16 +177,14 @@ public class MaidSkillBookScreen extends Screen {
+     }
+     protected class SkillTooltipList extends ObjectSelectionList<SkillTooltipList.TooltipLine> {
+         protected SkillTooltipList(Minecraft minecraft, int width, int height, int y0, int y1, int itemHeight) {
+-            super(minecraft, width, height, y0, y1, itemHeight);
+-            this.setRenderBackground(false);
++            super(minecraft, width, Math.max(0, y1 - y0), y0, itemHeight);
+             this.setRenderHeader(false, 0);
+-            this.setRenderTopAndBottom(false);
+         }
+         protected void add(FormattedCharSequence tooltip) {
+             this.addEntry(new SkillTooltipList.TooltipLine(tooltip));
+         }
+         protected int getScrollbarPosition() {
+-            return this.x1 - 6;
++            return this.getRight() - 6;
+         }
+         protected class TooltipLine extends ObjectSelectionList.Entry<SkillTooltipList.TooltipLine> {
+             protected final FormattedCharSequence tooltip;
+diff --git a/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillMenuScreen.java b/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillMenuScreen.java
+index 626b72a..d9726aa 100644
+--- a/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillMenuScreen.java
++++ b/src/main/java/net/EFTLM/EF/Render/Gui/MaidSkillMenuScreen.java
+@@ -173,7 +173,7 @@ public class MaidSkillMenuScreen extends AbstractMaidContainerGui<MaidSkillConta
+         updateSkillButtons();
+     }
+     @Override
+-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
++    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+         if (isMouseInsideSkillList(mouseX, mouseY)) {
+             int totalSkills = getSkillCount();
+             if (totalSkills > 0) {
+@@ -190,7 +190,7 @@ public class MaidSkillMenuScreen extends AbstractMaidContainerGui<MaidSkillConta
+                 }
+             }
+         }
+-        return super.mouseScrolled(mouseX, mouseY, scrollY);
++        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+     }
+     private int getPageSize() {
+         return PAGE_SIZE;
+diff --git a/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillBookButton.java b/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillBookButton.java
+index d26117c..615423b 100644
+--- a/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillBookButton.java
++++ b/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillBookButton.java
+@@ -3,16 +3,17 @@ package net.EFTLM.EF.Render.Gui.Widget;
+ import com.mojang.blaze3d.systems.RenderSystem;
+ import net.EFTLM.EFTLM;
+ import net.minecraft.client.gui.GuiGraphics;
+-import net.minecraft.client.gui.components.ImageButton;
++import net.minecraft.client.gui.components.Button;
++import net.minecraft.network.chat.Component;
+ import net.minecraft.resources.ResourceLocation;
+ import org.jetbrains.annotations.NotNull;
+ import javax.annotation.Nullable;
+-public class MaidSkillBookButton extends ImageButton {
++public class MaidSkillBookButton extends Button {
+     private static final ResourceLocation SLOT_TEXTURE = ResourceLocation.fromNamespaceAndPath(EFTLM.MODID, "textures/gui/skill_slot.png");
+     @Nullable
+     private ResourceLocation iconTexture;
+     public MaidSkillBookButton(int x, int y, int width, int height, OnPress onPress) {
+-        super(x, y, width, height, 0, 0, 0, SLOT_TEXTURE, width, height, onPress);
++        super(Button.builder(Component.empty(), onPress).bounds(x, y, width, height));
+     }
+     public void setIcon(@Nullable ResourceLocation icon) {
+         this.iconTexture = icon;
+diff --git a/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillTabButton.java b/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillTabButton.java
+index f8d6a32..baf69be 100644
+--- a/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillTabButton.java
++++ b/src/main/java/net/EFTLM/EF/Render/Gui/Widget/MaidSkillTabButton.java
+@@ -12,7 +12,7 @@ import net.minecraft.network.chat.Component;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.world.item.ItemStack;
+ import org.jetbrains.annotations.NotNull;
+-import yesman.epicfight.world.item.EpicFightItems;
++import yesman.epicfight.registry.entries.EpicFightItems;
+ import java.util.List;
+ public class MaidSkillTabButton extends Button implements ITooltipButton {
+     private static final ResourceLocation SIDE = ResourceLocation.fromNamespaceAndPath(TouhouLittleMaid.MOD_ID, "textures/gui/maid_gui_side.png");
+diff --git a/src/main/java/net/EFTLM/EF/Render/MaidHealthBar.java b/src/main/java/net/EFTLM/EF/Render/MaidHealthBar.java
+index 85b5459..f0d8bd2 100644
+--- a/src/main/java/net/EFTLM/EF/Render/MaidHealthBar.java
++++ b/src/main/java/net/EFTLM/EF/Render/MaidHealthBar.java
+@@ -7,8 +7,8 @@ import net.minecraft.client.renderer.MultiBufferSource;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.util.Mth;
+ import net.minecraft.world.entity.LivingEntity;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.api.distmarker.OnlyIn;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.api.distmarker.OnlyIn;
+ import org.joml.Matrix4f;
+ import yesman.epicfight.client.gui.EntityUI;
+ import yesman.epicfight.client.world.capabilites.entitypatch.player.LocalPlayerPatch;
+@@ -17,6 +17,9 @@ import javax.annotation.Nullable;
+ @OnlyIn(Dist.CLIENT)
+ public class MaidHealthBar extends EntityUI {
+     public static final MaidHealthBar Instance = new MaidHealthBar();
++    public static void initialize() {
++        // Calling this initializes Instance; EntityUI registers it in its constructor.
++    }
+     public static final ResourceLocation StaminaBar = ResourceLocation.fromNamespaceAndPath(EFTLM.MODID, "textures/gui/bar.png");
+     public MaidHealthBar() {
+     }
+@@ -28,12 +31,15 @@ public class MaidHealthBar extends EntityUI {
+     }
+     public void draw(LivingEntity entity, @Nullable LivingEntityPatch<?> entitypatch, LocalPlayerPatch playerpatch, PoseStack poseStack, MultiBufferSource buffers, float partialTicks) {
+         if (entitypatch instanceof MaidPatch<?> Maid) {
+-            Matrix4f modelViewMatrix = super.getModelViewMatrixAlignedToCamera(poseStack, entity, 0.0F, entity.getBbHeight() + 0.2F, 0.0F, true, partialTicks);
+-            Matrix4f staminaMatrix = (new Matrix4f(modelViewMatrix)).scale(0.82F, 1.0F, 1.0F);
++            poseStack.pushPose();
++            EntityUI.setupPoseStack(poseStack, entity, 0.0F, entity.getBbHeight() + 0.2F, 0.0F, true, partialTicks);
++            poseStack.scale(0.82F, 1.0F, 1.0F);
++            PoseStack.Pose staminaMatrix = poseStack.last();
+             drawUIAsLevelModel(staminaMatrix, StaminaBar, buffers, -0.5F, -0.05F, 0.5F, 0.0F, 0.09375F, 0.0F, 0.921875F, 0.109375F);
+             float staminaRatio = Mth.clamp(Maid.getStamina() / Maid.getMaxStamina(), 0.0F, 1.0F);
+             int staminaTextureRatio = (int) (59.0F * staminaRatio);
+             drawUIAsLevelModel(staminaMatrix, StaminaBar, buffers, -0.5F, -0.05F, -0.5F + staminaRatio, 0.0F, 0.09375F, 0.125F, (float) staminaTextureRatio / 64.0F, 0.234375F);
++            poseStack.popPose();
+         }
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/EF/Render/PatchedMaidRenderer.java b/src/main/java/net/EFTLM/EF/Render/PatchedMaidRenderer.java
+index 80eb1cc..e5ad1fb 100644
+--- a/src/main/java/net/EFTLM/EF/Render/PatchedMaidRenderer.java
++++ b/src/main/java/net/EFTLM/EF/Render/PatchedMaidRenderer.java
+@@ -9,8 +9,8 @@ import net.minecraft.client.renderer.MultiBufferSource;
+ import net.minecraft.client.renderer.entity.EntityRendererProvider;
+ import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+ import net.minecraft.world.entity.EntityType;
+-import net.minecraftforge.api.distmarker.Dist;
+-import net.minecraftforge.api.distmarker.OnlyIn;
++import net.neoforged.api.distmarker.Dist;
++import net.neoforged.api.distmarker.OnlyIn;
+ import yesman.epicfight.api.asset.AssetAccessor;
+ import yesman.epicfight.client.renderer.patched.entity.PatchedLivingEntityRenderer;
+ @OnlyIn(Dist.CLIENT)
+diff --git a/src/main/java/net/EFTLM/EF/Render/SkillBookRenderer.java b/src/main/java/net/EFTLM/EF/Render/SkillBookRenderer.java
+index f48f381..250a454 100644
+--- a/src/main/java/net/EFTLM/EF/Render/SkillBookRenderer.java
++++ b/src/main/java/net/EFTLM/EF/Render/SkillBookRenderer.java
+@@ -56,13 +56,12 @@ public class SkillBookRenderer extends BlockEntityWithoutLevelRenderer {
+         for (float[] q : quads) {
+             float nx = q[20], ny = q[21], nz = q[22];
+             for (int i = 0; i < 4; i++) {
+-                vc.vertex(mat, q[i * 3], q[i * 3 + 1], q[i * 3 + 2])
+-                        .color(255, 255, 255, 255)
+-                        .uv(q[12 + i * 2], q[12 + i * 2 + 1])
+-                        .overlayCoords(overlay)
+-                        .uv2(bright)
+-                        .normal(nrm, nx, ny, nz)
+-                        .endVertex();
++                vc.addVertex(last, q[i * 3], q[i * 3 + 1], q[i * 3 + 2])
++                        .setColor(255, 255, 255, 255)
++                        .setUv(q[12 + i * 2], q[12 + i * 2 + 1])
++                        .setOverlay(overlay)
++                        .setLight(bright)
++                        .setNormal(last, nx, ny, nz);
+             }
+         }
+     }
+diff --git a/src/main/java/net/EFTLM/EF/Skill/Dodge/Step.java b/src/main/java/net/EFTLM/EF/Skill/Dodge/Step.java
+index 4476319..e9a3811 100644
+--- a/src/main/java/net/EFTLM/EF/Skill/Dodge/Step.java
++++ b/src/main/java/net/EFTLM/EF/Skill/Dodge/Step.java
+@@ -22,7 +22,7 @@ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import yesman.epicfight.world.capabilities.entitypatch.LivingEntityPatch;
+ import yesman.epicfight.world.capabilities.item.CapabilityItem;
+ import yesman.epicfight.world.capabilities.item.WeaponCategory;
+-import yesman.epicfight.world.entity.ai.attribute.EpicFightAttributes;
++import yesman.epicfight.registry.entries.EpicFightAttributes;
+ import java.util.List;
+ import java.util.Map;
+ public class Step extends MaidSkill {
+@@ -108,7 +108,7 @@ public class Step extends MaidSkill {
+                 }
+                 if (patch.getOriginal().tickCount - Counter > 10) {
+                     patch.setData(this, MaidSkillDataKeys.STEP_RESTORE_COUNTER, patch.getOriginal().tickCount);
+-                    AttributeInstance Weight = patch.getOriginal().getAttribute(EpicFightAttributes.WEIGHT.get());
++                    AttributeInstance Weight = patch.getOriginal().getAttribute(EpicFightAttributes.WEIGHT);
+                     if (Weight != null) {
+                         patch.setStamina((float) (patch.getStamina() - (Weight.getValue() * 0.1F)));
+                     }
+diff --git a/src/main/java/net/EFTLM/EF/Skill/Guard/BladeClash.java b/src/main/java/net/EFTLM/EF/Skill/Guard/BladeClash.java
+index dad7d38..2f610c2 100644
+--- a/src/main/java/net/EFTLM/EF/Skill/Guard/BladeClash.java
++++ b/src/main/java/net/EFTLM/EF/Skill/Guard/BladeClash.java
+@@ -15,8 +15,8 @@ import net.minecraft.world.damagesource.DamageSource;
+ import net.minecraft.world.damagesource.DamageTypes;
+ import net.minecraft.world.entity.Entity;
+ import net.minecraft.world.phys.Vec3;
+-import yesman.epicfight.gameasset.EpicFightSounds;
+-import yesman.epicfight.particle.EpicFightParticles;
++import yesman.epicfight.registry.entries.EpicFightSounds;
++import yesman.epicfight.registry.entries.EpicFightParticles;
+ import yesman.epicfight.particle.HitParticleType;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+ import yesman.epicfight.world.capabilities.entitypatch.LivingEntityPatch;
+diff --git a/src/main/java/net/EFTLM/EF/Skill/MaidSkillManager.java b/src/main/java/net/EFTLM/EF/Skill/MaidSkillManager.java
+index f5ab53d..b813992 100644
+--- a/src/main/java/net/EFTLM/EF/Skill/MaidSkillManager.java
++++ b/src/main/java/net/EFTLM/EF/Skill/MaidSkillManager.java
+@@ -5,7 +5,7 @@ import net.EFTLM.EF.API.Event.MaidSkillBuildEvent;
+ import net.EFTLM.EF.Skill.WeaponInnate.WeaponInnateSkill;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.world.item.Item;
+-import net.minecraftforge.fml.ModLoader;
++import net.neoforged.fml.ModLoader;
+ import yesman.epicfight.world.capabilities.item.CapabilityItem;
+ import yesman.epicfight.world.capabilities.item.Style;
+ import yesman.epicfight.world.capabilities.item.WeaponCategory;
+@@ -18,7 +18,7 @@ public class MaidSkillManager {
+     protected static Map<Item, Map<Style, WeaponInnateSkill>> ItemStyleWeaponSkills = Maps.newHashMap();
+     protected static Map<WeaponCategory, Map<Style, WeaponInnateSkill>> CategoryStyleWeaponSkills = Maps.newHashMap();
+     public static void MaidSkillBuild() {
+-        ModLoader.get().postEvent(new MaidSkillBuildEvent(MaidSkillRegister, WeaponSkillRegister, ItemStyleWeaponSkills, CategoryStyleWeaponSkills));
++        ModLoader.postEvent(new MaidSkillBuildEvent(MaidSkillRegister, WeaponSkillRegister, ItemStyleWeaponSkills, CategoryStyleWeaponSkills));
+     }
+     public static MaidSkill getSkillFor(ResourceLocation RegisterName) {
+         return MaidSkillRegister.get(RegisterName);
+diff --git a/src/main/java/net/EFTLM/EFN/CombatBehavior/Claw.java b/src/main/java/net/EFTLM/EFN/CombatBehavior/Claw.java
+index 66a0f54..d8b90ce 100644
+--- a/src/main/java/net/EFTLM/EFN/CombatBehavior/Claw.java
++++ b/src/main/java/net/EFTLM/EFN/CombatBehavior/Claw.java
+@@ -71,7 +71,7 @@ public class Claw {
+                                                 if (skill == null) return;
+                                                 BehaviorsBuild.setStack(Patch,0);
+                                                 BehaviorsBuild.setData(Patch,skill,MaidSkillDataKeys.CLAW_TIME, 600);
+-                                                Patch.getOriginal().addEffect(new MobEffectInstance(EFNMobEffectRegistry.CLAW.get(), 600, 0));
++                                                Patch.getOriginal().addEffect(new MobEffectInstance(EFNMobEffectRegistry.CLAW, 600, 0));
+                                             })
+                                             .withinDistance(0.0D, 4.0D))
+                     );
+diff --git a/src/main/java/net/EFTLM/EFN/Skill/BloodLustSkill.java b/src/main/java/net/EFTLM/EFN/Skill/BloodLustSkill.java
+index 7f2b68d..651f702 100644
+--- a/src/main/java/net/EFTLM/EFN/Skill/BloodLustSkill.java
++++ b/src/main/java/net/EFTLM/EFN/Skill/BloodLustSkill.java
+@@ -27,8 +27,8 @@ public class BloodLustSkill extends WeaponInnateSkill {
+     public void onRemove(MaidChangeItemEvent event) {
+         super.onRemove(event);
+         EntityMaid maid = event.getMaidPatch().getOriginal();
+-        if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST.get())) {
+-            maid.removeEffect(EFNMobEffectRegistry.BLODDLUST.get());
++        if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST)) {
++            maid.removeEffect(EFNMobEffectRegistry.BLODDLUST);
+         }
+     }
+     @Override
+@@ -36,7 +36,7 @@ public class BloodLustSkill extends WeaponInnateSkill {
+         super.onMaidTick(event, patch);
+         EntityMaid maid = patch.getOriginal();
+         if (patch.getTarget() == null) {
+-            if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST.get())) {
++            if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST)) {
+                 EFNCompat.clearBloodLust(patch);
+             }
+         } else {
+@@ -51,7 +51,7 @@ public class BloodLustSkill extends WeaponInnateSkill {
+     public void onHurtTargetPost(MaidHurtTargetEvent.Post event) {
+         super.onHurtTargetPost(event);
+         EntityMaid maid = event.getMaidPatch().getOriginal();
+-        if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST.get())) {
++        if (maid.hasEffect(EFNMobEffectRegistry.BLODDLUST)) {
+             float healAmount = event.getAmount() * HEAL_RATIO;
+             maid.heal(healAmount);
+         }
+diff --git a/src/main/java/net/EFTLM/EFN/Skill/BroadBladeSkill.java b/src/main/java/net/EFTLM/EFN/Skill/BroadBladeSkill.java
+index 4be3588..14091b6 100644
+--- a/src/main/java/net/EFTLM/EFN/Skill/BroadBladeSkill.java
++++ b/src/main/java/net/EFTLM/EFN/Skill/BroadBladeSkill.java
+@@ -14,7 +14,8 @@ import net.EFTLM.EF.Skill.MaidSkill;
+ import net.EFTLM.EF.Skill.MaidSkillBuilder;
+ import net.EFTLM.EF.Skill.WeaponInnate.WeaponInnateSkill;
+ import net.minecraft.core.particles.ParticleTypes;
+-import net.minecraft.nbt.CompoundTag;
++import net.minecraft.core.component.DataComponents;
++import net.minecraft.world.item.component.CustomData;
+ import net.minecraft.resources.ResourceLocation;
+ import net.minecraft.server.level.ServerLevel;
+ import net.minecraft.sounds.SoundEvents;
+@@ -30,7 +31,7 @@ import yesman.epicfight.api.animation.AnimationPlayer;
+ import yesman.epicfight.api.animation.Animator;
+ import yesman.epicfight.api.animation.types.AttackAnimation;
+ import yesman.epicfight.api.utils.math.ValueModifier;
+-import yesman.epicfight.particle.EpicFightParticles;
++import yesman.epicfight.registry.entries.EpicFightParticles;
+ import yesman.epicfight.world.damagesource.EpicFightDamageSource;
+ import yesman.epicfight.world.damagesource.EpicFightDamageSources;
+ import yesman.epicfight.world.damagesource.EpicFightDamageTypeTags;
+@@ -104,7 +105,7 @@ public class BroadBladeSkill extends WeaponInnateSkill {
+                     }
+                 }
+             }
+-            if (maid.hasEffect(EFNMobEffectRegistry.BATTLE_CONTINUATION.get())) {
++            if (maid.hasEffect(EFNMobEffectRegistry.BATTLE_CONTINUATION)) {
+                 efSource.addExtraDamage(EFNExtraDamageInstance.EXTRA_PERCENTAGE_DAMAGE.create(1.0F));
+             }
+         }
+@@ -113,13 +114,13 @@ public class BroadBladeSkill extends WeaponInnateSkill {
+     public void onKillTarget(MaidKilledEvent event) {
+         MaidPatch<?> maidPatch = event.getMaidPatch();
+         EntityMaid maid = maidPatch.getOriginal();
+-        maid.addEffect(new MobEffectInstance(EFNMobEffectRegistry.GRADUAL_HEAL.get(), 40, 4));
++        maid.addEffect(new MobEffectInstance(EFNMobEffectRegistry.GRADUAL_HEAL, 40, 4));
+         maid.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SPEED, 100, 1));
+         ItemStack item = maid.getMainHandItem();
+         if (item.getItem() instanceof BroadBladeItem) {
+-            CompoundTag tag = item.getOrCreateTag();
+             int currentCount = BroadBladeItem.getKillCount(item);
+-            tag.putInt("KillCount", currentCount + 1);
++            CustomData.update(DataComponents.CUSTOM_DATA, item,
++                    tag -> tag.putInt("KillCount", currentCount + 1));
+         }
+     }
+     @Override
+diff --git a/src/main/java/net/EFTLM/EFN/Skill/ScytheSkill.java b/src/main/java/net/EFTLM/EFN/Skill/ScytheSkill.java
+index 608eeb2..19d6293 100644
+--- a/src/main/java/net/EFTLM/EFN/Skill/ScytheSkill.java
++++ b/src/main/java/net/EFTLM/EFN/Skill/ScytheSkill.java
+@@ -26,7 +26,7 @@ import yesman.epicfight.api.animation.AnimationPlayer;
+ import yesman.epicfight.api.animation.types.AttackAnimation;
+ import yesman.epicfight.api.animation.types.StaticAnimation;
+ import yesman.epicfight.api.utils.math.ValueModifier;
+-import yesman.epicfight.gameasset.EpicFightSounds;
++import yesman.epicfight.registry.entries.EpicFightSounds;
+ import yesman.epicfight.world.damagesource.EpicFightDamageSource;
+ import yesman.epicfight.world.damagesource.EpicFightDamageTypeTags;
+ import yesman.epicfight.world.damagesource.StunType;
+@@ -70,8 +70,8 @@ public class ScytheSkill extends WeaponInnateSkill {
+             }
+         }
+         if (animation == EFNScytheAnimations.SCYTHE_HARVEST) {
+-            boolean hasCurse = target.hasEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD.get());
+-            boolean hasBlessing = maidEntity.hasEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS.get());
++            boolean hasCurse = target.hasEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD);
++            boolean hasBlessing = maidEntity.hasEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS);
+             if (!hasCurse && !hasBlessing) {
+                 source.attachDamageModifier(ValueModifier.multiplier(0.25F));
+             } else {
+@@ -89,8 +89,8 @@ public class ScytheSkill extends WeaponInnateSkill {
+         AnimationManager.AnimationAccessor<? extends StaticAnimation> animation = efSource.getAnimation();
+         maidEntity.heal(event.getAmount() * HEAL_RATIO);
+         if (animation == EFNScytheAnimations.SCYTHE_SCARLET_END) {
+-            MobEffectInstance curse = target.getEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD.get());
+-            MobEffectInstance blessing = maidEntity.getEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS.get());
++            MobEffectInstance curse = target.getEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD);
++            MobEffectInstance blessing = maidEntity.getEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS);
+             int amplifier = 0;
+             if (curse != null) {
+                 amplifier = curse.getAmplifier() + 1;
+@@ -109,17 +109,17 @@ public class ScytheSkill extends WeaponInnateSkill {
+                     int phaseIndex = attackAnim.getPhaseOrderByTime(animPlayer.getElapsedTime());
+                     if (phaseIndex == attackAnim.phases.length - 1) {
+                         if (curse != null) {
+-                            target.removeEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD.get());
++                            target.removeEffect(EFNMobEffectRegistry.CURSE_OF_BLOOD);
+                         } else {
+-                            maidEntity.removeEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS.get());
++                            maidEntity.removeEffect(EFNMobEffectRegistry.BLOOD_BLESSINGS);
+                         }
+                     }
+                 }
+             }
+             return;
+         }
+-        boolean canBeAffected = target.canBeAffected(new MobEffectInstance(EFNMobEffectRegistry.CURSE_OF_BLOOD.get()));
+-        MobEffect effectToApply = canBeAffected ? EFNMobEffectRegistry.CURSE_OF_BLOOD.get() : EFNMobEffectRegistry.BLOOD_BLESSINGS.get();
++        boolean canBeAffected = target.canBeAffected(new MobEffectInstance(EFNMobEffectRegistry.CURSE_OF_BLOOD));
++        net.minecraft.core.Holder<MobEffect> effectToApply = canBeAffected ? EFNMobEffectRegistry.CURSE_OF_BLOOD : EFNMobEffectRegistry.BLOOD_BLESSINGS;
+         LivingEntity effectCarrier = canBeAffected ? target : maidEntity;
+         if (animation == EFNScytheAnimations.SCYTHE_AUTO1 ||
+                 animation == EFNScytheAnimations.SCYTHE_AUTO3 ||
+@@ -149,20 +149,20 @@ public class ScytheSkill extends WeaponInnateSkill {
+             if (hadEffect) {
+                 if (animation == EFNScytheAnimations.SCYTHE_DASH) {
+                     int levelx = -1;
+-                    MobEffectInstance dmgRed = maidEntity.getEffect(EFNMobEffectRegistry.DAMAGE_REDUCTION.get());
++                    MobEffectInstance dmgRed = maidEntity.getEffect(EFNMobEffectRegistry.DAMAGE_REDUCTION);
+                     if (dmgRed != null) levelx = dmgRed.getAmplifier();
+-                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.DAMAGE_REDUCTION.get(), 300, Mth.clamp(levelx + 25, 0, 75)));
++                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.DAMAGE_REDUCTION, 300, Mth.clamp(levelx + 25, 0, 75)));
+                 } else if (animation == EFNScytheAnimations.SCYTHE_AIR_SLASH) {
+                     int levelx = -1;
+-                    MobEffectInstance atkSpeed = maidEntity.getEffect(EFNMobEffectRegistry.ATTACK_SPEED_INCREASE.get());
++                    MobEffectInstance atkSpeed = maidEntity.getEffect(EFNMobEffectRegistry.ATTACK_SPEED_INCREASE);
+                     if (atkSpeed != null) levelx = atkSpeed.getAmplifier();
+-                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.ATTACK_SPEED_INCREASE.get(), 300, Mth.clamp(levelx + 15, 0, 44)));
++                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.ATTACK_SPEED_INCREASE, 300, Mth.clamp(levelx + 15, 0, 44)));
+                 } else if (animation == EFNScytheAnimations.SCYTHE_HARVEST) {
+                     int levelx = -1;
+-                    MobEffectInstance atkDmg = maidEntity.getEffect(EFNMobEffectRegistry.ATTACK_DAMAGE_INCREASE.get());
++                    MobEffectInstance atkDmg = maidEntity.getEffect(EFNMobEffectRegistry.ATTACK_DAMAGE_INCREASE);
+                     if (atkDmg != null) levelx = atkDmg.getAmplifier();
+-                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.ATTACK_DAMAGE_INCREASE.get(), 300, Mth.clamp(levelx + 15, 0, 89)));
+-                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.SIN_STUN_IMMUNITY.get(), 60));
++                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.ATTACK_DAMAGE_INCREASE, 300, Mth.clamp(levelx + 15, 0, 89)));
++                    maidEntity.addEffect(new MobEffectInstance(EFNMobEffectRegistry.SIN_STUN_IMMUNITY, 60));
+                     target.level().playSound(null, target.blockPosition(), EpicFightSounds.BLADE_RUSH_FINISHER.get(), SoundSource.HOSTILE);
+                 }
+             }
+@@ -172,7 +172,7 @@ public class ScytheSkill extends WeaponInnateSkill {
+     public void onMaidAttack(MaidAttackEvent event, MaidPatch<?> MaidPatch) {
+         AnimationPlayer animation = MaidPatch.getAnimator().getPlayerFor(null);
+         if (animation == null) return;
+-        if (MaidPatch.getOriginal().hasEffect(EFNMobEffectRegistry.DAMAGE_REDUCTION.get()) && animation.getRealAnimation().equals(EFNScytheAnimations.SCYTHE_HARVEST)) {
++        if (MaidPatch.getOriginal().hasEffect(EFNMobEffectRegistry.DAMAGE_REDUCTION) && animation.getRealAnimation().equals(EFNScytheAnimations.SCYTHE_HARVEST)) {
+             if (event.getSource() instanceof EpicFightDamageSource EFSource) {
+                 EFSource.setStunType(StunType.NONE);
+             }
+diff --git a/src/main/java/net/EFTLM/EFN/Skill/YamatoSkill.java b/src/main/java/net/EFTLM/EFN/Skill/YamatoSkill.java
+index b8c5023..f834c02 100644
+--- a/src/main/java/net/EFTLM/EFN/Skill/YamatoSkill.java
++++ b/src/main/java/net/EFTLM/EFN/Skill/YamatoSkill.java
+@@ -3,7 +3,10 @@ package net.EFTLM.EFN.Skill;
+ import com.github.tartaricacid.touhoulittlemaid.api.event.MaidTickEvent;
+ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+ import com.hm.efn.EFN;
+-import com.hm.efn.gameasset.EFNEnchantment;
++import net.minecraft.core.component.DataComponents;
++import net.minecraft.core.registries.Registries;
++import net.minecraft.resources.ResourceKey;
++import net.minecraft.world.item.component.CustomData;
+ import com.hm.efn.item.custom.YamatoItem;
+ import net.EFTLM.EF.API.Event.MaidHurtTargetEvent;
+ import net.EFTLM.EF.API.Event.MaidKilledEvent;
+@@ -78,9 +81,8 @@ public class YamatoSkill extends WeaponInnateSkill {
+         if (!(Maid.level() instanceof ServerLevel)) return;
+         ItemStack item = Maid.getMainHandItem();
+         if (!(item.getItem() instanceof YamatoItem)) return;
+-        CompoundTag tag = item.getOrCreateTag();
+         float totalDamage = YamatoItem.getTotalDamage(item);
+-        tag.putFloat("TotalDamage",totalDamage + event.getAmount());
++        CustomData.update(DataComponents.CUSTOM_DATA, item, tag -> tag.putFloat("TotalDamage", totalDamage + event.getAmount()));
+         tryReinforceSword(MaidPatch, item, event.getTarget());
+     }
+     @Override
+@@ -89,9 +91,8 @@ public class YamatoSkill extends WeaponInnateSkill {
+         EntityMaid Maid = MaidPatch.getOriginal();
+         ItemStack item = Maid.getMainHandItem();
+         if (item.getItem() instanceof YamatoItem) {
+-            CompoundTag tag = item.getOrCreateTag();
+             int currentCount = YamatoItem.getKillCount(item);
+-            tag.putInt("KillCount", currentCount + 1);
++            CustomData.update(DataComponents.CUSTOM_DATA, item, tag -> tag.putInt("KillCount", currentCount + 1));
+         }
+     }
+     private void tryReinforceSword(MaidPatch<?> patch, ItemStack item, LivingEntity target) {
+@@ -104,7 +105,9 @@ public class YamatoSkill extends WeaponInnateSkill {
+         boolean canBlast = hasTarget && isCooldownReady(patch, MaidSkillDataKeys.YAMATO_BLAST_COOLDOWN);
+         boolean canSwordRain = hasTarget && isCooldownReady(patch, MaidSkillDataKeys.YAMATO_SWORD_RAIN_COOLDOWN);
+         boolean canHeavyRain = hasTarget && stack >= HEAVY_RAIN_COST && isCooldownReady(patch, MaidSkillDataKeys.YAMATO_HEAVY_RAIN_COOLDOWN)
+-                && (!this.requireHeavyRainEnchantment || item.getEnchantmentLevel(EFNEnchantment.YAMATO_HEAVY_RAIN.get()) > 0);
++                && (!this.requireHeavyRainEnchantment || maid.registryAccess().lookupOrThrow(Registries.ENCHANTMENT)
++                    .get(ResourceKey.create(Registries.ENCHANTMENT, ResourceLocation.fromNamespaceAndPath("efn", "yamato_heavy_rain")))
++                    .map(enchantment -> item.getEnchantmentLevel(enchantment) > 0).orElse(false));
+         boolean canFormation = stack >= FORMATION_COST && EFNCompat.canSummonAtWaist(patch);
+         int totalWeight = (canBlast ? BLAST_WEIGHT : 0) + (canSwordRain ? SWORD_RAIN_WEIGHT : 0)
+                 + (canHeavyRain ? HEAVY_RAIN_WEIGHT : 0) + (canFormation ? FORMATION_WEIGHT : 0);
+diff --git a/src/main/java/net/EFTLM/EFTLM.java b/src/main/java/net/EFTLM/EFTLM.java
+index c68d4cb..30e067e 100644
+--- a/src/main/java/net/EFTLM/EFTLM.java
++++ b/src/main/java/net/EFTLM/EFTLM.java
+@@ -13,26 +13,30 @@ import net.EFTLM.EF.Register.EFTLM_Tab;
+ import net.EFTLM.EF.Skill.MaidSkill;
+ import net.EFTLM.EF.Skill.MaidSkillManager;
+ import net.minecraft.world.item.ItemStack;
+-import net.minecraftforge.common.MinecraftForge;
+-import net.minecraftforge.event.AddReloadListenerEvent;
+-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
+-import net.minecraftforge.eventbus.api.IEventBus;
+-import net.minecraftforge.fml.common.Mod;
+-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
++import net.neoforged.neoforge.common.NeoForge;
++import net.neoforged.neoforge.event.AddReloadListenerEvent;
++import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
++import net.neoforged.bus.api.IEventBus;
++import net.neoforged.fml.common.Mod;
++
+ import yesman.epicfight.api.animation.LivingMotion;
+ @Mod("ef_tlm")
+ public class EFTLM {
+     public static final String MODID = "ef_tlm";
+-    public EFTLM() {
+-        IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+-        PacketHandler.RegisterManager();
++    public EFTLM(IEventBus bus) {
++        bus.addListener(PacketHandler::register);
++        yesman.epicfight.api.event.EpicFightEventHooks.Registry.ENTITY_PATCH.registerEvent(net.EFTLM.EF.Event.EventBus.ModEvents::RegistryPatch);
++        yesman.epicfight.api.event.EpicFightEventHooks.Animation.INIT_ANIMATOR.registerEvent(net.EFTLM.EF.Event.EventBus.ForgeEvents::RegisterAnimator);
++        if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
++            net.EFTLM.EF.Event.ClientEventBus.registerEpicFightHooks();
++        }
+         EFTLM_Item.ITEMS.register(bus);
+         EFTLM_Menu.MENUS.register(bus);
+         EFTLM_Tab.TABS.register(bus);
+         EFTLM_Recipe.SERIALIZERS.register(bus);
+         LivingMotion.ENUM_MANAGER.registerEnumCls(MODID, EFTLM_LivingMotions.class);
+-        MinecraftForge.EVENT_BUS.addListener(this::addReloadListenerEvent);
+-        MinecraftForge.EVENT_BUS.addListener(MaidSkillCommand::RegisterCommands);
++        NeoForge.EVENT_BUS.addListener(this::addReloadListenerEvent);
++        NeoForge.EVENT_BUS.addListener(MaidSkillCommand::RegisterCommands);
+         bus.addListener(this::BuildCreativeTabWithSkillBooks);
+     }
+     protected void addReloadListenerEvent(AddReloadListenerEvent event) {
+diff --git a/src/main/java/net/EFTLM/Mixin/AbstractClientPlayerPatchMixin.java b/src/main/java/net/EFTLM/Mixin/AbstractClientPlayerPatchMixin.java
+index 6474e6d..d779d18 100644
+--- a/src/main/java/net/EFTLM/Mixin/AbstractClientPlayerPatchMixin.java
++++ b/src/main/java/net/EFTLM/Mixin/AbstractClientPlayerPatchMixin.java
+@@ -12,6 +12,7 @@ import yesman.epicfight.client.world.capabilites.entitypatch.player.AbstractClie
+ import yesman.epicfight.world.capabilities.entitypatch.player.PlayerPatch;
+ @Mixin(value = AbstractClientPlayerPatch.class,remap = false)
+ public abstract class AbstractClientPlayerPatchMixin <T extends AbstractClientPlayer> extends PlayerPatch<T> {
++    protected AbstractClientPlayerPatchMixin(T entity) { super(entity); }
+     @Shadow protected abstract boolean isMoving();
+     @Inject(method = "updateMotion", at = @At("TAIL"))
+     public void InjectAnimator(boolean considerInaction, CallbackInfo ci) {
+diff --git a/src/main/java/net/EFTLM/Mixin/AttributeInstanceMixin.java b/src/main/java/net/EFTLM/Mixin/AttributeInstanceMixin.java
+index 73e9336..78dee23 100644
+--- a/src/main/java/net/EFTLM/Mixin/AttributeInstanceMixin.java
++++ b/src/main/java/net/EFTLM/Mixin/AttributeInstanceMixin.java
+@@ -8,15 +8,15 @@ import org.spongepowered.asm.mixin.injection.At;
+ import org.spongepowered.asm.mixin.injection.Inject;
+ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+ import javax.annotation.Nullable;
+-import java.util.UUID;
++import net.minecraft.resources.ResourceLocation;
+ @Mixin(AttributeInstance.class)
+ public abstract class AttributeInstanceMixin {
+-    @Shadow @Nullable public abstract AttributeModifier getModifier(UUID uuid);
+-    @Shadow public abstract void removeModifier(UUID identifier);
++    @Shadow @Nullable public abstract AttributeModifier getModifier(ResourceLocation id);
++    @Shadow public abstract boolean removeModifier(ResourceLocation identifier);
+     @Inject(method = "addTransientModifier", at = @At("HEAD"))
+     private void beforeAddTransientModifier(AttributeModifier modifier, CallbackInfo ci) {
+-        if (this.getModifier(modifier.getId()) != null) {
+-            this.removeModifier(modifier.getId());
++        if (this.getModifier(modifier.id()) != null) {
++            this.removeModifier(modifier.id());
+         }
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/Mixin/EFN/SummonedSwordPatchInMixin.java b/src/main/java/net/EFTLM/Mixin/EFN/SummonedSwordPatchInMixin.java
+index 1b6cdd1..f0d52ab 100644
+--- a/src/main/java/net/EFTLM/Mixin/EFN/SummonedSwordPatchInMixin.java
++++ b/src/main/java/net/EFTLM/Mixin/EFN/SummonedSwordPatchInMixin.java
+@@ -17,6 +17,7 @@ import yesman.epicfight.world.capabilities.entitypatch.player.ServerPlayerPatch;
+ import yesman.epicfight.world.damagesource.EpicFightDamageSource;
+ @Mixin(value = SummonedSwordPatch_In.class, remap = false)
+ public abstract class SummonedSwordPatchInMixin extends VFXEntityPatch<SummonedSwordEntity_In> {
++    protected SummonedSwordPatchInMixin(SummonedSwordEntity_In entity) { super(entity); }
+     @Inject(method = "attack", at = @At("HEAD"), cancellable = true, remap = false)
+     private void InjectAttack(EpicFightDamageSource damageSource, Entity target, InteractionHand hand, CallbackInfoReturnable<AttackResult> cir) {
+         LivingEntityPatch<?> ownerPatch = this.getOwnerPatch();
+diff --git a/src/main/java/net/EFTLM/Mixin/ServerPlayerPatchMixin.java b/src/main/java/net/EFTLM/Mixin/ServerPlayerPatchMixin.java
+index d902cda..83afa7b 100644
+--- a/src/main/java/net/EFTLM/Mixin/ServerPlayerPatchMixin.java
++++ b/src/main/java/net/EFTLM/Mixin/ServerPlayerPatchMixin.java
+@@ -14,6 +14,7 @@ import yesman.epicfight.world.capabilities.entitypatch.player.PlayerPatch;
+ import yesman.epicfight.world.capabilities.entitypatch.player.ServerPlayerPatch;
+ @Mixin(value = ServerPlayerPatch.class,remap = false)
+ public abstract class ServerPlayerPatchMixin extends PlayerPatch<ServerPlayer> {
++    protected ServerPlayerPatchMixin(ServerPlayer entity) { super(entity); }
+     @Inject(method = "tryHurt", at = @At("HEAD"), cancellable = true)
+     public void InjectTryHurt(DamageSource damageSource, float amount, CallbackInfoReturnable<AttackResult> cir) {
+         if (damageSource.getEntity() instanceof EntityMaid Maid) {
+diff --git a/src/main/java/net/EFTLM/MixinPlugin/EFNMixinPlugin.java b/src/main/java/net/EFTLM/MixinPlugin/EFNMixinPlugin.java
+index 24cee40..b7b4243 100644
+--- a/src/main/java/net/EFTLM/MixinPlugin/EFNMixinPlugin.java
++++ b/src/main/java/net/EFTLM/MixinPlugin/EFNMixinPlugin.java
+@@ -1,7 +1,7 @@
+ package net.EFTLM.MixinPlugin;
+ 
+-import net.minecraftforge.fml.ModList;
+-import net.minecraftforge.fml.loading.LoadingModList;
++import net.neoforged.fml.ModList;
++import net.neoforged.fml.loading.LoadingModList;
+ import org.objectweb.asm.tree.ClassNode;
+ import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
+ import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
+@@ -43,8 +43,8 @@ public class EFNMixinPlugin implements IMixinConfigPlugin {
+             if (modList != null) {
+                 return modList.isLoaded(EFN_MODID);
+             }
+-        } catch (Throwable ignored) {
++        } catch (IllegalStateException ignored) {
+         }
+-        return true;
++        return false;
+     }
+ }
+diff --git a/src/main/java/net/EFTLM/TLM/Task/FightModeTask.java b/src/main/java/net/EFTLM/TLM/Task/FightModeTask.java
+index 6cca133..73f50d4 100644
+--- a/src/main/java/net/EFTLM/TLM/Task/FightModeTask.java
++++ b/src/main/java/net/EFTLM/TLM/Task/FightModeTask.java
+@@ -20,7 +20,7 @@ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.item.ItemStack;
+ import org.jetbrains.annotations.NotNull;
+ import yesman.epicfight.world.capabilities.EpicFightCapabilities;
+-import yesman.epicfight.world.item.EpicFightItems;
++import yesman.epicfight.registry.entries.EpicFightItems;
+ import javax.annotation.Nullable;
+ import java.util.List;
+ import java.util.Optional;
+diff --git a/src/main/resources/META-INF/mods.toml b/src/main/resources/META-INF/mods.toml
+deleted file mode 100644
+index 38f2bf4..0000000
+--- a/src/main/resources/META-INF/mods.toml
++++ /dev/null
+@@ -1,54 +0,0 @@
+-modLoader="javafml"
+-loaderVersion="[47,)"
+-license="All Rights Reserved"
+-[[mods]]
+-modId="ef_tlm"
+-version="1.3.5"
+-displayName="史诗战斗：车万女仆"
+-authors="XcS"
+-logoFile="LOGO.png"
+-description = '''
+-女仆也能充满Power！Toggle Fight Mode！
+-'''
+-[[dependencies.ef_tlm]]
+-modId="forge"
+-mandatory=true
+-versionRange="[47,)"
+-ordering="NONE"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="minecraft"
+-mandatory=true
+-versionRange="[1.20.1,1.21)"
+-ordering="NONE"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="epicfight"
+-mandatory=true
+-versionRange="[20.14,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="epic_fight_avalon"
+-mandatory=true
+-versionRange="[0,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="touhou_little_maid"
+-mandatory=true
+-versionRange="[1,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="efn"
+-mandatory=false
+-versionRange="[3.4,)"
+-ordering="AFTER"
+-side="BOTH"
+-[[dependencies.ef_tlm]]
+-modId="efn_enhance"
+-mandatory=false
+-versionRange="[1.1,)"
+-ordering="AFTER"
+-side="BOTH"
+\ No newline at end of file
+diff --git a/src/main/resources/data/ef_tlm/recipes/altar/random_skill_book.json b/src/main/resources/data/ef_tlm/recipes/altar/random_skill_book.json
+deleted file mode 100644
+index 8c58444..0000000
+--- a/src/main/resources/data/ef_tlm/recipes/altar/random_skill_book.json
++++ /dev/null
+@@ -1,18 +0,0 @@
+-{
+-  "type": "ef_tlm:random_skill_altar",
+-  "output": {
+-    "type": "minecraft:item",
+-    "nbt": {
+-      "Item": {
+-        "id": "ef_tlm:skillbook",
+-        "Count": 1
+-      }
+-    }
+-  },
+-  "power": 1.0,
+-  "ingredients": [
+-    { "item": "minecraft:book" },
+-    { "item": "minecraft:diamond" },
+-    { "item": "minecraft:ender_pearl" }
+-  ]
+-}
+\ No newline at end of file
+diff --git a/src/main/resources/ef_tlm.efn.mixins.json b/src/main/resources/ef_tlm.efn.mixins.json
+index 868d45a..14fb586 100644
+--- a/src/main/resources/ef_tlm.efn.mixins.json
++++ b/src/main/resources/ef_tlm.efn.mixins.json
+@@ -2,8 +2,7 @@
+   "required": false,
+   "minVersion": "0.8",
+   "package": "net.EFTLM.Mixin.EFN",
+-  "compatibilityLevel": "JAVA_17",
+-  "refmap": "ef_tlm.refmap.json",
++  "compatibilityLevel": "JAVA_21",
+   "plugin": "net.EFTLM.MixinPlugin.EFNMixinPlugin",
+   "mixins": [
+     "SummonedSwordPatchInMixin"
+diff --git a/src/main/resources/ef_tlm.mixins.json b/src/main/resources/ef_tlm.mixins.json
+index f9b64fe..d3fa71d 100644
+--- a/src/main/resources/ef_tlm.mixins.json
++++ b/src/main/resources/ef_tlm.mixins.json
+@@ -2,8 +2,7 @@
+   "required": true,
+   "minVersion": "0.8",
+   "package": "net.EFTLM.Mixin",
+-  "compatibilityLevel": "JAVA_17",
+-  "refmap": "ef_tlm.refmap.json",
++  "compatibilityLevel": "JAVA_21",
+   "mixins": [
+     "AttributeInstanceMixin",
+     "ServerPlayerPatchMixin"
+diff --git a/src/main/resources/pack.mcmeta b/src/main/resources/pack.mcmeta
+index 80b6956..b4b3cba 100644
+--- a/src/main/resources/pack.mcmeta
++++ b/src/main/resources/pack.mcmeta
+@@ -1,6 +1,6 @@
+ {
+   "pack": {
+     "description": "eftlm resources",
+-    "pack_format": 15
++    "pack_format": 34
+   }
+ }
+diff --git a/src/main/resources/META-INF/neoforge.mods.toml b/src/main/resources/META-INF/neoforge.mods.toml
+new file mode 100644
+index 0000000..ef4b085
+--- /dev/null
++++ b/src/main/resources/META-INF/neoforge.mods.toml
+@@ -0,0 +1,52 @@
++modLoader="javafml"
++loaderVersion="[4,)"
++license="All Rights Reserved"
++[[mods]]
++modId="ef_tlm"
++version="1.3.5-goldcraft.1"
++displayName="史诗战斗：车万女仆"
++authors="XcS"
++logoFile="LOGO.png"
++description='''女仆也能充满Power！Toggle Fight Mode！
++Local Minecraft 1.21.1 / NeoForge port for GoldCraft.
++'''
++[[mixins]]
++config="ef_tlm.mixins.json"
++[[mixins]]
++config="ef_tlm.efn.mixins.json"
++[[dependencies.ef_tlm]]
++modId="neoforge"
++type="required"
++versionRange="[21.1.256,21.2)"
++ordering="NONE"
++side="BOTH"
++[[dependencies.ef_tlm]]
++modId="minecraft"
++type="required"
++versionRange="[1.21.1]"
++ordering="NONE"
++side="BOTH"
++[[dependencies.ef_tlm]]
++modId="epicfight"
++type="required"
++versionRange="[21.17.3.1,21.18)"
++ordering="AFTER"
++side="BOTH"
++[[dependencies.ef_tlm]]
++modId="epic_fight_avalon"
++type="required"
++versionRange="[21.12.6.2,22)"
++ordering="AFTER"
++side="BOTH"
++[[dependencies.ef_tlm]]
++modId="touhou_little_maid"
++type="required"
++versionRange="[1.5.3,1.6)"
++ordering="AFTER"
++side="BOTH"
++[[dependencies.ef_tlm]]
++modId="efn"
++type="optional"
++versionRange="[3.4,3.5)"
++ordering="AFTER"
++side="BOTH"
+diff --git a/src/main/resources/data/ef_tlm/recipe/altar/random_skill_book.json b/src/main/resources/data/ef_tlm/recipe/altar/random_skill_book.json
+new file mode 100644
+index 0000000..e97a7e1
+--- /dev/null
++++ b/src/main/resources/data/ef_tlm/recipe/altar/random_skill_book.json
+@@ -0,0 +1,12 @@
++{
++  "type": "ef_tlm:random_skill_altar",
++  "category": "misc",
++  "entity": "minecraft:item",
++  "result": {"id": "ef_tlm:skillbook", "count": 1},
++  "power": 1.0,
++  "ingredients": [
++    {"item": "minecraft:book"},
++    {"item": "minecraft:diamond"},
++    {"item": "minecraft:ender_pearl"}
++  ]
++}
