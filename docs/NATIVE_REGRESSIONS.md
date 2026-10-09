@@ -102,6 +102,16 @@ python tools/Exercise-StudioLifecycle.py --rounds 3 --seconds 20 --label model-l
 
 `Legacy-ProtocolServer.ps1` 复用独立 headless 夹具的资产，临时使用与原安装基线相同的引擎／游戏 DLL 及依赖。先 `-Action Prepare`，在第二个 PTY 运行 `-Action Run`，再执行 `python tools/Exercise-PrecacheTransitions.py`。本次同一 B 进程完成原版 → GoldCraft → 原版 → GoldCraft，四轮 32 项检查全部通过；原版 846 项资源，压力环境 5381 项，原生连接恢复 512 表容量及低编号阴影。完成后 `-Action Stop` 和 `-Action Restore` 还原临时服务器。它验证协议切换，不代表任意远端插件均兼容。
 
+## 鼠标状态和准星诊断（2026-10-09）
+
+A/B 停止时保存的 `crosshair` 都仍是 `0`，现已各改一个字节为用户确认有效的 `1`，并保存原文件；其余绑定和配置字节保持不变。这是一次配置修正，启动器不会持续覆盖用户的准星偏好。最初写入 `0` 的来源仍未知。
+
+沙箱启动脚本设置 `GOLDCRAFT_INPUT_AUDIT=1`，在原 `HUD_Init` 注册命令之后，通过 MetaHook 的公开 `FindCmd/HookCmd` 观察 `+mlook/-mlook`。每次完整调用原处理函数一次，记录公开 `KB_Find` 的两个按键槽和状态、准星值及焦点／录像／控制台上下文。最多保留最近 32 条事件，参数只保留“空／合法键码／其他”分类；不保存任意参数文本，不改按键或 cvar。未设置该环境变量时不安装诊断 hook。
+
+`goldcraft-client-status.json` 的 `inputAudit.events` 中，`source` 为 `+mlook` 或 `-mlook` 表示捕获到实际命令处理；`sample` 只表示两次采样之间状态变化，不能据此推断写入者。`overwrittenEvents` 显示已超出保留上限的数量。正常退出只恢复仍由自身占据的命令入口，保留后装插件的调用链；重复安装不会叠加包装。
+
+新增 5 个受控命令表回归场景验证原处理函数调用、原参数保留、失败回退、空接口、空按键查询、文本脱敏、有限记录和后装插件链。与原有 6 项原生 CTest 共 11 项通过，编译使用锁定的 Clang/C++20/O3/ThinLTO/AVX2。诊断版已部署到停止的 B，尚未在真实游戏中捕获这次鼠标故障，因此没有宣称释放来源已定位。
+
 ## 尚未确认的问题
 
 可见实体扩容不扩大服务器 edict／网络编号，也不等于模型或声音资源数量。未知引擎需要独立验证；4096 个复杂模型的性能、所有视角／地图及完整多人玩法仍需另测。

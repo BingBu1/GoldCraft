@@ -58,7 +58,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     set(ONLY_LIBS ON CACHE BOOL "" FORCE)
     add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
     add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/render_backend.cpp
-        native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/vitals.cpp native/client/GoldCraft.def
+        native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/vitals.cpp native/client/input_audit.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static)
     target_include_directories(GoldCraft PRIVATE
@@ -96,5 +96,13 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_compile_definitions(goldcraft_vitals_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
         target_compile_options(goldcraft_vitals_tests PRIVATE /W3 /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_vitals COMMAND goldcraft_vitals_tests)
+        add_executable(goldcraft_input_audit_tests tests/native/input_audit_tests.cpp)
+        target_include_directories(goldcraft_input_audit_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_link_libraries(goldcraft_input_audit_tests PRIVATE goldcraft_common)
+        target_compile_definitions(goldcraft_input_audit_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(goldcraft_input_audit_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        foreach(input_case normal missing_api missing_command hook_failure missing_button)
+            add_test(NAME goldcraft_input_audit_${input_case} COMMAND goldcraft_input_audit_tests ${input_case})
+        endforeach()
     endif()
 endif()

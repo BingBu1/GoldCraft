@@ -3,6 +3,7 @@
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
 #include "vitals.hpp"
+#include "input_audit.hpp"
 #include <metahook.h>
 #include <cl_entity.h>
 #include <usercmd.h>
@@ -130,13 +131,7 @@ struct NativeProfileFrame {
 std::vector<NativeProfileFrame> native_profile;
 double native_profile_start=0,native_profile_end=0,native_profile_cpu=0;
 int NativeMouseLookState() {
-    // The public KB_Find result is SDK kbutton_s: two key slots, then state.
-    // MetaHook's SDK forward-declares it; copy the three ints without relying
-    // on a private client address or modifying the client's input state.
-    const auto* button=gExportfuncs.KB_Find?gExportfuncs.KB_Find("in_mlook"):nullptr;
-    if(!button)return -1;
-    std::array<int,3> value{};std::memcpy(value.data(),button,sizeof(value));
-    return value[2];
+    return input_audit::mouse_look_state();
 }
 double NativeThreadCpuMs() {
     FILETIME created{},exited{},kernel{},user{};
@@ -364,6 +359,7 @@ void WriteDiagnostics() {
         out<<'{'; client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         client_vitals::write_status(out); out<<',';
+        input_audit::write_status(out); out<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
@@ -489,6 +485,8 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 }
 void InitHud() {
     gExportfuncs.HUD_Init();
+    const char* input_audit_setting=std::getenv("GOLDCRAFT_INPUT_AUDIT");
+    input_audit::install(api,input_audit_setting&&std::strcmp(input_audit_setting,"1")==0);
     client_precache::register_commands();
     Log(client_vitals::install(api) ? "32-bit health/armor HUD installed" :
         std::string("integer vitals unavailable: ") + client_vitals::error());
@@ -869,6 +867,7 @@ void TestCommands() {
 void Frame(double time) {
     const double began=Seconds();
     gExportfuncs.HUD_Frame(time);
+    input_audit::sample();
     TestCommands();
     link.poll();
     static double next_ready=0;
@@ -1181,7 +1180,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("Shutdown"); log_file.close(); }
+void IPluginsV4::ExitGame(int) { input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("Shutdown"); log_file.close(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

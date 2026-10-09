@@ -65,6 +65,8 @@ $start.Environment['GOLDCRAFT_MC_CONNECT']="127.0.0.1:$($cluster.minecraftPort)"
 $start.Environment['GOLDCRAFT_TEST_MAP']=$Map
 $start.Environment['GOLDCRAFT_CLIENT_LOG']=Join-Path $logDir 'goldcraft-client.log'
 $start.Environment['GOLDCRAFT_CLIENT_STATUS']=Join-Path $logDir 'goldcraft-client-status.json'
+if($Role -eq 'CsClient'){$start.Environment['GOLDCRAFT_INPUT_AUDIT']='1'}
+else{$start.Environment.Remove('GOLDCRAFT_INPUT_AUDIT')|Out-Null}
 $start.Environment['GOLDCRAFT_TEST_COMMAND']=Join-Path $logDir 'goldcraft-test-command.txt'
 $start.Environment['GOLDCRAFT_MOTION_CAPTURE']=Join-Path $logDir 'goldcraft-motion.csv'
 $start.Environment['GOLDCRAFT_PERFORMANCE_LOG']=Join-Path $logDir "performance-$Role.json"
