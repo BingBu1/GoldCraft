@@ -6,8 +6,10 @@
 struct playermove_s;
 struct model_s;
 struct event_api_s;
+struct cl_enginefuncs_s;
 namespace goldcraft::client_map {
 void reset();
+void engine_initialized(const cl_enginefuncs_s *engine) noexcept;
 // Prepare from the public loaded world model before committing a received edit.
 struct Prepared;
 using Candidate = std::shared_ptr<const Prepared>;

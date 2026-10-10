@@ -79,6 +79,7 @@ class Receiver {
                entry.model == target.model;
     }
     const Frame *frame() const noexcept { return ready_ ? &committed_ : nullptr; }
+    std::uint64_t publication() const noexcept { return ready_ ? generation_ : 0; }
 
   private:
     bool receive(std::span<const std::uint8_t> bytes) {

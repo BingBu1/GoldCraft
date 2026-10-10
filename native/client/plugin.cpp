@@ -1088,8 +1088,11 @@ int InitializeClient(cl_enginefunc_t* engine,int version){
     // chain. Retain its lifetime without writing the engine or other plugins.
     static cl_enginefunc_t client_engine;
     client_engine=*engine;
+    client_map::engine_initialized(engine);
     client_engine.pEventAPI=client_map::event_api(engine->pEventAPI);
-    return gExportfuncs.Initialize(&client_engine,version);
+    const int result=gExportfuncs.Initialize(&client_engine,version);
+    if(!result)client_map::shutdown_events();
+    return result;
 }
 void PlayerMoveInit(playermove_t* move){
     gExportfuncs.HUD_PlayerMoveInit(move);

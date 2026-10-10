@@ -64,7 +64,7 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world) {
             boxes.reserve(prepared_.state().cuts.size());
             for (const auto &cut : prepared_.state().cuts) {
                 if (cut.target.slot)
-                    throw ProtocolError("Dynamic BSP edits require verified client entity serials");
+                    throw ProtocolError("Dynamic BSP edits require per-instance Renderer support");
                 MetaWorldEditBox box{};
                 for (int axis = 0; axis < 3; ++axis) {
                     box.min[axis] = cut.box.min[axis];

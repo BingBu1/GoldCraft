@@ -5,6 +5,7 @@
 #include <com_model.h>
 #include <pm_defs.h>
 #include <event_api.h>
+#include <cl_entity.h>
 
 #include "goldcraft/wire.hpp"
 #include "map_collision.hpp"
@@ -614,8 +615,12 @@ void lifecycle() {
     restored();
     setup();
     newer.cuts.push_back({3, {1, 55, 1}, {{0, 0, 0}, {1, 1, 1}}});
-    prepare(newer, &model);
-    assert(status().find("\"mapCollisionDeferredTargets\":1") != std::string::npos);
+    try {
+        prepare(newer, &model);
+        assert(false);
+    } catch (const ProtocolError &) {
+        // Missing inline-model APIs cannot publish a partially prepared cut.
+    }
     run(a, b);
     assert(result.fraction == 1);
     prepare({9, 4, {}}, nullptr);
@@ -800,7 +805,7 @@ struct Bsp {
     }
     unsigned u32(std::size_t p) const { return u16(p) | (unsigned(u16(p + 2)) << 16); }
     float f32(std::size_t p) const { return std::bit_cast<float>(u32(p)); }
-    void load() {
+    void load(unsigned inline_model = 0) {
         model = {};
         model.type = mod_brush;
         planes.clear();
@@ -831,8 +836,11 @@ struct Bsp {
         nodes[2] = nodes[1];
         nodes[3] = nodes[1];
         model.numplanes = int(planes.size());
+        model.numsubmodels = int(length[14] / 64);
+        assert(inline_model < unsigned(model.numsubmodels));
+        if (inline_model) std::snprintf(model.name, sizeof(model.name), "*%u", inline_model);
         for (int h = 0; h < 4; h++) {
-            model.hulls[h] = {nodes[h].data(), planes.data(), int(u32(offset[14] + 36 + h * 4)),
+            model.hulls[h] = {nodes[h].data(), planes.data(), int(u32(offset[14] + inline_model * 64 + 36 + h * 4)),
                               int(nodes[h].size() - 1)};
             const int half = h == 0   ? 0
                              : h == 2 ? 32
@@ -893,7 +901,8 @@ void assault(const char *path) {
     std::cout << "Actual cs_assault PM adapter: standing/duck/point, rim, low-hole and clip-only "
                  "contact passed\n";
 }
-void engine_events(const char *map_path, const char *engine_path) {
+#include "map_brush_collision_tests.inc"
+void engine_events(const char *map_path, const char *engine_path, bool brushes = false) {
     // Execute only the reviewed PM/event routines in this isolated test process.
     // No DllMain, dependency initialization, game launch or on-disk patching.
     std::ifstream input(engine_path, std::ios::binary);
@@ -983,6 +992,27 @@ void engine_events(const char *map_path, const char *engine_path) {
     query(PM_GLASS_IGNORE);
     assert(result.fraction == 1);
     actor.rendermode = 0;
+    // Ex callbacks belong to the native traversal. Skipping the edited world
+    // must not call its predicate once in a prepass and again in the fallback.
+    predicate_skip = 0; predicate_change = 0; predicate_count = 0;
+    const auto skipped_world = pm->PM_PlayerTraceEx(a, b, PM_NORMAL, ordered_brush_predicate);
+    assert(skipped_world.ent == 1 && predicate_count == 2);
+    std::copy_n(a, 3, queried_start); std::copy_n(b, 3, queried_end);
+    client_map::move(pm.get(), 0, [](playermove_t *movement, int) {
+        predicate_count = 0;
+        const auto hit = movement->PM_PlayerTraceEx(queried_start, queried_end, PM_NORMAL, ordered_brush_predicate);
+        if (predicate_count != 2) throw std::runtime_error("World Ex predicate invoked twice");
+        assert(hit.ent == 1 && predicate_order[0] == 0 && predicate_order[1] == 7);
+        predicate_count = 0;
+        const auto line = movement->PM_TraceLineEx(queried_start, queried_end, 0, 2, ordered_brush_predicate);
+        assert(line && line->ent == 1 && predicate_count == 2);
+        predicate_count = 0;
+        float inside[3]{96, 2900, 406.4f};
+        pmtrace_t origin{};
+        assert(movement->PM_TestPlayerPositionEx(inside, &origin, ordered_brush_predicate) == -1);
+        assert(predicate_count == 2);
+    });
+    predicate_skip = -1;
     pm->numphysent = 1;
     a[1] = original.endpos[1] + .125f;
     assert(pm->PM_HullPointContents(&model.hulls[0], model.hulls[0].firstclipnode, a) == -2);
@@ -1034,12 +1064,13 @@ void engine_events(const char *map_path, const char *engine_path) {
               << repeats << ",\"editedAllocations\":" << edit_allocations
               << ",\"queryCpuUs\":" << elapsed / repeats
               << ",\"noEditAllocations\":0,\"passed\":true}\n";
+    if (brushes) engine_brushes(bsp, base_address, native, api);
 }
 } // namespace
 int main(int argc, char **argv) {
     try {
-        if (argc == 3)
-            engine_events(argv[1], argv[2]);
+        if (argc >= 3)
+            engine_events(argv[1], argv[2], argc == 4);
         else if (argc == 2)
             assault(argv[1]);
         else {

@@ -3,11 +3,14 @@
 #include <com_model.h>
 #include <pm_defs.h>
 #include <event_api.h>
+#include <cl_entity.h>
 
 #include "map_collision.hpp"
 #include "goldcraft/edited_hull.hpp"
 #include <array>
+#include <charconv>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <stdexcept>
@@ -15,12 +18,19 @@
 
 namespace goldcraft::client_map {
 using namespace carving;
+struct BrushTarget {
+    edits::Target identity;
+    model_t *model = nullptr;
+    std::array<std::unique_ptr<EditedHull>, 4> hulls;
+    std::array<std::array<float, 3>, 4> clip_mins;
+};
 struct Prepared {
     model_t *model = nullptr;
     edits::Snapshot state;
     std::array<std::unique_ptr<EditedHull>, 4> hulls;
     std::array<Point, 4> clip_mins;
-    std::size_t deferred_targets = 0;
+    std::vector<BrushTarget> targets;
+    std::vector<int> slots;
 };
 namespace {
 static_assert(sizeof(model_t) == 392 && sizeof(hull_t) == 40 && sizeof(physent_t) == 224);
@@ -58,6 +68,10 @@ std::uint64_t traces = 0, positions = 0, points = 0, frames = 0, failures = 0;
 std::uint64_t event_traces = 0;
 playermove_t *event_movement = nullptr;
 event_api_t native_events{}, client_events{};
+decltype(cl_enginefunc_t::CL_LoadModel) load_model = nullptr;
+decltype(cl_enginefunc_t::GetEntityByIndex) entity_by_index = nullptr;
+decltype(cl_enginefunc_t::pfnAngleVectors) angle_vectors = nullptr;
+decltype(cl_enginefunc_t::hudGetModelByIndex) model_by_index = nullptr;
 struct Callbacks {
     decltype(playermove_t::PM_PlayerTrace) trace;
     decltype(playermove_t::PM_PlayerTraceEx) trace_ex;
@@ -141,7 +155,8 @@ Point point(const float *p) {
     return {p[0], p[1], p[2]};
 }
 physent_t *world(physent_t *entities, int count) {
-    if (active != current->geometry || count <= 0 || count > MAX_PHYSENTS ||
+    if (active != current->geometry || !current->geometry->hulls[0] ||
+        count <= 0 || count > MAX_PHYSENTS ||
         entities[0].info != 0 || entities[0].model != current->geometry->model ||
         entities[0].solid != 4)
         return nullptr;
@@ -187,10 +202,170 @@ pmtrace_t closest(const pmtrace_t &world_trace, const pmtrace_t &native_trace) {
     return world_trace.fraction < 1 && world_trace.fraction <= native_trace.fraction ? world_trace
                                                                                      : native_trace;
 }
+// Native invokes predicates in array order, before glass/solidity tests. Collect
+// edits at that exact point; pre-scanning would change callback side effects.
+struct BrushQuery {
+    physent_t *entities;
+    int count, usehull, flags, ignored;
+    const float *start, *end;
+    int (*predicate)(physent_t *);
+    bool position_query = false;
+    std::uint64_t publication = identities.publication();
+    std::array<unsigned short, MAX_PHYSENTS> consumed;
+    std::size_t consumed_count = 0;
+    pmtrace_t best{};
+    BrushQuery *previous = nullptr;
+
+    BrushQuery(physent_t *array, int size, int hull, int mask, int skip,
+               const float *a, const float *b, int (*callback)(physent_t *), bool position = false)
+        : entities(array), count(size), usehull(hull), flags(mask), ignored(skip), start(a),
+          end(b), predicate(callback), position_query(position) {
+        best.fraction = 1;
+        best.ent = -1;
+    }
+    void unchanged() const {
+        if (active != current->geometry || identities.publication() != publication)
+            throw std::runtime_error("Client brush query generation changed");
+    }
+    const BrushTarget *target(const physent_t &pe) const {
+        const auto &geometry = *current->geometry;
+        if (pe.info <= 0 || std::size_t(pe.info) >= geometry.slots.size() ||
+            pe.solid != 4 || !entity_by_index || !model_by_index)
+            return nullptr;
+        const int index = geometry.slots[pe.info];
+        if (index < 0) return nullptr;
+        const auto &entry = geometry.targets[index];
+        if (pe.model != entry.model) return nullptr;
+        auto *entity = entity_by_index(pe.info);
+        if (!entity || entity->curstate.number != pe.info || entity->model != entry.model ||
+            entity->curstate.solid != 4 || entity->curstate.modelindex <= 0 ||
+            model_by_index(entity->curstate.modelindex) != entry.model ||
+            !identities.matches({entry.identity.slot, entry.identity.serial, entry.identity.model},
+                                std::uint32_t(entity->curstate.messagenum),
+                                geometry.state.epoch, geometry.state.revision))
+            return nullptr;
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(pe.origin[axis]) || !std::isfinite(pe.angles[axis]))
+                return nullptr;
+        return &entry;
+    }
+    struct Transform {
+        std::array<float, 3> offset, forward{}, right{}, up{};
+        bool rotated;
+        Transform(const BrushTarget &target, const physent_t &pe, int hull) {
+            for (int i = 0; i < 3; ++i)
+                offset[i] = pe.origin[i] +
+                    (target.clip_mins[hull_index[hull]][i] - current->pm->player_mins[hull][i]);
+            rotated = pe.angles[0] != 0 || pe.angles[1] != 0 || pe.angles[2] != 0;
+            if (rotated) {
+                if (!angle_vectors) throw std::runtime_error("Client brush angle callback missing");
+                angle_vectors(pe.angles, forward.data(), right.data(), up.data());
+            }
+        }
+        Point local(const float *p) const {
+            if (!p) throw std::invalid_argument("Client brush point missing");
+            const std::array<float, 3> relative{p[0] - offset[0], p[1] - offset[1], p[2] - offset[2]};
+            if (!rotated) return {relative[0], relative[1], relative[2]};
+            const auto dot = [&](const auto &axis) {
+                return (axis[0] * relative[0] + axis[1] * relative[1]) + axis[2] * relative[2];
+            };
+            return {dot(forward), -dot(right), dot(up)};
+        }
+        void normal(float *n) const {
+            if (!rotated) return;
+            const std::array<float, 3> local{n[0], n[1], n[2]};
+            for (int i = 0; i < 3; ++i)
+                n[i] = (forward[i] * local[0] - right[i] * local[1]) + up[i] * local[2];
+        }
+    };
+    static bool earlier(const pmtrace_t &a, const pmtrace_t &b) {
+        return a.fraction < 1 &&
+            (a.fraction < b.fraction || (a.fraction == b.fraction && a.ent < b.ent));
+    }
+    int visit(physent_t *pe) {
+        const auto offset = reinterpret_cast<std::uintptr_t>(pe) -
+                            reinterpret_cast<std::uintptr_t>(entities);
+        if (offset % sizeof(physent_t) || offset / sizeof(physent_t) >= std::size_t(count))
+            throw std::runtime_error("Client brush native filter array");
+        const int index = int(offset / sizeof(physent_t));
+        if (index == ignored || (predicate && predicate(pe))) return 1;
+        unchanged();
+        if ((flags & PM_GLASS_IGNORE) && pe->rendermode) return 0;
+        if (count <= 0 || count > MAX_PHYSENTS || usehull < 0 || usehull >= 4) return 0;
+        pmtrace_t cut{};
+        if (index == 0 && affects(world(entities, count), usehull, start, end)) {
+            if (position_query) {
+                ++positions;
+                return current->geometry->hulls[hull_index[usehull]]->contents(
+                    client_map::local(start, *pe, usehull)) != -2;
+            }
+            cut = overlay(pe, usehull, start, end);
+        } else {
+            const auto *entry = target(*pe);
+            unchanged();
+            if (!entry) return 0;
+            Transform transform(*entry, *pe, usehull);
+            unchanged();
+            const auto a = transform.local(start), b = transform.local(end);
+            const auto &hull = *entry->hulls[hull_index[usehull]];
+            if (!hull.affects(a, b)) return 0;
+            if (consumed_count == consumed.size())
+                throw std::runtime_error("Client brush native filter repeated");
+            consumed[consumed_count++] = static_cast<unsigned short>(index);
+            if (position_query) {
+                ++positions;
+                return hull.contents(a) != -2;
+            }
+            const auto value = hull.trace(a, b);
+            cut.ent = index;
+            cut.fraction = value.start_solid ? 0 : static_cast<float>(value.fraction);
+            cut.startsolid = value.start_solid;
+            cut.allsolid = value.all_solid;
+            cut.inopen = value.in_open;
+            cut.inwater = value.in_water;
+            // Native rotates the normal, but retains the model-local plane distance.
+            cut.plane.dist = static_cast<float>(value.plane.distance);
+            for (int i = 0; i < 3; ++i) {
+                cut.plane.normal[i] = static_cast<float>(value.plane.normal[i]);
+                cut.endpos[i] = start[i] + cut.fraction * (end[i] - start[i]);
+            }
+            transform.normal(cut.plane.normal);
+            ++traces;
+        }
+        if (earlier(cut, best)) best = cut;
+        return 1;
+    }
+    void validate() const {
+        unchanged();
+        for (std::size_t i = 0; i < consumed_count; ++i)
+            if (!target(entities[consumed[i]]))
+                throw std::runtime_error("Client brush identity changed during query");
+        unchanged();
+    }
+    pmtrace_t finish(const pmtrace_t &native) const {
+        validate();
+        return earlier(best, native) ? best : native;
+    }
+};
+thread_local BrushQuery *brush_query = nullptr;
+struct BrushScope {
+    explicit BrushScope(BrushQuery &query) { query.previous = std::exchange(brush_query, &query); }
+    ~BrushScope() { brush_query = brush_query->previous; }
+};
+int brush_ignore(physent_t *entity) { return brush_query->visit(entity); }
+pmtrace_t brush_trace(float *start, float *end, int flags, int ignored,
+                     int (*predicate)(physent_t *)) {
+    BrushQuery query(current->pm->physents, current->pm->numphysent, current->pm->usehull,
+                     flags, ignored, start, end, predicate);
+    BrushScope scope(query);
+    return query.finish(current->native.trace_ex(start, end, flags, brush_ignore));
+}
 pmtrace_t trace(float *start, float *end, int flags, int ignored) {
     const auto native = [&] { return current->native.trace(start, end, flags, ignored); };
     return guarded(
         [&] {
+            if (!current->geometry->targets.empty())
+                return brush_trace(start, end, flags, ignored, nullptr);
             auto *pe = world(current->pm->physents, current->pm->numphysent);
             if (ignored == 0 || !affects(pe, current->pm->usehull, start, end) ||
                 ((flags & PM_GLASS_IGNORE) && pe->rendermode))
@@ -209,9 +384,11 @@ pmtrace_t trace_ex(float *start, float *end, int flags, int (*predicate)(physent
     const auto native = [&] { return current->native.trace_ex(start, end, flags, predicate); };
     return guarded(
         [&] {
+            if (predicate || !current->geometry->targets.empty())
+                return brush_trace(start, end, flags, -1, predicate);
             auto *pe = world(current->pm->physents, current->pm->numphysent);
             if (!affects(pe, current->pm->usehull, start, end) ||
-                ((flags & PM_GLASS_IGNORE) && pe->rendermode) || (predicate && predicate(pe)))
+                ((flags & PM_GLASS_IGNORE) && pe->rendermode))
                 return native();
             auto cut = overlay(pe, current->pm->usehull, start, end);
             FilterScope scope({pe, nullptr, predicate});
@@ -220,8 +397,18 @@ pmtrace_t trace_ex(float *start, float *end, int flags, int (*predicate)(physent
         native, [&] { return blocked(start); });
 }
 int test_position(float *p, pmtrace_t *result, int (*predicate)(physent_t *)) {
+    if (predicate || !current->geometry->targets.empty()) {
+        // Native reports an unfiltered trace at PM origin before visiting predicates.
+        if (result) *result = trace(current->pm->origin, current->pm->origin, PM_NORMAL, -1);
+        BrushQuery query(current->pm->physents, current->pm->numphysent, current->pm->usehull,
+                         PM_NORMAL, -1, p, p, predicate, true);
+        BrushScope scope(query);
+        const int hit = current->native.position_ex(p, nullptr, brush_ignore);
+        query.validate();
+        return hit;
+    }
     auto *pe = world(current->pm->physents, current->pm->numphysent);
-    if (!affects(pe, current->pm->usehull, p, p) || (predicate && predicate(pe))) {
+    if (!affects(pe, current->pm->usehull, p, p)) {
         const int hit = current->native.position_ex(p, result, predicate);
         if (result && affects(pe, current->pm->usehull, current->pm->origin, current->pm->origin))
             *result = trace(current->pm->origin, current->pm->origin, PM_NORMAL, -1);
@@ -253,6 +440,7 @@ int position_ex(float *p, pmtrace_t *result, int (*predicate)(physent_t *)) {
 int position(float *p, pmtrace_t *result) {
     return guarded(
         [&] {
+            if (!current->geometry->targets.empty()) return test_position(p, result, nullptr);
             auto *pe = world(current->pm->physents, current->pm->numphysent);
             if (!affects(pe, current->pm->usehull, p, p)) {
                 const int hit = current->native.position(p, result);
@@ -318,15 +506,40 @@ int true_contents(float *p) {
         },
         native, [] { return -2; });
 }
+struct LineHullScope {
+    playermove_t &pm;
+    int saved;
+    explicit LineHullScope(playermove_t &movement) : pm(movement), saved(movement.usehull) {}
+    ~LineHullScope() { pm.usehull = saved; }
+};
+pmtrace_t *native_line_ex(float *start, float *end, int flags, int usehull,
+                        int (*predicate)(physent_t *)) {
+    // Native restores usehull only on normal return. Restore before fallback
+    // too when a filtering callback unwinds through the engine.
+    LineHullScope scope(*current->pm);
+    return current->native.line_ex(start, end, flags, usehull, predicate);
+}
+pmtrace_t *native_line(float *start, float *end, int flags, int usehull, int ignored) {
+    LineHullScope scope(*current->pm);
+    return current->native.line(start, end, flags, usehull, ignored);
+}
 pmtrace_t *test_line(float *start, float *end, int flags, int usehull, int ignored,
                      int (*predicate)(physent_t *)) {
     auto *entities = flags ? current->pm->visents : current->pm->physents;
     const int count = flags ? current->pm->numvisent : current->pm->numphysent;
+    if (predicate || !current->geometry->targets.empty()) {
+        BrushQuery query(entities, count, usehull, PM_NORMAL, ignored, start, end, predicate);
+        BrushScope scope(query);
+        const auto *native = native_line_ex(start, end, flags, usehull, brush_ignore);
+        if (!native) throw std::runtime_error("Client native brush line result");
+        current->line_result = query.finish(*native);
+        return &current->line_result;
+    }
     auto *pe = world(entities, count);
     auto cut = overlay(pe, usehull, start, end);
     FilterScope scope(
         {pe, ignored >= 0 && ignored < count ? &entities[ignored] : nullptr, predicate});
-    const auto *base = current->native.line_ex(start, end, flags, usehull, ignore);
+    const auto *base = native_line_ex(start, end, flags, usehull, ignore);
     if (!base)
         throw std::runtime_error("Client native line result");
     current->line_result = closest(cut, *base);
@@ -336,14 +549,16 @@ pmtrace_t *line_ex(float *start, float *end, int flags, int usehull,
                    int (*predicate)(physent_t *)) {
     return guarded(
         [&] {
+            if (predicate || !current->geometry->targets.empty())
+                return test_line(start, end, flags, usehull, -1, predicate);
             auto *entities = flags ? current->pm->visents : current->pm->physents;
             const int count = flags ? current->pm->numvisent : current->pm->numphysent;
             auto *pe = world(entities, count);
-            if (!affects(pe, usehull, start, end) || (predicate && predicate(pe)))
-                return current->native.line_ex(start, end, flags, usehull, predicate);
+            if (!affects(pe, usehull, start, end))
+                return native_line_ex(start, end, flags, usehull, predicate);
             return test_line(start, end, flags, usehull, -1, predicate);
         },
-        [&] { return current->native.line_ex(start, end, flags, usehull, predicate); },
+        [&] { return native_line_ex(start, end, flags, usehull, predicate); },
         [&] {
             current->line_result = blocked(start);
             return &current->line_result;
@@ -352,14 +567,16 @@ pmtrace_t *line_ex(float *start, float *end, int flags, int usehull,
 pmtrace_t *line(float *start, float *end, int flags, int usehull, int ignored) {
     return guarded(
         [&] {
+            if ((flags == 0 || flags == 1) && !current->geometry->targets.empty())
+                return test_line(start, end, flags, usehull, ignored, nullptr);
             auto *entities = flags ? current->pm->visents : current->pm->physents;
             const int count = flags ? current->pm->numvisent : current->pm->numphysent;
             auto *pe = world(entities, count);
             if ((flags != 0 && flags != 1) || ignored == 0 || !affects(pe, usehull, start, end))
-                return current->native.line(start, end, flags, usehull, ignored);
+                return native_line(start, end, flags, usehull, ignored);
             return test_line(start, end, flags, usehull, ignored, nullptr);
         },
-        [&] { return current->native.line(start, end, flags, usehull, ignored); },
+        [&] { return native_line(start, end, flags, usehull, ignored); },
         [&] {
             current->line_result = blocked(start);
             return &current->line_result;
@@ -391,7 +608,7 @@ void event_trace(float *start, float *end, int flags, int ignored, pmtrace_t *re
     };
     // This table belongs to the client; the engine may temporarily select a
     // different PM context. Check the public accessor before reading our PM.
-    if (!result || !active || !active->hulls[0] || !event_movement) {
+    if (!result || !active || (!active->hulls[0] && active->targets.empty()) || !event_movement) {
         native_events.EV_PlayerTrace(start, end, flags, ignored, result);
         return;
     }
@@ -412,6 +629,13 @@ void event_trace(float *start, float *end, int flags, int ignored, pmtrace_t *re
                 ~Restore() { current = previous; }
             } restore{current};
             current = &context;
+            if (!context.geometry->targets.empty()) {
+                const auto out = brush_trace(start, end, flags, ignored, nullptr);
+                if (event_movement != pm || native_events.EV_GetPhysent(0) != &pm->physents[0])
+                    throw std::runtime_error("Client event brush PM changed during query");
+                ++event_traces;
+                return out;
+            }
             auto *pe = world(pm->physents, pm->numphysent);
             if (ignored == 0 || !affects(pe, pm->usehull, start, end) ||
                 ((flags & PM_GLASS_IGNORE) && pe->rendermode))
@@ -430,6 +654,12 @@ void event_trace(float *start, float *end, int flags, int ignored, pmtrace_t *re
         native, [&] { return blocked(start); });
 }
 } // namespace
+void engine_initialized(const cl_enginefuncs_s *engine) noexcept {
+    load_model = engine ? engine->CL_LoadModel : nullptr;
+    entity_by_index = engine ? engine->GetEntityByIndex : nullptr;
+    angle_vectors = engine ? engine->pfnAngleVectors : nullptr;
+    model_by_index = engine ? engine->hudGetModelByIndex : nullptr;
+}
 event_api_t *event_api(event_api_t *source) {
     event_movement = nullptr;
     // Another plugin may copy the proxy table before a second Initialize.
@@ -444,7 +674,10 @@ event_api_t *event_api(event_api_t *source) {
     return &client_events;
 }
 void movement_initialized(playermove_t *movement) noexcept { event_movement = movement; }
-void shutdown_events() noexcept { event_movement = nullptr; }
+void shutdown_events() noexcept {
+    event_movement = nullptr;
+    engine_initialized(nullptr);
+}
 brush::Receiver &brush_identities() noexcept { return identities; }
 void reset() { active.reset(); }
 Candidate prepare(const edits::Replica &replica, model_t *loaded) {
@@ -465,23 +698,48 @@ Candidate prepare(const edits::Replica &replica, model_t *loaded) {
     next->model = loaded;
     next->state = state;
     std::vector<Box> cuts;
+    std::map<std::uint32_t, std::vector<Box>> brush_cuts;
     for (const auto &cut : state.cuts) {
-        if (cut.target.slot) {
-            ++next->deferred_targets;
-            continue;
-        }
         Box box{};
         for (int i = 0; i < 3; ++i) {
             box.min[i] = cut.box.min[i];
             box.max[i] = cut.box.max[i];
         }
-        cuts.push_back(box);
+        if (!cut.target.slot) {
+            cuts.push_back(box);
+            continue;
+        }
+        if (!brush::valid({cut.target.slot, cut.target.serial, cut.target.model}) ||
+            !loaded || loaded->numsubmodels <= 0 || cut.target.model >= unsigned(loaded->numsubmodels) ||
+            !load_model || !entity_by_index || !model_by_index || !angle_vectors)
+            throw ProtocolError("Client brush model callbacks/identity unavailable");
+        if (next->slots.size() <= cut.target.slot) next->slots.resize(cut.target.slot + 1, -1);
+        auto &index = next->slots[cut.target.slot];
+        if (index < 0) {
+            BrushTarget entry;
+            entry.identity = cut.target;
+            std::array<char, 16> name{};
+            name[0] = '*';
+            const auto encoded = std::to_chars(name.data() + 1, name.data() + name.size() - 1,
+                                               cut.target.model);
+            if (encoded.ec != std::errc{}) throw ProtocolError("Client brush model name");
+            int model_index = 0;
+            entry.model = load_model(name.data(), &model_index);
+            if (!entry.model || entry.model->type != mod_brush || model_index <= 0 ||
+                model_by_index(model_index) != entry.model ||
+                !std::equal(name.data(), encoded.ptr + 1, entry.model->name))
+                throw ProtocolError("Client brush inline model unavailable");
+            index = static_cast<int>(next->targets.size());
+            next->targets.push_back(std::move(entry));
+        } else if (next->targets[index].identity != cut.target)
+            throw ProtocolError("Client brush slot has mixed identities");
+        brush_cuts[cut.target.slot].push_back(box);
     }
+    std::size_t work = 0;
     if (!cuts.empty()) {
         if (!loaded)
             throw ProtocolError("Client world model not loaded");
         const SourceHull original(loaded, loaded->hulls[0]);
-        std::size_t work = 0;
         for (int i = 0; i < 4; ++i) {
             const SourceHull body_hull(loaded, loaded->hulls[i]);
             Box body{};
@@ -497,6 +755,25 @@ Candidate prepare(const edits::Replica &replica, model_t *loaded) {
             work += next->hulls[i]->operations();
             if (work > 32'000'000)
                 throw std::length_error("Client map physics budget");
+        }
+    }
+    for (auto &entry : next->targets) {
+        const SourceHull original(entry.model, entry.model->hulls[0]);
+        for (int i = 0; i < 4; ++i) {
+            const auto &hull = entry.model->hulls[i];
+            const SourceHull body_hull(entry.model, hull);
+            Box body{};
+            for (int axis = 0; axis < 3; ++axis) {
+                entry.clip_mins[i][axis] = hull.clip_mins[axis];
+                if (i) {
+                    body.min[axis] = hull.clip_mins[axis];
+                    body.max[axis] = hull.clip_maxs[axis];
+                }
+            }
+            entry.hulls[i] = std::make_unique<EditedHull>(original.view(), body_hull.view(), body,
+                                                        brush_cuts.at(entry.identity.slot));
+            work += entry.hulls[i]->operations();
+            if (work > 32'000'000) throw std::length_error("Client map physics budget");
         }
     }
     return next;
@@ -528,7 +805,8 @@ void move(playermove_t *pm, int server, void (*original)(playermove_t *, int)) {
     // unwraps its enclosing table instead of recursively saving our own wrappers.
     native.apply(*pm);
     current = &context;
-    if (!server && active && active->hulls[0] && native.complete() && pm->PM_HullPointContents) {
+    if (!server && active && (active->hulls[0] || !active->targets.empty()) &&
+        native.complete() && pm->PM_HullPointContents) {
         pm->PM_PlayerTrace = trace;
         pm->PM_PlayerTraceEx = trace_ex;
         pm->PM_TestPlayerPosition = position;
@@ -548,6 +826,7 @@ void write_status(std::ostream &out) {
         << ",\"mapCollisionPositions\":" << positions << ",\"mapCollisionPoints\":" << points
         << ",\"mapCollisionFailures\":" << failures
         << ",\"mapCollisionEventTraces\":" << event_traces
-        << ",\"mapCollisionDeferredTargets\":" << (active ? active->deferred_targets : 0);
+        << ",\"mapCollisionBrushTargets\":" << (active ? active->targets.size() : 0)
+        << ",\"mapCollisionDeferredTargets\":0";
 }
 } // namespace goldcraft::client_map
