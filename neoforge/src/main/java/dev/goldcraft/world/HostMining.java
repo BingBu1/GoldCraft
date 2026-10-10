@@ -18,6 +18,8 @@ import net.minecraft.world.RaycastContext;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import dev.goldcraft.world.HostMiningCoordinates.Target;
+import dev.goldcraft.world.HostMiningCoordinates.Sample;
 
 /** MC computes real tool progress; HLDS retraces damage and sampled cell commits. */
 public final class HostMining {
@@ -25,19 +27,14 @@ public final class HostMining {
     private static final Map<Long, Pending> PENDING = new HashMap<>();
     private static long event, tick, policyRevision;
 
-    private record Target(int slot, int serial, int model, BlockPos cell, long edits) {
-        static Target of(HostRaycast.Hit hit, HostWorldState host) {
-            return new Target(hit.slot, hit.serial, hit.model, hit.getBlockPos(), host.edits().revision());
-        }
-    }
-
-    private static final class Intent {
+    static final class Intent {
         long epoch, revision, lastIntent, nextTick, pending, generation, sampleUntil;
-        long sampleEvent;
+        long sampleEvent, probe, sampledProbe = -1;
         int serial, life;
         boolean held, mineable;
         float progress;
         Target target;
+        Sample sampled;
         ItemStack tool, toolCopy;
         BlockState material;
         BlockPos miningCell;
@@ -53,13 +50,47 @@ public final class HostMining {
             sampleUntil = 0;
             sampleEvent = 0;
             miningCell = null;
+            sampled = null;
+            sampledProbe = -1;
             mineable = false;
+        }
+
+        void observe(Target next, BlockPos worldCell) {
+            if (!HostMiningCoordinates.sameFrame(target, next)) reset();
+            if (!next.equals(target)) {
+                target = next;
+                ++probe;
+                sampleUntil = sampleEvent = 0;
+            }
+            miningCell = HostMiningCoordinates.worldCell(next, sampled, worldCell);
+        }
+
+        boolean accepts(long requestGeneration, long requestProbe, Target requestTarget) {
+            return generation == requestGeneration && probe == requestProbe && requestTarget.equals(target);
+        }
+
+        void confirm(Sample next) {
+            if (!next.equals(sampled)) progress = 0;
+            sampled = next;
+            sampledProbe = probe;
+            miningCell = HostMiningCoordinates.worldCell(target, next, miningCell);
+        }
+
+        boolean needsSample(long now) {
+            return material == null || sampledProbe != probe || now >= sampleUntil;
+        }
+
+        boolean advance(float delta) {
+            if (sampled == null || sampledProbe != probe) return false;
+            if (!Float.isFinite(delta) || delta <= 0) { progress = 0; return false; }
+            progress = Math.min(1, progress + delta);
+            return progress >= 1;
         }
     }
 
     private record Pending(UUID player, HostWorldState.Actor actor, Target target, ItemStack tool,
                            ItemStack toolCopy, BlockState material, long revision, long generation, GameMode mode,
-                           BlockPos miningCell, boolean sample, long expires) {}
+                           BlockPos miningCell, long probe, boolean sample, long expires) {}
 
     private HostMining() {}
     public static void clear() { INTENTS.clear(); PENDING.clear(); event = tick = policyRevision = 0; }
@@ -123,13 +154,17 @@ public final class HostMining {
                     e -> !e.isSpectator() && e.canHit(), eye.squaredDistanceTo(hit.getPos())) != null) {
                 state.reset(); continue;
             }
-            var key = Target.of(target, host);
+            var key = HostMiningCoordinates.target(target.slot, target.serial, target.model,
+                target.getBlockPos(), target.miningRayCell, host.edits().revision());
+            if (key == null || target.miningWorldCell == null) { state.reset(); continue; }
             var tool = player.getMainHandStack();
-            if (mode != state.mode || !key.equals(state.target) || tool != state.tool || !ItemStack.areEqual(tool, state.toolCopy)) {
-                state.reset(); state.target = key; state.tool = tool; state.toolCopy = tool.copy(); state.mode = mode;
-            }
+            if (mode != state.mode || tool != state.tool || !ItemStack.areEqual(tool, state.toolCopy)) state.reset();
+            // Moving/rotating brushes retain local progress while vanilla rule
+            // and tool queries follow the actual world-space hit each tick.
+            state.observe(key, target.miningWorldCell);
+            if (state.tool == null) { state.tool = tool; state.toolCopy = tool.copy(); state.mode = mode; }
             if (state.pending != 0 || tick < state.nextTick) continue;
-            if (state.material == null || tick >= state.sampleUntil) {
+            if (state.needsSample(tick)) {
                 send(entry.getKey(), state, actor, target, policy, reach, 1, true);
                 continue;
             }
@@ -143,9 +178,7 @@ public final class HostMining {
                 state.progress = 0; continue;
             }
             float delta = mode == GameMode.CREATIVE ? 1 : material.calcBlockBreakingDelta(player, player.getWorld(), cell);
-            if (!Float.isFinite(delta) || delta <= 0) { state.progress = 0; continue; }
-            state.progress = Math.min(1, state.progress + delta);
-            if (state.progress < 1) continue;
+            if (!state.advance(delta)) continue;
             double base = player.getAttributeValue(EntityAttributes.GENERIC_ATTACK_DAMAGE) * 5;
             if (!Double.isFinite(base) || base <= 0) { state.reset(); continue; }
             // Preserve native HP/TakeDamage/Ham. A material strike cannot bypass
@@ -167,7 +200,7 @@ public final class HostMining {
         if (!GoldCraft.sendToHost(sample ? Wire.MAP_MINING_SAMPLE : Wire.MAP_MINING_REQUEST, request)) return false;
         state.pending = sequence;
         PENDING.put(sequence, new Pending(id, actor, state.target, state.tool, state.tool.copy(), state.material,
-            policy.revision(), state.generation, state.mode, state.miningCell, sample, tick + 40));
+            policy.revision(), state.generation, state.mode, state.miningCell, state.probe, sample, tick + 40));
         return true;
     }
 
@@ -200,22 +233,24 @@ public final class HostMining {
         if (pending == null) return;
         var state = INTENTS.get(pending.player());
         if (state == null) return;
+        // A reply for an earlier probe cannot authorize a later ray, even if
+        // the aim moved away and back to the same provisional cell meanwhile.
+        if (!state.accepts(pending.generation(), pending.probe(), pending.target())) return;
         var player = server.getPlayerManager().getPlayer(pending.player());
         if (!validResult(pending, result, player, host.actor(pending.player()), host)
-            || state.generation != pending.generation() || !pending.target().equals(state.target) || !state.held) {
+            || !state.held) {
             state.reset(); return;
         }
         var material = HostMiningMaterials.state(surface.material());
         if (surface.editRevision() != 0 && surface.editRevision() != host.edits().revision()) {
             state.reset(); return;
         }
-        var nativeCell = surface.cell();
-        var cell = surface.editRevision() != 0
-            ? new BlockPos(nativeCell.x(), nativeCell.z() + (int)Wire.Y_OFFSET, -nativeCell.y() - 1)
-            : state.target.cell();
-        if (state.material != material || !cell.equals(state.miningCell)) state.progress = 0;
+        var sampled = HostMiningCoordinates.sample(state.target, surface);
+        // A stable provisional ray key does not authorize progress on a different
+        // native cell. Always compare the complete authoritative sample identity.
+        if (state.material != material) state.progress = 0;
         state.material = material;
-        state.miningCell = cell;
+        state.confirm(sampled);
         state.sampleEvent = surface.editRevision() != 0 ? result.event() : 0;
         state.mineable = surface.kind() == 1 || host.mining().mode() == MapMining.ALL_GEOMETRY
             && (host.mining().capabilities() & MapMining.GEOMETRY_CARVING) != 0 && surface.editRevision() != 0;
