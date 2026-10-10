@@ -124,6 +124,24 @@ int main() {
     assert(cavity::prepare(original, {&empty, 1}).draws.empty());
     const auto repeated = cavity::prepare(original, {&model, 1});
     assert(*repeated.mesh == *carved.mesh);
+    // A redundant BSP plane splits one wall vertically without changing the
+    // solid. Texture coordinates must not depend on those fragment centres.
+    const std::array<carving::Plane, 2> split_planes{{planes[0], {{0,0,1},-4}}};
+    const std::array<carving::HullNode, 2> split_nodes{{{0,{-1,1}}, {1,{-2,-2}}}};
+    const cavity::Model split_model{0,1,{split_planes,split_nodes,0},boxes};
+    const auto split = cavity::prepare(original,{&split_model,1});
+    std::size_t seam_matches = 0;
+    for (const auto &draw : split.draws) for (std::size_t at = draw.indices.first; at < std::size_t(draw.indices.first)+draw.indices.count; ++at) {
+        const auto index = split.mesh->indices[at];
+        const auto &v = split.mesh->vertices[index];
+        const auto &n = split.mesh->frames[index].normal;
+        if (n[1] == 1) {
+            close(v.texcoord[0], .25*v.pos[0]+.125*32+3-.125*v.pos[2]);
+            close(v.texcoord[1], -.5*32-7+.5*v.pos[2]);
+            if (v.pos[2] == -4) ++seam_matches;
+        }
+    }
+    assert(seam_matches >= 4);
     assert(cavity::prepare(original, {}).mesh == original && *original == baseline);
     auto live = carved.mesh;
     for (int limit = 0; limit < 6; ++limit) rejected([&] {

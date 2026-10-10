@@ -116,7 +116,6 @@ template <std::size_t N> void store(float (&out)[N], const std::array<double, N>
 struct WallMaterial {
     carving::Wall wall;
     Material material;
-    Point center;
 };
 void append(surface::Mesh &mesh, const surface::Mesh &original, const Model &model,
             const WallMaterial &item, std::vector<Draw> &draws, Work &work) {
@@ -146,12 +145,26 @@ void append(surface::Mesh &mesh, const surface::Mesh &original, const Model &mod
     const auto start = static_cast<std::uint32_t>(mesh.vertices.size());
     const Point gradients[]{rotate(donor.gradient[0], donor.normal, wall.normal),
                             rotate(donor.gradient[1], donor.normal, wall.normal)};
+    // Rotate about the intersection of the two planes, not this BSP fragment's
+    // centre. Coplanar fragments (and triangles with the same affine mapping)
+    // then agree at every shared point. Parallel planes use their origin feet.
+    const double from_distance = dot(donor.normal, donor.closest),
+                 to_distance = dot(wall.normal, wall.vertices[0]),
+                 cosine = std::clamp(dot(donor.normal, wall.normal), -1.0, 1.0);
+    Point from_anchor = scale(donor.normal, from_distance), to_anchor = scale(wall.normal, to_distance);
+    if (1 - cosine * cosine > 1e-12) {
+        from_anchor = add(scale(donor.normal, (from_distance - cosine * to_distance) / (1 - cosine * cosine)),
+                          scale(wall.normal, (to_distance - cosine * from_distance) / (1 - cosine * cosine)));
+        to_anchor = from_anchor;
+    }
+    const double anchored_uv[]{donor.uv[0] + dot(donor.gradient[0], sub(from_anchor, donor.closest)),
+                               donor.uv[1] + dot(donor.gradient[1], sub(from_anchor, donor.closest))};
     for (const auto &p : wall.vertices) {
         surface::Vertex vertex{};
         surface::Frame frame{};
         store(vertex.pos, p);
-        store(vertex.texcoord, std::array{donor.uv[0] + dot(gradients[0], sub(p, item.center)),
-                                       donor.uv[1] + dot(gradients[1], sub(p, item.center))});
+        store(vertex.texcoord, std::array{anchored_uv[0] + dot(gradients[0], sub(p, to_anchor)),
+                                       anchored_uv[1] + dot(gradients[1], sub(p, to_anchor))});
         store(frame.normal, wall.normal);
         store(frame.smoothnormal, wall.normal);
         store(frame.s_tangent, scale(gradients[0], 1 / std::sqrt(dot(gradients[0], gradients[0]))));
@@ -159,8 +172,8 @@ void append(surface::Mesh &mesh, const surface::Mesh &original, const Model &mod
         mesh.vertices.push_back(vertex);
         mesh.frames.push_back(frame);
         for (int axis = 0; axis < 3; ++axis) {
-            draws.back().bounds.min[axis] = std::min(draws.back().bounds.min[axis], p[axis]);
-            draws.back().bounds.max[axis] = std::max(draws.back().bounds.max[axis], p[axis]);
+            draws.back().bounds.min[axis] = std::min(draws.back().bounds.min[axis], double(vertex.pos[axis]));
+            draws.back().bounds.max[axis] = std::max(draws.back().bounds.max[axis], double(vertex.pos[axis]));
         }
     }
     for (std::size_t i = 1; i + 1 < vertex_count; ++i) {
@@ -227,7 +240,7 @@ Prepared prepare(std::shared_ptr<const surface::Mesh> original, std::span<const 
             for (const auto &p : wall.vertices) center = add(center, p);
             center = scale(center, 1.0 / wall.vertices.size());
             const auto donor = material(*original, model, center, work);
-            walls.push_back({std::move(wall), donor, center});
+            walls.push_back({std::move(wall), donor});
         }
         // One draw/instance range per source material in a model, independent
         // of the order in which different wall orientations were generated.

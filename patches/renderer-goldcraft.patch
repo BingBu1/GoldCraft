@@ -18,6 +18,33 @@ index b88e882..cfbe416 100644
      src
      include/Interface
      "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
+diff --git a/assets/svencoop/renderer/shader/common.h b/assets/svencoop/renderer/shader/common.h
+index f8e193e..725eaf5 100644
+--- a/assets/svencoop/renderer/shader/common.h
++++ b/assets/svencoop/renderer/shader/common.h
+@@ -85,6 +85,7 @@
+ #define BINDING_POINT_OIT_FRAGMENT_SSBO 5
+ #define BINDING_POINT_OIT_NUMFRAGMENT_SSBO 6
+ #define BINDING_POINT_OIT_COUNTER_SSBO 7
++#define BINDING_POINT_CAVITY_LIGHT_SSBO 7
+ 
+ #define STUDIO_BIND_TEXTURE_DIFFUSE				0
+ #define STUDIO_BIND_TEXTURE_NORMAL				2
+@@ -173,6 +174,7 @@
+ #define WSURF_VA_PACKED_MATID 7
+ #define WSURF_VA_STYLES 8
+ #define WSURF_VA_DIFFUSESCALE 9
++#define WSURF_VA_CAVITY_LIGHT 10
+ 
+ #define TEXTUREDRECT_VA_POSITION		0
+ #define TEXTUREDRECT_VA_TEXCOORD		1
+@@ -942,4 +944,4 @@ uint UnpackPackedMatIdAsMatId(uint packedMatId)
+ uint UnpackPackedMatIdAsLightmapTextureNum(uint packedMatId)
+ {
+     return ((packedMatId >> 16) & 0xFFFF);
+-}
+\ No newline at end of file
++}
 diff --git a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl b/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
 index df2097c..f61be0b 100644
 --- a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
@@ -58,11 +85,131 @@ index df2097c..f61be0b 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
+index 7c18678..9cd76ae 100644
+--- a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
++++ b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
+@@ -17,6 +17,15 @@ layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_1) uniform sampler2DArray lightmapT
+ layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_2) uniform sampler2DArray lightmapTexArray_2;
+ layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_3) uniform sampler2DArray lightmapTexArray_3;
+ 
++#if defined(CAVITY_LIGHT_ENABLED)
++    #if defined(MULTIVIEW_ENABLED)
++        in vec3 g_cavitylight;
++        #define v_cavitylight g_cavitylight
++    #else
++        in vec3 v_cavitylight;
++    #endif
++#endif
++
+ // Input from geometry shader (if enabled) or vertex shader (if not)
+ #if defined(MULTIVIEW_ENABLED)
+ 	// When geometry shader is enabled, input comes from geometry shader with g_ prefix
+@@ -258,8 +267,11 @@ void main()
+ 	
+ 	vec4 lightmapColor = vec4(1.0, 1.0, 1.0, 1.0);
+ 
+-#elif defined(LIGHTMAP_ENABLED)
++#elif defined(LIGHTMAP_ENABLED) || defined(CAVITY_LIGHT_ENABLED)
+ 
++#if defined(CAVITY_LIGHT_ENABLED)
++	vec4 lightmapColor = vec4(v_cavitylight, 1.0);
++#else
+ 	vec4 lightmapColor = vec4(0.0, 0.0, 0.0, 0.0);
+ 
+ #if defined(LIGHTMAP_INDEX_0_ENABLED)
+@@ -276,6 +288,7 @@ void main()
+ 
+ #if defined(LIGHTMAP_INDEX_3_ENABLED)
+ 	lightmapColor += texture(lightmapTexArray_3, v_lightmaptexcoord ) * ConvertStyleToLightStyle(v_styles.w);
++#endif
+ #endif
+ 
+ 	lightmapColor.x = pow(lightmapColor.x, SceneUBO.r_lightmap_pow);
+diff --git a/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl b/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl
+index 6810177..2c7a02d 100644
+--- a/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl
++++ b/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl
+@@ -28,6 +28,10 @@ in vec2 v_normaltexcoord[3];
+ in vec2 v_parallaxtexcoord[3];
+ in vec2 v_speculartexcoord[3];
+ in vec4 v_projpos[3];
++#if defined(CAVITY_LIGHT_ENABLED)
++in vec3 v_cavitylight[3];
++out vec3 g_cavitylight;
++#endif
+ 
+ #if defined(SKYBOX_ENABLED)
+ 	
+@@ -88,6 +92,9 @@ void main()
+ 			g_parallaxtexcoord = v_parallaxtexcoord[i];
+ 			g_speculartexcoord = v_speculartexcoord[i];
+ 			g_projpos = gl_Position;
++			#if defined(CAVITY_LIGHT_ENABLED)
++				g_cavitylight = v_cavitylight[i];
++			#endif
+ 			
+ 			#if !defined(SKYBOX_ENABLED)
+ 				g_styles = v_styles[i];
+@@ -114,6 +121,9 @@ void main()
+ 		g_parallaxtexcoord = v_parallaxtexcoord[i];
+ 		g_speculartexcoord = v_speculartexcoord[i];
+ 		g_projpos = v_projpos[i];
++		#if defined(CAVITY_LIGHT_ENABLED)
++			g_cavitylight = v_cavitylight[i];
++		#endif
+ 		
+ 		#if !defined(SKYBOX_ENABLED)
+ 			g_styles = v_styles[i];
+diff --git a/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl b/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
+index 8c6651f..f09e672 100644
+--- a/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
++++ b/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
+@@ -19,6 +19,16 @@ layout(location = WSURF_VA_PACKED_MATID) in uint in_packed_matid;
+ layout(location = WSURF_VA_STYLES) in uvec4 in_styles;
+ layout(location = WSURF_VA_DIFFUSESCALE) in float in_diffusescale;
+ 
++#if defined(CAVITY_LIGHT_ENABLED)
++layout(location = WSURF_VA_CAVITY_LIGHT) in uvec2 in_cavitylight;
++struct CavityLightValue { vec3 rgb; uint style; };
++layout(std430, binding = BINDING_POINT_CAVITY_LIGHT_SSBO) readonly buffer CavityLightBlock
++{
++    CavityLightValue cavityLight[];
++};
++out vec3 v_cavitylight;
++#endif
++
+ out vec3 v_worldpos;
+ out vec3 v_normal;
+ out vec3 v_tangent;
+@@ -102,6 +112,15 @@ void main(void)
+ {
+ 	uint matId = UnpackPackedMatIdAsMatId(in_packed_matid);
+ 
++#if defined(CAVITY_LIGHT_ENABLED)
++    v_cavitylight = vec3(0.0);
++    for (uint i = 0u; i < in_cavitylight.y; ++i)
++    {
++        CavityLightValue value = cavityLight[in_cavitylight.x + i];
++        v_cavitylight += value.rgb * SceneUBO.r_lightstylevalue[value.style / 4u][value.style % 4u];
++    }
++#endif
++
+ #if defined(SKYBOX_ENABLED)
+ 
+ 	int vertidx = gl_VertexID % 6;
+@@ -215,4 +234,4 @@ void main(void)
+ 	gl_Position = GetCameraProjMatrix(0) * GetCameraWorldMatrix(0) * worldpos4;
+ 
+ 	v_projpos = gl_Position;
+-}
+\ No newline at end of file
++}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..f6e8cd0 100644
+index 6ce4285..4419477 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -125,8 +125,18 @@ set(RENDERER_SOURCES
+@@ -125,8 +125,20 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
@@ -70,6 +217,8 @@ index 6ce4285..f6e8cd0 100644
 +    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_lighting.cpp"
++    src/gl_cavity_light.cpp
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
@@ -225,7 +374,7 @@ index 06bf06e..d6ade87 100644
      ClientStudio_FillAddress(ppinterface);
      ClientStudio_InstallHooks();
 diff --git a/src/gl_common.h b/src/gl_common.h
-index 2567c84..1b1fbe8 100644
+index 2567c84..26e386c 100644
 --- a/src/gl_common.h
 +++ b/src/gl_common.h
 @@ -5,6 +5,7 @@
@@ -236,7 +385,32 @@ index 2567c84..1b1fbe8 100644
  
  #    define OFFSET(type, variable) ((const void*)&(((type*)NULL)->variable))
  
-@@ -421,27 +422,9 @@ typedef struct world_material_s
+@@ -128,6 +129,8 @@ public:
+ #    define BINDING_POINT_OIT_FRAGMENT_SSBO    5
+ #    define BINDING_POINT_OIT_NUMFRAGMENT_SSBO 6
+ #    define BINDING_POINT_OIT_COUNTER_SSBO     7
++// Atomic-counter bindings use a separate namespace from shader-storage blocks.
++#    define BINDING_POINT_CAVITY_LIGHT_SSBO    7
+ 
+ #    define WSURF_VA_POSITION          0
+ #    define WSURF_VA_NORMAL            1
+@@ -139,6 +142,7 @@ public:
+ #    define WSURF_VA_PACKED_MATID      7
+ #    define WSURF_VA_STYLES            8
+ #    define WSURF_VA_DIFFUSESCALE      9
++#    define WSURF_VA_CAVITY_LIGHT      10
+ 
+ #    define WSURF_BIND_DIFFUSE_TEXTURE    0
+ #    define WSURF_BIND_DETAIL_TEXTURE     1
+@@ -313,6 +317,7 @@ public:
+ #    define WSURF_STENCIL_NO_GLOW_BLUR_ENABLED  0x100000000ull
+ #    define WSURF_STENCIL_NO_GLOW_COLOR_ENABLED 0x200000000ull
+ #    define WSURF_DOUBLE_FACE_ENABLED           0x400000000ull
++#    define WSURF_CAVITY_LIGHT_ENABLED          0x800000000ull
+ 
+ #    define STUDIO_VBO_BASE 0
+ #    define STUDIO_VBO_TBN  1
+@@ -421,27 +426,9 @@ typedef struct world_material_s
      vec2_t specularScale;
  } world_material_t;
  
@@ -267,7 +441,7 @@ index 2567c84..1b1fbe8 100644
  
  // A fragment node stores rendering information about one specific fragment
  typedef struct FragmentNode_s
-@@ -550,4 +533,4 @@ static_assert((sizeof(studio_ubo_t) % 16) == 0, "Size check");
+@@ -550,4 +537,4 @@ static_assert((sizeof(studio_ubo_t) % 16) == 0, "Size check");
  
  #    pragma pack(pop)
  
@@ -1418,7 +1592,7 @@ index eeb137d..092d766 100644
  void R_StudioRenderFinal(void);
  void R_StudioSetupBones(void);
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..df522be 100644
+index 41f24f3..c67cad4 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
 @@ -85,30 +85,6 @@ CWorldSurfaceLeaf::~CWorldSurfaceLeaf()
@@ -1452,7 +1626,25 @@ index 41f24f3..df522be 100644
  void R_FreeWorldSurfaceModels(model_t* mod)
  {
      int modelindex = EngineGetModelIndex(mod);
-@@ -2025,10 +2001,11 @@ void R_PrepareSmoothNormalForBrushModel(
+@@ -209,6 +185,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+     {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
+     {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
+     {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
++    {WSURF_CAVITY_LIGHT_ENABLED, "WSURF_CAVITY_LIGHT_ENABLED"},
+ };
+ 
+ void R_SaveWSurfProgramStates(void)
+@@ -243,6 +220,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+         if (state & WSURF_LIGHTMAP_ENABLED)
+             defs << "#define LIGHTMAP_ENABLED\n";
+ 
++        if (state & WSURF_CAVITY_LIGHT_ENABLED)
++            defs << "#define CAVITY_LIGHT_ENABLED\n";
++
+         if (state & WSURF_DETAILTEXTURE_ENABLED)
+             defs << "#define DETAILTEXTURE_ENABLED\n";
+ 
+@@ -2025,10 +2005,11 @@ void R_PrepareSmoothNormalForBrushModel(
  */
  std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_t* mod)
  {
@@ -1468,7 +1660,7 @@ index 41f24f3..df522be 100644
  
      vVertexDataBuffer.reserve(mod->numvertexes);
      vInstanceDataBuffer.reserve(mod->numsurfaces);
-@@ -2230,6 +2207,18 @@ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_
+@@ -2230,6 +2211,18 @@ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_
      // Calculate smooth normals for all vertices
      R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
  
@@ -1487,7 +1679,7 @@ index 41f24f3..df522be 100644
      pWorldModel->hEBO = GL_GenBuffer();
      GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
  
-@@ -4536,7 +4525,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +4529,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -1497,18 +1689,19 @@ index 41f24f3..df522be 100644
          }
      }
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..5d2dce1 100644
+index 0d340e9..131f4a1 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
-@@ -4,6 +4,7 @@
+@@ -4,6 +4,8 @@
  #include <memory>
  
  #include "gl_model.h"
 +#include "goldcraft/cavity_mesh.hpp"
++#include "goldcraft/cavity_lighting.hpp"
  
  #define WSURF_DIFFUSE_TEXTURE  0
  #define WSURF_DETAIL_TEXTURE   1
-@@ -159,6 +160,10 @@ public:
+@@ -159,6 +161,12 @@ public:
      GLuint                              hEBO{};
      GLuint                              hVAO{};
      std::vector<CWorldSurfaceBrushFace> m_vFaceBuffer;
@@ -1516,10 +1709,12 @@ index 0d340e9..5d2dce1 100644
 +    std::shared_ptr<const goldcraft::surface::Mesh> m_pSurfaceMesh;
 +    std::vector<goldcraft::cavity::Draw> m_vCavityDraws;
 +    GLuint m_hCavityABO{};
++    std::shared_ptr<const goldcraft::lighting::Prepared> m_pCavityLighting;
++    GLuint m_hCavityLightRanges{}, m_hCavityLightValues{};
  };
  
  class CWorldSurfaceModel
-@@ -274,6 +279,23 @@ typedef struct
+@@ -274,6 +282,36 @@ typedef struct
  
  extern CWorldSurfaceRenderer g_WorldSurfaceRenderer;
  
@@ -1536,6 +1731,19 @@ index 0d340e9..5d2dce1 100644
 +    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
 +    std::span<const goldcraft::cavity::Model> models,
 +    goldcraft::cavity::Limits limits = {});
++// Static model-local baked-probe lighting. Does not make old leaf/PVS/decal or
++// shadow caches valid; the coordinated live transaction is still required.
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareLitCarvedWorldGeometry(
++    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
++    std::span<const goldcraft::cavity::Model> models,
++    goldcraft::cavity::Limits limits = {}, goldcraft::lighting::Settings lighting = {});
++struct CWorldLightProbes
++{
++    std::vector<goldcraft::lighting::Probe> probes;
++    std::vector<goldcraft::lighting::Value> values;
++};
++CWorldLightProbes R_CollectCavityLightProbes(const CWorldSurfaceWorldModel& original,
++    const goldcraft::cavity::Model& model, const goldcraft::lighting::Settings& settings);
 +// Caller selects a consecutive range with matching texture/shader state.
 +// Binds the prepared geometry and submits it without queries/uploads/allocations.
 +void R_DrawCavityGeometry(const CWorldSurfaceWorldModel& model, uint32_t first, uint32_t count);
@@ -1573,7 +1781,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..3faffa2 100644
+index 93166e2..57985be 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -1595,7 +1803,7 @@ index 93166e2..3faffa2 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,22 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,43 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -1610,14 +1818,35 @@ index 93166e2..3faffa2 100644
 +
 +add_executable(surface_mesh_gl_tests surface_mesh_gl_tests.cpp
 +    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_cavity_light.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_lighting.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp")
 +target_compile_definitions(surface_mesh_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE)
 +target_compile_options(surface_mesh_gl_tests PRIVATE /UNDEBUG)
 +target_link_libraries(surface_mesh_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME surface_mesh_gl_tests COMMAND surface_mesh_gl_tests)
 +set_tests_properties(surface_mesh_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
++
++add_executable(cavity_lighting_gl_tests cavity_lighting_gl_tests.cpp
++    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_cavity_light.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_lighting.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp")
++target_compile_definitions(cavity_lighting_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(cavity_lighting_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(cavity_lighting_gl_tests PRIVATE renderer_settings libglew_static glfw)
++if(EXISTS "${GOLDCRAFT_INCLUDE_DIR}/../../sandbox/cs-client-b/Half-Life/cstrike/maps/cs_assault.bsp")
++    add_test(NAME cavity_lighting_gl_tests COMMAND cavity_lighting_gl_tests
++        "${GOLDCRAFT_INCLUDE_DIR}/../../sandbox/cs-client-b/Half-Life/cstrike/maps/cs_assault.bsp")
++else()
++    add_test(NAME cavity_lighting_gl_tests COMMAND cavity_lighting_gl_tests)
++endif()
++set_tests_properties(cavity_lighting_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
 diff --git a/tests/sc_client_tests.cpp b/tests/sc_client_tests.cpp
 index f6dbd9f..03194dd 100644
 --- a/tests/sc_client_tests.cpp
@@ -3343,10 +3572,10 @@ index 0000000..96871bd
 +}
 diff --git a/src/gl_surface_edit.cpp b/src/gl_surface_edit.cpp
 new file mode 100644
-index 0000000..2183734
+index 0000000..7af60bd
 --- /dev/null
 +++ b/src/gl_surface_edit.cpp
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,208 @@
 +#include "gl_local.h"
 +#include <limits>
 +#include <stdexcept>
@@ -3403,11 +3632,14 @@ index 0000000..2183734
 +    glDeleteBuffers(WSURF_VBO_MAX, hVBO);
 +    if (hVAO) glDeleteVertexArrays(1, &hVAO);
 +    if (m_hCavityABO) glDeleteBuffers(1, &m_hCavityABO);
++    if (m_hCavityLightRanges) glDeleteBuffers(1, &m_hCavityLightRanges);
++    if (m_hCavityLightValues) glDeleteBuffers(1, &m_hCavityLightValues);
 +}
 +
 +void R_UploadWorldSurfaceGeometry(CWorldSurfaceWorldModel& model)
 +{
 +    if (!model.m_pSurfaceMesh || model.hVAO || model.hEBO || model.m_hCavityABO ||
++        model.m_hCavityLightRanges || model.m_hCavityLightValues ||
 +        model.hVBO[0] || model.hVBO[1] || model.hVBO[2])
 +        throw std::invalid_argument("World surface upload requires a fresh candidate");
 +    const SurfaceBindings restore;
@@ -3445,6 +3677,20 @@ index 0000000..2183734
 +            commands.push_back({draw.indices.count, draw.instances.count, draw.indices.first, 0, draw.instances.first});
 +        UploadSurfaceBuffer(model.m_hCavityABO, GL_DRAW_INDIRECT_BUFFER, commands);
 +    }
++    if (model.m_pCavityLighting)
++    {
++        const auto& lighting = *model.m_pCavityLighting;
++        if (lighting.mesh != model.m_pSurfaceMesh || lighting.vertices.size() != mesh.vertices.size())
++            throw std::invalid_argument("Cavity lighting does not match candidate geometry");
++        UploadSurfaceBuffer(model.m_hCavityLightRanges, GL_ARRAY_BUFFER, lighting.vertices);
++        glEnableVertexAttribArray(WSURF_VA_CAVITY_LIGHT);
++        glVertexAttribIPointer(WSURF_VA_CAVITY_LIGHT, 2, GL_UNSIGNED_INT, sizeof(goldcraft::surface::Range), nullptr);
++        // A truly black bake still needs a valid SSBO object, but every range
++        // has count zero and the shader never reads the single padding record.
++        const std::vector<goldcraft::lighting::Value> black(1);
++        UploadSurfaceBuffer(model.m_hCavityLightValues, GL_ARRAY_BUFFER, lighting.values.empty() ? black : lighting.values);
++        CheckSurfaceGL();
++    }
 +}
 +
 +void R_DrawCavityGeometry(const CWorldSurfaceWorldModel& model, uint32_t first, uint32_t count)
@@ -3455,6 +3701,8 @@ index 0000000..2183734
 +        throw std::out_of_range("Cavity indirect draw range");
 +    glBindVertexArray(model.hVAO);
 +    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, model.m_hCavityABO);
++    if (model.m_hCavityLightValues)
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_CAVITY_LIGHT_SSBO, model.m_hCavityLightValues);
 +    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT,
 +        reinterpret_cast<void*>(std::size_t(first) * sizeof(CDrawIndexAttrib)), count, 0);
 +}
@@ -3464,7 +3712,8 @@ index 0000000..2183734
 +std::shared_ptr<CWorldSurfaceWorldModel> PrepareSurfaceCandidate(
 +    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
 +    std::shared_ptr<const goldcraft::surface::Mesh> mesh,
-+    std::vector<goldcraft::cavity::Draw> draws)
++    std::vector<goldcraft::cavity::Draw> draws,
++    std::shared_ptr<const goldcraft::lighting::Prepared> lighting = {})
 +{
 +    if (!original || !original->m_pOriginalMesh ||
 +        original->m_vFaceBuffer.size() != original->m_pOriginalMesh->faces.size())
@@ -3474,6 +3723,7 @@ index 0000000..2183734
 +    candidate->m_pOriginalMesh = original->m_pOriginalMesh;
 +    candidate->m_pSurfaceMesh  = std::move(mesh);
 +    candidate->m_vCavityDraws  = std::move(draws);
++    candidate->m_pCavityLighting = std::move(lighting);
 +    candidate->m_vFaceBuffer   = original->m_vFaceBuffer;
 +    for (std::size_t i = 0; i < candidate->m_vFaceBuffer.size(); ++i)
 +    {
@@ -3510,6 +3760,29 @@ index 0000000..2183734
 +    if (!original) throw std::invalid_argument("Missing original world surface geometry");
 +    auto prepared = goldcraft::cavity::prepare(original->m_pOriginalMesh, models, limits);
 +    return PrepareSurfaceCandidate(original, std::move(prepared.mesh), std::move(prepared.draws));
++}
++
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareLitCarvedWorldGeometry(
++    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
++    std::span<const goldcraft::cavity::Model> models,
++    goldcraft::cavity::Limits limits, goldcraft::lighting::Settings settings)
++{
++    if (!original) throw std::invalid_argument("Missing original world surface geometry");
++    const auto geometry = goldcraft::cavity::prepare(original->m_pOriginalMesh, models, limits);
++    if (geometry.draws.empty()) return PrepareSurfaceCandidate(original, geometry.mesh, {});
++    std::vector<CWorldLightProbes> storage;
++    std::vector<goldcraft::lighting::Model> lightingModels;
++    storage.reserve(models.size());
++    lightingModels.reserve(models.size());
++    for (const auto& model : models)
++    {
++        if (model.boxes.empty()) continue;
++        storage.push_back(R_CollectCavityLightProbes(*original, model, settings));
++        const auto& probes = storage.back();
++        lightingModels.push_back({model.first_face, model.face_count, model.hull, model.boxes, probes.probes, probes.values});
++    }
++    auto lighting = std::make_shared<goldcraft::lighting::Prepared>(goldcraft::lighting::prepare(geometry, lightingModels, settings));
++    return PrepareSurfaceCandidate(original, lighting->mesh, lighting->draws, lighting);
 +}
 diff --git a/tests/surface_mesh_gl_tests.cpp b/tests/surface_mesh_gl_tests.cpp
 new file mode 100644
@@ -3944,3 +4217,607 @@ index 0000000..90d49e9
 +    glfwDestroyWindow(window);
 +    glfwTerminate();
 +}
+diff --git a/src/gl_cavity_light.cpp b/src/gl_cavity_light.cpp
+new file mode 100644
+index 0000000..3bf9155
+--- /dev/null
++++ b/src/gl_cavity_light.cpp
+@@ -0,0 +1,137 @@
++#include "gl_local.h"
++#include <cmath>
++#include <stdexcept>
++
++namespace
++{
++using Point = goldcraft::carving::Point;
++Point Sub(const Point& a, const Point& b) { return {a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
++Point Cross(const Point& a, const Point& b)
++{
++    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
++}
++double Dot(const Point& a, const Point& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
++Point Position(const goldcraft::surface::Vertex& v) { return {v.pos[0], v.pos[1], v.pos[2]}; }
++bool NearCuts(const goldcraft::carving::Box& bounds, std::span<const goldcraft::carving::Box> cuts, double radius)
++{
++    for (const auto& cut : cuts)
++    {
++        double squared = 0;
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            const double gap = (std::max)(0.0, (std::max)(cut.min[axis] - bounds.max[axis], bounds.min[axis] - cut.max[axis]));
++            squared += gap * gap;
++        }
++        if (squared <= radius * radius) return true;
++    }
++    return false;
++}
++bool OnFace(const goldcraft::surface::Mesh& mesh, const goldcraft::surface::Face& face,
++    const Point& position, std::size_t& operations, std::size_t limit)
++{
++    for (std::size_t i = face.forward.first; i < std::size_t(face.forward.first) + face.forward.count; i += 3)
++    {
++        if (operations >= limit) throw std::length_error("Baked probe extraction budget");
++        ++operations;
++        const auto a = Position(mesh.vertices[mesh.indices[i]]), b = Position(mesh.vertices[mesh.indices[i + 1]]),
++                   c = Position(mesh.vertices[mesh.indices[i + 2]]);
++        const auto e1 = Sub(b, a), e2 = Sub(c, a), offset = Sub(position, a), n = Cross(e1, e2);
++        const auto squared = Dot(n, n);
++        if (squared == 0) continue;
++        const auto u = Dot(Cross(offset, e2), n) / squared, v = Dot(Cross(e1, offset), n) / squared;
++        if (u >= 0 && v >= 0 && u + v <= 1) return true;
++    }
++    return false;
++}
++} // namespace
++
++CWorldLightProbes R_CollectCavityLightProbes(const CWorldSurfaceWorldModel& original,
++    const goldcraft::cavity::Model& model, const goldcraft::lighting::Settings& settings)
++{
++    using namespace goldcraft;
++    if (!original.m_model || !original.m_model->surfaces || !original.m_pOriginalMesh ||
++        original.m_model->numsurfaces < 0 || model.first_face > std::size_t(original.m_model->numsurfaces) ||
++        model.face_count > std::size_t(original.m_model->numsurfaces) - model.first_face ||
++        model.first_face > original.m_pOriginalMesh->faces.size() ||
++        model.face_count > original.m_pOriginalMesh->faces.size() - model.first_face)
++        throw std::invalid_argument("Missing original BSP baked surfaces");
++    const auto& mesh = *original.m_pOriginalMesh;
++    if (!std::isfinite(settings.radius) || settings.radius <= 0 || settings.radius > 65536)
++        throw std::invalid_argument("BSP probe radius");
++    std::size_t operations = carving::validate_hull(model.hull, {settings.mesh.fragments, settings.mesh.operations});
++    CWorldLightProbes result;
++    for (std::size_t index = model.first_face; index < std::size_t(model.first_face) + model.face_count; ++index)
++    {
++        const auto& face = mesh.faces[index];
++        const auto& surface = original.m_model->surfaces[index];
++        // Sky/water have no appropriate receiver luxels. Missing samples are
++        // unknown lighting, never the fullbright fallback of R_BuildLightMap.
++        if (!face.editable || !face.forward.count || !surface.samples) continue;
++        if (!surface.texinfo || !surface.plane || face.forward.count % 3 ||
++            face.forward.first > mesh.indices.size() || face.forward.count > mesh.indices.size() - face.forward.first)
++            throw std::invalid_argument("Invalid BSP probe surface");
++        for (std::size_t at = face.forward.first; at < std::size_t(face.forward.first) + face.forward.count; ++at)
++            if (mesh.indices[at] >= mesh.vertices.size()) throw std::invalid_argument("Invalid BSP probe vertex");
++        if (face.forward.count + model.boxes.size() > settings.mesh.operations - operations)
++            throw std::length_error("BSP probe bounds budget");
++        operations += face.forward.count + model.boxes.size();
++        carving::Box bounds{Position(mesh.vertices[mesh.indices[face.forward.first]]), Position(mesh.vertices[mesh.indices[face.forward.first]])};
++        for (std::size_t at = face.forward.first; at < std::size_t(face.forward.first) + face.forward.count; ++at)
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                bounds.min[axis] = (std::min)(bounds.min[axis], double(mesh.vertices[mesh.indices[at]].pos[axis]));
++                bounds.max[axis] = (std::max)(bounds.max[axis], double(mesh.vertices[mesh.indices[at]].pos[axis]));
++            }
++        // Only probes within radius of some cavity can contribute. Cull whole
++        // original faces before luxel extraction and tree construction.
++        if (!NearCuts(bounds, model.boxes, settings.radius + .03125)) continue;
++        const Point s{surface.texinfo->vecs[0][0], surface.texinfo->vecs[0][1], surface.texinfo->vecs[0][2]},
++                    t{surface.texinfo->vecs[1][0], surface.texinfo->vecs[1][1], surface.texinfo->vecs[1][2]},
++                    n{surface.plane->normal[0], surface.plane->normal[1], surface.plane->normal[2]};
++        const auto tn = Cross(t, n), ns = Cross(n, s), st = Cross(s, t);
++        const double determinant = Dot(s, tn), direction = (surface.flags & SURF_PLANEBACK) ? -1 : 1;
++        if (!std::isfinite(determinant) || std::abs(determinant) < 1e-12)
++            throw std::invalid_argument("Singular BSP lightmap projection");
++        if (surface.extents[0] < 0 || surface.extents[1] < 0)
++            throw std::invalid_argument("Invalid BSP lightmap extents");
++        const auto width = (surface.extents[0] >> 4) + 1, height = (surface.extents[1] >> 4) + 1;
++        const auto size = std::size_t(width) * height;
++        if (size > settings.probes || size > settings.mesh.operations - operations)
++            throw std::length_error("BSP lightmap extraction capacity");
++        operations += size;
++        const auto* samples = reinterpret_cast<const color24*>(surface.samples);
++        for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x)
++        {
++            const double u = surface.texturemins[0] + x * 16.0 - surface.texinfo->vecs[0][3],
++                         v = surface.texturemins[1] + y * 16.0 - surface.texinfo->vecs[1][3];
++            Point position{}, probe{};
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                position[axis] = (tn[axis] * u + ns[axis] * v + st[axis] * surface.plane->dist) / determinant;
++                probe[axis] = position[axis] + n[axis] * direction * .03125;
++            }
++            if (model.boxes.size() > settings.mesh.operations - operations)
++                throw std::length_error("BSP probe neighbourhood budget");
++            operations += model.boxes.size();
++            if (!NearCuts({probe, probe}, model.boxes, settings.radius)) continue;
++            // Reject atlas padding and offsets that cross thin solids. The
++            // probe is an original air-side irradiance sample, not an emitter.
++            if (!OnFace(mesh, face, position, operations, settings.mesh.operations) ||
++                !lighting::visible(model.hull, {}, position, probe, operations, settings.mesh.operations)) continue;
++            const auto first = static_cast<std::uint32_t>(result.values.size());
++            for (std::size_t style = 0; style < MAXLIGHTMAPS; ++style)
++            {
++                if (surface.styles[style] == 255) continue;
++                if (result.values.size() >= settings.values) throw std::length_error("BSP probe style capacity");
++                const auto& color = samples[style * size + std::size_t(y) * width + x];
++                result.values.push_back({{color.r / 255.f, color.g / 255.f, color.b / 255.f}, surface.styles[style]});
++            }
++            if (result.values.size() > first)
++            {
++                if (result.probes.size() >= settings.probes) throw std::length_error("BSP probe capacity");
++                result.probes.push_back({probe, {first, static_cast<std::uint32_t>(result.values.size()) - first}});
++            }
++        }
++    }
++    return result;
++}
+diff --git a/tests/cavity_lighting_gl_tests.cpp b/tests/cavity_lighting_gl_tests.cpp
+new file mode 100644
+index 0000000..5b0b65d
+--- /dev/null
++++ b/tests/cavity_lighting_gl_tests.cpp
+@@ -0,0 +1,301 @@
++// Actual world shaders, BSP luxel extraction and candidate resources on a
++// hidden driver-backed GL context. No desktop input or game process is used.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <array>
++#include <cassert>
++#include <chrono>
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <sstream>
++#include <source_location>
++#include <stdexcept>
++#include "cavity_map_fixture.h"
++
++namespace
++{
++constexpr int Size = 64;
++using Pixels = std::vector<float>;
++PFNGLBUFFERSTORAGEPROC realStorage;
++PFNGLBUFFERDATAPROC realData;
++PFNGLBUFFERSUBDATAPROC realSubData;
++std::size_t uploads{};
++int failureAfter{};
++std::vector<GLuint> allocations;
++void APIENTRY Storage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags)
++{
++    ++uploads;
++    if (failureAfter)
++    {
++        GLint bound{};
++        glGetIntegerv(target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING :
++            (target == GL_DRAW_INDIRECT_BUFFER ? GL_DRAW_INDIRECT_BUFFER_BINDING : GL_ELEMENT_ARRAY_BUFFER_BINDING), &bound);
++        allocations.push_back(bound);
++        if (--failureAfter == 0) size = -1;
++    }
++    realStorage(target, size, data, flags);
++}
++void APIENTRY Data(GLenum target, GLsizeiptr size, const void* data, GLenum usage)
++{
++    ++uploads; realData(target, size, data, usage);
++}
++void APIENTRY SubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data)
++{
++    ++uploads; realSubData(target, offset, size, data);
++}
++std::string Read(const std::string& name)
++{
++    std::ifstream file(std::string(RENDERER_SHADER_DIRECTORY) + "/" + name);
++    assert(file.good());
++    std::ostringstream text; text << file.rdbuf(); return text.str();
++}
++GLuint Stage(GLenum type, const char* name, const std::string& definitions)
++{
++    auto source = Read(name);
++    const auto include = source.find("#include \"common.h\"");
++    assert(include != std::string::npos);
++    source.replace(include, std::strlen("#include \"common.h\""), Read("common.h"));
++    source.insert(source.find('\n') + 1, definitions + (type == GL_FRAGMENT_SHADER ? "#define IS_FRAGMENT_SHADER\n" : ""));
++    const auto shader = glCreateShader(type);
++    const auto* text = source.c_str();
++    glShaderSource(shader, 1, &text, nullptr); glCompileShader(shader);
++    GLint ok{}; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok) { char log[8192]{}; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); std::fprintf(stderr, "%s: %s\n", name, log); }
++    assert(ok); return shader;
++}
++GLuint Program(const std::string& definitions, bool geometry = false)
++{
++    const auto program = glCreateProgram();
++    const std::array stages{Stage(GL_VERTEX_SHADER, "wsurf_shader.vert.glsl", definitions),
++        Stage(GL_FRAGMENT_SHADER, "wsurf_shader.frag.glsl", definitions),
++        geometry ? Stage(GL_GEOMETRY_SHADER, "wsurf_shader.geom.glsl", definitions) : 0u};
++    for (auto shader : stages) if (shader) glAttachShader(program, shader);
++    glLinkProgram(program);
++    GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    if (!ok) { char log[8192]{}; glGetProgramInfoLog(program, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    assert(ok);
++    for (auto shader : stages) if (shader) glDeleteShader(shader);
++    return program;
++}
++Pixels Readback(unsigned attachment)
++{
++    Pixels pixels(Size*Size*4);
++    glReadBuffer(GL_COLOR_ATTACHMENT0+attachment);
++    glReadPixels(0,0,Size,Size,GL_RGBA,GL_FLOAT,pixels.data());
++    assert(glGetError() == GL_NO_ERROR); return pixels;
++}
++void Clear()
++{
++    const float zero[4]{}, depth = 1;
++    for (int i = 0; i < 4; ++i) glClearBufferfv(GL_COLOR,i,zero);
++    glClearBufferfv(GL_DEPTH,0,&depth);
++}
++void Remaining(const CWorldSurfaceWorldModel& model)
++{
++    glBindVertexArray(model.hVAO);
++    const auto& face = model.m_vFaceBuffer[0];
++    glDrawElementsInstancedBaseInstance(GL_TRIANGLES,face.index_count,GL_UNSIGNED_INT,
++        reinterpret_cast<void*>(std::size_t(face.start_index)*4),face.instance_count,face.instance_index);
++}
++void Near(float a, float b, std::source_location at=std::source_location::current())
++{
++    if (!std::isfinite(a) || std::abs(a-b)>=.00002f) std::fprintf(stderr,"line %u: %.9g != %.9g\n",at.line(),a,b);
++    assert(std::isfinite(a) && std::abs(a-b) < .00002f);
++}
++std::array<float,3> Expected(const CWorldSurfaceWorldModel& model, float style200, double x, double y)
++{
++    const auto& bake = *model.m_pCavityLighting;
++    const auto& mesh = *bake.mesh;
++    for (const auto& draw : bake.draws) for (std::size_t at = draw.indices.first; at < std::size_t(draw.indices.first)+draw.indices.count; at += 3)
++    {
++        const auto ai=mesh.indices[at], bi=mesh.indices[at+1], ci=mesh.indices[at+2];
++        const auto &a=mesh.vertices[ai], &b=mesh.vertices[bi], &c=mesh.vertices[ci];
++        if (mesh.frames[ai].normal[2] != 1) continue;
++        const double bx=b.pos[0]-a.pos[0], by=b.pos[1]-a.pos[1], cx=c.pos[0]-a.pos[0], cy=c.pos[1]-a.pos[1];
++        const double det=bx*cy-by*cx;
++        if (det == 0) continue;
++        const double u=((x-a.pos[0])*cy-(y-a.pos[1])*cx)/det, v=(bx*(y-a.pos[1])-by*(x-a.pos[0]))/det;
++        if (u < -1e-8 || v < -1e-8 || u+v > 1+1e-8) continue;
++        const std::array indices{ai,bi,ci}; const double weights[]{1-u-v,u,v};
++        std::array<float,3> result{};
++        for (int vertex=0;vertex<3;++vertex)
++        {
++            const auto range=bake.vertices[indices[vertex]];
++            for (std::size_t i=range.first;i<std::size_t(range.first)+range.count;++i)
++                for (int color=0;color<3;++color)
++                    result[color] += static_cast<float>(bake.values[i].rgb[color]*weights[vertex]*(bake.values[i].style==200?style200:1));
++        }
++        return result;
++    }
++    assert(false); return {};
++}
++} // namespace
++
++int main(int argc, char** argv)
++{
++    if (!glfwInit()) return 2;
++    glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,4); glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,4);
++    glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);
++    auto* window=glfwCreateWindow(Size,Size,"cavity lighting regression",nullptr,nullptr);
++    if (!window) { glfwTerminate(); return 2; }
++    glfwMakeContextCurrent(window); glewExperimental=GL_TRUE;
++    if (glewInit()!=GLEW_OK) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++    while (glGetError()!=GL_NO_ERROR) {}
++    std::printf("Driver: %s / %s\n",glGetString(GL_RENDERER),glGetString(GL_VERSION));
++    if (argc==2) ActualMapLighting(argv[1]);
++    GLuint fbo{}, attachments[5]{}, buffers[5]{}, diffuse{}, lightmap{}, sentinel{}, sentinelBuffers[3]{};
++    glGenFramebuffers(1,&fbo); glBindFramebuffer(GL_FRAMEBUFFER,fbo);
++    glGenTextures(5,attachments);
++    for (int i=0;i<5;++i)
++    {
++        glBindTexture(GL_TEXTURE_2D,attachments[i]);
++        glTexImage2D(GL_TEXTURE_2D,0,i==4?GL_DEPTH_COMPONENT32F:GL_RGBA32F,Size,Size,0,
++            i==4?GL_DEPTH_COMPONENT:GL_RGBA,GL_FLOAT,nullptr);
++        glFramebufferTexture2D(GL_FRAMEBUFFER,i==4?GL_DEPTH_ATTACHMENT:GL_COLOR_ATTACHMENT0+i,GL_TEXTURE_2D,attachments[i],0);
++    }
++    const GLenum drawBuffers[]{GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3};
++    glDrawBuffers(4,drawBuffers); assert(glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
++    glViewport(0,0,Size,Size); glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
++
++    auto mesh=std::make_shared<goldcraft::surface::Mesh>();
++    for (const auto xy : {std::array<float,2>{0,0},{128,0},{128,128},{0,128}})
++    {
++        mesh->vertices.push_back({{xy[0],xy[1],0},{xy[0]/128,xy[1]/128},{.5f,.5f}});
++        mesh->frames.push_back({{0,0,1},{1,0,0},{0,1,0},{0,0,1}});
++    }
++    mesh->instances.push_back({{0,0},{0,200,255,255},0}); mesh->indices={0,1,2,0,2,3};
++    mesh->faces={{{0,6},{},{0,1},1,true}};
++    mplane_t plane{}; plane.normal[2]=1;
++    mtexinfo_t texinfo{}; texinfo.vecs[0][0]=1; texinfo.vecs[1][1]=1;
++    std::vector<color24> samples(9*9*2);
++    for (std::size_t i=0;i<81;++i) { samples[i]={80,40,20}; samples[81+i]={20,40,60}; }
++    msurface_t surface{}; surface.plane=&plane; surface.texinfo=&texinfo;
++    surface.extents[0]=surface.extents[1]=128; surface.styles[0]=0; surface.styles[1]=200;
++    surface.styles[2]=surface.styles[3]=255; surface.samples=reinterpret_cast<byte*>(samples.data());
++    model_t model{}; model.numsurfaces=1; model.surfaces=&surface;
++    auto original=std::make_shared<CWorldSurfaceWorldModel>(&model);
++    original->m_pOriginalMesh=mesh; original->m_pSurfaceMesh=mesh;
++    CWorldSurfaceBrushFace face{}; face.index_count=6; face.instance_count=1; face.poly_count=1;
++    original->m_vFaceBuffer.push_back(face); R_UploadWorldSurfaceGeometry(*original);
++    const std::array<goldcraft::carving::Plane,1> planes{{{{0,0,1},0}}};
++    const std::array<goldcraft::carving::HullNode,1> nodes{{{0,{-1,-2}}}};
++    const goldcraft::carving::Box cut{{32,32,-8},{64,64,8}};
++    const goldcraft::cavity::Model carve{0,1,{planes,nodes,0},{&cut,1}};
++    const auto probes=R_CollectCavityLightProbes(*original,carve,{});
++    assert(probes.probes.size()==81 && probes.values.size()==162);
++    for (const auto& probe : probes.probes) { assert(probe.position[2]==.03125 && probe.values.count==2); }
++    glGenVertexArrays(1,&sentinel); glBindVertexArray(sentinel);
++    glGenBuffers(3,sentinelBuffers);
++    glBindBuffer(GL_ARRAY_BUFFER,sentinelBuffers[0]); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,sentinelBuffers[1]);
++    glBindBuffer(GL_DRAW_INDIRECT_BUFFER,sentinelBuffers[2]);
++    const auto started=std::chrono::steady_clock::now();
++    auto lit=R_PrepareLitCarvedWorldGeometry(original,{&carve,1});
++    const auto prepareUs=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-started).count();
++    assert(lit->m_pCavityLighting && lit->m_vCavityDraws.size()==1 && !lit->m_vCavityDraws[0].needs_lighting);
++    GLint binding{};
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&binding); assert(GLuint(binding)==sentinel);
++    glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&binding); assert(GLuint(binding)==sentinelBuffers[0]);
++    glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING,&binding); assert(GLuint(binding)==sentinelBuffers[2]);
++    glBindVertexArray(lit->hVAO);
++    glGetVertexAttribiv(WSURF_VA_CAVITY_LIGHT,GL_VERTEX_ATTRIB_ARRAY_STRIDE,&binding); assert(binding==8);
++    glGetVertexAttribiv(WSURF_VA_CAVITY_LIGHT,GL_VERTEX_ATTRIB_ARRAY_DIVISOR,&binding); assert(binding==0);
++    glGetVertexAttribiv(WSURF_VA_CAVITY_LIGHT,GL_VERTEX_ATTRIB_ARRAY_INTEGER,&binding); assert(binding==1);
++
++    scene_ubo_t scene{}; scene.r_g=scene.v_gamma=scene.v_texgamma=scene.v_lightgamma=1; scene.r_g3=.125f;
++    scene.r_lightmap_pow=scene.r_lightmap_scale=scene.r_lightscale=1; scene.v_brightness=1;
++    scene.r_lightstylevalue[0][0]=1; scene.r_lightstylevalue[50][0]=.5f;
++    camera_ubo_t camera{}; camera.numViews=1;
++    for (int i=0;i<4;++i) camera.views[0].worldMatrix[i][i]=camera.views[0].projMatrix[i][i]=1;
++    camera.views[0].projMatrix[0][0]=camera.views[0].projMatrix[1][1]=1.f/64;
++    camera.views[0].projMatrix[2][2]=-1.f/64; camera.views[0].projMatrix[3][0]=camera.views[0].projMatrix[3][1]=-1;
++    camera.views[0].viewpos[2]=64; camera.views[0].vup_zfar[3]=2048;
++    entity_ubo_t entity{};
++    for (int i=0;i<4;++i) { entity.r_entityMatrix[i][i]=1; entity.r_color[i]=1; }
++    dlight_ubo_t dynamic{};
++    world_material_t material{}; material.diffuseScale[0]=material.diffuseScale[1]=1;
++    glGenBuffers(5,buffers);
++    const void* contents[]{&scene,&camera,&dynamic,&entity,&material};
++    const GLsizeiptr sizes[]{sizeof(scene),sizeof(camera),sizeof(dynamic),sizeof(entity),sizeof(material)};
++    for (int i=0;i<5;++i) { const auto target=i==4?GL_SHADER_STORAGE_BUFFER:GL_UNIFORM_BUFFER;
++        glBindBuffer(target,buffers[i]); glBufferData(target,sizes[i],contents[i],GL_DYNAMIC_DRAW); glBindBufferBase(target,i,buffers[i]); }
++    glGenTextures(1,&diffuse); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,diffuse);
++    const float color[]{.8f,.6f,.4f,1}; glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA32F,1,1,0,GL_RGBA,GL_FLOAT,color);
++    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
++    glGenTextures(1,&lightmap); glActiveTexture(GL_TEXTURE0+WSURF_BIND_LIGHTMAP_TEXTURE_0); glBindTexture(GL_TEXTURE_2D_ARRAY,lightmap);
++    const float ordinaryLight[]{.2f,.4f,.6f,1}; glTexImage3D(GL_TEXTURE_2D_ARRAY,0,GL_RGBA32F,1,1,1,0,GL_RGBA,GL_FLOAT,ordinaryLight);
++    glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
++    const std::string base="#define DIFFUSE_ENABLED\n", cavity=base+"#define CAVITY_LIGHT_ENABLED\n";
++    const auto ordinary=Program(base+"#define LIGHTMAP_ENABLED\n#define LIGHTMAP_INDEX_0_ENABLED\n#define GBUFFER_ENABLED\n");
++    const auto deferred=Program(cavity+"#define GBUFFER_ENABLED\n");
++    const auto forward=Program(cavity);
++    const auto multiview=Program(cavity+"#define GBUFFER_ENABLED\n#define MULTIVIEW_ENABLED\n",true);
++    const auto shadow=Program(cavity+"#define SHADOW_CASTER_ENABLED\n#define LINEAR_DEPTH_ENABLED\n");
++    const auto legacy=Program(cavity+"#define GBUFFER_ENABLED\n#define LEGACY_DLIGHT_ENABLED\n");
++    glUseProgram(ordinary); Clear(); Remaining(*original);
++    const auto before=Readback(1);
++    Clear(); Remaining(*lit); glUseProgram(deferred); R_DrawCavityGeometry(*lit,0,1);
++    const auto light=Readback(1), albedo=Readback(0), normals=Readback(2);
++    std::size_t litPixels=0, preserved=0;
++    for (int y=0;y<Size;++y) for (int x=0;x<Size;++x)
++    {
++        const auto at=(y*Size+x)*4;
++        if (x>=16 && x<32 && y>=16 && y<32) {
++            const auto expected=Expected(*lit,.5f,x*2+1,y*2+1);
++            for (int c=0;c<3;++c) { Near(light[at+c],expected[c]); Near(albedo[at+c],color[c]); }
++            assert(light[at]>0 && light[at]<.5f); Near(normals[at],.5f); Near(normals[at+1],1); ++litPixels;
++        } else { for (int c=0;c<4;++c) Near(light[at+c],before[at+c]); ++preserved; }
++    }
++    glUseProgram(forward); Clear(); R_DrawCavityGeometry(*lit,0,1);
++    const auto forwardColor=Readback(0);
++    for (int y=16;y<32;++y) for (int x=16;x<32;++x) for (int c=0;c<3;++c) {
++        const auto at=(y*Size+x)*4+c; Near(forwardColor[at],light[at]*albedo[at]); }
++    glUseProgram(multiview); Clear(); R_DrawCavityGeometry(*lit,0,1);
++    const auto layered=Readback(1);
++    for (int y=16;y<32;++y) for (int x=16;x<32;++x) for (int c=0;c<3;++c) Near(layered[(y*Size+x)*4+c],light[(y*Size+x)*4+c]);
++    scene.r_lightstylevalue[50][0]=0; glBindBuffer(GL_UNIFORM_BUFFER,buffers[0]); glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(scene),&scene);
++    glUseProgram(deferred); Clear(); R_DrawCavityGeometry(*lit,0,1); const auto switched=Readback(1);
++    const auto at=(20*Size+20)*4; const auto expected=Expected(*lit,0,41,41);
++    for (int c=0;c<3;++c) { Near(switched[at+c],expected[c]); assert(switched[at+c]<light[at+c]); }
++    dynamic.active_dlights[0]=1;
++    const float lightOrigin[]{48,48,0,64}, lightColor[]{.5f,.25f,.125f,0};
++    std::copy(std::begin(lightOrigin),std::end(lightOrigin),dynamic.origin_radius[0]);
++    std::copy(std::begin(lightColor),std::end(lightColor),dynamic.color_minlight[0]);
++    glBindBuffer(GL_UNIFORM_BUFFER,buffers[2]); glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(dynamic),&dynamic);
++    glUseProgram(legacy); Clear(); R_DrawCavityGeometry(*lit,0,1); const auto dynamicColor=Readback(1);
++    for (int c=0;c<3;++c) assert(dynamicColor[at+c]>switched[at+c]);
++    glUseProgram(shadow); Clear(); R_DrawCavityGeometry(*lit,0,1);
++    float depth{}; glReadPixels(20,20,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&depth); assert(depth>0 && depth<.2f);
++    glUseProgram(deferred); Clear(); R_DrawCavityGeometry(*lit,0,1); glDepthFunc(GL_LEQUAL);
++    for (int i=0;i<32;++i) R_DrawCavityGeometry(*lit,0,1);
++    glFinish(); GLuint query{}; glGenQueries(1,&query);
++    realStorage=glBufferStorage; realData=glBufferData; realSubData=glBufferSubData;
++    glBufferStorage=Storage; glBufferData=Data; glBufferSubData=SubData; uploads=0;
++    glBeginQuery(GL_TIME_ELAPSED,query); const auto submit=std::chrono::steady_clock::now();
++    for (int i=0;i<256;++i) R_DrawCavityGeometry(*lit,0,1);
++    const auto submitUs=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-submit).count();
++    glEndQuery(GL_TIME_ELAPSED); GLuint64 ns{}; glGetQueryObjectui64v(query,GL_QUERY_RESULT,&ns);
++    assert(uploads==0 && ns>0); glBufferStorage=realStorage; glBufferData=realData; glBufferSubData=realSubData; glDeleteQueries(1,&query); glDepthFunc(GL_LESS);
++    glBindVertexArray(sentinel); glBindBuffer(GL_ARRAY_BUFFER,sentinelBuffers[0]); glBindBuffer(GL_DRAW_INDIRECT_BUFFER,sentinelBuffers[2]);
++    glBufferStorage=Storage; failureAfter=7; bool rejected=false;
++    try { (void)R_PrepareLitCarvedWorldGeometry(original,{&carve,1}); } catch (const std::runtime_error&) { rejected=true; }
++    glBufferStorage=realStorage;
++    assert(rejected && allocations.size()==7);
++    for (auto buffer : allocations) assert(!glIsBuffer(buffer));
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&binding); assert(GLuint(binding)==sentinel);
++    glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&binding); assert(GLuint(binding)==sentinelBuffers[0]);
++    glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING,&binding); assert(GLuint(binding)==sentinelBuffers[2]);
++    glUseProgram(deferred); Clear(); R_DrawCavityGeometry(*lit,0,1); assert(Readback(1)==switched);
++    auto restored=R_PrepareLitCarvedWorldGeometry(lit,{});
++    assert(!restored->m_pCavityLighting && restored->m_pSurfaceMesh==original->m_pOriginalMesh);
++    glUseProgram(ordinary); Clear(); Remaining(*restored); assert(Readback(1)==before);
++    std::printf("{\"cavityLighting\":true,\"probes\":%zu,\"samples\":%zu,\"rays\":%zu,\"occluded\":%zu,\"litPixels\":%zu,\"preservedPixels\":%zu,\"productionShaders\":6,\"styleSwitch\":true,\"gpuFailureRecovered\":true,\"uploadsDuringDraw\":0,\"prepareCpuUs\":%.3f,\"submitCpuUsPerBatch\":%.3f,\"gpuUsPerBatch\":%.3f,\"passed\":true}\n",
++        probes.probes.size(),lit->m_pCavityLighting->samples,lit->m_pCavityLighting->rays,lit->m_pCavityLighting->occluded,litPixels,preserved,
++        prepareUs,submitUs/256,double(ns)/256/1000);
++    restored.reset(); lit.reset(); original.reset();
++    for (auto program : {ordinary,deferred,forward,multiview,shadow,legacy}) glDeleteProgram(program);
++    glDeleteTextures(5,attachments); glDeleteTextures(1,&diffuse); glDeleteTextures(1,&lightmap);
++    glDeleteBuffers(5,buffers); glDeleteBuffers(3,sentinelBuffers); glDeleteVertexArrays(1,&sentinel); glDeleteFramebuffers(1,&fbo);
++    assert(glGetError()==GL_NO_ERROR); glfwDestroyWindow(window); glfwTerminate();
++}
+diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
+new file mode 100644
+index 0000000..607eb24
+--- /dev/null
++++ b/tests/cavity_map_fixture.h
+@@ -0,0 +1,148 @@
++#pragma once
++#include <bit>
++#include <limits>
++
++namespace
++{
++// File records follow pinned ReHLDS public/rehlds/bspfile.h and
++// engine/model.cpp::CalcSurfaceExtents. No client-engine private ABI is read.
++struct CavityBspFile
++{
++    std::vector<std::uint8_t> bytes;
++    std::array<std::size_t,15> offsets{}, lengths{};
++    explicit CavityBspFile(const char* path)
++    {
++        std::ifstream file(path,std::ios::binary); assert(file.good());
++        bytes.assign(std::istreambuf_iterator<char>(file),{});
++        assert(bytes.size()>=124 && U32(0)==30);
++        std::uint32_t crc=0xffffffffu;
++        for (auto byte : bytes) { crc^=byte; for (int i=0;i<8;++i) crc=(crc>>1)^((0u-(crc&1))&0xedb88320u); }
++        assert((crc^0xffffffffu)==0xf6725c06u);
++        for (int i=0;i<15;++i) { offsets[i]=U32(4+i*8); lengths[i]=U32(8+i*8); assert(offsets[i]<=bytes.size() && lengths[i]<=bytes.size()-offsets[i]); }
++    }
++    std::uint16_t U16(std::size_t at) const { assert(at+2<=bytes.size()); return std::uint16_t(bytes[at])|(std::uint16_t(bytes[at+1])<<8); }
++    std::uint32_t U32(std::size_t at) const { return std::uint32_t(U16(at))|(std::uint32_t(U16(at+2))<<16); }
++    float F32(std::size_t at) const { return std::bit_cast<float>(U32(at)); }
++    std::size_t Record(unsigned lump,std::size_t index,std::size_t stride) const {
++        assert(lengths[lump]%stride==0 && index<lengths[lump]/stride); return offsets[lump]+index*stride;
++    }
++    goldcraft::carving::Point Vertex(std::int32_t surfedge) const {
++        const auto edge=Record(12,std::size_t(surfedge<0?-std::int64_t(surfedge):surfedge),4);
++        const auto vertex=Record(3,U16(edge+(surfedge<0?2:0)),12); return {F32(vertex),F32(vertex+4),F32(vertex+8)};
++    }
++};
++
++void ActualMapLighting(const char* path)
++{
++    using namespace goldcraft;
++    const CavityBspFile bsp(path);
++    std::vector<mplane_t> planes(bsp.lengths[1]/20);
++    std::vector<carving::Plane> hullPlanes;
++    for (std::size_t i=0;i<planes.size();++i) {
++        const auto at=bsp.Record(1,i,20);
++        for (int j=0;j<3;++j) planes[i].normal[j]=bsp.F32(at+j*4);
++        planes[i].dist=bsp.F32(at+12);
++        hullPlanes.push_back({{planes[i].normal[0],planes[i].normal[1],planes[i].normal[2]},planes[i].dist});
++    }
++    std::vector<carving::HullNode> nodes;
++    for (std::size_t i=0;i<bsp.lengths[5]/24;++i) {
++        const auto at=bsp.Record(5,i,24);
++        carving::HullNode node{bsp.U32(at),{}};
++        for (int j=0;j<2;++j) {
++            const auto child=std::bit_cast<std::int16_t>(bsp.U16(at+4+j*2));
++            node.children[j]=child<0?std::bit_cast<std::int32_t>(bsp.U32(bsp.Record(10,std::size_t(-1-child),28))):child;
++        }
++        nodes.push_back(node);
++    }
++    std::vector<mtexinfo_t> texinfos(bsp.lengths[6]/40);
++    for (std::size_t i=0;i<texinfos.size();++i) {
++        const auto at=bsp.Record(6,i,40);
++        for (int axis=0;axis<2;++axis) for (int j=0;j<4;++j) texinfos[i].vecs[axis][j]=bsp.F32(at+axis*16+j*4);
++        texinfos[i].flags=static_cast<int>(bsp.U32(at+36));
++    }
++    std::vector<msurface_t> surfaces(bsp.lengths[7]/20);
++    auto mesh=std::make_shared<surface::Mesh>();
++    for (std::size_t i=0;i<surfaces.size();++i) {
++        const auto at=bsp.Record(7,i,20);
++        auto& surf=surfaces[i]; surf.plane=&planes.at(bsp.U16(at)); surf.texinfo=&texinfos.at(bsp.U16(at+10));
++        if (bsp.U16(at+2)) surf.flags|=SURF_PLANEBACK;
++        std::copy_n(bsp.bytes.data()+at+12,4,surf.styles);
++        const auto offset=std::bit_cast<std::int32_t>(bsp.U32(at+16));
++        std::vector<carving::Point> polygon;
++        const auto first=bsp.U32(at+4);
++        const auto count=bsp.U16(at+8);
++        float mins[]{1e20f,1e20f}, maxs[]{-1e20f,-1e20f};
++        for (unsigned edge=0;edge<count;++edge) {
++            const auto p=bsp.Vertex(std::bit_cast<std::int32_t>(bsp.U32(bsp.Record(13,first+edge,4)))); polygon.push_back(p);
++            for (int axis=0;axis<2;++axis) {
++                double uv=surf.texinfo->vecs[axis][3]; for (int j=0;j<3;++j) uv+=p[j]*surf.texinfo->vecs[axis][j];
++                mins[axis]=(std::min)(mins[axis],float(uv)); maxs[axis]=(std::max)(maxs[axis],float(uv));
++            }
++        }
++        for (int axis=0;axis<2;++axis) {
++            surf.texturemins[axis]=static_cast<short>(std::floor(mins[axis]/16)*16);
++            surf.extents[axis]=static_cast<short>((std::ceil(maxs[axis]/16)-std::floor(mins[axis]/16))*16);
++        }
++        if (offset>=0) {
++            std::size_t styles=0; while (styles<4 && surf.styles[styles]!=255) ++styles;
++            const auto size=std::size_t((surf.extents[0]>>4)+1)*((surf.extents[1]>>4)+1)*3*styles;
++            assert(std::size_t(offset)<=bsp.lengths[8] && size<=bsp.lengths[8]-offset);
++            surf.samples=const_cast<byte*>(bsp.bytes.data()+bsp.offsets[8]+offset);
++        }
++        surface::Instance instance{}; instance.packed_matId[0]=static_cast<std::uint16_t>(i);
++        std::copy_n(surf.styles,4,instance.styles); mesh->instances.push_back(instance);
++        surface::Face face{{static_cast<std::uint32_t>(mesh->indices.size()),0},{},{static_cast<std::uint32_t>(i),1},1,(surf.texinfo->flags&1)==0};
++        const auto base=static_cast<std::uint32_t>(mesh->vertices.size());
++        for (const auto& p : polygon) {
++            surface::Vertex vertex{}; surface::Frame frame{};
++            for (int j=0;j<3;++j) {
++                vertex.pos[j]=static_cast<float>(p[j]); frame.normal[j]=frame.smoothnormal[j]=surf.plane->normal[j]*((surf.flags&SURF_PLANEBACK)?-1.f:1.f);
++            }
++            for (int axis=0;axis<2;++axis) {
++                double uv=surf.texinfo->vecs[axis][3]; for (int j=0;j<3;++j) uv+=p[j]*surf.texinfo->vecs[axis][j];
++                vertex.texcoord[axis]=static_cast<float>(uv/64);
++            }
++            mesh->vertices.push_back(vertex); mesh->frames.push_back(frame);
++        }
++        for (std::uint32_t j=1;j+1<polygon.size();++j) mesh->indices.insert(mesh->indices.end(),{base,base+j,base+j+1});
++        face.forward.count=static_cast<std::uint32_t>(mesh->indices.size())-face.forward.first;
++        mesh->faces.push_back(face);
++    }
++    const auto world=bsp.Record(14,0,64), first=bsp.U32(world+56), count=bsp.U32(world+60);
++    const carving::HullView hull{hullPlanes,nodes,std::bit_cast<std::int32_t>(bsp.U32(world+36))};
++    model_t model{}; model.numsurfaces=static_cast<int>(surfaces.size()); model.surfaces=surfaces.data();
++    auto original=std::make_shared<CWorldSurfaceWorldModel>(&model); original->m_pOriginalMesh=mesh; original->m_pSurfaceMesh=mesh;
++    original->m_vFaceBuffer.resize(mesh->faces.size());
++    std::size_t cases=0, rays=0, occluded=0, values=0, samples=0, triangles=0;
++    double totalUs=0, maxUs=0;
++    for (std::size_t f=first;f<std::size_t(first)+count && cases<12;f+=count/24) {
++        const auto& face=mesh->faces[f]; if (!face.editable || !surfaces[f].samples || !face.forward.count) continue;
++        carving::Point center{};
++        for (std::size_t at=face.forward.first;at<std::size_t(face.forward.first)+face.forward.count;++at)
++            for (int j=0;j<3;++j) center[j]+=mesh->vertices[mesh->indices[at]].pos[j]/double(face.forward.count);
++        carving::Box cut{}; for (int j=0;j<3;++j) { cut.min[j]=center[j]-16; cut.max[j]=center[j]+16; }
++        const cavity::Model carvingModel{first,count,hull,{&cut,1}};
++        const auto started=std::chrono::steady_clock::now();
++        const auto lit=R_PrepareLitCarvedWorldGeometry(original,{&carvingModel,1});
++        const auto elapsed=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-started).count();
++        assert(lit->m_pCavityLighting && !lit->m_vCavityDraws.empty());
++        for (const auto& draw : lit->m_vCavityDraws) {
++            assert(!draw.needs_lighting); triangles+=draw.indices.count/3;
++            for (std::size_t at=draw.indices.first;at<std::size_t(draw.indices.first)+draw.indices.count;++at)
++                for (int axis=0;axis<3;++axis) {
++                    const auto value=lit->m_pSurfaceMesh->vertices[lit->m_pSurfaceMesh->indices[at]].pos[axis];
++                    assert(value>=draw.bounds.min[axis] && value<=draw.bounds.max[axis]);
++                }
++        }
++        const auto& light=*lit->m_pCavityLighting;
++        rays+=light.rays; occluded+=light.occluded; values+=light.values.size(); samples+=light.samples;
++        for (const auto& value : light.values) {
++            assert(value.style<255); for (float c : value.rgb) assert(std::isfinite(c) && c>=0 && c<=1);
++        }
++        totalUs+=elapsed; maxUs=(std::max)(maxUs,elapsed); ++cases;
++    }
++    assert(cases==12 && rays>0 && values>0 && occluded>0 && occluded<rays);
++    std::printf("{\"mapCavityLighting\":true,\"map\":\"cs_assault\",\"crc32\":\"f6725c06\",\"cases\":%zu,\"samples\":%zu,\"rays\":%zu,\"occluded\":%zu,\"styleValues\":%zu,\"triangles\":%zu,\"prepareCpuUsMean\":%.3f,\"prepareCpuUsMax\":%.3f,\"passed\":true}\n",
++        cases,samples,rays,occluded,values,triangles,totalUs/cases,maxUs);
++}
++} // namespace
