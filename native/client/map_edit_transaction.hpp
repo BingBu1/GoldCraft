@@ -10,7 +10,12 @@ class EditTransaction {
     void reset(std::uint64_t epoch);
     edits::Applied accept(const edits::Snapshot &snapshot);
     edits::Applied accept(const edits::Delta &delta);
-    void pump(IMetaRendererWorldEdit *renderer, model_s *world);
+    // Identity publication is independent of edit preparation. Call after a
+    // received frame changes and again before the engine starts entity drawing.
+    void publish(IMetaRendererWorldEdit *renderer, model_s *world,
+                 IMetaRendererWorldEdit2 *targeted = nullptr);
+    void pump(IMetaRendererWorldEdit *renderer, model_s *world,
+              IMetaRendererWorldEdit2 *targeted = nullptr);
     void invalidate();
     bool ready() const { return desired_.ready(); }
     bool pending() const { return dirty_ || ticket_ != 0; }
@@ -19,12 +24,17 @@ class EditTransaction {
 
   private:
     void cancel();
+    void provider_lost();
     edits::Applied receive(edits::Replica next, edits::Applied result);
     edits::Replica desired_, applied_, prepared_;
     Candidate physics_;
     IMetaRendererWorldEdit *renderer_ = nullptr;
+    IMetaRendererWorldEdit2 *targeted_ = nullptr;
     model_s *loaded_ = nullptr;
     std::uint64_t ticket_ = 0;
+    std::uint64_t publication_ = 0;
+    std::array<MetaWorldEditTarget, brush::max_entities> identities_{};
+    bool published_ = false;
     bool dirty_ = false;
 };
 } // namespace goldcraft::client_map

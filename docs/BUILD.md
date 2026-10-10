@@ -22,6 +22,8 @@
 
 按 README 的顺序准备、编译。`Build-Native.ps1 -Server` 产生客户端插件、AMXX 模块和修改后的 ReGameDLL；`Build-ReHLDS.ps1` 单独编译服务器引擎。`Build-NeoForge.ps1` 编译正式映射 JAR、JUnit 测试与独立启动所需的开发运行清单。Yarn/Loom 用于编译和开发映射，不是 Fabric Loader 运行依赖。
 
+先构建 Renderer，再构建 Native：存在暂存 Renderer 时，原生 CTest 会实际加载其 DLL，验证新旧世界编辑工厂及 1024 条身份的 ABI。该测试不启动游戏；只有隐藏 GL 测试通过也不代表完整引擎生命周期已经验收。
+
 AMXX 使用 `build-amxx.cmd` 一次编译全部分类 SMA，或 `build-amxx.cmd -Plugins nademodes` 按名称编译。需要 Node.js 18.3+／npm；首次自动按上游 `package-lock.json` 安装固定 amxx-builder，禁用安装脚本，依赖和缓存均留在工作区。AMXX／ReAPI SDK 与官方归档逐文件核验，保持 AMXX 1.9.0.5303。ZP、手雷准备工具与可选部署共用此编译入口。目录、失败处理和命令详见 [AMXX 说明](../amxx/README.md)。
 
 `Build-ReHLDS.ps1 -TestSteamCallbacks` 使用相同 Clang/C++20/O3/ThinLTO 配置构建 ReHLDS 的测试程序及依赖，在 `build/rehlds/Tests` 验证内部 Bot 与真人认证回调的边界；测试产物不会覆盖正式引擎或运行实例。

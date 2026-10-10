@@ -1039,7 +1039,7 @@ index d59b139..f7f7278 100644
  {
  public:
 diff --git a/src/gl_rsurf.cpp b/src/gl_rsurf.cpp
-index 32334ba..53a96e1 100644
+index 32334ba..4be24d1 100644
 --- a/src/gl_rsurf.cpp
 +++ b/src/gl_rsurf.cpp
 @@ -38,6 +38,9 @@ static void R_ClearCachedDecalDrawData(CCachedDecal& cachedDecal)
@@ -1052,7 +1052,114 @@ index 32334ba..53a96e1 100644
  }
  
  static void R_BuildCachedDecalBounds(float* v, int vertCount, CCachedDecal& cachedDecal)
-@@ -986,6 +989,27 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
+@@ -75,23 +78,56 @@ int EngineGetMaxDecalCount()
+     return MAX_DECALS;
+ }
+ 
++// The engine pool has one owner per slot. Keep that ownership and an immutable
++// geometry identity alongside the fixed GPU slots; never key by shared model_t.
++struct CPreparedDecalIdentity
++{
++    msurface_t* surface{};
++    model_t* model{};
++    float dx{}, dy{}, scale{};
++    short texture{}, flags{}, owner{};
++    GLuint textureId{}, textureWidth{}, textureHeight{};
++    std::weak_ptr<CWorldSurfaceRenderMaterial> material;
++    std::weak_ptr<CWorldSurfaceWorldModel> geometry;
++
++    bool Matches(const decal_t& decal, const cl_entity_t& ent) const noexcept
++    {
++        return surface == decal.psurface && model == ent.model && owner == ent.index &&
++            owner == decal.entityIndex && texture == decal.texture &&
++            flags == (decal.flags & ~FDECAL_VBO) && dx == decal.dx && dy == decal.dy && scale == decal.scale;
++    }
++    void Capture(const decal_t& decal, const cl_entity_t& ent,
++        const std::shared_ptr<CWorldSurfaceWorldModel>& selected) noexcept
++    {
++        surface = decal.psurface; model = ent.model; owner = decal.entityIndex;
++        texture = decal.texture; flags = decal.flags & ~FDECAL_VBO;
++        dx = decal.dx; dy = decal.dy; scale = decal.scale; geometry = selected;
++    }
++};
++static CPreparedDecalIdentity preparedDecals[MAX_DECALS];
++static void R_PrepareDecal(int index, decal_t& decal, cl_entity_t& ent,
++    const std::shared_ptr<CWorldSurfaceWorldModel>& geometry);
++
+ void R_PrepareDecals(void)
+ {
++    if (!gDecalPool || !gEngfuncs.GetEntityByIndex) return;
+     for (int i = 0; i < EngineGetMaxDecalCount(); ++i)
+     {
+-        auto decal = EngineGetDecalByIndex(i);
+-
+-        if (decal->psurface)
++        auto& decal = *EngineGetDecalByIndex(i);
++        auto ent = decal.psurface ? gEngfuncs.GetEntityByIndex(decal.entityIndex) : nullptr;
++        if (!ent || ent->index != decal.entityIndex || !ent->model || ent->model->type != mod_brush)
+         {
+-            auto ent = gEngfuncs.GetEntityByIndex(decal->entityIndex);
+-
+-            auto pEntityComponentContainer = R_GetEntityComponentContainer(ent, true);
+-
+-            if (pEntityComponentContainer)
+-            {
+-                pEntityComponentContainer->Decals.emplace_back(decal);
+-            }
++            preparedDecals[i] = {};
++            R_ClearCachedDecalDrawData(g_WorldSurfaceRenderer.vCachedDecals[i]);
++            continue;
+         }
++        auto model = R_FindEditedBrushSurfaceModel(ent);
++        if (!model) model = R_GetWorldSurfaceModel(ent->model);
++        auto geometry = model ? model->m_pWorldModel.lock() : nullptr;
++        if (!geometry) continue;
++        R_PrepareDecal(i, decal, *ent, geometry);
++        if (auto components = R_GetEntityComponentContainer(ent, true))
++            components->Decals.emplace_back(&decal);
+     }
+ }
+ 
+@@ -750,6 +786,7 @@ int SHClip(float* vert, int vertCount, float* out, int edge)
+     float *s, *p;
+ 
+     outCount = 0;
++    if (vertCount <= 0) return 0;
+ 
+     s = &vert[(vertCount - 1) * VERTEXSIZE];
+     for (j = 0; j < vertCount; j++)
+@@ -959,33 +996,39 @@ void R_UploadDecalTextures(int decalIndex, texture_t* ptexture, const std::share
+     g_WorldSurfaceRenderer.vCachedDecals[decalIndex].matId = matId;
+ }
+ 
+-void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface_t* surf, CWorldSurfaceRenderMaterial* pRenderMaterial)
++static void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface_t* surf,
++    const std::shared_ptr<CWorldSurfaceWorldModel>& pWorldModel)
+ {
+-    auto worldmodel = R_FindWorldModelBySurface(surf);
+-
+-    if (!worldmodel)
+-    {
+-        Sys_Error("R_UploadDecalVertexBuffer: Failed to get worldmodel by surface");
+-        return;
+-    }
+-
+-    auto pWorldModel = R_GetWorldSurfaceWorldModel(worldmodel);
++    auto surfIndex = R_GetWorldSurfaceIndex(pWorldModel->m_model, surf);
+ 
+-    if (!pWorldModel)
+-    {
+-        Sys_Error("R_UploadDecalVertexBuffer: Failed to R_GetWorldSurfaceWorldModel");
+-        return;
+-    }
+-
+-    auto surfIndex = R_GetWorldSurfaceIndex(worldmodel, surf);
+-
+-    if (surfIndex == -1)
++    if (surfIndex < 0 || static_cast<size_t>(surfIndex) >= pWorldModel->m_vFaceBuffer.size())
+     {
+         Sys_Error("R_UploadDecalVertexBuffer: invalid surfIndex!");
+         return;
      }
  
      const auto brushface = &pWorldModel->m_vFaceBuffer[surfIndex];
@@ -1080,14 +1187,18 @@ index 32334ba..53a96e1 100644
  
      std::vector<vertex3f_t>       vPolyVertices;
      std::vector<decalvertex_t>    vVertexDataBuffer;
-@@ -1052,24 +1076,8 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
+@@ -1052,27 +1095,88 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].indiceCount   = vTriangleListIndices.size();
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].startInstance = decalIndex;
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].instanceCount = 1;
--}
--
++    cached.worldMesh = pWorldModel->m_pSurfaceMesh;
++    cached.geometryReady = true;
+ }
+ 
 -bool R_IsDecalCacheInvalidated(int decalIndex, texture_t* texture, const std::shared_ptr<CWorldSurfaceRenderMaterial>& pRenderMaterial)
--{
++static void R_PrepareDecal(int index, decal_t& decal, cl_entity_t& ent,
++    const std::shared_ptr<CWorldSurfaceWorldModel>& geometry)
+ {
 -    auto& cachedDecal = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
 -
 -    if (!cachedDecal.boundsValid ||
@@ -1097,21 +1208,91 @@ index 32334ba..53a96e1 100644
 -        cachedDecal.gltexturewidth != texture->width ||
 -        cachedDecal.gltextureheight != texture->height ||
 -        cachedDecal.pRenderMaterial != pRenderMaterial)
--    {
++    auto& cached = g_WorldSurfaceRenderer.vCachedDecals[index];
++    auto& identity = preparedDecals[index];
++    auto texture = Draw_DecalTexture(decal.texture);
++    if (!texture || !texture->width || !texture->height)
++    {
++        decal.flags &= ~FDECAL_VBO;
++        R_ClearCachedDecalDrawData(cached);
++        return;
++    }
++    const auto material = R_GetRenderMaterialForDecalTexture(texture->name);
++    if ((decal.flags & FDECAL_VBO) && identity.Matches(decal, ent) &&
++        cached.geometryReady && identity.textureId == texture->gl_texturenum &&
++        identity.textureWidth == texture->width && identity.textureHeight == texture->height &&
++        identity.material.lock() == material &&
++        (identity.geometry.lock() == geometry ||
++            (!identity.geometry.expired() && !R_IsDecalCacheInvalidated(index, texture, material, *geometry))))
+     {
 -        return true;
--    }
--
++        identity.geometry = geometry;
++        return;
+     }
+ 
 -    return false;
-+    cached.worldMesh = pWorldModel->m_pSurfaceMesh;
++    decal.flags &= ~FDECAL_VBO;
++    R_ClearCachedDecalDrawData(cached);
++    R_ClearCachedDecalBounds(cached);
++    try
++    {
++        // Recompute once for a new signature. The native NOCLIP cache is keyed
++        // by slot alone and can contain an earlier incarnation of this decal.
++        int count = 0;
++        auto vertices = R_DecalVertsClip(nullptr, &decal, decal.psurface, texture, &count);
++        if (count > 0)
++        {
++            // Prepare independently of the preceding render pass's flags.
++            R_DecalVertsLight(vertices, decal.psurface, count);
++            R_BuildCachedDecalBounds(vertices, count, cached);
++            R_UploadDecalTextures(index, texture, material);
++            R_UploadDecalVertexBuffer(index, count, vertices, decal.psurface, geometry);
++        }
++    }
++    catch (const std::exception& error)
++    {
++        R_ClearCachedDecalDrawData(cached);
++        R_ClearCachedDecalBounds(cached);
++        if (gEngfuncs.Con_DPrintf) gEngfuncs.Con_DPrintf("Renderer: decal preparation failed: %s\n", error.what());
++    }
++    // Empty and failed candidates are safe to suppress. A new signature or
++    // geometry retries them at frame preparation, never from a render pass.
++    cached.worldMesh = geometry->m_pSurfaceMesh;
 +    cached.geometryReady = true;
++    decal.flags |= FDECAL_VBO;
++    identity.Capture(decal, ent, geometry);
++    identity.textureId = texture->gl_texturenum;
++    identity.textureWidth = texture->width;
++    identity.textureHeight = texture->height;
++    identity.material = material;
  }
  
- void R_DrawDecals(cl_entity_t* ent)
-@@ -1095,6 +1103,15 @@ void R_DrawDecals(cl_entity_t* ent)
+-void R_DrawDecals(cl_entity_t* ent)
++static void R_DecalWorldBounds(const CCachedDecal& cached, vec3_t mins, vec3_t maxs)
++{
++    // The caller just selected this entity's interpolated render matrix.
++    // Cutting remains model-local; frustum/PVS tests require rendered bounds.
++    for (int axis = 0; axis < 3; ++axis)
++    {
++        mins[axis] = maxs[axis] = r_entity_matrix[axis][3];
++        for (int local = 0; local < 3; ++local)
++        {
++            const auto a = r_entity_matrix[axis][local] * cached.mins[local];
++            const auto b = r_entity_matrix[axis][local] * cached.maxs[local];
++            mins[axis] += (std::min)(a, b);
++            maxs[axis] += (std::max)(a, b);
++        }
++    }
++}
++
++void R_DrawDecals(cl_entity_t* ent, const std::shared_ptr<CWorldSurfaceWorldModel>& geometry)
+ {
+     if (CL_IsDevOverviewMode())
+         return;
+@@ -1095,6 +1199,14 @@ void R_DrawDecals(cl_entity_t* ent)
          return;
  
      g_DecalDrawBatch.BatchCount = 0;
-+    const auto geometry = R_GetWorldSurfaceWorldModel(R_FindWorldModelByModel(ent->model));
 +    if (!geometry) return;
 +    std::shared_ptr<CWorldSurfaceLeaf> visibilityLeaf;
 +    if (geometry->m_pCarvedVisibility && ent->model == (*cl_worldmodel))
@@ -1123,41 +1304,62 @@ index 32334ba..53a96e1 100644
  
      for (size_t i = 0; i < pEntityComponentContainer->Decals.size(); i++)
      {
-@@ -1110,7 +1127,7 @@ void R_DrawDecals(cl_entity_t* ent)
-             auto pRenderMaterial = R_GetRenderMaterialForDecalTexture(ptexture->name);
+@@ -1105,55 +1217,26 @@ void R_DrawDecals(cl_entity_t* ent)
+             int   decalIndex  = R_DecalIndex(plist);
+             auto& cachedDecal = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
  
-             //Build VBO data for this decal if not built yet
+-            auto ptexture = Draw_DecalTexture(plist->texture);
+-
+-            auto pRenderMaterial = R_GetRenderMaterialForDecalTexture(ptexture->name);
+-
+-            //Build VBO data for this decal if not built yet
 -            if (!(plist->flags & FDECAL_VBO) || R_IsDecalCacheInvalidated(decalIndex, ptexture, pRenderMaterial))
-+            if (!(plist->flags & FDECAL_VBO) || R_IsDecalCacheInvalidated(decalIndex, ptexture, pRenderMaterial, *geometry))
-             {
-                 int    vertCount = 0;
-                 float* v         = nullptr;
-@@ -1138,8 +1155,21 @@ void R_DrawDecals(cl_entity_t* ent)
-                 {
-                     R_BuildCachedDecalBounds(v, vertCount, cachedDecal);
-                     R_UploadDecalTextures(decalIndex, ptexture, pRenderMaterial);
+-            {
+-                int    vertCount = 0;
+-                float* v         = nullptr;
+-
+-                auto psurf = plist->psurface;
+-                plist->flags &= ~FDECAL_VBO;
+-                R_ClearCachedDecalDrawData(cachedDecal);
+-
+-                if (plist->flags & FDECAL_NOCLIP)
+-                {
+-                    v         = R_DecalVertsNoclip(plist, psurf, ptexture, g_WorldSurfaceRenderer.bLightmapTexture);
+-                    vertCount = 4;
+-                }
+-                else
+-                {
+-                    v = R_DecalVertsClip(NULL, plist, psurf, ptexture, &vertCount);
+-
+-                    if (vertCount > 0 && g_WorldSurfaceRenderer.bLightmapTexture)
+-                    {
+-                        R_DecalVertsLight(v, psurf, vertCount);
+-                    }
+-                }
+-
+-                if (vertCount > 0)
+-                {
+-                    R_BuildCachedDecalBounds(v, vertCount, cachedDecal);
+-                    R_UploadDecalTextures(decalIndex, ptexture, pRenderMaterial);
 -                    R_UploadDecalVertexBuffer(decalIndex, vertCount, v, psurf, pRenderMaterial.get());
 -                    plist->flags |= FDECAL_VBO;
-+                    try
-+                    {
-+                        R_UploadDecalVertexBuffer(decalIndex, vertCount, v, psurf, pRenderMaterial.get());
-+                        plist->flags |= FDECAL_VBO;
-+                    }
-+                    catch (const std::exception& error)
-+                    {
-+                        // A failed clip/upload must never draw the old floating
-+                        // decal. Retry only on a new decal/geometry/material.
-+                        cachedDecal.worldMesh = geometry->m_pSurfaceMesh;
-+                        cachedDecal.geometryReady = true;
-+                        cachedDecal.indiceCount = 0;
-+                        plist->flags |= FDECAL_VBO;
-+                        gEngfuncs.Con_DPrintf("Renderer: decal preparation failed: %s\n", error.what());
-+                    }
-                 }
-                 else
-                 {
-@@ -1152,8 +1182,14 @@ void R_DrawDecals(cl_entity_t* ent)
-                 if (R_CullBox(cachedDecal.mins, cachedDecal.maxs))
+-                }
+-                else
+-                {
+-                    R_ClearCachedDecalBounds(cachedDecal);
+-                }
+-            }
++            const auto& identity = preparedDecals[decalIndex];
++            if (!(plist->flags & FDECAL_VBO) || !identity.Matches(*plist, *ent) ||
++                identity.geometry.lock() != geometry || !cachedDecal.geometryReady ||
++                cachedDecal.worldMesh.lock() != geometry->m_pSurfaceMesh) continue;
+ 
+             if (cachedDecal.indiceCount && cachedDecal.boundsValid)
+             {
+-                if (R_CullBox(cachedDecal.mins, cachedDecal.maxs))
++                vec3_t worldMins, worldMaxs;
++                R_DecalWorldBounds(cachedDecal, worldMins, worldMaxs);
++                if (R_CullBox(worldMins, worldMaxs))
                      continue;
  
 -                if (!R_DecalBoxInPVS(cachedDecal.mins, cachedDecal.maxs))
@@ -1165,15 +1367,15 @@ index 32334ba..53a96e1 100644
 +                if (visibilityLeaf && visibilityLeaf->m_bIsReady && visibilityLeaf->m_pVisibilityView)
 +                {
 +                    const goldcraft::carving::Box bounds{
-+                        {cachedDecal.mins[0], cachedDecal.mins[1], cachedDecal.mins[2]},
-+                        {cachedDecal.maxs[0], cachedDecal.maxs[1], cachedDecal.maxs[2]}};
++                        {worldMins[0], worldMins[1], worldMins[2]},
++                        {worldMaxs[0], worldMaxs[1], worldMaxs[2]}};
 +                    if (!geometry->m_pCarvedVisibility->sees_bounds(*visibilityLeaf->m_pVisibilityView, bounds)) continue;
 +                }
-+                else if (!geometry->m_pCarvedVisibility && !R_DecalBoxInPVS(cachedDecal.mins, cachedDecal.maxs)) continue;
++                else if (!geometry->m_pCarvedVisibility && !R_DecalBoxInPVS(worldMins, worldMaxs)) continue;
  
                  if (g_DecalDrawBatch.BatchCount < MAX_DECALS)
                  {
-@@ -1163,6 +1199,8 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1163,6 +1246,8 @@ void R_DrawDecals(cl_entity_t* ent)
                      g_DecalDrawBatch.pRenderMaterial[g_DecalDrawBatch.BatchCount] = cachedDecal.pRenderMaterial.get();
                      g_DecalDrawBatch.StartInstance[g_DecalDrawBatch.BatchCount]   = cachedDecal.startInstance;
                      g_DecalDrawBatch.InstanceCount[g_DecalDrawBatch.BatchCount]   = cachedDecal.instanceCount;
@@ -1182,7 +1384,7 @@ index 32334ba..53a96e1 100644
                      ++g_DecalDrawBatch.BatchCount;
                  }
              }
-@@ -1294,12 +1332,17 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1294,12 +1379,17 @@ void R_DrawDecals(cl_entity_t* ent)
          WSurfProgramState &= ~(WSURF_LEGACY_DLIGHT_ENABLED);
      }
  
@@ -1868,7 +2070,7 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..c2bf863 100644
+index 41f24f3..c933e2b 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
 @@ -74,43 +74,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
@@ -5991,6 +6193,15 @@ index 41f24f3..c2bf863 100644
          {
              if (R_IsRenderingShadowView())
              {
+@@ -3635,7 +2307,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+         }
+     }
+ 
+-    R_DrawDecals(ent);
++    R_DrawDecals(ent, pModel->m_pWorldModel.lock());
+ 
+     if (g_WorldSurfaceRenderer.bLightmapTexture)
+     {
 @@ -3665,6 +2337,8 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
@@ -6009,8 +6220,18 @@ index 41f24f3..c2bf863 100644
              return;
          }
      }
+@@ -5052,7 +3726,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+         g_WorldSurfaceRenderer.bLightmapTexture = false;
+     }
+ 
+-    auto pModel = R_GetWorldSurfaceModel(clmodel);
++    auto pModel = R_FindEditedBrushSurfaceModel(e);
++    if (!pModel) pModel = R_GetWorldSurfaceModel(clmodel);
+ 
+     if (pModel)
+     {
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..b9e6dac 100644
+index 0d340e9..0925746 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
 @@ -2,8 +2,14 @@
@@ -6249,6 +6470,22 @@ index 0d340e9..b9e6dac 100644
  
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
+@@ -330,13 +452,14 @@ void        R_LoadBaseDetailTextures(void);
+ void        R_LoadMapDetailTextures(void);
+ 
+ 
+-void R_DrawDecals(cl_entity_t* ent);
++void R_DrawDecals(cl_entity_t* ent, const std::shared_ptr<CWorldSurfaceWorldModel>& geometry);
+ void R_PrepareDecals(void);
+ 
+ int R_FindWorldMaterialId(int gl_texturenum);
+ 
+ std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod);
+ std::shared_ptr<CWorldSurfaceModel>      R_GetWorldSurfaceModel(model_t* mod);
++std::shared_ptr<CWorldSurfaceModel>      R_FindEditedBrushSurfaceModel(const cl_entity_t* entity) noexcept;
+ 
+ std::shared_ptr<CWorldSurfaceShadowProxyModel> R_LoadWorldSurfaceShadowProxyModel(model_t* mod, const char* resourcePath);
+ 
 diff --git a/src/privatehook.h b/src/privatehook.h
 index 4f14187..3143b87 100644
 --- a/src/privatehook.h
@@ -6279,7 +6516,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..834330f 100644
+index 93166e2..da9f6a3 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -6301,7 +6538,7 @@ index 93166e2..834330f 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,75 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,87 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -6350,7 +6587,19 @@ index 93166e2..834330f 100644
 +endif()
 +set_tests_properties(cavity_lighting_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
 +
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/brush_draw_dispatch.cpp"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_brush_dispatch.py"
++        --wsurf "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
++        --rmain "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/brush_draw_dispatch.cpp"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/brush_draw_dispatch.json"
++    DEPENDS extract_brush_dispatch.py "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp" "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++    VERBATIM)
 +add_executable(world_leaf_gl_tests world_leaf_gl_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/brush_draw_dispatch.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
++    "${PROJECT_SOURCE_DIR}/src/mathlib2.cpp"
 +    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/world_edit.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/world_edit_cache.cpp"
@@ -11373,14 +11622,14 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..8a5949c
+index 0000000..f48a888
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,995 @@
+@@ -0,0 +1,1483 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
-+#include "../src/gl_local.h"
++#include "gl_local.h"
 +#include <GLFW/glfw3.h>
 +#include <cassert>
 +#include <chrono>
@@ -11390,6 +11639,8 @@ index 0000000..8a5949c
 +#include <stdexcept>
 +#include "cavity_map_fixture.h"
 +#include <IMetaRendererWorldEdit.h>
++std::shared_ptr<CWorldSurfaceModel> R_FindEditedBrushSurfaceModel(const cl_entity_t*) noexcept;
++model_t* candidateInline{};
 +
 +std::atomic_bool         countAllocations{};
 +std::atomic<std::size_t> countedAllocations{};
@@ -11433,6 +11684,28 @@ index 0000000..8a5949c
 +int     r_fog_mode         = GL_LINEAR;
 +bool    r_draw_opaque = true, r_draw_oitblend = false;
 +bool    g_bPortalClipPlaneEnabled[6]{};
++float r_entity_matrix[4][4]{}, r_entity_color[4]{1,1,1,1};
++float blendValue{1};
++float* r_blend = &blendValue;
++vec3_t modelOrigin{}, viewOrigin{};
++vec_t* r_origin = viewOrigin;
++vec_t* modelorg = modelOrigin;
++refdef_t r_refdef{};
++mleaf_t* viewLeaf{};
++mleaf_t** r_viewleaf = &viewLeaf;
++cvar_t* gl_polyoffset{};
++cvar_t* gl_keeptjunctions{};
++std::vector<cl_entity_t*> g_PostProcessGlowColorEntities, g_PostProcessGlowStencilEntities,
++    g_PostProcessGlowEnableDepthTestStencilEntities;
++std::array<cl_entity_t*, 64> fixtureEntities{};
++std::array<CEntityComponentContainer, 64> fixtureComponents{};
++std::array<decal_t, MAX_DECALS> fixtureDecals{};
++texture_t fixtureDecalTexture{};
++std::size_t entityUploads{};
++bool cullPositiveX{};
++bool dispatchTransform{};
++GLint entityMatrixLocation{};
++vec3_t lastCullMins{}, lastCullMaxs{}, lastPVSMins{}, lastPVSMaxs{};
 +
 +namespace
 +{
@@ -11768,7 +12041,7 @@ index 0000000..8a5949c
 +};
 +GLuint Program()
 +{
-+    const char*  vs     = "#version 440\nlayout(location=0) in vec3 pos; void main(){gl_Position=vec4(pos.xy/64.-1.,-pos.z/64.,1.);}";
++    const char*  vs     = "#version 440\nlayout(location=0) in vec3 pos; uniform mat4 entityMatrix=mat4(1.); void main(){vec3 p=(entityMatrix*vec4(pos,1.)).xyz; gl_Position=vec4(p.xy/64.-1.,-p.z/64.,1.);}";
 +    const char*  fs     = "#version 440\nuniform vec3 stateColor; out vec4 color; void main(){color=vec4(stateColor,1.);}";
 +    const GLuint result = glCreateProgram();
 +    for (const auto stage : {GL_VERTEX_SHADER, GL_FRAGMENT_SHADER})
@@ -11837,6 +12110,66 @@ index 0000000..8a5949c
 +}
 +void GL_BeginDebugGroup(const char*) {}
 +void GL_EndDebugGroup() {}
++void GL_BeginDebugGroupFormat(const char*, ...) {}
++void GL_BeginStencilCompareEqual(int, int) {}
++void GL_EndStencil() {}
++bool CL_IsDevOverviewMode() { return false; }
++bool R_IsRenderingGlowShellForWorldModel() { return false; }
++bool R_IsRenderingGlowColor() { return false; }
++bool R_IsRenderingGlowStencil() { return false; }
++bool R_IsRenderingGlowStencilEnableDepthTest() { return false; }
++void R_SetGBufferMask(int) {}
++void R_SetGBufferBlend(int, int) {}
++void R_SetRenderMode(cl_entity_t*) {}
++void R_DrawSkyBox() { assert(false); }
++int EngineGetMaxLightmapTextures() { assert(false); return 0; }
++int EngineGetMaxClientModels() { assert(false); return 0; }
++void* Hunk_AllocName(int, const char*) { assert(false); return nullptr; }
++GLuint GL_GenTexture() { assert(false); return 0; }
++model_t* R_FindWorldModelByNode(mnode_t*) { assert(false); return nullptr; }
++bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*) { return false; }
++void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*) { assert(false); }
++void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel*) { assert(false); }
++void R_DrawWaters(CWorldSurfaceModel*, CWorldSurfaceLeaf*, cl_entity_t*) {}
++qboolean R_CullBox(vec3_t mins, vec3_t maxs)
++{
++    VectorCopy(mins, lastCullMins); VectorCopy(maxs, lastCullMaxs);
++    return cullPositiveX && maxs[0] < 0;
++}
++mbasenode_t* PVSNode(mbasenode_t* node, vec3_t mins, vec3_t maxs)
++{
++    VectorCopy(mins, lastPVSMins); VectorCopy(maxs, lastPVSMaxs);
++    return node;
++}
++CEntityComponentContainer* R_GetEntityComponentContainer(cl_entity_t* ent, bool)
++{
++    return ent && ent->index >= 0 && ent->index < 64 ? &fixtureComponents[ent->index] : nullptr;
++}
++texture_t* Draw_DecalTexture(int) { return &fixtureDecalTexture; }
++std::shared_ptr<CWorldSurfaceRenderMaterial> R_GetRenderMaterialForDecalTexture(const char*) { return {}; }
++int R_FindWorldMaterialId(int id)
++{
++    for (size_t i=0; i<g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.size(); ++i)
++        if (g_WorldSurfaceRenderer.vWorldMaterialTextureMapping[i] == id) return static_cast<int>(i);
++    return -1;
++}
++void GL_UploadSubDataToVBO(GLuint buffer, size_t at, size_t size, const void* data)
++{
++    glBindBuffer(GL_ARRAY_BUFFER, buffer); glBufferSubData(GL_ARRAY_BUFFER, at, size, data);
++}
++void GL_UploadSubDataToEBO(GLuint buffer, size_t at, size_t size, const void* data)
++{
++    glBindBuffer(GL_COPY_WRITE_BUFFER, buffer); glBufferSubData(GL_COPY_WRITE_BUFFER, at, size, data);
++}
++void GL_UploadSubDataToUBO(GLuint buffer, size_t at, size_t size, const void* data)
++{
++    ++entityUploads;
++    glBindBuffer(GL_UNIFORM_BUFFER, buffer); glBufferSubData(GL_UNIFORM_BUFFER, at, size, data);
++}
++void GL_UploadDataToSSBOStaticDraw(GLuint buffer, size_t size, const void* data)
++{
++    glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer); glBufferData(GL_SHADER_STORAGE_BUFFER, size, data, GL_STATIC_DRAW);
++}
 +void GL_BeginStencilWrite(int, int) {}
 +void GL_BeginStencilCompareNotEqual(int, int) {}
 +void R_BeginDetailTextureFromRenderMaterial(CWorldSurfaceRenderMaterial*, program_state_t*) {}
@@ -11860,8 +12193,9 @@ index 0000000..8a5949c
 +{
 +    if (recordStates) usedStates.push_back(state);
 +    glUseProgram(shader);
++    if (dispatchTransform) glUniformMatrix4fv(entityMatrixLocation, 1, GL_TRUE, &r_entity_matrix[0][0]);
 +    glUniform3f(colorLocation, state & WSURF_CAVITY_LIGHT_ENABLED ? 1.f : 0.f,
-+                state & WSURF_LIGHTMAP_ENABLED ? 1.f : 0.f, 0.f);
++                state & WSURF_LIGHTMAP_ENABLED ? 1.f : 0.f, state & WSURF_DECAL_ENABLED ? 1.f : 0.f);
 +}
 +std::shared_ptr<CWorldSurfaceRenderMaterial> R_GetRenderMaterialForWorldTexture(texture_t*)
 +{
@@ -12102,6 +12436,407 @@ index 0000000..8a5949c
 +    std::printf("{\"worldEditGL\":true,\"publicInterface\":true,\"lateInlineModel\":true,\"commitAllocations\":0,\"commitUploads\":0,\"selectiveShadowInvalidation\":true,\"decalPixels\":%zu,\"removedDecalPixels\":%zu,\"decalIndices\":%zu,\"unchangedDecalAllocations\":0,\"unchangedDecalUploads\":0,\"restore\":true,\"cancel\":true,\"unload\":true,\"passed\":true}\n", kept, removed, fragmented->m_pSurfaceMesh->indices.size());
 +}
 +} // namespace
++
++void BrushEditIntegration()
++{
++    auto* api = static_cast<IMetaRendererWorldEdit2*>(CreateInterface(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION, nullptr));
++    assert(api && static_cast<IMetaRendererWorldEdit*>(api) == CreateInterface(METARENDERER_WORLD_EDIT_INTERFACE_VERSION, nullptr));
++    api->Reset();
++    Scene scene;
++    worldModel = &scene.model;
++    scene.model.numsubmodels = 2;
++    dclipnode_t clip{0, {-1, -2}};
++    scene.model.hulls[0] = {&clip, &scene.plane, 0, 0};
++    model_t brush = scene.model;
++    std::strcpy(brush.name, "*1");
++    candidateInline = &brush;
++    gEngfuncs.CL_LoadModel = [](const char* name, int* index) -> model_t* {
++        if (std::strcmp(name, "*1")) return nullptr;
++        *index = 2;
++        return candidateInline;
++    };
++    gEngfuncs.hudGetModelByIndex = [](int index) -> model_t* { return index == 2 ? candidateInline : nullptr; };
++    auto original = R_PrepareWorldSurfaceLeafModel(scene.geometry, &scene.model, 0);
++    auto ordinary = R_PrepareWorldSurfaceLeafModel(scene.geometry, &brush, 0);
++    Finish(original); Finish(ordinary);
++    g_WorldSurfaceModels = {nullptr, original, ordinary};
++    g_WorldSurfaceWorldModels = {nullptr, scene.geometry};
++    auto light = std::make_shared<CDynamicLight>();
++    light->pStaticShadowTexture = std::make_shared<Shadow>();
++    g_BSPDynamicLights = {light};
++    cl_entity_t first{}, second{};
++    first.index = first.curstate.number = 10;
++    second.index = second.curstate.number = 11;
++    first.model = second.model = &brush;
++    first.curstate.modelindex = second.curstate.modelindex = 2;
++    first.curstate.solid = second.curstate.solid = 4;
++    first.curstate.messagenum = second.curstate.messagenum = 42;
++    MetaWorldEditTarget identities[]{{10, 123, 1}, {11, 456, 1}};
++    assert(api->UpdateBrushSnapshot(9, 2, 42, identities, 2));
++    MetaWorldEditCut cut{{10, 123, 1}, {{32, 32, -8}, {64, 64, 8}}};
++    const auto wait = [&](uint64_t ticket) {
++        const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++        while (api->Poll(ticket) == MetaWorldEditStatus::Preparing)
++        {
++            assert(std::chrono::steady_clock::now() < limit);
++            std::this_thread::sleep_for(std::chrono::milliseconds(1));
++        }
++        assert(api->Poll(ticket) == MetaWorldEditStatus::Ready);
++    };
++    auto ticket = api->BeginTargeted(&scene.model, 9, 2, &cut, 1);
++    assert(ticket && !api->Commit(ticket));
++    wait(ticket);
++    auto beforeUploads = uploads;
++    countedAllocations = 0; countAllocations = true;
++    assert(api->Commit(ticket));
++    countAllocations = false;
++    assert(!countedAllocations && uploads == beforeUploads);
++    assert(!light->pStaticShadowTexture->IsReady());
++    auto selected = R_FindEditedBrushSurfaceModel(&first);
++    assert(selected && selected != ordinary && !R_FindEditedBrushSurfaceModel(&second));
++    assert(g_WorldSurfaceWorldModels[1] == scene.geometry && g_WorldSurfaceModels[2]->m_pWorldModel.lock() == scene.geometry);
++    // Draw the production selected leaf; a same-model sibling retains all pixels.
++    const auto read = [&](const std::shared_ptr<CWorldSurfaceModel>& model) {
++        glViewport(0, 0, 64, 64); glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
++        glClearColor(0, 0, 0, 0); glClear(GL_COLOR_BUFFER_BIT);
++        shadow = false; gbuffer = false; recordStates = false;
++        R_DrawWorldSurfaceLeafStatic(model.get(), model->GetLeafByIndex(0).get());
++        R_DrawWorldSurfaceLeafAnim(model.get(), model->GetLeafByIndex(0).get());
++        std::vector<byte> pixels(64 * 64 * 4);
++        glReadPixels(0, 0, 64, 64, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
++        return pixels;
++    };
++    const auto editedPixels = read(selected), siblingPixels = read(g_WorldSurfaceModels[2]);
++    std::size_t changed = 0;
++    for (int y = 0; y < 64; ++y)
++        for (int x = 0; x < 64; ++x)
++        {
++            const auto at = (y * 64 + x) * 4;
++            const bool hole = x >= 16 && x < 32 && y >= 16 && y < 32;
++            assert(siblingPixels[at + 1] > 250);
++            assert((editedPixels[at] > 250) == hole);
++            assert((editedPixels[at + 1] > 250) != hole);
++            changed += hole;
++        }
++    beforeUploads = uploads; countedAllocations = 0; countAllocations = true;
++    for (int i = 0; i < 256; ++i)
++    {
++        assert(api->UpdateBrushSnapshot(9, 2, 42, identities, 2));
++        const auto model = R_FindEditedBrushSurfaceModel(&first);
++        assert(model && !R_FindEditedBrushSurfaceModel(&second));
++        R_DrawWorldSurfaceLeafStatic(model.get(), model->GetLeafByIndex(0).get());
++        R_DrawWorldSurfaceLeafAnim(model.get(), model->GetLeafByIndex(0).get());
++    }
++    countAllocations = false;
++    assert(countedAllocations == 0 && uploads == beforeUploads);
++    // Identity replacement, stale entity states, deletion, and revision changes
++    // all revoke selection without modifying the immutable geometry.
++    ++identities[0].serial;
++    light->pStaticShadowTexture->SetReady(true);
++    assert(api->UpdateBrushSnapshot(9, 2, 43, identities, 2));
++    assert(!light->pStaticShadowTexture->IsReady());
++    first.curstate.messagenum = 43;
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    --identities[0].serial;
++    assert(!api->UpdateBrushSnapshot(9, 2, 43, identities, 2)); // conflicting duplicate revokes
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    assert(api->UpdateBrushSnapshot(9, 2, 44, identities, 2));
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    first.curstate.messagenum = 44;
++    assert(R_FindEditedBrushSurfaceModel(&first));
++    assert(!api->UpdateBrushSnapshot(9, 2, 43, identities, 2)); // reorder does not replace current frame
++    assert(R_FindEditedBrushSurfaceModel(&first));
++    assert(api->UpdateBrushSnapshot(9, 2, 45, identities + 1, 1));
++    first.curstate.messagenum = 45;
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    assert(api->UpdateBrushSnapshot(9, 1, 46, identities, 2));
++    first.curstate.messagenum = 46;
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    assert(api->UpdateBrushSnapshot(9, 2, 47, identities, 2));
++    first.curstate.messagenum = 47;
++    assert(R_FindEditedBrushSurfaceModel(&first));
++    first.curstate.modelindex = 3; assert(!R_FindEditedBrushSurfaceModel(&first)); first.curstate.modelindex = 2;
++    first.curstate.solid = 0; assert(!R_FindEditedBrushSurfaceModel(&first)); first.curstate.solid = 4;
++    first.model = worldModel; assert(!R_FindEditedBrushSurfaceModel(&first)); first.model = &brush;
++    assert(!api->UpdateBrushSnapshot(9, 2, 48, identities, 1025));
++    assert(!R_FindEditedBrushSurfaceModel(&first));
++    assert(!api->UpdateBrushSnapshot(9, 2, 47, identities, 2)); // revocation cannot replay an old frame
++    MetaWorldEditTarget unordered[]{identities[1], identities[0]};
++    assert(!api->UpdateBrushSnapshot(9, 2, 48, unordered, 2));
++    assert(api->UpdateBrushSnapshot(9, 2, 48, identities, 2));
++    first.curstate.messagenum = 48;
++    // Same revision cannot change a target, nor may legacy Begin erase it.
++    cut.target.serial++;
++    assert(!api->BeginTargeted(&scene.model, 9, 2, &cut, 1));
++    cut.target.serial--;
++    assert(!api->Begin(&scene.model, 9, 2, nullptr, 0));
++    failUpload = true;
++    assert(!api->BeginTargeted(&scene.model, 9, 3, &cut, 1));
++    assert(R_FindEditedBrushSurfaceModel(&first) == selected);
++    failCreate = true;
++    assert(!api->BeginTargeted(&scene.model, 9, 3, &cut, 1));
++    failCreate = false;
++    assert(R_FindEditedBrushSurfaceModel(&first) == selected);
++    MetaWorldEditCut mixed[]{cut, cut}; mixed[1].target.serial++;
++    assert(!api->BeginTargeted(&scene.model, 9, 3, mixed, 2));
++    cut.target.inlineModel = 2;
++    assert(!api->BeginTargeted(&scene.model, 9, 3, &cut, 1));
++    cut.target.inlineModel = 1;
++    // Give two same-model slots different immutable cuts in one atomic commit.
++    MetaWorldEditCut both[]{cut, {{11, 456, 1}, {{80, 32, -8}, {112, 64, 8}}}};
++    ticket = api->BeginTargeted(&scene.model, 9, 3, both, 2);
++    assert(ticket); wait(ticket); assert(api->Commit(ticket));
++    assert(!R_FindEditedBrushSurfaceModel(&first)); // snapshot revision is older
++    assert(api->UpdateBrushSnapshot(9, 3, 49, identities, 2));
++    first.curstate.messagenum = second.curstate.messagenum = 49;
++    const auto one = R_FindEditedBrushSurfaceModel(&first), two = R_FindEditedBrushSurfaceModel(&second);
++    assert(one && two && one != two && one->m_pWorldModel.lock() != two->m_pWorldModel.lock());
++    const auto firstPixels = read(one), secondPixels = read(two);
++    assert(firstPixels != secondPixels);
++    first.origin[0] = 999; first.angles[1] = 90;
++    assert(R_FindEditedBrushSurfaceModel(&first) == one); // geometry remains model-local; native draw owns transform
++    std::array<MetaWorldEditTarget, 1024> full{};
++    full[0] = identities[0]; full[1] = identities[1];
++    for (uint32_t i = 2; i < full.size(); ++i) full[i] = {100 + i, i, 1};
++    full.back().slot = 65535;
++    assert(api->UpdateBrushSnapshot(9, 3, 0x3fffffff, full.data(), full.size()));
++    assert(api->UpdateBrushSnapshot(9, 3, 0x7ffffffe, full.data(), full.size()));
++    assert(api->UpdateBrushSnapshot(9, 3, 0x7fffffff, full.data(), full.size()));
++    assert(api->UpdateBrushSnapshot(9, 3, 0, full.data(), full.size()));
++    first.curstate.messagenum = 0;
++    assert(R_FindEditedBrushSurfaceModel(&first) == one);
++    beforeUploads = uploads; countedAllocations = 0; countAllocations = true;
++    for (uint32_t sequence = 1; sequence <= 4096; ++sequence)
++    {
++        assert(api->UpdateBrushSnapshot(9, 3, sequence, full.data(), full.size()));
++        first.curstate.messagenum = sequence;
++        assert(R_FindEditedBrushSurfaceModel(&first) == one);
++    }
++    countAllocations = false;
++    assert(!countedAllocations && beforeUploads == uploads);
++    ticket = api->BeginTargeted(&scene.model, 9, 4, nullptr, 0);
++    assert(ticket); wait(ticket); assert(api->Commit(ticket));
++    assert(!R_FindEditedBrushSurfaceModel(&first) && !R_FindEditedBrushSurfaceModel(&second));
++    ticket = api->BeginTargeted(&scene.model, 9, 5, &cut, 1);
++    assert(ticket); api->Cancel(ticket); assert(api->Poll(ticket) == MetaWorldEditStatus::Missing);
++    ticket = api->BeginTargeted(&scene.model, 9, 6, &cut, 1);
++    assert(ticket); R_ForgetWorldEdits(&brush); assert(api->Poll(ticket) == MetaWorldEditStatus::Missing);
++    api->Reset(); R_DrainWorldLeafTasks();
++    g_BSPDynamicLights.clear();
++    g_WorldSurfaceModels.clear(); g_WorldSurfaceWorldModels.clear();
++    {
++        Scene large(256);
++        worldModel = &large.model;
++        large.model.numsubmodels = 2;
++        auto loaded = R_PrepareWorldSurfaceLeafModel(large.geometry, &large.model, 0);
++        Finish(loaded);
++        g_WorldSurfaceModels = {nullptr, loaded};
++        g_WorldSurfaceWorldModels = {nullptr, large.geometry};
++        std::vector<MetaWorldEditCut> excessive(8192, cut);
++        for (uint32_t i = 0; i < excessive.size(); ++i) excessive[i].target.slot = i + 1;
++        beforeUploads = uploads;
++        assert(!api->BeginTargeted(&large.model, 19, 2, excessive.data(), excessive.size()));
++        assert(uploads == beforeUploads); // reject the known base mesh footprint before any candidate upload
++        api->Reset(); R_DrainWorldLeafTasks();
++        g_WorldSurfaceModels.clear(); g_WorldSurfaceWorldModels.clear();
++    }
++    gEngfuncs.CL_LoadModel = nullptr; gEngfuncs.hudGetModelByIndex = nullptr; candidateInline = nullptr;
++    recordStates = true;
++    assert(!liveWork && glGetError() == GL_NO_ERROR);
++    std::printf("{\"brushEditGL\":true,\"optionalABI\":true,\"sameModelIsolation\":true,\"distinctEdits\":true,\"changedPixels\":%zu,\"commitAllocations\":0,\"commitUploads\":0,\"warmFrames\":256,\"warmAllocations\":0,\"warmUploads\":0,\"snapshot1024Frames\":4096,\"snapshot1024Allocations\":0,\"sequenceWrap\":true,\"identityLifecycle\":true,\"meshBudgetPreflight\":true,\"restoreCancelUnload\":true,\"passed\":true}\n", changed);
++}
++
++void DecalDispatchIntegration()
++{
++    auto* edit = static_cast<IMetaRendererWorldEdit2*>(CreateInterface(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION, nullptr));
++    Scene scene(1);
++    worldModel = &scene.model;
++    scene.model.numsubmodels = 2;
++    dclipnode_t clip{0, {-1, -2}};
++    scene.model.hulls[0] = {&clip, &scene.plane, 0, 0};
++    glpoly_t polygon{};
++    polygon.numverts = 4;
++    for (int i = 0; i < 4; ++i)
++    {
++        auto& vertex = scene.geometry->m_pSurfaceMesh->vertices[i];
++        std::memcpy(polygon.verts[i], vertex.pos, sizeof(vec3_t));
++        polygon.verts[i][3] = polygon.verts[i][0] / 64;
++        polygon.verts[i][4] = polygon.verts[i][1] / 64;
++    }
++    scene.surfaces[0].polys = &polygon;
++    model_t brush = scene.model;
++    std::strcpy(brush.name, "*1");
++    brush.maxs[0] = brush.maxs[1] = 128; brush.radius = 200;
++    candidateInline = &brush;
++    gEngfuncs.CL_LoadModel = [](const char*, int* index) -> model_t* { *index = 2; return candidateInline; };
++    gEngfuncs.hudGetModelByIndex = [](int index) -> model_t* { return index == 2 ? candidateInline : nullptr; };
++    gEngfuncs.GetEntityByIndex = [](int index) -> cl_entity_t* { return index >= 0 && index < 64 ? fixtureEntities[index] : nullptr; };
++    auto ordinary = R_PrepareWorldSurfaceLeafModel(scene.geometry, &brush, 0);
++    auto original = R_PrepareWorldSurfaceLeafModel(scene.geometry, &scene.model, 0);
++    Finish(ordinary); Finish(original);
++    g_WorldSurfaceModels = {nullptr, original, ordinary};
++    g_WorldSurfaceWorldModels = {nullptr, scene.geometry};
++    cl_entity_t first{}, second{};
++    first.index = first.curstate.number = 10;
++    second.index = second.curstate.number = 11;
++    first.model = second.model = &brush;
++    first.curstate.modelindex = second.curstate.modelindex = 2;
++    first.curstate.solid = second.curstate.solid = 4;
++    first.curstate.messagenum = second.curstate.messagenum = 42;
++    fixtureEntities[10] = &first; fixtureEntities[11] = &second;
++    fixtureDecals = {};
++    gDecalPool = fixtureDecals.data();
++    int decalSurfaceCount{}; gDecalSurfCount = &decalSurfaceCount;
++    fixtureDecalTexture.width = fixtureDecalTexture.height = 128;
++    std::strcpy(fixtureDecalTexture.name, "fixture");
++    for (int i=0; i<2; ++i)
++    {
++        auto& decal=fixtureDecals[i]; decal.psurface=&scene.surfaces[0];
++        decal.scale=1; decal.entityIndex=static_cast<short>(10+i);
++    }
++    GLuint buffers[5]{}; glGenBuffers(5, buffers);
++    auto storage = [&](GLuint id, size_t size) {
++        glBindBuffer(GL_ARRAY_BUFFER,id); glBufferData(GL_ARRAY_BUFFER,size,nullptr,GL_DYNAMIC_DRAW);
++    };
++    storage(buffers[0], sizeof(decalvertex_t)*MAX_DECALVERTS*MAX_DECALS);
++    storage(buffers[1], sizeof(decalvertextbn_t)*MAX_DECALVERTS*MAX_DECALS);
++    storage(buffers[2], sizeof(brushinstancedata_t)*MAX_DECALS);
++    storage(buffers[3], sizeof(uint32_t)*MAX_DECALINDICES*MAX_DECALS);
++    storage(buffers[4], sizeof(entity_ubo_t));
++    std::copy(buffers,buffers+3,g_WorldSurfaceRenderer.hDecalVBO);
++    g_WorldSurfaceRenderer.hDecalEBO=buffers[3]; g_WorldSurfaceRenderer.hEntityUBO=buffers[4];
++    glGenVertexArrays(1,&g_WorldSurfaceRenderer.hDecalVAO);
++    glBindVertexArray(g_WorldSurfaceRenderer.hDecalVAO);
++    glBindBuffer(GL_ARRAY_BUFFER,buffers[0]);
++    glEnableVertexAttribArray(0); glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(decalvertex_t),nullptr);
++    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,buffers[3]); glBindVertexArray(0);
++    g_WorldSurfaceRenderer.vWorldMaterialTextureMapping={0};
++    g_WorldSurfaceRenderer.vWorldMaterials.resize(1);
++    r_refdef.vieworg=&viewOrigin; viewLeaf=&scene.leaves[1];
++    r_draw_classify=DRAW_CLASSIFY_LIGHTMAP|DRAW_CLASSIFY_DECAL|DRAW_CLASSIFY_WORLD;
++    entityMatrixLocation=glGetUniformLocation(shader,"entityMatrix");
++    dispatchTransform=true; recordStates=false; shadow=gbuffer=false;
++    const auto prepare = [&] {
++        for (auto& components:fixtureComponents) components.Reset();
++        R_PrepareDecals();
++    };
++    const auto draw = [&](cl_entity_t& ent) {
++        glViewport(0,0,64,64); glDisable(GL_DEPTH_TEST); glDisable(GL_CULL_FACE);
++        glClearColor(0,0,0,0); glClear(GL_COLOR_BUFFER_BIT);
++        R_DrawBrushModel(&ent);
++        std::array<byte,64*64*4> pixels{};
++        glReadPixels(0,0,64,64,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
++        assert(glGetError()==GL_NO_ERROR); return pixels;
++    };
++    const auto blue = [](const auto& pixels) {
++        size_t n=0; for(size_t i=2;i<pixels.size();i+=4)n+=pixels[i]>250; return n;
++    };
++    // Existing ordinary decals are cached before any cut is committed.
++    g_WorldSurfaceRenderer.bLightmapTexture=false;
++    prepare(); assert(blue(draw(first))==4096 && blue(draw(second))==4096);
++    std::array<decalvertex_t,4> initialVertices{};
++    glBindBuffer(GL_ARRAY_BUFFER,buffers[0]);
++    glGetBufferSubData(GL_ARRAY_BUFFER,0,sizeof(initialVertices),initialVertices.data());
++    for(const auto& vertex:initialVertices)
++    {
++        assert(std::fabs(vertex.lightmaptexcoord[0]-(vertex.pos[0]+8)/(BLOCK_WIDTH*16))<.000001f);
++        assert(std::fabs(vertex.lightmaptexcoord[1]-(vertex.pos[1]+8)/(BLOCK_HEIGHT*16))<.000001f);
++    }
++    MetaWorldEditTarget identities[]{{10,123,1},{11,456,1}};
++    MetaWorldEditCut cuts[]{{{10,123,1},{{32,32,-8},{64,64,8}}},{{11,456,1},{{80,32,-8},{112,64,8}}}};
++    assert(edit->UpdateBrushSnapshot(19,2,42,identities,2));
++    const auto commit = [&](uint64_t revision, size_t count) {
++        const auto ticket=edit->BeginTargeted(&scene.model,19,revision,cuts,count); assert(ticket);
++        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
++        while(edit->Poll(ticket)==MetaWorldEditStatus::Preparing) {
++            assert(std::chrono::steady_clock::now()<deadline); std::this_thread::sleep_for(std::chrono::milliseconds(1));
++        }
++        assert(edit->Poll(ticket)==MetaWorldEditStatus::Ready && edit->Commit(ticket));
++    };
++    commit(2,1);
++    // Change between preparation and draw must suppress the stale decal.
++    assert(blue(draw(first))==0 && blue(draw(second))==4096);
++    prepare();
++    const auto clipped=draw(first), sibling=draw(second);
++    assert(blue(clipped)==3840 && blue(sibling)==4096);
++    for(int y=0;y<64;++y)for(int x=0;x<64;++x)
++        assert((clipped[(y*64+x)*4+2]>250) != (x>=16&&x<32&&y>=16&&y<32));
++    assert(g_WorldSurfaceRenderer.vCachedDecals[0].carvedGeometry);
++    assert(!g_WorldSurfaceRenderer.vCachedDecals[1].carvedGeometry);
++    // Newly added decals follow the same real preparation/upload path.
++    fixtureDecals[2]=fixtureDecals[0]; fixtureDecals[2].flags=0;
++    prepare(); assert(g_WorldSurfaceRenderer.vCachedDecals[2].carvedGeometry);
++    assert(blue(draw(first))==3840);
++    fixtureDecals[2].psurface=nullptr; prepare();
++    // Native slot reuse with VBO flag retained must not reuse its old geometry.
++    fixtureDecals[0].entityIndex=11;
++    assert(blue(draw(first))==0);
++    prepare(); assert(blue(draw(second))==4096);
++    fixtureDecals[0].entityIndex=10; prepare(); assert(blue(draw(first))==3840);
++    // Changed signature after prepare is suppressed, then rebuilt next frame.
++    fixtureDecals[0].dx=.25f;
++    assert(blue(draw(first))==0);
++    prepare(); assert(blue(draw(first))>0);
++    fixtureDecals[0].dx=0; prepare();
++    commit(3,2);
++    assert(edit->UpdateBrushSnapshot(19,3,43,identities,2));
++    first.curstate.messagenum=second.curstate.messagenum=43;
++    prepare();
++    assert(blue(draw(first))==3840 && blue(draw(second))==3840 && draw(first)!=draw(second));
++    // Provider loss, null/replaced entries and stale snapshots select ordinary
++    // geometry and also rebuild ordinary decals, without leaving a stale hole.
++    const auto provider=gEngfuncs.hudGetModelByIndex;
++    gEngfuncs.hudGetModelByIndex=nullptr;
++    assert(!R_FindEditedBrushSurfaceModel(&first)); prepare(); assert(blue(draw(first))==4096);
++    gEngfuncs.hudGetModelByIndex=provider; candidateInline=nullptr;
++    assert(!R_FindEditedBrushSurfaceModel(&first)); prepare(); assert(blue(draw(first))==4096);
++    candidateInline=&scene.model;
++    assert(!R_FindEditedBrushSurfaceModel(&first)); prepare(); assert(blue(draw(first))==4096);
++    candidateInline=&brush; prepare(); assert(blue(draw(first))==3840);
++    first.curstate.messagenum=42; prepare(); assert(blue(draw(first))==4096);
++    first.curstate.messagenum=43; prepare();
++    // Rotating an entity changes rendered pixels and its frustum/PVS bounds.
++    first.origin[0]=128; first.angles[1]=90;
++    const auto rotated=draw(first); assert(blue(rotated)==3840 && rotated!=clipped);
++    for(int y=0;y<64;++y)for(int x=0;x<64;++x)
++        assert((rotated[(y*64+x)*4+2]>250) != (x>=32&&x<48&&y>=16&&y<32));
++    assert(std::fabs(lastCullMins[0]+1)<.001f && std::fabs(lastCullMaxs[0]-129)<.001f);
++    assert(std::fabs(lastPVSMins[0]-lastCullMins[0])<.001f);
++    first.curstate.movetype=MOVETYPE_PUSH;
++    first.curstate.animtime=1; first.latched.prevanimtime=.5f;
++    first.latched.prevorigin[0]=112; first.latched.prevangles[1]=90; gameTime=1.125;
++    draw(first); assert(std::fabs(lastCullMins[0]-3)<.001f && std::fabs(lastCullMaxs[0]-133)<.001f);
++    first.curstate.movetype=MOVETYPE_NONE; first.origin[0]=0; first.angles[1]=0;
++    // Native transform UBO updates remain; no mesh/decal upload or allocation.
++    prepare(); auto before=uploads, beforeEntity=entityUploads;
++    countedAllocations=0; countAllocations=true;
++    for(int frame=0;frame<256;++frame){prepare();R_DrawBrushModel(&first);R_DrawBrushModel(&second);}
++    countAllocations=false;
++    assert(countedAllocations==0 && entityUploads-beforeEntity==512 && uploads-before==512);
++    // New geometry upload failure removes the old floating decal and does not
++    // retry identical failed data every frame or inside a render pass.
++    fixtureDecals[0].dx=.125f; failUpload=true; prepare();
++    assert(!failUpload && blue(draw(first))==0);
++    before=uploads; beforeEntity=entityUploads; prepare(); draw(first);
++    assert(uploads-before==entityUploads-beforeEntity);
++    fixtureDecals[0].dx=0; prepare(); assert(blue(draw(first))==3840);
++    // Removed/native slots release carved resources and cannot draw dangling
++    // per-entity lists left from an earlier preparation within this frame.
++    fixtureDecals[0].psurface=nullptr; assert(blue(draw(first))==0);
++    prepare(); assert(!g_WorldSurfaceRenderer.vCachedDecals[0].carvedGeometry);
++    edit->Reset(); R_DrainWorldLeafTasks(); R_ClearDecalCache();
++    for(auto& components:fixtureComponents)components.Reset();
++    fixtureDecals={}; fixtureEntities={}; gDecalPool=nullptr; gDecalSurfCount=nullptr;
++    gEngfuncs.CL_LoadModel=nullptr; gEngfuncs.hudGetModelByIndex=nullptr; gEngfuncs.GetEntityByIndex=nullptr;
++    candidateInline=nullptr; currentEntity=&entity;
++    g_WorldSurfaceModels.clear(); g_WorldSurfaceWorldModels.clear();
++    glDeleteVertexArrays(1,&g_WorldSurfaceRenderer.hDecalVAO); g_WorldSurfaceRenderer.hDecalVAO=0;
++    glDeleteBuffers(5,buffers); std::fill(std::begin(g_WorldSurfaceRenderer.hDecalVBO),std::end(g_WorldSurfaceRenderer.hDecalVBO),0);
++    g_WorldSurfaceRenderer.hDecalEBO=g_WorldSurfaceRenderer.hEntityUBO=0;
++    dispatchTransform=false; recordStates=true;
++    assert(!liveWork && glGetError()==GL_NO_ERROR);
++    std::printf("{\"brushDecalDispatchGL\":true,\"exactProductionDispatch\":true,\"fullDecalUnitLinked\":true,\"existingAndNewDecals\":true,\"sameModelIsolation\":true,\"poolReuse\":true,\"providerFallback\":true,\"lateSuppressed\":true,\"rotatedPixels\":true,\"interpolatedCullBounds\":true,\"retainedPixels\":3840,\"cutPixels\":256,\"warmFrames\":256,\"warmAllocations\":0,\"warmGeometryUploads\":0,\"nativeEntityUBOWrites\":512,\"failedUploadSuppressed\":true,\"passed\":true}\n");
++}
 +
 +int main(int argc, char** argv)
 +{
@@ -12364,6 +13099,8 @@ index 0000000..8a5949c
 +        R_DrainWorldLeafTasks();
 +    }
 +    EditIntegration();
++    BrushEditIntegration();
++    DecalDispatchIntegration();
 +    glDeleteProgram(shader);
 +    assert(liveWork == 0 && glGetError() == GL_NO_ERROR);
 +    CloseHandle(entered);
@@ -12372,12 +13109,51 @@ index 0000000..8a5949c
 +    glfwDestroyWindow(window);
 +    glfwTerminate();
 +}
+diff --git a/tests/extract_brush_dispatch.py b/tests/extract_brush_dispatch.py
+new file mode 100644
+index 0000000..2fc42dc
+--- /dev/null
++++ b/tests/extract_brush_dispatch.py
+@@ -0,0 +1,33 @@
++from pathlib import Path
++import hashlib, json, re
++import argparse
++parser = argparse.ArgumentParser()
++parser.add_argument('--wsurf', type=Path, required=True)
++parser.add_argument('--rmain', type=Path, required=True)
++parser.add_argument('--output', type=Path, required=True)
++parser.add_argument('--manifest', type=Path, required=True)
++args = parser.parse_args()
++inputs = [(args.wsurf, ['R_ScrollSpeed', 'R_DrawWorldSurfaceModel', 'R_DrawBrushModel', 'R_PolygonToTriangleList']),
++          (args.rmain, ['R_RotateForEntity'])]
++out = ['''// Exact production bodies extracted by extract_brush_dispatch.py; do not hand edit.
++#include "gl_local.h"
++bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
++void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
++void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel*);
++''']
++evidence = []
++for file, names in inputs:
++    source=file.read_text(encoding='utf-8')
++    for name in names:
++        match=re.search(r'^(?:void|float) '+name+r'\([^;]*?\)\s*\{', source, re.M)
++        assert match, name
++        depth=1; end=match.end()
++        while depth:
++            if source[end]=='{': depth+=1
++            if source[end]=='}': depth-=1
++            end+=1
++        body=source[match.start():end]
++        out.append(body+'\n')
++        evidence.append({'source':str(file),'function':name,'sha256':hashlib.sha256(body.encode()).hexdigest()})
++args.output.write_text('\n'.join(out),encoding='utf-8')
++args.manifest.write_text(json.dumps(evidence,indent=2))
 diff --git a/include/Interface/IMetaRendererWorldEdit.h b/include/Interface/IMetaRendererWorldEdit.h
 new file mode 100644
-index 0000000..e0bb703
+index 0000000..029fb40
 --- /dev/null
 +++ b/include/Interface/IMetaRendererWorldEdit.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,57 @@
 +#pragma once
 +#include <interface.h>
 +#include <stdint.h>
@@ -12409,12 +13185,39 @@ index 0000000..e0bb703
 +    virtual void Reset() noexcept                 = 0;
 +};
 +#define METARENDERER_WORLD_EDIT_INTERFACE_VERSION "MetaRendererWorldEdit_API_001"
++
++// A distinct optional interface; API_001 and MetaRenderer_API_002 remain intact.
++// Inline model IDs are BSP *N indices, never engine precache model indices.
++struct MetaWorldEditTarget
++{
++    uint32_t slot, serial, inlineModel;
++};
++struct MetaWorldEditCut
++{
++    MetaWorldEditTarget target;
++    MetaWorldEditBox box;
++};
++static_assert(sizeof(MetaWorldEditTarget) == 12 && sizeof(MetaWorldEditCut) == 36);
++class IMetaRendererWorldEdit2 : public IMetaRendererWorldEdit
++{
++public:
++    virtual uint64_t BeginTargeted(model_s* world, uint64_t epoch, uint64_t revision,
++        const MetaWorldEditCut* cuts, uint32_t count) noexcept = 0;
++    // Publish only a complete, authenticated GCBrush frame, before drawing.
++    // A null entries pointer/count=0 is a valid empty frame. epoch=0 revokes
++    // validation after disconnect, incomplete/invalid input, or provider loss.
++    // No allocation/upload. Same sequence is accepted only for identical data.
++    virtual bool UpdateBrushSnapshot(uint64_t epoch, uint64_t revision, uint32_t sequence,
++        const MetaWorldEditTarget* entries, uint32_t count) noexcept = 0;
++};
++#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..ca035c9
+index 0000000..a02bca1
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,524 @@
++#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
 +#include <algorithm>
@@ -12422,6 +13225,8 @@ index 0000000..ca035c9
 +#include <stdexcept>
 +#include <iterator>
 +#include <tuple>
++#include <array>
++#include <charconv>
 +
 +namespace
 +{
@@ -12431,6 +13236,14 @@ index 0000000..ca035c9
 +    std::size_t                         index;
 +    std::shared_ptr<CWorldSurfaceModel> expected, prepared;
 +};
++struct Instance
++{
++    MetaWorldEditTarget identity{};
++    int engineModel{};
++    std::shared_ptr<CWorldSurfaceWorldModel> geometry;
++    std::shared_ptr<CWorldSurfaceModel> prepared;
++    bool snapshotValidated{};
++};
 +struct Pending
 +{
 +    uint64_t                                 ticket{}, epoch{}, revision{};
@@ -12438,9 +13251,13 @@ index 0000000..ca035c9
 +    std::vector<Entry>                       models;
 +    std::vector<carving::Box>                changedBounds;
 +    bool                                     failed{};
++    std::vector<Instance> instances;
++    std::vector<MetaWorldEditCut> cuts;
 +    ~Pending()
 +    {
 +        for (auto& entry : models)
++            if (entry.prepared) entry.prepared->RetireLeaves();
++        for (auto& entry : instances)
 +            if (entry.prepared) entry.prepared->RetireLeaves();
 +    }
 +};
@@ -12452,9 +13269,97 @@ index 0000000..ca035c9
 +    bool                                     committed{};
 +    std::shared_ptr<CWorldSurfaceWorldModel> original, active;
 +    std::unique_ptr<Pending>                 pending;
++    std::vector<Instance> instances;
++    std::vector<MetaWorldEditCut> cuts;
 +};
 +Session  session;
 +uint64_t nextTicket = 0;
++struct SnapshotSlot { uint64_t generation{}; uint32_t serial{}, model{}; };
++std::array<SnapshotSlot, goldcraft::brush::max_slots> snapshotSlots;
++uint64_t snapshotEpoch{}, snapshotRevision{}, snapshotGeneration{};
++uint32_t snapshotSequence{}, snapshotCount{};
++bool snapshotReady{}, snapshotSeen{};
++
++void RefreshInstanceShadows() noexcept
++{
++    bool changed = false;
++    for (auto& instance : session.instances)
++    {
++        const auto& slot = snapshotSlots[instance.identity.slot];
++        const bool valid = snapshotReady && snapshotEpoch == session.epoch && snapshotRevision >= session.revision &&
++            slot.generation == snapshotGeneration && slot.serial == instance.identity.serial && slot.model == instance.identity.inlineModel;
++        changed |= valid != instance.snapshotValidated;
++        instance.snapshotValidated = valid;
++    }
++    if (changed) R_InvalidateWorldShadowCaches({});
++}
++
++// Bounds immutable mesh copies before/after preparation. This is the mesh
++// CPU/GPU budget, not a promise that 1024 edited BSP instances fit in memory.
++constexpr uint64_t MeshBudget = 256ull * 1024 * 1024;
++uint64_t MeshBytes(const CWorldSurfaceWorldModel& geometry) noexcept
++{
++    if (!geometry.m_pSurfaceMesh) return 0;
++    const auto& mesh = *geometry.m_pSurfaceMesh;
++    uint64_t result = 2 * (uint64_t(mesh.vertices.size()) * sizeof(surface::Vertex) +
++        uint64_t(mesh.frames.size()) * sizeof(surface::Frame) +
++        uint64_t(mesh.instances.size()) * sizeof(surface::Instance) +
++        uint64_t(mesh.indices.size()) * sizeof(uint32_t));
++    result += uint64_t(mesh.faces.size()) * sizeof(surface::Face) +
++        uint64_t(geometry.m_vFaceBuffer.size()) * sizeof(geometry.m_vFaceBuffer[0]) +
++        uint64_t(geometry.m_vCavityDraws.size()) * (sizeof(cavity::Draw) + sizeof(CDrawIndexAttrib));
++    if (geometry.m_pCavityLighting)
++        result += 2 * (uint64_t(geometry.m_pCavityLighting->vertices.size()) * sizeof(surface::Range) +
++            uint64_t(geometry.m_pCavityLighting->values.size()) * sizeof(lighting::Value));
++    return result;
++}
++
++bool SameTarget(const MetaWorldEditTarget& a, const MetaWorldEditTarget& b) noexcept
++{ return a.slot == b.slot && a.serial == b.serial && a.inlineModel == b.inlineModel; }
++bool CutLess(const MetaWorldEditCut& a, const MetaWorldEditCut& b) noexcept
++{
++    return std::tie(a.target.slot, a.target.serial, a.target.inlineModel,
++        a.box.min[0], a.box.min[1], a.box.min[2], a.box.max[0], a.box.max[1], a.box.max[2]) <
++        std::tie(b.target.slot, b.target.serial, b.target.inlineModel,
++        b.box.min[0], b.box.min[1], b.box.min[2], b.box.max[0], b.box.max[1], b.box.max[2]);
++}
++bool LeavesReady(const std::shared_ptr<CWorldSurfaceModel>& model) noexcept
++{
++    if (!model) return false;
++    for (const auto& leaf : model->m_vLeaves)
++        if (leaf && (!leaf->m_bIsReady || leaf->m_bIsClosing.load())) return false;
++    return true;
++}
++
++std::shared_ptr<CWorldSurfaceWorldModel> PrepareGeometry(model_t* model,
++    std::span<const carving::Box> cuts)
++{
++    if (cuts.empty()) return session.original;
++    const auto& hull = model->hulls[0];
++    if (!hull.planes || !hull.clipnodes || model->numplanes < 1 || model->numplanes > 262144 ||
++        hull.lastclipnode < 0 || hull.lastclipnode >= 262144 || model->firstmodelsurface < 0 || model->nummodelsurfaces < 1)
++        throw std::invalid_argument("Invalid world edit hull");
++    std::vector<carving::Plane> planes;
++    std::vector<carving::HullNode> nodes;
++    planes.reserve(model->numplanes);
++    nodes.reserve(hull.lastclipnode + 1);
++    for (int i = 0; i < model->numplanes; ++i)
++    {
++        const auto& source = hull.planes[i];
++        carving::Plane plane{{}, source.dist};
++        if (source.type < 3) plane.normal[source.type] = 1;
++        else for (int axis = 0; axis < 3; ++axis) plane.normal[axis] = source.normal[axis];
++        planes.push_back(plane);
++    }
++    for (int i = 0; i <= hull.lastclipnode; ++i)
++    {
++        const auto& node = hull.clipnodes[i];
++        nodes.push_back({static_cast<uint32_t>(node.planenum), {node.children[0], node.children[1]}});
++    }
++    const cavity::Model source{static_cast<uint32_t>(model->firstmodelsurface),
++        static_cast<uint32_t>(model->nummodelsurfaces), {planes, nodes, hull.firstclipnode}, cuts};
++    return R_PrepareLitCarvedWorldGeometry(session.original, {&source, 1});
++}
 +
 +bool Current() noexcept
 +{
@@ -12482,30 +13387,54 @@ index 0000000..ca035c9
 +    if (pending.models.empty()) throw std::runtime_error("Missing loaded world surface model");
 +}
 +
-+class CMetaRendererWorldEdit final : public IMetaRendererWorldEdit
++class CMetaRendererWorldEdit final : public IMetaRendererWorldEdit2
 +{
 +public:
 +    uint64_t Begin(model_t* world, uint64_t epoch, uint64_t revision, const MetaWorldEditBox* boxes, uint32_t count) noexcept override
 +    {
 +        try
 +        {
++            if (count > 65536 || (count && !boxes)) return 0;
++            std::vector<MetaWorldEditCut> cuts;
++            cuts.reserve(count);
++            for (uint32_t i = 0; i < count; ++i) cuts.push_back({{}, boxes[i]});
++            return BeginTargeted(world, epoch, revision, cuts.data(), count);
++        }
++        catch (...) { return 0; }
++    }
++    uint64_t BeginTargeted(model_t* world, uint64_t epoch, uint64_t revision, const MetaWorldEditCut* edits, uint32_t count) noexcept override
++    {
++        try
++        {
 +            if (!world || !cl_worldmodel || world != *cl_worldmodel || world->type != mod_brush ||
-+                !epoch || count > 65536 || (count && !boxes) || !wglGetCurrentContext()) return 0;
++                !epoch || count > 65536 || (count && !edits) || !wglGetCurrentContext()) return 0;
 +            if (session.world && (!Current() || session.epoch != epoch || (session.committed && revision < session.revision))) return 0;
++            auto candidate = std::make_unique<Pending>();
++            candidate->cuts.reserve(count);
 +            std::vector<carving::Box> cuts;
 +            cuts.reserve(count);
 +            for (uint32_t i = 0; i < count; ++i)
 +            {
++                const auto& edit = edits[i];
++                if (edit.target.slot ? !brush::valid({edit.target.slot, edit.target.serial, edit.target.inlineModel}) :
++                    (edit.target.serial || edit.target.inlineModel)) return 0;
 +                carving::Box box;
 +                for (int axis = 0; axis < 3; ++axis)
 +                {
-+                    box.min[axis] = boxes[i].min[axis];
-+                    box.max[axis] = boxes[i].max[axis];
++                    box.min[axis] = edit.box.min[axis];
++                    box.max[axis] = edit.box.max[axis];
 +                    if (!std::isfinite(box.min[axis]) || !std::isfinite(box.max[axis]) ||
 +                        box.min[axis] >= box.max[axis]) return 0;
 +                }
-+                cuts.push_back(box);
++                candidate->cuts.push_back(edit);
++                if (!edit.target.slot) cuts.push_back(box);
 +            }
++            std::sort(candidate->cuts.begin(), candidate->cuts.end(), CutLess);
++            candidate->cuts.erase(std::unique(candidate->cuts.begin(), candidate->cuts.end(), [](const auto& a, const auto& b) {
++                return !CutLess(a, b) && !CutLess(b, a); }), candidate->cuts.end());
++            if (session.committed && revision == session.revision &&
++                (session.cuts.size() != candidate->cuts.size() || !std::equal(session.cuts.begin(), session.cuts.end(), candidate->cuts.begin(),
++                    [](const auto& a, const auto& b) { return !CutLess(a, b) && !CutLess(b, a); }))) return 0;
 +            const auto index = EngineGetModelIndex(world);
 +            if (index < 0) return 0;
 +            const auto current = R_GetWorldSurfaceWorldModel(world);
@@ -12517,7 +13446,6 @@ index 0000000..ca035c9
 +                session.epoch    = epoch;
 +                session.original = session.active = current;
 +            }
-+            auto candidate      = std::make_unique<Pending>();
 +            candidate->epoch    = epoch;
 +            candidate->revision = revision;
 +            std::vector<carving::Box> oldCuts, newCuts = cuts;
@@ -12538,37 +13466,62 @@ index 0000000..ca035c9
 +                (oldCuts.size() != newCuts.size() || !std::equal(oldCuts.begin(), oldCuts.end(), newCuts.begin(), [&](const auto& a, const auto& b) { return !less(a, b) && !less(b, a); }))) return 0;
 +            std::set_symmetric_difference(oldCuts.begin(), oldCuts.end(), newCuts.begin(), newCuts.end(),
 +                                          std::back_inserter(candidate->changedBounds), less);
-+            if (cuts.empty()) candidate->geometry = session.original;
-+            else
++            candidate->geometry = PrepareGeometry(world, cuts);
++            if (!cuts.empty()) R_PrepareCarvedWorldVisibility(*candidate->geometry, cuts);
++            uint64_t preparedBytes = MeshBytes(*candidate->geometry);
++            std::size_t instanceCount = 0;
++            for (std::size_t i = 0; i < candidate->cuts.size(); ++i)
++                if (candidate->cuts[i].target.slot && (!i || candidate->cuts[i - 1].target.slot != candidate->cuts[i].target.slot)) ++instanceCount;
++            const auto baseBytes = MeshBytes(*session.original);
++            if (instanceCount && (preparedBytes > MeshBudget || (baseBytes && instanceCount > (MeshBudget - preparedBytes) / baseBytes)))
++                throw std::length_error("Brush edit immutable mesh budget");
++            for (std::size_t first = 0; first < candidate->cuts.size();)
 +            {
-+                const auto& hull = world->hulls[0];
-+                if (!hull.planes || !hull.clipnodes || world->numplanes < 1 || world->numplanes > 262144 ||
-+                    hull.lastclipnode < 0 || hull.lastclipnode >= 262144 || world->firstmodelsurface < 0 || world->nummodelsurfaces < 1)
-+                    throw std::invalid_argument("Invalid world edit hull");
-+                std::vector<carving::Plane>    planes;
-+                std::vector<carving::HullNode> nodes;
-+                planes.reserve(world->numplanes);
-+                nodes.reserve(hull.lastclipnode + 1);
-+                for (int i = 0; i < world->numplanes; ++i)
++                const auto target = candidate->cuts[first].target;
++                auto last = first + 1;
++                while (last < candidate->cuts.size() && candidate->cuts[last].target.slot == target.slot)
 +                {
-+                    const auto&    source = hull.planes[i];
-+                    carving::Plane plane{{}, source.dist};
-+                    if (source.type < 3) plane.normal[source.type] = 1;
-+                    else
-+                        for (int axis = 0; axis < 3; ++axis) plane.normal[axis] = source.normal[axis];
-+                    planes.push_back(plane);
++                    if (!SameTarget(target, candidate->cuts[last].target))
++                        throw std::invalid_argument("Mixed brush identities in edit slot");
++                    ++last;
 +                }
-+                for (int i = 0; i <= hull.lastclipnode; ++i)
++                if (target.slot)
 +                {
-+                    const auto& node = hull.clipnodes[i];
-+                    nodes.push_back({static_cast<uint32_t>(node.planenum), {node.children[0], node.children[1]}});
++                    if (world->numsubmodels <= 0 || target.inlineModel >= static_cast<uint32_t>(world->numsubmodels) ||
++                        !gEngfuncs.CL_LoadModel || !gEngfuncs.hudGetModelByIndex)
++                        throw std::invalid_argument("Missing inline brush model provider");
++                    std::array<char, 16> name{};
++                    name[0] = '*';
++                    const auto encoded = std::to_chars(name.data() + 1, name.data() + name.size() - 1, target.inlineModel);
++                    if (encoded.ec != std::errc{}) throw std::invalid_argument("Inline brush model name");
++                    Instance instance;
++                    instance.identity = target;
++                    auto* model = gEngfuncs.CL_LoadModel(name.data(), &instance.engineModel);
++                    if (!model || model->type != mod_brush || instance.engineModel <= 0 ||
++                        gEngfuncs.hudGetModelByIndex(instance.engineModel) != model ||
++                        !std::equal(name.data(), encoded.ptr + 1, model->name) ||
++                        model->surfaces != world->surfaces || model->planes != world->planes)
++                        throw std::invalid_argument("Inline brush model identity/storage mismatch");
++                    std::vector<carving::Box> local;
++                    local.reserve(last - first);
++                    for (auto i = first; i < last; ++i)
++                    {
++                        carving::Box box;
++                        for (int axis = 0; axis < 3; ++axis)
++                        {
++                            box.min[axis] = candidate->cuts[i].box.min[axis];
++                            box.max[axis] = candidate->cuts[i].box.max[axis];
++                        }
++                        local.push_back(box);
++                    }
++                    instance.geometry = PrepareGeometry(model, local);
++                    const auto bytes = MeshBytes(*instance.geometry);
++                    if (bytes > MeshBudget - preparedBytes) throw std::length_error("Brush edit prepared mesh budget");
++                    preparedBytes += bytes;
++                    instance.prepared = R_PrepareWorldSurfaceLeafModel(instance.geometry, model, 0);
++                    candidate->instances.push_back(std::move(instance));
 +                }
-+                const cavity::Model model{static_cast<uint32_t>(world->firstmodelsurface),
-+                                          static_cast<uint32_t>(world->nummodelsurfaces),
-+                                          {planes, nodes, hull.firstclipnode},
-+                                          cuts};
-+                candidate->geometry = R_PrepareLitCarvedWorldGeometry(session.original, {&model, 1});
-+                R_PrepareCarvedWorldVisibility(*candidate->geometry, cuts);
++                first = last;
 +            }
 +            CollectModels(*candidate);
 +            if (++nextTicket == 0) ++nextTicket;
@@ -12610,6 +13563,14 @@ index 0000000..ca035c9
 +                        return MetaWorldEditStatus::Preparing;
 +                    }
 +                }
++            for (const auto& entry : pending.instances)
++                for (const auto& leaf : entry.prepared->m_vLeaves)
++                {
++                    if (!leaf) continue;
++                    if (leaf->m_bIsClosing.load() || (leaf->m_bTaskFinished.load(std::memory_order_acquire) && leaf->m_LoadError))
++                        throw std::runtime_error("Brush edit leaf failed");
++                    if (!leaf->m_bIsReady) return MetaWorldEditStatus::Preparing;
++                }
 +            return MetaWorldEditStatus::Ready;
 +        }
 +        catch (...)
@@ -12635,6 +13596,8 @@ index 0000000..ca035c9
 +            for (const auto& leaf : entry.prepared->m_vLeaves)
 +                if (leaf && (!leaf->m_bIsReady || leaf->m_bIsClosing.load())) return false;
 +        }
++        for (const auto& entry : pending.instances)
++            if (!LeavesReady(entry.prepared)) return false;
 +        for (auto& entry : pending.models)
 +        {
 +            entry.expected->RetireLeaves();
@@ -12644,10 +13607,17 @@ index 0000000..ca035c9
 +        session.active                           = std::move(pending.geometry);
 +        session.revision                         = pending.revision;
 +        session.committed                        = true;
++        for (auto& entry : session.instances) if (entry.prepared) entry.prepared->RetireLeaves();
++        // Swap only already-allocated immutable resources. Identity snapshots
++        // gate use on each draw; an absent/deleted slot never borrows a sibling.
++        session.instances.swap(pending.instances);
++        session.cuts.swap(pending.cuts);
++        RefreshInstanceShadows();
 +        // Decals compare immutable mesh identity on their next use and rebuild
 +        // only when their own bounds meet a cut, or a prior clipped decal must
 +        // be restored. Unaffected VBO slots remain resident.
-+        if (!pending.changedBounds.empty()) R_InvalidateWorldShadowCaches(pending.changedBounds);
++        if (!session.instances.empty() || !pending.instances.empty()) R_InvalidateWorldShadowCaches({});
++        else if (!pending.changedBounds.empty()) R_InvalidateWorldShadowCaches(pending.changedBounds);
 +        session.pending.reset();
 +        return true;
 +    }
@@ -12657,7 +13627,14 @@ index 0000000..ca035c9
 +    }
 +    void Reset() noexcept override
 +    {
++        snapshotReady = false;
++        snapshotSeen = false;
 +        session.pending.reset();
++        if (Current() && !session.instances.empty() && session.active == session.original)
++        {
++            R_ClearDecalCache();
++            R_InvalidateWorldShadowCaches({});
++        }
 +        if (Current() && session.active != session.original)
 +        {
 +            for (auto& model : g_WorldSurfaceModels)
@@ -12672,22 +13649,98 @@ index 0000000..ca035c9
 +        }
 +        session = {};
 +    }
++    bool UpdateBrushSnapshot(uint64_t epoch, uint64_t revision, uint32_t sequence,
++        const MetaWorldEditTarget* entries, uint32_t count) noexcept override
++    {
++        if (!epoch || !revision || sequence > brush::sequence_mask || count > brush::max_entities || (count && !entries))
++        {
++            snapshotReady = false;
++            RefreshInstanceShadows();
++            return false;
++        }
++        for (uint32_t i = 0; i < count; ++i)
++            if (!brush::valid({entries[i].slot, entries[i].serial, entries[i].inlineModel}) ||
++                (i && entries[i - 1].slot >= entries[i].slot))
++            {
++                snapshotReady = false;
++                RefreshInstanceShadows();
++                return false;
++            }
++        if (snapshotSeen && epoch == snapshotEpoch)
++        {
++            if (sequence == snapshotSequence)
++            {
++                bool identical = revision == snapshotRevision && count == snapshotCount;
++                for (uint32_t i = 0; i < count && identical; ++i)
++                {
++                    const auto& slot = snapshotSlots[entries[i].slot];
++                    identical = slot.generation == snapshotGeneration && slot.serial == entries[i].serial && slot.model == entries[i].inlineModel;
++                }
++                if (!identical) snapshotReady = false;
++                RefreshInstanceShadows();
++                return snapshotReady && identical;
++            }
++            if (((sequence - snapshotSequence) & brush::sequence_mask) >= 0x40000000) return false;
++        }
++        if (++snapshotGeneration == 0) { snapshotSlots = {}; ++snapshotGeneration; }
++        for (uint32_t i = 0; i < count; ++i)
++            snapshotSlots[entries[i].slot] = {snapshotGeneration, entries[i].serial, entries[i].inlineModel};
++        snapshotEpoch = epoch;
++        snapshotRevision = revision;
++        snapshotSequence = sequence;
++        snapshotCount = count;
++        snapshotReady = true;
++        snapshotSeen = true;
++        RefreshInstanceShadows();
++        return true;
++    }
 +};
 +} // namespace
 +
 +void R_ForgetWorldEdits(model_t* model) noexcept
 +{
-+    if (!model || model == session.world) session = {};
++    if (!model || model == session.world) { session = {}; snapshotReady = snapshotSeen = false; }
 +    else if (session.pending)
++    {
++        for (const auto& entry : session.pending->instances)
++            if (entry.prepared->m_model == model) { session.pending.reset(); break; }
++        if (session.pending)
 +        for (const auto& entry : session.pending->models)
 +            if (entry.expected->m_model == model)
 +            {
 +                session.pending.reset();
 +                break;
 +            }
++    }
++    if (model)
++        for (auto& entry : session.instances)
++            if (entry.prepared && entry.prepared->m_model == model)
++            {
++                entry.prepared->RetireLeaves();
++                entry.prepared.reset();
++                entry.geometry.reset();
++            }
++}
++
++std::shared_ptr<CWorldSurfaceModel> R_FindEditedBrushSurfaceModel(const cl_entity_t* entity) noexcept
++{
++    if (!entity || !snapshotReady || !session.committed || !Current() ||
++        snapshotEpoch != session.epoch || snapshotRevision < session.revision ||
++        entity->index <= 0 || entity->curstate.number != entity->index || entity->curstate.solid != 4 ||
++        static_cast<uint32_t>(entity->curstate.messagenum) != snapshotSequence) return {};
++    const auto found = std::lower_bound(session.instances.begin(), session.instances.end(), static_cast<uint32_t>(entity->index),
++        [](const Instance& entry, uint32_t slot) { return entry.identity.slot < slot; });
++    if (found == session.instances.end() || found->identity.slot != static_cast<uint32_t>(entity->index) ||
++        !found->prepared || entity->model != found->prepared->m_model || entity->curstate.modelindex != found->engineModel ||
++        !gEngfuncs.hudGetModelByIndex || gEngfuncs.hudGetModelByIndex(found->engineModel) != entity->model) return {};
++    const auto& slot = snapshotSlots[found->identity.slot];
++    if (slot.generation != snapshotGeneration || slot.serial != found->identity.serial || slot.model != found->identity.inlineModel)
++        return {};
++    return found->prepared;
 +}
 +
 +EXPOSE_SINGLE_INTERFACE(CMetaRendererWorldEdit, IMetaRendererWorldEdit, METARENDERER_WORLD_EDIT_INTERFACE_VERSION);
++EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CMetaRendererWorldEdit, IMetaRendererWorldEdit2, METARENDERER_WORLD_EDIT2_INTERFACE_VERSION, __g_CMetaRendererWorldEdit_singleton);
 diff --git a/src/world_edit_cache.cpp b/src/world_edit_cache.cpp
 new file mode 100644
 index 0000000..8bcc736

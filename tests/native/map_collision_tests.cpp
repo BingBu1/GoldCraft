@@ -431,6 +431,7 @@ void render_transaction() {
                  "\"failedCommitKeepsOld\":true,\"coalescesDeltas\":true,\"failureResync\":true,"
                  "\"restore\":true,\"dynamicRejectsAtomically\":true,\"passed\":true}\n";
 }
+#include "map_edit_transaction_tests.inc"
 int nested_predicate(physent_t *entity) {
     if (entity->info != 1)
         return 0;
@@ -1076,6 +1077,7 @@ int main(int argc, char **argv) {
         else {
             synthetic();
             render_transaction();
+            targeted_transaction();
             lifecycle();
             event_dispatch();
         }

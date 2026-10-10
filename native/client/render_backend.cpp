@@ -15,6 +15,7 @@ namespace {
 IMetaRenderer* renderer=nullptr;
 IMetaRendererScene* scene=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
+IMetaRendererWorldEdit2* targeted_edits=nullptr;
 IMetaRendererSceneCallbacks* callback=nullptr;
 void(*logger)(const std::string&)=nullptr;
 Statistics stats;
@@ -72,11 +73,15 @@ const Program& program(std::uint32_t flags) {
 const Statistics& statistics(){return stats;}
 bool scene_active(){return scene!=nullptr;}
 IMetaRendererWorldEdit* world_edit(){return edits;}
+IMetaRendererWorldEdit2* world_edit2(){return targeted_edits;}
 bool owns_context(){return current_context&&current_context==wglGetCurrentContext();}
 void set_light_shadow(int key,unsigned size){if(scene)scene->SetDynamicLightShadowSize(key,size);}
 
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
+    // VidInit revokes the prior transaction before Renderer/GL initialization.
+    // A failed initialization must not expose an earlier optional provider.
+    edits=nullptr;targeted_edits=nullptr;
     if(current_context!=wglGetCurrentContext()){
         programs.clear();hud_program=hud_vao=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;current_context=wglGetCurrentContext();
     }
@@ -95,7 +100,9 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.renderer=renderer!=nullptr;
     if(!renderer){logger("MetaRenderer_API_002 unavailable; Renderer scene disabled (no ABI guessing)");return false;}
     scene=static_cast<IMetaRendererScene*>(factory(METARENDERER_SCENE_INTERFACE_VERSION,nullptr));
-    edits=static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION,nullptr));
+    targeted_edits=static_cast<IMetaRendererWorldEdit2*>(factory(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION,nullptr));
+    edits=targeted_edits?static_cast<IMetaRendererWorldEdit*>(targeted_edits):
+        static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION,nullptr));
     if(scene){
         if(callback&&callback!=callbacks)scene->UnregisterSceneCallbacks(callback);
         callback=callbacks;scene->RegisterSceneCallbacks(callback);
@@ -105,10 +112,11 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     return true;
 }
 void shutdown(){
+    if(edits)edits->Reset();
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     if(owns_context()){if(hud_program)glDeleteProgram(hud_program);if(hud_vao)glDeleteVertexArrays(1,&hud_vao);}
     hud_program=hud_vao=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;
-    scene=nullptr;edits=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
+    scene=nullptr;edits=nullptr;targeted_edits=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
 }
 
 Mesh::~Mesh(){

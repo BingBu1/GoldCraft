@@ -468,6 +468,12 @@ bool MatchingHostProtocol(){
     static const auto expected=std::to_string(protocol_version);
     return value&&value==expected;
 }
+void PublishBrushSnapshot(){
+    try {
+        auto* entity=gEngfuncs.GetEntityByIndex(0);
+        map_edits.publish(render::world_edit(),entity?entity->model:nullptr,render::world_edit2());
+    }catch(const std::exception& error){Log(error.what());edit_recovery=true;}
+}
 int BrushIdentityMessage(const char*,int size,void* data){
     try{
         if(!MatchingHostProtocol()||size<0||!data)throw ProtocolError("Invalid GCBrush source/message");
@@ -475,6 +481,9 @@ int BrushIdentityMessage(const char*,int size,void* data){
     }catch(const std::exception& error){
         client_map::brush_identities().invalidate();Log(error.what());
     }
+    // Packet parsing can follow HUD_Frame. Publish or revoke before drawing,
+    // even when the edit ledger has no pending transaction.
+    PublishBrushSnapshot();
     return 1;
 }
 int EditMessage(const char*,int size,void* data){
@@ -606,6 +615,9 @@ void InitHud() {
     Log("client HUD hooks registered");
 }
 int VidInit() {
+    // Revoke while the old provider is still available. Keep the authenticated
+    // epoch so a same-map video reset can recover through a fresh snapshot.
+    map_edits.reset(world);edit_assembler.reset(world);edit_recovery=world!=0;next_edit_query=0;
     visible_entities::fixture_clear();
     client_vitals::reset();
     packet_client::reset();
@@ -936,7 +948,7 @@ void Frame(double time) {
         }
         try {
             auto* entity=gEngfuncs.GetEntityByIndex(0);
-            map_edits.pump(render::world_edit(),entity?entity->model:nullptr);
+            map_edits.pump(render::world_edit(),entity?entity->model:nullptr,render::world_edit2());
         } catch(const std::exception& error) { Log(error.what());edit_recovery=true; }
         if(edit_recovery)RequestEdits();
     }else if(map_edits.state().epoch){
@@ -1225,6 +1237,10 @@ int Redraw(float time,int intermission) {
 }
 void DrawNormal() { gExportfuncs.HUD_DrawNormalTriangles(); if(!render::scene_active())Draw(false); }
 void CreateEntities() {
+    if(MatchingHostProtocol())PublishBrushSnapshot();
+    else if(map_edits.state().epoch){
+        map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
+    }
     gExportfuncs.HUD_CreateEntities(); client_precache::create_entities();
     if(have_view){
         const float angles[]{observed_angles.x,observed_angles.y,observed_angles.z};

@@ -135,6 +135,17 @@ if(GOLDCRAFT_BUILD_CLIENT)
         # no loaded game process, hooks or desktop input are used by this test.
         add_executable(goldcraft_precache_client_tests tests/native/precache_client_tests.cpp)
         get_target_property(GOLDCRAFT_CLIENT_INCLUDES GoldCraft INCLUDE_DIRECTORIES)
+        add_executable(goldcraft_renderer_factory_tests tests/native/renderer_factory_tests.cpp)
+        target_include_directories(goldcraft_renderer_factory_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_compile_definitions(goldcraft_renderer_factory_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_compile_options(goldcraft_renderer_factory_tests PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+        set(GOLDCRAFT_TEST_RENDERER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/dist/renderer/svencoop/metahook" CACHE PATH "Staged Renderer for real DLL factory tests")
+        if(EXISTS "${GOLDCRAFT_TEST_RENDERER_ROOT}/plugins/Renderer_AVX2.dll")
+            add_test(NAME goldcraft_renderer_factory COMMAND goldcraft_renderer_factory_tests
+                "${GOLDCRAFT_TEST_RENDERER_ROOT}/dlls/FreeImage/FreeImage.dll"
+                "${GOLDCRAFT_TEST_RENDERER_ROOT}/dlls/UtilThreadTask.dll"
+                "${GOLDCRAFT_TEST_RENDERER_ROOT}/plugins/Renderer_AVX2.dll")
+        endif()
         target_include_directories(goldcraft_precache_client_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
         target_link_libraries(goldcraft_precache_client_tests PRIVATE goldcraft_common opengl32)
         target_compile_definitions(goldcraft_precache_client_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)

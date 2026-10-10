@@ -14,7 +14,10 @@ void EditTransaction::reset(std::uint64_t epoch) {
     if (renderer_)
         renderer_->Reset();
     renderer_ = nullptr;
+    targeted_ = nullptr;
     loaded_ = nullptr;
+    publication_ = 0;
+    published_ = false;
     dirty_ = false;
     desired_.reset(epoch);
     applied_.reset(epoch);
@@ -45,36 +48,104 @@ edits::Applied EditTransaction::accept(const edits::Delta &delta) {
     const auto result = next.accept(delta);
     return receive(std::move(next), result);
 }
-void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world) {
-    if (!desired_.ready() || !desired_.state().epoch)
-        return;
-    if (!renderer || !world)
-        return;
-    if (renderer_ && (renderer_ != renderer || (loaded_ && world != loaded_))) {
+void EditTransaction::provider_lost() {
+    const auto epoch = desired_.state().epoch;
+    cancel();
+    if (renderer_)
+        renderer_->Reset();
+    renderer_ = nullptr;
+    targeted_ = nullptr;
+    loaded_ = nullptr;
+    publication_ = 0;
+    published_ = dirty_ = false;
+    desired_.invalidate();
+    applied_.reset(epoch);
+    prepared_.reset(epoch);
+    client_map::brush_identities().invalidate();
+    client_map::reset();
+}
+void EditTransaction::publish(IMetaRendererWorldEdit *renderer, model_s *world,
+                              IMetaRendererWorldEdit2 *targeted) {
+    if (targeted && static_cast<IMetaRendererWorldEdit *>(targeted) != renderer) {
+        provider_lost();
+        throw ProtocolError("Client world edit interface mismatch");
+    }
+    if (renderer_ && (renderer_ != renderer || targeted_ != targeted ||
+                      (loaded_ && world != loaded_))) {
         // A world/provider replacement requires an authenticated new binding.
-        invalidate();
+        // Revoke both consumers before attempting any replacement preparation.
+        provider_lost();
         throw ProtocolError("Client world edit provider/model changed");
     }
+    if (!renderer)
+        return;
     renderer_ = renderer;
+    targeted_ = targeted;
     loaded_ = world;
+    if (!targeted_)
+        return;
+    auto &receiver = client_map::brush_identities();
+    const auto generation = receiver.publication();
+    if (published_ && generation == publication_)
+        return;
+    const auto *frame = receiver.frame();
+    if (!frame) {
+        // Revocation deliberately returns false in API002; it is not a failed
+        // publication and must not force a static-world snapshot retry.
+        targeted_->UpdateBrushSnapshot(0, 0, 0, nullptr, 0);
+    } else {
+        // These records have different C++ types. Copy into fixed owned storage;
+        // never reinterpret the receiver frame even when their layouts match.
+        for (std::size_t i = 0; i < frame->total; ++i) {
+            const auto &entry = frame->entries[i];
+            identities_[i] = {entry.slot, entry.serial, entry.model};
+        }
+        if (!targeted_->UpdateBrushSnapshot(frame->epoch, frame->revision, frame->sequence,
+                                           identities_.data(), frame->total)) {
+            receiver.invalidate();
+            targeted_->UpdateBrushSnapshot(0, 0, 0, nullptr, 0);
+            publication_ = 0;
+            published_ = true;
+            invalidate();
+            throw ProtocolError("Renderer rejected brush identity snapshot");
+        }
+    }
+    publication_ = generation;
+    published_ = true;
+}
+void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
+                           IMetaRendererWorldEdit2 *targeted) {
+    publish(renderer, world, targeted);
+    if (!desired_.ready() || !desired_.state().epoch || !renderer || !world)
+        return;
     if (dirty_) {
         try {
             prepared_ = desired_;
             std::vector<MetaWorldEditBox> boxes;
-            boxes.reserve(prepared_.state().cuts.size());
+            std::vector<MetaWorldEditCut> cuts;
+            if (targeted_)
+                cuts.reserve(prepared_.state().cuts.size());
+            else
+                boxes.reserve(prepared_.state().cuts.size());
             for (const auto &cut : prepared_.state().cuts) {
-                if (cut.target.slot)
+                if (cut.target.slot && !targeted_)
                     throw ProtocolError("Dynamic BSP edits require per-instance Renderer support");
                 MetaWorldEditBox box{};
                 for (int axis = 0; axis < 3; ++axis) {
                     box.min[axis] = cut.box.min[axis];
                     box.max[axis] = cut.box.max[axis];
                 }
-                boxes.push_back(box);
+                if (targeted_)
+                    cuts.push_back({{cut.target.slot, cut.target.serial, cut.target.model}, box});
+                else
+                    boxes.push_back(box);
             }
             physics_ = client_map::prepare(prepared_, world);
-            ticket_ = renderer_->Begin(world, prepared_.state().epoch, prepared_.state().revision,
-                                       boxes.data(), static_cast<uint32_t>(boxes.size()));
+            ticket_ = targeted_
+                ? targeted_->BeginTargeted(world, prepared_.state().epoch, prepared_.state().revision,
+                                           cuts.data(), static_cast<uint32_t>(cuts.size()))
+                : renderer_->Begin(world, prepared_.state().epoch, prepared_.state().revision,
+                                   boxes.data(), static_cast<uint32_t>(boxes.size()));
             if (!ticket_)
                 throw ProtocolError("Renderer refused world edit preparation");
             dirty_ = false;

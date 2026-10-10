@@ -39,6 +39,7 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks, void(*log)(const std::st
 void shutdown();
 bool scene_active();
 IMetaRendererWorldEdit* world_edit();
+IMetaRendererWorldEdit2* world_edit2();
 bool owns_context();
 void set_light_shadow(int key, unsigned size);
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba);
