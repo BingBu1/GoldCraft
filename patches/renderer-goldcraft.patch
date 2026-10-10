@@ -206,10 +206,10 @@ index 8c6651f..f09e672 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..4419477 100644
+index 6ce4285..23430be 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -125,8 +125,20 @@ set(RENDERER_SOURCES
+@@ -125,8 +125,22 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
@@ -218,7 +218,9 @@ index 6ce4285..4419477 100644
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_mesh.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_lighting.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/carved_visibility.cpp"
 +    src/gl_cavity_light.cpp
++    src/world_surface_access.cpp
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
@@ -1592,7 +1594,7 @@ index eeb137d..092d766 100644
  void R_StudioRenderFinal(void);
  void R_StudioSetupBones(void);
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..c67cad4 100644
+index 41f24f3..ea259e8 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
 @@ -85,30 +85,6 @@ CWorldSurfaceLeaf::~CWorldSurfaceLeaf()
@@ -1644,7 +1646,53 @@ index 41f24f3..c67cad4 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -2025,10 +2005,11 @@ void R_PrepareSmoothNormalForBrushModel(
+@@ -1315,45 +1295,6 @@ texture_t* R_FindTextureByTextureName(model_t* mod, const char* name)
+     return nullptr;
+ }
+ 
+-msurface_t* R_GetWorldSurfaceByIndex(model_t* mod, int index)
+-{
+-    msurface_t* surf;
+-
+-    if (g_iEngineType == ENGINE_GOLDSRC_HL25)
+-    {
+-        surf = (((msurface_hl25_t*)mod->surfaces) + index);
+-    }
+-    else
+-    {
+-        surf = mod->surfaces + index;
+-    }
+-
+-    return surf;
+-}
+-
+-int R_GetWorldSurfaceIndex(model_t* mod, msurface_t* surf)
+-{
+-    if (g_iEngineType == ENGINE_GOLDSRC_HL25)
+-    {
+-        auto surf25   = (msurface_hl25_t*)surf;
+-        auto surfbase = (msurface_hl25_t*)mod->surfaces;
+-        auto surfend  = surfbase + mod->numsurfaces;
+-
+-        if (surf25 >= surfbase && surf25 < surfend)
+-            return surf25 - surfbase;
+-
+-        return -1;
+-    }
+-
+-    auto surfbase = mod->surfaces;
+-    auto surfend  = surfbase + mod->numsurfaces;
+-
+-    if (surf >= surfbase && surf < surfend)
+-        return surf - surfbase;
+-
+-    return -1;
+-}
+-
+ mleaf_t* R_GetWorldLeafByIndex(model_t* mod, int index)
+ {
+     return mod->leafs + index;
+@@ -2025,10 +1966,11 @@ void R_PrepareSmoothNormalForBrushModel(
  */
  std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_t* mod)
  {
@@ -1660,7 +1708,7 @@ index 41f24f3..c67cad4 100644
  
      vVertexDataBuffer.reserve(mod->numvertexes);
      vInstanceDataBuffer.reserve(mod->numsurfaces);
-@@ -2230,6 +2211,18 @@ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_
+@@ -2230,6 +2172,18 @@ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_
      // Calculate smooth normals for all vertices
      R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
  
@@ -1679,7 +1727,7 @@ index 41f24f3..c67cad4 100644
      pWorldModel->hEBO = GL_GenBuffer();
      GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
  
-@@ -4536,7 +4529,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +4490,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -1689,19 +1737,20 @@ index 41f24f3..c67cad4 100644
          }
      }
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..131f4a1 100644
+index 0d340e9..3a580fd 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
-@@ -4,6 +4,8 @@
+@@ -4,6 +4,9 @@
  #include <memory>
  
  #include "gl_model.h"
 +#include "goldcraft/cavity_mesh.hpp"
 +#include "goldcraft/cavity_lighting.hpp"
++#include "goldcraft/carved_visibility.hpp"
  
  #define WSURF_DIFFUSE_TEXTURE  0
  #define WSURF_DETAIL_TEXTURE   1
-@@ -159,6 +161,12 @@ public:
+@@ -159,6 +162,12 @@ public:
      GLuint                              hEBO{};
      GLuint                              hVAO{};
      std::vector<CWorldSurfaceBrushFace> m_vFaceBuffer;
@@ -1714,7 +1763,7 @@ index 0d340e9..131f4a1 100644
  };
  
  class CWorldSurfaceModel
-@@ -274,6 +282,36 @@ typedef struct
+@@ -274,6 +283,57 @@ typedef struct
  
  extern CWorldSurfaceRenderer g_WorldSurfaceRenderer;
  
@@ -1747,6 +1796,27 @@ index 0d340e9..131f4a1 100644
 +// Caller selects a consecutive range with matching texture/shader state.
 +// Binds the prepared geometry and submits it without queries/uploads/allocations.
 +void R_DrawCavityGeometry(const CWorldSurfaceWorldModel& model, uint32_t first, uint32_t count);
++
++// Immutable per-view commands retain the exact geometry generation they index.
++// Build/cache these before submission, using visibility from the SAME map edit
++// candidate. Original leaf commands, decals and shadows still need coordinated
++// preparation; these functions alone do not publish a live revision.
++class CWorldSurfaceCavityView
++{
++public:
++    CWorldSurfaceCavityView() = default;
++    CWorldSurfaceCavityView(const CWorldSurfaceCavityView&) = delete;
++    CWorldSurfaceCavityView& operator=(const CWorldSurfaceCavityView&) = delete;
++    ~CWorldSurfaceCavityView();
++    std::shared_ptr<const CWorldSurfaceWorldModel> m_pWorldModel;
++    std::vector<uint32_t> m_vDrawIndices;
++    GLuint m_hABO{};
++};
++std::shared_ptr<const CWorldSurfaceCavityView> R_PrepareVisibleCavityGeometry(
++    std::shared_ptr<const CWorldSurfaceWorldModel> model,
++    const goldcraft::visibility::Prepared& visibility, uint32_t key);
++// Range indexes the visible list above; the caller batches matching states.
++void R_DrawVisibleCavityGeometry(const CWorldSurfaceCavityView& view, uint32_t first, uint32_t count);
 +
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
@@ -1781,7 +1851,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..57985be 100644
+index 93166e2..c7dbf04 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -1803,7 +1873,7 @@ index 93166e2..57985be 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,43 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,47 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -1817,6 +1887,8 @@ index 93166e2..57985be 100644
 +set_tests_properties(studio_shadow_gl_tests PROPERTIES SKIP_RETURN_CODE 2)
 +
 +add_executable(surface_mesh_gl_tests surface_mesh_gl_tests.cpp
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/carved_visibility.cpp"
++    "${PROJECT_SOURCE_DIR}/src/world_surface_access.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_cavity_light.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
@@ -1830,6 +1902,8 @@ index 93166e2..57985be 100644
 +set_tests_properties(surface_mesh_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
 +
 +add_executable(cavity_lighting_gl_tests cavity_lighting_gl_tests.cpp
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/carved_visibility.cpp"
++    "${PROJECT_SOURCE_DIR}/src/world_surface_access.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_cavity_light.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
@@ -3572,10 +3646,10 @@ index 0000000..96871bd
 +}
 diff --git a/src/gl_surface_edit.cpp b/src/gl_surface_edit.cpp
 new file mode 100644
-index 0000000..7af60bd
+index 0000000..82c5f28
 --- /dev/null
 +++ b/src/gl_surface_edit.cpp
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,252 @@
 +#include "gl_local.h"
 +#include <limits>
 +#include <stdexcept>
@@ -3623,6 +3697,15 @@ index 0000000..7af60bd
 +{
 +    glEnableVertexAttribArray(location);
 +    glVertexAttribPointer(location, components, GL_FLOAT, GL_FALSE, stride, offset);
++}
++void DrawCavityBuffer(const CWorldSurfaceWorldModel& model, GLuint buffer, uint32_t first, uint32_t count)
++{
++    glBindVertexArray(model.hVAO);
++    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer);
++    if (model.m_hCavityLightValues)
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_CAVITY_LIGHT_SSBO, model.m_hCavityLightValues);
++    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT,
++        reinterpret_cast<void*>(std::size_t(first) * sizeof(CDrawIndexAttrib)), count, 0);
 +}
 +} // namespace
 +
@@ -3699,12 +3782,47 @@ index 0000000..7af60bd
 +    if (!model.m_hCavityABO || first > model.m_vCavityDraws.size() ||
 +        count > model.m_vCavityDraws.size() - first || count > uint32_t((std::numeric_limits<GLsizei>::max)()))
 +        throw std::out_of_range("Cavity indirect draw range");
-+    glBindVertexArray(model.hVAO);
-+    glBindBuffer(GL_DRAW_INDIRECT_BUFFER, model.m_hCavityABO);
-+    if (model.m_hCavityLightValues)
-+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_CAVITY_LIGHT_SSBO, model.m_hCavityLightValues);
-+    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT,
-+        reinterpret_cast<void*>(std::size_t(first) * sizeof(CDrawIndexAttrib)), count, 0);
++    DrawCavityBuffer(model, model.m_hCavityABO, first, count);
++}
++
++CWorldSurfaceCavityView::~CWorldSurfaceCavityView()
++{
++    if (m_hABO) glDeleteBuffers(1, &m_hABO);
++}
++
++std::shared_ptr<const CWorldSurfaceCavityView> R_PrepareVisibleCavityGeometry(
++    std::shared_ptr<const CWorldSurfaceWorldModel> model,
++    const goldcraft::visibility::Prepared& visibility, uint32_t key)
++{
++    if (!model || !model->hVAO || model->m_vCavityDraws.size() > 65'536)
++        throw std::invalid_argument("Missing cavity geometry or excessive draw count");
++    const auto selected = visibility.view(key);
++    auto candidate = std::make_shared<CWorldSurfaceCavityView>();
++    candidate->m_pWorldModel = std::move(model);
++    std::vector<CDrawIndexAttrib> commands;
++    const auto& draws = candidate->m_pWorldModel->m_vCavityDraws;
++    for (std::size_t i = 0; i < draws.size(); ++i)
++    {
++        const auto& draw = draws[i];
++        if (!visibility.sees_bounds(selected, draw.bounds)) continue;
++        candidate->m_vDrawIndices.push_back(static_cast<uint32_t>(i));
++        commands.push_back({draw.indices.count, draw.instances.count, draw.indices.first, 0, draw.instances.first});
++    }
++    if (!commands.empty())
++    {
++        const SurfaceBindings restore;
++        UploadSurfaceBuffer(candidate->m_hABO, GL_DRAW_INDIRECT_BUFFER, commands);
++    }
++    return candidate;
++}
++
++void R_DrawVisibleCavityGeometry(const CWorldSurfaceCavityView& view, uint32_t first, uint32_t count)
++{
++    if (!count) return;
++    if (!view.m_pWorldModel || !view.m_hABO || first > view.m_vDrawIndices.size() ||
++        count > view.m_vDrawIndices.size() - first || count > uint32_t((std::numeric_limits<GLsizei>::max)()))
++        throw std::out_of_range("Visible cavity indirect draw range");
++    DrawCavityBuffer(*view.m_pWorldModel, view.m_hABO, first, count);
 +}
 +
 +namespace
@@ -3786,10 +3904,10 @@ index 0000000..7af60bd
 +}
 diff --git a/tests/surface_mesh_gl_tests.cpp b/tests/surface_mesh_gl_tests.cpp
 new file mode 100644
-index 0000000..90d49e9
+index 0000000..c2102ed
 --- /dev/null
 +++ b/tests/surface_mesh_gl_tests.cpp
-@@ -0,0 +1,427 @@
+@@ -0,0 +1,536 @@
 +// Driver-backed readback of the production candidate resource and VAO layout.
 +// No CS process or desktop input is used; the GLFW window remains hidden.
 +#include "../src/gl_local.h"
@@ -3801,11 +3919,15 @@ index 0000000..90d49e9
 +#include <cstdio>
 +#include <stdexcept>
 +
++int g_iEngineType = ENGINE_GOLDSRC;
++
 +namespace
 +{
 +constexpr int Size = 64;
 +using Pixels       = std::vector<float>;
 +static PFNGLBUFFERSTORAGEPROC real_storage;
++static PFNGLBUFFERDATAPROC real_data;
++static PFNGLBUFFERSUBDATAPROC real_sub_data;
 +static GLuint                 failed_buffer;
 +static int                    failure_after;
 +static std::vector<GLuint>     attempted_buffers;
@@ -3815,6 +3937,14 @@ index 0000000..90d49e9
 +{
 +    ++submissions;
 +    real_multi_draw(mode, type, indirect, count, stride);
++}
++void APIENTRY Data(GLenum target, GLsizeiptr bytes, const void* data, GLenum usage)
++{
++    ++uploads; real_data(target, bytes, data, usage);
++}
++void APIENTRY SubData(GLenum target, GLintptr offset, GLsizeiptr bytes, const void* data)
++{
++    ++uploads; real_sub_data(target, offset, bytes, data);
 +}
 +void APIENTRY                 Storage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags)
 +{
@@ -3933,9 +4063,9 @@ index 0000000..90d49e9
 +    const float depth = 1;
 +    glClearBufferfv(GL_DEPTH, 0, &depth);
 +    glBindVertexArray(model.hVAO);
-+    const auto& face = model.m_vFaceBuffer[0];
-+    glDrawElementsInstancedBaseInstance(GL_TRIANGLES, face.index_count, GL_UNSIGNED_INT,
-+                                        reinterpret_cast<void*>(std::size_t(face.start_index) * 4), face.instance_count, face.instance_index);
++    for (const auto& face : model.m_vFaceBuffer)
++        glDrawElementsInstancedBaseInstance(GL_TRIANGLES, face.index_count, GL_UNSIGNED_INT,
++            reinterpret_cast<void*>(std::size_t(face.start_index) * 4), face.instance_count, face.instance_index);
 +    if (cavities)
 +        R_DrawCavityGeometry(model, 0, static_cast<uint32_t>(model.m_vCavityDraws.size()));
 +    return Readback();
@@ -3986,6 +4116,100 @@ index 0000000..90d49e9
 +        assert(reinterpret_cast<std::size_t>(pointer) == offsets[i]);
 +    }
 +    assert(glGetError() == GL_NO_ERROR);
++}
++void VisibilityCommands(const std::shared_ptr<CWorldSurfaceWorldModel>& original)
++{
++    using namespace goldcraft;
++    auto mesh = std::make_shared<surface::Mesh>();
++    mesh->instances = original->m_pOriginalMesh->instances;
++    for (uint32_t side = 0; side < 2; ++side)
++    {
++        for (auto vertex : original->m_pOriginalMesh->vertices)
++        {
++            vertex.pos[0] = vertex.pos[0] * .5f + side * 64;
++            mesh->vertices.push_back(vertex);
++        }
++        for (auto frame : original->m_pOriginalMesh->frames) mesh->frames.push_back(frame);
++        for (auto index : original->m_pOriginalMesh->indices) mesh->indices.push_back(index + side * 4);
++        mesh->faces.push_back({{side * 6, 6}, {}, {side, 1}, 1, true});
++    }
++    auto base = std::make_shared<CWorldSurfaceWorldModel>(original->m_model);
++    base->m_pOriginalMesh = base->m_pSurfaceMesh = mesh; base->m_vFaceBuffer.resize(2);
++    const std::vector<carving::Plane> planes{{{0, 0, 1}, 0}};
++    const std::vector<carving::HullNode> nodes{{0, {-1, -2}}};
++    const std::vector<carving::Box> cuts{{{16, 32, -8}, {32, 64, 8}}, {{96, 32, -8}, {112, 64, 8}}};
++    const cavity::Model carving{0, 2, {planes, nodes, 0}, cuts};
++    auto geometry = R_PrepareCarvedWorldGeometry(base, {&carving, 1});
++    assert(geometry->m_vCavityDraws.size() == 2);
++    auto source = std::make_shared<visibility::Source>();
++    source->planes = {{{0, 0, 1}, 0}, {{1, 0, 0}, 64}};
++    source->nodes = {{0, {1, -1}}, {1, {-3, -2}}};
++    source->contents = {-2, -1, -1}; source->pvs = {1, 2};
++    const visibility::Prepared visibility(source, cuts), restored(source, {});
++    const auto left = R_PrepareVisibleCavityGeometry(geometry, visibility, 1);
++    const auto right = R_PrepareVisibleCavityGeometry(geometry, visibility, 2);
++    const auto both = R_PrepareVisibleCavityGeometry(geometry, visibility, 0);
++    const auto empty = R_PrepareVisibleCavityGeometry(geometry, restored, 1);
++    assert(left->m_vDrawIndices == std::vector<uint32_t>{0});
++    assert(right->m_vDrawIndices == std::vector<uint32_t>{1});
++    assert(both->m_vDrawIndices == (std::vector<uint32_t>{0, 1}));
++    assert(empty->m_vDrawIndices.empty() && !empty->m_hABO);
++    const auto all_pixels = Draw(*geometry, true);
++    const auto base_pixels = Draw(*geometry);
++    R_DrawVisibleCavityGeometry(*left, 0, 1); const auto left_pixels = Readback();
++    (void)Draw(*geometry); R_DrawVisibleCavityGeometry(*right, 0, 1); const auto right_pixels = Readback();
++    std::size_t left_count = 0, right_count = 0;
++    for (int y = 0; y < Size; ++y) for (int x = 0; x < Size; ++x)
++    {
++        const auto pixel = (y * Size + x) * 4;
++        const bool is_left = x >= 8 && x < 16 && y >= 16 && y < 32;
++        const bool is_right = x >= 48 && x < 56 && y >= 16 && y < 32;
++        left_count += is_left; right_count += is_right;
++        for (int a = 0; a < 4; ++a) for (int c = 0; c < 4; ++c)
++        {
++            assert(left_pixels[a][pixel + c] == (is_left ? all_pixels : base_pixels)[a][pixel + c]);
++            assert(right_pixels[a][pixel + c] == (is_right ? all_pixels : base_pixels)[a][pixel + c]);
++        }
++    }
++    (void)Draw(*geometry);
++    R_DrawVisibleCavityGeometry(*both, 1, 1); R_DrawVisibleCavityGeometry(*both, 0, 1);
++    assert(Readback() == all_pixels);
++    real_multi_draw = glMultiDrawElementsIndirect; glMultiDrawElementsIndirect = MultiDraw; submissions = 0;
++    R_DrawVisibleCavityGeometry(*empty, 0, 0); assert(submissions == 0);
++    glMultiDrawElementsIndirect = real_multi_draw;
++    // All metadata/commands are prepared before drawing. A failed replacement
++    // deletes its buffer, restores bindings and leaves the prior cache usable.
++    real_storage = glBufferStorage; glBufferStorage = Storage;
++    GLint saved_vao{}, saved_array{}, saved_element{}, saved_indirect{};
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &saved_vao); glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &saved_array);
++    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &saved_element); glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &saved_indirect);
++    attempted_buffers.clear(); failure_after = 1; bool rejected = false;
++    try { (void)R_PrepareVisibleCavityGeometry(geometry, visibility, 0); }
++    catch (const std::runtime_error&) { rejected = true; }
++    glBufferStorage = real_storage;
++    assert(rejected && attempted_buffers.size() == 1 && !glIsBuffer(attempted_buffers[0]));
++    Bindings(saved_vao, saved_array, saved_element, saved_indirect);
++    attempted_buffers.clear();
++    (void)Draw(*geometry); R_DrawVisibleCavityGeometry(*left, 0, 1); assert(Readback() == left_pixels);
++    std::weak_ptr<CWorldSurfaceWorldModel> lifetime = geometry;
++    geometry.reset(); assert(!lifetime.expired() && left->m_pWorldModel == right->m_pWorldModel);
++    glDepthFunc(GL_LEQUAL);
++    for (int i = 0; i < 32; ++i) R_DrawVisibleCavityGeometry(*left, 0, 1);
++    glFinish(); GLuint query{}; glGenQueries(1, &query);
++    real_data = glBufferData; real_sub_data = glBufferSubData;
++    glBufferStorage = Storage; glBufferData = Data; glBufferSubData = SubData;
++    glMultiDrawElementsIndirect = MultiDraw; uploads = submissions = 0;
++    glBeginQuery(GL_TIME_ELAPSED, query);
++    const auto started = std::chrono::steady_clock::now();
++    for (int i = 0; i < 256; ++i) R_DrawVisibleCavityGeometry(*left, 0, 1);
++    const auto cpu = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count();
++    glEndQuery(GL_TIME_ELAPSED); GLuint64 gpu{}; glGetQueryObjectui64v(query, GL_QUERY_RESULT, &gpu);
++    assert(uploads == 0 && submissions == 256 && gpu);
++    glBufferStorage = real_storage; glBufferData = real_data; glBufferSubData = real_sub_data;
++    glMultiDrawElementsIndirect = real_multi_draw; glDeleteQueries(1, &query); glDepthFunc(GL_LESS);
++    assert(glGetError() == GL_NO_ERROR);
++    std::printf("{\"cavityVisibilityGL\":true,\"totalCommands\":2,\"selectedCommands\":1,\"selectedPixels\":%zu,\"excludedPixels\":%zu,\"emptyViewNoDraw\":true,\"gpuFailureRecovered\":true,\"retainsGeometry\":true,\"uploadsDuringDraw\":0,\"submitCpuUsPerBatch\":%.3f,\"gpuUsPerBatch\":%.3f,\"passed\":true}\n",
++        left_count, right_count, cpu / 256, double(gpu) / 256 / 1000);
 +}
 +} // namespace
 +int main()
@@ -4040,6 +4264,9 @@ index 0000000..90d49e9
 +    Bindings(sentinel, buffers[0], buffers[1], buffers[2]);
 +    const auto shader = Program();
 +    glUseProgram(shader);
++    VisibilityCommands(original);
++    glBindVertexArray(sentinel);
++    glBindBuffer(GL_ARRAY_BUFFER, buffers[0]); glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffers[2]);
 +    const auto before = Draw(*original);
 +    assert(Depth(20, 20) == .5f);
 +    const goldcraft::surface::Selection cut{0, 1, {{32, 32, -8}, {64, 64, 8}}};
@@ -4219,7 +4446,7 @@ index 0000000..90d49e9
 +}
 diff --git a/src/gl_cavity_light.cpp b/src/gl_cavity_light.cpp
 new file mode 100644
-index 0000000..3bf9155
+index 0000000..185651f
 --- /dev/null
 +++ b/src/gl_cavity_light.cpp
 @@ -0,0 +1,137 @@
@@ -4288,7 +4515,7 @@ index 0000000..3bf9155
 +    for (std::size_t index = model.first_face; index < std::size_t(model.first_face) + model.face_count; ++index)
 +    {
 +        const auto& face = mesh.faces[index];
-+        const auto& surface = original.m_model->surfaces[index];
++        const auto& surface = *R_GetWorldSurfaceByIndex(original.m_model, static_cast<int>(index));
 +        // Sky/water have no appropriate receiver luxels. Missing samples are
 +        // unknown lighting, never the fullbright fallback of R_BuildLightMap.
 +        if (!face.editable || !face.forward.count || !surface.samples) continue;
@@ -4360,12 +4587,60 @@ index 0000000..3bf9155
 +    }
 +    return result;
 +}
+diff --git a/src/world_surface_access.cpp b/src/world_surface_access.cpp
+new file mode 100644
+index 0000000..61ba839
+--- /dev/null
++++ b/src/world_surface_access.cpp
+@@ -0,0 +1,42 @@
++#include "gl_local.h"
++
++// Keep all BSP surface indexing on the same engine-specific stride. HL25
++// extends each record; the shared model_t still exposes an msurface_t pointer.
++msurface_t* R_GetWorldSurfaceByIndex(model_t* mod, int index)
++{
++    msurface_t* surf;
++
++    if (g_iEngineType == ENGINE_GOLDSRC_HL25)
++    {
++        surf = (((msurface_hl25_t*)mod->surfaces) + index);
++    }
++    else
++    {
++        surf = mod->surfaces + index;
++    }
++
++    return surf;
++}
++
++int R_GetWorldSurfaceIndex(model_t* mod, msurface_t* surf)
++{
++    if (g_iEngineType == ENGINE_GOLDSRC_HL25)
++    {
++        auto surf25   = (msurface_hl25_t*)surf;
++        auto surfbase = (msurface_hl25_t*)mod->surfaces;
++        auto surfend  = surfbase + mod->numsurfaces;
++
++        if (surf25 >= surfbase && surf25 < surfend)
++            return surf25 - surfbase;
++
++        return -1;
++    }
++
++    auto surfbase = mod->surfaces;
++    auto surfend  = surfbase + mod->numsurfaces;
++
++    if (surf >= surfbase && surf < surfend)
++        return surf - surfbase;
++
++    return -1;
++}
 diff --git a/tests/cavity_lighting_gl_tests.cpp b/tests/cavity_lighting_gl_tests.cpp
 new file mode 100644
-index 0000000..5b0b65d
+index 0000000..63336c0
 --- /dev/null
 +++ b/tests/cavity_lighting_gl_tests.cpp
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,303 @@
 +// Actual world shaders, BSP luxel extraction and candidate resources on a
 +// hidden driver-backed GL context. No desktop input or game process is used.
 +#include "../src/gl_local.h"
@@ -4380,6 +4655,8 @@ index 0000000..5b0b65d
 +#include <source_location>
 +#include <stdexcept>
 +#include "cavity_map_fixture.h"
++
++int g_iEngineType = ENGINE_GOLDSRC;
 +
 +namespace
 +{
@@ -4669,10 +4946,10 @@ index 0000000..5b0b65d
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..607eb24
+index 0000000..e0fa6c1
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,264 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -4707,10 +4984,71 @@ index 0000000..607eb24
 +    }
 +};
 +
++std::shared_ptr<const goldcraft::visibility::Source> MapVisibility(const CavityBspFile& bsp)
++{
++    using namespace goldcraft;
++    auto source=std::make_shared<visibility::Source>();
++    for (std::size_t i=0;i<bsp.lengths[1]/20;++i) {
++        const auto at=bsp.Record(1,i,20);
++        source->planes.push_back({{bsp.F32(at),bsp.F32(at+4),bsp.F32(at+8)},bsp.F32(at+12)});
++    }
++    const auto world=bsp.Record(14,0,64), leaves=std::size_t(bsp.U32(world+52));
++    // The file also contains brush submodels with leaves beyond world.visleafs.
++    // Snapshot the reachable WORLD tree; those leaves have no world PVS row.
++    std::vector<std::int32_t> mapping(bsp.lengths[5]/24,-1);
++    const auto copy_node=[&](auto&& self,std::int32_t index)->std::int32_t {
++        if (index<0) { assert(std::size_t(-1-index)<=leaves); return index; }
++        assert(std::size_t(index)<mapping.size());
++        if (mapping[index]>=0) return mapping[index];
++        const auto result=static_cast<std::int32_t>(source->nodes.size()); mapping[index]=result;
++        const auto at=bsp.Record(5,index,24);
++        source->nodes.push_back({bsp.U32(at),{}});
++        const auto front=self(self,std::bit_cast<std::int16_t>(bsp.U16(at+4)));
++        const auto back=self(self,std::bit_cast<std::int16_t>(bsp.U16(at+6)));
++        source->nodes[result].children={front,back}; return result;
++    };
++    source->root=copy_node(copy_node,std::bit_cast<std::int32_t>(bsp.U32(world+36)));
++    const auto words=(leaves+63)/64, bytes=(leaves+7)/8;
++    source->pvs.resize(words*leaves);
++    for (std::size_t i=0;i<=leaves;++i) {
++        const auto at=bsp.Record(10,i,28);
++        source->contents.push_back(std::bit_cast<std::int32_t>(bsp.U32(at)));
++        if (!i) continue;
++        const auto offset=std::bit_cast<std::int32_t>(bsp.U32(at+4));
++        auto* row=source->pvs.data()+(i-1)*words;
++        if (offset<0) { std::fill_n(row,words,~std::uint64_t{}); continue; }
++        std::size_t input=std::size_t(offset), output=0;
++        // Independent, bounded decoding of the actual file's Quake PVS bytes.
++        while (output<bytes) {
++            assert(input<bsp.lengths[4]); const auto value=bsp.bytes[bsp.offsets[4]+input++];
++            if (value) { row[output/8]|=std::uint64_t(value)<<((output%8)*8); ++output; }
++            else {
++                assert(input<bsp.lengths[4]); const auto run=bsp.bytes[bsp.offsets[4]+input++];
++                // ReHLDS cmodel.cpp::CM_DecompressPVS clips a terminal zero
++                // run to the requested row width (real map rows can be padded).
++                assert(run); output+=(std::min)(std::size_t(run),bytes-output);
++            }
++        }
++    }
++    return source;
++}
++std::uint32_t MapLeaf(const goldcraft::visibility::Source& source, const goldcraft::carving::Point& point)
++{
++    auto index=source.root;
++    while (index>=0) {
++        const auto& node=source.nodes[index]; const auto& plane=source.planes[node.plane];
++        double distance=-plane.distance;
++        for (int i=0;i<3;++i) distance+=plane.normal[i]*point[i];
++        index=node.children[distance>=0?0:1];
++    }
++    return static_cast<std::uint32_t>(-1-index);
++}
++
 +void ActualMapLighting(const char* path)
 +{
 +    using namespace goldcraft;
 +    const CavityBspFile bsp(path);
++    const auto visibility_source=MapVisibility(bsp);
 +    std::vector<mplane_t> planes(bsp.lengths[1]/20);
 +    std::vector<carving::Plane> hullPlanes;
 +    for (std::size_t i=0;i<planes.size();++i) {
@@ -4786,9 +5124,30 @@ index 0000000..607eb24
 +    const auto world=bsp.Record(14,0,64), first=bsp.U32(world+56), count=bsp.U32(world+60);
 +    const carving::HullView hull{hullPlanes,nodes,std::bit_cast<std::int32_t>(bsp.U32(world+36))};
 +    model_t model{}; model.numsurfaces=static_cast<int>(surfaces.size()); model.surfaces=surfaces.data();
++    std::vector<msurface_hl25_t> hl25(surfaces.size());
++    for (std::size_t i=0;i<surfaces.size();++i) {
++        std::memset(&hl25[i],0x5a,sizeof(hl25[i]));
++        static_cast<msurface_t&>(hl25[i])=surfaces[i];
++    }
++    model_t model25=model; model25.surfaces=hl25.data();
++    for (int engine : {ENGINE_GOLDSRC_BLOB,ENGINE_GOLDSRC,ENGINE_SVENGINE,ENGINE_GOLDSRC_HL25,ENGINE_GOLDSRC_COF}) {
++        g_iEngineType=engine;
++        auto* selected=engine==ENGINE_GOLDSRC_HL25?&model25:&model;
++        for (int i=0;i<model.numsurfaces;++i) {
++            auto* expected=engine==ENGINE_GOLDSRC_HL25?static_cast<msurface_t*>(&hl25[i]):&surfaces[i];
++            assert(R_GetWorldSurfaceByIndex(selected,i)==expected);
++            assert(R_GetWorldSurfaceIndex(selected,expected)==i);
++        }
++        assert(R_GetWorldSurfaceIndex(selected,R_GetWorldSurfaceByIndex(selected,model.numsurfaces))==-1);
++    }
++    g_iEngineType=ENGINE_GOLDSRC;
 +    auto original=std::make_shared<CWorldSurfaceWorldModel>(&model); original->m_pOriginalMesh=mesh; original->m_pSurfaceMesh=mesh;
 +    original->m_vFaceBuffer.resize(mesh->faces.size());
++    auto original25=std::make_shared<CWorldSurfaceWorldModel>(&model25);
++    original25->m_pOriginalMesh=mesh; original25->m_pSurfaceMesh=mesh; original25->m_vFaceBuffer=original->m_vFaceBuffer;
 +    std::size_t cases=0, rays=0, occluded=0, values=0, samples=0, triangles=0;
++    std::size_t opened_rays=0, bounded_views=0, max_visible=0, vis_operations=0;
++    double visibility_us=0;
 +    double totalUs=0, maxUs=0;
 +    for (std::size_t f=first;f<std::size_t(first)+count && cases<12;f+=count/24) {
 +        const auto& face=mesh->faces[f]; if (!face.editable || !surfaces[f].samples || !face.forward.count) continue;
@@ -4797,10 +5156,40 @@ index 0000000..607eb24
 +            for (int j=0;j<3;++j) center[j]+=mesh->vertices[mesh->indices[at]].pos[j]/double(face.forward.count);
 +        carving::Box cut{}; for (int j=0;j<3;++j) { cut.min[j]=center[j]-16; cut.max[j]=center[j]+16; }
 +        const cavity::Model carvingModel{first,count,hull,{&cut,1}};
++        const auto vis_started=std::chrono::steady_clock::now();
++        const visibility::Prepared visibility(visibility_source,{&cut,1});
++        const auto view=visibility.view(visibility.key(MapLeaf(*visibility_source,center),center));
++        std::size_t visible_count=0;
++        for (auto word : view.leaves) visible_count+=std::popcount(word);
++        max_visible=(std::max)(max_visible,visible_count);
++        bounded_views+=visible_count+1<visibility_source->contents.size();
++        vis_operations+=visibility.operations()+view.operations;
++        visibility_us+=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-vis_started).count();
++        std::vector<std::pair<carving::Point,std::uint32_t>> points;
++        for (int x=-1;x<=1;++x) for (int y=-1;y<=1;++y) for (int z=-1;z<=1;++z) {
++            carving::Point p{center[0]+24*x,center[1]+24*y,center[2]+24*z};
++            const auto leaf=MapLeaf(*visibility_source,p); if (leaf) points.emplace_back(p,leaf);
++        }
++        for (std::size_t a=0;a<points.size();++a) for (std::size_t b=a+1;b<points.size();++b) {
++            std::size_t work=0;
++            if (lighting::visible(hull,{},points[a].first,points[b].first,work,1'000'000) ||
++                !lighting::visible(hull,{&cut,1},points[a].first,points[b].first,work,1'000'000)) continue;
++            assert(visibility.view(points[a].second).sees_leaf(points[b].second));
++            assert(visibility.view(points[b].second).sees_leaf(points[a].second));
++            ++opened_rays;
++        }
 +        const auto started=std::chrono::steady_clock::now();
 +        const auto lit=R_PrepareLitCarvedWorldGeometry(original,{&carvingModel,1});
 +        const auto elapsed=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-started).count();
 +        assert(lit->m_pCavityLighting && !lit->m_vCavityDraws.empty());
++        g_iEngineType=ENGINE_GOLDSRC_HL25;
++        const auto lit25=R_PrepareLitCarvedWorldGeometry(original25,{&carvingModel,1});
++        g_iEngineType=ENGINE_GOLDSRC;
++        assert(lit25->m_pCavityLighting && *lit25->m_pSurfaceMesh==*lit->m_pSurfaceMesh);
++        assert(lit25->m_pCavityLighting->vertices==lit->m_pCavityLighting->vertices);
++        assert(lit25->m_pCavityLighting->values==lit->m_pCavityLighting->values);
++        assert(lit25->m_pCavityLighting->rays==lit->m_pCavityLighting->rays);
++        assert(lit25->m_pCavityLighting->occluded==lit->m_pCavityLighting->occluded);
 +        for (const auto& draw : lit->m_vCavityDraws) {
 +            assert(!draw.needs_lighting); triangles+=draw.indices.count/3;
 +            for (std::size_t at=draw.indices.first;at<std::size_t(draw.indices.first)+draw.indices.count;++at)
@@ -4817,6 +5206,10 @@ index 0000000..607eb24
 +        totalUs+=elapsed; maxUs=(std::max)(maxUs,elapsed); ++cases;
 +    }
 +    assert(cases==12 && rays>0 && values>0 && occluded>0 && occluded<rays);
++    assert(opened_rays && bounded_views);
++    std::printf("{\"mapCarvedVisibility\":true,\"cases\":%zu,\"leaves\":%zu,\"newSightlines\":%zu,\"boundedViews\":%zu,\"maxVisibleLeaves\":%zu,\"operations\":%zu,\"prepareCpuUsMean\":%.3f,\"passed\":true}\n",
++        cases,visibility_source->contents.size()-1,opened_rays,bounded_views,max_visible,vis_operations,visibility_us/cases);
++    std::printf("{\"surfaceLayouts\":true,\"engines\":5,\"surfacesPerEngine\":%zu,\"hl25MapCandidates\":%zu,\"identicalGeometryAndLighting\":true,\"passed\":true}\n",surfaces.size(),cases);
 +    std::printf("{\"mapCavityLighting\":true,\"map\":\"cs_assault\",\"crc32\":\"f6725c06\",\"cases\":%zu,\"samples\":%zu,\"rays\":%zu,\"occluded\":%zu,\"styleValues\":%zu,\"triangles\":%zu,\"prepareCpuUsMean\":%.3f,\"prepareCpuUsMax\":%.3f,\"passed\":true}\n",
 +        cases,samples,rays,occluded,values,triangles,totalUs/cases,maxUs);
 +}
