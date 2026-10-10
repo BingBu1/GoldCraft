@@ -19,6 +19,8 @@ python .\tools\Build-EpicFightMaid.py
 
 当前工作区已将 `.2` 更新到主实例及 A/B/服务端；四份 JAR 哈希一致，旧版已备份并移出各 `mods` 目录，后续计划为空。客户端画面和菜单操作尚未验收。
 
+2026-10-10 修复真实客户端启动时的 `Duplicate client extensions registration for ef_tlm:skillbook`：NeoForge 21.1.256 仍自动调用旧 `Item.initializeClient`，之前的事件处理器又调用了一次。现在由普通工厂创建原自定义渲染扩展，仅在 `RegisterClientExtensionsEvent` 注册。构建和完整补丁重放通过，主实例/A/B/服务端同步后，真实 B 已成功入服并显示 Mod 背包物品；技能书渲染、技能菜单及动画仍需进一步验收。
+
 把构建 JAR 放入 X 管理的 `sandbox/modpack-neoforge/GoldCraft-1.21.1-NeoForge/mods`，仅保留一个 `ef_tlm` 版本。然后使用现有 [统一 Mod 管理](MOD_MANAGEMENT.md)：
 
 ```powershell

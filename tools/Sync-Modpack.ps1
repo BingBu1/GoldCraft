@@ -73,8 +73,10 @@ foreach($item in $requested) {
     $stamp=[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')
     $arguments=@('-NoLogo','-NoProfile','-File',('"'+$launchScript+'"'),'-Role',$item.Role,'-Instance',$item.Instance,'-Map',$Map,'-Loader',$Loader,'-Wait')
     if($item.Role -eq 'CsClient'){$arguments+='-Capture'}
-    # A hidden real console gives ReHLDS its required console input handle.
-    $launch=@{FilePath=(Join-Path $PSHOME 'pwsh.exe');ArgumentList=$arguments;WindowStyle='Hidden';PassThru=$true;WorkingDirectory=$script:GoldCraftRoot}
+    # The user operates ReHLDS through its own visible command console. Other
+    # role launchers stay hidden and keep their bounded diagnostic logs.
+    $windowStyle=if($item.Role -eq 'CsServer'){'Normal'}else{'Hidden'}
+    $launch=@{FilePath=(Join-Path $PSHOME 'pwsh.exe');ArgumentList=$arguments;WindowStyle=$windowStyle;PassThru=$true;WorkingDirectory=$script:GoldCraftRoot}
     if($item.Role -ne 'CsServer') {
         $launch.RedirectStandardOutput=Join-Path $logDirectory "launch-$($item.Role)-$stamp.log"
         $launch.RedirectStandardError=Join-Path $logDirectory "launch-$($item.Role)-$stamp.error.log"

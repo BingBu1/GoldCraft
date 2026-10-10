@@ -47,11 +47,11 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 $start=[Diagnostics.ProcessStartInfo]::new()
 $start.UseShellExecute=$false
 # ReHLDS CTextConsoleWin32 reads console input events. A pipe/NUL input can
-# repeatedly abort startup; inherit the launcher's hidden PTY for this role.
+# repeatedly abort startup; inherit the launcher's visible console for this role.
 if($Role -eq 'CsServer' -and [Console]::IsInputRedirected){throw 'Run CsServer in a console/PTY; ReHLDS requires a console input handle.'}
 $start.CreateNoWindow=$Role -notin @('CsClient','CsServer')
 $start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
-if($Role -eq 'CsClient'){$start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal}
+if($Role -in @('CsClient','CsServer')){$start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal}
 $start.Environment['GOLDCRAFT_CLIENT_PORT']=[string]$config.clientPort
 $start.Environment['METAHOOK_ERROR_LOG']=Join-Path $logDir 'metahook-errors.log'
 $start.Environment['GOLDCRAFT_CLIENT_SESSION']=$config.clientSession
@@ -181,11 +181,14 @@ g
         Set-Content -LiteralPath $argumentFile -Encoding utf8NoBOM
     $start.ArgumentList.Add('@'+$argumentFile)
 }
-if($Wait){$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true}
+$captureOutput=$Wait -and $Role -ne 'CsServer'
+# ReHLDS owns an interactive Windows console. Redirecting its stdout/stderr
+# hides the server text and breaks the console display used for local commands.
+if($captureOutput){$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true}
 $prunedLogs=Remove-OldSandboxRunLogs -LogDirectory $logDir -Role $Role -ReserveRun:$Wait
 if($prunedLogs){Write-Host "Removed $prunedLogs old $Role log files; retaining the latest runs."}
 $process=[Diagnostics.Process]::Start($start)
-if($Wait){
+if($captureOutput){
     $stamp=[DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
     $outFile=[IO.File]::Open((Assert-SandboxPath (Join-Path $logDir "$Role-$stamp.stdout.log")),[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::Read)
     $errFile=[IO.File]::Open((Assert-SandboxPath (Join-Path $logDir "$Role-$stamp.stderr.log")),[IO.FileMode]::Create,[IO.FileAccess]::Write,[IO.FileShare]::Read)
@@ -196,7 +199,10 @@ if($Wait){
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $instanceRoot "process-$Role.json") -Encoding utf8
 Write-Host "$Role started as PID $($process.Id), isolated game path $game"
 if($Wait){
-    try{$process.WaitForExit();$outCopy.GetAwaiter().GetResult();$errCopy.GetAwaiter().GetResult()}
-    finally{$outFile.Dispose();$errFile.Dispose()}
+    try{
+        $process.WaitForExit()
+        if($captureOutput){$outCopy.GetAwaiter().GetResult();$errCopy.GetAwaiter().GetResult()}
+    }
+    finally{if($captureOutput){$outFile.Dispose();$errFile.Dispose()}}
     Write-Host "$Role exited with code $($process.ExitCode)";exit $process.ExitCode
 }
