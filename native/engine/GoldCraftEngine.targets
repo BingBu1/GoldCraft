@@ -15,6 +15,23 @@
       <PreprocessorDefinitions>GOLDCRAFT_MAP_DELIVERY_FIXTURE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS' and '$(GoldCraftPacketEntitiesFixture)' == 'true'">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\packet_entities_test.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\common\wire.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <PreprocessorDefinitions>NOMINMAX;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS' and '$(GoldCraftPacketEntitiesFixture)' == 'true'">
+    <ClCompile>
+      <PreprocessorDefinitions>GOLDCRAFT_PACKET_ENTITIES_FIXTURE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>bcrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
     <ClCompile>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\engine;$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

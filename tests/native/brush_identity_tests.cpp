@@ -66,7 +66,7 @@ int main() {
     deliver(empty);
     assert(!receiver.matches(replacement.entries[0], empty.sequence, 83, 9));
 
-    auto many = frame(103, 256);
+    auto many = frame(103, 1024);
     Buffer data;
     auto length = brush::encode(many, 0, data);
     assert(!receiver.accept({data.data(), length}));
@@ -122,18 +122,25 @@ int main() {
     rejects([&] { receiver.accept({data.data(), length}); });
 
     receiver.reset(83);
+    // A complete 1024-entry sideband is 64 individually valid native user
+    // messages, and must commit atomically. A1025 header cannot publish.
+    assert(brush::packet_bytes(1024) == 11904);
+    length = brush::encode(frame(400, 1024), 0, data);
+    data[20] = 1; data[21] = 4;
+    rejects([&] { receiver.accept({data.data(), length}); });
+    receiver.reset(83);
     const auto allocation_start = allocations;
     const auto time = std::chrono::steady_clock::now();
     unsigned matches = 0;
     for (unsigned i = 0; i < 4096; ++i) {
-        const auto value = frame(500 + i, 256);
+        const auto value = frame(500 + i, 1024);
         deliver(value);
-        for (unsigned j = 0; j < 256; ++j)
+        for (unsigned j = 0; j < 1024; ++j)
             matches += receiver.matches(value.entries[j], value.sequence, 83, 9);
     }
     const auto elapsed = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - time).count();
     const auto used = allocations - allocation_start;
-    assert(used == 0 && matches == 4096 * 256);
+    assert(used == 0 && matches == 4096 * 1024);
     std::cout << "{\"brushIdentity\":true,\"frames\":4096,\"lookups\":" << matches
               << ",\"allocations\":" << used << ",\"frameRoundTripUs\":" << elapsed / 4096
               << ",\"sameFrameSerialModel\":true,\"atomicFragments\":true,\"lossWrapReset\":true,\"passed\":true}\n";

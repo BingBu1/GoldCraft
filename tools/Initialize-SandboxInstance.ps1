@@ -111,6 +111,11 @@ if($LASTEXITCODE){throw 'Visible-entity engine identity verification failed'}
 $visibleCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-visible')
 New-Item -ItemType Directory -Path $visibleCatalog -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-visible') -Filter '*.json' | Copy-Item -Destination $visibleCatalog -Force
+& python (Join-Path $PSScriptRoot 'Build-PacketEntityGameData.py') --engine (Join-Path $game 'hw.dll')
+if($LASTEXITCODE){throw 'Packet-entity engine identity verification failed'}
+$packetCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-packet')
+New-Item -ItemType Directory -Path $packetCatalog -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-packet') -Filter '*.json' | Copy-Item -Destination $packetCatalog -Force
 $enableRenderer=$Renderer -or ((Test-Path -LiteralPath $pluginsFile) -and ((Get-Content -LiteralPath $pluginsFile) -contains 'Renderer_AVX2.dll'))
 if($enableRenderer) {
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $game 'cstrike/cl_dlls/client.dll') --existing-catalog $gameDataDir

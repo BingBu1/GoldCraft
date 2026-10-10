@@ -16,6 +16,7 @@
     "tools/Build-NeoForge.ps1", "tools/Build-ReHLDS.ps1", "tools/Build-Renderer.ps1", "tools/Check-PublicSource.py",
     "tools/Build-BulletPhysics.ps1", "tools/Build-VGUI2Extension.ps1", "tools/Build-InterpFix.ps1", "tools/Build-PrecacheGameData.py", "tools/ClangToolchain.ps1", "tools/Configure-Clang.ps1",
     "tools/Build-VisibleEntityGameData.py", "tools/Test-VisibleEntityEngine.py", "tools/Exercise-VisibleEntities.py",
+    "tools/Build-PacketEntityGameData.py", "tools/Test-PacketEntityClient.py", "tools/Exercise-PacketEntities.py", "docs/2026-10-10_分析-实体快照1024-report.md",
     "tools/Test-VitalsClient.py", "tools/Exercise-Vitals.py", "amxx/tests/goldcraft_vitals_test.sma",
     "tools/Inspect-MetaHookRuntime.py", "tools/Exercise-StudioLifecycle.py", "tools/Exercise-RendererPerformance.py", "tools/Exercise-RendererReference.py", "tools/Exercise-NativeJoin.py",
     "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Verify-SurfaceMesh.py", "tools/Verify-EventTraces.py", "tools/Verify-RenderBackend.py", "tools/Exercise-Precache.py",

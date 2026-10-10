@@ -1,6 +1,6 @@
 # GoldSrc 动态 BSP 身份与快照容量
 
-日期：2026-10-10。身份通道和独立测试已完成；动态 BSP 几何消费者及实际 B 收包尚未完成。当前每快照仍为 256 个实体，网络扩容目标已由用户改为 **1,024**，交由协作聊天实现；现有 4,096 绘制队列保留。
+日期：2026-10-10。身份通道和独立测试已完成；动态 BSP 几何消费者及实际 B 收包尚未完成。本报告保留扩容前每快照 256 个实体的取证记录；后续 **1024 实体及匹配客户端传输**见[快照扩容报告](2026-10-10_分析-实体快照1024-report.md)。现有 4096 绘制队列保留。
 
 ## 范围
 
@@ -13,7 +13,7 @@
 | E01 | `analysis/world-carving/brush-engine-analysis.json`：匹配引擎的 clientdata 读取 incoming sequence；实体发布把它写入公开 `entity_state.messagenum`，再保存上一状态、发布当前状态 | `d4ed210b4c681a84d330a649dac9779c07dfb9df6783eba4ec1860150927bdcf`；离线 IDA 复核需同哈希副本 |
 | E02 | [客户端探针](../tests/native/brush_engine_tests.cpp) 实际执行上述发布函数，验证同槽同模型换代和 `iuser1..4` 保留；仅无关模型查询与动画依赖用适配器替换 | `e5298b38dfd319643f3f0d9ad56d03fbab652483ab34f1785b5a15b9ea1edabc`；运行下述原生构建 |
 | E03 | `analysis/world-carving/brush-native-1791619118900318100.json`：23 项独立专服检查，通过真实 `AddToFullPack` 与正式身份编码器产生字节，再由 E02 重放 | `e39e45c5abe11b1f4afd8f658ca7dccb66a4398ecb83ce1a734d488ed7e0c719`；`python tools/Exercise-BrushIdentity.py` |
-| E04 | 固定 ReHLDS `rehlds/common/qlimits.h:42` 定义 256；`SV_WriteEntitiesToClient` 先放玩家，其余按编号扫描，数量达到上限就停止；delta 对旧有但不在新集合内的实体写移除记录 | 当前 `qlimits.h` 哈希 `cab214e0d9c68c13f090380a11886ba519fadb75cefffb972ef68eeb927be3f6`，`sv_main.cpp` 哈希 `86d9cbe3cd3c495c3aa1fee0300a67cb2eb7df16596e824a4fc40652c15a72bb`；[补丁](../patches/rehlds-goldcraft.patch)重放后搜索函数 |
+| E04 | 扩容前 ReHLDS `rehlds/common/qlimits.h:42` 定义 256；`SV_WriteEntitiesToClient` 先放玩家，其余按编号扫描，数量达到上限就停止；delta 对旧有但不在新集合内的实体写移除记录 | 当时 `qlimits.h` 哈希 `cab214e0d9c68c13f090380a11886ba519fadb75cefffb972ef68eeb927be3f6`，`sv_main.cpp` 哈希 `86d9cbe3cd3c495c3aa1fee0300a67cb2eb7df16596e824a4fc40652c15a72bb`；历史身份检查点 `80afda0`，最新[补丁](../patches/rehlds-goldcraft.patch)已包含扩容 |
 | E05 | [身份协议测试](../tests/native/brush_identity_tests.cpp)：4,096 帧、1,048,576 查询，分配计数 0；截断、分段顺序、重复、丢包、回绕和 epoch 隔离通过 | 26 项 CTest 的实际执行日志与产物哈希见 `analysis/world-carving/brush-evidence.json`；[证据校验工具](../tools/Verify-BrushIdentity.py) |
 
 独立测试的受控实体快照没有通过 UDP 发给 B；E02 只执行状态发布，不代表完整收包、预测或绘制。这些边界同样写入测试脚本。

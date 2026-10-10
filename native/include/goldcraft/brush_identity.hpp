@@ -1,5 +1,6 @@
 #pragma once
 #include "goldcraft/wire.hpp"
+#include "goldcraft/packet_entities.hpp"
 #include <algorithm>
 
 namespace goldcraft::brush {
@@ -8,7 +9,7 @@ namespace goldcraft::brush {
 constexpr char message_name[] = "GCBrush";
 constexpr char capability[] = "gc_brushes";
 constexpr char capability_value[] = "1";
-constexpr std::size_t max_entities = 256, max_slots = 65536;
+constexpr std::size_t max_entities = packet_entities::capacity, max_slots = 65536;
 constexpr std::size_t header_bytes = 24, entry_bytes = 10, chunk_entries = 16;
 constexpr std::uint32_t sequence_mask = 0x7fffffff;
 struct Identity {

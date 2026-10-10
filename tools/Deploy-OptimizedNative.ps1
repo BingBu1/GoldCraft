@@ -110,6 +110,9 @@ foreach($instance in $Clients){
     & python (Join-Path $PSScriptRoot 'Build-VisibleEntityGameData.py') --engine (Join-Path $script:GoldCraftRoot "$game/hw.dll") `
         --output (Join-Path $script:GoldCraftRoot "$generatedCatalog/goldcraft-visible")
     if($LASTEXITCODE){throw 'Visible-entity engine identity verification failed.'}
+    & python (Join-Path $PSScriptRoot 'Build-PacketEntityGameData.py') --engine (Join-Path $script:GoldCraftRoot "$game/hw.dll") `
+        --output (Join-Path $script:GoldCraftRoot "$generatedCatalog/goldcraft-packet")
+    if($LASTEXITCODE){throw 'Packet-entity engine identity verification failed.'}
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $script:GoldCraftRoot "$game/cstrike/cl_dlls/client.dll") `
         --existing-catalog $catalogInput --output (Join-Path $script:GoldCraftRoot "$generatedCatalog/goldcraft-cs")
     if($LASTEXITCODE){throw 'CS media-reader catalog identity verification failed.'}
@@ -146,6 +149,7 @@ foreach($instance in $Clients){
     $catalogs=@(
         @{source='dist/gamedata/goldcraft-precache';target='metahook/gamedata/goldcraft-precache'},
         @{source="$generatedCatalog/goldcraft-visible";target='metahook/gamedata/goldcraft-visible'},
+        @{source="$generatedCatalog/goldcraft-packet";target='metahook/gamedata/goldcraft-packet'},
         @{source="$generatedCatalog/goldcraft-cs";target='metahook/gamedata/goldcraft-cs'},
         @{source='dist/metahook/svencoop/metahook/gamedata';target='metahook/gamedata'})
     foreach($catalog in $catalogs){

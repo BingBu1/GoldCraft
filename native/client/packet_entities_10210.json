@@ -1,0 +1,265 @@
+{
+  "sha256": "9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295",
+  "crc64": "6ef7192cd8254e2d",
+  "capacity": 1024,
+  "legacyServerCapacity": 256,
+  "messageCapacity": 65536,
+  "stockSplitCapacity": 6010,
+  "records": [
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_parse",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x19f0d0",
+        "func_size": "0x8bd"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_publish",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x19fd20",
+        "func_size": "0x399"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_get_long",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1de840",
+        "func_size": "0x1d4"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_channel_setup",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1dca20",
+        "func_size": "0x1d7"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_queue_packet",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1df890",
+        "func_size": "0x22a"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_network_init",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1def00",
+        "func_size": "0x3b4"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_in_message",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1225fa0",
+        "gv_va": "0x11225fa0",
+        "gv_sig": "BA ?? ?? ?? ??",
+        "gv_sig_va": "0x101deba3",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_net_message",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1245fe0",
+        "gv_va": "0x11245fe0",
+        "gv_sig": "68 ?? ?? ?? ??",
+        "gv_sig_va": "0x101a988c",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_in_from",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1225f80",
+        "gv_va": "0x11225f80",
+        "gv_sig": "C7 05 ?? ?? ?? ?? 01 00 00 00",
+        "gv_sig_va": "0x101deb8f",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0xa"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftPacket_client_channel",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1408de8",
+        "gv_va": "0x11408de8",
+        "gv_sig": "68 ?? ?? ?? ??",
+        "gv_sig_va": "0x101a4eb9",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    }
+  ],
+  "verification": [
+    {
+      "rva": "0x19f0d0",
+      "bytes": "55 8b ec 81 ec d0 00 00 00"
+    },
+    {
+      "rva": "0x19f1a3",
+      "bytes": "69 3d 88 2a 28 11 18 43 00 00"
+    },
+    {
+      "rva": "0x19f1bd",
+      "bytes": "e8 9e ac 01 00"
+    },
+    {
+      "rva": "0x19f1e3",
+      "bytes": "69 c3 54 01 00 00"
+    },
+    {
+      "rva": "0x19f1ef",
+      "bytes": "68 80 00 00 00"
+    },
+    {
+      "rva": "0x19f40d",
+      "bytes": "81 fb 00 04 00 00"
+    },
+    {
+      "rva": "0x19f54c",
+      "bytes": "81 fb 00 04 00 00"
+    },
+    {
+      "rva": "0x19f6fe",
+      "bytes": "81 fb 00 04 00 00"
+    },
+    {
+      "rva": "0x19f8c0",
+      "bytes": "81 fb 00 04 00 00"
+    },
+    {
+      "rva": "0x19fd31",
+      "bytes": "83 bf 7c 42 00 00 00"
+    },
+    {
+      "rva": "0x19fd50",
+      "bytes": "8b 97 00 43 00 00"
+    },
+    {
+      "rva": "0x1df166",
+      "bytes": "c7 05 ec 5f 24 11 00 00 01 00"
+    },
+    {
+      "rva": "0x1df170",
+      "bytes": "c7 05 e8 5f 24 11 e0 5f 23 11"
+    },
+    {
+      "rva": "0x1df18a",
+      "bytes": "c7 05 ac 5f 22 11 00 00 01 00"
+    },
+    {
+      "rva": "0x1df197",
+      "bytes": "c7 05 a8 5f 22 11 c0 5f 22 11"
+    },
+    {
+      "rva": "0x1de840",
+      "bytes": "55 8b ec 51 8b 45 08"
+    },
+    {
+      "rva": "0x1de85b",
+      "bytes": "83 ff 05"
+    },
+    {
+      "rva": "0x1de864",
+      "bytes": "83 fe 05"
+    },
+    {
+      "rva": "0x1de923",
+      "bytes": "3d 7a 17 00 00"
+    },
+    {
+      "rva": "0x1de9a3",
+      "bytes": "3d 7a 17 00 00"
+    },
+    {
+      "rva": "0x1debdb",
+      "bytes": "ff 35 a8 5f 22 11"
+    },
+    {
+      "rva": "0x1debe1",
+      "bytes": "ff 35 e8 5f 24 11"
+    },
+    {
+      "rva": "0x1dca20",
+      "bytes": "55 8b ec 83 ec 0c"
+    },
+    {
+      "rva": "0x1dcb65",
+      "bytes": "68 c0 34 00 00"
+    },
+    {
+      "rva": "0x1dcb7e",
+      "bytes": "0f 10 45 10"
+    },
+    {
+      "rva": "0x1dcb8e",
+      "bytes": "0f 11 46 04 89 46 14"
+    },
+    {
+      "rva": "0x1a4dfe",
+      "bytes": "0f 10 05 ec 8d 40 11"
+    },
+    {
+      "rva": "0x1a4eb9",
+      "bytes": "68 e8 8d 40 11"
+    },
+    {
+      "rva": "0x1df890",
+      "bytes": "55 8b ec b8 98 17 00 00"
+    },
+    {
+      "rva": "0x1df8a7",
+      "bytes": "8b 45 08"
+    }
+  ],
+  "evidence": {
+    "parser": "Original full/delta parser, dynamic340-byte state allocation per header count; four1024 bounds,128-byte reset bitmap",
+    "frameStride": 17176,
+    "packetCountOffset": 17020,
+    "packetStatesOffset": 17152,
+    "stockSplitFragments": 5,
+    "stockSplitPayload": 1391,
+    "originalBuffers": "NET_Init supplies separate64KiB in_message/net_message arrays; no buffer patch",
+    "extension": "Negotiated GCPK1400-byte fragment protocol; native split delegates unchanged",
+    "sourceFilter": "NA_IP source must match actual cls.netchan.remote_address type/IP/port before reassembly",
+    "reconnectReset": "Original Netchan_Setup with verified20-byte by-value netadr ABI resets extension state for cls.netchan, including same-address reconnect",
+    "receiveDrain": "Original NET_QueuePacket is retried only after consuming an extension, bounded to96 attempts; native incomplete/empty behavior is preserved"
+  }
+}

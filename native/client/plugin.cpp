@@ -2,6 +2,8 @@
 #include "host_ui.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
+#include "packet_entities.hpp"
+#include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
 #include "input_audit.hpp"
 #include "map_collision.hpp"
@@ -366,6 +368,7 @@ void WriteDiagnostics() {
         std::ofstream out(path);
         out<<'{'; client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
+        packet_client::write_status(out); out<<',';
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
@@ -534,6 +537,10 @@ void InitHud() {
     const char* input_audit_setting=std::getenv("GOLDCRAFT_INPUT_AUDIT");
     input_audit::install(api,input_audit_setting&&std::strcmp(input_audit_setting,"1")==0);
     client_precache::register_commands();
+    gEngfuncs.pfnRegisterVariable(packet_entities::capability,
+        packet_client::enabled() ? packet_entities::capability_value : "0", FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(packet_entities::capability,
+        packet_client::enabled() ? float(packet_entities::capacity) : 0.f);
     Log(client_vitals::install(api) ? "32-bit health/armor HUD installed" :
         std::string("integer vitals unavailable: ") + client_vitals::error());
     host_ui::install(api,[](int down,int key,const char* binding_text){
@@ -601,6 +608,7 @@ void InitHud() {
 int VidInit() {
     visible_entities::fixture_clear();
     client_vitals::reset();
+    packet_client::reset();
     sections.clear();ClearDynamic();ClearHud();
     next_scene_request=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -1230,6 +1238,8 @@ void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
 }
 void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     gEngfuncs=*engine;
+    Log(packet_client::install(api) ? "1024 packet entities and bounded snapshot transport installed" :
+        std::string("packet entity expansion unavailable: ") + packet_client::install_error());
     Log(visible_entities::install(api) ? "visible entity capacity 4096 installed" :
         std::string("visible entity expansion unavailable: ") + visible_entities::install_error());
     Log(client_precache::install(api) ? "dynamic precache installed" :

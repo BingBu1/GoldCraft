@@ -23,6 +23,7 @@ def validate_command(command):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--map-delivery-fixture', action='store_true')
+    parser.add_argument('--packet-entities-fixture', action='store_true')
     args = parser.parse_args()
     compiler = json.loads((ROOT / ".tools/clang-toolchain.json").read_text(encoding="utf-8-sig"))
     selected = str(Path(compiler["root"]) / "bin/clang-cl.exe").replace("\\", "/").lower()
@@ -47,6 +48,8 @@ def main():
                ("SyPB", ROOT / "build/sypb/obj/Release")]
     if args.map_delivery_fixture:
         msbuild.append(("ReHLDS map delivery fixture", ROOT / "build/rehlds/Delivery/obj"))
+    if args.packet_entities_fixture:
+        msbuild.append(("ReHLDS packet entities fixture", ROOT / "build/rehlds/Packets/obj"))
     for name, base in msbuild:
         count = 0
         logs = list(base.rglob("clang-cl.command.1.tlog"))
@@ -82,6 +85,8 @@ def main():
                      "build/sypb/Release/sypb.dll", "build/sypb/Release/sypb_amxx.dll"]
     if args.map_delivery_fixture:
         artifact_paths.append("build/rehlds/Delivery/swds.dll")
+    if args.packet_entities_fixture:
+        artifact_paths.append("build/rehlds/Packets/swds.dll")
     for relative in artifact_paths:
         data = (ROOT / relative).read_bytes()
         header = struct.unpack_from("<I", data, 0x3c)[0]
