@@ -1,7 +1,9 @@
 #include "precompiled.h"
 #include "map_visibility.h"
 #include "goldcraft/entity_visibility.hpp"
+#include <array>
 #include <bit>
+#include <cmath>
 #include <stdexcept>
 
 namespace goldcraft::engine_map {
@@ -76,8 +78,11 @@ struct Visibility {
     model_t *world;
     std::shared_ptr<const visibility::Source> source;
     visibility::EntityCache cache;
-    const unsigned char *query_mask = nullptr;
-    int query_bytes = 0;
+    struct Query {
+        const unsigned char *mask = nullptr;
+        int bytes = 0;
+    };
+    std::array<Query, 2> queries{};
     Visibility(model_t *model, std::shared_ptr<const visibility::Source> captured,
                std::span<const carving::Box> cuts)
         : world(model), source(std::move(captured)), cache(source, cuts) {}
@@ -94,45 +99,73 @@ VisibilityCandidate prepare_visibility(model_t *world, std::span<const carving::
 void commit_visibility(VisibilityCandidate candidate) noexcept { active = std::move(candidate); }
 } // namespace goldcraft::engine_map
 
-void GoldCraft_MapBeginVisibility(const float *eye, unsigned char *mask, int bytes) noexcept {
+void GoldCraft_MapBeginVisibility(const float *eye, unsigned char *mask, int bytes,
+                                  bool audible) noexcept {
     using namespace goldcraft::engine_map;
     if (!active)
         return;
-    active->query_mask = nullptr;
-    active->query_bytes = 0;
-    if (active->world != g_psv.worldmodel || !eye || !mask || bytes <= 0)
+    auto &query = active->queries[audible];
+    query = {};
+    if (active->world != g_psv.worldmodel || !eye || !mask || bytes <= 0 || (audible && !gPAS))
         return;
-    active->cache.begin();
-    active->query_mask = mask;
-    active->query_bytes = bytes;
+    active->cache.begin(audible);
+    query = {mask, bytes};
     // A sealed excavation can have no original empty leaf at all.
     const auto *leaf = Mod_PointInLeaf(const_cast<float *>(eye), active->world);
     if (leaf && leaf->contents == CONTENTS_SOLID)
         active->cache.merge(active->cache.cavity_key({eye[0], eye[1], eye[2]}),
-                            {mask, static_cast<std::size_t>(bytes)});
+                            {mask, static_cast<std::size_t>(bytes)}, audible);
 }
-bool GoldCraft_MapMergeVisibility(const mleaf_t *leaf, unsigned char *mask, int bytes) noexcept {
+bool GoldCraft_MapMergeVisibility(const mleaf_t *leaf, unsigned char *mask, int bytes,
+                                  bool audible) noexcept {
     using namespace goldcraft::engine_map;
-    if (!active || active->world != g_psv.worldmodel || active->query_mask != mask ||
-        active->query_bytes != bytes || bytes <= 0)
+    if (!active || active->world != g_psv.worldmodel || active->queries[audible].mask != mask ||
+        active->queries[audible].bytes != bytes || bytes <= 0)
         return false;
     const auto index = index_of(active->world->leafs, active->world->numleafs + 1, leaf);
     return index > 0 && active->cache.merge(static_cast<std::uint32_t>(index),
-                                            {mask, static_cast<std::size_t>(bytes)});
+                                            {mask, static_cast<std::size_t>(bytes)}, audible);
 }
 bool GoldCraft_MapEntityVisible(const edict_t *entity, const unsigned char *mask) noexcept {
     using namespace goldcraft::engine_map;
-    if (!active || active->world != g_psv.worldmodel || !mask || active->query_mask != mask ||
-        active->query_bytes <= 0 || !entity || entity->free || (entity->v.flags & FL_KILLME) ||
-        !active->cache.matches({mask, static_cast<std::size_t>(active->query_bytes)}))
+    if (!active || active->world != g_psv.worldmodel || !mask || !entity || entity->free ||
+        (entity->v.flags & FL_KILLME))
+        return false;
+    const bool audible = active->queries[1].mask == mask;
+    const auto &query = active->queries[audible];
+    if (query.mask != mask || query.bytes <= 0 ||
+        !active->cache.matches({mask, static_cast<std::size_t>(query.bytes)}, audible))
         return false;
     try {
         // The original leaf list omits new empty volume inside the solid leaf.
         // Preserve a plugin's custom/copied/changed PVS instead of overriding it.
         return active->cache.sees_bounds(
             {{entity->v.absmin[0], entity->v.absmin[1], entity->v.absmin[2]},
-             {entity->v.absmax[0], entity->v.absmax[1], entity->v.absmax[2]}});
+             {entity->v.absmax[0], entity->v.absmax[1], entity->v.absmax[2]}},
+            audible);
     } catch (...) {
         return false;
     }
+}
+
+int GoldCraft_MapPointInterest(int sourceLeaf, const float *source, const float *receiver,
+                               bool audible) noexcept {
+    using namespace goldcraft::engine_map;
+    if (!active || active->world != g_psv.worldmodel || !source || !receiver ||
+        (audible ? !gPAS : !gPVS) || sourceLeaf < 0 || sourceLeaf > active->world->numleafs)
+        return -1;
+    for (int axis = 0; axis < 3; ++axis)
+        if (!std::isfinite(source[axis]) || !std::isfinite(receiver[axis]))
+            return -1;
+    const auto from = active->cache.key(static_cast<std::uint32_t>(sourceLeaf),
+                                        {source[0], source[1], source[2]});
+    if (!from)
+        return -1;
+    const auto *leaf = Mod_PointInLeaf(const_cast<float *>(receiver), active->world);
+    const auto index = index_of(active->world->leafs, active->world->numleafs + 1, leaf);
+    if (index < 0)
+        return -1;
+    const auto to = active->cache.key(static_cast<std::uint32_t>(index),
+                                      {receiver[0], receiver[1], receiver[2]});
+    return active->cache.reaches(from, to, audible) ? 1 : 0;
 }

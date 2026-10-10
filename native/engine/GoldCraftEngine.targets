@@ -5,6 +5,16 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS' and '$(GoldCraftMapDeliveryFixture)' == 'true'">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\map_delivery_test.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS' and '$(GoldCraftMapDeliveryFixture)' == 'true'">
+    <ClCompile>
+      <PreprocessorDefinitions>GOLDCRAFT_MAP_DELIVERY_FIXTURE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
     <ClCompile>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\engine;$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

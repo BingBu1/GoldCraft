@@ -12,6 +12,14 @@ VisibilityCandidate prepare_visibility(model_s *world, std::span<const carving::
 void commit_visibility(VisibilityCandidate candidate) noexcept;
 } // namespace goldcraft::engine_map
 
-void GoldCraft_MapBeginVisibility(const float *eye, unsigned char *mask, int bytes) noexcept;
-bool GoldCraft_MapMergeVisibility(const mleaf_s *leaf, unsigned char *mask, int bytes) noexcept;
+void GoldCraft_MapBeginVisibility(const float *eye, unsigned char *mask, int bytes,
+                                  bool audible = false) noexcept;
+bool GoldCraft_MapMergeVisibility(const mleaf_s *leaf, unsigned char *mask, int bytes,
+                                  bool audible = false) noexcept;
 bool GoldCraft_MapEntityVisible(const edict_s *entity, const unsigned char *mask) noexcept;
+// -1 preserves the engine fallback when no edited topology applies.
+int GoldCraft_MapPointInterest(int sourceLeaf, const float *source, const float *receiver,
+                               bool audible) noexcept;
+#ifdef GOLDCRAFT_MAP_DELIVERY_FIXTURE
+void GoldCraft_MapDeliveryTestInit();
+#endif

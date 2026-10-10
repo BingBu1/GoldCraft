@@ -140,6 +140,9 @@ class Run(carving.Run):
         plan = geometry.plan()
         self.report['mapPlan'] = plan
         self.start()
+        self.check('production engine excludes map-delivery fixture command',
+                   bool(re.search(r'\b0 Commands for \[gc_carve_delivery\]',
+                                  self.command('cmdlist gc_carve_delivery'))))
         self.command('sv_gravity 0')
         eye, target = plan['eye'], plan['target']
         before = self.visibility(eye, target)

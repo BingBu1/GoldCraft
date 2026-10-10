@@ -1,4 +1,5 @@
 """Audit effective C++/link commands and the x86 artifacts before deployment."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +21,9 @@ def validate_command(command):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--map-delivery-fixture', action='store_true')
+    args = parser.parse_args()
     compiler = json.loads((ROOT / ".tools/clang-toolchain.json").read_text(encoding="utf-8-sig"))
     selected = str(Path(compiler["root"]) / "bin/clang-cl.exe").replace("\\", "/").lower()
     version = subprocess.check_output([selected, "--version"], text=True).strip()
@@ -38,9 +42,12 @@ def main():
         reports.append({"build": directory, "cppUnits": len(cpp), "passed": True})
 
     locks = json.loads((ROOT / "sources.lock.json").read_text())
-    for name, base in (("ReHLDS", ROOT / locks["sources"]["ReHLDS"]["path"]),
-                       ("ReGameDLL", ROOT / locks["sources"]["ReGameDLL_CS"]["path"]),
-                       ("SyPB", ROOT / "build/sypb/obj/Release")):
+    msbuild = [("ReHLDS", ROOT / locks["sources"]["ReHLDS"]["path"]),
+               ("ReGameDLL", ROOT / locks["sources"]["ReGameDLL_CS"]["path"]),
+               ("SyPB", ROOT / "build/sypb/obj/Release")]
+    if args.map_delivery_fixture:
+        msbuild.append(("ReHLDS map delivery fixture", ROOT / "build/rehlds/Delivery/obj"))
+    for name, base in msbuild:
         count = 0
         logs = list(base.rglob("clang-cl.command.1.tlog"))
         for path in logs:
@@ -63,7 +70,7 @@ def main():
         reports.append({"build": name, "cppUnits": count, "passed": True})
 
     artifacts = []
-    for relative in ("build/native-x86/Release/GoldCraft.dll", "build/native-x86/Release/goldcraft_amxx.dll",
+    artifact_paths = ["build/native-x86/Release/GoldCraft.dll", "build/native-x86/Release/goldcraft_amxx.dll",
                      "build/rehlds/Release/swds.dll", "build/rehlds/Release/hlds.exe",
                      "build/rehlds/Release/filesystem_stdio.dll", "build/regamedll/Release/mp.dll",
                      "dist/metahook/MetaHook.exe", "dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll",
@@ -72,7 +79,10 @@ def main():
                      "dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll",
                      "dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll",
                      "dist/interpfix/svencoop/metahook/plugins/InterpFix.dll",
-                     "build/sypb/Release/sypb.dll", "build/sypb/Release/sypb_amxx.dll"):
+                     "build/sypb/Release/sypb.dll", "build/sypb/Release/sypb_amxx.dll"]
+    if args.map_delivery_fixture:
+        artifact_paths.append("build/rehlds/Delivery/swds.dll")
+    for relative in artifact_paths:
         data = (ROOT / relative).read_bytes()
         header = struct.unpack_from("<I", data, 0x3c)[0]
         if data[header:header + 4] != b"PE\0\0" or struct.unpack_from("<H", data, header + 4)[0] != 0x14c:

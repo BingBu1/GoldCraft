@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端已接 Renderer／碰撞／修改记录统一提交，贴花裁剪和阴影缓存失效通过独立 GL／回调测试。服务端实体 PVS 已接入并通过实际实体发包筛选验证。**洞口消息／声音广播、真实客户端画面／预测／阴影与实际挖掘输入仍待接入或验收，生产 mode2 仍不可用**。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端已接 Renderer／碰撞／修改记录统一提交，贴花裁剪和阴影缓存失效通过独立 GL／回调测试。服务端实体 PVS 已接入并通过实际实体发包筛选验证。洞口特效／声音路由也已在真实引擎缓冲中验证。**真实客户端收包／听感／画面／预测／阴影与实际挖掘输入仍待验收，生产 mode2 仍不可用**。
 
 ## HLDS 权限
 
@@ -220,6 +220,30 @@ python tools/Exercise-EntityVisibility.py
 python tools/Exercise-WorldCarving.py
 ```
 
+## 洞口特效与声音广播
+
+`EntityCache` 在修改后的视觉集合上只扩展一次可见区域，按 `CM_CalcPAS` 的规则准备可听集合；新洞穴也作为区域参与计算，封闭洞穴不会泄漏到原地图。两种集合共享洞口拓扑，在提交地图修改前完成缓存，并共同限制存储和计算量。点到点发送判断不分配，也不改变当前 FatPVS／FatPAS 的独立查询状态。
+
+`SV_Multicast`、`SV_FatPAS`、普通声音、`EV_Playback` 武器事件和 ReAPI `SV_EmitSound2` 都使用实际来源坐标查询缓存。代理观察者、实体分组、排除发起者、全局／停止声音、显式跳过 PAS 和满缓冲处理继续遵循原规则。接收点位于原始实心叶时先识别新洞穴，不再用叶编号零读取 `mask[-1]`。
+
+当前固定版本的 ReHLDS 还存在可靠广播入口缺失：`MSG_PVS_R`／`MSG_PAS_R` 没有选择消息缓冲或记录来源坐标，可靠 PVS 分支误用了 PAS。已按该版本 SDK 中“Reliable to PVS／PAS”的定义补齐，并验证只听得到的接收者不会收到可靠 PVS 特效。
+
+[`Exercise-MapDelivery.py`](../tools/Exercise-MapDelivery.py) 在独立非 LAN 专服通过 **62 项检查**，核验实际临时实体字节、普通／ReAPI 声音字节、武器事件队列、可靠消息、原生过滤、封闭洞穴及回合／换图清理。三条声音发送路径生成的字节完全一致。测试引擎仅在 `-TestMapDelivery` 构建中包含探针；生产引擎通过实际命令表检查，确认没有该测试指令。
+
+探针在一次同步调用内临时调整两个已有 fake-client 的发送资格，替换并还原接收缓冲，不发出网络数据包。**这些证据不证明真实客户端收包、图形显示、声音播放或玩家认证。** 22 项原生 CTest、28 项生产引擎实体回归及 30 项实际穿洞碰撞回归通过。缓存测试 65,536 次查询零分配；实际引擎两个固定点的 PAS 查询均值约 0.096／0.168 μs，不能据此推断游戏帧率或网络吞吐。Clang／C++20 审计覆盖 12 组／1,692 单元／16 个 x86 产物，包括独立测试引擎；10 份源码补丁重放通过。本轮未改 Renderer 或 GL；原安装 19,571 文件与受监控主服／A／B 的 1,006 文件，内容及时间均未改变。
+
+已有独立环境中运行：
+
+```powershell
+./tools/Build-ReHLDS.ps1
+./tools/Build-ReHLDS.ps1 -TestMapDelivery
+./tools/Build-Native.ps1 -Server -HeadlessFixture
+python tools/Exercise-MapDelivery.py
+python tools/Exercise-EntityVisibility.py
+python tools/Exercise-WorldCarving.py
+python tools/Verify-ClangBuilds.py --map-delivery-fixture
+```
+
 ## 验证与依据
 
 在仓库根目录运行已有构建入口：
@@ -248,7 +272,7 @@ python tools/Exercise-WorldCarving.py
 
 1. 将已验证的服务端会话／回合政策与真实几何挖掘目标、工具、材质及进度相连，验收实际输入和客户端同步。
 2. 验收已接入的 ReHLDS／MC／原生客户端碰撞，补齐动态 BSP 身份、武器事件射线、AI 支撑和多洞性能。
-3. 补齐洞口的 PVS／PAS 消息与声音广播，验收实体网络和统一提交后的 Renderer 主画面、贴花、真实静态阴影重绘与移动遮挡；持续减少变更时的重建范围，避免每帧或每个阴影通道重复切割。
+3. 验收洞口实体、特效与声音的真实客户端收包，以及统一提交后的 Renderer 主画面、贴花、真实静态阴影重绘与移动遮挡；持续减少变更时的重建范围，避免每帧或每个阴影通道重复切割。
 4. 用实际玩家／Bot 验证穿洞、洞边、蹲伏、坡面、射击、双方一致性和会话清理，再验收开启该功能。
 
 上述路径完成前，几何库通过测试不代表 G18 完成，也不代表可以在游戏中挖开地图。

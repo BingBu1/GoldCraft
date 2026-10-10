@@ -198,5 +198,51 @@ void EntityInterest() {
     assert(allocations.load() == before);
     std::printf("{\"entityVisibility\":true,\"queries\":%zu,\"queryAllocations\":0,\"queryCpuUs\":%.4f,\"fatBoundary\":true,\"sealedCavity\":true,\"originalNotTransitive\":true,\"customMaskPreserved\":true,\"passed\":true}\n", repeats, elapsed / repeats);
 }
+void DeliveryInterest() {
+    auto directed = Rooms();
+    directed->pvs = {3, 6, 12, 24, 16};
+    visibility::EntityCache original(directed, {});
+    assert(original.reaches(1, 2) && !original.reaches(1, 3));
+    assert(original.reaches(1, 3, true) && !original.reaches(1, 4, true));
+    assert(original.reaches(2, 4, true) && !original.reaches(2, 5, true));
+    assert(!original.reaches(0, 1, true) && !original.reaches(1, 0, true));
+    assert(!original.reaches(99, 1) && !original.reaches(1, 99, true));
+
+    const std::vector cuts{Hole(0, 2), Hole(20.5, 21.5), Hole(30.5, 31.5)};
+    visibility::EntityCache opened(directed, cuts);
+    const auto connected = opened.key(0, {1, 0, 0});
+    const auto sealed = opened.key(0, {21, 0, 0});
+    const auto remote = opened.key(0, {31, 0, 0});
+    assert(opened.reaches(1, 3) && opened.reaches(1, 4, true));
+    assert(!opened.reaches(1, 4) && !opened.reaches(1, 5, true));
+    assert(opened.reaches(connected, 3) && opened.reaches(connected, 4, true));
+    assert(opened.reaches(1, connected) && !opened.reaches(1, sealed, true));
+    assert(opened.reaches(sealed, sealed, true) && !opened.reaches(sealed, remote, true));
+    assert(!opened.reaches(sealed, 1, true));
+    std::array<std::uint8_t, 4> visible{}, audible{}, custom{};
+    opened.begin(); opened.begin(true);
+    assert(opened.merge(1, visible) && visible[0] == 7);
+    assert(opened.merge(1, audible, true) && audible[0] == 15);
+    assert(opened.matches(visible) && opened.matches(audible, true));
+    assert(!opened.matches(custom, true));
+    opened.begin(true); audible = {};
+    assert(opened.merge(sealed, audible, true) && audible[0] == 0);
+    assert(opened.sees_bounds(cuts[1], true) && !opened.sees_bounds(cuts[2], true));
+    assert(opened.matches(visible)); // FatPAS must not overwrite FatPVS's cavity context.
+    Reject([&] { visibility::EntityCache limit(directed, cuts, {4, opened.cached_words() - 1, 10000}); });
+    // Budget the new PAS work as part of the same atomic preparation.
+    Reject([&] { visibility::EntityCache limit(directed, cuts, {4, 1000, opened.operations() - 1}); });
+    const auto before = allocations.load();
+    const auto started = std::chrono::steady_clock::now();
+    constexpr std::size_t repeats = 65'536;
+    for (std::size_t i = 0; i < repeats; ++i) {
+        assert(opened.reaches(i % 2 ? 1 : connected, 4, true));
+        assert(!opened.reaches(i % 2 ? 1 : connected, sealed, true));
+        assert(opened.matches(visible));
+    }
+    const auto elapsed = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count();
+    assert(allocations.load() == before);
+    std::printf("{\"deliveryInterest\":true,\"queries\":%zu,\"allocations\":0,\"queryCpuUs\":%.4f,\"oneExpansion\":true,\"independentContexts\":true,\"sealedCavities\":true,\"passed\":true}\n", repeats, elapsed / repeats);
+}
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); }

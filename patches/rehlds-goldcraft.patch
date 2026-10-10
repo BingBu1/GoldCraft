@@ -295,7 +295,7 @@ index 0b36057..ad54dda 100644
  			else
  			{
 diff --git a/rehlds/engine/pr_cmds.cpp b/rehlds/engine/pr_cmds.cpp
-index 4f88929..4a2a20f 100644
+index 4f88929..b327d8e 100644
 --- a/rehlds/engine/pr_cmds.cpp
 +++ b/rehlds/engine/pr_cmds.cpp
 @@ -27,6 +27,7 @@
@@ -485,6 +485,15 @@ index 4f88929..4a2a20f 100644
  }
  
  unsigned short EXT_FUNC EV_Precache(int type, const char *psz)
+@@ -1290,7 +1233,7 @@ void EXT_FUNC EV_Playback(int flags, const edict_t *pInvoker, unsigned short eve
+ 
+ 		if (pInvoker && !(flags & FEV_GLOBAL))
+ 		{
+-			if (!SV_ValidClientMulticast(cl, leafnum, 4))
++			if (!SV_ValidClientMulticast(cl, leafnum, MSG_FL_PAS, event_origin))
+ 				continue;
+ 		}
+ 
 @@ -1364,26 +1307,7 @@ void EXT_FUNC EV_SV_Playback(int flags, int clientindex, unsigned short eventind
  
  int SV_LookupModelIndex(const char *name)
@@ -631,7 +640,25 @@ index 4f88929..4a2a20f 100644
  }
  #else // REHLDS_FIXES
  int EXT_FUNC PF_precache_generic_I_internal(const char *s)
-@@ -2144,6 +1991,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
+@@ -2097,6 +1944,8 @@ sizebuf_t* EXT_FUNC WriteDest_Parm(int dest)
+ 		return &g_psv.reliable_datagram;
+ 	case MSG_PVS:
+ 	case MSG_PAS:
++	case MSG_PVS_R:
++	case MSG_PAS_R:
+ 		return &g_psv.multicast;
+ 	case MSG_SPEC:
+ 		return &g_psv.spectator;
+@@ -2128,7 +1977,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
+ 	gMsgType = msg_type;
+ 	gMsgEntity = ed;
+ 	gMsgDest = msg_dest;
+-	if (msg_dest == MSG_PVS || msg_dest == MSG_PAS)
++	if (msg_dest == MSG_PVS || msg_dest == MSG_PAS || msg_dest == MSG_PVS_R || msg_dest == MSG_PAS_R)
+ 	{
+ 		if (pOrigin)
+ 		{
+@@ -2144,6 +1993,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
  
  	gMsgBuffer.flags = SIZEBUF_ALLOW_OVERFLOW;
  	gMsgBuffer.cursize = 0;
@@ -639,7 +666,16 @@ index 4f88929..4a2a20f 100644
  }
  
  // Validates user message type and checks to see if it's variable length
-@@ -2374,7 +2222,7 @@ void EXT_FUNC PF_WriteShort_I(int iValue)
+@@ -2343,7 +2193,7 @@ void EXT_FUNC PF_MessageEnd_I(void)
+ 		break;
+ 
+ 	case MSG_PVS_R:
+-		SV_Multicast((edict_t *)gMsgEntity, gMsgOrigin, MSG_FL_PAS, 1); // TODO: Should be MSG_FL_PVS, investigation needed
++		SV_Multicast((edict_t *)gMsgEntity, gMsgOrigin, MSG_FL_PVS, 1);
+ 		break;
+ 
+ 	case MSG_PAS_R:
+@@ -2374,7 +2224,7 @@ void EXT_FUNC PF_WriteShort_I(int iValue)
  {
  	if (!gMsgStarted)
  		Sys_Error("%s: called with no active message\n", __func__);
@@ -648,7 +684,7 @@ index 4f88929..4a2a20f 100644
  }
  
  void EXT_FUNC PF_WriteLong_I(int iValue)
-@@ -2415,7 +2263,7 @@ void EXT_FUNC PF_WriteEntity_I(int iValue)
+@@ -2415,7 +2265,7 @@ void EXT_FUNC PF_WriteEntity_I(int iValue)
  void EXT_FUNC PF_makestatic_I(edict_t *ent)
  {
  	MSG_WriteByte(&g_psv.signon, svc_spawnstatic);
@@ -657,7 +693,7 @@ index 4f88929..4a2a20f 100644
  	MSG_WriteByte(&g_psv.signon, ent->v.sequence);
  	MSG_WriteByte(&g_psv.signon, (int)ent->v.frame);
  	MSG_WriteWord(&g_psv.signon, ent->v.colormap);
-@@ -2451,7 +2299,7 @@ void EXT_FUNC PF_StaticDecal(const float *origin, int decalIndex, int entityInde
+@@ -2451,7 +2301,7 @@ void EXT_FUNC PF_StaticDecal(const float *origin, int decalIndex, int entityInde
  	MSG_WriteShort(&g_psv.signon, entityIndex);
  
  	if (entityIndex)
@@ -803,8 +839,21 @@ index 4124bf6..cfbe70d 100644
  		pEdict->v.frame,
  		pEdict->v.sequence,
  		angles,
+diff --git a/rehlds/engine/server.h b/rehlds/engine/server.h
+index ceffd0d..fb4b7db 100644
+--- a/rehlds/engine/server.h
++++ b/rehlds/engine/server.h
+@@ -455,7 +455,7 @@ int SV_HashString(const char *string, int iBounds);
+ int SV_LookupSoundIndex(const char *sample);
+ void SV_BuildHashedSoundLookupTable(void);
+ void SV_AddSampleToHashedLookupTable(const char *pszSample, int iSampleIndex);
+-qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to);
++qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to, const float *origin = nullptr);
+ void SV_Multicast(edict_t *ent, vec_t *origin, int to, qboolean reliable);
+ void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
+ void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..ceb2ff2 100644
+index dfd68c2..064672b 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
 @@ -27,6 +27,8 @@
@@ -911,7 +960,39 @@ index dfd68c2..ceb2ff2 100644
  	}
  
  	g_psv.sound_precache_hashedlookup_built = TRUE;
-@@ -1219,6 +1192,7 @@ void SV_SendResources(sizebuf_t *msg)
+@@ -892,7 +865,7 @@ void SV_AddSampleToHashedLookupTable(const char *pszSample, int iSampleIndex)
+ 	g_psv.sound_precache_hashedlookup[index] = iSampleIndex;
+ }
+ 
+-qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to)
++qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to, const float *origin)
+ {
+ 	if (Host_IsSinglePlayerGame() || client->proxy)
+ 	{
+@@ -928,7 +901,13 @@ qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to)
+ 		return TRUE;
+ 	}
+ 
++	const int edited = GoldCraft_MapPointInterest(soundLeaf, origin, client->edict->v.origin,
++		destination == MSG_FL_PAS);
++	if (edited >= 0)
++		return edited;
+ 	int bitNumber = SV_PointLeafnum(client->edict->v.origin);
++	if (bitNumber <= 0)
++		return FALSE; // shared solid leaf has no bit; do not read mask[-1].
+ 	if (mask[(bitNumber - 1) >> 3] & (1 << ((bitNumber - 1) & 7)))
+ 	{
+ 		return TRUE;
+@@ -976,7 +955,7 @@ void SV_Multicast(edict_t *ent, vec_t *origin, int to, qboolean reliable)
+ 			}
+ 		}
+ 
+-		if (SV_ValidClientMulticast(client, leafnum, to))
++		if (SV_ValidClientMulticast(client, leafnum, to, origin))
+ 		{
+ 			sizebuf_t *pBuffer = &client->netchan.message;
+ 			if (!reliable)
+@@ -1219,6 +1198,7 @@ void SV_SendResources(sizebuf_t *msg)
  
  void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
  {
@@ -919,7 +1000,7 @@ index dfd68c2..ceb2ff2 100644
  	unsigned char nullbuffer[32];
  	Q_memset(nullbuffer, 0, sizeof(nullbuffer));
  
-@@ -1237,12 +1211,13 @@ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
+@@ -1237,12 +1217,13 @@ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
  	MSG_WriteBits(g_psv.num_resources, RESOURCE_INDEX_BITS);
  
  #ifdef REHLDS_FIXES
@@ -935,7 +1016,7 @@ index dfd68c2..ceb2ff2 100644
  		MSG_WriteBits(r->type, 4);
  		MSG_WriteBitString(r->szFileName);
  		MSG_WriteBits(r->nIndex, RESOURCE_INDEX_BITS);
-@@ -1626,6 +1601,8 @@ void SV_SendRes_f(void)
+@@ -1626,6 +1607,8 @@ void SV_SendRes_f(void)
  		if (g_psvs.maxclients <= 1 || host_client->m_sendrescount <= 1)
  		{
  			host_client->m_sendrescount++;
@@ -944,7 +1025,7 @@ index dfd68c2..ceb2ff2 100644
  			SV_SendResources(&msg);
  			Netchan_CreateFragments(true, &host_client->netchan, &msg);
  			Netchan_FragSend(&host_client->netchan);
-@@ -4338,6 +4315,8 @@ void SV_AddToFatPVS(vec_t *org, mnode_t *node)
+@@ -4338,6 +4321,8 @@ void SV_AddToFatPVS(vec_t *org, mnode_t *node)
  	}
  	if (node->contents != CONTENTS_SOLID)
  	{
@@ -953,7 +1034,7 @@ index dfd68c2..ceb2ff2 100644
  		unsigned char *pvs = Mod_LeafPVS((mleaf_t *)node, g_psv.worldmodel);
  		for (int i = 0; i < fatbytes; i++)
  			fatpvs[i] |= pvs[i];
-@@ -4357,6 +4336,7 @@ unsigned char* EXT_FUNC SV_FatPVS(float *org)
+@@ -4357,6 +4342,7 @@ unsigned char* EXT_FUNC SV_FatPVS(float *org)
  		Sys_Error("%s: MAX_MAP_LEAFS limit exceeded\n", __func__);
  
  	Q_memset(fatpvs, 0, fatbytes);
@@ -961,7 +1042,24 @@ index dfd68c2..ceb2ff2 100644
  	SV_AddToFatPVS(org, g_psv.worldmodel->nodes);
  	return fatpvs;
  }
-@@ -4840,7 +4820,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
+@@ -4395,6 +4381,8 @@ void SV_AddToFatPAS(vec_t *org, mnode_t *node)
+ 		return;
+ 	}
+ 
++	if (GoldCraft_MapMergeVisibility((mleaf_t *)node, fatpas, fatpasbytes, true))
++		return;
+ 	int leafnum = (mleaf_t *)node - g_psv.worldmodel->leafs;
+ 	pas = CM_LeafPAS(leafnum);
+ 
+@@ -4417,6 +4405,7 @@ unsigned char* EXT_FUNC SV_FatPAS(float *org)
+ 		Sys_Error("%s: MAX_MAP_LEAFS limit exceeded\n", __func__);
+ 
+ 	Q_memset(fatpas, 0, fatpasbytes);
++	GoldCraft_MapBeginVisibility(org, fatpas, fatpasbytes, true);
+ 	SV_AddToFatPAS(org, g_psv.worldmodel->nodes);
+ 	return fatpas;
+ }
+@@ -4840,7 +4829,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
  			if (pset[leaf >> 3] & (1 << (leaf & 7)))
  				return 1;
  		}
@@ -970,7 +1068,7 @@ index dfd68c2..ceb2ff2 100644
  	}
  	else
  	{
-@@ -4861,7 +4841,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
+@@ -4861,7 +4850,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
  			return 2;
  		}
  
@@ -979,7 +1077,7 @@ index dfd68c2..ceb2ff2 100644
  	}
  }
  
-@@ -4982,9 +4962,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4982,9 +4971,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  					// Prevent crash "Cache_UnlinkLRU: NULL link" on client-side
  					// if aiment with sprite model will be to render as a studio model
  					edict_t *ent = &g_psv.edicts[entityState.aiment];
@@ -992,7 +1090,7 @@ index dfd68c2..ceb2ff2 100644
  					{
  						entityState.aiment = 0;
  						entityState.movetype = MOVETYPE_NONE;
-@@ -4999,9 +4979,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4999,9 +4988,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  
  			// Prevent spam "Non-sprite set to glow!" in console on client-side
  			if (entityState.rendermode == kRenderGlow
@@ -1005,7 +1103,7 @@ index dfd68c2..ceb2ff2 100644
  			{
  				entityState.rendermode = kRenderNormal;
  			}
-@@ -5417,26 +5397,10 @@ void SV_ExtractFromUserinfo(client_t *cl)
+@@ -5417,26 +5406,10 @@ void SV_ExtractFromUserinfo(client_t *cl)
  
  int SV_ModelIndex(const char *name)
  {
@@ -1036,7 +1134,7 @@ index dfd68c2..ceb2ff2 100644
  }
  
  void EXT_FUNC SV_AddResource_hook(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
-@@ -5451,29 +5415,16 @@ void EXT_FUNC SV_AddResource(resourcetype_t type, const char *name, int size, un
+@@ -5451,29 +5424,16 @@ void EXT_FUNC SV_AddResource(resourcetype_t type, const char *name, int size, un
  
  void SV_AddResource_internal(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
  {
@@ -1076,7 +1174,7 @@ index dfd68c2..ceb2ff2 100644
  }
  
  size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, size_t nListMax, size_t *nWidthFileNameMax)
-@@ -5486,14 +5437,15 @@ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, s
+@@ -5486,14 +5446,15 @@ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, s
  
  	resource_t *r;
  #ifdef REHLDS_FIXES
@@ -1094,7 +1192,7 @@ index dfd68c2..ceb2ff2 100644
  		if (r->type != type)
  			continue;
  
-@@ -5765,17 +5717,18 @@ void SV_CreateResourceList(void)
+@@ -5765,17 +5726,18 @@ void SV_CreateResourceList(void)
  	event_t *ep;
  
  	g_psv.num_resources = 0;
@@ -1116,7 +1214,7 @@ index dfd68c2..ceb2ff2 100644
  	}
  #else // REHLDS_FIXES
  #ifdef REHLDS_CHECKS
-@@ -5794,11 +5747,13 @@ void SV_CreateResourceList(void)
+@@ -5794,11 +5756,13 @@ void SV_CreateResourceList(void)
  #endif // REHLDS_FIXES
  
  #ifdef REHLDS_CHECKS
@@ -1132,7 +1230,7 @@ index dfd68c2..ceb2ff2 100644
  		if (**s == '!')
  		{
  			if (!ffirstsent)
-@@ -5816,17 +5771,19 @@ void SV_CreateResourceList(void)
+@@ -5816,17 +5780,19 @@ void SV_CreateResourceList(void)
  		}
  	}
  #ifdef REHLDS_CHECKS
@@ -1155,7 +1253,7 @@ index dfd68c2..ceb2ff2 100644
  	}
  	for (i = 0; i < sv_decalnamecount; i++)
  		SV_AddResource(t_decal, sv_decalnames[i].name, Draw_DecalSize(i), 0, i);
-@@ -6182,13 +6139,14 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
+@@ -6182,13 +6148,14 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
  
  void PrecacheModelSpecifiedFiles()
  {
@@ -1174,7 +1272,7 @@ index dfd68c2..ceb2ff2 100644
  
  		PrecacheModelTexture(*s, pStudioHeader);
  		PrecacheModelSeqGroups(pStudioHeader);
-@@ -6201,7 +6159,7 @@ void PrecacheModelSpecifiedFiles()
+@@ -6201,7 +6168,7 @@ void PrecacheModelSpecifiedFiles()
  #ifdef REHLDS_FIXES
  void MoveCheckedResourcesToFirstPositions()
  {
@@ -1183,7 +1281,7 @@ index dfd68c2..ceb2ff2 100644
  	size_t j = 0;
  	for (size_t i = 0; i < (size_t)g_psv.num_resources; i++)
  	{
-@@ -6448,6 +6406,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6448,6 +6415,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	SV_AllocClientFrames();
  	Q_memset(&g_psv, 0, sizeof(server_t));
@@ -1191,7 +1289,7 @@ index dfd68c2..ceb2ff2 100644
  
  #ifdef REHLDS_OPT_PEDANTIC
  	g_rehlds_sv.modelsMap.clear();
-@@ -6594,18 +6553,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6594,18 +6562,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  		CM_CalcPAS(g_psv.worldmodel);
  	}
  
@@ -1211,7 +1309,7 @@ index dfd68c2..ceb2ff2 100644
  	g_psv.sound_precache[0] = pr_strings;
  	g_psv.model_precache[0] = pr_strings;
  #ifndef REHLDS_FIXES
-@@ -6613,14 +6562,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6613,14 +6571,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	for (i = 1; i < g_psv.worldmodel->numsubmodels; i++)
  	{
@@ -1229,7 +1327,7 @@ index dfd68c2..ceb2ff2 100644
  		}
  #endif
  	}
-@@ -8351,6 +8299,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
+@@ -8351,6 +8308,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
  	p->delta = pdesc;
  	p->next = g_sv_delta;
  	g_sv_delta = p;
@@ -1237,11 +1335,14 @@ index dfd68c2..ceb2ff2 100644
  
  #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
  	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
-@@ -8417,6 +8366,7 @@ void SV_InitEncoders(void)
+@@ -8417,6 +8375,10 @@ void SV_InitEncoders(void)
  
  void SV_Init(void)
  {
 +	GC_PrecacheInit();
++#ifdef GOLDCRAFT_MAP_DELIVERY_FIXTURE
++	GoldCraft_MapDeliveryTestInit();
++#endif
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
@@ -1447,7 +1548,7 @@ index 85c04cb..5b189a1 100644
  			}
  		}
 diff --git a/rehlds/rehlds/rehlds_api_impl.cpp b/rehlds/rehlds/rehlds_api_impl.cpp
-index a7d9ec3..6cf1e3d 100644
+index a7d9ec3..0224b67 100644
 --- a/rehlds/rehlds/rehlds_api_impl.cpp
 +++ b/rehlds/rehlds/rehlds_api_impl.cpp
 @@ -27,6 +27,48 @@
@@ -1499,6 +1600,15 @@ index a7d9ec3..6cf1e3d 100644
  
  struct plugin_api_t
  {
+@@ -649,7 +691,7 @@ bool EXT_FUNC SV_EmitSound2_internal(edict_t *entity, IGameClient *pReceiver, in
+ 	if (bSendPAS && receiver->edict != entity) // if the sound for myself, then do not check PAS.
+ 	{
+ 		int leafnum = SV_PointLeafnum(origin);
+-		if (!SV_ValidClientMulticast(receiver, leafnum, MSG_FL_PAS))
++		if (!SV_ValidClientMulticast(receiver, leafnum, MSG_FL_PAS, origin))
+ 			return false;
+ 
+ 		pBuffer = &receiver->datagram;
 diff --git a/rehlds/rehlds/rehlds_interfaces_impl.cpp b/rehlds/rehlds/rehlds_interfaces_impl.cpp
 index 0eaee07..043bc61 100644
 --- a/rehlds/rehlds/rehlds_interfaces_impl.cpp
