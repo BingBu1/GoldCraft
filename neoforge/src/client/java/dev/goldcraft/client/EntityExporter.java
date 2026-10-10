@@ -41,7 +41,7 @@ public final class EntityExporter {
     private long lastFrame,revision,frames,meshBytes,textureUploads,textureBytes,sendFailures;
     private double intervalMs;
     private float tickDelta;
-    private int hurtVertices,triangleBatches;
+    private int hurtVertices,triangleBatches,wrappedLayers,unsupportedLayers;
     private String lastError="";
     public EntityExporter(BridgeLink link){this.link=link;active=this;}
     public void reset(){textures.clear();uploaded.clear();pacing.reset();lastFrame=revision=0;}
@@ -55,6 +55,7 @@ public final class EntityExporter {
         e.addProperty("tickDelta",active.tickDelta);e.addProperty("meshBytes",active.meshBytes);e.addProperty("textureUploads",active.textureUploads);
         e.addProperty("textureBytes",active.textureBytes);e.addProperty("sendFailures",active.sendFailures);e.addProperty("error",active.lastError);data.add("entityExport",e);
         e.addProperty("hurtVertices",active.hurtVertices);e.addProperty("triangleBatches",active.triangleBatches);
+        e.addProperty("wrappedLayers",active.wrappedLayers);e.addProperty("unsupportedLayers",active.unsupportedLayers);
     }
     public void frame(long epoch) {
         MinecraftClient client=MinecraftClient.getInstance();
@@ -66,9 +67,18 @@ public final class EntityExporter {
         try {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
             Map<Material,WorldExporter.Collector> batches=new LinkedHashMap<>();
+            wrappedLayers=unsupportedLayers=0;
             VertexConsumerProvider provider=layer-> {
+                // YSM's wrapper disables its own sorting flag while retaining
+                // vanilla translucent setup. Read blend/depth/texture from the
+                // captured delegate, without running GL setup during export.
+                if(layer instanceof RenderLayerDelegate wrapped) {
+                    layer=wrapped.goldcraft$delegateLayer();wrappedLayers++;
+                }
                 boolean triangles=layer.getDrawMode()==VertexFormat.DrawMode.TRIANGLES;
-                if((!triangles&&layer.getDrawMode()!=VertexFormat.DrawMode.QUADS)||!(layer instanceof RenderLayer.MultiPhase phase))return new WorldExporter.Collector();
+                if((!triangles&&layer.getDrawMode()!=VertexFormat.DrawMode.QUADS)||!(layer instanceof RenderLayer.MultiPhase phase)) {
+                    unsupportedLayers++;return new WorldExporter.Collector();
+                }
                 var parameters=((RenderLayerAccessor)(Object)phase).goldcraft$phases();
                 var texture=((RenderTextureAccessor)((RenderParametersAccessor)(Object)parameters).goldcraft$texture()).goldcraft$id();
                 if(texture.isEmpty())return new WorldExporter.Collector();

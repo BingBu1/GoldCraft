@@ -126,7 +126,9 @@ foreach($instance in $Clients){
     Queue-File 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll' "$game/cstrike/metahook/plugins/BulletPhysics_AVX2.dll"
     foreach($relative in @('metahook/dlls','metahook/gamedata/renderer','renderer/shader')){
         $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "dist/renderer/svencoop/$relative")
-        foreach($file in Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {$_.Extension -in @('.dll','.json','.glsl')}){
+        # Shader entry points and their include files form one runtime resource
+        # set. Filtering by .glsl alone leaves stale common.h definitions behind.
+        foreach($file in Get-ChildItem -LiteralPath $directory -Recurse -File | Where-Object {$relative -eq 'renderer/shader' -or $_.Extension -in @('.dll','.json')}){
             $suffix=$file.FullName.Substring($directory.Length+1).Replace('\','/')
             Queue-File "dist/renderer/svencoop/$relative/$suffix" "$game/cstrike/$relative/$suffix"
         }

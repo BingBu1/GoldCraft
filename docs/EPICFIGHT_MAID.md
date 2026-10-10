@@ -30,6 +30,14 @@ python .\tools\Build-EpicFightMaid.py
 
 依赖校验和同步覆盖本机 A/B/服务端，日常只启动 B。无需分别安装女仆扩展或嵌套的 YSM GEO。JVM 需要重启；完整集群重启会按既定规则清空本轮 MC 建筑。
 
+## YSM 玩家与 EpicYSM
+
+用户安装的 [EpicYSM 1.1.3](https://github.com/Argorice/EpicYSM) 已通过统一管理同步到 A/B/服务端，四份主实例／运行实例 JAR 哈希一致。它负责 YSM 玩家与 Epic Fight 的兼容；女仆扩展内嵌的 YSM GEO Compat 负责另一条女仆渲染路径，不能互相替代。
+
+GoldCraft 原来的保护逻辑会跳过所有非原版玩家 renderer，连已经兼容 YSM 的 EpicYSM 也被拦下。现在只在实际 Epic Fight renderer 为已核实的 `EpicYsmPlayerRenderer` 时放行，其余不兼容类型保留保护。同时保存 YSM 2.6.5 包装材质的原始 RenderType，导出时正确读取纹理、透明混合和深度写入，不在绘制热路径增加反射扫描或 GL 状态查询。
+
+完整构建及 56 项 JUnit 通过；生产 JAR 的 Mixin 目标、构造器描述符和 Epic Fight 字段已独立复核。真实 B 日志确认酒狐模型转换及兼容 renderer 接管，CS 第三人称可见该模型，三角形网格导出无错误、无发送失败，GL error 为 0。这是当前可读模型路径的运行证据；完整攻击连招、原生 YSM 包装材质路径、透明遮挡及多人仍需单独验收。测试期间有人为移动／视角切换，截图不作为固定视角性能比较。
+
 ## 验证范围
 
 安装到主实例前可独立测试，不改变现有服务器与主 Mod 清单：

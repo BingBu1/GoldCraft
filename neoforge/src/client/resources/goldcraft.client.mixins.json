@@ -32,6 +32,7 @@
     "HostMouseMixin",
     "EpicFightInputMixin",
     "EpicFightPlayerRendererMixin",
+    "YsmRenderLayerMixin",
     "RenderSystemAccessor"
   ],
   "injectors": {

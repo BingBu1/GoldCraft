@@ -1,8 +1,10 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘进度。当前源码的 mode 2 可以通过真实工具进度挖掘静态世界 BSP，独立 ReHLDS 和 NeoForge 已验证开洞后的身体通行及回合还原；动态 BSP 身份、逐实体客户端碰撞、服务端生命周期与原生局部采样已有验证，Java 坐标消费者已通过 JUnit，逐实例 Renderer 仍待接入。`mc_map_mining_persist` 的 `0` 回合结束还原、`1` 跨回合保留、换图／重启清空规则保持有效。原生客户端 Renderer／碰撞统一提交、贴花、阴影缓存以及服务端 PVS／PAS 已有独立证据。**2026-10-10 已部署协议 22 到主沙盒 ReHLDS／B，并完成 MC 配对；当前开放静态地图挖掘体验，动态几何事务仍拒绝。实际 B 挖洞、穿行、阴影及完整多人验收仍未完成。**
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘进度。当前源码的 mode 2 可以通过真实工具进度挖掘静态世界 BSP，独立 ReHLDS 和 NeoForge 已验证开洞后的身体通行及回合还原；动态 BSP 身份、逐实体客户端碰撞、服务端生命周期与原生局部采样已有验证，Java 坐标消费者已通过 JUnit，逐实例 Renderer 仍待接入。`mc_map_mining_persist` 的 `0` 回合结束还原、`1` 跨回合保留、换图／重启清空规则保持有效。原生客户端 Renderer／碰撞统一提交、贴花、阴影缓存以及服务端 PVS／PAS 已有独立证据。**2026-10-10 已部署协议 22 到主沙盒 ReHLDS／B。修复首次挖掘的 shader 崩溃后，实际挖掘计数从 3 增至 9，客户端编辑／碰撞 revision 一致，GL error 为 0；动态几何事务仍拒绝。实际穿洞、阴影及完整多人验收仍未完成。**
 
 体验环境为 `cs_assault`、单 B、32 槽专服，Bot 总人数目标为 25；已查询确认 `mc_map_mining 2`、`mc_map_mining_persist 0`。MC 服务端完成 388 项真实引擎／BSP 对比，零差异；B 初始地图编辑与碰撞 revision 一致，实际背包画面和 GL error 0 已记录。这些启动检查不替代玩家挖洞验收。用 F6 切换形态，I 打开背包选取工具，再在可操作的 MC 状态下用攻击键挖掘；创造模式持剑不能挖掘。
+
+此次崩溃来自部署遗漏 `renderer/shader/common.h`：洞面 shader 已更新，但公共头仍缺 `WSURF_VA_CAVITY_LIGHT` 和 `BINDING_POINT_CAVITY_LIGHT_SSBO`。部署脚本现在复制完整 shader 目录。相同 GL 驱动下，旧头复现全部 5 条错误；仅换正确头后 6 种 shader 变体通过，43 个部署资源匹配。真实 B 连续挖掘后错误日志没有增长，随后正常回合还原。此次没有修改 Renderer DLL 或关闭洞面光照。
 
 ## Java 局部身份与世界工具坐标
 
