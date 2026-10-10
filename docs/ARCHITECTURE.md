@@ -19,9 +19,9 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前源码的固定宽度协议为 GCF1/version 20，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前源码的固定宽度协议为 GCF1/version 21，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
 
-地图挖掘使用消息 56/57/58 分别传递 HLDS 政策、Minecraft 服务端请求和原生处理结果。客户端只发送挖掘按键意图；MC 服务端计算目标和工具伤害，HLDS 再检查配对、形态、代次、频率、距离与真实地图射线，最后执行实体原生伤害回调。`mc_map_mining` 的政策会同步和补发；整图几何的视觉／碰撞修改仍需接入，详见[地图挖掘](WORLD_CARVING.md)。
+地图挖掘使用消息 56/57/58 分别传递 HLDS 政策、Minecraft 服务端请求和原生处理结果。客户端只发送挖掘按键意图；消息 62/63 先按相同权限核验读取真实原生材质，不造成伤害。MC 服务端调用 NeoForge 工具、破坏速度和采集检查 API 累积进度，再通过 57 请求伤害；HLDS 重新检查配对、形态、代次、频率、距离与真实地图射线，最后执行实体原生伤害回调。`mc_map_mining` 的政策会同步和补发；整图几何的视觉／碰撞修改仍需接入，详见[地图挖掘](WORLD_CARVING.md)。
 
 坐标变换在协议实现中统一：每个 MC 方块对应 32 GoldSrc 单位，MC 的水平 Z 对应 GoldSrc 的反向 Y，MC 高度 Y 转换为 GoldSrc Z；MC 高度基准为 64。玩家脚部、原生角色中心与相机眼高分别处理，避免死亡/重生后人物落在地图下。
 
@@ -37,6 +37,8 @@ MC 移动权限有效时，原生玩家镜像的下落速度不能再次触发 C
 
 MetaHookSv 接入客户端回调，Renderer_AVX2 提供 OpenGL 场景通道。GoldCraft 使用三角形/VAO/VBO 和着色器，在 Renderer 的实际深度与阴影流程中绘制 MC 几何。实体按渲染帧插值；动画纹理采用局部更新。手部、持物和 HUD 从 MC 自己的渲染流程导出。
 
+GL 优化优先使用绘制阶段以外的准备工作、不可变 GPU 资源、空间裁剪和兼容状态批次，减少逐帧分配、上传和同步查询。保持精确浮点与画面／碰撞一致性；实机性能对比固定观察者位置和朝向，独立微测试不等同于游戏帧率。
+
 MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 GoldCraft 前面，使 Renderer 包裹最终的 GoldCraft 摄像机结果；不能随意交换顺序。每个 MC 发光源请求阴影，静态 BSP 遮挡可缓存，动态实体与 MC 几何按帧更新；新版室内效果仍需实测。
 
 输入拥有者由服务器决定。MC 形态转发动作并抑制原生武器展示；CS 形态恢复原生武器、HUD 和控制。背包输入只接受当前显示菜单的代次。NeoForge 对容器按键 API 有补丁，迁移版针对 `isActiveAndMatches` 适配，正常 MC 窗口仍保留其自身绑定。
@@ -45,7 +47,7 @@ MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 G
 
 ## 地图会话与版本边界
 
-宿主地图挖掘目前只有经过测试的表面切割核心，还未接入实际 Renderer、碰撞与服务器状态；接口和后续完整路径见[地图挖掘说明](WORLD_CARVING.md)。
+宿主地图修改已有版本化记录、碰撞、Renderer 统一提交及 PVS/PAS 适配，独立测试通过；生产挖掘尚未接通几何写入，动态 BSP 和实际客户端验收仍待完成。接口和限制见[地图挖掘说明](WORLD_CARVING.md)。
 
 地图与会话代次共同确定 MC 宿主维度。换图或 ReHLDS 重启产生新会话并清除建筑；断线重连、区块卸载及资源重载不能被误判成新地图。
 

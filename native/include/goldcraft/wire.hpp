@@ -10,7 +10,7 @@ namespace goldcraft {
 using Bytes = std::vector<std::uint8_t>;
 using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
-constexpr std::uint16_t protocol_version = 20;
+constexpr std::uint16_t protocol_version = 21;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;
 constexpr std::size_t max_queued_bytes = 64 * 1024 * 1024;
@@ -31,7 +31,8 @@ enum class Type : std::uint16_t {
     trace_query = 40, trace_result = 41, authoritative_pose = 50,
     minecraft_objects = 51, object_action = 52, host_entities = 53, vitals_delta = 54,
     map_mining_policy = 56, map_mining_request = 57, map_mining_result = 58,
-    map_edit_snapshot = 59, map_edit_delta = 60, map_edit_query = 61
+    map_edit_snapshot = 59, map_edit_delta = 60, map_edit_query = 61,
+    map_mining_sample = 62, map_mining_surface = 63
 };
 
 class ProtocolError : public std::runtime_error { public: using std::runtime_error::runtime_error; };

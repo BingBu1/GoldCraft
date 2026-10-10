@@ -1,7 +1,7 @@
 """Real native edit-state transport/lifecycle, with synthetic cuts in a fixture-only DLL.
 
 Does not edit BSP geometry, render a hole, or change player collision. Exercises
-the production ledger/round policy and authenticated protocol20 stream instead.
+the production ledger/round policy and authenticated versioned stream instead.
 """
 from pathlib import Path
 import importlib.util
@@ -38,7 +38,7 @@ class Run(rounds.Run):
         revision, cuts = self.snapshot()
         self.check("new map has an empty versioned snapshot", revision == 1 and not cuts)
         answer = self.command("serverinfo")
-        self.check("server advertises matching protocol for native-only clients", bool(re.search(r"mc_protocol\s+20", answer)))
+        self.check("server advertises matching protocol for native-only clients", bool(re.search(r"mc_protocol\s+" + str(rounds.mining.VERSION), answer)))
         self.command("gc_edits_fixture 2")
         first, second = self.packet(60), self.packet(60)
         a, b = struct.unpack("<QQQIIII6f", first), struct.unpack("<QQQIIII6f", second)

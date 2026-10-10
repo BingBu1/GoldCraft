@@ -64,7 +64,8 @@ bool known_type(Type t) {
     case Type::authoritative_pose: case Type::minecraft_objects: case Type::object_action: case Type::host_entities:
     case Type::damage_request: case Type::damage_result: case Type::vitals_delta:
     case Type::map_mining_policy: case Type::map_mining_request: case Type::map_mining_result:
-    case Type::map_edit_snapshot: case Type::map_edit_delta: case Type::map_edit_query: return true;
+    case Type::map_edit_snapshot: case Type::map_edit_delta: case Type::map_edit_query:
+    case Type::map_mining_sample: case Type::map_mining_surface: return true;
     default: return false;
     }
 }

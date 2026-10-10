@@ -43,7 +43,17 @@ int main(){
     bytes=encode_result(result);assert(bytes.size()==56);auto response=decode_result(bytes);
     assert(response.before==20&&response.after==-10&&response.status==Status::applied&&response.target_serial==9);
     bytes[44]=10;rejected([&]{decode_result(bytes);});
-    for(auto type:{Type::map_mining_policy,Type::map_mining_request,Type::map_mining_result}){
+    Surface surface{result,Target::damageable_entity,Material::glass,{10,-20,30},{0,0,1}};
+    bytes=encode_surface(surface);assert(bytes.size()==88);
+    auto sample=decode_surface(bytes);
+    assert(sample.material==Material::glass&&sample.point.y==-20&&sample.normal.z==1&&sample.result.event==17);
+    for(std::size_t n=0;n<bytes.size();++n)rejected([&]{decode_surface(std::span(bytes).first(n));});
+    for(auto offset:{56,60}){auto invalid=bytes;invalid[offset]=255;rejected([&]{decode_surface(invalid);});}
+    surface.normal={0,0,0};rejected([&]{decode_surface(encode_surface(surface));});
+    surface.result.status=Status::obstructed;surface.kind=Target::none;
+    assert(decode_surface(encode_surface(surface)).result.status==Status::obstructed);
+    for(auto type:{Type::map_mining_policy,Type::map_mining_request,Type::map_mining_result,
+                  Type::map_mining_sample,Type::map_mining_surface}){
         auto frame=encode_frame(type,2,3,{});assert(decode_header(frame).type==type);
     }
     std::puts("{\"mining_policy_codec\":\"passed\",\"truncated_request_lengths\":84,\"authority\":\"runtime test required\"}");

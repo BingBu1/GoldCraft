@@ -5,6 +5,7 @@ public final class MapMining {
     private MapMining() {}
     public static final int DISABLED=0, DAMAGEABLE_ENTITIES=1, ALL_GEOMETRY=2;
     public static final int ENTITY_DAMAGE=1, GEOMETRY_CARVING=2, APPLIED=0;
+    public static final int STONE=0, WOOD=1, METAL=2, GLASS=3, SOIL=4, TILE=5, FLESH=6, UNBREAKABLE=7, WATER=8, SNOW=9;
     public record Policy(long epoch,long revision,int mode,int capabilities) {
         public static Policy none(){return new Policy(0,0,DISABLED,0);}
         public boolean enabled(){return epoch!=0&&revision!=0&&mode!=DISABLED;}
@@ -25,6 +26,15 @@ public final class MapMining {
         if(value.epoch()==0||value.event()==0||value.revision()==0||value.slot()<1||value.slot()>64||value.serial()==0||value.life()==0
             ||value.target()<0||value.target()>32767||value.status()<0||value.status()>9)throw new IllegalArgumentException("Mining result bounds");
         return value;
+    }
+    public record Surface(Result result,int kind,int material,float x,float y,float z,float nx,float ny,float nz) {}
+    public static Surface surface(byte[] bytes){
+        var r=new Wire.Reader(bytes);
+        var s=new Surface(result(r.bytes(56)),r.i32(),r.i32(),r.f32(),r.f32(),r.f32(),r.f32(),r.f32(),r.f32());r.finish();
+        float length=s.nx()*s.nx()+s.ny()*s.ny()+s.nz()*s.nz();
+        if(s.kind()<0||s.kind()>2||s.material()<0||s.material()>9||Math.abs(s.x())>16384||Math.abs(s.y())>16384||Math.abs(s.z())>16384
+            ||s.result().status()==APPLIED&&(s.kind()==0||length<0.98f||length>1.02f))throw new IllegalArgumentException("Mining surface bounds");
+        return s;
     }
     public static byte[] request(Policy policy,long event,HostWorldState.Actor actor,int target,int serial,int model,
                                  float x,float y,float z,float damage,float reach){

@@ -11,7 +11,7 @@
 - [ ] 验收已部署的 MetaHookSv `v20261008b` 十插件组合及新增 InterpFix 的实际效果。
 - [ ] 验收 XMCL 统一增删更新及 A/B/server 三端运行；核心 JAR 已统一。
 - [ ] 验收已同步三端的女仆 Epic Fight 扩展：CS 内动画、GEO/YSM 模型、技能菜单与多人玩法。
-- [ ] 验收地图挖掘的真实收包／预测、动态 BSP、武器射线、多洞性能、输入／生物穿洞及工具进度。[状态](docs/WORLD_CARVING.md)
+- [ ] 验收地图挖掘的真实收包／预测、动态 BSP、武器射线、多洞性能、输入／生物穿洞、材质／工具进度画面；实体材质与服务端工具进度已接入。[状态](docs/WORLD_CARVING.md)
 - [ ] 验收洞口实体／PVS／PAS 广播的真实收包与听感、Renderer／碰撞统一提交、贴花、阴影重绘和同视角帧时间。
 - [ ] 实现 AMXX 通用效果层：原生表现保留、状态／外力同步、公共 Pawn 声明和统一目标；按能力复用，先验收 ZP／Nade Modes。[方案](docs/AMXX_INTEROP.md)
 

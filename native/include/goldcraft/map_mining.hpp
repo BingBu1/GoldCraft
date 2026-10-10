@@ -6,7 +6,11 @@
 namespace goldcraft::mining {
 enum class Mode : std::uint32_t { disabled = 0, damageable_entities = 1, all_geometry = 2 };
 enum Capability : std::uint32_t { entity_damage = 1, geometry_carving = 2 };
-enum class Target { none, damageable_entity, geometry };
+enum class Target : std::uint32_t { none, damageable_entity, geometry };
+// Stable bridge categories, not the engine's Materials or texture-character ABI.
+enum class Material : std::uint32_t {
+    stone, wood, metal, glass, soil, tile, flesh, unbreakable, water, snow
+};
 enum class Status : std::uint32_t {
     applied = 0, disabled = 1, stale_policy = 2, stale_actor = 3,
     replay = 4, cooldown = 5, invalid_target = 6, obstructed = 7,
@@ -87,5 +91,33 @@ inline Result decode_result(std::span<const std::uint8_t> bytes) {
     if (!result.epoch || !result.event || !result.revision || !result.slot || result.slot > 64 || !result.serial || !result.life ||
         result.target > 32767 || status > static_cast<std::uint32_t>(Status::geometry_unavailable)) throw ProtocolError("Mining result bounds");
     return result;
+}
+
+// Read-only response to map_mining_sample (the same bounded Request layout).
+// "applied" here means the sample is valid; it never means damage or a cut.
+struct Surface {
+    Result result;
+    Target kind = Target::none;
+    Material material = Material::stone;
+    Vec3 point{}, normal{};
+};
+inline Bytes encode_surface(const Surface& surface) {
+    Writer w; w.bytes(encode_result(surface.result));
+    w.u32(static_cast<std::uint32_t>(surface.kind));
+    w.u32(static_cast<std::uint32_t>(surface.material));
+    w.f32(surface.point.x); w.f32(surface.point.y); w.f32(surface.point.z);
+    w.f32(surface.normal.x); w.f32(surface.normal.y); w.f32(surface.normal.z);
+    return w.data;
+}
+inline Surface decode_surface(std::span<const std::uint8_t> bytes) {
+    Reader r(bytes); Surface s; s.result = decode_result(r.bytes(56));
+    const auto kind = r.u32(), material = r.u32();
+    s.kind = static_cast<Target>(kind); s.material = static_cast<Material>(material);
+    s.point = {r.f32(), r.f32(), r.f32()}; s.normal = {r.f32(), r.f32(), r.f32()}; r.finish();
+    const float length = s.normal.x*s.normal.x + s.normal.y*s.normal.y + s.normal.z*s.normal.z;
+    if (kind > 2 || material > 9 || std::abs(s.point.x) > 16384 || std::abs(s.point.y) > 16384 ||
+        std::abs(s.point.z) > 16384 || (s.result.status == Status::applied &&
+        (kind == 0 || length < 0.98f || length > 1.02f))) throw ProtocolError("Mining surface bounds");
+    return s;
 }
 }

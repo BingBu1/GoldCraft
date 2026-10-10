@@ -68,7 +68,7 @@ std::uint64_t collision_sequence=0;
 std::uint64_t mob_damage_event=0,mob_damage_accepted=0,mob_damage_rejected=0;
 std::uint64_t mining_policy_sent=0,mining_applied=0,mining_rejected=0;
 std::array<std::uint64_t,65> mining_events{};
-std::array<float,65> next_mining{};
+std::array<float,65> next_mining{}, next_mining_sample{};
 float next_colliders=0;
 std::array<std::map<std::uint64_t,Bytes>,65> client_colliders;
 std::array<bool,65> colliders_initialized{};
@@ -512,7 +512,7 @@ void SendEdits(){
         }
     }
 }
-void HandleMining(std::span<const std::uint8_t> bytes){
+void HandleMining(std::span<const std::uint8_t> bytes, bool sample=false){
     const auto request=mining::decode_request(bytes);
     const auto policy=GoldCraft_MapMiningPolicy();
     mining::Result result{registry.world(),request.event,policy.revision,request.slot,request.serial,request.life,request.target,request.target_serial};
@@ -520,12 +520,20 @@ void HandleMining(std::span<const std::uint8_t> bytes){
     const bool current=pair&&pair->paired&&request.epoch==registry.world()&&pair->serial==request.serial&&pair->uuid==request.uuid
         &&request.life==player_lives[request.slot]&&minecraft_forms[request.slot]&&controlled[request.slot].active
         &&gpGlobals->time-controlled[request.slot].last_update<=1.0f;
+    mining::Surface surface;
     if(current){
         if(request.event<=mining_events[request.slot])result.status=mining::Status::replay;
         else{
             mining_events[request.slot]=request.event;
             if(request.revision!=policy.revision)result.status=mining::Status::stale_policy;
             else if(policy.mode==mining::Mode::disabled)result.status=mining::Status::disabled;
+            else if(sample){
+                if(gpGlobals->time<next_mining_sample[request.slot])result.status=mining::Status::cooldown;
+                else{
+                    next_mining_sample[request.slot]=gpGlobals->time+0.09f;
+                    surface=GoldCraft_MapMiningSample(request,edicts+request.slot);result=surface.result;
+                }
+            }
             else if(gpGlobals->time<next_mining[request.slot])result.status=mining::Status::cooldown;
             else{
                 next_mining[request.slot]=gpGlobals->time+0.19f;
@@ -533,8 +541,13 @@ void HandleMining(std::span<const std::uint8_t> bytes){
             }
         }
     }
-    if(result.status==mining::Status::applied)++mining_applied;else ++mining_rejected;
-    link.send(Type::map_mining_result,mining::encode_result(result));
+    if(sample){
+        surface.result=result;
+        link.send(Type::map_mining_surface,mining::encode_surface(surface));
+    }else{
+        if(result.status==mining::Status::applied)++mining_applied;else ++mining_rejected;
+        link.send(Type::map_mining_result,mining::encode_result(result));
+    }
     SendMiningPolicy();
 }
 }
@@ -555,7 +568,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         GoldCraft_ObjectsReset(false);object_revision=object_actions=object_damage_actions=object_use_actions=0;
         collision_sequence=0;next_colliders=0;client_colliders={};colliders_initialized={};
         mob_damage_event=mob_damage_accepted=mob_damage_rejected=0;
-        GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_events={};next_mining={};
+        GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_events={};next_mining={};next_mining_sample={};
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
@@ -602,7 +615,7 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
 void GoldCraft_ClientDisconnect(edict_t* player) {
     const auto slot=ENTINDEX(player);if(slot<1||slot>=static_cast<int>(controlled.size()))return;
     edit_deliveries[slot]={};
-    ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
+    ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
 }
 void GoldCraft_PlayerSpawn(edict_t* player) {
     const auto slot=ENTINDEX(player);
@@ -701,7 +714,7 @@ void GoldCraft_StartFrame() {
             // and allow a restarted Minecraft server to publish its initial sequences.
             for(int i=1;i<=max_clients;++i){ReleaseControl(i);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
-            mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};mining_policy_sent=0;next_snapshot=0;
+            mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
             edit_revision_sent=0;next_edit_query=0;
             connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");
         }
@@ -715,6 +728,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
             else if(message.type==Type::map_mining_request)HandleMining(message.payload);
+            else if(message.type==Type::map_mining_sample)HandleMining(message.payload,true);
             else if(message.type==Type::map_edit_query){
                 const auto epoch=r.u64();r.finish();
                 if(epoch==registry.world()&&gpGlobals->time>=next_edit_query){edit_revision_sent=0;next_edit_query=gpGlobals->time+1;}

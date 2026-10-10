@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
@@ -34,6 +35,7 @@ import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.Tool;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
@@ -45,6 +47,7 @@ import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 @Mod("goldcraft_mining_probe")
 public final class MapMiningProbe {
@@ -60,9 +63,24 @@ public final class MapMiningProbe {
     private String error;
     private BlockPos placedBlock;
     private JsonObject geometryProbe;
+    private float speedFactor = 1, originalSpeed;
+    private int speedEvents;
+    private boolean cancelSpeed;
+    private String speedMaterial;
+    private String swapOnCommit;
+    private int swaps;
 
     public MapMiningProbe() {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::tick);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::speed);
+    }
+
+    private void speed(PlayerEvent.BreakSpeed event) {
+        if (event.getEntity() != player) return;
+        ++speedEvents; originalSpeed = event.getOriginalSpeed();
+        speedMaterial = BuiltInRegistries.BLOCK.getKey(event.getState().getBlock()).toString();
+        event.setNewSpeed(event.getNewSpeed() * speedFactor);
+        if (cancelSpeed) event.setCanceled(true);
     }
 
     // These two private field names were checked against the pinned 1.21.1
@@ -134,6 +152,14 @@ public final class MapMiningProbe {
             case "renew" -> renew=data.get("value").getAsBoolean();
             case "mode" -> player.setGameMode(GameType.byName(data.get("value").getAsString()));
             case "item" -> equip(data.get("value").getAsString());
+            case "ground" -> player.setOnGround(data.get("value").getAsBoolean());
+            case "speed" -> {
+                speedFactor = data.get("factor").getAsFloat();
+                cancelSpeed = data.get("cancel").getAsBoolean();
+            }
+            case "tool_component" -> player.getMainHandItem().set(DataComponents.TOOL,
+                new Tool(List.of(), data.get("speed").getAsFloat(), 1));
+            case "swap_on_commit" -> swapOnCommit = data.get("value").getAsString();
             case "use" -> {
                 if (data.get("value").getAsBoolean()) {
                     player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
@@ -177,6 +203,15 @@ public final class MapMiningProbe {
                         HostSession.ready(uuid,host.epoch(),actor.serial(),actor.life(),ready);
                         readCommand(server);
                         if (renew) HostMining.intent(player,new MiningPayload(host.epoch(),host.mining().revision(),actor.serial(),actor.life(),held));
+                        if (swapOnCommit != null) {
+                            var field = HostMining.class.getDeclaredField("PENDING"); field.setAccessible(true);
+                            for (var request : ((Map<?,?>)field.get(null)).values()) {
+                                var sample = request.getClass().getDeclaredMethod("sample"); sample.setAccessible(true);
+                                if (!(Boolean)sample.invoke(request)) {
+                                    equip(swapOnCommit); swapOnCommit = null; ++swaps; break;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -229,6 +264,8 @@ public final class MapMiningProbe {
             out.addProperty("slot",slot); out.addProperty("actorFlags",actor==null?0:actor.flags());
             out.addProperty("held",held); out.addProperty("renew",renew); out.addProperty("error",error);
             out.addProperty("statusRetries",statusRetries);
+            out.addProperty("speedEvents",speedEvents);out.addProperty("originalSpeed",originalSpeed);
+            out.addProperty("speedMaterial",speedMaterial);out.addProperty("swaps",swaps);
             if(geometryProbe!=null)out.add("geometry",geometryProbe);
             if (player!=null) {
                 out.addProperty("gameMode",player.gameMode.getGameModeForPlayer().getName());
@@ -249,7 +286,7 @@ public final class MapMiningProbe {
                 var intent=((Map<?,?>)intents.get(null)).get(uuid);
                 if(intent!=null){
                     var detail=new JsonObject();
-                    for(String name:new String[]{"held","epoch","revision","serial","life","lastIntent","nextTick","pending"}){
+                    for(String name:new String[]{"held","epoch","revision","serial","life","lastIntent","nextTick","pending","progress","material","sampleUntil","generation"}){
                         var field=intent.getClass().getDeclaredField(name);field.setAccessible(true);
                         detail.addProperty(name,String.valueOf(field.get(intent)));
                     }

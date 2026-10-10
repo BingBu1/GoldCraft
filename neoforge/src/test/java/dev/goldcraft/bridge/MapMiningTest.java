@@ -5,6 +5,20 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.*;
 
 class MapMiningTest {
+    @Test void nativeMaterialSamplesAreBoundedAndSeparateFromDamage() {
+        var w=new Wire.Writer().i64(11).i64(2).i64(3).i32(1).i32(4).i32(5).i32(72).i32(9).i32(0).f32(20).f32(20)
+            .i32(1).i32(MapMining.GLASS).f32(10).f32(-20).f32(30).f32(0).f32(0).f32(1);
+        byte[] bytes=w.toByteArray();assertEquals(88,bytes.length);
+        var sample=MapMining.surface(bytes);assertEquals(MapMining.GLASS,sample.material());assertEquals(-20,sample.y());
+        assertEquals(sample.result().before(),sample.result().after());
+        for(int n=0;n<bytes.length;n++) {
+            byte[] truncated=Arrays.copyOf(bytes,n);assertThrows(IllegalArgumentException.class,()->MapMining.surface(truncated));
+        }
+        for(int offset:new int[]{56,60}) {
+            byte[] bad=bytes.clone();bad[offset]=(byte)255;assertThrows(IllegalArgumentException.class,()->MapMining.surface(bad));
+        }
+        Arrays.fill(bytes,84,88,(byte)0);assertThrows(IllegalArgumentException.class,()->MapMining.surface(bytes));
+    }
     @Test void disabledUntilAuthoritativePolicyAndResetOnMapChange(){
         var host=new HostWorldState();assertFalse(host.mining().enabled());
         host.world(new Wire.Writer().i64(11).string("cs_assault").toByteArray());

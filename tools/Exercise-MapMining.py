@@ -104,7 +104,7 @@ class Peer:
                                 slot, serial, userid, team, flags, life = struct.unpack_from("<6I", body, offset)
                                 pitch, yaw = struct.unpack_from("<2f", body, offset + 56)
                                 self.actors[slot] = dict(slot=slot, serial=serial, userid=userid, team=team, flags=flags, life=life, pitch=pitch, yaw=yaw)
-                        elif kind in (14, 41, 58, 59, 60):
+                        elif kind in (14, 41, 58, 59, 60, 63):
                             self.messages.append((kind, body))
         except Exception as exc:
             if not self.stop:
@@ -287,7 +287,7 @@ class Run(base.Run):
         self.pose(self.eye, self.point)
         self.check("all mc_ server cvars available during AMXX initialization", match[4] == "1")
 
-    def request(self, **overrides):
+    def request(self, sample=False, **overrides):
         self.event += 1
         actor = self.peer.actors[self.slot]
         q = dict(epoch=self.peer.world, revision=self.peer.policy[1], event=self.event, slot=self.slot,
@@ -296,11 +296,14 @@ class Run(base.Run):
         q.update(overrides)
         payload = struct.pack("<QQQIII", q["epoch"], q["revision"], q["event"], q["slot"], q["serial"], q["life"]) + q["uuid"]
         payload += struct.pack("<III5f", q["target"], q["target_serial"], q["model"], *q["point"], q["damage"], q["reach"])
-        self.peer.send(57, payload)
-        raw = self.until(lambda: self.peer.take(58, lambda b: struct.unpack_from("<Q", b, 8)[0] == q["event"]), "Mining result")
-        values = struct.unpack("<QQQ6I2f", raw)
+        self.peer.send(62 if sample else 57, payload)
+        raw = self.until(lambda: self.peer.take(63 if sample else 58, lambda b: struct.unpack_from("<Q", b, 8)[0] == q["event"]), "Mining result")
+        values = struct.unpack("<QQQ6I2f", raw[:56])
         result = dict(status=values[8], before=values[9], after=values[10], event=q["event"])
-        self.report.setdefault("results", []).append(dict(result, actor=actor, frozen=self.peer.frozen))
+        if sample:
+            kind, material, *geometry = struct.unpack_from("<II6f", raw, 56)
+            result.update(kind=kind, material=material, point=geometry[:3], normal=geometry[3:])
+        self.report.setdefault("results", []).append(dict(result, actor=actor, frozen=self.peer.frozen, sample=sample))
         return result
 
     def rested(self):
@@ -312,6 +315,24 @@ class Run(base.Run):
         self.command("gc_mining_edit 100 1")
         result = self.request()
         self.check("mode 0 rejects map mining before native damage", result["status"] == 1 and "calls=0" in self.command("gc_mining_state"))
+        self.check("disabled policy refuses read-only material queries", self.request(sample=True)["status"] == 1)
+        self.set_mode(2)
+        for model, material in ((56,3),(61,1),(54,2),(77,2),(67,7)):
+            self.target(model)
+            self.rested()
+            before = self.command("gc_mining_state")
+            sample = self.request(sample=True)
+            self.check(f"real native model {model} supplies material {material} without damage",
+                       sample["status"] == 0 and sample["material"] == material
+                       and sample["before"] == sample["after"] and "calls=0" in before
+                       and "calls=0" in self.command("gc_mining_state"))
+        self.target(56)
+        self.rested()
+        self.check("sample rejects reused target serial", self.request(sample=True,target_serial=self.target_serial+1)["status"] == 6)
+        self.check("sample rejects stale player life", self.request(sample=True,life=self.peer.actors[self.slot]["life"]+1)["status"] == 3)
+        self.check("sample rejects wrong pairing", self.request(sample=True,uuid=bytes(16))["status"] == 3)
+        self.rested()
+        self.check("sample enforces native reach", self.request(sample=True,reach=8)["status"] == 7)
         self.set_mode(1)
         result = self.request()
         self.check("mode 1 invokes real glass damage and its native club multiplier", result["status"] == 0 and result["before"] == 100 and result["after"] == 96)

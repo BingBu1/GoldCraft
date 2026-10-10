@@ -135,6 +135,7 @@ public final class GoldCraft {
                             }
                         }
                         case Wire.MAP_MINING_RESULT -> HostMining.result(server,HOST_WORLD,message.payload());
+                        case Wire.MAP_MINING_SURFACE -> HostMining.surface(server,HOST_WORLD,message.payload());
                         case Wire.MAP_EDIT_SNAPSHOT,Wire.MAP_EDIT_DELTA -> {
                             var result=message.type()==Wire.MAP_EDIT_SNAPSHOT?HOST_WORLD.edits().accept(MapEdits.snapshot(message.payload())):
                                 HOST_WORLD.edits().accept(MapEdits.delta(message.payload()));

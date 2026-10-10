@@ -420,8 +420,8 @@ bool GoldCraft_MapVisibilityChanged(int clientnum) {
     return changed;
 }
 
-goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Request &q,
-                                                   edict_t *player) {
+goldcraft::mining::Result InspectMining(const goldcraft::mining::Request &q, edict_t *player,
+                                        edict_t *&target, TraceResult &trace) {
     using namespace goldcraft::mining;
     const auto current = GoldCraft_MapMiningPolicy();
     Result result{current.epoch, q.event, current.revision, q.slot,
@@ -443,7 +443,7 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
     result.status = Status::invalid_target;
     if (q.target >= static_cast<unsigned>(gpGlobals->maxEntities))
         return result;
-    auto *target = INDEXENT(q.target);
+    target = INDEXENT(q.target);
     const auto kind = TargetKind(target);
     if (!permits(current.mode, kind) ||
         (q.target && target->serialnumber != static_cast<int>(q.target_serial)))
@@ -466,7 +466,6 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
     AngleVectors(player->v.v_angle, forward, nullptr, nullptr);
     if (DotProduct(direction, forward) < 0.95f)
         return result;
-    TraceResult trace{};
     // Include players/monsters and MC proxy edicts as occluders. Do not trace
     // straight through an intervening object merely because the requested BSP matches.
     UTIL_TraceLine(source, point + direction, dont_ignore_monsters, player, &trace);
@@ -483,6 +482,19 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
         result.status = Status::invalid_target;
         return result;
     }
+    result.status = Status::applied;
+    return result;
+}
+
+goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Request &q,
+                                                edict_t *player) {
+    using namespace goldcraft::mining;
+    edict_t *target = nullptr;
+    TraceResult trace{};
+    auto result = InspectMining(q, player, target, trace);
+    if (result.status != Status::applied)
+        return result;
+    const auto kind = TargetKind(target);
     if (kind == Target::geometry) {
         result.status = Status::geometry_unavailable;
         return result; // Do not acknowledge a hole until rendering AND collision can commit it.
@@ -508,4 +520,60 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
         (result.after < result.before || target->v.solid != solid))
         mined_entities.insert_or_assign(q.target, identity);
     return result;
+}
+
+
+goldcraft::mining::Surface GoldCraft_MapMiningSample(const goldcraft::mining::Request &q,
+                                                   edict_t *player) {
+    using namespace goldcraft::mining;
+    Surface surface;
+    edict_t *target = nullptr;
+    TraceResult trace{};
+    surface.result = InspectMining(q, player, target, trace);
+    if (surface.result.status != Status::applied)
+        return surface;
+    surface.kind = TargetKind(target);
+    surface.point = {trace.vecEndPos.x, trace.vecEndPos.y, trace.vecEndPos.z};
+    surface.normal = {trace.vecPlaneNormal.x, trace.vecPlaneNormal.y, trace.vecPlaneNormal.z};
+    surface.result.before = surface.result.after = std::isfinite(target->v.health) ? target->v.health : 0;
+    // These exact ReGameDLL classes share CBreakable's public m_Material field.
+    // Do not cast unrelated/plugin entities based on a guessed private offset.
+    if (FClassnameIs(target, "func_breakable") || FClassnameIs(target, "func_pushable")) {
+        const auto *object = GET_PRIVATE<CBreakable>(target);
+        switch (object->m_Material) {
+        case matGlass: surface.material = Material::glass; break;
+        case matWood: surface.material = Material::wood; break;
+        case matMetal: case matComputer: surface.material = Material::metal; break;
+        case matFlesh: surface.material = Material::flesh; break;
+        case matCeilingTile: surface.material = Material::tile; break;
+        case matUnbreakableGlass: surface.material = Material::unbreakable; break;
+        default: surface.material = Material::stone; break;
+        }
+        return surface;
+    }
+    const Vector source = player->v.origin + player->v.view_ofs;
+    const Vector point(q.point.x, q.point.y, q.point.z);
+    const Vector end = point + (point - source).Normalize();
+    const auto *texture = g_engfuncs.pfnTraceTexture(target, source, end);
+    if (!texture)
+        return surface; // Native unknown material uses concrete, as does PM_FindTextureType.
+    if ((texture[0] == '-' || texture[0] == '+') && texture[1])
+        texture += 2;
+    if (*texture == '{' || *texture == '!' || *texture == '~' || *texture == ' ')
+        ++texture;
+    char name[MAX_TEXTURENAME_LENGHT];
+    Q_strlcpy(name, texture);
+    switch (PM_FindTextureType(name)) {
+    case CHAR_TEX_WOOD: surface.material = Material::wood; break;
+    case CHAR_TEX_METAL: case CHAR_TEX_VENT: case CHAR_TEX_GRATE: case CHAR_TEX_COMPUTER:
+        surface.material = Material::metal; break;
+    case CHAR_TEX_GLASS: surface.material = Material::glass; break;
+    case CHAR_TEX_DIRT: case CHAR_TEX_GRASS: surface.material = Material::soil; break;
+    case CHAR_TEX_TILE: surface.material = Material::tile; break;
+    case CHAR_TEX_FLESH: surface.material = Material::flesh; break;
+    case CHAR_TEX_SLOSH: surface.material = Material::water; break;
+    case CHAR_TEX_SNOW: surface.material = Material::snow; break;
+    default: surface.material = Material::stone; break;
+    }
+    return surface;
 }

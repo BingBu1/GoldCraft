@@ -8,3 +8,4 @@ void GoldCraft_MapMiningFrame();
 goldcraft::mining::Policy GoldCraft_MapMiningPolicy();
 const goldcraft::edits::Ledger& GoldCraft_MapEdits();
 goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Request& request, edict_s* player);
+goldcraft::mining::Surface GoldCraft_MapMiningSample(const goldcraft::mining::Request& request, edict_s* player);
