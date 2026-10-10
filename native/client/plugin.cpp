@@ -27,6 +27,7 @@
 #include "goldcraft/camera.hpp"
 #include "goldcraft/host_keys.hpp"
 #include "goldcraft/map_edits.hpp"
+#include "map_edit_transaction.hpp"
 #include <array>
 #include <cstring>
 #include <cstdlib>
@@ -46,7 +47,7 @@ using namespace goldcraft;
 Endpoint link;
 metahook_api_t* api = nullptr;
 Bytes binding;
-edits::Replica map_edits;
+client_map::EditTransaction map_edits;
 edits::Assembler edit_assembler;
 double next_edit_query=0;
 bool edit_recovery=false;
@@ -368,6 +369,8 @@ void WriteDiagnostics() {
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
+        out<<"\"mapEditReceived\":"<<map_edits.state().revision<<",\"mapEditApplied\":"<<map_edits.applied().revision
+           <<",\"mapEditPending\":"<<(map_edits.pending()?"true":"false")<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
@@ -468,14 +471,8 @@ int EditMessage(const char*,int size,void* data){
         if(size<0||!data)throw ProtocolError("Invalid GCEdit message");
         const auto message=edit_assembler.accept(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
         if(!message)return 1;
-        auto candidate=map_edits;
-        const auto result=message->type==Type::map_edit_snapshot?candidate.accept(edits::snapshot(message->payload)):
-            candidate.accept(edits::delta(message->payload));
-        if(result==edits::Applied::changed) {
-            auto* entity=gEngfuncs.GetEntityByIndex(0);
-            client_map::prepare(candidate,entity?entity->model:nullptr);
-        }
-        map_edits=std::move(candidate);
+        const auto result=message->type==Type::map_edit_snapshot?map_edits.accept(edits::snapshot(message->payload)):
+            map_edits.accept(edits::delta(message->payload));
         if(result==edits::Applied::need_snapshot)edit_recovery=true;
         else if(map_edits.ready())edit_recovery=false;
     }catch(const std::exception& error){
@@ -912,11 +909,15 @@ void Frame(double time) {
     TestCommands();
     link.poll();
     static double next_ready=0;
-    if(have_view&&MatchingHostProtocol()){
-        if(Seconds()>=next_ready){
+    if(MatchingHostProtocol()){
+        if(have_view&&Seconds()>=next_ready){
             const auto command="goldcraft_ready "+std::to_string(protocol_version)+"\n";
             gEngfuncs.pfnServerCmd(command.c_str());next_ready=Seconds()+1;
         }
+        try {
+            auto* entity=gEngfuncs.GetEntityByIndex(0);
+            map_edits.pump(render::world_edit(),entity?entity->model:nullptr);
+        } catch(const std::exception& error) { Log(error.what());edit_recovery=true; }
         if(edit_recovery)RequestEdits();
     }else if(map_edits.state().epoch){
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;

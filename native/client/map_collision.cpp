@@ -1,6 +1,8 @@
+// HLSDK model/PM headers require MetaHook base types first.
 #include <metahook.h>
 #include <com_model.h>
 #include <pm_defs.h>
+
 #include "map_collision.hpp"
 #include "goldcraft/edited_hull.hpp"
 #include <array>
@@ -11,8 +13,15 @@
 #include <utility>
 
 namespace goldcraft::client_map {
-namespace {
 using namespace carving;
+struct Prepared {
+    model_t *model = nullptr;
+    edits::Snapshot state;
+    std::array<std::unique_ptr<EditedHull>, 4> hulls;
+    std::array<Point, 4> clip_mins;
+    std::size_t deferred_targets = 0;
+};
+namespace {
 static_assert(sizeof(model_t) == 392 && sizeof(hull_t) == 40 && sizeof(physent_t) == 224);
 constexpr std::array<int, 4> hull_index{1, 3, 0, 2};
 struct SourceHull {
@@ -41,13 +50,6 @@ struct SourceHull {
         }
     }
     HullView view() const { return {planes, nodes, root}; }
-};
-struct Prepared {
-    model_t *model = nullptr;
-    edits::Snapshot state;
-    std::array<std::unique_ptr<EditedHull>, 4> hulls;
-    std::array<Point, 4> clip_mins;
-    std::size_t deferred_targets = 0;
 };
 std::shared_ptr<const Prepared> active;
 std::uint64_t traces = 0, positions = 0, points = 0, frames = 0, failures = 0;
@@ -378,7 +380,7 @@ void unwrap(Callbacks &saved, const Callbacks &native) {
 }
 } // namespace
 void reset() { active.reset(); }
-void prepare(const edits::Replica &replica, model_t *loaded) {
+Candidate prepare(const edits::Replica &replica, model_t *loaded) {
     if (!replica.ready())
         throw ProtocolError("Client map physics needs a validated snapshot");
     const auto &state = replica.state();
@@ -389,7 +391,7 @@ void prepare(const edits::Replica &replica, model_t *loaded) {
         if (state.revision == active->state.revision) {
             if (state != active->state)
                 throw ProtocolError("Client map physics revision conflict");
-            return;
+            return active;
         }
     }
     auto next = std::make_shared<Prepared>();
@@ -430,8 +432,9 @@ void prepare(const edits::Replica &replica, model_t *loaded) {
                 throw std::length_error("Client map physics budget");
         }
     }
-    active = std::move(next);
+    return next;
 }
+void commit(Candidate candidate) noexcept { active = std::move(candidate); }
 void move(playermove_t *pm, int server, void (*original)(playermove_t *, int)) {
     if (!original)
         return;

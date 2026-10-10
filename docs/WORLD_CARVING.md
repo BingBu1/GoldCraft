@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端预测适配器通过回调／地图数据测试，Renderer 剩余表面候选通过实际 GL 读回，**真实客户端、Renderer 完整提交／PVS 和实际挖掘输入仍待验收，生产 mode2 仍不可用**。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端已接 Renderer／碰撞／修改记录统一提交，贴花裁剪和阴影缓存失效通过独立 GL／回调测试。**服务端实体 PVS、真实客户端画面／预测／阴影与实际挖掘输入仍待接入或验收，生产 mode2 仍不可用**。
 
 ## HLDS 权限
 
@@ -117,29 +117,29 @@ python tools/Exercise-MapMiningJvm.py
 
 ## 原生客户端预测适配器
 
-[`map_collision.cpp`](../native/client/map_collision.cpp) 在 `HUD_PlayerMove` 内临时替换公开 PM 回调，退出或异常展开时恢复原表。`GCEdit` 先在临时 Replica 中验证，再完整准备四种身体 hull；准备失败不接受新修改。缓存是不可变数据，嵌套客户端／服务端移动保留各自回调，查询中途恢复地图会回退原生接口。无新增私有 `hw.dll` 地址补丁。
+[`map_collision.cpp`](../native/client/map_collision.cpp) 在 `HUD_PlayerMove` 内临时替换公开 PM 回调，退出或异常展开时恢复原表。`GCEdit` 验证收到的 Replica，再由 [`map_edit_transaction.cpp`](../native/client/map_edit_transaction.cpp) 完整准备四种身体 hull 和 Renderer 候选；两者就绪后在同一帧发布。等待或失败期间保留上一次已应用状态，连续增量可合并为最新候选。缓存是不可变数据，嵌套客户端／服务端移动保留各自回调，查询中途恢复地图会回退原生接口。无新增私有 `hw.dll` 地址补丁。
 
 适配覆盖 PlayerTrace、TestPlayerPosition、PointContents、TruePointContents、TraceLine 及 Ex 查询。只替换世界几何；人物和普通实体仍由原生 Ex 接口追踪，保留过滤、hitgroup、世界优先的等距命中、水体／current 和位置查询的未过滤 origin 射线语义。Line 使用各自 physents／visents；普通服务器或协议不匹配时，消息与预测入口直接停用地图修改。
 
 18 项 CTest 通过。新增两项检查回调链、九种缺失接口、会话／版本／模型拒绝、失败原子性、嵌套与异常恢复，以及 CRC32 `f6725c06` 的真实 `cs_assault` 数据上的站立／蹲伏／点 hull、洞边、低洞和 clip-only 空气墙。注入异常的捕获计数为 12；实际地图数据查询失败计数为 0。Clang/C++20 审计覆盖 11 组／1,519 单元／15 个 x86 产物。
 
-这些测试使用原生回调的 dispatch spies，**不是运行真实 `hw.dll` 的预测验收**。动态 BSP 目标缺少可核验的客户端 serial，当前只记入 deferred 计数，不套用猜测身份。还需真实 B 收包／移动、事件武器射线、动态实体、Renderer／PVS 和分散多洞性能。没有向主沙盒部署新版或启动图形客户端。
+这些测试使用原生回调的 dispatch spies，**不是运行真实 `hw.dll` 的预测验收**。底层碰撞适配器保留动态目标的 deferred 计数；新增生产事务会明确拒绝包含动态 BSP 的整个候选，直到客户端 serial 可核验。还需真实 B 收包／移动、事件武器射线、动态实体、Renderer／PVS 和分散多洞性能。没有向主沙盒部署新版或启动图形客户端。
 
 ## Renderer 网格准备
 
 世界资源现在保留一份不可变的原始顶点、UV、lightmap、TBN、材质实例和面索引；普通地图的 GPU 上传代码保持原样。`surface::prepare` 从原始网格减去指定模型面范围内的洞口并集，生成独立候选，不反复切割上次结果。未受影响顶点保持原值，新增顶点以相同权重插值全部属性，正反向索引和材质实例范围保留。天空和水面暂不参与切割。
 
-`R_PrepareWorldSurfaceGeometry` 为候选分配独立 VBO／EBO／VAO，并恢复调用前的 GL 绑定。校验、容量／工作预算或 GPU 分配失败均不替换旧资源。清空修改可以从原始网格重新准备完整资源。这只是准备函数：**尚未从 GCEdit 调用，也没有切换正在使用的 leaf／PVS／阴影资源或开启游戏挖洞。**
+`R_PrepareWorldSurfaceGeometry` 为候选分配独立 VBO／EBO／VAO，并恢复调用前的 GL 绑定。校验、容量／工作预算或 GPU 分配失败均不替换旧资源。清空修改可以从原始网格恢复完整资源。准备函数现已纳入下文的可选 Renderer 编辑事务；生产几何挖掘尚未开启。
 
 19 项原生 CTest、10 项 Renderer CTest 和 10 项 UtilThreadTask CTest 全部通过。新增 CPU 检查覆盖相邻／相交／重复洞口、反向面、保护表面、实例编号和失败原子性；实际 `cs_assault` 的 5,798 个三角形另核验 float 网格面积及 UV／lightmap 属性。真实 NVIDIA GL 4.4 测试通过生产候选函数与完整 VAO 布局，核对四个浮点颜色附件、深度和实例范围：256 个洞口像素清空，外侧 3,840 个像素保持属性一致，恢复后全图一致；向真实驱动注入失败后，候选缓冲释放且旧网格仍可绘制。
 
-这不是实际 `hw.dll` 游戏画面、光照或静态阴影验收。洞壁材质／烘焙光照、贴花裁剪、旧异步 leaf 收尾、修改后的 PVS 与静态阴影失效仍待统一提交。不能将候选直接放入现有缓存后声称这些部分已解决。当前准备开销有界，分散大量洞口的性能尚未验收。
+上述是早期网格准备证据，不是实际 `hw.dll` 游戏画面、光照或静态阴影验收。后续候选、叶任务和缓存事务的实现及证据见下文；分散大量洞口的性能仍未验收。
 
-使用 `Build-Native.ps1`、`Build-Renderer.ps1` 后运行 `python tools/Verify-SurfaceMesh.py`，本地证据保存在 `analysis/world-carving/surface-evidence.json`。脚本读取已执行测试的日志、记录源码／产物哈希，验证普通上传路径不变，并对照既有快照核验原安装和受监控沙盒文件；缺少匹配的本机快照时不能推断安装保护验收通过。
+当前使用 `Build-Native.ps1`、`Build-Renderer.ps1` 后运行 `python tools/Verify-WorldTransaction.py`，本地证据保存在 `analysis/world-carving/transaction-evidence.json`。脚本读取已执行测试的日志、记录源码／产物哈希，验证普通上传路径和既有 Renderer ABI 不变，并对照既有快照核验原安装和受监控沙盒文件；缺少匹配的本机快照时不能推断安装保护验收通过。旧 `Verify-SurfaceMesh.py` 的独立入口只对应早期测试数量，当前脚本复用其读取／保护函数。
 
 新增 [`cavity_mesh.cpp`](../native/common/cavity_mesh.cpp) 将剩余表面和洞壁准备成同一个不可变候选。每个模型独立计算全部洞口的并集；洞壁从该模型最近的可编辑原始三角形取得材质，距离相同则按面／三角形次序选择。UV 梯度绕原面与洞壁的交线旋转，平行面使用固定投影基准，保留缩放、斜切和镜像；BSP 分片或同一映射内的 donor 三角形变化不会重新定位纹理，不同原始材质／映射的交界仍可有接缝。不借用天空、水或其他模型材质。洞壁使用独立的材质绘制范围和实例，原始 BSP 面索引不改变。float 转换后零面积的三角形不提交，反向绕序、容量或预算失败拒绝整个候选；绘制包围盒包含实际上传的 float 顶点。
 
-纯几何候选仍标记 `needs_lighting`，不借用 donor 的旧 lightmap。新的 `R_PrepareLitCarvedWorldGeometry` 进一步提取原 BSP 的真实 RGB luxel 和灯光样式，并通过 [`cavity_lighting.cpp`](../native/common/cavity_lighting.cpp) 准备洞壁光照。**它尚未接入实时 GCEdit 提交；旧叶节点异步任务、贴花、PVS 和静态阴影都准备完成前，生产 mode2 保持不可用。**
+纯几何候选仍标记 `needs_lighting`，不借用 donor 的旧 lightmap。`R_PrepareLitCarvedWorldGeometry` 进一步提取原 BSP 的真实 RGB luxel 和灯光样式，并通过 [`cavity_lighting.cpp`](../native/common/cavity_lighting.cpp) 准备洞壁光照。它现在由可选编辑接口调用；真实挖掘生产者、实体可见性和实机验收完成前，生产 mode2 保持不可用。
 
 光照策略是原烘焙照度场的近似延伸，不是重新运行地图 RAD 编译器。原面空气侧的 luxel 作为探针；剔除 atlas 边缘外的点，以及跨过薄墙的偏移。只提取洞口附近 128 单位内可能参与的探针，用中位分割树寻找每个样本前半球最近的 16 个。照度按距离和朝向加权，使用修改后的点 BSP 与洞口并集检查遮挡；被挡权重保留在分母中，避免少量可见亮点把洞内重新归一化为全亮。缺少探针会拒绝候选，真实黑色样本保持黑色。
 
@@ -167,7 +167,7 @@ GL 候选在准备阶段一次上传不可变 VBO／EBO 和间接命令缓冲。
 
 构建后运行 `python tools/Verify-CarvedVisibility.py`，本地报告为 `analysis/world-carving/visibility-evidence.json`。保留首轮失败日志：问题来自地图测试读取器拒绝了合法的末尾零游程；另已按世界根节点隔离子模型节点。最终校验读取实际执行的测试日志，核对源码／产物／补丁和安装保护证据。
 
-按 donor 合并后的大范围 draw 可能降低剔除精度。后续叶缓存接线如下；这些准备接口仍未部署或接入实时 `GCEdit`。
+按 donor 合并后的大范围 draw 可能降低剔除精度。叶缓存与 `GCEdit` 事务接线如下；新版尚未部署到实际图形客户端。
 
 ## 生产叶命令与异步生命周期
 
@@ -175,7 +175,7 @@ GL 候选在准备阶段一次上传不可变 VBO／EBO 和间接命令缓冲。
 
 主线程一次捕获材质映射、缺省纹理和随机纹理表，后台任务读取不可变输入。任务和叶强持有对应几何，后台只生成 CPU 命令并发布完成状态；主线程回收任务、上传 GPU 资源，上传完成后才标记 ready。退场只取消后续使用，不等待正在工作的线程；真正卸载地图／模型时，先关闭并等待全部关联任务，包括已退场代次，再允许引擎释放 BSP。CPU／GPU 准备失败的候选保持未就绪，释放已分配资源；回退只接受同一模型和几何代次的 ready 叶。
 
-静态／动画颜色组各绑定一次 VAO 和间接缓冲，取消每条材质链的重复绑定。不透明阴影把整组 solid 命令一次提交，无逐材质绑定或纹理采样；透明裁剪阴影保留纹理，并补齐动画链。洞壁使用独立采光系数，不启用 donor lightmap 索引。修改过的几何禁用原离线 shadow proxy，**静态阴影纹理的失效重建尚未实现**。普通地图上传块和原公开 Renderer ABI 保持不变。
+静态／动画颜色组各绑定一次 VAO 和间接缓冲，取消每条材质链的重复绑定。不透明阴影把整组 solid 命令一次提交，无逐材质绑定或纹理采样；透明裁剪阴影保留纹理，并补齐动画链。洞壁使用独立采光系数，不启用 donor lightmap 索引。修改过的几何禁用原离线 shadow proxy；下文事务按变化范围使静态阴影纹理失效，实际重绘仍待验收。普通地图上传块和原公开 Renderer ABI 保持不变。
 
 本轮 12 项 Renderer 和 10 项 UtilThreadTask CTest 全通过，未变动的 22 项原生测试沿用上一检查点记录。真实 `cs_assault` 数据构造旧版／HL25 公开布局，逐位比较 423,200 个 PVS 位，覆盖 460 个叶、953 个世界节点及 10 类拒绝情形。叶测试直接链接生产构建／缓存／绘制函数，使用真正 Win32 线程池、隐藏 GL 4.4、窄引擎适配器及状态着色测试 shader；六种正式世界 shader 另行回归，不能混为一次实机测试。
 
@@ -183,7 +183,21 @@ GL 候选在准备阶段一次上传不可变 VBO／EBO 和间接命令缓冲。
 
 构建后运行 `python tools/Verify-WorldLeaves.py`，读取实际执行日志并校验源码、产物、原安装及受监控沙盒文件；本地输出为 `analysis/world-carving/leaf-evidence.json`。Clang／C++20 审计覆盖 11 组、1,582 单元、15 个 x86 产物，10 份源码补丁重放通过。
 
-**生产 mode2 仍不可用。** 下一步是独立版本化编辑接口、碰撞／Renderer／Replica 统一提交、贴花裁剪、静态阴影失效和服务端实体 PVS；然后验证真实 B 输入、穿洞、动态 BSP、生物及多人一致性。实机性能比较继续固定观察者位置和朝向。
+叶任务独立测试仍不能代替真实 B 输入、穿洞、动态 BSP、生物及多人一致性。实机性能比较继续固定观察者位置和朝向。
+
+## Renderer 与碰撞统一提交
+
+新增独立可选接口 `MetaRendererWorldEdit_API_001`，保留 `MetaRenderer_API_002` 原 ABI。所有调用在游戏／GL 主线程执行；`Begin` 复制切割盒，准备不可变网格、光照、可见性及共享世界几何的模型叶；`Poll` 接收完成任务并纳入准备期间新加载的 inline model。只有全部就绪才允许 `Commit`；取消、卸载、失败或同一 revision 的不同切割集都不会替换当前画面。
+
+原生客户端分别保存收到、准备中和已应用的 Replica。准备期间到达的增量合并为最新目标并取消旧候选；碰撞先准备成独立对象。Renderer 提交成功后，以不抛异常的移动操作发布碰撞与已应用 Replica，中间不回调或让出帧。失败保留旧碰撞／画面并补收快照；回合清空走同一事务。普通服务器受协议检查保护。当前只接世界 BSP，动态实体请求整批拒绝，避免只更新一部分几何。
+
+贴花按原面范围和包围盒筛选洞口，用相同三角形裁剪器生成独立 GPU 网格，保留 UV、lightmap 和 TBN。碎片不受旧 `MAX_DECALINDICES` 槽限制；完全挖掉的贴花缓存为空，未受影响的贴花沿用原 VBO 槽。贴花在新几何下首次使用时准备，失败会隐藏旧悬空结果，待几何／材质／贴花变化再尝试；这部分首次重建的实机帧时间尚未测量。
+
+静态阴影按新旧切割盒的对称差失效：点光／聚光使用保守范围，方向光整体失效，并覆盖当前不可见灯。提交只修改 readiness，由原绘制流程重建。新视图的专属叶尚未完成时，使用同代次已就绪的 no-vis 叶；不退回旧几何。
+
+最终 22 项原生、12 项 Renderer、10 项 UtilThreadTask CTest 通过。原生事务测试使用实际碰撞适配器与 Renderer dispatch spy；GL 测试调用真实 `CreateInterface`／编辑接口、生产叶 worker 和 GPU 缓冲，模型枚举采用窄适配器。结果包括：晚加载 inline model 延后提交、CPU／GPU 失败回退、恢复／取消／卸载，提交 0 次应用层分配／0 次上传；贴花 3,840 个保留像素、256 个洞口像素、177 个碎片索引；256 次未受影响贴花缓存检查分配／上传均为 0。原叶／PVS 与六种正式世界 shader 回归通过。
+
+Clang／C++20 审计覆盖 11 组／1,591 单元／15 个 x86 产物，10 份源码补丁重放通过。原安装 19,571 文件与受监控沙盒 1,006 文件不变。阴影测试核验 readiness，**没有验证真实六面静态阴影重烘焙或实际游戏帧率**。新版未部署；服务端实体 PVS、权威几何挖掘目标／工具／材质／进度和实际客户端收包／预测／绘制仍待完成，生产 mode2 仍不可用。
 
 ## 验证与依据
 
@@ -205,15 +219,15 @@ GL 候选在准备阶段一次上传不可变 VBO／EBO 和间接命令缓冲。
 |---|---|---|
 | 锁定 SkyCraft 的 `SkyDigClient`、`SkyDig`、`DigMesh`、`DigPhysics` | 挖掘需要同时处理表面、洞壁及物理；原项目部分判断来自客户端 | 本项目必须增加服务器校验和完整的地图会话状态，不能只复制视觉剪裁 |
 | 匹配 ReHLDS `model.cpp` 的 `Mod_LoadClipnodes`，以及现有 `HostMovement` | 站立、蹲伏和大实体使用已扩张的独立 hull；hull0 没有全部空气墙 | 重新构造并核验原生／MC 玩家碰撞，不能把点射线挖空当作人物可通行 |
-| [`world_carving_tests.cpp`](../tests/native/world_carving_tests.cpp) 的解析面积、点覆盖和实际 BSP 顶点／texinfo | 几何核心保留面积关系、朝向及纹理插值属性 | Renderer 候选网格与独立 GL 绘制已验证；实际游戏缓存提交仍待接通 |
+| [`world_carving_tests.cpp`](../tests/native/world_carving_tests.cpp) 的解析面积、点覆盖和实际 BSP 顶点／texinfo | 几何核心保留面积关系、朝向及纹理插值属性 | Renderer 候选网格、缓存事务与独立 GL 绘制已验证；实际游戏收包／提交仍待验收 |
 
 上游依据：[SkyCraft 锁定源码](https://github.com/chasmlol/SkyCraft/tree/bfcaf178524b92c2cdeb88e4ce0f13ef9ded6f32)、[ReHLDS 锁定源码](https://github.com/rehlds/rehlds/tree/550f2d62f13f4ebeb029c1d9d1c212133202611d)。BSP 测试读取的是文件格式，不将文件布局当成 `hw.dll` 的内存地址。
 
 ## 尚需实现的完整路径
 
 1. 将已验证的服务端会话／回合政策与真实几何挖掘目标、工具、材质及进度相连，验收实际输入和客户端同步。
-2. 在已接入的 ReHLDS／MC 碰撞基础上，补齐原生客户端预测，验收 AI 支撑、动态实体和多洞性能；以同一修改状态生成剩余表面和洞壁。
-3. 接入 Renderer 主画面、阴影、光照缓存及可见区域。只按修改代次重建受影响几何，不能在每帧或每个阴影通道重复切割。
+2. 验收已接入的 ReHLDS／MC／原生客户端碰撞，补齐动态 BSP 身份、武器事件射线、AI 支撑和多洞性能。
+3. 补齐服务端实体 PVS，验收统一提交后的 Renderer 主画面、贴花、真实静态阴影重绘与移动遮挡；持续减少变更时的重建范围，避免每帧或每个阴影通道重复切割。
 4. 用实际玩家／Bot 验证穿洞、洞边、蹲伏、坡面、射击、双方一致性和会话清理，再验收开启该功能。
 
 上述路径完成前，几何库通过测试不代表 G18 完成，也不代表可以在游戏中挖开地图。

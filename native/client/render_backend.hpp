@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <IMetaRendererScene.h>
+#include <IMetaRendererWorldEdit.h>
 #include "goldcraft/atlas.hpp"
 
 namespace goldcraft::render {
@@ -35,6 +36,7 @@ const Statistics& statistics();
 bool initialize(IMetaRendererSceneCallbacks* callbacks, void(*log)(const std::string&));
 void shutdown();
 bool scene_active();
+IMetaRendererWorldEdit* world_edit();
 bool owns_context();
 void set_light_shadow(int key, unsigned size);
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba);

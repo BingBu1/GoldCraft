@@ -14,6 +14,7 @@ namespace goldcraft::render {
 namespace {
 IMetaRenderer* renderer=nullptr;
 IMetaRendererScene* scene=nullptr;
+IMetaRendererWorldEdit* edits=nullptr;
 IMetaRendererSceneCallbacks* callback=nullptr;
 void(*logger)(const std::string&)=nullptr;
 Statistics stats;
@@ -65,6 +66,7 @@ GLuint program(std::uint32_t flags) {
 
 const Statistics& statistics(){return stats;}
 bool scene_active(){return scene!=nullptr;}
+IMetaRendererWorldEdit* world_edit(){return edits;}
 bool owns_context(){return current_context&&current_context==wglGetCurrentContext();}
 void set_light_shadow(int key,unsigned size){if(scene)scene->SetDynamicLightShadowSize(key,size);}
 
@@ -88,6 +90,7 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.renderer=renderer!=nullptr;
     if(!renderer){logger("MetaRenderer_API_002 unavailable; Renderer scene disabled (no ABI guessing)");return false;}
     scene=static_cast<IMetaRendererScene*>(factory(METARENDERER_SCENE_INTERFACE_VERSION,nullptr));
+    edits=static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION,nullptr));
     if(scene){
         if(callback&&callback!=callbacks)scene->UnregisterSceneCallbacks(callback);
         callback=callbacks;scene->RegisterSceneCallbacks(callback);
@@ -99,7 +102,7 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
 void shutdown(){
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     if(owns_context()){if(hud_program)glDeleteProgram(hud_program);if(hud_vao)glDeleteVertexArrays(1,&hud_vao);}
-    hud_program=hud_vao=0;scene=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
+    hud_program=hud_vao=0;scene=nullptr;edits=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
 }
 
 Mesh::~Mesh(){

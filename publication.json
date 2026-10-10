@@ -5,7 +5,7 @@
     "docs/BUILD.md", "docs/ARCHITECTURE.md", "docs/WORLD_CARVING.md", "docs/MOD_MANAGEMENT.md", "docs/EPICFIGHT_MAID.md", "docs/SERVER_API.md", "docs/AMXX_INTEROP.md", "docs/VALIDATION.md", "docs/ZOMBIE_TESTING.md", "docs/NATIVE_REGRESSIONS.md",
     "amxx/goldcraft/goldcraft.sma", "amxx/tests/goldcraft_test.sma", "amxx/tests/goldcraft_headless_test.sma", "amxx/tests/goldcraft_precache_test.sma", "amxx/maps/goldcraft_bloodmoon.sma", "amxx/zombie_plague/integration/goldcraft_zp50.sma", "amxx/README.md",
     "amxx/tests/goldcraft_modern_test.sma", "amxx/tests/goldcraft_buy_menu_fixture.sma", "tools/Exercise-AMXXModernization.py",
-    "amxx/tests/goldcraft_map_mining_test.sma", "tools/Exercise-MapMining.py", "tools/Exercise-MapMiningJvm.py", "tools/Exercise-MapMiningRounds.py", "tools/Exercise-MapEdits.py", "tools/Exercise-WorldCarving.py", "tools/Verify-CavityMesh.py", "tools/Verify-CavityLighting.py", "tools/Verify-CarvedVisibility.py", "tools/Verify-WorldLeaves.py", "tools/java/MapMiningProbe.java",
+    "amxx/tests/goldcraft_map_mining_test.sma", "tools/Exercise-MapMining.py", "tools/Exercise-MapMiningJvm.py", "tools/Exercise-MapMiningRounds.py", "tools/Exercise-MapEdits.py", "tools/Exercise-WorldCarving.py", "tools/Verify-CavityMesh.py", "tools/Verify-CavityLighting.py", "tools/Verify-CarvedVisibility.py", "tools/Verify-WorldLeaves.py", "tools/Verify-WorldTransaction.py", "tools/java/MapMiningProbe.java",
     "amxx/administration/README.md", "tools/Prepare-AdminBase.py", "patches/amxx-admin-modern.patch", "patches/amxx-admin-modern.json",
     "amxx/zombie_plague/lang/zombie_plague_cn.txt", "amxx/zombie_plague/lang/zombie_plague50_cn.txt",
     "amxx/maps/goldcraft_spawn_capacity.sma", "amxx/zombie_plague/integration/configs/sypb.cfg",

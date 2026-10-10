@@ -206,10 +206,10 @@ index 8c6651f..f09e672 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..d216fd1 100644
+index 6ce4285..8550bd5 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -125,8 +125,26 @@ set(RENDERER_SOURCES
+@@ -125,8 +125,28 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
@@ -225,6 +225,8 @@ index 6ce4285..d216fd1 100644
 +    src/world_leaf_cache.cpp
 +    src/world_leaf_build.cpp
 +    src/world_leaf_draw.cpp
++    src/world_edit.cpp
++    src/world_edit_cache.cpp
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
@@ -789,7 +791,7 @@ index 807ddd8..ff45529 100644
  //Note that this only get called when switching client
  void Mod_UnloadSpriteTextures(model_t* mod)
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..9959d05 100644
+index d59b139..f7f7278 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,7 @@
@@ -967,17 +969,18 @@ index d59b139..9959d05 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5502,9 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5502,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
++    R_ForgetWorldEdits();
 +    // Retired generations may no longer appear in the active model tables.
 +    // Drain every leaf worker before the engine releases any BSP allocation.
 +    R_DrainWorldLeafTasks();
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6642,57 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6643,57 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1035,6 +1038,169 @@ index d59b139..9959d05 100644
  class CMetaRenderer : public IMetaRenderer
  {
  public:
+diff --git a/src/gl_rsurf.cpp b/src/gl_rsurf.cpp
+index 32334ba..53a96e1 100644
+--- a/src/gl_rsurf.cpp
++++ b/src/gl_rsurf.cpp
+@@ -38,6 +38,9 @@ static void R_ClearCachedDecalDrawData(CCachedDecal& cachedDecal)
+     cachedDecal.indiceCount     = 0;
+     cachedDecal.startInstance   = 0;
+     cachedDecal.instanceCount   = 0;
++    cachedDecal.geometryReady = false;
++    cachedDecal.worldMesh.reset();
++    cachedDecal.carvedGeometry.reset();
+ }
+ 
+ static void R_BuildCachedDecalBounds(float* v, int vertCount, CCachedDecal& cachedDecal)
+@@ -986,6 +989,27 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
+     }
+ 
+     const auto brushface = &pWorldModel->m_vFaceBuffer[surfIndex];
++    auto& cached = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
++    cached.surfaceIndex = static_cast<uint32_t>(surfIndex);
++    brushinstancedata_t decalInstance{};
++    decalInstance.packed_matId[0] = cached.matId;
++    decalInstance.packed_matId[1] = surf->lightmaptexturenum;
++    std::memcpy(decalInstance.styles, surf->styles, sizeof(surf->styles));
++    if (!pWorldModel->m_vDecalCuts.empty())
++    {
++        auto clipped = R_PrepareCarvedDecal(*pWorldModel, surfIndex,
++            {v, static_cast<std::size_t>(vertCount) * VERTEXSIZE}, decalInstance);
++        if (clipped)
++        {
++            cached.indiceCount = static_cast<GLuint>(clipped->m_pSurfaceMesh->indices.size());
++            cached.startIndex = cached.startInstance = 0;
++            cached.instanceCount = 1;
++            cached.carvedGeometry = std::move(clipped);
++            cached.worldMesh = pWorldModel->m_pSurfaceMesh;
++            cached.geometryReady = true;
++            return;
++        }
++    }
+ 
+     std::vector<vertex3f_t>       vPolyVertices;
+     std::vector<decalvertex_t>    vVertexDataBuffer;
+@@ -1052,24 +1076,8 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
+     g_WorldSurfaceRenderer.vCachedDecals[decalIndex].indiceCount   = vTriangleListIndices.size();
+     g_WorldSurfaceRenderer.vCachedDecals[decalIndex].startInstance = decalIndex;
+     g_WorldSurfaceRenderer.vCachedDecals[decalIndex].instanceCount = 1;
+-}
+-
+-bool R_IsDecalCacheInvalidated(int decalIndex, texture_t* texture, const std::shared_ptr<CWorldSurfaceRenderMaterial>& pRenderMaterial)
+-{
+-    auto& cachedDecal = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
+-
+-    if (!cachedDecal.boundsValid ||
+-        cachedDecal.indiceCount == 0 ||
+-        cachedDecal.instanceCount == 0 ||
+-        cachedDecal.gltexturenum != texture->gl_texturenum ||
+-        cachedDecal.gltexturewidth != texture->width ||
+-        cachedDecal.gltextureheight != texture->height ||
+-        cachedDecal.pRenderMaterial != pRenderMaterial)
+-    {
+-        return true;
+-    }
+-
+-    return false;
++    cached.worldMesh = pWorldModel->m_pSurfaceMesh;
++    cached.geometryReady = true;
+ }
+ 
+ void R_DrawDecals(cl_entity_t* ent)
+@@ -1095,6 +1103,15 @@ void R_DrawDecals(cl_entity_t* ent)
+         return;
+ 
+     g_DecalDrawBatch.BatchCount = 0;
++    const auto geometry = R_GetWorldSurfaceWorldModel(R_FindWorldModelByModel(ent->model));
++    if (!geometry) return;
++    std::shared_ptr<CWorldSurfaceLeaf> visibilityLeaf;
++    if (geometry->m_pCarvedVisibility && ent->model == (*cl_worldmodel))
++    {
++        const auto model = R_GetWorldSurfaceModel(ent->model);
++        visibilityLeaf = model->GetLeafByIndex(R_WorldSurfaceViewKey(*model, *r_viewleaf, *r_refdef.vieworg));
++        if (!visibilityLeaf || !visibilityLeaf->m_bIsReady) visibilityLeaf = model->GetLeafByIndex(0);
++    }
+ 
+     for (size_t i = 0; i < pEntityComponentContainer->Decals.size(); i++)
+     {
+@@ -1110,7 +1127,7 @@ void R_DrawDecals(cl_entity_t* ent)
+             auto pRenderMaterial = R_GetRenderMaterialForDecalTexture(ptexture->name);
+ 
+             //Build VBO data for this decal if not built yet
+-            if (!(plist->flags & FDECAL_VBO) || R_IsDecalCacheInvalidated(decalIndex, ptexture, pRenderMaterial))
++            if (!(plist->flags & FDECAL_VBO) || R_IsDecalCacheInvalidated(decalIndex, ptexture, pRenderMaterial, *geometry))
+             {
+                 int    vertCount = 0;
+                 float* v         = nullptr;
+@@ -1138,8 +1155,21 @@ void R_DrawDecals(cl_entity_t* ent)
+                 {
+                     R_BuildCachedDecalBounds(v, vertCount, cachedDecal);
+                     R_UploadDecalTextures(decalIndex, ptexture, pRenderMaterial);
+-                    R_UploadDecalVertexBuffer(decalIndex, vertCount, v, psurf, pRenderMaterial.get());
+-                    plist->flags |= FDECAL_VBO;
++                    try
++                    {
++                        R_UploadDecalVertexBuffer(decalIndex, vertCount, v, psurf, pRenderMaterial.get());
++                        plist->flags |= FDECAL_VBO;
++                    }
++                    catch (const std::exception& error)
++                    {
++                        // A failed clip/upload must never draw the old floating
++                        // decal. Retry only on a new decal/geometry/material.
++                        cachedDecal.worldMesh = geometry->m_pSurfaceMesh;
++                        cachedDecal.geometryReady = true;
++                        cachedDecal.indiceCount = 0;
++                        plist->flags |= FDECAL_VBO;
++                        gEngfuncs.Con_DPrintf("Renderer: decal preparation failed: %s\n", error.what());
++                    }
+                 }
+                 else
+                 {
+@@ -1152,8 +1182,14 @@ void R_DrawDecals(cl_entity_t* ent)
+                 if (R_CullBox(cachedDecal.mins, cachedDecal.maxs))
+                     continue;
+ 
+-                if (!R_DecalBoxInPVS(cachedDecal.mins, cachedDecal.maxs))
+-                    continue;
++                if (visibilityLeaf && visibilityLeaf->m_bIsReady && visibilityLeaf->m_pVisibilityView)
++                {
++                    const goldcraft::carving::Box bounds{
++                        {cachedDecal.mins[0], cachedDecal.mins[1], cachedDecal.mins[2]},
++                        {cachedDecal.maxs[0], cachedDecal.maxs[1], cachedDecal.maxs[2]}};
++                    if (!geometry->m_pCarvedVisibility->sees_bounds(*visibilityLeaf->m_pVisibilityView, bounds)) continue;
++                }
++                else if (!geometry->m_pCarvedVisibility && !R_DecalBoxInPVS(cachedDecal.mins, cachedDecal.maxs)) continue;
+ 
+                 if (g_DecalDrawBatch.BatchCount < MAX_DECALS)
+                 {
+@@ -1163,6 +1199,8 @@ void R_DrawDecals(cl_entity_t* ent)
+                     g_DecalDrawBatch.pRenderMaterial[g_DecalDrawBatch.BatchCount] = cachedDecal.pRenderMaterial.get();
+                     g_DecalDrawBatch.StartInstance[g_DecalDrawBatch.BatchCount]   = cachedDecal.startInstance;
+                     g_DecalDrawBatch.InstanceCount[g_DecalDrawBatch.BatchCount]   = cachedDecal.instanceCount;
++                    g_DecalDrawBatch.VAO[g_DecalDrawBatch.BatchCount] = cachedDecal.carvedGeometry ?
++                        cachedDecal.carvedGeometry->hVAO : g_WorldSurfaceRenderer.hDecalVAO;
+                     ++g_DecalDrawBatch.BatchCount;
+                 }
+             }
+@@ -1294,12 +1332,17 @@ void R_DrawDecals(cl_entity_t* ent)
+         WSurfProgramState &= ~(WSURF_LEGACY_DLIGHT_ENABLED);
+     }
+ 
+-    GL_BindVAO(g_WorldSurfaceRenderer.hDecalVAO);
++    GLuint decalVAO = 0;
+ 
+     if (g_DecalDrawBatch.BatchCount > 0)
+     {
+         for (int i = 0; i < g_DecalDrawBatch.BatchCount; ++i)
+         {
++            if (decalVAO != g_DecalDrawBatch.VAO[i])
++            {
++                decalVAO = g_DecalDrawBatch.VAO[i];
++                GL_BindVAO(decalVAO);
++            }
+             program_state_t WSurfProgramStateDetail = WSurfProgramState;
+ 
+             GL_BindTextureUnit(WSURF_BIND_DIFFUSE_TEXTURE, GL_TEXTURE_2D, g_DecalDrawBatch.GLTextureId[i]);
 diff --git a/src/gl_shader.h b/src/gl_shader.h
 index 2832883..4d2ed52 100644
 --- a/src/gl_shader.h
@@ -1702,10 +1868,10 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..c785274 100644
+index 41f24f3..c2bf863 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
-@@ -74,43 +74,9 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
+@@ -74,43 +74,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
      }
  }
  
@@ -1746,35 +1912,39 @@ index 41f24f3..c785274 100644
 -
  void R_FreeWorldSurfaceModels(model_t* mod)
  {
++    R_ForgetWorldEdits(mod);
 +    R_DrainWorldLeafTasks(mod);
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceModels.size())
-@@ -130,6 +96,7 @@ void R_FreeWorldSurfaceModels(model_t* mod)
+@@ -130,6 +97,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
  
  void R_FreeWorldSurfaceWorldModels(model_t* mod)
  {
++    R_ForgetWorldEdits(mod);
 +    R_DrainWorldLeafTasks(mod);
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceWorldModels.size())
-@@ -147,6 +114,7 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
+@@ -147,6 +116,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
  
  void R_ClearWorldSurfaceModels(void)
  {
++    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      for (size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
      {
          auto pWorldSurfaceModel = g_WorldSurfaceModels[i];
-@@ -162,6 +130,7 @@ void R_ClearWorldSurfaceModels(void)
+@@ -162,6 +133,8 @@ void R_ClearWorldSurfaceModels(void)
  
  void R_ClearWorldSurfaceWorldModels(void)
  {
++    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      for (size_t i = 0; i < g_WorldSurfaceWorldModels.size(); ++i)
      {
          auto pWorldSurfaceWorldModel = g_WorldSurfaceWorldModels[i];
-@@ -209,6 +178,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+@@ -209,6 +182,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
      {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
      {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
      {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
@@ -1782,7 +1952,7 @@ index 41f24f3..c785274 100644
  };
  
  void R_SaveWSurfProgramStates(void)
-@@ -243,6 +213,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -243,6 +217,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
          if (state & WSURF_LIGHTMAP_ENABLED)
              defs << "#define LIGHTMAP_ENABLED\n";
  
@@ -1792,7 +1962,7 @@ index 41f24f3..c785274 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -468,10 +441,6 @@ void R_FreeLightmapTextures()
+@@ -468,10 +445,6 @@ void R_FreeLightmapTextures()
      }
  }
  
@@ -1803,7 +1973,7 @@ index 41f24f3..c785274 100644
  void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
  {
      if (basenode->contents < 0)
-@@ -489,61 +458,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
+@@ -489,61 +462,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
      R_RecursiveFindLeaves(node->children[1], vLeafs);
  }
  
@@ -1865,7 +2035,7 @@ index 41f24f3..c785274 100644
  texture_t* R_GetEmptyWorldTexture()
  {
      if (g_iEngineType == ENGINE_SVENGINE)
-@@ -552,2751 +466,1514 @@ texture_t* R_GetEmptyWorldTexture()
+@@ -552,2751 +470,1500 @@ texture_t* R_GetEmptyWorldTexture()
      return (*r_notexture_mip);
  }
  
@@ -2954,48 +3124,35 @@ index 41f24f3..c785274 100644
 -    auto pModel = g_WorldSurfaceModels[modelindex];
 -
 -    if (!pModel)
-+    // 输出最后一个三角形
-+    if (RemainingIds.size() == 3)
-     {
+-    {
 -        pModel = R_GenerateWorldSurfaceModel(mod);
 -
 -        g_WorldSurfaceModels[modelindex] = pModel;
-+        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[0]));
-+        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[1]));
-+        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[2]));
-     }
+-    }
 -
 -    return pModel;
- }
+-}
 -/*
 -	Purpose: find index of given texture_t pointer
 -*/
 -int R_FindTextureIdByTexture(model_t* mod, texture_t* ptex)
-+
-+int R_FindWorldMaterialId(int gl_texturenum)
- {
+-{
 -    for (int i = 0; i < mod->numtextures; ++i)
-+    for (size_t i = 0; i < g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.size(); ++i)
-     {
+-    {
 -        if (mod->textures[i] == ptex)
 -            return i;
-+        if (g_WorldSurfaceRenderer.vWorldMaterialTextureMapping[i] == gl_texturenum)
-+            return (int)i;
-     }
+-    }
 -
-     return -1;
- }
- 
- /*
+-    return -1;
+-}
+-
+-/*
 -	Purpose: find texture_t pointer by texture name
-+	Purpose: Generate WorldMaterial array for later WorldMaterialSSBO usage, WorldMaterial[0] is always empty texture
- */
+-*/
 -texture_t* R_FindTextureByTextureName(model_t* mod, const char* name)
-+void R_GenerateWorldMaterialForWorldModel(model_t* mod)
- {
+-{
 -    for (int i = 0; i < mod->numtextures; ++i)
-+    for (int i = 0; i < mod->numtextures + 1; ++i)
-     {
+-    {
 -        if (mod->textures[i] && !strcmp(mod->textures[i]->name, name))
 -            return mod->textures[i];
 -    }
@@ -3006,8 +3163,7 @@ index 41f24f3..c785274 100644
 -msurface_t* R_GetWorldSurfaceByIndex(model_t* mod, int index)
 -{
 -    msurface_t* surf;
-+        texture_t* t = nullptr;
- 
+-
 -    if (g_iEngineType == ENGINE_GOLDSRC_HL25)
 -    {
 -        surf = (((msurface_hl25_t*)mod->surfaces) + index);
@@ -3016,11 +3172,7 @@ index 41f24f3..c785274 100644
 -    {
 -        surf = mod->surfaces + index;
 -    }
-+        if (i == 0)
-+            t = R_GetEmptyWorldTexture();
-+        else
-+            t = mod->textures[i - 1];
- 
+-
 -    return surf;
 -}
 -
@@ -3977,28 +4129,68 @@ index 41f24f3..c785274 100644
 -        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
 -        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
 -    });
-+        if (!t)
-+            continue;
- 
+-
 -    return pWorldModel;
--}
-+        if (R_FindWorldMaterialId(t->gl_texturenum) != -1)
-+            continue;
++    // 输出最后一个三角形
++    if (RemainingIds.size() == 3)
++    {
++        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[0]));
++        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[1]));
++        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[2]));
++    }
+ }
  
 -std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
--{
++int R_FindWorldMaterialId(int gl_texturenum)
+ {
 -    if (mod->type != mod_brush)
--    {
++    for (size_t i = 0; i < g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.size(); ++i)
+     {
 -        Sys_Error("R_GetWorldSurfaceWorldModel: invalid mod type!");
 -        return nullptr;
--    }
-+        world_material_t mat;
++        if (g_WorldSurfaceRenderer.vWorldMaterialTextureMapping[i] == gl_texturenum)
++            return (int)i;
+     }
++    return -1;
++}
  
 -    if (mod->name[0] == '*')
--    {
++/*
++	Purpose: Generate WorldMaterial array for later WorldMaterialSSBO usage, WorldMaterial[0] is always empty texture
++*/
++void R_GenerateWorldMaterialForWorldModel(model_t* mod)
++{
++    for (int i = 0; i < mod->numtextures + 1; ++i)
+     {
 -        Sys_Error("R_GetWorldSurfaceWorldModel: invalid name \"%s\"!", mod->name);
 -        return nullptr;
 -    }
++        texture_t* t = nullptr;
+ 
+-    int modelindex = EngineGetModelIndex(mod);
++        if (i == 0)
++            t = R_GetEmptyWorldTexture();
++        else
++            t = mod->textures[i - 1];
+ 
+-    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
+-    {
+-        return g_WorldSurfaceWorldModels[modelindex];
+-    }
++        if (!t)
++            continue;
+ 
+-    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
+-    {
+-        g_WorldSurfaceWorldModels.resize(modelindex + 1);
+-    }
++        if (R_FindWorldMaterialId(t->gl_texturenum) != -1)
++            continue;
+ 
+-    R_GenerateWorldMaterialForWorldModel(mod);
++        world_material_t mat;
+ 
+-    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
 +        mat.diffuseScale[0]  = 1;
 +        mat.diffuseScale[1]  = 1;
 +        mat.detailScale[0]   = 1;
@@ -4010,13 +4202,10 @@ index 41f24f3..c785274 100644
 +        mat.specularScale[0] = 1;
 +        mat.specularScale[1] = 1;
  
--    int modelindex = EngineGetModelIndex(mod);
+-    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
 +        auto pRenderMaterial = R_GetRenderMaterialForWorldTexture(t);
  
--    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
--    {
--        return g_WorldSurfaceWorldModels[modelindex];
--    }
+-    return pWorldModel;
 +        if (pRenderMaterial)
 +        {
 +            if (pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum)
@@ -4045,40 +4234,43 @@ index 41f24f3..c785274 100644
 +                mat.specularScale[1] = pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].scaleY;
 +            }
 +        }
- 
--    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
--    {
--        g_WorldSurfaceWorldModels.resize(modelindex + 1);
++
 +        g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.emplace_back(t->gl_texturenum);
 +        g_WorldSurfaceRenderer.vWorldMaterials.emplace_back(mat);
-     }
-+}
++    }
+ }
  
--    R_GenerateWorldMaterialForWorldModel(mod);
+-void R_GenerateSceneUBO(void)
 +/*
 +	Purpose: Storage for face normal data used in smooth normal calculation
 +*/
 +using CBrushVector3List = std::vector<vertex3f_t>;
- 
--    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
++
 +class CBrushFaceNormalStorage
-+{
+ {
+-    if (g_WorldSurfaceRenderer.hSceneUBO)
+-        return;
 +public:
 +    CBrushVector3List weightedNormals;
 +    float             normalTotalFactor{0};
 +    vec3_t            averageNormal{};
  
--    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
+-    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
 +    CBrushVector3List edges;
 +    vec3_t            averageEdge{};
 +    bool              bHasAverageEdge{false};
 +};
  
--    return pWorldModel;
--}
+-    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
 +using CBrushFaceNormalHashMap = std::unordered_map<CQuantizedVector, std::shared_ptr<CBrushFaceNormalStorage>, CQuantizedVectorHasher>;
  
--void R_GenerateSceneUBO(void)
+-    g_WorldSurfaceRenderer.hDLightUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hDLightUBO, sizeof(dlight_ubo_t), nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_DLIGHT_UBO, g_WorldSurfaceRenderer.hDLightUBO);
 +/*
 +	Purpose: Calculate face normal hash map and store face-normal in FaceNormalHashMap for brush geometry
 +*/
@@ -4087,15 +4279,12 @@ index 41f24f3..c785274 100644
 +    const std::vector<brushvertextbn_t>& vVertexTBNDataBuffer,
 +    const std::vector<uint32_t>&         vIndicesBuffer,
 +    CBrushFaceNormalHashMap&             FaceNormalHashMap)
- {
--    if (g_WorldSurfaceRenderer.hSceneUBO)
--        return;
++{
 +    // 定义下一个顶点索引的映射，用于计算角度
 +    int nextId[4] = {1, 2, 0, 1};
  
--    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
+-    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
 +    for (size_t i = 0; i < vIndicesBuffer.size(); i += 3)
 +    {
 +        // CCW
@@ -4103,52 +4292,51 @@ index 41f24f3..c785274 100644
 +        int idx1 = vIndicesBuffer[i + 1];
 +        int idx2 = vIndicesBuffer[i + 0];
  
--    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
 +        // 获取三角形的三个顶点位置
 +        vec3_t vTrianglePos[3];
 +        VectorCopy(vVertexDataBuffer[idx0].pos, vTrianglePos[0]);
 +        VectorCopy(vVertexDataBuffer[idx1].pos, vTrianglePos[1]);
 +        VectorCopy(vVertexDataBuffer[idx2].pos, vTrianglePos[2]);
  
--    g_WorldSurfaceRenderer.hDLightUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hDLightUBO, sizeof(dlight_ubo_t), nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_DLIGHT_UBO, g_WorldSurfaceRenderer.hDLightUBO);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
 +        vec3_t vTriangleNorm[3];
 +        VectorCopy(vVertexTBNDataBuffer[idx0].normal, vTriangleNorm[0]);
 +        VectorCopy(vVertexTBNDataBuffer[idx1].normal, vTriangleNorm[1]);
 +        VectorCopy(vVertexTBNDataBuffer[idx2].normal, vTriangleNorm[2]);
  
--    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
 +        // 计算面法线（保留面积信息用于加权）
 +        vec3_t edge1, edge2;
 +        VectorSubtract(vTrianglePos[1], vTrianglePos[0], edge1);
 +        VectorSubtract(vTrianglePos[2], vTrianglePos[0], edge2);
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
+-    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
+-    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
 +        // 叉积的长度代表三角形面积的两倍
 +        vec3_t faceNormalWeighted;
 +        CrossProduct(edge1, edge2, faceNormalWeighted);
 +        float triangleArea = VectorLength(faceNormalWeighted);
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
+-    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
 +        if (triangleArea < 0.0001f)
 +        {
 +            // 退化三角形，跳过
 +            continue;
 +        }
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
+-    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
+-    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
 +        vec3_t faceNormal;
 +        VectorScale(faceNormalWeighted, 1.0f / triangleArea, faceNormal);
  
--    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
--    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
+-    GL_BindStatesForVAO(
+-        g_WorldSurfaceRenderer.hDecalVAO,
+-        []() {
+-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
 +        // 为三角形的每个顶点计算加权法线
 +        for (int j = 0; j < 3; j++)
 +        {
@@ -4157,69 +4345,59 @@ index 41f24f3..c785274 100644
 +            VectorSubtract(vTrianglePos[nextId[j]], vTrianglePos[j], edgeA);
 +            VectorSubtract(vTrianglePos[nextId[j + 1]], vTrianglePos[j], edgeB);
  
--    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
+-            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
 +            float edgeALength = VectorLength(edgeA);
 +            float edgeBLength = VectorLength(edgeB);
  
--    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
--    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
+-            glEnableVertexAttribArray(WSURF_VA_POSITION);
+-            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
+-            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
 +            if (edgeALength < 0.0001f || edgeBLength < 0.0001f)
 +            {
 +                // 退化边，跳过这个顶点
 +                continue;
 +            }
  
--    GL_BindStatesForVAO(
--        g_WorldSurfaceRenderer.hDecalVAO,
--        []() {
--            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
+-            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
+-            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
+-            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
 +            // 归一化边向量用于计算角度
 +            vec3_t edgeANorm, edgeBNorm;
 +            VectorScale(edgeA, 1.0f / edgeALength, edgeANorm);
 +            VectorScale(edgeB, 1.0f / edgeBLength, edgeBNorm);
  
--            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
+-            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
 +            // 计算角度作为权重因子
 +            float dotProduct = DotProduct(edgeANorm, edgeBNorm);
 +            // 限制点积值在有效范围内，避免数值误差
 +            dotProduct  = math_clamp(dotProduct, -1.0f, 1.0f);
 +            float angle = std::acos(dotProduct);
  
--            glEnableVertexAttribArray(WSURF_VA_POSITION);
--            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
--            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
-+            // 使用角度和面积的组合权重：角度权重 * 面积权重
-+            float combinedWeight = angle * triangleArea;
- 
--            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
--            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
--            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
-+            // 计算加权法线
-+            vertex3f_t vWeightedNormal{};
-+            vertex3f_t negEdgeA{}, negEdgeB{};
- 
--            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
-+            VectorScale(faceNormal, combinedWeight, vWeightedNormal.v);
- 
 -            glEnableVertexAttribArray(WSURF_VA_NORMAL);
 -            glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
 -            glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
-+            // 将加权法线添加到对应顶点位置的列表中
-+            // BSP 几何体没有骨骼系统，m_boneindex 固定为 -1
-+            CQuantizedVector quantizedVertexPos(vTrianglePos[j]);
++            // 使用角度和面积的组合权重：角度权重 * 面积权重
++            float combinedWeight = angle * triangleArea;
  
 -            glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
 -            glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, s_tangent));
 -            glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, t_tangent));
 -            glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
-+            auto it = FaceNormalHashMap.find(quantizedVertexPos);
++            // 计算加权法线
++            vertex3f_t vWeightedNormal{};
++            vertex3f_t negEdgeA{}, negEdgeB{};
  
 -            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE]);
++            VectorScale(faceNormal, combinedWeight, vWeightedNormal.v);
++
++            // 将加权法线添加到对应顶点位置的列表中
++            // BSP 几何体没有骨骼系统，m_boneindex 固定为 -1
++            CQuantizedVector quantizedVertexPos(vTrianglePos[j]);
++
++            auto it = FaceNormalHashMap.find(quantizedVertexPos);
++
 +            std::shared_ptr<CBrushFaceNormalStorage> faceNormalStorage;
- 
--            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
--            glEnableVertexAttribArray(WSURF_VA_STYLES);
--            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++
 +            if (it == FaceNormalHashMap.end())
 +            {
 +                faceNormalStorage = std::make_shared<CBrushFaceNormalStorage>();
@@ -4244,9 +4422,7 @@ index 41f24f3..c785274 100644
 +        }
 +    }
 +}
- 
--            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
--            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
++
 +/*
 +	Purpose: Calculate average normal from face-normal using FaceNormalHashMap for brush geometry
 +*/
@@ -4256,16 +4432,21 @@ index 41f24f3..c785274 100644
 +    {
 +        const auto& FaceNormalStorage = it->second;
  
--            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
--            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
+-            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
+-            glEnableVertexAttribArray(WSURF_VA_STYLES);
+-            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
 +        vec3_t averageNormal = {0, 0, 0};
-+
+ 
+-            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
+-            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
 +        // 直接累加加权法线
 +        for (const auto& weightedNormal : FaceNormalStorage->weightedNormals)
 +        {
 +            VectorAdd(averageNormal, weightedNormal.v, averageNormal);
 +        }
-+
+ 
+-            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
+-            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
 +        // 归一化得到最终的平均法线
 +        float averageNormalLength = VectorLength(averageNormal);
  
@@ -4448,14 +4629,14 @@ index 41f24f3..c785274 100644
 -
 -    if (!g_WorldSurfaceRenderer.vSkyboxTextureId[0])
 -        return;
+-
+-    GL_BeginDebugGroup("R_DrawSkyBox");
 +    auto geometry = std::make_shared<goldcraft::surface::Mesh>();
 +    auto& vVertexDataBuffer = geometry->vertices;
 +    auto& vVertexTBNDataBuffer = geometry->frames;
 +    auto& vInstanceDataBuffer = geometry->instances;
 +    auto& vIndiceBuffer = geometry->indices;
  
--    GL_BeginDebugGroup("R_DrawSkyBox");
--
 -    entity_ubo_t EntityUBO;
 +    vVertexDataBuffer.reserve(mod->numvertexes);
 +    vInstanceDataBuffer.reserve(mod->numsurfaces);
@@ -4564,46 +4745,28 @@ index 41f24f3..c785274 100644
 +                    {
 +                        vertex3f_t tempVertex;
 +                        VectorCopy(v, tempVertex.v);
-+
+ 
+-    glDepthMask(GL_FALSE);
+-    glDisable(GL_BLEND);
 +                        brushvertex_t tempVertexData;
 +                        VectorCopy(v, tempVertexData.pos);
 +                        tempVertexData.texcoord[0]         = v[3];
 +                        tempVertexData.texcoord[1]         = v[4];
 +                        tempVertexData.lightmaptexcoord[0] = v[5];
 +                        tempVertexData.lightmaptexcoord[1] = v[6];
-+
+ 
+-    wsurf_program_t prog = {0};
+-    R_UseWSurfProgram(WSurfProgramState, &prog);
 +                        brushvertextbn_t tempVertexTBNData;
 +                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
 +                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
 +                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
-+
+ 
+-    GL_BindVAO(r_empty_vao);
 +                        vPolyVertices.emplace_back(tempVertex);
 +                        vVertexDataBuffer.emplace_back(tempVertexData);
 +                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
 +                    }
- 
--    glDepthMask(GL_FALSE);
--    glDisable(GL_BLEND);
-+                    std::vector<uint32_t> vTriangleListIndices;
-+                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
- 
--    wsurf_program_t prog = {0};
--    R_UseWSurfProgram(WSurfProgramState, &prog);
-+                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
-+                    {
-+                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
-+                    }
- 
--    GL_BindVAO(r_empty_vao);
-+                    pBrushFace->poly_count++;
-+                }
-+                uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
-+                pBrushFace->start_index     = nBrushStartIndex;
-+                pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
-+            }
-+            if (1)
-+            {
-+                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
  
 -    if (r_detailskytextures->value && g_WorldSurfaceRenderer.vSkyboxTextureId[6])
 -    {
@@ -4621,23 +4784,47 @@ index 41f24f3..c785274 100644
 -            glDrawArrays(GL_TRIANGLES, 6 * i, 6);
 -        }
 -    }
++                    std::vector<uint32_t> vTriangleListIndices;
++                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
+ 
+-    GL_BindTextureUnit(0, GL_TEXTURE_2D, 0);
++                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
++                    {
++                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
++                    }
+ 
+-    GL_BindVAO(0);
++                    pBrushFace->poly_count++;
++                }
++                uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
++                pBrushFace->start_index     = nBrushStartIndex;
++                pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
++            }
++            if (1)
++            {
++                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
+ 
+-    GL_UseProgram(0);
 +                for (poly = surf->polys; poly; poly = poly->next)
 +                {
 +                    uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
  
--    GL_BindTextureUnit(0, GL_TEXTURE_2D, 0);
+-    GL_EndStencil();
 +                    std::vector<vertex3f_t> vPolyVertices;
  
--    GL_BindVAO(0);
+-    glDepthMask(GL_TRUE);
 +                    float* v = poly->verts[0];
  
--    GL_UseProgram(0);
+-    GL_EndDebugGroup();
+-}
 +                    for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
 +                    {
 +                        vertex3f_t tempVertex;
 +                        VectorCopy(v, tempVertex.v);
  
--    GL_EndStencil();
+-void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel* pShadowProxyModel, CWorldSurfaceShadowProxyDraw* pShadowProxyDraw)
+-{
+-    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyMesh");
 +                        brushvertex_t tempVertexData;
 +                        VectorCopy(v, tempVertexData.pos);
 +                        tempVertexData.texcoord[0]         = v[3];
@@ -4645,34 +4832,42 @@ index 41f24f3..c785274 100644
 +                        tempVertexData.lightmaptexcoord[0] = v[5];
 +                        tempVertexData.lightmaptexcoord[1] = v[6];
  
--    glDepthMask(GL_TRUE);
+-    program_state_t WSurfProgramState = 0;
 +                        brushvertextbn_t tempVertexTBNData;
 +                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
 +                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
 +                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
  
--    GL_EndDebugGroup();
--}
+-    if (pShadowProxyDraw->texture)
+-    {
+-        WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
 +                        vPolyVertices.emplace_back(tempVertex);
 +                        vVertexDataBuffer.emplace_back(tempVertexData);
 +                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
 +                    }
  
--void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel* pShadowProxyModel, CWorldSurfaceShadowProxyDraw* pShadowProxyDraw)
--{
--    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyMesh");
+-        GL_Bind(pShadowProxyDraw->texture->gl_texturenum);
+-    }
+-    else
+-    {
+-        GL_Bind(0);
+-    }
 +                    std::vector<uint32_t> vTriangleListIndices;
 +                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
  
--    program_state_t WSurfProgramState = 0;
+-    if (R_IsRenderingGBuffer())
+-    {
+-        WSurfProgramState |= WSURF_GBUFFER_ENABLED;
+-    }
 +                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
 +                    {
 +                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[vTriangleListIndices.size() - 1 - k]);
 +                    }
  
--    if (pShadowProxyDraw->texture)
+-    if (R_IsRenderingShadowView())
 -    {
--        WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
+-        WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
+-    }
 +                    pBrushFace->poly_count++;
 +                }
 +                uint32_t nBrushCurrentIndex     = (uint32_t)vIndiceBuffer.size();
@@ -4684,47 +4879,19 @@ index 41f24f3..c785274 100644
 +        {
 +            uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
  
--        GL_Bind(pShadowProxyDraw->texture->gl_texturenum);
--    }
--    else
+-    if (R_IsRenderingMultiView())
 -    {
--        GL_Bind(0);
+-        WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
 -    }
 +            for (poly = surf->polys; poly; poly = poly->next)
 +            {
 +                uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
  
--    if (R_IsRenderingGBuffer())
--    {
--        WSurfProgramState |= WSURF_GBUFFER_ENABLED;
--    }
-+                std::vector<vertex3f_t> vPolyVertices;
- 
--    if (R_IsRenderingShadowView())
--    {
--        WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
--    }
-+                float* v = poly->verts[0];
- 
--    if (R_IsRenderingMultiView())
--    {
--        WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
--    }
-+                for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
-+                {
-+                    vertex3f_t tempVertex;
-+                    VectorCopy(v, tempVertex.v);
- 
 -    if (R_IsRenderingLinearDepth())
 -    {
 -        WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
 -    }
-+                    brushvertex_t tempVertexData;
-+                    VectorCopy(v, tempVertexData.pos);
-+                    tempVertexData.texcoord[0]         = v[3];
-+                    tempVertexData.texcoord[1]         = v[4];
-+                    tempVertexData.lightmaptexcoord[0] = v[5];
-+                    tempVertexData.lightmaptexcoord[1] = v[6];
++                std::vector<vertex3f_t> vPolyVertices;
  
 -    if (R_IsRenderingWaterView())
 -    {
@@ -4734,147 +4901,155 @@ index 41f24f3..c785274 100644
 -    {
 -        WSurfProgramState |= WSURF_CLIP_ENABLED;
 -    }
-+                    brushvertextbn_t tempVertexTBNData;
-+                    VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
-+                    VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
-+                    VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
++                float* v = poly->verts[0];
  
 -    if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
 -    {
 -        WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
 -    }
++                for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
++                {
++                    vertex3f_t tempVertex;
++                    VectorCopy(v, tempVertex.v);
+ 
+-    GL_BindVAO(pShadowProxyModel->hVAO);
+-    GL_BindABO(pShadowProxyModel->hABO);
++                    brushvertex_t tempVertexData;
++                    VectorCopy(v, tempVertexData.pos);
++                    tempVertexData.texcoord[0]         = v[3];
++                    tempVertexData.texcoord[1]         = v[4];
++                    tempVertexData.lightmaptexcoord[0] = v[5];
++                    tempVertexData.lightmaptexcoord[1] = v[6];
+ 
+-    wsurf_program_t prog = {0};
+-    R_UseWSurfProgram(WSurfProgramState, &prog);
++                    brushvertextbn_t tempVertexTBNData;
++                    VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
++                    VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
++                    VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
+ 
+-    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(pShadowProxyDraw->startOffset), pShadowProxyDraw->drawCount, 0);
 +                    vPolyVertices.emplace_back(tempVertex);
 +                    vVertexDataBuffer.emplace_back(tempVertexData);
 +                    vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
 +                }
  
--    GL_BindVAO(pShadowProxyModel->hVAO);
--    GL_BindABO(pShadowProxyModel->hABO);
+-    (*c_brush_polys) += pShadowProxyDraw->drawCount;
 +                std::vector<uint32_t> vTriangleListIndices;
 +                R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
  
--    wsurf_program_t prog = {0};
--    R_UseWSurfProgram(WSurfProgramState, &prog);
+-    GL_UseProgram(0);
 +                for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
 +                {
 +                    vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
 +                }
  
--    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(pShadowProxyDraw->startOffset), pShadowProxyDraw->drawCount, 0);
+-    GL_BindABO(0);
+-    GL_BindVAO(0);
 +                pBrushFace->poly_count++;
 +            }
  
--    (*c_brush_polys) += pShadowProxyDraw->drawCount;
+-    GL_EndDebugGroup();
+-}
 +            uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
 +            pBrushFace->start_index     = nBrushStartIndex;
 +            pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
 +        }
  
--    GL_UseProgram(0);
+-void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
+-{
+-    auto pShadowProxyModel = pModel->m_pShadowProxyModel.lock();
 +        pBrushFace->instance_index = (uint32_t)vInstanceDataBuffer.size();
  
--    GL_BindABO(0);
--    GL_BindVAO(0);
+-    if (!pShadowProxyModel)
+-        return;
 +        brushinstancedata_t tempInstanceData;
  
--    GL_EndDebugGroup();
--}
+-    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyInternal");
 +        tempInstanceData.packed_matId[0] = ptexture ? R_FindWorldMaterialId(ptexture->gl_texturenum) : 0;
 +        tempInstanceData.packed_matId[1] = surf->lightmaptexturenum;
 +        tempInstanceData.diffusescale    = (ptexture && (pBrushFace->flags & SURF_DRAWTILED)) ? 1.0f / ptexture->width : 0;
 +        memcpy(&tempInstanceData.styles, surf->styles, sizeof(surf->styles));
  
--void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
--{
--    auto pShadowProxyModel = pModel->m_pShadowProxyModel.lock();
+-    for (size_t i = 0; i < pModel->m_pShadowProxyDraws.size(); ++i)
+-    {
+-        auto pShadowProxyDraw = pModel->m_pShadowProxyDraws[i].lock();
 +        vInstanceDataBuffer.emplace_back(tempInstanceData);
  
--    if (!pShadowProxyModel)
--        return;
+-        if (!pShadowProxyDraw)
+-            return;
 +        pBrushFace->instance_count = 1;
 +    }
  
--    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyInternal");
+-        if (!pShadowProxyDraw->drawCount)
+-            return;
 +    // Calculate smooth normals for all vertices
 +    R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
  
--    for (size_t i = 0; i < pModel->m_pShadowProxyDraws.size(); ++i)
+-        R_DrawWorldSurfaceModelShadowProxyMesh(pShadowProxyModel.get(), pShadowProxyDraw.get());
 +    geometry->faces.reserve(pWorldModel->m_vFaceBuffer.size());
 +    for (const auto& face : pWorldModel->m_vFaceBuffer)
-     {
--        auto pShadowProxyDraw = pModel->m_pShadowProxyDraws[i].lock();
--
--        if (!pShadowProxyDraw)
--            return;
++    {
 +        geometry->faces.push_back({{face.start_index, face.index_count},
 +            {face.reverse_start_index, face.reverse_index_count},
 +            {face.instance_index, face.instance_count}, face.poly_count,
 +            (face.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) == 0});
-+    }
+     }
 +    pWorldModel->m_pOriginalMesh = geometry;
 +    pWorldModel->m_pSurfaceMesh = geometry;
  
--        if (!pShadowProxyDraw->drawCount)
--            return;
+-    GL_EndDebugGroup();
+-}
 +    // Keep the normal map-loading path until coordinated edit commits are wired.
 +    pWorldModel->hEBO = GL_GenBuffer();
 +    GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
  
--        R_DrawWorldSurfaceModelShadowProxyMesh(pShadowProxyModel.get(), pShadowProxyDraw.get());
--    }
-+    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
- 
--    GL_EndDebugGroup();
--}
-+    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
- 
 -void R_DrawWorldSurfaceLeafShadow(CWorldSurfaceLeaf* pLeaf, bool bWithSky)
 -{
 -    //const auto& texchain = bWithSky ? pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID_WITH_SKY] : pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID];
-+    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
++    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
++
++    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
  
 -    //if (!texchain.drawCount)
 -    //	return;
-+    pWorldModel->hVAO = GL_GenVAO();
++    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
  
 -    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafShadow");
++    pWorldModel->hVAO = GL_GenVAO();
+ 
+-    R_DrawWorldSurfaceLeafBegin(pLeaf);
 +    GL_BindStatesForVAO(pWorldModel->hVAO, [pWorldModel]() {
 +        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pWorldModel->hEBO);
  
--    R_DrawWorldSurfaceLeafBegin(pLeaf);
+-    glDisable(GL_CULL_FACE);
 +        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
  
--    glDisable(GL_CULL_FACE);
+-    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
 +        glEnableVertexAttribArray(WSURF_VA_POSITION);
 +        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
 +        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
  
--    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
+-    for (size_t i = 0; i < vTexChainList.size(); ++i)
+-    {
+-        const auto& texchain = vTexChainList[i];
 +        glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
 +        glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
 +        glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
  
--    for (size_t i = 0; i < vTexChainList.size(); ++i)
--    {
--        const auto& texchain = vTexChainList[i];
-+        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
- 
 -        program_state_t WSurfProgramState = 0;
-+        glEnableVertexAttribArray(WSURF_VA_NORMAL);
-+        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
-+        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
-+        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
++        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
  
 -        if (texchain.texture)
 -        {
 -            WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
-+        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
-+        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
-+        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
-+        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
++        glEnableVertexAttribArray(WSURF_VA_NORMAL);
++        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
++        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
++        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
  
 -            GL_Bind(texchain.texture->gl_texturenum);
 -        }
@@ -4882,37 +5057,38 @@ index 41f24f3..c785274 100644
 -        {
 -            GL_Bind(0);
 -        }
-+        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
++        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
++        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
++        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
++        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
  
 -        if (R_IsRenderingGBuffer())
 -        {
 -            WSurfProgramState |= WSURF_GBUFFER_ENABLED;
 -        }
-+        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
-+        glEnableVertexAttribArray(WSURF_VA_STYLES);
-+        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
  
 -        if (R_IsRenderingShadowView())
 -        {
 -            WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
 -        }
-+        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
-+        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
++        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
++        glEnableVertexAttribArray(WSURF_VA_STYLES);
++        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
  
 -        if (R_IsRenderingMultiView())
 -        {
 -            WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
 -        }
-+        glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
-+        glVertexAttribDivisor(WSURF_VA_STYLES, 1);
++        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
++        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
  
 -        if (R_IsRenderingLinearDepth())
 -        {
 -            WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
 -        }
-+        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
-+        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
-+    });
++        glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
++        glVertexAttribDivisor(WSURF_VA_STYLES, 1);
  
 -        if (R_IsRenderingWaterView())
 -        {
@@ -4922,13 +5098,17 @@ index 41f24f3..c785274 100644
 -        {
 -            WSurfProgramState |= WSURF_CLIP_ENABLED;
 -        }
-+    return pWorldModel;
-+}
++        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
++        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
++    });
  
 -        if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
 -        {
 -            WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
 -        }
++    return pWorldModel;
++}
++
 +std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
 +{
 +    if (mod->type != mod_brush)
@@ -5255,37 +5435,20 @@ index 41f24f3..c785274 100644
 +        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 +    }
 +}
-+
+ 
+-                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
+-                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
 +void R_ClearDetailTextureCache(void)
 +{
 +    g_WorldTextureRenderMaterials.clear();
 +    g_DecalTextureRenderMaterials.clear();
 +}
-+
-+void R_ClearDecalCache(void)
-+{
-+    for (int i = 0; i < MAX_DECALS; ++i)
-+    {
-+        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].origin);
-+        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].mins);
-+        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].maxs);
-+        g_WorldSurfaceRenderer.vCachedDecals[i].boundsValid     = false;
-+        g_WorldSurfaceRenderer.vCachedDecals[i].indiceCount     = 0;
-+        g_WorldSurfaceRenderer.vCachedDecals[i].instanceCount   = 0;
-+        g_WorldSurfaceRenderer.vCachedDecals[i].pRenderMaterial = nullptr;
-+    }
-+}
- 
--                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
--                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
-+bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
-+{
-+    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
  
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
-+    if (!texchain.drawCount)
-+        return false;
++bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
++{
++    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
  
 -                GL_BeginStencilWrite(iStencilRef, iStencilMask);
 -            }
@@ -5293,31 +5456,34 @@ index 41f24f3..c785274 100644
 -            {
 -                int iStencilRef  = STENCIL_MASK_HAS_DECAL;
 -                int iStencilMask = STENCIL_MASK_HAS_DECAL;
-+    return true;
-+}
++    if (!texchain.drawCount)
++        return false;
  
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
 -                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_BLUR;
 -                }
-+/*
-+	Purpose : Draw skybox
-+*/
++    return true;
++}
  
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
 -                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_COLOR;
 -                }
-+void R_DrawSkyBox(void)
-+{
-+    if (CL_IsDevOverviewMode())
-+        return;
++/*
++	Purpose : Draw skybox
++*/
  
 -                GL_BeginStencilWrite(iStencilRef, iStencilMask);
 -            }
 -        }
++void R_DrawSkyBox(void)
++{
++    if (CL_IsDevOverviewMode())
++        return;
++
 +    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
 +        return;
  
@@ -5471,19 +5637,19 @@ index 41f24f3..c785274 100644
 -    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafAnim");
 +    glDepthMask(GL_FALSE);
 +    glDisable(GL_BLEND);
-+
+ 
+-    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_ANIM];
 +    wsurf_program_t prog = {0};
 +    R_UseWSurfProgram(WSurfProgramState, &prog);
  
--    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_ANIM];
+-    for (size_t i = 0; i < vTexChainList.size(); ++i)
+-    {
+-        auto& texchain = vTexChainList[i];
 +    GL_BindVAO(r_empty_vao);
  
--    for (size_t i = 0; i < vTexChainList.size(); ++i)
-+    if (r_detailskytextures->value && g_WorldSurfaceRenderer.vSkyboxTextureId[6])
-     {
--        auto& texchain = vTexChainList[i];
--
 -        auto texture = R_GetAnimatedTexture(texchain.texture);
++    if (r_detailskytextures->value && g_WorldSurfaceRenderer.vSkyboxTextureId[6])
++    {
 +        for (int i = 0; i < 6; ++i)
 +        {
 +            GL_BindTextureUnit(0, GL_TEXTURE_2D, g_WorldSurfaceRenderer.vSkyboxTextureId[6 + i]);
@@ -5750,7 +5916,7 @@ index 41f24f3..c785274 100644
  
  void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
  {
-@@ -3507,21 +2184,21 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3507,21 +2174,26 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
  
      if (pModel->m_model == (*cl_worldmodel))
      {
@@ -5773,10 +5939,15 @@ index 41f24f3..c785274 100644
              //Use previous leaf when current leaf not available
 -            pLeaf = g_WorldSurfaceRenderer.pCurrentWorldLeaf.lock();
 +            pLeaf = R_CompatibleWorldLeaf(g_WorldSurfaceRenderer.pCurrentWorldLeaf, pModel);
++            if (!pLeaf)
++            {
++                const auto noVis = pModel->GetLeafByIndex(0);
++                if (noVis && noVis->m_bIsReady && !noVis->m_bIsClosing.load()) pLeaf = noVis;
++            }
          }
  
          //Always draw skybox before world
-@@ -3533,7 +2210,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3533,7 +2205,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              }
          }
  
@@ -5785,7 +5956,7 @@ index 41f24f3..c785274 100644
          {
              if (R_IsRenderingWaterView())
              {
-@@ -3546,13 +2223,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3546,13 +2218,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      pNoVisLeaf = pModel->GetLeafByIndex(0);
                  }
  
@@ -5802,7 +5973,7 @@ index 41f24f3..c785274 100644
                  {
                      glColorMask(0, 0, 0, 0);
  
-@@ -3563,7 +2240,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3563,7 +2235,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      R_DrawWorldSurfaceLeafStatic(pModel.get(), pNoVisLeaf.get());
                      R_DrawWorldSurfaceLeafAnim(pModel.get(), pNoVisLeaf.get());
  
@@ -5811,7 +5982,7 @@ index 41f24f3..c785274 100644
                  }
              }
              else if (R_IsRenderingShadowView())
-@@ -3599,7 +2276,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3599,7 +2271,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              pLeaf = pModel->GetLeafByIndex(0);
          }
  
@@ -5820,15 +5991,16 @@ index 41f24f3..c785274 100644
          {
              if (R_IsRenderingShadowView())
              {
-@@ -3665,6 +2342,7 @@ void R_InitWSurf(void)
+@@ -3665,6 +2337,8 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
++    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3214,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3210,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -5838,7 +6010,7 @@ index 41f24f3..c785274 100644
          }
      }
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..2ce6bee 100644
+index 0d340e9..b9e6dac 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
 @@ -2,8 +2,14 @@
@@ -5897,7 +6069,7 @@ index 0d340e9..2ce6bee 100644
  
      mleaf_t*                                         m_leaf{};
      GLuint                                           hABO{};
-@@ -140,11 +136,27 @@ public:
+@@ -140,11 +136,28 @@ public:
      std::vector<std::shared_ptr<CWaterSurfaceModel>> m_vWaterSurfaceModels;
      CWorldSurfaceBrushTexChain                       TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_MAX];
      std::weak_ptr<CWorldSurfaceModel>                m_pModel{};
@@ -5906,6 +6078,7 @@ index 0d340e9..2ce6bee 100644
 +    uint32_t                                        m_uViewKey{};
 +    bool                                            m_bIsReady{};
 +    std::exception_ptr                              m_LoadError;
++    std::shared_ptr<const goldcraft::visibility::View> m_pVisibilityView;
 +    std::atomic_bool                                m_bTaskFinished{false};
 +    std::size_t                                     m_iTaskSlot{static_cast<std::size_t>(-1)};
  
@@ -5925,7 +6098,7 @@ index 0d340e9..2ce6bee 100644
  class CWorldSurfaceWorldModel
  {
  public:
-@@ -159,6 +171,15 @@ public:
+@@ -159,6 +172,16 @@ public:
      GLuint                              hEBO{};
      GLuint                              hVAO{};
      std::vector<CWorldSurfaceBrushFace> m_vFaceBuffer;
@@ -5938,10 +6111,11 @@ index 0d340e9..2ce6bee 100644
 +    std::shared_ptr<const goldcraft::visibility::Source> m_pVisibilitySource;
 +    std::shared_ptr<const goldcraft::visibility::Prepared> m_pCarvedVisibility;
 +    std::shared_ptr<const CWorldSurfaceLeafData> m_pLeafData;
++    std::vector<goldcraft::surface::Selection> m_vDecalCuts;
  };
  
  class CWorldSurfaceModel
-@@ -170,6 +191,7 @@ public:
+@@ -170,6 +193,7 @@ public:
  
      ~CWorldSurfaceModel()
      {
@@ -5949,7 +6123,7 @@ index 0d340e9..2ce6bee 100644
      }
  
      std::shared_ptr<CWorldSurfaceLeaf> GetLeafByIndex(int index) const
-@@ -193,6 +215,16 @@ public:
+@@ -193,6 +217,16 @@ public:
          m_vLeaves.clear();
      }
  
@@ -5966,10 +6140,34 @@ index 0d340e9..2ce6bee 100644
      model_t*                                                 m_model{};
      std::weak_ptr<CWorldSurfaceWorldModel>                   m_pWorldModel{};
      std::vector<std::shared_ptr<CWorldSurfaceLeaf>>          m_vLeaves;
-@@ -274,6 +306,79 @@ typedef struct
+@@ -208,6 +242,7 @@ public:
+     GLuint                       IndiceCount[MAX_DECALS];
+     GLuint                       StartInstance[MAX_DECALS];
+     GLuint                       InstanceCount[MAX_DECALS];
++    GLuint                       VAO[MAX_DECALS];
+     CWorldSurfaceRenderMaterial* pRenderMaterial[MAX_DECALS];
+     int                          BatchCount;
+ };
+@@ -228,6 +263,10 @@ public:
+     GLuint                                       indiceCount{};
+     GLint                                        startInstance{};
+     GLuint                                       instanceCount{};
++    bool                                         geometryReady{};
++    uint32_t                                     surfaceIndex{};
++    std::weak_ptr<const goldcraft::surface::Mesh> worldMesh;
++    std::shared_ptr<CWorldSurfaceWorldModel>       carvedGeometry;
+ };
+ 
+ class CWorldSurfaceRenderer
+@@ -273,6 +312,89 @@ typedef struct
+ } wsurf_program_t;
  
  extern CWorldSurfaceRenderer g_WorldSurfaceRenderer;
- 
++extern std::vector<std::shared_ptr<CWorldSurfaceModel>> g_WorldSurfaceModels;
++extern std::vector<std::shared_ptr<CWorldSurfaceWorldModel>> g_WorldSurfaceWorldModels;
++bool R_IsDecalCacheInvalidated(int index, texture_t* texture,
++    const std::shared_ptr<CWorldSurfaceRenderMaterial>& material, const CWorldSurfaceWorldModel& world);
++
 +void R_UploadWorldSurfaceGeometry(CWorldSurfaceWorldModel& model);
 +// Preparation only. The caller must prepare cavity walls, leaves, PVS and
 +// shadow invalidation before replacing live resources or accepting a revision.
@@ -6031,6 +6229,12 @@ index 0d340e9..2ce6bee 100644
 +void R_DrawWorldSurfaceLeafAnim(CWorldSurfaceModel* model, CWorldSurfaceLeaf* leaf);
 +void R_DrawWorldSurfaceLeafShadow(CWorldSurfaceLeaf* leaf, bool withSky);
 +void R_DrainWorldLeafTasks(model_t* model = nullptr);
++void R_ForgetWorldEdits(model_t* model = nullptr) noexcept;
++void R_ClearDecalCache();
++void R_InvalidateWorldShadowCaches(std::span<const goldcraft::carving::Box> bounds) noexcept;
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareCarvedDecal(
++    const CWorldSurfaceWorldModel& world, uint32_t face, std::span<const float> vertices,
++    const brushinstancedata_t& instance);
 +texture_t* R_GetEmptyWorldTexture();
 +void R_PrepareWorldLeafData(CWorldSurfaceWorldModel& world);
 +void R_GenerateWorldSurfaceModelLeaf(const std::shared_ptr<CWorldSurfaceModel>& model,
@@ -6042,10 +6246,9 @@ index 0d340e9..2ce6bee 100644
 +std::shared_ptr<CWorldSurfaceLeaf> R_CompatibleWorldLeaf(
 +    const std::weak_ptr<CWorldSurfaceLeaf>& previous, const std::shared_ptr<CWorldSurfaceModel>& model);
 +uint32_t R_WorldSurfaceViewKey(const CWorldSurfaceModel& model, mleaf_t* leaf, const float* origin);
-+
+ 
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
- extern vec3_t r_frustum_vec[4];
 diff --git a/src/privatehook.h b/src/privatehook.h
 index 4f14187..3143b87 100644
 --- a/src/privatehook.h
@@ -6076,7 +6279,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..e8e1c83 100644
+index 93166e2..834330f 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -6098,7 +6301,7 @@ index 93166e2..e8e1c83 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,72 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,75 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -6148,6 +6351,9 @@ index 93166e2..e8e1c83 100644
 +set_tests_properties(cavity_lighting_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
 +
 +add_executable(world_leaf_gl_tests world_leaf_gl_tests.cpp
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp"
++    "${PROJECT_SOURCE_DIR}/src/world_edit.cpp"
++    "${PROJECT_SOURCE_DIR}/src/world_edit_cache.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/world_leaf_build.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/world_leaf_cache.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/world_leaf_draw.cpp"
@@ -7896,10 +8102,10 @@ index 0000000..96871bd
 +}
 diff --git a/src/gl_surface_edit.cpp b/src/gl_surface_edit.cpp
 new file mode 100644
-index 0000000..bb8e927
+index 0000000..8c229a3
 --- /dev/null
 +++ b/src/gl_surface_edit.cpp
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,263 @@
 +#include "gl_local.h"
 +#include <limits>
 +#include <stdexcept>
@@ -8081,12 +8287,14 @@ index 0000000..bb8e927
 +    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
 +    std::shared_ptr<const goldcraft::surface::Mesh> mesh,
 +    std::vector<goldcraft::cavity::Draw> draws,
-+    std::shared_ptr<const goldcraft::lighting::Prepared> lighting = {})
++    std::shared_ptr<const goldcraft::lighting::Prepared> lighting = {},
++    std::span<const goldcraft::surface::Selection> decalCuts = {})
 +{
 +    if (!original || !original->m_pOriginalMesh ||
 +        original->m_vFaceBuffer.size() != original->m_pOriginalMesh->faces.size())
 +        throw std::invalid_argument("Missing original world surface geometry");
-+    if (mesh == original->m_pSurfaceMesh && draws.empty() && original->m_vCavityDraws.empty()) return original;
++    if (mesh == original->m_pSurfaceMesh && draws.empty() && original->m_vCavityDraws.empty() &&
++        decalCuts.empty() && original->m_vDecalCuts.empty()) return original;
 +    auto candidate             = std::make_shared<CWorldSurfaceWorldModel>(original->m_model);
 +    candidate->m_pOriginalMesh = original->m_pOriginalMesh;
 +    candidate->m_pSurfaceMesh  = std::move(mesh);
@@ -8094,6 +8302,7 @@ index 0000000..bb8e927
 +    candidate->m_pCavityLighting = std::move(lighting);
 +    candidate->m_pVisibilitySource = original->m_pVisibilitySource;
 +    candidate->m_pLeafData = original->m_pLeafData;
++    candidate->m_vDecalCuts.assign(decalCuts.begin(), decalCuts.end());
 +    candidate->m_vFaceBuffer   = original->m_vFaceBuffer;
 +    for (std::size_t i = 0; i < candidate->m_vFaceBuffer.size(); ++i)
 +    {
@@ -8119,7 +8328,7 @@ index 0000000..bb8e927
 +{
 +    if (!original) throw std::invalid_argument("Missing original world surface geometry");
 +    const auto prepared = goldcraft::surface::prepare(original->m_pOriginalMesh, cuts, limits);
-+    return PrepareSurfaceCandidate(original, prepared.mesh, {});
++    return PrepareSurfaceCandidate(original, prepared.mesh, {}, {}, cuts);
 +}
 +
 +std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareCarvedWorldGeometry(
@@ -8129,7 +8338,10 @@ index 0000000..bb8e927
 +{
 +    if (!original) throw std::invalid_argument("Missing original world surface geometry");
 +    auto prepared = goldcraft::cavity::prepare(original->m_pOriginalMesh, models, limits);
-+    return PrepareSurfaceCandidate(original, std::move(prepared.mesh), std::move(prepared.draws));
++    std::vector<goldcraft::surface::Selection> cuts;
++    for (const auto& model : models)
++        for (const auto& box : model.boxes) cuts.push_back({model.first_face, model.face_count, box});
++    return PrepareSurfaceCandidate(original, std::move(prepared.mesh), std::move(prepared.draws), {}, cuts);
 +}
 +
 +std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareLitCarvedWorldGeometry(
@@ -8139,7 +8351,10 @@ index 0000000..bb8e927
 +{
 +    if (!original) throw std::invalid_argument("Missing original world surface geometry");
 +    const auto geometry = goldcraft::cavity::prepare(original->m_pOriginalMesh, models, limits);
-+    if (geometry.draws.empty()) return PrepareSurfaceCandidate(original, geometry.mesh, {});
++    std::vector<goldcraft::surface::Selection> cuts;
++    for (const auto& model : models)
++        for (const auto& box : model.boxes) cuts.push_back({model.first_face, model.face_count, box});
++    if (geometry.draws.empty()) return PrepareSurfaceCandidate(original, geometry.mesh, {}, {}, cuts);
 +    std::vector<CWorldLightProbes> storage;
 +    std::vector<goldcraft::lighting::Model> lightingModels;
 +    storage.reserve(models.size());
@@ -8152,7 +8367,7 @@ index 0000000..bb8e927
 +        lightingModels.push_back({model.first_face, model.face_count, model.hull, model.boxes, probes.probes, probes.values});
 +    }
 +    auto lighting = std::make_shared<goldcraft::lighting::Prepared>(goldcraft::lighting::prepare(geometry, lightingModels, settings));
-+    return PrepareSurfaceCandidate(original, lighting->mesh, lighting->draws, lighting);
++    return PrepareSurfaceCandidate(original, lighting->mesh, lighting->draws, lighting, cuts);
 +}
 diff --git a/tests/surface_mesh_gl_tests.cpp b/tests/surface_mesh_gl_tests.cpp
 new file mode 100644
@@ -9745,10 +9960,10 @@ index 0000000..478a984
 +}
 diff --git a/src/world_leaf_build.cpp b/src/world_leaf_build.cpp
 new file mode 100644
-index 0000000..a7a93b3
+index 0000000..702b499
 --- /dev/null
 +++ b/src/world_leaf_build.cpp
-@@ -0,0 +1,812 @@
+@@ -0,0 +1,813 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <limits>
@@ -10430,6 +10645,7 @@ index 0000000..a7a93b3
 +        {
 +            if (m_pWorldModel->m_pCarvedVisibility)
 +                m_editedView = m_pWorldModel->m_pCarvedVisibility->view(m_pLeaf->m_uViewKey);
++            if (m_editedView) m_pLeaf->m_pVisibilityView = std::make_shared<const goldcraft::visibility::View>(*m_editedView);
 +            R_MarkPVSForLeaf(m_pWorldModel->m_model, m_leaf, m_visnodes, m_editedView ? &*m_editedView : nullptr);
 +
 +            R_RecursiveMarkSurfaces(m_model->nodes, m_visnodes, m_vissurfaces);
@@ -11157,10 +11373,10 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..7be7ef4
+index 0000000..8a5949c
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,781 @@
+@@ -0,0 +1,995 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -11173,6 +11389,7 @@ index 0000000..7be7ef4
 +#include <thread>
 +#include <stdexcept>
 +#include "cavity_map_fixture.h"
++#include <IMetaRendererWorldEdit.h>
 +
 +std::atomic_bool         countAllocations{};
 +std::atomic<std::size_t> countedAllocations{};
@@ -11188,21 +11405,24 @@ index 0000000..7be7ef4
 +void  operator delete(void* value, std::size_t) noexcept { std::free(value); }
 +void  operator delete[](void* value, std::size_t) noexcept { std::free(value); }
 +
-+int                   g_iEngineType = ENGINE_GOLDSRC;
-+cl_enginefunc_t       gEngfuncs{};
-+metahook_api_t        api{};
-+metahook_api_t*       g_pMetaHookAPI = &api;
-+byte                  mod_novis[MAX_MAP_LEAFS_SVENGINE / 8];
-+CWorldSurfaceRenderer g_WorldSurfaceRenderer;
-+model_t*              worldModel{};
-+model_t**             cl_worldmodel = &worldModel;
-+cl_entity_t           entity{};
-+cl_entity_t*          currentEntity = &entity;
-+cl_entity_t**         currententity = &currentEntity;
-+int                   filter{}, polys{}, table[20][20]{};
-+int*                  filterMode    = &filter;
-+int*                  c_brush_polys = &polys;
-+int (*rtable)[20][20]               = &table;
++int                                                   g_iEngineType = ENGINE_GOLDSRC;
++cl_enginefunc_t                                       gEngfuncs{};
++metahook_api_t                                        api{};
++metahook_api_t*                                       g_pMetaHookAPI = &api;
++byte                                                  mod_novis[MAX_MAP_LEAFS_SVENGINE / 8];
++CWorldSurfaceRenderer                                 g_WorldSurfaceRenderer;
++std::vector<std::shared_ptr<CWorldSurfaceModel>>      g_WorldSurfaceModels;
++std::vector<std::shared_ptr<CWorldSurfaceWorldModel>> g_WorldSurfaceWorldModels;
++std::vector<std::shared_ptr<CDynamicLight>>           g_BSPDynamicLights, g_EngineDynamicLights;
++model_t*                                              worldModel{};
++model_t**                                             cl_worldmodel = &worldModel;
++cl_entity_t                                           entity{};
++cl_entity_t*                                          currentEntity = &entity;
++cl_entity_t**                                         currententity = &currentEntity;
++int                                                   filter{}, polys{}, table[20][20]{};
++int*                                                  filterMode    = &filter;
++int*                                                  c_brush_polys = &polys;
++int (*rtable)[20][20]                                               = &table;
 +double  gameTime{};
 +double* cl_time = &gameTime;
 +cvar_t  fullbright{}, fogTrans{}, fogShift{};
@@ -11674,6 +11894,215 @@ index 0000000..7be7ef4
 +    return {};
 +}
 +
++int                                      EngineGetModelIndex(model_t* model) { return model == worldModel ? 1 : 2; }
++std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* model)
++{
++    assert(model == worldModel);
++    return g_WorldSurfaceWorldModels.at(1);
++}
++std::shared_ptr<CWorldSurfaceModel> R_GetWorldSurfaceModel(model_t* model)
++{
++    return g_WorldSurfaceModels.at(EngineGetModelIndex(model));
++}
++void R_LinkShadowProxyForWorldSurfaceModel(CWorldSurfaceModel*) {}
++
++namespace
++{
++struct Shadow final : IShadowTexture
++{
++    bool         ready = true;
++    mat4         matrix{};
++    float        viewport[4]{};
++    bool         IsReady() const override { return ready; }
++    void         SetReady(bool value) override { ready = value; }
++    bool         IsSingleLayer() const override { return false; }
++    bool         IsCascaded() const override { return false; }
++    bool         IsCubemap() const override { return true; }
++    bool         IsStatic() const override { return true; }
++    GLuint       GetDepthTexture() const override { return 0; }
++    uint32_t     GetTextureSize() const override { return 16; }
++    void         SetViewport(float, float, float, float) override {}
++    const float* GetViewport() const override { return viewport; }
++    void         SetWorldMatrix(int, const mat4*) override {}
++    void         SetProjectionMatrix(int, const mat4*) override {}
++    void         SetShadowMatrix(int, const mat4*) override {}
++    const mat4*  GetWorldMatrix(int) const override { return &matrix; }
++    const mat4*  GetProjectionMatrix(int) const override { return &matrix; }
++    const mat4*  GetShadowMatrix(int) const override { return &matrix; }
++    void         SetCSMDistance(int, float) override {}
++    float        GetCSMDistance(int) const override { return 0; }
++};
++void EditIntegration()
++{
++    auto* api = static_cast<IMetaRendererWorldEdit*>(CreateInterface(METARENDERER_WORLD_EDIT_INTERFACE_VERSION, nullptr));
++    assert(api);
++    Scene scene;
++    worldModel = &scene.model;
++    dclipnode_t clip{0, {-1, -2}};
++    scene.model.hulls[0] = {&clip, &scene.plane, 0, 0};
++    auto original        = R_PrepareWorldSurfaceLeafModel(scene.geometry, &scene.model, 0);
++    Finish(original);
++    g_WorldSurfaceModels      = {nullptr, original};
++    g_WorldSurfaceWorldModels = {nullptr, scene.geometry};
++    const auto wait           = [&](uint64_t ticket) {
++        const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++        while (api->Poll(ticket) == MetaWorldEditStatus::Preparing)
++        {
++            assert(std::chrono::steady_clock::now() < limit);
++            std::this_thread::sleep_for(std::chrono::milliseconds(1));
++        }
++        assert(api->Poll(ticket) == MetaWorldEditStatus::Ready);
++    };
++    const auto light = [](float x, DynamicLightType type) {
++        auto value       = std::make_shared<CDynamicLight>();
++        value->type      = type;
++        value->origin[0] = x;
++        value->origin[1] = value->origin[2] = 48;
++        value->size                         = 64;
++        value->pStaticShadowTexture         = std::make_shared<Shadow>();
++        return value;
++    };
++    auto nearLight = light(48, DynamicLightType_Point), next = light(176, DynamicLightType_Spot),
++         distant = light(1000, DynamicLightType_Point), sun = light(1000, DynamicLightType_Directional);
++    g_BSPDynamicLights    = {nearLight, next, sun};
++    g_EngineDynamicLights = {distant};
++    MetaWorldEditBox box{{32, 32, -8}, {64, 64, 8}};
++    auto             first = api->Begin(&scene.model, 9, 2, &box, 1);
++    assert(first && g_WorldSurfaceWorldModels[1] == scene.geometry);
++    assert(!api->Commit(first)); // No upload/publish before a completed Poll.
++    wait(first);
++    // A newly loaded inline model must participate before commit can succeed.
++    model_t brush       = scene.model;
++    auto    inlineModel = R_PrepareWorldSurfaceLeafModel(scene.geometry, &brush, 0);
++    Finish(inlineModel);
++    g_WorldSurfaceModels.push_back(inlineModel);
++    assert(!api->Commit(first));
++    wait(first);
++    const auto before  = uploads;
++    countedAllocations = 0;
++    countAllocations   = true;
++    assert(api->Commit(first));
++    countAllocations = false;
++    assert(uploads == before && countedAllocations == 0);
++    auto edited = g_WorldSurfaceWorldModels[1];
++    assert(edited != scene.geometry && g_WorldSurfaceModels[2]->m_pWorldModel.lock() == edited);
++    assert(g_WorldSurfaceModels[1]->GetLeafByIndex(0)->m_bIsReady);
++    assert(!nearLight->pStaticShadowTexture->IsReady() && next->pStaticShadowTexture->IsReady());
++    assert(!sun->pStaticShadowTexture->IsReady() && distant->pStaticShadowTexture->IsReady());
++    nearLight->pStaticShadowTexture->SetReady(true);
++    MetaWorldEditBox boxes[]{box, {{160, 32, -8}, {192, 64, 8}}};
++    const auto       second = api->Begin(&scene.model, 9, 3, boxes, 2);
++    assert(second);
++    wait(second);
++    assert(api->Commit(second));
++    assert(nearLight->pStaticShadowTexture->IsReady() && !next->pStaticShadowTexture->IsReady());
++    assert(distant->pStaticShadowTexture->IsReady());
++
++    // Production decal mesh clipping preserves interpolated UV/TBN and has no
++    // dependency on the legacy fixed-size per-decal vertex/index slots.
++    float               vertices[]{0, 0, 0, 0, 0, .5f, .5f, 128, 0, 0, 1, 0, .5f, .5f,
++                                   128, 128, 0, 1, 1, .5f, .5f, 0, 128, 0, 0, 1, .5f, .5f};
++    brushinstancedata_t instance{};
++    auto                decal = R_PrepareCarvedDecal(*edited, 0, vertices, instance);
++    assert(decal && decal->hVAO);
++    for (const auto& vertex : decal->m_pSurfaceMesh->vertices)
++    {
++        assert(std::abs(vertex.pos[0] / 128 - vertex.texcoord[0]) < 1e-6f);
++        assert(std::abs(vertex.pos[1] / 128 - vertex.texcoord[1]) < 1e-6f);
++        assert(vertex.lightmaptexcoord[0] == .5f && vertex.lightmaptexcoord[1] == .5f);
++    }
++    glViewport(0, 0, 64, 64);
++    glDisable(GL_DEPTH_TEST);
++    glDisable(GL_CULL_FACE);
++    glClearColor(0, 0, 0, 0);
++    glClear(GL_COLOR_BUFFER_BIT);
++    glUseProgram(shader);
++    glUniform3f(colorLocation, 1, 0, 0);
++    glBindVertexArray(decal->hVAO);
++    glDrawElementsInstancedBaseInstance(GL_TRIANGLES, static_cast<GLsizei>(decal->m_pSurfaceMesh->indices.size()), GL_UNSIGNED_INT, nullptr, 1, 0);
++    std::vector<byte> pixels(64 * 64 * 4);
++    glReadPixels(0, 0, 64, 64, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
++    std::size_t kept = 0, removed = 0;
++    for (int y = 0; y < 64; ++y)
++        for (int x = 0; x < 64; ++x)
++        {
++            const bool hole = x >= 16 && x < 32 && y >= 16 && y < 32;
++            assert((pixels[(y * 64 + x) * 4] > 250) != hole);
++            if (hole) ++removed;
++            else
++                ++kept;
++        }
++    auto& cache       = g_WorldSurfaceRenderer.vCachedDecals[0];
++    cache.boundsValid = cache.geometryReady = true;
++    cache.surfaceIndex                      = 2;
++    cache.indiceCount                       = 6;
++    cache.mins[0]                           = 256;
++    cache.maxs[0]                           = 384;
++    cache.maxs[1]                           = 128;
++    cache.gltexturenum                      = scene.textures[0].gl_texturenum;
++    cache.gltexturewidth = cache.gltextureheight = 64;
++    cache.worldMesh                              = scene.geometry->m_pSurfaceMesh;
++    assert(!R_IsDecalCacheInvalidated(0, &scene.textures[0], {}, *edited));
++    const auto hotUploads = uploads;
++    countedAllocations    = 0;
++    countAllocations      = true;
++    for (int i = 0; i < 256; ++i) assert(!R_IsDecalCacheInvalidated(0, &scene.textures[0], {}, *edited));
++    countAllocations = false;
++    assert(uploads == hotUploads && countedAllocations == 0);
++    cache.carvedGeometry = decal;
++    assert(R_IsDecalCacheInvalidated(0, &scene.textures[0], {}, *scene.geometry));
++    CWorldSurfaceWorldModel crowded(&scene.model);
++    crowded.m_vFaceBuffer = edited->m_vFaceBuffer;
++    for (int y = 0; y < 4; ++y)
++        for (int x = 0; x < 4; ++x)
++            crowded.m_vDecalCuts.push_back({0, 1, {{8. + 24 * x, 8. + 24 * y, -8}, {16. + 24 * x, 16. + 24 * y, 8}}});
++    auto fragmented = R_PrepareCarvedDecal(crowded, 0, vertices, instance);
++    assert(fragmented && fragmented->m_pSurfaceMesh->indices.size() > MAX_DECALINDICES);
++    crowded.m_vDecalCuts = {{0, 1, {{-1, -1, -1}, {129, 129, 1}}}};
++    auto empty           = R_PrepareCarvedDecal(crowded, 0, vertices, instance);
++    assert(empty && empty->m_pSurfaceMesh->indices.empty());
++    failUpload = true;
++    Reject([&] { R_PrepareCarvedDecal(*edited, 0, vertices, instance); });
++    assert(glIsVertexArray(decal->hVAO));
++
++    // Restoration is a prepared transaction; cancellation and unload must not
++    // accidentally publish a later revision or leave background BSP readers.
++    const auto beforeFailure = g_WorldSurfaceWorldModels[1];
++    assert(!api->Begin(&scene.model, 9, 3, &box, 1)); // Same revision cannot replace different cuts.
++    failUpload = true;
++    assert(!api->Begin(&scene.model, 9, 4, &box, 1));
++    assert(g_WorldSurfaceWorldModels[1] == beforeFailure);
++    failCreate = true;
++    assert(!api->Begin(&scene.model, 9, 4, &box, 1));
++    failCreate = false;
++    assert(g_WorldSurfaceWorldModels[1] == beforeFailure);
++    const auto restore = api->Begin(&scene.model, 9, 4, nullptr, 0);
++    assert(restore);
++    wait(restore);
++    assert(api->Commit(restore));
++    assert(g_WorldSurfaceWorldModels[1] == scene.geometry && !nearLight->pStaticShadowTexture->IsReady());
++    const auto cancelled = api->Begin(&scene.model, 9, 5, &box, 1);
++    assert(cancelled);
++    api->Cancel(cancelled);
++    assert(api->Poll(cancelled) == MetaWorldEditStatus::Missing && !api->Commit(cancelled));
++    assert(g_WorldSurfaceWorldModels[1] == scene.geometry);
++    const auto unloading = api->Begin(&scene.model, 9, 6, &box, 1);
++    assert(unloading);
++    R_ForgetWorldEdits(&scene.model);
++    assert(api->Poll(unloading) == MetaWorldEditStatus::Missing);
++    R_DrainWorldLeafTasks(&scene.model);
++    R_ClearDecalCache();
++    g_WorldSurfaceModels.clear();
++    g_WorldSurfaceWorldModels.clear();
++    g_BSPDynamicLights.clear();
++    g_EngineDynamicLights.clear();
++    glBindVertexArray(0);
++    glUseProgram(0);
++    assert(!liveWork && glGetError() == GL_NO_ERROR);
++    std::printf("{\"worldEditGL\":true,\"publicInterface\":true,\"lateInlineModel\":true,\"commitAllocations\":0,\"commitUploads\":0,\"selectiveShadowInvalidation\":true,\"decalPixels\":%zu,\"removedDecalPixels\":%zu,\"decalIndices\":%zu,\"unchangedDecalAllocations\":0,\"unchangedDecalUploads\":0,\"restore\":true,\"cancel\":true,\"unload\":true,\"passed\":true}\n", kept, removed, fragmented->m_pSurfaceMesh->indices.size());
++}
++} // namespace
++
 +int main(int argc, char** argv)
 +{
 +    std::memset(mod_novis, 0xff, sizeof(mod_novis));
@@ -11934,6 +12363,7 @@ index 0000000..7be7ef4
 +                    cavityCommands, cavityChains, red, green, submitUs, drainMs, deletedWork);
 +        R_DrainWorldLeafTasks();
 +    }
++    EditIntegration();
 +    glDeleteProgram(shader);
 +    assert(liveWork == 0 && glGetError() == GL_NO_ERROR);
 +    CloseHandle(entered);
@@ -11941,4 +12371,473 @@ index 0000000..7be7ef4
 +    CloseHandle(draining);
 +    glfwDestroyWindow(window);
 +    glfwTerminate();
++}
+diff --git a/include/Interface/IMetaRendererWorldEdit.h b/include/Interface/IMetaRendererWorldEdit.h
+new file mode 100644
+index 0000000..e0bb703
+--- /dev/null
++++ b/include/Interface/IMetaRendererWorldEdit.h
+@@ -0,0 +1,31 @@
++#pragma once
++#include <interface.h>
++#include <stdint.h>
++
++struct model_s;
++struct MetaWorldEditBox
++{ float min[3], max[3]; };
++static_assert(sizeof(MetaWorldEditBox) == 24);
++enum class MetaWorldEditStatus : uint32_t
++{
++    Missing,
++    Preparing,
++    Ready,
++    Failed
++};
++
++// Same-process optional extension; no change to MetaRenderer_API_002. All calls
++// run on the game/GL thread, outside drawing. Begin copies the boxes. Tickets
++// expire at map/model unload; no exception or owned STL object crosses the ABI.
++class IMetaRendererWorldEdit : public IBaseInterface
++{
++public:
++    virtual uint64_t            Begin(model_s* world, uint64_t epoch, uint64_t revision, const MetaWorldEditBox* boxes, uint32_t count) noexcept = 0;
++    virtual MetaWorldEditStatus Poll(uint64_t ticket) noexcept                                                                                   = 0;
++    // Ready commit performs no allocation, GPU upload or callback. The caller
++    // then publishes its already-prepared collision and Replica in this frame.
++    virtual bool Commit(uint64_t ticket) noexcept = 0;
++    virtual void Cancel(uint64_t ticket) noexcept = 0;
++    virtual void Reset() noexcept                 = 0;
++};
++#define METARENDERER_WORLD_EDIT_INTERFACE_VERSION "MetaRendererWorldEdit_API_001"
+diff --git a/src/world_edit.cpp b/src/world_edit.cpp
+new file mode 100644
+index 0000000..ca035c9
+--- /dev/null
++++ b/src/world_edit.cpp
+@@ -0,0 +1,273 @@
++#include "gl_local.h"
++#include <IMetaRendererWorldEdit.h>
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++#include <iterator>
++#include <tuple>
++
++namespace
++{
++using namespace goldcraft;
++struct Entry
++{
++    std::size_t                         index;
++    std::shared_ptr<CWorldSurfaceModel> expected, prepared;
++};
++struct Pending
++{
++    uint64_t                                 ticket{}, epoch{}, revision{};
++    std::shared_ptr<CWorldSurfaceWorldModel> geometry;
++    std::vector<Entry>                       models;
++    std::vector<carving::Box>                changedBounds;
++    bool                                     failed{};
++    ~Pending()
++    {
++        for (auto& entry : models)
++            if (entry.prepared) entry.prepared->RetireLeaves();
++    }
++};
++struct Session
++{
++    model_t*                                 world{};
++    std::size_t                              index{};
++    uint64_t                                 epoch{}, revision{};
++    bool                                     committed{};
++    std::shared_ptr<CWorldSurfaceWorldModel> original, active;
++    std::unique_ptr<Pending>                 pending;
++};
++Session  session;
++uint64_t nextTicket = 0;
++
++bool Current() noexcept
++{
++    return session.world && cl_worldmodel && *cl_worldmodel == session.world &&
++        session.index < g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[session.index] == session.active;
++}
++
++void CollectModels(Pending& pending)
++{
++    for (std::size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
++    {
++        const auto& model = g_WorldSurfaceModels[i];
++        const auto  found = std::find_if(pending.models.begin(), pending.models.end(),
++                                         [&](const Entry& entry) { return entry.index == i; });
++        if (found != pending.models.end())
++        {
++            if (found->expected != model) throw std::runtime_error("World model changed during edit preparation");
++            continue;
++        }
++        if (!model || model->m_pWorldModel.lock() != session.active) continue;
++        auto prepared = R_PrepareWorldSurfaceLeafModel(pending.geometry, model->m_model, 0);
++        if (pending.geometry == session.original) R_LinkShadowProxyForWorldSurfaceModel(prepared.get());
++        pending.models.push_back({i, model, std::move(prepared)});
++    }
++    if (pending.models.empty()) throw std::runtime_error("Missing loaded world surface model");
++}
++
++class CMetaRendererWorldEdit final : public IMetaRendererWorldEdit
++{
++public:
++    uint64_t Begin(model_t* world, uint64_t epoch, uint64_t revision, const MetaWorldEditBox* boxes, uint32_t count) noexcept override
++    {
++        try
++        {
++            if (!world || !cl_worldmodel || world != *cl_worldmodel || world->type != mod_brush ||
++                !epoch || count > 65536 || (count && !boxes) || !wglGetCurrentContext()) return 0;
++            if (session.world && (!Current() || session.epoch != epoch || (session.committed && revision < session.revision))) return 0;
++            std::vector<carving::Box> cuts;
++            cuts.reserve(count);
++            for (uint32_t i = 0; i < count; ++i)
++            {
++                carving::Box box;
++                for (int axis = 0; axis < 3; ++axis)
++                {
++                    box.min[axis] = boxes[i].min[axis];
++                    box.max[axis] = boxes[i].max[axis];
++                    if (!std::isfinite(box.min[axis]) || !std::isfinite(box.max[axis]) ||
++                        box.min[axis] >= box.max[axis]) return 0;
++                }
++                cuts.push_back(box);
++            }
++            const auto index = EngineGetModelIndex(world);
++            if (index < 0) return 0;
++            const auto current = R_GetWorldSurfaceWorldModel(world);
++            R_GetWorldSurfaceModel(world);
++            if (!session.world)
++            {
++                session.world    = world;
++                session.index    = index;
++                session.epoch    = epoch;
++                session.original = session.active = current;
++            }
++            auto candidate      = std::make_unique<Pending>();
++            candidate->epoch    = epoch;
++            candidate->revision = revision;
++            std::vector<carving::Box> oldCuts, newCuts = cuts;
++            for (const auto& cut : session.active->m_vDecalCuts) oldCuts.push_back(cut.box);
++            const auto less = [](const auto& a, const auto& b) {
++                return std::tie(a.min, a.max) < std::tie(b.min, b.max);
++            };
++            const auto unique = [&](auto& values) {
++                std::sort(values.begin(), values.end(), less);
++                values.erase(std::unique(values.begin(), values.end(), [&](const auto& a, const auto& b) {
++                                 return !less(a, b) && !less(b, a);
++                             }),
++                             values.end());
++            };
++            unique(oldCuts);
++            unique(newCuts);
++            if (session.committed && revision == session.revision &&
++                (oldCuts.size() != newCuts.size() || !std::equal(oldCuts.begin(), oldCuts.end(), newCuts.begin(), [&](const auto& a, const auto& b) { return !less(a, b) && !less(b, a); }))) return 0;
++            std::set_symmetric_difference(oldCuts.begin(), oldCuts.end(), newCuts.begin(), newCuts.end(),
++                                          std::back_inserter(candidate->changedBounds), less);
++            if (cuts.empty()) candidate->geometry = session.original;
++            else
++            {
++                const auto& hull = world->hulls[0];
++                if (!hull.planes || !hull.clipnodes || world->numplanes < 1 || world->numplanes > 262144 ||
++                    hull.lastclipnode < 0 || hull.lastclipnode >= 262144 || world->firstmodelsurface < 0 || world->nummodelsurfaces < 1)
++                    throw std::invalid_argument("Invalid world edit hull");
++                std::vector<carving::Plane>    planes;
++                std::vector<carving::HullNode> nodes;
++                planes.reserve(world->numplanes);
++                nodes.reserve(hull.lastclipnode + 1);
++                for (int i = 0; i < world->numplanes; ++i)
++                {
++                    const auto&    source = hull.planes[i];
++                    carving::Plane plane{{}, source.dist};
++                    if (source.type < 3) plane.normal[source.type] = 1;
++                    else
++                        for (int axis = 0; axis < 3; ++axis) plane.normal[axis] = source.normal[axis];
++                    planes.push_back(plane);
++                }
++                for (int i = 0; i <= hull.lastclipnode; ++i)
++                {
++                    const auto& node = hull.clipnodes[i];
++                    nodes.push_back({static_cast<uint32_t>(node.planenum), {node.children[0], node.children[1]}});
++                }
++                const cavity::Model model{static_cast<uint32_t>(world->firstmodelsurface),
++                                          static_cast<uint32_t>(world->nummodelsurfaces),
++                                          {planes, nodes, hull.firstclipnode},
++                                          cuts};
++                candidate->geometry = R_PrepareLitCarvedWorldGeometry(session.original, {&model, 1});
++                R_PrepareCarvedWorldVisibility(*candidate->geometry, cuts);
++            }
++            CollectModels(*candidate);
++            if (++nextTicket == 0) ++nextTicket;
++            candidate->ticket = nextTicket;
++            session.pending   = std::move(candidate);
++            return nextTicket;
++        }
++        catch (const std::exception& error)
++        {
++            if (gEngfuncs.Con_DPrintf) gEngfuncs.Con_DPrintf("Renderer: world edit preparation failed: %s\n", error.what());
++            return 0;
++        }
++        catch (...)
++        {
++            return 0;
++        }
++    }
++
++    MetaWorldEditStatus Poll(uint64_t ticket) noexcept override
++    {
++        if (!ticket || !session.pending || session.pending->ticket != ticket || !Current()) return MetaWorldEditStatus::Missing;
++        auto& pending = *session.pending;
++        if (pending.failed) return MetaWorldEditStatus::Failed;
++        try
++        {
++            // HUD_Frame normally pumps first, but the public API is also usable
++            // from other game-thread frame orderings without a blocking wait.
++            R_PumpWorldLeafTasks();
++            CollectModels(pending);
++            for (const auto& entry : pending.models)
++                for (const auto& leaf : entry.prepared->m_vLeaves)
++                {
++                    if (!leaf) continue;
++                    if (leaf->m_bIsClosing.load()) throw std::runtime_error("World edit leaf closed");
++                    if (!leaf->m_bIsReady)
++                    {
++                        if (leaf->m_bTaskFinished.load(std::memory_order_acquire) && leaf->m_LoadError)
++                            throw std::runtime_error("World edit leaf failed");
++                        return MetaWorldEditStatus::Preparing;
++                    }
++                }
++            return MetaWorldEditStatus::Ready;
++        }
++        catch (...)
++        {
++            pending.failed = true;
++            return MetaWorldEditStatus::Failed;
++        }
++    }
++
++    bool Commit(uint64_t ticket) noexcept override
++    {
++        if (!ticket || !Current() || !session.pending || session.pending->ticket != ticket || session.pending->failed) return false;
++        auto& pending = *session.pending;
++        // Recheck without preparation/allocation: another plugin may have
++        // loaded/replaced an inline model after the previous Poll.
++        std::size_t affected = 0;
++        for (const auto& model : g_WorldSurfaceModels)
++            if (model && model->m_pWorldModel.lock() == session.active) ++affected;
++        if (affected != pending.models.size()) return false;
++        for (const auto& entry : pending.models)
++        {
++            if (entry.index >= g_WorldSurfaceModels.size() || g_WorldSurfaceModels[entry.index] != entry.expected) return false;
++            for (const auto& leaf : entry.prepared->m_vLeaves)
++                if (leaf && (!leaf->m_bIsReady || leaf->m_bIsClosing.load())) return false;
++        }
++        for (auto& entry : pending.models)
++        {
++            entry.expected->RetireLeaves();
++            g_WorldSurfaceModels[entry.index] = std::move(entry.prepared);
++        }
++        g_WorldSurfaceWorldModels[session.index] = pending.geometry;
++        session.active                           = std::move(pending.geometry);
++        session.revision                         = pending.revision;
++        session.committed                        = true;
++        // Decals compare immutable mesh identity on their next use and rebuild
++        // only when their own bounds meet a cut, or a prior clipped decal must
++        // be restored. Unaffected VBO slots remain resident.
++        if (!pending.changedBounds.empty()) R_InvalidateWorldShadowCaches(pending.changedBounds);
++        session.pending.reset();
++        return true;
++    }
++    void Cancel(uint64_t ticket) noexcept override
++    {
++        if (session.pending && session.pending->ticket == ticket) session.pending.reset();
++    }
++    void Reset() noexcept override
++    {
++        session.pending.reset();
++        if (Current() && session.active != session.original)
++        {
++            for (auto& model : g_WorldSurfaceModels)
++                if (model && model->m_pWorldModel.lock() == session.active)
++                {
++                    model->RetireLeaves();
++                    model.reset();
++                }
++            g_WorldSurfaceWorldModels[session.index] = session.original;
++            R_ClearDecalCache();
++            R_InvalidateWorldShadowCaches({});
++        }
++        session = {};
++    }
++};
++} // namespace
++
++void R_ForgetWorldEdits(model_t* model) noexcept
++{
++    if (!model || model == session.world) session = {};
++    else if (session.pending)
++        for (const auto& entry : session.pending->models)
++            if (entry.expected->m_model == model)
++            {
++                session.pending.reset();
++                break;
++            }
++}
++
++EXPOSE_SINGLE_INTERFACE(CMetaRendererWorldEdit, IMetaRendererWorldEdit, METARENDERER_WORLD_EDIT_INTERFACE_VERSION);
+diff --git a/src/world_edit_cache.cpp b/src/world_edit_cache.cpp
+new file mode 100644
+index 0000000..8bcc736
+--- /dev/null
++++ b/src/world_edit_cache.cpp
+@@ -0,0 +1,147 @@
++#include "gl_local.h"
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareCarvedDecal(
++    const CWorldSurfaceWorldModel& world,
++    uint32_t                       face,
++    std::span<const float>         vertices,
++    const brushinstancedata_t&     instance)
++{
++    using namespace goldcraft;
++    if (world.m_vDecalCuts.empty()) return {};
++    if (face >= world.m_vFaceBuffer.size() || vertices.size() % VERTEXSIZE ||
++        vertices.size() < 3 * VERTEXSIZE || vertices.size() > MAX_DECALVERTS * VERTEXSIZE)
++        throw std::invalid_argument("Invalid edited decal polygon");
++    carving::Box bounds;
++    for (int axis = 0; axis < 3; ++axis) bounds.min[axis] = bounds.max[axis] = vertices[axis];
++    for (std::size_t i = 0; i < vertices.size(); i += VERTEXSIZE)
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            bounds.min[axis] = (std::min)(bounds.min[axis], double(vertices[i + axis]));
++            bounds.max[axis] = (std::max)(bounds.max[axis], double(vertices[i + axis]));
++        }
++    std::vector<surface::Selection> cuts;
++    for (const auto& cut : world.m_vDecalCuts)
++    {
++        if (face < cut.first_face || face - cut.first_face >= cut.face_count) continue;
++        bool intersects = true;
++        for (int axis = 0; axis < 3; ++axis)
++            if (bounds.min[axis] > cut.box.max[axis] || bounds.max[axis] < cut.box.min[axis]) intersects = false;
++        if (intersects) cuts.push_back({0, 1, cut.box});
++    }
++    if (cuts.empty()) return {};
++    auto        mesh  = std::make_shared<surface::Mesh>();
++    const auto& plane = world.m_vFaceBuffer[face];
++    for (std::size_t i = 0; i < vertices.size(); i += VERTEXSIZE)
++    {
++        surface::Vertex vertex;
++        std::memcpy(&vertex, vertices.data() + i, sizeof(vertex));
++        mesh->vertices.push_back(vertex);
++        surface::Frame frame;
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            frame.normal[axis] = frame.smoothnormal[axis] = plane.normal[axis];
++            frame.s_tangent[axis]                         = plane.s_tangent[axis];
++            frame.t_tangent[axis]                         = plane.t_tangent[axis];
++        }
++        mesh->frames.push_back(frame);
++    }
++    for (uint32_t i = 2; i < mesh->vertices.size(); ++i) mesh->indices.insert(mesh->indices.end(), {0, i - 1, i});
++    surface::Instance material;
++    static_assert(sizeof(material) == sizeof(instance));
++    std::memcpy(&material, &instance, sizeof(material));
++    mesh->instances.push_back(material);
++    mesh->faces.push_back({{0, static_cast<uint32_t>(mesh->indices.size())}, {}, {0, 1}, static_cast<uint32_t>(mesh->indices.size() / 3), true});
++    const auto prepared = surface::prepare(mesh, cuts, {16'384, 65'536, 4096, 1'048'576});
++    if (!prepared.changed_faces) return {};
++    auto result             = std::make_shared<CWorldSurfaceWorldModel>(world.m_model);
++    result->m_pOriginalMesh = std::move(mesh);
++    result->m_pSurfaceMesh  = prepared.mesh;
++    R_UploadWorldSurfaceGeometry(*result);
++    return result;
++}
++
++void R_InvalidateWorldShadowCaches(std::span<const goldcraft::carving::Box> bounds) noexcept
++{
++    const auto invalidate = [&](const auto& lights) {
++        for (const auto& light : lights)
++        {
++            if (!light || !light->pStaticShadowTexture || !light->pStaticShadowTexture->IsReady()) continue;
++            bool         affected = bounds.empty() || light->type == DynamicLightType_Directional;
++            const double radius   = light->type == DynamicLightType_Spot ?
++                (std::max)(std::abs(double(light->size)), std::abs(double(light->distance))) :
++                std::abs(double(light->size));
++            if (!std::isfinite(radius)) affected = true;
++            for (const auto& box : bounds)
++            {
++                if (affected) break;
++                double distance = 0;
++                for (int axis = 0; axis < 3; ++axis)
++                {
++                    const double origin = light->origin[axis];
++                    if (!std::isfinite(origin))
++                    {
++                        affected = true;
++                        break;
++                    }
++                    const auto delta = (std::max)({box.min[axis] - origin, 0.0, origin - box.max[axis]});
++                    distance += delta * delta;
++                }
++                affected |= distance <= radius * radius;
++            }
++            if (affected) light->pStaticShadowTexture->SetReady(false);
++        }
++    };
++    // Include currently invisible lights: they must rebake when next seen.
++    invalidate(g_BSPDynamicLights);
++    invalidate(g_EngineDynamicLights);
++}
++
++void R_ClearDecalCache(void)
++{
++    for (int i = 0; i < MAX_DECALS; ++i)
++    {
++        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].origin);
++        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].mins);
++        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].maxs);
++        g_WorldSurfaceRenderer.vCachedDecals[i].boundsValid   = false;
++        g_WorldSurfaceRenderer.vCachedDecals[i].geometryReady = false;
++        g_WorldSurfaceRenderer.vCachedDecals[i].worldMesh.reset();
++        g_WorldSurfaceRenderer.vCachedDecals[i].carvedGeometry.reset();
++        g_WorldSurfaceRenderer.vCachedDecals[i].indiceCount     = 0;
++        g_WorldSurfaceRenderer.vCachedDecals[i].instanceCount   = 0;
++        g_WorldSurfaceRenderer.vCachedDecals[i].pRenderMaterial = nullptr;
++    }
++}
++
++bool R_IsDecalCacheInvalidated(int decalIndex, texture_t* texture, const std::shared_ptr<CWorldSurfaceRenderMaterial>& pRenderMaterial, const CWorldSurfaceWorldModel& world)
++{
++    auto& cachedDecal = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
++
++    if (!cachedDecal.boundsValid ||
++        !cachedDecal.geometryReady ||
++        cachedDecal.gltexturenum != texture->gl_texturenum ||
++        cachedDecal.gltexturewidth != texture->width ||
++        cachedDecal.gltextureheight != texture->height ||
++        cachedDecal.pRenderMaterial != pRenderMaterial)
++    {
++        return true;
++    }
++
++    if (cachedDecal.worldMesh.lock() != world.m_pSurfaceMesh)
++    {
++        if (cachedDecal.carvedGeometry || !cachedDecal.indiceCount) return true;
++        for (const auto& cut : world.m_vDecalCuts)
++        {
++            if (cachedDecal.surfaceIndex < cut.first_face || cachedDecal.surfaceIndex - cut.first_face >= cut.face_count) continue;
++            bool intersects = true;
++            for (int axis = 0; axis < 3; ++axis)
++                if (cachedDecal.mins[axis] > cut.box.max[axis] || cachedDecal.maxs[axis] < cut.box.min[axis]) intersects = false;
++            if (intersects) return true;
++        }
++        cachedDecal.worldMesh = world.m_pSurfaceMesh;
++    }
++    return false;
 +}

@@ -1,10 +1,13 @@
 // Public-PM adapter tests. Fake callbacks are dispatch spies, not an engine
 // simulation. Actual map assertions use immutable, hash-identified BSP data.
+// HLSDK model/PM headers require MetaHook base types first.
 #include <metahook.h>
 #include <com_model.h>
 #include <pm_defs.h>
-#include "map_collision.hpp"
+
 #include "goldcraft/wire.hpp"
+#include "map_collision.hpp"
+#include "map_edit_transaction.hpp"
 #include <bit>
 #include <cassert>
 #include <cmath>
@@ -169,7 +172,7 @@ void prepare(const edits::Snapshot &state, model_t *loaded) {
     edits::Replica verified;
     verified.reset(state.epoch);
     verified.accept(state);
-    client_map::prepare(verified, loaded);
+    client_map::commit(client_map::prepare(verified, loaded));
 }
 void run(float *a, float *b, int hull = 0, int server = 0) {
     std::copy_n(a, 3, queried_start);
@@ -289,6 +292,122 @@ void synthetic() {
     assert(filtered_world > 0 && other_hits > 0 && predicates > 0);
     std::cout << "Public PM callback dispatch, hull selection, unrelated entities, filters, "
                  "position/contents/line, transaction rollback and scope restoration passed\n";
+}
+void render_transaction() {
+    struct Renderer final : IMetaRendererWorldEdit {
+        std::uint64_t next = 0, ticket = 0, revision = 0, visible = 0;
+        unsigned begins = 0, cancels = 0, resets = 0;
+        MetaWorldEditStatus status = MetaWorldEditStatus::Preparing;
+        bool commit_ok = false, begin_ok = true;
+        uint64_t Begin(model_s *loaded, uint64_t epoch, uint64_t value,
+                       const MetaWorldEditBox *boxes, uint32_t count) noexcept override {
+            assert(loaded == &model && epoch && (!count || boxes));
+            ++begins;
+            revision = value;
+            return ticket = begin_ok ? ++next : 0;
+        }
+        MetaWorldEditStatus Poll(uint64_t value) noexcept override {
+            assert(value == ticket && value);
+            return status;
+        }
+        bool Commit(uint64_t value) noexcept override {
+            assert(value == ticket && value);
+            if (!commit_ok)
+                return false;
+            visible = revision;
+            ticket = 0;
+            return true;
+        }
+        void Cancel(uint64_t value) noexcept override {
+            assert(value == ticket);
+            ticket = 0;
+            ++cancels;
+        }
+        void Reset() noexcept override {
+            visible = ticket = 0;
+            ++resets;
+        }
+    } renderer;
+    setup();
+    client_map::EditTransaction transaction;
+    transaction.reset(9);
+    const auto cut = snapshot({-1, -64, -64}, {17, 64, 64});
+    assert(transaction.accept(cut) == edits::Applied::changed);
+    float a[3]{-64, 0, 0}, b[3]{64, 0, 0};
+    transaction.pump(nullptr, &model);
+    run(a, b);
+    assert(result.hitgroup == 77 && transaction.pending());
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.hitgroup == 77 && transaction.applied().revision == 0);
+    renderer.status = MetaWorldEditStatus::Ready;
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.hitgroup == 77 && renderer.visible == 0);
+    renderer.commit_ok = true;
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.fraction == 1 && renderer.visible == 2 && transaction.applied().revision == 2);
+    assert(!transaction.pending());
+    renderer.status = MetaWorldEditStatus::Preparing;
+    assert(transaction.accept(edits::Delta{9, 2, 3, edits::Operation::clear, {}, {}}) ==
+           edits::Applied::changed);
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.fraction == 1 && renderer.visible == 2);
+    renderer.status = MetaWorldEditStatus::Failed;
+    try {
+        transaction.pump(&renderer, &model);
+        assert(false);
+    } catch (const ProtocolError &) {
+    }
+    run(a, b);
+    assert(result.fraction == 1 && !transaction.ready() && transaction.applied().revision == 2);
+    assert(transaction.accept(edits::Snapshot{9, 3, {}}) == edits::Applied::changed);
+    renderer.status = MetaWorldEditStatus::Ready;
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.hitgroup == 77 && renderer.visible == 3 && transaction.applied().revision == 3);
+    renderer.status = MetaWorldEditStatus::Preparing;
+    assert(transaction.accept(edits::Delta{9, 3, 4, edits::Operation::add, {}, cut.cuts[0].box}) ==
+           edits::Applied::changed);
+    transaction.pump(&renderer, &model);
+    const auto superseded = renderer.ticket;
+    assert(transaction.accept(
+               edits::Delta{9, 4, 5, edits::Operation::add, {}, {{-1, 100, -64}, {17, 200, 64}}}) ==
+           edits::Applied::changed);
+    assert(renderer.ticket == 0 && renderer.cancels == 2);
+    transaction.pump(&renderer, &model);
+    assert(renderer.ticket != superseded && transaction.state().cuts.size() == 2);
+    run(a, b);
+    assert(result.hitgroup == 77);
+    renderer.status = MetaWorldEditStatus::Ready;
+    transaction.pump(&renderer, &model);
+    run(a, b);
+    assert(result.fraction == 1 && renderer.visible == 5 && transaction.applied().revision == 5);
+    assert(transaction.accept(cut) == edits::Applied::ignored);
+    assert(transaction.accept(edits::Delta{9, 6, 7, edits::Operation::clear, {}, {}}) ==
+           edits::Applied::need_snapshot);
+    run(a, b);
+    assert(result.fraction == 1 && transaction.applied().revision == 5);
+    transaction.reset(10);
+    run(a, b);
+    assert(result.hitgroup == 77 && renderer.visible == 0 && renderer.resets == 1);
+    auto dynamic = cut;
+    dynamic.epoch = 10;
+    dynamic.cuts[0].target = {3, 1, 2};
+    transaction.accept(dynamic);
+    const auto begins = renderer.begins;
+    try {
+        transaction.pump(&renderer, &model);
+        assert(false);
+    } catch (const ProtocolError &) {
+    }
+    assert(renderer.begins == begins && !transaction.ready());
+    transaction.reset(0);
+    std::cout << "{\"renderCollisionTransaction\":true,\"waitKeepsOldCollision\":true,"
+                 "\"failedCommitKeepsOld\":true,\"coalescesDeltas\":true,\"failureResync\":true,"
+                 "\"restore\":true,\"dynamicRejectsAtomically\":true,\"passed\":true}\n";
 }
 int nested_predicate(physent_t *entity) {
     if (entity->info != 1)
@@ -644,6 +763,7 @@ int main(int argc, char **argv) {
             assault(argv[1]);
         else {
             synthetic();
+            render_transaction();
             lifecycle();
         }
         std::ostringstream out;
