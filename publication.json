@@ -25,7 +25,7 @@
     "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Verify-SurfaceMesh.py", "tools/Verify-EventTraces.py", "tools/Verify-RenderBackend.py", "tools/Exercise-Precache.py",
     "tools/Legacy-ProtocolServer.ps1", "tools/Exercise-PrecacheTransitions.py",
     "tools/Prepare-NeoForgeRuntime.py", "tools/Exercise-NeoForgeCompatibility.py",
-    "tools/Build-EpicFightMaid.py", "tools/java/EpicFightMaidProbe.java", "patches/epicfight-maid-neoforge.patch", "patches/ysm-geo-neoforge.patch",
+    "tools/Build-EpicFightMaid.py", "tools/Test-YsmMolang.py", "tools/java/EpicFightMaidProbe.java", "patches/epicfight-maid-neoforge.patch", "patches/ysm-geo-neoforge.patch",
     "tools/Prepare-ZombiePlague.py", "tools/Apply-ZombiePlaguePatch.py", "tools/Exercise-ZombieReAPI.py", "tools/Localize-ZombiePlague.py", "tools/Build-SyPB.ps1", "tools/Initialize-ZombieServer.ps1", "tools/Build-SyPBWaypoints.py", "tools/Exercise-ZombieBots.py", "tools/Exercise-BotPopulation.py",
     "patches/zombieplague-reapi.patch", "patches/zombieplague-reapi.json", "amxx/zombie_plague/tests/goldcraft_zp_reapi_test.sma", "tools/Deploy-ZombiePlague.py",
     "patches/nademodes-reapi.patch", "patches/nademodes-reapi.json", "amxx/nade_modes/README.md",

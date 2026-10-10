@@ -56,6 +56,7 @@ public final class EntityExporter {
         e.addProperty("textureBytes",active.textureBytes);e.addProperty("sendFailures",active.sendFailures);e.addProperty("error",active.lastError);data.add("entityExport",e);
         e.addProperty("hurtVertices",active.hurtVertices);e.addProperty("triangleBatches",active.triangleBatches);
         e.addProperty("wrappedLayers",active.wrappedLayers);e.addProperty("unsupportedLayers",active.unsupportedLayers);
+        YsmAnimationFrame.diagnostics(e);
     }
     public void frame(long epoch) {
         MinecraftClient client=MinecraftClient.getInstance();
@@ -94,7 +95,9 @@ public final class EntityExporter {
             List<HostWorldState.Actor> avatars=new ArrayList<>();
             boolean drawShadows=((EntityRenderDispatcherAccessor)dispatcher).goldcraft$renderShadows();
             dispatcher.setRenderShadows(false);
+            boolean ysmFrame=false;
             try (var capture=ModMeshCapture.begin()) {
+            ysmFrame=YsmAnimationFrame.beginHosted(GoldCraftClient.presentationOnly(client),client.getRenderTickCounter().getTickDelta(true));
             for(var entity:client.world.getEntities()) {
                 if(entity==client.player&&(!HostInput.controlling()||client.options.getPerspective().isFirstPerson())||entity instanceof dev.goldcraft.world.NativePlayerHitboxEntity||entity.isRemoved()||entity.isSpectator()||entity.squaredDistanceTo(client.player)>64*64)continue;
                 var actor=GoldCraftClient.HOST.actor(entity.getUuid());
@@ -110,7 +113,7 @@ public final class EntityExporter {
             } finally {
                 // Renderer uses the real mesh in its shadow maps. Vanilla's
                 // ground decal would otherwise remain as a second, fixed blob.
-                dispatcher.setRenderShadows(drawShadows);
+                try {YsmAnimationFrame.endHosted(ysmFrame);}finally {dispatcher.setRenderShadows(drawShadows);}
             }
             var blockDispatcher=client.getBlockEntityRenderDispatcher();blockDispatcher.configure(client.world,camera,client.crosshairTarget);
             int cx=client.player.getBlockX()>>4,cz=client.player.getBlockZ()>>4,blockCount=0;

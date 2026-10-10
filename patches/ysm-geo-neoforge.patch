@@ -326,7 +326,7 @@ index 0f76572..e0f7152 100644
                          }
                          """, StandardCharsets.UTF_8);
 diff --git a/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java b/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
-index 52911e5..0f92c9a 100644
+index 52911e5..ac29a66 100644
 --- a/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
 +++ b/src/main/java/com/ysmef/geomodel/model/runtime/YSMPlayerAnimator.java
 @@ -14,7 +14,7 @@ import net.minecraft.world.entity.Pose;
@@ -338,7 +338,41 @@ index 52911e5..0f92c9a 100644
  import org.joml.Matrix4f;
  import yesman.epicfight.api.client.model.MeshPart;
  import yesman.epicfight.api.utils.math.OpenMatrix4f;
-@@ -214,7 +214,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+@@ -49,6 +49,8 @@ public final class YSMPlayerAnimator implements Molang.Env {
+     private static final float MIN_SPEED = 0.05F;
+ 
+     private final YSMRuntimeModel model;
++    private final java.lang.ref.WeakReference<LivingEntity> owner;
++    private final BoneRotationState boneRotations;
+ 
+     // molang state (id-keyed slots, see Molang#idOf: queries and variables are
+     // interned into stable integer ids at compile time, so the hot evaluation
+@@ -146,7 +148,13 @@ public final class YSMPlayerAnimator implements Molang.Env {
+     private static volatile long asyncFailuresSinceNanos = 0L;
+ 
+     public YSMPlayerAnimator(YSMRuntimeModel model) {
++        this(model, null);
++    }
++
++    YSMPlayerAnimator(YSMRuntimeModel model, LivingEntity owner) {
+         this.model = model;
++        this.owner = new java.lang.ref.WeakReference<>(owner);
++        boneRotations = model.newBoneRotationState();
+         int n = model.bones.length;
+         animPos = new float[n][3];
+         animRot = new float[n][3];
+@@ -171,6 +179,10 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         java.util.Arrays.fill(channelCursor, -1);
+     }
+ 
++    boolean isFor(LivingEntity entity) {
++        return owner.get() == entity;
++    }
++
+     /**
+      * Evaluate the scripts for this entity this frame and apply per-part hidden
+      * flags and transforms to the mesh about to be drawn.
+@@ -214,7 +226,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
          if (mc.gameRenderer != null && mc.gameRenderer.getMainCamera() != null) {
              cameraDistance = mc.gameRenderer.getMainCamera().getPosition().distanceTo(entity.position());
          }
@@ -347,7 +381,33 @@ index 52911e5..0f92c9a 100644
                  mc.options.getCameraType() == CameraType.FIRST_PERSON);
      }
  
-@@ -716,7 +716,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+@@ -353,6 +365,9 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         }
+ 
+         compose();
++        // TLM exposes committed IBone state while controllers run. Publish only
++        // after all local transforms have composed successfully, never mid-bone.
++        boneRotations.commit();
+         readyBuffer = writeBuf;
+     }
+ 
+@@ -658,6 +673,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         if (bone.mapped) {
+             // Epic Fight owns the gross pose of mapped bones; only scale channels
+             // (variant visibility / player size scripts) are honored.
++            boneRotations.stage(i, bone.rx, bone.ry, bone.rz);
+             localAnim[i].translation(bone.px, bone.py, bone.pz)
+                     .rotateZ(bone.rz).rotateY(bone.ry).rotateX(bone.rx)
+                     .scale(sx, sy, sz)
+@@ -669,6 +685,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+             float rx = hasRot[i] ? animRot[i][0] : bone.rx;
+             float ry = hasRot[i] ? animRot[i][1] : bone.ry;
+             float rz = hasRot[i] ? animRot[i][2] : bone.rz;
++            boneRotations.stage(i, rx, ry, rz);
+             localAnim[i].translation(ox, oy, oz)
+                     .rotateZ(rz).rotateY(ry).rotateX(rx)
+                     .scale(sx, sy, sz)
+@@ -716,7 +733,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
              return "climbing";
          }
          if (entity.isPassenger()) {
@@ -356,7 +416,7 @@ index 52911e5..0f92c9a 100644
              // Resolve the vehicle condition anim for the CURRENT vehicle only: a
              // previous ride's anim must never survive a vehicle change, so an
              // unknown or anim-less vehicle clears it.
-@@ -841,7 +841,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+@@ -841,7 +858,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
          if (stack.isEmpty()) {
              return false;
          }
@@ -365,7 +425,17 @@ index 52911e5..0f92c9a 100644
          if (id == null) {
              return false;
          }
-@@ -975,13 +975,13 @@ public final class YSMPlayerAnimator implements Molang.Env {
+@@ -970,18 +987,23 @@ public final class YSMPlayerAnimator implements Molang.Env {
+         return 0;
+     }
+ 
++    @Override
++    public double callStringFunctionComponent(String name, String[] args, int component) {
++        return boneRotations.component(name, args, component);
++    }
++
+     private static boolean itemMatchesLoose(ItemStack stack, String pattern) {
+         if (pattern.startsWith("$")) {
              if (stack.isEmpty()) {
                  return false;
              }
@@ -381,7 +451,7 @@ index 52911e5..0f92c9a 100644
          if (id == null) {
              return false;
          }
-@@ -1133,7 +1133,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
+@@ -1133,7 +1155,7 @@ public final class YSMPlayerAnimator implements Molang.Env {
          setQuery(Q_QUERY_IS_EATING, entity.getUseItem().getUseAnimation() == net.minecraft.world.item.UseAnim.EAT ? 1.0 : 0.0);
          setQuery(Q_QUERY_IS_FIRST_PERSON, inputs.firstPerson() ? 1.0 : 0.0);
          setQuery(Q_QUERY_ITEM_IN_USE_DURATION, entity.getTicksUsingItem() / 20.0);
@@ -403,6 +473,56 @@ index 9a1af14..90412bc 100644
          model.animatorFor(entity).apply(mesh, entity, poses, partialTick);
      }
  
+diff --git a/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeModel.java b/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeModel.java
+index 217902a..23bdaa1 100644
+--- a/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeModel.java
++++ b/src/main/java/com/ysmef/geomodel/model/runtime/YSMRuntimeModel.java
+@@ -109,8 +109,10 @@ public final class YSMRuntimeModel {
+         long tick = sweepClockOf(entity);
+         animatorLastTick.put(uuid, tick);
+         YSMPlayerAnimator animator = animators.get(uuid);
+-        if (animator == null) {
+-            animator = new YSMPlayerAnimator(this);
++        if (animator == null || !animator.isFor(entity)) {
++            // Same UUID may have a new entity instance after respawn or a world
++            // change. Do not inherit its old variables or committed bone state.
++            animator = new YSMPlayerAnimator(this, entity);
+             animators.put(uuid, animator);
+         }
+         sweepIfDue(tick);
+@@ -355,7 +357,19 @@ public final class YSMRuntimeModel {
+                 (float) axes[2].eval(env)};
+     }
+ 
+-    private static Molang.Env newDefaultEnv() {
++    BoneRotationState newBoneRotationState() {
++        float[] bind = new float[bones.length * 3];
++        for (int i = 0; i < bones.length; i++) {
++            bind[i * 3] = bones[i].rx;
++            bind[i * 3 + 1] = bones[i].ry;
++            bind[i * 3 + 2] = bones[i].rz;
++        }
++        return new BoneRotationState(boneIndex, bind, name -> YSMGeoCompat.LOGGER.warn(
++                "YSM-GEO Compat: model '{}' bone_rot references missing bone '{}'", modelId, name));
++    }
++
++    private Molang.Env newDefaultEnv() {
++        BoneRotationState rotations = newBoneRotationState();
+         return new Molang.Env() {
+             private final Map<Integer, Double> vars = new HashMap<>();
+             private final Set<Integer> varSet = new HashSet<>();
+@@ -463,6 +477,11 @@ public final class YSMRuntimeModel {
+             public double callStringFunction(String name, String[] args) {
+                 return 0.0;
+             }
++
++            @Override
++            public double callStringFunctionComponent(String name, String[] args, int component) {
++                return rotations.component(name, args, component);
++            }
+         };
+     }
+ 
 diff --git a/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java b/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java
 index e9afdd8..b153e42 100644
 --- a/src/main/java/com/ysmef/geomodel/renderer/RenderPaths.java
@@ -416,6 +536,95 @@ index e9afdd8..b153e42 100644
  
      private RenderPaths() {}
  
+diff --git a/src/main/java/com/ysmef/geomodel/ysm/script/Molang.java b/src/main/java/com/ysmef/geomodel/ysm/script/Molang.java
+index f819227..64017de 100644
+--- a/src/main/java/com/ysmef/geomodel/ysm/script/Molang.java
++++ b/src/main/java/com/ysmef/geomodel/ysm/script/Molang.java
+@@ -49,6 +49,11 @@ public final class Molang {
+         /** ctrl.hold('mainhand', ':sword') style calls with string arguments. */
+         double callStringFunction(String name, String[] args);
+ 
++        /** Numeric component of a structured string-function result; no per-call vector allocation. */
++        default double callStringFunctionComponent(String name, String[] args, int component) {
++            throw new UnsupportedOperationException("Structured function is not implemented: " + name);
++        }
++
+         // String-based convenience entry points (interning on the fly).
+         default double getVar(String path) {
+             return getVarById(idOf(path));
+@@ -273,7 +278,7 @@ public final class Molang {
+                 default -> {
+                 }
+             }
+-            if ("+-*/%(),?:!<>=;".indexOf(c) >= 0) {
++            if ("+-*/%(),?:!<>=;.".indexOf(c) >= 0) {
+                 pos++;
+                 return new Token(T_OP, String.valueOf(c), 0);
+             }
+@@ -558,12 +563,29 @@ public final class Molang {
+                     advance();
+                     return parseUnary();
+                 }
+-                return parsePrimary();
++                return parsePostfix();
+             } finally {
+                 leave();
+             }
+         }
+ 
++        private Expr parsePostfix() {
++            Expr base = parsePrimary();
++            if (consumeOp(".")) {
++                if (!(base instanceof StringCallExpr call) || current.type() != T_IDENT) {
++                    throw new IllegalStateException("component requires a structured function result");
++                }
++                int component = switch (advance().text()) {
++                    case "x" -> 0;
++                    case "y" -> 1;
++                    case "z" -> 2;
++                    default -> throw new IllegalStateException("expected x, y or z component");
++                };
++                return env -> env.callStringFunctionComponent(call.name, call.args, component);
++            }
++            return base;
++        }
++
+         private Expr parsePrimary() {
+             if (current.type() == T_NUM) {
+                 double n = advance().num();
+@@ -610,7 +632,7 @@ public final class Molang {
+                     expectOp(")");
+                     if (anyString) {
+                         String[] sargs = stringArgs.toArray(new String[0]);
+-                        return env -> env.callStringFunction(path, sargs);
++                        return new StringCallExpr(path, sargs);
+                     }
+                     Expr[] exprArgs = args.toArray(new Expr[0]);
+                     return env -> {
+@@ -626,6 +648,10 @@ public final class Molang {
+                         return env.callFunction(path, values, exprArgs.length);
+                     };
+                 }
++                // TLM MathBinding exposes pi as a constant, not an entity query.
++                if (path.equals("math.pi")) {
++                    return env -> Math.PI;
++                }
+                 return new VarExpr(path);
+             }
+             throw new IllegalStateException("unexpected token: " + current.text());
+@@ -640,6 +666,12 @@ public final class Molang {
+         }
+     }
+ 
++    private record StringCallExpr(String name, String[] args) implements Expr {
++        @Override public double eval(Env env) {
++            return env.callStringFunction(name, args);
++        }
++    }
++
+     private static double sanitize(double v) {
+         return Double.isNaN(v) || Double.isInfinite(v) ? 0.0 : v;
+     }
 diff --git a/src/main/resources/META-INF/mods.toml b/src/main/resources/META-INF/mods.toml
 deleted file mode 100644
 index 4c32cf4..0000000
@@ -538,7 +747,7 @@ index de09301..465bde2 100644
      "YsmAnimationTransitionGuardMixin"
 diff --git a/src/main/resources/META-INF/neoforge.mods.toml b/src/main/resources/META-INF/neoforge.mods.toml
 new file mode 100644
-index 0000000..b176359
+index 0000000..c4c3f4b
 --- /dev/null
 +++ b/src/main/resources/META-INF/neoforge.mods.toml
 @@ -0,0 +1,41 @@
@@ -547,7 +756,7 @@ index 0000000..b176359
 +license="MIT"
 +[[mods]]
 +modId="ysm_geo_compat"
-+version="1.0.3-goldcraft.2"
++version="1.0.3-goldcraft.3"
 +displayName="YSM GEO Compat"
 +description='''Converts Touhou Little Maid GEO models for Epic Fight animations.
 +Local Minecraft 1.21.1 / NeoForge port for GoldCraft.
@@ -580,6 +789,65 @@ index 0000000..b176359
 +[[dependencies.ysm_geo_compat]]
 +modId="ef_tlm"
 +type="required"
-+versionRange="[1.3.5-goldcraft.2]"
++versionRange="[1.3.5-goldcraft.3]"
 +ordering="AFTER"
 +side="BOTH"
+diff --git a/src/main/java/com/ysmef/geomodel/model/runtime/BoneRotationState.java b/src/main/java/com/ysmef/geomodel/model/runtime/BoneRotationState.java
+new file mode 100644
+index 0000000..a2f1ea8
+--- /dev/null
++++ b/src/main/java/com/ysmef/geomodel/model/runtime/BoneRotationState.java
+@@ -0,0 +1,53 @@
++package com.ysmef.geomodel.model.runtime;
++
++import java.util.HashSet;
++import java.util.Map;
++import java.util.Set;
++import java.util.function.Consumer;
++
++/** Per-animator committed local rotations, in the same radians used to compose its bones. */
++final class BoneRotationState {
++    private final Map<String, Integer> index;
++    private float[] committed;
++    private float[] pending;
++    private final Consumer<String> missingReporter;
++    private final Set<String> reportedMissing = new HashSet<>();
++
++    BoneRotationState(Map<String, Integer> index, float[] bindRadians, Consumer<String> missingReporter) {
++        this.index = Map.copyOf(index);
++        this.committed = bindRadians.clone();
++        this.pending = bindRadians.clone();
++        this.missingReporter = missingReporter;
++    }
++
++    void stage(int bone, float x, float y, float z) {
++        int offset = bone * 3;
++        pending[offset] = x;
++        pending[offset + 1] = y;
++        pending[offset + 2] = z;
++    }
++
++    /** Called only after every bone was composed; a failed frame keeps the previous values. */
++    void commit() {
++        float[] old = committed;
++        committed = pending;
++        pending = old;
++    }
++
++    double component(String function, String[] args, int axis) {
++        if (!function.equals("ysm.bone_rot") || args.length != 1 || args[0] == null || axis < 0 || axis > 2) {
++            throw new IllegalArgumentException("Expected ysm.bone_rot('bone').x, .y or .z");
++        }
++        Integer bone = index.get(args[0]);
++        if (bone == null) {
++            // Pinned TLM returns null for a missing bone, which its numeric
++            // evaluator converts to zero. Report the actual missing name once.
++            if (reportedMissing.add(args[0])) {
++                missingReporter.accept(args[0]);
++            }
++            return 0;
++        }
++        float degrees = (float) Math.toDegrees(committed[bone * 3 + axis]);
++        return axis == 2 ? degrees : -degrees;
++    }
++}
