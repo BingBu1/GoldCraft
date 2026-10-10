@@ -30,6 +30,56 @@ struct LeafSpan {
     CollisionSpan interval;
     int contents;
 };
+struct TraceScratch {
+    bool busy = false;
+    std::vector<LeafSpan> leaves;
+    std::vector<CollisionSpan> native, original, remaining, removed, spans;
+    std::vector<std::size_t> candidates;
+    void trim() noexcept {
+        // At most 256 KiB per cached depth (1 MiB per thread). A complex
+        // one-off query is freed on return, including exceptional returns.
+        constexpr std::size_t limit = 256 * 1024;
+        std::size_t bytes = 0;
+        const auto fits = [&](const auto &buffer) {
+            if (buffer.capacity() > (limit - bytes) / sizeof(buffer[0]))
+                return false;
+            bytes += buffer.capacity() * sizeof(buffer[0]);
+            return true;
+        };
+        if (fits(leaves) && fits(native) && fits(original) && fits(remaining) &&
+            fits(removed) && fits(spans) && fits(candidates))
+            return;
+        std::vector<LeafSpan>().swap(leaves);
+        for (auto *buffer : {&native, &original, &remaining, &removed, &spans})
+            std::vector<CollisionSpan>().swap(*buffer);
+        std::vector<std::size_t>().swap(candidates);
+    }
+};
+class ScratchLease {
+  public:
+    ScratchLease() {
+        // Never grow the pool itself: allocator callbacks can reenter before
+        // an outer vector finishes growing. A slot is marked busy first.
+        static thread_local std::array<TraceScratch, 4> pool;
+        for (auto &slot : pool)
+            if (!slot.busy) {
+                scratch_ = &slot;
+                break;
+            }
+        scratch_->busy = true;
+    }
+    ~ScratchLease() {
+        scratch_->trim();
+        scratch_->busy = false;
+    }
+    TraceScratch &get() { return *scratch_; }
+    ScratchLease(const ScratchLease &) = delete;
+    ScratchLease &operator=(const ScratchLease &) = delete;
+
+  private:
+    TraceScratch fallback_; // Arbitrarily deep nesting owns separate storage.
+    TraceScratch *scratch_ = &fallback_;
+};
 void gather(HullView hull, std::int32_t node, const Point &start, const Point &delta,
             CollisionSpan interval, std::vector<LeafSpan> &output, std::size_t &budget) {
     if (!budget--)
@@ -62,9 +112,9 @@ void gather(HullView hull, std::int32_t node, const Point &start, const Point &d
         gather(hull, branch.children[near ^ 1], start, delta,
                {t, interval.end, hit, interval.leave}, output, budget);
 }
-std::vector<CollisionSpan> subtract(std::span<const CollisionSpan> a,
-                                    std::span<const CollisionSpan> b) {
-    std::vector<CollisionSpan> output;
+void subtract(std::span<const CollisionSpan> a, std::span<const CollisionSpan> b,
+              std::vector<CollisionSpan> &output) {
+    output.clear();
     std::size_t first = 0;
     for (auto part : a) {
         while (first < b.size() && b[first].end <= part.begin)
@@ -83,7 +133,6 @@ std::vector<CollisionSpan> subtract(std::span<const CollisionSpan> a,
         if (part.begin < part.end)
             output.push_back(part);
     }
-    return output;
 }
 } // namespace
 EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::span<const Box> cuts,
@@ -94,20 +143,20 @@ EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::s
     operations_ = validate_hull(body_hull, limits);
     if (cuts.empty())
         throw std::invalid_argument("Edited hull needs cuts");
-    affected_ = cuts.front();
+    Box affected = cuts.front();
     for (const auto &cut : cuts)
         for (int axis = 0; axis < 3; ++axis) {
-            affected_.min[axis] = std::min(affected_.min[axis], cut.min[axis]);
-            affected_.max[axis] = std::max(affected_.max[axis], cut.max[axis]);
+            affected.min[axis] = std::min(affected.min[axis], cut.min[axis]);
+            affected.max[axis] = std::max(affected.max[axis], cut.max[axis]);
         }
     Box region;
     for (int axis = 0; axis < 3; ++axis) {
-        affected_.min[axis] -= body.max[axis];
-        affected_.max[axis] -= body.min[axis];
+        affected.min[axis] -= body.max[axis];
+        affected.max[axis] -= body.min[axis];
         // All bodies that can touch a cut fit inside this support region. No
         // artificial regional boundary can remove a real contact outside it.
-        region.min[axis] = affected_.min[axis] + body.min[axis] - 1;
-        region.max[axis] = affected_.max[axis] + body.max[axis] + 1;
+        region.min[axis] = affected.min[axis] + body.min[axis] - 1;
+        region.max[axis] = affected.max[axis] + body.max[axis] + 1;
     }
     const auto budget = [&] { return Limits{limits.fragments, limits.operations - operations_}; };
     const auto old = carve_volume(point_hull, region, {}, budget());
@@ -118,21 +167,34 @@ EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::s
     operations_ += original_.operations;
     remaining_ = expand_volume(next, body, budget());
     operations_ += remaining_.operations;
+    original_index_ = index_volume(original_, budget());
+    operations_ += original_index_.operations;
+    remaining_index_ = index_volume(remaining_, budget());
+    operations_ += remaining_index_.operations;
+    if (cuts.size() > limits.fragments || cuts.size() > limits.operations - operations_)
+        throw std::length_error("Edited hull index budget");
+    operations_ += cuts.size();
+    std::vector<Box> bounds;
+    bounds.reserve(cuts.size());
+    for (const auto &cut : cuts) {
+        Box box;
+        for (int axis = 0; axis < 3; ++axis) {
+            box.min[axis] = cut.min[axis] - body.max[axis];
+            box.max[axis] = cut.max[axis] - body.min[axis];
+        }
+        bounds.push_back(box);
+    }
+    affected_ = index_bounds(bounds, budget());
+    operations_ += affected_.operations;
 }
 bool EditedHull::affects(Point start, Point end) const {
-    valid(start);
-    valid(end);
-    for (int axis = 0; axis < 3; ++axis)
-        if (std::min(start[axis], end[axis]) > affected_.max[axis] ||
-            std::max(start[axis], end[axis]) < affected_.min[axis])
-            return false;
-    return true;
+    return intersects(affected_, start, end);
 }
 int EditedHull::contents(Point point) const {
     valid(point);
     const int original = carving::contents(hull(), point);
-    return original == -2 && affects(point, point) && contains(original_, point) &&
-                   !contains(remaining_, point)
+    return original == -2 && affects(point, point) && contains(original_, original_index_, point) &&
+                   !contains(remaining_, remaining_index_, point)
                ? -1
                : original;
 }
@@ -142,16 +204,27 @@ HullTrace EditedHull::trace(Point start, Point end, double margin) const {
     Point delta{};
     for (int axis = 0; axis < 3; ++axis)
         delta[axis] = end[axis] - start[axis];
-    std::vector<LeafSpan> leaves;
+    ScratchLease lease;
+    auto &scratch = lease.get();
+    auto &leaves = scratch.leaves;
+    leaves.clear();
     auto budget = query_limit_;
     gather(hull(), root_, start, delta, {0, 1, {}, {}}, leaves, budget);
-    std::vector<CollisionSpan> native;
+    auto &native = scratch.native;
+    native.clear();
     for (const auto &leaf : leaves)
         if (leaf.contents == -2)
             native.push_back(leaf.interval);
-    const auto removed =
-        subtract(volume_spans(original_, start, end), volume_spans(remaining_, start, end));
-    const auto spans = merge_spans(subtract(native, removed));
+    auto &removed = scratch.removed;
+    removed.clear();
+    if (affects(start, end)) {
+        volume_spans(original_, start, end, scratch.original, scratch.candidates, &original_index_);
+        volume_spans(remaining_, start, end, scratch.remaining, scratch.candidates, &remaining_index_);
+        subtract(scratch.original, scratch.remaining, removed);
+    }
+    auto &spans = scratch.spans;
+    subtract(native, removed, spans);
+    merge_spans_in_place(spans);
     HullTrace result;
     static_cast<VolumeTrace &>(result) =
         trace_spans(spans, start, end, contents(start) == -2, contents(end) == -2, margin);

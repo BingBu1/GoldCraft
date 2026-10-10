@@ -23,6 +23,18 @@ struct CollisionCell {
     Box bounds;
     std::vector<Plane> planes;
 };
+// Prepared, immutable broad phase. Preorder nodes use skip links, so queries
+// need neither a traversal stack nor recursion. Leaves retain source indices.
+struct BoundsIndex {
+    struct Node {
+        Box bounds;
+        std::size_t skip, item;
+    };
+    std::vector<Node> nodes;
+    std::size_t operations = 0;
+};
+BoundsIndex index_bounds(std::span<const Box> boxes, Limits limits = {4096, 4'194'304});
+bool intersects(const BoundsIndex &index, Point start, Point end);
 struct CollisionVolume {
     std::vector<CollisionCell> cells;
     std::size_t operations = 0;
@@ -34,6 +46,10 @@ struct CollisionVolume {
 // must not replace an unedited native hull with the point BSP's geometry.
 CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits = {4096, 4'194'304});
 bool contains(const CollisionVolume &volume, Point point);
+// Explicit index ownership leaves the ordinary mutable CollisionVolume API
+// unchanged. These overloads require the indexed bounds/cell order unchanged.
+BoundsIndex index_volume(const CollisionVolume &volume, Limits limits = {4096, 4'194'304});
+bool contains(const CollisionVolume &volume, const BoundsIndex &index, Point point);
 struct VolumeTrace {
     double fraction = 1;
     Plane plane{};
@@ -46,6 +62,11 @@ struct CollisionSpan {
 // Sorted, disjoint interior intervals on the line start+t*(end-start), clipped
 // only by their overlap with [0,1]. Unbounded endpoints are retained for CSG.
 std::vector<CollisionSpan> volume_spans(const CollisionVolume &volume, Point start, Point end);
+// Caller-owned scratch avoids temporary allocations on repeated queries.
+void volume_spans(const CollisionVolume &volume, Point start, Point end,
+                  std::vector<CollisionSpan> &spans, std::vector<std::size_t> &candidates,
+                  const BoundsIndex *index = nullptr);
+void merge_spans_in_place(std::vector<CollisionSpan> &spans);
 std::vector<CollisionSpan> merge_spans(std::vector<CollisionSpan> spans);
 VolumeTrace trace_spans(std::span<const CollisionSpan> spans, Point start, Point end,
                        bool start_solid, bool end_solid, double margin);

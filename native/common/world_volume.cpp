@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 
@@ -255,7 +256,96 @@ bool occupied(const CollisionCell &cell, const Point &point) {
     return std::ranges::all_of(
         cell.planes, [&](const Plane &p) { return negative_side(p, dot(point, p.normal) - p.distance); });
 }
+bool overlaps_query(const Box &box, const Point &low, const Point &high) {
+    for (int axis = 0; axis < 3; ++axis)
+        if (high[axis] < box.min[axis] || low[axis] > box.max[axis])
+            return false;
+    return true;
+}
+template <class Visitor>
+bool visit_bounds(const BoundsIndex &index, Point start, Point end, Visitor &&visit) {
+    Point low{}, high{};
+    for (int axis = 0; axis < 3; ++axis) {
+        low[axis] = std::min(start[axis], end[axis]);
+        high[axis] = std::max(start[axis], end[axis]);
+    }
+    for (std::size_t at = 0; at < index.nodes.size();) {
+        const auto &node = index.nodes[at];
+        if (!overlaps_query(node.bounds, low, high)) {
+            at = node.skip;
+            continue;
+        }
+        if (node.item != std::numeric_limits<std::size_t>::max() && visit(node.item))
+            return true;
+        ++at;
+    }
+    return false;
+}
+void build_index(BoundsIndex &index, std::span<const Box> boxes,
+                 std::span<std::size_t> order, Work &work) {
+    work.use(order.size());
+    const auto slot = index.nodes.size();
+    Box bounds = boxes[order.front()];
+    for (auto item : order)
+        for (int axis = 0; axis < 3; ++axis) {
+            bounds.min[axis] = std::min(bounds.min[axis], boxes[item].min[axis]);
+            bounds.max[axis] = std::max(bounds.max[axis], boxes[item].max[axis]);
+        }
+    index.nodes.push_back({bounds, 0, std::numeric_limits<std::size_t>::max()});
+    if (order.size() == 1)
+        index.nodes[slot].item = order.front();
+    else {
+        int axis = 0;
+        for (int other = 1; other < 3; ++other)
+            if (bounds.max[other] - bounds.min[other] > bounds.max[axis] - bounds.min[axis])
+                axis = other;
+        const auto middle = order.size() / 2;
+        std::nth_element(order.begin(), order.begin() + middle, order.end(),
+                         [&](std::size_t a, std::size_t b) {
+                             work.use();
+                             const auto x = boxes[a].min[axis] + boxes[a].max[axis];
+                             const auto y = boxes[b].min[axis] + boxes[b].max[axis];
+                             return x == y ? a < b : x < y;
+                         });
+        // Count-balanced halves bound preparation depth to size_t's bit count.
+        build_index(index, boxes, order.first(middle), work);
+        build_index(index, boxes, order.subspan(middle), work);
+    }
+    index.nodes[slot].skip = index.nodes.size();
+}
 } // namespace
+
+BoundsIndex index_bounds(std::span<const Box> boxes, Limits limits) {
+    if (!limits.operations || !limits.fragments)
+        throw std::invalid_argument("Collision index limits");
+    BoundsIndex result;
+    if (boxes.size() > limits.fragments || boxes.size() > limits.operations ||
+        boxes.size() > result.nodes.max_size() / 2)
+        throw std::length_error("Collision index size budget");
+    Work work{limits};
+    for (const auto &box : boxes) {
+        work.use();
+        for (int axis = 0; axis < 3; ++axis)
+            if (!std::isfinite(box.min[axis]) || !std::isfinite(box.max[axis]) ||
+                box.min[axis] > box.max[axis] ||
+                !std::isfinite(box.min[axis] + box.max[axis]) ||
+                !std::isfinite(box.max[axis] - box.min[axis]))
+                throw std::invalid_argument("Collision index bounds");
+    }
+    if (!boxes.empty()) {
+        std::vector<std::size_t> order(boxes.size());
+        std::iota(order.begin(), order.end(), 0);
+        result.nodes.reserve(boxes.size() * 2 - 1);
+        build_index(result, boxes, order, work);
+    }
+    result.operations = work.operations;
+    return result;
+}
+bool intersects(const BoundsIndex &index, Point start, Point end) {
+    validate(start);
+    validate(end);
+    return visit_bounds(index, start, end, [](std::size_t) { return true; });
+}
 
 Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits limits) {
     validate(region);
@@ -360,12 +450,49 @@ bool contains(const CollisionVolume &volume, Point point) {
     return std::ranges::any_of(volume.cells,
                                [&](const CollisionCell &cell) { return occupied(cell, point); });
 }
+BoundsIndex index_volume(const CollisionVolume &volume, Limits limits) {
+    if (volume.cells.size() > limits.fragments || volume.cells.size() > limits.operations)
+        throw std::length_error("Collision index size budget");
+    std::vector<Box> boxes;
+    boxes.reserve(volume.cells.size());
+    for (const auto &cell : volume.cells)
+        boxes.push_back(cell.bounds);
+    limits.operations -= boxes.size();
+    auto result = index_bounds(boxes, limits);
+    result.operations += boxes.size();
+    return result;
+}
+bool contains(const CollisionVolume &volume, const BoundsIndex &index, Point point) {
+    validate(point);
+    return visit_bounds(index, point, point,
+                        [&](std::size_t item) { return occupied(volume.cells[item], point); });
+}
 std::vector<CollisionSpan> volume_spans(const CollisionVolume &volume, Point start, Point end) {
+    std::vector<CollisionSpan> intervals;
+    std::vector<std::size_t> candidates;
+    volume_spans(volume, start, end, intervals, candidates);
+    return intervals;
+}
+void volume_spans(const CollisionVolume &volume, Point start, Point end,
+                  std::vector<CollisionSpan> &intervals, std::vector<std::size_t> &candidates,
+                  const BoundsIndex *index) {
     validate(start);
     validate(end);
-    std::vector<CollisionSpan> intervals;
+    intervals.clear();
+    candidates.clear();
+    if (index) {
+        visit_bounds(*index, start, end, [&](std::size_t item) {
+            candidates.push_back(item);
+            return false;
+        });
+        // Keep the exact original cell order before sorting intervals. Equal
+        // entry times must retain the established contact-plane tie behavior.
+        std::sort(candidates.begin(), candidates.end());
+    }
     const auto move = sub(end, start);
-    for (const auto &cell : volume.cells) {
+    const auto count = index ? candidates.size() : volume.cells.size();
+    for (std::size_t item = 0; item < count; ++item) {
+        const auto &cell = volume.cells[index ? candidates[item] : item];
         double enter = -std::numeric_limits<double>::infinity(),
                exit = std::numeric_limits<double>::infinity();
         Plane plane{}, leave{};
@@ -403,21 +530,25 @@ std::vector<CollisionSpan> volume_spans(const CollisionVolume &volume, Point sta
         if (!miss && enter < 1 && exit > 0)
             intervals.push_back({enter, exit, plane, leave});
     }
-    return merge_spans(std::move(intervals));
+    merge_spans_in_place(intervals);
 }
 std::vector<CollisionSpan> merge_spans(std::vector<CollisionSpan> intervals) {
+    merge_spans_in_place(intervals);
+    return intervals;
+}
+void merge_spans_in_place(std::vector<CollisionSpan> &intervals) {
     std::sort(intervals.begin(), intervals.end(),
               [](const CollisionSpan &a, const CollisionSpan &b) { return a.begin < b.begin; });
-    std::vector<CollisionSpan> merged;
+    std::size_t size = 0;
     for (const auto &interval : intervals) {
-        if (merged.empty() || interval.begin > merged.back().end)
-            merged.push_back(interval);
-        else if (interval.end > merged.back().end) {
-            merged.back().end = interval.end;
-            merged.back().leave = interval.leave;
+        if (!size || interval.begin > intervals[size - 1].end)
+            intervals[size++] = interval;
+        else if (interval.end > intervals[size - 1].end) {
+            intervals[size - 1].end = interval.end;
+            intervals[size - 1].leave = interval.leave;
         }
     }
-    return merged;
+    intervals.resize(size);
 }
 VolumeTrace trace_spans(std::span<const CollisionSpan> spans, Point start, Point end,
                        bool start_solid, bool end_solid, double margin) {

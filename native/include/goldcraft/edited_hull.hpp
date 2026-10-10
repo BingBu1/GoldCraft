@@ -25,8 +25,9 @@ class EditedHull {
     std::vector<Plane> planes_;
     std::vector<HullNode> nodes_;
     std::int32_t root_;
-    Box affected_;
+    BoundsIndex affected_;
     CollisionVolume original_, remaining_;
+    BoundsIndex original_index_, remaining_index_;
     std::size_t operations_ = 0, query_limit_;
 };
 } // namespace goldcraft::carving

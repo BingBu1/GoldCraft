@@ -308,6 +308,106 @@ void native_overlay() {
     rejects<std::invalid_argument>([&]{EditedHull(point_source.view(),native.view(),body,{});});
     rejects<std::length_error>([&]{EditedHull(point_source.view(),native.view(),body,cuts,{4096,80});});
 }
+void indexed_queries() {
+    std::vector<Box> boxes;
+    for (int x = 0; x < 16; ++x)
+        for (int y = 0; y < 4; ++y)
+            boxes.push_back({{double(x * 16), double(y * 16), -4},
+                             {double(x * 16 + 4), double(y * 16 + 4), 4}});
+    const auto index = index_bounds(boxes);
+    assert(index.nodes.size() == boxes.size() * 2 - 1);
+    Random random;
+    for (int i = 0; i < 10000; ++i) {
+        Point a{random() * 256, random() * 64, random() * 16 - 8}, b = a;
+        if (i % 2) b = {random() * 256, random() * 64, random() * 16 - 8};
+        bool expected = false;
+        for (const auto &box : boxes) {
+            bool overlap = true;
+            for (int axis = 0; axis < 3; ++axis)
+                overlap &= std::max(a[axis], b[axis]) >= box.min[axis] &&
+                           std::min(a[axis], b[axis]) <= box.max[axis];
+            expected |= overlap;
+        }
+        assert(intersects(index, a, b) == expected);
+    }
+    assert(intersects(index, {4, 4, 4}, {4, 4, 4}));
+    assert(!intersects(index, {std::nextafter(4.0, 5.0), 4, 4}, {5, 4, 4}));
+    rejects<std::length_error>([&] { index_bounds(boxes, {32, 100000}); });
+    rejects<std::length_error>([&] { index_bounds(boxes, {4096, 128}); });
+    const auto exact_budget = index_bounds(boxes, {4096, index.operations});
+    assert(exact_budget.nodes.size() == index.nodes.size());
+    rejects<std::length_error>([&] { index_bounds(boxes, {4096, index.operations - 1}); });
+    auto invalid = boxes;
+    invalid[0].min[0] = std::numeric_limits<double>::quiet_NaN();
+    rejects<std::invalid_argument>([&] { index_bounds(invalid); });
+    assert(!intersects(index_bounds({}), {}, {}));
+
+    const Box region{{-16, -16, -16}, {272, 80, 16}};
+    auto collision = expand_volume(carve_volume(solid, region, boxes), point);
+    const auto cells = index_volume(collision);
+    std::vector<CollisionSpan> indexed;
+    std::vector<std::size_t> candidates;
+    for (int i = 0; i < 3000; ++i) {
+        Point a{random() * 320 - 32, random() * 128 - 32, random() * 64 - 32};
+        Point b{random() * 320 - 32, random() * 128 - 32, random() * 64 - 32};
+        assert(contains(collision, a) == contains(collision, cells, a));
+        const auto plain = volume_spans(collision, a, b);
+        volume_spans(collision, a, b, indexed, candidates, &cells);
+        assert(plain.size() == indexed.size());
+        for (std::size_t span = 0; span < plain.size(); ++span) {
+            assert(plain[span].begin == indexed[span].begin && plain[span].end == indexed[span].end);
+            assert(plain[span].enter.normal == indexed[span].enter.normal &&
+                   plain[span].enter.distance == indexed[span].enter.distance);
+            assert(plain[span].leave.normal == indexed[span].leave.normal &&
+                   plain[span].leave.distance == indexed[span].leave.distance);
+        }
+    }
+    // The existing unindexed API remains mutable; it has no stale hidden cache.
+    assert(contains(collision, {-8, 0, 0}));
+    collision.cells.clear();
+    assert(!contains(collision, {-8, 0, 0}));
+    assert(volume_spans(collision, {-8, 0, 0}, {-8, 1, 0}).empty());
+    const std::array<Box, 2> separated{Box{{-48, -8, -8}, {-32, 8, 8}},
+                                     Box{{32, -8, -8}, {48, 8, 8}}};
+    const EditedHull edit(solid, solid, point, separated);
+    assert(!edit.affects({0, 0, 0}, {0, 1, 0}));
+    assert(edit.contents({0, 0, 0}) == -2);
+    assert(edit.affects({-32, 0, 0}, {-32, 1, 0}));
+
+    const double n = std::sqrt(.5);
+    const std::array<Plane, 1> diagonal{Plane{{n, n, 0}, -12}};
+    const std::array<HullNode, 1> branch{HullNode{0, {-1, -2}}};
+    const HullView slope{diagonal, branch, 0};
+    const EditedHull sloped(slope, slope, point, separated);
+    const Box slope_region{{-80, -80, -80}, {80, 80, 80}};
+    for (Box body : {point, Box{{-16, -16, -36}, {16, 16, 36}}}) {
+        const auto shaped = expand_volume(carve_volume(slope, slope_region, separated), body);
+        const auto shaped_index = index_volume(shaped);
+        for (int i = 0; i < 2000; ++i) {
+            Point a{random() * 128 - 64, random() * 128 - 64, random() * 128 - 64};
+            Point b{random() * 128 - 64, random() * 128 - 64, random() * 128 - 64};
+            assert(contains(shaped, a) == contains(shaped, shaped_index, a));
+            volume_spans(shaped, a, b, indexed, candidates, &shaped_index);
+            const auto indexed_trace = trace_spans(indexed, a, b, contains(shaped, a), contains(shaped, b), .03125);
+            const auto linear_trace = trace_volume(shaped, a, b);
+            assert(indexed_trace.fraction == linear_trace.fraction && indexed_trace.plane.normal == linear_trace.plane.normal &&
+                   indexed_trace.plane.distance == linear_trace.plane.distance && indexed_trace.start_solid == linear_trace.start_solid &&
+                   indexed_trace.all_solid == linear_trace.all_solid);
+            bool removed = false;
+            for (const auto &hole : separated)
+                removed |= a[0] > hole.min[0] && a[0] < hole.max[0] && a[1] > hole.min[1] &&
+                           a[1] < hole.max[1] && a[2] > hole.min[2] && a[2] < hole.max[2];
+            assert((sloped.contents(a) == -2) == (dot(a, diagonal[0].normal) < -12 && !removed));
+        }
+    }
+    const EditedHull wet_point(slope, water, point, separated), clip_point(empty, solid, point, separated);
+    assert(wet_point.contents({-40, 0, 0}) == -3);
+    const auto water_trace = wet_point.trace({-60, 0, 0}, {60, 0, 0});
+    assert(water_trace.in_water && !water_trace.in_open && water_trace.fraction == 1);
+    assert(clip_point.contents({-40, 0, 0}) == -2);
+    const auto clip_trace = clip_point.trace({-60, 0, 0}, {60, 0, 0});
+    assert(clip_trace.start_solid && clip_trace.all_solid && !clip_trace.in_open && !clip_trace.in_water);
+}
 } // namespace
 
 int main() {
@@ -323,6 +423,8 @@ int main() {
         validation();
         std::cout << "Validation passed\n";
         native_overlay();
+        indexed_queries();
+        std::cout << "Prepared indices: 10000 independent box queries, 3000 exact volume queries, 4000 sloped point/body queries, boundary ties, water/clip preservation, bounded preparation and mutable volume API passed\n";
         std::cout << "Native overlay: 20000 oracle cases, retained clip-only obstacles, native empty/water, entrance and union traces passed\n";
         std::cout << "Carved volume: conservation/union/winding, 120000 analytic membership samples, "
                      "adjacent/low openings, asymmetric bodies, 3D bevels, shared-plane/solid traces and "
