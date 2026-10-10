@@ -10,6 +10,10 @@
 
 `Verify-ClangBuilds.py` 审核实际 CMake 编译命令、MSBuild clang-cl/lld tlog、编译器身份和 x86 PE 产物；修改工具链后需重新构建并运行。`Prepare-NativeBuild.ps1` 在工作区安装 CMake 3.31.10 与 4.3.4，C++ 项目均使用 Ninja 或以 Clang 工具替换后的 MSBuild。`Prepare-JavaBuild.ps1` 下载并校验 Java 21.0.12.1+1、Gradle 8.10.2。
 
+原生 CTest 包含隐藏 GL 4.4 上下文回归，使用固定提交 `92dcf4ce74f2e2554a98fea09be7c705c17daa5a` 的 GLFW；可用 CMake `GLFW_SOURCE_PATH` 复用现有源码，避免重复下载。Python 从当前 Renderer SDK 生成测试用未调用接口桩，意外调用直接终止。无可用 GL 上下文的机器会报告跳过，此时不能计为图形验证通过。
+
+比较 GL 提交开销时，将旧提交的 `render_backend.cpp/.hpp` 保存到本地分析目录，用 `GOLDCRAFT_RENDER_BASELINE` 指向它并重新构建。`Verify-RenderBackend.py --reference <旧提交>` 校验保存源码、交替运行三组新旧独立程序、核对像素及调用计数并记录文件保护结果。场景 shader 是测试夹具，HUD 使用生产 shader；该报告不替代实际 B／Renderer 场景及同视角 FPS 验收。
+
 `sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、InterpFix、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI、SyPB 和 amxx-builder 版本。当前 MetaHookSv 为 `v20261008b`，根提交 `063a18c2ad9f19c34a01bc6906a78c5a7270a5b3`；复用历史命名的 `external/MetaHookSv-20261007` 目录以保留依赖缓存，版本以锁文件和实际 Git 提交为准。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
 可选的 [Nade Modes](../amxx/nade_modes/README.md) 通过三个官方附件和独立 SHA-256 清单重建。其 Pawn 使用 AMXX 1.9.0.5303 编译；只把字节码、语言和配置部署到服务器，源码留在分类后的 `amxx/nade_modes`。

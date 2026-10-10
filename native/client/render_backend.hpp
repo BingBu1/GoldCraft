@@ -5,9 +5,11 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <optional>
 #include <IMetaRendererScene.h>
 #include <IMetaRendererWorldEdit.h>
 #include "goldcraft/atlas.hpp"
+#include "render_state.hpp"
 
 namespace goldcraft::render {
 struct Vertex { float x,y,z,u,v; std::uint32_t color,overlay=0; };
@@ -43,21 +45,28 @@ void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_wi
 void upload_atlas_patches(GLuint id,std::span<const AtlasPatch> patches);
 bool capture(const char* path);
 bool draw_hud(GLuint texture,float mouse_x,float mouse_y,bool menu,unsigned width,unsigned height);
-struct DrawState;
-
 class Pass {
 public:
+    // This scope owns its shader/texture/depth state until destruction. Only
+    // GoldCraft mesh operations run inside it; host callbacks run outside.
     Pass(bool transparent, std::uint32_t flags);
     ~Pass();
+    Pass(const Pass&)=delete;
+    Pass& operator=(const Pass&)=delete;
     bool ready() const {return ready_;}
     void texture(GLuint id);
     void emissive(bool value);
     void depth_write(bool value);
     void feedback(unsigned mode);
 private:
-    DrawState* state_=nullptr;
+    std::optional<DrawState> state_;
     bool ready_=false;
     GLint emissive_location_=-1;
+    GLint feedback_location_=-1;
+    int emissive_value_=-1;
+    std::optional<GLuint> texture_;
+    bool depth_write_=false;
+    bool stencil_write_=false;
     bool shadow_=false;
 };
 }

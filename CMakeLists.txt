@@ -123,6 +123,54 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_compile_definitions(goldcraft_precache_client_tests PRIVATE WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
         target_compile_options(goldcraft_precache_client_tests PRIVATE /W3 /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_precache_client COMMAND goldcraft_precache_client_tests)
+
+        # Hidden real-GL regression; source-only SDK adapters abort on any
+        # unexpected call. No game process, engine patches or desktop input.
+        set(GLFW_SOURCE_PATH "" CACHE PATH "Optional existing GLFW checkout for GL tests")
+        if(NOT GLFW_SOURCE_PATH)
+            include(FetchContent)
+            FetchContent_Declare(goldcraft_test_glfw
+                GIT_REPOSITORY https://github.com/MetaHookSv/glfw
+                GIT_TAG 92dcf4ce74f2e2554a98fea09be7c705c17daa5a
+                GIT_SUBMODULES "" GIT_SUBMODULES_RECURSE FALSE
+                SOURCE_SUBDIR _goldcraft_glfw_source_only)
+            FetchContent_MakeAvailable(goldcraft_test_glfw)
+            set(GLFW_SOURCE_PATH "${goldcraft_test_glfw_SOURCE_DIR}")
+        endif()
+        set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+        set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF CACHE BOOL "" FORCE)
+        add_subdirectory("${GLFW_SOURCE_PATH}" thirdparty/glfw EXCLUDE_FROM_ALL)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set(GOLDCRAFT_RENDERER_SDK "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/include/Interface/IMetaRenderer.h")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${GOLDCRAFT_RENDERER_SDK}" tests/native/renderer_stub.py)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/renderer_stub.py" "${GOLDCRAFT_RENDERER_SDK}"
+            "${CMAKE_CURRENT_BINARY_DIR}/renderer_unused.inc" COMMAND_ERROR_IS_FATAL ANY)
+        add_executable(goldcraft_render_backend_tests tests/native/render_backend_tests.cpp)
+        target_include_directories(goldcraft_render_backend_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES}
+            "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_definitions(goldcraft_render_backend_tests PRIVATE WIN32 _WINDOWS NOMINMAX
+            WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS GLEW_STATIC GLFW_INCLUDE_NONE)
+        target_compile_options(goldcraft_render_backend_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        target_link_libraries(goldcraft_render_backend_tests PRIVATE goldcraft_common opengl32 libglew_static glfw)
+        add_test(NAME goldcraft_render_backend COMMAND goldcraft_render_backend_tests)
+        set_tests_properties(goldcraft_render_backend PROPERTIES TIMEOUT 40 SKIP_RETURN_CODE 2)
+        set(GOLDCRAFT_RENDER_BASELINE "" CACHE PATH "Optional saved backend source for a GL comparison")
+        if(GOLDCRAFT_RENDER_BASELINE)
+            add_executable(goldcraft_render_baseline tests/native/render_backend_tests.cpp)
+            target_include_directories(goldcraft_render_baseline PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES}
+                "${CMAKE_CURRENT_BINARY_DIR}")
+            target_compile_definitions(goldcraft_render_baseline PRIVATE WIN32 _WINDOWS NOMINMAX
+                WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS GLEW_STATIC GLFW_INCLUDE_NONE
+                GOLDCRAFT_RENDER_BASELINE GOLDCRAFT_RENDER_SOURCE="${GOLDCRAFT_RENDER_BASELINE}/render_backend.cpp")
+            target_compile_options(goldcraft_render_baseline PRIVATE /W3 /utf-8 /UNDEBUG)
+            target_link_libraries(goldcraft_render_baseline PRIVATE goldcraft_common opengl32 libglew_static glfw)
+        endif()
+
         add_executable(goldcraft_visible_entities_tests tests/native/visible_entities_tests.cpp)
         target_include_directories(goldcraft_visible_entities_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
         target_link_libraries(goldcraft_visible_entities_tests PRIVATE goldcraft_common)

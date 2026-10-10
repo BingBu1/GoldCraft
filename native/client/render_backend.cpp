@@ -18,9 +18,13 @@ IMetaRendererWorldEdit* edits=nullptr;
 IMetaRendererSceneCallbacks* callback=nullptr;
 void(*logger)(const std::string&)=nullptr;
 Statistics stats;
-std::map<std::uint32_t,GLuint> programs;
+struct Program {GLuint id=0;GLint emissive=-1,feedback=-1;};
+std::map<std::uint32_t,Program> programs;
 HGLRC current_context=nullptr;
 GLuint hud_program=0,hud_vao=0;
+struct HudUniforms {GLint sampler=-1,menu=-1,size=-1,cursor=-1;} hud_uniforms;
+GLint max_texture_size=0;
+GLfloat feedback_line_width=0;
 
 void enabled(GLenum cap,GLboolean value){if(value)glEnable(cap);else glDisable(cap);}
 struct PixelState {
@@ -46,7 +50,7 @@ struct PixelState {
         glBindBuffer(pack?GL_PIXEL_PACK_BUFFER:GL_PIXEL_UNPACK_BUFFER,buffer);
     }
 };
-GLuint program(std::uint32_t flags) {
+const Program& program(std::uint32_t flags) {
     if(auto it=programs.find(flags);it!=programs.end())return it->second;
     std::string defines;
     if(flags&META_SCENE_GBUFFER)defines+="#define GBUFFER_ENABLED\n";
@@ -60,7 +64,8 @@ GLuint program(std::uint32_t flags) {
     args.fsfile="renderer/shader/goldcraft.frag.glsl";
     args.vsdefine=args.gsdefine=args.fsdefine=defines.c_str();
     const GLuint id=renderer->CompileShaderFileEx(&args);
-    programs.emplace(flags,id);return id;
+    const Program compiled{id,glGetUniformLocation(id,"u_emissive"),glGetUniformLocation(id,"u_feedback")};
+    return programs.emplace(flags,compiled).first->second;
 }
 }
 
@@ -73,7 +78,7 @@ void set_light_shadow(int key,unsigned size){if(scene)scene->SetDynamicLightShad
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
     if(current_context!=wglGetCurrentContext()){
-        programs.clear();hud_program=hud_vao=0;current_context=wglGetCurrentContext();
+        programs.clear();hud_program=hud_vao=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;current_context=wglGetCurrentContext();
     }
     if(!current_context)return false;
     glewExperimental=GL_TRUE;
@@ -102,7 +107,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
 void shutdown(){
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     if(owns_context()){if(hud_program)glDeleteProgram(hud_program);if(hud_vao)glDeleteVertexArrays(1,&hud_vao);}
-    hud_program=hud_vao=0;scene=nullptr;edits=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
+    hud_program=hud_vao=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;
+    scene=nullptr;edits=nullptr;callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
 }
 
 Mesh::~Mesh(){
@@ -148,63 +154,76 @@ void Mesh::draw(std::span<const Vertex> vertices,std::uint64_t revision,bool dyn
     ++stats.draws;
 }
 
-struct DrawState {
-    GLint shader,vao,array_buffer,active,texture,sampler,depth_func;
-    GLboolean depth,cull,stencil,depth_mask,polygon_offset;
-    GLfloat line_width,offset_factor,offset_units;
-    struct Blend {GLboolean enabled,mask[4];GLint src_rgb,dst_rgb,src_alpha,dst_alpha,eq_rgb,eq_alpha;}blend[4];
-    struct Stencil {GLint func,ref,mask,write_mask,fail,zfail,zpass;}front,back;
-    static Stencil stencil_state(bool back){
-        Stencil s;
-        glGetIntegerv(back?GL_STENCIL_BACK_FUNC:GL_STENCIL_FUNC,&s.func);
-        glGetIntegerv(back?GL_STENCIL_BACK_REF:GL_STENCIL_REF,&s.ref);
-        glGetIntegerv(back?GL_STENCIL_BACK_VALUE_MASK:GL_STENCIL_VALUE_MASK,&s.mask);
-        glGetIntegerv(back?GL_STENCIL_BACK_WRITEMASK:GL_STENCIL_WRITEMASK,&s.write_mask);
-        glGetIntegerv(back?GL_STENCIL_BACK_FAIL:GL_STENCIL_FAIL,&s.fail);
-        glGetIntegerv(back?GL_STENCIL_BACK_PASS_DEPTH_FAIL:GL_STENCIL_PASS_DEPTH_FAIL,&s.zfail);
-        glGetIntegerv(back?GL_STENCIL_BACK_PASS_DEPTH_PASS:GL_STENCIL_PASS_DEPTH_PASS,&s.zpass);return s;
+DrawState::Stencil DrawState::stencil_state(bool back){
+    Stencil s;
+    glGetIntegerv(back?GL_STENCIL_BACK_FUNC:GL_STENCIL_FUNC,&s.func);
+    glGetIntegerv(back?GL_STENCIL_BACK_REF:GL_STENCIL_REF,&s.ref);
+    glGetIntegerv(back?GL_STENCIL_BACK_VALUE_MASK:GL_STENCIL_VALUE_MASK,&s.mask);
+    glGetIntegerv(back?GL_STENCIL_BACK_WRITEMASK:GL_STENCIL_WRITEMASK,&s.write_mask);
+    glGetIntegerv(back?GL_STENCIL_BACK_FAIL:GL_STENCIL_FAIL,&s.fail);
+    glGetIntegerv(back?GL_STENCIL_BACK_PASS_DEPTH_FAIL:GL_STENCIL_PASS_DEPTH_FAIL,&s.zfail);
+    glGetIntegerv(back?GL_STENCIL_BACK_PASS_DEPTH_PASS:GL_STENCIL_PASS_DEPTH_PASS,&s.zpass);return s;
+}
+void DrawState::blend_parameters(unsigned i){
+    auto& b=blend[i];
+    glGetIntegeri_v(GL_BLEND_SRC_RGB,i,&b.src_rgb);glGetIntegeri_v(GL_BLEND_DST_RGB,i,&b.dst_rgb);
+    glGetIntegeri_v(GL_BLEND_SRC_ALPHA,i,&b.src_alpha);glGetIntegeri_v(GL_BLEND_DST_ALPHA,i,&b.dst_alpha);
+    glGetIntegeri_v(GL_BLEND_EQUATION_RGB,i,&b.eq_rgb);glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA,i,&b.eq_alpha);
+}
+DrawState::DrawState(bool scene_pass,bool transparent):scene_pass_(scene_pass),
+    full_blend_(!scene_pass||transparent),stencil_write_(scene_pass&&!transparent){
+    glGetIntegerv(GL_CURRENT_PROGRAM,&shader);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
+    glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
+    glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);glGetIntegeri_v(GL_SAMPLER_BINDING,0,&sampler);
+    depth=glIsEnabled(GL_DEPTH_TEST);cull=glIsEnabled(GL_CULL_FACE);stencil=glIsEnabled(GL_STENCIL_TEST);
+    glGetBooleanv(GL_DEPTH_WRITEMASK,&depth_mask);
+    if(scene_pass_){
+        polygon_offset=glIsEnabled(GL_POLYGON_OFFSET_FILL);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&array_buffer);glGetIntegerv(GL_DEPTH_FUNC,&depth_func);
+        if(stencil_write_){front=stencil_state(false);back=stencil_state(true);}
     }
-    DrawState(){
-        polygon_offset=glIsEnabled(GL_POLYGON_OFFSET_FILL);glGetFloatv(GL_LINE_WIDTH,&line_width);
-        glGetFloatv(GL_POLYGON_OFFSET_FACTOR,&offset_factor);glGetFloatv(GL_POLYGON_OFFSET_UNITS,&offset_units);
-        glGetIntegerv(GL_CURRENT_PROGRAM,&shader);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
-        glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&array_buffer);glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
-        glActiveTexture(GL_TEXTURE0);glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);glGetIntegeri_v(GL_SAMPLER_BINDING,0,&sampler);
-        depth=glIsEnabled(GL_DEPTH_TEST);cull=glIsEnabled(GL_CULL_FACE);stencil=glIsEnabled(GL_STENCIL_TEST);
-        glGetBooleanv(GL_DEPTH_WRITEMASK,&depth_mask);glGetIntegerv(GL_DEPTH_FUNC,&depth_func);
-        front=stencil_state(false);back=stencil_state(true);
-        for(unsigned i=0;i<4;i++){
-            auto& b=blend[i];b.enabled=glIsEnabledi(GL_BLEND,i);glGetBooleani_v(GL_COLOR_WRITEMASK,i,b.mask);
-            glGetIntegeri_v(GL_BLEND_SRC_RGB,i,&b.src_rgb);glGetIntegeri_v(GL_BLEND_DST_RGB,i,&b.dst_rgb);
-            glGetIntegeri_v(GL_BLEND_SRC_ALPHA,i,&b.src_alpha);glGetIntegeri_v(GL_BLEND_DST_ALPHA,i,&b.dst_alpha);
-            glGetIntegeri_v(GL_BLEND_EQUATION_RGB,i,&b.eq_rgb);glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA,i,&b.eq_alpha);
-        }
+    for(unsigned i=0;i<(scene_pass_?4u:1u);i++){
+        auto& b=blend[i];b.enabled=glIsEnabledi(GL_BLEND,i);glGetBooleani_v(GL_COLOR_WRITEMASK,i,b.mask);
+        if(full_blend_)blend_parameters(i);
     }
-    ~DrawState(){
-        enabled(GL_POLYGON_OFFSET_FILL,polygon_offset);glPolygonOffset(offset_factor,offset_units);glLineWidth(line_width);
-        glUseProgram(shader);glBindVertexArray(vao);glBindBuffer(GL_ARRAY_BUFFER,array_buffer);
-        renderer->BindTextureUnit(0,GL_TEXTURE_2D,texture);glBindSampler(0,sampler);glActiveTexture(active);
-        enabled(GL_DEPTH_TEST,depth);glDepthFunc(depth_func);glDepthMask(depth_mask);enabled(GL_CULL_FACE,cull);enabled(GL_STENCIL_TEST,stencil);
-        for(unsigned i=0;i<2;i++){
-            const auto& s=i?back:front;const GLenum face=i?GL_BACK:GL_FRONT;
-            glStencilFuncSeparate(face,s.func,s.ref,s.mask);glStencilMaskSeparate(face,s.write_mask);glStencilOpSeparate(face,s.fail,s.zfail,s.zpass);
-        }
-        for(unsigned i=0;i<4;i++){
-            const auto& b=blend[i];if(b.enabled)glEnablei(GL_BLEND,i);else glDisablei(GL_BLEND,i);
+}
+void DrawState::save_feedback(){
+    if(feedback_saved_)return;
+    glGetFloatv(GL_LINE_WIDTH,&line_width);
+    glGetFloatv(GL_POLYGON_OFFSET_FACTOR,&offset_factor);glGetFloatv(GL_POLYGON_OFFSET_UNITS,&offset_units);
+    if(!full_blend_)blend_parameters(0);
+    feedback_saved_=true;
+}
+DrawState::~DrawState(){
+    glUseProgram(shader);glBindVertexArray(vao);
+    renderer->BindTextureUnit(0,GL_TEXTURE_2D,texture);glBindSampler(0,sampler);glActiveTexture(active);
+    enabled(GL_DEPTH_TEST,depth);glDepthMask(depth_mask);enabled(GL_CULL_FACE,cull);enabled(GL_STENCIL_TEST,stencil);
+    if(scene_pass_){
+        enabled(GL_POLYGON_OFFSET_FILL,polygon_offset);glDepthFunc(depth_func);glBindBuffer(GL_ARRAY_BUFFER,array_buffer);
+        if(feedback_saved_){glPolygonOffset(offset_factor,offset_units);glLineWidth(line_width);}
+    }
+    for(unsigned i=0;i<(stencil_write_?2u:0u);i++){
+        const auto& s=i?back:front;const GLenum face=i?GL_BACK:GL_FRONT;
+        glStencilFuncSeparate(face,s.func,s.ref,s.mask);glStencilMaskSeparate(face,s.write_mask);glStencilOpSeparate(face,s.fail,s.zfail,s.zpass);
+    }
+    for(unsigned i=0;i<(scene_pass_?4u:1u);i++){
+        const auto& b=blend[i];if(b.enabled)glEnablei(GL_BLEND,i);else glDisablei(GL_BLEND,i);
+        if(full_blend_||(feedback_saved_&&i==0)){
             glBlendFuncSeparatei(i,b.src_rgb,b.dst_rgb,b.src_alpha,b.dst_alpha);glBlendEquationSeparatei(i,b.eq_rgb,b.eq_alpha);
-            glColorMaski(i,b.mask[0],b.mask[1],b.mask[2],b.mask[3]);
         }
+        glColorMaski(i,b.mask[0],b.mask[1],b.mask[2],b.mask[3]);
     }
-};
+}
 Pass::Pass(bool transparent,std::uint32_t flags){
     if(!renderer||!GLEW_VERSION_4_4)return;
     if(renderer->IsDrawGammaBlendEnabled())flags|=META_SCENE_GAMMA_BLEND;
-    state_=new DrawState;
-    const auto shader=program(flags);glUseProgram(shader);glBindSampler(0,0);
-    glUniform1i(glGetUniformLocation(shader,"u_feedback"),0);glDisable(GL_POLYGON_OFFSET_FILL);
-    emissive_location_=glGetUniformLocation(shader,"u_emissive");
+    state_.emplace(true,transparent);stencil_write_=!transparent;
+    const auto& shader=program(flags);glUseProgram(shader.id);glBindSampler(0,0);
+    feedback_location_=shader.feedback;emissive_location_=shader.emissive;
+    glUniform1i(feedback_location_,0);glDisable(GL_POLYGON_OFFSET_FILL);
     shadow_=(flags&META_SCENE_SHADOW)!=0;emissive(false);
-    glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(transparent?GL_FALSE:GL_TRUE);glDisable(GL_CULL_FACE);
+    depth_write_=!transparent;
+    glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(depth_write_?GL_TRUE:GL_FALSE);glDisable(GL_CULL_FACE);
     if(transparent)glDisable(GL_STENCIL_TEST);
     else{glEnable(GL_STENCIL_TEST);glStencilFunc(GL_ALWAYS,0,0xff);glStencilMask(0xff);glStencilOp(GL_KEEP,GL_KEEP,GL_REPLACE);}
     for(unsigned i=0;i<4;i++){
@@ -216,24 +235,32 @@ Pass::Pass(bool transparent,std::uint32_t flags){
     ready_=true;
 }
 Pass::~Pass(){
-    delete state_;
+    state_.reset();
     const GLenum error=glGetError();if(error!=GL_NO_ERROR){stats.error=error;if(logger)logger("Core scene GL error="+std::to_string(error));}
 }
-void Pass::texture(GLuint id){renderer->BindTextureUnit(0,GL_TEXTURE_2D,id);}
-void Pass::depth_write(bool value){glDepthMask(value?GL_TRUE:GL_FALSE);}
+void Pass::texture(GLuint id){if(texture_&&*texture_==id)return;renderer->BindTextureUnit(0,GL_TEXTURE_2D,id);texture_=id;}
+void Pass::depth_write(bool value){if(depth_write_==value)return;glDepthMask(value?GL_TRUE:GL_FALSE);depth_write_=value;}
 void Pass::feedback(unsigned mode){
-    GLint shader=0;glGetIntegerv(GL_CURRENT_PROGRAM,&shader);glUniform1i(glGetUniformLocation(shader,"u_feedback"),static_cast<int>(mode));
-    glDepthMask(GL_FALSE);glDisable(GL_STENCIL_TEST);emissive(true);
+    state_->save_feedback();
+    glUniform1i(feedback_location_,static_cast<int>(mode));
+    depth_write(false);glDisable(GL_STENCIL_TEST);emissive(true);
     if(mode==1){glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-3.0f,-3.0f);glBlendFuncSeparatei(0,GL_DST_COLOR,GL_SRC_COLOR,GL_ZERO,GL_ONE);}
-    else{glDisable(GL_POLYGON_OFFSET_FILL);glBlendFuncSeparatei(0,GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);GLfloat range[2];glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE,range);glLineWidth(std::clamp(2.0f,range[0],range[1]));}
+    else{
+        glDisable(GL_POLYGON_OFFSET_FILL);glBlendFuncSeparatei(0,GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);
+        if(!feedback_line_width){GLfloat range[2];glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE,range);feedback_line_width=std::clamp(2.0f,range[0],range[1]);}
+        glLineWidth(feedback_line_width);
+    }
 }
 void Pass::emissive(bool value){
+    if(emissive_value_==static_cast<int>(value))return;
     glUniform1i(emissive_location_,value?1:0);
-    glStencilFunc(GL_ALWAYS,value&&!shadow_?STENCIL_MASK_NO_LIGHTING:0,0xff);
+    if(stencil_write_)glStencilFunc(GL_ALWAYS,value&&!shadow_?STENCIL_MASK_NO_LIGHTING:0,0xff);
+    emissive_value_=value;
 }
 
 bool draw_hud(GLuint texture,float mouse_x,float mouse_y,bool menu,unsigned width,unsigned height){
     if(!renderer||!owns_context()||!texture)return false;
+    const bool initialize_sampler=!hud_program;
     if(!hud_program){
         const char* vertex=R"(#version 330 core
 out vec2 uv;
@@ -263,14 +290,17 @@ void main(){
         if(ok){hud_program=glCreateProgram();for(auto shader:shaders)glAttachShader(hud_program,shader);glLinkProgram(hud_program);GLint status=0;glGetProgramiv(hud_program,GL_LINK_STATUS,&status);ok=status!=0;}
         for(auto shader:shaders)glDeleteShader(shader);
         if(!ok){if(hud_program)glDeleteProgram(hud_program);hud_program=0;return false;}
+        hud_uniforms={glGetUniformLocation(hud_program,"hud"),glGetUniformLocation(hud_program,"menu"),
+            glGetUniformLocation(hud_program,"size"),glGetUniformLocation(hud_program,"cursor")};
         glGenVertexArrays(1,&hud_vao);
     }
     {
-        DrawState state;const GLboolean scissor=glIsEnabled(GL_SCISSOR_TEST);glDisable(GL_SCISSOR_TEST);
+        DrawState state(false);const GLboolean scissor=glIsEnabled(GL_SCISSOR_TEST);glDisable(GL_SCISSOR_TEST);
         glUseProgram(hud_program);glBindVertexArray(hud_vao);glBindSampler(0,0);renderer->BindTextureUnit(0,GL_TEXTURE_2D,texture);
-        glUniform1i(glGetUniformLocation(hud_program,"hud"),0);glUniform1i(glGetUniformLocation(hud_program,"menu"),menu?1:0);
-        glUniform2f(glGetUniformLocation(hud_program,"size"),static_cast<float>(width),static_cast<float>(height));
-        glUniform2f(glGetUniformLocation(hud_program,"cursor"),mouse_x*width,mouse_y*height);
+        if(initialize_sampler)glUniform1i(hud_uniforms.sampler,0);
+        glUniform1i(hud_uniforms.menu,menu?1:0);
+        glUniform2f(hud_uniforms.size,static_cast<float>(width),static_cast<float>(height));
+        glUniform2f(hud_uniforms.cursor,mouse_x*width,mouse_y*height);
         glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glDisable(GL_CULL_FACE);glDisable(GL_STENCIL_TEST);
         glEnablei(GL_BLEND,0);glBlendEquationSeparatei(0,GL_FUNC_ADD,GL_FUNC_ADD);
         glBlendFuncSeparatei(0,GL_ONE,GL_ONE_MINUS_SRC_ALPHA,GL_ONE,GL_ONE_MINUS_SRC_ALPHA);
@@ -283,12 +313,16 @@ void main(){
 
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba){
     if(!glBindBuffer)throw ProtocolError("OpenGL not initialized for texture upload");
-    GLint limit=0,old=0;glGetIntegerv(GL_MAX_TEXTURE_SIZE,&limit);glGetIntegerv(GL_TEXTURE_BINDING_2D,&old);
-    if(next_width>static_cast<unsigned>(limit)||next_height>static_cast<unsigned>(limit))throw ProtocolError("texture exceeds GPU size limit");
+    GLint old=0;if(!max_texture_size)glGetIntegerv(GL_MAX_TEXTURE_SIZE,&max_texture_size);
+    if(next_width>static_cast<unsigned>(max_texture_size)||next_height>static_cast<unsigned>(max_texture_size))throw ProtocolError("texture exceeds GPU size limit");
+    glGetIntegerv(GL_TEXTURE_BINDING_2D,&old);
     const bool reuse=id&&width==next_width&&height==next_height;
-    if(!id)glGenTextures(1,&id);glBindTexture(GL_TEXTURE_2D,id);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    const bool created=!id;
+    if(created)glGenTextures(1,&id);glBindTexture(GL_TEXTURE_2D,id);
+    if(created){
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    }
     {
         PixelState pixels(false);
         if(reuse)glTexSubImage2D(GL_TEXTURE_2D,0,0,0,next_width,next_height,GL_RGBA,GL_UNSIGNED_BYTE,rgba.data());
