@@ -2,6 +2,7 @@
 #include <metahook.h>
 #include <com_model.h>
 #include <pm_defs.h>
+#include <event_api.h>
 
 #include "map_collision.hpp"
 #include "goldcraft/edited_hull.hpp"
@@ -53,6 +54,9 @@ struct SourceHull {
 };
 std::shared_ptr<const Prepared> active;
 std::uint64_t traces = 0, positions = 0, points = 0, frames = 0, failures = 0;
+std::uint64_t event_traces = 0;
+playermove_t *event_movement = nullptr;
+event_api_t native_events{}, client_events{};
 struct Callbacks {
     decltype(playermove_t::PM_PlayerTrace) trace;
     decltype(playermove_t::PM_PlayerTraceEx) trace_ex;
@@ -378,7 +382,68 @@ void unwrap(Callbacks &saved, const Callbacks &native) {
     if (saved.line_ex == line_ex)
         saved.line_ex = native.line_ex;
 }
+void event_trace(float *start, float *end, int flags, int ignored, pmtrace_t *result) {
+    const auto native = [&] {
+        pmtrace_t out{};
+        native_events.EV_PlayerTrace(start, end, flags, ignored, &out);
+        return out;
+    };
+    // This table belongs to the client; the engine may temporarily select a
+    // different PM context. Check the public accessor before reading our PM.
+    if (!result || !active || !active->hulls[0] || !event_movement) {
+        native_events.EV_PlayerTrace(start, end, flags, ignored, result);
+        return;
+    }
+    *result = guarded(
+        [&] {
+            auto *pm = event_movement;
+            if (native_events.EV_GetPhysent(0) != &pm->physents[0])
+                return native();
+            Callbacks callbacks(*pm);
+            for (auto *enclosing = current; enclosing; enclosing = enclosing->previous)
+                if (enclosing->pm == pm)
+                    unwrap(callbacks, enclosing->native);
+            if (!callbacks.trace_ex)
+                return native();
+            Context context{pm, callbacks, active, current};
+            struct Restore {
+                Context *previous;
+                ~Restore() { current = previous; }
+            } restore{current};
+            current = &context;
+            auto *pe = world(pm->physents, pm->numphysent);
+            if (ignored == 0 || !affects(pe, pm->usehull, start, end) ||
+                ((flags & PM_GLASS_IGNORE) && pe->rendermode))
+                return native();
+            const auto cut = overlay(pe, pm->usehull, start, end);
+            FilterScope scope(
+                {pe, ignored >= 0 && ignored < pm->numphysent ? &pm->physents[ignored] : nullptr,
+                 nullptr});
+            const auto other = callbacks.trace_ex(start, end, flags, ignore);
+            if (event_movement != pm || native_events.EV_GetPhysent(0) != pe)
+                throw std::runtime_error("Client event PM changed during query");
+            const auto out = closest(cut, other);
+            ++event_traces;
+            return out;
+        },
+        native, [&] { return blocked(start); });
+}
 } // namespace
+event_api_t *event_api(event_api_t *source) {
+    event_movement = nullptr;
+    // Another plugin may copy the proxy table before a second Initialize.
+    // Never save our own function as the native fallback (it would recurse).
+    if (source && source->EV_PlayerTrace == event_trace)
+        return source;
+    if (!source || source->version != EVENT_API_VERSION || !source->EV_GetPhysent ||
+        !source->EV_PlayerTrace)
+        return source;
+    native_events = client_events = *source;
+    client_events.EV_PlayerTrace = event_trace;
+    return &client_events;
+}
+void movement_initialized(playermove_t *movement) noexcept { event_movement = movement; }
+void shutdown_events() noexcept { event_movement = nullptr; }
 void reset() { active.reset(); }
 Candidate prepare(const edits::Replica &replica, model_t *loaded) {
     if (!replica.ready())
@@ -480,6 +545,7 @@ void write_status(std::ostream &out) {
         << ",\"mapCollisionFrames\":" << frames << ",\"mapCollisionTraces\":" << traces
         << ",\"mapCollisionPositions\":" << positions << ",\"mapCollisionPoints\":" << points
         << ",\"mapCollisionFailures\":" << failures
+        << ",\"mapCollisionEventTraces\":" << event_traces
         << ",\"mapCollisionDeferredTargets\":" << (active ? active->deferred_targets : 0);
 }
 } // namespace goldcraft::client_map

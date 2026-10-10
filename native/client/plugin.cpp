@@ -1063,6 +1063,18 @@ void PlayerMove(playermove_t* move,int server){
     }
     client_map::move(move,server,gExportfuncs.HUD_PlayerMove);
 }
+int InitializeClient(cl_enginefunc_t* engine,int version){
+    // Initialize receives the final public table after MetaHook's LoadClient
+    // chain. Retain its lifetime without writing the engine or other plugins.
+    static cl_enginefunc_t client_engine;
+    client_engine=*engine;
+    client_engine.pEventAPI=client_map::event_api(engine->pEventAPI);
+    return gExportfuncs.Initialize(&client_engine,version);
+}
+void PlayerMoveInit(playermove_t* move){
+    gExportfuncs.HUD_PlayerMoveInit(move);
+    client_map::movement_initialized(move);
+}
 int KeyEvent(int down,int key,const char* binding_text) {
     ++key_events;last_key=key;last_key_down=down;
     if(DefaultFormMenuKey(key,binding_text)){if(down)OpenFormMenu();return 0;}
@@ -1218,6 +1230,8 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     gExportfuncs=*functions;
+    functions->Initialize=InitializeClient;
+    functions->HUD_PlayerMoveInit=PlayerMoveInit;
     Log(client_precache::install_client() ? "client media v3 installed" :
         std::string("client media unavailable: ") + client_precache::install_error());
     functions->HUD_Init=InitHud; functions->HUD_VidInit=VidInit; functions->HUD_Frame=Frame;
@@ -1232,7 +1246,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("Shutdown"); log_file.close(); }
+void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("Shutdown"); log_file.close(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

@@ -4,6 +4,7 @@
 #include <metahook.h>
 #include <com_model.h>
 #include <pm_defs.h>
+#include <event_api.h>
 
 #include "goldcraft/wire.hpp"
 #include "map_collision.hpp"
@@ -18,6 +19,26 @@
 #include <memory>
 #include <sstream>
 #include <stdexcept>
+#include <atomic>
+#include <chrono>
+#include <cstdlib>
+#include <new>
+#include <bcrypt.h>
+
+namespace {
+std::atomic<std::size_t> allocations{};
+}
+void *operator new(std::size_t size) {
+    ++allocations;
+    if (auto *p = std::malloc(size ? size : 1))
+        return p;
+    throw std::bad_alloc();
+}
+void *operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void *p) noexcept { std::free(p); }
+void operator delete(void *p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void *p) noexcept { std::free(p); }
+void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 
 using namespace goldcraft;
 namespace {
@@ -644,6 +665,122 @@ void lifecycle() {
                  "missing APIs, world identity, nested filtering, contents, restoration and twelve "
                  "query failures recovered\n";
 }
+playermove_t *event_pm = nullptr;
+int event_native_calls = 0;
+physent_t *event_physent(int index) {
+    return event_pm && index >= 0 && index < event_pm->numphysent ? &event_pm->physents[index]
+                                                                  : nullptr;
+}
+void event_native(float *a, float *b, int flags, int ignored, pmtrace_t *out) {
+    ++event_native_calls;
+    *out = base(a, b, flags, ignored);
+}
+pmtrace_t reset_during_event(float *a, float *b, int flags, int (*ignore)(physent_t *)) {
+    const auto out = base_ex(a, b, flags, ignore);
+    client_map::reset();
+    return out;
+}
+void event_dispatch() {
+    setup();
+    client_map::reset();
+    event_pm = pm.get();
+    event_api_t source{};
+    source.version = EVENT_API_VERSION;
+    source.EV_GetPhysent = event_physent;
+    source.EV_PlayerTrace = event_native;
+    assert(!client_map::event_api(nullptr));
+    auto bad = source;
+    bad.version = 99;
+    assert(client_map::event_api(&bad) == &bad);
+    bad = source;
+    bad.EV_GetPhysent = nullptr;
+    assert(client_map::event_api(&bad) == &bad);
+    bad = source;
+    bad.EV_PlayerTrace = nullptr;
+    assert(client_map::event_api(&bad) == &bad);
+    auto *api = client_map::event_api(&source);
+    assert(api != &source && source.EV_PlayerTrace == event_native);
+    assert(client_map::event_api(api) == api);
+    auto forwarded = *api;
+    assert(client_map::event_api(&forwarded) == &forwarded);
+    float a[3]{-64, 0, 0}, b[3]{64, 0, 0};
+    auto query = [&](int flags = PM_NORMAL, int ignored = -1) {
+        api->EV_PlayerTrace(a, b, flags, ignored, &result);
+        restored();
+    };
+    query();
+    assert(result.hitgroup == 77);
+    const auto cut = snapshot({-1, -64, -64}, {17, 64, 64});
+    prepare(cut, &model);
+    query(); // No public PM initialization yet.
+    assert(result.hitgroup == 77);
+    client_map::movement_initialized(pm.get());
+    const auto native_before = event_native_calls;
+    for (int hull = 0; hull < 4; ++hull) {
+        pm->usehull = hull;
+        query();
+        assert(result.fraction == 1);
+    }
+    assert(event_native_calls == native_before);
+    include_other = true;
+    query();
+    assert(result.ent == 1 && result.hitgroup == 7);
+    query(PM_NORMAL, 1);
+    assert(result.fraction == 1);
+    query(PM_WORLD_ONLY);
+    assert(result.fraction == 1);
+    query(PM_NORMAL, 0);
+    assert(result.ent == 1 && event_native_calls == native_before + 1);
+    pm->physents[0].rendermode = 1;
+    query(PM_GLASS_IGNORE);
+    assert(result.ent == 1);
+    pm->physents[0].rendermode = 0;
+    event_pm = nullptr;
+    query();
+    assert(result.hitgroup == 77);
+    event_pm = pm.get();
+    pm->PM_PlayerTraceEx = nullptr;
+    api->EV_PlayerTrace(a, b, PM_NORMAL, -1, &result);
+    assert(result.hitgroup == 77);
+    pm->PM_PlayerTraceEx = base_ex;
+    // Event queries can run inside client movement without recursively using
+    // the temporarily wrapped PM table or disturbing the outer scope.
+    client_map::move(pm.get(), 0, [](playermove_t *m, int) {
+        float a[3]{-64, 0, 0}, b[3]{64, 0, 0};
+        auto before = m->PM_PlayerTrace;
+        event_api_t source{};
+        source.version = EVENT_API_VERSION;
+        source.EV_GetPhysent = event_physent;
+        source.EV_PlayerTrace = event_native;
+        auto *api = client_map::event_api(&source);
+        client_map::movement_initialized(m);
+        api->EV_PlayerTrace(a, b, PM_NORMAL, 1, &result);
+        assert(result.fraction == 1 && m->PM_PlayerTrace == before);
+        assert(m->PM_PlayerTrace(a, b, PM_NORMAL, -1).hitgroup == 7);
+    });
+    restored();
+    query_throws = 1;
+    query();
+    assert(result.hitgroup == 77);
+    query_throws = 2;
+    query();
+    assert(result.startsolid && result.allsolid && result.fraction == 0);
+    pm->PM_PlayerTraceEx = reset_during_event;
+    api->EV_PlayerTrace(a, b, PM_NORMAL, -1, &result);
+    assert(result.hitgroup == 77);
+    pm->PM_PlayerTraceEx = base_ex;
+    prepare(cut, &model);
+    client_map::shutdown_events();
+    query();
+    assert(result.hitgroup == 77);
+    client_map::movement_initialized(pm.get());
+    prepare({9, 3, {}}, nullptr);
+    query();
+    assert(result.hitgroup == 77);
+    client_map::reset();
+    std::cout << "Event dispatch: original-table preservation, API gating, all hulls, entity/"
+                 "world/glass filters, context identity, nested PM, failure and restore passed\n";
+}
 struct Bsp {
     std::vector<std::uint8_t> bytes;
     std::array<std::size_t, 15> offset{}, length{};
@@ -756,15 +893,160 @@ void assault(const char *path) {
     std::cout << "Actual cs_assault PM adapter: standing/duck/point, rim, low-hole and clip-only "
                  "contact passed\n";
 }
+void engine_events(const char *map_path, const char *engine_path) {
+    // Execute only the reviewed PM/event routines in this isolated test process.
+    // No DllMain, dependency initialization, game launch or on-disk patching.
+    std::ifstream input(engine_path, std::ios::binary);
+    const Bytes bytes{std::istreambuf_iterator<char>(input), {}};
+    std::array<unsigned char, 32> hash{};
+    assert(BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, const_cast<PUCHAR>(bytes.data()),
+                      static_cast<ULONG>(bytes.size()), hash.data(),
+                      static_cast<ULONG>(hash.size())) == 0);
+    constexpr unsigned char expected[]{0x9b, 0xa9, 0xa2, 0xdb, 0x5e, 0x07, 0x59, 0x8f,
+                                       0xd5, 0x9a, 0xfa, 0x35, 0x50, 0x7a, 0x98, 0xc8,
+                                       0x61, 0x62, 0xe4, 0xe1, 0x5b, 0x38, 0x35, 0x17,
+                                       0x7b, 0x78, 0xc1, 0x18, 0x42, 0xcd, 0x22, 0x95};
+    assert(std::equal(hash.begin(), hash.end(), expected));
+    auto module = LoadLibraryExA(engine_path, nullptr, DONT_RESOLVE_DLL_REFERENCES);
+    assert(module);
+    auto *base_address = reinterpret_cast<unsigned char *>(module);
+    auto **selected = reinterpret_cast<playermove_t **>(base_address + 0x4d1350);
+    const auto previous = *selected;
+    auto *native = reinterpret_cast<event_api_t *>(base_address + 0x31b048);
+    assert(native->version == EVENT_API_VERSION);
+    assert(reinterpret_cast<void *>(native->EV_GetPhysent) == base_address + 0x1c78f0);
+    assert(reinterpret_cast<void *>(native->EV_SetTraceHull) == base_address + 0x1c7930);
+    assert(reinterpret_cast<void *>(native->EV_PlayerTrace) == base_address + 0x1c7950);
+    auto init = reinterpret_cast<void (*)(playermove_t *)>(base_address + 0x1e1490);
+    struct Cleanup {
+        HMODULE module;
+        playermove_t **selected, *previous;
+        ~Cleanup() {
+            client_map::reset();
+            client_map::shutdown_events();
+            *selected = previous;
+            FreeLibrary(module);
+        }
+    } cleanup{module, selected, previous};
+    Bsp bsp(map_path);
+    bsp.load();
+    setup();
+    init(pm.get());
+    *selected = pm.get();
+    auto *api = client_map::event_api(native);
+    client_map::movement_initialized(pm.get());
+    assert(api != native && native->EV_PlayerTrace != api->EV_PlayerTrace);
+    assert(api->EV_GetPhysent(0) == &pm->physents[0]);
+    assert(!api->EV_GetPhysent(-1) && !api->EV_GetPhysent(pm->numphysent));
+    assert(reinterpret_cast<void *>(pm->PM_PlayerTraceEx) == base_address + 0x1e2460);
+    pm->numphysent = 1;
+    float a[3]{96, 2784, 406.4f}, b[3]{96, 2976, 406.4f};
+    api->EV_SetTraceHull(2);
+    assert(pm->usehull == 2);
+    pmtrace_t original{};
+    native->EV_PlayerTrace(a, b, PM_NORMAL, -1, &original);
+    assert(original.ent == 0 && original.fraction < 1);
+    auto state = snapshot({64, 2864, 358.4f}, {96, 2960, 454.4f});
+    state.cuts.push_back({3, {}, {{96, 2864, 358.4f}, {128, 2960, 454.4f}}});
+    state.revision = 3;
+    prepare(state, &model);
+    auto query = [&](int flags = PM_NORMAL, int ignored = -1) {
+        api->EV_PlayerTrace(a, b, flags, ignored, &result);
+    };
+    for (int hull : {0, 1, 2}) {
+        api->EV_SetTraceHull(hull);
+        query();
+        assert(result.fraction == 1 && result.ent == -1);
+    }
+    auto &actor = pm->physents[1];
+    actor = {};
+    actor.solid = 2;
+    actor.info = 7;
+    actor.origin[0] = 96;
+    actor.origin[1] = 2952;
+    actor.origin[2] = 406.4f;
+    for (int axis = 0; axis < 3; ++axis) {
+        actor.mins[axis] = -8;
+        actor.maxs[axis] = 8;
+    }
+    pm->numphysent = 2;
+    query();
+    assert(result.ent == 1 && result.fraction < 1 && api->EV_IndexFromTrace(&result) == 7);
+    assert(std::abs(result.endpos[1] - 2943.96875f) < .001f);
+    query(PM_NORMAL, 1);
+    assert(result.fraction == 1);
+    query(PM_WORLD_ONLY);
+    assert(result.fraction == 1);
+    query(PM_NORMAL, 0);
+    assert(result.ent == 1);
+    actor.rendermode = 1;
+    query(PM_GLASS_IGNORE);
+    assert(result.fraction == 1);
+    actor.rendermode = 0;
+    pm->numphysent = 1;
+    a[1] = original.endpos[1] + .125f;
+    assert(pm->PM_HullPointContents(&model.hulls[0], model.hulls[0].firstclipnode, a) == -2);
+    native->EV_PlayerTrace(a, b, PM_NORMAL, -1, &original);
+    assert(original.startsolid);
+    query();
+    assert(!result.startsolid && result.fraction == 1);
+    a[1] = 2784;
+    a[0] = b[0] = 120;
+    api->EV_SetTraceHull(0);
+    query();
+    assert(result.ent == 0 && result.fraction < 1); // Body cannot pass the rim.
+    api->EV_SetTraceHull(2);
+    query();
+    assert(result.fraction == 1); // The point ray still fits.
+    a[0] = b[0] = 96;
+    const auto allocation_start = allocations.load();
+    const auto began = std::chrono::steady_clock::now();
+    constexpr int repeats = 4096;
+    for (int i = 0; i < repeats; ++i) {
+        query();
+        assert(result.fraction == 1);
+    }
+    const double elapsed =
+        std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - began).count();
+    const auto edit_allocations = allocations.load() - allocation_start;
+    // Independent engine context must use the native result, even when the
+    // model and physents are identical to the initialized client context.
+    auto other = std::make_unique<playermove_t>(*pm);
+    *selected = other.get();
+    query();
+    assert(result.ent == 0 && result.fraction < 1);
+    *selected = pm.get();
+    prepare({9, 4, {}}, nullptr);
+    native->EV_PlayerTrace(a, b, PM_NORMAL, -1, &original);
+    const auto no_edit_allocations = allocations.load();
+    for (int i = 0; i < repeats; ++i) {
+        query();
+        assert(std::memcmp(&original, &result, sizeof(result)) == 0);
+    }
+    assert(allocations.load() == no_edit_allocations);
+    client_map::reset();
+    query();
+    assert(std::memcmp(&original, &result, sizeof(result)) == 0);
+    std::cout << "{\"actualEngineEventTrace\":true,\"csAssault\":true,"
+                 "\"pointStandingDuck\":true,\"nativeEntityFilters\":true,"
+                 "\"engineContextIsolation\":true,\"restoreExact\":true,"
+                 "\"queries\":"
+              << repeats << ",\"editedAllocations\":" << edit_allocations
+              << ",\"queryCpuUs\":" << elapsed / repeats
+              << ",\"noEditAllocations\":0,\"passed\":true}\n";
+}
 } // namespace
 int main(int argc, char **argv) {
     try {
-        if (argc == 2)
+        if (argc == 3)
+            engine_events(argv[1], argv[2]);
+        else if (argc == 2)
             assault(argv[1]);
         else {
             synthetic();
             render_transaction();
             lifecycle();
+            event_dispatch();
         }
         std::ostringstream out;
         client_map::write_status(out);
