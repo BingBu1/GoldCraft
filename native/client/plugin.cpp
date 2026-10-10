@@ -8,6 +8,7 @@
 #include "input_audit.hpp"
 #include "map_collision.hpp"
 #include <metahook.h>
+#include "client_initialize.hpp"
 #include <cl_entity.h>
 #include <usercmd.h>
 #include <ref_params.h>
@@ -1096,13 +1097,9 @@ void PlayerMove(playermove_t* move,int server){
     client_map::move(move,server,gExportfuncs.HUD_PlayerMove);
 }
 int InitializeClient(cl_enginefunc_t* engine,int version){
-    // Initialize receives the final public table after MetaHook's LoadClient
-    // chain. Retain its lifetime without writing the engine or other plugins.
-    static cl_enginefunc_t client_engine;
-    client_engine=*engine;
     client_map::engine_initialized(engine);
-    client_engine.pEventAPI=client_map::event_api(engine->pEventAPI);
-    const int result=gExportfuncs.Initialize(&client_engine,version);
+    const int result=client::initialize_with_events(engine,version,
+        client_map::event_api(engine->pEventAPI),gExportfuncs.Initialize);
     if(!result)client_map::shutdown_events();
     return result;
 }

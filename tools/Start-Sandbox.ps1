@@ -96,8 +96,11 @@ if($Role -in @('CsClient','CsServer')){
         }
         $hostPort=$config.csHostPort
     }
-    # ReHLDS net_ws.cpp registers the ip cvar; it does not parse a -ip option.
-    $arguments=@('-game','cstrike','-insecure','-nomaster','-console','+ip','127.0.0.1','-port',[string]$hostPort)
+    # The ip cvar binds both GoldSrc sockets. Joining clients need an outbound
+    # interface; binding them to loopback makes public servers fail with 10051.
+    # Keep the dedicated development server restricted to this machine.
+    $bindAddress=if($Role -eq 'CsServer'){'127.0.0.1'}else{'0.0.0.0'}
+    $arguments=@('-game','cstrike','-insecure','-nomaster','-console','+ip',$bindAddress,'-port',[string]$hostPort)
     if($PrecacheFixture){$arguments+='-goldcraft_precache_test'}
     # qconsole duplicates the normal diagnostics and can grow without limit.
     if($ConsoleLog -or $WithDebugger){$arguments+='-condebug'}
