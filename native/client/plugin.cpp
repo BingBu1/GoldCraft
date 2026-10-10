@@ -4,6 +4,7 @@
 #include "visible_entities.hpp"
 #include "vitals.hpp"
 #include "input_audit.hpp"
+#include "map_collision.hpp"
 #include <metahook.h>
 #include <cl_entity.h>
 #include <usercmd.h>
@@ -247,7 +248,7 @@ void ResetWorld() {
     RestoreViewModel();
     sections.clear();lamps.clear();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
     native_colliders.clear();collider_sequence=0;last_colliders=0;
-    map_edits.reset(0);edit_assembler.reset(0);next_edit_query=0;edit_recovery=false;
+    map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;
@@ -366,6 +367,7 @@ void WriteDiagnostics() {
         visible_entities::write_status(out); out<<',';
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
+        client_map::write_status(out); out<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();
         const auto& gpu=render::statistics();
         const auto host_menu=host_ui::state();
@@ -441,7 +443,7 @@ int BindingMessage(const char*,int size,void* data) {
         if(size!=32) throw ProtocolError("invalid GCBind length");
         auto view=std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size));
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
-        if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);next_edit_query=0;edit_recovery=true;}
+        if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
         if(new_world!=world){sections.clear();lamps.clear();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
         if(new_world!=world||slot!=player_slot||serial!=player_serial){ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
@@ -455,13 +457,25 @@ void RequestEdits(){
     const auto command="goldcraft_edits "+std::to_string(world)+"\n";
     gEngfuncs.pfnServerCmd(command.c_str());next_edit_query=Seconds()+1;edit_recovery=false;
 }
+bool MatchingHostProtocol(){
+    const char* value=gEngfuncs.ServerInfo_ValueForKey?gEngfuncs.ServerInfo_ValueForKey("mc_protocol"):nullptr;
+    static const auto expected=std::to_string(protocol_version);
+    return value&&value==expected;
+}
 int EditMessage(const char*,int size,void* data){
     try{
+        if(!MatchingHostProtocol())throw ProtocolError("GCEdit from an incompatible server");
         if(size<0||!data)throw ProtocolError("Invalid GCEdit message");
         const auto message=edit_assembler.accept(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
         if(!message)return 1;
-        const auto result=message->type==Type::map_edit_snapshot?map_edits.accept(edits::snapshot(message->payload)):
-            map_edits.accept(edits::delta(message->payload));
+        auto candidate=map_edits;
+        const auto result=message->type==Type::map_edit_snapshot?candidate.accept(edits::snapshot(message->payload)):
+            candidate.accept(edits::delta(message->payload));
+        if(result==edits::Applied::changed) {
+            auto* entity=gEngfuncs.GetEntityByIndex(0);
+            client_map::prepare(candidate,entity?entity->model:nullptr);
+        }
+        map_edits=std::move(candidate);
         if(result==edits::Applied::need_snapshot)edit_recovery=true;
         else if(map_edits.ready())edit_recovery=false;
     }catch(const std::exception& error){
@@ -898,15 +912,14 @@ void Frame(double time) {
     TestCommands();
     link.poll();
     static double next_ready=0;
-    const char* host_protocol=gEngfuncs.ServerInfo_ValueForKey?gEngfuncs.ServerInfo_ValueForKey("mc_protocol"):nullptr;
-    if(have_view&&host_protocol&&host_protocol==std::to_string(protocol_version)){
+    if(have_view&&MatchingHostProtocol()){
         if(Seconds()>=next_ready){
             const auto command="goldcraft_ready "+std::to_string(protocol_version)+"\n";
             gEngfuncs.pfnServerCmd(command.c_str());next_ready=Seconds()+1;
         }
         if(edit_recovery)RequestEdits();
     }else if(map_edits.state().epoch){
-        map_edits.reset(0);edit_assembler.reset(0);edit_recovery=false;
+        map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
     }
     if(link.error()!=last_error) { last_error=link.error(); if(!last_error.empty()) Log(last_error); }
     if(link.connected()&&link.generation()!=last_link_generation) {
@@ -1028,6 +1041,10 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
 }
 void PlayerMove(playermove_t* move,int server){
     prediction_objects=0;
+    if(!server&&!MatchingHostProtocol()){
+        map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
+        gExportfuncs.HUD_PlayerMove(move,server);return;
+    }
     if(!server&&!HasControl()&&world&&Seconds()-last_colliders<1.0){
         // The public client PM callback exposes exactly the physent array used
         // by the original client movement code; no private hw.dll offset is used.
@@ -1043,7 +1060,7 @@ void PlayerMove(playermove_t* move,int server){
         }
         ++prediction_frames;
     }
-    gExportfuncs.HUD_PlayerMove(move,server);
+    client_map::move(move,server,gExportfuncs.HUD_PlayerMove);
 }
 int KeyEvent(int down,int key,const char* binding_text) {
     ++key_events;last_key=key;last_key_down=down;

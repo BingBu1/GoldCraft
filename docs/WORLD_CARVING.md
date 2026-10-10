@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；**原生客户端预测、Renderer／PVS 和实际挖掘输入仍待接入，生产 mode2 仍不可用**。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端预测适配器已接入源码并通过回调／地图数据测试，**真实客户端、Renderer／PVS 和实际挖掘输入仍待验收，生产 mode2 仍不可用**。
 
 ## HLDS 权限
 
@@ -114,6 +114,16 @@ python tools/Exercise-MapMiningJvm.py
 ```
 
 此验证使用测试专用接口提交洞口，并对 FakePlayer 调用受控移动；不证明真实客户端按键、地面行走、生物自主穿洞、动态旋转 BSP 或画面同步。新碰撞构建尚未部署到主沙盒，不单独更新协议 20 组件。
+
+## 原生客户端预测适配器
+
+[`map_collision.cpp`](../native/client/map_collision.cpp) 在 `HUD_PlayerMove` 内临时替换公开 PM 回调，退出或异常展开时恢复原表。`GCEdit` 先在临时 Replica 中验证，再完整准备四种身体 hull；准备失败不接受新修改。缓存是不可变数据，嵌套客户端／服务端移动保留各自回调，查询中途恢复地图会回退原生接口。无新增私有 `hw.dll` 地址补丁。
+
+适配覆盖 PlayerTrace、TestPlayerPosition、PointContents、TruePointContents、TraceLine 及 Ex 查询。只替换世界几何；人物和普通实体仍由原生 Ex 接口追踪，保留过滤、hitgroup、世界优先的等距命中、水体／current 和位置查询的未过滤 origin 射线语义。Line 使用各自 physents／visents；普通服务器或协议不匹配时，消息与预测入口直接停用地图修改。
+
+18 项 CTest 通过。新增两项检查回调链、九种缺失接口、会话／版本／模型拒绝、失败原子性、嵌套与异常恢复，以及 CRC32 `f6725c06` 的真实 `cs_assault` 数据上的站立／蹲伏／点 hull、洞边、低洞和 clip-only 空气墙。注入异常的捕获计数为 12；实际地图数据查询失败计数为 0。Clang/C++20 审计覆盖 11 组／1,519 单元／15 个 x86 产物。
+
+这些测试使用原生回调的 dispatch spies，**不是运行真实 `hw.dll` 的预测验收**。动态 BSP 目标缺少可核验的客户端 serial，当前只记入 deferred 计数，不套用猜测身份。还需真实 B 收包／移动、事件武器射线、动态实体、Renderer／PVS 和分散多洞性能。没有向主沙盒部署新版或启动图形客户端。
 
 ## 验证与依据
 
