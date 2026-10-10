@@ -7,7 +7,7 @@ if(NOT WIN32 OR NOT MSVC)
     message(FATAL_ERROR "GoldCraft native components currently require Windows/MSVC.")
 endif()
 
-add_library(goldcraft_common STATIC native/common/wire.cpp native/common/endpoint.cpp native/common/world_carving.cpp native/common/world_volume.cpp native/common/edited_hull.cpp native/common/map_edits.cpp native/common/surface_mesh.cpp native/common/cavity_mesh.cpp native/common/cavity_lighting.cpp native/common/carved_visibility.cpp)
+add_library(goldcraft_common STATIC native/common/wire.cpp native/common/endpoint.cpp native/common/world_carving.cpp native/common/world_volume.cpp native/common/edited_hull.cpp native/common/map_edits.cpp native/common/surface_mesh.cpp native/common/cavity_mesh.cpp native/common/cavity_lighting.cpp native/common/carved_visibility.cpp native/common/entity_visibility.cpp)
 target_include_directories(goldcraft_common PUBLIC native/include)
 target_compile_definitions(goldcraft_common PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_link_libraries(goldcraft_common PUBLIC ws2_32 bcrypt)

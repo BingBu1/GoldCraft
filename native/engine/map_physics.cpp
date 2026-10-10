@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "map_physics.h"
+#include "map_visibility.h"
 #include "goldcraft/edited_hull.hpp"
 #include "goldcraft/host_map_api.hpp"
 #include <array>
@@ -105,7 +106,10 @@ class MapPhysics final : public IHostMapPhysics {
                         throw std::length_error("Map physics transaction budget");
                 }
             }
+            auto visible = engine_map::prepare_visibility(g_psv.worldmodel,
+                groups.contains(0) ? std::span<const Box>(groups.at(0)) : std::span<const Box>{});
             targets.swap(next);
+            engine_map::commit_visibility(std::move(visible));
             stats.revision = revision;
             stats.targets = static_cast<std::uint32_t>(targets.size());
             error.clear();
@@ -117,6 +121,7 @@ class MapPhysics final : public IHostMapPhysics {
         }
     }
     void Reset(std::uint64_t epoch, std::uint64_t revision) override {
+        engine_map::commit_visibility({});
         targets.clear();
         // Restoration is a revision barrier in the same map session.
         if (stats.epoch != epoch)

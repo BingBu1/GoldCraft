@@ -26,3 +26,5 @@ struct GoldCraft_MapMiningRoundCleanup {
     GoldCraft_MapMiningRoundCleanup& operator=(const GoldCraft_MapMiningRoundCleanup&) = delete;
 };
 bool GoldCraft_MapMiningKeepEntity(edict_s* entity);
+// Invalidate ReGameDLL's one-second recent-PVS cache on an edit revision change.
+bool GoldCraft_MapVisibilityChanged(int clientnum);

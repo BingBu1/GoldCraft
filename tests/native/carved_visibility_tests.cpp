@@ -1,4 +1,5 @@
 #include "goldcraft/carved_visibility.hpp"
+#include "goldcraft/entity_visibility.hpp"
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -147,5 +148,55 @@ void SpatialLookup() {
     std::printf("{\"carvedVisibility\":true,\"spatialCuts\":%zu,\"queries\":%zu,\"queryAllocations\":0,\"queryCpuUs\":%.4f,\"passed\":true}\n",
         cuts.size(), repeats, elapsed / repeats);
 }
+void EntityInterest() {
+    const auto source = Rooms();
+    const std::vector cuts{Hole(0, 2), Hole(10, 12), Hole(30, 32), Hole(20.5, 21.5)};
+    visibility::EntityCache cache(source, cuts);
+    std::array<std::uint8_t, 4> mask{};
+    assert(cache.merge(1, mask) && mask[0] == 7 && cache.matches(mask));
+    assert(cache.sees_bounds(Hole(.5, 1.5)) && !cache.sees_bounds(Hole(30.5, 31.5)));
+    cache.begin(); mask = {};
+    assert(cache.merge(5, mask) && mask[0] == 24);
+    assert(!cache.sees_bounds(Hole(.5, 1.5)) && cache.sees_bounds(Hole(30.5, 31.5)));
+    assert(cache.merge(1, mask) && mask[0] == 31 && cache.matches(mask)); // fat boundary
+    mask[0] = 0;
+    assert(!cache.matches(mask)); // plugin narrowing must not gain cavity entities
+    cache.begin(); mask = {};
+    assert(cache.merge(cache.cavity_key({21, 0, 0}), mask) && mask[0] == 0);
+    assert(cache.sees_bounds(Hole(20.6, 21.4)) && !cache.sees_bounds(cuts[0]));
+    cache.begin(); mask = {};
+    assert(!cache.merge(0, mask) && !cache.merge(99, mask));
+    assert(!cache.sees_bounds(cuts[0]) && !cache.sees_bounds(cuts[3]));
+    std::array<std::uint8_t, 9> oversized{};
+    assert(!cache.merge(1, {}) && !cache.merge(1, oversized));
+    auto directed = Rooms(); directed->pvs[0] = 3; directed->pvs[1] = 6;
+    visibility::EntityCache unchanged(directed, {});
+    assert(unchanged.merge(1, mask) && mask[0] == 3); // never transitive original PVS
+    // Legacy FatPVS padding may extend past a 64-bit row. It must never read
+    // beyond cached words or reject valid engine storage at that boundary.
+    auto boundary = std::make_shared<visibility::Source>();
+    boundary->contents.resize(65, -1); boundary->contents[0] = -2;
+    boundary->root = -2; boundary->pvs.resize(64, 1);
+    visibility::EntityCache padded(boundary, {});
+    std::array<std::uint8_t, 11> legacy{};
+    assert(padded.merge(1, legacy) && legacy[0] == 1 && padded.matches(legacy));
+    legacy[10] = 1;
+    assert(!padded.matches(legacy));
+    Reject([&] { visibility::EntityCache too_large(source, cuts, {4, 15, 10000}); });
+    Reject([&] { visibility::EntityCache too_slow(source, cuts, {4, 1000, 140}); });
+    cache.begin(); mask = {};
+    const auto before = allocations.load();
+    const auto start = std::chrono::steady_clock::now();
+    constexpr std::size_t repeats = 65'536;
+    for (std::size_t i = 0; i < repeats; ++i) {
+        cache.begin(); mask = {};
+        assert(cache.merge(i % 2 ? 1 : 5, mask) && cache.matches(mask));
+        assert(cache.sees_bounds(cuts[i % 2 ? 0 : 2]));
+        assert(!cache.sees_bounds(cuts[3]));
+    }
+    const auto elapsed = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count();
+    assert(allocations.load() == before);
+    std::printf("{\"entityVisibility\":true,\"queries\":%zu,\"queryAllocations\":0,\"queryCpuUs\":%.4f,\"fatBoundary\":true,\"sealedCavity\":true,\"originalNotTransitive\":true,\"customMaskPreserved\":true,\"passed\":true}\n", repeats, elapsed / repeats);
+}
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); }

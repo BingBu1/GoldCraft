@@ -4,6 +4,8 @@
 #include "interface.h"
 #include "goldcraft/host_map_api.hpp"
 #include <cstdio>
+#include <array>
+#include <chrono>
 #include <cstdlib>
 #include <limits>
 #include <map>
@@ -17,6 +19,7 @@ cvar_t *registered_cvar = nullptr;
 cvar_t *registered_persist = nullptr;
 mining::Policy policy;
 edits::Ledger map_edits;
+std::array<std::pair<std::uint64_t, std::uint64_t>, MAX_CLIENTS> visibility_revisions;
 IHostMapPhysics *map_physics = nullptr;
 struct MinedEntity {
     int serial;
@@ -38,6 +41,7 @@ void ClearMapPhysics() {
         map_physics->Reset(map_edits.state().epoch, map_edits.state().revision);
 }
 #ifdef GOLDCRAFT_HEADLESS_FIXTURE
+edict_t *visibility_probe = nullptr;
 template <class... Args> void CarvePrint(const char *format, Args... args) {
     char text[2048];
     std::snprintf(text, sizeof(text), format, args...);
@@ -111,6 +115,79 @@ void CarveStatus() {
         "[GC carve] revision=%llu targets=%u traces=%llu points=%llu failures=%llu error=%s\n",
         stats.revision, stats.targets, stats.traces, stats.points, stats.failures,
         map_physics->LastError());
+}
+void CarveVisibility() {
+    if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS") || CMD_ARGC() != 11)
+        return;
+    const int slot = std::atoi(CMD_ARGV(1)), target_slot = std::atoi(CMD_ARGV(2));
+    const int options = std::atoi(CMD_ARGV(9)), repeats = std::atoi(CMD_ARGV(10));
+    if (slot < 1 || slot > gpGlobals->maxClients || target_slot < 0 ||
+        target_slot > gpGlobals->maxClients || target_slot == slot || repeats < 1 || repeats > 65536)
+        return;
+    auto *host = INDEXENT(slot);
+    if (!host || host->free || !GET_PRIVATE(host))
+        return;
+    if (!visibility_probe) {
+        visibility_probe = CREATE_NAMED_ENTITY(ALLOC_STRING("info_target"));
+        if (!visibility_probe)
+            return;
+        SET_MODEL(visibility_probe, "sprites/zerogxplode.spr");
+        SET_SIZE(visibility_probe, Vector(-1, -1, -1), Vector(1, 1, 1));
+    }
+    auto *target = target_slot ? INDEXENT(target_slot) : visibility_probe;
+    if (!target || target->free)
+        return;
+    Vector eye, point;
+    for (int axis = 0; axis < 3; ++axis) {
+        eye[axis] = std::strtof(CMD_ARGV(3 + axis), nullptr);
+        point[axis] = std::strtof(CMD_ARGV(6 + axis), nullptr);
+        if (!std::isfinite(eye[axis]) || !std::isfinite(point[axis]) ||
+            std::abs(eye[axis]) > 8192 || std::abs(point[axis]) > 8192)
+            return;
+    }
+    host->v.view_ofs = Vector(0, 0, 0);
+    host->v.velocity = Vector(0, 0, 0);
+    host->v.flags &= ~(FL_DUCKING | FL_PROXY);
+    if (options & 2)
+        host->v.flags |= FL_PROXY;
+    host->v.groupinfo = options & 8 ? 1 : 0;
+    SET_ORIGIN(host, eye);
+    target->v.movetype = MOVETYPE_NONE;
+    target->v.solid = SOLID_NOT;
+    target->v.effects = options & 1 ? EF_NODRAW : 0;
+    target->v.flags &= ~FL_SKIPLOCALHOST;
+    if (options & 4)
+        target->v.flags |= FL_SKIPLOCALHOST;
+    target->v.owner = options & 4 ? host : nullptr;
+    target->v.groupinfo = options & 8 ? 2 : 0;
+    SET_ORIGIN(target, point);
+    unsigned char *pvs = nullptr, *pas = nullptr;
+    SetupVisibility(nullptr, host, &pvs, &pas);
+    const int visible = ENGINE_CHECK_VISIBILITY(target, pvs);
+    entity_state_t state{};
+    const int packet = AddToFullPack(&state, ENTINDEX(target), target, host, 1, target_slot != 0, pvs);
+    const auto started = std::chrono::steady_clock::now();
+    int visible_count = 0;
+    for (int i = 0; i < repeats; ++i) {
+        SetupVisibility(nullptr, host, &pvs, &pas);
+        visible_count += ENGINE_CHECK_VISIBILITY(target, pvs) != 0;
+    }
+    const auto elapsed = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count();
+    std::array<unsigned char, 8192> custom{};
+    const int custom_visible = ENGINE_CHECK_VISIBILITY(target, custom.data());
+    int restored_packet = -1;
+    if (options & 16) {
+        // Same server frame, same observer/target leaves: exercise actual
+        // ReGameDLL grace-cache invalidation at the revision barrier.
+        map_edits.restore();
+        ClearMapPhysics();
+        SetupVisibility(nullptr, host, &pvs, &pas);
+        restored_packet = AddToFullPack(&state, ENTINDEX(target), target, host, 1,
+                                       target_slot != 0, pvs);
+    }
+    CarvePrint("[GC visibility] visible=%d packet=%d custom=%d restored=%d leafs=%d head=%d "
+               "repeats=%d seen=%d us=%.6f\n", visible, packet, custom_visible, restored_packet,
+               target->num_leafs, target->headnode, repeats, visible_count, elapsed / repeats);
 }
 void CarveTrace() {
     if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS") || CMD_ARGC() != 9)
@@ -250,6 +327,7 @@ void GoldCraft_MapMiningInit() {
         ADD_SERVER_COMMAND("gc_edits_fixture", EditFixture);
         ADD_SERVER_COMMAND("gc_carve_fixture", CarveFixture);
         ADD_SERVER_COMMAND("gc_carve_status", CarveStatus);
+        ADD_SERVER_COMMAND("gc_carve_visibility", CarveVisibility);
         ADD_SERVER_COMMAND("gc_carve_trace", CarveTrace);
         ADD_SERVER_COMMAND("gc_carve_move", CarveMove);
 #endif
@@ -257,6 +335,9 @@ void GoldCraft_MapMiningInit() {
 }
 
 void GoldCraft_MapMiningReset(std::uint64_t epoch) {
+#ifdef GOLDCRAFT_HEADLESS_FIXTURE
+    visibility_probe = nullptr;
+#endif
     GoldCraft_MapMiningInit();
     mined_entities.clear();
     round_ended = cleanup_persist = false;
@@ -328,6 +409,16 @@ goldcraft::mining::Policy GoldCraft_MapMiningPolicy() {
     return policy;
 }
 const goldcraft::edits::Ledger &GoldCraft_MapEdits() { return map_edits; }
+
+bool GoldCraft_MapVisibilityChanged(int clientnum) {
+    if (clientnum < 0 || clientnum >= MAX_CLIENTS)
+        return false;
+    const auto next = std::make_pair(map_edits.state().epoch, map_edits.state().revision);
+    auto &last = visibility_revisions[clientnum];
+    const bool changed = last != next;
+    last = next;
+    return changed;
+}
 
 goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Request &q,
                                                    edict_t *player) {
