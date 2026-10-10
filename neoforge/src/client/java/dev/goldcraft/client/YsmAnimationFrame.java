@@ -40,6 +40,7 @@ final class YsmAnimationFrame {
         data.addProperty("ysmAnimationFrames",installed.started);
         data.addProperty("ysmAnimationCompleted",installed.completed);
         data.addProperty("ysmAnimationFailures",installed.failures);
+        data.addProperty("ysmAnimationActive",installed.active);
     }
 
     boolean begin(float tickDelta) {

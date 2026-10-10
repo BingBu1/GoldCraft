@@ -136,6 +136,7 @@ public final class HostInput {
         BlockFeedbackExporter.diagnostics(data);
         HostCamera.diagnostics(data);
         HostKeys.diagnostics(data);
+        AnimationDiagnostics.sample(client.player,data);
         GoldCraftClient.presentationDiagnostics(data);
         HostAudio.diagnostics(client,data);
         HostFootsteps.diagnostics(data);

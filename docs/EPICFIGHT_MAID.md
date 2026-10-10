@@ -42,6 +42,8 @@ GoldCraft 原来的保护逻辑会跳过所有非原版玩家 renderer，连已�
 
 新版完整构建通过 59 项 JUnit，覆盖正常、嵌套和部分失败后的清理，并已同步到主实例/A/B/服务端。B 已成功连接，但电脑控制在首次窗口清单调用报告物理 Escape，未继续发送游戏输入。普通模式待机、行走、挥动、R 往返及焦点恢复仍待实机验证；也不据此宣布透明遮挡、不可读模型或多人已兼容。
 
+后续验收用可选沙盒状态文件的 `epicFightMode` 区分 `VANILLA`／`EPICFIGHT`，结合 `hostKeys.accepted`、`swingProgress`、连续画面与 `ysmAnimationFrames`／`ysmAnimationCompleted`／`ysmAnimationFailures`／`ysmAnimationActive` 检查真实输入及动画生命周期。模式来自已安装 Epic Fight 的公开 getter，不从武器姿态猜测；接口异常单独记录为 `epicFightModeError`。仅在每 250 ms 的诊断采样中读取，方法句柄只解析一次。诊断版已构建并核对接口签名，当前运行实例尚未重启载入此追加诊断。
+
 ## 女仆 Molang 动画
 
 `.3` 支持 `ysm.bone_rot('名称').x/y/z` 与常量 `math.pi`。每个动画器读取上次完整提交的局部旋转，初始值为绑定姿态，按女仆本体的 X/Y 负角度、Z 正角度约定换算；仅在整次组合成功后发布，避免读到半完成姿态。相同 UUID 对应新的实体对象时重新建立状态。
