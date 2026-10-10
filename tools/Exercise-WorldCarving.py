@@ -268,7 +268,7 @@ class Run(rounds.Run):
         self.check('actual player reaches and stops at retained clip-only obstacle',math.dist(moved,clip_before['end'])<.1)
         status = self.physics()
         self.check('clip-only checks ran without physics fallback',status['traces']>0 and status['failures']==0 and not status['error'])
-        self.check('production geometry permission still unavailable',self.peer.policy[3]==1)
+        self.check('matched engine advertises world geometry capability',self.peer.policy[3]==3)
         self.report['graphicalOrMinecraftAcceptance'] = False
         self.report['runtimeErrors'] = {p.name:p.read_bytes()[self.error_offsets.get(p,0):].decode('utf-8',errors='replace')
             for p in (rounds.mining.base.AMXX/'logs').glob('error_*.log') if p.stat().st_size>self.error_offsets.get(p,0)}

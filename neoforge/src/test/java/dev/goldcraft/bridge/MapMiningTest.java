@@ -7,8 +7,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class MapMiningTest {
     @Test void nativeMaterialSamplesAreBoundedAndSeparateFromDamage() {
         var w=new Wire.Writer().i64(11).i64(2).i64(3).i32(1).i32(4).i32(5).i32(72).i32(9).i32(0).f32(20).f32(20)
-            .i32(1).i32(MapMining.GLASS).f32(10).f32(-20).f32(30).f32(0).f32(0).f32(1);
-        byte[] bytes=w.toByteArray();assertEquals(88,bytes.length);
+            .i32(1).i32(MapMining.GLASS).f32(10).f32(-20).f32(30).f32(0).f32(0).f32(1)
+            .i64(0).i32(0).i32(0).i32(0);
+        byte[] bytes=w.toByteArray();assertEquals(108,bytes.length);
         var sample=MapMining.surface(bytes);assertEquals(MapMining.GLASS,sample.material());assertEquals(-20,sample.y());
         assertEquals(sample.result().before(),sample.result().after());
         for(int n=0;n<bytes.length;n++) {
@@ -18,6 +19,17 @@ class MapMiningTest {
             byte[] bad=bytes.clone();bad[offset]=(byte)255;assertThrows(IllegalArgumentException.class,()->MapMining.surface(bad));
         }
         Arrays.fill(bytes,84,88,(byte)0);assertThrows(IllegalArgumentException.class,()->MapMining.surface(bytes));
+    }
+    @Test void geometrySamplesCarryBoundedNativeCellAndEditRevision() {
+        var w=new Wire.Writer().i64(11).i64(2).i64(3).i32(1).i32(4).i32(5).i32(0).i32(0).i32(0).f32(0).f32(0)
+            .i32(2).i32(MapMining.STONE).f32(10).f32(-20).f32(30).f32(0).f32(0).f32(1)
+            .i64(9).i32(-1).i32(90).i32(12);
+        byte[] bytes=w.toByteArray();var s=MapMining.surface(bytes);
+        assertEquals(9,s.editRevision());assertEquals(new MapMining.Cell(-1,90,12),s.cell());
+        byte[] invalid=bytes.clone();invalid[56]=1;
+        assertThrows(IllegalArgumentException.class,()->MapMining.surface(invalid));
+        java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN).putInt(96,1024);
+        assertThrows(IllegalArgumentException.class,()->MapMining.surface(bytes));
     }
     @Test void disabledUntilAuthoritativePolicyAndResetOnMapChange(){
         var host=new HostWorldState();assertFalse(host.mining().enabled());

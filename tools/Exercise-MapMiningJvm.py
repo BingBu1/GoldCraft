@@ -246,6 +246,72 @@ class Run(mining.Run):
         physics = self.command("gc_carve_status")
         self.check("JVM collision fixture has no native query fallback", "failures=0 " in physics)
 
+    def producer_checks(self):
+        self.action("held", value=False)
+        self.restore_geometry()
+        self.command("mc_map_mining 2")
+        self.until(lambda: self.probe()["mode"] == 2, "World mining policy reaches JVM")
+        self.action("mode", value="survival")
+        self.action("item", value="minecraft:iron_pickaxe")
+        self.action("ground", value=True)
+        self.action("aim", eye=(80,2784,400), point=(80,2888,400))
+        self.until(lambda: self.probe()["target"] == 0, "World BSP surface selected through production raycast")
+        self.action("speed", factor=1, cancel=True)
+        self.action("held", value=True)
+        self.ticks(20)
+        self.action("held", value=False)
+        self.check("NeoForge BreakSpeed cancellation prevents geometry commits", self.probe()["editCount"] == 0
+                   and self.probe()["speedMaterial"] == "minecraft:stone")
+        self.action("speed", factor=.02, cancel=False)
+        self.action("held", value=True)
+        accumulated = self.until(lambda: (p if float((p := self.probe()).get("intent",{}).get("progress",0)) > .015 else None), "Gradual world-cell mining progress")
+        self.action("aim", eye=(112,2784,400), point=(112,2888,400))
+        changed = self.until(lambda: (p if int((p := self.probe()).get("intent",{}).get("generation",0)) > int(accumulated["intent"]["generation"]) else None), "Changed surface resets progress")
+        self.check("a different world cell cannot inherit Minecraft progress", float(changed["intent"]["progress"]) < float(accumulated["intent"]["progress"])
+                   and changed["editCount"] == 0)
+        self.action("held", value=False)
+        self.action("speed", factor=1, cancel=False)
+        self.action("mode", value="creative")
+        self.action("item", value="minecraft:diamond_sword")
+        self.action("held", value=True)
+        self.ticks(12)
+        self.action("held", value=False)
+        self.check("creative sword retains vanilla geometry mining restriction", self.probe()["editCount"] == 0)
+        self.action("mode", value="survival")
+        self.action("item", value="minecraft:iron_pickaxe")
+        self.action("held", value=True)
+        self.until(lambda: self.probe()["editCount"] > 0, "Real survival progress commits sampled native world cell")
+        self.action("held", value=False)
+        self.ticks(5)
+        mined = self.probe()
+        self.check("survival tool durability follows acknowledged geometry commits", mined["toolDamage"] == mined["editCount"] and mined["toolDamage"] > 0)
+        self.check("actual native and JVM ledgers agree after survival excavation", mined["editCount"] == self.state()["mapEditCount"]
+                   and mined["editRevision"] == self.state()["mapEditRevision"])
+        self.action("mode", value="creative")
+        damage = mined["toolDamage"]
+        for z in (368,400,432):
+            for x in (80,112):
+                self.action("aim", eye=(x,2784,z), point=(x,2888,z))
+                self.action("held", value=True)
+                self.until(lambda: self.probe()["rayType"] == "MISS", "Held Minecraft input excavates entire bounded tunnel row", 20)
+                self.action("held", value=False)
+        self.ticks(4)
+        carved = self.probe()
+        self.check("production geometry edits are bounded world-grid cells", len(carved["editCells"]) > 1
+                   and all(row[0] == 0 and all(row[5+i]-row[2+i] == 32 and row[2+i] % 32 == 0 for i in range(3))
+                           for row in carved["editCells"]))
+        self.check("creative geometric excavation consumes no survival durability", carved["toolDamage"] == damage)
+        opened = self.geometry(start=(96,2784,400), end=(96,2976,400))
+        self.check("actual Minecraft Entity.move crosses a gameplay-mined tunnel", abs(opened["moved"] - 192) < .001
+                   and not opened["rayBlocked"] and not opened["cellSolid"])
+        rim = self.geometry(start=(120,2784,400), end=(120,2976,400))
+        self.check("gameplay-mined tunnel retains Minecraft body collision at rim", rim["moved"] < 192)
+        self.restore_geometry()
+        restored = self.geometry(start=(96,2784,400), end=(96,2976,400))
+        self.check("round reset restores Minecraft collision after actual mining", 0 < restored["moved"] < 192
+                   and restored["rayBlocked"] and restored["cellSolid"])
+        self.report["gameplayMinedCells"] = carved["editCount"]
+
     def material_checks(self):
         self.action("speed", factor=1, cancel=True)
         self.action("ground", value=True)
@@ -443,6 +509,7 @@ class Run(mining.Run):
         self.until(lambda: self.probe()["editsReady"] and self.probe()["editCount"] == 300, "Production NeoForge requests lost full state")
         self.check("NeoForge resynchronizes without changing authoritative ledger", self.probe()["editRevision"] == self.state()["mapEditRevision"])
         self.geometry_checks()
+        self.producer_checks()
         self.report["finalMinecraft"] = self.probe()
         self.report["runtimeErrors"] = {p.name: p.read_bytes()[self.error_offsets.get(p, 0):].decode("utf-8", errors="replace")
             for p in (mining.base.AMXX / "logs").glob("error_*.log") if p.stat().st_size > self.error_offsets.get(p, 0)}

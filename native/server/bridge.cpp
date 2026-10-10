@@ -715,6 +715,7 @@ void GoldCraft_StartFrame() {
             for(int i=1;i<=max_clients;++i){ReleaseControl(i);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
+            GoldCraft_MapMiningInvalidateSamples();
             edit_revision_sent=0;next_edit_query=0;
             connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");
         }

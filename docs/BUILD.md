@@ -14,6 +14,8 @@
 
 比较 GL 提交开销时，将旧提交的 `render_backend.cpp/.hpp` 保存到本地分析目录，用 `GOLDCRAFT_RENDER_BASELINE` 指向它并重新构建。`Verify-RenderBackend.py --reference <旧提交>` 校验保存源码、交替运行三组新旧独立程序、核对像素及调用计数并记录文件保护结果。场景 shader 是测试夹具，HUD 使用生产 shader；该报告不替代实际 B／Renderer 场景及同视角 FPS 验收。
 
+静态世界挖掘独立验证先运行 `Build-Native.ps1 -Server -HeadlessFixture`、`Build-ReHLDS.ps1` 和 `Build-NeoForge.ps1`，再依次执行 `python tools/Exercise-MiningProducer.py`、`python tools/Exercise-MapMiningJvm.py`。它们共用独立测试服，必须串行；会临时部署并还原测试目录，不启动主沙盒。当前源码协议 22 必须与原生客户端／GameDLL／NeoForge 核心配套部署。
+
 `sources.lock.json` 固定 MetaHookSv、MetaHook core、Renderer、BulletPhysics、InterpFix、FreeImage、ReGameDLL_CS、ReHLDS、AMXX、ReAPI、SyPB 和 amxx-builder 版本。当前 MetaHookSv 为 `v20261008b`，根提交 `063a18c2ad9f19c34a01bc6906a78c5a7270a5b3`；复用历史命名的 `external/MetaHookSv-20261007` 目录以保留依赖缓存，版本以锁文件和实际 Git 提交为准。源码准备脚本下载到 `external` 并应用列明的补丁；遇到已有不同版本或冲突时拒绝覆盖。SkyCraft 作为设计来源列在锁文件中，不参与当前构建。
 
 可选的 [Nade Modes](../amxx/nade_modes/README.md) 通过三个官方附件和独立 SHA-256 清单重建。其 Pawn 使用 AMXX 1.9.0.5303 编译；只把字节码、语言和配置部署到服务器，源码留在分类后的 `amxx/nade_modes`。

@@ -131,6 +131,7 @@ class Run(base.Run):
         super().__init__()
         self.peer = None
         self.event = 0
+        self.sample_event = 0
         self.uuid = uuid.uuid4().bytes
         self.bindings = base.TEST / "mining-bindings.bin"
         self.report = {"scope": __doc__, "commands": [], "artifacts": self.artifacts, "checks": {}, "protocol": VERSION}
@@ -292,10 +293,12 @@ class Run(base.Run):
         actor = self.peer.actors[self.slot]
         q = dict(epoch=self.peer.world, revision=self.peer.policy[1], event=self.event, slot=self.slot,
                  serial=actor["serial"], life=actor["life"], uuid=self.uuid, target=self.target_slot,
-                 target_serial=self.target_serial, model=self.model, point=self.point, damage=2., reach=192.)
+                 target_serial=self.target_serial, model=self.model, point=self.point, damage=2., reach=192.,
+                 sample_event=0 if sample else self.sample_event)
         q.update(overrides)
         payload = struct.pack("<QQQIII", q["epoch"], q["revision"], q["event"], q["slot"], q["serial"], q["life"]) + q["uuid"]
         payload += struct.pack("<III5f", q["target"], q["target_serial"], q["model"], *q["point"], q["damage"], q["reach"])
+        payload += struct.pack("<Q", q["sample_event"])
         self.peer.send(62 if sample else 57, payload)
         raw = self.until(lambda: self.peer.take(63 if sample else 58, lambda b: struct.unpack_from("<Q", b, 8)[0] == q["event"]), "Mining result")
         values = struct.unpack("<QQQ6I2f", raw[:56])
@@ -303,6 +306,10 @@ class Run(base.Run):
         if sample:
             kind, material, *geometry = struct.unpack_from("<II6f", raw, 56)
             result.update(kind=kind, material=material, point=geometry[:3], normal=geometry[3:])
+            revision, *cell = struct.unpack_from("<Q3i", raw, 88)
+            result.update(edit_revision=revision, cell=cell)
+            if revision and result["status"] == 0:
+                self.sample_event = result["event"]
         self.report.setdefault("results", []).append(dict(result, actor=actor, frozen=self.peer.frozen, sample=sample))
         return result
 
@@ -385,7 +392,7 @@ class Run(base.Run):
         self.check("ordinary door with health but no damage callback is protected", self.request()["status"] == 6)
         self.set_mode(2)
         self.rested()
-        self.check("unfinished geometry path reports unavailable rather than false success", self.request()["status"] == 9 and self.peer.policy[3] == 1)
+        self.check("dynamic brush geometry remains unavailable pending client identity", self.request()["status"] == 9 and self.peer.policy[3] == 3)
         self.set_mode(1.5)
         self.check("invalid fractional cvar value disables mining", self.request()["status"] == 1)
         self.report["geometryExcavationImplemented"] = False

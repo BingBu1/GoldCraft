@@ -21,6 +21,13 @@ mining::Policy policy;
 edits::Ledger map_edits;
 std::array<std::pair<std::uint64_t, std::uint64_t>, MAX_CLIENTS> visibility_revisions;
 IHostMapPhysics *map_physics = nullptr;
+struct MiningSample {
+    mining::Request request;
+    mining::Cell cell;
+    std::uint64_t edit_revision = 0;
+    float expires = 0;
+};
+std::array<MiningSample, MAX_CLIENTS + 1> mining_samples;
 struct MinedEntity {
     int serial;
     CBaseEntity *object;
@@ -40,6 +47,35 @@ void ClearMapPhysics() {
     if (map_physics)
         map_physics->Reset(map_edits.state().epoch, map_edits.state().revision);
 }
+bool CommitCut(edits::Target target, edits::Box box) {
+    if (!map_physics) throw ProtocolError("Map physics API unavailable");
+    auto candidate = map_edits;
+    if (!candidate.add(target, box)) return false;
+    std::vector<HostMapCut> cuts;
+    cuts.reserve(candidate.state().cuts.size());
+    for (const auto &cut : candidate.state().cuts) {
+        HostMapCut copy{cut.target.slot, cut.target.serial, cut.target.model, {}, {}};
+        for (int i = 0; i < 3; ++i) {
+            copy.min[i] = cut.box.min[i];
+            copy.max[i] = cut.box.max[i];
+        }
+        cuts.push_back(copy);
+    }
+    // Allocate the candidate journal before the engine transaction. Replace
+    // prepares every hull and PVS/PAS cache before publication; swap cannot fail.
+    if (!map_physics->Replace(candidate.state().epoch, candidate.state().revision, cuts.data(),
+                              static_cast<unsigned>(cuts.size())))
+        throw ProtocolError(map_physics->LastError());
+    map_edits.swap(candidate);
+    return true;
+}
+mining::Cell WorldCell(const mining::Request &q, edict_t *player, const TraceResult &trace) {
+    const Vector source = player->v.origin + player->v.view_ofs;
+    const Vector point(q.point.x, q.point.y, q.point.z);
+    const Vector end = point + (point - source).Normalize();
+    return mining::surface_cell({source.x, source.y, source.z}, {end.x, end.y, end.z},
+        {trace.vecPlaneNormal.x, trace.vecPlaneNormal.y, trace.vecPlaneNormal.z}, trace.flPlaneDist);
+}
 #ifdef GOLDCRAFT_HEADLESS_FIXTURE
 edict_t *visibility_probe = nullptr;
 template <class... Args> void CarvePrint(const char *format, Args... args) {
@@ -47,9 +83,8 @@ template <class... Args> void CarvePrint(const char *format, Args... args) {
     std::snprintf(text, sizeof(text), format, args...);
     g_engfuncs.pfnServerPrint(text);
 }
-// The production permission remains unavailable until matching client/Renderer
-// and Minecraft collision can commit the same edit. Only this fixture can call
-// the engine transaction while those integrations are pending.
+// Arbitrary boxes remain test-only. Production mining commits only a native
+// sample's world-grid cell after retracing and validating its saved identity.
 void CarveFixture() {
     if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS"))
         return;
@@ -79,26 +114,12 @@ void CarveFixture() {
                 return;
             (i < 3 ? box.min : box.max)[i % 3] = value;
         }
-        auto candidate = map_edits;
-        if (!candidate.add(target, box)) {
+        if (!CommitCut(target, box)) {
             CarvePrint("[GC carve] unchanged=%llu\n", map_edits.state().revision);
             return;
         }
-        std::vector<HostMapCut> cuts;
-        for (const auto &cut : candidate.state().cuts) {
-            HostMapCut copy{cut.target.slot, cut.target.serial, cut.target.model, {}, {}};
-            for (int i = 0; i < 3; ++i) {
-                copy.min[i] = cut.box.min[i];
-                copy.max[i] = cut.box.max[i];
-            }
-            cuts.push_back(copy);
-        }
-        if (!map_physics->Replace(candidate.state().epoch, candidate.state().revision, cuts.data(),
-                                  static_cast<unsigned>(cuts.size())))
-            throw std::runtime_error(map_physics->LastError());
-        map_edits.swap(candidate);
         CarvePrint("[GC carve] committed=%llu cuts=%u\n", map_edits.state().revision,
-                   static_cast<unsigned>(cuts.size()));
+                   static_cast<unsigned>(map_edits.state().cuts.size()));
     } catch (const std::exception &failure) {
         CarvePrint("[GC carve] rejected=%s\n", failure.what());
     }
@@ -272,6 +293,7 @@ void EditFixture() {
 }
 #endif
 void InvalidateRequests() {
+    mining_samples = {};
     if (!policy.epoch)
         return;
     if (policy.revision == std::numeric_limits<std::uint64_t>::max())
@@ -349,8 +371,11 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     const auto factory = Sys_GetFactory("swds.dll");
     map_physics =
         factory ? static_cast<IHostMapPhysics *>(factory(host_map_api_version, nullptr)) : nullptr;
+    policy.capabilities |= map_physics ? mining::geometry_carving : 0;
+    mining_samples = {};
     ClearMapPhysics();
 }
+void GoldCraft_MapMiningInvalidateSamples() { mining_samples = {}; }
 
 void GoldCraft_MapMiningFrame() {
     if (!policy.epoch || !g_pGameRules || !g_pGameRules->IsMultiplayer())
@@ -496,8 +521,30 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
         return result;
     const auto kind = TargetKind(target);
     if (kind == Target::geometry) {
+        // Dynamic brushes also need a verified client-side entity incarnation.
+        // Until that path is integrated they cannot enter a world-only ledger.
         result.status = Status::geometry_unavailable;
-        return result; // Do not acknowledge a hole until rendering AND collision can commit it.
+        if (q.target || !map_physics) return result;
+        result.status = Status::invalid_target;
+        if (!q.slot || q.slot >= mining_samples.size()) return result;
+        auto &sample = mining_samples[q.slot];
+        const auto &saved = sample.request;
+        if (!q.sample || q.sample != saved.event || q.epoch != saved.epoch ||
+            q.revision != saved.revision || q.serial != saved.serial || q.life != saved.life ||
+            q.uuid != saved.uuid || q.target != saved.target || q.target_serial != saved.target_serial ||
+            q.model != saved.model || gpGlobals->time >= sample.expires ||
+            sample.edit_revision != map_edits.state().revision) return result;
+        try {
+            if (WorldCell(q, player, trace) != sample.cell) return result;
+            const auto box = cell_box(sample.cell);
+            sample = {}; // A completed sample authorizes at most one attempt.
+            result.status = CommitCut({}, box) ? Status::applied : Status::no_effect;
+            if (result.status == Status::applied) result.before = 1;
+        } catch (const std::exception &error) {
+            result.status = Status::geometry_unavailable;
+            ALERT(at_console, "Map mining geometry rejected: %s\n", error.what());
+        }
+        return result;
     }
     auto *object = GET_PRIVATE<CBaseEntity>(target);
     const auto serial = target->serialnumber;
@@ -536,6 +583,17 @@ goldcraft::mining::Surface GoldCraft_MapMiningSample(const goldcraft::mining::Re
     surface.point = {trace.vecEndPos.x, trace.vecEndPos.y, trace.vecEndPos.z};
     surface.normal = {trace.vecPlaneNormal.x, trace.vecPlaneNormal.y, trace.vecPlaneNormal.z};
     surface.result.before = surface.result.after = std::isfinite(target->v.health) ? target->v.health : 0;
+    if (surface.kind == Target::geometry && !q.target && map_physics &&
+        q.slot && q.slot < mining_samples.size()) {
+        try {
+            surface.cell = WorldCell(q, player, trace);
+            surface.edit_revision = map_edits.state().revision;
+            mining_samples[q.slot] = {q, surface.cell, surface.edit_revision, gpGlobals->time + 2.0f};
+        } catch (const std::exception &) {
+            surface.result.status = Status::invalid_target;
+            return surface;
+        }
+    }
     // These exact ReGameDLL classes share CBreakable's public m_Material field.
     // Do not cast unrelated/plugin entities based on a guessed private offset.
     if (FClassnameIs(target, "func_breakable") || FClassnameIs(target, "func_pushable")) {

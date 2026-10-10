@@ -45,7 +45,7 @@ class Run(rounds.Run):
         self.check("two edits retain consecutive distinct deltas", a[:4] == (self.peer.world, 1, 2, 1)
                    and b[:4] == (self.peer.world, 2, 3, 1) and a[4:7] == (0, 0, 0) and a[7:] == (0, 0, 0, 1, 1, 1)
                    and b[7:] == (2, 0, 0, 3, 1, 1))
-        self.check("synthetic records do not enable geometry mining", self.peer.policy[3] == 1)
+        self.check("matched engine advertises geometry capability independently of synthetic records", self.peer.policy[3] == 3)
         self.peer.send(60, second)
         self.until(lambda: self.state()["mapEditRevision"] == 3, "Native edit status")
         time.sleep(.2)

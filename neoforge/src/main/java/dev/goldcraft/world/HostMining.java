@@ -19,7 +19,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** MC computes real tool progress against a native sample; HLDS retraces every damage commit. */
+/** MC computes real tool progress; HLDS retraces damage and sampled cell commits. */
 public final class HostMining {
     private static final Map<UUID, Intent> INTENTS = new HashMap<>();
     private static final Map<Long, Pending> PENDING = new HashMap<>();
@@ -33,12 +33,14 @@ public final class HostMining {
 
     private static final class Intent {
         long epoch, revision, lastIntent, nextTick, pending, generation, sampleUntil;
+        long sampleEvent;
         int serial, life;
         boolean held, mineable;
         float progress;
         Target target;
         ItemStack tool, toolCopy;
         BlockState material;
+        BlockPos miningCell;
         GameMode mode;
 
         void reset() {
@@ -49,13 +51,15 @@ public final class HostMining {
             material = null;
             progress = 0;
             sampleUntil = 0;
+            sampleEvent = 0;
+            miningCell = null;
             mineable = false;
         }
     }
 
     private record Pending(UUID player, HostWorldState.Actor actor, Target target, ItemStack tool,
                            ItemStack toolCopy, BlockState material, long revision, long generation, GameMode mode,
-                           boolean sample, long expires) {}
+                           BlockPos miningCell, boolean sample, long expires) {}
 
     private HostMining() {}
     public static void clear() { INTENTS.clear(); PENDING.clear(); event = tick = policyRevision = 0; }
@@ -132,12 +136,13 @@ public final class HostMining {
             var material = state.material;
             // Pinned NeoForge APIs include BreakSpeed and HarvestCheck, tool components,
             // mining attributes, effects, and the water/air penalties.
-            if (!state.mineable || !player.getWorld().canPlayerModifyAt(player, key.cell())
-                || !tool.getItem().canMine(material, player.getWorld(), key.cell(), player)
-                || mode != GameMode.CREATIVE && material.getHardness(player.getWorld(), key.cell()) < 0) {
+            var cell = state.miningCell;
+            if (!state.mineable || !player.getWorld().canPlayerModifyAt(player, cell)
+                || !tool.getItem().canMine(material, player.getWorld(), cell, player)
+                || mode != GameMode.CREATIVE && material.getHardness(player.getWorld(), cell) < 0) {
                 state.progress = 0; continue;
             }
-            float delta = mode == GameMode.CREATIVE ? 1 : material.calcBlockBreakingDelta(player, player.getWorld(), key.cell());
+            float delta = mode == GameMode.CREATIVE ? 1 : material.calcBlockBreakingDelta(player, player.getWorld(), cell);
             if (!Float.isFinite(delta) || delta <= 0) { state.progress = 0; continue; }
             state.progress = Math.min(1, state.progress + delta);
             if (state.progress < 1) continue;
@@ -158,11 +163,11 @@ public final class HostMining {
         long sequence = ++event;
         var point = HostCollision.goldsrc(target.getPos().x, target.getPos().y, target.getPos().z);
         var request = MapMining.request(policy, sequence, actor, target.slot, target.serial, target.model,
-            point.x(), point.y(), point.z(), amount, (float)(reach * Wire.UNITS_PER_BLOCK));
+            point.x(), point.y(), point.z(), amount, (float)(reach * Wire.UNITS_PER_BLOCK), sample ? 0 : state.sampleEvent);
         if (!GoldCraft.sendToHost(sample ? Wire.MAP_MINING_SAMPLE : Wire.MAP_MINING_REQUEST, request)) return false;
         state.pending = sequence;
         PENDING.put(sequence, new Pending(id, actor, state.target, state.tool, state.tool.copy(), state.material,
-            policy.revision(), state.generation, state.mode, sample, tick + 40));
+            policy.revision(), state.generation, state.mode, state.miningCell, sample, tick + 40));
         return true;
     }
 
@@ -201,10 +206,19 @@ public final class HostMining {
             state.reset(); return;
         }
         var material = HostMiningMaterials.state(surface.material());
-        if (state.material != material) state.progress = 0;
+        if (surface.editRevision() != 0 && surface.editRevision() != host.edits().revision()) {
+            state.reset(); return;
+        }
+        var nativeCell = surface.cell();
+        var cell = surface.editRevision() != 0
+            ? new BlockPos(nativeCell.x(), nativeCell.z() + (int)Wire.Y_OFFSET, -nativeCell.y() - 1)
+            : state.target.cell();
+        if (state.material != material || !cell.equals(state.miningCell)) state.progress = 0;
         state.material = material;
+        state.miningCell = cell;
+        state.sampleEvent = surface.editRevision() != 0 ? result.event() : 0;
         state.mineable = surface.kind() == 1 || host.mining().mode() == MapMining.ALL_GEOMETRY
-            && (host.mining().capabilities() & MapMining.GEOMETRY_CARVING) != 0;
+            && (host.mining().capabilities() & MapMining.GEOMETRY_CARVING) != 0 && surface.editRevision() != 0;
         state.sampleUntil = tick + 10;
     }
 
@@ -217,6 +231,6 @@ public final class HostMining {
         var player = server.getPlayerManager().getPlayer(pending.player());
         if (result.after() > 0 || !validResult(pending, result, player, host.actor(pending.player()), host)
             || player.interactionManager.getGameMode() != GameMode.SURVIVAL) return;
-        pending.tool().postMine(player.getWorld(), pending.material(), pending.target().cell(), player);
+        pending.tool().postMine(player.getWorld(), pending.material(), pending.miningCell(), player);
     }
 }

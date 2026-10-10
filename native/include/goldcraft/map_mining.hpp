@@ -1,5 +1,6 @@
 #pragma once
 #include "goldcraft/wire.hpp"
+#include "goldcraft/mining_cell.hpp"
 #include <cmath>
 #include <limits>
 
@@ -53,18 +54,19 @@ struct Request {
     std::uint32_t target = 0, target_serial = 0, model = 0;
     Vec3 point{};
     float damage = 0, reach = 0;
+    std::uint64_t sample = 0;
 };
 inline Bytes encode_request(const Request& q) {
     Writer w; w.u64(q.epoch); w.u64(q.revision); w.u64(q.event);
     w.u32(q.slot); w.u32(q.serial); w.u32(q.life); w.bytes(q.uuid);
     w.u32(q.target); w.u32(q.target_serial); w.u32(q.model);
-    w.f32(q.point.x); w.f32(q.point.y); w.f32(q.point.z); w.f32(q.damage); w.f32(q.reach); return w.data;
+    w.f32(q.point.x); w.f32(q.point.y); w.f32(q.point.z); w.f32(q.damage); w.f32(q.reach); w.u64(q.sample); return w.data;
 }
 inline Request decode_request(std::span<const std::uint8_t> bytes) {
     Reader r(bytes); Request q; q.epoch = r.u64(); q.revision = r.u64(); q.event = r.u64();
     q.slot = r.u32(); q.serial = r.u32(); q.life = r.u32(); q.uuid = r.key();
     q.target = r.u32(); q.target_serial = r.u32(); q.model = r.u32();
-    q.point = {r.f32(), r.f32(), r.f32()}; q.damage = r.f32(); q.reach = r.f32(); r.finish();
+    q.point = {r.f32(), r.f32(), r.f32()}; q.damage = r.f32(); q.reach = r.f32(); q.sample = r.u64(); r.finish();
     if (!q.epoch || !q.revision || !q.event || !q.slot || q.slot > 64 || !q.serial || !q.life ||
         q.target > 32767 || q.model > 4095 || (q.target == 0 && (q.model || q.target_serial)) ||
         (q.target != 0 && q.model == 0) || q.damage <= 0 || q.damage > 5000 || q.reach <= 0 || q.reach > 192 ||
@@ -100,6 +102,9 @@ struct Surface {
     Target kind = Target::none;
     Material material = Material::stone;
     Vec3 point{}, normal{};
+    // Nonzero only when this sample can authorize a geometric cell commit.
+    std::uint64_t edit_revision = 0;
+    Cell cell{};
 };
 inline Bytes encode_surface(const Surface& surface) {
     Writer w; w.bytes(encode_result(surface.result));
@@ -107,15 +112,19 @@ inline Bytes encode_surface(const Surface& surface) {
     w.u32(static_cast<std::uint32_t>(surface.material));
     w.f32(surface.point.x); w.f32(surface.point.y); w.f32(surface.point.z);
     w.f32(surface.normal.x); w.f32(surface.normal.y); w.f32(surface.normal.z);
+    w.u64(surface.edit_revision); w.i32(surface.cell.x); w.i32(surface.cell.y); w.i32(surface.cell.z);
     return w.data;
 }
 inline Surface decode_surface(std::span<const std::uint8_t> bytes) {
     Reader r(bytes); Surface s; s.result = decode_result(r.bytes(56));
     const auto kind = r.u32(), material = r.u32();
     s.kind = static_cast<Target>(kind); s.material = static_cast<Material>(material);
-    s.point = {r.f32(), r.f32(), r.f32()}; s.normal = {r.f32(), r.f32(), r.f32()}; r.finish();
+    s.point = {r.f32(), r.f32(), r.f32()}; s.normal = {r.f32(), r.f32(), r.f32()};
+    s.edit_revision = r.u64(); s.cell = {r.i32(), r.i32(), r.i32()}; r.finish();
     const float length = s.normal.x*s.normal.x + s.normal.y*s.normal.y + s.normal.z*s.normal.z;
-    if (kind > 2 || material > 9 || std::abs(s.point.x) > 16384 || std::abs(s.point.y) > 16384 ||
+    if (kind > 2 || material > 9 || !valid_cell(s.cell) ||
+        (s.edit_revision && (s.kind != Target::geometry || s.result.status != Status::applied)) ||
+        std::abs(s.point.x) > 16384 || std::abs(s.point.y) > 16384 ||
         std::abs(s.point.z) > 16384 || (s.result.status == Status::applied &&
         (kind == 0 || length < 0.98f || length > 1.02f))) throw ProtocolError("Mining surface bounds");
     return s;

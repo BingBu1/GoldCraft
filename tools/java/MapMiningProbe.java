@@ -261,6 +261,14 @@ public final class MapMiningProbe {
             out.addProperty("policyRevision",host.mining().revision()); out.addProperty("freeze",host.freeze());
             out.addProperty("editsReady",host.edits().ready());out.addProperty("editRevision",host.edits().revision());
             out.addProperty("editCount",host.edits().cuts().size());
+            var cells=new com.google.gson.JsonArray();
+            for(var cut:host.edits().cuts()){
+                var row=new com.google.gson.JsonArray();var box=cut.box();
+                row.add(cut.target().slot());row.add(cut.id());
+                for(float value:new float[]{box.minX(),box.minY(),box.minZ(),box.maxX(),box.maxY(),box.maxZ()})row.add(value);
+                cells.add(row);
+            }
+            out.add("editCells",cells);
             out.addProperty("slot",slot); out.addProperty("actorFlags",actor==null?0:actor.flags());
             out.addProperty("held",held); out.addProperty("renew",renew); out.addProperty("error",error);
             out.addProperty("statusRetries",statusRetries);
@@ -286,7 +294,7 @@ public final class MapMiningProbe {
                 var intent=((Map<?,?>)intents.get(null)).get(uuid);
                 if(intent!=null){
                     var detail=new JsonObject();
-                    for(String name:new String[]{"held","epoch","revision","serial","life","lastIntent","nextTick","pending","progress","material","sampleUntil","generation"}){
+                    for(String name:new String[]{"held","epoch","revision","serial","life","lastIntent","nextTick","pending","progress","material","sampleUntil","generation","miningCell","sampleEvent"}){
                         var field=intent.getClass().getDeclaredField(name);field.setAccessible(true);
                         detail.addProperty(name,String.valueOf(field.get(intent)));
                     }

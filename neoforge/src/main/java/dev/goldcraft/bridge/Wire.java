@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public final class Wire {
     private Wire() {}
-    public static final int MAGIC = 0x31464347, VERSION = 21, HEADER_BYTES = 32;
+    public static final int MAGIC = 0x31464347, VERSION = 22, HEADER_BYTES = 32;
     public static final int MAX_PAYLOAD = 32 * 1024 * 1024, MAX_QUEUED = 64 * 1024 * 1024;
     public static final float UNITS_PER_BLOCK = 32.0f, Y_OFFSET = 64.0f;
     public static final int HOST_CLIENT = 1, FABRIC_CLIENT = 2, HOST_SERVER = 3, FABRIC_SERVER = 4;
