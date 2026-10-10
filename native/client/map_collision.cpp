@@ -53,6 +53,7 @@ struct SourceHull {
     HullView view() const { return {planes, nodes, root}; }
 };
 std::shared_ptr<const Prepared> active;
+brush::Receiver identities;
 std::uint64_t traces = 0, positions = 0, points = 0, frames = 0, failures = 0;
 std::uint64_t event_traces = 0;
 playermove_t *event_movement = nullptr;
@@ -444,6 +445,7 @@ event_api_t *event_api(event_api_t *source) {
 }
 void movement_initialized(playermove_t *movement) noexcept { event_movement = movement; }
 void shutdown_events() noexcept { event_movement = nullptr; }
+brush::Receiver &brush_identities() noexcept { return identities; }
 void reset() { active.reset(); }
 Candidate prepare(const edits::Replica &replica, model_t *loaded) {
     if (!replica.ready())

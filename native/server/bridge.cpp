@@ -577,6 +577,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         form_message=REG_USER_MSG("GCForm",16);
         object_message=REG_USER_MSG("GCObj",56);
         edit_message=REG_USER_MSG("GCEdit",-1);
+        REG_USER_MSG("GCBrush",-1);
         // The world edict selects serverinfo; nullptr selects localinfo in
         // ReHLDS. Ordinary servers therefore never trigger the client handshake.
         SET_KEY_VALUE(GET_INFO_BUFFER(edicts),"mc_protocol",std::to_string(protocol_version).c_str());

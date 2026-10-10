@@ -1,5 +1,6 @@
 #pragma once
 #include "goldcraft/map_edits.hpp"
+#include "goldcraft/brush_identity.hpp"
 #include <iosfwd>
 #include <memory>
 struct playermove_s;
@@ -17,5 +18,8 @@ void move(playermove_s *movement, int server, void (*original)(playermove_s *, i
 event_api_s *event_api(event_api_s *source);
 void movement_initialized(playermove_s *movement) noexcept;
 void shutdown_events() noexcept;
+// Identity is separate from collision commits, and is reset only at binding or
+// disconnect. Dynamic cutting stays disabled until all consumers use it.
+brush::Receiver &brush_identities() noexcept;
 void write_status(std::ostream &out);
 } // namespace goldcraft::client_map

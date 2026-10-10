@@ -3,6 +3,7 @@
 #include "map_visibility.h"
 #include "goldcraft/edited_hull.hpp"
 #include "goldcraft/host_map_api.hpp"
+#include "goldcraft/brush_identity.hpp"
 #include <array>
 #include <cstdlib>
 #include <map>
@@ -109,6 +110,7 @@ class MapPhysics final : public IHostMapPhysics {
             auto visible = engine_map::prepare_visibility(g_psv.worldmodel,
                 groups.contains(0) ? std::span<const Box>(groups.at(0)) : std::span<const Box>{});
             targets.swap(next);
+            has_brushes = targets.size() > (targets.contains(0) ? 1u : 0u);
             engine_map::commit_visibility(std::move(visible));
             stats.revision = revision;
             stats.targets = static_cast<std::uint32_t>(targets.size());
@@ -123,6 +125,8 @@ class MapPhysics final : public IHostMapPhysics {
     void Reset(std::uint64_t epoch, std::uint64_t revision) override {
         engine_map::commit_visibility({});
         targets.clear();
+        has_brushes = false;
+        identity_message = 0;
         // Restoration is a revision barrier in the same map session.
         if (stats.epoch != epoch)
             stats = {epoch, revision, 0, 0, 0, 0};
@@ -134,6 +138,55 @@ class MapPhysics final : public IHostMapPhysics {
     }
     const char *LastError() const override { return error.c_str(); }
     HostMapStats Stats() const override { return stats; }
+    void identities(client_t *client, packet_entities_t *pack, sizebuf_t *message) {
+        if (!has_brushes || !client || client->fakeclient || !client->fully_connected ||
+            !pack || pack->num_entities < 0 || pack->num_entities > int(brush::max_entities) ||
+            (pack->num_entities && !pack->entities) || !message || !message->data ||
+            message->cursize < 0 || message->cursize > message->maxsize ||
+            (message->flags & SIZEBUF_OVERFLOWED) ||
+            Q_strcmp(Info_ValueForKey(client->userinfo, brush::capability), brush::capability_value))
+            return;
+        if (!identity_message) {
+            for (auto *registered = sv_gpUserMsgs; registered; registered = registered->next)
+                if (registered->iSize == -1 && !Q_strcmp(registered->szName, brush::message_name)) {
+                    identity_message = registered->iMsg;
+                    break;
+                }
+            if (!identity_message) return;
+        }
+        brush::Frame frame;
+        frame.epoch = stats.epoch; frame.revision = stats.revision;
+        frame.sequence = std::uint32_t(client->netchan.outgoing_sequence) & brush::sequence_mask;
+        for (int i = 0; i < pack->num_entities; ++i) {
+            const auto &state = pack->entities[i];
+            const int slot = state.number;
+            const auto target = targets.find(slot);
+            if (slot <= 0 || slot >= g_psv.num_edicts || target == targets.end()) continue;
+            auto *entity = &g_psv.edicts[slot];
+            auto *model = target->second.model;
+            // AddToFullPack plugins may replace the outgoing model/solidity.
+            // Only bind an unchanged native BSP instance to its server serial.
+            if (state.modelindex != entity->v.modelindex || state.solid != SOLID_BSP ||
+                !find(slot, model, &model->hulls[0])) continue;
+            const brush::Identity entry{unsigned(slot), unsigned(entity->serialnumber),
+                                         target->second.inline_model};
+            if (!brush::valid(entry) || (frame.total && entry.slot <= frame.entries[frame.total - 1].slot))
+                return;
+            frame.entries[frame.total++] = entry;
+        }
+        // All fragments fit or none are appended. A new entity messagenum can
+        // never reuse metadata from an older datagram after loss/overflow.
+        if (brush::packet_bytes(frame.total) > std::size_t(message->maxsize - message->cursize))
+            return;
+        std::array<std::uint8_t, brush::header_bytes + brush::entry_bytes * brush::chunk_entries> data;
+        for (std::size_t first = 0;; first += brush::chunk_entries) {
+            const auto count = brush::encode(frame, first, data);
+            MSG_WriteByte(message, identity_message);
+            MSG_WriteByte(message, int(count));
+            MSG_WriteBuf(message, int(count), data.data());
+            if (first + brush::chunk_entries >= frame.total) break;
+        }
+    }
     const EditedHull *find(int slot, model_t *model, hull_t *hull) const {
         const auto entry = targets.find(slot);
         if (entry == targets.end() || slot < 0 || slot >= g_psv.num_edicts)
@@ -204,6 +257,8 @@ class MapPhysics final : public IHostMapPhysics {
     std::map<int, Target> targets;
     HostMapStats stats{};
     std::string error;
+    int identity_message = 0;
+    bool has_brushes = false;
 };
 MapPhysics physics;
 } // namespace
@@ -223,3 +278,6 @@ bool GoldCraft_MapContents(int slot, model_t *model, hull_t *hull, const float *
     return physics.contents(slot, model, hull, point, result);
 }
 void GoldCraft_MapPhysicsReset() { physics.Reset(0, 0); }
+void GoldCraft_WriteBrushIdentities(client_t *client, packet_entities_t *pack, sizebuf_t *message) {
+    physics.identities(client, pack, message);
+}

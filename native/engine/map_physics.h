@@ -11,3 +11,5 @@ bool GoldCraft_MapTrace(int slot, model_s *model, hull_s *hull, const float *sta
 bool GoldCraft_MapContents(int slot, model_s *model, hull_s *hull, const float *point,
                            int &contents);
 void GoldCraft_MapPhysicsReset();
+// Same-datagram identity sideband after the real entity snapshot, before events.
+void GoldCraft_WriteBrushIdentities(client_t *client, packet_entities_t *pack, sizebuf_t *message);

@@ -1,6 +1,8 @@
 // Compiled only into the isolated engine fixture, never the production DLL.
 #include "precompiled.h"
 #include "map_visibility.h"
+#include "map_physics.h"
+#include "goldcraft/brush_identity.hpp"
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -78,6 +80,81 @@ struct Context {
         g_groupop = saved_group;
     }
 };
+void BrushIdentity() {
+    if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS") || Cmd_Argc() != 5) return;
+    const int player_slot = std::atoi(Cmd_Argv(1)), requested = std::atoi(Cmd_Argv(2));
+    const int mode = std::atoi(Cmd_Argv(3)), repeats = std::atoi(Cmd_Argv(4));
+    if (player_slot < 1 || player_slot > g_psvs.maxclients || mode < 0 || mode > 8 ||
+        repeats < 1 || repeats > 65536 || requested < 0 || requested >= g_psv.num_edicts) return;
+    auto &client = g_psvs.clients[player_slot - 1];
+    if (!client.active || !client.fakeclient || !client.edict || client.edict->free) return;
+    int slot = requested;
+    if (!slot) {
+        for (int i = g_psvs.maxclients + 1; i < g_psv.num_edicts; ++i) {
+            const auto &entity = g_psv.edicts[i];
+            if (!entity.free && entity.v.solid == SOLID_BSP && STRING(entity.v.model)[0] == '*' &&
+                !Q_strcmp(STRING(entity.v.classname), "func_door")) { slot = i; break; }
+        }
+    }
+    if (slot <= g_psvs.maxclients) return;
+    auto &target = g_psv.edicts[slot];
+    auto *model = Mod_Handle(target.v.modelindex);
+    if (target.free || !model || model->type != mod_brush || STRING(target.v.model)[0] != '*') return;
+    const unsigned inline_model = std::strtoul(STRING(target.v.model) + 1, nullptr, 10);
+    Player restore_player(client);
+    Context context(&client);
+    struct Restore {
+        client_t &client;
+        edict_t &target;
+        int sequence, serial;
+        std::array<char, sizeof(client_t::userinfo)> userinfo;
+        Restore(client_t &c, edict_t &e) : client(c), target(e),
+            sequence(c.netchan.outgoing_sequence), serial(e.serialnumber) {
+            std::memcpy(userinfo.data(), c.userinfo, userinfo.size());
+        }
+        ~Restore() {
+            client.netchan.outgoing_sequence = sequence;
+            target.serialnumber = serial;
+            std::memcpy(client.userinfo, userinfo.data(), userinfo.size());
+        }
+    } restore(client, target);
+    client.netchan.outgoing_sequence = 731;
+    Info_SetValueForKey(client.userinfo, goldcraft::brush::capability,
+                       mode == 1 ? "" : mode == 2 ? "2" : "1", sizeof(client.userinfo));
+    if (mode == 7) client.fully_connected = FALSE;
+    if (mode == 8) client.fakeclient = TRUE;
+    // Use the real GameDLL packing contract, then emulate two explicit plugin
+    // overrides. No packets or identity changes escape this synchronous call.
+    entity_state_t state{};
+    const auto packed = gEntityInterface.pfnAddToFullPack(&state, slot, &target, client.edict, 1, FALSE, nullptr);
+    if (mode == 3) ++target.serialnumber;
+    if (mode == 4) state.modelindex = g_psv.edicts[0].v.modelindex;
+    if (mode == 5) state.solid = SOLID_NOT;
+    packet_entities_t pack{};
+    pack.num_entities = packed ? 1 : 0;
+    pack.entities = &state;
+    std::array<byte, 4096> bytes{};
+    sizebuf_t message{};
+    message.data = bytes.data(); message.maxsize = int(bytes.size()); message.flags = 0;
+    if (mode == 6) message.maxsize = int(goldcraft::brush::packet_bytes(1)) - 1;
+    const auto started = std::chrono::steady_clock::now();
+    for (int i = 0; i < repeats; ++i) {
+        message.cursize = 3;
+        bytes[0] = 0x71; bytes[1] = 0x72; bytes[2] = 0x73;
+        GoldCraft_WriteBrushIdentities(&client, &pack, &message);
+    }
+    const auto us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - started).count() / repeats;
+    constexpr char digits[] = "0123456789abcdef";
+    std::string encoded;
+    for (int i = 3; i < message.cursize; ++i) {
+        encoded += digits[bytes[i] >> 4]; encoded += digits[bytes[i] & 15];
+    }
+    Con_Printf("GC_BRUSH {\"slot\":%d,\"serial\":%u,\"model\":%u,\"packed\":%d,\"solid\":%d,"
+               "\"low\":[%g,%g,%g],\"high\":[%g,%g,%g],\"wire\":\"%s\",\"prefix\":%d,\"us\":%.6f}\n",
+               slot, unsigned(target.serialnumber), inline_model, int(packed), state.solid,
+               model->mins[0],model->mins[1],model->mins[2],model->maxs[0],model->maxs[1],model->maxs[2],
+               encoded.c_str(), bytes[0] == 0x71 && bytes[1] == 0x72 && bytes[2] == 0x73, us);
+}
 void Delivery() {
     if (!std::getenv("GOLDCRAFT_HEADLESS_BINDINGS") || Cmd_Argc() != 12)
         return;
@@ -172,6 +249,8 @@ void Delivery() {
 } // namespace
 
 void GoldCraft_MapDeliveryTestInit() {
-    if (std::getenv("GOLDCRAFT_HEADLESS_BINDINGS"))
+    if (std::getenv("GOLDCRAFT_HEADLESS_BINDINGS")) {
         Cmd_AddCommand("gc_carve_delivery", Delivery);
+        Cmd_AddCommand("gc_brush_identity", BrushIdentity);
+    }
 }

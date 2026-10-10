@@ -37,6 +37,7 @@
 !/docs/AMXX_INTEROP.md
 !/docs/ZOMBIE_TESTING.md
 !/docs/NATIVE_REGRESSIONS.md
+!/docs/2026-10-10_分析-GoldSrc身份-report.md
 /patches/metahook-profile-isolation.patch
 /tools/Build-Fabric.ps1
 /tools/check_skycraft_protocol.py

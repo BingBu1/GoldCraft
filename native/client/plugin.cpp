@@ -465,6 +465,15 @@ bool MatchingHostProtocol(){
     static const auto expected=std::to_string(protocol_version);
     return value&&value==expected;
 }
+int BrushIdentityMessage(const char*,int size,void* data){
+    try{
+        if(!MatchingHostProtocol()||size<0||!data)throw ProtocolError("Invalid GCBrush source/message");
+        client_map::brush_identities().accept(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+    }catch(const std::exception& error){
+        client_map::brush_identities().invalidate();Log(error.what());
+    }
+    return 1;
+}
 int EditMessage(const char*,int size,void* data){
     try{
         if(!MatchingHostProtocol())throw ProtocolError("GCEdit from an incompatible server");
@@ -566,6 +575,9 @@ void InitHud() {
     render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
+    gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
+    gEngfuncs.pfnRegisterVariable(brush::capability,brush::capability_value,FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(brush::capability,1.f);
     gEngfuncs.pfnHookUserMsg("GCAvatar",AvatarMessage);
     gEngfuncs.pfnHookUserMsg("GCForm",FormMessage);
     gEngfuncs.pfnHookUserMsg("GCObj",[](const char*,int size,void* data)->int {

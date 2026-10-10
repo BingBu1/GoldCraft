@@ -19,6 +19,7 @@ void EditTransaction::reset(std::uint64_t epoch) {
     desired_.reset(epoch);
     applied_.reset(epoch);
     prepared_.reset(epoch);
+    client_map::brush_identities().reset(epoch);
     client_map::reset();
 }
 void EditTransaction::invalidate() {
