@@ -3,6 +3,8 @@
 #include "bridge.h"
 #include "interface.h"
 #include "goldcraft/host_map_api.hpp"
+#include "goldcraft/host_map_sample_api.hpp"
+#include "map_edit_commit.hpp"
 #include <cstdio>
 #include <array>
 #include <chrono>
@@ -21,6 +23,10 @@ mining::Policy policy;
 edits::Ledger map_edits;
 std::array<std::pair<std::uint64_t, std::uint64_t>, MAX_CLIENTS> visibility_revisions;
 IHostMapPhysics *map_physics = nullptr;
+IHostMapSample *map_sample = nullptr;
+server_edits::BackgroundPruner background_pruner;
+// Enable only with coordinated identity consumers in collision and Renderer.
+constexpr bool dynamic_geometry_ready = false;
 struct MiningSample {
     mining::Request request;
     mining::Cell cell;
@@ -43,36 +49,46 @@ bool round_ended = false, cleanup_persist = false;
 unsigned cleanup_depth = 0;
 
 bool Persist() { return registered_persist && registered_persist->value == 1.0f; }
+bool LiveEditTarget(edits::Target target) {
+    if (!target.slot) return true;
+    if (target.slot >= static_cast<unsigned>(gpGlobals->maxEntities)) return false;
+    const auto *entity = INDEXENT(target.slot);
+    if (!entity || entity->free || (entity->v.flags & FL_KILLME) ||
+        static_cast<unsigned>(entity->serialnumber) != target.serial || !entity->v.modelindex)
+        return false;
+    const char *name = STRING(entity->v.model);
+    char *end = nullptr;
+    // Solidity is intentionally absent: native doors/breakables can temporarily
+    // be SOLID_NOT and later resume this same incarnation's edited collision.
+    return name && name[0] == '*' && name[1] &&
+           std::strtoul(name + 1, &end, 10) == target.model && end && !*end;
+}
+bool PruneDeadTargets() {
+    return map_physics && server_edits::prune(map_edits, *map_physics, LiveEditTarget);
+}
 void ClearMapPhysics() {
     if (map_physics)
         map_physics->Reset(map_edits.state().epoch, map_edits.state().revision);
 }
 bool CommitCut(edits::Target target, edits::Box box) {
     if (!map_physics) throw ProtocolError("Map physics API unavailable");
+    PruneDeadTargets();
     auto candidate = map_edits;
     if (!candidate.add(target, box)) return false;
-    std::vector<HostMapCut> cuts;
-    cuts.reserve(candidate.state().cuts.size());
-    for (const auto &cut : candidate.state().cuts) {
-        HostMapCut copy{cut.target.slot, cut.target.serial, cut.target.model, {}, {}};
-        for (int i = 0; i < 3; ++i) {
-            copy.min[i] = cut.box.min[i];
-            copy.max[i] = cut.box.max[i];
-        }
-        cuts.push_back(copy);
-    }
-    // Allocate the candidate journal before the engine transaction. Replace
-    // prepares every hull and PVS/PAS cache before publication; swap cannot fail.
-    if (!map_physics->Replace(candidate.state().epoch, candidate.state().revision, cuts.data(),
-                              static_cast<unsigned>(cuts.size())))
-        throw ProtocolError(map_physics->LastError());
-    map_edits.swap(candidate);
+    server_edits::publish(map_edits, candidate, *map_physics);
     return true;
 }
-mining::Cell WorldCell(const mining::Request &q, edict_t *player, const TraceResult &trace) {
+mining::Cell TargetCell(const mining::Request &q, edict_t *player, const TraceResult &trace) {
     const Vector source = player->v.origin + player->v.view_ofs;
     const Vector point(q.point.x, q.point.y, q.point.z);
     const Vector end = point + (point - source).Normalize();
+    if (q.target) {
+        HostMapCell cell{};
+        if (!map_sample || !map_sample->Sample(map_edits.state().epoch,
+                map_edits.state().revision, q.target, q.target_serial, q.model, source, end, cell))
+            throw ProtocolError("Map-local mining sample unavailable");
+        return {cell.x, cell.y, cell.z};
+    }
     return mining::surface_cell({source.x, source.y, source.z}, {end.x, end.y, end.z},
         {trace.vecPlaneNormal.x, trace.vecPlaneNormal.y, trace.vecPlaneNormal.z}, trace.flPlaneDist);
 }
@@ -83,6 +99,7 @@ template <class... Args> void CarvePrint(const char *format, Args... args) {
     std::snprintf(text, sizeof(text), format, args...);
     g_engfuncs.pfnServerPrint(text);
 }
+#include "map_brush_fixture.inc"
 // Arbitrary boxes remain test-only. Production mining commits only a native
 // sample's world-grid cell after retracing and validating its saved identity.
 void CarveFixture() {
@@ -352,6 +369,7 @@ void GoldCraft_MapMiningInit() {
         ADD_SERVER_COMMAND("gc_carve_visibility", CarveVisibility);
         ADD_SERVER_COMMAND("gc_carve_trace", CarveTrace);
         ADD_SERVER_COMMAND("gc_carve_move", CarveMove);
+        ADD_SERVER_COMMAND("gc_brush_fixture", BrushFixture);
 #endif
     }
 }
@@ -359,8 +377,10 @@ void GoldCraft_MapMiningInit() {
 void GoldCraft_MapMiningReset(std::uint64_t epoch) {
 #ifdef GOLDCRAFT_HEADLESS_FIXTURE
     visibility_probe = nullptr;
+    BrushFixtureReset();
 #endif
     GoldCraft_MapMiningInit();
+    background_pruner.reset();
     mined_entities.clear();
     round_ended = cleanup_persist = false;
     cleanup_depth = 0;
@@ -371,6 +391,8 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     const auto factory = Sys_GetFactory("swds.dll");
     map_physics =
         factory ? static_cast<IHostMapPhysics *>(factory(host_map_api_version, nullptr)) : nullptr;
+    map_sample =
+        factory ? static_cast<IHostMapSample *>(factory(host_map_sample_api_version, nullptr)) : nullptr;
     policy.capabilities |= map_physics ? mining::geometry_carving : 0;
     mining_samples = {};
     ClearMapPhysics();
@@ -391,6 +413,14 @@ void GoldCraft_MapMiningFrame() {
             RestoreMinedEntities();
     } else if (!ended)
         round_ended = false;
+    // An edict can disappear, be reused, or change inline model independently
+    // of mining. Publish all removals together so one stale target cannot block
+    // the next unrelated cut. Failures retain the old transaction and retry
+    // without skipping the rest of this frame's bridge processing.
+    if (map_physics)
+        background_pruner.run(map_edits, *map_physics, LiveEditTarget, [](const char *reason) {
+            ALERT(at_console, "Map edit cleanup deferred; will retry: %s\n", reason);
+        });
 }
 
 GoldCraft_MapMiningRoundCleanup::GoldCraft_MapMiningRoundCleanup() {
@@ -521,10 +551,8 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
         return result;
     const auto kind = TargetKind(target);
     if (kind == Target::geometry) {
-        // Dynamic brushes also need a verified client-side entity incarnation.
-        // Until that path is integrated they cannot enter a world-only ledger.
         result.status = Status::geometry_unavailable;
-        if (q.target || !map_physics) return result;
+        if (!map_physics || (q.target && (!dynamic_geometry_ready || !map_sample))) return result;
         result.status = Status::invalid_target;
         if (!q.slot || q.slot >= mining_samples.size()) return result;
         auto &sample = mining_samples[q.slot];
@@ -535,10 +563,11 @@ goldcraft::mining::Result GoldCraft_MapMiningApply(const goldcraft::mining::Requ
             q.model != saved.model || gpGlobals->time >= sample.expires ||
             sample.edit_revision != map_edits.state().revision) return result;
         try {
-            if (WorldCell(q, player, trace) != sample.cell) return result;
+            if (TargetCell(q, player, trace) != sample.cell) return result;
             const auto box = cell_box(sample.cell);
             sample = {}; // A completed sample authorizes at most one attempt.
-            result.status = CommitCut({}, box) ? Status::applied : Status::no_effect;
+            const edits::Target edit_target{q.target, q.target_serial, q.model};
+            result.status = CommitCut(edit_target, box) ? Status::applied : Status::no_effect;
             if (result.status == Status::applied) result.before = 1;
         } catch (const std::exception &error) {
             result.status = Status::geometry_unavailable;
@@ -583,10 +612,11 @@ goldcraft::mining::Surface GoldCraft_MapMiningSample(const goldcraft::mining::Re
     surface.point = {trace.vecEndPos.x, trace.vecEndPos.y, trace.vecEndPos.z};
     surface.normal = {trace.vecPlaneNormal.x, trace.vecPlaneNormal.y, trace.vecPlaneNormal.z};
     surface.result.before = surface.result.after = std::isfinite(target->v.health) ? target->v.health : 0;
-    if (surface.kind == Target::geometry && !q.target && map_physics &&
+    if (surface.kind == Target::geometry && map_physics &&
+        (!q.target || (dynamic_geometry_ready && map_sample)) &&
         q.slot && q.slot < mining_samples.size()) {
         try {
-            surface.cell = WorldCell(q, player, trace);
+            surface.cell = TargetCell(q, player, trace);
             surface.edit_revision = map_edits.state().revision;
             mining_samples[q.slot] = {q, surface.cell, surface.edit_revision, gpGlobals->time + 2.0f};
         } catch (const std::exception &) {
