@@ -137,6 +137,14 @@ python tools/Exercise-MapMiningJvm.py
 
 使用 `Build-Native.ps1`、`Build-Renderer.ps1` 后运行 `python tools/Verify-SurfaceMesh.py`，本地证据保存在 `analysis/world-carving/surface-evidence.json`。脚本读取已执行测试的日志、记录源码／产物哈希，验证普通上传路径不变，并对照既有快照核验原安装和受监控沙盒文件；缺少匹配的本机快照时不能推断安装保护验收通过。
 
+新增 [`cavity_mesh.cpp`](../native/common/cavity_mesh.cpp) 将剩余表面和洞壁准备成同一个不可变候选。每个模型独立计算全部洞口的并集；洞壁从该模型最近的可编辑原始三角形取得材质，距离相同则按面／三角形次序选择。UV 梯度刚性旋转到洞壁，保留原有缩放、斜切和镜像；不借用天空、水或其他模型材质。洞壁使用独立的材质绘制范围和实例，原始 BSP 面索引不改变。float 转换后零面积的三角形不提交，反向绕序、容量或预算失败拒绝整个候选。
+
+**洞壁光照尚未接通。** 新表面不继承旧墙的烘焙 lightmap，光照样式清为禁用，并标记 `needs_lighting`。光照、旧叶节点异步任务、贴花、PVS 和静态阴影都准备完成前，不允许据此接通生产挖洞；这里不是默认全亮策略。
+
+GL 候选在准备阶段一次上传不可变 VBO／EBO 和间接命令缓冲。`R_DrawCavityGeometry` 对调用方选定、纹理／shader 状态相同的连续范围使用一次 `glMultiDrawElementsIndirect`；提交中没有分配、上传、GL 状态读取或切割。普通地图上传代码保持原样，旧公开 Renderer API 不变。真实 GL 测试检查 256 个洞壁像素、四个附件、深度、材质实例、间接命令偏移，以及最后一个缓冲上传失败时全部候选缓冲释放；64 个同材质洞口的独立计时场景使用一次绘制提交。微基准不能推断实际游戏帧率。
+
+最新 CPU 验证为 20 项 CTest，实际 `cs_assault` 的 100 组候选包含 215 个非空绘制范围、1,645 个有效洞壁三角形；原有面积和覆盖检查仍保留。使用 `python tools/Verify-CavityMesh.py` 记录当前源码／构建／GL 测试、计时和文件保护证据。旧 `Verify-SurfaceMesh.py` 对应此前 19 项测试检查点，不再作为当前版本的验收入口。
+
 ## 验证与依据
 
 在仓库根目录运行已有构建入口：

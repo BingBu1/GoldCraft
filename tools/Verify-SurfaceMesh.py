@@ -45,7 +45,7 @@ def original_upload(text):
     return text[at:text.index("\n    return pWorldModel;", at)].replace("\r\n", "\n")
 
 
-def preserve():
+def preserve(output="surface-preservation.json"):
     baseline = json.loads((ROOT / "analysis/world-carving/mc-collision-before.json").read_text())
     settings = json.loads((ROOT / "settings.local.json").read_text(encoding="utf-8-sig"))
     original = Path(settings["originalGame"]).resolve()
@@ -72,7 +72,7 @@ def preserve():
         check(ROOT / "sandbox" / role, records, role)
     result = {"original": len(baseline["original"]),
               "runtime": sum(len(rows) for rows in baseline["runtime"].values()), "changed": changed}
-    (ROOT / "analysis/world-carving/surface-preservation.json").write_text(json.dumps(result, indent=2) + "\n")
+    (ROOT / "analysis/world-carving" / output).write_text(json.dumps(result, indent=2) + "\n")
     assert not changed, "Preservation differences; inspect local evidence"
     return result
 

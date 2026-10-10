@@ -2,6 +2,7 @@
 #include "goldcraft/world_volume.hpp"
 #include "goldcraft/wire.hpp"
 #include "goldcraft/surface_mesh.hpp"
+#include "goldcraft/cavity_mesh.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -483,11 +484,16 @@ void actual_map(const char* path) {
     const auto first = bsp.u32(model + 56), count = bsp.u32(model + 60);
     std::size_t triangles = 0, changed = 0, pieces = 0;
     Coverage samples;
+    auto map_mesh = std::make_shared<goldcraft::surface::Mesh>();
     for (std::size_t f = first; f < first + std::size_t(count); ++f) {
         const auto face = bsp.record(7, f, 20);
         const auto first_edge = bsp.u32(face + 4);
         const auto edge_count = bsp.u16(face + 8);
         const auto tex = bsp.record(6, bsp.u16(face + 10), 40);
+        map_mesh->faces.push_back({{static_cast<std::uint32_t>(map_mesh->indices.size()), 0}, {},
+                                  {static_cast<std::uint32_t>(map_mesh->instances.size()), 1}, 1,
+                                  (bsp.u32(tex + 36) & 1) == 0});
+        map_mesh->instances.push_back({{static_cast<std::uint16_t>(f - first), 511}, {0, 1, 2, 255}, 0});
         Texinfo texture{};
         for (std::size_t row = 0; row < 2; ++row)
             for (std::size_t col = 0; col < 4; ++col) texture[row][col] = bsp.f32(tex + row * 16 + col * 4);
@@ -520,6 +526,11 @@ void actual_map(const char* path) {
             source_mesh->instances.push_back({{65535, 511}, {0, 1, 2, 255}, 0});
             source_mesh->faces.push_back({{0, 3}, {}, {0, 1}, 1, true});
             source_mesh->indices = {0, 1, 2};
+            const auto base = static_cast<std::uint32_t>(map_mesh->vertices.size());
+            map_mesh->vertices.insert(map_mesh->vertices.end(), source_mesh->vertices.begin(), source_mesh->vertices.end());
+            map_mesh->frames.insert(map_mesh->frames.end(), source_mesh->frames.begin(), source_mesh->frames.end());
+            map_mesh->indices.insert(map_mesh->indices.end(), {base, base + 1, base + 2});
+            map_mesh->faces.back().forward.count += 3;
             const goldcraft::surface::Selection selection{0, 1, hole};
             const auto clipped_mesh = goldcraft::surface::prepare(source_mesh, {&selection, 1});
             assert((clipped_mesh.changed_faces != 0) == result.changed);
@@ -568,6 +579,7 @@ void actual_map(const char* path) {
     std::size_t cases = 0, walls = 0, operations = 0;
     Coverage interior_samples;
     VolumeCoverage volume_samples;
+    std::size_t cavity_draws = 0, cavity_triangles = 0;
     for (std::size_t f = first; f < first + std::size_t(count); f += std::max<std::size_t>(1, count / 96)) {
         const auto face = bsp.record(7, f, 20);
         const auto first_edge = bsp.u32(face + 4); const auto edge_count = bsp.u16(face + 8);
@@ -591,6 +603,31 @@ void actual_map(const char* path) {
         const auto interior = interior_walls(hull, cuts);
         const auto coverage = wall_coverage(hull, cuts, interior);
         wall_area(interior); // Independently verify winding and nonnegative area.
+        const goldcraft::cavity::Model cavity_model{0, count, hull, cuts};
+        const auto prepared = goldcraft::cavity::prepare(map_mesh, {&cavity_model, 1});
+        assert(prepared.walls == interior.walls.size());
+        double cavity_area = 0;
+        for (const auto& draw : prepared.draws) {
+            assert(draw.needs_lighting && draw.source_face < count && map_mesh->faces[draw.source_face].editable);
+            const auto& instance = prepared.mesh->instances[draw.instances.first];
+            assert(instance.packed_matId[0] == draw.source_face && instance.packed_matId[1] == 0);
+            for (const auto style : instance.styles) assert(style == 255);
+            for (std::size_t at = draw.indices.first; at < std::size_t(draw.indices.first) + draw.indices.count; at += 3) {
+                Triangle triangle;
+                for (std::size_t vertex = 0; vertex < 3; ++vertex) {
+                    const auto& p = prepared.mesh->vertices[prepared.mesh->indices[at + vertex]];
+                    triangle[vertex] = {p.pos[0], p.pos[1], p.pos[2]};
+                    assert(p.lightmaptexcoord[0] == 0 && p.lightmaptexcoord[1] == 0);
+                }
+                const auto& frame = prepared.mesh->frames[prepared.mesh->indices[at]];
+                const Point normal{frame.normal[0], frame.normal[1], frame.normal[2]};
+                assert(dot(cross(minus(triangle[1], triangle[0]), minus(triangle[2], triangle[0])), normal) > 0);
+                cavity_area += area(triangle);
+                ++cavity_triangles;
+            }
+            ++cavity_draws;
+        }
+        close(cavity_area, wall_area(interior), .02);
         ++cases; walls += interior.walls.size(); operations += interior.operations;
         interior_samples.checked += coverage.checked; interior_samples.boundary += coverage.boundary;
         try { volume_coverage(hull,cuts,volume_samples); }
@@ -603,6 +640,9 @@ void actual_map(const char* path) {
     std::cout << "{\"map\":\"cs_assault\",\"volumeCases\":" << cases << ",\"cells\":" << volume_samples.cells
               << ",\"operations\":" << volume_samples.operations << ",\"pointSamples\":" << volume_samples.points
               << ",\"bodySamples\":" << volume_samples.bodies << ",\"traceSamples\":" << volume_samples.traces << ",\"passed\":true}\n";
+    assert(cavity_draws > 100 && cavity_triangles > 100);
+    std::cout << "{\"map\":\"cs_assault\",\"cavityCases\":" << cases << ",\"draws\":" << cavity_draws
+              << ",\"triangles\":" << cavity_triangles << ",\"unbakedLighting\":true,\"passed\":true}\n";
 }
 } // namespace
 
