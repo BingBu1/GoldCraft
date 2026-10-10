@@ -1,8 +1,16 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index b88e882..4d2c047 100644
+index b88e882..cfbe416 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -78,6 +78,7 @@ unset(freeimage_target)
+@@ -21,6 +21,7 @@ endif()
+ 
+ include(cmake/Dependencies.cmake)
+ renderer_prepare_dependencies()
++file(TO_CMAKE_PATH "${GOLDCRAFT_INCLUDE_DIR}" GOLDCRAFT_INCLUDE_DIR)
+ 
+ # Validate the resolved directories, including defaults supplied by dependencies.
+ function(renderer_require_headers dependency header)
+@@ -78,6 +79,7 @@ unset(freeimage_target)
  add_library(renderer_settings INTERFACE)
  target_compile_features(renderer_settings INTERFACE cxx_std_20)
  target_include_directories(renderer_settings INTERFACE
@@ -51,14 +59,17 @@ index df2097c..f61be0b 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..0bd5972 100644
+index 6ce4285..dcf4064 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -125,8 +125,14 @@ set(RENDERER_SOURCES
+@@ -125,8 +125,17 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_shadow_cull.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_sprite.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/studio_bone_cache.cpp"
@@ -212,6 +223,56 @@ index 06bf06e..d6ade87 100644
  
      ClientStudio_FillAddress(ppinterface);
      ClientStudio_InstallHooks();
+diff --git a/src/gl_common.h b/src/gl_common.h
+index 2567c84..1b1fbe8 100644
+--- a/src/gl_common.h
++++ b/src/gl_common.h
+@@ -5,6 +5,7 @@
+ 
+ #    include "qgl.h"
+ #    include <stdint.h>
++#    include <goldcraft/surface_mesh.hpp>
+ 
+ #    define OFFSET(type, variable) ((const void*)&(((type*)NULL)->variable))
+ 
+@@ -421,27 +422,9 @@ typedef struct world_material_s
+     vec2_t specularScale;
+ } world_material_t;
+ 
+-typedef struct brushvertex_s
+-{
+-    vec3_t pos;
+-    vec2_t texcoord;
+-    vec2_t lightmaptexcoord;
+-} brushvertex_t;
+-
+-typedef struct brushvertextbn_s
+-{
+-    vec3_t normal;
+-    vec3_t s_tangent;
+-    vec3_t t_tangent;
+-    vec3_t smoothnormal;
+-} brushvertextbn_t;
+-
+-typedef struct brushinstancedata_s
+-{
+-    uint16_t packed_matId[2];
+-    byte     styles[4];
+-    float    diffusescale; //1.0f/texwidth, for SURF_DRAWTILED
+-} brushinstancedata_t;
++using brushvertex_t       = goldcraft::surface::Vertex;
++using brushvertextbn_t    = goldcraft::surface::Frame;
++using brushinstancedata_t = goldcraft::surface::Instance;
+ 
+ // A fragment node stores rendering information about one specific fragment
+ typedef struct FragmentNode_s
+@@ -550,4 +533,4 @@ static_assert((sizeof(studio_ubo_t) % 16) == 0, "Size check");
+ 
+ #    pragma pack(pop)
+ 
+-#endif //GL_COMMON_H
+\ No newline at end of file
++#endif //GL_COMMON_H
 diff --git a/src/gl_draw.h b/src/gl_draw.h
 index 2f53e82..1e90e77 100644
 --- a/src/gl_draw.h
@@ -1356,10 +1417,76 @@ index eeb137d..092d766 100644
  void R_StudioRenderFinal(void);
  void R_StudioSetupBones(void);
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..8456d06 100644
+index 41f24f3..df522be 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
-@@ -4536,7 +4536,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -85,30 +85,6 @@ CWorldSurfaceLeaf::~CWorldSurfaceLeaf()
+     m_vWaterSurfaceModels.clear();
+ }
+ 
+-CWorldSurfaceWorldModel::~CWorldSurfaceWorldModel()
+-{
+-    if (hEBO)
+-    {
+-        GL_DeleteBuffer(hEBO);
+-        hEBO = 0;
+-    }
+-
+-    for (int i = WSURF_VBO_VERTEX; i < WSURF_VBO_MAX; ++i)
+-    {
+-        if (hVBO[i])
+-        {
+-            GL_DeleteBuffer(hVBO[i]);
+-            hVBO[i] = 0;
+-        }
+-    }
+-
+-    if (hVAO)
+-    {
+-        GL_DeleteVAO(hVAO);
+-        hVAO = 0;
+-    }
+-}
+-
+ void R_FreeWorldSurfaceModels(model_t* mod)
+ {
+     int modelindex = EngineGetModelIndex(mod);
+@@ -2025,10 +2001,11 @@ void R_PrepareSmoothNormalForBrushModel(
+ */
+ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_t* mod)
+ {
+-    std::vector<brushvertex_t>       vVertexDataBuffer;
+-    std::vector<brushvertextbn_t>    vVertexTBNDataBuffer;
+-    std::vector<brushinstancedata_t> vInstanceDataBuffer;
+-    std::vector<uint32_t>            vIndiceBuffer;
++    auto geometry = std::make_shared<goldcraft::surface::Mesh>();
++    auto& vVertexDataBuffer = geometry->vertices;
++    auto& vVertexTBNDataBuffer = geometry->frames;
++    auto& vInstanceDataBuffer = geometry->instances;
++    auto& vIndiceBuffer = geometry->indices;
+ 
+     vVertexDataBuffer.reserve(mod->numvertexes);
+     vInstanceDataBuffer.reserve(mod->numsurfaces);
+@@ -2230,6 +2207,18 @@ std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_
+     // Calculate smooth normals for all vertices
+     R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
+ 
++    geometry->faces.reserve(pWorldModel->m_vFaceBuffer.size());
++    for (const auto& face : pWorldModel->m_vFaceBuffer)
++    {
++        geometry->faces.push_back({{face.start_index, face.index_count},
++            {face.reverse_start_index, face.reverse_index_count},
++            {face.instance_index, face.instance_count}, face.poly_count,
++            (face.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) == 0});
++    }
++    pWorldModel->m_pOriginalMesh = geometry;
++    pWorldModel->m_pSurfaceMesh = geometry;
++
++    // Keep the normal map-loading path until coordinated edit commits are wired.
+     pWorldModel->hEBO = GL_GenBuffer();
+     GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
+ 
+@@ -4536,7 +4525,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -1368,6 +1495,34 @@ index 41f24f3..8456d06 100644
              return;
          }
      }
+diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
+index 0d340e9..05c3d59 100644
+--- a/src/gl_wsurf.h
++++ b/src/gl_wsurf.h
+@@ -159,6 +159,8 @@ public:
+     GLuint                              hEBO{};
+     GLuint                              hVAO{};
+     std::vector<CWorldSurfaceBrushFace> m_vFaceBuffer;
++    std::shared_ptr<const goldcraft::surface::Mesh> m_pOriginalMesh;
++    std::shared_ptr<const goldcraft::surface::Mesh> m_pSurfaceMesh;
+ };
+ 
+ class CWorldSurfaceModel
+@@ -274,6 +276,14 @@ typedef struct
+ 
+ extern CWorldSurfaceRenderer g_WorldSurfaceRenderer;
+ 
++void R_UploadWorldSurfaceGeometry(CWorldSurfaceWorldModel& model);
++// Preparation only. The caller must prepare cavity walls, leaves, PVS and
++// shadow invalidation before replacing live resources or accepting a revision.
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareWorldSurfaceGeometry(
++    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
++    std::span<const goldcraft::surface::Selection> cuts,
++    goldcraft::surface::Limits limits = {});
++
+ extern float  r_shadow_matrix[3][16];
+ extern vec3_t r_frustum_origin[4];
+ extern vec3_t r_frustum_vec[4];
 diff --git a/src/privatehook.h b/src/privatehook.h
 index 4f14187..3143b87 100644
 --- a/src/privatehook.h
@@ -1398,7 +1553,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..6d811fd 100644
+index 93166e2..85e791d 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -1420,7 +1575,7 @@ index 93166e2..6d811fd 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,11 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,21 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -1432,6 +1587,16 @@ index 93166e2..6d811fd 100644
 +target_link_libraries(studio_shadow_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME studio_shadow_gl_tests COMMAND studio_shadow_gl_tests)
 +set_tests_properties(studio_shadow_gl_tests PROPERTIES SKIP_RETURN_CODE 2)
++
++add_executable(surface_mesh_gl_tests surface_mesh_gl_tests.cpp
++    "${PROJECT_SOURCE_DIR}/src/gl_surface_edit.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/surface_mesh.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp")
++target_compile_definitions(surface_mesh_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE)
++target_compile_options(surface_mesh_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(surface_mesh_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME surface_mesh_gl_tests COMMAND surface_mesh_gl_tests)
++set_tests_properties(surface_mesh_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
 diff --git a/tests/sc_client_tests.cpp b/tests/sc_client_tests.cpp
 index f6dbd9f..03194dd 100644
 --- a/tests/sc_client_tests.cpp
@@ -3154,4 +3319,425 @@ index 0000000..96871bd
 +    R_StudioSaveBoneCache(nullptr, MAX_STUDIO_BONE_CACHES, 0, 0, 0.f, zeros, zeros);
 +    assert(warnings == 2);
 +    std::puts("PASS: 3,456 multipass saves use 24 slots; last-save transforms, pose isolation, full-capacity fallback and frame reset.");
++}
+diff --git a/src/gl_surface_edit.cpp b/src/gl_surface_edit.cpp
+new file mode 100644
+index 0000000..093d70b
+--- /dev/null
++++ b/src/gl_surface_edit.cpp
+@@ -0,0 +1,117 @@
++#include "gl_local.h"
++#include <limits>
++#include <stdexcept>
++
++namespace
++{
++void CheckSurfaceGL()
++{
++    if (glGetError() != GL_NO_ERROR)
++        throw std::runtime_error("World surface GPU preparation failed");
++}
++struct SurfaceBindings
++{
++    GLint vao{}, array{};
++    SurfaceBindings()
++    {
++        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
++        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array);
++        CheckSurfaceGL();
++    }
++    ~SurfaceBindings()
++    {
++        glBindVertexArray(vao);
++        glBindBuffer(GL_ARRAY_BUFFER, array);
++    }
++};
++template <class T> void UploadSurfaceBuffer(GLuint& name, GLenum target, const std::vector<T>& values)
++{
++    if (values.size() > std::size_t((std::numeric_limits<GLsizeiptr>::max)()) / sizeof(T))
++        throw std::length_error("World surface GPU buffer size");
++    glGenBuffers(1, &name);
++    CheckSurfaceGL();
++    if (!name) throw std::runtime_error("World surface GPU buffer allocation failed");
++    glBindBuffer(target, name);
++    const auto bytes = static_cast<GLsizeiptr>(values.size() * sizeof(T));
++    if (bytes && glBufferStorage)
++        glBufferStorage(target, bytes, values.data(), 0);
++    else
++        glBufferData(target, bytes, values.data(), GL_STATIC_DRAW);
++    CheckSurfaceGL();
++}
++void FloatSurfaceAttribute(GLuint location, GLint components, GLsizei stride, const void* offset)
++{
++    glEnableVertexAttribArray(location);
++    glVertexAttribPointer(location, components, GL_FLOAT, GL_FALSE, stride, offset);
++}
++} // namespace
++
++CWorldSurfaceWorldModel::~CWorldSurfaceWorldModel()
++{
++    if (hEBO) glDeleteBuffers(1, &hEBO);
++    glDeleteBuffers(WSURF_VBO_MAX, hVBO);
++    if (hVAO) glDeleteVertexArrays(1, &hVAO);
++}
++
++void R_UploadWorldSurfaceGeometry(CWorldSurfaceWorldModel& model)
++{
++    if (!model.m_pSurfaceMesh || model.hVAO || model.hEBO ||
++        model.hVBO[0] || model.hVBO[1] || model.hVBO[2])
++        throw std::invalid_argument("World surface upload requires a fresh candidate");
++    const SurfaceBindings restore;
++    const auto&           mesh = *model.m_pSurfaceMesh;
++    glGenVertexArrays(1, &model.hVAO);
++    CheckSurfaceGL();
++    if (!model.hVAO) throw std::runtime_error("World surface GPU VAO allocation failed");
++    glBindVertexArray(model.hVAO);
++    UploadSurfaceBuffer(model.hEBO, GL_ELEMENT_ARRAY_BUFFER, mesh.indices);
++    UploadSurfaceBuffer(model.hVBO[WSURF_VBO_VERTEX], GL_ARRAY_BUFFER, mesh.vertices);
++    FloatSurfaceAttribute(WSURF_VA_POSITION, 3, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
++    FloatSurfaceAttribute(WSURF_VA_TEXCOORD, 2, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
++    FloatSurfaceAttribute(WSURF_VA_LIGHTMAP_TEXCOORD, 2, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
++    UploadSurfaceBuffer(model.hVBO[WSURF_VBO_VERTEXTBN], GL_ARRAY_BUFFER, mesh.frames);
++    FloatSurfaceAttribute(WSURF_VA_NORMAL, 3, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
++    FloatSurfaceAttribute(WSURF_VA_S_TANGENT, 3, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
++    FloatSurfaceAttribute(WSURF_VA_T_TANGENT, 3, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
++    FloatSurfaceAttribute(WSURF_VA_SMOOTHNORMAL, 3, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
++    UploadSurfaceBuffer(model.hVBO[WSURF_VBO_INSTANCE], GL_ARRAY_BUFFER, mesh.instances);
++    glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
++    glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
++    glEnableVertexAttribArray(WSURF_VA_STYLES);
++    glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
++    FloatSurfaceAttribute(WSURF_VA_DIFFUSESCALE, 1, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
++    glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
++    glVertexAttribDivisor(WSURF_VA_STYLES, 1);
++    glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
++    CheckSurfaceGL();
++}
++
++std::shared_ptr<CWorldSurfaceWorldModel> R_PrepareWorldSurfaceGeometry(
++    const std::shared_ptr<CWorldSurfaceWorldModel>& original,
++    std::span<const goldcraft::surface::Selection>  cuts,
++    goldcraft::surface::Limits                      limits)
++{
++    if (!original || !original->m_pOriginalMesh ||
++        original->m_vFaceBuffer.size() != original->m_pOriginalMesh->faces.size())
++        throw std::invalid_argument("Missing original world surface geometry");
++    const auto prepared = goldcraft::surface::prepare(original->m_pOriginalMesh, cuts, limits);
++    if (prepared.mesh == original->m_pSurfaceMesh) return original;
++    auto candidate             = std::make_shared<CWorldSurfaceWorldModel>(original->m_model);
++    candidate->m_pOriginalMesh = original->m_pOriginalMesh;
++    candidate->m_pSurfaceMesh  = prepared.mesh;
++    candidate->m_vFaceBuffer   = original->m_vFaceBuffer;
++    for (std::size_t i = 0; i < candidate->m_vFaceBuffer.size(); ++i)
++    {
++        auto&       target         = candidate->m_vFaceBuffer[i];
++        const auto& face           = prepared.mesh->faces[i];
++        target.start_index         = face.forward.first;
++        target.index_count         = face.forward.count;
++        target.reverse_start_index = face.reverse.first;
++        target.reverse_index_count = face.reverse.count;
++        target.instance_index      = face.instances.first;
++        target.instance_count      = face.instances.count;
++        target.poly_count          = face.polygons;
++    }
++    R_UploadWorldSurfaceGeometry(*candidate);
++    return candidate;
++}
+diff --git a/tests/surface_mesh_gl_tests.cpp b/tests/surface_mesh_gl_tests.cpp
+new file mode 100644
+index 0000000..4151197
+--- /dev/null
++++ b/tests/surface_mesh_gl_tests.cpp
+@@ -0,0 +1,292 @@
++// Driver-backed readback of the production candidate resource and VAO layout.
++// No CS process or desktop input is used; the GLFW window remains hidden.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <array>
++#include <cassert>
++#include <cmath>
++#include <cstdio>
++#include <stdexcept>
++
++namespace
++{
++constexpr int Size = 64;
++using Pixels       = std::array<float, Size * Size * 4>;
++static PFNGLBUFFERSTORAGEPROC real_storage;
++static GLuint                 failed_buffer;
++static bool                   inject_failure;
++void APIENTRY                 Storage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags)
++{
++    if (inject_failure)
++    {
++        GLint bound{};
++        glGetIntegerv(target == GL_ARRAY_BUFFER ? GL_ARRAY_BUFFER_BINDING : GL_ELEMENT_ARRAY_BUFFER_BINDING, &bound);
++        failed_buffer  = bound;
++        inject_failure = false;
++        size           = -1; // Ask the real driver to reject this preparation, after allocation.
++    }
++    real_storage(target, size, data, flags);
++}
++GLuint Compile(GLenum type, const char* text)
++{
++    auto shader = glCreateShader(type);
++    glShaderSource(shader, 1, &text, nullptr);
++    glCompileShader(shader);
++    GLint ok{};
++    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok)
++    {
++        char log[2048]{};
++        glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
++        std::fprintf(stderr, "%s\n", log);
++    }
++    assert(ok);
++    return shader;
++}
++GLuint Program()
++{
++    const auto vs      = Compile(GL_VERTEX_SHADER, R"(#version 440
++layout(location=0) in vec3 pos;
++layout(location=2) in vec2 uv;
++layout(location=3) in vec2 lm;
++layout(location=6) in vec3 smoothnormal;
++layout(location=7) in uint material_bits;
++layout(location=8) in uvec4 styles;
++layout(location=9) in float scale;
++out vec2 diffuse_uv; out vec2 lightmap_uv; out vec3 sn;
++flat out uvec4 instance; flat out float diffuse_scale;
++void main() {
++    gl_Position=vec4(pos.xy / 64.0 - 1.0, 0.0, 1.0);
++    diffuse_uv=uv; lightmap_uv=lm; sn=smoothnormal;
++    instance=uvec4(material_bits & 65535u, material_bits >> 16, styles.y, styles.z);
++    diffuse_scale=scale;
++})");
++    const auto fs      = Compile(GL_FRAGMENT_SHADER, R"(#version 440
++in vec2 diffuse_uv; in vec2 lightmap_uv; in vec3 sn;
++flat in uvec4 instance; flat in float diffuse_scale;
++layout(location=0) out vec4 diffuse;
++layout(location=1) out vec4 lightmap;
++layout(location=2) out vec4 frame;
++layout(location=3) out vec4 material;
++void main() {
++    diffuse=vec4(diffuse_uv,0,1); lightmap=vec4(lightmap_uv,0,1);
++    frame=vec4(sn,diffuse_scale); material=vec4(instance);
++})");
++    auto       program = glCreateProgram();
++    glAttachShader(program, vs);
++    glAttachShader(program, fs);
++    glLinkProgram(program);
++    GLint ok{};
++    glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    assert(ok);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    return program;
++}
++std::shared_ptr<CWorldSurfaceWorldModel> Original(model_t* mod)
++{
++    auto mesh = std::make_shared<goldcraft::surface::Mesh>();
++    for (const auto xy : {std::array<float, 2>{0, 0}, {128, 0}, {128, 128}, {0, 128}})
++    {
++        const float x = xy[0], y = xy[1];
++        mesh->vertices.push_back({{x, y, 0}, {x * .25f + 3, y * .5f - 7}, {x / 2048 + .0625f, y / 2048 + .125f}});
++        mesh->frames.push_back({{0, 0, 1}, {1, 0, 0}, {0, 1, 0}, {x / 256, y / 512, 1}});
++    }
++    mesh->instances.push_back({{60001, 513}, {3, 15, 200, 255}, .015625f});
++    mesh->instances.push_back({{60002, 514}, {4, 16, 201, 254}, .03125f});
++    mesh->indices             = {0, 1, 2, 0, 2, 3};
++    mesh->faces               = {{{0, 6}, {}, {1, 1}, 1, true}};
++    auto original             = std::make_shared<CWorldSurfaceWorldModel>(mod);
++    original->m_pOriginalMesh = mesh;
++    original->m_pSurfaceMesh  = mesh;
++    CWorldSurfaceBrushFace face{};
++    face.index_count    = 6;
++    face.instance_index = 1;
++    face.instance_count = 1;
++    face.poly_count     = 1;
++    original->m_vFaceBuffer.push_back(face);
++    R_UploadWorldSurfaceGeometry(*original);
++    return original;
++}
++std::array<Pixels, 4> Draw(const CWorldSurfaceWorldModel& model)
++{
++    const float empty[4]{};
++    for (int i = 0; i < 4; ++i) glClearBufferfv(GL_COLOR, i, empty);
++    const float depth = 1;
++    glClearBufferfv(GL_DEPTH, 0, &depth);
++    glBindVertexArray(model.hVAO);
++    const auto& face = model.m_vFaceBuffer[0];
++    glDrawElementsInstancedBaseInstance(GL_TRIANGLES, face.index_count, GL_UNSIGNED_INT,
++                                        reinterpret_cast<void*>(std::size_t(face.start_index) * 4), face.instance_count, face.instance_index);
++    std::array<Pixels, 4> pixels{};
++    for (int i = 0; i < 4; ++i)
++    {
++        glReadBuffer(GL_COLOR_ATTACHMENT0 + i);
++        glReadPixels(0, 0, Size, Size, GL_RGBA, GL_FLOAT, pixels[i].data());
++    }
++    assert(glGetError() == GL_NO_ERROR);
++    return pixels;
++}
++float Depth(int x, int y)
++{
++    float value{};
++    glReadPixels(x, y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &value);
++    return value;
++}
++void Bindings(GLuint vao, GLuint array, GLuint element)
++{
++    GLint current{};
++    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &current);
++    assert(GLuint(current) == vao);
++    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &current);
++    assert(GLuint(current) == array);
++    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &current);
++    assert(GLuint(current) == element);
++}
++void Attributes(const CWorldSurfaceWorldModel& model)
++{
++    const GLint       strides[]    = {28, 48, 28, 28, 48, 48, 48, 12, 12, 12};
++    const GLint       components[] = {3, 3, 2, 2, 3, 3, 3, 1, 4, 1};
++    const std::size_t offsets[]    = {0, 0, 12, 20, 12, 24, 36, 0, 4, 8};
++    glBindVertexArray(model.hVAO);
++    for (GLuint i = 0; i < 10; ++i)
++    {
++        GLint value{};
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_ENABLED, &value);
++        assert(value);
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_STRIDE, &value);
++        assert(value == strides[i]);
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_SIZE, &value);
++        assert(value == components[i]);
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_DIVISOR, &value);
++        assert(value == (i >= 7));
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_INTEGER, &value);
++        assert(bool(value) == (i == 7 || i == 8));
++        glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING, &value);
++        const int buffer = i >= 7 ? WSURF_VBO_INSTANCE :
++                                    (i == 0 || i == 2 || i == 3 ? WSURF_VBO_VERTEX : WSURF_VBO_VERTEXTBN);
++        assert(GLuint(value) == model.hVBO[buffer]);
++        void* pointer{};
++        glGetVertexAttribPointerv(i, GL_VERTEX_ATTRIB_ARRAY_POINTER, &pointer);
++        assert(reinterpret_cast<std::size_t>(pointer) == offsets[i]);
++    }
++    assert(glGetError() == GL_NO_ERROR);
++}
++} // namespace
++int main()
++{
++    if (!glfwInit()) return 2;
++    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 4);
++    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
++    auto* window = glfwCreateWindow(Size, Size, "surface mesh regression", nullptr, nullptr);
++    if (!window)
++    {
++        glfwTerminate();
++        return 2;
++    }
++    glfwMakeContextCurrent(window);
++    glewExperimental = GL_TRUE;
++    if (glewInit() != GLEW_OK)
++    {
++        glfwDestroyWindow(window);
++        glfwTerminate();
++        return 2;
++    }
++    while (glGetError() != GL_NO_ERROR) {}
++    std::printf("Driver: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
++    GLuint fbo{}, textures[5]{}, sentinel{}, buffers[2]{};
++    glGenFramebuffers(1, &fbo);
++    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++    glGenTextures(5, textures);
++    for (int i = 0; i < 5; ++i)
++    {
++        glBindTexture(GL_TEXTURE_2D, textures[i]);
++        glTexImage2D(GL_TEXTURE_2D, 0, i == 4 ? GL_DEPTH_COMPONENT32F : GL_RGBA32F, Size, Size, 0,
++                     i == 4 ? GL_DEPTH_COMPONENT : GL_RGBA, GL_FLOAT, nullptr);
++        glFramebufferTexture2D(GL_FRAMEBUFFER, i == 4 ? GL_DEPTH_ATTACHMENT : GL_COLOR_ATTACHMENT0 + i,
++                               GL_TEXTURE_2D, textures[i], 0);
++    }
++    const GLenum attachments[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
++    glDrawBuffers(4, attachments);
++    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
++    glViewport(0, 0, Size, Size);
++    glEnable(GL_DEPTH_TEST);
++    glEnable(GL_CULL_FACE);
++    glGenVertexArrays(1, &sentinel);
++    glBindVertexArray(sentinel);
++    glGenBuffers(2, buffers);
++    glBindBuffer(GL_ARRAY_BUFFER, buffers[0]);
++    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffers[1]);
++    model_t model{};
++    auto    original = Original(&model);
++    Bindings(sentinel, buffers[0], buffers[1]);
++    const auto shader = Program();
++    glUseProgram(shader);
++    const auto before = Draw(*original);
++    assert(Depth(20, 20) == .5f);
++    const goldcraft::surface::Selection cut{0, 1, {{32, 32, -8}, {64, 64, 8}}};
++    glBindVertexArray(sentinel);
++    auto edited = R_PrepareWorldSurfaceGeometry(original, {&cut, 1});
++    Bindings(sentinel, buffers[0], buffers[1]);
++    assert(edited != original && edited->hVAO != original->hVAO);
++    assert(edited->m_pOriginalMesh == original->m_pOriginalMesh);
++    Attributes(*edited);
++    const auto after = Draw(*edited);
++    assert(Depth(20, 20) == 1 && Depth(40, 40) == .5f);
++    std::size_t preserved = 0, removed = 0;
++    for (int y = 0; y < Size; ++y)
++        for (int x = 0; x < Size; ++x)
++        {
++            const auto pixel = (y * Size + x) * 4;
++            const bool hole  = x >= 16 && x < 32 && y >= 16 && y < 32;
++            if (hole)
++            {
++                assert(after[0][pixel + 3] == 0);
++                ++removed;
++            }
++            else
++            {
++                for (int attachment = 0; attachment < 4; ++attachment)
++                    for (int c = 0; c < 4; ++c)
++                        assert(std::abs(before[attachment][pixel + c] - after[attachment][pixel + c]) < .00002f);
++                assert(after[3][pixel] == 60002 && after[3][pixel + 1] == 514 &&
++                       after[3][pixel + 2] == 16 && after[3][pixel + 3] == 201);
++                ++preserved;
++            }
++        }
++    auto restored = R_PrepareWorldSurfaceGeometry(edited, {});
++    assert(restored->m_pSurfaceMesh == original->m_pSurfaceMesh);
++    assert(Draw(*restored) == before);
++    glBindVertexArray(sentinel);
++    real_storage = glBufferStorage;
++    assert(real_storage);
++    glBufferStorage = Storage;
++    inject_failure  = true;
++    bool rejected   = false;
++    try
++    {
++        (void)R_PrepareWorldSurfaceGeometry(original, {&cut, 1});
++    }
++    catch (const std::runtime_error&)
++    {
++        rejected = true;
++    }
++    glBufferStorage = real_storage;
++    assert(rejected && failed_buffer && !glIsBuffer(failed_buffer));
++    Bindings(sentinel, buffers[0], buffers[1]);
++    assert(Draw(*original) == before);
++    assert(glGetError() == GL_NO_ERROR);
++    std::printf("{\"preservedPixels\":%zu,\"removedPixels\":%zu,\"restored\":true,\"gpuFailureRecovered\":true,\"passed\":true}\n", preserved, removed);
++    restored.reset();
++    edited.reset();
++    original.reset();
++    glDeleteProgram(shader);
++    glDeleteTextures(5, textures);
++    glDeleteFramebuffers(1, &fbo);
++    glDeleteVertexArrays(1, &sentinel);
++    glDeleteBuffers(2, buffers);
++    glfwDestroyWindow(window);
++    glfwTerminate();
 +}

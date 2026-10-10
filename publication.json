@@ -18,7 +18,7 @@
     "tools/Build-VisibleEntityGameData.py", "tools/Test-VisibleEntityEngine.py", "tools/Exercise-VisibleEntities.py",
     "tools/Test-VitalsClient.py", "tools/Exercise-Vitals.py", "amxx/tests/goldcraft_vitals_test.sma",
     "tools/Inspect-MetaHookRuntime.py", "tools/Exercise-StudioLifecycle.py", "tools/Exercise-RendererPerformance.py", "tools/Exercise-RendererReference.py", "tools/Exercise-NativeJoin.py",
-    "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Exercise-Precache.py",
+    "tools/Deploy-OptimizedNative.ps1", "tools/Prepare-PrecacheFixture.py", "tools/Verify-ClangBuilds.py", "tools/Verify-SurfaceMesh.py", "tools/Exercise-Precache.py",
     "tools/Legacy-ProtocolServer.ps1", "tools/Exercise-PrecacheTransitions.py",
     "tools/Prepare-NeoForgeRuntime.py", "tools/Exercise-NeoForgeCompatibility.py",
     "tools/Build-EpicFightMaid.py", "tools/java/EpicFightMaidProbe.java", "patches/epicfight-maid-neoforge.patch", "patches/ysm-geo-neoforge.patch",

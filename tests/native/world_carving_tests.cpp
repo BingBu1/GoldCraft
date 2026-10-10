@@ -1,6 +1,7 @@
 #include "goldcraft/world_carving.hpp"
 #include "goldcraft/world_volume.hpp"
 #include "goldcraft/wire.hpp"
+#include "goldcraft/surface_mesh.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -505,6 +506,38 @@ void actual_map(const char* path) {
                 hole.max[axis] = hole.min[axis] + 32;
             }
             const auto result = subtract(triangle, {&hole, 1});
+            auto source_mesh = std::make_shared<goldcraft::surface::Mesh>();
+            for (const auto& p : triangle) {
+                goldcraft::surface::Vertex vertex{};
+                for (int axis = 0; axis < 3; ++axis) vertex.pos[axis] = static_cast<float>(p[axis]);
+                for (int axis = 0; axis < 2; ++axis) {
+                    vertex.texcoord[axis] = static_cast<float>(uv(p, texture[axis]));
+                    vertex.lightmaptexcoord[axis] = static_cast<float>((uv(p, texture[axis]) - 32) / 16 + .5);
+                }
+                source_mesh->vertices.push_back(vertex);
+                source_mesh->frames.push_back({{0,0,1}, {1,0,0}, {0,1,0}, {0,0,1}});
+            }
+            source_mesh->instances.push_back({{65535, 511}, {0, 1, 2, 255}, 0});
+            source_mesh->faces.push_back({{0, 3}, {}, {0, 1}, 1, true});
+            source_mesh->indices = {0, 1, 2};
+            const goldcraft::surface::Selection selection{0, 1, hole};
+            const auto clipped_mesh = goldcraft::surface::prepare(source_mesh, {&selection, 1});
+            assert((clipped_mesh.changed_faces != 0) == result.changed);
+            assert(clipped_mesh.mesh->instances == source_mesh->instances);
+            double mesh_area = 0;
+            for (std::size_t at = 0; at < clipped_mesh.mesh->indices.size(); at += 3) {
+                Triangle t{};
+                for (std::size_t j = 0; j < 3; ++j) {
+                    const auto& v = clipped_mesh.mesh->vertices[clipped_mesh.mesh->indices[at + j]];
+                    for (int axis = 0; axis < 3; ++axis) t[j][axis] = v.pos[axis];
+                    for (int axis = 0; axis < 2; ++axis) {
+                        assert(std::abs(v.texcoord[axis] - uv(t[j], texture[axis])) < .002);
+                        assert(std::abs(v.lightmaptexcoord[axis] - ((uv(t[j], texture[axis]) - 32) / 16 + .5)) < .0002);
+                    }
+                }
+                mesh_area += area(t);
+            }
+            assert(std::abs(mesh_area - area(result)) < std::max(.05, area(triangle) * 2e-6));
             const auto coverage = verify(triangle, {&hole, 1}, result, texture);
             samples.checked += coverage.checked; samples.boundary += coverage.boundary;
             ++triangles; changed += result.changed; pieces += result.pieces.size();

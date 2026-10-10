@@ -1,6 +1,6 @@
 # 宿主地图挖掘
 
-`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端预测适配器已接入源码并通过回调／地图数据测试，**真实客户端、Renderer／PVS 和实际挖掘输入仍待验收，生产 mode2 仍不可用**。
+`mc_map_mining` 已接入服务端权限、原生地图实体伤害和 NeoForge 挖掘意图。`mc_map_mining_persist` 已部署：`0` 回合结束还原，`1` 跨回合保留，换图／重启始终清空。洞口碰撞已在独立 ReHLDS 和 NeoForge 服务端验证；原生客户端预测适配器通过回调／地图数据测试，Renderer 剩余表面候选通过实际 GL 读回，**真实客户端、Renderer 完整提交／PVS 和实际挖掘输入仍待验收，生产 mode2 仍不可用**。
 
 ## HLDS 权限
 
@@ -125,6 +125,18 @@ python tools/Exercise-MapMiningJvm.py
 
 这些测试使用原生回调的 dispatch spies，**不是运行真实 `hw.dll` 的预测验收**。动态 BSP 目标缺少可核验的客户端 serial，当前只记入 deferred 计数，不套用猜测身份。还需真实 B 收包／移动、事件武器射线、动态实体、Renderer／PVS 和分散多洞性能。没有向主沙盒部署新版或启动图形客户端。
 
+## Renderer 网格准备
+
+世界资源现在保留一份不可变的原始顶点、UV、lightmap、TBN、材质实例和面索引；普通地图的 GPU 上传代码保持原样。`surface::prepare` 从原始网格减去指定模型面范围内的洞口并集，生成独立候选，不反复切割上次结果。未受影响顶点保持原值，新增顶点以相同权重插值全部属性，正反向索引和材质实例范围保留。天空和水面暂不参与切割。
+
+`R_PrepareWorldSurfaceGeometry` 为候选分配独立 VBO／EBO／VAO，并恢复调用前的 GL 绑定。校验、容量／工作预算或 GPU 分配失败均不替换旧资源。清空修改可以从原始网格重新准备完整资源。这只是准备函数：**尚未从 GCEdit 调用，也没有切换正在使用的 leaf／PVS／阴影资源或开启游戏挖洞。**
+
+19 项原生 CTest、10 项 Renderer CTest 和 10 项 UtilThreadTask CTest 全部通过。新增 CPU 检查覆盖相邻／相交／重复洞口、反向面、保护表面、实例编号和失败原子性；实际 `cs_assault` 的 5,798 个三角形另核验 float 网格面积及 UV／lightmap 属性。真实 NVIDIA GL 4.4 测试通过生产候选函数与完整 VAO 布局，核对四个浮点颜色附件、深度和实例范围：256 个洞口像素清空，外侧 3,840 个像素保持属性一致，恢复后全图一致；向真实驱动注入失败后，候选缓冲释放且旧网格仍可绘制。
+
+这不是实际 `hw.dll` 游戏画面、光照或静态阴影验收。洞壁材质／烘焙光照、贴花裁剪、旧异步 leaf 收尾、修改后的 PVS 与静态阴影失效仍待统一提交。不能将候选直接放入现有缓存后声称这些部分已解决。当前准备开销有界，分散大量洞口的性能尚未验收。
+
+使用 `Build-Native.ps1`、`Build-Renderer.ps1` 后运行 `python tools/Verify-SurfaceMesh.py`，本地证据保存在 `analysis/world-carving/surface-evidence.json`。脚本读取已执行测试的日志、记录源码／产物哈希，验证普通上传路径不变，并对照既有快照核验原安装和受监控沙盒文件；缺少匹配的本机快照时不能推断安装保护验收通过。
+
 ## 验证与依据
 
 在仓库根目录运行已有构建入口：
@@ -145,7 +157,7 @@ python tools/Exercise-MapMiningJvm.py
 |---|---|---|
 | 锁定 SkyCraft 的 `SkyDigClient`、`SkyDig`、`DigMesh`、`DigPhysics` | 挖掘需要同时处理表面、洞壁及物理；原项目部分判断来自客户端 | 本项目必须增加服务器校验和完整的地图会话状态，不能只复制视觉剪裁 |
 | 匹配 ReHLDS `model.cpp` 的 `Mod_LoadClipnodes`，以及现有 `HostMovement` | 站立、蹲伏和大实体使用已扩张的独立 hull；hull0 没有全部空气墙 | 重新构造并核验原生／MC 玩家碰撞，不能把点射线挖空当作人物可通行 |
-| [`world_carving_tests.cpp`](../tests/native/world_carving_tests.cpp) 的解析面积、点覆盖和实际 BSP 顶点／texinfo | 几何核心保留面积关系、朝向及纹理插值属性 | Renderer 可在地图变更时生成受影响表面的候选网格；尚无实际绘制调用 |
+| [`world_carving_tests.cpp`](../tests/native/world_carving_tests.cpp) 的解析面积、点覆盖和实际 BSP 顶点／texinfo | 几何核心保留面积关系、朝向及纹理插值属性 | Renderer 候选网格与独立 GL 绘制已验证；实际游戏缓存提交仍待接通 |
 
 上游依据：[SkyCraft 锁定源码](https://github.com/chasmlol/SkyCraft/tree/bfcaf178524b92c2cdeb88e4ce0f13ef9ded6f32)、[ReHLDS 锁定源码](https://github.com/rehlds/rehlds/tree/550f2d62f13f4ebeb029c1d9d1c212133202611d)。BSP 测试读取的是文件格式，不将文件布局当成 `hw.dll` 的内存地址。
 
