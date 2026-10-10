@@ -3,7 +3,7 @@
   "files": [
     ".gitattributes", ".gitignore", "README.md", "TODO.md", "THIRD_PARTY_NOTICES.md", "CMakeLists.txt", "sources.lock.json", "publication.json", "sandbox-policy.json", "amxbuild.yml", "build-amxx.cmd",
     "docs/BUILD.md", "docs/ARCHITECTURE.md", "docs/WORLD_CARVING.md", "docs/MOD_MANAGEMENT.md", "docs/EPICFIGHT_MAID.md", "docs/SERVER_API.md", "docs/AMXX_INTEROP.md", "docs/VALIDATION.md", "docs/ZOMBIE_TESTING.md", "docs/NATIVE_REGRESSIONS.md", "docs/2026-10-10_分析-GoldSrc身份-report.md",
-    "tests/native/map_brush_collision_tests.inc", "tests/native/map_edit_transaction_tests.inc", "tools/Verify-BrushCollision.py", "docs/2026-10-10_分析-动态BSP碰撞-report.md",
+    "tests/native/map_brush_collision_tests.inc", "tests/native/map_edit_transaction_tests.inc", "tests/native/renderer_collision_tests.inc", "tools/Verify-BrushCollision.py", "docs/2026-10-10_分析-动态BSP碰撞-report.md",
     "tools/Exercise-BrushLifecycle.py", "tools/Verify-BrushServer.py", "docs/2026-10-10_分析-动态BSP服务端-report.md",
     "docs/2026-10-10_分析-动态BSP挖掘坐标-report.md",
     "amxx/goldcraft/goldcraft.sma", "amxx/tests/goldcraft_test.sma", "amxx/tests/goldcraft_headless_test.sma", "amxx/tests/goldcraft_precache_test.sma", "amxx/maps/goldcraft_bloodmoon.sma", "amxx/zombie_plague/integration/goldcraft_zp50.sma", "amxx/README.md",

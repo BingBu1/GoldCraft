@@ -6516,7 +6516,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..da9f6a3 100644
+index 93166e2..7a3c76a 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,16 @@ if(NOT TARGET glfw)
@@ -6538,7 +6538,7 @@ index 93166e2..da9f6a3 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,87 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +48,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -6597,6 +6597,12 @@ index 93166e2..da9f6a3 100644
 +    DEPENDS extract_brush_dispatch.py "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp" "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
 +    VERBATIM)
 +add_executable(world_leaf_gl_tests world_leaf_gl_tests.cpp
++    "${GOLDCRAFT_INCLUDE_DIR}/../client/map_collision.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../client/map_edit_transaction.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/map_edits.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_volume.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/edited_hull.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/wire.cpp"
 +    "${CMAKE_CURRENT_BINARY_DIR}/brush_draw_dispatch.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/mathlib2.cpp"
@@ -6616,9 +6622,15 @@ index 93166e2..da9f6a3 100644
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/cavity_lighting.cpp"
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/world_carving.cpp")
 +target_compile_definitions(world_leaf_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE)
++# Client headers use std::min/max; legacy Renderer units still use SDK macros.
++set_source_files_properties(world_leaf_gl_tests.cpp
++    "${GOLDCRAFT_INCLUDE_DIR}/../client/map_collision.cpp"
++    "${GOLDCRAFT_INCLUDE_DIR}/../common/wire.cpp"
++    PROPERTIES COMPILE_DEFINITIONS NOMINMAX)
++target_include_directories(world_leaf_gl_tests PRIVATE "${GOLDCRAFT_INCLUDE_DIR}/../client" "${GOLDCRAFT_INCLUDE_DIR}/../../tests/native")
 +target_compile_options(world_leaf_gl_tests PRIVATE /UNDEBUG /Gy)
 +target_link_options(world_leaf_gl_tests PRIVATE /OPT:REF /INCREMENTAL:NO)
-+target_link_libraries(world_leaf_gl_tests PRIVATE renderer_settings libglew_static glfw)
++target_link_libraries(world_leaf_gl_tests PRIVATE renderer_settings libglew_static glfw bcrypt)
 +if(EXISTS "${GOLDCRAFT_INCLUDE_DIR}/../../sandbox/cs-client-b/Half-Life/cstrike/maps/cs_assault.bsp")
 +    add_test(NAME world_leaf_gl_tests COMMAND world_leaf_gl_tests
 +        "${GOLDCRAFT_INCLUDE_DIR}/../../sandbox/cs-client-b/Half-Life/cstrike/maps/cs_assault.bsp")
@@ -11622,10 +11634,10 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..f48a888
+index 0000000..60a50e6
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1483 @@
+@@ -0,0 +1,1486 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -12838,6 +12850,8 @@ index 0000000..f48a888
 +    std::printf("{\"brushDecalDispatchGL\":true,\"exactProductionDispatch\":true,\"fullDecalUnitLinked\":true,\"existingAndNewDecals\":true,\"sameModelIsolation\":true,\"poolReuse\":true,\"providerFallback\":true,\"lateSuppressed\":true,\"rotatedPixels\":true,\"interpolatedCullBounds\":true,\"retainedPixels\":3840,\"cutPixels\":256,\"warmFrames\":256,\"warmAllocations\":0,\"warmGeometryUploads\":0,\"nativeEntityUBOWrites\":512,\"failedUploadSuppressed\":true,\"passed\":true}\n");
 +}
 +
++#include "renderer_collision_tests.inc"
++
 +int main(int argc, char** argv)
 +{
 +    std::memset(mod_novis, 0xff, sizeof(mod_novis));
@@ -13100,6 +13114,7 @@ index 0000000..f48a888
 +    }
 +    EditIntegration();
 +    BrushEditIntegration();
++    joint_edit_test::run();
 +    DecalDispatchIntegration();
 +    glDeleteProgram(shader);
 +    assert(liveWork == 0 && glGetError() == GL_NO_ERROR);
