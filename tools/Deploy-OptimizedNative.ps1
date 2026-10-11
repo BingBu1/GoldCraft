@@ -98,6 +98,11 @@ foreach($instance in $Clients){
             & python (Join-Path $PSScriptRoot 'Extract-VixPostShaders.py') --output (Join-Path $script:GoldCraftRoot $stage)
             if($LASTEXITCODE){throw 'Pinned local post shader extraction failed; no runtime deployed.'}
             Queue-File 'dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll' "$game/cstrike/metahook/plugins/Renderer_AVX2.dll"
+            # Renderer hook definitions belong to the same build as its DLL.
+            $catalogRoot=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer/svencoop/metahook/gamedata/renderer')
+            foreach($catalog in Get-ChildItem -LiteralPath $catalogRoot -File -Filter '*.json'){
+                Queue-File "dist/renderer/svencoop/metahook/gamedata/renderer/$($catalog.Name)" "$game/cstrike/metahook/gamedata/renderer/$($catalog.Name)"
+            }
             $shaderRoot=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer/svencoop/renderer/shader')
             foreach($shader in Get-ChildItem -LiteralPath $shaderRoot -Recurse -File){
                 $relative=$shader.FullName.Substring($shaderRoot.Length+1).Replace('\','/')
