@@ -73,6 +73,7 @@ std::string last_error;
 std::ofstream log_file;
 GLuint atlas_texture = 0;
 unsigned atlas_width=0,atlas_height=0;
+std::vector<std::uint8_t> atlas_alpha;
 std::uint64_t atlas_generation=0,atlas_uploads=0,atlas_animation_packets=0,atlas_patch_bytes=0;
 double last_atlas_animation=0,atlas_animation_interval_ms=0;
 bool section_logged=false,draw_logged=false,atlas_logged=false;
@@ -109,6 +110,9 @@ cvar_t* host_viewmodel=nullptr;
 cvar_t* render_particles=nullptr;
 cvar_t* render_post_effects=nullptr;
 cvar_t* render_scene_cull=nullptr;
+cvar_t* render_scene_static_shadows=nullptr;
+std::uint64_t static_shadow_callbacks=0,static_shadow_draws=0,static_shadow_section_skips=0,
+    static_shadow_failures=0,static_shadow_alpha_invalidations=0;
 bool viewmodel_suppressed=false;
 float saved_viewmodel=1;
 std::uint64_t suppressed_viewmodel_frames=0;
@@ -331,6 +335,9 @@ void UpdateLights(){
 using Vertex=render::Vertex;
 struct Section { std::uint64_t revision; std::uint32_t flags; std::vector<Vertex> vertices; std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>(); RenderBounds bounds; };
 std::map<std::array<std::int32_t,4>,Section> sections;
+void ClearSections(){
+    render::invalidate_static_scene();sections.clear();atlas_alpha.clear();
+}
 struct Texture {GLuint id;unsigned width,height;};
 struct EntityBatch {unsigned texture,flags;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>();RenderBounds bounds;};
 std::map<unsigned,Texture> entity_textures;
@@ -375,6 +382,7 @@ std::uint64_t suppressed_models=0;
 std::array<std::pair<std::uint64_t,std::chrono::steady_clock::time_point>,256> input_times;
 float input_latency_ms=0;
 void Draw(bool transparent,std::uint32_t flags=0);
+bool DrawStaticShadow(std::uint32_t flags) noexcept;
 int KeyEvent(int down,int key,const char* binding_text);
 void ReleaseMinecraftKeys();
 void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept;
@@ -386,6 +394,16 @@ class SceneCallbacks final : public IMetaRendererSceneCallbacks {
 public:
     void DrawOpaqueScene(std::uint32_t flags) override {Draw(false,flags);}
 } scene_callbacks;
+class StaticSceneCallbacks final : public IMetaRendererStaticSceneCallbacks {
+public:
+    bool DrawStaticShadow(std::uint32_t flags) noexcept override {return ::DrawStaticShadow(flags);}
+} static_scene_callbacks;
+void UpdateStaticScene(){
+    const bool ready=(!render_scene_static_shadows||render_scene_static_shadows->value!=0)&&
+        link.connected()&&link.generation()==last_link_generation&&world&&atlas_texture&&atlas_generation&&
+        atlas_alpha.size()==std::size_t(atlas_width)*atlas_height;
+    render::set_static_scene(&static_scene_callbacks,ready);
+}
 
 void ClearPostEffects(){
     post_batches.clear();post_stages.clear();post_revision=post_generation=0;
@@ -444,7 +462,7 @@ void ResetWorld() {
     form_menu.clear();menu_pressed.fill(false);server_hud::reset();
     ReleaseHostUse();
     RestoreViewModel();
-    sections.clear();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
+    ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
     native_colliders.clear();collider_sequence=0;last_colliders=0;
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
@@ -617,6 +635,12 @@ void WriteDiagnostics() {
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")
            <<",\"sceneCullingApi\":"<<(gpu.scene_culling_api?"true":"false")<<",\"sceneCullingEnabled\":"<<((!render_scene_cull||render_scene_cull->value!=0)?"true":"false")
            <<",\"sceneLightsApi\":"<<(gpu.scene_lights_api?"true":"false")<<",\"sceneLightsSubmitted\":"<<gpu.scene_lights<<",\"sceneLightsFresh\":"<<(FreshLights()?"true":"false")
+           <<",\"sceneStaticShadowsApi\":"<<(gpu.scene_static_shadows_api?"true":"false")
+           <<",\"sceneStaticShadowsRegistered\":"<<(gpu.scene_static_shadows_registered?"true":"false")
+           <<",\"sceneStaticShadowsEnabled\":"<<((!render_scene_static_shadows||render_scene_static_shadows->value!=0)?"true":"false")
+           <<",\"staticShadowCallbacks\":"<<static_shadow_callbacks<<",\"staticShadowDraws\":"<<static_shadow_draws
+           <<",\"staticShadowSectionSkips\":"<<static_shadow_section_skips<<",\"staticShadowInvalidations\":"<<gpu.static_shadow_invalidations
+           <<",\"staticShadowAlphaInvalidations\":"<<static_shadow_alpha_invalidations<<",\"staticShadowFailures\":"<<static_shadow_failures
            <<",\"shadowBoundsTests\":"<<gpu.shadow_bounds_tests<<",\"shadowBoundsCulled\":"<<gpu.shadow_bounds_culled
            <<",\"postSceneApi\":"<<(gpu.post_scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"fpsOverride\":"<<gEngfuncs.pfnGetCvarFloat("fps_override")
@@ -701,7 +725,7 @@ int BindingMessage(const char*,int size,void* data) {
         auto view=std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size));
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
-        if(new_world!=world){sections.clear();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
+        if(new_world!=world){ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
         if(new_world!=world||slot!=player_slot||serial!=player_serial){ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
@@ -905,6 +929,7 @@ void InitHud() {
     render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
     render_post_effects=gEngfuncs.pfnRegisterVariable("mc_post_effects","1",0);
     render_scene_cull=gEngfuncs.pfnRegisterVariable("mc_scene_cull","1",0);
+    render_scene_static_shadows=gEngfuncs.pfnRegisterVariable("mc_scene_static_shadows","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -938,7 +963,7 @@ int VidInit() {
     visible_entities::fixture_clear();
     client_vitals::reset();
     packet_client::reset();
-    sections.clear();ClearDynamic();ClearHud();
+    ClearSections();ClearDynamic();ClearHud();
     next_scene_request=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
     hud_texture=0;hud_width=hud_height=0;
@@ -1005,7 +1030,11 @@ void ReadAtlas(Reader& r) {
     auto width=r.u32(),height=r.u32();
     if(!generation||!width||!height||width>4096||height>4096||std::uint64_t(width)*height*4!=r.remaining()) throw ProtocolError("invalid atlas dimensions");
     auto pixels=r.bytes(r.remaining());
+    std::vector<std::uint8_t> next_alpha(pixels.size()/4);
+    for(std::size_t i=0;i<next_alpha.size();++i)next_alpha[i]=pixels[i*4+3];
+    render::invalidate_static_scene();atlas_alpha.clear();atlas_generation=0;
     render::upload_texture(atlas_texture,atlas_width,atlas_height,width,height,pixels);
+    render::validate_atlas_upload();atlas_alpha=std::move(next_alpha);
     atlas_generation=generation;++atlas_uploads;last_atlas_animation=0;
     if(!atlas_logged){Log("uploaded Minecraft block atlas "+std::to_string(width)+"x"+std::to_string(height));atlas_logged=true;}
 }
@@ -1013,7 +1042,21 @@ void ReadAtlasPatches(Reader& r) {
     const auto epoch=r.u64(),generation=r.u64();
     if(epoch!=world||!atlas_generation||generation!=atlas_generation)return;
     const auto patches=read_atlas_patches(r,atlas_width,atlas_height);
-    render::upload_atlas_patches(atlas_texture,patches);
+    bool alpha_changed=atlas_alpha.size()!=std::size_t(atlas_width)*atlas_height;
+    if(!alpha_changed)for(const auto& patch:patches){
+        for(unsigned y=0;y<patch.height&&!alpha_changed;++y)for(unsigned x=0;x<patch.width;++x){
+            if(atlas_alpha[std::size_t(patch.y+y)*atlas_width+patch.x+x]!=patch.rgba[(std::size_t(y)*patch.width+x)*4+3]){
+                alpha_changed=true;break;
+            }
+        }
+        if(alpha_changed)break;
+    }
+    if(alpha_changed){render::invalidate_static_scene();++static_shadow_alpha_invalidations;}
+    try{render::upload_atlas_patches(atlas_texture,patches);render::validate_atlas_upload();}
+    catch(...){render::invalidate_static_scene();atlas_alpha.clear();atlas_generation=0;throw;}
+    if(alpha_changed&&atlas_alpha.size()==std::size_t(atlas_width)*atlas_height)
+        for(const auto& patch:patches)for(unsigned y=0;y<patch.height;++y)for(unsigned x=0;x<patch.width;++x)
+            atlas_alpha[std::size_t(patch.y+y)*atlas_width+patch.x+x]=patch.rgba[(std::size_t(y)*patch.width+x)*4+3];
     ++atlas_animation_packets;for(const auto& patch:patches)atlas_patch_bytes+=patch.rgba.size();
     const double now=Seconds();if(last_atlas_animation>0)atlas_animation_interval_ms=(now-last_atlas_animation)*1000;last_atlas_animation=now;
 }
@@ -1037,8 +1080,23 @@ void ReadSection(Reader& r) {
     }
     r.finish();
     if(count&&existing!=sections.end())section.gpu=existing->second.gpu;
+    // Both volumes matter when a replacement moves or removes an occluder.
+    // The complete frame is validated before touching the accepted mesh/cache.
+    if(!(flags&1)){
+        if(existing!=sections.end()&&!existing->second.vertices.empty())render::invalidate_static_scene(&existing->second.bounds);
+        if(!section.vertices.empty())render::invalidate_static_scene(&section.bounds);
+    }
     sections[key]=std::move(section);
     if(count && !section_logged){section_logged=true;Log("received first nonempty Minecraft section mesh, vertices="+std::to_string(count));}
+}
+void ReadRemoveSection(Reader& r){
+    const auto epoch=r.u64();std::array<std::int32_t,4> key{r.i32(),r.i32(),r.i32(),0};r.finish();
+    if(epoch!=world)return;
+    for(int layer=0;layer<4;++layer){
+        key[3]=layer;auto existing=sections.find(key);if(existing==sections.end())continue;
+        if(!(existing->second.flags&1)&&!existing->second.vertices.empty())render::invalidate_static_scene(&existing->second.bounds);
+        sections.erase(existing);
+    }
 }
 void ReadEntityTexture(Reader& r) {
     auto epoch=r.u64();auto key=r.u32(),width=r.u32(),height=r.u32();if(epoch!=world)return;
@@ -1269,6 +1327,12 @@ void TestCommands() {
         int enabled=1;
         if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("r_shadow_caster_cull",static_cast<float>(enabled));
     }
+    else if(action=="scene_static_shadows"){
+        int enabled=1;
+        if(input>>enabled&&enabled>=0&&enabled<=1){
+            gEngfuncs.Cvar_SetValue("mc_scene_static_shadows",static_cast<float>(enabled));UpdateStaticScene();
+        }
+    }
     else if(action=="native_profile"){
         float seconds=0;
         if(input>>seconds&&std::isfinite(seconds)&&seconds>=3&&seconds<=30&&!native_profile_end&&
@@ -1364,7 +1428,7 @@ void Frame(double time) {
     if(link.error()!=last_error) { last_error=link.error(); if(!last_error.empty()) Log(last_error); }
     if(link.connected()&&link.generation()!=last_link_generation) {
         ReleaseHostUse();
-        last_link_generation=link.generation(); sections.clear();ClearLights();ClearDynamic();ClearHud();view_interpolator.clear();atlas_generation=0;minecraft_control=false;section_logged=draw_logged=atlas_logged=false;
+        last_link_generation=link.generation(); ClearSections();ClearLights();ClearDynamic();ClearHud();view_interpolator.clear();atlas_generation=0;minecraft_control=false;section_logged=draw_logged=atlas_logged=false;
         if(!binding.empty()) link.send(Type::client_binding,binding);
         Log("Fabric client connected with an isolated session");
     }
@@ -1404,7 +1468,7 @@ void Frame(double time) {
                 }
             }
             else if(message.type==Type::hud_frame)ReadHud(r);
-            else if(message.type==Type::scene_reset){auto epoch=r.u64();r.finish();if(epoch==world){sections.clear();ClearLights();ClearDynamic();atlas_generation=0;}}
+            else if(message.type==Type::scene_reset){auto epoch=r.u64();r.finish();if(epoch==world){ClearSections();ClearLights();ClearDynamic();atlas_generation=0;}}
             else if(message.type==Type::player_pose) {
                 auto epoch=r.u64(),sequence=r.u64(),produced=r.u64();auto flags=r.u32(),life=r.u32();Vec3 feet{r.f32(),r.f32(),r.f32()};float eye=r.f32();r.finish();
                 if(epoch==world&&life==server_player_life&&sequence>=pose_sequence&&eye>=0&&eye<=4&&(flags&~9u)==0){
@@ -1417,10 +1481,7 @@ void Frame(double time) {
             }
             else if(message.type==Type::lights) ReadLights(r);
             else if(message.type==Type::section_mesh) ReadSection(r);
-            else if(message.type==Type::remove_section) {
-                auto epoch=r.u64(); std::array<std::int32_t,4> key{r.i32(),r.i32(),r.i32(),0}; r.finish();
-                if(epoch==world)for(int layer=0;layer<4;++layer){key[3]=layer;sections.erase(key);}
-            }
+            else if(message.type==Type::remove_section) ReadRemoveSection(r);
         } catch(const std::exception& e) { Log(e.what()); }
     }
     }
@@ -1433,7 +1494,7 @@ void Frame(double time) {
     if(link.connected()&&world&&!atlas_generation&&Seconds()>=next_scene_request){
         Writer request;request.u64(world);link.send(Type::scene_reset,request.data);next_scene_request=Seconds()+1;
     }
-    UpdateLights();
+    UpdateLights();UpdateStaticScene();
     }
     frame_work_ms=(Seconds()-began)*1000;frame_work_max_ms=std::max(frame_work_max_ms,frame_work_ms);
 }
@@ -1612,6 +1673,33 @@ void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
         try{if(post_error!=post_replay->last_error()){post_error=post_replay->last_error();Log(post_error);}}catch(...){}
     }
 }
+bool DrawStaticShadow(std::uint32_t flags) noexcept {
+    ++static_shadow_callbacks;
+    try{
+        if(!(flags&META_SCENE_SHADOW)||!link.connected()||link.generation()!=last_link_generation||!world||
+           !atlas_texture||!atlas_generation||atlas_alpha.size()!=std::size_t(atlas_width)*atlas_height||!render::owns_context()||
+           (render_scene_static_shadows&&render_scene_static_shadows->value==0)){
+            ++static_shadow_failures;return false;
+        }
+        const auto previous_error=render::statistics().error_count;
+        {
+            WorkScope timing(WorkStage::draw_shadow);
+            ProfiledPass measured_pass(false,flags);
+            const bool cull=!render_scene_cull||render_scene_cull->value!=0;
+            for(const auto& [key,section]:sections){
+                if((section.flags&1)||section.vertices.empty())continue;
+                if(cull&&render::cull_shadow_bounds(section.bounds))continue;
+                auto& pass=measured_pass.get();if(!pass.ready()||!section.gpu){++static_shadow_failures;return false;}
+                pass.texture(atlas_texture);pass.emissive((section.flags&2)!=0);
+                section.gpu->draw(section.vertices,section.revision,false);++static_shadow_draws;
+            }
+        }
+        // Pass reports/restores GL state in its destructor, before accepting
+        // even an otherwise complete bake. Valid empty scenes need no GL pass.
+        if(render::statistics().error_count==previous_error)return true;
+    }catch(...){}
+    ++static_shadow_failures;return false;
+}
 void Draw(bool transparent,std::uint32_t flags) {
     WorkScope draw_timing(transparent?WorkStage::draw_transparent:
         (flags&META_SCENE_SHADOW)?WorkStage::draw_shadow:WorkStage::draw_opaque);
@@ -1621,12 +1709,17 @@ void Draw(bool transparent,std::uint32_t flags) {
         (!render_particles||render_particles->value!=0);
     if(!atlas_texture&&!effects_ready)return;
     const bool cull_shadow=(flags&META_SCENE_SHADOW)&&!transparent&&(!render_scene_cull||render_scene_cull->value!=0);
+    const bool static_covered=(flags&META_SCENE_SHADOW)&&!transparent&&
+        (!render_scene_static_shadows||render_scene_static_shadows->value!=0)&&render::static_scene_covered();
     {
     ProfiledPass measured_pass(transparent,flags);
     if(atlas_texture){
     {
     WorkScope timing(WorkStage::sections);
-    for(const auto& [key,section] : sections) {
+    // Count section records whose traversal was skipped, including empty and
+    // translucent layers. Actual GPU draws are counted separately above.
+    if(static_covered)static_shadow_section_skips+=sections.size();
+    else for(const auto& [key,section] : sections) {
         if(((section.flags&1)!=0)!=transparent || section.vertices.empty()) continue;
         if(cull_shadow&&render::cull_shadow_bounds(section.bounds))continue;
         auto& pass=measured_pass.get();if(!pass.ready())return;

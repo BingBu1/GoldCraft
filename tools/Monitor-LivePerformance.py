@@ -59,6 +59,9 @@ def snapshot():
               "hudBlank", "hudFrames", "hudBlankFrames", "hudBlankUploads", "hudBlankCompositesSkipped",
               "hudDraws", "hudTextureWidth", "hudTextureHeight",
               "sceneCullingApi", "sceneCullingEnabled", "shadowBoundsTests", "shadowBoundsCulled",
+              "sceneStaticShadowsApi", "sceneStaticShadowsEnabled", "sceneStaticShadowsRegistered", "staticShadowCallbacks",
+              "staticShadowDraws", "staticShadowSectionSkips", "staticShadowInvalidations",
+              "staticShadowAlphaInvalidations", "staticShadowFailures",
               "lights", "sceneLightsApi", "sceneLightsSubmitted", "sceneLightsFresh",
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
@@ -97,6 +100,8 @@ def main():
     parser.add_argument("--reference", type=Path, help="Previous report whose anchor must match for a comparison")
     parser.add_argument("--scene-cull", type=int, choices=(0, 1),
                         help="Temporarily disable/enable MC shadow culling for a same-view comparison")
+    parser.add_argument("--scene-static-shadows", type=int, choices=(0, 1),
+                        help="Temporarily disable/enable MC static shadow caching for a same-view comparison")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -113,21 +118,31 @@ def main():
     population_before = renderer.server_population()
     original_caps = {k: first["native"].get(k) for k in ("fpsLimit", "fpsOverride", "vsync")}
     original_culling = first["native"].get("sceneCullingEnabled")
+    original_static = first["native"].get("sceneStaticShadowsEnabled")
     if args.scene_cull is not None and (not first["native"].get("sceneCullingApi") or not isinstance(original_culling, bool)):
         raise RuntimeError("Scene culling comparison requires the live optional Renderer API and diagnostics")
+    if args.scene_static_shadows is not None and (not first["native"].get("sceneStaticShadowsApi") or not isinstance(original_static, bool)):
+        raise RuntimeError("Static shadow comparison requires the live optional Renderer API and diagnostics")
     samples = []
     profiles = {}
     restored = None
     culling_restored = None
+    static_restored = None
     capture_error = restore_error = None
     active_caps = original_caps.copy()
     active_culling = original_culling
+    active_static = original_static
     try:
         if args.scene_cull is not None:
             renderer.command(f"scene_cull {args.scene_cull}")
             active_culling = renderer.read_status().get("sceneCullingEnabled")
             if active_culling != bool(args.scene_cull):
                 raise RuntimeError("Live scene culling toggle was not applied")
+        if args.scene_static_shadows is not None:
+            renderer.command(f"scene_static_shadows {args.scene_static_shadows}")
+            active_static = renderer.read_status().get("sceneStaticShadowsEnabled")
+            if active_static != bool(args.scene_static_shadows):
+                raise RuntimeError("Live static shadow toggle was not applied")
         if args.benchmark_fps:
             if args.seconds > 25:
                 raise ValueError("Benchmark samples must finish within the 30-second native lease")
@@ -170,6 +185,13 @@ def main():
             except Exception as error:
                 culling_restored = False
                 restore_error = f"{restore_error or ''} scene culling: {error}".strip()
+        if args.scene_static_shadows is not None:
+            try:
+                renderer.command(f"scene_static_shadows {int(original_static)}")
+                static_restored = renderer.read_status().get("sceneStaticShadowsEnabled") == original_static
+            except Exception as error:
+                static_restored = False
+                restore_error = f"{restore_error or ''} static shadows: {error}".strip()
     if not samples:
         samples = [first]
     try:
@@ -187,6 +209,13 @@ def main():
     summary["activeSceneCulling"] = active_culling
     summary["sceneCullingRestored"] = culling_restored
     summary["stableSceneCulling"] = all(s["native"].get("sceneCullingEnabled") == active_culling for s in samples)
+    summary["activeStaticShadows"] = active_static
+    summary["staticShadowsRestored"] = static_restored
+    summary["stableStaticShadows"] = all(s["native"].get("sceneStaticShadowsEnabled") == active_static for s in samples)
+    summary["staticShadowCounters"] = {key: samples[-1]["native"][key] - samples[0]["native"][key]
+        for key in ("staticShadowCallbacks", "staticShadowDraws", "staticShadowSectionSkips",
+                    "staticShadowInvalidations", "staticShadowAlphaInvalidations", "staticShadowFailures")
+        if key in samples[0]["native"] and key in samples[-1]["native"]}
     if "renderer" in profiles:
         summary["renderer"] = renderer.summarize(profiles["renderer"]["frames"])
         frame = next(f for f in profiles["renderer"]["frames"] if f["interval"] > 0)
@@ -212,6 +241,8 @@ def main():
     for side, key in (("native", "postEffectFailures"), ("java", "vixPostFailures")):
         counts = {s[side].get(key) for s in samples}
         summary["noRenderErrors"] &= len(counts) == 1 and None not in counts
+    if "staticShadowFailures" in samples[0]["native"]:
+        summary["noRenderErrors"] &= len({s["native"].get("staticShadowFailures") for s in samples}) == 1
     summary["requiredPopulation"] = all(p.get("players") == 25 and p.get("bots") == 24
                                         for p in (report["populationBefore"], report["populationAfter"]))
     quality = summary.get("renderer", {}).get("states", {})
@@ -232,6 +263,7 @@ def main():
                            summary["pairedGameplay"] and summary["noRenderErrors"] and summary["requiredPopulation"] and
                            summary["fullQuality"] and summary["stableQuality"] and
                            summary["stableSceneCulling"] and culling_restored is not False and
+                           summary["stableStaticShadows"] and static_restored is not False and
                            summary.get("native", {}).get("foregroundFpsEligible", False) and
                            summary.get("renderer", {}).get("fpsComparisonEligible", False) and
                            summary["referenceMatches"] is not False and restored is not False and capture_error is None)
@@ -253,6 +285,8 @@ def main():
         raise RuntimeError("Benchmark cap restoration did not match the original values; inspect live B")
     if culling_restored is False:
         raise RuntimeError("Scene culling restoration did not match the original value; inspect live B")
+    if static_restored is False:
+        raise RuntimeError("Static shadow restoration did not match the original value; inspect live B")
 
 
 if __name__ == "__main__":

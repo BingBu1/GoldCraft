@@ -9,6 +9,7 @@
 #include <IMetaRendererScene.h>
 #include <IMetaRendererSceneCulling.h>
 #include <IMetaRendererSceneLights.h>
+#include <IMetaRendererSceneStaticShadows.h>
 #include <IMetaRendererWorldEdit.h>
 #include <IMetaRendererPostScene.h>
 #include "goldcraft/atlas.hpp"
@@ -43,6 +44,8 @@ struct Statistics {
     bool core=false,renderer=false,scene_api=false,post_scene_api=false,scene_culling_api=false;
     bool scene_lights_api=false;
     std::uint32_t scene_lights=0;
+    bool scene_static_shadows_api=false,scene_static_shadows_registered=false;
+    std::uint64_t static_shadow_invalidations=0;
 };
 const Statistics& statistics();
 bool initialize(IMetaRendererSceneCallbacks* callbacks, void(*log)(const std::string&));
@@ -56,8 +59,12 @@ bool owns_context();
 void set_light_shadow(int key, unsigned size);
 bool update_scene_lights(std::span<const SceneLight> lights) noexcept;
 void clear_scene_lights();
+bool set_static_scene(IMetaRendererStaticSceneCallbacks* callbacks,bool enabled) noexcept;
+void invalidate_static_scene(const RenderBounds* bounds=nullptr) noexcept;
+bool static_scene_covered() noexcept;
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba);
 void upload_atlas_patches(GLuint id,std::span<const AtlasPatch> patches);
+void validate_atlas_upload();
 bool capture(const char* path);
 bool draw_hud(GLuint texture,float mouse_x,float mouse_y,bool menu,unsigned width,unsigned height);
 class Pass {

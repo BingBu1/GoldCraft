@@ -16,6 +16,8 @@ IMetaRenderer* renderer=nullptr;
 IMetaRendererScene* scene=nullptr;
 IMetaRendererSceneCulling* scene_culling=nullptr;
 IMetaRendererSceneLights* scene_lights=nullptr;
+IMetaRendererSceneStaticShadows* scene_static_shadows=nullptr;
+IMetaRendererStaticSceneCallbacks* static_callback=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
 IMetaRendererWorldEdit2* targeted_edits=nullptr;
 IMetaRendererPostScene* post_scene_provider=nullptr;
@@ -112,9 +114,35 @@ void clear_scene_lights(){
     if(scene_lights&&callback)scene_lights->ClearLights(callback);
     stats.scene_lights=0;
 }
+void invalidate_static_scene(const RenderBounds* bounds) noexcept {
+    ++stats.static_shadow_invalidations;
+    if(scene_static_shadows&&callback)
+        scene_static_shadows->InvalidateStaticScene(callback,bounds&&bounds->valid()?bounds->min:nullptr,
+            bounds&&bounds->valid()?bounds->max:nullptr);
+}
+bool set_static_scene(IMetaRendererStaticSceneCallbacks* callbacks,bool enabled) noexcept {
+    if(!enabled||static_callback!=callbacks){
+        if(stats.scene_static_shadows_registered){
+            invalidate_static_scene();scene_static_shadows->UnregisterStaticScene(callback);
+        }
+        stats.scene_static_shadows_registered=false;static_callback=nullptr;
+    }
+    if(!enabled||!callbacks||!scene_static_shadows||!callback)return false;
+    if(stats.scene_static_shadows_registered)return true;
+    if(!scene_static_shadows->RegisterStaticScene(callback,callbacks)){
+        stats.scene_static_shadows_registered=false;static_callback=nullptr;return false;
+    }
+    static_callback=callbacks;stats.scene_static_shadows_registered=true;
+    invalidate_static_scene();return true;
+}
+bool static_scene_covered() noexcept {
+    return scene_static_shadows&&callback&&stats.scene_static_shadows_registered&&
+        scene_static_shadows->IsStaticSceneCovered(callback);
+}
 
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
+    set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     // VidInit revokes the prior transaction before Renderer/GL initialization.
     // A failed initialization must not expose an earlier optional provider.
@@ -142,6 +170,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.scene_culling_api=scene_culling!=nullptr;
     scene_lights=scene?static_cast<IMetaRendererSceneLights*>(factory(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION,nullptr)):nullptr;
     stats.scene_lights_api=scene_lights!=nullptr;
+    scene_static_shadows=scene?static_cast<IMetaRendererSceneStaticShadows*>(factory(METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION,nullptr)):nullptr;
+    stats.scene_static_shadows_api=scene_static_shadows!=nullptr;
     post_scene_provider=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
     stats.post_scene_api=post_scene_provider!=nullptr;
     targeted_edits=static_cast<IMetaRendererWorldEdit2*>(factory(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION,nullptr));
@@ -159,6 +189,7 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     return true;
 }
 void shutdown(){
+    set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     if(edits)edits->Reset();
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
@@ -462,6 +493,12 @@ void upload_atlas_patches(GLuint id,std::span<const AtlasPatch> patches){
             glTexSubImage2D(GL_TEXTURE_2D,0,patch.x,patch.y,patch.width,patch.height,GL_RGBA,GL_UNSIGNED_BYTE,patch.rgba.data());
     }
     glBindTexture(GL_TEXTURE_2D,old);
+}
+void validate_atlas_upload(){
+    // Check once after non-draw atlas uploads; a failed texture update must
+    // never be accepted as a complete static-shadow bake on a later frame.
+    const auto error=glGetError();stats.error=error;
+    if(error!=GL_NO_ERROR){++stats.error_count;throw ProtocolError("Minecraft atlas GPU upload failed");}
 }
 
 bool capture(const char* path){

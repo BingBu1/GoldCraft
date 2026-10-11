@@ -63,7 +63,12 @@
         "include/Interface/IMetaRendererSceneLights.h",
         "src/gl_scene_lights.cpp",
         "tests/extract_scene_lights_dispatch.py",
-        "tests/scene_lights_tests.cpp"
+        "tests/scene_lights_tests.cpp",
+        "include/Interface/IMetaRendererSceneStaticShadows.h",
+        "src/gl_scene_static_shadows.h",
+        "src/gl_scene_static_shadows.cpp",
+        "tests/extract_scene_static_shadows.py",
+        "tests/scene_static_shadows_tests.cpp"
       ]
     },
     "BulletPhysics": {

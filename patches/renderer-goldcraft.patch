@@ -206,14 +206,15 @@ index 8c6651f..f09e672 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..bfce8fd 100644
+index 6ce4285..523393a 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -116,17 +116,39 @@ set(RENDERER_SOURCES
+@@ -116,17 +116,40 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_hooks.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_hud.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_light.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/gl_scene_lights.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_scene_static_shadows.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_model.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_portal.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_scclient.cpp"
@@ -852,19 +853,20 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..60aa93c 100644
+index d59b139..227ac10 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
-@@ -1,5 +1,8 @@
+@@ -1,5 +1,9 @@
  #include "gl_local.h"
  #include "gl_common.h"
 +#include "gl_external_scene.h"
 +#include "post_scene.h"
 +#include "gl_shadow_cull.h"
++#include "gl_scene_static_shadows.h"
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -786,10 +789,14 @@ bool AllowCheats()
+@@ -786,10 +790,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
  {
@@ -880,7 +882,7 @@ index d59b139..60aa93c 100644
  }
  
  /*
-@@ -1739,6 +1746,7 @@ void triapi_End()
+@@ -1739,6 +1747,7 @@ void triapi_End()
  
      triapi_program_t prog{};
      R_UseTriAPIProgram(ProgramState, &prog);
@@ -888,7 +890,7 @@ index d59b139..60aa93c 100644
  
      if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
      {
-@@ -2400,6 +2408,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+@@ -2400,6 +2409,7 @@ void R_DrawCurrentEntity(bool bTransparent)
          }
          case mod_studio:
          {
@@ -896,7 +898,7 @@ index d59b139..60aa93c 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -2948,6 +2957,7 @@ void R_RenderViewStart()
+@@ -2948,6 +2958,7 @@ void R_RenderViewStart()
              R_AddVisibleDynamicLight(dynamicLight);
          }
      }
@@ -904,7 +906,7 @@ index d59b139..60aa93c 100644
  }
  
  /*
-@@ -3011,6 +3021,7 @@ void R_RenderEndFrame()
+@@ -3011,6 +3022,7 @@ void R_RenderEndFrame()
          cb->OnRenderEndFrame();
      }
  
@@ -912,7 +914,7 @@ index d59b139..60aa93c 100644
      R_EndRingBufferFrame();
  }
  
-@@ -3055,6 +3066,8 @@ void GL_Finish2D()
+@@ -3055,6 +3067,8 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -921,7 +923,7 @@ index d59b139..60aa93c 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3146,16 @@ void R_PreRenderView()
+@@ -3133,10 +3147,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -941,7 +943,7 @@ index d59b139..60aa93c 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,6 +3410,60 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,6 +3411,60 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -1002,7 +1004,7 @@ index d59b139..60aa93c 100644
  void R_RenderView_SvEngine(int viewIdx)
  {
      const bool wasRenderingView = g_bIsRenderingView;
-@@ -3434,14 +3507,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3508,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -1030,7 +1032,7 @@ index d59b139..60aa93c 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3590,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3591,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -1042,7 +1044,7 @@ index d59b139..60aa93c 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3637,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3638,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -1055,7 +1057,7 @@ index d59b139..60aa93c 100644
  }
  
  #if 0
-@@ -3783,6 +3874,7 @@ void R_Init(void)
+@@ -3783,6 +3875,7 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
@@ -1063,7 +1065,7 @@ index d59b139..60aa93c 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -4667,6 +4759,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4760,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1074,7 +1076,7 @@ index d59b139..60aa93c 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4778,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4779,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1090,7 +1092,7 @@ index d59b139..60aa93c 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4822,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4823,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1108,7 +1110,7 @@ index d59b139..60aa93c 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4841,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4842,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1116,7 +1118,7 @@ index d59b139..60aa93c 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4852,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4853,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1124,7 +1126,7 @@ index d59b139..60aa93c 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4906,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4907,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1132,7 +1134,7 @@ index d59b139..60aa93c 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5573,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5574,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1143,7 +1145,7 @@ index d59b139..60aa93c 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6714,74 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6715,80 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1155,19 +1157,24 @@ index d59b139..60aa93c 100644
 +
 +void R_DrawExternalOpaqueScene()
 +{
-+    // Static shadow textures are cached. Mutable plugin geometry belongs in
-+    // dynamic entity shadow passes, never the cached world-only pass.
-+    if (!(r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES) || externalSceneCallbacks.empty())
-+        return;
 +    uint32_t flags = 0;
 +    if (R_IsRenderingGBuffer()) flags |= META_SCENE_GBUFFER;
 +    if (R_IsRenderingShadowView()) flags |= META_SCENE_SHADOW;
 +    if (R_IsRenderingMultiView()) flags |= META_SCENE_MULTIVIEW;
 +    if (R_IsRenderingLinearDepth()) flags |= META_SCENE_LINEAR_DEPTH;
 +    if (R_IsRenderingGammaBlending()) flags |= META_SCENE_GAMMA_BLEND;
++    if (R_DrawExternalStaticShadowScene(flags)) return;
++    // Ordinary callbacks remain dynamic. Only explicitly opted-in geometry is
++    // admitted to the static WORLD pass by the independent extension above.
++    if (!(r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES) || externalSceneCallbacks.empty())
++        return;
 +    R_SetGBufferMask(GBUFFER_MASK_ALL);
 +    RExternalSceneShadowCullScope cullScope((flags & META_SCENE_SHADOW) != 0);
-+    for (auto* callback : externalSceneCallbacks) callback->DrawOpaqueScene(flags);
++    for (auto* callback : externalSceneCallbacks)
++    {
++        RExternalStaticSceneDispatchScope staticScope(callback);
++        callback->DrawOpaqueScene(flags);
++    }
 +}
 +
 +unsigned R_GetExternalDlightShadowSize(int key)
@@ -1192,6 +1199,7 @@ index d59b139..60aa93c 100644
 +    }
 +    void UnregisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) override
 +    {
++        R_UnregisterExternalStaticScene(callbacks);
 +        R_ClearExternalSceneLights(callbacks);
 +        externalSceneCallbacks.erase(std::remove(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), callbacks), externalSceneCallbacks.end());
 +    }
@@ -1596,16 +1604,17 @@ index 2832883..4d2ed52 100644
 +#define SHADER_UNIFORM(name, loc, locstring) name.loc = glGetUniformLocation(name.program, locstring);
 +#define SHADER_ATTRIB(name, loc, locstring)  name.loc = glGetAttribLocation(name.program, locstring);
 diff --git a/src/gl_shadow.cpp b/src/gl_shadow.cpp
-index 0683b11..0652b49 100644
+index 0683b11..4dfd423 100644
 --- a/src/gl_shadow.cpp
 +++ b/src/gl_shadow.cpp
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  #include "gl_local.h"
 +#include "gl_shadow_cull.h"
++#include "gl_scene_static_shadows.h"
  #include <sstream>
  #include <math.h>
  
-@@ -302,6 +303,7 @@ std::shared_ptr<IShadowTexture> R_CreateCubemapShadowTexture(uint32_t size, bool
+@@ -302,11 +304,13 @@ std::shared_ptr<IShadowTexture> R_CreateCubemapShadowTexture(uint32_t size, bool
  
  void R_InitShadow(void)
  {
@@ -1613,32 +1622,70 @@ index 0683b11..0652b49 100644
      r_shadow = gEngfuncs.pfnRegisterVariable("r_shadow", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
  }
  
-@@ -417,6 +419,8 @@ void R_RenderShadowmapForDynamicLights(void)
+ void R_ShutdownShadow(void)
+ {
++    R_ShutdownExternalStaticScenes();
+ }
+ 
+ bool R_ShouldRenderShadow(void)
+@@ -417,6 +421,9 @@ void R_RenderShadowmapForDynamicLights(void)
          GL_BeginDebugGroup("R_RenderShadowmapForDynamicLights");
  
          const auto PointLightCallback = [](PointLightCallbackArgs* args, void* context) {
 +            RProfileScope         profileScope(RProfileStage::PointShadow);
 +            RPointShadowCullScope cullScope(args->origin, args->radius);
++            RStaticScenePointLightScope staticSceneScope(args->ppStaticShadowTexture, args->staticShadowSize);
              if (args->ppStaticShadowTexture && args->staticShadowSize > 0)
              {
                  if ((*args->ppStaticShadowTexture) == nullptr ||
-@@ -659,6 +663,7 @@ void R_RenderShadowmapForDynamicLights(void)
+@@ -499,6 +506,7 @@ void R_RenderShadowmapForDynamicLights(void)
+                     GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hCameraUBO, 0, sizeof(CameraUBO), &CameraUBO);
+ 
+                     bool bAnyPolyRendered = false;
++                    RStaticSceneBakeScope staticSceneBake;
+ 
+                     {
+                         auto old_brush_polys = (*c_brush_polys);
+@@ -531,7 +539,7 @@ void R_RenderShadowmapForDynamicLights(void)
+ 
+                     GL_EndDebugGroup();
+ 
+-                    pCurrentShadowTexture->SetReady(bAnyPolyRendered);
++                    pCurrentShadowTexture->SetReady(staticSceneBake.Complete(bAnyPolyRendered));
+                 }
+             }
+ 
+@@ -616,8 +624,9 @@ void R_RenderShadowmapForDynamicLights(void)
+ 
+                     GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hCameraUBO, 0, sizeof(CameraUBO), &CameraUBO);
+ 
+-                    //Only draw non-world stuffs when we have static shadow
+-                    if (args->staticShadowSize > 0)
++                    // A failed static scene must retain BSP occlusion too.
++                    // Existence of a requested static texture is insufficient.
++                    if (R_PointShadowHasReadyStaticWorld(args->ppStaticShadowTexture, args->staticShadowSize))
+                     {
+                         auto old_draw_classify = r_draw_classify;
+                         r_draw_classify        = DRAW_CLASSIFY_OPAQUE_ENTITIES;
+@@ -659,6 +668,8 @@ void R_RenderShadowmapForDynamicLights(void)
          };
  
          const auto SpotLightCallback = [](SpotLightCallbackArgs* args, void* context) {
 +            RProfileScope profileScope(RProfileStage::SpotShadow);
++            RStaticScenePointLightScope staticSceneScope(nullptr, 0);
              if (args->ppDynamicShadowTexture && args->dynamicShadowSize > 0)
              {
                  if ((*args->ppDynamicShadowTexture) == nullptr ||
-@@ -758,6 +763,7 @@ void R_RenderShadowmapForDynamicLights(void)
+@@ -758,6 +769,8 @@ void R_RenderShadowmapForDynamicLights(void)
          };
  
          const auto DirectionalLightCallback = [](DirectionalLightCallbackArgs* args, void* context) {
 +            RProfileScope profileScope(RProfileStage::DirectionalShadow);
++            RStaticScenePointLightScope staticSceneScope(nullptr, 0);
              if (args->ppStaticShadowTexture && args->staticShadowSize > 0)
              {
                  if ((*args->ppStaticShadowTexture) == nullptr ||
-@@ -1062,4 +1068,4 @@ void R_RenderShadowMap(void)
+@@ -1062,4 +1075,4 @@ void R_RenderShadowMap(void)
      {
          R_RenderShadowmapForDynamicLights();
      }
@@ -2265,16 +2312,17 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..828e611 100644
+index 41f24f3..1b0e3bc 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  #include "gl_local.h"
 +#include "gl_external_scene.h"
++#include "gl_scene_static_shadows.h"
  
  #include <sstream>
  #include <algorithm>
-@@ -74,43 +75,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
+@@ -74,43 +76,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
      }
  }
  
@@ -2320,7 +2368,7 @@ index 41f24f3..828e611 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceModels.size())
-@@ -130,6 +98,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
+@@ -130,6 +99,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
  
  void R_FreeWorldSurfaceWorldModels(model_t* mod)
  {
@@ -2329,7 +2377,7 @@ index 41f24f3..828e611 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceWorldModels.size())
-@@ -147,6 +117,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
+@@ -147,6 +118,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
  
  void R_ClearWorldSurfaceModels(void)
  {
@@ -2338,7 +2386,7 @@ index 41f24f3..828e611 100644
      for (size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
      {
          auto pWorldSurfaceModel = g_WorldSurfaceModels[i];
-@@ -162,6 +134,8 @@ void R_ClearWorldSurfaceModels(void)
+@@ -162,6 +135,8 @@ void R_ClearWorldSurfaceModels(void)
  
  void R_ClearWorldSurfaceWorldModels(void)
  {
@@ -2347,7 +2395,7 @@ index 41f24f3..828e611 100644
      for (size_t i = 0; i < g_WorldSurfaceWorldModels.size(); ++i)
      {
          auto pWorldSurfaceWorldModel = g_WorldSurfaceWorldModels[i];
-@@ -209,6 +183,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+@@ -209,6 +184,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
      {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
      {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
      {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
@@ -2355,7 +2403,7 @@ index 41f24f3..828e611 100644
  };
  
  void R_SaveWSurfProgramStates(void)
-@@ -243,6 +218,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -243,6 +219,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
          if (state & WSURF_LIGHTMAP_ENABLED)
              defs << "#define LIGHTMAP_ENABLED\n";
  
@@ -2365,7 +2413,7 @@ index 41f24f3..828e611 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -468,10 +446,6 @@ void R_FreeLightmapTextures()
+@@ -468,10 +447,6 @@ void R_FreeLightmapTextures()
      }
  }
  
@@ -2376,7 +2424,7 @@ index 41f24f3..828e611 100644
  void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
  {
      if (basenode->contents < 0)
-@@ -489,61 +463,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
+@@ -489,61 +464,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
      R_RecursiveFindLeaves(node->children[1], vLeafs);
  }
  
@@ -2438,7 +2486,7 @@ index 41f24f3..828e611 100644
  texture_t* R_GetEmptyWorldTexture()
  {
      if (g_iEngineType == ENGINE_SVENGINE)
-@@ -552,2751 +471,1500 @@ texture_t* R_GetEmptyWorldTexture()
+@@ -552,2751 +472,1504 @@ texture_t* R_GetEmptyWorldTexture()
      return (*r_notexture_mip);
  }
  
@@ -3572,7 +3620,9 @@ index 41f24f3..828e611 100644
 -        surf = (((msurface_hl25_t*)mod->surfaces) + index);
 -    }
 -    else
--    {
++    // 输出最后一个三角形
++    if (RemainingIds.size() == 3)
+     {
 -        surf = mod->surfaces + index;
 -    }
 -
@@ -4534,9 +4584,6 @@ index 41f24f3..828e611 100644
 -    });
 -
 -    return pWorldModel;
-+    // 输出最后一个三角形
-+    if (RemainingIds.size() == 3)
-+    {
 +        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[0]));
 +        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[1]));
 +        vOutIndiceBuffer.emplace_back(static_cast<uint32_t>(RemainingIds[2]));
@@ -5412,47 +5459,42 @@ index 41f24f3..828e611 100644
 -    //const auto& texchain = bWithSky ? pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID_WITH_SKY] : pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID];
 +    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
 +    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
-+
-+    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
  
 -    //if (!texchain.drawCount)
 -    //	return;
++    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
+ 
+-    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafShadow");
 +    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
 +    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
  
--    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafShadow");
+-    R_DrawWorldSurfaceLeafBegin(pLeaf);
 +    pWorldModel->hVAO = GL_GenVAO();
  
--    R_DrawWorldSurfaceLeafBegin(pLeaf);
+-    glDisable(GL_CULL_FACE);
 +    GL_BindStatesForVAO(pWorldModel->hVAO, [pWorldModel]() {
 +        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pWorldModel->hEBO);
  
--    glDisable(GL_CULL_FACE);
-+        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
- 
 -    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
-+        glEnableVertexAttribArray(WSURF_VA_POSITION);
-+        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
-+        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
++        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
  
 -    for (size_t i = 0; i < vTexChainList.size(); ++i)
 -    {
 -        const auto& texchain = vTexChainList[i];
++        glEnableVertexAttribArray(WSURF_VA_POSITION);
++        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
++        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
+ 
+-        program_state_t WSurfProgramState = 0;
 +        glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
 +        glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
 +        glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
  
--        program_state_t WSurfProgramState = 0;
-+        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
- 
 -        if (texchain.texture)
 -        {
 -            WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
-+        glEnableVertexAttribArray(WSURF_VA_NORMAL);
-+        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
-+        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
-+        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
++        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
  
 -            GL_Bind(texchain.texture->gl_texturenum);
 -        }
@@ -5460,29 +5502,34 @@ index 41f24f3..828e611 100644
 -        {
 -            GL_Bind(0);
 -        }
-+        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
-+        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
-+        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
-+        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
++        glEnableVertexAttribArray(WSURF_VA_NORMAL);
++        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
++        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
++        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
  
 -        if (R_IsRenderingGBuffer())
 -        {
 -            WSurfProgramState |= WSURF_GBUFFER_ENABLED;
 -        }
-+        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
++        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
++        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
++        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
++        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
  
 -        if (R_IsRenderingShadowView())
 -        {
 -            WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
 -        }
-+        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
-+        glEnableVertexAttribArray(WSURF_VA_STYLES);
-+        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
  
 -        if (R_IsRenderingMultiView())
 -        {
 -            WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
 -        }
++        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
++        glEnableVertexAttribArray(WSURF_VA_STYLES);
++        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++
 +        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
 +        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
  
@@ -5838,20 +5885,23 @@ index 41f24f3..828e611 100644
 +        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 +    }
 +}
- 
--                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
--                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
++
 +void R_ClearDetailTextureCache(void)
 +{
 +    g_WorldTextureRenderMaterials.clear();
 +    g_DecalTextureRenderMaterials.clear();
 +}
  
--                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
--                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
+-                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
+-                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
 +bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
 +{
 +    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
+ 
+-                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
+-                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
++    if (!texchain.drawCount)
++        return false;
  
 -                GL_BeginStencilWrite(iStencilRef, iStencilMask);
 -            }
@@ -5859,34 +5909,31 @@ index 41f24f3..828e611 100644
 -            {
 -                int iStencilRef  = STENCIL_MASK_HAS_DECAL;
 -                int iStencilMask = STENCIL_MASK_HAS_DECAL;
-+    if (!texchain.drawCount)
-+        return false;
++    return true;
++}
  
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
 -                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_BLUR;
 -                }
-+    return true;
-+}
++/*
++	Purpose : Draw skybox
++*/
  
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
 -                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_COLOR;
 -                }
-+/*
-+	Purpose : Draw skybox
-+*/
- 
--                GL_BeginStencilWrite(iStencilRef, iStencilMask);
--            }
--        }
 +void R_DrawSkyBox(void)
 +{
 +    if (CL_IsDevOverviewMode())
 +        return;
-+
+ 
+-                GL_BeginStencilWrite(iStencilRef, iStencilMask);
+-            }
+-        }
 +    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
 +        return;
  
@@ -6283,14 +6330,14 @@ index 41f24f3..828e611 100644
 -        {
 -            GL_BeginStencilWrite(STENCIL_MASK_HAS_DECAL, STENCIL_MASK_HAS_DECAL);
 -        }
-+void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
++bool R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
 +{
 +    auto pShadowProxyModel = pModel->m_pShadowProxyModel.lock();
  
 -        wsurf_program_t prog = {0};
 -        R_UseWSurfProgram(WSurfProgramState, &prog);
 +    if (!pShadowProxyModel)
-+        return;
++        return false;
  
 -        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(texchain.startDrawOffset), texchain.drawCount, 0);
 +    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyInternal");
@@ -6302,11 +6349,14 @@ index 41f24f3..828e611 100644
  
 -        R_EndDetailTexture(WSurfProgramState);
 +        if (!pShadowProxyDraw)
-+            return;
++        {
++            GL_EndDebugGroup();
++            return false;
++        }
  
 -        GL_UseProgram(0);
 +        if (!pShadowProxyDraw->drawCount)
-+            return;
++            continue;
  
 -        R_DrawWorldSurfaceLeafEnd();
 +        R_DrawWorldSurfaceModelShadowProxyMesh(pShadowProxyModel.get(), pShadowProxyDraw.get());
@@ -6315,11 +6365,12 @@ index 41f24f3..828e611 100644
      GL_EndDebugGroup();
 -
 -} //R_DrawWorldSurfaceLeafAnim
++    return true;
 +}
  
  void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
  {
-@@ -3507,21 +2175,26 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3507,21 +2180,31 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
  
      if (pModel->m_model == (*cl_worldmodel))
      {
@@ -6337,6 +6388,7 @@ index 41f24f3..828e611 100644
          }
  
 -        if (pLeaf && !pLeaf->hABO)
++        bool staticWorldComplete = pLeaf && pLeaf->m_bIsReady && !pLeaf->m_bIsClosing.load();
 +        if (pLeaf && !pLeaf->m_bIsReady)
          {
              //Use previous leaf when current leaf not available
@@ -6345,12 +6397,16 @@ index 41f24f3..828e611 100644
 +            if (!pLeaf)
 +            {
 +                const auto noVis = pModel->GetLeafByIndex(0);
-+                if (noVis && noVis->m_bIsReady && !noVis->m_bIsClosing.load()) pLeaf = noVis;
++                if (noVis && noVis->m_bIsReady && !noVis->m_bIsClosing.load())
++                {
++                    pLeaf = noVis;
++                    staticWorldComplete = true;
++                }
 +            }
          }
  
          //Always draw skybox before world
-@@ -3533,7 +2206,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3533,7 +2216,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              }
          }
  
@@ -6359,7 +6415,7 @@ index 41f24f3..828e611 100644
          {
              if (R_IsRenderingWaterView())
              {
-@@ -3546,13 +2219,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3546,13 +2229,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      pNoVisLeaf = pModel->GetLeafByIndex(0);
                  }
  
@@ -6376,7 +6432,7 @@ index 41f24f3..828e611 100644
                  {
                      glColorMask(0, 0, 0, 0);
  
-@@ -3563,7 +2236,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3563,7 +2246,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      R_DrawWorldSurfaceLeafStatic(pModel.get(), pNoVisLeaf.get());
                      R_DrawWorldSurfaceLeafAnim(pModel.get(), pNoVisLeaf.get());
  
@@ -6385,7 +6441,21 @@ index 41f24f3..828e611 100644
                  }
              }
              else if (R_IsRenderingShadowView())
-@@ -3599,7 +2272,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3571,9 +2254,12 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+                 if (r_draw_classify & DRAW_CLASSIFY_WORLD)
+                 {
+                     if (pModel->m_pShadowProxyDraws.size() > 0)
+-                        R_DrawWorldSurfaceModelShadowProxy(pModel.get());
++                        staticWorldComplete = R_DrawWorldSurfaceModelShadowProxy(pModel.get()) && staticWorldComplete;
+                     else
+                         R_DrawWorldSurfaceLeafShadow(pLeaf.get(), false);
++                    // Empty geometry can be complete. A previous PVS leaf or
++                    // pending async build cannot certify a cached world shadow.
++                    R_MarkExternalStaticWorldComplete(staticWorldComplete);
+                 }
+             }
+             else
+@@ -3599,7 +2285,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              pLeaf = pModel->GetLeafByIndex(0);
          }
  
@@ -6394,7 +6464,7 @@ index 41f24f3..828e611 100644
          {
              if (R_IsRenderingShadowView())
              {
-@@ -3635,7 +2308,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3635,7 +2321,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
          }
      }
  
@@ -6403,17 +6473,18 @@ index 41f24f3..828e611 100644
  
      if (g_WorldSurfaceRenderer.bLightmapTexture)
      {
-@@ -3665,6 +2338,9 @@ void R_InitWSurf(void)
+@@ -3665,6 +2351,10 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
++    R_ExternalStaticSceneNewMap();
 +    R_ResetExternalSceneLights();
 +    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3212,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3226,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -6422,7 +6493,7 @@ index 41f24f3..828e611 100644
              return;
          }
      }
-@@ -5052,7 +3728,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+@@ -5052,7 +3742,8 @@ void R_DrawBrushModel(cl_entity_t* e)
          g_WorldSurfaceRenderer.bLightmapTexture = false;
      }
  
@@ -6718,10 +6789,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..33272d6 100644
+index 93166e2..e5d7950 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,70 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,89 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -6776,6 +6847,25 @@ index 93166e2..33272d6 100644
 +target_link_options(scene_lights_tests PRIVATE /OPT:REF /INCREMENTAL:NO)
 +add_test(NAME scene_lights_tests COMMAND scene_lights_tests)
 +set_tests_properties(scene_lights_tests PROPERTIES TIMEOUT 20)
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/scene_static_shadows_dispatch.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_scene_static_shadows.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/scene_static_shadows_dispatch.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/scene_static_shadows_dispatch.json"
++    DEPENDS extract_scene_static_shadows.py "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
++        "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp" "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++        "${PROJECT_SOURCE_DIR}/src/world_edit_cache.cpp"
++    VERBATIM)
++add_executable(scene_static_shadows_tests scene_static_shadows_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.inc"
++    "${CMAKE_CURRENT_BINARY_DIR}/scene_static_shadows_dispatch.inc"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_include_directories(scene_static_shadows_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_link_libraries(scene_static_shadows_tests PRIVATE renderer_settings)
++target_compile_options(scene_static_shadows_tests PRIVATE /UNDEBUG /Gy)
++target_link_options(scene_static_shadows_tests PRIVATE /OPT:REF /INCREMENTAL:NO)
++add_test(NAME scene_static_shadows_tests COMMAND scene_static_shadows_tests)
++set_tests_properties(scene_static_shadows_tests PROPERTIES TIMEOUT 20)
 +add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.cpp"
 +    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_post_scene_dispatch.py"
 +        --rmain "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
@@ -6794,7 +6884,7 @@ index 93166e2..33272d6 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +102,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +121,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -7001,15 +7091,16 @@ index 0000000..14cc56f
 +#define METARENDERER_SCENE_CULLING_INTERFACE_VERSION "MetaRendererSceneCulling_API_001"
 diff --git a/tests/scene_culling_tests.cpp b/tests/scene_culling_tests.cpp
 new file mode 100644
-index 0000000..ea1f1f7
+index 0000000..875bf0c
 --- /dev/null
 +++ b/tests/scene_culling_tests.cpp
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,257 @@
 +// Execute the actual CPU volume implementation and extracted scene dispatch/
 +// interface factories. Engine view flags and the GBuffer mask are adapters;
 +// this test neither opens GL nor substitutes a camera/light culling oracle.
 +#include "../src/gl_shadow_cull.cpp"
 +#include "../src/gl_external_scene.h"
++#include "../src/gl_scene_static_shadows.cpp"
 +#include <algorithm>
 +#include <cassert>
 +#include <cstdio>
@@ -7062,6 +7153,7 @@ index 0000000..ea1f1f7
 +// Light ownership/cleanup is exercised by scene_lights_tests; this fixture
 +// retains only the scene dispatch and culling dependencies.
 +void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks*) noexcept {}
++void R_InvalidateWorldShadowCaches(std::span<const goldcraft::carving::Box>) noexcept {}
 +
 +#include "scene_culling_dispatch.inc"
 +
@@ -12300,14 +12392,15 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..06c0281
+index 0000000..fbd8677
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1486 @@
+@@ -0,0 +1,1622 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
 +#include "gl_local.h"
++#include "gl_scene_static_shadows.h"
 +#include <GLFW/glfw3.h>
 +#include <cassert>
 +#include <chrono>
@@ -12318,6 +12411,7 @@ index 0000000..06c0281
 +#include "cavity_map_fixture.h"
 +#include <IMetaRendererWorldEdit.h>
 +std::shared_ptr<CWorldSurfaceModel> R_FindEditedBrushSurfaceModel(const cl_entity_t*) noexcept;
++void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel, cl_entity_t* ent);
 +model_t* candidateInline{};
 +
 +std::atomic_bool         countAllocations{};
@@ -12382,6 +12476,8 @@ index 0000000..06c0281
 +std::size_t entityUploads{};
 +bool cullPositiveX{};
 +bool dispatchTransform{};
++bool staticWorldComplete{};
++std::size_t staticWorldCompletionCalls{}, shadowProxyMeshCalls{};
 +GLint entityMatrixLocation{};
 +vec3_t lastCullMins{}, lastCullMaxs{}, lastPVSMins{}, lastPVSMaxs{};
 +
@@ -12807,7 +12903,12 @@ index 0000000..06c0281
 +model_t* R_FindWorldModelByNode(mnode_t*) { assert(false); return nullptr; }
 +bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*) { return false; }
 +void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*) { assert(false); }
-+void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel*) { assert(false); }
++void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel*, CWorldSurfaceShadowProxyDraw*) { ++shadowProxyMeshCalls; }
++void R_MarkExternalStaticWorldComplete(bool complete) noexcept
++{
++    staticWorldComplete = complete;
++    ++staticWorldCompletionCalls;
++}
 +void R_DrawWaters(CWorldSurfaceModel*, CWorldSurfaceLeaf*, cl_entity_t*) {}
 +qboolean R_CullBox(vec3_t mins, vec3_t maxs)
 +{
@@ -13516,6 +13617,132 @@ index 0000000..06c0281
 +    std::printf("{\"brushDecalDispatchGL\":true,\"exactProductionDispatch\":true,\"fullDecalUnitLinked\":true,\"existingAndNewDecals\":true,\"sameModelIsolation\":true,\"poolReuse\":true,\"providerFallback\":true,\"lateSuppressed\":true,\"rotatedPixels\":true,\"interpolatedCullBounds\":true,\"retainedPixels\":3840,\"cutPixels\":256,\"warmFrames\":256,\"warmAllocations\":0,\"warmGeometryUploads\":0,\"nativeEntityUBOWrites\":512,\"failedUploadSuppressed\":true,\"passed\":true}\n");
 +}
 +
++void StaticWorldCompletionIntegration()
++{
++    // Execute the extracted production world dispatch against real worker-built
++    // leaves and GL buffers. Only the final static-cache notification and proxy
++    // mesh submission are recording adapters; no cubemap pixel claim is made.
++    struct RestoreFixtureState
++    {
++        model_t* world = worldModel;
++        cl_entity_t* current = currentEntity;
++        cl_entity_t savedEntity = entity;
++        mleaf_t* leaf = viewLeaf;
++        int classify = r_draw_classify;
++        bool shadowView = shadow, held = holdWork;
++        bool lightmap = g_WorldSurfaceRenderer.bLightmapTexture;
++        GLuint entityBuffer = g_WorldSurfaceRenderer.hEntityUBO;
++        std::weak_ptr<CWorldSurfaceLeaf> previous = g_WorldSurfaceRenderer.pCurrentWorldLeaf;
++        GLint vao{}, array{}, indirect{}, program{}, uniform{}, storage{}, entityBinding{}, materialBinding{}, texture{};
++        GLfloat color[3]{};
++        RestoreFixtureState()
++        {
++            glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
++            glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &array);
++            glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &indirect);
++            glGetIntegerv(GL_CURRENT_PROGRAM, &program);
++            glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &uniform);
++            glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &storage);
++            glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, BINDING_POINT_ENTITY_UBO, &entityBinding);
++            glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, BINDING_POINT_MATERIAL_SSBO, &materialBinding);
++            glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
++            glGetUniformfv(shader, colorLocation, color);
++        }
++        ~RestoreFixtureState()
++        {
++            worldModel = world; currentEntity = current; entity = savedEntity; viewLeaf = leaf;
++            r_draw_classify = classify; shadow = shadowView; holdWork = held;
++            g_WorldSurfaceRenderer.bLightmapTexture = lightmap;
++            g_WorldSurfaceRenderer.hEntityUBO = entityBuffer;
++            g_WorldSurfaceRenderer.pCurrentWorldLeaf = previous;
++            glBindVertexArray(vao);
++            glBindBuffer(GL_ARRAY_BUFFER, array);
++            glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirect);
++            glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_ENTITY_UBO, entityBinding);
++            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_MATERIAL_SSBO, materialBinding);
++            glBindBuffer(GL_UNIFORM_BUFFER, uniform);
++            glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage);
++            glBindTexture(GL_TEXTURE_2D, texture);
++            glUseProgram(shader); glUniform3fv(colorLocation, 1, color); glUseProgram(program);
++            assert(glGetError() == GL_NO_ERROR);
++        }
++    } restoreFixtureState;
++    Scene scene(1);
++    worldModel = &scene.model;
++    const auto model = R_PrepareWorldSurfaceLeafModel(scene.geometry, &scene.model, 0);
++    Finish(model);
++    const auto noVis = model->GetLeafByIndex(0);
++    GLuint ubo{};
++    glGenBuffers(1, &ubo);
++    glBindBuffer(GL_UNIFORM_BUFFER, ubo);
++    glBufferData(GL_UNIFORM_BUFFER, sizeof(entity_ubo_t), nullptr, GL_DYNAMIC_DRAW);
++    g_WorldSurfaceRenderer.hEntityUBO = ubo;
++    g_WorldSurfaceRenderer.bLightmapTexture = false;
++    g_WorldSurfaceRenderer.pCurrentWorldLeaf.reset();
++    currentEntity = &entity;
++    entity.model = &scene.model;
++    entity.curstate.rendermode = kRenderNormal;
++    viewLeaf = &scene.leaves[1];
++    r_draw_classify = DRAW_CLASSIFY_WORLD;
++    shadow = true;
++    const auto draw = [&](const std::shared_ptr<CWorldSurfaceModel>& value) {
++        staticWorldComplete = false;
++        staticWorldCompletionCalls = 0;
++        R_DrawWorldSurfaceModel(value, &entity);
++        assert(glGetError() == GL_NO_ERROR);
++    };
++    holdWork = true;
++    ResetEvent(entered);
++    ResetEvent(resume);
++    draw(model); // Requested PVS leaf is pending, explicit no-vis fallback is complete.
++    assert(WaitForSingleObject(entered, 10'000) == WAIT_OBJECT_0);
++    assert(!model->GetLeafByIndex(1)->m_bIsReady);
++    assert(staticWorldCompletionCalls == 1 && staticWorldComplete);
++    g_WorldSurfaceRenderer.pCurrentWorldLeaf = noVis;
++    draw(model); // The generic previous-leaf fallback is conservatively unverified.
++    assert(staticWorldCompletionCalls == 1 && !staticWorldComplete);
++    g_WorldSurfaceRenderer.pCurrentWorldLeaf.reset();
++    noVis->m_bIsClosing.store(true);
++    draw(model);
++    assert(staticWorldCompletionCalls == 0 && !staticWorldComplete);
++    noVis->m_bIsClosing.store(false);
++    holdWork = false;
++    SetEvent(resume);
++    Finish(model);
++    draw(model);
++    assert(staticWorldCompletionCalls == 1 && staticWorldComplete);
++    model->m_pShadowProxyDraws.emplace_back(); // Expired proxy must not certify a partial world.
++    draw(model);
++    assert(staticWorldCompletionCalls == 1 && !staticWorldComplete && shadowProxyMeshCalls == 0);
++    model->m_pShadowProxyDraws.clear();
++    r_draw_classify = DRAW_CLASSIFY_OPAQUE_ENTITIES;
++    draw(model);
++    assert(staticWorldCompletionCalls == 0);
++    r_draw_classify = DRAW_CLASSIFY_WORLD;
++    {
++        Scene empty(0);
++        worldModel = &empty.model;
++        entity.model = &empty.model;
++        viewLeaf = nullptr;
++        const auto emptyModel = R_PrepareWorldSurfaceLeafModel(empty.geometry, &empty.model, 0);
++        Finish(emptyModel);
++        drawCalls = 0;
++        draw(emptyModel);
++        assert(staticWorldCompletionCalls == 1 && staticWorldComplete && drawCalls == 0);
++    }
++    R_DrainWorldLeafTasks();
++    g_WorldSurfaceRenderer.pCurrentWorldLeaf.reset();
++    g_WorldSurfaceRenderer.hEntityUBO = 0;
++    glDeleteBuffers(1, &ubo);
++    entity.model = nullptr;
++    worldModel = nullptr;
++    viewLeaf = nullptr;
++    shadow = false;
++    r_draw_classify = DRAW_CLASSIFY_LIGHTMAP;
++    assert(liveWork == 0 && glGetError() == GL_NO_ERROR);
++    std::printf("{\"staticWorldCompletionGL\":true,\"productionWorldDispatch\":true,\"actualWorkerPendingAndReady\":true,\"explicitNoVisFallback\":true,\"previousFallbackUnverified\":true,\"closingFallbackRejected\":true,\"expiredProxyRejected\":true,\"emptyWorldComplete\":true,\"cubemapPixelsTested\":false,\"passed\":true}\n");
++}
++
 +#include "renderer_collision_tests.inc"
 +
 +int main(int argc, char** argv)
@@ -13778,6 +14005,7 @@ index 0000000..06c0281
 +                    cavityCommands, cavityChains, red, green, submitUs, drainMs, deletedWork);
 +        R_DrainWorldLeafTasks();
 +    }
++    StaticWorldCompletionIntegration();
 +    EditIntegration();
 +    BrushEditIntegration();
 +    joint_edit_test::run();
@@ -13792,10 +14020,10 @@ index 0000000..06c0281
 +}
 diff --git a/tests/extract_brush_dispatch.py b/tests/extract_brush_dispatch.py
 new file mode 100644
-index 0000000..2fc42dc
+index 0000000..226172f
 --- /dev/null
 +++ b/tests/extract_brush_dispatch.py
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,34 @@
 +from pathlib import Path
 +import hashlib, json, re
 +import argparse
@@ -13805,19 +14033,20 @@ index 0000000..2fc42dc
 +parser.add_argument('--output', type=Path, required=True)
 +parser.add_argument('--manifest', type=Path, required=True)
 +args = parser.parse_args()
-+inputs = [(args.wsurf, ['R_ScrollSpeed', 'R_DrawWorldSurfaceModel', 'R_DrawBrushModel', 'R_PolygonToTriangleList']),
++inputs = [(args.wsurf, ['R_ScrollSpeed', 'R_DrawWorldSurfaceModelShadowProxy', 'R_DrawWorldSurfaceModel', 'R_DrawBrushModel', 'R_PolygonToTriangleList']),
 +          (args.rmain, ['R_RotateForEntity'])]
 +out = ['''// Exact production bodies extracted by extract_brush_dispatch.py; do not hand edit.
 +#include "gl_local.h"
++#include "gl_scene_static_shadows.h"
 +bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
 +void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
-+void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel*);
++void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel*, CWorldSurfaceShadowProxyDraw*);
 +''']
 +evidence = []
 +for file, names in inputs:
 +    source=file.read_text(encoding='utf-8')
 +    for name in names:
-+        match=re.search(r'^(?:void|float) '+name+r'\([^;]*?\)\s*\{', source, re.M)
++        match=re.search(r'^(?:void|float|bool) '+name+r'\([^;]*?\)\s*\{', source, re.M)
 +        assert match, name
 +        depth=1; end=match.end()
 +        while depth:
@@ -15592,15 +15821,16 @@ index 0000000..faee9b8
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/tests/scene_lights_tests.cpp b/tests/scene_lights_tests.cpp
 new file mode 100644
-index 0000000..e40eb84
+index 0000000..31eec3a
 --- /dev/null
 +++ b/tests/scene_lights_tests.cpp
-@@ -0,0 +1,422 @@
+@@ -0,0 +1,423 @@
 +// Production snapshot/owner/API implementation and complete extracted engine
 +// dispatch/visibility code. Host PVS/frustum inputs and texture objects are
 +// adapters; this is CPU correctness evidence, not GL pixels or game FPS.
 +#include "../src/gl_scene_lights.cpp"
 +#include "../src/gl_shadow_cull.cpp"
++#include "../src/gl_scene_static_shadows.cpp"
 +#include <cassert>
 +#include <cstdio>
 +#include <cstdlib>
@@ -16017,4 +16247,696 @@ index 0000000..e40eb84
 +    g_EngineDynamicLights.clear();
 +    std::printf("{\"sceneLightsChecks\":%u,\"allocationFailureBoundaries\":%u,\"visibilityViews\":128,\"maxSnapshot\":%u,\"steadyAllocations\":0,\"allViewCacheEviction\":true,\"realGL\":false,\"passed\":true}\n",
 +        checks, rejectedAllocations, META_SCENE_LIGHTS_MAX_COUNT);
++}
+diff --git a/include/Interface/IMetaRendererSceneStaticShadows.h b/include/Interface/IMetaRendererSceneStaticShadows.h
+new file mode 100644
+index 0000000..47711a6
+--- /dev/null
++++ b/include/Interface/IMetaRendererSceneStaticShadows.h
+@@ -0,0 +1,38 @@
++#pragma once
++#include <IMetaRendererScene.h>
++
++// Optional extension. Neither Scene001 nor its ordinary callbacks change ABI.
++class IMetaRendererStaticSceneCallbacks : public IBaseInterface
++{
++public:
++    // Called only inside a point light's static WORLD cubemap pass, with the
++    // same Scene001 flags, CameraUBO, target and GL restoration requirements.
++    // Render only geometry whose changes are reported through Invalidate.
++    // true means the complete relevant static scene was handled; an empty or
++    // fully culled scene is successful. false forces the ordinary dynamic
++    // scene path for every registered owner for this light until a later retry.
++    virtual bool DrawStaticShadow(uint32_t flags) noexcept = 0;
++};
++
++class IMetaRendererSceneStaticShadows : public IBaseInterface
++{
++public:
++    // Renderer thread only. Call registration, removal and invalidation
++    // outside all scene draw callbacks. Registration requires a live Scene001
++    // owner. Same owner/callback is
++    // idempotent. Replacement/removal invalidates all world-shadow caches.
++    virtual bool RegisterStaticScene(IMetaRendererSceneCallbacks* owner,
++                                     IMetaRendererStaticSceneCallbacks* callbacks) noexcept = 0;
++    virtual void UnregisterStaticScene(IMetaRendererSceneCallbacks* owner) noexcept = 0;
++    // Invalidate both previous and new bounds when static geometry changes.
++    // GoldSrc AABB; null, nonfinite or inverted bounds invalidate all lights.
++    virtual void InvalidateStaticScene(IMetaRendererSceneCallbacks* owner,
++                                      const float* mins, const float* maxs) noexcept = 0;
++    // true only during this owner's ordinary point-light dynamic shadow
++    // callback, when that light's ready static cubemap includes all currently
++    // registered static scenes. Never skip dynamic actors/particles on true.
++    // Outside that dispatch, for spot/directional/static0/failed caches: false.
++    virtual bool IsStaticSceneCovered(IMetaRendererSceneCallbacks* owner) noexcept = 0;
++};
++
++#define METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION "MetaRendererSceneStaticShadows_API_001"
+diff --git a/src/gl_scene_static_shadows.h b/src/gl_scene_static_shadows.h
+new file mode 100644
+index 0000000..0289de4
+--- /dev/null
++++ b/src/gl_scene_static_shadows.h
+@@ -0,0 +1,55 @@
++#pragma once
++#include <IMetaRendererSceneStaticShadows.h>
++#include <memory>
++
++class IShadowTexture;
++
++class RStaticScenePointLightScope
++{
++    const RStaticScenePointLightScope* previous_;
++    std::shared_ptr<IShadowTexture>* texture_;
++    unsigned size_;
++    friend bool R_IsExternalStaticSceneCovered(IMetaRendererSceneCallbacks*) noexcept;
++    friend bool R_DrawExternalStaticShadowScene(uint32_t) noexcept;
++public:
++    RStaticScenePointLightScope(std::shared_ptr<IShadowTexture>* texture, unsigned size) noexcept;
++    ~RStaticScenePointLightScope();
++    RStaticScenePointLightScope(const RStaticScenePointLightScope&) = delete;
++    RStaticScenePointLightScope& operator=(const RStaticScenePointLightScope&) = delete;
++};
++
++class RStaticSceneBakeScope
++{
++    RStaticSceneBakeScope* previous_;
++    uint64_t revision_;
++    bool hasScenes_;
++    bool dispatched_{};
++    bool succeeded_{};
++    bool worldComplete_{};
++    friend bool R_DrawExternalStaticShadowScene(uint32_t) noexcept;
++    friend void R_MarkExternalStaticWorldComplete(bool) noexcept;
++public:
++    RStaticSceneBakeScope() noexcept;
++    ~RStaticSceneBakeScope();
++    bool Complete(bool worldRendered) const noexcept;
++    RStaticSceneBakeScope(const RStaticSceneBakeScope&) = delete;
++    RStaticSceneBakeScope& operator=(const RStaticSceneBakeScope&) = delete;
++};
++
++class RExternalStaticSceneDispatchScope
++{
++    IMetaRendererSceneCallbacks* previous_;
++public:
++    explicit RExternalStaticSceneDispatchScope(IMetaRendererSceneCallbacks* owner) noexcept;
++    ~RExternalStaticSceneDispatchScope();
++    RExternalStaticSceneDispatchScope(const RExternalStaticSceneDispatchScope&) = delete;
++    RExternalStaticSceneDispatchScope& operator=(const RExternalStaticSceneDispatchScope&) = delete;
++};
++
++bool R_PointShadowHasReadyStaticWorld(const std::shared_ptr<IShadowTexture>* texture, unsigned size) noexcept;
++bool R_DrawExternalStaticShadowScene(uint32_t flags) noexcept;
++bool R_IsExternalStaticSceneCovered(IMetaRendererSceneCallbacks* owner) noexcept;
++void R_MarkExternalStaticWorldComplete(bool complete) noexcept;
++void R_UnregisterExternalStaticScene(IMetaRendererSceneCallbacks* owner) noexcept;
++void R_ExternalStaticSceneNewMap() noexcept;
++void R_ShutdownExternalStaticScenes() noexcept;
+diff --git a/src/gl_scene_static_shadows.cpp b/src/gl_scene_static_shadows.cpp
+new file mode 100644
+index 0000000..06f26b3
+--- /dev/null
++++ b/src/gl_scene_static_shadows.cpp
+@@ -0,0 +1,179 @@
++#include "gl_local.h"
++#include "gl_external_scene.h"
++#include "gl_scene_static_shadows.h"
++#include "gl_shadow_cull.h"
++#include <algorithm>
++#include <array>
++#include <cmath>
++
++namespace
++{
++struct StaticScene
++{
++    IMetaRendererSceneCallbacks* owner{};
++    IMetaRendererStaticSceneCallbacks* callbacks{};
++};
++std::array<StaticScene, 16> staticScenes;
++uint64_t staticSceneRevision{};
++unsigned staticSceneDispatchDepth{};
++const RStaticScenePointLightScope* currentPointStaticScene{};
++RStaticSceneBakeScope* currentStaticBake{};
++IMetaRendererSceneCallbacks* currentDynamicSceneOwner{};
++
++auto FindStaticScene(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    return std::find_if(staticScenes.begin(), staticScenes.end(),
++        [owner](const auto& scene) { return scene.owner == owner; });
++}
++
++void InvalidateAllStaticScenes() noexcept
++{
++    ++staticSceneRevision;
++    R_InvalidateWorldShadowCaches({});
++}
++}
++
++RStaticScenePointLightScope::RStaticScenePointLightScope(std::shared_ptr<IShadowTexture>* texture, unsigned size) noexcept :
++    previous_(currentPointStaticScene), texture_(texture), size_(size)
++{
++    currentPointStaticScene = this;
++}
++RStaticScenePointLightScope::~RStaticScenePointLightScope() { currentPointStaticScene = previous_; }
++
++RStaticSceneBakeScope::RStaticSceneBakeScope() noexcept :
++    previous_(currentStaticBake), revision_(staticSceneRevision),
++    hasScenes_(std::any_of(staticScenes.begin(), staticScenes.end(), [](const auto& scene) { return scene.owner != nullptr; }))
++{
++    currentStaticBake = this;
++}
++RStaticSceneBakeScope::~RStaticSceneBakeScope() { currentStaticBake = previous_; }
++
++bool RStaticSceneBakeScope::Complete(bool worldRendered) const noexcept
++{
++    if (staticSceneRevision != revision_) return false;
++    // Preserve ordinary Renderer semantics when nobody opted in. With an
++    // opted-in scene, successful empty work is a valid cleared shadow cache.
++    return hasScenes_ ? worldComplete_ && dispatched_ && succeeded_ : worldRendered;
++}
++
++void R_MarkExternalStaticWorldComplete(bool complete) noexcept
++{
++    if (currentStaticBake) currentStaticBake->worldComplete_ = complete;
++}
++
++RExternalStaticSceneDispatchScope::RExternalStaticSceneDispatchScope(IMetaRendererSceneCallbacks* owner) noexcept :
++    previous_(currentDynamicSceneOwner)
++{
++    currentDynamicSceneOwner = owner;
++}
++RExternalStaticSceneDispatchScope::~RExternalStaticSceneDispatchScope() { currentDynamicSceneOwner = previous_; }
++
++bool R_PointShadowHasReadyStaticWorld(const std::shared_ptr<IShadowTexture>* texture, unsigned size) noexcept
++{
++    return size > 0 && texture && *texture && (*texture)->IsReady() && (*texture)->IsStatic() &&
++           (*texture)->IsCubemap() && (*texture)->GetTextureSize() == size;
++}
++
++bool R_DrawExternalStaticShadowScene(uint32_t flags) noexcept
++{
++    if (!currentStaticBake || !currentPointStaticScene || !currentPointStaticScene->texture_ || !currentPointStaticScene->size_ ||
++        !(flags & META_SCENE_SHADOW) || !(r_draw_classify & DRAW_CLASSIFY_WORLD) ||
++        (r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES)) return false;
++    auto& bake = *currentStaticBake;
++    // A reentrant dispatch must never certify a partially drawn static scene.
++    if (staticSceneDispatchDepth)
++    {
++        bake.succeeded_ = false;
++        return true;
++    }
++    const bool firstDispatch = !bake.dispatched_;
++    bake.dispatched_ = true;
++    bake.succeeded_ = firstDispatch;
++    ++staticSceneDispatchDepth;
++    R_SetGBufferMask(GBUFFER_MASK_ALL);
++    RExternalSceneShadowCullScope cullScope(true);
++    for (const auto& scene : staticScenes)
++        if (scene.owner && scene.callbacks)
++        {
++            // Do not short-circuit: each opted-in owner must get a chance to
++            // prepare/draw. Any failure invalidates the entire static cache.
++            const bool success = scene.callbacks->DrawStaticShadow(flags);
++            bake.succeeded_ &= success;
++        }
++    --staticSceneDispatchDepth;
++    return true;
++}
++
++bool R_IsExternalStaticSceneCovered(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    return owner && owner == currentDynamicSceneOwner && currentPointStaticScene && !currentStaticBake &&
++           R_IsRenderingShadowView() && (r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES) &&
++           FindStaticScene(owner) != staticScenes.end() &&
++           R_PointShadowHasReadyStaticWorld(currentPointStaticScene->texture_, currentPointStaticScene->size_);
++}
++
++void R_UnregisterExternalStaticScene(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    if (!owner) return;
++    const auto entry = FindStaticScene(owner);
++    if (entry == staticScenes.end()) return;
++    *entry = {};
++    InvalidateAllStaticScenes();
++}
++
++void R_ExternalStaticSceneNewMap() noexcept
++{
++    // Scene001 registrations survive map reload. Keep opt-in registrations in
++    // lockstep; invalidate their old geometry and discard transient coverage.
++    InvalidateAllStaticScenes();
++    currentPointStaticScene = nullptr;
++    currentStaticBake = nullptr;
++    currentDynamicSceneOwner = nullptr;
++}
++
++void R_ShutdownExternalStaticScenes() noexcept
++{
++    staticScenes = {};
++    R_ExternalStaticSceneNewMap();
++}
++
++class CMetaRendererSceneStaticShadows final : public IMetaRendererSceneStaticShadows
++{
++public:
++    bool RegisterStaticScene(IMetaRendererSceneCallbacks* owner, IMetaRendererStaticSceneCallbacks* callbacks) noexcept override
++    {
++        if (!callbacks || !R_IsExternalSceneOwner(owner) || staticSceneDispatchDepth || currentDynamicSceneOwner) return false;
++        auto entry = FindStaticScene(owner);
++        if (entry != staticScenes.end() && entry->callbacks == callbacks) return true;
++        if (entry == staticScenes.end()) entry = FindStaticScene(nullptr);
++        if (entry == staticScenes.end()) return false;
++        *entry = {owner, callbacks};
++        InvalidateAllStaticScenes();
++        return true;
++    }
++    void UnregisterStaticScene(IMetaRendererSceneCallbacks* owner) noexcept override { R_UnregisterExternalStaticScene(owner); }
++    void InvalidateStaticScene(IMetaRendererSceneCallbacks* owner, const float* mins, const float* maxs) noexcept override
++    {
++        if (!owner || FindStaticScene(owner) == staticScenes.end()) return;
++        ++staticSceneRevision;
++        goldcraft::carving::Box box{};
++        if (mins && maxs)
++        {
++            bool valid = true;
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                valid &= std::isfinite(mins[axis]) && std::isfinite(maxs[axis]) && mins[axis] <= maxs[axis];
++                box.min[axis] = mins[axis];
++                box.max[axis] = maxs[axis];
++            }
++            if (valid)
++            {
++                R_InvalidateWorldShadowCaches(std::span(&box, 1));
++                return;
++            }
++        }
++        R_InvalidateWorldShadowCaches({});
++    }
++    bool IsStaticSceneCovered(IMetaRendererSceneCallbacks* owner) noexcept override { return R_IsExternalStaticSceneCovered(owner); }
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneStaticShadows, IMetaRendererSceneStaticShadows, METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION);
+diff --git a/tests/extract_scene_static_shadows.py b/tests/extract_scene_static_shadows.py
+new file mode 100644
+index 0000000..4f44664
+--- /dev/null
++++ b/tests/extract_scene_static_shadows.py
+@@ -0,0 +1,75 @@
++"""Extract actual point dynamic fallback, static readiness and cache invalidation.
++
++Tests execute these production statements plus the production scene dispatch
++and static-scene implementation. GL drawing and world preparation are adapters;
++this does not establish rendered pixels or an actual asynchronous engine run.
++"""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++
++parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument("--src", type=Path, required=True)
++parser.add_argument("--output", type=Path, required=True)
++parser.add_argument("--manifest", type=Path, required=True)
++args = parser.parse_args()
++
++
++def function(source, signature):
++    if source.count(signature) != 1:
++        raise SystemExit("Missing or ambiguous production boundary: " + signature)
++    start = source.index(signature)
++    position = source.index("{", start) + 1
++    depth = 1
++    while depth:
++        depth += (source[position] == "{") - (source[position] == "}")
++        position += 1
++    return source[start:position]
++
++
++names = ("gl_shadow.cpp", "gl_wsurf.cpp", "gl_rmain.cpp", "world_edit_cache.cpp")
++sources = {name: (args.src / name).read_text(encoding="utf-8-sig") for name in names}
++shadow = sources["gl_shadow.cpp"]
++start = "if (R_PointShadowHasReadyStaticWorld(args->ppStaticShadowTexture, args->staticShadowSize))"
++if shadow.count(start) != 1:
++    raise SystemExit("Point dynamic fallback boundary changed")
++dynamic = shadow[shadow.index(start):shadow.index("                    R_PopRefDef();", shadow.index(start))]
++ready = "pCurrentShadowTexture->SetReady(staticSceneBake.Complete(bAnyPolyRendered));"
++for token, count in (
++    (ready, 1),
++    ("RStaticSceneBakeScope staticSceneBake;", 1),
++    ("RStaticScenePointLightScope staticSceneScope(args->ppStaticShadowTexture, args->staticShadowSize);", 1),
++    ("RStaticScenePointLightScope staticSceneScope(nullptr, 0);", 2),
++):
++    if shadow.count(token) != count:
++        raise SystemExit("Missing shadow lifecycle guard: " + token)
++world = function(sources["gl_wsurf.cpp"], "void R_DrawWorldSurfaceModel(")
++for token in (
++    "bool staticWorldComplete = pLeaf && pLeaf->m_bIsReady && !pLeaf->m_bIsClosing.load();",
++    "staticWorldComplete = true;",
++    "staticWorldComplete = R_DrawWorldSurfaceModelShadowProxy(pModel.get()) && staticWorldComplete;",
++    "R_MarkExternalStaticWorldComplete(staticWorldComplete);",
++):
++    if world.count(token) != 1:
++        raise SystemExit("Missing world preparation completion guard: " + token)
++for filename, signature, token in (
++    ("gl_wsurf.cpp", "void R_FreeWorldResources(void)", "R_ExternalStaticSceneNewMap();"),
++    ("gl_shadow.cpp", "void R_ShutdownShadow(void)", "R_ShutdownExternalStaticScenes();"),
++):
++    if function(sources[filename], signature).count(token) != 1:
++        raise SystemExit("Missing static scene lifecycle hook: " + token)
++invalidate = function(sources["world_edit_cache.cpp"], "void R_InvalidateWorldShadowCaches(")
++for pool in ("g_BSPDynamicLights", "g_EngineDynamicLights", "g_ExternalDynamicLights"):
++    if invalidate.count("invalidate(" + pool + ");") != 1:
++        raise SystemExit("Missing shadow invalidation pool: " + pool)
++body = (invalidate + "\n\nvoid TestProductionPointDynamicSelection(PointLightCallbackArgs* args)\n{\n" + dynamic +
++        "}\n\nvoid TestProductionPointStaticReady(RStaticSceneBakeScope& staticSceneBake, "
++        "const std::shared_ptr<IShadowTexture>& pCurrentShadowTexture, bool bAnyPolyRendered)\n{\n" + ready + "\n}\n")
++args.output.parent.mkdir(parents=True, exist_ok=True)
++args.output.write_text(body, encoding="utf-8")
++args.manifest.write_text(json.dumps({
++    "sourceSha256": {name: hashlib.sha256((args.src / name).read_bytes()).hexdigest() for name in names},
++    "extractedSha256": hashlib.sha256(body.encode()).hexdigest(),
++    "boundary": "Actual point fallback/readiness, all-pool invalidation and production scene dispatch; GL/world-preparation adapted, lifecycle wiring checked.",
++}, indent=2) + "\n", encoding="utf-8")
+diff --git a/tests/scene_static_shadows_tests.cpp b/tests/scene_static_shadows_tests.cpp
+new file mode 100644
+index 0000000..b7dfe6c
+--- /dev/null
++++ b/tests/scene_static_shadows_tests.cpp
+@@ -0,0 +1,315 @@
++#include "../src/gl_scene_static_shadows.cpp"
++#include "../src/gl_shadow_cull.cpp"
++#include <cassert>
++#include <cstdio>
++#include <cstdlib>
++#include <limits>
++#include <new>
++#include <source_location>
++#include <unordered_map>
++
++namespace
++{
++unsigned checks{}, staticDraws{}, dynamicDraws{}, renderedClass{};
++size_t allocations{};
++bool shadowView{}, multiview{}, linearDepth{};
++cvar_t cullingCvar{};
++IMetaRendererScene* sceneApi{};
++IMetaRendererSceneStaticShadows* staticApi{};
++void Check(bool value, const std::source_location& where = std::source_location::current())
++{
++    ++checks;
++    if (!value) std::fprintf(stderr, "Failed check %u at %s:%u\n", checks, where.file_name(), where.line());
++    assert(value);
++}
++}
++
++void* operator new(size_t size)
++{
++    ++allocations;
++    if (auto* value = std::malloc(size ? size : 1)) return value;
++    throw std::bad_alloc();
++}
++void* operator new[](size_t size) { return ::operator new(size); }
++void operator delete(void* value) noexcept { std::free(value); }
++void operator delete[](void* value) noexcept { std::free(value); }
++void operator delete(void* value, size_t) noexcept { std::free(value); }
++void operator delete[](void* value, size_t) noexcept { std::free(value); }
++
++cl_enginefunc_t gEngfuncs{};
++int r_draw_classify = DRAW_CLASSIFY_ALL;
++bool r_draw_hide_entity{};
++int r_draw_hide_entity_index{};
++std::vector<std::shared_ptr<CDynamicLight>> g_BSPDynamicLights, g_EngineDynamicLights, g_ExternalDynamicLights;
++bool R_IsRenderingGBuffer() { return false; }
++bool R_IsRenderingShadowView() { return shadowView; }
++bool R_IsRenderingMultiView() { return multiview; }
++bool R_IsRenderingLinearDepth() { return linearDepth; }
++bool R_IsRenderingGammaBlending() { return false; }
++void R_SetGBufferMask(int mask) { Check(mask == GBUFFER_MASK_ALL); }
++void R_ProfileShadowCull(bool) {}
++void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks*) noexcept {}
++
++#include "scene_culling_dispatch.inc"
++
++void R_RenderScene()
++{
++    renderedClass = r_draw_classify;
++    R_DrawExternalOpaqueScene();
++}
++
++#include "scene_static_shadows_dispatch.inc"
++
++namespace
++{
++struct Shadow final : IShadowTexture
++{
++    bool ready = true, cubemap = true, isStatic = true;
++    uint32_t size = 256;
++    mat4 matrix{};
++    float viewport[4]{};
++    bool IsReady() const override { return ready; }
++    void SetReady(bool value) override { ready = value; }
++    bool IsSingleLayer() const override { return !cubemap; }
++    bool IsCascaded() const override { return false; }
++    bool IsCubemap() const override { return cubemap; }
++    bool IsStatic() const override { return isStatic; }
++    GLuint GetDepthTexture() const override { return 0; }
++    uint32_t GetTextureSize() const override { return size; }
++    void SetViewport(float, float, float, float) override {}
++    const float* GetViewport() const override { return viewport; }
++    void SetWorldMatrix(int, const mat4*) override {}
++    void SetProjectionMatrix(int, const mat4*) override {}
++    void SetShadowMatrix(int, const mat4*) override {}
++    const mat4* GetWorldMatrix(int) const override { return &matrix; }
++    const mat4* GetProjectionMatrix(int) const override { return &matrix; }
++    const mat4* GetShadowMatrix(int) const override { return &matrix; }
++    void SetCSMDistance(int, float) override {}
++    float GetCSMDistance(int) const override { return 0; }
++};
++
++struct Owner final : IMetaRendererSceneCallbacks, IMetaRendererStaticSceneCallbacks
++{
++    bool success = true, expectedCoverage{}, invalidateDuringBake{}, recurseDuringBake{};
++    unsigned staticCalls{}, dynamicCalls{}, culledCalls{};
++    IMetaRendererSceneCallbacks* other{};
++    void DrawOpaqueScene(uint32_t) override
++    {
++        ++dynamicDraws;
++        ++dynamicCalls;
++        Check(staticApi->IsStaticSceneCovered(this) == expectedCoverage);
++        Check(!staticApi->IsStaticSceneCovered(other));
++        Check(!staticApi->RegisterStaticScene(this, this)); // Mutations are outside draw callbacks.
++    }
++    bool DrawStaticShadow(uint32_t flags) noexcept override
++    {
++        ++staticDraws;
++        ++staticCalls;
++        Check(flags == (META_SCENE_SHADOW | META_SCENE_MULTIVIEW | META_SCENE_LINEAR_DEPTH));
++        Check(!staticApi->IsStaticSceneCovered(this));
++        const float mins[]{1000, -1, -1}, maxs[]{1010, 1, 1};
++        if (R_CullExternalShadowBox(mins, maxs)) ++culledCalls;
++        Check(!staticApi->RegisterStaticScene(this, this));
++        if (invalidateDuringBake) staticApi->InvalidateStaticScene(this, nullptr, nullptr);
++        if (recurseDuringBake) R_DrawExternalOpaqueScene();
++        return success;
++    }
++};
++
++std::shared_ptr<CDynamicLight> Light(float x)
++{
++    auto light = std::make_shared<CDynamicLight>();
++    light->type = DynamicLightType_Point;
++    light->origin[0] = x;
++    light->size = 100;
++    light->pStaticShadowTexture = std::make_shared<Shadow>();
++    return light;
++}
++
++bool Bake(std::shared_ptr<IShadowTexture>& texture, bool worldComplete, bool worldPolys, bool dispatch = true)
++{
++    shadowView = multiview = linearDepth = true;
++    r_draw_classify = DRAW_CLASSIFY_WORLD;
++    const float origin[]{0, 0, 0};
++    RPointShadowCullScope volume(origin, 100);
++    RStaticScenePointLightScope lightScope(&texture, 256);
++    RStaticSceneBakeScope bake;
++    R_MarkExternalStaticWorldComplete(worldComplete);
++    if (dispatch) R_DrawExternalOpaqueScene();
++    TestProductionPointStaticReady(bake, texture, worldPolys);
++    return texture->IsReady();
++}
++
++void Dynamic(std::shared_ptr<IShadowTexture>* texture, unsigned size)
++{
++    shadowView = multiview = linearDepth = true;
++    r_draw_classify = DRAW_CLASSIFY_ALL;
++    RStaticScenePointLightScope point(texture, size);
++    PointLightCallbackArgs args{};
++    args.ppStaticShadowTexture = texture;
++    args.staticShadowSize = size;
++    args.sourceEntityIndex = 17;
++    TestProductionPointDynamicSelection(&args);
++    Check(r_draw_classify == DRAW_CLASSIFY_ALL && !r_draw_hide_entity);
++}
++}
++
++int main()
++{
++    int result{};
++    sceneApi = static_cast<IMetaRendererScene*>(CreateInterface(METARENDERER_SCENE_INTERFACE_VERSION, &result));
++    Check(sceneApi && result == IFACE_OK);
++    staticApi = static_cast<IMetaRendererSceneStaticShadows*>(CreateInterface(METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION, &result));
++    Check(staticApi && result == IFACE_OK);
++    Check(!CreateInterface("MetaRendererSceneStaticShadows_API_999", &result) && result == IFACE_FAILED);
++    gEngfuncs.pfnRegisterVariable = [](const char*, const char*, int) -> cvar_t* { cullingCvar.value = 1; return &cullingCvar; };
++    R_InitShadowCulling();
++    auto bsp = Light(0), engine = Light(500), external = Light(1000);
++    g_BSPDynamicLights = {bsp};
++    g_EngineDynamicLights = {engine};
++    g_ExternalDynamicLights = {external};
++    const auto setReady = [&] {
++        bsp->pStaticShadowTexture->SetReady(true);
++        engine->pStaticShadowTexture->SetReady(true);
++        external->pStaticShadowTexture->SetReady(true);
++    };
++    const auto allInvalid = [&] {
++        Check(!bsp->pStaticShadowTexture->IsReady() && !engine->pStaticShadowTexture->IsReady() && !external->pStaticShadowTexture->IsReady());
++    };
++    Owner first, second, unknown;
++    first.other = &second;
++    second.other = &first;
++    Check(!staticApi->RegisterStaticScene(&first, &first));
++    sceneApi->RegisterSceneCallbacks(&first);
++    sceneApi->RegisterSceneCallbacks(&second);
++    Check(!staticApi->RegisterStaticScene(nullptr, &first));
++    Check(!staticApi->RegisterStaticScene(&first, nullptr));
++    Check(staticApi->RegisterStaticScene(&first, &first));
++    allInvalid();
++    setReady();
++    Check(staticApi->RegisterStaticScene(&first, &first));
++    Check(bsp->pStaticShadowTexture->IsReady()); // Idempotent registration.
++    Check(staticApi->RegisterStaticScene(&second, &second));
++    allInvalid();
++    Check(!staticApi->IsStaticSceneCovered(&first));
++
++    auto& texture = bsp->pStaticShadowTexture;
++    Check(Bake(texture, true, false)); // Real ready empty world + empty scene is valid.
++    Check(first.staticCalls == 1 && second.staticCalls == 1 && dynamicDraws == 0);
++    Check(first.culledCalls == 1 && second.culledCalls == 1); // Actual conservative point volume scope.
++    first.expectedCoverage = second.expectedCoverage = true;
++    Dynamic(&texture, 256);
++    Check(renderedClass == DRAW_CLASSIFY_OPAQUE_ENTITIES);
++    Check(!staticApi->IsStaticSceneCovered(&first)); // Owner dispatch scope ended.
++    const auto beforeStable = allocations;
++    for (int i = 0; i < 100; ++i) Dynamic(&texture, 256);
++    Check(allocations == beforeStable && first.staticCalls == 1 && second.staticCalls == 1);
++
++    first.expectedCoverage = second.expectedCoverage = false;
++    second.success = false;
++    Check(!Bake(texture, true, true)); // MC failure cannot be hidden by BSP polys.
++    Check(first.staticCalls == 2 && second.staticCalls == 2);
++    Dynamic(&texture, 256);
++    Check(renderedClass == (DRAW_CLASSIFY_WORLD | DRAW_CLASSIFY_OPAQUE_ENTITIES));
++    second.success = true;
++    Check(!Bake(texture, false, false)); // Original BSP leaf still preparing.
++    Check(!Bake(texture, false, true)); // A previous PVS fallback is not complete either.
++    Dynamic(&texture, 256);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++    Check(Bake(texture, true, false)); // Retry once the actual leaf is ready, even if empty.
++    Check(!Bake(texture, true, true, false)); // Missing static dispatch never certifies success.
++    first.invalidateDuringBake = true;
++    Check(!Bake(texture, true, true));
++    first.invalidateDuringBake = false;
++    first.recurseDuringBake = true;
++    Check(!Bake(texture, true, true));
++    first.recurseDuringBake = false;
++    Check(Bake(texture, true, false));
++
++    // Only the current point-light scope may report covered. Other light
++    // classes revoke it, and nested scopes restore the caller's identity.
++    Dynamic(&texture, 0);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++    Dynamic(nullptr, 256);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++    {
++        RStaticScenePointLightScope point(&texture, 256);
++        first.expectedCoverage = second.expectedCoverage = true;
++        r_draw_classify = DRAW_CLASSIFY_OPAQUE_ENTITIES;
++        R_DrawExternalOpaqueScene();
++        {
++            RStaticScenePointLightScope spotOrDirectional(nullptr, 0);
++            first.expectedCoverage = second.expectedCoverage = false;
++            R_DrawExternalOpaqueScene();
++        }
++        first.expectedCoverage = second.expectedCoverage = true;
++        R_DrawExternalOpaqueScene();
++        shadowView = false;
++        first.expectedCoverage = second.expectedCoverage = false;
++        R_DrawExternalOpaqueScene();
++    }
++    auto concrete = std::static_pointer_cast<Shadow>(texture);
++    concrete->cubemap = false;
++    Dynamic(&texture, 256);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++    concrete->cubemap = true;
++    concrete->isStatic = false;
++    Dynamic(&texture, 256);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++    concrete->isStatic = true;
++    Dynamic(&texture, 128);
++    Check(renderedClass & DRAW_CLASSIFY_WORLD);
++
++    const float nearMin[]{-1, -1, -1}, nearMax[]{1, 1, 1};
++    setReady();
++    staticApi->InvalidateStaticScene(&first, nearMin, nearMax);
++    Check(!texture->IsReady() && engine->pStaticShadowTexture->IsReady() && external->pStaticShadowTexture->IsReady());
++    const float tangentMin[]{1100, -1, -1}, tangentMax[]{1101, 1, 1};
++    staticApi->InvalidateStaticScene(&first, tangentMin, tangentMax);
++    Check(!external->pStaticShadowTexture->IsReady() && engine->pStaticShadowTexture->IsReady());
++    setReady();
++    staticApi->InvalidateStaticScene(&unknown, nullptr, nullptr);
++    Check(texture->IsReady());
++    for (float bad : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
++    {
++        setReady();
++        float invalid[]{bad, 0, 0};
++        staticApi->InvalidateStaticScene(&first, invalid, nearMax);
++        allInvalid();
++    }
++    setReady();
++    staticApi->InvalidateStaticScene(&first, nearMax, nearMin);
++    allInvalid();
++    setReady();
++    staticApi->InvalidateStaticScene(&first, nullptr, nearMax);
++    allInvalid();
++    setReady();
++    staticApi->InvalidateStaticScene(&first, nearMin, nullptr);
++    allInvalid();
++
++    setReady();
++    R_ExternalStaticSceneNewMap();
++    allInvalid();
++    const auto drawsBeforeMap = staticDraws;
++    Check(Bake(texture, true, false) && staticDraws == drawsBeforeMap + 2); // Registration survives with Scene001.
++    setReady();
++    sceneApi->UnregisterSceneCallbacks(&first);
++    allInvalid();
++    Check(!staticApi->RegisterStaticScene(&first, &first));
++    Check(Bake(texture, true, false));
++    Check(staticDraws == drawsBeforeMap + 3);
++    setReady();
++    staticApi->UnregisterStaticScene(&second);
++    allInvalid();
++    Check(!Bake(texture, true, false)); // No opted-in scenes: ordinary old zero-poly semantics.
++    Check(Bake(texture, true, true));
++    sceneApi->RegisterSceneCallbacks(&first);
++    Check(staticApi->RegisterStaticScene(&first, &first));
++    setReady();
++    R_ShutdownExternalStaticScenes();
++    allInvalid();
++    Check(!Bake(texture, true, false));
++    sceneApi->UnregisterSceneCallbacks(&first);
++    sceneApi->UnregisterSceneCallbacks(&second);
++    std::printf("{\"staticSceneChecks\":%u,\"staticCallbacks\":%u,\"dynamicCallbacks\":%u,\"steadyAllocations\":0,\"emptyValid\":true,\"worldPendingRetry\":true,\"realGL\":false,\"passed\":true}\n", checks, staticDraws, dynamicDraws);
 +}

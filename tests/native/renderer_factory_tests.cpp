@@ -6,10 +6,12 @@
 #include <IMetaRendererPostScene.h>
 #include <IMetaRendererSceneCulling.h>
 #include <IMetaRendererSceneLights.h>
+#include <IMetaRendererSceneStaticShadows.h>
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 
 int main(int argc, char** argv) {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX);
@@ -42,16 +44,42 @@ int main(int argc, char** argv) {
     auto* lights=static_cast<IMetaRendererSceneLights*>(factory(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION,&result));
     assert(lights&&result==0);
     struct SceneCallback final:IMetaRendererSceneCallbacks{void DrawOpaqueScene(uint32_t)override{assert(false);}} sceneCallback;
+    auto* staticShadows=static_cast<IMetaRendererSceneStaticShadows*>(factory(METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION,&result));
+    assert(staticShadows&&result==0);
+    struct StaticCallback final:IMetaRendererStaticSceneCallbacks{
+        bool DrawStaticShadow(uint32_t)noexcept override{assert(false);return false;}
+    } staticCallback,replacementCallback;
+    assert(!staticShadows->RegisterStaticScene(nullptr,&staticCallback));
+    assert(!staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
+    assert(!staticShadows->IsStaticSceneCovered(nullptr));
     std::array<MetaRendererSceneLight,65> emitters{};
     for(unsigned i=0;i<emitters.size();++i)emitters[i]={{float(i)*128,0,64},480,0xff9cd6ff};
     assert(!lights->UpdateLights(&sceneCallback,emitters.data(),65));
     scene->RegisterSceneCallbacks(&sceneCallback);
+    assert(!staticShadows->RegisterStaticScene(&sceneCallback,nullptr));
+    assert(staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
+    assert(staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
+    assert(staticShadows->RegisterStaticScene(&sceneCallback,&replacementCallback));
+    assert(!staticShadows->IsStaticSceneCovered(&sceneCallback));
+    staticShadows->InvalidateStaticScene(&sceneCallback,origin,origin);
+    staticShadows->InvalidateStaticScene(&sceneCallback,nullptr,nullptr);
+    const float invalidBounds[3]{std::numeric_limits<float>::quiet_NaN(),0,0};
+    staticShadows->InvalidateStaticScene(&sceneCallback,invalidBounds,origin);
+    staticShadows->UnregisterStaticScene(&sceneCallback);
+    staticShadows->UnregisterStaticScene(&sceneCallback);
+    assert(staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
     assert(lights->UpdateLights(&sceneCallback,emitters.data(),65));
     assert(lights->UpdateLights(&sceneCallback,emitters.data(),65));
     assert(!lights->UpdateLights(&sceneCallback,nullptr,65));
     assert(!lights->UpdateLights(&sceneCallback,emitters.data(),META_SCENE_LIGHTS_MAX_COUNT+1));
     lights->ClearLights(&sceneCallback);
     assert(lights->UpdateLights(&sceneCallback,nullptr,0));
+    scene->UnregisterSceneCallbacks(&sceneCallback);
+    assert(!staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
+    assert(!staticShadows->IsStaticSceneCovered(&sceneCallback));
+    staticShadows->InvalidateStaticScene(&sceneCallback,nullptr,nullptr);
+    scene->RegisterSceneCallbacks(&sceneCallback);
+    assert(staticShadows->RegisterStaticScene(&sceneCallback,&staticCallback));
     scene->UnregisterSceneCallbacks(&sceneCallback);
     assert(!lights->UpdateLights(&sceneCallback,emitters.data(),65));
     auto* post=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,&result));
