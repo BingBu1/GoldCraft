@@ -17,12 +17,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <memory>
 #include <string>
 #include <vector>
 
 namespace probe {
 bool count_allocations{};
-std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{};
+std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{}, errors{};
 unsigned snapshot_storage_failure{};
 void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLsizei width, GLsizei height) {
     // Leave one newly-created texture without storage. Framebuffer completeness
@@ -30,7 +31,8 @@ void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLs
     if (snapshot_storage_failure && --snapshot_storage_failure == 0) return;
     glTexStorage2D(target, levels, format, width, height);
 }
-void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = 0; }
+void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = errors = 0; }
+GLenum APIENTRY error() { ++errors; return glGetError(); }
 void APIENTRY integer(GLenum p, GLint *v) {
     ++queries;
     glGetIntegerv(p, v);
@@ -107,6 +109,7 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glUniform1f probe::uniform_float
 #define glUniform4fv probe::uniform_color
 #define glTexParameteri probe::parameter
+#define glGetError probe::error
 #ifndef GOLDCRAFT_RENDER_SOURCE
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
 #endif
@@ -130,6 +133,7 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glUniform1f
 #undef glUniform4fv
 #undef glTexParameteri
+#undef glGetError
 #define glGetIntegeri_v GLEW_GET_FUN(__glewGetIntegeri_v)
 #define glGetBooleani_v GLEW_GET_FUN(__glewGetBooleani_v)
 #define glIsEnabledi GLEW_GET_FUN(__glewIsEnabledi)
@@ -457,6 +461,7 @@ struct Resources {
 #ifndef GOLDCRAFT_RENDER_BASELINE
 #include "effects_gl_tests.inc"
 #include "post_scene_snapshot_gl_tests.inc"
+#include "plugin_draw_gl_tests.inc"
 #else
 GLuint Renderer::effect_program(const CCompileShaderArgs*){std::abort();}
 #endif
@@ -566,6 +571,7 @@ void run(bool benchmark) {
     glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
     assert(glGetError() == GL_NO_ERROR);
     #ifndef GOLDCRAFT_RENDER_BASELINE
+    plugin_draw_probe::tests(r);
     effect_tests(r);
     post_scene_snapshot_tests(r);
     #endif

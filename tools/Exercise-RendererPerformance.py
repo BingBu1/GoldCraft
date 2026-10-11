@@ -19,7 +19,8 @@ PROFILE = ROOT / "sandbox/cs-client-b/Half-Life/cstrike/renderer/frame-profile.j
 STAGES = ("interval", "render", "setup", "shadow", "water", "scene",
           "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
           "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
-          "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit")
+          "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
+          "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait")
 
 
 def server_population():

@@ -217,7 +217,8 @@ public final class WorldExporter {
         link.send(Wire.LIGHTS,w.toByteArray());
     }
     static final class Collector implements VertexConsumer {
-        private final Wire.Writer writer=new Wire.Writer();
+        private byte[] vertices=new byte[4096];
+        private int bytes;
         private float x,y,z,u,v,offsetX,offsetY,offsetZ;
         private int red=255,green=255,blue=255,alpha=255,count,sourceCount,overlayColor;
         private final boolean withOverlay,triangles;
@@ -238,10 +239,23 @@ public final class WorldExporter {
         }
         private void writeVertex(){
             if(++count>262144)throw new IllegalArgumentException("Section vertex budget exceeded");
-            writer.f32(x).f32(y).f32(z).f32(u).f32(v).u8(red).u8(green).u8(blue).u8(alpha);
-            if(withOverlay){writer.i32(overlayColor);if(overlayColor==0x4d0000ff)hurtVertices++;}
+            if(!Float.isFinite(x)||!Float.isFinite(y)||!Float.isFinite(z)||!Float.isFinite(u)||!Float.isFinite(v))
+                throw new IllegalArgumentException("Non-finite float");
+            int stride=withOverlay?28:24,end=bytes+stride;
+            if(end>vertices.length)vertices=Arrays.copyOf(vertices,Math.max(end,Math.min(262144*stride,vertices.length*2)));
+            // One capacity check per vertex avoids the synchronized byte-at-a-time
+            // ByteArrayOutputStream path in every animated model draw.
+            putInt(vertices,bytes,Float.floatToRawIntBits(x));putInt(vertices,bytes+4,Float.floatToRawIntBits(y));
+            putInt(vertices,bytes+8,Float.floatToRawIntBits(z));putInt(vertices,bytes+12,Float.floatToRawIntBits(u));
+            putInt(vertices,bytes+16,Float.floatToRawIntBits(v));
+            vertices[bytes+20]=(byte)red;vertices[bytes+21]=(byte)green;vertices[bytes+22]=(byte)blue;vertices[bytes+23]=(byte)alpha;
+            if(withOverlay){putInt(vertices,bytes+24,overlayColor);if(overlayColor==0x4d0000ff)hurtVertices++;}
+            bytes=end;
         }
-        byte[] finish() { flush(); if(sourceCount%(triangles?3:4)!=0) throw new IllegalArgumentException("Incomplete model primitive"); return writer.toByteArray(); }
+        private static void putInt(byte[] target,int at,int value){
+            target[at]=(byte)value;target[at+1]=(byte)(value>>>8);target[at+2]=(byte)(value>>>16);target[at+3]=(byte)(value>>>24);
+        }
+        byte[] finish() { flush(); if(sourceCount%(triangles?3:4)!=0) throw new IllegalArgumentException("Incomplete model primitive"); return Arrays.copyOf(vertices,bytes); }
         @Override public VertexConsumer vertex(float x,float y,float z) { flush(); this.x=x+offsetX;this.y=y+offsetY;this.z=z+offsetZ;overlayColor=0;pending=true;return this; }
         @Override public VertexConsumer color(int red,int green,int blue,int alpha) {this.red=red;this.green=green;this.blue=blue;this.alpha=alpha;return this;}
         @Override public VertexConsumer texture(float u,float v) {this.u=u;this.v=v;return this;}

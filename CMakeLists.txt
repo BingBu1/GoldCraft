@@ -229,6 +229,22 @@ if(GOLDCRAFT_BUILD_CLIENT)
             "${CMAKE_CURRENT_SOURCE_DIR}/analysis/vix-post/runtime-shaders")
         set_tests_properties(goldcraft_post_effect_replay PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 2)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            native/client/plugin.cpp tests/native/extract_benchmark_framerate.py tests/native/extract_plugin_draw.py)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_benchmark_framerate.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/benchmark_framerate.inc" COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_plugin_draw.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/plugin_draw.inc" COMMAND_ERROR_IS_FATAL ANY)
+        add_executable(goldcraft_benchmark_framerate_tests tests/native/benchmark_framerate_tests.cpp)
+        target_include_directories(goldcraft_benchmark_framerate_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES}
+            "${CMAKE_CURRENT_BINARY_DIR}")
+        target_compile_definitions(goldcraft_benchmark_framerate_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(goldcraft_benchmark_framerate_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_benchmark_framerate COMMAND goldcraft_benchmark_framerate_tests)
         set(GOLDCRAFT_RENDERER_SDK "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/include/Interface/IMetaRenderer.h")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             "${GOLDCRAFT_RENDERER_SDK}" tests/native/renderer_stub.py)

@@ -795,8 +795,22 @@ index 807ddd8..ff45529 100644
  
  //Note that this only get called when switching client
  void Mod_UnloadSpriteTextures(model_t* mod)
+diff --git a/src/gl_ringbuffer.cpp b/src/gl_ringbuffer.cpp
+index db8b533..2e8c3ad 100644
+--- a/src/gl_ringbuffer.cpp
++++ b/src/gl_ringbuffer.cpp
+@@ -351,7 +351,9 @@ bool CPMBRingBuffer::WaitForAvailableSpace(size_t size)
+ 
+ bool CPMBRingBuffer::WaitAndReleaseFrame(std::deque<FrameHeadAttribs>::iterator it, GLuint64 timeout, const char* reason)
+ {
++    const auto waitStart = R_ProfileBegin();
+     GLenum result = glClientWaitSync(it->fence, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
++    R_ProfileEnd(timeout == 0 ? RProfileStage::RingPoll : RProfileStage::RingWait, waitStart);
+     if (result == GL_ALREADY_SIGNALED || result == GL_CONDITION_SATISFIED)
+     {
+         ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..72dd2cc 100644
+index d59b139..0d04b67 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,8 @@
@@ -991,15 +1005,34 @@ index d59b139..72dd2cc 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -4685,6 +4775,7 @@ void R_RenderScene(void)
+@@ -4667,6 +4757,10 @@ void R_RenderScene(void)
+ {
+     GL_BeginDebugGroup("R_RenderScene");
+ 
++    // Isolate world setup retained by entity-only shadow passes. This is CPU
++    // timing only; the existing shadow stage continues to own GPU timestamps.
++    const auto shadowWorldPrepStart = R_IsRenderingShadowView() && !(r_draw_classify & DRAW_CLASSIFY_WORLD) ? R_ProfileBegin() : 0;
++
+     if (CL_IsDevOverviewMode())
+         CL_SetDevOverView(R_GetRefDef());
+ 
+@@ -4682,9 +4776,15 @@ void R_RenderScene(void)
+     if (!(*r_refdef.onlyClientDraws))
+     {
+         R_DrawWorld();
++        R_ProfileEnd(RProfileStage::ShadowWorldPrep, shadowWorldPrepStart);
          R_DrawEntitiesOnList();
      }
++    else
++    {
++        R_ProfileEnd(RProfileStage::ShadowWorldPrep, shadowWorldPrepStart);
++    }
  
 +    R_DrawExternalOpaqueScene();
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4811,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4820,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1017,7 +1050,7 @@ index d59b139..72dd2cc 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4830,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4839,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1025,7 +1058,7 @@ index d59b139..72dd2cc 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4841,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4850,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1033,7 +1066,7 @@ index d59b139..72dd2cc 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4895,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4904,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1041,7 +1074,7 @@ index d59b139..72dd2cc 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5562,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5571,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1052,7 +1085,7 @@ index d59b139..72dd2cc 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6703,57 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6712,57 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1562,7 +1595,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..3865120 100644
+index fa85f25..29c4a03 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -9,6 +9,8 @@
@@ -1712,7 +1745,22 @@ index fa85f25..3865120 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2397,6 +2313,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2327,9 +2243,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+         }
+     }
+ 
+-    GL_UploadSubDataToUBO(g_hStudioUBO, 0, sizeof(StudioUBO), &StudioUBO);
+-
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
++    {
++        RProfileScope profileScope(RProfileStage::StudioUBOUpload);
++        GL_UploadSubDataToUBO(g_hStudioUBO, 0, sizeof(StudioUBO), &StudioUBO);
++        glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
++    }
+ 
+     GL_BindVAO(pRenderData->hVAO);
+ }
+@@ -2397,6 +2315,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -1720,7 +1768,7 @@ index fa85f25..3865120 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -3104,7 +3021,11 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,7 +3023,11 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -1733,7 +1781,7 @@ index fa85f25..3865120 100644
  
      GL_UseProgram(0);
  
-@@ -3377,7 +3298,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3300,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -1745,7 +1793,7 @@ index fa85f25..3865120 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3785,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +3787,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -1761,7 +1809,7 @@ index fa85f25..3865120 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3795,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +3797,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -1924,7 +1972,7 @@ index fa85f25..3865120 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3812,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +3814,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -1952,7 +2000,7 @@ index fa85f25..3865120 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +3824,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +3826,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -1960,7 +2008,7 @@ index fa85f25..3865120 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,28 +3840,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,28 +3842,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -1993,7 +2041,7 @@ index fa85f25..3865120 100644
      if (!(*pstudiohdr))
      {
          pfnMergeBones(pthis, dummy, pSubModel);
-@@ -4121,22 +3862,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4121,22 +3864,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
          return;
      }
  
@@ -2019,7 +2067,7 @@ index fa85f25..3865120 100644
  
      pfnMergeBones(pthis, dummy, pSubModel);
  }
-@@ -5021,18 +4749,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +4751,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -6729,6 +6777,19 @@ index 93166e2..f98ba37 100644
 +    add_test(NAME world_leaf_gl_tests COMMAND world_leaf_gl_tests)
 +endif()
 +set_tests_properties(world_leaf_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
+diff --git a/tests/ringbuffer_tests.cpp b/tests/ringbuffer_tests.cpp
+index 9ae8b2f..2e0001e 100644
+--- a/tests/ringbuffer_tests.cpp
++++ b/tests/ringbuffer_tests.cpp
+@@ -16,6 +16,8 @@ static GLenum TestGetError()
+ #include <cstdarg>
+ 
+ cl_enginefunc_t gEngfuncs{};
++double R_ProfileBegin() { return 0; }
++void R_ProfileEnd(RProfileStage, double) {}
+ IPMBRingBuffer* g_TriAPIVertexBuffer{};
+ IPMBRingBuffer* g_TriAPIIndexBuffer{};
+ IPMBRingBuffer* g_TexturedRectVertexBuffer{};
 diff --git a/tests/sc_client_tests.cpp b/tests/sc_client_tests.cpp
 index f6dbd9f..03194dd 100644
 --- a/tests/sc_client_tests.cpp
@@ -7382,10 +7443,10 @@ index 0000000..ae22570
 +}
 diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
 new file mode 100644
-index 0000000..b60b742
+index 0000000..7c65310
 --- /dev/null
 +++ b/src/studio_diagnostics.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,67 @@
 +#pragma once
 +
 +void        R_StudioDiagnosticsInit();
@@ -7422,6 +7483,10 @@ index 0000000..b60b742
 +    StudioBoneMerge,
 +    StudioMesh,
 +    StudioSubmit,
++    StudioUBOUpload,
++    ShadowWorldPrep,
++    RingPoll,
++    RingWait,
 +    Count
 +};
 +double R_ProfileBegin();
@@ -7451,10 +7516,10 @@ index 0000000..b60b742
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..1e8619a
+index 0000000..e7f0dcc
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,514 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -7733,7 +7798,8 @@ index 0000000..1e8619a
 +constexpr const char* ProfileNames[ProfileStages] = {
 +    "setup", "shadow", "water", "scene", "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
 +    "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
-+    "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit"};
++    "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
++    "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait"};
 +struct ProfileFrame
 +{
 +    double                              time{}, interval{}, render{};

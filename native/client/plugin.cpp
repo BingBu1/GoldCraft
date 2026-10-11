@@ -18,6 +18,7 @@
 #include <r_efx.h>
 #include <dlight.h>
 #include <demo_api.h>
+#include <net_api.h>
 #include <cvardef.h>
 #include <keydefs.h>
 #include <in_buttons.h>
@@ -123,6 +124,105 @@ unsigned ui_modifiers=0;
 int hud_slot=0,hud_food=0,hud_armor=0,hud_level=0;
 float hud_health=0,hud_experience=0;
 double Seconds(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+enum class WorkStage : std::size_t {
+    frame,native_hud,audit_commands,transport,map_edits,connection,diagnostics,messages,
+    atlas,atlas_patches,entity_texture,entity_frame,particle_texture,particle_texture_chunk,
+    particles,post_plan,feedback_message,camera,hud_upload,scene_reset,pose,lights_message,
+    section,remove_section,other_message,control_lights,
+    draw_opaque,draw_shadow,draw_transparent,pass_construct,pass_restore,
+    sections,entities,feedback,entity_effects,particle_draw,post_mask,post_replay,hud_redraw,count
+};
+constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> work_names{
+    "frame","nativeHudFrame","auditCommands","transportPoll","mapEdits","connectionState","diagnosticWrite","messages",
+    "atlas","atlasPatches","entityTexture","entityFrame","particleTexture","particleTextureChunk",
+    "particles","postPlan","feedbackMessage","camera","hudUpload","sceneReset","pose","lightsMessage",
+    "section","removeSection","otherMessage","controlLights",
+    "drawOpaque","drawShadow","drawTransparent","passConstruct","passRestore",
+    "sections","entities","feedback","entityEffects","particleDraw","postMask","postReplay","hudRedraw"
+};
+struct WorkCounter {std::uint64_t count=0;double total_ms=0,max_ms=0;};
+std::array<WorkCounter,work_names.size()> work_counters{};
+double work_window_start=0;
+std::uint64_t work_window=0;
+std::string work_snapshot="{\"schema\":1,\"ready\":false}";
+void RecordWork(WorkStage stage,double started) noexcept {
+    const double elapsed=std::max(0.0,(Seconds()-started)*1000);
+    auto& counter=work_counters[static_cast<std::size_t>(stage)];
+    ++counter.count;counter.total_ms+=elapsed;counter.max_ms=std::max(counter.max_ms,elapsed);
+}
+class WorkScope {
+public:
+    explicit WorkScope(WorkStage stage) noexcept:stage_(stage),started_(Seconds()) {
+        if(!work_window_start)work_window_start=started_;
+    }
+    ~WorkScope(){RecordWork(stage_,started_);}
+    WorkScope(const WorkScope&)=delete;
+    WorkScope& operator=(const WorkScope&)=delete;
+private:
+    WorkStage stage_;double started_;
+};
+// Main-thread elapsed timings include driver/IO waits. Nested scopes are inclusive;
+// no CPU/GPU synchronization or per-vertex clock reads are introduced.
+void WriteWorkDiagnostics(std::ostream& out) {
+    const double now=Seconds();
+    if(work_window_start&&now-work_window_start>=2){
+        std::ostringstream snapshot;
+        snapshot<<"{\"schema\":1,\"ready\":true,\"window\":"<<++work_window
+            <<",\"seconds\":"<<now-work_window_start
+            <<",\"clock\":\"steady_clock\",\"inclusive\":true,\"stages\":{";
+        for(std::size_t i=0;i<work_counters.size();++i){
+            if(i)snapshot<<',';
+            const auto& value=work_counters[i];
+            snapshot<<'"'<<work_names[i]<<"\":{\"count\":"<<value.count
+                <<",\"meanMs\":"<<(value.count?value.total_ms/value.count:0)
+                <<",\"maxMs\":"<<value.max_ms<<",\"totalMs\":"<<value.total_ms<<'}';
+        }
+        snapshot<<"}}";work_snapshot=snapshot.str();
+        work_counters={};work_window_start=now;
+    }
+    out<<"\"nativeWork\":"<<work_snapshot;
+}
+WorkStage MessageWork(Type type) noexcept {
+    switch(type){
+    case Type::atlas:return WorkStage::atlas;
+    case Type::atlas_patches:return WorkStage::atlas_patches;
+    case Type::entity_texture:return WorkStage::entity_texture;
+    case Type::entity_frame:return WorkStage::entity_frame;
+    case Type::particle_texture:return WorkStage::particle_texture;
+    case Type::particle_texture_chunk:return WorkStage::particle_texture_chunk;
+    case Type::particle_mesh:return WorkStage::particles;
+    case Type::post_effect_plan:return WorkStage::post_plan;
+    case Type::block_feedback:return WorkStage::feedback_message;
+    case Type::camera:return WorkStage::camera;
+    case Type::hud_frame:return WorkStage::hud_upload;
+    case Type::scene_reset:return WorkStage::scene_reset;
+    case Type::player_pose:return WorkStage::pose;
+    case Type::lights:return WorkStage::lights_message;
+    case Type::section_mesh:return WorkStage::section;
+    case Type::remove_section:return WorkStage::remove_section;
+    default:return WorkStage::other_message;
+    }
+}
+class ProfiledPass {
+public:
+    ProfiledPass(bool transparent,std::uint32_t flags,const MetaRendererPostSceneFrame* mask=nullptr)
+        :transparent_(transparent),flags_(flags),mask_(mask){}
+    ~ProfiledPass(){if(pass_){WorkScope timing(WorkStage::pass_restore);pass_.reset();}}
+    render::Pass& get(){
+        if(!pass_){WorkScope timing(WorkStage::pass_construct);pass_.emplace(transparent_,flags_,mask_);}
+        return *pass_;
+    }
+    render::Pass* existing(){return pass_?&*pass_:nullptr;}
+private:
+    bool transparent_;std::uint32_t flags_;const MetaRendererPostSceneFrame* mask_;
+    std::optional<render::Pass> pass_;
+};
+struct FramerateBenchmark {
+    bool active=false;float fps_max=0,fps_override=0,vsync=0;
+    std::uint64_t epoch=0,generation=0;unsigned short port=0;
+    double expires=0;
+} framerate_benchmark;
+void RestoreBenchmarkFramerate();
 std::ofstream motion_capture;
 std::ofstream entity_capture;
 double entity_capture_start=0,entity_capture_end=0;
@@ -297,6 +397,7 @@ void ReleaseHostUse(){
     host_use_sources=0;host_use_sent=false;host_use_world=0;host_use_life=0;next_host_use=0;
 }
 void ResetWorld() {
+    RestoreBenchmarkFramerate();
     ReleaseMinecraftKeys();
     form_menu.clear();menu_pressed.fill(false);server_hud::reset();
     ReleaseHostUse();
@@ -442,6 +543,7 @@ void WriteDiagnostics() {
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) {
         std::ofstream out(path);
         out<<'{'; control_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<',';
+        WriteWorkDiagnostics(out);out<<',';
         client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
@@ -465,7 +567,9 @@ void WriteDiagnostics() {
            <<",\"cameraAngles\":["<<camera_pose.angles.x<<','<<camera_pose.angles.y<<','<<camera_pose.angles.z<<']'
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")
            <<",\"postSceneApi\":"<<(gpu.post_scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
-           <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")
+           <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"fpsOverride\":"<<gEngfuncs.pfnGetCvarFloat("fps_override")
+           <<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")<<",\"benchmarkFramerate\":"<<(framerate_benchmark.active?"true":"false")
+           <<",\"benchmarkRemainingMs\":"<<(framerate_benchmark.active?std::max(0.0,(framerate_benchmark.expires-Seconds())*1000):0)
            <<",\"developerLevel\":"<<gEngfuncs.pfnGetCvarFloat("developer")
            <<",\"atlasUploads\":"<<atlas_uploads<<",\"atlasGeneration\":"<<atlas_generation<<",\"atlasAnimationPackets\":"<<atlas_animation_packets<<",\"atlasPatchBytes\":"<<atlas_patch_bytes<<",\"atlasAnimationIntervalMs\":"<<atlas_animation_interval_ms
            <<",\"gpuUploads\":"<<gpu.uploads<<",\"gpuUploadBytes\":"<<gpu.upload_bytes<<",\"gpuDraws\":"<<gpu.draws<<",\"opaquePasses\":"<<gpu.opaque_passes<<",\"shadowPasses\":"<<gpu.shadow_passes
@@ -560,6 +664,46 @@ bool MatchingHostProtocol(){
     const char* value=gEngfuncs.ServerInfo_ValueForKey?gEngfuncs.ServerInfo_ValueForKey("mc_protocol"):nullptr;
     static const auto expected=std::to_string(protocol_version);
     return value&&value==expected;
+}
+bool BenchmarkServer(unsigned short& port){
+    if(!std::getenv("GOLDCRAFT_TEST_COMMAND")||!gEngfuncs.pNetAPI||!gEngfuncs.pNetAPI->Status||
+       !MatchingHostProtocol()||!world||!link.connected()||link.generation()!=last_link_generation||
+       (gEngfuncs.pDemoAPI&&gEngfuncs.pDemoAPI->IsPlayingback()))return false;
+    net_status_t status{};gEngfuncs.pNetAPI->Status(&status);
+    const auto& address=status.remote_address;
+    if(!status.connected||address.type!=NA_IP||address.ip[0]!=127||address.ip[1]||address.ip[2]||address.ip[3]!=1||!address.port)return false;
+    port=address.port;return true;
+}
+void RestoreBenchmarkFramerate(){
+    if(!framerate_benchmark.active)return;
+    const auto saved=framerate_benchmark;framerate_benchmark={};
+    gEngfuncs.Cvar_SetValue("fps_max",saved.fps_max);
+    gEngfuncs.Cvar_SetValue("fps_override",saved.fps_override);
+    gEngfuncs.Cvar_SetValue("gl_vsync",saved.vsync);
+}
+void CheckBenchmarkFramerate(){
+    if(!framerate_benchmark.active)return;
+    unsigned short port=0;
+    if(Seconds()>=framerate_benchmark.expires||!BenchmarkServer(port)||port!=framerate_benchmark.port||world!=framerate_benchmark.epoch||
+       link.generation()!=framerate_benchmark.generation)RestoreBenchmarkFramerate();
+}
+void SetBenchmarkFramerate(int fps){
+    if(fps==0){RestoreBenchmarkFramerate();return;}
+    unsigned short port=0;
+    if((fps!=100&&fps!=200&&fps!=300)||!BenchmarkServer(port)){
+        Log("benchmark_framerate rejected: requires the paired 127.0.0.1 sandbox server");return;
+    }
+    CheckBenchmarkFramerate();
+    if(!framerate_benchmark.active){
+        framerate_benchmark={true,gEngfuncs.pfnGetCvarFloat("fps_max"),gEngfuncs.pfnGetCvarFloat("fps_override"),
+            gEngfuncs.pfnGetCvarFloat("gl_vsync"),world,link.generation(),port};
+    }
+    // A forgotten sampling script must not leave a lasting high-framerate lease.
+    // Controlled runners also send 0 in finally before closing the game.
+    framerate_benchmark.expires=Seconds()+30;
+    gEngfuncs.Cvar_SetValue("fps_override",fps>100?1.0f:0.0f);
+    gEngfuncs.Cvar_SetValue("gl_vsync",0);
+    gEngfuncs.Cvar_SetValue("fps_max",static_cast<float>(fps));
 }
 void PublishBrushSnapshot(){
     try {
@@ -1052,6 +1196,7 @@ void TestCommands() {
             gEngfuncs.Cvar_SetValue("r_studio_diagnostics",static_cast<float>(diagnostics));
         }
     }
+    else if(action=="benchmark_framerate"){int fps=0;if(input>>fps)SetBenchmarkFramerate(fps);}
     else if(action=="render_profile"){
         float seconds=0;int compare=0;
         if(input>>seconds&&std::isfinite(seconds)&&seconds>0&&seconds<=30){
@@ -1132,13 +1277,16 @@ void TestCommands() {
     Log("sandbox CS command "+std::to_string(id)+": "+action);
 }
 void Frame(double time) {
+    WorkScope frame_timing(WorkStage::frame);
     const double began=Seconds();
     control_trace.observe(SampleControl());
-    gExportfuncs.HUD_Frame(time);
-    input_audit::sample();
-    TestCommands();
-    link.poll();
+    {WorkScope timing(WorkStage::native_hud);gExportfuncs.HUD_Frame(time);}
+    {WorkScope timing(WorkStage::audit_commands);input_audit::sample();TestCommands();}
+    {WorkScope timing(WorkStage::transport);link.poll();}
+    CheckBenchmarkFramerate();
     static double next_ready=0;
+    {
+    WorkScope timing(WorkStage::map_edits);
     if(MatchingHostProtocol()){
         if(have_view&&Seconds()>=next_ready){
             const auto command="goldcraft_ready "+std::to_string(protocol_version)+"\n";
@@ -1152,6 +1300,9 @@ void Frame(double time) {
     }else if(map_edits.state().epoch){
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
     }
+    }
+    {
+    WorkScope timing(WorkStage::connection);
     if(link.error()!=last_error) { last_error=link.error(); if(!last_error.empty()) Log(last_error); }
     if(link.connected()&&link.generation()!=last_link_generation) {
         ReleaseHostUse();
@@ -1159,9 +1310,16 @@ void Frame(double time) {
         if(!binding.empty()) link.send(Type::client_binding,binding);
         Log("Fabric client connected with an isolated session");
     }
+    }
     const auto diagnostic_time=std::chrono::steady_clock::now();
-    if(diagnostic_time>=next_diagnostic){next_diagnostic=diagnostic_time+std::chrono::milliseconds(std::getenv("GOLDCRAFT_TEST_COMMAND")?100:2000);WriteDiagnostics();}
+    if(diagnostic_time>=next_diagnostic){
+        WorkScope timing(WorkStage::diagnostics);
+        next_diagnostic=diagnostic_time+std::chrono::milliseconds(std::getenv("GOLDCRAFT_TEST_COMMAND")?100:2000);WriteDiagnostics();
+    }
+    {
+    WorkScope timing(WorkStage::messages);
     for(auto& message : link.take_messages()) {
+        WorkScope message_timing(MessageWork(message.type));
         try {
             Reader r(message.payload);
             if(message.type==Type::atlas) ReadAtlas(r);
@@ -1215,6 +1373,9 @@ void Frame(double time) {
             }
         } catch(const std::exception& e) { Log(e.what()); }
     }
+    }
+    {
+    WorkScope timing(WorkStage::control_lights);
     control_trace.observe(SampleControl());
     SendViewport();UpdateUi();UpdateViewModel();UpdateHostUse();
     // A video/context reset invalidates the local atlas without reconnecting IPC.
@@ -1233,6 +1394,7 @@ void Frame(double time) {
             light->radius=source.radius;light->color.r=source.color&255;light->color.g=(source.color>>8)&255;light->color.b=(source.color>>16)&255;
             light->die=gEngfuncs.GetClientTime()+0.2f;light->decay=0;light->minlight=0;light->dark=0;
         }
+    }
     }
     frame_work_ms=(Seconds()-began)*1000;frame_work_max_ms=std::max(frame_work_max_ms,frame_work_ms);
 }
@@ -1368,6 +1530,7 @@ int KeyEvent(int down,int key,const char* binding_text) {
     return gExportfuncs.HUD_Key_Event?gExportfuncs.HUD_Key_Event(down,key,binding_text):1;
 }
 bool DrawPostMask(void*,const MetaRendererPostSceneFrame& frame,std::uint8_t first,std::uint8_t count) noexcept {
+    WorkScope timing(WorkStage::post_mask);
     try{
         if(first>post_batches.size()||count>post_batches.size()-first)return false;
         const auto previous_error=render::statistics().error_count;
@@ -1383,7 +1546,7 @@ bool DrawPostMask(void*,const MetaRendererPostSceneFrame& frame,std::uint8_t fir
                 }
                 ~ReadFramebuffer(){if(used)glBindFramebuffer(GL_READ_FRAMEBUFFER,previous);}
             } read;
-            render::Pass pass(true,0,&frame);if(!pass.ready())return false;
+            ProfiledPass measured_pass(true,0,&frame);auto& pass=measured_pass.get();if(!pass.ready())return false;
             for(unsigned i=first;i<unsigned(first)+count;++i){
                 if(post_depth_resets[i])read.reset(frame);
                 const auto& batch=post_batches[i];const auto key=batch.material.texture;
@@ -1403,6 +1566,7 @@ void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
        post_life!=minecraft_life||post_life!=server_player_life||post_generation!=particle_generation||
        Seconds()-last_post_frame>=.25||(render_particles&&render_particles->value==0)||
        (render_post_effects&&render_post_effects->value==0))return;
+    WorkScope timing(WorkStage::post_replay);
     if(post_replay->replay(frame,post_stages,DrawPostMask,nullptr)){++post_draws;post_error.clear();}
     else{
         ++post_failures;
@@ -1410,36 +1574,54 @@ void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
     }
 }
 void Draw(bool transparent,std::uint32_t flags) {
+    WorkScope draw_timing(transparent?WorkStage::draw_transparent:
+        (flags&META_SCENE_SHADOW)?WorkStage::draw_shadow:WorkStage::draw_opaque);
     if(!link.connected()||!world) return;
     const bool effects_ready=transparent&&flags==0&&!particle_batches.empty()&&
         particle_life==minecraft_life&&particle_life==server_player_life&&Seconds()-last_particle_frame<0.25&&
         (!render_particles||render_particles->value!=0);
     if(!atlas_texture&&!effects_ready)return;
     {
-    render::Pass pass(transparent,flags);if(!pass.ready())return;
+    ProfiledPass measured_pass(transparent,flags);
     if(atlas_texture){
-    pass.texture(atlas_texture);
+    {
+    WorkScope timing(WorkStage::sections);
     for(const auto& [key,section] : sections) {
         if(((section.flags&1)!=0)!=transparent || section.vertices.empty()) continue;
+        auto& pass=measured_pass.get();if(!pass.ready())return;
+        pass.texture(atlas_texture);
         pass.emissive((section.flags&2)!=0);
         section.gpu->draw(section.vertices,section.revision,false);
     }
-    pass.emissive(false);
+    }
+    {
+    WorkScope timing(WorkStage::entities);
     for(const auto& batch:entity_batches) {
         if(!EntityFrameFresh())break;
         if(((batch.flags&1)!=0)!=transparent||batch.vertices.empty())continue;
         auto texture=entity_textures.find(batch.texture);if(batch.texture&&texture==entity_textures.end())continue;
+        auto& pass=measured_pass.get();if(!pass.ready())return;
+        pass.emissive(false);
         pass.depth_write((batch.flags&2)!=0);
         pass.view_offset((batch.flags&4)!=0);
         pass.texture(batch.texture?texture->second.id:atlas_texture);batch.gpu->draw(batch.vertices,entity_revision,true);
         if(flags==0&&entity_drawn_revision!=entity_revision){entity_drawn_revision=entity_revision;++entity_presented_frames;}
     }
+    }
     // Feedback uses the current scene depth; never include outlines/cracks in lighting or shadow maps.
-    pass.view_offset(false);
+    if(auto* pass=measured_pass.existing())pass->view_offset(false);
     if(transparent&&flags==0&&feedback_life==minecraft_life&&feedback_life==server_player_life&&Seconds()-last_feedback<0.25){
-        pass.texture(atlas_texture);pass.feedback(1);
-        for(const auto& batch:crack_batches){batch.gpu->draw(batch.vertices,feedback_revision,true);++feedback_draws;}
+        WorkScope timing(WorkStage::feedback);
+        bool cracks_started=false;
+        for(const auto& batch:crack_batches){
+            if(batch.vertices.empty())continue;
+            auto& pass=measured_pass.get();if(!pass.ready())return;
+            if(!cracks_started){pass.texture(atlas_texture);pass.feedback(1);cracks_started=true;}
+            batch.gpu->draw(batch.vertices,feedback_revision,true);++feedback_draws;
+        }
         if(HasControl()&&!minecraft_menu&&!outline_vertices.empty()){
+            auto& pass=measured_pass.get();if(!pass.ready())return;
+            pass.texture(atlas_texture);
             pass.feedback(2);outline_gpu->draw(outline_vertices,feedback_revision,true,true);++feedback_draws;
         }
     }
@@ -1447,27 +1629,35 @@ void Draw(bool transparent,std::uint32_t flags) {
     // Ordered camera-specific effects run after ordinary meshes and feedback.
     // Pass restores host state afterward; these never enter GBuffer or shadows.
     if(transparent&&flags==0&&EntityFrameFresh()){
+        WorkScope timing(WorkStage::entity_effects);
         for(const auto& batch:entity_effect_batches){
+            if(batch.vertices.empty())continue;
             const auto key=batch.material.texture;GLuint texture=atlas_texture;
             if(key==particle_untextured)texture=0;
             else if(key){auto found=particle_textures.find(key);if(found==particle_textures.end())continue;texture=found->second.id;}
+            auto& pass=measured_pass.get();if(!pass.ready())return;
             if(pass.effect(batch.material,texture)){batch.gpu->draw(batch.vertices,entity_revision,true);++entity_effect_draws;}
         }
     }
     if(effects_ready){
+        WorkScope timing(WorkStage::particle_draw);
         for(const auto& batch:particle_batches){
+            if(batch.vertices.empty())continue;
             const auto key=batch.material.texture;
             GLuint texture=atlas_texture;
             if(key==particle_untextured)texture=0;
             else if(key){auto found=particle_textures.find(key);if(found==particle_textures.end())continue;texture=found->second.id;}
+            auto& pass=measured_pass.get();if(!pass.ready())return;
             if(pass.effect(batch.material,texture)){batch.gpu->draw(batch.vertices,particle_revision,true);++particle_draws;}
         }
     }
+    if(!measured_pass.existing())return;
     }
     last_gl_error=render::statistics().error;++frames_drawn;
     if(section_logged&&!draw_logged){draw_logged=true;Log("Minecraft scene draw reached OpenGL, error="+std::to_string(last_gl_error));}
 }
 int Redraw(float time,int intermission) {
+    WorkScope timing(WorkStage::hud_redraw);
     const double began=Seconds();
     const bool visible=HudFresh();
     const bool native_hud=!visible||(hud_flags&8);
