@@ -9,7 +9,7 @@ GoldCraft 使用 Minecraft 的真实实体、粒子和材质数据，在 CS 场�
 | 女仆表情、图片、文字 | 捕获真实直接网格和文字缓冲 | 已核对 TLM 1.5.3 入口及 3186 顶点探针；实际气泡画面待验收 |
 | Epic 刀光、命中、闪电、残影 | 实际几何、排序索引、混合、深度／颜色掩码 | 真实刀光 producer 和原版排序方法回归通过；游戏遮挡待验收 |
 | NightFall 世界阶段 | 捕获作用域中调用核对过的 AFTER_ENTITIES 回调 | 生产字节码入口通过；技能画面待验收 |
-| VIX／NightFall 后处理 | CS 场景颜色／深度、真实遮罩、priority 出队顺序和六类通道 | 六类已实现；原全屏色散生产参数 2420 组逐位比对通过；各技能画面待验收 |
+| VIX／NightFall 后处理 | CS 场景颜色／深度、真实遮罩、priority 出队顺序和七类通道 | 前六类已部署；kind7协议29已合入待验证部署；原全屏色散生产参数 2420 组逐位比对通过；各技能画面待验收 |
 | 附魔高光 | 原版 EQUAL、加法混合、颜色写入、动态 UV、GlintAlpha、repeat／linear | 透明孔洞、相机偏移、阴影不偏移的像素回归通过；原子帧已部署，实际附魔画面待验收 |
 | 大型／动态纹理 | 4096 图集有界分块；动态上传／删除使缓存失效 | 实机已识别并完整上传 4096 粒子图集；实际 GIF 待验收 |
 
@@ -32,7 +32,7 @@ GoldCraft 使用 Minecraft 的真实实体、粒子和材质数据，在 CS 场�
 
 协议 26 的 type66 将实体底图、附魔／气泡与头像身份合成一次提交，避免独立粒子 pacing 导致底图和高光来自不同帧。纹理未就绪或入队失败不能发布半帧。底图与效果统一按 0.5 秒、双端生命代次和纹理代次判定有效；空帧、失效与重置共同清理。纹理像素仍使用现有共享缓存，不属于不可变的逐帧事务。
 
-VIX 使用已安装 JAR 的 SHA-256 白名单资源，在 CS 真实场景快照上执行 bloom、space broken、chromatic、air disturbance、screen distortion、color dispersion。目标和 sampler 复用，不读回 CS 场景到 CPU。原版 bloom 过滤绑定仍有歧义，当前使用已确认的 NEAREST；雾一致性仍有限制。HDR 工作颜色保留，遮罩／金字塔使用 RGBA8。
+VIX 使用已安装 JAR 的 SHA-256 白名单资源，在 CS 真实场景快照上执行 bloom、space broken、chromatic、air disturbance、screen distortion、color dispersion、black/white impact。目标和 sampler 复用，不读回 CS 场景到 CPU。原版 bloom 过滤绑定仍有歧义，当前使用已确认的 NEAREST；雾一致性仍有限制。前六类保留 HDR 工作颜色，遮罩／金字塔使用 RGBA8。黑白冲击保留原版预处理和输出的 RGBA8 量化及清色 alpha 混合：LDR 两次绘制，HDR 两次绘制加两次复制，复用现有目标。
 
 ## 构建和同步
 
@@ -60,3 +60,11 @@ Java、CS DLL、服务端桥接、Renderer 和 shader 必须配套。后处理�
 继续在 cs_assault 使用单 B、32 槽 ReHLDS 和 24 SyPB Bots 验收气泡、六类通道、附魔、墙体遮挡、消失与换图清理。性能比较必须固定观察者位置／朝向。Computer Use 本轮恢复后连续捕获超时，无成功自动截图或输入；完整画面、YSM R 往返、多人及 FPS 均未宣称通过。
 
 Java 状态包含 effectDrawSources、effectUnsupportedReasons、particleError、vixPostLastFailure 和 vixPostStageCounts；native 包含 postEffectCallbacks／NonemptyFrames／Draws／Failures，以及纹理暂存和完整上传计数。诊断计数用于定位，不能代替图像验收。
+
+## 黑白冲击（协议29，待部署）
+
+`efn:bw_contrast` 现在拥有独立 kind7，实际导出30项值。配置关闭、到期或 should_render=false 只跳过该效果；原始 priority 队列、fixed70投影与单调时钟保持。清色来自当前 Minecraft 主目标的CPU字段，blit乘数和retained uniform读取当前程序；访问器通过实际TinyRemapper和Sponge双命名验证。旧六类布局保持不变，协议版本保护端点匹配。
+
+协议29整包38组／166项Java、44项native、ReGameDLL构建、166＋44项跨进程检查通过；Clang审计11组／1642编译单元／15个x86产物通过。真实producer492组／25558检查、568字节独立跨语言核对、Core/Compat336同驱动原shader参考均通过；最大分量差0.004408002，容差2.1/255，并非逐位一致。预热128七通道帧无新增分配、storage、uniform位置查询或缓冲上传。HDR额外两次复制的真实帧时间仍待测；原shader的反向smoothstep仍受驱动行为影响。
+
+运行 `python tools/Test-BwContrast.py` 可从本机已安装的匹配Mod验证原producer和访问器。此测试不运行完整FML或游戏技能。实际kind7触发、资源重载、场景表现和FPS尚待配套部署验证；本轮B仍保留协议28洞面实机验收环境。

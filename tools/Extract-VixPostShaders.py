@@ -1,6 +1,6 @@
 """Extract locally installed, hash-pinned NightFall shaders; never redistribute them.
 
-Only eight allowlisted fragment programs and the test-reference vertex are copied. The source-only native
+Only ten allowlisted fragment programs and the test-reference vertex are copied. The source-only native
 header contains identities, not copyrighted shader contents. Run outside games;
 mod/resource changes require native replay reset and JVM restart.
 """
@@ -37,7 +37,7 @@ def main() -> None:
     header = (ROOT / "native/client/post_effect_assets.hpp").read_text(encoding="utf-8")
     pinned = re.search(r'nightfall_sha256\[\]="([a-f0-9]{64})"', header).group(1)
     assets = re.findall(r'\{"([a-z_]+\.(?:fsh|vsh))","([a-f0-9]{64})"\}', header)
-    if len(assets) != 9:
+    if len(assets) != 11 or len({name for name, _ in assets}) != 11:
         raise ValueError("Unexpected native shader allowlist")
     actual = hashlib.sha256(args.jar.read_bytes()).hexdigest()
     if actual != pinned:

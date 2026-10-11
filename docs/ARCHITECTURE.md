@@ -19,7 +19,7 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前源码的固定宽度协议为 GCF1/version 28，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前源码的固定宽度协议为 GCF1/version 29，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
 
 Version 28 的 `INPUT` 保持 48 字节布局，原 `enabled` 字段改为 flags：bit 0 表示输入窗口有效，bit 1 表示 pitch/yaw 是本帧相对角差（度）；未知位拒绝。Minecraft 控制时宿主采集相对角差并恢复真实 MC 相机角，菜单／失焦时角差为零；原生 CS 保留绝对角和原生移动。客户端只累加有效相对帧，交给 Epic 原版 `turnCamera`，未消费时走 vanilla 转向。绝对帧、身份变更、断线和不可操作 tick 清除未消费角差；MC 初始朝向沿用服务器传送。协议版本门禁拒绝与旧版混用。
 
@@ -60,3 +60,5 @@ MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 G
 ReHLDS 是服务器引擎参考，不是闭源客户端 `hw.dll`。客户端 Hook 按实际二进制身份和 MetaHook `ResolveGameSymbol` 合同匹配模块相对地址；[GoldSrc_VibeSignatures](https://github.com/HLND2T/GoldSrc_VibeSignatures) 提供参考目录，不允许跨版本照搬偏移。全部上游版本记录在 `sources.lock.json`。
 
 本机渲染大帧支持认证后协商的 64 MiB 共享内存环，控制／服务器链继续 TCP，激活前失败可回退。协议 27 两端需配套更新；队列、重连和测量边界见 [共享内存](SHARED_MEMORY.md)。
+
+协议29增加 NightFall 黑白冲击 kind7：有界30个float包含实际uniform、主目标清色RGBA与blit颜色乘数RGBA；旧kind1–6仍为8个float。kind7不拥有遮罩批次，保留有序插入位置；旧端通过协议协商拒绝不匹配版本，须配套更新DLL/JAR。CS侧复用私有RGBA8目标，保留原始双pass颜色量化和alpha混合，不读取场景到CPU。

@@ -6,6 +6,7 @@ import dev.goldcraft.bridge.ParticleSnapshot;
 import dev.goldcraft.bridge.PostEffectPlan;
 import dev.goldcraft.client.mixin.ParticleManagerAccessor;
 import dev.goldcraft.client.mixin.LightmapTextureAccessor;
+import dev.goldcraft.client.mixin.FramebufferClearColorAccessor;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -50,9 +51,11 @@ public final class VixPostCapture {
     private static Context active;
     private static String error="",lastFailure="",lastFailureParticles="";
     private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades;
-    private static final long[] stageFrames=new long[PostEffectPlan.COLOR_DISPERSION+1];
+    private static final long[] stageFrames=new long[PostEffectPlan.BW_CONTRAST+1];
     private static int lastStages,lastDraws;
     private static final Map<String,String> RESOURCE_HASHES=Map.ofEntries(
+        Map.entry("black_white_simple.fsh","89432ec2c4e4565898eeece0d70f1a1d1999ce59790be13d946ebf16825d3abe"),
+        Map.entry("black_white_simple.json","e398b28b123ee73a18ea3d8838ddb1d12f0988536b431325f6cf476bdf5b9912"),
         Map.entry("air_disturbance.fsh","336c0123bc1bd5a7cdca6190ce6a21976035cc623d9c3cf80e7dceb2f629a0cf"),
         Map.entry("air_disturbance.json","4c0a9e4288d9cc1fb8c8be10693ff0b1a9b241e217c7d76176f1a79dcedd35e8"),
         Map.entry("chromatic_aberration.fsh","61c0105ed280fe4eed7dace3d1c89701d8ee7ca51be53cee253a8038bc666305"),
@@ -244,6 +247,14 @@ public final class VixPostCapture {
                 int kind=spec(pipeline);boolean screen=PostEffectPlan.maskless(kind);
                 if(!screen&&!api.called.getBoolean(pipeline))continue;
                 var mask=masks.getOrDefault(pipeline,List.of());
+                if(kind==PostEffectPlan.BW_CONTRAST) {
+                    if(!mask.isEmpty())throw new IllegalStateException("Maskless impact owns geometry");
+                    var impact=api.impact.capture(pipeline,new ImpactUniforms(client));
+                    if(impact==null)continue;
+                    if(stages.size()>=PostEffectPlan.MAX_STAGES)throw new IllegalArgumentException("VIX stage budget");
+                    stages.add(PostEffectPlan.Stage.impact(api.priority.getInt(pipeline),draws.size(),impact));
+                    continue;
+                }
                 float[] p=parameters(client,pipeline,kind);
                 // A fully clipped mask is an identity pass. Keep producer animation advancement.
                 if(!screen&&mask.isEmpty())continue;
@@ -270,6 +281,33 @@ public final class VixPostCapture {
         }
     }
     private record Animation(Field started,Field time,Field progress,Method update){}
+    private static final class ImpactUniforms implements BlackWhiteImpactCapture.Uniforms {
+        private final MinecraftClient client;
+        private JsonEffectShaderProgram program,blit;
+        ImpactUniforms(MinecraftClient client){this.client=client;}
+        private JsonEffectShaderProgram program() {
+            try {if(program==null)program=api.effect("black_white_contrast","black_white_simple");return program;}
+            catch(ReflectiveOperationException failure){throw failed(failure);}
+        }
+        public float get(String name,int component,int size){return uniform(program(),name,component,size);}
+        public int integer(String name) {
+            var value=program().getUniformByName(name);
+            if(value==null||value.getCount()!=1||value.getIntData()==null)
+                throw new IllegalStateException("Unexpected VIX integer uniform layout "+name);
+            return value.getIntData().get(0);
+        }
+        public float clear(int component) {
+            float[] value=((FramebufferClearColorAccessor)client.getFramebuffer()).goldcraft$clearColor();
+            if(value==null||value.length!=4)throw new IllegalStateException("Unexpected main target clear color");
+            return value[component];
+        }
+        public float blit(int component) {
+            try{if(blit==null)blit=api.effect("blit");return uniform(blit,"ColorModulate",component,4);}
+            catch(ReflectiveOperationException failure){throw failed(failure);}
+        }
+        public void set(String name,float value){program().getUniformByNameOrDummy(name).set(value);}
+        public void set(String name,float x,float y){program().getUniformByNameOrDummy(name).set(x,y);}
+    }
     private static float[] parameters(MinecraftClient client,Object pipeline,int kind)throws ReflectiveOperationException {
         float[] result=new float[8];
         if(kind==PostEffectPlan.BLOOM) {
@@ -332,6 +370,7 @@ public final class VixPostCapture {
             case "efn:air_disturbance" -> checked(type,NF+"AirDisturbanceRenderType$Pipeline",PostEffectPlan.AIR);
             case "efn:screen_distortion" -> checked(type,SCREEN,PostEffectPlan.SCREEN_DISTORTION);
             case "efn:color_dispersion" -> checked(type,DISPERSION+"$CD_Pipeline",PostEffectPlan.COLOR_DISPERSION);
+            case "efn:bw_contrast" -> checked(type,BlackWhiteImpactCapture.EFFECT+"$BWC_Pipeline",PostEffectPlan.BW_CONTRAST);
             default -> throw new IllegalStateException("Unsupported VIX pipeline "+name+" ("+type+")");
         };
     }
@@ -354,6 +393,7 @@ public final class VixPostCapture {
         final Field dispersionType=field(Class.forName(DISPERSION),"type");
         final Object dispersionPost=Class.forName(DISPERSION+"$Type").getField("POST").get(null);
         final Method screenProgress=method(screenPipeline,"getDistortionProgress"),screenIntensity=method(screenPipeline,"getDistortionIntensity",float.class);
+        final BlackWhiteImpactCapture impact=new BlackWhiteImpactCapture();
         Api()throws ReflectiveOperationException {
             for(String name:List.of("AirDisturbanceRenderType$Pipeline","ChromaticAberrationRenderType$Pipeline")) {
                 Class<?> type=Class.forName(NF+name);
@@ -370,10 +410,13 @@ public final class VixPostCapture {
             return value;
         }
         JsonEffectShaderProgram effect(String name)throws ReflectiveOperationException {
+            return effect(name,name);
+        }
+        JsonEffectShaderProgram effect(String name,String resource)throws ReflectiveOperationException {
             Object pass=passes.getField(name).get(null);
             if(pass==null)throw new IllegalStateException("VIX post programs have not loaded");
             Object value=passEffect.get(pass);
-            if(!(value instanceof JsonEffectShaderProgram shader)||!shader.getName().equals("efn:"+name))
+            if(!(value instanceof JsonEffectShaderProgram shader)||!shader.getName().equals("efn:"+resource))
                 throw new IllegalStateException("Unverified VIX post program "+name);
             return shader;
         }

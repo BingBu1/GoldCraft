@@ -229,7 +229,19 @@
     "tools/Exercise-AuthoritativePose.py",
     "docs/2026-10-11_分析-Epic姿态与NightFall渲染-report.md",
     "tools/Test-HostLook.py",
-    "docs/2026-10-11_分析-Epic锁定与输入-report.md"
+    "docs/2026-10-11_分析-Epic锁定与输入-report.md",
+    "neoforge/src/client/java/dev/goldcraft/client/BlackWhiteImpactCapture.java",
+    "neoforge/src/client/java/dev/goldcraft/client/mixin/FramebufferClearColorAccessor.java",
+    "neoforge/src/client/java/dev/goldcraft/client/VixPostCapture.java",
+    "neoforge/src/client/resources/goldcraft.client.mixins.json",
+    "neoforge/src/main/java/dev/goldcraft/bridge/PostEffectPlan.java",
+    "tests/bw-contrast/BwContrastInteropMain.java",
+    "tests/bw-contrast/BwContrastRegression.java",
+    "tests/bw-contrast/PrepareProducer.java",
+    "tests/bw-contrast/RemapFramebuffer.java",
+    "tests/bw-contrast/TransformFramebuffer.java",
+    "tools/Test-BwContrast.py",
+    "tests/native/bw_contrast_gl_tests.inc"
   ],
   "trees": {
     "native": [

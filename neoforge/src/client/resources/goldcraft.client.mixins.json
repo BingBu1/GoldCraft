@@ -33,6 +33,7 @@
     "VixPostParticleMixin",
     "VixPostPipelinesMixin",
     "LightmapTextureAccessor",
+    "FramebufferClearColorAccessor",
     "EffectGlMixin",
     "SoundListenerMixin",
     "SoundSystemMixin",

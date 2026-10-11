@@ -27,12 +27,14 @@ void enable(GLenum cap,GLboolean value) noexcept {if(value)glEnable(cap);else gl
 struct ReplayState {
     GLint read=0,draw=0,program=0,vao=0,active=0,viewport[4]{},polygon[2]{},depth_func=0;
     GLint textures[3]{},samplers[3]{};
+    GLint blend_factors[4]{},blend_equations[2]{};
     GLdouble depth_range[2]{};
     GLboolean mask[4]{},depth_mask=0,blend=0;
+    bool save_blend_parameters=false;
     static constexpr GLenum capabilities[]={GL_SCISSOR_TEST,GL_FRAMEBUFFER_SRGB,GL_DEPTH_TEST,
         GL_STENCIL_TEST,GL_CULL_FACE,GL_RASTERIZER_DISCARD,GL_COLOR_LOGIC_OP,GL_POLYGON_OFFSET_FILL};
     GLboolean enabled[std::size(capabilities)]{},clips[8]{};
-    ReplayState() noexcept {
+    explicit ReplayState(bool changes_blend_parameters) noexcept :save_blend_parameters(changes_blend_parameters){
         glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&read);glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING,&draw);
         glGetIntegerv(GL_CURRENT_PROGRAM,&program);glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
         glGetIntegerv(GL_ACTIVE_TEXTURE,&active);glGetIntegerv(GL_VIEWPORT,viewport);
@@ -45,6 +47,11 @@ struct ReplayState {
         glGetDoublev(GL_DEPTH_RANGE,depth_range);
         glGetBooleanv(GL_DEPTH_WRITEMASK,&depth_mask);glGetBooleani_v(GL_COLOR_WRITEMASK,0,mask);
         blend=glIsEnabledi(GL_BLEND,0);
+        if(save_blend_parameters){
+            const GLenum blend_values[]={GL_BLEND_SRC_RGB,GL_BLEND_DST_RGB,GL_BLEND_SRC_ALPHA,GL_BLEND_DST_ALPHA};
+            for(unsigned i=0;i<4;++i)glGetIntegeri_v(blend_values[i],0,&blend_factors[i]);
+            glGetIntegeri_v(GL_BLEND_EQUATION_RGB,0,&blend_equations[0]);glGetIntegeri_v(GL_BLEND_EQUATION_ALPHA,0,&blend_equations[1]);
+        }
         for(unsigned i=0;i<std::size(capabilities);++i)enabled[i]=glIsEnabled(capabilities[i]);
         for(unsigned i=0;i<8;++i)clips[i]=glIsEnabled(GL_CLIP_DISTANCE0+i);
         for(unsigned i=0;i<3;++i){glActiveTexture(texture_units[i]);glGetIntegerv(GL_TEXTURE_BINDING_2D,&textures[i]);glGetIntegeri_v(GL_SAMPLER_BINDING,i,&samplers[i]);}
@@ -58,6 +65,10 @@ struct ReplayState {
         glDepthFunc(depth_func);glDepthMask(depth_mask);glColorMaski(0,mask[0],mask[1],mask[2],mask[3]);
         glDepthRange(depth_range[0],depth_range[1]);
         if(blend)glEnablei(GL_BLEND,0);else glDisablei(GL_BLEND,0);
+        if(save_blend_parameters){
+            glBlendFuncSeparatei(0,blend_factors[0],blend_factors[1],blend_factors[2],blend_factors[3]);
+            glBlendEquationSeparatei(0,blend_equations[0],blend_equations[1]);
+        }
         for(unsigned i=0;i<std::size(capabilities);++i)enable(capabilities[i],enabled[i]);
         for(unsigned i=0;i<8;++i)enable(GL_CLIP_DISTANCE0+i,clips[i]);
         for(unsigned i=0;i<3;++i){glActiveTexture(texture_units[i]);glBindTexture(GL_TEXTURE_2D,textures[i]);glBindSampler(i,samplers[i]);}
@@ -126,7 +137,7 @@ bool PostEffectReplay::initialize_programs() noexcept {
     if(initialization_failed_)return false;
     initialization_failed_=true;
     if(shader_directory_.empty())return fail("Post shader directory is unset");
-    std::array<Program,8> next{};GLuint vertex=0,vao=0,sampler=0;
+    std::array<Program,10> next{};GLuint vertex=0,vao=0,sampler=0;
     const auto cleanup=[&](){if(vertex)glDeleteShader(vertex);for(auto& p:next)if(p.id)glDeleteProgram(p.id);if(vao)glDeleteVertexArrays(1,&vao);if(sampler)glDeleteSamplers(1,&sampler);};
     try{
         vertex=compile(GL_VERTEX_SHADER,vertex_source,sizeof(vertex_source)-1);
@@ -153,6 +164,19 @@ bool PostEffectReplay::initialize_programs() noexcept {
             p.inter_scale=location("InterScale");p.intensive=location("BloomIntensive");p.base=location("BloomBase");
             p.upper=location("BloomThresholdUp");p.lower=location("BloomThresholdDown");
             p.level=location("Level");p.center=location("Center");p.color_modulate=location("ColorModulate");
+            if(i==8){
+                p.contrast=location("Contrast");p.brightness=location("Brightness");p.intensity=location("Intensity");
+                p.speed=location("Speed");p.mode=location("Mode");p.impact_threshold=location("ImpactThreshold");
+                p.impact_threshold_lerp=location("ImpactThresholdLerp");p.focal_uv=location("FocalUV");
+                p.chromatic_strength=location("ChromaticStrength");p.lens_distort_strength=location("LensDistortStrength");
+                p.color_dark=location("ColorDark");p.color_light=location("ColorLight");p.invert_factor=location("InvertFactor");
+                p.capped_grayscale=location("CappedGrayscale");p.radial_strength=location("RadialStrength");p.samples=location("Samples");
+                for(auto uniform:{p.contrast,p.brightness,p.time,p.intensity,p.speed,p.mode,p.impact_threshold,p.impact_threshold_lerp,
+                                  p.focal_uv,p.chromatic_strength,p.lens_distort_strength,p.color_dark,p.color_light,p.invert_factor,
+                                  p.capped_grayscale,p.radial_strength,p.samples})
+                    if(uniform<0){cleanup();return fail("Pinned bw_contrast uniform missing");}
+            }
+            if(i==9&&p.color_modulate<0){cleanup();return fail("Pinned blit ColorModulate uniform missing");}
         }
         glGenVertexArrays(1,&vao);glGenSamplers(1,&sampler);
         if(!vao||!sampler){cleanup();return fail("Post geometry/sampler creation failed");}
@@ -186,7 +210,22 @@ void PostEffectReplay::pass(unsigned index,const Target& output,GLuint first,GLu
     const GLuint textures[]={first,second,third};
     for(unsigned i=0;i<3;++i){glActiveTexture(texture_units[i]);glBindTexture(GL_TEXTURE_2D,textures[i]);glBindSampler(i,sampler_);}
     glUniform2f(p.in_size,float(input_width),float(input_height));glUniform2f(p.out_size,float(output.width),float(output.height));
-    if(stage&&stage->kind==static_cast<unsigned>(PostEffectKind::color_dispersion)) {
+    if(stage&&index==9){
+        glUniform4fv(p.color_modulate,1,stage->params.data()+26);
+    }else if(stage&&stage->kind==static_cast<unsigned>(PostEffectKind::bw_contrast)){
+        const auto& v=stage->params;
+        glUniform1f(p.contrast,v[0]);glUniform1f(p.brightness,v[1]);glUniform1f(p.time,v[2]);
+        glUniform1f(p.intensity,v[3]);glUniform1f(p.speed,v[4]);glUniform1f(p.mode,v[5]);
+        glUniform1f(p.impact_threshold,v[6]);glUniform1f(p.impact_threshold_lerp,v[7]);glUniform2f(p.focal_uv,v[8],v[9]);
+        glUniform1f(p.chromatic_strength,v[10]);glUniform1f(p.lens_distort_strength,v[11]);
+        glUniform3fv(p.color_dark,1,v.data()+12);glUniform3fv(p.color_light,1,v.data()+15);
+        glUniform1f(p.invert_factor,v[18]);glUniform1f(p.capped_grayscale,v[19]);
+        glUniform1f(p.radial_strength,v[20]);glUniform1i(p.samples,static_cast<int>(v[21]));
+        // PostPassBase clears the destination after applying the JSON blend
+        // state. The same source-alpha factors apply to RGB and alpha.
+        glClearBufferfv(GL_COLOR,0,v.data()+22);glEnablei(GL_BLEND,0);
+        glBlendEquationi(0,GL_FUNC_ADD);glBlendFunci(0,GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    }else if(stage&&stage->kind==static_cast<unsigned>(PostEffectKind::color_dispersion)) {
         glUniform3f(p.level,stage->params[0],stage->params[1],stage->params[2]);
         glUniform2f(p.center,stage->params[3],stage->params[4]);
         glUniform3f(p.color_modulate,stage->params[5],stage->params[6],stage->params[7]);
@@ -204,8 +243,8 @@ bool PostEffectReplay::replay(const MetaRendererPostSceneFrame& frame,std::span<
     const auto current=wglGetCurrentContext();
     if(!current||(context_&&context_!=current)||!GLEW_VERSION_4_4||stages.size()>max_post_effect_stages)return fail("Post context or stage budget rejected");
     if(initialization_failed_)return false;
-    bool has_bloom=false;
-    for(const auto& stage:stages){if(!valid_post_effect_stage(stage)||(stage.batch_count&&!draw))return fail("Invalid post stage or missing mask callback");has_bloom|=stage.kind==1;}
+    bool has_bloom=false,has_impact=false;
+    for(const auto& stage:stages){if(!valid_post_effect_stage(stage)||(stage.batch_count&&!draw))return fail("Invalid post stage or missing mask callback");has_bloom|=stage.kind==1;has_impact|=stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast);}
     if(!frame.width||!frame.height||frame.width>16384||frame.height>16384||(has_bloom&&(frame.width<32||frame.height<32)))return fail("Post target dimensions rejected");
     const std::uint64_t pixels=std::uint64_t(frame.width)*frame.height;
     const std::uint64_t next_bytes=pixels*(frame.color_format==GL_RGBA16F?36u:24u)+pixels*3;
@@ -213,7 +252,7 @@ bool PostEffectReplay::replay(const MetaRendererPostSceneFrame& frame,std::span<
     if(next_bytes+(resize?stats_.resident_bytes+scene_.resident_bytes():0)>budget)return fail("Post texture residency budget exceeded");
     for(const float* matrix:{frame.world_matrix,frame.projection_matrix,frame.inverse_world_matrix,frame.inverse_projection_matrix})
         for(unsigned i=0;i<16;++i)if(!std::isfinite(matrix[i]))return fail("Non-finite host post camera");
-    ReplayState state;
+    ReplayState state(has_impact);
     const auto bound=[&](const Target& t){return t.fbo&&(state.read==GLint(t.fbo)||state.draw==GLint(t.fbo)||
         state.textures[0]==GLint(t.color)||state.textures[1]==GLint(t.color)||state.textures[2]==GLint(t.color));};
     if(bound(mask_)||bound(ping_[0])||bound(ping_[1]))return fail("Post private target retained by caller");
@@ -242,6 +281,23 @@ bool PostEffectReplay::replay(const MetaRendererPostSceneFrame& frame,std::span<
             for(unsigned i=0;i<5;++i){pass(0,down_[i],source,0,0,width,height,nullptr);source=down_[i].color;width=down_[i].width;height=down_[i].height;}
             for(int i=3;i>=0;--i){pass(1,up_[i],source,down_[i].color,0,width,height,nullptr);source=up_[i].color;width=up_[i].width;height=up_[i].height;}
             pass(2,output,source,mask_.color,scene_color,width,height,&stage);
+        }else if(stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)){
+            // NightFall first blits with its effective ColorModulate into an
+            // RGBA8 TextureTarget. Reuse the mask target: this kind owns no mask.
+            pass(9,mask_,scene_color,0,0,frame.width,frame.height,&stage);
+            if(output.format==GL_RGBA8){
+                pass(8,output,mask_.color,0,0,frame.width,frame.height,&stage);
+            }else{
+                // The original main target is RGBA8 as well. Retain both its
+                // pre-blend clear quantization and final rounding on HDR hosts
+                // without allocating another full-size target. The first copy
+                // preserves the quantized input while mask_ becomes the output.
+                glBindFramebuffer(GL_READ_FRAMEBUFFER,mask_.fbo);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,output.fbo);
+                glBlitFramebuffer(0,0,frame.width,frame.height,0,0,frame.width,frame.height,GL_COLOR_BUFFER_BIT,GL_NEAREST);++stats_.passes;
+                pass(8,mask_,output.color,0,0,frame.width,frame.height,&stage);
+                glBindFramebuffer(GL_READ_FRAMEBUFFER,mask_.fbo);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,output.fbo);
+                glBlitFramebuffer(0,0,frame.width,frame.height,0,0,frame.width,frame.height,GL_COLOR_BUFFER_BIT,GL_NEAREST);++stats_.passes;
+            }
         }else pass(stage.kind+1,output,scene_color,stage.batch_count?mask_.color:0,0,frame.width,frame.height,&stage);
         scene_color=output.color;destination^=1;
     }
