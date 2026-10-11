@@ -50,6 +50,7 @@ public final class DirectMeshCapture implements AutoCloseable {
     private boolean finished,closed,failed;
     private boolean stateSaved;
     private int capturedTextures;
+    private int viewOffsetLayers;
 
     static DirectMeshCapture begin(Vec3d origin,boolean redirectBuffers){
         if(active!=null)throw new IllegalStateException("Nested world draw capture");
@@ -88,6 +89,14 @@ public final class DirectMeshCapture implements AutoCloseable {
         }
     }
     public static boolean capturing(){return active!=null;}
+    /** Keep layer offsets in camera space, shared with the base mesh on the host. */
+    public static boolean viewOffsetLayer(boolean begin){
+        if(active==null)return false;
+        if(begin)active.viewOffsetLayers++;
+        else if(active.viewOffsetLayers>0)active.viewOffsetLayers--;
+        else throw new IllegalStateException("Unbalanced view-offset layer");
+        return true;
+    }
     public static VertexConsumerProvider.Immediate redirectedBuffers(){return active!=null&&active.redirectBuffers?active.provider:null;}
     static VertexConsumerProvider.Immediate entityBuffers(){return active==null?null:active.provider;}
     public static void blendEquation(int value){if(active!=null)active.equation=value;}
@@ -109,6 +118,8 @@ public final class DirectMeshCapture implements AutoCloseable {
     private void copy(BuiltBuffer buffer) {
         var program=RenderSystem.getShader();
         var policy=program==null?null:EffectShader.of(program.getName());
+        if(VixPostCapture.capturing()&&program!=null&&program.getName().replace("minecraft:","").equals("position_color_lightmap"))
+            policy=new EffectShader(false,false,0,16);
         if(policy==null){reject("shader:"+(program==null?"null":program.getName()));return;}
         if(!projection.equals(RenderSystem.getProjectionMatrix())){reject("changed_projection");return;}
         GlStateManager._backupGlState(current);
@@ -123,18 +134,37 @@ public final class DirectMeshCapture implements AutoCloseable {
         int texture=policy.texture()?RenderSystem.getShaderTexture(0):ParticleSnapshot.WHITE_TEXTURE;
         if(policy.texture()&&(texture<=0||layout.uv()<0)){reject("missing_texture");return;}
         if(draws.size()>=ParticleSnapshot.MAX_BATCHES)throw new IllegalArgumentException("Effect batch budget");
-        byte[] mesh=EffectGeometry.convert(buffer.getBuffer(),parameters.vertexCount(),layout,mode,buffer.getSortedBuffer(),
-                parameters.indexType().size,RenderSystem.getModelViewMatrix(),origin.x,origin.y,origin.z,
-                policy.light(),ParticleSnapshot.MAX_VERTICES-vertices);
+        boolean glint=EffectGeometry.usesTextureMatrix(program.getName());
+        byte[] mesh;
+        try {
+            var input=VixPostCapture.maskVertices(buffer.getBuffer(),parameters.vertexCount(),layout,program.getName());
+            mesh=EffectGeometry.convert(input,parameters.vertexCount(),layout,mode,buffer.getSortedBuffer(),
+                parameters.indexType().size,parameters.indexCount(),RenderSystem.getModelViewMatrix(),
+                glint?RenderSystem.getTextureMatrix():null,origin.x,origin.y,origin.z,
+                policy.light()&&!VixPostCapture.capturing(),ParticleSnapshot.MAX_VERTICES-vertices);
+        }catch(IllegalArgumentException failure) {
+            // Detail only on failure: no per-draw diagnostic string/allocation.
+            throw new IllegalArgumentException("Effect draw source="+source+" shader="+program.getName()
+                +" mode="+mode+" layout="+layout+" count="+parameters.vertexCount()
+                +" origin="+origin+" modelView="+RenderSystem.getModelViewMatrix()
+                +": "+failure.getMessage(),failure);
+        }
         if(mesh.length==0)return;
-        var c=RenderSystem.getShaderColor();
-        int flags=(current.depthMask?1:0)|(current.blendEnabled?2:0)|(current.depthEnabled?4:0)|(current.cullEnabled?8:0)|policy.flags();
-        int mask=(current.colorMaskRed?1:0)|(current.colorMaskGreen?2:0)|(current.colorMaskBlue?4:0)|(current.colorMaskAlpha?8:0);
-        var material=new ParticleSnapshot.Material(flags,current.blendSrcRgb,current.blendDestRgb,current.blendSrcAlpha,current.blendDestAlpha,
-            equation,equation,current.depthFunc,mask,policy.cutoff(),c[0],c[1],c[2],c[3]);
+        var material=material(current,equation,policy,RenderSystem.getShaderColor(),glint,glint?RenderSystem.getShaderGlintAlpha():1,viewOffsetLayers!=0);
         draws.add(new Draw(texture,material,mesh));vertices+=mesh.length/24;
         shaders.merge(program.getName(),1,Integer::sum);
         if(sources.size()<128||sources.containsKey(source))sources.merge(source,1,Integer::sum);
+    }
+    static ParticleSnapshot.Material material(GlStateBackup state,int equation,EffectShader policy,float[] color,boolean glint,float glintAlpha) {
+        return material(state,equation,policy,color,glint,glintAlpha,false);
+    }
+    static ParticleSnapshot.Material material(GlStateBackup state,int equation,EffectShader policy,float[] color,boolean glint,float glintAlpha,boolean viewOffset) {
+        int flags=(state.depthMask?1:0)|(state.blendEnabled?2:0)|(state.depthEnabled?4:0)|(state.cullEnabled?8:0)|policy.flags()|(glint?128:0)|(viewOffset?256:0);
+        int mask=(state.colorMaskRed?1:0)|(state.colorMaskGreen?2:0)|(state.colorMaskBlue?4:0)|(state.colorMaskAlpha?8:0);
+        // Vanilla GlintAlpha scales RGB after the alpha test, leaving alpha intact.
+        float rgb=glint?glintAlpha:1;
+        return new ParticleSnapshot.Material(flags,state.blendSrcRgb,state.blendDestRgb,state.blendSrcAlpha,state.blendDestAlpha,
+            equation,equation,state.depthFunc,mask,policy.cutoff(),color[0]*rgb,color[1]*rgb,color[2]*rgb,color[3]);
     }
     void finish(){
         if(failed)throw new IllegalStateException("Failed effect capture");
@@ -146,6 +176,8 @@ public final class DirectMeshCapture implements AutoCloseable {
     Map<String,Integer> sources(){return Map.copyOf(sources);}
     void source(String value){source=value;}
     int vertices(){return vertices;}
+    int drawCount(){return draws.size();}
+    List<Draw> takePostDraws(){provider.draw();var result=List.copyOf(draws);draws.clear();return result;}
     @Override public void close() {
         if(closed)return;
         var cleanup=new CaptureCleanup();

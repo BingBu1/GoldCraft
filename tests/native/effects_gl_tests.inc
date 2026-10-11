@@ -116,6 +116,111 @@ void effect_tests(Resources& r){
     for(auto flags:{std::uint32_t(META_SCENE_GBUFFER),std::uint32_t(META_SCENE_SHADOW)}){
         Pass pass(true,flags);const auto state=snapshot();assert(!pass.effect(m,0));assert(snapshot()==state);
     }
+    // Raw post masks use the descriptor camera and preserve exact data-channel
+    // values even when host gamma differs. No Renderer texture cache is touched.
+    MetaRendererPostSceneFrame post{};
+    for(unsigned i=0;i<4;++i)post.world_matrix[i*5]=post.projection_matrix[i*5]=1;
+    post.projection_matrix[0]=post.projection_matrix[5]=.5f;
+    scene.v_gamma=scene.v_texgamma=2.2f;
+    glBindBuffer(GL_UNIFORM_BUFFER,ubos[0]);glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(scene),&scene);
+    ParticleMaterial raw;raw.texture=particle_untextured;raw.flags=particle_depth_test;raw.color_mod={.25f,.5f,.75f,1};
+    quad=r.quad;++revision;clear();r.sentinel();before=snapshot();
+    {Pass pass(true,0,&post);assert(pass.ready()&&pass.effect(raw,0));mesh.draw(quad,revision,false);}
+    assert(snapshot()==before&&color_count(pixels(),{64,128,191,255},1)==256);
+    // Young Epic trail U125 must reach the fragment interpolation unchanged.
+    // Clamp-to-edge occurs AFTER interpolation. Clamping vertices to16 would
+    // incorrectly produce one red column at this geometry/viewport size.
+    const std::array<std::uint8_t,8> trail_texels{255,0,0,255,0,255,0,255};
+    upload_texture(texture,width,height,2,1,trail_texels);
+    post.projection_matrix[0]=post.projection_matrix[5]=1;
+    raw.texture=1;raw.color_mod={1,1,1,1};
+    quad=r.quad;for(auto& v:quad){v.u=v.x<0?0:125.00161f;v.v=.5f;}
+    ++revision;clear();r.sentinel();before=snapshot();
+    {Pass pass(true,0,&post);assert(pass.ready()&&pass.effect(raw,texture));mesh.draw(quad,revision,false);}
+    assert(snapshot()==before&&color_count(pixels(),{0,255,0,255})==1024);
+    for(auto& v:quad)if(v.u>16)v.u=16;
+    ++revision;clear();r.sentinel();before=snapshot();
+    {Pass pass(true,0,&post);assert(pass.ready()&&pass.effect(raw,texture));mesh.draw(quad,revision,false);}
+    assert(snapshot()==before&&color_count(pixels(),{255,0,0,255})==32);
+    // Glint UV animation crosses atlas edges. Use the production repeat/linear
+    // sampler, preserving both the texture object's nearest/clamp parameters
+    // and the host sampler. The same U=1.5 is yellow only with both semantics.
+    prepare_effect_sampler();
+    for(auto& v:quad){v.u=1.5f;v.v=.5f;}
+    raw.flags=particle_repeat_linear;
+    ++revision;clear();r.sentinel();before=snapshot();
+    {Pass pass(true,0,&post);assert(pass.effect(raw,texture));mesh.draw(quad,revision,false);}
+    assert(snapshot()==before&&color_count(pixels(),{128,128,0,255},1)==1024);
+    raw.flags=0;
+    clear();r.sentinel();before=snapshot();
+    {Pass pass(true,0,&post);assert(pass.effect(raw,texture));mesh.draw(quad,revision,false);}
+    assert(snapshot()==before&&color_count(pixels(),{0,255,0,255})==1024);
+    // Reproduce the opaque-purple rectangle: only the solid half of a cutout
+    // item wrote depth. Glint's EQUAL/additive/color-only pass must leave the
+    // transparent half (both background and depth) untouched.
+    const std::array<std::uint8_t,8> item_pixels{0,0,0,0,64,64,64,255};
+    upload_texture(texture,width,height,2,1,item_pixels);
+    GLuint glint_texture{};unsigned glint_width{},glint_height{};
+    const std::array<std::uint8_t,4> purple{128,64,192,255};
+    upload_texture(glint_texture,glint_width,glint_height,1,1,purple);
+    quad=r.quad;++revision;
+    ParticleMaterial item;item.texture=1;item.flags=particle_depth_write|particle_depth_test;
+    item.depth_func=GL_LESS;
+    ParticleMaterial glint;glint.texture=2;glint.flags=particle_blend|particle_depth_test|particle_repeat_linear;
+    glint.depth_func=GL_EQUAL;glint.src_rgb=GL_SRC_COLOR;glint.dst_rgb=GL_ONE;
+    glint.src_alpha=GL_ZERO;glint.dst_alpha=GL_ONE;glint.color_mask=7;
+    const auto draw_item_glint=[&](const ParticleMaterial& effect){
+        clear();r.sentinel();const auto saved=snapshot();
+        {Pass pass(true,0,&post);assert(pass.effect(item,texture));mesh.draw(quad,revision,false);
+         assert(pass.effect(effect,glint_texture));mesh.draw(quad,revision,false);}
+        assert(snapshot()==saved);
+    };
+    draw_item_glint(glint);
+    assert(color_count(pixels(),{0,0,0,0})==Size*Size-512);
+    assert(color_count(pixels(),{128,80,209,255},1)==512);
+    GLfloat hole_depth{},item_depth{};
+    glReadPixels(24,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&hole_depth);
+    glReadPixels(40,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&item_depth);
+    assert(hole_depth==1&&std::abs(item_depth-.5f)<1e-6f);
+    auto old_glint=glint;old_glint.flags=particle_depth_write|particle_depth_test|particle_repeat_linear;
+    old_glint.depth_func=GL_LEQUAL;
+    draw_item_glint(old_glint);
+    assert(color_count(pixels(),{128,64,192,255})==512);
+    assert(color_count(pixels(),{128,64,192,0})==512);
+    glReadPixels(24,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&hole_depth);
+    assert(std::abs(hole_depth-.5f)<1e-6f);
+    // Armor uses view-space layering in BOTH its base and glint. Exercise the
+    // real GBuffer -> forward programs with a translated camera, retaining
+    // cutout depth. Scaling absolute world coordinates cannot pass this test.
+    camera.views[0].worldMatrix[3][0]=-100;
+    camera.views[0].worldMatrix[3][1]=-200;
+    camera.views[0].worldMatrix[3][2]=-300;
+    glBindBuffer(GL_UNIFORM_BUFFER,ubos[1]);glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(camera),&camera);
+    scene.v_gamma=scene.v_texgamma=1;
+    glBindBuffer(GL_UNIFORM_BUFFER,ubos[0]);glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(scene),&scene);
+    quad=r.quad;for(auto& v:quad){v.x+=100;v.y+=200;v.z=300.5f;}++revision;
+    glint.flags|=particle_view_offset;
+    const auto layered_pair=[&](bool base_offset){
+        clear();r.sentinel();const auto saved=snapshot();
+        {Pass base(false,META_SCENE_GBUFFER);base.texture(texture);base.view_offset(base_offset);mesh.draw(quad,revision,false);}
+        {Pass overlay(true,0);assert(overlay.effect(glint,glint_texture));mesh.draw(quad,revision,false);}
+        assert(snapshot()==saved);
+    };
+    layered_pair(true);
+    assert(color_count(pixels(),{0,0,0,0})==Size*Size-512);
+    assert(color_count(pixels(),{128,80,209,255},1)==512);
+    glReadPixels(24,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&hole_depth);
+    glReadPixels(40,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&item_depth);
+    assert(hole_depth==1&&std::abs(item_depth-(.5f*.99975586f*.5f+.5f))<1e-6f);
+    layered_pair(false); // Old missing base offset: EQUAL rejects all glint.
+    assert(color_count(pixels(),{64,64,64,255},1)==512);
+    // View offset never moves shadow geometry, even if the caller requests it.
+    clear();r.sentinel();before=snapshot();
+    {Pass shadow(false,META_SCENE_SHADOW);shadow.texture(texture);shadow.view_offset(true);mesh.draw(quad,revision,false);}
+    assert(snapshot()==before);
+    glReadPixels(40,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&item_depth);
+    assert(std::abs(item_depth-.75f)<1e-6f);
+    glDeleteTextures(1,&glint_texture);
     assert(glGetError()==GL_NO_ERROR);
     glDeleteTextures(1,&texture);glDeleteBuffers(2,ubos);programs.clear();r.adapter.effects_shader=false;
     const GLenum targets[]{GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3};glDrawBuffers(4,targets);

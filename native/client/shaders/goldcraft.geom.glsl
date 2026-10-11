@@ -10,6 +10,7 @@ out vec3 g_worldpos;
 out vec2 g_uv;
 out vec4 g_color;
 out vec4 g_overlay;
+uniform bool u_view_offset;
 void main(){
 #ifdef MULTIVIEW_ENABLED
     int views=CameraUBO.numViews;
@@ -20,7 +21,11 @@ void main(){
         for(int i=0;i<3;i++){
             gl_Layer=view;
             g_worldpos=v_worldpos[i];g_uv=v_uv[i];g_color=v_color[i];g_overlay=v_overlay[i];
-            gl_Position=GetCameraProjMatrix(view)*GetCameraWorldMatrix(view)*vec4(g_worldpos,1.0);
+            vec4 view_position=GetCameraWorldMatrix(view)*vec4(g_worldpos,1.0);
+#ifndef SHADOW_CASTER_ENABLED
+            if(u_view_offset)view_position.xyz*=0.99975586;
+#endif
+            gl_Position=GetCameraProjMatrix(view)*view_position;
             EmitVertex();
         }
         EndPrimitive();

@@ -7,7 +7,7 @@ constexpr unsigned max_particle_count=4096, max_particle_vertices=65536, max_par
 constexpr std::uint32_t particle_untextured=0xffffffffu;
 constexpr unsigned particle_depth_write=1, particle_blend=2, particle_depth_test=4,
     particle_cull=8, particle_cutoff_before_mod=16, particle_cutoff_texture_only=32,
-    particle_discard_zero_alpha=64;
+    particle_discard_zero_alpha=64, particle_repeat_linear=128, particle_view_offset=256;
 struct ParticleMaterial {
     std::uint32_t texture=0,flags=particle_blend|particle_depth_test;
     std::uint32_t src_rgb=0x0302,dst_rgb=0x0303,src_alpha=1,dst_alpha=0x0303;
@@ -21,7 +21,7 @@ inline bool valid_particle_material(const ParticleMaterial& m) {
         return value<=1||(value>=0x0300&&value<=0x0307)||(source_rgb&&value==0x0308);
     };
     const auto equation=[](std::uint32_t value){return value==0x8006||value==0x800a||value==0x800b;};
-    if((m.texture>max_particle_textures&&m.texture!=particle_untextured)||(m.flags&~127u)||
+    if((m.texture>max_particle_textures&&m.texture!=particle_untextured)||(m.flags&~511u)||
        (m.flags&(particle_cutoff_before_mod|particle_cutoff_texture_only))==(particle_cutoff_before_mod|particle_cutoff_texture_only)||
        !blend(m.src_rgb,true)||!blend(m.dst_rgb,false)||!blend(m.src_alpha,false)||!blend(m.dst_alpha,false)||
        !equation(m.equation_rgb)||!equation(m.equation_alpha)||m.depth_func<0x0200||m.depth_func>0x0207||m.color_mask>15||
@@ -40,7 +40,7 @@ inline bool current_particles(const ParticleSnapshot& snapshot,std::uint64_t epo
     return snapshot.epoch==epoch&&snapshot.life==life&&snapshot.generation>=generation
         &&(snapshot.generation!=generation||snapshot.revision>revision);
 }
-inline ParticleSnapshot read_particles(Reader& r) {
+inline ParticleSnapshot read_particles(Reader& r,bool coalesce=true) {
     ParticleSnapshot result{r.u64(),r.u64(),r.u64(),r.u32(),r.u32(),{}};
     const auto groups=r.u32();
     if(!result.epoch||!result.generation||!result.revision||!result.life||result.count>max_particle_count||groups>max_particle_batches)
@@ -59,12 +59,16 @@ inline ParticleSnapshot read_particles(Reader& r) {
             throw ProtocolError("Particle mesh exceeds bounds");
         // Only adjacent, identical materials coalesce. In particular depth-only
         // followed by EQUAL is an ordered operation, never a sorting key.
-        if(result.batches.empty()||result.batches.back().material!=material)result.batches.push_back({material,{}});
+        // Post plans address exact wire batch ranges, so their decoder disables
+        // coalescing. Ordinary effect snapshots retain adjacent batching.
+        if(!coalesce||result.batches.empty()||result.batches.back().material!=material)result.batches.push_back({material,{}});
         auto& batch=result.batches.back();
         total+=count;batch.vertices.reserve(batch.vertices.size()+count);
         for(unsigned j=0;j<count;++j){
             ParticleVertex v{{r.f32(),r.f32(),r.f32()},r.f32(),r.f32(),r.u32()};
-            if(std::abs(v.position.x)>32000000||std::abs(v.position.y)>32000000||std::abs(v.position.z)>32000000||std::abs(v.u)>16||std::abs(v.v)>16)
+            // Reader::f32 rejects nonfinite values. Finite UVs are interpolants,
+            // not texture indices; young Epic trails can legitimately exceed16.
+            if(std::abs(v.position.x)>32000000||std::abs(v.position.y)>32000000||std::abs(v.position.z)>32000000)
                 throw ProtocolError("Invalid particle coordinate");
             batch.vertices.push_back(v);
         }

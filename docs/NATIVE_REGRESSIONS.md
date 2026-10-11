@@ -122,6 +122,18 @@ A/B 停止时保存的 `crosshair` 都仍是 `0`，现已各改一个字节为�
 
 已增量部署到停止的 A/B：628 个目标逐一核验，更新 199 个，重复预检为 0 个待更新。十插件配置保留原顺序并在末尾追加 InterpFix。监控范围内另有 1,183 个配置、配对、服务器及既有运行文件保持不变，ReHLDS 未重启。本次部署前后原安装 19,571 个文件内容和修改时间一致；其历史基线的 357 条差异另行保留。新版实际启动、回合换模、固定观察者视角和帧时间验收待完成；自动输入仍处于停止状态。
 
+## MC 鼠标释放回归（2026-10-11）
+
+匹配的 GoldSrc 10210 在释放原生 `+command` 按键时可绕过 ClientDLL／BaseUI，造成已转发给 Minecraft 的按键没有对应 release。`host_ui` 现在观察公开 `gEngfuncs.Key_Event` 的释放，保留原生命令和调用链；仅对已经转发的 MC 按键补发释放。
+
+`goldcraft_host_key_engine` 直接执行经过 SHA-256 校验的复制引擎函数，覆盖 32 次连点、5 种绑定、Use、中键、重复事件、reset／shutdown 和原生命令字节一致性。引擎夹具来自沙盒，不在公开仓库分发，不向运行中的游戏发送输入。准备匹配沙盒后运行 `tools/Build-Native.ps1`，也可单独重跑：
+
+```powershell
+.\.tools\cmake434\cmake\data\bin\ctest.exe --test-dir build/native-clang-x86-Release -R goldcraft_host_key_engine --output-on-failure
+```
+
+实机状态确认 `hostKeyReleaseHook=true` 且释放计数增加。用户在新版 B 的 Epic 模式明确验收“松开会停止，也可以正常连点”；这仅验证此次左键释放故障，不代表所有 Mod 按键、失焦组合或 YSM 面部均通过。
+
 ## 尚未确认的问题
 
 可见实体扩容不扩大服务器 edict／网络编号，也不等于模型或声音资源数量。未知引擎需要独立验证；4096 个复杂模型的性能、所有视角／地图及完整多人玩法仍需另测。

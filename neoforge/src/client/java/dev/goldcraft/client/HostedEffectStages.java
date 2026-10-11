@@ -55,9 +55,9 @@ final class HostedEffectStages {
         if(!nightfallVersion.isEmpty())data.addProperty("hostedNightfallVersion",nightfallVersion);
         if(installed!=null)installed.appendDiagnostics(data);
         if(postParticleType!=null) {
-            data.addProperty("hostedVixPostProcessingSupported",false);
+            data.addProperty("hostedVixPostProcessingSupported",VixPostCapture.supported());
             data.addProperty("hostedVixPostProcessingReason",
-                "Requires CS scene color/depth, mask targets and ordered shader passes; VIX RenderPost is not replayed");
+                "Pinned VIX masks and typed passes use CS scene color/depth; live pixel acceptance pending");
         }
         if(!error.isEmpty())data.addProperty("hostedEffectStageError",error);
     }

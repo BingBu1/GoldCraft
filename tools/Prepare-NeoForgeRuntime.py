@@ -172,8 +172,13 @@ def manifests(neo, vanilla, selected):
     client_vm = [substitute(v, replacements) for v in neo["arguments"]["jvm"]]
     asset_root = LOOM / "assets"
     asset_id = vanilla["assetIndex"]["id"]
-    obtain(asset_root / "indexes" / f"{asset_id}.json", vanilla["assetIndex"],
-           [asset_root / "indexes" / f"{MINECRAFT}-{asset_id}.json"])
+    # Loom's asset index is only a manifest.  The launcher normally downloads
+    # objects lazily, but our isolated production launch has no launcher to do
+    # that work. Keep the sandbox small and repair languages selected by the
+    # A/B client profiles instead of copying the entire 90 MiB object
+    # cache.  Without this object ClientLanguage silently keeps the menu in
+    # English after zh_cn is selected.
+    language_assets(vanilla, repair=True)
     client_args = [*neo["arguments"]["game"], "--version", neo["id"], "--versionType", "release",
                    "--assetsDir", str(asset_root), "--assetIndex", asset_id,
                    "--accessToken", "0", "--userType", "legacy"]
@@ -200,6 +205,54 @@ def manifests(neo, vanilla, selected):
     return client, server
 
 
+def ensure_language_asset(asset_root, asset_id, name, repair):
+    index_path = guarded(asset_root / "indexes" / f"{asset_id}.json")
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    record = index.get("objects", {}).get(name)
+    if not record or not re.fullmatch(r"[0-9a-f]{40}", record.get("hash", "")) \
+            or type(record.get("size")) is not int or record["size"] < 0:
+        raise RuntimeError(f"Pinned asset index has no valid object for {name}")
+    target = guarded(asset_root / "objects" / record["hash"][:2] / record["hash"])
+    if repair:
+        obtain(target, {
+            "sha1": record["hash"],
+            "url": f"https://resources.download.minecraft.net/{record['hash'][:2]}/{record['hash']}"
+        })
+    if not target.is_file() or target.stat().st_size != record["size"] or digest(target, "sha1") != record["hash"]:
+        raise RuntimeError(f"Language asset missing or corrupt: {name}; run --repair-language")
+    return {"name": name, "sha1": record["hash"], "size": record["size"],
+            "path": target.relative_to(asset_root).as_posix()}
+
+
+def pinned_metadata():
+    metadata = INSTALL / f"versions/{MINECRAFT}/{MINECRAFT}.json"
+    if not metadata.is_file() or digest(metadata, "sha1") != MINECRAFT_METADATA_SHA1:
+        raise RuntimeError("Missing or changed pinned Minecraft metadata; prepare runtime first")
+    return json.loads(metadata.read_text(encoding="utf-8"))
+
+
+def language_assets(vanilla, repair=False):
+    asset_root = LOOM / "assets"
+    asset_id = vanilla["assetIndex"]["id"]
+    index_path = guarded(asset_root / "indexes" / f"{asset_id}.json")
+    if repair:
+        obtain(index_path, vanilla["assetIndex"],
+               [asset_root / "indexes" / f"{MINECRAFT}-{asset_id}.json"])
+    if not index_path.is_file() or digest(index_path, "sha1") != vanilla["assetIndex"]["sha1"]:
+        raise RuntimeError("Missing or changed pinned asset index; run --repair-language")
+    languages = {"zh_cn"}
+    for role in ("a", "b"):
+        options = ROOT / f"sandbox/neoforge-cs-client-{role}/options.txt"
+        if options.is_file():
+            for line in options.read_text(encoding="utf-8").splitlines():
+                if line.startswith("lang:"):
+                    selected = line[5:].strip()
+                    if re.fullmatch(r"[a-z0-9_]+", selected):
+                        languages.add(selected)
+    return [ensure_language_asset(asset_root, asset_id, f"minecraft/lang/{lang}.json", repair)
+            for lang in sorted(languages) if lang != "en_us"]  # en_us is inside the client JAR
+
+
 def verify():
     index = json.loads((OUTPUT / "installation.json").read_text(encoding="utf-8"))
     if index["installerSha256"] != INSTALLER_SHA256 or index["neoForge"] != VERSION:
@@ -208,8 +261,10 @@ def verify():
         file = guarded(ROOT / record["path"])
         if not file.is_file() or digest(file) != record["sha256"]:
             raise RuntimeError(f"Production runtime changed or missing: {record['path']}")
+    languages = language_assets(pinned_metadata())
     print(json.dumps({"phase": "production runtime verified", "neoForge": VERSION,
-                      "minecraft": MINECRAFT, "files": len(index["files"])}), flush=True)
+                      "minecraft": MINECRAFT, "files": len(index["files"]),
+                      "languages": [item["name"] for item in languages]}), flush=True)
 
 
 def prepare():
@@ -265,10 +320,23 @@ def prepare():
     verify()
 
 
+def repair_language():
+    """Repair selected language objects without reinstalling NeoForge."""
+    vanilla = pinned_metadata()
+    results = language_assets(vanilla, repair=True)
+    print(json.dumps({"phase": "language assets repaired", "assetIndex": vanilla["assetIndex"]["id"],
+                      "assets": results}, ensure_ascii=False), flush=True)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--verify", action="store_true", help="Check a prepared runtime without downloading or installing")
-    if parser.parse_args().verify:
+    parser.add_argument("--repair-language", action="store_true",
+                        help="Repair pinned zh_cn and the languages selected by the A/B clients")
+    options = parser.parse_args()
+    if options.repair_language:
+        repair_language()
+    elif options.verify:
         verify()
     else:
         prepare()

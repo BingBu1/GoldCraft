@@ -93,7 +93,7 @@ void post_scene_snapshot_tests(Resources& r){
         invalid=source.frame;invalid.depth_sample_texture=0;assert(!captured.capture(invalid));
         invalid=source.frame;invalid.color_texture=invalid.depth_texture;assert(!captured.capture(invalid));
         invalid=source.frame;invalid.viewport[0]=-1;assert(!captured.capture(invalid));
-        assert(probe::queries==metadata_queries&&captured.image().framebuffer==image.framebuffer);
+        assert(probe::queries==metadata_queries&&!captured.image().framebuffer);
         assert(captured.capture(source.frame));
         // A caller still bound to the borrowed snapshot cannot resize it.
         const auto saved_framebuffer=captured.image().framebuffer;

@@ -1,66 +1,62 @@
 # Minecraft 世界特效同步到 CS
 
-女仆表情气泡、文字和 Epic Fight 的独立网格特效现在通过 GoldCraft 协议 23 导出到 CS。新版已同步到 Mod 主实例、A/B 和服务端，尚未完成真实 B 画面验收。VIX 泛光、折射等屏幕后处理仍未实现。
+GoldCraft 使用 Minecraft 的真实实体、粒子和材质数据，在 CS 场景中绘制女仆气泡、Epic Fight 网格与已核对的 VIX／NightFall 后处理。协议 26 已部署到本机主实例、A/B 与专服，仅启动 B，在 cs_assault、24 Bots 下完成实际配对及非零后处理。运行计数不等于画面或 FPS 验收。
 
 ## 支持范围
 
-| 路径 | 实现 | 当前验证边界 |
+| 路径 | 实现 | 验证边界 |
 |---|---|---|
-| 女仆表情、图片与文字气泡 | 捕获实际实体绘制中的直接网格及文字缓冲 | 已核对 TLM 1.5.3 入口；实际 CS 画面待验收 |
-| Epic Fight 刀光、命中粒子与闪电 | 使用实际粒子渲染器，导出三角形和原材质 | 生产入口与离线材质检查通过；技能画面待验收 |
-| Epic Fight 残影 | 保留深度预写、`EQUAL` 彩色绘制的先后顺序 | 实际 GL 像素检查通过；游戏遮挡待验收 |
-| NightFall 3.4.0 残影 | 在捕获作用域内调用核对过的 `AFTER_ENTITIES` 生产回调 | 生产字节码及作用域检查通过；实际技能待验收 |
-| GIF 等动态纹理 | 跟踪实际上传和删除，失效后重新同步 | 纹理生命周期测试通过；实际 GIF 待验收 |
-| VIX 后处理、自定义 GPU 着色器 | 暂不支持，记录原因 | 需要 CS 场景颜色／深度及有序后处理 |
+| 女仆表情、图片、文字 | 捕获真实直接网格和文字缓冲 | 已核对 TLM 1.5.3 入口及 3186 顶点探针；实际气泡画面待验收 |
+| Epic 刀光、命中、闪电、残影 | 实际几何、排序索引、混合、深度／颜色掩码 | 真实刀光 producer 和原版排序方法回归通过；游戏遮挡待验收 |
+| NightFall 世界阶段 | 捕获作用域中调用核对过的 AFTER_ENTITIES 回调 | 生产字节码入口通过；技能画面待验收 |
+| VIX／NightFall 后处理 | CS 场景颜色／深度、真实遮罩、priority 出队顺序和六类通道 | 六类已实现；原全屏色散生产参数 2420 组逐位比对通过；各技能画面待验收 |
+| 附魔高光 | 原版 EQUAL、加法混合、颜色写入、动态 UV、GlintAlpha、repeat／linear | 透明孔洞、相机偏移、阴影不偏移的像素回归通过；原子帧已部署，实际附魔画面待验收 |
+| 大型／动态纹理 | 4096 图集有界分块；动态上传／删除使缓存失效 | 实机已识别并完整上传 4096 粒子图集；实际 GIF 待验收 |
 
-这是通用绘制路径捕获：符合已支持 shader、顶点格式和材质语义的效果可以复用，不需要按每个表情或技能硬编码。它不保证任意 Mod 的自定义着色器、事件阶段或屏幕效果都兼容。
+这些是通用绘制路径。只有已支持的 shader、布局、状态和事件阶段能够复用；任意自定义 GPU 程序不在保证范围内。未知通道拒绝整幅后处理计划并记录原因，不保留上一帧遮罩。
 
-## 为什么原来会漏掉
+## 已定位的漏绘根因
 
-截图中的图片来自 TLM 的表情气泡，匹配资源 `emoji_11.png`。其 `EntityGraphics` 直接调用 `BufferUploader.drawWithShader`，不经过原有实体顶点收集器。部分 Epic Fight 粒子也使用独立网格或特殊混合材质；NightFall 则需要被宿主帧省略的世界阶段回调先生成残影。
+- TLM 的 EntityGraphics 直接提交网格，绕过原实体顶点收集器。
+- 真实 Epic 刀光可产生 U=125.00161；有限 UV 是插值量，不能按纹理索引限制到 ±16。NaN／无穷仍拒绝。
+- Epic 的排序方法也处理 TRIANGLES，且分配多余索引空间；只读取实际 indexCount，保留排序及绕序。
+- GoldSrc 首次 RenderView pass 为 1，SvEngine 为 0。仅规范化公开回调索引，保留宿主计数，后处理才真正执行。
+- Core 模式的 polygon-mode 查询可能只写一个值；兼容模式的前后面恢复方式会在 Core 产生 GL1280。修复已通过两个真实驱动 profile。
+- 原版附魔纹理是不透明紫色，依赖底图的深度和特殊混合。普通不透明贴图路径会产生紫矩形；底图／高光还必须共享相机偏移和帧身份。
 
-现在 [DirectMeshCapture](../neoforge/src/client/java/dev/goldcraft/client/DirectMeshCapture.java) 在实体和粒子导出期间拦截直接提交，转换实际顶点和排序索引；[HostedEffectStages](../neoforge/src/client/java/dev/goldcraft/client/HostedEffectStages.java) 调用已经核对的 NightFall 生产回调。普通 Minecraft、HUD 与其他阶段继续使用原绘制路径。未知手动 shader 和不支持的绘制状态不会被静默替换。
+## 协议和生命周期
 
-[ParticleSnapshot](../neoforge/src/main/java/dev/goldcraft/bridge/ParticleSnapshot.java) 携带深度测试／写入、颜色掩码、混合因子与方程、颜色调制和透明度裁剪语义。CS 的 [render_backend](../native/client/render_backend.cpp) 按原顺序提交效果，恢复宿主 GL 状态；效果不进入阴影或 GBuffer。纹理缓存只在内容失效时复制，不在每次 draw 时读回纹理。
+普通效果保留原绘制顺序、深度测试／写入、混合因子、颜色掩码和透明度裁剪；不进入阴影或 GBuffer。实体底图仍参与原生光照和阴影。附魔的 view-offset 在相机空间执行，阴影几何不偏移。
 
-## 构建与安装
+大型纹理通过 type65 分块：每块最多 256 KiB，每呈现帧最多 1 MiB，完整后替换 GL 纹理。128 MiB 已发布纹理、64 MiB CPU 暂存是分别的上限，并非总峰值；原子 GPU 替换和 Java 读回另占内存。地图、代际、生命变化和断开会撤销过期暂存；普通同生命形态切换保留上传。
 
-先完成 [基础构建](BUILD.md) 与 [女仆扩展构建](EPICFIGHT_MAID.md)。下列命令已在工作区运行；部署前关闭相关沙盒游戏和 JVM：
+协议 26 的 type66 将实体底图、附魔／气泡与头像身份合成一次提交，避免独立粒子 pacing 导致底图和高光来自不同帧。纹理未就绪或入队失败不能发布半帧。底图与效果统一按 0.5 秒、双端生命代次和纹理代次判定有效；空帧、失效与重置共同清理。纹理像素仍使用现有共享缓存，不属于不可变的逐帧事务。
+
+VIX 使用已安装 JAR 的 SHA-256 白名单资源，在 CS 真实场景快照上执行 bloom、space broken、chromatic、air disturbance、screen distortion、color dispersion。目标和 sampler 复用，不读回 CS 场景到 CPU。原版 bloom 过滤绑定仍有歧义，当前使用已确认的 NEAREST；雾一致性仍有限制。HDR 工作颜色保留，遮罩／金字塔使用 RGBA8。
+
+## 构建和同步
+
+先完成 [基础构建](BUILD.md) 和 [女仆扩展构建](EPICFIGHT_MAID.md)，关闭相关沙盒进程后部署：
 
 ```powershell
+.\tools\Build-Renderer.ps1
 .\tools\Build-NeoForge.ps1 -Tasks build
-.\tools\Build-Native.ps1
-.\tools\Deploy-OptimizedNative.ps1 -BridgeOnly -Clients cs-client-a,cs-client-b
+.\tools\Build-Native.ps1 -Server
+.\tools\Deploy-OptimizedNative.ps1 -BridgeOnly -WithPostEffects -Clients cs-client-a,cs-client-b
 python tools/Modpack.py sync --refresh-core
 python tools/Modpack.py plan --refresh-core
-```
-
-协议 23 的 Java 核心、CS 桥接 DLL、服务端桥接产物与 GoldCraft shaders 必须配套更新。`BridgeOnly` 也会同步 shaders，避免新 DLL 配旧 shader。Mod 更新需要 JVM 重启；安装文件一致不等于正在运行新版。
-
-## 可复现检查
-
-```powershell
 python tools/Test-WorldEffects.py
-python tools/Test-MaidCapture.py
+python tools/Test-TrailProducer.py
 ```
 
-| 证据 | 结论 | 对应实现 |
-|---|---|---|
-| 完整 Java 构建：23 suites、102 tests，零失败／错误 | 几何、索引、纹理、清理、缓冲及动画作用域回归通过 | `neoforge/src/test` |
-| 完整 native 构建：35 CTests 通过 | 协议解析、状态恢复与生产 shader 的隔离 GL 检查通过 | `tests/native` |
-| 生产映射入口：39 checks 通过 | 核对实际 JAR 中的 Mixin 目标和已安装 Mod 调用链 | `Test-WorldEffects.py` |
-| 女仆捕获探针：编译／探针退出 0 | 3186 顶点的三角形拓扑、材质缓存隔离及预热复用通过 | `Test-MaidCapture.py` |
-| 十个第三方组件的源码补丁重放通过 | 本地补丁可从锁定上游源码重建 | `Verify-SourcePatches.py` |
-| 部署哈希与最终安装计划 | 主实例／A／B／服务端核心及 addon 一致，native 11 文件一致，待同步变化 0 | `Modpack.py`／部署工具 |
+Java、CS DLL、服务端桥接、Renderer 和 shader 必须配套。后处理资源由 Extract-VixPostShaders 从用户已安装且核对过的 Mod 提取；不把第三方 JAR、shader、游戏资产或反编译源码发布到 GitHub。Mod 更新需要 JVM 重启。
 
-生产入口检查不执行 FML/Mixin，也不产生游戏像素。隔离 GL 检查不代表实际游戏 FPS。旧的 24 项独立快照测试包含已变更的纹理和 shader 源码，本次验收以当前完整 Java 构建为准。
+## 验收边界
 
-## 实机验收与诊断
+协议 26 完整 Java 140 项、native 40 项、生产映射入口 84 项通过；配套 Renderer 13 项、线程库 10 项通过。原生 40 项包含匹配引擎按键释放回归；Core 与 Compat 两个 profile 验证完整六类生产回放及返回后 GL0，另保留旧版 GL1280 失败证据。完整 ReGameDLL 构建、Clang 审计和公开源码补丁重放通过。
 
-在 `cs_assault` 使用单 B、ReHLDS 专服与 24 SyPB Bots，触发表情／文字、刀光／闪电／残影和 NightFall 技能；检查墙后遮挡、透明混合、效果结束与换图清理。再检查 YSM 第一人称双手连续帧及 R 模式往返。性能比较使用同一观察者位置和朝向。
+静态入口检查不执行 FML/Mixin；隐藏 GL 的真实驱动像素测试不等于实际游戏 FPS。新版实机已观察到非空 VIX 生产与 CS 非零回放，GL0、后处理失败 0、Java 特效错误为空。旧协议 25 的 GL1280 已在新版当前样本中消失；kind6 全屏色散尚需实际技能触发验收，不能用其计数为零推断成功。
 
-Java 状态提供 `entityEffectDraws`、`effectShaderDraws`、`effectDrawSources`、`effectUnsupportedReasons`、`effectTextureInvalidations`、`particleError` 与 NightFall 阶段计数。VIX 明确报告 `hostedVixPostProcessingSupported=false`。这些计数用于定位漏掉的绘制路径，不能单独证明画面正确。
+继续在 cs_assault 使用单 B、32 槽 ReHLDS 和 24 SyPB Bots 验收气泡、六类通道、附魔、墙体遮挡、消失与换图清理。性能比较必须固定观察者位置／朝向。Computer Use 本轮恢复后连续捕获超时，无成功自动截图或输入；完整画面、YSM R 往返、多人及 FPS 均未宣称通过。
 
-
-## 当前后处理状态
-Renderer 已提供真实 CS 场景颜色/深度回调和 GPU 快照；普通 Epic Fight 网格特效继续通过协议 23。VIX 的遮罩捕获、按优先级有序通道和 bloom/折射/色差重放尚未接通，见 [VIX_POST_TODO.md](VIX_POST_TODO.md)。
+Java 状态包含 effectDrawSources、effectUnsupportedReasons、particleError、vixPostLastFailure 和 vixPostStageCounts；native 包含 postEffectCallbacks／NonemptyFrames／Draws／Failures，以及纹理暂存和完整上传计数。诊断计数用于定位，不能代替图像验收。

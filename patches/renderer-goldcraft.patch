@@ -796,7 +796,7 @@ index 807ddd8..ff45529 100644
  //Note that this only get called when switching client
  void Mod_UnloadSpriteTextures(model_t* mod)
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..2d48aa6 100644
+index d59b139..72dd2cc 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,8 @@
@@ -889,7 +889,7 @@ index d59b139..2d48aa6 100644
 +    context.linear_depth = R_IsRenderingLinearDepth();
 +    context.gbuffer = R_IsRenderingGBuffer();
 +    context.unresolved_oit = r_draw_oitblend;
-+    context.view_index = static_cast<uint32_t>(viewIdx);
++    context.view_index = RendererPostScene::NormalizeViewIndex(viewIdx, g_iEngineType == ENGINE_SVENGINE);
 +    if (!RendererPostScene::Eligible(context)) return;
 +
 +    const auto* target = GL_GetCurrentSceneFBO();
@@ -6588,10 +6588,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..a27af17 100644
+index 93166e2..f98ba37 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,26 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,35 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -6610,7 +6610,16 @@ index 93166e2..a27af17 100644
 +
 +# The real optional-interface factory/registry/validation/dispatch is linked
 +# directly. This does not initialize or launch a game or OpenGL context.
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.cpp"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_post_scene_dispatch.py"
++        --rmain "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.cpp"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.json"
++    DEPENDS extract_post_scene_dispatch.py "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++    VERBATIM)
 +add_executable(post_scene_tests post_scene_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.cpp"
 +    "${PROJECT_SOURCE_DIR}/src/post_scene.cpp"
 +    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
 +target_link_libraries(post_scene_tests PRIVATE renderer_settings)
@@ -6620,7 +6629,7 @@ index 93166e2..a27af17 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +58,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +67,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -14068,10 +14077,10 @@ index 0000000..c528bd4
 +#define METARENDERER_POST_SCENE_INTERFACE_VERSION "MetaRendererPostScene_API_001"
 diff --git a/src/post_scene.h b/src/post_scene.h
 new file mode 100644
-index 0000000..ce6a657
+index 0000000..d6772b3
 --- /dev/null
 +++ b/src/post_scene.h
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,31 @@
 +#pragma once
 +#include <IMetaRendererPostScene.h>
 +
@@ -14094,16 +14103,21 @@ index 0000000..ce6a657
 +};
 +
 +bool Eligible(const Context& context) noexcept;
++// SvEngine's R_RenderView(int) supplies a zero-based view index. GoldSrc has
++// R_RenderView(void); its existing wrapper increments the frame counter before
++// calling the shared renderer, so that counter is one-based. Do not change the
++// host counter/clear behavior when exposing the public zero-based descriptor.
++uint32_t NormalizeViewIndex(int engine_view_index, bool explicit_view_index) noexcept;
 +bool HasCallbacks() noexcept;
 +bool ValidFrame(const MetaRendererPostSceneFrame& frame) noexcept;
 +uint32_t Dispatch(const Context& context, const MetaRendererPostSceneFrame& frame) noexcept;
 +} // namespace RendererPostScene
 diff --git a/src/post_scene.cpp b/src/post_scene.cpp
 new file mode 100644
-index 0000000..4adf09b
+index 0000000..8a9f955
 --- /dev/null
 +++ b/src/post_scene.cpp
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,120 @@
 +#include "post_scene.h"
 +#include <array>
 +#include <cmath>
@@ -14158,6 +14172,13 @@ index 0000000..4adf09b
 +
 +namespace RendererPostScene
 +{
++uint32_t NormalizeViewIndex(int engine_view_index, bool explicit_view_index) noexcept
++{
++    const int first_view = explicit_view_index ? 0 : 1;
++    if (engine_view_index < first_view) return ~uint32_t{0};
++    return static_cast<uint32_t>(engine_view_index - first_view);
++}
++
 +bool Eligible(const Context& context) noexcept
 +{
 +    return context.rendering_view && !context.nested_view && !context.shadow_view &&
@@ -14219,10 +14240,10 @@ index 0000000..4adf09b
 +} // namespace RendererPostScene
 diff --git a/tests/post_scene_tests.cpp b/tests/post_scene_tests.cpp
 new file mode 100644
-index 0000000..4c8515d
+index 0000000..c7d90d0
 --- /dev/null
 +++ b/tests/post_scene_tests.cpp
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,347 @@
 +#include "../src/post_scene.h"
 +#include <array>
 +#include <cassert>
@@ -14255,6 +14276,32 @@ index 0000000..4c8515d
 +void operator delete[](void* p) noexcept { std::free(p); }
 +void operator delete(void* p, size_t) noexcept { std::free(p); }
 +void operator delete[](void* p, size_t) noexcept { std::free(p); }
++
++// The no-argument wrapper is extracted from gl_rmain.cpp and executed without
++// alteration. Its shared-renderer callee is a CPU adapter, so this exercises the
++// real GoldSrc preincrement boundary without starting the engine or a GL view.
++void R_RenderView(void);
++int r_renderview_pass{};
++namespace
++{
++bool explicit_view_index{};
++int observed_engine_view_index{-1};
++uint32_t observed_public_view_index{~uint32_t{0}};
++uint32_t observed_dispatch_count{};
++MetaRendererPostSceneFrame Frame();
++RendererPostScene::Context EligibleContext();
++}
++void R_RenderView_SvEngine(int viewIdx)
++{
++    observed_engine_view_index = viewIdx;
++    r_renderview_pass = viewIdx; // Same assignment as the shared production body.
++    auto context = EligibleContext();
++    context.view_index = RendererPostScene::NormalizeViewIndex(viewIdx, explicit_view_index);
++    auto frame = Frame();
++    frame.view_index = context.view_index;
++    observed_public_view_index = context.view_index;
++    observed_dispatch_count = RendererPostScene::Dispatch(context, frame);
++}
 +
 +namespace
 +{
@@ -14318,6 +14365,43 @@ index 0000000..4c8515d
 +        if (action) action(*this, frame);
 +    }
 +};
++
++void TestEngineViewBoundary(IMetaRendererPostScene& api)
++{
++    Probe probe;
++    Check(api.RegisterPostSceneCallbacks(&probe));
++    explicit_view_index = false;
++    r_renderview_pass = 0; // GL_BeginRendering's per-frame reset.
++    R_RenderView();
++    Check(observed_engine_view_index == 1 && r_renderview_pass == 1);
++    Check(observed_public_view_index == 0 && observed_dispatch_count == 1 && probe.calls == 1);
++    Check(probe.seen.view_index == 0);
++    // Legacy pre-fix interpretation of this actual wrapper output is rejected.
++    auto unnormalized = EligibleContext();
++    unnormalized.view_index = static_cast<uint32_t>(observed_engine_view_index);
++    Check(!RendererPostScene::Eligible(unnormalized));
++    R_RenderView();
++    Check(observed_engine_view_index == 2 && r_renderview_pass == 2);
++    Check(observed_public_view_index == 1 && observed_dispatch_count == 0 && probe.calls == 1);
++    r_renderview_pass = 0;
++    R_RenderView();
++    Check(observed_public_view_index == 0 && observed_dispatch_count == 1 && probe.calls == 2);
++
++    explicit_view_index = true;
++    R_RenderView_SvEngine(0);
++    Check(observed_engine_view_index == 0 && observed_public_view_index == 0 && observed_dispatch_count == 1);
++    R_RenderView_SvEngine(1);
++    Check(observed_public_view_index == 1 && observed_dispatch_count == 0);
++    Check(probe.calls == 3);
++    for (const bool explicit_index : {false, true})
++    {
++        Check(RendererPostScene::NormalizeViewIndex(-1, explicit_index) == ~uint32_t{0});
++        Check(RendererPostScene::NormalizeViewIndex(std::numeric_limits<int>::min(), explicit_index) == ~uint32_t{0});
++        Check(RendererPostScene::NormalizeViewIndex(std::numeric_limits<int>::max(), explicit_index) != 0);
++    }
++    Check(RendererPostScene::NormalizeViewIndex(0, false) == ~uint32_t{0});
++    Check(api.UnregisterPostSceneCallbacks(&probe));
++}
 +
 +void TestEligibility(IMetaRendererPostScene& api)
 +{
@@ -14500,9 +14584,53 @@ index 0000000..4c8515d
 +    Check(api && status == IFACE_OK);
 +    Check(CreateInterface(METARENDERER_POST_SCENE_INTERFACE_VERSION, nullptr) == api);
 +    Check(CreateInterface("MetaRendererPostScene_API_999", &status) == nullptr && status == IFACE_FAILED);
++    TestEngineViewBoundary(*api);
 +    TestEligibility(*api);
 +    TestFrames(*api);
 +    TestRegistry(*api);
 +    TestMutationAndRecursion(*api);
 +    std::printf("post-scene production factory/dispatch: %u checks; 4096 warm callbacks allocate 0\n", checks);
 +}
+diff --git a/tests/extract_post_scene_dispatch.py b/tests/extract_post_scene_dispatch.py
+new file mode 100644
+index 0000000..29d3155
+--- /dev/null
++++ b/tests/extract_post_scene_dispatch.py
+@@ -0,0 +1,37 @@
++"""Compile the exact GoldSrc no-argument render wrapper into the CPU fixture."""
++from pathlib import Path
++import argparse
++import hashlib
++import json
++import re
++
++parser = argparse.ArgumentParser()
++parser.add_argument("--rmain", type=Path, required=True)
++parser.add_argument("--output", type=Path, required=True)
++parser.add_argument("--manifest", type=Path, required=True)
++args = parser.parse_args()
++source = args.rmain.read_text(encoding="utf-8")
++match = re.search(r"^void R_RenderView\(void\)\s*\{", source, re.M)
++if not match:
++    raise SystemExit("Missing exact GoldSrc R_RenderView(void) production wrapper")
++depth, end = 1, match.end()
++while depth and end < len(source):
++    if source[end] == "{":
++        depth += 1
++    elif source[end] == "}":
++        depth -= 1
++    end += 1
++if depth:
++    raise SystemExit("Unterminated R_RenderView production body")
++body = source[match.start():end]
++args.output.write_text(
++    "// Exact production body extracted by extract_post_scene_dispatch.py.\n"
++    "extern int r_renderview_pass;\n"
++    "void R_RenderView_SvEngine(int viewIdx);\n\n" + body + "\n",
++    encoding="utf-8",
++)
++args.manifest.write_text(json.dumps({
++    "source": str(args.rmain),
++    "function": "R_RenderView",
++    "sha256": hashlib.sha256(body.encode()).hexdigest(),
++}, indent=2) + "\n", encoding="utf-8")

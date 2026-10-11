@@ -7,4 +7,5 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface RenderParametersAccessor {
     @Accessor("texture") RenderPhase.TextureBase goldcraft$texture();
     @Accessor("writeMaskState") RenderPhase.WriteMaskState goldcraft$writeMask();
+    @Accessor("layering") RenderPhase.Layering goldcraft$layering();
 }

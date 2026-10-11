@@ -1,4 +1,5 @@
 #include "render_backend.hpp"
+#include "post_effect_replay.hpp"
 #include "host_ui.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
@@ -6,6 +7,7 @@
 #include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
 #include "input_audit.hpp"
+#include "goldcraft/host_key_events.hpp"
 #include "map_collision.hpp"
 #include <metahook.h>
 #include "client_initialize.hpp"
@@ -23,8 +25,10 @@
 #include "goldcraft/endpoint.hpp"
 #include "goldcraft/view_interpolator.hpp"
 #include "goldcraft/avatar.hpp"
+#include "goldcraft/entity_frame.hpp"
 #include "goldcraft/hud.hpp"
 #include "goldcraft/particles.hpp"
+#include "goldcraft/particle_texture_chunks.hpp"
 #include "goldcraft/form_menu.hpp"
 #include "goldcraft/block_feedback.hpp"
 #include "goldcraft/camera.hpp"
@@ -97,6 +101,7 @@ cvar_t* minecraft_hud=nullptr;
 cvar_t* gui_scale=nullptr;
 cvar_t* host_viewmodel=nullptr;
 cvar_t* render_particles=nullptr;
+cvar_t* render_post_effects=nullptr;
 bool viewmodel_suppressed=false;
 float saved_viewmodel=1;
 std::uint64_t suppressed_viewmodel_frames=0;
@@ -190,11 +195,26 @@ std::uint64_t feedback_revision=0,feedback_frames=0,feedback_draws=0;
 unsigned feedback_life=0;
 double last_feedback=0;
 std::map<unsigned,Texture> particle_textures;
+ParticleTextureAssembler particle_texture_upload;
+std::uint64_t particle_texture_transfer=0,particle_texture_chunk_uploads=0;
 struct EffectBatch {ParticleMaterial material;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu;};
 std::vector<EffectBatch> particle_batches;
+std::vector<EffectBatch> entity_effect_batches;
+std::uint64_t entity_effect_generation=0,entity_effect_draws=0;
+unsigned entity_life=0,entity_effect_vertices=0;
 std::uint64_t particle_generation=0,particle_revision=0,particle_frames=0,particle_draws=0,particle_bytes=0;
 unsigned particle_count=0,particle_vertices=0,particle_life=0;
 double last_particle_frame=0,particle_interval_ms=0;
+std::vector<EffectBatch> post_batches;
+std::vector<PostEffectStage> post_stages;
+std::array<bool,max_particle_batches> post_depth_resets{};
+std::unique_ptr<render::PostEffectReplay> post_replay;
+IMetaRendererPostScene* post_provider=nullptr;
+std::uint64_t post_revision=0,post_generation=0,post_frames=0,post_draws=0,post_failures=0;
+std::uint64_t post_callbacks=0,post_nonempty_frames=0;
+unsigned post_life=0;
+double last_post_frame=0;
+std::string post_error;
 std::uint64_t entity_revision=0,entity_frames=0,entity_presented_frames=0,entity_drawn_revision=0,entity_texture_uploads=0,entity_texture_bytes=0;
 double entity_interval_ms=0;
 std::uint64_t pending_scene_meshes=0;
@@ -210,12 +230,38 @@ float input_latency_ms=0;
 void Draw(bool transparent,std::uint32_t flags=0);
 int KeyEvent(int down,int key,const char* binding_text);
 void ReleaseMinecraftKeys();
+void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept;
+class PostSceneCallbacks final : public IMetaRendererPostSceneCallbacks {
+public:
+    void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override {DrawPostEffects(frame);}
+} post_scene_callbacks;
 class SceneCallbacks final : public IMetaRendererSceneCallbacks {
 public:
     void DrawOpaqueScene(std::uint32_t flags) override {Draw(false,flags);}
 } scene_callbacks;
 
+void ClearPostEffects(){
+    post_batches.clear();post_stages.clear();post_revision=post_generation=0;
+    post_depth_resets.fill(false);
+    post_life=0;last_post_frame=0;
+}
+void ClearEntityFrame(){
+    entity_batches.clear();entity_effect_batches.clear();rendered_players.clear();
+    entity_revision=entity_drawn_revision=entity_effect_generation=0;
+    entity_count=block_entity_count=entity_life=entity_effect_vertices=0;last_entity_frame=0;
+}
+bool EntityFrameFresh(){
+    return fresh_entity_frame(entity_revision,entity_life,entity_effect_generation,particle_generation,
+        minecraft_life,server_player_life,Seconds()-last_entity_frame);
+}
+void StopPostScene(){
+    if(post_provider)post_provider->UnregisterPostSceneCallbacks(&post_scene_callbacks);
+    post_provider=nullptr;post_replay.reset();ClearPostEffects();
+}
 void ClearParticles(bool delete_textures=true){
+    ClearPostEffects();
+    ClearEntityFrame();
+    particle_texture_upload.reset();particle_texture_transfer=0;
     if(delete_textures&&render::owns_context())for(auto& [key,texture]:particle_textures)glDeleteTextures(1,&texture.id);
     particle_textures.clear();particle_batches.clear();particle_generation=particle_revision=0;
     particle_count=particle_vertices=particle_life=0;last_particle_frame=0;
@@ -226,8 +272,7 @@ void ClearDynamic(bool delete_textures=true) {
     feedback_revision=feedback_life=0;last_feedback=0;
     camera_interpolator.clear();camera_revision=camera_life=0;last_camera=0;
     if(delete_textures&&render::owns_context())for(auto& [key,texture]:entity_textures)glDeleteTextures(1,&texture.id);
-    entity_textures.clear();entity_batches.clear();entity_revision=0;entity_count=block_entity_count=0;
-    rendered_players.clear();last_entity_frame=0;entity_drawn_revision=0;
+    entity_textures.clear();
 }
 
 void Log(const std::string& text) {
@@ -270,12 +315,13 @@ void ReleaseMinecraftKeys(){
 }
 bool ForwardKey(int down,int key){
     if(key<0||key>=256)return false;
+    host_keys::modifier(ui_modifiers,key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0,down!=0);
     if(key==K_MWHEELUP||key==K_MWHEELDOWN){if(down)SendKey(3,0,0,key==K_MWHEELUP?1.0f:-1.0f);return true;}
     const bool mouse=key>=K_MOUSE1&&key<=K_MOUSE5;
     const int code=mouse?key-K_MOUSE1:glfw_key(key);if(code<0)return false;
-    if(!down&&!forwarded_keys[key])return true;
-    const int action=down?(forwarded_keys[key]?2:1):0;
-    forwarded_keys[key]=down!=0;SendKey(mouse?2:1,code,action);return true;
+    const int action=host_keys::action(forwarded_keys,key,down!=0,mouse);
+    if(action>=0)SendKey(mouse?2:1,code,action);
+    return true;
 }
 void UpdateHostUse(){
     DWORD foreground=0;GetWindowThreadProcessId(GetForegroundWindow(),&foreground);
@@ -398,6 +444,9 @@ void WriteDiagnostics() {
            <<",\"avatarCount\":"<<rendered_players.size()<<",\"suppressedModels\":"<<suppressed_models<<",\"replacePlayers\":"<<((!replace_players||replace_players->value!=0)?"true":"false")
            <<",\"entityDepthWriteBatches\":"<<depth_batches<<",\"entityTranslucentBatches\":"<<translucent_batches
            <<",\"entityTextures\":"<<entity_textures.size()<<",\"entityRevision\":"<<entity_revision
+           <<",\"entityEffectGeneration\":"<<entity_effect_generation<<",\"entityLife\":"<<entity_life
+           <<",\"entityEffectBatches\":"<<entity_effect_batches.size()<<",\"entityEffectVertices\":"<<entity_effect_vertices
+           <<",\"entityEffectDraws\":"<<entity_effect_draws
            <<",\"outlineEdges\":"<<outline_vertices.size()/2<<",\"crackBatches\":"<<crack_batches.size()
            <<",\"feedbackFrames\":"<<feedback_frames<<",\"feedbackDraws\":"<<feedback_draws
            <<",\"feedbackAgeMs\":"<<(last_feedback?(Seconds()-last_feedback)*1000:-1)
@@ -407,8 +456,18 @@ void WriteDiagnostics() {
            <<",\"particleCount\":"<<particle_count<<",\"particleVertices\":"<<particle_vertices<<",\"particleBatches\":"<<particle_batches.size()
            <<",\"particleFrames\":"<<particle_frames<<",\"particleDraws\":"<<particle_draws<<",\"particleBytes\":"<<particle_bytes
            <<",\"particleGeneration\":"<<particle_generation<<",\"particleRevision\":"<<particle_revision<<",\"particleLife\":"<<particle_life
+           <<",\"particleTextureStagingBytes\":"<<particle_texture_upload.pending_bytes()
+           <<",\"particleTextureReceivedBytes\":"<<particle_texture_upload.received_bytes()
+           <<",\"particleTextureChunkUploads\":"<<particle_texture_chunk_uploads
            <<",\"particleAgeMs\":"<<(last_particle_frame?(Seconds()-last_particle_frame)*1000:-1)<<",\"particleIntervalMs\":"<<particle_interval_ms
            <<",\"particlesEnabled\":"<<((!render_particles||render_particles->value!=0)?"true":"false")
+           <<",\"postEffectStages\":"<<post_stages.size()<<",\"postEffectBatches\":"<<post_batches.size()
+           <<",\"postEffectFrames\":"<<post_frames<<",\"postEffectDraws\":"<<post_draws<<",\"postEffectFailures\":"<<post_failures
+           <<",\"postEffectCallbacks\":"<<post_callbacks<<",\"postEffectNonemptyFrames\":"<<post_nonempty_frames
+           <<",\"postEffectRegistered\":"<<(post_provider?"true":"false")
+           <<",\"postEffectAgeMs\":"<<(last_post_frame?(Seconds()-last_post_frame)*1000:-1)
+           <<",\"postEffectResidentBytes\":"<<(post_replay?post_replay->statistics().resident_bytes:0)
+           <<",\"postEffectEnabled\":"<<((!render_post_effects||render_post_effects->value!=0)?"true":"false")
            <<",\"hudVisible\":"<<(HudFresh()?"true":"false")<<",\"hudFrames\":"<<hud_frames<<",\"hudDraws\":"<<hud_draws<<",\"hudWidth\":"<<hud_gui_width<<",\"hudHeight\":"<<hud_gui_height
            <<",\"hudTextureWidth\":"<<hud_width<<",\"hudTextureHeight\":"<<hud_height
            <<",\"minecraftHands\":"<<(HudFresh()&&(hud_flags&4)?"true":"false")<<",\"minecraftChatOverlay\":"<<(HudFresh()&&(hud_flags&8)?"true":"false")
@@ -426,6 +485,7 @@ void WriteDiagnostics() {
            <<",\"hostUiHook\":"<<(host_menu.hooked?"true":"false")<<",\"hostGameMenu\":"<<(host_menu.game_menu?"true":"false")
            <<",\"hostUiKeyboard\":"<<(host_menu.keyboard?"true":"false")<<",\"hostUiFocus\":\""<<host_menu.focus<<"\""
            <<",\"hostUiEvents\":"<<host_menu.events<<",\"hostUiConsumed\":"<<host_menu.consumed
+           <<",\"hostKeyReleaseHook\":"<<(host_menu.release_hooked?"true":"false")<<",\"hostKeyReleases\":"<<host_menu.releases
            <<",\"hostCursorVisible\":"<<(host_menu.cursor_visible?"true":"false")<<",\"mouseCaptureApi\":"<<(host_menu.mouse_api?"true":"false")
            <<",\"rawInput\":"<<gEngfuncs.pfnGetCvarFloat("m_rawinput")<<",\"relativeMouseMode\":"<<host_menu.relative_mouse
            <<",\"mouseLookState\":"<<NativeMouseLookState()
@@ -512,6 +572,8 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
+            ClearPostEffects();
+            if(life!=server_player_life){particle_texture_upload.reset();particle_texture_transfer=0;ClearEntityFrame();}
             ReleaseMinecraftKeys();
             camera_interpolator.clear();camera_revision=0;last_camera=0;
             form_menu.clear();
@@ -537,7 +599,7 @@ int AvatarMessage(const char*,int size,void* data) {
 int AddEntity(int type,cl_entity_t* entity,const char* model) {
     const int accepted=gExportfuncs.HUD_AddEntity?gExportfuncs.HUD_AddEntity(type,entity,model):1;
     if(!accepted||!entity||!entity->player||entity->index<1||entity->index>64||!link.connected()
-       ||!world||!atlas_texture||(replace_players&&replace_players->value==0)||Seconds()-last_entity_frame>0.5)return accepted;
+       ||!world||!atlas_texture||(replace_players&&replace_players->value==0)||!EntityFrameFresh())return accepted;
     if(Seconds()-presentation_times[entity->index]>3)return accepted;
     for(const auto& avatar:rendered_players)if(avatar.slot==static_cast<unsigned>(entity->index)&&replaces_player(avatar,player_presentations[entity->index])) {
         ++suppressed_models;return 0;
@@ -562,12 +624,14 @@ void InitHud() {
             KeyEvent(down,key,binding_text);return true;
         }
         if(ui_active&&HudFresh()){KeyEvent(down,key,binding_text);return true;}
-        // Plus-commands must reach the native command builder (movement/use).
-        // Intercept other gameplay keys here exactly once, before native menus.
-        if(HasControl()&&!host_ui::state().keyboard&&(!binding_text||binding_text[0]!='+')){
-            KeyEvent(down,key,binding_text);return true;
+        if(HasControl()&&!host_ui::state().keyboard){
+            const auto route=host_keys::gameplay_route(binding_text,true,true);
+            if(route==host_keys::Route::observe)ForwardKey(down,key);
+            if(route==host_keys::Route::consume){KeyEvent(down,key,binding_text);return true;}
         }
         return false;
+    },gEngfuncs.Key_Event,[](int key){
+        if(key>=0&&key<int(forwarded_keys.size())&&forwarded_keys[key])ForwardKey(0,key);
     });
     gEngfuncs.pfnAddCommand("goldcraft_status",Status);
     gEngfuncs.pfnAddCommand("goldcraft_close_menu",CloseMinecraftMenu);
@@ -592,6 +656,7 @@ void InitHud() {
     gui_scale=gEngfuncs.pfnRegisterVariable("mc_gui_scale","0",0);
     host_viewmodel=gEngfuncs.pfnGetCvarPointer("r_drawviewmodel");
     render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
+    render_post_effects=gEngfuncs.pfnRegisterVariable("mc_post_effects","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -618,6 +683,7 @@ void InitHud() {
     Log("client HUD hooks registered");
 }
 int VidInit() {
+    StopPostScene();
     // Revoke while the old provider is still available. Keep the authenticated
     // epoch so a same-map video reset can recover through a fresh snapshot.
     map_edits.reset(world);edit_assembler.reset(world);edit_recovery=world!=0;next_edit_query=0;
@@ -633,6 +699,13 @@ int VidInit() {
     have_view=false;
     const int result=gExportfuncs.HUD_VidInit();
     render::initialize(&scene_callbacks,Log);
+    post_replay=std::make_unique<render::PostEffectReplay>();
+    const char* game=gEngfuncs.pfnGetGameDirectory?gEngfuncs.pfnGetGameDirectory():nullptr;
+    post_replay->set_shader_directory((std::filesystem::path(game?game:"cstrike")/"metahook/shaders/goldcraft/vix-post").string());
+    post_provider=render::post_scene();
+    if(post_provider&&!post_provider->RegisterPostSceneCallbacks(&post_scene_callbacks)){
+        post_provider=nullptr;Log("Post-scene callback registration failed");
+    }
     return result;
 }
 void CalcRefDef(ref_params_t* params) {
@@ -725,33 +798,45 @@ void ReadEntityTexture(Reader& r) {
     render::upload_texture(texture.id,texture.width,texture.height,width,height,pixels);
     ++entity_texture_uploads;entity_texture_bytes+=pixels.size();
 }
-void ReadEntityMesh(Reader& r) {
-    auto epoch=r.u64(),revision=r.u64();auto count=r.u32(),blocks=r.u32(),groups=r.u32();if(epoch!=world||revision<=entity_revision)return;
+void ReadEntityFrame(Reader& r) {
+    auto frame=read_entity_frame(r);const auto& base=frame.base;const auto& effects=frame.effects;
+    if(!MatchingHostProtocol()||effects.life!=server_player_life||
+       !current_entity_frame(frame,world,particle_generation,entity_revision,minecraft_life))return;
     // HUD_VidInit can invalidate textures while IPC is still delivering the old scene.
     // The complete scene replay sends its atlas, then textures, then meshes in order.
     if(!atlas_generation){++pending_scene_meshes;return;}
-    if(count>128||blocks>128||groups>128)throw ProtocolError("invalid dynamic scene count");
-    std::vector<EntityBatch> next;std::size_t vertices=0;
-    for(unsigned i=0;i<groups;i++) {
-        auto texture=r.u32(),flags=r.u32(),n=r.u32();vertices+=n;
-        if(texture>256||(flags&~3u)||n%4||vertices>299592||std::size_t(n)*28>r.remaining())throw ProtocolError("invalid dynamic scene vertices");
-        EntityBatch batch{texture,flags,{}};batch.vertices.reserve(n);
-        if(i<entity_batches.size()&&entity_batches[i].texture==texture&&entity_batches[i].flags==flags)batch.gpu=entity_batches[i].gpu;
-        for(unsigned j=0;j<n;j++){Vec3 mc{r.f32(),r.f32(),r.f32()};auto gs=to_goldsrc(mc);batch.vertices.push_back({gs.x,gs.y,gs.z,r.f32(),r.f32(),r.u32(),r.u32()});}
+    validate_entity_frame_textures(frame,particle_generation,
+        [](unsigned key){return entity_textures.contains(key);},[](unsigned key){return particle_textures.contains(key);});
+    std::vector<EntityBatch> next;next.reserve(base.batches.size());
+    for(const auto& source:base.batches) {
+        EntityBatch batch{source.texture,source.flags,{}};batch.vertices.reserve(source.vertices.size());
+        const auto i=next.size();
+        if(i<entity_batches.size()&&entity_batches[i].texture==source.texture&&entity_batches[i].flags==source.flags)batch.gpu=entity_batches[i].gpu;
+        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color,v.normal});}
         next.push_back(std::move(batch));
     }
-    auto avatars=read_rendered_players(r);
-    if(avatars.size()>count)throw ProtocolError("Avatar count exceeds rendered entities");
-    for(const auto& batch:next)if(batch.texture&&!entity_textures.contains(batch.texture))throw ProtocolError("Missing dynamic mesh texture");
+    std::vector<EffectBatch> next_effects;next_effects.reserve(effects.batches.size());unsigned effect_vertices=0;
+    for(const auto& source:effects.batches){
+        EffectBatch batch{source.material,{}};batch.vertices.reserve(source.vertices.size());const auto i=next_effects.size();
+        if(effects.generation==entity_effect_generation&&i<entity_effect_batches.size()&&entity_effect_batches[i].material==source.material)
+            batch.gpu=entity_effect_batches[i].gpu;
+        if(!batch.gpu)batch.gpu=std::make_shared<render::Mesh>();
+        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color});}
+        effect_vertices+=static_cast<unsigned>(source.vertices.size());next_effects.push_back(std::move(batch));
+    }
     const double now=Seconds();if(last_entity_frame)entity_interval_ms=(now-last_entity_frame)*1000;
-    entity_batches=std::move(next);rendered_players=std::move(avatars);last_entity_frame=now;entity_revision=revision;entity_count=count;block_entity_count=blocks;++entity_frames;
+    // Every parse, texture check and allocation finished before either half changes.
+    if(effects.generation!=particle_generation){ClearParticles();particle_generation=effects.generation;}
+    entity_batches=std::move(next);entity_effect_batches=std::move(next_effects);rendered_players=std::move(frame.base.avatars);
+    last_entity_frame=now;entity_revision=base.revision;entity_count=base.count;block_entity_count=base.blocks;
+    entity_effect_generation=effects.generation;entity_life=effects.life;entity_effect_vertices=effect_vertices;++entity_frames;
     if(entity_capture.is_open()){
         if(now>entity_capture_end)entity_capture.close();
         else for(const auto& batch:entity_batches)if(!batch.vertices.empty()){
             double x=0,y=0,z=0;
             for(const auto& vertex:batch.vertices){x+=vertex.x;y+=vertex.y;z+=vertex.z;}
             const auto count=batch.vertices.size();
-            entity_capture<<now-entity_capture_start<<','<<revision<<','<<batch.texture<<','<<batch.flags<<','<<count
+            entity_capture<<now-entity_capture_start<<','<<entity_revision<<','<<batch.texture<<','<<batch.flags<<','<<count
                           <<','<<x/count<<','<<y/count<<','<<z/count<<'\n';
         }
     }
@@ -763,9 +848,37 @@ void ReadParticleTexture(Reader& r){
         throw ProtocolError("Invalid particle texture");
     std::size_t size=std::size_t(width)*height*4;
     if(generation==particle_generation)for(const auto& [number,texture]:particle_textures)if(number!=key)size+=std::size_t(texture.width)*texture.height*4;
-    if(size>64*1024*1024)throw ProtocolError("Particle texture memory budget exceeded");
+    if(size>max_particle_texture_resident_bytes)throw ProtocolError("Particle texture memory budget exceeded");
     if(generation!=particle_generation){ClearParticles();particle_generation=generation;}
     auto& texture=particle_textures[key];render::upload_texture(texture.id,texture.width,texture.height,width,height,r.bytes(r.remaining()));
+}
+void ReadParticleTextureChunk(Reader& r){
+    const auto chunk=read_particle_texture_chunk(r);
+    if(chunk.epoch!=world||chunk.generation<particle_generation||
+       chunk.life!=server_player_life||!MatchingHostProtocol())return;
+    if(chunk.generation!=particle_generation){ClearParticles();particle_generation=chunk.generation;}
+    if(chunk.revision<=particle_texture_transfer)throw ProtocolError("Retired particle texture transfer");
+    std::size_t resident=chunk.total_bytes;
+    for(const auto& [key,texture]:particle_textures)if(key!=chunk.key)
+        resident+=std::size_t(texture.width)*texture.height*4;
+    if(resident>max_particle_texture_resident_bytes)throw ProtocolError("Particle texture memory budget exceeded");
+    if(!particle_texture_upload.append(chunk))return;
+    // Keep the previously published image until the complete replacement has
+    // GPU storage. Neither partial transfers nor allocation failures expose it.
+    Texture replacement{};
+    try{
+        render::upload_texture(replacement.id,replacement.width,replacement.height,
+            chunk.width,chunk.height,particle_texture_upload.pixels());
+        if(glGetError()!=GL_NO_ERROR)throw ProtocolError("Particle texture GPU upload failed");
+        auto& published=particle_textures[chunk.key];
+        std::swap(published,replacement);
+        if(replacement.id)glDeleteTextures(1,&replacement.id);
+        particle_texture_transfer=chunk.revision;++particle_texture_chunk_uploads;
+        particle_texture_upload.reset();
+    }catch(...){
+        if(replacement.id)glDeleteTextures(1,&replacement.id);
+        particle_texture_upload.reset();throw;
+    }
 }
 void ReadBlockFeedback(Reader& r){
     const auto frame=read_block_feedback(r);
@@ -803,6 +916,33 @@ void ReadParticles(Reader& r){
     particle_batches=std::move(next);particle_revision=snapshot.revision;particle_count=snapshot.count;particle_vertices=vertices;particle_life=snapshot.life;
     const double now=Seconds();if(last_particle_frame)particle_interval_ms=(now-last_particle_frame)*1000;last_particle_frame=now;
     ++particle_frames;particle_bytes+=vertices*24;
+}
+void ReadPostEffects(Reader& r){
+    auto frame=read_post_effects(r);
+    const auto& snapshot=frame.mesh;
+    if(!MatchingHostProtocol()||snapshot.life!=server_player_life||
+       !current_particles(snapshot,world,particle_generation,post_generation==snapshot.generation?post_revision:0,minecraft_life))return;
+    for(const auto& batch:snapshot.batches){
+        const auto key=batch.material.texture;
+        if(key==0&&!atlas_generation){ClearPostEffects();++pending_scene_meshes;return;}
+        if(key!=0&&key!=particle_untextured&&(snapshot.generation!=particle_generation||!particle_textures.contains(key)))
+            throw ProtocolError("Missing current-generation post mask texture");
+    }
+    if(snapshot.generation!=particle_generation){ClearParticles();particle_generation=snapshot.generation;}
+    std::vector<EffectBatch> next;next.reserve(snapshot.batches.size());
+    for(const auto& source:snapshot.batches){
+        EffectBatch batch{source.material,{}};batch.vertices.reserve(source.vertices.size());
+        const auto i=next.size();
+        if(i<post_batches.size()&&post_batches[i].material==batch.material)batch.gpu=post_batches[i].gpu;
+        if(!batch.gpu)batch.gpu=std::make_shared<render::Mesh>();
+        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color});}
+        next.push_back(std::move(batch));
+    }
+    post_batches=std::move(next);post_stages=std::move(frame.stages);
+    if(!post_stages.empty())++post_nonempty_frames;
+    post_depth_resets.fill(false);for(auto index:frame.depth_resets)post_depth_resets[index]=true;
+    post_revision=snapshot.revision;post_generation=snapshot.generation;post_life=snapshot.life;
+    last_post_frame=Seconds();++post_frames;
 }
 void TestCommands() {
     const char* path=std::getenv("GOLDCRAFT_TEST_COMMAND");if(!path)return;
@@ -976,9 +1116,15 @@ void Frame(double time) {
             if(message.type==Type::atlas) ReadAtlas(r);
             else if(message.type==Type::atlas_patches)ReadAtlasPatches(r);
             else if(message.type==Type::entity_texture)ReadEntityTexture(r);
-            else if(message.type==Type::entity_mesh)ReadEntityMesh(r);
+            else if(message.type==Type::entity_frame)ReadEntityFrame(r);
             else if(message.type==Type::particle_texture)ReadParticleTexture(r);
+            else if(message.type==Type::particle_texture_chunk){
+                try{ReadParticleTextureChunk(r);}catch(...){particle_texture_upload.reset();throw;}
+            }
             else if(message.type==Type::particle_mesh)ReadParticles(r);
+            else if(message.type==Type::post_effect_plan){
+                try{ReadPostEffects(r);}catch(...){ClearPostEffects();throw;}
+            }
             else if(message.type==Type::block_feedback)ReadBlockFeedback(r);
             else if(message.type==Type::camera){
                 const auto frame=read_camera(r);
@@ -1123,8 +1269,7 @@ int KeyEvent(int down,int key,const char* binding_text) {
         }
         return 0;
     }
-    unsigned modifier=key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0;
-    if(modifier){if(down)ui_modifiers|=modifier;else ui_modifiers&=~modifier;}
+    host_keys::modifier(ui_modifiers,key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0,down!=0);
     if(ui_active&&HudFresh()){
         if(key>=K_MOUSE1&&key<=K_MOUSE3){SendUi(2,key-K_MOUSE1,down?1:0);return 0;}
         if(key==K_MWHEELUP||key==K_MWHEELDOWN){if(down)SendUi(3,0,0,key==K_MWHEELUP?1.0f:-1.0f);return 0;}
@@ -1142,10 +1287,52 @@ int KeyEvent(int down,int key,const char* binding_text) {
     }
     if(HasControl()&&!host_ui::state().keyboard) {
         if(key=='i'||key=='I'){if(down)SendControl(10);return 0;}
-        const bool native_use=binding_text&&std::strcmp(binding_text,"+use")==0;
-        if(!native_use&&ForwardKey(down,key)&&(!binding_text||binding_text[0]!='+'))return 0;
+        const auto route=host_keys::gameplay_route(binding_text,false,host_ui::state().hooked);
+        if(route!=host_keys::Route::native&&ForwardKey(down,key)&&route==host_keys::Route::consume)return 0;
     }
     return gExportfuncs.HUD_Key_Event?gExportfuncs.HUD_Key_Event(down,key,binding_text):1;
+}
+bool DrawPostMask(void*,const MetaRendererPostSceneFrame& frame,std::uint8_t first,std::uint8_t count) noexcept {
+    try{
+        if(first>post_batches.size()||count>post_batches.size()-first)return false;
+        const auto previous_error=render::statistics().error_count;
+        {
+            // Base VIX Bloom.start copies shared world depth for each render
+            // type while retaining accumulated color in the same mask target.
+            struct ReadFramebuffer {
+                GLint previous=0;bool used=false;
+                void reset(const MetaRendererPostSceneFrame& source){
+                    if(!used){glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING,&previous);used=true;}
+                    glBindFramebuffer(GL_READ_FRAMEBUFFER,source.framebuffer);
+                    glBlitFramebuffer(0,0,source.width,source.height,0,0,source.width,source.height,GL_DEPTH_BUFFER_BIT,GL_NEAREST);
+                }
+                ~ReadFramebuffer(){if(used)glBindFramebuffer(GL_READ_FRAMEBUFFER,previous);}
+            } read;
+            render::Pass pass(true,0,&frame);if(!pass.ready())return false;
+            for(unsigned i=first;i<unsigned(first)+count;++i){
+                if(post_depth_resets[i])read.reset(frame);
+                const auto& batch=post_batches[i];const auto key=batch.material.texture;
+                GLuint texture=atlas_texture;
+                if(key==particle_untextured)texture=0;
+                else if(key){auto found=particle_textures.find(key);if(found==particle_textures.end())return false;texture=found->second.id;}
+                if(!pass.effect(batch.material,texture))return false;
+                batch.gpu->draw(batch.vertices,post_revision,true);
+            }
+        }
+        return render::statistics().error_count==previous_error;
+    }catch(...){return false;}
+}
+void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
+    ++post_callbacks;
+    if(!post_replay||!link.connected()||link.generation()!=last_link_generation||!world||!MatchingHostProtocol()||post_stages.empty()||
+       post_life!=minecraft_life||post_life!=server_player_life||post_generation!=particle_generation||
+       Seconds()-last_post_frame>=.25||(render_particles&&render_particles->value==0)||
+       (render_post_effects&&render_post_effects->value==0))return;
+    if(post_replay->replay(frame,post_stages,DrawPostMask,nullptr)){++post_draws;post_error.clear();}
+    else{
+        ++post_failures;
+        try{if(post_error!=post_replay->last_error()){post_error=post_replay->last_error();Log(post_error);}}catch(...){}
+    }
 }
 void Draw(bool transparent,std::uint32_t flags) {
     if(!link.connected()||!world) return;
@@ -1164,14 +1351,16 @@ void Draw(bool transparent,std::uint32_t flags) {
     }
     pass.emissive(false);
     for(const auto& batch:entity_batches) {
-        if(Seconds()-last_entity_frame>0.5)break;
+        if(!EntityFrameFresh())break;
         if(((batch.flags&1)!=0)!=transparent||batch.vertices.empty())continue;
         auto texture=entity_textures.find(batch.texture);if(batch.texture&&texture==entity_textures.end())continue;
         pass.depth_write((batch.flags&2)!=0);
+        pass.view_offset((batch.flags&4)!=0);
         pass.texture(batch.texture?texture->second.id:atlas_texture);batch.gpu->draw(batch.vertices,entity_revision,true);
         if(flags==0&&entity_drawn_revision!=entity_revision){entity_drawn_revision=entity_revision;++entity_presented_frames;}
     }
     // Feedback uses the current scene depth; never include outlines/cracks in lighting or shadow maps.
+    pass.view_offset(false);
     if(transparent&&flags==0&&feedback_life==minecraft_life&&feedback_life==server_player_life&&Seconds()-last_feedback<0.25){
         pass.texture(atlas_texture);pass.feedback(1);
         for(const auto& batch:crack_batches){batch.gpu->draw(batch.vertices,feedback_revision,true);++feedback_draws;}
@@ -1182,6 +1371,14 @@ void Draw(bool transparent,std::uint32_t flags) {
     }
     // Ordered camera-specific effects run after ordinary meshes and feedback.
     // Pass restores host state afterward; these never enter GBuffer or shadows.
+    if(transparent&&flags==0&&EntityFrameFresh()){
+        for(const auto& batch:entity_effect_batches){
+            const auto key=batch.material.texture;GLuint texture=atlas_texture;
+            if(key==particle_untextured)texture=0;
+            else if(key){auto found=particle_textures.find(key);if(found==particle_textures.end())continue;texture=found->second.id;}
+            if(pass.effect(batch.material,texture)){batch.gpu->draw(batch.vertices,entity_revision,true);++entity_effect_draws;}
+        }
+    }
     if(effects_ready){
         for(const auto& batch:particle_batches){
             const auto key=batch.material.texture;
@@ -1298,7 +1495,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); render::shutdown(); Log("Shutdown"); log_file.close(); }
+void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); log_file.close(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

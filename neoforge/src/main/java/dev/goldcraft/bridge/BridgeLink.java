@@ -53,12 +53,16 @@ public final class BridgeLink implements AutoCloseable {
     public synchronized boolean send(int type, byte[] payload) {
         if (!connected || !Wire.knownType(type) || type==Wire.HELLO || type==Wire.WELCOME || payload.length>Wire.MAX_PAYLOAD) return false;
         int bytes=payload.length+Wire.HEADER_BYTES;
-        if(type==Wire.PLAYER_POSE||type==Wire.CAMERA||type==Wire.BLOCK_FEEDBACK||type==Wire.ENTITY_MESH||type==Wire.PARTICLE_MESH||type==Wire.LIGHTS||type==Wire.ATLAS||type==Wire.ATLAS_PATCHES||type==Wire.HUD_FRAME) {
+        boolean replace=type==Wire.PLAYER_POSE||type==Wire.CAMERA||type==Wire.BLOCK_FEEDBACK||type==Wire.ENTITY_MESH||type==Wire.ENTITY_FRAME||type==Wire.PARTICLE_MESH||type==Wire.POST_EFFECT_PLAN||type==Wire.LIGHTS||type==Wire.ATLAS||type==Wire.ATLAS_PATCHES||type==Wire.HUD_FRAME;
+        int replacedBytes=0,replacedCount=0;
+        if(replace)for(var old:outgoing)if(old.type()==type){replacedBytes+=old.payload().length+Wire.HEADER_BYTES;replacedCount++;}
+        if (bytes>Wire.MAX_QUEUED-(outboundBytes-replacedBytes) || outgoing.size()-replacedCount>=4096) return false;
+        // Do not discard an accepted complete frame until its replacement can be queued.
+        Wire.Message message=new Wire.Message(type,payload.clone());
+        if(replace) {
             var iterator=outgoing.iterator();
             while(iterator.hasNext()){Wire.Message old=iterator.next();if(old.type()==type){outboundBytes-=old.payload().length+Wire.HEADER_BYTES;iterator.remove();}}
         }
-        if (bytes>Wire.MAX_QUEUED-outboundBytes || outgoing.size()>=4096) return false;
-        Wire.Message message=new Wire.Message(type,payload.clone());
         // Position/input acknowledgements must not sit behind unsent texture/mesh batches.
         if(type==Wire.PLAYER_POSE||type==Wire.CAMERA)outgoing.addFirst(message);else outgoing.addLast(message);
         outboundBytes+=bytes; return true;

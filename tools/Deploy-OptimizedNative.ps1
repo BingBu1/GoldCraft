@@ -1,8 +1,9 @@
 param([ValidateSet('cs-client-a','cs-client-b')][string[]]$Clients=@('cs-client-b'), [switch]$ClientOnly,
-      [switch]$WithMetaHookRuntime, [switch]$ValidateOnly, [switch]$BridgeOnly)
+      [switch]$WithMetaHookRuntime, [switch]$ValidateOnly, [switch]$BridgeOnly, [switch]$WithPostEffects)
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 if($WithMetaHookRuntime -and -not $ClientOnly){throw 'Use -ClientOnly for a MetaHook runtime update.'}
 if($BridgeOnly -and $WithMetaHookRuntime){throw 'A bridge-only deployment does not update MetaHook runtime files.'}
+if($WithPostEffects -and -not $BridgeOnly){throw 'Use -BridgeOnly with -WithPostEffects for the matched bridge/Renderer update.'}
 $instances=@($Clients | Select-Object -Unique)
 if(-not $ClientOnly){$instances=@('cs-server')+$instances}
 $running=Get-CimInstance Win32_Process | Where-Object {
@@ -92,6 +93,20 @@ if(-not $ClientOnly){
 foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
     if($BridgeOnly){
+        if($WithPostEffects){
+            $stage='analysis/vix-post/runtime-shaders'
+            & python (Join-Path $PSScriptRoot 'Extract-VixPostShaders.py') --output (Join-Path $script:GoldCraftRoot $stage)
+            if($LASTEXITCODE){throw 'Pinned local post shader extraction failed; no runtime deployed.'}
+            Queue-File 'dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll' "$game/cstrike/metahook/plugins/Renderer_AVX2.dll"
+            $shaderRoot=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer/svencoop/renderer/shader')
+            foreach($shader in Get-ChildItem -LiteralPath $shaderRoot -Recurse -File){
+                $relative=$shader.FullName.Substring($shaderRoot.Length+1).Replace('\','/')
+                Queue-File "dist/renderer/svencoop/renderer/shader/$relative" "$game/cstrike/renderer/shader/$relative"
+            }
+            foreach($shader in Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot $stage) -File | Where-Object Extension -in @('.fsh','.vsh')){
+                Queue-File "$stage/$($shader.Name)" "$game/cstrike/metahook/shaders/goldcraft/vix-post/$($shader.Name)"
+            }
+        }
         Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
         Queue-GoldCraftShaders $game
         continue

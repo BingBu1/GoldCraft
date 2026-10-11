@@ -16,10 +16,23 @@ vgui::IInput* input=nullptr;
 vgui::IPanel* panel=nullptr;
 vgui::ISurface* surface=nullptr;
 hook_t* hook=nullptr;
+hook_t* release_hook=nullptr;
 KeyHandler handler=nullptr;
+KeyReleaseHandler release_handler=nullptr;
+void(*original_engine_key)(int,int)=nullptr;
 int(__fastcall* original_key)(void*,int,int,int,const char*)=nullptr;
 std::uint64_t events=0,consumed=0;
+std::uint64_t releases=0;
 MouseCapture mouse;
+
+void engine_key_event(int key,int down){
+    // GoldSrc skips ClientDLL/BaseUI on key-up for unconsumed +commands.
+    // Observe the public engine entry so a native -attack/-reload release
+    // also drains the previously forwarded Minecraft key. Always continue
+    // into the original engine; native bindings and command timing stay intact.
+    if(!down&&release_handler){++releases;release_handler(key);}
+    original_engine_key(key,down);
+}
 
 int __fastcall key_event(void* self,int,int down,int key,const char* binding){
     ++events;
@@ -37,9 +50,11 @@ CreateInterfaceFn factory(const char* module){
 }
 }
 
-void install(metahook_api_t* value,KeyHandler callback){
+void install(metahook_api_t* value,KeyHandler callback,void(*engine_key)(int,int),KeyReleaseHandler release){
     if(hook)return;
-    api=value;handler=callback;
+    api=value;handler=callback;release_handler=release;
+    if(engine_key&&release&&!release_hook)
+        release_hook=api->InlineHook(reinterpret_cast<void*>(engine_key),reinterpret_cast<void*>(engine_key_event),reinterpret_cast<void**>(&original_engine_key));
     const auto engine=api->GetEngineFactory();
     const auto game_factory=factory("GameUI.dll"),vgui_factory=factory("vgui2.dll");
     base=engine?static_cast<IBaseUI*>(engine(BASEUI_INTERFACE_VERSION,nullptr)):nullptr;
@@ -56,6 +71,9 @@ void install(metahook_api_t* value,KeyHandler callback){
 }
 
 void shutdown(){
+    release_handler=nullptr;
+    if(release_hook&&api)api->UnHook(release_hook);
+    release_hook=nullptr;original_engine_key=nullptr;
     if(hook&&api)api->UnHook(hook);
     hook=nullptr;base=nullptr;game=nullptr;input=nullptr;panel=nullptr;surface=nullptr;handler=nullptr;
     mouse={};
@@ -69,6 +87,7 @@ void update_mouse_capture(bool active_window,bool raw_input){
 
 State state(){
     State result;result.hooked=hook!=nullptr;result.events=events;result.consumed=consumed;
+    result.release_hooked=release_hook!=nullptr;result.releases=releases;
     result.game_menu=game&&game->IsGameUIActive();result.keyboard=surface&&surface->NeedKBInput();
     result.cursor_visible=surface&&surface->IsCursorVisible();result.mouse_api=mouse.available();
     result.relative_mouse=mouse.get_relative_mode?mouse.get_relative_mode():-1;

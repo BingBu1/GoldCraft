@@ -24,7 +24,12 @@ void main(){
         float alpha=(u_effect&8)!=0?texel.a:texel.a*g_color.a;
         if((u_effect&12)==0)alpha*=u_color_mod.a;
         if(alpha<u_alpha_cutoff||((u_effect&16)!=0&&alpha==0.0))discard;
+#ifdef RAW_POST_MASK
+        // VIX masks encode offsets/intensity, not lit scene albedo.
+        out_Diffuse=texel*g_color*u_color_mod;
+#else
         out_Diffuse=ProcessLinearBlendShift(ProcessDiffuseColor(texel)*ProcessOtherGammaColor(g_color*u_color_mod));
+#endif
         return;
     }
     if(texel.a*g_color.a<0.1)discard;

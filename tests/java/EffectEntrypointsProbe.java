@@ -67,7 +67,7 @@ public final class EffectEntrypointsProbe {
         var config=release.getEntry("goldcraft.client.mixins.json");
         String text;
         try(var stream=release.getInputStream(config)){text=new String(stream.readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);}
-        for(String name:List.of("DirectMeshMixin","EffectGlMixin","ImmediateBuffersAccessor","ParticleRenderBudgetMixin","ParticleBuffersMixin"))
+        for(String name:List.of("DirectMeshMixin","EffectLayeringMixin","EffectGlMixin","ImmediateBuffersAccessor","ParticleRenderBudgetMixin","ParticleBuffersMixin"))
             check(text.contains("\""+name+"\""),"release registers "+name);
     }
     private static void mixin(ZipFile release,ZipFile game,String simple) throws IOException {
@@ -108,10 +108,70 @@ public final class EffectEntrypointsProbe {
         }
         return false;
     }
+    private static void optionalVixMixin(ZipFile release,Map<String,ClassNode> vix,String simple) throws IOException {
+        var mixin=read(release,"dev/goldcraft/client/mixin/"+simple);
+        var attributes=annotations(mixin.visibleAnnotations,mixin.invisibleAnnotations);
+        check(attributes.stream().anyMatch(a->a.desc.equals("Lorg/spongepowered/asm/mixin/Pseudo;")),simple+" is optional");
+        var target=attributes.stream().filter(a->a.desc.equals("Lorg/spongepowered/asm/mixin/Mixin;")).findFirst().orElseThrow();
+        var names=(List<?>)value(target,"targets");
+        check(names!=null&&names.size()==1,simple+" names one installed target");
+        var owner=vix.get(((String)names.getFirst()).replace('.','/'));
+        check(owner!=null,simple+" target exists in installed VIX");
+        for(var method:mixin.methods)for(var injection:annotations(method.visibleAnnotations,method.invisibleAnnotations)) {
+            if(!injection.desc.endsWith("/Inject;")&&!injection.desc.endsWith("/Redirect;"))continue;
+            var selected=new ArrayList<MethodNode>();
+            for(Object selector:(List<?>)value(injection,"method")) {
+                var found=methods(owner,(String)selector);check(found.size()==1,simple+" exact target "+selector);selected.addAll(found);
+            }
+            Object ats=value(injection,"at");var positions=ats instanceof List<?> list?list:List.of(ats);
+            for(Object position:positions) {
+                String call=(String)value((AnnotationNode)position,"target");if(call==null)continue;
+                check(selected.stream().flatMap(m->calls(m).stream()).filter(c->call.equals("L"+c.owner+";"+c.name+c.desc)).count()==1,
+                    simple+" redirects the unique installed invocation "+call);
+            }
+        }
+    }
+    private static void vixCapture(ZipFile release,ZipFile nightfall,Map<String,ClassNode> vix)throws IOException {
+        for(String name:List.of("VixPostParticleMixin","VixPostPipelinesMixin"))optionalVixMixin(release,vix,name);
+        var pipeline=vix.get("com/guhao/vix/client/pipeline/PostEffectPipelines$Pipeline");
+        for(String name:List.of("called","started"))check(pipeline.fields.stream().anyMatch(f->f.name.equals(name)&&f.desc.equals("Z")),"VIX pipeline "+name+" ownership field");
+        var root=vix.get("com/guhao/vix/client/pipeline/PostEffectPipelines");
+        check(root.fields.stream().anyMatch(f->f.name.equals("PostEffectQueueInternal")&&f.desc.equals("Ljava/util/PriorityQueue;")),"VIX uses the actual PriorityQueue poll order");
+        var screen=vix.get("com/guhao/vix/client/event/ScreenEffectEngine");
+        check(methods(screen,"OnRender(Lnet/neoforged/neoforge/client/event/RenderLevelStageEvent;)V").size()==1,"VIX screen stage callback descriptor");
+        for(String name:List.of("AirDisturbanceRenderType$Pipeline","ChromaticAberrationRenderType$Pipeline")) {
+            var type=read(nightfall,"com/hm/efn/client/render/custom/"+name);
+            check(methods(type,"updateAnimation()V").size()==1,name+" actual CPU animation method");
+            for(String field:List.of("currentTime","progress"))check(type.fields.stream().anyMatch(f->f.name.equals(field)&&f.desc.equals("F")),name+" "+field+" field");
+            check(type.fields.stream().anyMatch(f->f.name.equals("animationStarted")&&f.desc.equals("Z")),name+" animation lifecycle field");
+        }
+        var distortion=read(nightfall,"com/hm/efn/client/screeneffect/ScreenDistortionEffect$Distortion_Pipeline");
+        check(methods(distortion,"getDistortionProgress()F").size()==1,"screen distortion actual progress method");
+        check(methods(distortion,"getDistortionIntensity(F)F").size()==1,"screen distortion actual intensity method");
+        var dispersion=read(nightfall,"com/hm/efn/client/screeneffect/ColorDispersionEffect");
+        check(dispersion.fields.stream().anyMatch(f->f.name.equals("type")&&f.desc.equals("Lcom/hm/efn/client/screeneffect/ColorDispersionEffect$Type;")),"color dispersion enum state");
+        var screenBase=vix.get("com/guhao/vix/client/screeneffect/ScreenEffectBase");
+        for(String field:List.of("age","lifetime"))check(screenBase.fields.stream().anyMatch(f->f.name.equals(field)&&f.desc.equals("I")),"color dispersion integer "+field);
+        var cdPipeline=read(nightfall,"com/hm/efn/client/screeneffect/ColorDispersionEffect$CD_Pipeline");
+        check(cdPipeline.superName.equals("com/guhao/vix/client/screeneffect/ScreenEffectBase$SE_Pipeline"),"color dispersion is maskless screen pipeline");
+        check(methods(cdPipeline,"PostEffectHandler()V").stream().flatMap(m->calls(m).stream()).anyMatch(c->c.owner.equals("com/hm/efn/client/shaderpasses/ColorDispersion")&&c.name.equals("process")
+            &&c.desc.equals("(Lcom/mojang/blaze3d/pipeline/RenderTarget;Lcom/mojang/blaze3d/pipeline/RenderTarget;FFFFFF)V")),"color dispersion actual six-float process descriptor");
+        var cdCapture=read(release,"dev/goldcraft/client/ColorDispersionParameters");
+        check(methods(cdCapture,"write([FIIZFF)V").size()==1,"release color-dispersion uniform adapter");
+        var capture=read(release,"dev/goldcraft/client/VixPostCapture");
+        check(methods(capture,"capture").stream().flatMap(m->calls(m).stream()).anyMatch(c->c.owner.equals("net/minecraft/client/particle/ParticleEngine")&&c.name.equals("render")
+            &&c.desc.equals("(Lnet/minecraft/client/renderer/LightTexture;Lnet/minecraft/client/Camera;FLnet/minecraft/client/renderer/culling/Frustum;Ljava/util/function/Predicate;)V")),
+            "release capture invokes the exact VIX-tail particle overload");
+        for(String suffix:List.of("","$Context","$Api")) {
+            var type=read(release,"dev/goldcraft/client/VixPostCapture"+suffix);
+            check(type.methods.stream().flatMap(m->calls(m).stream()).noneMatch(c->c.owner.equals("com/mojang/blaze3d/pipeline/RenderTarget")||c.owner.equals("com/guhao/vix/client/targets/TargetManager")),
+                "VIX capture"+suffix+" contains no hidden target operations");
+        }
+    }
     public static void main(String[] args) throws Exception {
         try(var game=new ZipFile(args[0]);var release=new ZipFile(args[1]);var maid=new ZipFile(args[2]);
             var epic=new ZipFile(args[3]);var nightfall=new ZipFile(args[4])) {
-            for(String name:List.of("DirectMeshMixin","EffectGlMixin","ImmediateBuffersAccessor","ParticleRenderBudgetMixin","ParticleBuffersMixin"))
+            for(String name:List.of("DirectMeshMixin","EffectLayeringMixin","RenderParametersAccessor","EffectGlMixin","ImmediateBuffersAccessor","ParticleRenderBudgetMixin","ParticleBuffersMixin","LightmapTextureAccessor"))
                 mixin(release,game,name);
             hostedScope(release);
             var uploader=read(game,"com/mojang/blaze3d/vertex/BufferUploader");
@@ -138,14 +198,15 @@ public final class EffectEntrypointsProbe {
                 var entry=entries.nextElement();if(!entry.getName().endsWith("vix-1.0.9.jar"))continue;
                 try(var nested=new ZipInputStream(new ByteArrayInputStream(nightfall.getInputStream(entry).readAllBytes()))) {
                     for(var file=nested.getNextEntry();file!=null;file=nested.getNextEntry())
-                        if(file.getName().endsWith("PostParticleRenderType.class")||file.getName().endsWith("PostPassBase.class")) {
+                        if(file.getName().endsWith(".class")) {
                             var type=read(nested.readAllBytes());vix.put(type.name,type);
                         }
                 }
             }
-            check(vix.containsKey("com/guhao/vix/client/pipeline/PostParticleRenderType"),"VIX excluded post-particle type identity");
+            check(vix.containsKey("com/guhao/vix/client/pipeline/PostParticleRenderType"),"VIX separate post-particle type identity");
             check(vix.values().stream().filter(c->c.name.endsWith("PostPassBase")).flatMap(c->c.methods.stream()).flatMap(m->calls(m).stream())
                 .anyMatch(c->c.owner.equals(uploader.name)&&c.name.equals("draw")),"VIX screen-space manual upload remains separate");
+            vixCapture(release,nightfall,vix);
         }
         System.out.println("{\"checks\":"+checks+",\"releaseTargetsVerified\":true,\"runtimeMixinExecution\":false}");
     }

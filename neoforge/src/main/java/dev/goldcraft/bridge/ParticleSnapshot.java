@@ -11,7 +11,7 @@ public final class ParticleSnapshot {
                            int equationRgb,int equationAlpha,int depthFunc,int colorMask,
                            float cutoff,float red,float green,float blue,float alpha) {
         public Material {
-            if((flags&~127)!=0||(flags&48)==48||!factor(srcRgb,true)||!factor(dstRgb,false)
+            if((flags&~511)!=0||(flags&48)==48||!factor(srcRgb,true)||!factor(dstRgb,false)
                 ||!factor(srcAlpha,false)||!factor(dstAlpha,false)||!equation(equationRgb)||!equation(equationAlpha)
                 ||depthFunc<512||depthFunc>519||colorMask<0||colorMask>15||!bounded(cutoff,1)
                 ||!bounded(red,4)||!bounded(green,4)||!bounded(blue,4)||!bounded(alpha,4))

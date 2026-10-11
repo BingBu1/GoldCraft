@@ -34,6 +34,7 @@ private:
 struct Statistics {
     std::uint64_t uploads=0,upload_bytes=0,draws=0,opaque_passes=0,shadow_passes=0;
     GLenum error=0;
+    std::uint64_t error_count=0;
     bool core=false,renderer=false,scene_api=false,post_scene_api=false;
 };
 const Statistics& statistics();
@@ -53,7 +54,7 @@ class Pass {
 public:
     // This scope owns its shader/texture/depth state until destruction. Only
     // GoldCraft mesh operations run inside it; host callbacks run outside.
-    Pass(bool transparent, std::uint32_t flags);
+    Pass(bool transparent, std::uint32_t flags, const MetaRendererPostSceneFrame* post_mask=nullptr);
     ~Pass();
     Pass(const Pass&)=delete;
     Pass& operator=(const Pass&)=delete;
@@ -61,6 +62,7 @@ public:
     void texture(GLuint id);
     void emissive(bool value);
     void depth_write(bool value);
+    void view_offset(bool value);
     void feedback(unsigned mode);
     bool effect(const ParticleMaterial& material,GLuint texture);
 private:
@@ -69,6 +71,8 @@ private:
     GLint emissive_location_=-1;
     GLint feedback_location_=-1;
     GLint effect_location_=-1,cutoff_location_=-1,color_mod_location_=-1;
+    GLint view_offset_location_=-1;
+    bool view_offset_=false;
     std::optional<ParticleMaterial> effect_material_;
     bool effects_allowed_=false;
     int emissive_value_=-1;
@@ -76,5 +80,6 @@ private:
     bool depth_write_=false;
     bool stencil_write_=false;
     bool shadow_=false;
+    bool raw_mask_=false;
 };
 }

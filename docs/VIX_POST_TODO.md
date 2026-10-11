@@ -1,11 +1,15 @@
-# VIX / Epic 后处理待接入
+# VIX / Epic 后处理
 
-- [x] MetaHookSv 场景回调：在 `R_RenderScene()` 后、CS viewmodel 前提供真实颜色/深度和矩阵。
-- [x] GoldCraft GPU 快照：复用纹理/FBO，保存 CS 场景颜色、深度和 stencil，不读回 CPU。
-- [x] Epic Fight 普通刀光、命中、闪电及女仆网格走协议 23。
-- [ ] VIX `PostParticleRenderType`：导出真实遮罩顶点、顶点格式、纹理修订和深度策略。
-- [ ] VIX 有序通道：保留 priority 队列实际出队顺序，支持 bloom、space broken、chromatic、air disturbance 和屏幕效果。
-- [ ] CS 端按白名单 shader 语义执行 ping-pong 后处理，未识别通道必须清空并上报 unsupported。
-- [ ] 用真实 CS 场景颜色/深度验证墙体遮挡、重叠顺序、空帧、resize、map/disconnect/form 切换和失败清理。
+协议 26 已统一构建、部署并在单 B／cs_assault／24 Bots 下实际配对。Java 140 项、native 40 项、入口 84 项及 Renderer 13／线程 10 项通过；真实游戏已有非零回放、GL0 和失败计数 0。画面及 FPS 尚未验收。[实现和边界](WORLD_EFFECTS.md)
 
-当前状态：Renderer 与快照离线测试通过；VIX 后处理仍未部署或实机验收。不要将普通 Epic 网格导出误认为泛光/折射已同步。
+- [x] CS 场景颜色／深度／矩阵快照，复用 GPU 目标。
+- [x] 真实 VIX 遮罩、有序绘制组、纹理修订、光照与六类后处理。
+- [x] 修复刀光合法 UV 被拒、排序 TRIANGLES 多余索引容量、GoldSrc 首 pass 编号。
+- [x] 4096 图集有界分块，完整后发布；实体底图／附魔原子帧及相机偏移。
+- [x] 修复 Core polygon-mode 恢复的 GL1280；双 profile 六类生产回放通过。
+- [ ] 实机验收女仆气泡、附魔与六类技能，尤其新增全屏色散。
+- [ ] 验证墙体遮挡、混合、空帧、换图／断线／形态清理。
+- [ ] 固定观察者位置／朝向比较帧时间；自动截图连续超时，暂缺画面证据。
+- [ ] 区分刀光时 CS HUD 回退、GameUI、死亡／租约变化与真实形态切换。
+
+原版 bloom 过滤绑定仍有歧义，回放固定已核对的 NEAREST；HDR 工作颜色保留，遮罩／金字塔 RGBA8，雾一致性仍有限制。实际游戏计数、隐藏 GL 像素测试和静态入口检查各自有边界，不能互相替代。

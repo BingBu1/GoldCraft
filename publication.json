@@ -31,6 +31,8 @@
     "tests/native/effects_gl_tests.inc",
     "tools/Test-MaidCapture.py",
     "tools/Test-WorldEffects.py",
+    "tools/Test-TrailProducer.py",
+    "tools/Extract-VixPostShaders.py",
     "docs/WORLD_EFFECTS.md",
     "tools/Exercise-BrushLifecycle.py",
     "tools/Verify-BrushServer.py",

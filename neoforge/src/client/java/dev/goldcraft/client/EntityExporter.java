@@ -29,7 +29,7 @@ import java.util.*;
 
 /** Uses the actual Minecraft entity and block-entity renderers, preserving animated model vertices. */
 public final class EntityExporter {
-    private record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles) {}
+    private record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset) {}
     private record TextureStamp(AbstractTexture texture,int glId,long revision) {}
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
@@ -44,6 +44,11 @@ public final class EntityExporter {
     private int hurtVertices,triangleBatches,wrappedLayers,unsupportedLayers;
     private String lastError="";
     public EntityExporter(BridgeLink link){this.link=link;active=this;}
+    static boolean isGlintLayer(RenderLayer layer) {
+        return layer==RenderLayer.getArmorEntityGlint()||layer==RenderLayer.getGlintTranslucent()
+            ||layer==RenderLayer.getGlint()||layer==RenderLayer.getEntityGlint()
+            ||layer==RenderLayer.getDirectEntityGlint();
+    }
     public void reset(){textures.clear();uploaded.clear();pacing.reset();lastFrame=revision=0;}
     public static void textureChanged(AbstractTexture texture){textureRevisions.merge(texture,1L,Long::sum);}
     public static void beginAtlasAnimation(SpriteAtlasTexture atlas){animatedAtlas=atlas.getId().equals(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE)?null:atlas;}
@@ -76,6 +81,10 @@ public final class EntityExporter {
                 if(layer instanceof RenderLayerDelegate wrapped) {
                     layer=wrapped.goldcraft$delegateLayer();wrappedLayers++;
                 }
+                // Glint textures are opaque purple. Minecraft masks them with
+                // GL_EQUAL against the item's depth and uses a dedicated blend
+                // mode and animated texture matrix. Preserve that actual draw.
+                if(isGlintLayer(layer))return DirectMeshCapture.entityBuffers().getBuffer(layer);
                 boolean triangles=layer.getDrawMode()==VertexFormat.DrawMode.TRIANGLES;
                 if((!triangles&&layer.getDrawMode()!=VertexFormat.DrawMode.QUADS)||!(layer instanceof RenderLayer.MultiPhase phase)) {
                     unsupportedLayers++;return new WorldExporter.Collector();
@@ -87,7 +96,8 @@ public final class EntityExporter {
                 var mask=((RenderParametersAccessor)(Object)parameters).goldcraft$writeMask();
                 // Translucent layers can still write depth: vanilla player skins do.
                 // Sorting/blending and depth writes are independent material properties.
-                Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles);
+                Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles,
+                    LayerSemantics.viewOffset(parameters));
                 return batches.computeIfAbsent(material,ignored->new WorldExporter.Collector(true,triangles));
             };
             var camera=client.gameRenderer.getCamera();
@@ -128,7 +138,7 @@ public final class EntityExporter {
                 }
             }
             // Deferred buffers can contain several entities; attribute only immediate draws individually.
-            effects.source("entity_buffer_flush");effects.finish();ParticleExporter.entityEffects(epoch,HostInput.life(),effects);
+            effects.source("entity_buffer_flush");effects.finish();
             record Batch(int texture,int flags,byte[] vertices) {}
             List<Batch> ready=new ArrayList<>();int bytes=0;hurtVertices=triangleBatches=0;
             for(var entry:batches.entrySet()) {
@@ -145,7 +155,7 @@ public final class EntityExporter {
                     var stamp=new TextureStamp(texture,texture.getGlId(),textureRevisions.getOrDefault(texture,0L));
                     if(!stamp.equals(uploaded.get(id))){if(!upload(epoch,stamp,id,number)){sendFailures++;return;}uploaded.put(id,stamp);}
                 }
-                int flags=(entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0);
+                int flags=(entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0)|(entry.getKey().viewOffset?4:0);
                 ready.add(new Batch(number,flags,vertices));bytes+=vertices.length;
             }
             Wire.Writer writer=new Wire.Writer().i64(epoch).i64(++revision).i32(entityCount).i32(blockCount).i32(ready.size());
@@ -155,7 +165,7 @@ public final class EntityExporter {
             writer.i32(avatars.size());
             for(var actor:avatars)writer.i32(actor.slot()).i32(actor.serial()).i32(actor.userid()).bytes(Wire.uuid(actor.minecraftPlayer()));
             byte[] payload=writer.toByteArray();
-            if(link.send(Wire.ENTITY_MESH,payload)){frames++;meshBytes+=payload.length;lastError="";}else sendFailures++;
+            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,payload,effects)){frames++;meshBytes+=payload.length;lastError="";}else sendFailures++;
         }catch(RuntimeException e){if(!e.toString().equals(lastError)){lastError=e.toString();GoldCraft.LOGGER.warn("Entity export failed",e);}}
         finally{Performance.end("entityExport",began);}
     }

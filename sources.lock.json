@@ -55,7 +55,8 @@
         "include/Interface/IMetaRendererPostScene.h",
         "src/post_scene.h",
         "src/post_scene.cpp",
-        "tests/post_scene_tests.cpp"
+        "tests/post_scene_tests.cpp",
+        "tests/extract_post_scene_dispatch.py"
       ]
     },
     "BulletPhysics": {

@@ -14,6 +14,8 @@ record EffectShader(boolean texture,boolean light,float cutoff,int flags) {
             case "rendertype_text_see_through" -> new EffectShader(true,false,.1f,16);
             case "rendertype_translucent", "rendertype_entity_solid", "rendertype_entity_no_outline" -> new EffectShader(true,true,0,0);
             case "rendertype_entity_translucent", "rendertype_entity_cutout", "rendertype_entity_cutout_no_cull" -> new EffectShader(true,true,.1f,32);
+            case "rendertype_glint", "rendertype_glint_translucent", "rendertype_entity_glint",
+                 "rendertype_entity_glint_direct", "rendertype_armor_entity_glint" -> new EffectShader(true,false,.1f,0);
             case "rendertype_text_background" -> new EffectShader(false,true,.1f,0);
             case "rendertype_text_background_see_through" -> new EffectShader(false,false,.1f,16);
             case "rendertype_lightning" -> new EffectShader(false,false,0,0);

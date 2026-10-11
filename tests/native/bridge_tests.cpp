@@ -139,7 +139,7 @@ int main() {
         reject([&]{Reader in(malformed);read_particles(in);},"trailing particle bytes rejected");
         malformed=particles.data;malformed[36]=65;
         reject([&]{Reader in(malformed);read_particles(in);},"particle texture budget enforced");
-        malformed=particles.data;malformed[40]=128;
+        malformed=particles.data;malformed[41]=2;
         reject([&]{Reader in(malformed);read_particles(in);},"unknown particle flags rejected");
         malformed=particles.data;malformed[96]=3;
         reject([&]{Reader in(malformed);read_particles(in);},"incomplete particle quad rejected");

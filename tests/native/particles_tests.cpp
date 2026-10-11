@@ -26,7 +26,7 @@ int main(){
     auto extra=data.data;extra.push_back(0);reject(extra);
     for(unsigned field:{0u,8u,16u,24u}){auto bad=data.data;put(bad,field,0);reject(bad);}
     auto check_invalid=[&](unsigned offset,std::uint32_t value){auto bad=data.data;put(bad,36+offset,value);reject(bad);};
-    check_invalid(0,65);check_invalid(0,0xfffffffe);check_invalid(4,128);check_invalid(4,16|32);
+    check_invalid(0,65);check_invalid(0,0xfffffffe);check_invalid(4,512);check_invalid(4,16|32);
     for(unsigned offset:{8u,12u,16u,20u})for(unsigned value:{2u,0x0309u,0x8001u,0xffffffffu})check_invalid(offset,value);
     for(unsigned offset:{12u,16u,20u})check_invalid(offset,0x0308);
     for(unsigned offset:{24u,28u})for(unsigned value:{0u,0x8007u,0x8008u,0x8009u})check_invalid(offset,value);
@@ -34,14 +34,21 @@ int main(){
     for(unsigned value:{std::bit_cast<unsigned>(-.01f),std::bit_cast<unsigned>(1.01f),0x7f800000u,0xff800000u,0x7fc00000u})check_invalid(40,value);
     for(unsigned offset:{44u,48u,52u,56u})for(unsigned value:{std::bit_cast<unsigned>(-.01f),std::bit_cast<unsigned>(4.01f),0x7fc00000u})check_invalid(offset,value);
     for(unsigned value:{0u,3u,65540u,0xffffffffu})check_invalid(60,value);
-    for(unsigned offset:{64u,68u,72u,76u,80u})check_invalid(offset,0x7fc00000);
+    for(unsigned offset:{64u,68u,72u,76u,80u})
+        for(unsigned value:{0x7fc00000u,0x7f800000u,0xff800000u})check_invalid(offset,value);
+    for(unsigned offset:{64u,68u,72u})check_invalid(offset,std::bit_cast<unsigned>(32000004.f));
+    auto trail=data.data;
+    put(trail,36+76+2*24,std::bit_cast<unsigned>(125.00161f));
+    put(trail,36+80+2*24,std::bit_cast<unsigned>(-20.000116f));
+    const auto young_trail=decode(trail).batches[0].vertices[2];
+    assert(young_trail.u==125.00161f&&young_trail.v==-20.000116f);
     for(unsigned depth=0x0200;depth<=0x0207;++depth){m.depth_func=depth;assert(valid_particle_material(m));}
     for(unsigned factor:{0u,1u,0x0300u,0x0301u,0x0302u,0x0303u,0x0304u,0x0305u,0x0306u,0x0307u}){
         m.src_rgb=m.dst_rgb=m.src_alpha=m.dst_alpha=factor;assert(valid_particle_material(m));
     }
     m.src_rgb=0x0308;assert(valid_particle_material(m));
     for(unsigned equation:{0x8006u,0x800au,0x800bu}){m.equation_rgb=m.equation_alpha=equation;assert(valid_particle_material(m));}
-    for(unsigned flags=0;flags<=127;++flags){m.flags=flags;assert(valid_particle_material(m)==((flags&48)!=48));}
+    for(unsigned flags=0;flags<=511;++flags){m.flags=flags;assert(valid_particle_material(m)==((flags&48)!=48));}
     m=ParticleMaterial{};m.texture=particle_untextured;m.flags=particle_depth_write|particle_depth_test;m.color_mask=0;
     auto equal=m;equal.flags=particle_depth_test;equal.depth_func=0x0202;equal.color_mask=15;
     auto ordered=frame(5,5);batch(ordered,m);batch(ordered,m);batch(ordered,equal);batch(ordered,m);batch(ordered,m);

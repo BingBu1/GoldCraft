@@ -95,6 +95,105 @@ class EffectGeometryTest {
         assertOrder(convert(vertices(6,POSITION,0),6,POSITION,EffectGeometry.Mode.TRIANGLES),0,1,2,2,3,4,5,5);
     }
 
+    @Test void epicFightSortedTrianglesUseOnlyDrawnIndicesAndPreserveBuffers() {
+        for(int size:new int[]{2,4}) {
+            var source=vertices(6,PADDED,7);
+            // Installed Epic Fight MixinMeshData reserves six indices per
+            // triangle but writes three; DrawState.indexCount draws only six.
+            var sorted=indices(size,3,4,5,0,1,2,-1,-1,-1,-1,-1,-1)
+                .asReadOnlyBuffer().order(ByteOrder.BIG_ENDIAN);
+            byte[] before=remaining(sorted),verticesBefore=remaining(source);
+            int position=sorted.position(),limit=sorted.limit();
+            byte[] mesh=EffectGeometry.convert(source,6,PADDED,EffectGeometry.Mode.TRIANGLES,sorted,size,
+                new Matrix4f(),0,0,0,false,8);
+            assertOrder(mesh,3,4,5,5,0,1,2,2);
+            var result=decoded(mesh);int[] order={3,4,5,5,0,1,2,2};
+            for(int i=0;i<order.length;i++) {
+                assertEquals(order[i]*.25f,result.getFloat(i*24+12));
+                assertEquals(-order[i]*.5f,result.getFloat(i*24+16));
+                assertEquals(128+order[i],Byte.toUnsignedInt(result.get(i*24+20)));
+                assertEquals(64+order[i],Byte.toUnsignedInt(result.get(i*24+23)));
+            }
+            assertEquals(position,sorted.position());assertEquals(limit,sorted.limit());
+            assertEquals(ByteOrder.BIG_ENDIAN,sorted.order());
+            assertArrayEquals(before,remaining(sorted));assertArrayEquals(verticesBefore,remaining(source));
+        }
+    }
+
+    @Test void sortedTriangleIndicesAboveSignedShortRangeRemainUnsigned() {
+        int count=32772;var sorted=ByteBuffer.allocate(count*2).order(ByteOrder.nativeOrder());
+        for(int triangle=count/3-1;triangle>=0;triangle--)
+            for(int i=0;i<3;i++)sorted.putShort((short)(triangle*3+i));
+        sorted.flip();byte[] mesh=EffectGeometry.convert(vertices(count,POSITION,0),count,POSITION,EffectGeometry.Mode.TRIANGLES,
+            sorted,2,new Matrix4f(),0,0,0,false,count/3*4);
+        assertEquals(32770,decoded(mesh).getFloat(0));assertEquals(3,decoded(mesh).getFloat(mesh.length-24));
+    }
+
+    @Test void declaredDrawCountMustMatchTheSupportedMeshTopology() {
+        for(int count:new int[]{-1,0,3,9,Integer.MAX_VALUE})
+            assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(6,POSITION,0),6,POSITION,
+                EffectGeometry.Mode.TRIANGLES,indices(2,3,4,5,0,1,2),2,count,new Matrix4f(),null,0,0,0,false,8));
+        assertOrder(EffectGeometry.convert(vertices(6,POSITION,0),6,POSITION,EffectGeometry.Mode.TRIANGLES,
+            indices(2,3,4,5,0,1,2,-1),2,6,new Matrix4f(),null,0,0,0,false,8),3,4,5,5,0,1,2,2);
+    }
+
+    @Test void glintTextureMatrixMatchesShaderXyWithoutPerspectiveDivideOrClamping() {
+        var source=vertices(4,PADDED,7);byte[] before=remaining(source);
+        // TextureMat * vec4(UV0, 0, 1), then .xy. The deliberately nontrivial
+        // w row must not cause a perspective divide; Z is always zero.
+        var texture=new Matrix4f().m00(0).m10(-4).m20(6).m30(2)
+            .m01(8).m11(0).m21(7).m31(-3).m03(.5f).m13(2).m33(7);
+        var indices=indices(2,0,1,2,2,3,0);
+        for(String shader:new String[]{"rendertype_glint","rendertype_glint_translucent","rendertype_entity_glint",
+            "rendertype_entity_glint_direct","rendertype_armor_entity_glint"}) {
+            assertTrue(EffectGeometry.usesTextureMatrix(shader));assertTrue(EffectGeometry.usesTextureMatrix("minecraft:"+shader));
+            var out=decoded(EffectGeometry.convert(source,4,PADDED,EffectGeometry.Mode.QUADS,indices,2,6,
+                new Matrix4f(),texture,0,0,0,false,4));
+            for(int i=0;i<4;i++) {
+                assertEquals(i+1f,out.getFloat(i*24));assertEquals(i+2f,out.getFloat(i*24+4));
+                assertEquals(2+2*i,out.getFloat(i*24+12));assertEquals(-3+2*i,out.getFloat(i*24+16));
+                assertEquals(128+i,Byte.toUnsignedInt(out.get(i*24+20)));assertEquals(64+i,Byte.toUnsignedInt(out.get(i*24+23)));
+            }
+        }
+        // Each draw sees the current matrix; no cached frame-start transform.
+        texture.translation(20,-30,0).scale(2);
+        var later=decoded(EffectGeometry.convert(source,4,PADDED,EffectGeometry.Mode.QUADS,indices,2,6,
+            new Matrix4f(),texture,0,0,0,false,4));
+        assertEquals(21.5f,later.getFloat(3*24+12));assertEquals(-33,later.getFloat(3*24+16));
+        assertArrayEquals(before,remaining(source));assertEquals(7,source.position());assertEquals(5,indices.position());
+    }
+
+    @Test void ordinaryShadersKeepRawUvsAndNonfiniteGlintResultsAreRejected() {
+        for(String shader:new String[]{"particle","position_color_tex_lightmap","position_tex","rendertype_text",
+            "rendertype_entity_translucent","mod:rendertype_glint","rendertype_glint_custom"}) {
+            assertFalse(EffectGeometry.usesTextureMatrix(shader));
+            var out=decoded(EffectGeometry.convert(vertices(4,PADDED,0),4,PADDED,EffectGeometry.Mode.QUADS,null,0,6,
+                new Matrix4f(),EffectGeometry.usesTextureMatrix(shader)?new Matrix4f().translation(20,30,0):null,0,0,0,false,4));
+            assertEquals(.75f,out.getFloat(3*24+12));assertEquals(-1.5f,out.getFloat(3*24+16));
+        }
+        for(float invalid:new float[]{Float.NaN,Float.POSITIVE_INFINITY})
+            assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(4,PADDED,0),4,PADDED,
+                EffectGeometry.Mode.QUADS,null,0,6,new Matrix4f(),new Matrix4f().m30(invalid),0,0,0,false,4));
+    }
+
+    @Test void glintStrengthModulatesOnlyRgbAndRetainsDrawStateAndAlphaTest() {
+        var state=new net.neoforged.neoforge.client.GlStateBackup();
+        state.depthMask=false;state.blendEnabled=true;state.depthEnabled=true;state.cullEnabled=false;
+        state.blendSrcRgb=768;state.blendDestRgb=1;state.blendSrcAlpha=0;state.blendDestAlpha=1;
+        state.depthFunc=514;state.colorMaskRed=true;state.colorMaskGreen=true;state.colorMaskBlue=true;state.colorMaskAlpha=false;
+        var policy=new EffectShader(true,false,.1f,0);float[] color={.8f,.4f,.2f,.42f};
+        for(float strength:new float[]{0,.25f,1}) {
+            var result=DirectMeshCapture.material(state,32774,policy,color,true,strength);
+            assertEquals(.8f*strength,result.red());assertEquals(.4f*strength,result.green());assertEquals(.2f*strength,result.blue());
+            assertEquals(.42f,result.alpha());assertEquals(.1f,result.cutoff());assertEquals(128|2|4,result.flags());
+            assertEquals(768,result.srcRgb());assertEquals(1,result.dstRgb());assertEquals(0,result.srcAlpha());assertEquals(1,result.dstAlpha());
+            assertEquals(32774,result.equationRgb());assertEquals(32774,result.equationAlpha());assertEquals(514,result.depthFunc());assertEquals(7,result.colorMask());
+        }
+        var ordinary=DirectMeshCapture.material(state,32774,policy,color,false,0);
+        assertEquals(.8f,ordinary.red());assertEquals(.4f,ordinary.green());assertEquals(.2f,ordinary.blue());assertEquals(.42f,ordinary.alpha());
+        assertEquals(2|4,ordinary.flags());assertArrayEquals(new float[]{.8f,.4f,.2f,.42f},color);
+    }
+
     @Test void stripAlternatesTheFirstTwoVerticesToPreserveWinding() {
         assertOrder(convert(vertices(5,POSITION,0),5,POSITION,EffectGeometry.Mode.TRIANGLE_STRIP),0,1,2,2,2,1,3,3,2,3,4,4);
     }
@@ -156,7 +255,10 @@ class EffectGeometryTest {
         }
         assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(source,4,POSITION,EffectGeometry.Mode.QUADS,ByteBuffer.allocate(11),2,new Matrix4f(),0,0,0,false,4));
         assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(source,4,POSITION,EffectGeometry.Mode.QUADS,ByteBuffer.allocate(6),1,new Matrix4f(),0,0,0,false,4));
-        assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(3,POSITION,0),3,POSITION,EffectGeometry.Mode.TRIANGLES,indices(2,0,1,2),2,new Matrix4f(),0,0,0,false,4));
+        assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(3,POSITION,0),3,POSITION,EffectGeometry.Mode.TRIANGLES,indices(2,0,1),2,new Matrix4f(),0,0,0,false,4));
+        for(int[] values:new int[][]{{0,1,3},{-1,1,2}})
+            assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(3,POSITION,0),3,POSITION,EffectGeometry.Mode.TRIANGLES,
+                indices(4,values),4,new Matrix4f(),0,0,0,false,4));
     }
 
     @Test void nonfiniteCoordinatesUvsAndTransformedBoundsAreRejected() {
@@ -164,10 +266,41 @@ class EffectGeometryTest {
             var source=vertices(4,PADDED,0);source.putFloat(offset,invalid);
             assertThrows(IllegalArgumentException.class,()->convert(source,4,PADDED,EffectGeometry.Mode.QUADS));
         }
-        var excessiveUv=vertices(4,PADDED,0);excessiveUv.putFloat(24,16.01f);
-        assertThrows(IllegalArgumentException.class,()->convert(excessiveUv,4,PADDED,EffectGeometry.Mode.QUADS));
         for(double x:new double[]{Double.NaN,Double.POSITIVE_INFINITY,32_000_001})
             assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(4,POSITION,0),4,POSITION,EffectGeometry.Mode.QUADS,null,0,new Matrix4f(),x,0,0,false,4));
         assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(vertices(4,POSITION,0),4,POSITION,EffectGeometry.Mode.QUADS,null,0,new Matrix4f().scaling(Float.NaN),0,0,0,false,4));
+    }
+
+    @Test void boundsFailureDistinguishesRawPositionTransformAndUvWithoutMutatingInput() {
+        var source=vertices(4,PADDED,7);byte[] before=remaining(source);
+        var transformed=assertThrows(IllegalArgumentException.class,()->EffectGeometry.convert(source,4,PADDED,
+            EffectGeometry.Mode.QUADS,null,0,new Matrix4f().scaling(Float.NaN),100,200,300,false,4));
+        assertTrue(transformed.getMessage().contains("vertex=0/4 raw=[1.0,2.0,3.0]"));
+        assertTrue(transformed.getMessage().contains("world=[NaN,NaN,NaN] uv=[0.0,0.0]"));
+        assertArrayEquals(before,remaining(source));assertEquals(7,source.position());
+
+        source.putFloat(7+40+24,Float.NaN);before=remaining(source);
+        var uv=assertThrows(IllegalArgumentException.class,()->convert(source,4,PADDED,EffectGeometry.Mode.QUADS));
+        assertTrue(uv.getMessage().contains("vertex=1/4 raw=[2.0,3.0,4.0] world=[2.0,3.0,4.0] uv=[NaN,-0.5]"));
+        assertArrayEquals(before,remaining(source));
+    }
+
+    @Test void youngTrailUvsRemainUnclampedThroughSortedConversionAndWireEncoding() {
+        var source=vertices(4,PADDED,7);
+        // Actual installed AbstractTrailParticle.render emits this U for
+        // nine edges, interpolateCount4, partialTick .001 (see producer probe).
+        float[] u={0,0,125.00161f,125.00161f};
+        for(int i=0;i<4;i++)source.putFloat(7+i*40+24,u[i]).putFloat(7+i*40+28,-20.000116f);
+        byte[] before=remaining(source);
+        byte[] mesh=EffectGeometry.convert(source,4,PADDED,EffectGeometry.Mode.QUADS,indices(2,0,1,2,2,3,0),2,
+            new Matrix4f(),10,64,-10,false,4);
+        var wire=new dev.goldcraft.bridge.Wire.Reader(ParticleSnapshot.encode(1,1,1,1,1,
+            java.util.List.of(new ParticleSnapshot.Batch(1,0,mesh))));
+        wire.bytes(36+64);
+        for(int i=0;i<4;i++) {
+            assertEquals(i+11f,wire.f32());assertEquals(i+66f,wire.f32());assertEquals(i-7f,wire.f32());
+            assertEquals(u[i],wire.f32());assertEquals(-20.000116f,wire.f32());wire.i32();
+        }
+        wire.finish();assertArrayEquals(before,remaining(source));
     }
 }

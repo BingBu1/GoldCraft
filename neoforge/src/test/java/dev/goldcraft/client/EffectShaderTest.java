@@ -35,6 +35,12 @@ class EffectShaderTest {
         policy("rendertype_lightning",false,false,0,0);
     }
 
+    @Test void vanillaGlintProgramsUseTheCapturedDepthAndBlendState() {
+        for(String name:new String[]{"rendertype_glint","rendertype_glint_translucent",
+            "rendertype_entity_glint","rendertype_entity_glint_direct","rendertype_armor_entity_glint"})
+            policy(name,true,false,.1f,0);
+    }
+
     @Test void onlyVerifiedCoreNamesAreAcceptedAndMinecraftPrefixIsEquivalent() {
         assertEquals(EffectShader.of("particle"),EffectShader.of("minecraft:particle"));
         assertNull(EffectShader.of("other_mod:particle"));

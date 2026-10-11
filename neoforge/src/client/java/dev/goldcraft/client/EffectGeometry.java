@@ -13,6 +13,11 @@ final class EffectGeometry {
 
     static byte[] convert(ByteBuffer source,int count,Layout layout,Mode mode,ByteBuffer indices,int indexSize,
                           Matrix4fc transform,double x,double y,double z,boolean lit,int budget) {
+        return convert(source,count,layout,mode,indices,indexSize,drawIndices(mode,count),transform,null,x,y,z,lit,budget);
+    }
+
+    static byte[] convert(ByteBuffer source,int count,Layout layout,Mode mode,ByteBuffer indices,int indexSize,int indexCount,
+                          Matrix4fc transform,Matrix4fc textureTransform,double x,double y,double z,boolean lit,int budget) {
         if(count<0||count>ParticleSnapshot.MAX_VERTICES||layout.stride<12
             ||!field(layout.position,12,layout.stride,false)||!field(layout.color,4,layout.stride,true)
             ||!field(layout.uv,8,layout.stride,true)||!field(layout.light,4,layout.stride,true)
@@ -23,11 +28,14 @@ final class EffectGeometry {
             case TRIANGLE_STRIP,TRIANGLE_FAN -> Math.max(0,count-2)*4;
         };
         if(output>budget||output>ParticleSnapshot.MAX_VERTICES)throw new IllegalArgumentException("Effect vertex budget");
+        if(indexCount!=drawIndices(mode,count))throw new IllegalArgumentException("Effect draw index count");
         ByteBuffer input=source.slice().order(ByteOrder.nativeOrder()),sorted=null;
         if(indices!=null) {
-            if(mode!=Mode.QUADS||(indexSize!=2&&indexSize!=4)||indices.remaining()!=count/4*6*indexSize)
+            if((mode!=Mode.QUADS&&mode!=Mode.TRIANGLES)||(indexSize!=2&&indexSize!=4)||indices.remaining()<indexCount*indexSize)
                 throw new IllegalArgumentException("Effect index layout");
-            sorted=indices.slice().order(ByteOrder.nativeOrder());
+            // Epic Fight's triangle sort reserves six indices per triangle
+            // but writes three. GL draws indexCount; trailing storage is not geometry.
+            sorted=indices.slice().order(ByteOrder.nativeOrder()).limit(indexCount*indexSize);
         }
         ByteBuffer out=ByteBuffer.allocate(output*24).order(ByteOrder.LITTLE_ENDIAN);
         Vector3f point=new Vector3f();
@@ -43,29 +51,50 @@ final class EffectGeometry {
                             throw new IllegalArgumentException("Non-quad sorted index topology");
                     }
                 }
-                case TRIANGLES -> {a=primitive*3;b=a+1;c=a+2;d=c;}
+                case TRIANGLES -> {
+                    a=primitive*3;b=a+1;c=a+2;
+                    if(sorted!=null){a=index(sorted,a,indexSize);b=index(sorted,b,indexSize);c=index(sorted,c,indexSize);}
+                    d=c;
+                }
                 case TRIANGLE_STRIP -> {a=primitive+(primitive%2);b=primitive+1-(primitive%2);c=primitive+2;d=c;}
                 case TRIANGLE_FAN -> {a=0;b=primitive+1;c=primitive+2;d=c;}
                 default -> throw new AssertionError();
             }
-            vertex(out,input,a,count,layout,transform,point,x,y,z,lit);
-            vertex(out,input,b,count,layout,transform,point,x,y,z,lit);
-            vertex(out,input,c,count,layout,transform,point,x,y,z,lit);
-            vertex(out,input,d,count,layout,transform,point,x,y,z,lit);
+            vertex(out,input,a,count,layout,transform,textureTransform,point,x,y,z,lit);
+            vertex(out,input,b,count,layout,transform,textureTransform,point,x,y,z,lit);
+            vertex(out,input,c,count,layout,transform,textureTransform,point,x,y,z,lit);
+            vertex(out,input,d,count,layout,transform,textureTransform,point,x,y,z,lit);
         }
         return out.array();
     }
+    private static int drawIndices(Mode mode,int count){return mode==Mode.QUADS?count/4*6:count;}
+    static boolean usesTextureMatrix(String shader) {
+        if(shader.startsWith("minecraft:"))shader=shader.substring(10);
+        return switch(shader) {
+            case "rendertype_glint", "rendertype_glint_translucent", "rendertype_entity_glint",
+                 "rendertype_entity_glint_direct", "rendertype_armor_entity_glint" -> true;
+            default -> false;
+        };
+    }
     private static boolean field(int offset,int bytes,int stride,boolean optional){return optional&&offset==-1||offset>=0&&offset<=stride-bytes;}
     private static int index(ByteBuffer b,int i,int size){return size==2?Short.toUnsignedInt(b.getShort(i*2)):b.getInt(i*4);}
-    private static void vertex(ByteBuffer out,ByteBuffer in,int index,int count,Layout l,Matrix4fc matrix,Vector3f p,
+    private static void vertex(ByteBuffer out,ByteBuffer in,int index,int count,Layout l,Matrix4fc matrix,Matrix4fc textureMatrix,Vector3f p,
                                double x,double y,double z,boolean lit) {
         if(index<0||index>=count)throw new IllegalArgumentException("Effect index outside vertices");
         int base=index*l.stride,at=base+l.position;
         matrix.transformPosition(in.getFloat(at),in.getFloat(at+4),in.getFloat(at+8),p);
         float wx=(float)(p.x+x),wy=(float)(p.y+y),wz=(float)(p.z+z);
         float u=l.uv<0?0:in.getFloat(base+l.uv),v=l.uv<0?0:in.getFloat(base+l.uv+4);
-        if(!finite(wx,32000000)||!finite(wy,32000000)||!finite(wz,32000000)||!finite(u,16)||!finite(v,16))
-            throw new IllegalArgumentException("Effect coordinate bounds");
+        // The five vanilla glint vertex shaders use (TextureMat * vec4(UV0,0,1)).xy,
+        // without a perspective divide. Ordinary particles do not use TextureMat.
+        if(textureMatrix!=null){textureMatrix.transformPosition(u,v,0,p);u=p.x;v=p.y;}
+        // Epic Fight trails legitimately emit U > 16 while a new edge grows.
+        // Preserve finite UVs for interpolation and sampler wrap; clamping a
+        // vertex here changes pixels even with a clamp-to-edge texture.
+        if(!finite(wx,32000000)||!finite(wy,32000000)||!finite(wz,32000000)||!Float.isFinite(u)||!Float.isFinite(v))
+            throw new IllegalArgumentException("Effect coordinate bounds: vertex="+index+"/"+count
+                +" raw=["+in.getFloat(at)+","+in.getFloat(at+4)+","+in.getFloat(at+8)
+                +"] world=["+wx+","+wy+","+wz+"] uv=["+u+","+v+"]");
         out.putFloat(wx).putFloat(wy).putFloat(wz).putFloat(u).putFloat(v);
         float light=1;
         if(lit&&l.light>=0)light=.55f+.45f*Math.clamp(Math.max(Short.toUnsignedInt(in.getShort(base+l.light)),

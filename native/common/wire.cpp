@@ -56,10 +56,10 @@ bool known_type(Type t) {
     case Type::client_binding: case Type::pair_player: case Type::pair_result: case Type::input:
     case Type::player_pose: case Type::atlas: case Type::section_mesh: case Type::remove_section:
     case Type::bsp: case Type::brushes: case Type::control: case Type::lights:
-    case Type::entity_texture: case Type::entity_mesh: case Type::trace_query: case Type::trace_result:
+    case Type::entity_texture: case Type::entity_mesh: case Type::entity_frame: case Type::trace_query: case Type::trace_result:
     case Type::scene_reset: case Type::atlas_patches:
     case Type::hud_frame: case Type::viewport: case Type::ui_input:
-    case Type::particle_texture: case Type::particle_mesh:
+    case Type::particle_texture: case Type::particle_mesh: case Type::post_effect_plan: case Type::particle_texture_chunk:
     case Type::block_feedback: case Type::camera: case Type::key_input:
     case Type::authoritative_pose: case Type::minecraft_objects: case Type::object_action: case Type::host_entities:
     case Type::damage_request: case Type::damage_result: case Type::vitals_delta:

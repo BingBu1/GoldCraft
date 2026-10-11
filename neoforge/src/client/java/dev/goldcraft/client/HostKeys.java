@@ -7,6 +7,7 @@ import dev.goldcraft.client.mixin.MouseAccessor;
 import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import org.lwjgl.glfw.GLFW;
 
@@ -35,10 +36,33 @@ public final class HostKeys {
         sequence=next;
         if(kind==0){releaseAll();accepted++;return;}
         var client=MinecraftClient.getInstance();
+        // GoldSrc can deliver the release after focus changes or a screen has
+        // opened.  Dropping that edge leaves Epic Fight's physical-mouse
+        // fallback seeing a permanently held button, so releases are always
+        // drained.  Press/repeat events still obey the gameplay focus gate.
+        if(kind==1&&action==0){
+            modifiers=mods;
+            keys.remove(code);
+            dispatching=true;
+            try{releaseKey(client,code,mods);}finally{dispatching=false;}
+            accepted++;
+            return;
+        }
+        if(kind==2&&action==0){
+            modifiers=mods;
+            mouse.remove(code);
+            dispatching=true;
+            try{releaseMouse(client,code,mods);}finally{dispatching=false;}
+            accepted++;
+            return;
+        }
         if(client.currentScreen!=null||!HostInput.active()){rejected++;return;}
         modifiers=mods;
-        if(kind==1){if(action==0)keys.remove(code);else keys.add(code);}
-        if(kind==2){if(action==0)mouse.remove(code);else mouse.add(code);}
+        // GLFW_REPEAT is a keyboard action. Mouse.onMouseButton treats every
+        // non-PRESS action as a release, so never dispatch repeated mouse downs.
+        if(kind==2&&(action==2||mouse.contains(code))){accepted++;return;}
+        if(kind==1)keys.add(code);
+        if(kind==2)mouse.add(code);
         dispatching=true;
         try{
             if(kind==1){
@@ -60,13 +84,25 @@ public final class HostKeys {
         try{
             for(int code:Set.copyOf(keys)){
                 keys.remove(code);
-                client.keyboard.onKey(client.getWindow().getHandle(),code,GLFW.glfwGetKeyScancode(code),GLFW.GLFW_RELEASE,0);
+                releaseKey(client,code,0);
             }
             for(int code:Set.copyOf(mouse)){
                 mouse.remove(code);
-                ((MouseAccessor)client.mouse).goldcraft$button(client.getWindow().getHandle(),code,GLFW.GLFW_RELEASE,0);
+                releaseMouse(client,code,0);
             }
         }finally{keys.clear();mouse.clear();modifiers=0;dispatching=false;attackEvent=useEvent=false;}
+    }
+    private static void releaseKey(MinecraftClient client,int code,int mods){
+        int scan=GLFW.glfwGetKeyScancode(code);
+        client.keyboard.onKey(client.getWindow().getHandle(),code,scan,GLFW.GLFW_RELEASE,mods);
+        // Keyboard.onKey intentionally returns early when a screen consumes
+        // the event.  Clear all shared mappings as well so a mod binding
+        // cannot remain pressed across a menu/focus transition.
+        KeyBinding.setKeyPressed(InputUtil.fromKeyCode(code,scan),false);
+    }
+    private static void releaseMouse(MinecraftClient client,int code,int mods){
+        ((MouseAccessor)client.mouse).goldcraft$button(client.getWindow().getHandle(),code,GLFW.GLFW_RELEASE,mods);
+        KeyBinding.setKeyPressed(InputUtil.Type.MOUSE.createFromCode(code),false);
     }
     public static void reset(){releaseAll();epoch=sequence=0;life=0;}
     static void diagnostics(JsonObject data){
