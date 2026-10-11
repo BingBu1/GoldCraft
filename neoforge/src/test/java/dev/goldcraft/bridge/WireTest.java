@@ -6,6 +6,24 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 class WireTest {
+    @Test void capacityAndByteSlicesPreserveBytesAndOwnership() {
+        byte[] source={9,1,2,3,8};
+        for(int capacity:new int[]{0,1,7,4096}){
+            var writer=new Wire.Writer(capacity).i32(0x12345678).bytes(source,1,3).bytes(source,source.length,0);
+            byte[] expected={0x78,0x56,0x34,0x12,1,2,3};
+            assertArrayEquals(expected,writer.toByteArray());
+            byte[] returned=writer.toByteArray();returned[0]=0;
+            assertArrayEquals(expected,writer.toByteArray());
+            writer.u8(7);assertEquals(7,returned.length);assertEquals(8,writer.toByteArray().length);
+        }
+        var writer=new Wire.Writer(3).bytes(source,1,3);source[2]=99;
+        assertArrayEquals(new byte[]{1,2,3},writer.toByteArray());
+        for(int[] slice:new int[][]{{-1,1},{0,-1},{4,2},{Integer.MAX_VALUE,1},{1,Integer.MAX_VALUE}}){
+            assertThrows(IndexOutOfBoundsException.class,()->writer.bytes(source,slice[0],slice[1]));
+            assertArrayEquals(new byte[]{1,2,3},writer.toByteArray());
+        }
+        assertThrows(IllegalArgumentException.class,()->new Wire.Writer(-1));
+    }
     @Test void primitivesPreserveExactLittleEndianValues() {
         byte[] bytes=new Wire.Writer().u8(0xfe).u16(0x1234).i32(0x89abcdef).i32(-100).i64(0x1122334455667788L).f32(-12.5f).string("goldcraft").toByteArray();
         Wire.Reader r=new Wire.Reader(bytes);

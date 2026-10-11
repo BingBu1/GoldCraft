@@ -249,7 +249,16 @@ public final class WorldExporter {
         private static void putInt(byte[] target,int at,int value){
             target[at]=(byte)value;target[at+1]=(byte)(value>>>8);target[at+2]=(byte)(value>>>16);target[at+3]=(byte)(value>>>24);
         }
-        byte[] finish() { flush(); if(sourceCount%(triangles?3:4)!=0) throw new IllegalArgumentException("Incomplete model primitive"); return Arrays.copyOf(vertices,bytes); }
+        int finishSize() {
+            flush();if(sourceCount%(triangles?3:4)!=0)throw new IllegalArgumentException("Incomplete model primitive");return bytes;
+        }
+        void writeTo(Wire.Writer out,int expectedBytes) {
+            // Validate before copying; ready batches retain the exact size used
+            // in their header even if a producer unexpectedly appends later.
+            if(finishSize()!=expectedBytes)throw new IllegalArgumentException("Changed model vertex count");
+            out.bytes(vertices,0,bytes);
+        }
+        byte[] finish() { int size=finishSize();return Arrays.copyOf(vertices,size); }
         @Override public VertexConsumer vertex(float x,float y,float z) { flush(); this.x=x+offsetX;this.y=y+offsetY;this.z=z+offsetZ;overlayColor=0;pending=true;return this; }
         @Override public VertexConsumer color(int red,int green,int blue,int alpha) {this.red=red;this.green=green;this.blue=blue;this.alpha=alpha;return this;}
         @Override public VertexConsumer texture(float u,float v) {this.u=u;this.v=v;return this;}

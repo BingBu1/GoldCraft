@@ -95,13 +95,16 @@ public final class Wire {
     }
 
     public static final class Writer {
-        private final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        private final ByteArrayOutputStream out;
+        public Writer() { this(32); }
+        public Writer(int initialCapacity) { out = new ByteArrayOutputStream(initialCapacity); }
         public Writer u8(int value) { out.write(value & 255); return this; }
         public Writer u16(int value) { u8(value); u8(value >>> 8); return this; }
         public Writer i32(int value) { for (int i=0; i<4; i++) u8(value >>> (8*i)); return this; }
         public Writer i64(long value) { for (int i=0; i<8; i++) u8((int)(value >>> (8*i))); return this; }
         public Writer f32(float value) { if (!Float.isFinite(value)) throw new IllegalArgumentException("Non-finite float"); return i32(Float.floatToRawIntBits(value)); }
         public Writer bytes(byte[] value) { out.writeBytes(value); return this; }
+        public Writer bytes(byte[] value,int offset,int length) { out.write(value,offset,length); return this; }
         public Writer string(String value) {
             byte[] bytes=value.getBytes(StandardCharsets.UTF_8);
             if (bytes.length>65535) throw new IllegalArgumentException("String length");

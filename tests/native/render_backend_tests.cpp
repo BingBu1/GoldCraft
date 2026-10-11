@@ -23,6 +23,7 @@
 #include <tuple>
 #include <limits>
 #include "goldcraft/hud.hpp"
+#include "goldcraft/atlas_footprint.hpp"
 
 namespace probe {
 bool count_allocations{};

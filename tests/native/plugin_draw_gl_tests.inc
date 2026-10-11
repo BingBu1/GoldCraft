@@ -11,6 +11,8 @@ using goldcraft::Vec3;
 using goldcraft::ProtocolError;
 using goldcraft::to_goldsrc;
 using goldcraft::read_atlas_patches;
+using goldcraft::AtlasFootprint;
+using goldcraft::AtlasPixelTiles;
 using Vertex = render::Vertex;
 enum class WorkStage {draw_transparent,draw_shadow,draw_opaque,pass_construct,pass_restore,
     sections,entities,feedback,entity_effects,particle_draw,count};
@@ -25,10 +27,12 @@ std::uint64_t world=1,last_link_generation=1;
 GLuint atlas_texture{};
 unsigned atlas_width{},atlas_height{};
 std::vector<std::uint8_t> atlas_alpha;
+AtlasPixelTiles atlas_pixel_tiles;
 std::uint64_t atlas_generation=1,atlas_uploads{},atlas_animation_packets{},atlas_patch_bytes{};
 double last_atlas_animation{},atlas_animation_interval_ms{};
 bool atlas_logged=false;
 std::uint64_t static_shadow_callbacks{},static_shadow_draws{},static_shadow_section_skips{},static_shadow_failures{},static_shadow_alpha_invalidations{};
+std::uint64_t static_shadow_alpha_changed_packets{},static_shadow_alpha_unreferenced_packets{},static_shadow_alpha_affected_sections{},static_shadow_alpha_fallbacks{};
 std::map<std::array<std::int32_t,4>,Section> sections;
 std::map<unsigned,Texture> entity_textures,particle_textures;
 std::vector<EntityBatch> entity_batches,crack_batches;
@@ -60,8 +64,10 @@ void reset(Resources& r){
     outline_gpu=std::make_shared<Mesh>();
     link={};last_link_generation=1;world=1;atlas_texture=r.texture;atlas_generation=1;
     atlas_width=r.tw;atlas_height=r.th;atlas_alpha.assign(std::size_t(r.tw)*r.th,255);
+    atlas_pixel_tiles.reset(atlas_width,atlas_height);
     atlas_uploads=atlas_animation_packets=atlas_patch_bytes=0;last_atlas_animation=atlas_animation_interval_ms=0;atlas_logged=false;
     static_shadow_callbacks=static_shadow_draws=static_shadow_section_skips=static_shadow_failures=static_shadow_alpha_invalidations=0;
+    static_shadow_alpha_changed_packets=static_shadow_alpha_unreferenced_packets=static_shadow_alpha_affected_sections=static_shadow_alpha_fallbacks=0;
     fresh=control=true;minecraft_menu=section_logged=draw_logged=false;
     minecraft_life=server_player_life=feedback_life=particle_life=1;
     now=last_feedback=last_particle_frame=10;render_particles=nullptr;particle_cvar.value=1;
@@ -82,6 +88,7 @@ void section(Resources& r,unsigned flags=0,float center=0,float width=1){
     const auto key=static_cast<std::int32_t>(sections.size());
     Section value{1,flags,quad(r,center,width)};
     for(const auto& v:value.vertices)value.bounds.add(v.x,v.y,v.z);
+    RebuildSectionFootprint(value);
     sections.emplace(std::array<std::int32_t,4>{key,0,0,0},std::move(value));
 }
 EntityBatch entity(Resources& r,unsigned texture=0,unsigned flags=0,float center=0,float width=1,float z=0){
@@ -260,6 +267,119 @@ void atlas_shadow_tests(Resources& r){
     static_case(r,META_SCENE_SHADOW,0,false);
     const auto texture=atlas_texture;reset(r);glDeleteTextures(1,&texture);
 }
+void selective_atlas_shadow_tests(Resources& r){
+    reset(r);StaticProvider provider;StaticOwner owner;StaticCallback callback;
+    render::scene_static_shadows=&provider;render::callback=&owner;
+    assert(render::set_static_scene(&callback,true));provider.invalidations.clear();
+    atlas_texture=0;atlas_width=atlas_height=0;atlas_alpha.clear();atlas_pixel_tiles.clear();atlas_generation=0;
+    const auto full_packet=[](unsigned width,unsigned height,std::uint64_t generation){
+        goldcraft::Writer out;out.u64(1);out.u64(generation);out.u32(width);out.u32(height);
+        for(unsigned i=0;i<width*height;++i)out.u32(0xffffffff);return out.data;
+    };
+    const auto patch_packet=[](std::uint64_t generation,std::initializer_list<std::array<unsigned,3>> patches){
+        goldcraft::Writer out;out.u64(1);out.u64(generation);out.u32(static_cast<unsigned>(patches.size()));
+        for(const auto& p:patches){out.u32(p[0]);out.u32(p[1]);out.u32(1);out.u32(1);out.u32(p[2]);}return out.data;
+    };
+    const auto section_packet=[&](int key,std::uint64_t revision,unsigned flags,float center,float u,float v){
+        goldcraft::Writer out;out.u64(1);out.i32(key);out.i32(0);out.i32(0);out.u64(revision);out.u32(flags);out.u32(4);
+        for(const auto& vertex:quad(r,center,.5f)){
+            out.f32(vertex.x/32);out.f32(64+vertex.z/32);out.f32(-vertex.y/32);out.f32(u);out.f32(v);out.u32(0xffffffff);
+        }
+        return out.data;
+    };
+    const std::array<std::int32_t,4> left_key{0,0,0,0},right_key{1,0,0,2};
+    auto bytes=section_packet(0,1,0,-.5f,.125f,.25f);Reader left(bytes);ReadSection(left);
+    bytes=section_packet(1,1,2,.5f,.875f,.75f);Reader right(bytes);ReadSection(right);
+    bytes=section_packet(2,1,1,0,.5f,.5f);Reader translucent(bytes);ReadSection(translucent);
+    assert(sections.at(left_key).atlas_footprint_generation==0&&sections.at(right_key).atlas_footprint_generation==0);
+    static_case(r,META_SCENE_SHADOW,0,false);
+    bytes=full_packet(128,64,2);Reader first_atlas(bytes);ReadAtlas(first_atlas);
+    assert(sections.at(left_key).atlas_footprint_generation==2&&sections.at(right_key).atlas_footprint_generation==2);
+    static_case(r,META_SCENE_SHADOW,2,true);const auto full_depth=depth_pixels();provider.invalidations.clear();
+
+    // The middle animation is used only by the translucent layer, which is
+    // not present in the static shadow callback. Neither opaque quad uses it.
+    bytes=patch_packet(2,{{64,32,0x00345678}});Reader unused(bytes);ReadAtlasPatches(unused);
+    assert(provider.invalidations.empty()&&static_shadow_alpha_changed_packets==1&&
+        static_shadow_alpha_unreferenced_packets==1&&static_shadow_alpha_invalidations==0);
+    static_case(r,META_SCENE_SHADOW,2,true);assert(depth_pixels()==full_depth);
+    bytes=patch_packet(2,{{16,16,0x00345678}});Reader used(bytes);ReadAtlasPatches(used);
+    assert(provider.invalidations.size()==1&&!provider.invalidations[0].all&&provider.invalidations[0].max[0]<0);
+    assert(static_shadow_alpha_affected_sections==1&&static_shadow_alpha_invalidations==1&&static_shadow_alpha_fallbacks==0);
+    static_case(r,META_SCENE_SHADOW,2,true);assert(depth_pixels()!=full_depth);
+    const auto before_rgb=provider.invalidations.size();
+    bytes=patch_packet(2,{{112,48,0xff345678}});Reader rgb(bytes);ReadAtlasPatches(rgb);
+    assert(provider.invalidations.size()==before_rgb&&static_shadow_alpha_changed_packets==2);
+
+    // Overlap is processed in wire order after conservative detection against
+    // the old accepted state: erase then restore may invalidate once but must
+    // leave both CPU alpha and actual GPU depth at their final values.
+    static_case(r,META_SCENE_SHADOW,2,true);const auto before_overlap=depth_pixels();provider.invalidations.clear();
+    bytes=patch_packet(2,{{112,48,0x00345678},{112,48,0xff123456}});Reader overlap(bytes);ReadAtlasPatches(overlap);
+    assert(provider.invalidations.size()==1&&provider.invalidations[0].min[0]>0&&atlas_alpha[48*128+112]==255);
+    static_case(r,META_SCENE_SHADOW,2,true);assert(depth_pixels()==before_overlap);
+    const auto accepted=atlas_alpha;bytes.push_back(0);bool rejected=false;
+    try{Reader bad(bytes);ReadAtlasPatches(bad);}catch(const ProtocolError&){rejected=true;}
+    assert(rejected&&atlas_alpha==accepted&&provider.invalidations.size()==1);
+    bytes=section_packet(1,2,2,.5f,.125f,.25f);bytes.pop_back();rejected=false;
+    try{Reader bad_mesh(bytes);ReadSection(bad_mesh);}catch(const ProtocolError&){rejected=true;}
+    assert(rejected&&sections.at(right_key).revision==1&&sections.at(right_key).atlas_footprint_generation==2);
+
+    // Removal drops its UV dependency. A later replacement commits its new UV
+    // footprint with its accepted revision, preserving malformed-frame rollback.
+    goldcraft::Writer remove;remove.u64(1);remove.i32(0);remove.i32(0);remove.i32(0);
+    Reader removal(remove.data);ReadRemoveSection(removal);provider.invalidations.clear();
+    bytes=patch_packet(2,{{16,16,0xff111111}});Reader removed(bytes);ReadAtlasPatches(removed);
+    assert(provider.invalidations.empty());
+    bytes=section_packet(1,2,2,.5f,.125f,.25f);Reader replacement(bytes);ReadSection(replacement);provider.invalidations.clear();
+    bytes=patch_packet(2,{{112,48,0x00123456}});Reader old_uv(bytes);ReadAtlasPatches(old_uv);
+    assert(provider.invalidations.empty());
+    bytes=patch_packet(2,{{16,16,0x00111111}});Reader new_uv(bytes);ReadAtlasPatches(new_uv);
+    assert(provider.invalidations.size()==1&&provider.invalidations[0].min[0]>0);
+
+    // Full replacement changes texel tolerance and rebuilds retained sections.
+    bytes=full_packet(16,8,3);Reader resized(bytes);ReadAtlas(resized);
+    assert(sections.at(right_key).atlas_footprint_generation==3);provider.invalidations.clear();
+    bytes=patch_packet(3,{{12,6,0}});Reader resized_unused(bytes);ReadAtlasPatches(resized_unused);assert(provider.invalidations.empty());
+    bytes=patch_packet(3,{{2,2,0}});Reader resized_used(bytes);ReadAtlasPatches(resized_used);
+    assert(provider.invalidations.size()==1&&!provider.invalidations[0].all);
+    // Unknown dependencies cannot be treated as an empty used-tile set.
+    sections.at(right_key).atlas_footprint_generation=0;provider.invalidations.clear();
+    bytes=patch_packet(3,{{12,6,0xff000000}});Reader unknown(bytes);ReadAtlasPatches(unknown);
+    assert(provider.invalidations.size()==1&&provider.invalidations[0].all&&static_shadow_alpha_fallbacks==1);
+    RebuildSectionFootprint(sections.at(right_key));
+    bytes=full_packet(1,1,4);Reader tiny(bytes);ReadAtlas(tiny);provider.invalidations.clear();
+    bytes=patch_packet(4,{{0,0,0}});Reader tiny_alpha(bytes);ReadAtlasPatches(tiny_alpha);
+    assert(provider.invalidations.size()==1&&!provider.invalidations[0].all);
+    atlas_pixel_tiles.clear();bytes=patch_packet(4,{{0,0,0xff000000}});rejected=false;
+    try{Reader missing(bytes);ReadAtlasPatches(missing);}catch(const ProtocolError&){rejected=true;}
+    assert(rejected&&atlas_generation==0&&atlas_alpha.empty()&&provider.invalidations.back().all);
+    UpdateStaticScene();assert(!statistics().scene_static_shadows_registered);
+
+    // Recover through a complete atlas, then exercise two disjoint material
+    // quads inside one received section. Its UV bounding rectangle would
+    // cover the middle animation, but its actual per-quad dependencies do not.
+    bytes=full_packet(128,64,5);Reader recovered(bytes);ReadAtlas(recovered);UpdateStaticScene();
+    goldcraft::Writer joined;joined.u64(1);joined.i32(1);joined.i32(0);joined.i32(0);
+    joined.u64(3);joined.u32(2);joined.u32(8);
+    for(unsigned side=0;side<2;++side)for(const auto& vertex:quad(r,side?.5f:-.5f,.5f)){
+        joined.f32(vertex.x/32);joined.f32(64+vertex.z/32);joined.f32(-vertex.y/32);
+        joined.f32(side?.875f:.125f);joined.f32(side?.75f:.25f);joined.u32(0xffffffff);
+    }
+    Reader joined_section(joined.data);ReadSection(joined_section);
+    assert(sections.at(right_key).vertices.size()==8&&sections.at(right_key).atlas_footprint_generation==5);
+    bytes=section_packet(1,2,2,.5f,.5f,.5f);Reader stale(bytes);ReadSection(stale);
+    assert(sections.at(right_key).revision==3&&sections.at(right_key).vertices.size()==8);
+    static_case(r,META_SCENE_SHADOW,1,true);const auto joined_depth=depth_pixels();provider.invalidations.clear();
+    bytes=patch_packet(5,{{64,32,0}});Reader gap(bytes);ReadAtlasPatches(gap);
+    assert(provider.invalidations.empty());
+    static_case(r,META_SCENE_SHADOW,1,true);assert(depth_pixels()==joined_depth);
+    bytes=patch_packet(5,{{16,16,0}});Reader joined_used(bytes);ReadAtlasPatches(joined_used);
+    assert(provider.invalidations.size()==1&&!provider.invalidations[0].all&&
+        provider.invalidations[0].min[0]<0&&provider.invalidations[0].max[0]>0);
+    static_case(r,META_SCENE_SHADOW,1,true);assert(depth_pixels()!=joined_depth);
+    const auto texture=atlas_texture;reset(r);glDeleteTextures(1,&texture);
+}
 
 void tests(Resources& r){
     using namespace goldcraft;
@@ -272,6 +392,7 @@ void tests(Resources& r){
     for(unsigned i=0;i<2;++i){glBindBuffer(GL_UNIFORM_BUFFER,ubos[i]);glBufferData(GL_UNIFORM_BUFFER,sizes[i],data[i],GL_STATIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,i,ubos[i]);}
     static_shadow_tests(r);
     atlas_shadow_tests(r);
+    selective_atlas_shadow_tests(r);
 
     // Bounds are published with the actual received section revision. A
     // failed replacement cannot expose candidate bounds over the old mesh.

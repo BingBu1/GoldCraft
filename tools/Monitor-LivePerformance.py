@@ -62,6 +62,8 @@ def snapshot():
               "sceneStaticShadowsApi", "sceneStaticShadowsEnabled", "sceneStaticShadowsRegistered", "staticShadowCallbacks",
               "staticShadowDraws", "staticShadowSectionSkips", "staticShadowInvalidations",
               "staticShadowAlphaInvalidations", "staticShadowFailures",
+              "staticShadowAlphaChangedPackets", "staticShadowAlphaUnreferencedPackets",
+              "staticShadowAlphaAffectedSections", "staticShadowAlphaFallbacks",
               "lights", "sceneLightsApi", "sceneLightsSubmitted", "sceneLightsFresh",
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
@@ -69,6 +71,18 @@ def snapshot():
     return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
             "native": {k: native[k] for k in fields if k in native},
             "java": {k: java[k] for k in java_fields if k in java}, "javaPerformance": perf}
+
+
+def paired_gameplay(sample):
+    if not sample:
+        return False
+    native, java = sample["native"], sample["java"]
+    return (native.get("viewReady") and native.get("world") not in (None, "0", 0)
+            and native.get("world") == java.get("world")
+            and native.get("playerLife", 0) > 0
+            and native.get("playerLife") == native.get("serverPlayerLife") == java.get("life")
+            and native.get("minecraftControl") == java.get("controlling")
+            and not java.get("screen") and not native.get("formMenuVisible"))
 
 
 def wait_stable(seconds):
@@ -80,14 +94,16 @@ def wait_stable(seconds):
     while time.monotonic() < deadline:
         current = snapshot()
         state = current["native"] if current else {}
-        if (not state.get("windowFocused") or not state.get("viewReady") or current["statusAgeMs"] > 1500):
+        if (not paired_gameplay(current) or not state.get("windowFocused")
+                or not 0 <= current["statusAgeMs"] <= 1500 or not 0 <= current["javaStatusAgeMs"] <= 2500):
             anchor = None
-        elif anchor is None or max(delta(state, anchor)) >= .1:
+        elif (anchor is None or max(delta(state, anchor)) >= .1
+              or any(state.get(k) != anchor.get(k) for k in ("world", "playerLife", "minecraftControl"))):
             anchor, since = state, time.monotonic()
         elif time.monotonic() - since >= 3:
             return
         time.sleep(.25)
-    raise TimeoutError("No foreground view remained stationary for three seconds; no profile started")
+    raise TimeoutError("No paired gameplay view remained stationary in the foreground for three seconds; no profile started")
 
 
 def main():
@@ -214,7 +230,9 @@ def main():
     summary["stableStaticShadows"] = all(s["native"].get("sceneStaticShadowsEnabled") == active_static for s in samples)
     summary["staticShadowCounters"] = {key: samples[-1]["native"][key] - samples[0]["native"][key]
         for key in ("staticShadowCallbacks", "staticShadowDraws", "staticShadowSectionSkips",
-                    "staticShadowInvalidations", "staticShadowAlphaInvalidations", "staticShadowFailures")
+                    "staticShadowInvalidations", "staticShadowAlphaInvalidations", "staticShadowFailures",
+                    "staticShadowAlphaChangedPackets", "staticShadowAlphaUnreferencedPackets",
+                    "staticShadowAlphaAffectedSections", "staticShadowAlphaFallbacks")
         if key in samples[0]["native"] and key in samples[-1]["native"]}
     if "renderer" in profiles:
         summary["renderer"] = renderer.summarize(profiles["renderer"]["frames"])
@@ -231,12 +249,7 @@ def main():
     summary["stableLifecycle"] = len({(s["native"].get("world"), s["java"].get("life"),
                                        s["java"].get("controlling"), s["java"].get("screen")) for s in samples}) == 1
     summary["referenceMatches"] = None
-    summary["pairedGameplay"] = all(s["native"].get("viewReady") and s["native"].get("world") not in (None, "0", 0)
-        and s["native"].get("world") == s["java"].get("world")
-        and s["native"].get("playerLife", 0) > 0
-        and s["native"].get("playerLife") == s["native"].get("serverPlayerLife") == s["java"].get("life")
-        and s["native"].get("minecraftControl") == s["java"].get("controlling")
-        and not s["java"].get("screen") and not s["native"].get("formMenuVisible") for s in samples)
+    summary["pairedGameplay"] = all(paired_gameplay(s) for s in samples)
     summary["noRenderErrors"] = all(s["native"].get("glError") == 0 and s["java"].get("hudGlError") == 0 for s in samples)
     for side, key in (("native", "postEffectFailures"), ("java", "vixPostFailures")):
         counts = {s[side].get(key) for s in samples}

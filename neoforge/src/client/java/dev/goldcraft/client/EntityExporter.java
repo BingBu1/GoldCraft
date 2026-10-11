@@ -31,6 +31,7 @@ import java.util.*;
 public final class EntityExporter {
     private record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset) {}
     private record TextureStamp(AbstractTexture texture,int glId,long revision) {}
+    record Batch(int texture,int flags,WorldExporter.Collector vertices,int bytes) {}
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
     private final Map<Identifier,Integer> textures=new LinkedHashMap<>();
@@ -140,12 +141,11 @@ public final class EntityExporter {
             }
             // Deferred buffers can contain several entities; attribute only immediate draws individually.
             effects.source("entity_buffer_flush");effects.finish();
-            record Batch(int texture,int flags,byte[] vertices) {}
             List<Batch> ready=new ArrayList<>();int bytes=0;hurtVertices=triangleBatches=0;
             for(var entry:batches.entrySet()) {
-                byte[] vertices=entry.getValue().finish();if(vertices.length==0)continue;
+                var vertices=entry.getValue();int size=vertices.finishSize();if(size==0)continue;
                 hurtVertices+=entry.getValue().hurtVertices();if(entry.getKey().triangles)triangleBatches++;
-                if(ready.size()>=128||bytes+vertices.length>8*1024*1024)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
+                if(ready.size()>=128||bytes+size>8*1024*1024)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
                 Identifier id=entry.getKey().texture;
                 // Reuse the block atlas and its CPU animation patches, including
                 // animated held/dropped block items, instead of rereading it from GL.
@@ -157,18 +157,31 @@ public final class EntityExporter {
                     if(!stamp.equals(uploaded.get(id))){if(!upload(epoch,stamp,id,number)){sendFailures++;return;}uploaded.put(id,stamp);}
                 }
                 int flags=(entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0)|(entry.getKey().viewOffset?4:0);
-                ready.add(new Batch(number,flags,vertices));bytes+=vertices.length;
+                ready.add(new Batch(number,flags,vertices,size));bytes+=size;
             }
-            Wire.Writer writer=new Wire.Writer().i64(epoch).i64(++revision).i32(entityCount).i32(blockCount).i32(ready.size());
-            for(Batch batch:ready)writer.i32(batch.texture).i32(batch.flags).i32(batch.vertices.length/28).bytes(batch.vertices);
-            // Publish identities atomically with the mesh. A prior mesh must never
-            // suppress a new CS player who happens to occupy the same slot.
-            writer.i32(avatars.size());
-            for(var actor:avatars)writer.i32(actor.slot()).i32(actor.serial()).i32(actor.userid()).bytes(Wire.uuid(actor.minecraftPlayer()));
-            byte[] payload=writer.toByteArray();
+            byte[] payload=encodeBase(epoch,++revision,entityCount,blockCount,ready,avatars);
             if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,payload,effects)){frames++;meshBytes+=payload.length;lastError="";}else sendFailures++;
         }catch(RuntimeException e){if(!e.toString().equals(lastError)){lastError=e.toString();GoldCraft.LOGGER.warn("Entity export failed",e);}}
         finally{Performance.end("entityExport",began);}
+    }
+    static byte[] encodeBase(long epoch,long revision,int entityCount,int blockCount,List<Batch> ready,List<HostWorldState.Actor> avatars) {
+        int bytes=0;
+        if(ready.size()>128)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
+        for(Batch batch:ready){
+            if(batch.bytes<0||batch.bytes>8*1024*1024-bytes)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
+            bytes+=batch.bytes;
+        }
+        int capacity=Math.toIntExact(32L+12L*ready.size()+bytes+28L*avatars.size());
+        Wire.Writer writer=new Wire.Writer(capacity).i64(epoch).i64(revision).i32(entityCount).i32(blockCount).i32(ready.size());
+        for(Batch batch:ready){
+            writer.i32(batch.texture).i32(batch.flags).i32(batch.bytes/28);
+            batch.vertices.writeTo(writer,batch.bytes);
+        }
+        // Publish identities atomically with the mesh. A prior mesh must never
+        // suppress a new CS player who happens to occupy the same slot.
+        writer.i32(avatars.size());
+        for(var actor:avatars)writer.i32(actor.slot()).i32(actor.serial()).i32(actor.userid()).bytes(Wire.uuid(actor.minecraftPlayer()));
+        return writer.toByteArray();
     }
     private boolean upload(long epoch,TextureStamp stamp,Identifier id,int number) {
         int unit=GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);GL13.glActiveTexture(GL13.GL_TEXTURE0);

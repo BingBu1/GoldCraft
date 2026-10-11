@@ -40,7 +40,12 @@ class WorldExporterCollectorTest {
     private record Pair(WorldExporter.Collector actual,LegacyCollector old) {
         Pair(boolean overlay,boolean triangles){this(new WorldExporter.Collector(overlay,triangles),new LegacyCollector(overlay,triangles));}
         void offset(float x,float y,float z){actual.offset(x,y,z);old.offset(x,y,z);}
-        void same(){assertArrayEquals(old.finish(),actual.finish());assertEquals(old.hurtVertices,actual.hurtVertices());}
+        void same(){
+            byte[] expected=old.finish();assertArrayEquals(expected,actual.finish());
+            assertEquals(expected.length,actual.finishSize());
+            var direct=new Wire.Writer(expected.length);actual.writeTo(direct,expected.length);
+            assertArrayEquals(expected,direct.toByteArray());assertEquals(old.hurtVertices,actual.hurtVertices());
+        }
     }
     private static void populate(VertexConsumer target,int count,long seed){
         Random random=new Random(seed);
@@ -80,6 +85,31 @@ class WorldExporterCollectorTest {
         assertArrayEquals(expected,pair.actual.finish());
         constant(pair.actual,4);constant(pair.old,4);pair.same();
         assertEquals(4*28,first.length);assertEquals(8*28,pair.actual.finish().length);
+    }
+    @Test void directOutputAcrossCapacityEdgesOwnsBytesWithoutFlushingTwice(){
+        for(boolean overlay:new boolean[]{false,true})for(boolean triangles:new boolean[]{false,true})
+            for(int primitives:new int[]{0,1,36,37,42,43,73,86}){
+                Pair pair=new Pair(overlay,triangles);int count=primitives*(triangles?3:4);
+                populate(pair.actual,count,713);populate(pair.old,count,713);pair.same();
+                int size=pair.actual.finishSize();var writer=new Wire.Writer(size+1).u8(37);
+                pair.actual.writeTo(writer,size);byte[] before=writer.toByteArray();
+                constant(pair.actual,triangles?3:4);constant(pair.old,triangles?3:4);pair.same();
+                assertArrayEquals(before,writer.toByteArray());
+                assertEquals("Changed model vertex count",failure(()->pair.actual.writeTo(writer,size)));
+                assertArrayEquals(before,writer.toByteArray());
+            }
+    }
+    @Test void invalidDirectOutputDoesNotTouchDestinationAndFreshCollectorRecovers(){
+        var writer=new Wire.Writer(1).u8(91);
+        var incomplete=new WorldExporter.Collector(true,false);constant(incomplete,3);
+        assertEquals("Incomplete model primitive",failure(()->incomplete.writeTo(writer,3*28)));
+        var nonfinite=new WorldExporter.Collector(true,false);nonfinite.vertex(Float.NaN,0,0);
+        assertEquals("Non-finite float",failure(()->nonfinite.writeTo(writer,28)));
+        assertArrayEquals(new byte[]{91},writer.toByteArray());
+        Pair recovered=new Pair(true,false);constant(recovered.actual,4);constant(recovered.old,4);recovered.same();
+        recovered.actual.writeTo(writer,recovered.actual.finishSize());
+        var expected=new Wire.Writer().u8(91).bytes(recovered.old.finish());
+        assertArrayEquals(expected.toByteArray(),writer.toByteArray());
     }
     @Test void nonFinitePositionsUvsAndOverflowRemainRejected(){
         for(boolean overlay:new boolean[]{false,true})for(int field=0;field<5;field++)

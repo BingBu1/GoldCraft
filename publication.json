@@ -114,6 +114,7 @@
     "tools/Inspect-MetaHookRuntime.py",
     "tools/Exercise-StudioLifecycle.py",
     "tools/Exercise-RendererPerformance.py",
+    "tools/Exercise-LightPerformance.py",
     "tools/Exercise-RendererReference.py",
     "tools/Exercise-NativeJoin.py",
     "tools/Deploy-OptimizedNative.ps1",

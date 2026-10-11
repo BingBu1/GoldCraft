@@ -25,6 +25,7 @@
 #include <pm_defs.h>
 #include <gl/GL.h>
 #include "goldcraft/endpoint.hpp"
+#include "goldcraft/atlas_footprint.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/view_interpolator.hpp"
@@ -74,6 +75,7 @@ std::ofstream log_file;
 GLuint atlas_texture = 0;
 unsigned atlas_width=0,atlas_height=0;
 std::vector<std::uint8_t> atlas_alpha;
+AtlasPixelTiles atlas_pixel_tiles;
 std::uint64_t atlas_generation=0,atlas_uploads=0,atlas_animation_packets=0,atlas_patch_bytes=0;
 double last_atlas_animation=0,atlas_animation_interval_ms=0;
 bool section_logged=false,draw_logged=false,atlas_logged=false;
@@ -113,6 +115,8 @@ cvar_t* render_scene_cull=nullptr;
 cvar_t* render_scene_static_shadows=nullptr;
 std::uint64_t static_shadow_callbacks=0,static_shadow_draws=0,static_shadow_section_skips=0,
     static_shadow_failures=0,static_shadow_alpha_invalidations=0;
+std::uint64_t static_shadow_alpha_changed_packets=0,static_shadow_alpha_unreferenced_packets=0,
+    static_shadow_alpha_affected_sections=0,static_shadow_alpha_fallbacks=0;
 bool viewmodel_suppressed=false;
 float saved_viewmodel=1;
 std::uint64_t suppressed_viewmodel_frames=0;
@@ -333,10 +337,10 @@ void UpdateLights(){
     }
 }
 using Vertex=render::Vertex;
-struct Section { std::uint64_t revision; std::uint32_t flags; std::vector<Vertex> vertices; std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>(); RenderBounds bounds; };
+struct Section { std::uint64_t revision; std::uint32_t flags; std::vector<Vertex> vertices; std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>(); RenderBounds bounds; AtlasFootprint atlas_footprint; std::uint64_t atlas_footprint_generation=0; };
 std::map<std::array<std::int32_t,4>,Section> sections;
 void ClearSections(){
-    render::invalidate_static_scene();sections.clear();atlas_alpha.clear();
+    render::invalidate_static_scene();sections.clear();atlas_alpha.clear();atlas_pixel_tiles.clear();
 }
 struct Texture {GLuint id;unsigned width,height;};
 struct EntityBatch {unsigned texture,flags;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>();RenderBounds bounds;};
@@ -641,6 +645,10 @@ void WriteDiagnostics() {
            <<",\"staticShadowCallbacks\":"<<static_shadow_callbacks<<",\"staticShadowDraws\":"<<static_shadow_draws
            <<",\"staticShadowSectionSkips\":"<<static_shadow_section_skips<<",\"staticShadowInvalidations\":"<<gpu.static_shadow_invalidations
            <<",\"staticShadowAlphaInvalidations\":"<<static_shadow_alpha_invalidations<<",\"staticShadowFailures\":"<<static_shadow_failures
+           <<",\"staticShadowAlphaChangedPackets\":"<<static_shadow_alpha_changed_packets
+           <<",\"staticShadowAlphaUnreferencedPackets\":"<<static_shadow_alpha_unreferenced_packets
+           <<",\"staticShadowAlphaAffectedSections\":"<<static_shadow_alpha_affected_sections
+           <<",\"staticShadowAlphaFallbacks\":"<<static_shadow_alpha_fallbacks
            <<",\"shadowBoundsTests\":"<<gpu.shadow_bounds_tests<<",\"shadowBoundsCulled\":"<<gpu.shadow_bounds_culled
            <<",\"postSceneApi\":"<<(gpu.post_scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"fpsOverride\":"<<gEngfuncs.pfnGetCvarFloat("fps_override")
@@ -1025,6 +1033,32 @@ int UpdateClientData(client_data_t* data,float time){
     data->fov=std::clamp(2*std::atan(std::tan(vertical*radians/2)*factor)/radians,1.0f,178.0f);
     return 1;
 }
+void RebuildSectionFootprint(Section& section) noexcept {
+    section.atlas_footprint_generation=0;section.atlas_footprint={};
+    if((section.flags&1)||section.vertices.empty())return;
+    if(!atlas_generation){section.atlas_footprint.unknown();return;}
+    if(section.atlas_footprint.assign_quads(std::span<const Vertex>(section.vertices),atlas_width,atlas_height))
+        section.atlas_footprint_generation=atlas_generation;
+}
+void InvalidateAlphaShadows(const AtlasFootprint& changed) noexcept {
+    ++static_shadow_alpha_changed_packets;
+    // A section received before the full atlas must not look unreferenced.
+    // Unknown UV dependencies force the existing complete-cache fallback.
+    for(const auto& [key,section]:sections)if(!(section.flags&1)&&!section.vertices.empty()&&
+        section.atlas_footprint_generation!=atlas_generation){
+        ++static_shadow_alpha_fallbacks;++static_shadow_alpha_invalidations;
+        render::invalidate_static_scene();return;
+    }
+    unsigned affected=0;
+    for(const auto& [key,section]:sections){
+        if((section.flags&1)||section.vertices.empty()||!section.atlas_footprint.intersects(changed))continue;
+        ++affected;++static_shadow_alpha_affected_sections;
+        render::invalidate_static_scene(&section.bounds);
+        if(!section.bounds.valid()){++static_shadow_alpha_fallbacks;break;}
+    }
+    if(affected)++static_shadow_alpha_invalidations;
+    else ++static_shadow_alpha_unreferenced_packets;
+}
 void ReadAtlas(Reader& r) {
     const auto epoch=r.u64(),generation=r.u64();if(epoch!=world)return;
     auto width=r.u32(),height=r.u32();
@@ -1032,28 +1066,28 @@ void ReadAtlas(Reader& r) {
     auto pixels=r.bytes(r.remaining());
     std::vector<std::uint8_t> next_alpha(pixels.size()/4);
     for(std::size_t i=0;i<next_alpha.size();++i)next_alpha[i]=pixels[i*4+3];
-    render::invalidate_static_scene();atlas_alpha.clear();atlas_generation=0;
+    render::invalidate_static_scene();atlas_alpha.clear();atlas_pixel_tiles.clear();atlas_generation=0;
     render::upload_texture(atlas_texture,atlas_width,atlas_height,width,height,pixels);
     render::validate_atlas_upload();atlas_alpha=std::move(next_alpha);
-    atlas_generation=generation;++atlas_uploads;last_atlas_animation=0;
+    atlas_pixel_tiles.reset(width,height);atlas_generation=generation;
+    for(auto& [key,section]:sections)RebuildSectionFootprint(section);
+    ++atlas_uploads;last_atlas_animation=0;
     if(!atlas_logged){Log("uploaded Minecraft block atlas "+std::to_string(width)+"x"+std::to_string(height));atlas_logged=true;}
 }
 void ReadAtlasPatches(Reader& r) {
     const auto epoch=r.u64(),generation=r.u64();
     if(epoch!=world||!atlas_generation||generation!=atlas_generation)return;
     const auto patches=read_atlas_patches(r,atlas_width,atlas_height);
-    bool alpha_changed=atlas_alpha.size()!=std::size_t(atlas_width)*atlas_height;
-    if(!alpha_changed)for(const auto& patch:patches){
-        for(unsigned y=0;y<patch.height&&!alpha_changed;++y)for(unsigned x=0;x<patch.width;++x){
-            if(atlas_alpha[std::size_t(patch.y+y)*atlas_width+patch.x+x]!=patch.rgba[(std::size_t(y)*patch.width+x)*4+3]){
-                alpha_changed=true;break;
-            }
-        }
-        if(alpha_changed)break;
+    AtlasFootprint changed;
+    if(!atlas_pixel_tiles.changes(atlas_alpha,atlas_width,atlas_height,patches,changed)){
+        ++static_shadow_alpha_fallbacks;++static_shadow_alpha_invalidations;
+        render::invalidate_static_scene();atlas_alpha.clear();atlas_pixel_tiles.clear();atlas_generation=0;
+        throw ProtocolError("Missing complete atlas alpha state");
     }
-    if(alpha_changed){render::invalidate_static_scene();++static_shadow_alpha_invalidations;}
+    const bool alpha_changed=!changed.empty();
+    if(alpha_changed)InvalidateAlphaShadows(changed);
     try{render::upload_atlas_patches(atlas_texture,patches);render::validate_atlas_upload();}
-    catch(...){render::invalidate_static_scene();atlas_alpha.clear();atlas_generation=0;throw;}
+    catch(...){render::invalidate_static_scene();atlas_alpha.clear();atlas_pixel_tiles.clear();atlas_generation=0;throw;}
     if(alpha_changed&&atlas_alpha.size()==std::size_t(atlas_width)*atlas_height)
         for(const auto& patch:patches)for(unsigned y=0;y<patch.height;++y)for(unsigned x=0;x<patch.width;++x)
             atlas_alpha[std::size_t(patch.y+y)*atlas_width+patch.x+x]=patch.rgba[(std::size_t(y)*patch.width+x)*4+3];
@@ -1079,6 +1113,7 @@ void ReadSection(Reader& r) {
         section.bounds.add(gs.x,gs.y,gs.z);
     }
     r.finish();
+    RebuildSectionFootprint(section);
     if(count&&existing!=sections.end())section.gpu=existing->second.gpu;
     // Both volumes matter when a replacement moves or removes an occluder.
     // The complete frame is validated before touching the accepted mesh/cache.
