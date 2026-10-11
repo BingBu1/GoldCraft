@@ -10,7 +10,7 @@ namespace goldcraft {
 using Bytes = std::vector<std::uint8_t>;
 using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
-constexpr std::uint16_t protocol_version = 27;
+constexpr std::uint16_t protocol_version = 28;
 constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;

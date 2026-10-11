@@ -19,7 +19,9 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前源码的固定宽度协议为 GCF1/version 27，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前源码的固定宽度协议为 GCF1/version 28，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+
+Version 28 的 `INPUT` 保持 48 字节布局，原 `enabled` 字段改为 flags：bit 0 表示输入窗口有效，bit 1 表示 pitch/yaw 是本帧相对角差（度）；未知位拒绝。Minecraft 控制时宿主采集相对角差并恢复真实 MC 相机角，菜单／失焦时角差为零；原生 CS 保留绝对角和原生移动。客户端只累加有效相对帧，交给 Epic 原版 `turnCamera`，未消费时走 vanilla 转向。绝对帧、身份变更、断线和不可操作 tick 清除未消费角差；MC 初始朝向沿用服务器传送。协议版本门禁拒绝与旧版混用。
 
 本机链路使用非阻塞 TCP 与 TCP_NODELAY；队列有界，尚未采用共享内存。type64 传递有序后处理计划，type65 分块传递大型纹理，type66 原子提交同一 epoch/revision 的实体底图、附魔／气泡和头像身份。接收端完成校验、纹理就绪检查及分配后一起替换，避免底图和附魔来自不同帧。共享内存大帧通道已排队；需先测队列等待、复制、编解码与 GPU 上传开销，保留已认证控制链路、实例隔离和服务器权威。
 

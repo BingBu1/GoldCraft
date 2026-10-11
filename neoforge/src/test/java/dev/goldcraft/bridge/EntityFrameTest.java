@@ -37,7 +37,7 @@ class EntityFrameTest {
         }
     }
     @Test void baseAndEqualDepthGlintShareIdentityAndDistinctRevisionGeometry(){
-        assertEquals(27,Wire.VERSION);assertEquals(66,Wire.ENTITY_FRAME);assertTrue(Wire.knownType(Wire.ENTITY_FRAME));
+        assertEquals(28,Wire.VERSION);assertEquals(66,Wire.ENTITY_FRAME);assertTrue(Wire.knownType(Wire.ENTITY_FRAME));
         assertPair(frame(11,1,false),11,1,false);assertPair(frame(12,2,false),12,2,false);
     }
     @Test void emptyFrameRemovesBaseEffectsAndAvatarsTogether(){assertPair(frame(13,0,true),13,0,true);}

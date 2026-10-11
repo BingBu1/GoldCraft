@@ -1246,8 +1246,24 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     host_ui::update_mouse_capture(active&&window_focused,gEngfuncs.pfnGetCvarFloat("m_rawinput")!=0);
     // Keep GoldSrc's normal relative mouse capture, converting its look delta to a GUI cursor.
     // A temporary zero angle avoids losing cursor motion at pitch/yaw clamps.
+    const bool mc_look=HasControl();
+    const bool relative_look=mc_look&&active&&window_focused&&!ui_active
+        &&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu;
+    float restored_angles[3]{},look_pitch=0,look_yaw=0;
+    if(mc_look){
+        gEngfuncs.GetViewAngles(restored_angles);
+        if(CameraFresh()){
+            restored_angles[0]=camera_pose.angles.x;restored_angles[1]=camera_pose.angles.y;restored_angles[2]=0;
+        }
+    }
+    if(relative_look){float zero[3]{};gEngfuncs.SetViewAngles(zero);}
     if(ui_active){float zero[3]{};gEngfuncs.SetViewAngles(zero);}
     gExportfuncs.CL_CreateMove(frame_time,cmd,active);
+    if(relative_look){
+        look_pitch=cmd->viewangles[0];look_yaw=std::remainder(cmd->viewangles[1],360.0f);
+        gEngfuncs.SetViewAngles(restored_angles);
+        std::copy(std::begin(restored_angles),std::end(restored_angles),cmd->viewangles);
+    }
     input_buttons_observed|=cmd->buttons;
     if(ui_active){
         const float old_x=ui_x,old_y=ui_y;
@@ -1271,9 +1287,9 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     if(!input_active)ReleaseHostUse();else UpdateHostUse();
     last_input_active=input_active;last_input_buttons=input_active?cmd->buttons:0;last_input_forward=input_active?cmd->forwardmove:0;last_input_side=input_active?cmd->sidemove:0;
     if(!link.connected()||!world) return;
-    Writer w; w.u64(world);w.u64(++input_sequence); w.f32(frame_time); w.u32(input_active?1:0); w.u32(last_input_buttons);
+    Writer w; w.u64(world);w.u64(++input_sequence); w.f32(frame_time); w.u32((input_active?1u:0u)|(mc_look?2u:0u)); w.u32(last_input_buttons);
     input_times[input_sequence%input_times.size()]={input_sequence,std::chrono::steady_clock::now()};
-    w.f32(cmd->viewangles[0]); w.f32(cmd->viewangles[1]); w.f32(last_input_forward); w.f32(last_input_side); w.f32(input_active?cmd->upmove:0);
+    w.f32(mc_look?look_pitch:cmd->viewangles[0]); w.f32(mc_look?look_yaw:cmd->viewangles[1]); w.f32(last_input_forward); w.f32(last_input_side); w.f32(input_active?cmd->upmove:0);
     link.send(Type::input,w.data);
     if(HasControl()){cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->buttons=0;cmd->impulse=0;}
 }

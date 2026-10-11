@@ -227,7 +227,9 @@
     "tools/Test-NightfallBlade.py",
     "tools/Test-MurasamaMesh.py",
     "tools/Exercise-AuthoritativePose.py",
-    "docs/2026-10-11_分析-Epic姿态与NightFall渲染-report.md"
+    "docs/2026-10-11_分析-Epic姿态与NightFall渲染-report.md",
+    "tools/Test-HostLook.py",
+    "docs/2026-10-11_分析-Epic锁定与输入-report.md"
   ],
   "trees": {
     "native": [

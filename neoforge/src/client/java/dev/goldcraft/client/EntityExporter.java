@@ -127,6 +127,7 @@ public final class EntityExporter {
                 // ground decal would otherwise remain as a second, fixed blob.
                 try {YsmAnimationFrame.endHosted(ysmFrame);}finally {dispatcher.setRenderShadows(drawShadows);}
             }
+            HostEpicIndicator.render(client,tickDelta,DirectMeshCapture.entityBuffers());
             var blockDispatcher=client.getBlockEntityRenderDispatcher();blockDispatcher.configure(client.world,camera,client.crosshairTarget);
             int cx=client.player.getBlockX()>>4,cz=client.player.getBlockZ()>>4,blockCount=0;
             for(int x=cx-2;x<=cx+2;x++)for(int z=cz-2;z<=cz+2;z++)if(client.world.isChunkLoaded(x,z)) {

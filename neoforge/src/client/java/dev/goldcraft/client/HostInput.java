@@ -17,9 +17,10 @@ import java.nio.file.StandardCopyOption;
 /** CS commands drive normal Minecraft controls; the Minecraft server validates movement/actions. */
 public final class HostInput {
     private static BridgeLink link;
+    private static final HostLookDelta hostLook=new HostLookDelta();
     private static final com.google.gson.Gson DIAGNOSTIC_JSON=new com.google.gson.Gson();
     private static long epoch,sequence,lastInput,lastReady;
-    private static int buttons,presses,active;
+    private static int buttons,presses,active,inputFlags;
     private static float pitch,yaw,forward,side;
     private static boolean controlling;
     private static int serial,life;
@@ -44,15 +45,15 @@ public final class HostInput {
         HostKeys.reset();
         HostMiningInput.clear();
         if(controlling){var o=MinecraftClient.getInstance().options;for(var key:new KeyBinding[]{o.forwardKey,o.backKey,o.leftKey,o.rightKey,o.jumpKey,o.sneakKey,o.sprintKey,o.attackKey,o.useKey})key.setPressed(false);}
-        epoch=sequence=lastInput=lastReady=0;buttons=presses=active=serial=life=0;controlling=false;playerInstance=null;
+        epoch=sequence=lastInput=lastReady=0;buttons=presses=active=inputFlags=serial=life=0;controlling=false;playerInstance=null;hostLook.discard();
     }
     public static void input(byte[] payload) {
-        Wire.Reader r=new Wire.Reader(payload);long world=r.i64(),next=r.i64();r.f32();int enabled=r.i32(),keys=r.i32();
+        Wire.Reader r=new Wire.Reader(payload);long world=r.i64(),next=r.i64();r.f32();int flags=r.i32(),keys=r.i32();
         float p=r.f32(),y=r.f32(),f=r.f32(),s=r.f32();r.f32();r.finish();
         if(world!=GoldCraftClient.HOST.epoch()||next<=sequence&&world==epoch)return;
-        if(enabled<0||enabled>1||Math.abs(p)>180||Math.abs(y)>360000||Math.abs(f)>10000||Math.abs(s)>10000)throw new IllegalArgumentException("Host input bounds");
+        if(flags<0||flags>3||((flags&2)!=0&&Math.abs(y)>180)||Math.abs(p)>180||Math.abs(y)>360000||Math.abs(f)>10000||Math.abs(s)>10000)throw new IllegalArgumentException("Host input bounds");
         if(world!=epoch){clear();epoch=world;}
-        sequence=next;lastInput=System.nanoTime();active=enabled;presses|=keys&~buttons;buttons=keys;pitch=p;yaw=y;forward=f;side=s;
+        sequence=next;lastInput=System.nanoTime();inputFlags=flags;active=flags&1;presses|=keys&~buttons;buttons=keys;hostLook.sample(p,y,flags);pitch=p;yaw=y;forward=f;side=s;
     }
     public static void action(byte[] payload) {
         Wire.Reader r=new Wire.Reader(payload);long world=r.i64();int code=r.i32();r.finish();
@@ -80,7 +81,7 @@ public final class HostInput {
     public static void tick(MinecraftClient client) {
         var actor=client.player==null?null:GoldCraftClient.HOST.actor(client.player.getUuid());
         boolean changed=actor!=null&&(serial!=actor.serial()||life!=actor.life()||playerInstance!=client.player);
-        if(changed){HostKeys.reset();serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;}
+        if(changed){HostKeys.reset();serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;hostLook.discard();}
         int reasons=ControlReadiness.reasons(link!=null&&link.connected(),GoldCraftClient.HOST.geometry()!=null,actor!=null,
             client.player!=null&&client.player.isAlive(),client.world!=null&&client.world.getRegistryKey().getValue().toString().equals(GoldCraftClient.HOST.dimension()),
             actor!=null&&actor.minecraftForm(),actor==null?0:actor.life(),actor==null?0:actor.flags(),epoch==GoldCraftClient.HOST.epoch(),System.nanoTime()-lastInput<500_000_000L,changed);
@@ -93,7 +94,7 @@ public final class HostInput {
         if(wasControlling&&!controlling)++controlLosses;
         if(!controlling||!active()||client.currentScreen!=null)HostKeys.releaseAll();
         if(wasControlling&&!controlling&&actor!=null&&!actor.minecraftForm()&&client.currentScreen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?>)client.player.closeHandledScreen();
-        if(!controlling&&!wasControlling)return;
+        if(!controlling&&!wasControlling){hostLook.discard();return;}
         boolean move=controlling&&active()&&!GoldCraftClient.HOST.freeze()&&client.currentScreen==null;
         var options=client.options;
         options.forwardKey.setPressed(move&&forward>0);options.backKey.setPressed(move&&forward<0);
@@ -102,11 +103,13 @@ public final class HostInput {
         options.sprintKey.setPressed(move&&(buttons&4096)!=0);
         options.attackKey.setPressed(move&&(buttons&1)!=0);options.useKey.setPressed(move&&(buttons&2048)!=0);
         if(move) {
-            client.player.setYaw(-yaw-90);client.player.setPitch(pitch);
-            client.player.prevYaw=client.player.getYaw();client.player.prevPitch=pitch;
+            double yawDelta=hostLook.yawDelta(),pitchDelta=hostLook.pitchDelta();
+            if((yawDelta!=0||pitchDelta!=0)&&!HostEpicCamera.turn(yawDelta,pitchDelta))
+                client.player.changeLookDirection(yawDelta/0.15D,pitchDelta/0.15D);
             client.gameRenderer.updateCrosshairTarget(1);
             if((presses&1)!=0&&!HostKeys.attackEvent())press(options.attackKey);if((presses&2048)!=0&&!HostKeys.useEvent())press(options.useKey);
         }
+        hostLook.discard();
         presses=0;
         HostKeys.endTick();
         if(controlling&&!wasControlling)GoldCraft.LOGGER.info("CS input now drives the authoritative Minecraft player");
@@ -148,6 +151,10 @@ public final class HostInput {
         EntityExporter.diagnostics(data);
         BlockFeedbackExporter.diagnostics(data);
         HostCamera.diagnostics(data);
+        data.addProperty("hostInputFlags",inputFlags);data.addProperty("hostInputPitch",pitch);data.addProperty("hostInputYaw",yaw);
+        data.addProperty("playerYaw",client.player==null?0:client.player.getYaw());data.addProperty("playerPitch",client.player==null?0:client.player.getPitch());
+        if(!HostEpicCamera.error().isEmpty())data.addProperty("hostEpicCameraError",HostEpicCamera.error());
+        HostEpicIndicator.diagnostics(data);
         HostKeys.diagnostics(data);
         AnimationDiagnostics.sample(client.player,data);
         GoldCraftClient.presentationDiagnostics(data);

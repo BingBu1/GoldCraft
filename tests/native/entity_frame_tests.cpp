@@ -46,7 +46,7 @@ void check_pair(const EntityFrame& value,std::uint64_t revision,float x){
 }
 }
 int main(int argc,char** argv){
-    static_assert(protocol_version==27);assert(known_type(Type::entity_frame));
+    static_assert(protocol_version==28);assert(known_type(Type::entity_frame));
     const auto first=packet(11,1),second=packet(12,2);check_pair(decode(first),11,1);check_pair(decode(second),12,2);
     assert(decode(first).base.avatars.size()==1);
     for(std::size_t n=0;n<second.size();++n)reject(Bytes(second.begin(),second.begin()+n));
