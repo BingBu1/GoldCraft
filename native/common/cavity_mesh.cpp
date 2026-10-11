@@ -68,6 +68,7 @@ struct Material {
     std::uint32_t face = 0;
     Point closest{}, normal{}, gradient[2]{};
     double uv[2]{};
+    bool reversed = false;
 };
 Material material(const surface::Mesh &mesh, const Model &model, const Point &center, Work &work) {
     Material result;
@@ -94,9 +95,17 @@ Material material(const surface::Mesh &mesh, const Model &model, const Point &ce
                                          scale(cross(n, e1), double(c.texcoord[i]) - a.texcoord[i])), 1 / squared);
             const auto uv_normal = cross(gradients[0], gradients[1]);
             if (dot(uv_normal, uv_normal) == 0) continue;
+            // BSP polygons may wind opposite to their outward surface normal.
+            // Use the surface orientation for UV transport and retain the
+            // donor's winding for the host renderer's culling convention.
+            const auto &frame = mesh.frames[mesh.indices[at]];
+            const Point outward{frame.normal[0], frame.normal[1], frame.normal[2]};
+            const auto orientation = dot(n, outward);
+            if (orientation == 0) continue;
             result.face = static_cast<std::uint32_t>(face);
             result.closest = q;
-            result.normal = scale(n, 1 / std::sqrt(squared));
+            result.reversed = orientation < 0;
+            result.normal = scale(n, (result.reversed ? -1 : 1) / std::sqrt(squared));
             for (int i = 0; i < 2; ++i) {
                 result.gradient[i] = gradients[i];
                 result.uv[i] = a.texcoord[i] + dot(gradients[i], sub(q, triangle[0]));
@@ -188,8 +197,8 @@ void append(surface::Mesh &mesh, const surface::Mesh &original, const Model &mod
         if (orientation < 0 || quantized < 0)
             throw std::invalid_argument("Cavity triangle loses winding or area at GPU precision");
         mesh.indices.push_back(start);
-        mesh.indices.push_back(start + static_cast<std::uint32_t>(i));
-        mesh.indices.push_back(start + static_cast<std::uint32_t>(i + 1));
+        mesh.indices.push_back(start + static_cast<std::uint32_t>(i + (donor.reversed ? 1 : 0)));
+        mesh.indices.push_back(start + static_cast<std::uint32_t>(i + (donor.reversed ? 0 : 1)));
     }
     draws.back().indices.count = static_cast<std::uint32_t>(mesh.indices.size()) - draws.back().indices.first;
     if (!draws.back().indices.count) {

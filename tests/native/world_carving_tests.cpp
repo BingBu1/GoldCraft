@@ -521,7 +521,12 @@ void actual_map(const char* path) {
                     vertex.lightmaptexcoord[axis] = static_cast<float>((uv(p, texture[axis]) - 32) / 16 + .5);
                 }
                 source_mesh->vertices.push_back(vertex);
-                source_mesh->frames.push_back({{0,0,1}, {1,0,0}, {0,1,0}, {0,0,1}});
+                const auto plane = bsp.record(1, bsp.u16(face), 20);
+                const float side = bsp.u16(face + 2) ? -1.f : 1.f;
+                goldcraft::surface::Frame frame{};
+                for (int axis = 0; axis < 3; ++axis)
+                    frame.normal[axis] = frame.smoothnormal[axis] = side * bsp.f32(plane + axis*4);
+                source_mesh->frames.push_back(frame);
             }
             source_mesh->instances.push_back({{65535, 511}, {0, 1, 2, 255}, 0});
             source_mesh->faces.push_back({{0, 3}, {}, {0, 1}, 1, true});
@@ -621,7 +626,7 @@ void actual_map(const char* path) {
                 }
                 const auto& frame = prepared.mesh->frames[prepared.mesh->indices[at]];
                 const Point normal{frame.normal[0], frame.normal[1], frame.normal[2]};
-                assert(dot(cross(minus(triangle[1], triangle[0]), minus(triangle[2], triangle[0])), normal) > 0);
+                assert(dot(cross(minus(triangle[1], triangle[0]), minus(triangle[2], triangle[0])), normal) < 0);
                 cavity_area += area(triangle);
                 ++cavity_triangles;
             }

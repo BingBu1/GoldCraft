@@ -8723,10 +8723,10 @@ index 0000000..8c229a3
 +}
 diff --git a/tests/surface_mesh_gl_tests.cpp b/tests/surface_mesh_gl_tests.cpp
 new file mode 100644
-index 0000000..c2102ed
+index 0000000..bbeae5c
 --- /dev/null
 +++ b/tests/surface_mesh_gl_tests.cpp
-@@ -0,0 +1,536 @@
+@@ -0,0 +1,560 @@
 +// Driver-backed readback of the production candidate resource and VAO layout.
 +// No CS process or desktop input is used; the GLFW window remains hidden.
 +#include "../src/gl_local.h"
@@ -8808,10 +8808,12 @@ index 0000000..c2102ed
 +layout(location=7) in uint material_bits;
 +layout(location=8) in uvec4 styles;
 +layout(location=9) in float scale;
++uniform bool side_view;
 +out vec2 diffuse_uv; out vec2 lightmap_uv; out vec3 sn;
 +flat out uvec4 instance; flat out float diffuse_scale;
 +void main() {
-+    gl_Position=vec4(pos.xy / 64.0 - 1.0, -pos.z / 64.0, 1.0);
++    gl_Position=side_view ? vec4(pos.y/64.0-1.0,pos.z/64.0,(48.0-pos.x)/64.0,1.0)
++        : vec4(pos.xy / 64.0 - 1.0, -pos.z / 64.0, 1.0);
 +    diffuse_uv=uv; lightmap_uv=lm; sn=smoothnormal;
 +    instance=uvec4(material_bits & 65535u, material_bits >> 16, styles.y, styles.z);
 +    diffuse_scale=scale;
@@ -8849,7 +8851,7 @@ index 0000000..c2102ed
 +    }
 +    mesh->instances.push_back({{60001, 513}, {3, 15, 200, 255}, .015625f});
 +    mesh->instances.push_back({{60002, 514}, {4, 16, 201, 254}, .03125f});
-+    mesh->indices             = {0, 1, 2, 0, 2, 3};
++    mesh->indices             = {0, 2, 1, 0, 3, 2};
 +    mesh->faces               = {{{0, 6}, {}, {1, 1}, 1, true}};
 +    auto original             = std::make_shared<CWorldSurfaceWorldModel>(mod);
 +    original->m_pOriginalMesh = mesh;
@@ -9072,6 +9074,7 @@ index 0000000..c2102ed
 +    glViewport(0, 0, Size, Size);
 +    glEnable(GL_DEPTH_TEST);
 +    glEnable(GL_CULL_FACE);
++    glCullFace(GL_FRONT); // Match the real GoldSrc world pass.
 +    glGenVertexArrays(1, &sentinel);
 +    glBindVertexArray(sentinel);
 +    glGenBuffers(3, buffers);
@@ -9153,6 +9156,27 @@ index 0000000..c2102ed
 +                    for (int c = 0; c < 4; ++c)
 +                        assert(std::abs(filled[attachment][pixel + c] - before[attachment][pixel + c]) < .00002f);
 +        }
++    // A finite wall opens through the hole but retains its inner sides.
++    const std::array<goldcraft::carving::Plane,2> slab_planes{{{{0,0,1},0},{{0,0,1},-4}}};
++    const std::array<goldcraft::carving::HullNode,2> slab_nodes{{{0,{-1,1}},{1,{-2,-1}}}};
++    const goldcraft::cavity::Model through_model{0,1,{slab_planes,slab_nodes,0},{&cut.box,1}};
++    auto through = R_PrepareCarvedWorldGeometry(original,{&through_model,1});
++    const auto open = Draw(*through,true);
++    assert(Depth(20,20) == 1 && Depth(40,40) == .5f);
++    assert(open[0][(20*Size+20)*4+3] == 0);
++    GLint active_program{}; glGetIntegerv(GL_CURRENT_PROGRAM,&active_program);
++    const auto side_view = glGetUniformLocation(active_program,"side_view");
++    glUniform1i(side_view,1);
++    const auto sides = Draw(*through,true);
++    std::size_t side_pixels = 0;
++    for (int y=0;y<Size;++y) for (int x=0;x<Size;++x) {
++        const bool wall = x>=16 && x<32 && y>=30 && y<32;
++        assert(sides[0][(y*Size+x)*4+3] == (wall ? 1 : 0));
++        if (wall) ++side_pixels;
++    }
++    assert(side_pixels == 32 && Depth(20,30) == .625f);
++    glUniform1i(side_view,0);
++    std::printf("GoldSrc GL_FRONT: sealed back 256 pixels; through hole open; inner side 32 pixels\n");
 +    auto cavity_restored = R_PrepareCarvedWorldGeometry(cavity, {});
 +    assert(cavity_restored->m_vCavityDraws.empty() && cavity_restored->m_pSurfaceMesh == original->m_pOriginalMesh);
 +    assert(Draw(*cavity_restored, true) == before);
@@ -9456,7 +9480,7 @@ index 0000000..61ba839
 +}
 diff --git a/tests/cavity_lighting_gl_tests.cpp b/tests/cavity_lighting_gl_tests.cpp
 new file mode 100644
-index 0000000..63336c0
+index 0000000..ba0232f
 --- /dev/null
 +++ b/tests/cavity_lighting_gl_tests.cpp
 @@ -0,0 +1,303 @@
@@ -9621,7 +9645,7 @@ index 0000000..63336c0
 +    }
 +    const GLenum drawBuffers[]{GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3};
 +    glDrawBuffers(4,drawBuffers); assert(glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
-+    glViewport(0,0,Size,Size); glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE);
++    glViewport(0,0,Size,Size); glEnable(GL_DEPTH_TEST); glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
 +
 +    auto mesh=std::make_shared<goldcraft::surface::Mesh>();
 +    for (const auto xy : {std::array<float,2>{0,0},{128,0},{128,128},{0,128}})
@@ -9629,7 +9653,7 @@ index 0000000..63336c0
 +        mesh->vertices.push_back({{xy[0],xy[1],0},{xy[0]/128,xy[1]/128},{.5f,.5f}});
 +        mesh->frames.push_back({{0,0,1},{1,0,0},{0,1,0},{0,0,1}});
 +    }
-+    mesh->instances.push_back({{0,0},{0,200,255,255},0}); mesh->indices={0,1,2,0,2,3};
++    mesh->instances.push_back({{0,0},{0,200,255,255},0}); mesh->indices={0,2,1,0,3,2};
 +    mesh->faces={{{0,6},{},{0,1},1,true}};
 +    mplane_t plane{}; plane.normal[2]=1;
 +    mtexinfo_t texinfo{}; texinfo.vecs[0][0]=1; texinfo.vecs[1][1]=1;

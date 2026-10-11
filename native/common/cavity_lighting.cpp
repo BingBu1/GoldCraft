@@ -259,6 +259,15 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                     triangle[i] = source.vertices[source.indices[at+i]];
                 }
                 const auto &frame = source.frames[source.indices[at]];
+                const auto edge1 = sub(point(triangle[1].pos), point(triangle[0].pos));
+                const auto edge2 = sub(point(triangle[2].pos), point(triangle[0].pos));
+                const Point original_cross{edge1[1]*edge2[2]-edge1[2]*edge2[1],
+                    edge1[2]*edge2[0]-edge1[0]*edge2[2], edge1[0]*edge2[1]-edge1[1]*edge2[0]};
+                // Preserve input winding; GoldSrc front-face culling uses
+                // triangles whose cross product opposes the lighting normal.
+                const auto original_area = dot(original_cross, point(frame.normal));
+                if (!std::isfinite(original_area) || original_area == 0)
+                    throw std::invalid_argument("Cavity lighting source winding");
                 double length = 0;
                 for (int i = 0; i < 3; ++i) {
                     const auto edge = sub(point(triangle[i].pos), point(triangle[(i+1)%3].pos));
@@ -301,8 +310,8 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                     const auto ac = sub(point(mesh->vertices[c].pos), point(mesh->vertices[a].pos));
                     const Point cross{ab[1]*ac[2]-ab[2]*ac[1], ab[2]*ac[0]-ab[0]*ac[2], ab[0]*ac[1]-ab[1]*ac[0]};
                     const auto area = dot(cross, point(frame.normal));
-                    if (area < 0) throw std::invalid_argument("Cavity lighting refinement reverses winding");
-                    if (area > 0) mesh->indices.insert(mesh->indices.end(), {a,b,c});
+                    if (area * original_area < 0) throw std::invalid_argument("Cavity lighting refinement reverses winding");
+                    if (area != 0) mesh->indices.insert(mesh->indices.end(), {a,b,c});
                 };
                 for (std::uint32_t i = 0; i < n; ++i) for (std::uint32_t j = 0; j < n-i; ++j) {
                     emit(row(i,j), row(i+1,j), row(i,j+1));

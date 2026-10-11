@@ -48,7 +48,12 @@ double verify(const cavity::Prepared &prepared, const surface::Mesh &original) {
             const auto a = point(mesh.vertices[ai].pos), b = point(mesh.vertices[bi].pos), c = point(mesh.vertices[ci].pos);
             const auto geometric = cross(sub(b, a), sub(c, a));
             const auto normal = point(mesh.frames[ai].normal);
-            assert(dot(geometric, normal) > 0);
+            const auto source_at = original.faces[draw.source_face].forward.first;
+            const auto source_a = original.indices[source_at], source_b = original.indices[source_at+1],
+                       source_c = original.indices[source_at+2];
+            const auto source_cross = cross(sub(point(original.vertices[source_b].pos), point(original.vertices[source_a].pos)),
+                                            sub(point(original.vertices[source_c].pos), point(original.vertices[source_a].pos)));
+            assert(dot(geometric, normal) * dot(source_cross, point(original.frames[source_a].normal)) > 0);
             area += std::sqrt(dot(geometric, geometric)) / 2;
             for (const auto index : {ai, bi, ci}) {
                 const auto &v = mesh.vertices[index];
@@ -87,7 +92,10 @@ template <class F> void rejected(F run) {
 }
 } // namespace
 int main() {
+  for (const bool reversed : {false, true}) {
     const auto original = fixture();
+    if (reversed) for (std::size_t i = 0; i < original->indices.size(); i += 3)
+        std::swap(original->indices[i+1], original->indices[i+2]);
     const auto baseline = *original;
     const std::array<carving::Plane, 1> planes{{{{0, 0, 1}, 0}}};
     const std::array<carving::HullNode, 1> nodes{{{0, {-1, -2}}}};
@@ -106,6 +114,24 @@ int main() {
     const cavity::Model union_model{0, 1, hull, adjacent};
     const auto joined = cavity::prepare(original, {&union_model, 1});
     close(verify(joined, *original), 3584);
+    // A finite wall opens onto empty space: retain four textured side walls,
+    // without inventing a back plate beyond the original solid.
+    const std::array<carving::Plane, 2> slab_planes{{planes[0], {{0,0,1},-4}}};
+    const std::array<carving::HullNode, 2> slab_nodes{{{0,{-1,1}}, {1,{-2,-1}}}};
+    const cavity::Model through_model{0,1,{slab_planes,slab_nodes,0},boxes};
+    const auto through = cavity::prepare(original,{&through_model,1});
+    assert(through.walls == 4);
+    close(verify(through,*original), 512);
+    for (const auto &draw : through.draws)
+        for (std::size_t at = draw.indices.first; at < std::size_t(draw.indices.first)+draw.indices.count; ++at)
+            assert(through.mesh->frames[through.mesh->indices[at]].normal[2] == 0);
+    // Joining cuts removes the shared divider.
+    for (const auto &draw : joined.draws)
+        for (std::size_t at = draw.indices.first; at < std::size_t(draw.indices.first)+draw.indices.count; ++at) {
+            const auto index = joined.mesh->indices[at];
+            if (joined.mesh->frames[index].normal[0] != 0)
+                assert(joined.mesh->vertices[index].pos[0] != 64);
+        }
     const std::array duplicate{boxes[0], boxes[0]};
     const cavity::Model duplicate_model{0, 1, hull, duplicate};
     const auto duplicated = cavity::prepare(original, {&duplicate_model, 1});
@@ -160,7 +186,10 @@ int main() {
     rejected([&] { auto protected_mesh = fixture(); protected_mesh->faces[0].editable = false; (void)cavity::prepare(protected_mesh, {&model, 1}); });
     rejected([&] { auto invalid = fixture(); invalid->faces[0].instances.count = 0; (void)cavity::prepare(invalid, {&model, 1}); });
     rejected([&] { auto invalid = fixture(); for (auto &v : invalid->vertices) v.texcoord[1] = 0; (void)cavity::prepare(invalid, {&model, 1}); });
+    rejected([&] { auto invalid = fixture(); for (auto &f : invalid->frames) f.normal[2] = 0;
+        (void)cavity::prepare(invalid, {&model, 1}); });
     rejected([&] { auto invalid = model; invalid.hull.root = 99; (void)cavity::prepare(original, {&invalid, 1}); });
+  }
     std::cout << "Cavity union walls, affine texture scale/skew/mirroring, material isolation, "
                  "unbaked lighting, grouped draws, restoration and atomic rejection passed\n";
 }
