@@ -10,7 +10,8 @@ namespace goldcraft {
 using Bytes = std::vector<std::uint8_t>;
 using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
-constexpr std::uint16_t protocol_version = 26;
+constexpr std::uint16_t protocol_version = 27;
+constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;
 constexpr std::size_t max_queued_bytes = 64 * 1024 * 1024;
@@ -32,7 +33,8 @@ enum class Type : std::uint16_t {
     minecraft_objects = 51, object_action = 52, host_entities = 53, vitals_delta = 54,
     map_mining_policy = 56, map_mining_request = 57, map_mining_result = 58,
     map_edit_snapshot = 59, map_edit_delta = 60, map_edit_query = 61,
-    map_mining_sample = 62, map_mining_surface = 63
+    map_mining_sample = 62, map_mining_surface = 63,
+    bulk_offer = 67, bulk_ack = 68, bulk_ref = 69
 };
 
 class ProtocolError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
@@ -92,10 +94,12 @@ public:
     Bytes welcome() const;
     bool ready() const { return ready_; }
     std::uint64_t epoch() const { return epoch_; }
+    std::uint32_t peer_capabilities() const { return peer_capabilities_; }
 private:
     Key session_, token_;
     Role host_, peer_;
     std::uint64_t epoch_, last_sequence_ = 0;
+    std::uint32_t peer_capabilities_ = 0;
     bool ready_ = false;
 };
 

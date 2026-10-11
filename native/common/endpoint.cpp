@@ -1,13 +1,26 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include "goldcraft/endpoint.hpp"
+#include "goldcraft/shared_bulk.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <deque>
+#include <string_view>
 
 namespace goldcraft {
 using Clock = std::chrono::steady_clock;
+namespace {
+struct PeerClosed : std::exception {
+    const char* what() const noexcept override { return "peer disconnected"; }
+};
+std::uint64_t nanos(Clock::duration elapsed) {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
+}
+void count_frame(std::array<TransportCount, 70>& counts, Type type, std::size_t bytes) {
+    auto& count = counts[static_cast<std::size_t>(type)]; ++count.frames; count.bytes += bytes;
+}
+}
 std::optional<EndpointConfig> environment_config(const char* prefix, Role host, Role peer) {
     const std::string base(prefix);
     const char* p = std::getenv((base + "_PORT").c_str());
@@ -25,69 +38,153 @@ struct Endpoint::Impl {
     EndpointConfig config{};
     bool winsock = false;
     std::unique_ptr<HostHandshake> handshake;
+    std::unique_ptr<SharedBulk> bulk;
+    TransportStats stats{};
     std::uint64_t generation = 0, out_sequence = 0;
     Bytes input;
-    std::deque<Bytes> output;
+    struct Outbound { Bytes bytes; Type type; std::size_t payload_bytes; Clock::time_point queued; };
+    std::deque<Outbound> output;
     std::size_t output_offset = 0, queued_bytes = 0, incoming_bytes = 0;
     std::vector<Message> messages;
     std::string last_error;
     Clock::time_point last_receive{}, last_heartbeat{};
 
+    void update_ages() {
+        stats.queue_age_ns = output.empty() ? 0 : nanos(Clock::now() - output.front().queued);
+        stats.pending_age_ns = output_offset ? stats.queue_age_ns : 0;
+        stats.peak_queue_age_ns = std::max(stats.peak_queue_age_ns, stats.queue_age_ns);
+        stats.peak_pending_age_ns = std::max(stats.peak_pending_age_ns, stats.pending_age_ns);
+    }
+
     void disconnect(const std::string& reason) {
-        if (peer != INVALID_SOCKET) closesocket(peer);
-        peer = INVALID_SOCKET; handshake.reset(); input.clear(); output.clear(); messages.clear();
+        if (peer != INVALID_SOCKET) { closesocket(peer); ++stats.disconnects; }
+        update_ages();
+        peer = INVALID_SOCKET; bulk.reset(); handshake.reset(); input.clear(); output.clear(); messages.clear();
+        stats.shared_active = false; stats.queue_age_ns = stats.pending_age_ns = 0;
         output_offset = queued_bytes = incoming_bytes = 0; out_sequence = 0;
         if (!reason.empty()) last_error = reason;
     }
     bool queue(Type type, std::span<const std::uint8_t> payload) {
-        if (payload.size() + header_bytes > max_queued_bytes - queued_bytes) return false;
+        if (payload.size() + header_bytes > max_queued_bytes - queued_bytes) { ++stats.rejections; return false; }
+        const auto begin = Clock::now();
         auto frame = encode_frame(type, handshake->epoch(), ++out_sequence, payload);
-        queued_bytes += frame.size(); output.push_back(std::move(frame)); return true;
+        stats.encode_ns += nanos(Clock::now() - begin);
+        queued_bytes += frame.size();
+        stats.queued_high_water = std::max(stats.queued_high_water, static_cast<std::uint64_t>(queued_bytes));
+        output.push_back({std::move(frame), type, payload.size(), begin}); return true;
     }
     void flush() {
         std::size_t budget = 4 * 1024 * 1024;
         while (!output.empty() && budget) {
+            update_ages();
             auto& head = output.front();
-            auto size = std::min(head.size() - output_offset, budget);
-            int n = ::send(peer, reinterpret_cast<const char*>(head.data() + output_offset), static_cast<int>(size), 0);
+            auto size = std::min(head.bytes.size() - output_offset, budget);
+            const auto begin = Clock::now();
+            int n = ::send(peer, reinterpret_cast<const char*>(head.bytes.data() + output_offset), static_cast<int>(size), 0);
+            stats.socket_ns += nanos(Clock::now() - begin);
             if (n == SOCKET_ERROR) { if (WSAGetLastError() == WSAEWOULDBLOCK) return; throw ProtocolError("socket write failed"); }
-            if (n <= 0) throw ProtocolError("socket closed while writing");
+            if (n <= 0) throw PeerClosed();
             output_offset += n; queued_bytes -= n; budget -= n;
-            if (output_offset == head.size()) { output.pop_front(); output_offset = 0; }
+            stats.socket_bytes_sent += n;
+            if (output_offset == head.bytes.size()) {
+                count_frame(stats.tcp_sent, head.type, head.payload_bytes);
+                output.pop_front(); output_offset = 0;
+            }
         }
+        update_ages();
+    }
+    void negotiate_bulk() {
+        if (config.host != Role::host_client || config.peer != Role::fabric_client ||
+            !(handshake->peer_capabilities() & capability_shared_bulk_v1)) return;
+        const auto disabled = std::getenv("GOLDCRAFT_SHARED_MEMORY");
+        if (!config.shared_bulk || (disabled && std::string_view(disabled) == "0")) { ++stats.mapping_fallback; return; }
+        try { bulk = SharedBulk::create(handshake->epoch()); }
+        catch (const std::exception&) { bulk.reset(); }
+        if (!bulk) { ++stats.mapping_fallback; return; }
+        if (!queue(Type::bulk_offer, bulk->offer())) throw ProtocolError("shared bulk offer queue full");
+        ++stats.mapping_offered;
     }
     void receive() {
         std::uint8_t buffer[65536];
         for (int attempt = 0; attempt < 64; ++attempt) {
-            int n = recv(peer, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+            const auto available = std::min(sizeof(buffer), max_queued_bytes - input.size());
+            if (!available) break;
+            const auto begin = Clock::now();
+            int n = recv(peer, reinterpret_cast<char*>(buffer), static_cast<int>(available), 0);
+            stats.socket_ns += nanos(Clock::now() - begin);
             if (n == SOCKET_ERROR) { if (WSAGetLastError() == WSAEWOULDBLOCK) break; throw ProtocolError("socket read failed"); }
-            if (!n) throw ProtocolError("peer disconnected");
+            if (!n) throw PeerClosed();
             if (input.size() + n > max_queued_bytes) throw ProtocolError("receive buffer limit");
+            stats.socket_bytes_received += n;
+            const auto copy_begin = Clock::now();
             input.insert(input.end(), buffer, buffer + n);
+            stats.copy_ns += nanos(Clock::now() - copy_begin);
         }
-        std::size_t offset = 0;
+        std::size_t offset = 0, delivered_bytes = 0;
         for (int parsed = 0; parsed < 256 && input.size() - offset >= header_bytes; ++parsed) {
             auto remaining = std::span<const std::uint8_t>(input).subspan(offset);
             auto header = decode_header(remaining.first(header_bytes));
             if (remaining.size() < header_bytes + header.payload_bytes) break;
             auto payload = remaining.subspan(header_bytes, header.payload_bytes);
             bool was_ready = handshake->ready();
-            handshake->accept(header, payload); last_receive = Clock::now();
-            if (!was_ready) { ++generation; if (!queue(Type::welcome, handshake->welcome())) throw ProtocolError("welcome queue full"); }
-            else if (header.type != Type::heartbeat) {
-                if (incoming_bytes + payload.size() > max_queued_bytes || messages.size() >= 4096) throw ProtocolError("unconsumed message limit");
-                messages.push_back({header.type, Bytes(payload.begin(), payload.end())}); incoming_bytes += payload.size();
+            // A reference may expand to 32 MiB: bound the owned application queue,
+            // then leave the complete TCP frame pending until the caller drains it.
+            std::size_t application_bytes = payload.size();
+            if (header.type == Type::bulk_ref) {
+                Reader ref(payload); ref.u32(); application_bytes = ref.u32(); ref.u32(); ref.u32(); ref.finish();
+                if (application_bytes < bulk_min_payload || application_bytes > max_payload)
+                    throw ProtocolError("invalid shared bulk reference length");
             }
+            const bool application = was_ready && header.type != Type::heartbeat && !bulk_internal(header.type);
+            if ((application || header.type == Type::bulk_ref) &&
+                (application_bytes > max_queued_bytes - incoming_bytes || messages.size() >= 4096)) break;
+            // As with socket work, limit copy/drain work per game-thread poll. One
+            // large frame is indivisible; a following frame waits for the next poll.
+            if ((application || header.type == Type::bulk_ref) && delivered_bytes &&
+                application_bytes > 4 * 1024 * 1024 - std::min(delivered_bytes, std::size_t(4 * 1024 * 1024))) break;
+            handshake->accept(header, payload); last_receive = Clock::now();
+            count_frame(stats.tcp_received, header.type, payload.size());
+            if (!was_ready) {
+                ++generation;
+                if (!queue(Type::welcome, handshake->welcome())) throw ProtocolError("welcome queue full");
+                negotiate_bulk();
+            }
+            else if (header.type == Type::bulk_ack) {
+                if (!bulk) throw ProtocolError("unsolicited shared bulk acknowledgement");
+                bulk->acknowledge(payload);
+                if (bulk->enabled()) { ++stats.mapping_enabled; stats.shared_active = true; }
+                else { ++stats.mapping_fallback; bulk.reset(); }
+            }
+            else if (header.type == Type::bulk_ref) {
+                if (!bulk || !bulk->enabled()) throw ProtocolError("shared bulk reference before acknowledgement");
+                const auto begin = Clock::now();
+                auto message = bulk->consume(payload);
+                stats.copy_ns += nanos(Clock::now() - begin);
+                stats.ring_high_water = std::max(stats.ring_high_water, static_cast<std::uint64_t>(bulk->high_water()));
+                count_frame(stats.shared_received, message.type, message.payload.size());
+                incoming_bytes += message.payload.size(); messages.push_back(std::move(message));
+            }
+            else if (header.type == Type::bulk_offer) throw ProtocolError("unexpected shared bulk offer");
+            else if (header.type != Type::heartbeat) {
+                const auto begin = Clock::now();
+                messages.push_back({header.type, Bytes(payload.begin(), payload.end())}); incoming_bytes += payload.size();
+                stats.copy_ns += nanos(Clock::now() - begin);
+            }
+            stats.incoming_high_water = std::max(stats.incoming_high_water, static_cast<std::uint64_t>(incoming_bytes));
+            if (application || header.type == Type::bulk_ref) delivered_bytes += application_bytes;
             offset += header_bytes + header.payload_bytes;
         }
-        if (offset) input.erase(input.begin(), input.begin() + offset);
+        if (offset) {
+            const auto begin = Clock::now(); input.erase(input.begin(), input.begin() + offset);
+            stats.copy_ns += nanos(Clock::now() - begin);
+        }
     }
 };
 
 Endpoint::Endpoint() : impl_(std::make_unique<Impl>()) {}
 Endpoint::~Endpoint() { stop(); }
 void Endpoint::start(const EndpointConfig& config) {
-    stop(); auto& s = *impl_; s.config = config; s.last_error.clear();
+    stop(); auto& s = *impl_; s.config = config; s.last_error.clear(); s.stats = {};
     WSADATA data{};
     if (WSAStartup(MAKEWORD(2,2), &data)) throw ProtocolError("WSAStartup failed");
     s.winsock = true;
@@ -114,6 +211,7 @@ void Endpoint::stop() {
 }
 void Endpoint::poll() {
     auto& s = *impl_; if (s.listener == INVALID_SOCKET) return;
+    const auto begin = Clock::now();
     try {
         for (int i = 0; i < 4; ++i) {
             SOCKET accepted = accept(s.listener, nullptr, nullptr);
@@ -126,7 +224,7 @@ void Endpoint::poll() {
             s.handshake = std::make_unique<HostHandshake>(s.config.session, s.config.token, s.config.host, s.config.peer, random_epoch());
             s.last_receive = s.last_heartbeat = Clock::now();
         }
-        if (s.peer == INVALID_SOCKET) return;
+        if (s.peer == INVALID_SOCKET) { s.stats.drain_ns += nanos(Clock::now() - begin); return; }
         s.flush(); s.receive();
         auto now = Clock::now();
         auto timeout = std::chrono::seconds(s.handshake->ready() ? 10 : 3);
@@ -136,7 +234,9 @@ void Endpoint::poll() {
             s.last_heartbeat = now;
         }
         s.flush();
-    } catch (const std::exception& e) { s.disconnect(e.what()); }
+    } catch (const PeerClosed& e) { s.disconnect(e.what()); }
+    catch (const std::exception& e) { ++s.stats.rejections; s.disconnect(e.what()); }
+    s.stats.drain_ns += nanos(Clock::now() - begin);
 }
 bool Endpoint::connected() const { return impl_->handshake && impl_->handshake->ready(); }
 std::uint64_t Endpoint::generation() const { return impl_->generation; }
@@ -144,7 +244,16 @@ std::uint16_t Endpoint::port() const { return impl_->config.port; }
 const std::string& Endpoint::error() const { return impl_->last_error; }
 std::vector<Message> Endpoint::take_messages() { std::vector<Message> result; result.swap(impl_->messages); impl_->incoming_bytes = 0; return result; }
 bool Endpoint::send(Type t, std::span<const std::uint8_t> p) {
-    if (!connected() || t == Type::hello || t == Type::welcome) return false;
+    if (!connected() || t == Type::hello || t == Type::welcome || bulk_internal(t)) return false;
     try { return impl_->queue(t, p); } catch (const std::exception& e) { impl_->disconnect(e.what()); return false; }
+}
+TransportStats Endpoint::transport_stats() const {
+    auto result = impl_->stats;
+    result.queued_bytes = impl_->queued_bytes; result.incoming_bytes = impl_->incoming_bytes;
+    result.queue_age_ns = impl_->output.empty() ? 0 : nanos(Clock::now() - impl_->output.front().queued);
+    result.pending_age_ns = impl_->output_offset ? result.queue_age_ns : 0;
+    result.peak_queue_age_ns = std::max(result.peak_queue_age_ns, result.queue_age_ns);
+    result.peak_pending_age_ns = std::max(result.peak_pending_age_ns, result.pending_age_ns);
+    return result;
 }
 }

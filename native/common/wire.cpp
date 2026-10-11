@@ -65,7 +65,8 @@ bool known_type(Type t) {
     case Type::damage_request: case Type::damage_result: case Type::vitals_delta:
     case Type::map_mining_policy: case Type::map_mining_request: case Type::map_mining_result:
     case Type::map_edit_snapshot: case Type::map_edit_delta: case Type::map_edit_query:
-    case Type::map_mining_sample: case Type::map_mining_surface: return true;
+    case Type::map_mining_sample: case Type::map_mining_surface:
+    case Type::bulk_offer: case Type::bulk_ack: case Type::bulk_ref: return true;
     default: return false;
     }
 }
@@ -93,10 +94,13 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
     if (payload.size() != h.payload_bytes || last_sequence_ == std::numeric_limits<std::uint64_t>::max() || h.sequence != last_sequence_ + 1) throw ProtocolError("duplicate or skipped sequence");
     if (!ready_) {
         if (h.type != Type::hello || h.epoch != 0) throw ProtocolError("hello required");
-        Reader r(payload); auto session = r.key(); auto token = r.key(); auto role = r.u32(); auto reserved = r.u32(); r.finish();
+        Reader r(payload); auto session = r.key(); auto token = r.key(); auto role = r.u32(); auto capabilities = r.u32(); r.finish();
         unsigned difference = 0;
         for (std::size_t i = 0; i < 16; ++i) difference |= (session[i] ^ session_[i]) | (token[i] ^ token_[i]);
-        if (difference || role != static_cast<std::uint32_t>(peer_) || reserved) throw ProtocolError("pairing credentials/role mismatch");
+        if (difference || role != static_cast<std::uint32_t>(peer_) ||
+            (capabilities & ~capability_shared_bulk_v1) || (capabilities && peer_ != Role::fabric_client))
+            throw ProtocolError("pairing credentials/role/capabilities mismatch");
+        peer_capabilities_ = capabilities;
         ready_ = true;
     } else {
         if (h.epoch != epoch_ || h.type == Type::hello || h.type == Type::welcome) throw ProtocolError("stale connection epoch or repeated handshake");

@@ -19,7 +19,7 @@ GoldCraft 保留真实 Minecraft 模拟，并把 GoldSrc 地图和原生实体�
 
 ## 协议和坐标
 
-当前源码的固定宽度协议为 GCF1/version 26，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
+当前源码的固定宽度协议为 GCF1/version 27，定义在 `native/include/goldcraft/wire.hpp` 和 `neoforge/src/main/java/dev/goldcraft/bridge/Wire.java`。传输不包含跨进程指针，允许 Java x64 与 GoldSrc x86 通信。角色、私有配对凭据、连接代次、玩家重生代次和地图会话共同限制旧包和错误配对；序列号、长度与数值范围在边界验证。
 
 本机链路使用非阻塞 TCP 与 TCP_NODELAY；队列有界，尚未采用共享内存。type64 传递有序后处理计划，type65 分块传递大型纹理，type66 原子提交同一 epoch/revision 的实体底图、附魔／气泡和头像身份。接收端完成校验、纹理就绪检查及分配后一起替换，避免底图和附魔来自不同帧。共享内存大帧通道已排队；需先测队列等待、复制、编解码与 GPU 上传开销，保留已认证控制链路、实例隔离和服务器权威。
 
@@ -56,3 +56,5 @@ MetaHook 按插件清单的逆序调用 LoadClient。清单中 Renderer 位于 G
 地图与会话代次共同确定 MC 宿主维度。换图或 ReHLDS 重启产生新会话并清除建筑；断线重连、区块卸载及资源重载不能被误判成新地图。
 
 ReHLDS 是服务器引擎参考，不是闭源客户端 `hw.dll`。客户端 Hook 按实际二进制身份和 MetaHook `ResolveGameSymbol` 合同匹配模块相对地址；[GoldSrc_VibeSignatures](https://github.com/HLND2T/GoldSrc_VibeSignatures) 提供参考目录，不允许跨版本照搬偏移。全部上游版本记录在 `sources.lock.json`。
+
+本机渲染大帧支持认证后协商的 64 MiB 共享内存环，控制／服务器链继续 TCP，激活前失败可回退。协议 27 两端需配套更新；队列、重连和测量边界见 [共享内存](SHARED_MEMORY.md)。

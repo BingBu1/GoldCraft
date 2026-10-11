@@ -19,7 +19,7 @@ class BridgeLinkTest {
         }
     }
     @SuppressWarnings("unchecked") private static List<Wire.Message> messages(BridgeLink link) throws Exception {
-        return List.copyOf((ArrayDeque<Wire.Message>)field("outgoing").get(link));
+        return ((ArrayDeque<BridgeLink.Queued>)field("outgoing").get(link)).stream().map(q->new Wire.Message(q.type(),q.payload())).toList();
     }
     private static int bytes(BridgeLink link) throws Exception {return field("outboundBytes").getInt(link);}
     private static void accounting(BridgeLink link) throws Exception {
@@ -43,8 +43,8 @@ class BridgeLinkTest {
         try(var link=queue()){
             assertTrue(link.send(Wire.ENTITY_FRAME,EntityFrameTest.frame(11,1,false)));
             assertTrue(link.send(Wire.ENTITY_TEXTURE,new byte[Wire.MAX_PAYLOAD]));
-            assertTrue(link.send(Wire.ENTITY_TEXTURE,new byte[Wire.MAX_QUEUED-bytes(link)-Wire.HEADER_BYTES]));
-            var old=messages(link);assertEquals(Wire.MAX_QUEUED,bytes(link));
+            assertTrue(link.send(Wire.ENTITY_TEXTURE,new byte[Wire.MAX_QUEUED-BridgeLink.URGENT_RESERVED_BYTES-bytes(link)-Wire.HEADER_BYTES]));
+            var old=messages(link);assertEquals(Wire.MAX_QUEUED-BridgeLink.URGENT_RESERVED_BYTES,bytes(link));
             byte[] larger=EntityFrame.encode(9,2,12,7,EntityFrameTest.base(9,12,2,false),List.of(EntityFrameTest.glint(2),EntityFrameTest.glint(2)));
             assertFalse(link.send(Wire.ENTITY_FRAME,larger));assertEquals(old,messages(link));accounting(link);
             EntityFrameTest.assertPair(messages(link).getFirst().payload(),11,1,false);
@@ -55,10 +55,19 @@ class BridgeLinkTest {
     @Test void fullEntryQueueCanReplaceOneWholeFrameButRejectsAdditionalMessage() throws Exception {
         try(var link=queue()){
             assertTrue(link.send(Wire.ENTITY_FRAME,EntityFrameTest.frame(11,1,false)));
-            for(int i=1;i<4096;i++)assertTrue(link.send(Wire.HEARTBEAT,new byte[0]));
+            for(int i=1;i<4096-BridgeLink.URGENT_RESERVED_SLOTS;i++)assertTrue(link.send(Wire.PARTICLE_TEXTURE,new byte[0]));
             assertFalse(link.send(Wire.ENTITY_TEXTURE,new byte[0]));
             assertTrue(link.send(Wire.ENTITY_FRAME,EntityFrameTest.frame(12,2,false)));
-            assertEquals(4096,messages(link).size());EntityFrameTest.assertPair(messages(link).getLast().payload(),12,2,false);accounting(link);
+            assertEquals(4096-BridgeLink.URGENT_RESERVED_SLOTS,messages(link).size());EntityFrameTest.assertPair(messages(link).getLast().payload(),12,2,false);accounting(link);
+            assertTrue(link.send(Wire.PLAYER_POSE,new byte[64]));assertTrue(link.send(Wire.CAMERA,new byte[64]));assertTrue(link.send(Wire.HEARTBEAT,new byte[0]));accounting(link);
+        }
+    }
+    @Test void serverQueueRetainsItsFullOriginalByteCapacity()throws Exception{
+        try(var peer=new ServerSocket(0,1,InetAddress.getLoopbackAddress());var link=new BridgeLink(new BridgeLink.Config(peer.getLocalPort(),new byte[16],new byte[16],Wire.FABRIC_SERVER,Wire.HOST_SERVER))){
+            link.close();field("connected").setBoolean(link,true);
+            assertTrue(link.send(Wire.SECTION_MESH,new byte[Wire.MAX_PAYLOAD]));
+            assertTrue(link.send(Wire.SECTION_MESH,new byte[Wire.MAX_QUEUED-Wire.MAX_PAYLOAD-2*Wire.HEADER_BYTES]));
+            assertEquals(Wire.MAX_QUEUED,bytes(link));assertFalse(link.send(Wire.SECTION_MESH,new byte[0]));accounting(link);
         }
     }
 }

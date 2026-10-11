@@ -39,6 +39,7 @@
     "MouseAccessor",
     "HostMouseMixin",
     "EpicFightInputMixin",
+    "EpicFightTargetMixin",
     "EpicFightPlayerRendererMixin",
     "YsmRenderLayerMixin",
     "YsmCaptureProjectionMixin",

@@ -134,3 +134,7 @@ python .\tools\Compact-Sandbox.py --apply
 ```
 
 清理器核对原安装基线，仅删除未修改的已复制缓存、旧生成日志及超过保留数的部署备份。默认保留两份部署备份；存档、Mod 主实例和独立配置不在清理范围。遇到目录联接或仍在运行的游戏进程会拒绝操作。计划和删除记录保存到 `analysis/sandbox-cleanup`。
+
+## 本机通信回归
+
+运行 `tools/Test-Bridge.ps1` 验证原生／Java 协议，再运行 `tools/Test-SharedMemory.ps1 -Mode burst` 验证实际 x86／x64 满环背压、控制旁路及可靠顺序。`-Mode rollover` 连续校验超过 4 GiB；`-Mode paced-reliable -TcpOnly` 用优化后的 TCP 做等量对照。无需启动游戏；参见 [通信说明](SHARED_MEMORY.md)。

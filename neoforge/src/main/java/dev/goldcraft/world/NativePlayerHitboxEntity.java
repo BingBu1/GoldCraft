@@ -29,7 +29,16 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
             .build("goldcraft:native_player_hitbox"));
     private static final TrackedData<Float> WIDTH=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.FLOAT);
     private static final TrackedData<Float> HEIGHT=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.FLOAT);
+    private static final TrackedData<Long> HOST_EPOCH=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.LONG);
+    private static final TrackedData<Integer> HOST_SLOT=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Integer> HOST_SERIAL=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Integer> HOST_LIFE=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
     private NativePlayerEntity body;
+    public long hostEpoch(){return dataTracker.get(HOST_EPOCH);}
+    public int hostSlot(){return dataTracker.get(HOST_SLOT);}
+    public int hostSerial(){return dataTracker.get(HOST_SERIAL);}
+    public int hostLife(){return dataTracker.get(HOST_LIFE);}
+    boolean follows(NativePlayerEntity value){return body==value;}
     public static void initialize(IEventBus bus){
         ENTITIES.register(bus);
         bus.addListener((EntityAttributeCreationEvent event)->event.put(TYPE.get(),LivingEntity.createLivingAttributes().build()));
@@ -39,9 +48,13 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     }
     @Override protected void initDataTracker(DataTracker.Builder builder){
         super.initDataTracker(builder);builder.add(WIDTH,1f);builder.add(HEIGHT,2.25f);
+        builder.add(HOST_EPOCH,0L);builder.add(HOST_SLOT,0);builder.add(HOST_SERIAL,0);builder.add(HOST_LIFE,0);
     }
     public void follow(NativePlayerEntity value){
         body=value;var dimensions=value.getDimensions(value.getPose());
+        var actor=value.actor();
+        dataTracker.set(HOST_EPOCH,value.epoch());dataTracker.set(HOST_SLOT,actor.slot());
+        dataTracker.set(HOST_SERIAL,actor.serial());dataTracker.set(HOST_LIFE,actor.life());
         dataTracker.set(WIDTH,dimensions.width());dataTracker.set(HEIGHT,dimensions.height());
         refreshPositionAndAngles(value.getX(),value.getY(),value.getZ(),value.getYaw(),value.getPitch());
         getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(value.getMaxHealth());setHealth(value.getHealth());

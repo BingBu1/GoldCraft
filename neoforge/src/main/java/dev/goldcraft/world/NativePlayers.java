@@ -80,7 +80,10 @@ public final class NativePlayers {
             }
             retained.add(actor.slot());ChunkPos chunk=body.getChunkPos(),old=tickets.put(actor.slot(),chunk);
             var hitbox=hitboxes.get(actor.slot());
-            if(hitbox==null||hitbox.isRemoved()){
+            if(hitbox==null||hitbox.isRemoved()||!hitbox.follows((NativePlayerEntity)body)){
+                // Keep a removed entity reference dead across a native respawn,
+                // reconnect or form lifecycle instead of silently retargeting it.
+                if(hitbox!=null)hitbox.discard();
                 hitbox=new NativePlayerHitboxEntity(NativePlayerHitboxEntity.TYPE.get(),world);
                 hitboxes.put(actor.slot(),hitbox);hitbox.follow((NativePlayerEntity)body);world.spawnEntity(hitbox);
             }else hitbox.follow((NativePlayerEntity)body);

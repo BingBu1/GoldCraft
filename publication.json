@@ -220,7 +220,10 @@
     "tests/native/post_scene_snapshot_gl_tests.inc",
     "native/client/post_scene_snapshot.cpp",
     "native/client/post_scene_snapshot.hpp",
-    "docs/VIX_POST_TODO.md"
+    "docs/VIX_POST_TODO.md",
+    "docs/SHARED_MEMORY.md",
+    "tools/Test-SharedMemory.ps1",
+    "tools/java/SharedBulkInteropMain.java"
   ],
   "trees": {
     "native": [

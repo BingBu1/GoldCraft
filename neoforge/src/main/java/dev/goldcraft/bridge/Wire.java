@@ -9,11 +9,12 @@ import java.util.UUID;
 
 public final class Wire {
     private Wire() {}
-    public static final int MAGIC = 0x31464347, VERSION = 26, HEADER_BYTES = 32;
+    public static final int MAGIC = 0x31464347, VERSION = 27, HEADER_BYTES = 32;
     public static final int MAX_PAYLOAD = 32 * 1024 * 1024, MAX_QUEUED = 64 * 1024 * 1024;
     public static final float UNITS_PER_BLOCK = 32.0f, Y_OFFSET = 64.0f;
     public static final int HOST_CLIENT = 1, FABRIC_CLIENT = 2, HOST_SERVER = 3, FABRIC_SERVER = 4;
     public static final int HELLO = 1, WELCOME = 2, HEARTBEAT = 3;
+    public static final int SHARED_BULK_V1 = 1, BULK_OFFER = 67, BULK_ACK = 68, BULK_REF = 69;
     public static final int WORLD = 10, ACTORS = 11, CLIENT_BINDING = 12, PAIR_PLAYER = 13, PAIR_RESULT = 14;
     public static final int BSP = 15, BRUSHES = 16;
     public static final int INPUT = 20, PLAYER_POSE = 21, ATLAS = 22, SECTION_MESH = 23, REMOVE_SECTION = 24;
@@ -37,6 +38,7 @@ public final class Wire {
             case HELLO, WELCOME, HEARTBEAT, WORLD, ACTORS, CLIENT_BINDING, PAIR_PLAYER, PAIR_RESULT, BLOCK_FEEDBACK, CAMERA, KEY_INPUT, PARTICLE_TEXTURE_CHUNK, ENTITY_FRAME,
                  INPUT, PLAYER_POSE, ATLAS, SECTION_MESH, REMOVE_SECTION, DAMAGE_REQUEST, DAMAGE_RESULT,
                  BSP, BRUSHES, CONTROL, LIGHTS, ENTITY_TEXTURE, ENTITY_MESH, SCENE_RESET, ATLAS_PATCHES, HUD_FRAME, VIEWPORT, UI_INPUT, PARTICLE_TEXTURE, PARTICLE_MESH, POST_EFFECT_PLAN, TRACE_QUERY, TRACE_RESULT, AUTHORITATIVE_POSE, MINECRAFT_OBJECTS, OBJECT_ACTION, HOST_ENTITIES, VITALS_DELTA, MAP_MINING_POLICY, MAP_MINING_REQUEST, MAP_MINING_RESULT, MAP_EDIT_SNAPSHOT, MAP_EDIT_DELTA, MAP_EDIT_QUERY, MAP_MINING_SAMPLE, MAP_MINING_SURFACE -> true;
+            case BULK_OFFER, BULK_ACK, BULK_REF -> true;
             default -> false;
         };
     }
@@ -44,6 +46,18 @@ public final class Wire {
     public static byte[] key(String text) {
         if (text == null || !text.matches("[0-9a-fA-F]{32}")) throw new IllegalArgumentException("Expected 32 hexadecimal characters");
         return HexFormat.of().parseHex(text);
+    }
+
+    public static boolean internalType(int type) {
+        return type == BULK_OFFER || type == BULK_ACK || type == BULK_REF;
+    }
+
+    public static boolean bulkType(int type) {
+        return switch (type) {
+            case ATLAS, SECTION_MESH, ENTITY_TEXTURE, ATLAS_PATCHES, HUD_FRAME,
+                PARTICLE_TEXTURE, PARTICLE_MESH, POST_EFFECT_PLAN, PARTICLE_TEXTURE_CHUNK, ENTITY_FRAME -> true;
+            default -> false;
+        };
     }
 
     public static byte[] uuid(UUID id) {
@@ -71,6 +85,13 @@ public final class Wire {
         return ByteBuffer.allocate(HEADER_BYTES + payload.length).order(ByteOrder.LITTLE_ENDIAN)
             .putInt(MAGIC).putShort((short) VERSION).putShort((short) type).putInt(payload.length)
             .putInt(0).putLong(epoch).putLong(sequence).put(payload).flip();
+    }
+
+    public static ByteBuffer frameHeader(int type, long epoch, long sequence, int size) {
+        if (!knownType(type) || size < 0 || size > MAX_PAYLOAD || sequence == 0) throw new IllegalArgumentException("Invalid outbound frame");
+        return ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(MAGIC).putShort((short) VERSION).putShort((short) type).putInt(size)
+            .putInt(0).putLong(epoch).putLong(sequence).flip();
     }
 
     public static final class Writer {

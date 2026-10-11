@@ -40,6 +40,8 @@ python .\tools\Build-EpicFightMaid.py
 
 ## YSM 玩家与 EpicYSM
 
+2026-10-11 更新：用户已确认普通模式面部转视角、Epic 往返、攻击松开／连点、中文及当前测试过的 Mod 按键正常；这不代表全部模型和按键已验收。协议 27 配套版已部署，真实 FML 应用了 YSM projection 和 Epic 锁定适配 Mixin。一次 40 秒被动观察中，4 个锁定 CS 目标的样本均匹配两台服务器的 world／slot／serial／life、hitbox ID 和敌对阵营，GL 错误为 0。G 键画面反馈、目标死亡／换队解除、墙门遮挡及攻击边界仍待实机验收。下文“未部署／待普通面部确认”是此前检查点。
+
 用户安装的 [EpicYSM 1.1.3](https://github.com/Argorice/EpicYSM) 已通过统一管理同步到 A/B/服务端，四份主实例／运行实例 JAR 哈希一致。它负责 YSM 玩家与 Epic Fight 的兼容；女仆扩展内嵌的 YSM GEO Compat 负责另一条女仆渲染路径，不能互相替代。
 
 GoldCraft 原来的保护逻辑会跳过所有非原版玩家 renderer，连已经兼容 YSM 的 EpicYSM 也被拦下。现在只在实际 Epic Fight renderer 为已核实的 `EpicYsmPlayerRenderer` 时放行，其余不兼容类型保留保护。同时保存 YSM 2.6.5 包装材质的原始 RenderType，导出时正确读取纹理、透明混合和深度写入，不在绘制热路径增加反射扫描或 GL 状态查询。

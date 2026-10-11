@@ -24,6 +24,8 @@
 #include <pm_defs.h>
 #include <gl/GL.h>
 #include "goldcraft/endpoint.hpp"
+#include "goldcraft/control_diagnostics.hpp"
+#include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/view_interpolator.hpp"
 #include "goldcraft/avatar.hpp"
 #include "goldcraft/entity_frame.hpp"
@@ -307,6 +309,18 @@ void ResetWorld() {
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;
 }
 bool HasControl(){return server_minecraft_form&&minecraft_life==server_player_life&&minecraft_control&&link.connected()&&std::chrono::steady_clock::now()-last_pose<std::chrono::milliseconds(350);}
+ControlTrace control_trace;
+ControlSample SampleControl(){
+    const auto now=std::chrono::steady_clock::now();ControlSample s;
+    s.seconds=Seconds();s.world=world;s.connection=link.generation();s.life=minecraft_life;s.host_life=server_player_life;
+    s.blocked=control_blocked(server_minecraft_form,minecraft_life==server_player_life,minecraft_control,link.connected(),now-last_pose<std::chrono::milliseconds(350));
+    s.hud_blocked=(link.connected()?0u:1u)|((s.blocked==0||(hud_flags&8)||minecraft_menu)?0u:2u)
+        |(hud_texture?0u:4u)|(hud_revision?0u:8u)|((hud_life==minecraft_life&&hud_life==server_player_life)?0u:16u)
+        |((!minecraft_hud||minecraft_hud->value!=0)?0u:32u)|((s.seconds-last_hud<.5)?0u:64u);
+    s.hud_flags=hud_flags;s.ui_flags=(host_ui::state().game_menu?1u:0u)|(minecraft_menu?2u:0u)|(ui_active?4u:0u)|((gEngfuncs.Con_IsVisible&&gEngfuncs.Con_IsVisible())?8u:0u)|(last_input_active?16u:0u)|(host_ui::state().keyboard?32u:0u);
+    s.pose_ms=last_pose.time_since_epoch().count()?std::chrono::duration<double,std::milli>(now-last_pose).count():-1;
+    s.hud_ms=last_hud?(s.seconds-last_hud)*1000:-1;s.camera_ms=last_camera?(s.seconds-last_camera)*1000:-1;return s;
+}
 bool CameraFresh(){return HasControl()&&camera_revision&&camera_life==minecraft_life&&Seconds()-last_camera<0.25;}
 void SendKey(unsigned kind,int code,int action,float amount=0){
     Writer w;w.u64(world);w.u64(++key_sequence);w.u32(minecraft_life);w.u32(kind);w.i32(code);w.i32(action);w.u32(ui_modifiers);w.f32(amount);
@@ -427,7 +441,8 @@ void Status() {
 void WriteDiagnostics() {
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) {
         std::ofstream out(path);
-        out<<'{'; client_precache::write_status(out); out<<',';
+        out<<'{'; control_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<',';
+        client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
         client_vitals::write_status(out); out<<',';
@@ -595,6 +610,7 @@ int FormMessage(const char*,int size,void* data){
             gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
         }
         server_player_life=life;server_minecraft_form=form!=0;
+        control_trace.observe(SampleControl());
     }catch(const std::exception& e){Log(e.what());}
     return 1;
 }
@@ -1117,6 +1133,7 @@ void TestCommands() {
 }
 void Frame(double time) {
     const double began=Seconds();
+    control_trace.observe(SampleControl());
     gExportfuncs.HUD_Frame(time);
     input_audit::sample();
     TestCommands();
@@ -1198,6 +1215,7 @@ void Frame(double time) {
             }
         } catch(const std::exception& e) { Log(e.what()); }
     }
+    control_trace.observe(SampleControl());
     SendViewport();UpdateUi();UpdateViewModel();UpdateHostUse();
     // A video/context reset invalidates the local atlas without reconnecting IPC.
     // Request a complete scene instead of relying on periodic full-texture readbacks.
@@ -1442,7 +1460,7 @@ int Redraw(float time,int intermission) {
     bool composed=false;
     if(visible){
         if((composed=render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height)))++hud_draws;
-        else if(!native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
+        else if(!native_hud){control_trace.hud_fallback(SampleControl(),render::statistics().error);result=gExportfuncs.HUD_Redraw(time,intermission);}
     }
     // Retain server kill notices and menus above the full Minecraft HUD.
     // Native/ordinary/death HUD and render failure use the original client path.

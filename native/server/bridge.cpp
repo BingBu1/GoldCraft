@@ -8,6 +8,8 @@
 #include "goldcraft/host_entity_api.hpp"
 #include "goldcraft/server_api.hpp"
 #include "goldcraft/combat.hpp"
+#include "goldcraft/control_diagnostics.hpp"
+#include "goldcraft/transport_diagnostics.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -136,8 +138,19 @@ void ApplyNativeUse(unsigned slot,bool pressed) {
     e->v.button=buttons;p->m_afButtonPressed=old_pressed;p->m_afButtonReleased=old_released;
     if(state.active&&p->IsAlive()&&(e->v.origin-origin).LengthSquared()>0.0001f)AcceptNativeRelocation(slot);
 }
-void ReleaseControl(unsigned slot) {
+ServerControlTrace control_trace;
+void RecordControl(unsigned slot,ControlCause cause,std::optional<int> requested=std::nullopt,int result=0) {
+    ServerControlEvent e;e.world=registry.world();e.connection=link.generation();e.slot=slot;e.cause=cause;
+    e.seconds=gpGlobals?gpGlobals->time:0;e.result=result;
+    if(slot>0&&slot<controlled.size()){
+        e.life=player_lives[slot];e.previous_form=minecraft_forms[slot]?1:0;e.active=controlled[slot].active;
+        if(controlled[slot].sequence)e.pose_ms=(e.seconds-controlled[slot].last_update)*1000;
+    }
+    e.requested_form=requested.value_or(e.previous_form);control_trace.record(e);
+}
+void ReleaseControl(unsigned slot,ControlCause cause) {
     if(slot>=controlled.size()||!controlled[slot].active)return;
+    RecordControl(slot,cause);
     if(!edicts){controlled[slot].active=false;return;}
     auto* e=edicts+slot;
     const auto life=player_lives[slot];
@@ -155,7 +168,7 @@ void ReleaseControl(unsigned slot) {
 }
 void AcceptNativeRelocation(unsigned slot) {
     auto* e=edicts+slot;
-    ReleaseControl(slot);
+    ReleaseControl(slot,ControlCause::relocation);
     if(player_lives[slot]==UINT32_MAX){registry.disconnect(slot);return;}
     // The existing life generation is also a pose barrier: queued pre-teleport
     // MC updates cannot undo a real native trigger's relocation. HostSession
@@ -174,14 +187,14 @@ void HandlePose(Reader& r) {
     // Reject its predecessor before it can replace the new native spawn position.
     if(!life||life!=player_lives[slot]){++stale_life_poses;return;}
     auto& state=controlled[slot];if(sequence<=state.sequence)return;state.sequence=sequence;
-    if(!(flags&1)){ReleaseControl(slot);return;}
+    if(!(flags&1)){ReleaseControl(slot,ControlCause::authority_not_ready);return;}
     if(!minecraft_forms[slot]){++wrong_form_poses;return;}
     auto* e=edicts+slot;auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e));
     if(e->free||!player||!player->IsAlive()||(e->v.flags&FL_SPECTATOR))return;
     if((flags&~7u)||width<0.1f||width>4||height<0.1f||height>4||eye<0||eye>height+0.1f)throw ProtocolError("Invalid authoritative player dimensions");
     auto origin=to_goldsrc(feet);origin.z+=36;
     if(std::abs(origin.x)>16384||std::abs(origin.y)>16384||std::abs(origin.z)>16384)throw ProtocolError("Authoritative position outside supported map bounds");
-    if(!state.active){state.saved_movetype=e->v.movetype;state.active=true;BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
+    if(!state.active){state.saved_movetype=e->v.movetype;state.active=true;RecordControl(slot,ControlCause::acquire);BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
     state.last_update=gpGlobals->time;e->v.movetype=MOVETYPE_NONE;
     e->v.velocity=Vector(velocity.x*units_per_block*20,-velocity.z*units_per_block*20,velocity.y*units_per_block*20);
     const float half=width*units_per_block*0.5f;SET_SIZE(e,Vector(-half,-half,-36),Vector(half,half,height*units_per_block-36));
@@ -232,14 +245,16 @@ void SendForm(unsigned slot){
     Writer w;w.u64(registry.world());w.u32(player_lives[slot]);w.u32(minecraft_forms[slot]?1:0);
     MESSAGE_BEGIN(MSG_ONE,form_message,nullptr,e);for(auto byte:w.data)WRITE_BYTE(byte);MESSAGE_END();
 }
-int SetForm(int slot,int form){
-    if(!edicts||slot<1||slot>max_clients||(form!=0&&form!=1)||!registry.get(slot)||edicts[slot].free)return -1;
-    if(form&&!registry.get(slot)->paired)return -2;
-    if(form&&!link.connected())return -3;
-    if(minecraft_forms[slot]==(form!=0))return 0;
-    if(player_lives[slot]==UINT32_MAX)return -4;
+int SetForm(int slot,int form,ControlCause source){
+    const auto result=[&](int value){RecordControl(static_cast<unsigned>(slot),source,form,value);return value;};
+    if(!edicts||slot<1||slot>max_clients||(form!=0&&form!=1)||!registry.get(slot)||edicts[slot].free)return result(-1);
+    if(form&&!registry.get(slot)->paired)return result(-2);
+    if(form&&!link.connected())return result(-3);
+    if(minecraft_forms[slot]==(form!=0))return result(0);
+    if(player_lives[slot]==UINT32_MAX)return result(-4);
     const int previous=minecraft_forms[slot]?1:0;
-    ReleaseControl(slot);minecraft_forms[slot]=form!=0;++player_lives[slot];++form_changes;next_snapshot=0;
+    result(1);
+    ReleaseControl(slot,ControlCause::form_change);minecraft_forms[slot]=form!=0;++player_lives[slot];++form_changes;next_snapshot=0;
     auto* e=edicts+slot;e->v.button=e->v.oldbuttons=0;
     player_spawns[slot]=to_minecraft({e->v.origin.x,e->v.origin.y,e->v.origin.z+e->v.mins.z});
     SendForm(slot);SendAvatar(slot,true);
@@ -250,7 +265,7 @@ class ServerControl final:public IServerControl {
 public:
     int GetForm(int slot) override{return edicts&&slot>=1&&slot<=max_clients&&registry.get(slot)&&!edicts[slot].free?(minecraft_forms[slot]?1:0):-1;}
     int IsPaired(int slot) override{const auto* pair=slot>0?registry.get(slot):nullptr;return pair&&pair->paired?1:0;}
-    int SetForm(int slot,int form) override{return ::SetForm(slot,form);}
+    int SetForm(int slot,int form) override{return ::SetForm(slot,form,ControlCause::form_amxx);}
     void SetFormListener(FormListener listener) override{form_listener=listener;}
 };
 EXPOSE_SINGLE_INTERFACE(ServerControl,IServerControl,server_control_api_version);
@@ -309,7 +324,7 @@ void HandlePair(Reader& r) {
     auto status=registry.bind(world,slot,serial,token,uuid);
     Writer w; w.u64(registry.world()); w.u32(slot); w.u32(serial); w.u32(static_cast<std::uint32_t>(status)); w.bytes(uuid);
     link.send(Type::pair_result,w.data);
-    if(status==PairStatus::ok&&!already_paired&&default_form.value!=0)SetForm(slot,1);
+    if(status==PairStatus::ok&&!already_paired&&default_form.value!=0)SetForm(slot,1,ControlCause::form_default);
 }
 void SendAvatar(unsigned slot,bool refresh) {
     if(!avatar_message||!edicts||slot<1||slot>static_cast<unsigned>(max_clients))return;
@@ -389,7 +404,8 @@ void SendActors() {
                 <<"],\"min\":["<<e->v.absmin.x<<','<<e->v.absmin.y<<','<<e->v.absmin.z<<"],\"max\":["<<e->v.absmax.x<<','<<e->v.absmax.y<<','<<e->v.absmax.z<<']';
             if(FClassnameIs(e,"hostage_entity")){auto* leader=static_cast<CHostage*>(p)->GetLeader();out<<",\"leader\":"<<(leader?leader->entindex():0);}
             out<<'}';
-        }out<<"],\"formChanges\":"<<form_changes<<",\"wrongFormPoses\":"<<wrong_form_poses<<"}";
+        }out<<"],\"formChanges\":"<<form_changes<<",\"wrongFormPoses\":"<<wrong_form_poses<<',';
+        control_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<'}';
     }
 }
 }
@@ -594,7 +610,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
 void GoldCraft_ServerDeactivate() {
     // ReHLDS calls ClientDisconnect after ServerDeactivate during changelevel.
     // Restore live edicts before dropping the table, then leave no active leases.
-    for(int slot=1;slot<=max_clients;++slot)ReleaseControl(slot);
+    for(int slot=1;slot<=max_clients;++slot)ReleaseControl(slot,ControlCause::map_deactivate);
     GoldCraft_ObjectsReset(true);
     GoldCraft_MapMiningReset(0);
     edit_deliveries={};edit_revision_sent=0;
@@ -616,13 +632,14 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
 void GoldCraft_ClientDisconnect(edict_t* player) {
     const auto slot=ENTINDEX(player);if(slot<1||slot>=static_cast<int>(controlled.size()))return;
     edit_deliveries[slot]={};
-    ReleaseControl(slot);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
+    ReleaseControl(slot,ControlCause::disconnect);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
 }
 void GoldCraft_PlayerSpawn(edict_t* player) {
     const auto slot=ENTINDEX(player);
     if(!edicts||slot<1||slot>max_clients||!registry.get(slot))return;
     // Spawn has already restored the native hull/movetype. Never restore an old
     // movement lease over those freshly initialized values.
+    if(registry.get(slot)->paired)RecordControl(slot,ControlCause::spawn);
     controlled[slot]={};
     if(player_lives[slot]==UINT32_MAX||player_births[slot]==UINT32_MAX){registry.disconnect(slot);BridgeLog("Player life generation exhausted");return;}
     ++player_lives[slot];++player_births[slot];vitals_ack[slot]=0;next_snapshot=0;
@@ -633,7 +650,7 @@ void GoldCraft_PlayerSpawn(edict_t* player) {
 void GoldCraft_PlayerKilled(edict_t* player) {
     const auto slot=ENTINDEX(player);
     if(!edicts||slot<1||slot>max_clients)return;
-    ReleaseControl(slot);next_snapshot=0;
+    ReleaseControl(slot,ControlCause::death);next_snapshot=0;
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
 bool GoldCraft_MinecraftAttack(edict_t* player){return player&&(player==final_minecraft_damage||player==minecraft_attack);}
@@ -660,7 +677,7 @@ bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
         if(std::strcmp(CMD_ARGV(1),"toggle")==0)form=minecraft_forms[slot]?0:1;
         else if(std::strcmp(CMD_ARGV(1),"0")==0)form=0;
         else if(std::strcmp(CMD_ARGV(1),"1")==0)form=1;
-        if(form>=0&&gpGlobals->time>=next_form_change[slot]){SetForm(slot,form);next_form_change[slot]=gpGlobals->time+0.25f;}
+        if(form>=0&&gpGlobals->time>=next_form_change[slot]){SetForm(slot,form,ControlCause::form_command);next_form_change[slot]=gpGlobals->time+0.25f;}
         return true;
     }
     if(std::strcmp(command,"goldcraft_use")==0){
@@ -713,7 +730,7 @@ void GoldCraft_StartFrame() {
             // A new authenticated authoritative connection has its own producer timeline.
             // The old epoch cannot inject poses into this connection, so release stale control
             // and allow a restarted Minecraft server to publish its initial sequences.
-            for(int i=1;i<=max_clients;++i){ReleaseControl(i);controlled[i].sequence=0;}
+            for(int i=1;i<=max_clients;++i){ReleaseControl(i,ControlCause::authority_generation);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
             GoldCraft_MapMiningInvalidateSamples();
@@ -745,7 +762,7 @@ void GoldCraft_StartFrame() {
         if(gpGlobals->time>=next_colliders){next_colliders=gpGlobals->time+0.05f;SendColliders();}
         for(int i=1;i<=max_clients;i++)if(controlled[i].active){
             auto& state=controlled[i];
-            if(!link.connected()||gpGlobals->time-state.last_update>1.0f){ReleaseControl(i);continue;}
+            if(!link.connected()||gpGlobals->time-state.last_update>1.0f){ReleaseControl(i,link.connected()?ControlCause::pose_stale:ControlCause::authority_link_down);continue;}
             if(gpGlobals->time-state.last_use>0.35f)state.use_requested=false;
             if(gpGlobals->time>=state.next_use||state.use_requested!=state.use_applied){state.next_use=gpGlobals->time+0.05f;ApplyNativeUse(i,state.use_requested);}
         }
