@@ -6,8 +6,6 @@
 
 ## 优先修复与完善
 
-- [ ] Epic／NightFall 范围伤害协议30已部署；独立服务端19项通过，待B实际按键远距离验收。
-
 - [ ] 实机复验刀光／偶发回到 CS：已修 Core GL1280 并接入控制／HUD／服务器来源诊断，定位剩余复现场景。
 - [ ] 协议 27 共享内存已部署并实际传输；补同视角帧时间和完整生命周期验收。隔离／重连／满环及 >4 GiB 回绕已过，保留 TCP 对照。[说明](docs/SHARED_MEMORY.md)
 - [ ] 扩展 NightFall 刀光 NaN／村正主副手与长期稳定性验收；本轮已部署，用户未再遇尺寸报错／切回／崩溃，实测 35 个缩体姿态零拒绝。[证据](docs/2026-10-11_分析-Epic姿态与NightFall渲染-report.md)
@@ -67,4 +65,4 @@
 
 详细证据：[验证状态](docs/VALIDATION.md) · [原生回归](docs/NATIVE_REGRESSIONS.md) · [ZP 与手雷](docs/ZOMBIE_TESTING.md)。
 
-- 协议30：Epic范围命中/唯一原生hitbox/NightFall终结斩已通过独立端到端，待B真实按键验收；ScreenDistortion末tick跳过已过期阶段通过真实class回归，待实机过期计数与画面连续性。历史Stage异常仍需使用新增失败参数逐项确认。
+- 协议30：Epic范围命中/唯一原生hitbox/NightFall终结斩已通过独立端到端，用户确认远距离伤害正常；ScreenDistortion末tick跳过已过期阶段通过真实class回归，待实机过期计数与画面连续性。历史Stage异常仍需使用新增失败参数逐项确认。

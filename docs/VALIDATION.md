@@ -199,3 +199,7 @@ python .\tools\Prepare-OfflineTests.py --loader neoforge
 真实NightFall ScreenDistortionEffect及VIX生命周期在末tick产生NaN：age等于lifetime时仍保留，而partial使normalizedAge大于1，原强度公式对负数开平方。VixPostCapture只跳过kind5中age非负、lifetime为正且normalizedAge有限且大于1的过期阶段，保留正常时段公式、精确端点、同帧其他stage/mesh/depth reset；不放宽Stage参数校验，失败时补充实际参数。
 
 `python tools/Test-ScreenDistortion.py`使用本机锁定4个原始class及精确生产guard/Stage，658cases/7706checks：628有限域逐bit相同、30尾tick NaN复现，非法状态不被吞，邻接stage与mesh逐byte保留。源码与范围伤害统一协议30构建，已同步master/A/B/server并重启单B与两专服；五份核心JAR及本轮11项原生部署文件哈希一致。新鲜空闲采样VIX失败0、过期计数0，尚未触发此寿命边界。此前旧日志缺具体拒绝值，不能唯一归因所有历史Stage失败；实机过期计数、画面连续性与热重载仍需验证。
+
+## 2026-10-11 — Epic远距离范围伤害实机验收
+
+协议30正式构建及独立ReHLDS／NeoForge／Epic／NightFall的19项伤害检查通过；B玩家对无遮挡敌对CS僵尸约6–12格次元斩、不死斩复测明确回复“远距离已能正常造成伤害”。普通近战距离和服务器遮挡／阵营校验保留。此次接受范围为报告的远距离技能问题，全部第三方技能及多玩家完整回归仍未完成；ScreenDistortion过期边界亦未实际触发。[分析与证据](2026-10-11_分析-Epic范围伤害-report.md)。
