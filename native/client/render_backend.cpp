@@ -19,7 +19,7 @@ IMetaRendererWorldEdit2* targeted_edits=nullptr;
 IMetaRendererSceneCallbacks* callback=nullptr;
 void(*logger)(const std::string&)=nullptr;
 Statistics stats;
-struct Program {GLuint id=0;GLint emissive=-1,feedback=-1;};
+struct Program {GLuint id=0;GLint emissive=-1,feedback=-1,effect=-1,cutoff=-1,color_mod=-1;};
 std::map<std::uint32_t,Program> programs;
 HGLRC current_context=nullptr;
 GLuint hud_program=0,hud_vao=0;
@@ -65,7 +65,8 @@ const Program& program(std::uint32_t flags) {
     args.fsfile="renderer/shader/goldcraft.frag.glsl";
     args.vsdefine=args.gsdefine=args.fsdefine=defines.c_str();
     const GLuint id=renderer->CompileShaderFileEx(&args);
-    const Program compiled{id,glGetUniformLocation(id,"u_emissive"),glGetUniformLocation(id,"u_feedback")};
+    const Program compiled{id,glGetUniformLocation(id,"u_emissive"),glGetUniformLocation(id,"u_feedback"),
+        glGetUniformLocation(id,"u_effect"),glGetUniformLocation(id,"u_alpha_cutoff"),glGetUniformLocation(id,"u_color_mod")};
     return programs.emplace(flags,compiled).first->second;
 }
 }
@@ -202,10 +203,16 @@ void DrawState::save_feedback(){
     if(!full_blend_)blend_parameters(0);
     feedback_saved_=true;
 }
+void DrawState::save_effects(){
+    if(effects_saved_)return;
+    glGetIntegerv(GL_CULL_FACE_MODE,&cull_mode);glGetIntegerv(GL_FRONT_FACE,&front_face);
+    effects_saved_=true;
+}
 DrawState::~DrawState(){
     glUseProgram(shader);glBindVertexArray(vao);
     renderer->BindTextureUnit(0,GL_TEXTURE_2D,texture);glBindSampler(0,sampler);glActiveTexture(active);
     enabled(GL_DEPTH_TEST,depth);glDepthMask(depth_mask);enabled(GL_CULL_FACE,cull);enabled(GL_STENCIL_TEST,stencil);
+    if(effects_saved_){glCullFace(cull_mode);glFrontFace(front_face);}
     if(scene_pass_){
         enabled(GL_POLYGON_OFFSET_FILL,polygon_offset);glDepthFunc(depth_func);glBindBuffer(GL_ARRAY_BUFFER,array_buffer);
         if(feedback_saved_){glPolygonOffset(offset_factor,offset_units);glLineWidth(line_width);}
@@ -224,10 +231,13 @@ DrawState::~DrawState(){
 }
 Pass::Pass(bool transparent,std::uint32_t flags){
     if(!renderer||!GLEW_VERSION_4_4)return;
+    effects_allowed_=transparent&&flags==0;
     if(renderer->IsDrawGammaBlendEnabled())flags|=META_SCENE_GAMMA_BLEND;
     state_.emplace(true,transparent);stencil_write_=!transparent;
     const auto& shader=program(flags);glUseProgram(shader.id);glBindSampler(0,0);
     feedback_location_=shader.feedback;emissive_location_=shader.emissive;
+    effect_location_=shader.effect;cutoff_location_=shader.cutoff;color_mod_location_=shader.color_mod;
+    glUniform1i(effect_location_,0);
     glUniform1i(feedback_location_,0);glDisable(GL_POLYGON_OFFSET_FILL);
     shadow_=(flags&META_SCENE_SHADOW)!=0;emissive(false);
     depth_write_=!transparent;
@@ -248,6 +258,37 @@ Pass::~Pass(){
 }
 void Pass::texture(GLuint id){if(texture_&&*texture_==id)return;renderer->BindTextureUnit(0,GL_TEXTURE_2D,id);texture_=id;}
 void Pass::depth_write(bool value){if(depth_write_==value)return;glDepthMask(value?GL_TRUE:GL_FALSE);depth_write_=value;}
+bool Pass::effect(const ParticleMaterial& material,GLuint id){
+    if(!ready_||!effects_allowed_)return false;
+    const auto* old=effect_material_?&*effect_material_:nullptr;
+    if(!old){
+        state_->save_effects();glCullFace(GL_BACK);glFrontFace(GL_CCW);
+        glUniform1i(feedback_location_,0);glDisable(GL_POLYGON_OFFSET_FILL);emissive(true);
+    }
+    depth_write((material.flags&particle_depth_write)!=0);
+    if(!old||((old->flags^material.flags)&particle_depth_test))enabled(GL_DEPTH_TEST,(material.flags&particle_depth_test)!=0);
+    if(!old||old->depth_func!=material.depth_func)glDepthFunc(material.depth_func);
+    if(!old||((old->flags^material.flags)&particle_cull))enabled(GL_CULL_FACE,(material.flags&particle_cull)!=0);
+    if(!old||((old->flags^material.flags)&particle_blend)){
+        if(material.flags&particle_blend)glEnablei(GL_BLEND,0);else glDisablei(GL_BLEND,0);
+    }
+    if(!old||old->src_rgb!=material.src_rgb||old->dst_rgb!=material.dst_rgb||old->src_alpha!=material.src_alpha||old->dst_alpha!=material.dst_alpha)
+        glBlendFuncSeparatei(0,material.src_rgb,material.dst_rgb,material.src_alpha,material.dst_alpha);
+    if(!old||old->equation_rgb!=material.equation_rgb||old->equation_alpha!=material.equation_alpha)
+        glBlendEquationSeparatei(0,material.equation_rgb,material.equation_alpha);
+    if(!old||old->color_mask!=material.color_mask)glColorMaski(0,(material.color_mask&1)!=0,(material.color_mask&2)!=0,(material.color_mask&4)!=0,(material.color_mask&8)!=0);
+    const auto shader_flags=[](const ParticleMaterial& value){
+        return 1|(value.texture==particle_untextured?2:0)|
+            ((value.flags&particle_cutoff_before_mod)?4:0)|((value.flags&particle_cutoff_texture_only)?8:0)|
+            ((value.flags&particle_discard_zero_alpha)?16:0);
+    };
+    if(!old||shader_flags(*old)!=shader_flags(material))glUniform1i(effect_location_,shader_flags(material));
+    if(!old||old->alpha_cutoff!=material.alpha_cutoff)glUniform1f(cutoff_location_,material.alpha_cutoff);
+    if(!old||old->color_mod!=material.color_mod)glUniform4fv(color_mod_location_,1,material.color_mod.data());
+    texture(material.texture==particle_untextured?0:id);
+    effect_material_=material;
+    return true;
+}
 void Pass::feedback(unsigned mode){
     state_->save_feedback();
     glUniform1i(feedback_location_,static_cast<int>(mode));

@@ -122,8 +122,12 @@ public final class HudExporter implements AutoCloseable {
                 client.getEntityRenderDispatcher().configure(client.world,camera,client.targetedEntity);
                 client.gameRenderer.getLightmapTextureManager().update(tickDelta);
                 // Preserve vanilla equip/swing, skin, map, bow, shield, eating and overlay rendering.
-                if(HostInput.controlling()&&client.options.getPerspective().isFirstPerson())((GameRendererAccessor)client.gameRenderer).goldcraft$renderHand(camera,tickDelta,
-                    new Matrix4f().rotation(camera.getRotation().conjugate(new Quaternionf())));
+                if(HostInput.controlling()&&client.options.getPerspective().isFirstPerson()) {
+                    boolean ysmHand=YsmHandFrame.beginHosted(HostInput.hosted());
+                    try {((GameRendererAccessor)client.gameRenderer).goldcraft$renderHand(camera,tickDelta,
+                        new Matrix4f().rotation(camera.getRotation().conjugate(new Quaternionf())));}
+                    finally {YsmHandFrame.endHosted(ysmHand);}
+                }
                 handVisible=HostInput.controlling()&&client.options.getPerspective().isFirstPerson()&&!client.options.hudHidden
                     &&!client.player.isSleeping()&&!client.player.isSpectator();
                 if(handVisible)handFrames++;
@@ -206,6 +210,7 @@ public final class HudExporter implements AutoCloseable {
         data.addProperty("hudTextureWidth",viewWidth);data.addProperty("hudTextureHeight",viewHeight);
         data.addProperty("hudError",lastError);data.addProperty("hudMenuId",menuId());HostUi.diagnostics(data);
         data.addProperty("handFrames",handFrames);data.addProperty("handVisible",handVisible);
+        YsmHandFrame.diagnostics(data);
         data.addProperty("presentationTickDelta",tickDelta);data.addProperty("presentationIntervalMs",frameIntervalMs);
         data.addProperty("presentationReadbackMs",readbackAgeMs);data.addProperty("minecraftFps",MinecraftClient.getInstance().getCurrentFps());
     }

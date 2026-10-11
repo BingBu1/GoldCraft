@@ -14,6 +14,7 @@ final class HostCamera {
     private static long revision,frames;
     private static float fov=70;
     private HostCamera(){}
+    static float verticalFov(){return fov;}
     static void frame(MinecraftClient client,BridgeLink link){
         if(!HostInput.hosted()||client.getOverlay()!=null)return;
         var camera=client.gameRenderer.getCamera();

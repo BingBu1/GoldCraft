@@ -288,10 +288,18 @@ index bfdf076..90d35e7 100644
              }
              eftlmLoaded = result;
 diff --git a/src/main/java/com/ysmef/geomodel/model/YSMMesh.java b/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
-index dd250cc..7c8a11e 100644
+index dd250cc..db19ee8 100644
 --- a/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
 +++ b/src/main/java/com/ysmef/geomodel/model/YSMMesh.java
-@@ -198,7 +198,7 @@ public class YSMMesh extends HumanoidMesh {
+@@ -46,6 +46,7 @@ public class YSMMesh extends HumanoidMesh {
+     private OpenMatrix4f[] transformByPart;
+     /** partName -> ordinal into transformByPart, built once at rebind time. */
+     private final Map<String, Integer> partIndex = new HashMap<>();
++    private static final Map<RenderType, RenderType> TRIANGULATED_CAPTURE_RENDER_TYPES = new WeakHashMap<>();
+ 
+     public YSMMesh(Map<String, Number[]> arrayMap,
+                    Map<MeshPartDefinition, List<VertexBuilder>> parts,
+@@ -198,7 +199,7 @@ public class YSMMesh extends HumanoidMesh {
              // one glDrawArrays per model, vertex skinning fully on the GPU. Falls back
              // to Epic Fight's compute-shader path automatically when unavailable.
              RenderBridgeRegistry.GpuSkinRender gpu = RenderBridgeRegistry.gpu();
@@ -300,18 +308,48 @@ index dd250cc..7c8a11e 100644
                      packedLight, r, g, b, a, overlay, armature, poses)) {
                  logRebindOnce(rebindApplied);
                  return;
-@@ -247,6 +247,11 @@ public class YSMMesh extends HumanoidMesh {
+@@ -247,6 +248,12 @@ public class YSMMesh extends HumanoidMesh {
                                         Mesh.DrawingFunction drawingFunction, int packedLight,
                                         float r, float g, float b, float a, int overlay,
                                         @Nullable Armature armature, OpenMatrix4f[] poses) {
 +        if (com.ysmef.geomodel.renderer.RenderPaths.externalVertexCapture) {
-+            super.drawPosed(poseStack, bufferSources.getBuffer(EpicFightRenderTypes.getTriangulated(renderType)),
++            // Avoid Epic Fight's shared cache, which can return a texture-replaced QUADS type here.
++            super.drawPosed(poseStack, bufferSources.getBuffer(externalCaptureRenderType(renderType)),
 +                    drawingFunction, packedLight, r, g, b, a, overlay, armature, poses);
 +            return;
 +        }
          ComputeShaderSetup setup = poses != null && armature != null ? computeShaderSetup() : null;
          RenderBridgeRegistry.GpuSkinRender gpu = RenderBridgeRegistry.gpu();
          RenderBridgeRegistry.CpuSkinRender cpu = RenderBridgeRegistry.cpu();
+@@ -312,10 +319,27 @@ public class YSMMesh extends HumanoidMesh {
+         // cache-independent triangulator (already-TRIANGLES types pass through),
+         // so the final Epic Fight drawPosed fallback receives a proper TRIANGLES
+         // render type and renders the converted meshes completely.
+-        this.drawPosed(poseStack, bufferSources.getBuffer(EpicFightRenderTypes.makeTriangulated(renderType)),
++        this.drawPosed(poseStack, bufferSources.getBuffer(externalCaptureRenderType(renderType)),
+                 drawingFunction, packedLight, r, g, b, a, overlay, armature, poses);
+     }
+ 
++    private static RenderType externalCaptureRenderType(RenderType renderType) {
++        if (renderType.mode() == com.mojang.blaze3d.vertex.VertexFormat.Mode.TRIANGLES) {
++            return renderType;
++        }
++        synchronized (TRIANGULATED_CAPTURE_RENDER_TYPES) {
++            RenderType cached = TRIANGULATED_CAPTURE_RENDER_TYPES.get(renderType);
++            if (cached != null) {
++                return cached;
++            }
++            RenderType triangles = EpicFightRenderTypes.makeTriangulated(renderType);
++            if (triangles != renderType) {
++                TRIANGULATED_CAPTURE_RENDER_TYPES.put(renderType, triangles);
++            }
++            return triangles;
++        }
++    }
++
+     private static void logCpuFallbackOnce() {
+         if (!computeFallbackWarned) {
+             computeFallbackWarned = true;
 diff --git a/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java b/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java
 index 0f76572..e0f7152 100644
 --- a/src/main/java/com/ysmef/geomodel/model/YSMMeshLibrary.java

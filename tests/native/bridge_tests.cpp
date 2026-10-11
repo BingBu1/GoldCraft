@@ -121,10 +121,12 @@ int main() {
         Writer repeatedHud;repeatedHud.u16(0x8000);repeatedHud.u8(0);
         reject([&]{Reader in(repeatedHud.data);read_hud_pixels(in,1,1);},"truncated HUD repeat rejected");
         Writer particles;particles.u64(123);particles.u64(7);particles.u64(10);particles.u32(2);particles.u32(1);particles.u32(1);
-        particles.u32(0);particles.u32(1);particles.u32(4);
+        particles.u32(0);particles.u32(7);
+        for(auto value:{0x0302u,0x0303u,1u,0x0303u,0x8006u,0x8006u,0x0203u,15u})particles.u32(value);
+        particles.f32(.1f);for(int i=0;i<4;i++)particles.f32(1);particles.u32(4);
         for(int i=0;i<4;i++){particles.f32(1);particles.f32(66);particles.f32(-3);particles.f32(i%2?1:0);particles.f32(i/2?1:0);particles.u32(0x80102030);}
         Reader particleReader(particles.data);auto particleFrame=read_particles(particleReader);
-        check(particleFrame.count==1&&particleFrame.batches.size()==1&&particleFrame.batches[0].texture==0,"terrain particles reuse block atlas");
+        check(particleFrame.count==1&&particleFrame.batches.size()==1&&particleFrame.batches[0].material.texture==0,"terrain particles reuse block atlas");
         auto point=to_goldsrc(particleFrame.batches[0].vertices[0].position);
         check(point.x==32&&point.y==96&&point.z==64&&particleFrame.batches[0].vertices[0].color==0x80102030,"particle axes scale and alpha survive native decode");
         check(current_particles(particleFrame,123,7,9,2),"new particle frame accepted for current life");
@@ -137,13 +139,13 @@ int main() {
         reject([&]{Reader in(malformed);read_particles(in);},"trailing particle bytes rejected");
         malformed=particles.data;malformed[36]=65;
         reject([&]{Reader in(malformed);read_particles(in);},"particle texture budget enforced");
-        malformed=particles.data;malformed[40]=2;
+        malformed=particles.data;malformed[40]=128;
         reject([&]{Reader in(malformed);read_particles(in);},"unknown particle flags rejected");
-        malformed=particles.data;malformed[44]=3;
+        malformed=particles.data;malformed[96]=3;
         reject([&]{Reader in(malformed);read_particles(in);},"incomplete particle quad rejected");
-        malformed=particles.data;for(int i=44;i<48;i++)malformed[i]=255;
+        malformed=particles.data;for(int i=96;i<100;i++)malformed[i]=255;
         reject([&]{Reader in(malformed);read_particles(in);},"x86 particle count overflow rejected before allocation");
-        malformed=particles.data;malformed[48]=0;malformed[49]=0;malformed[50]=0xc0;malformed[51]=0x7f;
+        malformed=particles.data;malformed[100]=0;malformed[101]=0;malformed[102]=0xc0;malformed[103]=0x7f;
         reject([&]{Reader in(malformed);read_particles(in);},"NaN particle positions rejected");
         Writer emptyParticles;emptyParticles.u64(123);emptyParticles.u64(7);emptyParticles.u64(11);emptyParticles.u32(2);emptyParticles.u32(0);emptyParticles.u32(0);
         Reader emptyParticleReader(emptyParticles.data);check(read_particles(emptyParticleReader).batches.empty(),"empty particle frame explicitly removes expired particles");

@@ -8,6 +8,7 @@
 #include "input_audit.hpp"
 #include "map_collision.hpp"
 #include <metahook.h>
+#include "client_initialize.hpp"
 #include <cl_entity.h>
 #include <usercmd.h>
 #include <ref_params.h>
@@ -189,7 +190,8 @@ std::uint64_t feedback_revision=0,feedback_frames=0,feedback_draws=0;
 unsigned feedback_life=0;
 double last_feedback=0;
 std::map<unsigned,Texture> particle_textures;
-std::vector<EntityBatch> particle_batches;
+struct EffectBatch {ParticleMaterial material;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu;};
+std::vector<EffectBatch> particle_batches;
 std::uint64_t particle_generation=0,particle_revision=0,particle_frames=0,particle_draws=0,particle_bytes=0;
 unsigned particle_count=0,particle_vertices=0,particle_life=0;
 double last_particle_frame=0,particle_interval_ms=0;
@@ -781,15 +783,19 @@ void ReadBlockFeedback(Reader& r){
 }
 void ReadParticles(Reader& r){
     auto snapshot=read_particles(r);
-    if(!atlas_generation){++pending_scene_meshes;return;}
     if(!current_particles(snapshot,world,particle_generation,particle_revision,minecraft_life))return;
-    for(const auto& batch:snapshot.batches)if(batch.texture&&(snapshot.generation!=particle_generation||!particle_textures.contains(batch.texture)))
-        throw ProtocolError("Missing current-generation particle texture");
+    for(const auto& batch:snapshot.batches){
+        const auto key=batch.material.texture;
+        if(key==0&&!atlas_generation){++pending_scene_meshes;return;}
+        if(key!=0&&key!=particle_untextured&&(snapshot.generation!=particle_generation||!particle_textures.contains(key)))
+            throw ProtocolError("Missing current-generation particle texture");
+    }
     if(snapshot.generation!=particle_generation){ClearParticles();particle_generation=snapshot.generation;}
-    std::vector<EntityBatch> next;unsigned vertices=0;
+    std::vector<EffectBatch> next;next.reserve(snapshot.batches.size());unsigned vertices=0;
     for(const auto& source:snapshot.batches){
-        EntityBatch batch{source.texture,source.flags,{}};batch.vertices.reserve(source.vertices.size());
-        auto i=next.size();if(i<particle_batches.size()&&particle_batches[i].texture==batch.texture&&particle_batches[i].flags==batch.flags)batch.gpu=particle_batches[i].gpu;
+        EffectBatch batch{source.material,{}};batch.vertices.reserve(source.vertices.size());
+        auto i=next.size();if(i<particle_batches.size()&&particle_batches[i].material==batch.material)batch.gpu=particle_batches[i].gpu;
+        if(!batch.gpu)batch.gpu=std::make_shared<render::Mesh>();
         for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color});}
         vertices+=static_cast<unsigned>(source.vertices.size());next.push_back(std::move(batch));
     }
@@ -1096,13 +1102,9 @@ void PlayerMove(playermove_t* move,int server){
     client_map::move(move,server,gExportfuncs.HUD_PlayerMove);
 }
 int InitializeClient(cl_enginefunc_t* engine,int version){
-    // Initialize receives the final public table after MetaHook's LoadClient
-    // chain. Retain its lifetime without writing the engine or other plugins.
-    static cl_enginefunc_t client_engine;
-    client_engine=*engine;
     client_map::engine_initialized(engine);
-    client_engine.pEventAPI=client_map::event_api(engine->pEventAPI);
-    const int result=gExportfuncs.Initialize(&client_engine,version);
+    const int result=client::initialize_with_events(engine,version,
+        client_map::event_api(engine->pEventAPI),gExportfuncs.Initialize);
     if(!result)client_map::shutdown_events();
     return result;
 }
@@ -1145,9 +1147,14 @@ int KeyEvent(int down,int key,const char* binding_text) {
     return gExportfuncs.HUD_Key_Event?gExportfuncs.HUD_Key_Event(down,key,binding_text):1;
 }
 void Draw(bool transparent,std::uint32_t flags) {
-    if(!link.connected()||!atlas_texture||!world) return;
+    if(!link.connected()||!world) return;
+    const bool effects_ready=transparent&&flags==0&&!particle_batches.empty()&&
+        particle_life==minecraft_life&&particle_life==server_player_life&&Seconds()-last_particle_frame<0.25&&
+        (!render_particles||render_particles->value!=0);
+    if(!atlas_texture&&!effects_ready)return;
     {
     render::Pass pass(transparent,flags);if(!pass.ready())return;
+    if(atlas_texture){
     pass.texture(atlas_texture);
     for(const auto& [key,section] : sections) {
         if(((section.flags&1)!=0)!=transparent || section.vertices.empty()) continue;
@@ -1163,21 +1170,24 @@ void Draw(bool transparent,std::uint32_t flags) {
         pass.texture(batch.texture?texture->second.id:atlas_texture);batch.gpu->draw(batch.vertices,entity_revision,true);
         if(flags==0&&entity_drawn_revision!=entity_revision){entity_drawn_revision=entity_revision;++entity_presented_frames;}
     }
-    // Particle billboards are camera-specific transient geometry; never put them in a shadow/GBuffer pass.
-    if(transparent&&flags==0&&link.connected()&&particle_life==server_player_life&&Seconds()-last_particle_frame<0.25
-        &&(!render_particles||render_particles->value!=0)){
-        pass.emissive(true);
-        for(const auto& batch:particle_batches){
-            const auto texture=batch.texture?particle_textures.find(batch.texture)->second.id:atlas_texture;
-            pass.depth_write((batch.flags&1)!=0);pass.texture(texture);batch.gpu->draw(batch.vertices,particle_revision,true);++particle_draws;
-        }
-    }
     // Feedback uses the current scene depth; never include outlines/cracks in lighting or shadow maps.
     if(transparent&&flags==0&&feedback_life==minecraft_life&&feedback_life==server_player_life&&Seconds()-last_feedback<0.25){
         pass.texture(atlas_texture);pass.feedback(1);
         for(const auto& batch:crack_batches){batch.gpu->draw(batch.vertices,feedback_revision,true);++feedback_draws;}
         if(HasControl()&&!minecraft_menu&&!outline_vertices.empty()){
             pass.feedback(2);outline_gpu->draw(outline_vertices,feedback_revision,true,true);++feedback_draws;
+        }
+    }
+    }
+    // Ordered camera-specific effects run after ordinary meshes and feedback.
+    // Pass restores host state afterward; these never enter GBuffer or shadows.
+    if(effects_ready){
+        for(const auto& batch:particle_batches){
+            const auto key=batch.material.texture;
+            GLuint texture=atlas_texture;
+            if(key==particle_untextured)texture=0;
+            else if(key){auto found=particle_textures.find(key);if(found==particle_textures.end())continue;texture=found->second.id;}
+            if(pass.effect(batch.material,texture)){batch.gpu->draw(batch.vertices,particle_revision,true);++particle_draws;}
         }
     }
     }

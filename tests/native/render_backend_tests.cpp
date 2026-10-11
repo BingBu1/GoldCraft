@@ -1,6 +1,7 @@
 // Execute the client backend on a hidden driver context. Only the three
 // Renderer services are adapters: texture binding, shader compilation and the
-// gamma flag. Scene shaders are small fixtures; the HUD shader is production.
+// gamma flag. Ordinary scene shaders are small fixtures; effect and HUD shaders
+// are production. Effects also load the production Renderer common.h and UBOs.
 #include <windows.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -59,6 +60,8 @@ void APIENTRY uniform(GLint p, GLint v) {
     ++uniforms;
     glUniform1i(p, v);
 }
+void APIENTRY uniform_float(GLint p,GLfloat v){++uniforms;glUniform1f(p,v);}
+void APIENTRY uniform_color(GLint p,GLsizei count,const GLfloat* v){++uniforms;glUniform4fv(p,count,v);}
 void APIENTRY parameter(GLenum p, GLenum name, GLint v) {
     ++texture_parameters;
     glTexParameteri(p, name, v);
@@ -83,6 +86,8 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glIsEnabledi
 #undef glGetUniformLocation
 #undef glUniform1i
+#undef glUniform1f
+#undef glUniform4fv
 #define glGetIntegerv probe::integer
 #define glGetFloatv probe::floating
 #define glGetBooleanv probe::boolean
@@ -92,6 +97,8 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glIsEnabledi probe::enabled_i
 #define glGetUniformLocation probe::location
 #define glUniform1i probe::uniform
+#define glUniform1f probe::uniform_float
+#define glUniform4fv probe::uniform_color
 #define glTexParameteri probe::parameter
 #ifndef GOLDCRAFT_RENDER_SOURCE
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
@@ -106,12 +113,16 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glIsEnabledi
 #undef glGetUniformLocation
 #undef glUniform1i
+#undef glUniform1f
+#undef glUniform4fv
 #undef glTexParameteri
 #define glGetIntegeri_v GLEW_GET_FUN(__glewGetIntegeri_v)
 #define glGetBooleani_v GLEW_GET_FUN(__glewGetBooleani_v)
 #define glIsEnabledi GLEW_GET_FUN(__glewIsEnabledi)
 #define glGetUniformLocation GLEW_GET_FUN(__glewGetUniformLocation)
 #define glUniform1i GLEW_GET_FUN(__glewUniform1i)
+#define glUniform1f GLEW_GET_FUN(__glewUniform1f)
+#define glUniform4fv GLEW_GET_FUN(__glewUniform4fv)
 
 #include "renderer_unused.inc"
 
@@ -169,10 +180,11 @@ light=vec4(.25,.5,.75,1);normal=vec4(.5,.5,1,1);spec=vec4(0,0,0,1);
 }
 struct Renderer : UnusedRenderer {
     bool gamma = false;
+    bool effects_shader = false;
     std::vector<GLuint> shaders;
     std::uint32_t CompileShaderFileEx(const CCompileShaderArgs *args) override {
         assert(args && args->vsfile && args->fsfile);
-        const auto id = make_program(args->fsdefine);
+        const auto id = effects_shader ? effect_program(args) : make_program(args->fsdefine);
         shaders.push_back(id);
         return id;
     }
@@ -192,6 +204,7 @@ struct Renderer : UnusedRenderer {
         for (const auto id : shaders)
             glDeleteProgram(id);
     }
+    static GLuint effect_program(const CCompileShaderArgs* args);
 };
 void log_message(const std::string &text) { std::fprintf(stderr, "%s\n", text.c_str()); }
 
@@ -204,6 +217,8 @@ std::vector<double> snapshot() {
                            GL_ACTIVE_TEXTURE,
                            GL_TEXTURE_BINDING_2D,
                            GL_DEPTH_FUNC,
+                           GL_CULL_FACE_MODE,
+                           GL_FRONT_FACE,
                            GL_STENCIL_FUNC,
                            GL_STENCIL_REF,
                            GL_STENCIL_VALUE_MASK,
@@ -364,6 +379,7 @@ struct Resources {
         glDepthFunc(GL_GREATER);
         glDepthMask(GL_FALSE);
         glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);glFrontFace(GL_CW);
         glEnable(GL_STENCIL_TEST);
         glStencilFuncSeparate(GL_FRONT, GL_EQUAL, 3, 0x3f);
         glStencilFuncSeparate(GL_BACK, GL_NOTEQUAL, 6, 0x7f);
@@ -423,6 +439,12 @@ struct Resources {
         glDeleteFramebuffers(1, &fbo);
     }
 };
+
+#ifndef GOLDCRAFT_RENDER_BASELINE
+#include "effects_gl_tests.inc"
+#else
+GLuint Renderer::effect_program(const CCompileShaderArgs*){std::abort();}
+#endif
 
 template <class Draw> void measure(const char *name, Draw draw) {
     constexpr unsigned iterations = 256;
@@ -528,6 +550,9 @@ void run(bool benchmark) {
     glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
     glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
     assert(glGetError() == GL_NO_ERROR);
+    #ifndef GOLDCRAFT_RENDER_BASELINE
+    effect_tests(r);
+    #endif
     if (benchmark) {
         r.sentinel();
         const auto initial = snapshot();

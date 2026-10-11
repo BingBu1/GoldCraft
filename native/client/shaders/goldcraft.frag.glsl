@@ -3,6 +3,11 @@
 layout(binding=0) uniform sampler2D diffuseTex;
 uniform int u_emissive;
 uniform int u_feedback;
+// bit0 effect, bit1 untextured, bit2 cutoff before modulation,
+// bit3 texture-only cutoff, bit4 exact-zero alpha discard.
+uniform int u_effect;
+uniform float u_alpha_cutoff;
+uniform vec4 u_color_mod;
 in vec3 g_worldpos;
 in vec2 g_uv;
 in vec4 g_color;
@@ -14,7 +19,14 @@ layout(location=2) out vec4 out_WorldNorm;
 layout(location=3) out vec4 out_Specular;
 #endif
 void main(){
-    vec4 texel=u_feedback==2?vec4(1.0):texture(diffuseTex,g_uv);
+    vec4 texel=u_feedback==2||(u_effect&2)!=0?vec4(1.0):texture(diffuseTex,g_uv);
+    if((u_effect&1)!=0){
+        float alpha=(u_effect&8)!=0?texel.a:texel.a*g_color.a;
+        if((u_effect&12)==0)alpha*=u_color_mod.a;
+        if(alpha<u_alpha_cutoff||((u_effect&16)!=0&&alpha==0.0))discard;
+        out_Diffuse=ProcessLinearBlendShift(ProcessDiffuseColor(texel)*ProcessOtherGammaColor(g_color*u_color_mod));
+        return;
+    }
     if(texel.a*g_color.a<0.1)discard;
     float distanceToCamera=distance(g_worldpos,GetCameraViewPos(GetCameraViewIndex()));
 #ifdef SHADOW_CASTER_ENABLED

@@ -106,10 +106,28 @@ public final class LinkInteropMain {
                 check(linkA.send(Wire.PARTICLE_MESH,particleMesh),"particle snapshot crosses actual Java/native socket");
                 Wire.Reader particle=new Wire.Reader(awaitEcho(linkA));
                 check(particle.i64()==123&&particle.i64()==7&&particle.i64()==10&&particle.i32()==2,"native particle identity preserved");
-                check(particle.i32()==1&&particle.i32()==1&&particle.i32()==0&&particle.i32()==1&&particle.i32()==4,"particle material and quad count preserved");
+                check(particle.i32()==1&&particle.i32()==1&&particle.i32()==0&&particle.i32()==7,"particle material and quad count preserved");
+                check(particle.i32()==770&&particle.i32()==771&&particle.i32()==1&&particle.i32()==771
+                    &&particle.i32()==32774&&particle.i32()==32774&&particle.i32()==515&&particle.i32()==15,
+                    "real x86 preserves blend equations, factors, depth function and color mask");
+                check(particle.f32()==.1f&&particle.f32()==1&&particle.f32()==1&&particle.f32()==1&&particle.f32()==1&&particle.i32()==4,
+                    "real x86 preserves alpha cutoff and shader color");
                 boolean exact=true;
                 for(int v=0;v<4;v++)exact&=particle.f32()==32&&particle.f32()==96&&particle.f32()==64&&particle.f32()==((v&1)==0?0:1)&&particle.f32()==(v<2?0:1)&&particle.i32()==0x80102030;
                 particle.finish();check(exact,"real x86 particle conversion preserves UV and translucent RGBA");
+                var depth=new ParticleSnapshot.Material(5,1,0,1,0,32774,32774,515,0,0,1,1,1,1);
+                var glow=new ParticleSnapshot.Material(6|16,770,1,1,1,32774,32774,514,15,.1f,.5f,1,.75f,.15f);
+                byte[] ordered=ParticleSnapshot.encode(123,7,12,2,1,List.of(
+                    new ParticleSnapshot.Batch(-1,depth,particleVertices.toByteArray()),
+                    new ParticleSnapshot.Batch(-1,glow,particleVertices.toByteArray())));
+                byte[] expected=ordered.clone();
+                ByteBuffer converted=ByteBuffer.wrap(expected).order(ByteOrder.LITTLE_ENDIAN);
+                for(int batch=0;batch<2;batch++)for(int vertex=0;vertex<4;vertex++) {
+                    int at=36+batch*(64+96)+64+vertex*24;
+                    converted.putFloat(at,32).putFloat(at+4,96).putFloat(at+8,64);
+                }
+                check(linkA.send(Wire.PARTICLE_MESH,ordered)&&Arrays.equals(expected,awaitEcho(linkA)),
+                    "white depth-only then EQUAL additive passes preserve all 64 header bytes across real x86 sockets");
                 byte[] clearParticles=ParticleSnapshot.encode(123,7,11,2,0,List.of());
                 check(linkB.send(Wire.PARTICLE_MESH,clearParticles)&&Arrays.equals(clearParticles,awaitEcho(linkB)),"empty B snapshot removes particles independently");
                 check(linkA.drain().isEmpty()&&linkB.drain().isEmpty(),"particle frames never cross client pairs");

@@ -9,65 +9,68 @@ import dev.goldcraft.bridge.FramePacer;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.client.mixin.EntityRenderDispatcherAccessor;
 import dev.goldcraft.client.mixin.ParticleManagerAccessor;
-import dev.goldcraft.client.mixin.RenderLayerAccessor;
-import dev.goldcraft.client.mixin.RenderParametersAccessor;
-import dev.goldcraft.client.mixin.RenderTextureAccessor;
-import dev.goldcraft.client.mixin.RenderWriteMaskAccessor;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleTextureSheet;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.texture.SpriteAtlasTexture;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.*;
 import java.util.*;
 
-/** Exports the live vanilla particle renderer, including its two custom entity-rendered particle types. */
+/** Ordered world effects from real entity draws and every supported registered particle sheet. */
 public final class ParticleExporter {
-    private static final List<ParticleTextureSheet> SHEETS=List.of(ParticleTextureSheet.TERRAIN_SHEET,
-        ParticleTextureSheet.PARTICLE_SHEET_OPAQUE,ParticleTextureSheet.PARTICLE_SHEET_LIT,
-        ParticleTextureSheet.PARTICLE_SHEET_TRANSLUCENT,ParticleTextureSheet.CUSTOM);
-    private record Material(Identifier texture,boolean depthWrite) {}
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
-    private final Map<Identifier,Integer> textures=new LinkedHashMap<>();
-    private final Set<Identifier> uploaded=new HashSet<>();
-    private final Map<Material,Collector> batches=new LinkedHashMap<>();
-    private final Map<String,Integer> kinds=new TreeMap<>();
+    private final Map<Integer,Integer> textures=new LinkedHashMap<>();
+    private final Map<Integer,Long> uploaded=new HashMap<>();
+    private final Map<String,Integer> kinds=new TreeMap<>(),unsupportedReasons=new TreeMap<>();
+    private final Map<String,Integer> shaders=new TreeMap<>();
+    private final Map<String,Integer> sources=new TreeMap<>(),particleMods=new TreeMap<>();
     private final Map<String,Long> kindFrames=new TreeMap<>();
+    private List<DirectMeshCapture.Draw> entityEffects=List.of();
+    private Map<String,Integer> entityUnsupported=Map.of();
+    private Map<String,Integer> entityShaders=Map.of();
+    private Map<String,Integer> entitySources=Map.of();
+    private long entityEpoch,entityTime;
+    private int entityLife;
     private long generation=1,revision,lastFrame,frames,bytes,textureUploads;
     private int count,vertices,culled,unsupported;
     private float tickDelta;
     private double intervalMs;
     private String error="";
-    private Vec3d cameraPosition=Vec3d.ZERO;
-    private static ParticleExporter active,capture;
+    private static ParticleExporter active,rendering;
     public ParticleExporter(BridgeLink link){this.link=link;active=this;}
-    public void reset(){textures.clear();uploaded.clear();batches.clear();kinds.clear();pacing.reset();generation++;lastFrame=0;count=vertices=culled=unsupported=0;}
-    public static void atlasUploaded(SpriteAtlasTexture atlas){
-        if(active!=null&&atlas.getId().equals(SpriteAtlasTexture.PARTICLE_ATLAS_TEXTURE))active.reset();
+    public void reset(){
+        textures.clear();uploaded.clear();kinds.clear();shaders.clear();sources.clear();particleMods.clear();unsupportedReasons.clear();pacing.reset();EffectTextures.clear();
+        entityEffects=List.of();entityUnsupported=entityShaders=entitySources=Map.of();entityEpoch=entityTime=0;generation++;lastFrame=0;count=vertices=culled=unsupported=0;
     }
-    public static boolean capturing(){return capture!=null;}
-    public static VertexConsumer captureBuffer(RenderLayer layer){return capture==null?null:capture.buffer(layer);}
-    private VertexConsumer buffer(RenderLayer layer){
-        if(layer.getDrawMode()!=VertexFormat.DrawMode.QUADS||!(layer instanceof RenderLayer.MultiPhase phase)){
-            unsupported++;return new WorldExporter.Collector();
-        }
-        var parameters=((RenderLayerAccessor)(Object)phase).goldcraft$phases();
-        var texture=((RenderTextureAccessor)((RenderParametersAccessor)(Object)parameters).goldcraft$texture()).goldcraft$id();
-        if(texture.isEmpty()){unsupported++;return new WorldExporter.Collector();}
-        var mask=((RenderParametersAccessor)(Object)parameters).goldcraft$writeMask();
-        return batch(new Material(texture.get(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth()));
+    public static void atlasUploaded(SpriteAtlasTexture atlas){if(active!=null)active.reset();}
+    static void entityEffects(long epoch,int life,DirectMeshCapture capture){
+        if(active==null)return;
+        active.entityEffects=capture.draws();active.entityUnsupported=capture.unsupported();
+        active.entityShaders=capture.shaders();
+        active.entitySources=capture.sources();
+        active.entityEpoch=epoch;active.entityLife=life;active.entityTime=System.nanoTime();
     }
-    private Collector batch(Material material){
-        if(batches.size()>=ParticleSnapshot.MAX_BATCHES&&!batches.containsKey(material))throw new IllegalArgumentException("Particle material budget");
-        return batches.computeIfAbsent(material,ignored->new Collector());
+    /** Called only at the real ParticleManager render invocation, leaving standalone particles untouched. */
+    public static boolean allow(Particle particle){
+        if(rendering==null)return true;
+        var exporter=rendering;
+        var box=particle.getBoundingBox();
+        var center=box.getCenter();
+        // Trail render bounds can be infinite. Their physical bounds retain the emitter position.
+        if(!particle.isAlive()||exporter.count>=ParticleSnapshot.MAX_PARTICLES
+            ||!Double.isFinite(center.x)||!Double.isFinite(center.y)||!Double.isFinite(center.z)
+            ||center.squaredDistanceTo(MinecraftClient.getInstance().gameRenderer.getCamera().getPos())>64*64){exporter.culled++;return false;}
+        exporter.count++;
+        String kind=particle.getClass().getSimpleName();
+        if(exporter.kinds.size()<128||exporter.kinds.containsKey(kind))exporter.kinds.merge(kind,1,Integer::sum);
+        String namespace=particle.getClass().getPackageName();
+        if(exporter.particleMods.size()<128||exporter.particleMods.containsKey(namespace))exporter.particleMods.merge(namespace,1,Integer::sum);
+        return true;
     }
     public void frame(long epoch){
-        MinecraftClient client=MinecraftClient.getInstance();
+        var client=MinecraftClient.getInstance();
         if(!link.connected()||epoch==0||epoch!=GoldCraftClient.HOST.epoch()||!HostInput.hosted()
             ||client.world==null||client.player==null||client.getOverlay()!=null)return;
         long now=System.nanoTime();if(!pacing.ready(now))return;
@@ -76,64 +79,81 @@ public final class ParticleExporter {
         try {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
             var camera=client.gameRenderer.getCamera();
-            cameraPosition=camera.getPos();
             var dispatcher=client.getEntityRenderDispatcher();dispatcher.configure(client.world,camera,client.targetedEntity);
             boolean shadows=((EntityRenderDispatcherAccessor)dispatcher).goldcraft$renderShadows();
-            batches.clear();kinds.clear();vertices=count=culled=unsupported=0;
-            var particles=((ParticleManagerAccessor)client.particleManager).goldcraft$particles();
-            try {
-                dispatcher.setRenderShadows(false);
-                for(var sheet:SHEETS){
-                    var queue=particles.get(sheet);if(queue==null||queue.isEmpty())continue;
-                    Identifier atlas=sheet==ParticleTextureSheet.TERRAIN_SHEET?SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE:SpriteAtlasTexture.PARTICLE_ATLAS_TEXTURE;
-                    var sink=batch(new Material(atlas,true));
-                    for(var particle:queue){
-                        if(!particle.isAlive())continue;
-                        if(count>=ParticleSnapshot.MAX_PARTICLES||particle.getBoundingBox().getCenter().squaredDistanceTo(cameraPosition)>64*64){culled++;continue;}
-                        int before=vertices;
-                        // Capture is scoped to this synchronous render call; never intercept vanilla's normal frame.
-                        capture=sheet==ParticleTextureSheet.CUSTOM?this:null;
-                        try{particle.buildGeometry(sink,camera,tickDelta);}finally{capture=null;}
-                        if(vertices>before){
-                            count++;
-                            String kind=particle.getClass().getSimpleName();
-                            if(kinds.size()<128||kinds.containsKey(kind))kinds.merge(kind,1,Integer::sum);
-                        }
-                    }
-                }
-                for(var sheet:particles.keySet())if(sheet!=ParticleTextureSheet.NO_RENDER&&!SHEETS.contains(sheet))unsupported+=particles.get(sheet).size();
-            }finally{capture=null;dispatcher.setRenderShadows(shadows);}
-            List<ParticleSnapshot.Batch> ready=new ArrayList<>();
-            for(var entry:batches.entrySet()){
-                byte[] mesh=entry.getValue().finish();if(mesh.length==0)continue;
-                Identifier id=entry.getKey().texture;int number=0;
-                if(!id.equals(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE)){
-                    number=textures.computeIfAbsent(id,ignored->textures.size()+1);
-                    if(number>ParticleSnapshot.MAX_TEXTURES)throw new IllegalArgumentException("Particle texture budget");
-                    if(!uploaded.contains(id)){if(!upload(client,epoch,id,number))return;uploaded.add(id);}
-                }
-                ready.add(new ParticleSnapshot.Batch(number,entry.getKey().depthWrite?1:0,mesh));
+            kinds.clear();shaders.clear();sources.clear();particleMods.clear();unsupportedReasons.clear();vertices=count=culled=unsupported=0;
+            List<DirectMeshCapture.Draw> draws=new ArrayList<>();
+            if(entityEpoch==epoch&&entityLife==HostInput.life()&&now-entityTime<250_000_000L){
+                draws.addAll(entityEffects);unsupportedReasons.putAll(entityUnsupported);
+                shaders.putAll(entityShaders);
+                sources.putAll(entitySources);
             }
-            byte[] payload=ParticleSnapshot.encode(epoch,generation,++revision,HostInput.life(),count,ready);
+            boolean stage=false;
+            try (var cpu=ModMeshCapture.begin();var capture=DirectMeshCapture.begin(camera.getPos(),true)) {
+                // Snapshot producers may invoke mesh APIs as well as enqueue particles.
+                // Their full lifecycle must see the same CPU fallback and capture scope.
+                capture.source("hosted_after_entities");stage=HostedEffectStages.beforeParticles(client);
+                capture.source("particles");
+                dispatcher.setRenderShadows(false);rendering=this;
+                var queues=((ParticleManagerAccessor)client.particleManager).goldcraft$particles();
+                client.particleManager.render(client.gameRenderer.getLightmapTextureManager(),camera,tickDelta,null,sheet->{
+                    if(HostedEffectStages.isUnsupportedPostEffect(sheet)){
+                        unsupportedReasons.merge("post_processing:"+sheet.getClass().getSimpleName(),queues.get(sheet).size(),Integer::sum);return false;
+                    }
+                    return true;
+                });
+                capture.finish();draws.addAll(capture.draws());
+                capture.unsupported().forEach((key,value)->unsupportedReasons.merge(key,value,Integer::sum));
+                capture.shaders().forEach((key,value)->shaders.merge(key,value,Integer::sum));
+                capture.sources().forEach((key,value)->sources.merge(key,value,Integer::sum));
+            }finally{rendering=null;dispatcher.setRenderShadows(shadows);HostedEffectStages.afterParticles(stage);}
+            unsupported=unsupportedReasons.values().stream().mapToInt(Integer::intValue).sum();
+            int blockAtlas=client.getTextureManager().getTexture(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE).getGlId();
+            var used=new HashSet<Integer>();
+            for(var draw:draws)if(draw.glTexture()!=ParticleSnapshot.WHITE_TEXTURE&&draw.glTexture()!=blockAtlas)used.add(draw.glTexture());
+            if(used.size()>ParticleSnapshot.MAX_TEXTURES)throw new IllegalArgumentException("Current effect texture budget");
+            if(textures.size()+used.stream().filter(id->!textures.containsKey(id)).count()>ParticleSnapshot.MAX_TEXTURES){
+                // Retire no-longer-used slots atomically with a new generation, including GL-name reuse.
+                textures.clear();uploaded.clear();EffectTextures.clear();generation++;
+            }
+            List<ParticleSnapshot.Batch> ready=new ArrayList<>();
+            // A snapshot is atomic: never retain a depth-only half of an over-budget afterimage.
+            for(var draw:draws){
+                vertices+=draw.vertices().length/24;
+                if(vertices>ParticleSnapshot.MAX_VERTICES||ready.size()>=ParticleSnapshot.MAX_BATCHES)
+                    throw new IllegalArgumentException("Combined world effect budget");
+                int id=draw.glTexture(),number;
+                if(id==ParticleSnapshot.WHITE_TEXTURE)number=ParticleSnapshot.WHITE_TEXTURE;
+                else if(id==blockAtlas)number=0;
+                else {
+                    number=textures.computeIfAbsent(id,ignored->textures.size()+1);
+                    if(number>ParticleSnapshot.MAX_TEXTURES)throw new IllegalArgumentException("Effect texture budget");
+                    long stamp=EffectTextures.revision(id);
+                    if(!Objects.equals(uploaded.get(id),stamp)){if(!upload(epoch,id,number))return;uploaded.put(id,stamp);}
+                }
+                ready.add(new ParticleSnapshot.Batch(number,draw.material(),draw.vertices()));
+            }
+            int snapshotCount=ready.isEmpty()?0:Math.max(1,count);
+            byte[] payload=ParticleSnapshot.encode(epoch,generation,++revision,HostInput.life(),snapshotCount,ready);
             if(link.send(Wire.PARTICLE_MESH,payload)){
                 frames++;bytes+=payload.length;
                 for(String kind:kinds.keySet())if(kindFrames.size()<128||kindFrames.containsKey(kind))kindFrames.merge(kind,1L,Long::sum);
             }
             error="";
         }catch(RuntimeException failure){
-            if(!failure.toString().equals(error)){error=failure.toString();GoldCraft.LOGGER.warn("Particle export failed",failure);}
+            if(!failure.toString().equals(error)){error=failure.toString();GoldCraft.LOGGER.warn("World effect export failed",failure);}
         }finally{Performance.end("particleExport",began);}
     }
-    private boolean upload(MinecraftClient client,long epoch,Identifier id,int number){
+    private boolean upload(long epoch,int glTexture,int number){
         int unit=GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);GL13.glActiveTexture(GL13.GL_TEXTURE0);
         int old=GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D),pack=GL11.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
         int alignment=GL11.glGetInteger(GL11.GL_PACK_ALIGNMENT),row=GL11.glGetInteger(GL11.GL_PACK_ROW_LENGTH);
         int rows=GL11.glGetInteger(GL11.GL_PACK_SKIP_ROWS),pixels=GL11.glGetInteger(GL11.GL_PACK_SKIP_PIXELS);
         try{
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER,0);
-            GL11.glBindTexture(GL11.GL_TEXTURE_2D,client.getTextureManager().getTexture(id).getGlId());
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D,glTexture);
             int w=GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D,0,GL11.GL_TEXTURE_WIDTH),h=GL11.glGetTexLevelParameteri(GL11.GL_TEXTURE_2D,0,GL11.GL_TEXTURE_HEIGHT);
-            if(w<1||h<1||w>2048||h>2048)throw new IllegalArgumentException("Particle texture dimensions: "+id);
+            if(w<1||h<1||w>2048||h>2048)throw new IllegalArgumentException("Particle texture dimensions: "+glTexture);
             GL11.glPixelStorei(GL11.GL_PACK_ALIGNMENT,1);GL11.glPixelStorei(GL11.GL_PACK_ROW_LENGTH,0);
             GL11.glPixelStorei(GL11.GL_PACK_SKIP_ROWS,0);GL11.glPixelStorei(GL11.GL_PACK_SKIP_PIXELS,0);
             var buffer=BufferUtils.createByteBuffer(w*h*4);GL11.glGetTexImage(GL11.GL_TEXTURE_2D,0,GL11.GL_RGBA,GL11.GL_UNSIGNED_BYTE,buffer);
@@ -152,31 +172,13 @@ public final class ParticleExporter {
         data.addProperty("particleVertices",p.vertices);data.addProperty("particleCulled",p.culled);data.addProperty("particleUnsupported",p.unsupported);
         data.addProperty("particleGeneration",p.generation);data.addProperty("particleTextureUploads",p.textureUploads);
         data.addProperty("particleTickDelta",p.tickDelta);data.addProperty("particleIntervalMs",p.intervalMs);data.addProperty("particleError",p.error);
-        JsonObject kinds=new JsonObject(),history=new JsonObject();p.kinds.forEach(kinds::addProperty);p.kindFrames.forEach(history::addProperty);
-        data.add("particleKinds",kinds);data.add("particleKindFrames",history);
-    }
-    private final class Collector implements VertexConsumer {
-        private final Wire.Writer out=new Wire.Writer();
-        private float x,y,z,u,v;
-        private int red=255,green=255,blue=255,alpha=255,lightU=240,lightV=240,count;
-        private boolean pending;
-        private void flush(){
-            if(!pending)return;
-            // Match the bridge's host ambient floor while preserving lit flame/lava/end-rod particles.
-            float light=.55f+.45f*Math.clamp(Math.max(lightU,lightV)/240f,0,1);
-            out.f32(x).f32(y).f32(z).f32(u).f32(v).u8(Math.round(red*light)).u8(Math.round(green*light)).u8(Math.round(blue*light)).u8(alpha);
-            pending=false;
-        }
-        byte[] finish(){flush();if(count%4!=0)throw new IllegalArgumentException("Expected particle quads");return out.toByteArray();}
-        public VertexConsumer vertex(float x,float y,float z){
-            flush();if(++vertices>ParticleSnapshot.MAX_VERTICES)throw new IllegalArgumentException("Particle vertex budget");
-            this.x=x+(float)cameraPosition.x;this.y=y+(float)cameraPosition.y;this.z=z+(float)cameraPosition.z;
-            count++;pending=true;return this;
-        }
-        public VertexConsumer color(int r,int g,int b,int a){red=r;green=g;blue=b;alpha=a;return this;}
-        public VertexConsumer texture(float u,float v){this.u=u;this.v=v;return this;}
-        public VertexConsumer light(int u,int v){lightU=u;lightV=v;return this;}
-        public VertexConsumer overlay(int u,int v){return this;}
-        public VertexConsumer normal(float x,float y,float z){return this;}
+        JsonObject kinds=new JsonObject(),history=new JsonObject(),reasons=new JsonObject(),programs=new JsonObject(),origins=new JsonObject(),mods=new JsonObject();
+        p.kinds.forEach(kinds::addProperty);p.kindFrames.forEach(history::addProperty);p.unsupportedReasons.forEach(reasons::addProperty);
+        data.add("particleKinds",kinds);data.add("particleKindFrames",history);data.add("effectUnsupportedReasons",reasons);
+        p.shaders.forEach(programs::addProperty);data.add("effectShaderDraws",programs);
+        p.sources.forEach(origins::addProperty);data.add("effectDrawSources",origins);
+        p.particleMods.forEach(mods::addProperty);data.add("particlePackages",mods);
+        data.addProperty("effectTextureInvalidations",EffectTextures.invalidations());
+        data.addProperty("entityEffectDraws",p.entityEffects.size());HostedEffectStages.diagnostics(data);ModMeshCapture.diagnostics(data);
     }
 }

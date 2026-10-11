@@ -2,6 +2,8 @@
 
 本地移植目标为 Minecraft **1.21.1 / NeoForge 21.1.256 / Java 21**。女仆本体和 YSM GEO 兼容层的上游提交固定在 `sources.lock.json`，公开仓库只保存适配补丁、构建与测试工具。原作者、许可及资源权利声明见 [第三方来源](../THIRD_PARTY_NOTICES.md)。
 
+2026-10-11：女仆表情／文字气泡和 Epic Fight／NightFall 网格特效的协议 23 实现已部署，完整 Java 102 项及 native 35 CTests 通过；真实 B 画面尚未验收。VIX 泛光／折射后处理仍未实现，支持范围与复现命令见 [世界特效同步](WORLD_EFFECTS.md)。女仆战斗模型的 3186 顶点三角形拓扑与独立材质缓存修复已同步到主实例、A/B 和服务端；本轮捕获探针通过，不代替真实战斗模式可见性验收。
+
 ## 构建
 
 先完成 [基础运行环境与 Mod 主实例](BUILD.md)，在 X Minecraft Launcher 的 GoldCraft 主实例安装匹配的依赖。当前测试组合为 Epic Fight 21.17.3.1、Touhou Little Maid 1.5.3、GeckoLib 4.9.3、Invincible 21.15.8.2、NightFall 3.4.0 和 YSM 2.6.5。女仆本体还需要 Avalon 21.12.6.2，当前由 NightFall 的嵌套 JAR 提供；移除 NightFall 时须另行保留兼容的独立 Avalon。NightFall 和 YSM 本身不是女仆技能本体的强制依赖；当前构建保留对应可选适配类，因此编译使用这一完整组合。

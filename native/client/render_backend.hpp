@@ -9,6 +9,7 @@
 #include <IMetaRendererScene.h>
 #include <IMetaRendererWorldEdit.h>
 #include "goldcraft/atlas.hpp"
+#include "goldcraft/particles.hpp"
 #include "render_state.hpp"
 
 namespace goldcraft::render {
@@ -59,11 +60,15 @@ public:
     void emissive(bool value);
     void depth_write(bool value);
     void feedback(unsigned mode);
+    bool effect(const ParticleMaterial& material,GLuint texture);
 private:
     std::optional<DrawState> state_;
     bool ready_=false;
     GLint emissive_location_=-1;
     GLint feedback_location_=-1;
+    GLint effect_location_=-1,cutoff_location_=-1,color_mod_location_=-1;
+    std::optional<ParticleMaterial> effect_material_;
+    bool effects_allowed_=false;
     int emissive_value_=-1;
     std::optional<GLuint> texture_;
     bool depth_write_=false;

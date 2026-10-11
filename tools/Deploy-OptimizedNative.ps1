@@ -24,6 +24,14 @@ function Queue-File([string]$Source,[string]$Destination){
     # Built adaptations queued later take precedence over release payloads.
     $files[$to]=@{source=$from;destination=$to;path=$Destination;sha256=$hash}
 }
+function Queue-GoldCraftShaders([string]$Game){
+    # The bridge DLL and its shader uniforms are one versioned resource set.
+    # Queue workspace shaders last so an older Renderer stage cannot replace them.
+    $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'native/client/shaders')
+    foreach($file in Get-ChildItem -LiteralPath $directory -File -Filter '*.glsl'){
+        Queue-File "native/client/shaders/$($file.Name)" "$Game/cstrike/renderer/shader/$($file.Name)"
+    }
+}
 $runtime=$null
 $preserved=[Collections.Generic.List[string]]::new()
 if($WithMetaHookRuntime){
@@ -85,6 +93,7 @@ foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
     if($BridgeOnly){
         Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
+        Queue-GoldCraftShaders $game
         continue
     }
     if($WithMetaHookRuntime){
@@ -162,6 +171,7 @@ foreach($instance in $Clients){
             Queue-File "$relative/$($file.Name)" "$game/cstrike/$destination/$($file.Name)"
         }
     }
+    Queue-GoldCraftShaders $game
 }
 foreach($entry in $files.Values){
     if((Get-FileHash -LiteralPath $entry.source -Algorithm SHA256).Hash -ne $entry.sha256){

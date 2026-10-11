@@ -11,9 +11,12 @@ struct DrawState {
     DrawState(const DrawState &) = delete;
     DrawState &operator=(const DrawState &) = delete;
     void save_feedback();
+    void save_effects();
 
   private:
     bool scene_pass_, full_blend_, stencil_write_, feedback_saved_ = false;
+    bool effects_saved_=false;
+    GLint cull_mode=GL_BACK,front_face=GL_CCW;
     GLint shader, vao, array_buffer, active, texture, sampler, depth_func;
     GLboolean depth, cull, stencil, depth_mask, polygon_offset;
     GLfloat line_width, offset_factor, offset_units;

@@ -65,7 +65,7 @@ public final class EntityExporter {
         long now=System.nanoTime();if(!pacing.ready(now))return;
         if(lastFrame!=0)intervalMs=(now-lastFrame)/1_000_000.0;lastFrame=now;
         long began=Performance.begin();
-        try {
+        try (var effects=DirectMeshCapture.begin(net.minecraft.util.math.Vec3d.ZERO,false)) {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
             Map<Material,WorldExporter.Collector> batches=new LinkedHashMap<>();
             wrappedLayers=unsupportedLayers=0;
@@ -82,7 +82,8 @@ public final class EntityExporter {
                 }
                 var parameters=((RenderLayerAccessor)(Object)phase).goldcraft$phases();
                 var texture=((RenderTextureAccessor)((RenderParametersAccessor)(Object)parameters).goldcraft$texture()).goldcraft$id();
-                if(texture.isEmpty())return new WorldExporter.Collector();
+                // Text/backgrounds are camera-facing world effects, including TLM bubble fills.
+                if(texture.isEmpty()||layer.toString().startsWith("RenderType[text"))return DirectMeshCapture.entityBuffers().getBuffer(layer);
                 var mask=((RenderParametersAccessor)(Object)parameters).goldcraft$writeMask();
                 // Translucent layers can still write depth: vanilla player skins do.
                 // Sorting/blending and depth writes are independent material properties.
@@ -104,6 +105,7 @@ public final class EntityExporter {
                 if(actor!=null&&((actor.flags()&113)!=113||(actor.flags()&12)!=0))continue;
                 if(entityCount>=128)break;entityCount++;
                 float delta=client.world.getTickManager().shouldSkipTick(entity)?1:tickDelta;
+                effects.source("entity:"+entity.getClass().getName());
                 // Same interpolation fields used by vanilla WorldRenderer.renderEntity.
                 dispatcher.render(entity,MathHelper.lerp(delta,entity.lastRenderX,entity.getX()),
                     MathHelper.lerp(delta,entity.lastRenderY,entity.getY()),MathHelper.lerp(delta,entity.lastRenderZ,entity.getZ()),
@@ -121,9 +123,12 @@ public final class EntityExporter {
                 for(var entity:client.world.getChunk(x,z).getBlockEntities().values()) {
                     if(blockCount>=128||entity.getPos().getSquaredDistance(client.player.getPos())>48*48)continue;
                     MatrixStack matrices=new MatrixStack();var pos=entity.getPos();matrices.translate(pos.getX(),pos.getY(),pos.getZ());
+                    effects.source("block_entity:"+entity.getClass().getName());
                     blockDispatcher.render(entity,tickDelta,matrices,provider);blockCount++;
                 }
             }
+            // Deferred buffers can contain several entities; attribute only immediate draws individually.
+            effects.source("entity_buffer_flush");effects.finish();ParticleExporter.entityEffects(epoch,HostInput.life(),effects);
             record Batch(int texture,int flags,byte[] vertices) {}
             List<Batch> ready=new ArrayList<>();int bytes=0;hurtVertices=triangleBatches=0;
             for(var entry:batches.entrySet()) {

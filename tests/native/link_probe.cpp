@@ -23,7 +23,12 @@ int main() {
                         Reader r(message.payload);auto frame=read_particles(r);Writer answer;
                         answer.u64(frame.epoch);answer.u64(frame.generation);answer.u64(frame.revision);answer.u32(frame.life);answer.u32(frame.count);answer.u32(static_cast<unsigned>(frame.batches.size()));
                         for(const auto& batch:frame.batches){
-                            answer.u32(batch.texture);answer.u32(batch.flags);answer.u32(static_cast<unsigned>(batch.vertices.size()));
+                            const auto& material=batch.material;
+                            answer.u32(material.texture);answer.u32(material.flags);
+                            for(auto value:{material.src_rgb,material.dst_rgb,material.src_alpha,material.dst_alpha,
+                                material.equation_rgb,material.equation_alpha,material.depth_func,material.color_mask})answer.u32(value);
+                            answer.f32(material.alpha_cutoff);for(auto value:material.color_mod)answer.f32(value);
+                            answer.u32(static_cast<unsigned>(batch.vertices.size()));
                             for(const auto& v:batch.vertices){auto gs=to_goldsrc(v.position);answer.f32(gs.x);answer.f32(gs.y);answer.f32(gs.z);answer.f32(v.u);answer.f32(v.v);answer.u32(v.color);}
                         }
                         endpoint->send(Type::player_pose,answer.data);
