@@ -60,12 +60,12 @@ class Peer:
                 now = time.monotonic()
                 if self.connection and now >= heartbeat:
                     self.send(3, b""); heartbeat = now + .5
-                if self.connection and self.pose and now >= pose_at:
-                    with self.lock:
+                with self.lock:
+                    if self.connection and self.pose and now >= pose_at:
                         head, tail = self.pose
                         self.pose_sequence += 1
                         self.send(50, struct.pack("<QQ", self.world, self.pose_sequence) + head + tail)
-                    pose_at = now + .1
+                        pose_at = now + .1
                 try:
                     data = self.socket.recv(65536)
                 except socket.timeout:
@@ -98,12 +98,13 @@ class Peer:
                             count = struct.unpack_from("<I", body, 24)[0]
                             if len(body) != 28 + count * 116:
                                 raise ValueError("Actor snapshot length")
-                            self.actors = {}
+                            actors = {}
                             for index in range(count):
                                 offset = 28 + index * 116
                                 slot, serial, userid, team, flags, life = struct.unpack_from("<6I", body, offset)
                                 pitch, yaw = struct.unpack_from("<2f", body, offset + 56)
-                                self.actors[slot] = dict(slot=slot, serial=serial, userid=userid, team=team, flags=flags, life=life, pitch=pitch, yaw=yaw)
+                                actors[slot] = dict(slot=slot, serial=serial, userid=userid, team=team, flags=flags, life=life, pitch=pitch, yaw=yaw)
+                            self.actors = actors
                         elif kind in (14, 41, 58, 59, 60, 63):
                             self.messages.append((kind, body))
         except Exception as exc:

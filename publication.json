@@ -223,7 +223,11 @@
     "docs/VIX_POST_TODO.md",
     "docs/SHARED_MEMORY.md",
     "tools/Test-SharedMemory.ps1",
-    "tools/java/SharedBulkInteropMain.java"
+    "tools/java/SharedBulkInteropMain.java",
+    "tools/Test-NightfallBlade.py",
+    "tools/Test-MurasamaMesh.py",
+    "tools/Exercise-AuthoritativePose.py",
+    "docs/2026-10-11_分析-Epic姿态与NightFall渲染-report.md"
   ],
   "trees": {
     "native": [

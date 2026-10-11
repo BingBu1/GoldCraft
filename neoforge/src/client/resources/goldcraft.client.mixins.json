@@ -28,6 +28,8 @@
     "ParticleRenderBudgetMixin",
     "DirectMeshMixin",
     "EffectLayeringMixin",
+    "NightfallBladeGeometryMixin",
+    "NightfallMurasamaMeshMixin",
     "VixPostParticleMixin",
     "VixPostPipelinesMixin",
     "LightmapTextureAccessor",

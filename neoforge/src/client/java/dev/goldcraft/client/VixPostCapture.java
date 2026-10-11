@@ -49,7 +49,7 @@ public final class VixPostCapture {
     private static boolean resolved,resourcesVerified;
     private static Context active;
     private static String error="",lastFailure="",lastFailureParticles="";
-    private static long frames,failures,nonemptyFrames,lastFailureLog;
+    private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades;
     private static final long[] stageFrames=new long[PostEffectPlan.COLOR_DISPERSION+1];
     private static int lastStages,lastDraws;
     private static final Map<String,String> RESOURCE_HASHES=Map.ofEntries(
@@ -150,6 +150,13 @@ public final class VixPostCapture {
     }
     public static boolean skipSharedDepth(){if(active==null)return false;active.savedDepth=true;return true;}
     static boolean capturing(){return active!=null;}
+    /** Called before the pinned producer submits its first vertex. No coordinate replacement or allocation. */
+    public static boolean rejectUndefinedNightfallBlade(org.joml.Vector3fc width,float fade) {
+        // active exists only after verifyResources checks NightFall3.4.0 and its exact JAR hash.
+        if(active==null||width.isFinite()&&Float.isFinite(fade))return false;
+        undefinedNightfallBlades++;
+        return true;
+    }
     static ByteBuffer maskVertices(ByteBuffer source,int count,EffectGeometry.Layout layout,String shader) {
         if(active==null)return source;
         String name=shader.replace("minecraft:","");
@@ -163,6 +170,7 @@ public final class VixPostCapture {
     static void diagnostics(JsonObject data){
         data.addProperty("vixPostCaptureResolved",api!=null);data.addProperty("vixPostResourcesVerified",resourcesVerified);
         data.addProperty("vixPostFrames",frames);data.addProperty("vixPostFailures",failures);
+        data.addProperty("vixPostUndefinedNightfallBlades",undefinedNightfallBlades);
         data.addProperty("vixPostStages",lastStages);data.addProperty("vixPostBatches",lastDraws);
         data.addProperty("vixPostCaptureError",error);
         data.addProperty("vixPostLastFailure",lastFailure);data.addProperty("vixPostLastFailureParticles",lastFailureParticles);

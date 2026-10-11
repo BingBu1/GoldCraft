@@ -10,6 +10,7 @@
 #include "goldcraft/combat.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
+#include "goldcraft/authoritative_dimensions.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -139,6 +140,7 @@ void ApplyNativeUse(unsigned slot,bool pressed) {
     if(state.active&&p->IsAlive()&&(e->v.origin-origin).LengthSquared()>0.0001f)AcceptNativeRelocation(slot);
 }
 ServerControlTrace control_trace;
+AuthoritativeDimensionTrace dimension_trace;
 void RecordControl(unsigned slot,ControlCause cause,std::optional<int> requested=std::nullopt,int result=0) {
     ServerControlEvent e;e.world=registry.world();e.connection=link.generation();e.slot=slot;e.cause=cause;
     e.seconds=gpGlobals?gpGlobals->time:0;e.result=result;
@@ -191,7 +193,11 @@ void HandlePose(Reader& r) {
     if(!minecraft_forms[slot]){++wrong_form_poses;return;}
     auto* e=edicts+slot;auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e));
     if(e->free||!player||!player->IsAlive()||(e->v.flags&FL_SPECTATOR))return;
-    if((flags&~7u)||width<0.1f||width>4||height<0.1f||height>4||eye<0||eye>height+0.1f)throw ProtocolError("Invalid authoritative player dimensions");
+    const auto dimensions=validate_authoritative_dimensions(flags,eye,width,height);
+    dimension_trace.observe(dimensions,slot,life,flags,eye,width,height);
+    // Reject this pose without aborting the rest of this frame's authority
+    // messages/snapshots, and without logging every repeated invalid packet.
+    if(dimensions!=DimensionRejection::none)return;
     auto origin=to_goldsrc(feet);origin.z+=36;
     if(std::abs(origin.x)>16384||std::abs(origin.y)>16384||std::abs(origin.z)>16384)throw ProtocolError("Authoritative position outside supported map bounds");
     if(!state.active){state.saved_movetype=e->v.movetype;state.active=true;RecordControl(slot,ControlCause::acquire);BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
@@ -405,7 +411,7 @@ void SendActors() {
             if(FClassnameIs(e,"hostage_entity")){auto* leader=static_cast<CHostage*>(p)->GetLeader();out<<",\"leader\":"<<(leader?leader->entindex():0);}
             out<<'}';
         }out<<"],\"formChanges\":"<<form_changes<<",\"wrongFormPoses\":"<<wrong_form_poses<<',';
-        control_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<'}';
+        control_trace.write(out);out<<',';dimension_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<'}';
     }
 }
 }
@@ -578,7 +584,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         if(!server_log.is_open()) if(const char* path=std::getenv("GOLDCRAFT_SERVER_LOG"))server_log.open(path,std::ios::app);
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
-        controlled={};client_incarnations={};player_lives={};player_births={};vitals_ack={};player_spawns={};stale_life_poses=0;client_ready={};avatar_payloads={};
+        controlled={};dimension_trace={};client_incarnations={};player_lives={};player_births={};vitals_ack={};player_spawns={};stale_life_poses=0;client_ready={};avatar_payloads={};
         vitals_accepted=vitals_rejected=0;final_minecraft_damage=minecraft_attack=nullptr;
         minecraft_forms={};next_form_change={};form_changes=wrong_form_poses=0;
         GoldCraft_ObjectsReset(false);object_revision=object_actions=object_damage_actions=object_use_actions=0;
