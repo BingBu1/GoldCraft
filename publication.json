@@ -251,7 +251,10 @@
     "tools/Check-EpicSkillSequence.py",
     "tools/java/SkillFeedbackProbe.java",
     "tools/java/StartupProbe.java",
-    "docs/2026-10-11_分析-Epic技能同步-report.md"
+    "docs/2026-10-11_分析-Epic技能同步-report.md",
+    "tools/Test-EpicAnimations.py",
+    "tools/java/AnimationRegistryProbe.java",
+    "docs/2026-10-11_分析-Epic动画资源-report.md"
   ],
   "trees": {
     "native": [
