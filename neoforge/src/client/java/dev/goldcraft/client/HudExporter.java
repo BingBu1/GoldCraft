@@ -203,10 +203,10 @@ public final class HudExporter implements AutoCloseable {
             var mapped=GL30.glMapBufferRange(GL21.GL_PIXEL_PACK_BUFFER,0,newest.capacity,GL30.GL_MAP_READ_BIT);
             if(mapped==null)throw new IllegalStateException("HUD readback mapping failed");
             byte[] image;
-            try{image=HudPixels.encode(mapped,newest.viewWidth,newest.viewHeight);}finally{GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);}
+            try{image=encodePixels(mapped,newest.viewWidth,newest.viewHeight);}finally{GL15.glUnmapBuffer(GL21.GL_PIXEL_PACK_BUFFER);}
             var s=newest;
             if(s.life!=HostInput.life()||s.epoch!=GoldCraftClient.HOST.epoch()||s.viewport!=viewportId)return;
-            byte[] payload=new Wire.Writer().i64(s.epoch).i64(s.revision).i64(s.viewport).i64(s.menu)
+            byte[] payload=new Wire.Writer(80+image.length).i64(s.epoch).i64(s.revision).i64(s.viewport).i64(s.menu)
                 .i32(s.viewWidth).i32(s.viewHeight).i32(s.width).i32(s.height).i32(s.flags).i32(s.life).i32(s.slot)
                 .f32(s.health).i32(s.food).i32(s.armor).i32(s.level).f32(s.experience).bytes(image).toByteArray();
             if(link.send(Wire.HUD_FRAME,payload)){
@@ -217,6 +217,11 @@ public final class HudExporter implements AutoCloseable {
             GL15.glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER,old);
             for(var s:staging)if(s.fence!=0&&s.revision<=newest.revision){GL32.glDeleteSync(s.fence);s.fence=0;}
         }
+    }
+    private static byte[] encodePixels(java.nio.ByteBuffer pixels,int width,int height){
+        long began=Performance.begin();
+        try{return HudPixels.encode(pixels,width,height);}
+        finally{Performance.end("hudEncode",began);}
     }
     public void diagnostics(JsonObject data){
         data.addProperty("hudFrames",sent);data.addProperty("hudBytes",bytes);data.addProperty("hudSkipped",skipped);

@@ -12,11 +12,22 @@ public final class HudPixels {
             throw new IllegalArgumentException("HUD pixel bounds");
         var rgba=source.slice().order(ByteOrder.LITTLE_ENDIAN);
         var pixels=rgba.asIntBuffer();
+        ByteBuffer runLeft=null,runRight=null;
         byte[] out=new byte[Math.min(4096,rgba.remaining()+2)];
         int cursor=0,count=pixels.remaining(),written=0;
         while(cursor<count) {
             int run=1,pixel=pixels.get(cursor);
-            while(run<32768&&cursor+run<count&&pixels.get(cursor+run)==pixel)run++;
+            while(run<16&&cursor+run<count&&pixels.get(cursor+run)==pixel)run++;
+            if(run==16&&cursor+run<count){
+                if(runLeft==null){runLeft=rgba.duplicate();runRight=rgba.duplicate();}
+                int end=Math.min(count,cursor+32768);
+                // Compare adjacent pixels after the known equal prefix. The
+                // first differing channel belongs to the first unequal pixel.
+                runLeft.limit((end-1)*4).position((cursor+run-1)*4);
+                runRight.limit(end*4).position((cursor+run)*4);
+                int mismatch=runLeft.mismatch(runRight);
+                run=mismatch<0?end-cursor:run+mismatch/4;
+            }
             boolean repeated=run>=3;int start=cursor;
             if(repeated)cursor+=run;
             else {

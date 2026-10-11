@@ -2,6 +2,10 @@ package dev.goldcraft.bridge;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -55,10 +59,10 @@ class HudPixelsTest {
     }
     private static byte[] equivalent(ByteBuffer source,int width,int height){
         int position=source.position(),limit=source.limit();ByteOrder order=source.order();
-        byte[] original=bytes(source);source.mark();
+        byte[] original=bytes(source);int mark=Math.max(0,position-2);source.position(mark).mark().position(position);
         byte[] encoded=HudPixels.encode(source,width,height);
         assertEquals(position,source.position());assertEquals(limit,source.limit());assertEquals(order,source.order());
-        source.reset();assertEquals(position,source.position());
+        source.reset();assertEquals(mark,source.position());source.position(position);
         assertArrayEquals(legacy(source,width,height),encoded);
         assertArrayEquals(original,decode(encoded,width*height));assertArrayEquals(original,bytes(source));
         return encoded;
@@ -73,6 +77,7 @@ class HudPixelsTest {
     @Test void onePixelPreservesChannelsAndBufferPosition() {
         var data=ByteBuffer.wrap(new byte[]{99,1,2,3,(byte)128});data.position(1);
         assertArrayEquals(new byte[]{0,0,1,2,3,(byte)128},HudPixels.encode(data,1,1));assertEquals(1,data.position());
+        assertThrows(java.nio.InvalidMarkException.class,data::reset);
     }
     @Test void rejectsInvalidSizesBeforeAllocationOrIteration() {
         assertThrows(IllegalArgumentException.class,()->HudPixels.encode(ByteBuffer.allocate(0),Integer.MAX_VALUE,1024));
@@ -111,6 +116,31 @@ class HudPixelsTest {
             assertEquals(0x8000|(Math.min(count,32768)-1),Short.toUnsignedInt(ByteBuffer.wrap(result).order(ByteOrder.LITTLE_ENDIAN).getShort()));
         }
     }
+    @Test void lastPixelMismatchInEveryChannelKeepsCanonicalPrefixAndRunBoundaries(){
+        for(int run:new int[]{15,16,17,31,32,33,32767,32768,32769})for(int channel=0;channel<4;channel++){
+            int count=run<4096?run+1:65536,width=count<4096?count:256;
+            int[] pixels=noise(count);int repeated=0x83a75c19;
+            Arrays.fill(pixels,count-run-1,count-1,repeated);pixels[count-1]=repeated^(1<<(channel*8));
+            equivalent(ByteBuffer.wrap(rgba(pixels)),width,count/width);
+        }
+    }
+    @Test void mappedReadOnlyOffsetRunPreservesSourceAndPacketOwnership()throws Exception {
+        int[] pixels=noise(1024);Arrays.fill(pixels,0,1023,0x00473391);pixels[1023]=0x80473391;
+        byte[] image=rgba(pixels),padded=new byte[image.length+13];Arrays.fill(padded,(byte)0x5a);
+        System.arraycopy(image,0,padded,7,image.length);
+        Path directory=Path.of("build","hud-pixels-tests");Files.createDirectories(directory);
+        Path file=Files.createTempFile(directory,"mapped-",".rgba");
+        // DELETE_ON_CLOSE also handles Windows mappings whose backing file
+        // remains open until the mapped views are reclaimed.
+        try(var channel=FileChannel.open(file,StandardOpenOption.READ,StandardOpenOption.WRITE,StandardOpenOption.DELETE_ON_CLOSE)){
+            var content=ByteBuffer.wrap(padded);while(content.hasRemaining())channel.write(content);
+            var mapped=channel.map(FileChannel.MapMode.READ_ONLY,0,padded.length);
+            mapped.position(7).limit(7+image.length);
+            byte[] encoded=equivalent(mapped,256,4),expected=encoded.clone();
+            assertArrayEquals(padded,bytes(mapped.duplicate().clear()));
+            byte[] next=HudPixels.encode(mapped,256,4);Arrays.fill(next,(byte)0);assertArrayEquals(expected,encoded);
+        }
+    }
     @Test void literalsBeforeRunsCrossThe32768BoundaryWithoutLosingPixels(){
         for(int count:new int[]{32767,32768,32769}){
             int[] pixels=noise(65536);Arrays.fill(pixels,count,count+3,0x12345678);
@@ -131,7 +161,8 @@ class HudPixelsTest {
         }
     }
     @Test void returnedPacketOwnsItsStorage(){
-        ByteBuffer source=ByteBuffer.wrap(rgba(noise(512)));byte[] first=equivalent(source,512,1),expected=first.clone();
+        int[] pixels=noise(512);Arrays.fill(pixels,0,256,0x00112233);
+        ByteBuffer source=ByteBuffer.wrap(rgba(pixels));byte[] first=equivalent(source,512,1),expected=first.clone();
         byte[] second=HudPixels.encode(source,512,1);Arrays.fill(second,(byte)0);
         source.put(0,(byte)99);assertArrayEquals(expected,first);
     }
