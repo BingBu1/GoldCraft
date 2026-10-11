@@ -116,6 +116,8 @@ GLuint hud_texture=0;
 unsigned hud_width=0,hud_height=0,viewport_width=0,viewport_height=0,viewport_scale=0;
 unsigned hud_gui_width=0,hud_gui_height=0;
 std::uint64_t viewport_id=0,hud_revision=0,hud_menu_id=0,hud_frames=0,hud_bytes=0,hud_draws=0;
+bool hud_blank=false;
+std::uint64_t hud_blank_frames=0,hud_blank_uploads=0,hud_blank_composites_skipped=0;
 double last_hud=0,next_viewport=0,hud_work_ms=0;
 double hud_interval_ms=0;
 bool viewport_enabled=true,ui_active=false;
@@ -130,7 +132,8 @@ enum class WorkStage : std::size_t {
     particles,post_plan,feedback_message,camera,hud_upload,scene_reset,pose,lights_message,
     section,remove_section,other_message,control_lights,
     draw_opaque,draw_shadow,draw_transparent,pass_construct,pass_restore,
-    sections,entities,feedback,entity_effects,particle_draw,post_mask,post_replay,hud_redraw,count
+    sections,entities,feedback,entity_effects,particle_draw,post_mask,post_replay,hud_redraw,
+    native_hud_redraw,mc_hud_composite,server_hud_overlay,count
 };
 constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> work_names{
     "frame","nativeHudFrame","auditCommands","transportPoll","mapEdits","connectionState","diagnosticWrite","messages",
@@ -138,7 +141,8 @@ constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> wor
     "particles","postPlan","feedbackMessage","camera","hudUpload","sceneReset","pose","lightsMessage",
     "section","removeSection","otherMessage","controlLights",
     "drawOpaque","drawShadow","drawTransparent","passConstruct","passRestore",
-    "sections","entities","feedback","entityEffects","particleDraw","postMask","postReplay","hudRedraw"
+    "sections","entities","feedback","entityEffects","particleDraw","postMask","postReplay","hudRedraw",
+    "nativeHudRedraw","mcHudComposite","serverHudOverlay"
 };
 struct WorkCounter {std::uint64_t count=0;double total_ms=0,max_ms=0;};
 std::array<WorkCounter,work_names.size()> work_counters{};
@@ -407,7 +411,7 @@ void ResetWorld() {
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
-    hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;
+    hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;hud_blank=false;
 }
 bool HasControl(){return server_minecraft_form&&minecraft_life==server_player_life&&minecraft_control&&link.connected()&&std::chrono::steady_clock::now()-last_pose<std::chrono::milliseconds(350);}
 ControlTrace control_trace;
@@ -462,7 +466,7 @@ bool ServerMenuInput(){
 bool ServerMenuKey(int key,const char* binding){
     return FormMenu::slot_key(key,binding?binding:"")||(key==K_ESCAPE&&form_menu.forms());
 }
-void ClearHud(){hud_revision=hud_menu_id=0;hud_flags=hud_life=0;last_hud=next_viewport=0;RestoreViewModel();}
+void ClearHud(){hud_revision=hud_menu_id=0;hud_flags=hud_life=0;last_hud=next_viewport=0;hud_blank=false;RestoreViewModel();}
 void UpdateViewModel(){
     if(HudFresh()&&(hud_flags&4)&&host_viewmodel){
         if(!viewmodel_suppressed){saved_viewmodel=host_viewmodel->value;viewmodel_suppressed=true;}
@@ -504,11 +508,18 @@ void ReadHud(Reader& r){
     if(epoch!=world||viewport!=viewport_id||life!=minecraft_life||screen_width!=viewport_width||screen_height!=viewport_height||revision<=hud_revision)return;
     if((flags&~15u)||((flags&12)==12)||((flags&1)!=0)!=(menu!=0)||!width||!height||width>1024||height>1024||slot>8||health<0||food>20||armor>1024||experience<0||experience>1)throw ProtocolError("Invalid HUD state");
     const auto pixel_width=(flags&2)?screen_width:width,pixel_height=(flags&2)?screen_height:height;
-    const auto pixels=read_hud_pixels(r,pixel_width,pixel_height);
-    render::upload_texture(hud_texture,hud_width,hud_height,pixel_width,pixel_height,pixels);
+    const auto image=read_hud_image(r,pixel_width,pixel_height);
+    const bool blank=image.blank();
+    if(blank){
+        if(!hud_blank||!hud_texture||hud_width!=1||hud_height!=1){
+            constexpr std::array<std::uint8_t,4> zero{};
+            render::upload_texture(hud_texture,hud_width,hud_height,1,1,zero);++hud_blank_uploads;
+        }
+    }else render::upload_texture(hud_texture,hud_width,hud_height,pixel_width,pixel_height,image.rgba);
     hud_gui_width=width;hud_gui_height=height;
+    hud_blank=blank;if(blank)++hud_blank_frames;
     hud_revision=revision;hud_menu_id=menu;hud_flags=flags;hud_life=life;
-    const double now=Seconds();if(last_hud)hud_interval_ms=(now-last_hud)*1000;last_hud=now;++hud_frames;hud_bytes+=pixels.size();
+    const double now=Seconds();if(last_hud)hud_interval_ms=(now-last_hud)*1000;last_hud=now;++hud_frames;hud_bytes+=std::uint64_t(pixel_width)*pixel_height*4;
     hud_slot=slot;hud_health=health;hud_food=food;hud_armor=armor;hud_level=level;hud_experience=experience;
 }
 void SendControl(unsigned action) {
@@ -602,6 +613,8 @@ void WriteDiagnostics() {
            <<",\"postEffectEnabled\":"<<((!render_post_effects||render_post_effects->value!=0)?"true":"false")
            <<",\"hudVisible\":"<<(HudFresh()?"true":"false")<<",\"hudFrames\":"<<hud_frames<<",\"hudDraws\":"<<hud_draws<<",\"hudWidth\":"<<hud_gui_width<<",\"hudHeight\":"<<hud_gui_height
            <<",\"hudTextureWidth\":"<<hud_width<<",\"hudTextureHeight\":"<<hud_height
+           <<",\"hudBlank\":"<<(hud_blank?"true":"false")<<",\"hudBlankFrames\":"<<hud_blank_frames
+           <<",\"hudBlankUploads\":"<<hud_blank_uploads<<",\"hudBlankCompositesSkipped\":"<<hud_blank_composites_skipped
            <<",\"minecraftHands\":"<<(HudFresh()&&(hud_flags&4)?"true":"false")<<",\"minecraftChatOverlay\":"<<(HudFresh()&&(hud_flags&8)?"true":"false")
            <<",\"viewModelSuppressed\":"<<(viewmodel_suppressed?"true":"false")
            <<",\"hostViewModel\":"<<(host_viewmodel?host_viewmodel->value:-1)<<",\"viewModelSuppressedFrames\":"<<suppressed_viewmodel_frames<<",\"hudIntervalMs\":"<<hud_interval_ms
@@ -1662,15 +1675,21 @@ int Redraw(float time,int intermission) {
     const bool visible=HudFresh();
     const bool native_hud=!visible||(hud_flags&8);
     int result=1;
-    if(native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
+    const auto native_redraw=[&]{WorkScope timing(WorkStage::native_hud_redraw);return gExportfuncs.HUD_Redraw(time,intermission);};
+    if(native_hud)result=native_redraw();
     bool composed=false;
     if(visible){
-        if((composed=render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height)))++hud_draws;
-        else if(!native_hud){control_trace.hud_fallback(SampleControl(),render::statistics().error);result=gExportfuncs.HUD_Redraw(time,intermission);}
+        if(hud_blank&&!ui_active){composed=true;++hud_blank_composites_skipped;}
+        else{
+            {WorkScope timing(WorkStage::mc_hud_composite);composed=render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height);}
+            if(composed)++hud_draws;
+            else if(!native_hud){control_trace.hud_fallback(SampleControl(),render::statistics().error);result=native_redraw();}
+        }
     }
     // Retain server kill notices and menus above the full Minecraft HUD.
     // Native/ordinary/death HUD and render failure use the original client path.
     if(composed&&!native_hud&&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu){
+        WorkScope timing(WorkStage::server_hud_overlay);
         server_hud::draw(Seconds(),form_menu,!ui_active&&!minecraft_menu);
         form_menu_draws=server_hud::menu_draws();
     }

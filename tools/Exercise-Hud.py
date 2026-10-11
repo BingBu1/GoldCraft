@@ -10,6 +10,11 @@ renderer=importlib.util.module_from_spec(spec);spec.loader.exec_module(renderer)
 ROOT=renderer.ROOT
 
 
+def hud_texture_matches_viewport(state):
+    expected = (1, 1) if state.get('hudBlank') else (state['viewportWidth'], state['viewportHeight'])
+    return (state['hudTextureWidth'], state['hudTextureHeight']) == expected
+
+
 def main():
     a=renderer.Sandbox('cs-client-a');b=renderer.Sandbox('cs-client-b')
     prefix=ROOT/'analysis/goldcraft-tests'/f'hud-{int(time.time())}'
@@ -56,9 +61,8 @@ def main():
                                              and s['B']['hudWidth']==427 and s['B']['hudHeight']==240);capture('scale3')
         b.host('hud_scale 0');wait_for(lambda s:s['B']['hudVisible'] and s['B']['viewportId']>resized['B']['viewportId'])
         report['scaleChange']=resized
-        report['checks']['GUI_scale_preserves_physical_resolution']=resized['B']['hudTextureWidth']==1280 and resized['B']['hudTextureHeight']==720
-        report['checks']['HUD_matches_CS_physical_viewport']=all(before[p]['hudTextureWidth']==before[p]['viewportWidth']
-            and before[p]['hudTextureHeight']==before[p]['viewportHeight'] for p in ('A','B'))
+        report['checks']['GUI_scale_preserves_physical_resolution']=hud_texture_matches_viewport(resized['B'])
+        report['checks']['HUD_matches_CS_physical_viewport']=all(hud_texture_matches_viewport(before[p]) for p in ('A','B'))
         # Flowing water moves an idle player even with the menu open. Use a dry host floor.
         if before['server']['map']=='cs_militia':
             original['position']=b.status()['minecraftFeet']

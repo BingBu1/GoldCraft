@@ -41,16 +41,27 @@ def snapshot():
     perf = read(LOGS / "performance-MinecraftClient.json")
     if native is None or java is None:
         return None
+    try:
+        native_modified = (LOGS / "goldcraft-client-status.json").stat().st_mtime
+        java_modified = (LOGS / "minecraft-client-status.json").stat().st_mtime
+        now = time.time()
+        native_age_ms = (now - native_modified) * 1000
+        java_age_ms = (now - java_modified) * 1000
+    except OSError:
+        # Diagnostics are replaced by their producers; a concurrent rename is
+        # a missing sample, not a reason to abort and discard the live profile.
+        return None
     fields = ("world", "origin", "viewAngles", "viewReady", "windowFocused", "minecraftControl",
               "playerLife", "serverPlayerLife", "minecraftForm", "formMenuVisible", "fpsLimit", "vsync", "glError", "frameWorkMs",
               "hudWorkMs", "nativeWork", "fpsOverride", "benchmarkFramerate", "entityCount", "entityBatches", "entityFrames",
               "entityEffectVertices", "sections", "vertices", "drawFrames", "gpuUploads",
               "gpuUploadBytes", "gpuDraws", "particleVertices", "postEffectStages", "postEffectFailures",
+              "hudBlank", "hudFrames", "hudBlankFrames", "hudBlankUploads", "hudBlankCompositesSkipped",
+              "hudDraws", "hudTextureWidth", "hudTextureHeight",
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
-    return {"time": time.time(), "statusAgeMs": (time.time()-(LOGS / "goldcraft-client-status.json").stat().st_mtime)*1000,
-            "javaStatusAgeMs": (time.time()-(LOGS / "minecraft-client-status.json").stat().st_mtime)*1000,
+    return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
             "native": {k: native[k] for k in fields if k in native},
             "java": {k: java[k] for k in java_fields if k in java}, "javaPerformance": perf}
 

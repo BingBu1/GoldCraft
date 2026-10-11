@@ -13,6 +13,7 @@
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <random>
 
 using namespace goldcraft;
 static int checks = 0;
@@ -20,8 +21,75 @@ static void check(bool ok, const char* label) { ++checks; if (!ok) throw std::ru
 static void reject(std::function<void()> operation, const char* label) {
     bool rejected = false; try { operation(); } catch (const ProtocolError&) { rejected = true; } check(rejected, label);
 }
+static void check_hud_images() {
+    auto verify=[](const Writer& encoded,unsigned width,unsigned height,const Bytes& expected) {
+        Reader input(encoded.data);auto image=read_hud_image(input,width,height);
+        const bool zero=std::all_of(expected.begin(),expected.end(),[](auto b){return b==0;});
+        check(image.blank()==zero,"HUD blank classification includes every RGBA channel");
+        if(!zero)check(image.rgba==expected,"HUD lazy expansion preserves all source pixels");
+        else check(image.rgba.capacity()==0,"zero HUD does not allocate full image storage");
+        Reader legacyInput(encoded.data);
+        check(read_hud_pixels(legacyInput,width,height)==expected,"legacy HUD decode retains full-size zero pixels");
+    };
+    for(bool repeat:{false,true}) {
+        Writer zero;zero.u16(repeat?0x8007:7);
+        zero.data.resize(zero.data.size()+(repeat?4:32),0);
+        verify(zero,4,2,Bytes(32));
+        for(std::size_t size=0;size<zero.data.size();++size) {
+            reject([&]{Reader input(std::span(zero.data).first(size));read_hud_image(input,4,2);},"truncated all-zero HUD must still reject");
+        }
+        auto trailing=zero.data;trailing.push_back(0);
+        reject([&]{Reader input(trailing);read_hud_image(input,4,2);},"blank HUD trailing data must reject");
+        reject([&]{Reader input(zero.data);read_hud_image(input,7,1);},"blank HUD run overflow must reject");
+    }
+    // Prefix/suffix zero runs, late allocation, and alpha-zero nonzero RGB.
+    for(bool repeat:{false,true})for(unsigned pixel:{0u,4u,8u})for(unsigned channel=0;channel<4;++channel) {
+        Writer encoded;Bytes expected(36);expected[pixel*4+channel]=0x7f;
+        for(unsigned i=0;i<9;++i) {
+            encoded.u16(repeat?0x8000:0);
+            encoded.bytes(std::span(expected).subspan(i*4,4));
+        }
+        verify(encoded,3,3,expected);
+    }
+    // Maximum accepted image, both run forms, including the maximum 32768-pixel token.
+    for(bool repeat:{false,true}) {
+        Writer zero;
+        for(unsigned run=0;run<256;++run) {
+            zero.u16(repeat?0xffff:0x7fff);
+            zero.data.resize(zero.data.size()+(repeat?4:32768*4),0);
+        }
+        verify(zero,4096,2048,Bytes(8388608*4));
+    }
+    Writer empty;
+    for(auto dimensions:{std::pair{0u,1u},std::pair{1u,0u},std::pair{4097u,1u},std::pair{1u,4097u},std::pair{4096u,2049u},std::pair{0xffffffffu,0xffffffffu}}) {
+        reject([&]{Reader input(empty.data);read_hud_image(input,dimensions.first,dimensions.second);},"HUD dimensions rejected before allocation");
+    }
+    // Independent expected raster generated alongside varied legal wire runs.
+    std::mt19937 random(0x484455);
+    for(unsigned trial=0;trial<256;++trial) {
+        const unsigned count=1+random()%1024;Writer encoded;Bytes expected;
+        for(unsigned position=0;position<count;) {
+            const unsigned run=1+random()%std::min(127u,count-position);
+            const bool repeat=random()%2;encoded.u16(static_cast<std::uint16_t>((repeat?0x8000:0)|(run-1)));
+            if(repeat) {
+                std::array<std::uint8_t,4> pixel{};
+                if(trial%4&&random()%3==0)for(auto& b:pixel)b=static_cast<std::uint8_t>(random());
+                encoded.bytes(pixel);
+                for(unsigned i=0;i<run;++i)expected.insert(expected.end(),pixel.begin(),pixel.end());
+            }else{
+                for(unsigned i=0;i<run*4;++i) {
+                    const auto b=static_cast<std::uint8_t>(trial%4&&random()%9==0?random():0);
+                    encoded.u8(b);expected.push_back(b);
+                }
+            }
+            position+=run;
+        }
+        verify(encoded,count,1,expected);
+    }
+}
 int main() {
     try {
+        check_hud_images();
         Writer w; w.u8(0xfe); w.u16(0x1234); w.u32(0x89abcdef); w.i32(-100); w.u64(0x1122334455667788); w.f32(-12.5f); w.string("goldcraft");
         Reader r(w.data); check(r.u8()==0xfe, "u8"); check(r.u16()==0x1234, "u16"); check(r.u32()==0x89abcdef, "u32"); check(r.i32()==-100,"i32");
         check(r.u64()==0x1122334455667788, "u64"); check(r.f32()==-12.5f,"f32"); check(r.string()=="goldcraft","string"); r.finish();

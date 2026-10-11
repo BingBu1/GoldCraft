@@ -29,6 +29,7 @@
     "tools/Verify-BrushCollision.py",
     "docs/2026-10-10_分析-动态BSP碰撞-report.md",
     "tests/native/effects_gl_tests.inc",
+    "tests/native/plugin_hud_gl_tests.inc",
     "tools/Test-MaidCapture.py",
     "tools/Test-WorldEffects.py",
     "tools/Test-TrailProducer.py",

@@ -20,10 +20,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <tuple>
+#include "goldcraft/hud.hpp"
 
 namespace probe {
 bool count_allocations{};
 std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{}, errors{};
+std::size_t texture_images{},texture_updates{},array_draws{};
 unsigned snapshot_storage_failure{};
 void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLsizei width, GLsizei height) {
     // Leave one newly-created texture without storage. Framebuffer completeness
@@ -31,8 +34,15 @@ void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLs
     if (snapshot_storage_failure && --snapshot_storage_failure == 0) return;
     glTexStorage2D(target, levels, format, width, height);
 }
-void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = errors = 0; }
+void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = errors = texture_images = texture_updates = array_draws = 0; }
 GLenum APIENTRY error() { ++errors; return glGetError(); }
+void APIENTRY texture_image(GLenum target,GLint level,GLint format,GLsizei width,GLsizei height,GLint border,GLenum channels,GLenum type,const void* pixels){
+    ++texture_images;glTexImage2D(target,level,format,width,height,border,channels,type,pixels);
+}
+void APIENTRY texture_update(GLenum target,GLint level,GLint x,GLint y,GLsizei width,GLsizei height,GLenum channels,GLenum type,const void* pixels){
+    ++texture_updates;glTexSubImage2D(target,level,x,y,width,height,channels,type,pixels);
+}
+void APIENTRY arrays(GLenum mode,GLint first,GLsizei count){++array_draws;glDrawArrays(mode,first,count);}
 void APIENTRY integer(GLenum p, GLint *v) {
     ++queries;
     glGetIntegerv(p, v);
@@ -110,6 +120,9 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glUniform4fv probe::uniform_color
 #define glTexParameteri probe::parameter
 #define glGetError probe::error
+#define glTexImage2D probe::texture_image
+#define glTexSubImage2D probe::texture_update
+#define glDrawArrays probe::arrays
 #ifndef GOLDCRAFT_RENDER_SOURCE
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
 #endif
@@ -134,6 +147,9 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glUniform4fv
 #undef glTexParameteri
 #undef glGetError
+#undef glTexImage2D
+#undef glTexSubImage2D
+#undef glDrawArrays
 #define glGetIntegeri_v GLEW_GET_FUN(__glewGetIntegeri_v)
 #define glGetBooleani_v GLEW_GET_FUN(__glewGetBooleani_v)
 #define glIsEnabledi GLEW_GET_FUN(__glewIsEnabledi)
@@ -462,6 +478,7 @@ struct Resources {
 #include "effects_gl_tests.inc"
 #include "post_scene_snapshot_gl_tests.inc"
 #include "plugin_draw_gl_tests.inc"
+#include "plugin_hud_gl_tests.inc"
 #else
 GLuint Renderer::effect_program(const CCompileShaderArgs*){std::abort();}
 #endif
@@ -572,6 +589,7 @@ void run(bool benchmark) {
     assert(glGetError() == GL_NO_ERROR);
     #ifndef GOLDCRAFT_RENDER_BASELINE
     plugin_draw_probe::tests(r);
+    plugin_hud_probe::tests(r);
     effect_tests(r);
     post_scene_snapshot_tests(r);
     #endif

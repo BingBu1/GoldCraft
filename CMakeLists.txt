@@ -230,7 +230,8 @@ if(GOLDCRAFT_BUILD_CLIENT)
         set_tests_properties(goldcraft_post_effect_replay PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 2)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            native/client/plugin.cpp tests/native/extract_benchmark_framerate.py tests/native/extract_plugin_draw.py)
+            native/client/plugin.cpp tests/native/extract_benchmark_framerate.py tests/native/extract_plugin_draw.py
+            tests/native/extract_plugin_hud.py)
         execute_process(COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_benchmark_framerate.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
@@ -239,6 +240,10 @@ if(GOLDCRAFT_BUILD_CLIENT)
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_plugin_draw.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
             "${CMAKE_CURRENT_BINARY_DIR}/plugin_draw.inc" COMMAND_ERROR_IS_FATAL ANY)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_plugin_hud.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/plugin_hud.inc" COMMAND_ERROR_IS_FATAL ANY)
         add_executable(goldcraft_benchmark_framerate_tests tests/native/benchmark_framerate_tests.cpp)
         target_include_directories(goldcraft_benchmark_framerate_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES}
             "${CMAKE_CURRENT_BINARY_DIR}")
