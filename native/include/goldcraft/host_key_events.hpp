@@ -5,10 +5,16 @@
 namespace goldcraft::host_keys {
 enum class Route { native, observe, consume };
 
+inline bool console_binding(const char* binding) {
+    return binding && (std::strcmp(binding, "toggleconsole") == 0 ||
+        std::strcmp(binding, "showconsole") == 0 || std::strcmp(binding, "hideconsole") == 0);
+}
+
 // BaseUI observes +command presses; GoldSrc can skip it on key-up. The public
 // engine Key_Event observer drains releases separately. HUD is the press
 // fallback when the BaseUI hook is unavailable.
 inline Route gameplay_route(const char* binding, bool base_ui, bool hooked) {
+    if (console_binding(binding)) return Route::native;
     if (binding && std::strcmp(binding, "+use") == 0) return Route::native;
     if (binding && binding[0] == '+')
         return base_ui || !hooked ? Route::observe : Route::native;

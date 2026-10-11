@@ -106,7 +106,8 @@ public final class HostInput {
     }
     public static void sendPose(MinecraftClient client) {
         if(link==null||!link.connected()||client.player==null||epoch==0)return;
-        var p=client.player;int flags=(controlling?1:0)|(client.currentScreen!=null?8:0);
+        var p=client.player;boolean deathHud=HudExporter.nativeDeathHud(client);
+        int flags=(!deathHud&&controlling?1:0)|(!deathHud&&client.currentScreen!=null?8:0);
         link.send(Wire.PLAYER_POSE,new Wire.Writer().i64(epoch).i64(sequence).i64(System.nanoTime()).i32(flags).i32(life)
             .f32((float)p.getX()).f32((float)p.getY()).f32((float)p.getZ()).f32(p.getStandingEyeHeight()).toByteArray());
     }

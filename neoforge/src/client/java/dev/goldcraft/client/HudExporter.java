@@ -43,7 +43,7 @@ public final class HudExporter implements AutoCloseable {
     private long handFrames,lastSent;
     private double frameIntervalMs,readbackAgeMs;
     private float tickDelta;
-    private boolean handVisible;
+    private boolean handVisible,deathHud;
     private int viewWidth,viewHeight,requestedScale,width,height;
     private Screen screen;
     private String lastError="";
@@ -57,6 +57,11 @@ public final class HudExporter implements AutoCloseable {
     }
     public HudExporter(BridgeLink link){this.link=link;HostUi.configure(this);}
     public static boolean rendering(){return rendering;}
+    public static boolean nativeDeathHud(MinecraftClient client){
+        if(!HostInput.hosted())return false;
+        var actor=GoldCraftClient.HOST.actor(client.player.getUuid());
+        return DeathHudPolicy.useNativeHud(client.player.isAlive(),actor.flags(),client.currentScreen);
+    }
     public long menuId(){return screen==null?0:menuGeneration;}
     public Screen screen(){return screen;}
     public int width(){return width;}
@@ -74,7 +79,7 @@ public final class HudExporter implements AutoCloseable {
             var client=MinecraftClient.getInstance();
             if(client.currentScreen==screen)screen.resize(client,client.getWindow().getScaledWidth(),client.getWindow().getScaledHeight());
         }
-        screen=null;menuGeneration++;HostUi.reset();
+        screen=null;deathHud=handVisible=false;menuGeneration++;HostUi.reset();
     }
     private void clearPending(){for(var s:staging)if(s.fence!=0){GL32.glDeleteSync(s.fence);s.fence=0;}}
     @Override public void close(){reset();if(target!=null){target.delete();target=null;}for(var s:staging)if(s.buffer!=0){GL15.glDeleteBuffers(s.buffer);s.buffer=0;}}
@@ -83,6 +88,13 @@ public final class HudExporter implements AutoCloseable {
             ||viewportEpoch!=GoldCraftClient.HOST.epoch()||viewportId==0||client.getOverlay()!=null)return;
         long began=Performance.begin();
         try {
+            boolean nativeDeath=nativeDeathHud(client);
+            if(nativeDeath!=deathHud){
+                // A pending GPU readback belongs to the prior presentation. Do
+                // not ship its menu/hands after death or into the next life.
+                clearPending();pacing.reset();deathHud=nativeDeath;handVisible=false;
+                screen=null;menuGeneration++;HostUi.reset();
+            }
             shipReady();
             if(!pacing.ready(System.nanoTime()))return;
             Staging slot=null;for(var s:staging)if(s.fence==0){slot=s;break;}
@@ -95,6 +107,7 @@ public final class HudExporter implements AutoCloseable {
         }finally{Performance.end("hudExport",began);}
     }
     private void render(MinecraftClient client,Staging slot) {
+        final boolean controlling=HostInput.controlling()&&!deathHud;
         var window=client.getWindow();
         int oldWidth=window.getFramebufferWidth(),oldHeight=window.getFramebufferHeight();double oldScale=window.getScaleFactor();
         try(var saved=new GlState()) {
@@ -108,7 +121,8 @@ public final class HudExporter implements AutoCloseable {
                 if(target!=null)target.delete();target=new SimpleFramebuffer(viewWidth,viewHeight,true,MinecraftClient.IS_SYSTEM_MAC);
                 target.setClearColor(0,0,0,0);
             }
-            if(screen!=client.currentScreen){screen=client.currentScreen;menuGeneration++;HostUi.reset();}
+            Screen visibleScreen=deathHud?null:client.currentScreen;
+            if(screen!=visibleScreen){screen=visibleScreen;menuGeneration++;HostUi.reset();}
             if(screen!=null&&(screen.width!=width||screen.height!=height))screen.resize(client,width,height);
             RenderSystem.disableScissor();RenderSystem.colorMask(true,true,true,true);RenderSystem.depthMask(true);
             target.clear(MinecraftClient.IS_SYSTEM_MAC);target.beginWrite(true);
@@ -122,13 +136,13 @@ public final class HudExporter implements AutoCloseable {
                 client.getEntityRenderDispatcher().configure(client.world,camera,client.targetedEntity);
                 client.gameRenderer.getLightmapTextureManager().update(tickDelta);
                 // Preserve vanilla equip/swing, skin, map, bow, shield, eating and overlay rendering.
-                if(HostInput.controlling()&&client.options.getPerspective().isFirstPerson()) {
+                if(controlling&&client.options.getPerspective().isFirstPerson()) {
                     boolean ysmHand=YsmHandFrame.beginHosted(HostInput.hosted());
                     try {((GameRendererAccessor)client.gameRenderer).goldcraft$renderHand(camera,tickDelta,
                         new Matrix4f().rotation(camera.getRotation().conjugate(new Quaternionf())));}
                     finally {YsmHandFrame.endHosted(ysmHand);}
                 }
-                handVisible=HostInput.controlling()&&client.options.getPerspective().isFirstPerson()&&!client.options.hudHidden
+                handVisible=controlling&&client.options.getPerspective().isFirstPerson()&&!client.options.hudHidden
                     &&!client.player.isSleeping()&&!client.player.isSpectator();
                 if(handVisible)handFrames++;
                 RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT,MinecraftClient.IS_SYSTEM_MAC);
@@ -137,7 +151,7 @@ public final class HudExporter implements AutoCloseable {
                 RenderSystem.setShaderColor(1,1,1,1);RenderSystem.disableCull();RenderSystem.enableBlend();
                 RenderSystem.defaultBlendFunc();DiffuseLighting.enableGuiDepthLighting();
                 var context=new DrawContext(client,client.getBufferBuilders().getEntityVertexConsumers());
-                if(HostInput.controlling())client.inGameHud.render(context,client.getRenderTickCounter());
+                if(controlling)client.inGameHud.render(context,client.getRenderTickCounter());
                 else if(!client.options.hudHidden&&!client.inGameHud.getChatHud().isChatFocused()) {
                     // Preserve vanilla message formatting, death notices and fading.
                     // Native CS still draws its own weapon, health and ammunition HUD.
@@ -152,7 +166,7 @@ public final class HudExporter implements AutoCloseable {
                 }
             }finally{rendering=false;RenderSystem.applyModelViewMatrix();}
             slot.epoch=viewportEpoch;slot.viewport=viewportId;slot.revision=++revision;slot.menu=menuId();
-            slot.viewWidth=viewWidth;slot.viewHeight=viewHeight;slot.width=width;slot.height=height;slot.flags=2|(HostInput.controlling()?4:8)|(screen!=null?1:0);
+            slot.viewWidth=viewWidth;slot.viewHeight=viewHeight;slot.width=width;slot.height=height;slot.flags=2|(controlling?4:8)|(screen!=null?1:0);
             slot.life=HostInput.life();slot.produced=System.nanoTime();
             var player=client.player;slot.slot=player.getInventory().selectedSlot;slot.health=player.getHealth();
             slot.food=player.getHungerManager().getFoodLevel();slot.armor=player.getArmor();slot.level=player.experienceLevel;slot.experience=player.experienceProgress;
@@ -210,6 +224,7 @@ public final class HudExporter implements AutoCloseable {
         data.addProperty("hudTextureWidth",viewWidth);data.addProperty("hudTextureHeight",viewHeight);
         data.addProperty("hudError",lastError);data.addProperty("hudMenuId",menuId());HostUi.diagnostics(data);
         data.addProperty("handFrames",handFrames);data.addProperty("handVisible",handVisible);
+        data.addProperty("deathNativeHud",deathHud);
         YsmHandFrame.diagnostics(data);
         data.addProperty("presentationTickDelta",tickDelta);data.addProperty("presentationIntervalMs",frameIntervalMs);
         data.addProperty("presentationReadbackMs",readbackAgeMs);data.addProperty("minecraftFps",MinecraftClient.getInstance().getCurrentFps());

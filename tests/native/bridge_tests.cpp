@@ -204,7 +204,7 @@ int main() {
         menuB.message(showMenu(513,255,false,"forms\n1. CS 1.6"),10);
         check(menuB.active(10)&&menuB.selection('1',10)==1,"AMXX ShowMenu fragments assemble before input");
         menuA.message(showMenu(1023,255,false,"Choose a team"),12);
-        check(!menuA.active(12),"unrelated CS menus retain normal HUD and input ownership");
+        check(menuA.active(12)&&menuA.selection('3',12)==3,"arbitrary server menus remain usable above MC HUD");
         menuB.message(showMenu(0,255,false,""),13);
         check(!menuB.active(13),"server menu cancellation clears displayed selections");
         menuB.message(showMenu(513,2,false,"GoldCraft forms"),20);

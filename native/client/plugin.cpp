@@ -1,6 +1,7 @@
 #include "render_backend.hpp"
 #include "post_effect_replay.hpp"
 #include "host_ui.hpp"
+#include "server_hud.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
 #include "packet_entities.hpp"
@@ -88,6 +89,8 @@ float minecraft_eye=1.62f;
 bool minecraft_control=false,minecraft_menu=false;
 FormMenu form_menu;
 pfnUserMsgHook previous_show_menu=nullptr;
+pfnUserMsgHook previous_death_message=nullptr,previous_team_info=nullptr,previous_reset_hud=nullptr;
+std::array<bool,256> menu_pressed{};
 std::uint64_t form_menu_draws=0,form_menu_selections=0;
 ViewInterpolator view_interpolator;
 CameraInterpolator camera_interpolator;
@@ -293,7 +296,7 @@ void ReleaseHostUse(){
 }
 void ResetWorld() {
     ReleaseMinecraftKeys();
-    form_menu.clear();
+    form_menu.clear();menu_pressed.fill(false);server_hud::reset();
     ReleaseHostUse();
     RestoreViewModel();
     sections.clear();lamps.clear();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
@@ -337,6 +340,13 @@ void UpdateHostUse(){
 void BeginHostUse(){host_use_sources|=1;UpdateHostUse();}
 void EndHostUse(){host_use_sources&=~1u;UpdateHostUse();}
 bool HudFresh(){return link.connected()&&(HasControl()||(hud_flags&8)||minecraft_menu)&&hud_texture&&hud_revision&&hud_life==minecraft_life&&hud_life==server_player_life&&(!minecraft_hud||minecraft_hud->value!=0)&&Seconds()-last_hud<0.5;}
+bool ServerMenuInput(){
+    return HudFresh()&&!(hud_flags&8)&&!ui_active&&!minecraft_menu&&form_menu.active(Seconds())
+        &&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu&&!host_ui::state().keyboard;
+}
+bool ServerMenuKey(int key,const char* binding){
+    return FormMenu::slot_key(key,binding?binding:"")||(key==K_ESCAPE&&form_menu.forms());
+}
 void ClearHud(){hud_revision=hud_menu_id=0;hud_flags=hud_life=0;last_hud=next_viewport=0;RestoreViewModel();}
 void UpdateViewModel(){
     if(HudFresh()&&(hud_flags&4)&&host_viewmodel){
@@ -396,11 +406,14 @@ void OpenMinecraftCommand(){SendControl(17);}
 void ToggleForm(){gEngfuncs.pfnServerCmd("goldcraft_form toggle\n");}
 void SelectFormMenu(int index){
     form_menu.clear();
+    // The original client still received ShowMenu while its HUD was hidden.
+    // Dismiss that local copy as well, so it cannot reappear on death/form change.
+    if(previous_show_menu){std::uint8_t close[5]{};previous_show_menu("ShowMenu",sizeof(close),close);}
     auto command="menuselect "+std::to_string(index)+"\n";
     gEngfuncs.pfnServerCmd(command.data());++form_menu_selections;
 }
 void OpenFormMenu(){
-    if(form_menu.active(Seconds())){SelectFormMenu(10);return;}
+    if(form_menu.active(Seconds())&&form_menu.forms()){SelectFormMenu(10);return;}
     if(!world)return;
     CloseMinecraftMenu();ReleaseHostUse();
     gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
@@ -476,6 +489,8 @@ void WriteDiagnostics() {
            <<",\"hudRevision\":"<<hud_revision<<",\"hudAgeMs\":"<<(last_hud?(Seconds()-last_hud)*1000:-1)<<",\"hudWorkMs\":"<<hud_work_ms<<",\"hudMenuId\":"<<hud_menu_id
            <<",\"formMenuVisible\":"<<(form_menu.active(Seconds())?"true":"false")<<",\"formMenuSlots\":"<<form_menu.keys()
            <<",\"formMenuDraws\":"<<form_menu_draws<<",\"formMenuSelections\":"<<form_menu_selections
+           <<",\"serverMenuDraws\":"<<server_hud::menu_draws()<<",\"serverMenuInput\":"<<(ServerMenuInput()?"true":"false")
+           <<",\"deathMessages\":"<<server_hud::death_messages()<<",\"deathNoticeDraws\":"<<server_hud::death_draws()<<",\"deathNotices\":"<<server_hud::notices(Seconds())
            <<",\"hudSlot\":"<<hud_slot<<",\"hudHealth\":"<<hud_health<<",\"hudFood\":"<<hud_food<<",\"hudArmor\":"<<hud_armor<<",\"hudLevel\":"<<hud_level<<",\"hudExperience\":"<<hud_experience
            <<",\"uiActive\":"<<(ui_active?"true":"false")<<",\"uiX\":"<<ui_x<<",\"uiY\":"<<ui_y<<",\"viewportId\":"<<viewport_id<<",\"viewportWidth\":"<<viewport_width<<",\"viewportHeight\":"<<viewport_height
            <<",\"testCommand\":"<<test_command_id<<",\"minecraftMenu\":"<<(minecraft_menu?"true":"false")<<",\"inputActive\":"<<(last_input_active?"true":"false")<<",\"inputButtons\":"<<last_input_buttons<<",\"inputForward\":"<<last_input_forward<<",\"minecraftEye\":"<<minecraft_eye
@@ -576,7 +591,6 @@ int FormMessage(const char*,int size,void* data){
             if(life!=server_player_life){particle_texture_upload.reset();particle_texture_transfer=0;ClearEntityFrame();}
             ReleaseMinecraftKeys();
             camera_interpolator.clear();camera_revision=0;last_camera=0;
-            form_menu.clear();
             ReleaseHostUse();ClearHud();view_interpolator.clear();minecraft_control=minecraft_menu=ui_active=false;
             gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
         }
@@ -608,6 +622,7 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 }
 void InitHud() {
     gExportfuncs.HUD_Init();
+    server_hud::initialize(&gEngfuncs);
     const char* input_audit_setting=std::getenv("GOLDCRAFT_INPUT_AUDIT");
     input_audit::install(api,input_audit_setting&&std::strcmp(input_audit_setting,"1")==0);
     client_precache::register_commands();
@@ -618,12 +633,14 @@ void InitHud() {
     Log(client_vitals::install(api) ? "32-bit health/armor HUD installed" :
         std::string("integer vitals unavailable: ") + client_vitals::error());
     host_ui::install(api,[](int down,int key,const char* binding_text){
-        if(gEngfuncs.Con_IsVisible()||(binding_text&&std::strcmp(binding_text,"toggleconsole")==0))return false;
-        if(form_menu.active(Seconds())||DefaultFormMenuKey(key,binding_text)){
+        if(gEngfuncs.Con_IsVisible()||host_keys::console_binding(binding_text))return false;
+        if(key>=0&&key<int(menu_pressed.size())&&menu_pressed[key]){KeyEvent(down,key,binding_text);return true;}
+        if(DefaultFormMenuKey(key,binding_text)){
             if(host_ui::state().keyboard)return false;
             KeyEvent(down,key,binding_text);return true;
         }
         if(ui_active&&HudFresh()){KeyEvent(down,key,binding_text);return true;}
+        if(ServerMenuInput()&&ServerMenuKey(key,binding_text)){KeyEvent(down,key,binding_text);return true;}
         if(HasControl()&&!host_ui::state().keyboard){
             const auto route=host_keys::gameplay_route(binding_text,true,true);
             if(route==host_keys::Route::observe)ForwardKey(down,key);
@@ -631,6 +648,7 @@ void InitHud() {
         }
         return false;
     },gEngfuncs.Key_Event,[](int key){
+        if(key>=0&&key<int(menu_pressed.size()))menu_pressed[key]=false;
         if(key>=0&&key<int(forwarded_keys.size())&&forwarded_keys[key])ForwardKey(0,key);
     });
     gEngfuncs.pfnAddCommand("goldcraft_status",Status);
@@ -647,6 +665,21 @@ void InitHud() {
             form_menu.message(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)),Seconds());
         }catch(const ProtocolError& e){form_menu.clear();Log(e.what());}
         return result;
+    });
+    previous_death_message=api->HookUserMsg("DeathMsg",[](const char* name,int size,void* data)->int {
+        const int result=previous_death_message?previous_death_message(name,size,data):1;
+        try{if(size<0||!data)throw ProtocolError("Invalid DeathMsg length");
+            server_hud::death(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)),Seconds());
+        }catch(const ProtocolError& e){Log(e.what());}return result;
+    });
+    previous_team_info=api->HookUserMsg("TeamInfo",[](const char* name,int size,void* data)->int {
+        const int result=previous_team_info?previous_team_info(name,size,data):1;
+        if(size>0&&data)server_hud::team(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        return result;
+    });
+    previous_reset_hud=api->HookUserMsg("ResetHUD",[](const char* name,int size,void* data)->int {
+        form_menu.clear();
+        return previous_reset_hud?previous_reset_hud(name,size,data):1;
     });
     gEngfuncs.pfnAddCommand("+goldcraft_use",BeginHostUse);
     gEngfuncs.pfnAddCommand("-goldcraft_use",EndHostUse);
@@ -698,6 +731,7 @@ int VidInit() {
     atlas_texture=0;atlas_generation=0;atlas_width=atlas_height=0;view_interpolator.clear();
     have_view=false;
     const int result=gExportfuncs.HUD_VidInit();
+    server_hud::video_reset();server_hud::reset();form_menu.clear();menu_pressed.fill(false);
     render::initialize(&scene_callbacks,Log);
     post_replay=std::make_unique<render::PostEffectReplay>();
     const char* game=gEngfuncs.pfnGetGameDirectory?gEngfuncs.pfnGetGameDirectory():nullptr;
@@ -1209,9 +1243,9 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
         if(ui_x!=old_x||ui_y!=old_y)SendUi(1);
         cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;
     }
-    if(form_menu.active(Seconds())){cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->impulse=0;}
-    const bool input_active=active&&window_focused;
-    if(!input_active||!HasControl()||ui_active||form_menu.active(Seconds())||gEngfuncs.Con_IsVisible()||host_ui::state().game_menu)ReleaseMinecraftKeys();
+    const bool input_active=active&&window_focused&&!gEngfuncs.Con_IsVisible();
+    if(!input_active)menu_pressed.fill(false);
+    if(!input_active||!HasControl()||ui_active||gEngfuncs.Con_IsVisible()||host_ui::state().game_menu)ReleaseMinecraftKeys();
     // Preserve the user's actual +use binding; only its destination changes
     // while MC owns movement. R/+reload and all CS-form commands remain native.
     if(HasControl()&&input_active&&(cmd->buttons&IN_USE)&&!ui_active)host_use_sources|=2;
@@ -1261,12 +1295,19 @@ void PlayerMoveInit(playermove_t* move){
 }
 int KeyEvent(int down,int key,const char* binding_text) {
     ++key_events;last_key=key;last_key_down=down;
+    // The engine executes console bindings only when this callback lets them
+    // through. BaseUI declining an event alone does not bypass HUD_Key_Event.
+    if(gEngfuncs.Con_IsVisible()||host_keys::console_binding(binding_text)){
+        if(down){ReleaseMinecraftKeys();ReleaseHostUse();}
+        return gExportfuncs.HUD_Key_Event?gExportfuncs.HUD_Key_Event(down,key,binding_text):1;
+    }
+    if(key>=0&&key<int(menu_pressed.size())&&menu_pressed[key]){
+        if(!down)menu_pressed[key]=false;return 0;
+    }
     if(DefaultFormMenuKey(key,binding_text)){if(down)OpenFormMenu();return 0;}
-    if(form_menu.active(Seconds())){
-        if(down){
-            if(key==K_ESCAPE)SelectFormMenu(10);
-            else if(const int selection=form_menu.selection(key,Seconds());selection>0)SelectFormMenu(selection);
-        }
+    if(ServerMenuInput()&&ServerMenuKey(key,binding_text)){
+        if(down){if(key>=0&&key<int(menu_pressed.size()))menu_pressed[key]=true;
+            if(const int selection=form_menu.selection(key==K_ESCAPE?'0':key,key==K_ESCAPE?"":binding_text?binding_text:"",Seconds());selection>0)SelectFormMenu(selection);}
         return 0;
     }
     host_keys::modifier(ui_modifiers,key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0,down!=0);
@@ -1392,49 +1433,23 @@ void Draw(bool transparent,std::uint32_t flags) {
     last_gl_error=render::statistics().error;++frames_drawn;
     if(section_logged&&!draw_logged){draw_logged=true;Log("Minecraft scene draw reached OpenGL, error="+std::to_string(last_gl_error));}
 }
-void DrawFormMenu(){
-    if(!form_menu.active(Seconds())||gEngfuncs.Con_IsVisible())return;
-    SCREENINFO screen{};screen.iSize=sizeof(screen);gEngfuncs.pfnGetScreenInfo(&screen);
-    if(screen.iWidth<320||screen.iHeight<240)return;
-    std::vector<std::pair<std::string,char>> lines;
-    std::istringstream input(form_menu.text());std::string line;char color='w';int width=240,font_height=14;
-    while(std::getline(input,line)){
-        std::string text;
-        for(std::size_t i=0;i<line.size();++i){
-            if(line[i]=='\\'&&i+1<line.size()&&std::strchr("wrydg",line[i+1])){color=line[++i];continue;}
-            text+=line[i];
-        }
-        int measured=0,height=0;gEngfuncs.pfnDrawConsoleStringLen(text.c_str(),&measured,&height);
-        width=std::max(width,measured);font_height=std::max(font_height,height);
-        lines.emplace_back(std::move(text),color);
-    }
-    const int step=font_height+4,panel_width=std::min(width+32,screen.iWidth-32);
-    const int panel_height=std::min(static_cast<int>(lines.size())*step+32,screen.iHeight-32);
-    const int x=(screen.iWidth-panel_width)/2,y=(screen.iHeight-panel_height)/2;
-    gEngfuncs.pfnFillRGBA(x,y,panel_width,panel_height,12,17,23,235);
-    int row=y+16;
-    for(const auto& [text,tint]:lines){
-        if(row+font_height>y+panel_height)break;
-        if(tint=='y')gEngfuncs.pfnDrawSetTextColor(1.0f,0.8f,0.25f);
-        else if(tint=='d')gEngfuncs.pfnDrawSetTextColor(0.55f,0.55f,0.55f);
-        else gEngfuncs.pfnDrawSetTextColor(1,1,1);
-        gEngfuncs.pfnDrawConsoleString(x+16,row,const_cast<char*>(text.c_str()));row+=step;
-    }
-    gEngfuncs.pfnDrawSetTextColor(1,1,1);++form_menu_draws;
-}
 int Redraw(float time,int intermission) {
     const double began=Seconds();
     const bool visible=HudFresh();
     const bool native_hud=!visible||(hud_flags&8);
     int result=1;
     if(native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
+    bool composed=false;
     if(visible){
-        if(render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height))++hud_draws;
+        if((composed=render::draw_hud(hud_texture,ui_x,ui_y,ui_active,hud_gui_width,hud_gui_height)))++hud_draws;
         else if(!native_hud)result=gExportfuncs.HUD_Redraw(time,intermission);
     }
-    // The Minecraft compositor suppresses the native HUD, including ShowMenu.
-    // Repaint this server-owned menu with the engine's native-resolution text.
-    if(visible&&!native_hud)DrawFormMenu();
+    // Retain server kill notices and menus above the full Minecraft HUD.
+    // Native/ordinary/death HUD and render failure use the original client path.
+    if(composed&&!native_hud&&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu){
+        server_hud::draw(Seconds(),form_menu,!ui_active&&!minecraft_menu);
+        form_menu_draws=server_hud::menu_draws();
+    }
     hud_work_ms=(Seconds()-began)*1000;last_gl_error=render::statistics().error;
     NativeProfileFrameEnd(time);
     const char* path=std::getenv("GOLDCRAFT_CAPTURE_PATH");

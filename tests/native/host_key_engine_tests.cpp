@@ -85,6 +85,16 @@ int main(int argc,char** argv){
     assert(hash==std::to_array(expected));
     auto module=LoadLibraryExA(argv[1],nullptr,DONT_RESOLVE_DLL_REFERENCES);assert(module);
     engine=reinterpret_cast<unsigned char*>(module);
+    // The original non-+command path calls the CRT _strnicmp(binding,"demo",4).
+    // DONT_RESOLVE_DLL_REFERENCES leaves its import thunk unresolved. Supply
+    // that one CRT dependency without running the game engine's DllMain.
+    auto compare_import=reinterpret_cast<void**>(engine+0x2b2528);
+    assert(reinterpret_cast<std::uintptr_t>(*compare_import)==0x318594);
+    assert(std::strcmp(reinterpret_cast<const char*>(engine+0x318596),"_strnicmp")==0);
+    DWORD import_protection=0,ignored=0;
+    assert(VirtualProtect(compare_import,sizeof(void*),PAGE_READWRITE,&import_protection));
+    *compare_import=reinterpret_cast<void*>(&_strnicmp);
+    assert(VirtualProtect(compare_import,sizeof(void*),import_protection,&ignored));
     jump(engine+0x1971b0,reinterpret_cast<void*>(client));
     jump(engine+0x192040,reinterpret_cast<void*>(format));
     jump(engine+0x1b4ca0,reinterpret_cast<void*>(queued));
@@ -108,6 +118,11 @@ int main(int argc,char** argv){
     }
     clear();bind(101,"+use");key_event(101,1);key_event(101,0);
     assert(edges.empty()&&commands==std::vector<std::string>({"+use 101\n","-use 101\n"}));
+    for(auto command:{"toggleconsole","showconsole","hideconsole"}){
+        clear();bind(96,command);key_event(96,1);key_event(96,0);
+        assert(edges.empty()&&commands==std::vector<std::string>({std::string(command),"\n"}));
+        for(bool hooked:{false,true})assert(goldcraft::host_keys::gameplay_route(command,false,hooked)==goldcraft::host_keys::Route::native);
+    }
     clear();bind(243,"");key_event(243,1);key_event(243,0);
     assert(edges==std::vector<int>({1,0})&&!held[243]&&client_releases==1&&commands.empty());
     clear();bind(114,"impulse 100");key_event(114,1);key_event(114,1);key_event(114,0);
@@ -117,5 +132,5 @@ int main(int argc,char** argv){
     goldcraft::host_ui::shutdown();assert(!goldcraft::host_ui::state().release_hooked&&!trampoline);
     clear();bind(241,"+attack");key_event(241,1);key_event(241,0);assert(held[241]&&client_releases==0);
     FreeLibrary(module);
-    std::cout<<"PASS actual GoldSrc Key_Event: old stuck hold reproduced; production release hook fixes 32 click cycles and 5 native bindings; native command bytes preserved; middle/repeat/reset/shutdown pass\n";
+    std::cout<<"PASS actual GoldSrc Key_Event: old stuck hold reproduced; production release hook fixes 32 click cycles and 5 native bindings; console bindings reach original commands; native command bytes preserved; middle/repeat/reset/shutdown pass\n";
 }

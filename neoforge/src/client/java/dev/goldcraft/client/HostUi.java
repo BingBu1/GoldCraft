@@ -24,7 +24,7 @@ public final class HostUi {
         if(type<1||type>5||action<0||action>2||(mods&~7)!=0||nx<0||nx>1||ny<0||ny>1||Math.abs(amount)>16)
             throw new IllegalArgumentException("Host UI input bounds");
         var client=MinecraftClient.getInstance();
-        if(hud==null||!HostInput.hosted()||epoch!=GoldCraftClient.HOST.epoch()||menu==0||menu!=hud.menuId()
+        if(hud==null||!HostInput.hosted()||HudExporter.nativeDeathHud(client)||epoch!=GoldCraftClient.HOST.epoch()||menu==0||menu!=hud.menuId()
             ||hud.screen()!=client.currentScreen||client.currentScreen==null){rejected++;return;}
         var screen=client.currentScreen;double nextX=nx*hud.width(),nextY=ny*hud.height(),dx=nextX-x,dy=nextY-y;
         x=nextX;y=nextY;modifiers=mods;dispatching=true;

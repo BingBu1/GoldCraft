@@ -30,13 +30,17 @@ final class YsmAnimationFrame {
             if(ModList.get().isLoaded("yes_steve_model"))installed=new YsmAnimationFrame(new InstalledHooks());
             resolved=true;
         }
+        if(installed!=null)YsmCaptureProjection.begin();
         return installed!=null&&installed.begin(tickDelta);
     }
 
-    static void endHosted(boolean owned) {if(owned)installed.end();}
+    static void endHosted(boolean owned) {
+        try {if(owned)installed.end();}finally {YsmCaptureProjection.end();}
+    }
 
     static void diagnostics(JsonObject data) {
         if(installed==null)return;
+        YsmCaptureProjection.diagnostics(data);
         data.addProperty("ysmAnimationFrames",installed.started);
         data.addProperty("ysmAnimationCompleted",installed.completed);
         data.addProperty("ysmAnimationFailures",installed.failures);

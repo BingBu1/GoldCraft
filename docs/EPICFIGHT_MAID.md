@@ -4,6 +4,12 @@
 
 2026-10-11：女仆表情／文字气泡和 Epic Fight／NightFall 网格特效的协议 23 实现已部署，完整 Java 102 项及 native 35 CTests 通过；真实 B 画面尚未验收。VIX 泛光／折射后处理仍未实现，支持范围与复现命令见 [世界特效同步](WORLD_EFFECTS.md)。女仆战斗模型的 3186 顶点三角形拓扑与独立材质缓存修复已同步到主实例、A/B 和服务端；本轮捕获探针通过，不代替真实战斗模式可见性验收。
 
+## 普通 YSM 模型的面部投影（2026-10-11）
+
+协议 26 的后续配套核心加入了 YSM 2.6.5 的捕获投影修正：仅在宿主实体导出作用域，为原装 YSM native 可见性计算传入与世界顶点一致的相机矩阵，退出时清理作用域；独立 MC、GUI 和 Epic 的既有路径保持原行为。核心已统一同步主实例／A／B／服务端。
+
+三项投影回归、三项生命周期回归、512 个相机与 4096 顶点的独立 lookAt 比对，以及真实 Sponge Mixin 变换和 ASM 校验均通过；完整核心现为 146 项测试通过。实际 B 的 FML 日志已确认该 Mixin 应用。随后实机普通／Epic／再返回普通模式 40 个被动样本中，`ysmProjectionDraws` 从 0 增至 1466，`ysmProjectionActive=false`、动画失败 0；用户确认“普通模式和来回切换都正常”。这接受了本次面部缺失回归，不扩展到所有模型、光照、FPS 或多人。证据在 analysis/maid-normal-face（本地不公开）。
+
 ## 构建
 
 先完成 [基础运行环境与 Mod 主实例](BUILD.md)，在 X Minecraft Launcher 的 GoldCraft 主实例安装匹配的依赖。当前测试组合为 Epic Fight 21.17.3.1、Touhou Little Maid 1.5.3、GeckoLib 4.9.3、Invincible 21.15.8.2、NightFall 3.4.0 和 YSM 2.6.5。女仆本体还需要 Avalon 21.12.6.2，当前由 NightFall 的嵌套 JAR 提供；移除 NightFall 时须另行保留兼容的独立 Avalon。NightFall 和 YSM 本身不是女仆技能本体的强制依赖；当前构建保留对应可选适配类，因此编译使用这一完整组合。

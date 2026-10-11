@@ -41,6 +41,7 @@
     "EpicFightInputMixin",
     "EpicFightPlayerRendererMixin",
     "YsmRenderLayerMixin",
+    "YsmCaptureProjectionMixin",
     "RenderSystemAccessor"
   ],
   "injectors": {
