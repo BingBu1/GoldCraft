@@ -206,10 +206,15 @@ index 8c6651f..f09e672 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..8550bd5 100644
+index 6ce4285..9375f8a 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -125,8 +125,28 @@ set(RENDERER_SOURCES
+@@ -121,12 +121,33 @@ set(RENDERER_SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gl_scclient.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_ringbuffer.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++    "${PROJECT_SOURCE_DIR}/src/post_scene.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_rmisc.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_rsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_shadow.cpp"
@@ -791,18 +796,19 @@ index 807ddd8..ff45529 100644
  //Note that this only get called when switching client
  void Mod_UnloadSpriteTextures(model_t* mod)
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..f7f7278 100644
+index d59b139..2d48aa6 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
-@@ -1,5 +1,7 @@
+@@ -1,5 +1,8 @@
  #include "gl_local.h"
  #include "gl_common.h"
 +#include "gl_external_scene.h"
++#include "post_scene.h"
 +#include "gl_shadow_cull.h"
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -786,10 +788,14 @@ bool AllowCheats()
+@@ -786,10 +789,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
  {
@@ -818,7 +824,7 @@ index d59b139..f7f7278 100644
  }
  
  /*
-@@ -1739,6 +1745,7 @@ void triapi_End()
+@@ -1739,6 +1746,7 @@ void triapi_End()
  
      triapi_program_t prog{};
      R_UseTriAPIProgram(ProgramState, &prog);
@@ -826,7 +832,7 @@ index d59b139..f7f7278 100644
  
      if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
      {
-@@ -2400,6 +2407,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+@@ -2400,6 +2408,7 @@ void R_DrawCurrentEntity(bool bTransparent)
          }
          case mod_studio:
          {
@@ -834,7 +840,7 @@ index d59b139..f7f7278 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -3055,6 +3063,8 @@ void GL_Finish2D()
+@@ -3055,6 +3064,8 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -843,7 +849,7 @@ index d59b139..f7f7278 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3143,16 @@ void R_PreRenderView()
+@@ -3133,10 +3144,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -863,7 +869,68 @@ index d59b139..f7f7278 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3434,14 +3450,20 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3391,6 +3408,60 @@ void R_ClearPortalClipPlanes(void)
+     }
+ }
+ 
++static void R_DrawExternalPostScene(int viewIdx, bool nestedView)
++{
++    // Empty registry costs no GL query, state change, camera work or allocation.
++    if (!RendererPostScene::HasCallbacks()) return;
++    RendererPostScene::Context context{};
++    context.rendering_view = g_bIsRenderingView;
++    context.nested_view = nestedView;
++    context.shadow_view = R_IsRenderingShadowView();
++    context.water_view = R_IsRenderingWaterView();
++    context.portal_view = R_IsRenderingPortal() || g_bIsRenderingPortalViews;
++    context.overview = CL_IsDevOverviewMode() || (*envmap) != 0;
++    context.only_client_draws = (*r_refdef.onlyClientDraws) != 0;
++    context.multiview = R_IsRenderingMultiView();
++    context.linear_depth = R_IsRenderingLinearDepth();
++    context.gbuffer = R_IsRenderingGBuffer();
++    context.unresolved_oit = r_draw_oitblend;
++    context.view_index = static_cast<uint32_t>(viewIdx);
++    if (!RendererPostScene::Eligible(context)) return;
++
++    const auto* target = GL_GetCurrentSceneFBO();
++    if (!target || target != GL_GetCurrentRenderingFBO() || target->iWidth <= 0 || target->iHeight <= 0) return;
++    MetaRendererPostSceneFrame frame{};
++    frame.struct_size = sizeof(frame);
++    frame.flags = R_IsRenderingGammaBlending() ? META_POST_SCENE_GAMMA : META_POST_SCENE_LINEAR;
++    if (R_IsHDREnabled()) frame.flags |= META_POST_SCENE_HDR;
++    frame.framebuffer = target->s_hBackBufferFBO;
++    frame.color_texture = target->s_hBackBufferTex;
++    frame.depth_texture = target->s_hBackBufferDepthTex;
++    frame.depth_sample_texture = target->s_hBackBufferDepthView;
++    frame.width = static_cast<uint32_t>(target->iWidth);
++    frame.height = static_cast<uint32_t>(target->iHeight);
++    frame.color_format = target->iTextureColorFormat;
++    frame.depth_format = target->iTextureDepthFormat;
++    for (unsigned i = 0; i != 4; ++i)
++    {
++        // Convert exactly as the host glViewport call, rejecting non-finite or
++        // out-of-int-range values before the float-to-integer conversion.
++        if (!(r_viewport[i] >= 0 && static_cast<double>(r_viewport[i]) < 2147483648.0)) return;
++        frame.viewport[i] = static_cast<int32_t>(r_viewport[i]);
++    }
++    // R_PrepareDrawWorld uploaded this world camera. The 2D glow/OIT helpers
++    // restore its matrices/viewport; viewmodel camera setup has not run yet.
++    memcpy(frame.world_matrix, r_world_matrix, sizeof(frame.world_matrix));
++    memcpy(frame.projection_matrix, r_projection_matrix, sizeof(frame.projection_matrix));
++    memcpy(frame.inverse_world_matrix, r_world_matrix_inv, sizeof(frame.inverse_world_matrix));
++    memcpy(frame.inverse_projection_matrix, r_projection_matrix_inv, sizeof(frame.inverse_projection_matrix));
++    frame.frame_number = static_cast<uint32_t>(*r_framecount);
++    frame.view_index = context.view_index;
++    frame.samples = 1; // These attachments are allocated as GL_TEXTURE_2D.
++    frame.near_plane = r_znear;
++    frame.far_plane = r_zfar;
++    RendererPostScene::Dispatch(context, frame);
++}
++
+ void R_RenderView_SvEngine(int viewIdx)
+ {
+     const bool wasRenderingView = g_bIsRenderingView;
+@@ -3434,14 +3505,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -872,6 +939,11 @@ index d59b139..f7f7278 100644
 +            RProfileScope profileScope(RProfileStage::Scene);
 +            R_RenderScene();
 +        }
++
++        // Scene includes native transparency, particles and the completed OIT
++        // composite. Keep world depth intact until consumers finish; the next
++        // viewmodel pass changes projection and clears the depth attachment.
++        R_DrawExternalPostScene(viewIdx, wasRenderingView);
  
          if (!(*r_refdef.onlyClientDraws))
          {
@@ -886,7 +958,7 @@ index d59b139..f7f7278 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3528,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3588,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -898,7 +970,7 @@ index d59b139..f7f7278 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3575,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3635,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -911,7 +983,7 @@ index d59b139..f7f7278 100644
  }
  
  #if 0
-@@ -3783,6 +3812,7 @@ void R_Init(void)
+@@ -3783,6 +3872,7 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
@@ -919,7 +991,7 @@ index d59b139..f7f7278 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -4685,6 +4715,7 @@ void R_RenderScene(void)
+@@ -4685,6 +4775,7 @@ void R_RenderScene(void)
          R_DrawEntitiesOnList();
      }
  
@@ -927,7 +999,7 @@ index d59b139..f7f7278 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4751,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4811,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -945,7 +1017,7 @@ index d59b139..f7f7278 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4770,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4830,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -953,7 +1025,7 @@ index d59b139..f7f7278 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4781,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4841,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -961,7 +1033,7 @@ index d59b139..f7f7278 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4835,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4895,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -969,7 +1041,7 @@ index d59b139..f7f7278 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5502,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5562,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -980,7 +1052,7 @@ index d59b139..f7f7278 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6643,57 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6703,57 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -6516,10 +6588,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..7a3c76a 100644
+index 93166e2..a27af17 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,16 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,26 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -6535,10 +6607,20 @@ index 93166e2..7a3c76a 100644
      add_test(NAME ${test} COMMAND ${test})
  endforeach()
 +set_tests_properties(studio_bone_cache_tests PROPERTIES TIMEOUT 20)
++
++# The real optional-interface factory/registry/validation/dispatch is linked
++# directly. This does not initialize or launch a game or OpenGL context.
++add_executable(post_scene_tests post_scene_tests.cpp
++    "${PROJECT_SOURCE_DIR}/src/post_scene.cpp"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_link_libraries(post_scene_tests PRIVATE renderer_settings)
++target_compile_options(post_scene_tests PRIVATE /UNDEBUG)
++add_test(NAME post_scene_tests COMMAND post_scene_tests)
++set_tests_properties(post_scene_tests PROPERTIES TIMEOUT 20)
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +48,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +58,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -13908,4 +13990,519 @@ index 0000000..8bcc736
 +        cachedDecal.worldMesh = world.m_pSurfaceMesh;
 +    }
 +    return false;
++}
+diff --git a/include/Interface/IMetaRendererPostScene.h b/include/Interface/IMetaRendererPostScene.h
+new file mode 100644
+index 0000000..c528bd4
+--- /dev/null
++++ b/include/Interface/IMetaRendererPostScene.h
+@@ -0,0 +1,69 @@
++#pragma once
++#include <interface.h>
++#include <stdint.h>
++
++// Optional, same-process extension. Existing Renderer and scene vtables do not
++// change. Registration, callbacks and unregistration use the Renderer/GL thread.
++enum MetaRendererPostSceneFlags : uint32_t
++{
++    META_POST_SCENE_GAMMA  = 1u << 0,
++    META_POST_SCENE_LINEAR = 1u << 1,
++    // The host HDR/tone-map pipeline will run later; this is not a storage type.
++    META_POST_SCENE_HDR    = 1u << 2
++};
++
++struct MetaRendererPostSceneFrame
++{
++    uint32_t struct_size;
++    uint32_t flags; // Exactly one of GAMMA and LINEAR, optionally HDR.
++    uint32_t framebuffer;
++    uint32_t color_texture;
++    uint32_t depth_texture;        // Packed GL_DEPTH24_STENCIL8 attachment.
++    uint32_t depth_sample_texture; // GL_DEPTH_COMPONENT texture view.
++    uint32_t width, height;        // Full attachment dimensions, not viewport size.
++    uint32_t color_format;         // GL_RGBA8 or GL_RGBA16F.
++    uint32_t depth_format;         // GL_DEPTH24_STENCIL8.
++    int32_t viewport[4];           // x,y,width,height; OpenGL lower-left origin.
++    // Column-major host-world camera matrices, in GoldSrc units. The view looks
++    // along negative Z. NDC Z is [-1,1], sampled depth is [0,1], clear depth is 1.
++    // These describe world geometry, before CS viewmodel projection/depth clear.
++    float world_matrix[16];
++    float projection_matrix[16];
++    float inverse_world_matrix[16];
++    float inverse_projection_matrix[16];
++    uint32_t frame_number, view_index;
++    uint32_t samples; // API001 supplies single-sample GL_TEXTURE_2D resources only.
++    float near_plane, far_plane;
++};
++static_assert(sizeof(MetaRendererPostSceneFrame) == 332, "Post-scene ABI layout");
++
++class IMetaRendererPostSceneCallbacks : public IBaseInterface
++{
++public:
++    // Runs once for the eligible main view, after host transparency/OIT resolve/
++    // particles and before viewmodel, HDR/gamma correction, FXAA and HUD. Shadow,
++    // water/reflection/refraction, portal, overview, nested and client-only views
++    // are excluded. Color is the current lit CS scene in the indicated space;
++    // depth is real world depth, including depth-writing scene geometry.
++    //
++    // The descriptor/handles are borrowed only for this invocation and current
++    // GL context. Never retain/delete/reallocate/reattach them or send them over
++    // IPC. A consumer may update scene color through this FBO, but must preserve
++    // depth/stencil and all changed GL AND Renderer cached binding/state. Copy
++    // scene color/depth to owned targets before sampling while writing; avoid
++    // texture feedback. Do not recurse RenderScene/RenderView or throw. No
++    // callback is evidence that a separately paired content producer is fresh.
++    virtual void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept = 0;
++};
++
++class IMetaRendererPostScene : public IBaseInterface
++{
++public:
++    // Bounded to 16 consumers. Duplicate registration is idempotent. Consumers
++    // added during dispatch start next dispatch; removed consumers are skipped
++    // immediately. Unregister before destroying/unloading a callback object.
++    virtual bool RegisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks* callbacks) noexcept = 0;
++    virtual bool UnregisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks* callbacks) noexcept = 0;
++};
++
++#define METARENDERER_POST_SCENE_INTERFACE_VERSION "MetaRendererPostScene_API_001"
+diff --git a/src/post_scene.h b/src/post_scene.h
+new file mode 100644
+index 0000000..ce6a657
+--- /dev/null
++++ b/src/post_scene.h
+@@ -0,0 +1,26 @@
++#pragma once
++#include <IMetaRendererPostScene.h>
++
++namespace RendererPostScene
++{
++struct Context
++{
++    bool rendering_view{};
++    bool nested_view{};
++    bool shadow_view{};
++    bool water_view{};
++    bool portal_view{};
++    bool overview{};
++    bool only_client_draws{};
++    bool multiview{};
++    bool linear_depth{};
++    bool gbuffer{};
++    bool unresolved_oit{};
++    uint32_t view_index{};
++};
++
++bool Eligible(const Context& context) noexcept;
++bool HasCallbacks() noexcept;
++bool ValidFrame(const MetaRendererPostSceneFrame& frame) noexcept;
++uint32_t Dispatch(const Context& context, const MetaRendererPostSceneFrame& frame) noexcept;
++} // namespace RendererPostScene
+diff --git a/src/post_scene.cpp b/src/post_scene.cpp
+new file mode 100644
+index 0000000..4adf09b
+--- /dev/null
++++ b/src/post_scene.cpp
+@@ -0,0 +1,113 @@
++#include "post_scene.h"
++#include <array>
++#include <cmath>
++
++namespace
++{
++struct Slot
++{
++    IMetaRendererPostSceneCallbacks* callback{};
++    uint64_t generation{};
++};
++std::array<Slot, 16> slots{};
++uint64_t next_generation = 1;
++uint32_t callback_count{};
++bool dispatching{};
++
++class CMetaRendererPostScene final : public IMetaRendererPostScene
++{
++public:
++    bool RegisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks* callback) noexcept override
++    {
++        if (!callback) return false;
++        for (const auto& slot : slots)
++            if (slot.callback == callback) return true;
++        if (next_generation == ~uint64_t{0}) return false;
++        for (auto& slot : slots)
++        {
++            if (slot.callback) continue;
++            slot = {callback, next_generation++};
++            ++callback_count;
++            return true;
++        }
++        return false;
++    }
++
++    bool UnregisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks* callback) noexcept override
++    {
++        if (!callback) return false;
++        for (auto& slot : slots)
++        {
++            if (slot.callback != callback) continue;
++            slot = {};
++            --callback_count;
++            return true;
++        }
++        return false;
++    }
++};
++} // namespace
++
++EXPOSE_SINGLE_INTERFACE(CMetaRendererPostScene, IMetaRendererPostScene, METARENDERER_POST_SCENE_INTERFACE_VERSION);
++
++namespace RendererPostScene
++{
++bool Eligible(const Context& context) noexcept
++{
++    return context.rendering_view && !context.nested_view && !context.shadow_view &&
++           !context.water_view && !context.portal_view && !context.overview &&
++           !context.only_client_draws && !context.multiview && !context.linear_depth &&
++           !context.gbuffer && !context.unresolved_oit && context.view_index == 0;
++}
++
++bool HasCallbacks() noexcept
++{
++    return callback_count != 0 && !dispatching;
++}
++
++bool ValidFrame(const MetaRendererPostSceneFrame& frame) noexcept
++{
++    constexpr uint32_t known_flags = META_POST_SCENE_GAMMA | META_POST_SCENE_LINEAR | META_POST_SCENE_HDR;
++    constexpr uint32_t color_flags = META_POST_SCENE_GAMMA | META_POST_SCENE_LINEAR;
++    constexpr uint32_t rgba8 = 0x8058, rgba16f = 0x881A, depth24_stencil8 = 0x88F0;
++    const uint32_t space = frame.flags & color_flags;
++    if (frame.struct_size != sizeof(frame) || (frame.flags & ~known_flags) ||
++        (space != META_POST_SCENE_GAMMA && space != META_POST_SCENE_LINEAR) ||
++        !frame.framebuffer || !frame.color_texture || !frame.depth_texture || !frame.depth_sample_texture ||
++        frame.color_texture == frame.depth_texture || frame.color_texture == frame.depth_sample_texture ||
++        frame.depth_texture == frame.depth_sample_texture ||
++        !frame.width || !frame.height || frame.width > 0x7fffffffu || frame.height > 0x7fffffffu ||
++        (frame.color_format != rgba8 && frame.color_format != rgba16f) || frame.depth_format != depth24_stencil8 ||
++        frame.samples != 1 || frame.view_index != 0 ||
++        frame.viewport[0] < 0 || frame.viewport[1] < 0 || frame.viewport[2] <= 0 || frame.viewport[3] <= 0 ||
++        uint64_t(frame.viewport[0]) + uint64_t(frame.viewport[2]) > frame.width ||
++        uint64_t(frame.viewport[1]) + uint64_t(frame.viewport[3]) > frame.height ||
++        !std::isfinite(frame.near_plane) || !std::isfinite(frame.far_plane) ||
++        frame.near_plane <= 0 || frame.far_plane <= frame.near_plane)
++        return false;
++    for (const auto* matrix : {frame.world_matrix, frame.projection_matrix,
++                              frame.inverse_world_matrix, frame.inverse_projection_matrix})
++        for (unsigned i = 0; i != 16; ++i)
++            if (!std::isfinite(matrix[i])) return false;
++    return true;
++}
++
++uint32_t Dispatch(const Context& context, const MetaRendererPostSceneFrame& frame) noexcept
++{
++    if (!HasCallbacks() || !Eligible(context) || !ValidFrame(frame)) return 0;
++    dispatching = true;
++    const uint64_t limit = next_generation;
++    uint32_t invoked = 0;
++    for (const auto& slot : slots)
++    {
++        // Do not hold a callback reference across the call: it may unregister
++        // itself/another consumer and reuse the vacated registry slot.
++        auto* callback = slot.callback;
++        if (!callback || slot.generation >= limit) continue;
++        ++invoked;
++        callback->DrawPostScene(frame);
++    }
++    dispatching = false;
++    return invoked;
++}
++} // namespace RendererPostScene
+diff --git a/tests/post_scene_tests.cpp b/tests/post_scene_tests.cpp
+new file mode 100644
+index 0000000..4c8515d
+--- /dev/null
++++ b/tests/post_scene_tests.cpp
+@@ -0,0 +1,283 @@
++#include "../src/post_scene.h"
++#include <array>
++#include <cassert>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <limits>
++#include <new>
++#include <type_traits>
++
++namespace
++{
++size_t allocations{};
++unsigned checks{};
++void Check(bool condition)
++{
++    ++checks;
++    assert(condition);
++}
++}
++
++void* operator new(size_t size)
++{
++    ++allocations;
++    if (void* p = std::malloc(size ? size : 1)) return p;
++    throw std::bad_alloc();
++}
++void* operator new[](size_t size) { return ::operator new(size); }
++void operator delete(void* p) noexcept { std::free(p); }
++void operator delete[](void* p) noexcept { std::free(p); }
++void operator delete(void* p, size_t) noexcept { std::free(p); }
++void operator delete[](void* p, size_t) noexcept { std::free(p); }
++
++namespace
++{
++static_assert(std::is_standard_layout_v<MetaRendererPostSceneFrame>);
++static_assert(sizeof(MetaRendererPostSceneFrame) == 332);
++static_assert(offsetof(MetaRendererPostSceneFrame, viewport) == 40);
++static_assert(offsetof(MetaRendererPostSceneFrame, world_matrix) == 56);
++static_assert(offsetof(MetaRendererPostSceneFrame, frame_number) == 312);
++
++RendererPostScene::Context EligibleContext()
++{
++    RendererPostScene::Context context{};
++    context.rendering_view = true;
++    return context;
++}
++
++MetaRendererPostSceneFrame Frame()
++{
++    MetaRendererPostSceneFrame frame{};
++    frame.struct_size = sizeof(frame);
++    frame.flags = META_POST_SCENE_LINEAR | META_POST_SCENE_HDR;
++    frame.framebuffer = 21;
++    frame.color_texture = 27;
++    frame.depth_texture = 31;
++    frame.depth_sample_texture = 34;
++    frame.width = 1280;
++    frame.height = 720;
++    frame.color_format = 0x881A; // GL_RGBA16F
++    frame.depth_format = 0x88F0; // GL_DEPTH24_STENCIL8
++    frame.viewport[0] = 16;
++    frame.viewport[1] = 24;
++    frame.viewport[2] = 1200;
++    frame.viewport[3] = 672;
++    for (auto* matrix : {frame.world_matrix, frame.projection_matrix,
++                         frame.inverse_world_matrix, frame.inverse_projection_matrix})
++        for (unsigned i = 0; i != 4; ++i) matrix[i * 5] = 1.f;
++    frame.world_matrix[12] = 96.f;
++    frame.inverse_world_matrix[12] = -96.f;
++    frame.frame_number = 12345;
++    frame.view_index = 0;
++    frame.samples = 1;
++    frame.near_plane = 4.f;
++    frame.far_plane = 4096.f;
++    return frame;
++}
++
++struct Probe final : IMetaRendererPostSceneCallbacks
++{
++    unsigned calls{};
++    MetaRendererPostSceneFrame seen{};
++    IMetaRendererPostScene* api{};
++    Probe* target{};
++    void (*action)(Probe&, const MetaRendererPostSceneFrame&) noexcept{};
++    uint32_t nested_result{999};
++    bool operation_result{};
++
++    void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override
++    {
++        ++calls;
++        seen = frame;
++        if (action) action(*this, frame);
++    }
++};
++
++void TestEligibility(IMetaRendererPostScene& api)
++{
++    Probe probe;
++    const auto frame = Frame();
++    const auto context = EligibleContext();
++    Check(api.RegisterPostSceneCallbacks(&probe));
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(probe.calls == 1 && std::memcmp(&frame, &probe.seen, sizeof(frame)) == 0);
++    auto no_view = context;
++    no_view.rendering_view = false;
++    Check(RendererPostScene::Dispatch(no_view, frame) == 0);
++    const std::array invalid_stages{
++        &RendererPostScene::Context::nested_view,
++        &RendererPostScene::Context::shadow_view,
++        &RendererPostScene::Context::water_view,
++        &RendererPostScene::Context::portal_view,
++        &RendererPostScene::Context::overview,
++        &RendererPostScene::Context::only_client_draws,
++        &RendererPostScene::Context::multiview,
++        &RendererPostScene::Context::linear_depth,
++        &RendererPostScene::Context::gbuffer,
++        &RendererPostScene::Context::unresolved_oit};
++    for (auto stage : invalid_stages)
++    {
++        auto invalid = context;
++        invalid.*stage = true;
++        Check(!RendererPostScene::Eligible(invalid));
++        Check(RendererPostScene::Dispatch(invalid, frame) == 0);
++    }
++    auto inset = context;
++    inset.view_index = 1;
++    Check(RendererPostScene::Dispatch(inset, frame) == 0);
++    inset.view_index = ~uint32_t{0};
++    Check(RendererPostScene::Dispatch(inset, frame) == 0);
++    Check(probe.calls == 1);
++    Check(api.UnregisterPostSceneCallbacks(&probe));
++}
++
++void TestFrames(IMetaRendererPostScene& api)
++{
++    Probe probe;
++    Check(api.RegisterPostSceneCallbacks(&probe));
++    const auto context = EligibleContext();
++    const auto baseline = Frame();
++    const auto reject = [&](const MetaRendererPostSceneFrame& frame) {
++        Check(!RendererPostScene::ValidFrame(frame));
++        Check(RendererPostScene::Dispatch(context, frame) == 0);
++    };
++    auto frame = baseline;
++    frame.struct_size = sizeof(frame) - 4; reject(frame);
++    frame = baseline; frame.struct_size = sizeof(frame) + 4; reject(frame);
++    frame = baseline; frame.flags = META_POST_SCENE_HDR; reject(frame);
++    frame = baseline; frame.flags = META_POST_SCENE_GAMMA | META_POST_SCENE_LINEAR; reject(frame);
++    frame = baseline; frame.flags |= 1u << 31; reject(frame);
++    for (auto field : {&MetaRendererPostSceneFrame::framebuffer, &MetaRendererPostSceneFrame::color_texture,
++                       &MetaRendererPostSceneFrame::depth_texture, &MetaRendererPostSceneFrame::depth_sample_texture,
++                       &MetaRendererPostSceneFrame::width, &MetaRendererPostSceneFrame::height})
++    {
++        frame = baseline; frame.*field = 0; reject(frame);
++    }
++    frame = baseline; frame.depth_texture = frame.color_texture; reject(frame);
++    frame = baseline; frame.depth_sample_texture = frame.color_texture; reject(frame);
++    frame = baseline; frame.depth_sample_texture = frame.depth_texture; reject(frame);
++    frame = baseline; frame.width = ~uint32_t{0}; reject(frame);
++    frame = baseline; frame.height = ~uint32_t{0}; reject(frame);
++    frame = baseline; frame.color_format = 0x1908; reject(frame); // unsized GL_RGBA
++    frame = baseline; frame.depth_format = 0x8CAD; reject(frame); // unsupported D32FS8
++    frame = baseline; frame.samples = 4; reject(frame);
++    frame = baseline; frame.samples = 0; reject(frame);
++    frame = baseline; frame.view_index = 1; reject(frame);
++    frame = baseline; frame.viewport[0] = -1; reject(frame);
++    frame = baseline; frame.viewport[1] = -1; reject(frame);
++    frame = baseline; frame.viewport[2] = 0; reject(frame);
++    frame = baseline; frame.viewport[3] = 0; reject(frame);
++    frame = baseline; frame.viewport[2] = 1280; reject(frame);
++    frame = baseline; frame.viewport[3] = 720; reject(frame);
++    frame = baseline; frame.viewport[0] = 0x7fffffff; frame.viewport[2] = 0x7fffffff; reject(frame);
++    frame = baseline; frame.near_plane = 0; reject(frame);
++    frame = baseline; frame.far_plane = frame.near_plane; reject(frame);
++    frame = baseline; frame.near_plane = std::numeric_limits<float>::quiet_NaN(); reject(frame);
++    frame = baseline; frame.far_plane = std::numeric_limits<float>::infinity(); reject(frame);
++    for (auto field : {&MetaRendererPostSceneFrame::world_matrix, &MetaRendererPostSceneFrame::projection_matrix,
++                       &MetaRendererPostSceneFrame::inverse_world_matrix, &MetaRendererPostSceneFrame::inverse_projection_matrix})
++    {
++        frame = baseline;
++        (frame.*field)[13] = std::numeric_limits<float>::quiet_NaN();
++        reject(frame);
++    }
++    Check(probe.calls == 0);
++    Check(RendererPostScene::Dispatch(context, baseline) == 1);
++    frame = baseline;
++    frame.flags = META_POST_SCENE_GAMMA;
++    frame.color_format = 0x8058; // GL_RGBA8
++    frame.viewport[0] = frame.viewport[1] = 0;
++    frame.viewport[2] = frame.width;
++    frame.viewport[3] = frame.height;
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(std::memcmp(&frame, &probe.seen, sizeof(frame)) == 0);
++    frame.flags |= META_POST_SCENE_HDR;
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(api.UnregisterPostSceneCallbacks(&probe));
++}
++
++void TestRegistry(IMetaRendererPostScene& api)
++{
++    const auto frame = Frame();
++    const auto context = EligibleContext();
++    Check(!api.RegisterPostSceneCallbacks(nullptr));
++    Check(!api.UnregisterPostSceneCallbacks(nullptr));
++    Check(!RendererPostScene::HasCallbacks());
++    Check(RendererPostScene::Dispatch(context, frame) == 0);
++    std::array<Probe, 17> probes{};
++    for (unsigned i = 0; i != 16; ++i) Check(api.RegisterPostSceneCallbacks(&probes[i]));
++    Check(api.RegisterPostSceneCallbacks(&probes[7])); // No duplicate slot/call.
++    Check(!api.RegisterPostSceneCallbacks(&probes[16]));
++    const size_t before = allocations;
++    for (unsigned i = 0; i != 256; ++i) Check(RendererPostScene::Dispatch(context, frame) == 16);
++    Check(allocations == before);
++    for (unsigned i = 0; i != 16; ++i)
++    {
++        Check(probes[i].calls == 256);
++        Check(api.UnregisterPostSceneCallbacks(&probes[i]));
++        Check(!api.UnregisterPostSceneCallbacks(&probes[i]));
++    }
++    Check(!RendererPostScene::HasCallbacks());
++    Check(RendererPostScene::Dispatch(context, frame) == 0);
++}
++
++void TestMutationAndRecursion(IMetaRendererPostScene& api)
++{
++    const auto frame = Frame();
++    const auto context = EligibleContext();
++    Probe first, later, added;
++    first.api = &api;
++    first.target = &later;
++    first.action = [](Probe& p, const MetaRendererPostSceneFrame& input) noexcept {
++        p.nested_result = RendererPostScene::Dispatch(EligibleContext(), input);
++        p.operation_result = p.api->UnregisterPostSceneCallbacks(p.target);
++    };
++    Check(api.RegisterPostSceneCallbacks(&first));
++    Check(api.RegisterPostSceneCallbacks(&later));
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(first.nested_result == 0 && first.operation_result && later.calls == 0);
++
++    first.target = &added;
++    first.action = [](Probe& p, const MetaRendererPostSceneFrame&) noexcept {
++        p.operation_result = p.api->RegisterPostSceneCallbacks(p.target);
++    };
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(first.operation_result && added.calls == 0);
++    first.action = nullptr;
++    Check(RendererPostScene::Dispatch(context, frame) == 2);
++    Check(added.calls == 1);
++
++    // Unregister/re-register the same object into a not-yet-visited slot must
++    // also wait for the next frame, even though its pointer is unchanged.
++    first.action = [](Probe& p, const MetaRendererPostSceneFrame&) noexcept {
++        p.operation_result = p.api->UnregisterPostSceneCallbacks(p.target) &&
++                             p.api->RegisterPostSceneCallbacks(p.target);
++    };
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(first.operation_result && added.calls == 1);
++    first.action = [](Probe& p, const MetaRendererPostSceneFrame&) noexcept {
++        p.operation_result = p.api->UnregisterPostSceneCallbacks(&p);
++    };
++    Check(RendererPostScene::Dispatch(context, frame) == 2);
++    Check(first.operation_result && added.calls == 2);
++    Check(RendererPostScene::Dispatch(context, frame) == 1);
++    Check(added.calls == 3);
++    Check(api.UnregisterPostSceneCallbacks(&added));
++    Check(!RendererPostScene::HasCallbacks());
++}
++}
++
++int main()
++{
++    int status = -1;
++    auto* api = static_cast<IMetaRendererPostScene*>(CreateInterface(METARENDERER_POST_SCENE_INTERFACE_VERSION, &status));
++    Check(api && status == IFACE_OK);
++    Check(CreateInterface(METARENDERER_POST_SCENE_INTERFACE_VERSION, nullptr) == api);
++    Check(CreateInterface("MetaRendererPostScene_API_999", &status) == nullptr && status == IFACE_FAILED);
++    TestEligibility(*api);
++    TestFrames(*api);
++    TestRegistry(*api);
++    TestMutationAndRecursion(*api);
++    std::printf("post-scene production factory/dispatch: %u checks; 4096 warm callbacks allocate 0\n", checks);
 +}

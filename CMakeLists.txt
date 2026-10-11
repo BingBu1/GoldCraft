@@ -117,7 +117,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     set(glew-cmake_BUILD_STATIC ON CACHE BOOL "" FORCE)
     set(ONLY_LIBS ON CACHE BOOL "" FORCE)
     add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
-    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/render_backend.cpp
+    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/render_backend.cpp native/client/post_scene_snapshot.cpp
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/vitals.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static)

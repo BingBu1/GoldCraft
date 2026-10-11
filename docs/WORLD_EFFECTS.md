@@ -60,3 +60,7 @@ python tools/Test-MaidCapture.py
 在 `cs_assault` 使用单 B、ReHLDS 专服与 24 SyPB Bots，触发表情／文字、刀光／闪电／残影和 NightFall 技能；检查墙后遮挡、透明混合、效果结束与换图清理。再检查 YSM 第一人称双手连续帧及 R 模式往返。性能比较使用同一观察者位置和朝向。
 
 Java 状态提供 `entityEffectDraws`、`effectShaderDraws`、`effectDrawSources`、`effectUnsupportedReasons`、`effectTextureInvalidations`、`particleError` 与 NightFall 阶段计数。VIX 明确报告 `hostedVixPostProcessingSupported=false`。这些计数用于定位漏掉的绘制路径，不能单独证明画面正确。
+
+
+## 当前后处理状态
+Renderer 已提供真实 CS 场景颜色/深度回调和 GPU 快照；普通 Epic Fight 网格特效继续通过协议 23。VIX 的遮罩捕获、按优先级有序通道和 bloom/折射/色差重放尚未接通，见 [VIX_POST_TODO.md](VIX_POST_TODO.md)。

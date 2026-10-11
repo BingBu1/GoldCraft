@@ -8,6 +8,7 @@
 #include <optional>
 #include <IMetaRendererScene.h>
 #include <IMetaRendererWorldEdit.h>
+#include <IMetaRendererPostScene.h>
 #include "goldcraft/atlas.hpp"
 #include "goldcraft/particles.hpp"
 #include "render_state.hpp"
@@ -33,7 +34,7 @@ private:
 struct Statistics {
     std::uint64_t uploads=0,upload_bytes=0,draws=0,opaque_passes=0,shadow_passes=0;
     GLenum error=0;
-    bool core=false,renderer=false,scene_api=false;
+    bool core=false,renderer=false,scene_api=false,post_scene_api=false;
 };
 const Statistics& statistics();
 bool initialize(IMetaRendererSceneCallbacks* callbacks, void(*log)(const std::string&));
@@ -41,6 +42,7 @@ void shutdown();
 bool scene_active();
 IMetaRendererWorldEdit* world_edit();
 IMetaRendererWorldEdit2* world_edit2();
+IMetaRendererPostScene* post_scene();
 bool owns_context();
 void set_light_shadow(int key, unsigned size);
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba);

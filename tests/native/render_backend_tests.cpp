@@ -23,6 +23,13 @@
 namespace probe {
 bool count_allocations{};
 std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{};
+unsigned snapshot_storage_failure{};
+void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLsizei width, GLsizei height) {
+    // Leave one newly-created texture without storage. Framebuffer completeness
+    // then fails on the real driver, without synthesizing a GL error/OOM.
+    if (snapshot_storage_failure && --snapshot_storage_failure == 0) return;
+    glTexStorage2D(target, levels, format, width, height);
+}
 void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = 0; }
 void APIENTRY integer(GLenum p, GLint *v) {
     ++queries;
@@ -104,6 +111,13 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
 #endif
 #include GOLDCRAFT_RENDER_SOURCE
+#ifndef GOLDCRAFT_RENDER_BASELINE
+#undef glTexStorage2D
+#define glTexStorage2D probe::snapshot_storage
+#include "../../native/client/post_scene_snapshot.cpp"
+#undef glTexStorage2D
+#define glTexStorage2D GLEW_GET_FUN(__glewTexStorage2D)
+#endif
 #undef glGetIntegerv
 #undef glGetFloatv
 #undef glGetBooleanv
@@ -442,6 +456,7 @@ struct Resources {
 
 #ifndef GOLDCRAFT_RENDER_BASELINE
 #include "effects_gl_tests.inc"
+#include "post_scene_snapshot_gl_tests.inc"
 #else
 GLuint Renderer::effect_program(const CCompileShaderArgs*){std::abort();}
 #endif
@@ -552,6 +567,7 @@ void run(bool benchmark) {
     assert(glGetError() == GL_NO_ERROR);
     #ifndef GOLDCRAFT_RENDER_BASELINE
     effect_tests(r);
+    post_scene_snapshot_tests(r);
     #endif
     if (benchmark) {
         r.sentinel();

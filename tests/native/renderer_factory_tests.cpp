@@ -3,6 +3,7 @@
 // remain separate because MetaHook has not initialized this isolated process.
 #include <windows.h>
 #include <IMetaRendererWorldEdit.h>
+#include <IMetaRendererPostScene.h>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -30,6 +31,14 @@ int main(int argc, char** argv) {
     assert(factory);
     int result = -1;
     assert(factory("MetaRenderer_API_002", &result) && result == 0);
+    auto* post=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,&result));
+    assert(post&&result==0);
+    struct Callback final : IMetaRendererPostSceneCallbacks {
+        void DrawPostScene(const MetaRendererPostSceneFrame&) noexcept override {assert(false);}
+    } callback;
+    assert(!post->RegisterPostSceneCallbacks(nullptr)&&post->RegisterPostSceneCallbacks(&callback));
+    assert(post->RegisterPostSceneCallbacks(&callback)&&post->UnregisterPostSceneCallbacks(&callback));
+    assert(!post->UnregisterPostSceneCallbacks(&callback));
     auto* base = static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION, &result));
     assert(base && result == 0);
     auto* targeted = static_cast<IMetaRendererWorldEdit2*>(factory(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION, &result));

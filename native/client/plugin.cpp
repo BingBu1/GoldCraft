@@ -389,7 +389,8 @@ void WriteDiagnostics() {
            <<",\"cameraAgeMs\":"<<(last_camera?(Seconds()-last_camera)*1000:-1)<<",\"cameraVerticalFov\":"<<camera_pose.vertical_fov
            <<",\"cameraPosition\":["<<camera_pose.position.x<<','<<camera_pose.position.y<<','<<camera_pose.position.z<<']'
            <<",\"cameraAngles\":["<<camera_pose.angles.x<<','<<camera_pose.angles.y<<','<<camera_pose.angles.z<<']'
-           <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
+           <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")
+           <<",\"postSceneApi\":"<<(gpu.post_scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")
            <<",\"developerLevel\":"<<gEngfuncs.pfnGetCvarFloat("developer")
            <<",\"atlasUploads\":"<<atlas_uploads<<",\"atlasGeneration\":"<<atlas_generation<<",\"atlasAnimationPackets\":"<<atlas_animation_packets<<",\"atlasPatchBytes\":"<<atlas_patch_bytes<<",\"atlasAnimationIntervalMs\":"<<atlas_animation_interval_ms
