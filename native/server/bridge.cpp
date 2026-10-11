@@ -69,6 +69,7 @@ std::uint64_t form_changes=0,wrong_form_poses=0;
 std::uint64_t object_revision=0,object_actions=0,object_damage_actions=0,object_use_actions=0;
 std::uint64_t collision_sequence=0;
 std::uint64_t mob_damage_event=0,mob_damage_accepted=0,mob_damage_rejected=0;
+SkillDamageSnapshots skill_damage_snapshots;
 std::uint64_t mining_policy_sent=0,mining_applied=0,mining_rejected=0;
 std::array<std::uint64_t,65> mining_events{};
 std::array<float,65> next_mining{}, next_mining_sample{};
@@ -358,6 +359,7 @@ void SendActors() {
         if(!e->free && e->pvPrivateData && (e->v.flags&(FL_CLIENT|FL_FAKECLIENT)) && registry.get(i)) slots.push_back(i);
     }
     Writer w; w.u64(registry.world()); w.u64(++tick); w.f32(gpGlobals->time);
+    skill_damage_snapshots.begin(registry.world(),tick,gpGlobals->time);
     w.u32(g_pGameRules && g_pGameRules->IsFreezePeriod()?1:0); w.u32(static_cast<std::uint32_t>(slots.size()));
     for(int slot : slots) {
         auto* e=&edicts[slot]; auto* p=static_cast<CBasePlayer*>(GET_PRIVATE(e)); const auto* binding=registry.get(slot);
@@ -371,6 +373,10 @@ void SendActors() {
         for(int j=0;j<3;++j) w.f32(e->v.maxs[j]);
         w.bytes(binding->uuid);
         w.u32(player_births[slot]);w.u64(vitals_ack[slot]);
+        if(p->IsAlive()){
+            const auto center=e->v.origin+(e->v.mins+e->v.maxs)*0.5f;
+            skill_damage_snapshots.actor(tick,slot,binding->serial,player_births[slot],{center.x,center.y,center.z});
+        }
     }
     link.send(Type::actors,w.data);
     if(tick%10==0)if(const char* path=std::getenv("GOLDCRAFT_SERVER_STATUS")) {
@@ -467,12 +473,14 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes){
             if(source_pair&&source_pair->paired&&source_pair->serial==damage.attacker_serial&&player_births[damage.attacker]==damage.attacker_spawn
                 &&!edicts[damage.attacker].free)source=edicts+damage.attacker;
         }
-        if(player&&!victim->free&&player->IsAlive()&&source&&(source!=victim||damage.kind!=MobDamageKind::melee)){
+        const bool skill=damage.kind==MobDamageKind::skill;
+        if(player&&!victim->free&&player->IsAlive()&&source&&(source!=victim||(damage.kind!=MobDamageKind::melee&&!skill))){
             const Vector point(damage.source.x,damage.source.y,damage.source.z);
             const Vector destination=victim->v.origin+(victim->v.mins+victim->v.maxs)*0.5f;
             const float radius=damage.kind==MobDamageKind::explosion?384.0f:128.0f;
-            const bool near_target=(point-destination).LengthSquared()<=radius*radius;
-            const bool near_source=damage.kind!=MobDamageKind::melee||(point-source->v.origin).LengthSquared()<=128.0f*128.0f;
+            const bool near_target=skill?skill_damage_snapshots.matches(damage,gpGlobals->time,{destination.x,destination.y,destination.z})
+                :(point-destination).LengthSquared()<=radius*radius;
+            const bool near_source=(damage.kind!=MobDamageKind::melee&&!skill)||(point-source->v.origin).LengthSquared()<=128.0f*128.0f;
             if(near_target&&near_source){
                 TraceResult trace;UTIL_TraceLine(point,destination,dont_ignore_monsters,source,&trace);
                 if(!trace.fStartSolid&&(trace.flFraction>=0.999f||trace.pHit==victim)&&g_pGameRules->FPlayerCanTakeDamage(player,GET_PRIVATE<CBaseEntity>(source))){
@@ -490,7 +498,7 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes){
                     status=accepted||victim->v.health<before_health||victim->v.armorvalue<before_armor?0u:5u;
                     player->m_LastHitGroup=previous_hitgroup;
                 }else status=4;
-            }else status=3;
+            }else status=skill&&!near_target?6:3;
         }else status=2;
         if(player&&!victim->free){health=victim->v.health;armor=victim->v.armorvalue;}
     }
@@ -584,6 +592,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         if(!server_log.is_open()) if(const char* path=std::getenv("GOLDCRAFT_SERVER_LOG"))server_log.open(path,std::ios::app);
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
+        skill_damage_snapshots.clear();
         controlled={};dimension_trace={};client_incarnations={};player_lives={};player_births={};vitals_ack={};player_spawns={};stale_life_poses=0;client_ready={};avatar_payloads={};
         vitals_accepted=vitals_rejected=0;final_minecraft_damage=minecraft_attack=nullptr;
         minecraft_forms={};next_form_change={};form_changes=wrong_form_poses=0;
@@ -739,6 +748,7 @@ void GoldCraft_StartFrame() {
             for(int i=1;i<=max_clients;++i){ReleaseControl(i,ControlCause::authority_generation);controlled[i].sequence=0;}
             GoldCraft_ObjectsReset(true);object_revision=0;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
+            skill_damage_snapshots.clear();
             GoldCraft_MapMiningInvalidateSamples();
             edit_revision_sent=0;next_edit_query=0;
             connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");

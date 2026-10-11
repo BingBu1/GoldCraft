@@ -76,7 +76,7 @@ public ResetPlayer()
     }
     read_argv(4, arg, charsmax(arg)); new Float:health = str_to_float(arg);
     read_argv(5, arg, charsmax(arg)); new armor = str_to_num(arg);
-    if (health < 1.0 || health > 100.0 || armor < 0 || armor > 100) return PLUGIN_HANDLED;
+    if (health < 1.0 || health > 5000.0 || armor < 0 || armor > 100) return PLUGIN_HANDLED;
     if (!is_user_alive(gBot)) rg_round_respawn(gBot);
     set_entvar(gBot, var_flags, get_entvar(gBot, var_flags) | FL_FAKECLIENT);
     new Float:zero[3];

@@ -23,7 +23,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(test shared_bulk control_diagnostics)
+    foreach(test shared_bulk control_diagnostics skill_damage)
         add_executable(goldcraft_${test}_tests tests/native/${test}_tests.cpp)
         target_link_libraries(goldcraft_${test}_tests PRIVATE goldcraft_common)
         target_compile_definitions(goldcraft_${test}_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)

@@ -2,6 +2,32 @@
   "required": true,
   "package": "dev.goldcraft.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["CollisionViewMixin", "BlockViewMixin", "ServerMovementMixin", "ServerPlayNetworkHandlerAccessor", "EntityMovementMixin", "PlayerPoseMixin", "LivingLadderMixin", "ChunkResetAccessor", "WorldChunkResetMixin", "ChunkCacheAccessor", "PathContextMixin", "LandPathNodeMakerMixin", "MobNavigationMixin", "EntityNavigationMixin", "NavigationConditionsMixin", "NativePlayerTrackingMixin", "NativePlayerTargetsMixin", "SharedVitalsDeathMixin", "SharedVitalsRespawnMixin", "SharedVitalsRemovalMixin", "NightfallDedicatedEffectsMixin"],
-  "injectors": {"defaultRequire": 1}
+  "mixins": [
+    "CollisionViewMixin",
+    "BlockViewMixin",
+    "ServerMovementMixin",
+    "ServerPlayNetworkHandlerAccessor",
+    "EntityMovementMixin",
+    "PlayerPoseMixin",
+    "LivingLadderMixin",
+    "ChunkResetAccessor",
+    "WorldChunkResetMixin",
+    "ChunkCacheAccessor",
+    "PathContextMixin",
+    "LandPathNodeMakerMixin",
+    "MobNavigationMixin",
+    "EntityNavigationMixin",
+    "NavigationConditionsMixin",
+    "NativePlayerTrackingMixin",
+    "NativePlayerTargetsMixin",
+    "SharedVitalsDeathMixin",
+    "SharedVitalsRespawnMixin",
+    "SharedVitalsRemovalMixin",
+    "NightfallDedicatedEffectsMixin",
+    "NativePlayerLookupMixin",
+    "NightfallNativeSkillDamageMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
 }

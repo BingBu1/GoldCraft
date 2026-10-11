@@ -50,7 +50,7 @@ public final class VixPostCapture {
     private static boolean resolved,resourcesVerified;
     private static Context active;
     private static String error="",lastFailure="",lastFailureParticles="";
-    private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades;
+    private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades,expiredScreenDistortions;
     private static final long[] stageFrames=new long[PostEffectPlan.BW_CONTRAST+1];
     private static int lastStages,lastDraws;
     private static final Map<String,String> RESOURCE_HASHES=Map.ofEntries(
@@ -174,6 +174,7 @@ public final class VixPostCapture {
         data.addProperty("vixPostCaptureResolved",api!=null);data.addProperty("vixPostResourcesVerified",resourcesVerified);
         data.addProperty("vixPostFrames",frames);data.addProperty("vixPostFailures",failures);
         data.addProperty("vixPostUndefinedNightfallBlades",undefinedNightfallBlades);
+        data.addProperty("vixPostExpiredScreenDistortions",expiredScreenDistortions);
         data.addProperty("vixPostStages",lastStages);data.addProperty("vixPostBatches",lastDraws);
         data.addProperty("vixPostCaptureError",error);
         data.addProperty("vixPostLastFailure",lastFailure);data.addProperty("vixPostLastFailureParticles",lastFailureParticles);
@@ -255,6 +256,17 @@ public final class VixPostCapture {
                     stages.add(PostEffectPlan.Stage.impact(api.priority.getInt(pipeline),draws.size(),impact));
                     continue;
                 }
+                // VIX removes at age > lifetime, leaving the final interpolated tick queued.
+                // NightFall's intensity takes a square root outside its domain there. End only this
+                // expired pass before it creates NaN; retain every other pass in the frame.
+                if(kind==PostEffectPlan.SCREEN_DISTORTION) {
+                    Object effect=api.screenEffect.get(pipeline);
+                    float normalizedAge=((Number)invoke(api.screenNormalizedAge,effect)).floatValue();
+                    if(expiredScreenDistortion(api.screenAge.getInt(effect),api.screenLifetime.getInt(effect),normalizedAge)) {
+                        expiredScreenDistortions++;
+                        continue;
+                    }
+                }
                 float[] p=parameters(client,pipeline,kind);
                 // A fully clipped mask is an identity pass. Keep producer animation advancement.
                 if(!screen&&mask.isEmpty())continue;
@@ -279,6 +291,9 @@ public final class VixPostCapture {
             // VIX texture bookkeeping/active state, never a hidden scene render target.
             cleanup.run(()->invoke(api.close,null));cleanup.rethrow();
         }
+    }
+    static boolean expiredScreenDistortion(int age,int lifetime,float normalizedAge) {
+        return age>=0&&lifetime>0&&Float.isFinite(normalizedAge)&&normalizedAge>1;
     }
     private record Animation(Field started,Field time,Field progress,Method update){}
     private static final class ImpactUniforms implements BlackWhiteImpactCapture.Uniforms {
@@ -390,6 +405,7 @@ public final class VixPostCapture {
         final Field screenEffect=field(Class.forName("com.guhao.vix.client.screeneffect.ScreenEffectBase$SE_Pipeline"),"effect");
         final Field screenAge=field(Class.forName("com.guhao.vix.client.screeneffect.ScreenEffectBase"),"age"),screenStrength=field(screen,"maxDistortion"),screenSpeed=field(screen,"distortionSpeed"),screenFrequency=field(screen,"frequency");
         final Field screenLifetime=field(Class.forName("com.guhao.vix.client.screeneffect.ScreenEffectBase"),"lifetime");
+        final Method screenNormalizedAge=method(Class.forName("com.guhao.vix.client.screeneffect.ScreenEffectBase"),"getNormalizedAgeWithPartialTicks");
         final Field dispersionType=field(Class.forName(DISPERSION),"type");
         final Object dispersionPost=Class.forName(DISPERSION+"$Type").getField("POST").get(null);
         final Method screenProgress=method(screenPipeline,"getDistortionProgress"),screenIntensity=method(screenPipeline,"getDistortionIntensity",float.class);

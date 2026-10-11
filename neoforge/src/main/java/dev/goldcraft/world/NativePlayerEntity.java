@@ -20,6 +20,7 @@ public final class NativePlayerEntity extends PlayerEntity {
     private final long epoch;
     private HostWorldState.Actor actor;
     private float lastNativeDamage;
+    private NativePlayerHitboxEntity hitbox;
 
     public NativePlayerEntity(ServerWorld world,long epoch,HostWorldState.Actor actor,DamageSink damageSink){
         super(world,BlockPos.ORIGIN,0,new GameProfile(identity(epoch,actor),"CS_"+actor.slot()));
@@ -30,6 +31,16 @@ public final class NativePlayerEntity extends PlayerEntity {
     }
     public long epoch(){return epoch;}
     public HostWorldState.Actor actor(){return actor;}
+    void hitbox(NativePlayerHitboxEntity value){hitbox=value;}
+    boolean requestDamage(DamageSource source,float amount){
+        return !isRemoved()&&isAlive()&&Float.isFinite(amount)&&amount>0&&damageSink.apply(this,source,amount);
+    }
+    float difficultyDamage(DamageSource source,float amount){
+        if(source.isScaledWithDifficulty())return switch(getWorld().getDifficulty()){
+            case PEACEFUL -> 0;case EASY -> Math.min(amount/2+1,amount);case HARD -> amount*1.5f;default -> amount;
+        };
+        return amount;
+    }
     public void update(HostWorldState.Actor next){
         boolean dimensions=actor==null||!actor.mins().equals(next.mins())||!actor.maxs().equals(next.maxs());
         actor=next;
@@ -48,12 +59,11 @@ public final class NativePlayerEntity extends PlayerEntity {
     @Override public boolean isCreative(){return false;}
     @Override public boolean shouldSave(){return false;}
     @Override public boolean isPushable(){return false;}
-    @Override public void tick(){if(timeUntilRegen>0)timeUntilRegen--;setVelocity(0,0,0);}
+    @Override public void tick(){if(hitbox==null&&timeUntilRegen>0)timeUntilRegen--;setVelocity(0,0,0);}
     @Override public boolean damage(DamageSource source,float amount){
+        if(hitbox!=null&&!hitbox.isRemoved())return hitbox.damage(source,amount);
         if(isRemoved()||!isAlive()||isInvulnerableTo(source)||!Float.isFinite(amount)||amount<=0)return false;
-        if(source.isScaledWithDifficulty())amount=switch(getWorld().getDifficulty()){
-            case PEACEFUL -> 0;case EASY -> Math.min(amount/2+1,amount);case HARD -> amount*1.5f;default -> amount;
-        };
+        amount=difficultyDamage(source,amount);
         if(amount<=0)return false;
         float applied=amount;
         boolean cooldown=timeUntilRegen>10&&!source.isIn(DamageTypeTags.BYPASSES_COOLDOWN);

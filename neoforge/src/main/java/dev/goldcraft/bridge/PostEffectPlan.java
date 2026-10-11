@@ -29,7 +29,9 @@ public final class PostEffectPlan {
                 ||(kind==COLOR_DISPERSION&&(time<=0||directionX<=0||directionY<=0))
                 ||!finite(time)||!finite(directionX)||!finite(directionY)||!finite(strength)
                 ||!finite(frequency)||!finite(progress)||!finite(extra0)||!finite(extra1))
-                throw new IllegalArgumentException("Post-effect stage bounds");
+                throw new IllegalArgumentException("Post-effect stage bounds: kind="+kind+" priority="+priority
+                    +" firstBatch="+firstBatch+" batchCount="+batchCount+" parameters=["+time+","+directionX+","+directionY
+                    +","+strength+","+frequency+","+progress+","+extra0+","+extra1+"] impact="+(impact!=null));
         }
     }
     /** Effective BlackWhiteContrastSimple uniforms, in their distinct kind7 wire order. */

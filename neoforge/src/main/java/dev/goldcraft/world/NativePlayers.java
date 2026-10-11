@@ -25,6 +25,7 @@ public final class NativePlayers {
     private static final Map<Integer,ChunkPos> tickets=new HashMap<>();
     private static ServerWorld world;
     private static long epoch,sequence,requests,accepted,rejected;
+    private static final long[] damageStatus=new long[7];
     private static final Map<Long,NativePlayerEntity> pending=new LinkedHashMap<>();
     private NativePlayers(){}
 
@@ -32,7 +33,7 @@ public final class NativePlayers {
         for(var p:players.values())p.discard();
         for(var p:hitboxes.values())p.discard();
         if(world!=null)for(var t:tickets.entrySet())world.getChunkManager().removeTicket(TICKET,t.getValue(),3,t.getKey());
-        players.clear();hitboxes.clear();tickets.clear();pending.clear();world=null;epoch=sequence=requests=accepted=rejected=0;
+        players.clear();hitboxes.clear();tickets.clear();pending.clear();Arrays.fill(damageStatus,0);world=null;epoch=sequence=requests=accepted=rejected=0;
     }
     private static boolean alive(HostWorldState.Actor actor){return actor.life()!=0&&(actor.flags()&5)==1&&(actor.team()==1||actor.team()==2)&&actor.health()>0;}
     private static void transferTargets(LivingEntity from,LivingEntity to){
@@ -57,12 +58,15 @@ public final class NativePlayers {
             if(!formChange)transferTargets(proxy,null);
             proxy.discard();players.remove(actor.slot());
             var replacement=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);
-            players.put(actor.slot(),replacement);world.spawnEntity(replacement);
+            players.put(actor.slot(),replacement);
             if(formChange)transferTargets(proxy,replacement);
             proxy=replacement;
         }
         if(proxy==null){
-            proxy=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);players.put(actor.slot(),proxy);world.spawnEntity(proxy);
+            // The logical PlayerEntity is supplied to vanilla AI by
+            // targetingPlayers. Only its hitbox enters spatial entity queries;
+            // registering both makes one native player consume two skill hits.
+            proxy=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);players.put(actor.slot(),proxy);
             if(paired!=null)transferTargets(paired,proxy);
         }else proxy.update(actor);
         return proxy;
@@ -78,6 +82,7 @@ public final class NativePlayers {
                 var previous=players.remove(actor.slot());if(previous!=null){transferTargets(previous,body);previous.discard();}
                 continue;
             }
+            body.tick();
             retained.add(actor.slot());ChunkPos chunk=body.getChunkPos(),old=tickets.put(actor.slot(),chunk);
             var hitbox=hitboxes.get(actor.slot());
             if(hitbox==null||hitbox.isRemoved()||!hitbox.follows((NativePlayerEntity)body)){
@@ -103,21 +108,32 @@ public final class NativePlayers {
         for(var p:players.values())if(!p.isRemoved()&&p.isAlive())result.add(p);
         return result;
     }
+    public static NativePlayerEntity byUuid(ServerWorld view,UUID uuid){
+        if(view!=world)return null;
+        for(var body:players.values())if(!body.isRemoved()&&body.getUuid().equals(uuid))return body;
+        return null;
+    }
     private static boolean damage(NativePlayerEntity target,DamageSource source,float amount){
         Entity attacker=source.getAttacker();
         long key=MinecraftObjects.key(attacker);
         var playerSource=attacker instanceof net.minecraft.server.network.ServerPlayerEntity p?GoldCraft.HOST_WORLD.actor(p.getUuid()):null;
         if(target.epoch()!=epoch||target.isRemoved()||(key==0&&playerSource==null)||amount>1000)return false;
-        int kind=source.isIn(DamageTypeTags.IS_EXPLOSION)?3:source.isIn(DamageTypeTags.IS_PROJECTILE)?2:1;
+        int kind=source.isIn(DamageTypeTags.IS_EXPLOSION)?3:source.isIn(DamageTypeTags.IS_PROJECTILE)?2:NativeSkillDamage.isSkill(source)?4:1;
         Entity direct=source.getSource();
         var point=direct==null?attacker.getPos():direct.getPos();
         // Melee originates inside the attacking body, above the supporting floor.
-        if(kind==1)point=attacker.getBoundingBox().getCenter();
+        if(kind==1||kind==4)point=attacker.getBoundingBox().getCenter();
         var gs=HostCollision.goldsrc(point.x,point.y,point.z);var actor=target.actor();long event=++sequence;
-        byte[] data=new Wire.Writer().i64(epoch).i64(event).i64(key).i32(actor.slot()).i32(actor.serial()).i32(actor.spawn()).i32(kind)
+        var request=new Wire.Writer().i64(epoch).i64(event).i64(key).i32(actor.slot()).i32(actor.serial()).i32(actor.spawn()).i32(kind)
             .f32(amount*MinecraftObjects.CS_HEALTH_PER_MC).f32(gs.x()).f32(gs.y()).f32(gs.z())
-            .i32(playerSource==null?0:playerSource.slot()).i32(playerSource==null?0:playerSource.serial()).i32(playerSource==null?0:playerSource.spawn()).toByteArray();
-        if(!GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,data))return false;
+            .i32(playerSource==null?0:playerSource.slot()).i32(playerSource==null?0:playerSource.serial()).i32(playerSource==null?0:playerSource.spawn());
+        if(kind==4){
+            request.i64(GoldCraft.HOST_WORLD.tick())
+                .f32(actor.origin().x()+(actor.mins().x()+actor.maxs().x())*.5f)
+                .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
+                .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f);
+        }
+        if(!GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray()))return false;
         pending.put(event,target);requests++;return true;
     }
     public static void result(byte[] bytes){
@@ -126,10 +142,12 @@ public final class NativePlayers {
         var target=pending.remove(event);
         if(target==null||target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=life)return;
         if(status==0)accepted++;else rejected++;
+        if(status>=0&&status<damageStatus.length)damageStatus[status]++;
     }
     public static void diagnostics(JsonObject data){
         JsonObject n=new JsonObject();n.addProperty("players",players.size());n.addProperty("damageRequests",requests);
         n.addProperty("damageAccepted",accepted);n.addProperty("damageRejected",rejected);n.addProperty("pendingDamage",pending.size());
+        var reasons=new com.google.gson.JsonArray();for(long count:damageStatus)reasons.add(count);n.add("damageStatus",reasons);
         var bodies=new com.google.gson.JsonArray();
         for(var entry:hitboxes.entrySet()){
             var b=new JsonObject();b.addProperty("slot",entry.getKey());b.addProperty("hitbox",entry.getValue().getId());bodies.add(b);

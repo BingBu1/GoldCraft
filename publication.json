@@ -241,7 +241,12 @@
     "tests/bw-contrast/RemapFramebuffer.java",
     "tests/bw-contrast/TransformFramebuffer.java",
     "tools/Test-BwContrast.py",
-    "tests/native/bw_contrast_gl_tests.inc"
+    "tests/native/bw_contrast_gl_tests.inc",
+    "tools/Prepare-EpicAreaCombat.py",
+    "tools/Exercise-EpicAreaCombat.py",
+    "tools/java/IntegratedAreaProbe.java",
+    "docs/2026-10-11_分析-Epic范围伤害-report.md",
+    "tools/Test-ScreenDistortion.py"
   ],
   "trees": {
     "native": [

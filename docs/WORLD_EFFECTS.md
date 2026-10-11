@@ -68,3 +68,9 @@ Java 状态包含 effectDrawSources、effectUnsupportedReasons、particleError�
 协议29整包38组／166项Java、44项native、ReGameDLL构建、166＋44项跨进程检查通过；Clang审计11组／1642编译单元／15个x86产物通过。真实producer492组／25558检查、568字节独立跨语言核对、Core/Compat336同驱动原shader参考均通过；最大分量差0.004408002，容差2.1/255，并非逐位一致。预热128七通道帧无新增分配、storage、uniform位置查询或缓冲上传。HDR额外两次复制的真实帧时间仍待测；原shader的反向smoothstep仍受驱动行为影响。
 
 运行 `python tools/Test-BwContrast.py` 可从本机已安装的匹配Mod验证原producer和访问器。此测试不运行完整FML或游戏技能。协议29已同步A/B/server，仅启动B及两专服；5份核心JAR及165原生部署文件一致，实际FML应用清色访问器和两项NightFall修复。用户已确认“黑白冲击正常，未报错”；同期kind7累计9、native回放373/失败0/GL0。后续45秒44有效样本共享682171120字节、回放+96，出现正常死亡控制释放。Java另有1次旧八float通道参数校验失败，独立排查；这不属于黑白分支，也不能由画面确认推断所有通道无错误。资源热重载、长期稳定性和同视角FPS仍待验。
+
+## 2026-10-11 — 协议30屏幕扭曲寿命边界
+
+真实NightFall ScreenDistortionEffect及VIX生命周期在末tick产生NaN：age等于lifetime时仍保留，而partial使normalizedAge大于1，原强度公式对负数开平方。VixPostCapture只跳过kind5中age非负、lifetime为正且normalizedAge有限且大于1的过期阶段，保留正常时段公式、精确端点、同帧其他stage/mesh/depth reset；不放宽Stage参数校验，失败时补充实际参数。
+
+`python tools/Test-ScreenDistortion.py`使用本机锁定4个原始class及精确生产guard/Stage，658cases/7706checks：628有限域逐bit相同、30尾tick NaN复现，非法状态不被吞，邻接stage与mesh逐byte保留。源码与范围伤害统一协议30构建，已同步master/A/B/server并重启单B与两专服；五份核心JAR及本轮11项原生部署文件哈希一致。新鲜空闲采样VIX失败0、过期计数0，尚未触发此寿命边界。此前旧日志缺具体拒绝值，不能唯一归因所有历史Stage失败；实机过期计数、画面连续性与热重载仍需验证。
