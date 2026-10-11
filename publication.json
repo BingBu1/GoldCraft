@@ -246,7 +246,12 @@
     "tools/Exercise-EpicAreaCombat.py",
     "tools/java/IntegratedAreaProbe.java",
     "docs/2026-10-11_分析-Epic范围伤害-report.md",
-    "tools/Test-ScreenDistortion.py"
+    "tools/Test-ScreenDistortion.py",
+    "tools/Test-EpicSkillSync.py",
+    "tools/Check-EpicSkillSequence.py",
+    "tools/java/SkillFeedbackProbe.java",
+    "tools/java/StartupProbe.java",
+    "docs/2026-10-11_分析-Epic技能同步-report.md"
   ],
   "trees": {
     "native": [

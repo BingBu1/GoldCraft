@@ -25,7 +25,9 @@
     "SharedVitalsRemovalMixin",
     "NightfallDedicatedEffectsMixin",
     "NativePlayerLookupMixin",
-    "NightfallNativeSkillDamageMixin"
+    "NightfallNativeSkillDamageMixin",
+    "EpicSkillBindingMixin",
+    "EpicSkillJoinMixin"
   ],
   "injectors": {
     "defaultRequire": 1
