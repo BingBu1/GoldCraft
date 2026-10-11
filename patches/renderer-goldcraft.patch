@@ -206,10 +206,16 @@ index 8c6651f..f09e672 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..9375f8a 100644
+index 6ce4285..bfce8fd 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -121,12 +121,33 @@ set(RENDERER_SOURCES
+@@ -116,17 +116,39 @@ set(RENDERER_SOURCES
+     "${PROJECT_SOURCE_DIR}/src/gl_hooks.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_hud.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_light.cpp"
++    "${PROJECT_SOURCE_DIR}/src/gl_scene_lights.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_model.cpp"
+     "${PROJECT_SOURCE_DIR}/src/gl_portal.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_scclient.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_ringbuffer.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
@@ -565,7 +571,7 @@ index b05298d..9234261 100644
      Install_InlineHook(D_FillRect);
      Install_InlineHook(R_GetSpriteFrame);
 diff --git a/src/gl_light.cpp b/src/gl_light.cpp
-index 81f47a5..9567949 100644
+index 81f47a5..ca59ac6 100644
 --- a/src/gl_light.cpp
 +++ b/src/gl_light.cpp
 @@ -1,4 +1,5 @@
@@ -584,7 +590,15 @@ index 81f47a5..9567949 100644
  
  GLuint r_sphere_vbo = 0;
  GLuint r_sphere_ebo = 0;
-@@ -600,51 +598,6 @@ bool R_IsDLightFlashlight(dlight_t* dl)
+@@ -354,6 +352,7 @@ void R_LoadDLightProgramStates(void)
+ 
+ void R_ShutdownLight(void)
+ {
++    R_ResetExternalSceneLights();
+     g_BSPDynamicLights.clear();
+     g_EngineDynamicLights.clear();
+     g_VisibleDynamicLights.clear();
+@@ -600,51 +599,6 @@ bool R_IsDLightFlashlight(dlight_t* dl)
      return false;
  }
  
@@ -636,7 +650,7 @@ index 81f47a5..9567949 100644
  bool R_IsDeferredRenderingEnabled(void)
  {
      if ((int)r_deferred_lighting->value < 1)
-@@ -692,7 +645,7 @@ void R_BeginRenderGBuffer(void)
+@@ -692,7 +646,7 @@ void R_BeginRenderGBuffer(void)
      GL_BeginDebugGroup("R_BeginRenderGBuffer");
  
      r_draw_gbuffer = true;
@@ -645,7 +659,7 @@ index 81f47a5..9567949 100644
  
      GL_BindFrameBuffer(&s_GBufferFBO);
  
-@@ -1664,16 +1617,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
+@@ -1664,16 +1618,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
  {
      if (R_IsAmbientOcclusionEnabled())
      {
@@ -672,7 +686,7 @@ index 81f47a5..9567949 100644
  }
  
  void R_BlitGBufferToFrameBuffer(FBO_Container_t* dst, bool color, bool depth, bool stencil)
-@@ -1959,7 +1918,19 @@ void R_ProcessEngineDynamicLights()
+@@ -1959,7 +1919,19 @@ void R_ProcessEngineDynamicLights()
              float specular    = r_dynlight_specular->GetValue();
              float specularpow = r_dynlight_specularpow->GetValue();
  
@@ -693,7 +707,7 @@ index 81f47a5..9567949 100644
  
              vec3_t distToLight;
              VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
-@@ -1973,9 +1944,9 @@ void R_ProcessEngineDynamicLights()
+@@ -1973,9 +1945,9 @@ void R_ProcessEngineDynamicLights()
              dynamicLight->specular    = specular;
              dynamicLight->specularpow = specularpow;
  
@@ -707,10 +721,38 @@ index 81f47a5..9567949 100644
      }
  }
 diff --git a/src/gl_light.h b/src/gl_light.h
-index dd00fcc..20ffa5d 100644
+index dd00fcc..a10767c 100644
 --- a/src/gl_light.h
 +++ b/src/gl_light.h
-@@ -211,10 +211,12 @@ bool   R_CanRenderGBuffer(void);
+@@ -11,6 +11,7 @@ enum DynamicLightType
+ };
+ 
+ class IShadowTexture;
++class IMetaRendererSceneCallbacks;
+ 
+ class CDynamicLight
+ {
+@@ -34,6 +35,11 @@ public:
+     std::shared_ptr<IShadowTexture> pStaticShadowTexture;
+     std::shared_ptr<IShadowTexture> pDynamicShadowTexture;
+     int                             source_entity_index{};
++    IMetaRendererSceneCallbacks*     external_scene_owner{};
++    uint32_t                        external_scene_color{};
++    uint32_t                        external_scene_visible_frame{};
++    bool                            external_scene_cached{};
++    bool                            external_scene_resident{};
+ };
+ 
+ class CVisibleDynamicLightEntry
+@@ -51,6 +57,7 @@ public:
+ 
+ extern std::vector<std::shared_ptr<CDynamicLight>> g_EngineDynamicLights;
+ extern std::vector<std::shared_ptr<CDynamicLight>> g_BSPDynamicLights;
++extern std::vector<std::shared_ptr<CDynamicLight>> g_ExternalDynamicLights;
+ extern std::vector<CVisibleDynamicLightEntry>      g_VisibleDynamicLights;
+ 
+ extern cvar_t* r_deferred_lighting;
+@@ -211,10 +218,12 @@ bool   R_CanRenderGBuffer(void);
  void   R_BeginRenderGBuffer(void);
  void   R_EndRenderGBuffer(FBO_Container_t* dst);
  void   R_SetGBufferMask(int mask);
@@ -810,7 +852,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..0d04b67 100644
+index d59b139..60aa93c 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,8 @@
@@ -854,7 +896,23 @@ index d59b139..0d04b67 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -3055,6 +3064,8 @@ void GL_Finish2D()
+@@ -2948,6 +2957,7 @@ void R_RenderViewStart()
+             R_AddVisibleDynamicLight(dynamicLight);
+         }
+     }
++    R_AddVisibleExternalSceneLights();
+ }
+ 
+ /*
+@@ -3011,6 +3021,7 @@ void R_RenderEndFrame()
+         cb->OnRenderEndFrame();
+     }
+ 
++    R_EndExternalSceneLightsFrame();
+     R_EndRingBufferFrame();
+ }
+ 
+@@ -3055,6 +3066,8 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -863,7 +921,7 @@ index d59b139..0d04b67 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3144,16 @@ void R_PreRenderView()
+@@ -3133,10 +3146,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -883,7 +941,7 @@ index d59b139..0d04b67 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,6 +3408,60 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,6 +3410,60 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -944,7 +1002,7 @@ index d59b139..0d04b67 100644
  void R_RenderView_SvEngine(int viewIdx)
  {
      const bool wasRenderingView = g_bIsRenderingView;
-@@ -3434,14 +3505,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3507,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -972,7 +1030,7 @@ index d59b139..0d04b67 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3588,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3590,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -984,7 +1042,7 @@ index d59b139..0d04b67 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3635,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3637,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -997,7 +1055,7 @@ index d59b139..0d04b67 100644
  }
  
  #if 0
-@@ -3783,6 +3872,7 @@ void R_Init(void)
+@@ -3783,6 +3874,7 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
@@ -1005,7 +1063,7 @@ index d59b139..0d04b67 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -4667,6 +4757,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4759,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1016,7 +1074,7 @@ index d59b139..0d04b67 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4776,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4778,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1032,7 +1090,7 @@ index d59b139..0d04b67 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4820,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4822,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1050,7 +1108,7 @@ index d59b139..0d04b67 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4839,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4841,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1058,7 +1116,7 @@ index d59b139..0d04b67 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4850,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4852,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1066,7 +1124,7 @@ index d59b139..0d04b67 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4904,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4906,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1074,7 +1132,7 @@ index d59b139..0d04b67 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5571,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5573,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1085,7 +1143,7 @@ index d59b139..0d04b67 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6712,57 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6714,74 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1108,6 +1166,7 @@ index d59b139..0d04b67 100644
 +    if (R_IsRenderingLinearDepth()) flags |= META_SCENE_LINEAR_DEPTH;
 +    if (R_IsRenderingGammaBlending()) flags |= META_SCENE_GAMMA_BLEND;
 +    R_SetGBufferMask(GBUFFER_MASK_ALL);
++    RExternalSceneShadowCullScope cullScope((flags & META_SCENE_SHADOW) != 0);
 +    for (auto* callback : externalSceneCallbacks) callback->DrawOpaqueScene(flags);
 +}
 +
@@ -1115,6 +1174,11 @@ index d59b139..0d04b67 100644
 +{
 +    auto it = externalLightShadowSizes.find(key);
 +    return it == externalLightShadowSizes.end() ? 0 : it->second;
++}
++
++bool R_IsExternalSceneOwner(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    return owner && std::find(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), owner) != externalSceneCallbacks.end();
 +}
 +
 +class CMetaRendererScene : public IMetaRendererScene
@@ -1128,6 +1192,7 @@ index d59b139..0d04b67 100644
 +    }
 +    void UnregisterSceneCallbacks(IMetaRendererSceneCallbacks* callbacks) override
 +    {
++        R_ClearExternalSceneLights(callbacks);
 +        externalSceneCallbacks.erase(std::remove(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), callbacks), externalSceneCallbacks.end());
 +    }
 +    void SetDynamicLightShadowSize(int key, unsigned size) override
@@ -1139,6 +1204,16 @@ index d59b139..0d04b67 100644
 +    }
 +};
 +EXPOSE_SINGLE_INTERFACE(CMetaRendererScene, IMetaRendererScene, METARENDERER_SCENE_INTERFACE_VERSION);
++
++class CMetaRendererSceneCulling : public IMetaRendererSceneCulling
++{
++public:
++    bool CullShadowBounds(const float* mins, const float* maxs) noexcept override
++    {
++        return R_CullExternalShadowBox(mins, maxs);
++    }
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneCulling, IMetaRendererSceneCulling, METARENDERER_SCENE_CULLING_INTERFACE_VERSION);
 +
  class CMetaRenderer : public IMetaRenderer
  {
@@ -2190,10 +2265,16 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..c933e2b 100644
+index 41f24f3..828e611 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
-@@ -74,43 +74,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
+@@ -1,4 +1,5 @@
+ #include "gl_local.h"
++#include "gl_external_scene.h"
+ 
+ #include <sstream>
+ #include <algorithm>
+@@ -74,43 +75,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
      }
  }
  
@@ -2239,7 +2320,7 @@ index 41f24f3..c933e2b 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceModels.size())
-@@ -130,6 +97,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
+@@ -130,6 +98,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
  
  void R_FreeWorldSurfaceWorldModels(model_t* mod)
  {
@@ -2248,7 +2329,7 @@ index 41f24f3..c933e2b 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceWorldModels.size())
-@@ -147,6 +116,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
+@@ -147,6 +117,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
  
  void R_ClearWorldSurfaceModels(void)
  {
@@ -2257,7 +2338,7 @@ index 41f24f3..c933e2b 100644
      for (size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
      {
          auto pWorldSurfaceModel = g_WorldSurfaceModels[i];
-@@ -162,6 +133,8 @@ void R_ClearWorldSurfaceModels(void)
+@@ -162,6 +134,8 @@ void R_ClearWorldSurfaceModels(void)
  
  void R_ClearWorldSurfaceWorldModels(void)
  {
@@ -2266,7 +2347,7 @@ index 41f24f3..c933e2b 100644
      for (size_t i = 0; i < g_WorldSurfaceWorldModels.size(); ++i)
      {
          auto pWorldSurfaceWorldModel = g_WorldSurfaceWorldModels[i];
-@@ -209,6 +182,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+@@ -209,6 +183,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
      {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
      {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
      {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
@@ -2274,7 +2355,7 @@ index 41f24f3..c933e2b 100644
  };
  
  void R_SaveWSurfProgramStates(void)
-@@ -243,6 +217,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -243,6 +218,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
          if (state & WSURF_LIGHTMAP_ENABLED)
              defs << "#define LIGHTMAP_ENABLED\n";
  
@@ -2284,7 +2365,7 @@ index 41f24f3..c933e2b 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -468,10 +445,6 @@ void R_FreeLightmapTextures()
+@@ -468,10 +446,6 @@ void R_FreeLightmapTextures()
      }
  }
  
@@ -2295,7 +2376,7 @@ index 41f24f3..c933e2b 100644
  void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
  {
      if (basenode->contents < 0)
-@@ -489,61 +462,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
+@@ -489,61 +463,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
      R_RecursiveFindLeaves(node->children[1], vLeafs);
  }
  
@@ -2357,7 +2438,7 @@ index 41f24f3..c933e2b 100644
  texture_t* R_GetEmptyWorldTexture()
  {
      if (g_iEngineType == ENGINE_SVENGINE)
-@@ -552,2751 +470,1500 @@ texture_t* R_GetEmptyWorldTexture()
+@@ -552,2751 +471,1500 @@ texture_t* R_GetEmptyWorldTexture()
      return (*r_notexture_mip);
  }
  
@@ -6238,7 +6319,7 @@ index 41f24f3..c933e2b 100644
  
  void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
  {
-@@ -3507,21 +2174,26 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3507,21 +2175,26 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
  
      if (pModel->m_model == (*cl_worldmodel))
      {
@@ -6269,7 +6350,7 @@ index 41f24f3..c933e2b 100644
          }
  
          //Always draw skybox before world
-@@ -3533,7 +2205,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3533,7 +2206,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              }
          }
  
@@ -6278,7 +6359,7 @@ index 41f24f3..c933e2b 100644
          {
              if (R_IsRenderingWaterView())
              {
-@@ -3546,13 +2218,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3546,13 +2219,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      pNoVisLeaf = pModel->GetLeafByIndex(0);
                  }
  
@@ -6295,7 +6376,7 @@ index 41f24f3..c933e2b 100644
                  {
                      glColorMask(0, 0, 0, 0);
  
-@@ -3563,7 +2235,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3563,7 +2236,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      R_DrawWorldSurfaceLeafStatic(pModel.get(), pNoVisLeaf.get());
                      R_DrawWorldSurfaceLeafAnim(pModel.get(), pNoVisLeaf.get());
  
@@ -6304,7 +6385,7 @@ index 41f24f3..c933e2b 100644
                  }
              }
              else if (R_IsRenderingShadowView())
-@@ -3599,7 +2271,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3599,7 +2272,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              pLeaf = pModel->GetLeafByIndex(0);
          }
  
@@ -6313,7 +6394,7 @@ index 41f24f3..c933e2b 100644
          {
              if (R_IsRenderingShadowView())
              {
-@@ -3635,7 +2307,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3635,7 +2308,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
          }
      }
  
@@ -6322,16 +6403,17 @@ index 41f24f3..c933e2b 100644
  
      if (g_WorldSurfaceRenderer.bLightmapTexture)
      {
-@@ -3665,6 +2337,8 @@ void R_InitWSurf(void)
+@@ -3665,6 +2338,9 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
++    R_ResetExternalSceneLights();
 +    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3210,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3212,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -6340,7 +6422,7 @@ index 41f24f3..c933e2b 100644
              return;
          }
      }
-@@ -5052,7 +3726,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+@@ -5052,7 +3728,8 @@ void R_DrawBrushModel(cl_entity_t* e)
          g_WorldSurfaceRenderer.bLightmapTexture = false;
      }
  
@@ -6636,10 +6718,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..f98ba37 100644
+index 93166e2..33272d6 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,35 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,70 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -6659,6 +6741,41 @@ index 93166e2..f98ba37 100644
 +# The real optional-interface factory/registry/validation/dispatch is linked
 +# directly. This does not initialize or launch a game or OpenGL context.
 +find_package(Python3 REQUIRED COMPONENTS Interpreter)
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_scene_culling_dispatch.py"
++        --rmain "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.json"
++    DEPENDS extract_scene_culling_dispatch.py "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++    VERBATIM)
++add_executable(scene_culling_tests scene_culling_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.inc"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_include_directories(scene_culling_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_link_libraries(scene_culling_tests PRIVATE renderer_settings)
++target_compile_options(scene_culling_tests PRIVATE /UNDEBUG)
++add_test(NAME scene_culling_tests COMMAND scene_culling_tests)
++set_tests_properties(scene_culling_tests PROPERTIES TIMEOUT 20)
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/scene_lights_dispatch.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_scene_lights_dispatch.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/scene_lights_dispatch.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/scene_lights_dispatch.json"
++    DEPENDS extract_scene_lights_dispatch.py "${PROJECT_SOURCE_DIR}/src/gl_light.cpp"
++        "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp" "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
++        "${PROJECT_SOURCE_DIR}/src/world_edit_cache.cpp" "${PROJECT_SOURCE_DIR}/src/gl_cvar.cpp"
++    VERBATIM)
++add_executable(scene_lights_tests scene_lights_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/scene_culling_dispatch.inc"
++    "${CMAKE_CURRENT_BINARY_DIR}/scene_lights_dispatch.inc"
++    "${PROJECT_SOURCE_DIR}/src/mathlib2.cpp"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_include_directories(scene_lights_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_link_libraries(scene_lights_tests PRIVATE renderer_settings)
++target_compile_options(scene_lights_tests PRIVATE /UNDEBUG /Gy)
++target_link_options(scene_lights_tests PRIVATE /OPT:REF /INCREMENTAL:NO)
++add_test(NAME scene_lights_tests COMMAND scene_lights_tests)
++set_tests_properties(scene_lights_tests PROPERTIES TIMEOUT 20)
 +add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/post_scene_dispatch.cpp"
 +    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_post_scene_dispatch.py"
 +        --rmain "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
@@ -6677,7 +6794,7 @@ index 93166e2..f98ba37 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +67,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +102,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -6852,16 +6969,358 @@ index 0000000..c9c42ef
 +};
 +
 +#define METARENDERER_SCENE_INTERFACE_VERSION "MetaRendererScene_API_001"
+diff --git a/include/Interface/IMetaRendererSceneCulling.h b/include/Interface/IMetaRendererSceneCulling.h
+new file mode 100644
+index 0000000..14cc56f
+--- /dev/null
++++ b/include/Interface/IMetaRendererSceneCulling.h
+@@ -0,0 +1,24 @@
++#pragma once
++#include <interface.h>
++
++// Optional, same-process CPU culling extension. The existing Renderer and
++// Scene_API_001 vtables are unchanged. Use only on the Renderer/GL thread.
++class IMetaRendererSceneCulling : public IBaseInterface
++{
++public:
++    // Valid only during DrawOpaqueScene with META_SCENE_SHADOW. Supply the
++    // complete geometry's AABB in final GoldSrc world coordinates, including
++    // its current animation. Each non-null pointer addresses three floats.
++    // true proves this box cannot shadow a lit receiver in the current pass;
++    // the consumer may omit that geometry for this invocation only. false
++    // means visible OR unknown: draw normally. Do not cache across callbacks.
++    //
++    // API001 uses the actual current point-light sphere, with conservative
++    // boundary tolerance. Spot/directional/unknown volumes, calls outside an
++    // external shadow callback, disabled culling, null pointers and invalid
++    // bounds all return false. No main-camera frustum is substituted. This
++    // performs no GL queries, changes no GL state and allocates no memory.
++    virtual bool CullShadowBounds(const float* mins, const float* maxs) noexcept = 0;
++};
++
++#define METARENDERER_SCENE_CULLING_INTERFACE_VERSION "MetaRendererSceneCulling_API_001"
+diff --git a/tests/scene_culling_tests.cpp b/tests/scene_culling_tests.cpp
+new file mode 100644
+index 0000000..ea1f1f7
+--- /dev/null
++++ b/tests/scene_culling_tests.cpp
+@@ -0,0 +1,255 @@
++// Execute the actual CPU volume implementation and extracted scene dispatch/
++// interface factories. Engine view flags and the GBuffer mask are adapters;
++// this test neither opens GL nor substitutes a camera/light culling oracle.
++#include "../src/gl_shadow_cull.cpp"
++#include "../src/gl_external_scene.h"
++#include <algorithm>
++#include <cassert>
++#include <cstdio>
++#include <cstdlib>
++#include <limits>
++#include <new>
++#include <type_traits>
++#include <unordered_map>
++#include <vector>
++
++namespace
++{
++unsigned checks{}, callbacks{}, maskCalls{}, profileCalls{};
++size_t allocations{};
++bool shadow{}, gbuffer{}, multiview{}, linearDepth{}, gamma{};
++cvar_t enabled{};
++IMetaRendererScene* scene{};
++IMetaRendererSceneCulling* culling{};
++const float origin[]{0, 0, 0};
++const float farMin[]{300, -10, -10}, farMax[]{320, 10, 10};
++
++void Check(bool condition)
++{
++    ++checks;
++    assert(condition);
++}
++}
++
++void* operator new(size_t size)
++{
++    ++allocations;
++    if (void* value = std::malloc(size ? size : 1)) return value;
++    throw std::bad_alloc();
++}
++void* operator new[](size_t size) { return ::operator new(size); }
++void operator delete(void* value) noexcept { std::free(value); }
++void operator delete[](void* value) noexcept { std::free(value); }
++void operator delete(void* value, size_t) noexcept { std::free(value); }
++void operator delete[](void* value, size_t) noexcept { std::free(value); }
++
++cl_enginefunc_t gEngfuncs{};
++int r_draw_classify = DRAW_CLASSIFY_OPAQUE_ENTITIES;
++bool R_IsRenderingGBuffer() { return gbuffer; }
++bool R_IsRenderingShadowView() { return shadow; }
++bool R_IsRenderingMultiView() { return multiview; }
++bool R_IsRenderingLinearDepth() { return linearDepth; }
++bool R_IsRenderingGammaBlending() { return gamma; }
++void R_SetGBufferMask(int mask) { Check(mask == GBUFFER_MASK_ALL); ++maskCalls; }
++void R_ProfileShadowCull(bool) { ++profileCalls; }
++// Light ownership/cleanup is exercised by scene_lights_tests; this fixture
++// retains only the scene dispatch and culling dependencies.
++void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks*) noexcept {}
++
++#include "scene_culling_dispatch.inc"
++
++namespace
++{
++struct Callback final : IMetaRendererSceneCallbacks
++{
++    void (*body)(uint32_t){};
++    void DrawOpaqueScene(uint32_t flags) override
++    {
++        ++callbacks;
++        Check(body != nullptr);
++        body(flags);
++    }
++} callback;
++bool expectedCull{};
++
++void ExpectFar(uint32_t flags)
++{
++    Check(((flags & META_SCENE_SHADOW) != 0) == shadow);
++    Check(culling->CullShadowBounds(farMin, farMax) == expectedCull);
++}
++
++void Boundaries(uint32_t flags)
++{
++    Check(flags == (META_SCENE_SHADOW | META_SCENE_MULTIVIEW | META_SCENE_LINEAR_DEPTH));
++    Check(culling->CullShadowBounds(farMin, farMax));
++    Check(!culling->CullShadowBounds(nullptr, farMax));
++    Check(!culling->CullShadowBounds(farMin, nullptr));
++    Check(!culling->CullShadowBounds(nullptr, nullptr));
++    const float insideMin[]{-10, -10, -10}, insideMax[]{10, 10, 10};
++    const float enclosingMin[]{-200, -200, -200}, enclosingMax[]{200, 200, 200};
++    Check(!culling->CullShadowBounds(insideMin, insideMax));
++    Check(!culling->CullShadowBounds(enclosingMin, enclosingMax));
++    Check(!culling->CullShadowBounds(origin, origin));
++    const float diagonalMin[]{75, 75, -1}, diagonalMax[]{80, 80, 1};
++    Check(culling->CullShadowBounds(diagonalMin, diagonalMax));
++    for (int axis = 0; axis < 3; ++axis)
++    {
++        for (int sign : {-1, 1})
++        {
++            float low[]{-1, -1, -1}, high[]{1, 1, 1};
++            low[axis] = high[axis] = float(sign * 101); // radius + production tolerance
++            Check(!culling->CullShadowBounds(low, high));
++            low[axis] = high[axis] = std::nextafter(low[axis], float(sign) * std::numeric_limits<float>::infinity());
++            Check(culling->CullShadowBounds(low, high));
++        }
++        for (float invalid : {std::numeric_limits<float>::quiet_NaN(),
++                              std::numeric_limits<float>::infinity(),
++                              -std::numeric_limits<float>::infinity()})
++        {
++            float low[]{300, -10, -10}, high[]{320, 10, 10};
++            low[axis] = invalid;
++            Check(!culling->CullShadowBounds(low, high));
++            low[axis] = farMin[axis];
++            high[axis] = invalid;
++            Check(!culling->CullShadowBounds(low, high));
++            float invalidOrigin[]{0, 0, 0};
++            invalidOrigin[axis] = invalid;
++            RPointShadowCullScope invalidLight(invalidOrigin, 100);
++            Check(!culling->CullShadowBounds(farMin, farMax));
++        }
++        float low[]{300, -10, -10}, high[]{320, 10, 10};
++        low[axis] = high[axis] + 1;
++        Check(!culling->CullShadowBounds(low, high));
++    }
++    for (float invalid : {0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(),
++                          std::numeric_limits<float>::infinity()})
++    {
++        RPointShadowCullScope invalidLight(origin, invalid);
++        Check(!culling->CullShadowBounds(farMin, farMax));
++    }
++    const float large = (std::numeric_limits<float>::max)();
++    const float largeOrigin[]{-large, -large, -large}, largeBox[]{large, large, large};
++    {
++        RPointShadowCullScope largeLight(largeOrigin, large);
++        Check(culling->CullShadowBounds(largeBox, largeBox)); // finite double arithmetic
++    }
++    const float other[]{310, 0, 0};
++    {
++        RPointShadowCullScope nested(other, 30);
++        Check(!culling->CullShadowBounds(farMin, farMax));
++    }
++    Check(culling->CullShadowBounds(farMin, farMax));
++}
++
++int dispatchDepth{};
++void NestedDispatch(uint32_t flags)
++{
++    if (dispatchDepth)
++    {
++        Check(!(flags & META_SCENE_SHADOW));
++        // Keep the renderer shadow input true to prove the per-dispatch gate
++        // revokes capability, independently of R_CullPointShadowBox's guard.
++        shadow = true;
++        Check(!culling->CullShadowBounds(farMin, farMax));
++        shadow = false;
++        return;
++    }
++    Check(culling->CullShadowBounds(farMin, farMax));
++    ++dispatchDepth;
++    shadow = false;
++    R_DrawExternalOpaqueScene();
++    shadow = true;
++    --dispatchDepth;
++    Check(culling->CullShadowBounds(farMin, farMax));
++}
++
++void Throwing(uint32_t)
++{
++    Check(culling->CullShadowBounds(farMin, farMax));
++    throw 17;
++}
++
++void Dispatch()
++{
++    const auto before = allocations;
++    R_DrawExternalOpaqueScene();
++    Check(allocations == before);
++}
++}
++
++int main()
++{
++    static_assert(noexcept(culling->CullShadowBounds(nullptr, nullptr)));
++    static_assert(!std::is_copy_constructible_v<RExternalSceneShadowCullScope>);
++    int result = -1;
++    scene = static_cast<IMetaRendererScene*>(CreateInterface(METARENDERER_SCENE_INTERFACE_VERSION, &result));
++    Check(scene && result == IFACE_OK);
++    culling = static_cast<IMetaRendererSceneCulling*>(CreateInterface(METARENDERER_SCENE_CULLING_INTERFACE_VERSION, &result));
++    Check(culling && result == IFACE_OK);
++    Check(CreateInterface(METARENDERER_SCENE_INTERFACE_VERSION, nullptr) == scene);
++    Check(CreateInterface(METARENDERER_SCENE_CULLING_INTERFACE_VERSION, nullptr) == culling);
++    Check(!CreateInterface("MetaRendererSceneCulling_API_999", &result) && result == IFACE_FAILED);
++    Check(!culling->CullShadowBounds(farMin, farMax));
++    scene->RegisterSceneCallbacks(nullptr);
++    scene->RegisterSceneCallbacks(&callback);
++    scene->RegisterSceneCallbacks(&callback);
++    callback.body = ExpectFar;
++    shadow = true;
++    {
++        RPointShadowCullScope light(origin, 100);
++        Dispatch(); // uninitialized cvar must retain geometry
++    }
++    Check(callbacks == 1 && maskCalls == 1); // duplicate registration is idempotent
++    gEngfuncs.pfnRegisterVariable = [](const char*, const char*, int) { return &enabled; };
++    R_InitShadowCulling();
++    enabled.value = 1;
++    Dispatch(); // no actual point volume: spot/directional/unknown fail open
++    {
++        RPointShadowCullScope light(origin, 100);
++        Check(!culling->CullShadowBounds(farMin, farMax)); // outside callback
++        expectedCull = true;
++        Dispatch();
++        const auto beforeCallbacks = callbacks, beforeMasks = maskCalls;
++        r_draw_classify = DRAW_CLASSIFY_WORLD;
++        Dispatch(); // cached static-world shadow must not dispatch plugin
++        Check(callbacks == beforeCallbacks && maskCalls == beforeMasks);
++        r_draw_classify = DRAW_CLASSIFY_OPAQUE_ENTITIES;
++        expectedCull = false;
++        enabled.value = 0;
++        Dispatch();
++        enabled.value = -1;
++        Dispatch();
++        enabled.value = 1;
++        shadow = false;
++        gbuffer = gamma = true;
++        Dispatch(); // main/reflection do not borrow the point-light volume
++        shadow = multiview = linearDepth = true;
++        gbuffer = gamma = false;
++        callback.body = Boundaries;
++        Dispatch();
++        callback.body = NestedDispatch;
++        Dispatch();
++        callback.body = Throwing;
++        try { R_DrawExternalOpaqueScene(); Check(false); }
++        catch (int value) { Check(value == 17); }
++        Check(!culling->CullShadowBounds(farMin, farMax)); // unwind revoked gate
++        callback.body = ExpectFar;
++        expectedCull = true;
++        Dispatch();
++    }
++    expectedCull = false;
++    Dispatch(); // point scope revoked, even with shadow flags still set
++    Check(!culling->CullShadowBounds(farMin, farMax));
++    const auto beforeCallbacks = callbacks, beforeMasks = maskCalls;
++    scene->UnregisterSceneCallbacks(&callback);
++    scene->UnregisterSceneCallbacks(&callback);
++    Dispatch();
++    Check(callbacks == beforeCallbacks && maskCalls == beforeMasks);
++    // Old Scene001 methods still use the actual unchanged factory/vtable.
++    scene->SetDynamicLightShadowSize(7, 128);
++    Check(R_GetExternalDlightShadowSize(7) == 128);
++    scene->SetDynamicLightShadowSize(7, 0);
++    Check(R_GetExternalDlightShadowSize(7) == 0);
++    Check(profileCalls > 0);
++    std::printf("SceneCulling001: %u checks, %u production callbacks; CPU-only dispatch/volume/factory evidence\n", checks, callbacks);
++}
+diff --git a/tests/extract_scene_culling_dispatch.py b/tests/extract_scene_culling_dispatch.py
+new file mode 100644
+index 0000000..44e2e80
+--- /dev/null
++++ b/tests/extract_scene_culling_dispatch.py
+@@ -0,0 +1,37 @@
++"""Extract the complete production scene registry, dispatch and API factories.
++
++Only engine view inputs and the pre-dispatch GBuffer mask call are adapted by
++the CPU fixture. Its optional culling provider and light-volume implementation
++remain production code. This does not prove a rendered shadow or game FPS.
++"""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++
++parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument("--rmain", type=Path, required=True)
++parser.add_argument("--output", type=Path, required=True)
++parser.add_argument("--manifest", type=Path, required=True)
++args = parser.parse_args()
++source = args.rmain.read_text(encoding="utf-8-sig")
++start = "namespace\n{\nstd::vector<IMetaRendererSceneCallbacks*> externalSceneCallbacks;"
++end = "\nclass CMetaRenderer : public IMetaRenderer\n"
++if source.count(start) != 1 or source.count(end) != 1:
++    raise SystemExit("Production scene extraction boundaries changed")
++body = source[source.index(start):source.index(end)]
++for required in (
++    "void R_DrawExternalOpaqueScene()",
++    "RExternalSceneShadowCullScope cullScope((flags & META_SCENE_SHADOW) != 0);",
++    "EXPOSE_SINGLE_INTERFACE(CMetaRendererScene, IMetaRendererScene, METARENDERER_SCENE_INTERFACE_VERSION);",
++    "EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneCulling, IMetaRendererSceneCulling, METARENDERER_SCENE_CULLING_INTERFACE_VERSION);",
++):
++    if body.count(required) != 1:
++        raise SystemExit("Missing or duplicated production boundary: " + required)
++args.output.parent.mkdir(parents=True, exist_ok=True)
++args.output.write_text("// Complete production scene dispatch and factories.\n" + body, encoding="utf-8")
++args.manifest.write_text(json.dumps({
++    "sourceSha256": hashlib.sha256(args.rmain.read_bytes()).hexdigest(),
++    "extractedSha256": hashlib.sha256(body.encode()).hexdigest(),
++    "boundary": "Production registry, DrawOpaqueScene dispatch, existing Scene001 and optional SceneCulling001 factories; engine view inputs adapted.",
++}, indent=2) + "\n", encoding="utf-8")
 diff --git a/src/gl_external_scene.h b/src/gl_external_scene.h
 new file mode 100644
-index 0000000..5385033
+index 0000000..4160cd9
 --- /dev/null
 +++ b/src/gl_external_scene.h
-@@ -0,0 +1,4 @@
+@@ -0,0 +1,12 @@
 +#pragma once
 +#include <IMetaRendererScene.h>
++#include <IMetaRendererSceneCulling.h>
++#include <IMetaRendererSceneLights.h>
 +void     R_DrawExternalOpaqueScene();
 +unsigned R_GetExternalDlightShadowSize(int key);
++bool R_IsExternalSceneOwner(IMetaRendererSceneCallbacks* owner) noexcept;
++bool R_UpdateExternalSceneLights(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneLight* lights, uint32_t count) noexcept;
++void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks* owner) noexcept;
++void R_ResetExternalSceneLights() noexcept;
++void R_AddVisibleExternalSceneLights();
++void R_EndExternalSceneLightsFrame() noexcept;
 diff --git a/src/gl_gbuffer.cpp b/src/gl_gbuffer.cpp
 new file mode 100644
 index 0000000..d67177f
@@ -8176,10 +8635,10 @@ index 0000000..58fa881
 +}
 diff --git a/src/gl_shadow_cull.h b/src/gl_shadow_cull.h
 new file mode 100644
-index 0000000..67da952
+index 0000000..c352aca
 --- /dev/null
 +++ b/src/gl_shadow_cull.h
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,33 @@
 +#pragma once
 +
 +// The six cubemap views cannot share one camera frustum, but casters outside
@@ -8199,12 +8658,26 @@ index 0000000..67da952
 +};
 +void R_InitShadowCulling();
 +bool R_CullPointShadowBox(const float* mins, const float* maxs);
++
++// Limit the optional public query to the actual external shadow dispatch.
++// A nested non-shadow dispatch temporarily revokes the outer capability.
++class RExternalSceneShadowCullScope
++{
++    bool previous_;
++
++public:
++    explicit RExternalSceneShadowCullScope(bool shadow) noexcept;
++    ~RExternalSceneShadowCullScope();
++    RExternalSceneShadowCullScope(const RExternalSceneShadowCullScope&)            = delete;
++    RExternalSceneShadowCullScope& operator=(const RExternalSceneShadowCullScope&) = delete;
++};
++bool R_CullExternalShadowBox(const float* mins, const float* maxs) noexcept;
 diff --git a/src/gl_shadow_cull.cpp b/src/gl_shadow_cull.cpp
 new file mode 100644
-index 0000000..796bd79
+index 0000000..c03ee75
 --- /dev/null
 +++ b/src/gl_shadow_cull.cpp
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,54 @@
 +#include "gl_local.h"
 +#include "gl_shadow_cull.h"
 +#include <cmath>
@@ -8213,6 +8686,7 @@ index 0000000..796bd79
 +{
 +const RPointShadowCullScope* pointShadowVolume{};
 +cvar_t*                      shadowCasterCull{};
++bool                         externalShadowDispatch{};
 +} // namespace
 +
 +RPointShadowCullScope::RPointShadowCullScope(const float* origin, float radius) : previous_(pointShadowVolume), origin_{origin[0], origin[1], origin[2]}, radius_(radius)
@@ -8220,6 +8694,17 @@ index 0000000..796bd79
 +    pointShadowVolume = this;
 +}
 +RPointShadowCullScope::~RPointShadowCullScope() { pointShadowVolume = previous_; }
++
++RExternalSceneShadowCullScope::RExternalSceneShadowCullScope(bool shadow) noexcept : previous_(externalShadowDispatch)
++{
++    externalShadowDispatch = shadow;
++}
++RExternalSceneShadowCullScope::~RExternalSceneShadowCullScope() { externalShadowDispatch = previous_; }
++
++bool R_CullExternalShadowBox(const float* mins, const float* maxs) noexcept
++{
++    return externalShadowDispatch && mins && maxs && R_CullPointShadowBox(mins, maxs);
++}
 +
 +void R_InitShadowCulling()
 +{
@@ -11815,7 +12300,7 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..60a50e6
+index 0000000..06c0281
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
 @@ -0,0 +1,1486 @@
@@ -11857,7 +12342,7 @@ index 0000000..60a50e6
 +CWorldSurfaceRenderer                                 g_WorldSurfaceRenderer;
 +std::vector<std::shared_ptr<CWorldSurfaceModel>>      g_WorldSurfaceModels;
 +std::vector<std::shared_ptr<CWorldSurfaceWorldModel>> g_WorldSurfaceWorldModels;
-+std::vector<std::shared_ptr<CDynamicLight>>           g_BSPDynamicLights, g_EngineDynamicLights;
++std::vector<std::shared_ptr<CDynamicLight>>           g_BSPDynamicLights, g_EngineDynamicLights, g_ExternalDynamicLights;
 +model_t*                                              worldModel{};
 +model_t**                                             cl_worldmodel = &worldModel;
 +cl_entity_t                                           entity{};
@@ -13939,10 +14424,10 @@ index 0000000..a02bca1
 +EXPOSE_SINGLE_INTERFACE_GLOBALVAR(CMetaRendererWorldEdit, IMetaRendererWorldEdit2, METARENDERER_WORLD_EDIT2_INTERFACE_VERSION, __g_CMetaRendererWorldEdit_singleton);
 diff --git a/src/world_edit_cache.cpp b/src/world_edit_cache.cpp
 new file mode 100644
-index 0000000..8bcc736
+index 0000000..4c5b37d
 --- /dev/null
 +++ b/src/world_edit_cache.cpp
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <cmath>
@@ -14042,6 +14527,7 @@ index 0000000..8bcc736
 +    // Include currently invisible lights: they must rebake when next seen.
 +    invalidate(g_BSPDynamicLights);
 +    invalidate(g_EngineDynamicLights);
++    invalidate(g_ExternalDynamicLights);
 +}
 +
 +void R_ClearDecalCache(void)
@@ -14724,3 +15210,811 @@ index 0000000..29d3155
 +    "function": "R_RenderView",
 +    "sha256": hashlib.sha256(body.encode()).hexdigest(),
 +}, indent=2) + "\n", encoding="utf-8")
+diff --git a/include/Interface/IMetaRendererSceneLights.h b/include/Interface/IMetaRendererSceneLights.h
+new file mode 100644
+index 0000000..d9a7260
+--- /dev/null
++++ b/include/Interface/IMetaRendererSceneLights.h
+@@ -0,0 +1,29 @@
++#pragma once
++#include <IMetaRendererScene.h>
++
++// Optional, independent extension: MetaRendererScene_API_001 is unchanged.
++// All methods run on the render/game thread, outside scene draw callbacks.
++struct MetaRendererSceneLight
++{
++    float origin[3]; // GoldSrc world coordinates
++    float radius;    // finite, > 0 and <= 999999 GoldSrc units
++    uint32_t color;  // 0xAABBGGRR; alpha is ignored
++};
++static_assert(sizeof(MetaRendererSceneLight) == 20);
++inline constexpr uint32_t META_SCENE_LIGHTS_MAX_COUNT = 524288;
++
++class IMetaRendererSceneLights : public IBaseInterface
++{
++public:
++    // Replace this registered Scene001 callback owner's complete light snapshot.
++    // Copies the input. Invalid input, unregistered ownership or allocation
++    // failure returns false and preserves the previous snapshot. count == 0
++    // clears this owner's lights; a nonzero count requires a valid array.
++    // Each light uses cached world and dynamic entity shadows at 256 pixels.
++    // Caller must resubmit after map changes, which clear all light snapshots.
++    virtual bool UpdateLights(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneLight* lights,
++                              uint32_t count) noexcept = 0;
++    virtual void ClearLights(IMetaRendererSceneCallbacks* owner) noexcept = 0;
++};
++
++#define METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION "MetaRendererSceneLights_API_001"
+diff --git a/src/gl_scene_lights.cpp b/src/gl_scene_lights.cpp
+new file mode 100644
+index 0000000..45b0510
+--- /dev/null
++++ b/src/gl_scene_lights.cpp
+@@ -0,0 +1,271 @@
++#include "gl_local.h"
++#include "gl_external_scene.h"
++#include <algorithm>
++#include <array>
++#include <cmath>
++
++std::vector<std::shared_ptr<CDynamicLight>> g_ExternalDynamicLights;
++
++namespace
++{
++struct SceneLightNode
++{
++    float mins[3]{}, maxs[3]{};
++    uint32_t begin{}, end{}, right{};
++};
++
++struct SceneLightOwner
++{
++    IMetaRendererSceneCallbacks* owner{};
++    std::vector<MetaRendererSceneLight> input;
++    std::vector<std::shared_ptr<CDynamicLight>> lights;
++    std::vector<SceneLightNode> nodes;
++};
++std::array<SceneLightOwner, 16> sceneLightOwners;
++// Only lights used by a view enter this list. End-of-frame cleanup therefore
++// scans the live shadow cache, not potentially hundreds of thousands of
++// resident light descriptions. Its capacity is reserved on snapshot updates.
++std::vector<std::shared_ptr<CDynamicLight>> sceneShadowCandidates;
++
++bool SameLight(const MetaRendererSceneLight& a, const MetaRendererSceneLight& b) noexcept
++{
++    return a.origin[0] == b.origin[0] && a.origin[1] == b.origin[1] && a.origin[2] == b.origin[2] &&
++           a.radius == b.radius && (a.color & 0xffffffu) == (b.color & 0xffffffu);
++}
++
++bool LightLess(const MetaRendererSceneLight& a, const MetaRendererSceneLight& b) noexcept
++{
++    for (int axis = 0; axis < 3; ++axis)
++        if (a.origin[axis] != b.origin[axis]) return a.origin[axis] < b.origin[axis];
++    if (a.radius != b.radius) return a.radius < b.radius;
++    return (a.color & 0xffffffu) < (b.color & 0xffffffu);
++}
++
++MetaRendererSceneLight LightValue(const CDynamicLight& light) noexcept
++{
++    return {{light.origin[0], light.origin[1], light.origin[2]}, light.size, light.external_scene_color};
++}
++
++uint32_t BuildLightNodes(SceneLightOwner& state, uint32_t begin, uint32_t end)
++{
++    const auto index = static_cast<uint32_t>(state.nodes.size());
++    state.nodes.emplace_back();
++    // nodes was reserved before recursion; references stay valid.
++    auto& node = state.nodes[index];
++    node.begin = begin;
++    node.end = end;
++    if (end - begin > 16)
++    {
++        const auto middle = begin + (end - begin) / 2;
++        const auto left = BuildLightNodes(state, begin, middle);
++        node.right = BuildLightNodes(state, middle, end);
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            node.mins[axis] = (std::min)(state.nodes[left].mins[axis], state.nodes[node.right].mins[axis]);
++            node.maxs[axis] = (std::max)(state.nodes[left].maxs[axis], state.nodes[node.right].maxs[axis]);
++        }
++    }
++    else
++    {
++        for (uint32_t i = begin; i < end; ++i)
++        {
++            const auto& light = *state.lights[i];
++            // The ordinary point-light path bypasses PVS/frustum checks when
++            // the eye is within radius + 32. Include that entire region here.
++            const auto extent = light.size + 32.0f;
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                const auto low = light.origin[axis] - extent;
++                const auto high = light.origin[axis] + extent;
++                node.mins[axis] = i == begin ? low : (std::min)(node.mins[axis], low);
++                node.maxs[axis] = i == begin ? high : (std::max)(node.maxs[axis], high);
++            }
++        }
++    }
++    return index;
++}
++
++void RemoveVisibleOwner(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    std::erase_if(g_VisibleDynamicLights, [owner](const auto& entry) {
++        return entry.m_pDynamicLight && entry.m_pDynamicLight->external_scene_owner &&
++               (!owner || entry.m_pDynamicLight->external_scene_owner == owner);
++    });
++}
++
++void AddLightNode(const SceneLightOwner& state, uint32_t index, const std::array<float, 4>& coefficients)
++{
++    const auto& node = state.nodes[index];
++    bool eyeInside = true;
++    for (int axis = 0; axis < 3; ++axis)
++        eyeInside &= (*r_refdef.vieworg)[axis] >= node.mins[axis] && (*r_refdef.vieworg)[axis] <= node.maxs[axis];
++    if (!eyeInside)
++    {
++        // The legacy engine ABI takes mutable arrays. Keep stored bounds
++        // immutable even if an engine implementation writes to its arguments.
++        vec3_t mins{node.mins[0], node.mins[1], node.mins[2]};
++        vec3_t maxs{node.maxs[0], node.maxs[1], node.maxs[2]};
++        if (R_CullBox(mins, maxs) || !triapi_BoxInPVS(mins, maxs)) return;
++    }
++    if (node.right)
++    {
++        AddLightNode(state, index + 1, coefficients);
++        AddLightNode(state, node.right, coefficients);
++        return;
++    }
++    for (uint32_t i = node.begin; i < node.end; ++i)
++    {
++        const auto& light = state.lights[i];
++        const auto visibleBefore = g_VisibleDynamicLights.size();
++        R_AddVisibleDynamicLight(light);
++        if (g_VisibleDynamicLights.size() == visibleBefore) continue;
++        light->external_scene_visible_frame = static_cast<uint32_t>(*r_framecount);
++        if (!light->external_scene_cached)
++        {
++            sceneShadowCandidates.push_back(light);
++            light->external_scene_cached = true;
++        }
++        light->ambient = coefficients[0];
++        light->diffuse = coefficients[1];
++        light->specular = coefficients[2];
++        light->specularpow = coefficients[3];
++    }
++}
++} // namespace
++
++bool R_UpdateExternalSceneLights(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneLight* lights,
++                                uint32_t count) noexcept
++{
++    if (!R_IsExternalSceneOwner(owner) || count > META_SCENE_LIGHTS_MAX_COUNT || (count && !lights)) return false;
++    if (!count)
++    {
++        R_ClearExternalSceneLights(owner);
++        return true;
++    }
++    for (uint32_t i = 0; i < count; ++i)
++    {
++        if (!std::isfinite(lights[i].radius) || lights[i].radius <= 0 || lights[i].radius > 999999) return false;
++        for (float coordinate : lights[i].origin)
++            if (!std::isfinite(coordinate) || !std::isfinite(coordinate - (lights[i].radius + 32.0f)) ||
++                !std::isfinite(coordinate + (lights[i].radius + 32.0f))) return false;
++    }
++    auto existing = std::find_if(sceneLightOwners.begin(), sceneLightOwners.end(),
++        [owner](const auto& state) { return state.owner == owner; });
++    if (existing != sceneLightOwners.end() && existing->input.size() == count &&
++        std::equal(existing->input.begin(), existing->input.end(), lights, SameLight)) return true;
++    auto destination = existing;
++    if (destination == sceneLightOwners.end())
++        destination = std::find_if(sceneLightOwners.begin(), sceneLightOwners.end(),
++            [](const auto& state) { return !state.owner; });
++    if (destination == sceneLightOwners.end()) return false;
++    try
++    {
++        SceneLightOwner candidate;
++        candidate.owner = owner;
++        candidate.input.assign(lights, lights + count);
++        auto sorted = candidate.input;
++        std::sort(sorted.begin(), sorted.end(), LightLess);
++        candidate.lights.reserve(count);
++        size_t oldIndex = 0;
++        for (const auto& value : sorted)
++        {
++            std::shared_ptr<CDynamicLight> light;
++            if (existing != sceneLightOwners.end())
++            {
++                while (oldIndex < existing->lights.size() && LightLess(LightValue(*existing->lights[oldIndex]), value)) ++oldIndex;
++                if (oldIndex < existing->lights.size() && SameLight(LightValue(*existing->lights[oldIndex]), value))
++                    light = existing->lights[oldIndex++];
++            }
++            if (!light)
++            {
++                light = std::make_shared<CDynamicLight>();
++                light->type = DynamicLightType_Point;
++                for (int axis = 0; axis < 3; ++axis)
++                {
++                    light->origin[axis] = value.origin[axis];
++                    light->color[axis] = float((value.color >> (axis * 8)) & 255u) / 255.0f;
++                }
++                light->size = value.radius;
++                light->static_shadow_size = light->dynamic_shadow_size = 256;
++                light->shadow = 1;
++                light->external_scene_owner = owner;
++                light->external_scene_color = value.color & 0xffffffu;
++            }
++            candidate.lights.push_back(std::move(light));
++        }
++        // Balanced leaves contain 8..16 lights (except the single root leaf).
++        candidate.nodes.reserve(2 * ((count + 7) / 8));
++        BuildLightNodes(candidate, 0, count);
++        std::vector<std::shared_ptr<CDynamicLight>> combined;
++        combined.reserve(g_ExternalDynamicLights.size() - destination->lights.size() + count);
++        for (const auto& state : sceneLightOwners)
++            if (state.owner != owner) combined.insert(combined.end(), state.lights.begin(), state.lights.end());
++        combined.insert(combined.end(), candidate.lights.begin(), candidate.lights.end());
++        // Preallocate the visible list on snapshot updates, not on every view.
++        g_VisibleDynamicLights.reserve(g_BSPDynamicLights.size() + g_EngineDynamicLights.size() + combined.size());
++        sceneShadowCandidates.reserve(combined.size());
++        RemoveVisibleOwner(owner);
++        for (const auto& light : destination->lights) light->external_scene_resident = false;
++        for (const auto& light : candidate.lights) light->external_scene_resident = true;
++        std::erase_if(sceneShadowCandidates, [](const auto& light) { return !light->external_scene_resident; });
++        *destination = std::move(candidate);
++        g_ExternalDynamicLights.swap(combined);
++        return true;
++    }
++    catch (...)
++    {
++        return false;
++    }
++}
++
++void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    if (!owner) return;
++    RemoveVisibleOwner(owner);
++    std::erase_if(sceneShadowCandidates, [owner](const auto& light) { return light->external_scene_owner == owner; });
++    std::erase_if(g_ExternalDynamicLights, [owner](const auto& light) { return light->external_scene_owner == owner; });
++    for (auto& state : sceneLightOwners)
++        if (state.owner == owner) state = {};
++}
++
++void R_ResetExternalSceneLights() noexcept
++{
++    RemoveVisibleOwner(nullptr);
++    sceneShadowCandidates.clear();
++    g_ExternalDynamicLights.clear();
++    for (auto& state : sceneLightOwners) state = {};
++}
++
++void R_AddVisibleExternalSceneLights()
++{
++    if (g_ExternalDynamicLights.empty()) return;
++    const std::array<float, 4> coefficients{r_dynlight_ambient->GetValue(), r_dynlight_diffuse->GetValue(),
++        r_dynlight_specular->GetValue(), r_dynlight_specularpow->GetValue()};
++    for (const auto& state : sceneLightOwners)
++        if (!state.nodes.empty()) AddLightNode(state, 0, coefficients);
++}
++
++void R_EndExternalSceneLightsFrame() noexcept
++{
++    const auto frame = static_cast<uint32_t>(*r_framecount);
++    std::erase_if(sceneShadowCandidates, [frame](const auto& light) {
++        if (light->external_scene_visible_frame == frame) return false;
++        // Every view has finished. Keep the CPU descriptor and full 256-pixel
++        // shadow settings; revisiting the light creates its textures lazily.
++        light->pStaticShadowTexture.reset();
++        light->pDynamicShadowTexture.reset();
++        light->external_scene_cached = false;
++        return true;
++    });
++}
++
++class CMetaRendererSceneLights : public IMetaRendererSceneLights
++{
++public:
++    bool UpdateLights(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneLight* lights, uint32_t count) noexcept override
++    {
++        return R_UpdateExternalSceneLights(owner, lights, count);
++    }
++    void ClearLights(IMetaRendererSceneCallbacks* owner) noexcept override { R_ClearExternalSceneLights(owner); }
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneLights, IMetaRendererSceneLights, METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION);
+diff --git a/tests/extract_scene_lights_dispatch.py b/tests/extract_scene_lights_dispatch.py
+new file mode 100644
+index 0000000..faee9b8
+--- /dev/null
++++ b/tests/extract_scene_lights_dispatch.py
+@@ -0,0 +1,62 @@
++"""Extract complete production visibility, view dispatch and shadow invalidation.
++
++The test substitutes host view/PVS queries and shadow-texture objects, not the
++light selection or snapshot implementation. Lifecycle wiring is checked here;
++actual engine map change and rendered pixels remain runtime validation.
++"""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++
++parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument("--src", type=Path, required=True)
++parser.add_argument("--output", type=Path, required=True)
++parser.add_argument("--manifest", type=Path, required=True)
++args = parser.parse_args()
++
++
++def function(source, signature):
++    if source.count(signature) != 1:
++        raise SystemExit("Missing or ambiguous production function: " + signature)
++    start = source.index(signature)
++    opening = source.index("{", start)
++    depth = 1
++    position = opening + 1
++    while depth:
++        depth += (source[position] == "{") - (source[position] == "}")
++        position += 1
++    return source[start:position]
++
++
++sources = {name: (args.src / name).read_text(encoding="utf-8-sig")
++           for name in ("gl_light.cpp", "gl_rmain.cpp", "gl_wsurf.cpp", "world_edit_cache.cpp", "gl_cvar.cpp")}
++parts = [function(sources[filename], signature) for filename, signature in (
++    ("gl_light.cpp", "bool Util_IsOriginInCone("),
++    ("gl_light.cpp", "void R_AddVisibleDynamicLight("),
++    ("gl_rmain.cpp", "void R_RenderViewStart()"),
++    ("world_edit_cache.cpp", "void R_InvalidateWorldShadowCaches("),
++    ("gl_cvar.cpp", "MapConVar::MapConVar("),
++    ("gl_cvar.cpp", "MapConVar::~MapConVar("),
++    ("gl_cvar.cpp", "float* MapConVar::GetValues("),
++    ("gl_cvar.cpp", "float MapConVar::GetValue("),
++    ("gl_cvar.cpp", "float* MapConVar::GetRawCvarValues("),
++)]
++for filename, signature, call in (
++    ("gl_light.cpp", "void R_ShutdownLight(void)", "R_ResetExternalSceneLights();"),
++    ("gl_rmain.cpp", "void R_NewMap(void)", "R_FreeWorldResources();"),
++    ("gl_wsurf.cpp", "void R_FreeWorldResources(void)", "R_ResetExternalSceneLights();"),
++    ("gl_rmain.cpp", "void R_Shutdown(void)", "R_ShutdownLight();"),
++    ("gl_rmain.cpp", "void R_RenderEndFrame()", "R_EndExternalSceneLightsFrame();"),
++    ("gl_rmain.cpp", "void GL_EndRendering(void)", "R_RenderEndFrame();"),
++):
++    if function(sources[filename], signature).count(call) != 1:
++        raise SystemExit("Missing lifecycle hook: " + signature + " -> " + call)
++body = "\n\n".join(parts) + "\n"
++args.output.parent.mkdir(parents=True, exist_ok=True)
++args.output.write_text(body, encoding="utf-8")
++args.manifest.write_text(json.dumps({
++    "sourceSha256": {name: hashlib.sha256((args.src / name).read_bytes()).hexdigest() for name in sources},
++    "extractedSha256": hashlib.sha256(body.encode()).hexdigest(),
++    "boundary": "Complete production visibility/view/light invalidation; host PVS/frustum and texture objects adapted; lifecycle hooks checked, no rendered pixels.",
++}, indent=2) + "\n", encoding="utf-8")
+diff --git a/tests/scene_lights_tests.cpp b/tests/scene_lights_tests.cpp
+new file mode 100644
+index 0000000..e40eb84
+--- /dev/null
++++ b/tests/scene_lights_tests.cpp
+@@ -0,0 +1,422 @@
++// Production snapshot/owner/API implementation and complete extracted engine
++// dispatch/visibility code. Host PVS/frustum inputs and texture objects are
++// adapters; this is CPU correctness evidence, not GL pixels or game FPS.
++#include "../src/gl_scene_lights.cpp"
++#include "../src/gl_shadow_cull.cpp"
++#include <cassert>
++#include <cstdio>
++#include <cstdlib>
++#include <limits>
++#include <new>
++#include <random>
++#include <source_location>
++#include <type_traits>
++#include <unordered_map>
++
++namespace
++{
++unsigned checks{}, cullQueries{}, pvsQueries{};
++size_t allocations{};
++int failAfter = -1;
++int frameNumber = 1;
++bool rejectAll{};
++float eye[3]{}, viewMins[3]{-100000, -100000, -100000}, viewMaxs[3]{100000, 100000, 100000};
++float pvsMins[3]{-100000, -100000, -100000}, pvsMaxs[3]{100000, 100000, 100000};
++void Check(bool value, const std::source_location& where = std::source_location::current())
++{
++    ++checks;
++    if (!value) std::fprintf(stderr, "Failed check %u at %s:%u\n", checks, where.file_name(), where.line());
++    assert(value);
++}
++bool Intersects(const float* low, const float* high, const float* otherLow, const float* otherHigh)
++{
++    for (int axis = 0; axis < 3; ++axis)
++        if (low[axis] > otherHigh[axis] || high[axis] < otherLow[axis]) return false;
++    return true;
++}
++}
++
++void* operator new(size_t size)
++{
++    ++allocations;
++    if (failAfter == 0) throw std::bad_alloc();
++    if (failAfter > 0) --failAfter;
++    if (void* result = std::malloc(size ? size : 1)) return result;
++    throw std::bad_alloc();
++}
++void* operator new[](size_t size) { return ::operator new(size); }
++void operator delete(void* value) noexcept { std::free(value); }
++void operator delete[](void* value) noexcept { std::free(value); }
++void operator delete(void* value, size_t) noexcept { std::free(value); }
++void operator delete[](void* value, size_t) noexcept { std::free(value); }
++
++cl_enginefunc_t gEngfuncs{};
++refdef_t r_refdef{};
++int* r_framecount = &frameNumber;
++std::vector<std::shared_ptr<CDynamicLight>> g_BSPDynamicLights, g_EngineDynamicLights;
++std::vector<CVisibleDynamicLightEntry> g_VisibleDynamicLights;
++MapConVar* r_dynlight_ambient{};
++MapConVar* r_dynlight_diffuse{};
++MapConVar* r_dynlight_specular{};
++MapConVar* r_dynlight_specularpow{};
++int r_draw_classify = DRAW_CLASSIFY_OPAQUE_ENTITIES;
++bool R_IsRenderingGBuffer() { return false; }
++bool R_IsRenderingShadowView() { return false; }
++bool R_IsRenderingMultiView() { return false; }
++bool R_IsRenderingLinearDepth() { return false; }
++bool R_IsRenderingGammaBlending() { return false; }
++void R_SetGBufferMask(int) {}
++void R_ProfileShadowCull(bool) {}
++qboolean R_CullBox(vec3_t mins, vec3_t maxs)
++{
++    ++cullQueries;
++    return rejectAll || !Intersects(mins, maxs, viewMins, viewMaxs);
++}
++int triapi_BoxInPVS(float* mins, float* maxs)
++{
++    ++pvsQueries;
++    return !rejectAll && Intersects(mins, maxs, pvsMins, pvsMaxs);
++}
++
++#include "scene_culling_dispatch.inc"
++#include "scene_lights_dispatch.inc"
++
++namespace
++{
++struct Owner final : IMetaRendererSceneCallbacks
++{
++    void DrawOpaqueScene(uint32_t) override {}
++};
++
++struct Shadow final : IShadowTexture
++{
++    bool ready = true;
++    mat4 matrix{};
++    float viewport[4]{};
++    bool IsReady() const override { return ready; }
++    void SetReady(bool value) override { ready = value; }
++    bool IsSingleLayer() const override { return false; }
++    bool IsCascaded() const override { return false; }
++    bool IsCubemap() const override { return true; }
++    bool IsStatic() const override { return true; }
++    GLuint GetDepthTexture() const override { return 0; }
++    uint32_t GetTextureSize() const override { return 256; }
++    void SetViewport(float, float, float, float) override {}
++    const float* GetViewport() const override { return viewport; }
++    void SetWorldMatrix(int, const mat4*) override {}
++    void SetProjectionMatrix(int, const mat4*) override {}
++    void SetShadowMatrix(int, const mat4*) override {}
++    const mat4* GetWorldMatrix(int) const override { return &matrix; }
++    const mat4* GetProjectionMatrix(int) const override { return &matrix; }
++    const mat4* GetShadowMatrix(int) const override { return &matrix; }
++    void SetCSMDistance(int, float) override {}
++    float GetCSMDistance(int) const override { return 0; }
++};
++
++std::vector<CDynamicLight*> VisiblePointers()
++{
++    std::vector<CDynamicLight*> result;
++    for (const auto& value : g_VisibleDynamicLights) result.push_back(value.m_pDynamicLight.get());
++    std::sort(result.begin(), result.end(), std::less<CDynamicLight*>());
++    return result;
++}
++
++void ResetQueryBounds()
++{
++    rejectAll = false;
++    for (int axis = 0; axis < 3; ++axis)
++    {
++        eye[axis] = 0;
++        viewMins[axis] = pvsMins[axis] = -100000;
++        viewMaxs[axis] = pvsMaxs[axis] = 100000;
++    }
++}
++}
++
++int main()
++{
++    static_assert(sizeof(MetaRendererSceneLight) == 20 && alignof(MetaRendererSceneLight) == 4);
++    static_assert(std::is_standard_layout_v<MetaRendererSceneLight> && std::is_trivially_copyable_v<MetaRendererSceneLight>);
++    static_assert(noexcept(std::declval<IMetaRendererSceneLights&>().UpdateLights(nullptr, nullptr, 0)));
++    static_assert(noexcept(std::declval<IMetaRendererSceneLights&>().ClearLights(nullptr)));
++    r_refdef.vieworg = &eye;
++    gEngfuncs.pfnRegisterVariable = [](const char*, const char*, int) -> cvar_t* { static cvar_t value{}; return &value; };
++    MapConVar ambient("ambient", "0", 0, 1, 0), diffuse("diffuse", "0", 0, 1, 0),
++        specular("specular", "0", 0, 1, 0), power("power", "0", 0, 1, 0);
++    r_dynlight_ambient = &ambient;
++    r_dynlight_diffuse = &diffuse;
++    r_dynlight_specular = &specular;
++    r_dynlight_specularpow = &power;
++    ambient.GetRawCvarValues()[0] = .11f;
++    diffuse.GetRawCvarValues()[0] = .72f;
++    specular.GetRawCvarValues()[0] = .23f;
++    power.GetRawCvarValues()[0] = 17;
++
++    int result{};
++    auto* scene = static_cast<IMetaRendererScene*>(CreateInterface(METARENDERER_SCENE_INTERFACE_VERSION, &result));
++    Check(scene && result == IFACE_OK);
++    auto* api = static_cast<IMetaRendererSceneLights*>(CreateInterface(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION, &result));
++    Check(api && result == IFACE_OK);
++    Check(CreateInterface(METARENDERER_SCENE_CULLING_INTERFACE_VERSION, nullptr) != nullptr);
++    Check(!CreateInterface("MetaRendererSceneLights_API_999", &result) && result == IFACE_FAILED);
++    Owner first, second, unregistered;
++    MetaRendererSceneLight single{{1200, 0, 0}, 96, 0xaaff8040};
++    Check(!api->UpdateLights(&first, &single, 1));
++    Check(!api->UpdateLights(nullptr, &single, 1));
++    Check(!api->UpdateLights(&unregistered, nullptr, 0));
++    scene->RegisterSceneCallbacks(&first);
++    scene->RegisterSceneCallbacks(&second);
++    Check(api->UpdateLights(&first, &single, 1));
++    single.origin[0] = 9999; // Caller owns/frees/mutates its input after the call.
++    Check(g_ExternalDynamicLights[0]->origin[0] == 1200);
++    single.origin[0] = 1200;
++
++    // More than the entire engine light pool, including emitters far beyond
++    // the removed 24-block camera cutoff, reach the normal per-view pipeline.
++    std::vector<MetaRendererSceneLight> many;
++    for (int i = 0; i < 96; ++i) many.push_back({{1200.0f + i * 32, float(i % 7) * 8, 0}, 96, 0xffa07040});
++    auto host = std::make_shared<CDynamicLight>();
++    host->type = DynamicLightType_Point;
++    host->size = 64;
++    host->color[0] = .123f;
++    g_EngineDynamicLights.push_back(host);
++    Check(api->UpdateLights(&first, many.data(), static_cast<uint32_t>(many.size())));
++    Check(api->UpdateLights(&second, &single, 1));
++    R_RenderViewStart();
++    Check(g_VisibleDynamicLights.size() == 98 && g_ExternalDynamicLights.size() == 97);
++    Check(g_EngineDynamicLights.size() == 1 && g_EngineDynamicLights[0] == host && host->color[0] == .123f && host->shadow == 0);
++    for (const auto& light : g_ExternalDynamicLights)
++    {
++        Check(light->static_shadow_size == 256 && light->dynamic_shadow_size == 256 && light->shadow == 1);
++        Check(light->ambient == .11f && light->diffuse == .72f && light->specular == .23f && light->specularpow == 17);
++        light->pStaticShadowTexture = std::make_shared<Shadow>();
++        light->pDynamicShadowTexture = std::make_shared<Shadow>();
++    }
++    auto previous = g_ExternalDynamicLights;
++    const auto beforeStable = allocations;
++    for (int i = 0; i < 64; ++i)
++    {
++        Check(api->UpdateLights(&first, many.data(), static_cast<uint32_t>(many.size())));
++        R_RenderViewStart();
++    }
++    Check(allocations == beforeStable);
++    Check(previous == g_ExternalDynamicLights);
++    for (const auto& light : g_ExternalDynamicLights) Check(light->pStaticShadowTexture->IsReady());
++    diffuse.GetRawCvarValues()[0] = .91f;
++    R_RenderViewStart();
++    Check(g_ExternalDynamicLights[0]->diffuse == .91f);
++
++    // Input ordering is not emitter identity: chunk reorder/removal must not
++    // destroy unchanged light objects or their cached shadows.
++    std::reverse(many.begin(), many.end());
++    Check(api->UpdateLights(&first, many.data(), static_cast<uint32_t>(many.size())));
++    for (const auto& light : previous) Check(std::find(g_ExternalDynamicLights.begin(), g_ExternalDynamicLights.end(), light) != g_ExternalDynamicLights.end());
++    many.erase(many.begin() + 15);
++    Check(api->UpdateLights(&first, many.data(), static_cast<uint32_t>(many.size())));
++    Check(g_ExternalDynamicLights.size() == 96);
++    for (const auto& light : g_ExternalDynamicLights) Check(light->pStaticShadowTexture && light->pStaticShadowTexture->IsReady());
++
++    // Every invalid request and every injected allocation failure preserves
++    // both owners' previous snapshots and their currently visible references.
++    previous = g_ExternalDynamicLights;
++    R_RenderViewStart();
++    const auto visibleBefore = VisiblePointers();
++    Check(!api->UpdateLights(&first, nullptr, 1));
++    Check(!api->UpdateLights(&first, &single, META_SCENE_LIGHTS_MAX_COUNT + 1));
++    for (float bad : {0.0f, -1.0f, 1000000.0f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
++    {
++        auto invalid = single;
++        invalid.radius = bad;
++        Check(!api->UpdateLights(&first, &invalid, 1));
++        Check(g_ExternalDynamicLights == previous && VisiblePointers() == visibleBefore);
++    }
++    for (int axis = 0; axis < 3; ++axis)
++        for (float bad : {std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
++        {
++            auto invalid = single;
++            invalid.origin[axis] = bad;
++            Check(!api->UpdateLights(&first, &invalid, 1));
++            Check(g_ExternalDynamicLights == previous);
++        }
++    auto changed = many;
++    changed.back().origin[1] += 1;
++    unsigned rejectedAllocations = 0;
++    for (int budget = 0; budget < 32; ++budget)
++    {
++        failAfter = budget;
++        const bool accepted = api->UpdateLights(&first, changed.data(), static_cast<uint32_t>(changed.size()));
++        failAfter = -1;
++        if (accepted) break;
++        ++rejectedAllocations;
++        Check(g_ExternalDynamicLights == previous && VisiblePointers() == visibleBefore);
++    }
++    Check(rejectedAllocations >= 5 && rejectedAllocations < 32);
++    previous.clear();
++    api->ClearLights(&first);
++    api->ClearLights(&second);
++    Check(g_ExternalDynamicLights.empty());
++    Check(g_EngineDynamicLights.size() == 1 && g_EngineDynamicLights[0] == host);
++
++    // The BVH must produce the same result as ordinary point-light selection,
++    // including eye-inside, touching extents, sparse views and separate PVS.
++    std::mt19937 random(0x4c495447);
++    std::uniform_real_distribution<float> coordinate(-10000, 10000), radius(1, 768);
++    many.clear();
++    for (int i = 0; i < 4096; ++i) many.push_back({{coordinate(random), coordinate(random), coordinate(random)}, radius(random), 0xff8080ff});
++    Check(api->UpdateLights(&first, many.data(), static_cast<uint32_t>(many.size())));
++    for (int view = 0; view < 128; ++view)
++    {
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            eye[axis] = coordinate(random);
++            viewMins[axis] = eye[axis] - 800;
++            viewMaxs[axis] = eye[axis] + 800;
++            pvsMins[axis] = eye[axis] - 300;
++            pvsMaxs[axis] = eye[axis] + 300;
++        }
++        g_VisibleDynamicLights.clear();
++        for (const auto& light : g_ExternalDynamicLights) R_AddVisibleDynamicLight(light);
++        const auto expected = VisiblePointers();
++        g_VisibleDynamicLights.clear();
++        const auto before = allocations;
++        R_AddVisibleExternalSceneLights();
++        Check(allocations == before);
++        Check(VisiblePointers() == expected);
++    }
++    ResetQueryBounds();
++    for (int axis = 0; axis < 3; ++axis) eye[axis] = 50500, viewMins[axis] = 50000, viewMaxs[axis] = 51000;
++    cullQueries = pvsQueries = 0;
++    g_VisibleDynamicLights.clear();
++    R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.empty() && cullQueries < 32 && pvsQueries == 0);
++    api->ClearLights(&first);
++    ResetQueryBounds();
++    single = {{176, 0, 0}, 144, 0xffffffff};
++    Check(api->UpdateLights(&first, &single, 1));
++    rejectAll = true;
++    g_VisibleDynamicLights.clear();
++    R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.size() == 1); // exact radius + 32 boundary
++    eye[0] = -1;
++    g_VisibleDynamicLights.clear();
++    R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.empty());
++    ResetQueryBounds();
++
++    // A currently invisible external emitter must invalidate its cached world
++    // shadow when mining changes its volume, just like a host dynamic light.
++    auto external = g_ExternalDynamicLights[0];
++    external->pStaticShadowTexture = std::make_shared<Shadow>();
++    host->pStaticShadowTexture = std::make_shared<Shadow>();
++    goldcraft::carving::Box edit{{175, -1, -1}, {177, 1, 1}};
++    g_VisibleDynamicLights.clear();
++    R_InvalidateWorldShadowCaches(std::span(&edit, 1));
++    Check(!external->pStaticShadowTexture->IsReady() && host->pStaticShadowTexture->IsReady());
++    external->pStaticShadowTexture->SetReady(true);
++    edit = {{10000, 10000, 10000}, {10001, 10001, 10001}};
++    R_InvalidateWorldShadowCaches(std::span(&edit, 1));
++    Check(external->pStaticShadowTexture->IsReady());
++    R_InvalidateWorldShadowCaches({});
++    Check(!external->pStaticShadowTexture->IsReady() && !host->pStaticShadowTexture->IsReady());
++    std::weak_ptr<CDynamicLight> released = external;
++    external.reset();
++    R_RenderViewStart();
++    scene->UnregisterSceneCallbacks(&first);
++    Check(g_ExternalDynamicLights.empty() && released.expired());
++    Check(!api->UpdateLights(&first, &single, 1));
++    Check(g_VisibleDynamicLights.size() == 1 && g_VisibleDynamicLights[0].m_pDynamicLight == host);
++    scene->RegisterSceneCallbacks(&first);
++    Check(api->UpdateLights(&first, &single, 1));
++    R_RenderViewStart();
++    R_ResetExternalSceneLights(); // Real map-teardown/shutdown hook target.
++    Check(g_ExternalDynamicLights.empty() && g_VisibleDynamicLights.size() == 1);
++    Check(api->UpdateLights(&first, &single, 1)); // Registration survives map load.
++    Check(api->UpdateLights(&first, nullptr, 0) && g_ExternalDynamicLights.empty());
++    api->ClearLights(nullptr);
++    api->ClearLights(&unregistered);
++
++    // Shadow cache lifetime uses the union of every view in the frame. A
++    // reflection/second view must not evict resources needed by the first.
++    const MetaRendererSceneLight cacheLights[]{
++        {{-2000, 0, 0}, 64, 0xffffffff}, {{0, 0, 0}, 64, 0xffffffff}, {{2000, 0, 0}, 64, 0xffffffff}};
++    Check(api->UpdateLights(&first, cacheLights, 3));
++    auto left = g_ExternalDynamicLights[0], middle = g_ExternalDynamicLights[1], right = g_ExternalDynamicLights[2];
++    ResetQueryBounds();
++    R_RenderViewStart(); // All three first become visible and acquire resources.
++    for (const auto& light : g_ExternalDynamicLights)
++    {
++        light->pStaticShadowTexture = std::make_shared<Shadow>();
++        light->pDynamicShadowTexture = std::make_shared<Shadow>();
++    }
++    auto leftStatic = left->pStaticShadowTexture;
++    auto rightStatic = right->pStaticShadowTexture;
++    const auto viewAt = [](float x) {
++        eye[0] = x;
++        viewMins[0] = x - 200;
++        viewMaxs[0] = x + 200;
++        R_RenderViewStart();
++    };
++    ++frameNumber;
++    viewAt(-2000);
++    viewAt(2000);
++    R_EndExternalSceneLightsFrame();
++    Check(left->pStaticShadowTexture == leftStatic && right->pStaticShadowTexture == rightStatic);
++    Check(left->pDynamicShadowTexture && right->pDynamicShadowTexture);
++    Check(!middle->pStaticShadowTexture && !middle->pDynamicShadowTexture);
++    Check(g_ExternalDynamicLights.size() == 3 && sceneShadowCandidates.size() == 2);
++    const auto stableCacheAllocations = allocations;
++    for (int i = 0; i < 64; ++i)
++    {
++        ++frameNumber;
++        viewAt(-2000);
++        viewAt(2000);
++        R_EndExternalSceneLightsFrame();
++    }
++    Check(allocations == stableCacheAllocations);
++    Check(left->pStaticShadowTexture == leftStatic && right->pStaticShadowTexture == rightStatic);
++    ++frameNumber;
++    viewAt(-2000);
++    R_EndExternalSceneLightsFrame();
++    Check(left->pStaticShadowTexture == leftStatic && !right->pStaticShadowTexture && !right->pDynamicShadowTexture);
++    Check(sceneShadowCandidates.size() == 1 && g_ExternalDynamicLights.size() == 3);
++    ++frameNumber;
++    viewAt(2000);
++    Check(g_VisibleDynamicLights.size() == 1 && g_VisibleDynamicLights[0].m_pDynamicLight == right);
++    Check(right->shadow == 1 && right->static_shadow_size == 256 && right->dynamic_shadow_size == 256);
++    Check(!right->pStaticShadowTexture); // Normal shadow pass will recreate it.
++    right->pStaticShadowTexture = std::make_shared<Shadow>();
++    right->pDynamicShadowTexture = std::make_shared<Shadow>();
++    R_EndExternalSceneLightsFrame();
++    Check(right->pStaticShadowTexture && !left->pStaticShadowTexture && sceneShadowCandidates.size() == 1);
++    // An owner update preserves the surviving cached light while removing the
++    // other descriptions, and Clear releases the cache's owning references.
++    Check(api->UpdateLights(&first, &cacheLights[2], 1));
++    Check(sceneShadowCandidates.size() == 1 && sceneShadowCandidates[0] == right);
++    Check(api->UpdateLights(&second, &cacheLights[0], 1));
++    viewAt(-2000);
++    Check(sceneShadowCandidates.size() == 2);
++    api->ClearLights(&first);
++    Check(sceneShadowCandidates.size() == 1 && sceneShadowCandidates[0]->external_scene_owner == &second);
++    api->ClearLights(&second);
++    Check(sceneShadowCandidates.empty() && g_ExternalDynamicLights.empty());
++    left.reset();
++    middle.reset();
++    right.reset();
++    ResetQueryBounds();
++
++    // Exercise the accepted upper count, not just overflow rejection. This is
++    // a CPU snapshot boundary test; no shadow textures or GL work are created.
++    std::vector<MetaRendererSceneLight> maximum(META_SCENE_LIGHTS_MAX_COUNT, single);
++    Check(api->UpdateLights(&first, maximum.data(), static_cast<uint32_t>(maximum.size())));
++    Check(g_ExternalDynamicLights.size() == META_SCENE_LIGHTS_MAX_COUNT);
++    const auto beforeMaximum = allocations;
++    Check(api->UpdateLights(&first, maximum.data(), static_cast<uint32_t>(maximum.size())));
++    Check(allocations == beforeMaximum);
++    R_ResetExternalSceneLights();
++    scene->UnregisterSceneCallbacks(&first);
++    scene->UnregisterSceneCallbacks(&second);
++    g_VisibleDynamicLights.clear();
++    g_EngineDynamicLights.clear();
++    std::printf("{\"sceneLightsChecks\":%u,\"allocationFailureBoundaries\":%u,\"visibilityViews\":128,\"maxSnapshot\":%u,\"steadyAllocations\":0,\"allViewCacheEviction\":true,\"realGL\":false,\"passed\":true}\n",
++        checks, rejectedAllocations, META_SCENE_LIGHTS_MAX_COUNT);
++}

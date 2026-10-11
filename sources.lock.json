@@ -24,6 +24,9 @@
       "patch": "patches/renderer-goldcraft.patch",
       "newFiles": [
         "include/Interface/IMetaRendererScene.h",
+        "include/Interface/IMetaRendererSceneCulling.h",
+        "tests/scene_culling_tests.cpp",
+        "tests/extract_scene_culling_dispatch.py",
         "src/gl_external_scene.h",
         "src/gl_gbuffer.cpp",
         "src/gl_studio_shadow.cpp",
@@ -56,7 +59,11 @@
         "src/post_scene.h",
         "src/post_scene.cpp",
         "tests/post_scene_tests.cpp",
-        "tests/extract_post_scene_dispatch.py"
+        "tests/extract_post_scene_dispatch.py",
+        "include/Interface/IMetaRendererSceneLights.h",
+        "src/gl_scene_lights.cpp",
+        "tests/extract_scene_lights_dispatch.py",
+        "tests/scene_lights_tests.cpp"
       ]
     },
     "BulletPhysics": {

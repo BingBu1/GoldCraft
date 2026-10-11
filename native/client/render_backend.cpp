@@ -14,6 +14,8 @@ namespace goldcraft::render {
 namespace {
 IMetaRenderer* renderer=nullptr;
 IMetaRendererScene* scene=nullptr;
+IMetaRendererSceneCulling* scene_culling=nullptr;
+IMetaRendererSceneLights* scene_lights=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
 IMetaRendererWorldEdit2* targeted_edits=nullptr;
 IMetaRendererPostScene* post_scene_provider=nullptr;
@@ -86,17 +88,38 @@ const Program& program(std::uint32_t flags) {
 
 const Statistics& statistics(){return stats;}
 bool scene_active(){return scene!=nullptr;}
+bool cull_shadow_bounds(const RenderBounds& bounds){
+    if(!scene_culling||!bounds.valid())return false;
+    ++stats.shadow_bounds_tests;
+    if(!scene_culling->CullShadowBounds(bounds.min,bounds.max))return false;
+    ++stats.shadow_bounds_culled;return true;
+}
 IMetaRendererWorldEdit* world_edit(){return edits;}
 IMetaRendererWorldEdit2* world_edit2(){return targeted_edits;}
 IMetaRendererPostScene* post_scene(){return post_scene_provider;}
 bool owns_context(){return current_context&&current_context==wglGetCurrentContext();}
 void set_light_shadow(int key,unsigned size){if(scene)scene->SetDynamicLightShadowSize(key,size);}
+bool update_scene_lights(std::span<const SceneLight> lights) noexcept{
+    if(!scene_lights||!callback||lights.size()>max_scene_lights)return false;
+    try{
+    std::vector<MetaRendererSceneLight> records;records.reserve(lights.size());
+    for(const auto& light:lights)records.push_back({{light.origin[0],light.origin[1],light.origin[2]},light.radius,light.color});
+    if(!scene_lights->UpdateLights(callback,records.data(),static_cast<std::uint32_t>(records.size())))return false;
+    stats.scene_lights=static_cast<std::uint32_t>(records.size());return true;
+    }catch(...){return false;}
+}
+void clear_scene_lights(){
+    if(scene_lights&&callback)scene_lights->ClearLights(callback);
+    stats.scene_lights=0;
+}
 
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
+    clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     // VidInit revokes the prior transaction before Renderer/GL initialization.
     // A failed initialization must not expose an earlier optional provider.
     edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;stats.post_scene_api=false;
+    scene_culling=nullptr;stats.scene_culling_api=false;
     if(current_context!=wglGetCurrentContext()){
         programs.clear();hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;current_context=wglGetCurrentContext();
     }
@@ -115,6 +138,10 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.renderer=renderer!=nullptr;
     if(!renderer){logger("MetaRenderer_API_002 unavailable; Renderer scene disabled (no ABI guessing)");return false;}
     scene=static_cast<IMetaRendererScene*>(factory(METARENDERER_SCENE_INTERFACE_VERSION,nullptr));
+    scene_culling=scene?static_cast<IMetaRendererSceneCulling*>(factory(METARENDERER_SCENE_CULLING_INTERFACE_VERSION,nullptr)):nullptr;
+    stats.scene_culling_api=scene_culling!=nullptr;
+    scene_lights=scene?static_cast<IMetaRendererSceneLights*>(factory(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION,nullptr)):nullptr;
+    stats.scene_lights_api=scene_lights!=nullptr;
     post_scene_provider=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
     stats.post_scene_api=post_scene_provider!=nullptr;
     targeted_edits=static_cast<IMetaRendererWorldEdit2*>(factory(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION,nullptr));
@@ -132,11 +159,13 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     return true;
 }
 void shutdown(){
+    clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     if(edits)edits->Reset();
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     if(owns_context()){if(hud_program)glDeleteProgram(hud_program);if(hud_vao)glDeleteVertexArrays(1,&hud_vao);if(repeat_linear_sampler)glDeleteSamplers(1,&repeat_linear_sampler);}
     hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=0;feedback_line_width=0;
     scene=nullptr;edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;stats.post_scene_api=false;
+    scene_culling=nullptr;stats.scene_culling_api=false;
     callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
 }
 

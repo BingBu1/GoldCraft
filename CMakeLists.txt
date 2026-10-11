@@ -23,7 +23,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(test shared_bulk control_diagnostics skill_damage)
+    foreach(test shared_bulk control_diagnostics skill_damage render_bounds scene_lights)
         add_executable(goldcraft_${test}_tests tests/native/${test}_tests.cpp)
         target_link_libraries(goldcraft_${test}_tests PRIVATE goldcraft_common)
         target_compile_definitions(goldcraft_${test}_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
@@ -231,7 +231,17 @@ if(GOLDCRAFT_BUILD_CLIENT)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             native/client/plugin.cpp tests/native/extract_benchmark_framerate.py tests/native/extract_plugin_draw.py
-            tests/native/extract_plugin_hud.py)
+            tests/native/extract_plugin_hud.py tests/native/extract_plugin_lights.py)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_plugin_lights.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/plugin_lights.inc" COMMAND_ERROR_IS_FATAL ANY)
+        add_executable(goldcraft_plugin_lights_tests tests/native/plugin_lights_tests.cpp)
+        target_include_directories(goldcraft_plugin_lights_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_link_libraries(goldcraft_plugin_lights_tests PRIVATE goldcraft_common)
+        target_compile_definitions(goldcraft_plugin_lights_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_compile_options(goldcraft_plugin_lights_tests PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_plugin_lights COMMAND goldcraft_plugin_lights_tests)
         execute_process(COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_benchmark_framerate.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"

@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <IMetaRendererWorldEdit.h>
 #include <IMetaRendererPostScene.h>
+#include <IMetaRendererSceneCulling.h>
+#include <IMetaRendererSceneLights.h>
 #include <array>
 #include <cassert>
 #include <cstdint>
@@ -31,6 +33,27 @@ int main(int argc, char** argv) {
     assert(factory);
     int result = -1;
     assert(factory("MetaRenderer_API_002", &result) && result == 0);
+    assert(factory("MetaRendererScene_API_001", &result) && result == 0);
+    auto* culling=static_cast<IMetaRendererSceneCulling*>(factory(METARENDERER_SCENE_CULLING_INTERFACE_VERSION,&result));
+    assert(culling&&result==0);
+    const float origin[3]{};
+    assert(!culling->CullShadowBounds(origin,origin)&&!culling->CullShadowBounds(nullptr,nullptr));
+    auto* scene=static_cast<IMetaRendererScene*>(factory(METARENDERER_SCENE_INTERFACE_VERSION,&result));
+    auto* lights=static_cast<IMetaRendererSceneLights*>(factory(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION,&result));
+    assert(lights&&result==0);
+    struct SceneCallback final:IMetaRendererSceneCallbacks{void DrawOpaqueScene(uint32_t)override{assert(false);}} sceneCallback;
+    std::array<MetaRendererSceneLight,65> emitters{};
+    for(unsigned i=0;i<emitters.size();++i)emitters[i]={{float(i)*128,0,64},480,0xff9cd6ff};
+    assert(!lights->UpdateLights(&sceneCallback,emitters.data(),65));
+    scene->RegisterSceneCallbacks(&sceneCallback);
+    assert(lights->UpdateLights(&sceneCallback,emitters.data(),65));
+    assert(lights->UpdateLights(&sceneCallback,emitters.data(),65));
+    assert(!lights->UpdateLights(&sceneCallback,nullptr,65));
+    assert(!lights->UpdateLights(&sceneCallback,emitters.data(),META_SCENE_LIGHTS_MAX_COUNT+1));
+    lights->ClearLights(&sceneCallback);
+    assert(lights->UpdateLights(&sceneCallback,nullptr,0));
+    scene->UnregisterSceneCallbacks(&sceneCallback);
+    assert(!lights->UpdateLights(&sceneCallback,emitters.data(),65));
     auto* post=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,&result));
     assert(post&&result==0);
     struct Callback final : IMetaRendererPostSceneCallbacks {

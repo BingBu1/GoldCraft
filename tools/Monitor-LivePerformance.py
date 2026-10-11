@@ -58,6 +58,8 @@ def snapshot():
               "gpuUploadBytes", "gpuDraws", "particleVertices", "postEffectStages", "postEffectFailures",
               "hudBlank", "hudFrames", "hudBlankFrames", "hudBlankUploads", "hudBlankCompositesSkipped",
               "hudDraws", "hudTextureWidth", "hudTextureHeight",
+              "sceneCullingApi", "sceneCullingEnabled", "shadowBoundsTests", "shadowBoundsCulled",
+              "lights", "sceneLightsApi", "sceneLightsSubmitted", "sceneLightsFresh",
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
@@ -93,6 +95,8 @@ def main():
     parser.add_argument("--benchmark-fps", type=int, choices=(100, 200, 300),
                         help="Temporary paired-loopback benchmark cap; restored after capture")
     parser.add_argument("--reference", type=Path, help="Previous report whose anchor must match for a comparison")
+    parser.add_argument("--scene-cull", type=int, choices=(0, 1),
+                        help="Temporarily disable/enable MC shadow culling for a same-view comparison")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -108,12 +112,22 @@ def main():
     old = {k: p.stat().st_mtime_ns if p.exists() else 0 for k, p in paths.items()}
     population_before = renderer.server_population()
     original_caps = {k: first["native"].get(k) for k in ("fpsLimit", "fpsOverride", "vsync")}
+    original_culling = first["native"].get("sceneCullingEnabled")
+    if args.scene_cull is not None and (not first["native"].get("sceneCullingApi") or not isinstance(original_culling, bool)):
+        raise RuntimeError("Scene culling comparison requires the live optional Renderer API and diagnostics")
     samples = []
     profiles = {}
     restored = None
+    culling_restored = None
     capture_error = restore_error = None
     active_caps = original_caps.copy()
+    active_culling = original_culling
     try:
+        if args.scene_cull is not None:
+            renderer.command(f"scene_cull {args.scene_cull}")
+            active_culling = renderer.read_status().get("sceneCullingEnabled")
+            if active_culling != bool(args.scene_cull):
+                raise RuntimeError("Live scene culling toggle was not applied")
         if args.benchmark_fps:
             if args.seconds > 25:
                 raise ValueError("Benchmark samples must finish within the 30-second native lease")
@@ -149,6 +163,13 @@ def main():
                 restored = {k: state.get(k) for k in original_caps} == original_caps and not state.get("benchmarkFramerate")
             except Exception as error:
                 restored, restore_error = False, str(error)
+        if args.scene_cull is not None:
+            try:
+                renderer.command(f"scene_cull {int(original_culling)}")
+                culling_restored = renderer.read_status().get("sceneCullingEnabled") == original_culling
+            except Exception as error:
+                culling_restored = False
+                restore_error = f"{restore_error or ''} scene culling: {error}".strip()
     if not samples:
         samples = [first]
     try:
@@ -163,6 +184,9 @@ def main():
     summary["originalCaps"] = original_caps
     summary["activeCaps"] = active_caps
     summary["benchmarkRestored"] = restored
+    summary["activeSceneCulling"] = active_culling
+    summary["sceneCullingRestored"] = culling_restored
+    summary["stableSceneCulling"] = all(s["native"].get("sceneCullingEnabled") == active_culling for s in samples)
     if "renderer" in profiles:
         summary["renderer"] = renderer.summarize(profiles["renderer"]["frames"])
         frame = next(f for f in profiles["renderer"]["frames"] if f["interval"] > 0)
@@ -207,6 +231,7 @@ def main():
     summary["eligible"] = (summary["complete"] and summary["freshSamples"] and summary["stableLifecycle"] and summary["stableCaps"] and
                            summary["pairedGameplay"] and summary["noRenderErrors"] and summary["requiredPopulation"] and
                            summary["fullQuality"] and summary["stableQuality"] and
+                           summary["stableSceneCulling"] and culling_restored is not False and
                            summary.get("native", {}).get("foregroundFpsEligible", False) and
                            summary.get("renderer", {}).get("fpsComparisonEligible", False) and
                            summary["referenceMatches"] is not False and restored is not False and capture_error is None)
@@ -226,6 +251,8 @@ def main():
         raise RuntimeError("At least one profile did not finish; partial evidence preserved")
     if restored is False:
         raise RuntimeError("Benchmark cap restoration did not match the original values; inspect live B")
+    if culling_restored is False:
+        raise RuntimeError("Scene culling restoration did not match the original value; inspect live B")
 
 
 if __name__ == "__main__":

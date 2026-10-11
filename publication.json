@@ -257,7 +257,10 @@
     "tools/java/AnimationRegistryProbe.java",
     "docs/2026-10-11_分析-Epic动画资源-report.md",
     "tools/Monitor-LivePerformance.py",
-    "tests/native/plugin_draw_gl_tests.inc"
+    "tests/native/plugin_draw_gl_tests.inc",
+    "tests/world-lights/run.py",
+    "tests/world-lights/WorldExporterFixture.inc",
+    "tests/world-lights/WorldExporterLightsTest.java"
   ],
   "trees": {
     "native": [

@@ -5,6 +5,11 @@ namespace plugin_draw_probe {
 namespace render = goldcraft::render;
 using goldcraft::ParticleMaterial;
 using goldcraft::particle_untextured;
+using goldcraft::RenderBounds;
+using goldcraft::Reader;
+using goldcraft::Vec3;
+using goldcraft::ProtocolError;
+using goldcraft::to_goldsrc;
 using Vertex = render::Vertex;
 enum class WorkStage {draw_transparent,draw_shadow,draw_opaque,pass_construct,pass_restore,
     sections,entities,feedback,entity_effects,particle_draw,count};
@@ -30,6 +35,7 @@ double now=10,last_feedback=10,last_particle_frame=10;
 bool fresh=true,control=true,minecraft_menu=false,section_logged=false,draw_logged=false;
 struct Cvar {float value=1;} particle_cvar;
 Cvar* render_particles=nullptr;
+Cvar* render_scene_cull=nullptr;
 GLenum last_gl_error{};
 unsigned logs{},cases{},empty_cases{};
 double Seconds(){return now;}
@@ -46,6 +52,7 @@ void reset(Resources& r){
     fresh=control=true;minecraft_menu=section_logged=draw_logged=false;
     minecraft_life=server_player_life=feedback_life=particle_life=1;
     now=last_feedback=last_particle_frame=10;render_particles=nullptr;particle_cvar.value=1;
+    render_scene_cull=nullptr;render::scene_culling=nullptr;
     entity_revision=feedback_revision=particle_revision=1;
     entity_drawn_revision=entity_presented_frames=feedback_draws=particle_draws=entity_effect_draws=frames_drawn=0;
     logs=0;last_gl_error=0;work={};
@@ -57,10 +64,14 @@ std::vector<Vertex> quad(Resources& r,float center=0,float width=1,float z=0){
 }
 void section(Resources& r,unsigned flags=0,float center=0,float width=1){
     const auto key=static_cast<std::int32_t>(sections.size());
-    sections.emplace(std::array<std::int32_t,4>{key,0,0,0},Section{1,flags,quad(r,center,width)});
+    Section value{1,flags,quad(r,center,width)};
+    for(const auto& v:value.vertices)value.bounds.add(v.x,v.y,v.z);
+    sections.emplace(std::array<std::int32_t,4>{key,0,0,0},std::move(value));
 }
 EntityBatch entity(Resources& r,unsigned texture=0,unsigned flags=0,float center=0,float width=1,float z=0){
-    return {texture,flags,quad(r,center,width,z)};
+    EntityBatch value{texture,flags,quad(r,center,width,z)};
+    for(const auto& v:value.vertices)value.bounds.add(v.x,v.y,v.z);
+    return value;
 }
 EffectBatch effect(Resources& r,ParticleMaterial material){
     return {material,quad(r),std::make_shared<Mesh>()};
@@ -105,6 +116,53 @@ void tests(Resources& r){
     GLuint ubos[2]{};glGenBuffers(2,ubos);
     const void* data[]{&scene,&camera};const GLsizeiptr sizes[]{sizeof(scene),sizeof(camera)};
     for(unsigned i=0;i<2;++i){glBindBuffer(GL_UNIFORM_BUFFER,ubos[i]);glBufferData(GL_UNIFORM_BUFFER,sizes[i],data[i],GL_STATIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,i,ubos[i]);}
+
+    // Bounds are published with the actual received section revision. A
+    // failed replacement cannot expose candidate bounds over the old mesh.
+    reset(r);
+    const auto section_packet=[](std::uint64_t revision,float x) {
+        Writer out;out.u64(1);out.i32(0);out.i32(0);out.i32(0);out.u64(revision);out.u32(0);out.u32(4);
+        for(unsigned i=0;i<4;++i){out.f32(x);out.f32(float(i));out.f32(-float(i));out.f32(0);out.f32(0);out.u32(0xffffffff);}
+        return out.data;
+    };
+    const std::array<std::int32_t,4> section_key{};
+    auto received=section_packet(1,2);Reader first(received);ReadSection(first);
+    assert(sections.at(section_key).bounds.valid()&&sections.at(section_key).bounds.min[0]==64);
+    const auto original_mesh=sections.at(section_key).gpu;
+    received=section_packet(2,-3);Reader replaced(received);ReadSection(replaced);
+    assert(sections.at(section_key).bounds.min[0]==-96&&sections.at(section_key).bounds.max[0]==-96&&sections.at(section_key).gpu==original_mesh);
+    received=section_packet(3,4);received.back()=0;received.pop_back();
+    bool malformed=false;try{Reader input(received);ReadSection(input);}catch(const ProtocolError&){malformed=true;}
+    assert(malformed&&sections.at(section_key).revision==2&&sections.at(section_key).bounds.min[0]==-96);
+    received=section_packet(3,std::numeric_limits<float>::max());Reader overflow(received);ReadSection(overflow);
+    assert(!sections.at(section_key).bounds.valid());
+    reset(r);
+
+    // The provider's production point-light geometry/dispatch contract is
+    // tested separately in Renderer. Here an explicit rejection exercises
+    // the actual client interface call, lazy Pass and GL-state boundary.
+    struct CullProvider final : IMetaRendererSceneCulling {
+        unsigned calls=0;bool reject=true;
+        bool CullShadowBounds(const float*,const float*) noexcept override {++calls;return reject;}
+    } culler;
+    reset(r);section(r);entity_batches.push_back(entity(r));render::scene_culling=&culler;
+    const auto old_tests=statistics().shadow_bounds_tests,old_culled=statistics().shadow_bounds_culled;
+    draw_case(r,false,META_SCENE_SHADOW|META_SCENE_MULTIVIEW,0);
+    assert(culler.calls==2&&statistics().shadow_bounds_tests==old_tests+2&&statistics().shadow_bounds_culled==old_culled+2);
+    render::scene_culling=nullptr;
+    const auto without_provider=draw_case(r,false,META_SCENE_SHADOW,2);
+    culler.reject=false;render::scene_culling=&culler;
+    assert(draw_case(r,false,META_SCENE_SHADOW,2)==without_provider);
+    culler.reject=true;Cvar disabled;disabled.value=0;render_scene_cull=&disabled;
+    const auto calls=culler.calls;
+    assert(draw_case(r,false,META_SCENE_SHADOW,2)==without_provider&&culler.calls==calls);
+    render_scene_cull=nullptr;
+    draw_case(r,false,0,2);assert(culler.calls==calls); // Main scene never uses a shadow volume.
+    for(auto& [key,value]:sections)value.bounds={};
+    entity_batches.front().bounds.add(std::numeric_limits<float>::infinity(),0,0);
+    assert(draw_case(r,false,META_SCENE_SHADOW,2)==without_provider&&culler.calls==calls);
+    reset(r);section(r,1);entity_batches.push_back(entity(r,0,1));render::scene_culling=&culler;
+    draw_case(r,true,0,2);assert(culler.calls==calls);
 
     reset(r);atlas_texture=0;draw_case(r,false,0,0);
     reset(r);section(r);link.online=false;draw_case(r,false,0,0);

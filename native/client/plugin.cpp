@@ -108,6 +108,7 @@ cvar_t* gui_scale=nullptr;
 cvar_t* host_viewmodel=nullptr;
 cvar_t* render_particles=nullptr;
 cvar_t* render_post_effects=nullptr;
+cvar_t* render_scene_cull=nullptr;
 bool viewmodel_suppressed=false;
 float saved_viewmodel=1;
 std::uint64_t suppressed_viewmodel_frames=0;
@@ -287,14 +288,51 @@ void NativeProfileFrameEnd(float clientTime) {
     }
 }
 bool capture_requested=false;
-struct Lamp {Vec3 origin;float radius;std::uint32_t color;};
-std::vector<Lamp> lamps;
+std::vector<SceneLight> lamps;
+bool lamps_dirty=false,lamps_published=false;
 std::chrono::steady_clock::time_point last_lamps{};
+bool FreshLights(){
+    return world&&link.connected()&&link.generation()==last_link_generation
+        &&std::chrono::steady_clock::now()-last_lamps<std::chrono::milliseconds(500);
+}
+void ClearLights(){
+    lamps.clear();lamps_dirty=false;lamps_published=false;last_lamps={};render::clear_scene_lights();
+}
+void ReadLights(Reader& r){
+    const auto epoch=r.u64();if(!world||epoch!=world)return;
+    auto next=read_scene_lights(r);
+    if(next!=lamps){lamps=std::move(next);lamps_dirty=true;}
+    last_lamps=std::chrono::steady_clock::now();
+}
+void UpdateLights(){
+    const bool fresh_lamps=FreshLights();
+    if(render::statistics().scene_lights_api){
+        if(!fresh_lamps){
+            if(lamps_published)render::clear_scene_lights();
+            lamps_published=false;
+        }else if(lamps_dirty||!lamps_published){
+            if(render::update_scene_lights(lamps)){lamps_dirty=false;lamps_published=true;}
+        }
+    }else{
+    // Compatibility with older Renderer builds; diagnostics expose this limited
+    // fallback. The current provider keeps MC lights out of the CS dlight pool.
+    const auto count=std::min<std::size_t>(12,lamps.size());
+    for(unsigned i=0;i<12;++i)render::set_light_shadow(0x47430000+i,fresh_lamps&&i<count?256:0);
+    if(gEngfuncs.pEfxAPI&&gEngfuncs.pEfxAPI->CL_AllocDlight&&fresh_lamps) {
+        for(unsigned i=0;i<count;++i) {
+            auto* light=gEngfuncs.pEfxAPI->CL_AllocDlight(0x47430000+i);if(!light)continue;const auto& source=lamps[i];
+            light->origin[0]=source.origin[0];light->origin[1]=source.origin[1];light->origin[2]=source.origin[2];
+            light->radius=source.radius;light->color.r=source.color&255;light->color.g=(source.color>>8)&255;light->color.b=(source.color>>16)&255;
+            light->die=gEngfuncs.GetClientTime()+0.2f;light->decay=0;light->minlight=0;light->dark=0;
+        }
+    }
+    }
+}
 using Vertex=render::Vertex;
-struct Section { std::uint64_t revision; std::uint32_t flags; std::vector<Vertex> vertices; std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>(); };
+struct Section { std::uint64_t revision; std::uint32_t flags; std::vector<Vertex> vertices; std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>(); RenderBounds bounds; };
 std::map<std::array<std::int32_t,4>,Section> sections;
 struct Texture {GLuint id;unsigned width,height;};
-struct EntityBatch {unsigned texture,flags;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>();};
+struct EntityBatch {unsigned texture,flags;std::vector<Vertex> vertices;std::shared_ptr<render::Mesh> gpu=std::make_shared<render::Mesh>();RenderBounds bounds;};
 std::map<unsigned,Texture> entity_textures;
 std::vector<EntityBatch> entity_batches;
 std::vector<Vertex> outline_vertices;
@@ -406,7 +444,7 @@ void ResetWorld() {
     form_menu.clear();menu_pressed.fill(false);server_hud::reset();
     ReleaseHostUse();
     RestoreViewModel();
-    sections.clear();lamps.clear();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
+    sections.clear();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
     native_colliders.clear();collider_sequence=0;last_colliders=0;
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
@@ -577,6 +615,9 @@ void WriteDiagnostics() {
            <<",\"cameraPosition\":["<<camera_pose.position.x<<','<<camera_pose.position.y<<','<<camera_pose.position.z<<']'
            <<",\"cameraAngles\":["<<camera_pose.angles.x<<','<<camera_pose.angles.y<<','<<camera_pose.angles.z<<']'
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")
+           <<",\"sceneCullingApi\":"<<(gpu.scene_culling_api?"true":"false")<<",\"sceneCullingEnabled\":"<<((!render_scene_cull||render_scene_cull->value!=0)?"true":"false")
+           <<",\"sceneLightsApi\":"<<(gpu.scene_lights_api?"true":"false")<<",\"sceneLightsSubmitted\":"<<gpu.scene_lights<<",\"sceneLightsFresh\":"<<(FreshLights()?"true":"false")
+           <<",\"shadowBoundsTests\":"<<gpu.shadow_bounds_tests<<",\"shadowBoundsCulled\":"<<gpu.shadow_bounds_culled
            <<",\"postSceneApi\":"<<(gpu.post_scene_api?"true":"false")<<",\"coreProfile\":"<<(gpu.core?"true":"false")
            <<",\"fpsLimit\":"<<gEngfuncs.pfnGetCvarFloat("fps_max")<<",\"fpsOverride\":"<<gEngfuncs.pfnGetCvarFloat("fps_override")
            <<",\"vsync\":"<<gEngfuncs.pfnGetCvarFloat("gl_vsync")<<",\"benchmarkFramerate\":"<<(framerate_benchmark.active?"true":"false")
@@ -660,7 +701,7 @@ int BindingMessage(const char*,int size,void* data) {
         auto view=std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size));
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
-        if(new_world!=world){sections.clear();lamps.clear();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
+        if(new_world!=world){sections.clear();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
         if(new_world!=world||slot!=player_slot||serial!=player_serial){ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
@@ -863,6 +904,7 @@ void InitHud() {
     host_viewmodel=gEngfuncs.pfnGetCvarPointer("r_drawviewmodel");
     render_particles=gEngfuncs.pfnRegisterVariable("mc_particles","1",0);
     render_post_effects=gEngfuncs.pfnRegisterVariable("mc_post_effects","1",0);
+    render_scene_cull=gEngfuncs.pfnRegisterVariable("mc_scene_cull","1",0);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -906,6 +948,7 @@ int VidInit() {
     const int result=gExportfuncs.HUD_VidInit();
     server_hud::video_reset();server_hud::reset();form_menu.clear();menu_pressed.fill(false);
     render::initialize(&scene_callbacks,Log);
+    lamps_dirty=true;lamps_published=false;
     post_replay=std::make_unique<render::PostEffectReplay>();
     const char* game=gEngfuncs.pfnGetGameDirectory?gEngfuncs.pfnGetGameDirectory():nullptr;
     post_replay->set_shader_directory((std::filesystem::path(game?game:"cstrike")/"metahook/shaders/goldcraft/vix-post").string());
@@ -990,6 +1033,7 @@ void ReadSection(Reader& r) {
     for(std::uint32_t i=0;i<count;++i) {
         Vec3 mc{r.f32(),r.f32(),r.f32()}; auto gs=to_goldsrc(mc);
         Vertex vertex{gs.x,gs.y,gs.z,r.f32(),r.f32(),r.u32()}; section.vertices.push_back(vertex);
+        section.bounds.add(gs.x,gs.y,gs.z);
     }
     r.finish();
     if(count&&existing!=sections.end())section.gpu=existing->second.gpu;
@@ -1019,7 +1063,7 @@ void ReadEntityFrame(Reader& r) {
         EntityBatch batch{source.texture,source.flags,{}};batch.vertices.reserve(source.vertices.size());
         const auto i=next.size();
         if(i<entity_batches.size()&&entity_batches[i].texture==source.texture&&entity_batches[i].flags==source.flags)batch.gpu=entity_batches[i].gpu;
-        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color,v.normal});}
+        for(const auto& v:source.vertices){const auto p=to_goldsrc(v.position);batch.vertices.push_back({p.x,p.y,p.z,v.u,v.v,v.color,v.normal});batch.bounds.add(p.x,p.y,p.z);}
         next.push_back(std::move(batch));
     }
     std::vector<EffectBatch> next_effects;next_effects.reserve(effects.batches.size());unsigned effect_vertices=0;
@@ -1182,6 +1226,7 @@ void TestCommands() {
     else if(action=="hud"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_hud",static_cast<float>(enabled));}
     else if(action=="hud_scale"){int scale=0;if(input>>scale&&scale>=0&&scale<=8)gEngfuncs.Cvar_SetValue("mc_gui_scale",static_cast<float>(scale));}
     else if(action=="particles"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_particles",static_cast<float>(enabled));}
+    else if(action=="scene_cull"){int enabled=1;if(input>>enabled&&enabled>=0&&enabled<=1)gEngfuncs.Cvar_SetValue("mc_scene_cull",static_cast<float>(enabled));}
     else if(action=="slot"){int slot=0;if(input>>slot&&slot>=1&&slot<=9)SendControl(slot);}
     else if(action=="ui_move"){float x=0,y=0;if(input>>x>>y&&x>=0&&x<=1&&y>=0&&y<=1){ui_x=x;ui_y=y;SendUi(1);}}
     else if(action=="ui_click"){int button=0;if(input>>button&&button>=0&&button<=2){SendUi(2,button,1);SendUi(2,button,0);}}
@@ -1319,7 +1364,7 @@ void Frame(double time) {
     if(link.error()!=last_error) { last_error=link.error(); if(!last_error.empty()) Log(last_error); }
     if(link.connected()&&link.generation()!=last_link_generation) {
         ReleaseHostUse();
-        last_link_generation=link.generation(); sections.clear();ClearDynamic();ClearHud();view_interpolator.clear();atlas_generation=0;minecraft_control=false;section_logged=draw_logged=atlas_logged=false;
+        last_link_generation=link.generation(); sections.clear();ClearLights();ClearDynamic();ClearHud();view_interpolator.clear();atlas_generation=0;minecraft_control=false;section_logged=draw_logged=atlas_logged=false;
         if(!binding.empty()) link.send(Type::client_binding,binding);
         Log("Fabric client connected with an isolated session");
     }
@@ -1359,7 +1404,7 @@ void Frame(double time) {
                 }
             }
             else if(message.type==Type::hud_frame)ReadHud(r);
-            else if(message.type==Type::scene_reset){auto epoch=r.u64();r.finish();if(epoch==world){sections.clear();lamps.clear();ClearDynamic();atlas_generation=0;}}
+            else if(message.type==Type::scene_reset){auto epoch=r.u64();r.finish();if(epoch==world){sections.clear();ClearLights();ClearDynamic();atlas_generation=0;}}
             else if(message.type==Type::player_pose) {
                 auto epoch=r.u64(),sequence=r.u64(),produced=r.u64();auto flags=r.u32(),life=r.u32();Vec3 feet{r.f32(),r.f32(),r.f32()};float eye=r.f32();r.finish();
                 if(epoch==world&&life==server_player_life&&sequence>=pose_sequence&&eye>=0&&eye<=4&&(flags&~9u)==0){
@@ -1370,15 +1415,7 @@ void Frame(double time) {
                     const auto& sent=input_times[sequence%input_times.size()];if(sent.first==sequence)input_latency_ms=std::chrono::duration<float,std::milli>(last_pose-sent.second).count();
                 }
             }
-            else if(message.type==Type::lights) {
-                auto epoch=r.u64();auto count=r.u32();if(epoch!=world)continue;
-                if(count>12||r.remaining()!=count*20)throw ProtocolError("invalid light snapshot");
-                std::vector<Lamp> next;for(unsigned i=0;i<count;i++) {
-                    Vec3 p{r.f32(),r.f32(),r.f32()};float radius=r.f32();auto color=r.u32();
-                    if(radius<0||radius>768)throw ProtocolError("invalid light radius");next.push_back({to_goldsrc(p),radius,color});
-                }
-                r.finish();lamps=std::move(next);last_lamps=std::chrono::steady_clock::now();
-            }
+            else if(message.type==Type::lights) ReadLights(r);
             else if(message.type==Type::section_mesh) ReadSection(r);
             else if(message.type==Type::remove_section) {
                 auto epoch=r.u64(); std::array<std::int32_t,4> key{r.i32(),r.i32(),r.i32(),0}; r.finish();
@@ -1396,18 +1433,7 @@ void Frame(double time) {
     if(link.connected()&&world&&!atlas_generation&&Seconds()>=next_scene_request){
         Writer request;request.u64(world);link.send(Type::scene_reset,request.data);next_scene_request=Seconds()+1;
     }
-    const bool fresh_lamps=std::chrono::steady_clock::now()-last_lamps<std::chrono::milliseconds(500);
-    // Every exported emitter needs host/MC occlusion. Leaving lights 3..12
-    // unshadowed made them illuminate through warehouse walls and floors.
-    for(unsigned i=0;i<12;++i)render::set_light_shadow(0x47430000+i,fresh_lamps&&i<lamps.size()?256:0);
-    if(gEngfuncs.pEfxAPI&&gEngfuncs.pEfxAPI->CL_AllocDlight&&fresh_lamps) {
-        for(unsigned i=0;i<lamps.size();++i) {
-            auto* light=gEngfuncs.pEfxAPI->CL_AllocDlight(0x47430000+i);if(!light)continue;const auto& source=lamps[i];
-            light->origin[0]=source.origin.x;light->origin[1]=source.origin.y;light->origin[2]=source.origin.z;
-            light->radius=source.radius;light->color.r=source.color&255;light->color.g=(source.color>>8)&255;light->color.b=(source.color>>16)&255;
-            light->die=gEngfuncs.GetClientTime()+0.2f;light->decay=0;light->minlight=0;light->dark=0;
-        }
-    }
+    UpdateLights();
     }
     frame_work_ms=(Seconds()-began)*1000;frame_work_max_ms=std::max(frame_work_max_ms,frame_work_ms);
 }
@@ -1594,6 +1620,7 @@ void Draw(bool transparent,std::uint32_t flags) {
         particle_life==minecraft_life&&particle_life==server_player_life&&Seconds()-last_particle_frame<0.25&&
         (!render_particles||render_particles->value!=0);
     if(!atlas_texture&&!effects_ready)return;
+    const bool cull_shadow=(flags&META_SCENE_SHADOW)&&!transparent&&(!render_scene_cull||render_scene_cull->value!=0);
     {
     ProfiledPass measured_pass(transparent,flags);
     if(atlas_texture){
@@ -1601,6 +1628,7 @@ void Draw(bool transparent,std::uint32_t flags) {
     WorkScope timing(WorkStage::sections);
     for(const auto& [key,section] : sections) {
         if(((section.flags&1)!=0)!=transparent || section.vertices.empty()) continue;
+        if(cull_shadow&&render::cull_shadow_bounds(section.bounds))continue;
         auto& pass=measured_pass.get();if(!pass.ready())return;
         pass.texture(atlas_texture);
         pass.emissive((section.flags&2)!=0);
@@ -1613,6 +1641,7 @@ void Draw(bool transparent,std::uint32_t flags) {
         if(!EntityFrameFresh())break;
         if(((batch.flags&1)!=0)!=transparent||batch.vertices.empty())continue;
         auto texture=entity_textures.find(batch.texture);if(batch.texture&&texture==entity_textures.end())continue;
+        if(cull_shadow&&render::cull_shadow_bounds(batch.bounds))continue;
         auto& pass=measured_pass.get();if(!pass.ready())return;
         pass.emissive(false);
         pass.depth_write((batch.flags&2)!=0);

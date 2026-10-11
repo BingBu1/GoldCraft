@@ -7,10 +7,14 @@
 #include <vector>
 #include <optional>
 #include <IMetaRendererScene.h>
+#include <IMetaRendererSceneCulling.h>
+#include <IMetaRendererSceneLights.h>
 #include <IMetaRendererWorldEdit.h>
 #include <IMetaRendererPostScene.h>
 #include "goldcraft/atlas.hpp"
 #include "goldcraft/particles.hpp"
+#include "goldcraft/render_bounds.hpp"
+#include "goldcraft/lights.hpp"
 #include "render_state.hpp"
 
 namespace goldcraft::render {
@@ -35,17 +39,23 @@ struct Statistics {
     std::uint64_t uploads=0,upload_bytes=0,draws=0,opaque_passes=0,shadow_passes=0;
     GLenum error=0;
     std::uint64_t error_count=0;
-    bool core=false,renderer=false,scene_api=false,post_scene_api=false;
+    std::uint64_t shadow_bounds_tests=0,shadow_bounds_culled=0;
+    bool core=false,renderer=false,scene_api=false,post_scene_api=false,scene_culling_api=false;
+    bool scene_lights_api=false;
+    std::uint32_t scene_lights=0;
 };
 const Statistics& statistics();
 bool initialize(IMetaRendererSceneCallbacks* callbacks, void(*log)(const std::string&));
 void shutdown();
 bool scene_active();
+bool cull_shadow_bounds(const RenderBounds& bounds);
 IMetaRendererWorldEdit* world_edit();
 IMetaRendererWorldEdit2* world_edit2();
 IMetaRendererPostScene* post_scene();
 bool owns_context();
 void set_light_shadow(int key, unsigned size);
+bool update_scene_lights(std::span<const SceneLight> lights) noexcept;
+void clear_scene_lights();
 void upload_texture(GLuint& id,unsigned& width,unsigned& height,unsigned next_width,unsigned next_height,std::span<const std::uint8_t> rgba);
 void upload_atlas_patches(GLuint id,std::span<const AtlasPatch> patches);
 bool capture(const char* path);

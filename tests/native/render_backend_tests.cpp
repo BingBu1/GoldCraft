@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include <tuple>
+#include <limits>
 #include "goldcraft/hud.hpp"
 
 namespace probe {

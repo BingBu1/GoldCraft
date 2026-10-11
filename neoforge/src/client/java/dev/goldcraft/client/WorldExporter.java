@@ -6,6 +6,7 @@ import dev.goldcraft.bridge.BridgeLink;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.bridge.Performance;
 import dev.goldcraft.bridge.AtlasAnimationState;
+import dev.goldcraft.client.SectionLightSnapshot.Lamp;
 import net.minecraft.block.BlockRenderType;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
@@ -28,7 +29,6 @@ import java.util.*;
 /** Exports actual baked Minecraft block/fluid quads in atlas UV coordinates. */
 public final class WorldExporter {
     private record Section(int x,int y,int z) {}
-    private record Lamp(float x,float y,float z,float radius,int color) {}
     private final BridgeLink link;
     private final EntityExporter entities;
     private final ParticleExporter particles;
@@ -36,7 +36,7 @@ public final class WorldExporter {
     private final LinkedHashSet<Section> dirty=new LinkedHashSet<>();
     private final LinkedHashSet<Section> changed=new LinkedHashSet<>();
     private final Map<Section,byte[][]> sent=new HashMap<>();
-    private final Map<Section,List<Lamp>> lamps=new HashMap<>();
+    private final SectionLightSnapshot lamps=new SectionLightSnapshot();
     private ClientWorld sourceWorld;
     private long worldEpoch, revision, lastRefresh, lastLights,lastRescan,atlasGeneration;
     private String lastError="";
@@ -120,7 +120,7 @@ public final class WorldExporter {
                 if(!iterator.hasNext())break;
                 Section section=iterator.next();iterator.remove();dirty.remove(section);exportSection(client,section);
             }
-            if(now-lastLights>100_000_000L){sendLights(client);lastLights=now;}
+            if(now-lastLights>100_000_000L){sendLights();lastLights=now;}
         } catch(RuntimeException e) {
             if(!Objects.equals(e.toString(),lastError)) { lastError=e.toString(); GoldCraft.LOGGER.warn("World mesh export failed: {}",lastError); }
         }
@@ -134,7 +134,7 @@ public final class WorldExporter {
             Section section=new Section(x,y,z); wanted.add(section); if(!sent.containsKey(section))dirty.add(section);
         }
         for(Section old:new ArrayList<>(sent.keySet())) if(!wanted.contains(old)) {
-            if(link.send(Wire.REMOVE_SECTION,new Wire.Writer().i64(worldEpoch).i32(old.x).i32(old.y).i32(old.z).toByteArray())) {sent.remove(old);lamps.remove(old);}
+            if(link.send(Wire.REMOVE_SECTION,new Wire.Writer().i64(worldEpoch).i32(old.x).i32(old.y).i32(old.z).toByteArray())) {sent.remove(old);lamps.remove(old.x,old.y,old.z);}
         }
         dirty.removeIf(section->!wanted.contains(section));
         changed.removeIf(section->!wanted.contains(section));
@@ -176,7 +176,7 @@ public final class WorldExporter {
                 pos.set(section.x*16+x,section.y*16+y,section.z*16+z);
                 var state=sourceWorld.getBlockState(pos);
                 if(state.isAir()) continue;
-                if(state.getLuminance()>0&&sectionLamps.size()<512) {
+                if(state.getLuminance()>0) {
                     String id=net.minecraft.registry.Registries.BLOCK.getId(state.getBlock()).getPath();
                     int color=id.contains("soul")?0xffffdd99:id.contains("sea_lantern")?0xffffeed0:id.contains("redstone")?0xff6688ff:0xff9cd6ff;
                     sectionLamps.add(new Lamp(pos.getX()+0.5f,pos.getY()+0.6f,pos.getZ()+0.5f,state.getLuminance()*32.0f,color));
@@ -195,7 +195,6 @@ public final class WorldExporter {
                 }
             }
         }
-        lamps.put(section,sectionLamps);
         byte[][] mesh=Arrays.stream(layers).map(Collector::finish).toArray(byte[][]::new);
         byte[][] previous=sent.get(section);
         boolean allSent=true;
@@ -205,16 +204,11 @@ public final class WorldExporter {
                 .i64(++revision).i32(layer).i32(mesh[layer].length/24).bytes(mesh[layer]).toByteArray();
             if(!link.send(Wire.SECTION_MESH,payload)) allSent=false;
         }
-        if(allSent) sent.put(section,mesh); else dirty.add(section);
+        if(allSent) {sent.put(section,mesh);lamps.replace(section.x,section.y,section.z,sectionLamps);} else dirty.add(section);
     }
 
-    private void sendLights(MinecraftClient client) {
-        var position=client.player.getPos();
-        List<Lamp> nearby=lamps.values().stream().flatMap(List::stream).filter(l->position.squaredDistanceTo(l.x,l.y,l.z)<24*24)
-            .sorted(Comparator.comparingDouble(l->position.squaredDistanceTo(l.x,l.y,l.z))).limit(12).toList();
-        Wire.Writer w=new Wire.Writer().i64(worldEpoch).i32(nearby.size());
-        for(Lamp l:nearby)w.f32(l.x).f32(l.y).f32(l.z).f32(l.radius).i32(l.color);
-        link.send(Wire.LIGHTS,w.toByteArray());
+    private void sendLights() {
+        link.send(Wire.LIGHTS,lamps.snapshot(worldEpoch));
     }
     static final class Collector implements VertexConsumer {
         private byte[] vertices=new byte[4096];
