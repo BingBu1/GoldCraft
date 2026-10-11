@@ -68,6 +68,17 @@ class WorldExporterCollectorTest {
             assertEquals((triangles?count/3*4:count)*(overlay?28:24),pair.actual.finish().length);
         }
     }
+    @Test void pooledEntityBytesMatchFrozenLegacyAcrossFramesAndTopologyChanges(){
+        var pool=new EntityCollectorBuffers<Boolean>();
+        for(int frameNumber=0;frameNumber<6;frameNumber++)try(var frame=pool.beginFrame()){
+            boolean triangles=frameNumber%2!=0;
+            Pair pair=new Pair(frame.collector(triangles,triangles),new LegacyCollector(true,triangles));
+            pair.offset(frameNumber*31.25f,-frameNumber*13.5f,frameNumber*.25f);
+            int count=(triangles?3:4)*(frameNumber<2?1000:frameNumber*13);
+            populate(pair.actual,count,0x4743+frameNumber);populate(pair.old,count,0x4743+frameNumber);pair.same();frame.complete();
+        }
+        assertEquals(4,pool.reuses());
+    }
     @Test void pendingAttributesAndOverlayResetStayIdentical(){
         Pair pair=new Pair(true,false);
         for(VertexConsumer target:new VertexConsumer[]{pair.actual,pair.old}){

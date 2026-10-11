@@ -29,11 +29,12 @@ import java.util.*;
 
 /** Uses the actual Minecraft entity and block-entity renderers, preserving animated model vertices. */
 public final class EntityExporter {
-    private record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset) {}
+    record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset) {}
     private record TextureStamp(AbstractTexture texture,int glId,long revision) {}
     record Batch(int texture,int flags,WorldExporter.Collector vertices,int bytes) {}
     private final BridgeLink link;
     private final FramePacer pacing=new FramePacer(60);
+    private final EntityCollectorBuffers<Material> collectorBuffers=new EntityCollectorBuffers<>();
     private final Map<Identifier,Integer> textures=new LinkedHashMap<>();
     private final Map<Identifier,TextureStamp> uploaded=new HashMap<>();
     private static final Map<AbstractTexture,Long> textureRevisions=new WeakHashMap<>();
@@ -50,7 +51,7 @@ public final class EntityExporter {
             ||layer==RenderLayer.getGlint()||layer==RenderLayer.getEntityGlint()
             ||layer==RenderLayer.getDirectEntityGlint();
     }
-    public void reset(){textures.clear();uploaded.clear();pacing.reset();lastFrame=revision=0;}
+    public void reset(){collectorBuffers.clear();textures.clear();uploaded.clear();pacing.reset();lastFrame=revision=0;}
     public static void textureChanged(AbstractTexture texture){textureRevisions.merge(texture,1L,Long::sum);}
     public static void beginAtlasAnimation(SpriteAtlasTexture atlas){animatedAtlas=atlas.getId().equals(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE)?null:atlas;}
     public static void endAtlasAnimation(){animatedAtlas=null;}
@@ -62,6 +63,11 @@ public final class EntityExporter {
         e.addProperty("textureBytes",active.textureBytes);e.addProperty("sendFailures",active.sendFailures);e.addProperty("error",active.lastError);data.add("entityExport",e);
         e.addProperty("hurtVertices",active.hurtVertices);e.addProperty("triangleBatches",active.triangleBatches);
         e.addProperty("wrappedLayers",active.wrappedLayers);e.addProperty("unsupportedLayers",active.unsupportedLayers);
+        e.addProperty("collectorBufferRetainedBytes",active.collectorBuffers.retainedBytes());
+        e.addProperty("collectorBufferRetainedEntries",active.collectorBuffers.retainedEntries());
+        e.addProperty("collectorBufferReuses",active.collectorBuffers.reuses());
+        e.addProperty("collectorBufferMisses",active.collectorBuffers.misses());
+        e.addProperty("collectorBufferEvictions",active.collectorBuffers.evictions());
         YsmAnimationFrame.diagnostics(e);
     }
     public void frame(long epoch) {
@@ -71,11 +77,13 @@ public final class EntityExporter {
         long now=System.nanoTime();if(!pacing.ready(now))return;
         if(lastFrame!=0)intervalMs=(now-lastFrame)/1_000_000.0;lastFrame=now;
         long began=Performance.begin();
-        try (var effects=DirectMeshCapture.begin(net.minecraft.util.math.Vec3d.ZERO,false)) {
+        try (var buffers=collectorBuffers.beginFrame()) {
+            boolean completed=false;
+            try (var effects=DirectMeshCapture.begin(net.minecraft.util.math.Vec3d.ZERO,false)) {
             tickDelta=client.getRenderTickCounter().getTickDelta(false);
-            Map<Material,WorldExporter.Collector> batches=new LinkedHashMap<>();
             wrappedLayers=unsupportedLayers=0;
             VertexConsumerProvider provider=layer-> {
+                buffers.requireOpen();
                 // YSM's wrapper disables its own sorting flag while retaining
                 // vanilla translucent setup. Read blend/depth/texture from the
                 // captured delegate, without running GL setup during export.
@@ -99,7 +107,7 @@ public final class EntityExporter {
                 // Sorting/blending and depth writes are independent material properties.
                 Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles,
                     LayerSemantics.viewOffset(parameters));
-                return batches.computeIfAbsent(material,ignored->new WorldExporter.Collector(true,triangles));
+                return buffers.collector(material,triangles);
             };
             var camera=client.gameRenderer.getCamera();
             var dispatcher=client.getEntityRenderDispatcher();dispatcher.configure(client.world,camera,client.targetedEntity);
@@ -142,7 +150,7 @@ public final class EntityExporter {
             // Deferred buffers can contain several entities; attribute only immediate draws individually.
             effects.source("entity_buffer_flush");effects.finish();
             List<Batch> ready=new ArrayList<>();int bytes=0;hurtVertices=triangleBatches=0;
-            for(var entry:batches.entrySet()) {
+            for(var entry:buffers.collectors().entrySet()) {
                 var vertices=entry.getValue();int size=vertices.finishSize();if(size==0)continue;
                 hurtVertices+=entry.getValue().hurtVertices();if(entry.getKey().triangles)triangleBatches++;
                 if(ready.size()>=128||bytes+size>8*1024*1024)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
@@ -160,7 +168,11 @@ public final class EntityExporter {
                 ready.add(new Batch(number,flags,vertices,size));bytes+=size;
             }
             byte[] payload=encodeBase(epoch,++revision,entityCount,blockCount,ready,avatars);
-            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,payload,effects)){frames++;meshBytes+=payload.length;lastError="";}else sendFailures++;
+            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,payload,effects)){frames++;meshBytes+=payload.length;lastError="";completed=true;}else sendFailures++;
+            }
+            // Effects close/restore first. Any early return or failed close
+            // discards this frame's buffers instead of retaining partial work.
+            if(completed)buffers.complete();
         }catch(RuntimeException e){if(!e.toString().equals(lastError)){lastError=e.toString();GoldCraft.LOGGER.warn("Entity export failed",e);}}
         finally{Performance.end("entityExport",began);}
     }

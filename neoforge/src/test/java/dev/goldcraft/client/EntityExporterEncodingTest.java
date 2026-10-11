@@ -21,7 +21,9 @@ class EntityExporterEncodingTest {
     private static final long EPOCH=0x1122334455667788L;
     private record Fixture(EntityExporter.Batch batch,byte[] expected) {}
     private static Fixture fixture(int texture,int flags,boolean triangles,float shift) {
-        var collector=new WorldExporter.Collector(true,triangles);
+        return fixture(new WorldExporter.Collector(true,triangles),texture,flags,triangles,shift);
+    }
+    private static Fixture fixture(WorldExporter.Collector collector,int texture,int flags,boolean triangles,float shift) {
         int source=triangles?3:4;
         var expected=ByteBuffer.allocate(4*28).order(ByteOrder.LITTLE_ENDIAN);
         for(int i=0;i<source;i++){
@@ -139,5 +141,64 @@ class EntityExporterEncodingTest {
             field("connected").setBoolean(link,false);
             byte[] accepted=queued(link).clone();assertFalse(link.send(Wire.ENTITY_FRAME,new byte[]{1}));assertArrayEquals(accepted,queued(link));
         }
+    }
+    @Test void recycledArrayAndFailedNextFrameCannotChangePreviouslyQueuedEnvelope()throws Exception {
+        var pool=new EntityCollectorBuffers<String>();
+        try(var link=queue()){
+            Fixture first;byte[] firstOracle;
+            try(var buffers=pool.beginFrame()){
+                first=fixture(buffers.collector("skin",false),1,2,false,-10);var fixtures=List.of(first);
+                byte[] base=encode(1,1,0,fixtures,List.of());firstOracle=expectedEnvelope(1,expected(1,1,0,fixtures,List.of()));
+                assertTrue(link.send(Wire.ENTITY_FRAME,EntityFrame.encode(EPOCH,3,1,7,base,List.of())));buffers.complete();
+            }
+            byte[] nextPacket,nextOracle;
+            try(var buffers=pool.beginFrame()){
+                Fixture next=fixture(buffers.collector("skin",false),1,2,false,900);var fixtures=List.of(next);
+                assertEquals(1,pool.reuses());
+                assertThrows(IllegalStateException.class,()->first.batch.vertices().vertex(0,0,0));
+                assertArrayEquals(firstOracle,queued(link));
+                nextPacket=EntityFrame.encode(EPOCH,3,2,7,encode(2,1,0,fixtures,List.of()),List.of());
+                nextOracle=expectedEnvelope(2,expected(2,1,0,fixtures,List.of()));buffers.complete();
+            }
+            assertTrue(link.send(Wire.ENTITY_FRAME,nextPacket));Arrays.fill(nextPacket,(byte)0);
+            assertArrayEquals(nextOracle,queued(link));
+            try(var buffers=pool.beginFrame()){
+                var broken=buffers.collector("skin",false);
+                for(int i=0;i<3;i++)broken.vertex(100+i,64,-2);
+                assertThrows(IllegalArgumentException.class,broken::finishSize);
+            }
+            assertEquals(0,pool.retainedBytes());assertArrayEquals(nextOracle,queued(link));
+            try(var buffers=pool.beginFrame()){
+                Fixture recovered=fixture(buffers.collector("skin",true),1,2,true,42);var fixtures=List.of(recovered);
+                byte[] payload=EntityFrame.encode(EPOCH,3,3,7,encode(3,1,0,fixtures,List.of()),List.of());
+                assertTrue(link.send(Wire.ENTITY_FRAME,payload));
+                assertArrayEquals(expectedEnvelope(3,expected(3,1,0,fixtures,List.of())),queued(link));buffers.complete();
+            }
+            byte[] accepted=queued(link).clone();pool.clear();assertArrayEquals(accepted,queued(link));
+        }
+    }
+    @SuppressWarnings("unchecked")
+    @Test void exporterResetClosesActiveLoanAndDropsPriorContextRetention()throws Exception {
+        var active=EntityExporter.class.getDeclaredField("active");active.setAccessible(true);Object previous=active.get(null);
+        try(var link=queue()){
+            var exporter=new EntityExporter(link);
+            var field=EntityExporter.class.getDeclaredField("collectorBuffers");field.setAccessible(true);
+            var pool=(EntityCollectorBuffers<EntityExporter.Material>)field.get(exporter);
+            var material=new EntityExporter.Material(net.minecraft.util.Identifier.ofVanilla("textures/test.png"),false,true,false,false);
+            try(var frame=pool.beginFrame()){
+                fixture(frame.collector(material,false),0,2,false,0);frame.complete();
+            }
+            assertTrue(pool.retainedBytes()>0);
+            var interrupted=pool.beginFrame();var stale=interrupted.collector(material,false);
+            fixture(stale,0,2,false,0);exporter.reset();
+            assertEquals(0,pool.retainedBytes());assertEquals(0,pool.retainedEntries());
+            assertThrows(IllegalStateException.class,interrupted::complete);
+            assertThrows(IllegalStateException.class,()->stale.vertex(0,0,0));interrupted.close();
+            try(var frame=pool.beginFrame()){
+                var fresh=fixture(frame.collector(material,false),0,2,false,99);var fixtures=List.of(fresh);
+                assertArrayEquals(expected(1,1,0,fixtures,List.of()),encode(1,1,0,fixtures,List.of()));frame.complete();
+            }
+            exporter.reset();assertEquals(0,pool.retainedEntries());
+        }finally{active.set(null,previous);}
     }
 }

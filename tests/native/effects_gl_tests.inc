@@ -1,21 +1,25 @@
-// Production GoldCraft vertex/fragment shaders and Renderer common.h on the
+// Production GoldCraft vertex/geometry/fragment shaders and Renderer common.h on the
 // actual hidden GL context. Only shader loading and the engine UBOs are adapters.
 GLuint Renderer::effect_program(const CCompileShaderArgs* args){
     const auto read=[](const std::string& path){std::ifstream file(path);assert(file.good());return std::string(std::istreambuf_iterator<char>(file),{});};
     const auto common=read(GOLDCRAFT_SHADER_COMMON);
-    const auto stage=[&](GLenum kind,const char* name){
+    const auto stage=[&](GLenum kind,const char* name,const char* stage_define,const char* defines){
         auto source=read(std::string(GOLDCRAFT_SHADER_SOURCE)+"/"+name);
         const std::string include="#include \"common.h\"";
         const auto at=source.find(include);assert(at!=std::string::npos);source.replace(at,include.size(),common);
-        const auto definitions=std::string(kind==GL_VERTEX_SHADER?"#define IS_VERTEX_SHADER\n":"#define IS_FRAGMENT_SHADER\n")+(args->fsdefine?args->fsdefine:"");
+        const auto definitions=std::string(stage_define)+(defines?defines:"");
         source.insert(source.find('\n')+1,definitions);
         return compile(kind,source);
     };
-    const auto vs=stage(GL_VERTEX_SHADER,"goldcraft.vert.glsl"),fs=stage(GL_FRAGMENT_SHADER,"goldcraft.frag.glsl");
-    const auto program=glCreateProgram();glAttachShader(program,vs);glAttachShader(program,fs);glLinkProgram(program);
+    const auto vs=stage(GL_VERTEX_SHADER,"goldcraft.vert.glsl","#define IS_VERTEX_SHADER\n",args->vsdefine);
+    const auto fs=stage(GL_FRAGMENT_SHADER,"goldcraft.frag.glsl","#define IS_FRAGMENT_SHADER\n",args->fsdefine);
+    const auto gs=args->gsfile?stage(GL_GEOMETRY_SHADER,"goldcraft.geom.glsl","#define IS_GEOMETRY_SHADER\n",args->gsdefine):0;
+    const auto program=glCreateProgram();glAttachShader(program,vs);glAttachShader(program,fs);
+    if(gs){glAttachShader(program,gs);++probe::geometry_shaders;}
+    glLinkProgram(program);
     GLint ok{};glGetProgramiv(program,GL_LINK_STATUS,&ok);
     if(!ok){char log[8192]{};glGetProgramInfoLog(program,sizeof(log),nullptr,log);std::fprintf(stderr,"%s\n",log);}
-    assert(ok);glDeleteShader(vs);glDeleteShader(fs);return program;
+    assert(ok);glDeleteShader(vs);glDeleteShader(fs);if(gs)glDeleteShader(gs);return program;
 }
 void effect_tests(Resources& r){
     using namespace goldcraft;

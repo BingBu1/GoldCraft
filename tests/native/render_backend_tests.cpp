@@ -1,7 +1,7 @@
 // Execute the client backend on a hidden driver context. Only the three
 // Renderer services are adapters: texture binding, shader compilation and the
 // gamma flag. Ordinary scene shaders are small fixtures; effect and HUD shaders
-// are production. Effects also load the production Renderer common.h and UBOs.
+// are production. Effects and depth-only shadows load Renderer common.h/UBOs.
 #include <windows.h>
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -29,6 +29,9 @@ namespace probe {
 bool count_allocations{};
 std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{}, errors{};
 std::size_t texture_images{},texture_updates{},array_draws{};
+std::size_t draw_buffer_queries{},limit_queries{},stencil_parameter_queries{},color_state_queries{};
+std::size_t stencil_parameter_writes{},color_state_writes{},geometry_shaders{};
+GLint draw_buffer_slots{};
 unsigned snapshot_storage_failure{};
 void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLsizei width, GLsizei height) {
     // Leave one newly-created texture without storage. Framebuffer completeness
@@ -36,7 +39,34 @@ void APIENTRY snapshot_storage(GLenum target, GLsizei levels, GLenum format, GLs
     if (snapshot_storage_failure && --snapshot_storage_failure == 0) return;
     glTexStorage2D(target, levels, format, width, height);
 }
-void reset() { allocations = queries = locations = uniforms = texture_parameters = bindings = errors = texture_images = texture_updates = array_draws = 0; }
+void reset() {
+    allocations = queries = locations = uniforms = texture_parameters = bindings = errors = texture_images = texture_updates = array_draws = 0;
+    draw_buffer_queries=limit_queries=stencil_parameter_queries=color_state_queries=stencil_parameter_writes=color_state_writes=0;
+}
+bool stencil_parameter(GLenum p){
+    switch(p){
+    case GL_STENCIL_FUNC:case GL_STENCIL_REF:case GL_STENCIL_VALUE_MASK:case GL_STENCIL_WRITEMASK:
+    case GL_STENCIL_FAIL:case GL_STENCIL_PASS_DEPTH_FAIL:case GL_STENCIL_PASS_DEPTH_PASS:
+    case GL_STENCIL_BACK_FUNC:case GL_STENCIL_BACK_REF:case GL_STENCIL_BACK_VALUE_MASK:case GL_STENCIL_BACK_WRITEMASK:
+    case GL_STENCIL_BACK_FAIL:case GL_STENCIL_BACK_PASS_DEPTH_FAIL:case GL_STENCIL_BACK_PASS_DEPTH_PASS:return true;
+    default:return false;
+    }
+}
+bool blend_parameter(GLenum p){
+    return p==GL_BLEND_SRC_RGB||p==GL_BLEND_DST_RGB||p==GL_BLEND_SRC_ALPHA||p==GL_BLEND_DST_ALPHA||
+        p==GL_BLEND_EQUATION_RGB||p==GL_BLEND_EQUATION_ALPHA;
+}
+void APIENTRY stencil_func(GLenum f,GLint r,GLuint m){++stencil_parameter_writes;glStencilFunc(f,r,m);}
+void APIENTRY stencil_mask(GLuint m){++stencil_parameter_writes;glStencilMask(m);}
+void APIENTRY stencil_op(GLenum f,GLenum zf,GLenum zp){++stencil_parameter_writes;glStencilOp(f,zf,zp);}
+void APIENTRY stencil_func_separate(GLenum face,GLenum f,GLint r,GLuint m){++stencil_parameter_writes;glStencilFuncSeparate(face,f,r,m);}
+void APIENTRY stencil_mask_separate(GLenum face,GLuint m){++stencil_parameter_writes;glStencilMaskSeparate(face,m);}
+void APIENTRY stencil_op_separate(GLenum face,GLenum f,GLenum zf,GLenum zp){++stencil_parameter_writes;glStencilOpSeparate(face,f,zf,zp);}
+void APIENTRY enable_i(GLenum p,GLuint i){if(p==GL_BLEND)++color_state_writes;glEnablei(p,i);}
+void APIENTRY disable_i(GLenum p,GLuint i){if(p==GL_BLEND)++color_state_writes;glDisablei(p,i);}
+void APIENTRY color_mask_i(GLuint i,GLboolean r,GLboolean g,GLboolean b,GLboolean a){++color_state_writes;glColorMaski(i,r,g,b,a);}
+void APIENTRY blend_func_i(GLuint i,GLenum sr,GLenum dr,GLenum sa,GLenum da){++color_state_writes;glBlendFuncSeparatei(i,sr,dr,sa,da);}
+void APIENTRY blend_equation_i(GLuint i,GLenum rgb,GLenum alpha){++color_state_writes;glBlendEquationSeparatei(i,rgb,alpha);}
 GLenum APIENTRY error() { ++errors; return glGetError(); }
 void APIENTRY texture_image(GLenum target,GLint level,GLint format,GLsizei width,GLsizei height,GLint border,GLenum channels,GLenum type,const void* pixels){
     ++texture_images;glTexImage2D(target,level,format,width,height,border,channels,type,pixels);
@@ -47,6 +77,9 @@ void APIENTRY texture_update(GLenum target,GLint level,GLint x,GLint y,GLsizei w
 void APIENTRY arrays(GLenum mode,GLint first,GLsizei count){++array_draws;glDrawArrays(mode,first,count);}
 void APIENTRY integer(GLenum p, GLint *v) {
     ++queries;
+    if(p>=GL_DRAW_BUFFER0&&p<GL_DRAW_BUFFER0+draw_buffer_slots)++draw_buffer_queries;
+    if(p==GL_MAX_DRAW_BUFFERS)++limit_queries;
+    if(stencil_parameter(p))++stencil_parameter_queries;
     glGetIntegerv(p, v);
 }
 void APIENTRY floating(GLenum p, GLfloat *v) {
@@ -63,14 +96,17 @@ GLboolean APIENTRY enabled(GLenum p) {
 }
 void APIENTRY integer_i(GLenum p, GLuint i, GLint *v) {
     ++queries;
+    if(blend_parameter(p))++color_state_queries;
     glGetIntegeri_v(p, i, v);
 }
 void APIENTRY boolean_i(GLenum p, GLuint i, GLboolean *v) {
     ++queries;
+    if(p==GL_COLOR_WRITEMASK)++color_state_queries;
     glGetBooleani_v(p, i, v);
 }
 GLboolean APIENTRY enabled_i(GLenum p, GLuint i) {
     ++queries;
+    if(p==GL_BLEND)++color_state_queries;
     return glIsEnabledi(p, i);
 }
 GLint APIENTRY location(GLuint p, const GLchar *name) {
@@ -109,6 +145,14 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glUniform1i
 #undef glUniform1f
 #undef glUniform4fv
+#undef glStencilFuncSeparate
+#undef glStencilMaskSeparate
+#undef glStencilOpSeparate
+#undef glEnablei
+#undef glDisablei
+#undef glColorMaski
+#undef glBlendFuncSeparatei
+#undef glBlendEquationSeparatei
 #define glGetIntegerv probe::integer
 #define glGetFloatv probe::floating
 #define glGetBooleanv probe::boolean
@@ -125,6 +169,17 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glTexImage2D probe::texture_image
 #define glTexSubImage2D probe::texture_update
 #define glDrawArrays probe::arrays
+#define glStencilFunc probe::stencil_func
+#define glStencilMask probe::stencil_mask
+#define glStencilOp probe::stencil_op
+#define glStencilFuncSeparate probe::stencil_func_separate
+#define glStencilMaskSeparate probe::stencil_mask_separate
+#define glStencilOpSeparate probe::stencil_op_separate
+#define glEnablei probe::enable_i
+#define glDisablei probe::disable_i
+#define glColorMaski probe::color_mask_i
+#define glBlendFuncSeparatei probe::blend_func_i
+#define glBlendEquationSeparatei probe::blend_equation_i
 #ifndef GOLDCRAFT_RENDER_SOURCE
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
 #endif
@@ -152,6 +207,17 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #undef glTexImage2D
 #undef glTexSubImage2D
 #undef glDrawArrays
+#undef glStencilFunc
+#undef glStencilMask
+#undef glStencilOp
+#undef glStencilFuncSeparate
+#undef glStencilMaskSeparate
+#undef glStencilOpSeparate
+#undef glEnablei
+#undef glDisablei
+#undef glColorMaski
+#undef glBlendFuncSeparatei
+#undef glBlendEquationSeparatei
 #define glGetIntegeri_v GLEW_GET_FUN(__glewGetIntegeri_v)
 #define glGetBooleani_v GLEW_GET_FUN(__glewGetBooleani_v)
 #define glIsEnabledi GLEW_GET_FUN(__glewIsEnabledi)
@@ -159,6 +225,14 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glUniform1i GLEW_GET_FUN(__glewUniform1i)
 #define glUniform1f GLEW_GET_FUN(__glewUniform1f)
 #define glUniform4fv GLEW_GET_FUN(__glewUniform4fv)
+#define glStencilFuncSeparate GLEW_GET_FUN(__glewStencilFuncSeparate)
+#define glStencilMaskSeparate GLEW_GET_FUN(__glewStencilMaskSeparate)
+#define glStencilOpSeparate GLEW_GET_FUN(__glewStencilOpSeparate)
+#define glEnablei GLEW_GET_FUN(__glewEnablei)
+#define glDisablei GLEW_GET_FUN(__glewDisablei)
+#define glColorMaski GLEW_GET_FUN(__glewColorMaski)
+#define glBlendFuncSeparatei GLEW_GET_FUN(__glewBlendFuncSeparatei)
+#define glBlendEquationSeparatei GLEW_GET_FUN(__glewBlendEquationSeparatei)
 
 #include "renderer_unused.inc"
 
@@ -365,6 +439,12 @@ struct Resources {
         goldcraft::render::renderer = &adapter;
         goldcraft::render::current_context = wglGetCurrentContext();
         goldcraft::render::logger = log_message;
+        glGetIntegerv(GL_MAX_DRAW_BUFFERS,&probe::draw_buffer_slots);
+        #ifndef GOLDCRAFT_RENDER_BASELINE
+        // The standalone adapter bypasses initialize's DLL lookup, but uses the
+        // actual immutable limit from this context exactly as initialize does.
+        goldcraft::render::max_draw_buffers=probe::draw_buffer_slots;
+        #endif
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         glGenTextures(4, colors);
@@ -481,6 +561,7 @@ struct Resources {
 #include "post_scene_snapshot_gl_tests.inc"
 #include "plugin_draw_gl_tests.inc"
 #include "plugin_hud_gl_tests.inc"
+#include "shadow_depth_only_gl_tests.inc"
 #else
 GLuint Renderer::effect_program(const CCompileShaderArgs*){std::abort();}
 #endif
@@ -594,6 +675,7 @@ void run(bool benchmark) {
     plugin_hud_probe::tests(r);
     effect_tests(r);
     post_scene_snapshot_tests(r);
+    shadow_depth_only_tests(r);
     #endif
     if (benchmark) {
         r.sentinel();

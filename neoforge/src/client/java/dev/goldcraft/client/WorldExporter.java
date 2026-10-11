@@ -211,7 +211,9 @@ public final class WorldExporter {
         link.send(Wire.LIGHTS,lamps.snapshot(worldEpoch));
     }
     static final class Collector implements VertexConsumer {
-        private byte[] vertices=new byte[4096];
+        private static final byte[] EMPTY=new byte[0];
+        private byte[] vertices;
+        private java.util.function.Supplier<byte[]> storage;
         private int bytes;
         private float x,y,z,u,v,offsetX,offsetY,offsetZ;
         private int red=255,green=255,blue=255,alpha=255,count,sourceCount,overlayColor;
@@ -219,10 +221,18 @@ public final class WorldExporter {
         private int hurtVertices;
         private boolean pending;
         Collector(){this(false,false);}
-        Collector(boolean withOverlay,boolean triangles){this.withOverlay=withOverlay;this.triangles=triangles;}
+        Collector(boolean withOverlay,boolean triangles){this.withOverlay=withOverlay;this.triangles=triangles;vertices=new byte[4096];}
+        Collector(boolean withOverlay,boolean triangles,java.util.function.Supplier<byte[]> storage){
+            this.withOverlay=withOverlay;this.triangles=triangles;this.storage=storage;vertices=EMPTY;
+        }
+        private void requireOpen(){if(vertices==null)throw new IllegalStateException("Closed model collector");}
+        byte[] releaseBuffer(){
+            byte[] owned=vertices;vertices=null;storage=null;pending=false;return owned==null?EMPTY:owned;
+        }
         int hurtVertices(){return hurtVertices;}
-        void offset(float x,float y,float z) { offsetX=x;offsetY=y;offsetZ=z; }
+        void offset(float x,float y,float z) { requireOpen();offsetX=x;offsetY=y;offsetZ=z; }
         private void flush() {
+            requireOpen();
             if(!pending) return;
             sourceCount++;
             writeVertex();
@@ -236,7 +246,7 @@ public final class WorldExporter {
             if(!Float.isFinite(x)||!Float.isFinite(y)||!Float.isFinite(z)||!Float.isFinite(u)||!Float.isFinite(v))
                 throw new IllegalArgumentException("Non-finite float");
             int stride=withOverlay?28:24,end=bytes+stride;
-            if(end>vertices.length)vertices=Arrays.copyOf(vertices,Math.max(end,Math.min(262144*stride,vertices.length*2)));
+            if(end>vertices.length)grow(end,stride);
             // One capacity check per vertex avoids the synchronized byte-at-a-time
             // ByteArrayOutputStream path in every animated model draw.
             putInt(vertices,bytes,Float.floatToRawIntBits(x));putInt(vertices,bytes+4,Float.floatToRawIntBits(y));
@@ -245,6 +255,13 @@ public final class WorldExporter {
             vertices[bytes+20]=(byte)red;vertices[bytes+21]=(byte)green;vertices[bytes+22]=(byte)blue;vertices[bytes+23]=(byte)alpha;
             if(withOverlay){putInt(vertices,bytes+24,overlayColor);if(overlayColor==0x4d0000ff)hurtVertices++;}
             bytes=end;
+        }
+        private void grow(int end,int stride){
+            if(storage!=null){
+                byte[] borrowed=storage.get();storage=null;
+                if(borrowed!=null)vertices=borrowed;
+            }
+            if(end>vertices.length)vertices=Arrays.copyOf(vertices,Math.max(end,Math.min(262144*stride,Math.max(4096,vertices.length*2))));
         }
         private static void putInt(byte[] target,int at,int value){
             target[at]=(byte)value;target[at+1]=(byte)(value>>>8);target[at+2]=(byte)(value>>>16);target[at+3]=(byte)(value>>>24);
@@ -260,10 +277,10 @@ public final class WorldExporter {
         }
         byte[] finish() { int size=finishSize();return Arrays.copyOf(vertices,size); }
         @Override public VertexConsumer vertex(float x,float y,float z) { flush(); this.x=x+offsetX;this.y=y+offsetY;this.z=z+offsetZ;overlayColor=0;pending=true;return this; }
-        @Override public VertexConsumer color(int red,int green,int blue,int alpha) {this.red=red;this.green=green;this.blue=blue;this.alpha=alpha;return this;}
-        @Override public VertexConsumer texture(float u,float v) {this.u=u;this.v=v;return this;}
-        @Override public VertexConsumer overlay(int u,int v) {overlayColor=dev.goldcraft.bridge.OverlayColor.fromUv(u,v);return this;}
-        @Override public VertexConsumer light(int u,int v) {return this;}
-        @Override public VertexConsumer normal(float x,float y,float z) {return this;}
+        @Override public VertexConsumer color(int red,int green,int blue,int alpha) {requireOpen();this.red=red;this.green=green;this.blue=blue;this.alpha=alpha;return this;}
+        @Override public VertexConsumer texture(float u,float v) {requireOpen();this.u=u;this.v=v;return this;}
+        @Override public VertexConsumer overlay(int u,int v) {requireOpen();overlayColor=dev.goldcraft.bridge.OverlayColor.fromUv(u,v);return this;}
+        @Override public VertexConsumer light(int u,int v) {requireOpen();return this;}
+        @Override public VertexConsumer normal(float x,float y,float z) {requireOpen();return this;}
     }
 }

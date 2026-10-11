@@ -38,6 +38,7 @@ private:
 
 struct Statistics {
     std::uint64_t uploads=0,upload_bytes=0,draws=0,opaque_passes=0,shadow_passes=0;
+    std::uint64_t depth_only_shadow_passes=0;
     GLenum error=0;
     std::uint64_t error_count=0;
     std::uint64_t shadow_bounds_tests=0,shadow_bounds_culled=0;
@@ -98,5 +99,6 @@ private:
     bool stencil_write_=false;
     bool shadow_=false;
     bool raw_mask_=false;
+    bool depth_only_=false;
 };
 }

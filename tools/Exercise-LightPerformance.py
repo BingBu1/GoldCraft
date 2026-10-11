@@ -3,6 +3,8 @@
 Default: 8 then 32 cumulative glowstone blocks, static-shadow OFF/ON at each
 count, followed by the normal 99.5 FPS cap. No camera, input, population or
 quality controls are changed. Each capture uses Monitor-LivePerformance.py.
+Use --cache-modes 1 for a shorter check of the enabled cache; a single mode
+does not report a cache improvement percentage.
 
 Run only while B remains in active MC gameplay, foreground and stationary.
 Evidence and a durable recovery manifest stay in analysis/perf-200fps. Recover
@@ -611,19 +613,27 @@ class Exercise:
                      "screenshot": self.capture(f"{self.data['run']}-{count}-scene")}
             self.data["stages"].append(stage)
             self.save()
-            off_path, off = self.measure(f"{self.data['run']}-{count}-off", lights, cache=0)
-            on_path, on = self.measure(f"{self.data['run']}-{count}-on", lights, cache=1, reference=off_path)
-            visible_counts = {name: item["rendererAllVisibleLights"] for name, item in
-                              zip(("off", "on"), self.data["measurements"][-2:])}
-            stage.update(off=str(off_path.relative_to(ROOT)), on=str(on_path.relative_to(ROOT)), comparable=True,
-                         rendererAllVisibleLights=visible_counts,
-                         workloadNote="Same observer and MC fixture; ordinary Bot and host dynamic-light activity can differ between intervals.",
-                         fpsGainPercent=100 * (on["summary"]["renderer"]["observedFps"] /
-                                               off["summary"]["renderer"]["observedFps"] - 1))
+            captures = {}
+            reference = None
+            visible_counts = {}
+            for mode in self.args.cache_modes:
+                name = "on" if mode else "off"
+                path, result = self.measure(f"{self.data['run']}-{count}-{name}", lights,
+                                            cache=mode, reference=reference)
+                reference = path
+                captures[mode] = result
+                stage[name] = str(path.relative_to(ROOT))
+                visible_counts[name] = self.data["measurements"][-1]["rendererAllVisibleLights"]
+                self.save()
+            stage.update(comparable=len(captures) == 2, rendererAllVisibleLights=visible_counts,
+                         workloadNote="Same observer and MC fixture; ordinary Bot and host dynamic-light activity can differ between intervals.")
+            if len(captures) == 2:
+                stage["fpsGainPercent"] = 100 * (captures[1]["summary"]["renderer"]["observedFps"] /
+                                                 captures[0]["summary"]["renderer"]["observedFps"] - 1)
             previous = lights
             self.save()
         self.measure(f"{self.data['run']}-normal", previous)
-        self.data["outcome"] = "eligible comparisons; screenshots still require visual assessment"
+        self.data["outcome"] = ("eligible comparisons" if len(self.args.cache_modes) == 2 else "eligible single-mode samples") + "; screenshots still require visual assessment"
 
 
 def validate_recovery(data):
@@ -647,6 +657,8 @@ def validate_recovery(data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--counts", type=int, nargs="+", choices=(8, 32, 64), default=[8, 32])
+    parser.add_argument("--cache-modes", type=int, nargs="+", choices=(0, 1), default=[0, 1],
+                        help="Cache modes to sample; a single mode gives no improvement comparison")
     parser.add_argument("--seconds", type=int, choices=range(5, 26), default=8)
     parser.add_argument("--wait-stable", type=int, choices=range(4, 121), default=15)
     parser.add_argument("--capture", action="store_true", help="Capture one native scene BMP per light-count stage outside timing")
@@ -654,6 +666,8 @@ def main():
     args = parser.parse_args()
     if args.counts != sorted(set(args.counts)):
         parser.error("counts must be unique and increasing")
+    if len(args.cache_modes) != len(set(args.cache_modes)):
+        parser.error("cache modes must be unique")
     if sys.platform != "win32":
         parser.error("This exercise verifies the local Windows sandbox processes")
     local_path(OUTPUT, ROOT / "analysis")

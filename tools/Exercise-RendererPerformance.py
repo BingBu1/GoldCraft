@@ -38,7 +38,7 @@ def server_population():
 def read_status():
     try:
         return json.loads(STATUS.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -46,11 +46,24 @@ def command(action):
     sequence = time.time_ns()
     pending = LOGS / "renderer-command.pending"
     pending.write_text(f"{sequence} {action}\n", encoding="ascii")
-    pending.replace(LOGS / "goldcraft-test-command.txt")
+    # The native reader briefly opens this file without delete sharing on
+    # Windows. Retry the same unpublished command, with a bounded deadline.
+    publish_deadline = time.monotonic() + 2
+    while True:
+        try:
+            pending.replace(LOGS / "goldcraft-test-command.txt")
+            break
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in (5, 32) or time.monotonic() >= publish_deadline:
+                raise
+            time.sleep(0.02)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if read_status().get("testCommand", 0) >= sequence:
+        observed = read_status().get("testCommand", 0)
+        if observed == sequence:
             return
+        if observed > sequence:
+            raise RuntimeError("A concurrent sandbox command replaced the renderer command")
         time.sleep(0.1)
     raise TimeoutError("Live B did not acknowledge the renderer command")
 

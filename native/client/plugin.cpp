@@ -657,6 +657,7 @@ void WriteDiagnostics() {
            <<",\"developerLevel\":"<<gEngfuncs.pfnGetCvarFloat("developer")
            <<",\"atlasUploads\":"<<atlas_uploads<<",\"atlasGeneration\":"<<atlas_generation<<",\"atlasAnimationPackets\":"<<atlas_animation_packets<<",\"atlasPatchBytes\":"<<atlas_patch_bytes<<",\"atlasAnimationIntervalMs\":"<<atlas_animation_interval_ms
            <<",\"gpuUploads\":"<<gpu.uploads<<",\"gpuUploadBytes\":"<<gpu.upload_bytes<<",\"gpuDraws\":"<<gpu.draws<<",\"opaquePasses\":"<<gpu.opaque_passes<<",\"shadowPasses\":"<<gpu.shadow_passes
+           <<",\"depthOnlyShadowPasses\":"<<gpu.depth_only_shadow_passes
            <<",\"avatarCount\":"<<rendered_players.size()<<",\"suppressedModels\":"<<suppressed_models<<",\"replacePlayers\":"<<((!replace_players||replace_players->value!=0)?"true":"false")
            <<",\"entityDepthWriteBatches\":"<<depth_batches<<",\"entityTranslucentBatches\":"<<translucent_batches
            <<",\"entityTextures\":"<<entity_textures.size()<<",\"entityRevision\":"<<entity_revision

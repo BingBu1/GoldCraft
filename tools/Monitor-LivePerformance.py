@@ -55,7 +55,7 @@ def snapshot():
               "playerLife", "serverPlayerLife", "minecraftForm", "formMenuVisible", "fpsLimit", "vsync", "glError", "frameWorkMs",
               "hudWorkMs", "nativeWork", "fpsOverride", "benchmarkFramerate", "entityCount", "entityBatches", "entityFrames",
               "entityEffectVertices", "sections", "vertices", "drawFrames", "gpuUploads",
-              "gpuUploadBytes", "gpuDraws", "particleVertices", "postEffectStages", "postEffectFailures",
+              "gpuUploadBytes", "gpuDraws", "depthOnlyShadowPasses", "particleVertices", "postEffectStages", "postEffectFailures",
               "hudBlank", "hudFrames", "hudBlankFrames", "hudBlankUploads", "hudBlankCompositesSkipped",
               "hudDraws", "hudTextureWidth", "hudTextureHeight",
               "sceneCullingApi", "sceneCullingEnabled", "shadowBoundsTests", "shadowBoundsCulled",
