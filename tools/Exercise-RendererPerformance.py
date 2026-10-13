@@ -20,7 +20,7 @@ STAGES = ("interval", "render", "setup", "shadow", "water", "scene",
           "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
           "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
           "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
-          "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait")
+          "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute")
 
 
 def server_population():
@@ -75,11 +75,12 @@ def summarize(frames):
     result = {"frames": len(frames), "focusedFrames": sum(f["focused"] for f in frames)}
     result["states"] = {key: sorted({f[key] for f in frames})
                         for key in ("deferred", "diagnostics", "shadows", "width", "height")}
-    if any("studioFaceCull" in frame for frame in frames):
-        result["studioFaceCullStates"] = sorted({frame["studioFaceCull"] for frame in frames
-                                                 if type(frame.get("studioFaceCull")) in (int, float)})
-        result["studioFaceCullComplete"] = all(type(frame.get("studioFaceCull")) in (int, float)
-                                                and frame["studioFaceCull"] in (0, 1) for frame in frames)
+    for feature in ("studioFaceCull", "studioDepthExecutor"):
+        if any(feature in frame for frame in frames):
+            result[feature + "States"] = sorted({frame[feature] for frame in frames
+                                                 if type(frame.get(feature)) in (int, float)})
+            result[feature + "Complete"] = all(type(frame.get(feature)) in (int, float)
+                                                and frame[feature] in (0, 1) for frame in frames)
     for field in ("origin", "angles"):
         result[field + "Range"] = [max(f[field][i] for f in frames) - min(f[field][i] for f in frames)
                                    for i in range(3)]
@@ -112,6 +113,12 @@ def summarize(frames):
                             for key in frames[0] if key.endswith("Calls") or key in
                             ("shadowCullTests", "shadowCulled", "boneCacheHits", "boneCacheMisses",
                              "boneCacheAllocations", "boneCacheReuses", "boneCacheOverflows")}
+    depth_counts = ("studioDepthFastMeshes", "studioDepthFallbackMeshes")
+    if any(key in frame for frame in frames for key in depth_counts):
+        result["studioDepthMeshCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                      for frame in frames for key in depth_counts)
+        if result["studioDepthMeshCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in depth_counts})
     return result
 
 

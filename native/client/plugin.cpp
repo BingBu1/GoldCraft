@@ -721,6 +721,8 @@ void WriteDiagnostics() {
            <<",\"rendererShadowCull\":"<<gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull")
            <<",\"rendererStudioFaceCullAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_studio_shadow_face_cull")?"true":"false")
            <<",\"rendererStudioFaceCull\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_shadow_face_cull")
+           <<",\"rendererStudioDepthExecutorAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_studio_shadow_depth_executor")?"true":"false")
+           <<",\"rendererStudioDepthExecutor\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor")
            <<",\"hostUseHeld\":"<<(host_use_sent?"true":"false")<<",\"hostUseMessages\":"<<host_use_messages
            <<",\"minecraftForm\":"<<(server_minecraft_form?"true":"false")<<",\"serverPlayerLife\":"<<server_player_life
            <<",\"nativeColliders\":"<<native_colliders.size()<<",\"predictionObjects\":"<<prediction_objects<<",\"predictionFrames\":"<<prediction_frames<<",\"predictionOverflow\":"<<prediction_overflow
@@ -1369,6 +1371,11 @@ void TestCommands() {
         int enabled=0;
         if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_studio_shadow_face_cull"))
             gEngfuncs.Cvar_SetValue("r_studio_shadow_face_cull",static_cast<float>(enabled));
+    }
+    else if(action=="render_studio_depth_executor"){
+        int enabled=0;
+        if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_studio_shadow_depth_executor"))
+            gEngfuncs.Cvar_SetValue("r_studio_shadow_depth_executor",static_cast<float>(enabled));
     }
     else if(action=="scene_static_shadows"){
         int enabled=1;

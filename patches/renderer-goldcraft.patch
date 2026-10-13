@@ -1829,10 +1829,10 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..1ed1342 100644
+index fa85f25..307afc3 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
-@@ -9,33 +9,22 @@
+@@ -9,33 +9,23 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -1841,6 +1841,7 @@ index fa85f25..1ed1342 100644
  
  static GLuint g_hStudioUBO{};
 +static cvar_t* r_studio_shadow_face_cull{};
++static cvar_t* r_studio_shadow_depth_executor{};
  
  static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
  
@@ -1871,7 +1872,7 @@ index fa85f25..1ed1342 100644
  
  //Engine private vars
  
-@@ -154,83 +143,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +144,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -1955,7 +1956,7 @@ index fa85f25..1ed1342 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1335,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1336,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -1963,7 +1964,7 @@ index fa85f25..1ed1342 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1349,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1350,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -1981,17 +1982,18 @@ index fa85f25..1ed1342 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1583,6 +1507,9 @@ void R_InitStudio(void)
+@@ -1583,6 +1508,10 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
 +    // Keep this candidate opt-in until an actual foreground comparison is available.
 +    r_studio_shadow_face_cull = gEngfuncs.pfnRegisterVariable("r_studio_shadow_face_cull", "0", FCVAR_CLIENTDLL);
++    r_studio_shadow_depth_executor = gEngfuncs.pfnRegisterVariable("r_studio_shadow_depth_executor", "0", FCVAR_CLIENTDLL);
 +    R_StudioDiagnosticsInit();
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1815,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1817,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2008,7 +2010,7 @@ index fa85f25..1ed1342 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2327,9 +2258,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2260,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2023,7 +2025,161 @@ index fa85f25..1ed1342 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2397,6 +2330,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2387,6 +2322,153 @@ void R_StudioDrawMesh_AnalysisPass(
+     }
+ }
+ 
++bool R_StudioCanUseDepthExecutor(const StudioDepthExecutorContext& context)
++{
++    constexpr program_state_t allowedTextureFlags = STUDIO_NF_FLATSHADE | STUDIO_NF_FULLBRIGHT |
++        STUDIO_NF_NOMIPS | STUDIO_NF_NOOUTLINE;
++    constexpr program_state_t allowedDrawState = allowedTextureFlags | STUDIO_SHADOW_CASTER_ENABLED;
++    if (!context.enabled || !context.shadowView || !context.opaque || !context.ordinaryMode ||
++        !context.ordinaryFx || !context.validTexture || !context.fullbrightAllowed ||
++        context.externalMaterials || context.excludedView || context.indexCount <= 0 || context.firstIndex < 0 ||
++        context.textureWidth <= 0 || context.textureHeight <= 0 ||
++        (context.textureFlags & ~allowedTextureFlags) != 0 ||
++        (context.drawState & ~allowedDrawState) != 0 || !(context.drawState & STUDIO_SHADOW_CASTER_ENABLED) ||
++        context.textureName.empty() || context.textureName.size() >= 64 ||
++        context.textureName.find('\0') != std::string_view::npos)
++        return false;
++
++    const auto beginsWith = [&](std::string_view prefix) {
++        if (context.textureName.size() < prefix.size()) return false;
++        for (size_t i = 0; i < prefix.size(); ++i)
++        {
++            const auto lower = [](char value) { return value >= 'A' && value <= 'Z' ? char(value + ('a' - 'A')) : value; };
++            if (lower(context.textureName[i]) != lower(prefix[i])) return false;
++        }
++        return true;
++    };
++    // These paths may upload remapped skins or select external/animated alpha.
++    return !beginsWith("Packed_") && !beginsWith("Remap") &&
++        !(context.textureName.size() == 11 && beginsWith("DM_Base.bmp"));
++}
++
++static bool R_StudioDepthExecutorEligible(
++    const CStudioModelRenderData* pRenderData, const CStudioModelRenderMesh* pRenderMesh,
++    const mstudiomesh_t* pmesh, const studiohdr_t* ptexturehdr, const mstudiotexture_t* ptexture,
++    const short* pskinref, program_state_t state)
++{
++    // Off pays only the cvar check; no eligibility scans on the ordinary path.
++    if (!r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f)
++        return false;
++
++    StudioDepthExecutorContext context{};
++    context.enabled = true;
++    context.shadowView = R_IsRenderingShadowView();
++    context.opaque = r_draw_opaque;
++    context.ordinaryMode = (*currententity)->curstate.rendermode == kRenderNormal;
++    context.ordinaryFx = (*currententity)->curstate.renderfx == kRenderFxNone;
++    context.externalMaterials = !pRenderData->mStudioMaterials.empty();
++    context.fullbrightAllowed = r_fullbright->value < 2;
++    // The later generic path adds these feature bits. Read the same host inputs
++    // here before that normalization rather than trusting the partial key.
++    context.excludedView = R_IsRenderingViewModel() || R_IsRenderingPreViewModel() ||
++        R_IsRenderingLowerBody() || R_IsRenderingClippedLowerBody() || R_IsRenderingFlippedViewModel() ||
++        R_IsRenderingWaterView() || R_IsRenderingPortal() || g_bPortalClipPlaneEnabled[0] ||
++        R_IsRenderingGBuffer() || R_IsRenderingGlowShellForStudioModel() ||
++        R_IsRenderingGlowColor() || R_IsRenderingGlowStencil() || R_IsRenderingGlowStencilEnableDepthTest() ||
++        R_ShouldDrawGlowStencil() || R_ShouldDrawGlowStencilEnableDepthTest() ||
++        R_ShouldDrawGlowStencilWallHack() || R_ShouldDrawGlowStencilWallHackBehindWallOnly() ||
++        R_ShouldDrawGlowColor() || R_ShouldDrawGlowColorWallHack() || R_ShouldDrawGlowColorWallHackBehindWallOnly();
++    context.indexCount = pRenderMesh->iIndiceCount;
++    context.firstIndex = pRenderMesh->iStartIndex;
++    context.drawState = state;
++
++    const int textureIndex = ptexturehdr && ptexture && pmesh ?
++        StudioResolveTextureIndex(pskinref, ptexturehdr->numskinref, ptexturehdr->numtextures, pmesh->skinref) : -1;
++    if (textureIndex >= 0 && ptexturehdr->textureindex)
++    {
++        const auto& texture = ptexture[textureIndex];
++        context.validTexture = true;
++        context.textureFlags = static_cast<program_state_t>(static_cast<uint32_t>(texture.flags));
++        context.textureWidth = texture.width;
++        context.textureHeight = texture.height;
++        const auto end = static_cast<const char*>(std::memchr(texture.name, 0, sizeof(texture.name)));
++        context.textureName = std::string_view(texture.name, end ? size_t(end - texture.name) : sizeof(texture.name));
++    }
++    return R_StudioCanUseDepthExecutor(context);
++}
++
++static void R_StudioBeginOpaqueStencil(program_state_t state)
++{
++    int stencilRef = 0;
++    if (r_draw_hasoutline) stencilRef |= STENCIL_MASK_HAS_OUTLINE;
++    if (state & (STUDIO_NF_FLATSHADE | STUDIO_NF_CELSHADE)) stencilRef |= STENCIL_MASK_HAS_FLATSHADE;
++    if (state & STUDIO_STENCIL_NO_GLOW_BLUR_ENABLED) stencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
++    if (state & STUDIO_STENCIL_NO_GLOW_COLOR_ENABLED) stencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
++    if ((*pstudiohdr)->flags & FMODEL_NOBLOOM) stencilRef |= STENCIL_MASK_NO_BLOOM;
++    GL_BeginStencilWrite(stencilRef, STENCIL_MASK_ALL);
++}
++
++static void R_StudioSetShadowDepthState()
++{
++    // The host StudioRenderFinal may have enabled blend before this callback.
++    glDisable(GL_CULL_FACE);
++    glDisable(GL_BLEND);
++    glDepthMask(GL_TRUE);
++}
++
++static void R_StudioSubmitMesh(const CStudioModelRenderMesh* mesh, bool usedExecutor)
++{
++    R_StudioDiagnosticsMesh();
++    {
++        RProfileScope profileScope(RProfileStage::StudioSubmit);
++        glDrawElements(GL_TRIANGLES, mesh->iIndiceCount, GL_UNSIGNED_INT, BUFFER_OFFSET(mesh->iStartIndex));
++    }
++    // Count actual valid shadow submissions; skipped/invalid meshes are not hits.
++    if (R_IsRenderingShadowView() && mesh->iIndiceCount > 0 && mesh->iStartIndex >= 0)
++        R_ProfileCountStudioDepthPath(usedExecutor);
++}
++
++static void R_StudioEndMeshDraw(program_state_t state)
++{
++    GL_UseProgram(0);
++    if (state & STUDIO_DEPTH_TEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DEPTH, GL_TEXTURE_2D, 0);
++    if (state & STUDIO_MIX_DIFFUSE_TEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_MIX_DIFFUSE, GL_TEXTURE_2D, 0);
++    if (state & STUDIO_STENCIL_TEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_STENCIL, GL_TEXTURE_2D, 0);
++    if (state & STUDIO_ANIMATED_TEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_ANIMATED, GL_TEXTURE_2D_ARRAY, 0);
++    if (state & STUDIO_SPECULARTEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_SPECULAR, GL_TEXTURE_2D, 0);
++    if (state & STUDIO_PARALLAXTEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_PARALLAX, GL_TEXTURE_2D, 0);
++    if (state & STUDIO_NORMALTEXTURE_ENABLED) GL_BindTextureUnit(STUDIO_BIND_TEXTURE_NORMAL, GL_TEXTURE_2D, 0);
++    // Preserve engine currenttexture bookkeeping even when the executor bound none.
++    GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DIFFUSE, GL_TEXTURE_2D, 0);
++    glDepthMask(GL_TRUE);
++    glDisable(GL_BLEND);
++    glEnable(GL_CULL_FACE);
++    glEnable(GL_DEPTH_TEST);
++    glDepthFunc(GL_LEQUAL);
++    GL_EndStencil();
++}
++
++static void R_StudioDrawOpaqueShadowMesh(const CStudioModelRenderMesh* mesh, program_state_t originalState)
++{
++    const auto started = R_ProfileBegin();
++    program_state_t depthState = STUDIO_SHADOW_CASTER_ENABLED;
++    if (R_IsRenderingMultiView()) depthState |= STUDIO_MULTIVIEW_ENABLED;
++    if (R_IsRenderingLinearDepth()) depthState |= STUDIO_LINEAR_DEPTH_ENABLED;
++
++    R_SetGBufferMask(GBUFFER_MASK_ALL);
++    R_StudioBeginOpaqueStencil(originalState);
++    glEnable(GL_CULL_FACE);
++    glCullFace(GL_FRONT);
++    R_StudioSetShadowDepthState();
++    // Same production VS/GS/FS, bones and UBO. Unmasked shadow output has no
++    // dependency on diffuse/normal/specular textures or lighting uniforms.
++    R_UseStudioProgram(depthState, nullptr);
++    R_StudioSubmitMesh(mesh, true);
++    R_StudioEndMeshDraw(depthState);
++    // CPU-only inclusive timing; do not spend another GPU query span here.
++    R_ProfileEnd(RProfileStage::StudioDepthExecute, started);
++}
++
+ void R_StudioDrawMesh_DrawPass(
+     CStudioModelRenderData*     pRenderData,
+     CStudioModelRenderSubModel* pRenderSubmodel,
+@@ -2397,6 +2479,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -2031,20 +2187,125 @@ index fa85f25..1ed1342 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -3104,7 +3038,11 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2627,12 @@ void R_StudioDrawMesh_DrawPass(
+         return;
+     }
+ 
++    if (R_StudioDepthExecutorEligible(pRenderData, pRenderMesh, pmesh, ptexturehdr, ptexture, pskinref, StudioProgramState))
++    {
++        R_StudioDrawOpaqueShadowMesh(pRenderMesh, StudioProgramState);
++        return;
++    }
++
+     if ((int)r_studio_legacy_dlight->value >= 2)
+     {
+         StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
+@@ -2779,24 +2868,7 @@ void R_StudioDrawMesh_DrawPass(
+     {
+         if (r_draw_opaque)
+         {
+-            int iStencilRef = 0;
+-
+-            if (r_draw_hasoutline)
+-                iStencilRef |= STENCIL_MASK_HAS_OUTLINE;
+-
+-            if (StudioProgramState & (STUDIO_NF_FLATSHADE | STUDIO_NF_CELSHADE))
+-                iStencilRef |= STENCIL_MASK_HAS_FLATSHADE;
+-
+-            if (StudioProgramState & STUDIO_STENCIL_NO_GLOW_BLUR_ENABLED)
+-                iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
+-
+-            if (StudioProgramState & STUDIO_STENCIL_NO_GLOW_COLOR_ENABLED)
+-                iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
+-
+-            if ((*pstudiohdr)->flags & FMODEL_NOBLOOM)
+-                iStencilRef |= STENCIL_MASK_NO_BLOOM;
+-
+-            GL_BeginStencilWrite(iStencilRef, STENCIL_MASK_ALL);
++            R_StudioBeginOpaqueStencil(StudioProgramState);
+         }
+         else
+         {
+@@ -2878,10 +2950,7 @@ void R_StudioDrawMesh_DrawPass(
+     }
+     else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
+     {
+-        //client.dll!StudioRenderFinal enables GL_BLEND in GL_SetRenderMode and this will mess everything up. see r_studio.c~studioapi_GL_SetRenderMode~qglEnable( GL_BLEND );
+-        glDisable(GL_CULL_FACE);
+-        glDisable(GL_BLEND);
+-        glDepthMask(GL_TRUE);
++        R_StudioSetShadowDepthState();
+     }
+     else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
+     {
+@@ -3104,64 +3173,8 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
 -    glDrawElements(GL_TRIANGLES, pRenderMesh->iIndiceCount, GL_UNSIGNED_INT, BUFFER_OFFSET(pRenderMesh->iStartIndex));
-+    R_StudioDiagnosticsMesh();
-+    {
-+        RProfileScope profileScope(RProfileStage::StudioSubmit);
-+        glDrawElements(GL_TRIANGLES, pRenderMesh->iIndiceCount, GL_UNSIGNED_INT, BUFFER_OFFSET(pRenderMesh->iStartIndex));
-+    }
+-
+-    GL_UseProgram(0);
+-
+-    //Restore texture state
+-
+-    if (StudioProgramState & STUDIO_DEPTH_TEXTURE_ENABLED)
+-    {
+-        //Texture unit 8 = Depth texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DEPTH, GL_TEXTURE_2D, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_MIX_DIFFUSE_TEXTURE_ENABLED)
+-    {
+-        //Texture unit 7 = Mix Diffuse texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_MIX_DIFFUSE, GL_TEXTURE_2D, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_STENCIL_TEXTURE_ENABLED)
+-    {
+-        //Texture unit 6 = Stencil texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_STENCIL, GL_TEXTURE_2D, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_ANIMATED_TEXTURE_ENABLED)
+-    {
+-        //Texture unit 5 = Animated texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_ANIMATED, GL_TEXTURE_2D_ARRAY, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_SPECULARTEXTURE_ENABLED)
+-    {
+-        //Texture unit 4 = Specular texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_SPECULAR, GL_TEXTURE_2D, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_PARALLAXTEXTURE_ENABLED)
+-    {
+-        //Texture unit 3 = Parallax texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_PARALLAX, GL_TEXTURE_2D, 0);
+-    }
+-
+-    if (StudioProgramState & STUDIO_NORMALTEXTURE_ENABLED)
+-    {
+-        //Texture unit 2 = Normal texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_NORMAL, GL_TEXTURE_2D, 0);
+-    }
+-
+-    GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DIFFUSE, GL_TEXTURE_2D, 0);
+-
+-    //Restore states
+-    glDepthMask(GL_TRUE);
+-    glDisable(GL_BLEND);
+-    glEnable(GL_CULL_FACE);
+-    glEnable(GL_DEPTH_TEST);
+-    glDepthFunc(GL_LEQUAL);
+-
+-    GL_EndStencil();
++    R_StudioSubmitMesh(pRenderMesh, false);
++    R_StudioEndMeshDraw(StudioProgramState);
+ }
  
-     GL_UseProgram(0);
- 
-@@ -3377,7 +3315,10 @@ qboolean studioapi_StudioCheckBBox(void)
+ void R_StudioDrawMesh(
+@@ -3377,7 +3390,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -2056,7 +2317,7 @@ index fa85f25..1ed1342 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3802,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +3877,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -2072,7 +2333,7 @@ index fa85f25..1ed1342 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3812,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +3887,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -2235,7 +2496,7 @@ index fa85f25..1ed1342 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3829,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +3904,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -2263,7 +2524,7 @@ index fa85f25..1ed1342 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +3841,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +3916,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -2271,7 +2532,7 @@ index fa85f25..1ed1342 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,28 +3857,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,28 +3932,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -2304,7 +2565,7 @@ index fa85f25..1ed1342 100644
      if (!(*pstudiohdr))
      {
          pfnMergeBones(pthis, dummy, pSubModel);
-@@ -4121,22 +3879,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4121,22 +3954,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
          return;
      }
  
@@ -2330,7 +2591,7 @@ index fa85f25..1ed1342 100644
  
      pfnMergeBones(pthis, dummy, pSubModel);
  }
-@@ -5021,18 +4766,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +4841,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -2352,10 +2613,18 @@ index fa85f25..1ed1342 100644
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..b3f85d9 100644
+index eeb137d..fb0f190 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
-@@ -50,6 +50,8 @@ typedef struct studio_program_s
+@@ -9,6 +9,7 @@
+ #    include <set>
+ #    include <unordered_map>
+ #    include <memory>
++#    include <string_view>
+ 
+ #    define MAX_STUDIO_BONE_CACHES 1024
+ 
+@@ -50,6 +51,8 @@ typedef struct studio_program_s
      int r_packed_index{-1};
      int r_framerate_numframes{-1};
      int r_nearplaneclip{-1};
@@ -2364,7 +2633,27 @@ index eeb137d..b3f85d9 100644
  } studio_program_t;
  
  class studiovertexbase_t
-@@ -225,8 +227,8 @@ public:
+@@ -87,6 +90,19 @@ public:
+     size_t nMeshOffset{0};
+ };
+ 
++// Explicit host/mesh inputs keep the opt-in shadow subset independently testable.
++// textureFlags are the original unmasked flags, not the normalized shader key.
++struct StudioDepthExecutorContext
++{
++    program_state_t textureFlags{}, drawState{};
++    int             indexCount{}, firstIndex{-1}, textureWidth{}, textureHeight{};
++    std::string_view textureName;
++    bool            enabled{}, shadowView{}, opaque{}, ordinaryMode{}, ordinaryFx{};
++    bool            externalMaterials{}, excludedView{}, fullbrightAllowed{}, validTexture{};
++};
++
++bool R_StudioCanUseDepthExecutor(const StudioDepthExecutorContext& context);
++
+ class CStudioModelRenderSubModel
+ {
+ public:
+@@ -225,8 +241,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -2375,7 +2664,7 @@ index eeb137d..b3f85d9 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +244,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +258,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -2408,7 +2697,7 @@ index eeb137d..b3f85d9 100644
          return base;
      }
  };
-@@ -356,20 +360,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +374,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -6939,7 +7228,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..7b22eee 100644
+index 93166e2..adf1c00 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,89 @@ if(NOT TARGET glfw)
@@ -7034,7 +7323,7 @@ index 93166e2..7b22eee 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +121,107 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +121,127 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -7054,6 +7343,26 @@ index 93166e2..7b22eee 100644
 +target_link_libraries(studio_shadow_face_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME studio_shadow_face_gl_tests COMMAND studio_shadow_face_gl_tests)
 +set_tests_properties(studio_shadow_face_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
++
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/studio_depth_executor.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_studio_depth_executor.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/studio_depth_executor.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/studio_depth_executor.json"
++    DEPENDS extract_studio_depth_executor.py
++        "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp" "${PROJECT_SOURCE_DIR}/src/gl_studio.h"
++        "${PROJECT_SOURCE_DIR}/src/gl_rmisc.cpp" "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
++        "${PROJECT_SOURCE_DIR}/src/gl_gbuffer.cpp"
++    VERBATIM)
++add_executable(studio_shadow_depth_gl_tests studio_shadow_depth_gl_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/studio_depth_executor.inc")
++target_include_directories(studio_shadow_depth_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_compile_definitions(studio_shadow_depth_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(studio_shadow_depth_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(studio_shadow_depth_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME studio_shadow_depth_gl_tests COMMAND studio_shadow_depth_gl_tests)
++set_tests_properties(studio_shadow_depth_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
 +
 +add_executable(surface_mesh_gl_tests surface_mesh_gl_tests.cpp
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/carved_visibility.cpp"
@@ -8569,6 +8878,656 @@ index 0000000..4895acd
 +    std::printf("Studio face culling: %u checks, %u complete depth comparisons passed. Primitive counts are not FPS evidence.\n", checks, comparisons);
 +    return 0;
 +}
+diff --git a/tests/studio_shadow_depth_gl_tests.cpp b/tests/studio_shadow_depth_gl_tests.cpp
+new file mode 100644
+index 0000000..30e0707
+--- /dev/null
++++ b/tests/studio_shadow_depth_gl_tests.cpp
+@@ -0,0 +1,570 @@
++// Execute extracted production helpers on real layered depth/stencil targets.
++// Reuse the existing production-shader/UBO/camera/readback fixture utilities.
++// The legacy comparison runs the shared production state/submit/cleanup path;
++// an independent no-GS per-layer draw also checks actual depth and indices.
++#define main StudioFaceFixtureMainNotRun
++#include "studio_shadow_face_gl_tests.cpp"
++#undef main
++#include <algorithm>
++#include <numeric>
++#include <stdexcept>
++#include <string_view>
++#include "../src/studio_diagnostics.h"
++#include "../src/studio_model_validation.h"
++
++namespace
++{
++bool testMultiview = true, testLinear{}, testShadow = true;
++std::array<bool, 19> excludedHosts{};
++unsigned meshNotifications{}, meshSubmissions{}, executorCounts{}, legacyCounts{}, debugDepth{};
++unsigned profileSubmitEnds{};
++int currentTextureStorage{}, gbuffer_mask{}, gbuffer_attachment_count{};
++GLenum gbuffer_attachments[GBUFFER_INDEX_MAX]{};
++studiohdr_t header{};
++studiohdr_t* headerPointer = &header;
++cvar_t faceCull{};
++cvar_t depthExecutor{}, fullbright{};
++static cvar_t* r_studio_shadow_face_cull = &faceCull;
++static cvar_t* r_studio_shadow_depth_executor = &depthExecutor;
++static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
++GLuint elementBuffer{}, poisonTextures[9]{}, unrelatedProgram{};
++cl_entity_t entity{};
++cl_entity_t* entityPointer = &entity;
++}
++
++int* currenttexture = &currentTextureStorage;
++studiohdr_t** pstudiohdr = &headerPointer;
++cl_entity_t** currententity = &entityPointer;
++cvar_t* r_fullbright = &fullbright;
++bool g_bPortalClipPlaneEnabled[6]{};
++bool r_draw_opaque = true;
++bool r_draw_hasoutline{};
++bool g_bUseOITBlend{};
++bool R_IsRenderingMultiView() { return testMultiview; }
++bool R_IsRenderingLinearDepth() { return testLinear; }
++bool R_IsRenderingShadowView() { return testShadow; }
++bool R_IsRenderingViewModel() { return excludedHosts[0]; }
++bool R_IsRenderingPreViewModel() { return excludedHosts[1]; }
++bool R_IsRenderingLowerBody() { return excludedHosts[2]; }
++bool R_IsRenderingClippedLowerBody() { return excludedHosts[3]; }
++bool R_IsRenderingFlippedViewModel() { return excludedHosts[4]; }
++bool R_IsRenderingWaterView() { return excludedHosts[5]; }
++bool R_IsRenderingPortal() { return excludedHosts[6]; }
++bool R_IsRenderingGBuffer() { return excludedHosts[7]; }
++bool R_IsRenderingGlowShellForStudioModel() { return excludedHosts[8]; }
++bool R_ShouldDrawGlowStencil() { return excludedHosts[9]; }
++bool R_ShouldDrawGlowStencilEnableDepthTest() { return excludedHosts[10]; }
++bool R_ShouldDrawGlowStencilWallHack() { return excludedHosts[11]; }
++bool R_ShouldDrawGlowStencilWallHackBehindWallOnly() { return excludedHosts[12]; }
++bool R_ShouldDrawGlowColor() { return excludedHosts[13]; }
++bool R_ShouldDrawGlowColorWallHack() { return excludedHosts[14]; }
++bool R_ShouldDrawGlowColorWallHackBehindWallOnly() { return excludedHosts[15]; }
++bool R_IsRenderingGlowColor() { return excludedHosts[16]; }
++bool R_IsRenderingGlowStencil() { return excludedHosts[17]; }
++bool R_IsRenderingGlowStencilEnableDepthTest() { return excludedHosts[18]; }
++// Material control values and GPU-resource ownership are not consumed by the
++// selector. Use real structures with inert lifetimes instead of fake layouts.
++StudioConVar::StudioConVar() {}
++StudioConVar::~StudioConVar() {}
++CStudioModelRenderData::~CStudioModelRenderData() {}
++void GL_BeginDebugGroup(const char*) { ++debugDepth; }
++void GL_EndDebugGroup() { Check(debugDepth > 0, "balanced production debug-group end"); --debugDepth; }
++void R_StudioDiagnosticsMesh() { ++meshNotifications; }
++void R_ProfileCountStudioDepthPath(bool usedExecutor) { if (usedExecutor) ++executorCounts; else ++legacyCounts; }
++double R_ProfileBegin() { return 1.; }
++void R_ProfileEnd(RProfileStage stage, double) { if (stage == RProfileStage::StudioSubmit) ++profileSubmitEnds; }
++int R_ProfileGpuBegin(RProfileStage) { return -1; }
++void R_ProfileGpuEnd(int) {}
++
++// Only disk/provider loading is adapted. Production R_UseStudioProgram builds
++// the actual defines and obtains the actual uniform locations below.
++GLuint GL_CompileShaderFileEx(const CCompileShaderArgs* args)
++{
++    Check(args && args->vsfile && args->fsfile, "production shader filenames supplied");
++    Check(std::string(args->vsfile) == "renderer\\shader\\studio_shader.vert.glsl" &&
++          std::string(args->fsfile) == "renderer\\shader\\studio_shader.frag.glsl", "production Studio files selected");
++    const std::string defines = args->vsdefine ? args->vsdefine : "";
++    Check(defines == (args->fsdefine ? args->fsdefine : "") &&
++          defines == (args->gsdefine ? args->gsdefine : ""), "same production definitions at all stages");
++    const auto geometry = Read("studio_shader.geom.glsl");
++    if (args->gsfile)
++        Check(std::string(args->gsfile) == "renderer\\shader\\studio_shader.geom.glsl", "production GS selected");
++    return Program(defines, args->gsfile ? &geometry : nullptr);
++}
++
++namespace
++{
++void CountedDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices)
++{
++    ++meshSubmissions;
++    glDrawElements(mode, count, type, indices);
++}
++}
++#undef Sys_Error
++#define Sys_Error(...) throw std::runtime_error("production shader selection failed")
++#define glDrawElements CountedDrawElements
++#include "studio_depth_executor.inc"
++#undef glDrawElements
++#undef Sys_Error
++
++namespace
++{
++using StencilPixels = std::vector<unsigned char>;
++struct GlState
++{
++    std::vector<GLint> values;
++    bool operator==(const GlState&) const = default;
++};
++struct DepthResult
++{
++    Pixels depth;
++    StencilPixels stencil;
++    GlState state;
++};
++
++GlState State()
++{
++    GlState result;
++    for (GLenum name : {GL_CURRENT_PROGRAM, GL_VERTEX_ARRAY_BINDING, GL_ELEMENT_ARRAY_BUFFER_BINDING,
++             GL_ACTIVE_TEXTURE, GL_DEPTH_FUNC, GL_DEPTH_WRITEMASK, GL_CULL_FACE_MODE, GL_FRONT_FACE,
++             GL_BLEND_SRC_RGB, GL_BLEND_DST_RGB, GL_BLEND_SRC_ALPHA, GL_BLEND_DST_ALPHA,
++             GL_STENCIL_FUNC, GL_STENCIL_REF, GL_STENCIL_VALUE_MASK, GL_STENCIL_WRITEMASK,
++             GL_STENCIL_FAIL, GL_STENCIL_PASS_DEPTH_FAIL, GL_STENCIL_PASS_DEPTH_PASS,
++             GL_STENCIL_BACK_FUNC, GL_STENCIL_BACK_REF, GL_STENCIL_BACK_VALUE_MASK, GL_STENCIL_BACK_WRITEMASK,
++             GL_STENCIL_BACK_FAIL, GL_STENCIL_BACK_PASS_DEPTH_FAIL, GL_STENCIL_BACK_PASS_DEPTH_PASS,
++             GL_DRAW_FRAMEBUFFER_BINDING, GL_READ_FRAMEBUFFER_BINDING, GL_DRAW_BUFFER0})
++    {
++        GLint value{};
++        glGetIntegerv(name, &value);
++        result.values.push_back(value);
++    }
++    for (GLenum name : {GL_DEPTH_TEST, GL_CULL_FACE, GL_BLEND, GL_STENCIL_TEST, GL_DEPTH_CLAMP})
++        result.values.push_back(glIsEnabled(name));
++    GLint active{};
++    glGetIntegerv(GL_ACTIVE_TEXTURE, &active);
++    for (int unit = 0; unit < 9; ++unit)
++    {
++        glActiveTexture(GL_TEXTURE0 + unit);
++        GLint binding{};
++        glGetIntegerv(GL_TEXTURE_BINDING_2D, &binding);
++        result.values.push_back(binding);
++    }
++    glActiveTexture(active);
++    result.values.push_back(*currenttexture);
++    return result;
++}
++
++StencilPixels ReadStencil(const Target& target)
++{
++    StencilPixels result(Size * Size * target.layers);
++    for (int layer = 0; layer < target.layers; ++layer)
++    {
++        target.Layer(layer);
++        glReadPixels(0, 0, Size, Size, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, result.data() + layer * Size * Size);
++    }
++    return result;
++}
++
++void Poison(int style)
++{
++    glUseProgram(unrelatedProgram);
++    for (int unit = 0; unit < 9; ++unit)
++    {
++        glActiveTexture(GL_TEXTURE0 + unit);
++        glBindTexture(GL_TEXTURE_2D, poisonTextures[unit]);
++    }
++    // The old path assumes unit zero but does not force it. Compare both the
++    // ordinary entry and an external renderer leaving a different active unit.
++    glActiveTexture(style == 2 ? GL_TEXTURE3 : GL_TEXTURE0);
++    *currenttexture = 54321;
++    glDepthMask(GL_FALSE);
++    if (style == 1) glDisable(GL_DEPTH_TEST); else glEnable(GL_DEPTH_TEST);
++    glDepthFunc(style == 1 ? GL_GREATER : GL_LESS);
++    glEnable(GL_CULL_FACE);
++    glCullFace(GL_BACK);
++    glFrontFace(GL_CW);
++    glEnable(GL_BLEND);
++    glBlendFuncSeparate(GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR, GL_ZERO, GL_ONE);
++    glEnable(GL_STENCIL_TEST);
++    glStencilFuncSeparate(GL_FRONT, GL_NEVER, 31, 0x3f);
++    glStencilFuncSeparate(GL_BACK, GL_LESS, 79, 0xa5);
++    glStencilMaskSeparate(GL_FRONT, 0x18);
++    glStencilMaskSeparate(GL_BACK, 0x60);
++    glStencilOpSeparate(GL_FRONT, GL_INCR, GL_DECR, GL_INVERT);
++    glStencilOpSeparate(GL_BACK, GL_ZERO, GL_INVERT, GL_DECR);
++}
++
++void LegacySharedDraw(CStudioModelRenderMesh* mesh, program_state_t state)
++{
++    // Material preparation for the narrowly eligible opaque class. The shader
++    // key retains the legacy flags; all submission/state code is production.
++    GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DIFFUSE, GL_TEXTURE_2D, poisonTextures[0]);
++    R_SetGBufferMask(GBUFFER_MASK_ALL);
++    R_StudioBeginOpaqueStencil(state);
++    glEnable(GL_CULL_FACE);
++    glCullFace(GL_FRONT);
++    R_StudioSetShadowDepthState();
++    studio_program_t program{};
++    R_UseStudioProgram(state, &program);
++    if (program.r_uvscale != -1) glUniform2f(program.r_uvscale, .125f, .125f);
++    R_StudioSubmitMesh(mesh, false);
++    R_StudioEndMeshDraw(state);
++}
++
++DepthResult Execute(const Target& target, const camera_ubo_t& camera, const Mesh& mesh,
++                    program_state_t flags, bool fast, int poison)
++{
++    SetupMesh(mesh);
++    std::vector<unsigned> indices(mesh.size() + 3, 0);
++    std::iota(indices.begin() + 3, indices.end(), 0u);
++    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementBuffer);
++    glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(indices.size() * sizeof(unsigned)), indices.data(), GL_STREAM_DRAW);
++    CStudioModelRenderMesh renderMesh;
++    // Production BUFFER_OFFSET converts index units to a byte offset.
++    renderMesh.iStartIndex = 3;
++    renderMesh.iIndiceCount = int(mesh.size());
++    Upload(cameraBuffer, camera);
++    target.Layered();
++    glDepthMask(GL_TRUE);
++    glStencilMask(0xff);
++    glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.f, 93);
++    Poison(poison);
++    const auto beforeCalls = meshSubmissions, beforeNotifications = meshNotifications;
++    const auto beforeExecutor = executorCounts, beforeLegacy = legacyCounts, beforeTimings = profileSubmitEnds;
++    const auto state = flags | STUDIO_SHADOW_CASTER_ENABLED | STUDIO_MULTIVIEW_ENABLED |
++        (testLinear ? STUDIO_LINEAR_DEPTH_ENABLED : 0);
++    CStudioModelRenderData model(nullptr);
++    mstudiomesh_t sourceMesh{};
++    mstudiotexture_t texture{};
++    std::strcpy(texture.name, "ordinary.bmp");
++    texture.width = texture.height = 8;
++    texture.flags = int(flags);
++    studiohdr_t textureHeader{};
++    textureHeader.numskinref = textureHeader.numtextures = textureHeader.textureindex = 1;
++    const short skinref = 0;
++    depthExecutor.value = fast ? 1.f : 0.f;
++    const auto beforeEligibility = State();
++    const bool selected = R_StudioDepthExecutorEligible(&model, &renderMesh, &sourceMesh,
++        &textureHeader, &texture, &skinref, flags | STUDIO_SHADOW_CASTER_ENABLED);
++    Check(selected == fast && State() == beforeEligibility, "actual host selector routes OFF/ON without GL changes");
++    if (selected) R_StudioDrawOpaqueShadowMesh(&renderMesh, state);
++    else LegacySharedDraw(&renderMesh, state);
++    Check(meshSubmissions == beforeCalls + 1 && meshNotifications == beforeNotifications + 1,
++          "one actual production indexed draw and mesh notification per mesh/light");
++    Check(executorCounts == beforeExecutor + (fast ? 1 : 0) && legacyCounts == beforeLegacy + (fast ? 0 : 1),
++          "production path counter matches executed path");
++    Check(profileSubmitEnds == beforeTimings + 1 && debugDepth == 0, "submit timing and debug group balanced");
++    const auto after = State();
++    GLint value{};
++    glGetIntegerv(GL_CURRENT_PROGRAM, &value); Check(value == 0, "legacy exit program zero");
++    glGetIntegerv(GL_DEPTH_FUNC, &value); Check(value == GL_LEQUAL, "legacy exit depth function");
++    glGetIntegerv(GL_CULL_FACE_MODE, &value); Check(value == GL_FRONT, "legacy exit front culling mode");
++    glGetIntegerv(GL_STENCIL_WRITEMASK, &value); Check(value == 0, "legacy exit stencil mask zero");
++    Check(glIsEnabled(GL_DEPTH_TEST) && glIsEnabled(GL_CULL_FACE) && !glIsEnabled(GL_BLEND) &&
++          !glIsEnabled(GL_STENCIL_TEST) && *currenttexture == 0, "legacy state and engine texture exit contract");
++    auto depth = target.ReadDepth();
++    auto stencil = ReadStencil(target);
++    Check(glGetError() == GL_NO_ERROR, "production executor and depth/stencil readback GL-clean");
++    return {std::move(depth), std::move(stencil), after};
++}
++
++StudioDepthExecutorContext Eligible()
++{
++    StudioDepthExecutorContext context{};
++    context.indexCount = 3;
++    context.firstIndex = 12;
++    context.textureWidth = context.textureHeight = 8;
++    context.textureName = "ordinary.bmp";
++    context.enabled = context.shadowView = context.opaque = context.ordinaryMode = context.ordinaryFx = true;
++    context.fullbrightAllowed = true;
++    context.validTexture = true;
++    context.drawState = STUDIO_SHADOW_CASTER_ENABLED;
++    return context;
++}
++
++void EligibilityCases()
++{
++    const auto base = Eligible();
++    Check(R_StudioCanUseDepthExecutor(base), "ordinary opaque shadow qualifies");
++    const program_state_t allowed = STUDIO_NF_FLATSHADE | STUDIO_NF_FULLBRIGHT | STUDIO_NF_NOMIPS | STUDIO_NF_NOOUTLINE;
++    for (program_state_t flags : {program_state_t(0), allowed})
++    {
++        auto context = base;
++        context.textureFlags = flags;
++        context.drawState |= flags;
++        Check(R_StudioCanUseDepthExecutor(context), "explicit opaque flag subset qualifies");
++    }
++    for (int bit = 0; bit < int(sizeof(program_state_t) * 8); ++bit)
++    {
++        const program_state_t flag = program_state_t(1) << bit;
++        if (allowed & flag) continue;
++        auto context = base;
++        context.textureFlags |= flag;
++        Check(!R_StudioCanUseDepthExecutor(context), "all unrecognized material flags fail closed");
++    }
++    for (const char* name : {"Packed_abc.bmp", "pAcKeD_abc.bmp", "Remap001.bmp", "rEmAp001.bmp", "DM_Base.bmp", "dm_base.BMP"})
++    {
++        auto context = base;
++        context.textureName = name;
++        Check(!R_StudioCanUseDepthExecutor(context), "packed/remap material names fall back");
++    }
++    for (program_state_t flag : {program_state_t(STUDIO_NF_MASKED), program_state_t(STUDIO_ALPHA_BLEND_ENABLED),
++             program_state_t(STUDIO_ADDITIVE_BLEND_ENABLED), program_state_t(STUDIO_GLOW_SHELL_ENABLED),
++             program_state_t(STUDIO_OUTLINE_ENABLED), program_state_t(STUDIO_CLIP_ENABLED),
++             program_state_t(STUDIO_CLIP_WATER_ENABLED), program_state_t(STUDIO_CLIP_BONE_ENABLED),
++             program_state_t(STUDIO_CLIP_NEARPLANE_ENABLED), program_state_t(STUDIO_ANIMATED_TEXTURE_ENABLED),
++             program_state_t(STUDIO_PACKED_DIFFUSETEXTURE_ENABLED), program_state_t(STUDIO_NORMALTEXTURE_ENABLED),
++             program_state_t(STUDIO_GBUFFER_ENABLED), program_state_t(1ull << 63)})
++    {
++        auto context = base;
++        context.drawState |= flag;
++        Check(!R_StudioCanUseDepthExecutor(context), "special/unknown draw state falls back");
++    }
++    for (int which = 0; which < 16; ++which)
++    {
++        auto context = base;
++        switch (which)
++        {
++        case 0: context.enabled = false; break;
++        case 1: context.shadowView = false; break;
++        case 2: context.opaque = false; break;
++        case 3: context.ordinaryMode = false; break;
++        case 4: context.ordinaryFx = false; break;
++        case 5: context.externalMaterials = true; break;
++        case 6: context.excludedView = true; break;
++        case 7: context.fullbrightAllowed = false; break;
++        case 8: context.indexCount = 0; break;
++        case 9: context.indexCount = -1; break;
++        case 10: context.firstIndex = -1; break;
++        case 11: context.textureWidth = 0; break;
++        case 12: context.textureHeight = -1; break;
++        case 13: context.textureName = {}; break;
++        case 14: context.drawState = 0; break;
++        case 15: context.validTexture = false; break;
++        }
++        const auto before = State();
++        const auto draws = meshSubmissions;
++        Check(!R_StudioCanUseDepthExecutor(context), "individual unsafe context falls back");
++        Check(State() == before && meshSubmissions == draws, "eligibility fallback has no GL effects");
++    }
++}
++
++void CacheCases()
++{
++    const auto input = STUDIO_SHADOW_CASTER_ENABLED | STUDIO_MULTIVIEW_ENABLED | STUDIO_NF_CELSHADE_FACE;
++    const auto canonical = input | STUDIO_NF_CELSHADE;
++    for (int enabled : {0, 1, 0})
++    {
++        faceCull.value = float(enabled);
++        studio_program_t selected{};
++        R_UseStudioProgram(input, &selected);
++        GLint actual = -1;
++        glGetUniformiv(selected.program, selected.r_shadow_face_cull, &actual);
++        Check(actual == enabled && selected.shadowFaceCullValue == enabled &&
++              g_StudioProgramTable.at(canonical).shadowFaceCullValue == enabled,
++              "production canonical-key cache follows actual uniform 0/1/0");
++        Check(g_StudioProgramTable.find(input) == g_StudioProgramTable.end(), "no noncanonical empty program inserted");
++    }
++    glUseProgram(unrelatedProgram);
++}
++
++void HostEligibilityCases()
++{
++    CStudioModelRenderData model(nullptr);
++    CStudioModelRenderMesh renderMesh;
++    renderMesh.iIndiceCount = 3;
++    renderMesh.iStartIndex = 12;
++    mstudiomesh_t sourceMesh{};
++    mstudiotexture_t texture{};
++    studiohdr_t textureHeader{};
++    short skinref{};
++    const auto reset = [&] {
++        depthExecutor.value = 1.f; fullbright.value = 0.f; testShadow = true; r_draw_opaque = true;
++        entity.curstate.rendermode = kRenderNormal; entity.curstate.renderfx = kRenderFxNone;
++        excludedHosts.fill(false); std::fill(std::begin(g_bPortalClipPlaneEnabled), std::end(g_bPortalClipPlaneEnabled), false);
++        model.mStudioMaterials.clear(); texture = {}; std::strcpy(texture.name, "ordinary.bmp");
++        texture.width = texture.height = 8;
++        textureHeader = {}; textureHeader.numskinref = textureHeader.numtextures = textureHeader.textureindex = 1;
++        sourceMesh.skinref = 0; skinref = 0;
++    };
++    const auto eligible = [&] {
++        return R_StudioDepthExecutorEligible(&model, &renderMesh, &sourceMesh, &textureHeader,
++                                            &texture, &skinref, STUDIO_SHADOW_CASTER_ENABLED);
++    };
++    reset();
++    Check(eligible(), "actual host mapper accepts valid selected texture");
++    for (size_t host = 0; host < excludedHosts.size(); ++host)
++    {
++        reset(); excludedHosts[host] = true;
++        const auto state = State();
++        Check(!eligible() && State() == state, "actual wrapper rejects each special/raw host view without GL changes");
++    }
++    for (int which = 0; which < 17; ++which)
++    {
++        reset();
++        switch (which)
++        {
++        case 0: depthExecutor.value = 0.f; break;
++        case 1: depthExecutor.value = 2.f; break;
++        case 2: depthExecutor.value = std::numeric_limits<float>::quiet_NaN(); break;
++        case 3: testShadow = false; break;
++        case 4: r_draw_opaque = false; break;
++        case 5: entity.curstate.rendermode = kRenderTransTexture; break;
++        case 6: entity.curstate.renderfx = kRenderFxGlowShell; break;
++        case 7: fullbright.value = 2.f; break;
++        case 8: fullbright.value = std::numeric_limits<float>::quiet_NaN(); break;
++        case 9: g_bPortalClipPlaneEnabled[0] = true; break;
++        case 10: textureHeader.textureindex = 0; break;
++        case 11: sourceMesh.skinref = 1; break;
++        case 12: skinref = -1; break;
++        case 13: skinref = 1; break;
++        case 14: texture.flags = int(0x80000000u); break;
++        case 15: std::memset(texture.name, 'x', sizeof(texture.name)); break;
++        case 16: model.mStudioMaterials.emplace(1, nullptr); break;
++        }
++        const auto state = State(); const auto draws = meshSubmissions;
++        Check(!eligible() && State() == state && meshSubmissions == draws,
++              "actual host mapper preserves unknown original bits, indices, names and bypass conditions");
++    }
++    reset();
++    Check(!R_StudioDepthExecutorEligible(&model, &renderMesh, &sourceMesh, nullptr, &texture, &skinref,
++          STUDIO_SHADOW_CASTER_ENABLED), "missing host texture header falls back");
++    Check(!R_StudioDepthExecutorEligible(&model, &renderMesh, &sourceMesh, &textureHeader, nullptr, &skinref,
++          STUDIO_SHADOW_CASTER_ENABLED), "missing host texture array falls back");
++    Check(!R_StudioDepthExecutorEligible(&model, &renderMesh, &sourceMesh, &textureHeader, &texture, nullptr,
++          STUDIO_SHADOW_CASTER_ENABLED), "missing host skin mapping falls back");
++    for (const char* name : {"pAcKeD_bmp", "rEmAp_bmp", "dm_base.bmp"})
++    {
++        std::strcpy(texture.name, name);
++        Check(!eligible(), "actual mapper forwards special material name");
++    }
++    reset();
++    depthExecutor.value = 0.f;
++    Check(!R_StudioDepthExecutorEligible(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, 0),
++          "disabled fast path returns before touching host/model pointers");
++    reset();
++}
++
++void DepthCases()
++{
++    for (bool cube : {false, true})
++    {
++        Target target(cube);
++        const auto camera = Camera(cube);
++        Mesh mesh = cube ? CubeGeometry() : Triangle({-.7f,-.7f,0},{.7f,-.7f,0},{0,.7f,0});
++        for (auto& vertex : mesh) vertex.bone = 0x0101;
++        testLinear = cube;
++        const auto oracle = MakePrograms("", testLinear, true, "");
++        for (bool animated : {false, true})
++        {
++            Bones(animated);
++            for (int stencilCase = 0; stencilCase < 3; ++stencilCase)
++            {
++                r_draw_hasoutline = stencilCase == 1;
++                header.flags = stencilCase == 2 ? FMODEL_NOBLOOM : 0;
++                const program_state_t flags = stencilCase == 2 ? STUDIO_NF_FLATSHADE : 0;
++                const unsigned char expected = (stencilCase == 1 ? STENCIL_MASK_HAS_OUTLINE : 0) |
++                    (stencilCase == 2 ? STENCIL_MASK_NO_BLOOM | STENCIL_MASK_HAS_FLATSHADE : 0);
++                for (int poison = 0; poison < 3; ++poison)
++                {
++                    const auto legacy = Execute(target, camera, mesh, flags, false, poison);
++                    const auto fast = Execute(target, camera, mesh, flags, true, poison);
++                    Equal(legacy.depth, fast.depth, "depth executor exactly matches shared legacy depth");
++                    Check(legacy.stencil == fast.stencil, "depth executor exactly matches every legacy stencil pixel");
++                    Check(legacy.state == fast.state, "all observed GL and engine exit state matches legacy");
++                    if (poison != 1)
++                    {
++                        if (Written(fast.depth) <= 20)
++                            std::fprintf(stderr, "Nonempty probe: cube=%d animated=%d stencil=%d poison=%d legacy=%zu fast=%zu\n",
++                                int(cube), int(animated), stencilCase, poison, Written(legacy.depth), Written(fast.depth));
++                        Check(Written(fast.depth) > 20, "executor actually writes visible depth");
++                        if (cube) for (int layer = 0; layer < 6; ++layer)
++                            Check(Written(fast.depth, layer) > 0, "every actual cube face receives depth");
++                        for (size_t i = 0; i < fast.depth.size(); ++i)
++                            Check(fast.stencil[i] == (fast.depth[i] < 1.f ? expected : 93),
++                                  "stencil matches written depth and preserves untouched pixels");
++                        glDepthMask(GL_TRUE); glStencilMask(0xff); glDisable(GL_STENCIL_TEST);
++                        glDisable(GL_CULL_FACE); glDepthFunc(GL_LESS); glActiveTexture(GL_TEXTURE0);
++                        const auto independent = Draw(target, camera, mesh, oracle.single, 0, true);
++                        Equal(independent.depth, fast.depth, "executor matches independent array/no-GS depth", .000001f);
++                    }
++                }
++            }
++        }
++        // z-only clipping/clamp must preserve the legacy depth/stencil outcome.
++        if (!cube) for (bool clamp : {false, true})
++        {
++            if (clamp) glEnable(GL_DEPTH_CLAMP); else glDisable(GL_DEPTH_CLAMP);
++            for (float z : {-2.f, 2.f})
++            {
++                const auto outsideZ = Triangle({-.7f,-.7f,z},{.7f,-.7f,z},{0,.7f,z});
++                const auto legacy = Execute(target, camera, outsideZ, 0, false, 0);
++                const auto fast = Execute(target, camera, outsideZ, 0, true, 0);
++                Equal(legacy.depth, fast.depth, "depth clamp executor equals legacy");
++                Check(legacy.stencil == fast.stencil && legacy.state == fast.state, "depth clamp stencil and state equal");
++            }
++        }
++        glDisable(GL_DEPTH_CLAMP);
++        Delete(oracle);
++    }
++}
++
++void RunDepth()
++{
++    // Shared setup utilities prepare the exact production UBO and vertex ABI.
++    glViewport(0, 0, Size, Size);
++    glGenVertexArrays(1, &vao); glBindVertexArray(vao);
++    glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo);
++    glEnableVertexAttribArray(STUDIO_VA_POSITION);
++    glVertexAttribPointer(STUDIO_VA_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, position)));
++    glEnableVertexAttribArray(STUDIO_VA_TEXCOORD);
++    glVertexAttribPointer(STUDIO_VA_TEXCOORD, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, uv)));
++    glEnableVertexAttribArray(STUDIO_VA_PACKEDBONE);
++    glVertexAttribIPointer(STUDIO_VA_PACKEDBONE, 1, GL_UNSIGNED_INT, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, bone)));
++    glVertexAttrib3f(STUDIO_VA_NORMAL, 0, 0, 1); glVertexAttrib3f(STUDIO_VA_SMOOTHNORMAL, 0, 0, 1);
++    glVertexAttrib3f(STUDIO_VA_TANGENT, 1, 0, 0); glVertexAttrib3f(STUDIO_VA_BITANGENT, 0, 1, 0);
++    glGenBuffers(1, &elementBuffer);
++    glGenBuffers(1, &cameraBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, cameraBuffer);
++    glGenBuffers(1, &sceneBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, sceneBuffer);
++    glGenBuffers(1, &studioBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, studioBuffer);
++    glGenQueries(1, &query);
++    scene = {}; scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1.f; scene.r_g3 = .125f;
++    Upload(sceneBuffer, scene); Bones(false);
++    for (auto& texture : poisonTextures) texture = Texture2D(1, 1, {255, 255, 255, 255});
++    unrelatedProgram = Program("#define SHADOW_CASTER_ENABLED\n", nullptr);
++    EligibilityCases();
++    HostEligibilityCases();
++    CacheCases();
++    DepthCases();
++    glUseProgram(0);
++    for (const auto& entry : g_StudioProgramTable) glDeleteProgram(entry.second.program);
++    g_StudioProgramTable.clear();
++    glDeleteProgram(unrelatedProgram); glDeleteTextures(9, poisonTextures);
++    glDeleteBuffers(1, &elementBuffer); glDeleteBuffers(1, &vbo);
++    glDeleteBuffers(1, &cameraBuffer); glDeleteBuffers(1, &sceneBuffer); glDeleteBuffers(1, &studioBuffer);
++    glDeleteVertexArrays(1, &vao); glDeleteQueries(1, &query);
++    Check(glGetError() == GL_NO_ERROR, "depth executor suite cleanup is GL-clean");
++}
++}
++
++int main()
++{
++    if (!glfwInit()) return 2;
++    for (int profile : {GLFW_OPENGL_COMPAT_PROFILE, GLFW_OPENGL_CORE_PROFILE})
++    {
++        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
++        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++        glfwWindowHint(GLFW_OPENGL_PROFILE, profile);
++        auto* window = glfwCreateWindow(Size, Size, "studio depth executor regression", nullptr, nullptr);
++        if (!window) { glfwTerminate(); return 2; }
++        glfwMakeContextCurrent(window); glewExperimental = GL_TRUE;
++        if (glewInit() != GLEW_OK) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++        while (glGetError() != GL_NO_ERROR) {}
++        std::printf("Depth executor driver: %s / %s / profile=%d\n", glGetString(GL_RENDERER), glGetString(GL_VERSION), profile);
++        RunDepth();
++        glfwDestroyWindow(window);
++    }
++    glfwTerminate();
++    std::printf("Studio depth executor: %u checks, %u depth comparisons, %u actual mesh draws. No FPS claim.\n", checks, comparisons, meshSubmissions);
++    return 0;
++}
+diff --git a/tests/extract_studio_depth_executor.py b/tests/extract_studio_depth_executor.py
+new file mode 100644
+index 0000000..9adea98
+--- /dev/null
++++ b/tests/extract_studio_depth_executor.py
+@@ -0,0 +1,68 @@
++"""Extract real Studio submission/state/eligibility functions for a GL fixture.
++
++The fixture adapts host decisions and shader-file loading; the generated code
++retains production program selection, GL calls, stencil and mesh submission.
++"""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++
++
++def function(source, signature):
++    if source.count(signature) != 1:
++        raise SystemExit("Missing or ambiguous production boundary: " + signature)
++    start = source.index(signature)
++    position = source.index("{", start) + 1
++    depth = 1
++    while depth:
++        depth += (source[position] == "{") - (source[position] == "}")
++        position += 1
++    return source[start:position]
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--src", type=Path, required=True)
++    parser.add_argument("--output", type=Path, required=True)
++    parser.add_argument("--manifest", type=Path, required=True)
++    args = parser.parse_args()
++    names = ("gl_studio.cpp", "gl_studio.h", "gl_rmisc.cpp", "gl_shader.cpp", "gl_gbuffer.cpp")
++    sources = {name: (args.src / name).read_text(encoding="utf-8-sig") for name in names}
++    studio = sources["gl_studio.cpp"]
++    signatures = (
++        "bool R_StudioCanUseDepthExecutor(",
++        "static bool R_StudioDepthExecutorEligible(",
++        "void R_UseStudioProgram(",
++        "static void R_StudioBeginOpaqueStencil(",
++        "static void R_StudioSetShadowDepthState(",
++        "static void R_StudioSubmitMesh(",
++        "static void R_StudioEndMeshDraw(",
++        "static void R_StudioDrawOpaqueShadowMesh(",
++    )
++    extracted = [function(sources["gl_rmisc.cpp"], signature) for signature in
++                 ("void GL_BindTextureUnit(", "void GL_BeginStencilWrite(", "void GL_EndStencil(")]
++    extracted += [function(sources["gl_shader.cpp"], "void GL_UseProgram("),
++                  function(sources["gl_gbuffer.cpp"], "void R_SetGBufferMask(")]
++    extracted += [function(studio, signature) for signature in signatures]
++    draw = function(studio, "void R_StudioDrawMesh_DrawPass(")
++    for call in ("R_StudioBeginOpaqueStencil(", "R_StudioSetShadowDepthState(",
++                 "R_StudioSubmitMesh(", "R_StudioEndMeshDraw(",
++                 "R_StudioDrawOpaqueShadowMesh(", "R_StudioDepthExecutorEligible("):
++        if draw.count(call) != 1:
++            raise SystemExit("Shared production DrawPass wiring changed: " + call)
++    if studio.count('"r_studio_shadow_depth_executor", "0"') != 1:
++        raise SystemExit("Depth executor must remain registered default-off")
++    body = "// Generated from unchanged production function bodies.\n\n" + "\n\n".join(extracted) + "\n"
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    args.output.write_text(body, encoding="utf-8")
++    args.manifest.write_text(json.dumps({
++        "sourceSha256": {name: hashlib.sha256((args.src / name).read_bytes()).hexdigest() for name in names},
++        "extractedSha256": hashlib.sha256(body.encode()).hexdigest(),
++        "functions": signatures,
++        "scope": "Production eligibility/program/state/stencil/submission/cleanup; actual shared legacy DrawPass wiring checked. Host decisions and file loading adapted; not the full material parser or game.",
++    }, indent=2) + "\n", encoding="utf-8")
++
++
++if __name__ == "__main__":
++    main()
 diff --git a/src/gl_studio_player.cpp b/src/gl_studio_player.cpp
 new file mode 100644
 index 0000000..ae22570
@@ -8778,10 +9737,10 @@ index 0000000..ae22570
 +}
 diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
 new file mode 100644
-index 0000000..7c65310
+index 0000000..2b5d967
 --- /dev/null
 +++ b/src/studio_diagnostics.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +#pragma once
 +
 +void        R_StudioDiagnosticsInit();
@@ -8822,6 +9781,7 @@ index 0000000..7c65310
 +    ShadowWorldPrep,
 +    RingPoll,
 +    RingWait,
++    StudioDepthExecute,
 +    Count
 +};
 +double R_ProfileBegin();
@@ -8829,6 +9789,7 @@ index 0000000..7c65310
 +void   R_ProfileShadowCull(bool culled);
 +void   R_ProfileBoneCache(bool hit);
 +void   R_ProfileBoneCacheStore(bool reused, bool overflow);
++void   R_ProfileCountStudioDepthPath(bool usedExecutor);
 +int    R_ProfileGpuBegin(RProfileStage stage);
 +void   R_ProfileGpuEnd(int span);
 +void   R_ProfileMainView();
@@ -8851,10 +9812,10 @@ index 0000000..7c65310
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..284bf64
+index 0000000..7d9d329
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,527 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -9134,7 +10095,7 @@ index 0000000..284bf64
 +    "setup", "shadow", "water", "scene", "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
 +    "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
 +    "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
-+    "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait"};
++    "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute"};
 +struct ProfileFrame
 +{
 +    double                              time{}, interval{}, render{};
@@ -9144,9 +10105,10 @@ index 0000000..284bf64
 +    unsigned                            cullTests{}, culled{};
 +    unsigned                            boneCacheHits{}, boneCacheMisses{};
 +    unsigned                            boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
++    unsigned                            studioDepthFastMeshes{}, studioDepthFallbackMeshes{};
 +    vec3_t                              origin{}, angles{};
 +    int                                 focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
-+    int                                 shadowCull{}, studioFaceCull{}, views{}, gpuReady{};
++    int                                 shadowCull{}, studioFaceCull{}, studioDepthExecutor{}, views{}, gpuReady{};
 +    float                               fpsMax{}, fpsOverride{}, vsync{};
 +};
 +std::vector<ProfileFrame> profileFrames;
@@ -9225,8 +10187,11 @@ index 0000000..284bf64
 +        out << ",\"boneCacheHits\":" << f.boneCacheHits << ",\"boneCacheMisses\":" << f.boneCacheMisses;
 +        out << ",\"boneCacheAllocations\":" << f.boneCacheAllocations
 +            << ",\"boneCacheReuses\":" << f.boneCacheReuses << ",\"boneCacheOverflows\":" << f.boneCacheOverflows;
++        out << ",\"studioDepthFastMeshes\":" << f.studioDepthFastMeshes
++            << ",\"studioDepthFallbackMeshes\":" << f.studioDepthFallbackMeshes;
 +        out << ",\"shadowCull\":" << f.shadowCull << ",\"mainViews\":" << f.views << ",\"gpuReady\":" << f.gpuReady
 +            << ",\"studioFaceCull\":" << f.studioFaceCull
++            << ",\"studioDepthExecutor\":" << f.studioDepthExecutor
 +            << ",\"fpsMax\":" << f.fpsMax << ",\"fpsOverride\":" << f.fpsOverride << ",\"vsync\":" << f.vsync;
 +        for (size_t i = 0; i < ProfileStages; ++i)
 +            out << ",\"" << ProfileNames[i] << "\":" << f.stages[i] << ",\"" << ProfileNames[i] << "Calls\":" << f.calls[i]
@@ -9315,6 +10280,12 @@ index 0000000..284bf64
 +    else
 +        ++profileFrame.boneCacheAllocations;
 +}
++void R_ProfileCountStudioDepthPath(bool usedExecutor)
++{
++    if (!profileActive) return;
++    if (usedExecutor) ++profileFrame.studioDepthFastMeshes;
++    else ++profileFrame.studioDepthFallbackMeshes;
++}
 +void R_ProfileFrameBegin()
 +{
 +    if (!profile) return;
@@ -9363,6 +10334,7 @@ index 0000000..284bf64
 +    profileFrame.height      = glheight;
 +    profileFrame.shadowCull  = static_cast<int>(gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull"));
 +    profileFrame.studioFaceCull = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_face_cull") == 1.0f;
++    profileFrame.studioDepthExecutor = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor") == 1.0f;
 +    profileFrame.fpsMax      = gEngfuncs.pfnGetCvarFloat("fps_max");
 +    profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
 +    profileFrame.vsync       = gEngfuncs.pfnGetCvarFloat("gl_vsync");

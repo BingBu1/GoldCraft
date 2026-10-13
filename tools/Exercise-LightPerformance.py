@@ -8,6 +8,9 @@ does not report a cache improvement percentage.
 Use --cache-modes 1 --face-cull-modes 0 1 to compare Studio shadow face culling
 with the same fixture and cache enabled. Its final 99.5 FPS sample uses face
 culling 1; every capture restores the original settings, including face 0.
+Use --cache-modes 1 --depth-executor-modes 0 1 for the independent opaque depth
+executor comparison. It is mutually exclusive with face-cull modes, preserves
+face culling, and samples executor 1 at the final normal cap before restoration.
 
 Run only while B remains in active MC gameplay, foreground and stationary.
 Evidence and a durable recovery manifest stay in analysis/perf-200fps. Recover
@@ -399,7 +402,7 @@ class Exercise:
             time.sleep(.1)
         raise TimeoutError("The diagnostic framebuffer capture did not finish")
 
-    def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True):
+    def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True, depth_executor=None):
         self.verify_blocks()
         before, _, _ = self.stable(expected_lights=lights)
         command = [sys.executable, str(ROOT / "tools/Monitor-LivePerformance.py"),
@@ -408,8 +411,10 @@ class Exercise:
             command += ["--scene-static-shadows", str(cache)]
             if benchmark:
                 command += ["--benchmark-fps", "300"]
-        if face_cull is not None:
-            command += ["--studio-shadow-face-cull", str(face_cull)]
+        studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor}
+        for option, value in (("face-cull", face_cull), ("depth-executor", depth_executor)):
+            if value is not None:
+                command += ["--studio-shadow-" + option, str(value)]
         if reference:
             command += ["--reference", str(reference)]
         log_path = OUTPUT / f"{label}.log"
@@ -422,7 +427,7 @@ class Exercise:
             self.save()
             process = None
             # Do not kill Monitor when a gameplay gate fails: its finally block
-            # restores cache/cap/face culling. Stop this comparison, wait its bounded capture,
+            # restores cache/cap/Studio options. Stop this comparison, wait its bounded capture,
             # then clean up; never start the next phase after an invalid sample.
             try:
                 process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -463,7 +468,8 @@ class Exercise:
         path = paths[0]
         result = read_json(path)
         record = {"report": str(path.relative_to(ROOT)),
-                  "cache": cache, "studioFaceCull": face_cull, "lightsBefore": light_snapshot(before),
+                  "cache": cache, "studioFaceCull": face_cull, "studioDepthExecutor": depth_executor,
+                  "lightsBefore": light_snapshot(before),
                   "guardError": guard_error, "monitorExitCode": process.returncode,
                   "summary": result.get("summary", {})}
         self.data["measurements"].append(record)
@@ -471,15 +477,16 @@ class Exercise:
         if process.returncode or guard_error or not result.get("summary", {}).get("eligible"):
             raise RuntimeError("Ineligible Monitor sample; further comparisons stopped")
         summary = result["summary"]
-        if face_cull is not None and (
-                summary.get("requestedStudioFaceCull") != face_cull
-                or summary.get("activeStudioFaceCull") != face_cull
-                or summary.get("studioFaceCullRestored") is not True
-                or not self.monitor.stable_studio_face_cull(
-                    result.get("samples", []), result.get("profiles", {}).get("renderer", {}).get("frames", []),
-                    face_cull, face_cull)
-                or summary.get("activeStaticShadows") is not True):
-            raise RuntimeError("Monitor did not verify the requested Studio face-culling mode with cache enabled")
+        for feature, requested in studio_requests.items():
+            if requested is not None and (
+                    summary.get("requestedStudio" + feature) != requested
+                    or summary.get("activeStudio" + feature) != requested
+                    or summary.get("studio" + feature + "Restored") is not True
+                    or not self.monitor.stable_studio_feature(
+                        result.get("samples", []), result.get("profiles", {}).get("renderer", {}).get("frames", []),
+                        requested, requested, feature)
+                    or summary.get("activeStaticShadows") is not True):
+                raise RuntimeError(f"Monitor did not verify the requested Studio {feature} mode with cache enabled")
         if not benchmark and summary.get("activeCaps") != NORMAL_CAPS:
             raise RuntimeError("The normal-cap sample did not retain 99.5 FPS/override 0/vsync 0")
         if any(light_snapshot(sample) != lights for sample in result.get("samples", [])):
@@ -530,11 +537,12 @@ class Exercise:
             raise RuntimeError("B restarted; options of a new client will not be modified")
         errors = []
         actions = ["benchmark_framerate 0", f"scene_static_shadows {int(self.data['original']['staticShadows'])}"]
-        original_face_cull = self.data["original"].get("studioFaceCull")
-        if original_face_cull is not None:
-            if type(original_face_cull) is not int or original_face_cull not in (0, 1):
-                raise ValueError("Invalid original Studio face-culling value in recovery manifest")
-            actions.append(f"render_studio_face_cull {original_face_cull}")
+        studio_original = {feature: self.data["original"]["studio" + feature]
+                           for feature in self.monitor.STUDIO_COMMANDS if "studio" + feature in self.data["original"]}
+        for feature, value in studio_original.items():
+            if type(value) is not int or value not in (0, 1):
+                raise ValueError(f"Invalid original Studio {feature} value in recovery manifest")
+            actions.append(f"{self.monitor.STUDIO_COMMANDS[feature]} {value}")
         for action in actions:
             try:
                 self.renderer.command(action)
@@ -546,8 +554,8 @@ class Exercise:
             okay = ({key: state.get(key) for key in NORMAL_CAPS} == self.data["original"]["caps"]
                     and not state.get("benchmarkFramerate")
                     and state.get("sceneStaticShadowsEnabled") == self.data["original"]["staticShadows"])
-            if original_face_cull is not None:
-                okay = okay and self.monitor.studio_face_cull(state) == original_face_cull
+            for feature, value in studio_original.items():
+                okay = okay and self.monitor.studio_feature(state, feature) == value
             if not okay:
                 errors.append("Renderer option/cap restoration failed final verification")
         except Exception as error:
@@ -611,12 +619,17 @@ class Exercise:
         if not native.get("sceneStaticShadowsApi") or type(native.get("sceneStaticShadowsEnabled")) is not bool:
             raise RuntimeError("Live static-shadow API is required for OFF/ON measurements")
         original = {"caps": caps, "staticShadows": native["sceneStaticShadowsEnabled"]}
-        if self.args.face_cull_modes is not None:
-            original["studioFaceCull"] = self.monitor.studio_face_cull(native)
+        depth_modes = getattr(self.args, "depth_executor_modes", None)
+        feature = "FaceCull" if self.args.face_cull_modes is not None else "DepthExecutor" if depth_modes is not None else None
+        if feature:
+            original["studio" + feature] = self.monitor.studio_feature(native, feature)
+        modes = self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor" else self.args.cache_modes
+        feature_parameter = "face_cull" if feature == "FaceCull" else "depth_executor"
         self.anchor = native
         self.data.update(world=native["world"], player={k: player[k] for k in ("uuid", "slot", "serial", "life", "dimension")},
                          anchor={k: native[k] for k in ("origin", "viewAngles")}, position=player["position"],
                          original=original, cacheModes=self.args.cache_modes, faceCullModes=self.args.face_cull_modes,
+                         depthExecutorModes=depth_modes,
                          baselineLights=baseline, candidates=candidates(player["position"], native["viewAngles"][1]))
         self.save()
         self.connect()
@@ -647,13 +660,11 @@ class Exercise:
             captures = {}
             reference = None
             visible_counts = {}
-            face_comparison = self.args.face_cull_modes is not None
-            modes = self.args.face_cull_modes if face_comparison else self.args.cache_modes
             for mode in modes:
-                name = ("face-" if face_comparison else "") + ("on" if mode else "off")
+                name = ("face-" if feature == "FaceCull" else "depth-" if feature else "") + ("on" if mode else "off")
                 path, result = self.measure(f"{self.data['run']}-{count}-{name}", lights,
-                                            cache=1 if face_comparison else mode, reference=reference,
-                                            face_cull=mode if face_comparison else None)
+                                            cache=1 if feature else mode, reference=reference,
+                                            **({feature_parameter: mode} if feature else {}))
                 reference = path
                 captures[mode] = result
                 stage[name] = str(path.relative_to(ROOT))
@@ -666,21 +677,21 @@ class Exercise:
             if comparable:
                 comparable = sum(result["summary"].get("referenceMatches") is True
                                  for result in captures.values()) == 1
-            if face_comparison and comparable:
-                comparable = all(result["summary"].get("activeStudioFaceCull") == mode
+            if feature and comparable:
+                comparable = all(result["summary"].get("activeStudio" + feature) == mode
                                  and result["summary"].get("activeStaticShadows") is True
                                  for mode, result in captures.items())
-            stage.update(comparable=comparable, comparisonKind="studioShadowFaceCull" if face_comparison else "staticShadowCache",
+            stage.update(comparable=comparable, comparisonKind="studioShadow" + feature if feature else "staticShadowCache",
                          rendererAllVisibleLights=visible_counts,
                          workloadNote="Same observer and MC fixture; ordinary Bot and host dynamic-light activity can differ between intervals.")
             if comparable:
-                gain_key = "studioFaceCullFpsGainPercent" if face_comparison else "fpsGainPercent"
+                gain_key = "studio" + feature + "FpsGainPercent" if feature else "fpsGainPercent"
                 stage[gain_key] = 100 * (captures[1]["summary"]["renderer"]["observedFps"] /
                                        captures[0]["summary"]["renderer"]["observedFps"] - 1)
             previous = lights
             self.save()
-        if self.args.face_cull_modes is not None:
-            self.measure(f"{self.data['run']}-normal", previous, cache=1, face_cull=1, benchmark=False)
+        if feature:
+            self.measure(f"{self.data['run']}-normal", previous, cache=1, benchmark=False, **{feature_parameter: 1})
         else:
             self.measure(f"{self.data['run']}-normal", previous)
         self.data["outcome"] = ("eligible comparisons" if all(stage["comparable"] for stage in self.data["stages"])
@@ -694,10 +705,11 @@ def validate_recovery(data):
     if not re.fullmatch(r"goldcraft:cs_assault_[0-9a-f]{8}", player.get("dimension", "")):
         raise ValueError("Recovery dimension is not a managed cs_assault dimension")
     original = data.get("original", {})
-    if "studioFaceCull" in original and (type(original["studioFaceCull"]) is not int or original["studioFaceCull"] not in (0, 1)):
-        raise ValueError("Invalid original Studio face-culling value in recovery manifest")
-    if data.get("faceCullModes") is not None and "studioFaceCull" not in original:
-        raise ValueError("Face-culling recovery requires the original cvar value")
+    for key, modes in (("studioFaceCull", "faceCullModes"), ("studioDepthExecutor", "depthExecutorModes")):
+        if key in original and (type(original[key]) is not int or original[key] not in (0, 1)):
+            raise ValueError(f"Invalid original {key} value in recovery manifest")
+        if data.get(modes) is not None and key not in original:
+            raise ValueError(f"{key} recovery requires the original cvar value")
     allowed = candidates(data["position"], data["anchor"]["viewAngles"][1])
     if len(data["blocks"]) > 64:
         raise ValueError("Recovery manifest exceeds the bounded fixture")
@@ -715,8 +727,11 @@ def main():
     parser.add_argument("--counts", type=int, nargs="+", choices=(8, 32, 64), default=[8, 32])
     parser.add_argument("--cache-modes", type=int, nargs="+", choices=(0, 1), default=[0, 1],
                         help="Cache modes to sample; a single mode gives no improvement comparison")
-    parser.add_argument("--face-cull-modes", type=int, nargs="+", choices=(0, 1),
+    studio_modes = parser.add_mutually_exclusive_group()
+    studio_modes.add_argument("--face-cull-modes", type=int, nargs="+", choices=(0, 1),
                         help="Compare Studio shadow face culling; requires --cache-modes 1, and a single mode gives no gain")
+    studio_modes.add_argument("--depth-executor-modes", type=int, nargs="+", choices=(0, 1),
+                        help="Compare Studio shadow depth executor; requires --cache-modes 1, and a single mode gives no gain")
     parser.add_argument("--seconds", type=int, choices=range(5, 26), default=8)
     parser.add_argument("--wait-stable", type=int, choices=range(4, 121), default=15)
     parser.add_argument("--capture", action="store_true", help="Capture one native scene BMP per light-count stage outside timing")
@@ -726,11 +741,12 @@ def main():
         parser.error("counts must be unique and increasing")
     if len(args.cache_modes) != len(set(args.cache_modes)):
         parser.error("cache modes must be unique")
-    if args.face_cull_modes is not None:
-        if len(args.face_cull_modes) != len(set(args.face_cull_modes)):
-            parser.error("face-cull modes must be unique")
-        if args.cache_modes != [1]:
-            parser.error("face-cull modes require --cache-modes 1")
+    for name, modes in (("face-cull", args.face_cull_modes), ("depth-executor", args.depth_executor_modes)):
+        if modes is not None:
+            if len(modes) != len(set(modes)):
+                parser.error(name + " modes must be unique")
+            if args.cache_modes != [1]:
+                parser.error(name + " modes require --cache-modes 1")
     if sys.platform != "win32":
         parser.error("This exercise verifies the local Windows sandbox processes")
     local_path(OUTPUT, ROOT / "analysis")

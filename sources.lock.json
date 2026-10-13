@@ -32,6 +32,8 @@
         "src/gl_studio_shadow.cpp",
         "tests/studio_shadow_gl_tests.cpp",
         "tests/studio_shadow_face_gl_tests.cpp",
+        "tests/studio_shadow_depth_gl_tests.cpp",
+        "tests/extract_studio_depth_executor.py",
         "src/gl_studio_player.cpp",
         "src/studio_diagnostics.h",
         "src/studio_diagnostics.cpp",
