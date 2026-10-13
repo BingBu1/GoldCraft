@@ -2060,7 +2060,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..fa0fa64 100644
+index fa85f25..b514da0 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,6 @@
@@ -2820,7 +2820,7 @@ index fa85f25..fa0fa64 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,28 +3949,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +3949,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -2852,8 +2852,18 @@ index fa85f25..fa0fa64 100644
 +    RProfileScope profileScope(RProfileStage::StudioBoneMerge);
      if (!(*pstudiohdr))
      {
++        R_ProfileStudioBoneMerge(false, false);
++        RProfileScope nativeScope(RProfileStage::StudioBoneMergeNative);
          pfnMergeBones(pthis, dummy, pSubModel);
-@@ -4121,22 +3971,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+         return;
+     }
+@@ -4117,27 +3969,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+     //Never cache bones for viewmodel !
+     if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
+     {
++        R_ProfileStudioBoneMerge(false, false);
++        RProfileScope nativeScope(RProfileStage::StudioBoneMergeNative);
+         pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
  
@@ -2868,18 +2878,24 @@ index fa85f25..fa0fa64 100644
 -    const auto& itor = g_StudioBoneCacheManager.find(handle);
 -
 -    if (itor != g_StudioBoneCacheManager.end())
--    {
++    bool cached;
+     {
 -        memcpy((*pbonetransform), itor->second->m_bonetransform, sizeof(itor->second->m_bonetransform));
 -        memcpy((*plighttransform), itor->second->m_lighttransform, sizeof(itor->second->m_lighttransform));
 -        return;
--    }
-+    if (R_StudioLoadBoneCache((*pstudiohdr), (*pstudiohdr)->soundtable,
-+                              (*currententity)->curstate.sequence, (*currententity)->curstate.gaitsequence,
-+                              (*currententity)->curstate.frame, (*currententity)->origin, (*currententity)->angles)) return;
++        RProfileScope lookupScope(RProfileStage::StudioBoneMergeLookup);
++        cached = R_StudioLoadBoneCache((*pstudiohdr), (*pstudiohdr)->soundtable,
++                                      (*currententity)->curstate.sequence, (*currententity)->curstate.gaitsequence,
++                                      (*currententity)->curstate.frame, (*currententity)->origin, (*currententity)->angles);
+     }
++    R_ProfileStudioBoneMerge(true, cached);
++    if (cached) return;
  
++    RProfileScope nativeScope(RProfileStage::StudioBoneMergeNative);
      pfnMergeBones(pthis, dummy, pSubModel);
  }
-@@ -5021,18 +4858,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+ 
+@@ -5021,18 +4869,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -10218,10 +10234,10 @@ index 0000000..ae22570
 +}
 diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
 new file mode 100644
-index 0000000..196a02f
+index 0000000..881acb4
 --- /dev/null
 +++ b/src/studio_diagnostics.h
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,73 @@
 +#pragma once
 +
 +void        R_StudioDiagnosticsInit();
@@ -10263,12 +10279,15 @@ index 0000000..196a02f
 +    RingPoll,
 +    RingWait,
 +    StudioDepthExecute,
++    StudioBoneMergeLookup,
++    StudioBoneMergeNative,
 +    Count
 +};
 +double R_ProfileBegin();
 +void   R_ProfileEnd(RProfileStage stage, double start);
 +void   R_ProfileShadowCull(bool culled);
 +void   R_ProfileBoneCache(bool hit);
++void   R_ProfileStudioBoneMerge(bool queried, bool hit);
 +void   R_ProfileBoneCacheStore(bool reused, bool overflow);
 +void   R_ProfileCountStudioDepthPath(bool usedExecutor);
 +void   R_ProfileStudioBonePalette(bool reused, bool fallback, unsigned bytes);
@@ -10294,10 +10313,10 @@ index 0000000..196a02f
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..c33ef7f
+index 0000000..ac25626
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,543 @@
+@@ -0,0 +1,554 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -10577,7 +10596,7 @@ index 0000000..c33ef7f
 +    "setup", "shadow", "water", "scene", "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
 +    "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
 +    "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
-+    "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute"};
++    "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute", "studioBoneMergeLookup", "studioBoneMergeNative"};
 +struct ProfileFrame
 +{
 +    double                              time{}, interval{}, render{};
@@ -10586,6 +10605,7 @@ index 0000000..c33ef7f
 +    std::array<double, ProfileStages>   gpuStages{};
 +    unsigned                            cullTests{}, culled{};
 +    unsigned                            boneCacheHits{}, boneCacheMisses{};
++    unsigned                            studioBoneMergeHits{}, studioBoneMergeMisses{}, studioBoneMergeBypasses{};
 +    unsigned                            boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
 +    unsigned                            studioDepthFastMeshes{}, studioDepthFallbackMeshes{};
 +    unsigned                            studioBonePaletteUploads{}, studioBonePaletteReuses{}, studioBonePaletteUploadBytes{}, studioBonePaletteFallbacks{};
@@ -10669,6 +10689,9 @@ index 0000000..c33ef7f
 +            << "],\"angles\":[" << f.angles[0] << ',' << f.angles[1] << ',' << f.angles[2] << ']';
 +        out << ",\"shadowCullTests\":" << f.cullTests << ",\"shadowCulled\":" << f.culled;
 +        out << ",\"boneCacheHits\":" << f.boneCacheHits << ",\"boneCacheMisses\":" << f.boneCacheMisses;
++        out << ",\"studioBoneMergeHits\":" << f.studioBoneMergeHits
++            << ",\"studioBoneMergeMisses\":" << f.studioBoneMergeMisses
++            << ",\"studioBoneMergeBypasses\":" << f.studioBoneMergeBypasses;
 +        out << ",\"boneCacheAllocations\":" << f.boneCacheAllocations
 +            << ",\"boneCacheReuses\":" << f.boneCacheReuses << ",\"boneCacheOverflows\":" << f.boneCacheOverflows;
 +        out << ",\"studioDepthFastMeshes\":" << f.studioDepthFastMeshes
@@ -10759,6 +10782,13 @@ index 0000000..c33ef7f
 +        else
 +            ++profileFrame.boneCacheMisses;
 +    }
++}
++void R_ProfileStudioBoneMerge(bool queried, bool hit)
++{
++    if (!profileActive) return;
++    if (!queried) ++profileFrame.studioBoneMergeBypasses;
++    else if (hit) ++profileFrame.studioBoneMergeHits;
++    else ++profileFrame.studioBoneMergeMisses;
 +}
 +void R_ProfileBoneCacheStore(bool reused, bool overflow)
 +{

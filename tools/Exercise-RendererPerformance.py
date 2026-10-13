@@ -20,7 +20,7 @@ STAGES = ("interval", "render", "setup", "shadow", "water", "scene",
           "ambientOcclusion", "lights", "composite", "post", "endFrame", "present",
           "pointShadow", "spotShadow", "directionalShadow", "studioShadow", "studioMain",
           "studioBoneSetup", "studioBoneSave", "studioBoneMerge", "studioMesh", "studioSubmit",
-          "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute")
+          "studioUBOUpload", "shadowWorldPrep", "ringPoll", "ringWait", "studioDepthExecute", "studioBoneMergeLookup", "studioBoneMergeNative")
 
 
 def server_population():
@@ -126,6 +126,17 @@ def summarize(frames):
                                                        for frame in frames for key in palette_counts)
         if result["studioBonePaletteCountsComplete"]:
             result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in palette_counts})
+    merge_counts = ("studioBoneMergeHits", "studioBoneMergeMisses", "studioBoneMergeBypasses")
+    if any(key in frame for frame in frames for key in merge_counts):
+        result["studioBoneMergeCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                      for frame in frames for key in merge_counts)
+        if result["studioBoneMergeCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in merge_counts})
+            result["studioBoneMergeAccountingConsistent"] = all(
+                sum(f[key] for key in merge_counts) == f.get("studioBoneMergeCalls")
+                and f["studioBoneMergeHits"] + f["studioBoneMergeMisses"] == f.get("studioBoneMergeLookupCalls")
+                and f["studioBoneMergeMisses"] + f["studioBoneMergeBypasses"] == f.get("studioBoneMergeNativeCalls")
+                for f in frames)
     return result
 
 
