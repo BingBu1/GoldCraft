@@ -2179,7 +2179,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..b514da0 100644
+index fa85f25..a760e8b 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,6 @@
@@ -2189,11 +2189,12 @@ index fa85f25..b514da0 100644
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +10,25 @@
+@@ -9,33 +10,26 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
 +#include <array>
++#include <climits>
 +#include <deque>
  
  static GLuint g_hStudioUBO{};
@@ -2231,7 +2232,7 @@ index fa85f25..b514da0 100644
  
  //Engine private vars
  
-@@ -154,83 +147,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +148,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -2315,7 +2316,7 @@ index fa85f25..b514da0 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1339,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1340,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -2323,7 +2324,7 @@ index fa85f25..b514da0 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1353,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1354,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -2341,7 +2342,7 @@ index fa85f25..b514da0 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1445,14 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1446,14 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -2356,7 +2357,7 @@ index fa85f25..b514da0 100644
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1467,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1468,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -2364,7 +2365,7 @@ index fa85f25..b514da0 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1518,11 @@ void R_InitStudio(void)
+@@ -1583,6 +1519,11 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -2376,7 +2377,7 @@ index fa85f25..b514da0 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1828,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1829,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2393,7 +2394,7 @@ index fa85f25..b514da0 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,6 +2083,14 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,6 +2084,14 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
@@ -2408,7 +2409,7 @@ index fa85f25..b514da0 100644
  void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>& pRenderData)
  {
      studio_ubo_t StudioUBO = {0};
-@@ -2310,8 +2262,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2310,8 +2263,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2417,7 +2418,7 @@ index fa85f25..b514da0 100644
      if (R_IsRenderingClippedLowerBody())
      {
          auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
-@@ -2327,9 +2277,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2278,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2432,7 +2433,7 @@ index fa85f25..b514da0 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2339,153 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2340,153 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
@@ -2586,7 +2587,7 @@ index fa85f25..b514da0 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2496,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2497,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -2594,7 +2595,7 @@ index fa85f25..b514da0 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2644,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2645,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -2607,7 +2608,7 @@ index fa85f25..b514da0 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2885,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2886,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -2633,7 +2634,7 @@ index fa85f25..b514da0 100644
          }
          else
          {
-@@ -2878,10 +2967,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +2968,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -2645,7 +2646,7 @@ index fa85f25..b514da0 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3190,8 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3191,8 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -2712,7 +2713,102 @@ index fa85f25..b514da0 100644
  }
  
  void R_StudioDrawMesh(
-@@ -3377,7 +3407,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3259,6 +3290,75 @@ void R_StudioDrawMesh(
+     }
+ }
+ 
++// The prepared EBO contains independent triangle lists in mesh order. For an
++// ordinary opaque depth pass, compatible adjacent lists need only one shader,
++// stencil setup and indexed submission. No animation or model callback is
++// cached here; skin/view/material eligibility is checked for this invocation.
++static size_t R_StudioCollectShadowBatch(
++    CStudioModelRenderData* data, const CStudioModelRenderSubModel* submodel,
++    const mstudiomesh_t* meshes, int meshCount, studiohdr_t* textureHeader,
++    mstudiotexture_t* textures, short* skinref, size_t first,
++    CStudioModelRenderMesh& merged, program_state_t& state)
++{
++    if (!r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f ||
++        !submodel || !meshes || !textureHeader || !textures || !skinref ||
++        first >= submodel->vMesh.size())
++        return 0;
++
++    size_t count = 0;
++    for (size_t i = first; i < submodel->vMesh.size(); ++i)
++    {
++        const auto& mesh = submodel->vMesh[i];
++        if (mesh.iMeshIndex < 0 || mesh.iMeshIndex >= meshCount || mesh.iIndiceCount % 3)
++            break;
++        const auto* source = &meshes[mesh.iMeshIndex];
++        const auto textureIndex = StudioResolveTextureIndex(skinref, textureHeader->numskinref,
++            textureHeader->numtextures, source->skinref);
++        if (textureIndex < 0) break;
++        const auto candidate = static_cast<program_state_t>(static_cast<uint32_t>(textures[textureIndex].flags)) |
++            STUDIO_SHADOW_CASTER_ENABLED;
++        if (!R_StudioDepthExecutorEligible(data, &mesh, source, textureHeader, textures, skinref, candidate))
++            break;
++        if (count)
++        {
++            // A gap or a stencil-affecting flag is a submission barrier. Do
++            // arithmetic in 64 bits before narrowing the GL count parameter.
++            const int64_t end = int64_t(merged.iStartIndex) + merged.iIndiceCount;
++            const int64_t total = int64_t(merged.iIndiceCount) + mesh.iIndiceCount;
++            if (candidate != state || end != mesh.iStartIndex || total > INT_MAX)
++                break;
++            merged.iIndiceCount = static_cast<int>(total);
++        }
++        else
++        {
++            merged = mesh;
++            state = candidate;
++        }
++        ++count;
++    }
++    return count;
++}
++
++static size_t R_StudioTryDrawShadowBatch(
++    CStudioModelRenderData* data, CStudioModelRenderSubModel* submodel,
++    studiohdr_t* textureHeader, mstudiotexture_t* textures, short* skinref, size_t first)
++{
++    if (!r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f ||
++        r_draw_analyzingstudio || !R_IsRenderingShadowView() ||
++        !submodel || first >= submodel->vMesh.size() || submodel->vMesh.size() - first < 2 ||
++        !(*pstudiohdr) || !(*psubmodel))
++        return 0;
++    const auto* meshes = reinterpret_cast<const mstudiomesh_t*>(reinterpret_cast<const byte*>(*pstudiohdr) + (*psubmodel)->meshindex);
++    CStudioModelRenderMesh merged;
++    program_state_t state{};
++    const auto count = R_StudioCollectShadowBatch(data, submodel, meshes, (*psubmodel)->nummesh,
++        textureHeader, textures, skinref, first, merged, state);
++    if (count < 2) return 0;
++    RProfileScope profileScope(RProfileStage::StudioMesh);
++    R_StudioDrawOpaqueShadowMesh(&merged, state);
++    return count;
++}
++
+ void R_StudioDrawSubmodel(
+     CStudioModelRenderData*     pRenderData,
+     CStudioModelRenderSubModel* VBOSubmodel,
+@@ -3266,11 +3366,17 @@ void R_StudioDrawSubmodel(
+     mstudiotexture_t*           ptexture,
+     short*                      pskinref)
+ {
+-    for (size_t i = 0; i < VBOSubmodel->vMesh.size(); i++)
++    for (size_t i = 0; i < VBOSubmodel->vMesh.size();)
+     {
++        if (const auto count = R_StudioTryDrawShadowBatch(pRenderData, VBOSubmodel, ptexturehdr, ptexture, pskinref, i))
++        {
++            i += count;
++            continue;
++        }
+         auto pRenderMesh = &VBOSubmodel->vMesh[i];
+ 
+         R_StudioDrawMesh(pRenderData, VBOSubmodel, pRenderMesh, ptexturehdr, ptexture, pskinref);
++        ++i;
+     }
+ }
+ 
+@@ -3377,7 +3483,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -2724,7 +2820,7 @@ index fa85f25..b514da0 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3894,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +3970,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -2740,7 +2836,7 @@ index fa85f25..b514da0 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3904,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +3980,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -2903,7 +2999,7 @@ index fa85f25..b514da0 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3921,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +3997,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -2931,7 +3027,7 @@ index fa85f25..b514da0 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +3933,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +4009,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -2939,7 +3035,7 @@ index fa85f25..b514da0 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,30 +3949,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +4025,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -2976,7 +3072,7 @@ index fa85f25..b514da0 100644
          pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
-@@ -4117,27 +3969,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4117,27 +4045,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
      //Never cache bones for viewmodel !
      if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
      {
@@ -3014,7 +3110,7 @@ index fa85f25..b514da0 100644
      pfnMergeBones(pthis, dummy, pSubModel);
  }
  
-@@ -5021,18 +4869,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +4945,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -9544,10 +9640,10 @@ index 0000000..9ad2d2c
 +}
 diff --git a/tests/studio_shadow_depth_gl_tests.cpp b/tests/studio_shadow_depth_gl_tests.cpp
 new file mode 100644
-index 0000000..9013632
+index 0000000..a47bb75
 --- /dev/null
 +++ b/tests/studio_shadow_depth_gl_tests.cpp
-@@ -0,0 +1,572 @@
+@@ -0,0 +1,684 @@
 +// Execute extracted production helpers on real layered depth/stencil targets.
 +// Reuse the existing production-shader/UBO/camera/readback fixture utilities.
 +// The legacy comparison runs the shared production state/submit/cleanup path;
@@ -9556,6 +9652,7 @@ index 0000000..9013632
 +#include "studio_shadow_face_gl_tests.cpp"
 +#undef main
 +#include <algorithm>
++#include <climits>
 +#include <numeric>
 +#include <stdexcept>
 +#include <string_view>
@@ -9580,14 +9677,17 @@ index 0000000..9013632
 +GLuint elementBuffer{}, poisonTextures[9]{}, unrelatedProgram{};
 +cl_entity_t entity{};
 +cl_entity_t* entityPointer = &entity;
++mstudiomodel_t* submodelPointer{};
 +}
 +
 +int* currenttexture = &currentTextureStorage;
 +studiohdr_t** pstudiohdr = &headerPointer;
 +cl_entity_t** currententity = &entityPointer;
++mstudiomodel_t** psubmodel = &submodelPointer;
 +cvar_t* r_fullbright = &fullbright;
 +bool g_bPortalClipPlaneEnabled[6]{};
 +bool r_draw_opaque = true;
++bool r_draw_analyzingstudio{};
 +bool r_draw_hasoutline{};
 +bool g_bUseOITBlend{};
 +bool R_IsRenderingMultiView() { return testMultiview; }
@@ -10059,6 +10159,113 @@ index 0000000..9013632
 +    }
 +}
 +
++void ShadowBatchCases()
++{
++    struct Source
++    {
++        studiohdr_t header{};
++        mstudiomodel_t submodel{};
++        mstudiomesh_t meshes[64]{};
++    } source;
++    source.submodel.meshindex = int(reinterpret_cast<byte*>(source.meshes) - reinterpret_cast<byte*>(&source.header));
++    CStudioModelRenderData model(nullptr);
++    CStudioModelRenderSubModel prepared(&source.header, &source.submodel);
++    studiohdr_t textureHeader{};
++    textureHeader.numskinref = textureHeader.numtextures = 2;
++    textureHeader.textureindex = 1;
++    mstudiotexture_t textures[2]{};
++    for (auto& texture : textures)
++    {
++        std::strcpy(texture.name, "ordinary.bmp");
++        texture.width = texture.height = 8;
++    }
++    short skins[2]{0, 1};
++    auto* oldHeader = headerPointer;
++    headerPointer = &source.header;
++    submodelPointer = &source.submodel;
++    excludedHosts.fill(false); entity.curstate.rendermode = kRenderNormal;
++    entity.curstate.renderfx = kRenderFxNone; fullbright.value = 0;
++    r_draw_opaque = testShadow = testMultiview = true;
++    r_draw_hasoutline = false; faceCull.value = 0; depthExecutor.value = 1;
++
++    for (bool cube : {false, true})
++    {
++        testLinear = cube;
++        Target target(cube);
++        const auto camera = Camera(cube);
++        Mesh geometry = cube ? CubeGeometry() : Triangle({-.7f,-.7f,0},{.7f,-.7f,0},{0,.7f,0});
++        if (!cube) Append(geometry, Triangle({-.5f,-.5f,-.2f},{.5f,-.5f,-.2f},{0,.5f,-.2f}));
++        source.submodel.nummesh = int(geometry.size() / 3);
++        Check(source.submodel.nummesh <= 64, "bounded batch source fixture");
++        prepared.vMesh.clear();
++        for (int i = 0; i < source.submodel.nummesh; ++i)
++        {
++            CStudioModelRenderMesh mesh;
++            mesh.iMeshIndex = i; mesh.iStartIndex = 3 + i * 3; mesh.iIndiceCount = 3;
++            prepared.vMesh.push_back(mesh);
++        }
++        SetupMesh(geometry);
++        std::vector<unsigned> indices(geometry.size() + 3, 0);
++        std::iota(indices.begin() + 3, indices.end(), 0u);
++        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementBuffer);
++        glBufferData(GL_ELEMENT_ARRAY_BUFFER, GLsizeiptr(indices.size() * sizeof(unsigned)), indices.data(), GL_STREAM_DRAW);
++        Upload(cameraBuffer, camera);
++        for (bool animated : {false, true})
++        for (bool flat : {false, true})
++        {
++            Bones(animated);
++            textures[0].flags = flat ? STUDIO_NF_FLATSHADE : 0;
++            r_draw_hasoutline = flat;
++            source.header.flags = flat ? FMODEL_NOBLOOM : 0;
++            const auto state = program_state_t(textures[0].flags) | STUDIO_SHADOW_CASTER_ENABLED |
++                STUDIO_MULTIVIEW_ENABLED | (cube ? STUDIO_LINEAR_DEPTH_ENABLED : 0);
++            const auto draw = [&](bool batch) {
++                target.Layered(); glDepthMask(GL_TRUE); glStencilMask(0xff);
++                glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.f, 93); Poison(0);
++                const auto calls = meshSubmissions;
++                if (batch)
++                {
++                    const auto consumed = R_StudioTryDrawShadowBatch(&model, &prepared, &textureHeader, textures, skins, 0);
++                    Check(consumed == prepared.vMesh.size(), "production batch consumes each adjacent mesh exactly once");
++                }
++                else for (auto& mesh : prepared.vMesh) LegacySharedDraw(&mesh, state);
++                Check(meshSubmissions - calls == (batch ? 1 : prepared.vMesh.size()), "many shadow submissions become exactly one draw");
++                return DepthResult{target.ReadDepth(), ReadStencil(target), State()};
++            };
++            const auto legacy = draw(false), batch = draw(true);
++            Equal(legacy.depth, batch.depth, "batched opaque index ranges preserve exact layered depth");
++            Check(legacy.stencil == batch.stencil && legacy.state == batch.state, "batch preserves stencil and all observed exit state");
++            Check(Written(batch.depth) > 20, "batched draw writes actual geometry");
++        }
++    }
++    textures[0].flags = textures[1].flags = 0;
++    CStudioModelRenderMesh merged;
++    program_state_t state{};
++    const auto collect = [&] { return R_StudioCollectShadowBatch(&model, &prepared, source.meshes,
++        source.submodel.nummesh, &textureHeader, textures, skins, 0, merged, state); };
++    const auto before = State();
++    const auto baseline = prepared.vMesh;
++    Check(collect() == baseline.size(), "all immutable index ranges collected");
++    source.meshes[1].skinref = 1; textures[1].flags = STUDIO_NF_FLATSHADE;
++    Check(collect() == 1, "stencil-affecting material is a batch barrier");
++    textures[1].flags = STUDIO_NF_MASKED;
++    Check(collect() == 1, "alpha-tested material retains individual fallback");
++    source.meshes[1].skinref = 0; textures[1].flags = 0;
++    prepared.vMesh[1].iStartIndex += 3; Check(collect() == 1, "EBO gap is never swallowed"); prepared.vMesh = baseline;
++    prepared.vMesh[1].iIndiceCount = 2; Check(collect() == 1, "partial triangles are never joined"); prepared.vMesh = baseline;
++    prepared.vMesh[0].iMeshIndex = 64; Check(collect() == 0, "foreign source mesh index rejected"); prepared.vMesh = baseline;
++    prepared.vMesh[0].iStartIndex = 0; prepared.vMesh[0].iIndiceCount = INT_MAX - 1;
++    prepared.vMesh[1].iStartIndex = INT_MAX - 1;
++    Check(collect() == 1, "GL count overflow ends the batch without wrapping"); prepared.vMesh = baseline;
++    r_draw_analyzingstudio = true;
++    Check(R_StudioTryDrawShadowBatch(&model, &prepared, &textureHeader, textures, skins, 0) == 0, "analysis callbacks remain on original mesh loop");
++    r_draw_analyzingstudio = false; depthExecutor.value = 0;
++    Check(R_StudioTryDrawShadowBatch(nullptr, nullptr, nullptr, nullptr, nullptr, 0) == 0, "disabled batch never touches model pointers");
++    depthExecutor.value = 1;
++    Check(State() == before && glGetError() == GL_NO_ERROR, "batch preparation and rejected paths do not change GL state");
++    headerPointer = oldHeader; submodelPointer = nullptr; r_draw_hasoutline = false;
++}
++
 +void RunDepth()
 +{
 +    // Shared setup utilities prepare the exact production UBO and vertex ABI.
@@ -10087,6 +10294,7 @@ index 0000000..9013632
 +    HostEligibilityCases();
 +    CacheCases();
 +    DepthCases();
++    ShadowBatchCases();
 +    glUseProgram(0);
 +    for (const auto& entry : g_StudioProgramTable) glDeleteProgram(entry.second.program);
 +    g_StudioProgramTable.clear();
@@ -10122,10 +10330,10 @@ index 0000000..9013632
 +}
 diff --git a/tests/extract_studio_depth_executor.py b/tests/extract_studio_depth_executor.py
 new file mode 100644
-index 0000000..9adea98
+index 0000000..d92ed76
 --- /dev/null
 +++ b/tests/extract_studio_depth_executor.py
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,73 @@
 +"""Extract real Studio submission/state/eligibility functions for a GL fixture.
 +
 +The fixture adapts host decisions and shader-file loading; the generated code
@@ -10167,6 +10375,8 @@ index 0000000..9adea98
 +        "static void R_StudioSubmitMesh(",
 +        "static void R_StudioEndMeshDraw(",
 +        "static void R_StudioDrawOpaqueShadowMesh(",
++        "static size_t R_StudioCollectShadowBatch(",
++        "static size_t R_StudioTryDrawShadowBatch(",
 +    )
 +    extracted = [function(sources["gl_rmisc.cpp"], signature) for signature in
 +                 ("void GL_BindTextureUnit(", "void GL_BeginStencilWrite(", "void GL_EndStencil(")]
@@ -10181,6 +10391,9 @@ index 0000000..9adea98
 +            raise SystemExit("Shared production DrawPass wiring changed: " + call)
 +    if studio.count('"r_studio_shadow_depth_executor", "0"') != 1:
 +        raise SystemExit("Depth executor must remain registered default-off")
++    submodel = function(studio, "void R_StudioDrawSubmodel(\n")
++    if submodel.count("R_StudioTryDrawShadowBatch(") != 1 or "i += count;" not in submodel or "++i;" not in submodel:
++        raise SystemExit("Production submodel must consume the batch and retain individual fallback")
 +    body = "// Generated from unchanged production function bodies.\n\n" + "\n\n".join(extracted) + "\n"
 +    args.output.parent.mkdir(parents=True, exist_ok=True)
 +    args.output.write_text(body, encoding="utf-8")
