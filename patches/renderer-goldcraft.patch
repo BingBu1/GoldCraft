@@ -11183,37 +11183,57 @@ index 0000000..ea9e3c7
 +}
 diff --git a/src/studio_bone_cache.cpp b/src/studio_bone_cache.cpp
 new file mode 100644
-index 0000000..a0edb5e
+index 0000000..d190ac5
 --- /dev/null
 +++ b/src/studio_bone_cache.cpp
-@@ -0,0 +1,58 @@
+@@ -0,0 +1,85 @@
 +#include "gl_local.h"
++#include <array>
++#include <optional>
 +
 +namespace
 +{
-+std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> caches;
-+CStudioBoneCache                                                                      storage[MAX_STUDIO_BONE_CACHES];
-+unsigned                                                                              used{};
-+bool                                                                                  overflowReported{};
++struct BoneCacheIndexEntry
++{
++    std::optional<CStudioBoneCacheHandle> key;
++    std::size_t hash{};
++    unsigned next{};
++};
++
++// Bucket links are one-based; zero denotes an empty chain, including before
++// the first frame reset. Only the index is cleared, never the matrix arena.
++std::array<unsigned, MAX_STUDIO_BONE_CACHES * 2> buckets{};
++std::array<BoneCacheIndexEntry, MAX_STUDIO_BONE_CACHES> entries;
++CStudioBoneCache storage[MAX_STUDIO_BONE_CACHES];
++unsigned used{};
++bool overflowReported{};
++
++unsigned FindBoneCache(const CStudioBoneCacheHandle& key, std::size_t hash)
++{
++    for (unsigned link = buckets[hash % buckets.size()]; link; link = entries[link - 1].next)
++    {
++        const auto& entry = entries[link - 1];
++        if (entry.hash == hash && *entry.key == key) return link;
++    }
++    return 0;
++}
 +} // namespace
 +
 +void R_StudioClearAllBoneCaches()
 +{
-+    caches.clear();
-+    used             = 0;
++    buckets.fill(0);
++    used = 0;
 +    overflowReported = false;
 +}
 +
 +void R_StudioSaveBoneCache(studiohdr_t*, int modelindex, int sequence, int gaitsequence, float frame, const float* origin, const float* angles)
 +{
 +    const CStudioBoneCacheHandle handle(modelindex, sequence, gaitsequence, frame, origin, angles);
-+    const auto                   existing = caches.find(handle);
-+    CStudioBoneCache*            cache    = nullptr;
-+    if (existing != caches.end())
++    const auto hash = CStudioBoneCacheHasher{}(handle);
++    unsigned link = FindBoneCache(handle, hash);
++    if (link)
 +    {
-+        // Repeated shadow/main passes save the same pose. Reuse its slot while
-+        // preserving the existing last-save-wins transform semantics.
-+        cache = existing->second;
++        // Preserve last-save-wins matrices, including updates after capacity.
 +        R_ProfileBoneCacheStore(true, false);
 +    }
 +    else
@@ -11228,34 +11248,62 @@ index 0000000..a0edb5e
 +            }
 +            return;
 +        }
-+        cache = &storage[used++];
-+        caches.emplace(handle, cache);
++        auto& entry = entries[used];
++        auto& bucket = buckets[hash % buckets.size()];
++        entry.key.emplace(handle);
++        entry.hash = hash;
++        entry.next = bucket;
++        link = ++used;
++        bucket = link;
 +        R_ProfileBoneCacheStore(false, false);
 +    }
-+    memcpy(cache->m_bonetransform, (*pbonetransform), sizeof(cache->m_bonetransform));
-+    memcpy(cache->m_lighttransform, (*plighttransform), sizeof(cache->m_lighttransform));
++    auto& cache = storage[link - 1];
++    memcpy(cache.m_bonetransform, (*pbonetransform), sizeof(cache.m_bonetransform));
++    memcpy(cache.m_lighttransform, (*plighttransform), sizeof(cache.m_lighttransform));
 +}
 +
 +bool R_StudioLoadBoneCache(studiohdr_t*, int modelindex, int sequence, int gaitsequence, float frame, const float* origin, const float* angles)
 +{
 +    const CStudioBoneCacheHandle handle(modelindex, sequence, gaitsequence, frame, origin, angles);
-+    const auto                   existing = caches.find(handle);
-+    if (existing == caches.end()) return false;
-+    memcpy((*pbonetransform), existing->second->m_bonetransform, sizeof(existing->second->m_bonetransform));
-+    memcpy((*plighttransform), existing->second->m_lighttransform, sizeof(existing->second->m_lighttransform));
++    const unsigned link = FindBoneCache(handle, CStudioBoneCacheHasher{}(handle));
++    if (!link) return false;
++    const auto& cache = storage[link - 1];
++    memcpy((*pbonetransform), cache.m_bonetransform, sizeof(cache.m_bonetransform));
++    memcpy((*plighttransform), cache.m_lighttransform, sizeof(cache.m_lighttransform));
 +    return true;
 +}
 diff --git a/tests/studio_bone_cache_tests.cpp b/tests/studio_bone_cache_tests.cpp
 new file mode 100644
-index 0000000..96871bd
+index 0000000..9b92fd6
 --- /dev/null
 +++ b/tests/studio_bone_cache_tests.cpp
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,264 @@
 +// Exercise the actual per-frame cache under repeated point-shadow passes.
 +#include "../src/studio_bone_cache.cpp"
 +#include <cassert>
 +#include <cmath>
 +#include <cstdio>
++#include <array>
++#include <cstdlib>
++#include <new>
++
++static size_t heapAllocations{}, heapFrees{};
++static bool trackHeap{};
++void* operator new(size_t size)
++{
++    if (trackHeap) ++heapAllocations;
++    if (void* value = std::malloc(size ? size : 1)) return value;
++    throw std::bad_alloc();
++}
++void* operator new[](size_t size) { return ::operator new(size); }
++void operator delete(void* value) noexcept
++{
++    if (trackHeap && value) ++heapFrees;
++    std::free(value);
++}
++void operator delete[](void* value) noexcept { ::operator delete(value); }
++void operator delete(void* value, size_t) noexcept { ::operator delete(value); }
++void operator delete[](void* value, size_t) noexcept { ::operator delete(value); }
 +
 +cl_enginefunc_t gEngfuncs{};
 +static float    bones[MAXSTUDIOBONES][3][4]{}, lights[MAXSTUDIOBONES][3][4]{};
@@ -11297,12 +11345,118 @@ index 0000000..96871bd
 +            }
 +}
 +
++// A linear reference has no shared hashing, links or cache-handle equality.
++// Replay interleaved saves/loads over many resets and compare all matrices.
++struct Pose
++{
++    int model{}, sequence{}, gait{};
++    float frame{}, origin[3]{}, angles[3]{};
++
++    bool operator==(const Pose&) const = default;
++    void Save() const { R_StudioSaveBoneCache(nullptr, model, sequence, gait, frame, origin, angles); }
++    bool Load() const { return R_StudioLoadBoneCache(nullptr, model, sequence, gait, frame, origin, angles); }
++};
++
++static void VerifyReferenceReplay()
++{
++    struct Record { Pose pose; float value; };
++    std::array<Record, MAX_STUDIO_BONE_CACHES> reference{};
++    std::array<Pose, 160> poses{};
++    unsigned random = 0x517cc1b7u;
++    const auto Next = [&]() { random = random * 1664525u + 1013904223u; return random; };
++    const auto Float = [&]() { return (static_cast<int>(Next() % 65536u) - 32768) / 8.f; };
++    for (auto& pose : poses)
++    {
++        pose.model = Next() % 17u;
++        pose.sequence = Next() % 9u;
++        pose.gait = Next() % 5u;
++        pose.frame = Float();
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            pose.origin[axis] = Float();
++            pose.angles[axis] = Float();
++        }
++    }
++    for (int epoch = 0; epoch < 16; ++epoch)
++    {
++        R_StudioClearAllBoneCaches();
++        unsigned count = 0;
++        for (unsigned step = 0; step < 768; ++step)
++        {
++            const auto& pose = poses[(Next() >> 8) % poses.size()];
++            unsigned match = 0;
++            while (match < count && !(reference[match].pose == pose)) ++match;
++            if ((Next() >> 16) % 3u != 0)
++            {
++                const float value = epoch * 1000.f + step;
++                Transforms(value);
++                pose.Save();
++                if (match == count) ++count;
++                reference[match] = {pose, value};
++            }
++            else
++            {
++                Transforms(-30000.f);
++                assert(pose.Load() == (match < count));
++                VerifyTransforms(match < count ? reference[match].value : -30000.f);
++            }
++        }
++        for (unsigned i = 0; i < count; ++i)
++        {
++            assert(reference[i].pose.Load());
++            VerifyTransforms(reference[i].value);
++        }
++        R_StudioClearAllBoneCaches();
++        for (const auto& pose : poses) assert(!pose.Load());
++    }
++}
++
++static void VerifyCollidingBuckets()
++{
++    const float zero[]{0.f, 0.f, 0.f};
++    std::array<int, 32> models{};
++    unsigned count = 0;
++    for (int model = 1; model < 262144 && count < models.size(); ++model)
++    {
++        const CStudioBoneCacheHandle key(model, 0, 0, 0.f, zero, zero);
++        if (CStudioBoneCacheHasher{}(key) % (MAX_STUDIO_BONE_CACHES * 2) == 0)
++            models[count++] = model;
++    }
++    assert(count == models.size());
++    R_StudioClearAllBoneCaches();
++    for (unsigned i = 0; i < count; ++i)
++    {
++        Transforms(static_cast<float>(i));
++        R_StudioSaveBoneCache(nullptr, models[i], 0, 0, 0.f, zero, zero);
++    }
++    // Refresh both ends and the middle without breaking the collision chain.
++    for (unsigned i : {0u, 16u, 31u})
++    {
++        Transforms(9000.f + i);
++        R_StudioSaveBoneCache(nullptr, models[i], 0, 0, 0.f, zero, zero);
++    }
++    for (unsigned i = count; i-- > 0;)
++    {
++        assert(R_StudioLoadBoneCache(nullptr, models[i], 0, 0, 0.f, zero, zero));
++        VerifyTransforms((i == 0 || i == 16 || i == 31) ? 9000.f + i : static_cast<float>(i));
++    }
++    R_StudioClearAllBoneCaches();
++    Transforms(-333.f);
++    for (int model : models) assert(!R_StudioLoadBoneCache(nullptr, model, 0, 0, 0.f, zero, zero));
++    VerifyTransforms(-333.f);
++}
++
 +int main()
 +{
 +    _set_error_mode(_OUT_TO_STDERR);
 +    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 +    gEngfuncs.Con_DPrintf = Warning;
 +    const float origin[]{-2527.5f, 1989.f, 66.f}, angles[]{0.f, 356.f, 0.f};
++    trackHeap = true;
++    // Static empty initialization must also work before the first frame reset.
++    Transforms(-321.f);
++    assert(!R_StudioLoadBoneCache(nullptr, 1, 2, 3, 4.f, origin, angles));
++    VerifyTransforms(-321.f);
 +    R_StudioClearAllBoneCaches();
 +    // 24 point lights, six cube faces, 24 players: 3,456 saves but 24 poses.
 +    for (int pass = 0; pass < 144; ++pass)
@@ -11379,7 +11533,14 @@ index 0000000..96871bd
 +        R_StudioSaveBoneCache(nullptr, pose, 0, 0, 0.f, zeros, zeros);
 +    R_StudioSaveBoneCache(nullptr, MAX_STUDIO_BONE_CACHES, 0, 0, 0.f, zeros, zeros);
 +    assert(warnings == 2);
-+    std::puts("PASS: 3,456 multipass saves use 24 slots; last-save transforms, pose isolation, full-capacity fallback and frame reset.");
++    VerifyCollidingBuckets();
++    VerifyReferenceReplay();
++    R_StudioClearAllBoneCaches();
++    trackHeap = false;
++    std::printf("Tracked heap: %zu allocations, %zu frees\n", heapAllocations, heapFrees);
++    std::fflush(stdout);
++    assert(heapAllocations == 0 && heapFrees == 0);
++    std::puts("PASS: multipass/full-capacity transforms, 32 colliding keys, 12,288 reference operations and frame resets; zero heap activity.");
 +}
 diff --git a/src/gl_surface_edit.cpp b/src/gl_surface_edit.cpp
 new file mode 100644
