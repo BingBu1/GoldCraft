@@ -94,23 +94,72 @@ public final class Wire {
             .putInt(0).putLong(epoch).putLong(sequence).flip();
     }
 
-    public static final class Writer {
+    public static final class Writer implements AutoCloseable {
         private final ByteArrayOutputStream out;
+        private byte[] destination;
+        private final int offset,capacity;
+        private final Thread owner;
+        private int position;
         public Writer() { this(32); }
-        public Writer(int initialCapacity) { out = new ByteArrayOutputStream(initialCapacity); }
-        public Writer u8(int value) { out.write(value & 255); return this; }
-        public Writer u16(int value) { u8(value); u8(value >>> 8); return this; }
-        public Writer i32(int value) { for (int i=0; i<4; i++) u8(value >>> (8*i)); return this; }
-        public Writer i64(long value) { for (int i=0; i<8; i++) u8((int)(value >>> (8*i))); return this; }
+        public Writer(int initialCapacity) {
+            out = new ByteArrayOutputStream(initialCapacity);offset=capacity=0;owner=null;
+        }
+        private Writer(byte[] destination,int offset,int length) {
+            java.util.Objects.checkFromIndexSize(offset,length,destination.length);
+            out=null;this.destination=destination;this.offset=offset;capacity=length;owner=Thread.currentThread();
+        }
+        /** A synchronous region writer; finish or close permanently revokes access. */
+        public static Writer bounded(byte[] destination,int offset,int length) { return new Writer(destination,offset,length); }
+        private void requireSpace(int count) {
+            if(Thread.currentThread()!=owner)throw new IllegalStateException("Bounded writer thread");
+            if(destination==null)throw new IllegalStateException("Closed bounded writer");
+            if(count>capacity-position)throw new IllegalArgumentException("Bounded writer overflow");
+        }
+        private Writer integer(long value,int count) {
+            if(out!=null){for(int i=0;i<count;i++)out.write((int)(value >>> (8*i)));}
+            else {
+                requireSpace(count);
+                for(int i=0;i<count;i++)destination[offset+position++]=(byte)(value >>> (8*i));
+            }
+            return this;
+        }
+        public Writer u8(int value) { return integer(value,1); }
+        public Writer u16(int value) { return integer(value,2); }
+        public Writer i32(int value) { return integer(value,4); }
+        public Writer i64(long value) { return integer(value,8); }
         public Writer f32(float value) { if (!Float.isFinite(value)) throw new IllegalArgumentException("Non-finite float"); return i32(Float.floatToRawIntBits(value)); }
-        public Writer bytes(byte[] value) { out.writeBytes(value); return this; }
-        public Writer bytes(byte[] value,int offset,int length) { out.write(value,offset,length); return this; }
+        public Writer bytes(byte[] value) { return bytes(value,0,value.length); }
+        public Writer bytes(byte[] value,int offset,int length) {
+            if(out!=null)out.write(value,offset,length);
+            else {
+                java.util.Objects.checkFromIndexSize(offset,length,value.length);requireSpace(length);
+                System.arraycopy(value,offset,destination,this.offset+position,length);position+=length;
+            }
+            return this;
+        }
         public Writer string(String value) {
             byte[] bytes=value.getBytes(StandardCharsets.UTF_8);
             if (bytes.length>65535) throw new IllegalArgumentException("String length");
+            if(out==null)requireSpace(2+bytes.length);
             return u16(bytes.length).bytes(bytes);
         }
-        public byte[] toByteArray() { return out.toByteArray(); }
+        public int size() { return out!=null?out.size():position; }
+        public byte[] toByteArray() {
+            if(out!=null)return out.toByteArray();
+            requireSpace(0);return java.util.Arrays.copyOfRange(destination,offset,offset+position);
+        }
+        /** Require the complete declared region, and revoke even an incomplete writer. */
+        public void finish() {
+            if(out!=null)return;
+            requireSpace(0);boolean complete=position==capacity;close();
+            if(!complete)throw new IllegalArgumentException("Incomplete bounded writer");
+        }
+        @Override public void close() {
+            if(out==null){
+                if(Thread.currentThread()!=owner)throw new IllegalStateException("Bounded writer thread");
+                destination=null;
+            }
+        }
     }
 
     public static final class Reader {

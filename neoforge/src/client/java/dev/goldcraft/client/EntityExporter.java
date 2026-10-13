@@ -2,6 +2,7 @@ package dev.goldcraft.client;
 
 import dev.goldcraft.GoldCraft;
 import dev.goldcraft.bridge.BridgeLink;
+import dev.goldcraft.bridge.EntityFrame;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.bridge.HostWorldState;
 import dev.goldcraft.bridge.FramePacer;
@@ -167,8 +168,8 @@ public final class EntityExporter {
                 int flags=(entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0)|(entry.getKey().viewOffset?4:0);
                 ready.add(new Batch(number,flags,vertices,size));bytes+=size;
             }
-            byte[] payload=encodeBase(epoch,++revision,entityCount,blockCount,ready,avatars);
-            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,payload,effects)){frames++;meshBytes+=payload.length;lastError="";completed=true;}else sendFailures++;
+            var base=prepareBase(epoch,++revision,entityCount,blockCount,ready,avatars);
+            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,base,effects)){frames++;meshBytes+=base.size();lastError="";completed=true;}else sendFailures++;
             }
             // Effects close/restore first. Any early return or failed close
             // discards this frame's buffers instead of retaining partial work.
@@ -177,14 +178,27 @@ public final class EntityExporter {
         finally{Performance.end("entityExport",began);}
     }
     static byte[] encodeBase(long epoch,long revision,int entityCount,int blockCount,List<Batch> ready,List<HostWorldState.Actor> avatars) {
-        int bytes=0;
+        var base=prepareBase(epoch,revision,entityCount,blockCount,ready,avatars);
+        byte[] payload=new byte[base.size()];
+        try(var writer=Wire.Writer.bounded(payload,0,payload.length)){
+            base.write().accept(writer);writer.finish();
+        }
+        return payload;
+    }
+    static EntityFrame.Base prepareBase(long epoch,long revision,int entityCount,int blockCount,List<Batch> ready,List<HostWorldState.Actor> avatars) {
         if(ready.size()>128)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
-        for(Batch batch:ready){
+        var batches=List.copyOf(ready);
+        long bytes=0;
+        for(Batch batch:batches){
             if(batch.bytes<0||batch.bytes>8*1024*1024-bytes)throw new IllegalArgumentException("Dynamic mesh budget exceeded");
             bytes+=batch.bytes;
         }
-        int capacity=Math.toIntExact(32L+12L*ready.size()+bytes+28L*avatars.size());
-        Wire.Writer writer=new Wire.Writer(capacity).i64(epoch).i64(revision).i32(entityCount).i32(blockCount).i32(ready.size());
+        int capacity=Math.toIntExact(32L+12L*batches.size()+bytes+28L*avatars.size());
+        var actors=List.copyOf(avatars);
+        return new EntityFrame.Base(capacity,writer->writeBase(writer,epoch,revision,entityCount,blockCount,batches,actors));
+    }
+    private static void writeBase(Wire.Writer writer,long epoch,long revision,int entityCount,int blockCount,List<Batch> ready,List<HostWorldState.Actor> avatars) {
+        writer.i64(epoch).i64(revision).i32(entityCount).i32(blockCount).i32(ready.size());
         for(Batch batch:ready){
             writer.i32(batch.texture).i32(batch.flags).i32(batch.bytes/28);
             batch.vertices.writeTo(writer,batch.bytes);
@@ -193,7 +207,6 @@ public final class EntityExporter {
         // suppress a new CS player who happens to occupy the same slot.
         writer.i32(avatars.size());
         for(var actor:avatars)writer.i32(actor.slot()).i32(actor.serial()).i32(actor.userid()).bytes(Wire.uuid(actor.minecraftPlayer()));
-        return writer.toByteArray();
     }
     private boolean upload(long epoch,TextureStamp stamp,Identifier id,int number) {
         int unit=GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);GL13.glActiveTexture(GL13.GL_TEXTURE0);

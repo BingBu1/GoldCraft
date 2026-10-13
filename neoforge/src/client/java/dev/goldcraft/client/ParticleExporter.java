@@ -59,13 +59,17 @@ public final class ParticleExporter {
     public static void atlasUploaded(SpriteAtlasTexture atlas){if(active!=null)active.reset();}
     public static boolean sendEntityFrame(long epoch,int life,long entityRevision,byte[] payload,DirectMeshCapture effects){
         if(active==null||!active.link.connected()||epoch==0||life==0||epoch!=GoldCraftClient.HOST.epoch()||life!=HostInput.life())return false;
+        return sendEntityFrame(epoch,life,entityRevision,new EntityFrame.Base(payload.length,out->out.bytes(payload)),effects);
+    }
+    public static boolean sendEntityFrame(long epoch,int life,long entityRevision,EntityFrame.Base base,DirectMeshCapture effects){
+        if(active==null||!active.link.connected()||epoch==0||life==0||epoch!=GoldCraftClient.HOST.epoch()||life!=HostInput.life())return false;
         var exporter=active;exporter.prepareTextureContext(epoch,life);
         var draws=effects.draws();
         int atlas=MinecraftClient.getInstance().getTextureManager().getTexture(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE).getGlId();
         var used=textureUse(draws,atlas);exporter.entityTextureSet=used;
         if(!exporter.prepareTextures(epoch,used,0))return false;
         var ready=exporter.effectBatches(draws,atlas);
-        byte[] frame=EntityFrame.encode(epoch,exporter.generation,entityRevision,life,payload,ready);
+        byte[] frame=EntityFrame.encode(epoch,exporter.generation,entityRevision,life,base,ready);
         if(!exporter.link.send(Wire.ENTITY_FRAME,frame))return false;
         exporter.entityEffectFrames++;exporter.entityEffectBytes+=frame.length;exporter.entityEffectDraws=draws.size();
         return true;

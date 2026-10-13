@@ -33,18 +33,33 @@ public final class ParticleSnapshot {
         public Batch(int texture,int flags,byte[] vertices){this(texture,Material.vanilla(flags),vertices);}
     }
     private ParticleSnapshot() {}
-    public static byte[] encode(long epoch,long generation,long revision,int life,int count,List<Batch> batches) {
+    public static int encodedSize(long epoch,long generation,long revision,int life,int count,List<Batch> batches) {
         if(epoch==0||generation<=0||revision<=0||life==0||count<0||count>MAX_PARTICLES||batches.size()>MAX_BATCHES
             ||(count==0)!=batches.isEmpty())throw new IllegalArgumentException("Particle identity/count bounds");
-        Wire.Writer out=new Wire.Writer().i64(epoch).i64(generation).i64(revision).i32(life).i32(count).i32(batches.size());
-        int total=0;
+        long size=36,total=0;
         for(Batch b:batches){
             if((b.texture!=WHITE_TEXTURE&&(b.texture<0||b.texture>MAX_TEXTURES))||b.material==null||b.vertices.length==0||b.vertices.length%96!=0)
                 throw new IllegalArgumentException("Particle batch bounds");
-            int vertices=b.vertices.length/24;total+=vertices;
+            total+=b.vertices.length/24;
             if(total>MAX_VERTICES)throw new IllegalArgumentException("Particle vertex budget");
-            out.i32(b.texture);b.material.write(out);out.i32(vertices).bytes(b.vertices);
+            size+=64L+b.vertices.length;
         }
-        return out.toByteArray();
+        return Math.toIntExact(size);
+    }
+    public static byte[] encode(long epoch,long generation,long revision,int life,int count,List<Batch> batches) {
+        byte[] payload=new byte[encodedSize(epoch,generation,revision,life,count,batches)];
+        encodeInto(epoch,generation,revision,life,count,batches,payload,0,payload.length);
+        return payload;
+    }
+    public static void encodeInto(long epoch,long generation,long revision,int life,int count,List<Batch> batches,
+                                  byte[] destination,int offset,int length) {
+        if(length!=encodedSize(epoch,generation,revision,life,count,batches))throw new IllegalArgumentException("Changed particle snapshot size");
+        try(var out=Wire.Writer.bounded(destination,offset,length)){
+            out.i64(epoch).i64(generation).i64(revision).i32(life).i32(count).i32(batches.size());
+            for(Batch b:batches){
+                out.i32(b.texture);b.material.write(out);out.i32(b.vertices.length/24).bytes(b.vertices);
+            }
+            out.finish();
+        }
     }
 }
