@@ -58,6 +58,8 @@ def snapshot():
               "hudWorkMs", "nativeWork", "fpsOverride", "benchmarkFramerate", "entityCount", "entityBatches", "entityFrames",
               "entityEffectVertices", "sections", "vertices", "drawFrames", "gpuUploads",
               "gpuUploadBytes", "gpuDraws", "depthOnlyShadowPasses", "particleVertices", "postEffectStages", "postEffectFailures",
+              "particleTextureStagingBytes", "particleTextureRetainedBytes", "particleTextureReceivedBytes",
+              "particleTextureStagingAllocations", "particleTextureStagingReuses", "particleTextureChunkUploads",
               "hudBlank", "hudFrames", "hudBlankFrames", "hudBlankUploads", "hudBlankCompositesSkipped",
               "hudDraws", "hudTextureWidth", "hudTextureHeight",
               "sceneCullingApi", "sceneCullingEnabled", "shadowBoundsTests", "shadowBoundsCulled",

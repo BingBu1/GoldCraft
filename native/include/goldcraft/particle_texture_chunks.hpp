@@ -1,6 +1,7 @@
 #pragma once
 #include "wire.hpp"
 #include <algorithm>
+#include <memory>
 
 namespace goldcraft {
 constexpr unsigned max_particle_texture_dimension=4096;
@@ -30,15 +31,26 @@ inline ParticleTextureChunk read_particle_texture_chunk(Reader& r) {
 /** A single at-most64MiB CPU staging image; published textures have a separate128MiB budget. */
 class ParticleTextureAssembler {
     ParticleTextureChunk header_{};
-    Bytes pixels_;
-    std::size_t received_=0;
+    std::unique_ptr<std::uint8_t[]> pixels_;
+    std::size_t received_=0,retained_=0;
+    std::uint64_t allocations_=0,reuses_=0;
     [[noreturn]] void reject(const char* message){reset();throw ProtocolError(message);}
 public:
-    void reset() noexcept {header_={};received_=0;Bytes{}.swap(pixels_);}
+    // A successful publication may reuse this storage on the next transfer.
+    // Session changes and rejected transfers must use reset() to release it.
+    void finish() noexcept {header_={};received_=0;}
+    void reset() noexcept {finish();pixels_.reset();retained_=0;}
     const ParticleTextureChunk& header() const noexcept{return header_;}
-    std::span<const std::uint8_t> pixels() const noexcept{return received_==pixels_.size()?std::span<const std::uint8_t>(pixels_):std::span<const std::uint8_t>{};}
-    std::size_t pending_bytes() const noexcept{return pixels_.size();}
+    std::span<const std::uint8_t> pixels() const noexcept{
+        return header_.total_bytes&&received_==header_.total_bytes?
+            std::span<const std::uint8_t>(pixels_.get(),header_.total_bytes):std::span<const std::uint8_t>{};
+    }
+    std::size_t pending_bytes() const noexcept{return header_.total_bytes;}
+    std::size_t retained_bytes() const noexcept{return retained_;}
     std::size_t received_bytes() const noexcept{return received_;}
+    // Cumulative diagnostics survive reset so callers can measure intervals.
+    std::uint64_t allocation_count() const noexcept{return allocations_;}
+    std::uint64_t reuse_count() const noexcept{return reuses_;}
     bool append(const ParticleTextureChunk& c) {
         // Validate direct callers as well as the wire decoder before allocating.
         if(!c.epoch||!c.generation||!c.life||!c.key||c.key>64||!c.revision||!c.width||!c.height||
@@ -48,18 +60,25 @@ public:
            c.data.size()>c.total_bytes-c.offset)reject("Invalid particle texture staging chunk");
         // A capture canceled on the producer can start a newer transfer in the
         // same life. Never expose the abandoned partial image or accept its tail.
-        if(c.offset==0&&!pixels_.empty()&&c.epoch==header_.epoch&&c.generation==header_.generation&&
-           c.life==header_.life&&c.revision>header_.revision)reset();
-        if(pixels_.empty()) {
+        if(c.offset==0&&header_.total_bytes&&c.epoch==header_.epoch&&c.generation==header_.generation&&
+           c.life==header_.life&&c.revision>header_.revision)finish();
+        if(!header_.total_bytes) {
             if(c.offset)reject("Particle texture starts after byte zero");
+            if(c.total_bytes>retained_){
+                // Release before growth: even transient staging stays within
+                // the single-image 64 MiB bound. Every byte is filled by chunks.
+                pixels_.reset();retained_=0;
+                try{pixels_=std::make_unique_for_overwrite<std::uint8_t[]>(c.total_bytes);}
+                catch(...){reset();throw;}
+                retained_=c.total_bytes;++allocations_;
+            }else ++reuses_;
             header_=c;header_.data={};
-            try{pixels_.resize(c.total_bytes);}catch(...){reset();throw;}
         }
         if(c.epoch!=header_.epoch||c.generation!=header_.generation||c.life!=header_.life||c.key!=header_.key||
            c.revision!=header_.revision||c.width!=header_.width||c.height!=header_.height||c.total_bytes!=header_.total_bytes||
            c.offset!=received_)reject("Interleaved or reordered particle texture chunks");
-        std::copy(c.data.begin(),c.data.end(),pixels_.begin()+received_);received_+=c.data.size();
-        return received_==pixels_.size();
+        std::copy(c.data.begin(),c.data.end(),pixels_.get()+received_);received_+=c.data.size();
+        return received_==header_.total_bytes;
     }
 };
 }

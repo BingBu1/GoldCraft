@@ -142,7 +142,8 @@ enum class WorkStage : std::size_t {
     section,remove_section,other_message,control_lights,
     draw_opaque,draw_shadow,draw_transparent,pass_construct,pass_restore,
     sections,entities,feedback,entity_effects,particle_draw,post_mask,post_replay,hud_redraw,
-    native_hud_redraw,mc_hud_composite,server_hud_overlay,count
+    native_hud_redraw,mc_hud_composite,server_hud_overlay,
+    chunk_first_append,chunk_continuation_append,chunk_gpu_upload,chunk_publish_release,chunk_failed_release,count
 };
 constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> work_names{
     "frame","nativeHudFrame","auditCommands","transportPoll","mapEdits","connectionState","diagnosticWrite","messages",
@@ -151,7 +152,8 @@ constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> wor
     "section","removeSection","otherMessage","controlLights",
     "drawOpaque","drawShadow","drawTransparent","passConstruct","passRestore",
     "sections","entities","feedback","entityEffects","particleDraw","postMask","postReplay","hudRedraw",
-    "nativeHudRedraw","mcHudComposite","serverHudOverlay"
+    "nativeHudRedraw","mcHudComposite","serverHudOverlay",
+    "chunkFirstAppend","chunkContinuationAppend","chunkGpuUpload","chunkPublishRelease","chunkFailedRelease"
 };
 struct WorkCounter {std::uint64_t count=0;double total_ms=0,max_ms=0;};
 std::array<WorkCounter,work_names.size()> work_counters{};
@@ -674,6 +676,9 @@ void WriteDiagnostics() {
            <<",\"particleFrames\":"<<particle_frames<<",\"particleDraws\":"<<particle_draws<<",\"particleBytes\":"<<particle_bytes
            <<",\"particleGeneration\":"<<particle_generation<<",\"particleRevision\":"<<particle_revision<<",\"particleLife\":"<<particle_life
            <<",\"particleTextureStagingBytes\":"<<particle_texture_upload.pending_bytes()
+           <<",\"particleTextureRetainedBytes\":"<<particle_texture_upload.retained_bytes()
+           <<",\"particleTextureStagingAllocations\":"<<particle_texture_upload.allocation_count()
+           <<",\"particleTextureStagingReuses\":"<<particle_texture_upload.reuse_count()
            <<",\"particleTextureReceivedBytes\":"<<particle_texture_upload.received_bytes()
            <<",\"particleTextureChunkUploads\":"<<particle_texture_chunk_uploads
            <<",\"particleAgeMs\":"<<(last_particle_frame?(Seconds()-last_particle_frame)*1000:-1)<<",\"particleIntervalMs\":"<<particle_interval_ms
@@ -1211,20 +1216,34 @@ void ReadParticleTextureChunk(Reader& r){
     for(const auto& [key,texture]:particle_textures)if(key!=chunk.key)
         resident+=std::size_t(texture.width)*texture.height*4;
     if(resident>max_particle_texture_resident_bytes)throw ProtocolError("Particle texture memory budget exceeded");
-    if(!particle_texture_upload.append(chunk))return;
+    bool complete;
+    {
+        // The first append includes any staging growth and its first copy;
+        // repeated transfers reuse storage without clearing the entire image.
+        WorkScope work(chunk.offset==0?WorkStage::chunk_first_append:WorkStage::chunk_continuation_append);
+        complete=particle_texture_upload.append(chunk);
+    }
+    if(!complete)return;
     // Keep the previously published image until the complete replacement has
     // GPU storage. Neither partial transfers nor allocation failures expose it.
     Texture replacement{};
     try{
-        render::upload_texture(replacement.id,replacement.width,replacement.height,
-            chunk.width,chunk.height,particle_texture_upload.pixels());
-        if(glGetError()!=GL_NO_ERROR)throw ProtocolError("Particle texture GPU upload failed");
+        {
+            // Host elapsed time includes driver waits and the existing error
+            // check; this is not a GPU timer and introduces no GL synchronization.
+            WorkScope work(WorkStage::chunk_gpu_upload);
+            render::upload_texture(replacement.id,replacement.width,replacement.height,
+                chunk.width,chunk.height,particle_texture_upload.pixels());
+            if(glGetError()!=GL_NO_ERROR)throw ProtocolError("Particle texture GPU upload failed");
+        }
+        WorkScope work(WorkStage::chunk_publish_release);
         auto& published=particle_textures[chunk.key];
         std::swap(published,replacement);
         if(replacement.id)glDeleteTextures(1,&replacement.id);
         particle_texture_transfer=chunk.revision;++particle_texture_chunk_uploads;
-        particle_texture_upload.reset();
+        particle_texture_upload.finish();
     }catch(...){
+        WorkScope work(WorkStage::chunk_failed_release);
         if(replacement.id)glDeleteTextures(1,&replacement.id);
         particle_texture_upload.reset();throw;
     }
@@ -1482,6 +1501,7 @@ void Frame(double time) {
         if(!binding.empty()) link.send(Type::client_binding,binding);
         Log("Fabric client connected with an isolated session");
     }
+    if(!link.connected()&&particle_texture_upload.retained_bytes())particle_texture_upload.reset();
     }
     const auto diagnostic_time=std::chrono::steady_clock::now();
     if(diagnostic_time>=next_diagnostic){
