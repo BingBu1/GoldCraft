@@ -6,6 +6,7 @@ from the public source allowlist; the ZIP contains licensed game/runtime assets.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -13,7 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import zipfile
-import zlib
+from ServerPackageMaps import map_resources, select_maps
 
 ROOT = Path(__file__).resolve().parent.parent
 CS = ROOT / 'sandbox/cs-server/Half-Life'
@@ -31,7 +32,8 @@ def safe_file(path: Path) -> Path:
     return path
 
 
-def build_plan(steam: Path, native_crt: Path, core_jar: Path):
+def build_plan(steam: Path, native_crt: Path, core_jar: Path,
+               maps=None, default_map='cs_assault'):
     files: dict[str, Path | bytes] = {}
 
     def add(source, name):
@@ -70,11 +72,17 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path):
             add(CS / game / name, f'cs/{game}/{name}')
     for name in ('halflife.wad', 'liquids.wad', 'gfx.wad', 'fonts.wad'):
         add(CS / 'valve' / name, 'cs/valve/' + name)
-    add(CS / 'cstrike/cs_assault.wad', 'cs/cstrike/cs_assault.wad')
     add(CS / 'cstrike/dlls/mp.dll', 'cs/cstrike/dlls/mp.dll')
-    bsp = safe_file(CS / 'cstrike/maps/cs_assault.bsp')
-    add(bsp, 'cs/cstrike/maps/cs_assault.bsp')
-    generated('cs/cstrike/mapcycle.txt', 'cs_assault\n')
+    map_records = []
+    for bsp in select_maps(CS / 'cstrike', ['cs_assault'] if maps is None else maps, default_map):
+        resources, record = map_resources(bsp, CS / 'cstrike', CS / 'valve', safe_file)
+        for name, source in resources.items():
+            if name not in files:
+                add(source, name)
+        map_records.append(record)
+    mapcycle = ''.join(record['map'] + '\n' for record in map_records)
+    generated('cs/cstrike/mapcycle.txt', mapcycle)
+    generated('maps.json', json.dumps(map_records, indent=2) + '\n')
     generated('cs/cstrike/autoexec.cfg', '// Server configuration is loaded by server.cfg.\n')
     generated('cs/valve/valve.rc', 'stuffcmds\n')
     addons = CS / 'cstrike/addons'
@@ -89,7 +97,6 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path):
                 if source.is_file():
                     add(source, f'licenses/{project}-{source.name}')
     tree(addons / 'sypb/language', 'cs/cstrike/addons/sypb/language')
-    add(addons / 'sypb/wptdefault/cs_assault.pwf', 'cs/cstrike/addons/sypb/wptdefault/cs_assault.pwf')
     generated('cs/cstrike/addons/sypb/wptdefault/data/.keep', '')
     generated('cs/cstrike/addons/sypb/logs/.keep', '')
     amxx = addons / 'amxmodx'
@@ -97,27 +104,36 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path):
         tree(amxx / directory, f'cs/cstrike/addons/amxmodx/{directory}', {'.dll'})
     tree(amxx / 'data/lang', 'cs/cstrike/addons/amxmodx/data/lang', {'.txt'})
     tree(amxx / 'data/gamedata', 'cs/cstrike/addons/amxmodx/data/gamedata', {'.txt'})
-    # Keep only active plugins, including the registered ZP plugin list.
-    for name in ('plugins.ini', 'plugins-zp50_ammopacks.ini'):
-        source = amxx / 'configs' / name
+    # Match AMXX's root plugin-list discovery, including future installed Mods.
+    plugin_lists = [amxx / 'configs/plugins.ini', *sorted((amxx / 'configs').glob('plugins-*.ini'))]
+    for source in plugin_lists:
+        name = source.name
         lines = source.read_text(encoding='utf-8-sig').splitlines()
         active = []
         for line in lines:
             value = line.split(';', 1)[0].strip()
             if value:
-                plugin = value.split()[0]
+                fields = value.split()
+                plugin = fields[0]
+                if len(fields) > 1 and fields[1] == 'disabled':
+                    continue
                 if not re.fullmatch(r'[\w-]+\.amxx', plugin) or 'test' in plugin or 'fixture' in plugin:
                     raise ValueError(f'Unexpected active plugin: {plugin}')
-                add(amxx / 'plugins' / plugin, 'cs/cstrike/addons/amxmodx/plugins/' + plugin)
-                active.append(plugin)
+                if fields[1:] not in ([], ['debug']):
+                    raise ValueError(f'Unexpected plugin flags: {plugin}')
+                target = 'cs/cstrike/addons/amxmodx/plugins/' + plugin
+                if target not in files:
+                    add(amxx / 'plugins' / plugin, target)
+                active.append(' '.join(fields))
         generated('cs/cstrike/addons/amxmodx/configs/' + name, '\n'.join(active) + '\n')
     config_names = ('amxx.cfg', 'core.ini', 'modules.ini', 'hamdata.ini', 'cmdaccess.ini',
                     'clcmds.ini', 'cmds.ini', 'configs.ini', 'custommenuitems.cfg', 'cvars.ini',
-                    'maps.ini', 'miscstats.ini', 'speech.ini', 'stats.ini', 'nade_modes.cfg',
+                    'miscstats.ini', 'speech.ini', 'stats.ini', 'nade_modes.cfg',
                     'zombieplague.cfg', 'zombieplague.ini', 'zp_extraitems.ini',
                     'zp_humanclasses.ini', 'zp_zombieclasses.ini')
     for name in config_names:
         add(amxx / 'configs' / name, 'cs/cstrike/addons/amxmodx/configs/' + name)
+    generated('cs/cstrike/addons/amxmodx/configs/maps.ini', mapcycle)
     generated('cs/cstrike/addons/amxmodx/configs/users.ini',
               '; Add your own Steam ID admin here. No development account is included.\n')
     generated('cs/cstrike/addons/amxmodx/configs/sql.cfg', '// SQL administration is not configured.\n')
@@ -167,9 +183,10 @@ mc_map_mining_persist 0
                 'layers': [{'height': 1, 'block': 'minecraft:air'}], 'structure_overrides': []}
     pack = 'minecraft/goldcraft-worlds/datapacks/goldcraft_host_maps/'
     generated(pack + 'pack.mcmeta', json.dumps({'pack': {'pack_format': 48, 'description': 'GoldCraft host maps'}}))
-    dimension = f'cs_assault_{zlib.crc32(bsp.read_bytes()):08x}'
-    generated(pack + f'data/goldcraft/dimension/{dimension}.json',
-              json.dumps({'type': 'minecraft:overworld', 'generator': {'type': 'minecraft:flat', 'settings': settings}}))
+    for record in map_records:
+        dimension = record['dimension'].split(':', 1)[1]
+        generated(pack + f'data/goldcraft/dimension/{dimension}.json',
+                  json.dumps({'type': 'minecraft:overworld', 'generator': {'type': 'minecraft:flat', 'settings': settings}}))
     props = {'server-ip': '', 'server-port': '25565', 'max-players': '32',
              'online-mode': 'true', 'white-list': 'false', 'enforce-whitelist': 'false',
              'enforce-secure-profile': 'true', 'enable-rcon': 'false', 'enable-query': 'false',
@@ -194,6 +211,9 @@ mc_map_mining_persist 0
     for path in sorted(TEMPLATES.rglob('*')):
         if path.is_file():
             add(path, path.relative_to(TEMPLATES).as_posix())
+    launch_settings = json.loads((TEMPLATES / 'server-settings.json').read_text(encoding='utf-8'))
+    launch_settings['map'] = map_records[0]['map']
+    generated('server-settings.json', json.dumps(launch_settings, indent=2) + '\n')
     add(ROOT / 'docs/SERVER_PACKAGE.md', 'README.md')
     add(ROOT / 'THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_NOTICES.md')
     for name in ('AMXModX', 'ReAPI', 'ReGameDLL_CS', 'ReHLDS', 'YsmGeoCompat'):
@@ -202,35 +222,73 @@ mc_map_mining_persist 0
     generated('client-requirements.json', json.dumps({'minecraft': PIN['version'],
               'neoforge': PIN['neoforge'], 'wireProtocol': 30, 'nativeMessageCount': 77,
               'mods': [n.removeprefix('minecraft/mods/') for n in files if n.startswith('minecraft/mods/')]}, indent=2))
+    # A .res file may spell the same Windows asset using different casing.
+    # Preserve one archive member; reject genuinely different colliding inputs.
+    folded = {}
+    for name in list(files):
+        previous = folded.get(name.lower())
+        if previous is not None:
+            if files[name] != files[previous]:
+                raise ValueError(f'Case-colliding package resource: {name}')
+            del files[name]
+        else:
+            folded[name.lower()] = name
     return files
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--steam-runtime', type=Path, required=True,
+    parser.add_argument('--profile', type=Path, help='Local release settings; CLI arguments override them')
+    parser.add_argument('--steam-runtime', type=Path,
                         help='Read-only directory containing Steam server API redistributables')
-    parser.add_argument('--native-crt', type=Path, required=True,
+    parser.add_argument('--native-crt', type=Path,
                         help='Read-only x86 Microsoft Visual C++ CRT redistributable directory')
-    parser.add_argument('--core-jar', type=Path, default=MC / 'mods/goldcraft-neoforge-0.1.0-dev.jar',
+    parser.add_argument('--core-jar', type=Path,
                         help='Verified matching GoldCraft JAR with configuration-stage admission')
-    parser.add_argument('--output', type=Path, default=ROOT / 'server-packages')
+    parser.add_argument('--output', type=Path)
+    parser.add_argument('--maps', nargs='+', help='Map names without .bsp, or * for all installed maps')
+    parser.add_argument('--default-map', help='Initial map; must be included in the selection')
     parser.add_argument('--core-source-revision', default=None,
                         help='Git source revision used for the separately verified core JAR')
     parser.add_argument('--core-source-patch', type=Path,
                         help='Optional source patch applied to that revision; only its hash is recorded')
     parser.add_argument('--plan', action='store_true')
     args = parser.parse_args()
-    files = build_plan(args.steam_runtime.resolve(), args.native_crt.resolve(), args.core_jar.resolve())
+    explicit_output = args.output is not None
+    profile = json.loads(safe_file(args.profile).read_text(encoding='utf-8-sig')) if args.profile else {}
+    def path_option(value, key, fallback=None):
+        selected = value if value is not None else profile.get(key, fallback)
+        if selected is None:
+            parser.error(f'Missing {key}: set it in --profile or use the corresponding CLI option')
+        path = Path(selected)
+        return (ROOT / path).absolute() if not path.is_absolute() else path.absolute()
+    args.steam_runtime = path_option(args.steam_runtime, 'steamRuntime')
+    args.native_crt = path_option(args.native_crt, 'nativeCrt')
+    args.core_jar = path_option(args.core_jar, 'coreJar', MC / 'mods/goldcraft-neoforge-0.1.0-dev.jar')
+    args.core_source_revision = args.core_source_revision or profile.get('coreSourceRevision')
+    if args.core_source_patch or profile.get('coreSourcePatch'):
+        args.core_source_patch = path_option(args.core_source_patch, 'coreSourcePatch')
+    args.maps = args.maps or profile.get('maps', ['cs_assault'])
+    args.default_map = args.default_map or profile.get('defaultMap', 'cs_assault')
+    if not isinstance(args.maps, list) or not all(isinstance(n, str) for n in args.maps):
+        parser.error('maps must be a JSON array of map names')
+    args.output = path_option(args.output, 'outputRoot', 'server-packages')
+    if args.profile and not explicit_output:
+        args.output /= datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    files = build_plan(args.steam_runtime, args.native_crt, args.core_jar, args.maps, args.default_map)
     total = sum(len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
-    print(json.dumps({'files': len(files), 'uncompressedMiB': round(total / 1048576, 1)}), flush=True)
+    map_records = json.loads(files['maps.json'])
+    print(json.dumps({'files': len(files), 'uncompressedMiB': round(total / 1048576, 1),
+                      'maps': len(map_records), 'mapsWithoutBotWaypoints':
+                      [r['map'] for r in map_records if not r['botWaypoints']]}), flush=True)
     if args.plan:
         return
+    for parent in (args.output, *args.output.parents):
+        if parent.is_symlink() or parent.is_junction():
+            raise ValueError('Reparse output rejected')
     output = args.output.resolve()
     if not output.is_relative_to(ROOT) or output == ROOT:
         raise ValueError('Package output must be a new workspace subdirectory')
-    for parent in (output, *output.parents):
-        if parent.is_symlink() or parent.is_junction():
-            raise ValueError('Reparse output rejected')
     output.mkdir(parents=True, exist_ok=True)
     archive = output / 'GoldCraft-Servers-Windows-MC1.21.1.zip'
     if archive.exists():
@@ -246,6 +304,7 @@ def main():
     manifest = {'format': 1, 'sourceRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                 'serverBaseline': '728aff08', 'minecraft': PIN['version'], 'neoforge': PIN['neoforge'],
                 'nativeMessageCount': 77, 'maxPlayers': 32,
+                'maps': map_records,
                 'admission': 'online-account-and-live-cs-binding', 'files': []}
     manifest['coreSourceRevision'] = args.core_source_revision or manifest['sourceRevision']
     if args.core_source_patch:

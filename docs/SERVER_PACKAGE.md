@@ -2,7 +2,7 @@
 
 Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一台服务器运行；Java 21 已包含，无须安装开发工具。两个服务端均为 **32 人上限**，默认 `cs_assault`。这是当前开发版的部署快照，未通过 32 位真人同时在线负载验收。
 
-首次启动的 Steam 初始化故障已通过预置 AppID 修复。本机全新解压目录已实际启动双服、完成认证桥接并创建 25 个 Bot，两个服务端均正常保存退出。最终网络查询和换图检查仍在进行，暂勿用于正式服。
+首次启动的 Steam 初始化故障已通过预置 AppID 修复。单地图版从全新 ZIP 解压后，19 项实际检查通过：双服认证桥接、32 槽查询、25 Bot、控制台、换图重新建立会话、MC 保存和双服正常退出。多地图工具已通过 7 项资源夹具和本机全部 62 张地图资源预检；多地图 ZIP 的跨图实服检查仍待完成。
 
 自动准入新增 29 项 JUnit 通过，完整测试 251 通过／6 跳过。真实正版玩家准入、公网及 32 人负载尚未验证；启动成功不能代替这些检查。源码中的 `Test-ServerPackage.py` 用独立端口检查解压内容、双服桥接、32 人配置、Bot、控制台、换图与保存退出。
 
@@ -33,10 +33,34 @@ MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供�
 - 已部署 ReHLDS、ReGameDLL、Metamod、AMXX 1.9、ReAPI、汉化 ZP、Nade Modes 和 SyPB；保留当前已验证的服务端能力，native 消息表 77 / wire protocol 30。未打入正在开发的 79 版本。
 - MC 包含当前服务端实际安装的 Mod、配置和空白地图数据包；不带开发世界、人物数据、OP、管理员账号或旧密钥。
 - CS 主配置 `cs/cstrike/server.cfg`；AMXX 配置及汉化位于 `cs/cstrike/addons/amxmodx`。管理员在 `configs/users.ini` 添加自己的 Steam ID。Pawn 插件更新需换图重载，`sv_restart` 不会重载插件。
-- 地图切换/服务端重启会清空 MC 建筑；`mc_map_mining_persist=0` 保持回合结束还原。新增地图时也需要匹配 CRC 的 MC host dimension 数据包。
+- 地图切换/服务端重启会清空 MC 建筑；`mc_map_mining_persist=0` 保持回合结束还原。打包工具会为每张地图生成匹配 BSP CRC 的 MC 维度，统一地图轮换、AMXX 地图菜单，并带入现有 SyPB 路点。`maps.json` 列出地图、校验值和路点是否存在；缺路点不代表 Bot 已可正常行走。
 - Java 日志位于 `minecraft/logs`；AMXX 日志位于其 `logs`。长期运营应按保留周期归档，备份自己新增的配置和管理账号。不要把运行后的 `.state` 或存档再次分发。
 - `package-manifest.json` 记录 ZIP 文件的 SHA-256 和基线，压缩包外 `SHA256SUMS.txt` 校验 ZIP。包内游戏、Mod、Java 各自许可继续适用；此私人部署包没有上传公共源码仓库。
 
 本包启动脚本使用 Windows PowerShell 5.1。可在 PowerShell 中运行 `scripts/Start-Servers.ps1 -CheckOnly` 只检查配置/端口，`scripts/Send-Command.ps1 -Role minecraft -Command "whitelist list"` 发送本机控制台命令。自动命令不开放网络管理端口。
 
-维护者重新打包：在源码根目录运行 `python tools/Build-ServerPackage.py --steam-runtime "Steam目录" --native-crt "x86 Microsoft.VC145.CRT目录" --core-jar "已验证的GoldCraft.jar"`。默认输出 `server-packages`，已有同名 ZIP 时拒绝覆盖，可用 `--output` 指定新的工作区子目录。该命令只读取本机已部署的服务端，不会下载或同步新的 Mod；应先完成 XMCL Mod 同步。
+## 修改后重新打包
+
+在源码工作区运行：
+
+```bat
+build-server-package.cmd
+```
+
+本机路径只需在根目录 `server-package.local.json` 配置一次；示例为 `tools/server-package-profile.example.json`。本机配置已排除在 Git 之外。每次生成 `server-packages/日期时间/GoldCraft-Servers-Windows-MC1.21.1.zip`，不会覆盖旧 ZIP。加 `--plan` 仅预检资源与统计，不生成 ZIP。
+
+地图字段 `"maps": ["*"]` 表示打包当前 CS 服务端 `cstrike/maps` 中全部 BSP；也可以改成 `"maps": ["cs_assault", "sy_zombie2_Bloodmoon", "de_dust2"]`。`defaultMap` 选择首次启动地图，必须在列表内。BSP、WAD、`.res` 所列资源以及路点先安装到工作区 CS 服务端对应目录，再重新打包；缺少实际使用的 WAD 纹理或 `.res` 资源会报错，不会静默发出残缺包。BSP 编译器记录的旧磁盘绝对路径不会被访问。
+
+已经打入包的地图，直接在 CS 控制台输入 `changelevel 地图名`；修改 `server-settings.json` 的 `map` 可更改下次启动地图。新增或替换 BSP 后必须重新打包并重启双服，让 MC 载入对应维度，不能只往运行中的服务器塞一个 BSP。
+
+| 修改内容 | 打包前的操作 |
+| --- | --- |
+| XMCL 中增删或更新 Mod | 停止相关实例后运行 `pwsh -NoProfile -File tools/Sync-Modpack.ps1`，检查同步成功；打包读取 `sandbox/neoforge-server/mods` |
+| AMXX `.sma` | 如 `build-amxx.cmd -Plugins nademodes -Deploy`，编译并部署指定插件；源码仍放分类 `amxx` 目录，打包读取已启用的 `plugins.ini`／`plugins-*.ini` 及对应 `.amxx` |
+| AMXX 配置、汉化 | 更新工作区服务端对应配置／翻译后打包；默认管理员和密钥不会复制 |
+| GoldCraft Java／C++ | 按 [构建文档](BUILD.md) 编译并验证配套版本，再部署服务端产物；将本机配置的 `coreJar`／`coreSourceRevision` 更新为已验证 JAR 及源码版本 |
+| 启动默认端口、内存、Bot 数量 | 编辑 `tools/server-package/server-settings.json`；地图以本机配置的 `defaultMap` 为准 |
+
+打包命令只组装已部署、已验证的产物，不自动编译代码或重启游戏。新增插件的自定义配置／额外资源也要加入打包规则；不能把整个运行目录压缩分发，否则会夹带账号、存档和桥接密钥。运营服只改端口或已有插件配置时，可以停服修改解压目录后再启动，无须重新制作 ZIP。
+
+底层命令仍可直接使用：`python tools/Build-ServerPackage.py --steam-runtime "Steam目录" --native-crt "x86 Microsoft.VC145.CRT目录" --core-jar "已验证的GoldCraft.jar" --maps cs_assault de_dust2 --default-map cs_assault --output server-packages/new-release`。Linux 原生服务端另行构建，Windows ZIP 不能直接用于 Linux。

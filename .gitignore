@@ -4,6 +4,7 @@
 /sandbox/
 /dist/
 /server-packages/
+/server-package.local.json
 /build/
 /analysis/
 /amxx/zombie_plague/*/*.sma

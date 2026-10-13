@@ -121,7 +121,10 @@ def main():
     p.add_argument('--archive', type=Path, required=True)
     p.add_argument('--work', type=Path, required=True)
     p.add_argument('--evidence', type=Path, required=True)
+    p.add_argument('--change-map', default='cs_assault', help='Installed map used for lifecycle verification')
     args = p.parse_args()
+    if not re.fullmatch(r'[A-Za-z0-9_]+', args.change_map):
+        p.error('Invalid change-map name')
     work, evidence = args.work.resolve(), args.evidence.resolve()
     if not work.is_relative_to(ROOT / 'server-packages') or work.exists():
         raise ValueError('Use a new directory below server-packages for extraction')
@@ -243,19 +246,23 @@ def main():
         except (OSError, ValueError) as exc:
             checks['csAdvertises32Slots'] = False
             result['csInfoError'] = repr(exc)
-        shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'changelevel cs_assault')
+        if not (server / 'cs/cstrike/maps' / (args.change_map + '.bsp')).is_file():
+            raise ValueError('Lifecycle verification map not included in package')
+        shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'changelevel ' + args.change_map)
         deadline = time.monotonic() + 25
         after, mc_after = native, java
         while time.monotonic() < deadline:
             try:
                 after = read_status(server / '.state/goldcraft-server-status.json')
                 mc_after = read_status(server / '.state/minecraft-server-status.json')
-                if after['world'] != native['world'] and after['world'] == mc_after['world'] and not after['actors']:
+                if (after['world'] != native['world'] and after['world'] == mc_after['world']
+                        and mc_after.get('map') == args.change_map and not after['actors']):
                     break
             except (OSError, ValueError, KeyError):
                 pass
             time.sleep(.25)
         checks['bridgeReconnectsAfterMapChange'] = after['world'] != native['world'] and after['world'] == mc_after['world']
+        checks['targetMapActivatedInMinecraft'] = mc_after.get('map') == args.change_map
         checks['configuredBotsRemainOffAfterMapChange'] = len(after['actors']) == 0
         result['nativeWorldAfterMapChange'] = after['world']
         result['javaWorldAfterMapChange'] = mc_after['world']

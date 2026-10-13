@@ -16,6 +16,18 @@ try {
     $address = $null
     if (-not [Net.IPAddress]::TryParse($settings.bindAddress, [ref]$address) -or $address.AddressFamily -ne 'InterNetwork') { throw 'Use an IPv4 bindAddress.' }
     if ($settings.map -notmatch '^[a-zA-Z0-9_]+$' -or -not (Test-Path -LiteralPath (Join-Path $PackageRoot "cs/cstrike/maps/$($settings.map).bsp"))) { throw 'Map is missing or invalid.' }
+    $maps = @(Read-Json (Join-Path $PackageRoot 'maps.json'))
+    foreach ($map in $maps) {
+        if ($map.map -notmatch '^[a-zA-Z0-9_]+$' -or $map.dimension -notmatch '^goldcraft:[a-z0-9_]+_[a-f0-9]{8}$') { throw 'Invalid packaged map identity.' }
+        $bsp = Join-Path $PackageRoot "cs/cstrike/maps/$($map.map).bsp"
+        $dimension = $map.dimension.Substring('goldcraft:'.Length)
+        $dimensionFile = Join-Path $PackageRoot "minecraft/goldcraft-worlds/datapacks/goldcraft_host_maps/data/goldcraft/dimension/$dimension.json"
+        if (-not (Test-Path -LiteralPath $bsp) -or -not (Test-Path -LiteralPath $dimensionFile) -or
+            (Get-FileHash -LiteralPath $bsp -Algorithm SHA256).Hash -ne $map.bspSha256) {
+            throw "Map $($map.map) differs from its Minecraft dimension. Rebuild the server package after changing maps."
+        }
+    }
+    if ($settings.map -notin @($maps | ForEach-Object { $_.map })) { throw 'Selected map is not in maps.json. Rebuild the package.' }
     foreach ($role in @('cs','minecraft')) { if (Get-RoleProcess $role) { throw "$role is already running; stop it first." } }
     foreach ($port in @($settings.minecraftPort,$settings.bridgePort)) {
         $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, [int]$port)

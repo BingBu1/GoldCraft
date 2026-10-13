@@ -1,0 +1,8 @@
+{
+  "steamRuntime": "path/to/Steam-runtime",
+  "nativeCrt": "path/to/x86/Microsoft.VC145.CRT",
+  "coreJar": "sandbox/neoforge-server/mods/goldcraft-neoforge-0.1.0-dev.jar",
+  "maps": ["*"],
+  "defaultMap": "cs_assault",
+  "outputRoot": "server-packages"
+}
