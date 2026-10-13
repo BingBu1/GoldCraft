@@ -71,7 +71,11 @@
         "src/gl_scene_static_shadows.h",
         "src/gl_scene_static_shadows.cpp",
         "tests/extract_scene_static_shadows.py",
-        "tests/scene_static_shadows_tests.cpp"
+        "tests/scene_static_shadows_tests.cpp",
+        "src/dlight_storage.h",
+        "tests/forward_light_buffer_tests.cpp",
+        "tests/forward_light_gl_tests.cpp",
+        "tests/extract_forward_light_upload.py"
       ]
     },
     "BulletPhysics": {
