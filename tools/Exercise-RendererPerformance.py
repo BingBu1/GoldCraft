@@ -75,7 +75,7 @@ def summarize(frames):
     result = {"frames": len(frames), "focusedFrames": sum(f["focused"] for f in frames)}
     result["states"] = {key: sorted({f[key] for f in frames})
                         for key in ("deferred", "diagnostics", "shadows", "width", "height")}
-    for feature in ("studioFaceCull", "studioDepthExecutor"):
+    for feature in ("studioFaceCull", "studioDepthExecutor", "studioBonePaletteCache"):
         if any(feature in frame for frame in frames):
             result[feature + "States"] = sorted({frame[feature] for frame in frames
                                                  if type(frame.get(feature)) in (int, float)})
@@ -119,6 +119,13 @@ def summarize(frames):
                                                       for frame in frames for key in depth_counts)
         if result["studioDepthMeshCountsComplete"]:
             result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in depth_counts})
+    palette_counts = ("studioBonePaletteUploads", "studioBonePaletteReuses",
+                      "studioBonePaletteUploadBytes", "studioBonePaletteFallbacks")
+    if any(key in frame for frame in frames for key in palette_counts):
+        result["studioBonePaletteCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                       for frame in frames for key in palette_counts)
+        if result["studioBonePaletteCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in palette_counts})
     return result
 
 

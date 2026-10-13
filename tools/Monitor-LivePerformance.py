@@ -13,8 +13,11 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 LOGS = ROOT / "sandbox/cs-client-b/logs"
 OUTPUT = ROOT / "analysis/perf-200fps"
-STUDIO_COMMANDS = {"FaceCull": "render_studio_face_cull", "DepthExecutor": "render_studio_depth_executor"}
+STUDIO_COMMANDS = {"FaceCull": "render_studio_face_cull", "DepthExecutor": "render_studio_depth_executor",
+                   "BonePaletteCache": "render_studio_bone_palette_cache"}
 DEPTH_COUNTS = ("studioDepthFastMeshes", "studioDepthFallbackMeshes")
+PALETTE_COUNTS = ("studioBonePaletteUploads", "studioBonePaletteReuses",
+                  "studioBonePaletteUploadBytes", "studioBonePaletteFallbacks")
 
 
 def module(name, filename):
@@ -71,7 +74,8 @@ def snapshot():
               "lights", "sceneLightsApi", "sceneLightsSubmitted", "sceneLightsFresh",
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport",
               "rendererStudioFaceCull", "rendererStudioFaceCullAvailable",
-              "rendererStudioDepthExecutor", "rendererStudioDepthExecutorAvailable")
+              "rendererStudioDepthExecutor", "rendererStudioDepthExecutorAvailable",
+              "rendererStudioBonePaletteCache", "rendererStudioBonePaletteCacheAvailable")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
     return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
@@ -127,7 +131,8 @@ def studio_face_cull(state):
 
 def stable_studio_feature(samples, frames, active, requested, feature):
     status_key, frame_key = "rendererStudio" + feature, "studio" + feature
-    counts = DEPTH_COUNTS if feature == "DepthExecutor" else ()
+    counts = (DEPTH_COUNTS if feature == "DepthExecutor" else
+              PALETTE_COUNTS if feature == "BonePaletteCache" else ())
     present = (any(any(key in s["native"] for key in
                       (status_key, status_key + "Available")) for s in samples)
                or any(any(key in frame for key in (frame_key, *counts)) for frame in frames))
@@ -165,6 +170,8 @@ def main():
                         help="Temporarily set the existing Studio shadow face-culling cvar; restore its original value")
     studio_modes.add_argument("--studio-shadow-depth-executor", type=int, choices=(0, 1),
                         help="Temporarily set the existing Studio shadow depth executor; restore its original value")
+    studio_modes.add_argument("--studio-bone-palette-cache", type=int, choices=(0, 1),
+                        help="Temporarily toggle exact bone-palette reuse; restore its original value")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -183,7 +190,8 @@ def main():
     original_culling = first["native"].get("sceneCullingEnabled")
     original_static = first["native"].get("sceneStaticShadowsEnabled")
     original_shadow_cull = first["native"].get("rendererShadowCull")
-    requested_studio = {"FaceCull": args.studio_shadow_face_cull, "DepthExecutor": args.studio_shadow_depth_executor}
+    requested_studio = {"FaceCull": args.studio_shadow_face_cull, "DepthExecutor": args.studio_shadow_depth_executor,
+                        "BonePaletteCache": args.studio_bone_palette_cache}
     original_studio = {}
     for feature, requested in requested_studio.items():
         try:

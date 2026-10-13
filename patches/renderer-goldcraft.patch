@@ -19,10 +19,10 @@ index b88e882..cfbe416 100644
      include/Interface
      "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
 diff --git a/assets/svencoop/renderer/shader/common.h b/assets/svencoop/renderer/shader/common.h
-index f8e193e..95ac976 100644
+index f8e193e..160d404 100644
 --- a/assets/svencoop/renderer/shader/common.h
 +++ b/assets/svencoop/renderer/shader/common.h
-@@ -76,6 +76,7 @@
+@@ -76,15 +76,18 @@
  #define BINDING_POINT_SCENE_UBO 0
  #define BINDING_POINT_CAMERA_UBO 1
  #define BINDING_POINT_DLIGHT_UBO 2
@@ -30,7 +30,10 @@ index f8e193e..95ac976 100644
  
  #define BINDING_POINT_ENTITY_UBO 3
  #define BINDING_POINT_STUDIO_UBO 3
-@@ -85,6 +86,7 @@
++#define BINDING_POINT_STUDIO_BONES_UBO 4
+ 
+ #define BINDING_POINT_MATERIAL_SSBO 4
+ 
  #define BINDING_POINT_OIT_FRAGMENT_SSBO 5
  #define BINDING_POINT_OIT_NUMFRAGMENT_SSBO 6
  #define BINDING_POINT_OIT_COUNTER_SSBO 7
@@ -38,7 +41,7 @@ index f8e193e..95ac976 100644
  
  #define STUDIO_BIND_TEXTURE_DIFFUSE				0
  #define STUDIO_BIND_TEXTURE_NORMAL				2
-@@ -173,6 +175,7 @@
+@@ -173,6 +176,7 @@
  #define WSURF_VA_PACKED_MATID 7
  #define WSURF_VA_STYLES 8
  #define WSURF_VA_DIFFUSESCALE 9
@@ -46,7 +49,7 @@ index f8e193e..95ac976 100644
  
  #define TEXTUREDRECT_VA_POSITION		0
  #define TEXTUREDRECT_VA_TEXCOORD		1
-@@ -251,11 +254,14 @@ struct scene_ubo_t{
+@@ -251,11 +255,14 @@ struct scene_ubo_t{
  };
  
  struct dlight_ubo_t{
@@ -63,7 +66,22 @@ index f8e193e..95ac976 100644
  struct entity_ubo_t{
  	mat4 r_entityMatrix;
  	vec4 r_color;
-@@ -306,6 +312,11 @@ layout (std140, binding = BINDING_POINT_DLIGHT_UBO) uniform DLightBlock
+@@ -276,10 +283,13 @@ struct studio_ubo_t{
+ 	vec4 entity_origin;
+ 	vec4 r_elight_color[4];
+ 	vec4 r_elight_origin_radius[4];
+-	mat3x4 bonematrix[128];
+ 	uvec4 r_clipbone;
+ };
+ 
++struct studio_bone_palette_t{
++	mat3x4 bonematrix[128];
++};
++
+ struct world_material_t
+ {
+ 	vec2	diffuseScale;
+@@ -306,6 +316,11 @@ layout (std140, binding = BINDING_POINT_DLIGHT_UBO) uniform DLightBlock
     dlight_ubo_t DLightUBO;
  };
  
@@ -75,7 +93,19 @@ index f8e193e..95ac976 100644
  //Entity level
  
  layout (std140, binding = BINDING_POINT_ENTITY_UBO) uniform EntityBlock
-@@ -942,4 +953,4 @@ uint UnpackPackedMatIdAsMatId(uint packedMatId)
+@@ -318,6 +333,11 @@ layout (std140, binding = BINDING_POINT_STUDIO_UBO) uniform StudioBlock
+ 	studio_ubo_t StudioUBO;
+ };
+ 
++layout (std140, binding = BINDING_POINT_STUDIO_BONES_UBO) uniform StudioBonesBlock
++{
++	studio_bone_palette_t StudioBonesUBO;
++};
++
+ layout(std430, binding = BINDING_POINT_MATERIAL_SSBO) coherent buffer WorldMaterialBlock
+ {
+ 	world_material_t WorldMaterialSSBO[];
+@@ -942,4 +962,4 @@ uint UnpackPackedMatIdAsMatId(uint packedMatId)
  uint UnpackPackedMatIdAsLightmapTextureNum(uint packedMatId)
  {
      return ((packedMatId >> 16) & 0xFFFF);
@@ -285,9 +315,27 @@ index 8c0f48c..cf4912a 100644
  		}
  		EndPrimitive();
 diff --git a/assets/svencoop/renderer/shader/studio_shader.vert.glsl b/assets/svencoop/renderer/shader/studio_shader.vert.glsl
-index 1bb79a2..81bd8d1 100644
+index 1bb79a2..54c8c74 100644
 --- a/assets/svencoop/renderer/shader/studio_shader.vert.glsl
 +++ b/assets/svencoop/renderer/shader/studio_shader.vert.glsl
+@@ -46,7 +46,7 @@ void main(void)
+ 	uint vertbone = UnpackStudioBoneAsVertBone(in_packedbone);
+ 	uint normbone = UnpackStudioBoneAsNormBone(in_packedbone);
+ 
+-	mat3x4 vertbone_matrix = StudioUBO.bonematrix[vertbone];
++	mat3x4 vertbone_matrix = StudioBonesUBO.bonematrix[vertbone];
+     vec3 vertbone_matrix_0 = vec3(vertbone_matrix[0][0], vertbone_matrix[0][1], vertbone_matrix[0][2]);
+   	vec3 vertbone_matrix_1 = vec3(vertbone_matrix[1][0], vertbone_matrix[1][1], vertbone_matrix[1][2]);
+     vec3 vertbone_matrix_2 = vec3(vertbone_matrix[2][0], vertbone_matrix[2][1], vertbone_matrix[2][2]);
+@@ -56,7 +56,7 @@ void main(void)
+ 		dot(vert, vertbone_matrix_2) + vertbone_matrix[2][3]
+ 	);
+ 
+-	mat3x4 normbone_matrix = StudioUBO.bonematrix[normbone];
++	mat3x4 normbone_matrix = StudioBonesUBO.bonematrix[normbone];
+ 	vec3 normbone_matrix_0 = vec3(normbone_matrix[0][0], normbone_matrix[0][1], normbone_matrix[0][2]);
+     vec3 normbone_matrix_1 = vec3(normbone_matrix[1][0], normbone_matrix[1][1], normbone_matrix[1][2]);
+     vec3 normbone_matrix_2 = vec3(normbone_matrix[2][0], normbone_matrix[2][1], normbone_matrix[2][2]);
 @@ -131,6 +131,11 @@ void main(void)
  
  	#endif
@@ -646,7 +694,7 @@ index 06bf06e..89ca194 100644
  }
  
 diff --git a/src/gl_common.h b/src/gl_common.h
-index 2567c84..04d4652 100644
+index 2567c84..915835f 100644
 --- a/src/gl_common.h
 +++ b/src/gl_common.h
 @@ -5,6 +5,8 @@
@@ -658,7 +706,7 @@ index 2567c84..04d4652 100644
  
  #    define OFFSET(type, variable) ((const void*)&(((type*)NULL)->variable))
  
-@@ -119,6 +121,7 @@ public:
+@@ -119,15 +121,19 @@ public:
  #    define BINDING_POINT_SCENE_UBO  0
  #    define BINDING_POINT_CAMERA_UBO 1
  #    define BINDING_POINT_DLIGHT_UBO 2
@@ -666,7 +714,10 @@ index 2567c84..04d4652 100644
  
  #    define BINDING_POINT_ENTITY_UBO 3
  #    define BINDING_POINT_STUDIO_UBO 3
-@@ -128,6 +131,8 @@ public:
++#    define BINDING_POINT_STUDIO_BONES_UBO 4
+ 
+ #    define BINDING_POINT_MATERIAL_SSBO 4
+ 
  #    define BINDING_POINT_OIT_FRAGMENT_SSBO    5
  #    define BINDING_POINT_OIT_NUMFRAGMENT_SSBO 6
  #    define BINDING_POINT_OIT_COUNTER_SSBO     7
@@ -675,7 +726,7 @@ index 2567c84..04d4652 100644
  
  #    define WSURF_VA_POSITION          0
  #    define WSURF_VA_NORMAL            1
-@@ -139,6 +144,7 @@ public:
+@@ -139,6 +145,7 @@ public:
  #    define WSURF_VA_PACKED_MATID      7
  #    define WSURF_VA_STYLES            8
  #    define WSURF_VA_DIFFUSESCALE      9
@@ -683,7 +734,7 @@ index 2567c84..04d4652 100644
  
  #    define WSURF_BIND_DIFFUSE_TEXTURE    0
  #    define WSURF_BIND_DETAIL_TEXTURE     1
-@@ -313,6 +319,7 @@ public:
+@@ -313,6 +320,7 @@ public:
  #    define WSURF_STENCIL_NO_GLOW_BLUR_ENABLED  0x100000000ull
  #    define WSURF_STENCIL_NO_GLOW_COLOR_ENABLED 0x200000000ull
  #    define WSURF_DOUBLE_FACE_ENABLED           0x400000000ull
@@ -691,7 +742,7 @@ index 2567c84..04d4652 100644
  
  #    define STUDIO_VBO_BASE 0
  #    define STUDIO_VBO_TBN  1
-@@ -421,27 +428,9 @@ typedef struct world_material_s
+@@ -421,27 +429,9 @@ typedef struct world_material_s
      vec2_t specularScale;
  } world_material_t;
  
@@ -722,7 +773,7 @@ index 2567c84..04d4652 100644
  
  // A fragment node stores rendering information about one specific fragment
  typedef struct FragmentNode_s
-@@ -509,13 +498,6 @@ typedef struct scene_ubo_s
+@@ -509,13 +499,6 @@ typedef struct scene_ubo_s
  
  static_assert((sizeof(scene_ubo_t) % 16) == 0, "Size check");
  
@@ -736,7 +787,24 @@ index 2567c84..04d4652 100644
  static_assert((sizeof(dlight_ubo_t) % 16) == 0, "Size check");
  
  typedef struct entity_ubo_s
-@@ -550,4 +532,4 @@ static_assert((sizeof(studio_ubo_t) % 16) == 0, "Size check");
+@@ -542,12 +525,19 @@ typedef struct studio_ubo_s
+     vec4   entity_origin;
+     vec4   r_elight_color[4];
+     vec4   r_elight_origin_radius[4];
+-    mat3x4 bonematrix[128];
+     uvec4  r_clipbone;
+ } studio_ubo_t;
+ 
+-static_assert((sizeof(studio_ubo_t) % 16) == 0, "Size check");
++static_assert(sizeof(studio_ubo_t) == 224, "Studio draw parameters must match std140");
++static_assert(offsetof(studio_ubo_t, r_clipbone) == 208, "Studio clip mask must match std140");
++
++typedef struct studio_bone_palette_s
++{
++    mat3x4 bonematrix[128];
++} studio_bone_palette_t;
++
++static_assert(sizeof(studio_bone_palette_t) == 6144, "Studio bones must match std140 mat3x4[128]");
  
  #    pragma pack(pop)
  
@@ -1120,7 +1188,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..227ac10 100644
+index d59b139..64124c4 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,9 @@
@@ -1332,7 +1400,15 @@ index d59b139..227ac10 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -4667,6 +4760,10 @@ void R_RenderScene(void)
+@@ -3832,6 +3925,7 @@ void R_ForceCVars(qboolean mp)
+ void R_NewMap(void)
+ {
+     memset(&r_params, 0, sizeof(r_params));
++    R_ResetStudioBonePalette();
+ 
+     R_GenerateSceneUBO();
+     R_FreeWorldResources();
+@@ -4667,6 +4761,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1343,7 +1419,7 @@ index d59b139..227ac10 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4779,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4780,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1359,7 +1435,7 @@ index d59b139..227ac10 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4823,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4824,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1377,7 +1453,7 @@ index d59b139..227ac10 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4842,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4843,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1385,7 +1461,7 @@ index d59b139..227ac10 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4853,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4854,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1393,7 +1469,7 @@ index d59b139..227ac10 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4907,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4908,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1401,7 +1477,7 @@ index d59b139..227ac10 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5574,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5575,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1412,7 +1488,7 @@ index d59b139..227ac10 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6715,80 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6716,80 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1984,10 +2060,17 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..307afc3 100644
+index fa85f25..fa0fa64 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
-@@ -9,33 +9,23 @@
+@@ -1,5 +1,6 @@
+ #include "gl_local.h"
+ #include "studio_model_validation.h"
++#include "studio_bone_palette_gl.h"
+ #include "triangleapi.h"
+ #include "mathlib2.h"
+ #include "CounterStrike.h"
+@@ -9,33 +10,25 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -1995,6 +2078,8 @@ index fa85f25..307afc3 100644
 +#include <deque>
  
  static GLuint g_hStudioUBO{};
++static CStudioBonePaletteStorage<> g_StudioBonePalettes;
++static cvar_t* r_studio_bone_palette_cache{};
 +static cvar_t* r_studio_shadow_face_cull{};
 +static cvar_t* r_studio_shadow_depth_executor{};
  
@@ -2027,7 +2112,7 @@ index fa85f25..307afc3 100644
  
  //Engine private vars
  
-@@ -154,83 +144,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +147,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -2111,7 +2196,7 @@ index fa85f25..307afc3 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1336,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1339,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -2119,7 +2204,7 @@ index fa85f25..307afc3 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1350,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1353,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -2137,10 +2222,34 @@ index fa85f25..307afc3 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1583,6 +1508,10 @@ void R_InitStudio(void)
+@@ -1517,8 +1445,14 @@ void R_LoadStudioProgramStates(void)
+     });
+ }
+ 
++void R_ResetStudioBonePalette()
++{
++    g_StudioBonePalettes.Reset();
++}
++
+ void R_ShutdownStudio(void)
+ {
++    R_ResetStudioBonePalette();
+     g_StudioProgramTable.clear();
+ 
+     R_StudioFlushAllSkins();
+@@ -1533,6 +1467,7 @@ void R_ShutdownStudio(void)
+ 
+ void R_InitStudio(void)
+ {
++    R_ResetStudioBonePalette();
+     g_hStudioUBO = GL_GenBuffer();
+     GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
+ 
+@@ -1583,6 +1518,11 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
++    r_studio_bone_palette_cache = gEngfuncs.pfnRegisterVariable("r_studio_bone_palette_cache", "1", FCVAR_CLIENTDLL);
 +    // Keep this candidate opt-in until an actual foreground comparison is available.
 +    r_studio_shadow_face_cull = gEngfuncs.pfnRegisterVariable("r_studio_shadow_face_cull", "0", FCVAR_CLIENTDLL);
 +    r_studio_shadow_depth_executor = gEngfuncs.pfnRegisterVariable("r_studio_shadow_depth_executor", "0", FCVAR_CLIENTDLL);
@@ -2148,7 +2257,7 @@ index fa85f25..307afc3 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1817,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1828,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2165,7 +2274,31 @@ index fa85f25..307afc3 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2327,9 +2260,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2139,6 +2083,14 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+     }
+ }
+ 
++static void R_StudioUploadDrawBuffers(const studio_ubo_t& parameters, const void* matrices, uint32_t frame, bool cache)
++{
++    GL_UploadSubDataToUBO(g_hStudioUBO, 0, sizeof(parameters), &parameters);
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
++    const auto palette = g_StudioBonePalettes.UploadAndBind(matrices, frame, cache);
++    R_ProfileStudioBonePalette(palette.reused, palette.fallback, palette.bytes);
++}
++
+ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>& pRenderData)
+ {
+     studio_ubo_t StudioUBO = {0};
+@@ -2310,8 +2262,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+         }
+     }
+ 
+-    memcpy(StudioUBO.bonematrix, (*pbonetransform), sizeof(mat3x4) * 128);
+-
+     if (R_IsRenderingClippedLowerBody())
+     {
+         auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
+@@ -2327,9 +2277,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2174,13 +2307,13 @@ index fa85f25..307afc3 100644
 -    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
 +    {
 +        RProfileScope profileScope(RProfileStage::StudioUBOUpload);
-+        GL_UploadSubDataToUBO(g_hStudioUBO, 0, sizeof(StudioUBO), &StudioUBO);
-+        glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
++        R_StudioUploadDrawBuffers(StudioUBO, *pbonetransform,
++            static_cast<uint32_t>(*r_framecount), r_studio_bone_palette_cache && r_studio_bone_palette_cache->value == 1.0f);
 +    }
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2322,153 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2339,153 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
@@ -2334,7 +2467,7 @@ index fa85f25..307afc3 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2479,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2496,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -2342,7 +2475,7 @@ index fa85f25..307afc3 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2627,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2644,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -2355,7 +2488,7 @@ index fa85f25..307afc3 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2868,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2885,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -2381,7 +2514,7 @@ index fa85f25..307afc3 100644
          }
          else
          {
-@@ -2878,10 +2950,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +2967,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -2393,7 +2526,7 @@ index fa85f25..307afc3 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3173,8 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3190,8 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -2460,7 +2593,7 @@ index fa85f25..307afc3 100644
  }
  
  void R_StudioDrawMesh(
-@@ -3377,7 +3390,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3407,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -2472,7 +2605,7 @@ index fa85f25..307afc3 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3877,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +3894,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -2488,7 +2621,7 @@ index fa85f25..307afc3 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3887,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +3904,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -2651,7 +2784,7 @@ index fa85f25..307afc3 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3904,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +3921,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -2679,7 +2812,7 @@ index fa85f25..307afc3 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +3916,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +3933,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -2687,7 +2820,7 @@ index fa85f25..307afc3 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,28 +3932,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,28 +3949,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -2720,7 +2853,7 @@ index fa85f25..307afc3 100644
      if (!(*pstudiohdr))
      {
          pfnMergeBones(pthis, dummy, pSubModel);
-@@ -4121,22 +3954,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4121,22 +3971,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
          return;
      }
  
@@ -2746,7 +2879,7 @@ index fa85f25..307afc3 100644
  
      pfnMergeBones(pthis, dummy, pSubModel);
  }
-@@ -5021,18 +4841,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +4858,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -2768,7 +2901,7 @@ index fa85f25..307afc3 100644
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..fb0f190 100644
+index eeb137d..3a3238c 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
 @@ -9,6 +9,7 @@
@@ -2852,7 +2985,15 @@ index eeb137d..fb0f190 100644
          return base;
      }
  };
-@@ -356,20 +374,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -347,6 +365,7 @@ void     R_StudioFlushAllSkins();
+ void     R_ShutdownStudio(void);
+ void     R_InitStudio(void);
+ void     R_StudioStartFrame(void);
++void     R_ResetStudioBonePalette();
+ void     R_StudioEndFrame(void);
+ void     R_SaveStudioProgramStates(void);
+ void     R_LoadStudioProgramStates(void);
+@@ -356,20 +375,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -7513,7 +7654,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..d3499a4 100644
+index 93166e2..6626ecc 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,111 @@ if(NOT TARGET glfw)
@@ -7521,7 +7662,7 @@ index 93166e2..d3499a4 100644
  endif()
  
 -foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_tests sc_client_tests)
-+foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_tests sc_client_tests studio_player_tests shadow_cull_tests studio_bone_cache_tests)
++foreach(test studio_model_validation_tests studio_model_load_tests ringbuffer_tests sc_client_tests studio_player_tests shadow_cull_tests studio_bone_cache_tests studio_bone_palette_tests)
      add_executable(${test} "${CMAKE_CURRENT_SOURCE_DIR}/${test}.cpp")
      target_link_libraries(${test} PRIVATE renderer_settings)
      # These tests include production translation units and discard unused handlers.
@@ -7630,7 +7771,7 @@ index 93166e2..d3499a4 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +143,127 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +143,147 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -7650,6 +7791,26 @@ index 93166e2..d3499a4 100644
 +target_link_libraries(studio_shadow_face_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME studio_shadow_face_gl_tests COMMAND studio_shadow_face_gl_tests)
 +set_tests_properties(studio_shadow_face_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
++
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/studio_palette_upload.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_studio_palette_upload.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/studio_palette_upload.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/studio_palette_upload.json"
++    DEPENDS extract_studio_palette_upload.py extract_studio_depth_executor.py
++        "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp" "${PROJECT_SOURCE_DIR}/src/gl_draw.cpp"
++        "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp" "${PROJECT_SOURCE_DIR}/src/studio_bone_palette.h"
++        "${PROJECT_SOURCE_DIR}/src/studio_bone_palette_gl.h"
++    VERBATIM)
++add_executable(studio_bone_palette_gl_tests studio_bone_palette_gl_tests.cpp
++    "${PROJECT_SOURCE_DIR}/src/MurmurHash2.cpp" "${CMAKE_CURRENT_BINARY_DIR}/studio_palette_upload.inc")
++target_include_directories(studio_bone_palette_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_compile_definitions(studio_bone_palette_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(studio_bone_palette_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(studio_bone_palette_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME studio_bone_palette_gl_tests COMMAND studio_bone_palette_gl_tests)
++set_tests_properties(studio_bone_palette_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
 +
 +add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/studio_depth_executor.inc"
 +    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_studio_depth_executor.py"
@@ -8561,10 +8722,10 @@ index 0000000..0564c4d
 +}
 diff --git a/tests/studio_shadow_face_gl_tests.cpp b/tests/studio_shadow_face_gl_tests.cpp
 new file mode 100644
-index 0000000..4895acd
+index 0000000..9ad2d2c
 --- /dev/null
 +++ b/tests/studio_shadow_face_gl_tests.cpp
-@@ -0,0 +1,620 @@
+@@ -0,0 +1,631 @@
 +// Production Studio VS/GS/FS and common.h on real layered depth targets.
 +// The independent oracle draws each layer with the production VS/FS and no GS.
 +// Optional argv[1]/argv[2] supply the frozen pre-change GS/VS for an additional
@@ -8605,9 +8766,10 @@ index 0000000..4895acd
 +    GLuint layered{}, single{}, original{};
 +};
 +unsigned checks{}, comparisons{};
-+GLuint vao{}, vbo{}, cameraBuffer{}, sceneBuffer{}, studioBuffer{}, query{};
++GLuint vao{}, vbo{}, cameraBuffer{}, sceneBuffer{}, studioBuffer{}, bonesBuffer{}, query{};
 +scene_ubo_t scene{};
 +studio_ubo_t studio{};
++studio_bone_palette_t bones{};
 +
 +void Check(bool condition, const char* message)
 +{
@@ -8656,9 +8818,15 @@ index 0000000..4895acd
 +
 +GLuint Program(const std::string& defines, const std::string* geometry, const std::string* vertex = nullptr)
 +{
++    // Frozen pre-palette VS fixtures keep their original math/UV behavior; only
++    // adapt the uniform descriptor name to the current split binding ABI.
++    auto vertexSource = vertex ? *vertex : Read("studio_shader.vert.glsl");
++    for (auto at = vertexSource.find("StudioUBO.bonematrix"); at != std::string::npos;
++         at = vertexSource.find("StudioUBO.bonematrix", at + 1))
++        vertexSource.replace(at, std::strlen("StudioUBO.bonematrix"), "StudioBonesUBO.bonematrix");
 +    const GLuint program = glCreateProgram();
 +    const std::array shaders{
-+        Stage(GL_VERTEX_SHADER, vertex ? *vertex : Read("studio_shader.vert.glsl"), defines),
++        Stage(GL_VERTEX_SHADER, vertexSource, defines),
 +        Stage(GL_FRAGMENT_SHADER, Read("studio_shader.frag.glsl"), defines),
 +        geometry ? Stage(GL_GEOMETRY_SHADER, *geometry, defines) : 0u};
 +    for (auto shader : shaders) if (shader) glAttachShader(program, shader);
@@ -8924,20 +9092,22 @@ index 0000000..4895acd
 +void Bones(bool animated)
 +{
 +    studio = {};
++    bones = {};
 +    studio.r_ambientlight = 1.f;
 +    for (int i = 0; i < 4; ++i) studio.r_color[i] = 1.f;
 +    studio.r_plightvec[2] = 1.f;
 +    for (int bone = 0; bone < 128; ++bone)
-+        for (int i = 0; i < 3; ++i) studio.bonematrix[bone][i][i] = 1.f;
++        for (int i = 0; i < 3; ++i) bones.bonematrix[bone][i][i] = 1.f;
 +    if (animated)
 +    {
 +        const float c = std::cos(.45f), s = std::sin(.45f);
-+        studio.bonematrix[1][0][0] = c; studio.bonematrix[1][0][1] = -s;
-+        studio.bonematrix[1][1][0] = s; studio.bonematrix[1][1][1] = c;
-+        studio.bonematrix[1][0][3] = .35f; studio.bonematrix[1][1][3] = -.2f;
-+        studio.bonematrix[1][2][3] = .15f;
++        bones.bonematrix[1][0][0] = c; bones.bonematrix[1][0][1] = -s;
++        bones.bonematrix[1][1][0] = s; bones.bonematrix[1][1][1] = c;
++        bones.bonematrix[1][0][3] = .35f; bones.bonematrix[1][1][3] = -.2f;
++        bones.bonematrix[1][2][3] = .15f;
 +    }
 +    Upload(studioBuffer, studio);
++    Upload(bonesBuffer, bones);
 +}
 +
 +void GeometryCases(const std::string& original)
@@ -9142,6 +9312,7 @@ index 0000000..4895acd
 +    glGenBuffers(1, &cameraBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, cameraBuffer);
 +    glGenBuffers(1, &sceneBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, sceneBuffer);
 +    glGenBuffers(1, &studioBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, studioBuffer);
++    glGenBuffers(1, &bonesBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_BONES_UBO, bonesBuffer);
 +    glGenQueries(1, &query);
 +    scene = {};
 +    scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1.f;
@@ -9153,6 +9324,7 @@ index 0000000..4895acd
 +    AlphaCases(original, oldVertex);
 +    glDeleteTextures(1, &white);
 +    glDeleteBuffers(1, &cameraBuffer); glDeleteBuffers(1, &sceneBuffer); glDeleteBuffers(1, &studioBuffer);
++    glDeleteBuffers(1, &bonesBuffer);
 +    glDeleteBuffers(1, &vbo); glDeleteVertexArrays(1, &vao); glDeleteQueries(1, &query);
 +    glUseProgram(0);
 +    Check(glGetError() == GL_NO_ERROR, "suite cleanup has no GL errors");
@@ -9187,10 +9359,10 @@ index 0000000..4895acd
 +}
 diff --git a/tests/studio_shadow_depth_gl_tests.cpp b/tests/studio_shadow_depth_gl_tests.cpp
 new file mode 100644
-index 0000000..30e0707
+index 0000000..9013632
 --- /dev/null
 +++ b/tests/studio_shadow_depth_gl_tests.cpp
-@@ -0,0 +1,570 @@
+@@ -0,0 +1,572 @@
 +// Execute extracted production helpers on real layered depth/stencil targets.
 +// Reuse the existing production-shader/UBO/camera/readback fixture utilities.
 +// The legacy comparison runs the shared production state/submit/cleanup path;
@@ -9720,6 +9892,7 @@ index 0000000..30e0707
 +    glGenBuffers(1, &cameraBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, cameraBuffer);
 +    glGenBuffers(1, &sceneBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, sceneBuffer);
 +    glGenBuffers(1, &studioBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, studioBuffer);
++    glGenBuffers(1, &bonesBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_BONES_UBO, bonesBuffer);
 +    glGenQueries(1, &query);
 +    scene = {}; scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1.f; scene.r_g3 = .125f;
 +    Upload(sceneBuffer, scene); Bones(false);
@@ -9735,6 +9908,7 @@ index 0000000..30e0707
 +    glDeleteProgram(unrelatedProgram); glDeleteTextures(9, poisonTextures);
 +    glDeleteBuffers(1, &elementBuffer); glDeleteBuffers(1, &vbo);
 +    glDeleteBuffers(1, &cameraBuffer); glDeleteBuffers(1, &sceneBuffer); glDeleteBuffers(1, &studioBuffer);
++    glDeleteBuffers(1, &bonesBuffer);
 +    glDeleteVertexArrays(1, &vao); glDeleteQueries(1, &query);
 +    Check(glGetError() == GL_NO_ERROR, "depth executor suite cleanup is GL-clean");
 +}
@@ -10044,10 +10218,10 @@ index 0000000..ae22570
 +}
 diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
 new file mode 100644
-index 0000000..2b5d967
+index 0000000..196a02f
 --- /dev/null
 +++ b/src/studio_diagnostics.h
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,70 @@
 +#pragma once
 +
 +void        R_StudioDiagnosticsInit();
@@ -10097,6 +10271,7 @@ index 0000000..2b5d967
 +void   R_ProfileBoneCache(bool hit);
 +void   R_ProfileBoneCacheStore(bool reused, bool overflow);
 +void   R_ProfileCountStudioDepthPath(bool usedExecutor);
++void   R_ProfileStudioBonePalette(bool reused, bool fallback, unsigned bytes);
 +int    R_ProfileGpuBegin(RProfileStage stage);
 +void   R_ProfileGpuEnd(int span);
 +void   R_ProfileMainView();
@@ -10119,10 +10294,10 @@ index 0000000..2b5d967
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..7d9d329
+index 0000000..c33ef7f
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,527 @@
+@@ -0,0 +1,543 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -10413,9 +10588,11 @@ index 0000000..7d9d329
 +    unsigned                            boneCacheHits{}, boneCacheMisses{};
 +    unsigned                            boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
 +    unsigned                            studioDepthFastMeshes{}, studioDepthFallbackMeshes{};
++    unsigned                            studioBonePaletteUploads{}, studioBonePaletteReuses{}, studioBonePaletteUploadBytes{}, studioBonePaletteFallbacks{};
 +    vec3_t                              origin{}, angles{};
 +    int                                 focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
 +    int                                 shadowCull{}, studioFaceCull{}, studioDepthExecutor{}, views{}, gpuReady{};
++    int                                 studioBonePaletteCache{};
 +    float                               fpsMax{}, fpsOverride{}, vsync{};
 +};
 +std::vector<ProfileFrame> profileFrames;
@@ -10496,6 +10673,11 @@ index 0000000..7d9d329
 +            << ",\"boneCacheReuses\":" << f.boneCacheReuses << ",\"boneCacheOverflows\":" << f.boneCacheOverflows;
 +        out << ",\"studioDepthFastMeshes\":" << f.studioDepthFastMeshes
 +            << ",\"studioDepthFallbackMeshes\":" << f.studioDepthFallbackMeshes;
++        out << ",\"studioBonePaletteUploads\":" << f.studioBonePaletteUploads
++            << ",\"studioBonePaletteReuses\":" << f.studioBonePaletteReuses
++            << ",\"studioBonePaletteUploadBytes\":" << f.studioBonePaletteUploadBytes
++            << ",\"studioBonePaletteFallbacks\":" << f.studioBonePaletteFallbacks
++            << ",\"studioBonePaletteCache\":" << f.studioBonePaletteCache;
 +        out << ",\"shadowCull\":" << f.shadowCull << ",\"mainViews\":" << f.views << ",\"gpuReady\":" << f.gpuReady
 +            << ",\"studioFaceCull\":" << f.studioFaceCull
 +            << ",\"studioDepthExecutor\":" << f.studioDepthExecutor
@@ -10593,6 +10775,14 @@ index 0000000..7d9d329
 +    if (usedExecutor) ++profileFrame.studioDepthFastMeshes;
 +    else ++profileFrame.studioDepthFallbackMeshes;
 +}
++void R_ProfileStudioBonePalette(bool reused, bool fallback, unsigned bytes)
++{
++    if (!profileActive) return;
++    if (reused) ++profileFrame.studioBonePaletteReuses;
++    else ++profileFrame.studioBonePaletteUploads;
++    if (fallback) ++profileFrame.studioBonePaletteFallbacks;
++    profileFrame.studioBonePaletteUploadBytes += bytes;
++}
 +void R_ProfileFrameBegin()
 +{
 +    if (!profile) return;
@@ -10642,6 +10832,7 @@ index 0000000..7d9d329
 +    profileFrame.shadowCull  = static_cast<int>(gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull"));
 +    profileFrame.studioFaceCull = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_face_cull") == 1.0f;
 +    profileFrame.studioDepthExecutor = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor") == 1.0f;
++    profileFrame.studioBonePaletteCache = gEngfuncs.pfnGetCvarFloat("r_studio_bone_palette_cache") == 1.0f;
 +    profileFrame.fpsMax      = gEngfuncs.pfnGetCvarFloat("fps_max");
 +    profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
 +    profileFrame.vsync       = gEngfuncs.pfnGetCvarFloat("gl_vsync");
@@ -19414,6 +19605,578 @@ index 0000000..739cba6
 +    args.output.write_text(body, encoding="utf-8")
 +    args.manifest.write_text(json.dumps({"sourceSha256": hashes,
 +        "extractedSha256": hashlib.sha256(body.encode()).hexdigest(), "functions": entries}, indent=2) + "\n", encoding="utf-8")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/studio_bone_palette.h b/src/studio_bone_palette.h
+new file mode 100644
+index 0000000..4953681
+--- /dev/null
++++ b/src/studio_bone_palette.h
+@@ -0,0 +1,70 @@
++#pragma once
++
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++
++// Content, not entity identity, determines reuse: attachments, Bullet and other
++// Studio callbacks may produce different matrices for one entity in one frame.
++template<std::size_t Capacity = 256>
++class CStudioBonePaletteCache
++{
++public:
++    static constexpr std::size_t PaletteBytes = 128 * 3 * 4 * sizeof(float);
++    static constexpr std::size_t MaxEntries = Capacity;
++    static constexpr std::size_t NoEntry = Capacity;
++    struct Selection
++    {
++        std::size_t index;
++        bool reused;
++    };
++
++    void Reset() noexcept
++    {
++        m_Buckets.fill(NoEntry);
++        m_Count = 0;
++        m_HasFrame = false;
++    }
++
++    Selection Select(const void* matrices, std::uint32_t hash, std::uint32_t frame) noexcept
++    {
++        if (!m_HasFrame || m_Frame != frame)
++        {
++            Reset();
++            m_Frame = frame;
++            m_HasFrame = true;
++        }
++        const auto bucket = hash % m_Buckets.size();
++        for (auto index = m_Buckets[bucket]; index != NoEntry; index = m_Entries[index].next)
++        {
++            const auto& entry = m_Entries[index];
++            if (entry.hash == hash && !std::memcmp(entry.matrices.data(), matrices, PaletteBytes))
++                return {index, true};
++        }
++        // Never evict an entry that later light/camera passes can reuse.
++        if (m_Count == Capacity) return {NoEntry, false};
++        const auto index = m_Count++;
++        auto& entry = m_Entries[index];
++        std::memcpy(entry.matrices.data(), matrices, PaletteBytes);
++        entry.hash = hash;
++        entry.next = m_Buckets[bucket];
++        m_Buckets[bucket] = index;
++        return {index, false};
++    }
++
++private:
++    static_assert(Capacity > 0);
++    struct Entry
++    {
++        std::array<std::byte, PaletteBytes> matrices;
++        std::uint32_t hash;
++        std::size_t next;
++    };
++    // Fixed CPU storage: no draw-time allocations or full-palette clears.
++    std::array<Entry, Capacity> m_Entries;
++    std::array<std::size_t, Capacity * 2> m_Buckets;
++    std::size_t m_Count{};
++    std::uint32_t m_Frame{};
++    bool m_HasFrame{};
++};
+diff --git a/src/studio_bone_palette_gl.h b/src/studio_bone_palette_gl.h
+new file mode 100644
+index 0000000..8ca619d
+--- /dev/null
++++ b/src/studio_bone_palette_gl.h
+@@ -0,0 +1,67 @@
++#pragma once
++
++#include "gl_common.h"
++#include "MurmurHash2.h"
++#include "studio_bone_palette.h"
++
++struct StudioBonePaletteUpload
++{
++    bool reused{};
++    // Capacity fallback only; disabling the cache is an intentional baseline.
++    bool fallback{};
++    unsigned bytes{};
++};
++
++// One reusable buffer per unique pose avoids overwriting data needed by later
++// passes. The separate fallback never mutates a cached slot. Driver-managed
++// buffer updates retain ordinary GL ordering; no persistent-map/ring ABI.
++template<std::size_t Capacity = 256>
++class CStudioBonePaletteStorage
++{
++public:
++    void Reset()
++    {
++        glDeleteBuffers(static_cast<GLsizei>(m_Buffers.size()), m_Buffers.data());
++        glDeleteBuffers(1, &m_Fallback);
++        m_Buffers.fill(0);
++        m_Fallback = 0;
++        m_Cache.Reset();
++    }
++
++    StudioBonePaletteUpload UploadAndBind(const void* matrices, std::uint32_t frame, bool enabled)
++    {
++        StudioBonePaletteUpload result;
++        GLuint* buffer = &m_Fallback;
++        if (enabled)
++        {
++            const auto hash = MurmurHash2(matrices, static_cast<int>(Cache::PaletteBytes), 0x53545544u);
++            const auto selection = m_Cache.Select(matrices, hash, frame);
++            result.reused = selection.reused;
++            result.fallback = selection.index == Cache::NoEntry;
++            if (!result.fallback) buffer = &m_Buffers[selection.index];
++        }
++        if (!result.reused)
++        {
++            const bool allocate = !*buffer;
++            if (allocate) glGenBuffers(1, buffer);
++            glBindBuffer(GL_UNIFORM_BUFFER, *buffer);
++            if (allocate)
++                glBufferData(GL_UNIFORM_BUFFER, Cache::PaletteBytes, matrices, GL_DYNAMIC_DRAW);
++            else
++                glBufferSubData(GL_UNIFORM_BUFFER, 0, Cache::PaletteBytes, matrices);
++            result.bytes = static_cast<unsigned>(Cache::PaletteBytes);
++        }
++        // External scene callbacks and other passes can change indexed bindings.
++        // Rebind even on a hit; no synchronous state queries on the draw path.
++        glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_BONES_UBO, *buffer);
++        glBindBuffer(GL_UNIFORM_BUFFER, 0);
++        return result;
++    }
++
++private:
++    using Cache = CStudioBonePaletteCache<Capacity>;
++    static_assert(Cache::PaletteBytes == sizeof(studio_bone_palette_t));
++    Cache m_Cache;
++    std::array<GLuint, Capacity> m_Buffers{};
++    GLuint m_Fallback{};
++};
+diff --git a/tests/studio_bone_palette_tests.cpp b/tests/studio_bone_palette_tests.cpp
+new file mode 100644
+index 0000000..06d17ce
+--- /dev/null
++++ b/tests/studio_bone_palette_tests.cpp
+@@ -0,0 +1,34 @@
++#include "../src/studio_bone_palette.h"
++#include <cassert>
++#include <cstdio>
++
++int main()
++{
++    CStudioBonePaletteCache<2> cache;
++    std::array<std::byte, decltype(cache)::PaletteBytes> first{}, second{}, third{};
++    second.back() = std::byte{1}; third[0] = std::byte{2};
++    const auto a = cache.Select(first.data(), 17, 42);
++    assert(a.index == 0 && !a.reused);
++    // A deliberate collision must not reuse even when the final byte differs.
++    const auto b = cache.Select(second.data(), 17, 42);
++    assert(b.index == 1 && !b.reused);
++    assert(cache.Select(first.data(), 17, 42).reused);
++    assert(cache.Select(second.data(), 17, 42).reused);
++    const auto overflow = cache.Select(third.data(), 17, 42);
++    assert(overflow.index == decltype(cache)::NoEntry && !overflow.reused);
++    assert(cache.Select(first.data(), 17, 42).index == a.index);
++    assert(cache.Select(second.data(), 17, 42).index == b.index);
++    // Frame advance, rewind and wrap all invalidate, including same content.
++    for (auto frame : {43u, 0u, UINT32_MAX, 0u})
++    {
++        const auto changed = cache.Select(second.data(), 17, frame);
++        assert(changed.index == 0 && !changed.reused);
++        assert(cache.Select(second.data(), 17, frame).reused);
++    }
++    cache.Reset();
++    assert(!cache.Select(second.data(), 17, 0).reused);
++    // Two cache instances never share ownership, even at the same frame/hash.
++    CStudioBonePaletteCache<2> other;
++    assert(!other.Select(second.data(), 17, 0).reused);
++    std::puts("Studio palette: exact collision/final-byte comparison, capacity, frame/map reset and isolation passed.");
++}
+diff --git a/tests/studio_bone_palette_gl_tests.cpp b/tests/studio_bone_palette_gl_tests.cpp
+new file mode 100644
+index 0000000..bc89393
+--- /dev/null
++++ b/tests/studio_bone_palette_gl_tests.cpp
+@@ -0,0 +1,330 @@
++// Real production Studio shaders and GPU submission, with a frozen-layout
++// monolithic UBO oracle. Includes the existing layered-target fixture utilities.
++#define main StudioFaceFixtureMainNotRun
++#include "studio_shadow_face_gl_tests.cpp"
++#undef main
++
++namespace
++{
++unsigned paletteUploads{}, paletteReuses{}, paletteFallbacks{}, parameterUploads{};
++std::size_t paletteBytes{}, driverBytes{};
++unsigned allocations{}, subUploads{};
++GLuint g_hStudioUBO{};
++void CountData(GLenum target, GLsizeiptr size, const void* data, GLenum usage)
++{
++    ++allocations;
++    if (data) driverBytes += size;
++    glBufferData(target, size, data, usage);
++}
++void CountSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data)
++{
++    ++subUploads; driverBytes += size;
++    if (size == sizeof(studio_ubo_t)) ++parameterUploads;
++    glBufferSubData(target, offset, size, data);
++}
++void CountNamedSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data)
++{
++    ++subUploads; driverBytes += size;
++    if (size == sizeof(studio_ubo_t)) ++parameterUploads;
++    glNamedBufferSubData(buffer, offset, size, data);
++}
++}
++
++void R_ProfileStudioBonePalette(bool reused, bool fallback, unsigned bytes)
++{
++    if (reused) ++paletteReuses; else ++paletteUploads;
++    if (fallback) ++paletteFallbacks;
++    paletteBytes += bytes;
++}
++
++#pragma push_macro("glBufferData")
++#pragma push_macro("glBufferSubData")
++#pragma push_macro("glNamedBufferSubData")
++#undef glBufferData
++#define glBufferData CountData
++#undef glBufferSubData
++#define glBufferSubData CountSubData
++#include "../src/studio_bone_palette_gl.h"
++static CStudioBonePaletteStorage<> g_StudioBonePalettes;
++// Preserve the actual availability test inside the production helper.
++#undef glNamedBufferSubData
++#define glNamedBufferSubData (__glewNamedBufferSubData ? CountNamedSubData : nullptr)
++#include "studio_palette_upload.inc"
++#pragma pop_macro("glNamedBufferSubData")
++#pragma pop_macro("glBufferSubData")
++#pragma pop_macro("glBufferData")
++
++namespace
++{
++void Replace(std::string& source, const char* oldText, const char* newText)
++{
++    const auto at = source.find(oldText);
++    Check(at != std::string::npos, "legacy oracle ABI boundary exists");
++    source.replace(at, std::strlen(oldText), newText);
++}
++
++GLuint LegacyStage(GLenum type, std::string source, const std::string& defines)
++{
++    auto common = Read("common.h");
++    Replace(common, "\tuvec4 r_clipbone;", "\tmat3x4 bonematrix[128];\n\tuvec4 r_clipbone;");
++    for (auto at = source.find("StudioBonesUBO.bonematrix"); at != std::string::npos;
++         at = source.find("StudioBonesUBO.bonematrix", at + 1))
++        source.replace(at, std::strlen("StudioBonesUBO.bonematrix"), "StudioUBO.bonematrix");
++    const auto at = source.find("#include \"common.h\"");
++    Check(at != std::string::npos, "legacy stage includes common");
++    source.replace(at, std::strlen("#include \"common.h\""), common);
++    source.insert(source.find('\n') + 1, defines +
++        (type == GL_FRAGMENT_SHADER ? "#define IS_FRAGMENT_SHADER\n" :
++         type == GL_GEOMETRY_SHADER ? "#define IS_GEOMETRY_SHADER\n" : "#define IS_VERTEX_SHADER\n"));
++    const GLuint shader = glCreateShader(type); const char* text = source.c_str();
++    glShaderSource(shader, 1, &text, nullptr); glCompileShader(shader);
++    GLint ok{}; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok) { char log[16384]{}; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    Check(ok != 0, "legacy full production stage compiles");
++    return shader;
++}
++
++GLuint LegacyProgram(const std::string& defines)
++{
++    const GLuint program = glCreateProgram();
++    const std::array stages{
++        LegacyStage(GL_VERTEX_SHADER, Read("studio_shader.vert.glsl"), defines),
++        LegacyStage(GL_FRAGMENT_SHADER, Read("studio_shader.frag.glsl"), defines),
++        LegacyStage(GL_GEOMETRY_SHADER, Read("studio_shader.geom.glsl"), defines)};
++    for (auto shader : stages) glAttachShader(program, shader);
++    glLinkProgram(program);
++    GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    if (!ok) { char log[16384]{}; glGetProgramInfoLog(program, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    Check(ok != 0, "legacy full production stages link");
++    for (auto shader : stages) glDeleteShader(shader);
++    glUseProgram(program);
++    glUniform2f(glGetUniformLocation(program, "r_uvscale"), 1, 1);
++    return program;
++}
++
++GLuint BoundPalette()
++{
++    GLint buffer{}; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, BINDING_POINT_STUDIO_BONES_UBO, &buffer);
++    return static_cast<GLuint>(buffer);
++}
++
++void CheckBuffers(const studio_bone_palette_t& pose, const studio_ubo_t& parameters)
++{
++    studio_bone_palette_t actualPose{};
++    const GLuint palette = BoundPalette();
++    Check(palette != 0, "palette always bound, including hits and fallback");
++    glBindBuffer(GL_UNIFORM_BUFFER, palette);
++    GLint bytes{}; glGetBufferParameteriv(GL_UNIFORM_BUFFER, GL_BUFFER_SIZE, &bytes);
++    Check(bytes == sizeof(actualPose), "GPU palette has exact matrix block size");
++    glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(actualPose), &actualPose);
++    Check(!std::memcmp(&pose, &actualPose, sizeof(pose)), "all 128 GPU matrices match input bytes");
++    GLint parameter{}; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, BINDING_POINT_STUDIO_UBO, &parameter);
++    Check(static_cast<GLuint>(parameter) == g_hStudioUBO, "draw parameters rebound after foreign pass");
++    glBindBuffer(GL_UNIFORM_BUFFER, parameter);
++    studio_ubo_t actualParameters{};
++    glGetBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(actualParameters), &actualParameters);
++    Check(!std::memcmp(&parameters, &actualParameters, sizeof(parameters)), "every draw updates all 224 parameter bytes");
++    glBindBuffer(GL_UNIFORM_BUFFER, 0);
++    Check(glGetError() == GL_NO_ERROR, "GPU readback is GL-clean");
++}
++
++void Submit(const studio_bone_palette_t& pose, std::uint32_t frame, bool enabled)
++{
++    R_StudioUploadDrawBuffers(studio, &pose, frame, enabled);
++    GLint generic{}; glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &generic);
++    Check(generic == 0, "production leaves generic UBO binding clean");
++    CheckBuffers(pose, studio);
++}
++
++studio_bone_palette_t Pose(float angle)
++{
++    studio_bone_palette_t pose{};
++    for (auto& matrix : pose.bonematrix)
++        for (unsigned i = 0; i < 3; ++i) matrix[i][i] = 1;
++    for (int bone : {1, 127})
++    {
++        auto& matrix = pose.bonematrix[bone];
++        matrix[0][0] = matrix[1][1] = std::cos(angle);
++        matrix[0][1] = -std::sin(angle); matrix[1][0] = std::sin(angle);
++        matrix[0][3] = angle * .3f; matrix[2][3] = angle * .1f;
++    }
++    return pose;
++}
++
++void StorageCases(GLuint poison)
++{
++    const auto first = Pose(0), second = Pose(.5f);
++    const auto initialAllocations = allocations;
++    Submit(first, 1, true);
++    Check(allocations == initialAllocations + 1, "one new GPU slot allocated");
++    const GLuint firstBuffer = BoundPalette();
++    const auto bytes = paletteBytes, driver = driverBytes;
++    const auto uploads = paletteUploads, reused = paletteReuses, params = parameterUploads;
++    // A foreign callback may bind another UBO/SSBO at numeric index 4.
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_BONES_UBO, poison);
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, poison);
++    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_MATERIAL_SSBO, poison);
++    studio.r_color[0] = .25f; studio.r_origin[0] = 123; studio.r_clipbone[3] = 0x80000000u;
++    Submit(first, 1, true);
++    GLint ssbo{}; glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, BINDING_POINT_MATERIAL_SSBO, &ssbo);
++    Check(static_cast<GLuint>(ssbo) == poison, "UBO4 does not disturb SSBO4");
++    Check(BoundPalette() == firstBuffer && paletteBytes == bytes && paletteUploads == uploads && paletteReuses == reused + 1,
++        "same-frame hit restores buffer without matrix upload");
++    Check(parameterUploads == params + 1 && driverBytes == driver + sizeof(studio_ubo_t), "hit only uploads small draw parameters");
++    Submit(second, 1, true);
++    Check(BoundPalette() != firstBuffer, "changed pose gets distinct slot");
++    Submit(first, 1, true);
++    Check(BoundPalette() == firstBuffer, "interleaved model/attachment pose remains reusable");
++    Submit(second, 1, false);
++    const auto baselineBytes = paletteBytes;
++    Submit(second, 1, false);
++    Check(paletteBytes == baselineBytes + sizeof(second), "disabled baseline always uploads matrices");
++    Submit(first, 1, true);
++    Check(BoundPalette() == firstBuffer, "disabled fallback never corrupts cached slots");
++    const auto warmAllocations = allocations;
++    const auto warmUploads = paletteUploads;
++    Submit(first, 2, true);
++    Check(BoundPalette() == firstBuffer && allocations == warmAllocations && paletteUploads == warmUploads + 1,
++        "new frame reuses GPU storage but uploads content");
++    auto changing = first;
++    for (unsigned i = 1; i < 256; ++i)
++    {
++        changing.bonematrix[127][2][3] = static_cast<float>(i);
++        Submit(changing, 2, true);
++    }
++    const auto beforeOverflow = paletteFallbacks;
++    changing.bonematrix[127][2][3] = 999;
++    Submit(changing, 2, true);
++    Check(paletteFallbacks == beforeOverflow + 1, "257th unique pose uses bounded fallback");
++    Submit(first, 2, true);
++    Check(BoundPalette() == firstBuffer, "capacity overflow preserves early cache entries");
++    const auto beforeReset = paletteUploads;
++    R_ResetStudioBonePalette();
++    Check(!glIsBuffer(firstBuffer), "map cleanup deletes cached GPU storage");
++    Submit(first, 2, true);
++    Check(paletteUploads == beforeReset + 1, "same frame after map reset uploads again");
++    R_ResetStudioBonePalette();
++    R_ResetStudioBonePalette();
++    Check(glGetError() == GL_NO_ERROR, "repeated lifecycle cleanup is safe");
++}
++
++void LegacyUpload(GLuint buffer, const studio_bone_palette_t& pose)
++{
++    // The original block has 208 bytes of params, then 6144 matrices, then clip mask.
++    std::array<std::byte, 6368> unified{};
++    std::memcpy(unified.data(), &studio, 208);
++    std::memcpy(unified.data() + 208, &pose, sizeof(pose));
++    std::memcpy(unified.data() + 6352, studio.r_clipbone, 16);
++    glBindBuffer(GL_UNIFORM_BUFFER, buffer);
++    glBufferData(GL_UNIFORM_BUFFER, unified.size(), unified.data(), GL_DYNAMIC_DRAW);
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, buffer);
++}
++
++void PixelCases(GLuint legacyBuffer)
++{
++    const auto geometry = Read("studio_shader.geom.glsl");
++    for (const std::string material : {std::string{}, std::string{"#define STUDIO_NF_MASKED\n"},
++                                     std::string{"#define CLIP_BONE_ENABLED\n"}, std::string{"#define LINEAR_DEPTH_ENABLED\n"}})
++    {
++        const auto defines = "#define SHADOW_CASTER_ENABLED\n#define MULTIVIEW_ENABLED\n" + material;
++        const auto program = Program(defines, &geometry), legacy = LegacyProgram(defines);
++        GLint size{}, binding{};
++        const auto block = glGetUniformBlockIndex(program, "StudioBonesBlock");
++        Check(block != GL_INVALID_INDEX, "actual production VS consumes separated bone block");
++        glGetActiveUniformBlockiv(program, block, GL_UNIFORM_BLOCK_DATA_SIZE, &size);
++        glGetActiveUniformBlockiv(program, block, GL_UNIFORM_BLOCK_BINDING, &binding);
++        Check(size == 6144 && binding == BINDING_POINT_STUDIO_BONES_UBO, "driver verifies palette std140 size and binding");
++        for (bool cube : {false, true})
++        {
++            Target target(cube); const auto camera = Camera(cube);
++            auto mesh = Triangle({-.7f,-.7f,cube ? -3.f : 0.f},{.7f,-.7f,cube ? -3.f : 0.f},{0,.7f,cube ? -3.f : 0.f});
++            const bool clip = material.find("CLIP_BONE") != std::string::npos;
++            for (auto& vertex : mesh) vertex.bone = (clip ? 1u : 127u) | (1u << 8);
++            for (float angle : {0.f, .45f, 0.f})
++            {
++                const auto pose = Pose(angle);
++                studio.r_scale = angle * .05f;
++                studio.r_clipbone[0] = clip && angle > 0 ? 2u : 0;
++                studio.r_clipbone[3] = 0;
++                LegacyUpload(legacyBuffer, pose);
++                const auto expected = Draw(target, camera, mesh, legacy, 1);
++                Submit(pose, 19, false);
++                const auto disabled = Draw(target, camera, mesh, program, 1);
++                Submit(pose, 19, true);
++                const auto enabled = Draw(target, camera, mesh, program, 1);
++                Submit(pose, 19, true);
++                const auto repeated = Draw(target, camera, mesh, program, 1);
++                Equal(expected.depth, disabled.depth, "split upload equals legacy monolithic UBO pixels");
++                Equal(disabled.depth, enabled.depth, "palette cache on/off pixels equal");
++                Equal(enabled.depth, repeated.depth, "repeated palette pixels equal");
++                if (clip && angle > 0) Check(Written(expected.depth) == 0, "changed per-draw clip mask discards geometry");
++                if (angle == 0 && material.find("LINEAR_DEPTH") == std::string::npos)
++                    Check(Written(expected.depth) > 0, "pixel oracle contains visible geometry");
++            }
++        }
++        glDeleteProgram(program); glDeleteProgram(legacy);
++    }
++    // All full forward/GBuffer variants must also resolve the new VS binding.
++    for (const std::string define : {std::string{}, std::string{"#define GBUFFER_ENABLED\n"},
++             std::string{"#define CLIP_ENABLED\n"}, std::string{"#define CLIP_WATER_ENABLED\n"},
++             std::string{"#define STUDIO_NF_CHROME\n"}, std::string{"#define STUDIO_NF_CELSHADE\n#define STUDIO_NF_CELSHADE_FACE\n"}})
++        glDeleteProgram(Program(define, nullptr));
++}
++
++void RunPalette()
++{
++    glViewport(0, 0, Size, Size); glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL);
++    glGenVertexArrays(1, &vao); glBindVertexArray(vao);
++    glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo);
++    glEnableVertexAttribArray(STUDIO_VA_POSITION);
++    glVertexAttribPointer(STUDIO_VA_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, position)));
++    glEnableVertexAttribArray(STUDIO_VA_TEXCOORD);
++    glVertexAttribPointer(STUDIO_VA_TEXCOORD, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, uv)));
++    glEnableVertexAttribArray(STUDIO_VA_PACKEDBONE);
++    glVertexAttribIPointer(STUDIO_VA_PACKEDBONE, 1, GL_UNSIGNED_INT, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, bone)));
++    glVertexAttrib3f(STUDIO_VA_NORMAL, 0, 0, 1); glVertexAttrib3f(STUDIO_VA_SMOOTHNORMAL, 0, 0, 1);
++    glVertexAttrib3f(STUDIO_VA_TANGENT, 1, 0, 0); glVertexAttrib3f(STUDIO_VA_BITANGENT, 0, 1, 0);
++    glGenBuffers(1, &cameraBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, cameraBuffer);
++    glGenBuffers(1, &sceneBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, sceneBuffer);
++    glGenBuffers(1, &g_hStudioUBO); glBindBuffer(GL_UNIFORM_BUFFER, g_hStudioUBO);
++    glBufferData(GL_UNIFORM_BUFFER, sizeof(studio_ubo_t), nullptr, GL_DYNAMIC_DRAW);
++    GLuint poison{}, legacyBuffer{}; glGenBuffers(1, &poison); glGenBuffers(1, &legacyBuffer);
++    glBindBuffer(GL_UNIFORM_BUFFER, poison); glBufferData(GL_UNIFORM_BUFFER, 8192, nullptr, GL_DYNAMIC_DRAW);
++    glGenQueries(1, &query);
++    scene = {}; scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1.f;
++    scene.r_g3 = .125f; Upload(sceneBuffer, scene);
++    studio = {}; studio.r_ambientlight = 1; studio.r_plightvec[2] = 1;
++    for (auto& value : studio.r_color) value = 1;
++    glActiveTexture(GL_TEXTURE0);
++    const auto texture = Texture2D(2, 2, {255,255,255,255, 255,255,255,0, 255,255,255,0, 255,255,255,255});
++    StorageCases(poison);
++    studio.r_clipbone[3] = 0; studio.r_color[0] = 1;
++    PixelCases(legacyBuffer);
++    R_ResetStudioBonePalette();
++    glUseProgram(0);
++    glDeleteBuffers(1, &g_hStudioUBO); glDeleteBuffers(1, &poison); glDeleteBuffers(1, &legacyBuffer);
++    glDeleteBuffers(1, &cameraBuffer); glDeleteBuffers(1, &sceneBuffer); glDeleteBuffers(1, &vbo);
++    glDeleteTextures(1, &texture); glDeleteVertexArrays(1, &vao); glDeleteQueries(1, &query);
++    Check(glGetError() == GL_NO_ERROR, "palette suite cleanup GL-clean");
++}
++}
++
++int main()
++{
++    if (!glfwInit()) return 2;
++    for (int profile : {GLFW_OPENGL_COMPAT_PROFILE, GLFW_OPENGL_CORE_PROFILE})
++    {
++        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
++        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); glfwWindowHint(GLFW_OPENGL_PROFILE, profile);
++        auto* window = glfwCreateWindow(Size, Size, "studio palette regression", nullptr, nullptr);
++        if (!window) { glfwTerminate(); return 2; }
++        glfwMakeContextCurrent(window); glewExperimental = GL_TRUE;
++        if (glewInit() != GLEW_OK) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++        while (glGetError() != GL_NO_ERROR) {}
++        std::printf("Driver: %s / %s / profile=%d\n", glGetString(GL_RENDERER), glGetString(GL_VERSION), profile);
++        RunPalette(); glfwDestroyWindow(window);
++    }
++    glfwTerminate();
++    std::printf("Studio palette: %u checks, %u pixel comparisons; uploads=%u reuse=%u fallback=%u bytes=%zu. No FPS claim.\n",
++        checks, comparisons, paletteUploads, paletteReuses, paletteFallbacks, paletteBytes);
++}
+diff --git a/tests/extract_studio_palette_upload.py b/tests/extract_studio_palette_upload.py
+new file mode 100644
+index 0000000..05160d7
+--- /dev/null
++++ b/tests/extract_studio_palette_upload.py
+@@ -0,0 +1,41 @@
++"""Run production Studio UBO submission in the real-GL fixture, without engine callbacks."""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++from extract_studio_depth_executor import function
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--src", type=Path, required=True)
++    parser.add_argument("--output", type=Path, required=True)
++    parser.add_argument("--manifest", type=Path, required=True)
++    args = parser.parse_args()
++    paths = {name: args.src / name for name in ("gl_studio.cpp", "gl_draw.cpp", "gl_rmain.cpp",
++                                               "studio_bone_palette.h", "studio_bone_palette_gl.h")}
++    sources = {name: path.read_text(encoding="utf-8-sig") for name, path in paths.items()}
++    studio = sources["gl_studio.cpp"]
++    draw = function(studio, "void R_StudioDrawRenderDataBegin(")
++    if draw.count("R_StudioUploadDrawBuffers(StudioUBO, *pbonetransform,") != 1 or "static_cast<uint32_t>(*r_framecount)" not in draw:
++        raise SystemExit("Production palette submission/frame wiring changed")
++    if "R_ResetStudioBonePalette();" not in function(sources["gl_rmain.cpp"], "void R_NewMap("):
++        raise SystemExit("Missing unconditional map palette cleanup")
++    for signature in ("void R_InitStudio(", "void R_ShutdownStudio("):
++        if "R_ResetStudioBonePalette();" not in function(studio, signature):
++            raise SystemExit("Missing palette lifecycle cleanup: " + signature)
++    code = "// Exact production function bodies.\n\n" + "\n\n".join((
++        function(sources["gl_draw.cpp"], "void GL_UploadSubDataToUBO("),
++        function(studio, "void R_ResetStudioBonePalette("),
++        function(studio, "static void R_StudioUploadDrawBuffers("))) + "\n"
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    args.output.write_text(code, encoding="utf-8")
++    args.manifest.write_text(json.dumps({
++        "sourceSha256": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in paths.items()},
++        "extractedSha256": hashlib.sha256(code.encode()).hexdigest(),
++        "scope": "Unchanged production GPU storage, submission and cleanup; lifecycle call sites checked. Host animation/callback execution and live FPS are not tested here."
++    }, indent=2) + "\n", encoding="utf-8")
 +
 +
 +if __name__ == "__main__":

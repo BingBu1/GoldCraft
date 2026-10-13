@@ -11,6 +11,8 @@ culling 1; every capture restores the original settings, including face 0.
 Use --cache-modes 1 --depth-executor-modes 0 1 for the independent opaque depth
 executor comparison. It is mutually exclusive with face-cull modes, preserves
 face culling, and samples executor 1 at the final normal cap before restoration.
+Use --cache-modes 1 --bone-palette-modes 0 1 to compare exact GPU bone-palette
+reuse. This preserves both Studio shadow options and restores the original cache mode.
 
 Run only while B remains in active MC gameplay, foreground and stationary.
 Evidence and a durable recovery manifest stay in analysis/perf-200fps. Recover
@@ -402,7 +404,8 @@ class Exercise:
             time.sleep(.1)
         raise TimeoutError("The diagnostic framebuffer capture did not finish")
 
-    def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True, depth_executor=None):
+    def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True,
+                depth_executor=None, bone_palette=None):
         self.verify_blocks()
         before, _, _ = self.stable(expected_lights=lights)
         command = [sys.executable, str(ROOT / "tools/Monitor-LivePerformance.py"),
@@ -411,10 +414,12 @@ class Exercise:
             command += ["--scene-static-shadows", str(cache)]
             if benchmark:
                 command += ["--benchmark-fps", "300"]
-        studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor}
-        for option, value in (("face-cull", face_cull), ("depth-executor", depth_executor)):
+        studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor, "BonePaletteCache": bone_palette}
+        for option, value in (("studio-shadow-face-cull", face_cull),
+                              ("studio-shadow-depth-executor", depth_executor),
+                              ("studio-bone-palette-cache", bone_palette)):
             if value is not None:
-                command += ["--studio-shadow-" + option, str(value)]
+                command += ["--" + option, str(value)]
         if reference:
             command += ["--reference", str(reference)]
         log_path = OUTPUT / f"{label}.log"
@@ -469,6 +474,7 @@ class Exercise:
         result = read_json(path)
         record = {"report": str(path.relative_to(ROOT)),
                   "cache": cache, "studioFaceCull": face_cull, "studioDepthExecutor": depth_executor,
+                  "studioBonePaletteCache": bone_palette,
                   "lightsBefore": light_snapshot(before),
                   "guardError": guard_error, "monitorExitCode": process.returncode,
                   "summary": result.get("summary", {})}
@@ -620,16 +626,21 @@ class Exercise:
             raise RuntimeError("Live static-shadow API is required for OFF/ON measurements")
         original = {"caps": caps, "staticShadows": native["sceneStaticShadowsEnabled"]}
         depth_modes = getattr(self.args, "depth_executor_modes", None)
-        feature = "FaceCull" if self.args.face_cull_modes is not None else "DepthExecutor" if depth_modes is not None else None
+        palette_modes = getattr(self.args, "bone_palette_modes", None)
+        feature = ("FaceCull" if self.args.face_cull_modes is not None else
+                   "DepthExecutor" if depth_modes is not None else
+                   "BonePaletteCache" if palette_modes is not None else None)
         if feature:
             original["studio" + feature] = self.monitor.studio_feature(native, feature)
-        modes = self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor" else self.args.cache_modes
-        feature_parameter = "face_cull" if feature == "FaceCull" else "depth_executor"
+        modes = (self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor"
+                 else palette_modes if feature == "BonePaletteCache" else self.args.cache_modes)
+        feature_parameter = {"FaceCull": "face_cull", "DepthExecutor": "depth_executor",
+                             "BonePaletteCache": "bone_palette"}.get(feature)
         self.anchor = native
         self.data.update(world=native["world"], player={k: player[k] for k in ("uuid", "slot", "serial", "life", "dimension")},
                          anchor={k: native[k] for k in ("origin", "viewAngles")}, position=player["position"],
                          original=original, cacheModes=self.args.cache_modes, faceCullModes=self.args.face_cull_modes,
-                         depthExecutorModes=depth_modes,
+                         depthExecutorModes=depth_modes, bonePaletteModes=palette_modes,
                          baselineLights=baseline, candidates=candidates(player["position"], native["viewAngles"][1]))
         self.save()
         self.connect()
@@ -661,7 +672,7 @@ class Exercise:
             reference = None
             visible_counts = {}
             for mode in modes:
-                name = ("face-" if feature == "FaceCull" else "depth-" if feature else "") + ("on" if mode else "off")
+                name = {"FaceCull": "face-", "DepthExecutor": "depth-", "BonePaletteCache": "palette-"}.get(feature, "") + ("on" if mode else "off")
                 path, result = self.measure(f"{self.data['run']}-{count}-{name}", lights,
                                             cache=1 if feature else mode, reference=reference,
                                             **({feature_parameter: mode} if feature else {}))
@@ -705,7 +716,8 @@ def validate_recovery(data):
     if not re.fullmatch(r"goldcraft:cs_assault_[0-9a-f]{8}", player.get("dimension", "")):
         raise ValueError("Recovery dimension is not a managed cs_assault dimension")
     original = data.get("original", {})
-    for key, modes in (("studioFaceCull", "faceCullModes"), ("studioDepthExecutor", "depthExecutorModes")):
+    for key, modes in (("studioFaceCull", "faceCullModes"), ("studioDepthExecutor", "depthExecutorModes"),
+                       ("studioBonePaletteCache", "bonePaletteModes")):
         if key in original and (type(original[key]) is not int or original[key] not in (0, 1)):
             raise ValueError(f"Invalid original {key} value in recovery manifest")
         if data.get(modes) is not None and key not in original:
@@ -732,6 +744,8 @@ def main():
                         help="Compare Studio shadow face culling; requires --cache-modes 1, and a single mode gives no gain")
     studio_modes.add_argument("--depth-executor-modes", type=int, nargs="+", choices=(0, 1),
                         help="Compare Studio shadow depth executor; requires --cache-modes 1, and a single mode gives no gain")
+    studio_modes.add_argument("--bone-palette-modes", type=int, nargs="+", choices=(0, 1),
+                        help="Compare exact bone-palette reuse; requires --cache-modes 1")
     parser.add_argument("--seconds", type=int, choices=range(5, 26), default=8)
     parser.add_argument("--wait-stable", type=int, choices=range(4, 121), default=15)
     parser.add_argument("--capture", action="store_true", help="Capture one native scene BMP per light-count stage outside timing")
@@ -741,7 +755,8 @@ def main():
         parser.error("counts must be unique and increasing")
     if len(args.cache_modes) != len(set(args.cache_modes)):
         parser.error("cache modes must be unique")
-    for name, modes in (("face-cull", args.face_cull_modes), ("depth-executor", args.depth_executor_modes)):
+    for name, modes in (("face-cull", args.face_cull_modes), ("depth-executor", args.depth_executor_modes),
+                        ("bone-palette", args.bone_palette_modes)):
         if modes is not None:
             if len(modes) != len(set(modes)):
                 parser.error(name + " modes must be unique")
