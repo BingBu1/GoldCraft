@@ -84,6 +84,16 @@ def read_status(path):
             time.sleep(.05)
 
 
+def server_say_feedback(log, marker):
+    # Match the dedicated server's complete chat announcement, never command
+    # echoes or another logger mentioning the same token.
+    pattern = (r'^\[[^\]\r\n]+\] \[Server thread/INFO\] '
+               r'\[(?:net\.minecraft\.server\.MinecraftServer/|minecraft/MinecraftServer)\]: '
+               r'(?:\[Not Secure\] )?\[Server\] ' + re.escape(marker) + r'\r?$')
+    match = re.search(pattern, log, re.MULTILINE)
+    return match.group(0).rstrip('\r') if match else None
+
+
 def cs_query(query, *, challenge=False):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         udp.settimeout(5)
@@ -147,6 +157,21 @@ def main():
                                creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode:
             raise RuntimeError(f'{script} exited {r.returncode}: {log.name}')
+
+    def assert_command_marker(command, marker, timeout=8):
+        # The console transport acknowledging a command is not proof that the
+        # command succeeded. Require its unique conditional feedback in MC.
+        deadline = time.monotonic() + timeout
+        while True:
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command', command)
+            log = (server / 'minecraft/logs/latest.log').read_text(encoding='utf-8', errors='replace')
+            feedback = server_say_feedback(log, marker)
+            if feedback:
+                result.setdefault('mapResetFeedback', []).append(feedback)
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Minecraft command condition failed: ' + marker)
+            time.sleep(.1)
 
     try:
         with zipfile.ZipFile(args.archive) as z:
@@ -248,6 +273,26 @@ def main():
             result['csInfoError'] = repr(exc)
         if not (server / 'cs/cstrike/maps' / (args.change_map + '.bsp')).is_file():
             raise ValueError('Lifecycle verification map not included in package')
+        dimensions = {item['map'].lower(): item['dimension'] for item in manifest['maps']}
+        initial_dimension = dimensions[settings['map'].lower()]
+        target_dimension = dimensions[args.change_map.lower()]
+        probe_dimensions = list(dict.fromkeys((initial_dimension, target_dimension)))
+        result['mapResetProbeDimensions'] = probe_dimensions
+        probe_tag = 'gc_package_reset_' + uuid.uuid4().hex
+        for index, dimension in enumerate(probe_dimensions):
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
+                  f'execute in {dimension} run forceload add 0 0')
+            loaded_marker = f'GC_PACKAGE_LOADED_{probe_tag}_{index}'
+            assert_command_marker(f'execute in {dimension} if block 0 80 0 minecraft:air run say {loaded_marker}', loaded_marker)
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
+                  f'execute in {dimension} run setblock 0 80 0 minecraft:gold_block')
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
+                  f'execute in {dimension} run summon minecraft:armor_stand 0.5 82 0.5 {{NoGravity:1b,Tags:["{probe_tag}"]}}')
+            ready_marker = f'GC_PACKAGE_READY_{probe_tag}_{index}'
+            assert_command_marker(
+                f'execute in {dimension} if block 0 80 0 minecraft:gold_block '
+                f'if entity @e[type=minecraft:armor_stand,tag={probe_tag}] run say {ready_marker}', ready_marker)
+        checks['mapResetFixturesPlacedInTestedDimensions'] = True
         shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'changelevel ' + args.change_map)
         deadline = time.monotonic() + 25
         after, mc_after = native, java
@@ -264,6 +309,15 @@ def main():
         checks['bridgeReconnectsAfterMapChange'] = after['world'] != native['world'] and after['world'] == mc_after['world']
         checks['targetMapActivatedInMinecraft'] = mc_after.get('map') == args.change_map
         checks['configuredBotsRemainOffAfterMapChange'] = len(after['actors']) == 0
+        for index, dimension in enumerate(probe_dimensions):
+            cleared_marker = f'GC_PACKAGE_CLEARED_{probe_tag}_{index}'
+            assert_command_marker(
+                f'execute in {dimension} if block 0 80 0 minecraft:air '
+                f'unless entity @e[type=minecraft:armor_stand,tag={probe_tag}] run say {cleared_marker}', cleared_marker)
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
+                  f'execute in {dimension} run forceload remove 0 0')
+        checks['departingDimensionBlocksAndEntitiesCleared'] = True
+        checks['targetDimensionBlocksAndEntitiesCleared'] = True
         result['nativeWorldAfterMapChange'] = after['world']
         result['javaWorldAfterMapChange'] = mc_after['world']
         shell('Stop-Servers.ps1', '-TimeoutSeconds', '30', timeout=65)

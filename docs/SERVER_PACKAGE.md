@@ -4,6 +4,10 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 首次启动的 Steam 初始化故障已通过预置 AppID 修复。单地图版从全新 ZIP 解压后，19 项实际检查通过：双服认证桥接、32 槽查询、25 Bot、控制台、换图重新建立会话、MC 保存和双服正常退出。多地图工具已通过本机全部 62 张地图资源预检及 9 项回归，包括实际 Windows PowerShell 5.1 的单／多地图启动预检、后续地图缺维度和 BSP 校验失败。首个多地图包暴露的数组读取与 PowerShell 模块依赖问题已修正；重新打包后的跨图实服检查仍待完成。
 
+修复后的 62 图完整包已实际通过双服启动、同世界桥接、32 槽、25 Bot 等 15 项检查，并正常保存退出。跨图清理测试因验证脚本漏识别 Minecraft 的 `[Not Secure]` 日志前缀提前中止，未执行换图；解析已补正并通过 6 项静态回归，真实跨图清理仍待复验。
+
+若旧包出现 `Map cs_assault as_oilrig ... differs from its Minecraft dimension`，这是启动脚本将地图数组二次包装导致名称拼接。停止双服，将 `GoldCraft-MultiMap-StartupFix.zip` 解压到 `Start.cmd` 所在目录，覆盖 `scripts/Start-Servers.ps1` 和 `package-manifest.json`，再启动即可。此补丁适用于旧的 62 图 native77 包；保持地图完整性校验，无需重新上传游戏及 Mod。
+
 自动准入新增 29 项 JUnit 通过，完整测试 251 通过／6 跳过。真实正版玩家准入、公网及 32 人负载尚未验证；启动成功不能代替这些检查。源码中的 `Test-ServerPackage.py` 用独立端口检查解压内容、双服桥接、32 人配置、Bot、控制台、换图与保存退出。
 
 当前验证机已安装 Steam，实际加载了该安装中的 Steam 运行库；包内提供同版本运行库，但尚未在没有 Steam 的干净 Windows 主机验证加载路径。部署前需要完成这项检查。

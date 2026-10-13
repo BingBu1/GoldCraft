@@ -1,6 +1,7 @@
 """Small resource fixtures; no game process, downloads or production writes."""
 from pathlib import Path
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -15,6 +16,69 @@ import zipfile
 from ServerPackageMaps import map_resources, select_maps
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows dual-server verifier')
+class ConsoleFeedback(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('package_verifier', ROOT / 'tools/Test-ServerPackage.py')
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+        cls.feedback = staticmethod(verifier.server_say_feedback)
+
+    def test_complete_vanilla_server_announcement(self):
+        # Prefix copied from the actual 1.21.1/NeoForge live07 server log.
+        prefix = '[1310\u67082026 18:30:16.714] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: '
+        line = prefix + '[Server] GC_PACKAGE_CLEARED_fixture_1'
+        self.assertEqual(self.feedback(line + '\r\n', 'GC_PACKAGE_CLEARED_fixture_1'), line)
+
+    def test_console_ack_and_echo_do_not_prove_execution(self):
+        marker = 'GC_PACKAGE_CLEARED_fixture_1'
+        for log in ('command acknowledged: ' + marker,
+                    'execute if block 0 80 0 air run say ' + marker,
+                    '[Server thread/INFO] [dev.goldcraft/]: [Server] ' + marker):
+            with self.subTest(log=log):
+                self.assertIsNone(self.feedback(log, marker))
+
+    def test_unsigned_dedicated_console_announcement(self):
+        # Exact announcement from archived77-multimaps01; console say is unsigned.
+        marker = 'GC_PACKAGE_LOADED_gc_package_reset_1c0023a006104dddbccbc5c1a6653aef_0'
+        line = ('[1310\u67082026 20:45:13.960] [Server thread/INFO] '
+                '[net.minecraft.server.MinecraftServer/]: [Not Secure] [Server] ' + marker)
+        self.assertEqual(self.feedback(line + '\n', marker), line)
+        for logger in ('net.minecraft.server.MinecraftServer/', 'minecraft/MinecraftServer'):
+            line = f'[20:45:13] [Server thread/INFO] [{logger}]: [Not Secure] [Server] {marker}'
+            self.assertEqual(self.feedback(line, marker), line)
+
+    def test_unsigned_prefix_does_not_accept_echoes_or_partial_tokens(self):
+        marker = 'GC_PACKAGE_CLEARED_fixture_1'
+        prefix = '[20:45:13] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: '
+        for text in ('[Not Secure] execute run say ' + marker,
+                     '[Not Secure] [Server] ' + marker + '_extra',
+                     '[Not Secure] [Server] ' + marker + ' failed',
+                     '[Not Secure] [Not Secure] [Server] ' + marker,
+                     '[anything] [Server] ' + marker):
+            with self.subTest(text=text):
+                self.assertIsNone(self.feedback(prefix + text, marker))
+        line = prefix + '[Not Secure] [Server] ' + marker
+        for old, new in (('Server thread/INFO', 'Server thread/WARN'),
+                         ('Server thread/INFO', 'Render thread/INFO'),
+                         ('net.minecraft.server.MinecraftServer/', 'goldcraft/')):
+            self.assertIsNone(self.feedback(line.replace(old, new), marker))
+
+    def test_partial_or_different_token_rejected(self):
+        prefix = '[18:30:16] [Server thread/INFO] [net.minecraft.server.MinecraftServer/]: [Server] '
+        marker = 'GC_PACKAGE_CLEARED_fixture_1'
+        for value in (marker[:-1], marker + '_extra', marker + ' failed'):
+            with self.subTest(value=value):
+                self.assertIsNone(self.feedback(prefix + value, marker))
+
+    def test_warning_and_wrong_thread_rejected(self):
+        marker = 'GC_PACKAGE_CLEARED_fixture_1'
+        for source in ('Server thread/WARN', 'Render thread/INFO'):
+            log = f'[18:30:16] [{source}] [net.minecraft.server.MinecraftServer/]: [Server] {marker}'
+            self.assertIsNone(self.feedback(log, marker))
 
 
 class Maps(unittest.TestCase):
