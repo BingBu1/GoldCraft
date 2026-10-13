@@ -39,6 +39,7 @@ public final class GoldCraftClient {
     }
     public void initialize() {
         active=this;
+        dev.goldcraft.net.HostNetwork.clientBinding(()->link!=null&&link.connected()&&link.generation()==generation&&binding!=null?binding.clone():null);
         dev.goldcraft.net.HostNetwork.clientReceiver(part-> {
             try {
                 Wire.Message message=assembler.accept(part);if(message==null)return;
@@ -76,8 +77,8 @@ public final class GoldCraftClient {
                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new EditRequestPayload(HOST.epoch()));
                 nextEditQuery=System.nanoTime()+1_000_000_000L;
             }
-            if (link==null) return;
-            if (!link.connected()) { binding=null;HostInput.clear(); exporter.reset();hud.reset(); return; }
+            if (link==null) {dev.goldcraft.net.HostNetwork.tickAdmission();return;}
+            if (!link.connected()) { binding=null;HostInput.clear(); exporter.reset();hud.reset();dev.goldcraft.net.HostNetwork.tickAdmission();return; }
             if (generation!=link.generation()) { generation=link.generation(); binding=null;HostInput.clear(); exporter.reset();hud.reset(); GoldCraft.LOGGER.info("Paired local CS client transport, generation {}",generation); }
             for (Wire.Message message:link.drain()) {
                 try {
@@ -91,6 +92,7 @@ public final class GoldCraftClient {
                 }catch(IllegalArgumentException e){GoldCraft.LOGGER.warn("Rejected local host input: {}",e.getMessage());}
             }
             // Retry across Minecraft server reconnects. Native binding is idempotent for the same player UUID.
+            dev.goldcraft.net.HostNetwork.tickAdmission();
             if (binding!=null && client.player!=null && client.getNetworkHandler()!=null && client.getNetworkHandler().hasChannel(BindingPayload.ID)
                 && System.nanoTime()-lastBindingSend>2_000_000_000L) {
                 net.neoforged.neoforge.network.PacketDistributor.sendToServer(new BindingPayload(binding)); lastBindingSend=System.nanoTime();

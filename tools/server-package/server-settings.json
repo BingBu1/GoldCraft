@@ -1,0 +1,11 @@
+{
+  "csPort": 27015,
+  "steamPort": 26900,
+  "minecraftPort": 25565,
+  "bridgePort": 25521,
+  "bindAddress": "0.0.0.0",
+  "publicListing": true,
+  "map": "cs_assault",
+  "minecraftMemoryGB": 8,
+  "botTotalPlayers": 25
+}

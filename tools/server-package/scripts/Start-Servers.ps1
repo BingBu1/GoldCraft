@@ -1,0 +1,106 @@
+param([switch]$AcceptEula, [switch]$CheckOnly, [switch]$Hidden, [switch]$Diagnostics,
+      [ValidateRange(30,180)][int]$StartupTimeoutSeconds=180)
+. (Join-Path $PSScriptRoot 'Common.ps1')
+$startupLock = $null
+$launched = @()
+try {
+    New-Item -ItemType Directory -Path $State -Force | Out-Null
+    $startupLock = [IO.File]::Open((Join-Path $State 'startup.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+    $settings = Read-Json (Join-Path $PackageRoot 'server-settings.json')
+    foreach ($key in @('csPort','steamPort','minecraftPort','bridgePort')) {
+        if ($settings.$key -lt 1024 -or $settings.$key -gt 65535) { throw "Invalid $key" }
+    }
+    if (@($settings.csPort,$settings.steamPort,$settings.minecraftPort,$settings.bridgePort | Select-Object -Unique).Count -ne 4) { throw 'Use four different ports.' }
+    if ($settings.minecraftMemoryGB -lt 2 -or $settings.minecraftMemoryGB -gt 128) { throw 'Minecraft memory must be 2-128 GB.' }
+    if ($settings.botTotalPlayers -lt 0 -or $settings.botTotalPlayers -gt 31) { throw 'Bot population must be 0-31.' }
+    $address = $null
+    if (-not [Net.IPAddress]::TryParse($settings.bindAddress, [ref]$address) -or $address.AddressFamily -ne 'InterNetwork') { throw 'Use an IPv4 bindAddress.' }
+    if ($settings.map -notmatch '^[a-zA-Z0-9_]+$' -or -not (Test-Path -LiteralPath (Join-Path $PackageRoot "cs/cstrike/maps/$($settings.map).bsp"))) { throw 'Map is missing or invalid.' }
+    foreach ($role in @('cs','minecraft')) { if (Get-RoleProcess $role) { throw "$role is already running; stop it first." } }
+    foreach ($port in @($settings.minecraftPort,$settings.bridgePort)) {
+        $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, [int]$port)
+        $listener.Server.ExclusiveAddressUse = $true
+        try { $listener.Start() } finally { $listener.Stop() }
+    }
+    foreach ($port in @($settings.csPort,$settings.steamPort)) {
+        $udp = New-Object Net.Sockets.UdpClient
+        try { $udp.ExclusiveAddressUse=$true; $udp.Client.Bind((New-Object Net.IPEndPoint([Net.IPAddress]::Any,[int]$port))) }
+        finally { $udp.Dispose() }
+    }
+    $properties = Join-Path $PackageRoot 'minecraft/server.properties'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $core = [IO.Compression.ZipFile]::OpenRead((Join-Path $PackageRoot 'minecraft/mods/goldcraft-neoforge-0.1.0-dev.jar'))
+    try {
+        if (-not $core.GetEntry('dev/goldcraft/net/CsAdmission.class')) { throw 'GoldCraft JAR is missing automatic CS admission. Update both client and server.' }
+    } finally { $core.Dispose() }
+    foreach ($pair in @(@('online-mode','true'),@('white-list','false'),@('enforce-whitelist','false'),@('enable-rcon','false'),@('max-players','32'))) {
+        if ((Get-Content -LiteralPath $properties -Encoding UTF8) -notcontains "$($pair[0])=$($pair[1])") {
+            throw "Required production property: $($pair[0])=$($pair[1])"
+        }
+    }
+    if ($CheckOnly) { Write-Host 'Configuration and port checks passed; no server was launched.'; return }
+    $eula = Join-Path $PackageRoot 'minecraft/eula.txt'
+    if ((Get-Content -LiteralPath $eula) -notcontains 'eula=true') {
+        if (-not $AcceptEula) {
+            Write-Host 'Read https://aka.ms/MinecraftEULA before running Minecraft.'
+            if ((Read-Host 'Do you accept the Minecraft EULA? Type YES') -cne 'YES') { throw 'Minecraft EULA was not accepted.' }
+        }
+        Write-Text $eula "# https://aka.ms/MinecraftEULA`neula=true`n"
+    }
+    $secretsPath = Join-Path $State 'secrets.json'
+    if (-not (Test-Path -LiteralPath $secretsPath)) { Write-Json $secretsPath @{session=(Random-Hex 16);token=(Random-Hex 16)} }
+    Set-Property $properties 'server-port' ([string]$settings.minecraftPort)
+    Set-Property $properties 'server-ip' $(if ($settings.bindAddress -eq '0.0.0.0') { '' } else { $settings.bindAddress })
+    $botConfig = Join-Path $PackageRoot 'cs/cstrike/addons/sypb/sypb.cfg'
+    $botLines = @(Get-Content -LiteralPath $botConfig -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*sypb_(auto_players|quota)\s' })
+    $botLines += "sypb_auto_players $($settings.botTotalPlayers)"
+    $botLines += "sypb_quota $([Math]::Max(0,[int]$settings.botTotalPlayers-1))"
+    Write-Text $botConfig ($botLines -join "`n")
+    Write-Text (Join-Path $PackageRoot 'cs/cstrike/goldcraft-runtime.cfg') "sv_lan 0`nrcon_password `"`"`n"
+    foreach ($name in @('goldcraft-server-status.json','minecraft-server-status.json')) {
+        $path = Join-Path $State $name
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path }
+    }
+    # Explicitly visible consoles are part of the server operator interface.
+    foreach ($role in @('cs','minecraft')) {
+        $scriptPath = Join-Path $PSScriptRoot 'Run-Server.ps1'
+        $shell = Join-Path $PSHOME 'powershell.exe'
+        if (-not (Test-Path -LiteralPath $shell)) { $shell = Join-Path $PSHOME 'pwsh.exe' }
+        $style = if ($Hidden -or $role -eq 'cs') { 'Hidden' } else { 'Normal' }
+        $extra = if ($Hidden) { ' -Hidden' } else { '' }
+        if ($Diagnostics) { $extra += ' -Diagnostics' }
+        Start-Process -FilePath $shell -ArgumentList "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Role $role$extra" -WorkingDirectory $PackageRoot -WindowStyle $style | Out-Null
+        $launched += $role
+        $limit=[DateTime]::UtcNow.AddSeconds(20)
+        while (-not (Get-RoleProcess $role)) {
+            if ([DateTime]::UtcNow -gt $limit) { throw "$role did not start; see its console." }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        foreach ($role in $launched) { if (-not (Get-RoleProcess $role)) { throw "$role exited during startup." } }
+        $native = Join-Path $State 'goldcraft-server-status.json'
+        $java = Join-Path $State 'minecraft-server-status.json'
+        if ((Test-Path -LiteralPath $native) -and (Test-Path -LiteralPath $java)) {
+            try {
+                $n=Read-Json $native; $j=Read-Json $java
+                if ($n.world -and $n.world -ne '0' -and $n.world -eq $j.world -and $j.map -eq $settings.map) {
+                    Write-Host "Both servers ready: CS UDP $($settings.csPort); Minecraft TCP $($settings.minecraftPort); 32 slots each."
+                    Write-Host 'Minecraft requires an authenticated account and a valid CS connection. Pairing is automatic; see README.md.'
+                    return
+                }
+            } catch { }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw 'Timed out waiting for the authenticated GoldCraft bridge; inspect both consoles.'
+} catch {
+    Write-Host "Startup failed: $($_.Exception.Message)" -ForegroundColor Red
+    foreach ($role in @('minecraft','cs')) {
+        if ($launched -contains $role -and (Get-RoleProcess $role)) {
+            try { Send-RoleCommand $role $(if ($role -eq 'cs') {'quit'} else {'stop'}) } catch { Write-Warning $_ }
+        }
+    }
+    exit 1
+} finally { if ($startupLock) { $startupLock.Dispose() } }

@@ -3,6 +3,7 @@
 /references/
 /sandbox/
 /dist/
+/server-packages/
 /build/
 /analysis/
 /amxx/zombie_plague/*/*.sma
@@ -36,6 +37,7 @@
 !/docs/VIX_POST_TODO.md
 !/docs/VALIDATION.md
 !/docs/SERVER_API.md
+!/docs/SERVER_PACKAGE.md
 !/docs/AMXX_INTEROP.md
 !/docs/ZOMBIE_TESTING.md
 !/docs/NATIVE_REGRESSIONS.md

@@ -8,6 +8,7 @@ import dev.goldcraft.bridge.HostEffectGrant;
 import dev.goldcraft.bridge.HostDeliveryQueue;
 import dev.goldcraft.bridge.MapEdits;
 import dev.goldcraft.net.BindingPayload;
+import dev.goldcraft.net.CsAdmission;
 import dev.goldcraft.net.HostPayload;
 import dev.goldcraft.net.ControlPayload;
 import dev.goldcraft.world.HostCollision;
@@ -87,6 +88,7 @@ public final class GoldCraft {
         authorityLink=null;generation=0;reset(server);
     }
     private static void reset(MinecraftServer server) {
+        CsAdmission.reset();
         nextEditQuery=0;
         HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
@@ -94,6 +96,7 @@ public final class GoldCraft {
         for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey()))entry.getValue().enqueue(type,data);
     }
     private static void paired(MinecraftServer server,byte[] bytes) {
+        if(!CsAdmission.deliverResult(bytes))return;
         Wire.Reader r=new Wire.Reader(bytes);long world=r.i64();int slot=r.i32(),serial=r.i32(),status=r.i32();UUID uuid=Wire.uuid(r.bytes(16));r.finish();
         ServerPlayerEntity player=server.getPlayerManager().getPlayer(uuid);if(player==null||world!=HOST_WORLD.epoch())return;
         Binding binding=new Binding(world,slot,serial);boolean first=!binding.equals(BINDINGS.get(uuid));
@@ -115,27 +118,32 @@ public final class GoldCraft {
         HostWorldReset.initialize();
         MinecraftObjects.initialize();
         modBus.addListener(this::registerPayloads);
+        modBus.addListener(CsAdmission::registerTasks);
         var events=net.neoforged.neoforge.common.NeoForge.EVENT_BUS;
         events.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerRespawnEvent event)-> {
             if(event.getEntity() instanceof ServerPlayerEntity player)HostSession.respawned(player);
         });
         events.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event)-> {
+            if(event.getEntity() instanceof ServerPlayerEntity admitted&&!CsAdmission.joined(admitted))return;
             if(event.getEntity() instanceof ServerPlayerEntity player && serverLink!=null && player.networkHandler.hasChannel(HostPayload.ID))HostSession.hold(player);
         });
         events.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event)-> {
+            if(event.getEntity() instanceof ServerPlayerEntity admitted)CsAdmission.disconnected(admitted);
             if(event.getEntity() instanceof ServerPlayerEntity player){BINDINGS.remove(player.getUuid());DELIVERIES.remove(player.getUuid());HostMining.disconnect(player.getUuid());HostSession.disconnect(player);}
         });
         events.addListener((net.neoforged.neoforge.event.server.ServerStartedEvent event)-> {
             var server=event.getServer();
+            CsAdmission.started(server);
             try {
                 BridgeLink.Config.environment("GOLDCRAFT_SERVER",Wire.FABRIC_SERVER,Wire.HOST_SERVER).ifPresent(config->{
                     serverLink=new BridgeLink(config);LOGGER.info("Authoritative host link configured on loopback port {}",config.port());
                 });
             }catch(IllegalArgumentException e){LOGGER.error("Invalid host-server configuration: {}",e.getMessage());}
         });
-        events.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event)->{var server=event.getServer();if(serverLink!=null)serverLink.close();serverLink=null;retireAuthority(server);HostSession.stopped();});
+        events.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event)->{var server=event.getServer();if(serverLink!=null)serverLink.close();serverLink=null;retireAuthority(server);HostSession.stopped();CsAdmission.stopped();});
         events.addListener((net.neoforged.neoforge.event.tick.ServerTickEvent.Post event)->{
             var server=event.getServer();
+            CsAdmission.tick();
             BridgeLink link=serverLink;
             if(link==null){if(authorityLink!=null)retireAuthority(server);return;}
             var incoming=link.drainWithContext();
@@ -219,8 +227,10 @@ public final class GoldCraft {
         LOGGER.info("GoldCraft initialized: Minecraft 1.21.1 / NeoForge 21.1.256, protocol {}",Wire.VERSION);
     }
     private void registerPayloads(net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent event) {
+        CsAdmission.registerPayloads(event);
         var registrar=event.registrar(Integer.toString(Wire.VERSION));
         registrar.playToServer(BindingPayload.ID,BindingPayload.CODEC,(payload,context)-> {
+            if(context.player() instanceof ServerPlayerEntity player&&CsAdmission.playBinding(player,payload.identity()))return;
             byte[] request=new Wire.Writer().bytes(payload.identity()).bytes(Wire.uuid(context.player().getUuid())).toByteArray();
             if(!sendToHost(Wire.PAIR_PLAYER,request))LOGGER.debug("Server pairing queue unavailable");
         });

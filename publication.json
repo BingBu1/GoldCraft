@@ -262,7 +262,22 @@
     "tests/native/plugin_draw_gl_tests.inc",
     "tests/world-lights/run.py",
     "tests/world-lights/WorldExporterFixture.inc",
-    "tests/world-lights/WorldExporterLightsTest.java"
+    "tests/world-lights/WorldExporterLightsTest.java",
+    "docs/SERVER_PACKAGE.md",
+    "tools/Build-ServerPackage.py",
+    "tools/Test-ServerPackage.py",
+    "tools/server-package/server-settings.json",
+    "tools/server-package/Start.cmd",
+    "tools/server-package/Status.cmd",
+    "tools/server-package/Stop.cmd",
+    "tools/server-package/scripts/Common.ps1",
+    "tools/server-package/scripts/NativeConsole.ps1",
+    "tools/server-package/scripts/Run-Server.ps1",
+    "tools/server-package/scripts/Send-Command.ps1",
+    "tools/server-package/scripts/Send-Console.ps1",
+    "tools/server-package/scripts/Start-Servers.ps1",
+    "tools/server-package/scripts/Status.ps1",
+    "tools/server-package/scripts/Stop-Servers.ps1"
   ],
   "trees": {
     "native": [
