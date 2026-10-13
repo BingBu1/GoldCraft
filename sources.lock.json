@@ -31,6 +31,7 @@
         "src/gl_gbuffer.cpp",
         "src/gl_studio_shadow.cpp",
         "tests/studio_shadow_gl_tests.cpp",
+        "tests/studio_shadow_face_gl_tests.cpp",
         "src/gl_studio_player.cpp",
         "src/studio_diagnostics.h",
         "src/studio_diagnostics.cpp",

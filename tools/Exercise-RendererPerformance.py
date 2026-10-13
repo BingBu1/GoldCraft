@@ -75,6 +75,11 @@ def summarize(frames):
     result = {"frames": len(frames), "focusedFrames": sum(f["focused"] for f in frames)}
     result["states"] = {key: sorted({f[key] for f in frames})
                         for key in ("deferred", "diagnostics", "shadows", "width", "height")}
+    if any("studioFaceCull" in frame for frame in frames):
+        result["studioFaceCullStates"] = sorted({frame["studioFaceCull"] for frame in frames
+                                                 if type(frame.get("studioFaceCull")) in (int, float)})
+        result["studioFaceCullComplete"] = all(type(frame.get("studioFaceCull")) in (int, float)
+                                                and frame["studioFaceCull"] in (0, 1) for frame in frames)
     for field in ("origin", "angles"):
         result[field + "Range"] = [max(f[field][i] for f in frames) - min(f[field][i] for f in frames)
                                    for i in range(3)]

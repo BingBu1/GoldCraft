@@ -65,7 +65,8 @@ def snapshot():
               "staticShadowAlphaChangedPackets", "staticShadowAlphaUnreferencedPackets",
               "staticShadowAlphaAffectedSections", "staticShadowAlphaFallbacks",
               "lights", "sceneLightsApi", "sceneLightsSubmitted", "sceneLightsFresh",
-              "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport")
+              "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport",
+              "rendererStudioFaceCull", "rendererStudioFaceCullAvailable")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
     return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
@@ -106,6 +107,31 @@ def wait_stable(seconds):
     raise TimeoutError("No paired gameplay view remained stationary in the foreground for three seconds; no profile started")
 
 
+def studio_face_cull(state):
+    value = state.get("rendererStudioFaceCull")
+    if (state.get("rendererStudioFaceCullAvailable") is not True
+            or type(value) not in (int, float) or value not in (0, 1)):
+        raise ValueError("Studio face culling requires the existing Renderer cvar and numeric 0/1 diagnostics")
+    return int(value)
+
+
+def stable_studio_face_cull(samples, frames, active, requested):
+    present = (any(any(key in s["native"] for key in
+                      ("rendererStudioFaceCull", "rendererStudioFaceCullAvailable")) for s in samples)
+               or any("studioFaceCull" in frame for frame in frames))
+    # Older runtimes are compatible only when this feature was not requested
+    # and neither producer claims to expose it. Partial telemetry fails closed.
+    if not present and requested is None:
+        return True
+    try:
+        return (active is not None and bool(samples) and bool(frames)
+                and all(studio_face_cull(s["native"]) == active for s in samples)
+                and all(type(f.get("studioFaceCull")) in (int, float)
+                        and f["studioFaceCull"] == active for f in frames))
+    except ValueError:
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=int, choices=range(5, 31), default=20)
@@ -118,6 +144,8 @@ def main():
                         help="Temporarily disable/enable MC shadow culling for a same-view comparison")
     parser.add_argument("--scene-static-shadows", type=int, choices=(0, 1),
                         help="Temporarily disable/enable MC static shadow caching for a same-view comparison")
+    parser.add_argument("--studio-shadow-face-cull", type=int, choices=(0, 1),
+                        help="Temporarily set the existing Studio shadow face-culling cvar; restore its original value")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -135,6 +163,13 @@ def main():
     original_caps = {k: first["native"].get(k) for k in ("fpsLimit", "fpsOverride", "vsync")}
     original_culling = first["native"].get("sceneCullingEnabled")
     original_static = first["native"].get("sceneStaticShadowsEnabled")
+    original_shadow_cull = first["native"].get("rendererShadowCull")
+    try:
+        original_face_cull = studio_face_cull(first["native"])
+    except ValueError:
+        if args.studio_shadow_face_cull is not None:
+            raise
+        original_face_cull = None
     if args.scene_cull is not None and (not first["native"].get("sceneCullingApi") or not isinstance(original_culling, bool)):
         raise RuntimeError("Scene culling comparison requires the live optional Renderer API and diagnostics")
     if args.scene_static_shadows is not None and (not first["native"].get("sceneStaticShadowsApi") or not isinstance(original_static, bool)):
@@ -144,10 +179,12 @@ def main():
     restored = None
     culling_restored = None
     static_restored = None
+    face_cull_restored = None
     capture_error = restore_error = None
     active_caps = original_caps.copy()
     active_culling = original_culling
     active_static = original_static
+    active_face_cull = original_face_cull
     try:
         if args.scene_cull is not None:
             renderer.command(f"scene_cull {args.scene_cull}")
@@ -159,6 +196,11 @@ def main():
             active_static = renderer.read_status().get("sceneStaticShadowsEnabled")
             if active_static != bool(args.scene_static_shadows):
                 raise RuntimeError("Live static shadow toggle was not applied")
+        if args.studio_shadow_face_cull is not None:
+            renderer.command(f"render_studio_face_cull {args.studio_shadow_face_cull}")
+            active_face_cull = studio_face_cull(renderer.read_status())
+            if active_face_cull != args.studio_shadow_face_cull:
+                raise RuntimeError("Live Studio face-culling toggle was not applied")
         if args.benchmark_fps:
             if args.seconds > 25:
                 raise ValueError("Benchmark samples must finish within the 30-second native lease")
@@ -208,6 +250,13 @@ def main():
             except Exception as error:
                 static_restored = False
                 restore_error = f"{restore_error or ''} static shadows: {error}".strip()
+        if args.studio_shadow_face_cull is not None:
+            try:
+                renderer.command(f"render_studio_face_cull {original_face_cull}")
+                face_cull_restored = studio_face_cull(renderer.read_status()) == original_face_cull
+            except Exception as error:
+                face_cull_restored = False
+                restore_error = f"{restore_error or ''} Studio face culling: {error}".strip()
     if not samples:
         samples = [first]
     try:
@@ -228,6 +277,23 @@ def main():
     summary["activeStaticShadows"] = active_static
     summary["staticShadowsRestored"] = static_restored
     summary["stableStaticShadows"] = all(s["native"].get("sceneStaticShadowsEnabled") == active_static for s in samples)
+    summary["requestedStudioFaceCull"] = args.studio_shadow_face_cull
+    summary["originalStudioFaceCull"] = original_face_cull
+    summary["activeStudioFaceCull"] = active_face_cull
+    summary["studioFaceCullRestored"] = face_cull_restored
+    summary["stableStudioFaceCull"] = stable_studio_face_cull(
+        samples, profiles.get("renderer", {}).get("frames", []), active_face_cull, args.studio_shadow_face_cull)
+    summary["studioFaceCullContext"] = {"sceneCulling": active_culling, "staticShadows": active_static,
+                                        "rendererShadowCull": original_shadow_cull}
+    summary["stableStudioFaceCullContext"] = (
+        type(active_culling) is bool and type(active_static) is bool
+        and type(original_shadow_cull) in (int, float) and original_shadow_cull in (0, 1)
+        and summary["stableSceneCulling"] and summary["stableStaticShadows"]
+        and all(type(s["native"].get("rendererShadowCull")) in (int, float)
+                and s["native"]["rendererShadowCull"] == original_shadow_cull for s in samples)
+        and bool(profiles.get("renderer", {}).get("frames"))
+        and all(type(f.get("shadowCull")) in (int, float) and f["shadowCull"] == original_shadow_cull
+                for f in profiles.get("renderer", {}).get("frames", [])))
     summary["staticShadowCounters"] = {key: samples[-1]["native"][key] - samples[0]["native"][key]
         for key in ("staticShadowCallbacks", "staticShadowDraws", "staticShadowSectionSkips",
                     "staticShadowInvalidations", "staticShadowAlphaInvalidations", "staticShadowFailures",
@@ -266,17 +332,32 @@ def main():
                                 (("fpsMax", "fpsLimit"), ("fpsOverride", "fpsOverride"), ("vsync", "vsync")))
     if args.reference:
         reference = read(args.reference)
+        if not isinstance(reference, dict):
+            reference = {}
+        prior = reference.get("summary", {})
+        if args.studio_shadow_face_cull is not None:
+            face_reference_matches = (type(prior.get("requestedStudioFaceCull")) is int
+                                      and prior["requestedStudioFaceCull"] in (0, 1)
+                                      and prior.get("activeStudioFaceCull") == prior["requestedStudioFaceCull"]
+                                      and prior.get("stableStudioFaceCull") is True
+                                      and prior.get("stableStudioFaceCullContext") is True
+                                      and prior.get("studioFaceCullContext") == summary["studioFaceCullContext"])
+        else:
+            face_reference_matches = prior.get("activeStudioFaceCull") == active_face_cull
         a, b = reference.get("renderAnchor"), report.get("renderAnchor")
         summary["referenceMatches"] = bool(a and b and reference.get("summary", {}).get("eligible") and
             a["world"] == b["world"] and max(delta(a, b)) < .1 and
             reference["summary"]["renderer"]["states"] == quality and
             reference["summary"].get("activeCaps") == active_caps and
+            face_reference_matches and
             reference["samples"][0]["native"].get("minecraftControl") == samples[0]["native"].get("minecraftControl"))
     summary["eligible"] = (summary["complete"] and summary["freshSamples"] and summary["stableLifecycle"] and summary["stableCaps"] and
                            summary["pairedGameplay"] and summary["noRenderErrors"] and summary["requiredPopulation"] and
                            summary["fullQuality"] and summary["stableQuality"] and
                            summary["stableSceneCulling"] and culling_restored is not False and
                            summary["stableStaticShadows"] and static_restored is not False and
+                           summary["stableStudioFaceCull"] and face_cull_restored is not False and
+                           (args.studio_shadow_face_cull is None or summary["stableStudioFaceCullContext"]) and
                            summary.get("native", {}).get("foregroundFpsEligible", False) and
                            summary.get("renderer", {}).get("fpsComparisonEligible", False) and
                            summary["referenceMatches"] is not False and restored is not False and capture_error is None)
@@ -300,6 +381,8 @@ def main():
         raise RuntimeError("Scene culling restoration did not match the original value; inspect live B")
     if static_restored is False:
         raise RuntimeError("Static shadow restoration did not match the original value; inspect live B")
+    if face_cull_restored is False:
+        raise RuntimeError("Studio face-culling restoration did not match the original value; inspect live B")
 
 
 if __name__ == "__main__":

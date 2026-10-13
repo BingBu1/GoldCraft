@@ -85,6 +85,118 @@ index df2097c..f61be0b 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/assets/svencoop/renderer/shader/studio_shader.geom.glsl b/assets/svencoop/renderer/shader/studio_shader.geom.glsl
+index 8c0f48c..cf4912a 100644
+--- a/assets/svencoop/renderer/shader/studio_shader.geom.glsl
++++ b/assets/svencoop/renderer/shader/studio_shader.geom.glsl
+@@ -46,6 +46,40 @@ out vec3 g_smoothnormal;
+ 	out vec3 g_headorigin;
+ #endif
+ 
++#if defined(MULTIVIEW_ENABLED) && defined(SHADOW_CASTER_ENABLED)
++// Opt-in until the complete shadow pass has been measured in the game.
++uniform bool r_shadow_face_cull;
++
++bool StudioTriangleOutsideSidePlanes(vec4 clipPositions[3])
++{
++	float scale = 1.0;
++	for (int i = 0; i < 3; ++i)
++	{
++		vec4 p = clipPositions[i];
++		if (any(isnan(p)) || any(isinf(p)))
++			return false;
++		scale = max(scale, max(max(abs(p.x), abs(p.y)), max(abs(p.z), abs(p.w))));
++	}
++
++	// Retain uncertain boundaries and triangles crossing/behind the eye. Only
++	// common homogeneous x/y half-spaces are rejected; depth clamp still owns z.
++	float margin = scale * 0.00001;
++	bool left = true, right = true, bottom = true, top = true;
++	for (int i = 0; i < 3; ++i)
++	{
++		vec4 p = clipPositions[i];
++		if (p.w <= margin)
++			return false;
++		float bound = p.w + margin;
++		left = left && p.x < -bound;
++		right = right && p.x > bound;
++		bottom = bottom && p.y < -bound;
++		top = top && p.y > bound;
++	}
++	return left || right || bottom || top;
++}
++#endif
++
+ void main()
+ {
+ #if defined(MULTIVIEW_ENABLED)
+@@ -54,15 +88,31 @@ void main()
+ 	
+ 	for (int viewIdx = 0; viewIdx < numViews; ++viewIdx)
+ 	{
+-		// Set the layer for texture array rendering
+-		gl_Layer = viewIdx;
++		#if defined(SHADOW_CASTER_ENABLED)
++			vec4 clipPositions[3];
++			if (r_shadow_face_cull)
++			{
++				for (int i = 0; i < 3; ++i)
++				{
++					vec4 worldPos = vec4(v_worldpos[i], 1.0);
++					clipPositions[i] = GetCameraProjMatrix(viewIdx) * GetCameraWorldMatrix(viewIdx) * worldPos;
++				}
++				if (StudioTriangleOutsideSidePlanes(clipPositions))
++					continue;
++			}
++		#endif
+ 		
+ 		// Emit all 3 vertices for this triangle
+ 		for (int i = 0; i < 3; ++i)
+ 		{
+ 			// Transform position to clip space using the specific view's matrices
+ 			vec4 worldPos = vec4(v_worldpos[i], 1.0);
+-			gl_Position = GetCameraProjMatrix(viewIdx) * GetCameraWorldMatrix(viewIdx) * worldPos;
++			#if defined(SHADOW_CASTER_ENABLED)
++				if (r_shadow_face_cull)
++					gl_Position = clipPositions[i];
++				else
++			#endif
++				gl_Position = GetCameraProjMatrix(viewIdx) * GetCameraWorldMatrix(viewIdx) * worldPos;
+ 			
+ 			// Pass through all attributes
+ 			g_worldpos = v_worldpos[i];
+@@ -80,6 +130,8 @@ void main()
+ 				g_headorigin = v_headorigin[i];
+ 			#endif
+ 			
++			// Geometry outputs become undefined after each EmitVertex.
++			gl_Layer = viewIdx;
+ 			EmitVertex();
+ 		}
+ 		EndPrimitive();
+diff --git a/assets/svencoop/renderer/shader/studio_shader.vert.glsl b/assets/svencoop/renderer/shader/studio_shader.vert.glsl
+index 1bb79a2..81bd8d1 100644
+--- a/assets/svencoop/renderer/shader/studio_shader.vert.glsl
++++ b/assets/svencoop/renderer/shader/studio_shader.vert.glsl
+@@ -131,6 +131,11 @@ void main(void)
+ 
+ 	#endif
+ 
++#else
++
++	// Masked (including animated/packed) shadow materials still sample alpha.
++	v_texcoord = in_texcoord.xy;
++
+ #endif
+ 
+ 	//Offset the hair geometry a little bit, but no the face geometry
+@@ -176,4 +181,4 @@ void main(void)
+ 
+ 	v_projpos = gl_Position;
+ 	v_texcoord = v_texcoord * r_uvscale;
+-}
+\ No newline at end of file
++}
 diff --git a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
 index 7c18678..9cd76ae 100644
 --- a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
@@ -1717,10 +1829,10 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..29c4a03 100644
+index fa85f25..1ed1342 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
-@@ -9,6 +9,8 @@
+@@ -9,33 +9,22 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -1728,8 +1840,9 @@ index fa85f25..29c4a03 100644
 +#include <deque>
  
  static GLuint g_hStudioUBO{};
++static cvar_t* r_studio_shadow_face_cull{};
  
-@@ -16,26 +18,12 @@ static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCa
+ static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
  
  static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
  
@@ -1758,7 +1871,7 @@ index fa85f25..29c4a03 100644
  
  //Engine private vars
  
-@@ -154,83 +142,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +143,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -1842,15 +1955,43 @@ index fa85f25..29c4a03 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1583,6 +1494,7 @@ void R_InitStudio(void)
+@@ -1423,6 +1335,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+             SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
+             SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
+             SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
++            SHADER_UNIFORM(prog, r_shadow_face_cull, "r_shadow_face_cull");
+         }
+ 
+         g_StudioProgramTable[state] = prog;
+@@ -1436,6 +1349,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+     {
+         GL_UseProgram(prog.program);
+ 
++        if (prog.r_shadow_face_cull != -1)
++        {
++            const int enabled = r_studio_shadow_face_cull && r_studio_shadow_face_cull->value == 1.0f;
++            if (prog.shadowFaceCullValue != enabled)
++            {
++                glUniform1i(prog.r_shadow_face_cull, enabled);
++                prog.shadowFaceCullValue = enabled;
++                g_StudioProgramTable[state].shadowFaceCullValue = enabled;
++            }
++        }
++
+         if (progOutput)
+             *progOutput = prog;
+     }
+@@ -1583,6 +1507,9 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
++    // Keep this candidate opt-in until an actual foreground comparison is available.
++    r_studio_shadow_face_cull = gEngfuncs.pfnRegisterVariable("r_studio_shadow_face_cull", "0", FCVAR_CLIENTDLL);
 +    R_StudioDiagnosticsInit();
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1800,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1815,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -1867,7 +2008,7 @@ index fa85f25..29c4a03 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2327,9 +2243,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2258,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -1882,7 +2023,7 @@ index fa85f25..29c4a03 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2397,6 +2315,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2330,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -1890,7 +2031,7 @@ index fa85f25..29c4a03 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -3104,7 +3023,11 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,7 +3038,11 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -1903,7 +2044,7 @@ index fa85f25..29c4a03 100644
  
      GL_UseProgram(0);
  
-@@ -3377,7 +3300,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3315,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -1915,7 +2056,7 @@ index fa85f25..29c4a03 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3787,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +3802,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -1931,7 +2072,7 @@ index fa85f25..29c4a03 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3797,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +3812,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -2094,7 +2235,7 @@ index fa85f25..29c4a03 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3814,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +3829,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -2122,7 +2263,7 @@ index fa85f25..29c4a03 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +3826,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +3841,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -2130,7 +2271,7 @@ index fa85f25..29c4a03 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,28 +3842,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,28 +3857,15 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -2163,7 +2304,7 @@ index fa85f25..29c4a03 100644
      if (!(*pstudiohdr))
      {
          pfnMergeBones(pthis, dummy, pSubModel);
-@@ -4121,22 +3864,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4121,22 +3879,9 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
          return;
      }
  
@@ -2189,7 +2330,7 @@ index fa85f25..29c4a03 100644
  
      pfnMergeBones(pthis, dummy, pSubModel);
  }
-@@ -5021,18 +4751,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +4766,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -2211,10 +2352,19 @@ index fa85f25..29c4a03 100644
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..092d766 100644
+index eeb137d..b3f85d9 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
-@@ -225,8 +225,8 @@ public:
+@@ -50,6 +50,8 @@ typedef struct studio_program_s
+     int r_packed_index{-1};
+     int r_framerate_numframes{-1};
+     int r_nearplaneclip{-1};
++    int r_shadow_face_cull{-1};
++    int shadowFaceCullValue{0}; // Linked uniforms start at zero.
+ } studio_program_t;
+ 
+ class studiovertexbase_t
+@@ -225,8 +227,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -2225,7 +2375,7 @@ index eeb137d..092d766 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +242,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +244,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -2258,7 +2408,7 @@ index eeb137d..092d766 100644
          return base;
      }
  };
-@@ -356,20 +358,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +360,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -6789,7 +6939,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..e5d7950 100644
+index 93166e2..7b22eee 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,89 @@ if(NOT TARGET glfw)
@@ -6884,7 +7034,7 @@ index 93166e2..e5d7950 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +121,99 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +121,107 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -6896,6 +7046,14 @@ index 93166e2..e5d7950 100644
 +target_link_libraries(studio_shadow_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME studio_shadow_gl_tests COMMAND studio_shadow_gl_tests)
 +set_tests_properties(studio_shadow_gl_tests PROPERTIES SKIP_RETURN_CODE 2)
++
++add_executable(studio_shadow_face_gl_tests studio_shadow_face_gl_tests.cpp)
++target_compile_definitions(studio_shadow_face_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(studio_shadow_face_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(studio_shadow_face_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME studio_shadow_face_gl_tests COMMAND studio_shadow_face_gl_tests)
++set_tests_properties(studio_shadow_face_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
 +
 +add_executable(surface_mesh_gl_tests surface_mesh_gl_tests.cpp
 +    "${GOLDCRAFT_INCLUDE_DIR}/../common/carved_visibility.cpp"
@@ -7785,6 +7943,632 @@ index 0000000..0564c4d
 +    glfwTerminate();
 +    return 0;
 +}
+diff --git a/tests/studio_shadow_face_gl_tests.cpp b/tests/studio_shadow_face_gl_tests.cpp
+new file mode 100644
+index 0000000..4895acd
+--- /dev/null
++++ b/tests/studio_shadow_face_gl_tests.cpp
+@@ -0,0 +1,620 @@
++// Production Studio VS/GS/FS and common.h on real layered depth targets.
++// The independent oracle draws each layer with the production VS/FS and no GS.
++// Optional argv[1]/argv[2] supply the frozen pre-change GS/VS for an additional
++// oracle and old UV defect probe; they stay outside the published source tree.
++// No game or desktop input is used.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <array>
++#include <cassert>
++#include <cmath>
++#include <cstddef>
++#include <cstdio>
++#include <fstream>
++#include <limits>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace
++{
++constexpr int Size = 64;
++using Vec = std::array<float, 3>;
++using Pixels = std::vector<float>;
++struct Vertex
++{
++    Vec position;
++    std::array<float, 2> uv;
++    unsigned bone{};
++};
++using Mesh = std::vector<Vertex>;
++struct Capture
++{
++    Pixels depth;
++    GLuint primitives{};
++};
++struct Programs
++{
++    GLuint layered{}, single{}, original{};
++};
++unsigned checks{}, comparisons{};
++GLuint vao{}, vbo{}, cameraBuffer{}, sceneBuffer{}, studioBuffer{}, query{};
++scene_ubo_t scene{};
++studio_ubo_t studio{};
++
++void Check(bool condition, const char* message)
++{
++    ++checks;
++    if (!condition) std::fprintf(stderr, "FAIL: %s\n", message);
++    assert(condition);
++}
++
++std::string ReadPath(const std::string& path)
++{
++    std::ifstream file(path, std::ios::binary);
++    Check(file.good(), "shader source exists");
++    std::ostringstream out;
++    out << file.rdbuf();
++    return out.str();
++}
++
++std::string Read(const char* name)
++{
++    return ReadPath(std::string(RENDERER_SHADER_DIRECTORY) + "/" + name);
++}
++
++GLuint Stage(GLenum type, std::string source, const std::string& defines)
++{
++    const auto at = source.find("#include \"common.h\"");
++    Check(at != std::string::npos, "production shader includes common.h");
++    source.replace(at, std::strlen("#include \"common.h\""), Read("common.h"));
++    source.insert(source.find('\n') + 1, defines +
++        (type == GL_FRAGMENT_SHADER ? "#define IS_FRAGMENT_SHADER\n" :
++         type == GL_GEOMETRY_SHADER ? "#define IS_GEOMETRY_SHADER\n" : "#define IS_VERTEX_SHADER\n"));
++    const GLuint shader = glCreateShader(type);
++    const char* text = source.c_str();
++    glShaderSource(shader, 1, &text, nullptr);
++    glCompileShader(shader);
++    GLint ok{};
++    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok)
++    {
++        char log[16384]{};
++        glGetShaderInfoLog(shader, sizeof(log), nullptr, log);
++        std::fprintf(stderr, "Shader %u [%s]: %s\n", type, defines.c_str(), log);
++    }
++    Check(ok != 0, "production stage compiles");
++    return shader;
++}
++
++GLuint Program(const std::string& defines, const std::string* geometry, const std::string* vertex = nullptr)
++{
++    const GLuint program = glCreateProgram();
++    const std::array shaders{
++        Stage(GL_VERTEX_SHADER, vertex ? *vertex : Read("studio_shader.vert.glsl"), defines),
++        Stage(GL_FRAGMENT_SHADER, Read("studio_shader.frag.glsl"), defines),
++        geometry ? Stage(GL_GEOMETRY_SHADER, *geometry, defines) : 0u};
++    for (auto shader : shaders) if (shader) glAttachShader(program, shader);
++    glLinkProgram(program);
++    GLint ok{};
++    glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    if (!ok)
++    {
++        char log[16384]{};
++        glGetProgramInfoLog(program, sizeof(log), nullptr, log);
++        std::fprintf(stderr, "Program [%s]: %s\n", defines.c_str(), log);
++    }
++    Check(ok != 0, "production stages link");
++    for (auto shader : shaders) if (shader) glDeleteShader(shader);
++    glUseProgram(program);
++    glUniform2f(glGetUniformLocation(program, "r_uvscale"), 1.f, 1.f);
++    glUniform2f(glGetUniformLocation(program, "r_framerate_numframes"), 1.f, 2.f);
++    glUniform1f(glGetUniformLocation(program, "r_packed_stride"), .5f);
++    glUniform4f(glGetUniformLocation(program, "r_packed_index"), 1.f, 0.f, 0.f, 0.f);
++    return program;
++}
++
++Programs MakePrograms(const std::string& material, bool linear, bool shadow, const std::string& original)
++{
++    const auto defines = material + (shadow ? "#define SHADOW_CASTER_ENABLED\n" : "") +
++        (linear ? "#define LINEAR_DEPTH_ENABLED\n" : "");
++    const auto geometry = Read("studio_shader.geom.glsl");
++    Programs result{Program(defines + "#define MULTIVIEW_ENABLED\n", &geometry), Program(defines, nullptr),
++        original.empty() ? 0u : Program(defines + "#define MULTIVIEW_ENABLED\n", &original)};
++    const GLint cull = glGetUniformLocation(result.layered, "r_shadow_face_cull");
++    Check(shadow ? cull >= 0 : cull == -1, "face-cull uniform only exists in shadow variants");
++    if (shadow)
++    {
++        GLint initial = -1;
++        glGetUniformiv(result.layered, cull, &initial);
++        Check(initial == 0, "new uniform defaults to disabled without a CPU upload");
++    }
++    return result;
++}
++
++void Delete(const Programs& programs)
++{
++    glDeleteProgram(programs.layered);
++    glDeleteProgram(programs.single);
++    if (programs.original) glDeleteProgram(programs.original);
++}
++
++template<typename T>
++void Upload(GLuint buffer, const T& data)
++{
++    glBindBuffer(GL_UNIFORM_BUFFER, buffer);
++    glBufferData(GL_UNIFORM_BUFFER, sizeof(T), &data, GL_STREAM_DRAW);
++}
++
++camera_ubo_t Camera(bool cube)
++{
++    camera_ubo_t camera{};
++    camera.numViews = cube ? 6 : 4;
++    const Vec forwards[]{{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
++    const Vec rights[]{{0,0,-1},{0,0,1},{1,0,0},{1,0,0},{1,0,0},{-1,0,0}};
++    const Vec ups[]{{0,-1,0},{0,-1,0},{0,0,1},{0,0,-1},{0,-1,0},{0,-1,0}};
++    for (int layer = 0; layer < camera.numViews; ++layer)
++    {
++        auto& view = camera.views[layer];
++        view.viewport[2] = view.viewport[3] = Size;
++        view.vright_znear[3] = .1f;
++        view.vup_zfar[3] = 32.f;
++        if (cube)
++        {
++            for (int j = 0; j < 3; ++j)
++            {
++                view.worldMatrix[j][0] = rights[layer][j];
++                view.worldMatrix[j][1] = ups[layer][j];
++                view.worldMatrix[j][2] = -forwards[layer][j];
++            }
++            view.worldMatrix[3][3] = 1.f;
++            view.projMatrix[0][0] = view.projMatrix[1][1] = 1.f;
++            view.projMatrix[2][2] = -(32.f + .1f) / (32.f - .1f);
++            view.projMatrix[2][3] = -1.f;
++            view.projMatrix[3][2] = -2.f * 32.f * .1f / (32.f - .1f);
++        }
++        else
++        {
++            for (int j = 0; j < 4; ++j)
++                view.worldMatrix[j][j] = view.projMatrix[j][j] = 1.f;
++            view.projMatrix[0][0] = view.projMatrix[1][1] = 1.f / float(1 << layer);
++        }
++    }
++    return camera;
++}
++
++class Target
++{
++public:
++    bool cube;
++    int layers;
++    GLuint fbo{}, depth{};
++    explicit Target(bool isCube) : cube(isCube), layers(isCube ? 6 : 4)
++    {
++        glGenFramebuffers(1, &fbo);
++        glGenTextures(1, &depth);
++        const GLenum target = cube ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_2D_ARRAY;
++        glBindTexture(target, depth);
++        if (cube) glTexStorage2D(target, 1, GL_DEPTH32F_STENCIL8, Size, Size);
++        else glTexStorage3D(target, 1, GL_DEPTH32F_STENCIL8, Size, Size, layers);
++        glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++        glTexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++        Layered();
++    }
++    void Layered() const
++    {
++        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++        glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, depth, 0);
++        glDrawBuffer(GL_NONE);
++        glReadBuffer(GL_NONE);
++        Check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "layered depth target complete");
++    }
++    void Layer(int layer) const
++    {
++        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++        if (cube) glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
++            GL_TEXTURE_CUBE_MAP_POSITIVE_X + layer, depth, 0);
++        else glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, depth, 0, layer);
++        Check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "single depth layer complete");
++    }
++    Pixels ReadDepth() const
++    {
++        Pixels result(Size * Size * layers);
++        for (int layer = 0; layer < layers; ++layer)
++        {
++            Layer(layer);
++            glReadPixels(0, 0, Size, Size, GL_DEPTH_COMPONENT, GL_FLOAT, result.data() + layer * Size * Size);
++        }
++        return result;
++    }
++    ~Target()
++    {
++        glDeleteFramebuffers(1, &fbo);
++        glDeleteTextures(1, &depth);
++    }
++};
++
++void SetupMesh(const Mesh& mesh)
++{
++    glBindVertexArray(vao);
++    glBindBuffer(GL_ARRAY_BUFFER, vbo);
++    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(mesh.size() * sizeof(Vertex)), mesh.data(), GL_STREAM_DRAW);
++}
++
++Capture Draw(const Target& target, const camera_ubo_t& camera, const Mesh& mesh, GLuint program,
++    int cull, bool single = false, bool rasterDiscard = false)
++{
++    SetupMesh(mesh);
++    glUseProgram(program);
++    const auto uniform = glGetUniformLocation(program, "r_shadow_face_cull");
++    if (uniform >= 0 && cull >= 0) glUniform1i(uniform, cull);
++    if (rasterDiscard) glEnable(GL_RASTERIZER_DISCARD);
++    target.Layered();
++    glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.f, 93);
++    GLuint primitives{};
++    glBeginQuery(GL_PRIMITIVES_GENERATED, query);
++    if (single)
++    {
++        for (int layer = 0; layer < target.layers; ++layer)
++        {
++            auto one = camera;
++            one.views[0] = camera.views[layer];
++            one.numViews = 1;
++            Upload(cameraBuffer, one);
++            target.Layer(layer);
++            glDrawArrays(GL_TRIANGLES, 0, GLsizei(mesh.size()));
++        }
++    }
++    else
++    {
++        Upload(cameraBuffer, camera);
++        glDrawArrays(GL_TRIANGLES, 0, GLsizei(mesh.size()));
++    }
++    glEndQuery(GL_PRIMITIVES_GENERATED);
++    glGetQueryObjectuiv(query, GL_QUERY_RESULT, &primitives);
++    glDisable(GL_RASTERIZER_DISCARD);
++    Capture result{rasterDiscard ? Pixels{} : target.ReadDepth(), primitives};
++    Check(glGetError() == GL_NO_ERROR, "draw and depth readback have no GL errors");
++    return result;
++}
++
++void Equal(const Pixels& expected, const Pixels& actual, const char* label, float tolerance = 0.f)
++{
++    Check(expected.size() == actual.size(), "depth readback sizes match");
++    size_t different{};
++    float maximum{};
++    for (size_t i = 0; i < expected.size(); ++i)
++    {
++        const float error = std::abs(expected[i] - actual[i]);
++        if (!std::isfinite(actual[i]) || !std::isfinite(expected[i]) ||
++            ((expected[i] == 1.f) != (actual[i] == 1.f)) || error > tolerance) ++different;
++        maximum = (std::max)(maximum, error);
++    }
++    if (different) std::fprintf(stderr, "%s: %zu differing pixels, max error %.9g\n", label, different, maximum);
++    Check(different == 0, label);
++    ++comparisons;
++}
++
++Capture Compare(const char* label, const Target& target, const camera_ubo_t& camera, const Mesh& mesh,
++    const Programs& programs, int expectedRetained = -1)
++{
++    const auto reference = Draw(target, camera, mesh, programs.single, 0, true);
++    const auto disabled = Draw(target, camera, mesh, programs.layered, 0);
++    const auto enabled = Draw(target, camera, mesh, programs.layered, 1);
++    Equal(reference.depth, disabled.depth, "disabled matches independent no-GS per-layer oracle", .000001f);
++    Equal(disabled.depth, enabled.depth, label);
++    Check(disabled.primitives == GLuint(mesh.size() / 3 * target.layers), "disabled emits every triangle to every layer");
++    Check(enabled.primitives <= disabled.primitives, "candidate never increases amplification");
++    if (expectedRetained >= 0) Check(enabled.primitives == GLuint(expectedRetained), "expected conservative emission count");
++    if (programs.original)
++    {
++        const auto baseline = Draw(target, camera, mesh, programs.original, 0);
++        Equal(baseline.depth, disabled.depth, "disabled matches frozen pre-change GS");
++        Check(baseline.primitives == disabled.primitives, "frozen GS emission count unchanged when disabled");
++    }
++    std::printf("%s: layers=%d triangles=%zu emitted=%u -> %u\n", label, target.layers,
++        mesh.size() / 3, disabled.primitives, enabled.primitives);
++    return enabled;
++}
++
++Mesh Triangle(Vec a, Vec b, Vec c, unsigned bone = 0)
++{
++    return {{a, {0, 0}, bone}, {b, {1, 0}, bone}, {c, {0, 1}, bone}};
++}
++
++void Append(Mesh& target, const Mesh& mesh)
++{
++    target.insert(target.end(), mesh.begin(), mesh.end());
++}
++
++Mesh CubeGeometry()
++{
++    Mesh mesh;
++    for (int axis = 0; axis < 3; ++axis)
++        for (int sign : {-1, 1})
++        {
++            Vec a{}, b{}, c{};
++            a[axis] = b[axis] = c[axis] = 3.f * sign;
++            a[(axis + 1) % 3] = -.8f; a[(axis + 2) % 3] = -.8f;
++            b[(axis + 1) % 3] = .8f; b[(axis + 2) % 3] = -.8f;
++            c[(axis + 2) % 3] = .8f;
++            Append(mesh, Triangle(a, b, c));
++        }
++    // Entirely positive xyz gives three positive-w faces, two safely rejected.
++    Append(mesh, Triangle({4, .8f, 1}, {4, 1.4f, 1}, {4, 1, 1.6f}));
++    return mesh;
++}
++
++size_t Written(const Pixels& pixels, int layer = -1)
++{
++    size_t count{};
++    const size_t begin = layer < 0 ? 0 : layer * Size * Size;
++    const size_t end = layer < 0 ? pixels.size() : begin + Size * Size;
++    for (size_t i = begin; i < end; ++i) if (pixels[i] < 1.f) ++count;
++    return count;
++}
++
++void Bones(bool animated)
++{
++    studio = {};
++    studio.r_ambientlight = 1.f;
++    for (int i = 0; i < 4; ++i) studio.r_color[i] = 1.f;
++    studio.r_plightvec[2] = 1.f;
++    for (int bone = 0; bone < 128; ++bone)
++        for (int i = 0; i < 3; ++i) studio.bonematrix[bone][i][i] = 1.f;
++    if (animated)
++    {
++        const float c = std::cos(.45f), s = std::sin(.45f);
++        studio.bonematrix[1][0][0] = c; studio.bonematrix[1][0][1] = -s;
++        studio.bonematrix[1][1][0] = s; studio.bonematrix[1][1][1] = c;
++        studio.bonematrix[1][0][3] = .35f; studio.bonematrix[1][1][3] = -.2f;
++        studio.bonematrix[1][2][3] = .15f;
++    }
++    Upload(studioBuffer, studio);
++}
++
++void GeometryCases(const std::string& original)
++{
++    Target csm(false), cube(true);
++    const auto cascades = Camera(false), faces = Camera(true);
++    const auto programs = MakePrograms("", false, true, original);
++    Bones(false);
++    Compare("inside", csm, cascades, Triangle({-.7f,-.7f,0},{.7f,-.7f,0},{0,.7f,0}), programs, 4);
++    for (int axis = 0; axis < 2; ++axis)
++        for (int sign : {-1, 1})
++        {
++            Vec a{-.3f,-.3f,0}, b{.3f,-.3f,0}, c{0,.3f,0};
++            a[axis] = b[axis] = c[axis] = sign * 20.f;
++            Compare("common side outside", csm, cascades, Triangle(a,b,c), programs, 0);
++        }
++    Compare("one cascade rejects", csm, cascades, Triangle({1.2f,-.2f,0},{1.8f,-.2f,0},{1.5f,.3f,0}), programs, 3);
++    Compare("one vertex enters", csm, cascades, Triangle({.8f,0,0},{1.6f,-.6f,0},{1.6f,.6f,0}), programs, 4);
++    Compare("all vertices outside but triangle encloses view", csm, cascades,
++        Triangle({-3,-3,0},{3,-3,0},{0,3,0}), programs, 4);
++    Compare("crosses adjacent sides", csm, cascades, Triangle({-.6f,1.4f,0},{1.4f,-.6f,0},{2,2,0}), programs, 4);
++    for (float edge : {1.f, std::nextafter(1.f, 2.f), 1.000005f})
++        Compare("edge or uncertainty band retained", csm, cascades,
++            Triangle({edge,-.5f,0},{edge,.5f,0},{edge+.000001f,0,0}), programs, 4);
++    Compare("degenerate retained", csm, cascades, Triangle({0,0,0},{0,0,0},{0,0,0}), programs, 4);
++    auto behind = cascades;
++    for (int i = 0; i < 4; ++i) behind.views[i].projMatrix[3][3] = -1.f;
++    Compare("negative w fails open", csm, behind, Triangle({20,-1,0},{21,-1,0},{20,1,0}), programs, 4);
++    for (bool clamp : {false, true})
++    {
++        if (clamp) glEnable(GL_DEPTH_CLAMP); else glDisable(GL_DEPTH_CLAMP);
++        for (float z : {-2.f, -1.f, 1.f, 2.f})
++            Compare(clamp ? "z-only with depth clamp" : "z-only with clipping", csm, cascades,
++                Triangle({-.7f,-.7f,z},{.7f,-.7f,z},{0,.7f,z}), programs, 4);
++    }
++    glDisable(GL_DEPTH_CLAMP);
++    const auto cloud = CubeGeometry();
++    const auto allFaces = Compare("six real cube views", cube, faces, cloud, programs);
++    for (int layer = 0; layer < 6; ++layer) Check(Written(allFaces.depth, layer) > 20, "all cube layers receive geometry");
++    Check(allFaces.primitives < cloud.size() / 3 * 6, "real cubemap reduces GS primitive emissions");
++    Compare("cube seam crossing", cube, faces, Triangle({3,2.8f,-1},{2.8f,3,1},{4,4,0}), programs);
++    Compare("eye-plane crossing with negative w", cube, faces,
++        Triangle({-1,-.2f,-.2f},{3,-1,1},{3,1,-1}), programs, 6);
++    Compare("surrounds eye", cube, faces, Triangle({-4,-4,.2f},{4,-4,.2f},{0,4,.2f}), programs, 6);
++    Compare("near-zero w fails open", cube, faces,
++        Triangle({1e-8f,1e-8f,1e-8f},{2e-8f,1e-8f,1e-8f},{1e-8f,2e-8f,1e-8f}), programs, 6);
++    for (float bad : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
++             -std::numeric_limits<float>::infinity(), (std::numeric_limits<float>::max)()})
++    {
++        const auto mesh = Triangle({bad,0,0},{0,.5f,0},{0,0,.5f});
++        const auto retained = Draw(cube, faces, mesh, programs.layered, 1, false, true);
++        Check(retained.primitives == 6, "non-finite/uncertain clip coordinates fail open (raster discard)");
++    }
++    // Packed bone 0x0101 selects distinct vertex AND normal bone 1 in actual VS.
++    const auto skin = Triangle({-.65f,-.65f,0},{.65f,-.65f,0},{0,.65f,0}, 0x0101);
++    const auto rest = Compare("bone rest pose", csm, cascades, skin, programs);
++    Bones(true);
++    const auto moved = Compare("bone rotated and translated", csm, cascades, skin, programs);
++    Check(rest.depth != moved.depth && Written(moved.depth) > 0, "actual production bone transform changes coverage");
++    Bones(false);
++    Delete(programs);
++
++    const auto linear = MakePrograms("", true, true, original);
++    Compare("cube production radial depth", cube, faces, cloud, linear);
++    for (bool clamp : {false, true})
++    {
++        if (clamp) glEnable(GL_DEPTH_CLAMP); else glDisable(GL_DEPTH_CLAMP);
++        Compare("cube near-plane and depth-clamp radial", cube, faces,
++            Triangle({.05f,-.025f,-.025f},{.05f,.025f,-.025f},{.05f,0,.025f}), linear);
++    }
++    glDisable(GL_DEPTH_CLAMP);
++    Delete(linear);
++
++    const auto normal = MakePrograms("", false, false, original);
++    Compare("non-shadow multiview unchanged", cube, faces, cloud, normal, int(cloud.size() / 3 * 6));
++    Delete(normal);
++}
++
++GLuint Texture2D(int width, int height, const std::vector<unsigned char>& data)
++{
++    GLuint texture{};
++    glGenTextures(1, &texture);
++    glBindTexture(GL_TEXTURE_2D, texture);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    return texture;
++}
++
++void AlphaCases(const std::string& original, const std::string& oldVertex)
++{
++    Target csm(false), cube(true);
++    const auto cascades = Camera(false), faces = Camera(true);
++    const auto quad = Mesh{{{-.8f,-.8f,0},{0,0},0},{{.8f,-.8f,0},{1,0},0},{{.8f,.8f,0},{1,1},0},
++        {{-.8f,-.8f,0},{0,0},0},{{.8f,.8f,0},{1,1},0},{{-.8f,.8f,0},{0,1},0}};
++    auto cubeQuad = quad;
++    for (auto& vertex : cubeQuad) vertex.position[2] = -3.f;
++    std::vector<unsigned char> pattern(8 * 8 * 4, 255), packed(16 * 8 * 4, 255), animated(8 * 8 * 4 * 2, 255);
++    for (int y = 0; y < 8; ++y) for (int x = 0; x < 8; ++x)
++    {
++        const unsigned char alpha = ((x / 2 + y / 2) & 1) ? 255 : 0;
++        pattern[(y * 8 + x) * 4 + 3] = alpha;
++        packed[(y * 16 + x + 8) * 4 + 3] = alpha;
++        animated[(y * 8 + x) * 4 + 3] = alpha;
++        animated[(64 + y * 8 + x) * 4 + 3] = 255 - alpha;
++    }
++    glActiveTexture(GL_TEXTURE0);
++    const GLuint mask = Texture2D(8, 8, pattern), packedMask = Texture2D(16, 8, packed);
++    GLuint animation{};
++    glGenTextures(1, &animation);
++    glActiveTexture(GL_TEXTURE5);
++    glBindTexture(GL_TEXTURE_2D_ARRAY, animation);
++    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, 8, 8, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, animated.data());
++    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, mask);
++    const auto opaque = MakePrograms("", false, true, original);
++    const auto solid = Draw(csm, cascades, quad, opaque.layered, 1);
++    const auto cubeSolid = Draw(cube, faces, cubeQuad, opaque.layered, 1);
++    if (!oldVertex.empty())
++    {
++        const auto geometry = Read("studio_shader.geom.glsl");
++        const auto oldOpaque = Program("#define SHADOW_CASTER_ENABLED\n#define MULTIVIEW_ENABLED\n", &geometry, &oldVertex);
++        const auto legacySolid = Draw(csm, cascades, quad, oldOpaque, 0);
++        Equal(solid.depth, legacySolid.depth, "UV correction preserves old opaque depth");
++        const auto oldMasked = Program("#define SHADOW_CASTER_ENABLED\n#define MULTIVIEW_ENABLED\n#define STUDIO_NF_MASKED\n", &geometry, &oldVertex);
++        const auto legacyMasked = Draw(csm, cascades, quad, oldMasked, 0);
++        // Undefined UVs cannot be required to fail on every driver. Report the
++        // old result honestly; the corrected shader must pass the assertions below.
++        std::printf("OLD UV DEFECT PROBE: opaque=%zu masked=%zu pixels (expected patterned mask about half); old UV is undefined.\n",
++            Written(legacySolid.depth), Written(legacyMasked.depth));
++        glDeleteProgram(oldOpaque); glDeleteProgram(oldMasked);
++    }
++    Delete(opaque);
++    Pixels firstAnimated;
++    for (const std::string material : {std::string(""), std::string("#define PACKED_DIFFUSETEXTURE_ENABLED\n#define PACKED_NORMALTEXTURE_ENABLED\n"),
++             std::string("#define ANIMATED_TEXTURE_ENABLED\n")})
++    {
++        const bool isPacked = material.find("PACKED") != std::string::npos;
++        const bool isAnimated = material.find("ANIMATED") != std::string::npos;
++        glBindTexture(GL_TEXTURE_2D, isPacked ? packedMask : mask);
++        const auto programs = MakePrograms("#define STUDIO_NF_MASKED\n" + material, false, true, original);
++        glUseProgram(programs.layered);
++        glUniform2f(glGetUniformLocation(programs.layered, "r_uvscale"), isPacked ? .5f : 1.f, 1.f);
++        glUseProgram(programs.single);
++        glUniform2f(glGetUniformLocation(programs.single, "r_uvscale"), isPacked ? .5f : 1.f, 1.f);
++        if (programs.original)
++        {
++            glUseProgram(programs.original);
++            glUniform2f(glGetUniformLocation(programs.original, "r_uvscale"), isPacked ? .5f : 1.f, 1.f);
++        }
++        for (int frame = 0; frame < (isAnimated ? 2 : 1); ++frame)
++        {
++            scene.cl_time = float(frame);
++            Upload(sceneBuffer, scene);
++            const auto masked = Compare(isAnimated ? "animated alpha holes" : isPacked ? "packed alpha holes" : "alpha holes",
++                csm, cascades, quad, programs, 8);
++            const size_t written = Written(masked.depth), full = Written(solid.depth);
++            Check(written > full / 3 && written < full * 2 / 3, "real texture alpha removes only holes");
++            const auto cubeMasked = Compare("cube alpha holes", cube, faces, cubeQuad, programs);
++            Check(Written(cubeMasked.depth) > 0 && Written(cubeMasked.depth) < Written(cubeSolid.depth), "cube retains opaque texels and holes");
++            if (isAnimated)
++            {
++                if (frame == 0) firstAnimated = masked.depth;
++                else Check(firstAnimated != masked.depth, "production animated alpha switches layers");
++            }
++        }
++        Delete(programs);
++    }
++    scene.cl_time = 0;
++    Upload(sceneBuffer, scene);
++    glDeleteTextures(1, &mask); glDeleteTextures(1, &packedMask); glDeleteTextures(1, &animation);
++}
++
++void Run(const std::string& original, const std::string& oldVertex)
++{
++    glViewport(0, 0, Size, Size);
++    glEnable(GL_DEPTH_TEST);
++    glDepthFunc(GL_LESS);
++    glDepthMask(GL_TRUE);
++    glDisable(GL_CULL_FACE);
++    glDisable(GL_STENCIL_TEST);
++    glGenVertexArrays(1, &vao);
++    glBindVertexArray(vao);
++    glGenBuffers(1, &vbo);
++    glBindBuffer(GL_ARRAY_BUFFER, vbo);
++    glEnableVertexAttribArray(STUDIO_VA_POSITION);
++    glVertexAttribPointer(STUDIO_VA_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, position)));
++    glEnableVertexAttribArray(STUDIO_VA_TEXCOORD);
++    glVertexAttribPointer(STUDIO_VA_TEXCOORD, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, uv)));
++    glEnableVertexAttribArray(STUDIO_VA_PACKEDBONE);
++    glVertexAttribIPointer(STUDIO_VA_PACKEDBONE, 1, GL_UNSIGNED_INT, sizeof(Vertex), reinterpret_cast<void*>(offsetof(Vertex, bone)));
++    glVertexAttrib3f(STUDIO_VA_NORMAL, 0, 0, 1);
++    glVertexAttrib3f(STUDIO_VA_SMOOTHNORMAL, 0, 0, 1);
++    glVertexAttrib3f(STUDIO_VA_TANGENT, 1, 0, 0);
++    glVertexAttrib3f(STUDIO_VA_BITANGENT, 0, 1, 0);
++    glGenBuffers(1, &cameraBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, cameraBuffer);
++    glGenBuffers(1, &sceneBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, sceneBuffer);
++    glGenBuffers(1, &studioBuffer); glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, studioBuffer);
++    glGenQueries(1, &query);
++    scene = {};
++    scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1.f;
++    scene.r_g3 = .125f;
++    Upload(sceneBuffer, scene);
++    Bones(false);
++    const auto white = Texture2D(1, 1, {255, 255, 255, 255});
++    GeometryCases(original);
++    AlphaCases(original, oldVertex);
++    glDeleteTextures(1, &white);
++    glDeleteBuffers(1, &cameraBuffer); glDeleteBuffers(1, &sceneBuffer); glDeleteBuffers(1, &studioBuffer);
++    glDeleteBuffers(1, &vbo); glDeleteVertexArrays(1, &vao); glDeleteQueries(1, &query);
++    glUseProgram(0);
++    Check(glGetError() == GL_NO_ERROR, "suite cleanup has no GL errors");
++}
++} // namespace
++
++int main(int argc, char** argv)
++{
++    const std::string original = argc >= 2 ? ReadPath(argv[1]) : std::string{};
++    const std::string oldVertex = argc >= 3 ? ReadPath(argv[2]) : std::string{};
++    if (!glfwInit()) return 2;
++    for (int profile : {GLFW_OPENGL_COMPAT_PROFILE, GLFW_OPENGL_CORE_PROFILE})
++    {
++        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
++        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
++        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++        glfwWindowHint(GLFW_OPENGL_PROFILE, profile);
++        auto* window = glfwCreateWindow(Size, Size, "studio shadow face regression", nullptr, nullptr);
++        if (!window) { glfwTerminate(); return 2; }
++        glfwMakeContextCurrent(window);
++        glewExperimental = GL_TRUE;
++        if (glewInit() != GLEW_OK) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++        while (glGetError() != GL_NO_ERROR) {}
++        std::printf("Driver: %s / %s / profile=%d / frozen-baseline=%s\n", glGetString(GL_RENDERER),
++            glGetString(GL_VERSION), profile, original.empty() ? "no (independent per-layer oracle)" : "yes");
++        Run(original, oldVertex);
++        glfwDestroyWindow(window);
++    }
++    glfwTerminate();
++    std::printf("Studio face culling: %u checks, %u complete depth comparisons passed. Primitive counts are not FPS evidence.\n", checks, comparisons);
++    return 0;
++}
 diff --git a/src/gl_studio_player.cpp b/src/gl_studio_player.cpp
 new file mode 100644
 index 0000000..ae22570
@@ -8067,10 +8851,10 @@ index 0000000..7c65310
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..e7f0dcc
+index 0000000..284bf64
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,514 @@
+@@ -0,0 +1,516 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -8362,7 +9146,7 @@ index 0000000..e7f0dcc
 +    unsigned                            boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
 +    vec3_t                              origin{}, angles{};
 +    int                                 focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
-+    int                                 shadowCull{}, views{}, gpuReady{};
++    int                                 shadowCull{}, studioFaceCull{}, views{}, gpuReady{};
 +    float                               fpsMax{}, fpsOverride{}, vsync{};
 +};
 +std::vector<ProfileFrame> profileFrames;
@@ -8442,6 +9226,7 @@ index 0000000..e7f0dcc
 +        out << ",\"boneCacheAllocations\":" << f.boneCacheAllocations
 +            << ",\"boneCacheReuses\":" << f.boneCacheReuses << ",\"boneCacheOverflows\":" << f.boneCacheOverflows;
 +        out << ",\"shadowCull\":" << f.shadowCull << ",\"mainViews\":" << f.views << ",\"gpuReady\":" << f.gpuReady
++            << ",\"studioFaceCull\":" << f.studioFaceCull
 +            << ",\"fpsMax\":" << f.fpsMax << ",\"fpsOverride\":" << f.fpsOverride << ",\"vsync\":" << f.vsync;
 +        for (size_t i = 0; i < ProfileStages; ++i)
 +            out << ",\"" << ProfileNames[i] << "\":" << f.stages[i] << ",\"" << ProfileNames[i] << "Calls\":" << f.calls[i]
@@ -8577,6 +9362,7 @@ index 0000000..e7f0dcc
 +    profileFrame.width       = glwidth;
 +    profileFrame.height      = glheight;
 +    profileFrame.shadowCull  = static_cast<int>(gEngfuncs.pfnGetCvarFloat("r_shadow_caster_cull"));
++    profileFrame.studioFaceCull = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_face_cull") == 1.0f;
 +    profileFrame.fpsMax      = gEngfuncs.pfnGetCvarFloat("fps_max");
 +    profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
 +    profileFrame.vsync       = gEngfuncs.pfnGetCvarFloat("gl_vsync");
