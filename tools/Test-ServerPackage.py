@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import socket
 import struct
@@ -83,6 +84,38 @@ def read_status(path):
             time.sleep(.05)
 
 
+def cs_query(query, *, challenge=False):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+        udp.settimeout(5)
+        udp.connect(('127.0.0.1', 27145))
+        udp.send(query)
+        reply = udp.recv(4096)
+        if challenge and reply[:5] == b'\xff'*4 + b'A' and len(reply) == 9:
+            udp.send(query + reply[5:9])
+            reply = udp.recv(4096)
+        return reply
+
+
+def cs_slots(reply):
+    if reply[:4] != b'\xff'*4:
+        raise ValueError('Invalid CS query header')
+    if reply[4:5] == b'I':
+        at = 6
+        for _ in range(4):
+            at = reply.index(0, at) + 1
+        at += 2
+        players, maximum, bots = reply[at:at+3]
+    elif reply[4:5] == b'm':
+        at = 5
+        for _ in range(5):
+            at = reply.index(0, at) + 1
+        players, maximum = reply[at:at+2]
+        bots = None
+    else:
+        raise ValueError('Unknown CS query response')
+    return {'players': players, 'maximum': maximum, 'bots': bots}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--archive', type=Path, required=True)
@@ -96,7 +129,9 @@ def main():
         raise ValueError('Use a new analysis evidence directory')
     work.mkdir(parents=True)
     evidence.mkdir(parents=True)
-    result = {'checks': {}, 'limitations': ['No authenticated remote-player join or 32-human load test.']}
+    result = {'checks': {}, 'limitations': [
+        'No authenticated remote-player join or 32-human load test.',
+        'Clean Windows host without an installed Steam client has not been tested.']}
     checks = result['checks']
     server = work / 'GoldCraft-Servers'
 
@@ -134,7 +169,7 @@ def main():
         checks['noCopiedOpsOrWhitelist'] = all(json.loads((server / 'minecraft' / n).read_text()) == [] for n in ('ops.json','whitelist.json'))
         settings = json.loads((server / 'server-settings.json').read_text())
         settings.update(csPort=27145, steamPort=26945, minecraftPort=25645, bridgePort=25646, bindAddress='127.0.0.1',
-                        publicListing=False, minecraftMemoryGB=3, botTotalPlayers=0)
+                        publicListing=True, minecraftMemoryGB=3, botTotalPlayers=0)
         (server / 'server-settings.json').write_text(json.dumps(settings), encoding='utf-8')
         shell('Start-Servers.ps1', '-CheckOnly')
         checks['relocatedConfigurationPreflight'] = True
@@ -147,7 +182,8 @@ def main():
         shell('Send-Command.ps1', '-Role', 'minecraft', '-Command', 'list')
         time.sleep(1)
         log = (server / 'minecraft/logs/latest.log').read_text(encoding='utf-8', errors='replace')
-        checks['consoleCommandExecutedWhitelistEmpty'] = '0 whitelisted' in log or 'There are 0 whitelisted' in log
+        checks['consoleCommandExecutedWhitelistEmpty'] = any(text in log for text in (
+            '0 whitelisted', 'There are no whitelisted players'))
         with mc_connection(25645, 1) as sock:
             send(sock, b'\x00')
             raw = packet(sock)
@@ -177,32 +213,39 @@ def main():
         result['javaWorld'] = java['world']
         checks['authenticatedBridgeWorldMatches'] = native['world'] == java['world'] and native['world'] != '0'
         checks['realHostEntityApiLoaded'] = native['entityPhysics'] is True
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
-            udp.settimeout(5)
-            query = b'\xff'*4 + b'TSource Engine Query\x00'
-            udp.sendto(query, ('127.0.0.1',27145))
-            reply = udp.recv(4096)
-            if reply[4:5] == b'A':
-                udp.sendto(query + reply[5:9], ('127.0.0.1',27145))
-                reply = udp.recv(4096)
+        result['nativeActorCount'] = len(native['actors'])
+        checks['botManagerAddsBots'] = len(native['actors']) >= 24
+        shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'status')
+        deadline = time.monotonic() + 3
+        while True:
+            native_log = (server / 'cs/qconsole.log').read_text(encoding='utf-8', errors='replace')
+            slots = re.findall(r'players\s*:\s*(\d+) active \((\d+) max\)', native_log)
+            if slots or time.monotonic() >= deadline:
+                break
+            time.sleep(.05)
+        result['csConsoleSlots'] = list(map(int, slots[-1])) if slots else None
+        checks['csConsoleConfirms32Slots'] = bool(slots) and int(slots[-1][1]) == 32
+        # Keep engine UDP connectivity distinct from the Steam server browser.
+        # A failed query must not prevent map-change/save/exit checks.
+        try:
+            reply = cs_query(b'\xff'*4 + b'getchallenge steam\n')
+            result['csChallengeHex'] = reply.hex()
+            checks['csSecureConnectionChallenge'] = bool(re.fullmatch(
+                rb'\xff{4}A00000000 [0-9]+ 3 [0-9]+ 1\n\x00?', reply))
+        except (OSError, ValueError) as exc:
+            checks['csSecureConnectionChallenge'] = False
+            result['csChallengeError'] = repr(exc)
+        try:
+            reply = cs_query(b'\xff'*4 + b'TSource Engine Query\x00', challenge=True)
             result['csInfoHex'] = reply.hex()
-            if reply[4:5] == b'I':
-                at=6
-                for _ in range(4): at=reply.index(0,at)+1
-                at+=2
-                players, maximum, bots = reply[at:at+3]
-            elif reply[4:5] == b'm':
-                at=5
-                for _ in range(5): at=reply.index(0,at)+1
-                players, maximum = reply[at:at+2]
-                bots = None
-            else:
-                raise ValueError('Unknown CS query response')
-            result['csSlots'] = {'players':players, 'maximum':maximum, 'bots':bots}
-            checks['csAdvertises32Slots'] = maximum == 32
-            checks['botManagerAddsBots'] = players >= 24
+            result['csSlots'] = cs_slots(reply)
+            checks['csAdvertises32Slots'] = result['csSlots']['maximum'] == 32
+        except (OSError, ValueError) as exc:
+            checks['csAdvertises32Slots'] = False
+            result['csInfoError'] = repr(exc)
         shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'changelevel cs_assault')
         deadline = time.monotonic() + 25
+        after, mc_after = native, java
         while time.monotonic() < deadline:
             try:
                 after = read_status(server / '.state/goldcraft-server-status.json')
@@ -214,6 +257,8 @@ def main():
             time.sleep(.25)
         checks['bridgeReconnectsAfterMapChange'] = after['world'] != native['world'] and after['world'] == mc_after['world']
         checks['configuredBotsRemainOffAfterMapChange'] = len(after['actors']) == 0
+        result['nativeWorldAfterMapChange'] = after['world']
+        result['javaWorldAfterMapChange'] = mc_after['world']
         shell('Stop-Servers.ps1', '-TimeoutSeconds', '30', timeout=65)
         checks['gracefulStopBothServers'] = True
         log = (server / 'minecraft/logs/latest.log').read_text(encoding='utf-8', errors='replace')

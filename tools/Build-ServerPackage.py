@@ -50,7 +50,8 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path):
     for name in ('hlds.exe', 'swds.dll', 'FileSystem_Stdio.dll', 'steam_api.dll',
                  'tier0.dll', 'vstdlib.dll', 'vgui.dll', 'vgui2.dll', 'SDL2.dll'):
         add(CS / name, 'cs/' + name)
-    # SteamAPI can otherwise silently depend on the developer's Steam registry.
+    # Include the Steam runtime; a clean host's loader path needs separate
+    # validation because an installed Steam registry entry takes precedence.
     for name in ('steamclient.dll', 'tier0_s.dll', 'vstdlib_s.dll', 'crashhandler.dll'):
         add(steam / name, 'cs/' + name)
     # ReHLDS calls SteamAPI during initialization before CSteam3Server::Activate
