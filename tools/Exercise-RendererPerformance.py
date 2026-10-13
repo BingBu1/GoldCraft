@@ -75,7 +75,7 @@ def summarize(frames):
     result = {"frames": len(frames), "focusedFrames": sum(f["focused"] for f in frames)}
     result["states"] = {key: sorted({f[key] for f in frames})
                         for key in ("deferred", "diagnostics", "shadows", "width", "height")}
-    for feature in ("studioFaceCull", "studioDepthExecutor", "studioBonePaletteCache"):
+    for feature in ("studioFaceCull", "studioDepthExecutor", "studioBonePaletteCache", "worldMaterialBatch"):
         if any(feature in frame for frame in frames):
             result[feature + "States"] = sorted({frame[feature] for frame in frames
                                                  if type(frame.get(feature)) in (int, float)})
@@ -136,6 +136,16 @@ def summarize(frames):
                 sum(f[key] for key in merge_counts) == f.get("studioBoneMergeCalls")
                 and f["studioBoneMergeHits"] + f["studioBoneMergeMisses"] == f.get("studioBoneMergeLookupCalls")
                 and f["studioBoneMergeMisses"] + f["studioBoneMergeBypasses"] == f.get("studioBoneMergeNativeCalls")
+                for f in frames)
+    world_counts = ("worldMaterialChains", "worldMaterialSubmissions", "worldMaterialBatches")
+    if any(key in frame for frame in frames for key in world_counts):
+        result["worldMaterialCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                    for frame in frames for key in world_counts)
+        if result["worldMaterialCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in world_counts})
+            result["worldMaterialAccountingConsistent"] = all(
+                f["worldMaterialBatches"] <= f["worldMaterialSubmissions"] <= f["worldMaterialChains"]
+                and f["worldMaterialChains"] <= f["worldMaterialSubmissions"] + 5*f["worldMaterialBatches"]
                 for f in frames)
     return result
 

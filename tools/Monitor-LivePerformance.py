@@ -14,10 +14,21 @@ ROOT = Path(__file__).resolve().parent.parent
 LOGS = ROOT / "sandbox/cs-client-b/logs"
 OUTPUT = ROOT / "analysis/perf-200fps"
 STUDIO_COMMANDS = {"FaceCull": "render_studio_face_cull", "DepthExecutor": "render_studio_depth_executor",
-                   "BonePaletteCache": "render_studio_bone_palette_cache"}
+                   "BonePaletteCache": "render_studio_bone_palette_cache",
+                   "WorldMaterialBatch": "render_world_material_batch"}
 DEPTH_COUNTS = ("studioDepthFastMeshes", "studioDepthFallbackMeshes")
 PALETTE_COUNTS = ("studioBonePaletteUploads", "studioBonePaletteReuses",
                   "studioBonePaletteUploadBytes", "studioBonePaletteFallbacks")
+WORLD_COUNTS = ("worldMaterialChains", "worldMaterialSubmissions", "worldMaterialBatches")
+
+
+def feature_name(feature):
+    return "WorldMaterialBatch" if feature == "WorldMaterialBatch" else "Studio" + feature
+
+
+def feature_key(feature):
+    name = feature_name(feature)
+    return name[0].lower() + name[1:]
 
 
 def module(name, filename):
@@ -75,7 +86,8 @@ def snapshot():
               "rendererDeferred", "rendererShadowCull", "rendererDiagnostics", "transport",
               "rendererStudioFaceCull", "rendererStudioFaceCullAvailable",
               "rendererStudioDepthExecutor", "rendererStudioDepthExecutorAvailable",
-              "rendererStudioBonePaletteCache", "rendererStudioBonePaletteCacheAvailable")
+              "rendererStudioBonePaletteCache", "rendererStudioBonePaletteCacheAvailable",
+              "rendererWorldMaterialBatch", "rendererWorldMaterialBatchAvailable")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
     return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
@@ -117,7 +129,7 @@ def wait_stable(seconds):
 
 
 def studio_feature(state, feature):
-    key = "rendererStudio" + feature
+    key = "renderer" + feature_name(feature)
     value = state.get(key)
     if (state.get(key + "Available") is not True
             or type(value) not in (int, float) or value not in (0, 1)):
@@ -130,9 +142,10 @@ def studio_face_cull(state):
 
 
 def stable_studio_feature(samples, frames, active, requested, feature):
-    status_key, frame_key = "rendererStudio" + feature, "studio" + feature
+    status_key, frame_key = "renderer" + feature_name(feature), feature_key(feature)
     counts = (DEPTH_COUNTS if feature == "DepthExecutor" else
-              PALETTE_COUNTS if feature == "BonePaletteCache" else ())
+              PALETTE_COUNTS if feature == "BonePaletteCache" else
+              WORLD_COUNTS if feature == "WorldMaterialBatch" else ())
     present = (any(any(key in s["native"] for key in
                       (status_key, status_key + "Available")) for s in samples)
                or any(any(key in frame for key in (frame_key, *counts)) for frame in frames))
@@ -144,7 +157,11 @@ def stable_studio_feature(samples, frames, active, requested, feature):
         return (active is not None and bool(samples) and bool(frames)
                 and all(studio_feature(s["native"], feature) == active for s in samples)
                 and all(type(f.get(frame_key)) in (int, float) and f[frame_key] == active for f in frames)
-                and all(type(f.get(key)) is int and f[key] >= 0 for f in frames for key in counts))
+                and all(type(f.get(key)) is int and f[key] >= 0 for f in frames for key in counts)
+                and (feature != "WorldMaterialBatch" or all(
+                    f["worldMaterialBatches"] <= f["worldMaterialSubmissions"] <= f["worldMaterialChains"]
+                    <= f["worldMaterialSubmissions"] + 5*f["worldMaterialBatches"]
+                    and (active == 1 or f["worldMaterialBatches"] == 0) for f in frames)))
     except ValueError:
         return False
 
@@ -172,6 +189,8 @@ def main():
                         help="Temporarily set the existing Studio shadow depth executor; restore its original value")
     studio_modes.add_argument("--studio-bone-palette-cache", type=int, choices=(0, 1),
                         help="Temporarily toggle exact bone-palette reuse; restore its original value")
+    studio_modes.add_argument("--world-material-batch", type=int, choices=(0, 1),
+                        help="Temporarily toggle BSP material batching; restore its original value")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -191,7 +210,7 @@ def main():
     original_static = first["native"].get("sceneStaticShadowsEnabled")
     original_shadow_cull = first["native"].get("rendererShadowCull")
     requested_studio = {"FaceCull": args.studio_shadow_face_cull, "DepthExecutor": args.studio_shadow_depth_executor,
-                        "BonePaletteCache": args.studio_bone_palette_cache}
+                        "BonePaletteCache": args.studio_bone_palette_cache, "WorldMaterialBatch": args.world_material_batch}
     original_studio = {}
     for feature, requested in requested_studio.items():
         try:
@@ -311,11 +330,11 @@ def main():
     summary["stableStaticShadows"] = all(s["native"].get("sceneStaticShadowsEnabled") == active_static for s in samples)
     renderer_frames = profiles.get("renderer", {}).get("frames", [])
     for feature, requested in requested_studio.items():
-        summary["requestedStudio" + feature] = requested
-        summary["originalStudio" + feature] = original_studio[feature]
-        summary["activeStudio" + feature] = active_studio[feature]
-        summary["studio" + feature + "Restored"] = studio_restored[feature]
-        summary["stableStudio" + feature] = stable_studio_feature(
+        summary["requested" + feature_name(feature)] = requested
+        summary["original" + feature_name(feature)] = original_studio[feature]
+        summary["active" + feature_name(feature)] = active_studio[feature]
+        summary[feature_key(feature) + "Restored"] = studio_restored[feature]
+        summary["stable" + feature_name(feature)] = stable_studio_feature(
             samples, renderer_frames, active_studio[feature], requested, feature)
     stable_context = (
         type(active_culling) is bool and type(active_static) is bool
@@ -331,10 +350,10 @@ def main():
                    "rendererShadowCull": original_shadow_cull}
         for other, active in active_studio.items():
             if other != feature and active is not None:
-                context["studio" + other] = active
-        summary["studio" + feature + "Context"] = context
-        summary["stableStudio" + feature + "Context"] = (stable_context and
-            all(summary["stableStudio" + other] for other in requested_studio if other != feature)
+                context[feature_key(other)] = active
+        summary[feature_key(feature) + "Context"] = context
+        summary["stable" + feature_name(feature) + "Context"] = (stable_context and
+            all(summary["stable" + feature_name(other)] for other in requested_studio if other != feature)
             and (feature != "DepthExecutor" or active_studio["FaceCull"] is not None))
     summary["staticShadowCounters"] = {key: samples[-1]["native"][key] - samples[0]["native"][key]
         for key in ("staticShadowCallbacks", "staticShadowDraws", "staticShadowSectionSkips",
@@ -380,14 +399,14 @@ def main():
         studio_reference_matches = True
         for feature, requested in requested_studio.items():
             if requested is not None:
-                prior_requested = prior.get("requestedStudio" + feature)
+                prior_requested = prior.get("requested" + feature_name(feature))
                 studio_reference_matches &= (type(prior_requested) is int and prior_requested in (0, 1)
-                    and prior.get("activeStudio" + feature) == prior_requested
-                    and prior.get("stableStudio" + feature) is True
-                    and prior.get("stableStudio" + feature + "Context") is True
-                    and prior.get("studio" + feature + "Context") == summary["studio" + feature + "Context"])
+                    and prior.get("active" + feature_name(feature)) == prior_requested
+                    and prior.get("stable" + feature_name(feature)) is True
+                    and prior.get("stable" + feature_name(feature) + "Context") is True
+                    and prior.get(feature_key(feature) + "Context") == summary[feature_key(feature) + "Context"])
             else:
-                studio_reference_matches &= prior.get("activeStudio" + feature) == active_studio[feature]
+                studio_reference_matches &= prior.get("active" + feature_name(feature)) == active_studio[feature]
         a, b = reference.get("renderAnchor"), report.get("renderAnchor")
         summary["referenceMatches"] = bool(a and b and reference.get("summary", {}).get("eligible") and
             a["world"] == b["world"] and max(delta(a, b)) < .1 and
@@ -400,8 +419,8 @@ def main():
                            summary["fullQuality"] and summary["stableQuality"] and
                            summary["stableSceneCulling"] and culling_restored is not False and
                            summary["stableStaticShadows"] and static_restored is not False and
-                           all(summary["stableStudio" + feature] and studio_restored[feature] is not False
-                               and (requested is None or summary["stableStudio" + feature + "Context"])
+                           all(summary["stable" + feature_name(feature)] and studio_restored[feature] is not False
+                               and (requested is None or summary["stable" + feature_name(feature) + "Context"])
                                for feature, requested in requested_studio.items()) and
                            summary.get("native", {}).get("foregroundFpsEligible", False) and
                            summary.get("renderer", {}).get("fpsComparisonEligible", False) and

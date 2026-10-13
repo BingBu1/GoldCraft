@@ -356,10 +356,39 @@ index 1bb79a2..54c8c74 100644
 \ No newline at end of file
 +}
 diff --git a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
-index 7c18678..d662182 100644
+index 7c18678..b0fd93b 100644
 --- a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
-@@ -17,6 +17,15 @@ layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_1) uniform sampler2DArray lightmapT
+@@ -8,6 +8,28 @@
+ uniform float u_parallaxScale;
+ 
+ layout(binding = WSURF_BIND_DIFFUSE_TEXTURE) uniform sampler2D diffuseTex;
++#if defined(MATERIAL_BATCH_ENABLED)
++layout(binding = 9) uniform sampler2D diffuseBatchTex[6];
++flat in uint v_diffuseSlot;
++
++vec4 SampleDiffuse(vec2 uv)
++{
++    // Constant sampler indices work on GL 4.3; explicit gradients keep mip
++    // selection well-defined even across differently textured primitives.
++    vec2 dx = dFdx(uv), dy = dFdy(uv);
++    switch (v_diffuseSlot)
++    {
++        case 0u: return textureGrad(diffuseBatchTex[0], uv, dx, dy);
++        case 1u: return textureGrad(diffuseBatchTex[1], uv, dx, dy);
++        case 2u: return textureGrad(diffuseBatchTex[2], uv, dx, dy);
++        case 3u: return textureGrad(diffuseBatchTex[3], uv, dx, dy);
++        case 4u: return textureGrad(diffuseBatchTex[4], uv, dx, dy);
++        default: return textureGrad(diffuseBatchTex[5], uv, dx, dy);
++    }
++}
++#else
++vec4 SampleDiffuse(vec2 uv) { return texture(diffuseTex, uv); }
++#endif
+ layout(binding = WSURF_BIND_DETAIL_TEXTURE) uniform sampler2D detailTex;
+ layout(binding = WSURF_BIND_NORMAL_TEXTURE) uniform sampler2D normalTex;
+ layout(binding = WSURF_BIND_PARALLAX_TEXTURE) uniform sampler2D parallaxTex;
+@@ -17,6 +39,15 @@ layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_1) uniform sampler2DArray lightmapT
  layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_2) uniform sampler2DArray lightmapTexArray_2;
  layout(binding = WSURF_BIND_LIGHTMAP_TEXTURE_3) uniform sampler2DArray lightmapTexArray_3;
  
@@ -375,7 +404,7 @@ index 7c18678..d662182 100644
  // Input from geometry shader (if enabled) or vertex shader (if not)
  #if defined(MULTIVIEW_ENABLED)
  	// When geometry shader is enabled, input comes from geometry shader with g_ prefix
-@@ -86,8 +95,8 @@ vec4 R_AddLegacyDynamicLight(vec4 color)
+@@ -86,8 +117,8 @@ vec4 R_AddLegacyDynamicLight(vec4 color)
  {
  	for(uint i = 0;i < DLightUBO.active_dlights; ++i)
  	{
@@ -386,7 +415,7 @@ index 7c18678..d662182 100644
  		vec3 delta = origin - v_worldpos.xyz;
  		vec3 normal = normalize(v_normal);
  		float surface_dist = dot(delta, normal);
-@@ -95,8 +104,8 @@ vec4 R_AddLegacyDynamicLight(vec4 color)
+@@ -95,8 +126,8 @@ vec4 R_AddLegacyDynamicLight(vec4 color)
  		vec3 planar_delta = delta - normal * surface_dist;
  		float planar_dist = length(planar_delta);
  
@@ -397,7 +426,21 @@ index 7c18678..d662182 100644
  		
  		color.xyz += clamp((effective_radius - planar_dist) / 256.0, 0.0, 1.0) * lightcolor.xyz;
  	}
-@@ -258,8 +267,11 @@ void main()
+@@ -212,11 +243,11 @@ vec4 SampleDiffuseTexture(vec2 baseTexcoord)
+ 
+ 		vec3 viewDir = normalize(v_worldpos.xyz - GetCameraViewPos(GetCameraViewIndex()));
+ 
+-		vec4 diffuseColor = texture(diffuseTex, ParallaxMapping(v_tangent, v_bitangent, v_normal, viewDir, baseTexcoord));
++		vec4 diffuseColor = SampleDiffuse(ParallaxMapping(v_tangent, v_bitangent, v_normal, viewDir, baseTexcoord));
+ 
+ 	#else
+ 
+-		vec4 diffuseColor = texture(diffuseTex, baseTexcoord);
++		vec4 diffuseColor = SampleDiffuse(baseTexcoord);
+ 
+ 	#endif
+ 	
+@@ -258,8 +289,11 @@ void main()
  	
  	vec4 lightmapColor = vec4(1.0, 1.0, 1.0, 1.0);
  
@@ -410,7 +453,7 @@ index 7c18678..d662182 100644
  	vec4 lightmapColor = vec4(0.0, 0.0, 0.0, 0.0);
  
  #if defined(LIGHTMAP_INDEX_0_ENABLED)
-@@ -276,6 +288,7 @@ void main()
+@@ -276,6 +310,7 @@ void main()
  
  #if defined(LIGHTMAP_INDEX_3_ENABLED)
  	lightmapColor += texture(lightmapTexArray_3, v_lightmaptexcoord ) * ConvertStyleToLightStyle(v_styles.w);
@@ -454,10 +497,28 @@ index 6810177..2c7a02d 100644
  		#if !defined(SKYBOX_ENABLED)
  			g_styles = v_styles[i];
 diff --git a/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl b/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
-index 8c6651f..f09e672 100644
+index 8c6651f..922ceae 100644
 --- a/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
 +++ b/assets/svencoop/renderer/shader/wsurf_shader.vert.glsl
-@@ -19,6 +19,16 @@ layout(location = WSURF_VA_PACKED_MATID) in uint in_packed_matid;
+@@ -1,9 +1,17 @@
+ #version 430
+ 
+ #extension GL_EXT_texture_array : require
++#if defined(MATERIAL_BATCH_ENABLED)
++#extension GL_ARB_shader_draw_parameters : require
++#endif
+ 
+ #include "common.h"
+ 
++#if defined(MATERIAL_BATCH_ENABLED)
++uniform uint u_batchDrawEnds[5];
++flat out uint v_diffuseSlot;
++#endif
++
+ uniform float u_parallaxScale;
+ 
+ layout(location = WSURF_VA_POSITION) in vec3 in_vertex;
+@@ -19,6 +27,16 @@ layout(location = WSURF_VA_PACKED_MATID) in uint in_packed_matid;
  layout(location = WSURF_VA_STYLES) in uvec4 in_styles;
  layout(location = WSURF_VA_DIFFUSESCALE) in float in_diffusescale;
  
@@ -474,8 +535,15 @@ index 8c6651f..f09e672 100644
  out vec3 v_worldpos;
  out vec3 v_normal;
  out vec3 v_tangent;
-@@ -102,6 +112,15 @@ void main(void)
+@@ -100,8 +118,22 @@ void MakeSkyVec(float s, float t, int axis, float zFar, out vec3 position, out v
+ 
+ void main(void)
  {
++#if defined(MATERIAL_BATCH_ENABLED)
++    v_diffuseSlot = 0u;
++    for (uint slot = 0u; slot < 5u; ++slot)
++        if (uint(gl_DrawIDARB) >= u_batchDrawEnds[slot]) v_diffuseSlot = slot + 1u;
++#endif
  	uint matId = UnpackPackedMatIdAsMatId(in_packed_matid);
  
 +#if defined(CAVITY_LIGHT_ENABLED)
@@ -490,7 +558,7 @@ index 8c6651f..f09e672 100644
  #if defined(SKYBOX_ENABLED)
  
  	int vertidx = gl_VertexID % 6;
-@@ -215,4 +234,4 @@ void main(void)
+@@ -215,4 +247,4 @@ void main(void)
  	gl_Position = GetCameraProjMatrix(0) * GetCameraWorldMatrix(0) * worldpos4;
  
  	v_projpos = gl_Position;
@@ -694,7 +762,7 @@ index 06bf06e..89ca194 100644
  }
  
 diff --git a/src/gl_common.h b/src/gl_common.h
-index 2567c84..915835f 100644
+index 2567c84..8ab3227 100644
 --- a/src/gl_common.h
 +++ b/src/gl_common.h
 @@ -5,6 +5,8 @@
@@ -734,15 +802,16 @@ index 2567c84..915835f 100644
  
  #    define WSURF_BIND_DIFFUSE_TEXTURE    0
  #    define WSURF_BIND_DETAIL_TEXTURE     1
-@@ -313,6 +320,7 @@ public:
+@@ -313,6 +320,8 @@ public:
  #    define WSURF_STENCIL_NO_GLOW_BLUR_ENABLED  0x100000000ull
  #    define WSURF_STENCIL_NO_GLOW_COLOR_ENABLED 0x200000000ull
  #    define WSURF_DOUBLE_FACE_ENABLED           0x400000000ull
 +#    define WSURF_CAVITY_LIGHT_ENABLED          0x800000000ull
++#    define WSURF_MATERIAL_BATCH_ENABLED        0x1000000000ull
  
  #    define STUDIO_VBO_BASE 0
  #    define STUDIO_VBO_TBN  1
-@@ -421,27 +429,9 @@ typedef struct world_material_s
+@@ -421,27 +430,9 @@ typedef struct world_material_s
      vec2_t specularScale;
  } world_material_t;
  
@@ -773,7 +842,7 @@ index 2567c84..915835f 100644
  
  // A fragment node stores rendering information about one specific fragment
  typedef struct FragmentNode_s
-@@ -509,13 +499,6 @@ typedef struct scene_ubo_s
+@@ -509,13 +500,6 @@ typedef struct scene_ubo_s
  
  static_assert((sizeof(scene_ubo_t) % 16) == 0, "Size check");
  
@@ -787,7 +856,7 @@ index 2567c84..915835f 100644
  static_assert((sizeof(dlight_ubo_t) % 16) == 0, "Size check");
  
  typedef struct entity_ubo_s
-@@ -542,12 +525,19 @@ typedef struct studio_ubo_s
+@@ -542,12 +526,19 @@ typedef struct studio_ubo_s
      vec4   entity_origin;
      vec4   r_elight_color[4];
      vec4   r_elight_origin_radius[4];
@@ -1104,7 +1173,7 @@ index dd00fcc..a10767c 100644
 \ No newline at end of file
 +GLuint R_GetEmptyVAO();
 diff --git a/src/gl_local.h b/src/gl_local.h
-index 98d5cf9..a880c4a 100644
+index 98d5cf9..4840c14 100644
 --- a/src/gl_local.h
 +++ b/src/gl_local.h
 @@ -43,6 +43,7 @@
@@ -1115,6 +1184,14 @@ index 98d5cf9..a880c4a 100644
  #include "gl_hud.h"
  #include "gl_shadow.h"
  #include "gl_light.h"
+@@ -349,6 +350,7 @@ extern cvar_t* r_studio_unload;
+ extern cvar_t* r_studio_parallel_load;
+ 
+ extern cvar_t* r_wsurf_parallax_scale;
++extern cvar_t* r_world_material_batch;
+ 
+ extern cvar_t* r_wsurf_sky_fog;
+ 
 diff --git a/src/gl_model.cpp b/src/gl_model.cpp
 index 807ddd8..ff45529 100644
 --- a/src/gl_model.cpp
@@ -1188,7 +1265,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..64124c4 100644
+index d59b139..a9cd62d 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,9 @@
@@ -1201,7 +1278,15 @@ index d59b139..64124c4 100644
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -786,10 +790,14 @@ bool AllowCheats()
+@@ -416,6 +420,7 @@ cvar_t* r_studio_unload = nullptr;
+ cvar_t* r_studio_parallel_load = nullptr;
+ 
+ cvar_t* r_wsurf_parallax_scale = nullptr;
++cvar_t* r_world_material_batch = nullptr;
+ 
+ cvar_t* r_wsurf_sky_fog = nullptr;
+ 
+@@ -786,10 +791,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
  {
@@ -1217,7 +1302,7 @@ index d59b139..64124c4 100644
  }
  
  /*
-@@ -1739,6 +1747,7 @@ void triapi_End()
+@@ -1739,6 +1748,7 @@ void triapi_End()
  
      triapi_program_t prog{};
      R_UseTriAPIProgram(ProgramState, &prog);
@@ -1225,7 +1310,7 @@ index d59b139..64124c4 100644
  
      if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
      {
-@@ -2400,6 +2409,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+@@ -2400,6 +2410,7 @@ void R_DrawCurrentEntity(bool bTransparent)
          }
          case mod_studio:
          {
@@ -1233,7 +1318,7 @@ index d59b139..64124c4 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -2948,6 +2958,7 @@ void R_RenderViewStart()
+@@ -2948,6 +2959,7 @@ void R_RenderViewStart()
              R_AddVisibleDynamicLight(dynamicLight);
          }
      }
@@ -1241,7 +1326,7 @@ index d59b139..64124c4 100644
  }
  
  /*
-@@ -3011,6 +3022,7 @@ void R_RenderEndFrame()
+@@ -3011,6 +3023,7 @@ void R_RenderEndFrame()
          cb->OnRenderEndFrame();
      }
  
@@ -1249,7 +1334,7 @@ index d59b139..64124c4 100644
      R_EndRingBufferFrame();
  }
  
-@@ -3055,6 +3067,8 @@ void GL_Finish2D()
+@@ -3055,6 +3068,8 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -1258,7 +1343,7 @@ index d59b139..64124c4 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3147,16 @@ void R_PreRenderView()
+@@ -3133,10 +3148,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -1278,7 +1363,7 @@ index d59b139..64124c4 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,6 +3411,60 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,6 +3412,60 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -1339,7 +1424,7 @@ index d59b139..64124c4 100644
  void R_RenderView_SvEngine(int viewIdx)
  {
      const bool wasRenderingView = g_bIsRenderingView;
-@@ -3434,14 +3508,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3509,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -1367,7 +1452,7 @@ index d59b139..64124c4 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3591,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3592,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -1379,7 +1464,7 @@ index d59b139..64124c4 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3638,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3639,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -1392,7 +1477,15 @@ index d59b139..64124c4 100644
  }
  
  #if 0
-@@ -3783,6 +3875,7 @@ void R_Init(void)
+@@ -3734,6 +3827,7 @@ void R_InitCvars(void)
+     r_studio_parallel_load = gEngfuncs.pfnRegisterVariable("r_studio_parallel_load", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+ 
+     r_wsurf_parallax_scale = gEngfuncs.pfnRegisterVariable("r_wsurf_parallax_scale", "-0.02", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
++    r_world_material_batch = gEngfuncs.pfnRegisterVariable("r_world_material_batch", "1", FCVAR_CLIENTDLL);
+     r_wsurf_sky_fog        = gEngfuncs.pfnRegisterVariable("r_wsurf_sky_fog", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+ 
+     /*
+@@ -3783,6 +3877,7 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
@@ -1400,7 +1493,7 @@ index d59b139..64124c4 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -3832,6 +3925,7 @@ void R_ForceCVars(qboolean mp)
+@@ -3832,6 +3927,7 @@ void R_ForceCVars(qboolean mp)
  void R_NewMap(void)
  {
      memset(&r_params, 0, sizeof(r_params));
@@ -1408,7 +1501,7 @@ index d59b139..64124c4 100644
  
      R_GenerateSceneUBO();
      R_FreeWorldResources();
-@@ -4667,6 +4761,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4763,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1419,7 +1512,7 @@ index d59b139..64124c4 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4780,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4782,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1435,7 +1528,7 @@ index d59b139..64124c4 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4824,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4826,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1453,7 +1546,7 @@ index d59b139..64124c4 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4843,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4845,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1461,7 +1554,7 @@ index d59b139..64124c4 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4854,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4856,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1469,7 +1562,7 @@ index d59b139..64124c4 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4908,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4910,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1477,7 +1570,7 @@ index d59b139..64124c4 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5575,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5577,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1488,7 +1581,7 @@ index d59b139..64124c4 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6716,80 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6718,80 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -3063,7 +3156,7 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..f504471 100644
+index 41f24f3..768370a 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
 @@ -1,4 +1,6 @@
@@ -3156,15 +3249,30 @@ index 41f24f3..f504471 100644
      for (size_t i = 0; i < g_WorldSurfaceWorldModels.size(); ++i)
      {
          auto pWorldSurfaceWorldModel = g_WorldSurfaceWorldModels[i];
-@@ -209,6 +187,7 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+@@ -209,6 +187,8 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
      {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
      {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
      {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
 +    {WSURF_CAVITY_LIGHT_ENABLED, "WSURF_CAVITY_LIGHT_ENABLED"},
++    {WSURF_MATERIAL_BATCH_ENABLED, "WSURF_MATERIAL_BATCH_ENABLED"},
  };
  
  void R_SaveWSurfProgramStates(void)
-@@ -243,6 +222,9 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -224,6 +204,7 @@ void R_SaveWSurfProgramStates(void)
+ void R_LoadWSurfProgramStates(void)
+ {
+     R_LoadProgramStateCaches("renderer/shader/wsurf_cache.txt", s_WSurfProgramStateName, _ARRAYSIZE(s_WSurfProgramStateName), [](program_state_t state) {
++        if ((state & WSURF_MATERIAL_BATCH_ENABLED) && !GLEW_ARB_shader_draw_parameters) return;
+         R_UseWSurfProgram(state, NULL);
+     });
+ }
+@@ -240,9 +221,15 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+         if (state & WSURF_DIFFUSE_ENABLED)
+             defs << "#define DIFFUSE_ENABLED\n";
+ 
++        if (state & WSURF_MATERIAL_BATCH_ENABLED)
++            defs << "#define MATERIAL_BATCH_ENABLED\n";
++
          if (state & WSURF_LIGHTMAP_ENABLED)
              defs << "#define LIGHTMAP_ENABLED\n";
  
@@ -3174,7 +3282,15 @@ index 41f24f3..f504471 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -424,11 +406,7 @@ void R_FreeSceneUBO(void)
+@@ -358,6 +345,7 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+         if (prog.program)
+         {
+             SHADER_UNIFORM(prog, u_parallaxScale, "u_parallaxScale");
++            SHADER_UNIFORM(prog, u_batchDrawEnds, "u_batchDrawEnds[0]");
+         }
+ 
+         g_WSurfProgramTable[state] = prog;
+@@ -424,11 +412,7 @@ void R_FreeSceneUBO(void)
          g_WorldSurfaceRenderer.hEntityUBO = 0;
      }
  
@@ -3187,7 +3303,7 @@ index 41f24f3..f504471 100644
  
      if (g_WorldSurfaceRenderer.hMaterialSSBO)
      {
-@@ -468,10 +446,6 @@ void R_FreeLightmapTextures()
+@@ -468,10 +452,6 @@ void R_FreeLightmapTextures()
      }
  }
  
@@ -3198,7 +3314,7 @@ index 41f24f3..f504471 100644
  void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
  {
      if (basenode->contents < 0)
-@@ -489,61 +463,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
+@@ -489,61 +469,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
      R_RecursiveFindLeaves(node->children[1], vLeafs);
  }
  
@@ -3260,7 +3376,7 @@ index 41f24f3..f504471 100644
  texture_t* R_GetEmptyWorldTexture()
  {
      if (g_iEngineType == ENGINE_SVENGINE)
-@@ -552,2751 +471,1502 @@ texture_t* R_GetEmptyWorldTexture()
+@@ -552,2751 +477,1502 @@ texture_t* R_GetEmptyWorldTexture()
      return (*r_notexture_mip);
  }
  
@@ -3284,21 +3400,21 @@ index 41f24f3..f504471 100644
  
 -    auto node = (mnode_t*)basenode;
 +    auto mod = pModel->m_model;
-+
-+    auto worldmodel = R_FindWorldModelByModel(mod);
  
 -    R_RecursiveLinkTextureChain(mod, node->children[0], visnodes, vissurfaces, watersurfaces, texsurfaces);
-+    auto it = g_WorldSurfaceShadowProxyModels.find(mod->name);
++    auto worldmodel = R_FindWorldModelByModel(mod);
  
 -    for (int i = 0; i < node->numsurfaces; ++i)
-+    if (it != g_WorldSurfaceShadowProxyModels.end())
-     {
+-    {
 -        auto surf = R_GetWorldSurfaceByIndex(mod, node->firstsurface + i);
--
++    auto it = g_WorldSurfaceShadowProxyModels.find(mod->name);
+ 
 -        if (vissurfaces.find(surf) == vissurfaces.end())
 -        {
 -            continue;
 -        }
++    if (it != g_WorldSurfaceShadowProxyModels.end())
++    {
 +        pShadowProxyModel = it->second;
 +    }
 +    else
@@ -3504,12 +3620,12 @@ index 41f24f3..f504471 100644
 -        if (texchain->type == TEXCHAIN_SCROLL)
 -        {
 -            CDrawIndexAttrib drawAttrib;
--
+ 
 -            drawAttrib.FirstIndexLocation    = brushface.start_index;
 -            drawAttrib.NumIndices            = brushface.index_count;
 -            drawAttrib.FirstInstanceLocation = brushface.instance_index;
 -            drawAttrib.NumInstances          = brushface.instance_count;
- 
+-
 -            vDrawAttribBuffer.emplace_back(drawAttrib);
 +    return -1;
 +}
@@ -4522,7 +4638,7 @@ index 41f24f3..f504471 100644
              }
          }
 -    }
- 
+-
 -    return nullptr;
 -}
 -
@@ -4532,7 +4648,7 @@ index 41f24f3..f504471 100644
 -    {
 -        auto pbase = mod->nodes;
 -        auto pend  = pbase + mod->numnodes;
--
+ 
 -        if (pnode >= pbase && pnode < pend)
 -        {
 -            return mod;
@@ -7103,7 +7219,7 @@ index 41f24f3..f504471 100644
  
  void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
  {
-@@ -3507,21 +2177,31 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3507,21 +2183,31 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
  
      if (pModel->m_model == (*cl_worldmodel))
      {
@@ -7139,7 +7255,7 @@ index 41f24f3..f504471 100644
          }
  
          //Always draw skybox before world
-@@ -3533,7 +2213,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3533,7 +2219,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              }
          }
  
@@ -7148,7 +7264,7 @@ index 41f24f3..f504471 100644
          {
              if (R_IsRenderingWaterView())
              {
-@@ -3546,13 +2226,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3546,13 +2232,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      pNoVisLeaf = pModel->GetLeafByIndex(0);
                  }
  
@@ -7165,7 +7281,7 @@ index 41f24f3..f504471 100644
                  {
                      glColorMask(0, 0, 0, 0);
  
-@@ -3563,7 +2243,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3563,7 +2249,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      R_DrawWorldSurfaceLeafStatic(pModel.get(), pNoVisLeaf.get());
                      R_DrawWorldSurfaceLeafAnim(pModel.get(), pNoVisLeaf.get());
  
@@ -7174,7 +7290,7 @@ index 41f24f3..f504471 100644
                  }
              }
              else if (R_IsRenderingShadowView())
-@@ -3571,9 +2251,12 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3571,9 +2257,12 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                  if (r_draw_classify & DRAW_CLASSIFY_WORLD)
                  {
                      if (pModel->m_pShadowProxyDraws.size() > 0)
@@ -7188,7 +7304,7 @@ index 41f24f3..f504471 100644
                  }
              }
              else
-@@ -3599,7 +2282,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3599,7 +2288,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              pLeaf = pModel->GetLeafByIndex(0);
          }
  
@@ -7197,7 +7313,7 @@ index 41f24f3..f504471 100644
          {
              if (R_IsRenderingShadowView())
              {
-@@ -3635,7 +2318,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3635,7 +2324,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
          }
      }
  
@@ -7206,7 +7322,7 @@ index 41f24f3..f504471 100644
  
      if (g_WorldSurfaceRenderer.bLightmapTexture)
      {
-@@ -3665,6 +2348,10 @@ void R_InitWSurf(void)
+@@ -3665,6 +2354,10 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
@@ -7217,7 +7333,7 @@ index 41f24f3..f504471 100644
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3223,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3229,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -7226,7 +7342,7 @@ index 41f24f3..f504471 100644
              return;
          }
      }
-@@ -5052,7 +3739,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+@@ -5052,7 +3745,8 @@ void R_DrawBrushModel(cl_entity_t* e)
          g_WorldSurfaceRenderer.bLightmapTexture = false;
      }
  
@@ -7236,7 +7352,7 @@ index 41f24f3..f504471 100644
  
      if (pModel)
      {
-@@ -5206,45 +3894,105 @@ void R_UploadSceneUBO(void)
+@@ -5206,45 +3900,105 @@ void R_UploadSceneUBO(void)
      GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hSceneUBO, 0, sizeof(SceneUBO), &SceneUBO);
  }
  
@@ -7374,10 +7490,10 @@ index 41f24f3..f504471 100644
  
  /*
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..bb874c2 100644
+index 0d340e9..1ba266f 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
-@@ -2,8 +2,15 @@
+@@ -2,8 +2,16 @@
  
  #include <vector>
  #include <memory>
@@ -7387,13 +7503,14 @@ index 0d340e9..bb874c2 100644
  
  #include "gl_model.h"
 +#include "dlight_storage.h"
++#include "world_material_batch.h"
 +#include "goldcraft/cavity_mesh.hpp"
 +#include "goldcraft/cavity_lighting.hpp"
 +#include "goldcraft/carved_visibility.hpp"
  
  #define WSURF_DIFFUSE_TEXTURE  0
  #define WSURF_DETAIL_TEXTURE   1
-@@ -98,10 +105,12 @@ public:
+@@ -98,10 +106,12 @@ public:
      uint32_t                                     startDrawOffset{};
      uint32_t                                     drawCount{};
      uint32_t                                     polyCount{};
@@ -7406,7 +7523,7 @@ index 0d340e9..bb874c2 100644
  
  class CWorldSurfaceLeaf
  {
-@@ -114,25 +123,13 @@ public:
+@@ -114,37 +124,43 @@ public:
  
      void AsyncUploadResouce()
      {
@@ -7434,7 +7551,8 @@ index 0d340e9..bb874c2 100644
  
      mleaf_t*                                         m_leaf{};
      GLuint                                           hABO{};
-@@ -140,11 +137,28 @@ public:
+     std::vector<CWorldSurfaceBrushTexChain>          vTextureChainList[WSURF_TEXCHAIN_LIST_MAX];
++    std::vector<world_batch::Batch>                  vStaticMaterialBatches;
      std::vector<std::shared_ptr<CWaterSurfaceModel>> m_vWaterSurfaceModels;
      CWorldSurfaceBrushTexChain                       TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_MAX];
      std::weak_ptr<CWorldSurfaceModel>                m_pModel{};
@@ -7463,7 +7581,7 @@ index 0d340e9..bb874c2 100644
  class CWorldSurfaceWorldModel
  {
  public:
-@@ -159,6 +173,16 @@ public:
+@@ -159,6 +175,16 @@ public:
      GLuint                              hEBO{};
      GLuint                              hVAO{};
      std::vector<CWorldSurfaceBrushFace> m_vFaceBuffer;
@@ -7480,7 +7598,7 @@ index 0d340e9..bb874c2 100644
  };
  
  class CWorldSurfaceModel
-@@ -170,6 +194,7 @@ public:
+@@ -170,6 +196,7 @@ public:
  
      ~CWorldSurfaceModel()
      {
@@ -7488,7 +7606,7 @@ index 0d340e9..bb874c2 100644
      }
  
      std::shared_ptr<CWorldSurfaceLeaf> GetLeafByIndex(int index) const
-@@ -193,6 +218,16 @@ public:
+@@ -193,6 +220,16 @@ public:
          m_vLeaves.clear();
      }
  
@@ -7505,7 +7623,7 @@ index 0d340e9..bb874c2 100644
      model_t*                                                 m_model{};
      std::weak_ptr<CWorldSurfaceWorldModel>                   m_pWorldModel{};
      std::vector<std::shared_ptr<CWorldSurfaceLeaf>>          m_vLeaves;
-@@ -208,6 +243,7 @@ public:
+@@ -208,6 +245,7 @@ public:
      GLuint                       IndiceCount[MAX_DECALS];
      GLuint                       StartInstance[MAX_DECALS];
      GLuint                       InstanceCount[MAX_DECALS];
@@ -7513,7 +7631,7 @@ index 0d340e9..bb874c2 100644
      CWorldSurfaceRenderMaterial* pRenderMaterial[MAX_DECALS];
      int                          BatchCount;
  };
-@@ -228,6 +264,10 @@ public:
+@@ -228,6 +266,10 @@ public:
      GLuint                                       indiceCount{};
      GLint                                        startInstance{};
      GLuint                                       instanceCount{};
@@ -7524,7 +7642,7 @@ index 0d340e9..bb874c2 100644
  };
  
  class CWorldSurfaceRenderer
-@@ -236,6 +276,9 @@ public:
+@@ -236,6 +278,9 @@ public:
      GLuint hSceneUBO{};
      GLuint hCameraUBO{};
      GLuint hDLightUBO{};
@@ -7534,7 +7652,11 @@ index 0d340e9..bb874c2 100644
      GLuint hEntityUBO{};
      GLuint hDecalVBO[WSURF_VBO_MAX]{};
      GLuint hDecalEBO{};
-@@ -273,6 +316,89 @@ typedef struct
+@@ -270,9 +315,93 @@ typedef struct
+ {
+     int program;
+     int u_parallaxScale;
++    int u_batchDrawEnds;
  } wsurf_program_t;
  
  extern CWorldSurfaceRenderer g_WorldSurfaceRenderer;
@@ -7624,7 +7746,7 @@ index 0d340e9..bb874c2 100644
  
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
-@@ -330,13 +456,14 @@ void        R_LoadBaseDetailTextures(void);
+@@ -330,13 +459,14 @@ void        R_LoadBaseDetailTextures(void);
  void        R_LoadMapDetailTextures(void);
  
  
@@ -7670,7 +7792,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..6626ecc 100644
+index 93166e2..0d177af 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,111 @@ if(NOT TARGET glfw)
@@ -7787,7 +7909,7 @@ index 93166e2..6626ecc 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +143,147 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +143,168 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -7935,6 +8057,27 @@ index 93166e2..6626ecc 100644
 +    add_test(NAME world_leaf_gl_tests COMMAND world_leaf_gl_tests)
 +endif()
 +set_tests_properties(world_leaf_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 30)
++
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/world_material_batch_dispatch.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_world_material_batch.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/world_material_batch_dispatch.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/world_material_batch_dispatch.json"
++    DEPENDS extract_world_material_batch.py extract_studio_depth_executor.py
++        "${PROJECT_SOURCE_DIR}/src/gl_rmisc.cpp" "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
++        "${PROJECT_SOURCE_DIR}/src/world_leaf_draw.cpp"
++    VERBATIM)
++add_executable(world_material_batch_gl_tests world_material_batch_gl_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/world_material_batch_dispatch.inc"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_include_directories(world_material_batch_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_compile_definitions(world_material_batch_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(world_material_batch_gl_tests PRIVATE /UNDEBUG /Gy)
++target_link_options(world_material_batch_gl_tests PRIVATE /OPT:REF /INCREMENTAL:NO)
++target_link_libraries(world_material_batch_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME world_material_batch_gl_tests COMMAND world_material_batch_gl_tests)
++set_tests_properties(world_material_batch_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
 diff --git a/tests/ringbuffer_tests.cpp b/tests/ringbuffer_tests.cpp
 index 9ae8b2f..2e0001e 100644
 --- a/tests/ringbuffer_tests.cpp
@@ -10234,10 +10377,10 @@ index 0000000..ae22570
 +}
 diff --git a/src/studio_diagnostics.h b/src/studio_diagnostics.h
 new file mode 100644
-index 0000000..881acb4
+index 0000000..5ea67d8
 --- /dev/null
 +++ b/src/studio_diagnostics.h
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,74 @@
 +#pragma once
 +
 +void        R_StudioDiagnosticsInit();
@@ -10291,6 +10434,7 @@ index 0000000..881acb4
 +void   R_ProfileBoneCacheStore(bool reused, bool overflow);
 +void   R_ProfileCountStudioDepthPath(bool usedExecutor);
 +void   R_ProfileStudioBonePalette(bool reused, bool fallback, unsigned bytes);
++void   R_ProfileWorldMaterialSubmit(unsigned chains);
 +int    R_ProfileGpuBegin(RProfileStage stage);
 +void   R_ProfileGpuEnd(int span);
 +void   R_ProfileMainView();
@@ -10313,10 +10457,10 @@ index 0000000..881acb4
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..ac25626
+index 0000000..8a45068
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,554 @@
+@@ -0,0 +1,567 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <array>
@@ -10609,10 +10753,11 @@ index 0000000..ac25626
 +    unsigned                            boneCacheAllocations{}, boneCacheReuses{}, boneCacheOverflows{};
 +    unsigned                            studioDepthFastMeshes{}, studioDepthFallbackMeshes{};
 +    unsigned                            studioBonePaletteUploads{}, studioBonePaletteReuses{}, studioBonePaletteUploadBytes{}, studioBonePaletteFallbacks{};
++    unsigned                            worldMaterialChains{}, worldMaterialSubmissions{}, worldMaterialBatches{};
 +    vec3_t                              origin{}, angles{};
 +    int                                 focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
 +    int                                 shadowCull{}, studioFaceCull{}, studioDepthExecutor{}, views{}, gpuReady{};
-+    int                                 studioBonePaletteCache{};
++    int                                 studioBonePaletteCache{}, worldMaterialBatch{};
 +    float                               fpsMax{}, fpsOverride{}, vsync{};
 +};
 +std::vector<ProfileFrame> profileFrames;
@@ -10701,6 +10846,10 @@ index 0000000..ac25626
 +            << ",\"studioBonePaletteUploadBytes\":" << f.studioBonePaletteUploadBytes
 +            << ",\"studioBonePaletteFallbacks\":" << f.studioBonePaletteFallbacks
 +            << ",\"studioBonePaletteCache\":" << f.studioBonePaletteCache;
++        out << ",\"worldMaterialBatch\":" << f.worldMaterialBatch
++            << ",\"worldMaterialChains\":" << f.worldMaterialChains
++            << ",\"worldMaterialSubmissions\":" << f.worldMaterialSubmissions
++            << ",\"worldMaterialBatches\":" << f.worldMaterialBatches;
 +        out << ",\"shadowCull\":" << f.shadowCull << ",\"mainViews\":" << f.views << ",\"gpuReady\":" << f.gpuReady
 +            << ",\"studioFaceCull\":" << f.studioFaceCull
 +            << ",\"studioDepthExecutor\":" << f.studioDepthExecutor
@@ -10813,6 +10962,13 @@ index 0000000..ac25626
 +    if (fallback) ++profileFrame.studioBonePaletteFallbacks;
 +    profileFrame.studioBonePaletteUploadBytes += bytes;
 +}
++void R_ProfileWorldMaterialSubmit(unsigned chains)
++{
++    if (!profileActive) return;
++    profileFrame.worldMaterialChains += chains;
++    ++profileFrame.worldMaterialSubmissions;
++    if (chains > 1) ++profileFrame.worldMaterialBatches;
++}
 +void R_ProfileFrameBegin()
 +{
 +    if (!profile) return;
@@ -10863,6 +11019,7 @@ index 0000000..ac25626
 +    profileFrame.studioFaceCull = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_face_cull") == 1.0f;
 +    profileFrame.studioDepthExecutor = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor") == 1.0f;
 +    profileFrame.studioBonePaletteCache = gEngfuncs.pfnGetCvarFloat("r_studio_bone_palette_cache") == 1.0f;
++    profileFrame.worldMaterialBatch = r_world_material_batch && r_world_material_batch->value == 1.0f;
 +    profileFrame.fpsMax      = gEngfuncs.pfnGetCvarFloat("fps_max");
 +    profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
 +    profileFrame.vsync       = gEngfuncs.pfnGetCvarFloat("gl_vsync");
@@ -13433,10 +13590,10 @@ index 0000000..478a984
 +}
 diff --git a/src/world_leaf_build.cpp b/src/world_leaf_build.cpp
 new file mode 100644
-index 0000000..702b499
+index 0000000..f9bc842
 --- /dev/null
 +++ b/src/world_leaf_build.cpp
-@@ -0,0 +1,813 @@
+@@ -0,0 +1,816 @@
 +#include "gl_local.h"
 +#include <algorithm>
 +#include <limits>
@@ -14147,6 +14304,9 @@ index 0000000..702b499
 +        if (m_pLeaf->m_bIsClosing.load())
 +            return false;
 +
++        static_assert(sizeof(CDrawIndexAttrib) == world_batch::CommandBytes);
++        m_pLeaf->vStaticMaterialBatches = world_batch::Prepare(
++            std::span<const CWorldSurfaceBrushTexChain>(m_pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC]));
 +        m_IsDataReady.store(true);
 +        return true;
 +    }
@@ -14252,11 +14412,44 @@ index 0000000..702b499
 +}
 diff --git a/src/world_leaf_draw.cpp b/src/world_leaf_draw.cpp
 new file mode 100644
-index 0000000..a4df1ee
+index 0000000..d5768fe
 --- /dev/null
 +++ b/src/world_leaf_draw.cpp
-@@ -0,0 +1,588 @@
+@@ -0,0 +1,658 @@
 +#include "gl_local.h"
++
++namespace
++{
++bool R_CanBatchWorldMaterials()
++{
++    return r_world_material_batch && r_world_material_batch->value == 1.f && GLEW_ARB_shader_draw_parameters &&
++        g_WorldSurfaceRenderer.bDiffuseTexture && r_draw_opaque && !R_IsRenderingShadowView() &&
++        !R_IsRenderingMultiView() && !R_IsRenderingWaterView() && !g_bPortalClipPlaneEnabled[0] &&
++        ((*currententity)->curstate.rendermode == kRenderNormal || (*currententity)->curstate.rendermode == kRenderTransAlpha);
++}
++
++bool R_ResolveWorldMaterialBatch(const world_batch::Batch& batch,
++    const std::vector<CWorldSurfaceBrushTexChain>& chains, std::array<GLuint, world_batch::TextureCount>& textures)
++{
++    for (unsigned slot = 0; slot < batch.chainCount; ++slot)
++    {
++        const auto& chain = chains[batch.firstChain + slot];
++        if (!chain.texture || !chain.texture->gl_texturenum) return false;
++        textures[slot] = chain.texture->gl_texturenum;
++        if (const auto* material = chain.pRenderMaterial.get())
++        {
++            // Detail/normal/parallax/specular materials retain their complete
++            // existing path. A diffuse replacement alone is batch-compatible.
++            if (r_detailtextures && (int)r_detailtextures->value > 0)
++                for (int layer = WSURF_DETAIL_TEXTURE; layer < WSURF_MAX_TEXTURE; ++layer)
++                    if (material->textures[layer].gltexturenum) return false;
++            if (material->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum)
++                textures[slot] = material->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum;
++        }
++    }
++    return true;
++}
++} // namespace
 +
 +void R_DrawWorldSurfaceLeafBegin(CWorldSurfaceLeaf* pLeaf)
 +{
@@ -14282,11 +14475,24 @@ index 0000000..a4df1ee
 +
 +    if (!vTexChainList.empty()) R_DrawWorldSurfaceLeafBegin(pLeaf);
 +
++    const bool allowBatch = R_CanBatchWorldMaterials();
++    std::size_t batchIndex = 0;
++
 +    for (size_t i = 0; i < vTexChainList.size(); ++i)
 +    {
 +        const auto& texchain = vTexChainList[i];
 +
 +        auto texture = texchain.texture;
++
++        const world_batch::Batch* batch = nullptr;
++        std::array<GLuint, world_batch::TextureCount> batchTextures{};
++        while (batchIndex < pLeaf->vStaticMaterialBatches.size() && pLeaf->vStaticMaterialBatches[batchIndex].firstChain < i)
++            ++batchIndex;
++        if (allowBatch && batchIndex < pLeaf->vStaticMaterialBatches.size())
++        {
++            const auto& prepared = pLeaf->vStaticMaterialBatches[batchIndex];
++            if (prepared.firstChain == i && R_ResolveWorldMaterialBatch(prepared, vTexChainList, batchTextures)) batch = &prepared;
++        }
 +
 +        program_state_t WSurfProgramState = 0;
 +
@@ -14294,9 +14500,9 @@ index 0000000..a4df1ee
 +        {
 +            WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
 +
-+            GL_BindTextureUnit(WSURF_BIND_DIFFUSE_TEXTURE, GL_TEXTURE_2D, texture->gl_texturenum);
++            if (!batch) GL_BindTextureUnit(WSURF_BIND_DIFFUSE_TEXTURE, GL_TEXTURE_2D, texture->gl_texturenum);
 +
-+            if (texchain.pRenderMaterial)
++            if (!batch && texchain.pRenderMaterial)
 +            {
 +                R_BeginDetailTextureFromRenderMaterial(texchain.pRenderMaterial.get(), &WSurfProgramState);
 +            }
@@ -14516,11 +14722,35 @@ index 0000000..a4df1ee
 +        }
 +
 +        wsurf_program_t prog = {0};
++        if (batch) WSurfProgramState |= WSURF_MATERIAL_BATCH_ENABLED;
 +        R_UseWSurfProgram(WSurfProgramState, &prog);
 +
-+        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(texchain.startDrawOffset), texchain.drawCount, 0);
-+
-+        (*c_brush_polys) += texchain.polyCount;
++        if (batch)
++        {
++            auto ends = batch->drawEnds;
++            for (unsigned slot = batch->chainCount; slot < world_batch::TextureCount; ++slot) ends[slot] = batch->drawCount;
++            if (GLEW_VERSION_4_4 || GLEW_ARB_multi_bind)
++                glBindTextures(world_batch::TextureUnit, world_batch::TextureCount, batchTextures.data());
++            else
++                for (unsigned slot = 0; slot < batch->chainCount; ++slot)
++                    GL_BindTextureUnit(world_batch::TextureUnit + slot, GL_TEXTURE_2D, batchTextures[slot]);
++            glUniform1uiv(prog.u_batchDrawEnds, world_batch::TextureCount - 1, ends.data());
++            R_ProfileWorldMaterialSubmit(batch->chainCount);
++            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(batch->offset), batch->drawCount, 0);
++            (*c_brush_polys) += batch->polyCount;
++            if (GLEW_VERSION_4_4 || GLEW_ARB_multi_bind)
++                glBindTextures(world_batch::TextureUnit, world_batch::TextureCount, nullptr);
++            else
++                for (unsigned slot = 0; slot < batch->chainCount; ++slot)
++                    GL_BindTextureUnit(world_batch::TextureUnit + slot, GL_TEXTURE_2D, 0);
++            i += batch->chainCount - 1;
++        }
++        else
++        {
++            glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(texchain.startDrawOffset), texchain.drawCount, 0);
++            R_ProfileWorldMaterialSubmit(1);
++            (*c_brush_polys) += texchain.polyCount;
++        }
 +
 +        R_EndDetailTexture(WSurfProgramState);
 +
@@ -14846,10 +15076,10 @@ index 0000000..a4df1ee
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..fbd8677
+index 0000000..16866fd
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1622 @@
+@@ -0,0 +1,1625 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -14906,6 +15136,9 @@ index 0000000..fbd8677
 +cvar_t* r_fullbright       = &fullbright;
 +cvar_t* r_fog_trans        = &fogTrans;
 +cvar_t* r_linear_fog_shift = &fogShift;
++cvar_t* r_world_material_batch{};
++cvar_t* r_detailtextures{};
++void R_ProfileWorldMaterialSubmit(unsigned) {}
 +int     r_draw_classify    = DRAW_CLASSIFY_LIGHTMAP;
 +int     r_fog_mode         = GL_LINEAR;
 +bool    r_draw_opaque = true, r_draw_oitblend = false;
@@ -16472,6 +16705,412 @@ index 0000000..fbd8677
 +    glfwDestroyWindow(window);
 +    glfwTerminate();
 +}
+diff --git a/src/world_material_batch.h b/src/world_material_batch.h
+new file mode 100644
+index 0000000..f3a992c
+--- /dev/null
++++ b/src/world_material_batch.h
+@@ -0,0 +1,50 @@
++#pragma once
++
++#include <array>
++#include <cstdint>
++#include <limits>
++#include <span>
++#include <vector>
++
++// Immutable submission ranges, prepared with each leaf's indirect commands.
++// Texture units 9..14 leave the original material/lightmap bindings intact.
++namespace world_batch
++{
++inline constexpr unsigned TextureCount = 6;
++inline constexpr unsigned TextureUnit = 9;
++inline constexpr unsigned CommandBytes = 20;
++
++struct Batch
++{
++    std::size_t firstChain{};
++    unsigned chainCount{}, offset{}, drawCount{}, polyCount{};
++    std::array<unsigned, TextureCount> drawEnds{};
++};
++
++template<class Chain>
++std::vector<Batch> Prepare(std::span<const Chain> chains)
++{
++    std::vector<Batch> result;
++    for (std::size_t first = 0; first < chains.size();)
++    {
++        Batch batch{};
++        batch.firstChain = first;
++        batch.offset = chains[first].startDrawOffset;
++        while (first + batch.chainCount < chains.size() && batch.chainCount < TextureCount)
++        {
++            const auto& chain = chains[first + batch.chainCount];
++            const auto expected = std::uint64_t(batch.offset) + std::uint64_t(batch.drawCount) * CommandBytes;
++            if (!chain.drawCount || chain.cavityLighting != chains[first].cavityLighting ||
++                chain.startDrawOffset != expected ||
++                std::uint64_t(batch.drawCount) + chain.drawCount > std::uint64_t((std::numeric_limits<int>::max)()) ||
++                std::uint64_t(batch.polyCount) + chain.polyCount > (std::numeric_limits<unsigned>::max)()) break;
++            batch.drawCount += chain.drawCount;
++            batch.polyCount += chain.polyCount;
++            batch.drawEnds[batch.chainCount++] = batch.drawCount;
++        }
++        if (batch.chainCount > 1) result.push_back(batch);
++        first += batch.chainCount ? batch.chainCount : 1;
++    }
++    return result;
++}
++} // namespace world_batch
+diff --git a/tests/world_material_batch_gl_tests.cpp b/tests/world_material_batch_gl_tests.cpp
+new file mode 100644
+index 0000000..67ea7ab
+--- /dev/null
++++ b/tests/world_material_batch_gl_tests.cpp
+@@ -0,0 +1,301 @@
++// Executes the production BSP submission path and complete world shaders.
++// Host pass decisions/file loading are adapters; pixels and draws use real GL.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <cassert>
++#include <cstdio>
++#include <fstream>
++#include <sstream>
++#include <stdexcept>
++
++CWorldSurfaceRenderer g_WorldSurfaceRenderer;
++model_t world{};
++model_t* worldPtr = &world;
++model_t** cl_worldmodel = &worldPtr;
++cl_entity_t entity{};
++cl_entity_t* entityPtr = &entity;
++cl_entity_t** currententity = &entityPtr;
++int filter{}, polys{}, texture{};
++int* filterMode = &filter;
++int* c_brush_polys = &polys;
++int* currenttexture = &texture;
++cvar_t fullbright{}, fogTrans{}, fogShift{}, batchCvar{}, detailCvar{}, parallaxCvar{};
++cvar_t* r_fullbright = &fullbright;
++cvar_t* r_fog_trans = &fogTrans;
++cvar_t* r_linear_fog_shift = &fogShift;
++cvar_t* r_world_material_batch = &batchCvar;
++cvar_t* r_detailtextures = &detailCvar;
++cvar_t* r_wsurf_parallax_scale = &parallaxCvar;
++int r_draw_classify = DRAW_CLASSIFY_LIGHTMAP, r_fog_mode = GL_LINEAR;
++bool r_draw_opaque = true, r_draw_oitblend{}, g_bUseOITBlend{};
++bool g_bPortalClipPlaneEnabled[6]{};
++bool shadow{}, water{}, multi{}, gbuffer{}, fog{}, gamma{};
++bool R_IsRenderingShadowView() { return shadow; }
++bool R_IsRenderingWaterView() { return water; }
++bool R_IsRenderingMultiView() { return multi; }
++bool R_IsRenderingGBuffer() { return gbuffer; }
++bool R_IsRenderingFog() { return fog; }
++bool R_IsRenderingGammaBlending() { return gamma; }
++bool R_IsRenderingLinearDepth() { return false; }
++bool R_ShouldDrawGlowStencil() { return false; }
++bool R_ShouldDrawGlowStencilWallHack() { return false; }
++bool R_ShouldDrawGlowStencilWallHackBehindWallOnly() { return false; }
++bool R_ShouldDrawGlowStencilEnableDepthTest() { return false; }
++bool R_ShouldDrawGlowColor() { return false; }
++bool R_ShouldDrawGlowColorWallHack() { return false; }
++bool R_ShouldDrawGlowColorWallHackBehindWallOnly() { return false; }
++void GL_BindVAO(GLuint v) { glBindVertexArray(v); }
++void GL_BindABO(GLuint v) { glBindBuffer(GL_DRAW_INDIRECT_BUFFER, v); }
++void GL_UseProgram(GLuint p) { glUseProgram(p); }
++void GL_BeginDebugGroup(const char*) {}
++void GL_EndDebugGroup() {}
++unsigned submissions{}, commands{}, profileChains{}, profileSubmissions{};
++void R_ProfileWorldMaterialSubmit(unsigned n) { profileChains += n; ++profileSubmissions; }
++CWorldSurfaceLeaf::~CWorldSurfaceLeaf() = default;
++CWorldSurfaceWorldModel::~CWorldSurfaceWorldModel() = default;
++
++std::string Read(const std::string& name)
++{
++    std::ifstream file(std::string(RENDERER_SHADER_DIRECTORY) + "/" + name, std::ios::binary);
++    assert(file.good()); std::ostringstream text; text << file.rdbuf(); return text.str();
++}
++GLuint Compile(GLenum stage, const char* path, const char* defines)
++{
++    std::string name(path);
++    name = name.substr(name.find_last_of("/\\") + 1);
++    auto source = Read(name);
++    const auto at = source.find("#include \"common.h\"");
++    assert(at != std::string::npos); source.replace(at, 19, Read("common.h"));
++    source.insert(source.find('\n') + 1, std::string(defines) +
++        (stage == GL_VERTEX_SHADER ? "#define IS_VERTEX_SHADER\n" : "#define IS_FRAGMENT_SHADER\n"));
++    GLuint shader = glCreateShader(stage); const char* text = source.c_str();
++    glShaderSource(shader, 1, &text, nullptr); glCompileShader(shader);
++    GLint ok{}; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok) { char log[16384]{}; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n%s\n", defines, log); }
++    assert(ok); return shader;
++}
++GLuint GL_CompileShaderFileEx(const CCompileShaderArgs* args)
++{
++    assert(!args->gsfile);
++    const GLuint vs = Compile(GL_VERTEX_SHADER, args->vsfile, args->vsdefine);
++    const GLuint fs = Compile(GL_FRAGMENT_SHADER, args->fsfile, args->fsdefine);
++    const GLuint program = glCreateProgram(); glAttachShader(program, vs); glAttachShader(program, fs); glLinkProgram(program);
++    GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    if (!ok) { char log[16384]{}; glGetProgramInfoLog(program, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    assert(ok); glDeleteShader(vs); glDeleteShader(fs); return program;
++}
++void Draw(GLenum mode, GLenum type, const void* offset, GLsizei count, GLsizei stride)
++{
++    ++submissions; commands += count;
++    glMultiDrawElementsIndirect(mode, type, offset, count, stride);
++}
++#undef glMultiDrawElementsIndirect
++#define glMultiDrawElementsIndirect Draw
++#undef Sys_Error
++#define Sys_Error(...) throw std::runtime_error("Production shader selection failed")
++#include "world_material_batch_dispatch.inc"
++#undef Sys_Error
++#undef glMultiDrawElementsIndirect
++
++namespace
++{
++constexpr unsigned Width = 144, Height = 96, Chains = 12;
++using Chain = CWorldSurfaceBrushTexChain;
++void Planner()
++{
++    std::vector<Chain> c(13);
++    for (unsigned i = 0; i < c.size(); ++i) { c[i].startDrawOffset = 40 + i*20; c[i].drawCount = 1; c[i].polyCount = 2; }
++    auto prepare = [&] { return world_batch::Prepare(std::span<const Chain>(c)); };
++    auto b = prepare(); assert(b.size() == 2 && b[0].chainCount == 6 && b[1].firstChain == 6);
++    assert(b[0].offset == 40 && b[0].polyCount == 12 && b[0].drawEnds[5] == 6);
++    c.resize(7); b = prepare(); assert(b.size() == 1 && b[0].drawCount == 6);
++    c[2].cavityLighting = true; b = prepare(); assert(b.size() == 2 && b[0].chainCount == 2 && b[1].firstChain == 3);
++    c[2].cavityLighting = false; c[2].drawCount = 0; b = prepare(); assert(b.size() == 2 && b[1].firstChain == 3);
++    c[2].drawCount = 1; c[2].startDrawOffset += 20; b = prepare(); assert(b.size() == 2 && b[0].chainCount == 2 && b[1].firstChain == 3);
++    c.resize(2); c[0].polyCount = (std::numeric_limits<unsigned>::max)(); assert(prepare().empty());
++    c[0].polyCount = 0; c[0].drawCount = (std::numeric_limits<unsigned>::max)(); assert(prepare().empty());
++    c.clear(); assert(prepare().empty());
++}
++struct Vertex { float xyz[3], uv[2]; };
++struct Image { std::vector<float> color, depth; std::vector<unsigned char> stencil; unsigned calls{}, count{}, polys{}; };
++GLuint Buffer(GLenum target, const void* data, std::size_t size)
++{
++    GLuint id{}; glGenBuffers(1, &id); glBindBuffer(target, id); glBufferData(target, size, data, GL_STATIC_DRAW); return id;
++}
++template<class T> GLuint Uniform(unsigned slot, const T& data)
++{
++    auto id = Buffer(GL_UNIFORM_BUFFER, &data, sizeof(data)); glBindBufferBase(GL_UNIFORM_BUFFER, slot, id); return id;
++}
++GLuint Texture(unsigned index)
++{
++    std::array<unsigned char, 8*8*4> data{};
++    for (unsigned y = 0; y < 8; ++y) for (unsigned x = 0; x < 8; ++x)
++    {
++        const auto k = (y*8+x)*4;
++        data[k] = 24 + index*15; data[k+1] = 200-index*12; data[k+2] = 20+x*24;
++        data[k+3] = (x < 3 && y < 3) ? 0 : 255;
++    }
++    GLuint id{}; glGenTextures(1, &id); glBindTexture(GL_TEXTURE_2D, id);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 8, 8, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
++    glGenerateMipmap(GL_TEXTURE_2D); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR); return id;
++}
++Image Render(CWorldSurfaceLeaf& leaf, bool batch)
++{
++    batchCvar.value = batch ? 1 : 0; submissions = commands = profileChains = profileSubmissions = 0; polys = 0;
++    glActiveTexture(GL_TEXTURE0); glDepthMask(GL_TRUE); glStencilMask(255); glEnable(GL_DEPTH_TEST);
++    glClearColor(.013f, .027f, .041f, 1); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);
++    R_DrawWorldSurfaceLeafStatic(nullptr, &leaf);
++    Image result; result.calls = submissions; result.count = commands; result.polys = polys;
++    result.color.resize(Width*Height*4); result.depth.resize(Width*Height); result.stencil.resize(Width*Height);
++    glReadPixels(0, 0, Width, Height, GL_RGBA, GL_FLOAT, result.color.data());
++    glReadPixels(0, 0, Width, Height, GL_DEPTH_COMPONENT, GL_FLOAT, result.depth.data());
++    glReadPixels(0, 0, Width, Height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, result.stencil.data());
++    assert(profileChains == Chains && profileSubmissions == submissions);
++    assert(glGetError() == GL_NO_ERROR);
++    GLint binding{}; glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &binding); assert(!binding);
++    glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &binding); assert(!binding);
++    glGetIntegerv(GL_CURRENT_PROGRAM, &binding); assert(!binding);
++    glGetIntegerv(GL_ACTIVE_TEXTURE, &binding); assert(binding == GL_TEXTURE0);
++    return result;
++}
++void Compare(CWorldSurfaceLeaf& leaf, const char* name, unsigned expected)
++{
++    const auto before = Render(leaf, false), after = Render(leaf, true);
++    assert(before.calls == Chains && after.calls == expected && before.count == after.count && before.polys == after.polys);
++    assert(before.depth == after.depth && before.stencil == after.stencil);
++    float error{};
++    for (unsigned i = 0; i < before.color.size(); ++i) error = (std::max)(error, std::abs(before.color[i]-after.color[i]));
++    // Implicit versus explicit gradients may differ by one RGBA8 quantization step.
++    assert(error <= 1.f/255.f + .00001f);
++    unsigned covered{}; for (float z : after.depth) if (z < 1.f) ++covered;
++    assert(covered > Width*Height/3);
++    std::printf("%s: %u -> %u submits, %u commands, %u covered pixels, color max error %.9f, depth/stencil exact\n",
++        name, before.calls, after.calls, after.count, covered, error);
++}
++}
++
++int main()
++{
++    Planner();
++    if (!glfwInit()) return 2;
++    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++    auto* window = glfwCreateWindow(Width, Height, "world material batch", nullptr, nullptr);
++    if (!window) { glfwTerminate(); return 2; }
++    glfwMakeContextCurrent(window); glewExperimental = GL_TRUE;
++    if (glewInit() != GLEW_OK || !GLEW_ARB_shader_draw_parameters) { glfwDestroyWindow(window); glfwTerminate(); return 2; }
++    while (glGetError() != GL_NO_ERROR) {}
++    std::printf("Driver: %s / %s\n", glGetString(GL_RENDERER), glGetString(GL_VERSION));
++    glViewport(0, 0, Width, Height);
++    GLuint fbo{}, color{}, depth{}; glGenFramebuffers(1, &fbo); glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++    glGenTextures(1, &color); glBindTexture(GL_TEXTURE_2D, color);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, Width, Height, 0, GL_RGBA, GL_FLOAT, nullptr);
++    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
++    glGenRenderbuffers(1, &depth); glBindRenderbuffer(GL_RENDERBUFFER, depth);
++    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, Width, Height);
++    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth);
++    glDrawBuffer(GL_COLOR_ATTACHMENT0); glReadBuffer(GL_COLOR_ATTACHMENT0);
++    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
++
++    scene_ubo_t scene{}; scene.r_g = scene.v_gamma = scene.v_texgamma = scene.v_lightgamma = 1;
++    scene.r_lightmap_pow = scene.r_lightmap_scale = scene.r_lightscale = 1; scene.r_g3 = .125f; scene.r_alphamin = .5f;
++    scene.fogEnd = 8; scene.fogDensity = .1f;
++    for (auto& channel : scene.r_filtercolor) channel = 1;
++    for (auto& style : scene.r_lightstylevalue) for (auto& channel : style) channel = 1;
++    camera_ubo_t camera{}; camera.numViews = 1;
++    for (unsigned i = 0; i < 4; ++i)
++        camera.views[0].worldMatrix[i][i] = camera.views[0].projMatrix[i][i] =
++            camera.views[0].invWorldMatrix[i][i] = camera.views[0].invProjMatrix[i][i] = 1;
++    camera.views[0].viewpos[2] = 2; camera.views[0].vup_zfar[3] = 10;
++    entity_ubo_t ent{};
++    for (unsigned i = 0; i < 4; ++i) { ent.r_entityMatrix[i][i] = 1; ent.r_color[i] = 1; }
++    dlight_ubo_t lights{};
++    std::vector<GLuint> buffers{Uniform(BINDING_POINT_SCENE_UBO, scene), Uniform(BINDING_POINT_CAMERA_UBO, camera),
++        Uniform(BINDING_POINT_ENTITY_UBO, ent), Uniform(BINDING_POINT_DLIGHT_UBO, lights)};
++    world_material_t material{};
++    for (auto* scale : {&material.diffuseScale, &material.detailScale, &material.normalScale, &material.parallaxScale, &material.specularScale})
++        (*scale)[0] = (*scale)[1] = 1;
++    buffers.push_back(Buffer(GL_SHADER_STORAGE_BUFFER, &material, sizeof(material)));
++    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_MATERIAL_SSBO, buffers.back());
++    auto model = std::make_shared<CWorldSurfaceWorldModel>(&world);
++    CWorldSurfaceLeaf leaf(nullptr); leaf.m_pWorldModel = model;
++    struct Cavity { float rgb[3]; unsigned style; } cavity{{.45f,.6f,.3f}, 0};
++    model->m_hCavityLightValues = Buffer(GL_SHADER_STORAGE_BUFFER, &cavity, sizeof(cavity)); buffers.push_back(model->m_hCavityLightValues);
++    std::array<texture_t, Chains> textures{};
++    std::vector<GLuint> textureIDs;
++    std::vector<Vertex> vertices;
++    std::vector<unsigned> indices;
++    std::vector<CDrawIndexAttrib> draws(2); // Nonzero indirect byte offset must be preserved.
++    auto& chains = leaf.vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
++    for (unsigned i = 0; i < Chains; ++i)
++    {
++        textureIDs.push_back(Texture(i)); textures[i].gl_texturenum = textureIDs.back();
++        Chain chain{}; chain.texture = &textures[i]; chain.startDrawOffset = draws.size()*sizeof(CDrawIndexAttrib);
++        chain.drawCount = 1 + (i%3 == 0); chain.polyCount = chain.drawCount*2;
++        for (unsigned part = 0; part < chain.drawCount; ++part)
++        {
++            const float x = -1.f + (i%4)*.5f, y = -1.f + (i/4)*(2.f/3);
++            const float left = x + .02f + part*.22f, right = left + .21f, low = y+.02f, high = y+.62f;
++            const unsigned start = vertices.size();
++            vertices.insert(vertices.end(), {{{left,low,0},{0,0}}, {{right,low,0},{3.3f,0}},
++                {{right,high,0},{3.3f,2.7f}}, {{left,high,0},{0,2.7f}}});
++            CDrawIndexAttrib draw{}; draw.NumIndices = 6; draw.FirstIndexLocation = indices.size(); draw.FirstInstanceLocation = 17+i;
++            draws.push_back(draw); for (unsigned k : {0u,1u,2u,2u,3u,0u}) indices.push_back(start+k);
++        }
++        chains.push_back(chain);
++    }
++    leaf.vStaticMaterialBatches = world_batch::Prepare(std::span<const Chain>(chains));
++    glGenVertexArrays(1, &model->hVAO); glBindVertexArray(model->hVAO);
++    buffers.push_back(Buffer(GL_ARRAY_BUFFER, vertices.data(), vertices.size()*sizeof(Vertex)));
++    glEnableVertexAttribArray(WSURF_VA_POSITION); glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), nullptr);
++    glEnableVertexAttribArray(WSURF_VA_TEXCOORD); glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)12);
++    glVertexAttrib2f(WSURF_VA_LIGHTMAP_TEXCOORD, .5f, .5f);
++    glVertexAttrib3f(WSURF_VA_NORMAL, 0,0,1); glVertexAttrib3f(WSURF_VA_SMOOTHNORMAL, 0,0,1);
++    glVertexAttrib3f(WSURF_VA_S_TANGENT, 1,0,0); glVertexAttrib3f(WSURF_VA_T_TANGENT, 0,1,0);
++    glVertexAttribI4ui(WSURF_VA_PACKED_MATID, 0,0,0,0); // All vertices share matId; actual textures differ per draw.
++    glVertexAttribI4ui(WSURF_VA_STYLES, 0,255,255,255); glVertexAttribI4ui(WSURF_VA_CAVITY_LIGHT, 0,1,0,0);
++    glVertexAttrib1f(WSURF_VA_DIFFUSESCALE, 1);
++    buffers.push_back(Buffer(GL_ELEMENT_ARRAY_BUFFER, indices.data(), indices.size()*sizeof(unsigned)));
++    leaf.hABO = Buffer(GL_DRAW_INDIRECT_BUFFER, draws.data(), draws.size()*sizeof(CDrawIndexAttrib)); buffers.push_back(leaf.hABO);
++    glBindVertexArray(0);
++    g_WorldSurfaceRenderer.bDiffuseTexture = true;
++    Compare(leaf, "opaque multiple commands/texture/offset", 2);
++    const auto version44 = __GLEW_VERSION_4_4, multiBind = __GLEW_ARB_multi_bind;
++    __GLEW_VERSION_4_4 = __GLEW_ARB_multi_bind = false;
++    Compare(leaf, "without multi-bind extension", 2);
++    __GLEW_VERSION_4_4 = version44; __GLEW_ARB_multi_bind = multiBind;
++    entity.curstate.rendermode = kRenderTransAlpha; Compare(leaf, "alpha-test holes", 2);
++    entity.curstate.rendermode = kRenderNormal;
++    auto replacement = std::make_shared<CWorldSurfaceRenderMaterial>(); chains[4].pRenderMaterial = replacement;
++    replacement->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum = textureIDs[11]; Compare(leaf, "replacement diffuse", 2);
++    detailCvar.value = 1;
++    for (int layer = WSURF_DETAIL_TEXTURE; layer < WSURF_MAX_TEXTURE; ++layer)
++    {
++        replacement->textures[layer].gltexturenum = textureIDs[5]; Compare(leaf, "special material fallback", 7);
++        replacement->textures[layer].gltexturenum = 0;
++    }
++    const auto extension = __GLEW_ARB_shader_draw_parameters; __GLEW_ARB_shader_draw_parameters = false;
++    Compare(leaf, "unsupported extension fallback", 12); __GLEW_ARB_shader_draw_parameters = extension;
++    water = true; Compare(leaf, "water-view fallback", 12); water = false;
++    g_bPortalClipPlaneEnabled[0] = true; Compare(leaf, "portal-view fallback", 12); g_bPortalClipPlaneEnabled[0] = false;
++    fog = true; Compare(leaf, "fog", 2); fog = false; gamma = true; Compare(leaf, "gamma blend", 2); gamma = false;
++    for (unsigned i = 0; i < Chains; ++i) chains[i].cavityLighting = (i >= 3);
++    leaf.vStaticMaterialBatches = world_batch::Prepare(std::span<const Chain>(chains));
++    color24 lit{1,1,1}; world.lightdata = &lit; g_WorldSurfaceRenderer.bLightmapTexture = true;
++    g_WorldSurfaceRenderer.iLightmapUsedBits = 1;
++    GLuint lm{}; glGenTextures(1, &lm); glActiveTexture(GL_TEXTURE0 + WSURF_BIND_LIGHTMAP_TEXTURE_0);
++    glBindTexture(GL_TEXTURE_2D_ARRAY, lm); const std::array<unsigned char,4> light{128,170,100,255};
++    glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, 1,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,light.data());
++    glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
++    glActiveTexture(GL_TEXTURE0); Compare(leaf, "lightmap/cavity boundary and partial groups", 3);
++    gbuffer = true; Compare(leaf, "deferred diffuse", 3); gbuffer = false;
++    // Deliberately disturb every batch binding, then ensure production rebinds it.
++    for (unsigned unit = 9; unit <= 14; ++unit) GL_BindTextureUnit(unit, GL_TEXTURE_2D, textureIDs[0]);
++    Compare(leaf, "binding disturbance", 3);
++    for (const auto& [state,p] : g_WSurfProgramTable) glDeleteProgram(p.program);
++    glDeleteBuffers(buffers.size(), buffers.data()); glDeleteTextures(textureIDs.size(), textureIDs.data());
++    glDeleteTextures(1,&lm); glDeleteTextures(1,&color); glDeleteRenderbuffers(1,&depth); glDeleteFramebuffers(1,&fbo);
++    glDeleteVertexArrays(1,&model->hVAO);
++    assert(glGetError() == GL_NO_ERROR); glfwDestroyWindow(window); glfwTerminate();
++    std::puts("Production world material batching: planner, draws, pixels, depth and fallback checks passed. No FPS claim.");
++}
+diff --git a/tests/extract_world_material_batch.py b/tests/extract_world_material_batch.py
+new file mode 100644
+index 0000000..a428cea
+--- /dev/null
++++ b/tests/extract_world_material_batch.py
+@@ -0,0 +1,37 @@
++"""Extract unchanged world submission and shader selection for a real GL regression."""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++from extract_studio_depth_executor import function
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--src', type=Path, required=True)
++    p.add_argument('--output', type=Path, required=True)
++    p.add_argument('--manifest', type=Path, required=True)
++    args = p.parse_args()
++    groups = {
++        'gl_rmisc.cpp': ('void GL_BindTextureUnit(', 'void GL_BeginStencilWrite(',
++                         'void GL_BeginStencilCompareNotEqual('),
++        'gl_wsurf.cpp': ('void R_UseWSurfProgram(', 'void R_BeginDetailTextureFromRenderMaterial(',
++                         'void R_EndDetailTexture('),
++        'world_leaf_draw.cpp': ('bool R_CanBatchWorldMaterials(', 'bool R_ResolveWorldMaterialBatch(',
++                               'void R_DrawWorldSurfaceLeafBegin(', 'void R_DrawWorldSurfaceLeafEnd(',
++                               'void R_DrawWorldSurfaceLeafStatic('),
++    }
++    code = 'std::unordered_map<program_state_t, wsurf_program_t> g_WSurfProgramTable;\n'
++    for filename, signatures in groups.items():
++        source = (args.src / filename).read_text(encoding='utf-8-sig')
++        code += '\n\n'.join(function(source, s) for s in signatures) + '\n'
++    args.output.write_text(code, encoding='utf-8')
++    args.manifest.write_text(json.dumps({
++        'inputs': {n: hashlib.sha256((args.src/n).read_bytes()).hexdigest() for n in groups},
++        'output': hashlib.sha256(code.encode()).hexdigest(),
++        'scope': 'Exact production texture/stencil/selection/static leaf draw; full world shaders. Host decisions and loading adapted. Not game FPS.'
++    }, indent=2) + '\n', encoding='utf-8')
++
++
++if __name__ == '__main__':
++    main()
 diff --git a/tests/extract_brush_dispatch.py b/tests/extract_brush_dispatch.py
 new file mode 100644
 index 0000000..226172f

@@ -13,6 +13,8 @@ executor comparison. It is mutually exclusive with face-cull modes, preserves
 face culling, and samples executor 1 at the final normal cap before restoration.
 Use --cache-modes 1 --bone-palette-modes 0 1 to compare exact GPU bone-palette
 reuse. This preserves both Studio shadow options and restores the original cache mode.
+Use --cache-modes 1 --world-material-batch-modes 0 1 to compare the BSP main
+material submission path, preserving all Studio options and restoring its cvar.
 
 Run only while B remains in active MC gameplay, foreground and stationary.
 Evidence and a durable recovery manifest stay in analysis/perf-200fps. Recover
@@ -405,7 +407,7 @@ class Exercise:
         raise TimeoutError("The diagnostic framebuffer capture did not finish")
 
     def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True,
-                depth_executor=None, bone_palette=None):
+                depth_executor=None, bone_palette=None, world_material_batch=None):
         self.verify_blocks()
         before, _, _ = self.stable(expected_lights=lights)
         command = [sys.executable, str(ROOT / "tools/Monitor-LivePerformance.py"),
@@ -414,10 +416,12 @@ class Exercise:
             command += ["--scene-static-shadows", str(cache)]
             if benchmark:
                 command += ["--benchmark-fps", "300"]
-        studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor, "BonePaletteCache": bone_palette}
+        studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor, "BonePaletteCache": bone_palette,
+                           "WorldMaterialBatch": world_material_batch}
         for option, value in (("studio-shadow-face-cull", face_cull),
                               ("studio-shadow-depth-executor", depth_executor),
-                              ("studio-bone-palette-cache", bone_palette)):
+                              ("studio-bone-palette-cache", bone_palette),
+                              ("world-material-batch", world_material_batch)):
             if value is not None:
                 command += ["--" + option, str(value)]
         if reference:
@@ -474,7 +478,7 @@ class Exercise:
         result = read_json(path)
         record = {"report": str(path.relative_to(ROOT)),
                   "cache": cache, "studioFaceCull": face_cull, "studioDepthExecutor": depth_executor,
-                  "studioBonePaletteCache": bone_palette,
+                  "studioBonePaletteCache": bone_palette, "worldMaterialBatch": world_material_batch,
                   "lightsBefore": light_snapshot(before),
                   "guardError": guard_error, "monitorExitCode": process.returncode,
                   "summary": result.get("summary", {})}
@@ -485,9 +489,9 @@ class Exercise:
         summary = result["summary"]
         for feature, requested in studio_requests.items():
             if requested is not None and (
-                    summary.get("requestedStudio" + feature) != requested
-                    or summary.get("activeStudio" + feature) != requested
-                    or summary.get("studio" + feature + "Restored") is not True
+                    summary.get("requested" + self.monitor.feature_name(feature)) != requested
+                    or summary.get("active" + self.monitor.feature_name(feature)) != requested
+                    or summary.get(self.monitor.feature_key(feature) + "Restored") is not True
                     or not self.monitor.stable_studio_feature(
                         result.get("samples", []), result.get("profiles", {}).get("renderer", {}).get("frames", []),
                         requested, requested, feature)
@@ -543,8 +547,8 @@ class Exercise:
             raise RuntimeError("B restarted; options of a new client will not be modified")
         errors = []
         actions = ["benchmark_framerate 0", f"scene_static_shadows {int(self.data['original']['staticShadows'])}"]
-        studio_original = {feature: self.data["original"]["studio" + feature]
-                           for feature in self.monitor.STUDIO_COMMANDS if "studio" + feature in self.data["original"]}
+        studio_original = {feature: self.data["original"][self.monitor.feature_key(feature)]
+                           for feature in self.monitor.STUDIO_COMMANDS if self.monitor.feature_key(feature) in self.data["original"]}
         for feature, value in studio_original.items():
             if type(value) is not int or value not in (0, 1):
                 raise ValueError(f"Invalid original Studio {feature} value in recovery manifest")
@@ -627,20 +631,23 @@ class Exercise:
         original = {"caps": caps, "staticShadows": native["sceneStaticShadowsEnabled"]}
         depth_modes = getattr(self.args, "depth_executor_modes", None)
         palette_modes = getattr(self.args, "bone_palette_modes", None)
+        world_modes = getattr(self.args, "world_material_batch_modes", None)
         feature = ("FaceCull" if self.args.face_cull_modes is not None else
                    "DepthExecutor" if depth_modes is not None else
-                   "BonePaletteCache" if palette_modes is not None else None)
+                   "BonePaletteCache" if palette_modes is not None else
+                   "WorldMaterialBatch" if world_modes is not None else None)
         if feature:
-            original["studio" + feature] = self.monitor.studio_feature(native, feature)
+            original[self.monitor.feature_key(feature)] = self.monitor.studio_feature(native, feature)
         modes = (self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor"
-                 else palette_modes if feature == "BonePaletteCache" else self.args.cache_modes)
+                 else palette_modes if feature == "BonePaletteCache" else
+                 world_modes if feature == "WorldMaterialBatch" else self.args.cache_modes)
         feature_parameter = {"FaceCull": "face_cull", "DepthExecutor": "depth_executor",
-                             "BonePaletteCache": "bone_palette"}.get(feature)
+                             "BonePaletteCache": "bone_palette", "WorldMaterialBatch": "world_material_batch"}.get(feature)
         self.anchor = native
         self.data.update(world=native["world"], player={k: player[k] for k in ("uuid", "slot", "serial", "life", "dimension")},
                          anchor={k: native[k] for k in ("origin", "viewAngles")}, position=player["position"],
                          original=original, cacheModes=self.args.cache_modes, faceCullModes=self.args.face_cull_modes,
-                         depthExecutorModes=depth_modes, bonePaletteModes=palette_modes,
+                         depthExecutorModes=depth_modes, bonePaletteModes=palette_modes, worldMaterialBatchModes=world_modes,
                          baselineLights=baseline, candidates=candidates(player["position"], native["viewAngles"][1]))
         self.save()
         self.connect()
@@ -672,7 +679,8 @@ class Exercise:
             reference = None
             visible_counts = {}
             for mode in modes:
-                name = {"FaceCull": "face-", "DepthExecutor": "depth-", "BonePaletteCache": "palette-"}.get(feature, "") + ("on" if mode else "off")
+                name = {"FaceCull": "face-", "DepthExecutor": "depth-", "BonePaletteCache": "palette-",
+                        "WorldMaterialBatch": "world-batch-"}.get(feature, "") + ("on" if mode else "off")
                 path, result = self.measure(f"{self.data['run']}-{count}-{name}", lights,
                                             cache=1 if feature else mode, reference=reference,
                                             **({feature_parameter: mode} if feature else {}))
@@ -689,14 +697,15 @@ class Exercise:
                 comparable = sum(result["summary"].get("referenceMatches") is True
                                  for result in captures.values()) == 1
             if feature and comparable:
-                comparable = all(result["summary"].get("activeStudio" + feature) == mode
+                comparable = all(result["summary"].get("active" + self.monitor.feature_name(feature)) == mode
                                  and result["summary"].get("activeStaticShadows") is True
                                  for mode, result in captures.items())
-            stage.update(comparable=comparable, comparisonKind="studioShadow" + feature if feature else "staticShadowCache",
+            stage.update(comparable=comparable, comparisonKind=("worldMaterialBatch" if feature == "WorldMaterialBatch"
+                         else "studioShadow" + feature if feature else "staticShadowCache"),
                          rendererAllVisibleLights=visible_counts,
                          workloadNote="Same observer and MC fixture; ordinary Bot and host dynamic-light activity can differ between intervals.")
             if comparable:
-                gain_key = "studio" + feature + "FpsGainPercent" if feature else "fpsGainPercent"
+                gain_key = self.monitor.feature_key(feature) + "FpsGainPercent" if feature else "fpsGainPercent"
                 stage[gain_key] = 100 * (captures[1]["summary"]["renderer"]["observedFps"] /
                                        captures[0]["summary"]["renderer"]["observedFps"] - 1)
             previous = lights
@@ -717,7 +726,7 @@ def validate_recovery(data):
         raise ValueError("Recovery dimension is not a managed cs_assault dimension")
     original = data.get("original", {})
     for key, modes in (("studioFaceCull", "faceCullModes"), ("studioDepthExecutor", "depthExecutorModes"),
-                       ("studioBonePaletteCache", "bonePaletteModes")):
+                       ("studioBonePaletteCache", "bonePaletteModes"), ("worldMaterialBatch", "worldMaterialBatchModes")):
         if key in original and (type(original[key]) is not int or original[key] not in (0, 1)):
             raise ValueError(f"Invalid original {key} value in recovery manifest")
         if data.get(modes) is not None and key not in original:
@@ -746,6 +755,8 @@ def main():
                         help="Compare Studio shadow depth executor; requires --cache-modes 1, and a single mode gives no gain")
     studio_modes.add_argument("--bone-palette-modes", type=int, nargs="+", choices=(0, 1),
                         help="Compare exact bone-palette reuse; requires --cache-modes 1")
+    studio_modes.add_argument("--world-material-batch-modes", type=int, nargs="+", choices=(0, 1),
+                        help="Compare BSP main material batching; requires --cache-modes 1")
     parser.add_argument("--seconds", type=int, choices=range(5, 26), default=8)
     parser.add_argument("--wait-stable", type=int, choices=range(4, 121), default=15)
     parser.add_argument("--capture", action="store_true", help="Capture one native scene BMP per light-count stage outside timing")
@@ -756,7 +767,7 @@ def main():
     if len(args.cache_modes) != len(set(args.cache_modes)):
         parser.error("cache modes must be unique")
     for name, modes in (("face-cull", args.face_cull_modes), ("depth-executor", args.depth_executor_modes),
-                        ("bone-palette", args.bone_palette_modes)):
+                        ("bone-palette", args.bone_palette_modes), ("world-material-batch", args.world_material_batch_modes)):
         if modes is not None:
             if len(modes) != len(set(modes)):
                 parser.error(name + " modes must be unique")
