@@ -1,5 +1,7 @@
 # 在 X Minecraft Launcher 集中管理 Mod
 
+Smart Key Prompts 1.1.3 必须在 `rules.json` 的 `sideOverrides` 中配置为 `"smartkeyprompts": "client"`。实际专服加载会因引用客户端 `Screen` 类而退出；其 TOML 依赖声明中的 `side="BOTH"` 不代表该 Mod 本身兼容专服。显式规则保留 A/B 安装并从服务端移除，不必移除其他 Mod。
+
 当前只管理本机 A、B 两个 MC 客户端及一个 MC 专用服务器。Minecraft 版本固定 **1.21.1**，加载器固定 **NeoForge 21.1.256 / FML 4.0.45**。现有个人 Minecraft 安装、存档和 X 管理的其他实例不会成为同步目标。
 
 ## 一次准备

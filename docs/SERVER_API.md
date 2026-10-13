@@ -10,7 +10,7 @@
 | ReHLDS / ReGameDLL API | 3.15 / 5.30 |
 | GoldCraft Pawn API | 1 |
 
-AMXX 自定义效果的[通用互通方案](AMXX_INTEROP.md)已排队：按能力同步游戏状态，保留 CS 原生表现，私有语义使用公共声明。该效果 API 尚未实现；下面列出的形态 API 是当前实际接口。
+AMXX 自定义效果接口已接入，声明见 [goldcraft_effects.inc](../amxx/goldcraft/include/goldcraft_effects.inc)，当前验证边界见[通用互通方案](AMXX_INTEROP.md)。它按调用插件隔离句柄并以租约同步能力；返回成功不代表物理执行完成。下面的形态 API 保持原接口。
 
 ## 使用形态接口
 

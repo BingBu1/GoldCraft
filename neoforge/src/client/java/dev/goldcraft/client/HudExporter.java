@@ -158,6 +158,8 @@ public final class HudExporter implements AutoCloseable {
                     client.inGameHud.getChatHud().render(context,client.inGameHud.getTicks(),
                         (int)HostUi.mouseX(),(int)HostUi.mouseY(),false);
                 }
+                if(!controlling&&!client.options.hudHidden)
+                    ((dev.goldcraft.client.mixin.InGameHudStatusAccessor)client.inGameHud).goldcraft$statusOverlay(context,client.getRenderTickCounter());
                 context.draw();
                 if(screen!=null) {
                     RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT,MinecraftClient.IS_SYSTEM_MAC);

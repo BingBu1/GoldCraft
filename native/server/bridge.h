@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 struct edict_s;
 void GoldCraft_InitCvars();
 void GoldCraft_ObjectsPrecache();
@@ -8,6 +9,21 @@ void GoldCraft_ServerDeactivate();
 void GoldCraft_ClientConnect(edict_s* player);
 void GoldCraft_ClientPutInServer(edict_s* player);
 void GoldCraft_ClientDisconnect(edict_s* player);
+// Gates effects for the whole actual native lifecycle implementation,
+// including reentrant Pawn callbacks. ReAPI pre/post timing is preserved.
+class GoldCraft_PlayerEffectTransition {
+public:
+    GoldCraft_PlayerEffectTransition(edict_s* player, bool terminal) noexcept;
+    ~GoldCraft_PlayerEffectTransition() noexcept;
+    GoldCraft_PlayerEffectTransition(const GoldCraft_PlayerEffectTransition&) = delete;
+    GoldCraft_PlayerEffectTransition& operator=(const GoldCraft_PlayerEffectTransition&) = delete;
+private:
+    std::uint64_t world_=0,generation_=0,slot_epoch_=0;
+    std::uint32_t serial_=0;
+    unsigned slot_=0;
+    bool terminal_=false;
+    int exceptions_=0;
+};
 void GoldCraft_PlayerSpawn(edict_s* player);
 void GoldCraft_PlayerKilled(edict_s* player);
 // True only during a final, already vanilla-armored MC health commit.

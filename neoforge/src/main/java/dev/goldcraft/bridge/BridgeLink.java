@@ -43,13 +43,21 @@ public final class BridgeLink implements AutoCloseable {
     private final Config config;
     private final Thread worker;
     private final ArrayDeque<Queued> outgoing = new ArrayDeque<>();
-    private final ArrayDeque<Wire.Message> incoming = new ArrayDeque<>();
+    /** Metadata belongs to the authenticated connection that received this
+     * message. A frozen batch never changes identity when the worker reconnects. */
+    public record Received(Wire.Message message, long generation, long epoch,
+                           long sequence, long receivedAtNanos) {}
+    public record IncomingBatch(boolean connected, long generation, long epoch,
+                                List<Received> messages) {}
+    private final ArrayDeque<Received> incoming = new ArrayDeque<>();
+    private long connectionEpoch, provenClockFrequency;
+    private int acceptedCapabilities;
     private int outboundBytes, inboundBytes;
     private volatile boolean running = true, connected;
     private volatile long generation;
     private volatile String lastError = "";
     private volatile SocketChannel channel;
-    private final long[] tcpFrames = new long[70], tcpBytes = new long[70], sharedFrames = new long[70], sharedBytes = new long[70];
+    private final long[] tcpFrames = new long[Wire.TYPE_COUNT], tcpBytes = new long[Wire.TYPE_COUNT], sharedFrames = new long[Wire.TYPE_COUNT], sharedBytes = new long[Wire.TYPE_COUNT];
     private long offered, enabled, fallback, ringFullWaits, ringHighWater, queueHighWater, replacements, rejections;
     private long peakQueueAgeNanos, peakPendingAgeNanos, encodeNanos, queueCopyNanos, sharedCopyNanos, socketWriteNanos, socketBytes, drainNanos;
     private long pendingSince;
@@ -64,6 +72,20 @@ public final class BridgeLink implements AutoCloseable {
     public boolean connected() { return connected; }
     public long generation() { return generation; }
     public String lastError() { return lastError; }
+    public synchronized long localQpcFrequency(long expectedGeneration) {
+        return connected && expectedGeneration != 0 && generation == expectedGeneration ? provenClockFrequency : 0;
+    }
+    public synchronized boolean statusEffects(long expectedGeneration) {
+        return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
+            generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.STATUS_EFFECTS)!=0;
+    }
+    public synchronized boolean sendStatus(long expectedGeneration,int type,byte[] payload){
+        return statusEffects(expectedGeneration)&&sendForGeneration(expectedGeneration,type,payload);
+    }
+    public synchronized boolean effectPositionHold(long expectedGeneration) {
+        return connected && expectedGeneration != 0 && generation == expectedGeneration &&
+            (acceptedCapabilities & Wire.EFFECT_POSITION_HOLD) != 0;
+    }
     public int port() { return config.port(); }
 
     public synchronized Metrics metrics() {
@@ -78,6 +100,11 @@ public final class BridgeLink implements AutoCloseable {
             encodeNanos, queueCopyNanos, sharedCopyNanos, socketWriteNanos, socketBytes, drainNanos, blockedBytes, pendingBytes, sharedActive);
     }
 
+    /** Reject queued work derived from a previous authenticated connection. */
+    public synchronized boolean sendForGeneration(long expectedGeneration, int type, byte[] payload) {
+        if (!connected || expectedGeneration==0 || expectedGeneration!=generation) return false;
+        return send(type,payload);
+    }
     public synchronized boolean send(int type, byte[] payload) {
         if (!connected || !Wire.knownType(type) || Wire.internalType(type) || type==Wire.HELLO || type==Wire.WELCOME || payload.length>Wire.MAX_PAYLOAD) { rejections++; return false; }
         int bytes=payload.length+Wire.HEADER_BYTES;
@@ -100,10 +127,24 @@ public final class BridgeLink implements AutoCloseable {
         if(type==Wire.PLAYER_POSE||type==Wire.CAMERA)outgoing.addFirst(message);else outgoing.addLast(message);
         outboundBytes+=bytes; queueHighWater = Math.max(queueHighWater, outboundBytes); return true;
     }
+    // Compatibility API for existing consumers. New authority state uses the
+    // atomic context API below instead of separately sampling generation().
     public synchronized List<Wire.Message> drain() {
         long start = System.nanoTime();
-        List<Wire.Message> messages=new ArrayList<>(incoming); incoming.clear(); inboundBytes=0;
+        List<Wire.Message> messages=new ArrayList<>(incoming.size());
+        for (Received received : incoming) messages.add(received.message());
+        incoming.clear(); inboundBytes=0;
         drainNanos += System.nanoTime() - start; return messages;
+    }
+    public synchronized IncomingBatch drainWithContext() {
+        long start=System.nanoTime();
+        IncomingBatch batch=new IncomingBatch(connected,generation,connectionEpoch,List.copyOf(incoming));
+        incoming.clear();inboundBytes=0;drainNanos+=System.nanoTime()-start;
+        return batch;
+    }
+    private synchronized void authenticated(long epoch,int capabilities) throws IOException {
+        if (!running || connected || generation == -1L) throw new IOException("Invalid authority generation transition");
+        connectionEpoch=epoch;acceptedCapabilities=capabilities;generation++;connected=true;lastError="";
     }
     private synchronized Queued next(boolean urgentOnly) {
         Queued message = null;
@@ -121,12 +162,15 @@ public final class BridgeLink implements AutoCloseable {
         return message;
     }
     private static boolean urgent(int type) { return type == Wire.PLAYER_POSE || type == Wire.CAMERA || type == Wire.HEARTBEAT; }
-    private synchronized void receive(Wire.Message message) throws IOException {
-        if (message.payload().length>Wire.MAX_QUEUED-inboundBytes || incoming.size()>=4096) throw new IOException("Unconsumed message limit");
-        incoming.addLast(message); inboundBytes+=message.payload().length;
+    private synchronized void receive(Wire.Header header, byte[] payload) throws IOException {
+        if (!running || !connected || header.epoch()!=connectionEpoch) throw new IOException("Retired incoming authority");
+        if (payload.length>Wire.MAX_QUEUED-inboundBytes || incoming.size()>=4096) throw new IOException("Unconsumed message limit");
+        incoming.addLast(new Received(new Wire.Message(header.type(),payload),generation,
+            header.epoch(),header.sequence(),System.nanoTime()));
+        inboundBytes+=payload.length;
     }
     private synchronized void reset() {
-        connected=false; outgoing.clear(); incoming.clear(); inboundBytes=outboundBytes=0; pendingSince=0; blockedBytes=pendingBytes=0; sharedActive=false;
+        connected=false; connectionEpoch=0; provenClockFrequency=0; acceptedCapabilities=0; outgoing.clear(); incoming.clear(); inboundBytes=outboundBytes=0; pendingSince=0; blockedBytes=pendingBytes=0; sharedActive=false;
     }
     private void run() {
         while (running) {
@@ -168,13 +212,17 @@ public final class BridgeLink implements AutoCloseable {
     }
     private void exchange(SocketChannel socket) throws IOException {
         ByteBuffer input=ByteBuffer.allocate(Wire.MAX_PAYLOAD+Wire.HEADER_BYTES);
+        boolean statusCapable=config.role()==Wire.FABRIC_SERVER&&config.hostRole()==Wire.HOST_SERVER;
         boolean capable=SharedBulkSender.supported(config.role(), config.hostRole());
-        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32(capable?Wire.SHARED_BULK_V1:0).toByteArray();
+        boolean clockCapable=LocalQpcProof.supported(config.role(), config.hostRole());
+        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS:0)).toByteArray();
         Pending pending=new Pending(Wire.HELLO,hello,0,1,false);
         Queued blocked=null;
         SharedBulkSender shared=null;
         boolean offerSeen=false, bulkEnabled=false;
-        byte[] ack=null;
+        byte[] ack=null, clockAck=null;
+        LocalQpcProof.Response clockResponse=null;
+        boolean clockOfferSeen=false, clockAckSent=false, clockReadySeen=false;
         long epoch=0, receivedSequence=0, sentSequence=1, recordedCopyNanos=0;
         long lastReceive=System.nanoTime(), lastHeartbeat=lastReceive;
         try {
@@ -184,7 +232,9 @@ public final class BridgeLink implements AutoCloseable {
                     if(pending==null) {
                         if(!connected)break;
                         long encodeStart=System.nanoTime();
-                        if(ack!=null) {
+                        if(clockAck!=null) {
+                            pending=new Pending(Wire.CLOCK_ACK,clockAck,epoch,++sentSequence,false); clockAck=null;
+                        } else if(ack!=null) {
                             pending=new Pending(Wire.BULK_ACK,ack,epoch,++sentSequence,true); ack=null;
                         } else {
                             Queued message=blocked!=null?blocked:next(false);
@@ -217,6 +267,7 @@ public final class BridgeLink implements AutoCloseable {
                         pendingBytes=0;
                     }
                     // A complete ACK must be on TCP before any bulk reference can be constructed.
+                    if(pending.type==Wire.CLOCK_ACK)clockAckSent=true;
                     if(pending.ack&&shared!=null) {bulkEnabled=true; synchronized(this){enabled++;sharedActive=true;}}
                     pending=null;
                 }
@@ -233,12 +284,41 @@ public final class BridgeLink implements AutoCloseable {
                     if (!connected) {
                         if (header.type()!=Wire.WELCOME || header.epoch()==0) throw new IOException("Welcome required");
                         Wire.Reader r=new Wire.Reader(payload);
-                        if (!Arrays.equals(config.session(),r.bytes(16)) || r.i32()!=config.hostRole() || r.i32()!=0
-                            || r.f32()!=Wire.UNITS_PER_BLOCK || r.f32()!=Wire.Y_OFFSET) throw new IOException("Host identity/coordinate contract mismatch");
-                        r.finish(); epoch=header.epoch(); generation++; connected=true; lastError="";
+                        if (!Arrays.equals(config.session(),r.bytes(16)) || r.i32()!=config.hostRole())
+                            throw new IOException("Host identity mismatch");
+                        int accepted=r.i32();
+                        if ((accepted & ~(Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&Wire.STATUS_EFFECTS)!=0&&!statusCapable) ||
+                            r.f32()!=Wire.UNITS_PER_BLOCK || r.f32()!=Wire.Y_OFFSET)
+                            throw new IOException("Host capability/coordinate contract mismatch");
+                        r.finish(); epoch=header.epoch(); authenticated(epoch,accepted);
                     } else {
                         if (header.epoch()!=epoch || header.type()==Wire.HELLO || header.type()==Wire.WELCOME) throw new IOException("Stale epoch/repeated handshake");
-                        if (header.type()==Wire.BULK_OFFER) {
+                        if (header.type()==Wire.CLOCK_OFFER) {
+                            if(!clockCapable||clockOfferSeen||clockReadySeen)throw new IOException("Unsolicited/repeated clock offer");
+                            clockOfferSeen=true;
+                            clockResponse=LocalQpcProof.respond(payload,epoch);
+                            clockAck=clockResponse.ack();
+                        } else if(header.type()==Wire.CLOCK_READY) {
+                            if(!clockCapable||clockReadySeen||(clockOfferSeen&&!clockAckSent))
+                                throw new IOException("Unsolicited/repeated clock ready");
+                            Wire.Reader reply=new Wire.Reader(payload);
+                            int version=reply.i32(), accepted=reply.i32();
+                            long proofEpoch=reply.i64(), frequency=reply.i64(); reply.finish();
+                            if(version!=LocalQpcProof.LAYOUT||accepted<0||accepted>1||proofEpoch!=epoch||
+                               (accepted==0&&frequency!=0)||
+                               (accepted==1&&(!clockAckSent||clockResponse==null||!clockResponse.accepted()||
+                                   frequency<=0||frequency!=clockResponse.frequency())))
+                                throw new IOException("Invalid local clock ready");
+                            if(accepted==1) {
+                                var local=LocalQpcClock.system().read();
+                                if(local==null||local.frequency()!=frequency)throw new IOException("Local clock unavailable after proof");
+                            }
+                            synchronized(this) {
+                                if(!running||!connected||connectionEpoch!=epoch)throw new IOException("Retired clock authority");
+                                provenClockFrequency=accepted==1?frequency:0;
+                            }
+                            clockReadySeen=true;
+                        } else if (header.type()==Wire.BULK_OFFER) {
                             if(!capable||offerSeen)throw new IOException("Unsolicited/repeated bulk offer");
                             offerSeen=true;
                             var offer=SharedBulkSender.Offer.parse(payload,epoch);
@@ -248,7 +328,7 @@ public final class BridgeLink implements AutoCloseable {
                             if(shared==null)synchronized(this){fallback++;}
                         } else if(Wire.internalType(header.type()))throw new IOException("Unexpected bulk control");
                         else if (header.type()==Wire.HEARTBEAT) { if (payload.length!=0) throw new IOException("Invalid heartbeat"); }
-                        else receive(new Wire.Message(header.type(),payload));
+                        else receive(header,payload);
                     }
                     receivedSequence=header.sequence(); lastReceive=System.nanoTime();
                 }

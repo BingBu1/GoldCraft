@@ -9,13 +9,14 @@ struct EndpointConfig {
     Key session{}, token{};
     Role host = Role::host_client, peer = Role::fabric_client;
     bool shared_bulk = true;
+    bool local_qpc = true;
 };
 std::optional<EndpointConfig> environment_config(const char* prefix, Role host, Role peer);
 
 struct TransportCount { std::uint64_t frames = 0, bytes = 0; };
 struct TransportStats {
     // Indexed by stable wire Type. Counts include internal TCP control frames.
-    std::array<TransportCount, 70> tcp_sent{}, tcp_received{}, shared_sent{}, shared_received{};
+    std::array<TransportCount, wire_type_count> tcp_sent{}, tcp_received{}, shared_sent{}, shared_received{};
     std::uint64_t mapping_offered = 0, mapping_enabled = 0, mapping_fallback = 0;
     std::uint64_t rejections = 0, disconnects = 0, ring_high_water = 0;
     std::uint64_t queued_bytes = 0, queued_high_water = 0, incoming_bytes = 0, incoming_high_water = 0;
@@ -37,6 +38,11 @@ public:
     void poll();
     bool connected() const;
     std::uint64_t generation() const;
+    // Nonzero only after an authenticated same-host proof on this connection.
+    std::uint64_t local_qpc_frequency() const;
+    // Connection latch; never downgraded to legacy poses if the clock fails.
+    bool status_effects() const;
+    bool effect_position_hold() const;
     std::uint16_t port() const;
     const std::string& error() const;
     std::vector<Message> take_messages();

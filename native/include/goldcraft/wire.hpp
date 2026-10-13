@@ -11,7 +11,11 @@ using Bytes = std::vector<std::uint8_t>;
 using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
 constexpr std::uint16_t protocol_version = 30;
+constexpr std::uint32_t capability_status_effects = 8;
 constexpr std::uint32_t capability_shared_bulk_v1 = 1;
+constexpr std::uint32_t capability_local_qpc_v1 = 2;
+constexpr std::uint32_t capability_effect_position_hold = 4;
+constexpr std::size_t wire_type_count = 77;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;
 constexpr std::size_t max_queued_bytes = 64 * 1024 * 1024;
@@ -20,6 +24,7 @@ constexpr float minecraft_y_offset = 64.0f;
 
 enum class Role : std::uint32_t { host_client = 1, fabric_client = 2, host_server = 3, fabric_server = 4 };
 enum class Type : std::uint16_t {
+    status_hud = 76,
     hello = 1, welcome = 2, heartbeat = 3,
     world = 10, actors = 11, client_binding = 12, pair_player = 13, pair_result = 14,
     bsp = 15, brushes = 16,
@@ -34,7 +39,9 @@ enum class Type : std::uint16_t {
     map_mining_policy = 56, map_mining_request = 57, map_mining_result = 58,
     map_edit_snapshot = 59, map_edit_delta = 60, map_edit_query = 61,
     map_mining_sample = 62, map_mining_surface = 63,
-    bulk_offer = 67, bulk_ack = 68, bulk_ref = 69
+    bulk_offer = 67, bulk_ack = 68, bulk_ref = 69,
+    clock_offer = 70, clock_ack = 71, clock_ready = 72,
+    effect_grant = 73, effect_pose = 74, effect_reopen = 75
 };
 
 class ProtocolError : public std::runtime_error { public: using std::runtime_error::runtime_error; };
@@ -84,6 +91,9 @@ std::uint64_t random_epoch();
 Header decode_header(std::span<const std::uint8_t> bytes);
 Bytes encode_frame(Type type, std::uint64_t epoch, std::uint64_t sequence, std::span<const std::uint8_t> payload);
 bool known_type(Type type);
+constexpr bool clock_internal(Type type) noexcept {
+    return type == Type::clock_offer || type == Type::clock_ack || type == Type::clock_ready;
+}
 std::uint32_t crc32(std::span<const std::uint8_t> bytes);
 
 // State belongs to one TCP connection. A reconnect gets a new epoch and sequence.

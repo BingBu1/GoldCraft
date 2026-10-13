@@ -46,7 +46,8 @@
     "EpicFightPlayerRendererMixin",
     "YsmRenderLayerMixin",
     "YsmCaptureProjectionMixin",
-    "RenderSystemAccessor"
+    "RenderSystemAccessor",
+    "InGameHudStatusAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

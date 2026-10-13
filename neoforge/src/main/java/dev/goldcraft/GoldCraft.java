@@ -4,6 +4,7 @@ import dev.goldcraft.bridge.BridgeLink;
 import dev.goldcraft.bridge.Wire;
 import dev.goldcraft.bridge.Performance;
 import dev.goldcraft.bridge.HostWorldState;
+import dev.goldcraft.bridge.HostEffectGrant;
 import dev.goldcraft.bridge.HostDeliveryQueue;
 import dev.goldcraft.bridge.MapEdits;
 import dev.goldcraft.net.BindingPayload;
@@ -29,6 +30,9 @@ import java.util.*;
 public final class GoldCraft {
     public static final Logger LOGGER=LoggerFactory.getLogger("goldcraft");
     private static BridgeLink serverLink;
+    // This exact link object and generation own the decoded server state.
+    // A replacement BridgeLink can independently start again at generation one.
+    private static BridgeLink authorityLink;
     private static long generation;
     private static long nextEditQuery;
     public static final HostWorldState HOST_WORLD=new HostWorldState();
@@ -53,8 +57,35 @@ public final class GoldCraft {
             }
         }
     }
-    public static boolean hostConnected(){return serverLink!=null&&serverLink.connected();}
-    public static boolean sendToHost(int type,byte[] payload){return hostConnected()&&serverLink.send(type,payload);}
+    public static boolean hostConnected(){
+        BridgeLink link=serverLink;
+        return link!=null&&link==authorityLink&&link.connected()&&link.generation()==generation;
+    }
+    public static boolean sendToHost(int type,byte[] payload){
+        BridgeLink link=serverLink;
+        // The worker checks this generation under its queue lock. Old poses,
+        // vitals and effect responses cannot cross into a reconnected socket.
+        return link!=null&&link==authorityLink&&link.sendForGeneration(generation,type,payload);
+    }
+    public static long currentAuthorityGeneration(){return hostConnected()?generation:0;}
+    public static long currentAuthorityClockFrequency(){
+        BridgeLink link=serverLink;
+        return link!=null&&link==authorityLink?link.localQpcFrequency(generation):0;
+    }
+    public static long authorityGeneration(){return currentAuthorityGeneration();}
+    public static boolean statusEffectsAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.statusEffects(generation);
+    }
+    public static boolean sendStatusToHost(int type,byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendStatus(generation,type,payload);
+    }
+    public static boolean effectsNegotiated(){
+        BridgeLink link=serverLink;
+        return link!=null&&link==authorityLink&&link.effectPositionHold(generation);
+    }
+    private static void retireAuthority(MinecraftServer server){
+        authorityLink=null;generation=0;reset(server);
+    }
     private static void reset(MinecraftServer server) {
         nextEditQuery=0;
         HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
@@ -102,14 +133,28 @@ public final class GoldCraft {
                 });
             }catch(IllegalArgumentException e){LOGGER.error("Invalid host-server configuration: {}",e.getMessage());}
         });
-        events.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event)->{var server=event.getServer();if(serverLink!=null)serverLink.close();serverLink=null;generation=0;reset(server);HostSession.stopped();});
+        events.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event)->{var server=event.getServer();if(serverLink!=null)serverLink.close();serverLink=null;retireAuthority(server);HostSession.stopped();});
         events.addListener((net.neoforged.neoforge.event.tick.ServerTickEvent.Post event)->{
             var server=event.getServer();
-            if(serverLink==null)return;
-            if(!serverLink.connected()){if(HOST_WORLD.epoch()!=0)reset(server);return;}
-            if(generation!=serverLink.generation()){generation=serverLink.generation();reset(server);LOGGER.info("Connected to authoritative CS host, generation {}",generation);}
+            BridgeLink link=serverLink;
+            if(link==null){if(authorityLink!=null)retireAuthority(server);return;}
+            var incoming=link.drainWithContext();
+            if(!incoming.connected()){
+                if(authorityLink!=null||HOST_WORLD.epoch()!=0)retireAuthority(server);
+                return;
+            }
+            if(authorityLink!=link||generation!=incoming.generation()){
+                retireAuthority(server);
+                authorityLink=link;generation=incoming.generation();
+                LOGGER.info("Connected to authoritative CS host, generation {}",generation);
+            }
+            if(!hostConnected()){retireAuthority(server);return;}
             SharedVitals.capture(server,HOST_WORLD);
-            for(Wire.Message message:serverLink.drain()) {
+            for(var received:incoming.messages()) {
+                if(received.generation()!=generation||received.epoch()!=incoming.epoch()||!hostConnected()){
+                    retireAuthority(server);return;
+                }
+                Wire.Message message=received.message();
                 try {
                     switch(message.type()) {
                         case Wire.WORLD -> {
@@ -125,6 +170,10 @@ public final class GoldCraft {
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
                         case Wire.BRUSHES -> {HOST_WORLD.brushes(message.payload());brushPayload=message.payload();broadcast(Wire.BRUSHES,brushPayload);}
                         case Wire.PAIR_RESULT -> paired(server,message.payload());
+                        case Wire.EFFECT_GRANT -> {
+                            if(!effectsNegotiated())throw new IllegalArgumentException("Unnegotiated effect grant");
+                            HostSession.effectGrant(server,HOST_WORLD,HostEffectGrant.decode(message.payload()));
+                        }
                         case Wire.TRACE_RESULT -> TRACE_VALIDATION.result(message.payload(),HOST_WORLD);
                         case Wire.OBJECT_ACTION -> MinecraftObjects.action(server,HOST_WORLD,message.payload());
                         case Wire.DAMAGE_RESULT -> NativePlayers.result(message.payload());
@@ -148,6 +197,10 @@ public final class GoldCraft {
                     LOGGER.warn("Rejected host-server payload: {}",e.getMessage());
                 }
             }
+            // A batch is a historical snapshot, not a connection lease. Avoid
+            // ticking old world state if the worker retired it during dispatch.
+            // A later race remains fenced at the actual outgoing queue lock.
+            if(!hostConnected()){retireAuthority(server);return;}
             if(HOST_WORLD.epoch()!=0&&!HOST_WORLD.edits().ready()&&System.nanoTime()>=nextEditQuery){
                 sendToHost(Wire.MAP_EDIT_QUERY,new Wire.Writer().i64(HOST_WORLD.epoch()).toByteArray());
                 nextEditQuery=System.nanoTime()+1_000_000_000L;

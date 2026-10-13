@@ -52,7 +52,7 @@ std::uint64_t random_epoch() { auto key = random_key(); Reader r(key); return r.
 
 bool known_type(Type t) {
     switch (t) {
-    case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
+    case Type::status_hud: case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
     case Type::client_binding: case Type::pair_player: case Type::pair_result: case Type::input:
     case Type::player_pose: case Type::atlas: case Type::section_mesh: case Type::remove_section:
     case Type::bsp: case Type::brushes: case Type::control: case Type::lights:
@@ -66,7 +66,9 @@ bool known_type(Type t) {
     case Type::map_mining_policy: case Type::map_mining_request: case Type::map_mining_result:
     case Type::map_edit_snapshot: case Type::map_edit_delta: case Type::map_edit_query:
     case Type::map_mining_sample: case Type::map_mining_surface:
-    case Type::bulk_offer: case Type::bulk_ack: case Type::bulk_ref: return true;
+    case Type::bulk_offer: case Type::bulk_ack: case Type::bulk_ref:
+    case Type::effect_grant: case Type::effect_pose: case Type::effect_reopen:
+    case Type::clock_offer: case Type::clock_ack: case Type::clock_ready: return true;
     default: return false;
     }
 }
@@ -97,8 +99,11 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
         Reader r(payload); auto session = r.key(); auto token = r.key(); auto role = r.u32(); auto capabilities = r.u32(); r.finish();
         unsigned difference = 0;
         for (std::size_t i = 0; i < 16; ++i) difference |= (session[i] ^ session_[i]) | (token[i] ^ token_[i]);
-        if (difference || role != static_cast<std::uint32_t>(peer_) ||
-            (capabilities & ~capability_shared_bulk_v1) || (capabilities && peer_ != Role::fabric_client))
+        const auto allowed = peer_ == Role::fabric_client ? capability_shared_bulk_v1 :
+            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects;
+        if ((capabilities & capability_effect_position_hold) && !(capabilities & capability_local_qpc_v1))
+            throw ProtocolError("Effect execution requires local QPC capability");
+        if (difference || role != static_cast<std::uint32_t>(peer_) || (capabilities & ~allowed))
             throw ProtocolError("pairing credentials/role/capabilities mismatch");
         peer_capabilities_ = capabilities;
         ready_ = true;
@@ -109,7 +114,8 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
     last_sequence_ = h.sequence;
 }
 Bytes HostHandshake::welcome() const {
-    Writer w; w.bytes(session_); w.u32(static_cast<std::uint32_t>(host_)); w.u32(0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
+    Writer w; w.bytes(session_); w.u32(static_cast<std::uint32_t>(host_));
+    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
 }
 Vec3 to_minecraft(Vec3 v) { return { v.x / units_per_block, v.z / units_per_block + minecraft_y_offset, -v.y / units_per_block }; }
 Vec3 to_goldsrc(Vec3 v) { return { v.x * units_per_block, -v.z * units_per_block, (v.y - minecraft_y_offset) * units_per_block }; }

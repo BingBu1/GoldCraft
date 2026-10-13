@@ -36,6 +36,14 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     private NativePlayerEntity body;
     private DamageSource activeDamage;
     private boolean damageRequested;
+    private boolean following;
+    public NativePlayerEntity body(){return body;}
+    @Override public float getHealth(){return body!=null&&!following?body.predictedHealth():super.getHealth();}
+    @Override public boolean isAlive(){return body==null?super.isAlive():!isRemoved()&&body.isAlive();}
+    @Override public void onDeath(DamageSource source){/* Native TakeDamage owns death and rewards. */}
+    void inheritTimers(NativePlayerHitboxEntity previous){
+        age=previous.age;timeUntilRegen=previous.timeUntilRegen;hurtTime=previous.hurtTime;lastDamageTaken=previous.lastDamageTaken;
+    }
     public long hostEpoch(){return dataTracker.get(HOST_EPOCH);}
     public int hostSlot(){return dataTracker.get(HOST_SLOT);}
     public int hostSerial(){return dataTracker.get(HOST_SERIAL);}
@@ -59,7 +67,9 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         dataTracker.set(HOST_SERIAL,actor.serial());dataTracker.set(HOST_LIFE,actor.life());
         dataTracker.set(WIDTH,dimensions.width());dataTracker.set(HEIGHT,dimensions.height());
         refreshPositionAndAngles(value.getX(),value.getY(),value.getZ(),value.getYaw(),value.getPitch());
-        getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(value.getMaxHealth());setHealth(value.getHealth());
+        following=true;
+        try{getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(value.getMaxHealth());super.setHealth(value.getHealth());}
+        finally{following=false;}
     }
     @Override public EntityDimensions getBaseDimensions(EntityPose pose){
         if(dataTracker==null)return super.getBaseDimensions(pose);
@@ -85,13 +95,23 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
             if(amount>0&&body!=null)damageRequested|=body.requestDamage(activeDamage,amount);
             return;
         }
+        var status=following?null:NativeStatusExecution.current(this);
+        if(status!=null&&body!=null&&Float.isFinite(value)){
+            float amount=getHealth()-Math.clamp(value,0,getMaxHealth());
+            if(amount!=0)body.requestDamage(getDamageSources().generic(),amount);
+            return;
+        }
         super.setHealth(value);
     }
     @Override public void tick(){
         // Native movement/environment own this body. Running LivingEntity.tick
-        // would add a second gravity, suffocation and status-effect simulation.
+        // would add a second gravity/suffocation simulation. Effects alone own
+        // their normal vanilla/NeoForge timer and callbacks on this one body.
         age++;if(timeUntilRegen>0)timeUntilRegen--;if(hurtTime>0)hurtTime--;
         prevX=getX();prevY=getY();prevZ=getZ();prevYaw=getYaw();prevPitch=getPitch();
+        if(!getWorld().isClient&&body!=null&&!body.isRemoved()&&body.isAlive()){
+            tickStatusEffects();setInvisible(true);
+        }
     }
     @Override public void updateTrackedPositionAndAngles(double x,double y,double z,float yaw,float pitch,int steps){
         refreshPositionAndAngles(x,y,z,yaw,pitch);

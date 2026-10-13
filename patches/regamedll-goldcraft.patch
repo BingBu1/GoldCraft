@@ -262,7 +262,6 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..4c14c9e 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -274,7 +273,7 @@ index 8a219ea..4c14c9e 100644
  
  BOOL gInitHUD = TRUE;
  
-@@ -908,6 +910,11 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+@@ -908,6 +910,11 @@
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
@@ -286,7 +285,7 @@ index 8a219ea..4c14c9e 100644
  	BOOL bTookDamage;
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
-@@ -987,7 +994,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -987,7 +994,7 @@
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -295,7 +294,7 @@ index 8a219ea..4c14c9e 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1096,7 +1103,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1096,7 +1103,7 @@
  				continue;
  
  			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
@@ -304,7 +303,7 @@ index 8a219ea..4c14c9e 100644
  			MESSAGE_END();
  		}
  
-@@ -1182,7 +1189,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1182,7 +1189,7 @@
  #endif
  		}
  
@@ -313,7 +312,7 @@ index 8a219ea..4c14c9e 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1260,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1260,7 @@
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -322,7 +321,7 @@ index 8a219ea..4c14c9e 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1353,7 +1360,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1353,7 +1360,7 @@
  		if (pPlayer->m_hObserverTarget == this)
  		{
  			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
@@ -331,15 +330,16 @@ index 8a219ea..4c14c9e 100644
  			MESSAGE_END();
  		}
  	}
-@@ -2230,6 +2237,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2237,8 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
++	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), true);
 +	GoldCraft_PlayerKilled(edict());
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2559,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+@@ -2551,7 +2560,7 @@
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -348,7 +348,15 @@ index 8a219ea..4c14c9e 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3924,7 +3932,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+@@ -3897,6 +3906,7 @@
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+ {
++	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), true);
+ 	DetachTank();
+ 
+ #ifndef REGAMEDLL_FIXES
+@@ -3924,7 +3934,7 @@
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -357,7 +365,15 @@ index 8a219ea..4c14c9e 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -5375,6 +5383,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -4151,6 +4161,7 @@
+ 
+ void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
+ {
++	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), true);
+ 	// clear any clientside entities attached to this player
+ 	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
+ 		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
+@@ -5375,6 +5386,10 @@
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -368,28 +384,38 @@ index 8a219ea..4c14c9e 100644
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -6132,6 +6144,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5778,6 +5793,8 @@
+ 		return;
+ 	}
+ #endif
++
++	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), false);
+ 
+ 	m_iGaitsequence = 0;
+ 
+@@ -6131,6 +6148,8 @@
+ 
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
- 
-+	GoldCraft_PlayerSpawn(edict());
 +
++	GoldCraft_PlayerSpawn(edict());
+ 
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
- 	if (m_bJustConnected)
-@@ -7746,28 +7760,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7765,25 @@
  		gDisplayTitle = FALSE;
  	}
  
 -	if (int(pev->health) != m_iClientHealth)
-+	const int hudHealth = goldcraft::vitals::integer(pev->health, true);
-+	if (hudHealth != m_iClientHealth)
- 	{
+-	{
 -		int iHealth = clamp(int(pev->health), 0, 255);
 -
 -		if (pev->health > 0.0f && pev->health <= 1.0f)
 -			iHealth = 1;
 -
++	const int hudHealth = goldcraft::vitals::integer(pev->health, true);
++	if (hudHealth != m_iClientHealth)
++	{
  		// send "health" update message
  		MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
 -			WRITE_BYTE(iHealth);
@@ -397,14 +423,17 @@ index 8a219ea..4c14c9e 100644
  		MESSAGE_END();
  
 -		m_iClientHealth = int(pev->health);
-+		m_iClientHealth = hudHealth;
- 	}
- 
+-	}
+-
 -	if (int(pev->armorvalue) != m_iClientBattery)
+-	{
+-		m_iClientBattery = int(pev->armorvalue);
++		m_iClientHealth = hudHealth;
++	}
++
 +	const int hudArmor = goldcraft::vitals::integer(pev->armorvalue, false);
 +	if (hudArmor != m_iClientBattery)
- 	{
--		m_iClientBattery = int(pev->armorvalue);
++	{
 +		m_iClientBattery = hudArmor;
  
  		// send "armor" update message

@@ -3,6 +3,7 @@
 #define EXT_FUNC
 #include <interface.h>
 #include "goldcraft/server_api.hpp"
+#include "effect_adapter.hpp"
 
 namespace {
 goldcraft::IServerControl* server=nullptr;
@@ -25,11 +26,12 @@ const AMX_NATIVE_INFO natives[]={
     {"gc_api_version",ApiVersion},{"gc_get_form",GetForm},{"gc_is_paired",IsPaired},{"gc_set_form",SetForm},{nullptr,nullptr}
 };
 }
-void OnAmxxAttach(){MF_AddNatives(natives);}
+void OnAmxxAttach(){MF_AddNatives(natives);goldcraft::amxx_effects::OnAttach();}
 void OnPluginsLoaded(){
+    goldcraft::amxx_effects::OnPluginsLoaded();
     if(!Resolve()){MF_Log("GoldCraft ReGameDLL server API unavailable");return;}
     changed_forward=MF_RegisterForward("goldcraft_form_changed",ET_IGNORE,FP_CELL,FP_CELL,FP_CELL,FP_DONE);
     server->SetFormListener(FormChanged);
 }
-void OnPluginsUnloading(){if(server)server->SetFormListener(nullptr);changed_forward=-1;}
+void OnPluginsUnloading(){goldcraft::amxx_effects::OnPluginsUnloading();if(server)server->SetFormListener(nullptr);changed_forward=-1;}
 void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;}

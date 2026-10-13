@@ -13,7 +13,10 @@ public final class Wire {
     public static final int MAX_PAYLOAD = 32 * 1024 * 1024, MAX_QUEUED = 64 * 1024 * 1024;
     public static final float UNITS_PER_BLOCK = 32.0f, Y_OFFSET = 64.0f;
     public static final int HOST_CLIENT = 1, FABRIC_CLIENT = 2, HOST_SERVER = 3, FABRIC_SERVER = 4;
+    public static final int STATUS_EFFECTS = 8, STATUS_HUD = 76;
     public static final int HELLO = 1, WELCOME = 2, HEARTBEAT = 3;
+    public static final int LOCAL_QPC_V1 = 2, CLOCK_OFFER = 70, CLOCK_ACK = 71, CLOCK_READY = 72, TYPE_COUNT = 77;
+    public static final int EFFECT_POSITION_HOLD = 4, EFFECT_GRANT = 73, EFFECT_POSE = 74, EFFECT_REOPEN = 75;
     public static final int SHARED_BULK_V1 = 1, BULK_OFFER = 67, BULK_ACK = 68, BULK_REF = 69;
     public static final int WORLD = 10, ACTORS = 11, CLIENT_BINDING = 12, PAIR_PLAYER = 13, PAIR_RESULT = 14;
     public static final int BSP = 15, BRUSHES = 16;
@@ -35,10 +38,10 @@ public final class Wire {
 
     public static boolean knownType(int type) {
         return switch (type) {
-            case HELLO, WELCOME, HEARTBEAT, WORLD, ACTORS, CLIENT_BINDING, PAIR_PLAYER, PAIR_RESULT, BLOCK_FEEDBACK, CAMERA, KEY_INPUT, PARTICLE_TEXTURE_CHUNK, ENTITY_FRAME,
+            case STATUS_HUD, HELLO, WELCOME, HEARTBEAT, WORLD, ACTORS, CLIENT_BINDING, PAIR_PLAYER, PAIR_RESULT, BLOCK_FEEDBACK, CAMERA, KEY_INPUT, PARTICLE_TEXTURE_CHUNK, ENTITY_FRAME,
                  INPUT, PLAYER_POSE, ATLAS, SECTION_MESH, REMOVE_SECTION, DAMAGE_REQUEST, DAMAGE_RESULT,
                  BSP, BRUSHES, CONTROL, LIGHTS, ENTITY_TEXTURE, ENTITY_MESH, SCENE_RESET, ATLAS_PATCHES, HUD_FRAME, VIEWPORT, UI_INPUT, PARTICLE_TEXTURE, PARTICLE_MESH, POST_EFFECT_PLAN, TRACE_QUERY, TRACE_RESULT, AUTHORITATIVE_POSE, MINECRAFT_OBJECTS, OBJECT_ACTION, HOST_ENTITIES, VITALS_DELTA, MAP_MINING_POLICY, MAP_MINING_REQUEST, MAP_MINING_RESULT, MAP_EDIT_SNAPSHOT, MAP_EDIT_DELTA, MAP_EDIT_QUERY, MAP_MINING_SAMPLE, MAP_MINING_SURFACE -> true;
-            case BULK_OFFER, BULK_ACK, BULK_REF -> true;
+            case BULK_OFFER, BULK_ACK, BULK_REF, CLOCK_OFFER, CLOCK_ACK, CLOCK_READY, EFFECT_GRANT, EFFECT_POSE, EFFECT_REOPEN -> true;
             default -> false;
         };
     }
@@ -49,7 +52,8 @@ public final class Wire {
     }
 
     public static boolean internalType(int type) {
-        return type == BULK_OFFER || type == BULK_ACK || type == BULK_REF;
+        return type == BULK_OFFER || type == BULK_ACK || type == BULK_REF
+            || type == CLOCK_OFFER || type == CLOCK_ACK || type == CLOCK_READY;
     }
 
     public static boolean bulkType(int type) {

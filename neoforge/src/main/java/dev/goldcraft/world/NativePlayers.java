@@ -26,10 +26,17 @@ public final class NativePlayers {
     private static ServerWorld world;
     private static long epoch,sequence,requests,accepted,rejected;
     private static final long[] damageStatus=new long[7];
-    private static final Map<Long,NativePlayerEntity> pending=new LinkedHashMap<>();
+    private record Pending(NativePlayerEntity target,int kind,long generation){}
+    private static final Map<Long,Pending> pending=new LinkedHashMap<>();
+    public static NativePlayerHitboxEntity hitbox(HostWorldState.Actor actor){
+        var box=hitboxes.get(actor.slot());
+        return box!=null&&!box.isRemoved()&&box.body()!=null&&box.body().actor().serial()==actor.serial()
+            &&box.body().actor().spawn()==actor.spawn()?box:null;
+    }
     private NativePlayers(){}
 
     public static void clear(){
+        NativeStatusEffects.clear();
         for(var p:players.values())p.discard();
         for(var p:hitboxes.values())p.discard();
         if(world!=null)for(var t:tickets.entrySet())world.getChunkManager().removeTicket(TICKET,t.getValue(),3,t.getKey());
@@ -54,10 +61,11 @@ public final class NativePlayers {
         if(world!=targetWorld||epoch!=host.epoch()){clear();world=targetWorld;epoch=host.epoch();}
         var proxy=players.get(actor.slot());
         if(proxy!=null&&(proxy.actor().serial()!=actor.serial()||proxy.actor().life()!=actor.life()||proxy.isRemoved())){
-            boolean formChange=proxy.actor().serial()==actor.serial()&&proxy.actor().minecraftForm()!=actor.minecraftForm();
+            boolean formChange=proxy.actor().serial()==actor.serial()&&proxy.actor().spawn()==actor.spawn();
             if(!formChange)transferTargets(proxy,null);
             proxy.discard();players.remove(actor.slot());
             var replacement=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);
+            if(formChange)replacement.inheritHealth(proxy);
             players.put(actor.slot(),replacement);
             if(formChange)transferTargets(proxy,replacement);
             proxy=replacement;
@@ -69,7 +77,24 @@ public final class NativePlayers {
             proxy=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);players.put(actor.slot(),proxy);
             if(paired!=null)transferTargets(paired,proxy);
         }else proxy.update(actor);
-        return proxy;
+        ensureHitbox(proxy);return proxy;
+    }
+    private static NativePlayerHitboxEntity ensureHitbox(NativePlayerEntity body){
+        var actor=body.actor();
+            var hitbox=hitboxes.get(actor.slot());
+            if(hitbox==null||hitbox.isRemoved()||!hitbox.follows(body)){
+                // Keep a removed entity reference dead across a native respawn,
+                // reconnect or form lifecycle instead of silently retargeting it.
+                var oldBox=hitbox;
+                boolean sameSpawn=oldBox!=null&&oldBox.body()!=null&&oldBox.body().actor().serial()==actor.serial()
+                    &&oldBox.body().actor().spawn()==actor.spawn();
+                hitbox=new NativePlayerHitboxEntity(NativePlayerHitboxEntity.TYPE.get(),world);
+                hitboxes.put(actor.slot(),hitbox);hitbox.follow(body);world.spawnEntity(hitbox);
+                if(sameSpawn)hitbox.inheritTimers(oldBox);
+                if(oldBox!=null){NativeStatusEffects.transfer(oldBox,sameSpawn?hitbox:null);oldBox.discard();}
+            }else hitbox.follow(body);
+        NativeStatusEffects.transfer(body,hitbox);
+        return hitbox;
     }
     public static void tick(MinecraftServer server,HostWorldState host){
         var targetWorld=HostSession.hostWorld(server,host);if(targetWorld==null){clear();return;}
@@ -79,28 +104,30 @@ public final class NativePlayers {
             if(!alive(actor))continue;
             PlayerEntity body=attacker(server,host,actor);
             if(!(body instanceof NativePlayerEntity)){
+                var oldBox=hitboxes.remove(actor.slot());
+                if(oldBox!=null){
+                    boolean sameSpawn=oldBox.body().actor().serial()==actor.serial()&&oldBox.body().actor().spawn()==actor.spawn();
+                    NativeStatusEffects.transfer(oldBox,sameSpawn?body:null);oldBox.discard();
+                }
                 var previous=players.remove(actor.slot());if(previous!=null){transferTargets(previous,body);previous.discard();}
+                NativeStatusEffects.hud(actor,body,body instanceof net.minecraft.server.network.ServerPlayerEntity p?p:null,world.getTime());
                 continue;
             }
             body.tick();
             retained.add(actor.slot());ChunkPos chunk=body.getChunkPos(),old=tickets.put(actor.slot(),chunk);
-            var hitbox=hitboxes.get(actor.slot());
-            if(hitbox==null||hitbox.isRemoved()||!hitbox.follows((NativePlayerEntity)body)){
-                // Keep a removed entity reference dead across a native respawn,
-                // reconnect or form lifecycle instead of silently retargeting it.
-                if(hitbox!=null)hitbox.discard();
-                hitbox=new NativePlayerHitboxEntity(NativePlayerHitboxEntity.TYPE.get(),world);
-                hitboxes.put(actor.slot(),hitbox);hitbox.follow((NativePlayerEntity)body);world.spawnEntity(hitbox);
-            }else hitbox.follow((NativePlayerEntity)body);
+            var hitbox=ensureHitbox((NativePlayerEntity)body);
+            var paired=server.getPlayerManager().getPlayer(actor.minecraftPlayer());
+            if(paired!=null)NativeStatusEffects.transfer(paired,hitbox);
+            NativeStatusEffects.hud(actor,hitbox,paired,world.getTime());
             if(old!=null&&!old.equals(chunk))world.getChunkManager().removeTicket(TICKET,old,3,actor.slot());
             world.getChunkManager().addTicket(TICKET,chunk,3,actor.slot());
         }
         for(var it=players.entrySet().iterator();it.hasNext();){var p=it.next();if(!retained.contains(p.getKey())){transferTargets(p.getValue(),null);p.getValue().discard();it.remove();}}
-        for(var it=hitboxes.entrySet().iterator();it.hasNext();){var p=it.next();if(!retained.contains(p.getKey())){p.getValue().discard();it.remove();}}
+        for(var it=hitboxes.entrySet().iterator();it.hasNext();){var p=it.next();if(!retained.contains(p.getKey())){NativeStatusEffects.clearMirror(p.getKey());p.getValue().discard();it.remove();}}
         for(var it=tickets.entrySet().iterator();it.hasNext();){var t=it.next();if(!retained.contains(t.getKey())){world.getChunkManager().removeTicket(TICKET,t.getValue(),3,t.getKey());it.remove();}}
         if(!players.isEmpty())world.resetIdleTimeout();
-        pending.entrySet().removeIf(e->e.getValue().isRemoved());
-        while(pending.size()>256)pending.remove(pending.keySet().iterator().next());
+        pending.entrySet().removeIf(e->{var old=e.getValue().target().actor();
+            return host.actors().stream().noneMatch(a->a.slot()==old.slot()&&a.serial()==old.serial()&&a.spawn()==old.spawn()&&alive(a));});
     }
     public static List<? extends PlayerEntity> targetingPlayers(ServerWorld view,List<? extends PlayerEntity> vanilla){
         if(view!=world||players.isEmpty())return vanilla;
@@ -114,10 +141,13 @@ public final class NativePlayers {
         return null;
     }
     private static boolean damage(NativePlayerEntity target,DamageSource source,float amount){
+        var status=target.hitbox()==null?null:NativeStatusExecution.current(target.hitbox());
+        if(status!=null)return statusDamage(target,source,amount,status);
+        if(amount<=0)return false;
         Entity attacker=source.getAttacker();
         long key=MinecraftObjects.key(attacker);
         var playerSource=attacker instanceof net.minecraft.server.network.ServerPlayerEntity p?GoldCraft.HOST_WORLD.actor(p.getUuid()):null;
-        if(target.epoch()!=epoch||target.isRemoved()||(key==0&&playerSource==null)||amount>1000)return false;
+        if(target.epoch()!=epoch||target.isRemoved()||(key==0&&playerSource==null)||amount>1000||pending.size()>=256)return false;
         int kind=source.isIn(DamageTypeTags.IS_EXPLOSION)?3:source.isIn(DamageTypeTags.IS_PROJECTILE)?2:NativeSkillDamage.isSkill(source)?4:1;
         Entity direct=source.getSource();
         var point=direct==null?attacker.getPos():direct.getPos();
@@ -134,15 +164,49 @@ public final class NativePlayers {
                 .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f);
         }
         if(!GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray()))return false;
-        pending.put(event,target);requests++;return true;
+        pending.put(event,new Pending(target,kind,GoldCraft.authorityGeneration()));
+        target.healthLedger().awaitReceipt(event);requests++;return true;
+    }
+    private static boolean statusDamage(NativePlayerEntity target,DamageSource source,float amount,NativeStatusExecution status){
+        if(!GoldCraft.statusEffectsAvailable()||target.epoch()!=epoch||target.isRemoved()||pending.size()>=256)return false;
+        var attacker=status.origin==null?null:status.origin.resolve(world);
+        // A Mod may supply a stronger concrete attacker within its callback.
+        if(status.origin==null&&source.getAttacker()!=null&&!source.getAttacker().isRemoved()&&source.getAttacker().isAlive()
+            &&source.getAttacker()!=target.hitbox()&&source.getAttacker()!=target)
+            attacker=source.getAttacker();
+        var origin=NativeStatusOrigin.capture(attacker);
+        long key=MinecraftObjects.key(attacker);
+        int attackerSlot=origin==null?0:origin.slot();
+        if(attackerSlot!=0)key=0;
+        if(attackerSlot==0&&key==0)attacker=null;
+        boolean healing=amount<0;
+        amount=Math.clamp(amount,-1000,1000);
+        int flags=(status.periodic?1:0)|(!healing&&source.isIn(DamageTypeTags.BYPASSES_ARMOR)?2:0)
+            |(!healing&&status.poison?4:0)|(attacker==null?8:0)|(status.traceContact?16:0);
+        var actor=target.actor();var point=HostCollision.goldsrc(status.contact.x,status.contact.y,status.contact.z);
+        long event=++sequence;
+        var packet=new Wire.Writer().i64(epoch).i64(event).i64(attacker==null?0:key)
+            .i32(actor.slot()).i32(actor.serial()).i32(actor.spawn()).i32(5)
+            .f32(amount*MinecraftObjects.CS_HEALTH_PER_MC).f32(point.x()).f32(point.y()).f32(point.z())
+            .i32(attackerSlot).i32(attackerSlot==0?0:origin.serial()).i32(attackerSlot==0?0:origin.spawn())
+            .i64(GoldCraft.HOST_WORLD.tick()).f32(actor.origin().x()+(actor.mins().x()+actor.maxs().x())*.5f)
+            .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
+            .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f).i32(flags).toByteArray();
+        if(!GoldCraft.sendStatusToHost(Wire.DAMAGE_REQUEST,packet))return false;
+        pending.put(event,new Pending(target,5,GoldCraft.authorityGeneration()));target.healthLedger().sent(event,-amount);requests++;return true;
     }
     public static void result(byte[] bytes){
-        Wire.Reader r=new Wire.Reader(bytes);long e=r.i64(),event=r.i64();int slot=r.i32(),serial=r.i32(),life=r.i32(),status=r.i32();r.f32();r.f32();r.finish();
-        if(e!=epoch)return;
-        var target=pending.remove(event);
-        if(target==null||target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=life)return;
+        Wire.Reader r=new Wire.Reader(bytes);long e=r.i64(),event=r.i64();int slot=r.i32(),serial=r.i32(),spawn=r.i32(),status=r.i32();
+        float health=r.f32(),armor=r.f32();var request=pending.get(event);
+        if(e!=epoch||request==null)return;
+        long tick=request.kind()==5?r.i64():GoldCraft.HOST_WORLD.tick();r.finish();
+        if(request.generation()!=GoldCraft.authorityGeneration()||(request.kind()==5&&!GoldCraft.statusEffectsAvailable()))return;
+        var target=request.target();
+        if(target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=spawn||armor<0||status<0||status>6)return;
+        pending.remove(event);
+        target.healthLedger().receipt(event,Math.max(0,health)/MinecraftObjects.CS_HEALTH_PER_MC,tick);
         if(status==0)accepted++;else rejected++;
-        if(status>=0&&status<damageStatus.length)damageStatus[status]++;
+        damageStatus[status]++;
     }
     public static void diagnostics(JsonObject data){
         JsonObject n=new JsonObject();n.addProperty("players",players.size());n.addProperty("damageRequests",requests);

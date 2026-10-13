@@ -8,9 +8,13 @@
 #include "goldcraft/host_entity_api.hpp"
 #include "goldcraft/server_api.hpp"
 #include "goldcraft/combat.hpp"
+#include "goldcraft/status_hud.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/authoritative_dimensions.hpp"
+#include "goldcraft/effect_grant.hpp"
+#include "effect_service_provider.hpp"
+#include <exception>
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -46,7 +50,7 @@ struct EditDelivery {
 std::array<EditDelivery,65> edit_deliveries;
 IHostEntityPhysics* entity_physics=nullptr;
 struct ControlState {
-    std::uint64_t sequence=0;
+    std::uint64_t sequence=0,use_dispatch_token=0;
     bool active=false,use_requested=false,use_applied=false,use_dispatching=false;
     int saved_movetype=MOVETYPE_WALK;
     float last_update=0,last_use=0,next_use=0;
@@ -93,7 +97,10 @@ void BridgeLog(const std::string& message) {
     ALERT(at_console,"[GoldCraft] %s\n",message.c_str());
     if(server_log){server_log<<"[GoldCraft] "<<message<<'\n';server_log.flush();}
 }
-void AcceptNativeRelocation(unsigned slot);
+#include "effect_host.inc"
+#include "effect_publisher.inc"
+
+void AcceptNativeRelocation(unsigned slot,std::uint64_t authority=0);
 void SendForm(unsigned slot);
 void SendAvatar(unsigned slot,bool refresh=false);
 void SendColliders(){
@@ -120,26 +127,113 @@ void SendColliders(){
         send(3,0,{}); // Lease is refreshed even when every static box is unchanged.
     }
 }
+// GOLDCRAFT_LIFECYCLE_FIXTURE_BEGIN identity
+// A callback may changelevel, recycle a player slot, kill/respawn or switch form.
+// Store values, never an edict reference to dereference after that callback.
+struct NativePlayerIdentity {
+    edict_t* table=nullptr;
+    CBasePlayer* player=nullptr;
+    std::uint64_t world=0;
+    unsigned slot=0;
+    std::uint32_t serial=0,life=0;
+    int entity_serial=0,deadflag=0,team=0,observer=0,terminal_flags=0;
+    bool bound=false,paired=false,positive_health=false,form=false;
+    Key uuid{};
+};
+NativePlayerIdentity CaptureNativePlayer(unsigned slot) {
+    if(!edicts||!registry.world()||!slot||slot>static_cast<unsigned>(max_clients)||slot>=controlled.size())return {};
+    auto* current=edicts+slot;if(current->free)return {};
+    const auto* pair=registry.get(slot);
+    auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(current));
+    NativePlayerIdentity result;
+    result.table=edicts;result.player=player;result.world=registry.world();result.slot=slot;
+    result.serial=pair?pair->serial:0;result.life=player_lives[slot];result.entity_serial=current->serialnumber;
+    result.deadflag=current->v.deadflag;result.team=player?player->m_iTeam:0;result.observer=current->v.iuser1;
+    result.terminal_flags=current->v.flags&(FL_KILLME|FL_SPECTATOR);
+    result.bound=pair!=nullptr;result.paired=pair&&pair->paired;result.uuid=pair?pair->uuid:Key{};
+    result.positive_health=current->v.health>0;result.form=minecraft_forms[slot];
+    return result;
+}
+edict_t* CurrentNativePlayer(const NativePlayerIdentity& identity) {
+    // Check the currently owned table/world before deriving or reading an edict.
+    // GoldSrc edict serialnumber alone is insufficient for reused player slots.
+    if(!identity.table||edicts!=identity.table||registry.world()!=identity.world||!identity.slot||
+       identity.slot>static_cast<unsigned>(max_clients)||identity.slot>=controlled.size())return nullptr;
+    const auto* pair=registry.get(identity.slot);
+    if((pair!=nullptr)!=identity.bound||(pair&&(pair->serial!=identity.serial||pair->paired!=identity.paired||pair->uuid!=identity.uuid))||
+       player_lives[identity.slot]!=identity.life||minecraft_forms[identity.slot]!=identity.form)return nullptr;
+    auto* current=edicts+identity.slot;
+    if(current->free||current->serialnumber!=identity.entity_serial||GET_PRIVATE(current)!=identity.player||
+       current->v.deadflag!=identity.deadflag||(current->v.health>0)!=identity.positive_health||
+       current->v.iuser1!=identity.observer||(current->v.flags&(FL_KILLME|FL_SPECTATOR))!=identity.terminal_flags||
+       (identity.player&&identity.player->m_iTeam!=identity.team))return nullptr;
+    return current;
+}
+bool CurrentPoseAuthority(std::uint64_t authority) {
+    // Native release cleanup is valid after disconnect. Only proof-owned
+    // post-pose work must stay on its authenticated authority connection.
+    return !authority||(link.connected()&&link.effect_position_hold()&&link.local_qpc_frequency()&&
+        connection_generation==authority&&link.generation()==authority);
+}
+// Disconnect must clean its logical slot even if the engine already freed its
+// edict. This guard deliberately does not require a live private player object.
+struct NativeSlotIdentity {
+    edict_t* table=nullptr;
+    std::uint64_t world=0;
+    unsigned slot=0;
+    std::uint32_t serial=0,life=0;
+    bool bound=false,paired=false;
+    Key uuid{};
+};
+NativeSlotIdentity CaptureNativeSlot(unsigned slot) {
+    if(!edicts||!registry.world()||!slot||slot>static_cast<unsigned>(max_clients)||slot>=controlled.size())return {};
+    const auto* pair=registry.get(slot);
+    return {edicts,registry.world(),slot,pair?pair->serial:0,player_lives[slot],pair!=nullptr,pair&&pair->paired,pair?pair->uuid:Key{}};
+}
+bool CurrentNativeSlot(const NativeSlotIdentity& identity) {
+    if(!identity.table||edicts!=identity.table||registry.world()!=identity.world||!identity.slot||
+       identity.slot>static_cast<unsigned>(max_clients)||identity.slot>=controlled.size()||player_lives[identity.slot]!=identity.life)return false;
+    const auto* pair=registry.get(identity.slot);
+    return (pair!=nullptr)==identity.bound&&(!pair||(pair->serial==identity.serial&&pair->paired==identity.paired&&pair->uuid==identity.uuid));
+}
+// GOLDCRAFT_LIFECYCLE_FIXTURE_END identity
+// GOLDCRAFT_LIFECYCLE_FIXTURE_BEGIN use
+std::uint64_t native_use_dispatch_generation=0; // Process lifetime; never reset with slots/worlds.
 void ApplyNativeUse(unsigned slot,bool pressed) {
+    if(!slot||slot>=controlled.size())return;
     auto& state=controlled[slot];
     if(!pressed&&!state.use_applied)return;
-    if(!edicts)return;
-    auto* e=edicts+slot;auto* p=static_cast<CBasePlayer*>(GET_PRIVATE(e));
-    if(e->free||!p||!p->IsAlive()||state.use_dispatching){state.use_applied=false;return;}
-    const auto life=player_lives[slot];const auto serial=e->serialnumber;const Vector origin=e->v.origin;
+    const auto identity=CaptureNativePlayer(slot);
+    auto* e=CurrentNativePlayer(identity);if(!e)return;
+    auto* p=identity.player;
+    if(!p||state.use_dispatching){state.use_applied=false;return;}
+    const bool alive=p->IsAlive(); // May be a Ham/Pawn virtual override.
+    e=CurrentNativePlayer(identity);if(!e)return;
+    if(!alive){state.use_applied=false;return;}
+    if(native_use_dispatch_generation==UINT64_MAX)return;
+    const auto dispatch=++native_use_dispatch_generation;
+    const Vector origin=e->v.origin;
     const int buttons=e->v.button,old_pressed=p->m_afButtonPressed,old_released=p->m_afButtonReleased;
     e->v.button=(buttons&~IN_USE)|(pressed?IN_USE:0);
     p->m_afButtonPressed=(old_pressed&~IN_USE)|(pressed&&!state.use_applied?IN_USE:0);
     p->m_afButtonReleased=(old_released&~IN_USE)|(!pressed&&state.use_applied?IN_USE:0);
     if(p->m_afButtonPressed&IN_USE)++use_presses;
     if(p->m_afButtonReleased&IN_USE)++use_releases;
-    state.use_applied=pressed;state.use_dispatching=true;++use_calls;
+    state.use_applied=pressed;state.use_dispatching=true;state.use_dispatch_token=dispatch;++use_calls;
     p->PlayerUse();
-    state.use_dispatching=false;
-    if(!edicts||e->free||e->serialnumber!=serial||e->pvPrivateData!=p||player_lives[slot]!=life)return;
+    // This C++ call owns only its token. A callback-created player/world or a
+    // nested newer dispatch must not have its input flags cleared by this stack.
+    if(controlled[slot].use_dispatch_token==dispatch){
+        controlled[slot].use_dispatching=false;controlled[slot].use_dispatch_token=0;
+    }
+    e=CurrentNativePlayer(identity);if(!e)return;
     e->v.button=buttons;p->m_afButtonPressed=old_pressed;p->m_afButtonReleased=old_released;
-    if(state.active&&p->IsAlive()&&(e->v.origin-origin).LengthSquared()>0.0001f)AcceptNativeRelocation(slot);
+    if(!state.active)return;
+    const bool still_alive=p->IsAlive();
+    e=CurrentNativePlayer(identity);if(!e)return;
+    if(state.active&&still_alive&&(e->v.origin-origin).LengthSquared()>0.0001f)AcceptNativeRelocation(slot);
 }
+// GOLDCRAFT_LIFECYCLE_FIXTURE_END use
 ServerControlTrace control_trace;
 AuthoritativeDimensionTrace dimension_trace;
 void RecordControl(unsigned slot,ControlCause cause,std::optional<int> requested=std::nullopt,int result=0) {
@@ -151,37 +245,86 @@ void RecordControl(unsigned slot,ControlCause cause,std::optional<int> requested
     }
     e.requested_form=requested.value_or(e.previous_form);control_trace.record(e);
 }
-void ReleaseControl(unsigned slot,ControlCause cause) {
-    if(slot>=controlled.size()||!controlled[slot].active)return;
-    RecordControl(slot,cause);
-    if(!edicts){controlled[slot].active=false;return;}
-    auto* e=edicts+slot;
-    const auto life=player_lives[slot];
-    // Mark released before native callbacks; a Use callback may itself kill or respawn.
-    controlled[slot].active=false;
-    ApplyNativeUse(slot,false);controlled[slot].use_requested=false;
-    if(!e->free&&player_lives[slot]==life){
-        if(auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e)))player->m_flFallVelocity=0;
-        Vector feet=e->v.origin;feet.z+=e->v.mins.z;
-        e->v.movetype=controlled[slot].saved_movetype;e->v.velocity=g_vecZero;
-        SET_SIZE(e,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MIN:VEC_HULL_MIN,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MAX:VEC_HULL_MAX);
-        e->v.view_ofs=(e->v.flags&FL_DUCKING)?VEC_DUCK_VIEW:VEC_VIEW;
-        feet.z-=e->v.mins.z;SET_ORIGIN(e,feet);
-    }
+// GOLDCRAFT_LIFECYCLE_FIXTURE_BEGIN release
+struct NativeReleaseLease {
+    NativePlayerIdentity identity;
+    std::uint64_t token=0;
+    int saved_movetype=MOVETYPE_WALK;
+    bool restoring=false;
+};
+std::array<NativeReleaseLease,65> native_release_leases{};
+std::uint64_t native_release_generation=0; // Process lifetime; never reset with slots/worlds.
+bool NativeRestoreInProgress(unsigned slot) {
+    return slot<native_release_leases.size()&&native_release_leases[slot].restoring&&
+        CurrentNativePlayer(native_release_leases[slot].identity);
 }
-void AcceptNativeRelocation(unsigned slot) {
-    auto* e=edicts+slot;
-    ReleaseControl(slot,ControlCause::relocation);
+bool ReleaseControl(unsigned slot,ControlCause cause) {
+    effect_publisher.Retire(slot); // Close before native Use/Pawn callbacks.
+    if(!slot||slot>=controlled.size())return false;
+    const bool releasing=controlled[slot].active;
+    if(releasing){
+        if(native_release_generation==UINT64_MAX)return false;
+        RecordControl(slot,cause);
+        native_release_leases[slot]={CaptureNativePlayer(slot),++native_release_generation,controlled[slot].saved_movetype,false};
+        // Retire movement before Use, but retain the exact body's native-restore
+        // debt. A nested form change must finish it before advancing that life.
+        controlled[slot].active=false;controlled[slot].use_requested=false;
+    }
+    const auto lease=native_release_leases[slot];
+    if(!lease.token)return true;
+    const auto abandon=[&]{if(native_release_leases[slot].token==lease.token)native_release_leases[slot]={};};
+    if(!CurrentNativePlayer(lease.identity)){abandon();return !releasing;}
+    if(lease.restoring)return false; // An engine-hook reentry cannot advance a partly restored life.
+    if(releasing)ApplyNativeUse(slot,false);
+    auto* e=CurrentNativePlayer(lease.identity);
+    if(!e||controlled[slot].active){abandon();return false;}
+    // A nested Release may already have paid this same body's debt. Never
+    // overwrite a newer lease or repeat its hull/origin engine notifications.
+    if(native_release_leases[slot].token!=lease.token)return native_release_leases[slot].token==0;
+    native_release_leases[slot].restoring=true;
+    const auto& identity=lease.identity;
+    if(identity.player)identity.player->m_flFallVelocity=0;
+    const Vector origin=e->v.origin;Vector feet=origin;feet.z+=e->v.mins.z;
+    e->v.movetype=lease.saved_movetype;e->v.velocity=g_vecZero;
+    e->v.view_ofs=(e->v.flags&FL_DUCKING)?VEC_DUCK_VIEW:VEC_VIEW;
+    SET_SIZE(e,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MIN:VEC_HULL_MIN,(e->v.flags&FL_DUCKING)?VEC_DUCK_HULL_MAX:VEC_HULL_MAX);
+    e=CurrentNativePlayer(identity);
+    if(!e||controlled[slot].active||native_release_leases[slot].token!=lease.token){abandon();return false;}
+    // A hooked SetSize may itself relocate this same life. Preserve its position.
+    if((e->v.origin-origin).LengthSquared()<=0.0001f){feet.z-=e->v.mins.z;SET_ORIGIN(e,feet);}
+    const bool restored=CurrentNativePlayer(identity)&&!controlled[slot].active&&native_release_leases[slot].token==lease.token;
+    abandon();return restored;
+}
+// GOLDCRAFT_LIFECYCLE_FIXTURE_END release
+// GOLDCRAFT_LIFECYCLE_FIXTURE_BEGIN relocation
+void AcceptNativeRelocation(unsigned slot,std::uint64_t authority) {
+    const auto identity=CaptureNativePlayer(slot);
+    auto* e=CurrentNativePlayer(identity);
+    if(!e||e->v.deadflag!=DEAD_NO||e->v.health<=0||!CurrentPoseAuthority(authority)||NativeRestoreInProgress(slot))return;
+    host_effects.Retire(slot);
+    if(!CurrentNativePlayer(identity)||!CurrentPoseAuthority(authority))return;
+    if(!ReleaseControl(slot,ControlCause::relocation))return;
+    e=CurrentNativePlayer(identity);if(!e||!CurrentPoseAuthority(authority))return;
     if(player_lives[slot]==UINT32_MAX){registry.disconnect(slot);return;}
     // The existing life generation is also a pose barrier: queued pre-teleport
     // MC updates cannot undo a real native trigger's relocation. HostSession
     // will place/acknowledge the same living MC player at the new host position.
     ++player_lives[slot];++host_relocations;next_snapshot=0;
+    controlled[slot].use_dispatching=controlled[slot].use_applied=controlled[slot].use_requested=false;
+    controlled[slot].use_dispatch_token=0;
     player_spawns[slot]=to_minecraft({e->v.origin.x,e->v.origin.y,e->v.origin.z+e->v.mins.z});
+    const auto relocated=CaptureNativePlayer(slot);
+    host_effects.Birth(slot);
+    if(!CurrentNativePlayer(relocated)||!CurrentPoseAuthority(authority))return;
     SendForm(slot);
+    if(!CurrentNativePlayer(relocated)||!CurrentPoseAuthority(authority))return;
     BridgeLog("Native entity relocated paired slot "+std::to_string(slot)+"; new movement generation "+std::to_string(player_lives[slot]));
 }
-void HandlePose(Reader& r) {
+// GOLDCRAFT_LIFECYCLE_FIXTURE_END relocation
+void HandlePose(Reader& r,const effects::PoseProof* proof=nullptr) {
+    // Negotiation is a connection latch. Missing clock proof must never enable
+    // fallback to unproved legacy movement on an effect-capable connection.
+    if(link.effect_position_hold()!=(proof!=nullptr))return;
     const auto epoch=r.u64(),sequence=r.u64();const auto slot=r.u32(),serial=r.u32(),life=r.u32();const auto uuid=r.key();const auto flags=r.u32();
     Vec3 feet{r.f32(),r.f32(),r.f32()},velocity{r.f32(),r.f32(),r.f32()};const float pitch=r.f32(),yaw=r.f32(),eye=r.f32(),width=r.f32(),height=r.f32();r.finish();
     const auto* pair=registry.get(slot);
@@ -189,11 +332,16 @@ void HandlePose(Reader& r) {
     // A new Spawn can occur between two actor snapshots, even on one connection.
     // Reject its predecessor before it can replace the new native spawn position.
     if(!life||life!=player_lives[slot]){++stale_life_poses;return;}
-    auto& state=controlled[slot];if(sequence<=state.sequence)return;state.sequence=sequence;
-    if(!(flags&1)){ReleaseControl(slot,ControlCause::authority_not_ready);return;}
+    auto& state=controlled[slot];if(sequence<=state.sequence)return;
+    if(!proof)state.sequence=sequence; // Preserve the legacy producer timeline.
+    if(!(flags&1)){
+        if(proof&&flags!=0)return;
+        state.sequence=sequence;
+        ReleaseControl(slot,ControlCause::authority_not_ready);return;
+    }
     if(!minecraft_forms[slot]){++wrong_form_poses;return;}
     auto* e=edicts+slot;auto* player=static_cast<CBasePlayer*>(GET_PRIVATE(e));
-    if(e->free||!player||!player->IsAlive()||(e->v.flags&FL_SPECTATOR))return;
+    if(e->free||!player||(proof?(e->v.deadflag!=DEAD_NO||e->v.health<=0):!player->IsAlive())||(e->v.flags&FL_SPECTATOR))return;
     const auto dimensions=validate_authoritative_dimensions(flags,eye,width,height);
     dimension_trace.observe(dimensions,slot,life,flags,eye,width,height);
     // Reject this pose without aborting the rest of this frame's authority
@@ -201,19 +349,51 @@ void HandlePose(Reader& r) {
     if(dimensions!=DimensionRejection::none)return;
     auto origin=to_goldsrc(feet);origin.z+=36;
     if(std::abs(origin.x)>16384||std::abs(origin.y)>16384||std::abs(origin.z)>16384)throw ProtocolError("Authoritative position outside supported map bounds");
-    if(!state.active){state.saved_movetype=e->v.movetype;state.active=true;RecordControl(slot,ControlCause::acquire);BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
+    const bool acquired=!state.active;
+    const float half=width*units_per_block*0.5f;
+    const Vector hull_min(-half,-half,-36),hull_max(half,half,height*units_per_block-36);
+    const Vector native_velocity(velocity.x*units_per_block*20,-velocity.z*units_per_block*20,velocity.y*units_per_block*20);
+    if(proof){
+        if(!std::isfinite(native_velocity.x)||!std::isfinite(native_velocity.y)||!std::isfinite(native_velocity.z))return;
+        // Last callback-free admission barrier. HostEffects reads actual pair,
+        // lifecycle, form, clock, snapshot and held anchors here. No IsAlive,
+        // logs or hooked engine function may run until every field is written.
+        if(!entity_physics||!effect_publisher.Admit(slot,*proof,{origin.x,origin.y,origin.z-36}))return;
+        state.sequence=sequence;
+    }
+    if(acquired){
+        state.saved_movetype=e->v.movetype;state.active=true;
+        if(!proof){RecordControl(slot,ControlCause::acquire);BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
+    }
     state.last_update=gpGlobals->time;e->v.movetype=MOVETYPE_NONE;
-    e->v.velocity=Vector(velocity.x*units_per_block*20,-velocity.z*units_per_block*20,velocity.y*units_per_block*20);
-    const float half=width*units_per_block*0.5f;SET_SIZE(e,Vector(-half,-half,-36),Vector(half,half,height*units_per_block-36));
-    SET_ORIGIN(e,Vector(origin.x,origin.y,origin.z));e->v.view_ofs=Vector(0,0,eye*units_per_block-36);
+    e->v.velocity=native_velocity;
+    if(proof){
+        // PF_setsize_I/SetMinMaxSize and PF_setorigin_I assign these fields;
+        // their SET_* entry points can be hooked by Metamod/Pawn. The existing
+        // TouchPlayerContacts below performs SV_LinkEdict(TRUE) after commit.
+        e->v.mins=hull_min;e->v.maxs=hull_max;e->v.size=hull_max-hull_min;
+        e->v.origin=Vector(origin.x,origin.y,origin.z);
+    }else{
+        SET_SIZE(e,hull_min,hull_max);SET_ORIGIN(e,Vector(origin.x,origin.y,origin.z));
+    }
+    e->v.view_ofs=Vector(0,0,eye*units_per_block-36);
     e->v.v_angle=Vector(pitch,-yaw-90,0);e->v.angles=Vector(-pitch/3,-yaw-90,0);
     if(flags&2)e->v.flags|=FL_ONGROUND;else e->v.flags&=~FL_ONGROUND;
     if(flags&4)e->v.flags|=FL_DUCKING;else e->v.flags&=~FL_DUCKING;
+    const auto committed=CaptureNativePlayer(slot);
     if(entity_physics){
         const Vector submitted=e->v.origin;
         entity_physics->TouchPlayerContacts(e);
-        if(edicts&&state.active&&!e->free&&player->IsAlive()&&(e->v.origin-submitted).LengthSquared()>0.0001f)AcceptNativeRelocation(slot);
+        // A native Touch may kill, respawn, switch form or replace this slot.
+        // Do not dispatch a virtual method through the pre-Touch player.
+        if(proof&&!CurrentPoseAuthority(proof->nativeConnection))return;
+        e=CurrentNativePlayer(committed);if(!e)return;
+        const bool alive=proof?(e->v.deadflag==DEAD_NO&&e->v.health>0):player->IsAlive();
+        e=CurrentNativePlayer(committed);if(!e)return;
+        if(state.active&&alive&&(e->v.origin-submitted).LengthSquared()>0.0001f)
+            AcceptNativeRelocation(slot,proof?proof->nativeConnection:0);
     }
+    if(proof&&acquired&&CurrentPoseAuthority(proof->nativeConnection)&&CurrentNativePlayer(committed)&&state.active){RecordControl(slot,ControlCause::acquire);BridgeLog("Minecraft server owns movement for paired CS slot "+std::to_string(slot));}
 }
 void SendBinding(edict_t* player) {
     if(!binding_message || (player->v.flags&FL_FAKECLIENT)) return;
@@ -252,6 +432,7 @@ void SendForm(unsigned slot){
     Writer w;w.u64(registry.world());w.u32(player_lives[slot]);w.u32(minecraft_forms[slot]?1:0);
     MESSAGE_BEGIN(MSG_ONE,form_message,nullptr,e);for(auto byte:w.data)WRITE_BYTE(byte);MESSAGE_END();
 }
+// GOLDCRAFT_LIFECYCLE_FIXTURE_BEGIN form
 int SetForm(int slot,int form,ControlCause source){
     const auto result=[&](int value){RecordControl(static_cast<unsigned>(slot),source,form,value);return value;};
     if(!edicts||slot<1||slot>max_clients||(form!=0&&form!=1)||!registry.get(slot)||edicts[slot].free)return result(-1);
@@ -259,15 +440,29 @@ int SetForm(int slot,int form,ControlCause source){
     if(form&&!link.connected())return result(-3);
     if(minecraft_forms[slot]==(form!=0))return result(0);
     if(player_lives[slot]==UINT32_MAX)return result(-4);
+    const auto identity=CaptureNativePlayer(static_cast<unsigned>(slot));
+    if(!CurrentNativePlayer(identity)||NativeRestoreInProgress(static_cast<unsigned>(slot)))return result(-1);
     const int previous=minecraft_forms[slot]?1:0;
     result(1);
-    ReleaseControl(slot,ControlCause::form_change);minecraft_forms[slot]=form!=0;++player_lives[slot];++form_changes;next_snapshot=0;
-    auto* e=edicts+slot;e->v.button=e->v.oldbuttons=0;
+    host_effects.Retire(slot);
+    if(!CurrentNativePlayer(identity))return result(-1);
+    if(!ReleaseControl(slot,ControlCause::form_change))return result(-1);
+    auto* e=CurrentNativePlayer(identity);if(!e)return result(-1);
+    if(form&&!link.connected())return result(-3);
+    minecraft_forms[slot]=form!=0;++player_lives[slot];++form_changes;next_snapshot=0;
+    controlled[slot].use_dispatching=controlled[slot].use_applied=controlled[slot].use_requested=false;
+    controlled[slot].use_dispatch_token=0;
+    e->v.button=e->v.oldbuttons=0;
     player_spawns[slot]=to_minecraft({e->v.origin.x,e->v.origin.y,e->v.origin.z+e->v.mins.z});
-    SendForm(slot);SendAvatar(slot,true);
+    const auto changed=CaptureNativePlayer(static_cast<unsigned>(slot));
+    host_effects.Birth(slot);
+    if(!CurrentNativePlayer(changed))return 1;
+    SendForm(slot);if(!CurrentNativePlayer(changed))return 1;
+    SendAvatar(slot,true);if(!CurrentNativePlayer(changed))return 1;
     if(form_listener)form_listener(slot,previous,form);
     return 1;
 }
+// GOLDCRAFT_LIFECYCLE_FIXTURE_END form
 class ServerControl final:public IServerControl {
 public:
     int GetForm(int slot) override{return edicts&&slot>=1&&slot<=max_clients&&registry.get(slot)&&!edicts[slot].free?(minecraft_forms[slot]?1:0):-1;}
@@ -423,6 +618,7 @@ void SendActors() {
 }
 
 namespace {
+#include "status_effects.inc"
 void HandleVitals(std::span<const std::uint8_t> bytes){
     const auto change=read_vitals_delta(bytes);
     const auto* pair=change.slot<=static_cast<unsigned>(max_clients)?registry.get(change.slot):nullptr;
@@ -460,6 +656,7 @@ void HandleVitals(std::span<const std::uint8_t> bytes){
 }
 void HandleMobDamage(std::span<const std::uint8_t> bytes){
     const auto damage=read_mob_damage(bytes);
+    if(damage.kind==MobDamageKind::status){HandleStatusDamage(damage);return;}
     if(damage.epoch!=registry.world()||damage.event<=mob_damage_event){++mob_damage_rejected;return;}
     const auto previous_event=mob_damage_event;
     mob_damage_event=damage.event;
@@ -590,10 +787,13 @@ void GoldCraft_InitCvars(){
 void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
     try {
         if(!server_log.is_open()) if(const char* path=std::getenv("GOLDCRAFT_SERVER_LOG"))server_log.open(path,std::ios::app);
+        host_effects.End();
+        effect_publisher.Reset();
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
         skill_damage_snapshots.clear();
         controlled={};dimension_trace={};client_incarnations={};player_lives={};player_births={};vitals_ack={};player_spawns={};stale_life_poses=0;client_ready={};avatar_payloads={};
+        host_effects.Begin(registry.world());
         vitals_accepted=vitals_rejected=0;final_minecraft_damage=minecraft_attack=nullptr;
         minecraft_forms={};next_form_change={};form_changes=wrong_form_poses=0;
         GoldCraft_ObjectsReset(false);object_revision=object_actions=object_damage_actions=object_use_actions=0;
@@ -623,9 +823,16 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
     } catch(const std::exception& e) { link.stop(); BridgeLog(e.what()); }
 }
 void GoldCraft_ServerDeactivate() {
+    auto* const deactivating_table=edicts;const auto deactivating_world=registry.world();
+    effect_publisher.Reset();
+    host_effects.End();
+    if(edicts!=deactivating_table||registry.world()!=deactivating_world)return;
     // ReHLDS calls ClientDisconnect after ServerDeactivate during changelevel.
     // Restore live edicts before dropping the table, then leave no active leases.
-    for(int slot=1;slot<=max_clients;++slot)ReleaseControl(slot,ControlCause::map_deactivate);
+    for(int slot=1;slot<=max_clients;++slot){
+        ReleaseControl(slot,ControlCause::map_deactivate);
+        if(edicts!=deactivating_table||registry.world()!=deactivating_world)return;
+    }
     GoldCraft_ObjectsReset(true);
     GoldCraft_MapMiningReset(0);
     edit_deliveries={};edit_revision_sent=0;
@@ -637,35 +844,76 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
     try {
         const unsigned slot=ENTINDEX(player);
         if(!slot||slot>=client_incarnations.size()||client_incarnations[slot]==UINT32_MAX)throw ProtocolError("Player connection generation exhausted");
+        host_effects.ResetSlot(slot);
+        effect_publisher.Retire(slot);
         // The copied GoldSrc engine keeps player edict serialnumber == 0 across reconnects.
         // Use a server-owned connection generation so old poses cannot target a reused slot.
         registry.connect(slot,++client_incarnations[slot],GETPLAYERUSERID(player));
         client_ready[slot]=false;player_lives[slot]=player_births[slot]=0;vitals_ack[slot]=0;
+        host_effects.Connected(slot);
     }
     catch(const std::exception& e) { BridgeLog(e.what()); }
 }
 void GoldCraft_ClientDisconnect(edict_t* player) {
     const auto slot=ENTINDEX(player);if(slot<1||slot>=static_cast<int>(controlled.size()))return;
+    if(!edicts||slot>max_clients||player!=edicts+slot)return;
+    const auto disconnecting=CaptureNativeSlot(static_cast<unsigned>(slot));
+    host_effects.ResetSlot(slot);
+    if(!CurrentNativeSlot(disconnecting))return;
+    effect_publisher.Retire(slot);
     edit_deliveries[slot]={};
-    ReleaseControl(slot,ControlCause::disconnect);controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
+    if(!CurrentNativeSlot(disconnecting))return;
+    ReleaseControl(slot,ControlCause::disconnect);
+    if(!CurrentNativeSlot(disconnecting))return;
+    controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
 }
+GoldCraft_PlayerEffectTransition::GoldCraft_PlayerEffectTransition(edict_t* player, bool terminal) noexcept
+    : terminal_(terminal), exceptions_(std::uncaught_exceptions()) {
+    if(!edicts||!player)return;
+    const int slot=ENTINDEX(player);
+    if(slot<1||slot>max_clients)return;
+    slot_=static_cast<unsigned>(slot);
+    effect_publisher.Retire(slot_);
+    const auto token=host_effects.StartTransition(slot_,terminal_);
+    world_=token.context.world;generation_=token.context.generation;
+    slot_epoch_=token.slot_epoch;serial_=token.serial;
+}
+GoldCraft_PlayerEffectTransition::~GoldCraft_PlayerEffectTransition() noexcept {
+    host_effects.FinishTransition({{world_,generation_},slot_epoch_,serial_},slot_,terminal_,
+        std::uncaught_exceptions()==exceptions_);
+}
+
 void GoldCraft_PlayerSpawn(edict_t* player) {
     const auto slot=ENTINDEX(player);
     if(!edicts||slot<1||slot>max_clients||!registry.get(slot))return;
+    if(player!=edicts+slot)return;
+    const auto spawning=CaptureNativePlayer(static_cast<unsigned>(slot));
+    host_effects.Forget(slot);
+    if(!CurrentNativePlayer(spawning))return;
+    effect_publisher.Retire(slot);
     // Spawn has already restored the native hull/movetype. Never restore an old
     // movement lease over those freshly initialized values.
     if(registry.get(slot)->paired)RecordControl(slot,ControlCause::spawn);
     controlled[slot]={};
     if(player_lives[slot]==UINT32_MAX||player_births[slot]==UINT32_MAX){registry.disconnect(slot);BridgeLog("Player life generation exhausted");return;}
     ++player_lives[slot];++player_births[slot];vitals_ack[slot]=0;next_snapshot=0;
-    SendForm(slot);
     player_spawns[slot]=to_minecraft({player->v.origin.x,player->v.origin.y,player->v.origin.z+player->v.mins.z});
+    const auto spawned=CaptureNativePlayer(static_cast<unsigned>(slot));
+    host_effects.Spawn(slot);
+    if(!CurrentNativePlayer(spawned))return;
+    SendForm(slot);
+    if(!CurrentNativePlayer(spawned))return;
     BridgeLog("CS player spawned: slot="+std::to_string(slot)+" life="+std::to_string(player_lives[slot]));
 }
 void GoldCraft_PlayerKilled(edict_t* player) {
     const auto slot=ENTINDEX(player);
     if(!edicts||slot<1||slot>max_clients)return;
-    ReleaseControl(slot,ControlCause::death);next_snapshot=0;
+    if(player!=edicts+slot)return;
+    const auto killed=CaptureNativePlayer(static_cast<unsigned>(slot));
+    host_effects.Forget(slot);
+    if(!CurrentNativePlayer(killed))return;
+    ReleaseControl(slot,ControlCause::death);
+    if(CurrentNativePlayer(killed))next_snapshot=0;
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
 bool GoldCraft_MinecraftAttack(edict_t* player){return player&&(player==final_minecraft_damage||player==minecraft_attack);}
@@ -692,7 +940,9 @@ bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
         if(std::strcmp(CMD_ARGV(1),"toggle")==0)form=minecraft_forms[slot]?0:1;
         else if(std::strcmp(CMD_ARGV(1),"0")==0)form=0;
         else if(std::strcmp(CMD_ARGV(1),"1")==0)form=1;
-        if(form>=0&&gpGlobals->time>=next_form_change[slot]){SetForm(slot,form,ControlCause::form_command);next_form_change[slot]=gpGlobals->time+0.25f;}
+        if(form>=0&&gpGlobals->time>=next_form_change[slot]){
+            next_form_change[slot]=gpGlobals->time+0.25f;SetForm(slot,form,ControlCause::form_command);
+        }
         return true;
     }
     if(std::strcmp(command,"goldcraft_use")==0){
@@ -703,7 +953,7 @@ bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
         if(!*CMD_ARGV(1)||!*CMD_ARGV(2)||!*CMD_ARGV(3)||*end_epoch||*end_life||*end_value||epoch!=registry.world()||life!=player_lives[slot]||value>1){++stale_use_commands;return true;}
         auto& state=controlled[slot];state.use_requested=value!=0;state.last_use=gpGlobals->time;
         // Dispatch the edge now; quick press/release commands can share one frame.
-        if(state.use_requested!=state.use_applied){ApplyNativeUse(slot,state.use_requested);state.next_use=gpGlobals->time+0.05f;}
+        if(state.use_requested!=state.use_applied){state.next_use=gpGlobals->time+0.05f;ApplyNativeUse(slot,state.use_requested);}
         return true;
     }
     if(std::strcmp(command,"goldcraft_ready")!=0)return false;
@@ -737,16 +987,26 @@ bool GoldCraft_ObjectAction(std::uint64_t key,unsigned action,edict_t* attacker,
 }
 void GoldCraft_StartFrame() {
     if(!edicts) return;
+    host_effects.Frame();
     try {
         GoldCraft_MapMiningFrame();
         link.poll();
         if(link.error()!=previous_error) { previous_error=link.error(); if(!previous_error.empty()) BridgeLog(previous_error); }
         if(link.connected() && link.generation()!=connection_generation) {
+            auto* const retiring_table=edicts;const auto retiring_world=registry.world(),retiring_authority=link.generation();
+            effect_publisher.Reset();
             // A new authenticated authoritative connection has its own producer timeline.
             // The old epoch cannot inject poses into this connection, so release stale control
             // and allow a restarted Minecraft server to publish its initial sequences.
-            for(int i=1;i<=max_clients;++i){ReleaseControl(i,ControlCause::authority_generation);controlled[i].sequence=0;}
+            for(int i=1;i<=max_clients;++i){
+                const auto retiring=CaptureNativePlayer(static_cast<unsigned>(i));
+                ReleaseControl(i,ControlCause::authority_generation);
+                if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority||
+                   (retiring.table&&!CurrentNativePlayer(retiring)))return;
+                controlled[i].sequence=0;
+            }
             GoldCraft_ObjectsReset(true);object_revision=0;
+            ClearStatusHud();
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
             skill_damage_snapshots.clear();
             GoldCraft_MapMiningInvalidateSamples();
@@ -755,11 +1015,21 @@ void GoldCraft_StartFrame() {
         }
         trace_queries=0;
         SendMiningPolicy();
+        auto* const dispatch_table=edicts;
+        const auto dispatch_world=registry.world(),dispatch_authority=connection_generation;
         for(auto& message : link.take_messages()) {
             Reader r(message.payload);
             if(message.type==Type::pair_player)HandlePair(r);
             else if(message.type==Type::trace_query)HandleTrace(r);
             else if(message.type==Type::authoritative_pose)HandlePose(r);
+            else if(message.type==Type::effect_pose){
+                if(!link.effect_position_hold())continue;
+                const auto proof=effects::decode_pose_proof(r);HandlePose(r,&proof);
+            }
+            else if(message.type==Type::effect_reopen){
+                if(link.effect_position_hold())effect_publisher.Reopen(effects::decode_reopen(r));
+            }
+            else if(message.type==Type::status_hud)HandleStatusHud(message.payload);
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
             else if(message.type==Type::map_mining_request)HandleMining(message.payload);
@@ -772,16 +1042,34 @@ void GoldCraft_StartFrame() {
                 auto snapshot=decode_world_objects(message.payload);
                 if(snapshot.epoch==registry.world()&&snapshot.revision>object_revision){GoldCraft_ObjectsUpdate(snapshot);object_revision=snapshot.revision;}
             }
+            // Touch/Use in a dispatched message may retire the whole world or
+            // authority. Its old batch must not continue into that replacement.
+            if(edicts!=dispatch_table||registry.world()!=dispatch_world||connection_generation!=dispatch_authority||
+               !link.connected()||link.generation()!=dispatch_authority)return;
         }
+        ExpireStatusHud();
         GoldCraft_ObjectsExpire();
         SendEdits();
         if(gpGlobals->time>=next_colliders){next_colliders=gpGlobals->time+0.05f;SendColliders();}
+        auto* const controlling_table=edicts;
+        const auto controlling_world=registry.world(),controlling_authority=connection_generation,controlling_link=link.generation();
+        const bool controlling_connected=link.connected();
         for(int i=1;i<=max_clients;i++)if(controlled[i].active){
             auto& state=controlled[i];
-            if(!link.connected()||gpGlobals->time-state.last_update>1.0f){ReleaseControl(i,link.connected()?ControlCause::pose_stale:ControlCause::authority_link_down);continue;}
+            if(!link.connected()||gpGlobals->time-state.last_update>1.0f){
+                ReleaseControl(i,link.connected()?ControlCause::pose_stale:ControlCause::authority_link_down);
+                if(edicts!=controlling_table||registry.world()!=controlling_world||connection_generation!=controlling_authority||
+                   link.generation()!=controlling_link||link.connected()!=controlling_connected)return;
+                continue;
+            }
             if(gpGlobals->time-state.last_use>0.35f)state.use_requested=false;
-            if(gpGlobals->time>=state.next_use||state.use_requested!=state.use_applied){state.next_use=gpGlobals->time+0.05f;ApplyNativeUse(i,state.use_requested);}
+            if(gpGlobals->time>=state.next_use||state.use_requested!=state.use_applied){
+                state.next_use=gpGlobals->time+0.05f;ApplyNativeUse(i,state.use_requested);
+                if(edicts!=controlling_table||registry.world()!=controlling_world||connection_generation!=controlling_authority||
+                   link.generation()!=controlling_link||link.connected()!=controlling_connected)return;
+            }
         }
+        effect_publisher.Frame();
         if(gpGlobals->time>=next_binding) {
             next_binding=gpGlobals->time+2;
             for(int i=1;i<=max_clients;++i) if(!edicts[i].free && registry.get(i)) SendBinding(&edicts[i]);

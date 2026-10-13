@@ -27,7 +27,13 @@
     "NativePlayerLookupMixin",
     "NightfallNativeSkillDamageMixin",
     "EpicSkillBindingMixin",
-    "EpicSkillJoinMixin"
+    "EpicSkillJoinMixin",
+    "HostEffectMovementMixin",
+    "NativeStatusInstanceMixin",
+    "NativeStatusInstantMixin",
+    "NativeStatusCloudMixin",
+    "NativeStatusLifecycleAccessor",
+    "NativeStatusRoutingMixin"
   ],
   "injectors": {
     "defaultRequire": 1

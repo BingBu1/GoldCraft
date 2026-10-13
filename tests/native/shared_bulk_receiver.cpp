@@ -32,7 +32,7 @@ std::uint32_t fast_crc(std::span<const std::uint8_t> payload) {
     return ~crc;
 }
 #ifndef GOLDCRAFT_ORIGINAL_BASELINE
-void counts(std::ostream& out, std::string_view name, const std::array<TransportCount, 70>& values) {
+void counts(std::ostream& out, std::string_view name, const std::array<TransportCount, wire_type_count>& values) {
     out << ",\"" << name << "\":{";
     bool first = true;
     for (std::size_t i = 0; i < values.size(); ++i) if (values[i].frames) {

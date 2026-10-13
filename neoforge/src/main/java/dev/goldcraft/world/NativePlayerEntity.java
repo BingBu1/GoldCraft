@@ -21,6 +21,11 @@ public final class NativePlayerEntity extends PlayerEntity {
     private HostWorldState.Actor actor;
     private float lastNativeDamage;
     private NativePlayerHitboxEntity hitbox;
+    private dev.goldcraft.bridge.NativeHealthLedger healthLedger;
+    public NativePlayerHitboxEntity hitbox(){return hitbox;}
+    public dev.goldcraft.bridge.NativeHealthLedger healthLedger(){return healthLedger;}
+    void inheritHealth(NativePlayerEntity previous){healthLedger=previous.healthLedger;}
+    public float predictedHealth(){return healthLedger==null?super.getHealth():healthLedger.health(getMaxHealth());}
 
     public NativePlayerEntity(ServerWorld world,long epoch,HostWorldState.Actor actor,DamageSink damageSink){
         super(world,BlockPos.ORIGIN,0,new GameProfile(identity(epoch,actor),"CS_"+actor.slot()));
@@ -33,7 +38,7 @@ public final class NativePlayerEntity extends PlayerEntity {
     public HostWorldState.Actor actor(){return actor;}
     void hitbox(NativePlayerHitboxEntity value){hitbox=value;}
     boolean requestDamage(DamageSource source,float amount){
-        return !isRemoved()&&isAlive()&&Float.isFinite(amount)&&amount>0&&damageSink.apply(this,source,amount);
+        return !isRemoved()&&isAlive()&&Float.isFinite(amount)&&amount!=0&&damageSink.apply(this,source,amount);
     }
     float difficultyDamage(DamageSource source,float amount){
         if(source.isScaledWithDifficulty())return switch(getWorld().getDifficulty()){
@@ -48,6 +53,8 @@ public final class NativePlayerEntity extends PlayerEntity {
         var feet=next.minecraftFeet();refreshPositionAndAngles(feet.x(),feet.y(),feet.z(),-next.yaw()-90,next.pitch());
         setVelocity(0,0,0);setOnGround(true);
         float health=Math.max(0,next.health()/MinecraftObjects.CS_HEALTH_PER_MC);
+        if(healthLedger==null)healthLedger=new dev.goldcraft.bridge.NativeHealthLedger(health);
+        else healthLedger.snapshot(health,dev.goldcraft.GoldCraft.HOST_WORLD.tick());
         getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(Math.max(20,health));setHealth(health);
     }
     @Override public EntityDimensions getBaseDimensions(EntityPose pose){

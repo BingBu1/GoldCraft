@@ -2,6 +2,7 @@
 #include <ws2tcpip.h>
 #include "goldcraft/endpoint.hpp"
 #include "goldcraft/shared_bulk.hpp"
+#include "goldcraft/local_qpc_proof.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -17,7 +18,7 @@ struct PeerClosed : std::exception {
 std::uint64_t nanos(Clock::duration elapsed) {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
 }
-void count_frame(std::array<TransportCount, 70>& counts, Type type, std::size_t bytes) {
+void count_frame(std::array<TransportCount, wire_type_count>& counts, Type type, std::size_t bytes) {
     auto& count = counts[static_cast<std::size_t>(type)]; ++count.frames; count.bytes += bytes;
 }
 }
@@ -39,6 +40,8 @@ struct Endpoint::Impl {
     bool winsock = false;
     std::unique_ptr<HostHandshake> handshake;
     std::unique_ptr<SharedBulk> bulk;
+    std::unique_ptr<LocalQpcProof> clock_proof;
+    std::uint64_t proven_clock_frequency = 0;
     TransportStats stats{};
     std::uint64_t generation = 0, out_sequence = 0;
     Bytes input;
@@ -59,6 +62,7 @@ struct Endpoint::Impl {
     void disconnect(const std::string& reason) {
         if (peer != INVALID_SOCKET) { closesocket(peer); ++stats.disconnects; }
         update_ages();
+        clock_proof.reset(); proven_clock_frequency = 0;
         peer = INVALID_SOCKET; bulk.reset(); handshake.reset(); input.clear(); output.clear(); messages.clear();
         stats.shared_active = false; stats.queue_age_ns = stats.pending_age_ns = 0;
         output_offset = queued_bytes = incoming_bytes = 0; out_sequence = 0;
@@ -93,6 +97,24 @@ struct Endpoint::Impl {
         }
         update_ages();
     }
+    void clock_ready(bool accepted) {
+        Writer reply;
+        reply.u32(LocalQpcProof::layout); reply.u32(accepted ? 1u : 0u);
+        reply.u64(handshake->epoch()); reply.u64(accepted ? proven_clock_frequency : 0);
+        if (!queue(Type::clock_ready, reply.data)) throw ProtocolError("clock ready queue full");
+    }
+    void negotiate_clock() {
+        if (config.host != Role::host_server || config.peer != Role::fabric_server ||
+            !(handshake->peer_capabilities() & capability_local_qpc_v1)) return;
+        const auto disabled = std::getenv("GOLDCRAFT_LOCAL_QPC");
+        if (config.local_qpc && !(disabled && std::string_view(disabled) == "0")) {
+            try { clock_proof = LocalQpcProof::create(handshake->epoch()); }
+            catch (const std::exception&) { clock_proof.reset(); }
+        }
+        if (!clock_proof) { clock_ready(false); return; }
+        if (!queue(Type::clock_offer, clock_proof->offer())) throw ProtocolError("clock offer queue full");
+    }
+
     void negotiate_bulk() {
         if (config.host != Role::host_client || config.peer != Role::fabric_client ||
             !(handshake->peer_capabilities() & capability_shared_bulk_v1)) return;
@@ -135,7 +157,7 @@ struct Endpoint::Impl {
                 if (application_bytes < bulk_min_payload || application_bytes > max_payload)
                     throw ProtocolError("invalid shared bulk reference length");
             }
-            const bool application = was_ready && header.type != Type::heartbeat && !bulk_internal(header.type);
+            const bool application = was_ready && header.type != Type::heartbeat && !bulk_internal(header.type) && !clock_internal(header.type);
             if ((application || header.type == Type::bulk_ref) &&
                 (application_bytes > max_queued_bytes - incoming_bytes || messages.size() >= 4096)) break;
             // As with socket work, limit copy/drain work per game-thread poll. One
@@ -147,8 +169,16 @@ struct Endpoint::Impl {
             if (!was_ready) {
                 ++generation;
                 if (!queue(Type::welcome, handshake->welcome())) throw ProtocolError("welcome queue full");
-                negotiate_bulk();
+                negotiate_bulk(); negotiate_clock();
             }
+            else if (header.type == Type::clock_ack) {
+                if (!clock_proof) throw ProtocolError("unsolicited local clock response");
+                const bool accepted = clock_proof->acknowledge(payload);
+                proven_clock_frequency = accepted ? clock_proof->frequency() : 0;
+                clock_proof.reset();
+                clock_ready(accepted);
+            }
+            else if (clock_internal(header.type)) throw ProtocolError("unexpected local clock control");
             else if (header.type == Type::bulk_ack) {
                 if (!bulk) throw ProtocolError("unsolicited shared bulk acknowledgement");
                 bulk->acknowledge(payload);
@@ -240,11 +270,20 @@ void Endpoint::poll() {
 }
 bool Endpoint::connected() const { return impl_->handshake && impl_->handshake->ready(); }
 std::uint64_t Endpoint::generation() const { return impl_->generation; }
+std::uint64_t Endpoint::local_qpc_frequency() const { return connected() ? impl_->proven_clock_frequency : 0; }
+bool Endpoint::status_effects() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_status_effects) != 0;
+}
+bool Endpoint::effect_position_hold() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_effect_position_hold) != 0;
+}
 std::uint16_t Endpoint::port() const { return impl_->config.port; }
 const std::string& Endpoint::error() const { return impl_->last_error; }
 std::vector<Message> Endpoint::take_messages() { std::vector<Message> result; result.swap(impl_->messages); impl_->incoming_bytes = 0; return result; }
 bool Endpoint::send(Type t, std::span<const std::uint8_t> p) {
-    if (!connected() || t == Type::hello || t == Type::welcome || bulk_internal(t)) return false;
+    if (!connected() || t == Type::hello || t == Type::welcome || bulk_internal(t) || clock_internal(t)) return false;
     try { return impl_->queue(t, p); } catch (const std::exception& e) { impl_->disconnect(e.what()); return false; }
 }
 TransportStats Endpoint::transport_stats() const {
