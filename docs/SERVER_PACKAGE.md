@@ -2,7 +2,9 @@
 
 Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一台服务器运行；Java 21 已包含，无须安装开发工具。两个服务端均为 **32 人上限**，默认 `cs_assault`。这是当前开发版的部署快照，未通过 32 位真人同时在线负载验收。
 
-当前验证：准入新增 29 项 JUnit 通过，完整测试 251 通过／6 跳过；打包后 MC 已实际加载并保存退出。CS 首次无缓存启动仍在修复验证，暂不能把生成的 ZIP 当作已验收的正式部署包。真实正版玩家准入、公网及 32 人负载尚未验证。
+当前 ZIP 尚未通过最终双服启动验收：MC 已实际启动并保存退出，CS 单服控制台和正常退出通过；但全新解压的联合测试在 Steam 初始化失败后停在错误对话框。已保留失败记录，正在验证首次启动前准备 AppID 的修复，暂勿用于正式服。
+
+自动准入新增 29 项 JUnit 通过，完整测试 251 通过／6 跳过。真实正版玩家准入、公网及 32 人负载尚未验证；启动成功不能代替这些检查。源码中的 `Test-ServerPackage.py` 用独立端口检查解压内容、双服桥接、32 人配置、Bot、控制台、换图与保存退出。
 
 ## 启动
 
@@ -34,3 +36,5 @@ MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供�
 - `package-manifest.json` 记录 ZIP 文件的 SHA-256 和基线，压缩包外 `SHA256SUMS.txt` 校验 ZIP。包内游戏、Mod、Java 各自许可继续适用；此私人部署包没有上传公共源码仓库。
 
 本包启动脚本使用 Windows PowerShell 5.1。可在 PowerShell 中运行 `scripts/Start-Servers.ps1 -CheckOnly` 只检查配置/端口，`scripts/Send-Command.ps1 -Role minecraft -Command "whitelist list"` 发送本机控制台命令。自动命令不开放网络管理端口。
+
+维护者重新打包：在源码根目录运行 `python tools/Build-ServerPackage.py --steam-runtime "Steam目录" --native-crt "x86 Microsoft.VC145.CRT目录" --core-jar "已验证的GoldCraft.jar"`。默认输出 `server-packages`，已有同名 ZIP 时拒绝覆盖，可用 `--output` 指定新的工作区子目录。该命令只读取本机已部署的服务端，不会下载或同步新的 Mod；应先完成 XMCL Mod 同步。

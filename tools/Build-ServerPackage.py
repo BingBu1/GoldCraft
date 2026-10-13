@@ -51,8 +51,11 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path):
                  'tier0.dll', 'vstdlib.dll', 'vgui.dll', 'vgui2.dll', 'SDL2.dll'):
         add(CS / name, 'cs/' + name)
     # SteamAPI can otherwise silently depend on the developer's Steam registry.
-    for name in ('steamclient.dll', 'tier0_s.dll', 'vstdlib_s.dll'):
+    for name in ('steamclient.dll', 'tier0_s.dll', 'vstdlib_s.dll', 'crashhandler.dll'):
         add(steam / name, 'cs/' + name)
+    # ReHLDS calls SteamAPI during initialization before CSteam3Server::Activate
+    # writes this file. Supply the cstrike AppID before the first process starts.
+    generated('cs/steam_appid.txt', '10\n')
     for source in sorted(native_crt.glob('*.dll')):
         add(source, 'cs/' + source.name)
     if 'cs/vcruntime140.dll' not in files or 'cs/msvcp140.dll' not in files:
