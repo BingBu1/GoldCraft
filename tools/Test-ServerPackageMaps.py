@@ -1,9 +1,16 @@
 """Small resource fixtures; no game process, downloads or production writes."""
 from pathlib import Path
+import hashlib
+import json
+import os
+import shutil
+import socket
 import struct
+import subprocess
 import tempfile
 import unittest
 import zlib
+import zipfile
 
 from ServerPackageMaps import map_resources, select_maps
 
@@ -88,6 +95,80 @@ class Maps(unittest.TestCase):
         bsp.write_bytes(data)
         with self.assertRaises(ValueError):
             self.resources(bsp)
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows PowerShell package startup')
+class PackageStartup(unittest.TestCase):
+    def setUp(self):
+        directory = ROOT / 'analysis/server-package/map-fixtures'
+        directory.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=directory)
+        self.base = Path(self.temp.name)
+        scripts = self.base / 'scripts'
+        scripts.mkdir()
+        for name in ('Common.ps1', 'Start-Servers.ps1'):
+            shutil.copyfile(ROOT / 'tools/server-package/scripts' / name, scripts / name)
+        settings = json.loads((ROOT / 'tools/server-package/server-settings.json').read_text())
+        ports = set()
+        while len(ports) < 4:
+            with socket.socket() as sock:
+                sock.bind(('127.0.0.1', 0))
+                ports.add(sock.getsockname()[1])
+        settings.update(zip(('csPort', 'steamPort', 'minecraftPort', 'bridgePort'), sorted(ports)))
+        settings.update(map='cs_demo', botTotalPlayers=0, bindAddress='127.0.0.1')
+        (self.base / 'server-settings.json').write_text(json.dumps(settings))
+        mods = self.base / 'minecraft/mods'
+        mods.mkdir(parents=True)
+        with zipfile.ZipFile(mods / 'goldcraft-neoforge-0.1.0-dev.jar', 'w') as jar:
+            jar.writestr('dev/goldcraft/net/CsAdmission.class', b'preflight fixture; never executed')
+        (mods.parent / 'server.properties').write_text(
+            'online-mode=true\nwhite-list=false\nenforce-whitelist=false\nenable-rcon=false\nmax-players=32\n')
+        self.records = []
+        for name in ('cs_demo', 'cs_second'):
+            bsp = self.base / 'cs/cstrike/maps' / (name + '.bsp')
+            bsp.parent.mkdir(parents=True, exist_ok=True)
+            bsp.write_bytes(name.encode())
+            dimension = f'{name}_{zlib.crc32(bsp.read_bytes()):08x}'
+            dim = self.dimension_file(dimension)
+            dim.parent.mkdir(parents=True, exist_ok=True)
+            dim.write_text('{}')
+            self.records.append({'map': name, 'dimension': 'goldcraft:' + dimension,
+                'bspSha256': hashlib.sha256(bsp.read_bytes()).hexdigest()})
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def dimension_file(self, name):
+        return self.base / 'minecraft/goldcraft-worlds/datapacks/goldcraft_host_maps/data/goldcraft/dimension' / (name + '.json')
+
+    def check(self, records):
+        (self.base / 'maps.json').write_text(json.dumps(records))
+        shell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        return subprocess.run([str(shell), '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+            str(self.base / 'scripts/Start-Servers.ps1'), '-CheckOnly'], cwd=self.base,
+            capture_output=True, text=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
+
+    def test_one_and_multiple_maps_pass_actual_startup_preflight(self):
+        for count in (1, 2):
+            with self.subTest(maps=count):
+                result = self.check(self.records[:count])
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn('no server was launched', result.stdout)
+                self.assertFalse((self.base / '.state/cs.json').exists())
+                self.assertFalse((self.base / '.state/minecraft.json').exists())
+
+    def test_later_map_dimension_and_bsp_mismatch_are_rejected(self):
+        second = self.records[1]
+        dim = self.dimension_file(second['dimension'].split(':')[1])
+        dim.unlink()
+        result = self.check(self.records)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Map cs_second differs', result.stdout)
+        dim.write_text('{}')
+        (self.base / 'cs/cstrike/maps/cs_second.bsp').write_bytes(b'changed BSP')
+        result = self.check(self.records)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Map cs_second differs', result.stdout)
 
 
 if __name__ == '__main__':
