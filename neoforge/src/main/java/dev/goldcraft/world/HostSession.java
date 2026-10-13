@@ -133,10 +133,12 @@ public final class HostSession {
             target.serial()==actor.serial()&&target.life()==actor.life()&&grant.minecraftUuid().equals(uuid)&&
             actor.minecraftPlayer().equals(uuid);
     }
-    private static boolean effectClient(ServerPlayerEntity player){
+    private static boolean connectedClient(ServerPlayerEntity player){
         return player!=null&&player.networkHandler!=null&&player.networkHandler.player==player&&
-            player.networkHandler.getConnection().isOpen()&&player.networkHandler.hasChannel(HostPayload.ID)&&
-            !player.isRemoved();
+            player.networkHandler.getConnection().isOpen()&&player.networkHandler.hasChannel(HostPayload.ID);
+    }
+    private static boolean effectClient(ServerPlayerEntity player){
+        return connectedClient(player)&&!player.isRemoved();
     }
     private static boolean sameHeldAnchor(HostEffectGrant.Grant a,HostEffectGrant.Grant b){
         int axes=a.snapshot().movement().holdAxes();var x=a.nativeAnchorFeet();var y=b.nativeAnchorFeet();
@@ -318,7 +320,10 @@ public final class HostSession {
                 state.ready=state.placed=state.enabled=false;
             }
             boolean alive=actor.life()!=0&&(actor.flags()&1)!=0&&(actor.flags()&4)==0&&actor.team()!=0&&actor.team()!=3;
-            if(effectsNegotiated&&!effectClient(player)){
+            // Vanilla removes a corpse after 20 ticks while its connection
+            // stays open. Admit that connection to the native-authorized respawn
+            // below; effect grants and control still require the live replacement.
+            if(effectsNegotiated&&!connectedClient(player)){
                 retireEffects(state,alive&&actor.minecraftForm());state.enabled=false;
                 SharedVitals.active(player,false);sendPose(host,actor,player,false,true,null);
                 continue;
