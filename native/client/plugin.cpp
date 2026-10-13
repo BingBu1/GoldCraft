@@ -730,6 +730,8 @@ void WriteDiagnostics() {
            <<",\"rendererStudioDepthExecutor\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor")
            <<",\"rendererStudioBonePaletteCacheAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_studio_bone_palette_cache")?"true":"false")
            <<",\"rendererStudioBonePaletteCache\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_bone_palette_cache")
+           <<",\"rendererWorldMaterialBatchAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_world_material_batch")?"true":"false")
+           <<",\"rendererWorldMaterialBatch\":"<<gEngfuncs.pfnGetCvarFloat("r_world_material_batch")
            <<",\"hostUseHeld\":"<<(host_use_sent?"true":"false")<<",\"hostUseMessages\":"<<host_use_messages
            <<",\"minecraftForm\":"<<(server_minecraft_form?"true":"false")<<",\"serverPlayerLife\":"<<server_player_life
            <<",\"nativeColliders\":"<<native_colliders.size()<<",\"predictionObjects\":"<<prediction_objects<<",\"predictionFrames\":"<<prediction_frames<<",\"predictionOverflow\":"<<prediction_overflow
@@ -1402,6 +1404,11 @@ void TestCommands() {
         int enabled=0;
         if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_studio_bone_palette_cache"))
             gEngfuncs.Cvar_SetValue("r_studio_bone_palette_cache",static_cast<float>(enabled));
+    }
+    else if(action=="render_world_material_batch"){
+        int enabled=0;
+        if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_world_material_batch"))
+            gEngfuncs.Cvar_SetValue("r_world_material_batch",static_cast<float>(enabled));
     }
     else if(action=="scene_static_shadows"){
         int enabled=1;
