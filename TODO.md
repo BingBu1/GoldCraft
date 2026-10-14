@@ -62,7 +62,7 @@
 
 ## Minecraft 与联机验收
 
-- [ ] Windows 双服 ZIP：62图包26项实服检查通过，已验证72街→Bloodmoon方块／实体及 CS 代理清空，24 Bot恢复后无残留；继续干净主机、正版准入、公网/32真人和 Linux验收。[部署说明](docs/SERVER_PACKAGE.md)
+- [ ] Windows 双服 ZIP：62图包26项实服检查通过，已验证72街→Bloodmoon方块／实体及 CS 代理清空，24 Bot恢复后无残留；完整资源/离线准入源码已过264 Java与28打包检查，待新包实服；继续干净主机、真实CS配对、公网/32真人和 Linux验收。[部署说明](docs/SERVER_PACKAGE.md)
 - [ ] MC 手臂、持物、挥动／使用动画；清晰 HUD、背包、形态菜单、聊天／死亡消息及 OP。
 - [ ] I 开关背包、E 原生 Use、Escape、MOUSE3、斜杠指令、搜索输入和 Mod 按键。
 - [ ] 前后第三人称、贴墙相机、皮肤／护甲／动作与瞄准，按键释放及失焦恢复。

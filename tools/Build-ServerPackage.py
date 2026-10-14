@@ -15,6 +15,7 @@ import re
 import subprocess
 import zipfile
 from ServerPackageMaps import map_resources, select_maps
+from ServerPackageResources import collect_resources
 
 ROOT = Path(__file__).resolve().parent.parent
 CS = ROOT / 'sandbox/cs-server/Half-Life'
@@ -42,20 +43,26 @@ def safe_file(path: Path) -> Path:
 
 
 def game_assets(root: Path) -> dict[str, Path]:
-    files = {}
-    for game in ('cstrike', 'valve'):
-        for directory, suffixes in (
-            ('models', {'.mdl'}), ('sound', {'.wav', '.mp3'}),
-            ('sprites', {'.spr', '.txt', '.tga'}), ('events', {'.sc'}),
-            ('gfx/env', {'.tga', '.bmp'})):
-            for path in sorted((root / game / directory).rglob('*')):
-                if path.is_file() and path.suffix.lower() in suffixes:
-                    files['cs/' + path.relative_to(root).as_posix()] = safe_file(path)
+    files = collect_resources(root, safe_file)
+    folded = {name.lower(): path for name, path in files.items()}
     for name in CONSISTENCY_ASSETS:
         key = 'cs/cstrike/' + name
-        if key not in files or not files[key].stat().st_size:
+        source = folded.get(key) or folded.get('cs/valve/' + name)
+        if source is None or not source.stat().st_size:
             raise ValueError(f'Missing or empty consistency resource: {key}')
     return files
+
+
+def check_core(core: Path):
+    with zipfile.ZipFile(safe_file(core)) as jar:
+        if 'dev/goldcraft/net/CsAdmission.class' not in jar.namelist():
+            raise ValueError('GoldCraft JAR lacks automatic CS admission; refuse an open backend release')
+        try:
+            capabilities = json.loads(jar.read('META-INF/goldcraft-capabilities.json'))
+        except (KeyError, ValueError):
+            raise ValueError('GoldCraft JAR lacks offline CS admission support; rebuild the core') from None
+        if capabilities.get('csAdmissionVersion') != 1 or capabilities.get('offlineCsAdmission') is not True:
+            raise ValueError('GoldCraft JAR lacks offline CS admission support; rebuild the core')
 
 
 def build_plan(steam: Path, native_crt: Path, core_jar: Path,
@@ -92,9 +99,11 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path,
     files.update(game_assets(CS))
     for game in ('cstrike', 'valve'):
         for name in ('delta.lst', 'liblist.gam', 'titles.txt', 'steam.inf', 'decals.wad'):
-            add(CS / game / name, f'cs/{game}/{name}')
+            if f'cs/{game}/{name}' not in files:
+                add(CS / game / name, f'cs/{game}/{name}')
     for name in ('halflife.wad', 'liquids.wad', 'gfx.wad', 'fonts.wad'):
-        add(CS / 'valve' / name, 'cs/valve/' + name)
+        if 'cs/valve/' + name not in files:
+            add(CS / 'valve' / name, 'cs/valve/' + name)
     add(CS / 'cstrike/dlls/mp.dll', 'cs/cstrike/dlls/mp.dll')
     map_records = []
     for bsp in select_maps(CS / 'cstrike', ['cs_assault'] if maps is None else maps, default_map):
@@ -103,6 +112,9 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path,
             if name not in files:
                 add(source, name)
         map_records.append(record)
+    selected_bsps = {f"cs/cstrike/maps/{record['map']}.bsp".lower() for record in map_records}
+    if any(name.lower().endswith('.bsp') and name.lower() not in selected_bsps for name in files):
+        raise ValueError('A resource list includes an unselected BSP; add that map to maps before packaging')
     mapcycle = ''.join(record['map'] + '\n' for record in map_records)
     generated('cs/cstrike/mapcycle.txt', mapcycle)
     generated('maps.json', json.dumps(map_records, indent=2) + '\n')
@@ -163,6 +175,8 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path,
     generated('cs/cstrike/server.cfg', '''hostname "GoldCraft"
 sv_lan 0
 sv_password ""
+sv_allowdownload 1
+sv_send_resources 1
 mp_freezetime 0
 mp_roundtime 9
 mp_timelimit 0
@@ -191,9 +205,7 @@ mc_death_drop_items 1
     add(args_path, 'minecraft/launch.args')
     tree(MC / 'mods', 'minecraft/mods', {'.jar'})
     core = safe_file(core_jar)
-    with zipfile.ZipFile(core) as jar:
-        if 'dev/goldcraft/net/CsAdmission.class' not in jar.namelist():
-            raise ValueError('GoldCraft JAR lacks automatic CS admission; refuse an open backend release')
+    check_core(core)
     core_name = 'goldcraft-neoforge-0.1.0-dev.jar'
     files['minecraft/mods/' + core_name] = core
     add(core, 'client-update/' + core_name)
@@ -213,8 +225,8 @@ mc_death_drop_items 1
         generated(pack + f'data/goldcraft/dimension/{dimension}.json',
                   json.dumps({'type': 'minecraft:overworld', 'generator': {'type': 'minecraft:flat', 'settings': settings}}))
     props = {'server-ip': '', 'server-port': '25565', 'max-players': '32',
-             'online-mode': 'true', 'white-list': 'false', 'enforce-whitelist': 'false',
-             'enforce-secure-profile': 'true', 'enable-rcon': 'false', 'enable-query': 'false',
+             'online-mode': 'false', 'white-list': 'false', 'enforce-whitelist': 'false',
+             'enforce-secure-profile': 'false', 'enable-rcon': 'false', 'enable-query': 'false',
              'enable-status': 'true', 'hide-online-players': 'true', 'level-name': 'goldcraft-worlds',
              'level-type': 'minecraft:flat', 'generator-settings': json.dumps(settings, separators=(',', ':')),
              'gamemode': 'creative', 'force-gamemode': 'false', 'difficulty': 'normal',
@@ -332,7 +344,7 @@ def main():
                 'serverBaseline': revision, 'minecraft': PIN['version'], 'neoforge': PIN['neoforge'],
                 'nativeMessageCount': 83, 'clientMinimumMessageCount': 77, 'maxPlayers': 32,
                 'maps': map_records,
-                'admission': 'online-account-and-live-cs-binding', 'files': []}
+                'admission': 'live-cs-binding', 'minecraftOnlineMode': False, 'files': []}
     manifest['coreSourceRevision'] = args.core_source_revision or manifest['sourceRevision']
     if args.core_source_patch:
         manifest['coreSourcePatchSha256'] = hashlib.sha256(safe_file(args.core_source_patch).read_bytes()).hexdigest()

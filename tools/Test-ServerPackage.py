@@ -1,8 +1,8 @@
 """Verify an extracted release with real independent servers, never sandbox B.
 
 Uses loopback and alternate ports, retains evidence, then requests graceful stop.
-Online authentication stays enabled. A raw login cannot impersonate a paid user;
-Successful authenticated CS admission still needs a real Minecraft account.
+Checks either online login or offline configuration rejection, according to the
+package. Successful CS admission still needs a real, matching CS client session.
 """
 from __future__ import annotations
 import argparse
@@ -19,6 +19,7 @@ import subprocess
 import time
 import uuid
 import zipfile
+import zlib
 
 ROOT = Path(__file__).resolve().parent.parent
 POWERSHELL = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -70,6 +71,65 @@ def mc_connection(port, intention):
     sock = socket.create_connection(('127.0.0.1', port), timeout=5)
     send(sock, b'\x00' + varint(767) + string('localhost') + struct.pack('>H', port) + varint(intention))
     return sock
+
+
+def offline_unpaired_probe(port):
+    """Exercise vanilla login/configuration without a CS credential; never enter PLAY.
+
+    Packet IDs follow the pinned 1.21.1 LoginStates/ConfigurationStates registration
+    order. This client ignores optional custom payloads and advertises no Mod channels.
+    """
+    def number(data, at=0):
+        value = 0
+        for shift in range(0, 35, 7):
+            byte = data[at]; at += 1
+            value |= (byte & 127) << shift
+            if not byte & 128:
+                return value, at
+        raise ValueError('Invalid probe VarInt')
+
+    report = {'loginSuccess': False, 'configurationRejected': False, 'finishedConfiguration': False}
+    compressed = False
+    with mc_connection(port, 2) as sock:
+        sock.settimeout(15)
+        send(sock, b'\x00' + string('PackageProbe') + uuid.uuid4().bytes)
+        def transmit(body):
+            # Every probe reply is below the server's compression threshold.
+            send(sock, b'\x00' + body if compressed else body)
+        for _ in range(256):
+            data = packet(sock)
+            if compressed:
+                size, at = number(data)
+                data = zlib.decompress(data[at:]) if size else data[at:]
+            kind, at = number(data)
+            body = data[at:]
+            if not report['loginSuccess']:
+                if kind == 3:
+                    threshold, _ = number(body)
+                    if threshold < 64:
+                        raise ValueError('Probe expects the default compression threshold')
+                    compressed = True
+                elif kind == 2:
+                    report['loginSuccess'] = True
+                    transmit(b'\x03')  # EnterConfigurationC2SPacket
+                else:
+                    raise ValueError(f'Unexpected offline login packet {kind}')
+            elif kind == 2:
+                report['configurationRejected'] = True
+                report['reason'] = body.decode('utf-8', errors='replace')
+                return report
+            elif kind == 3:
+                report['finishedConfiguration'] = True
+                return report
+            elif kind == 4:
+                transmit(b'\x04' + body)  # KeepAlive
+            elif kind == 5:
+                transmit(b'\x05' + body)  # CommonPong
+            elif kind == 14:
+                transmit(b'\x07\x00')  # No cached known packs
+            elif kind == 0:
+                transmit(b'\x01' + body + b'\x00')  # Cookie absent
+        raise ValueError('Offline probe exceeded the configuration packet budget')
 
 
 def read_status(path):
@@ -296,12 +356,18 @@ def main():
             status = json.loads(raw[at+1:])
             result['minecraftStatus'] = status
             checks['minecraftAdvertises32Slots'] = status['players']['max'] == 32
-        with mc_connection(25645, 2) as sock:
-            send(sock, b'\x00' + string('PackageProbe') + uuid.uuid4().bytes)
-            first = packet(sock)
-            result['loginFirstPacketId'] = first[0]
-            checks['unauthenticatedLoginRequiresEncryption'] = first[0] == 1
-            # Close before any signed/session-authenticated login can succeed.
+        properties = (server / 'minecraft/server.properties').read_text(encoding='utf-8')
+        if 'online-mode=false' in properties.splitlines():
+            probe = offline_unpaired_probe(25645)
+            result['offlineUnpairedProbe'] = probe
+            checks['offlineLoginSucceedsButUnpairedConfigurationRejected'] = (
+                probe['loginSuccess'] and probe['configurationRejected'] and not probe['finishedConfiguration'])
+        else:
+            with mc_connection(25645, 2) as sock:
+                send(sock, b'\x00' + string('PackageProbe') + uuid.uuid4().bytes)
+                first = packet(sock)
+                result['loginFirstPacketId'] = first[0]
+                checks['unauthenticatedLoginRequiresEncryption'] = first[0] == 1
         shell('Send-Command.ps1', '-Role', 'minecraft', '-Command', 'list')
         shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'sypb_auto_players 25')
         bot_deadline = time.monotonic() + 25

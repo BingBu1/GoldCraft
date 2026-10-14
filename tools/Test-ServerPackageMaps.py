@@ -14,6 +14,7 @@ import zlib
 import zipfile
 
 from ServerPackageMaps import map_resources, select_maps
+from ServerPackageResources import collect_resources, resource_path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,6 +57,81 @@ class ConsistencyResources(unittest.TestCase):
         (self.root / 'cstrike/sprites/black_smoke1.spr').write_bytes(b'')
         with self.assertRaisesRegex(ValueError, 'Missing or empty consistency resource: .*black_smoke1.spr'):
             self.builder.game_assets(self.root)
+
+    def write_asset(self, name, data=b'asset'):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def test_complete_resource_trees_and_future_formats(self):
+        assets = ('cstrike/gfx/uis/logo.png', 'cstrike/renderer/shader/example.h',
+                  'cstrike/renderer/shader/example.glsl', 'cstrike/sprites/lighting.hdr',
+                  'cstrike/captionmod/lang.csv', 'cstrike/captionmod/font.ttf',
+                  'cstrike/overviews/cs_demo.bmp', 'cstrike/futuremod/effects/unknown.newformat',
+                  'valve/media/intro.webm', 'valve/resource/dialog.res', 'cstrike/custom.wad', 'valve/pak0.pak')
+        for name in assets:
+            self.write_asset(name)
+        plan = self.builder.game_assets(self.root)
+        for name in assets:
+            self.assertIn('cs/' + name, plan)
+
+    def test_downloads_fallback_and_primary_precedence(self):
+        self.write_asset('cstrike_downloads/sprites/scope_arc.tga', b'different')
+        self.write_asset('cstrike_downloads/models/remote.mdl')
+        self.write_asset('cstrike_downloads/downloaded.wad')
+        self.write_asset('valve_downloads/models/not-mounted.mdl')
+        plan = self.builder.game_assets(self.root)
+        self.assertEqual(plan['cs/cstrike/sprites/scope_arc.tga'].read_bytes(), b'fixture asset')
+        self.assertIn('cs/cstrike/models/remote.mdl', plan)
+        self.assertIn('cs/cstrike/downloaded.wad', plan)
+        self.assertFalse(any('not-mounted' in name or '_downloads/' in name for name in plan))
+
+    def test_private_generated_and_build_inputs_excluded(self):
+        names = ('cstrike/config.cfg', 'cstrike/screen.bmp', 'cstrike/cached.wad',
+                 'cstrike/tempdecal.wad', 'cstrike/models/model.blend', 'cstrike/gfx/.env',
+                 'cstrike/logs/server.txt', 'cstrike/save/world.dat', 'cstrike/cache/file.bin',
+                 'cstrike/addons/configs/sql.cfg', 'cstrike/dlls/mp.dll',
+                 'cstrike/renderer/cache/shader.bin', 'cstrike/models/backup/a.mdl',
+                 'cstrike/models/helper.ps1', 'cstrike/sound/example.wav.ztmp')
+        for name in names:
+            self.write_asset(name)
+        plan = self.builder.game_assets(self.root)
+        for name in names:
+            self.assertNotIn('cs/' + name, plan)
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows junction protection')
+    def test_reparse_directory_rejected_before_traversal(self):
+        target = self.root / 'outside'
+        target.mkdir()
+        link = self.root / 'cstrike/gfx'
+        # Both literal paths are inside this disposable workspace fixture.
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-Command',
+            "New-Item -ItemType Junction -Path '" + str(link) + "' -Target '" + str(target) + "' | Out-Null"],
+            capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        try:
+            with self.assertRaisesRegex(ValueError, 'Reparse resource directory'):
+                self.builder.game_assets(self.root)
+        finally:
+            os.rmdir(link)
+
+    def test_old_or_incapable_core_rejected(self):
+        path = self.root / 'core.jar'
+        for marker in (None, {'csAdmissionVersion': 1, 'offlineCsAdmission': False},
+                       {'csAdmissionVersion': 1, 'offlineCsAdmission': 'true'}):
+            with zipfile.ZipFile(path, 'w') as jar:
+                jar.writestr('dev/goldcraft/net/CsAdmission.class', b'fixture')
+                if marker is not None:
+                    jar.writestr('META-INF/goldcraft-capabilities.json', json.dumps(marker))
+            with self.assertRaisesRegex(ValueError, 'offline CS admission'):
+                self.builder.check_core(path)
+
+    def test_unsafe_resource_paths_rejected(self):
+        for name in ('../x.wav', '/x.wav', 'C:/x.wav', 'sound/../x.wav',
+                     'sound//x.wav', 'sound/x.wav:private', 'config/secrets.json'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                resource_path(name)
 
 
 @unittest.skipUnless(os.name == 'nt', 'Windows dual-server verifier')
@@ -185,6 +261,29 @@ class Maps(unittest.TestCase):
         self.assertIn('cs/cstrike/sound/custom.wav', resources)
         self.assertTrue(record['botWaypoints'])
 
+    def test_downloaded_map_wad_and_new_resource_format(self):
+        original = self.bsp(texture=True)
+        downloads = self.base / 'cstrike_downloads'
+        (downloads / 'maps').mkdir(parents=True)
+        bsp = downloads / 'maps/cs_remote.bsp'
+        bsp.write_bytes(original.read_bytes())
+        (downloads / 'used.wad').write_bytes(b'WAD3' + struct.pack('<ii', 1, 12) + b'\0' * 16 + b'wall\0'.ljust(16, b'\0'))
+        (downloads / 'custom').mkdir()
+        (downloads / 'custom/asset.xyz').write_bytes(b'asset')
+        bsp.with_suffix('.res').write_text('custom/asset.xyz\n', encoding='utf-8')
+        self.assertEqual(select_maps(self.game, ['cs_remote'], 'cs_remote'), [bsp])
+        resources, _ = self.resources(bsp)
+        self.assertIn('cs/cstrike/used.wad', resources)
+        self.assertIn('cs/cstrike/custom/asset.xyz', resources)
+
+    def test_valve_res_fallback_is_parsed(self):
+        bsp = self.bsp()
+        (self.valve / 'maps').mkdir()
+        (self.valve / 'maps/cs_demo.res').write_text('custom.asset\n', encoding='utf-8')
+        (self.valve / 'custom.asset').write_bytes(b'asset')
+        resources, _ = self.resources(bsp)
+        self.assertIn('cs/valve/custom.asset', resources)
+
     def test_missing_or_unsafe_resource_rejected(self):
         bsp = self.bsp()
         for name in ('../private.txt', 'C:/private.txt', '/private.txt', 'helper.exe', 'sound/missing.wav'):
@@ -225,8 +324,10 @@ class PackageStartup(unittest.TestCase):
         mods.mkdir(parents=True)
         with zipfile.ZipFile(mods / 'goldcraft-neoforge-0.1.0-dev.jar', 'w') as jar:
             jar.writestr('dev/goldcraft/net/CsAdmission.class', b'preflight fixture; never executed')
+            jar.writestr('META-INF/goldcraft-capabilities.json', json.dumps(
+                {'csAdmissionVersion': 1, 'offlineCsAdmission': True}))
         (mods.parent / 'server.properties').write_text(
-            'online-mode=true\nwhite-list=false\nenforce-whitelist=false\nenable-rcon=false\nmax-players=32\n')
+            'online-mode=false\nenforce-secure-profile=false\nwhite-list=false\nenforce-whitelist=false\nenable-rcon=false\nmax-players=32\n')
         self.records = []
         for name in ('cs_demo', 'cs_second'):
             bsp = self.base / 'cs/cstrike/maps' / (name + '.bsp')
@@ -273,6 +374,24 @@ class PackageStartup(unittest.TestCase):
         result = self.check(self.records)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Map cs_second differs', result.stdout)
+
+    def test_online_mode_remains_optional_and_offline_requires_no_signed_profile(self):
+        props = self.base / 'minecraft/server.properties'
+        original = props.read_text()
+        props.write_text(original.replace('online-mode=false', 'online-mode=true'))
+        result = self.check(self.records)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        props.write_text(original.replace('enforce-secure-profile=false', 'enforce-secure-profile=true'))
+        result = self.check(self.records)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('enforce-secure-profile=false', result.stdout)
+
+    def test_startup_rejects_old_core_before_launch(self):
+        with zipfile.ZipFile(self.base / 'minecraft/mods/goldcraft-neoforge-0.1.0-dev.jar', 'w') as jar:
+            jar.writestr('dev/goldcraft/net/CsAdmission.class', b'old fixture')
+        result = self.check(self.records)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('lacks offline CS admission', result.stdout)
 
 
 if __name__ == '__main__':

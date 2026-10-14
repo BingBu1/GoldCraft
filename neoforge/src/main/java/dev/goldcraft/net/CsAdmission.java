@@ -35,8 +35,6 @@ public final class CsAdmission {
         return new CsAdmissionLedger.Authority(GoldCraft.currentAuthorityGeneration(), GoldCraft.HOST_WORLD.epoch());
     }
     public static void started(MinecraftServer value) {
-        if (REQUIRED && !value.isOnlineMode())
-            throw new IllegalStateException("CS admission requires online-mode=true");
         server = value;
     }
     public static void stopped() { if (REQUIRED) LEDGER.reset("The server stopped."); server = null; }
@@ -58,15 +56,17 @@ public final class CsAdmission {
         event.register(new ICustomConfigurationTask() {
             @Override public ServerPlayerConfigurationTask.Key getKey() { return KEY; }
             @Override public void run(Consumer<CustomPayload> sender) {
-                if (server == null || !server.isOnlineMode()
+                if (server == null
                     || !listener.hasChannel(CsAdmissionChallengePayload.ID) || !listener.hasChannel(CsAdmissionReplyPayload.ID)) {
                     listener.disconnect(Text.literal("This server requires the matching GoldCraft client and an authenticated CS connection.")); return;
                 }
                 // In the pinned mapped class this public method directly returns getProfile();
-                // it exposes the configuration profile validated by vanilla online login.
+                // it exposes vanilla's login profile, including the name-derived UUID
+                // in offline mode. Only the native CS credential grants admission;
+                // a profile UUID is a routing identity, not proof of account ownership.
                 UUID id = listener.getDebugProfile().getId();
                 if (server.getPlayerManager().getPlayer(id) != null) {
-                    listener.disconnect(Text.literal("This Minecraft account is already in the server.")); return;
+                    listener.disconnect(Text.literal("This Minecraft profile is already in the server.")); return;
                 }
                 LEDGER.start(id, listener.getConnection(), new CsAdmissionLedger.Peer() {
                     @Override public boolean open() { return listener.getConnection().isOpen(); }

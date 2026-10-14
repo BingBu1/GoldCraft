@@ -1,13 +1,18 @@
 """GoldSrc map selection and resource closure for a clean server release."""
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import hashlib
 import re
 import struct
 import zlib
+from ServerPackageResources import resource_path, resource_roots, resolve_resource
 
 
 def select_maps(game: Path, selected: list[str], default: str) -> list[Path]:
-    available = {p.stem.lower(): p for p in sorted((game / 'maps').glob('*.bsp'))}
+    available = {}
+    for folder in (game / 'maps', game.with_name(game.name + '_downloads') / 'maps'):
+        for p in sorted(folder.glob('*')):
+            if p.is_file() and p.suffix.lower() == '.bsp':
+                available.setdefault(p.stem.lower(), p)
     names = list(available) if selected == ['*'] else selected
     if not names or any(not re.fullmatch(r'[A-Za-z0-9_]+', n) for n in names):
         raise ValueError('maps must be ["*"] or a nonempty list of map names without .bsp')
@@ -54,9 +59,10 @@ def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
 
     resources = {f'cs/cstrike/maps/{bsp.name}': bsp}
     available_wads = {}
-    for directory, target in ((valve, 'valve'), (game, 'cstrike')):
-        for path in directory.glob('*.wad'):
-            available_wads[path.name.lower()] = (path, f'cs/{target}/{path.name}')
+    for directory, target in resource_roots(game, valve):
+        for path in directory.glob('*'):
+            if path.is_file() and path.suffix.lower() == '.wad':
+                available_wads.setdefault(path.name.lower(), (path, f'cs/{target}/{path.name}'))
     wad_values = re.findall(r'"wad"\s*"([^"]*)"', entities, re.I)
     wad_names = {name.replace('\\', '/').rsplit('/', 1)[-1].lower()
                  for value in wad_values for name in value.split(';') if name.strip()}
@@ -83,26 +89,20 @@ def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
         raise ValueError(f'{bsp.name}: missing WAD textures: {missing}')
 
     for extension in ('.res', '.txt'):
-        sidecar = bsp.with_suffix(extension)
-        if sidecar.exists():
-            resources[f'cs/cstrike/maps/{sidecar.name}'] = safe_file(sidecar)
-    res = bsp.with_suffix('.res')
-    if res.exists():
+        try:
+            target, sidecar = resolve_resource('maps/' + bsp.stem + extension, game, valve, safe_file)
+            resources[target] = sidecar
+        except FileNotFoundError:
+            pass
+    res = next((p for key, p in resources.items() if key.lower().endswith(f'/maps/{bsp.stem}.res'.lower())), None)
+    if res is not None:
         for line in safe_file(res).read_text(encoding='utf-8-sig', errors='replace').splitlines():
             name = line.split('//', 1)[0].strip().strip('"').replace('\\', '/')
             if not name:
                 continue
-            relative = PurePosixPath(name)
-            if relative.is_absolute() or '..' in relative.parts or ':' in name or relative.suffix.lower() not in {
-                    '.bsp', '.wad', '.tga', '.bmp', '.mdl', '.wav', '.spr', '.txt', '.res', '.mp3'}:
-                raise ValueError(f'{res.name}: unsafe or unsupported resource path')
-            for base, target in ((game, 'cstrike'), (valve, 'valve')):
-                source = base / name
-                if source.is_file():
-                    resources[f'cs/{target}/{name}'] = safe_file(source)
-                    break
-            else:
-                raise FileNotFoundError(f'{res.name}: missing resource {name}')
+            resource_path(name)
+            target, source = resolve_resource(name, game, valve, safe_file)
+            resources[target] = source
 
     waypoint = game / 'addons/sypb/wptdefault' / (bsp.stem + '.pwf')
     if waypoint.exists():

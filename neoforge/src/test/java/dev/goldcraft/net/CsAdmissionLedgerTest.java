@@ -1,6 +1,7 @@
 package dev.goldcraft.net;
 
 import dev.goldcraft.bridge.Wire;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -39,6 +40,25 @@ class CsAdmissionLedgerTest {
         void joined() { ready(); assertTrue(ledger.joined(PLAYER, owner, peer, AUTHORITY, 103)); }
     }
     private static CsAdmissionLedger.Result result(int status) { return new CsAdmissionLedger.Result(19, 3, 6, status, PLAYER); }
+
+    @Test void offlineProfileStillNeedsNativeSuccessAndCannotReuseOnlineBinding() {
+        UUID offline = UUID.nameUUIDFromBytes("OfflinePlayer:PackageProbe".getBytes(StandardCharsets.UTF_8));
+        var f = new Fixture();
+        f.ledger.start(offline, f.owner, f.peer, AUTHORITY, 100);
+        assertFalse(f.ledger.joined(offline, f.owner, f.peer, AUTHORITY, 101));
+        f.ledger.reply(offline, f.owner, f.peer.nonce, IDENTITY.encode(), AUTHORITY, 102);
+        assertEquals(0, f.peer.accepted);
+        assertEquals(offline, f.sent.getFirst().player());
+        assertFalse(f.ledger.result(result(0), AUTHORITY, 103));
+        assertEquals(0, f.peer.accepted); // An old online UUID cannot approve this profile.
+        f.ledger.result(new CsAdmissionLedger.Result(19, 3, 6, 0, offline), AUTHORITY, 104);
+        assertTrue(f.ledger.joined(offline, f.owner, f.peer, AUTHORITY, 105));
+        var other = new Peer(); var otherOwner = new Object();
+        f.ledger.start(PLAYER, otherOwner, other, AUTHORITY, 106);
+        f.ledger.reply(PLAYER, otherOwner, other.nonce, IDENTITY.encode(), AUTHORITY, 107);
+        assertNotNull(other.rejection);
+        assertEquals(1, f.sent.size());
+    }
 
     @Test void onlyAuthoritativeSuccessCompletesConfigurationAndPlayStillRevalidates() {
         var f = new Fixture(); f.start();

@@ -50,9 +50,21 @@ try {
     $core = [IO.Compression.ZipFile]::OpenRead((Join-Path $PackageRoot 'minecraft/mods/goldcraft-neoforge-0.1.0-dev.jar'))
     try {
         if (-not $core.GetEntry('dev/goldcraft/net/CsAdmission.class')) { throw 'GoldCraft JAR is missing automatic CS admission. Update both client and server.' }
+        $entry = $core.GetEntry('META-INF/goldcraft-capabilities.json')
+        if (-not $entry) { throw 'GoldCraft JAR lacks offline CS admission support. Update the core.' }
+        $reader = New-Object IO.StreamReader($entry.Open())
+        try { $capabilities = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+        if ($capabilities.csAdmissionVersion -ne 1 -or $capabilities.offlineCsAdmission -isnot [bool] -or
+            -not $capabilities.offlineCsAdmission) { throw 'GoldCraft JAR lacks offline CS admission support. Update the core.' }
     } finally { $core.Dispose() }
-    foreach ($pair in @(@('online-mode','true'),@('white-list','false'),@('enforce-whitelist','false'),@('enable-rcon','false'),@('max-players','32'))) {
-        if ((Get-Content -LiteralPath $properties -Encoding UTF8) -notcontains "$($pair[0])=$($pair[1])") {
+    $propertyLines = @(Get-Content -LiteralPath $properties -Encoding UTF8)
+    $onlineModes = @($propertyLines | Where-Object { $_ -match '^online-mode=' })
+    if ($onlineModes.Count -ne 1 -or $onlineModes[0] -notmatch '^online-mode=(true|false)$') { throw 'Set online-mode=true or online-mode=false exactly once.' }
+    if ($onlineModes[0] -eq 'online-mode=false' -and $propertyLines -notcontains 'enforce-secure-profile=false') {
+        throw 'Offline Minecraft requires enforce-secure-profile=false.'
+    }
+    foreach ($pair in @(@('white-list','false'),@('enforce-whitelist','false'),@('enable-rcon','false'),@('max-players','32'))) {
+        if ($propertyLines -notcontains "$($pair[0])=$($pair[1])") {
             throw "Required production property: $($pair[0])=$($pair[1])"
         }
     }

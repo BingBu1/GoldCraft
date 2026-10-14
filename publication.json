@@ -285,7 +285,8 @@
     "tools/Test-NightfallConfig.py",
     "tools/Test-NightfallGround.py",
     "amxx/tests/goldcraft_zp_disconnect_test.sma",
-    "tools/Exercise-ZombieDisconnect.py"
+    "tools/Exercise-ZombieDisconnect.py",
+    "tools/ServerPackageResources.py"
   ],
   "trees": {
     "native": [
