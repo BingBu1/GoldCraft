@@ -1,6 +1,6 @@
 """Measure the live B renderer without sending mouse, keyboard or gameplay input.
 
-The Renderer stores bounded CPU timings in memory and writes once per sample.
+The Renderer stores bounded CPU-side elapsed timings and writes once per sample.
 Nested scene/stage timings are inclusive. Focus/camera changes invalidate an FPS
 comparison; CPU stage samples remain useful for identifying expensive work.
 """
@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 import statistics
 import time
@@ -68,7 +69,85 @@ def command(action):
     raise TimeoutError("Live B did not acknowledge the renderer command")
 
 
+def render_boundaries(frames):
+    """Pair start-to-start intervals with the preceding frame's render span.
+
+    Keep the zero-interval first frame: its render belongs to the next interval.
+    Filtered/interleaved profiles cannot establish consecutive frame boundaries.
+    These are wall-clock durations, not CPU attribution to the closed engine.
+    """
+    states = ("deferred", "diagnostics", "shadows", "width", "height", "shadowCull",
+              "fpsMax", "fpsOverride", "vsync", "mainViews", "studioFaceCull",
+              "studioDepthExecutor", "studioBonePaletteCache", "worldMaterialBatch",
+              "drawParameterStream", "studioShadowPlan")
+    result = {"pairs": 0, "rejected": {}, "focusedEndpoints": True,
+              "stableCameraEndpoints": True, "stableStateEndpoints": True,
+              "clockMeaning": "Wall-clock elapsed time; nested stages overlap. The gap is not engine CPU time."}
+    intervals, renders, gaps = [], [], []
+    camera_points = {field: [] for field in ("origin", "angles")}
+
+    def number(value):
+        return type(value) in (int, float) and math.isfinite(value)
+
+    def reject(reason):
+        result["rejected"][reason] = result["rejected"].get(reason, 0) + 1
+
+    for index, current in enumerate(frames):
+        interval = current.get("interval")
+        if index == 0 and number(interval) and interval == 0:
+            continue
+        if not number(interval) or interval <= 0:
+            reject("invalidInterval")
+            continue
+        if index == 0:
+            reject("missingPrecedingFrame")
+            continue
+        previous = frames[index - 1]
+        start, prior_start, render = current.get("time"), previous.get("time"), previous.get("render")
+        if not all(number(value) for value in (start, prior_start, render)) or render < 0:
+            reject("invalidTiming")
+            continue
+        # The producer serializes all times to four decimal places in ms.
+        if start <= prior_start or abs(start - prior_start - interval) > 0.0002:
+            reject("nonconsecutiveFrames")
+            continue
+        gap = interval - render
+        if gap < -0.0002:
+            reject("overlappingRender")
+            continue
+        intervals.append(interval)
+        renders.append(render)
+        gaps.append(gap)
+        result["focusedEndpoints"] &= previous.get("focused") == 1 and current.get("focused") == 1
+        camera_valid = all(
+            isinstance(previous.get(field), (list, tuple)) and isinstance(current.get(field), (list, tuple))
+            and len(previous[field]) == len(current[field]) == 3
+            and all(number(a) and number(b) and abs(a - b) < 0.1
+                    for a, b in zip(previous[field], current[field]))
+            for field in ("origin", "angles"))
+        result["stableCameraEndpoints"] &= camera_valid
+        if camera_valid:
+            for field in camera_points:
+                camera_points[field].extend((previous[field], current[field]))
+        result["stableStateEndpoints"] &= all(previous.get(key) == current.get(key) for key in states)
+    result["pairs"] = len(intervals)
+    result["complete"] = bool(intervals) and not result["rejected"]
+    for points in camera_points.values():
+        if points:
+            result["stableCameraEndpoints"] &= all(
+                max(point[i] for point in points) - min(point[i] for point in points) < 0.1
+                for i in range(3))
+    for key, values in (("interval", intervals), ("precedingRender", renders), ("betweenRender", gaps)):
+        if values:
+            ordered = sorted(values)
+            result[key] = {"meanMs": statistics.mean(values), "minMs": ordered[0],
+                           "p95Ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))],
+                           "maxMs": ordered[-1]}
+    return result
+
+
 def summarize(frames):
+    boundaries = render_boundaries(frames)
     frames = [f for f in frames if f["interval"] > 0]
     if not frames:
         raise ValueError("Renderer returned no complete frame intervals")
@@ -86,7 +165,10 @@ def summarize(frames):
                                    for i in range(3)]
     result["stableCamera"] = max(result["originRange"]) < 0.1 and max(result["anglesRange"]) < 0.1
     result["fullyFocused"] = result["focusedFrames"] == len(frames)
-    result["fpsComparisonEligible"] = result["fullyFocused"] and result["stableCamera"]
+    result["renderBoundaries"] = boundaries
+    result["fpsComparisonEligible"] = (result["fullyFocused"] and result["stableCamera"]
+        and boundaries["complete"] and boundaries["focusedEndpoints"]
+        and boundaries["stableCameraEndpoints"] and boundaries["stableStateEndpoints"])
     result["observedFps"] = 1000 / statistics.mean(f["interval"] for f in frames)
     intervals = sorted((f["interval"] for f in frames), reverse=True)
     result["onePercentLowFps"] = 1000 / statistics.mean(intervals[:max(1, len(intervals) // 100)])

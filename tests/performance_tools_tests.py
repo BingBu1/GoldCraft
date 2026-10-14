@@ -17,6 +17,70 @@ def load(name):
 
 monitor = load('Monitor-LivePerformance')
 lights = load('Exercise-LightPerformance')
+renderer = load('Exercise-RendererPerformance')
+
+
+class RenderBoundaryGuards(unittest.TestCase):
+    @staticmethod
+    def frames():
+        common = dict(focused=1, deferred=1, diagnostics=0, shadows=1, width=800,
+                      height=600, origin=[0,0,0], angles=[0,0,0], shadowCull=0)
+        return [dict(common,time=0,interval=0,render=8),
+                dict(common,time=20,interval=20,render=1),
+                dict(common,time=30,interval=10,render=7)]
+
+    def test_interval_uses_preceding_render_including_initial_frame(self):
+        summary = renderer.summarize(self.frames())
+        boundary = summary['renderBoundaries']
+        self.assertTrue(summary['fpsComparisonEligible'])
+        self.assertEqual(boundary['pairs'], 2)
+        self.assertEqual(boundary['precedingRender']['meanMs'], 4.5)
+        self.assertEqual(boundary['betweenRender']['meanMs'], 10.5)
+        self.assertEqual(boundary['interval']['meanMs'], 15)
+
+    def test_first_frame_focus_and_camera_are_part_of_interval(self):
+        for change in ({'focused':0}, {'origin':[1,0,0]}, {'angles':[0,1,0]}):
+            frames = self.frames(); frames[0].update(change)
+            summary = renderer.summarize(frames)
+            self.assertTrue(summary['fullyFocused'])
+            self.assertTrue(summary['stableCamera'])
+            self.assertFalse(summary['fpsComparisonEligible'])
+
+    def test_interleaved_frames_and_missing_predecessor_reject_fps(self):
+        frames = self.frames()
+        for rows, reason in ((frames[1:], 'missingPrecedingFrame'),
+                             (frames[::2], 'nonconsecutiveFrames')):
+            summary = renderer.summarize(rows)
+            self.assertFalse(summary['fpsComparisonEligible'])
+            self.assertIn(reason, summary['renderBoundaries']['rejected'])
+        frames[1]['shadowCull'] = 1
+        self.assertFalse(renderer.summarize(frames)['fpsComparisonEligible'])
+
+    def test_invalid_timings_and_overlap_cannot_be_attributed(self):
+        for field, value, reason in (('time',float('nan'),'invalidTiming'),
+                                     ('time',float('inf'),'invalidTiming'),
+                                     ('render',True,'invalidTiming'),
+                                     ('render',-1,'invalidTiming'),
+                                     ('render',21,'overlappingRender')):
+            frames = self.frames(); frames[0][field] = value
+            result = renderer.render_boundaries(frames)
+            self.assertFalse(result['complete'])
+            self.assertIn(reason,result['rejected'])
+        frames = self.frames(); frames[1]['interval'] = 0
+        self.assertIn('invalidInterval',renderer.render_boundaries(frames)['rejected'])
+
+    def test_serialized_clock_rounding_and_optional_fields(self):
+        frames = self.frames(); frames[1]['time'] += .0001
+        self.assertTrue(renderer.summarize(frames)['fpsComparisonEligible'])
+        frames[1]['drawParameterStream'] = 1
+        self.assertFalse(renderer.summarize(frames)['fpsComparisonEligible'])
+
+    def test_small_pairwise_camera_drift_does_not_hide_total_motion(self):
+        frames = self.frames()
+        for row, x in zip(frames, (-0.06, 0, 0.06)):
+            row['origin'] = [x, 0, 0]
+        self.assertTrue(renderer.summarize(frames)['stableCamera'])
+        self.assertFalse(renderer.summarize(frames)['fpsComparisonEligible'])
 
 
 class Guards(unittest.TestCase):
