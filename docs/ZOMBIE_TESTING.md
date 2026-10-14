@@ -34,6 +34,17 @@ python .\tools\Prepare-ZombiePlague.py --archive $zpArchive --map cs_assault
 
 ## ReAPI 迁移与更新
 
+2026-10-14 开局身份修复：幸存者模式在选定时就被解除暂停，但正式模式要等倒计时结束才生效。此前倒计时内重生会提前执行感染，模式管理器却不切换队伍，形成真实的 CT 僵尸。幸存者／复仇者现在只在模式开始后应用特殊重生规则。另修复 `cs_teams_api` 在静默平衡队伍后，同阵营调用提前返回而漏发 `TeamInfo`／`ScoreInfo`；请求更新时通过匹配 ReAPI 正常发送，不重复增加阵营人数，也不替换自定义模型。
+
+旧部署插件的独立专服负对照复现四项失败；修复后三插件零警告，最终38项实际 ReHLDS 检查通过、零AMXX错误，进程正常退出且夹具恢复。检查包括提前选中幸存者时的真实重生、模式正式开始与后续重生、真实回合重启、阵营消息／人数和模型／速度 API。当前本地测试服已换图载入，1真人加24Bot恢复，真人状态为CT、人类、100血；客户端画面和公网服仍需复验。
+
+```powershell
+./tools/Build-AMXX.ps1 -Plugins cs_teams_api,zp50_gamemode_survivor,zp50_gamemode_nemesis,goldcraft_zp_reapi_test
+python tools/Exercise-ZombieReAPI.py --round-teams
+```
+
+该测试使用已安装ZP插件组，只替换三个修复插件和测试插件；`--baseline` 可在部署前对旧插件作负对照。测试使用 `sv_lan 0`。远程小补丁 `GoldCraft-ZP-RoundTeam-Hotfix.zip` 需停服后解压到 `Start.cmd` 同级，再启动；仅 `sv_restart` 不会重载 Pawn。新的完整服务包会收取更新后的沙盒插件。
+
 2026-10-14补记：`client_disconnected` 也涵盖正式入服前的连接中止，迁移时遗漏了狂暴僵尸职业查询所需的 `is_user_connected` 检查。现已补齐，正常已入服断线仍清除发光；没有放宽职业native的有效玩家校验。修复工作源在 `amxx/zombie_plague/classes/zp50_class_zombie_rage.sma`，公开累计补丁可重放90个文件。
 
 专用夹具在32槽、`sv_lan 0` 的独立ReHLDS加载实际日常ZP插件组，仅替换Rage。旧服务包实际字节码出现一次同样的 `Invalid Player (26)`；新版15项通过、零AMXX错误，验证25个占用者后的26号槽、感染／治愈／再次感染、真实kick、引擎回收前清除发光及新userid复用。未入服分支直接调用生产插件回调，不能称为真实Steam网络连接中止验证。两次最终对照各约6.5秒、正常退出并恢复夹具文件，未启动B或MC；早期fake-client生命周期模拟失败保留。

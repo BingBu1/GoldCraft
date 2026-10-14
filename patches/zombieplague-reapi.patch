@@ -1445,7 +1445,7 @@ diff --git a/api/cs_teams_api.sma b/api/cs_teams_api.sma
  }
  
  public plugin_natives()
-@@ -49,96 +27,38 @@
+@@ -49,96 +27,39 @@
  public native_set_player_team(plugin_id, num_params)
  {
  	new id = get_param(1)
@@ -1470,10 +1470,11 @@ diff --git a/api/cs_teams_api.sma b/api/cs_teams_api.sma
 -	new update = get_param(3)
 -	
 -	fm_cs_set_user_team(id, team, update)
-+	if (get_member(id, m_iTeam) == _:team)
-+		return true;
-+
 +	new bool:update = bool:get_param(3)
++	// Round balancing uses update=false. A subsequent infection/cure must
++	// publish the team even if that silent change already set m_iTeam.
++	if (!update && get_member(id, m_iTeam) == _:team)
++		return true;
 +	// Retain ZP class models and game-mode win checks. ReGameDLL also updates
 +	// team counts, equipment and AMXX's team cache, unlike a raw pdata write.
 +	if (!rg_set_user_team(id, _:team, MODEL_UNASSIGNED, update, false))
@@ -8032,7 +8033,18 @@ diff --git a/modes/zp50_gamemode_nemesis.sma b/modes/zp50_gamemode_nemesis.sma
  			precache_generic(sound)
  		}
  		else
-@@ -136,7 +135,7 @@
+@@ -102,6 +101,10 @@
+ 
+ public zp_fw_core_spawn_post(id)
+ {
++	// A chosen mode is already unpaused during the round-start countdown.
++	if (zp_gamemodes_get_current() == ZP_NO_GAME_MODE)
++		return;
++	
+ 	// Always respawn as human on nemesis rounds
+ 	zp_core_respawn_as_zombie(id, false)
+ }
+@@ -136,7 +139,7 @@
  	
  	// Remaining players should be humans (CTs)
  	new id
@@ -8041,7 +8053,7 @@ diff --git a/modes/zp50_gamemode_nemesis.sma b/modes/zp50_gamemode_nemesis.sma
  	{
  		// Not alive
  		if (!is_user_alive(id))
-@@ -147,7 +146,7 @@
+@@ -147,7 +150,7 @@
  			continue;
  		
  		// Switch to CT
@@ -8050,7 +8062,7 @@ diff --git a/modes/zp50_gamemode_nemesis.sma b/modes/zp50_gamemode_nemesis.sma
  	}
  	
  	// Play Nemesis sound
-@@ -182,7 +181,7 @@
+@@ -182,7 +185,7 @@
  {
  	new iAlive, id
  	
@@ -8059,7 +8071,7 @@ diff --git a/modes/zp50_gamemode_nemesis.sma b/modes/zp50_gamemode_nemesis.sma
  	{
  		if (is_user_alive(id))
  			iAlive++
-@@ -196,7 +195,7 @@
+@@ -196,7 +199,7 @@
  {
  	new iAlive, id
  	
@@ -8068,6 +8080,13 @@ diff --git a/modes/zp50_gamemode_nemesis.sma b/modes/zp50_gamemode_nemesis.sma
  	{
  		if (is_user_alive(id))
  			iAlive++
+@@ -206,4 +209,4 @@
+ 	}
+ 	
+ 	return -1;
+-}
+\ No newline at end of file
++}
 diff --git a/modes/zp50_gamemode_plague.sma b/modes/zp50_gamemode_plague.sma
 --- a/modes/zp50_gamemode_plague.sma
 +++ b/modes/zp50_gamemode_plague.sma
@@ -8233,7 +8252,19 @@ diff --git a/modes/zp50_gamemode_survivor.sma b/modes/zp50_gamemode_survivor.sma
  			precache_generic(sound)
  		}
  		else
-@@ -135,7 +134,7 @@
+@@ -101,6 +100,11 @@
+ 
+ public zp_fw_core_spawn_post(id)
+ {
++	// Selection unpauses this plugin before the countdown ends. Do not apply
++	// its respawn policy until a game mode is actually running.
++	if (zp_gamemodes_get_current() == ZP_NO_GAME_MODE)
++		return;
++	
+ 	// Always respawn as zombie on survivor rounds
+ 	zp_core_respawn_as_zombie(id, true)
+ }
+@@ -135,7 +139,7 @@
  	
  	// Turn the remaining players into zombies
  	new id
@@ -8242,7 +8273,7 @@ diff --git a/modes/zp50_gamemode_survivor.sma b/modes/zp50_gamemode_survivor.sma
  	{
  		// Not alive
  		if (!is_user_alive(id))
-@@ -180,7 +179,7 @@
+@@ -180,7 +184,7 @@
  {
  	new iAlive, id
  	
@@ -8251,7 +8282,7 @@ diff --git a/modes/zp50_gamemode_survivor.sma b/modes/zp50_gamemode_survivor.sma
  	{
  		if (is_user_alive(id))
  			iAlive++
-@@ -194,7 +193,7 @@
+@@ -194,7 +198,7 @@
  {
  	new iAlive, id
  	
@@ -8260,6 +8291,13 @@ diff --git a/modes/zp50_gamemode_survivor.sma b/modes/zp50_gamemode_survivor.sma
  	{
  		if (is_user_alive(id))
  			iAlive++
+@@ -204,4 +208,4 @@
+ 	}
+ 	
+ 	return -1;
+-}
+\ No newline at end of file
++}
 diff --git a/modes/zp50_gamemode_swarm.sma b/modes/zp50_gamemode_swarm.sma
 --- a/modes/zp50_gamemode_swarm.sma
 +++ b/modes/zp50_gamemode_swarm.sma

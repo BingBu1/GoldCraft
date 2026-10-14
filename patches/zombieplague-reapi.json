@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "55b0e486fe8218fe108ffecb62968811c4379248684b817f6dd56599ce4718ed",
+  "patchSha256": "312681c6c82aefa19faf04d281f1886e09fec81236688a0f1b48e409b257fe02",
   "files": [
     {
       "path": "admin/zp50_admin_commands.sma",
@@ -44,7 +44,7 @@
     {
       "path": "api/cs_teams_api.sma",
       "seedSha256LF": "956fc4e1c33e6e2a186093558037682844e88ba15dae062f33d07eba4ae33a92",
-      "resultSha256LF": "56daf94b0244e509eda0a71d3f78b55d8eb93abdb573521b00f1aecd65c76b5a"
+      "resultSha256LF": "d60c6cfeb1dfab3288738c12686756f9a952798b6cca66db6ac9caf3c63f90fd"
     },
     {
       "path": "api/cs_weap_models_api.sma",
@@ -404,7 +404,7 @@
     {
       "path": "modes/zp50_gamemode_nemesis.sma",
       "seedSha256LF": "cf923230b27d2e4834b95d93a137aebdd4950f409b4bd7347bdf367522cf8020",
-      "resultSha256LF": "882fd6a39f58406c36fc117c4aa8f9d17bbcf6a03a3ebf51ff5b192986fb9bac"
+      "resultSha256LF": "1fa8155d9864fd54ba329115f1c1289955f35f9c07ebfa49e5f8aa7df373f520"
     },
     {
       "path": "modes/zp50_gamemode_plague.sma",
@@ -414,7 +414,7 @@
     {
       "path": "modes/zp50_gamemode_survivor.sma",
       "seedSha256LF": "0482a32f2eb7fcb2ab5bee0c19862a207a679362eacaa1b38b95a7461901d6f8",
-      "resultSha256LF": "1d97ff0b120dc86d38173929df98d45100f06ff1d1e14479b3d86167297a1b94"
+      "resultSha256LF": "39ccf5d22d95ef9549eb296260adeff0daec7bc11de57f840d4d45db4119bef4"
     },
     {
       "path": "modes/zp50_gamemode_swarm.sma",

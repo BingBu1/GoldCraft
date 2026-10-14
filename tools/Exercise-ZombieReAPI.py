@@ -49,14 +49,15 @@ def existing_processes():
     return rows if isinstance(rows, list) else [rows]
 
 class Run:
-    def __init__(self, startup_only=False):
+    def __init__(self, startup_only=False, round_teams=False, baseline=False):
         self.startup_only = startup_only
+        self.round_teams, self.baseline = round_teams, baseline
         self.config = json.loads((TEST / 'cluster.json').read_text(encoding='utf-8-sig'))
         self.before = {}
         self.artifacts = {}
         self.process = None
         self.report = {'scope': 'Actual ReHLDS/ReGameDLL/ReAPI/ZP fake-client lifecycle and damage; no graphical input or visual acceptance.',
-                       'startupOnly': startup_only,
+                       'startupOnly': startup_only, 'roundTeams': round_teams, 'baseline': baseline,
                        'variants': [], 'commands': [], 'artifacts': self.artifacts}
         self.started = time.time()
 
@@ -93,6 +94,9 @@ class Run:
         names.append('goldcraft_zp_reapi_test')
         for name in names:
             source = OUT / 'plugins'
+            if self.round_teams and name != 'goldcraft_zp_reapi_test' and (self.baseline or name not in
+                    ('cs_teams_api', 'zp50_gamemode_survivor', 'zp50_gamemode_nemesis')):
+                source = LIVE / 'cstrike/addons/amxmodx/plugins'
             self.copy(source / (name + '.amxx'), AMXX / 'plugins' / (name + '.amxx'))
         # Load one selected ZP configuration; inactive alternate lists are not needed.
         for name in ('zombieplague.ini', 'zombieplague.cfg', 'zp_extraitems.ini', 'zp_humanclasses.ini', 'zp_zombieclasses.ini'):
@@ -109,7 +113,7 @@ class Run:
         self.put(AMXX / 'configs/modules.ini', b'reapi\nengine\nfakemeta\nfun\nhamsandwich\ncstrike\n')
         self.put(GAME / 'cstrike/addons/metamod/plugins.ini', b'win32 addons/amxmodx/dlls/amxmodx_mm.dll\n')
         self.put(GAME / 'cstrike/autoexec.cfg', b'// Independent ZP ReAPI fixture.\n')
-        self.put(GAME / 'cstrike/server.cfg', ('sv_lan 1\nlog off\nrcon_password "' + self.config['csRconToken'] + '"\n').encode())
+        self.put(GAME / 'cstrike/server.cfg', ('sv_lan 0\nlog off\nrcon_password "' + self.config['csRconToken'] + '"\n').encode())
         self.put(GAME / 'cstrike/goldcraft_zp_reapi.cfg', b'''mp_freezetime 0
 mp_roundtime 9
 mp_round_infinite 1
@@ -171,12 +175,15 @@ goldcraft_zp_reapi_test 1
         with FIXTURE_LOG.open('w', encoding='utf-8') as log:
             self.process = subprocess.Popen([str(GAME / 'hlds.exe'), '-game', 'cstrike', '-insecure', '-nomaster', '-console',
                                              '+ip', '127.0.0.1', '-port', str(self.config['csPort']), '-maxplayers', '4',
-                                             '+sv_lan', '1', '+map', 'cs_assault', '+exec', 'goldcraft_zp_reapi.cfg'],
+                                             '+sv_lan', '0', '+map', 'cs_assault', '+exec', 'goldcraft_zp_reapi.cfg'],
                                             cwd=GAME, env=env, stdout=log, stderr=subprocess.STDOUT,
                                             creationflags=subprocess.CREATE_NO_WINDOW)
             self.report['pid'] = self.process.pid
             print(f'Independent native fixture PID {self.process.pid}; no B/main-server changes.', flush=True)
             self.ready()
+            if self.round_teams:
+                self.test_round_teams()
+                return
             if self.startup_only:
                 self.report['modules'] = self.command('amxx modules')
                 self.report['plugins'] = self.command('amxx plugins')
@@ -216,6 +223,36 @@ goldcraft_zp_reapi_test 1
             self.report['passed'] = (len(self.report['variants']) == 2 and not errors and
                                      all(len(v['checks']) >= 50 and not v['failed'] for v in self.report['variants']))
 
+    def test_round_teams(self):
+        self.command('exec goldcraft_zp_reapi.cfg')
+        self.wait(0.5)
+        self.report['plugins'] = self.command('amxx plugins')
+        self.report['modules'] = self.command('amxx modules')
+        if 'bad load' in self.report['plugins']:
+            raise RuntimeError('ZP plugin load failed')
+        self.report['lan'] = self.command('sv_lan')
+        if not re.search(r'"sv_lan"\s+is\s+"0"', self.report['lan']):
+            raise RuntimeError('Fixture must use sv_lan 0')
+        self.command('gc_zp_reapi_create')
+        self.command('gc_zp_reapi_api 0')
+        self.command('gc_zp_reapi_team_refresh')
+        self.command('gc_zp_reapi_survivor_prepare')
+        self.command('sv_restart 1')
+        self.wait(2)
+        self.command('gc_zp_reapi_survivor_pending')
+        self.command('gc_zp_reapi_survivor_active')
+        self.command('sv_restart 1')
+        self.wait(2)
+        self.command('gc_zp_reapi_round')
+        checks = [json.loads(line) for line in (AMXX / 'logs/goldcraft-zp-reapi.jsonl').read_text().splitlines() if line]
+        errors = {}
+        for path in (AMXX / 'logs').glob('error_*.log'):
+            extra = path.read_bytes()[self.error_offsets.get(path, 0):].decode('utf-8', errors='replace')
+            if extra.strip():
+                errors[path.name] = extra
+        self.report.update(checks=checks, runtimeErrors=errors,
+                           passed=len(checks) == 38 and all(c['passed'] for c in checks) and not errors)
+
     def close(self, output=None):
         if self.process is not None and self.process.poll() is None:
             try:
@@ -235,6 +272,7 @@ goldcraft_zp_reapi_test 1
                 path.write_bytes(data)
         self.report['fixtureFilesRestored'] = all((not p.exists()) if data is None else p.read_bytes() == data for p, data in self.before.items())
         self.report['fixtureStopped'] = self.process is None or self.process.poll() is not None
+        self.report['exitCode'] = self.process.returncode if self.process else None
         output = output or ROOT / 'analysis/goldcraft-tests' / ('zp-reapi-' + STAMP + '.json')
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(self.report, indent=2) + '\n', encoding='utf-8')
@@ -244,8 +282,12 @@ goldcraft_zp_reapi_test 1
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--startup-only', action='store_true')
+    parser.add_argument('--round-teams', action='store_true', help='Test installed ZP with only the three round/team fixes replaced')
+    parser.add_argument('--baseline', action='store_true', help='Use installed plugins unchanged for the round/team negative control')
     args = parser.parse_args()
-    run = Run(args.startup_only)
+    if args.baseline and not args.round_teams:
+        parser.error('--baseline requires --round-teams')
+    run = Run(args.startup_only, args.round_teams, args.baseline)
     try:
         run.run()
     except Exception as exc:

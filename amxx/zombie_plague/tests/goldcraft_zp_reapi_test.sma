@@ -21,6 +21,7 @@ new gSpawn[33], gTeamInfo[33], gScoreInfo[33], gLastGib[33];
 new gDamageCalls, bool:gDamageOriginal, Float:gPostDamage;
 new gTraceCalls, bool:gTraceOriginal;
 new bool:gObserve;
+new TeamName:gNotifiedTeam[33];
 
 public plugin_init()
 {
@@ -31,6 +32,10 @@ public plugin_init()
     register_srvcmd("gc_zp_reapi_combat", "TestCombat");
     register_srvcmd("gc_zp_reapi_finish", "TestAfterProtection");
     register_srvcmd("gc_zp_reapi_round", "TestRound");
+    register_srvcmd("gc_zp_reapi_team_refresh", "TestTeamRefresh");
+    register_srvcmd("gc_zp_reapi_survivor_prepare", "PrepareSurvivor");
+    register_srvcmd("gc_zp_reapi_survivor_pending", "TestSurvivorPending");
+    register_srvcmd("gc_zp_reapi_survivor_active", "TestSurvivorActive");
     RegisterHookChain(RG_CBasePlayer_Spawn, "AfterSpawn", true);
     RegisterHookChain(RG_CBasePlayer_Killed, "AfterKilled", true);
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "AfterDamage", true);
@@ -313,5 +318,70 @@ public ModelWrite(id, const buffer[], const key[], const value[])
     if (gObserve && equal(key, "model") && equal(value, "gordon")) gGordonWrites++;
     return FMRES_IGNORED;
 }
-public TeamMessage() { if (gObserve) gTeamInfo[get_msg_arg_int(1)]++; }
+public TeamMessage()
+{
+    if (!gObserve) return;
+    new id = get_msg_arg_int(1), team[16];
+    gTeamInfo[id]++;
+    get_msg_arg_string(2, team, charsmax(team));
+    gNotifiedTeam[id] = equal(team, "CT") ? TEAM_CT : equal(team, "TERRORIST") ? TEAM_TERRORIST : TEAM_UNASSIGNED;
+}
 public ScoreMessage() { if (gObserve) gScoreInfo[get_msg_arg_int(1)]++; }
+
+// A round-end balance deliberately changes teams silently. The later infection
+// must publish the authoritative team even when it already equals Terrorist.
+public TestTeamRefresh()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    new id = gPlayer[1];
+    cs_set_player_team(id, TEAM_TERRORIST);
+    cs_set_player_team(id, TEAM_CT);
+    new oldT = get_member_game(m_iNumTerrorist), oldCT = get_member_game(m_iNumCT);
+    new messages = gTeamInfo[id], scores = gScoreInfo[id];
+    cs_set_player_team(id, TEAM_TERRORIST, false);
+    Check("silent_balance_preserves_last_client_team", get_member(id, m_iTeam) == TEAM_TERRORIST && gNotifiedTeam[id] == TEAM_CT);
+    cs_set_player_team(id, TEAM_TERRORIST, true);
+    Check("same_team_refresh_notifies_client", gTeamInfo[id] == messages + 1 && gScoreInfo[id] == scores + 1 && gNotifiedTeam[id] == TEAM_TERRORIST);
+    Check("same_team_refresh_preserves_counts", get_member_game(m_iNumTerrorist) == oldT + 1 && get_member_game(m_iNumCT) == oldCT - 1);
+    return Summary();
+}
+
+public PrepareSurvivor()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    set_cvar_num("zp_multi_min_players", 33);
+    set_cvar_num("zp_swarm_min_players", 33);
+    set_cvar_num("zp_nemesis_min_players", 33);
+    set_cvar_num("zp_survivor_min_players", 0);
+    set_cvar_num("zp_survivor_chance", 1);
+    set_cvar_num("zp_prevent_consecutive_modes", 0);
+    set_cvar_float("zp_gamemode_delay", 60.0);
+    return Summary();
+}
+
+public TestSurvivorPending()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    Check("survivor_chosen_but_not_started", zp_gamemodes_get_current() == ZP_NO_GAME_MODE && zp_gamemodes_get_chosen() == zp_gamemodes_get_id("Survivor Mode"));
+    new id = gPlayer[1], model[32];
+    rg_set_user_team(id, TEAM_CT, MODEL_CT_URBAN);
+    rg_round_respawn(id);
+    get_user_info(id, "model", model, charsmax(model));
+    Check("pending_survivor_spawn_stays_human", is_user_alive(id) && !zp_core_is_zombie(id) && !equal(model, "zombie_source"));
+    Check("pending_survivor_spawn_keeps_normal_health", Float:get_entvar(id, var_health) == 100.0);
+    return Summary();
+}
+
+public TestSurvivorActive()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    Check("survivor_mode_starts", zp_gamemodes_start(zp_gamemodes_get_id("Survivor Mode"), gPlayer[0]));
+    for (new n = 1; n < sizeof gPlayer; n++) {
+        new id = gPlayer[n];
+        Check("active_survivor_zombie_team_matches", zp_core_is_zombie(id) && get_member(id, m_iTeam) == TEAM_TERRORIST && gNotifiedTeam[id] == TEAM_TERRORIST);
+    }
+    new id = gPlayer[1];
+    rg_round_respawn(id);
+    Check("active_survivor_respawn_remains_zombie", zp_core_is_zombie(id) && get_member(id, m_iTeam) == TEAM_TERRORIST);
+    return Summary();
+}
