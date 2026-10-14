@@ -14,6 +14,8 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 当前验证机已安装 Steam，实际加载了该安装中的 Steam 运行库；包内提供同版本运行库，但尚未在没有 Steam 的干净 Windows 主机验证加载路径。部署前需要完成这项检查。
 
+2026-10-14 新增完整资源／离线准入包：62图、7357个载荷文件，ZIP SHA256 `4218cf15eadeea985de9f40b85ec99c528d8215dfd2492c6a803ecdb844b5193`，源基线 `d4b2d5d`。新核心264项JUnit和28项资源/启动回归通过；新目录解压实服26项检查通过（94秒），包括离线MC启动、双服桥接、32槽、25Bot、`cs_assault`重载清理、保存和正常退出。原版MC探针通过离线登录后，被NeoForge因缺少Mod协商拒绝；这不等于配套GoldCraft客户端的无凭据拒绝或成功配对已实测。后两项及公网/32真人继续待验。
+
 ## 启动
 
 1. 把 ZIP 完整解压到独立目录，不要覆盖原有 CS 或 MC 安装。
@@ -50,7 +52,7 @@ MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供�
 
 ## 内容与维护
 
-- 已部署 ReHLDS、ReGameDLL、Metamod、AMXX 1.9、ReAPI、汉化 ZP、Nade Modes 和 SyPB；保留当前已验证的服务端能力，native 消息表 77 / wire protocol 30。未打入正在开发的 79 版本。
+- 已部署 ReHLDS、ReGameDLL、Metamod、AMXX 1.9、ReAPI、汉化 ZP、Nade Modes 和 SyPB；保留当前已验证的服务端能力；新包使用消息表83/wire30稳定核心，状态／流体／护甲联合候选尚未打入。
 - MC 包含当前服务端实际安装的 Mod、配置和空白地图数据包；不带开发世界、人物数据、OP、管理员账号或旧密钥。
 - CS 主配置 `cs/cstrike/server.cfg`；AMXX 配置及汉化位于 `cs/cstrike/addons/amxmodx`。管理员在 `configs/users.ini` 添加自己的 Steam ID。Pawn 插件更新需换图重载，`sv_restart` 不会重载插件。
 - 地图切换/服务端重启会清空 MC 建筑；`mc_map_mining_persist=0` 保持回合结束还原。打包工具会为每张地图生成匹配 BSP CRC 的 MC 维度，统一地图轮换、AMXX 地图菜单，并带入现有 SyPB 路点。`maps.json` 列出地图、校验值和路点是否存在；缺路点不代表 Bot 已可正常行走。

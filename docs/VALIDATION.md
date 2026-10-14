@@ -356,3 +356,5 @@ python .\tools\Prepare-OfflineTests.py --loader neoforge
 ## 2026-10-14：资源完整收集与离线准入
 
 稳定核心264 JUnit全通过，含离线UUID仍须原生CS准入且不得跨UUID复用连接的回归。资源/Windows启动回归28项通过，覆盖新格式、下载目录补齐/主目录优先、隐私/缓存排除、junction拒绝、旧核心拒绝及在线/离线配置。62图7357文件预检通过；新核心已统一同步。尚未实际离线配置阶段、真实配对或新ZIP验收，公网/32真人仍开放。
+
+新资源包独立实服26/26通过，94.278秒、Job111自然Active0、双服正常保存退出。7357成员逐项解压hash核对，62图；实际cs_assault重载后测试方块/盔甲架与原生代理清除，25Bot恢复。MC offline登录成功后原版探针被NeoForge协商拒绝；不是GoldCraft凭据门禁的实服证明。成功配对、配套客户端缺凭据、公网/32真人仍待。ZIP SHA256 `4218cf15eadeea985de9f40b85ec99c528d8215dfd2492c6a803ecdb844b5193`，源基线d4b2d5d。

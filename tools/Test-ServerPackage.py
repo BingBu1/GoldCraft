@@ -73,11 +73,12 @@ def mc_connection(port, intention):
     return sock
 
 
-def offline_unpaired_probe(port):
+def offline_vanilla_probe(port):
     """Exercise vanilla login/configuration without a CS credential; never enter PLAY.
 
     Packet IDs follow the pinned 1.21.1 LoginStates/ConfigurationStates registration
-    order. This client ignores optional custom payloads and advertises no Mod channels.
+    order. This client advertises no Mod channels; NeoForge may reject it before
+    GoldCraft's credential task. That is not evidence of the CS credential gate.
     """
     def number(data, at=0):
         value = 0
@@ -267,6 +268,7 @@ def main():
     evidence.mkdir(parents=True)
     result = {'checks': {}, 'limitations': [
         'No authenticated remote-player join or 32-human load test.',
+        'The offline vanilla probe cannot prove compatible GoldCraft clients without credentials are rejected.',
         'Clean Windows host without an installed Steam client has not been tested.']}
     checks = result['checks']
     server = work / 'GoldCraft-Servers'
@@ -358,9 +360,9 @@ def main():
             checks['minecraftAdvertises32Slots'] = status['players']['max'] == 32
         properties = (server / 'minecraft/server.properties').read_text(encoding='utf-8')
         if 'online-mode=false' in properties.splitlines():
-            probe = offline_unpaired_probe(25645)
-            result['offlineUnpairedProbe'] = probe
-            checks['offlineLoginSucceedsButUnpairedConfigurationRejected'] = (
+            probe = offline_vanilla_probe(25645)
+            result['offlineVanillaProbe'] = probe
+            checks['offlineLoginSucceedsButVanillaConfigurationRejected'] = (
                 probe['loginSuccess'] and probe['configurationRejected'] and not probe['finishedConfiguration'])
         else:
             with mc_connection(25645, 2) as sock:
