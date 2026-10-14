@@ -283,7 +283,9 @@
     "tools/server-package/scripts/Status.ps1",
     "tools/server-package/scripts/Stop-Servers.ps1",
     "tools/Test-NightfallConfig.py",
-    "tools/Test-NightfallGround.py"
+    "tools/Test-NightfallGround.py",
+    "amxx/tests/goldcraft_zp_disconnect_test.sma",
+    "tools/Exercise-ZombieDisconnect.py"
   ],
   "trees": {
     "native": [

@@ -2794,7 +2794,7 @@ diff --git a/classes/zp50_class_zombie_rage.sma b/classes/zp50_class_zombie_rage
  	}
  }
  
-@@ -76,19 +76,19 @@
+@@ -76,19 +76,24 @@
  {
  	// Player was using zombie class with custom rendering, restore it to normal
  	if (zp_class_zombie_get_current(id) == g_ZombieClassID)
@@ -2813,12 +2813,18 @@ diff --git a/classes/zp50_class_zombie_rage.sma b/classes/zp50_class_zombie_rage
 -public client_disconnect(id)
 +public client_disconnected(id)
  {
++	// AMXX 1.9 also calls this when connection aborts before PutInServer.
++	// The class native accepts in-game players only.
++	if (!is_user_connected(id))
++		return;
++	
  	// Player was using zombie class with custom rendering, restore it to normal
  	if (zp_class_zombie_get_current(id) == g_ZombieClassID)
 -		set_user_rendering(id)
-+		gc_set_rendering(id)
- }
+-}
 \ No newline at end of file
++		gc_set_rendering(id)
++}
 diff --git a/core/zp50_buy_zones.sma b/core/zp50_buy_zones.sma
 --- a/core/zp50_buy_zones.sma
 +++ b/core/zp50_buy_zones.sma

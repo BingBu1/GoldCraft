@@ -18,6 +18,46 @@ from ServerPackageMaps import map_resources, select_maps
 ROOT = Path(__file__).resolve().parents[1]
 
 
+class ConsistencyResources(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location('package_builder', ROOT / 'tools/Build-ServerPackage.py')
+        cls.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.builder)
+
+    def setUp(self):
+        directory = ROOT / 'analysis/server-package/resource-fixtures'
+        directory.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(dir=directory)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        for name in self.builder.CONSISTENCY_ASSETS:
+            path = self.root / 'cstrike' / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'fixture asset')
+
+    def test_scope_and_nested_tga_survive_filter_without_runtime_logs(self):
+        nested = self.root / 'valve/sprites/custom'
+        nested.mkdir(parents=True)
+        (nested / 'effect.TGA').write_bytes(b'custom texture')
+        (nested / 'private.log').write_bytes(b'not an asset')
+        plan = self.builder.game_assets(self.root)
+        for name in ('scope_arc', 'scope_arc_nw', 'scope_arc_ne', 'scope_arc_sw'):
+            self.assertEqual(plan[f'cs/cstrike/sprites/{name}.tga'].read_bytes(), b'fixture asset')
+        self.assertIn('cs/valve/sprites/custom/effect.TGA', plan)
+        self.assertNotIn('cs/valve/sprites/custom/private.log', plan)
+
+    def test_missing_server_digest_input_rejects_package(self):
+        (self.root / 'cstrike/sprites/scope_arc_sw.tga').unlink()
+        with self.assertRaisesRegex(ValueError, 'Missing or empty consistency resource: .*scope_arc_sw.tga'):
+            self.builder.game_assets(self.root)
+
+    def test_empty_digest_input_rejects_package(self):
+        (self.root / 'cstrike/sprites/black_smoke1.spr').write_bytes(b'')
+        with self.assertRaisesRegex(ValueError, 'Missing or empty consistency resource: .*black_smoke1.spr'):
+            self.builder.game_assets(self.root)
+
+
 @unittest.skipUnless(os.name == 'nt', 'Windows dual-server verifier')
 class ConsoleFeedback(unittest.TestCase):
     @classmethod

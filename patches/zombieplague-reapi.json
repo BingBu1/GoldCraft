@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "49b3600daabd7e3fc3f40b812371a6bc60b7c71e55c207839bcbeabd74bcf42c",
+  "patchSha256": "55b0e486fe8218fe108ffecb62968811c4379248684b817f6dd56599ce4718ed",
   "files": [
     {
       "path": "admin/zp50_admin_commands.sma",
@@ -89,7 +89,7 @@
     {
       "path": "classes/zp50_class_zombie_rage.sma",
       "seedSha256LF": "622e594d3d439415a4f76d2f6ceec223343a00440637657e20f61b60284b78b8",
-      "resultSha256LF": "43ddd575efcb7d362405504d0bea6a13765d34a520815f6c29dda4694740cc6d"
+      "resultSha256LF": "0b9bfb727d90ab4a52a70b4b72a3c3887aa4506e8afd5497499df9e23c2cb9c3"
     },
     {
       "path": "core/zp50_buy_zones.sma",

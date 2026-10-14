@@ -34,6 +34,19 @@ python .\tools\Prepare-ZombiePlague.py --archive $zpArchive --map cs_assault
 
 ## ReAPI 迁移与更新
 
+2026-10-14补记：`client_disconnected` 也涵盖正式入服前的连接中止，迁移时遗漏了狂暴僵尸职业查询所需的 `is_user_connected` 检查。现已补齐，正常已入服断线仍清除发光；没有放宽职业native的有效玩家校验。修复工作源在 `amxx/zombie_plague/classes/zp50_class_zombie_rage.sma`，公开累计补丁可重放90个文件。
+
+专用夹具在32槽、`sv_lan 0` 的独立ReHLDS加载实际日常ZP插件组，仅替换Rage。旧服务包实际字节码出现一次同样的 `Invalid Player (26)`；新版15项通过、零AMXX错误，验证25个占用者后的26号槽、感染／治愈／再次感染、真实kick、引擎回收前清除发光及新userid复用。未入服分支直接调用生产插件回调，不能称为真实Steam网络连接中止验证。两次最终对照各约6.5秒、正常退出并恢复夹具文件，未启动B或MC；早期fake-client生命周期模拟失败保留。
+
+构建与运行该独立检查：
+
+```powershell
+./tools/Build-AMXX.ps1 -Plugins zp50_class_zombie_rage,goldcraft_zp_reapi_test,goldcraft_zp_disconnect_test
+python -B tools/Exercise-ZombieDisconnect.py --output analysis/zp-disconnect/result.json
+```
+
+本轮71个正式Pawn重新编译零警告，只将经过上述实际插件组验证的Rage替换到停止的沙盒专服；配置和汉化哈希保持。远程服务器使用[小补丁](SERVER_PACKAGE.md#安装服务端小补丁)后重启／换图重载，公网重连另验。
+
 ZP 工作源现在使用匹配的 **ReAPI / AMXX 1.9.0.5303**；ReAPI SDK 压缩包名为 5.29.0.358，实际匹配模块报告 5.29.0.359，以固定源码和产物身份为准。准备脚本先导入固定包及汉化，再应用 `patches/zombieplague-reapi.patch`；累计 90 个源码／头文件的基准／结果哈希在相邻 JSON 中。已应用的补丁不会重复写入，人工修改会保留；冲突会在临时副本中检出并停止，不能用重新导入覆盖修改。
 
 最初 39 文件的核心迁移已进一步扩展到任务／事件／回合钩子、断线生命周期、新菜单、配置文件、字符串处理及可替换的 Engine/Fun/CStrike 接口。标准玩家阶段使用 ReAPI HookChain，移除全部直接 pdata 固定偏移。模型通过 `rg_set_user_model` / `rg_reset_user_model` 即时更新；队伍通过 `rg_set_user_team` 维护原生人数和 AMXX 缓存；速度使用 `RG_CBasePlayer_ResetMaxSpeed`，保留冻结期。`SET MODELINDEX OFFSET` 继续控制自定义命中盒，原配置的两项 SVC_BAD 延迟参数保留但不再使用。

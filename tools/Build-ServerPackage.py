@@ -21,6 +21,15 @@ CS = ROOT / 'sandbox/cs-server/Half-Life'
 MC = ROOT / 'sandbox/neoforge-server'
 TEMPLATES = ROOT / 'tools/server-package'
 PIN = json.loads((ROOT / 'sources.lock.json').read_text(encoding='utf-8'))['minecraft']
+# ReGameDLL_CS ClientPrecache: these use force_exactfile, not model bounds.
+# A missing server copy leaves an empty digest and rejects a valid client.
+CONSISTENCY_ASSETS = (
+    'sprites/black_smoke1.spr', 'sprites/black_smoke2.spr',
+    'sprites/black_smoke3.spr', 'sprites/black_smoke4.spr',
+    'sprites/fast_wallpuff1.spr', 'sprites/smokepuff.spr', 'sprites/gas_puff_01.spr',
+    'sprites/scope_arc.tga', 'sprites/scope_arc_nw.tga',
+    'sprites/scope_arc_ne.tga', 'sprites/scope_arc_sw.tga',
+)
 
 
 def safe_file(path: Path) -> Path:
@@ -30,6 +39,23 @@ def safe_file(path: Path) -> Path:
     if not path.is_file():
         raise FileNotFoundError(path)
     return path
+
+
+def game_assets(root: Path) -> dict[str, Path]:
+    files = {}
+    for game in ('cstrike', 'valve'):
+        for directory, suffixes in (
+            ('models', {'.mdl'}), ('sound', {'.wav', '.mp3'}),
+            ('sprites', {'.spr', '.txt', '.tga'}), ('events', {'.sc'}),
+            ('gfx/env', {'.tga', '.bmp'})):
+            for path in sorted((root / game / directory).rglob('*')):
+                if path.is_file() and path.suffix.lower() in suffixes:
+                    files['cs/' + path.relative_to(root).as_posix()] = safe_file(path)
+    for name in CONSISTENCY_ASSETS:
+        key = 'cs/cstrike/' + name
+        if key not in files or not files[key].stat().st_size:
+            raise ValueError(f'Missing or empty consistency resource: {key}')
+    return files
 
 
 def build_plan(steam: Path, native_crt: Path, core_jar: Path,
@@ -63,11 +89,8 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path,
         add(source, 'cs/' + source.name)
     if 'cs/vcruntime140.dll' not in files or 'cs/msvcp140.dll' not in files:
         raise ValueError('Provide the x86 Microsoft Visual C++ CRT redistributable directory')
+    files.update(game_assets(CS))
     for game in ('cstrike', 'valve'):
-        for directory, suffixes in (
-            ('models', {'.mdl'}), ('sound', {'.wav', '.mp3'}),
-            ('sprites', {'.spr', '.txt'}), ('events', {'.sc'}), ('gfx/env', {'.tga', '.bmp'})):
-            tree(CS / game / directory, f'cs/{game}/{directory}', suffixes)
         for name in ('delta.lst', 'liblist.gam', 'titles.txt', 'steam.inf', 'decals.wad'):
             add(CS / game / name, f'cs/{game}/{name}')
     for name in ('halflife.wad', 'liquids.wad', 'gfx.wad', 'fonts.wad'):

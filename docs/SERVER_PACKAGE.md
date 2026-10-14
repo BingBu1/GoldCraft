@@ -24,6 +24,16 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 端口、绑定地址、MC 内存和 Bot 总人数在 `server-settings.json` 修改，停服后生效。默认 MC 堆上限 8 GB。默认 SyPB 僵尸模式维持 25 个总玩家、有人加入时 Bot 自动让位；不占满 32 槽位。把 `botTotalPlayers` 改为 `0` 可禁用补位 Bot。
 
+## 安装服务端小补丁
+
+2026-10-14 的 `GoldCraft-Server-Hotfix.zip` 修复两处已定位问题：旧包遗漏四个 `sprites/scope_arc*.tga`，造成正确客户端仍报 `Bad file`；ZP 狂暴僵尸在玩家未正式入服就断开时调用职业接口，报 `Invalid Player (26)`。26是合法槽位，后者是断线生命周期检查遗漏。
+
+使用 `Stop.cmd` 停止双服，把补丁内容解压到 `Start.cmd` 所在目录，再运行 `Start.cmd` 并重连。补丁只有四个TGA、一个 `zp50_class_zombie_rage.amxx` 及说明／独立清单；配置、汉化、管理员、MC Mod 和其他插件不覆盖。原 `package-manifest.json` 保留原包基线，更新的五个文件按 `server-hotfix-manifest.json` 核对。若已安装单独的狙击镜资源补丁，可以继续覆盖相同TGA。`sv_restart` 不会加载新Pawn插件。
+
+客户端缺资源时，在服务端有正确文件且允许下载的前提下，通常会下载至 `cstrike_downloads`；已有不一致文件不会因此自动覆盖，服务端漏包也无法靠客户端自动下载修复。本项目B与沙盒服务端的11个强制一致性资源逐字节一致，无须删除B的正确文件或关闭 `mp_consistency`。打包器现在收录TGA并拒绝遗漏／空的强制资源，重新打包会包含修复。
+
+补丁ZIP已回读校验；打包回归18项通过，ZP旧实际包复现与修复版15项后端检查通过。未入服分支采用生产回调边界测试，正常退出使用真实引擎kick；公网真实重连尚待验证。源码中的更新位于 [ZP累计补丁](../patches/zombieplague-reapi.patch)，运行二进制与游戏资源只保存在本地部署包。
+
 ## 玩家准入与客户端
 
 MC 保留 `online-mode=true`，并由 `GOLDCRAFT_REQUIRE_CS_PAIR=1` 启用配置阶段准入检查。服务端确认玩家持有当前 CS 连接的临时凭据后才放行进入世界；直接连接 MC、缺少新准入通道或凭据无效均被拒绝。**不用维护白名单**，OP 仍需服主单独授予。
