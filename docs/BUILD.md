@@ -2,6 +2,14 @@
 
 当前脚本针对 Windows、x86 GoldSrc、x64 Java 21。所有命令在仓库根目录的 PowerShell 7.5+ 运行。源码仓库不提供 Valve/Mojang 游戏文件、复制的 SDK 或编译产物。使用自己合法拥有的安装；CS 启动时保持 Steam 登录到拥有游戏的账号。
 
+## 安装现成客户端插件包
+
+将 `GoldCraft-MetaHook-Stable.zip` 完整解压到游戏目录外，退出目标 CS 后双击 `Install-GoldCraft.cmd`。它复用官方 MetaHook 安装器发现 Steam CS、部署十插件及配套资源并生成快捷方式；非标准目录可传 `-GameDirectory`，`-Plan` 只预览，`-Restore` 恢复上次安装前的文件。[完整使用及重新打包说明](../tools/client-installer/README.md)
+
+安装入口使用 Windows 自带 PowerShell 5.1，不需要构建工具。当前包来自已部署稳定版；Minecraft 仍需现有 GoldCraft 启动器和对应 Mod。该包不含尚未部署的流体／药水／盔甲／盾牌联合候选，官方生成的 CS 快捷方式不负责启动 MC 或建立配对。
+
+已验证实际官方文件安装、重复安装、配置保护和失败回滚；安装后首次游戏启动、画面及真实 MC 配对仍待验证。项目开发测试只写隔离目录，禁止使用默认自动发现向受保护原安装写入。
+
 ## 固定工具链与源码
 
 需要 Git、Python 3.11+、Arkari Clang 22.1.7、Visual Studio 2026 的 C++ x86/x64 工具和 Windows SDK 10.0.26100.0。运行 `Configure-Clang.ps1 -LLVMRoot <LLVM安装目录>` 保存本机编译器选择；也可设置 `GOLDCRAFT_LLVM_ROOT`。路径只存入被忽略的 `.tools/clang-toolchain.json`。

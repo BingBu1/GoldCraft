@@ -6,6 +6,7 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 |---|---|---|
 | [SkyCraft](https://github.com/chasmlol/SkyCraft) | 设计和协议研究参考 | [MIT](notices/SkyCraft-LICENSE.txt) |
 | [MetaHookSv / MetaHook](https://github.com/MetaHookSv/MetaHookSv) | 客户端加载和 Hook；core 适配补丁 | [aggregate MIT](notices/MetaHookSv-LICENSE.txt)、[core MIT](notices/MetaHook-LICENSE.txt) |
+| [MetahookInstaller](https://github.com/MetaHookSv/MetahookInstaller) | 复用官方客户端自动发现、文件安装与快捷方式；固定提交见安装器 upstream.json | [MIT](notices/MetahookInstaller-LICENSE.txt)；官方二进制由本地安装包提供，不上传源码仓库 |
 | [Renderer](https://github.com/MetaHookSv/Renderer) | OpenGL 渲染与场景接口补丁 | [MIT](notices/Renderer-LICENSE.txt) |
 | [BulletPhysics](https://github.com/MetaHookSv/BulletPhysics) | 动态模型缓存接口与 Clang 构建补丁 | [MIT](notices/BulletPhysics-LICENSE.txt) |
 | [InterpFix](https://github.com/MetaHookSv/InterpFix) | 上游插值历史耗尽修复；固定源码、本地 Clang 构建 | [MIT](notices/InterpFix-LICENSE.txt) |

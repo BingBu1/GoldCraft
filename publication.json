@@ -286,7 +286,15 @@
     "tools/Test-NightfallGround.py",
     "amxx/tests/goldcraft_zp_disconnect_test.sma",
     "tools/Exercise-ZombieDisconnect.py",
-    "tools/ServerPackageResources.py"
+    "tools/ServerPackageResources.py",
+    "tools/client-installer/Common.ps1",
+    "tools/client-installer/Install-GoldCraft.cmd",
+    "tools/client-installer/Install-GoldCraft.ps1",
+    "tools/client-installer/package.py",
+    "tools/client-installer/README.md",
+    "tools/client-installer/Test-Plan.ps1",
+    "tools/client-installer/test_install.py",
+    "tools/client-installer/upstream.json"
   ],
   "trees": {
     "native": [
