@@ -26,6 +26,9 @@ final class ParticleTextureUpload implements AutoCloseable {
     long stamp(){return stamp;}
     int sentBytes(){return offset;}
     boolean matches(long epoch,long generation,int life){return header.epoch()==epoch&&header.generation()==generation&&header.life()==life;}
+    // Texture bytes belong to a resource generation, not to an avatar life.
+    // Keep the captured header unchanged until all its chunks have arrived.
+    boolean matchesResources(long epoch,long generation){return header.epoch()==epoch&&header.generation()==generation;}
     boolean pump(Predicate<byte[]> send) {
         if(closed)throw new IllegalStateException("Closed particle texture upload");
         for(int i=0;i<CHUNKS_PER_FRAME&&offset<header.totalBytes();i++) {

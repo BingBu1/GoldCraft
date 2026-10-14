@@ -20,6 +20,9 @@ unsigned viewport_width=320,viewport_height=240,hud_width{},hud_height{},hud_gui
     hud_flags{},hud_life{},minecraft_life=3,server_player_life=3;
 GLuint hud_texture{};
 bool hud_blank=false,minecraft_menu=false,ui_active=false,control=false,capture_requested=false;
+bool server_minecraft_form=false;
+double minecraft_transition_until=0;
+namespace client_vitals {bool living=false;bool alive(){return living;}}
 float ui_x=.5f,ui_y=.5f,hud_health{},hud_experience{};
 int hud_slot{},hud_food{},hud_armor{},hud_level{};
 double now=20,last_hud{},next_viewport{},hud_interval_ms{},hud_work_ms{};
@@ -204,6 +207,19 @@ void tests(Resources& r){
     assert(Redraw(1,0)==7);render::renderer=renderer_before;
     assert(native_draws==1&&overlay_draws==0&&fallbacks==1&&hud_draws==actual_draws&&snapshot()==gpu);
     assert(work[static_cast<unsigned>(WorkStage::mc_hud_composite)]==1&&work[static_cast<unsigned>(WorkStage::native_hud_redraw)]==1);++cases;
+
+    // Server-confirmed MC spawn handoff must not flash the CS HUD/weapon
+    // presentation. No old-life MC raster is reused, and death wins immediately.
+    ClearHud();control=false;server_minecraft_form=true;client_vitals::living=true;
+    minecraft_transition_until=now+.5;
+    assert(MinecraftPresentationPending()&&!HasControl()&&!HudFresh());redraw(r,0,0,1,1);
+    client_vitals::living=false;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
+    client_vitals::living=true;link.online=false;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
+    link.online=true;now=minecraft_transition_until;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
+    minecraft_transition_until=now+.5;control=true;f.flags=6;++f.revision;receive(message(f));
+    assert(HudFresh()&&!MinecraftPresentationPending());redraw(r,0,1,1,1);
+    server_minecraft_form=false;client_vitals::living=false;minecraft_transition_until=0;
+    ++cases;
 
     ClearHud();glDeleteTextures(1,&hud_texture);hud_texture=0;hud_width=hud_height=0;glDeleteTextures(1,&full_zero);
     assert(glGetError()==GL_NO_ERROR);

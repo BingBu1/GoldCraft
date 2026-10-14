@@ -18,6 +18,7 @@ import java.nio.file.StandardCopyOption;
 public final class HostInput {
     private static BridgeLink link;
     private static final HostLookDelta hostLook=new HostLookDelta();
+    private static final ControlRequestSchedule controlRequests=new ControlRequestSchedule();
     private static final com.google.gson.Gson DIAGNOSTIC_JSON=new com.google.gson.Gson();
     private static long epoch,sequence,lastInput,lastReady;
     private static int buttons,presses,active,inputFlags;
@@ -43,6 +44,7 @@ public final class HostInput {
     public static void clear(){
         ++controlClears;if(controlling)++controlLosses;readinessReasons=-1;
         HostKeys.reset();
+        controlRequests.reset();
         HostMiningInput.clear();
         if(controlling){var o=MinecraftClient.getInstance().options;for(var key:new KeyBinding[]{o.forwardKey,o.backKey,o.leftKey,o.rightKey,o.jumpKey,o.sneakKey,o.sprintKey,o.attackKey,o.useKey})key.setPressed(false);}
         epoch=sequence=lastInput=lastReady=0;buttons=presses=active=inputFlags=serial=life=0;controlling=false;playerInstance=null;hostLook.discard();
@@ -81,14 +83,17 @@ public final class HostInput {
     public static void tick(MinecraftClient client) {
         var actor=client.player==null?null:GoldCraftClient.HOST.actor(client.player.getUuid());
         boolean changed=actor!=null&&(serial!=actor.serial()||life!=actor.life()||playerInstance!=client.player);
-        if(changed){HostKeys.reset();serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;hostLook.discard();}
+        if(changed){HostKeys.reset();controlRequests.reset();serial=actor.serial();life=actor.life();playerInstance=client.player;lastReady=0;presses=0;hostLook.discard();}
         int reasons=ControlReadiness.reasons(link!=null&&link.connected(),GoldCraftClient.HOST.geometry()!=null,actor!=null,
             client.player!=null&&client.player.isAlive(),client.world!=null&&client.world.getRegistryKey().getValue().toString().equals(GoldCraftClient.HOST.dimension()),
             actor!=null&&actor.minecraftForm(),actor==null?0:actor.life(),actor==null?0:actor.flags(),epoch==GoldCraftClient.HOST.epoch(),System.nanoTime()-lastInput<500_000_000L,changed);
         if(readinessReasons!=reasons){readinessReasons=reasons;++readinessTransitions;}
         boolean ready=(reasons&~(ControlReadiness.LEASE|ControlReadiness.IDENTITY))==0;
-        if(MinecraftClient.getInstance().getNetworkHandler()!=null&&MinecraftClient.getInstance().getNetworkHandler().hasChannel(ControlPayload.ID)&&(System.nanoTime()-lastReady>400_000_000L||!ready&&controlling)) {
-            PacketDistributor.sendToServer(new ControlPayload(GoldCraftClient.HOST.epoch(),serial,life,ready));lastReady=System.nanoTime();
+        final long requestTime=System.nanoTime();
+        if(MinecraftClient.getInstance().getNetworkHandler()!=null&&MinecraftClient.getInstance().getNetworkHandler().hasChannel(ControlPayload.ID)
+            &&controlRequests.due(requestTime,ready,(reasons&ControlReadiness.LEASE)==0)) {
+            PacketDistributor.sendToServer(new ControlPayload(GoldCraftClient.HOST.epoch(),serial,life,ready));
+            controlRequests.sent(requestTime,ready);lastReady=requestTime;
         }
         boolean wasControlling=controlling;controlling=ready&&(reasons&(ControlReadiness.LEASE|ControlReadiness.IDENTITY))==0;
         if(wasControlling&&!controlling)++controlLosses;

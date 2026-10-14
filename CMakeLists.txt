@@ -237,6 +237,26 @@ if(GOLDCRAFT_BUILD_CLIENT)
             "${CMAKE_CURRENT_SOURCE_DIR}/analysis/vix-post/runtime-shaders")
         set_tests_properties(goldcraft_post_effect_replay PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 2)
         find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/native/extract_form_menu.py)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_form_menu.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/form_menu_routing.inc" COMMAND_ERROR_IS_FATAL ANY)
+        add_executable(goldcraft_form_menu_routing_tests tests/native/form_menu_routing_tests.cpp)
+        target_include_directories(goldcraft_form_menu_routing_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_link_libraries(goldcraft_form_menu_routing_tests PRIVATE goldcraft_common)
+        target_compile_options(goldcraft_form_menu_routing_tests PRIVATE /W4 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_form_menu_routing COMMAND goldcraft_form_menu_routing_tests)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/native/extract_texture_resource.py)
+        execute_process(COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_texture_resource.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/native/client/plugin.cpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/texture_resource_lifecycle.inc" COMMAND_ERROR_IS_FATAL ANY)
+        add_executable(goldcraft_texture_resource_lifecycle_tests tests/native/texture_resource_lifecycle_tests.cpp)
+        target_include_directories(goldcraft_texture_resource_lifecycle_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+        target_link_libraries(goldcraft_texture_resource_lifecycle_tests PRIVATE goldcraft_common)
+        target_compile_options(goldcraft_texture_resource_lifecycle_tests PRIVATE /W4 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_texture_resource_lifecycle COMMAND goldcraft_texture_resource_lifecycle_tests)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
             native/client/plugin.cpp tests/native/extract_benchmark_framerate.py tests/native/extract_plugin_draw.py
             tests/native/extract_plugin_hud.py tests/native/extract_plugin_lights.py)

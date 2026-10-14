@@ -89,6 +89,7 @@ std::uint64_t input_sequence=0,pose_sequence=0;
 std::uint32_t minecraft_life=0;
 std::uint32_t server_player_life=0;
 bool server_minecraft_form=false;
+double minecraft_transition_until=0;
 std::chrono::steady_clock::time_point last_pose{};
 Vec3 minecraft_feet{};
 float minecraft_eye=1.62f;
@@ -471,7 +472,7 @@ void ResetWorld() {
     ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
     native_colliders.clear();collider_sequence=0;last_colliders=0;
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
-    world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
+    world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;minecraft_transition_until=0;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;hud_blank=false;
 }
@@ -521,8 +522,18 @@ void UpdateHostUse(){
 void BeginHostUse(){host_use_sources|=1;UpdateHostUse();}
 void EndHostUse(){host_use_sources&=~1u;UpdateHostUse();}
 bool HudFresh(){return link.connected()&&(HasControl()||(hud_flags&8)||minecraft_menu)&&hud_texture&&hud_revision&&hud_life==minecraft_life&&hud_life==server_player_life&&(!minecraft_hud||minecraft_hud->value!=0)&&Seconds()-last_hud<0.5;}
+bool MinecraftPresentationPending(){
+    // Presentation only: never reuse a pose/HUD from the previous life or grant
+    // input ownership. Native death HUD and a failed handoff keep their fallback.
+    return world&&server_player_life&&server_minecraft_form&&link.connected()
+        &&client_vitals::alive()&&Seconds()<minecraft_transition_until
+        &&(!minecraft_hud||minecraft_hud->value!=0)&&!(HudFresh()&&!(hud_flags&8));
+}
 bool ServerMenuInput(){
-    return HudFresh()&&!(hud_flags&8)&&!ui_active&&!minecraft_menu&&form_menu.active(Seconds())
+    // Own the form menu in both presentations. Letting CS select its original
+    // copy alone leaves our ShowMenu mirror open when Minecraft takes over.
+    return ((HudFresh()&&!(hud_flags&8))||(world&&form_menu.forms()))
+        &&!ui_active&&!minecraft_menu&&form_menu.active(Seconds())
         &&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu&&!host_ui::state().keyboard;
 }
 bool ServerMenuKey(int key,const char* binding){
@@ -530,7 +541,7 @@ bool ServerMenuKey(int key,const char* binding){
 }
 void ClearHud(){hud_revision=hud_menu_id=0;hud_flags=hud_life=0;last_hud=next_viewport=0;hud_blank=false;RestoreViewModel();}
 void UpdateViewModel(){
-    if(HudFresh()&&(hud_flags&4)&&host_viewmodel){
+    if(((HudFresh()&&(hud_flags&4))||MinecraftPresentationPending())&&host_viewmodel){
         if(!viewmodel_suppressed){saved_viewmodel=host_viewmodel->value;viewmodel_suppressed=true;}
         if(host_viewmodel->value!=0)gEngfuncs.Cvar_SetValue("r_drawviewmodel",0);
     }else RestoreViewModel();
@@ -607,7 +618,12 @@ void OpenFormMenu(){
     gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
     gEngfuncs.pfnServerCmd("goldcraft_menu\n");
 }
-bool DefaultFormMenuKey(int key,const char* binding_text){return key==K_F6&&(!binding_text||!*binding_text);}
+bool DefaultFormMenuKey(int key,const char* binding_text){
+    // Minecraft screens own text entry even when a printable key is bound to
+    // the form menu in native CS. The same key remains a shortcut in gameplay.
+    return !ui_active&&((key==K_F6&&(!binding_text||!*binding_text))
+        ||(binding_text&&std::strcmp(binding_text,"goldcraft_menu")==0));
+}
 void ReloadMinecraftResources(){SendControl(15);}
 void Status() {
     gEngfuncs.Con_Printf("[GoldCraft] protocol=%d engine=%d connected=%d local-port=%d sections=%u\n",protocol_version,api->GetEngineBuildnum(),link.connected()?1:0,link.port(),static_cast<unsigned>(sections.size()));
@@ -846,14 +862,17 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
+            minecraft_transition_until=form?Seconds()+0.5:0;
             ClearPostEffects();
-            if(life!=server_player_life){particle_texture_upload.reset();particle_texture_transfer=0;ClearEntityFrame();}
+            // Resource uploads keep their epoch/generation identity across a
+            // form or spawn change. Presentation frames still require new life.
+            if(life!=server_player_life)ClearEntityFrame();
             ReleaseMinecraftKeys();
             camera_interpolator.clear();camera_revision=0;last_camera=0;
             ReleaseHostUse();ClearHud();view_interpolator.clear();minecraft_control=minecraft_menu=ui_active=false;
             gEngfuncs.pfnClientCmd(const_cast<char*>("-forward\n-back\n-moveleft\n-moveright\n-jump\n-duck\n-speed\n-attack\n-attack2\n-use\n-reload\n"));
         }
-        server_player_life=life;server_minecraft_form=form!=0;
+        server_player_life=life;server_minecraft_form=form!=0;UpdateViewModel();
         control_trace.observe(SampleControl());
     }catch(const std::exception& e){Log(e.what());}
     return 1;
@@ -1212,8 +1231,10 @@ void ReadParticleTexture(Reader& r){
 }
 void ReadParticleTextureChunk(Reader& r){
     const auto chunk=read_particle_texture_chunk(r);
-    if(chunk.epoch!=world||chunk.generation<particle_generation||
-       chunk.life!=server_player_life||!MatchingHostProtocol())return;
+    // Like unchunked particle textures, immutable image resources are scoped
+    // to the map and resource generation. The captured life remains identical
+    // within a transfer, but does not authorize any avatar/effect presentation.
+    if(chunk.epoch!=world||chunk.generation<particle_generation||!MatchingHostProtocol())return;
     if(chunk.generation!=particle_generation){ClearParticles();particle_generation=chunk.generation;}
     if(chunk.revision<=particle_texture_transfer)throw ProtocolError("Retired particle texture transfer");
     std::size_t resident=chunk.total_bytes;
@@ -1684,7 +1705,13 @@ int KeyEvent(int down,int key,const char* binding_text) {
     if(key>=0&&key<int(menu_pressed.size())&&menu_pressed[key]){
         if(!down)menu_pressed[key]=false;return 0;
     }
-    if(DefaultFormMenuKey(key,binding_text)){if(down)OpenFormMenu();return 0;}
+    if(DefaultFormMenuKey(key,binding_text)){
+        if(down){
+            if(key>=0&&key<int(menu_pressed.size()))menu_pressed[key]=true;
+            OpenFormMenu();
+        }
+        return 0;
+    }
     if(ServerMenuInput()&&ServerMenuKey(key,binding_text)){
         if(down){if(key>=0&&key<int(menu_pressed.size()))menu_pressed[key]=true;
             if(const int selection=form_menu.selection(key==K_ESCAPE?'0':key,key==K_ESCAPE?"":binding_text?binding_text:"",Seconds());selection>0)SelectFormMenu(selection);}
@@ -1879,7 +1906,8 @@ int Redraw(float time,int intermission) {
     WorkScope timing(WorkStage::hud_redraw);
     const double began=Seconds();
     const bool visible=HudFresh();
-    const bool native_hud=!visible||(hud_flags&8);
+    const bool pending=MinecraftPresentationPending();
+    const bool native_hud=(!visible||(hud_flags&8))&&!pending;
     int result=1;
     const auto native_redraw=[&]{WorkScope timing(WorkStage::native_hud_redraw);return gExportfuncs.HUD_Redraw(time,intermission);};
     if(native_hud)result=native_redraw();
@@ -1894,7 +1922,7 @@ int Redraw(float time,int intermission) {
     }
     // Retain server kill notices and menus above the full Minecraft HUD.
     // Native/ordinary/death HUD and render failure use the original client path.
-    if(composed&&!native_hud&&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu){
+    if((composed||pending)&&!native_hud&&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu){
         WorkScope timing(WorkStage::server_hud_overlay);
         server_hud::draw(Seconds(),form_menu,!ui_active&&!minecraft_menu);
         form_menu_draws=server_hud::menu_draws();

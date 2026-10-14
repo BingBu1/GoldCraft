@@ -42,7 +42,6 @@ public final class ParticleExporter {
     private String error="";
     private ParticleTextureUpload pendingTexture;
     private long textureLinkGeneration=-1,textureTransferRevision,textureEpoch;
-    private int textureLife;
     private boolean textureContextKnown;
     private final Set<Integer> diagnosedLargeTextures=new HashSet<>();
     private static ParticleExporter active,rendering;
@@ -63,7 +62,7 @@ public final class ParticleExporter {
     }
     public static boolean sendEntityFrame(long epoch,int life,long entityRevision,EntityFrame.Base base,DirectMeshCapture effects){
         if(active==null||!active.link.connected()||epoch==0||life==0||epoch!=GoldCraftClient.HOST.epoch()||life!=HostInput.life())return false;
-        var exporter=active;exporter.prepareTextureContext(epoch,life);
+        var exporter=active;exporter.prepareTextureContext(epoch);
         var draws=effects.draws();
         int atlas=MinecraftClient.getInstance().getTextureManager().getTexture(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE).getGlId();
         var used=textureUse(draws,atlas);exporter.entityTextureSet=used;
@@ -74,13 +73,15 @@ public final class ParticleExporter {
         exporter.entityEffectFrames++;exporter.entityEffectBytes+=frame.length;exporter.entityEffectDraws=draws.size();
         return true;
     }
-    private void prepareTextureContext(long epoch,int life){
+    private void prepareTextureContext(long epoch){
         if(textureLinkGeneration!=link.generation()||(textureContextKnown&&textureEpoch!=epoch)){
             reset();textureLinkGeneration=link.generation();
         }
-        if(textureContextKnown&&textureLife!=life){cancelTextureUpload();uploaded.clear();}
-        textureEpoch=epoch;textureLife=life;textureContextKnown=true;
-        if(pendingTexture!=null&&!pendingTexture.matches(epoch,generation,life))cancelTextureUpload();
+        // Both small textures and completed chunked textures survive form and
+        // spawn changes at the receiver. Restarting a 64 MiB atlas here stalls
+        // every dependent effect for another 64 presentation frames.
+        textureEpoch=epoch;textureContextKnown=true;
+        if(pendingTexture!=null&&!pendingTexture.matchesResources(epoch,generation))cancelTextureUpload();
     }
     private static Set<Integer> textureUse(List<DirectMeshCapture.Draw> draws,int atlas){
         var used=new HashSet<Integer>();
@@ -136,7 +137,7 @@ public final class ParticleExporter {
         var client=MinecraftClient.getInstance();
         if(!link.connected()||epoch==0||epoch!=GoldCraftClient.HOST.epoch()||!HostInput.hosted()
             ||client.world==null||client.player==null||client.getOverlay()!=null){cancelTextureUpload();return;}
-        prepareTextureContext(epoch,HostInput.life());
+        prepareTextureContext(epoch);
         long now=System.nanoTime();if(!pacing.ready(now))return;
         if(lastFrame!=0)intervalMs=(now-lastFrame)/1_000_000.0;lastFrame=now;
         long began=Performance.begin();

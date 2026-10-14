@@ -138,6 +138,7 @@ void reset() {
     drawn_health = drawn_armor = -1; health_draws = armor_draws = 0;
 }
 const char* error() { return failure.c_str(); }
+bool alive(){return enabled&&native_health&&*native_health>0;}
 void write_status(std::ostream& out) {
     out << "\"nativeVitals\":{\"enabled\":" << enabled << ",\"health\":" << (enabled ? *native_health : -1)
         << ",\"armor\":" << (enabled ? *native_armor : -1) << ",\"drawnHealth\":" << drawn_health

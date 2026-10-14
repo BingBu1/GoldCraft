@@ -54,7 +54,24 @@ class ParticleTextureUploadTest {
         var upload=new ParticleTextureUpload(h,21,7,ByteBuffer.allocate(64),freed::incrementAndGet);
         assertTrue(upload.matches(1,2,3));assertFalse(upload.matches(2,2,3));
         assertFalse(upload.matches(1,3,3));assertFalse(upload.matches(1,2,4));
+        assertTrue(upload.matchesResources(1,2));
+        assertFalse(upload.matchesResources(2,2));assertFalse(upload.matchesResources(1,3));
         // Content changes after capture cannot rewrite the in-flight snapshot's stamp.
         assertEquals(7,upload.stamp());upload.close();assertEquals(1,freed.get());
+    }
+    @Test void newAvatarLifeDoesNotRestartImmutableTextureBytes(){
+        var h=new ParticleTextureChunks.Header(1,2,3,4,50,4096,128);
+        var released=new AtomicInteger();
+        try(var upload=new ParticleTextureUpload(h,21,7,ByteBuffer.allocate(h.totalBytes()),released::incrementAndGet)){
+            assertFalse(upload.pump(packet->true));
+            assertEquals(1048576,upload.sentBytes());
+            assertFalse(upload.matches(1,2,4));assertTrue(upload.matchesResources(1,2));
+            assertTrue(upload.pump(packet->{
+                var reader=ByteBuffer.wrap(packet).order(ByteOrder.LITTLE_ENDIAN);
+                assertEquals(3,reader.getInt(16));
+                assertTrue(reader.getInt(40)>=1048576);return true;
+            }));
+        }
+        assertEquals(1,released.get());
     }
 }

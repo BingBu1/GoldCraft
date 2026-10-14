@@ -24,6 +24,8 @@
     "SharedVitalsRespawnMixin",
     "SharedVitalsRemovalMixin",
     "NightfallDedicatedEffectsMixin",
+    "NightfallMurasamaConfigMixin",
+    "NightfallYamatoGroundMixin",
     "NativePlayerLookupMixin",
     "NightfallNativeSkillDamageMixin",
     "EpicSkillBindingMixin",
