@@ -881,7 +881,7 @@ index 2567c84..8ab3227 100644
 \ No newline at end of file
 +#endif //GL_COMMON_H
 diff --git a/src/gl_draw.cpp b/src/gl_draw.cpp
-index 036f185..f761837 100644
+index 036f185..fb2bb4a 100644
 --- a/src/gl_draw.cpp
 +++ b/src/gl_draw.cpp
 @@ -1,4 +1,6 @@
@@ -891,12 +891,17 @@ index 036f185..f761837 100644
  #include "MurmurHash2.h"
  #include <ScopeExit/ScopeExit.h>
  #include <FreeImage.h>
-@@ -406,6 +408,56 @@ void GL_UploadSubDataToUBO(GLuint UBO, size_t offset, size_t size, const void* d
+@@ -406,6 +408,61 @@ void GL_UploadSubDataToUBO(GLuint UBO, size_t offset, size_t size, const void* d
      }
  }
  
 +static CDrawParameterStream g_DrawParameters;
 +static cvar_t* r_draw_parameter_stream{};
++
++const DrawParameterStreamStats& R_DrawParameterStats()
++{
++    return g_DrawParameters.Stats();
++}
 +
 +static void R_DrawParameterStatus()
 +{
@@ -948,7 +953,7 @@ index 036f185..f761837 100644
  void GL_UploadDataToVBOStaticDraw(GLuint VBO, size_t size, const void* data)
  {
      glBindBuffer(GL_ARRAY_BUFFER, VBO);
-@@ -3556,4 +3608,4 @@ void BuildGammaTable(float g)
+@@ -3556,4 +3613,4 @@ void BuildGammaTable(float g)
      {
          lightgammatable[i] = i;
      }
@@ -2273,7 +2278,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..cfce5d8 100644
+index fa85f25..70a77ec 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,7 @@
@@ -2284,7 +2289,7 @@ index fa85f25..cfce5d8 100644
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +11,26 @@
+@@ -9,33 +11,30 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -2297,6 +2302,10 @@ index fa85f25..cfce5d8 100644
 +static cvar_t* r_studio_bone_palette_cache{};
 +static cvar_t* r_studio_shadow_face_cull{};
 +static cvar_t* r_studio_shadow_depth_executor{};
++static cvar_t* r_studio_shadow_plan{};
++static StudioShadowPlanStats g_StudioShadowPlanStats{};
++
++StudioShadowPlanStats R_StudioShadowPlanStats() { return g_StudioShadowPlanStats; }
  
  static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
  
@@ -2327,7 +2336,7 @@ index fa85f25..cfce5d8 100644
  
  //Engine private vars
  
-@@ -154,83 +149,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +153,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -2411,7 +2420,7 @@ index fa85f25..cfce5d8 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1341,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1345,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -2419,7 +2428,7 @@ index fa85f25..cfce5d8 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1355,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1359,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -2437,7 +2446,7 @@ index fa85f25..cfce5d8 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1447,14 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1451,14 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -2452,7 +2461,7 @@ index fa85f25..cfce5d8 100644
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1469,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1473,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -2460,7 +2469,7 @@ index fa85f25..cfce5d8 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1520,11 @@ void R_InitStudio(void)
+@@ -1583,6 +1524,12 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -2468,11 +2477,12 @@ index fa85f25..cfce5d8 100644
 +    // Keep this candidate opt-in until an actual foreground comparison is available.
 +    r_studio_shadow_face_cull = gEngfuncs.pfnRegisterVariable("r_studio_shadow_face_cull", "0", FCVAR_CLIENTDLL);
 +    r_studio_shadow_depth_executor = gEngfuncs.pfnRegisterVariable("r_studio_shadow_depth_executor", "0", FCVAR_CLIENTDLL);
++    r_studio_shadow_plan = gEngfuncs.pfnRegisterVariable("r_studio_shadow_plan", "0", FCVAR_CLIENTDLL);
 +    R_StudioDiagnosticsInit();
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1830,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1835,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2489,7 +2499,7 @@ index fa85f25..cfce5d8 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,6 +2085,13 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,6 +2090,13 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
@@ -2503,7 +2513,7 @@ index fa85f25..cfce5d8 100644
  void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>& pRenderData)
  {
      studio_ubo_t StudioUBO = {0};
-@@ -2310,8 +2263,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2310,8 +2268,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2512,7 +2522,7 @@ index fa85f25..cfce5d8 100644
      if (R_IsRenderingClippedLowerBody())
      {
          auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
-@@ -2327,9 +2278,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2283,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2527,18 +2537,23 @@ index fa85f25..cfce5d8 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2340,153 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2345,164 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
++static bool R_StudioDepthHostEligible(const StudioDepthExecutorContext& context)
++{
++    return context.enabled && context.shadowView && context.opaque && context.ordinaryMode &&
++        context.ordinaryFx && context.fullbrightAllowed && !context.externalMaterials && !context.excludedView;
++}
++
 +bool R_StudioCanUseDepthExecutor(const StudioDepthExecutorContext& context)
 +{
 +    constexpr program_state_t allowedTextureFlags = STUDIO_NF_FLATSHADE | STUDIO_NF_FULLBRIGHT |
 +        STUDIO_NF_NOMIPS | STUDIO_NF_NOOUTLINE;
 +    constexpr program_state_t allowedDrawState = allowedTextureFlags | STUDIO_SHADOW_CASTER_ENABLED;
-+    if (!context.enabled || !context.shadowView || !context.opaque || !context.ordinaryMode ||
-+        !context.ordinaryFx || !context.validTexture || !context.fullbrightAllowed ||
-+        context.externalMaterials || context.excludedView || context.indexCount <= 0 || context.firstIndex < 0 ||
++    if (!R_StudioDepthHostEligible(context) || !context.validTexture ||
++        context.indexCount <= 0 || context.firstIndex < 0 ||
 +        context.textureWidth <= 0 || context.textureHeight <= 0 ||
 +        (context.textureFlags & ~allowedTextureFlags) != 0 ||
 +        (context.drawState & ~allowedDrawState) != 0 || !(context.drawState & STUDIO_SHADOW_CASTER_ENABLED) ||
@@ -2560,17 +2575,10 @@ index fa85f25..cfce5d8 100644
 +        !(context.textureName.size() == 11 && beginsWith("DM_Base.bmp"));
 +}
 +
-+static bool R_StudioDepthExecutorEligible(
-+    const CStudioModelRenderData* pRenderData, const CStudioModelRenderMesh* pRenderMesh,
-+    const mstudiomesh_t* pmesh, const studiohdr_t* ptexturehdr, const mstudiotexture_t* ptexture,
-+    const short* pskinref, program_state_t state)
++static StudioDepthExecutorContext R_StudioDepthHostContext(const CStudioModelRenderData* pRenderData)
 +{
-+    // Off pays only the cvar check; no eligibility scans on the ordinary path.
-+    if (!r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f)
-+        return false;
-+
 +    StudioDepthExecutorContext context{};
-+    context.enabled = true;
++    context.enabled = r_studio_shadow_depth_executor && r_studio_shadow_depth_executor->value == 1.0f;
 +    context.shadowView = R_IsRenderingShadowView();
 +    context.opaque = r_draw_opaque;
 +    context.ordinaryMode = (*currententity)->curstate.rendermode == kRenderNormal;
@@ -2587,6 +2595,19 @@ index fa85f25..cfce5d8 100644
 +        R_ShouldDrawGlowStencil() || R_ShouldDrawGlowStencilEnableDepthTest() ||
 +        R_ShouldDrawGlowStencilWallHack() || R_ShouldDrawGlowStencilWallHackBehindWallOnly() ||
 +        R_ShouldDrawGlowColor() || R_ShouldDrawGlowColorWallHack() || R_ShouldDrawGlowColorWallHackBehindWallOnly();
++    return context;
++}
++
++static bool R_StudioDepthExecutorEligible(
++    const CStudioModelRenderData* pRenderData, const CStudioModelRenderMesh* pRenderMesh,
++    const mstudiomesh_t* pmesh, const studiohdr_t* ptexturehdr, const mstudiotexture_t* ptexture,
++    const short* pskinref, program_state_t state)
++{
++    // Off pays only the cvar check; no eligibility scans on the ordinary path.
++    if (!r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f)
++        return false;
++
++    auto context = R_StudioDepthHostContext(pRenderData);
 +    context.indexCount = pRenderMesh->iIndiceCount;
 +    context.firstIndex = pRenderMesh->iStartIndex;
 +    context.drawState = state;
@@ -2681,7 +2702,7 @@ index fa85f25..cfce5d8 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2497,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2513,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -2689,7 +2710,7 @@ index fa85f25..cfce5d8 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2645,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2661,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -2702,7 +2723,7 @@ index fa85f25..cfce5d8 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2886,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2902,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -2728,7 +2749,7 @@ index fa85f25..cfce5d8 100644
          }
          else
          {
-@@ -2878,10 +2968,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +2984,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -2740,7 +2761,7 @@ index fa85f25..cfce5d8 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3191,8 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3207,8 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -2807,7 +2828,7 @@ index fa85f25..cfce5d8 100644
  }
  
  void R_StudioDrawMesh(
-@@ -3259,6 +3290,75 @@ void R_StudioDrawMesh(
+@@ -3259,6 +3306,173 @@ void R_StudioDrawMesh(
      }
  }
  
@@ -2880,14 +2901,114 @@ index fa85f25..cfce5d8 100644
 +    return count;
 +}
 +
++static const StudioShadowSkinPlan* R_StudioGetShadowSubmissionPlan(
++    CStudioModelRenderData* data, CStudioModelRenderSubModel* submodel,
++    studiohdr_t* textureHeader, mstudiotexture_t* textures, short* skinref)
++{
++    if (!r_studio_shadow_plan || r_studio_shadow_plan->value != 1.0f ||
++        !r_studio_shadow_depth_executor || r_studio_shadow_depth_executor->value != 1.0f ||
++        r_draw_analyzingstudio || !data || !submodel || !textureHeader || !textures || !skinref ||
++        !(*pstudiohdr) || !(*psubmodel) || !textureHeader->textureindex ||
++        submodel->vMesh.empty() || !R_StudioDepthHostEligible(R_StudioDepthHostContext(data)))
++        return nullptr;
++
++    // Bound retained memory even for unusual models; the original path remains
++    // available. No hashes: byte equality catches same-address host mutations.
++    const int meshCount = (*psubmodel)->nummesh;
++    const int textureCount = textureHeader->numtextures;
++    const int skinCount = textureHeader->numskinref;
++    if (meshCount <= 0 || meshCount > 4096 || textureCount <= 0 || textureCount > 4096 ||
++        skinCount <= 0 || skinCount > 4096 || submodel->vMesh.size() > 4096)
++        return nullptr;
++    const auto* meshes = reinterpret_cast<const mstudiomesh_t*>(
++        reinterpret_cast<const byte*>(*pstudiohdr) + (*psubmodel)->meshindex);
++    auto& cache = submodel->shadowPlan;
++    if (cache.header != textureHeader || cache.meshes != meshes || cache.textures != textures ||
++        cache.skinCount != skinCount || cache.preparedCount != submodel->vMesh.size() ||
++        cache.meshSnapshot.size() != size_t(meshCount) || cache.textureSnapshot.size() != size_t(textureCount) ||
++        std::memcmp(cache.meshSnapshot.data(), meshes, size_t(meshCount) * sizeof(*meshes)) ||
++        std::memcmp(cache.textureSnapshot.data(), textures, size_t(textureCount) * sizeof(*textures)))
++    {
++        if (!cache.skins.empty()) ++g_StudioShadowPlanStats.invalidations;
++        cache = {};
++        cache.header = textureHeader;
++        cache.meshes = meshes;
++        cache.textures = textures;
++        cache.skinCount = skinCount;
++        cache.preparedCount = submodel->vMesh.size();
++        cache.meshSnapshot.assign(meshes, meshes + meshCount);
++        cache.textureSnapshot.assign(textures, textures + textureCount);
++        cache.skins.reserve(8);
++    }
++    for (const auto& plan : cache.skins)
++    {
++        if (!std::memcmp(plan.skin.data(), skinref, size_t(skinCount) * sizeof(*skinref)))
++        {
++            ++g_StudioShadowPlanStats.reuses;
++            return &plan;
++        }
++    }
++
++    // At most eight skin variants per immutable submodel. Ordinary model/team
++    // alternation reuses plans; a new skin can evict one without changing draws.
++    size_t slot = cache.skins.size();
++    if (slot < 8) cache.skins.emplace_back();
++    else
++    {
++        slot = cache.nextEviction;
++        cache.nextEviction = (cache.nextEviction + 1) % cache.skins.size();
++    }
++    auto& plan = cache.skins[slot];
++    plan.skin.assign(skinref, skinref + skinCount);
++    plan.allOpaque = true;
++    plan.submissions.clear();
++    plan.submissions.reserve(submodel->vMesh.size());
++    for (size_t first = 0; first < submodel->vMesh.size();)
++    {
++        StudioShadowSubmission submission;
++        submission.first = first;
++        submission.count = R_StudioCollectShadowBatch(data, submodel, meshes, meshCount,
++            textureHeader, textures, skinref, first, submission.mesh, submission.state);
++        if (!submission.count) plan.allOpaque = false;
++        plan.submissions.push_back(submission);
++        first += submission.count ? submission.count : 1;
++    }
++    ++g_StudioShadowPlanStats.builds;
++    return &plan;
++}
++
++static bool R_StudioTryDrawShadowPlan(
++    CStudioModelRenderData* data, CStudioModelRenderSubModel* submodel,
++    studiohdr_t* textureHeader, mstudiotexture_t* textures, short* skinref)
++{
++    const auto* plan = R_StudioGetShadowSubmissionPlan(data, submodel, textureHeader, textures, skinref);
++    if (!plan) return false;
++    // A generic material draw may itself change skin metadata. Keep the whole
++    // original interleaved path for mixed submodels; never reuse commands after
++    // a side-effectful fallback inside the same plan.
++    if (!plan->allOpaque)
++    {
++        ++g_StudioShadowPlanStats.fallbackModels;
++        return false;
++    }
++    for (const auto& submission : plan->submissions)
++    {
++        RProfileScope profileScope(RProfileStage::StudioMesh);
++        R_StudioDrawOpaqueShadowMesh(&submission.mesh, submission.state);
++    }
++    return true;
++}
++
  void R_StudioDrawSubmodel(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* VBOSubmodel,
-@@ -3266,11 +3366,17 @@ void R_StudioDrawSubmodel(
+@@ -3266,11 +3480,19 @@ void R_StudioDrawSubmodel(
      mstudiotexture_t*           ptexture,
      short*                      pskinref)
  {
 -    for (size_t i = 0; i < VBOSubmodel->vMesh.size(); i++)
++    if (R_StudioTryDrawShadowPlan(pRenderData, VBOSubmodel, ptexturehdr, ptexture, pskinref))
++        return;
 +    for (size_t i = 0; i < VBOSubmodel->vMesh.size();)
      {
 +        if (const auto count = R_StudioTryDrawShadowBatch(pRenderData, VBOSubmodel, ptexturehdr, ptexture, pskinref, i))
@@ -2902,7 +3023,7 @@ index fa85f25..cfce5d8 100644
      }
  }
  
-@@ -3377,7 +3483,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3599,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -2914,7 +3035,7 @@ index fa85f25..cfce5d8 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +3970,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +4086,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -2930,7 +3051,7 @@ index fa85f25..cfce5d8 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +3980,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +4096,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -3093,7 +3214,7 @@ index fa85f25..cfce5d8 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +3997,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +4113,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -3121,7 +3242,7 @@ index fa85f25..cfce5d8 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +4009,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +4125,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -3129,7 +3250,7 @@ index fa85f25..cfce5d8 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,30 +4025,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +4141,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -3166,7 +3287,7 @@ index fa85f25..cfce5d8 100644
          pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
-@@ -4117,27 +4045,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4117,27 +4161,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
      //Never cache bones for viewmodel !
      if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
      {
@@ -3204,7 +3325,15 @@ index fa85f25..cfce5d8 100644
      pfnMergeBones(pthis, dummy, pSubModel);
  }
  
-@@ -5021,18 +4945,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -4959,6 +4999,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+         gEngfuncs.Con_DPrintf("R_CreateStudioRenderData: Found modelindex[%d] modname[%s].\n", EngineGetModelIndex(mod), mod->name);
+ 
+         //Always reload
++        for (auto* submodel : pRenderData->vSubmodels) submodel->shadowPlan = {};
+         pRenderData->mStudioMaterials.clear();
+ 
+         R_StudioLoadTextureModel(mod, studiohdr, pRenderData.get());
+@@ -5021,18 +5062,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -3226,7 +3355,7 @@ index fa85f25..cfce5d8 100644
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..3a3238c 100644
+index eeb137d..c74547f 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
 @@ -9,6 +9,7 @@
@@ -3246,7 +3375,7 @@ index eeb137d..3a3238c 100644
  } studio_program_t;
  
  class studiovertexbase_t
-@@ -87,6 +90,19 @@ public:
+@@ -87,6 +90,53 @@ public:
      size_t nMeshOffset{0};
  };
  
@@ -3263,10 +3392,52 @@ index eeb137d..3a3238c 100644
 +
 +bool R_StudioCanUseDepthExecutor(const StudioDepthExecutorContext& context);
 +
++struct StudioShadowSubmission
++{
++    CStudioModelRenderMesh mesh;
++    program_state_t state{};
++    size_t first{}, count{};
++};
++
++struct StudioShadowSkinPlan
++{
++    bool allOpaque{};
++    std::vector<short> skin;
++    std::vector<StudioShadowSubmission> submissions;
++};
++
++// Owned by immutable prepared geometry. Exact byte snapshots also catch host
++// callbacks mutating texture/skin metadata in place between lights.
++struct StudioShadowSubmissionCache
++{
++    const studiohdr_t* header{};
++    const mstudiomesh_t* meshes{};
++    const mstudiotexture_t* textures{};
++    int skinCount{};
++    size_t preparedCount{}, nextEviction{};
++    std::vector<mstudiomesh_t> meshSnapshot;
++    std::vector<mstudiotexture_t> textureSnapshot;
++    std::vector<StudioShadowSkinPlan> skins;
++};
++
++struct StudioShadowPlanStats
++{
++    uint64_t builds{}, reuses{}, invalidations{}, fallbackModels{};
++};
++StudioShadowPlanStats R_StudioShadowPlanStats();
++
  class CStudioModelRenderSubModel
  {
  public:
-@@ -225,8 +241,8 @@ public:
+@@ -96,6 +146,7 @@ public:
+ 
+     size_t                              m_SubmodelOffset{};
+     std::vector<CStudioModelRenderMesh> vMesh;
++    StudioShadowSubmissionCache shadowPlan;
+ };
+ 
+ class CStudioModelRenderMaterial
+@@ -225,8 +276,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -3277,7 +3448,7 @@ index eeb137d..3a3238c 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +258,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +293,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -3310,7 +3481,7 @@ index eeb137d..3a3238c 100644
          return base;
      }
  };
-@@ -347,6 +365,7 @@ void     R_StudioFlushAllSkins();
+@@ -347,6 +400,7 @@ void     R_StudioFlushAllSkins();
  void     R_ShutdownStudio(void);
  void     R_InitStudio(void);
  void     R_StudioStartFrame(void);
@@ -3318,7 +3489,7 @@ index eeb137d..3a3238c 100644
  void     R_StudioEndFrame(void);
  void     R_SaveStudioProgramStates(void);
  void     R_LoadStudioProgramStates(void);
-@@ -356,20 +375,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +410,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -9788,10 +9959,10 @@ index 0000000..9ad2d2c
 +}
 diff --git a/tests/studio_shadow_depth_gl_tests.cpp b/tests/studio_shadow_depth_gl_tests.cpp
 new file mode 100644
-index 0000000..a47bb75
+index 0000000..6226e8e
 --- /dev/null
 +++ b/tests/studio_shadow_depth_gl_tests.cpp
-@@ -0,0 +1,684 @@
+@@ -0,0 +1,762 @@
 +// Execute extracted production helpers on real layered depth/stencil targets.
 +// Reuse the existing production-shader/UBO/camera/readback fixture utilities.
 +// The legacy comparison runs the shared production state/submit/cleanup path;
@@ -9873,6 +10044,10 @@ index 0000000..a47bb75
 +void R_ProfileEnd(RProfileStage stage, double) { if (stage == RProfileStage::StudioSubmit) ++profileSubmitEnds; }
 +int R_ProfileGpuBegin(RProfileStage) { return -1; }
 +void R_ProfileGpuEnd(int) {}
++
++static cvar_t shadowPlanVariable{};
++static cvar_t* r_studio_shadow_plan = &shadowPlanVariable;
++static StudioShadowPlanStats g_StudioShadowPlanStats{};
 +
 +// Only disk/provider loading is adapted. Production R_UseStudioProgram builds
 +// the actual defines and obtains the actual uniform locations below.
@@ -10384,6 +10559,24 @@ index 0000000..a47bb75
 +            Equal(legacy.depth, batch.depth, "batched opaque index ranges preserve exact layered depth");
 +            Check(legacy.stencil == batch.stencil && legacy.state == batch.state, "batch preserves stencil and all observed exit state");
 +            Check(Written(batch.depth) > 20, "batched draw writes actual geometry");
++            // The real callback would already have updated pose/UBO above.
++            // Reuse one prepared plan through many light submissions.
++            const auto builds = g_StudioShadowPlanStats.builds;
++            shadowPlanVariable.value = 1;
++            for (int light = 0; light < 8; ++light)
++            {
++                target.Layered(); glDepthMask(GL_TRUE); glStencilMask(0xff);
++                glClearBufferfi(GL_DEPTH_STENCIL, 0, 1.f, 93); Poison(0);
++                const auto calls = meshSubmissions;
++                Check(R_StudioTryDrawShadowPlan(&model, &prepared, &textureHeader, textures, skins),
++                    "actual prepared plan executes after each light callback");
++                Check(meshSubmissions == calls + 1, "prepared plan makes one merged submission");
++                Equal(legacy.depth, target.ReadDepth(), "reused plan preserves layered depth");
++                Check(legacy.stencil == ReadStencil(target) && legacy.state == State(),
++                    "reused plan preserves stencil and exit state");
++            }
++            Check(g_StudioShadowPlanStats.builds <= builds + 1, "classification is reused across lights");
++            shadowPlanVariable.value = 0;
 +        }
 +    }
 +    textures[0].flags = textures[1].flags = 0;
@@ -10411,6 +10604,62 @@ index 0000000..a47bb75
 +    Check(R_StudioTryDrawShadowBatch(nullptr, nullptr, nullptr, nullptr, nullptr, 0) == 0, "disabled batch never touches model pointers");
 +    depthExecutor.value = 1;
 +    Check(State() == before && glGetError() == GL_NO_ERROR, "batch preparation and rejected paths do not change GL state");
++    shadowPlanVariable.value = 1;
++    prepared.shadowPlan = {};
++    const auto getPlan = [&] { return R_StudioGetShadowSubmissionPlan(&model, &prepared, &textureHeader, textures, skins); };
++    auto* plan = getPlan();
++    Check(plan && plan->submissions.size() == 1 && plan->submissions[0].count == baseline.size(), "initial prepared range");
++    auto builds = g_StudioShadowPlanStats.builds;
++    auto reuse = g_StudioShadowPlanStats.reuses;
++    Check(getPlan() == plan && g_StudioShadowPlanStats.builds == builds && g_StudioShadowPlanStats.reuses == reuse + 1,
++        "unchanged exact metadata reuses without classifying meshes");
++    textures[0].flags = STUDIO_NF_MASKED;
++    plan = getPlan();
++    Check(plan && plan->submissions.size() == baseline.size() && !plan->submissions[0].count &&
++        g_StudioShadowPlanStats.builds == builds + 1, "same-address alpha mutation invalidates before next light");
++    const auto callsBeforeFallback = meshSubmissions;
++    Check(!R_StudioTryDrawShadowPlan(&model, &prepared, &textureHeader, textures, skins) &&
++        meshSubmissions == callsBeforeFallback, "unsupported material returns entire model to original interleaved dispatch");
++    textures[0].flags = 0;
++    textures[1].flags = STUDIO_NF_FLATSHADE;
++    plan = getPlan();
++    Check(plan && plan->submissions[0].state == STUDIO_SHADOW_CASTER_ENABLED, "opaque mutation rebuilds");
++    skins[0] = 1;
++    plan = getPlan();
++    Check(plan && (plan->submissions[0].state & STUDIO_NF_FLATSHADE), "in-place skin remap selects a distinct plan");
++    builds = g_StudioShadowPlanStats.builds; skins[0] = 0;
++    Check(getPlan() && g_StudioShadowPlanStats.builds == builds, "switching skin back reuses original plan");
++    source.meshes[1].skinref = 1;
++    plan = getPlan();
++    Check(plan && plan->submissions[0].count == 1, "in-place mesh material reference is detected");
++    source.meshes[1].skinref = 0;
++    std::strcpy(textures[0].name, "RemapBody");
++    Check(getPlan() && !getPlan()->submissions[0].count, "renamed remap skin cannot retain opaque classification");
++    std::strcpy(textures[0].name, "ordinary.bmp"); textures[0].width = 0;
++    Check(getPlan() && !getPlan()->submissions[0].count, "dimension mutation rejects cached material");
++    textures[0].width = 8;
++    for (auto& excluded : excludedHosts)
++    {
++        excluded = true; Check(!getPlan(), "each special view remains outside cached path"); excluded = false;
++    }
++    entity.curstate.renderfx = kRenderFxDrawGlowShell; Check(!getPlan(), "dynamic FX preserved"); entity.curstate.renderfx = kRenderFxNone;
++    entity.curstate.rendermode = kRenderTransAdd; Check(!getPlan(), "dynamic render mode preserved"); entity.curstate.rendermode = kRenderNormal;
++    model.mStudioMaterials.emplace(1, nullptr); Check(!getPlan(), "new external material rejects old plan"); model.mStudioMaterials.clear();
++    r_draw_analyzingstudio = true; Check(!getPlan(), "analysis callbacks preserved"); r_draw_analyzingstudio = false;
++    testShadow = false; Check(!getPlan(), "main view does not use shadow plan"); testShadow = true;
++    fullbright.value = 2; Check(!getPlan(), "fullbright host changes preserved"); fullbright.value = 0;
++    // More than eight variants exercise bounded eviction, including the eighth
++    // insertion boundary; invalid skin indices simply keep the generic path.
++    for (short skin = 0; skin < 12; ++skin)
++    {
++        skins[0] = skin; Check(getPlan() != nullptr, "bounded variant insertion");
++        Check(prepared.shadowPlan.skins.size() <= 8, "skin cache stays bounded");
++    }
++    skins[0] = 0; Check(getPlan() != nullptr, "evicted skin rebuilds safely");
++    prepared.shadowPlan = {}; builds = g_StudioShadowPlanStats.builds;
++    Check(getPlan() && g_StudioShadowPlanStats.builds == builds + 1, "resource reload clears retained plan");
++    shadowPlanVariable.value = 0;
++    Check(!R_StudioGetShadowSubmissionPlan(nullptr, nullptr, nullptr, nullptr, nullptr), "disabled plan avoids pointer access");
 +    headerPointer = oldHeader; submodelPointer = nullptr; r_draw_hasoutline = false;
 +}
 +
@@ -10478,10 +10727,10 @@ index 0000000..a47bb75
 +}
 diff --git a/tests/extract_studio_depth_executor.py b/tests/extract_studio_depth_executor.py
 new file mode 100644
-index 0000000..d92ed76
+index 0000000..e959c35
 --- /dev/null
 +++ b/tests/extract_studio_depth_executor.py
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,84 @@
 +"""Extract real Studio submission/state/eligibility functions for a GL fixture.
 +
 +The fixture adapts host decisions and shader-file loading; the generated code
@@ -10515,7 +10764,9 @@ index 0000000..d92ed76
 +    sources = {name: (args.src / name).read_text(encoding="utf-8-sig") for name in names}
 +    studio = sources["gl_studio.cpp"]
 +    signatures = (
++        "static bool R_StudioDepthHostEligible(",
 +        "bool R_StudioCanUseDepthExecutor(",
++        "static StudioDepthExecutorContext R_StudioDepthHostContext(",
 +        "static bool R_StudioDepthExecutorEligible(",
 +        "void R_UseStudioProgram(",
 +        "static void R_StudioBeginOpaqueStencil(",
@@ -10525,6 +10776,8 @@ index 0000000..d92ed76
 +        "static void R_StudioDrawOpaqueShadowMesh(",
 +        "static size_t R_StudioCollectShadowBatch(",
 +        "static size_t R_StudioTryDrawShadowBatch(",
++        "static const StudioShadowSkinPlan* R_StudioGetShadowSubmissionPlan(",
++        "static bool R_StudioTryDrawShadowPlan(",
 +    )
 +    extracted = [function(sources["gl_rmisc.cpp"], signature) for signature in
 +                 ("void GL_BindTextureUnit(", "void GL_BeginStencilWrite(", "void GL_EndStencil(")]
@@ -10539,9 +10792,16 @@ index 0000000..d92ed76
 +            raise SystemExit("Shared production DrawPass wiring changed: " + call)
 +    if studio.count('"r_studio_shadow_depth_executor", "0"') != 1:
 +        raise SystemExit("Depth executor must remain registered default-off")
++    if studio.count('"r_studio_shadow_plan", "0"') != 1:
++        raise SystemExit("Shadow plan must remain registered default-off")
 +    submodel = function(studio, "void R_StudioDrawSubmodel(\n")
 +    if submodel.count("R_StudioTryDrawShadowBatch(") != 1 or "i += count;" not in submodel or "++i;" not in submodel:
 +        raise SystemExit("Production submodel must consume the batch and retain individual fallback")
++    if submodel.count("R_StudioTryDrawShadowPlan(") != 1:
++        raise SystemExit("Production submodel must dispatch the prepared plan after the model callback")
++    reload = function(studio, "std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(")
++    if "submodel->shadowPlan = {};" not in reload:
++        raise SystemExit("Same-object resource reload must invalidate submission plans")
 +    body = "// Generated from unchanged production function bodies.\n\n" + "\n\n".join(extracted) + "\n"
 +    args.output.parent.mkdir(parents=True, exist_ok=True)
 +    args.output.write_text(body, encoding="utf-8")
@@ -10844,11 +11104,13 @@ index 0000000..5ea67d8
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..8a45068
+index 0000000..5f4f3c1
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,567 @@
+@@ -0,0 +1,601 @@
 +#include "gl_local.h"
++#include "draw_parameter_dispatch.h"
++#include "draw_parameter_stream.h"
 +#include <algorithm>
 +#include <array>
 +#include <chrono>
@@ -11144,11 +11406,16 @@ index 0000000..8a45068
 +    vec3_t                              origin{}, angles{};
 +    int                                 focused{}, deferred{}, diagnostics{}, shadows{}, lights{}, width{}, height{};
 +    int                                 shadowCull{}, studioFaceCull{}, studioDepthExecutor{}, views{}, gpuReady{};
-+    int                                 studioBonePaletteCache{}, worldMaterialBatch{};
++    int                                 studioBonePaletteCache{}, worldMaterialBatch{}, drawParameterStream{};
++    DrawParameterStreamStats             drawParameters{};
++    StudioShadowPlanStats                shadowPlan{};
++    int                                 studioShadowPlan{};
 +    float                               fpsMax{}, fpsOverride{}, vsync{};
 +};
 +std::vector<ProfileFrame> profileFrames;
 +ProfileFrame              profileFrame{};
++DrawParameterStreamStats  drawParameterStart{};
++StudioShadowPlanStats     shadowPlanStart{};
 +bool                      profileActive{};
 +double                    profileStart{}, profileStop{}, frameStart{}, previousFrame{};
 +bool                      compareCulling{};
@@ -11233,6 +11500,17 @@ index 0000000..8a45068
 +            << ",\"studioBonePaletteUploadBytes\":" << f.studioBonePaletteUploadBytes
 +            << ",\"studioBonePaletteFallbacks\":" << f.studioBonePaletteFallbacks
 +            << ",\"studioBonePaletteCache\":" << f.studioBonePaletteCache;
++        out << ",\"studioShadowPlan\":" << f.studioShadowPlan
++            << ",\"studioShadowPlanBuilds\":" << f.shadowPlan.builds
++            << ",\"studioShadowPlanReuses\":" << f.shadowPlan.reuses
++            << ",\"studioShadowPlanInvalidations\":" << f.shadowPlan.invalidations
++            << ",\"studioShadowPlanFallbackModels\":" << f.shadowPlan.fallbackModels;
++        out << ",\"drawParameterStream\":" << f.drawParameterStream
++            << ",\"drawParameterUploads\":" << f.drawParameters.streamedDraws
++            << ",\"drawParameterBytes\":" << f.drawParameters.streamedBytes
++            << ",\"drawParameterFallbacks\":" << f.drawParameters.fallbacks
++            << ",\"drawParameterBusyFallbacks\":" << f.drawParameters.busyFallbacks
++            << ",\"drawParameterSyncFailures\":" << f.drawParameters.syncFailures;
 +        out << ",\"worldMaterialBatch\":" << f.worldMaterialBatch
 +            << ",\"worldMaterialChains\":" << f.worldMaterialChains
 +            << ",\"worldMaterialSubmissions\":" << f.worldMaterialSubmissions
@@ -11387,6 +11665,8 @@ index 0000000..8a45068
 +    profileFrame.time     = (frameStart - profileStart) * 1000;
 +    profileFrame.interval = previousFrame ? (frameStart - previousFrame) * 1000 : 0;
 +    previousFrame         = frameStart;
++    drawParameterStart = R_DrawParameterStats();
++    shadowPlanStart = R_StudioShadowPlanStats();
 +}
 +void R_ProfileFrameEnd()
 +{
@@ -11407,6 +11687,20 @@ index 0000000..8a45068
 +    profileFrame.studioDepthExecutor = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_depth_executor") == 1.0f;
 +    profileFrame.studioBonePaletteCache = gEngfuncs.pfnGetCvarFloat("r_studio_bone_palette_cache") == 1.0f;
 +    profileFrame.worldMaterialBatch = r_world_material_batch && r_world_material_batch->value == 1.0f;
++    profileFrame.drawParameterStream = gEngfuncs.pfnGetCvarFloat("r_draw_parameter_stream") == 1.0f;
++    profileFrame.studioShadowPlan = gEngfuncs.pfnGetCvarFloat("r_studio_shadow_plan") == 1.0f;
++    const auto plan = R_StudioShadowPlanStats();
++    profileFrame.shadowPlan.builds = plan.builds - shadowPlanStart.builds;
++    profileFrame.shadowPlan.reuses = plan.reuses - shadowPlanStart.reuses;
++    profileFrame.shadowPlan.invalidations = plan.invalidations - shadowPlanStart.invalidations;
++    profileFrame.shadowPlan.fallbackModels = plan.fallbackModels - shadowPlanStart.fallbackModels;
++    const auto& parameters = R_DrawParameterStats();
++    profileFrame.drawParameters.streamedDraws = parameters.streamedDraws - drawParameterStart.streamedDraws;
++    profileFrame.drawParameters.streamedBytes = parameters.streamedBytes - drawParameterStart.streamedBytes;
++    profileFrame.drawParameters.fallbacks = parameters.fallbacks - drawParameterStart.fallbacks;
++    profileFrame.drawParameters.busyFallbacks = parameters.busyFallbacks - drawParameterStart.busyFallbacks;
++    profileFrame.drawParameters.syncFailures = parameters.syncFailures - drawParameterStart.syncFailures;
++
 +    profileFrame.fpsMax      = gEngfuncs.pfnGetCvarFloat("fps_max");
 +    profileFrame.fpsOverride = gEngfuncs.pfnGetCvarFloat("fps_override");
 +    profileFrame.vsync       = gEngfuncs.pfnGetCvarFloat("gl_vsync");
@@ -21286,10 +21580,10 @@ index 0000000..05fe4fd
 +};
 diff --git a/src/draw_parameter_dispatch.h b/src/draw_parameter_dispatch.h
 new file mode 100644
-index 0000000..8a1fc58
+index 0000000..8472345
 --- /dev/null
 +++ b/src/draw_parameter_dispatch.h
-@@ -0,0 +1,10 @@
+@@ -0,0 +1,13 @@
 +#pragma once
 +
 +#include <GL/glew.h>
@@ -21300,6 +21594,9 @@ index 0000000..8a1fc58
 +void R_BeginDrawParameterFrame();
 +void R_EndDrawParameterFrame();
 +void GL_UploadDrawParameters(GLuint fallback, GLuint binding, std::size_t size, const void* data);
++
++struct DrawParameterStreamStats;
++const DrawParameterStreamStats& R_DrawParameterStats();
 diff --git a/tests/draw_parameter_stream_gl_tests.cpp b/tests/draw_parameter_stream_gl_tests.cpp
 new file mode 100644
 index 0000000..e3930e5

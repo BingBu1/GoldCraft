@@ -15,15 +15,20 @@ LOGS = ROOT / "sandbox/cs-client-b/logs"
 OUTPUT = ROOT / "analysis/perf-200fps"
 STUDIO_COMMANDS = {"FaceCull": "render_studio_face_cull", "DepthExecutor": "render_studio_depth_executor",
                    "BonePaletteCache": "render_studio_bone_palette_cache",
-                   "WorldMaterialBatch": "render_world_material_batch"}
+                   "WorldMaterialBatch": "render_world_material_batch",
+                   "DrawParameterStream": "render_draw_parameter_stream", "ShadowPlan": "render_studio_shadow_plan"}
 DEPTH_COUNTS = ("studioDepthFastMeshes", "studioDepthFallbackMeshes")
 PALETTE_COUNTS = ("studioBonePaletteUploads", "studioBonePaletteReuses",
                   "studioBonePaletteUploadBytes", "studioBonePaletteFallbacks")
 WORLD_COUNTS = ("worldMaterialChains", "worldMaterialSubmissions", "worldMaterialBatches")
+PARAMETER_COUNTS = ("drawParameterUploads", "drawParameterBytes", "drawParameterFallbacks",
+                    "drawParameterBusyFallbacks", "drawParameterSyncFailures")
 
+PLAN_COUNTS = ("studioShadowPlanBuilds", "studioShadowPlanReuses",
+               "studioShadowPlanInvalidations", "studioShadowPlanFallbackModels")
 
 def feature_name(feature):
-    return "WorldMaterialBatch" if feature == "WorldMaterialBatch" else "Studio" + feature
+    return feature if feature in ("WorldMaterialBatch", "DrawParameterStream") else "Studio" + feature
 
 
 def feature_key(feature):
@@ -87,7 +92,9 @@ def snapshot():
               "rendererStudioFaceCull", "rendererStudioFaceCullAvailable",
               "rendererStudioDepthExecutor", "rendererStudioDepthExecutorAvailable",
               "rendererStudioBonePaletteCache", "rendererStudioBonePaletteCacheAvailable",
-              "rendererWorldMaterialBatch", "rendererWorldMaterialBatchAvailable")
+              "rendererWorldMaterialBatch", "rendererWorldMaterialBatchAvailable",
+              "rendererDrawParameterStream", "rendererDrawParameterStreamAvailable",
+              "rendererStudioShadowPlan", "rendererStudioShadowPlanAvailable")
     java_fields = ("world", "life", "controlling", "screen", "minecraftFps", "entityFrames",
                    "entityExport", "presentationIntervalMs", "presentationReadbackMs", "vixPostFailures", "hudGlError")
     return {"time": now, "statusAgeMs": native_age_ms, "javaStatusAgeMs": java_age_ms,
@@ -145,7 +152,9 @@ def stable_studio_feature(samples, frames, active, requested, feature):
     status_key, frame_key = "renderer" + feature_name(feature), feature_key(feature)
     counts = (DEPTH_COUNTS if feature == "DepthExecutor" else
               PALETTE_COUNTS if feature == "BonePaletteCache" else
-              WORLD_COUNTS if feature == "WorldMaterialBatch" else ())
+              WORLD_COUNTS if feature == "WorldMaterialBatch" else
+              PARAMETER_COUNTS if feature == "DrawParameterStream" else
+              PLAN_COUNTS if feature == "ShadowPlan" else ())
     present = (any(any(key in s["native"] for key in
                       (status_key, status_key + "Available")) for s in samples)
                or any(any(key in frame for key in (frame_key, *counts)) for frame in frames))
@@ -158,6 +167,14 @@ def stable_studio_feature(samples, frames, active, requested, feature):
                 and all(studio_feature(s["native"], feature) == active for s in samples)
                 and all(type(f.get(frame_key)) in (int, float) and f[frame_key] == active for f in frames)
                 and all(type(f.get(key)) is int and f[key] >= 0 for f in frames for key in counts)
+                and (feature != "ShadowPlan" or all(
+                    ((requested is None and active == 0) or f.get("studioDepthExecutor") == 1)
+                    and (active == 1 or all(f[k] == 0 for k in PLAN_COUNTS)) for f in frames))
+                and (feature != "DrawParameterStream" or all(
+                    f["drawParameterBusyFallbacks"] <= f["drawParameterFallbacks"]
+                    and f["drawParameterBytes"] >= f["drawParameterUploads"]
+                    and f["drawParameterSyncFailures"] == 0
+                    and (active == 1 or all(f[k] == 0 for k in PARAMETER_COUNTS)) for f in frames))
                 and (feature != "WorldMaterialBatch" or all(
                     f["worldMaterialBatches"] <= f["worldMaterialSubmissions"] <= f["worldMaterialChains"]
                     <= f["worldMaterialSubmissions"] + 5*f["worldMaterialBatches"]
@@ -191,6 +208,10 @@ def main():
                         help="Temporarily toggle exact bone-palette reuse; restore its original value")
     studio_modes.add_argument("--world-material-batch", type=int, choices=(0, 1),
                         help="Temporarily toggle BSP material batching; restore its original value")
+    studio_modes.add_argument("--draw-parameter-stream", type=int, choices=(0, 1),
+                        help="Temporarily toggle the frame-owned draw parameter stream; restore its original value")
+    studio_modes.add_argument("--studio-shadow-plan", type=int, choices=(0, 1),
+                        help="Compare prepared model submission; requires depth executor already enabled")
     args = parser.parse_args()
     if not args.label or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-_" for c in args.label):
         parser.error("label must use lowercase letters, digits, hyphens or underscores")
@@ -210,7 +231,10 @@ def main():
     original_static = first["native"].get("sceneStaticShadowsEnabled")
     original_shadow_cull = first["native"].get("rendererShadowCull")
     requested_studio = {"FaceCull": args.studio_shadow_face_cull, "DepthExecutor": args.studio_shadow_depth_executor,
-                        "BonePaletteCache": args.studio_bone_palette_cache, "WorldMaterialBatch": args.world_material_batch}
+                        "BonePaletteCache": args.studio_bone_palette_cache, "WorldMaterialBatch": args.world_material_batch,
+                        "DrawParameterStream": args.draw_parameter_stream, "ShadowPlan": args.studio_shadow_plan}
+    if args.studio_shadow_plan is not None and studio_feature(first["native"], "DepthExecutor") != 1:
+        raise ValueError("Shadow plan comparison requires depth executor 1 in both arms")
     original_studio = {}
     for feature, requested in requested_studio.items():
         try:

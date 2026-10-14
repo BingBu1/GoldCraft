@@ -75,7 +75,7 @@ def summarize(frames):
     result = {"frames": len(frames), "focusedFrames": sum(f["focused"] for f in frames)}
     result["states"] = {key: sorted({f[key] for f in frames})
                         for key in ("deferred", "diagnostics", "shadows", "width", "height")}
-    for feature in ("studioFaceCull", "studioDepthExecutor", "studioBonePaletteCache", "worldMaterialBatch"):
+    for feature in ("studioFaceCull", "studioDepthExecutor", "studioBonePaletteCache", "worldMaterialBatch", "drawParameterStream", "studioShadowPlan"):
         if any(feature in frame for frame in frames):
             result[feature + "States"] = sorted({frame[feature] for frame in frames
                                                  if type(frame.get(feature)) in (int, float)})
@@ -137,6 +137,20 @@ def summarize(frames):
                 and f["studioBoneMergeHits"] + f["studioBoneMergeMisses"] == f.get("studioBoneMergeLookupCalls")
                 and f["studioBoneMergeMisses"] + f["studioBoneMergeBypasses"] == f.get("studioBoneMergeNativeCalls")
                 for f in frames)
+    plan_counts = ("studioShadowPlanBuilds", "studioShadowPlanReuses",
+                   "studioShadowPlanInvalidations", "studioShadowPlanFallbackModels")
+    if any(key in frame for frame in frames for key in plan_counts):
+        result["studioShadowPlanCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                     for frame in frames for key in plan_counts)
+        if result["studioShadowPlanCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in plan_counts})
+    parameter_counts = ("drawParameterUploads", "drawParameterBytes", "drawParameterFallbacks",
+                        "drawParameterBusyFallbacks", "drawParameterSyncFailures")
+    if any(key in frame for frame in frames for key in parameter_counts):
+        result["drawParameterCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0
+                                                   for frame in frames for key in parameter_counts)
+        if result["drawParameterCountsComplete"]:
+            result["meanCounts"].update({key: statistics.mean(f[key] for f in frames) for key in parameter_counts})
     world_counts = ("worldMaterialChains", "worldMaterialSubmissions", "worldMaterialBatches")
     if any(key in frame for frame in frames for key in world_counts):
         result["worldMaterialCountsComplete"] = all(type(frame.get(key)) is int and frame[key] >= 0

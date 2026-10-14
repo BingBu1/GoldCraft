@@ -748,6 +748,10 @@ void WriteDiagnostics() {
            <<",\"rendererStudioBonePaletteCache\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_bone_palette_cache")
            <<",\"rendererWorldMaterialBatchAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_world_material_batch")?"true":"false")
            <<",\"rendererWorldMaterialBatch\":"<<gEngfuncs.pfnGetCvarFloat("r_world_material_batch")
+           <<",\"rendererStudioShadowPlanAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_studio_shadow_plan")?"true":"false")
+           <<",\"rendererStudioShadowPlan\":"<<gEngfuncs.pfnGetCvarFloat("r_studio_shadow_plan")
+           <<",\"rendererDrawParameterStreamAvailable\":"<<(gEngfuncs.pfnGetCvarPointer("r_draw_parameter_stream")?"true":"false")
+           <<",\"rendererDrawParameterStream\":"<<gEngfuncs.pfnGetCvarFloat("r_draw_parameter_stream")
            <<",\"hostUseHeld\":"<<(host_use_sent?"true":"false")<<",\"hostUseMessages\":"<<host_use_messages
            <<",\"minecraftForm\":"<<(server_minecraft_form?"true":"false")<<",\"serverPlayerLife\":"<<server_player_life
            <<",\"nativeColliders\":"<<native_colliders.size()<<",\"predictionObjects\":"<<prediction_objects<<",\"predictionFrames\":"<<prediction_frames<<",\"predictionOverflow\":"<<prediction_overflow
@@ -1430,6 +1434,16 @@ void TestCommands() {
         int enabled=0;
         if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_world_material_batch"))
             gEngfuncs.Cvar_SetValue("r_world_material_batch",static_cast<float>(enabled));
+    }
+    else if(action=="render_studio_shadow_plan"){
+        int enabled=0;
+        if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_studio_shadow_plan"))
+            gEngfuncs.Cvar_SetValue("r_studio_shadow_plan",static_cast<float>(enabled));
+    }
+    else if(action=="render_draw_parameter_stream"){
+        int enabled=0;
+        if(input>>enabled&&enabled>=0&&enabled<=1&&gEngfuncs.pfnGetCvarPointer("r_draw_parameter_stream"))
+            gEngfuncs.Cvar_SetValue("r_draw_parameter_stream",static_cast<float>(enabled));
     }
     else if(action=="scene_static_shadows"){
         int enabled=1;

@@ -15,6 +15,8 @@ Use --cache-modes 1 --bone-palette-modes 0 1 to compare exact GPU bone-palette
 reuse. This preserves both Studio shadow options and restores the original cache mode.
 Use --cache-modes 1 --world-material-batch-modes 0 1 to compare the BSP main
 material submission path, preserving all Studio options and restoring its cvar.
+Use --cache-modes 1 --draw-parameter-stream-modes 0 1 to compare frame-owned
+draw parameter submission, preserving other options and restoring the stream cvar.
 
 Run only while B remains in active MC gameplay, foreground and stationary.
 Evidence and a durable recovery manifest stay in analysis/perf-200fps. Recover
@@ -407,7 +409,7 @@ class Exercise:
         raise TimeoutError("The diagnostic framebuffer capture did not finish")
 
     def measure(self, label, lights, cache=None, reference=None, face_cull=None, benchmark=True,
-                depth_executor=None, bone_palette=None, world_material_batch=None):
+                depth_executor=None, bone_palette=None, world_material_batch=None, draw_parameter_stream=None, shadow_plan=None):
         self.verify_blocks()
         before, _, _ = self.stable(expected_lights=lights)
         command = [sys.executable, str(ROOT / "tools/Monitor-LivePerformance.py"),
@@ -417,11 +419,12 @@ class Exercise:
             if benchmark:
                 command += ["--benchmark-fps", "300"]
         studio_requests = {"FaceCull": face_cull, "DepthExecutor": depth_executor, "BonePaletteCache": bone_palette,
-                           "WorldMaterialBatch": world_material_batch}
+                           "WorldMaterialBatch": world_material_batch, "DrawParameterStream": draw_parameter_stream, "ShadowPlan": shadow_plan}
         for option, value in (("studio-shadow-face-cull", face_cull),
                               ("studio-shadow-depth-executor", depth_executor),
                               ("studio-bone-palette-cache", bone_palette),
-                              ("world-material-batch", world_material_batch)):
+                              ("world-material-batch", world_material_batch),
+                              ("draw-parameter-stream", draw_parameter_stream), ("studio-shadow-plan", shadow_plan)):
             if value is not None:
                 command += ["--" + option, str(value)]
         if reference:
@@ -479,6 +482,7 @@ class Exercise:
         record = {"report": str(path.relative_to(ROOT)),
                   "cache": cache, "studioFaceCull": face_cull, "studioDepthExecutor": depth_executor,
                   "studioBonePaletteCache": bone_palette, "worldMaterialBatch": world_material_batch,
+                  "drawParameterStream": draw_parameter_stream, "studioShadowPlan": shadow_plan,
                   "lightsBefore": light_snapshot(before),
                   "guardError": guard_error, "monitorExitCode": process.returncode,
                   "summary": result.get("summary", {})}
@@ -632,22 +636,30 @@ class Exercise:
         depth_modes = getattr(self.args, "depth_executor_modes", None)
         palette_modes = getattr(self.args, "bone_palette_modes", None)
         world_modes = getattr(self.args, "world_material_batch_modes", None)
-        feature = ("FaceCull" if self.args.face_cull_modes is not None else
+        parameter_modes = getattr(self.args, "draw_parameter_stream_modes", None)
+        plan_modes = getattr(self.args, "shadow_plan_modes", None)
+        if plan_modes is not None and self.monitor.studio_feature(native, "DepthExecutor") != 1:
+            raise ValueError("Shadow plan comparison requires depth executor 1 in both arms")
+        feature = ("ShadowPlan" if plan_modes is not None else "FaceCull" if self.args.face_cull_modes is not None else
                    "DepthExecutor" if depth_modes is not None else
                    "BonePaletteCache" if palette_modes is not None else
-                   "WorldMaterialBatch" if world_modes is not None else None)
+                   "WorldMaterialBatch" if world_modes is not None else
+                   "DrawParameterStream" if parameter_modes is not None else None)
         if feature:
             original[self.monitor.feature_key(feature)] = self.monitor.studio_feature(native, feature)
-        modes = (self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor"
+        modes = (plan_modes if feature == "ShadowPlan" else self.args.face_cull_modes if feature == "FaceCull" else depth_modes if feature == "DepthExecutor"
                  else palette_modes if feature == "BonePaletteCache" else
-                 world_modes if feature == "WorldMaterialBatch" else self.args.cache_modes)
+                 world_modes if feature == "WorldMaterialBatch" else
+                 parameter_modes if feature == "DrawParameterStream" else self.args.cache_modes)
         feature_parameter = {"FaceCull": "face_cull", "DepthExecutor": "depth_executor",
-                             "BonePaletteCache": "bone_palette", "WorldMaterialBatch": "world_material_batch"}.get(feature)
+                             "BonePaletteCache": "bone_palette", "WorldMaterialBatch": "world_material_batch",
+                             "DrawParameterStream": "draw_parameter_stream", "ShadowPlan": "shadow_plan"}.get(feature)
         self.anchor = native
         self.data.update(world=native["world"], player={k: player[k] for k in ("uuid", "slot", "serial", "life", "dimension")},
                          anchor={k: native[k] for k in ("origin", "viewAngles")}, position=player["position"],
                          original=original, cacheModes=self.args.cache_modes, faceCullModes=self.args.face_cull_modes,
                          depthExecutorModes=depth_modes, bonePaletteModes=palette_modes, worldMaterialBatchModes=world_modes,
+                         drawParameterStreamModes=parameter_modes, studioShadowPlanModes=plan_modes,
                          baselineLights=baseline, candidates=candidates(player["position"], native["viewAngles"][1]))
         self.save()
         self.connect()
@@ -680,7 +692,7 @@ class Exercise:
             visible_counts = {}
             for mode in modes:
                 name = {"FaceCull": "face-", "DepthExecutor": "depth-", "BonePaletteCache": "palette-",
-                        "WorldMaterialBatch": "world-batch-"}.get(feature, "") + ("on" if mode else "off")
+                        "WorldMaterialBatch": "world-batch-", "DrawParameterStream": "parameters-", "ShadowPlan": "shadow-plan-"}.get(feature, "") + ("on" if mode else "off")
                 path, result = self.measure(f"{self.data['run']}-{count}-{name}", lights,
                                             cache=1 if feature else mode, reference=reference,
                                             **({feature_parameter: mode} if feature else {}))
@@ -700,7 +712,7 @@ class Exercise:
                 comparable = all(result["summary"].get("active" + self.monitor.feature_name(feature)) == mode
                                  and result["summary"].get("activeStaticShadows") is True
                                  for mode, result in captures.items())
-            stage.update(comparable=comparable, comparisonKind=("worldMaterialBatch" if feature == "WorldMaterialBatch"
+            stage.update(comparable=comparable, comparisonKind=(self.monitor.feature_key(feature) if feature in ("WorldMaterialBatch", "DrawParameterStream", "ShadowPlan")
                          else "studioShadow" + feature if feature else "staticShadowCache"),
                          rendererAllVisibleLights=visible_counts,
                          workloadNote="Same observer and MC fixture; ordinary Bot and host dynamic-light activity can differ between intervals.")
@@ -726,7 +738,9 @@ def validate_recovery(data):
         raise ValueError("Recovery dimension is not a managed cs_assault dimension")
     original = data.get("original", {})
     for key, modes in (("studioFaceCull", "faceCullModes"), ("studioDepthExecutor", "depthExecutorModes"),
-                       ("studioBonePaletteCache", "bonePaletteModes"), ("worldMaterialBatch", "worldMaterialBatchModes")):
+                       ("studioBonePaletteCache", "bonePaletteModes"), ("worldMaterialBatch", "worldMaterialBatchModes"),
+                       ("drawParameterStream", "drawParameterStreamModes"),
+                       ("studioShadowPlan", "studioShadowPlanModes")):
         if key in original and (type(original[key]) is not int or original[key] not in (0, 1)):
             raise ValueError(f"Invalid original {key} value in recovery manifest")
         if data.get(modes) is not None and key not in original:
@@ -757,6 +771,10 @@ def main():
                         help="Compare exact bone-palette reuse; requires --cache-modes 1")
     studio_modes.add_argument("--world-material-batch-modes", type=int, nargs="+", choices=(0, 1),
                         help="Compare BSP main material batching; requires --cache-modes 1")
+    studio_modes.add_argument("--draw-parameter-stream-modes", type=int, nargs="+", choices=(0, 1),
+                        help="Compare persistent draw parameter submission; requires --cache-modes 1")
+    studio_modes.add_argument("--shadow-plan-modes", type=int, nargs="+", choices=(0, 1),
+                        help="Compare prepared model submissions; requires depth executor 1 and --cache-modes 1")
     parser.add_argument("--seconds", type=int, choices=range(5, 26), default=8)
     parser.add_argument("--wait-stable", type=int, choices=range(4, 121), default=15)
     parser.add_argument("--capture", action="store_true", help="Capture one native scene BMP per light-count stage outside timing")
@@ -767,7 +785,8 @@ def main():
     if len(args.cache_modes) != len(set(args.cache_modes)):
         parser.error("cache modes must be unique")
     for name, modes in (("face-cull", args.face_cull_modes), ("depth-executor", args.depth_executor_modes),
-                        ("bone-palette", args.bone_palette_modes), ("world-material-batch", args.world_material_batch_modes)):
+                        ("bone-palette", args.bone_palette_modes), ("world-material-batch", args.world_material_batch_modes),
+                        ("draw-parameter-stream", args.draw_parameter_stream_modes), ("shadow-plan", args.shadow_plan_modes)):
         if modes is not None:
             if len(modes) != len(set(modes)):
                 parser.error(name + " modes must be unique")
