@@ -880,6 +880,81 @@ index 2567c84..8ab3227 100644
 -#endif //GL_COMMON_H
 \ No newline at end of file
 +#endif //GL_COMMON_H
+diff --git a/src/gl_draw.cpp b/src/gl_draw.cpp
+index 036f185..f761837 100644
+--- a/src/gl_draw.cpp
++++ b/src/gl_draw.cpp
+@@ -1,4 +1,6 @@
+ #include "gl_local.h"
++#include "draw_parameter_dispatch.h"
++#include "draw_parameter_stream.h"
+ #include "MurmurHash2.h"
+ #include <ScopeExit/ScopeExit.h>
+ #include <FreeImage.h>
+@@ -406,6 +408,56 @@ void GL_UploadSubDataToUBO(GLuint UBO, size_t offset, size_t size, const void* d
+     }
+ }
+ 
++static CDrawParameterStream g_DrawParameters;
++static cvar_t* r_draw_parameter_stream{};
++
++static void R_DrawParameterStatus()
++{
++    const auto& stats = g_DrawParameters.Stats();
++    gEngfuncs.Con_Printf("draw parameters: streamed=%llu bytes=%llu fallback=%llu busy=%llu\n",
++        static_cast<unsigned long long>(stats.streamedDraws),
++        static_cast<unsigned long long>(stats.streamedBytes),
++        static_cast<unsigned long long>(stats.fallbacks),
++        static_cast<unsigned long long>(stats.busyFallbacks));
++}
++
++void R_InitDrawParameters()
++{
++    r_draw_parameter_stream = gEngfuncs.pfnRegisterVariable("r_draw_parameter_stream", "0", FCVAR_CLIENTDLL);
++    gEngfuncs.pfnAddCommand("r_draw_parameter_status", R_DrawParameterStatus);
++    g_DrawParameters.Init();
++}
++
++void R_ShutdownDrawParameters()
++{
++    g_DrawParameters.Reset();
++}
++
++void R_BeginDrawParameterFrame()
++{
++    // This runs once before every view/shadow/portal in the outer frame. Slices
++    // remain immutable until all draws from that frame are behind a GPU fence.
++    g_DrawParameters.BeginFrame();
++}
++
++void R_EndDrawParameterFrame()
++{
++    g_DrawParameters.EndFrame();
++}
++
++void GL_UploadDrawParameters(GLuint fallback, GLuint binding, std::size_t size, const void* data)
++{
++    if (r_draw_parameter_stream && r_draw_parameter_stream->value == 1.0f &&
++        g_DrawParameters.UploadAndBind(binding, static_cast<GLsizeiptr>(size), data))
++        return;
++
++    // Busy/full/unsupported storage uses its own mutable buffer. Never update
++    // a page that is still referenced by current or unfinished previous draws.
++    GL_UploadSubDataToUBO(fallback, 0, size, data);
++    glBindBufferBase(GL_UNIFORM_BUFFER, binding, fallback);
++    glBindBuffer(GL_UNIFORM_BUFFER, 0);
++}
++
+ void GL_UploadDataToVBOStaticDraw(GLuint VBO, size_t size, const void* data)
+ {
+     glBindBuffer(GL_ARRAY_BUFFER, VBO);
+@@ -3556,4 +3608,4 @@ void BuildGammaTable(float g)
+     {
+         lightgammatable[i] = i;
+     }
+-}
+\ No newline at end of file
++}
 diff --git a/src/gl_draw.h b/src/gl_draw.h
 index 2f53e82..1e90e77 100644
 --- a/src/gl_draw.h
@@ -1265,11 +1340,12 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..a9cd62d 100644
+index d59b139..0a2fddb 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
-@@ -1,5 +1,9 @@
+@@ -1,5 +1,10 @@
  #include "gl_local.h"
++#include "draw_parameter_dispatch.h"
  #include "gl_common.h"
 +#include "gl_external_scene.h"
 +#include "post_scene.h"
@@ -1278,7 +1354,7 @@ index d59b139..a9cd62d 100644
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -416,6 +420,7 @@ cvar_t* r_studio_unload = nullptr;
+@@ -416,6 +421,7 @@ cvar_t* r_studio_unload = nullptr;
  cvar_t* r_studio_parallel_load = nullptr;
  
  cvar_t* r_wsurf_parallax_scale = nullptr;
@@ -1286,7 +1362,7 @@ index d59b139..a9cd62d 100644
  
  cvar_t* r_wsurf_sky_fog = nullptr;
  
-@@ -786,10 +791,14 @@ bool AllowCheats()
+@@ -786,10 +792,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
  {
@@ -1302,7 +1378,7 @@ index d59b139..a9cd62d 100644
  }
  
  /*
-@@ -1739,6 +1748,7 @@ void triapi_End()
+@@ -1739,6 +1749,7 @@ void triapi_End()
  
      triapi_program_t prog{};
      R_UseTriAPIProgram(ProgramState, &prog);
@@ -1310,7 +1386,7 @@ index d59b139..a9cd62d 100644
  
      if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
      {
-@@ -2400,6 +2410,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+@@ -2400,6 +2411,7 @@ void R_DrawCurrentEntity(bool bTransparent)
          }
          case mod_studio:
          {
@@ -1318,7 +1394,7 @@ index d59b139..a9cd62d 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -2948,6 +2959,7 @@ void R_RenderViewStart()
+@@ -2948,6 +2960,7 @@ void R_RenderViewStart()
              R_AddVisibleDynamicLight(dynamicLight);
          }
      }
@@ -1326,15 +1402,24 @@ index d59b139..a9cd62d 100644
  }
  
  /*
-@@ -3011,6 +3023,7 @@ void R_RenderEndFrame()
+@@ -2960,6 +2973,7 @@ void R_RenderFrameStart()
+     ++(*r_framecount);
+ 
+     R_BeginRingBufferFrame();
++    R_BeginDrawParameterFrame();
+ 
+     g_PostProcessGlowStencilEntities.clear();
+     g_PostProcessGlowEnableDepthTestStencilEntities.clear();
+@@ -3011,6 +3025,8 @@ void R_RenderEndFrame()
          cb->OnRenderEndFrame();
      }
  
 +    R_EndExternalSceneLightsFrame();
++    R_EndDrawParameterFrame();
      R_EndRingBufferFrame();
  }
  
-@@ -3055,6 +3068,8 @@ void GL_Finish2D()
+@@ -3055,6 +3071,8 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -1343,7 +1428,7 @@ index d59b139..a9cd62d 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3148,16 @@ void R_PreRenderView()
+@@ -3133,10 +3151,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -1363,7 +1448,7 @@ index d59b139..a9cd62d 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,6 +3412,60 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,6 +3415,60 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -1424,7 +1509,7 @@ index d59b139..a9cd62d 100644
  void R_RenderView_SvEngine(int viewIdx)
  {
      const bool wasRenderingView = g_bIsRenderingView;
-@@ -3434,14 +3509,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3512,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -1452,7 +1537,7 @@ index d59b139..a9cd62d 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3592,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3595,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -1464,7 +1549,7 @@ index d59b139..a9cd62d 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3639,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3642,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -1477,7 +1562,7 @@ index d59b139..a9cd62d 100644
  }
  
  #if 0
-@@ -3734,6 +3827,7 @@ void R_InitCvars(void)
+@@ -3734,6 +3830,7 @@ void R_InitCvars(void)
      r_studio_parallel_load = gEngfuncs.pfnRegisterVariable("r_studio_parallel_load", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      r_wsurf_parallax_scale = gEngfuncs.pfnRegisterVariable("r_wsurf_parallax_scale", "-0.02", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
@@ -1485,15 +1570,24 @@ index d59b139..a9cd62d 100644
      r_wsurf_sky_fog        = gEngfuncs.pfnRegisterVariable("r_wsurf_sky_fog", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      /*
-@@ -3783,6 +3877,7 @@ void R_Init(void)
+@@ -3767,6 +3864,7 @@ void R_Init(void)
+     Mod_Init();
+ 
+     R_InitCvars();
++    R_InitDrawParameters();
+ 
+     R_InitWater();
+     R_InitStudio();
+@@ -3783,6 +3881,8 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
 +    R_ProfileShutdown();
++    R_ShutdownDrawParameters();
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -3832,6 +3927,7 @@ void R_ForceCVars(qboolean mp)
+@@ -3832,6 +3932,7 @@ void R_ForceCVars(qboolean mp)
  void R_NewMap(void)
  {
      memset(&r_params, 0, sizeof(r_params));
@@ -1501,7 +1595,7 @@ index d59b139..a9cd62d 100644
  
      R_GenerateSceneUBO();
      R_FreeWorldResources();
-@@ -4667,6 +4763,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4768,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1512,7 +1606,7 @@ index d59b139..a9cd62d 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4782,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4787,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1528,7 +1622,7 @@ index d59b139..a9cd62d 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4826,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4831,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1546,7 +1640,7 @@ index d59b139..a9cd62d 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4845,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4850,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1554,7 +1648,7 @@ index d59b139..a9cd62d 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4856,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4861,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1562,7 +1656,7 @@ index d59b139..a9cd62d 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4910,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4915,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1570,7 +1664,7 @@ index d59b139..a9cd62d 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5577,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5582,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1581,7 +1675,7 @@ index d59b139..a9cd62d 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6718,80 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6723,80 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -2179,17 +2273,18 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..a760e8b 100644
+index fa85f25..cfce5d8 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  #include "gl_local.h"
++#include "draw_parameter_dispatch.h"
  #include "studio_model_validation.h"
 +#include "studio_bone_palette_gl.h"
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +10,26 @@
+@@ -9,33 +11,26 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -2232,7 +2327,7 @@ index fa85f25..a760e8b 100644
  
  //Engine private vars
  
-@@ -154,83 +148,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +149,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -2316,7 +2411,7 @@ index fa85f25..a760e8b 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1340,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1341,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -2324,7 +2419,7 @@ index fa85f25..a760e8b 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1354,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1355,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -2342,7 +2437,7 @@ index fa85f25..a760e8b 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1446,14 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1447,14 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -2357,7 +2452,7 @@ index fa85f25..a760e8b 100644
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1468,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1469,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -2365,7 +2460,7 @@ index fa85f25..a760e8b 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1519,11 @@ void R_InitStudio(void)
+@@ -1583,6 +1520,11 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -2377,7 +2472,7 @@ index fa85f25..a760e8b 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1829,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1830,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2394,14 +2489,13 @@ index fa85f25..a760e8b 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,6 +2084,14 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,6 +2085,13 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
 +static void R_StudioUploadDrawBuffers(const studio_ubo_t& parameters, const void* matrices, uint32_t frame, bool cache)
 +{
-+    GL_UploadSubDataToUBO(g_hStudioUBO, 0, sizeof(parameters), &parameters);
-+    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_STUDIO_UBO, g_hStudioUBO);
++    GL_UploadDrawParameters(g_hStudioUBO, BINDING_POINT_STUDIO_UBO, sizeof(parameters), &parameters);
 +    const auto palette = g_StudioBonePalettes.UploadAndBind(matrices, frame, cache);
 +    R_ProfileStudioBonePalette(palette.reused, palette.fallback, palette.bytes);
 +}
@@ -3278,17 +3372,18 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..768370a 100644
+index 41f24f3..926ea71 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
-@@ -1,4 +1,6 @@
+@@ -1,4 +1,7 @@
  #include "gl_local.h"
++#include "draw_parameter_dispatch.h"
 +#include "gl_external_scene.h"
 +#include "gl_scene_static_shadows.h"
  
  #include <sstream>
  #include <algorithm>
-@@ -13,6 +15,9 @@
+@@ -13,6 +16,9 @@
  
  CWorldSurfaceRenderer g_WorldSurfaceRenderer;
  
@@ -3298,7 +3393,7 @@ index 41f24f3..768370a 100644
  float r_shadow_matrix[3][16]      = {0};
  float r_world_matrix_inv[16]      = {0};
  float r_projection_matrix_inv[16] = {0};
-@@ -74,43 +79,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
+@@ -74,43 +80,10 @@ CWorldSurfaceShadowProxyModel::~CWorldSurfaceShadowProxyModel()
      }
  }
  
@@ -3344,7 +3439,7 @@ index 41f24f3..768370a 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceModels.size())
-@@ -130,6 +102,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
+@@ -130,6 +103,8 @@ void R_FreeWorldSurfaceModels(model_t* mod)
  
  void R_FreeWorldSurfaceWorldModels(model_t* mod)
  {
@@ -3353,7 +3448,7 @@ index 41f24f3..768370a 100644
      int modelindex = EngineGetModelIndex(mod);
  
      if (modelindex >= 0 && modelindex < g_WorldSurfaceWorldModels.size())
-@@ -147,6 +121,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
+@@ -147,6 +122,8 @@ void R_FreeWorldSurfaceWorldModels(model_t* mod)
  
  void R_ClearWorldSurfaceModels(void)
  {
@@ -3362,7 +3457,7 @@ index 41f24f3..768370a 100644
      for (size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
      {
          auto pWorldSurfaceModel = g_WorldSurfaceModels[i];
-@@ -162,6 +138,8 @@ void R_ClearWorldSurfaceModels(void)
+@@ -162,6 +139,8 @@ void R_ClearWorldSurfaceModels(void)
  
  void R_ClearWorldSurfaceWorldModels(void)
  {
@@ -3371,7 +3466,7 @@ index 41f24f3..768370a 100644
      for (size_t i = 0; i < g_WorldSurfaceWorldModels.size(); ++i)
      {
          auto pWorldSurfaceWorldModel = g_WorldSurfaceWorldModels[i];
-@@ -209,6 +187,8 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
+@@ -209,6 +188,8 @@ const program_state_mapping_t s_WSurfProgramStateName[] = {
      {WSURF_STENCIL_NO_GLOW_BLUR_ENABLED, "WSURF_STENCIL_NO_GLOW_BLUR_ENABLED"},
      {WSURF_STENCIL_NO_GLOW_COLOR_ENABLED, "WSURF_STENCIL_NO_GLOW_COLOR_ENABLED"},
      {WSURF_DOUBLE_FACE_ENABLED, "WSURF_DOUBLE_FACE_ENABLED"},
@@ -3380,7 +3475,7 @@ index 41f24f3..768370a 100644
  };
  
  void R_SaveWSurfProgramStates(void)
-@@ -224,6 +204,7 @@ void R_SaveWSurfProgramStates(void)
+@@ -224,6 +205,7 @@ void R_SaveWSurfProgramStates(void)
  void R_LoadWSurfProgramStates(void)
  {
      R_LoadProgramStateCaches("renderer/shader/wsurf_cache.txt", s_WSurfProgramStateName, _ARRAYSIZE(s_WSurfProgramStateName), [](program_state_t state) {
@@ -3388,7 +3483,7 @@ index 41f24f3..768370a 100644
          R_UseWSurfProgram(state, NULL);
      });
  }
-@@ -240,9 +221,15 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -240,9 +222,15 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
          if (state & WSURF_DIFFUSE_ENABLED)
              defs << "#define DIFFUSE_ENABLED\n";
  
@@ -3404,7 +3499,7 @@ index 41f24f3..768370a 100644
          if (state & WSURF_DETAILTEXTURE_ENABLED)
              defs << "#define DETAILTEXTURE_ENABLED\n";
  
-@@ -358,6 +345,7 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
+@@ -358,6 +346,7 @@ void R_UseWSurfProgram(program_state_t state, wsurf_program_t* progOutput)
          if (prog.program)
          {
              SHADER_UNIFORM(prog, u_parallaxScale, "u_parallaxScale");
@@ -3412,7 +3507,7 @@ index 41f24f3..768370a 100644
          }
  
          g_WSurfProgramTable[state] = prog;
-@@ -424,11 +412,7 @@ void R_FreeSceneUBO(void)
+@@ -424,11 +413,7 @@ void R_FreeSceneUBO(void)
          g_WorldSurfaceRenderer.hEntityUBO = 0;
      }
  
@@ -3425,7 +3520,7 @@ index 41f24f3..768370a 100644
  
      if (g_WorldSurfaceRenderer.hMaterialSSBO)
      {
-@@ -468,10 +452,6 @@ void R_FreeLightmapTextures()
+@@ -468,10 +453,6 @@ void R_FreeLightmapTextures()
      }
  }
  
@@ -3436,7 +3531,7 @@ index 41f24f3..768370a 100644
  void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
  {
      if (basenode->contents < 0)
-@@ -489,61 +469,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
+@@ -489,61 +470,6 @@ void R_RecursiveFindLeaves(mbasenode_t* basenode, std::set<mleaf_t*>& vLeafs)
      R_RecursiveFindLeaves(node->children[1], vLeafs);
  }
  
@@ -3498,7 +3593,7 @@ index 41f24f3..768370a 100644
  texture_t* R_GetEmptyWorldTexture()
  {
      if (g_iEngineType == ENGINE_SVENGINE)
-@@ -552,2751 +477,1502 @@ texture_t* R_GetEmptyWorldTexture()
+@@ -552,2751 +478,1500 @@ texture_t* R_GetEmptyWorldTexture()
      return (*r_notexture_mip);
  }
  
@@ -4690,17 +4785,7 @@ index 41f24f3..768370a 100644
 -{
 -    return leaf - mod->leafs;
 -}
-+        mat.diffuseScale[0]  = 1;
-+        mat.diffuseScale[1]  = 1;
-+        mat.detailScale[0]   = 1;
-+        mat.detailScale[1]   = 1;
-+        mat.normalScale[0]   = 1;
-+        mat.normalScale[1]   = 1;
-+        mat.parallaxScale[0] = 1;
-+        mat.parallaxScale[1] = 1;
-+        mat.specularScale[0] = 1;
-+        mat.specularScale[1] = 1;
- 
+-
 -model_t* R_FindWorldModelByModel(model_t* m)
 -{
 -    for (auto mod : g_WorldSurfaceRenderer.vWorldModels)
@@ -4710,26 +4795,21 @@ index 41f24f3..768370a 100644
 -    }
 -    return nullptr;
 -}
-+        auto pRenderMaterial = R_GetRenderMaterialForWorldTexture(t);
- 
+-
 -model_t* R_FindWorldModelBySurface(msurface_t* psurf)
 -{
 -    for (auto mod : g_WorldSurfaceRenderer.vWorldModels)
 -    {
 -        if (g_iEngineType == ENGINE_GOLDSRC_HL25)
-+        if (pRenderMaterial)
-         {
+-        {
 -            auto psurf_hl25 = (msurface_hl25_t*)psurf;
 -            auto pbase_hl25 = (msurface_hl25_t*)mod->surfaces;
 -            auto pend_hl25  = (msurface_hl25_t*)R_GetWorldSurfaceByIndex(mod, mod->numsurfaces);
 -
 -            if (psurf_hl25 >= pbase_hl25 && psurf_hl25 < pend_hl25)
-+            if (pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum)
-             {
+-            {
 -                return mod;
-+                mat.diffuseScale[0] = pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].scaleX;
-+                mat.diffuseScale[1] = pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].scaleY;
-             }
+-            }
 -        }
 -        else
 -        {
@@ -4737,28 +4817,10 @@ index 41f24f3..768370a 100644
 -            auto pend  = R_GetWorldSurfaceByIndex(mod, mod->numsurfaces);
 -
 -            if (psurf >= pbase && psurf < pend)
-+            if (pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].gltexturenum)
-             {
+-            {
 -                return mod;
-+                mat.detailScale[0] = pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].scaleX;
-+                mat.detailScale[1] = pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].scaleY;
-+            }
-+            if (pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].gltexturenum)
-+            {
-+                mat.normalScale[0] = pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].scaleX;
-+                mat.normalScale[1] = pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].scaleY;
-+            }
-+            if (pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].gltexturenum)
-+            {
-+                mat.parallaxScale[0] = pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].scaleX;
-+                mat.parallaxScale[1] = pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].scaleY;
-+            }
-+            if (pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].gltexturenum)
-+            {
-+                mat.specularScale[0] = pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].scaleX;
-+                mat.specularScale[1] = pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].scaleY;
-             }
-         }
+-            }
+-        }
 -    }
 -
 -    return nullptr;
@@ -4770,22 +4832,19 @@ index 41f24f3..768370a 100644
 -    {
 -        auto pbase = mod->nodes;
 -        auto pend  = pbase + mod->numnodes;
- 
+-
 -        if (pnode >= pbase && pnode < pend)
 -        {
 -            return mod;
 -        }
-+        g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.emplace_back(t->gl_texturenum);
-+        g_WorldSurfaceRenderer.vWorldMaterials.emplace_back(mat);
-     }
+-    }
 -
 -    return nullptr;
- }
- 
- /*
+-}
+-
+-/*
 -	Ear-Cut algorithm from Diligent Core
-+	Purpose: Storage for face normal data used in smooth normal calculation
- */
+-*/
 -void R_PolygonToTriangleList(const std::vector<vertex3f_t>& vPolyVertices, std::vector<uint32_t>& vOutIndiceBuffer)
 -{
 -    // 严格遵循 AdvancedMath.hpp 中 Polygon3DTriangulator 的流程：
@@ -5120,11 +5179,10 @@ index 41f24f3..768370a 100644
 -	Purpose: Storage for face normal data used in smooth normal calculation
 -*/
 -using CBrushVector3List = std::vector<vertex3f_t>;
-+using CBrushVector3List = std::vector<vertex3f_t>;
- 
- class CBrushFaceNormalStorage
- {
- public:
+-
+-class CBrushFaceNormalStorage
+-{
+-public:
 -    CBrushVector3List weightedNormals;
 -    float             normalTotalFactor{0};
 -    vec3_t            averageNormal{};
@@ -5425,11 +5483,23 @@ index 41f24f3..768370a 100644
 -
 -        if (surf->lightmaptexturenum + 1 > g_WorldSurfaceRenderer.iNumLightmapTextures)
 -            g_WorldSurfaceRenderer.iNumLightmapTextures = surf->lightmaptexturenum + 1;
--
++        mat.diffuseScale[0]  = 1;
++        mat.diffuseScale[1]  = 1;
++        mat.detailScale[0]   = 1;
++        mat.detailScale[1]   = 1;
++        mat.normalScale[0]   = 1;
++        mat.normalScale[1]   = 1;
++        mat.parallaxScale[0] = 1;
++        mat.parallaxScale[1] = 1;
++        mat.specularScale[0] = 1;
++        mat.specularScale[1] = 1;
+ 
 -        auto ptexture = (surf->texinfo && surf->texinfo->texture) ? surf->texinfo->texture : R_GetEmptyWorldTexture();
--
++        auto pRenderMaterial = R_GetRenderMaterialForWorldTexture(t);
+ 
 -        if (pBrushFace->flags & SURF_DRAWTURB)
--        {
++        if (pRenderMaterial)
+         {
 -            if (1)
 -            {
 -                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
@@ -5479,7 +5549,8 @@ index 41f24f3..768370a 100644
 -                pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
 -            }
 -            if (1)
--            {
++            if (pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].gltexturenum)
+             {
 -                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
 -
 -                for (poly = surf->polys; poly; poly = poly->next)
@@ -5525,14 +5596,17 @@ index 41f24f3..768370a 100644
 -                uint32_t nBrushCurrentIndex     = (uint32_t)vIndiceBuffer.size();
 -                pBrushFace->reverse_start_index = nBrushStartIndex;
 -                pBrushFace->reverse_index_count = nBrushCurrentIndex - nBrushStartIndex;
--            }
++                mat.diffuseScale[0] = pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].scaleX;
++                mat.diffuseScale[1] = pRenderMaterial->textures[WSURF_DIFFUSE_TEXTURE].scaleY;
+             }
 -        }
 -        else
 -        {
 -            uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
 -
 -            for (poly = surf->polys; poly; poly = poly->next)
--            {
++            if (pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].gltexturenum)
+             {
 -                uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
 -
 -                std::vector<vertex3f_t> vPolyVertices;
@@ -5580,24 +5654,117 @@ index 41f24f3..768370a 100644
 -        pBrushFace->instance_index = (uint32_t)vInstanceDataBuffer.size();
 -
 -        brushinstancedata_t tempInstanceData;
-+    CBrushVector3List weightedNormals;
-+    float             normalTotalFactor{0};
-+    vec3_t            averageNormal{};
- 
+-
 -        tempInstanceData.packed_matId[0] = ptexture ? R_FindWorldMaterialId(ptexture->gl_texturenum) : 0;
 -        tempInstanceData.packed_matId[1] = surf->lightmaptexturenum;
 -        tempInstanceData.diffusescale    = (ptexture && (pBrushFace->flags & SURF_DRAWTILED)) ? 1.0f / ptexture->width : 0;
 -        memcpy(&tempInstanceData.styles, surf->styles, sizeof(surf->styles));
+-
+-        vInstanceDataBuffer.emplace_back(tempInstanceData);
+-
+-        pBrushFace->instance_count = 1;
+-    }
+-
+-    // Calculate smooth normals for all vertices
+-    R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
+-
+-    pWorldModel->hEBO = GL_GenBuffer();
+-    GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
+-
+-    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
+-    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
+-
+-    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
+-    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
+-
+-    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
+-    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
+-
+-    pWorldModel->hVAO = GL_GenVAO();
+-
+-    GL_BindStatesForVAO(pWorldModel->hVAO, [pWorldModel]() {
+-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pWorldModel->hEBO);
+-
+-        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
+-
+-        glEnableVertexAttribArray(WSURF_VA_POSITION);
+-        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
+-        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
+-
+-        glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
+-        glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
+-        glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
+-
+-        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
+-
+-        glEnableVertexAttribArray(WSURF_VA_NORMAL);
+-        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
+-        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
+-        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
+-
+-        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
+-        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
+-        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
+-        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
+-
+-        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
++                mat.detailScale[0] = pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].scaleX;
++                mat.detailScale[1] = pRenderMaterial->textures[WSURF_DETAIL_TEXTURE].scaleY;
++            }
++            if (pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].gltexturenum)
++            {
++                mat.normalScale[0] = pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].scaleX;
++                mat.normalScale[1] = pRenderMaterial->textures[WSURF_NORMAL_TEXTURE].scaleY;
++            }
++            if (pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].gltexturenum)
++            {
++                mat.parallaxScale[0] = pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].scaleX;
++                mat.parallaxScale[1] = pRenderMaterial->textures[WSURF_PARALLAX_TEXTURE].scaleY;
++            }
++            if (pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].gltexturenum)
++            {
++                mat.specularScale[0] = pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].scaleX;
++                mat.specularScale[1] = pRenderMaterial->textures[WSURF_SPECULAR_TEXTURE].scaleY;
++            }
++        }
+ 
+-        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
+-        glEnableVertexAttribArray(WSURF_VA_STYLES);
+-        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++        g_WorldSurfaceRenderer.vWorldMaterialTextureMapping.emplace_back(t->gl_texturenum);
++        g_WorldSurfaceRenderer.vWorldMaterials.emplace_back(mat);
++    }
++}
+ 
+-        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
+-        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
++/*
++	Purpose: Storage for face normal data used in smooth normal calculation
++*/
++using CBrushVector3List = std::vector<vertex3f_t>;
+ 
+-        glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
+-        glVertexAttribDivisor(WSURF_VA_STYLES, 1);
++class CBrushFaceNormalStorage
++{
++public:
++    CBrushVector3List weightedNormals;
++    float             normalTotalFactor{0};
++    vec3_t            averageNormal{};
+ 
+-        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
+-        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
+-    });
 +    CBrushVector3List edges;
 +    vec3_t            averageEdge{};
 +    bool              bHasAverageEdge{false};
 +};
  
--        vInstanceDataBuffer.emplace_back(tempInstanceData);
+-    return pWorldModel;
+-}
 +using CBrushFaceNormalHashMap = std::unordered_map<CQuantizedVector, std::shared_ptr<CBrushFaceNormalStorage>, CQuantizedVectorHasher>;
  
--        pBrushFace->instance_count = 1;
--    }
+-std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
 +/*
 +	Purpose: Calculate face normal hash map and store face-normal in FaceNormalHashMap for brush geometry
 +*/
@@ -5606,61 +5773,70 @@ index 41f24f3..768370a 100644
 +    const std::vector<brushvertextbn_t>& vVertexTBNDataBuffer,
 +    const std::vector<uint32_t>&         vIndicesBuffer,
 +    CBrushFaceNormalHashMap&             FaceNormalHashMap)
-+{
+ {
+-    if (mod->type != mod_brush)
+-    {
+-        Sys_Error("R_GetWorldSurfaceWorldModel: invalid mod type!");
+-        return nullptr;
+-    }
 +    // 定义下一个顶点索引的映射，用于计算角度
 +    int nextId[4] = {1, 2, 0, 1};
  
--    // Calculate smooth normals for all vertices
--    R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
+-    if (mod->name[0] == '*')
 +    for (size_t i = 0; i < vIndicesBuffer.size(); i += 3)
-+    {
+     {
+-        Sys_Error("R_GetWorldSurfaceWorldModel: invalid name \"%s\"!", mod->name);
+-        return nullptr;
+-    }
 +        // CCW
 +        int idx0 = vIndicesBuffer[i + 2];
 +        int idx1 = vIndicesBuffer[i + 1];
 +        int idx2 = vIndicesBuffer[i + 0];
  
--    pWorldModel->hEBO = GL_GenBuffer();
--    GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
+-    int modelindex = EngineGetModelIndex(mod);
 +        // 获取三角形的三个顶点位置
 +        vec3_t vTrianglePos[3];
 +        VectorCopy(vVertexDataBuffer[idx0].pos, vTrianglePos[0]);
 +        VectorCopy(vVertexDataBuffer[idx1].pos, vTrianglePos[1]);
 +        VectorCopy(vVertexDataBuffer[idx2].pos, vTrianglePos[2]);
  
--    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
--    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
+-    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
+-    {
+-        return g_WorldSurfaceWorldModels[modelindex];
+-    }
 +        vec3_t vTriangleNorm[3];
 +        VectorCopy(vVertexTBNDataBuffer[idx0].normal, vTriangleNorm[0]);
 +        VectorCopy(vVertexTBNDataBuffer[idx1].normal, vTriangleNorm[1]);
 +        VectorCopy(vVertexTBNDataBuffer[idx2].normal, vTriangleNorm[2]);
  
--    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
--    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
+-    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
+-    {
+-        g_WorldSurfaceWorldModels.resize(modelindex + 1);
+-    }
 +        // 计算面法线（保留面积信息用于加权）
 +        vec3_t edge1, edge2;
 +        VectorSubtract(vTrianglePos[1], vTrianglePos[0], edge1);
 +        VectorSubtract(vTrianglePos[2], vTrianglePos[0], edge2);
  
--    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
--    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
+-    R_GenerateWorldMaterialForWorldModel(mod);
 +        // 叉积的长度代表三角形面积的两倍
 +        vec3_t faceNormalWeighted;
 +        CrossProduct(edge1, edge2, faceNormalWeighted);
 +        float triangleArea = VectorLength(faceNormalWeighted);
  
--    pWorldModel->hVAO = GL_GenVAO();
+-    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
 +        if (triangleArea < 0.0001f)
 +        {
 +            // 退化三角形，跳过
 +            continue;
 +        }
  
--    GL_BindStatesForVAO(pWorldModel->hVAO, [pWorldModel]() {
--        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pWorldModel->hEBO);
+-    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
 +        vec3_t faceNormal;
 +        VectorScale(faceNormalWeighted, 1.0f / triangleArea, faceNormal);
  
--        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
+-    return pWorldModel;
+-}
 +        // 为三角形的每个顶点计算加权法线
 +        for (int j = 0; j < 3; j++)
 +        {
@@ -5669,70 +5845,69 @@ index 41f24f3..768370a 100644
 +            VectorSubtract(vTrianglePos[nextId[j]], vTrianglePos[j], edgeA);
 +            VectorSubtract(vTrianglePos[nextId[j + 1]], vTrianglePos[j], edgeB);
  
--        glEnableVertexAttribArray(WSURF_VA_POSITION);
--        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
--        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
+-void R_GenerateSceneUBO(void)
+-{
+-    if (g_WorldSurfaceRenderer.hSceneUBO)
+-        return;
 +            float edgeALength = VectorLength(edgeA);
 +            float edgeBLength = VectorLength(edgeB);
  
--        glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
--        glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
--        glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
+-    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
 +            if (edgeALength < 0.0001f || edgeBLength < 0.0001f)
 +            {
 +                // 退化边，跳过这个顶点
 +                continue;
 +            }
  
--        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
+-    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
 +            // 归一化边向量用于计算角度
 +            vec3_t edgeANorm, edgeBNorm;
 +            VectorScale(edgeA, 1.0f / edgeALength, edgeANorm);
 +            VectorScale(edgeB, 1.0f / edgeBLength, edgeBNorm);
  
--        glEnableVertexAttribArray(WSURF_VA_NORMAL);
--        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
--        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
--        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
+-    g_WorldSurfaceRenderer.hDLightUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hDLightUBO, sizeof(dlight_ubo_t), nullptr);
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_DLIGHT_UBO, g_WorldSurfaceRenderer.hDLightUBO);
 +            // 计算角度作为权重因子
 +            float dotProduct = DotProduct(edgeANorm, edgeBNorm);
 +            // 限制点积值在有效范围内，避免数值误差
 +            dotProduct  = math_clamp(dotProduct, -1.0f, 1.0f);
 +            float angle = std::acos(dotProduct);
  
--        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
--        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
--        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
--        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
+-    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
+-    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
 +            // 使用角度和面积的组合权重：角度权重 * 面积权重
 +            float combinedWeight = angle * triangleArea;
  
--        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
 +            // 计算加权法线
 +            vertex3f_t vWeightedNormal{};
 +            vertex3f_t negEdgeA{}, negEdgeB{};
  
--        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
--        glEnableVertexAttribArray(WSURF_VA_STYLES);
--        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
 +            VectorScale(faceNormal, combinedWeight, vWeightedNormal.v);
  
--        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
--        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
+-    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
+-    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
 +            // 将加权法线添加到对应顶点位置的列表中
 +            // BSP 几何体没有骨骼系统，m_boneindex 固定为 -1
 +            CQuantizedVector quantizedVertexPos(vTrianglePos[j]);
  
--        glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
--        glVertexAttribDivisor(WSURF_VA_STYLES, 1);
+-    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
+-    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
 +            auto it = FaceNormalHashMap.find(quantizedVertexPos);
  
--        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
--        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
--    });
+-    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
 +            std::shared_ptr<CBrushFaceNormalStorage> faceNormalStorage;
  
--    return pWorldModel;
+-    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
+-    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
 +            if (it == FaceNormalHashMap.end())
 +            {
 +                faceNormalStorage = std::make_shared<CBrushFaceNormalStorage>();
@@ -5756,67 +5931,67 @@ index 41f24f3..768370a 100644
 +            }
 +        }
 +    }
- }
++}
  
--std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
+-    GL_BindStatesForVAO(
+-        g_WorldSurfaceRenderer.hDecalVAO,
+-        []() {
+-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
 +/*
 +	Purpose: Calculate average normal from face-normal using FaceNormalHashMap for brush geometry
 +*/
 +void CalculateBrushAverageNormal(CBrushFaceNormalHashMap& FaceNormalHashMap)
- {
--    if (mod->type != mod_brush)
++{
 +    for (auto it = FaceNormalHashMap.begin(); it != FaceNormalHashMap.end(); it++)
-     {
--        Sys_Error("R_GetWorldSurfaceWorldModel: invalid mod type!");
--        return nullptr;
--    }
++    {
 +        const auto& FaceNormalStorage = it->second;
  
--    if (mod->name[0] == '*')
--    {
--        Sys_Error("R_GetWorldSurfaceWorldModel: invalid name \"%s\"!", mod->name);
--        return nullptr;
--    }
+-            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
 +        vec3_t averageNormal = {0, 0, 0};
  
--    int modelindex = EngineGetModelIndex(mod);
+-            glEnableVertexAttribArray(WSURF_VA_POSITION);
+-            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
+-            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
 +        // 直接累加加权法线
 +        for (const auto& weightedNormal : FaceNormalStorage->weightedNormals)
 +        {
 +            VectorAdd(averageNormal, weightedNormal.v, averageNormal);
 +        }
  
--    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
--    {
--        return g_WorldSurfaceWorldModels[modelindex];
--    }
+-            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
+-            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
+-            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
 +        // 归一化得到最终的平均法线
 +        float averageNormalLength = VectorLength(averageNormal);
  
--    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
--    {
--        g_WorldSurfaceWorldModels.resize(modelindex + 1);
--    }
+-            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
 +        if (averageNormalLength < 0.001f)
 +        {
 +            //无厚度的面片或退化情况，使用averageEdge作为法线
  
--    R_GenerateWorldMaterialForWorldModel(mod);
+-            glEnableVertexAttribArray(WSURF_VA_NORMAL);
+-            glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
+-            glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
 +            vec3_t averageEdge = {0, 0, 0};
  
--    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
+-            glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
+-            glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, s_tangent));
+-            glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, t_tangent));
+-            glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
 +            for (const auto& edge : FaceNormalStorage->edges)
 +            {
 +                VectorAdd(averageEdge, edge.v, averageEdge);
 +            }
  
--    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
+-            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE]);
 +            if (FaceNormalStorage->edges.size() > 0)
 +            {
 +                VectorScale(averageEdge, 1.0f / (float)FaceNormalStorage->edges.size(), averageEdge);
 +            }
  
--    return pWorldModel;
+-            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
+-            glEnableVertexAttribArray(WSURF_VA_STYLES);
+-            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
 +            float averageEdgeLength = VectorLength(averageEdge);
 +            if (averageEdgeLength > 0.001f)
 +            {
@@ -5830,7 +6005,9 @@ index 41f24f3..768370a 100644
 +                FaceNormalStorage->bHasAverageEdge = true;
 +            }
 +        }
-+
+ 
+-            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
+-            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
 +        if (averageNormalLength > 0.001f)
 +        {
 +            VectorScale(averageNormal, (1.0f / averageNormalLength), FaceNormalStorage->averageNormal);
@@ -5840,9 +6017,10 @@ index 41f24f3..768370a 100644
 +            VectorClear(FaceNormalStorage->averageNormal);
 +        }
 +    }
- }
++}
  
--void R_GenerateSceneUBO(void)
+-            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
+-            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
 +/*
 +	Purpose: Get smooth normal from given vertex for brush geometry
 +*/
@@ -5851,32 +6029,25 @@ index 41f24f3..768370a 100644
 +    const vec3_t                   VertexNorm,
 +    const CBrushFaceNormalHashMap& FaceNormalHashMap,
 +    vec3_t                         outNormal)
- {
--    if (g_WorldSurfaceRenderer.hSceneUBO)
--        return;
--
--    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
--
--    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
++{
 +    CQuantizedVector quantizedVertexPos(VertexPos);
  
--    g_WorldSurfaceRenderer.hDLightUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hDLightUBO, sizeof(dlight_ubo_t), nullptr);
--    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_DLIGHT_UBO, g_WorldSurfaceRenderer.hDLightUBO);
+-            glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
+-            glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
+-        });
 +    auto it = FaceNormalHashMap.find(quantizedVertexPos);
  
--    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
--    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
+-    if (g_bUseOITBlend)
 +    if (it != FaceNormalHashMap.end())
-+    {
+     {
+-        size_t fragmentBufferSizeBytes = sizeof(FragmentNode) * MAX_NUM_NODES * R_GetSwapChainWidth() * R_GetSwapChainHeight();
 +        const auto& FaceNormalStorage = it->second;
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
+-        g_WorldSurfaceRenderer.hOITFragmentSSBO = GL_GenBuffer();
+-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITFragmentSSBO);
+-        glBufferData(GL_SHADER_STORAGE_BUFFER, fragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
+-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_FRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITFragmentSSBO);
+-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 +        if (FaceNormalStorage->bHasAverageEdge)
 +        {
 +            // 对于无厚度面片，使用边向量作为法线
@@ -5884,13 +6055,15 @@ index 41f24f3..768370a 100644
 +            return;
 +        }
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
+-        size_t numFragmentBufferSizeBytes = sizeof(uint32_t) * R_GetSwapChainWidth() * R_GetSwapChainHeight();
 +        // 检查计算出的平均法线是否与原始法线差异过大
 +        float dotProduct = DotProduct(FaceNormalStorage->averageNormal, VertexNorm);
  
--    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
--    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
+-        g_WorldSurfaceRenderer.hOITNumFragmentSSBO = GL_GenBuffer();
+-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
+-        glBufferData(GL_SHADER_STORAGE_BUFFER, numFragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
+-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_NUMFRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
+-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 +        // 如果两个法线的夹角超过60度（cos(60°) = 0.5），则认为差异过大
 +        if (dotProduct < 0.5f)
 +        {
@@ -5899,8 +6072,11 @@ index 41f24f3..768370a 100644
 +            return;
 +        }
  
--    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
--    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
+-        g_WorldSurfaceRenderer.hOITAtomicSSBO = GL_GenBuffer();
+-        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, g_WorldSurfaceRenderer.hOITAtomicSSBO);
+-        glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(uint32_t), NULL, GL_STATIC_DRAW);
+-        glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, BINDING_POINT_OIT_COUNTER_SSBO, g_WorldSurfaceRenderer.hOITAtomicSSBO);
+-        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
 +        // 使用插值来平滑过渡，避免突变
 +        float  blendFactor = math_clamp((dotProduct - 0.5f) / 0.5f, 0.0f, 1.0f);
 +        vec3_t lerpResult;
@@ -5908,15 +6084,18 @@ index 41f24f3..768370a 100644
 +        VectorNormalize(lerpResult);
 +        VectorCopy(lerpResult, outNormal);
 +        return;
-+    }
+     }
+-}
  
--    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
+-void R_ClearDetailTextureCache(void)
+-{
+-    g_WorldTextureRenderMaterials.clear();
+-    g_DecalTextureRenderMaterials.clear();
 +    // 找不到对应的平均法线，使用原始法线
 +    VectorCopy(VertexNorm, outNormal);
-+}
+ }
  
--    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
--    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
+-void R_ClearDecalCache(void)
 +/*
 +	Purpose: Prepare smooth normal for brush geometry, store in vVertexTBNDataBuffer[].smoothnormal
 +*/
@@ -5924,67 +6103,71 @@ index 41f24f3..768370a 100644
 +    const std::vector<brushvertex_t>& vVertexDataBuffer,
 +    const std::vector<uint32_t>&      vIndicesBuffer,
 +    std::vector<brushvertextbn_t>&    vVertexTBNDataBuffer)
-+{
+ {
+-    for (int i = 0; i < MAX_DECALS; ++i)
 +    CBrushFaceNormalHashMap FaceNormalHashMap;
- 
--    GL_BindStatesForVAO(
--        g_WorldSurfaceRenderer.hDecalVAO,
--        []() {
--            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
++
 +    CalculateBrushFaceNormalHashMap(vVertexDataBuffer, vVertexTBNDataBuffer, vIndicesBuffer, FaceNormalHashMap);
- 
--            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
++
 +    CalculateBrushAverageNormal(FaceNormalHashMap);
- 
--            glEnableVertexAttribArray(WSURF_VA_POSITION);
--            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
--            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
++
 +    for (size_t i = 0; i < vVertexTBNDataBuffer.size(); ++i)
-+    {
+     {
+-        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].origin);
+-        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].mins);
+-        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].maxs);
+-        g_WorldSurfaceRenderer.vCachedDecals[i].boundsValid     = false;
+-        g_WorldSurfaceRenderer.vCachedDecals[i].indiceCount     = 0;
+-        g_WorldSurfaceRenderer.vCachedDecals[i].instanceCount   = 0;
+-        g_WorldSurfaceRenderer.vCachedDecals[i].pRenderMaterial = nullptr;
 +        GetBrushSmoothNormal(vVertexDataBuffer[i].pos, vVertexTBNDataBuffer[i].normal, FaceNormalHashMap, vVertexTBNDataBuffer[i].smoothnormal);
-+    }
-+}
+     }
+ }
  
--            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
--            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
--            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
+-void R_DrawWorldSurfaceLeafBegin(CWorldSurfaceLeaf* pLeaf)
 +/*
 +	Purpose: Organize vertex buffer and index buffer for WorldSurfaceModel (aka world geometry), and upload buffers to GPU
 +*/
 +std::shared_ptr<CWorldSurfaceWorldModel> R_GenerateWorldSurfaceWorldModel(model_t* mod)
-+{
+ {
+-    auto pModel = pLeaf->m_pModel.lock();
+-
+-    auto pWorldModel = pModel->m_pWorldModel.lock();
 +    auto geometry = std::make_shared<goldcraft::surface::Mesh>();
 +    auto& vVertexDataBuffer = geometry->vertices;
 +    auto& vVertexTBNDataBuffer = geometry->frames;
 +    auto& vInstanceDataBuffer = geometry->instances;
 +    auto& vIndiceBuffer = geometry->indices;
  
--            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
+-    GL_BindVAO(pWorldModel->hVAO);
+-    GL_BindABO(pLeaf->hABO);
+-}
 +    vVertexDataBuffer.reserve(mod->numvertexes);
 +    vInstanceDataBuffer.reserve(mod->numsurfaces);
 +    vIndiceBuffer.reserve(mod->numvertexes * 4);
  
--            glEnableVertexAttribArray(WSURF_VA_NORMAL);
--            glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
--            glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
+-void R_DrawWorldSurfaceLeafEnd()
+-{
+-    GL_BindABO(0);
+-    GL_BindVAO(0);
+-}
 +    auto pWorldModel = std::make_shared<CWorldSurfaceWorldModel>(mod);
  
--            glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
--            glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, s_tangent));
--            glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, t_tangent));
--            glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
+-bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
+-{
+-    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
 +    pWorldModel->m_vFaceBuffer.resize(mod->numsurfaces);
  
--            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE]);
+-    if (!texchain.drawCount)
+-        return false;
 +    for (int i = 0; i < mod->numsurfaces; i++)
 +    {
 +        auto surf       = R_GetWorldSurfaceByIndex(mod, i);
 +        auto poly       = surf->polys;
 +        auto pBrushFace = &pWorldModel->m_vFaceBuffer[i];
  
--            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
--            glEnableVertexAttribArray(WSURF_VA_STYLES);
--            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
+-    return true;
+-}
 +        VectorCopy(surf->texinfo->vecs[0], pBrushFace->s_tangent);
 +        VectorCopy(surf->texinfo->vecs[1], pBrushFace->t_tangent);
 +        VectorNormalize(pBrushFace->s_tangent);
@@ -5993,8 +6176,9 @@ index 41f24f3..768370a 100644
 +        pBrushFace->index = i;
 +        pBrushFace->flags = surf->flags;
  
--            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
--            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
+-/*
+-	Purpose : Draw skybox
+-*/
 +        if (surf->flags & SURF_PLANEBACK)
 +        {
 +            VectorInverse(pBrushFace->normal);
@@ -6002,213 +6186,67 @@ index 41f24f3..768370a 100644
 +            VectorInverse(pBrushFace->t_tangent);
 +        }
  
--            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
--            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
+-void R_DrawSkyBox(void)
+-{
+-    if (CL_IsDevOverviewMode())
+-        return;
 +        if (surf->lightmaptexturenum + 1 > g_WorldSurfaceRenderer.iNumLightmapTextures)
 +            g_WorldSurfaceRenderer.iNumLightmapTextures = surf->lightmaptexturenum + 1;
  
--            glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
--            glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
--        });
+-    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
+-        return;
 +        auto ptexture = (surf->texinfo && surf->texinfo->texture) ? surf->texinfo->texture : R_GetEmptyWorldTexture();
  
--    if (g_bUseOITBlend)
--    {
--        size_t fragmentBufferSizeBytes = sizeof(FragmentNode) * MAX_NUM_NODES * R_GetSwapChainWidth() * R_GetSwapChainHeight();
+-    if (!g_WorldSurfaceRenderer.vSkyboxTextureId[0])
+-        return;
 +        if (pBrushFace->flags & SURF_DRAWTURB)
 +        {
 +            if (1)
 +            {
 +                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
  
--        g_WorldSurfaceRenderer.hOITFragmentSSBO = GL_GenBuffer();
--        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITFragmentSSBO);
--        glBufferData(GL_SHADER_STORAGE_BUFFER, fragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
--        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_FRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITFragmentSSBO);
--        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-+                for (poly = surf->polys; poly; poly = poly->next)
-+                {
-+                    uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
- 
--        size_t numFragmentBufferSizeBytes = sizeof(uint32_t) * R_GetSwapChainWidth() * R_GetSwapChainHeight();
-+                    std::vector<vertex3f_t> vPolyVertices;
- 
--        g_WorldSurfaceRenderer.hOITNumFragmentSSBO = GL_GenBuffer();
--        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
--        glBufferData(GL_SHADER_STORAGE_BUFFER, numFragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
--        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_NUMFRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
--        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-+                    float* v = poly->verts[0];
- 
--        g_WorldSurfaceRenderer.hOITAtomicSSBO = GL_GenBuffer();
--        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, g_WorldSurfaceRenderer.hOITAtomicSSBO);
--        glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(uint32_t), NULL, GL_STATIC_DRAW);
--        glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, BINDING_POINT_OIT_COUNTER_SSBO, g_WorldSurfaceRenderer.hOITAtomicSSBO);
--        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
--    }
--}
-+                    for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
-+                    {
-+                        vertex3f_t tempVertex;
-+                        VectorCopy(v, tempVertex.v);
- 
--void R_ClearDetailTextureCache(void)
--{
--    g_WorldTextureRenderMaterials.clear();
--    g_DecalTextureRenderMaterials.clear();
--}
-+                        brushvertex_t tempVertexData;
-+                        VectorCopy(v, tempVertexData.pos);
-+                        tempVertexData.texcoord[0]         = v[3];
-+                        tempVertexData.texcoord[1]         = v[4];
-+                        tempVertexData.lightmaptexcoord[0] = v[5];
-+                        tempVertexData.lightmaptexcoord[1] = v[6];
- 
--void R_ClearDecalCache(void)
--{
--    for (int i = 0; i < MAX_DECALS; ++i)
--    {
--        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].origin);
--        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].mins);
--        VectorClear(g_WorldSurfaceRenderer.vCachedDecals[i].maxs);
--        g_WorldSurfaceRenderer.vCachedDecals[i].boundsValid     = false;
--        g_WorldSurfaceRenderer.vCachedDecals[i].indiceCount     = 0;
--        g_WorldSurfaceRenderer.vCachedDecals[i].instanceCount   = 0;
--        g_WorldSurfaceRenderer.vCachedDecals[i].pRenderMaterial = nullptr;
--    }
--}
-+                        brushvertextbn_t tempVertexTBNData;
-+                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
-+                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
-+                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
- 
--void R_DrawWorldSurfaceLeafBegin(CWorldSurfaceLeaf* pLeaf)
--{
--    auto pModel = pLeaf->m_pModel.lock();
-+                        vPolyVertices.emplace_back(tempVertex);
-+                        vVertexDataBuffer.emplace_back(tempVertexData);
-+                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
-+                    }
- 
--    auto pWorldModel = pModel->m_pWorldModel.lock();
-+                    std::vector<uint32_t> vTriangleListIndices;
-+                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
- 
--    GL_BindVAO(pWorldModel->hVAO);
--    GL_BindABO(pLeaf->hABO);
--}
-+                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
-+                    {
-+                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
-+                    }
- 
--void R_DrawWorldSurfaceLeafEnd()
--{
--    GL_BindABO(0);
--    GL_BindVAO(0);
--}
-+                    pBrushFace->poly_count++;
-+                }
-+                uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
-+                pBrushFace->start_index     = nBrushStartIndex;
-+                pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
-+            }
-+            if (1)
-+            {
-+                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
- 
--bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
--{
--    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
-+                for (poly = surf->polys; poly; poly = poly->next)
-+                {
-+                    uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
- 
--    if (!texchain.drawCount)
--        return false;
-+                    std::vector<vertex3f_t> vPolyVertices;
- 
--    return true;
--}
-+                    float* v = poly->verts[0];
- 
--/*
--	Purpose : Draw skybox
--*/
-+                    for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
-+                    {
-+                        vertex3f_t tempVertex;
-+                        VectorCopy(v, tempVertex.v);
- 
--void R_DrawSkyBox(void)
--{
--    if (CL_IsDevOverviewMode())
--        return;
-+                        brushvertex_t tempVertexData;
-+                        VectorCopy(v, tempVertexData.pos);
-+                        tempVertexData.texcoord[0]         = v[3];
-+                        tempVertexData.texcoord[1]         = v[4];
-+                        tempVertexData.lightmaptexcoord[0] = v[5];
-+                        tempVertexData.lightmaptexcoord[1] = v[6];
- 
--    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
--        return;
-+                        brushvertextbn_t tempVertexTBNData;
-+                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
-+                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
-+                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
- 
--    if (!g_WorldSurfaceRenderer.vSkyboxTextureId[0])
--        return;
-+                        vPolyVertices.emplace_back(tempVertex);
-+                        vVertexDataBuffer.emplace_back(tempVertexData);
-+                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
-+                    }
- 
 -    GL_BeginDebugGroup("R_DrawSkyBox");
-+                    std::vector<uint32_t> vTriangleListIndices;
-+                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
++                for (poly = surf->polys; poly; poly = poly->next)
++                {
++                    uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
  
 -    entity_ubo_t EntityUBO;
-+                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
-+                    {
-+                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[vTriangleListIndices.size() - 1 - k]);
-+                    }
++                    std::vector<vertex3f_t> vPolyVertices;
  
 -    Matrix4x4_Transpose(EntityUBO.r_entityMatrix, r_entity_matrix);
 -    memcpy(EntityUBO.r_color, r_entity_color, sizeof(vec4));
 -    EntityUBO.r_scrollSpeed = 0;
 -    EntityUBO.r_scale       = 0;
-+                    pBrushFace->poly_count++;
-+                }
-+                uint32_t nBrushCurrentIndex     = (uint32_t)vIndiceBuffer.size();
-+                pBrushFace->reverse_start_index = nBrushStartIndex;
-+                pBrushFace->reverse_index_count = nBrushCurrentIndex - nBrushStartIndex;
-+            }
-+        }
-+        else
-+        {
-+            uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
++                    float* v = poly->verts[0];
  
 -    GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hEntityUBO, 0, sizeof(EntityUBO), &EntityUBO);
-+            for (poly = surf->polys; poly; poly = poly->next)
-+            {
-+                uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
++                    for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
++                    {
++                        vertex3f_t tempVertex;
++                        VectorCopy(v, tempVertex.v);
  
 -    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_ENTITY_UBO, g_WorldSurfaceRenderer.hEntityUBO);
-+                std::vector<vertex3f_t> vPolyVertices;
++                        brushvertex_t tempVertexData;
++                        VectorCopy(v, tempVertexData.pos);
++                        tempVertexData.texcoord[0]         = v[3];
++                        tempVertexData.texcoord[1]         = v[4];
++                        tempVertexData.lightmaptexcoord[0] = v[5];
++                        tempVertexData.lightmaptexcoord[1] = v[6];
  
 -    program_state_t WSurfProgramState = WSURF_DIFFUSE_ENABLED | WSURF_SKYBOX_ENABLED | WSURF_FULLBRIGHT_ENABLED;
-+                float* v = poly->verts[0];
++                        brushvertextbn_t tempVertexTBNData;
++                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
++                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
++                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
  
 -    if ((*filterMode) != 0)
 -    {
 -        WSurfProgramState |= WSURF_COLOR_FILTER_ENABLED;
 -    }
-+                for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
-+                {
-+                    vertex3f_t tempVertex;
-+                    VectorCopy(v, tempVertex.v);
++                        vPolyVertices.emplace_back(tempVertex);
++                        vVertexDataBuffer.emplace_back(tempVertexData);
++                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
++                    }
  
 -    if (R_IsRenderingWaterView())
 -    {
@@ -6218,18 +6256,14 @@ index 41f24f3..768370a 100644
 -    {
 -        WSurfProgramState |= WSURF_CLIP_ENABLED;
 -    }
-+                    brushvertex_t tempVertexData;
-+                    VectorCopy(v, tempVertexData.pos);
-+                    tempVertexData.texcoord[0]         = v[3];
-+                    tempVertexData.texcoord[1]         = v[4];
-+                    tempVertexData.lightmaptexcoord[0] = v[5];
-+                    tempVertexData.lightmaptexcoord[1] = v[6];
++                    std::vector<uint32_t> vTriangleListIndices;
++                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
  
 -    int iStencilRef = STENCIL_MASK_NO_LIGHTING;
-+                    brushvertextbn_t tempVertexTBNData;
-+                    VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
-+                    VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
-+                    VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
++                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
++                    {
++                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
++                    }
  
 -    if ((int)r_wsurf_sky_fog->value > 0)
 -    {
@@ -6244,86 +6278,104 @@ index 41f24f3..768370a 100644
 -                else if (r_fog_mode == GL_EXP)
 -                {
 -                    WSurfProgramState |= WSURF_EXP_FOG_ENABLED;
--                }
--                else if (r_fog_mode == GL_EXP2)
--                {
--                    WSurfProgramState |= WSURF_EXP2_FOG_ENABLED;
-+                    vPolyVertices.emplace_back(tempVertex);
-+                    vVertexDataBuffer.emplace_back(tempVertexData);
-+                    vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
++                    pBrushFace->poly_count++;
                  }
+-                else if (r_fog_mode == GL_EXP2)
++                uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
++                pBrushFace->start_index     = nBrushStartIndex;
++                pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
++            }
++            if (1)
++            {
++                uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
++
++                for (poly = surf->polys; poly; poly = poly->next)
+                 {
+-                    WSurfProgramState |= WSURF_EXP2_FOG_ENABLED;
+-                }
++                    uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
++
++                    std::vector<vertex3f_t> vPolyVertices;
++
++                    float* v = poly->verts[0];
++
++                    for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
++                    {
++                        vertex3f_t tempVertex;
++                        VectorCopy(v, tempVertex.v);
++
++                        brushvertex_t tempVertexData;
++                        VectorCopy(v, tempVertexData.pos);
++                        tempVertexData.texcoord[0]         = v[3];
++                        tempVertexData.texcoord[1]         = v[4];
++                        tempVertexData.lightmaptexcoord[0] = v[5];
++                        tempVertexData.lightmaptexcoord[1] = v[6];
++
++                        brushvertextbn_t tempVertexTBNData;
++                        VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
++                        VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
++                        VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
++
++                        vPolyVertices.emplace_back(tempVertex);
++                        vVertexDataBuffer.emplace_back(tempVertexData);
++                        vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
++                    }
++
++                    std::vector<uint32_t> vTriangleListIndices;
++                    R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
  
 -                if (!R_IsRenderingGammaBlending() && r_linear_fog_shift->value > 0)
-+                std::vector<uint32_t> vTriangleListIndices;
-+                R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
-+
-+                for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
-                 {
+-                {
 -                    WSurfProgramState |= WSURF_LINEAR_FOG_SHIFT_ENABLED;
-+                    vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
++                    for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
++                    {
++                        vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[vTriangleListIndices.size() - 1 - k]);
++                    }
++
++                    pBrushFace->poly_count++;
                  }
-+
-+                pBrushFace->poly_count++;
++                uint32_t nBrushCurrentIndex     = (uint32_t)vIndiceBuffer.size();
++                pBrushFace->reverse_start_index = nBrushStartIndex;
++                pBrushFace->reverse_index_count = nBrushCurrentIndex - nBrushStartIndex;
              }
-+
-+            uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
-+            pBrushFace->start_index     = nBrushStartIndex;
-+            pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
          }
 -    }
 -    else
 -    {
 -        iStencilRef |= STENCIL_MASK_NO_FOG;
 -    }
- 
+-
 -    GL_BeginStencilWrite(iStencilRef, iStencilRef);
-+        pBrushFace->instance_index = (uint32_t)vInstanceDataBuffer.size();
- 
+-
 -    if (R_IsRenderingGammaBlending())
 -    {
 -        WSurfProgramState |= WSURF_GAMMA_BLEND_ENABLED;
-+        brushinstancedata_t tempInstanceData;
-+
-+        tempInstanceData.packed_matId[0] = ptexture ? R_FindWorldMaterialId(ptexture->gl_texturenum) : 0;
-+        tempInstanceData.packed_matId[1] = surf->lightmaptexturenum;
-+        tempInstanceData.diffusescale    = (ptexture && (pBrushFace->flags & SURF_DRAWTILED)) ? 1.0f / ptexture->width : 0;
-+        memcpy(&tempInstanceData.styles, surf->styles, sizeof(surf->styles));
-+
-+        vInstanceDataBuffer.emplace_back(tempInstanceData);
-+
-+        pBrushFace->instance_count = 1;
-     }
+-    }
++        else
++        {
++            uint32_t nBrushStartIndex = (uint32_t)vIndiceBuffer.size();
  
 -    if (R_IsRenderingGBuffer())
-+    // Calculate smooth normals for all vertices
-+    R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
-+
-+    geometry->faces.reserve(pWorldModel->m_vFaceBuffer.size());
-+    for (const auto& face : pWorldModel->m_vFaceBuffer)
-     {
+-    {
 -        WSurfProgramState |= WSURF_GBUFFER_ENABLED;
-+        geometry->faces.push_back({{face.start_index, face.index_count},
-+            {face.reverse_start_index, face.reverse_index_count},
-+            {face.instance_index, face.instance_count}, face.poly_count,
-+            (face.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) == 0});
-     }
-+    pWorldModel->m_pOriginalMesh = geometry;
-+    pWorldModel->m_pSurfaceMesh = geometry;
+-    }
++            for (poly = surf->polys; poly; poly = poly->next)
++            {
++                uint32_t nPolyStartIndex = (uint32_t)vVertexDataBuffer.size();
  
 -    glDepthMask(GL_FALSE);
 -    glDisable(GL_BLEND);
-+    // Keep the normal map-loading path until coordinated edit commits are wired.
-+    pWorldModel->hEBO = GL_GenBuffer();
-+    GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
++                std::vector<vertex3f_t> vPolyVertices;
  
 -    wsurf_program_t prog = {0};
 -    R_UseWSurfProgram(WSurfProgramState, &prog);
-+    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
++                float* v = poly->verts[0];
  
 -    GL_BindVAO(r_empty_vao);
-+    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
-+    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
++                for (int j = 0; j < poly->numverts; j++, v += VERTEXSIZE)
++                {
++                    vertex3f_t tempVertex;
++                    VectorCopy(v, tempVertex.v);
  
 -    if (r_detailskytextures->value && g_WorldSurfaceRenderer.vSkyboxTextureId[6])
 -    {
@@ -6341,25 +6393,145 @@ index 41f24f3..768370a 100644
 -            glDrawArrays(GL_TRIANGLES, 6 * i, 6);
 -        }
 -    }
++                    brushvertex_t tempVertexData;
++                    VectorCopy(v, tempVertexData.pos);
++                    tempVertexData.texcoord[0]         = v[3];
++                    tempVertexData.texcoord[1]         = v[4];
++                    tempVertexData.lightmaptexcoord[0] = v[5];
++                    tempVertexData.lightmaptexcoord[1] = v[6];
+ 
+-    GL_BindTextureUnit(0, GL_TEXTURE_2D, 0);
++                    brushvertextbn_t tempVertexTBNData;
++                    VectorCopy(pBrushFace->normal, tempVertexTBNData.normal);
++                    VectorCopy(pBrushFace->s_tangent, tempVertexTBNData.s_tangent);
++                    VectorCopy(pBrushFace->t_tangent, tempVertexTBNData.t_tangent);
+ 
+-    GL_BindVAO(0);
++                    vPolyVertices.emplace_back(tempVertex);
++                    vVertexDataBuffer.emplace_back(tempVertexData);
++                    vVertexTBNDataBuffer.emplace_back(tempVertexTBNData);
++                }
+ 
+-    GL_UseProgram(0);
++                std::vector<uint32_t> vTriangleListIndices;
++                R_PolygonToTriangleList(vPolyVertices, vTriangleListIndices);
+ 
+-    GL_EndStencil();
++                for (size_t k = 0; k < vTriangleListIndices.size(); ++k)
++                {
++                    vIndiceBuffer.emplace_back(nPolyStartIndex + vTriangleListIndices[k]);
++                }
+ 
+-    glDepthMask(GL_TRUE);
++                pBrushFace->poly_count++;
++            }
+ 
+-    GL_EndDebugGroup();
+-}
++            uint32_t nBrushCurrentIndex = (uint32_t)vIndiceBuffer.size();
++            pBrushFace->start_index     = nBrushStartIndex;
++            pBrushFace->index_count     = nBrushCurrentIndex - nBrushStartIndex;
++        }
+ 
+-void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel* pShadowProxyModel, CWorldSurfaceShadowProxyDraw* pShadowProxyDraw)
+-{
+-    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyMesh");
++        pBrushFace->instance_index = (uint32_t)vInstanceDataBuffer.size();
+ 
+-    program_state_t WSurfProgramState = 0;
++        brushinstancedata_t tempInstanceData;
+ 
+-    if (pShadowProxyDraw->texture)
+-    {
+-        WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
++        tempInstanceData.packed_matId[0] = ptexture ? R_FindWorldMaterialId(ptexture->gl_texturenum) : 0;
++        tempInstanceData.packed_matId[1] = surf->lightmaptexturenum;
++        tempInstanceData.diffusescale    = (ptexture && (pBrushFace->flags & SURF_DRAWTILED)) ? 1.0f / ptexture->width : 0;
++        memcpy(&tempInstanceData.styles, surf->styles, sizeof(surf->styles));
+ 
+-        GL_Bind(pShadowProxyDraw->texture->gl_texturenum);
+-    }
+-    else
+-    {
+-        GL_Bind(0);
+-    }
++        vInstanceDataBuffer.emplace_back(tempInstanceData);
+ 
+-    if (R_IsRenderingGBuffer())
+-    {
+-        WSurfProgramState |= WSURF_GBUFFER_ENABLED;
++        pBrushFace->instance_count = 1;
+     }
+ 
+-    if (R_IsRenderingShadowView())
+-    {
+-        WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
+-    }
++    // Calculate smooth normals for all vertices
++    R_PrepareSmoothNormalForBrushModel(vVertexDataBuffer, vIndiceBuffer, vVertexTBNDataBuffer);
+ 
+-    if (R_IsRenderingMultiView())
++    geometry->faces.reserve(pWorldModel->m_vFaceBuffer.size());
++    for (const auto& face : pWorldModel->m_vFaceBuffer)
+     {
+-        WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
++        geometry->faces.push_back({{face.start_index, face.index_count},
++            {face.reverse_start_index, face.reverse_index_count},
++            {face.instance_index, face.instance_count}, face.poly_count,
++            (face.flags & (SURF_DRAWSKY | SURF_DRAWTURB)) == 0});
+     }
++    pWorldModel->m_pOriginalMesh = geometry;
++    pWorldModel->m_pSurfaceMesh = geometry;
+ 
+-    if (R_IsRenderingLinearDepth())
+-    {
+-        WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
+-    }
++    // Keep the normal map-loading path until coordinated edit commits are wired.
++    pWorldModel->hEBO = GL_GenBuffer();
++    GL_UploadDataToEBOStaticDraw(pWorldModel->hEBO, sizeof(uint32_t) * vIndiceBuffer.size(), vIndiceBuffer.data());
+ 
+-    if (R_IsRenderingWaterView())
+-    {
+-        WSurfProgramState |= WSURF_CLIP_WATER_ENABLED;
+-    }
+-    else if (g_bPortalClipPlaneEnabled[0])
+-    {
+-        WSurfProgramState |= WSURF_CLIP_ENABLED;
+-    }
++    pWorldModel->hVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEX], sizeof(brushvertex_t) * vVertexDataBuffer.size(), vVertexDataBuffer.data());
+ 
+-    if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
+-    {
+-        WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
+-    }
++    pWorldModel->hVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
++    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_VERTEXTBN], sizeof(brushvertextbn_t) * vVertexTBNDataBuffer.size(), vVertexTBNDataBuffer.data());
+ 
+-    GL_BindVAO(pShadowProxyModel->hVAO);
+-    GL_BindABO(pShadowProxyModel->hABO);
 +    pWorldModel->hVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
 +    GL_UploadDataToVBOStaticDraw(pWorldModel->hVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * vInstanceDataBuffer.size(), vInstanceDataBuffer.data());
  
--    GL_BindTextureUnit(0, GL_TEXTURE_2D, 0);
+-    wsurf_program_t prog = {0};
+-    R_UseWSurfProgram(WSurfProgramState, &prog);
 +    pWorldModel->hVAO = GL_GenVAO();
  
--    GL_BindVAO(0);
+-    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(pShadowProxyDraw->startOffset), pShadowProxyDraw->drawCount, 0);
 +    GL_BindStatesForVAO(pWorldModel->hVAO, [pWorldModel]() {
 +        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, pWorldModel->hEBO);
  
--    GL_UseProgram(0);
+-    (*c_brush_polys) += pShadowProxyDraw->drawCount;
 +        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEX]);
  
--    GL_EndStencil();
+-    GL_UseProgram(0);
 +        glEnableVertexAttribArray(WSURF_VA_POSITION);
 +        glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
 +        glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
  
--    glDepthMask(GL_TRUE);
+-    GL_BindABO(0);
+-    GL_BindVAO(0);
 +        glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, pos));
 +        glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, texcoord));
 +        glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(brushvertex_t), OFFSET(brushvertex_t, lightmaptexcoord));
@@ -6368,219 +6540,113 @@ index 41f24f3..768370a 100644
 -}
 +        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_VERTEXTBN]);
  
--void R_DrawWorldSurfaceModelShadowProxyMesh(CWorldSurfaceShadowProxyModel* pShadowProxyModel, CWorldSurfaceShadowProxyDraw* pShadowProxyDraw)
+-void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
 -{
--    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyMesh");
+-    auto pShadowProxyModel = pModel->m_pShadowProxyModel.lock();
 +        glEnableVertexAttribArray(WSURF_VA_NORMAL);
 +        glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
 +        glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
 +        glEnableVertexAttribArray(WSURF_VA_SMOOTHNORMAL);
  
--    program_state_t WSurfProgramState = 0;
+-    if (!pShadowProxyModel)
+-        return;
 +        glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, normal));
 +        glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, s_tangent));
 +        glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, t_tangent));
 +        glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(brushvertextbn_t), OFFSET(brushvertextbn_t, smoothnormal));
  
--    if (pShadowProxyDraw->texture)
--    {
--        WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
+-    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyInternal");
 +        glBindBuffer(GL_ARRAY_BUFFER, pWorldModel->hVBO[WSURF_VBO_INSTANCE]);
  
--        GL_Bind(pShadowProxyDraw->texture->gl_texturenum);
--    }
--    else
+-    for (size_t i = 0; i < pModel->m_pShadowProxyDraws.size(); ++i)
 -    {
--        GL_Bind(0);
--    }
+-        auto pShadowProxyDraw = pModel->m_pShadowProxyDraws[i].lock();
 +        glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
 +        glEnableVertexAttribArray(WSURF_VA_STYLES);
 +        glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
  
--    if (R_IsRenderingGBuffer())
--    {
--        WSurfProgramState |= WSURF_GBUFFER_ENABLED;
--    }
+-        if (!pShadowProxyDraw)
+-            return;
 +        glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
 +        glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
  
--    if (R_IsRenderingShadowView())
--    {
--        WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
--    }
+-        if (!pShadowProxyDraw->drawCount)
+-            return;
 +        glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
 +        glVertexAttribDivisor(WSURF_VA_STYLES, 1);
  
--    if (R_IsRenderingMultiView())
--    {
--        WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
+-        R_DrawWorldSurfaceModelShadowProxyMesh(pShadowProxyModel.get(), pShadowProxyDraw.get());
 -    }
 +        glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
 +        glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
 +    });
  
--    if (R_IsRenderingLinearDepth())
-+    return pWorldModel;
-+}
-+
-+std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
-+{
-+    if (mod->type != mod_brush)
-     {
--        WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
-+        Sys_Error("R_GetWorldSurfaceWorldModel: invalid mod type!");
-+        return nullptr;
-     }
- 
--    if (R_IsRenderingWaterView())
-+    if (mod->name[0] == '*')
-     {
--        WSurfProgramState |= WSURF_CLIP_WATER_ENABLED;
-+        Sys_Error("R_GetWorldSurfaceWorldModel: invalid name \"%s\"!", mod->name);
-+        return nullptr;
-     }
--    else if (g_bPortalClipPlaneEnabled[0])
-+
-+    int modelindex = EngineGetModelIndex(mod);
-+
-+    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
-     {
--        WSurfProgramState |= WSURF_CLIP_ENABLED;
-+        return g_WorldSurfaceWorldModels[modelindex];
-     }
- 
--    if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
-+    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
-     {
--        WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
-+        g_WorldSurfaceWorldModels.resize(modelindex + 1);
-     }
- 
--    GL_BindVAO(pShadowProxyModel->hVAO);
--    GL_BindABO(pShadowProxyModel->hABO);
--
--    wsurf_program_t prog = {0};
--    R_UseWSurfProgram(WSurfProgramState, &prog);
--
--    glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(pShadowProxyDraw->startOffset), pShadowProxyDraw->drawCount, 0);
--
--    (*c_brush_polys) += pShadowProxyDraw->drawCount;
-+    R_GenerateWorldMaterialForWorldModel(mod);
- 
--    GL_UseProgram(0);
-+    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
- 
--    GL_BindABO(0);
--    GL_BindVAO(0);
-+    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
- 
 -    GL_EndDebugGroup();
 +    return pWorldModel;
  }
  
--void R_DrawWorldSurfaceModelShadowProxy(CWorldSurfaceModel* pModel)
-+void R_GenerateSceneUBO(void)
- {
--    auto pShadowProxyModel = pModel->m_pShadowProxyModel.lock();
--
--    if (!pShadowProxyModel)
-+    if (g_WorldSurfaceRenderer.hSceneUBO)
-         return;
- 
--    GL_BeginDebugGroup("R_DrawWorldSurfaceModelShadowProxyInternal");
--
--    for (size_t i = 0; i < pModel->m_pShadowProxyDraws.size(); ++i)
--    {
--        auto pShadowProxyDraw = pModel->m_pShadowProxyDraws[i].lock();
--
--        if (!pShadowProxyDraw)
--            return;
--
--        if (!pShadowProxyDraw->drawCount)
--            return;
--
--        R_DrawWorldSurfaceModelShadowProxyMesh(pShadowProxyModel.get(), pShadowProxyDraw.get());
--    }
--
--    GL_EndDebugGroup();
--}
--
 -void R_DrawWorldSurfaceLeafShadow(CWorldSurfaceLeaf* pLeaf, bool bWithSky)
--{
++std::shared_ptr<CWorldSurfaceWorldModel> R_GetWorldSurfaceWorldModel(model_t* mod)
+ {
 -    //const auto& texchain = bWithSky ? pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID_WITH_SKY] : pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SOLID];
 -
 -    //if (!texchain.drawCount)
 -    //	return;
 -
 -    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafShadow");
-+    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
-+    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
-+    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
- 
+-
 -    R_DrawWorldSurfaceLeafBegin(pLeaf);
-+    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
-+    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
-+    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
- 
+-
 -    glDisable(GL_CULL_FACE);
-+    R_InitDLightBuffers();
- 
+-
 -    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
-+    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
-+    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
- 
+-
 -    for (size_t i = 0; i < vTexChainList.size(); ++i)
--    {
++    if (mod->type != mod_brush)
+     {
 -        const auto& texchain = vTexChainList[i];
-+    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
-+    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
- 
+-
 -        program_state_t WSurfProgramState = 0;
-+    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
-+    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
- 
+-
 -        if (texchain.texture)
 -        {
 -            WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
-+    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
-+    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
- 
+-
 -            GL_Bind(texchain.texture->gl_texturenum);
 -        }
 -        else
 -        {
 -            GL_Bind(0);
 -        }
-+    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
-+    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
- 
+-
 -        if (R_IsRenderingGBuffer())
 -        {
 -            WSurfProgramState |= WSURF_GBUFFER_ENABLED;
 -        }
-+    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
- 
+-
 -        if (R_IsRenderingShadowView())
 -        {
 -            WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
 -        }
-+    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
-+    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
++        Sys_Error("R_GetWorldSurfaceWorldModel: invalid mod type!");
++        return nullptr;
++    }
  
 -        if (R_IsRenderingMultiView())
 -        {
 -            WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
 -        }
-+    GL_BindStatesForVAO(
-+        g_WorldSurfaceRenderer.hDecalVAO,
-+        []() {
-+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
++    if (mod->name[0] == '*')
++    {
++        Sys_Error("R_GetWorldSurfaceWorldModel: invalid name \"%s\"!", mod->name);
++        return nullptr;
++    }
  
 -        if (R_IsRenderingLinearDepth())
 -        {
 -            WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
 -        }
-+            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
++    int modelindex = EngineGetModelIndex(mod);
  
 -        if (R_IsRenderingWaterView())
 -        {
@@ -6590,111 +6656,96 @@ index 41f24f3..768370a 100644
 -        {
 -            WSurfProgramState |= WSURF_CLIP_ENABLED;
 -        }
-+            glEnableVertexAttribArray(WSURF_VA_POSITION);
-+            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
-+            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
++    if (modelindex < (int)g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[modelindex])
++    {
++        return g_WorldSurfaceWorldModels[modelindex];
++    }
  
 -        if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
 -        {
 -            WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
 -        }
-+            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
-+            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
-+            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
++    if (modelindex >= (int)g_WorldSurfaceWorldModels.size())
++    {
++        g_WorldSurfaceWorldModels.resize(modelindex + 1);
++    }
  
 -        wsurf_program_t prog = {0};
 -        R_UseWSurfProgram(WSurfProgramState, &prog);
-+            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
++    R_GenerateWorldMaterialForWorldModel(mod);
  
 -        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(texchain.startDrawOffset), texchain.drawCount, 0);
-+            glEnableVertexAttribArray(WSURF_VA_NORMAL);
-+            glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
-+            glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
++    auto pWorldModel = R_GenerateWorldSurfaceWorldModel(mod);
  
 -        (*c_brush_polys) += texchain.polyCount;
 -    }
-+            glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
-+            glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, s_tangent));
-+            glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, t_tangent));
-+            glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
++    g_WorldSurfaceWorldModels[modelindex] = pWorldModel;
  
 -    GL_UseProgram(0);
-+            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE]);
++    return pWorldModel;
++}
  
 -    glEnable(GL_CULL_FACE);
-+            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
-+            glEnableVertexAttribArray(WSURF_VA_STYLES);
-+            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
++void R_GenerateSceneUBO(void)
++{
++    if (g_WorldSurfaceRenderer.hSceneUBO)
++        return;
  
 -    R_DrawWorldSurfaceLeafEnd();
-+            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
-+            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
++    g_WorldSurfaceRenderer.hSceneUBO = GL_GenBuffer();
++    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hSceneUBO, sizeof(scene_ubo_t), nullptr);
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_SCENE_UBO, g_WorldSurfaceRenderer.hSceneUBO);
  
 -    GL_EndDebugGroup();
-+            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
-+            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
++    g_WorldSurfaceRenderer.hCameraUBO = GL_GenBuffer();
++    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hCameraUBO, sizeof(camera_ubo_t) * 6, nullptr);
++    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_CAMERA_UBO, g_WorldSurfaceRenderer.hCameraUBO);
  
 -} //R_DrawWorldSurfaceLeafSolid
-+            glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
-+            glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
-+        });
++    R_InitDLightBuffers();
  
 -void R_DrawWorldSurfaceLeafStatic(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
 -{
 -    GL_BeginDebugGroup("R_DrawWorldSurfaceLeafStatic");
-+    if (g_bUseOITBlend)
-+    {
-+        size_t fragmentBufferSizeBytes = sizeof(FragmentNode) * MAX_NUM_NODES * R_GetSwapChainWidth() * R_GetSwapChainHeight();
++    g_WorldSurfaceRenderer.hEntityUBO = GL_GenBuffer();
++    GL_UploadDataToUBODynamicDraw(g_WorldSurfaceRenderer.hEntityUBO, sizeof(entity_ubo_t), nullptr);
  
 -    const auto& vTexChainList = pLeaf->vTextureChainList[WSURF_TEXCHAIN_LIST_STATIC];
-+        g_WorldSurfaceRenderer.hOITFragmentSSBO = GL_GenBuffer();
-+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITFragmentSSBO);
-+        glBufferData(GL_SHADER_STORAGE_BUFFER, fragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
-+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_FRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITFragmentSSBO);
-+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
++    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX] = GL_GenBuffer();
++    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX], sizeof(decalvertex_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
  
 -    for (size_t i = 0; i < vTexChainList.size(); ++i)
 -    {
 -        const auto& texchain = vTexChainList[i];
-+        size_t numFragmentBufferSizeBytes = sizeof(uint32_t) * R_GetSwapChainWidth() * R_GetSwapChainHeight();
++    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN] = GL_GenBuffer();
++    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN], sizeof(decalvertextbn_t) * MAX_DECALVERTS * MAX_DECALS, nullptr);
  
 -        auto texture = texchain.texture;
-+        g_WorldSurfaceRenderer.hOITNumFragmentSSBO = GL_GenBuffer();
-+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
-+        glBufferData(GL_SHADER_STORAGE_BUFFER, numFragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
-+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_NUMFRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
-+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
++    g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE] = GL_GenBuffer();
++    GL_UploadDataToVBODynamicDraw(g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE], sizeof(brushinstancedata_t) * 1 * MAX_DECALS, nullptr);
  
 -        program_state_t WSurfProgramState = 0;
-+        g_WorldSurfaceRenderer.hOITAtomicSSBO = GL_GenBuffer();
-+        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, g_WorldSurfaceRenderer.hOITAtomicSSBO);
-+        glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(uint32_t), NULL, GL_STATIC_DRAW);
-+        glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, BINDING_POINT_OIT_COUNTER_SSBO, g_WorldSurfaceRenderer.hOITAtomicSSBO);
-+        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
-+    }
-+}
++    g_WorldSurfaceRenderer.hDecalEBO = GL_GenBuffer();
++    GL_UploadDataToEBODynamicDraw(g_WorldSurfaceRenderer.hDecalEBO, sizeof(uint32_t) * MAX_DECALINDICES * MAX_DECALS, nullptr);
  
 -        if (g_WorldSurfaceRenderer.bDiffuseTexture && texture)
 -        {
 -            WSurfProgramState |= WSURF_DIFFUSE_ENABLED;
-+void R_ClearDetailTextureCache(void)
-+{
-+    g_WorldTextureRenderMaterials.clear();
-+    g_DecalTextureRenderMaterials.clear();
-+}
++    g_WorldSurfaceRenderer.hDecalVAO = GL_GenVAO();
  
 -            GL_BindTextureUnit(WSURF_BIND_DIFFUSE_TEXTURE, GL_TEXTURE_2D, texture->gl_texturenum);
-+bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
-+{
-+    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
++    g_WorldSurfaceRenderer.hMaterialSSBO = GL_GenBuffer();
++    GL_UploadDataToSSBOStaticDraw(g_WorldSurfaceRenderer.hMaterialSSBO, sizeof(world_material_t) * 1, nullptr);
  
 -            if (texchain.pRenderMaterial)
 -            {
 -                R_BeginDetailTextureFromRenderMaterial(texchain.pRenderMaterial.get(), &WSurfProgramState);
 -            }
 -        }
-+    if (!texchain.drawCount)
-+        return false;
++    GL_BindStatesForVAO(
++        g_WorldSurfaceRenderer.hDecalVAO,
++        []() {
++            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalEBO);
  
 -        if (g_WorldSurfaceRenderer.bLightmapTexture)
 -        {
@@ -6702,25 +6753,23 @@ index 41f24f3..768370a 100644
 -            {
 -                WSurfProgramState |= WSURF_LIGHTMAP_ENABLED;
 -            }
-+    return true;
-+}
++            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEX]);
  
 -            if ((int)r_fullbright->value > 0 || !(*cl_worldmodel)->lightdata)
 -            {
 -                WSurfProgramState |= WSURF_FULLBRIGHT_ENABLED;
 -            }
-+/*
-+	Purpose : Draw skybox
-+*/
++            glEnableVertexAttribArray(WSURF_VA_POSITION);
++            glEnableVertexAttribArray(WSURF_VA_TEXCOORD);
++            glEnableVertexAttribArray(WSURF_VA_LIGHTMAP_TEXCOORD);
  
 -            if ((*filterMode) != 0)
 -            {
 -                WSurfProgramState |= WSURF_COLOR_FILTER_ENABLED;
 -            }
-+void R_DrawSkyBox(void)
-+{
-+    if (CL_IsDevOverviewMode())
-+        return;
++            glVertexAttribPointer(WSURF_VA_POSITION, 3, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, pos));
++            glVertexAttribPointer(WSURF_VA_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, texcoord));
++            glVertexAttribPointer(WSURF_VA_LIGHTMAP_TEXCOORD, 2, GL_FLOAT, false, sizeof(decalvertex_t), OFFSET(decalvertex_t, lightmaptexcoord));
  
 -            if (g_WorldSurfaceRenderer.iNumLegacyDLights)
 -            {
@@ -6731,8 +6780,7 @@ index 41f24f3..768370a 100644
 -        {
 -            WSurfProgramState |= WSURF_FULLBRIGHT_ENABLED;
 -        }
-+    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
-+        return;
++            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_VERTEXTBN]);
  
 -        if (WSurfProgramState & WSURF_LIGHTMAP_ENABLED)
 -        {
@@ -6753,29 +6801,32 @@ index 41f24f3..768370a 100644
 -                WSurfProgramState |= WSURF_LIGHTMAP_INDEX_3_ENABLED;
 -            }
 -        }
-+    if (!g_WorldSurfaceRenderer.vSkyboxTextureId[0])
-+        return;
++            glEnableVertexAttribArray(WSURF_VA_NORMAL);
++            glEnableVertexAttribArray(WSURF_VA_S_TANGENT);
++            glEnableVertexAttribArray(WSURF_VA_T_TANGENT);
  
 -        if (R_IsRenderingWaterView())
 -        {
 -            WSurfProgramState |= WSURF_CLIP_WATER_ENABLED;
 -        }
-+    GL_BeginDebugGroup("R_DrawSkyBox");
++            glVertexAttribPointer(WSURF_VA_NORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
++            glVertexAttribPointer(WSURF_VA_S_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, s_tangent));
++            glVertexAttribPointer(WSURF_VA_T_TANGENT, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, t_tangent));
++            glVertexAttribPointer(WSURF_VA_SMOOTHNORMAL, 3, GL_FLOAT, false, sizeof(decalvertextbn_t), OFFSET(decalvertextbn_t, normal));
  
 -        if (g_bPortalClipPlaneEnabled[0])
 -        {
 -            WSurfProgramState |= WSURF_CLIP_ENABLED;
 -        }
-+    entity_ubo_t EntityUBO;
++            glBindBuffer(GL_ARRAY_BUFFER, g_WorldSurfaceRenderer.hDecalVBO[WSURF_VBO_INSTANCE]);
  
 -        if (R_IsRenderingShadowView())
 -        {
 -            WSurfProgramState |= WSURF_SHADOW_CASTER_ENABLED;
 -        }
-+    Matrix4x4_Transpose(EntityUBO.r_entityMatrix, r_entity_matrix);
-+    memcpy(EntityUBO.r_color, r_entity_color, sizeof(vec4));
-+    EntityUBO.r_scrollSpeed = 0;
-+    EntityUBO.r_scale       = 0;
++            glEnableVertexAttribArray(WSURF_VA_PACKED_MATID);
++            glEnableVertexAttribArray(WSURF_VA_STYLES);
++            glEnableVertexAttribArray(WSURF_VA_DIFFUSESCALE);
  
 -        else if (R_ShouldDrawGlowStencilEnableDepthTest())
 -        {
@@ -6804,29 +6855,32 @@ index 41f24f3..768370a 100644
 -        {
 -            WSurfProgramState |= WSURF_GLOW_COLOR_ENABLED | WSURF_DOUBLE_FACE_ENABLED;
 -        }
-+    GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hEntityUBO, 0, sizeof(EntityUBO), &EntityUBO);
++            glVertexAttribIPointer(WSURF_VA_PACKED_MATID, 1, GL_UNSIGNED_INT, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, packed_matId));
++            glVertexAttribDivisor(WSURF_VA_PACKED_MATID, 1);
  
 -        if (R_IsRenderingMultiView())
 -        {
 -            WSurfProgramState |= WSURF_MULTIVIEW_ENABLED;
 -        }
-+    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_ENTITY_UBO, g_WorldSurfaceRenderer.hEntityUBO);
++            glVertexAttribIPointer(WSURF_VA_STYLES, 4, GL_UNSIGNED_BYTE, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, styles));
++            glVertexAttribDivisor(WSURF_VA_STYLES, 1);
  
 -        if (R_IsRenderingLinearDepth())
 -        {
 -            WSurfProgramState |= WSURF_LINEAR_DEPTH_ENABLED;
 -        }
-+    program_state_t WSurfProgramState = WSURF_DIFFUSE_ENABLED | WSURF_SKYBOX_ENABLED | WSURF_FULLBRIGHT_ENABLED;
++            glVertexAttribPointer(WSURF_VA_DIFFUSESCALE, 1, GL_FLOAT, false, sizeof(brushinstancedata_t), OFFSET(brushinstancedata_t, diffusescale));
++            glVertexAttribDivisor(WSURF_VA_DIFFUSESCALE, 1);
++        });
  
 -        if (R_IsRenderingGBuffer())
 -        {
 -            WSurfProgramState |= WSURF_GBUFFER_ENABLED;
 -            WSurfProgramState &= ~(WSURF_LEGACY_DLIGHT_ENABLED);
 -        }
-+    if ((*filterMode) != 0)
++    if (g_bUseOITBlend)
 +    {
-+        WSurfProgramState |= WSURF_COLOR_FILTER_ENABLED;
-+    }
++        size_t fragmentBufferSizeBytes = sizeof(FragmentNode) * MAX_NUM_NODES * R_GetSwapChainWidth() * R_GetSwapChainHeight();
  
 -        if ((*currententity)->curstate.rendermode != kRenderNormal && (*currententity)->curstate.rendermode != kRenderTransAlpha)
 -        {
@@ -6835,25 +6889,20 @@ index 41f24f3..768370a 100644
 -            else
 -                WSurfProgramState |= WSURF_ALPHA_BLEND_ENABLED;
 -        }
-+    if (R_IsRenderingWaterView())
-+    {
-+        WSurfProgramState |= WSURF_CLIP_WATER_ENABLED;
-+    }
-+    else if (g_bPortalClipPlaneEnabled[0])
-+    {
-+        WSurfProgramState |= WSURF_CLIP_ENABLED;
-+    }
++        g_WorldSurfaceRenderer.hOITFragmentSSBO = GL_GenBuffer();
++        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITFragmentSSBO);
++        glBufferData(GL_SHADER_STORAGE_BUFFER, fragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_FRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITFragmentSSBO);
++        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
  
 -        if ((*currententity)->curstate.rendermode == kRenderTransAlpha)
 -        {
 -            WSurfProgramState |= WSURF_ALPHA_SOLID_ENABLED;
 -        }
-+    int iStencilRef = STENCIL_MASK_NO_LIGHTING;
++        size_t numFragmentBufferSizeBytes = sizeof(uint32_t) * R_GetSwapChainWidth() * R_GetSwapChainHeight();
  
-+    if ((int)r_wsurf_sky_fog->value > 0)
-+    {
-         if (!R_IsRenderingGBuffer())
-         {
+-        if (!R_IsRenderingGBuffer())
+-        {
 -            if ((WSurfProgramState & WSURF_ADDITIVE_BLEND_ENABLED) && (int)r_fog_trans->value <= 1)
 -            {
 -            }
@@ -6861,11 +6910,9 @@ index 41f24f3..768370a 100644
 -            {
 -            }
 -            else
-+            if (R_IsRenderingFog())
-             {
+-            {
 -                if (R_IsRenderingFog())
-+                if (r_fog_mode == GL_LINEAR)
-                 {
+-                {
 -                    if (r_fog_mode == GL_LINEAR)
 -                    {
 -                        WSurfProgramState |= WSURF_LINEAR_FOG_ENABLED;
@@ -6878,28 +6925,49 @@ index 41f24f3..768370a 100644
 -                    {
 -                        WSurfProgramState |= WSURF_EXP2_FOG_ENABLED;
 -                    }
--
++        g_WorldSurfaceRenderer.hOITNumFragmentSSBO = GL_GenBuffer();
++        glBindBuffer(GL_SHADER_STORAGE_BUFFER, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
++        glBufferData(GL_SHADER_STORAGE_BUFFER, numFragmentBufferSizeBytes, NULL, GL_STATIC_DRAW);
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_OIT_NUMFRAGMENT_SSBO, g_WorldSurfaceRenderer.hOITNumFragmentSSBO);
++        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+ 
 -                    if (!R_IsRenderingGammaBlending() && r_linear_fog_shift->value > 0)
 -                    {
 -                        WSurfProgramState |= WSURF_LINEAR_FOG_SHIFT_ENABLED;
 -                    }
-+                    WSurfProgramState |= WSURF_LINEAR_FOG_ENABLED;
-                 }
+-                }
 -            }
 -        }
--
++        g_WorldSurfaceRenderer.hOITAtomicSSBO = GL_GenBuffer();
++        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, g_WorldSurfaceRenderer.hOITAtomicSSBO);
++        glBufferData(GL_ATOMIC_COUNTER_BUFFER, sizeof(uint32_t), NULL, GL_STATIC_DRAW);
++        glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, BINDING_POINT_OIT_COUNTER_SSBO, g_WorldSurfaceRenderer.hOITAtomicSSBO);
++        glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
++    }
++}
+ 
 -        if (R_IsRenderingGammaBlending())
 -        {
 -            WSurfProgramState |= WSURF_GAMMA_BLEND_ENABLED;
 -        }
--
++void R_ClearDetailTextureCache(void)
++{
++    g_WorldTextureRenderMaterials.clear();
++    g_DecalTextureRenderMaterials.clear();
++}
+ 
 -        if (r_draw_oitblend && (WSurfProgramState & (WSURF_ALPHA_BLEND_ENABLED | WSURF_ADDITIVE_BLEND_ENABLED)))
 -        {
 -            WSurfProgramState |= WSURF_OIT_BLEND_ENABLED;
 -        }
--
++bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
++{
++    const auto& texchain = pLeaf->TextureChainSpecial[WSURF_TEXCHAIN_SPECIAL_SKY];
+ 
 -        R_DrawWorldSurfaceLeafBegin(pLeaf);
--
++    if (!texchain.drawCount)
++        return false;
+ 
 -        if (R_ShouldDrawGlowColorWallHackBehindWallOnly())
 -        {
 -            GL_BeginStencilCompareNotEqual(STENCIL_MASK_NO_GLOW_COLOR, STENCIL_MASK_NO_GLOW_COLOR);
@@ -6916,63 +6984,113 @@ index 41f24f3..768370a 100644
 -            {
 -                int iStencilRef  = STENCIL_MASK_HAS_DECAL;
 -                int iStencilMask = STENCIL_MASK_ALL;
--
++    return true;
++}
+ 
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
--
++/*
++	Purpose : Draw skybox
++*/
+ 
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
--
++void R_DrawSkyBox(void)
++{
++    if (CL_IsDevOverviewMode())
++        return;
+ 
 -                GL_BeginStencilWrite(iStencilRef, iStencilMask);
 -            }
 -            else
 -            {
 -                int iStencilRef  = STENCIL_MASK_HAS_DECAL;
 -                int iStencilMask = STENCIL_MASK_HAS_DECAL;
--
++    if (!(r_draw_classify & DRAW_CLASSIFY_SKYBOX))
++        return;
+ 
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_BLUR_ENABLED)
-+                else if (r_fog_mode == GL_EXP)
-                 {
+-                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_BLUR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_BLUR;
-+                    WSurfProgramState |= WSURF_EXP_FOG_ENABLED;
-                 }
--
+-                }
++    if (!g_WorldSurfaceRenderer.vSkyboxTextureId[0])
++        return;
+ 
 -                if (WSurfProgramState & WSURF_STENCIL_NO_GLOW_COLOR_ENABLED)
-+                else if (r_fog_mode == GL_EXP2)
-                 {
+-                {
 -                    iStencilRef |= STENCIL_MASK_NO_GLOW_COLOR;
 -                    iStencilMask |= STENCIL_MASK_NO_GLOW_COLOR;
-+                    WSurfProgramState |= WSURF_EXP2_FOG_ENABLED;
-                 }
+-                }
++    GL_BeginDebugGroup("R_DrawSkyBox");
  
 -                GL_BeginStencilWrite(iStencilRef, iStencilMask);
-+                if (!R_IsRenderingGammaBlending() && r_linear_fog_shift->value > 0)
-+                {
-+                    WSurfProgramState |= WSURF_LINEAR_FOG_SHIFT_ENABLED;
-+                }
-             }
-         }
--
+-            }
+-        }
++    entity_ubo_t EntityUBO;
+ 
 -        if (WSurfProgramState & WSURF_DOUBLE_FACE_ENABLED)
 -        {
 -            glDisable(GL_CULL_FACE);
 -        }
--
++    Matrix4x4_Transpose(EntityUBO.r_entityMatrix, r_entity_matrix);
++    memcpy(EntityUBO.r_color, r_entity_color, sizeof(vec4));
++    EntityUBO.r_scrollSpeed = 0;
++    EntityUBO.r_scale       = 0;
+ 
 -        wsurf_program_t prog = {0};
 -        R_UseWSurfProgram(WSurfProgramState, &prog);
--
++    GL_UploadDrawParameters(g_WorldSurfaceRenderer.hEntityUBO, BINDING_POINT_ENTITY_UBO, sizeof(EntityUBO), &EntityUBO);
+ 
 -        glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, (void*)(texchain.startDrawOffset), texchain.drawCount, 0);
--
++    program_state_t WSurfProgramState = WSURF_DIFFUSE_ENABLED | WSURF_SKYBOX_ENABLED | WSURF_FULLBRIGHT_ENABLED;
+ 
 -        (*c_brush_polys) += texchain.polyCount;
--
++    if ((*filterMode) != 0)
++    {
++        WSurfProgramState |= WSURF_COLOR_FILTER_ENABLED;
++    }
+ 
 -        R_EndDetailTexture(WSurfProgramState);
--
++    if (R_IsRenderingWaterView())
++    {
++        WSurfProgramState |= WSURF_CLIP_WATER_ENABLED;
++    }
++    else if (g_bPortalClipPlaneEnabled[0])
++    {
++        WSurfProgramState |= WSURF_CLIP_ENABLED;
++    }
+ 
 -        GL_UseProgram(0);
--
++    int iStencilRef = STENCIL_MASK_NO_LIGHTING;
+ 
 -        glEnable(GL_CULL_FACE);
--
++    if ((int)r_wsurf_sky_fog->value > 0)
++    {
++        if (!R_IsRenderingGBuffer())
++        {
++            if (R_IsRenderingFog())
++            {
++                if (r_fog_mode == GL_LINEAR)
++                {
++                    WSurfProgramState |= WSURF_LINEAR_FOG_ENABLED;
++                }
++                else if (r_fog_mode == GL_EXP)
++                {
++                    WSurfProgramState |= WSURF_EXP_FOG_ENABLED;
++                }
++                else if (r_fog_mode == GL_EXP2)
++                {
++                    WSurfProgramState |= WSURF_EXP2_FOG_ENABLED;
++                }
+ 
 -        R_DrawWorldSurfaceLeafEnd();
++                if (!R_IsRenderingGammaBlending() && r_linear_fog_shift->value > 0)
++                {
++                    WSurfProgramState |= WSURF_LINEAR_FOG_SHIFT_ENABLED;
++                }
++            }
++        }
 +    }
 +    else
 +    {
@@ -7341,7 +7459,18 @@ index 41f24f3..768370a 100644
  
  void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel* pModel, CWorldSurfaceLeaf* pLeaf)
  {
-@@ -3507,21 +2183,31 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3486,9 +2161,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+         g_WorldSurfaceRenderer.bLightmapTexture = false;
+     }
+ 
+-    GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hEntityUBO, 0, sizeof(EntityUBO), &EntityUBO);
+-
+-    glBindBufferBase(GL_UNIFORM_BUFFER, BINDING_POINT_ENTITY_UBO, g_WorldSurfaceRenderer.hEntityUBO);
++    GL_UploadDrawParameters(g_WorldSurfaceRenderer.hEntityUBO, BINDING_POINT_ENTITY_UBO, sizeof(EntityUBO), &EntityUBO);
+ 
+     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, BINDING_POINT_MATERIAL_SSBO, g_WorldSurfaceRenderer.hMaterialSSBO);
+ 
+@@ -3507,21 +2180,31 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
  
      if (pModel->m_model == (*cl_worldmodel))
      {
@@ -7377,7 +7506,7 @@ index 41f24f3..768370a 100644
          }
  
          //Always draw skybox before world
-@@ -3533,7 +2219,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3533,7 +2216,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              }
          }
  
@@ -7386,7 +7515,7 @@ index 41f24f3..768370a 100644
          {
              if (R_IsRenderingWaterView())
              {
-@@ -3546,13 +2232,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3546,13 +2229,13 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      pNoVisLeaf = pModel->GetLeafByIndex(0);
                  }
  
@@ -7403,7 +7532,7 @@ index 41f24f3..768370a 100644
                  {
                      glColorMask(0, 0, 0, 0);
  
-@@ -3563,7 +2249,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3563,7 +2246,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                      R_DrawWorldSurfaceLeafStatic(pModel.get(), pNoVisLeaf.get());
                      R_DrawWorldSurfaceLeafAnim(pModel.get(), pNoVisLeaf.get());
  
@@ -7412,7 +7541,7 @@ index 41f24f3..768370a 100644
                  }
              }
              else if (R_IsRenderingShadowView())
-@@ -3571,9 +2257,12 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3571,9 +2254,12 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
                  if (r_draw_classify & DRAW_CLASSIFY_WORLD)
                  {
                      if (pModel->m_pShadowProxyDraws.size() > 0)
@@ -7426,7 +7555,7 @@ index 41f24f3..768370a 100644
                  }
              }
              else
-@@ -3599,7 +2288,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3599,7 +2285,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
              pLeaf = pModel->GetLeafByIndex(0);
          }
  
@@ -7435,7 +7564,7 @@ index 41f24f3..768370a 100644
          {
              if (R_IsRenderingShadowView())
              {
-@@ -3635,7 +2324,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
+@@ -3635,7 +2321,7 @@ void R_DrawWorldSurfaceModel(const std::shared_ptr<CWorldSurfaceModel>& pModel,
          }
      }
  
@@ -7444,7 +7573,7 @@ index 41f24f3..768370a 100644
  
      if (g_WorldSurfaceRenderer.bLightmapTexture)
      {
-@@ -3665,6 +2354,10 @@ void R_InitWSurf(void)
+@@ -3665,6 +2351,10 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
@@ -7455,7 +7584,7 @@ index 41f24f3..768370a 100644
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3229,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3226,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -7464,7 +7593,7 @@ index 41f24f3..768370a 100644
              return;
          }
      }
-@@ -5052,7 +3745,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+@@ -5052,7 +3742,8 @@ void R_DrawBrushModel(cl_entity_t* e)
          g_WorldSurfaceRenderer.bLightmapTexture = false;
      }
  
@@ -7474,7 +7603,7 @@ index 41f24f3..768370a 100644
  
      if (pModel)
      {
-@@ -5206,45 +3900,105 @@ void R_UploadSceneUBO(void)
+@@ -5206,45 +3897,105 @@ void R_UploadSceneUBO(void)
      GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hSceneUBO, 0, sizeof(SceneUBO), &SceneUBO);
  }
  
@@ -7914,7 +8043,7 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..0d177af 100644
+index 93166e2..b4eee21 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
 @@ -26,15 +26,111 @@ if(NOT TARGET glfw)
@@ -8031,7 +8160,7 @@ index 93166e2..0d177af 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +143,168 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +143,187 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -8200,6 +8329,25 @@ index 93166e2..0d177af 100644
 +target_link_libraries(world_material_batch_gl_tests PRIVATE renderer_settings libglew_static glfw)
 +add_test(NAME world_material_batch_gl_tests COMMAND world_material_batch_gl_tests)
 +set_tests_properties(world_material_batch_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
++
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/draw_parameter_dispatch.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_draw_parameter_dispatch.py"
++        --src "${PROJECT_SOURCE_DIR}/src"
++        --output "${CMAKE_CURRENT_BINARY_DIR}/draw_parameter_dispatch.inc"
++        --manifest "${CMAKE_CURRENT_BINARY_DIR}/draw_parameter_dispatch.json"
++    DEPENDS extract_draw_parameter_dispatch.py extract_studio_depth_executor.py
++        "${PROJECT_SOURCE_DIR}/src/gl_draw.cpp" "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp"
++        "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp" "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
++        "${PROJECT_SOURCE_DIR}/src/draw_parameter_stream.h" "${PROJECT_SOURCE_DIR}/src/draw_parameter_dispatch.h"
++    VERBATIM)
++add_executable(draw_parameter_stream_gl_tests draw_parameter_stream_gl_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/draw_parameter_dispatch.inc")
++target_include_directories(draw_parameter_stream_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_compile_definitions(draw_parameter_stream_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE NOMINMAX)
++target_compile_options(draw_parameter_stream_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(draw_parameter_stream_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME draw_parameter_stream_gl_tests COMMAND draw_parameter_stream_gl_tests)
++set_tests_properties(draw_parameter_stream_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
 diff --git a/tests/ringbuffer_tests.cpp b/tests/ringbuffer_tests.cpp
 index 9ae8b2f..2e0001e 100644
 --- a/tests/ringbuffer_tests.cpp
@@ -15315,10 +15463,10 @@ index 0000000..d5768fe
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..5c2dc51
+index 0000000..1312a0f
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1660 @@
+@@ -0,0 +1,1667 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -15870,6 +16018,13 @@ index 0000000..5c2dc51
 +{
 +    ++entityUploads;
 +    glBindBuffer(GL_UNIFORM_BUFFER, buffer); glBufferSubData(GL_UNIFORM_BUFFER, at, size, data);
++}
++// This world/collision fixture keeps its original mutable-buffer adapter.
++// The independent draw-parameter GL fixture exercises the streaming backend.
++void GL_UploadDrawParameters(GLuint fallback, GLuint binding, size_t size, const void* data)
++{
++    GL_UploadSubDataToUBO(fallback, 0, size, data);
++    glBindBufferBase(GL_UNIFORM_BUFFER, binding, fallback);
 +}
 +void GL_UploadDataToSSBOStaticDraw(GLuint buffer, size_t size, const void* data)
 +{
@@ -17387,10 +17542,10 @@ index 0000000..a428cea
 +    main()
 diff --git a/tests/extract_brush_dispatch.py b/tests/extract_brush_dispatch.py
 new file mode 100644
-index 0000000..226172f
+index 0000000..e798df0
 --- /dev/null
 +++ b/tests/extract_brush_dispatch.py
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,35 @@
 +from pathlib import Path
 +import hashlib, json, re
 +import argparse
@@ -17404,6 +17559,7 @@ index 0000000..226172f
 +          (args.rmain, ['R_RotateForEntity'])]
 +out = ['''// Exact production bodies extracted by extract_brush_dispatch.py; do not hand edit.
 +#include "gl_local.h"
++#include "draw_parameter_dispatch.h"
 +#include "gl_scene_static_shadows.h"
 +bool R_WorldSurfaceLeafHasSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
 +void R_DrawWorldSurfaceLeafSky(CWorldSurfaceModel*, CWorldSurfaceLeaf*);
@@ -20862,6 +21018,939 @@ index 0000000..8ca619d
 +    std::array<GLuint, Capacity> m_Buffers{};
 +    GLuint m_Fallback{};
 +};
+diff --git a/src/draw_parameter_stream.h b/src/draw_parameter_stream.h
+new file mode 100644
+index 0000000..05fe4fd
+--- /dev/null
++++ b/src/draw_parameter_stream.h
+@@ -0,0 +1,260 @@
++#pragma once
++
++#include <GL/glew.h>
++
++#include <array>
++#include <cstdint>
++#include <cstring>
++
++struct DrawParameterStreamStats
++{
++    std::uint64_t streamedDraws{}; // Successful uploads, possibly consumed by multiple draws.
++    std::uint64_t streamedBytes{};
++    std::uint64_t fallbacks{};
++    std::uint64_t busyFallbacks{};
++    std::uint64_t pageRotations{};
++    std::uint64_t syncFailures{};
++};
++
++// Renderer-context-owned storage. Call Reset while that context is current;
++// destruction intentionally makes no GL calls. This object is render-thread-only.
++// BeginFrame must run once before all outer-frame passes; EndFrame runs after all
++// consumers and before presentation flushes their commands. Every successful slice
++// remains immutable for that entire frame, including across later uploads and
++// fallback draws. Saved indexed bindings may be restored within the frame, never
++// after EndFrame or in a subsequent frame.
++class CDrawParameterStream
++{
++public:
++    static constexpr unsigned   PAGE_COUNT = 3;
++    static constexpr GLsizeiptr PAGE_BYTES = 256 * 1024;
++
++    CDrawParameterStream() = default;
++    CDrawParameterStream(const CDrawParameterStream&) = delete;
++    CDrawParameterStream& operator=(const CDrawParameterStream&) = delete;
++
++    bool Init()
++    {
++        Reset();
++        if (!(GLEW_VERSION_4_4 || GLEW_ARB_buffer_storage) ||
++            !glGenBuffers || !glDeleteBuffers || !glBindBuffer ||
++            !glBufferStorage || !glMapBufferRange || !glUnmapBuffer ||
++            !glBindBufferRange || !glFenceSync || !glClientWaitSync || !glDeleteSync)
++            return false;
++
++        GLint alignment = 0;
++        GLint maxBlockBytes = 0;
++        GLint maxBindings = 0;
++        glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
++        glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &maxBlockBytes);
++        glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &maxBindings);
++        if (alignment <= 0 || alignment > PAGE_BYTES || maxBlockBytes <= 0 || maxBindings <= 0)
++            return false;
++
++        m_Alignment = alignment;
++        m_MaxBlockBytes = maxBlockBytes;
++        m_MaxBindings = static_cast<GLuint>(maxBindings);
++        constexpr GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
++        for (auto& page : m_Pages)
++        {
++            glGenBuffers(1, &page.buffer);
++            if (page.buffer)
++            {
++                glBindBuffer(GL_UNIFORM_BUFFER, page.buffer);
++                glBufferStorage(GL_UNIFORM_BUFFER, PAGE_BYTES, nullptr, flags);
++                page.mapped = static_cast<std::uint8_t*>(glMapBufferRange(GL_UNIFORM_BUFFER, 0, PAGE_BYTES, flags));
++            }
++            if (!page.mapped)
++            {
++                Reset();
++                return false;
++            }
++        }
++        glBindBuffer(GL_UNIFORM_BUFFER, 0);
++        m_Ready = true;
++        return true;
++    }
++
++    void Reset()
++    {
++        bool hadBuffers = false;
++        for (auto& page : m_Pages)
++        {
++            if (page.fence)
++                glDeleteSync(page.fence);
++            if (page.buffer)
++            {
++                hadBuffers = true;
++                if (page.mapped)
++                {
++                    glBindBuffer(GL_UNIFORM_BUFFER, page.buffer);
++                    glUnmapBuffer(GL_UNIFORM_BUFFER);
++                }
++                glDeleteBuffers(1, &page.buffer);
++            }
++            page = {};
++        }
++        if (hadBuffers)
++            glBindBuffer(GL_UNIFORM_BUFFER, 0);
++        m_Alignment = 0;
++        m_MaxBlockBytes = 0;
++        m_MaxBindings = 0;
++        m_CurrentPage = PAGE_COUNT;
++        m_NextPage = 0;
++        m_Ready = false;
++        m_InFrame = false;
++        m_Stats = {};
++    }
++
++    void BeginFrame()
++    {
++        if (!m_Ready)
++            return;
++        // Keep an omitted EndFrame safe; normal callers seal before presentation
++        // so the next frame's polls benefit from its existing command flush.
++        if (m_InFrame)
++            EndFrame();
++        if (!m_Ready)
++            return;
++        for (auto& page : m_Pages)
++        {
++            page.usedThisFrame = false;
++            page.polledThisFrame = false;
++        }
++        m_CurrentPage = PAGE_COUNT;
++        m_InFrame = true;
++    }
++
++    void EndFrame()
++    {
++        if (!m_Ready || !m_InFrame)
++            return;
++        m_InFrame = false;
++        for (auto& page : m_Pages)
++        {
++            if (page.usedThisFrame)
++            {
++                // This fence follows every consumer, including any restored
++                // indexed binding in later passes of the preceding frame.
++                page.fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
++                if (!page.fence)
++                {
++                    ++m_Stats.syncFailures;
++                    m_Ready = false;
++                    return;
++                }
++            }
++        }
++    }
++
++    // Copies bytes immediately. On false, the caller must bind its separate
++    // fallback UBO. Success resets the generic UBO binding to zero; unrelated
++    // indexed bindings are untouched. No allocation, GL state query or wait
++    // with a nonzero timeout occurs here, even when the ring is exhausted.
++    bool UploadAndBind(GLuint binding, GLsizeiptr size, const void* bytes)
++    {
++        if (!m_Ready || !m_InFrame || !bytes || size <= 0 ||
++            size > PAGE_BYTES || size > m_MaxBlockBytes || binding >= m_MaxBindings)
++        {
++            ++m_Stats.fallbacks;
++            return false;
++        }
++
++        GLsizeiptr offset = 0;
++        if (m_CurrentPage == PAGE_COUNT || !FindOffset(m_Pages[m_CurrentPage], size, offset))
++        {
++            bool busy = false;
++            unsigned acquiredPage = PAGE_COUNT;
++            for (unsigned step = 0; step < PAGE_COUNT; ++step)
++            {
++                const unsigned index = (m_NextPage + step) % PAGE_COUNT;
++                auto& page = m_Pages[index];
++                if (page.usedThisFrame)
++                    continue;
++                if (page.polledThisFrame)
++                {
++                    busy = true;
++                    continue;
++                }
++                page.polledThisFrame = true;
++                if (page.fence)
++                {
++                    const GLenum result = glClientWaitSync(page.fence, 0, 0);
++                    if (result == GL_TIMEOUT_EXPIRED)
++                    {
++                        busy = true;
++                        continue;
++                    }
++                    if (result != GL_ALREADY_SIGNALED && result != GL_CONDITION_SATISFIED)
++                    {
++                        ++m_Stats.syncFailures;
++                        m_Ready = false;
++                        break;
++                    }
++                    glDeleteSync(page.fence);
++                    page.fence = nullptr;
++                }
++                page.used = 0;
++                page.usedThisFrame = true;
++                acquiredPage = index;
++                break;
++            }
++            if (acquiredPage == PAGE_COUNT)
++            {
++                ++m_Stats.fallbacks;
++                if (busy)
++                    ++m_Stats.busyFallbacks;
++                return false;
++            }
++            if (m_CurrentPage != PAGE_COUNT && m_CurrentPage != acquiredPage)
++                ++m_Stats.pageRotations;
++            m_CurrentPage = acquiredPage;
++            m_NextPage = (acquiredPage + 1) % PAGE_COUNT;
++            offset = 0;
++        }
++
++        auto& page = m_Pages[m_CurrentPage];
++        std::memcpy(page.mapped + offset, bytes, static_cast<std::size_t>(size));
++        page.used = offset + size;
++        glBindBufferRange(GL_UNIFORM_BUFFER, binding, page.buffer, offset, size);
++        glBindBuffer(GL_UNIFORM_BUFFER, 0);
++        ++m_Stats.streamedDraws;
++        m_Stats.streamedBytes += static_cast<std::uint64_t>(size);
++        return true;
++    }
++
++    const DrawParameterStreamStats& Stats() const { return m_Stats; }
++
++private:
++    struct Page
++    {
++        GLuint        buffer{};
++        std::uint8_t* mapped{};
++        GLsync        fence{};
++        GLsizeiptr    used{};
++        bool          usedThisFrame{};
++        bool          polledThisFrame{};
++    };
++
++    bool FindOffset(const Page& page, GLsizeiptr size, GLsizeiptr& offset) const
++    {
++        const GLsizeiptr remainder = page.used % m_Alignment;
++        const GLsizeiptr padding = remainder ? m_Alignment - remainder : 0;
++        // Subtract before adding so size/alignment cannot overflow the arena.
++        const GLsizeiptr remaining = PAGE_BYTES - page.used;
++        if (padding > remaining || size > remaining - padding)
++            return false;
++        offset = page.used + padding;
++        return true;
++    }
++
++    std::array<Page, PAGE_COUNT> m_Pages{};
++    GLsizeiptr                  m_Alignment{};
++    GLsizeiptr                  m_MaxBlockBytes{};
++    GLuint                      m_MaxBindings{};
++    unsigned                    m_CurrentPage{PAGE_COUNT};
++    unsigned                    m_NextPage{};
++    bool                        m_Ready{};
++    bool                        m_InFrame{};
++    DrawParameterStreamStats    m_Stats{};
++};
+diff --git a/src/draw_parameter_dispatch.h b/src/draw_parameter_dispatch.h
+new file mode 100644
+index 0000000..8a1fc58
+--- /dev/null
++++ b/src/draw_parameter_dispatch.h
+@@ -0,0 +1,10 @@
++#pragma once
++
++#include <GL/glew.h>
++#include <cstddef>
++
++void R_InitDrawParameters();
++void R_ShutdownDrawParameters();
++void R_BeginDrawParameterFrame();
++void R_EndDrawParameterFrame();
++void GL_UploadDrawParameters(GLuint fallback, GLuint binding, std::size_t size, const void* data);
+diff --git a/tests/draw_parameter_stream_gl_tests.cpp b/tests/draw_parameter_stream_gl_tests.cpp
+new file mode 100644
+index 0000000..e3930e5
+--- /dev/null
++++ b/tests/draw_parameter_stream_gl_tests.cpp
+@@ -0,0 +1,602 @@
++// Real driver tests of the production parameter arena and upload dispatcher.
++// The hidden GLFW context uses WGL on Windows. This is correctness evidence,
++// never a game FPS benchmark. Only the explicitly labelled busy/failure cases
++// inject a sync result; all allocations, shader draws and readbacks are real GL.
++#include <GL/glew.h>
++#include <GLFW/glfw3.h>
++#ifdef _WIN32
++#define GLFW_EXPOSE_NATIVE_WGL
++#include <GLFW/glfw3native.h>
++#endif
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <stdexcept>
++#include <vector>
++
++namespace
++{
++std::uint64_t checks{}, comparedPixels{}, comparedDepth{}, realDraws{};
++void Check(bool condition, const char* reason)
++{
++    ++checks;
++    if (!condition) throw std::runtime_error(reason);
++}
++
++struct DriverCalls
++{
++    std::uint64_t generated{}, deleted{}, storage{}, maps{}, unmaps{}, data{}, subData{}, namedSubData{};
++    std::uint64_t ranges{}, fences{}, waits{}, deletedFences{}, queries{}, finishes{}, injectedWaits{};
++    std::uint64_t nonzeroTimeouts{}, flushWaits{};
++} calls;
++std::vector<GLuint> arenaBuffers;
++std::vector<GLsync> arenaFences;
++enum class WaitInjection { None, Busy, Failed } waitInjection{};
++
++PFNGLGENBUFFERSPROC realGenBuffers{};
++PFNGLDELETEBUFFERSPROC realDeleteBuffers{};
++PFNGLBUFFERSTORAGEPROC realBufferStorage{};
++PFNGLMAPBUFFERRANGEPROC realMapBufferRange{};
++PFNGLUNMAPBUFFERPROC realUnmapBuffer{};
++PFNGLBUFFERDATAPROC realBufferData{};
++PFNGLBUFFERSUBDATAPROC realBufferSubData{};
++PFNGLNAMEDBUFFERSUBDATAPROC realNamedBufferSubData{};
++PFNGLBINDBUFFERRANGEPROC realBindBufferRange{};
++PFNGLFENCESYNCPROC realFenceSync{};
++PFNGLCLIENTWAITSYNCPROC realClientWaitSync{};
++PFNGLDELETESYNCPROC realDeleteSync{};
++
++void GLAPIENTRY CountGenBuffers(GLsizei n, GLuint* buffers)
++{
++    calls.generated += n; realGenBuffers(n, buffers);
++    arenaBuffers.insert(arenaBuffers.end(), buffers, buffers + n);
++}
++void GLAPIENTRY CountDeleteBuffers(GLsizei n, const GLuint* buffers)
++{
++    calls.deleted += n; realDeleteBuffers(n, buffers);
++    for (GLsizei i = 0; i < n; ++i) std::erase(arenaBuffers, buffers[i]);
++}
++void GLAPIENTRY CountBufferStorage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags)
++{
++    ++calls.storage; realBufferStorage(target, size, data, flags);
++}
++void* GLAPIENTRY CountMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr size, GLbitfield flags)
++{
++    ++calls.maps; return realMapBufferRange(target, offset, size, flags);
++}
++GLboolean GLAPIENTRY CountUnmapBuffer(GLenum target)
++{
++    ++calls.unmaps; return realUnmapBuffer(target);
++}
++void GLAPIENTRY CountBufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage)
++{
++    ++calls.data; realBufferData(target, size, data, usage);
++}
++void GLAPIENTRY CountBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data)
++{
++    ++calls.subData; realBufferSubData(target, offset, size, data);
++}
++void GLAPIENTRY CountNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data)
++{
++    ++calls.namedSubData; realNamedBufferSubData(buffer, offset, size, data);
++}
++void GLAPIENTRY CountBindBufferRange(GLenum target, GLuint binding, GLuint buffer, GLintptr offset, GLsizeiptr size)
++{
++    ++calls.ranges; realBindBufferRange(target, binding, buffer, offset, size);
++}
++GLsync GLAPIENTRY CountFenceSync(GLenum condition, GLbitfield flags)
++{
++    ++calls.fences;
++    auto fence = realFenceSync(condition, flags);
++    if (fence) arenaFences.push_back(fence);
++    return fence;
++}
++GLenum GLAPIENTRY CountClientWaitSync(GLsync fence, GLbitfield flags, GLuint64 timeout)
++{
++    ++calls.waits;
++    calls.nonzeroTimeouts += timeout != 0;
++    calls.flushWaits += (flags & GL_SYNC_FLUSH_COMMANDS_BIT) != 0;
++    if (waitInjection != WaitInjection::None)
++    {
++        ++calls.injectedWaits;
++        return waitInjection == WaitInjection::Busy ? GL_TIMEOUT_EXPIRED : GL_WAIT_FAILED;
++    }
++    return realClientWaitSync(fence, flags, timeout);
++}
++void GLAPIENTRY CountDeleteSync(GLsync fence)
++{
++    ++calls.deletedFences; realDeleteSync(fence); std::erase(arenaFences, fence);
++}
++void CountGetIntegerv(GLenum name, GLint* value) { ++calls.queries; glGetIntegerv(name, value); }
++GLenum CountGetError() { ++calls.queries; return glGetError(); }
++void CountFinish() { ++calls.finishes; glFinish(); }
++
++// Keep actual GLEW pointers visible to the production capability checks.
++// Replacement functions forward to the original driver except sync injection.
++struct DriverProbe
++{
++    DriverProbe()
++    {
++        calls = {}; arenaBuffers.clear(); arenaFences.clear(); waitInjection = WaitInjection::None;
++#define PROBE(name) real##name = __glew##name; __glew##name = Count##name
++        PROBE(GenBuffers); PROBE(DeleteBuffers); PROBE(BufferStorage); PROBE(MapBufferRange);
++        PROBE(UnmapBuffer); PROBE(BufferData); PROBE(BufferSubData); PROBE(BindBufferRange);
++        PROBE(FenceSync); PROBE(ClientWaitSync); PROBE(DeleteSync);
++#undef PROBE
++        realNamedBufferSubData = __glewNamedBufferSubData;
++        if (realNamedBufferSubData) __glewNamedBufferSubData = CountNamedBufferSubData;
++    }
++    ~DriverProbe()
++    {
++#define RESTORE(name) __glew##name = real##name
++        RESTORE(GenBuffers); RESTORE(DeleteBuffers); RESTORE(BufferStorage); RESTORE(MapBufferRange);
++        RESTORE(UnmapBuffer); RESTORE(BufferData); RESTORE(BufferSubData); RESTORE(NamedBufferSubData);
++        RESTORE(BindBufferRange); RESTORE(FenceSync); RESTORE(ClientWaitSync); RESTORE(DeleteSync);
++#undef RESTORE
++        waitInjection = WaitInjection::None;
++    }
++};
++}
++
++// These GL 1.x entry points are not in GLEW's replaceable function table.
++// Instrument only production code; test oracle/readback queries are excluded.
++#define glGetIntegerv CountGetIntegerv
++#define glGetError CountGetError
++#define glFinish CountFinish
++#include "../src/draw_parameter_stream.h"
++struct cvar_t { float value{}; };
++static CDrawParameterStream g_DrawParameters;
++static cvar_t streamCvar{1.0f};
++static cvar_t* r_draw_parameter_stream = &streamCvar;
++#include "draw_parameter_dispatch.inc"
++#undef glGetIntegerv
++#undef glGetError
++#undef glFinish
++
++namespace
++{
++constexpr int Width = 256, Height = 192, Frames = 6;
++constexpr GLuint ModelBinding = 1, MaterialBinding = 5, ScratchBinding = 7, GuardBinding = 3;
++constexpr std::array<float, 4> ClearColor{.015625f, .03125f, .046875f, 1.f};
++struct alignas(16) Parameters { std::array<float, 16> matrix{}; std::array<float, 4> color{}; };
++static_assert(sizeof(Parameters) == 80 && offsetof(Parameters, color) == 64);
++struct Rectangle
++{
++    int x{}, y{}, halfX{}, halfY{};
++    float depth{};
++    Parameters parameters;
++};
++struct Image { std::vector<float> color, depth; };
++
++Parameters Material(float factor = 1.f)
++{
++    Parameters result{}; result.color = {factor, .75f, .5f, 1.f}; return result;
++}
++Rectangle MakeRectangle(unsigned tile, unsigned layer, unsigned seed)
++{
++    Rectangle result;
++    result.x = static_cast<int>(tile % 32) * 8 + 4;
++    result.y = static_cast<int>(tile / 32) * 8 + 4;
++    int sx = layer ? 1 : 3, sy = layer ? 2 : 2;
++    const unsigned quarter = (tile + seed + layer) % 4;
++    result.halfX = quarter % 2 ? sy : sx; result.halfY = quarter % 2 ? sx : sy;
++    if (layer) { result.x += (tile & 1) ? 1 : -1; result.y += (tile & 2) ? 1 : -1; }
++    result.depth = layer ? ((tile % 3) ? .8125f : .125f) : .375f + float((tile + seed) % 5) / 32.f;
++    constexpr int cosine[]{1, 0, -1, 0}, sine[]{0, 1, 0, -1};
++    auto& m = result.parameters.matrix;
++    m[0] = 2.f * sx * cosine[quarter] / Width; m[1] = 2.f * sx * sine[quarter] / Height;
++    m[4] = -2.f * sy * sine[quarter] / Width; m[5] = 2.f * sy * cosine[quarter] / Height;
++    m[10] = 1; m[12] = 2.f * result.x / Width - 1.f; m[13] = 2.f * result.y / Height - 1.f;
++    m[14] = result.depth * 2.f - 1.f; m[15] = 1;
++    const unsigned value = tile * 193u + layer * 971u + seed * 1237u;
++    result.parameters.color = {float(1 + value % 239) / 256.f,
++        float(1 + (value / 3) % 233) / 256.f, float(1 + (value / 7) % 227) / 256.f, 1.f};
++    return result;
++}
++std::vector<Rectangle> Rectangles(unsigned seed)
++{
++    std::vector<Rectangle> result; result.reserve(1536);
++    // Layer two arrives after every first-layer draw, so late UBO writes cannot
++    // silently replace early transforms/colors without changing the oracle.
++    for (unsigned layer = 0; layer < 2; ++layer)
++        for (unsigned tile = 0; tile < 32 * 24; ++tile) result.push_back(MakeRectangle(tile, layer, seed));
++    return result;
++}
++Image Oracle(const std::vector<Rectangle>& rectangles, const Parameters& material)
++{
++    Image result; result.color.resize(Width * Height * 4); result.depth.assign(Width * Height, 1.f);
++    for (int i = 0; i < Width * Height; ++i) std::copy(ClearColor.begin(), ClearColor.end(), result.color.begin() + i * 4);
++    // Analytic pixel centers and integer rectangle bounds, independent of UBO
++    // bytes, storage offsets, GLSL matrix multiplication and triangle rasterizer.
++    for (const auto& r : rectangles)
++        for (int y = (std::max)(0, r.y - r.halfY); y < (std::min)(Height, r.y + r.halfY); ++y)
++            for (int x = (std::max)(0, r.x - r.halfX); x < (std::min)(Width, r.x + r.halfX); ++x)
++            {
++                const auto pixel = static_cast<std::size_t>(y * Width + x);
++                if (r.depth >= result.depth[pixel]) continue;
++                result.depth[pixel] = r.depth;
++                for (unsigned component = 0; component < 4; ++component)
++                    result.color[pixel * 4 + component] = r.parameters.color[component] * material.color[component];
++            }
++    return result;
++}
++void Compare(const Image& expected, const Image& actual, const char* name)
++{
++    Check(expected.color.size() == actual.color.size() && expected.depth.size() == actual.depth.size(), "image dimensions");
++    float colorError{}, depthError{};
++    for (std::size_t i = 0; i < actual.color.size(); ++i)
++    {
++        Check(std::isfinite(actual.color[i]), "finite color readback");
++        colorError = (std::max)(colorError, std::abs(expected.color[i] - actual.color[i]));
++    }
++    for (std::size_t i = 0; i < actual.depth.size(); ++i)
++    {
++        Check(std::isfinite(actual.depth[i]), "finite depth readback");
++        depthError = (std::max)(depthError, std::abs(expected.depth[i] - actual.depth[i]));
++    }
++    comparedPixels += actual.depth.size(); comparedDepth += actual.depth.size();
++    if (colorError > .000002f || depthError > .000002f)
++        std::fprintf(stderr, "%s: color error %.9f, depth error %.9f\n", name, colorError, depthError);
++    Check(colorError <= .000002f && depthError <= .000002f, name);
++}
++GLuint Compile(GLenum stage, const char* source)
++{
++    const GLuint shader = glCreateShader(stage); glShaderSource(shader, 1, &source, nullptr); glCompileShader(shader);
++    GLint ok{}; glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
++    if (!ok) { char log[4096]{}; glGetShaderInfoLog(shader, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    Check(ok != 0, "test shader compiles"); return shader;
++}
++GLuint Program()
++{
++    const auto vs = Compile(GL_VERTEX_SHADER, R"(#version 330 core
++layout(std140) uniform ModelParameters { mat4 model; vec4 color; };
++layout(std140) uniform MaterialParameters { mat4 unusedMatrix; vec4 tint; };
++flat out vec4 shaded;
++void main() {
++    const vec2 p[6] = vec2[6](vec2(-1,-1),vec2(1,-1),vec2(1,1),vec2(-1,-1),vec2(1,1),vec2(-1,1));
++    gl_Position = model * vec4(p[gl_VertexID],0,1); shaded = color * tint;
++})");
++    const auto fs = Compile(GL_FRAGMENT_SHADER, R"(#version 330 core
++flat in vec4 shaded; out vec4 outputColor; void main() { outputColor = shaded; })");
++    const GLuint program = glCreateProgram(); glAttachShader(program, vs); glAttachShader(program, fs); glLinkProgram(program);
++    GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
++    if (!ok) { char log[4096]{}; glGetProgramInfoLog(program, sizeof(log), nullptr, log); std::fprintf(stderr, "%s\n", log); }
++    Check(ok != 0, "test shader links"); glDeleteShader(vs); glDeleteShader(fs);
++    const auto model = glGetUniformBlockIndex(program, "ModelParameters");
++    const auto material = glGetUniformBlockIndex(program, "MaterialParameters");
++    Check(model != GL_INVALID_INDEX && material != GL_INVALID_INDEX, "both indexed UBO blocks active");
++    glUniformBlockBinding(program, model, ModelBinding); glUniformBlockBinding(program, material, MaterialBinding);
++    GLint bytes{}; glGetActiveUniformBlockiv(program, model, GL_UNIFORM_BLOCK_DATA_SIZE, &bytes);
++    Check(bytes == sizeof(Parameters), "driver validates 80-byte matrix/color layout"); return program;
++}
++struct Target
++{
++    GLuint fbo{}, color{}, depth{};
++    Target()
++    {
++        glGenFramebuffers(1, &fbo); glBindFramebuffer(GL_FRAMEBUFFER, fbo);
++        glGenTextures(1, &color); glBindTexture(GL_TEXTURE_2D, color);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, Width, Height, 0, GL_RGBA, GL_FLOAT, nullptr);
++        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color, 0);
++        glGenTextures(1, &depth); glBindTexture(GL_TEXTURE_2D, depth);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, Width, Height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
++        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depth, 0);
++        glDrawBuffer(GL_COLOR_ATTACHMENT0); glReadBuffer(GL_COLOR_ATTACHMENT0);
++        Check(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "float color/depth framebuffer complete");
++    }
++    ~Target() { glDeleteTextures(1, &color); glDeleteTextures(1, &depth); glDeleteFramebuffers(1, &fbo); }
++    void Clear()
++    {
++        glBindFramebuffer(GL_FRAMEBUFFER, fbo); glViewport(0, 0, Width, Height);
++        glClearBufferfv(GL_COLOR, 0, ClearColor.data()); const float depthValue = 1;
++        glClearBufferfv(GL_DEPTH, 0, &depthValue);
++    }
++    Image Read()
++    {
++        glBindFramebuffer(GL_FRAMEBUFFER, fbo); Image result;
++        result.color.resize(Width * Height * 4); result.depth.resize(Width * Height);
++        glReadPixels(0, 0, Width, Height, GL_RGBA, GL_FLOAT, result.color.data());
++        glReadPixels(0, 0, Width, Height, GL_DEPTH_COMPONENT, GL_FLOAT, result.depth.data());
++        Check(glGetError() == GL_NO_ERROR, "draw/readback remains GL-clean"); return result;
++    }
++};
++struct Fixture
++{
++    GLuint program{Program()}, vao{}, fallback{}, material{}, guard{};
++    GLint maxBlock{}, alignment{}, maxBindings{};
++    Fixture()
++    {
++        glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &maxBlock); glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &alignment);
++        glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &maxBindings);
++        Check(maxBlock >= sizeof(Parameters) && maxBindings > ScratchBinding, "driver supports test blocks and bindings");
++        glGenVertexArrays(1, &vao); glBindVertexArray(vao); glUseProgram(program);
++        for (auto* buffer : {&fallback, &material, &guard})
++        {
++            glGenBuffers(1, buffer); glBindBuffer(GL_UNIFORM_BUFFER, *buffer);
++            glBufferData(GL_UNIFORM_BUFFER, (std::max)(maxBlock, 1024), nullptr, GL_DYNAMIC_DRAW);
++        }
++        glBindBufferBase(GL_UNIFORM_BUFFER, GuardBinding, guard);
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, ModelBinding, guard);
++        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, MaterialBinding, guard);
++        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE);
++        glDisable(GL_BLEND); glDisable(GL_DITHER); glDisable(GL_CULL_FACE); glDisable(GL_MULTISAMPLE);
++        glDisable(GL_SCISSOR_TEST); glDisable(GL_FRAMEBUFFER_SRGB);
++    }
++    ~Fixture()
++    {
++        glUseProgram(0); glBindVertexArray(0); glDeleteProgram(program); glDeleteVertexArrays(1, &vao);
++        glDeleteBuffers(1, &fallback); glDeleteBuffers(1, &material); glDeleteBuffers(1, &guard);
++    }
++    void Draw() { glDrawArrays(GL_TRIANGLES, 0, 6); ++realDraws; }
++    void CheckGuards()
++    {
++        GLint bound{}; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, GuardBinding, &bound);
++        Check(static_cast<GLuint>(bound) == guard, "unrelated indexed UBO binding survives");
++        for (const GLuint binding : {ModelBinding, MaterialBinding})
++        {
++            glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, binding, &bound);
++            Check(static_cast<GLuint>(bound) == guard, "equal-numbered SSBO binding survives UBO uploads");
++        }
++    }
++};
++struct Binding { GLint buffer{}; GLint64 offset{}, size{}; bool operator==(const Binding&) const = default; };
++Binding ReadBinding(GLuint binding)
++{
++    Binding result; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, binding, &result.buffer);
++    glGetInteger64i_v(GL_UNIFORM_BUFFER_START, binding, &result.offset);
++    glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, binding, &result.size); return result;
++}
++void NoDrawAllocation(const DriverCalls& before)
++{
++    Check(calls.generated == before.generated && calls.storage == before.storage && calls.maps == before.maps &&
++        calls.data == before.data && calls.queries == before.queries && calls.finishes == before.finishes,
++        "draw path performs no storage allocation, remap, BufferData, synchronous state query or glFinish");
++    Check(calls.nonzeroTimeouts == 0 && calls.flushWaits == 0, "arena never blocks or requests implicit flush on fence polls");
++}
++bool Dispatch(GLuint fallback, GLuint binding, std::size_t size, const void* data)
++{
++    const auto before = calls; const auto stats = g_DrawParameters.Stats();
++    GL_UploadDrawParameters(fallback, binding, size, data);
++    NoDrawAllocation(before);
++    const bool streamed = g_DrawParameters.Stats().streamedDraws == stats.streamedDraws + 1;
++    if (streamed)
++    {
++        Check(calls.subData == before.subData && calls.namedSubData == before.namedSubData && calls.ranges == before.ranges + 1,
++            "successful persistent upload uses one range bind and no driver data upload");
++    }
++    else
++        Check(calls.subData + calls.namedSubData == before.subData + before.namedSubData + 1,
++            "actual production dispatcher uploads mutable fallback exactly once");
++    return streamed;
++}
++void CheckReset()
++{
++    const auto buffers = arenaBuffers; const auto fences = arenaFences;
++    g_DrawParameters.Reset();
++    for (auto buffer : buffers) Check(!glIsBuffer(buffer), "Reset deletes arena buffer names");
++    for (auto fence : fences) Check(!glIsSync(fence), "Reset deletes arena fence names");
++    Check(arenaBuffers.empty() && arenaFences.empty(), "Reset releases every tracked arena resource");
++    const auto& stats = g_DrawParameters.Stats();
++    Check(!stats.streamedDraws && !stats.streamedBytes && !stats.fallbacks && !stats.busyFallbacks && !stats.pageRotations && !stats.syncFailures,
++        "Reset clears context-owned statistics");
++    const auto before = calls; g_DrawParameters.Reset();
++    Check(calls.deleted == before.deleted && calls.deletedFences == before.deletedFences && calls.unmaps == before.unmaps,
++        "repeated Reset makes no further resource calls");
++}
++void InitStream()
++{
++    const auto before = calls;
++    Check(g_DrawParameters.Init(), "persistent parameter arena initializes on capable driver");
++    Check(calls.generated == before.generated + CDrawParameterStream::PAGE_COUNT &&
++        calls.storage == before.storage + CDrawParameterStream::PAGE_COUNT && calls.maps == before.maps + CDrawParameterStream::PAGE_COUNT,
++        "Init allocates/maps exactly the fixed three pages");
++    Check(calls.data == before.data, "Init uses immutable storage only");
++    Check(arenaBuffers.size() == CDrawParameterStream::PAGE_COUNT, "arena resource bound is fixed");
++}
++void CapabilityCases()
++{
++    const GLboolean core = __GLEW_VERSION_4_4, extension = __GLEW_ARB_buffer_storage;
++    __GLEW_VERSION_4_4 = __GLEW_ARB_buffer_storage = GL_FALSE;
++    const auto before = calls; const bool supported = g_DrawParameters.Init();
++    __GLEW_VERSION_4_4 = core; __GLEW_ARB_buffer_storage = extension;
++    Check(!supported && calls.generated == before.generated && calls.queries == before.queries, "missing capability rejected before allocation/query");
++    const auto storage = __glewBufferStorage; __glewBufferStorage = nullptr;
++    const bool entrypointSupported = g_DrawParameters.Init(); __glewBufferStorage = storage;
++    Check(!entrypointSupported && calls.generated == before.generated, "advertised extension with missing entry point rejected");
++    CheckReset();
++}
++void ValidationCases(Fixture& fixture)
++{
++    const auto p = MakeRectangle(0, 0, 0).parameters;
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, sizeof(p), &p), "uploads require BeginFrame");
++    g_DrawParameters.BeginFrame();
++    glBindBufferBase(GL_UNIFORM_BUFFER, ModelBinding, fixture.guard);
++    const auto initial = ReadBinding(ModelBinding); const auto before = calls;
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, 0, &p), "zero size rejected");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, -1, &p), "negative size rejected");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, sizeof(p), nullptr), "null payload rejected");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, CDrawParameterStream::PAGE_BYTES + 1, &p), "oversized page request rejected before read");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, static_cast<GLsizeiptr>(fixture.maxBlock) + 1, &p), "driver block-size overflow rejected before read");
++    Check(!g_DrawParameters.UploadAndBind(static_cast<GLuint>(fixture.maxBindings), sizeof(p), &p), "out-of-range indexed binding rejected");
++    Check(ReadBinding(ModelBinding) == initial && calls.ranges == before.ranges, "invalid uploads preserve existing indexed binding");
++    NoDrawAllocation(before); fixture.CheckGuards();
++    g_DrawParameters.EndFrame(); const auto fences = calls.fences; g_DrawParameters.EndFrame();
++    Check(calls.fences == fences, "repeated EndFrame does not fence again");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, sizeof(p), &p), "uploads rejected after EndFrame");
++}
++void Render(Target& target, Fixture& fixture, const std::vector<Rectangle>& rectangles, bool enabled)
++{
++    streamCvar.value = enabled ? 1.f : 0.f; target.Clear();
++    const auto material = Material();
++    // Keep the second shader binding live across all per-draw model uploads.
++    Dispatch(fixture.material, MaterialBinding, sizeof(material), &material);
++    for (const auto& rectangle : rectangles)
++        { Dispatch(fixture.fallback, ModelBinding, sizeof(Parameters), &rectangle.parameters); fixture.Draw(); }
++}
++void PixelBurst(std::array<Target, Frames>& targets, Fixture& fixture)
++{
++    std::array<std::vector<Rectangle>, Frames> rectangles;
++    std::array<Image, Frames> legacy;
++    for (unsigned frame = 0; frame < Frames; ++frame)
++    {
++        rectangles[frame] = Rectangles(frame + 11);
++        Render(targets[frame], fixture, rectangles[frame], false); legacy[frame] = targets[frame].Read();
++        Compare(Oracle(rectangles[frame], Material()), legacy[frame], "legacy mutable path matches independent pixel/depth oracle");
++    }
++    const auto before = calls; const auto start = g_DrawParameters.Stats();
++    // No readback or finish until all six frames are submitted. Individual
++    // targets retain early output while later frames rotate or use fallback.
++    for (unsigned frame = 0; frame < Frames; ++frame)
++    {
++        g_DrawParameters.BeginFrame(); Render(targets[frame], fixture, rectangles[frame], true);
++        g_DrawParameters.EndFrame(); glFlush();
++    }
++    NoDrawAllocation(before);
++    const auto& stats = g_DrawParameters.Stats();
++    Check(stats.streamedDraws > start.streamedDraws && stats.streamedBytes > start.streamedBytes, "burst actually consumes persistent slices");
++    for (unsigned frame = 0; frame < Frames; ++frame)
++    {
++        const auto pixels = targets[frame].Read();
++        Compare(legacy[frame], pixels, "queued streamed frames equal mutable reference");
++        Compare(Oracle(rectangles[frame], Material()), pixels, "queued streamed frames match independent oracle");
++    }
++    fixture.CheckGuards();
++    std::printf("queued frames: %d, streamed uploads: %llu, fallbacks: %llu, intra-frame page rotations: %llu\n", Frames,
++        static_cast<unsigned long long>(stats.streamedDraws - start.streamedDraws),
++        static_cast<unsigned long long>(stats.fallbacks - start.fallbacks),
++        static_cast<unsigned long long>(stats.pageRotations - start.pageRotations));
++}
++void RetainedBindingsAndCapacity(Target& target, Fixture& fixture)
++{
++    const auto payloadSize = (std::min)(static_cast<GLsizeiptr>(fixture.maxBlock), CDrawParameterStream::PAGE_BYTES);
++    std::vector<std::byte> payload(static_cast<std::size_t>(payloadSize));
++    const auto initialRotations = g_DrawParameters.Stats().pageRotations;
++    const auto upperBound = static_cast<unsigned>(CDrawParameterStream::PAGE_COUNT * CDrawParameterStream::PAGE_BYTES / payloadSize + 4);
++    for (unsigned frame = 0; frame < 8; ++frame)
++    {
++        // EndFrame already inserted the preceding frame's real fences. This
++        // test-only finish makes reuse deterministic, never part of production.
++        glFinish(); g_DrawParameters.BeginFrame(); streamCvar.value = 1; target.Clear();
++        const auto rectangle = MakeRectangle(31 + frame * 33, 0, frame + 80);
++        const auto material = Material(.5f);
++        Check(Dispatch(fixture.fallback, ModelBinding, sizeof(Parameters), &rectangle.parameters), "model receives persistent slice");
++        Check(Dispatch(fixture.material, MaterialBinding, sizeof(material), &material), "material receives independent persistent slice");
++        const auto modelBinding = ReadBinding(ModelBinding), materialBinding = ReadBinding(MaterialBinding);
++        Check(modelBinding.size == sizeof(Parameters) && materialBinding.size == sizeof(Parameters) &&
++            modelBinding.offset % fixture.alignment == 0 && materialBinding.offset % fixture.alignment == 0,
++            "actual indexed ranges satisfy driver size/alignment");
++        Check(modelBinding.buffer != materialBinding.buffer || modelBinding.offset != materialBinding.offset, "simultaneous bindings use disjoint slices");
++        GLint generic{}; glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &generic); Check(generic == 0, "persistent dispatcher clears generic UBO binding");
++        bool exhausted = false;
++        for (unsigned i = 0; i < upperBound; ++i)
++        {
++            std::fill(payload.begin(), payload.end(), static_cast<std::byte>((i + frame) & 255));
++            if (!Dispatch(fixture.fallback, ScratchBinding, payload.size(), payload.data())) { exhausted = true; break; }
++        }
++        Check(exhausted, "fixed three-page capacity produces deterministic mutable fallback");
++        Check(ReadBinding(ModelBinding) == modelBinding && ReadBinding(MaterialBinding) == materialBinding,
++            "later page allocations and exhaustion preserve both live indexed bindings");
++        fixture.Draw(); fixture.CheckGuards();
++        g_DrawParameters.EndFrame();
++        Compare(Oracle({rectangle}, material), target.Read(), "late consumer retains model/material slices after full arena");
++        Check(arenaBuffers.size() == CDrawParameterStream::PAGE_COUNT, "capacity fallback never allocates another page");
++    }
++    Check(g_DrawParameters.Stats().pageRotations >= initialRotations + 16, "eight frames exercise at least sixteen real page rotations");
++}
++void InjectedBusyAndWaitFailure(Target& target, Fixture& fixture)
++{
++    // Deterministic scheduling seam only: actual GPU speed cannot guarantee a
++    // timeout in a short regression test. The real fences remain owned/live.
++    const auto rectangle = MakeRectangle(44, 0, 199); const auto material = Material();
++    g_DrawParameters.BeginFrame(); waitInjection = WaitInjection::Busy;
++    const auto before = calls; const auto stats = g_DrawParameters.Stats(); streamCvar.value = 1;
++    target.Clear();
++    Check(!Dispatch(fixture.fallback, ModelBinding, sizeof(Parameters), &rectangle.parameters), "injected busy pages select actual mutable dispatcher path");
++    Check(!Dispatch(fixture.material, MaterialBinding, sizeof(material), &material), "all busy pages preserve independent fallback bindings");
++    for (unsigned i = 0; i < 40; ++i) Check(!g_DrawParameters.UploadAndBind(ScratchBinding, sizeof(material), &material), "busy frame stays bounded");
++    Check(calls.waits == before.waits + CDrawParameterStream::PAGE_COUNT, "busy pages polled at most once each in a frame");
++    Check(g_DrawParameters.Stats().busyFallbacks >= stats.busyFallbacks + 2, "busy statistics identify pressure separately");
++    fixture.Draw(); g_DrawParameters.EndFrame(); waitInjection = WaitInjection::None;
++    Compare(Oracle({rectangle}, material), target.Read(), "injected busy fallback still renders real correct pixels/depth");
++    glFinish(); g_DrawParameters.BeginFrame();
++    Check(Dispatch(fixture.fallback, ModelBinding, sizeof(Parameters), &rectangle.parameters), "real signalled fences permit recovery next frame");
++    g_DrawParameters.EndFrame();
++    g_DrawParameters.BeginFrame(); waitInjection = WaitInjection::Failed;
++    const auto failures = g_DrawParameters.Stats().syncFailures;
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, sizeof(Parameters), &rectangle.parameters), "injected wait failure rejects arena write");
++    waitInjection = WaitInjection::None;
++    Check(g_DrawParameters.Stats().syncFailures == failures + 1, "wait failure recorded");
++    Check(!g_DrawParameters.UploadAndBind(ModelBinding, sizeof(Parameters), &rectangle.parameters), "wait failure disables arena until reinitialization");
++    Check(glGetError() == GL_NO_ERROR, "injected scheduling tests introduce no real GL error");
++    std::printf("labelled sync-result injections: %llu; all pixel draws/readbacks use real GL\n", static_cast<unsigned long long>(calls.injectedWaits));
++}
++void RunContext(unsigned context)
++{
++    Fixture fixture; std::array<Target, Frames> targets; DriverProbe probe;
++    Check(arenaBuffers.empty() && arenaFences.empty(), "new context starts without arena resources");
++    CapabilityCases(); InitStream(); ValidationCases(fixture);
++    PixelBurst(targets, fixture); RetainedBindingsAndCapacity(targets[0], fixture);
++    InjectedBusyAndWaitFailure(targets[0], fixture); CheckReset(); InitStream();
++    g_DrawParameters.BeginFrame();
++    const auto rectangles = Rectangles(context + 401);
++    Render(targets[0], fixture, rectangles, true); g_DrawParameters.EndFrame();
++    Compare(Oracle(rectangles, Material()), targets[0].Read(), "Reset/reinit draws use current context storage");
++    // Exercise the non-DSA production mutable fallback too, including cvar-null.
++    const auto named = __glewNamedBufferSubData; __glewNamedBufferSubData = nullptr;
++    r_draw_parameter_stream = nullptr;
++    Render(targets[0], fixture, rectangles, false);
++    r_draw_parameter_stream = &streamCvar; __glewNamedBufferSubData = named;
++    Compare(Oracle(rectangles, Material()), targets[0].Read(), "null-cvar/non-DSA production fallback remains correct");
++    CheckReset();
++    Check(calls.generated == calls.deleted && calls.maps == calls.unmaps && calls.fences == calls.deletedFences,
++        "owning context releases every allocation, persistent mapping and fence");
++    Check(glGetError() == GL_NO_ERROR, "context teardown is GL-clean");
++    std::printf("context %u: storage=%llu maps=%llu real draws cumulative=%llu, no per-draw storage allocation\n", context,
++        static_cast<unsigned long long>(calls.storage), static_cast<unsigned long long>(calls.maps), static_cast<unsigned long long>(realDraws));
++}
++}
++
++int main()
++{
++    if (!glfwInit()) return 2;
++    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE); glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
++    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
++    glfwWindowHint(GLFW_CONTEXT_CREATION_API, GLFW_NATIVE_CONTEXT_API);
++    for (unsigned context = 1; context <= 2; ++context)
++    {
++        auto* window = glfwCreateWindow(Width, Height, "draw parameter stream regression", nullptr, nullptr);
++        if (!window) { glfwTerminate(); return 2; }
++        glfwMakeContextCurrent(window); glewExperimental = GL_TRUE;
++        if (glewInit() != GLEW_OK || !(GLEW_VERSION_4_4 || GLEW_ARB_buffer_storage))
++        {
++            std::fprintf(stderr, "SKIP: real GL context/persistent storage unavailable\n");
++            glfwDestroyWindow(window); glfwTerminate(); return 2;
++        }
++        while (glGetError() != GL_NO_ERROR) {}
++        std::printf("Context %u driver: %s / %s\n", context, glGetString(GL_RENDERER), glGetString(GL_VERSION));
++        try
++        {
++#ifdef _WIN32
++            Check(glfwGetWGLContext(window) != nullptr, "test runs on real Windows WGL context");
++#endif
++            RunContext(context);
++        }
++        catch (const std::exception& error)
++        {
++            std::fprintf(stderr, "FAILED: %s\n", error.what());
++            g_DrawParameters.Reset(); glfwDestroyWindow(window); glfwTerminate(); return 1;
++        }
++        glfwMakeContextCurrent(nullptr); glfwDestroyWindow(window);
++        // The next context is explicitly unshared. Numeric GL object names may
++        // repeat; only explicit Reset plus fresh allocation is a valid oracle.
++    }
++    glfwTerminate();
++    std::printf("PASS: %llu checks, %llu pixel comparisons, %llu depth comparisons, %llu real draws; not FPS evidence\n",
++        static_cast<unsigned long long>(checks), static_cast<unsigned long long>(comparedPixels),
++        static_cast<unsigned long long>(comparedDepth), static_cast<unsigned long long>(realDraws));
++    return 0;
++}
+diff --git a/tests/extract_draw_parameter_dispatch.py b/tests/extract_draw_parameter_dispatch.py
+new file mode 100644
+index 0000000..ef33679
+--- /dev/null
++++ b/tests/extract_draw_parameter_dispatch.py
+@@ -0,0 +1,37 @@
++"""Extract the actual UBO dispatch and validate outer-frame ownership sites."""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++from extract_studio_depth_executor import function
++
++p = argparse.ArgumentParser(description=__doc__)
++p.add_argument('--src', type=Path, required=True)
++p.add_argument('--output', type=Path, required=True)
++p.add_argument('--manifest', type=Path, required=True)
++a = p.parse_args()
++names = ('gl_draw.cpp', 'gl_rmain.cpp', 'gl_studio.cpp', 'gl_wsurf.cpp',
++         'draw_parameter_stream.h', 'draw_parameter_dispatch.h')
++sources = {name: (a.src/name).read_text(encoding='utf-8-sig') for name in names}
++main = sources['gl_rmain.cpp']
++sites = (('void R_Init(', 'R_InitDrawParameters();'),
++         ('void R_Shutdown(', 'R_ShutdownDrawParameters();'),
++         ('void R_RenderFrameStart(', 'R_BeginDrawParameterFrame();'),
++         ('void R_RenderEndFrame(', 'R_EndDrawParameterFrame();'))
++for signature, call in sites:
++    assert function(main, signature).count(call) == 1, (signature, call)
++assert sources['gl_studio.cpp'].count('GL_UploadDrawParameters(g_hStudioUBO,') == 1
++assert sources['gl_wsurf.cpp'].count('GL_UploadDrawParameters(g_WorldSurfaceRenderer.hEntityUBO,') == 2
++# Camera/scene data is shared between views and may be partially overwritten.
++# Keep those APIs on their original storage; only complete draw records stream.
++assert 'GL_UploadDrawParameters(g_WorldSurfaceRenderer.hCameraUBO' not in sources['gl_wsurf.cpp']
++code = '// Exact production draw-parameter dispatch; engine lifecycle checked by extractor.\n'
++code += '\n\n'.join(function(sources['gl_draw.cpp'], signature) for signature in
++                    ('void GL_UploadSubDataToUBO(', 'void GL_UploadDrawParameters('))
++a.output.parent.mkdir(parents=True, exist_ok=True)
++a.output.write_text(code+'\n', encoding='utf-8')
++a.manifest.write_text(json.dumps({
++    'inputs': {name: hashlib.sha256((a.src/name).read_bytes()).hexdigest() for name in names},
++    'output': hashlib.sha256((code+'\n').encode()).hexdigest(),
++    'scope': 'Actual mutable/stream dispatch, complete parameter callers and outer frame ownership. No game FPS.'
++}, indent=2)+'\n', encoding='utf-8')
 diff --git a/tests/studio_bone_palette_tests.cpp b/tests/studio_bone_palette_tests.cpp
 new file mode 100644
 index 0000000..06d17ce
@@ -20904,10 +21993,10 @@ index 0000000..06d17ce
 +}
 diff --git a/tests/studio_bone_palette_gl_tests.cpp b/tests/studio_bone_palette_gl_tests.cpp
 new file mode 100644
-index 0000000..bc89393
+index 0000000..0c6a943
 --- /dev/null
 +++ b/tests/studio_bone_palette_gl_tests.cpp
-@@ -0,0 +1,330 @@
+@@ -0,0 +1,333 @@
 +// Real production Studio shaders and GPU submission, with a frozen-layout
 +// monolithic UBO oracle. Includes the existing layered-target fixture utilities.
 +#define main StudioFaceFixtureMainNotRun
@@ -20955,7 +22044,10 @@ index 0000000..bc89393
 +#undef glBufferSubData
 +#define glBufferSubData CountSubData
 +#include "../src/studio_bone_palette_gl.h"
++#include "../src/draw_parameter_stream.h"
 +static CStudioBonePaletteStorage<> g_StudioBonePalettes;
++static CDrawParameterStream g_DrawParameters;
++static cvar_t* r_draw_parameter_stream{}; // Existing palette oracle retains its baseline path.
 +// Preserve the actual availability test inside the production helper.
 +#undef glNamedBufferSubData
 +#define glNamedBufferSubData (__glewNamedBufferSubData ? CountNamedSubData : nullptr)
@@ -21240,10 +22332,10 @@ index 0000000..bc89393
 +}
 diff --git a/tests/extract_studio_palette_upload.py b/tests/extract_studio_palette_upload.py
 new file mode 100644
-index 0000000..05160d7
+index 0000000..10ea710
 --- /dev/null
 +++ b/tests/extract_studio_palette_upload.py
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,42 @@
 +"""Run production Studio UBO submission in the real-GL fixture, without engine callbacks."""
 +import argparse
 +import hashlib
@@ -21272,6 +22364,7 @@ index 0000000..05160d7
 +            raise SystemExit("Missing palette lifecycle cleanup: " + signature)
 +    code = "// Exact production function bodies.\n\n" + "\n\n".join((
 +        function(sources["gl_draw.cpp"], "void GL_UploadSubDataToUBO("),
++        function(sources["gl_draw.cpp"], "void GL_UploadDrawParameters("),
 +        function(studio, "void R_ResetStudioBonePalette("),
 +        function(studio, "static void R_StudioUploadDrawBuffers("))) + "\n"
 +    args.output.parent.mkdir(parents=True, exist_ok=True)

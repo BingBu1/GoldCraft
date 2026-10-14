@@ -81,6 +81,10 @@
         "tests/extract_forward_light_upload.py",
         "src/studio_bone_palette.h",
         "src/studio_bone_palette_gl.h",
+        "src/draw_parameter_stream.h",
+        "src/draw_parameter_dispatch.h",
+        "tests/draw_parameter_stream_gl_tests.cpp",
+        "tests/extract_draw_parameter_dispatch.py",
         "tests/studio_bone_palette_tests.cpp",
         "tests/studio_bone_palette_gl_tests.cpp",
         "tests/extract_studio_palette_upload.py"
