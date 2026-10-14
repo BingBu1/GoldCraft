@@ -28,6 +28,25 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 ## 安装服务端小补丁
 
+### 内网穿透的公网连接端口
+
+如果控制台 `connect 公网地址:公网端口` 正常，但收藏列表连接时改成内部 `27015`，检查服务器 A2S_INFO 中的连接端口。浏览器可以用公网端口查询，却采用回复中的游戏端口连接；两者必须与实际映射一致。
+
+新版 ReHLDS 和启动脚本支持 `server-settings.json` 的 `csPublicPort`。例如外部 UDP 46344 转发到本机 UDP 27015：
+
+```json
+"csPort": 27015,
+"csPublicPort": 46344,
+```
+
+只在现有 JSON 中添加／修改对应字段，保留其他配置。`csPort` 仍是本地监听端口；`csPublicPort` 只决定 Steam 查询回复和公告中的游戏连接端口，**不会创建端口映射**。省略或设 `0` 时沿用 `csPort`。公网端口允许 1–65535；修改后需重启 CS 进程。保持 `publicListing: true` 使用 Steam 查询，CS 继续 `sv_lan 0`。
+
+旧包先停止双服，将 `GoldCraft-PublicPort-Hotfix.zip` 解压到 `Start.cmd` 所在目录，覆盖 `cs/swds.dll` 和三个启动脚本，再设置上述字段并启动。补丁不覆盖 `server-settings.json`、原包清单、Mod、存档或密钥。只有配置而没有新版引擎时，启动预检会明确报错。删除收藏中的旧端口条目，再按公网地址和公网端口添加。
+
+新打包脚本要求已部署带公网端口能力的引擎，避免重包时退回旧版本；模板默认 `csPublicPort: 0`，没有写入个人服务器地址。Windows 引擎按既定 Clang/C++20/O3/ThinLTO/AVX2 配置构建，Linux 运行包仍待单独构建验证。
+
+### 资源与ZP修复
+
 2026-10-14 的 `GoldCraft-Server-Hotfix.zip` 修复两处已定位问题：旧包遗漏四个 `sprites/scope_arc*.tga`，造成正确客户端仍报 `Bad file`；ZP 狂暴僵尸在玩家未正式入服就断开时调用职业接口，报 `Invalid Player (26)`。26是合法槽位，后者是断线生命周期检查遗漏。
 
 使用 `Stop.cmd` 停止双服，把补丁内容解压到 `Start.cmd` 所在目录，再运行 `Start.cmd` 并重连。补丁只有四个TGA、一个 `zp50_class_zombie_rage.amxx` 及说明／独立清单；配置、汉化、管理员、MC Mod 和其他插件不覆盖。原 `package-manifest.json` 保留原包基线，更新的五个文件按 `server-hotfix-manifest.json` 核对。若已安装单独的狙击镜资源补丁，可以继续覆盖相同TGA。`sv_restart` 不会加载新Pawn插件。

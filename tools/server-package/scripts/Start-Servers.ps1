@@ -13,6 +13,13 @@ try {
     New-Item -ItemType Directory -Path $State -Force | Out-Null
     $startupLock = [IO.File]::Open((Join-Path $State 'startup.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     $settings = Read-Json (Join-Path $PackageRoot 'server-settings.json')
+    $csPublicPort = Get-CsPublicPort $settings
+    if ($csPublicPort) {
+        $engine = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $PackageRoot 'cs/swds.dll')))
+        if (-not $engine.Contains('GoldCraft -publicport requires an integer in 1..65535')) {
+            throw 'ReHLDS lacks public-port support. Update cs/swds.dll before setting csPublicPort.'
+        }
+    }
     foreach ($key in @('csPort','steamPort','minecraftPort','bridgePort')) {
         if ($settings.$key -lt 1024 -or $settings.$key -gt 65535) { throw "Invalid $key" }
     }
@@ -117,7 +124,8 @@ try {
                 $n=Read-Json $native; $j=Read-Json $java
                 if ($n.world -and $n.world -ne '0' -and $n.world -eq $j.world -and $j.map -eq $settings.map) {
                     Write-Host "Both servers ready: CS UDP $($settings.csPort); Minecraft TCP $($settings.minecraftPort); 32 slots each."
-                    Write-Host 'Minecraft requires an authenticated account and a valid CS connection. Pairing is automatic; see README.md.'
+                    if ($csPublicPort) { Write-Host "CS advertises public game port $csPublicPort; forward this UDP port to local $($settings.csPort)." }
+                    Write-Host 'Minecraft requires a valid CS connection. Pairing is automatic; see README.md.'
                     return
                 }
             } catch { }

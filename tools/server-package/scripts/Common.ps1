@@ -8,6 +8,15 @@ function Write-Text([string]$Path, [string]$Value) {
 function Read-Json([string]$Path) {
     Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
 }
+function Get-CsPublicPort($Settings) {
+    # Missing field supports existing packages; 0 preserves direct hosting.
+    if (-not $Settings.PSObject.Properties['csPublicPort']) { return 0 }
+    $value = $Settings.csPublicPort
+    if (($value -isnot [int] -and $value -isnot [long]) -or $value -lt 0 -or $value -gt 65535) {
+        throw 'csPublicPort must be 0 (use csPort) or an integer in 1-65535.'
+    }
+    return [int]$value
+}
 function Write-Json([string]$Path, $Value) {
     Write-Text "$Path.tmp" ($Value | ConvertTo-Json -Depth 12)
     Move-Item -LiteralPath "$Path.tmp" -Destination $Path -Force

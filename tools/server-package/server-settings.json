@@ -1,5 +1,6 @@
 {
   "csPort": 27015,
+  "csPublicPort": 0,
   "steamPort": 26900,
   "minecraftPort": 25565,
   "bridgePort": 25521,

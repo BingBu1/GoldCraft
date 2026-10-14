@@ -393,6 +393,43 @@ class PackageStartup(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('lacks offline CS admission', result.stdout)
 
+    def set_public_port(self, value, *, omit=False):
+        path = self.base / 'server-settings.json'
+        settings = json.loads(path.read_text())
+        if omit:
+            settings.pop('csPublicPort', None)
+        else:
+            settings['csPublicPort'] = value
+        path.write_text(json.dumps(settings))
+
+    def test_public_port_optional_and_does_not_reserve_a_local_socket(self):
+        self.set_public_port(None, omit=True)
+        result = self.check(self.records)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        (self.base / 'cs/swds.dll').write_bytes(
+            b'preflight fixture: GoldCraft -publicport requires an integer in 1..65535')
+        # The external port can be in use here; only the internal csPort binds.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as occupied:
+            occupied.bind(('127.0.0.1', 0))
+            self.set_public_port(occupied.getsockname()[1])
+            result = self.check(self.records)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_public_port_requires_matching_engine(self):
+        self.set_public_port(46344)
+        (self.base / 'cs/swds.dll').write_bytes(b'old engine fixture')
+        result = self.check(self.records)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('ReHLDS lacks public-port support', result.stdout)
+
+    def test_public_port_invalid_values_rejected_before_launch(self):
+        for value in (-1, 65536, 46344.5, '46344', True, None, '46344 +quit'):
+            with self.subTest(value=value):
+                self.set_public_port(value)
+                result = self.check(self.records)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('csPublicPort must be', result.stdout)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -270,7 +270,7 @@ index 9203888..ea55a2b 100644
  	if ((max_send_size - sb_send.cursize) >= length) {
  		SZ_Write(&sb_send, data, length);
 diff --git a/rehlds/engine/net_ws.cpp b/rehlds/engine/net_ws.cpp
-index b9c52b1..5375b70 100644
+index b9c52b1..8490cd9 100644
 --- a/rehlds/engine/net_ws.cpp
 +++ b/rehlds/engine/net_ws.cpp
 @@ -27,6 +27,7 @@
@@ -281,7 +281,16 @@ index b9c52b1..5375b70 100644
  
  qboolean net_thread_initialized;
  
-@@ -1303,14 +1304,42 @@ void NET_FlushQueues()
+@@ -84,6 +85,8 @@ cvar_t clockwindow = { "clockwindow", "0.5", 0, 0.0f, NULL };
+ 
+ cvar_t iphostport = { "ip_hostport", "0", 0, 0.0f, NULL };
+ cvar_t hostport = { "hostport", "0", 0, 0.0f, NULL };
++// Public game port behind NAT/FRP. Never used to bind the local socket.
++int net_public_port = 0;
+ cvar_t multicastport = { "multicastport", "27025", 0, 0.0f, NULL };
+ 
+ #ifdef _WIN32
+@@ -1303,14 +1306,42 @@ void NET_FlushQueues()
  
  int NET_SendLong(netsrc_t sock, SOCKET s, const char *buf, int len, int flags, const struct sockaddr *to, int tolen)
  {
@@ -327,6 +336,42 @@ index b9c52b1..5375b70 100644
  		{
  			gSequenceNumber = 1;
  		}
+@@ -1993,6 +2024,23 @@ void NET_Init()
+ 	if (port)
+ 		Cvar_SetValue("hostport", Q_atof(com_argv[port + 1]));
+ 
++	net_public_port = 0;
++	const int publicPortArg = COM_CheckParm("-publicport");
++	if (publicPortArg)
++	{
++		const char *value = publicPortArg + 1 < com_argc ? com_argv[publicPortArg + 1] : "";
++		unsigned int parsed = 0;
++		for (const char *digit = value; *digit; ++digit)
++		{
++			if (*digit < '0' || *digit > '9' || (parsed = parsed * 10 + (*digit - '0')) > 65535)
++				Sys_Error("GoldCraft -publicport requires an integer in 1..65535");
++		}
++		if (!parsed)
++			Sys_Error("GoldCraft -publicport requires an integer in 1..65535");
++		net_public_port = (int)parsed;
++		Con_Printf("GoldCraft public game port: %d (local socket unchanged)\n", net_public_port);
++	}
++
+ 	int clockwindow_ = COM_CheckParm("-clockwindow");
+ 	if (clockwindow_)
+ 		Cvar_SetValue("clockwindow", Q_atof(com_argv[clockwindow_ + 1]));
+diff --git a/rehlds/engine/net_ws.h b/rehlds/engine/net_ws.h
+index 6277935..43b935f 100644
+--- a/rehlds/engine/net_ws.h
++++ b/rehlds/engine/net_ws.h
+@@ -137,6 +137,7 @@ extern cvar_t clockwindow;
+ extern qboolean use_thread;
+ extern cvar_t iphostport;
+ extern cvar_t hostport;
++extern int net_public_port;
+ #ifdef _WIN32
+ extern cvar_t ipx_hostport;
+ extern cvar_t ipx_clientport;
 diff --git a/rehlds/engine/pmovetst.cpp b/rehlds/engine/pmovetst.cpp
 index 0b36057..ad54dda 100644
 --- a/rehlds/engine/pmovetst.cpp
@@ -1589,7 +1634,7 @@ index dfd68c2..18f72b7 100644
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
 diff --git a/rehlds/engine/sv_steam3.cpp b/rehlds/engine/sv_steam3.cpp
-index c35b293..76d2271 100644
+index c35b293..966b6cb 100644
 --- a/rehlds/engine/sv_steam3.cpp
 +++ b/rehlds/engine/sv_steam3.cpp
 @@ -213,6 +213,11 @@ client_t *CSteam3Server::ClientFindFromSteamID(CSteamID &steamIDFind)
@@ -1604,6 +1649,17 @@ index c35b293..76d2271 100644
  		if (cl->network_userid.idtype != AUTH_IDTYPE_STEAM)
  			continue;
  
+@@ -285,6 +290,10 @@ void CSteam3Server::Activate()
+ 		gamePort = (int)iphostport.value;
+ 		if (gamePort == 0)
+ 			gamePort = (int)hostport.value;
++		// Steam advertises this as the connection port in A2S_INFO. Its shared
++		// query socket remains the engine's actual local UDP socket (0xFFFF).
++		if (net_public_port)
++			gamePort = net_public_port;
+ 
+ 		int nAppId = GetGameAppID();
+ 		if (nAppId > 0 && g_pcls.state == ca_dedicated)
 diff --git a/rehlds/engine/sv_user.cpp b/rehlds/engine/sv_user.cpp
 index 4e0d26e..90546f0 100644
 --- a/rehlds/engine/sv_user.cpp
