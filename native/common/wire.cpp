@@ -52,7 +52,7 @@ std::uint64_t random_epoch() { auto key = random_key(); Reader r(key); return r.
 
 bool known_type(Type t) {
     switch (t) {
-    case Type::status_hud: case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
+    case Type::gameplay_rules: case Type::status_hud: case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
     case Type::client_binding: case Type::pair_player: case Type::pair_result: case Type::input:
     case Type::player_pose: case Type::atlas: case Type::section_mesh: case Type::remove_section:
     case Type::bsp: case Type::brushes: case Type::control: case Type::lights:
@@ -100,7 +100,7 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
         unsigned difference = 0;
         for (std::size_t i = 0; i < 16; ++i) difference |= (session[i] ^ session_[i]) | (token[i] ^ token_[i]);
         const auto allowed = peer_ == Role::fabric_client ? capability_shared_bulk_v1 :
-            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects;
+            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects | capability_gameplay_rules;
         if ((capabilities & capability_effect_position_hold) && !(capabilities & capability_local_qpc_v1))
             throw ProtocolError("Effect execution requires local QPC capability");
         if (difference || role != static_cast<std::uint32_t>(peer_) || (capabilities & ~allowed))
@@ -115,7 +115,7 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
 }
 Bytes HostHandshake::welcome() const {
     Writer w; w.bytes(session_); w.u32(static_cast<std::uint32_t>(host_));
-    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
+    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects | capability_gameplay_rules) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
 }
 Vec3 to_minecraft(Vec3 v) { return { v.x / units_per_block, v.z / units_per_block + minecraft_y_offset, -v.y / units_per_block }; }
 Vec3 to_goldsrc(Vec3 v) { return { v.x * units_per_block, -v.z * units_per_block, (v.y - minecraft_y_offset) * units_per_block }; }

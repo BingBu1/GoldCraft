@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <source_location>
 #include <thread>
 
 namespace goldcraft {
@@ -25,8 +26,15 @@ struct SharedBulkTestAccess {
 using namespace goldcraft;
 namespace {
 std::uint64_t checks = 0;
-void require(bool condition) { ++checks; if (!condition) throw std::runtime_error("test condition failed"); }
-template<class Fn> void rejects(Fn fn) { bool rejected = false; try { fn(); } catch (const ProtocolError&) { rejected = true; } require(rejected); }
+void require(bool condition, std::source_location where = std::source_location::current()) {
+    ++checks;
+    if (!condition) throw std::runtime_error(std::string(where.file_name()) + ":" +
+        std::to_string(where.line()) + ": test condition failed");
+}
+template<class Fn> void rejects(Fn fn, std::source_location where = std::source_location::current()) {
+    bool rejected = false; try { fn(); } catch (const ProtocolError&) { rejected = true; }
+    require(rejected, where);
+}
 Bytes ack(std::uint32_t accepted = 1) { Writer w; w.u32(1); w.u32(accepted); return w.data; }
 Bytes ref(std::uint32_t type, std::uint32_t length, std::uint32_t start, std::uint32_t reserved = 0) {
     Writer w; w.u32(type); w.u32(length); w.u32(start); w.u32(reserved); return w.data;
@@ -116,9 +124,14 @@ void handshake_tests() {
         HostHandshake h(session, token, Role::host_client, Role::fabric_client, 42); auto p = hello(Role::fabric_client, caps);
         h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p); require(h.ready() && h.peer_capabilities() == caps);
     }
-    for (auto caps : {1u, 2u}) {
+    for (auto caps : {capability_shared_bulk_v1, 0x80000000u}) {
         HostHandshake h(session, token, Role::host_server, Role::fabric_server, 42); auto p = hello(Role::fabric_server, caps);
         rejects([&] { h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p); });
+    }
+    for (auto caps : {capability_local_qpc_v1, capability_local_qpc_v1 | capability_gameplay_rules}) {
+        HostHandshake h(session, token, Role::host_server, Role::fabric_server, 42); auto p = hello(Role::fabric_server, caps);
+        h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p);
+        require(h.ready() && h.peer_capabilities() == caps);
     }
 }
 struct Peer {

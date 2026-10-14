@@ -426,6 +426,7 @@ void GoldCraft_MapMiningFrame() {
 GoldCraft_MapMiningRoundCleanup::GoldCraft_MapMiningRoundCleanup() {
     if (cleanup_depth++ != 0)
         return;
+    GoldCraft_RoundCleanup();
     cleanup_persist = Persist();
     // A plugin may end the new round immediately, before another server frame
     // observes m_bRoundTerminating=false. Rearm the boundary at real cleanup.

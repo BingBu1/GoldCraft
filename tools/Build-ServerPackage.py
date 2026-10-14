@@ -150,6 +150,8 @@ developer 0
 log off
 exec addons/sypb/sypb.cfg
 mc_map_mining_persist 0
+mc_round_clear_blocks 0
+mc_death_drop_items 1
 ''')
     runtime = ROOT / '.tools/neoforge-runtime' / PIN['neoforge']
     args_path = runtime / f"libraries/net/neoforged/neoforge/{PIN['neoforge']}/win_args.txt"
@@ -220,7 +222,8 @@ mc_map_mining_persist 0
         add(ROOT / f'notices/{name}-LICENSE.txt', f'licenses/{name}-LICENSE.txt')
     # Client information is intentionally a manifest, never developer profiles.
     generated('client-requirements.json', json.dumps({'minecraft': PIN['version'],
-              'neoforge': PIN['neoforge'], 'wireProtocol': 30, 'nativeMessageCount': 77,
+              'neoforge': PIN['neoforge'], 'wireProtocol': 30, 'nativeMessageCount': 83,
+              'clientMinimumMessageCount': 77,
               'mods': [n.removeprefix('minecraft/mods/') for n in files if n.startswith('minecraft/mods/')]}, indent=2))
     # A .res file may spell the same Windows asset using different casing.
     # Preserve one archive member; reject genuinely different colliding inputs.
@@ -301,9 +304,10 @@ def main():
     private = [v.encode() for v in scan.local_private_values() if len(v) >= 12]
     private += [m.group(1) for m in re.finditer(rb'(?:rcon_password\s+"|rcon.password=)([^"\r\n]+)',
                 (CS / 'cstrike/server.cfg').read_bytes() + b'\n' + (MC / 'server.properties').read_bytes())]
-    manifest = {'format': 1, 'sourceRevision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-                'serverBaseline': '728aff08', 'minecraft': PIN['version'], 'neoforge': PIN['neoforge'],
-                'nativeMessageCount': 77, 'maxPlayers': 32,
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    manifest = {'format': 1, 'sourceRevision': revision,
+                'serverBaseline': revision, 'minecraft': PIN['version'], 'neoforge': PIN['neoforge'],
+                'nativeMessageCount': 83, 'clientMinimumMessageCount': 77, 'maxPlayers': 32,
                 'maps': map_records,
                 'admission': 'online-account-and-live-cs-binding', 'files': []}
     manifest['coreSourceRevision'] = args.core_source_revision or manifest['sourceRevision']

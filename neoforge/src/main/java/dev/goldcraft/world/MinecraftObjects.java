@@ -63,6 +63,12 @@ public final class MinecraftObjects {
         world=null;epoch=revision=nextKey=lastAction=damageActions=useActions=rejected=broken=0;
         dirty.clear();chunks.clear();entityKeys.clear();targets=Map.of();candidates=exported=0;
     }
+    public static void invalidateBlocks(ServerWorld changedWorld){
+        if(world!=changedWorld)return;
+        chunks.clear();dirty.clear();targets=Map.of();
+        // Keep revisions and keys monotonic within the native map session.
+        for(var chunk:HostWorldReset.loadedChunks(world))dirty.put(chunk.getPos().toLong(),chunk);
+    }
     private static void scan(WorldChunk chunk){
         var previous=chunks.getOrDefault(chunk.getPos().toLong(),Map.of());
         Map<BlockPos,BlockTarget> result=new LinkedHashMap<>();

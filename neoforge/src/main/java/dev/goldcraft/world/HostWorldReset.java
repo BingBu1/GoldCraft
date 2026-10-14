@@ -20,12 +20,13 @@ public final class HostWorldReset {
     private static ServerWorld activeWorld;
     private static final ThreadLocal<Boolean> CLEARING=ThreadLocal.withInitial(()->false);
     private static final class Session {
-        long epoch,removed,removedEntities;
+        long epoch,removed,removedEntities,clearRevision;
         final Map<Long,WorldChunk> loaded=new HashMap<>();
         final Set<Long> prepared=new HashSet<>();
     }
     private HostWorldReset(){}
     public static boolean clearing(){return CLEARING.get();}
+    public static boolean active(ServerWorld world,long epoch){return activeWorld==world&&activeEpoch==epoch;}
     public static Collection<WorldChunk> loadedChunks(ServerWorld world){
         var session=WORLDS.get(world);return session==null?List.of():List.copyOf(session.loaded.values());
     }
@@ -68,7 +69,7 @@ public final class HostWorldReset {
         for(var dimension:world.getServer().getWorlds()){
             if(!managed(dimension))continue;
             var session=WORLDS.computeIfAbsent(dimension,ignored->new Session());
-            session.epoch=epoch;session.removed=session.removedEntities=0;session.prepared.clear();
+            session.epoch=epoch;session.removed=session.removedEntities=session.clearRevision=0;session.prepared.clear();
             List<Entity> stale=new ArrayList<>();
             dimension.iterateEntities().forEach(entity->{if(!(entity instanceof PlayerEntity))stale.add(entity);});
             boolean previous=CLEARING.get();CLEARING.set(true);
@@ -80,6 +81,19 @@ public final class HostWorldReset {
         }
         GoldCraft.LOGGER.info("Fresh host map session: dimension={} epoch={} clearedBlocks={} clearedEntities={} elapsedMs={}",
             world.getRegistryKey().getValue(),Long.toUnsignedString(epoch),blocks,entities,(System.nanoTime()-started)/1_000_000.0);
+    }
+    public static void clearRoundBlocks(ServerWorld world,long epoch,long revision){
+        if(!active(world,epoch)||revision==0)return;
+        var session=WORLDS.get(world);
+        if(session==null||Long.compareUnsigned(revision,session.clearRevision)<=0)return;
+        session.clearRevision=revision;session.prepared.clear();
+        long before=session.removed;
+        for(var chunk:List.copyOf(session.loaded.values()))prepare(world,session,chunk);
+        // Unloaded chunks are cleared by prepare() on their next load. Entities
+        // retain their map epoch: a round block reset is not an entity reset.
+        MinecraftObjects.invalidateBlocks(world);
+        GoldCraft.LOGGER.info("Round blocks cleared: epoch={} revision={} loadedBlocks={}",
+            Long.toUnsignedString(epoch),Long.toUnsignedString(revision),session.removed-before);
     }
     private static void prepare(ServerWorld world,Session session,WorldChunk chunk) {
         if(!session.prepared.add(chunk.getPos().toLong()))return;

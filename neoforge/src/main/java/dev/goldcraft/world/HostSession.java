@@ -96,6 +96,19 @@ public final class HostSession {
         player.sendAbilitiesUpdate();
         for(String tag:List.copyOf(player.getCommandTags()))if(tag.matches(HOLD_TAG+"[0-3]_[01]"))player.removeCommandTag(tag);
     }
+    static void confirmedDeath(ServerPlayerEntity player,net.minecraft.entity.damage.DamageSource source) {
+        var held=HELD.get(player.getUuid());
+        if(held==null||!player.isSpectator()||held.mode==GameMode.SPECTATOR){
+            player.onDeath(source);return;
+        }
+        // Native-form players are held as spectators only for presentation.
+        // Vanilla death/drop/XP rules must use their saved gameplay mode.
+        // Keep the hold record and tag so respawn restores that same mode.
+        try{
+            player.changeGameMode(held.mode);
+            player.onDeath(source);
+        }finally{player.changeGameMode(GameMode.SPECTATOR);}
+    }
     // Called only for a newly accepted binding, including a reused slot in the same map.
     public static void paired(UUID uuid,long epoch){
         Player previous=PLAYERS.get(uuid);

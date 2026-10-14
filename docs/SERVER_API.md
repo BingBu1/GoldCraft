@@ -20,10 +20,23 @@ Minecraft 相关游戏 cvar 统一使用 `mc_` 前缀。服务器控制项可写
 |---|---|---|
 | `mc_default_form` | `1` | 新配对玩家默认进入 MC 形态；`0` 保持 CS |
 | `mc_allow_switch` | `1` | 允许形态菜单和命令切换；`0` 禁止 |
+| `mc_round_clear_blocks` | `0` | `1` 回合结束／重开时清空当前地图所有MC方块及容器内容；`0` 跨回合保留。生物及已有物品实体不受此开关影响 |
+| `mc_death_drop_items` | `1` | `0` 阻止玩家死亡生成物品实体，`1` 按MC原规则掉落；不改变背包保留规则、生物掉落、经验球或主动丢物 |
 | `mc_map_mining` | `1` | `0` 禁止挖掘地图，`1` 仅可受伤地图实体，`2` 所有地图几何；整图挖洞仍在实现，见[挖掘状态](WORLD_CARVING.md) |
 | `mc_map_mining_persist` | `0` | `0` 回合结束还原 MC 挖掘的地图实体，`1` 跨回合保留；换图／专服重启始终清空。整图洞口接入仍待完成 |
 
-回合开关已部署到关闭的沙盒专服，下次启动加载。该项保持协议 19，只需更新服务器游戏 DLL；原生实体的还原继续通过既有 CS／MC 地图实体同步生效。[回合测试范围](WORLD_CARVING.md#回合还原)包括热切换、重连、换图与实际 MC 射线。
+`mc_round_clear_blocks` 清理当前 CS 地图对应的 MC 维度，包含暂未加载的区块；它不改变 `mc_map_mining_persist` 的宿主地图挖掘还原规则。新回合的清块代次独立于地图代次，重复消息不会再次清除后来放置的方块。换图或专服重启始终清空方块及实体。
+
+`mc_death_drop_items 0` 只取消玩家死亡生成的地面物品。`keepInventory=false` 时背包仍会丢失，`keepInventory=true` 时仍由原版保留；经验、生物掉落、主动 Q 丢物保持原规则。配对玩家处于 CS 形态时，也按切换前保存的 MC 游戏模式结算死亡。
+
+这两个新设置通过协议 30 的服务器专用能力 128／消息 82 同步，需配套更新 ReGameDLL、GoldCraft AMXX 模块和 NeoForge 核心。消息不发给 CS 客户端，既有客户端消息表 77 可继续使用。更新文件后重启双服；之后 cvar 修改可热生效。例如：
+
+```cfg
+mc_round_clear_blocks 1
+mc_death_drop_items 0
+```
+
+`mc_map_mining_persist` 的原生实体还原继续通过既有 CS／MC 地图实体同步生效。[挖掘回合测试范围](WORLD_CARVING.md#回合还原)包括热切换、重连、换图与实际 MC 射线。
 
 客户端设置写入 CS 的 `userconfig.cfg`，或在客户端控制台修改：
 
@@ -37,7 +50,7 @@ Minecraft 相关游戏 cvar 统一使用 `mc_` 前缀。服务器控制项可写
 
 原来八个对应的 `goldcraft_` 游戏 cvar 已更名，自定义 cfg 需将它们的前缀改为 `mc_`；不注册旧名别名。插件文件名、服务器命令和 Pawn API 保持原接口。`gc_precache_protocol` 等能力协商标识属于通用 CS 扩展协议，不属于 MC 游戏设置。
 
-服务器 cvar 在 `GameDLLInit` 注册，AMXX `plugin_init` 能直接获取。需要在首张地图创建前设值时使用 ReGameDLL 的 `game_init.cfg`；`autoexec.cfg` 可能先于游戏 DLL 加载，不适合这些游戏 cvar。`server.cfg` 和运行时 RCON 修改已纳入独立测试。改名与协议 19 必须随配套 native／NeoForge／Pawn 产物一起部署；文件更新后需重启对应进程。本轮配套文件已同步到关闭的沙盒 A/B、ReHLDS 与 Minecraft 服务端，主服未自动启动。
+服务器 cvar 在 `GameDLLInit` 注册，AMXX `plugin_init` 能直接获取。需要在首张地图创建前设值时使用 ReGameDLL 的 `game_init.cfg`；`autoexec.cfg` 可能先于游戏 DLL 加载，不适合这些游戏 cvar。`server.cfg` 和运行时 RCON 修改已纳入独立测试。native／NeoForge／Pawn 应部署配套产物，文件更新后重启对应进程。
 
 包含 `goldcraft.inc`，以 AMXX 玩家槽位调用：
 

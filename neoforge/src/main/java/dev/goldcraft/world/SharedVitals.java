@@ -92,7 +92,7 @@ public final class SharedVitals {
                 state.confirming=true;
                 try{
                     player.setHealth(0);
-                    player.onDeath(state.deathSource!=null?state.deathSource:player.getDamageSources().genericKill());
+                    HostSession.confirmedDeath(player,state.deathSource!=null?state.deathSource:player.getDamageSources().genericKill());
                     state.deathConfirmed=true;
                 }finally{state.confirming=false;}
             }

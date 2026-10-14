@@ -23,7 +23,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(test effect_grant local_qpc_proof shared_bulk control_diagnostics skill_damage render_bounds scene_lights atlas_footprint)
+    foreach(test gameplay_rules effect_grant local_qpc_proof shared_bulk control_diagnostics skill_damage render_bounds scene_lights atlas_footprint)
         add_executable(goldcraft_${test}_tests tests/native/${test}_tests.cpp)
         target_link_libraries(goldcraft_${test}_tests PRIVATE goldcraft_common)
         target_compile_definitions(goldcraft_${test}_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)

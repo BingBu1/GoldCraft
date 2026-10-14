@@ -12,6 +12,7 @@
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/authoritative_dimensions.hpp"
+#include "goldcraft/gameplay_rules.hpp"
 #include "goldcraft/effect_grant.hpp"
 #include "effect_service_provider.hpp"
 #include <exception>
@@ -69,6 +70,10 @@ std::array<float,65> next_form_change{};
 FormListener form_listener=nullptr;
 cvar_t default_form={"mc_default_form","1",FCVAR_SERVER,1,nullptr};
 cvar_t allow_switch={"mc_allow_switch","1",FCVAR_SERVER,1,nullptr};
+cvar_t round_clear_blocks={"mc_round_clear_blocks","0",FCVAR_SERVER,0,nullptr};
+cvar_t death_drop_items={"mc_death_drop_items","1",FCVAR_SERVER,1,nullptr};
+GameplayRules gameplay_rules;
+std::uint64_t gameplay_rules_sent=0;
 std::uint64_t form_changes=0,wrong_form_poses=0;
 std::uint64_t object_revision=0,object_actions=0,object_damage_actions=0,object_use_actions=0;
 std::uint64_t collision_sequence=0;
@@ -708,6 +713,13 @@ void SendMiningPolicy(){
     if(link.connected()&&policy.epoch&&policy.revision!=mining_policy_sent&&link.send(Type::map_mining_policy,mining::encode_policy(policy)))
         mining_policy_sent=policy.revision;
 }
+void UpdateGameplayRules() {
+    gameplay_rules.configure(round_clear_blocks.value==1,death_drop_items.value!=0);
+}
+void SendGameplayRules() {
+    if(link.gameplay_rules()&&gameplay_rules.world&&gameplay_rules_sent!=gameplay_rules.revision&&
+       link.send(Type::gameplay_rules,gameplay_rules.encode()))gameplay_rules_sent=gameplay_rules.revision;
+}
 std::uint64_t EditRevision(const Message& message){
     Reader r(message.payload);r.u64();const auto revision=r.u64();
     return message.type==Type::map_edit_delta?r.u64():revision;
@@ -781,8 +793,11 @@ void HandleMining(std::span<const std::uint8_t> bytes, bool sample=false){
 
 void GoldCraft_InitCvars(){
     static bool registered=false;
-    if(!registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);registered=true;}
+    if(!registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);CVAR_REGISTER(&round_clear_blocks);CVAR_REGISTER(&death_drop_items);registered=true;}
     GoldCraft_MapMiningInit();
+}
+void GoldCraft_RoundCleanup() {
+    UpdateGameplayRules();gameplay_rules.cleanup_round();
 }
 void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
     try {
@@ -790,6 +805,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         host_effects.End();
         effect_publisher.Reset();
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
+        gameplay_rules.reset(registry.world());gameplay_rules_sent=0;
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
         skill_damage_snapshots.clear();
         controlled={};dimension_trace={};client_incarnations={};player_lives={};player_births={};vitals_ack={};player_spawns={};stale_life_poses=0;client_ready={};avatar_payloads={};
@@ -990,6 +1006,8 @@ void GoldCraft_StartFrame() {
     host_effects.Frame();
     try {
         GoldCraft_MapMiningFrame();
+        UpdateGameplayRules();
+        if(g_pGameRules&&g_pGameRules->IsMultiplayer())gameplay_rules.observe_round(CSGameRules()->m_bRoundTerminating);
         link.poll();
         if(link.error()!=previous_error) { previous_error=link.error(); if(!previous_error.empty()) BridgeLog(previous_error); }
         if(link.connected() && link.generation()!=connection_generation) {
@@ -1011,10 +1029,10 @@ void GoldCraft_StartFrame() {
             skill_damage_snapshots.clear();
             GoldCraft_MapMiningInvalidateSamples();
             edit_revision_sent=0;next_edit_query=0;
-            connection_generation=link.generation(); SendWorld(); BridgeLog("Fabric authoritative server connected");
+            connection_generation=link.generation();gameplay_rules_sent=0; SendWorld(); BridgeLog("Fabric authoritative server connected");
         }
         trace_queries=0;
-        SendMiningPolicy();
+        SendMiningPolicy();SendGameplayRules();
         auto* const dispatch_table=edicts;
         const auto dispatch_world=registry.world(),dispatch_authority=connection_generation;
         for(auto& message : link.take_messages()) {

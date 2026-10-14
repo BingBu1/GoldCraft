@@ -275,6 +275,10 @@ bool Endpoint::status_effects() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_effects) != 0;
 }
+bool Endpoint::gameplay_rules() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_gameplay_rules) != 0;
+}
 bool Endpoint::effect_position_hold() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_effect_position_hold) != 0;

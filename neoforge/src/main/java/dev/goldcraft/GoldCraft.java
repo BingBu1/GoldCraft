@@ -15,6 +15,7 @@ import dev.goldcraft.world.HostCollision;
 import dev.goldcraft.world.TraceValidation;
 import dev.goldcraft.world.HostSession;
 import dev.goldcraft.world.HostWorldReset;
+import dev.goldcraft.world.HostGameplayRules;
 import dev.goldcraft.world.MinecraftObjects;
 import dev.goldcraft.world.NativePlayers;
 import dev.goldcraft.world.SharedVitals;
@@ -77,6 +78,9 @@ public final class GoldCraft {
     public static boolean statusEffectsAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.statusEffects(generation);
     }
+    public static boolean gameplayRulesAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.gameplayRules(generation);
+    }
     public static boolean sendStatusToHost(int type,byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendStatus(generation,type,payload);
     }
@@ -89,6 +93,7 @@ public final class GoldCraft {
     }
     private static void reset(MinecraftServer server) {
         CsAdmission.reset();
+        HostGameplayRules.reset();
         nextEditQuery=0;
         HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
@@ -120,6 +125,11 @@ public final class GoldCraft {
         modBus.addListener(this::registerPayloads);
         modBus.addListener(CsAdmission::registerTasks);
         var events=net.neoforged.neoforge.common.NeoForge.EVENT_BUS;
+        events.addListener(net.neoforged.bus.api.EventPriority.LOWEST,
+            (net.neoforged.neoforge.event.entity.living.LivingDropsEvent event)->{
+                if(event.getEntity() instanceof ServerPlayerEntity player&&HostGameplayRules.suppressPlayerDrops(player))
+                    event.setCanceled(true);
+            });
         events.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerRespawnEvent event)-> {
             if(event.getEntity() instanceof ServerPlayerEntity player)HostSession.respawned(player);
         });
@@ -178,6 +188,10 @@ public final class GoldCraft {
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
                         case Wire.BRUSHES -> {HOST_WORLD.brushes(message.payload());brushPayload=message.payload();broadcast(Wire.BRUSHES,brushPayload);}
                         case Wire.PAIR_RESULT -> paired(server,message.payload());
+                        case Wire.GAMEPLAY_RULES -> {
+                            if(!gameplayRulesAvailable())throw new IllegalArgumentException("Unnegotiated gameplay rules");
+                            HostGameplayRules.accept(HOST_WORLD,message.payload());
+                        }
                         case Wire.EFFECT_GRANT -> {
                             if(!effectsNegotiated())throw new IllegalArgumentException("Unnegotiated effect grant");
                             HostSession.effectGrant(server,HOST_WORLD,HostEffectGrant.decode(message.payload()));
@@ -219,6 +233,7 @@ public final class GoldCraft {
             }
             TRACE_VALIDATION.tick(HOST_WORLD);
             HostSession.tick(server,HOST_WORLD);
+            HostGameplayRules.tick(server,HOST_WORLD);
             HostMining.tick(server,HOST_WORLD);
             NativePlayers.tick(server,HOST_WORLD);
             MinecraftObjects.tick(server,HOST_WORLD);

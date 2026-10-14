@@ -43,7 +43,9 @@ public final class NavigationTest {
             HostCollision.attach(world,host);
             for(int x=-1;x<=4;x++)for(int z=-1;z<=2;z++){world.setChunkForced(x,z,true);world.getChunk(x,z);}
             world.resetIdleTimeout();
-            for(var e:world.iterateEntities())if(!(e instanceof net.minecraft.server.network.ServerPlayerEntity))e.discard();
+            var stale=new java.util.ArrayList<net.minecraft.entity.Entity>();
+            world.iterateEntities().forEach(stale::add);
+            for(var e:stale)if(!(e instanceof net.minecraft.server.network.ServerPlayerEntity))e.discard();
             return new Fixture(world,host);
         }catch(Exception e){throw new RuntimeException(e);}
     }

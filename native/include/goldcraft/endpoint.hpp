@@ -42,6 +42,7 @@ public:
     std::uint64_t local_qpc_frequency() const;
     // Connection latch; never downgraded to legacy poses if the clock fails.
     bool status_effects() const;
+    bool gameplay_rules() const;
     bool effect_position_hold() const;
     std::uint16_t port() const;
     const std::string& error() const;

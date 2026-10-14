@@ -12,10 +12,11 @@ using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
 constexpr std::uint16_t protocol_version = 30;
 constexpr std::uint32_t capability_status_effects = 8;
+constexpr std::uint32_t capability_gameplay_rules = 128;
 constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::uint32_t capability_local_qpc_v1 = 2;
 constexpr std::uint32_t capability_effect_position_hold = 4;
-constexpr std::size_t wire_type_count = 77;
+constexpr std::size_t wire_type_count = 83;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;
 constexpr std::size_t max_queued_bytes = 64 * 1024 * 1024;
@@ -24,6 +25,7 @@ constexpr float minecraft_y_offset = 64.0f;
 
 enum class Role : std::uint32_t { host_client = 1, fabric_client = 2, host_server = 3, fabric_server = 4 };
 enum class Type : std::uint16_t {
+    gameplay_rules = 82, // 77..81 belong to the status/fluid/armor integration.
     status_hud = 76,
     hello = 1, welcome = 2, heartbeat = 3,
     world = 10, actors = 11, client_binding = 12, pair_player = 13, pair_result = 14,

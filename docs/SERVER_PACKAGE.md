@@ -45,6 +45,8 @@ MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供�
 
 ## 修改后重新打包
 
+回合清块和玩家死亡物品开关加入新包的 `cs/cstrike/server.cfg`，默认分别为 `mc_round_clear_blocks 0`、`mc_death_drop_items 1`。旧ZIP需使用配套新版ReGameDLL、GoldCraft AMXX模块及NeoForge核心重新打包；配置开关不能使旧二进制自动获得功能。详见[服务器设置](SERVER_API.md)。
+
 在源码工作区运行：
 
 ```bat
