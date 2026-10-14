@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -94,6 +95,68 @@ def server_say_feedback(log, marker):
     return match.group(0).rstrip('\r') if match else None
 
 
+def vector_close(actual, expected):
+    return (isinstance(actual, list) and len(actual) == 3
+            and all(isinstance(a, (int, float)) and not isinstance(a, bool)
+                    and math.isfinite(a) and abs(a - b) <= .05
+                    for a, b in zip(actual, expected)))
+
+
+def live_actor_near_probe(status, mirrored_slots=None):
+    # Match MinecraftObjects' live-actor export radius for block (0,80,0).
+    for actor in status.get('actors', []):
+        if actor.get('alive') is not True:
+            continue
+        if mirrored_slots is not None and actor.get('slot') not in mirrored_slots:
+            continue
+        origin, mins = actor.get('origin'), actor.get('mins')
+        if not (isinstance(origin, list) and isinstance(mins, list) and len(origin) == len(mins) == 3):
+            continue
+        feet = (origin[0] / 32, (origin[2] + mins[2]) / 32 + 64, -origin[1] / 32)
+        distance = sum(max(lo - p, 0, p - hi) ** 2
+                       for p, lo, hi in zip(feet, (0, 80, 0), (1, 81, 1)))
+        if distance < 128 ** 2:
+            return True
+    return False
+
+
+def populated_gold_proxy(status):
+    if (status.get('map') != 'cs_assault' or status.get('world') in (None, '0')
+            or status.get('dedicated') is not True or status.get('tick', 0) <= 0
+            or status.get('objectRevision', 0) <= 0 or status.get('minecraftObjects', 0) <= 0
+            or not live_actor_near_probe(status)):
+        return None
+    for entity in status.get('hostEntities', []):
+        if (entity.get('class') == 'goldcraft_object' and entity.get('minecraftKey', 0) > 0
+                and entity.get('solid') == 2 and entity.get('health', 0) > 0
+                and vector_close(entity.get('origin'), (16.0, -16.0, 528.0))
+                and vector_close(entity.get('min'), (-1.0, -33.0, 511.0))
+                and vector_close(entity.get('max'), (33.0, 1.0, 545.0))):
+            return entity
+    return None
+
+
+def cleared_new_world(before, native, minecraft, expected_map='sy_zombie2_Bloodmoon'):
+    exports = minecraft.get('minecraftObjects', {})
+    mirrors = minecraft.get('nativePlayers', {})
+    mirrored_slots = {body.get('slot') for body in mirrors.get('hitboxes', [])}
+    return (populated_gold_proxy(before) is not None
+            and native.get('dedicated') is True and native.get('tick', 0) > 0
+            and native.get('objectRevision', 0) > 0 and isinstance(native.get('hostEntities'), list)
+            and native.get('world') not in (None, '0', before['world'])
+            and native.get('world') == minecraft.get('world')
+            and native.get('map') == minecraft.get('map') == expected_map
+            and live_actor_near_probe(native, mirrored_slots)
+            and mirrors.get('players', 0) > 0
+            and exports.get('revision', 0) > 0
+            and native['objectRevision'] >= exports['revision']
+            and exports.get('pendingChunks') == 0
+            and exports.get('candidates') == exports.get('exported') == 0
+            and native.get('minecraftObjects') == 0
+            and not any(e.get('class') == 'goldcraft_object' or e.get('minecraftKey', 0) != 0
+                        for e in native.get('hostEntities', [])))
+
+
 def cs_query(query, *, challenge=False):
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
         udp.settimeout(5)
@@ -157,6 +220,17 @@ def main():
                                creationflags=subprocess.CREATE_NO_WINDOW)
         if r.returncode:
             raise RuntimeError(f'{script} exited {r.returncode}: {log.name}')
+
+    def assert_native_probe(predicate, label, timeout=8):
+        deadline = time.monotonic() + timeout
+        while True:
+            native_sample = read_status(server / '.state/goldcraft-server-status.json')
+            java_sample = read_status(server / '.state/minecraft-server-status.json')
+            if predicate(native_sample, java_sample):
+                return native_sample, java_sample
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Native map-reset condition failed: ' + label)
+            time.sleep(.05)
 
     def assert_command_marker(command, marker, timeout=8):
         # The console transport acknowledging a command is not proof that the
@@ -293,6 +367,11 @@ def main():
                 f'execute in {dimension} if block 0 80 0 minecraft:gold_block '
                 f'if entity @e[type=minecraft:armor_stand,tag={probe_tag}] run say {ready_marker}', ready_marker)
         checks['mapResetFixturesPlacedInTestedDimensions'] = True
+        proxy_before, _ = assert_native_probe(
+            lambda n, j: n.get('world') == native['world'] and populated_gold_proxy(n) is not None,
+            'real gold-block proxy before changelevel')
+        checks['nativeGoldProxyExistsBeforeMapChange'] = True
+        result['nativeProxyBeforeMapChange'] = proxy_before
         shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'changelevel ' + args.change_map)
         deadline = time.monotonic() + 25
         after, mc_after = native, java
@@ -314,10 +393,25 @@ def main():
             assert_command_marker(
                 f'execute in {dimension} if block 0 80 0 minecraft:air '
                 f'unless entity @e[type=minecraft:armor_stand,tag={probe_tag}] run say {cleared_marker}', cleared_marker)
-            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
-                  f'execute in {dimension} run forceload remove 0 0')
         checks['departingDimensionBlocksAndEntitiesCleared'] = True
         checks['targetDimensionBlocksAndEntitiesCleared'] = True
+        # First verify the configured Bot reset above, then restore live actors.
+        # With no actors MinecraftObjects naturally exports zero collision boxes.
+        shell('Send-Command.ps1', '-Role', 'cs', '-Command', 'sypb_auto_players 25')
+        after, mc_after = assert_native_probe(
+            lambda n, j: len(n.get('actors', [])) >= 24 and
+                         cleared_new_world(proxy_before, n, j, args.change_map),
+            'new authenticated world has live actors and no Minecraft proxies', timeout=25)
+        checks['botManagerAddsBotsAfterMapChange'] = True
+        checks['nativeProxiesClearedWithLiveActors'] = True
+        result['nativeProxyAfterMapChange'] = after
+        result['minecraftProxyAfterMapChange'] = mc_after
+        # Keep both probe chunks loaded until the native acceptance snapshot.
+        # MinecraftObjects drops cached candidates on ChunkEvent.Unload, which
+        # must not be the reason this map-reset check sees an empty export.
+        for dimension in probe_dimensions:
+            shell('Send-Command.ps1', '-Role', 'minecraft', '-Command',
+                  f'execute in {dimension} run forceload remove 0 0')
         result['nativeWorldAfterMapChange'] = after['world']
         result['javaWorldAfterMapChange'] = mc_after['world']
         shell('Stop-Servers.ps1', '-TimeoutSeconds', '30', timeout=65)
