@@ -1,5 +1,15 @@
 # 验证状态
 
+## 2026-10-15 — 本机双服恢复、显式单B准入与功能源码发布完成
+
+补充：B加入后实际24 Bot+1真人、7空槽，原Bot槽1让位；四状态同world/slot26/serial1/life11，配对后219秒仍在线，当前原生CS形态。只读10条件通过，证据 analysis/minecraft-status-effects/armor-defense/runtime-b-admission01.json。
+
+production-attempt03实际12阶段通过，182.618秒；真实FML/21服务端Mod、30秒稳定、正常停止和状态恢复完成，无强清/清理错误。FerriteCore7.0.3已保留并同步A/B/server，同一SHA d87ea282。常驻双TTY已恢复：ReHLDS32228、MC1664；实际CS UDP27045/bridge25519，MC TCP25575/RCON25576。两次独立ready检查通过，真实25575连接/RCON成功，cs_assault/32槽；15项原生健康通过，25Bot/7空槽及活体镜像精确对应。旧25总客户必须全有镜像的错误断言原样保留、另报告纠正。证据 analysis/admission-20261015/{production-attempt03/transaction.json,recovery-new01}、analysis/minecraft-status-effects/armor-defense/runtime-health01-review.json。
+
+单B已实际启动CS38864/MC36700；服务端15:01:15记录权威配对slot26/serial1/world15172655875489452167。07:02:57Z四份新状态同world/slot/serial/life8，handlerMatchesPlayer/trackedEntityMatchesPlayer=true、removed=false，配对后持续101秒；显式沙盒启动的真实准入10条件通过。当前CS形态，不将ready/enabled/effectsReady=false解释为MC操控通过。真实模块verify唯一执行成功；GUI截图连续超时，未盲按ESC。物理Escape曾停止自动化，人类随后明确误按并要求继续；新增“按K语音也会持续卡住”正在客户端域排查。现有history显示约1.3–1.5秒frameGap、UI慢调用0，不能据此定因。证据 analysis/admission-20261015/single-b-admission-observation01.json、analysis/client-responsiveness-20261015/{live-plan04/live-module-status.json,live05/pre-esc-metadata.json,HANDOFF.md}。
+
+功能源码99文件已提交并推送BingBu1/GoldCraft main d89f5a5aa10c704c6291d23b387ad0dd2765011e，远端一致；完整index846文件/7537228B、秘密扫描0错误，root index不变。包括联合协议/药水护甲流体、配对、异步诊断和完整安装器源码；新TNT预算候选未混入。两份上游license保留原始空白，其他diff-check通过。原安装19575文件size/mtime及所选五项内容hash均与本次实测前一致，无i64内容读取。证据 analysis/coordinator-takeover-20261015/{checkpoint14-publication.json,protected-live16-comparison.json}。
+
 ## 2026-10-15 — FerriteCore同步修正与完整功能源码发布
 
 production-attempt02 已通过实际 runtime verify；Modpack 依赖解析为 client22/server21，但旧部署15个顶层JAR漏计母本中已存在的 FerriteCore，严格计划检查拒绝了7项变更。91.832秒失败、恢复完成、无清理错误，未启动FML。用户确认保留内存优化Mod FerriteCore。主协调仅补7.0.3固定SHA、三端新增快照及失败恢复，实际Modpack只读计划和5个拒绝检查通过；freeze06/seal05完成，production-attempt03正在执行。当前尚不能声称双服恢复或B准入。证据 analysis/admission-20261015/production-attempt02/transaction.json、production-attempt03/transaction.json、analysis/coordinator-takeover-20261015/ferrite06-plan-review.json。
