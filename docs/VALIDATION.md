@@ -1,5 +1,15 @@
 # 验证状态
 
+## 2026-10-15 — 完整CS包资源缺失修复与验收边界纠正
+
+用户启动报 `[Renderer] Failed to load "renderer/gameui_english.txt"`；旧打包白名单只收Renderer shader/texture，遗漏根目录资源。此前包内清单/hash及安装通过的事实保留，但“资源齐全”的结论撤回，不能作为游戏首启证据。
+
+新版补入17项：6项Renderer语言/设置/默认实体/贴花，5项地图实体/阴影，4项精灵，2项人物物理配置；所有新增文件进入正式清单/校验/恢复事务。与固定v20261008b官方归档的298项所选插件资源、对应源码92项CS运行资源独立对照，遗漏为零，6项官方根资源逐字节一致；旧缺资源输入已被planning拒绝。
+
+修正版完整ZIP为75,179,439字节、379成员，SHA256 `3b44f23dcca16f24d6c39be5749cf4fe1ee3ddea2055e2b67fa055a7e77361fc`。CRC/精确清单/hash及PowerShell5.1干净Plan/Install/Restore通过，350项安装hash和精确恢复基线通过。扩展回归首次并发执行超45秒限时，失败记录保留；串行120秒单步限时重跑415项检查通过，覆盖8项独立启动资源检查、54个CPU别名、重复安装、修改后拒绝恢复及真实失败回滚，见installer-regression-r2/result.json。未启动GUI/游戏，现场启动与另一机器配对仍待。
+
+证据：`analysis/coordinator-takeover-20261015/resources35/{resource-audit.json,missing-resource-negative.json,zip-audit.json,install-audit.json,delivery.json}`。新交付在dist，旧不完整ZIP已移出交付目录；插件DLL、MC Mod及公网运行配置未变。
+
 ## 2026-10-15 — 完整CS插件ZIP交付与TNT伤害十组复测
 
 按用户要求重新生成完整CS插件安装包 GoldCraft-CS-Plugins-Full-20261015.zip（74,098,376字节，SHA256 a67f1775b63577f324b948b0dae71dfa78677a9663fc883cb8a575fb8eed2fcd）。十插件、启动器、依赖与资源、图形安装器和许可齐全；不依赖旧GoldCraft/MetaHook或补丁包，仍需匹配的CS游戏。载荷与已部署Combined85逐字一致，仅README新增完整包说明，未混入服务端候选DLL/JAR。

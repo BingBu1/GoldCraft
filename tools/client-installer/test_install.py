@@ -63,7 +63,7 @@ def run(package, game, args=(), expected=0):
     start = time.monotonic()
     environment = dict(os.environ)
     environment.pop('PSModulePath', None)
-    completed = subprocess.run(command, cwd=package, capture_output=True, timeout=45, env=environment)
+    completed = subprocess.run(command, cwd=package, capture_output=True, timeout=120, env=environment)
     result = dict(arguments=list(args), exitCode=completed.returncode,
                   elapsedSeconds=time.monotonic() - start,
                   stdout=completed.stdout.decode('utf-8', errors='replace'),
@@ -154,6 +154,15 @@ def main():
             check(digest(game / path) == row['sha256'], 'Exact installed payload: ' + path)
             payload_verified += 1
         report['payloadFilesVerified'] = payload_verified
+        # Startup dependencies are checked independently of package.json: a
+        # self-consistent manifest used to omit Renderer localization entirely.
+        for relative in ('renderer/gameui_english.txt', 'renderer/gameui_schinese.txt',
+                         'renderer/gameui_koreana.txt', 'renderer/OptionsSubVideoAdvancedDlg.res',
+                         'renderer/default_entity.txt', 'renderer/decal_textures.txt',
+                         'captionmod/gameui_english.txt', 'bulletphysics/gameui_english.txt'):
+            resource = game / 'cstrike' / relative
+            check(resource.is_file() and resource.stat().st_size > 0,
+                  'Plugin startup resource present: ' + relative)
         write('cstrike/metahook/configs/dllpaths.lst', 'changed after installation\n')
         changed = snapshot(game)
         report['steps'].append(run(package, game, ['-Restore'], expected=1))

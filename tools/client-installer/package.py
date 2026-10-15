@@ -28,6 +28,21 @@ TREES = {
     'bulletphysics': {'.txt', '.json', '.cfg', '.res'},
     'studioevents': {'.txt', '.json'}, 'vgui2ext': {'.txt', '.json', '.res', '.ttf', '.otf'},
 }
+# Renderer loads these files outside its shader/texture trees. Keep an exact
+# list: recursively copying renderer/maps/models would also ship profiling
+# output, game assets and Blender source files from the development runtime.
+RESOURCE_FILES = (
+    'renderer/decal_textures.txt', 'renderer/default_entity.txt',
+    'renderer/gameui_english.txt', 'renderer/gameui_koreana.txt',
+    'renderer/gameui_schinese.txt', 'renderer/OptionsSubVideoAdvancedDlg.res',
+    'maps/cs_assault_entity.txt', 'maps/cs_assault_shadow.obj',
+    'maps/cs_assault_shadow.mtl', 'maps/de_dust2_entity.txt',
+    'maps/de_dust2_shadow.obj',
+    'sprites/laserbeam_external.txt', 'sprites/laserbeam_Frame_0.hdr',
+    'sprites/radio_external.txt', 'sprites/voiceicon_external.txt',
+    'models/player/terror/terror_external.txt',
+    'models/player/terror/terror_physics.txt',
+)
 HELPERS = ('Install-GoldCraft.cmd', 'Install-GoldCraft.ps1', 'Common.ps1', 'README.md', 'upstream.json')
 
 
@@ -131,8 +146,11 @@ def make_plan(game, upstream, license_file, gui):
             if source.suffix.lower() not in extensions:
                 raise ValueError('Review new resource type instead of silently omitting it: ' + str(source))
             add(source, 'install/output/svencoop/' + source.relative_to(game / 'cstrike').as_posix())
+    for name in RESOURCE_FILES:
+        add(game / 'cstrike' / name, 'install/output/svencoop/' + name)
     for required in ('metahook/gamedata/index.json', 'renderer/shader/goldcraft.vert.glsl',
-                     'renderer/shader/goldcraft.frag.glsl', 'renderer/shader/goldcraft.geom.glsl'):
+                     'renderer/shader/goldcraft.frag.glsl', 'renderer/shader/goldcraft.geom.glsl',
+                     'captionmod/gameui_english.txt', 'bulletphysics/gameui_english.txt'):
         if ('install/output/svencoop/' + required).casefold() not in files:
             raise ValueError('Missing paired runtime resource: ' + required)
     repo = HERE.parents[1]

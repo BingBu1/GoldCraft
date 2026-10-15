@@ -2,6 +2,8 @@
 
 本 ZIP 是完整的 **CS 插件安装包**，首次安装即可使用，不需要旧版 GoldCraft、MetaHook 或任何补丁包。包内含启动器、十个插件、依赖库、资源及图形安装器；电脑仍需已有与本包匹配的 CS 1.6 游戏。请完整解压到一个新的空目录，不要与旧安装包混合解压。
 
+资源修正版补齐 Renderer 的英文／简中／韩文界面、设置面板、默认实体和贴花配置，以及配套地图阴影、精灵和人物物理配置。旧包若提示 `[Renderer] Failed to load "renderer/gameui_english.txt"`，退出 CS 后使用本完整包重新安装到同一游戏目录。资源会安装到 `cstrike/renderer` 等实际运行目录，不要手工放入 `metahook/gamedata`；所有新增文件都纳入安装清单、校验和恢复事务。
+
 完整解压安装包，双击 **`GoldCraftInstaller.exe`**。这是基于官方 **MetahookInstaller Avalonia 图形界面**的 GoldCraft 适配版，保留官方 Steam 自动定位功能。界面自动选中 Counter-Strike（App ID 10），点击“安装 GoldCraft”即可安装配套插件，并生成 `MetaHook for Counter-Strike.lnk`。双击 `Install-GoldCraft.cmd` 也会打开同一图形界面。
 
 非 Steam 目录或自动识别失败时，在界面选择“自定义游戏”，浏览选择包含 `hl.exe`、`hw.dll` 和 `cstrike` 的游戏根目录。命令行维护入口仍可用：
