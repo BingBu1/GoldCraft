@@ -1,5 +1,30 @@
 # 验证状态
 
+## 2026-10-15 — 完整CS插件ZIP交付与TNT伤害十组复测
+
+按用户要求重新生成完整CS插件安装包 GoldCraft-CS-Plugins-Full-20261015.zip（74,098,376字节，SHA256 a67f1775b63577f324b948b0dae71dfa78677a9663fc883cb8a575fb8eed2fcd）。十插件、启动器、依赖与资源、图形安装器和许可齐全；不依赖旧GoldCraft/MetaHook或补丁包，仍需匹配的CS游戏。载荷与已部署Combined85逐字一致，仅README新增完整包说明，未混入服务端候选DLL/JAR。
+
+ZIP全新解压后362文件精确集合/CRC/SHA均通过，无Unlisted payload；Windows PowerShell5.1在仅有4个CS基础文件、没有旧插件的独立目录实际Plan/Install/Restore均exit0。333个实际部署文件逐一核hash，快捷方式已生成，恢复后基础文件集合与hash完全一致。GUI和游戏未启动，不能据此新增另一机器安装/快捷方式首次配对/玩法验收。证据 analysis/coordinator-takeover-20261015/fullcs32/{build.json,zip-audit.json,install-audit.json}。可交付文件位于dist，不纳入源码仓库。
+
+旧TNT矩阵中断已补证为RCON限流：匹配ReHLDS默认3包/秒、60秒窗口，首探针4次命令8包加172次challenge后第181包被丢弃；旧tnt31正好90条命令/180包/52.846秒。第二探针在限流期间观察MC权威状态tick90→130，未重启、未改限流或换IP，同一原生进程约62.17秒后恢复RCON。首探针读取旧状态失败及旧tnt31强终止记录均保留，不重写为成功。
+
+新tnt32只将测试命令间隔设为至少0.9秒，两包/命令；普通CS基线真实双服十组通过：无主/敌方/同队ff0和ff1、无主及敌方致死归属、护甲、Start取消、mode1/2。每组真实vanilla TNT正引信，非拦截场景实际TakeDamage恰一次、DMG_BLAST64、goldcraft_tnt来源；ff0和取消零调用，敌方死亡killer为owner槽，护甲100→57.501。mode0/1宿主切除不增加。完整Mod/FerriteCore及实际模块hash通过。
+
+临时ZP清单关闭仅用于普通CS基线，未冒充真实ZP身份验证。两服自然exit0，9强加载区块与临时支撑释放，5测试文件移除，旧core/mp.dll/部署记录/ZP清单恢复；原安装19575文件元数据/5项内容hash、用户游戏与FinalShell进程身份保持。未重编或改生产源码，未更新母本/A/B/公网。真实ZP感染身份、真人配对/点燃、过期/重生生命周期、任意Mod伤害回调、图形/多人和公网部署仍待，G01–G28保持开放。证据 analysis/coordinator-takeover-20261015/tnt32/{rcon-rate-probe.json,rcon-rate-probe02.json,runtime-audit.json,matrix-result.json,cleanup-receipt.json,process-exits.json}。
+
+| 场景 | HP前→后 | 护甲前→后 | TakeDamage | 击杀归属槽 |
+| --- | --- | --- | --- | --- |
+| world500 | 500→334 | 0→0 | 1 | 0 |
+| enemy500 | 500→334 | 0→0 | 1 | 0 |
+| friendblocked | 500→500 | 0→0 | 0 | 0 |
+| friendallowed | 500→330 | 0→0 | 1 | 0 |
+| worlddeath | 100→-69 | 0→0 | 1 | 0 |
+| enemydeath | 100→-66 | 0→0 | 1 | 1 |
+| worldarmor | 500→416 | 100→57.501 | 1 | 0 |
+| cancel | 500→500 | 0→0 | 0 | 0 |
+| mode1 | 500→325 | 0→0 | 1 | 0 |
+| mode2 | 500→334 | 0→0 | 1 | 0 |
+
 ## 2026-10-15 — TNT伤害候选局部通过，实服矩阵中断后已恢复
 
 新增TNT专用能力512和DAMAGE_REQUEST kind6（88字节）；仅真实爆炸受伤调用建立来源上下文。原生复核会话、生命、事件、快照、距离、遮挡和队伍，以goldcraft_tnt inflictor进入TakeDamage/AMXX。旧协议30能力关闭握手的兼容重试保留相同凭据，错误身份不降级。协议版本30和85种消息保持。

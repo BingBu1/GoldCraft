@@ -137,3 +137,25 @@ MC正常保存并exit0，9强加载区块和临时支撑已释放。原生本地
 | friendallowed | 未取得爆后结果 | 未取得 | 超时，未验收 |
 
 证据：analysis/admission-20261015/combined30/{result.json,jar-verified.json}；analysis/minecraft-status-effects/armor-defense/combined85-tnt30r2/{job-result.json,audit01.json}；analysis/coordinator-takeover-20261015/{tnt30-native-tests/result.json,tnt30/matrix-result.json,tnt31/matrix-result.json,tnt31/native-abnormal-termination.json,tnt31/cleanup-receipt.json,checkpoint30-partial.json}。候选JAR SHA256 0155880a0e65f85dac989048a18fe86abe82b11fdf09dc61b0c9a2e57d647568；mp.dll 39ba59aa7cb41677b4f2a17d1b5d2c870c57f83b495f727d09b04b4d0834f889。
+
+
+## 2026-10-15 — 完整CS插件ZIP交付与TNT伤害十组复测
+
+旧TNT矩阵中断已补证为RCON限流：匹配ReHLDS默认3包/秒、60秒窗口，首探针4次命令8包加172次challenge后第181包被丢弃；旧tnt31正好90条命令/180包/52.846秒。第二探针在限流期间观察MC权威状态tick90→130，未重启、未改限流或换IP，同一原生进程约62.17秒后恢复RCON。首探针读取旧状态失败及旧tnt31强终止记录均保留，不重写为成功。
+
+新tnt32只将测试命令间隔设为至少0.9秒，两包/命令；普通CS基线真实双服十组通过：无主/敌方/同队ff0和ff1、无主及敌方致死归属、护甲、Start取消、mode1/2。每组真实vanilla TNT正引信，非拦截场景实际TakeDamage恰一次、DMG_BLAST64、goldcraft_tnt来源；ff0和取消零调用，敌方死亡killer为owner槽，护甲100→57.501。mode0/1宿主切除不增加。完整Mod/FerriteCore及实际模块hash通过。
+
+临时ZP清单关闭仅用于普通CS基线，未冒充真实ZP身份验证。两服自然exit0，9强加载区块与临时支撑释放，5测试文件移除，旧core/mp.dll/部署记录/ZP清单恢复；原安装19575文件元数据/5项内容hash、用户游戏与FinalShell进程身份保持。未重编或改生产源码，未更新母本/A/B/公网。真实ZP感染身份、真人配对/点燃、过期/重生生命周期、任意Mod伤害回调、图形/多人和公网部署仍待，G01–G28保持开放。证据 analysis/coordinator-takeover-20261015/tnt32/{rcon-rate-probe.json,rcon-rate-probe02.json,runtime-audit.json,matrix-result.json,cleanup-receipt.json,process-exits.json}。
+
+| 场景 | HP前→后 | 护甲前→后 | TakeDamage | 击杀归属槽 |
+| --- | --- | --- | --- | --- |
+| world500 | 500→334 | 0→0 | 1 | 0 |
+| enemy500 | 500→334 | 0→0 | 1 | 0 |
+| friendblocked | 500→500 | 0→0 | 0 | 0 |
+| friendallowed | 500→330 | 0→0 | 1 | 0 |
+| worlddeath | 100→-69 | 0→0 | 1 | 0 |
+| enemydeath | 100→-66 | 0→0 | 1 | 1 |
+| worldarmor | 500→416 | 100→57.501 | 1 | 0 |
+| cancel | 500→500 | 0→0 | 0 | 0 |
+| mode1 | 500→325 | 0→0 | 1 | 0 |
+| mode2 | 500→334 | 0→0 | 1 | 0 |
