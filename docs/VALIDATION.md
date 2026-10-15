@@ -1,5 +1,15 @@
 # 验证状态
 
+## 2026-10-15 — 原生全测试执行与审计失败、日志探针通过
+
+combined85-native02的13 common与12项原测试均实际执行成功，最终12 PE由MT读回asInvoker；root36316 exit0/146.829秒/Job66自然Active0，无强清。实测status96、armor80、armorDispatch46、statusDispatch108、HUD18、fluid4045、sharedBulk308、bridge1068、exception283、codec457；rules及pure无文字且exit0。独立audit 243门中两门失败：common shared_bulk与同名测试覆盖rsp/log且stem分类错误，不能称完整证据通过。原结果完整保留；fresh03仅common-唯一命名、发起前duplicate拒绝及audit分类，172项目/7249工具与02相同，主协调7603次hash复核后授一次300秒singleworker Job。此时完整DLL、Java、FML和实机仍未由该轮验证。证据analysis/minecraft-status-effects/armor-defense/combined85-native02及combined85-native03。
+
+async replace04配置、实际compiler-ID/lld核对及3个x86目标编译成功；原check54通过（65 submitted/written、0 errors/overwritten），原check55失败（1923完整读、0坏读、354次CreateFile error32）。后续held-reader/recovery未到达，不能计通过；八次实际DLL启停、线程退出/卸载通过。root20248 exit1/77.326秒/Job157自然Active0，无强清，1057冻结输入及工具/SDK未漂移。full05未执行，未root整合/部署/游戏。继续静态核对ReplaceFile共享窗口及extended包装，保留原reader/完整性断言。证据analysis/client-responsiveness-20261015/async01/replace04及replace04-job。
+
+installer command-output-probe03在真实ProcessStartInfo.ArgumentList/-Command下5/5通过：ASCII及中文含单引号路径各exit0/17，缺失脚本exit1并保留CommandNotFoundException。调用前LASTEXITCODE=1、后显式exit；UTF8、Warning/Error及原始流保留、0 CLIXML、无输出过滤。root38680 exit0/4.001秒/Job12自然Active0，9冻结输入不变，仅合成探针；旧probe1/2反证未改。产品源码及稳定包尚未更新、无新GUI事务；继续精确窄patch/GUI矩阵及build freeze。证据analysis/metahook-installer-gui-20261014/gui03-diagnosis01/command-output-probe03。
+
+清理已完成35.719→27.525 GiB（净约8.19 GiB）；存档/Mod母本/待迁移回滚和失败证据保留。主协调继续四领域并发；联合Java新main111/client90/test51/offlineTest9/testmod2、旧class复用0，按一次240秒owned Job执行完整Gradle/JUnit/生产remap和配套发现检查；不以旧jar02替代联合包，FML监督/回滚仍另验。共享部署、GUI、运行测试和Git index归主协调。所有G01–G28保持开放。
+
 ## 2026-10-15 — 磁盘清理检查点
 
 工作区逻辑大小实测35.72→27.53 GiB，完成政策清理及两轮SHA白名单删除；用户世界/存档、设置、Mod主副本、迁移回滚和测试原始结果保留。仅清理旧构建生成物、可重建缓存和有保留副本的测试依赖/内置资源；不构成新增玩法验收。配对x86/24项及全Java192源/47项离线通过；GUI自包含产物及新包CLI390项通过，实际GUI事务、客户端响应性和真实准入继续待验。原始路径/哈希与删除账本保存在本地协调清理记录中，运行数据不公开发布。
@@ -18,7 +28,13 @@ combined85 final03已由主协调精确整合52 root路径，原前态全部备�
 
 async01首轮build01配置及三项测试目标编译成功，CTest一过一败：八次实际DLL加载/启动/写入/停止/卸载通过，并发读状态文件替换check54失败；完整客户端因失败未编译。diagnostic02只加错误定位，原reader/共享标志及三项完整性断言保留，seq1报MoveFileExW Access is denied，submitted2/written1/errors1/overwritten0，18809次读/0坏读/0打开错误；不是本次队列丢弃证据。两轮55.955/36.279秒、root9472/37192均exit1，已记录各自vctip残留身份后强清至Active0，不称自然清理通过。输入后hash保持、失败原样保留；未root异步整合/部署/游戏，不能据此解释原入服/ESC故障。证据analysis/client-responsiveness-20261015/async01/{build01,build01-job,diagnostic02,diagnostic02-job}及HANDOFF.md。
 
-combined85-native01已基于整合后的root新冻结，主协调独立复核172项origin/frozen、7248项SDK/工具及7个runner身份，授一次300秒单worker Win32 Job。范围含13 common、规则原断言+cap256、status/armor及dispatch/HUD18/fluid/shared_bulk/bridge/pure/exception283，末项保留旧status_effects的cap16负例作版本冲突诊断；结果待回。实际握手源码已分配16=status_attributes、512未分配，后续只能窄更新旧未知位负例并补16成功/echo正例，保留其他拒绝断言，不能改生产握手求通过。配对继续冻结jar02/current85的server-only FML事务方案，安装器继续lnk/CLIXML静态诊断，runtime与index仍主协调持有。 原native05/cold04失败仍保留；threshold=0仅隔离规避，C++20/O3/ThinLTO/AVX2/precise及全部断言不降低。
+combined85-native01实际止于Windows CreateProcess WinError740：13 common编译/归档，gameplay_rules、status_attributes96项、native_armor80项执行通过；dispatch编译/链接通过但未启动，后续8项未到达，cap16旧负例也未执行。root12372 exit1/47.800秒/29进程自然Active0，172项目和7248工具输入不变。没有把未启动记录算执行。已精确整合测试版本修正98d27d07：未知位16→未分配512并补4个合法16/echo正例，生产握手未改。fresh native02冻结172项目/7249工具，以最终PE嵌入asInvoker并由MT读回，13 common+全部12测试必须真实执行及审计通过；已获一次300秒Job，无提权/系统策略改动。证据combined85-native01及coordinator-takeover-20261015/status-codec01-integrated.json。
+
+async probe03单次7/9案例后失败：Win10 19045/NTFS下MoveFileEx无reader成功、share7/share3均错误5；ReplaceFile无reader及share7成功，目标新bytes且旧句柄仍完整，share3错误32保留旧bytes。extended案例API返回成功但目标完整性失败、出现额外后缀，不能认定该API通过或把未终止WCHAR直接定为原因（文档不要求终止字符）。root25340 exit1/0.442秒/Job2自然Active0，13输入不变。ReplaceFile特殊1176/1177也可能改变名字，不能泛化所有失败事务不变。继续analysis窄候选与原C++reader/8次DLL卸载/x86回归；compiler-ID linker/vctip父链尚未证实，仅子构建试验，未root异步集成/部署/游戏。
+
+installer06静态：2076字节lnk含两份完整Unicode目标和两份缺.exe的ANSI路径，NuGet实际源码身份及COM空值唯一原因未证。实际只读COM16调用中WScript TargetPath S_OK空、IShellLink默认S_FALSE空、RAW4 S_OK完整路径；副本hash不变，未Resolve/Save/启动，原目标已随恢复移除，不能推断不可启动。WinPS5.1 text-output-probe01证明仅OutputFormat Text+关闭progress仍有information/warning CLIXML，3/4首败停止；该Text补丁不采用。ArgumentList/-Command probe02首例中文/Warning/目录保真，第二例内部exit17被宿主变成1，2/4首败停止，原生流完整保留；第三窄探针已授一次60秒，显式退出码传播待验证。所有产品源码/稳定EXE/ZIP未变，未新GUI事务。证据metahook-installer-gui-20261014/gui03-diagnosis01及handoff-20261015-06.json。
+
+联合Java/JUnit/生产remap职责已由主协调明确移交配对对话，native领域停止重复准备。需全新main/client/test/offlineTest/testmod、全部旧断言与status/armor/rules/TNT/discovery检查，绑定MC1.21.1/NeoForge21.1.256/FML4.0.45及实际source/class/resource/mixin闭包，已授一次240秒单workerJob；缺地图skip须明确保留。旧jar02/current85 FML900秒方案仍仅设计，缺可执行supervisor/故障注入/validator，未部署或实测，不执行旧包替代联合包。四领域独立analysis并行，共享运行/部署/GUI/index仍主协调持有。
 
 ## 官方客户端安装器（2026-10-14）
 
