@@ -9,6 +9,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.TntBlock;
 import net.neoforged.bus.api.EventPriority;
@@ -17,6 +19,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -31,6 +35,7 @@ public final class ExplosionFixture {
     private String mode = "off";
     private final List<Map<String, Object>> events = new ArrayList<>();
     private final List<Map<String, Object>> spawns = new ArrayList<>();
+    private final List<Map<String, Object>> damage = new ArrayList<>();
     private static final BlockPos ROOT_TNT = new BlockPos(3, 76, -90);
 
     public ExplosionFixture() {
@@ -38,10 +43,46 @@ public final class ExplosionFixture {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::start);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::detonate);
         NeoForge.EVENT_BUS.addListener(this::joined);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::incoming);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::damagePre);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::damagePost);
     }
 
     private boolean chainTnt(PrimedTnt tnt) {
-        return mode.equals("chain") && tnt.distanceToSqr(3.5, 76, -89.5) < 16 * 16;
+        return (mode.equals("chain") || mode.equals("damage")) && tnt.distanceToSqr(3.5, 76, -89.5) < 16 * 16;
+    }
+
+    private void recordDamage(String phase, LivingEntity target, DamageSource source, float amount, boolean canceled) {
+        if (!mode.equals("damage") || target.level().isClientSide()
+            || !target.level().dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")
+            || target.distanceToSqr(3.5, 76, -89.5) >= 16 * 16) return;
+        if (damage.size() >= 128) throw new IllegalStateException("Fixture damage capacity");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("phase", phase);
+        row.put("tick", target.level().getGameTime());
+        row.put("target", target.getUUID().toString());
+        row.put("targetId", target.getId());
+        row.put("targetType", target.getClass().getName());
+        row.put("health", target.getHealth());
+        row.put("amount", amount);
+        row.put("canceled", canceled);
+        row.put("source", source.getMsgId());
+        row.put("direct", source.getDirectEntity() == null ? "none" : source.getDirectEntity().getUUID().toString());
+        row.put("attacker", source.getEntity() == null ? "none" : source.getEntity().getUUID().toString());
+        row.put("attackerType", source.getEntity() == null ? "none" : source.getEntity().getClass().getName());
+        damage.add(row);
+    }
+
+    private void incoming(LivingIncomingDamageEvent event) {
+        recordDamage("incoming", event.getEntity(), event.getSource(), event.getAmount(), event.isCanceled());
+    }
+
+    private void damagePre(LivingDamageEvent.Pre event) {
+        recordDamage("pre", event.getEntity(), event.getSource(), event.getNewDamage(), false);
+    }
+
+    private void damagePost(LivingDamageEvent.Post event) {
+        recordDamage("post", event.getEntity(), event.getSource(), event.getNewDamage(), false);
     }
 
     private void joined(EntityJoinLevelEvent event) {
@@ -100,6 +141,8 @@ public final class ExplosionFixture {
         if (mode.equals("clear")) blocks.clear();
         if (mode.equals("prune")) blocks.removeIf(p -> p.getX() >= 3);
         row.put("after", positions(blocks));
+        row.put("entities", event.getAffectedEntities().stream().map(e -> Map.of(
+            "id", e.getId(), "uuid", e.getUUID().toString(), "type", e.getClass().getName())).toList());
     }
 
     private static List<List<Integer>> positions(List<BlockPos> blocks) {
@@ -115,7 +158,7 @@ public final class ExplosionFixture {
     }
 
     private int ignite(net.minecraft.commands.CommandSourceStack source, int slot) {
-        if (!mode.equals("chain") || source.getServer().getPlayerList().getPlayerCount() != 0) {
+        if ((!mode.equals("chain") && !mode.equals("damage")) || source.getServer().getPlayerList().getPlayerCount() != 0) {
             source.sendFailure(Component.literal("Chain mode and an empty local MC server are required"));
             return 0;
         }
@@ -178,13 +221,15 @@ public final class ExplosionFixture {
                     return 0;
                 }
                 Map<String, Object> result = new LinkedHashMap<>();
-                if (List.of("off", "pass", "cancel", "clear", "prune", "chain").contains(action)) {
+                if (List.of("off", "pass", "cancel", "clear", "prune", "chain", "damage").contains(action)) {
                     mode = action;
                     events.clear();
                     spawns.clear();
+                    damage.clear();
                 } else if (action.equals("report")) {
                     result.put("events", events);
                     result.put("spawns", spawns);
+                    result.put("damage", damage);
                 } else if (action.equals("snapshot")) {
                     try { result.put("snapshot", snapshot()); }
                     catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }

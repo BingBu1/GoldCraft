@@ -7,7 +7,7 @@
 
 new gBot, gEnabled, gDamageCalls, gApplied, gDeaths;
 new Float:gBefore, Float:gLastAmount;
-new gLastBits, gLastSource[64];
+new gLastBits, gLastSource[64], gLastAttacker, gLastInflictor, gKiller;
 
 public plugin_init()
 {
@@ -87,6 +87,7 @@ public ResetPlayer()
     set_entvar(gBot, var_health, health);
     rg_set_user_armor(gBot, armor, armor ? ARMOR_VESTHELM : ARMOR_NONE);
     gDamageCalls = gApplied = gDeaths = 0;
+    gLastAttacker = gLastInflictor = gKiller = 0;
     return Status();
 }
 
@@ -119,6 +120,7 @@ public BeforeDamage(id, inflictor, attacker, Float:damage, bits)
 {
     if (id == gBot) {
         gDamageCalls++; gBefore = get_entvar(id, var_health); gLastAmount = damage; gLastBits = bits;
+        gLastAttacker = attacker; gLastInflictor = inflictor;
         if (!is_nullent(inflictor)) get_entvar(inflictor, var_classname, gLastSource, charsmax(gLastSource));
     }
     return HC_CONTINUE;
@@ -130,16 +132,16 @@ public AfterDamage(id, inflictor, attacker, Float:damage, bits)
 }
 public AfterKilled(id, attacker, gib)
 {
-    if (id == gBot) gDeaths++;
+    if (id == gBot) { gDeaths++; gKiller = attacker; }
     return HC_CONTINUE;
 }
 public Status()
 {
     if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
     if (!is_user_connected(gBot)) { server_print("[GC headless] connected=0"); return PLUGIN_HANDLED; }
-    server_print("[GC headless] connected=1 slot=%d userid=%d alive=%d health=%.3f armor=%.3f calls=%d applied=%d deaths=%d amount=%.3f bits=%d source=%s",
+    server_print("[GC headless] connected=1 slot=%d userid=%d alive=%d health=%.3f armor=%.3f calls=%d applied=%d deaths=%d amount=%.3f bits=%d source=%s attacker=%d inflictor=%d killer=%d",
         gBot, get_user_userid(gBot), is_user_alive(gBot), Float:get_entvar(gBot, var_health), Float:get_entvar(gBot, var_armorvalue),
-        gDamageCalls, gApplied, gDeaths, gLastAmount, gLastBits, gLastSource);
+        gDamageCalls, gApplied, gDeaths, gLastAmount, gLastBits, gLastSource, gLastAttacker, gLastInflictor, gKiller);
     return PLUGIN_HANDLED;
 }
 

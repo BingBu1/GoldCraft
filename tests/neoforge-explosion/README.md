@@ -24,6 +24,7 @@ python tools/Build-ExplosionFixture.py
 | `gc_explosion_fixture clear` | 清空 Detonate 的受影响方块列表 |
 | `gc_explosion_fixture prune` | 只保留 MC X < 3 的受影响方块 |
 | `gc_explosion_fixture chain` | 观察固定试验中心 16 格内的 TNT 生成及爆炸，保持原版破坏列表 |
+| `gc_explosion_fixture damage` | 同一区域记录真实 incoming/pre/post 受伤事件、直接来源与攻击者；不修改伤害 |
 | `gc_explosion_fixture ignite_ownerless` | 在 chain 模式下点燃 (3,76,-90) 的 TNT，无点燃者 |
 | `gc_explosion_fixture ignite_native <slot>` | 以指定存活 CS 连接的生产玩家镜像作为点燃者；须另验实际玩家输入及伤害归属 |
 | `gc_explosion_fixture report` | 输出 `GC_EXPLOSION_FIXTURE` 前缀和 JSON 事件/生成记录 |
@@ -75,3 +76,42 @@ gc_explosion_fixture ignite_ownerless
 2026-10-15 无主连锁对照通过：两颗子 TNT、69 条原生切除，其中 52 条不在首颗最终列表内。后续原生玩家镜像对照在mode2/1/0均通过：三颗TNT及爆炸事件保留当前world/slot/serial/life对应的UUID；mode2产生68条切除（47条超出首颗列表），mode1/0始终零切除且revision不变。该玩家来自真实ReHLDS测试假客户端，不能替代真人输入、杀伤或击杀归属验收；归属/模式证据位于 `analysis/coordinator-takeover-20261015/tnt28/`。证据位于 `analysis/coordinator-takeover-20261015/tnt26/`。
 
 结束时确认 TNT 实体和方块均消失，关闭夹具，核对 21 格支撑块仍为黑曜石后执行 `execute in goldcraft:cs_assault_f6725c06 run fill 2 75 -91 8 75 -89 minecraft:air replace minecraft:obsidian`；再释放临时强加载并按上述流程停服清理。
+
+## TNT 对普通 CS 玩家伤害复现
+
+2026-10-15 已复现尚未修复的故障：无主 TNT 和原生玩家镜像点燃的 TNT 都进入 MC 的真实受伤流程，但未发送原生伤害请求，CS 目标保持 100 血。`Post` 的 damage 数值是 MC 回调数据；本夹具同时读取目标实际 health，不能将该事件本身当作原生扣血证据。
+
+使用同一隔离双服，另编译并加载 `amxx/tests/goldcraft_headless_test.sma`。它创建可受伤的实际 ReHLDS 假客户端，记录 TakeDamage/Killed 与 attacker/inflictor/killer。`goldcraft_tnt_test.sma` 的玩家是无敌的，只能作为点燃者或移动夹具，不能作为伤害受害者。测试命令只用于无真人的本地测试服。
+
+CS 端准备：
+
+```text
+mc_tnt_test 1
+goldcraft_headless_test 1
+sypb_stopbots 1
+mp_roundtime 9
+mc_map_mining 0
+gc_headless_create
+gc_headless_reset 112 2784 420 100 0
+gc_tnt_trace 0 112 2864 392 112 2784 420
+gc_headless_hurt 5 16384
+gc_headless_reset 112 2784 420 100 0
+```
+
+射线须无起点嵌入且 fraction=1；原生伤害阳性对照应把健康降到95。复位后等待至少1.5秒，使镜像和受伤冷却同步。另用原版 `/damage`、已导出的 NoAI 僵尸来源和同一个目标 hitbox 做桥接阳性对照，确认实际原生扣血、MC accepted计数增加；此命令仅是来源链对照，不能代表自然生物AI。
+
+MC 端先确认支撑和TNT位置都是空气，强加载范围同上，再执行单颗TNT：
+
+```text
+execute in goldcraft:cs_assault_f6725c06 run setblock 3 75 -90 minecraft:obsidian
+execute in goldcraft:cs_assault_f6725c06 run setblock 3 76 -90 minecraft:tnt
+gc_explosion_fixture damage
+gc_explosion_fixture ignite_ownerless
+execute in goldcraft:cs_assault_f6725c06 run data get entity @e[type=minecraft:tnt,limit=1]
+```
+
+确认正引信，采样约6秒后读取 `report`、`gc_headless_status` 和两端诊断。用 `nativePlayers.hitboxes` 将原生slot对应到MC targetId；确认它列在真实Detonate受影响实体内，incoming/pre/post均有正数伤害且未取消，然后核对原生health/calls和桥接damageRequests/Accepted/Rejected增量。只在MC侧看到伤害事件不足以通过。
+
+原生点燃者对照先用 `gc_tnt_create` 获取另一slot，MC使用 `ignite_native <slot>`。两组均须保持目标连接serial/spawn、world及实际位置不变。每轮先移除单格黑曜石支撑并确认TNT消失，再重新准备；结束释放9个强加载区块，正常关闭双服并按hash移除临时插件。
+
+本次证据：`analysis/coordinator-takeover-20261015/tnt29/{controls.json,trial-none01.json,trial-native01.json,runtime-audit.json,cleanup-receipt.json}`。阳性对照为100→95和100→90；TNT伤害回调分别为34.598125及34.361534，原生health均100、TakeDamage为0、请求增量为0。只证明当前生产版本存在故障，不验收伤害、死亡或击杀归属。后续修复须保留权威来源、地图/连接/生命校验、距离/遮挡及队伍规则。

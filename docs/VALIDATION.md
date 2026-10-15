@@ -1,5 +1,13 @@
 # 验证状态
 
+## 2026-10-15 — TNT 对普通 CS 玩家的伤害丢失已复现
+
+新增实服证据：无主和原生玩家点燃的真实TNT均到达MC目标hitbox的incoming/pre/post，伤害34.598125/34.361534；原生目标保持100血、TakeDamage为0、MC伤害请求增量为0。原生伤害100→95及MC生物来源100→90阳性对照通过，射线无阻挡。仅新增伤害观察测试代码，生产JAR/DLL未改；这是已复现待修故障，不是伤害或击杀验收。
+
+测试双服正常exit0，5临时文件/9强加载区块/2轮单格支撑已清理；原安装19575文件元数据及5项hash、原Mod/INI和用户公网进程身份不变。证据 analysis/coordinator-takeover-20261015/tnt29/{runtime-audit.json,cleanup-receipt.json}。下一步修复独立的权威爆炸伤害来源链，保留epoch/serial/spawn、事件去重、距离/遮挡及队伍校验，复验无主/原生/配对玩家、死亡归属与旧端兼容。
+
+Combined85 ZIP本轮复hash仍为e3458aa65d7d2b2ae89df065db3f5e324760a06d402e0da3477c51445b2be240；已明确完整解压新目录运行GoldCraftInstaller.exe，MC core另更新。对方安装结果待反馈。完整G01–G28开放，单代理、用户游戏保持。
+
 ## 2026-10-15 — 原生点燃者TNT连锁归属与三模式限制
 
 真实双服完成原生测试玩家点燃的mode2/1/0三组连锁：各3个TNT UUID、6条Start/Detonate，首颗引信80，两颗子TNT使用原版10–29 tick引信。mode2产生68切除、47条仅属于后续爆炸列表；mode1/0数量与revision全程不变。每组9条生成/事件记录的owner均等于按原生world/slot26/serial1/life2、3、4计算的生产UUID，与爆前/爆后权威身份对应。这里是实际ReHLDS假客户端和生产NativePlayerEntity镜像，非真人输入；不验收伤害或击杀归属。
