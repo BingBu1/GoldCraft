@@ -1,5 +1,24 @@
 # 验证状态
 
+## 2026-10-15 — TNT真实原生碰撞、移动与自然回合还原
+
+本地生产双服和完整Mod集不变，仅加载显式启用的[Pawn夹具](../amxx/tests/goldcraft_tnt_test.sma)。真实TNT爆炸、TraceLine/TraceHull、RunPlayerMove及RG_RoundEnd后置记录覆盖以下范围：
+
+| 对照 | 爆前 | TNT后 | 自然回合还原后 |
+| --- | --- | --- | --- |
+| 面221点射线fraction | 0.499837249 | 1 | 0.499837249 |
+| 面221站立/蹲姿hull fraction | 0.416503906 | 1 | 0.416503906 |
+| 实际站立/蹲姿水平移动终点Y | 2863.96875 | 3007.96875 | 2863.96875 |
+| 宿主切除数量 | 0 | 62 | 0 |
+
+共17个位置、每处3种引擎trace；只有目标墙正反两面221/238打开，其余15处保持基线，还原后全部逐值一致。水平移动使用真实WALK/SLIDEBOX假客户端、45×20ms RunPlayerMove，关闭重力以获得同高度对照；不能据此验收常规重力移动、MC图形输入或真实枪击。
+
+mc_map_mining_persist=1时，爆炸后自然CT胜利event8（end_time69.311431）后仍为62切除；=0时，另一自然CT胜利event8（end_time367.852569）及新回合后清零，world不变。设置短回合时单列一次sv_restart，仅作准备；实际还原验收观察的是之后的真实CT胜利。未调用强制RoundEnd。原9分钟回合在100秒观察期内未结束的超时保留，不视为通过或产品故障。
+
+首版fixture浮点读出错误及假客户端死亡导致的无效记录保留并排除，修正get_tr2第三输出参数、复活/测试免伤后采用build3，单插件实际编译0警告。未改生产JAR/DLL。双服正常退出0、临时9区块/2文件已清理，原运行INI完整hash不变；原安装19575文件元数据及5项hash、用户公网进程身份不变。
+
+证据 `analysis/coordinator-takeover-20261015/tnt24/{runtime-audit.json,cleanup-receipt.json}`。洞口画面、真实开枪、其他宿主材质/水、Mod取消或最终列表修改、玩家归属/连锁TNT及其他机器/多人仍待；公网MC未更新，G18保持开放。
+
 ## 2026-10-15 — TNT实际双服爆破与生命周期验证
 
 本地生产ReHLDS与Minecraft 1.21.1 / NeoForge21.1.256实际启动，完整Mod集包含FerriteCore。沿用已接受JAR `ce797b85` 和实际已载入的mp.dll `485b5f1f`，未更改游戏源码或重编。使用本机回环RCON触发真实原版TNT，测试期间本地MC无真人玩家。

@@ -43,6 +43,7 @@
     "amxx/goldcraft/goldcraft.sma",
     "amxx/tests/goldcraft_test.sma",
     "amxx/tests/goldcraft_headless_test.sma",
+    "amxx/tests/goldcraft_tnt_test.sma",
     "amxx/tests/goldcraft_precache_test.sma",
     "amxx/maps/goldcraft_bloodmoon.sma",
     "amxx/zombie_plague/integration/goldcraft_zp50.sma",

@@ -51,3 +51,11 @@ ZP 的 ReAPI 补丁由 `Prepare-ZombiePlague.py` 自动应用；更新命令和�
 本轮现代化同时覆盖 ZP、Nade Modes、GoldCraft、地图和测试插件：具名成员、回合／断线生命周期、`create_cvar`、`set_task_ex`、命名事件／玩家筛选标记、文件句柄、字符串解析和新菜单 API。共享头文件保存重新登记碰撞、丢枪后备弹、菜单所有权及取消／超时等语义。86 份 SMA 编译零警告；独立服务器的 70 项现代化检查通过，包括管理员库、INI、菜单权限和真实槽位复用。
 
 管理员配置与非 LAN 身份认证见 [管理员说明](administration/README.md)。测试中的正向菜单选择是调用真实生产回调，购买菜单使用关闭 Bot 自动购买的专用测试变体，不能代替真人键鼠验收；这些测试插件不部署到日常服。
+
+## TNT 原生碰撞诊断夹具
+
+`tests/goldcraft_tnt_test.sma` 仅用于隔离测试服，默认 `mc_tnt_test=0`，不加入日常插件清单。用 `build-amxx.cmd -Plugins goldcraft_tnt_test` 单独编译，测试服加载需地图重载；`sv_restart` 不重载插件。
+
+启用后，服务器命令 `gc_tnt_trace <hull0..3> <起点xyz> <终点xyz>` 调用实际引擎TraceLine/TraceHull；`gc_tnt_create` 创建并复活专用假客户端，`gc_tnt_move <xyz> <yaw> <speed> <frames> <duck0/1>` 运行每帧20ms的真实RunPlayerMove。夹具假客户端免伤，仅测移动。`gc_tnt_round` 报告实际回合成员及已接受RG_RoundEnd后置事件；夹具不结束回合、不生成切除，不替代生产TNT。
+
+水平前后对照可在隔离服临时关闭重力，但结果仅证明同高度移动；引擎点射线也不等于实际武器开火。测试完成后退出专服并移除临时插件/清单，还原配置。当前证据和剩余边界见[验证记录](../docs/VALIDATION.md)。
