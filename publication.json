@@ -147,6 +147,7 @@
     "patches/zombieplague-reapi.patch",
     "patches/zombieplague-reapi.json",
     "amxx/zombie_plague/tests/goldcraft_zp_reapi_test.sma",
+    "amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma",
     "tools/Deploy-ZombiePlague.py",
     "patches/nademodes-reapi.patch",
     "patches/nademodes-reapi.json",

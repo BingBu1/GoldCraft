@@ -117,6 +117,14 @@ execute in goldcraft:cs_assault_f6725c06 run data get entity @e[type=minecraft:t
 本次证据：`analysis/coordinator-takeover-20261015/tnt29/{controls.json,trial-none01.json,trial-native01.json,runtime-audit.json,cleanup-receipt.json}`。阳性对照为100→95和100→90；TNT伤害回调分别为34.598125及34.361534，原生health均100、TakeDamage为0、请求增量为0。只证明当前生产版本存在故障，不验收伤害、死亡或击杀归属。后续修复须保留权威来源、地图/连接/生命校验、距离/遮挡及队伍规则。
 
 
+## 实际ZP身份与TNT九组验证（2026-10-15）
+
+补充观察插件 `amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma`，保留全部ZP清单；使用真实Infection Mode及force cure/infect准备具名假客户端，独立读回身份/队伍/人数。用已有 `ignite_native <slot>` 点燃真实vanilla TNT，正引信、生成、爆炸事件与原生TakeDamage post/感染forward相互对应。先通过原生100→95及MC生物100→90阳性对照，再测世界对人/僵尸、人对僵尸0.75防御、僵尸破甲/感染、同身份ff0/ff1阻断及致死归属，共九项通过。
+
+破甲时HP500不变、甲100→0且不感染；无甲时实际感染一次、HP成为ZP的900、infect_post攻击者为点燃者slot1。感染成功会阻断原伤害，不能仅以damageAccepted或HP下降判断。人对僵尸伤害逐数等于MC incoming×5×0.75；致死100→-31且killer为点燃者。测试由真实ReHLDS假客户端/MC镜像完成，非真人操作；真人点燃/配对、过期生命/连接和任意Mod回调仍待。
+
+证据 `analysis/coordinator-takeover-20261015/tnt36/`。完整Mod/FerriteCore及匹配模块通过，六个既有ZP模块暂用匹配源码编译产物；两服/矩阵exit0，运行文件、配置、注册全部恢复、七临时文件及强加载区块清理。旧tnt33快照FileNotFoundError和未运行的tnt34保留；新读取重试仍严格检查状态新鲜度，原生命令至少间隔0.9秒，未降低RCON限流。
+
 ## TNT伤害候选的局部实服验证
 
 新增TNT专用能力512和DAMAGE_REQUEST kind6（88字节）；仅真实爆炸受伤调用建立来源上下文。原生复核会话、生命、事件、快照、距离、遮挡和队伍，以goldcraft_tnt inflictor进入TakeDamage/AMXX。旧协议30能力关闭握手的兼容重试保留相同凭据，错误身份不降级。协议版本30和85种消息保持。

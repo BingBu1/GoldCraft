@@ -1,5 +1,11 @@
 # Zombie Plague 与 SyPB 测试
 
+## TNT与感染规则
+
+`amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma` 是默认关闭的本地观察插件。设置 `mc_tnt_zp_test 1` 后，`gc_tnt_zp_guard` 创建具名假客户端；真实回合开始的模式等待期间执行 `gc_tnt_zp_start` 启动Infection Mode。`gc_tnt_zp_identity <slot> <0|1>` 只对具名假客户端调用真实ZP治愈/感染，必须检查返回身份和队伍；`gc_tnt_zp_observe <slot>` 清空观察计数，`gc_tnt_zp_status` 输出实际模式、感染许可、人数、TNT伤害原函数调用次数和感染者。只用于无真人的隔离测试服，不能加入日常插件列表。
+
+2026-10-15 tnt36保留全部ZP插件、完整MC Mod集和原RCON限流，通过九组实际TNT：世界来源伤害、人打僵尸0.75减伤、破甲但不伤血/感染、无甲感染及攻击者、ff0原生拒绝、ff1同身份ZP拒绝、致死killer归属。实际ReHLDS假客户端和生产MC镜像不替代真人输入/多人；六个既有ZP模块临时使用匹配源码重编产物，结束已恢复。详细数值与验收边界见 [验证状态](VALIDATION.md)。
+
 当前组合为用户提供的 Zombie Plague 5.0.8a、AMXX 1.9.0.5303、ReAPI 和源码锁定的 SyPB/API **1.50**。SyPB README 的 1.49 文案比当前源码旧；以 API 和实际模块为准。只运行 B 及其 Minecraft 配对客户端，当前人数策略为 1 名真人 + 24 个 Bot；Mod 文件仍同步到 A/B/server。
 
 最新测试地图已切回 `cs_assault`（72 街仓库）。Bloodmoon 的出生点适配和生成路点仍保留供该地图使用。

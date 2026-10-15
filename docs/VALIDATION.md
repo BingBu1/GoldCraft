@@ -1,5 +1,15 @@
 # 验证状态
 
+## 2026-10-15 — TNT与实际ZP感染身份九项验证
+
+完整ZP清单、真实Infection Mode及实际ReHLDS假客户端下九项通过：无主→人类/僵尸各500→334，人类→僵尸500→373并逐数匹配0.75防御；僵尸→有甲人类护甲100→0、HP500不变/不感染，僵尸→无甲人类实际感染一次、infect_post攻击者为点燃者slot1；人类ff0原生零回调拒绝，ff1人类/僵尸同身份均由ZP阻断原伤害；人类→僵尸致死100→-31且killer=slot1。每项真实vanilla TNT正引信/一次生成/Start与Detonate两事件，DMG_BLAST64，mode0没有地图切除，原生和MC生物伤害阳性对照通过。
+
+新增默认关闭的 `amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma` 仅准备具名假客户端身份并记录实际回调，不注入伤害或改变生产ZP规则。八插件匹配源码编译无警告已复核hash，六个既有ZP模块以该编译字节临时部署，完整Mod集/FerriteCore和实际原生模块hash通过。两服与矩阵exit0、8原运行文件/部署注册恢复、7夹具移除、9强加载区块释放；原Mod/INI、原安装19575文件元数据/5内容hash及既有用户进程身份不变。
+
+旧tnt33因状态快照替换窗口读不到文件中断于对照，失败记录保留；tnt34预部署未启动即恢复。tnt36读取增加1秒有界重试且保留5秒新鲜度要求，RCON保持至少0.9秒命令间隔。证据 `analysis/coordinator-takeover-20261015/tnt36/{runtime-audit.json,zp-trial-*.json,independent-results.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`；匹配编译见tnt34-build.log及tnt36/matched-build.json。
+
+此为实际测试客户端/生产原生镜像，不代表真人CS按键/配对玩家点燃或多人。真人、过期/重生/换连接归属、任意Mod伤害回调、图形和公网仍未验收，完整G01–G28开放；生产JAR/DLL未重编或部署母本/A/B/公网。
+
 ## 2026-10-15 — 完整CS包资源缺失修复与验收边界纠正
 
 用户启动报 `[Renderer] Failed to load "renderer/gameui_english.txt"`；旧打包白名单只收Renderer shader/texture，遗漏根目录资源。此前包内清单/hash及安装通过的事实保留，但“资源齐全”的结论撤回，不能作为游戏首启证据。
