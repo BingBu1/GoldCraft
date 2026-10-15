@@ -1,5 +1,19 @@
 # 验证状态
 
+## 2026-10-15 — AMXX与GUI终态补验，继续清理和配套构建
+
+combined85-server03独立AMXX3两阶段实际通过：root11728 exit0/6.8977816秒/Job64自然Active0，无超时或强清；11440冻结输入不变，三TU且没有重编ReGameDLL162。DLL为x86/131072B/SHA8a68efebd578703bf4dd502cb714d7d395286a7e3ce15056578165023bf96a42，7导出/staticCRT/仅KERNEL32，命令/reproduce/ABI子审计通过，9946 includes/0未知。原server02仍有14个Core任务缺同次真实Assembly.Location，完整服务端审计未通过；不得由新probe追认旧02。fresh04已冻结11536输入、原地复用源码/SDK，计划同进程logger观察actualLocation/PID/StartTime；准备不等于执行或通过。证据analysis/minecraft-status-effects/armor-defense/combined85-server03/{validation-receipt.json,shared-document-handoff.md}及combined85-server04/execution-plan.json。
+
+recovery07正式审计已补齐：8312后hash、34 configure命令、3 link/3 x86；两CTest84检查及8次真实DLL卸载通过，65写/5200完整读/0bad/open/errors/overwritten、seq64。share3错误32→关闭句柄恢复seq3，readonly错误5→清属性恢复seq5，6提交/4写/2预期错误/0worker。证据async01/recovery07-review/verified.json，SHA b6d42d2b904dc7a7483342540e66e882edb33651ce694b18edf1c7aac3d4f557。full08 root33268 exit1/187.1055秒/Job230自然Active0；production plugin对象已编译，但[60/75] CreateMove夹具错误包含相邻PlayerMoveWithFluids，产生5编译错误，无最终DLL/CTest。精确错误终点为\nvoid PlayerMove(，不是KeyEvent。原失败保留；fresh09仅修夹具提取边界，原断言不变，59旧产物原地复用，16新命令/7原CTest；主协调7386文件复核后授一次240秒单worker窗口，执行结果待交。无root异步整合/部署、入服/ESC根因或FPS结论。证据analysis/client-responsiveness-20261015/async01/{handoff-full08-failure.md,fresh09/manifest.json}。
+
+FML监督原语fixtures02为非游戏夹具：36场景/512断言/32.9219801秒，28合成事务覆盖九类故障，8真实小Python进程覆盖正常/非零退出/超时/后代/日志上限/构造故障。独立98门/47证据/4输入未变；原fixtures01的Job Active0早于root signal失败保留，预期forced夹具不计自然运行验收。仅analysis，无FML/游戏/部署。生产adapter/CLI和combined01 JAR42e86816冻结继续，native slots仍UNBOUND，需完整匹配native证据；双服恢复须ReHLDS真实console/PTY，MC-only FML不等于恢复127.0.0.1:25575。证据analysis/admission-20261015/{fml-fixtures-handoff02.md,fml-fixtures-checkpoint02.json}。
+
+GUI10使用同一冻结包08和同一GUI进程31316，P1 ASCII、P2中文单引号路径各真实人工点击安装及恢复一次；四份严格后态报告各456项通过，两目录各62个原文件路径/hash精确还原。两安装态WScript.Shell与IShellLinkW default/RAW4独立只读检查均S_OK且目标存在，快捷方式hash未变。P1过早恢复检查在事务完成前失败（3项），原报告保留，完成后用原checker另存456项通过报告，未重做安装或放宽断言。P2事务restored文件mtime05:05:02.459286Z；monitor在05:05:50.234313Z达到660秒期限时仅GUI仍存活并强清，exit1/Active0，不能称自然退出。封存复核366包输入、17checker身份及14 root/Stable身份不变；捕获的两成功安装日志值未见CLIXML，仅限实际捕获成功日志。默认CS目录原本可读，历史空值指快捷方式TargetPath。 成功后态与monitor失败分开保留；未测试失败日志矩阵或游戏启动。
+
+原清理35.719→27.525 GiB释放约8.19 GiB；后续必要构建/候选包使disk-current02实测32.688 GiB/242924文件。新增16旧native01/02 linker TAR无损gzip已完成，1311852544→498763165字节，释放813089379字节；解压全字节SHA/长度及原文件未变均验证，旧路径复验前须用archive-old-link-reproductions.py --restore。日志/源码/失败证据/最终PE保留。Compact-Sandbox本轮10文件6386110字节因相对基线hash变化全部跳过、0删除，未强制清除。Modpack152代精确盘点及95代候删14359282字节提案完成但未执行；保留最近两生产、失败/迁移及历史引用。安装器3818重复文件1411178000字节候选已交，逐项保留副本/raw nupkg可恢复，待执行工具复核，未计释放。证据analysis/coordinator-takeover-20261015/{disk-current02.json,link-reproductions-archive-result01.json}、analysis/sandbox-cleanup/cleanup-1792041003412076500.json、analysis/admission-20261015/modpack-backups-retention01.json及analysis/metahook-installer-gui-20261014/cleanup-candidates11.json。
+
+主协调checkpoint12独立复核332门/98文件，未重跑领域测试。四领域并发准备，CPU按fresh09→fresh04排程，GUI10已归还窗口；接下来以匹配产物恢复本机双服、真实单B/cs_assault合法Steam入服和ESC，再继续玩法。最新已核实source-only远端main 5da4a51fdda8b8aa81471b1e7818adad58c99888；root HEAD5687c262和空staged delta保留。所有G01–G28仍开放。
+
 ## 2026-10-15 — 地图七项与异步恢复通过，配套服务端和GUI继续
 
 combined85-server01仅MSBuild /pp成功，预构建闭包拒绝未冻结NuGet.props，root6708 exit1/39.615秒/Job59自然Active0，未编译C++/AMXX；原下游缺证据审计失败保留。server02已绑定90个实际imports并完成七阶段exit0：common13/cppunit5/ReGameDLL162/PCH/RC/link，mp.dll2544640字节SHAb57804d3/PDB19050496字节6f5dbeac。整轮root35244 exit1/233.678秒/Job272自然Active0，无超时/强清，758源及9631工具未变；最终英文task解析器未识别中文CL/RC/Link，include尾部任务ID误作路径，完整审计失败且AMXX3未到达。保留原始binlog/log/失败audit；fresh03仅获授权修正严格本地化解析并续审计/AMXX，不重编162单元，不据链接成功称完整服务端通过。证据analysis/minecraft-status-effects/armor-defense/combined85-server{01,02}/shared-document-handoff.md及RESULT.md。
