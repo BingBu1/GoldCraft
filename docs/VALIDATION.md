@@ -1,5 +1,11 @@
 # 验证状态
 
+## 2026-10-15 — K语音锁等待实证与TNT预算修复合入
+
+人类点击开始并长按K的18.547秒窗口内，两次x86 CDB非侵入采样均正常退出（1.506/1.482秒），主线程TID23252两次同路径NtWaitForSingleObject→WaitForSingleObject→tier0_s CThreadFullMutex::TryLock→steamclient→hw。人类确认按住后反复卡顿/短暂恢复、松开恢复；状态间歇推进。没有脚本输入、重启或骨骼cvar更改。精确物理down/up未记录、期间life15→16，导出符号大偏移及unwind存在限制；这是Steam调用/锁等待的现场关联，不是锁拥有者或根因已定。原live05骨骼渲染截面降为普通参考；匹配Renderer/BulletPhysics私有PDB及六源MD5已核。证据 analysis/client-responsiveness-20261015/voice-k01/{capture.json,stack01.txt,stack02.txt,hold-delta.json}、analysis/minecraft-status-effects/armor-defense/stack-symbol-review01/HANDOFF.md。
+
+主协调已将budget01的两个生产Java与原BspSurfaceTexturesTest精确合入root；预算耗尽不可复活，任一未完成方向拒绝整格、禁止加入reached，完整六方向保持最强材质规则。合入字节与实际选择编译的候选一致，8个测试方法通过；移除唯一耗尽后拒绝行的负对照明确expected7/actual1失败。主协调复核真实日志/hash并备份前态，未重复执行、未重编完整JAR或部署；正在运行的42e86816 JAR仍为此前接受版本。实际TNT/mode0/1限制/mode2破坏/回合与换图生命周期仍待。证据 analysis/coordinator-takeover-20261015/tnt-budget17-integrated.json、analysis/minecraft-status-effects/armor-defense/explosion-budget01/{RESULT.json,candidate.patch}。
+
 ## 2026-10-15 — 本机双服恢复、显式单B准入与功能源码发布完成
 
 补充：B加入后实际24 Bot+1真人、7空槽，原Bot槽1让位；四状态同world/slot26/serial1/life11，配对后219秒仍在线，当前原生CS形态。只读10条件通过，证据 analysis/minecraft-status-effects/armor-defense/runtime-b-admission01.json。

@@ -39,7 +39,8 @@ public final class BspSurfaceTextures {
     public static final class Budget {
         private int remaining;
         public Budget(int operations) { remaining=operations; }
-        private void step() { if (--remaining < 0) throw new WorkLimit(); }
+        public boolean exhausted() { return remaining < 0; }
+        private void step() { if (exhausted() || --remaining < 0) throw new WorkLimit(); }
     }
     private static final class WorkLimit extends RuntimeException {
         private WorkLimit() { super(null,null,false,false); }

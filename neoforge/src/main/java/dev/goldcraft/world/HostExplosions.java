@@ -55,6 +55,24 @@ public final class HostExplosions {
         return surfaces==null?null:new Context(host,center,power,surfaces,materials);
     }
 
+    // Any incomplete directional sample rejects the whole host cell, even if
+    // an earlier direction already supplied a weaker material.
+    static int material(BspSurfaceTextures textures,BspMap.Vec middle,Map<String,Integer> catalog,
+                        BspSurfaceTextures.Budget budget,java.util.function.IntToDoubleFunction resistance) {
+        if(budget.exhausted())return MapMining.UNBREAKABLE;
+        int selected=MapMining.UNBREAKABLE;double strongest=-1;
+        for(int axis=0;axis<3;axis++)for(int sign:new int[]{-1,1}) {
+            var end=middle.add(new BspMap.Vec(axis==0?sign*96:0,axis==1?sign*96:0,axis==2?sign*96:0));
+            String name=textures.texture(middle,end,budget);
+            if(budget.exhausted())return MapMining.UNBREAKABLE;
+            Integer material=name==null?null:catalog.get(name);
+            if(material==null)continue;
+            double value=resistance.applyAsDouble(material);
+            if(value>strongest){strongest=value;selected=material;}
+        }
+        return selected;
+    }
+
     public static final class Context {
         private record Cell(BlockState state,boolean solid) {}
         private final HostWorldState host;
@@ -89,17 +107,9 @@ public final class HostExplosions {
             // A newly exposed cut face retains the original world's material.
             // Sample outward from this remaining cell (not through a remote
             // front wall). Multiple nearby materials use the strongest one.
-            int selected=MapMining.UNBREAKABLE;float resistance=-1;
-            for(int axis=0;axis<3;axis++)for(int sign:new int[]{-1,1}) {
-                var end=middle.add(new BspMap.Vec(axis==0?sign*96:0,axis==1?sign*96:0,axis==2?sign*96:0));
-                String name=textures.texture(middle,end,budget);
-                Integer material=name==null?null:catalog.get(name);
-                if(material==null)continue;
-                BlockState state=HostMiningMaterials.state(material);
-                float value=state.getBlock().getBlastResistance();
-                if(value>resistance){resistance=value;selected=material;}
-            }
-            return new Cell(HostMiningMaterials.state(selected),true);
+            int selected=material(textures,middle,catalog,budget,
+                    material->HostMiningMaterials.state(material).getBlock().getBlastResistance());
+            return new Cell(HostMiningMaterials.state(selected),!budget.exhausted());
         }
         public BlockState state(BlockPos pos) { return cell(pos).state(); }
         public void reached(BlockPos pos) { if(cell(pos).solid())reached.add(pos.toImmutable()); }

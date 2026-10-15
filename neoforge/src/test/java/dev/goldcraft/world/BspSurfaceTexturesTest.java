@@ -111,6 +111,55 @@ class BspSurfaceTexturesTest {
         assertTrue(textures.textureNames().stream().allMatch(name -> name != null && !name.isEmpty()));
     }
 
+    @Test
+    void rejectsWeakMaterialWhenALaterDirectionExhaustsBudget() {
+        BspSurfaceTextures textures = new BspSurfaceTextures(wallFixture());
+        var budget = new BspSurfaceTextures.Budget(5);
+        int[] sampled = {0};
+        int selected = HostExplosions.material(textures, v(-10, 0, 0),
+                java.util.Map.of("STONE", dev.goldcraft.bridge.MapMining.WOOD), budget,
+                material -> { sampled[0]++; return 3.0; });
+        assertEquals(1, sampled[0], "the weak material must be read before exhaustion");
+        assertTrue(budget.exhausted(), "a later direction must exhaust this cell's budget");
+        assertEquals(dev.goldcraft.bridge.MapMining.UNBREAKABLE, selected,
+                "an incomplete cell must not retain the earlier weak material");
+        assertNull(textures.texture(v(-10, 0, 0), v(10, 0, 0), budget));
+        assertTrue(budget.exhausted(), "later queries cannot revive an exhausted budget");
+    }
+
+    @Test
+    void keepsWeakMaterialWhenAllDirectionsFitBudget() {
+        BspSurfaceTextures textures = new BspSurfaceTextures(wallFixture());
+        var budget = new BspSurfaceTextures.Budget(13);
+        int[] sampled = {0};
+        int selected = HostExplosions.material(textures, v(-10, 0, 0),
+                java.util.Map.of("STONE", dev.goldcraft.bridge.MapMining.WOOD), budget,
+                material -> { sampled[0]++; return 3.0; });
+        assertEquals(1, sampled[0]);
+        assertEquals(dev.goldcraft.bridge.MapMining.WOOD, selected);
+        assertFalse(budget.exhausted());
+    }
+
+    // Rotate the existing horizontal face into x=0, with the solid leaf at
+    // negative x. Ray -X costs two steps; +X finds the weak face in three;
+    // the following -Y ray is where a five-step shared budget runs out.
+    private static byte[] wallFixture() {
+        byte[] bytes = fixture(false);
+        ByteBuffer data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        int plane = data.getInt(4 + 1 * 8);
+        data.putFloat(plane, 1).putFloat(plane + 8, 0).putInt(plane + 16, 0);
+        int vertices = data.getInt(4 + 3 * 8);
+        for (int i = 0; i < 4; i++) {
+            int at = vertices + i * 12;
+            float x = data.getFloat(at), y = data.getFloat(at + 4);
+            data.putFloat(at, 0).putFloat(at + 4, x).putFloat(at + 8, y);
+        }
+        int tex = data.getInt(4 + 6 * 8);
+        data.putFloat(tex, 0).putFloat(tex + 4, 1);
+        data.putFloat(tex + 20, 0).putFloat(tex + 24, 1);
+        return bytes;
+    }
+
     private static byte[] fixture(boolean missingTexture) {
         byte[][] lumps = new byte[15][];
         lumps[1] = bytes(20, b -> {
