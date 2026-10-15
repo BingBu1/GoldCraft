@@ -1,5 +1,13 @@
 # 验证状态
 
+## 2026-10-15 — 用户确认停用代理分流后恢复准入
+
+用户确认本次CS/MC一端直连、一端走代理，关闭代理后恢复；据此撤销远程world/actors状态采集要求，不再把本次身份拒绝列为待修故障。未修改代理配置或配对校验，代理内部机制未独立证实。
+
+已有只读日志记录新版core在16:30:09、16:31:20两次收到cs_assault BSP；16:31:40桥接状态connected=true、slot26/serial7/life2。期间16:31:09有一次Connection reset；该状态快照minecraftControl=false，不能据此追加完整操控或长期稳定性结论。证据 analysis/coordinator-takeover-20261015/public21/proxy-recovery21.json。
+
+另一玩家CS和MC均未更新，双端更新包已就绪且本检查点重新核对大小/SHA一致；本机升级不会自动分发到对方电脑。另一机器、多人隔离和完整重连生命周期仍待实际验证；公网MC服务端未更新。领域并行保持暂停，G01–G28继续开放。
+
 ## 2026-10-15 — 公网单B实机、四端Mod同步与新重连拒绝
 
 16:09:38旧42e86816客户端实际自动配对公网，16:09:43收到cs_assault BSP；16:12:34状态仍同world/slot26/serial2，HUD1423帧/相机885帧，且真实日志三次记录CS输入接管。用户分别确认进入可操作、CS内HUD和操作正常。此为普通XMCL单B公网路径及局部实际操作证据，不替代其他机器或多人。证据 analysis/coordinator-takeover-20261015/public21/sample-081234.json。
