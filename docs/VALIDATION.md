@@ -12,9 +12,13 @@ GoldCraft入服／ESC响应性仍未解决。build04完整x86和5项实际GL/inp
 
 配对native02 x86/24项、Java01精确192源/47项、jar02真实重映射/117项及FML4.0.45依赖解析通过，实际三端部署、FML加载、普通启动/XMCL/快捷方式准入、普通服与断线/换图/多实例仍待。每world认证、显式配置优先、错误不回退和歧义拒绝保持。jar02/current85即使加载通过也不代表联合三能力完成。
 
-稳定GUI自包含EXE/ZIP与CLI390项存在；GUI02只有自动发现/路径编辑/打开确认，事务0。installer04完成精确Ursa/Avalonia焦点源码审查，改善未应用；既有夹具preflight4项/62文件通过，341安装→62恢复、383事务路径及两SDL缺失尚待真正GUI操作。当前短窗口用现有包安装后立即恢复；错误/复装/回滚、首次游戏/配对和新85载荷仍待，不用CLI替代GUI证据。
+GUI03在同一不可玩夹具执行一次真实人工点击安装→紧接GUI恢复；341安装文件/333实际载荷/383事务路径及备份、latest、SDL2/3缺失均核实，恢复后原62文件逐hash精确还原，独立7项恢复检查通过。安装总检查452项后因WScript.Shell读快捷方式TargetPath为空失败；严格恢复451项后拒绝failed安装前态，未放宽检查。原2076字节快捷方式含目标路径，尚未确定产品无效或读取器局限，没有启动它。实际UI显示CLIXML需改善；捕获/焦点迟滞不用于推翻文件终态。PID34552由Alt+F4自然exit0，同路径/后端0；未游戏/构建/产品变更。05交接及10证据/8源码与当前121文件（62产品+59事务审计）已由主协调独立复核。证据analysis/metahook-installer-gui-20261014/handoff-20261015-05.{md,json}；GUI02事务0仅属历史，完整安装器条目保持开放。
 
-实际消息表85。current85 server01构建/命令闭包/静态PE通过，不包含药水/流体/盔甲/盾牌。联合52候选的521来源/前态及输出已独立复hash，尚未集成或执行全构建；旧82消息断言须精确更新到85并保留原检查，静态1438检查不是实际测试。TNT为待审/待构建/待爆破草稿。原native05/cold04等失败证据保留；threshold=0仅隔离形状规避，保持C++20/O3/ThinLTO/AVX2/精确浮点和所有断言，不据此认定生产异常已修。完整玩法、多人与固定视角FPS验收保持开放。
+combined85 final03已由主协调精确整合52 root路径，原前态全部备份；仅两测试相对02改变：status精确82→85，gameplay原body/13断言保留后追加TNT256联合与角色/凭据/缺能力/未知位负例。50其他文件与02相同，521选择/52前态及输出已复hash；source patch0ea1ee5e。累计ReGameDLL补丁7699ae3b针对精确upstream4a50c42e的16路径，在独立pristine小repo正向逐字（规范行尾）与reverse-check通过；未把external源树直接发布。协调自身首轮replay子目录跳过及旧raw index hash期望失败均保留；最终root staged delta为空、staged tree等于HEAD，未reset或stage草稿。此为源码集成，尚未联合native/Java/FML/部署/实机；静态12项与旧1438/CMake提取各保持原边界，GBK文档恢复失败证据保留。证据analysis/coordinator-takeover-20261015/combined03-integrated.json及combined85-review01/HANDOFF03.md。
+
+async01首轮build01配置及三项测试目标编译成功，CTest一过一败：八次实际DLL加载/启动/写入/停止/卸载通过，并发读状态文件替换check54失败；完整客户端因失败未编译。diagnostic02只加错误定位，原reader/共享标志及三项完整性断言保留，seq1报MoveFileExW Access is denied，submitted2/written1/errors1/overwritten0，18809次读/0坏读/0打开错误；不是本次队列丢弃证据。两轮55.955/36.279秒、root9472/37192均exit1，已记录各自vctip残留身份后强清至Active0，不称自然清理通过。输入后hash保持、失败原样保留；未root异步整合/部署/游戏，不能据此解释原入服/ESC故障。证据analysis/client-responsiveness-20261015/async01/{build01,build01-job,diagnostic02,diagnostic02-job}及HANDOFF.md。
+
+combined85-native01已基于整合后的root新冻结，主协调独立复核172项origin/frozen、7248项SDK/工具及7个runner身份，授一次300秒单worker Win32 Job。范围含13 common、规则原断言+cap256、status/armor及dispatch/HUD18/fluid/shared_bulk/bridge/pure/exception283，末项保留旧status_effects的cap16负例作版本冲突诊断；结果待回。实际握手源码已分配16=status_attributes、512未分配，后续只能窄更新旧未知位负例并补16成功/echo正例，保留其他拒绝断言，不能改生产握手求通过。配对继续冻结jar02/current85的server-only FML事务方案，安装器继续lnk/CLIXML静态诊断，runtime与index仍主协调持有。 原native05/cold04失败仍保留；threshold=0仅隔离规避，C++20/O3/ThinLTO/AVX2/precise及全部断言不降低。
 
 ## 官方客户端安装器（2026-10-14）
 
