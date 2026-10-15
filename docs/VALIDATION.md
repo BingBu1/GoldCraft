@@ -1,5 +1,17 @@
 # 验证状态
 
+## 2026-10-15 — 联合原生与Java通过，七项地图补验及配套构建继续
+
+combined85-native03已修复native02的common/test shared_bulk证据命名冲突；13 common、12项实际测试、12个最终PE的MT asInvoker及245/245审计全部通过。root34536 exit0/135.878秒/Job66自然Active0，无超时或强清；172项目origin/frozen、7249工具未变，455实际includes、25 compile/12 link。实际status96、armor80、armorDispatch46、statusDispatch108、HUD18、fluid4045、bulk308、bridge1068、exception283、codec457，rules/pure静默exit0。原native02两门失败记录保留。证据analysis/minecraft-status-effects/armor-defense/combined85-native03/{validation-receipt.json,audit.json,shared-document-handoff.md}；完整server01尚在冻结准备，非完整DLL或实机验收。
+
+联合Java combined01已全新编译main111/client90/test51/offlineTest9/testmod2，旧class复用0；50个JUnit套件273注册/266实际执行/7原地图或native-probe条件skip/0失败。47发现检查与506打包来源检查通过，376 class均完成named→Mojang remap、82 mixin/5资源，JAR727559字节SHA42e868168cd9603cab04e0e4843819b0cae4203eaf3ee891779170cec3c4e300。root27668 exit0/146.877秒/Job14自然Active0，无超时或强清；2193输入未变、89原依赖原地复用，无SDK/缓存复制。MC1.21.1/NeoForge21.1.256/JDK21.0.12.1/Gradle8.10.2、实际FML依赖4.0.45；独立closure b40d4dd9含6197 hash/2715文件/2592门。主协调另复核native+Java共14093次hash/10354文件，XML实际266/7、JAR身份与来源不变，未重跑领域验证器。证据analysis/admission-20261015/{combined-checkpoint01.json,combined-handoff01.md}及analysis/coordinator-takeover-20261015/checkpoint10-verified.json。
+
+async rename05配置、实际compiler-ID/lld审计和三个x86测试目标编译通过；原并发reader三项完整性断言与最终seq64通过：65 submitted/written、0 errors/overwritten、7184完整读、0坏读/0打开错误；八次实际DLL启停、线程退出和卸载通过。但新增held-share3 check66失败，held.json仍seq1，readonly/recovery未到达，错误细节尚缺，整轮仍失败。root36176 exit1/66.749秒/Job157自然Active0，无强清、冻结输入不变。继续只增错误定位的窄诊断，未授权重跑或完整客户端；无root异步整合/部署/游戏，不能声称入服/ESC修复。证据analysis/client-responsiveness-20261015/async01/{rename05,rename05-job}，原replace04失败保留。
+
+installer07的candidate05仅在analysis准备日志/退出码和事务内Windows快捷方式规范化窄补丁，root产品未应用。46适配源+1 SDK pin10.0.302+12 helpers+5353工具共5415输入冻结；主协调5542次hash/5470文件复核0漂移，并核对无现成匹配NuGet缓存。已授一次总≤240秒singleworker owned Job，以隔离缓存按原冻结命令恢复依赖并构建，完成后须捕获实际包/assets/编译工具和输入后hash；尚不能称依赖闭包或构建通过。无binlog，不声称执行级task跟踪。GUI矩阵已准备，故障注入未执行；无新GUI事务/COM Save/部署，Stable EXE/ZIP保留且未含新85载荷。证据analysis/metahook-installer-gui-20261014/handoff-20261015-07.json及gui03-diagnosis01/candidate05。probe03合成5/5通过的原记录保持。
+
+清理35.719→27.525 GiB（净约8.19 GiB）已完成，存档/设置/Mod母本/迁移回滚/失败证据保留。最新source-only公开文档检查点788954ba737f22870950f39d9dc40477a1d8f7bc已push并核实远端main，index792文件/7147754字节/0错误，仅managed checkout的TODO/VALIDATION；root HEAD5687c262、index和未审源稿保留。四领域继续独立并发，部署/游戏输入/GUI/index仍主协调排程。用户本机测试服Connection refused/25575无监听请求纳入优先队列，待匹配DLL/JAR和运行监督就绪统一恢复双服。7项skip补验因原测试写相对build/carved-parity，采用analysis cwd与仅五个BSP，保留原测试/assumption并等待fresh matched x86 probe；不在root/neoforge写入，不使用旧probe冒充当前联合产物。全部G01–G28开放。
+
 ## 2026-10-15 — 原生全测试执行与审计失败、日志探针通过
 
 combined85-native02的13 common与12项原测试均实际执行成功，最终12 PE由MT读回asInvoker；root36316 exit0/146.829秒/Job66自然Active0，无强清。实测status96、armor80、armorDispatch46、statusDispatch108、HUD18、fluid4045、sharedBulk308、bridge1068、exception283、codec457；rules及pure无文字且exit0。独立audit 243门中两门失败：common shared_bulk与同名测试覆盖rsp/log且stem分类错误，不能称完整证据通过。原结果完整保留；fresh03仅common-唯一命名、发起前duplicate拒绝及audit分类，172项目/7249工具与02相同，主协调7603次hash复核后授一次300秒singleworker Job。此时完整DLL、Java、FML和实机仍未由该轮验证。证据analysis/minecraft-status-effects/armor-defense/combined85-native02及combined85-native03。
