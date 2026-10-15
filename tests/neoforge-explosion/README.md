@@ -72,6 +72,6 @@ gc_explosion_fixture ignite_ownerless
 
 点燃调用实际 `TntBlock.onCaughtFire`，随后移除原 TNT 方块，与原版使用物品的点燃顺序一致。夹具不会自行生成子 TNT，也不改引信、速度或重力；子 TNT 由真实爆炸击中相邻方块生成。记录首颗正引信并观察约 8 秒，再读取 `report` / `snapshot`。预期有 3 个唯一 TNT UUID、首颗初始引信 80、两颗子 TNT 初始引信各为 10–29，以及对应的 6 条 Start/Detonate 事件。每条实际宿主切除须属于某次最终事件列表；至少一条位于首颗爆炸列表之外，才能证明连锁扩大了宿主破坏范围。
 
-2026-10-15 无主连锁对照通过：两颗子 TNT、69 条原生切除，其中 52 条不在首颗最终列表内。带原生玩家镜像的点燃命令目前仅编译通过，尚未执行归属对照；它也不能替代真实玩家的点燃、杀伤和击杀归属验收。证据位于 `analysis/coordinator-takeover-20261015/tnt26/`。
+2026-10-15 无主连锁对照通过：两颗子 TNT、69 条原生切除，其中 52 条不在首颗最终列表内。后续原生玩家镜像对照在mode2/1/0均通过：三颗TNT及爆炸事件保留当前world/slot/serial/life对应的UUID；mode2产生68条切除（47条超出首颗列表），mode1/0始终零切除且revision不变。该玩家来自真实ReHLDS测试假客户端，不能替代真人输入、杀伤或击杀归属验收；归属/模式证据位于 `analysis/coordinator-takeover-20261015/tnt28/`。证据位于 `analysis/coordinator-takeover-20261015/tnt26/`。
 
 结束时确认 TNT 实体和方块均消失，关闭夹具，核对 21 格支撑块仍为黑曜石后执行 `execute in goldcraft:cs_assault_f6725c06 run fill 2 75 -91 8 75 -89 minecraft:air replace minecraft:obsidian`；再释放临时强加载并按上述流程停服清理。

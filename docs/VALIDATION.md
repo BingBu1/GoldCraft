@@ -1,5 +1,21 @@
 # 验证状态
 
+## 2026-10-15 — 原生点燃者TNT连锁归属与三模式限制
+
+真实双服完成原生测试玩家点燃的mode2/1/0三组连锁：各3个TNT UUID、6条Start/Detonate，首颗引信80，两颗子TNT使用原版10–29 tick引信。mode2产生68切除、47条仅属于后续爆炸列表；mode1/0数量与revision全程不变。每组9条生成/事件记录的owner均等于按原生world/slot26/serial1/life2、3、4计算的生产UUID，与爆前/爆后权威身份对应。这里是实际ReHLDS假客户端和生产NativePlayerEntity镜像，非真人输入；不验收伤害或击杀归属。
+
+| mc_map_mining | 原生life | 两颗子TNT初始引信（tick） | 宿主切除 | 首颗列表外切除 |
+| --- | --- | --- | --- | --- |
+| 2 | 2 | [17, 26] | 68 | 47 |
+| 1 | 3 | [15, 20] | 0 | 0 |
+| 0 | 4 | [26, 23] | 0 | 0 |
+
+每条最终切除逐一属于三次爆炸的最终列表并保持同一world；mode0/1没有用停止TNT或清空列表获得零切除。点燃使用原版onCaughtFire，子TNT由原版爆炸生成；未伪造配对、地图切除或伤害回执。
+
+复用现有7421B测试JAR（3237b7ee），未重编或修改生产JAR/DLL；完整Mod/FerriteCore及实际加载native模块hash通过。21格临时支撑每组均移除，9强加载区块释放，两服正常exit0，3临时文件清理；原安装19575文件元数据/5项hash、原运行Mod/INI和用户公网进程身份不变。证据 analysis/coordinator-takeover-20261015/tnt28/{runtime-audit.json,cleanup-receipt.json}。
+
+真人点燃、TNT实际伤害/击杀归属、其他宿主材质/水、图形洞口/真实枪击/常规重力移动及多人仍待；公网MC未更新，完整G01–G28保持开放。对方Combined85安装结果仍未反馈，不将本地-Plan当作远程安装成功。
+
 ## 2026-10-15 — 无主TNT连锁实测及旧安装包报错跟进
 
 无主TNT真实连锁通过：首颗80 tick、两颗子TNT正常短引信，3个唯一UUID/6个爆炸事件，共69条宿主切除，其中52条仅在后续爆炸列表内。保留初次RCON合包拒绝的准备失败，改为收到首回复再发结束标记后通过。21支撑块、9强加载区块及3测试文件已清理，两服正常exit0，原安装19575文件元数据/5项hash、既有Mod/INI及用户公网进程不变。仅测试夹具变更，原生玩家归属对照因用户新报安装问题尚未执行。证据 analysis/coordinator-takeover-20261015/tnt26/{runtime-audit.json,cleanup-receipt.json}。
