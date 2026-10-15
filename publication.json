@@ -304,7 +304,11 @@
     "tools/client-installer/GoldCraftIntegration.cs",
     "tools/client-installer/build_gui.py",
     "tools/client-installer/goldcraft-gui.patch",
-    "tools/client-installer/gui-source.json"
+    "tools/client-installer/gui-source.json",
+    "tests/neoforge-explosion/README.md",
+    "tests/neoforge-explosion/neoforge.mods.toml",
+    "tests/neoforge-explosion/src/dev/goldcraft/test/ExplosionFixture.java",
+    "tools/Build-ExplosionFixture.py"
   ],
   "trees": {
     "native": [

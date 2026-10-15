@@ -1,5 +1,25 @@
 # 验证状态
 
+## 2026-10-15 — NeoForge爆炸取消与破坏列表兼容性实测
+
+使用当前生产双服、完整既有Mod（含FerriteCore）和独立[爆炸事件夹具](../tests/neoforge-explosion/README.md)，完成5次真实已点燃TNT对照。NeoForge21.1.256/MC1.21.1/protocol30实际启动；生产JAR/DLL未重编或修改。夹具默认off，仅作用于指定维度/标签，控制命令要求MC零玩家。
+
+| 试验 | Detonate方块列表前 → 后 | 原生宿主切除 |
+| --- | --- | --- |
+| pass01 | 387 → 387 | 52 |
+| cancel01 | 无Detonate | 0 |
+| clear01 | 390 → 0 | 0 |
+| prune01 | 391 → 168 | 26 |
+| pass02 | 384 → 384 | 58 |
+
+取消试验只发生Start；取消及清空列表时，整个6秒采样期间宿主切除数量和revision均不变，玻璃保留。裁剪只保留MC X<3，26条实际宿主切除逐条属于最终列表且均X<3；玻璃位于另一侧并保留。两次pass均破坏玻璃并产生切除。每次采到正数引信，同一world/mode2；每次准备明确使用sv_restart清空旧切除，未将此作为自然回合验收。
+
+独立测试Mod编译exit0，5500B、SHA `ad9e891e941aaf80e0e230002e0eba22d970ba6f86375c9b712f13bf0de14834`。实际native模块路径/hash及完整既有Mod hash通过，无fatal/mixin/linkage/server-tick错误。首次ready的JSON字符串/整数比较失败保留，修正比较后继续；事件RCON回复最长9081B，按多包读取并用后续有序回复确定结束。
+
+双服正常exit0，9临时强加载区块及3测试文件清理，原有运行INI/Mod hash不变；原安装19575文件元数据/5项hash及用户公网进程身份不变。证据 `analysis/coordinator-takeover-20261015/tnt25/{runtime-audit.json,cleanup-receipt.json}`；[夹具说明](../tests/neoforge-explosion/README.md)包含复现命令、预期结果和收尾。
+
+只验收上述事件组合，不泛化为所有Mod兼容。其他宿主材质/水、连锁及玩家归属TNT、图形洞口、实际枪击、常规重力移动和其他机器/多人仍待；公网MC未更新，G18及完整G01–G28保持开放。
+
 ## 2026-10-15 — TNT真实原生碰撞、移动与自然回合还原
 
 本地生产双服和完整Mod集不变，仅加载显式启用的[Pawn夹具](../amxx/tests/goldcraft_tnt_test.sma)。真实TNT爆炸、TraceLine/TraceHull、RunPlayerMove及RG_RoundEnd后置记录覆盖以下范围：
