@@ -1,5 +1,32 @@
 # 验证状态
 
+## 2026-10-15 — TNT点燃身份修复与自然连锁六组实服通过
+
+配对玩家点燃后，CS重生而MC玩家对象不变时，旧实现在爆炸时重新查当前UUID，从而把击杀记到新spawn。现改为点燃时保存不可变 `NativeTntOrigin`，包含world epoch、slot、serial、spawn及配对UUID；爆炸时核对原身份。故意不以life拒绝同spawn的CS↔MC形态切换或仅死亡状态。缺失/失效玩家归属降为世界来源，继续遵守原有真实受伤作用域、距离/遮挡、队伍及原生权威校验。
+
+TntOwnerMixin在构造时捕获来源，`explode`以try/finally保存父TNT作用域，使原版连锁子TNT继承原始快照（包括null或已失效来源），不重新授予当前生命归属。`goldcraft_tnt_owner` NBT读写及实体copy保留快照，格式无效记录清空；新增六项JUnit覆盖形态/仅死亡、重生、缺失/换连接、配对丢失/替换、原生来源及地图epoch。
+
+combined44全新生产编译/remap成功，JUnit287注册/280执行/7地图条件skip/零失败，47发现检查通过；源输入未变化、无超时或强终止。JAR SHA256 `708e412183a8656be84b67de532c4483aba3071301b570c47f4654f27d033db1`。fixture45只增加从实际TNT NBT读取nativeOrigin的观察记录，不修改伤害/生成行为；匹配NeoForge编译exit0，JAR SHA256 `8c0c23a9fb6fe99347504a228152ae1e7b1d66e69b3a41757006bd11c70b3d2c`。
+
+| 真实双服场景 | spawn | HP | 原生实际伤害次数 | 归属 |
+| --- | --- | --- | --- | --- |
+| tnt44 当前身份 | 3→3 | 100→-25 | 1 | killer1 |
+| tnt44 CS→MC | 3→3 | 100→-29 | 1 | killer1 |
+| tnt44 MC→CS | 3→3 | 100→-29 | 1 | killer1 |
+| tnt44 重生 | 3→4 | 100→-66 | 1 | killer0 |
+| tnt46 当前身份自然连锁 | 3→3 | 1000→771 | 2 | attacker1 |
+| tnt46 重生后自然连锁 | 3→4 | 1000→685 | 2 | attacker0 |
+
+六组归属均通过，配对测试玩家对象/UUID保持，目标serial/spawn保持；完整ZP Infection Mode、Mod/FerriteCore及实际运行模块hash核对通过。首颗真实原版点燃引信80，点燃后用实际NBT命令延长至300 tick供生命周期观察；所有子TNT仍使用自然10–29 tick引信。tnt46每组3个不同TNT UUID、6条Start/Detonate及三颗的生成记录均保留点燃时spawn3，重生后的子TNT不捕获spawn4；实际目标出现三次incoming、两次pre/post、两次原生TakeDamage，其中一项post直接来源为子TNT。未声称三颗都分别造成伤害。TNT NBT读写在实际data merge前后得到覆盖；实体跨维度copy、区块卸载/加载尚无本轮直接证据。
+
+tnt45准备阶段失败保留：原生阳性对照100→95通过，但在第二项对照前目标已变为5400血，实际MC伤害后5390，触发硬编码低于100的断言；没有执行TNT场景。tnt46将准备改为先启动真实Infection Mode、固定对照为人类，再验证100→95及100→90，两个对照均通过。没有调整生产ZP伤害规则或放宽伤害断言。
+
+tnt44/45/46两服全部正常exit0，矩阵44/46为0、45为1；每轮8运行文件和部署注册恢复、7测试文件移除，Mod/INI及原安装19575文件元数据/5hash保持。tnt46已清除21格支撑和3格TNT位置、释放9强加载区块、移除配对测试玩家；独立恢复复核通过。测试DLL仅含headless凭据投递差异，未将测试包同步母本/A/B/公网。
+
+证据：`analysis/admission-20261015/combined44/{result.json,jar-verified.json}`；`analysis/coordinator-takeover-20261015/tnt44/{paired-*.json,independent-results.json,process-exits.json}`；`tnt45/{controls.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`；`tnt46/{controls-preparation.json,controls.json,paired-*.json,independent-results.json,runtime-audit.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`。
+
+FakePlayer只覆盖真实双服协议与服务器玩法路径，不代表真人网络登录、输入、图形或多人验收。配对点燃者断线/换连接仍需实服证据，任意Mod伤害回调及公网部署仍待，G01–G28开放。用户已确认旧包问题解决，本轮没有复查或重打包。
+
 ## 2026-10-15 — 配对TNT形态切换通过，重生误归属已复现
 
 tnt43以唯一测试FakePlayer通过真实配对消息后完成四组真实TNT。当前CS形态及CS→MC、MC→CS均killer=owner1；点燃后原生重生spawn3→4、life7→8，MC玩家对象保持，却仍把旧TNT击杀归给owner1（期望世界来源0）。这是已复现待修的配对玩家归属故障，不能把四组观察完成写成归属全部通过。

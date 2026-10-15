@@ -6,6 +6,7 @@
     "HostFluidMixin",
     "CollisionViewMixin",
     "HostExplosionMixin",
+    "TntOwnerMixin",
     "BlockViewMixin",
     "ServerMovementMixin",
     "ServerPlayNetworkHandlerAccessor",

@@ -64,7 +64,9 @@ execute in goldcraft:cs_assault_f6725c06 run execute if entity @e[type=minecraft
 
 归属验证路径为：`pair_create` → `pair_report` 与原生 actor 身份一致 → 准备单个 TNT → `damage` → `ignite_paired` → 经实际服务器命令切换形态或重生 → 等待真实 TNT 爆炸 → 比对生成/爆炸记录与原生 TakeDamage、killer。初始引信应记录为原版 80 tick；若为观测生命周期而延长到 300 tick，须单独记录。结束前先 `pair_remove`，确认 MC 玩家列表恢复为空，再停服还原。
 
-tnt43已完成四组观察：当前身份和同spawn双向形态切换归属正确；原生重生后MC对象保持时，旧TNT错误归给新生命。此项为待修故障，见 [验证状态](../../docs/VALIDATION.md)。`observationPassed`仅表示取得完整观测，须另看`ownershipCorrect`；清理状态也须独立核对。
+tnt43曾复现配对玩家重生后的旧TNT误归属；修复后tnt44四组及tnt46两组自然连锁均通过，详见 [验证状态](../../docs/VALIDATION.md)。tnt46每组3颗TNT、6条爆炸事件，重生后的子TNT仍保存原spawn；当前归属为玩家，重生后为世界来源。`observationPassed`仅表示取得完整观测，须另看`ownershipCorrect`；清理状态也须独立核对。
+
+生成、爆炸和伤害记录的 `nativeOrigin` 只读实际TNT保存的 `goldcraft_tnt_owner`，提供epoch/slot/serial/spawn/paired；无快照时为null。连锁验证应逐颗比对点燃快照，并分别核对原生回调与子TNT的post，不能只看owner UUID。ZP对照须先启动实际模式、再准备人类身份/血量，避免自动感染改变对照血量（tnt45失败保留；tnt46对照通过）。本轮NBT读写已实测；实体copy/区块重载、配对断线/换连接及真人仍待。
 
 结束后执行 `gc_explosion_fixture off` 和 `execute in goldcraft:cs_assault_f6725c06 run forceload remove -13 -106 19 -74`，正常关闭双服，核对退出状态，再移除临时测试 JAR/插件并核对原有 Mod 和配置。保留日志和快照证据。
 

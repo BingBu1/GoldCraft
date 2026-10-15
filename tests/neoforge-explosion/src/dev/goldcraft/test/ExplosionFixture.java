@@ -6,10 +6,12 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.TntBlock;
@@ -57,6 +59,18 @@ public final class ExplosionFixture {
         return (mode.equals("chain") || mode.equals("damage")) && tnt.distanceToSqr(3.5, 76, -89.5) < 16 * 16;
     }
 
+    private Map<String, Object> nativeOrigin(Entity source) {
+        if (!(source instanceof PrimedTnt)) return null;
+        var saved = source.saveWithoutId(new CompoundTag());
+        if (!saved.contains("goldcraft_tnt_owner", 10)) return null;
+        var origin = saved.getCompound("goldcraft_tnt_owner");
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("epoch", Long.toUnsignedString(origin.getLong("epoch")));
+        for (String key : List.of("slot", "serial", "spawn")) value.put(key, origin.getInt(key));
+        value.put("paired", origin.hasUUID("paired") ? origin.getUUID("paired").toString() : "none");
+        return value;
+    }
+
     private void recordDamage(String phase, LivingEntity target, DamageSource source, float amount, boolean canceled) {
         if (!mode.equals("damage") || target.level().isClientSide()
             || !target.level().dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")
@@ -75,6 +89,7 @@ public final class ExplosionFixture {
         row.put("direct", source.getDirectEntity() == null ? "none" : source.getDirectEntity().getUUID().toString());
         row.put("attacker", source.getEntity() == null ? "none" : source.getEntity().getUUID().toString());
         row.put("attackerType", source.getEntity() == null ? "none" : source.getEntity().getClass().getName());
+        row.put("nativeOrigin", nativeOrigin(source.getDirectEntity()));
         damage.add(row);
     }
 
@@ -102,6 +117,7 @@ public final class ExplosionFixture {
         row.put("position", List.of(tnt.getX(), tnt.getY(), tnt.getZ()));
         row.put("owner", tnt.getOwner() == null ? "none" : tnt.getOwner().getUUID().toString());
         row.put("ownerType", tnt.getOwner() == null ? "none" : tnt.getOwner().getClass().getName());
+        row.put("nativeOrigin", nativeOrigin(tnt));
         spawns.add(row);
     }
 
@@ -121,6 +137,7 @@ public final class ExplosionFixture {
         row.put("tick", event.getLevel().getGameTime());
         row.put("source", source.getUUID().toString());
         row.put("removed", source.isRemoved());
+        row.put("nativeOrigin", nativeOrigin(source));
         row.put("power", explosion.radius());
         row.put("center", List.of(explosion.center().x, explosion.center().y, explosion.center().z));
         row.put("owner", explosion.getIndirectSourceEntity() == null ? "none"

@@ -171,7 +171,7 @@ public final class NativePlayers {
     }
     private static boolean tntDamage(NativePlayerEntity target,DamageSource source,float amount,net.minecraft.util.math.Vec3d center){
         if(!GoldCraft.tntDamageAvailable()||target.epoch()!=epoch||target.isRemoved()||amount>1000||pending.size()>=256)return false;
-        var host=GoldCraft.HOST_WORLD;var attacker=source.getAttacker();var owner=NativeTntDamage.owner(host,attacker);
+        var host=GoldCraft.HOST_WORLD;var attacker=source.getAttacker();var owner=NativeTntDamage.owner(host,source);
         long key=owner!=null?0:MinecraftObjects.key(attacker);
         var actor=target.actor();var point=HostCollision.goldsrc(center.x,center.y,center.z);long event=++sequence;
         var packet=new Wire.Writer().i64(epoch).i64(event).i64(key)
