@@ -160,6 +160,10 @@ public final class HudExporter implements AutoCloseable {
                 }
                 if(!controlling&&!client.options.hudHidden)
                     ((dev.goldcraft.client.mixin.InGameHudStatusAccessor)client.inGameHud).goldcraft$statusOverlay(context,client.getRenderTickCounter());
+                if(!controlling&&!deathHud&&!client.options.hudHidden&&client.player.getAbsorptionAmount()>0){
+                    // Extra Minecraft health remains separate from CS armor/HP.
+                    NativeAbsorptionHud.draw(context,client,width,height,client.player.getAbsorptionAmount());
+                }
                 context.draw();
                 if(screen!=null) {
                     RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT,MinecraftClient.IS_SYSTEM_MAC);

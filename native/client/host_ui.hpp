@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 
 struct metahook_api_s;
@@ -20,5 +21,7 @@ void install(metahook_api_s* api,KeyHandler handler,void(*engine_key)(int,int),K
 void shutdown();
 void resume_game();
 void update_mouse_capture(bool active_window,bool raw_input);
+bool game_menu_active();
+void write_work_diagnostics(std::ostream& out);
 State state();
 }

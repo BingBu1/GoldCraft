@@ -34,6 +34,27 @@ bool GoldCraft_MinecraftFallAuthority(edict_s* player);
 void GoldCraft_EntityTouched(edict_s* entity,edict_s* other);
 bool GoldCraft_ClientCommand(edict_s* player, const char* command);
 void GoldCraft_StartFrame();
+// Read-only speed transform: never overwrites weapon/ZP base speed.
+float GoldCraft_StatusMaxSpeed(edict_s* player,float native_speed);
+// Shield guard runs before ReAPI pre hooks, including contact infection.
+bool GoldCraft_StatusShield(edict_s* player,edict_s* inflictor,float damage,int bits);
+// Native armor has already run. MC-originated final damage is not reduced again.
+float GoldCraft_StatusDefense(edict_s* player,float damage,edict_s* inflictor,edict_s* attacker,int bits);
+struct playermove_s;
+void GoldCraft_FluidMove(playermove_s* move,int server,void (*original)(int));
+// Queue after native armor, before the native injury/death tail.
+bool GoldCraft_QueueNativeArmor(edict_s* player,float damage,edict_s* inflictor,edict_s* attacker,int bits,edict_s* logged_attacker,bool team_attack,int armor_hit);
+const char* GoldCraft_EquipmentWeapon(edict_s* player);
+// A nested native attack must not inherit a deferred outer hit context.
+class GoldCraft_EquipmentDamageScope {
+public:
+    GoldCraft_EquipmentDamageScope() noexcept;
+    ~GoldCraft_EquipmentDamageScope() noexcept;
+    GoldCraft_EquipmentDamageScope(const GoldCraft_EquipmentDamageScope&)=delete;
+    GoldCraft_EquipmentDamageScope& operator=(const GoldCraft_EquipmentDamageScope&)=delete;
+private:
+    edict_s* player_;float factor_;const char* weapon_;
+};
 // Scope native round cleanup; explicit plugin entity restarts retain their semantics.
 struct GoldCraft_MapMiningRoundCleanup {
     GoldCraft_MapMiningRoundCleanup();

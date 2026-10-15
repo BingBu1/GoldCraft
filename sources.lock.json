@@ -193,6 +193,14 @@
       "observedHead": "0212b4c540786fb966355b5a0d23f6dd01be6ff5",
       "index": "https://hlnd2t.github.io/GoldSrc_VibeSignatures/gamesymbols/index.json",
       "role": "module-identity-matched symbol catalog; built snapshots pin their content hashes"
+    },
+    "spdlog": {
+      "url": "https://github.com/gabime/spdlog",
+      "commit": "6fa36017cfd5731d617e1a934f0e5ea9c4445b13",
+      "path": "external/spdlog",
+      "version": "v1.15.3",
+      "archiveUrl": "https://codeload.github.com/gabime/spdlog/zip/6fa36017cfd5731d617e1a934f0e5ea9c4445b13",
+      "archiveSha256": "4531c14d34a29ad69f16524f37ef1350d411353bebe59765e100e84cd802946b"
     }
   },
   "minecraft": {

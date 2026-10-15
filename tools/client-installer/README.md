@@ -1,14 +1,14 @@
 # GoldCraft MetaHook 一键安装
 
-完整解压安装包，双击 `Install-GoldCraft.cmd`。它调用**官方 MetahookInstallerCLI**，自动定位 Steam 的 Counter-Strike（App ID 10），安装配套运行文件并生成 `MetaHook for Counter-Strike.lnk`。
+完整解压安装包，双击 **`GoldCraftInstaller.exe`**。这是基于官方 **MetahookInstaller Avalonia 图形界面**的 GoldCraft 适配版，保留官方 Steam 自动定位功能。界面自动选中 Counter-Strike（App ID 10），点击“安装 GoldCraft”即可安装配套插件，并生成 `MetaHook for Counter-Strike.lnk`。双击 `Install-GoldCraft.cmd` 也会打开同一图形界面。
 
-非 Steam 目录或自动识别失败时，把游戏根目录传给同一入口：
+非 Steam 目录或自动识别失败时，在界面选择“自定义游戏”，浏览选择包含 `hl.exe`、`hw.dll` 和 `cstrike` 的游戏根目录。命令行维护入口仍可用：
 
 ```bat
 Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life"
 ```
 
-请先退出要安装的 CS。安装包放在游戏目录之外；Windows 自带的 PowerShell 即可运行，不需要安装 Python 或 .NET。
+请先退出要安装的 CS。安装包放在游戏目录之外；Windows x64 安装包自带图形界面所需的 .NET 运行时，安装后端使用 Windows 自带的 PowerShell，不需要另装 Python 或 .NET。安装中界面显示进度状态，结束后显示结果和日志。
 
 安装内容为 VGUI2Extension、CaptionMod、Renderer、GoldCraft、BulletPhysics、StudioEvents、PrecacheManager、HeapPatch、ResourceReplacer、InterpFix 及其资源。Renderer 后紧接 GoldCraft；已有 MetaAudio 保持在 CaptionMod 之前。其他插件和注释保留，相关 DLL 搜索目录自动补齐。不会修改 CS 按键或 `config.cfg`，不会复制开发机的账号、配对密钥、MC 实例或游戏文件。
 
@@ -16,7 +16,7 @@ Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life"
 
 本包取自当前已部署稳定客户端，不包含尚未部署的流体、药水、盔甲和盾牌联合候选。
 
-安装前备份将被改写的文件，失败自动恢复。需要撤回成功安装时：
+安装前备份将被改写的文件，失败自动恢复。需要撤回成功安装时，在界面选择同一 CS 目录后点击“恢复上次安装”，或运行：
 
 ```bat
 Install-GoldCraft.cmd -Restore
@@ -31,6 +31,8 @@ Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life" -Restore
 Install-GoldCraft.cmd -Plan
 ```
 
-本项目复用官方安装器的自动发现、目标验证、文件部署、SDL 条件处理和快捷方式生成。安装器固定为 MetaHookSv `v20261008b` 中的版本，对应 MetahookInstaller 提交 `d9af23c55150e586bd5c29ff9df59098dcbdd2a2`，MIT 许可随包保留；没有重新实现 Steam 目录查找。
+本项目复用官方安装器的 Avalonia 界面、自动发现、目标验证、文件部署、SDL 条件处理和快捷方式生成。图形按钮连接 GoldCraft 事务脚本，文件安装仍调用原版官方 CLI。安装器固定为 MetaHookSv `v20261008b` 中的版本，对应 [MetahookInstaller 提交 d9af23c](https://github.com/MetaHookSv/MetahookInstaller/tree/d9af23c55150e586bd5c29ff9df59098dcbdd2a2)，MIT 许可随包保留。图形界面的本地修改单独保存在 `goldcraft-gui.patch` 和 `GoldCraftIntegration.cs`。
 
-源码维护者用 `package.py --runtime <已验证CS根目录> --official <官方解压目录> --installer-license <官方LICENSE> --plan <本地计划.json>` 生成只读计划，增加 `--output <新输出目录>` 生成目录和 ZIP。运行内容来自指定的已验证客户端，不会自动混入未部署候选。打包清单按 SHA-256 记录每个文件；含本机源路径的计划仅留本地，发布清单不含源路径。`upstream.json` 固定官方安装器身份，升级时须重新核对上游源和安装行为。
+源码维护者先准备以上提交的官方完整源码，运行 `python tools/client-installer/build_gui.py --upstream <官方源码目录> --work <新构建目录> --build`。需要 .NET SDK；源码输入由 `gui-source.json` 逐文件固定，依赖和输出均保存在新构建目录。省略 `--build` 只核验输入并回放补丁。
+
+然后用 `package.py --runtime <已验证CS根目录> --official <官方解压目录> --installer-license <官方LICENSE> --gui <新构建目录/publish> --plan <本地计划.json>` 生成只读计划，增加 `--output <新输出目录>` 生成目录和 ZIP。运行内容来自指定的已验证客户端，不会自动混入未部署候选。打包前核对图形构建身份与产物；清单按 SHA-256 记录每个文件。含本机源路径的计划仅留本地，发布清单不含源路径。`upstream.json` 固定官方安装器身份，升级时须重新核对上游源和安装行为。

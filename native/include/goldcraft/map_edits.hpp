@@ -44,6 +44,8 @@ class Ledger {
 public:
     void reset(std::uint64_t epoch);
     bool add(Target target, Box box);
+    // An explosion publishes one snapshot and one physics build.
+    bool add_batch(std::span<const Cut> cuts);
     bool remove(Target target);
     bool restore();
     void swap(Ledger& other) noexcept;

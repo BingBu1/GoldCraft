@@ -1,0 +1,185 @@
+{
+  "commit": "d9af23c55150e586bd5c29ff9df59098dcbdd2a2",
+  "files": [
+    {
+      "path": ".github/actions/build-windows-x64/action.yml",
+      "sha256": "6eda807878d3d9e7492df217fee36b2a81ba01c9e490f2e3d8d02a9988f7be43"
+    },
+    {
+      "path": ".github/workflows/build.yml",
+      "sha256": "b52bceff23724e36473eec4b55c947510ccc83ed72ce083b4633dbb316275621"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "sha256": "869f0330ef4107524514112a1a5b810e479ce6ec4f86013603971bf9590668f5"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "3a0fcd434d47d877e5d2690062e0bb70305e50b4be09cc08ddf277a39ffaf197"
+    },
+    {
+      "path": "Directory.Build.props",
+      "sha256": "b9547f73681bdf12401afc40d64ae4814d8f5adc7306679390c43931b5711059"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "ded0a9c22c375e3d5436a0f2b8ac6ac0413cd25f3425bdbd9bfdcc82e5fc75c4"
+    },
+    {
+      "path": "MetahookInstaller.sln",
+      "sha256": "f57c48a03faa92247023bd035729be427f37caaf1a717cdd84b91699a89d559c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "a7153bad5e02736acee7700377363defba68b583a3db4cb914f96ae7dd11f286"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/App.axaml",
+      "sha256": "6f944fb784c77be5c07565aee58c93e845a552f68ea85ad7b816d1125077ce4e"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/App.axaml.cs",
+      "sha256": "164c49737f0f14b623d69d9c0dc9d3258b9b432e8fc9461e5c0c52d02095ca27"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Assets/avalonia-logo.ico",
+      "sha256": "e4b18d8dd3b98069e7fb0dbb30924e58d47b3dfe2ec91782364752c31a0a6e2c"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Behavior/ListBoxDragDrop.cs",
+      "sha256": "9c4a4a2e7c29b6ef6d4c8d1471aba79d1607433964beaae2f967dd5c17032b53"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Handler/Command.cs",
+      "sha256": "d29453e7c0f25d7c9a772a795f4249fd0ddbda4c8348bb82ecefb8acf51ac11d"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Lang/Resources.Designer.cs",
+      "sha256": "abf24a8d491384f03c6e6f4c712993a4381e8119ae29d9672edc15796d3acd47"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Lang/Resources.resx",
+      "sha256": "29391c093f01e8db708b39aa5698036ff327d2a35789f85f7ddb56fefdb2788b"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Lang/Resources.zh-CN.resx",
+      "sha256": "d7bb693c4047a1b357d2f0c2523701614118cc8b4d27eea35592566c91accb53"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/MetahookInstallerAvalonia.csproj",
+      "sha256": "ed9a115ad076cfce82ed70d5054de9f400b2d07330e8874276982df710578f08"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Styles/ViewStyles.axaml",
+      "sha256": "5620871f4eb79895dddc2aa35cd72b6d03c9ff2d654d8d929391194655ea1af3"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/ViewModels/MainViewModel.cs",
+      "sha256": "19b38213155651e8c15d8b3d3faf822cc98f49419d05a68334bd9526c89fc020"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/ViewModels/PluginInfo.cs",
+      "sha256": "ad7f2280e0c9c1a9815bf9f24eb7e0137fd126cb9b08c1076bd62fdc71b4527a"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/ViewModels/ViewModelBase.cs",
+      "sha256": "f980800e91b1dbfe5a091368dddb2ed90ff31704756736d14a3a7d6760a212ad"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/EditorPage.axaml",
+      "sha256": "9134631748c3858e3e789976e595144f33e2df04f7b8dd2b3a877429e3011528"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/EditorPage.axaml.cs",
+      "sha256": "1839d2f58bec060586c4e8c9277e22e699afac7ff2a5bdc29ae84d6a8eeb79b0"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/InstallerPage.axaml",
+      "sha256": "3bc8966fd2685fe4c905a39a85be9acab81463e2a1f1f6df33d6139a6e877a50"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/InstallerPage.axaml.cs",
+      "sha256": "132d9048679d19ad716812d18c34829fff707c794c8603350da619dc278f891e"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/MainView.axaml",
+      "sha256": "e69ed03163e6451ef8f3abca6d767219007227549c3e7acfce4f1dbfed201f75"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/MainView.axaml.cs",
+      "sha256": "c49724d17873158cac9aef8039664061597b681867174f1389868c4231f21b47"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/MainWindow.axaml",
+      "sha256": "7ed4aa1ff96c3b257fd11bd2a6ffa28b81b59223d4599c338977607c2cb81760"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia/Views/MainWindow.axaml.cs",
+      "sha256": "7981f930d3695f0dc4c23b8a20d26b3a4c9eb0f69ca259f49ebc72778cdc37ff"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia.Desktop/app.manifest",
+      "sha256": "d5cfdbcbcec0c29a784497f1bbe01d8e36c3d501b0cb9b62f35d6ed03576ef41"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia.Desktop/avalonia-logo.ico",
+      "sha256": "e4b18d8dd3b98069e7fb0dbb30924e58d47b3dfe2ec91782364752c31a0a6e2c"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia.Desktop/MetahookInstallerAvalonia.Desktop.csproj",
+      "sha256": "ae99afc616ccd2c1523a05b8132aed3fb121220777b2d2041eb89125f09e42eb"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia.Desktop/Program.cs",
+      "sha256": "0d018c4c5ab70d2d2b2cd878401e83875bd03fe3bc7806295424466f907f4d72"
+    },
+    {
+      "path": "src/MetahookInstallerAvalonia.Desktop/Properties/PublishProfiles/FolderProfile.pubxml",
+      "sha256": "92366ae9008fece14bb513e5bedfcedc3768d250ace3ab6ec446700c17b74b40"
+    },
+    {
+      "path": "src/MetahookInstallerCLI/CommandLineOptions.cs",
+      "sha256": "c25f9e30fe59c727f4742abff901fb5cf5388b476209a1e728646b70f60e0bb9"
+    },
+    {
+      "path": "src/MetahookInstallerCLI/MetahookInstallerCLI.csproj",
+      "sha256": "7af6bda234d08bc518022f014a0bf8af21983a972aec8c8d76c1dac2163ace34"
+    },
+    {
+      "path": "src/MetahookInstallerCLI/Program.cs",
+      "sha256": "3cdb0724ba74523c41d81281db08cc6763e82c3ca3949315e44fc3732df03d71"
+    },
+    {
+      "path": "src/MetahookInstallerCore/InstallPayload.cs",
+      "sha256": "87c09ee11cfda2ce6aa1a6ac6c70ec45852b41e2d951ccc18585707b63f76f23"
+    },
+    {
+      "path": "src/MetahookInstallerCore/KnownGames.cs",
+      "sha256": "c52ccdd352403c5f61d5a7ff94c72ff0a8efa354892935d3478ab104bdad4e39"
+    },
+    {
+      "path": "src/MetahookInstallerCore/MetahookInstallerCore.csproj",
+      "sha256": "2ec8095fd837bc299e6dcbfebd292e26197fa4114c9b377a187fdfab414cda69"
+    },
+    {
+      "path": "src/MetahookInstallerCore/MetahookSetup.cs",
+      "sha256": "2c8fcb30dd2bce15dd71be64ca89e87626746db7907df1999100a31711cf3447"
+    },
+    {
+      "path": "src/MetahookInstallerCore/PortableExecutable.cs",
+      "sha256": "03b380ef5ad43962b54ead1e00ad6dc80c936b8580b7e3837e2a4f39f0da20f7"
+    },
+    {
+      "path": "src/MetahookInstallerCore/SteamLibrary.cs",
+      "sha256": "29c2efba833910fd4f620b7e4251971cd2de5b795d2b6ed754840d1771469862"
+    },
+    {
+      "path": "tests/MetahookInstaller.FileTests/MetahookInstaller.FileTests.csproj",
+      "sha256": "8195928a682e17f74dd447764b89703f71686b6b7e5e2d505515f615df7f113a"
+    },
+    {
+      "path": "tests/MetahookInstaller.FileTests/Program.cs",
+      "sha256": "db19b85c9543057a2b8e4321df2350d1154e54783ad0c1dd559557b25cb708a9"
+    }
+  ]
+}

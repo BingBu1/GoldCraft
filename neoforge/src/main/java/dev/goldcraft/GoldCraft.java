@@ -17,9 +17,11 @@ import dev.goldcraft.world.HostSession;
 import dev.goldcraft.world.HostWorldReset;
 import dev.goldcraft.world.HostGameplayRules;
 import dev.goldcraft.world.MinecraftObjects;
+import dev.goldcraft.world.MinecraftFluids;
 import dev.goldcraft.world.NativePlayers;
 import dev.goldcraft.world.SharedVitals;
 import dev.goldcraft.world.HostMining;
+import dev.goldcraft.world.HostExplosions;
 import dev.goldcraft.net.MiningPayload;
 import dev.goldcraft.net.EditRequestPayload;
 import net.minecraft.server.MinecraftServer;
@@ -75,11 +77,32 @@ public final class GoldCraft {
         return link!=null&&link==authorityLink?link.localQpcFrequency(generation):0;
     }
     public static long authorityGeneration(){return currentAuthorityGeneration();}
+    public static boolean statusAttributesAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.statusAttributes(generation);
+    }
+    public static boolean sendAttributesToHost(int type,byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendAttributes(generation,type,payload);
+    }
+    public static boolean nativeArmorAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeArmor(generation);
+    }
+    public static boolean fluidsAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.fluids(generation);
+    }
+    public static boolean sendFluidsToHost(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendFluids(generation,payload);
+    }
     public static boolean statusEffectsAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.statusEffects(generation);
     }
     public static boolean gameplayRulesAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.gameplayRules(generation);
+    }
+    public static boolean hostExplosionsAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation);
+    }
+    public static boolean sendHostExplosion(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation)&&link.sendForGeneration(generation,Wire.HOST_EXPLOSION,payload);
     }
     public static boolean sendStatusToHost(int type,byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendStatus(generation,type,payload);
@@ -95,7 +118,7 @@ public final class GoldCraft {
         CsAdmission.reset();
         HostGameplayRules.reset();
         nextEditQuery=0;
-        HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();HostMining.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
+        dev.goldcraft.world.NativeArmorServer.clear();HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();MinecraftFluids.clear();HostMining.clear();HostExplosions.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
     private static void broadcast(int type,byte[] data) {
         for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey()))entry.getValue().enqueue(type,data);
@@ -122,6 +145,7 @@ public final class GoldCraft {
         dev.goldcraft.world.NativePlayerHitboxEntity.initialize(modBus);
         HostWorldReset.initialize();
         MinecraftObjects.initialize();
+        MinecraftFluids.initialize();
         modBus.addListener(this::registerPayloads);
         modBus.addListener(CsAdmission::registerTasks);
         var events=net.neoforged.neoforge.common.NeoForge.EVENT_BUS;
@@ -185,6 +209,10 @@ public final class GoldCraft {
                             HOST_WORLD.bsp(message.payload());bspPayload=message.payload();broadcast(Wire.BSP,bspPayload);
                             LOGGER.info("Authoritative BSP loaded: {} bytes, {} planes, {} models, CRC32 {}",HOST_WORLD.bspBytes().length,HOST_WORLD.geometry().planeCount(),HOST_WORLD.geometry().modelCount(),HOST_WORLD.geometry().crc());
                         }
+                        case Wire.HOST_MATERIALS -> {
+                            if(!hostExplosionsAvailable())throw new IllegalArgumentException("Unnegotiated host materials");
+                            HostExplosions.materials(HOST_WORLD,message.payload());
+                        }
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
                         case Wire.BRUSHES -> {HOST_WORLD.brushes(message.payload());brushPayload=message.payload();broadcast(Wire.BRUSHES,brushPayload);}
                         case Wire.PAIR_RESULT -> paired(server,message.payload());
@@ -199,6 +227,8 @@ public final class GoldCraft {
                         case Wire.TRACE_RESULT -> TRACE_VALIDATION.result(message.payload(),HOST_WORLD);
                         case Wire.OBJECT_ACTION -> MinecraftObjects.action(server,HOST_WORLD,message.payload());
                         case Wire.DAMAGE_RESULT -> NativePlayers.result(message.payload());
+                        case dev.goldcraft.bridge.NativeArmorProtocol.REQUEST -> dev.goldcraft.world.NativeArmorServer.handle(server,message.payload(),nativeArmorAvailable());
+                        case Wire.STATUS_SPEND -> dev.goldcraft.world.NativeStatusAttributes.spend(server,message.payload());
                         case Wire.MAP_MINING_POLICY -> {
                             var previous=HOST_WORLD.mining();HOST_WORLD.mining(message.payload());
                             if(!previous.equals(HOST_WORLD.mining())){
@@ -236,7 +266,9 @@ public final class GoldCraft {
             HostGameplayRules.tick(server,HOST_WORLD);
             HostMining.tick(server,HOST_WORLD);
             NativePlayers.tick(server,HOST_WORLD);
+            dev.goldcraft.world.NativeArmorServer.flush(nativeArmorAvailable());
             MinecraftObjects.tick(server,HOST_WORLD);
+            MinecraftFluids.tick(server,HOST_WORLD);
             Performance.flush();
         });
         LOGGER.info("GoldCraft initialized: Minecraft 1.21.1 / NeoForge 21.1.256, protocol {}",Wire.VERSION);

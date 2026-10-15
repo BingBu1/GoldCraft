@@ -1,6 +1,8 @@
 #include "render_backend.hpp"
 #include "post_effect_replay.hpp"
 #include "host_ui.hpp"
+#include "work_history.hpp"
+#include "async_diagnostics.hpp"
 #include "server_hud.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
@@ -25,6 +27,8 @@
 #include <pm_defs.h>
 #include <gl/GL.h>
 #include "goldcraft/endpoint.hpp"
+#include "local_discovery.hpp"
+#include "goldcraft/fluid_volumes.hpp"
 #include "goldcraft/atlas_footprint.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
@@ -57,6 +61,7 @@ cl_exportfuncs_t gExportfuncs{};
 namespace {
 using namespace goldcraft;
 Endpoint link;
+local_discovery::Publisher discovery;
 metahook_api_t* api = nullptr;
 Bytes binding;
 client_map::EditTransaction map_edits;
@@ -67,11 +72,12 @@ std::uint64_t world = 0, last_link_generation = 0;
 std::uint32_t player_slot=0,player_serial=0;
 struct NativeCollider {int slot;float min[3],max[3];};
 std::map<std::uint64_t,NativeCollider> native_colliders;
+fluids::Receiver native_fluids;
 std::uint64_t collider_sequence=0,prediction_frames=0;
 double last_colliders=0;
 unsigned prediction_objects=0,prediction_overflow=0;
 std::string last_error;
-std::ofstream log_file;
+diagnostics::Dispatcher diagnostic_io;
 GLuint atlas_texture = 0;
 unsigned atlas_width=0,atlas_height=0;
 std::vector<std::uint8_t> atlas_alpha;
@@ -144,7 +150,9 @@ enum class WorkStage : std::size_t {
     draw_opaque,draw_shadow,draw_transparent,pass_construct,pass_restore,
     sections,entities,feedback,entity_effects,particle_draw,post_mask,post_replay,hud_redraw,
     native_hud_redraw,mc_hud_composite,server_hud_overlay,
-    chunk_first_append,chunk_continuation_append,chunk_gpu_upload,chunk_publish_release,chunk_failed_release,count
+    chunk_first_append,chunk_continuation_append,chunk_gpu_upload,chunk_publish_release,chunk_failed_release,
+    vid_init,vid_cleanup,native_vid_init,render_initialize,post_initialize,create_move,ui_update,
+    mouse_capture,native_create_move,input_forward,frame_gap,count
 };
 constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> work_names{
     "frame","nativeHudFrame","auditCommands","transportPoll","mapEdits","connectionState","diagnosticWrite","messages",
@@ -154,22 +162,33 @@ constexpr std::array<const char*,static_cast<std::size_t>(WorkStage::count)> wor
     "drawOpaque","drawShadow","drawTransparent","passConstruct","passRestore",
     "sections","entities","feedback","entityEffects","particleDraw","postMask","postReplay","hudRedraw",
     "nativeHudRedraw","mcHudComposite","serverHudOverlay",
-    "chunkFirstAppend","chunkContinuationAppend","chunkGpuUpload","chunkPublishRelease","chunkFailedRelease"
+    "chunkFirstAppend","chunkContinuationAppend","chunkGpuUpload","chunkPublishRelease","chunkFailedRelease",
+    "vidInit","vidCleanup","nativeVidInit","renderInitialize","postInitialize","createMove","uiUpdate",
+    "mouseCapture","nativeCreateMove","inputForward","frameGap"
 };
 struct WorkCounter {std::uint64_t count=0;double total_ms=0,max_ms=0;};
 std::array<WorkCounter,work_names.size()> work_counters{};
+timing::History<work_names.size()> work_history;
+double last_frame_start=0;
 double work_window_start=0;
 std::uint64_t work_window=0;
 std::string work_snapshot="{\"schema\":1,\"ready\":false}";
 void RecordWork(WorkStage stage,double started) noexcept {
-    const double elapsed=std::max(0.0,(Seconds()-started)*1000);
+    const double finished=Seconds();
+    const double elapsed=std::max(0.0,(finished-started)*1000);
     auto& counter=work_counters[static_cast<std::size_t>(stage)];
     ++counter.count;counter.total_ms+=elapsed;counter.max_ms=std::max(counter.max_ms,elapsed);
+    work_history.record(static_cast<std::size_t>(stage),elapsed,finished);
 }
 class WorkScope {
 public:
     explicit WorkScope(WorkStage stage) noexcept:stage_(stage),started_(Seconds()) {
         if(!work_window_start)work_window_start=started_;
+        if(stage==WorkStage::frame){
+            if(last_frame_start)work_history.record(static_cast<std::size_t>(WorkStage::frame_gap),
+                std::max(0.0,(started_-last_frame_start)*1000),started_);
+            last_frame_start=started_;
+        }
     }
     ~WorkScope(){RecordWork(stage_,started_);}
     WorkScope(const WorkScope&)=delete;
@@ -197,6 +216,10 @@ void WriteWorkDiagnostics(std::ostream& out) {
         work_counters={};work_window_start=now;
     }
     out<<"\"nativeWork\":"<<work_snapshot;
+    out<<",\"nativeWorkHistory\":";work_history.write(out,work_names);
+    out<<",\"hostUiWork\":";host_ui::write_work_diagnostics(out);
+    const auto& gl=render::statistics();
+    out<<",\"glLoader\":{\"calls\":"<<gl.gl_loader_calls<<",\"reuses\":"<<gl.gl_loader_reuses<<'}';
 }
 WorkStage MessageWork(Type type) noexcept {
     switch(type){
@@ -448,9 +471,7 @@ void ClearDynamic(bool delete_textures=true) {
 }
 
 void Log(const std::string& text) {
-    auto line="[GoldCraft] "+text+"\n";
-    OutputDebugStringA(line.c_str());
-    if(log_file) { log_file << line; log_file.flush(); }
+    diagnostic_io.log("[GoldCraft] "+text+"\n");
 }
 void RestoreViewModel(){
     if(viewmodel_suppressed&&host_viewmodel)gEngfuncs.Cvar_SetValue("r_drawviewmodel",saved_viewmodel);
@@ -470,7 +491,7 @@ void ResetWorld() {
     ReleaseHostUse();
     RestoreViewModel();
     ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
-    native_colliders.clear();collider_sequence=0;last_colliders=0;
+    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;minecraft_transition_until=0;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -629,10 +650,11 @@ void Status() {
     gEngfuncs.Con_Printf("[GoldCraft] protocol=%d engine=%d connected=%d local-port=%d sections=%u\n",protocol_version,api->GetEngineBuildnum(),link.connected()?1:0,link.port(),static_cast<unsigned>(sections.size()));
 }
 void WriteDiagnostics() {
-    if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) {
-        std::ofstream out(path);
+    if(diagnostic_io.status_enabled()) {
+        std::ostringstream out;
         out<<'{'; control_trace.write(out);out<<',';write_transport_stats(out,link.transport_stats());out<<',';
         WriteWorkDiagnostics(out);out<<',';
+        diagnostic_io.write_status(out);out<<',';
         client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
@@ -754,10 +776,12 @@ void WriteDiagnostics() {
            <<",\"rendererDrawParameterStream\":"<<gEngfuncs.pfnGetCvarFloat("r_draw_parameter_stream")
            <<",\"hostUseHeld\":"<<(host_use_sent?"true":"false")<<",\"hostUseMessages\":"<<host_use_messages
            <<",\"minecraftForm\":"<<(server_minecraft_form?"true":"false")<<",\"serverPlayerLife\":"<<server_player_life
+           <<",\"nativeFluidVolumes\":"<<native_fluids.field.state().volumes.size()<<",\"nativeFluidRevision\":"<<native_fluids.field.state().revision<<",\"nativeFluidActive\":"<<(native_fluids.active(world,Seconds())?"true":"false")
            <<",\"nativeColliders\":"<<native_colliders.size()<<",\"predictionObjects\":"<<prediction_objects<<",\"predictionFrames\":"<<prediction_frames<<",\"predictionOverflow\":"<<prediction_overflow
            <<",\"minecraftFeet\":["<<minecraft_feet.x<<','<<minecraft_feet.y<<','<<minecraft_feet.z<<"],\"origin\":[";
         out<<observed_origin.x<<','<<observed_origin.y<<','<<observed_origin.z;
         out<<"],\"viewAngles\":["<<observed_angles.x<<','<<observed_angles.y<<','<<observed_angles.z<<"],\"viewReady\":"<<(have_view?"true":"false")<<"}";
+        diagnostic_io.snapshot(std::move(out).str());
         frame_work_max_ms=view_frame_max_ms=0;
     }
 }
@@ -784,6 +808,13 @@ bool MatchingHostProtocol(){
     const char* value=gEngfuncs.ServerInfo_ValueForKey?gEngfuncs.ServerInfo_ValueForKey("mc_protocol"):nullptr;
     static const auto expected=std::to_string(protocol_version);
     return value&&value==expected;
+}
+void UpdateLocalDiscovery(){
+    net_status_t status{};
+    if(gEngfuncs.pNetAPI&&gEngfuncs.pNetAPI->Status)gEngfuncs.pNetAPI->Status(&status);
+    const bool joined=status.connected&&MatchingHostProtocol()&&
+        !(gEngfuncs.pDemoAPI&&gEngfuncs.pDemoAPI->IsPlayingback());
+    discovery.state(joined?world:0,link.connected());
 }
 bool BenchmarkServer(unsigned short& port){
     if(!std::getenv("GOLDCRAFT_TEST_COMMAND")||!gEngfuncs.pNetAPI||!gEngfuncs.pNetAPI->Status||
@@ -998,9 +1029,19 @@ void InitHud() {
         }catch(const std::exception& e){Log(e.what());}
         return 1;
     });
+    gEngfuncs.pfnHookUserMsg(fluids::message_name,[](const char*,int size,void* data)->int {
+        try{if(size<24||!data)throw ProtocolError("Fluid message size");
+            native_fluids.accept(world,std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)),Seconds());
+        }catch(const std::exception& e){Log(e.what());}return 1;
+    });
+    gEngfuncs.pfnRegisterVariable(fluids::client_capability,"1",FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(fluids::client_capability,1.f);
     Log("client HUD hooks registered");
 }
 int VidInit() {
+    WorkScope work(WorkStage::vid_init);
+    {
+    WorkScope cleanup(WorkStage::vid_cleanup);
     StopPostScene();
     // Revoke while the old provider is still available. Keep the authenticated
     // epoch so a same-map video reset can recover through a fresh snapshot.
@@ -1015,10 +1056,13 @@ int VidInit() {
     if(atlas_texture&&render::owns_context())glDeleteTextures(1,&atlas_texture);
     atlas_texture=0;atlas_generation=0;atlas_width=atlas_height=0;view_interpolator.clear();
     have_view=false;
-    const int result=gExportfuncs.HUD_VidInit();
+    }
+    int result=0;
+    {WorkScope native(WorkStage::native_vid_init);result=gExportfuncs.HUD_VidInit();}
     server_hud::video_reset();server_hud::reset();form_menu.clear();menu_pressed.fill(false);
-    render::initialize(&scene_callbacks,Log);
+    {WorkScope initialize(WorkStage::render_initialize);render::initialize(&scene_callbacks,Log);}
     lamps_dirty=true;lamps_published=false;
+    WorkScope post(WorkStage::post_initialize);
     post_replay=std::make_unique<render::PostEffectReplay>();
     const char* game=gEngfuncs.pfnGetGameDirectory?gEngfuncs.pfnGetGameDirectory():nullptr;
     post_replay->set_shader_directory((std::filesystem::path(game?game:"cstrike")/"metahook/shaders/goldcraft/vix-post").string());
@@ -1523,6 +1567,7 @@ void Frame(double time) {
     {WorkScope timing(WorkStage::native_hud);gExportfuncs.HUD_Frame(time);}
     {WorkScope timing(WorkStage::audit_commands);input_audit::sample();TestCommands();}
     {WorkScope timing(WorkStage::transport);link.poll();}
+    UpdateLocalDiscovery();
     CheckBenchmarkFramerate();
     static double next_ready=0;
     {
@@ -1618,18 +1663,19 @@ void Frame(double time) {
     frame_work_ms=(Seconds()-began)*1000;frame_work_max_ms=std::max(frame_work_max_ms,frame_work_ms);
 }
 void CreateMove(float frame_time,usercmd_t* cmd,int active) {
+    WorkScope work(WorkStage::create_move);
     // GoldSrc's active argument describes a game connection, not OS focus.
     // Keep each paired MC runtime's input/audio lease tied to its own window.
     DWORD foreground_process=0;
     GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
     window_focused=foreground_process==GetCurrentProcessId();
-    UpdateUi();
-    host_ui::update_mouse_capture(active&&window_focused,gEngfuncs.pfnGetCvarFloat("m_rawinput")!=0);
+    {WorkScope ui(WorkStage::ui_update);UpdateUi();}
+    {WorkScope capture(WorkStage::mouse_capture);host_ui::update_mouse_capture(active&&window_focused,gEngfuncs.pfnGetCvarFloat("m_rawinput")!=0);}
     // Keep GoldSrc's normal relative mouse capture, converting its look delta to a GUI cursor.
     // A temporary zero angle avoids losing cursor motion at pitch/yaw clamps.
     const bool mc_look=HasControl();
     const bool relative_look=mc_look&&active&&window_focused&&!ui_active
-        &&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu;
+        &&!gEngfuncs.Con_IsVisible()&&!host_ui::game_menu_active();
     float restored_angles[3]{},look_pitch=0,look_yaw=0;
     if(mc_look){
         gEngfuncs.GetViewAngles(restored_angles);
@@ -1639,7 +1685,7 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     }
     if(relative_look){float zero[3]{};gEngfuncs.SetViewAngles(zero);}
     if(ui_active){float zero[3]{};gEngfuncs.SetViewAngles(zero);}
-    gExportfuncs.CL_CreateMove(frame_time,cmd,active);
+    {WorkScope native(WorkStage::native_create_move);gExportfuncs.CL_CreateMove(frame_time,cmd,active);}
     if(relative_look){
         look_pitch=cmd->viewangles[0];look_yaw=std::remainder(cmd->viewangles[1],360.0f);
         gEngfuncs.SetViewAngles(restored_angles);
@@ -1660,7 +1706,7 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     }
     const bool input_active=active&&window_focused&&!gEngfuncs.Con_IsVisible();
     if(!input_active)menu_pressed.fill(false);
-    if(!input_active||!HasControl()||ui_active||gEngfuncs.Con_IsVisible()||host_ui::state().game_menu)ReleaseMinecraftKeys();
+    if(!input_active||!HasControl()||ui_active||gEngfuncs.Con_IsVisible()||host_ui::game_menu_active())ReleaseMinecraftKeys();
     // Preserve the user's actual +use binding; only its destination changes
     // while MC owns movement. R/+reload and all CS-form commands remain native.
     if(HasControl()&&input_active&&(cmd->buttons&IN_USE)&&!ui_active)host_use_sources|=2;
@@ -1668,15 +1714,21 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     if(!input_active)ReleaseHostUse();else UpdateHostUse();
     last_input_active=input_active;last_input_buttons=input_active?cmd->buttons:0;last_input_forward=input_active?cmd->forwardmove:0;last_input_side=input_active?cmd->sidemove:0;
     if(!link.connected()||!world) return;
+    WorkScope forward(WorkStage::input_forward);
     Writer w; w.u64(world);w.u64(++input_sequence); w.f32(frame_time); w.u32((input_active?1u:0u)|(mc_look?2u:0u)); w.u32(last_input_buttons);
     input_times[input_sequence%input_times.size()]={input_sequence,std::chrono::steady_clock::now()};
     w.f32(mc_look?look_pitch:cmd->viewangles[0]); w.f32(mc_look?look_yaw:cmd->viewangles[1]); w.f32(last_input_forward); w.f32(last_input_side); w.f32(input_active?cmd->upmove:0);
     link.send(Type::input,w.data);
     if(HasControl()){cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->buttons=0;cmd->impulse=0;}
 }
+void PlayerMoveWithFluids(playermove_t* move,int server){
+    const auto* field=!server&&!HasControl()?native_fluids.active(world,Seconds()):nullptr;
+    fluids::MovementScope scope(*move,field);gExportfuncs.HUD_PlayerMove(move,server);
+}
 void PlayerMove(playermove_t* move,int server){
     prediction_objects=0;
     if(!server&&!MatchingHostProtocol()){
+        native_fluids.clear();
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
         gExportfuncs.HUD_PlayerMove(move,server);return;
     }
@@ -1695,7 +1747,7 @@ void PlayerMove(playermove_t* move,int server){
         }
         ++prediction_frames;
     }
-    client_map::move(move,server,gExportfuncs.HUD_PlayerMove);
+    client_map::move(move,server,PlayerMoveWithFluids);
 }
 int InitializeClient(cl_enginefunc_t* engine,int version){
     client_map::engine_initialized(engine);
@@ -1966,7 +2018,10 @@ void DrawTransparent() { gExportfuncs.HUD_DrawTransparentTriangles(); Draw(true)
 
 void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
     api=pApi;
-    if(const char* path=std::getenv("GOLDCRAFT_CLIENT_LOG")) log_file.open(path,std::ios::app);
+    diagnostics::Config diagnostics_config;
+    if(const char* path=std::getenv("GOLDCRAFT_CLIENT_LOG")) diagnostics_config.log_path=path;
+    if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) diagnostics_config.status_path=path;
+    diagnostic_io.start(std::move(diagnostics_config));
     Log("plugin Init, protocol "+std::to_string(protocol_version));
 }
 void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
@@ -1978,9 +2033,10 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     Log(client_precache::install(api) ? "dynamic precache installed" :
         std::string("dynamic precache unavailable: ") + client_precache::install_error());
     try {
-        if(auto config=goldcraft::environment_config("GOLDCRAFT_CLIENT",goldcraft::Role::host_client,goldcraft::Role::fabric_client)) {
-            link.start(*config); Log("loopback endpoint listening on "+std::to_string(link.port()));
-        } else Log("no instance environment: bridge disabled");
+        auto config=goldcraft::environment_config("GOLDCRAFT_CLIENT",goldcraft::Role::host_client,goldcraft::Role::fabric_client);
+        if(!config){config=EndpointConfig{};config->session=random_key();config->token=random_key();}
+        link.start(*config);discovery.start(*config,link.port());
+        Log("loopback endpoint listening on "+std::to_string(link.port()));
     } catch(const std::exception& e) { Log(e.what()); }
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
@@ -2001,7 +2057,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); log_file.close(); }
+void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

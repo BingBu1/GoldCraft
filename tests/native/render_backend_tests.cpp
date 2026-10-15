@@ -16,6 +16,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <new>
 #include <memory>
 #include <string>
@@ -26,6 +27,23 @@
 #include "goldcraft/atlas_footprint.hpp"
 
 namespace probe {
+CreateInterfaceFn initialize_factory=nullptr;
+std::size_t loader_calls=0,factory_lookups=0;
+GLenum persistent_error=GL_NO_ERROR;
+GLenum loader_failure=GLEW_OK;
+int renderer_module_token=0;
+HMODULE WINAPI module_handle(LPCSTR name){
+    if(initialize_factory&&!std::strcmp(name,"Renderer_AVX2.dll"))
+        return reinterpret_cast<HMODULE>(&renderer_module_token);
+    return GetModuleHandleA(name);
+}
+FARPROC WINAPI proc_address(HMODULE module,LPCSTR name){
+    if(module==reinterpret_cast<HMODULE>(&renderer_module_token)&&!std::strcmp(name,"CreateInterface")){
+        ++factory_lookups;return reinterpret_cast<FARPROC>(initialize_factory);
+    }
+    return GetProcAddress(module,name);
+}
+GLenum loader(){++loader_calls;return loader_failure!=GLEW_OK?loader_failure:glewInit();}
 bool count_allocations{};
 std::size_t allocations{}, queries{}, locations{}, uniforms{}, texture_parameters{}, bindings{}, errors{};
 std::size_t texture_images{},texture_updates{},array_draws{};
@@ -67,7 +85,7 @@ void APIENTRY disable_i(GLenum p,GLuint i){if(p==GL_BLEND)++color_state_writes;g
 void APIENTRY color_mask_i(GLuint i,GLboolean r,GLboolean g,GLboolean b,GLboolean a){++color_state_writes;glColorMaski(i,r,g,b,a);}
 void APIENTRY blend_func_i(GLuint i,GLenum sr,GLenum dr,GLenum sa,GLenum da){++color_state_writes;glBlendFuncSeparatei(i,sr,dr,sa,da);}
 void APIENTRY blend_equation_i(GLuint i,GLenum rgb,GLenum alpha){++color_state_writes;glBlendEquationSeparatei(i,rgb,alpha);}
-GLenum APIENTRY error() { ++errors; return glGetError(); }
+GLenum APIENTRY error() { ++errors; return persistent_error!=GL_NO_ERROR?persistent_error:glGetError(); }
 void APIENTRY texture_image(GLenum target,GLint level,GLint format,GLsizei width,GLsizei height,GLint border,GLenum channels,GLenum type,const void* pixels){
     ++texture_images;glTexImage2D(target,level,format,width,height,border,channels,type,pixels);
 }
@@ -166,6 +184,9 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define glUniform4fv probe::uniform_color
 #define glTexParameteri probe::parameter
 #define glGetError probe::error
+#define glewInit probe::loader
+#define GetModuleHandleA probe::module_handle
+#define GetProcAddress probe::proc_address
 #define glTexImage2D probe::texture_image
 #define glTexSubImage2D probe::texture_update
 #define glDrawArrays probe::arrays
@@ -184,6 +205,9 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 #define GOLDCRAFT_RENDER_SOURCE "../../native/client/render_backend.cpp"
 #endif
 #include GOLDCRAFT_RENDER_SOURCE
+#undef glewInit
+#undef GetModuleHandleA
+#undef GetProcAddress
 #ifndef GOLDCRAFT_RENDER_BASELINE
 #undef glTexStorage2D
 #define glTexStorage2D probe::snapshot_storage
@@ -317,6 +341,9 @@ struct Renderer : UnusedRenderer {
     static GLuint effect_program(const CCompileShaderArgs* args);
 };
 void log_message(const std::string &text) { std::fprintf(stderr, "%s\n", text.c_str()); }
+#ifndef GOLDCRAFT_RENDER_BASELINE
+#include "render_initialize_gl_tests.inc"
+#endif
 
 std::vector<double> snapshot() {
     std::vector<double> result;
@@ -709,12 +736,16 @@ int main() {
         glfwMakeContextCurrent(window);
         glewExperimental = GL_TRUE;
         const auto loaded = glewInit();
-        while (glGetError() != GL_NO_ERROR) {
-        }
+        GLenum startup_error=GL_NO_ERROR;
+        for(unsigned n=0;n<32;++n){startup_error=glGetError();if(startup_error==GL_NO_ERROR)break;}
+        assert(startup_error==GL_NO_ERROR);
         assert(loaded == GLEW_OK && GLEW_VERSION_4_4);
         if (i == 0)
             std::printf("{\"glVendor\":\"%s\",\"glRenderer\":\"%s\",\"glVersion\":\"%s\"}\n",
                         glGetString(GL_VENDOR), glGetString(GL_RENDERER), glGetString(GL_VERSION));
+        #ifndef GOLDCRAFT_RENDER_BASELINE
+        initialize_tests(window);
+        #endif
         run(i == 0);
         glfwDestroyWindow(window);
     }

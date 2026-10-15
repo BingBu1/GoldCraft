@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <cmath>
 #include <utility>
 
 namespace {
@@ -47,6 +48,7 @@ struct MinedEntity {
 std::map<int, MinedEntity> mined_entities;
 bool round_ended = false, cleanup_persist = false;
 unsigned cleanup_depth = 0;
+std::uint64_t last_host_explosion_event = 0;
 
 bool Persist() { return registered_persist && registered_persist->value == 1.0f; }
 bool LiveEditTarget(edits::Target target) {
@@ -385,6 +387,7 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     round_ended = cleanup_persist = false;
     cleanup_depth = 0;
     map_edits.reset(epoch);
+    last_host_explosion_event = 0;
     policy = {epoch, epoch ? 1u : 0u,
               mining::cvar_mode(registered_cvar ? registered_cvar->value : 0),
               mining::entity_damage};
@@ -397,6 +400,7 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     mining_samples = {};
     ClearMapPhysics();
 }
+void GoldCraft_MapMiningResetExplosionSequence() { last_host_explosion_event = 0; }
 void GoldCraft_MapMiningInvalidateSamples() { mining_samples = {}; }
 
 void GoldCraft_MapMiningFrame() {
@@ -465,6 +469,65 @@ goldcraft::mining::Policy GoldCraft_MapMiningPolicy() {
     return policy;
 }
 const goldcraft::edits::Ledger &GoldCraft_MapEdits() { return map_edits; }
+
+goldcraft::Bytes GoldCraft_MapMiningMaterials(std::span<const std::uint8_t> bsp) {
+    using namespace goldcraft;
+    if (bsp.size() < 124) throw ProtocolError("BSP material header");
+    Reader lump(bsp.subspan(20,8)); const auto offset=lump.u32(), length=lump.u32();
+    if (offset > bsp.size() || length > bsp.size()-offset || length < 4) throw ProtocolError("BSP material lump");
+    auto bytes=bsp.subspan(offset,length); Reader count_reader(bytes); const auto count=count_reader.u32();
+    if (count > 4096 || length < 4+count*4) throw ProtocolError("BSP material count");
+    std::map<std::string,mining::Material> materials;
+    for (std::uint32_t i=0;i<count;++i) {
+        Reader entry(bytes.subspan(4+i*4,4)); const auto start=entry.u32();
+        if (start == UINT32_MAX) continue;
+        if (start < 4+count*4 || start > length || length-start < 40) throw ProtocolError("BSP miptex range");
+        const auto raw=bytes.subspan(start,16);
+        std::string texture;
+        for (auto ch : raw) { if (!ch) break; if (ch < 32 || ch > 126) throw ProtocolError("BSP texture name"); texture.push_back(ch); }
+        if (texture.empty()) continue;
+        const char* normalized=texture.c_str();
+        if ((*normalized=='-' || *normalized=='+') && normalized[1]) normalized+=2;
+        if (*normalized=='{' || *normalized=='!' || *normalized=='~' || *normalized==' ') ++normalized;
+        char name[MAX_TEXTURENAME_LENGHT]; Q_strlcpy(name,normalized);
+        auto material=mining::Material::stone;
+        switch (PM_FindTextureType(name)) {
+        case CHAR_TEX_WOOD: material=mining::Material::wood; break;
+        case CHAR_TEX_METAL: case CHAR_TEX_VENT: case CHAR_TEX_GRATE: case CHAR_TEX_COMPUTER: material=mining::Material::metal; break;
+        case CHAR_TEX_GLASS: material=mining::Material::glass; break;
+        case CHAR_TEX_DIRT: case CHAR_TEX_GRASS: material=mining::Material::soil; break;
+        case CHAR_TEX_TILE: material=mining::Material::tile; break;
+        case CHAR_TEX_FLESH: material=mining::Material::flesh; break;
+        case CHAR_TEX_SLOSH: material=mining::Material::water; break;
+        case CHAR_TEX_SNOW: material=mining::Material::snow; break;
+        default: break;
+        }
+        materials.emplace(texture,material);
+    }
+    Writer w; w.u64(policy.epoch); w.u32(static_cast<std::uint32_t>(materials.size()));
+    for (const auto& [name,material] : materials) { w.string(name); w.u32(static_cast<std::uint32_t>(material)); }
+    return w.data;
+}
+
+bool GoldCraft_MapHostExplosion(const goldcraft::explosion::Event &event) {
+    using namespace goldcraft;
+    explosion::validate(event);
+    const auto current = GoldCraft_MapMiningPolicy();
+    if (!explosion::permits(event, current, last_host_explosion_event) || !map_physics ||
+        (g_pGameRules && CSGameRules()->m_bRoundTerminating)) return false;
+    // This comes from the authenticated dedicated MC server, whose vanilla ray
+    // calculation uses the exported BSP and final Detonate-event block list.
+    // Do not replace that list with a sphere or a trace that hits an earlier wall.
+    last_host_explosion_event = event.event;
+    PruneDeadTargets();
+    std::vector<edits::Cut> cuts;
+    cuts.reserve(event.cells.size());
+    for (const auto& cell : event.cells) cuts.push_back({0, {}, mining::cell_box(cell)});
+    auto candidate = map_edits;
+    if (!candidate.add_batch(cuts)) return false;
+    server_edits::publish(map_edits, candidate, *map_physics);
+    return true;
+}
 
 bool GoldCraft_MapVisibilityChanged(int clientnum) {
     if (clientnum < 0 || clientnum >= MAX_CLIENTS)

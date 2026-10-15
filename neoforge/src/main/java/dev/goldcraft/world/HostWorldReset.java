@@ -92,6 +92,7 @@ public final class HostWorldReset {
         // Unloaded chunks are cleared by prepare() on their next load. Entities
         // retain their map epoch: a round block reset is not an entity reset.
         MinecraftObjects.invalidateBlocks(world);
+        MinecraftFluids.invalidateBlocks(world);
         GoldCraft.LOGGER.info("Round blocks cleared: epoch={} revision={} loadedBlocks={}",
             Long.toUnsignedString(epoch),Long.toUnsignedString(revision),session.removed-before);
     }

@@ -5,5 +5,6 @@
   "releaseRepository": "https://github.com/MetaHookSv/MetaHookSv",
   "release": "v20261008b",
   "archiveSha256": "81ed955cdfb5ea2d1122272945145b0c5a3619b339d1e7e5d440bae16078adf8",
-  "cliSha256": "1dd312cd956005b122ed01702630a2d2b7a3b2c0e565e1583784c1e98695131e"
+  "cliSha256": "1dd312cd956005b122ed01702630a2d2b7a3b2c0e565e1583784c1e98695131e",
+  "officialGuiSha256": "7baafe515ad143fbc3f531f87cf4d9c325aa1753d301fcb7629ec51716fc3bfa"
 }

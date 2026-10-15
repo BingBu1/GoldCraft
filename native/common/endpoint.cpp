@@ -271,6 +271,17 @@ void Endpoint::poll() {
 bool Endpoint::connected() const { return impl_->handshake && impl_->handshake->ready(); }
 std::uint64_t Endpoint::generation() const { return impl_->generation; }
 std::uint64_t Endpoint::local_qpc_frequency() const { return connected() ? impl_->proven_clock_frequency : 0; }
+bool Endpoint::status_attributes() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_status_attributes) != 0;
+}
+bool Endpoint::native_armor() const {
+    return status_attributes() && (impl_->handshake->peer_capabilities() & capability_native_armor) != 0;
+}
+bool Endpoint::fluid_volumes() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_fluid_volumes) != 0;
+}
 bool Endpoint::status_effects() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_effects) != 0;
@@ -278,6 +289,10 @@ bool Endpoint::status_effects() const {
 bool Endpoint::gameplay_rules() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_gameplay_rules) != 0;
+}
+bool Endpoint::host_explosions() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_host_explosions) != 0;
 }
 bool Endpoint::effect_position_hold() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&

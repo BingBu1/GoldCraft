@@ -38,6 +38,8 @@ public final class NativeStatusEffects {
             if(!box.body().healthLedger().settled(GoldCraft.HOST_WORLD.tick()))
                 handoffs.put(player.getUuid(),new Handoff(box.body().epoch(),actor.serial(),actor.spawn(),box.body().healthLedger()));
         }
+        float absorption=from.getAbsorptionAmount();
+        boolean moveAbsorption=absorption>0||from.getAttributeValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_MAX_ABSORPTION)>0;
         // Move the instances themselves: the copy constructor loses hidden effects.
         // Lifecycle hooks migrate attributes/packets, never replay combat onApplied.
         for(var effect:List.copyOf(from.getActiveStatusEffects().values())){
@@ -49,8 +51,13 @@ public final class NativeStatusEffects {
                 ((NativeStatusLifecycleAccessor)to).goldcraft$statusAdded(effect,null);
             }
         }
+        if(moveAbsorption){
+            from.setAbsorptionAmount(0);
+            if(to!=null)to.setAbsorptionAmount(absorption);
+        }
     }
     public static void hud(HostWorldState.Actor actor,LivingEntity owner,ServerPlayerEntity paired,long tick){
+        NativeStatusAttributes.update(actor,owner,paired);
         if(tick%10!=0)return;
         var previous=mirrors.get(actor.slot());
         if(previous!=null&&previous.player()!=paired)clearMirror(actor.slot());
@@ -93,5 +100,5 @@ public final class NativeStatusEffects {
             ||wait.ledger().settled(GoldCraft.HOST_WORLD.tick())){handoffs.remove(player.getUuid());return false;}
         return true;
     }
-    public static void clear(){for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
+    public static void clear(){NativeStatusAttributes.clear();for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
 }

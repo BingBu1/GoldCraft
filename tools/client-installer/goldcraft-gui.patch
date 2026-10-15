@@ -1,0 +1,316 @@
+--- a/src/MetahookInstallerAvalonia/Lang/Resources.resx
++++ b/src/MetahookInstallerAvalonia/Lang/Resources.resx
+@@ -121,7 +121,7 @@
+     <value>Game Path:</value>
+   </data>
+   <data name="Install" xml:space="preserve">
+-    <value>Install</value>
++    <value>Install GoldCraft</value>
+   </data>
+   <data name="ModPath" xml:space="preserve">
+     <value>Mod Path:</value>
+@@ -133,10 +133,10 @@
+     <value>Steam AppId:</value>
+   </data>
+   <data name="MainMenuTitle" xml:space="preserve">
+-    <value>MetaHook Installer</value>
++    <value>GoldCraft / MetaHookSv Installer</value>
+   </data>
+   <data name="Uninstall" xml:space="preserve">
+-    <value>Uninstall</value>
++    <value>Restore previous files</value>
+   </data>
+   <data name="View" xml:space="preserve">
+     <value>View</value>
+@@ -211,10 +211,10 @@
+     <value>Apply this change?</value>
+   </data>
+   <data name="ConfirmInstall" xml:space="preserve">
+-    <value>Installing the new files will replace the original files. This action cannot be undone.</value>
++    <value>Install the paired CS plugins and back up changed files. Close the game first.</value>
+   </data>
+   <data name="ConfirmUninstall" xml:space="preserve">
+-    <value>Uninstalling will remove all Metahook-related files, including the metahook folder. This action cannot be undone.</value>
++    <value>Restore files from the last GoldCraft installation backup. Files changed since installation are protected.</value>
+   </data>
+   <data name="Cancelled" xml:space="preserve">
+     <value>Cancelled</value>
+--- a/src/MetahookInstallerAvalonia/Lang/Resources.zh-CN.resx
++++ b/src/MetahookInstallerAvalonia/Lang/Resources.zh-CN.resx
+@@ -121,7 +121,7 @@
+     <value>游戏路径：</value>
+   </data>
+   <data name="Install" xml:space="preserve">
+-    <value>安装</value>
++    <value>安装 GoldCraft</value>
+   </data>
+   <data name="ModPath" xml:space="preserve">
+     <value>Mod目录：</value>
+@@ -133,10 +133,10 @@
+     <value>Steam AppId：</value>
+   </data>
+   <data name="MainMenuTitle" xml:space="preserve">
+-    <value>MetaHook安装器</value>
++    <value>GoldCraft / MetaHookSv 安装器</value>
+   </data>
+   <data name="Uninstall" xml:space="preserve">
+-    <value>卸载</value>
++    <value>恢复上次安装</value>
+   </data>
+   <data name="View" xml:space="preserve">
+     <value>浏览</value>
+@@ -211,10 +211,10 @@
+     <value>确定是否要应用此修改？</value>
+   </data>
+   <data name="ConfirmInstall" xml:space="preserve">
+-    <value>安装新文件将替换原有文件，此操作不可逆。</value>
++    <value>将为所选 CS 安装配套插件，并备份被修改的文件。请先退出游戏。</value>
+   </data>
+   <data name="ConfirmUninstall" xml:space="preserve">
+-    <value>卸载将删除包括metahook文件夹在内的所有metahook相关文件，此操作不可逆。</value>
++    <value>恢复最近一次 GoldCraft 安装前的文件；安装后已更改的文件会受到保护。</value>
+   </data>
+   <data name="Cancelled" xml:space="preserve">
+     <value>已取消</value>
+--- a/src/MetahookInstallerAvalonia/ViewModels/MainViewModel.cs
++++ b/src/MetahookInstallerAvalonia/ViewModels/MainViewModel.cs
+@@ -21,65 +21,14 @@
+ 
+ namespace MetahookInstallerAvalonia.ViewModels;
+ 
+-public class MainViewModel : ViewModelBase
++public partial class MainViewModel : ViewModelBase
+ {
+     public WindowNotificationManager? NotificationManager { get; set; }
+     public WindowToastManager? ToastManager { get; set; }
+     #region Page 1
+-    private void InstallMod(string basePath)
+-    {
+-        if (Selected == null || Selected.GamePath == null || !MetahookSetup.IsValidInstallTarget(Selected.GamePath, Selected.Directory))
+-        {
+-            MessageBox.ShowAsync(Resources.InvalidInstallPath, Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-            return;
+-        }
+-        string modName = Selected.Directory;
+-        string gamePath = Selected.GamePath;
+-        var targetMetaHookPath = MetahookSetup.Install(basePath, gamePath, modName);
+-
+-        // 8. 为 targetMetaHookPath 创建快捷方式至当前MetahookInstaller.exe所在目录
+-        MetahookSetup.CreateShortcut(Path.GetFullPath("."), Selected.Name, targetMetaHookPath, gamePath, modName);
+-        NotificationManager?.Show(new Notification(
+-                            Resources.Success,
+-                            Resources.InstallDone),
+-                        NotificationType.Success,
+-                        new TimeSpan(0, 0, 5), true,
+-                        classes: ["Light"]);
+-        _pluginListInitialized = false;
+-        this.RaisePropertyChanged(nameof(EditorUsable));
+-    }
+     private readonly ICommand _install;
+     public ICommand InstallCommand => _install;
+ 
+-    private void UninstallMod()
+-    {
+-        if (Selected == null || Selected.GamePath == null || !MetahookSetup.IsValidInstallTarget(Selected.GamePath, Selected.Directory))
+-        {
+-            MessageBox.ShowAsync(Resources.InvalidInstallPath, Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-            return;
+-        }
+-        foreach (var failure in MetahookSetup.Uninstall(Selected.GamePath, Selected.Directory))
+-        {
+-            NotificationManager?.Show(new Notification(
+-                    Resources.Warning,
+-                    string.Format(Resources.DeleteFailed, failure.Path, failure.Message)),
+-                NotificationType.Warning,
+-                new TimeSpan(0, 0, 5), true,
+-                classes: ["Light"]);
+-        }
+-        // Delete desktop shortcut
+-        MetahookSetup.DeleteShortcut(Path.GetFullPath("."), Selected.Name);
+-
+-        NotificationManager?.Show(new Notification(
+-                                Resources.Success,
+-                                Resources.UninstallDone
+-                            ),
+-                            NotificationType.Success,
+-                            new TimeSpan(0, 0, 5), true,
+-                            classes: ["Light"]);
+-        _pluginListInitialized = false;
+-        this.RaisePropertyChanged(nameof(EditorUsable));
+-    }
+     private readonly ICommand _uninstall;
+     public ICommand UninstallCommand => _uninstall;
+ 
+@@ -309,22 +258,15 @@
+     public MainViewModel()
+     {
+         #region Setup Games
+-        var steamLibrary = new SteamLibrary();
+-        foreach (var game in KnownGames.All)
+-        {
+-            if (steamLibrary.FindGameDirectory(game.AppId) is string path)
+-            {
+-                var info = new ModInfo(game.Name, game.ModDirectory, game.AppId, path);
+-                if (Directory.Exists(info.InstallPath))
+-                {
+-                    _modInfos.Add(info);
+-                }
+-            }
+-        }
+-        var custom = new ModInfo(Resources.CustomGame, "", 0, "")
+-        {
+-            ReadOnly = false
+-        };
++        // Keep upstream Steam discovery; this package only supports CS 1.6.
++        try
++        {
++            var path = new SteamLibrary().FindGameDirectory(10);
++            if (path != null && MetahookSetup.IsValidInstallTarget(path, "cstrike"))
++                _modInfos.Add(new ModInfo("Counter-Strike", "cstrike", 10, path));
++        }
++        catch (Exception ex) { OperationLog = ex.Message; }
++        var custom = new ModInfo(Resources.CustomGame, "cstrike", 10, "");
+         _modInfos.Add(custom);
+         _selected = _modInfos.FirstOrDefault();
+         this.WhenAnyValue(x => x.Selected)
+@@ -346,56 +288,8 @@
+         #endregion
+ 
+         #region Setup Commands
+-        _install = new Command(
+-            _ =>
+-            {
+-                try
+-                {
+-                    var sourcePath = InstallPayload.FindApplicationSourceDirectory();
+-                    if (string.IsNullOrEmpty(sourcePath))
+-                    {
+-                        MessageBox.ShowAsync(Resources.BuildDirectoryNotFound, Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                        return;
+-                    }
+-                    InstallMod(sourcePath);
+-                }
+-                catch (IOException ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.InstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-                catch (UnauthorizedAccessException ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.InstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-                catch (Exception ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.InstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-            },
+-            _ => true
+-        );
+-        _uninstall = new Command(
+-            _ =>
+-            {
+-                try
+-                {
+-                    UninstallMod();
+-                }
+-                catch (IOException ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.UninstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-                catch (UnauthorizedAccessException ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.UninstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-                catch (Exception ex)
+-                {
+-                    MessageBox.ShowAsync($"{Resources.UninstallationFailed}\n\n{ex.Message}", Resources.CriticalError, MessageBoxIcon.Error, MessageBoxButton.OK);
+-                }
+-            },
+-            _ => true
+-        );
++        _install = new Command(async _ => await RunGoldCraftAsync(false), _ => !IsBusy);
++        _uninstall = new Command(async _ => await RunGoldCraftAsync(true), _ => !IsBusy);
+         _toAvaliable = new Command(
+             _ =>
+             {
+--- a/src/MetahookInstallerAvalonia/Views/MainView.axaml
++++ b/src/MetahookInstallerAvalonia/Views/MainView.axaml
+@@ -26,7 +26,7 @@
+   Effect="{DynamicResource MediumShadow}">
+   <!-- 内容容器 -->
+   <Grid Background="Transparent">
+-    <TabControl TabStripPlacement="Left"
++    <TabControl IsEnabled="{CompiledBinding !IsBusy}" TabStripPlacement="Left"
+     Background="Transparent"
+     CornerRadius="8"
+     Margin="10"
+--- a/src/MetahookInstallerAvalonia/Views/MainWindow.axaml
++++ b/src/MetahookInstallerAvalonia/Views/MainWindow.axaml
+@@ -17,7 +17,8 @@
+ ExtendClientAreaTitleBarHeightHint="-1"
+ ExtendClientAreaChromeHints="NoChrome"
+ CanResize="False"
+-Width="960" Height="500"
++Title="GoldCraft / MetaHookSv"
++Width="960" Height="650"
+ CornerRadius="8">
+ <Window.Styles>
+   <Style Selector="u|IconButton.title-bar-btn">
+@@ -137,7 +138,7 @@
+   VerticalAlignment="Center"/>
+   <!-- 窗口控制按钮 -->
+   <StackPanel Grid.Column="3" Orientation="Horizontal">
+-    <u:Breadcrumb Height="18"  Margin="0 0 40 0" Padding="8">
++    <u:Breadcrumb IsEnabled="{CompiledBinding !IsBusy}" Height="18"  Margin="0 0 40 0" Padding="8">
+       <u:IconButton Classes="breadcrumb-bar-btn" Icon="{StaticResource github_regular}" Click="GithubButton_Click"/>
+       <u:IconButton Classes="breadcrumb-bar-btn" Icon="{StaticResource local_language_regular}">
+         <u:IconButton.Flyout>
+@@ -197,6 +198,12 @@
+     />
+   </StackPanel>
+ </Grid>
++<StackPanel DockPanel.Dock="Bottom" Margin="24,0,24,16" Spacing="6">
++  <TextBlock Text="{CompiledBinding OperationStatus}" TextWrapping="Wrap"/>
++  <ProgressBar IsIndeterminate="True" IsVisible="{CompiledBinding IsBusy}" Height="4"/>
++  <TextBox Text="{CompiledBinding OperationLog}" IsReadOnly="True" AcceptsReturn="True"
++    Height="90" ScrollViewer.VerticalScrollBarVisibility="Auto"/>
++</StackPanel>
+ <Grid Margin="20" Background="{DynamicResource ContentBackgroundBrush}">
+   <views:MainView />
+ </Grid>
+--- a/src/MetahookInstallerAvalonia/Views/MainWindow.axaml.cs
++++ b/src/MetahookInstallerAvalonia/Views/MainWindow.axaml.cs
+@@ -10,6 +10,10 @@
+     public MainWindow()
+     {
+         InitializeComponent();
++        Closing += (_, e) =>
++        {
++            if (DataContext is ViewModels.MainViewModel { IsBusy: true }) e.Cancel = true;
++        };
+     }
+ 
+     private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+--- a/src/MetahookInstallerAvalonia.Desktop/Program.cs
++++ b/src/MetahookInstallerAvalonia.Desktop/Program.cs
+@@ -1,6 +1,7 @@
+ using Avalonia;
+ using ReactiveUI.Avalonia;
+ using System;
++using System.IO;
+ using System.Runtime.Versioning;
+ 
+ namespace MetahookInstallerAvalonia.Desktop;
+@@ -12,8 +13,11 @@
+     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
+     // yet and stuff might break.
+     [STAThread]
+-    public static void Main(string[] args) => BuildAvaloniaApp()
+-        .StartWithClassicDesktopLifetime(args);
++    public static void Main(string[] args)
++    {
++        Directory.SetCurrentDirectory(AppContext.BaseDirectory);
++        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
++    }
+ 
+     // Avalonia configuration, don't remove; also used by visual designer.
+     public static AppBuilder BuildAvaloniaApp()

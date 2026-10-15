@@ -10,8 +10,10 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 public final class HostNetwork {
     private static Consumer<HostPayload> receiver = payload -> {};
     private static Supplier<byte[]> localBinding = () -> null;
+    private static Supplier<String> localPairingProblem = () -> "Join the matching CS server first, then reconnect to Minecraft.";
     private static CsAdmissionChallengePayload admission;
     private static IPayloadContext admissionContext;
+    private static IPayloadContext pairingContext;
     private static long admissionDeadline;
     private HostNetwork() {}
     public static void clientReceiver(Consumer<HostPayload> value) {
@@ -22,12 +24,23 @@ public final class HostNetwork {
         receiver.accept(payload);
     }
     public static void clientBinding(Supplier<byte[]> value) { localBinding = Objects.requireNonNull(value); }
+    public static void clientPairingProblem(Supplier<String> value) { localPairingProblem = Objects.requireNonNull(value); }
+    /** Discovery must match the live server challenge, never a guessed address or player name. */
+    public static long admissionWorld() {
+        return admission!=null&&admissionContext!=null&&admissionContext.connection().isOpen()
+            &&admissionContext.connection().getPacketListener()==admissionContext.listener()?admission.world():0;
+    }
+    /** Keep discovery through the configuration/play handoff, never past disconnect. */
+    public static boolean pairingConnectionOpen() {
+        if(pairingContext!=null&&!pairingContext.connection().isOpen())pairingContext=null;
+        return pairingContext!=null;
+    }
     public static void receiveAdmission(CsAdmissionChallengePayload payload, IPayloadContext context) {
         if (admissionContext != null && admissionContext.connection().isOpen()
             && admissionContext.connection().getPacketListener() == admissionContext.listener()) {
             context.disconnect(Text.literal("Repeated CS admission challenge.")); return;
         }
-        admission = payload; admissionContext = context;
+        admission = payload; admissionContext = context; pairingContext = context;
         admissionDeadline = System.nanoTime() + 10_000_000_000L;
         tickAdmission();
     }
@@ -48,8 +61,9 @@ public final class HostNetwork {
             } catch (IllegalArgumentException invalid) { /* Wait for a fresh local CS binding. */ }
         }
         if (System.nanoTime() - admissionDeadline >= 0) {
+            String problem=localPairingProblem.get();
             clearAdmission();
-            context.disconnect(Text.literal("Join the matching CS server first, then reconnect to Minecraft."));
+            context.disconnect(Text.literal(problem));
         }
     }
     private static void clearAdmission() { admission = null; admissionContext = null; admissionDeadline = 0; }

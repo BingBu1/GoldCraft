@@ -49,7 +49,7 @@ index e6edc87..126e307 100644
  
  
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..ab4a9e8 100644
+index daee11d..e446e5b 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,6 @@
@@ -193,6 +193,15 @@ index daee11d..ab4a9e8 100644
  #else
  	cd->health = pev->health;
  #endif
+@@ -5057,7 +5075,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+ 
+ 	Q_strlcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
+ 
+-	cd->maxspeed = pev->maxspeed;
++	cd->maxspeed = GoldCraft_StatusMaxSpeed(const_cast<edict_t*>(ent), pev->maxspeed);
+ 	cd->fov = pev->fov;
+ 	cd->weaponanim = pev->weaponanim;
+ 	cd->pushmsec = pev->pushmsec;
 diff --git a/regamedll/dlls/client.h b/regamedll/dlls/client.h
 index 2682778..f1f636a 100644
 --- a/regamedll/dlls/client.h
@@ -262,6 +271,7 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
+index 8a219ea..2589bba 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -273,19 +283,54 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  
  BOOL gInitHUD = TRUE;
  
-@@ -908,6 +910,11 @@
+@@ -823,6 +825,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(TraceAttack)(entvars_t *pevAttacker, float
+ 
+ const char *CBasePlayer::GetKillerWeaponName(entvars_t *pevInflictor, entvars_t *pevKiller) const
+ {
++	if (const char *weapon = GoldCraft_EquipmentWeapon(ENT(pev)))
++		return weapon;
+ 	// by default, the player is killed by the world
+ 	const char *killer_weapon_name = "world";
+ 
+@@ -899,7 +903,18 @@ void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int
+ 	}
+ }
+ 
+-LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType), pevInflictor, pevAttacker, flDamage, bitsDamageType)
++#ifdef REGAMEDLL_API
++BOOL CBasePlayer::TakeDamage(entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType)
++{
++    // A shield block must precede ZP's infection in TakeDamage pre hooks.
++    GoldCraft_EquipmentDamageScope equipment_scope;
++    if (GoldCraft_StatusShield(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, flDamage, bitsDamageType))
++        return FALSE;
++    return g_ReGameHookchains.m_CBasePlayer_TakeDamage.callChain(&CBasePlayer::TakeDamage_OrigFunc, this, pevInflictor, pevAttacker, flDamage, bitsDamageType);
++}
++#endif
++
++#include "../../../../native/server/native_armor_commit.inc"
+ 
+ // Take some damage.
+ // RETURN: TRUE took damage, FALSE otherwise
+@@ -908,7 +923,16 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
+-	BOOL bTookDamage;
++#ifndef REGAMEDLL_API
++    GoldCraft_EquipmentDamageScope equipment_scope;
++    if (GoldCraft_StatusShield(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, flDamage, bitsDamageType))
++        return FALSE;
++#endif
 +	// The paired Minecraft server owns falling in MC form. Vanilla creative
 +	// ignores it; survival commits its one authoritative result through vitals.
 +	if ((bitsDamageType & DMG_FALL) && GoldCraft_MinecraftFallAuthority(edict()))
 +		return FALSE;
 +
- 	BOOL bTookDamage;
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
-@@ -987,7 +994,7 @@
+ 	int iGunType = 0;
+@@ -987,7 +1011,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -294,16 +339,98 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1096,7 +1103,7 @@
- 				continue;
- 
- 			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
--				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
-+				GoldCraft_WriteHealth(pPlayer->edict(), pev->health);
- 			MESSAGE_END();
+@@ -1022,85 +1046,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 			Pain(m_LastHitGroup, false);
  		}
  
-@@ -1182,7 +1189,7 @@
+-		m_lastDamageAmount = flDamage;
+-
+-		if (pev->health > flDamage)
+-		{
+-			SetAnimation(PLAYER_FLINCH);
+-			Pain(m_LastHitGroup, false);
+-		}
+-		else
+-		{
+-			if (bitsDamageType & DMG_BLAST)
+-				m_bKilledByBomb = true;
+-
+-			else if (bitsDamageType & DMG_EXPLOSION)
+-				m_bKilledByGrenade = true;
+-		}
+-
+-		LogAttack(pAttack, this, bTeamAttack, int(flDamage), armorHit, pev->health - flDamage, pev->armorvalue, GetKillerWeaponName(pevInflictor, pevAttacker));
+-		bTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, int(flDamage), bitsDamageType);
+-
+-		if (bTookDamage)
+-		{
+-			if (TheBots)
+-			{
+-				TheBots->OnEvent(EVENT_PLAYER_TOOK_DAMAGE, this, pAttack);
+-			}
+-
+-			if (TheCareerTasks)
+-			{
+-				CBasePlayer *pPlayerAttacker = CBasePlayer::Instance(pevAttacker);
+-				if (pPlayerAttacker && !pPlayerAttacker->IsBot() && pPlayerAttacker->m_iTeam != m_iTeam)
+-				{
+-					TheCareerTasks->HandleEnemyInjury(GetKillerWeaponName(pevInflictor, pevAttacker), pPlayerAttacker->HasShield(), pPlayerAttacker);
+-				}
+-			}
+-
+-#ifdef REGAMEDLL_API
+-			CSPlayer()->RecordDamage(pAttack, flDamage);
+-#endif
+-		}
+-
+-		{
+-			// reset damage time countdown for each type of time based damage player just sustained
+-			for (int i = 0; i < ITBD_END; i++)
+-			{
+-				if (bitsDamageType & (DMG_PARALYZE << i))
+-					m_rgbTimeBasedDamage[i] = 0;
+-			}
+-		}
+-
+-		// tell director about it
+-		MESSAGE_BEGIN(MSG_SPEC, SVC_DIRECTOR);
+-			WRITE_BYTE(9);								// command length in bytes
+-			WRITE_BYTE(DRC_CMD_EVENT);					// take damage event
+-			WRITE_SHORT(ENTINDEX(edict()));				// index number of primary entity
+-			WRITE_SHORT(ENTINDEX(ENT(pevInflictor)));	// index number of secondary entity
+-			WRITE_LONG(5);								// eventflags (priority and flags)
+-		MESSAGE_END();
+-
+-		MESSAGE_BEGIN(MSG_SPEC, gmsgHLTV);
+-			WRITE_BYTE(ENTINDEX(edict()));
+-			WRITE_BYTE(int(Q_max(pev->health, 0.0f)) | DRC_FLAG_FACEPLAYER);
+-		MESSAGE_END();
+-
+-		for (int i = 1; i <= gpGlobals->maxClients; i++)
+-		{
+-			CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+-
+-			if (!UTIL_IsValidPlayer(pPlayer))
+-				continue;
+-
+-			if (pPlayer->m_hObserverTarget != this)
+-				continue;
+-
+-			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
+-				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
+-			MESSAGE_END();
+-		}
+-
+-		return bTookDamage;
++		if (GoldCraft_QueueNativeArmor(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr,
++		    pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType, pAttack ? pAttack->edict() : nullptr, bTeamAttack != FALSE, armorHit))
++		    return TRUE;
++		flDamage = GoldCraft_StatusDefense(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
++		return GoldCraft_CommitEquipmentDamage(pevInflictor, pevAttacker, flDamage, bitsDamageType, pAttack, bTeamAttack, armorHit, true);
+ 	}
+ 
+ 	CBaseEntity *pAttacker = CBaseEntity::Instance(pevAttacker);
+@@ -1182,7 +1132,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -312,7 +439,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1260,7 @@
+@@ -1253,7 +1203,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -321,16 +448,99 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1353,7 +1360,7 @@
- 		if (pPlayer->m_hObserverTarget == this)
- 		{
- 			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
--				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
-+				GoldCraft_WriteHealth(pPlayer->edict(), pev->health);
- 			MESSAGE_END();
- 		}
+@@ -1291,86 +1241,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	}
-@@ -2230,6 +2237,8 @@
+ 
+ 	// keep track of amount of damage last sustained
+-	m_lastDamageAmount = flDamage;
+-
+-	LogAttack(pAttack, this, bTeamAttack, flDamage, armorHit, pev->health - flDamage, pev->armorvalue, GetKillerWeaponName(pevInflictor, pevAttacker));
+-
+-	// this cast to INT is critical!!! If a player ends up with 0.5 health, the engine will get that
+-	// as an int (zero) and think the player is dead! (this will incite a clientside screentilt, etc)
+-	bTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, int(flDamage), bitsDamageType);
+-
+-	if (bTookDamage)
+-	{
+-		if (TheBots)
+-		{
+-			TheBots->OnEvent(EVENT_PLAYER_TOOK_DAMAGE, this, pAttack);
+-		}
+-
+-		if (TheCareerTasks)
+-		{
+-			CBasePlayer *pPlayerAttacker = CBasePlayer::Instance(pevAttacker);
+-			if (pPlayerAttacker && !pPlayerAttacker->IsBot() && pPlayerAttacker->m_iTeam != m_iTeam)
+-			{
+-				TheCareerTasks->HandleEnemyInjury(GetKillerWeaponName(pevInflictor, pevAttacker), pPlayerAttacker->HasShield(), pPlayerAttacker);
+-			}
+-		}
+-
+-#ifdef REGAMEDLL_API
+-		CSPlayer()->RecordDamage(pAttack, flDamage);
+-#endif
+-	}
+-
+-	{
+-		// reset damage time countdown for each type of time based damage player just sustained
+-		for (int i = 0; i < ITBD_END; i++)
+-		{
+-			if (bitsDamageType & (DMG_PARALYZE << i))
+-				m_rgbTimeBasedDamage[i] = 0;
+-		}
+-	}
+-
+-	// tell director about it
+-	MESSAGE_BEGIN(MSG_SPEC, SVC_DIRECTOR);
+-		WRITE_BYTE(9);								// command length in bytes
+-		WRITE_BYTE(DRC_CMD_EVENT);					// take damage event
+-		WRITE_SHORT(ENTINDEX(edict()));				// index number of primary entity
+-		WRITE_SHORT(ENTINDEX(ENT(pevInflictor)));	// index number of secondary entity
+-		WRITE_LONG(5);								// eventflags (priority and flags)
+-	MESSAGE_END();
+-
+-	MESSAGE_BEGIN(MSG_SPEC, gmsgHLTV);
+-		WRITE_BYTE(ENTINDEX(edict()));
+-		WRITE_BYTE(int(Q_max(pev->health, 0.0f)) | DRC_FLAG_FACEPLAYER);
+-	MESSAGE_END();
+-
+-	for (int i = 1; i <= gpGlobals->maxClients; i++)
+-	{
+-		CBasePlayer *pPlayer = UTIL_PlayerByIndex(i);
+-
+-		if (!UTIL_IsValidPlayer(pPlayer))
+-			continue;
+-
+-		if (pPlayer->m_hObserverTarget == this)
+-		{
+-			MESSAGE_BEGIN(MSG_ONE, gmsgSpecHealth, nullptr, pPlayer->edict());
+-				WRITE_BYTE(int(Q_max(pev->health, 0.0f)));
+-			MESSAGE_END();
+-		}
+-	}
+-
+-#ifdef REGAMEDLL_FIXES
+-	if ((bitsDamageType & DMG_DROWN) && pev->waterlevel == 0) {
+-		bitsDamageType &= ~DMG_DROWN;
+-	}
+-#endif
+-
+-	// Save this so we can report it to the client
+-	m_bitsHUDDamage = -1;
+-
+-	// make sure the damage bits get resent
+-	m_bitsDamageType |= bitsDamageType;
+-
+-	return bTookDamage;
++	if (GoldCraft_QueueNativeArmor(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr,
++	    pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType, pAttack ? pAttack->edict() : nullptr, bTeamAttack != FALSE, armorHit))
++	    return TRUE;
++	flDamage = GoldCraft_StatusDefense(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
++	return GoldCraft_CommitEquipmentDamage(pevInflictor, pevAttacker, flDamage, bitsDamageType, pAttack, bTeamAttack, armorHit, false);
+ }
+ 
+ LINK_HOOK_CHAIN(CWeaponBox *, CreateWeaponBox, (CBasePlayerItem *pItem, CBasePlayer *pPlayerOwner, const char *modelName, Vector &origin, Vector &angles, Vector &velocity, float lifeTime, bool packAmmo), pItem, pPlayerOwner, modelName, origin, angles, velocity, lifeTime, packAmmo)
+@@ -2230,6 +2105,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -339,7 +549,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2560,7 @@
+@@ -2551,7 +2428,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -348,7 +558,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3897,6 +3906,7 @@
+@@ -3897,6 +3774,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -356,7 +566,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3934,7 @@
+@@ -3924,7 +3802,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -365,7 +575,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4151,6 +4161,7 @@
+@@ -4151,6 +4029,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -373,7 +583,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -5375,6 +5386,10 @@
+@@ -5375,6 +5254,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -384,38 +594,37 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5778,6 +5793,8 @@
- 		return;
+@@ -5779,6 +5662,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
-+
-+	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), false);
  
++	GoldCraft_PlayerEffectTransition goldcraftEffects(edict(), false);
++
  	m_iGaitsequence = 0;
  
-@@ -6131,6 +6148,8 @@
- 
+ 	m_flGaitframe = 0;
+@@ -6132,6 +6017,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
-+
-+	GoldCraft_PlayerSpawn(edict());
  
++	GoldCraft_PlayerSpawn(edict());
++
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
-@@ -7746,28 +7765,25 @@
+ 	if (m_bJustConnected)
+@@ -7746,28 +7633,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  
 -	if (int(pev->health) != m_iClientHealth)
--	{
++	const int hudHealth = goldcraft::vitals::integer(pev->health, true);
++	if (hudHealth != m_iClientHealth)
+ 	{
 -		int iHealth = clamp(int(pev->health), 0, 255);
 -
 -		if (pev->health > 0.0f && pev->health <= 1.0f)
 -			iHealth = 1;
 -
-+	const int hudHealth = goldcraft::vitals::integer(pev->health, true);
-+	if (hudHealth != m_iClientHealth)
-+	{
  		// send "health" update message
  		MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
 -			WRITE_BYTE(iHealth);
@@ -423,17 +632,14 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  		MESSAGE_END();
  
 -		m_iClientHealth = int(pev->health);
--	}
--
--	if (int(pev->armorvalue) != m_iClientBattery)
--	{
--		m_iClientBattery = int(pev->armorvalue);
 +		m_iClientHealth = hudHealth;
-+	}
-+
+ 	}
+ 
+-	if (int(pev->armorvalue) != m_iClientBattery)
 +	const int hudArmor = goldcraft::vitals::integer(pev->armorvalue, false);
 +	if (hudArmor != m_iClientBattery)
-+	{
+ 	{
+-		m_iClientBattery = int(pev->armorvalue);
 +		m_iClientBattery = hudArmor;
  
  		// send "armor" update message
@@ -443,6 +649,19 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  		MESSAGE_END();
  	}
  
+diff --git a/regamedll/dlls/player.h b/regamedll/dlls/player.h
+index 3e916a4..051ae24 100644
+--- a/regamedll/dlls/player.h
++++ b/regamedll/dlls/player.h
+@@ -350,6 +350,8 @@ public:
+ 	virtual int Classify();
+ 	virtual void TraceAttack(entvars_t *pevAttacker, float flDamage, Vector vecDir, TraceResult *ptr, int bitsDamageType);
+ 	virtual BOOL TakeDamage(entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType);
++	BOOL GoldCraft_CommitEquipmentDamage(entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage,
++	    int bitsDamageType, CBasePlayer *pAttack, BOOL bTeamAttack, int armorHit, bool explosion);
+ 	virtual BOOL TakeHealth(float flHealth, int bitsDamageType);
+ 	virtual void Killed(entvars_t *pevAttacker, int iGib);
+ 	virtual void AddPoints(int score, BOOL bAllowNegativeScore);
 diff --git a/regamedll/dlls/util.cpp b/regamedll/dlls/util.cpp
 index e0ffed5..9d072f4 100644
 --- a/regamedll/dlls/util.cpp
@@ -584,6 +803,40 @@ index 2a12a7c..8d5ca0f 100644
  	GiveFnptrsToDll			@1
 -SECTIONS
 -	.data READ WRITE
+diff --git a/regamedll/pm_shared/pm_shared.cpp b/regamedll/pm_shared/pm_shared.cpp
+index b524513..2ce3f44 100644
+--- a/regamedll/pm_shared/pm_shared.cpp
++++ b/regamedll/pm_shared/pm_shared.cpp
+@@ -1,4 +1,7 @@
+ #include "precompiled.h"
++#ifndef CLIENT_DLL
++#include "bridge.h"
++#endif
+ 
+ BOOL pm_shared_initialized = FALSE;
+ 
+@@ -3550,7 +3553,21 @@ void EXT_FUNC __API_HOOK(PM_Move)(struct playermove_s *ppmove, int server)
+ 	pmoveplayer = UTIL_PlayerByIndex(pmove->player_index + 1)->CSPlayer();
+ #endif
+ 
++    const float originalMaxSpeed=pmove->clientmaxspeed;
++    float statusMaxSpeed=originalMaxSpeed;
++#ifndef CLIENT_DLL
++    if(server)statusMaxSpeed=GoldCraft_StatusMaxSpeed(INDEXENT(pmove->player_index+1),originalMaxSpeed);
++#endif
++    pmove->clientmaxspeed=statusMaxSpeed;
++#ifndef CLIENT_DLL
++	GoldCraft_FluidMove(pmove,(server != 0) ? TRUE : FALSE,PM_PlayerMove);
++#else
+ 	PM_PlayerMove((server != 0) ? TRUE : FALSE);
++#endif
++    // ReHLDS copies clientmaxspeed back to pev. Undo only our own transform;
++    // preserve any explicit change made by a native movement hook.
++    if(statusMaxSpeed!=originalMaxSpeed&&pmove->clientmaxspeed==statusMaxSpeed)
++        pmove->clientmaxspeed=originalMaxSpeed;
+ 
+ 	if (pmove->onground != -1)
+ 		pmove->flags |= FL_ONGROUND;
 diff --git a/regamedll/regamedll/classes_dummy.cpp b/regamedll/regamedll/classes_dummy.cpp
 index a7ce4d7..c7e5580 100644
 --- a/regamedll/regamedll/classes_dummy.cpp

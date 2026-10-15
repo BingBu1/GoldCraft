@@ -73,4 +73,32 @@ public final class NativeStatusTest {
         }finally{first.close();second.close();caster.discard();}
         context.complete();
     }
+    @GameTest(templateName="goldcraft_tests:empty",batchId="native_status_attributes",tickLimit=20)
+    public void attributesAndAbsorptionTransferUseActualEffects(TestContext context){
+        var first=new Fixture(context);var second=new Fixture(context);
+        var movement=net.minecraft.entity.attribute.EntityAttributes.GENERIC_MOVEMENT_SPEED;
+        try {
+            double base=first.box.getAttributeValue(movement);
+            first.box.addStatusEffect(new StatusEffectInstance(StatusEffects.SLOWNESS,40,0));
+            context.assertTrue(Math.abs(first.box.getAttributeValue(movement)/base-.85)<.0001,"Slowness attribute missing");
+            first.box.clearStatusEffects();
+            first.box.addStatusEffect(new StatusEffectInstance(StatusEffects.SPEED,40,1));
+            context.assertTrue(Math.abs(first.box.getAttributeValue(movement)/base-1.4)<.0001,"Speed II attribute missing");
+            first.ticks(40);
+            context.assertTrue(Math.abs(first.box.getAttributeValue(movement)-base)<.0001,"Expired speed did not restore base");
+            first.box.addStatusEffect(new StatusEffectInstance(StatusEffects.ABSORPTION,200,1));
+            context.assertTrue(first.box.getAbsorptionAmount()==8,"Actual absorption application missing");
+            context.assertTrue(first.box.damage(first.box.getDamageSources().generic(),2),"Fully absorbed hit lost its normal hit feedback");
+            context.assertTrue(first.box.getAbsorptionAmount()==6&&first.applied==0,"Absorbed hit debited native health or wrong pool");
+            first.box.setAbsorptionAmount(3);
+            NativeStatusEffects.transfer(first.box,second.box);
+            context.assertTrue(first.box.getAbsorptionAmount()==0&&second.box.getAbsorptionAmount()==3,"Transfer refilled or duplicated absorption");
+            NativeStatusEffects.transfer(second.box,first.box);
+            context.assertTrue(second.box.getAbsorptionAmount()==0&&first.box.getAbsorptionAmount()==3,"Return transfer changed spent pool");
+            first.box.clearStatusEffects();first.ticks(1);
+            context.assertTrue(first.box.getAbsorptionAmount()==0,"Removing absorption left extra health");
+        }finally{first.close();second.close();}
+        context.complete();
+    }
+
 }

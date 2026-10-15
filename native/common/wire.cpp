@@ -52,7 +52,7 @@ std::uint64_t random_epoch() { auto key = random_key(); Reader r(key); return r.
 
 bool known_type(Type t) {
     switch (t) {
-    case Type::gameplay_rules: case Type::status_hud: case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
+    case Type::gameplay_rules: case Type::native_armor_request: case Type::native_armor_result: case Type::fluid_volumes: case Type::status_attributes: case Type::status_spend: case Type::status_hud: case Type::hello: case Type::welcome: case Type::heartbeat: case Type::world: case Type::actors:
     case Type::client_binding: case Type::pair_player: case Type::pair_result: case Type::input:
     case Type::player_pose: case Type::atlas: case Type::section_mesh: case Type::remove_section:
     case Type::bsp: case Type::brushes: case Type::control: case Type::lights:
@@ -67,7 +67,7 @@ bool known_type(Type t) {
     case Type::map_edit_snapshot: case Type::map_edit_delta: case Type::map_edit_query:
     case Type::map_mining_sample: case Type::map_mining_surface:
     case Type::bulk_offer: case Type::bulk_ack: case Type::bulk_ref:
-    case Type::effect_grant: case Type::effect_pose: case Type::effect_reopen:
+    case Type::effect_grant: case Type::effect_pose: case Type::effect_reopen: case Type::host_explosion: case Type::host_materials:
     case Type::clock_offer: case Type::clock_ack: case Type::clock_ready: return true;
     default: return false;
     }
@@ -100,11 +100,13 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
         unsigned difference = 0;
         for (std::size_t i = 0; i < 16; ++i) difference |= (session[i] ^ session_[i]) | (token[i] ^ token_[i]);
         const auto allowed = peer_ == Role::fabric_client ? capability_shared_bulk_v1 :
-            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects | capability_gameplay_rules;
+            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions;
         if ((capabilities & capability_effect_position_hold) && !(capabilities & capability_local_qpc_v1))
             throw ProtocolError("Effect execution requires local QPC capability");
         if (difference || role != static_cast<std::uint32_t>(peer_) || (capabilities & ~allowed))
             throw ProtocolError("pairing credentials/role/capabilities mismatch");
+        if ((capabilities & capability_native_armor) && !(capabilities & capability_status_attributes))
+            throw ProtocolError("Native armor requires status attributes");
         peer_capabilities_ = capabilities;
         ready_ = true;
     } else {
@@ -115,7 +117,7 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
 }
 Bytes HostHandshake::welcome() const {
     Writer w; w.bytes(session_); w.u32(static_cast<std::uint32_t>(host_));
-    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects | capability_gameplay_rules) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
+    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
 }
 Vec3 to_minecraft(Vec3 v) { return { v.x / units_per_block, v.z / units_per_block + minecraft_y_offset, -v.y / units_per_block }; }
 Vec3 to_goldsrc(Vec3 v) { return { v.x * units_per_block, -v.z * units_per_block, (v.y - minecraft_y_offset) * units_per_block }; }

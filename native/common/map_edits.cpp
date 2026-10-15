@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
+#include <tuple>
 
 namespace goldcraft::edits {
 namespace {
@@ -90,6 +92,27 @@ bool Ledger::add(Target t, Box b) {
     if (!state_.epoch) throw ProtocolError("No active map edit session");
     if (std::ranges::any_of(state_.cuts, [&](const Cut& c) { return c.target == t && c.box == b; })) return false;
     commit({state_.epoch, state_.revision, state_.revision + 1, Operation::add, t, b}); return true;
+}
+bool Ledger::add_batch(std::span<const Cut> cuts) {
+    if (!state_.epoch || !state_.revision) throw ProtocolError("No active map edit session");
+    using Identity = std::tuple<std::uint32_t,std::uint32_t,std::uint32_t,std::array<float,3>,std::array<float,3>>;
+    auto key = [](const Cut& c) { return Identity{c.target.slot,c.target.serial,c.target.model,c.box.min,c.box.max}; };
+    std::set<Identity> known;
+    for (const auto& c : state_.cuts) known.insert(key(c));
+    auto next = state_.cuts;
+    auto revision = state_.revision;
+    for (const auto& c : cuts) {
+        validate(c.target); validate(c.box);
+        if (!known.insert(key(c)).second) continue;
+        if (next.size() == max_cuts || revision == UINT64_MAX) throw ProtocolError("Map edit capacity");
+        next.push_back({++revision,c.target,c.box});
+    }
+    if (revision == state_.revision) return false;
+    state_.cuts.swap(next); state_.revision = revision;
+    // One snapshot avoids thousands of delta allocations/fragments. All
+    // recipients already recover from an expired journal using this path.
+    journal_.clear();
+    return true;
 }
 bool Ledger::remove(Target t) {
     validate(t);

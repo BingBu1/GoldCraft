@@ -17,6 +17,9 @@ public plugin_init()
     register_srvcmd("gc_headless_reset", "ResetPlayer");
     register_srvcmd("gc_headless_fire", "FireBullet");
     register_srvcmd("gc_headless_status", "Status");
+    register_srvcmd("gc_headless_walk", "Walk");
+    register_srvcmd("gc_fluid_move", "FluidMove");
+    register_srvcmd("gc_headless_hurt", "Hurt");
     register_srvcmd("gc_headless_select", "SelectPlayer");
     register_srvcmd("gc_headless_team", "Team");
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "BeforeDamage", false);
@@ -137,5 +140,53 @@ public Status()
     server_print("[GC headless] connected=1 slot=%d userid=%d alive=%d health=%.3f armor=%.3f calls=%d applied=%d deaths=%d amount=%.3f bits=%d source=%s",
         gBot, get_user_userid(gBot), is_user_alive(gBot), Float:get_entvar(gBot, var_health), Float:get_entvar(gBot, var_armorvalue),
         gDamageCalls, gApplied, gDeaths, gLastAmount, gLastBits, gLastSource);
+    return PLUGIN_HANDLED;
+}
+
+// Drive the actual engine usercmd/PM_Move path on the opt-in fake client.
+public Walk()
+{
+    if (!get_pcvar_num(gEnabled) || !is_user_alive(gBot) || read_argc() != 2) return PLUGIN_HANDLED;
+    new text[16]; read_argv(1, text, charsmax(text)); new frames = str_to_num(text);
+    if (frames < 1 || frames > 10) return PLUGIN_HANDLED;
+    new Float:angles[3], Float:before[3], Float:after[3], Float:velocity[3];
+    get_entvar(gBot, var_origin, before);
+    for (new i; i < frames; i++) engfunc(EngFunc_RunPlayerMove, gBot, angles, 400.0, 0.0, 0.0, IN_FORWARD, 0, 20);
+    get_entvar(gBot, var_origin, after); get_entvar(gBot, var_velocity, velocity);
+    server_print("[GC walk] x=%.4f y=%.4f dx=%.4f dy=%.4f vx=%.4f vy=%.4f base=%.4f", after[0], after[1], after[0]-before[0], after[1]-before[1], velocity[0], velocity[1], Float:get_entvar(gBot, var_maxspeed));
+    return PLUGIN_HANDLED;
+}
+public Hurt()
+{
+    if (!get_pcvar_num(gEnabled) || !is_user_alive(gBot) || read_argc() != 3) return PLUGIN_HANDLED;
+    new text[24]; read_argv(1, text, charsmax(text)); new Float:amount = str_to_float(text);
+    read_argv(2, text, charsmax(text)); new bits = str_to_num(text);
+    if (amount <= 0.0 || amount > 100.0 || (bits != DMG_DROWN && bits != DMG_BULLET)) return PLUGIN_HANDLED;
+    // Exact ReAPI declarations/source: the real CBasePlayer damage chain,
+    // including native armor, runs after the multidamage accumulator.
+    set_member(gBot, m_LastHitGroup, HIT_GENERIC);
+    rg_multidmg_clear(); rg_multidmg_add(0, gBot, amount, bits); rg_multidmg_apply(0, 0);
+    return Status();
+}
+
+// The engine writes waterlevel/watertype; this command only supplies real usercmds.
+public FluidMove()
+{
+    if (!get_pcvar_num(gEnabled) || !is_user_alive(gBot) || read_argc() != 3) return PLUGIN_HANDLED;
+    new text[16]; read_argv(1, text, charsmax(text)); new frames = str_to_num(text);
+    read_argv(2, text, charsmax(text)); new mode = str_to_num(text);
+    if (frames < 1 || frames > 10 || mode < 0 || mode > 3) return PLUGIN_HANDLED;
+    new Float:angles[3], Float:before[3], Float:after[3], Float:velocity[3];
+    get_entvar(gBot, var_origin, before);
+    new buttons = mode == 1 ? IN_FORWARD : mode == 2 ? IN_JUMP : 0;
+    for (new i; i < frames; i++) {
+        engfunc(EngFunc_RunPlayerMove, gBot, angles, mode == 1 ? 400.0 : 0.0,
+            0.0, mode == 3 ? 200.0 : 0.0, buttons, 0, 20);
+    }
+    get_entvar(gBot, var_origin, after); get_entvar(gBot, var_velocity, velocity);
+    server_print("[GC fluid] x=%.4f y=%.4f z=%.4f dx=%.4f dy=%.4f dz=%.4f vx=%.4f vy=%.4f vz=%.4f level=%d type=%d health=%.3f calls=%d bits=%d",
+        after[0], after[1], after[2], after[0]-before[0], after[1]-before[1], after[2]-before[2],
+        velocity[0], velocity[1], velocity[2], get_entvar(gBot, var_waterlevel), get_entvar(gBot, var_watertype),
+        Float:get_entvar(gBot, var_health), gDamageCalls, gLastBits);
     return PLUGIN_HANDLED;
 }

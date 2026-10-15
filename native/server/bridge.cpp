@@ -1,6 +1,7 @@
 #include "precompiled.h"
 #include "bridge.h"
 #include "objects.h"
+#include "goldcraft/fluid_volumes.hpp"
 #include "map_mining.h"
 #include "goldcraft/endpoint.hpp"
 #include "goldcraft/pairing.hpp"
@@ -9,11 +10,14 @@
 #include "goldcraft/server_api.hpp"
 #include "goldcraft/combat.hpp"
 #include "goldcraft/status_hud.hpp"
+#include "goldcraft/status_attributes.hpp"
+#include "goldcraft/native_armor.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/authoritative_dimensions.hpp"
 #include "goldcraft/gameplay_rules.hpp"
 #include "goldcraft/effect_grant.hpp"
+#include "goldcraft/host_explosion.hpp"
 #include "effect_service_provider.hpp"
 #include <exception>
 #include <algorithm>
@@ -80,6 +84,7 @@ std::uint64_t collision_sequence=0;
 std::uint64_t mob_damage_event=0,mob_damage_accepted=0,mob_damage_rejected=0;
 SkillDamageSnapshots skill_damage_snapshots;
 std::uint64_t mining_policy_sent=0,mining_applied=0,mining_rejected=0;
+bool mining_materials_sent=false;
 std::array<std::uint64_t,65> mining_events{};
 std::array<float,65> next_mining{}, next_mining_sample{};
 float next_colliders=0;
@@ -104,6 +109,7 @@ void BridgeLog(const std::string& message) {
 }
 #include "effect_host.inc"
 #include "effect_publisher.inc"
+#include "fluids.inc"
 
 void AcceptNativeRelocation(unsigned slot,std::uint64_t authority=0);
 void SendForm(unsigned slot);
@@ -585,6 +591,7 @@ void SendActors() {
             <<",\"entityPhysics\":"<<(entity_physics?"true":"false")<<",\"touchDispatches\":"<<touch_dispatches
             <<",\"useCalls\":"<<use_calls<<",\"usePresses\":"<<use_presses<<",\"useReleases\":"<<use_releases
             <<",\"hostRelocations\":"<<host_relocations<<",\"staleUseCommands\":"<<stale_use_commands
+            <<",\"fluidVolumes\":"<<fluid_field.state().volumes.size()<<",\"fluidRevision\":"<<fluid_field.state().revision<<",\"fluidActive\":"<<(ActiveFluids()?"true":"false")
             <<",\"minecraftObjects\":"<<GoldCraft_ObjectCount()<<",\"objectRevision\":"<<object_revision
             <<",\"objectActions\":"<<object_actions<<",\"objectDamageActions\":"<<object_damage_actions<<",\"objectUseActions\":"<<object_use_actions
             <<",\"vitalsAccepted\":"<<vitals_accepted<<",\"vitalsRejected\":"<<vitals_rejected
@@ -599,6 +606,8 @@ void SendActors() {
                <<"\",\"team\":"<<player->m_iTeam<<",\"health\":"<<e->v.health<<",\"armor\":"<<e->v.armorvalue
                <<",\"alive\":"<<(player->IsAlive()?"true":"false")<<",\"life\":"<<player_lives[slot]<<",\"spawn\":"<<player_births[slot]<<",\"vitalsAck\":"<<vitals_ack[slot]<<",\"poseSequence\":"<<controlled[slot].sequence
                <<",\"controlled\":"<<(controlled[slot].active?"true":"false")<<",\"minecraftFallAuthority\":"<<(GoldCraft_MinecraftFallAuthority(e)?"true":"false")
+               <<",\"baseMaxSpeed\":"<<e->v.maxspeed<<",\"effectiveMaxSpeed\":"<<GoldCraft_StatusMaxSpeed(e,e->v.maxspeed)
+               <<",\"waterLevel\":"<<e->v.waterlevel<<",\"waterType\":"<<e->v.watertype
                <<",\"nativeFallVelocity\":"<<player->m_flFallVelocity<<",\"spawnFeet\":["<<player_spawns[slot].x<<','<<player_spawns[slot].y<<','<<player_spawns[slot].z
                <<"],\"minecraftForm\":"<<(minecraft_forms[slot]?"true":"false")<<",\"moveType\":"<<e->v.movetype<<",\"buttons\":"<<e->v.button
                <<",\"origin\":["<<e->v.origin.x<<','<<e->v.origin.y<<','<<e->v.origin.z<<"],\"mins\":["<<e->v.mins.x<<','<<e->v.mins.y<<','<<e->v.mins.z<<"]}";
@@ -623,6 +632,8 @@ void SendActors() {
 }
 
 namespace {
+#include "status_attributes.inc"
+#include "armor_defense.inc"
 #include "status_effects.inc"
 void HandleVitals(std::span<const std::uint8_t> bytes){
     const auto change=read_vitals_delta(bytes);
@@ -710,6 +721,8 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes){
 }
 void SendMiningPolicy(){
     const auto policy=GoldCraft_MapMiningPolicy();
+    if(link.host_explosions()&&!mining_materials_sent&&!bsp_bytes.empty())
+        mining_materials_sent=link.send(Type::host_materials,GoldCraft_MapMiningMaterials(bsp_bytes));
     if(link.connected()&&policy.epoch&&policy.revision!=mining_policy_sent&&link.send(Type::map_mining_policy,mining::encode_policy(policy)))
         mining_policy_sent=policy.revision;
 }
@@ -805,6 +818,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         host_effects.End();
         effect_publisher.Reset();
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
+        ClearNativeArmor();
         gameplay_rules.reset(registry.world());gameplay_rules_sent=0;
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
         skill_damage_snapshots.clear();
@@ -812,10 +826,11 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         host_effects.Begin(registry.world());
         vitals_accepted=vitals_rejected=0;final_minecraft_damage=minecraft_attack=nullptr;
         minecraft_forms={};next_form_change={};form_changes=wrong_form_poses=0;
+        ResetFluids();
         GoldCraft_ObjectsReset(false);object_revision=object_actions=object_damage_actions=object_use_actions=0;
         collision_sequence=0;next_colliders=0;client_colliders={};colliders_initialized={};
         mob_damage_event=mob_damage_accepted=mob_damage_rejected=0;
-        GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_events={};next_mining={};next_mining_sample={};
+        GoldCraft_MapMiningReset(registry.world());mining_policy_sent=mining_applied=mining_rejected=0;mining_materials_sent=false;mining_events={};next_mining={};next_mining_sample={};
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
@@ -823,6 +838,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         avatar_message=REG_USER_MSG("GCAvatar",40);
         form_message=REG_USER_MSG("GCForm",16);
         object_message=REG_USER_MSG("GCObj",56);
+        fluid_message=REG_USER_MSG(fluids::message_name,-1);
         edit_message=REG_USER_MSG("GCEdit",-1);
         REG_USER_MSG("GCBrush",-1);
         // The world edict selects serverinfo; nullptr selects localinfo in
@@ -849,10 +865,12 @@ void GoldCraft_ServerDeactivate() {
         ReleaseControl(slot,ControlCause::map_deactivate);
         if(edicts!=deactivating_table||registry.world()!=deactivating_world)return;
     }
+    ResetFluids();
     GoldCraft_ObjectsReset(true);
     GoldCraft_MapMiningReset(0);
     edit_deliveries={};edit_revision_sent=0;
     controlled={};client_ready={};avatar_payloads={};
+    ClearNativeArmor();
     link.stop(); registry.new_world(0); bsp_bytes.clear();edicts=nullptr; max_clients=0; BridgeLog("server map deactivated; all bindings invalidated");
 }
 void GoldCraft_ClientConnect(edict_t* player) {GoldCraft_ClientDisconnect(player);}
@@ -881,7 +899,7 @@ void GoldCraft_ClientDisconnect(edict_t* player) {
     if(!CurrentNativeSlot(disconnecting))return;
     ReleaseControl(slot,ControlCause::disconnect);
     if(!CurrentNativeSlot(disconnecting))return;
-    controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;registry.disconnect(slot);SendAvatar(slot);
+    controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;fluid_deliveries[slot]={};registry.disconnect(slot);SendAvatar(slot);
 }
 GoldCraft_PlayerEffectTransition::GoldCraft_PlayerEffectTransition(edict_t* player, bool terminal) noexcept
     : terminal_(terminal), exceptions_(std::uncaught_exceptions()) {
@@ -930,6 +948,51 @@ void GoldCraft_PlayerKilled(edict_t* player) {
     if(!CurrentNativePlayer(killed))return;
     ReleaseControl(slot,ControlCause::death);
     if(CurrentNativePlayer(killed))next_snapshot=0;
+}
+float GoldCraft_StatusMaxSpeed(edict_t* player,float base){
+    auto* state=CurrentAttributes(player);
+    if(!state||minecraft_forms[ENTINDEX(player)]||base<=1||player->v.iuser1)return base;
+    return std::clamp(base*state->budget.state.speed,0.001f,10000.0f);
+}
+bool GoldCraft_StatusShield(edict_t* player,edict_t* inflictor,float damage,int bits){
+    if(player==final_minecraft_damage||player==minecraft_attack||!std::isfinite(damage)||damage<=0
+        ||!(bits&(DMG_BULLET|DMG_CLUB|DMG_SLASH))||!inflictor||inflictor==player||inflictor->free)return false;
+    auto* state=CurrentAttributes(player);
+    if(!state||!minecraft_forms[ENTINDEX(player)]||!controlled[ENTINDEX(player)].active
+        ||!(state->budget.state.flags&1))return false;
+    const bool creative=(state->budget.state.flags&2)!=0;
+    if(!creative&&state->budget.durability()<=0)return false;
+    const Vector toward=inflictor->v.origin-player->v.origin;
+    const float angle=player->v.v_angle.y*0.017453292519943295f;
+    if(toward.x*std::cos(angle)+toward.y*std::sin(angle)<=0)return false;
+    const float mcDamage=damage/5.0f;
+    const float durability=creative||mcDamage<3?0:1+std::floor(mcDamage);
+    // A block is committed only after its durability notification is queued.
+    return SpendStatus(*state,0,durability,mcDamage);
+}
+float GoldCraft_StatusDefense(edict_t* player,float damage,edict_t* inflictor,edict_t* attacker,int bits){
+    if(player==final_minecraft_damage||player==minecraft_attack||!std::isfinite(damage)||damage<=0)return damage;
+    const float enchantment=player==settling_native_armor?settling_native_enchantment:1;
+    auto* state=CurrentAttributes(player);if(!state)return damage*enchantment;
+    damage*=state->budget.state.resistance;
+    damage*=enchantment;
+    const float absorbed=std::min(damage/5.0f,state->budget.absorption());
+    const float immediate=std::max(0.0f,damage-absorbed*5.0f);
+    const StatusDamageOrigin origin{CaptureStatusSource(inflictor),CaptureStatusSource(attacker),bits,damage,immediate};
+    if(absorbed>0&&SpendStatus(*state,absorbed,0,0,origin))damage=immediate;
+    return damage;
+}
+bool GoldCraft_QueueNativeArmor(edict_t* player,float damage,edict_t* inflictor,edict_t* attacker,int bits,edict_t* logged_attacker,bool team_attack,int armor_hit){
+    if(player==final_minecraft_damage||player==minecraft_attack)return false;
+    return QueueNativeArmor(player,damage,inflictor,attacker,bits,logged_attacker,team_attack,armor_hit);
+}
+const char* GoldCraft_EquipmentWeapon(edict_t* player){return player==settling_native_armor?settling_native_weapon:nullptr;}
+GoldCraft_EquipmentDamageScope::GoldCraft_EquipmentDamageScope() noexcept
+    :player_(settling_native_armor),factor_(settling_native_enchantment),weapon_(settling_native_weapon){
+    settling_native_armor=nullptr;settling_native_enchantment=1;settling_native_weapon=nullptr;
+}
+GoldCraft_EquipmentDamageScope::~GoldCraft_EquipmentDamageScope() noexcept{
+    settling_native_armor=player_;settling_native_enchantment=factor_;settling_native_weapon=weapon_;
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
 bool GoldCraft_MinecraftAttack(edict_t* player){return player&&(player==final_minecraft_damage||player==minecraft_attack);}
@@ -1001,6 +1064,11 @@ bool GoldCraft_ObjectAction(std::uint64_t key,unsigned action,edict_t* attacker,
     if(action==1)++object_damage_actions;else ++object_use_actions;
     return link.send(Type::object_action,w.data);
 }
+void GoldCraft_FluidMove(playermove_s* move,int server,void (*original)(int)) {
+    const unsigned slot=static_cast<unsigned>(move->player_index+1);
+    const auto* field=slot<controlled.size()&&!controlled[slot].active?ActiveFluids():nullptr;
+    fluids::MovementScope scope(*move,field);original(server);
+}
 void GoldCraft_StartFrame() {
     if(!edicts) return;
     host_effects.Frame();
@@ -1023,18 +1091,22 @@ void GoldCraft_StartFrame() {
                    (retiring.table&&!CurrentNativePlayer(retiring)))return;
                 controlled[i].sequence=0;
             }
+            ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();
-            mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;next_snapshot=0;
+            ClearStatusHud();ClearStatusAttributes();RetireNativeArmor();
+            if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
+            mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
             GoldCraft_MapMiningInvalidateSamples();
             edit_revision_sent=0;next_edit_query=0;
             connection_generation=link.generation();gameplay_rules_sent=0; SendWorld(); BridgeLog("Fabric authoritative server connected");
+            GoldCraft_MapMiningResetExplosionSequence();
         }
         trace_queries=0;
         SendMiningPolicy();SendGameplayRules();
         auto* const dispatch_table=edicts;
         const auto dispatch_world=registry.world(),dispatch_authority=connection_generation;
+        const bool dispatch_connected=link.connected();const auto dispatch_link_generation=link.generation();
         for(auto& message : link.take_messages()) {
             Reader r(message.payload);
             if(message.type==Type::pair_player)HandlePair(r);
@@ -1047,15 +1119,23 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::effect_reopen){
                 if(link.effect_position_hold())effect_publisher.Reopen(effects::decode_reopen(r));
             }
+            else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
+            else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
+            else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::status_hud)HandleStatusHud(message.payload);
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
             else if(message.type==Type::map_mining_request)HandleMining(message.payload);
             else if(message.type==Type::map_mining_sample)HandleMining(message.payload,true);
+            else if(message.type==Type::host_explosion){
+                if(!link.host_explosions()) throw ProtocolError("Unnegotiated host explosion");
+                GoldCraft_MapHostExplosion(explosion::decode(message.payload));
+            }
             else if(message.type==Type::map_edit_query){
                 const auto epoch=r.u64();r.finish();
                 if(epoch==registry.world()&&gpGlobals->time>=next_edit_query){edit_revision_sent=0;next_edit_query=gpGlobals->time+1;}
             }
+            else if(message.type==Type::fluid_volumes)AcceptFluids(message.payload);
             else if(message.type==Type::minecraft_objects){
                 auto snapshot=decode_world_objects(message.payload);
                 if(snapshot.epoch==registry.world()&&snapshot.revision>object_revision){GoldCraft_ObjectsUpdate(snapshot);object_revision=snapshot.revision;}
@@ -1065,10 +1145,13 @@ void GoldCraft_StartFrame() {
             if(edicts!=dispatch_table||registry.world()!=dispatch_world||connection_generation!=dispatch_authority||
                !link.connected()||link.generation()!=dispatch_authority)return;
         }
+        ExpireNativeArmor();
+        if(edicts!=dispatch_table||registry.world()!=dispatch_world||connection_generation!=dispatch_authority
+            ||link.connected()!=dispatch_connected||link.generation()!=dispatch_link_generation)return;
         ExpireStatusHud();
         GoldCraft_ObjectsExpire();
         SendEdits();
-        if(gpGlobals->time>=next_colliders){next_colliders=gpGlobals->time+0.05f;SendColliders();}
+        if(gpGlobals->time>=next_colliders){next_colliders=gpGlobals->time+0.05f;SendColliders();SendFluids();}
         auto* const controlling_table=edicts;
         const auto controlling_world=registry.world(),controlling_authority=connection_generation,controlling_link=link.generation();
         const bool controlling_connected=link.connected();

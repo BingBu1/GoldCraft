@@ -1,0 +1,22 @@
+# The dependency source is never published or loaded as a separate runtime DLL.
+set(GOLDCRAFT_SPDLOG_SOURCE_PATH "" CACHE PATH "Existing hash-verified spdlog 1.15.3 source")
+if(NOT GOLDCRAFT_SPDLOG_SOURCE_PATH)
+    include(FetchContent)
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/sources.lock.json" _gc_lock)
+    string(JSON _gc_spdlog_url GET "${_gc_lock}" sources spdlog archiveUrl)
+    string(JSON _gc_spdlog_sha GET "${_gc_lock}" sources spdlog archiveSha256)
+    FetchContent_Declare(goldcraft_spdlog_source
+        URL "${_gc_spdlog_url}" URL_HASH "SHA256=${_gc_spdlog_sha}"
+        SOURCE_SUBDIR _goldcraft_header_only)
+    FetchContent_MakeAvailable(goldcraft_spdlog_source)
+    set(GOLDCRAFT_SPDLOG_SOURCE_PATH "${goldcraft_spdlog_source_SOURCE_DIR}")
+endif()
+if(NOT EXISTS "${GOLDCRAFT_SPDLOG_SOURCE_PATH}/include/spdlog/async_logger.h")
+    message(FATAL_ERROR "Pinned spdlog source is missing")
+endif()
+add_library(goldcraft_spdlog_headers INTERFACE)
+target_include_directories(goldcraft_spdlog_headers SYSTEM INTERFACE "${GOLDCRAFT_SPDLOG_SOURCE_PATH}/include")
+add_library(goldcraft_async_diagnostics STATIC native/client/async_diagnostics.cpp)
+target_link_libraries(goldcraft_async_diagnostics PRIVATE goldcraft_spdlog_headers)
+target_compile_definitions(goldcraft_async_diagnostics PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(goldcraft_async_diagnostics PRIVATE /W4 /WX /utf-8)

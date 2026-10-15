@@ -36,9 +36,20 @@ int main(int argc,char** argv){try{
         Writer w;w.bytes(key);w.bytes(key);w.u32(4);w.u32(cap);h.accept({Type::hello,static_cast<unsigned>(w.data.size()),0,1},w.data);
         check(h.ready());auto welcome=h.welcome();Reader reply(welcome);reply.key();reply.u32();check(reply.u32()==(cap&12));
     }
-    for(unsigned cap:{4u,12u,16u,9u}){
+    for(unsigned cap:{4u,12u,512u,9u}){
         Key key{};HostHandshake h(key,key,Role::host_server,Role::fabric_server,1);
         Writer w;w.bytes(key);w.bytes(key);w.u32(4);w.u32(cap);reject([&]{h.accept({Type::hello,static_cast<unsigned>(w.data.size()),0,1},w.data);});
+    }
+    // Capability16 is now assigned to status attributes. Keep the original
+    // malformed-capability cases, using the still-unassigned512 as unknown.
+    {
+        Key key{};HostHandshake attributes(key,key,Role::host_server,Role::fabric_server,2);
+        Writer request;request.bytes(key);request.bytes(key);request.u32(4);request.u32(capability_status_attributes);
+        attributes.accept({Type::hello,static_cast<unsigned>(request.data.size()),0,1},request.data);
+        check(attributes.ready()&&attributes.peer_capabilities()==capability_status_attributes);
+        auto welcome=attributes.welcome();Reader reply(welcome);check(reply.key()==key);
+        check(reply.u32()==3&&reply.u32()==16);
+        check(reply.f32()==units_per_block&&reply.f32()==minecraft_y_offset);reply.finish();
     }
     Key key{};HostHandshake client(key,key,Role::host_client,Role::fabric_client,1);Writer hello;
     hello.bytes(key);hello.bytes(key);hello.u32(2);hello.u32(8);reject([&]{client.accept({Type::hello,40,0,1},hello.data);});

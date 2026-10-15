@@ -1,4 +1,4 @@
-"""Package a verified client runtime for the unmodified official MetaHook installer.
+"""Package a verified client runtime with the adapted official MetaHook GUI.
 
 Planning only reads runtime files. Packaging requires --output and never installs
 into a game. Local plans include source paths; distributable manifests do not.
@@ -50,7 +50,34 @@ def relative_name(name):
     return name
 
 
-def make_plan(game, upstream, license_file):
+def verified_gui(directory):
+    directory = safe(directory)
+    identity = json.loads((directory / 'gui-build.json').read_text('utf-8'))
+    pin = json.loads((HERE / 'gui-source.json').read_text('utf-8'))
+    expected = dict(upstreamCommit=pin['commit'], patchSha256=digest(HERE / 'goldcraft-gui.patch'),
+                    integrationSha256=digest(HERE / 'GoldCraftIntegration.cs'))
+    if any(identity.get(key) != value for key, value in expected.items()):
+        raise ValueError('GUI was not built from the current pinned integration')
+    files = identity.get('files')
+    if not isinstance(files, list) or not files:
+        raise ValueError('Empty GUI build identity')
+    names = set()
+    for row in files:
+        name = relative_name(row['path'])
+        if name.casefold() in names or name == 'gui-build.json':
+            raise ValueError('Duplicate/reserved GUI output: ' + name)
+        names.add(name.casefold())
+        source = safe(directory / name)
+        if not source.is_relative_to(directory) or not source.is_file():
+            raise ValueError('Invalid GUI output: ' + name)
+        if source.stat().st_size != row['bytes'] or digest(source) != row['sha256']:
+            raise ValueError('GUI output changed: ' + name)
+    if 'metahookinstalleravalonia.desktop.exe' not in names:
+        raise ValueError('Missing adapted official GUI executable')
+    return identity
+
+
+def make_plan(game, upstream, license_file, gui):
     game, upstream, license_file = map(safe, (game, upstream, license_file))
     pin = json.loads((HERE / 'upstream.json').read_text('utf-8'))
     cli = upstream / 'MetahookInstallerCLI.exe'
@@ -71,6 +98,14 @@ def make_plan(game, upstream, license_file):
         files[key] = dict(source=str(source), path=name, bytes=source.stat().st_size, sha256=digest(source))
 
     add(cli, 'MetahookInstallerCLI.exe')
+    gui_identity = verified_gui(gui)
+    # The official Desktop executable is published self-contained. Preserve any
+    # sidecar files declared by that build, without accidentally bundling caches.
+    for row in gui_identity['files']:
+        name = row['path']
+        target = 'GoldCraftInstaller.exe' if name == 'MetahookInstallerAvalonia.Desktop.exe' else name
+        add(Path(gui) / name, target)
+    add(Path(gui) / 'gui-build.json', 'gui-build.json')
     add(license_file, 'licenses/MetahookInstaller-LICENSE.txt')
     for name in HELPERS:
         add(HERE / name, name)
@@ -102,12 +137,16 @@ def make_plan(game, upstream, license_file):
             raise ValueError('Missing paired runtime resource: ' + required)
     repo = HERE.parents[1]
     for source in sorted((repo / 'notices').glob('*.txt')):
+        if source.name.casefold() == 'metahookinstaller-license.txt':
+            if digest(safe(source)) != digest(license_file):
+                raise ValueError('Repository installer notice differs from the pinned installer license')
+            continue  # Already included from the explicitly verified license input.
         add(source, 'licenses/' + source.name)
     add(repo / 'THIRD_PARTY_NOTICES.md', 'licenses/THIRD_PARTY_NOTICES.md')
     engine = dict(engineSha256=digest(safe(game / 'hw.dll')),
                   clientSha256=digest(safe(game / 'cstrike/cl_dlls/client.dll')))
     return dict(schema=1, product='GoldCraft MetaHook client plugins', runtimeChannel='deployed-stable', officialInstaller=pin,
-                supportedGame=engine, appId=10, modDirectory='cstrike', plugins=list(PLUGINS),
+                gui=gui_identity, supportedGame=engine, appId=10, modDirectory='cstrike', plugins=list(PLUGINS),
                 dllPaths=['FreeImage'], files=sorted(files.values(), key=lambda row: row['path']))
 
 
@@ -172,21 +211,22 @@ def main():
     parser.add_argument('--runtime', type=Path, help='Verified client game root, read-only input')
     parser.add_argument('--official', type=Path, help='Extracted pinned official release')
     parser.add_argument('--installer-license', type=Path)
+    parser.add_argument('--gui', type=Path, help='Verified publish directory from build_gui.py')
     parser.add_argument('--plan', type=Path, help='Local evidence path; contains source paths')
     parser.add_argument('--from-plan', type=Path, help='Package an already reviewed plan, rejecting changed inputs')
     parser.add_argument('--output', type=Path, help='Omit for a read-only plan; provide to build ZIP')
     args = parser.parse_args()
     if args.from_plan:
-        if not args.output or any((args.runtime, args.official, args.installer_license, args.plan)):
+        if not args.output or any((args.runtime, args.official, args.installer_license, args.plan, args.gui)):
             parser.error('--from-plan requires --output and no new planning arguments')
         print(json.dumps(publish(json.loads(safe(args.from_plan).read_text('utf-8')), args.output)))
         return
-    if not all((args.runtime, args.official, args.installer_license, args.plan)):
-        parser.error('Provide --runtime, --official, --installer-license and --plan')
+    if not all((args.runtime, args.official, args.installer_license, args.plan, args.gui)):
+        parser.error('Provide --runtime, --official, --installer-license, --gui and --plan')
     plan_path = safe(args.plan)
     if plan_path.exists():
         raise ValueError('Keep existing plans; select a new evidence file')
-    plan = make_plan(args.runtime, args.official, args.installer_license)
+    plan = make_plan(args.runtime, args.official, args.installer_license, args.gui)
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     result = dict(plannedFiles=len(plan['files']), bytes=sum(row['bytes'] for row in plan['files']), installed=False)

@@ -37,6 +37,7 @@ private:
 };
 
 struct Statistics {
+    std::uint64_t gl_loader_calls=0,gl_loader_reuses=0;
     std::uint64_t uploads=0,upload_bytes=0,draws=0,opaque_passes=0,shadow_passes=0;
     std::uint64_t depth_only_shadow_passes=0;
     GLenum error=0;

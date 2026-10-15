@@ -100,6 +100,34 @@ try {
         Push-Location $game
         try { & $cli -appid 10 -gamedir $game -moddir cstrike; if ($LASTEXITCODE -ne 0) { throw 'Official installation failed.' } }
         finally { Pop-Location }
+        # Keep official discovery/deployment; normalize its shortcut with Windows
+        # inside the existing transaction, before recording installed hashes.
+        $shortcutPath = Join-CheckedPath $game 'MetaHook for Counter-Strike.lnk'
+        if (!(Test-Path -LiteralPath $shortcutPath -PathType Leaf)) { throw 'Official shortcut was not created.' }
+        [void](Assert-PlainPath $shortcutPath)
+        $launcher = Assert-PlainPath $target.LauncherPath
+        $shell = $null; $shortcut = $null; $verified = $null
+        try {
+            $shell = New-Object -ComObject WScript.Shell -ErrorAction Stop
+            $shortcut = $shell.CreateShortcut($shortcutPath)
+            $shortcut.TargetPath = $launcher
+            $shortcut.Arguments = '-insecure -game cstrike'
+            $shortcut.WorkingDirectory = $game
+            $shortcut.IconLocation = $launcher + ',0'
+            $shortcut.Save()
+            $verified = $shell.CreateShortcut($shortcutPath)
+            if (![StringComparer]::OrdinalIgnoreCase.Equals($verified.TargetPath, $launcher) -or
+                ![StringComparer]::Ordinal.Equals($verified.Arguments, '-insecure -game cstrike') -or
+                ![StringComparer]::OrdinalIgnoreCase.Equals($verified.WorkingDirectory, $game)) {
+                throw 'Windows shortcut verification failed.'
+            }
+        } finally {
+            foreach ($com in @($verified, $shortcut, $shell)) {
+                if ($null -ne $com -and [Runtime.InteropServices.Marshal]::IsComObject($com)) {
+                    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($com)
+                }
+            }
+        }
         [IO.Directory]::CreateDirectory((Split-Path -Parent $pluginsPath)) | Out-Null
         [IO.File]::WriteAllText($pluginsPath, $pluginText, [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText($pathsPath, $dllText, [Text.UTF8Encoding]::new($false))

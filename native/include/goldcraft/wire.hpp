@@ -16,7 +16,11 @@ constexpr std::uint32_t capability_gameplay_rules = 128;
 constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::uint32_t capability_local_qpc_v1 = 2;
 constexpr std::uint32_t capability_effect_position_hold = 4;
-constexpr std::size_t wire_type_count = 83;
+constexpr std::uint32_t capability_host_explosions = 256;
+constexpr std::size_t wire_type_count = 85;
+constexpr std::uint32_t capability_status_attributes = 16;
+constexpr std::uint32_t capability_fluid_volumes = 32;
+constexpr std::uint32_t capability_native_armor = 64;
 constexpr std::size_t header_bytes = 32;
 constexpr std::size_t max_payload = 32 * 1024 * 1024;
 constexpr std::size_t max_queued_bytes = 64 * 1024 * 1024;
@@ -25,8 +29,10 @@ constexpr float minecraft_y_offset = 64.0f;
 
 enum class Role : std::uint32_t { host_client = 1, fabric_client = 2, host_server = 3, fabric_server = 4 };
 enum class Type : std::uint16_t {
-    gameplay_rules = 82, // 77..81 belong to the status/fluid/armor integration.
-    status_hud = 76,
+    status_hud = 76, status_attributes = 77, status_spend = 78, fluid_volumes = 79, native_armor_request = 80, native_armor_result = 81,
+    gameplay_rules = 82,
+    host_explosion = 83,
+    host_materials = 84,
     hello = 1, welcome = 2, heartbeat = 3,
     world = 10, actors = 11, client_binding = 12, pair_player = 13, pair_result = 14,
     bsp = 15, brushes = 16,

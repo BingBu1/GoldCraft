@@ -57,6 +57,7 @@ public final class MinecraftObjects {
         });
     }
     public static void changed(WorldChunk chunk){
+        MinecraftFluids.changed(chunk);
         if(chunk.getWorld()==world&&!HostWorldReset.clearing())dirty.put(chunk.getPos().toLong(),chunk);
     }
     public static void clear(){

@@ -444,7 +444,7 @@ public final class HostSession {
             record.addProperty("dimension",player.getWorld().getRegistryKey().getValue().toString());
             JsonArray pos=new JsonArray();pos.add(player.getX());pos.add(player.getY());pos.add(player.getZ());record.add("position",pos);players.add(record);
         }
-        data.add("players",players);MinecraftObjects.diagnostics(data);NativePlayers.diagnostics(data);
+        data.add("players",players);MinecraftObjects.diagnostics(data);MinecraftFluids.diagnostics(data);NativePlayers.diagnostics(data);
         try{
             Path target=Path.of(path).resolveSibling("minecraft-server-status.json"),temporary=target.resolveSibling(target.getFileName()+".tmp");
             Files.writeString(temporary,data.toString());Files.move(temporary,target,StandardCopyOption.REPLACE_EXISTING);

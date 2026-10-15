@@ -1,5 +1,25 @@
 # 验证状态
 
+## 2026-10-15 — FerriteCore同步修正与完整功能源码发布
+
+production-attempt02 已通过实际 runtime verify；Modpack 依赖解析为 client22/server21，但旧部署15个顶层JAR漏计母本中已存在的 FerriteCore，严格计划检查拒绝了7项变更。91.832秒失败、恢复完成、无清理错误，未启动FML。用户确认保留内存优化Mod FerriteCore。主协调仅补7.0.3固定SHA、三端新增快照及失败恢复，实际Modpack只读计划和5个拒绝检查通过；freeze06/seal05完成，production-attempt03正在执行。当前尚不能声称双服恢复或B准入。证据 analysis/admission-20261015/production-attempt02/transaction.json、production-attempt03/transaction.json、analysis/coordinator-takeover-20261015/ferrite06-plan-review.json。
+
+安装器两处修复已精确合入root：GoldCraftIntegration.cs 2869c84b、Install-GoldCraft.ps1 caa2475d。Source20补齐9项新增/修改及3个既有依赖，12文件与既有候选一致；45个官方输入与7文件补丁/集成对应build04。官方MIT原文保留，async14的spdlog/fmt及总notice保持；旧包08没有新增两项notice或combined85。未新构建/打包/GUI，历史GUI监视强清、CLI注入边界、SDK未在产品强制和离线依赖缺口保留。证据 analysis/coordinator-takeover-20261015/installer19-integrated.json、analysis/metahook-installer-gui-20261014/handoff-source20.json。
+
+用户在客户端对话确认关闭代理后整体卡顿消失，普通CS语音正常；MetaHook语音尚未复测，不能将整体卡顿归因GoldCraft。只读比对确认原安装为官方v20261013a：21项中19项逐字一致、SDL2/SDL3不同，无GoldCraft加载；此身份比对不是语音因果证据。旧pin Renderer缓存filename候选暂缓整合。单B真实准入后用现有诊断做一次ESC往返，四份完整状态/画面尚待。证据 analysis/client-responsiveness-20261015/handoff-voice01.json、live-plan04/MINIMAL-OBSERVATION.md。
+
+已审combined85所需TNT/BSP源码依赖，属于编译闭包，未验收实际爆破。材质预算耗尽仍可能保留先前弱材质，独立analysis候选已修并实际8方法通过；去掉关键拒绝行的负对照按预期失败（expected7/actual1）。6.833秒，仅编译局部Java，无FML/游戏；候选未合入root或已接受JAR。证据 analysis/minecraft-status-effects/armor-defense/explosion-budget01/{HANDOFF.md,RESULT.json}。
+
+## 2026-10-15 — B已部署，配套服务端与握手通过，实际启动排障
+
+B已实际部署fresh09 GoldCraft.dll（f62baadd）及匹配PDB（0f0bae0b），十插件顺序保持；部署不等于已加载。原fresh09 Job超时记录保留，独立产物接受与7项CTest有效。尚无真实B入服、ESC或FPS结论。用户新增“别人开语音立刻卡顿、无MetaHook正常”的反馈；源码定位到Renderer缓存读取忽略filename、固定读studio_cache.txt，待窄修和真实语音对照，未认定根因。保持现有GL/引擎线程结构。证据analysis/client-responsiveness-20261015/live-plan04/deployment-result.json及publication-supplement01.json。
+
+pair02已独立接受fresh05 mp.dll（485b5f1f）与同源server03 AMXX（8a68efeb）；精确MakeDir别名关联通过，未重编、未改称原fresh05整轮成功。TCP/QPC实际224项、17原生host全部通过，22.261秒自然Active0；覆盖协议30/type85、510/508能力、分片、共享映射QPC、重连与旧代拒绝。证据analysis/minecraft-status-effects/armor-defense/combined85-server05-pair02/acceptance.json及combined85-server-tcp-qpc01/HANDOFF.md。
+
+freeze04修复WindowsPath与字符串排序不一致，157树成员集合及33前态不变；主协调seal03成功（781baf85）。实际production-attempt01在verify-runtime失败：隔离Python直接运行Prepare-NeoForgeRuntime.py，无法import Modpack。root25192 exit1、自然Active0；55.484秒，mutationsStarted=false，恢复完成、无清理失败，FML未运行。首失败保留，正在仅修工具调用的受控模块路径，然后继续生产FML、双TTY常驻双服和单B准入。快照仅批准128→192MiB，完整33根173781048B保留；旧容量/import/seal失败不改写。证据analysis/admission-20261015/{production-freeze-handoff02.md,production-attempt01/transaction.json}。
+
+安装器CLI17补验修改文件时拒绝恢复、占用文件时完整回滚；CLI18 R4真实Save异常与R5真实读回不一致均触发生产回滚，62baseline及历史audit/latest保持。原runner的编码/控制台换行断言失败保留，只读11/13条件分别确认行为、未重跑。R4只暴露托管FileLoadException HRESULT，底层COM HRESULT仍缺。属于注入CLI证据；GUI矩阵、自然退出、可玩首启配对和匹配85载荷仍待。证据analysis/metahook-installer-gui-20261014/handoff-cli17.json及handoff-cli18.json。
+
 ## 2026-10-15 — 清理落地、客户端整合，优先恢复本机双服
 
 清理13已一次执行：删除3817个可精确恢复的重复文件/1357165264逻辑字节；93原始nupkg、所有publish、独特obj、事务备份及失败证据保留。主协调独立核对11454条连续日志、全部删除目标消失及897保留文件。连同16旧链接TAR无损压缩813089379字节，本轮减少约2.02GiB。最新实测项目30.728GiB/239306文件，较最初35.719GiB净少约4.99GiB；中间必要构建新增数据，逻辑差额不冒充物理空闲盘增量。历史被裁剪路径须精确恢复后再复hash或增量构建，恢复未执行；Compact-Sandbox哈希变化项未强删。证据analysis/coordinator-takeover-20261015/{cleanup13-result-verified.json,disk-after-cleanup13.json}及analysis/metahook-installer-gui-20261014/handoff-cleanup-complete13.json。

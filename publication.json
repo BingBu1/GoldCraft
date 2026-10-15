@@ -294,7 +294,15 @@
     "tools/client-installer/README.md",
     "tools/client-installer/Test-Plan.ps1",
     "tools/client-installer/test_install.py",
-    "tools/client-installer/upstream.json"
+    "tools/client-installer/upstream.json",
+    "tests/native/actual_armor_context.inc",
+    "tests/native/actual_status_hud_functions.inc",
+    "tests/native/render_initialize_gl_tests.inc",
+    "tests/native/async_diagnostics_dll.def",
+    "tools/client-installer/GoldCraftIntegration.cs",
+    "tools/client-installer/build_gui.py",
+    "tools/client-installer/goldcraft-gui.patch",
+    "tools/client-installer/gui-source.json"
   ],
   "trees": {
     "native": [

@@ -5,6 +5,7 @@
 #include <VGUI/IPanel.h>
 #include <VGUI/ISurface.h>
 #include "host_ui.hpp"
+#include "work_history.hpp"
 #include "goldcraft/mouse_capture.hpp"
 
 namespace goldcraft::host_ui {
@@ -24,23 +25,31 @@ int(__fastcall* original_key)(void*,int,int,int,const char*)=nullptr;
 std::uint64_t events=0,consumed=0;
 std::uint64_t releases=0;
 MouseCapture mouse;
+enum UiWork : std::size_t {engine_event,native_engine,base_event,native_base,mc_handler,mouse_capture,resume_menu,work_count};
+constexpr std::array<const char*,work_count> work_names{
+    "engineKey","nativeEngineKey","baseUiKey","nativeBaseUiKey","minecraftKeyHandler","mouseCapture","resumeMenu"};
+timing::History<work_count> work_history;
 
 void engine_key_event(int key,int down){
+    timing::Scope work(work_history,engine_event,key);
     // GoldSrc skips ClientDLL/BaseUI on key-up for unconsumed +commands.
     // Observe the public engine entry so a native -attack/-reload release
     // also drains the previously forwarded Minecraft key. Always continue
     // into the original engine; native bindings and command timing stay intact.
     if(!down&&release_handler){++releases;release_handler(key);}
-    original_engine_key(key,down);
+    {timing::Scope native(work_history,native_engine,key);original_engine_key(key,down);}
 }
 
 int __fastcall key_event(void* self,int,int down,int key,const char* binding){
+    timing::Scope work(work_history,base_event,key);
     ++events;
     // CBaseUI consumes Escape before HUD_Key_Event. An existing Minecraft
     // screen owns that key; CS menus keep their normal priority and behavior.
-    if(game&&!game->IsGameUIActive()&&handler&&handler(down,key,binding)){
-        ++consumed;return 1;
+    if(game&&!game_menu_active()&&handler){
+        timing::Scope handled(work_history,mc_handler,key);
+        if(handler(down,key,binding)){++consumed;return 1;}
     }
+    timing::Scope native(work_history,native_base,key);
     return original_key(self,0,down,key,binding);
 }
 
@@ -79,16 +88,19 @@ void shutdown(){
     mouse={};
 }
 
-void resume_game(){if(base){base->HideConsole();base->HideGameUI();}}
+void resume_game(){timing::Scope work(work_history,resume_menu);if(base){base->HideConsole();base->HideGameUI();}}
 
 void update_mouse_capture(bool active_window,bool raw_input){
-    if(surface)mouse.update(active_window,surface->IsCursorVisible()||(game&&game->IsGameUIActive()),raw_input);
+    timing::Scope work(work_history,mouse_capture);
+    if(surface)mouse.update(active_window,surface->IsCursorVisible()||game_menu_active(),raw_input);
 }
+bool game_menu_active(){return game&&game->IsGameUIActive();}
+void write_work_diagnostics(std::ostream& out){work_history.write(out,work_names);}
 
 State state(){
     State result;result.hooked=hook!=nullptr;result.events=events;result.consumed=consumed;
     result.release_hooked=release_hook!=nullptr;result.releases=releases;
-    result.game_menu=game&&game->IsGameUIActive();result.keyboard=surface&&surface->NeedKBInput();
+    result.game_menu=game_menu_active();result.keyboard=surface&&surface->NeedKBInput();
     result.cursor_visible=surface&&surface->IsCursorVisible();result.mouse_api=mouse.available();
     result.relative_mouse=mouse.get_relative_mode?mouse.get_relative_mode():-1;
     result.mouse_repairs=mouse.repairs;result.mouse_errors=mouse.errors;

@@ -16,6 +16,12 @@ import net.minecraft.client.world.ClientWorld;
 public final class GoldCraftClient {
     private static GoldCraftClient active;
     private BridgeLink link;
+    private LocalClientDiscovery discovery;
+    private LocalClientDiscovery.Endpoint discoveredEndpoint;
+    private long discoveryWorld;
+    private long discoveryDeadline;
+    private Thread retiringLink;
+    private String pairingProblem="The local CS bridge is not configured.";
     private WorldExporter exporter;
     private HudExporter hud;
     private byte[] binding;
@@ -40,6 +46,7 @@ public final class GoldCraftClient {
     public void initialize() {
         active=this;
         dev.goldcraft.net.HostNetwork.clientBinding(()->link!=null&&link.connected()&&link.generation()==generation&&binding!=null?binding.clone():null);
+        dev.goldcraft.net.HostNetwork.clientPairingProblem(this::pairingProblem);
         dev.goldcraft.net.HostNetwork.clientReceiver(part-> {
             try {
                 Wire.Message message=assembler.accept(part);if(message==null)return;
@@ -59,18 +66,23 @@ public final class GoldCraftClient {
             }
         });
         try {
-            BridgeLink.Config.environment("GOLDCRAFT_CLIENT",Wire.FABRIC_CLIENT,Wire.HOST_CLIENT).ifPresent(config->{
-                link=new BridgeLink(config);HostInput.configure(link);HostAudio.configure();exporter=new WorldExporter(link);hud=new HudExporter(link); GoldCraft.LOGGER.info("Local CS client link configured on loopback port {}",config.port());
-            });
-        } catch (IllegalArgumentException e) { GoldCraft.LOGGER.error("Invalid local-client configuration: {}",e.getMessage()); }
+            var config=BridgeLink.Config.environment("GOLDCRAFT_CLIENT",Wire.FABRIC_CLIENT,Wire.HOST_CLIENT);
+            if(config.isPresent())attach(config.get());
+            else discovery=new LocalClientDiscovery(Wire.VERSION);
+        } catch (IllegalArgumentException e) {
+            // Partial explicit configuration is an error, never permission to select another instance.
+            pairingProblem="Invalid local CS pairing configuration; relaunch this CS/Minecraft pair together.";
+            GoldCraft.LOGGER.error("Invalid local-client configuration: {}",e.getMessage());
+        }
         var events=net.neoforged.neoforge.common.NeoForge.EVENT_BUS;
-        events.addListener((net.neoforged.neoforge.event.GameShuttingDownEvent event)->{ if(hud!=null)hud.close();if(link!=null)link.close(); });
+        events.addListener((net.neoforged.neoforge.event.GameShuttingDownEvent event)->{ if(discovery!=null)discovery.close();if(hud!=null)hud.close();if(link!=null)link.close(); });
         events.addListener((net.neoforged.neoforge.client.event.RenderLevelStageEvent event)->{
             if(event.getStage()==net.neoforged.neoforge.client.event.RenderLevelStageEvent.Stage.AFTER_LEVEL&&exporter!=null)exporter.renderFrame();
         });
         events.addListener((net.neoforged.neoforge.client.event.ClientTickEvent.Pre event)->{
             var client=net.minecraft.client.MinecraftClient.getInstance();
             tickStarted=Performance.begin();
+            discover();
             if(client.world!=attachedWorld){attachedWorld=client.world;if(attachedWorld!=null)HostCollision.attach(attachedWorld,HOST);else{assembler.clear();HOST.clear();}}
             if(HOST.epoch()!=0&&!HOST.edits().ready()&&client.getNetworkHandler()!=null&&
                 client.getNetworkHandler().hasChannel(EditRequestPayload.ID)&&System.nanoTime()>=nextEditQuery){
@@ -110,6 +122,52 @@ public final class GoldCraftClient {
             Performance.end("clientTick",tickStarted);Performance.flush();
         });
         GoldCraft.LOGGER.info("GoldCraft client initialized");
+    }
+    private void attach(BridgeLink.Config config){
+        link=new BridgeLink(config);HostInput.configure(link);HostAudio.configure();
+        exporter=new WorldExporter(link);hud=new HudExporter(link);
+        GoldCraft.LOGGER.info("Local CS client link configured on loopback port {}",config.port());
+    }
+    private void detach(){
+        BridgeLink previous=link;link=null;binding=null;generation=lastBindingSend=0;
+        HostInput.clear();HostInput.configure(null);HostUi.configure(null);
+        if(exporter!=null){exporter.reset();exporter=null;}
+        if(hud!=null){hud.close();hud=null;}
+        if(previous!=null){
+            // BridgeLink.close joins its worker. Never put that wait on the render thread.
+            retiringLink=new Thread(previous::close,"GoldCraft-retire-local-link");
+            retiringLink.setDaemon(true);retiringLink.start();
+        }
+        discoveredEndpoint=null;
+    }
+    private void discover(){
+        if(discovery==null)return;
+        long challenge=dev.goldcraft.net.HostNetwork.admissionWorld();
+        if(challenge!=0){discoveryWorld=challenge;discoveryDeadline=System.nanoTime()+15_000_000_000L;}
+        var client=net.minecraft.client.MinecraftClient.getInstance();
+        boolean hosted=client.getNetworkHandler()!=null&&client.getNetworkHandler().hasChannel(BindingPayload.ID);
+        if(challenge==0&&!hosted&&(!dev.goldcraft.net.HostNetwork.pairingConnectionOpen()||
+            client.world!=null||System.nanoTime()-discoveryDeadline>=0)){
+            discoveryWorld=0;discovery.request(0,null);if(link!=null)detach();return;
+        }
+        if(discoveryWorld==0)return;
+        boolean keepTransport=hosted&&challenge==0;
+        discovery.request(discoveryWorld,discoveredEndpoint,keepTransport);
+        var result=discovery.result();var endpoint=result.endpoint();pairingProblem=result.reason();
+        // A result from the previous server must not be used during a new admission.
+        if(endpoint!=null&&endpoint.world()!=discoveryWorld&&
+            !(keepTransport&&discoveredEndpoint!=null&&discoveredEndpoint.sameTransport(endpoint)))endpoint=null;
+        if(discoveredEndpoint!=null&&(endpoint==null||!discoveredEndpoint.sameTransport(endpoint)))detach();
+        if(link==null&&endpoint!=null&&(retiringLink==null||!retiringLink.isAlive())){
+            attach(new BridgeLink.Config(endpoint.port(),Wire.key(endpoint.session()),Wire.key(endpoint.token()),Wire.FABRIC_CLIENT,Wire.HOST_CLIENT));
+            discoveredEndpoint=endpoint;
+        }
+    }
+    private String pairingProblem(){
+        if(link==null)return pairingProblem;
+        if(!link.connected())return "The matching local CS bridge is not connected; check that CS and Minecraft use matching GoldCraft versions.";
+        if(binding==null)return "The CS bridge is connected, but CS has no current server pairing; join the matching GoldCraft CS server.";
+        return "The CS client is paired with a different server or map session; reconnect to the matching server.";
     }
     public static void presentationFrame(net.minecraft.client.MinecraftClient client) {
         if(active!=null&&active.hud!=null){HostCamera.frame(client,active.link);active.hud.frame(client);active.exporter.presentationFrame();}

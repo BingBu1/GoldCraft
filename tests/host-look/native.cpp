@@ -30,6 +30,9 @@ int GetForegroundWindow(){return 0;}DWORD GetCurrentProcessId(){return 17;}
 void GetWindowThreadProcessId(int,DWORD* process){*process=focused?17:18;}
 void UpdateUi(){}void SendUi(int){}void ReleaseMinecraftKeys(){}void ReleaseHostUse(){}void UpdateHostUse(){}
 namespace host_ui{struct State{bool game_menu=false;};State current;State state(){return current;}void update_mouse_capture(bool,bool){}}
+namespace host_ui{bool game_menu_active(){return current.game_menu;}}
+enum class WorkStage {create_move,ui_update,mouse_capture,native_create_move,input_forward};
+struct WorkScope {explicit WorkScope(WorkStage){}};
 struct Engine{
     bool Con_IsVisible(){return console;}
     float pfnGetCvarFloat(const char* name){return std::string(name)=="sensitivity"?1:std::string(name)=="m_rawinput"?1:.022f;}

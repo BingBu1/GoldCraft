@@ -1,0 +1,6 @@
+LIBRARY async_diagnostics_fixture
+EXPORTS
+    AsyncStart
+    AsyncSubmit
+    AsyncStats
+    AsyncStop

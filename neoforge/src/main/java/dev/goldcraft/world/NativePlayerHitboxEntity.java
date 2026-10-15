@@ -51,7 +51,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     boolean follows(NativePlayerEntity value){return body==value;}
     public static void initialize(IEventBus bus){
         ENTITIES.register(bus);
-        bus.addListener((EntityAttributeCreationEvent event)->event.put(TYPE.get(),LivingEntity.createLivingAttributes().build()));
+        bus.addListener((EntityAttributeCreationEvent event)->event.put(TYPE.get(),LivingEntity.createLivingAttributes().add(EntityAttributes.GENERIC_MOVEMENT_SPEED,0.1).build()));
     }
     public NativePlayerHitboxEntity(EntityType<? extends NativePlayerHitboxEntity> type,World world){
         super(type,world);setInvisible(true);setNoGravity(true);
@@ -82,11 +82,15 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         if(getWorld().isClient||body==null||body.isRemoved()||!body.isAlive()||!Float.isFinite(amount)||amount<=0)return false;
         DamageSource previous=activeDamage;boolean previousRequested=damageRequested;
         activeDamage=source;damageRequested=false;
+        float absorptionBefore=getAbsorptionAmount();
         try{
             // Run vanilla, NeoForge and Epic's actual hurt pipeline on the one
             // spatial target. Skills can reset its real cooldown and receive
             // normal hit feedback/damage modifiers. Only native health commits.
-            return super.damage(source,body.difficultyDamage(source,amount))&&damageRequested;
+            boolean hit=super.damage(source,body.difficultyDamage(source,amount));
+            // A hit paid entirely by golden hearts still landed, even though
+            // it has no native health delta to send.
+            return hit&&(damageRequested||getAbsorptionAmount()<absorptionBefore);
         }finally{activeDamage=previous;damageRequested=previousRequested;}
     }
     @Override public void setHealth(float value){

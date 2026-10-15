@@ -75,6 +75,23 @@ public final class BridgeLink implements AutoCloseable {
     public synchronized long localQpcFrequency(long expectedGeneration) {
         return connected && expectedGeneration != 0 && generation == expectedGeneration ? provenClockFrequency : 0;
     }
+    public synchronized boolean statusAttributes(long expectedGeneration) {
+        return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
+            generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.STATUS_ATTRIBUTES_CAP)!=0;
+    }
+    public synchronized boolean sendAttributes(long expectedGeneration,int type,byte[] payload){
+        return statusAttributes(expectedGeneration)&&sendForGeneration(expectedGeneration,type,payload);
+    }
+    public synchronized boolean nativeArmor(long expectedGeneration) {
+        return statusAttributes(expectedGeneration) && (acceptedCapabilities & NativeArmorProtocol.CAPABILITY)!=0;
+    }
+    public synchronized boolean fluids(long expectedGeneration) {
+        return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
+            generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.FLUID_CAPABILITY)!=0;
+    }
+    public synchronized boolean sendFluids(long expectedGeneration,byte[] payload){
+        return fluids(expectedGeneration)&&sendForGeneration(expectedGeneration,Wire.FLUID_VOLUMES,payload);
+    }
     public synchronized boolean statusEffects(long expectedGeneration) {
         return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
             generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.STATUS_EFFECTS)!=0;
@@ -82,6 +99,10 @@ public final class BridgeLink implements AutoCloseable {
     public synchronized boolean gameplayRules(long expectedGeneration) {
         return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
             generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.GAMEPLAY_RULES_CAP)!=0;
+    }
+    public synchronized boolean hostExplosions(long expectedGeneration) {
+        return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
+            generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.HOST_EXPLOSIONS_CAP)!=0;
     }
     public synchronized boolean sendStatus(long expectedGeneration,int type,byte[] payload){
         return statusEffects(expectedGeneration)&&sendForGeneration(expectedGeneration,type,payload);
@@ -219,7 +240,7 @@ public final class BridgeLink implements AutoCloseable {
         boolean statusCapable=config.role()==Wire.FABRIC_SERVER&&config.hostRole()==Wire.HOST_SERVER;
         boolean capable=SharedBulkSender.supported(config.role(), config.hostRole());
         boolean clockCapable=LocalQpcProof.supported(config.role(), config.hostRole());
-        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.GAMEPLAY_RULES_CAP:0)).toByteArray();
+        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP:0)).toByteArray();
         Pending pending=new Pending(Wire.HELLO,hello,0,1,false);
         Queued blocked=null;
         SharedBulkSender shared=null;
@@ -291,7 +312,7 @@ public final class BridgeLink implements AutoCloseable {
                         if (!Arrays.equals(config.session(),r.bytes(16)) || r.i32()!=config.hostRole())
                             throw new IOException("Host identity mismatch");
                         int accepted=r.i32();
-                        if ((accepted & ~(Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.GAMEPLAY_RULES_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.GAMEPLAY_RULES_CAP))!=0&&!statusCapable) ||
+                        if (((accepted&NativeArmorProtocol.CAPABILITY)!=0&&(accepted&Wire.STATUS_ATTRIBUTES_CAP)==0) || (accepted & ~(Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP))!=0&&!statusCapable) ||
                             r.f32()!=Wire.UNITS_PER_BLOCK || r.f32()!=Wire.Y_OFFSET)
                             throw new IOException("Host capability/coordinate contract mismatch");
                         r.finish(); epoch=header.epoch(); authenticated(epoch,accepted);

@@ -4,6 +4,7 @@ GoldCraft 以源代码及补丁形式发布。外部源码由构建脚本按 `so
 
 | 项目 | 用途 | 本仓库保留的许可 |
 |---|---|---|
+| [spdlog 1.15.3](https://github.com/gabime/spdlog) | 客户端日志和状态文件的有界异步 I/O；固定提交与下载哈希见 sources.lock.json | [MIT](notices/spdlog-LICENSE.txt)、[bundled fmt MIT](notices/fmt-LICENSE.txt) |
 | [SkyCraft](https://github.com/chasmlol/SkyCraft) | 设计和协议研究参考 | [MIT](notices/SkyCraft-LICENSE.txt) |
 | [MetaHookSv / MetaHook](https://github.com/MetaHookSv/MetaHookSv) | 客户端加载和 Hook；core 适配补丁 | [aggregate MIT](notices/MetaHookSv-LICENSE.txt)、[core MIT](notices/MetaHook-LICENSE.txt) |
 | [MetahookInstaller](https://github.com/MetaHookSv/MetahookInstaller) | 复用官方客户端自动发现、文件安装与快捷方式；固定提交见安装器 upstream.json | [MIT](notices/MetahookInstaller-LICENSE.txt)；官方二进制由本地安装包提供，不上传源码仓库 |

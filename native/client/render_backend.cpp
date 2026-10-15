@@ -28,6 +28,7 @@ constexpr std::uint32_t raw_mask_program=1u<<31;
 struct Program {GLuint id=0;GLint emissive=-1,feedback=-1,effect=-1,cutoff=-1,color_mod=-1,world=-1,projection=-1,view_offset=-1;};
 std::map<std::uint32_t,Program> programs;
 HGLRC current_context=nullptr;
+bool gl_initialized=false;
 GLuint hud_program=0,hud_vao=0;
 GLuint repeat_linear_sampler=0;
 void prepare_effect_sampler(){
@@ -155,22 +156,35 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     logger=log;
     set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
+    if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
+    scene=nullptr;callback=nullptr;renderer=nullptr;stats.scene_api=stats.renderer=false;
     // VidInit revokes the prior transaction before Renderer/GL initialization.
     // A failed initialization must not expose an earlier optional provider.
     edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;stats.post_scene_api=false;
     scene_culling=nullptr;stats.scene_culling_api=false;
-    if(current_context!=wglGetCurrentContext()){
-        programs.clear();hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=max_draw_buffers=0;feedback_line_width=0;current_context=wglGetCurrentContext();
+    const auto context=wglGetCurrentContext();
+    if(current_context!=context){
+        programs.clear();hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=max_draw_buffers=0;feedback_line_width=0;current_context=context;gl_initialized=false;stats.core=false;
     }
     if(!current_context)return false;
-    glewExperimental=GL_TRUE;
-    const auto result=glewInit();
-    // GLEW probes the removed extension string on some Core Profile drivers.
-    while(glGetError()!=GL_NO_ERROR){}
-    if(result!=GLEW_OK){logger("OpenGL function loading failed");return false;}
-    if(GLEW_VERSION_4_4)glGetIntegerv(GL_MAX_DRAW_BUFFERS,&max_draw_buffers);
-    GLint profile=0;if(GLEW_VERSION_3_2)glGetIntegerv(GL_CONTEXT_PROFILE_MASK,&profile);
-    stats.core=(profile&GL_CONTEXT_CORE_PROFILE_BIT)!=0;
+    if(!gl_initialized){
+        ++stats.gl_loader_calls;
+        glewExperimental=GL_TRUE;
+        const auto result=glewInit();
+        // A Core Profile probe may set INVALID_ENUM. A lost context can keep
+        // returning an error; never spin on the game thread waiting for it.
+        GLenum error=GL_NO_ERROR;
+        for(unsigned i=0;i<32;++i){error=glGetError();if(error==GL_NO_ERROR)break;}
+        if(error!=GL_NO_ERROR){
+            stats.error=error;++stats.error_count;
+            logger("OpenGL initialization errors did not clear: "+std::to_string(error));return false;
+        }
+        if(result!=GLEW_OK){logger("OpenGL function loading failed");return false;}
+        if(GLEW_VERSION_4_4)glGetIntegerv(GL_MAX_DRAW_BUFFERS,&max_draw_buffers);
+        GLint profile=0;if(GLEW_VERSION_3_2)glGetIntegerv(GL_CONTEXT_PROFILE_MASK,&profile);
+        stats.core=(profile&GL_CONTEXT_CORE_PROFILE_BIT)!=0;
+        gl_initialized=true;
+    }else ++stats.gl_loader_reuses;
     HMODULE module=GetModuleHandleA("Renderer_AVX2.dll");
     if(!module)module=GetModuleHandleA("Renderer.dll");
     auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
@@ -190,7 +204,6 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     edits=targeted_edits?static_cast<IMetaRendererWorldEdit*>(targeted_edits):
         static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION,nullptr));
     if(scene){
-        if(callback&&callback!=callbacks)scene->UnregisterSceneCallbacks(callback);
         callback=callbacks;scene->RegisterSceneCallbacks(callback);
     }
     stats.scene_api=scene!=nullptr;
@@ -209,7 +222,8 @@ void shutdown(){
     hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=max_draw_buffers=0;feedback_line_width=0;
     scene=nullptr;edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;stats.post_scene_api=false;
     scene_culling=nullptr;stats.scene_culling_api=false;
-    callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;
+    callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;gl_initialized=false;
+    stats.scene_api=stats.renderer=false;
 }
 
 Mesh::~Mesh(){
