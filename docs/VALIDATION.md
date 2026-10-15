@@ -1,5 +1,15 @@
 # 验证状态
 
+## 2026-10-15 — 公网单B实机、四端Mod同步与新重连拒绝
+
+16:09:38旧42e86816客户端实际自动配对公网，16:09:43收到cs_assault BSP；16:12:34状态仍同world/slot26/serial2，HUD1423帧/相机885帧，且真实日志三次记录CS输入接管。用户分别确认进入可操作、CS内HUD和操作正常。此为普通XMCL单B公网路径及局部实际操作证据，不替代其他机器或多人。证据 analysis/coordinator-takeover-20261015/public21/sample-081234.json。
+
+用户选择立即更新并自行退出Minecraft；真实进程检查为空后，已接受combined20 JAR提升到标准构建路径，再用生产Modpack.py sync --refresh-core完成母本/A/B/本地server四文件事务。四份SHA均ce797b853cb71708e4a47299be14a6f8db07cdea9c3687361bc6034f9659e5c8，44个其他受管文件不变，FerriteCore保留，后续计划零变更；旧core和事务备份已保存。新XMCL进程27152于16:18:03启动，实际从母本mods发现新版core，NeoForge21.1.256/MC1.21.1及GoldCraft初始化通过。公网服务端未更新。证据 public21/{canonical-core-promoted.json,sync-plan21.json,sync-result21.json,fresh-client-082020.json}。
+
+随后新MC在16:24两次重连本机桥成功，但公网返回“The CS server rejected this connection identity”；CS连接serial随后3→4，尚不能区分过期凭据、UUID占用或其他具体PairStatus。这不同于原先找不到本机CS的发现失败，也不能推断仅由新JAR导致。三个修改生产源之外没有JAR类变化；初次猜测仅3个class变化的审计断言不正确，实际15个变动class均属这3个源文件的顶层/嵌套类，未改产物或生产测试。已请求用户从远程运行包输出无密钥的world/actors身份状态；远程截图限制仍在，不盲改服务端。公网稳定重连保持未完成。证据 public21/{final-client-observation.json,jar20-delta.json}及实际XMCL latest.log。
+
+用户确认另一玩家的CS和MC均仍为旧版本。本机/服务端更新不会替他们升级；已准备现有75,016,071B CS安装器和682,014B MC小更新ZIP，后者仅core/说明/清单，无账号、配对密钥或存档。CS包GoldCraft.dll与当前实际已载入B模块逐字一致；MC包逐成员CRC/字节通过，尚无另一机器实测。已修正文档的普通XMCL自动发现步骤，明确同机同Windows用户、先CS后MC、陈旧显式配置优先及双端更新要求。证据 public21/client-update-package.json。
+
 ## 2026-10-15 — 公网收藏连接实测修复，完整Mod重建
 
 端口配置入口错误已复现并修正：Windows PowerShell5.1通过-File启动时，参数默认值求值的PSScriptRoot为空；移到脚本主体解析，CMD另显式传根目录并保留失败退出码。原脚本显式PackageRoot可完成配置。旧默认入口失败、新默认入口、真实CMD（中文/空格/单引号目录、不同工作目录）、配置/备份保留、幂等及失败传播共7次执行通过。旧测试显式传目录，未覆盖出错入口；历史记录保留。证据 analysis/coordinator-takeover-20261015/port20-test/result.json。

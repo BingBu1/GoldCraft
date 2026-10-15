@@ -67,11 +67,13 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供两个本机服务端使用，不能发给玩家。玩家配对继续通过实际 CS 连接生成的临时 GCBind，不能伪造客户端 UUID 来取得控制权。
 
-玩家需要匹配的 GoldCraft MetaHook 客户端以及 **Minecraft 1.21.1 / NeoForge 21.1.256**。用 XMCL 选择玩家档案并使用匹配的 Mod 集；服务端 Mod 清单在 `client-requirements.json`，客户端专用 Mod 不在本 ZIP。把 `client-update` 中的 GoldCraft JAR 更新到 XMCL 管理的实例 Mod 目录，替换旧 GoldCraft；该文件支持新的自动准入。离线玩家名对应自己的离线 UUID；切换在线／离线模式不会自动迁移旧背包或 OP 权限。远程客户端须将 CS 连接地址和 Minecraft `GOLDCRAFT_MC_CONNECT` 都指向本服务器；客户端本地 CS↔MC 配对参数仍按各自实例配置，勿复制服务端密钥。先加入 CS，再连接 MC，完成 GoldCraft 配对后切换形态。
+玩家需要匹配的 GoldCraft MetaHook 客户端以及 **Minecraft 1.21.1 / NeoForge 21.1.256**。用 XMCL 选择玩家档案并使用匹配的 Mod 集；服务端 Mod 清单在 `client-requirements.json`，客户端专用 Mod 不在本 ZIP。旧玩家须同时更新 CS 插件和 MC 的 GoldCraft JAR，服务器更新不会自动替换他们的客户端。替换 JAR 前退出 Minecraft，保留原有其他 Mod、存档和账号，避免同时放入两份 GoldCraft。服务包自带的 `client-update` 反映其打包时版本，后续自动发现修复应使用另行提供的配套客户端更新。
+
+新版在同一台 Windows、同一用户运行单个 CS 时，会自动发现与 MC 服务端地图会话一致的本机桥。先进入对应 CS 专服，再在 XMCL 启动的 MC 中连接对应 MC 专服即可；不需要设置 `GOLDCRAFT_MC_CONNECT` 才能手动连接。旧显式配对启动器仍使用各实例自己的配置，多实例也需明确配对。勿复制其他玩家的配对环境变量或服务端密钥。离线玩家名对应自己的离线 UUID；切换在线／离线模式不会自动迁移旧背包或 OP 权限。
 
 启动脚本检查核心中的离线准入能力标记，旧核心不能只改 `online-mode=false` 就使用。可以停服后把 `minecraft/server.properties` 的 `online-mode` 改回 `true`；CS 配对检查始终保留，CS 继续 `sv_lan 0`。
 
-此包仅包含双服务端，不包含给远程玩家使用的客户端启动器；尚未做公网真人双端配对验收。普通 CS 玩家可加入 CS 并使用现有服务端交互能力。
+此包仅包含双服务端，不包含 CS 客户端安装器。2026-10-15 已在单 B 上通过公网 CS 收藏连接、XMCL 自动发现准入，以及用户确认的 CS 内 MC HUD/操作；其他机器、多人同时配对和完整重连矩阵仍待实测。普通 CS 玩家可加入 CS 并使用现有服务端交互能力。
 
 ## 内容与维护
 

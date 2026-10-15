@@ -12,7 +12,11 @@ Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life"
 
 安装内容为 VGUI2Extension、CaptionMod、Renderer、GoldCraft、BulletPhysics、StudioEvents、PrecacheManager、HeapPatch、ResourceReplacer、InterpFix 及其资源。Renderer 后紧接 GoldCraft；已有 MetaAudio 保持在 CaptionMod 之前。其他插件和注释保留，相关 DLL 搜索目录自动补齐。不会修改 CS 按键或 `config.cfg`，不会复制开发机的账号、配对密钥、MC 实例或游戏文件。
 
-这是 **CS 端 MetaHook 和插件安装包**。Minecraft 端仍使用现有 GoldCraft 启动器和配套 Mod；官方生成的 CS 快捷方式本身不会启动 Minecraft，也不创建跨进程配对凭据。当前 GoldCraft 二进制按包内引擎和 CS 客户端身份安装，版本不匹配会在写入前停止；不能视为支持任意旧版 GoldSrc。Renderer 使用 AVX2 版本。
+这是 **CS 端 MetaHook 和插件安装包**，更新它不会自动更新另一台电脑或 Minecraft 实例中的 Mod。旧玩家需要同时更新 CS 的 GoldCraft 插件和 MC 的 GoldCraft JAR；只更新服务器不能补齐旧客户端的自动发现功能。
+
+新版支持同一台 Windows、同一用户下的单 CS 客户端自动发现：先用安装器生成的快捷方式进入对应 CS 专服，再从 XMCL 启动 Minecraft 1.21.1 / NeoForge 21.1.256 的配套实例并进入对应 MC 专服。CS 运行时生成本机桥身份，MC 自动匹配服务端的地图会话；无需给普通玩家复制开发机的配对环境变量、账号或服务端密钥。多 CS 实例仍需用各自明确配对的启动配置，避免选错实例。已有显式配对配置优先，陈旧或不完整配置不会自动退回发现模式。
+
+生成的 CS 快捷方式本身不会启动 Minecraft。当前 GoldCraft 二进制按包内引擎和 CS 客户端身份安装，版本不匹配会在写入前停止；不能视为支持任意旧版 GoldSrc。Renderer 使用 AVX2 版本。
 
 本包采用已部署并确认加载的 GoldCraft 客户端，包含流体、药水、盔甲和盾牌联合版本及异步日志更新。需搭配相应版本的 GoldCraft 服务端与 Minecraft Mod；完整玩法和经安装器快捷方式首次启动、配对仍待验证。
 
