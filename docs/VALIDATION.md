@@ -1,5 +1,23 @@
 # 验证状态
 
+## 2026-10-15 — 地图七项与异步恢复通过，配套服务端和GUI继续
+
+combined85-server01仅MSBuild /pp成功，预构建闭包拒绝未冻结NuGet.props，root6708 exit1/39.615秒/Job59自然Active0，未编译C++/AMXX；原下游缺证据审计失败保留。server02已绑定90个实际imports并完成七阶段exit0：common13/cppunit5/ReGameDLL162/PCH/RC/link，mp.dll2544640字节SHAb57804d3/PDB19050496字节6f5dbeac。整轮root35244 exit1/233.678秒/Job272自然Active0，无超时/强清，758源及9631工具未变；最终英文task解析器未识别中文CL/RC/Link，include尾部任务ID误作路径，完整审计失败且AMXX3未到达。保留原始binlog/log/失败audit；fresh03仅获授权修正严格本地化解析并续审计/AMXX，不重编162单元，不据链接成功称完整服务端通过。证据analysis/minecraft-status-effects/armor-defense/combined85-server{01,02}/shared-document-handoff.md及RESULT.md。
+
+fresh combined85-probe01真实TU/link/MT/startup通过：root37508 exit0/13.243秒/Job7自然Active0，49审计门/264实际includes，172 origin/frozen与7249工具不变；x86/asInvoker EXE343040字节SHA6d8c0f179915c4860a316674278c94ce1f11102b39b03c44799df18f9bf7a496，绑定native03 common071f16c7。证据analysis/minecraft-status-effects/armor-defense/combined85-probe01及analysis/coordinator-takeover-20261015/probe01-result-verified.json。
+
+combined01原XML仍为266执行/7条件skip；map01因javac @args内-J参数无效，root26336 exit2/10.517秒/Job4自然Active0、0/7，失败不改。map-followup02仅将-J移至javac直接argv并调整analysis路径，原七方法、assumptions、seed80391与精度/等待不变；2244冻结输入、449 class/resource和89依赖原地复用，仅复制5个BSP8423880字节与匹配probe。四阶段exit0，root27012 exit0/28.6102715秒/Job14自然Active0，无超时/强清/输入漂移；7 found/started/successful、0skip/abort/fail。四个真实x86进程每个1200×11有限输出，4800 actual BSP traces/9600 contents断言通过，含cs_assault standing/crouching player-clip。独立closure134949c0核对XML/events/loaded origins/native输出/PE/14进程身份/hash；不把hash祖先检查计为产品测试。证据analysis/admission-20261015/{map-followup02,map-checkpoint02.json,map02-shared-doc-deltas.md}。
+
+async diagnostic06再次通过原65写/9213完整读/0坏读/0打开错误/最终seq64及8次真实DLL卸载；新增share3 check66原样失败，实际FileRenameInfoEx error32，3提交/2写/1错/0丢，target与旧句柄均seq1、tmp0。readonly/recovery未到达。root16264 exit1/56.396秒/157进程自然Active0，无强清；8297后hash审计通过。错误仅解释补充文件共享场景，不是CS卡顿根因。无完整client/root整合/部署/实机。证据analysis/client-responsiveness-20261015/async01/handoff-diagnostic06.md。
+
+recovery07在原65并发写读/seq64/8卸载不变基础上，补充实测Windows10 19045/NTFS的share3拒绝→关句柄恢复和readonly拒绝→清属性恢复，保留rename05/diagnostic06失败。root33556 exit0/73.183秒/Job159自然Active0，无超时/强清；两项完整CTest共84检查通过，原65 submitted/written、5200完整读、0bad/open/errors/overwritten、最终seq64，share3 error32后seq3、readonly error5后seq5。恢复组6submitted/4written/2errors/0overwritten/0workers，8次真实DLL启停/线程退出/卸载通过。主协调release已复核8327hash/8321文件，checkpoint11直接读真实job/build/tests；领域正式产物审计及4modified+10new窄三方整合/完整客户端仍待。无root异步源码应用/部署/实机入服或ESC/FPS修复结论。证据analysis/client-responsiveness-20261015/async01/{recovery07,recovery07-job}、contract-recovery07.md及analysis/coordinator-takeover-20261015/recovery07-release-verified.json。
+
+candidate05/build04自包含GUI构建成功：root5168 exit0/123.607秒/Job13自然Active0，5415冻结源/SDK工具不变；EXE54012807字节SHA87e39488fd77e22ff78e0f18fe3be36d8535021b909276e3586f4983cf3f09fa。事后捕获3 assets、160选包=78隔离cache+82系统Fallback及4618文件，Fallback未预冻结，不称离线依赖闭包。原rawSHA512=签名contentHash错误比较失败保留；匹配NuGet7.6.0.33009/dotnet VMR35b593be源码区分语义，4063直接+72 URI解码提取成员逐字匹配，3个Fallback签名成员及8个sidecar差异仍未完全解释，未作签名信任/独立contentHash/offline重建结论。证据analysis/metahook-installer-gui-20261014/handoff-20261015-08.json。
+
+候选GUI包08仅一次生成，root16280 exit0/10.144秒/Job2自然Active0，366输入及12root helpers/Stable EXE/ZIP复hash不变。audit08因Windows CRLF字节预测错误失败原样保留；按冻结writer确切1845处LF→CRLF另封audit09，728门通过。359成员+清单共360文件/111118500字节，ZIP74871440字节SHA5bfe38de；335载荷与Stable不变，未含combined85。P1 ASCII及P2中文单引号各复制62原始文件/4787148字节，无历史审计备份复制，两项preflight各5门通过、0事务。checker09相对08仅清单身份/文件名修正、全部断言保留，实际GUI安装恢复/COM Save/故障回滚/可玩启动与配对仍待验，root产品补丁未应用、未部署/写index。 首次失败package-static-audit08.json不可删除，后续exact CRLF报告为package-static-audit09.json；两preflight不调用COM或GUI。 主协调已复核并授P1/P2逐个真实GUI安装→严格已安装检查/快捷方式只读回读→GUI恢复→62原文件hash窗口；结果待交，不将授权算作已执行。
+
+清理已完成35.719→27.525 GiB，净释放约8.19 GiB；存档/设置/Mod母本/迁移回滚/失败证据保留，必要新构建与候选包另有少量增量。最新已核实source-only远端main e9d5d6a72825690de39ef8285c88e05820eec4cf，仅managed checkout TODO/VALIDATION、index792文件/7151818字节/0错误；root HEAD5687c262与空staged delta保留。主协调已独立完成checkpoint11的3152hash/3137文件/360包成员核对；四领域继续并发，安装器持P1/P2独占GUI窗口，服务端strict审计/AMXX、客户端完整构建准备、配对FML监督/九类故障validator与双服恢复准备同时推进。本机测试服TCP25575仍无监听，需匹配新DLL/JAR并由监督器恢复至127.0.0.1:25575；不采用历史日志、旧DLL/JAR或代理IPv6当当前健康证据。G01–G28全部开放。
+
 ## 2026-10-15 — 联合原生与Java通过，七项地图补验及配套构建继续
 
 combined85-native03已修复native02的common/test shared_bulk证据命名冲突；13 common、12项实际测试、12个最终PE的MT asInvoker及245/245审计全部通过。root34536 exit0/135.878秒/Job66自然Active0，无超时或强清；172项目origin/frozen、7249工具未变，455实际includes、25 compile/12 link。实际status96、armor80、armorDispatch46、statusDispatch108、HUD18、fluid4045、bulk308、bridge1068、exception283、codec457，rules/pure静默exit0。原native02两门失败记录保留。证据analysis/minecraft-status-effects/armor-defense/combined85-native03/{validation-receipt.json,audit.json,shared-document-handoff.md}；完整server01尚在冻结准备，非完整DLL或实机验收。
