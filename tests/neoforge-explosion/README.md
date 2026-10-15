@@ -23,7 +23,10 @@ python tools/Build-ExplosionFixture.py
 | `gc_explosion_fixture cancel` | 取消 Start |
 | `gc_explosion_fixture clear` | 清空 Detonate 的受影响方块列表 |
 | `gc_explosion_fixture prune` | 只保留 MC X < 3 的受影响方块 |
-| `gc_explosion_fixture report` | 输出 `GC_EXPLOSION_FIXTURE` 前缀和 JSON 事件记录 |
+| `gc_explosion_fixture chain` | 观察固定试验中心 16 格内的 TNT 生成及爆炸，保持原版破坏列表 |
+| `gc_explosion_fixture ignite_ownerless` | 在 chain 模式下点燃 (3,76,-90) 的 TNT，无点燃者 |
+| `gc_explosion_fixture ignite_native <slot>` | 以指定存活 CS 连接的生产玩家镜像作为点燃者；须另验实际玩家输入及伤害归属 |
+| `gc_explosion_fixture report` | 输出 `GC_EXPLOSION_FIXTURE` 前缀和 JSON 事件/生成记录 |
 | `gc_explosion_fixture snapshot` | 通过只读反射读取生产宿主切除快照，输出 Base64 |
 
 每次试验先在 CS 服务器设置 `mc_map_mining 2`、`mc_map_mining_persist 0` 并执行 `sv_restart 1`。等待新回合开始及既有切除清零，再设置 `mc_map_mining_persist 1`。这些操作仅准备试验，不作为自然回合清理证据。
@@ -48,10 +51,27 @@ execute in goldcraft:cs_assault_f6725c06 run execute if block 4 76 -90 minecraft
 execute in goldcraft:cs_assault_f6725c06 run execute if entity @e[type=minecraft:tnt,tag=goldcraft_explosion_fixture]
 ```
 
-取消时应只有 Start 记录；清空时应有空的最终列表。两者都应保留玻璃，宿主切除数量和 revision 在整个采样窗口保持不变。裁剪时每条宿主切除都应属于最终列表且 X < 3；pass 应产生切除并破坏玻璃。爆炸随机射线可能使各次列表及切除数量不同，不应硬编码相同计数。RCON 事件回复可能超过 4096 字节，必须收齐所有分包后再解析。
+取消时应只有 Start 记录；清空时应有空的最终列表。两者都应保留玻璃，宿主切除数量和 revision 在整个采样窗口保持不变。裁剪时每条宿主切除都应属于最终列表且 X < 3；pass 应产生切除并破坏玻璃。爆炸随机射线可能使各次列表及切除数量不同，不应硬编码相同计数。RCON 事件回复可能超过 4096 字节，必须收齐所有分包后再解析。若以后续有序请求标记回复结束，先收到原命令的首包再发送标记；MC 1.21.1 的 RCON 读取器会拒绝合并在一次读取中的多条请求。
 
 事件监听器使用 `LOWEST` 优先级；本夹具只证明已实测的事件组合，不能推断任意其他 Mod 的回调顺序或兼容性。单轮上限为 32 条事件，换模式即清空；勿长期启用。
 
 结束后执行 `gc_explosion_fixture off` 和 `execute in goldcraft:cs_assault_f6725c06 run forceload remove -13 -106 19 -74`，正常关闭双服，核对退出状态，再移除临时测试 JAR/插件并核对原有 Mod 和配置。保留日志和快照证据。
 
 2026-10-15 五轮真实双服记录证明取消、清空和裁剪事件均约束原生切除；记录见 [验证状态](../../docs/VALIDATION.md)，本地原始证据位于 `analysis/coordinator-takeover-20261015/tnt25/`。图形洞口、真实枪击、常规重力移动、其他材质/宿主水、连锁/玩家归属以及多人仍需独立验证。
+
+连锁试验先确认以下位置都是空气，再在 MC 控制台执行。前置双服清场和强加载同上；不要复用有建筑的区域：
+
+```text
+execute in goldcraft:cs_assault_f6725c06 run fill 2 75 -91 8 75 -89 minecraft:obsidian
+execute in goldcraft:cs_assault_f6725c06 run setblock 3 76 -90 minecraft:tnt
+execute in goldcraft:cs_assault_f6725c06 run setblock 5 76 -90 minecraft:tnt
+execute in goldcraft:cs_assault_f6725c06 run setblock 7 76 -90 minecraft:tnt
+gc_explosion_fixture chain
+gc_explosion_fixture ignite_ownerless
+```
+
+点燃调用实际 `TntBlock.onCaughtFire`，随后移除原 TNT 方块，与原版使用物品的点燃顺序一致。夹具不会自行生成子 TNT，也不改引信、速度或重力；子 TNT 由真实爆炸击中相邻方块生成。记录首颗正引信并观察约 8 秒，再读取 `report` / `snapshot`。预期有 3 个唯一 TNT UUID、首颗初始引信 80、两颗子 TNT 初始引信各为 10–29，以及对应的 6 条 Start/Detonate 事件。每条实际宿主切除须属于某次最终事件列表；至少一条位于首颗爆炸列表之外，才能证明连锁扩大了宿主破坏范围。
+
+2026-10-15 无主连锁对照通过：两颗子 TNT、69 条原生切除，其中 52 条不在首颗最终列表内。带原生玩家镜像的点燃命令目前仅编译通过，尚未执行归属对照；它也不能替代真实玩家的点燃、杀伤和击杀归属验收。证据位于 `analysis/coordinator-takeover-20261015/tnt26/`。
+
+结束时确认 TNT 实体和方块均消失，关闭夹具，核对 21 格支撑块仍为黑曜石后执行 `execute in goldcraft:cs_assault_f6725c06 run fill 2 75 -91 8 75 -89 minecraft:air replace minecraft:obsidian`；再释放临时强加载并按上述流程停服清理。

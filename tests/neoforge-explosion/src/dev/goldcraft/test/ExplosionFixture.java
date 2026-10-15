@@ -1,15 +1,21 @@
 package dev.goldcraft.test;
 
 import com.google.gson.Gson;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.TntBlock;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
 
 import java.util.ArrayList;
@@ -24,18 +30,40 @@ public final class ExplosionFixture {
     private static final Gson JSON = new Gson();
     private String mode = "off";
     private final List<Map<String, Object>> events = new ArrayList<>();
+    private final List<Map<String, Object>> spawns = new ArrayList<>();
+    private static final BlockPos ROOT_TNT = new BlockPos(3, 76, -90);
 
     public ExplosionFixture() {
         NeoForge.EVENT_BUS.addListener(this::commands);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::start);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::detonate);
+        NeoForge.EVENT_BUS.addListener(this::joined);
+    }
+
+    private boolean chainTnt(PrimedTnt tnt) {
+        return mode.equals("chain") && tnt.distanceToSqr(3.5, 76, -89.5) < 16 * 16;
+    }
+
+    private void joined(EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()
+            || !event.getLevel().dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")
+            || !(event.getEntity() instanceof PrimedTnt tnt) || !chainTnt(tnt)) return;
+        if (spawns.size() >= 16) throw new IllegalStateException("Fixture spawn capacity");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("source", tnt.getUUID().toString());
+        row.put("tick", event.getLevel().getGameTime());
+        row.put("fuse", tnt.getFuse());
+        row.put("position", List.of(tnt.getX(), tnt.getY(), tnt.getZ()));
+        row.put("owner", tnt.getOwner() == null ? "none" : tnt.getOwner().getUUID().toString());
+        row.put("ownerType", tnt.getOwner() == null ? "none" : tnt.getOwner().getClass().getName());
+        spawns.add(row);
     }
 
     private boolean accepts(ExplosionEvent event) {
         return !mode.equals("off") && !event.getLevel().isClientSide()
             && event.getLevel().dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")
             && event.getExplosion().getDirectSourceEntity() instanceof PrimedTnt tnt
-            && tnt.getTags().contains("goldcraft_explosion_fixture");
+            && (tnt.getTags().contains("goldcraft_explosion_fixture") || chainTnt(tnt));
     }
 
     private Map<String, Object> record(String phase, ExplosionEvent event) {
@@ -86,9 +114,62 @@ public final class ExplosionFixture {
         return Base64.getEncoder().encodeToString(bytes);
     }
 
+    private int ignite(net.minecraft.commands.CommandSourceStack source, int slot) {
+        if (!mode.equals("chain") || source.getServer().getPlayerList().getPlayerCount() != 0) {
+            source.sendFailure(Component.literal("Chain mode and an empty local MC server are required"));
+            return 0;
+        }
+        ServerLevel level = null;
+        for (ServerLevel candidate : source.getServer().getAllLevels()) {
+            if (candidate.dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")) level = candidate;
+        }
+        if (level == null || !level.getBlockState(ROOT_TNT).is(Blocks.TNT) || !spawns.isEmpty()) {
+            source.sendFailure(Component.literal("Expected one prepared TNT trial in the host dimension"));
+            return 0;
+        }
+        Player owner = null;
+        Map<String, Object> result = new LinkedHashMap<>();
+        try {
+            if (slot != 0) {
+                var type = Class.forName("dev.goldcraft.world.NativePlayers");
+                var players = (List<?>) type.getMethod("targetingPlayers", ServerLevel.class, List.class)
+                    .invoke(null, level, List.of());
+                for (Object entry : players) {
+                    Object actor = entry.getClass().getMethod("actor").invoke(entry);
+                    if ((int) actor.getClass().getMethod("slot").invoke(actor) == slot) {
+                        owner = (Player) entry;
+                        result.put("slot", slot);
+                        result.put("serial", actor.getClass().getMethod("serial").invoke(actor));
+                        result.put("life", actor.getClass().getMethod("life").invoke(actor));
+                        break;
+                    }
+                }
+                if (owner == null || !owner.isAlive() || owner.isRemoved()) {
+                    source.sendFailure(Component.literal("No live native identity at this slot"));
+                    return 0;
+                }
+            }
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException(failure);
+        }
+        result.put("owner", owner == null ? "none" : owner.getUUID().toString());
+        // Actual NeoForge/vanilla ignition. Children are spawned only by the
+        // real explosion hitting adjacent TNT blocks; the fixture just observes.
+        ((TntBlock) Blocks.TNT).onCaughtFire(level.getBlockState(ROOT_TNT), level, ROOT_TNT, null, owner);
+        level.removeBlock(ROOT_TNT, false);
+        result.put("spawns", spawns);
+        String message = "GC_EXPLOSION_FIXTURE " + JSON.toJson(result);
+        source.sendSuccess(() -> Component.literal(message), false);
+        return 1;
+    }
+
     private void commands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("gc_explosion_fixture")
             .requires(s -> s.hasPermission(4) && s.getEntity() == null)
+            .then(Commands.literal("ignite_ownerless").executes(c -> ignite(c.getSource(), 0)))
+            .then(Commands.literal("ignite_native")
+                .then(Commands.argument("slot", IntegerArgumentType.integer(1, 32))
+                    .executes(c -> ignite(c.getSource(), IntegerArgumentType.getInteger(c, "slot")))))
             .then(Commands.argument("action", StringArgumentType.word()).executes(context -> {
                 String action = StringArgumentType.getString(context, "action");
                 var source = context.getSource();
@@ -97,11 +178,13 @@ public final class ExplosionFixture {
                     return 0;
                 }
                 Map<String, Object> result = new LinkedHashMap<>();
-                if (List.of("off", "pass", "cancel", "clear", "prune").contains(action)) {
+                if (List.of("off", "pass", "cancel", "clear", "prune", "chain").contains(action)) {
                     mode = action;
                     events.clear();
+                    spawns.clear();
                 } else if (action.equals("report")) {
                     result.put("events", events);
+                    result.put("spawns", spawns);
                 } else if (action.equals("snapshot")) {
                     try { result.put("snapshot", snapshot()); }
                     catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }

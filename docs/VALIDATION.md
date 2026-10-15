@@ -1,5 +1,11 @@
 # 验证状态
 
+## 2026-10-15 — 无主TNT连锁实测及旧安装包报错跟进
+
+无主TNT真实连锁通过：首颗80 tick、两颗子TNT正常短引信，3个唯一UUID/6个爆炸事件，共69条宿主切除，其中52条仅在后续爆炸列表内。保留初次RCON合包拒绝的准备失败，改为收到首回复再发结束标记后通过。21支撑块、9强加载区块及3测试文件已清理，两服正常exit0，原安装19575文件元数据/5项hash、既有Mod/INI及用户公网进程不变。仅测试夹具变更，原生玩家归属对照因用户新报安装问题尚未执行。证据 analysis/coordinator-takeover-20261015/tnt26/{runtime-audit.json,cleanup-receipt.json}。
+
+用户报告Stable1全新解压后出现Unlisted payload file，路径为install/output/svencoop/metahook/gamedata/renderer/gameui_english.txt。本地保留Stable与Combined85 ZIP逐成员/CRC/hash/精确文件集合均通过，均不含该路径；对方实际ZIP身份未取得，不推断其发生原因。已确认应发送GoldCraft-MetaHook-Combined85.zip（75016071B，SHA e3458aa65d7d2b2ae89df065db3f5e324760a06d402e0da3477c51445b2be240），完整解压新目录运行GoldCraftInstaller.exe。该包Windows PowerShell5.1真实-Plan返回0、383目标、changesApplied=false；这不替代对方安装成功或GUI首启验收。证据 analysis/coordinator-takeover-20261015/installer27/{package-audit.json,plan-result.json}。
+
 ## 2026-10-15 — NeoForge爆炸取消与破坏列表兼容性实测
 
 使用当前生产双服、完整既有Mod（含FerriteCore）和独立[爆炸事件夹具](../tests/neoforge-explosion/README.md)，完成5次真实已点燃TNT对照。NeoForge21.1.256/MC1.21.1/protocol30实际启动；生产JAR/DLL未重编或修改。夹具默认off，仅作用于指定维度/标签，控制命令要求MC零玩家。
