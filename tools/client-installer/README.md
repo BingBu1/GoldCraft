@@ -14,7 +14,7 @@ Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life"
 
 这是 **CS 端 MetaHook 和插件安装包**。Minecraft 端仍使用现有 GoldCraft 启动器和配套 Mod；官方生成的 CS 快捷方式本身不会启动 Minecraft，也不创建跨进程配对凭据。当前 GoldCraft 二进制按包内引擎和 CS 客户端身份安装，版本不匹配会在写入前停止；不能视为支持任意旧版 GoldSrc。Renderer 使用 AVX2 版本。
 
-本包取自当前已部署稳定客户端，不包含尚未部署的流体、药水、盔甲和盾牌联合候选。
+本包采用已部署并确认加载的 GoldCraft 客户端，包含流体、药水、盔甲和盾牌联合版本及异步日志更新。需搭配相应版本的 GoldCraft 服务端与 Minecraft Mod；完整玩法和经安装器快捷方式首次启动、配对仍待验证。
 
 安装前备份将被改写的文件，失败自动恢复。需要撤回成功安装时，在界面选择同一 CS 目录后点击“恢复上次安装”，或运行：
 

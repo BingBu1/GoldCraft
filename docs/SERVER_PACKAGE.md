@@ -45,6 +45,8 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 新打包脚本要求已部署带公网端口能力的引擎，避免重包时退回旧版本；模板默认 `csPublicPort: 0`，没有写入个人服务器地址。Windows 引擎按既定 Clang/C++20/O3/ThinLTO/AVX2 配置构建，Linux 运行包仍待单独构建验证。
 
+更新引擎和启动脚本后，可在服务包目录运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Set-PublicPort.ps1 -PublicPort 46344`。脚本先检查公网端口支持，保留其他配置并原子替换 JSON，原文件备份在 `.state/server-settings-before-public-port-*.json`；加 `-CheckOnly` 可只检查。设置不会自动重启游戏，须用服务包启动器重启 CS 才会生效。验收应查询实际公网 UDP 端口，并确认 A2S_INFO 公告的游戏端口与映射一致；仅手动 connect 成功不足以证明收藏列表已修复。
+
 ### 资源与ZP修复
 
 2026-10-14 的 `GoldCraft-Server-Hotfix.zip` 修复两处已定位问题：旧包遗漏四个 `sprites/scope_arc*.tga`，造成正确客户端仍报 `Bad file`；ZP 狂暴僵尸在玩家未正式入服就断开时调用职业接口，报 `Invalid Player (26)`。26是合法槽位，后者是断线生命周期检查遗漏。

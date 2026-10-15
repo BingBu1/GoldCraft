@@ -129,8 +129,11 @@ final class LocalClientDiscovery implements AutoCloseable {
         if(free.size()==1)return new Result(free.getFirst(),"");
         if(free.size()>1)return new Result(null,"Multiple CS clients joined this server; use a paired GoldCraft launcher to select one explicitly.");
         if(!matches.isEmpty())return new Result(null,"The matching CS client is already paired with another Minecraft instance.");
-        return new Result(null,entries.isEmpty()?"No live local CS client with GoldCraft was found.":
-            "No local CS client is joined to this Minecraft server's matching CS server.");
+        if(entries.isEmpty())return new Result(null,"No live local CS client with GoldCraft was found.");
+        if(entries.stream().noneMatch(e->e.world!=0))return new Result(null,
+            "CS is running but has not joined a GoldCraft server. Join the CS server paired with this Minecraft server, then reconnect here.");
+        return new Result(null,
+            "CS is connected to a different server or map session. Connect CS and Minecraft to the same server pair (both local or both public), then reconnect here.");
     }
     static final class WindowsIdentity implements Identity {
         private final String sid;

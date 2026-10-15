@@ -279,6 +279,7 @@
     "tools/server-package/scripts/Run-Server.ps1",
     "tools/server-package/scripts/Send-Command.ps1",
     "tools/server-package/scripts/Send-Console.ps1",
+    "tools/server-package/scripts/Set-PublicPort.ps1",
     "tools/server-package/scripts/Start-Servers.ps1",
     "tools/server-package/scripts/Status.ps1",
     "tools/server-package/scripts/Stop-Servers.ps1",

@@ -1,8 +1,22 @@
 # 验证状态
 
-## 2026-10-15 — K语音锁等待实证与TNT预算修复合入
+## 2026-10-15 — 单协调接管、公网公告27015实证与可恢复端口配置
 
-人类点击开始并长按K的18.547秒窗口内，两次x86 CDB非侵入采样均正常退出（1.506/1.482秒），主线程TID23252两次同路径NtWaitForSingleObject→WaitForSingleObject→tier0_s CThreadFullMutex::TryLock→steamclient→hw。人类确认按住后反复卡顿/短暂恢复、松开恢复；状态间歇推进。没有脚本输入、重启或骨骼cvar更改。精确物理down/up未记录、期间life15→16，导出符号大偏移及unwind存在限制；这是Steam调用/锁等待的现场关联，不是锁拥有者或根因已定。原live05骨骼渲染截面降为普通参考；匹配Renderer/BulletPhysics私有PDB及六源MD5已核。证据 analysis/client-responsiveness-20261015/voice-k01/{capture.json,stack01.txt,stack02.txt,hold-delta.json}、analysis/minecraft-status-effects/armor-defense/stack-symbol-review01/HANDOFF.md。
+用户暂停多对话并行，四个领域聊天均已idle，主协调直接接管；不自动恢复领域工作。公网UDP46344实际A2S_INFO回复GoldCraft/cs_assault/25人32槽，EDF游戏连接端口仍为27015，收藏问题未修复。现有公网引擎补丁可复用；新增Set-PublicPort.ps1检查支持、保留所有其他设置、原子替换并保存原始JSON，7项实际Windows PowerShell5.1配置/拒绝检查通过。705675字节更新ZIP逐成员CRC/字节验证通过，未部署公网。证据 analysis/coordinator-takeover-20261015/{public-port19.json,port19-test/result.json,port19-test/numeric-repair.json,public-port19-package.json}。
+
+用户随后自行转入公网：XMCL日志15:38:50本机桥连接、15:38:58收到cs_assault BSP；CS新world/slot26/serial8。15:41:59连接重置，15:42重连又收到BSP，15:42:51准入过期/桥断开，15:43再次会话不匹配，因此不能关闭公网稳定性和重连验收。源码现将“没有先进入CS”误导提示拆分为未入服与不同服务器/地图会话；生产类编译和原47项发现回归通过，尚未完整JAR重建或部署。证据 analysis/coordinator-takeover-20261015/discovery19/result.json、XMCL实例latest.log。
+
+安装器current-b21已在停止协作前完成，362成员/75016071字节ZIP，SHA e3458aa65d7d2b2ae89df065db3f5e324760a06d402e0da3477c51445b2be240；361来源和完整ZIP/目录逐项核对通过，匹配已部署fresh09客户端，仅GoldCraft.dll相对旧包更新及许可/README补齐。无新GUI/安装/首启验收，不含本次后续配对提示改动。证据 analysis/metahook-installer-gui-20261014/current-b21/handoff-package21.json。
+
+## 2026-10-15 — 公网与本机会话错配定位，Karing停用恢复卡顿
+
+用户截图的真实XMCL进程使用已登记Mod母本和既有账号，日志明确连接公网MC；当前CS B发现记录则仍属本机双服world、busy=0，与本机服务端一致。旧显式MC在15:18:16退出。错误来自本机CS会话不匹配该MC服务器，并非没有先进入CS，也非busy占用。用户已选择继续公网双服，保留MC公网地址；下一步核实并连接对应公网CS，再验证实际自动发现和权威准入。此时尚未完成公网配对，不以旧显式B成功替代。证据 analysis/coordinator-takeover-20261015/runtime-route18.json；原始日志在sandbox/modpack-neoforge/GoldCraft-1.21.1-NeoForge/logs/latest.log。
+
+用户在客户端对话直接确认“我将karing代理停掉就好了”，主协调已回读原消息。K/TAB两触发捕获的是Steam同步等待，不是已证mutex死锁：TAB实读0x334为无名Manual Reset Event，90秒为配置超时上限而非实际卡顿时长。K的GetAvailableVoice与TAB上层请求不同。保留现有原始栈，停止无目的重复采样，继续代理定向路由核查；不能声称GoldCraft源码已修复或代理内部机制已证。证据 analysis/client-responsiveness-20261015/tab01/RESULT.md、voice-k01/CORRECTION.md。
+
+## 2026-10-15 — K语音等待采样与TNT预算修复合入
+
+人类点击开始并长按K的18.547秒窗口内，两次x86 CDB非侵入采样均正常退出（1.506/1.482秒），主线程TID23252两次同路径NtWaitForSingleObject→WaitForSingleObject→tier0_s CThreadFullMutex::TryLock→steamclient→hw。人类确认按住后反复卡顿/短暂恢复、松开恢复；状态间歇推进。没有脚本输入、重启或骨骼cvar更改。精确物理down/up未记录、期间life15→16，导出符号大偏移及unwind存在限制；这是Steam同步调用等待的现场关联；TryLock为同址导出标签，后续实核调用的是CThreadSyncObject::Wait，不证明mutex或死锁。原live05骨骼渲染截面降为普通参考；匹配Renderer/BulletPhysics私有PDB及六源MD5已核。证据 analysis/client-responsiveness-20261015/voice-k01/{capture.json,stack01.txt,stack02.txt,hold-delta.json}、analysis/minecraft-status-effects/armor-defense/stack-symbol-review01/HANDOFF.md。
 
 主协调已将budget01的两个生产Java与原BspSurfaceTexturesTest精确合入root；预算耗尽不可复活，任一未完成方向拒绝整格、禁止加入reached，完整六方向保持最强材质规则。合入字节与实际选择编译的候选一致，8个测试方法通过；移除唯一耗尽后拒绝行的负对照明确expected7/actual1失败。主协调复核真实日志/hash并备份前态，未重复执行、未重编完整JAR或部署；正在运行的42e86816 JAR仍为此前接受版本。实际TNT/mode0/1限制/mode2破坏/回合与换图生命周期仍待。证据 analysis/coordinator-takeover-20261015/tnt-budget17-integrated.json、analysis/minecraft-status-effects/armor-defense/explosion-budget01/{RESULT.json,candidate.patch}。
 
