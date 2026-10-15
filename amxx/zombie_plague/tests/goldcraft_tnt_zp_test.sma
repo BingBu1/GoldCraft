@@ -18,6 +18,7 @@ public plugin_init()
     register_srvcmd("gc_tnt_zp_identity", "SetIdentity");
     register_srvcmd("gc_tnt_zp_observe", "Observe");
     register_srvcmd("gc_tnt_zp_status", "Status");
+    register_srvcmd("gc_tnt_zp_lifecycle", "Lifecycle");
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "AfterDamage", true);
 }
 
@@ -54,6 +55,27 @@ public client_disconnected(id)
     // Never reclaim a disconnected fixture's slot from a later connection.
     if (id == gGuard) gGuard = 0;
     if (id == gVictim) gVictim = 0;
+}
+
+public Lifecycle()
+{
+    if (!get_pcvar_num(gEnabled) || read_argc() != 3) return PLUGIN_HANDLED;
+    new text[16]; read_argv(1, text, charsmax(text)); new id = str_to_num(text);
+    if (!FixturePlayer(id)) return PLUGIN_HANDLED;
+    read_argv(2, text, charsmax(text));
+    new userid = get_user_userid(id);
+    if (equal(text, "respawn")) {
+        rg_round_respawn(id);
+        set_entvar(id, var_flags, get_entvar(id, var_flags) | FL_FAKECLIENT);
+        set_entvar(id, var_takedamage, DAMAGE_NO);
+    } else if (equal(text, "kill")) {
+        user_kill(id, 1);
+    } else if (equal(text, "disconnect")) {
+        server_cmd("kick #%d", userid); server_exec();
+    } else return PLUGIN_HANDLED;
+    server_print("[GC TNT lifecycle] action=%s slot=%d userid=%d connected=%d alive=%d",
+        text, id, userid, is_user_connected(id), is_user_alive(id));
+    return PLUGIN_HANDLED;
 }
 
 public StartMode()

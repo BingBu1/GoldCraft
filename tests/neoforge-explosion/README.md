@@ -119,6 +119,10 @@ execute in goldcraft:cs_assault_f6725c06 run data get entity @e[type=minecraft:t
 
 ## 实际ZP身份与TNT九组验证（2026-10-15）
 
+点燃者生命周期扩展（tnt37）：真实点燃后通过 `data merge entity @e[type=minecraft:tnt,limit=1] {fuse:300s}` 延长引信，再执行 `gc_tnt_zp_lifecycle <ownerSlot> <respawn|kill|disconnect>`；同槽替换另调用gc_tnt_create，必须核对slot相同、serial/userid不同。核验新鲜原生actor/MC状态后等待自然爆炸，不允许直接注入伤害或改连接/生命字段。
+
+五组当前、死亡未重生、重生、同槽新连接、断线全部通过。前两组killer=旧owner1，后三组killer=0且伤害/死亡正常；实际TNT事件仍记录旧owner UUID。受害者serial/spawn在每次爆前/后不变。完整ZP清单，临时auto_players=-1保持当时Bot quota以隔离复用slot；测试结束正常停双服并恢复所有临时文件/注册/Mod清单。原生点燃者的这些证据不覆盖配对MC玩家、形态切换、目标换生命和延迟旧请求。
+
 补充观察插件 `amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma`，保留全部ZP清单；使用真实Infection Mode及force cure/infect准备具名假客户端，独立读回身份/队伍/人数。用已有 `ignite_native <slot>` 点燃真实vanilla TNT，正引信、生成、爆炸事件与原生TakeDamage post/感染forward相互对应。先通过原生100→95及MC生物100→90阳性对照，再测世界对人/僵尸、人对僵尸0.75防御、僵尸破甲/感染、同身份ff0/ff1阻断及致死归属，共九项通过。
 
 破甲时HP500不变、甲100→0且不感染；无甲时实际感染一次、HP成为ZP的900、infect_post攻击者为点燃者slot1。感染成功会阻断原伤害，不能仅以damageAccepted或HP下降判断。人对僵尸伤害逐数等于MC incoming×5×0.75；致死100→-31且killer为点燃者。测试由真实ReHLDS假客户端/MC镜像完成，非真人操作；真人点燃/配对、过期生命/连接和任意Mod回调仍待。

@@ -2,6 +2,8 @@
 
 ## TNT与感染规则
 
+生命周期扩展命令 `gc_tnt_zp_lifecycle <slot> <respawn|kill|disconnect>` 同样只允许显式启用的具名假客户端，分别进入真实RoundRespawn、ClientKill及按userid踢出。2026-10-15 tnt37五组实际点燃者生命周期通过：当前/死亡未重生保留击杀归属，重生/同槽替换/断线失去旧归属，真实TNT仍正常伤害。引信从原版80延长到300 tick用于同步观察；未直接调用TNT伤害。受害者生命变化和真人/配对点燃仍待，详见 [验证状态](VALIDATION.md)。
+
 `amxx/zombie_plague/tests/goldcraft_tnt_zp_test.sma` 是默认关闭的本地观察插件。设置 `mc_tnt_zp_test 1` 后，`gc_tnt_zp_guard` 创建具名假客户端；真实回合开始的模式等待期间执行 `gc_tnt_zp_start` 启动Infection Mode。`gc_tnt_zp_identity <slot> <0|1>` 只对具名假客户端调用真实ZP治愈/感染，必须检查返回身份和队伍；`gc_tnt_zp_observe <slot>` 清空观察计数，`gc_tnt_zp_status` 输出实际模式、感染许可、人数、TNT伤害原函数调用次数和感染者。只用于无真人的隔离测试服，不能加入日常插件列表。
 
 2026-10-15 tnt36保留全部ZP插件、完整MC Mod集和原RCON限流，通过九组实际TNT：世界来源伤害、人打僵尸0.75减伤、破甲但不伤血/感染、无甲感染及攻击者、ff0原生拒绝、ff1同身份ZP拒绝、致死killer归属。实际ReHLDS假客户端和生产MC镜像不替代真人输入/多人；六个既有ZP模块临时使用匹配源码重编产物，结束已恢复。详细数值与验收边界见 [验证状态](VALIDATION.md)。

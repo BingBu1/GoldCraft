@@ -1,5 +1,13 @@
 # 验证状态
 
+## 2026-10-15 — 原生TNT点燃者生命周期五组
+
+完整ZP Infection Mode/MC Mod集下，tnt37真实点燃TNT并将80 tick原始引信延长为300 tick，以覆盖原生与MC状态传播后自然爆炸。当前身份及仅死亡未重生均保留killer=owner1；重生spawn4→5、同槽新连接serial2→3/userid27→29、断线actor消失三组均killer=0，继续正常世界来源伤害。每组TakeDamage原函数/死亡各一次，HP分别100→-25/-66/-73/-66/-74；TNT事件保持原owner UUID，受害者serial/spawn全程不变。原生100→95/MC生物100→90阳性对照通过。
+
+新增默认关闭/仅具名假客户端可用的生命周期命令，调用匹配ReAPI/AMXX真实RoundRespawn/ClientKill/kick；移动夹具disconnect清理旧slot。9插件编译0警告、匹配源/产物hash通过；六个既有ZP模块临时用匹配编译版本，完整Mod/FerriteCore/FML/原生模块通过。两服与矩阵自然exit0，8原文件/部署注册恢复、7夹具移除、9强加载区块/支撑释放，原Mod/INI、原安装19575元数据/5hash与用户进程一致。
+
+证据 `analysis/coordinator-takeover-20261015/tnt37/{life-*.json,runtime-audit.json,independent-results.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`；编译tnt37-build.log。此证据只覆盖原生点燃者真实假客户端生命周期，不代表真人/配对玩家、目标重生、延迟旧伤害请求、形态切换或图形/多人；G01–G28开放，公网未更新。
+
 ## 2026-10-15 — TNT与实际ZP感染身份九项验证
 
 完整ZP清单、真实Infection Mode及实际ReHLDS假客户端下九项通过：无主→人类/僵尸各500→334，人类→僵尸500→373并逐数匹配0.75防御；僵尸→有甲人类护甲100→0、HP500不变/不感染，僵尸→无甲人类实际感染一次、infect_post攻击者为点燃者slot1；人类ff0原生零回调拒绝，ff1人类/僵尸同身份均由ZP阻断原伤害；人类→僵尸致死100→-31且killer=slot1。每项真实vanilla TNT正引信/一次生成/Start与Detonate两事件，DMG_BLAST64，mode0没有地图切除，原生和MC生物伤害阳性对照通过。

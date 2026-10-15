@@ -91,6 +91,12 @@ public CreatePlayer()
     return PLUGIN_HANDLED;
 }
 
+public client_disconnected(id)
+{
+    // A reused slot may belong to another connection before the next command.
+    if (id == gBot) gBot = 0;
+}
+
 public Move()
 {
     if (!get_pcvar_num(gEnabled) || read_argc() != 8 || !is_user_alive(gBot)
