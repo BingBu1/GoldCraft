@@ -1,6 +1,9 @@
 package dev.goldcraft.mixin;
 
 import dev.goldcraft.world.HostExplosions;
+import dev.goldcraft.world.NativeTntDamage;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.block.BlockState;
 import net.minecraft.fluid.FluidState;
 import net.minecraft.util.math.BlockPos;
@@ -21,6 +24,10 @@ public abstract class HostExplosionMixin {
     @Inject(method="collectBlocksAndDamageEntities",at=@At("HEAD"),require=1)
     private void goldcraft$begin(CallbackInfo ci) {
         goldcraft$host=HostExplosions.begin(world,(Explosion)(Object)this);
+    }
+    @WrapOperation(method="collectBlocksAndDamageEntities",at=@At(value="INVOKE",target="Lnet/minecraft/entity/Entity;damage(Lnet/minecraft/entity/damage/DamageSource;F)Z"),require=1,allow=1)
+    private boolean goldcraft$hurt(Entity target,DamageSource source,float amount,Operation<Boolean> original) {
+        return NativeTntDamage.hurt(world,(Explosion)(Object)this,target,source,()->original.call(target,source,amount));
     }
     @WrapOperation(method="collectBlocksAndDamageEntities",at=@At(value="INVOKE",target="Lnet/minecraft/world/explosion/ExplosionBehavior;getBlastResistance(Lnet/minecraft/world/explosion/Explosion;Lnet/minecraft/world/BlockView;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/BlockState;Lnet/minecraft/fluid/FluidState;)Ljava/util/Optional;"),require=1,allow=1)
     private Optional<Float> goldcraft$resistance(ExplosionBehavior behavior,Explosion explosion,BlockView view,BlockPos pos,BlockState state,FluidState fluid,Operation<Optional<Float>> original) {

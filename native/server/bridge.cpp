@@ -635,6 +635,7 @@ namespace {
 #include "status_attributes.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
+#include "tnt_damage.inc"
 void HandleVitals(std::span<const std::uint8_t> bytes){
     const auto change=read_vitals_delta(bytes);
     const auto* pair=change.slot<=static_cast<unsigned>(max_clients)?registry.get(change.slot):nullptr;
@@ -673,6 +674,7 @@ void HandleVitals(std::span<const std::uint8_t> bytes){
 void HandleMobDamage(std::span<const std::uint8_t> bytes){
     const auto damage=read_mob_damage(bytes);
     if(damage.kind==MobDamageKind::status){HandleStatusDamage(damage);return;}
+    if(damage.kind==MobDamageKind::tnt){HandleTntDamage(damage);return;}
     if(damage.epoch!=registry.world()||damage.event<=mob_damage_event){++mob_damage_rejected;return;}
     const auto previous_event=mob_damage_event;
     mob_damage_event=damage.event;

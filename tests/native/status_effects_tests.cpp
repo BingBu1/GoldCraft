@@ -36,12 +36,12 @@ int main(int argc,char** argv){try{
         Writer w;w.bytes(key);w.bytes(key);w.u32(4);w.u32(cap);h.accept({Type::hello,static_cast<unsigned>(w.data.size()),0,1},w.data);
         check(h.ready());auto welcome=h.welcome();Reader reply(welcome);reply.key();reply.u32();check(reply.u32()==(cap&12));
     }
-    for(unsigned cap:{4u,12u,512u,9u}){
+    for(unsigned cap:{4u,12u,1024u,9u}){
         Key key{};HostHandshake h(key,key,Role::host_server,Role::fabric_server,1);
         Writer w;w.bytes(key);w.bytes(key);w.u32(4);w.u32(cap);reject([&]{h.accept({Type::hello,static_cast<unsigned>(w.data.size()),0,1},w.data);});
     }
     // Capability16 is now assigned to status attributes. Keep the original
-    // malformed-capability cases, using the still-unassigned512 as unknown.
+    // malformed-capability cases, using the still-unassigned1024 as unknown.
     {
         Key key{};HostHandshake attributes(key,key,Role::host_server,Role::fabric_server,2);
         Writer request;request.bytes(key);request.bytes(key);request.u32(4);request.u32(capability_status_attributes);

@@ -17,6 +17,7 @@ constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::uint32_t capability_local_qpc_v1 = 2;
 constexpr std::uint32_t capability_effect_position_hold = 4;
 constexpr std::uint32_t capability_host_explosions = 256;
+constexpr std::uint32_t capability_tnt_damage = 512;
 constexpr std::size_t wire_type_count = 85;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;

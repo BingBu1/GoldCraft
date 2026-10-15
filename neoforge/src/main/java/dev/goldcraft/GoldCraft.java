@@ -101,6 +101,12 @@ public final class GoldCraft {
     public static boolean hostExplosionsAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation);
     }
+    public static boolean tntDamageAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.tntDamage(generation);
+    }
+    public static boolean sendTntDamage(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendTntDamage(generation,payload);
+    }
     public static boolean sendHostExplosion(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation)&&link.sendForGeneration(generation,Wire.HOST_EXPLOSION,payload);
     }

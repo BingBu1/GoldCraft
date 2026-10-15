@@ -4,7 +4,7 @@
 #include <cmath>
 
 namespace goldcraft {
-enum class MobDamageKind:std::uint32_t {melee=1,projectile=2,explosion=3,skill=4,status=5};
+enum class MobDamageKind:std::uint32_t {melee=1,projectile=2,explosion=3,skill=4,status=5,tnt=6};
 struct MobDamage {
     std::uint64_t epoch=0,event=0,source_key=0;
     std::uint32_t slot=0,serial=0,life=0;
@@ -21,14 +21,16 @@ inline MobDamage read_mob_damage(std::span<const std::uint8_t> bytes){
     d.epoch=r.u64();d.event=r.u64();d.source_key=r.u64();d.slot=r.u32();d.serial=r.u32();d.life=r.u32();
     const auto kind=r.u32();d.kind=static_cast<MobDamageKind>(kind);d.amount=r.f32();d.source={r.f32(),r.f32(),r.f32()};
     d.attacker=r.u32();d.attacker_serial=r.u32();d.attacker_spawn=r.u32();
-    if(d.kind==MobDamageKind::skill||d.kind==MobDamageKind::status){d.target_tick=r.u64();d.target={r.f32(),r.f32(),r.f32()};}
+    if(d.kind==MobDamageKind::skill||d.kind==MobDamageKind::status||d.kind==MobDamageKind::tnt){d.target_tick=r.u64();d.target={r.f32(),r.f32(),r.f32()};}
     if(d.kind==MobDamageKind::status)d.status_flags=r.u32();
     r.finish();
-    if(!d.epoch||!d.event||(!d.source_key&&!d.attacker&&d.kind!=MobDamageKind::status)||!d.slot||d.slot>64||!d.serial||!d.life||kind<1||kind>5||d.amount==0||std::abs(d.amount)>5000||(d.kind!=MobDamageKind::status&&d.amount<0)
+    if(!d.epoch||!d.event||(!d.source_key&&!d.attacker&&d.kind!=MobDamageKind::status&&d.kind!=MobDamageKind::tnt)||!d.slot||d.slot>64||!d.serial||!d.life||kind<1||kind>6||d.amount==0||std::abs(d.amount)>5000||(d.kind!=MobDamageKind::status&&d.amount<0)
         ||d.attacker>64||(d.attacker&&(!d.attacker_serial||!d.attacker_spawn))
         ||std::abs(d.source.x)>16384||std::abs(d.source.y)>16384||std::abs(d.source.z)>16384)throw ProtocolError("Invalid authoritative mob damage");
-    if((d.kind==MobDamageKind::skill||d.kind==MobDamageKind::status)&&(!d.target_tick||std::abs(d.target.x)>16384||std::abs(d.target.y)>16384||std::abs(d.target.z)>16384))
+    if((d.kind==MobDamageKind::skill||d.kind==MobDamageKind::status||d.kind==MobDamageKind::tnt)&&(!d.target_tick||std::abs(d.target.x)>16384||std::abs(d.target.y)>16384||std::abs(d.target.z)>16384))
         throw ProtocolError("Invalid authoritative skill contact");
+    if(d.kind==MobDamageKind::tnt&&((d.source_key&&d.attacker)||(!d.attacker&&(d.attacker_serial||d.attacker_spawn))))
+        throw ProtocolError("Ambiguous TNT damage source");
     if(d.kind==MobDamageKind::status){
         const bool world=(d.status_flags&8)!=0;
         if((d.status_flags&~31u)||(d.amount<0&&(d.status_flags&6))||((d.status_flags&1)&&(d.status_flags&16))
@@ -61,7 +63,7 @@ public:
         if(slot&&slot<65)frames_[tick%frames_.size()].actors[slot]={serial,spawn,center};
     }
     bool matches(const MobDamage& damage,float time,Vec3 current)const{
-        if((damage.kind!=MobDamageKind::skill&&damage.kind!=MobDamageKind::status)||!damage.target_tick||!damage.slot||damage.slot>=65)return false;
+        if((damage.kind!=MobDamageKind::skill&&damage.kind!=MobDamageKind::status&&damage.kind!=MobDamageKind::tnt)||!damage.target_tick||!damage.slot||damage.slot>=65)return false;
         const auto& frame=frames_[damage.target_tick%frames_.size()];
         const auto& actor=frame.actors[damage.slot];
         return frame.epoch==damage.epoch&&frame.tick==damage.target_tick&&time>=frame.time&&time-frame.time<=1.0f

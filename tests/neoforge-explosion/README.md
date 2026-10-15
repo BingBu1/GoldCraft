@@ -79,7 +79,7 @@ gc_explosion_fixture ignite_ownerless
 
 ## TNT 对普通 CS 玩家伤害复现
 
-2026-10-15 已复现尚未修复的故障：无主 TNT 和原生玩家镜像点燃的 TNT 都进入 MC 的真实受伤流程，但未发送原生伤害请求，CS 目标保持 100 血。`Post` 的 damage 数值是 MC 回调数据；本夹具同时读取目标实际 health，不能将该事件本身当作原生扣血证据。
+2026-10-15 在旧生产版本复现的故障：无主 TNT 和原生玩家镜像点燃的 TNT 都进入 MC 的真实受伤流程，但未发送原生伤害请求，CS 目标保持 100 血。`Post` 的 damage 数值是 MC 回调数据；本夹具同时读取目标实际 health，不能将该事件本身当作原生扣血证据。
 
 使用同一隔离双服，另编译并加载 `amxx/tests/goldcraft_headless_test.sma`。它创建可受伤的实际 ReHLDS 假客户端，记录 TakeDamage/Killed 与 attacker/inflictor/killer。`goldcraft_tnt_test.sma` 的玩家是无敌的，只能作为点燃者或移动夹具，不能作为伤害受害者。测试命令只用于无真人的本地测试服。
 
@@ -115,3 +115,25 @@ execute in goldcraft:cs_assault_f6725c06 run data get entity @e[type=minecraft:t
 原生点燃者对照先用 `gc_tnt_create` 获取另一slot，MC使用 `ignite_native <slot>`。两组均须保持目标连接serial/spawn、world及实际位置不变。每轮先移除单格黑曜石支撑并确认TNT消失，再重新准备；结束释放9个强加载区块，正常关闭双服并按hash移除临时插件。
 
 本次证据：`analysis/coordinator-takeover-20261015/tnt29/{controls.json,trial-none01.json,trial-native01.json,runtime-audit.json,cleanup-receipt.json}`。阳性对照为100→95和100→90；TNT伤害回调分别为34.598125及34.361534，原生health均100、TakeDamage为0、请求增量为0。只证明当前生产版本存在故障，不验收伤害、死亡或击杀归属。后续修复须保留权威来源、地图/连接/生命校验、距离/遮挡及队伍规则。
+
+
+## TNT伤害候选的局部实服验证
+
+新增TNT专用能力512和DAMAGE_REQUEST kind6（88字节）；仅真实爆炸受伤调用建立来源上下文。原生复核会话、生命、事件、快照、距离、遮挡和队伍，以goldcraft_tnt inflictor进入TakeDamage/AMXX。旧协议30能力关闭握手的兼容重试保留相同凭据，错误身份不降级。协议版本30和85种消息保持。
+
+Java生产构建通过：281项注册、274执行、7地图条件skip、0失败，含6项真实TCP协商；47发现回归和515产物核验通过。四组native回归通过：TNT175、技能31、状态457及原回合规则断言。原生首次构建300秒超时，重试完成ReGameDLL/common编译链接后因英文审计器不识别乱码中文日志退出1；后续独立审计仅确认已完成的760源码/9631 SDK、162编译单元/163链接输入与x86/优化策略，不能称整轮构建或AMXX重编成功。
+
+实服矩阵未通过。保留ZP的tnt30中无主TNT使500→334血；原生点燃者进入TakeDamage但伤害被取消。两者虽然T/CT不同，仍属同一ZP身份；须按真实模式/感染规则另验。临时关闭唯一ZP插件清单的普通CS基线tnt31仅三项完成：无主500→331、原生敌方500→334、同队ff0保持500且零调用。ff1测试采样发生RCON challenge超时，没有after结果；死亡/击杀、护甲、取消和mode1/2后续六项尚未执行，不能写成十组通过。
+
+MC正常保存并exit0，9强加载区块和临时支撑已释放。原生本地测试进程未响应quit，非侵入采样主线程处于RunEngine/Sleep，未证明TNT死循环；确认精确PID/创建时间/沙箱exe后终止，明确为非正常退出。随后恢复旧JAR/mp.dll、部署记录及ZP清单，移除5测试文件；原安装19575文件元数据/5项hash和既有用户进程身份不变。原matrix-result失败保留，补充cleanup-receipt证实恢复完成。
+
+未更新母本/A/B或公网服。下一步在新证据目录定位本地原生不响应，再补ff1、死亡/击杀、护甲、取消/模式矩阵和真实ZP身份；真人配对、归属过期/重生、图形与多人仍待。完整G01–G28开放。
+
+| 普通CS场景 | HP前→后 | TakeDamage调用 | 结论 |
+| --- | --- | --- | --- |
+| world500 | 500→331 | 1 | 通过 |
+| enemy500 | 500→334 | 1 | 通过 |
+| friendblocked | 500→500 | 0 | 通过 |
+| friendallowed | 未取得爆后结果 | 未取得 | 超时，未验收 |
+
+证据：analysis/admission-20261015/combined30/{result.json,jar-verified.json}；analysis/minecraft-status-effects/armor-defense/combined85-tnt30r2/{job-result.json,audit01.json}；analysis/coordinator-takeover-20261015/{tnt30-native-tests/result.json,tnt30/matrix-result.json,tnt31/matrix-result.json,tnt31/native-abnormal-termination.json,tnt31/cleanup-receipt.json,checkpoint30-partial.json}。候选JAR SHA256 0155880a0e65f85dac989048a18fe86abe82b11fdf09dc61b0c9a2e57d647568；mp.dll 39ba59aa7cb41677b4f2a17d1b5d2c870c57f83b495f727d09b04b4d0834f889。

@@ -20,6 +20,7 @@ public final class Wire {
     public static final int HELLO = 1, WELCOME = 2, HEARTBEAT = 3;
     public static final int LOCAL_QPC_V1 = 2, CLOCK_OFFER = 70, CLOCK_ACK = 71, CLOCK_READY = 72, TYPE_COUNT = 85;
     public static final int HOST_EXPLOSIONS_CAP = 256, HOST_EXPLOSION = 83, HOST_MATERIALS = 84;
+    public static final int TNT_DAMAGE_CAP = 512;
     public static final int EFFECT_POSITION_HOLD = 4, EFFECT_GRANT = 73, EFFECT_POSE = 74, EFFECT_REOPEN = 75;
     public static final int SHARED_BULK_V1 = 1, BULK_OFFER = 67, BULK_ACK = 68, BULK_REF = 69;
     public static final int WORLD = 10, ACTORS = 11, CLIENT_BINDING = 12, PAIR_PLAYER = 13, PAIR_RESULT = 14;

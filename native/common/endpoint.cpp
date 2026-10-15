@@ -294,6 +294,10 @@ bool Endpoint::host_explosions() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_host_explosions) != 0;
 }
+bool Endpoint::tnt_damage() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_tnt_damage) != 0;
+}
 bool Endpoint::effect_position_hold() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_effect_position_hold) != 0;

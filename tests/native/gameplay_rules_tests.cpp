@@ -63,7 +63,7 @@ int main() {
         CombinedCase{combined_caps|capability_local_qpc_v1,4,false,true},
         CombinedCase{(combined_caps|capability_local_qpc_v1)&~capability_status_attributes,4,false,false},
         CombinedCase{combined_caps,4,false,false}, // effect hold still requires QPC
-        CombinedCase{combined_caps|capability_local_qpc_v1|512u,4,false,false},
+        CombinedCase{combined_caps|capability_local_qpc_v1|1024u,4,false,false},
         CombinedCase{combined_caps|capability_local_qpc_v1,2,false,false},
         CombinedCase{combined_caps|capability_local_qpc_v1,4,true,false}}) {
         HostHandshake combined(key,key,Role::host_server,Role::fabric_server,36);

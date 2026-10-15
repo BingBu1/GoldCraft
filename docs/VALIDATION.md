@@ -1,5 +1,26 @@
 # 验证状态
 
+## 2026-10-15 — TNT伤害候选局部通过，实服矩阵中断后已恢复
+
+新增TNT专用能力512和DAMAGE_REQUEST kind6（88字节）；仅真实爆炸受伤调用建立来源上下文。原生复核会话、生命、事件、快照、距离、遮挡和队伍，以goldcraft_tnt inflictor进入TakeDamage/AMXX。旧协议30能力关闭握手的兼容重试保留相同凭据，错误身份不降级。协议版本30和85种消息保持。
+
+Java生产构建通过：281项注册、274执行、7地图条件skip、0失败，含6项真实TCP协商；47发现回归和515产物核验通过。四组native回归通过：TNT175、技能31、状态457及原回合规则断言。原生首次构建300秒超时，重试完成ReGameDLL/common编译链接后因英文审计器不识别乱码中文日志退出1；后续独立审计仅确认已完成的760源码/9631 SDK、162编译单元/163链接输入与x86/优化策略，不能称整轮构建或AMXX重编成功。
+
+实服矩阵未通过。保留ZP的tnt30中无主TNT使500→334血；原生点燃者进入TakeDamage但伤害被取消。两者虽然T/CT不同，仍属同一ZP身份；须按真实模式/感染规则另验。临时关闭唯一ZP插件清单的普通CS基线tnt31仅三项完成：无主500→331、原生敌方500→334、同队ff0保持500且零调用。ff1测试采样发生RCON challenge超时，没有after结果；死亡/击杀、护甲、取消和mode1/2后续六项尚未执行，不能写成十组通过。
+
+MC正常保存并exit0，9强加载区块和临时支撑已释放。原生本地测试进程未响应quit，非侵入采样主线程处于RunEngine/Sleep，未证明TNT死循环；确认精确PID/创建时间/沙箱exe后终止，明确为非正常退出。随后恢复旧JAR/mp.dll、部署记录及ZP清单，移除5测试文件；原安装19575文件元数据/5项hash和既有用户进程身份不变。原matrix-result失败保留，补充cleanup-receipt证实恢复完成。
+
+未更新母本/A/B或公网服。下一步在新证据目录定位本地原生不响应，再补ff1、死亡/击杀、护甲、取消/模式矩阵和真实ZP身份；真人配对、归属过期/重生、图形与多人仍待。完整G01–G28开放。
+
+| 普通CS场景 | HP前→后 | TakeDamage调用 | 结论 |
+| --- | --- | --- | --- |
+| world500 | 500→331 | 1 | 通过 |
+| enemy500 | 500→334 | 1 | 通过 |
+| friendblocked | 500→500 | 0 | 通过 |
+| friendallowed | 未取得爆后结果 | 未取得 | 超时，未验收 |
+
+证据：analysis/admission-20261015/combined30/{result.json,jar-verified.json}；analysis/minecraft-status-effects/armor-defense/combined85-tnt30r2/{job-result.json,audit01.json}；analysis/coordinator-takeover-20261015/{tnt30-native-tests/result.json,tnt30/matrix-result.json,tnt31/matrix-result.json,tnt31/native-abnormal-termination.json,tnt31/cleanup-receipt.json,checkpoint30-partial.json}。候选JAR SHA256 0155880a0e65f85dac989048a18fe86abe82b11fdf09dc61b0c9a2e57d647568；mp.dll 39ba59aa7cb41677b4f2a17d1b5d2c870c57f83b495f727d09b04b4d0834f889。
+
 ## 2026-10-15 — TNT 对普通 CS 玩家的伤害丢失已复现
 
 新增实服证据：无主和原生玩家点燃的真实TNT均到达MC目标hitbox的incoming/pre/post，伤害34.598125/34.361534；原生目标保持100血、TakeDamage为0、MC伤害请求增量为0。原生伤害100→95及MC生物来源100→90阳性对照通过，射线无阻挡。仅新增伤害观察测试代码，生产JAR/DLL未改；这是已复现待修故障，不是伤害或击杀验收。

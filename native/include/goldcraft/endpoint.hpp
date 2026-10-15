@@ -47,6 +47,7 @@ public:
     bool native_armor() const;
     bool gameplay_rules() const;
     bool host_explosions() const;
+    bool tnt_damage() const;
     bool effect_position_hold() const;
     std::uint16_t port() const;
     const std::string& error() const;
