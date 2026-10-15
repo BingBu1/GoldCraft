@@ -10,11 +10,11 @@
 
 ## 优先修复与完善
 
-- [ ] 修复GoldCraft.dll入服／ESC无响应：recovery07离线84检查/8卸载通过；full08夹具边界失败保留，继续fresh09窄链接/原7CTest、root整合及合法Steam单B真实入服/ESC，未部署。
-- [ ] 修复普通用户／XMCL／官方快捷方式本地发现与配对：native/Java发现与JAR42e86816、非游戏监督36/512通过；继续生产adapter/匹配native/FML、server TCP/QPC、本机双服127.0.0.1:25575恢复及真实准入/生命周期。
+- [ ] 修复GoldCraft.dll入服／ESC无响应：fresh09完整DLL/7项离线测试通过，原Job超时保留；async14已整合root，继续部署单B、合法Steam真实入服/ESC与固定视角验证。保持现GL/引擎线程结构，不推进绘制/逻辑拆分。
+- [ ] 修复普通用户／XMCL／官方快捷方式本地发现与配对：Java JAR42e86816和adapter26检查通过；绑定匹配native，完成生产FML、server TCP/QPC、本机双服恢复及真实准入/生命周期。
 - [ ] 复核并发布各领域功能候选；保持精确source-only index扫描，未审TNT／GUI草稿不混入文档发布。新协调持共享构建／部署／实机与Git窗口。
 
-- [ ] 完成图形安装器验收：P1/P2真实GUI安装恢复各456项及快捷方式读回已通过；待P3/P4、复装/故障回滚、可玩首启配对、匹配85载荷及root整合发布。GUI monitor超时强清保留；继续自然退出检查。[使用](tools/client-installer/README.md)
+- [ ] 完成图形安装器验收：P1/P2真实GUI及CLI15 R1安装/重装/恢复已验证；保留两个监视超时失败，继续P3/P4、余下故障/回滚、可玩首启配对及匹配85载荷。清理13已完成，裁剪缓存构建前须恢复。[使用](tools/client-installer/README.md)
 
 - [ ] 实机复验ZP开局身份／阵营：提前感染与同阵营漏通知已修，旧版负对照复现、新版38项专服检查通过并载入当前服；公网服需应用三插件小补丁。
 - [ ] 配套MC真实断线重连验收：无凭据拒绝、成功配对及形态往返已过；重连测试的world=0断言无效，需按新serial与准入时间线重测。
@@ -26,7 +26,7 @@
 - [ ] 验证Studio多视图GS候选的真实helper GL，再集成及固定视角测FPS；shader已过5867项GL／408次深度比较，选择及回退已编译并通过862条mock断言，候选尚未部署。
 - [ ] 单B图形联机复验新回合清块和玩家死亡掉落开关。已部署；双服12项、GameTest13项及真实权威桥接两次断线重连7项通过，普通玩家重连另待验证。[设置](docs/SERVER_API.md)
 
-- [ ] 完成流体／药水／盔甲／盾牌combined85：native03/Java266+map7/AMXX3通过；Core实际location仍缺，继续fresh04同进程审计、完整客户端/FML/TCP/QPC、Modcallback与双服单B/普通CS/生命周期，未部署。
+- [ ] 完成流体／药水／盔甲／盾牌combined85：fresh05 ReGameDLL成功、任务拼写审计失败；仅重审MakeDir别名及核配套AMXX，接续FML/TCP/QPC、双服单B/普通CS/Modcallback/生命周期，尚未部署。
 - [ ] MC盾牌正面阻挡僵尸攻击／感染与耐久；实测背后、放下、举盾延迟、破盾后再击和强制感染对照。
 - [ ] MC护甲／韧性／附魔／耐久对CS枪、刀、爆炸的实机结算；核对致死归属、护甲／药水只叠加一次及重复／超时／过期生命、重连／换图。
 - [ ] 普通未配对CS玩家的药水文字HUD与状态伤害归属；逐项验证Mod自定义Buff／减伤回调，不能由原版装备测试代替。

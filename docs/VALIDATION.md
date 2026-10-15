@@ -1,5 +1,17 @@
 # 验证状态
 
+## 2026-10-15 — 清理落地、客户端整合，优先恢复本机双服
+
+清理13已一次执行：删除3817个可精确恢复的重复文件/1357165264逻辑字节；93原始nupkg、所有publish、独特obj、事务备份及失败证据保留。主协调独立核对11454条连续日志、全部删除目标消失及897保留文件。连同16旧链接TAR无损压缩813089379字节，本轮减少约2.02GiB。最新实测项目30.728GiB/239306文件，较最初35.719GiB净少约4.99GiB；中间必要构建新增数据，逻辑差额不冒充物理空闲盘增量。历史被裁剪路径须精确恢复后再复hash或增量构建，恢复未执行；Compact-Sandbox哈希变化项未强删。证据analysis/coordinator-takeover-20261015/{cleanup13-result-verified.json,disk-after-cleanup13.json}及analysis/metahook-installer-gui-20261014/handoff-cleanup-complete13.json。
+
+客户端fresh09实际16条编译/归档/链接和7项CTest通过：84异步检查、2078完整读/零坏读、8次真实卸载；DLL f62baadd与PDB0f0bae0b匹配。内容审计已完成739include/1183旧文件，但原Job因审计晚于230秒及finally重复检查超过240秒失败，root33904/245.581秒/114进程/强清Active0；不能改称自然成功。独立终态复核通过。主协调随后在服务端归还冻结窗口后精确合入4修改+10新增路径，前态备份、后hash和diff-check通过，root index未动；尚未部署、没有真实进服/ESC或FPS结论。最新只读检查双服及B已停止，旧日志不作为当前行为证据。人类在客户端聊天取消绘制/逻辑线程拆分；保留GL/引擎线程结构，现有改动仅异步日志/状态I/O。证据analysis/client-responsiveness-20261015/async01/{handoff-fresh09-result.md,fresh09-review/terminal-review.json}及analysis/coordinator-takeover-20261015/async14-integrated.json。
+
+服务端fresh04在诊断logger的CSC源路径解析失败，root35076 exit1/18.097秒/Job59自然Active0，未开始正式构建。fresh05修正路径后13common/5cppunit和162 ReGame TU/PCH/RC/link成功，mp.dll 485b5f1f/2544640B；但真实事件MakeDir/Makedir两拼写对单一任务身份的严格比对失败，AMXX未执行，整轮root8500 exit1/235.276秒/Job275自然Active0、输入未变，无强清。原失败保留；当前仅修精确别名关联以重审同次成功MSBuild，不重编整套；server03 AMXX是否同源复用另核。尚无完整新服务端接受记录或部署。证据analysis/minecraft-status-effects/armor-defense/combined85-server{04,05}/execution-failure-handoff.md。
+
+生产FML adapter已实现四端Mod同步、精确native更新、fresh JVM/端口/Mod列表、30秒稳定、停止后恢复；26项关键负例/只读/假进程检查通过，未运行真实生产FML。原36/512原语不重跑。独立补审实际FML解析/同步/stop-before-restore契约，等待绑定可接受native。主协调已实证tty:true具有真实console，可直接持现有Start-Sandbox -Wait两个终端恢复双服，不再另造常驻监督器。当前25575/25576与27015没有服务，实际连接被拒绝仍待修；MC-only试验不能冒充持久服务恢复或真实凭证准入。证据analysis/admission-20261015/production-adapter-handoff01.md。
+
+安装器CLI15在62文件/4.79MB隔离夹具上实际完成R1安装、重装、恢复第二前态，三次exit0且恢复到首次安装态（含快捷方式字节）。整轮在R2开始前超120秒预算，实际121.259秒/exit1，R2/R3完全未运行，不能声称全轮通过或按时完成；已核无本轮进程残留。所有日志/历史事务保留；CLI证据不替代GUI，P3/P4及余下故障、可玩首启和匹配85载荷仍待。证据analysis/metahook-installer-gui-20261014/handoff-cli15.json。
+
 ## 2026-10-15 — AMXX与GUI终态补验，继续清理和配套构建
 
 combined85-server03独立AMXX3两阶段实际通过：root11728 exit0/6.8977816秒/Job64自然Active0，无超时或强清；11440冻结输入不变，三TU且没有重编ReGameDLL162。DLL为x86/131072B/SHA8a68efebd578703bf4dd502cb714d7d395286a7e3ce15056578165023bf96a42，7导出/staticCRT/仅KERNEL32，命令/reproduce/ABI子审计通过，9946 includes/0未知。原server02仍有14个Core任务缺同次真实Assembly.Location，完整服务端审计未通过；不得由新probe追认旧02。fresh04已冻结11536输入、原地复用源码/SDK，计划同进程logger观察actualLocation/PID/StartTime；准备不等于执行或通过。证据analysis/minecraft-status-effects/armor-defense/combined85-server03/{validation-receipt.json,shared-document-handoff.md}及combined85-server04/execution-plan.json。
