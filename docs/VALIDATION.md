@@ -1,5 +1,13 @@
 # 验证状态
 
+## 2026-10-15 — 公网收藏连接实测修复，完整Mod重建
+
+端口配置入口错误已复现并修正：Windows PowerShell5.1通过-File启动时，参数默认值求值的PSScriptRoot为空；移到脚本主体解析，CMD另显式传根目录并保留失败退出码。原脚本显式PackageRoot可完成配置。旧默认入口失败、新默认入口、真实CMD（中文/空格/单引号目录、不同工作目录）、配置/备份保留、幂等及失败传播共7次执行通过。旧测试显式传目录，未覆盖出错入口；历史记录保留。证据 analysis/coordinator-takeover-20261015/port20-test/result.json。
+
+用户在公网服执行显式目录命令并启动后，16:02:15+08:00公网A2S_INFO实测46344回复且公告游戏端口46344（此前27015），GoldCraft/cs_assault/32槽；随后用户确认删除旧收藏重加并双击已成功进入CS。公网收藏端口项验收完成。证据 analysis/coordinator-takeover-20261015/public-port20-live01.json 及本聊天用户确认。r2修正版ZIP686149B、SHA69c44a212cf982be6c1963d79ad3ae916ee4372d2a0a47c3815ac3f2ca7902f9逐成员验证；用户采用旧脚本显式目录修复，不声称r2已部署。
+
+主协调复用既有依赖并从当前源码完整重编combined20，较combined01仅配对提示、两个TNT生产类和一个测试文件共4项变化。实际JUnit 268项执行通过、7项地图条件跳过，47项真实发现回归通过；生产命名空间重映射和完整JAR核验通过。JAR SHA ce797b853cb71708e4a47299be14a6f8db07cdea9c3687361bc6034f9659e5c8，728411字节，Job自然退出/Active0。未运行FML、未部署，当前XMCL JVM与CS B仍在用户游戏会话中；公网MC稳定准入/重连及TNT实际玩法仍待。证据 analysis/admission-20261015/combined20/{result.json,jar-verified.json,stages.json}。
+
 ## 2026-10-15 — 单协调接管、公网公告27015实证与可恢复端口配置
 
 用户暂停多对话并行，四个领域聊天均已idle，主协调直接接管；不自动恢复领域工作。公网UDP46344实际A2S_INFO回复GoldCraft/cs_assault/25人32槽，EDF游戏连接端口仍为27015，收藏问题未修复。现有公网引擎补丁可复用；新增Set-PublicPort.ps1检查支持、保留所有其他设置、原子替换并保存原始JSON，7项实际Windows PowerShell5.1配置/拒绝检查通过。705675字节更新ZIP逐成员CRC/字节验证通过，未部署公网。证据 analysis/coordinator-takeover-20261015/{public-port19.json,port19-test/result.json,port19-test/numeric-repair.json,public-port19-package.json}。

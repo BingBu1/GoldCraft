@@ -1,9 +1,12 @@
 param(
     [Parameter(Mandatory)][ValidateRange(0,65535)][int]$PublicPort,
-    [string]$PackageRoot = (Split-Path $PSScriptRoot -Parent),
+    [string]$PackageRoot,
     [switch]$CheckOnly
 )
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($PackageRoot)) {
+    $PackageRoot = Split-Path -Path $PSScriptRoot -Parent
+}
 $root = (Get-Item -LiteralPath $PackageRoot).FullName
 $settingsPath = Join-Path $root 'server-settings.json'
 $enginePath = Join-Path $root 'cs/swds.dll'
