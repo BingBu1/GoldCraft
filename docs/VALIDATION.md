@@ -1,5 +1,32 @@
 # 验证状态
 
+## 2026-10-15 — 配对TNT形态切换通过，重生误归属已复现
+
+tnt43以唯一测试FakePlayer通过真实配对消息后完成四组真实TNT。当前CS形态及CS→MC、MC→CS均killer=owner1；点燃后原生重生spawn3→4、life7→8，MC玩家对象保持，却仍把旧TNT击杀归给owner1（期望世界来源0）。这是已复现待修的配对玩家归属故障，不能把四组观察完成写成归属全部通过。
+
+| 场景 | life | spawn | 目标HP | killer/期望 | 归属 |
+| --- | --- | --- | --- | --- | --- |
+| current | 5→5 | 3→3 | 100→-31 | 1/1 | 通过 |
+| cs_to_mc | 5→6 | 3→3 | 100→-25 | 1/1 | 通过 |
+| mc_to_cs | 6→7 | 3→3 | 100→-28 | 1/1 | 通过 |
+| respawn | 7→8 | 3→4 | 100→-25 | 1/0 | 失败 |
+
+完整ZP Infection Mode、原生/MC伤害阳性对照及模块/Mod运行hash通过。每组只有一颗原版TNT、初始引信80，随后显式延长300 tick用于观察；Start/Detonate两事件保留同一owner UUID，原生TakeDamage/死亡各一次、DMG_BLAST64、goldcraft_tnt来源。四组MC玩家对象均相同，受害者serial/spawn未变。
+
+生产NativeTntDamage.owner对ServerPlayer使用爆炸时host.actor(uuid)，因此匹配到重生后的当前spawn；原生镜像路径保存旧actor的既有五组通过不能覆盖这条路径。
+
+新增PairedTntPlayer及pair_create/report/remove、ignite_paired测试命令。tnt41准备阶段因Vector浮点反射转型错误停止，改用Number.doubleValue；fixture42编译exit0，JAR SHA256 `99e789df6d6818a264290c9445356efa3ea1103ac52e07c0033a6097bace20c7`。tnt42在首次点燃前因诊断快照滞后/UUID横杠格式断言失败，43仅修测试等待与格式归一。前两轮没有TNT归属结论。
+
+tnt41、42、43两服均自然exit0，8个运行文件及部署注册已恢复，7个测试文件已移除，9个强加载区块/支撑已释放；Mod/INI与原安装19575文件元数据/5项hash保持。tnt43收尾时三个既有用户进程均已不在列表，未由代理操作，不能声称进程不变。空进程列表导致首次finish的NoneType错误；补空列表处理后独立恢复成功，原matrix-result的cleanup=false和exit1保留，以后续cleanup-receipt/process-exits为恢复证据。
+
+本轮只编译/扩展测试夹具，生产core未改；测试DLL仅重编headless凭据投递，保持候选游戏逻辑。FakePlayer不经过网络登录、客户端传送确认或真人按键；真人点燃、多人、图形、任意Mod回调及公网仍待。完整G01–G28开放。
+
+资源修正版完整ZIP本轮复核仍为75179439B，SHA256 `3b44f23dcca16f24d6c39be5749cf4fe1ee3ddea2055e2b67fa055a7e77361fc`；此前17项补全、官方资源对照及干净安装证据沿用resources35，未重复打包；实际游戏首启/另一机器反馈仍待。
+
+证据 `analysis/coordinator-takeover-20261015/tnt43/{paired-*.json,independent-results.json,runtime-audit.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`；tnt41/42失败及恢复记录分别保留。
+
+下一步为配对点燃者保存点燃时的不可变world/连接/重生身份，并验证连锁继承、同spawn形态切换、重生/断线/换连接拒绝旧归属；先修生产来源链，再编译与复验，不将本轮已知故障发布为可用修复。
+
 ## 2026-10-15 — TNT真实伤害包延迟与目标生命周期
 
 tnt38/40分两轮完成七项真实伤害包验证：立即放行正常伤害；仅超时status6、死亡status2、重生/同槽换连接/断线status1均拒绝旧请求；新连接的新TNT再次正常伤害。使用loopback透明转发真实已认证消息，不改包、不模拟伤害或关闭校验。

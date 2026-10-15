@@ -310,6 +310,7 @@
     "tests/neoforge-explosion/delay_tnt.py",
     "tests/neoforge-explosion/neoforge.mods.toml",
     "tests/neoforge-explosion/src/dev/goldcraft/test/ExplosionFixture.java",
+    "tests/neoforge-explosion/src/dev/goldcraft/test/PairedTntPlayer.java",
     "tools/Build-ExplosionFixture.py"
   ],
   "trees": {

@@ -21,6 +21,7 @@ import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.ExplosionEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -37,6 +38,7 @@ public final class ExplosionFixture {
     private final List<Map<String, Object>> spawns = new ArrayList<>();
     private final List<Map<String, Object>> damage = new ArrayList<>();
     private static final BlockPos ROOT_TNT = new BlockPos(3, 76, -90);
+    private final PairedTntPlayer paired = new PairedTntPlayer();
 
     public ExplosionFixture() {
         NeoForge.EVENT_BUS.addListener(this::commands);
@@ -46,7 +48,10 @@ public final class ExplosionFixture {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::incoming);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::damagePre);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::damagePost);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, this::tick);
     }
+
+    private void tick(ServerTickEvent.Post event) { paired.tick(event.getServer()); }
 
     private boolean chainTnt(PrimedTnt tnt) {
         return (mode.equals("chain") || mode.equals("damage")) && tnt.distanceToSqr(3.5, 76, -89.5) < 16 * 16;
@@ -158,7 +163,7 @@ public final class ExplosionFixture {
     }
 
     private int ignite(net.minecraft.commands.CommandSourceStack source, int slot) {
-        if ((!mode.equals("chain") && !mode.equals("damage")) || source.getServer().getPlayerList().getPlayerCount() != 0) {
+        if ((!mode.equals("chain") && !mode.equals("damage")) || !paired.accepts(source.getServer())) {
             source.sendFailure(Component.literal("Chain mode and an empty local MC server are required"));
             return 0;
         }
@@ -173,7 +178,10 @@ public final class ExplosionFixture {
         Player owner = null;
         Map<String, Object> result = new LinkedHashMap<>();
         try {
-            if (slot != 0) {
+            if (slot == -1) {
+                owner = paired.owner();
+                result.put("paired", paired.report());
+            } else if (slot != 0) {
                 var type = Class.forName("dev.goldcraft.world.NativePlayers");
                 var players = (List<?>) type.getMethod("targetingPlayers", ServerLevel.class, List.class)
                     .invoke(null, level, List.of());
@@ -192,7 +200,7 @@ public final class ExplosionFixture {
                     return 0;
                 }
             }
-        } catch (ReflectiveOperationException failure) {
+        } catch (Exception failure) {
             throw new IllegalStateException(failure);
         }
         result.put("owner", owner == null ? "none" : owner.getUUID().toString());
@@ -210,13 +218,26 @@ public final class ExplosionFixture {
         event.getDispatcher().register(Commands.literal("gc_explosion_fixture")
             .requires(s -> s.hasPermission(4) && s.getEntity() == null)
             .then(Commands.literal("ignite_ownerless").executes(c -> ignite(c.getSource(), 0)))
+            .then(Commands.literal("ignite_paired").executes(c -> ignite(c.getSource(), -1)))
+            .then(Commands.literal("pair_create")
+                .then(Commands.argument("slot", IntegerArgumentType.integer(1, 32)).executes(c -> {
+                    try {
+                        for (ServerLevel level : c.getSource().getServer().getAllLevels()) {
+                            if (!level.dimension().location().toString().equals("goldcraft:cs_assault_f6725c06")) continue;
+                            paired.create(c.getSource().getServer(), level, IntegerArgumentType.getInteger(c, "slot"));
+                            c.getSource().sendSuccess(() -> Component.literal("GC_PAIRED created"), false);
+                            return 1;
+                        }
+                        return 0;
+                    } catch (Exception failure) { throw new IllegalStateException(failure); }
+                })))
             .then(Commands.literal("ignite_native")
                 .then(Commands.argument("slot", IntegerArgumentType.integer(1, 32))
                     .executes(c -> ignite(c.getSource(), IntegerArgumentType.getInteger(c, "slot")))))
             .then(Commands.argument("action", StringArgumentType.word()).executes(context -> {
                 String action = StringArgumentType.getString(context, "action");
                 var source = context.getSource();
-                if (source.getServer().getPlayerList().getPlayerCount() != 0) {
+                if (!paired.accepts(source.getServer())) {
                     source.sendFailure(Component.literal("Fixture requires an empty local MC server"));
                     return 0;
                 }
@@ -233,6 +254,11 @@ public final class ExplosionFixture {
                 } else if (action.equals("snapshot")) {
                     try { result.put("snapshot", snapshot()); }
                     catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+                } else if (action.equals("pair_report") || action.equals("pair_remove")) {
+                    try {
+                        if (action.equals("pair_remove")) paired.remove(source.getServer());
+                        result.put("paired", paired.report());
+                    } catch (Exception failure) { throw new IllegalStateException(failure); }
                 } else {
                     source.sendFailure(Component.literal("Unknown fixture action"));
                     return 0;

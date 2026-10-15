@@ -2,7 +2,7 @@
 
 独立测试 Mod，用真实 `ExplosionEvent.Start` / `Detonate` 验证 GoldCraft 宿主地图爆破是否遵守其他 Mod 的取消及破坏列表修改。仅用于无真人的本地隔离双服，不加入日常 Mod 母本或玩家更新包。
 
-默认模式为 `off`。只有维度 `goldcraft:cs_assault_f6725c06` 内、带 `goldcraft_explosion_fixture` 标签的已点燃 TNT 才受影响。控制命令要求权限 4、非实体命令来源且 MC 在线玩家数为 0；测试期间仍须保持双服无真人。
+默认模式为 `off`。只有维度 `goldcraft:cs_assault_f6725c06` 内、带 `goldcraft_explosion_fixture` 标签的已点燃 TNT 才受影响。控制命令要求权限 4、非实体命令来源；MC 玩家列表须为空或仅含本夹具创建的同一个测试玩家。测试期间仍须保持双服无真人。
 
 从工作区根目录运行，要求 Python 3.12+、现有 JDK 21.0.12.1+1、NeoForge 21.1.256/FML 4.0.45 依赖以及脚本指定的 Mojang 命名 Minecraft 1.21.1 patched JAR：
 
@@ -27,6 +27,10 @@ python tools/Build-ExplosionFixture.py
 | `gc_explosion_fixture damage` | 同一区域记录真实 incoming/pre/post 受伤事件、直接来源与攻击者；不修改伤害 |
 | `gc_explosion_fixture ignite_ownerless` | 在 chain 模式下点燃 (3,76,-90) 的 TNT，无点燃者 |
 | `gc_explosion_fixture ignite_native <slot>` | 以指定存活 CS 连接的生产玩家镜像作为点燃者；须另验实际玩家输入及伤害归属 |
+| `gc_explosion_fixture pair_create <slot>` | 创建并注册唯一测试 FakePlayer，使用本机 headless token 投递真实配对消息 |
+| `gc_explosion_fixture pair_report` | 读取测试玩家 UUID、对象身份及权威 serial/life/spawn/flags |
+| `gc_explosion_fixture ignite_paired` | 在 chain 或 damage 模式下，用已配对的测试玩家执行原版 TNT 点燃 |
+| `gc_explosion_fixture pair_remove` | 注销并移除夹具玩家，释放其本地虚拟连接 |
 | `gc_explosion_fixture report` | 输出 `GC_EXPLOSION_FIXTURE` 前缀和 JSON 事件/生成记录 |
 | `gc_explosion_fixture snapshot` | 通过只读反射读取生产宿主切除快照，输出 Base64 |
 
@@ -55,6 +59,12 @@ execute in goldcraft:cs_assault_f6725c06 run execute if entity @e[type=minecraft
 取消时应只有 Start 记录；清空时应有空的最终列表。两者都应保留玻璃，宿主切除数量和 revision 在整个采样窗口保持不变。裁剪时每条宿主切除都应属于最终列表且 X < 3；pass 应产生切除并破坏玻璃。爆炸随机射线可能使各次列表及切除数量不同，不应硬编码相同计数。RCON 事件回复可能超过 4096 字节，必须收齐所有分包后再解析。若以后续有序请求标记回复结束，先收到原命令的首包再发送标记；MC 1.21.1 的 RCON 读取器会拒绝合并在一次读取中的多条请求。
 
 事件监听器使用 `LOWEST` 优先级；本夹具只证明已实测的事件组合，不能推断任意其他 Mod 的回调顺序或兼容性。单轮上限为 32 条事件，换模式即清空；勿长期启用。
+
+配对试验额外要求双方测试服显式设置 `GOLDCRAFT_HEADLESS_BINDINGS` 为同一本地文件，并使用从当前源码构建、仅启用假客户端 token 投递的测试 DLL。文件包含配对凭据，不能发布或输出到日志。测试玩家通过真实 `PAIR_PLAYER` 校验；夹具只在服务器玩家列表注册 FakePlayer，并提供本地 EmbeddedChannel、权威位置和 ready 通知。它不经过网络登录、客户端传送确认或真人按键流程，不能用于验收真实准入、操控或渲染。读取原生诊断时应等待其采样追上桥接状态，并统一 UUID 的带横杠/不带横杠格式。
+
+归属验证路径为：`pair_create` → `pair_report` 与原生 actor 身份一致 → 准备单个 TNT → `damage` → `ignite_paired` → 经实际服务器命令切换形态或重生 → 等待真实 TNT 爆炸 → 比对生成/爆炸记录与原生 TakeDamage、killer。初始引信应记录为原版 80 tick；若为观测生命周期而延长到 300 tick，须单独记录。结束前先 `pair_remove`，确认 MC 玩家列表恢复为空，再停服还原。
+
+tnt43已完成四组观察：当前身份和同spawn双向形态切换归属正确；原生重生后MC对象保持时，旧TNT错误归给新生命。此项为待修故障，见 [验证状态](../../docs/VALIDATION.md)。`observationPassed`仅表示取得完整观测，须另看`ownershipCorrect`；清理状态也须独立核对。
 
 结束后执行 `gc_explosion_fixture off` 和 `execute in goldcraft:cs_assault_f6725c06 run forceload remove -13 -106 19 -74`，正常关闭双服，核对退出状态，再移除临时测试 JAR/插件并核对原有 Mod 和配置。保留日志和快照证据。
 
