@@ -119,6 +119,14 @@ execute in goldcraft:cs_assault_f6725c06 run data get entity @e[type=minecraft:t
 
 ## 实际ZP身份与TNT九组验证（2026-10-15）
 
+### 目标生命周期与真实请求延迟
+
+`delay_tnt.py` 的 `DamageRelay(upstream_port, evidence)` 只监听loopback，将真实MC服务端连接透明转发给隔离ReHLDS；MC启动环境的桥端口改为relay.port，不改持久配置或凭据。它不生成/修改协议帧，不记录握手密钥，按原顺序转发完整字节流。必须先有正常实际TNT伤害对照。
+
+在独立证据目录写入 `arm.json`（`{"label":"respawn","slot":26}`）后，下一条发往指定目标的真实kind6 TNT伤害请求会暂停；`held-respawn.json`记录事件/连接/生命/快照及帧hash。此时用真实原生生命周期命令改变目标，再写入 `release-respawn` 放行原包；`result-respawn.json`记录服务端实际回执。后续MC→CS帧一同等待，反向快照继续，保持两向序列；八秒仍未放行视作测试失败，不能无限堵住服务器连接。
+
+必须分别核对：立即放行能正常伤害；仅延迟到快照过期返回status6；死亡未重生返回status2；重生/同槽新连接/断线返回status1，原请求生命字段不变且新玩家血量/伤害回调不变。最后新生命的新TNT应再次正常伤害。重生后的headless reset明确恢复DAMAGE_AIM，避免用无敌目标制造假通过；断线清除夹具slot，禁止命令占用后来加入者。仅这组实服证据不代表真人输入、多玩家配对或图形验收。
+
 点燃者生命周期扩展（tnt37）：真实点燃后通过 `data merge entity @e[type=minecraft:tnt,limit=1] {fuse:300s}` 延长引信，再执行 `gc_tnt_zp_lifecycle <ownerSlot> <respawn|kill|disconnect>`；同槽替换另调用gc_tnt_create，必须核对slot相同、serial/userid不同。核验新鲜原生actor/MC状态后等待自然爆炸，不允许直接注入伤害或改连接/生命字段。
 
 五组当前、死亡未重生、重生、同槽新连接、断线全部通过。前两组killer=旧owner1，后三组killer=0且伤害/死亡正常；实际TNT事件仍记录旧owner UUID。受害者serial/spawn在每次爆前/后不变。完整ZP清单，临时auto_players=-1保持当时Bot quota以隔离复用slot；测试结束正常停双服并恢复所有临时文件/注册/Mod清单。原生点燃者的这些证据不覆盖配对MC玩家、形态切换、目标换生命和延迟旧请求。

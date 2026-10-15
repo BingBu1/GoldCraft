@@ -307,6 +307,7 @@
     "tools/client-installer/goldcraft-gui.patch",
     "tools/client-installer/gui-source.json",
     "tests/neoforge-explosion/README.md",
+    "tests/neoforge-explosion/delay_tnt.py",
     "tests/neoforge-explosion/neoforge.mods.toml",
     "tests/neoforge-explosion/src/dev/goldcraft/test/ExplosionFixture.java",
     "tools/Build-ExplosionFixture.py"

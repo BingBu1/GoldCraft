@@ -1,5 +1,27 @@
 # 验证状态
 
+## 2026-10-15 — TNT真实伤害包延迟与目标生命周期
+
+tnt38/40分两轮完成七项真实伤害包验证：立即放行正常伤害；仅超时status6、死亡status2、重生/同槽换连接/断线status1均拒绝旧请求；新连接的新TNT再次正常伤害。使用loopback透明转发真实已认证消息，不改包、不模拟伤害或关闭校验。
+
+| 场景 | 回执status | 爆后HP | 原生伤害调用 | 延迟秒 |
+| --- | --- | --- | --- | --- |
+| current | 0 | 376.0 | 1.0 | 0.015 |
+| expired | 6 | 500.0 | 0.0 | 1.797 |
+| dead | 2 | 0.0 | 0.0 | 1.187 |
+| respawn | 1 | 500.0 | 0.0 | 2.109 |
+| replacement | 1 | 500.0 | 0.0 | 3.031 |
+| disconnected | 1 | — | — | 1.219 |
+| currentafter | 0 | 375.0 | 1.0 | 0.016 |
+
+新增测试relay `tests/neoforge-explosion/delay_tnt.py`，仅loopback、保持两向帧序、8秒有界暂停、不记录认证内容。headless夹具在disconnect清slot，reset恢复DAMAGE_AIM，防止旧槽误占或无敌目标造成假通过。9插件匹配源编译0警告；生产JAR/DLL沿用候选，六既有ZP模块临时使用匹配源码编译产物后恢复，未部署母本/A/B/公网。
+
+tnt38先因MC尚未就绪发生准备失败，随后沿用同一进程完成四项；替换目标时新假客户端落到slot3而非旧slot26，故第五项准备不满足、原矩阵保留失败。恢复前对用户旧CS进程身份的断言中止，独立确认测试服已自然退出后完成hash恢复，cleanup-receipt为准。tnt39尝试额外创建目标时，ZP具名夹具身份准备被拒绝（未点燃TNT），双服正常退出并恢复；未证明具体拒绝原因。tnt40先断开旧高槽目标，再创建唯一目标占用最低空槽，仅补后三项，不重写旧失败。
+
+三轮双服均自然exit0，临时8运行文件/部署注册恢复、7夹具移除、9强加载区块/支撑释放，原Mod/INI及原安装19575元数据/5hash保持。tnt38期间CS客户端从10464变为29788，未由代理操作；据实记录进程变化，不能写成全程不变。tnt40用户进程与本轮preflight一致。tnt40转发器关闭记录含一次ConnectionResetError10054，线程已停止、两服exit0、三项回执已取得；错误记录缺独立时间戳，保留而不称整个转发器运行零错误。
+
+证据 `analysis/coordinator-takeover-20261015/tnt38/target-*.json` 与 `tnt40/{target-*.json,independent-results.json,runtime-audit.json,matrix-result.json,cleanup-receipt.json,process-exits.json}`；两轮均有held/result/released逐事件记录及relay-closed。构建tnt38-build.log。 真人/配对玩家点燃、CS↔MC形态归属、任意Mod回调、图形/多人及公网仍待；完整G01–G28保持开放。
+
 ## 2026-10-15 — 原生TNT点燃者生命周期五组
 
 完整ZP Infection Mode/MC Mod集下，tnt37真实点燃TNT并将80 tick原始引信延长为300 tick，以覆盖原生与MC状态传播后自然爆炸。当前身份及仅死亡未重生均保留killer=owner1；重生spawn4→5、同槽新连接serial2→3/userid27→29、断线actor消失三组均killer=0，继续正常世界来源伤害。每组TakeDamage原函数/死亡各一次，HP分别100→-25/-66/-73/-66/-74；TNT事件保持原owner UUID，受害者serial/spawn全程不变。原生100→95/MC生物100→90阳性对照通过。

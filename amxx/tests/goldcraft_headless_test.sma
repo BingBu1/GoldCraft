@@ -60,6 +60,10 @@ public SelectPlayer()
     if (!is_user_connected(id) || !(get_entvar(id, var_flags) & FL_FAKECLIENT)) return PLUGIN_HANDLED;
     gBot = id; return Status();
 }
+public client_disconnected(id)
+{
+    if (id == gBot) gBot = 0;
+}
 public Team()
 {
     if (!get_pcvar_num(gEnabled) || !is_user_connected(gBot) || read_argc() != 2) return PLUGIN_HANDLED;
@@ -82,6 +86,7 @@ public ResetPlayer()
     if (health < 1.0 || health > 5000.0 || armor < 0 || armor > 100) return PLUGIN_HANDLED;
     if (!is_user_alive(gBot)) rg_round_respawn(gBot);
     set_entvar(gBot, var_flags, get_entvar(gBot, var_flags) | FL_FAKECLIENT);
+    set_entvar(gBot, var_takedamage, DAMAGE_AIM);
     new Float:zero[3];
     gc_relink_origin(gBot, pos); set_entvar(gBot, var_velocity, zero);
     set_entvar(gBot, var_health, health);
