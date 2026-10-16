@@ -1,6 +1,6 @@
 # MC 玩家规则与 ZP 集成
 
-2026-10-16 已随本地联合更新部署。公网出现感染后仍能使用 MC，RCON 确认四个新增集成插件未加载；用户确认只覆盖了 payload，未执行写入启用清单的脚本。用户已覆盖三个独立清单补充包，选择稍后自行换图；重载后插件核验及真实感染验收待完成。详见[手动更新说明](../tools/update-package/README.md)。
+2026-10-16 已随本地联合更新部署。公网出现感染后仍能使用 MC，RCON 确认四个新增集成插件未加载；用户确认只覆盖了 payload，未执行写入启用清单的脚本。用户已覆盖三个独立清单补充包，换图时机由用户自行掌握。最新只读 RCON 已确认 `goldcraft_zp_rules`、`goldcraft_zp_combat`、`goldcraft_controls`、`goldcraft_connection` 全部 running（81 插件/75 运行）；主协调未发送换图或重启命令。漏加载问题已消除，真实感染退出、拒绝重入/治愈/重生及他人 F6 验收仍待完成。详见[手动更新说明](../tools/update-package/README.md)。
 
 ## 行为
 
