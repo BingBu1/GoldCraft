@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "312681c6c82aefa19faf04d281f1886e09fec81236688a0f1b48e409b257fe02",
+  "patchSha256": "cd122212218ee38a9eac481f1861e4fff5d07b9ad51160ee8f62543a1a1239ab",
   "files": [
     {
       "path": "admin/zp50_admin_commands.sma",
@@ -379,7 +379,7 @@
     {
       "path": "menus/zp50_hud_info.sma",
       "seedSha256LF": "e853223ea9687943aec0d2d163de42c55e8f8198ad16b61836c8b56532fd4bd7",
-      "resultSha256LF": "a0fb9fd6f78d5c3d2a338785bdb50b9e89663ba779d4ba56103fb05b192aa7ec"
+      "resultSha256LF": "5849cd7e7e21e37c63f9d0b1e56896108b2dc427a1e4477097b17fc19e1e5784"
     },
     {
       "path": "menus/zp50_main_menu.sma",
@@ -424,7 +424,7 @@
     {
       "path": "modes/zp50_gamemodes.sma",
       "seedSha256LF": "c0b3533957b230111d85f6e2f665a453bde94b61ac355c60289405a321481914",
-      "resultSha256LF": "c647c6d923eb1e163cb99f11c04086655a81de0f4a6f56f31a6b5ad6466300c2"
+      "resultSha256LF": "22c96cd5c583ba6a8a4edc07db6a554329a50d96e62546224040d93a6045983b"
     },
     {
       "path": "weapons/zp50_grenade_fire.sma",
@@ -449,7 +449,7 @@
     {
       "path": "weapons/zp50_human_armor.sma",
       "seedSha256LF": "455b8654661a61ad014dd525e5b5a2e7f020bacd81895ae62129a2aaa489eec9",
-      "resultSha256LF": "e1f4c65cf4eaad5fa0bafecf7f94ca5bf1abb33e9a5227adc3336bfab54eba34"
+      "resultSha256LF": "40416f01c1e3e28cb0e1ce8c44ec2ec35a8c42395838575e0772b630403fbc67"
     },
     {
       "path": "weapons/zp50_weapon_drop_strip.sma",

@@ -1,4 +1,5 @@
 #include "goldcraft/native_armor.hpp"
+#include "goldcraft/player_gameplay.hpp"
 #include "../../native/server/bridge.h"
 #include <array>
 #include <functional>
@@ -74,6 +75,7 @@ int* CurrentAttributes(edict_t*){return attributes_available?&attribute_marker:n
 float GoldCraft_StatusDefense(edict_t*,float,edict_t*,edict_t*,int);
 #include "../../native/server/armor_defense.inc"
 edict_t* final_minecraft_damage=nullptr;edict_t* minecraft_attack=nullptr;
+unsigned native_damage_depth=0;
 #include "actual_armor_context.inc"
 float GoldCraft_StatusDefense(edict_t*,float amount,edict_t*,edict_t*,int){return amount*settling_native_enchantment;}
 void CBasePlayer::GoldCraft_CommitEquipmentDamage(entvars_t*,entvars_t* attacker,float amount,int,CBasePlayer*,int team,int armor,bool explosion){
@@ -132,11 +134,16 @@ int main(){try{
     check(!GoldCraft_QueueNativeArmor(edicts+1,40,edicts+2,edicts+2,DMG_BULLET,edicts+2,false,0));minecraft_attack=nullptr;
     check(pending_native_armor.empty());
     settling_native_armor=edicts+1;settling_native_enchantment=.5f;settling_native_weapon="ak47";
+    const goldcraft::ActivePlayerAttack active{1,2,1,1,10,20};
     {
         GoldCraft_EquipmentDamageScope nested;
+        check(active.match(1,2,native_damage_depth,10,20)==1);
+        {GoldCraft_EquipmentDamageScope callback;check(active.match(1,2,native_damage_depth,10,20)==0);}
+        check(active.match(1,2,native_damage_depth,10,20)==1);
         check(settling_native_armor==nullptr&&settling_native_enchantment==1&&GoldCraft_EquipmentWeapon(edicts+1)==nullptr);
         check(GoldCraft_QueueNativeArmor(edicts+1,40,edicts+2,edicts+2,DMG_BULLET,edicts+2,false,0));
     }
+    check(native_damage_depth==0&&active.match(1,2,native_damage_depth,10,20)==0);
     check(settling_native_armor==edicts+1&&settling_native_enchantment==.5f&&std::string(GoldCraft_EquipmentWeapon(edicts+1))=="ak47");
     settling_native_armor=nullptr;settling_native_enchantment=1;settling_native_weapon=nullptr;
     std::cout<<checks<<" actual native armor dispatch checks passed\n";return 0;

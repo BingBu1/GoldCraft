@@ -106,6 +106,13 @@ public final class BridgeLink implements AutoCloseable {
         return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
             generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.HOST_EXPLOSIONS_CAP)!=0;
     }
+    public synchronized boolean playerGameplay(long expectedGeneration) {
+        return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
+            generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.PLAYER_GAMEPLAY_CAP)!=0;
+    }
+    public synchronized boolean sendPlayerGameplay(long expectedGeneration,int type,byte[] payload) {
+        return playerGameplay(expectedGeneration)&&(type==Wire.PLAYER_GAMEPLAY||type==Wire.PLAYER_ATTACK)&&sendForGeneration(expectedGeneration,type,payload);
+    }
     public synchronized boolean tntDamage(long expectedGeneration) {
         return config.role()==Wire.FABRIC_SERVER && config.hostRole()==Wire.HOST_SERVER && connected &&
             generation==expectedGeneration && expectedGeneration!=0 && (acceptedCapabilities & Wire.TNT_DAMAGE_CAP)!=0;
@@ -210,7 +217,7 @@ public final class BridgeLink implements AutoCloseable {
         boolean helloSent, received;
     }
     private void run() {
-        boolean offerTnt=true;
+        int offerLevel=2;
         while (running) {
             long previousGeneration=generation;
             var attempt=new HandshakeAttempt();
@@ -219,15 +226,15 @@ public final class BridgeLink implements AutoCloseable {
                 socket.socket().connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"),config.port()),2000);
                 socket.socket().setTcpNoDelay(true);
                 socket.configureBlocking(false);
-                exchange(socket,offerTnt,attempt);
+                exchange(socket,offerLevel>=1,offerLevel>=2,attempt);
             } catch (IOException | IllegalArgumentException e) {
                 if (running) lastError=e.getClass().getSimpleName()+": "+e.getMessage();
                 // Protocol30 hosts predating TNT reject unknown HELLO bits.
                 // Retry their original capability set with identical credentials;
                 // never send kind6 without an authenticated accepted capability.
-                if(generation!=previousGeneration)offerTnt=true;
+                if(generation!=previousGeneration)offerLevel=2;
                 else if(attempt.helloSent&&!attempt.received&&(e instanceof EOFException||e instanceof SocketException))
-                    offerTnt=!offerTnt;
+                    offerLevel=offerLevel==0?2:offerLevel-1;
             }
             finally { channel=null; reset(); }
             if (running) sleep(500);
@@ -258,12 +265,12 @@ public final class BridgeLink implements AutoCloseable {
             }
         }
     }
-    private void exchange(SocketChannel socket,boolean offerTnt,HandshakeAttempt attempt) throws IOException {
+    private void exchange(SocketChannel socket,boolean offerTnt,boolean offerGameplay,HandshakeAttempt attempt) throws IOException {
         ByteBuffer input=ByteBuffer.allocate(Wire.MAX_PAYLOAD+Wire.HEADER_BYTES);
         boolean statusCapable=config.role()==Wire.FABRIC_SERVER&&config.hostRole()==Wire.HOST_SERVER;
         boolean capable=SharedBulkSender.supported(config.role(), config.hostRole());
         boolean clockCapable=LocalQpcProof.supported(config.role(), config.hostRole());
-        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | (offerTnt?Wire.TNT_DAMAGE_CAP:0):0)).toByteArray();
+        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | (offerTnt?Wire.TNT_DAMAGE_CAP:0)|(offerGameplay?Wire.PLAYER_GAMEPLAY_CAP:0):0)).toByteArray();
         Pending pending=new Pending(Wire.HELLO,hello,0,1,false);
         Queued blocked=null;
         SharedBulkSender shared=null;
@@ -337,8 +344,9 @@ public final class BridgeLink implements AutoCloseable {
                         if (!Arrays.equals(config.session(),r.bytes(16)) || r.i32()!=config.hostRole())
                             throw new IOException("Host identity mismatch");
                         int accepted=r.i32();
+                        if((accepted&Wire.PLAYER_GAMEPLAY_CAP)!=0&&!offerGameplay)throw new IOException("Unrequested player gameplay capability");
                         if((accepted&Wire.TNT_DAMAGE_CAP)!=0&&!offerTnt)throw new IOException("Unrequested TNT capability");
-                        if (((accepted&NativeArmorProtocol.CAPABILITY)!=0&&(accepted&Wire.STATUS_ATTRIBUTES_CAP)==0) || (accepted & ~(Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP))!=0&&!statusCapable) ||
+                        if (((accepted&NativeArmorProtocol.CAPABILITY)!=0&&(accepted&Wire.STATUS_ATTRIBUTES_CAP)==0) || (accepted & ~(Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP))!=0&&!statusCapable) ||
                             r.f32()!=Wire.UNITS_PER_BLOCK || r.f32()!=Wire.Y_OFFSET)
                             throw new IOException("Host capability/coordinate contract mismatch");
                         r.finish(); epoch=header.epoch(); authenticated(epoch,accepted);

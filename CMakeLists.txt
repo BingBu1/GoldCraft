@@ -23,13 +23,24 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    foreach(test tnt_damage gameplay_rules fluid_volumes effect_grant local_qpc_proof shared_bulk control_diagnostics skill_damage render_bounds scene_lights atlas_footprint)
+    foreach(test player_gameplay tnt_damage gameplay_rules fluid_volumes effect_grant local_qpc_proof shared_bulk control_diagnostics skill_damage render_bounds scene_lights atlas_footprint)
         add_executable(goldcraft_${test}_tests tests/native/${test}_tests.cpp)
         target_link_libraries(goldcraft_${test}_tests PRIVATE goldcraft_common)
         target_compile_definitions(goldcraft_${test}_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
         target_compile_options(goldcraft_${test}_tests PRIVATE /W4 /WX /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_${test} COMMAND goldcraft_${test}_tests)
     endforeach()
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        native/server/bridge.cpp tests/native/extract_effect_lifecycle.py)
+    execute_process(COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_effect_lifecycle.py"
+        --bridge "${CMAKE_CURRENT_SOURCE_DIR}/native/server/bridge.cpp"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/effect_lifecycle_bridge.inc" COMMAND_ERROR_IS_FATAL ANY)
+    add_executable(goldcraft_effect_lifecycle_tests tests/native/effect_lifecycle_tests.cpp)
+    target_include_directories(goldcraft_effect_lifecycle_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_options(goldcraft_effect_lifecycle_tests PRIVATE /W4 /utf-8 /UNDEBUG)
+    add_test(NAME goldcraft_effect_lifecycle COMMAND goldcraft_effect_lifecycle_tests)
     if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/ReGameDLL_CS/regamedll/public/interface.h")
         add_executable(goldcraft_effect_publisher_tests tests/native/effect_publisher_tests.cpp native/server/effect_service_provider.cpp)
         target_link_libraries(goldcraft_effect_publisher_tests PRIVATE goldcraft_common)

@@ -79,6 +79,8 @@ void BridgeLog(const std::string&){++log_calls;}
 void SendForm(unsigned){++form_calls;once(on_form);}
 void SendAvatar(unsigned,bool){++avatar_calls;once(on_avatar);}
 void (*form_listener)(int,int,int)=nullptr;
+int (*form_guard)(int,int)=nullptr;
+std::array<bool,65> form_guard_busy{};
 void SET_SIZE(edict_t* e,const Vector& mins,const Vector& maxs){++size_calls;e->v.mins=mins;e->v.maxs=maxs;e->v.size=maxs-mins;once(on_size);}
 void SET_ORIGIN(edict_t* e,const Vector& origin){++origin_calls;e->v.origin=origin;once(on_origin);}
 void AcceptNativeRelocation(unsigned slot,std::uint64_t authority=0);
@@ -89,6 +91,7 @@ int checks=0,failures=0;
 void expect(bool value,const char* expression,int line){++checks;if(!value){++failures;std::cerr<<line<<": "<<expression<<'\n';}}
 #define CHECK(expression) expect(static_cast<bool>(expression),#expression,__LINE__)
 void reset(){
+    form_guard=nullptr;form_guard_busy={};
     player={};replacement_player={};first_entities={};second_entities={};edicts=first_entities.data();max_clients=1;
     registry={};link={};connection_generation=11;controlled={};player_lives={};minecraft_forms={};player_spawns={};
     native_release_leases={};
@@ -238,6 +241,33 @@ void freed_slot_ledger_guard_does_not_require_a_live_player(){
     ++registry.binding->serial;CHECK(!CurrentNativeSlot(slot));
     reset();const auto world_slot=CaptureNativeSlot(1);replacement(true);CHECK(!CurrentNativeSlot(world_slot));
 }
+int guard_calls=0,nested_guard_result=0;
+void form_policy_veto_reentrancy_and_identity_are_fenced(){
+    reset();minecraft_forms[1]=false;guard_calls=0;
+    form_guard=[](int,int){++guard_calls;return 1;};
+    CHECK(SetForm(1,1,ControlCause::form_amxx)==-5);
+    CHECK(guard_calls==1&&!minecraft_forms[1]&&player_lives[1]==10&&retire_calls==0&&!form_guard_busy[1]);
+    // Exiting MC remains available even while the infection guard denies entry.
+    minecraft_forms[1]=true;
+    CHECK(SetForm(1,0,ControlCause::form_amxx)==1);
+    CHECK(guard_calls==1&&!minecraft_forms[1]);
+
+    reset();minecraft_forms[1]=false;guard_calls=0;nested_guard_result=0;
+    form_guard=[](int slot,int form){++guard_calls;nested_guard_result=SetForm(slot,form,ControlCause::form_amxx);return 0;};
+    CHECK(SetForm(1,1,ControlCause::form_amxx)==1);
+    CHECK(nested_guard_result==-5&&guard_calls==1&&minecraft_forms[1]&&player_lives[1]==11&&!form_guard_busy[1]);
+
+    for(bool world:{false,true}){
+        reset();minecraft_forms[1]=false;
+        form_guard=world?+[](int,int){replacement(true);return 0;}:+[](int,int){replacement(false);return 0;};
+        CHECK(SetForm(1,1,ControlCause::form_amxx)==-1);
+        CHECK(!minecraft_forms[1]&&player_lives[1]==50&&controlled[1].sequence==88&&retire_calls==0&&!form_guard_busy[1]);
+    }
+    reset();minecraft_forms[1]=false;
+    form_guard=[](int,int){link.online=false;return 0;};
+    CHECK(SetForm(1,1,ControlCause::form_amxx)==-3);
+    CHECK(!minecraft_forms[1]&&player_lives[1]==10);
+}
 } // namespace
 int main(){
     unchanged_relocation_restores_native_hull_and_advances_once();
@@ -249,6 +279,7 @@ int main(){
     provider_failure_and_notifications_fence_the_remaining_stack();
     proof_authority_fences_post_pose_without_blocking_native_release();
     freed_slot_ledger_guard_does_not_require_a_live_player();
+    form_policy_veto_reentrancy_and_identity_are_fenced();
     std::cout<<"exact bridge lifecycle blocks with engine/Pawn substitutes: "<<checks<<" assertions, "<<failures
              <<" failures; no live ReHLDS or Pawn VM acceptance\n";
     return failures?1:0;

@@ -18,7 +18,8 @@ constexpr std::uint32_t capability_local_qpc_v1 = 2;
 constexpr std::uint32_t capability_effect_position_hold = 4;
 constexpr std::uint32_t capability_host_explosions = 256;
 constexpr std::uint32_t capability_tnt_damage = 512;
-constexpr std::size_t wire_type_count = 85;
+constexpr std::uint32_t capability_player_gameplay = 1024;
+constexpr std::size_t wire_type_count = 87;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;
 constexpr std::uint32_t capability_native_armor = 64;
@@ -34,6 +35,7 @@ enum class Type : std::uint16_t {
     gameplay_rules = 82,
     host_explosion = 83,
     host_materials = 84,
+    player_gameplay = 85, player_attack = 86,
     hello = 1, welcome = 2, heartbeat = 3,
     world = 10, actors = 11, client_binding = 12, pair_player = 13, pair_result = 14,
     bsp = 15, brushes = 16,

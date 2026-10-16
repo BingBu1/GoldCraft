@@ -275,6 +275,10 @@ bool Endpoint::status_attributes() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_attributes) != 0;
 }
+bool Endpoint::player_gameplay() const {
+    return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_player_gameplay) != 0;
+}
 bool Endpoint::native_armor() const {
     return status_attributes() && (impl_->handshake->peer_capabilities() & capability_native_armor) != 0;
 }

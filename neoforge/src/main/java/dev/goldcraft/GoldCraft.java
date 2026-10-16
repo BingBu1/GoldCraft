@@ -101,6 +101,12 @@ public final class GoldCraft {
     public static boolean hostExplosionsAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation);
     }
+    public static boolean playerGameplayAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.playerGameplay(generation);
+    }
+    public static boolean sendPlayerGameplay(int type,byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendPlayerGameplay(generation,type,payload);
+    }
     public static boolean tntDamageAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.tntDamage(generation);
     }
@@ -122,6 +128,7 @@ public final class GoldCraft {
     }
     private static void reset(MinecraftServer server) {
         CsAdmission.reset();
+        dev.goldcraft.world.PlayerGameplay.reset();
         HostGameplayRules.reset();
         nextEditQuery=0;
         dev.goldcraft.world.NativeArmorServer.clear();HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();MinecraftFluids.clear();HostMining.clear();HostExplosions.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
@@ -267,6 +274,10 @@ public final class GoldCraft {
                 var player=server.getPlayerManager().getPlayer(entry.getKey());
                 if(player!=null&&player.networkHandler.hasChannel(HostPayload.ID))entry.getValue().flush(player);
             }
+            dev.goldcraft.world.PlayerGameplay.tick(server,actor->{
+                var binding=BINDINGS.get(actor.minecraftPlayer());
+                return binding!=null&&binding.world()==HOST_WORLD.epoch()&&binding.slot()==actor.slot()&&binding.serial()==actor.serial();
+            });
             TRACE_VALIDATION.tick(HOST_WORLD);
             HostSession.tick(server,HOST_WORLD);
             HostGameplayRules.tick(server,HOST_WORLD);

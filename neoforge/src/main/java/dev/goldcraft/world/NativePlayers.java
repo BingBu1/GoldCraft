@@ -165,7 +165,8 @@ public final class NativePlayers {
                 .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
                 .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f);
         }
-        if(!GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray()))return false;
+        boolean active=playerSource!=null&&ActivePlayerDamage.eligible(source,kind)&&GoldCraft.playerGameplayAvailable();
+        if(!(active?GoldCraft.sendPlayerGameplay(Wire.PLAYER_ATTACK,request.toByteArray()):GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray())))return false;
         pending.put(event,new Pending(target,kind,GoldCraft.authorityGeneration()));
         target.healthLedger().awaitReceipt(event);requests++;return true;
     }

@@ -317,7 +317,14 @@
     "tests/neoforge-explosion/neoforge.mods.toml",
     "tests/neoforge-explosion/src/dev/goldcraft/test/ExplosionFixture.java",
     "tests/neoforge-explosion/src/dev/goldcraft/test/PairedTntPlayer.java",
-    "tools/Build-ExplosionFixture.py"
+    "tools/Build-ExplosionFixture.py",
+    "docs/PLAYER_GAMEPLAY.md",
+    "tools/Test-PlayerGameplay.py",
+    "amxx/goldcraft/goldcraft_connection.sma",
+    "amxx/goldcraft/configs/plugins-goldcraft-connection.ini",
+    "amxx/zombie_plague/integration/goldcraft_zp_rules.sma",
+    "amxx/zombie_plague/integration/goldcraft_zp_combat.sma",
+    "amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini"
   ],
   "trees": {
     "native": [

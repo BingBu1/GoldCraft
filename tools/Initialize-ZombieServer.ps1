@@ -6,6 +6,7 @@ $running=Get-CimInstance Win32_Process | Where-Object {
     $_.ExecutablePath -eq (Join-Path $game 'hlds.exe') -or $_.ExecutablePath -eq (Join-Path $client 'MetaHook.exe')
 }
 if($running){throw 'Stop the sandbox server and B client before installing Zombie Plague/SyPB.'}
+& (Join-Path $PSScriptRoot 'Build-AMXX.ps1') -Plugins goldcraft_zp_rules,goldcraft_zp_combat
 $stage=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/zombieplague')
 $manifest=Get-Content -LiteralPath (Join-Path $stage 'manifest.json') -Raw | ConvertFrom-Json
 $amxx=Assert-SandboxPath (Join-Path $game 'cstrike/addons/amxmodx')
@@ -40,6 +41,10 @@ foreach($name in @('zombie_plague','zombie_plague50')){
 }
 foreach($name in @('goldcraft_zp50','goldcraft_bloodmoon','goldcraft_spawn_capacity')){
     Copy-Verified (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$name.amxx") (Join-Path $amxx "plugins/$name.amxx")
+}
+foreach($name in @('goldcraft_zp_rules','goldcraft_zp_combat')){
+    Copy-Verified (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$name.amxx") (Join-Path $amxx "plugins/$name.amxx")
+    Add-Line (Join-Path $amxx 'configs/plugins-goldcraft-zp-rules.ini') "$name.amxx"
 }
 & python (Join-Path $PSScriptRoot 'Localize-ZombiePlague.py') --install
 if($LASTEXITCODE){throw 'Zombie Plague Chinese localization failed'}

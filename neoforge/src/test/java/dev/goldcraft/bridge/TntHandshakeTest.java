@@ -67,8 +67,9 @@ class TntHandshakeTest {
         try(var host=host();var link=link(host.getLocalPort(),false)) {
             int first;
             try(var socket=host.accept()){first=hello(socket,false);assertNotEquals(0,first&Wire.TNT_DAMAGE_CAP);}
+            try(var socket=host.accept()){assertEquals(first&~Wire.PLAYER_GAMEPLAY_CAP,hello(socket,false));}
             try(var socket=host.accept()) {
-                assertEquals(first&~Wire.TNT_DAMAGE_CAP,hello(socket,false));
+                assertEquals(first&~(Wire.TNT_DAMAGE_CAP|Wire.PLAYER_GAMEPLAY_CAP),hello(socket,false));
                 welcome(socket,21,Wire.HOST_EXPLOSIONS_CAP,false,SESSION);until(link::connected);
                 assertTrue(link.hostExplosions(link.generation()));assertFalse(link.tntDamage(link.generation()));
                 assertFalse(link.sendTntDamage(link.generation(),new byte[0]));
@@ -103,6 +104,7 @@ class TntHandshakeTest {
     @Test void legacyRetryRejectsUnrequestedTntCapability() throws Exception {
         try(var host=host();var link=link(host.getLocalPort(),false)) {
             try(var socket=host.accept()){hello(socket,false);}
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.TNT_DAMAGE_CAP);}
             try(var socket=host.accept()) {
                 assertEquals(0,hello(socket,false)&Wire.TNT_DAMAGE_CAP);
                 welcome(socket,24,Wire.TNT_DAMAGE_CAP,false,SESSION);

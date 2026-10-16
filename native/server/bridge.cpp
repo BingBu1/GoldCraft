@@ -8,6 +8,7 @@
 #include "interface.h"
 #include "goldcraft/host_entity_api.hpp"
 #include "goldcraft/server_api.hpp"
+#include "goldcraft/player_gameplay.hpp"
 #include "goldcraft/combat.hpp"
 #include "goldcraft/status_hud.hpp"
 #include "goldcraft/status_attributes.hpp"
@@ -72,6 +73,19 @@ std::array<Vec3,65> player_spawns{};
 std::array<bool,65> minecraft_forms{};
 std::array<float,65> next_form_change{};
 FormListener form_listener=nullptr;
+FormGuard form_guard=nullptr;
+PlayerAttackListener player_attack_listener=nullptr;
+ActivePlayerAttack active_player_attack;
+unsigned native_damage_depth=0;
+std::array<bool,65> form_guard_busy{};
+std::array<PlayerGameplayLease,65> player_gameplay;
+bool player_gameplay_supported=false;
+int PlayerGameplayFlags(int slot){
+    if(!edicts||slot<1||slot>max_clients||edicts[slot].free)return -1;
+    const auto* pair=registry.get(slot);if(!pair||!pair->paired)return -1;
+    if(!player_gameplay_supported)return -2;
+    return player_gameplay[slot].flags(registry.world(),pair->serial,player_births[slot],player_lives[slot],pair->uuid,gpGlobals->time,link.connected());
+}
 cvar_t default_form={"mc_default_form","1",FCVAR_SERVER,1,nullptr};
 cvar_t allow_switch={"mc_allow_switch","1",FCVAR_SERVER,1,nullptr};
 cvar_t round_clear_blocks={"mc_round_clear_blocks","1",FCVAR_SERVER,1,nullptr};
@@ -449,6 +463,15 @@ int SetForm(int slot,int form,ControlCause source){
     if(!edicts||slot<1||slot>max_clients||(form!=0&&form!=1)||!registry.get(slot)||edicts[slot].free)return result(-1);
     if(form&&!registry.get(slot)->paired)return result(-2);
     if(form&&!link.connected())return result(-3);
+    if(form&&form_guard){
+        if(form_guard_busy[slot])return result(-5);
+        form_guard_busy[slot]=true;
+        struct Guard {bool& busy;~Guard(){busy=false;}} guard{form_guard_busy[slot]};
+        const auto requesting=CaptureNativePlayer(static_cast<unsigned>(slot));
+        const bool denied=form_guard(slot,form)!=0;
+        if(!CurrentNativePlayer(requesting))return result(-1);
+        if(denied)return result(-5);
+    }
     if(minecraft_forms[slot]==(form!=0))return result(0);
     if(player_lives[slot]==UINT32_MAX)return result(-4);
     const auto identity=CaptureNativePlayer(static_cast<unsigned>(slot));
@@ -482,6 +505,21 @@ public:
     void SetFormListener(FormListener listener) override{form_listener=listener;}
 };
 EXPOSE_SINGLE_INTERFACE(ServerControl,IServerControl,server_control_api_version);
+class ServerGameplay final:public IServerGameplay {
+public:
+    int GetPlayerFlags(int slot) override{return PlayerGameplayFlags(slot);}
+    int GetPlayerAttack(int victim,int attacker) override{
+        if(victim<1||victim>max_clients||attacker<1||attacker>max_clients)return 0;
+        if(!minecraft_forms[attacker])return 0;
+        const auto* target=registry.get(victim);const auto* source=registry.get(attacker);
+        if(!target||!source||!active_player_attack.current(target->serial,player_births[victim],player_lives[victim],
+            source->serial,player_births[attacker],player_lives[attacker]))return 0;
+        return active_player_attack.match(victim,attacker,native_damage_depth,registry.world(),connection_generation);
+    }
+    void SetFormGuard(FormGuard guard) override{form_guard=guard;}
+    void SetPlayerAttackListener(PlayerAttackListener listener) override{player_attack_listener=listener;}
+};
+EXPOSE_SINGLE_INTERFACE(ServerGameplay,IServerGameplay,server_gameplay_api_version);
 void SendWorld() {
     Writer w; w.u64(registry.world()); w.string(STRING(gpGlobals->mapname)); link.send(Type::world,w.data);
     if(!bsp_bytes.empty()) {
@@ -671,8 +709,20 @@ void HandleVitals(std::span<const std::uint8_t> bytes){
     }
     if(accepted)++vitals_accepted;else ++vitals_rejected;
 }
-void HandleMobDamage(std::span<const std::uint8_t> bytes){
+void HandlePlayerGameplay(std::span<const std::uint8_t> bytes){
+    if(!link.player_gameplay())throw ProtocolError("Unnegotiated player gameplay");
+    const auto state=read_player_gameplay(bytes);
+    const auto* pair=state.slot<=static_cast<unsigned>(max_clients)?registry.get(state.slot):nullptr;
+    if(!pair||!pair->paired||state.epoch!=registry.world()||state.serial!=pair->serial||state.uuid!=pair->uuid
+        ||state.spawn!=player_births[state.slot]||state.life!=player_lives[state.slot]||edicts[state.slot].free)return;
+    player_gameplay[state.slot].update(state,gpGlobals->time);
+}
+void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
+    if(active&&!link.player_gameplay())throw ProtocolError("Unnegotiated player attack");
     const auto damage=read_mob_damage(bytes);
+    if(active&&(!damage.attacker||damage.source_key||
+        (damage.kind!=MobDamageKind::melee&&damage.kind!=MobDamageKind::projectile&&damage.kind!=MobDamageKind::skill)))
+        throw ProtocolError("Invalid active player attack");
     if(damage.kind==MobDamageKind::status){HandleStatusDamage(damage);return;}
     if(damage.kind==MobDamageKind::tnt){HandleTntDamage(damage);return;}
     if(damage.epoch!=registry.world()||damage.event<=mob_damage_event){++mob_damage_rejected;return;}
@@ -704,14 +754,28 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes){
                     // Health is never assigned by this bridge; no invented headshot.
                     const auto previous_hitgroup=player->m_LastHitGroup;player->m_LastHitGroup=HITGROUP_GENERIC;
                     const float before_health=victim->v.health,before_armor=victim->v.armorvalue;
+                    const auto target_slot=CaptureNativeSlot(damage.slot);
+                    const auto target_identity=CaptureNativePlayer(damage.slot),source_identity=CaptureNativePlayer(damage.attacker);
+                    active=active&&minecraft_forms[damage.attacker];
+                    const auto previous_attack=active_player_attack;
+                    auto* previous_minecraft_attack=minecraft_attack;
                     minecraft_attack=victim;
+                    active_player_attack=active?ActivePlayerAttack{static_cast<int>(damage.slot),static_cast<int>(damage.attacker),static_cast<int>(damage.kind),native_damage_depth+1,registry.world(),connection_generation,
+                        damage.serial,player_births[damage.slot],player_lives[damage.slot],damage.attacker_serial,player_births[damage.attacker],player_lives[damage.attacker]}:ActivePlayerAttack{};
                     const bool accepted=player->TakeDamage(&source->v,&source->v,damage.amount,bits)!=FALSE;
-                    minecraft_attack=nullptr;
+                    active_player_attack=previous_attack;minecraft_attack=previous_minecraft_attack;
+                    // Callbacks can retire a map, player life or connection. Never
+                    // apply a follow-up impulse to a replacement occupant.
+                    if(!CurrentNativeSlot(target_slot)||victim->free||victim->serialnumber!=target_identity.entity_serial||GET_PRIVATE(victim)!=player)return;
                     // CBaseMonster::TakeDamage returns FALSE after KilledInflicted.
                     // Confirm the actual native outcome, including lethal hits and
                     // armor consumed by an integer-rounded zero-health-damage hit.
                     status=accepted||victim->v.health<before_health||victim->v.armorvalue<before_armor?0u:5u;
                     player->m_LastHitGroup=previous_hitgroup;
+                    if(active&&player_attack_listener&&CurrentNativePlayer(target_identity)&&CurrentNativePlayer(source_identity)&&status==0&&(victim->v.health<before_health||victim->v.armorvalue<before_armor))
+                        player_attack_listener(damage.slot,damage.attacker,static_cast<int>(damage.kind),
+                            std::max(0.0f,before_health-victim->v.health),std::max(0.0f,before_armor-victim->v.armorvalue));
+                    if(!CurrentNativeSlot(target_slot)||victim->free||victim->serialnumber!=target_identity.entity_serial||GET_PRIVATE(victim)!=player)return;
                 }else status=4;
             }else status=skill&&!near_target?6:3;
         }else status=2;
@@ -821,6 +885,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         effect_publisher.Reset();
         edicts=entities; max_clients=std::clamp(client_max,0,64); registry.new_world(random_epoch());
         ClearNativeArmor();
+        player_gameplay={};player_gameplay_supported=false;active_player_attack={};form_guard_busy={};
         gameplay_rules.reset(registry.world());gameplay_rules_sent=0;
         tick=connection_generation=0; next_snapshot=next_binding=0; previous_error.clear();
         skill_damage_snapshots.clear();
@@ -873,6 +938,7 @@ void GoldCraft_ServerDeactivate() {
     edit_deliveries={};edit_revision_sent=0;
     controlled={};client_ready={};avatar_payloads={};
     ClearNativeArmor();
+    player_gameplay={};player_gameplay_supported=false;active_player_attack={};form_guard_busy={};
     link.stop(); registry.new_world(0); bsp_bytes.clear();edicts=nullptr; max_clients=0; BridgeLog("server map deactivated; all bindings invalidated");
 }
 void GoldCraft_ClientConnect(edict_t* player) {GoldCraft_ClientDisconnect(player);}
@@ -885,6 +951,7 @@ void GoldCraft_ClientPutInServer(edict_t* player) {
         // The copied GoldSrc engine keeps player edict serialnumber == 0 across reconnects.
         // Use a server-owned connection generation so old poses cannot target a reused slot.
         registry.connect(slot,++client_incarnations[slot],GETPLAYERUSERID(player));
+        player_gameplay[slot]={};
         client_ready[slot]=false;player_lives[slot]=player_births[slot]=0;vitals_ack[slot]=0;
         host_effects.Connected(slot);
     }
@@ -901,6 +968,7 @@ void GoldCraft_ClientDisconnect(edict_t* player) {
     if(!CurrentNativeSlot(disconnecting))return;
     ReleaseControl(slot,ControlCause::disconnect);
     if(!CurrentNativeSlot(disconnecting))return;
+    player_gameplay[slot]={};
     controlled[slot]={};minecraft_forms[slot]=false;next_form_change[slot]=0;mining_events[slot]=0;next_mining[slot]=0;next_mining_sample[slot]=0;client_ready[slot]=false;client_colliders[slot].clear();colliders_initialized[slot]=false;fluid_deliveries[slot]={};registry.disconnect(slot);SendAvatar(slot);
 }
 GoldCraft_PlayerEffectTransition::GoldCraft_PlayerEffectTransition(edict_t* player, bool terminal) noexcept
@@ -991,9 +1059,11 @@ bool GoldCraft_QueueNativeArmor(edict_t* player,float damage,edict_t* inflictor,
 const char* GoldCraft_EquipmentWeapon(edict_t* player){return player==settling_native_armor?settling_native_weapon:nullptr;}
 GoldCraft_EquipmentDamageScope::GoldCraft_EquipmentDamageScope() noexcept
     :player_(settling_native_armor),factor_(settling_native_enchantment),weapon_(settling_native_weapon){
+    ++native_damage_depth;
     settling_native_armor=nullptr;settling_native_enchantment=1;settling_native_weapon=nullptr;
 }
 GoldCraft_EquipmentDamageScope::~GoldCraft_EquipmentDamageScope() noexcept{
+    --native_damage_depth;
     settling_native_armor=player_;settling_native_enchantment=factor_;settling_native_weapon=weapon_;
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
@@ -1095,7 +1165,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1126,6 +1196,8 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::status_hud)HandleStatusHud(message.payload);
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
+            else if(message.type==Type::player_attack)HandleMobDamage(message.payload,true);
+            else if(message.type==Type::player_gameplay)HandlePlayerGameplay(message.payload);
             else if(message.type==Type::vitals_delta)HandleVitals(message.payload);
             else if(message.type==Type::map_mining_request)HandleMining(message.payload);
             else if(message.type==Type::map_mining_sample)HandleMining(message.payload,true);

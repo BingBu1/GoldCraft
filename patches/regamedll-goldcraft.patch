@@ -810,7 +810,7 @@ index b524513..2ce3f44 100644
 @@ -1,4 +1,7 @@
  #include "precompiled.h"
 +#ifndef CLIENT_DLL
-+#include "bridge.h"
++#include "../../../../native/server/bridge.h"
 +#endif
  
  BOOL pm_shared_initialized = FALSE;
