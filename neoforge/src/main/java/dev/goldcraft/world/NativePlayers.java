@@ -101,7 +101,10 @@ public final class NativePlayers {
         if(world!=targetWorld||epoch!=host.epoch()){clear();world=targetWorld;epoch=host.epoch();}
         Set<Integer> retained=new HashSet<>();
         for(var actor:host.actors()){
-            if(!alive(actor))continue;
+            if(!alive(actor)){
+                NativeStatusDeath.retire(hitboxes.get(actor.slot()),host,actor);
+                continue;
+            }
             PlayerEntity body=attacker(server,host,actor);
             if(!(body instanceof NativePlayerEntity)){
                 var oldBox=hitboxes.remove(actor.slot());

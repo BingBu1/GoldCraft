@@ -99,6 +99,7 @@ public final class SharedVitals {
             if(!state.deathConfirmed){
                 state.confirming=true;
                 try{
+                    NativeStatusDeath.prepare(player,host,actor);
                     player.setHealth(0);
                     HostSession.confirmedDeath(player,state.deathSource!=null?state.deathSource:player.getDamageSources().genericKill());
                     state.deathConfirmed=true;

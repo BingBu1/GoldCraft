@@ -366,7 +366,9 @@
     "tools/update-package/test_update.py",
     "tools/update-package/README.md",
     "tools/Exercise-SkillGuard.py",
-    "amxx/zombie_plague/tests/goldcraft_skill_guard_test.sma"
+    "amxx/zombie_plague/tests/goldcraft_skill_guard_test.sma",
+    "docs/NATIVE_STATUS_DEATH.md",
+    "tools/Test-NativeStatusDeath.py"
   ],
   "trees": {
     "native": [

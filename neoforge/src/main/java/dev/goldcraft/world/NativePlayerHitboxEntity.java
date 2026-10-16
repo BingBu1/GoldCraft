@@ -38,6 +38,11 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     private DamageSource activeDamage;
     private boolean damageRequested;
     private boolean following;
+    private boolean nativeDeathClaimed;
+    boolean claimNativeDeath(){
+        if(nativeDeathClaimed)return false;
+        nativeDeathClaimed=true;return true;
+    }
     public NativePlayerEntity body(){return body;}
     @Override public float getHealth(){return body!=null&&!following?body.predictedHealth():super.getHealth();}
     @Override public boolean isAlive(){return body==null?super.isAlive():!isRemoved()&&body.isAlive();}

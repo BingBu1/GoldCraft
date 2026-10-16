@@ -55,6 +55,11 @@ public class HostSession {public static void hold(ServerPlayerEntity p){p.specta
 public static void confirmedDeath(ServerPlayerEntity p,net.minecraft.entity.damage.DamageSource source){p.deaths++;p.drops+=p.inventory;p.inventory=0;p.health=0;}}''',
  'dev/goldcraft/world/MinecraftObjects.java': '''public class MinecraftObjects {public static final float CS_HEALTH_PER_MC=5;public static long key(Object o){return 0;}}''',
  'dev/goldcraft/world/NativePlayerEntity.java': '''public class NativePlayerEntity {public dev.goldcraft.bridge.HostWorldState.Actor actor(){return null;}}''',
+ # Removal effects have separate real-FML coverage in Test-NativeStatusDeath.py.
+ # This observer keeps the death-view fixture focused on its lifecycle contract.
+ 'dev/goldcraft/world/NativeStatusDeath.java': '''public class NativeStatusDeath {
+public static void prepare(net.minecraft.server.network.ServerPlayerEntity p,dev.goldcraft.bridge.HostWorldState h,dev.goldcraft.bridge.HostWorldState.Actor a){}
+}''',
  'dev/goldcraft/GoldCraft.java': '''public class GoldCraft {public static dev.goldcraft.bridge.HostWorldState HOST_WORLD;
 public static boolean hostConnected(){return true;}public static int messages;public static boolean sendToHost(int type,byte[] data){messages++;return true;}}''',
 }
@@ -83,6 +88,6 @@ for name, command in [('compile',[str(java/'javac.exe'),'@'+str(argfile)]),
     if result.returncode:break
 report=dict(passed=len(runs)==2 and all(r['exitCode']==0 for r in runs),runs=runs,
             sourceHashes={f.relative_to(ROOT).as_posix():hashlib.sha256(f.read_bytes()).hexdigest() for f in production},
-            boundary='Production death viewer and health reconciliation; respawn, chunk tracking, death callbacks and network APIs are observers. No live gameplay acceptance.')
+            boundary='Production death viewer and health reconciliation; respawn, chunk tracking, death callbacks, removal effects and network APIs are observers. Real removal effects are covered separately by Test-NativeStatusDeath.py. No live gameplay acceptance.')
 (out/'result.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
 raise SystemExit(0 if report['passed'] else 1)
