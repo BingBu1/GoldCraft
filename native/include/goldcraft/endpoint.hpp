@@ -43,6 +43,7 @@ public:
     // Connection latch; never downgraded to legacy poses if the clock fails.
     bool status_effects() const;
     bool status_attributes() const;
+    bool status_environment() const;
     bool player_gameplay() const;
     bool fluid_volumes() const;
     bool native_armor() const;

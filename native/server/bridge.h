@@ -36,6 +36,9 @@ bool GoldCraft_ClientCommand(edict_s* player, const char* command);
 void GoldCraft_StartFrame();
 // Read-only speed transform: never overwrites weapon/ZP base speed.
 float GoldCraft_StatusMaxSpeed(edict_s* player,float native_speed);
+// Native environment consumes server status, never HUD/client claims.
+bool GoldCraft_StatusImmunity(edict_s* player,int bits);
+bool GoldCraft_StatusBreathing(edict_s* player);
 // Shield guard runs before ReAPI pre hooks, including contact infection.
 bool GoldCraft_StatusShield(edict_s* player,edict_s* inflictor,float damage,int bits);
 // Native armor has already run. MC-originated final damage is not reduced again.

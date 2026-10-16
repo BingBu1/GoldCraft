@@ -23,6 +23,7 @@ endif()
 
 include(CTest)
 include(cmake/goldcraft-fluid-tests.cmake)
+include(cmake/goldcraft-environment-tests.cmake)
 if(BUILD_TESTING)
     foreach(test player_gameplay tnt_damage gameplay_rules fluid_volumes effect_grant local_qpc_proof shared_bulk control_diagnostics skill_damage render_bounds scene_lights atlas_footprint)
         add_executable(goldcraft_${test}_tests tests/native/${test}_tests.cpp)

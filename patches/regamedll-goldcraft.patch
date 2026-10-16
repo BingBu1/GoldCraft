@@ -271,7 +271,7 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..2589bba 100644
+index 8a219ea..c43a349 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -312,7 +312,7 @@ index 8a219ea..2589bba 100644
  
  // Take some damage.
  // RETURN: TRUE took damage, FALSE otherwise
-@@ -908,7 +923,16 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+@@ -908,7 +923,18 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
@@ -322,6 +322,8 @@ index 8a219ea..2589bba 100644
 +    if (GoldCraft_StatusShield(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, flDamage, bitsDamageType))
 +        return FALSE;
 +#endif
++	if (GoldCraft_StatusImmunity(edict(), bitsDamageType))
++		return FALSE;
 +	// The paired Minecraft server owns falling in MC form. Vanilla creative
 +	// ignores it; survival commits its one authoritative result through vitals.
 +	if ((bitsDamageType & DMG_FALL) && GoldCraft_MinecraftFallAuthority(edict()))
@@ -330,7 +332,7 @@ index 8a219ea..2589bba 100644
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
  	int iGunType = 0;
-@@ -987,7 +1011,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -987,7 +1013,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -339,7 +341,7 @@ index 8a219ea..2589bba 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1022,85 +1046,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1022,85 +1048,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  			Pain(m_LastHitGroup, false);
  		}
  
@@ -430,7 +432,7 @@ index 8a219ea..2589bba 100644
  	}
  
  	CBaseEntity *pAttacker = CBaseEntity::Instance(pevAttacker);
-@@ -1182,7 +1132,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1182,7 +1134,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -439,7 +441,7 @@ index 8a219ea..2589bba 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1203,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1205,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -448,7 +450,7 @@ index 8a219ea..2589bba 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1291,86 +1241,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1291,86 +1243,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	}
  
  	// keep track of amount of damage last sustained
@@ -540,7 +542,7 @@ index 8a219ea..2589bba 100644
  }
  
  LINK_HOOK_CHAIN(CWeaponBox *, CreateWeaponBox, (CBasePlayerItem *pItem, CBasePlayer *pPlayerOwner, const char *modelName, Vector &origin, Vector &angles, Vector &velocity, float lifeTime, bool packAmmo), pItem, pPlayerOwner, modelName, origin, angles, velocity, lifeTime, packAmmo)
-@@ -2230,6 +2105,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2107,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -549,7 +551,7 @@ index 8a219ea..2589bba 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2428,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+@@ -2551,7 +2430,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -558,7 +560,22 @@ index 8a219ea..2589bba 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3897,6 +3774,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
+@@ -3185,6 +3064,14 @@ void CBasePlayer::WaterMove()
+ 		return;
+ #endif
+ 
++	// Keep the real water level. Breathing refills air without inventing a
++	// surface event or crediting drowning damage that never happened.
++	if (GoldCraft_StatusBreathing(edict()))
++	{
++		pev->air_finished = gpGlobals->time + AIRTIME;
++		pev->dmg = 2;
++	}
++
+ 	// waterlevel 0 - not in water
+ 	// waterlevel 1 - feet in water
+ 	// waterlevel 2 - waist in water
+@@ -3897,6 +3784,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -566,7 +583,7 @@ index 8a219ea..2589bba 100644
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3802,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+@@ -3924,7 +3812,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -575,7 +592,7 @@ index 8a219ea..2589bba 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4151,6 +4029,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
+@@ -4151,6 +4039,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -583,18 +600,18 @@ index 8a219ea..2589bba 100644
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -5375,6 +5254,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5375,6 +5264,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
 +	// Do not accumulate a second fall from the mirrored Minecraft velocity.
-+	if (GoldCraft_MinecraftFallAuthority(edict()))
++	if (GoldCraft_MinecraftFallAuthority(edict()) || GoldCraft_StatusImmunity(edict(), DMG_FALL))
 +		m_flFallVelocity = 0;
 +
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5779,6 +5662,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5779,6 +5672,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
  
@@ -603,7 +620,7 @@ index 8a219ea..2589bba 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6017,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6027,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -612,7 +629,7 @@ index 8a219ea..2589bba 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -7746,28 +7633,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7643,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  
@@ -804,7 +821,7 @@ index 2a12a7c..8d5ca0f 100644
 -SECTIONS
 -	.data READ WRITE
 diff --git a/regamedll/pm_shared/pm_shared.cpp b/regamedll/pm_shared/pm_shared.cpp
-index b524513..2ce3f44 100644
+index b524513..a4c428c 100644
 --- a/regamedll/pm_shared/pm_shared.cpp
 +++ b/regamedll/pm_shared/pm_shared.cpp
 @@ -1,4 +1,7 @@

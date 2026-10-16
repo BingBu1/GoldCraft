@@ -331,7 +331,15 @@
     "tools/Test-SteamDelivery.py",
     "docs/STEAM_ASYNC.md",
     "docs/2026-10-16_分析-Steam主线程等待-report.md",
-    "tests/native/steam_async_lifetime_dll.def"
+    "tests/native/steam_async_lifetime_dll.def",
+    "docs/NATIVE_ENVIRONMENT.md",
+    "tools/Test-NativeEnvironment.py",
+    "tools/fastdl/common.py",
+    "tools/fastdl/fetch.py",
+    "tools/fastdl/publish.py",
+    "tools/fastdl/serve.py",
+    "tools/fastdl/test_fastdl.py",
+    "docs/FASTDL.md"
   ],
   "trees": {
     "native": [

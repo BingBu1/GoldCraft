@@ -65,7 +65,8 @@ class PlayerGameplayHandshakeTest {
     }
     @Test void legacyTntHostRetainsTntWithoutGameplay() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
-            int first;try(var socket=host.accept()){first=hello(socket,false);}
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_ENVIRONMENT_CAP);}
+            int first;try(var socket=host.accept()){first=hello(socket,false);assertEquals(0,first&Wire.STATUS_ENVIRONMENT_CAP);}
             try(var socket=host.accept()){
                 assertEquals(first&~Wire.PLAYER_GAMEPLAY_CAP,hello(socket,false));
                 welcome(socket,43,Wire.TNT_DAMAGE_CAP,false);until(link::connected);
@@ -77,6 +78,7 @@ class PlayerGameplayHandshakeTest {
     @Test void retryCannotAcceptCapabilityItDidNotOffer() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
             try(var socket=host.accept()){hello(socket,false);}
+            try(var socket=host.accept()){assertEquals(0,hello(socket,false)&Wire.STATUS_ENVIRONMENT_CAP);}
             try(var socket=host.accept()){
                 assertEquals(0,hello(socket,false)&Wire.PLAYER_GAMEPLAY_CAP);
                 welcome(socket,44,Wire.PLAYER_GAMEPLAY_CAP,false);

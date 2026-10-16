@@ -12,6 +12,7 @@
 #include "goldcraft/combat.hpp"
 #include "goldcraft/status_hud.hpp"
 #include "goldcraft/status_attributes.hpp"
+#include "goldcraft/status_environment.hpp"
 #include "goldcraft/native_armor.hpp"
 #include "goldcraft/control_diagnostics.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
@@ -671,6 +672,7 @@ void SendActors() {
 
 namespace {
 #include "status_attributes.inc"
+#include "status_environment.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
 #include "tnt_damage.inc"
@@ -1019,6 +1021,16 @@ void GoldCraft_PlayerKilled(edict_t* player) {
     ReleaseControl(slot,ControlCause::death);
     if(CurrentNativePlayer(killed))next_snapshot=0;
 }
+bool GoldCraft_StatusBreathing(edict_t* player){
+    const auto* state=CurrentEnvironment(player);
+    return state&&(state->flags&status_environment::water_breathing)!=0;
+}
+bool GoldCraft_StatusImmunity(edict_t* player,int bits){
+    // The MC hurt pipeline has already applied its own tag rules and callbacks.
+    if(player==final_minecraft_damage||player==minecraft_attack)return false;
+    const auto* state=CurrentEnvironment(player);
+    return state&&status_environment::immune(state->flags,bits,DMG_BURN|DMG_SLOWBURN,DMG_DROWN,DMG_FALL,DMG_ALWAYSGIB|DMG_NEVERGIB);
+}
 float GoldCraft_StatusMaxSpeed(edict_t* player,float base){
     auto* state=CurrentAttributes(player);
     if(!state||minecraft_forms[ENTINDEX(player)]||base<=1||player->v.iuser1)return base;
@@ -1165,7 +1177,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1194,6 +1206,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::status_environment)HandleStatusEnvironment(message.payload);
             else if(message.type==Type::status_hud)HandleStatusHud(message.payload);
             else if(message.type==Type::damage_request)HandleMobDamage(message.payload);
             else if(message.type==Type::player_attack)HandleMobDamage(message.payload,true);
