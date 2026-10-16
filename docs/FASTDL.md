@@ -1,10 +1,73 @@
 # CS 入服资源 HTTP 下载
 
-`tools/fastdl` 将明确列出的 CS 资源发布成独立 HTTP 目录。普通 CS 使用引擎原生 FastDL；可选的入服前预取工具提供并发、gzip 和 SHA-256 校验。需要 Python 3.11 或更高版本，仅使用标准库。
+GoldCraft 的 ReHLDS 内置 HTTP 服务默认开启，普通 CS 客户端使用原生 FastDL 下载缺失资源。服务随专服启动和退出，直接使用引擎最终资源清单及文件系统，无需额外运行 Python、Web 服务器或新增客户端插件。源码位于 `native/engine/http_download*`。
 
-目前完成源码及匹配客户端静态核验、工具实现、22 项 Windows/Python 3.14 回归、完整命令行流程和实际沙盒资源传输。**普通 CS 实际入服、HTTP 失败后游戏通道回退、取消后重连及公网吞吐尚未验收。** 工具不启动游戏、不部署服务器配置、不修改代理设置。
+内置服务已完成 Windows x86 生产编译、生产模块真实回环传输和服务包自动检查。**普通 CS 实际入服、HTTP 失败后的游戏通道回退、取消后重连、真实 PAK 读取和公网吞吐尚未验收。** 尚未部署候选或修改现用服务器/隧道配置。
 
-## 快速验证四个实际资源
+## 启用内置下载
+
+服务包 `server-settings.json` 的默认值为：
+
+```json
+{
+  "httpDownload": true,
+  "httpPort": 27080,
+  "httpPublicUrl": ""
+}
+```
+
+保留其他现有字段；`httpPort` 是本地 TCP 端口，监听地址沿用 `bindAddress`。启动脚本检查端口占用、Minecraft/桥接 TCP 端口冲突和引擎是否含新模块。旧设置文件缺少这些字段时使用同样的默认值；使用旧版引擎应先更新引擎，或显式关闭 `httpDownload`。
+
+内网穿透需将玩家可访问的 TCP 入口转发到本机 `httpPort`，并把 `httpPublicUrl` 设为 `http://公网主机:公网TCP端口/goldcraft/`。HTTP 隧道也必须保留 `/goldcraft/` 路径。公网端口可以与本地端口不同，不能根据 CS 的 UDP 映射推定 HTTP 地址。当前未提供公网 HTTP 映射，默认 URL 留空；模块不会向远程玩家广播环回或内网猜测地址。
+
+不使用服务包时，可在专服配置中设置：
+
+```text
+mc_http_download 1
+mc_http_bind "0.0.0.0"
+mc_http_port 27080
+mc_http_public_url "http://downloads.example.invalid:28080/goldcraft/"
+```
+
+示例域名不可用，须替换成真实映射。URL 仅接受 `http://`、ASCII 主机名/IPv4、可选有效端口及固定 `/goldcraft/` 后缀，总长度不超过 127 字节。原生服务不提供 TLS。
+
+| 配置/命令 | 行为 |
+| --- | --- |
+| `mc_http_download` | 默认 1；0 停止服务、撤下模块自己设置的 URL 并释放缓存 |
+| `mc_http_bind` / `mc_http_port` | 默认 `0.0.0.0:27080`，数值 IPv4、本地 TCP 端口 1–65535 |
+| `mc_http_public_url` | 默认空；有效且监听成功时设置原生 `sv_downloadurl` |
+| `mc_http_stats` | 显示资源数、缓存/请求统计及主线程读取单帧最大耗时 |
+| `mc_http_refresh` | 从当前完整资源清单重新发布并失效缓存，修改资源后可手动执行 |
+
+配置一般在下一秒检查，原生下载权限变化在下一帧处理。服务包通过子进程环境 `GOLDCRAFT_HTTP_ENABLED/BIND/PORT/PUBLIC_URL` 传递上述配置。`sv_allowdownload 0` 或 `sv_send_resources 0` 同时关闭内置 HTTP，不绕过管理员的禁止下载设置。
+
+URL 留空或监听失败时，模块不启用新的 FastDL 地址；保留管理员另设的 `sv_downloadurl`。撤销配置时只清除仍等于模块所设值的 URL。`sv_allow_dlfile` 不被强制修改；配置 FastDL 后要允许兼容资源回退，须保留原生默认值 1。回退还受客户端设置和引擎扩展名规则限制，`.sc` 事件不具备当前 UDP 路径的兼容保证。
+
+## 自动清单、缓存及边界
+
+每次引擎完成 `SV_CreateResourceList`，服务使用 GoldCraft 扩展后的完整列表，声音补 `sound/`，过滤贴花名称、内嵌模型、句子和自定义喷图。模型纹理/序列组及事件声音由已有引擎 precache 路径收集。只提供清单中且符合资源目录/扩展名白名单的文件；不导出任意目录、配置、插件或可执行文件。文件名要求 ASCII，拒绝目录穿越、编码分隔符和 Windows 设备名；允许编码空格。
+
+工作线程不调用引擎文件系统。首次请求排队，由主线程每帧合计最多读取 256 KiB，再发布不可变快照；读取遵循引擎搜索顺序及 PAK 语义，每块显式 seek 以处理 PAK 共享游标。核对清单大小、实际读数、结束大小和修改时间；这不提供密码学完整性保证，也不能识别同大小/同时间戳的替换。256 KiB 是读取量上限，文件打开或磁盘延迟仍可能影响帧时间，必须实测。
+
+最多 16384 个资源，单文件 1–16777215 字节，缓存保留量 64 MiB、最多 256 个加载项，合并同文件并发请求并按 LRU 释放未使用快照。换图、服务关闭及 refresh 失效清单/缓存并唤醒等待者；已开始发送的旧快照可完成，其内存继续计入预算直至释放。读取失败项保持失败直至 refresh 或清单重建；容量不足/等待超过 10 秒也返回 404，由原生客户端处理失败路径。
+
+固定 8 个工作线程，活动及排队连接总计最多 8，超量 503。支持 HTTP/1.0、GET/HEAD、单段/后缀 Range；无实体校验器，携带 If-Range 时返回完整当前文件。每请求关闭连接，头部最多 8 KiB/5 秒，发送连续无进展最多 5 秒、响应体总时限 120 秒。普通 CS 收到原始字节，即使请求 `Accept-Encoding: gzip` 也不透明压缩。Windows 已编译/测试，其他平台尚未验证。
+
+## 验证内置服务
+
+```powershell
+pwsh -NoProfile -File native/engine/tests/Build-Tests.ps1 -OutputDirectory build/fastdl-work/tests-new
+```
+
+独立 CMake/CTest 编译实际生产 server/store/adapter 模块，使用真实 Winsock 回环和窄引擎 API 夹具；服务包测试使用 Windows PowerShell 5.1 的真实 `Common.ps1` 与 `Start-Servers.ps1 -CheckOnly`，只创建微型测试载荷。覆盖 GET/HEAD/Range、原始字节、非法路径/头、5 并发/8 槽过载、慢头/断开/重启、缓存预算/代际、主线程文件系统约束、共享游标、每帧读取预算、变更/失败读取、权限开关释放端口、地图重置及关闭取消。夹具不等于真实游戏或真实 PAK 验收。
+
+本地证据在 `build/fastdl-work`，包括生产 `engine01/build.log`、原生/服务包 CTest 日志和领域 `HANDOFF.md`。仍需协调真实普通客户端缺资源入服、HTTP 404/不可达后的兼容 UDP 回退、取消/重连、地图/模型/声音/PAK 加载，以及同资源集公网吞吐和服务器帧时间。
+
+## 可选独立发布与预取工具
+
+`tools/fastdl` 保留为手动发布和入服前预取工具，需要 Python 3.11+，仅用标准库。它提供明确资源清单、独立发布目录、显式 gzip 和 SHA-256 校验；内置服务不暴露它的清单或压缩 URL，不能将预取器直接指向内置服务。以下步骤只适用于该独立工具。
+
+### 快速验证四个实际资源
 
 在仓库根目录运行以下 PowerShell 命令。示例读取现有沙盒专服的 `cs_assault`、ZP 模型和声音；输出目录必须是新的。四文件清单仅验证工具，不能当作完整服务器资源清单。
 
@@ -33,7 +96,7 @@ python -B tools/fastdl/fetch.py --url http://127.0.0.1:8080/cstrike/r1/ --manife
 
 远程预取的 `manifestSha256` 必须来自可信发布回执，不能从同一未验证的下载地址现取现信。此哈希不是游戏协议自动提供的字段。
 
-## 为真实服务器生成完整清单
+### 为独立发布生成完整清单
 
 在目标地图和 AMXX 插件加载完成后，分别捕获 ReHLDS 控制台以下四条命令的完整输出：
 
@@ -56,7 +119,7 @@ python -B tools/fastdl/publish.py plan --root sandbox/cs-server/Half-Life/cstrik
 
 当前 `reslist` 临时数组容量是 4096。任何一类捕获达到这个数量都拒绝，须提供完整显式清单 `--list`，不能把可能截断的结果发布出去。显式清单支持 `.res` 风格注释和包裹路径的双引号；必须包括实际 precache、模型附属文件和地图 `.res` 依赖。工具不会仅凭一个地图 `.res` 就宣称收齐所有插件资源。多地图可重复传入对应清单/分批审核后合并显式清单，并在源文件变化时重新规划。
 
-## 发布并启用 FastDL
+### 发布并启用独立 FastDL
 
 `publish` 先核对计划内全部源文件，再复制和压缩到独立临时目录，校验后原子改名。禁止覆盖已有版本或输出到输入根目录内。Windows 短暂文件锁最多等待 1.55 秒重试，失败仍不发布半成品。发布结果包含清单哈希、原始/压缩字节数和待审核的配置文件。
 
@@ -79,7 +142,7 @@ URL 必须以 `/` 结尾，无认证信息、查询串或控制台分隔符，�
 
 保持 `sv_allow_dlfile 1`，否则配置 FastDL 后 ReHLDS 会主动拒绝普通文件的游戏通道下载。回退仍受客户端下载设置和服务端安全规则限制；特别是 `.sc` 事件扩展名只有两字符，当前 ReHLDS 的游戏通道拒绝它。清单逐文件用 `udpFallback` 标明该静态路径兼容性，不代表已通过实际入服。原生 HTTP 路径继续使用原有引擎一致性规则，不具备本工具可信清单的 SHA-256 保证。
 
-## 并发、取消和文件边界
+### 独立工具的并发、取消和文件边界
 
 HTTP 服务默认 8 个工作线程，可配置 1–32，超过容量返回 503。支持 HTTP/1.0、GET、HEAD、单段 Range、ETag 和 If-Range。每个请求关闭连接，套接字默认超时 5 秒；关闭服务会终止活动连接并等待线程收尾。它是有界发布工具，不承担公网 CDN 的 TLS、限流和运维功能。
 
@@ -97,7 +160,8 @@ HTTP 服务默认 8 个工作线程，可配置 1–32，超过容量返回 503�
 | ReHLDS | 生成资源列表，发送 `svc_resourcelocation`，处理 `dlfile` 游戏通道回退 | `SV_SendResources_internal`、`SV_CreateResourceList`、`SV_BeginFileDownload_f` |
 | GoldSrc 客户端 | 判断缺文件，排队 HTTP 请求、保存到 GAMEDOWNLOAD，完成后重连，必要时转游戏通道 | 匹配 10210 `hw.dll` 静态检查 |
 | GoldCraft 扩展列表 | 保留原生 HTTP 地址与最终下载入口 | `native/engine/precache.cpp`、`native/client/precache_client.cpp` |
-| 本工具 | 完整清单校验、独立发布、受限 HTTP 服务、可选校验预取 | `tools/fastdl` |
+| 内置 HTTP | 自动最终资源清单、主线程文件系统读取、有界快照/并发 HTTP | `native/engine/http_download*` |
+| 可选工具 | 完整清单校验、独立发布、受限 HTTP 服务、可选校验预取 | `tools/fastdl` |
 
 固定源版本见 `sources.lock.json`：ReHLDS `550f2d62f13f4ebeb029c1d9d1c212133202611d`、ReGameDLL `4a50c42e85fd3778c2b7d24731c7d30c83bbab01`。工作树含 GoldCraft 修改，不能将本地行号等同于未打补丁的上游版本。
 
@@ -106,11 +170,11 @@ HTTP 服务默认 8 个工作线程，可配置 1–32，超过容量返回 503�
 ## 复现与验收状态
 
 ```powershell
-python -B tools/fastdl/test_fastdl.py --work analysis/fastdl-regression-new
+python -B tools/fastdl/test_fastdl.py --work build/fastdl-regression-new
 ```
 
 测试仅使用新建夹具和环回临时端口，低优先级运行；报告及失败证据留在指定目录。Windows 下包含真实 junction 拒绝、真实删除共享锁、中文安装根目录和扩展路径检查，另有 HTTP 并发/过载、Range、取消、gzip 回退、损坏/截断/压缩炸弹、冲突文件保留、锁及源文件变更拒绝。
 
 2026-10-16 实际沙盒四资源合计 1586264 字节，压缩传输 704900 字节，减少 55.6%；校验与源文件不变通过。回环原始顺序读取约 37.97 MiB/s；包含落盘/fsync 的预取单线程约 0.432 秒、四线程约 0.406/0.403 秒。这些不同路径的测量不能作为公网加速倍数，也没有 UDP 基线。
 
-本地证据在 `analysis/fastdl-20261016`：`tests*/result.json` 与日志保留每轮结果；`real-assets01/fixed-result.json` 为修复后的实际传输；`client-engine/*.json` 为匹配二进制静态证据，不进入源码发布。尚需在主调度安排的隔离窗口验证：普通 CS 缺文件 HTTP 成功、HTTP 404/不可达后可回退资源的 UDP 成功、取消/重连、实际地图/模型/声音加载，以及同一资源集的网络吞吐。当前运行服和正式 CS 安装未因这项工作修改。
+旧 Python 工具的六份小型交接/结果已保留为 `build/fastdl-work/previous-*`；原 `analysis` 细节按用户要求清空，不能依赖已删除的静态数据库或原始日志重新取证。上述 22 项工具回归、四实际资源和压缩数字属于旧独立工具证据，不验证新的内置 HTTP 服务。当前运行服和正式 CS 安装未因这项工作修改。

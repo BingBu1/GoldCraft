@@ -11,6 +11,8 @@
 #include "packet_entities.hpp"
 #include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
+#include "status_motion.hpp"
+#include "goldcraft/status_motion.hpp"
 #include "input_audit.hpp"
 #include "goldcraft/host_key_events.hpp"
 #include "map_collision.hpp"
@@ -27,6 +29,7 @@
 #include <keydefs.h>
 #include <in_buttons.h>
 #include <pm_defs.h>
+#include <pm_movevars.h>
 #include <gl/GL.h>
 #include "goldcraft/endpoint.hpp"
 #include "local_discovery.hpp"
@@ -66,6 +69,7 @@ Endpoint link;
 local_discovery::Publisher discovery;
 metahook_api_t* api = nullptr;
 Bytes binding;
+status_motion::Receiver native_motion;
 client_map::EditTransaction map_edits;
 edits::Assembler edit_assembler;
 double next_edit_query=0;
@@ -495,7 +499,7 @@ void ResetWorld() {
     ReleaseHostUse();
     RestoreViewModel();
     ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
-    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();
+    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();native_motion.clear();
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;minecraft_transition_until=0;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -795,6 +799,15 @@ void WriteDiagnostics() {
         frame_work_max_ms=view_frame_max_ms=0;
     }
 }
+int MotionMessage(const char*,int size,void* data){
+    try{
+        if(!data||size!=44)throw ProtocolError("Invalid GCMotion length");
+        const auto s=status_motion::decode(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        if(s.epoch==world&&s.slot==player_slot&&s.serial==player_serial&&s.life==server_player_life)
+            native_motion.accept(s,Seconds());
+    }catch(const std::exception& e){Log(e.what());}
+    return 1;
+}
 int BindingMessage(const char*,int size,void* data) {
     try {
         if(size!=32) throw ProtocolError("invalid GCBind length");
@@ -802,7 +815,7 @@ int BindingMessage(const char*,int size,void* data) {
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
         if(new_world!=world){ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
-        if(new_world!=world||slot!=player_slot||serial!=player_serial){ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
+        if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
         if(!section_logged) Log("received server pairing identity for current map");
@@ -907,7 +920,7 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
-            minecraft_transition_until=form?Seconds()+0.5:0;
+            native_motion.clear();minecraft_transition_until=form?Seconds()+0.5:0;
             ClearPostEffects();
             // Resource uploads keep their epoch/generation identity across a
             // form or spawn change. Presentation frames still require new life.
@@ -1022,6 +1035,9 @@ void InitHud() {
     render_post_effects=gEngfuncs.pfnRegisterVariable("mc_post_effects","1",0);
     render_scene_cull=gEngfuncs.pfnRegisterVariable("mc_scene_cull","1",0);
     render_scene_static_shadows=gEngfuncs.pfnRegisterVariable("mc_scene_static_shadows","1",0);
+    gEngfuncs.pfnRegisterVariable(status_motion::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(status_motion::client_capability,client_motion::ready()?1.f:0.f);
+    gEngfuncs.pfnHookUserMsg(status_motion::message_name,MotionMessage);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -1063,7 +1079,7 @@ int VidInit() {
     // epoch so a same-map video reset can recover through a fresh snapshot.
     map_edits.reset(world);edit_assembler.reset(world);edit_recovery=world!=0;next_edit_query=0;
     visible_entities::fixture_clear();
-    client_vitals::reset();
+    client_vitals::reset();native_motion.clear();
     packet_client::reset();
     ClearSections();ClearDynamic();ClearHud();
     next_scene_request=0;
@@ -1740,12 +1756,14 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
 }
 void PlayerMoveWithFluids(playermove_t* move,int server){
     const auto* field=!server&&!HasControl()?native_fluids.active(world,Seconds()):nullptr;
-    fluids::MovementScope scope(*move,field);gExportfuncs.HUD_PlayerMove(move,server);
+    fluids::MovementScope scope(*move,field);
+    const auto* state=!server&&!server_minecraft_form&&client_motion::ready()?native_motion.active(world,player_slot,player_serial,server_player_life,Seconds()):nullptr;
+    status_motion::MovementScope motion(*move,state);gExportfuncs.HUD_PlayerMove(move,server);
 }
 void PlayerMove(playermove_t* move,int server){
     prediction_objects=0;
     if(!server&&!MatchingHostProtocol()){
-        native_fluids.clear();
+        native_fluids.clear();native_motion.clear();
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
         gExportfuncs.HUD_PlayerMove(move,server);return;
     }
@@ -2053,6 +2071,7 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     goldcraft::steam_async::install(api);
     gExportfuncs=*functions;
+    Log(client_motion::install(api)?"native status motion prediction installed":std::string("native motion unavailable: ")+client_motion::error());
     functions->Initialize=InitializeClient;
     functions->HUD_PlayerMoveInit=PlayerMoveInit;
     Log(client_precache::install_client() ? "client media v3 installed" :
@@ -2069,7 +2088,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

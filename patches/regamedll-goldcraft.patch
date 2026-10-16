@@ -821,7 +821,7 @@ index 2a12a7c..8d5ca0f 100644
 -SECTIONS
 -	.data READ WRITE
 diff --git a/regamedll/pm_shared/pm_shared.cpp b/regamedll/pm_shared/pm_shared.cpp
-index b524513..a4c428c 100644
+index b524513..e687fe7 100644
 --- a/regamedll/pm_shared/pm_shared.cpp
 +++ b/regamedll/pm_shared/pm_shared.cpp
 @@ -1,4 +1,7 @@
@@ -832,7 +832,85 @@ index b524513..a4c428c 100644
  
  BOOL pm_shared_initialized = FALSE;
  
-@@ -3550,7 +3553,21 @@ void EXT_FUNC __API_HOOK(PM_Move)(struct playermove_s *ppmove, int server)
+@@ -1617,7 +1620,7 @@ qboolean PM_CheckWater()
+ 	return (pmove->waterlevel > 1) ? TRUE : FALSE;
+ }
+ 
+-void PM_CategorizePosition()
++void PM_CategorizePositionOriginal()
+ {
+ 	vec3_t point;
+ 	pmtrace_t tr;
+@@ -1690,6 +1693,16 @@ void PM_CategorizePosition()
+ 	}
+ }
+ 
++void PM_CategorizePosition()
++{
++#ifndef CLIENT_DLL
++    GoldCraft_StatusCategorize(PM_CategorizePositionOriginal);
++#else
++    PM_CategorizePositionOriginal();
++#endif
++}
++
++
+ // When a player is stuck, it's costly to try and unstick them
+ // Grab a test offset for the player based on a passed in index
+ int PM_GetRandomStuckOffsets(int nIndex, int server, vec_t *offset)
+@@ -3268,7 +3281,11 @@ void PM_PlayerMove(qboolean server)
+ 		{
+ 			if (!pLadder)
+ 			{
+-				PM_Jump();
++				#ifndef CLIENT_DLL
++                GoldCraft_StatusJump(PM_Jump);
++#else
++                PM_Jump();
++#endif
+ 			}
+ 		}
+ 		else
+@@ -3317,7 +3334,11 @@ void PM_PlayerMove(qboolean server)
+ 			// Was jump button pressed?
+ 			if (pmove->cmd.buttons & IN_JUMP)
+ 			{
+-				PM_Jump();
++				#ifndef CLIENT_DLL
++                GoldCraft_StatusJump(PM_Jump);
++#else
++                PM_Jump();
++#endif
+ 			}
+ 			else
+ 			{
+@@ -3325,7 +3346,11 @@ void PM_PlayerMove(qboolean server)
+ 			}
+ 
+ 			// Perform regular water movement
+-			PM_WaterMove();
++			#ifndef CLIENT_DLL
++                GoldCraft_StatusWater(PM_WaterMove);
++#else
++                PM_WaterMove();
++#endif
+ 
+ 			VectorSubtract(pmove->velocity, pmove->basevelocity, pmove->velocity);
+ 
+@@ -3340,7 +3365,11 @@ void PM_PlayerMove(qboolean server)
+ 			{
+ 				if (!pLadder)
+ 				{
+-					PM_Jump();
++					#ifndef CLIENT_DLL
++                GoldCraft_StatusJump(PM_Jump);
++#else
++                PM_Jump();
++#endif
+ 				}
+ 			}
+ 			else
+@@ -3550,7 +3579,21 @@ void EXT_FUNC __API_HOOK(PM_Move)(struct playermove_s *ppmove, int server)
  	pmoveplayer = UTIL_PlayerByIndex(pmove->player_index + 1)->CSPlayer();
  #endif
  

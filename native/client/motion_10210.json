@@ -1,0 +1,34 @@
+{
+  "clientSha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "functions": [
+    [
+      "CategorizePosition",
+      "0x5d8e0",
+      "0x170"
+    ],
+    [
+      "Jump",
+      "0x5fb10",
+      "0x30a"
+    ],
+    [
+      "WaterMove",
+      "0x631c0",
+      "0x3d5"
+    ]
+  ],
+  "verification": [
+    [
+      "0x5d8e0",
+      "558bec83ec54"
+    ],
+    [
+      "0x5fb10",
+      "558bec83e4f8"
+    ],
+    [
+      "0x631c0",
+      "538bdc83ec0883e4f083c404"
+    ]
+  ]
+}

@@ -44,6 +44,9 @@ bool GoldCraft_StatusShield(edict_s* player,edict_s* inflictor,float damage,int 
 // Native armor has already run. MC-originated final damage is not reduced again.
 float GoldCraft_StatusDefense(edict_s* player,float damage,edict_s* inflictor,edict_s* attacker,int bits);
 struct playermove_s;
+void GoldCraft_StatusCategorize(void (*original)());
+void GoldCraft_StatusJump(void (*original)());
+void GoldCraft_StatusWater(void (*original)());
 void GoldCraft_FluidMove(playermove_s* move,int server,void (*original)(int));
 // Queue after native armor, before the native injury/death tail.
 bool GoldCraft_QueueNativeArmor(edict_s* player,float damage,edict_s* inflictor,edict_s* attacker,int bits,edict_s* logged_attacker,bool team_attack,int armor_hit);

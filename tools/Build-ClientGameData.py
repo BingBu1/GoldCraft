@@ -29,7 +29,7 @@ FUNCTIONS = (
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--client", type=Path, default=ROOT / "analysis/engine/cs-client-10210/client.dll")
+    parser.add_argument("--client", type=Path, default=ROOT / "sandbox/cs-client-b/Half-Life/cstrike/cl_dlls/client.dll")
     parser.add_argument("--output", type=Path, default=ROOT / "dist/gamedata/goldcraft-cs")
     parser.add_argument("--existing-catalog", type=Path, help="Omit matching symbols already supplied by the pinned common plugins")
     args = parser.parse_args()
@@ -141,6 +141,17 @@ def main():
                         "kind": "global", "payload": {"gv_rva": rva, "gv_va": hex(address),
                             "gv_sig": "A3 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + int(reference, 16)),
                             "gv_inst_offset": "0x0", "gv_inst_disp": "0x1", "gv_inst_length": "0x5"}})
+    motion = json.loads((ROOT / "native/client/motion_10210.json").read_text())
+    if motion["clientSha256"] != identity["sha256"]:
+        raise ValueError("Motion catalog identity mismatch")
+    for rva, expected in motion["verification"]:
+        expected = bytes.fromhex(expected)
+        if raw(int(rva, 16), len(expected)) != expected:
+            raise ValueError(f"Motion ABI verification failed at {rva}")
+    for name, rva, size in motion["functions"]:
+        raw(int(rva, 16), int(size, 16))
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftMotion_" + name,
+                        "kind": "function", "payload": {"func_rva": rva, "func_size": size}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

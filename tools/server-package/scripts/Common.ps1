@@ -21,6 +21,23 @@ function Write-Json([string]$Path, $Value) {
     Write-Text "$Path.tmp" ($Value | ConvertTo-Json -Depth 12)
     Move-Item -LiteralPath "$Path.tmp" -Destination $Path -Force
 }
+function Get-HttpDownloadSettings($Settings) {
+    # Existing packages inherit the new engine's enabled default.
+    $enabled = if ($Settings.PSObject.Properties['httpDownload']) { $Settings.httpDownload } else { $true }
+    $port = if ($Settings.PSObject.Properties['httpPort']) { $Settings.httpPort } else { 27080 }
+    $url = if ($Settings.PSObject.Properties['httpPublicUrl']) { $Settings.httpPublicUrl } else { '' }
+    if ($enabled -isnot [bool]) { throw 'httpDownload must be true or false.' }
+    if (($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1 -or $port -gt 65535) { throw 'httpPort must be an integer in 1-65535.' }
+    if ($url -isnot [string]) { throw 'httpPublicUrl must be a string.' }
+    if ($url) {
+        if ($url.Length -gt 127 -or $url -cnotmatch '^http://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/goldcraft/$') {
+            throw 'httpPublicUrl must be an ASCII http://host[:port]/goldcraft/ URL of at most 127 characters.'
+        }
+        $uri = $null
+        if (-not [Uri]::TryCreate($url, [UriKind]::Absolute, [ref]$uri) -or $uri.Port -lt 1 -or $uri.Port -gt 65535) { throw 'Invalid HTTP public port.' }
+    }
+    return @{enabled=$enabled; port=[int]$port; url=$url}
+}
 function Random-Hex([int]$Count) {
     $bytes = New-Object byte[] $Count
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()

@@ -44,6 +44,7 @@ public:
     bool status_effects() const;
     bool status_attributes() const;
     bool status_environment() const;
+    bool status_motion() const;
     bool player_gameplay() const;
     bool fluid_volumes() const;
     bool native_armor() const;

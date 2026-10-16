@@ -14,6 +14,7 @@ try {
     $startupLock = [IO.File]::Open((Join-Path $State 'startup.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
     $settings = Read-Json (Join-Path $PackageRoot 'server-settings.json')
     $csPublicPort = Get-CsPublicPort $settings
+    $http = Get-HttpDownloadSettings $settings
     if ($csPublicPort) {
         $engine = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $PackageRoot 'cs/swds.dll')))
         if (-not $engine.Contains('GoldCraft -publicport requires an integer in 1..65535')) {
@@ -42,7 +43,14 @@ try {
     }
     if ($settings.map -notin @($maps | ForEach-Object { $_.map })) { throw 'Selected map is not in maps.json. Rebuild the package.' }
     foreach ($role in @('cs','minecraft')) { if (Get-RoleProcess $role) { throw "$role is already running; stop it first." } }
-    foreach ($port in @($settings.minecraftPort,$settings.bridgePort)) {
+    $tcpPorts = @($settings.minecraftPort,$settings.bridgePort)
+    if ($http.enabled) {
+        if ($http.port -in $tcpPorts) { throw 'httpPort must differ from Minecraft and bridge TCP ports.' }
+        $tcpPorts += $http.port
+        $engineHttp = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Join-Path $PackageRoot 'cs/swds.dll')))
+        if (-not $engineHttp.Contains('GoldCraft built-in HTTP listening')) { throw 'Update cs/swds.dll for the built-in HTTP downloader.' }
+    }
+    foreach ($port in $tcpPorts) {
         $listener = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, [int]$port)
         $listener.Server.ExclusiveAddressUse = $true
         try { $listener.Start() } finally { $listener.Stop() }
@@ -125,6 +133,11 @@ try {
                 if ($n.world -and $n.world -ne '0' -and $n.world -eq $j.world -and $j.map -eq $settings.map) {
                     Write-Host "Both servers ready: CS UDP $($settings.csPort); Minecraft TCP $($settings.minecraftPort); 32 slots each."
                     if ($csPublicPort) { Write-Host "CS advertises public game port $csPublicPort; forward this UDP port to local $($settings.csPort)." }
+                    if ($http.enabled) {
+                        Write-Host "Built-in HTTP download: local TCP $($http.port)."
+                        if ($http.url) { Write-Host "Players download from $($http.url); map its TCP endpoint to local $($http.port)." }
+                        else { Write-Host 'Set httpPublicUrl to a player-reachable HTTP tunnel URL ending /goldcraft/. Until then, clients use the existing download channel.' }
+                    }
                     Write-Host 'Minecraft requires a valid CS connection. Pairing is automatic; see README.md.'
                     return
                 }

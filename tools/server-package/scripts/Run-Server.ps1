@@ -2,6 +2,7 @@ param([Parameter(Mandatory)][ValidateSet('cs','minecraft')][string]$Role, [switc
 . (Join-Path $PSScriptRoot 'Common.ps1')
 $settings = Read-Json (Join-Path $PackageRoot 'server-settings.json')
 $csPublicPort = Get-CsPublicPort $settings
+$http = Get-HttpDownloadSettings $settings
 $secrets = Read-Json (Join-Path $State 'secrets.json')
 # One supervisor per role/package, independent of PID reuse or working directory.
 $lock = [IO.File]::Open((Join-Path $State "$Role.lock"), 'OpenOrCreate', 'ReadWrite', 'None')
@@ -22,6 +23,10 @@ try {
     $info.CreateNoWindow = $false
     if ($Hidden) { $info.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden }
     if ($Role -eq 'cs') {
+        $env:GOLDCRAFT_HTTP_ENABLED = if ($http.enabled) { '1' } else { '0' }
+        $env:GOLDCRAFT_HTTP_BIND = [string]$settings.bindAddress
+        $env:GOLDCRAFT_HTTP_PORT = [string]$http.port
+        $env:GOLDCRAFT_HTTP_PUBLIC_URL = $http.url
         $info.WorkingDirectory = Join-Path $PackageRoot 'cs'
         $info.FileName = Join-Path $info.WorkingDirectory 'hlds.exe'
         $info.Arguments = "-console -game cstrike -maxplayers 32 -port $($settings.csPort) -sport $($settings.steamPort) +ip $($settings.bindAddress) +sv_lan 0 +map $($settings.map) +exec goldcraft-runtime.cfg"

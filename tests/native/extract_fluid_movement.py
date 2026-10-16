@@ -15,13 +15,13 @@ markers = (
     "qboolean PM_CheckWater()",
     "void PM_WaterMove()",
     "void EXT_FUNC __API_HOOK(PM_Jump)()",
-    "void PM_CategorizePosition()",
+    "void PM_CategorizePositionOriginal()",
 )
 parts = []
 for marker in markers:
     start = text.index(marker + "\n{")
     end = text.index("\n}", start) + 2
-    parts.append(text[start:end])
+    parts.append(text[start:end].replace("PM_CategorizePositionOriginal", "PM_CategorizePosition"))
 output.write_text("\n\n".join(parts) + "\n", encoding="utf-8")
 output.with_suffix(".json").write_text(json.dumps({
     "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
