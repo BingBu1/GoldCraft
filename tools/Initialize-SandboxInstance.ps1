@@ -91,6 +91,7 @@ foreach($file in $runtime.files){
     Copy-Item -LiteralPath $source -Destination $destination -Force
 }
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/GoldCraft.dll') -Destination (Join-Path $pluginDir 'GoldCraft.dll') -Force
+Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/GoldCraftSteamWorker.exe') -Destination (Join-Path $pluginDir 'GoldCraftSteamWorker.exe') -Force
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'build/regamedll/Release/mp.dll') -Destination (Join-Path $game 'cstrike/dlls/mp.dll') -Force
 Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/metahook/MetaHook.exe') -Destination (Join-Path $game 'MetaHook.exe') -Force
 $bulletDist=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/bulletphysics/svencoop/metahook/plugins/BulletPhysics.dll')
@@ -116,6 +117,12 @@ if($LASTEXITCODE){throw 'Packet-entity engine identity verification failed'}
 $packetCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-packet')
 New-Item -ItemType Directory -Path $packetCatalog -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-packet') -Filter '*.json' | Copy-Item -Destination $packetCatalog -Force
+& python (Join-Path $PSScriptRoot 'Build-SteamAsyncGameData.py') --engine (Join-Path $game 'hw.dll') `
+    --client (Join-Path $game 'cstrike/cl_dlls/client.dll') --output (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-steam')
+if($LASTEXITCODE){throw 'Steam context catalog identity verification failed'}
+$steamCatalog=Assert-SandboxPath (Join-Path $gameDataDir 'goldcraft-steam')
+New-Item -ItemType Directory -Path $steamCatalog -Force | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot 'dist/gamedata/goldcraft-steam') -Filter '*.json' | Copy-Item -Destination $steamCatalog -Force
 $enableRenderer=$Renderer -or ((Test-Path -LiteralPath $pluginsFile) -and ((Get-Content -LiteralPath $pluginsFile) -contains 'Renderer_AVX2.dll'))
 if($enableRenderer) {
     & python (Join-Path $PSScriptRoot 'Build-ClientGameData.py') --client (Join-Path $game 'cstrike/cl_dlls/client.dll') --existing-catalog $gameDataDir

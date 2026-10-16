@@ -326,7 +326,12 @@
     "amxx/zombie_plague/integration/goldcraft_zp_combat.sma",
     "amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini",
     "docs/NATIVE_SWIMMING.md",
-    "docs/STATUS_EFFECT_COVERAGE.md"
+    "docs/STATUS_EFFECT_COVERAGE.md",
+    "tools/Build-SteamAsyncGameData.py",
+    "tools/Test-SteamDelivery.py",
+    "docs/STEAM_ASYNC.md",
+    "docs/2026-10-16_分析-Steam主线程等待-report.md",
+    "tests/native/steam_async_lifetime_dll.def"
   ],
   "trees": {
     "native": [

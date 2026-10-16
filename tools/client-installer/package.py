@@ -130,6 +130,9 @@ def make_plan(game, upstream, license_file, gui):
         add(game / name, 'install/output/' + name)
     for name in PLUGINS:
         add(game / 'cstrike/metahook/plugins' / name, 'install/output/svencoop/metahook/plugins/' + name)
+    # This is an isolated runtime helper, not a MetaHook plugin-list entry.
+    add(game / 'cstrike/metahook/plugins/GoldCraftSteamWorker.exe',
+        'install/output/svencoop/metahook/plugins/GoldCraftSteamWorker.exe')
     # MetaHook can prefer this alias. Always supply the same adapted build.
     add(game / 'cstrike/metahook/plugins/BulletPhysics.dll',
         'install/output/svencoop/metahook/plugins/BulletPhysics_AVX2.dll')
@@ -148,7 +151,8 @@ def make_plan(game, upstream, license_file, gui):
             add(source, 'install/output/svencoop/' + source.relative_to(game / 'cstrike').as_posix())
     for name in RESOURCE_FILES:
         add(game / 'cstrike' / name, 'install/output/svencoop/' + name)
-    for required in ('metahook/gamedata/index.json', 'renderer/shader/goldcraft.vert.glsl',
+    for required in ('metahook/gamedata/index.json', 'metahook/gamedata/goldcraft-steam/index.json',
+                     'metahook/gamedata/goldcraft-steam/goldcraft-steam-hl-10210.json', 'renderer/shader/goldcraft.vert.glsl',
                      'renderer/shader/goldcraft.frag.glsl', 'renderer/shader/goldcraft.geom.glsl',
                      'captionmod/gameui_english.txt', 'bulletphysics/gameui_english.txt'):
         if ('install/output/svencoop/' + required).casefold() not in files:

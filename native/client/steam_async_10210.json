@@ -1,0 +1,14 @@
+{
+  "binaries": {
+    "engine": {"sha256":"9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295","crc64":"6ef7192cd8254e2d"},
+    "client": {"sha256":"b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2","crc64":"124d6034a6b28b40"}
+  },
+  "records": [
+    {"platform":"windows","module":"engine","symbolName":"GoldCraftSteam_UserContext","kind":"global",
+     "payload":{"gv_rva":"0x31d250","gv_va":"0x1031d250","gv_sig_va":"0x10234cdf","gv_sig":"8B 35 ?? ?? ?? ?? 68 ?? ?? ?? ?? C7 85 EC BF FF FF 00 00 00 00","gv_inst_offset":"0x6","gv_inst_disp":"0x1","gv_inst_length":"0x5"}},
+    {"platform":"windows","module":"client","symbolName":"GoldCraftSteam_FriendsContext","kind":"global",
+     "payload":{"gv_rva":"0xee0b4","gv_va":"0x100ee0b4","gv_sig_va":"0x100333c3","gv_sig":"8B 3D ?? ?? ?? ?? 68 ?? ?? ?? ?? FF D7 83 C4 04 83 38 00 0F 84 ?? ?? ?? ?? 68 ?? ?? ?? ?? FF D7 83 C4 04","gv_inst_offset":"0x6","gv_inst_disp":"0x1","gv_inst_length":"0x5"}},
+    {"platform":"windows","module":"client","symbolName":"GoldCraftSteam_UtilsContext","kind":"global",
+     "payload":{"gv_rva":"0xee0c0","gv_va":"0x100ee0c0","gv_sig_va":"0x100333c3","gv_sig":"8B 3D ?? ?? ?? ?? 68 ?? ?? ?? ?? FF D7 83 C4 04 83 38 00 0F 84 ?? ?? ?? ?? 68 ?? ?? ?? ?? FF D7 83 C4 04","gv_inst_offset":"0x19","gv_inst_disp":"0x1","gv_inst_length":"0x5"}}
+  ]
+}

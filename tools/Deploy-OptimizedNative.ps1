@@ -33,6 +33,16 @@ function Queue-GoldCraftShaders([string]$Game){
         Queue-File "native/client/shaders/$($file.Name)" "$Game/cstrike/renderer/shader/$($file.Name)"
     }
 }
+function Queue-GoldCraftSteam([string]$Instance,[string]$Game){
+    $catalog="build/metahook-runtime-update/$Instance/gamedata/goldcraft-steam"
+    & python (Join-Path $PSScriptRoot 'Build-SteamAsyncGameData.py') --engine (Join-Path $script:GoldCraftRoot "$Game/hw.dll") `
+        --client (Join-Path $script:GoldCraftRoot "$Game/cstrike/cl_dlls/client.dll") --output (Join-Path $script:GoldCraftRoot $catalog)
+    if($LASTEXITCODE){throw 'Steam context catalog identity verification failed; no runtime deployed.'}
+    Queue-File 'build/native-x86/Release/GoldCraftSteamWorker.exe' "$Game/cstrike/metahook/plugins/GoldCraftSteamWorker.exe"
+    foreach($file in Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot $catalog) -File -Filter '*.json'){
+        Queue-File "$catalog/$($file.Name)" "$Game/cstrike/metahook/gamedata/goldcraft-steam/$($file.Name)"
+    }
+}
 $runtime=$null
 $preserved=[Collections.Generic.List[string]]::new()
 if($WithMetaHookRuntime){
@@ -113,6 +123,7 @@ foreach($instance in $Clients){
             }
         }
         Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
+        Queue-GoldCraftSteam $instance $game
         Queue-GoldCraftShaders $game
         continue
     }
@@ -147,6 +158,7 @@ foreach($instance in $Clients){
     if($LASTEXITCODE){throw 'CS media-reader catalog identity verification failed.'}
     Queue-File 'dist/metahook/MetaHook.exe' "$game/MetaHook.exe"
     Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
+    Queue-GoldCraftSteam $instance $game
     Queue-File 'dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll' "$game/cstrike/metahook/plugins/Renderer_AVX2.dll"
     Queue-File 'dist/vgui2extension/svencoop/metahook/plugins/VGUI2Extension.dll' "$game/cstrike/metahook/plugins/VGUI2Extension.dll"
     Queue-File 'dist/interpfix/svencoop/metahook/plugins/InterpFix.dll' "$game/cstrike/metahook/plugins/InterpFix.dll"

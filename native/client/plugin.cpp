@@ -4,6 +4,7 @@
 #include "host_text.hpp"
 #include "work_history.hpp"
 #include "async_diagnostics.hpp"
+#include "steam_async.hpp"
 #include "server_hud.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
@@ -220,6 +221,7 @@ void WriteWorkDiagnostics(std::ostream& out) {
     out<<",\"nativeWorkHistory\":";work_history.write(out,work_names);
     out<<",\"hostUiWork\":";host_ui::write_work_diagnostics(out);
     out<<",\"hostText\":";host_text::diagnostics(out);
+    out<<",\"steamAsync\":";steam_async::diagnostics(out);
     const auto& gl=render::statistics();
     out<<",\"glLoader\":{\"calls\":"<<gl.gl_loader_calls<<",\"reuses\":"<<gl.gl_loader_reuses<<'}';
 }
@@ -1577,6 +1579,7 @@ void TestCommands() {
 void Frame(double time) {
     WorkScope frame_timing(WorkStage::frame);
     const double began=Seconds();
+    steam_async::frame();
     control_trace.observe(SampleControl());
     {WorkScope timing(WorkStage::native_hud);gExportfuncs.HUD_Frame(time);}
     {WorkScope timing(WorkStage::audit_commands);input_audit::sample();TestCommands();}
@@ -2048,6 +2051,7 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     } catch(const std::exception& e) { Log(e.what()); }
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
+    goldcraft::steam_async::install(api);
     gExportfuncs=*functions;
     functions->Initialize=InitializeClient;
     functions->HUD_PlayerMoveInit=PlayerMoveInit;
@@ -2065,7 +2069,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

@@ -1,0 +1,5 @@
+LIBRARY goldcraft_steam_lifetime
+EXPORTS
+    test_start
+    test_ready
+    test_stop
