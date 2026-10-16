@@ -28,6 +28,16 @@ Windows x64 / AVX2 CPU，建议至少 16 GB 内存。CS 与 MC 必须在同一�
 
 ## 安装服务端小补丁
 
+### 2026-10-16 累计更新（TNT 第二轮与宿主支撑）
+
+配套 `GoldCraft-Server-Update-20261016-TNT2-Support.zip` 与 `GoldCraft-Players-Update-20261016-TNT2-Support.zip` 用于现有安装。包含当前本地已部署的 TNT 第二轮、沙子/铁砧/火把支撑，以及此前输入、状态效果、观战、开局清理、F6 和 ZP 配套修复。运行基线 `52677018`，消息表90/wire30；不混入尚未实现的 Epic 无敌规则，TNT Renderer 同步停顿仍待继续优化。
+
+服务器先运行原 `Stop.cmd`，将服务器 ZIP 解压到服务端之外的新目录，运行 `Update-Server.cmd`，输入原 `Start.cmd` 所在目录；成功后运行原 `Start.cmd`。无需重设公网端口。补丁保留 `server-settings.json`、管理员/RCON、桥接身份、其他 Mod 与存档，自动备份实际变更；仅合并三项玩法默认值 `mc_map_mining 2`、`mc_round_clear_blocks 1`、`mc_death_drop_items 0`。清理发生在下一回合开始。
+
+玩家退出 CS 和 MC 后，运行玩家包的 `Update-CS.cmd` 指向自己的 CS 根目录，再运行 `Update-Minecraft.cmd` 指向 XMCL 当前 1.21.1/NeoForge21.1.256 实例目录。CS 版本不匹配时停止，不能跳过校验；其他 Mod/账号/存档保留。玩家 ZIP 含完整配套 MetaHook 资源及一个 GoldCraft 核心，适用于已安装玩家，不是游戏本体或完整整合包。
+
+Windows PowerShell5.1 隔离实际安装、幂等、配置保留、文件占用中途失败回滚、损坏/多余载荷拒绝及 CMD 入口通过；ZIP 已逐成员校验。公网与其他机器实际安装/游玩仍待，不以打包验证代替。原 `package-manifest.json` 保留旧基线，本次清单在补丁 `update-manifest.json`，安装变更记录在目标 `.goldcraft-updates`。详见[累计更新工具](../tools/update-package/README.md)。
+
 ### 内网穿透的公网连接端口
 
 如果控制台 `connect 公网地址:公网端口` 正常，但收藏列表连接时改成内部 `27015`，检查服务器 A2S_INFO 中的连接端口。浏览器可以用公网端口查询，却采用回复中的游戏端口连接；两者必须与实际映射一致。
@@ -77,10 +87,10 @@ MC/CS 服务端内部桥接密钥首次启动随机生成在 `.state`，只供�
 
 ## 内容与维护
 
-- 已部署 ReHLDS、ReGameDLL、Metamod、AMXX 1.9、ReAPI、汉化 ZP、Nade Modes 和 SyPB；保留当前已验证的服务端能力；新包使用消息表83/wire30稳定核心，状态／流体／护甲联合候选尚未打入。
+- 已部署 ReHLDS、ReGameDLL、Metamod、AMXX 1.9、ReAPI、汉化 ZP、Nade Modes 和 SyPB。2026-10-14 完整包基线为消息表83/wire30；应用上述2026-10-16累计更新后为消息表90/wire30，并带入本地已部署的状态／流体／护甲配套修复。
 - MC 包含当前服务端实际安装的 Mod、配置和空白地图数据包；不带开发世界、人物数据、OP、管理员账号或旧密钥。
 - CS 主配置 `cs/cstrike/server.cfg`；AMXX 配置及汉化位于 `cs/cstrike/addons/amxmodx`。管理员在 `configs/users.ini` 添加自己的 Steam ID。Pawn 插件更新需换图重载，`sv_restart` 不会重载插件。
-- 地图切换/服务端重启会清空 MC 建筑；`mc_map_mining_persist=0` 保持回合结束还原。打包工具会为每张地图生成匹配 BSP CRC 的 MC 维度，统一地图轮换、AMXX 地图菜单，并带入现有 SyPB 路点。`maps.json` 列出地图、校验值和路点是否存在；缺路点不代表 Bot 已可正常行走。
+- 地图切换/服务端重启会清空 MC 建筑；累计更新后 `mc_map_mining_persist=0` 在下一回合开始还原，结束等待阶段保留现场。打包工具会为每张地图生成匹配 BSP CRC 的 MC 维度，统一地图轮换、AMXX 地图菜单，并带入现有 SyPB 路点。`maps.json` 列出地图、校验值和路点是否存在；缺路点不代表 Bot 已可正常行走。
 - Java 日志位于 `minecraft/logs`；AMXX 日志位于其 `logs`。长期运营应按保留周期归档，备份自己新增的配置和管理账号。不要把运行后的 `.state` 或存档再次分发。
 - `package-manifest.json` 记录 ZIP 文件的 SHA-256 和基线，压缩包外 `SHA256SUMS.txt` 校验 ZIP。包内游戏、Mod、Java 各自许可继续适用；此私人部署包没有上传公共源码仓库。
 

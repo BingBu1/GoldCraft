@@ -358,7 +358,11 @@
     "tools/Test-DeathView.py",
     "tests/native/steam_worker_fake_api.def",
     "docs/TNT_PERFORMANCE.md",
-    "docs/HOST_BLOCK_SUPPORT.md"
+    "docs/HOST_BLOCK_SUPPORT.md",
+    "tools/update-package/package.py",
+    "tools/update-package/Update-GoldCraft.ps1",
+    "tools/update-package/test_update.py",
+    "tools/update-package/README.md"
   ],
   "trees": {
     "native": [
