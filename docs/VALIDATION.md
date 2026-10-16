@@ -1,5 +1,19 @@
 # 验证状态
 
+## 2026-10-16 — 多洞材质搜索优化候选及新默认设置
+
+真实cs_assault离线探针在旧算法48个切口时触发Cavity operation budget；放宽仅参考算法的离线预算后，256切口需433376065工作量。生产候选把洞内壁材质搜索拆到独立cavity_material.inc，按模型构建有界面AABB树，保持精确最近三角形与原面/三角形等距顺序；未提高生产预算，也未改变碰撞、协议或原子提交。39组1–256切口与旧算法的完整几何/UV/材质/绘制范围逐项完全一致；同轮256切口约266.56→50.66ms，仅CPU准备测量，不是游戏FPS结论。
+
+2178次穷举材质对照、5组CPU回归及3组真实GL回归通过，包含实际Renderer/碰撞事务的失败回滚。永久真实地图256切口回归通过：1247内壁、4947453工作量。首版压力测试的独立interior_walls对照误用262144小预算而失败；改为与生产cavity相同预算后通过，原失败日志保留，生产预算未变。Renderer候选SHA256 68f17d87b51dddbd66b40e3e7cf69b8b6ae1e0d2d03b1a5b4d636992d0c089e3，保存在analysis/live-mapedit-20261016/candidate；尚未部署到运行中的B。
+
+用户新默认已落实：mc_map_mining=2、mc_round_clear_blocks=1、mc_death_drop_items=0。更新原生注册值、服务包模板与说明；本地server.cfg已持久化，当前专服逐项RCON回读确认，未重启/换图。两处生产翻译单元Clang x86/C++20/O3/ThinLTO/AVX2/precise编译通过，既有SDK/字符串警告保留；未重链接/替换运行mp.dll。玩家死亡背包丢失规则独立于物品实体生成，生物掉落/经验/主动丢物不变；公网未修改。
+
+用户确认“MC准星已挖不到但CS图像未更新”发生在原地图墙/地面。新捕获时两端已恢复1353、切除数0，未保留失败切除集，因此不能把离线预算缺陷直接认定为当时Renderer拒绝的唯一原因，不能写成实机已修复。
+
+新反馈的低帧率掉回CS、船/末影珍珠位移已列入优先队列。现场controlTrace记录同life/连接的pose879ms、HUD848ms过期；服务端存在authority_not_ready释放/重新获取，另有form_amxx形态变更，尚不能统一归因。源码确认骑乘被当前accepted移动观察排除，外部requestTeleport会撤销效果绑定；需独立权威位移/目标碰撞验证，不能去掉校验或仅放宽超时。
+
+证据：analysis/live-mapedit-20261016/{candidate-result.json,probe-candidate.log,native-tests.log,multicut-tests02.log,renderer-tests.log,server-defaults.json,defaults-compile.log,fallback-current.json,protected-comparison.json}。原四进程25212/27484/28872/32588仍在线；原安装19575元数据/5hash一致。F6插件仍待地图重载、公网部署/实按；完整G01–G28开放。下一步优先修复卡顿控制中断及MC服务端位移适配，再在用户退出CS后的更新窗口验收Renderer候选；保留联合实机，不启动单项游戏夹具。
+
 ## 2026-10-16 — 联合实机发现地图编辑重试卡顿（未修复）
 
 实际 B 的地图编辑阶段最大耗时2539.51ms，57次超过50ms；连续失败重试约140–152ms。收到revision1352、已应用1262且pending=false；客户端日志重复记录Renderer refused world edit preparation。生产代码确认失败后使Replica失效、每秒补收快照并重新同步准备碰撞及Renderer候选。Renderer内部具体拒绝原因尚未取得，不能认定为预算、GPU或精度故障。

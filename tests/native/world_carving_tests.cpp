@@ -648,6 +648,44 @@ void actual_map(const char* path) {
     assert(cavity_draws > 100 && cavity_triangles > 100);
     std::cout << "{\"map\":\"cs_assault\",\"cavityCases\":" << cases << ",\"draws\":" << cavity_draws
               << ",\"triangles\":" << cavity_triangles << ",\"unbakedLighting\":true,\"passed\":true}\n";
+
+    // A whole-map donor scan per wall exhausted the default budget with a
+    // few dozen cuts. Keep a distributed multi-hole regression under the
+    // unchanged production budget, using real BSP faces and contents.
+    std::vector<Box> many_cuts;
+    for (std::size_t step = 0; step < count && many_cuts.size() < 256; ++step) {
+        const auto face_index = (step * 97) % count;
+        if (!map_mesh->faces[face_index].editable) continue;
+        const auto face = bsp.record(7, first + face_index, 20);
+        const auto edges = bsp.u16(face + 8);
+        const auto start = bsp.u32(face + 4);
+        if (edges < 3) continue;
+        Point center{};
+        for (unsigned edge = 0; edge < edges; ++edge) {
+            const auto p = bsp.vertex(std::bit_cast<std::int32_t>(bsp.u32(bsp.record(13, start + edge, 4))));
+            for (int axis = 0; axis < 3; ++axis) center[axis] += p[axis] / edges;
+        }
+        const auto &plane = planes[bsp.u16(face)];
+        const auto side = bsp.u16(face + 2) ? -1.0 : 1.0;
+        Box cut;
+        for (int axis = 0; axis < 3; ++axis) {
+            cut.min[axis] = std::floor((center[axis] - plane.normal[axis] * side * .125) / 32) * 32;
+            cut.max[axis] = cut.min[axis] + 32;
+        }
+        if (std::none_of(many_cuts.begin(), many_cuts.end(), [&](const auto &old) { return old.min == cut.min; }))
+            many_cuts.push_back(cut);
+    }
+    assert(many_cuts.size() == 256);
+    const goldcraft::cavity::Model pressure{0, count, hull, many_cuts};
+    const auto prepared = goldcraft::cavity::prepare(map_mesh, {&pressure, 1});
+    const auto mesh_limits = goldcraft::cavity::Limits{}.mesh;
+    const auto interior = interior_walls(hull, many_cuts, {mesh_limits.fragments, mesh_limits.operations});
+    assert(prepared.walls == interior.walls.size() && prepared.walls > 500);
+    assert(prepared.operations < goldcraft::cavity::Limits{}.mesh.operations);
+    assert(goldcraft::cavity::prepare(map_mesh, {}).mesh == map_mesh);
+    std::cout << "{\"map\":\"cs_assault\",\"multiCuts\":" << many_cuts.size()
+              << ",\"walls\":" << prepared.walls << ",\"operations\":" << prepared.operations
+              << ",\"defaultBudget\":true,\"passed\":true}\n";
 }
 } // namespace
 

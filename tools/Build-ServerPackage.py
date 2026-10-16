@@ -188,9 +188,10 @@ mp_autokick 0
 developer 0
 log off
 exec addons/sypb/sypb.cfg
+mc_map_mining 2
 mc_map_mining_persist 0
-mc_round_clear_blocks 0
-mc_death_drop_items 1
+mc_round_clear_blocks 1
+mc_death_drop_items 0
 ''')
     runtime = ROOT / '.tools/neoforge-runtime' / PIN['neoforge']
     args_path = runtime / f"libraries/net/neoforged/neoforge/{PIN['neoforge']}/win_args.txt"

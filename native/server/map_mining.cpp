@@ -16,7 +16,7 @@
 
 namespace {
 using namespace goldcraft;
-cvar_t mining_cvar = {"mc_map_mining", "1", FCVAR_SERVER, 1, nullptr};
+cvar_t mining_cvar = {"mc_map_mining", "2", FCVAR_SERVER, 2, nullptr};
 cvar_t persist_cvar = {"mc_map_mining_persist", "0", FCVAR_SERVER, 0, nullptr};
 cvar_t *registered_cvar = nullptr;
 cvar_t *registered_persist = nullptr;

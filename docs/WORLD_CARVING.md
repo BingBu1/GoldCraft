@@ -65,8 +65,8 @@ Renderer 为具体实体保留局部切割，弹痕也绑定该实体的几何�
 | 设置 | 权限 | 当前行为 |
 |---|---|---|
 | `mc_map_mining 0` | 禁止挖掘宿主地图 | 服务端拒绝地图挖掘；普通 CS 子弹与 MC 自有方块保持原规则 |
-| `mc_map_mining 1` | 仅可受伤地图实体，默认值 | 要求原生 `takedamage` 开启且 `health` 为正，执行实际实体 `TakeDamage`，保留 Ham 拦截和地图回调 |
-| `mc_map_mining 2` | 允许全部地图几何 | 当前源码支持静态世界格子和上述实体回调；动态 BSP 的几何切割仍返回 `geometry_unavailable` |
+| `mc_map_mining 1` | 仅可受伤地图实体 | 要求原生 `takedamage` 开启且 `health` 为正，执行实际实体 `TakeDamage`，保留 Ham 拦截和地图回调 |
+| `mc_map_mining 2` | 允许全部地图几何，默认值 | 当前源码支持静态世界格子和上述实体回调；动态 BSP 的几何切割仍返回 `geometry_unavailable` |
 
 设置可以在 `server.cfg` 持久配置或通过 HLDS 控制台／RCON 即时修改。首张地图加载前使用 ReGameDLL 的 `game_init.cfg`；不要依赖先于 DLL 注册执行的 `autoexec.cfg`。仅精确的 `0`、`1`、`2` 有效，其他值按禁止处理。普通门的 `healthvalue` 是回血，不是可破坏标志。
 

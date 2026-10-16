@@ -5,6 +5,7 @@
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include "cavity_material_tests.hpp"
 
 using namespace goldcraft;
 namespace {
@@ -92,6 +93,7 @@ template <class F> void rejected(F run) {
 }
 } // namespace
 int main() {
+  cavity_material_tests::run();
   for (const bool reversed : {false, true}) {
     const auto original = fixture();
     if (reversed) for (std::size_t i = 0; i < original->indices.size(); i += 3)

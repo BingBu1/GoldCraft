@@ -25,28 +25,6 @@ struct Work {
         operations += n;
     }
 };
-Point nearest(const carving::Triangle &t, const Point &p, const Point &n) {
-    const auto e1 = sub(t[1], t[0]), e2 = sub(t[2], t[0]);
-    const auto offset = sub(p, t[0]);
-    const auto b1 = dot(cross(offset, e2), n) / dot(n, n);
-    const auto b2 = dot(cross(e1, offset), n) / dot(n, n);
-    if (b1 >= 0 && b2 >= 0 && b1 + b2 <= 1)
-        return add(t[0], add(scale(e1, b1), scale(e2, b2)));
-    Point result{};
-    double distance = std::numeric_limits<double>::infinity();
-    for (int i = 0; i < 3; ++i) {
-        const auto edge = sub(t[(i + 1) % 3], t[i]);
-        const auto length = dot(edge, edge);
-        const auto along = length ? std::clamp(dot(sub(p, t[i]), edge) / length, 0.0, 1.0) : 0;
-        const auto q = add(t[i], scale(edge, along));
-        const auto delta = sub(q, p);
-        if (dot(delta, delta) < distance) {
-            distance = dot(delta, delta);
-            result = q;
-        }
-    }
-    return result;
-}
 // Shortest rigid rotation preserves both UV gradients, including their skew
 // and handedness. Antiparallel normals use a deterministic perpendicular axis.
 Point rotate(const Point &p, const Point &from, const Point &to) {
@@ -64,58 +42,8 @@ Point rotate(const Point &p, const Point &from, const Point &to) {
     }
     return add(p, add(cross(v, p), scale(cross(v, cross(v, p)), 1 / (1 + cosine))));
 }
-struct Material {
-    std::uint32_t face = 0;
-    Point closest{}, normal{}, gradient[2]{};
-    double uv[2]{};
-    bool reversed = false;
-};
-Material material(const surface::Mesh &mesh, const Model &model, const Point &center, Work &work) {
-    Material result;
-    double best = std::numeric_limits<double>::infinity();
-    for (std::size_t face = model.first_face; face < std::size_t(model.first_face) + model.face_count; ++face) {
-        work.consume(1);
-        const auto &source = mesh.faces[face];
-        if (!source.editable || !source.instances.count) continue;
-        for (std::size_t at = source.forward.first; at < std::size_t(source.forward.first) + source.forward.count; at += 3) {
-            work.consume(64);
-            const auto &a = mesh.vertices[mesh.indices[at]], &b = mesh.vertices[mesh.indices[at + 1]],
-                       &c = mesh.vertices[mesh.indices[at + 2]];
-            const carving::Triangle triangle{point(a), point(b), point(c)};
-            const auto e1 = sub(triangle[1], triangle[0]), e2 = sub(triangle[2], triangle[0]);
-            const auto n = cross(e1, e2);
-            const auto squared = dot(n, n);
-            if (squared == 0) continue;
-            const auto q = nearest(triangle, center, n), delta = sub(q, center);
-            const auto distance = dot(delta, delta);
-            if (distance >= best) continue;
-            Point gradients[2];
-            for (int i = 0; i < 2; ++i)
-                gradients[i] = scale(add(scale(cross(e2, n), double(b.texcoord[i]) - a.texcoord[i]),
-                                         scale(cross(n, e1), double(c.texcoord[i]) - a.texcoord[i])), 1 / squared);
-            const auto uv_normal = cross(gradients[0], gradients[1]);
-            if (dot(uv_normal, uv_normal) == 0) continue;
-            // BSP polygons may wind opposite to their outward surface normal.
-            // Use the surface orientation for UV transport and retain the
-            // donor's winding for the host renderer's culling convention.
-            const auto &frame = mesh.frames[mesh.indices[at]];
-            const Point outward{frame.normal[0], frame.normal[1], frame.normal[2]};
-            const auto orientation = dot(n, outward);
-            if (orientation == 0) continue;
-            result.face = static_cast<std::uint32_t>(face);
-            result.closest = q;
-            result.reversed = orientation < 0;
-            result.normal = scale(n, (result.reversed ? -1 : 1) / std::sqrt(squared));
-            for (int i = 0; i < 2; ++i) {
-                result.gradient[i] = gradients[i];
-                result.uv[i] = a.texcoord[i] + dot(gradients[i], sub(q, triangle[0]));
-            }
-            best = distance;
-        }
-    }
-    if (!std::isfinite(best)) throw std::invalid_argument("No cavity material in selected model");
-    return result;
-}
+#include "cavity_material.inc"
+
 template <std::size_t N> void store(float (&out)[N], const std::array<double, N> &values) {
     for (std::size_t i = 0; i < N; ++i) {
         out[i] = static_cast<float>(values[i]);
@@ -240,6 +168,7 @@ Prepared prepare(std::shared_ptr<const surface::Mesh> original, std::span<const 
         auto interior = carving::interior_walls(model.hull, model.boxes,
             {limits.mesh.fragments - work.fragments, limits.mesh.operations - work.operations});
         work.consume(interior.operations);
+        MaterialIndex materials(*original, model, !interior.walls.empty(), work);
         std::vector<WallMaterial> walls;
         for (auto &wall : interior.walls) {
             if (work.fragments >= limits.mesh.fragments) throw std::length_error("Cavity fragment budget");
@@ -248,7 +177,7 @@ Prepared prepare(std::shared_ptr<const surface::Mesh> original, std::span<const 
             Point center{};
             for (const auto &p : wall.vertices) center = add(center, p);
             center = scale(center, 1.0 / wall.vertices.size());
-            const auto donor = material(*original, model, center, work);
+            const auto donor = materials.find(center, work);
             walls.push_back({std::move(wall), donor});
         }
         // One draw/instance range per source material in a model, independent
