@@ -65,6 +65,7 @@ class TntHandshakeTest {
     }
     @Test void oldHostCloseRetriesIdenticalCredentialsWithoutTnt() throws Exception {
         try(var host=host();var link=link(host.getLocalPort(),false)) {
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_VISIBILITY_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_MOTION_CAP);}
 
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_ENVIRONMENT_CAP);}
@@ -106,6 +107,7 @@ class TntHandshakeTest {
     }
     @Test void legacyRetryRejectsUnrequestedTntCapability() throws Exception {
         try(var host=host();var link=link(host.getLocalPort(),false)) {
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_VISIBILITY_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_MOTION_CAP);}
 
             try(var socket=host.accept()){hello(socket,false);}

@@ -14,6 +14,7 @@
 #include "goldcraft/status_attributes.hpp"
 #include "goldcraft/status_environment.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/status_visibility.hpp"
 #include "pm_movevars.h"
 #include "goldcraft/native_armor.hpp"
 #include "goldcraft/control_diagnostics.hpp"
@@ -676,6 +677,7 @@ namespace {
 #include "status_attributes.inc"
 #include "status_environment.inc"
 #include "status_motion.inc"
+#include "status_visibility.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
 #include "tnt_damage.inc"
@@ -906,7 +908,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();
+        ClearStatusMotion();ClearStatusVisibility();
         motion_message=REG_USER_MSG(status_motion::message_name,44);
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
@@ -1025,6 +1027,11 @@ void GoldCraft_PlayerKilled(edict_t* player) {
     if(!CurrentNativePlayer(killed))return;
     ReleaseControl(slot,ControlCause::death);
     if(CurrentNativePlayer(killed))next_snapshot=0;
+}
+void GoldCraft_StatusVisibility(entity_state_t* state,edict_t* entity){
+    if(!state||!StatusInvisible(entity))return;
+    state->rendermode=kRenderTransTexture;state->renderamt=0;state->renderfx=kRenderFxNone;
+    state->effects&=~(EF_BRIGHTFIELD|EF_MUZZLEFLASH|EF_BRIGHTLIGHT|EF_DIMLIGHT|EF_LIGHT);
 }
 bool GoldCraft_StatusBreathing(edict_t* player){
     const auto* state=CurrentEnvironment(player);
@@ -1186,7 +1193,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusVisibility();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1215,6 +1222,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::status_visibility)HandleStatusVisibility(message.payload);
             else if(message.type==Type::status_motion)HandleStatusMotion(message.payload);
             else if(message.type==Type::status_environment)HandleStatusEnvironment(message.payload);
             else if(message.type==Type::status_hud)HandleStatusHud(message.payload);

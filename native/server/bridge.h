@@ -43,6 +43,9 @@ bool GoldCraft_StatusBreathing(edict_s* player);
 bool GoldCraft_StatusShield(edict_s* player,edict_s* inflictor,float damage,int bits);
 // Native armor has already run. MC-originated final damage is not reduced again.
 float GoldCraft_StatusDefense(edict_s* player,float damage,edict_s* inflictor,edict_s* attacker,int bits);
+struct entity_state_s;
+// Packet rendering only; never changes native collision, traces or plugin entvars.
+void GoldCraft_StatusVisibility(entity_state_s* state,edict_s* player);
 struct playermove_s;
 void GoldCraft_StatusCategorize(void (*original)());
 void GoldCraft_StatusJump(void (*original)());

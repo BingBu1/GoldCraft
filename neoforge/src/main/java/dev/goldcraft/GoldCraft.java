@@ -77,6 +77,12 @@ public final class GoldCraft {
         return link!=null&&link==authorityLink?link.localQpcFrequency(generation):0;
     }
     public static long authorityGeneration(){return currentAuthorityGeneration();}
+    public static boolean visibilityAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.visibility(generation);
+    }
+    public static boolean sendVisibility(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendVisibility(generation,payload);
+    }
     public static boolean motionAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.motion(generation);
     }

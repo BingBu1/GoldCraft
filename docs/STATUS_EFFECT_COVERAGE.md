@@ -19,7 +19,7 @@
 | 抗性提升 resistance | 已有原生减伤租约；需保留伤害标签例外和只结算一次。 |
 | 抗火 fire_resistance | 原生火/熔岩防护已实现并通过实际消费者回归；酸液、混合爆炸及MC已结算伤害保持，真人待验。 |
 | 水下呼吸 water_breathing | 已接原生空气/溺水防护，实际WaterMove回归保留真实水位和历史恢复债务；真人待验。 |
-| 隐身 invisibility | CS 原生身体与 MC 视角表现缺对应同步；代理自身不可见标志不是玩家隐身。 |
+| 隐身 invisibility | 已接独立权威通道、CS身体透明、逻辑玩家感知与Epic目标过滤；保留碰撞/伤害和代理隐藏语义。生产构建、57原生/76发布器及TCP回归通过，已加入本地联合部署；真人画面/装备/AI/到期待验。[说明](NATIVE_VISIBILITY.md) |
 | 失明 blindness | CS 场景缺对应视距/迷雾表现。 |
 | 夜视 night_vision | CS 场景缺照明映射；仅 MC HUD/效果列表不够。 |
 | 饥饿 hunger | 原生效果宿主不是 PlayerEntity，需接正确玩家饥饿对象及唯一计时。 |

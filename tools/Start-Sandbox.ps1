@@ -75,7 +75,8 @@ $start.Environment['GOLDCRAFT_SERVER_STATUS']=Join-Path $logDir 'goldcraft-serve
 if($Capture){$start.Environment['GOLDCRAFT_CAPTURE_PATH']=Join-Path $logDir 'goldcraft-frame.bmp'}
 else{$start.Environment.Remove('GOLDCRAFT_CAPTURE_PATH')|Out-Null}
 $start.Environment['GOLDCRAFT_SERVER_LOG']=Join-Path $logDir 'goldcraft-server.log'
-$start.Environment['GOLDCRAFT_TRACE_REPORT_DIR']=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'analysis/goldcraft-tests')
+$start.Environment['GOLDCRAFT_TRACE_REPORT_DIR']=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/runtime-traces')
+New-Item -ItemType Directory -Path $start.Environment['GOLDCRAFT_TRACE_REPORT_DIR'] -Force | Out-Null
 $start.Environment['GOLDCRAFT_BUILD_LOG']=Join-Path $logDir "gradle-$Role.log"
 foreach($key in @('GOLDCRAFT_SERVER_PORT','GOLDCRAFT_SERVER_SESSION','GOLDCRAFT_SERVER_TOKEN')){$start.Environment.Remove($key) | Out-Null}
 if($Role -in @('CsServer','MinecraftServer','MinecraftGameTest') -or $ListenServer){

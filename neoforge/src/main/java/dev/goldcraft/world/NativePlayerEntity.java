@@ -62,6 +62,8 @@ public final class NativePlayerEntity extends PlayerEntity {
         float width=(actor.maxs().x()-actor.mins().x())/32,height=(actor.maxs().z()-actor.mins().z())/32;
         return EntityDimensions.fixed(width,height).withEyeHeight(Math.max(0.1f,height-0.25f));
     }
+    // Vanilla AI reads this logical player, not the permanently hidden proxy.
+    @Override public boolean isInvisible(){return hitbox!=null&&!hitbox.isRemoved()&&NativeVisibility.invisible(hitbox);}
     @Override public boolean isSpectator(){return false;}
     @Override public boolean isCreative(){return false;}
     @Override public boolean shouldSave(){return false;}

@@ -33,6 +33,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     private static final TrackedData<Integer> HOST_SLOT=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
     private static final TrackedData<Integer> HOST_SERIAL=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
     private static final TrackedData<Integer> HOST_LIFE=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.INTEGER);
+    private static final TrackedData<Boolean> POTION_INVISIBLE=DataTracker.registerData(NativePlayerHitboxEntity.class,TrackedDataHandlerRegistry.BOOLEAN);
     private NativePlayerEntity body;
     private DamageSource activeDamage;
     private boolean damageRequested;
@@ -47,6 +48,8 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     public long hostEpoch(){return dataTracker.get(HOST_EPOCH);}
     public int hostSlot(){return dataTracker.get(HOST_SLOT);}
     public int hostSerial(){return dataTracker.get(HOST_SERIAL);}
+    public boolean potionInvisible(){return dataTracker.get(POTION_INVISIBLE);}
+    void potionInvisible(boolean value){dataTracker.set(POTION_INVISIBLE,value);}
     public int hostLife(){return dataTracker.get(HOST_LIFE);}
     boolean follows(NativePlayerEntity value){return body==value;}
     public static void initialize(IEventBus bus){
@@ -58,7 +61,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     }
     @Override protected void initDataTracker(DataTracker.Builder builder){
         super.initDataTracker(builder);builder.add(WIDTH,1f);builder.add(HEIGHT,2.25f);
-        builder.add(HOST_EPOCH,0L);builder.add(HOST_SLOT,0);builder.add(HOST_SERIAL,0);builder.add(HOST_LIFE,0);
+        builder.add(HOST_EPOCH,0L);builder.add(HOST_SLOT,0);builder.add(HOST_SERIAL,0);builder.add(HOST_LIFE,0);builder.add(POTION_INVISIBLE,false);
     }
     public void follow(NativePlayerEntity value){
         body=value;value.hitbox(this);var dimensions=value.getDimensions(value.getPose());

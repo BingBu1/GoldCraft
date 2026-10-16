@@ -10,7 +10,7 @@ public final class HostEpicTargets {
     public static boolean canTarget(NativePlayerHitboxEntity target) {
         var client=MinecraftClient.getInstance();
         if(!HostInput.hosted()||!HostInput.controlling()||client.player==null
-            ||target.getWorld()!=client.world||target.isRemoved()||!target.isAlive()||!target.canHit())return false;
+            ||target.potionInvisible()||target.getWorld()!=client.world||target.isRemoved()||!target.isAlive()||!target.canHit())return false;
         var host=GoldCraftClient.HOST;
         return canTarget(host,host.actor(client.player.getUuid()),target.hostEpoch(),target.hostSlot(),target.hostSerial(),target.hostLife());
     }
