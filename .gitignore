@@ -30,6 +30,7 @@
 /.env*
 /docs/*
 !/docs/BUILD.md
+!/docs/LOCAL_PLAYTEST.md
 !/docs/ARCHITECTURE.md
 !/docs/WORLD_CARVING.md
 !/docs/MOD_MANAGEMENT.md

@@ -12,7 +12,7 @@ if(-not(Test-Path -LiteralPath $adminSource)){
     & python (Join-Path $PSScriptRoot 'Prepare-AdminBase.py')
     if($LASTEXITCODE){throw 'Could not prepare the pinned Admin Base source.'}
 }
-& (Join-Path $PSScriptRoot 'Build-AMXX.ps1') -Plugins admin
+& (Join-Path $PSScriptRoot 'Build-AMXX.ps1') -Plugins admin,goldcraft,goldcraft_controls
 $amxx=Assert-SandboxPath (Join-Path $game 'cstrike/addons/amxmodx')
 $meta=Assert-SandboxPath (Join-Path $game 'cstrike/addons/metamod')
 if(-not(Test-Path -LiteralPath $amxx)){
@@ -44,7 +44,7 @@ Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'goldcraft'
 Add-ConfigLine (Join-Path $amxx 'configs/modules.ini') 'reapi'
 Copy-Item -LiteralPath (Join-Path $reapi 'modules/reapi_amxx.dll') -Destination (Join-Path $amxx 'modules/reapi_amxx.dll') -Force
 Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/native-x86/Release/goldcraft_amxx.dll')) -Destination (Join-Path $amxx 'modules/goldcraft_amxx.dll') -Force
-$pluginNames=@('admin','goldcraft');if($TestFixtures){$pluginNames+='goldcraft_test'}
+$pluginNames=@('admin','goldcraft','goldcraft_controls');if($TestFixtures){$pluginNames+='goldcraft_test'}
 foreach($name in $pluginNames){
     Copy-Item -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/amxx/plugins/$name.amxx")) -Destination (Join-Path $amxx "plugins/$name.amxx") -Force
     Add-ConfigLine (Join-Path $amxx 'configs/plugins.ini') "$name.amxx"

@@ -4,8 +4,8 @@ from pathlib import Path
 
 source=Path(sys.argv[1]).read_text(encoding="utf-8-sig")
 regions=(("bool ServerMenuInput(){","void ClearHud(){"),
-         ("void SelectFormMenu(int index){","void OpenFormMenu(){"),
-         ("bool DefaultFormMenuKey(","void ReloadMinecraftResources(){"))
+         ("void SelectFormMenu(int index){","void ReloadMinecraftResources(){"),
+         ("int KeyEvent(int down,int key,const char* binding_text) {","bool DrawPostMask("))
 parts=[]
 for start,end in regions:
     at=source.index(start)

@@ -1,4 +1,6 @@
 #include "goldcraft/form_menu.hpp"
+#include "goldcraft/host_keys.hpp"
+#include "goldcraft/host_key_events.hpp"
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -6,21 +8,38 @@
 using namespace goldcraft;
 namespace {
 constexpr int K_ESCAPE=27,K_F6=140;
+constexpr int K_ALT=132,K_CTRL=133,K_SHIFT=134;
+constexpr int K_MOUSE1=241,K_MOUSE3=243,K_MWHEELDOWN=239,K_MWHEELUP=240;
 FormMenu form_menu;
 std::uint64_t world=1,form_menu_selections=0;
 bool fresh=false,ui_active=false,minecraft_menu=false,console=false,native_menu=false;
 unsigned hud_flags=0,native_closes=0,commands=0;
+unsigned key_events=0,ui_modifiers=0,native_keys=0,ui_events=0,inventory_closes=0,host_releases=0;
+int last_key=0,last_key_down=0;
+bool control=false;
+std::array<bool,256> menu_pressed{};
 std::string command;
 double Seconds(){return 10;}
 bool HudFresh(){return fresh;}
 namespace host_ui {
-struct State {bool game_menu=false,keyboard=false;} current;
+struct State {bool game_menu=false,keyboard=false,hooked=true;} current;
 const State& state(){return current;}
 }
 struct Engine {
     int (*Con_IsVisible)()=+[](){return console?1:0;};
-    void (*pfnServerCmd)(char*)=+[](char* text){command=text;++commands;};
+    void (*pfnServerCmd)(const char*)=+[](const char* text){command=text;++commands;};
+    void (*pfnClientCmd)(char*)=+[](char*){};
 } gEngfuncs;
+struct Exports {
+    int (*HUD_Key_Event)(int,int,const char*)=+[](int,int,const char*){++native_keys;return 1;};
+} gExportfuncs;
+void CloseMinecraftMenu(){++inventory_closes;}
+void ReleaseHostUse(){++host_releases;}
+void ReleaseMinecraftKeys(){}
+bool HasControl(){return control;}
+void SendUi(unsigned,int,int=0,float=0){++ui_events;}
+void SendControl(unsigned){}
+bool ForwardKey(int,int){return false;}
 auto previous_show_menu=+[](const char* name,int length,void* data){
     assert(std::strcmp(name,"ShowMenu")==0&&length==5);
     for(int i=0;i<length;++i)assert(static_cast<std::uint8_t*>(data)[i]==0);
@@ -54,5 +73,36 @@ int main(){
     ui_active=true; // An inventory/JEI/chat search must receive its typed key.
     assert(!DefaultFormMenuKey('x',"goldcraft_menu")&&!DefaultFormMenuKey(K_F6,nullptr));
     ui_active=false;assert(DefaultFormMenuKey('x',"goldcraft_menu"));
-    std::cout<<"PASS production menu selection across native/MC, both copies cleared, one server command, unrelated bindings/UI preserved\n";
+    form_menu.clear();fresh=false;
+    for(bool mc:{false,true})for(const char* binding:{"","save quick","echo Quicksaving...; wait; save quick","goldcraft_menu"}){
+        control=mc;
+        const auto before=commands,closes=inventory_closes,releases=host_releases;
+        assert(KeyEvent(1,K_F6,binding)==0);
+        assert(commands==before+1&&command=="goldcraft_menu\n");
+        assert(inventory_closes==closes+1&&host_releases==releases+1);
+        assert(KeyEvent(1,K_F6,binding)==0&&commands==before+1); // Held key never reopens.
+        assert(KeyEvent(0,K_F6,binding)==0&&commands==before+1&&!menu_pressed[K_F6]);
+        show("GoldCraft forms");
+        assert(KeyEvent(1,K_F6,binding)==0&&commands==before+2&&command=="menuselect 10\n");
+        assert(!form_menu.active(10)&&!native_menu);
+        assert(KeyEvent(0,K_F6,binding)==0&&commands==before+2);
+    }
+    control=false;const auto before=commands;
+    for(const char* binding:{"buy","save quick; say custom","goldcraft_menu; say custom","toggleconsole"}){
+        const auto native_before=native_keys;
+        assert(KeyEvent(1,K_F6,binding)==1&&KeyEvent(0,K_F6,binding)==1);
+        assert(native_keys==native_before+2&&commands==before);
+    }
+    world=0; // No GoldCraft session: retain ordinary multiplayer/single-player keys.
+    for(const char* binding:{"","save quick","echo Quicksaving...; wait; save quick"}){
+        assert(KeyEvent(1,K_F6,binding)==1&&KeyEvent(0,K_F6,binding)==1&&commands==before);
+    }
+    world=1;console=true;
+    assert(KeyEvent(1,K_F6,"save quick")==1&&KeyEvent(0,K_F6,"save quick")==1&&commands==before);
+    console=false;ui_active=true;fresh=true;
+    assert(KeyEvent(1,'x',"goldcraft_menu")==0&&ui_events==2&&commands==before);
+    assert(KeyEvent(0,'x',"goldcraft_menu")==0&&ui_events==3);
+    assert(KeyEvent(1,K_F6,"save quick")==0&&ui_events==4&&commands==before);
+    assert(KeyEvent(0,K_F6,"save quick")==0&&ui_events==5);
+    std::cout<<"PASS production F6 press/release, stock bindings, native/MC menu open/close, custom bindings, ordinary servers, console and MC text input\n";
 }

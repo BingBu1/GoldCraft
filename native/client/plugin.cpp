@@ -642,7 +642,13 @@ void OpenFormMenu(){
 bool DefaultFormMenuKey(int key,const char* binding_text){
     // Minecraft screens own text entry even when a printable key is bound to
     // the form menu in native CS. The same key remains a shortcut in gameplay.
-    return !ui_active&&((key==K_F6&&(!binding_text||!*binding_text))
+    // Half-Life's inherited defaults bind F6 to quicksave, which has no use on
+    // a GoldCraft dedicated server. Accept only those exact stock bindings;
+    // custom commands and ordinary servers keep their original behavior.
+    const bool default_f6=!binding_text||!*binding_text
+        ||std::strcmp(binding_text,"save quick")==0
+        ||std::strcmp(binding_text,"echo Quicksaving...; wait; save quick")==0;
+    return !ui_active&&((world&&key==K_F6&&default_f6)
         ||(binding_text&&std::strcmp(binding_text,"goldcraft_menu")==0));
 }
 void ReloadMinecraftResources(){SendControl(15);}

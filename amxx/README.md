@@ -4,7 +4,7 @@
 
 | 目录 | 内容 |
 |---|---|
-| `goldcraft/` | CS／Minecraft 形态菜单与服务器接口，配套 API 在 `include/` |
+| `goldcraft/` | CS／Minecraft 形态菜单、独立入服按键插件与服务器接口，配套 API 在 `include/`，详见[说明](goldcraft/README.md) |
 | `administration/` | Admin Base 源码、管理员字典和许可；实际账号只存服务器运行配置 |
 | `zombie_plague/api/`、`core/` | ZP 5.0.8a 公共 API、核心与基础玩法 |
 | `zombie_plague/classes/`、`modes/` | 人类／僵尸职业、感染等游戏模式 |

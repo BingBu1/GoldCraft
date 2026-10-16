@@ -1,5 +1,19 @@
 # 验证状态
 
+## 2026-10-16 — 联合实机与独立F6入服绑定
+
+本地已统一部署流体、状态属性、护甲、盾牌、TNT及点燃身份修复。combined44 Core四端一致SHA `708e412183a8656be84b67de532c4483aba3071301b570c47f4654f27d033db1`；生产mp.dll `39ba59aa7cb41677b4f2a17d1b5d2c870c57f83b495f727d09b04b4d0834f889`，六个ZP插件核对源码/产物后部署。Modpack只改4个Core，保留FerriteCore及完整Mod集；无测试夹具。B使用既有匹配客户端，Steam启动后重开成功。
+
+真实网络玩家进入本地双服，24 Bot+1真人；两端world一致，MC handler/tracked对象匹配且传送确认完成，ready/enabled/effectsReady=true。10:11客户端HUD31276帧、23.6945ms；流体172体积和mode2地图切除195为现场观察，不代替双形态玩法/伤害/多人验收。原安装19575项元数据与5项hash同本次部署前一致，四个用户测试进程保留。证据 `analysis/local-combined-20261016/{deployment.json,loaded-modules.json,observation-020558.json,observation-021150.json}`。操作见 [本地联合实机](LOCAL_PLAYTEST.md)。
+
+用户报告另一玩家F6未绑定，直接执行goldcraft_menu能打开。按要求新增[独立AMXX按键插件](../amxx/goldcraft/README.md)，与形态逻辑分文件；真人入服1秒后发送F6绑定，校验userid、断线取消、Bot/HLTV排除，`mc_bind_f6`默认1。明确F6被指定为菜单键会覆盖原F6，其他键不变；不关闭客户端命令过滤，保留手工bind与/forms。匹配AMXX1.9.0.5303声明/实现已检查，编译零警告，字节码SHA `3cf86c916efc6b8d10e2aed47eb824e80f958a364cec3dfabf11414fc8d8c623`。
+
+本地仅放置插件和独立plugins清单，当前运行地图未重载，新插件尚未加载。公网ZIP仅含插件、独立清单、说明，CRC/精确成员/hash通过；尚未部署公网/证明客户端接受自动绑定。必须地图重载后验收运行状态及对方真实F6；sv_restart不重载Pawn。现有CS/MC会话保持，旧安装包不复查。
+
+另修客户端默认F6对Half-Life两种精确quicksave绑定的兼容，并限制默认接管只在GoldCraft会话中。生产OpenFormMenu/KeyEvent抽取回归1/1通过，覆盖CS/MC开关、按住/松开、普通服务器、控制台、文本输入和自定义绑定。Clang x86/C++20/O3/ThinLTO/AVX2/precise完整DLL构建成功，SHA `68a535ffae46da057002c40e03f6fba2eda40e9db5b843235356bab20e9efcfb`，尚未部署；这不是对方未绑定现场的已证根因。证据 `analysis/f6-menu-20261016/{build-result.json,build.log,amxx-build.log,local-deployment.json,package.json,protected-comparison.json}`。
+
+tnt47被主机重启中断，未完成任何用例/没有自然退出证据，后续恢复回执确认8文件和注册已还原、7测试文件移除。用户改为联合实机，不续跑tnt48单项矩阵；原失败证据保留。完整G01–G28开放。
+
 ## 2026-10-15 — TNT点燃身份修复与自然连锁六组实服通过
 
 配对玩家点燃后，CS重生而MC玩家对象不变时，旧实现在爆炸时重新查当前UUID，从而把击杀记到新spawn。现改为点燃时保存不可变 `NativeTntOrigin`，包含world epoch、slot、serial、spawn及配对UUID；爆炸时核对原身份。故意不以life拒绝同spawn的CS↔MC形态切换或仅死亡状态。缺失/失效玩家归属降为世界来源，继续遵守原有真实受伤作用域、距离/遮挡、队伍及原生权威校验。
