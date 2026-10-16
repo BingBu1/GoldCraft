@@ -60,7 +60,8 @@ class Run(mining.Run):
     def end(self):
         revision = self.peer.policy[1]
         self.command("gc_mining_round end")
-        self.until(lambda: self.peer.policy[1] > revision, "Round boundary invalidates mining requests")
+        self.until(lambda: "terminating=1" in self.command("gc_mining_state"), "Native victory delay began")
+        self.check("round end preserves the mining policy until next start", self.peer.policy[1] == revision)
         return revision
 
     def reconnect(self, previous_epoch=None):
@@ -98,11 +99,12 @@ class Run(mining.Run):
         self.damage_glass()
         self.check("mining actually removes native ray and standing/crouching collision", self.target_state()[1:] == (0, 0, 0, 0))
         old_revision = self.end()
-        self.check("0 restores health and collision at round end before next spawn", self.target_state() == original)
+        self.check("0 keeps mined glass absent throughout victory delay", self.target_state()[1:] == (0, 0, 0, 0))
         self.rested()
-        self.check("pre-round requests cannot damage restored geometry", self.request(revision=old_revision)["status"] == 2)
         self.check("ended round rejects fresh mining", self.request()["status"] != 0)
         self.restart()
+        self.check("0 restores health and collision at next round start", self.target_state() == original)
+        self.check("pre-round requests cannot damage restored geometry", self.request(revision=old_revision)["status"] == 2)
 
         self.command("mc_map_mining_persist 1")
         self.damage_glass(False)
@@ -125,8 +127,9 @@ class Run(mining.Run):
         self.check("canceled ReAPI round end does not restore the map", self.target_state() == destroyed
                    and "terminating=0" in self.command("gc_mining_state"))
         self.end()
-        self.check("hot 1 to 0 restores earlier-round mining", self.target_state() == original)
+        self.check("hot 1 to 0 still preserves the victory scene", self.target_state() == destroyed)
         self.restart()
+        self.check("hot 1 to 0 restores earlier-round mining at next start", self.target_state() == original)
 
         self.command("mc_map_mining_persist 1")
         self.target(GLASS_MODEL)
@@ -148,8 +151,9 @@ class Run(mining.Run):
         self.damage_glass()
         self.command("mc_map_mining_persist 1.5")
         self.end()
-        self.check("invalid persistence value restores rather than retaining", self.target_state() == original)
+        self.check("invalid persistence value does not shorten the victory delay", self.target_state()[1] == 0)
         self.restart()
+        self.check("invalid persistence value restores at next round start", self.target_state() == original)
 
         self.command("mc_map_mining_persist 1")
         self.damage_glass()
@@ -171,8 +175,9 @@ class Run(mining.Run):
         self.damage_glass()
         self.end()
         self.command("gc_mining_round restart_end")
-        self.check("new round ending in the same frame still restores at 0", self.target_state() == original)
+        self.check("same-frame end after changing to 0 preserves the current round scene", self.target_state()[1] == 0)
         self.restart()
+        self.check("next start after same-frame end restores at 0", self.target_state() == original)
 
         self.command("mc_map_mining_persist 1")
         self.damage_glass()

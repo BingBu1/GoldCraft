@@ -22,13 +22,21 @@ public final class SharedVitals {
         int slot,serial,spawn;
         ServerPlayerEntity entity;
         float observed;
-        boolean active,confirming,deathConfirmed;
+        boolean active,confirming,deathConfirmed,presentationBody;
         DamageSource deathSource;
         final VitalsLedger ledger=new VitalsLedger();
     }
     private SharedVitals(){}
     public static void clear(){states.clear();sequence=0;}
     public static void disconnect(UUID uuid){states.remove(uuid);}
+    static void presentationRespawn(ServerPlayerEntity corpse,ServerPlayerEntity viewer,
+                                    HostWorldState host,HostWorldState.Actor actor){
+        var state=states.get(corpse.getUuid());
+        if(state==null||state.entity!=corpse||state.epoch!=host.epoch()||state.serial!=actor.serial()
+            ||state.spawn!=actor.spawn()||!state.deathConfirmed)return;
+        state.entity=viewer;state.presentationBody=true;state.active=false;
+        state.deathSource=null;state.observed=viewer.getHealth();
+    }
     public static boolean deferDeath(ServerPlayerEntity player,DamageSource source){
         var state=states.get(player.getUuid());
         if(state==null||state.entity!=player||!state.active||state.confirming)return false;
@@ -75,7 +83,7 @@ public final class SharedVitals {
     public static boolean prepare(ServerPlayerEntity player,HostWorldState host,HostWorldState.Actor actor){
         State state=states.get(player.getUuid());
         if(state==null||state.epoch!=host.epoch()||state.serial!=actor.serial()||state.spawn!=actor.spawn()){
-            boolean died=state!=null&&state.entity==player&&state.deathConfirmed;
+            boolean died=state!=null&&state.entity==player&&state.deathConfirmed&&!state.presentationBody;
             state=new State();state.epoch=host.epoch();state.slot=actor.slot();state.serial=actor.serial();state.spawn=actor.spawn();
             // Reset deltas for the new native spawn, while keeping the old MC
             // body dead until HostSession performs vanilla PlayerManager respawn.

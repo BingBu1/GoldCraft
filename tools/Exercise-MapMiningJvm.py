@@ -221,9 +221,12 @@ class Run(mining.Run):
         self.check("JVM full snapshot recovery keeps carved collision", abs(self.geometry()["moved"]-192) < .001)
         self.command("mc_map_mining_persist 0")
         self.command("gc_mining_round end")
-        self.until(lambda: self.probe()["editCount"] == 0, "Round end restores actual JVM physics")
+        self.ticks(5)
+        self.check("persist 0 keeps actual Minecraft passage during victory delay", abs(self.geometry()["moved"]-192) < .001)
+        self.command("gc_mining_round restart")
+        self.until(lambda: self.probe()["editCount"] == 0, "Next round start restores actual JVM physics")
         restored = self.geometry()
-        self.check("persist 0 restores actual movement ray and cached voxel at round end",
+        self.check("persist 0 restores actual movement ray and cached voxel at next round start",
                    abs(restored["moved"]-baseline["moved"]) < .001 and restored["rayBlocked"]
                    and restored["cellSolid"] and restored["collisionRevision"] > opened["collisionRevision"])
         self.restore_geometry()

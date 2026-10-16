@@ -105,6 +105,8 @@ void State::run_avatars(Backend& backend){
     if(!backend.initialize())return;
     counters.avatar_ready.store(1);
     while(!stopping.load()){
+        backend.poll();
+        if(!backend.healthy())break;
         SteamId id=0;unsigned size=0,revision=0;
         {std::lock_guard lock(mutex_);for(auto& e:avatars_)if(e.pending){id=e.id;size=e.size;revision=e.revision;break;}}
         if(!id){std::this_thread::sleep_for(10ms);continue;}
@@ -148,6 +150,8 @@ void State::run_voice(Backend& backend){
         return result;
     };
     while(!stopping.load()&&!voice_failed_.load()){
+        backend.poll();
+        if(!backend.healthy()){voice_failed_.store(true);break;}
         auto wanted=desired_.load();
         if(wanted!=active){
             if(recording){

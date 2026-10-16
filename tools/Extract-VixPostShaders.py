@@ -23,8 +23,8 @@ def checked_destination(value: Path) -> Path:
         if component.is_symlink() or bool(getattr(component, "is_junction", lambda: False)()):
             raise ValueError(f"Refusing linked destination: {component}")
     resolved = value.resolve()
-    if not resolved.is_relative_to(ROOT / "sandbox") and not resolved.is_relative_to(ROOT / "analysis"):
-        raise ValueError("Output must be inside workspace sandbox or analysis")
+    if not any(resolved.is_relative_to(ROOT / folder) for folder in ("sandbox", "analysis", "build")):
+        raise ValueError("Output must be inside workspace sandbox, analysis or build")
     return resolved
 
 

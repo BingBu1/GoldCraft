@@ -7,6 +7,9 @@ using namespace std::chrono_literals;
 template<class F> void until(F test){const auto deadline=Clock::now()+2s;while(!test()){assert(Clock::now()<deadline);Sleep(1);}}
 int wmain(int argc,wchar_t** argv){
     if(argc!=2)return 2;
+    SetEnvironmentVariableW(L"SteamAppId",L"10");SetEnvironmentVariableW(L"SteamGameId",L"10");
+    SetEnvironmentVariableW(L"SteamOverlayGameId",L"10");SetEnvironmentVariableW(L"SteamEnv",L"1");
+    SetEnvironmentVariableW(L"SteamClientLaunch",L"1");SetEnvironmentVariableW(L"GOLDCRAFT_STEAM_TEST_CHECK_ENV",L"1");
     for(bool startup:{false,true}){
         State s;auto cancel=CreateEventW(nullptr,TRUE,FALSE,nullptr);
         std::thread worker([&]{ProcessBackend backend(argv[1],startup?L"startup-block":L"avatar-block",cancel);s.run_avatars(backend);});
@@ -18,6 +21,7 @@ int wmain(int argc,wchar_t** argv){
         s.stopping=true;SetEvent(cancel);worker.join();
         assert(Clock::now()-began<1500ms);CloseHandle(cancel);
     }
+    wchar_t app_id[16]{};assert(GetEnvironmentVariableW(L"SteamAppId",app_id,16)&&!std::wcscmp(app_id,L"10"));
     {
         State s;auto cancel=CreateEventW(nullptr,TRUE,FALSE,nullptr);
         std::thread worker([&]{ProcessBackend backend(argv[1],L"voice",cancel);s.run_voice(backend);});

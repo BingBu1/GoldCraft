@@ -57,7 +57,7 @@ int main(){try{
     for(unsigned variant=0;variant<4;++variant){Key key{},token{};if(variant==3)token[0]=1;
         HostHandshake host(key,key,variant==1?Role::host_client:Role::host_server,variant==1?Role::fabric_client:Role::fabric_server,32);
         Writer hello;hello.bytes(key);hello.bytes(token);hello.u32(variant==1||variant==2?2:4);
-        hello.u32(variant==0?capability_tnt_damage|1024:capability_tnt_damage);
+        hello.u32(variant==0?capability_tnt_damage|(1u<<31):capability_tnt_damage);
         reject([&]{host.accept({Type::hello,40,0,1},hello.data);});check(!host.ready()&&host.peer_capabilities()==0);
     }
     std::cout<<"TNT codec/identity/capability checks="<<checks<<"\n";return 0;

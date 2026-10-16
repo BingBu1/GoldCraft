@@ -41,7 +41,9 @@ int main(){
     check(budget.update(state)&&budget.pending.empty()&&budget.durability()==98);
     for(int i=0;i<128;++i)budget.commit(0,1);
     check(!budget.available());
-    check(known_type(Type::status_attributes)&&known_type(Type::status_spend)&&wire_type_count==85);
+    check(known_type(Type::status_attributes)&&known_type(Type::status_spend)
+        &&static_cast<unsigned>(Type::status_attributes)<wire_type_count
+        &&static_cast<unsigned>(Type::status_spend)<wire_type_count);
     Key session{},token{};HostHandshake server(session,token,Role::host_server,Role::fabric_server,9);
     Writer hello;hello.bytes(session);hello.bytes(token);hello.u32(4);hello.u32(capability_status_attributes);
     server.accept({Type::hello,static_cast<std::uint32_t>(hello.data.size()),0,1},hello.data);

@@ -275,6 +275,10 @@ bool Endpoint::status_attributes() const {
     return connected() && impl_->config.host == Role::host_server && impl_->config.peer == Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_attributes) != 0;
 }
+bool Endpoint::status_vision() const {
+    return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_status_vision) != 0;
+}
 bool Endpoint::status_visibility() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_visibility) != 0;

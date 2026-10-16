@@ -46,7 +46,7 @@ struct MinedEntity {
     }
 };
 std::map<int, MinedEntity> mined_entities;
-bool round_ended = false, cleanup_persist = false;
+bool cleanup_persist = false;
 unsigned cleanup_depth = 0;
 std::uint64_t last_host_explosion_event = 0;
 
@@ -319,21 +319,6 @@ void InvalidateRequests() {
         throw ProtocolError("Mining policy revision exhausted");
     ++policy.revision;
 }
-void RestoreMinedEntities() {
-    map_edits.restore();
-    ClearMapPhysics();
-    // Drop records before invoking virtual callbacks: plugins can remove/reuse
-    // edicts or reenter the round rules. Never copy private entity memory back.
-    auto previous = std::exchange(mined_entities, {});
-    for (const auto &[slot, identity] : previous) {
-        if (slot >= gpGlobals->maxEntities)
-            continue;
-        auto *entity = INDEXENT(slot);
-        if (identity.matches(entity))
-            identity.object->Restart();
-    }
-}
-
 mining::Target TargetKind(edict_t *entity) {
     if (!entity || entity->free ||
         (entity->v.flags & (FL_KILLME | FL_CLIENT | FL_FAKECLIENT | FL_MONSTER)))
@@ -384,7 +369,7 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
     GoldCraft_MapMiningInit();
     background_pruner.reset();
     mined_entities.clear();
-    round_ended = cleanup_persist = false;
+    cleanup_persist = false;
     cleanup_depth = 0;
     map_edits.reset(epoch);
     last_host_explosion_event = 0;
@@ -403,62 +388,7 @@ void GoldCraft_MapMiningReset(std::uint64_t epoch) {
 void GoldCraft_MapMiningResetExplosionSequence() { last_host_explosion_event = 0; }
 void GoldCraft_MapMiningInvalidateSamples() { mining_samples = {}; }
 
-void GoldCraft_MapMiningFrame() {
-    if (!policy.epoch || !g_pGameRules || !g_pGameRules->IsMultiplayer())
-        return;
-    // ReAPI rg_round_end can set these fields directly using its own inline
-    // TerminateRound. A post hook can also run after cancellation. Observe the
-    // committed rules state instead of interpreting a hook notification as an end.
-    const bool ended = CSGameRules()->m_bRoundTerminating;
-    if (ended && !round_ended) {
-        round_ended = true;
-        InvalidateRequests();
-        if (!Persist())
-            RestoreMinedEntities();
-    } else if (!ended)
-        round_ended = false;
-    // An edict can disappear, be reused, or change inline model independently
-    // of mining. Publish all removals together so one stale target cannot block
-    // the next unrelated cut. Failures retain the old transaction and retry
-    // without skipping the rest of this frame's bridge processing.
-    if (map_physics)
-        background_pruner.run(map_edits, *map_physics, LiveEditTarget, [](const char *reason) {
-            ALERT(at_console, "Map edit cleanup deferred; will retry: %s\n", reason);
-        });
-}
-
-GoldCraft_MapMiningRoundCleanup::GoldCraft_MapMiningRoundCleanup() {
-    if (cleanup_depth++ != 0)
-        return;
-    GoldCraft_RoundCleanup();
-    cleanup_persist = Persist();
-    // A plugin may end the new round immediately, before another server frame
-    // observes m_bRoundTerminating=false. Rearm the boundary at real cleanup.
-    round_ended = false;
-    // Handles direct rg_restart_round / sv_restart and no observed end frame.
-    // Native cleanup performs the reset once when preservation is disabled.
-    InvalidateRequests();
-    if (!cleanup_persist) {
-        mined_entities.clear();
-        map_edits.restore();
-        ClearMapPhysics();
-    }
-}
-GoldCraft_MapMiningRoundCleanup::~GoldCraft_MapMiningRoundCleanup() {
-    if (--cleanup_depth == 0)
-        cleanup_persist = false;
-}
-bool GoldCraft_MapMiningKeepEntity(edict_t *entity) {
-    if (!cleanup_depth || !cleanup_persist || !entity)
-        return false;
-    const auto found = mined_entities.find(ENTINDEX(entity));
-    if (found == mined_entities.end())
-        return false;
-    if (found->second.matches(entity))
-        return true;
-    mined_entities.erase(found); // A reused slot/model must follow its own lifecycle.
-    return false;
-}
+#include "round_cleanup.inc"
 
 goldcraft::mining::Policy GoldCraft_MapMiningPolicy() {
     const auto current = mining::cvar_mode(registered_cvar ? registered_cvar->value : 0);

@@ -135,8 +135,9 @@ public final class ParticleExporter {
     }
     public void frame(long epoch){
         var client=MinecraftClient.getInstance();
+        final int life=HostInput.life();
         if(!link.connected()||epoch==0||epoch!=GoldCraftClient.HOST.epoch()||!HostInput.hosted()
-            ||client.world==null||client.player==null||client.getOverlay()!=null){cancelTextureUpload();return;}
+            ||life==0||client.world==null||client.player==null||client.getOverlay()!=null){cancelTextureUpload();return;}
         prepareTextureContext(epoch);
         long now=System.nanoTime();if(!pacing.ready(now))return;
         if(lastFrame!=0)intervalMs=(now-lastFrame)/1_000_000.0;lastFrame=now;
@@ -202,8 +203,9 @@ public final class ParticleExporter {
                 postReady.add(new ParticleSnapshot.Batch(number,draw.material(),draw.vertices()));
             }
             int snapshotCount=ready.isEmpty()?0:Math.max(1,count);
-            byte[] payload=ParticleSnapshot.encode(epoch,generation,++revision,HostInput.life(),snapshotCount,ready);
-            byte[] postPayload=PostEffectPlan.encode(epoch,generation,revision,HostInput.life(),post.count(),post.stages(),post.depthResets(),postReady);
+            if(life!=HostInput.life()||epoch!=GoldCraftClient.HOST.epoch())return;
+            byte[] payload=ParticleSnapshot.encode(epoch,generation,++revision,life,snapshotCount,ready);
+            byte[] postPayload=PostEffectPlan.encode(epoch,generation,revision,life,post.count(),post.stages(),post.depthResets(),postReady);
             if(link.send(Wire.PARTICLE_MESH,payload)){
                 frames++;bytes+=payload.length;
                 for(String kind:kinds.keySet())if(kindFrames.size()<128||kindFrames.containsKey(kind))kindFrames.merge(kind,1L,Long::sum);
@@ -218,9 +220,11 @@ public final class ParticleExporter {
         }finally{Performance.end("particleExport",began);}
     }
     private void clear(long epoch) {
+        final int life=HostInput.life();
+        if(life==0||epoch==0||epoch!=GoldCraftClient.HOST.epoch())return;
         long clearRevision=++revision;
-        link.send(Wire.PARTICLE_MESH,ParticleSnapshot.encode(epoch,generation,clearRevision,HostInput.life(),0,List.of()));
-        link.send(Wire.POST_EFFECT_PLAN,PostEffectPlan.encode(epoch,generation,clearRevision,HostInput.life(),0,List.of(),List.of(),List.of()));
+        link.send(Wire.PARTICLE_MESH,ParticleSnapshot.encode(epoch,generation,clearRevision,life,0,List.of()));
+        link.send(Wire.POST_EFFECT_PLAN,PostEffectPlan.encode(epoch,generation,clearRevision,life,0,List.of(),List.of(),List.of()));
     }
     private void cancelTextureUpload(){if(pendingTexture!=null){pendingTexture.close();pendingTexture=null;}}
     private boolean upload(long epoch,int glTexture,int number,long stamp){

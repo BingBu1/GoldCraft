@@ -1,26 +1,48 @@
 #include "goldcraft/gameplay_rules.hpp"
 #include <cassert>
+#include <cstdio>
+#include <cstdlib>
 
-int main() {
+// Keep assertion failures visible to CTest instead of a Windows CRT dialog.
+#undef assert
+#define assert(condition) do { if(!(condition)) { std::fprintf(stderr,"gameplay rules assertion at line %d: %s\n",__LINE__,#condition);std::abort(); } } while(false)
+
+// Keep expected protocol exceptions in one boundary without payload ownership.
+// In the pinned optimized x86 build, the inlined rejection loop faults in
+// Writer cleanup; an isolated exception boundary also passes with ThinLTO.
+__declspec(noinline) bool accepts(goldcraft::HostHandshake& host,const goldcraft::Bytes& payload) {
+    try {host.accept({goldcraft::Type::hello,static_cast<std::uint32_t>(payload.size()),0,1},payload);return true;}
+    catch(const goldcraft::ProtocolError&){return false;}
+}
+
+void test_round_start_policy() {
     using namespace goldcraft;
     GameplayRules policy;policy.reset(19);
     assert(!policy.clear_blocks&&policy.drop_items&&policy.clear_revision==0);
-    policy.observe_round(true);policy.cleanup_round();
+    policy.cleanup_round();
     assert(policy.clear_revision==0);
     policy.configure(true,false);
-    policy.observe_round(true);const auto revision=policy.revision;
-    policy.observe_round(true);policy.cleanup_round();
-    assert(policy.clear_revision==1&&policy.revision==revision);
-    // The next round may terminate before another frame observes false.
-    policy.observe_round(true);assert(policy.clear_revision==2);
+    const auto revision=policy.revision;
+    assert(policy.clear_revision==0); // Configuration alone never clears the completed round.
+    policy.cleanup_round();
+    assert(policy.clear_revision==1&&policy.revision==revision+1);
+    // Every actual new round counts, even with no intervening active frame.
     policy.cleanup_round();policy.cleanup_round(); // Direct restart without a terminating frame.
     assert(policy.clear_revision==3);
-    policy.configure(false,true);policy.observe_round(true);
-    policy.configure(true,true);policy.observe_round(true);
-    assert(policy.clear_revision==3); // Enabling midway through an ended round is not another end.
+    policy.configure(false,true);policy.cleanup_round();
+    policy.configure(true,true);
+    assert(policy.clear_revision==3); // Enabling during the end delay waits for actual cleanup.
     auto payload=policy.encode();Reader r(payload);
     assert(r.u64()==19&&r.u64()==policy.revision&&r.u64()==3&&r.u32()==1&&r.u32()==1);r.finish();
     policy.reset(20);assert(policy.world==20&&policy.clear_revision==0&&policy.revision==1);
+    policy.configure(true,false);policy.cleanup_round();assert(policy.clear_revision==1&&!policy.drop_items);
+    policy.reset(0);policy.configure(true,false);policy.cleanup_round();assert(policy.clear_revision==0);
+}
+
+void test_handshake() {
+    using namespace goldcraft;
+    GameplayRules policy;policy.reset(19);policy.configure(true,false);policy.cleanup_round();
+    const auto payload=policy.encode();
     const Key key{};
     HostHandshake host(key,key,Role::host_server,Role::fabric_server,33);
     Writer hello;hello.bytes(key);hello.bytes(key);hello.u32(4);hello.u32(capability_gameplay_rules);
@@ -38,9 +60,7 @@ int main() {
                    server_caps}) {
         HostHandshake combined(key,key,Role::host_server,Role::fabric_server,34);
         Writer request;request.bytes(key);request.bytes(key);request.u32(4);request.u32(caps);
-        bool accepted=true;
-        try{combined.accept({Type::hello,static_cast<std::uint32_t>(request.data.size()),0,1},request.data);}
-        catch(const ProtocolError&){accepted=false;}
+        const bool accepted=accepts(combined,request.data);
         assert(accepted==(caps==(server_caps|capability_local_qpc_v1)));
         if(accepted){auto response=combined.welcome();Reader reply(response);reply.key();
             assert(reply.u32()==3&&reply.u32()==server_caps);}
@@ -49,10 +69,7 @@ int main() {
                   capability_native_armor,capability_gameplay_rules,server_caps}) {
         HostHandshake client(key,key,Role::host_client,Role::fabric_client,35);
         Writer request;request.bytes(key);request.bytes(key);request.u32(2);request.u32(cap);
-        bool rejected=false;
-        try{client.accept({Type::hello,static_cast<std::uint32_t>(request.data.size()),0,1},request.data);}
-        catch(const ProtocolError&){rejected=true;}
-        assert(rejected);
+        assert(!accepts(client,request.data));
     }
 
     // Keep every original rules/handshake assertion above. The current85 TNT
@@ -63,15 +80,13 @@ int main() {
         CombinedCase{combined_caps|capability_local_qpc_v1,4,false,true},
         CombinedCase{(combined_caps|capability_local_qpc_v1)&~capability_status_attributes,4,false,false},
         CombinedCase{combined_caps,4,false,false}, // effect hold still requires QPC
-        CombinedCase{combined_caps|capability_local_qpc_v1|1024u,4,false,false},
+        CombinedCase{combined_caps|capability_local_qpc_v1|(1u<<31),4,false,false},
         CombinedCase{combined_caps|capability_local_qpc_v1,2,false,false},
         CombinedCase{combined_caps|capability_local_qpc_v1,4,true,false}}) {
         HostHandshake combined(key,key,Role::host_server,Role::fabric_server,36);
         auto token=key;if(test.bad_token)token[0]^=1;
         Writer request;request.bytes(key);request.bytes(token);request.u32(test.role);request.u32(test.caps);
-        bool accepted=true;
-        try{combined.accept({Type::hello,static_cast<std::uint32_t>(request.data.size()),0,1},request.data);}
-        catch(const ProtocolError&){accepted=false;}
+        const bool accepted=accepts(combined,request.data);
         assert(accepted==test.accepted&&combined.ready()==test.accepted);
         if(accepted){
             assert(combined.peer_capabilities()==test.caps);
@@ -84,10 +99,7 @@ int main() {
     for(auto caps:{capability_host_explosions,combined_caps}) {
         HostHandshake client(key,key,Role::host_client,Role::fabric_client,37);
         Writer request;request.bytes(key);request.bytes(key);request.u32(2);request.u32(caps);
-        bool rejected=false;
-        try{client.accept({Type::hello,static_cast<std::uint32_t>(request.data.size()),0,1},request.data);}
-        catch(const ProtocolError&){rejected=true;}
-        assert(rejected&&!client.ready()&&client.peer_capabilities()==0);
+        assert(!accepts(client,request.data)&&!client.ready()&&client.peer_capabilities()==0);
     }
     // Retain a valid client capability as the positive control for role checks.
     HostHandshake shared_client(key,key,Role::host_client,Role::fabric_client,38);
@@ -97,4 +109,10 @@ int main() {
     auto shared_welcome=shared_client.welcome();Reader shared_reply(shared_welcome);assert(shared_reply.key()==key);
     assert(shared_reply.u32()==1&&shared_reply.u32()==0);
     assert(shared_reply.f32()==units_per_block&&shared_reply.f32()==minecraft_y_offset);shared_reply.finish();
+}
+
+int main() {
+    test_round_start_policy();
+    test_handshake();
+    std::puts("Gameplay rules: round-start policy and server/client handshake cases passed");
 }

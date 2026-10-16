@@ -13,7 +13,7 @@ std::uint64_t world=11,particle_generation=2,particle_texture_transfer=0,particl
 unsigned server_player_life=3,camera_revision=0;
 double minecraft_transition_until=0,last_camera=0;
 bool server_minecraft_form=true,minecraft_control=true,minecraft_menu=false,ui_active=false,compatible=true;
-struct Clearable {void clear(){}} camera_interpolator,view_interpolator;
+struct Clearable {void clear(){}} camera_interpolator,view_interpolator,native_motion,native_vision;
 struct Engine {void(*pfnClientCmd)(char*)=+[](char*){};} gEngfuncs;
 void ClearPostEffects(){} void ClearEntityFrame(){} void ReleaseMinecraftKeys(){}
 void ReleaseHostUse(){} void ClearHud(){} void UpdateViewModel(){} void Log(const std::string&){}

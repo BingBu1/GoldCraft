@@ -322,7 +322,8 @@ void held_readers_and_recovery(const fs::path& root) {
 int main(int argc, char** argv) {
     try {
         check(argc == 2, "fixture path argument");
-        const fs::path root = fs::absolute(argv[1]);
+        const fs::path root = fs::absolute(argv[1]) / ("run-" + std::to_string(GetCurrentProcessId()) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         check(!fs::exists(root), "fresh isolated output directory required");
         fs::create_directories(root);
         static_assert(sizeof(wchar_t) == 2 && sizeof(DWORD) == 4);

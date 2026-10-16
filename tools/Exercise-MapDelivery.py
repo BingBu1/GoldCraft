@@ -151,9 +151,10 @@ class Run(entity.Run):
         self.command('mc_map_mining_persist 1'); self.end(); self.restart()
         self.check('persist1 retains message routing across round',self.effect(self.delivery(v['source'],v['target']),v['source']))
         self.command('mc_map_mining_persist 0'); self.end()
-        self.check('round end immediately restores original PVS messages',self.empty(self.delivery(v['source'],v['target'])))
-        self.check('round end immediately restores original PAS sounds',self.empty(self.delivery(a['source'],a['target'],4)))
+        self.check('victory delay preserves carved PVS messages',self.effect(self.delivery(v['source'],v['target']),v['source']))
         self.restart()
+        self.check('next round start restores original PVS messages',self.empty(self.delivery(v['source'],v['target'])))
+        self.check('next round start restores original PAS sounds',self.empty(self.delivery(a['source'],a['target'],4)))
         sealed = geometry.sealed()
         self.report['sealedCavity'] = sealed
         self.cut(([p-4 for p in sealed],[p+4 for p in sealed]))

@@ -15,6 +15,8 @@
     "docs/BUILD.md",
     "docs/WORKSPACE_CLEANUP.md",
     "docs/HOST_TEXT_INPUT.md",
+    "docs/NATIVE_VISION.md",
+    "tools/Test-NativeVision.py",
     "tools/Test-HostText.py",
     "docs/LOCAL_PLAYTEST.md",
     "amxx/goldcraft/goldcraft_controls.sma",
@@ -349,7 +351,12 @@
     "tools/Test-HostRelocation.py",
     "docs/HOST_RELOCATION.md",
     "tools/Test-NativeVisibility.py",
-    "docs/NATIVE_VISIBILITY.md"
+    "docs/NATIVE_VISIBILITY.md",
+    "docs/DEATH_VIEW.md",
+    "docs/ROUND_CLEANUP.md",
+    "docs/STEAM_DISCONNECT.md",
+    "tools/Test-DeathView.py",
+    "tests/native/steam_worker_fake_api.def"
   ],
   "trees": {
     "native": [

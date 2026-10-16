@@ -14,6 +14,7 @@
 #include "goldcraft/status_attributes.hpp"
 #include "goldcraft/status_environment.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "pm_movevars.h"
 #include "goldcraft/native_armor.hpp"
@@ -599,6 +600,7 @@ void SendAvatar(unsigned slot,bool refresh) {
         MESSAGE_END();
     }
 }
+#include "observer_view.inc"
 void SendActors() {
     std::vector<int> slots;
     for(int i=1;i<=max_clients;++i) {
@@ -614,11 +616,12 @@ void SendActors() {
         std::uint32_t flags=(p->IsAlive()?1u:0u)|((e->v.flags&FL_DUCKING)?2u:0u)|((e->v.flags&FL_SPECTATOR)?4u:0u)|((e->v.flags&FL_FAKECLIENT)?8u:0u)|(binding->paired?16u:0u)|(controlled[slot].active?32u:0u)|(minecraft_forms[slot]?64u:0u);
         w.u32(slot); w.u32(binding->serial); w.u32(binding->userid); w.u32(p->m_iTeam); w.u32(flags); w.u32(player_lives[slot]);
         w.f32(e->v.health); w.f32(e->v.armorvalue);
-        for(int j=0;j<3;++j) w.f32(e->v.origin[j]);
+        const auto* view=ActorPresentationView(p);
+        for(int j=0;j<3;++j) w.f32(view->origin[j]);
         for(int j=0;j<3;++j) w.f32(e->v.velocity[j]);
-        w.f32(e->v.v_angle.x); w.f32(e->v.v_angle.y);
-        for(int j=0;j<3;++j) w.f32(e->v.mins[j]);
-        for(int j=0;j<3;++j) w.f32(e->v.maxs[j]);
+        w.f32(view->v_angle.x); w.f32(view->v_angle.y);
+        for(int j=0;j<3;++j) w.f32(view->mins[j]);
+        for(int j=0;j<3;++j) w.f32(view->maxs[j]);
         w.bytes(binding->uuid);
         w.u32(player_births[slot]);w.u64(vitals_ack[slot]);
         if(p->IsAlive()){
@@ -678,6 +681,7 @@ namespace {
 #include "status_environment.inc"
 #include "status_motion.inc"
 #include "status_visibility.inc"
+#include "status_vision.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
 #include "tnt_damage.inc"
@@ -908,7 +912,8 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();ClearStatusVisibility();
+        ClearStatusMotion();ClearStatusVisibility();ClearStatusVision();
+        vision_message=REG_USER_MSG(status_vision::message_name,status_vision::wire_bytes);
         motion_message=REG_USER_MSG(status_motion::message_name,44);
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
@@ -1175,7 +1180,6 @@ void GoldCraft_StartFrame() {
     try {
         GoldCraft_MapMiningFrame();
         UpdateGameplayRules();
-        if(g_pGameRules&&g_pGameRules->IsMultiplayer())gameplay_rules.observe_round(CSGameRules()->m_bRoundTerminating);
         link.poll();
         if(link.error()!=previous_error) { previous_error=link.error(); if(!previous_error.empty()) BridgeLog(previous_error); }
         if(link.connected() && link.generation()!=connection_generation) {
@@ -1193,7 +1197,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusVisibility();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusVisibility();ClearStatusVision();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1222,6 +1226,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::status_vision)HandleStatusVision(message.payload);
             else if(message.type==Type::status_visibility)HandleStatusVisibility(message.payload);
             else if(message.type==Type::status_motion)HandleStatusMotion(message.payload);
             else if(message.type==Type::status_environment)HandleStatusEnvironment(message.payload);

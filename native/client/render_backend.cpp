@@ -16,6 +16,7 @@ IMetaRenderer* renderer=nullptr;
 IMetaRendererScene* scene=nullptr;
 IMetaRendererSceneCulling* scene_culling=nullptr;
 IMetaRendererSceneLights* scene_lights=nullptr;
+IMetaRendererSceneVision* scene_vision=nullptr;
 IMetaRendererSceneStaticShadows* scene_static_shadows=nullptr;
 IMetaRendererStaticSceneCallbacks* static_callback=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
@@ -152,9 +153,16 @@ bool static_scene_covered() noexcept {
         scene_static_shadows->IsStaticSceneCovered(callback);
 }
 
+bool update_scene_vision(const MetaRendererSceneVision& state) noexcept {
+    stats.scene_vision_accepted=scene_vision&&callback&&scene_vision->UpdateVision(callback,state);
+    stats.scene_vision_state=stats.scene_vision_accepted?state:MetaRendererSceneVision{};
+    return stats.scene_vision_accepted;
+}
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
     set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
+    if(scene_vision&&callback)scene_vision->ClearVision(callback);
+    scene_vision=nullptr;stats.scene_vision_api=stats.scene_vision_accepted=false;stats.scene_vision_state={};
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     scene=nullptr;callback=nullptr;renderer=nullptr;stats.scene_api=stats.renderer=false;
@@ -196,6 +204,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.scene_culling_api=scene_culling!=nullptr;
     scene_lights=scene?static_cast<IMetaRendererSceneLights*>(factory(METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION,nullptr)):nullptr;
     stats.scene_lights_api=scene_lights!=nullptr;
+    scene_vision=scene?static_cast<IMetaRendererSceneVision*>(factory(METARENDERER_SCENE_VISION_INTERFACE_VERSION,nullptr)):nullptr;
+    stats.scene_vision_api=scene_vision!=nullptr;
     scene_static_shadows=scene?static_cast<IMetaRendererSceneStaticShadows*>(factory(METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION,nullptr)):nullptr;
     stats.scene_static_shadows_api=scene_static_shadows!=nullptr;
     post_scene_provider=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
@@ -215,6 +225,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
 }
 void shutdown(){
     set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
+    if(scene_vision&&callback)scene_vision->ClearVision(callback);
+    scene_vision=nullptr;stats.scene_vision_api=stats.scene_vision_accepted=false;stats.scene_vision_state={};
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
     if(edits)edits->Reset();
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);

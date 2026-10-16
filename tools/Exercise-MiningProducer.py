@@ -114,9 +114,11 @@ class Run(world.Run):
                    and self.state()["mapEditRevision"] == revision and self.trace([96, 2784, 400], [96, 2976, 400], 1)["fraction"] == 1)
         self.command("mc_map_mining_persist 0")
         self.end()
-        self.until(lambda: self.state()["mapEditCount"] == 0, "Round restores production cells")
+        self.check("victory delay keeps production cuts", self.state()["mapEditCount"] == count and self.state()["mapEditRevision"] == revision)
+        self.restart()
+        self.until(lambda: self.state()["mapEditCount"] == 0, "Next round start restores production cells")
         restored = self.trace([80, 2784, 400], [80, 2976, 400])
-        self.check("round end restores original point collision and advances revision", abs(restored["fraction"] - before["fraction"]) < 1e-7
+        self.check("next round start restores original point collision and advances revision", abs(restored["fraction"] - before["fraction"]) < 1e-7
                    and self.state()["mapEditRevision"] > revision)
         stats = self.physics()
         self.check("native geometry producer has no physics error fallback", stats["failures"] == 0 and not stats["error"])

@@ -1,4 +1,5 @@
 #include "steam_async_transport.hpp"
+#include "steam_worker_environment.hpp"
 #include <array>
 #include <vector>
 
@@ -45,6 +46,12 @@ bool ProcessBackend::transfer(void* data,unsigned bytes,bool write){
     return true;
 }
 bool ProcessBackend::initialize(){
+    const bool ok=initialize_process();
+    if(!ok&&initialization_result_==-1)initialization_result_=1000;
+    if(status_)status_->initialization=initialization_result_;
+    return ok;
+}
+bool ProcessBackend::initialize_process(){
     event_=CreateEventW(nullptr,TRUE,FALSE,nullptr);if(!event_)return false;
     const auto name=L"\\\\.\\pipe\\GoldCraftSteam-"+std::to_wstring(GetCurrentProcessId())+L"-"+
         std::to_wstring(GetCurrentThreadId())+L"-"+std::to_wstring(GetTickCount64());
@@ -68,8 +75,13 @@ bool ProcessBackend::initialize(){
     auto command=L"\""+executable_+L"\" "+std::to_wstring(reinterpret_cast<std::uintptr_t>(child_pipe))+L" \""+steam_+L"\"";
     PROCESS_INFORMATION process{};
     const auto directory=executable_.substr(0,executable_.find_last_of(L"/\\"));
+    auto* inherited_environment=GetEnvironmentStringsW();
+    ok=ok&&inherited_environment;
+    const auto environment=worker_environment(inherited_environment);
+    if(inherited_environment)FreeEnvironmentStringsW(inherited_environment);
     if(ok)ok=CreateProcessW(executable_.c_str(),command.data(),nullptr,nullptr,TRUE,
-        EXTENDED_STARTUPINFO_PRESENT|CREATE_NO_WINDOW|CREATE_SUSPENDED,nullptr,directory.c_str(),&startup.StartupInfo,&process)!=0;
+        EXTENDED_STARTUPINFO_PRESENT|CREATE_NO_WINDOW|CREATE_SUSPENDED|CREATE_UNICODE_ENVIRONMENT,
+        const_cast<wchar_t*>(environment.data()),directory.c_str(),&startup.StartupInfo,&process)!=0;
     DeleteProcThreadAttributeList(startup.lpAttributeList);CloseHandle(child_pipe);
     if(!ok)return false;
     process_=process.hProcess;
@@ -77,7 +89,18 @@ bool ProcessBackend::initialize(){
     ResumeThread(process.hThread);CloseHandle(process.hThread);
     wire::Reply hello;
     if(!transfer(&hello,sizeof(hello),false)||hello.signature!=wire::magic||hello.protocol!=wire::version)return false;
-    initialization_result_=hello.result;return !hello.result;
+    initialization_result_=hello.result;
+    if(status_){status_->app_id=hello.app_id;status_->logged_on=hello.logged_on;status_->sample_tick_ms=GetTickCount64();++status_->samples;}
+    next_status_=Clock::now()+std::chrono::seconds(1);
+    return !hello.result;
+}
+void ProcessBackend::poll(){
+    if(dead_||Clock::now()<next_status_)return;
+    next_status_=Clock::now()+std::chrono::seconds(1);
+    wire::Request command;command.op=wire::Op::status;wire::Reply reply;
+    if(request(command,reply)&&!reply.result){
+        if(status_){status_->app_id=reply.app_id;status_->logged_on=reply.logged_on;status_->sample_tick_ms=GetTickCount64();++status_->samples;}
+    }else {dead_=true;if(status_){status_->logged_on=-1;++status_->failures;}}
 }
 bool ProcessBackend::request(const wire::Request& request,wire::Reply& reply){
     return transfer(const_cast<wire::Request*>(&request),sizeof(request),true)&&transfer(&reply,sizeof(reply),false)&&

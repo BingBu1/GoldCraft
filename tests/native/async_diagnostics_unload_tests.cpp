@@ -21,7 +21,8 @@ int main(int argc, char** argv) {
     try {
         check(argc == 3, "dll and fresh output arguments");
         const auto dll_path = fs::absolute(argv[1]);
-        const auto root = fs::absolute(argv[2]);
+        const auto root = fs::absolute(argv[2]) / ("run-" + std::to_string(GetCurrentProcessId()) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         check(!fs::exists(root), "fresh unload output");
         fs::create_directories(root);
         for (unsigned iteration = 0; iteration < 8; ++iteration) {

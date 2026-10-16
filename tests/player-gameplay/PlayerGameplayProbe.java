@@ -36,10 +36,23 @@ public class PlayerGameplayProbe {
         snapshot(server,true,3);
         player.equipment.put(EquipmentSlot.CHEST,new ItemStack(new ArmorItem(),"armor",8,EquipmentSlot.CHEST));
         snapshot(server,true,7);player.creative=false;snapshot(server,true,5);
-        player.alive=false;snapshot(server,true,1);player.alive=true;player.removed=true;snapshot(server,true,0);
+        player.alive=false;snapshot(server,true,1);player.removed=true;snapshot(server,true,1);
+        player.creative=true;snapshot(server,true,1);player.creative=false;
+        // A real death screen can outlast the 90s CS warning window. Continue
+        // publishing presence every tick without granting old-life equipment.
+        for(int i=0;i<2000;i++)snapshot(server,true,1);
+        player.networkHandler.connection.open=false;snapshot(server,true,0);
+        player.networkHandler.connection.open=true;snapshot(server,false,0);
+        var handler=player.networkHandler;player.networkHandler=null;snapshot(server,true,0);player.networkHandler=handler;
+        handler.player=new ServerPlayerEntity();snapshot(server,true,0);handler.player=player;snapshot(server,true,1);
+        player.alive=true;
         player.removed=false;player.equipment.clear();
         player.equipment.put(EquipmentSlot.LEGS,new ItemStack("mod_armor","armor",3,EquipmentSlot.LEGS));
         snapshot(server,true,5);
+        GoldCraft.HOST_WORLD.actors.set(0,new HostWorldState.Actor(2,3,4,5,UUID1,0));
+        player.creative=true;snapshot(server,true,1);
+        GoldCraft.HOST_WORLD.actors.set(0,new HostWorldState.Actor(2,3,4,5,UUID1));
+        player.creative=false;
         player.equipment.put(EquipmentSlot.LEGS,new ItemStack("cosmetic","speed",3,EquipmentSlot.LEGS));
         snapshot(server,true,1);server.players.clear();snapshot(server,true,0);
         GoldCraft.available=false;int count=GoldCraft.packets.size();PlayerGameplay.tick(server,a->true);check(GoldCraft.packets.size()==count);

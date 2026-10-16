@@ -55,9 +55,10 @@ class Run(rounds.Run):
         self.check("round end and native cleanup preserve edit revision", self.state()["mapEditCount"] == 2 and self.state()["mapEditRevision"] == 3)
         self.command("mc_map_mining_persist 0")
         self.end()
-        cleared = struct.unpack("<QQQI", self.packet(60))
-        self.check("restore publishes one clear after real round end", cleared == (self.peer.world, 3, 4, 3))
+        self.check("victory delay retains edit revision", self.state()["mapEditCount"] == 2 and self.state()["mapEditRevision"] == 3)
         self.restart()
+        cleared = struct.unpack("<QQQI", self.packet(60))
+        self.check("restore publishes one clear at next round start", cleared == (self.peer.world, 3, 4, 3))
         self.command("gc_edits_fixture 300")
         revision, cuts = self.snapshot()
         self.check("journal overflow falls back to complete current state", revision == 304 and len(cuts) == 300

@@ -40,6 +40,8 @@ struct VoicePacket {
 struct Backend {
     virtual ~Backend() = default;
     virtual bool initialize() = 0;
+    virtual void poll() {}
+    virtual bool healthy()const {return true;}
     virtual void avatar(Avatar&) = 0;
     virtual void start_voice() = 0;
     virtual void stop_voice() = 0;

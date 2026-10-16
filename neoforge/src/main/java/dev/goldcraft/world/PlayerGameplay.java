@@ -33,9 +33,13 @@ public final class PlayerGameplay {
             if(actor.minecraftPlayer().getMostSignificantBits()==0&&actor.minecraftPlayer().getLeastSignificantBits()==0)continue;
             if(actor.slot()<1||actor.slot()>64||actor.serial()==0||actor.spawn()==0||actor.life()==0)continue;
             var player=server.getPlayerManager().getPlayer(actor.minecraftPlayer());
-            boolean connected=player!=null&&!player.isRemoved()&&bound.test(actor);
-            int flags=connected?1|(player.isCreative()?2:0):0;
-            if(connected&&player.isAlive()){
+            // Death removes the old entity while its authenticated connection
+            // remains open through the death screen and respawn replacement.
+            boolean connected=player!=null&&player.networkHandler!=null&&player.networkHandler.player==player
+                &&player.networkHandler.getConnection().isOpen()&&bound.test(actor);
+            int flags=connected?1:0;
+            if(connected&&(actor.flags()&5)==1&&player.isAlive()&&!player.isRemoved()){
+                if(player.isCreative())flags|=2;
                 for(var slot:EquipmentSlot.values())
                     if(armor(player.getEquippedStack(slot),slot)){flags|=4;break;}
             }

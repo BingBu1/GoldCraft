@@ -19,7 +19,7 @@ index b88e882..cfbe416 100644
      include/Interface
      "${VGUI2EXTENSION_SOURCE_PATH}/include/Interface"
 diff --git a/assets/svencoop/renderer/shader/common.h b/assets/svencoop/renderer/shader/common.h
-index f8e193e..160d404 100644
+index f8e193e..66d23c5 100644
 --- a/assets/svencoop/renderer/shader/common.h
 +++ b/assets/svencoop/renderer/shader/common.h
 @@ -76,15 +76,18 @@
@@ -49,7 +49,11 @@ index f8e193e..160d404 100644
  
  #define TEXTUREDRECT_VA_POSITION		0
  #define TEXTUREDRECT_VA_TEXCOORD		1
-@@ -251,11 +255,14 @@ struct scene_ubo_t{
+@@ -248,14 +252,18 @@ struct scene_ubo_t{
+ 	float r_lightmap_pow;
+ 	float padding;
+ 	float padding2;
++	vec4 statusVision;
  };
  
  struct dlight_ubo_t{
@@ -66,7 +70,7 @@ index f8e193e..160d404 100644
  struct entity_ubo_t{
  	mat4 r_entityMatrix;
  	vec4 r_color;
-@@ -276,10 +283,13 @@ struct studio_ubo_t{
+@@ -276,10 +284,13 @@ struct studio_ubo_t{
  	vec4 entity_origin;
  	vec4 r_elight_color[4];
  	vec4 r_elight_origin_radius[4];
@@ -81,7 +85,7 @@ index f8e193e..160d404 100644
  struct world_material_t
  {
  	vec2	diffuseScale;
-@@ -306,6 +316,11 @@ layout (std140, binding = BINDING_POINT_DLIGHT_UBO) uniform DLightBlock
+@@ -306,6 +317,11 @@ layout (std140, binding = BINDING_POINT_DLIGHT_UBO) uniform DLightBlock
     dlight_ubo_t DLightUBO;
  };
  
@@ -93,7 +97,7 @@ index f8e193e..160d404 100644
  //Entity level
  
  layout (std140, binding = BINDING_POINT_ENTITY_UBO) uniform EntityBlock
-@@ -318,6 +333,11 @@ layout (std140, binding = BINDING_POINT_STUDIO_UBO) uniform StudioBlock
+@@ -318,6 +334,11 @@ layout (std140, binding = BINDING_POINT_STUDIO_UBO) uniform StudioBlock
  	studio_ubo_t StudioUBO;
  };
  
@@ -105,10 +109,122 @@ index f8e193e..160d404 100644
  layout(std430, binding = BINDING_POINT_MATERIAL_SSBO) coherent buffer WorldMaterialBlock
  {
  	world_material_t WorldMaterialSSBO[];
-@@ -942,4 +962,4 @@ uint UnpackPackedMatIdAsMatId(uint packedMatId)
+@@ -837,7 +858,7 @@ vec4 ProcessLinearBlendShift(vec4 color)
+ 
+ #if defined(LINEAR_FOG_ENABLED) && defined(IS_FRAGMENT_SHADER)
+ 
+-	vec4 CalcFog(vec4 color, float distance)
++	vec4 CalcMapFog(vec4 color, float distance)
+ 	{
+ #if defined(LINEAR_FOG_SHIFT_ENABLED)
+ 		distance = ProcessLinearFogShift(distance);
+@@ -862,7 +883,7 @@ vec4 ProcessLinearBlendShift(vec4 color)
+ 
+ #elif defined(EXP_FOG_ENABLED) && defined(IS_FRAGMENT_SHADER)
+ 
+-	vec4 CalcFog(vec4 color, float distance)
++	vec4 CalcMapFog(vec4 color, float distance)
+ 	{
+ 		#if defined(LINEAR_FOG_SHIFT_ENABLED)
+ 			distance = ProcessLinearFogShift(distance);
+@@ -890,7 +911,7 @@ vec4 ProcessLinearBlendShift(vec4 color)
+ 
+ #elif defined(EXP2_FOG_ENABLED) && defined(IS_FRAGMENT_SHADER)
+ 
+-	vec4 CalcFog(vec4 color, float distance)
++	vec4 CalcMapFog(vec4 color, float distance)
+ 	{
+ 		#if defined(LINEAR_FOG_SHIFT_ENABLED)
+ 			distance = ProcessLinearFogShift(distance);
+@@ -917,13 +938,47 @@ vec4 ProcessLinearBlendShift(vec4 color)
+ 
+ #else
+ 
+-	vec4 CalcFog(vec4 color, float distance)
++	vec4 CalcMapFog(vec4 color, float distance)
+ 	{
+ 		return color;
+ 	}
+ 
+ #endif
+ 
++// Observer effects operate on illumination, before material albedo. A small
++// light floor handles GoldSrc's genuinely black lightmaps like vanilla's floor.
++vec4 ApplyStatusLighting(vec4 light)
++{
++    float night = SceneUBO.statusVision.x;
++    if (night > 0.0) {
++        vec3 base = max(light.rgb, vec3(0.03));
++        float peak = max(base.r, max(base.g, base.b));
++        if (peak < 1.0) light.rgb = mix(light.rgb, base / peak, night);
++    }
++    light.rgb = max(vec3(0.0), light.rgb - vec3(SceneUBO.statusVision.w));
++    return light;
++}
++
++vec4 ApplyStatusFog(vec4 color, float fragmentDistance, bool sky)
++{
++    float blindness = SceneUBO.statusVision.y;
++    float darkness = SceneUBO.statusVision.z;
++    if (blindness <= 0.0 && darkness <= 0.0) return color;
++    float farPlane = max(1.0, GetCameraZFar(GetCameraViewIndex()));
++    // GoldCraft uses 32 GoldSrc units per Minecraft block. Blindness wins.
++    float end = mix(farPlane, min(farPlane, (blindness > 0.0 ? 5.0 : 15.0) * 32.0),
++                    blindness > 0.0 ? blindness : darkness);
++    float start = sky ? 0.0 : end * (blindness > 0.0 ? 0.25 : 0.75);
++    if (sky && blindness > 0.0) end *= 0.8;
++    color.rgb *= clamp((end - fragmentDistance) / max(end - start, 0.001), 0.0, 1.0);
++    return color;
++}
++
++vec4 CalcFog(vec4 color, float fragmentDistance)
++{
++    return ApplyStatusFog(CalcMapFog(color, fragmentDistance), fragmentDistance, false);
++}
++
+ uint UnpackStudioBoneAsVertBone(uint packedBone)
+ {
+     return (packedBone & 0xFF);
+@@ -942,4 +997,4 @@ uint UnpackPackedMatIdAsMatId(uint packedMatId)
  uint UnpackPackedMatIdAsLightmapTextureNum(uint packedMatId)
  {
      return ((packedMatId >> 16) & 0xFFFF);
+-}
+\ No newline at end of file
++}
+diff --git a/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl b/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
+index 0812a10..e1ba545 100644
+--- a/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
++++ b/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
+@@ -179,20 +179,26 @@ void main()
+     }
+ #endif
+ 
++    if (specularColor.b < 0.5 && (stencilValue & STENCIL_MASK_NO_LIGHTING) == 0u)
++        lightmapColor = ApplyStatusLighting(lightmapColor);
+     vec4 finalColor = diffuseColor * lightmapColor;
+ 
+     float flDistanceToFragment = worldnormColor.z;
++    bool sky = (stencilValue & STENCIL_MASK_NO_FOG) != 0u ||
++               (specularColor.b > 0.6 && specularColor.b < 0.9);
+ 
+ #if !defined(SKY_FOG_ENABLED)
+ 
+ 	if((stencilValue & STENCIL_MASK_NO_FOG) == STENCIL_MASK_NO_FOG)
+-		out_FragColor = finalColor;
++		out_FragColor = ApplyStatusFog(finalColor, GetCameraZFar(0), true);
+ 	else
+-		out_FragColor = CalcFog(finalColor, flDistanceToFragment);
++        out_FragColor = ApplyStatusFog(CalcMapFog(finalColor, flDistanceToFragment),
++                                     sky ? GetCameraZFar(0) : flDistanceToFragment, sky);
+ 
+ #else
+ 
+-    out_FragColor = CalcFog(finalColor, flDistanceToFragment);
++    out_FragColor = ApplyStatusFog(CalcMapFog(finalColor, flDistanceToFragment),
++                                 sky ? GetCameraZFar(0) : flDistanceToFragment, sky);
+ 
+ #endif
 -}
 \ No newline at end of file
 +}
@@ -152,8 +268,21 @@ index df2097c..f61be0b 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/assets/svencoop/renderer/shader/sprite_shader.frag.glsl b/assets/svencoop/renderer/shader/sprite_shader.frag.glsl
+index d9bb651..e7815d2 100644
+--- a/assets/svencoop/renderer/shader/sprite_shader.frag.glsl
++++ b/assets/svencoop/renderer/shader/sprite_shader.frag.glsl
+@@ -73,7 +73,7 @@ void main(void)
+ 	out_Diffuse = baseColor;
+ 	out_Lightmap = lightmapColor;
+ 	out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, 0.0);
+-	out_Specular = vec4(0.0);
++	out_Specular = vec4(0.0, 0.0, 1.0, 0.0); // Sprite color is modulation, not map illumination.
+ 
+ #else
+ 
 diff --git a/assets/svencoop/renderer/shader/studio_shader.frag.glsl b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
-index 2fb67ac..50bfa0b 100644
+index 2fb67ac..a4e811b 100644
 --- a/assets/svencoop/renderer/shader/studio_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
 @@ -358,9 +358,9 @@ vec3 R_StudioDynamicLight_PhongSpecular(int i, vec3 vElightDirection, vec3 vWorl
@@ -225,6 +354,23 @@ index 2fb67ac..50bfa0b 100644
  
  		#if defined(SPECULARTEXTURE_ENABLED) || defined(PACKED_SPECULARTEXTURE_ENABLED)
  
+@@ -932,10 +932,16 @@ void main(void)
+ 		out_Diffuse = diffuseColor;
+ 		out_Lightmap = lightmapColor;
+ 		out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, 0.0);
++#if defined(STUDIO_NF_FULLBRIGHT) || defined(ADDITIVE_RENDER_MODE_ENABLED) || defined(ADDITIVE_BLEND_ENABLED) || defined(GLOW_SHELL_ENABLED)
++        specularColor.b = 1.0;
++#endif
+ 		out_Specular = specularColor;
+ 
+ 	#else
+ 
++#if !defined(STUDIO_NF_FULLBRIGHT) && !defined(ADDITIVE_RENDER_MODE_ENABLED) && !defined(ADDITIVE_BLEND_ENABLED) && !defined(GLOW_SHELL_ENABLED)
++        lightmapColor = ApplyStatusLighting(lightmapColor);
++#endif
+ 		vec4 finalColor = CalcFog(
+ 			ProcessLinearBlendShift(diffuseColor * lightmapColor), 
+ 			flDistanceToFragment
 diff --git a/assets/svencoop/renderer/shader/studio_shader.geom.glsl b/assets/svencoop/renderer/shader/studio_shader.geom.glsl
 index 8c0f48c..cf4912a 100644
 --- a/assets/svencoop/renderer/shader/studio_shader.geom.glsl
@@ -355,8 +501,21 @@ index 1bb79a2..54c8c74 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/assets/svencoop/renderer/shader/water_shader.frag.glsl b/assets/svencoop/renderer/shader/water_shader.frag.glsl
+index d0ad894..e29a8af 100644
+--- a/assets/svencoop/renderer/shader/water_shader.frag.glsl
++++ b/assets/svencoop/renderer/shader/water_shader.frag.glsl
+@@ -159,7 +159,7 @@ void main()
+ 	out_Diffuse = vFinalColor;
+ 	out_Lightmap = vec4(1.0, 1.0, 1.0, 1.0);
+ 	out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, 0.0);
+-	out_Specular = vec4(0.0);
++	out_Specular = vec4(0.0, 0.0, 1.0, 0.0); // Reflection/refraction already contains lighting.
+ 
+ #else
+ 
 diff --git a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
-index 7c18678..b0fd93b 100644
+index 7c18678..f1d5ba3 100644
 --- a/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/wsurf_shader.frag.glsl
 @@ -8,6 +8,28 @@
@@ -461,6 +620,39 @@ index 7c18678..b0fd93b 100644
  #endif
  
  	lightmapColor.x = pow(lightmapColor.x, SceneUBO.r_lightmap_pow);
+@@ -390,16 +425,32 @@ void main()
+ 			out_Diffuse = diffuseColor * detailColor * entityColor;
+ 			out_Lightmap = lightmapColor;
+ 			out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, out_Diffuse.a);
++            // Reserved specular B marks already-lit/emissive material.
++#if defined(FULLBRIGHT_ENABLED) || defined(ADDITIVE_BLEND_ENABLED)
++            specularColor.b = 1.0;
++#endif
++#if defined(SKYBOX_ENABLED)
++            specularColor.b = 0.75; // Sky still receives observer fog when map sky fog is enabled.
++#endif
+ 			out_Specular = specularColor;
+ 
+ 		#endif
+ 
+ 	#else
+ 
++#if !defined(FULLBRIGHT_ENABLED) && !defined(ADDITIVE_BLEND_ENABLED)
++        lightmapColor = ApplyStatusLighting(lightmapColor);
++#endif
++#if defined(SKYBOX_ENABLED)
++        vec4 color = ApplyStatusFog(CalcMapFog(
++            ProcessLinearBlendShift(diffuseColor * lightmapColor * detailColor * entityColor), flDistanceToFragment),
++            GetCameraZFar(GetCameraViewIndex()), true);
++#else
+ 		vec4 color = CalcFog(
+ 			ProcessLinearBlendShift(diffuseColor * lightmapColor * detailColor * entityColor), 
+ 			flDistanceToFragment
+ 		);
++#endif
+ 
+ 		GatherFragment(color);
+ 
 diff --git a/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl b/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl
 index 6810177..2c7a02d 100644
 --- a/assets/svencoop/renderer/shader/wsurf_shader.geom.glsl
@@ -566,10 +758,17 @@ index 8c6651f..922ceae 100644
 \ No newline at end of file
 +}
 diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
-index 6ce4285..523393a 100644
+index 6ce4285..5ddd988 100644
 --- a/cmake/Sources.cmake
 +++ b/cmake/Sources.cmake
-@@ -116,17 +116,40 @@ set(RENDERER_SOURCES
+@@ -1,5 +1,6 @@
+ # Explicit compile list from MetaHookSv Renderer.vcxproj at 11a8527.
+ set(RENDERER_SOURCES
++    src/gl_scene_vision.cpp
+     "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp"
+     "${METAHOOK_SOURCE_PATH}/include/SourceSDK/filesystem.cpp"
+     "${METAHOOK_SOURCE_PATH}/include/SourceSDK/filesystem_helpers.cpp"
+@@ -116,17 +117,40 @@ set(RENDERER_SOURCES
      "${PROJECT_SOURCE_DIR}/src/gl_hooks.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_hud.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_light.cpp"
@@ -762,7 +961,7 @@ index 06bf06e..89ca194 100644
  }
  
 diff --git a/src/gl_common.h b/src/gl_common.h
-index 2567c84..8ab3227 100644
+index 2567c84..3b6f1cc 100644
 --- a/src/gl_common.h
 +++ b/src/gl_common.h
 @@ -5,6 +5,8 @@
@@ -842,7 +1041,12 @@ index 2567c84..8ab3227 100644
  
  // A fragment node stores rendering information about one specific fragment
  typedef struct FragmentNode_s
-@@ -509,13 +500,6 @@ typedef struct scene_ubo_s
+@@ -505,17 +496,11 @@ typedef struct scene_ubo_s
+     float r_lightmap_pow;
+     float padding;
+     float padding2;
++    vec4 statusVision;
+ } scene_ubo_t;
  
  static_assert((sizeof(scene_ubo_t) % 16) == 0, "Size check");
  
@@ -856,7 +1060,7 @@ index 2567c84..8ab3227 100644
  static_assert((sizeof(dlight_ubo_t) % 16) == 0, "Size check");
  
  typedef struct entity_ubo_s
-@@ -542,12 +526,19 @@ typedef struct studio_ubo_s
+@@ -542,12 +527,19 @@ typedef struct studio_ubo_s
      vec4   entity_origin;
      vec4   r_elight_color[4];
      vec4   r_elight_origin_radius[4];
@@ -1056,7 +1260,7 @@ index b05298d..9234261 100644
      Install_InlineHook(D_FillRect);
      Install_InlineHook(R_GetSpriteFrame);
 diff --git a/src/gl_light.cpp b/src/gl_light.cpp
-index 81f47a5..ca59ac6 100644
+index 81f47a5..cbd75bc 100644
 --- a/src/gl_light.cpp
 +++ b/src/gl_light.cpp
 @@ -1,4 +1,5 @@
@@ -1075,15 +1279,16 @@ index 81f47a5..ca59ac6 100644
  
  GLuint r_sphere_vbo = 0;
  GLuint r_sphere_ebo = 0;
-@@ -354,6 +352,7 @@ void R_LoadDLightProgramStates(void)
+@@ -354,6 +352,8 @@ void R_LoadDLightProgramStates(void)
  
  void R_ShutdownLight(void)
  {
 +    R_ResetExternalSceneLights();
++    R_ClearExternalSceneVision(nullptr);
      g_BSPDynamicLights.clear();
      g_EngineDynamicLights.clear();
      g_VisibleDynamicLights.clear();
-@@ -600,51 +599,6 @@ bool R_IsDLightFlashlight(dlight_t* dl)
+@@ -600,51 +600,6 @@ bool R_IsDLightFlashlight(dlight_t* dl)
      return false;
  }
  
@@ -1135,7 +1340,7 @@ index 81f47a5..ca59ac6 100644
  bool R_IsDeferredRenderingEnabled(void)
  {
      if ((int)r_deferred_lighting->value < 1)
-@@ -692,7 +646,7 @@ void R_BeginRenderGBuffer(void)
+@@ -692,7 +647,7 @@ void R_BeginRenderGBuffer(void)
      GL_BeginDebugGroup("R_BeginRenderGBuffer");
  
      r_draw_gbuffer = true;
@@ -1144,7 +1349,7 @@ index 81f47a5..ca59ac6 100644
  
      GL_BindFrameBuffer(&s_GBufferFBO);
  
-@@ -1664,16 +1618,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
+@@ -1664,16 +1619,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
  {
      if (R_IsAmbientOcclusionEnabled())
      {
@@ -1171,7 +1376,7 @@ index 81f47a5..ca59ac6 100644
  }
  
  void R_BlitGBufferToFrameBuffer(FBO_Container_t* dst, bool color, bool depth, bool stencil)
-@@ -1959,7 +1919,19 @@ void R_ProcessEngineDynamicLights()
+@@ -1959,7 +1920,19 @@ void R_ProcessEngineDynamicLights()
              float specular    = r_dynlight_specular->GetValue();
              float specularpow = r_dynlight_specularpow->GetValue();
  
@@ -1192,7 +1397,7 @@ index 81f47a5..ca59ac6 100644
  
              vec3_t distToLight;
              VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
-@@ -1973,9 +1945,9 @@ void R_ProcessEngineDynamicLights()
+@@ -1973,9 +1946,9 @@ void R_ProcessEngineDynamicLights()
              dynamicLight->specular    = specular;
              dynamicLight->specularpow = specularpow;
  
@@ -1345,7 +1550,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..0a2fddb 100644
+index d59b139..78b454d 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,10 @@
@@ -1680,7 +1885,7 @@ index d59b139..0a2fddb 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6723,80 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6723,81 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -1736,6 +1941,7 @@ index d59b139..0a2fddb 100644
 +    {
 +        R_UnregisterExternalStaticScene(callbacks);
 +        R_ClearExternalSceneLights(callbacks);
++    R_ClearExternalSceneVision(callbacks);
 +        externalSceneCallbacks.erase(std::remove(externalSceneCallbacks.begin(), externalSceneCallbacks.end(), callbacks), externalSceneCallbacks.end());
 +    }
 +    void SetDynamicLightShadowSize(int key, unsigned size) override
@@ -3543,7 +3749,7 @@ index 96e8b28..1c50a15 100644
          for (size_t i = 0; i < pLeaf->m_vWaterSurfaceModels.size(); ++i)
          {
 diff --git a/src/gl_wsurf.cpp b/src/gl_wsurf.cpp
-index 41f24f3..926ea71 100644
+index 41f24f3..e39d28d 100644
 --- a/src/gl_wsurf.cpp
 +++ b/src/gl_wsurf.cpp
 @@ -1,4 +1,7 @@
@@ -7744,18 +7950,19 @@ index 41f24f3..926ea71 100644
  
      if (g_WorldSurfaceRenderer.bLightmapTexture)
      {
-@@ -3665,6 +2351,10 @@ void R_InitWSurf(void)
+@@ -3665,6 +2351,11 @@ void R_InitWSurf(void)
  
  void R_FreeWorldResources(void)
  {
 +    R_ExternalStaticSceneNewMap();
 +    R_ResetExternalSceneLights();
++    R_ClearExternalSceneVision(nullptr);
 +    R_ForgetWorldEdits();
 +    R_DrainWorldLeafTasks();
      // Release frame-held water models before their owning leaves on map changes and shutdown.
      R_ClearWaterModelReferences();
  
-@@ -4536,7 +3226,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
+@@ -4536,7 +3227,7 @@ void R_LoadExternalEntities(std::vector<bspentity_t*>& vBSPEntities)
  
          if (!pFile)
          {
@@ -7764,7 +7971,7 @@ index 41f24f3..926ea71 100644
              return;
          }
      }
-@@ -5052,7 +3742,8 @@ void R_DrawBrushModel(cl_entity_t* e)
+@@ -5052,7 +3743,8 @@ void R_DrawBrushModel(cl_entity_t* e)
          g_WorldSurfaceRenderer.bLightmapTexture = false;
      }
  
@@ -7774,7 +7981,11 @@ index 41f24f3..926ea71 100644
  
      if (pModel)
      {
-@@ -5206,45 +3897,105 @@ void R_UploadSceneUBO(void)
+@@ -5203,48 +3895,109 @@ void R_UploadSceneUBO(void)
+         SceneUBO.r_lightstylevalue[i / 4][i % 4] = d_lightstylevalue[i] * (1.0f / 264.0f);
+     }
+ 
++    R_ApplyExternalSceneVision(SceneUBO);
      GL_UploadSubDataToUBO(g_WorldSurfaceRenderer.hSceneUBO, 0, sizeof(SceneUBO), &SceneUBO);
  }
  
@@ -8214,10 +8425,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..b4eee21 100644
+index 93166e2..a93af3c 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,111 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,119 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -8250,6 +8461,14 @@ index 93166e2..b4eee21 100644
 +    DEPENDS extract_forward_light_upload.py "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
 +        "${PROJECT_SOURCE_DIR}/src/gl_rmain.cpp" "${PROJECT_SOURCE_DIR}/src/gl_draw.cpp"
 +    VERBATIM)
++add_executable(scene_vision_gl_tests scene_vision_gl_tests.cpp)
++target_compile_definitions(scene_vision_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(scene_vision_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(scene_vision_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME scene_vision_gl_tests COMMAND scene_vision_gl_tests)
++set_tests_properties(scene_vision_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
++
 +add_executable(forward_light_gl_tests forward_light_gl_tests.cpp "${CMAKE_CURRENT_BINARY_DIR}/forward_light_upload.inc")
 +target_include_directories(forward_light_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 +target_compile_definitions(forward_light_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
@@ -8331,7 +8550,7 @@ index 93166e2..b4eee21 100644
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +143,187 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +151,187 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -8554,6 +8773,211 @@ index f6dbd9f..03194dd 100644
              uintptr_t stackBefore{}, stackAfter{};
              __asm
                  {
+diff --git a/include/Interface/IMetaRendererSceneVision.h b/include/Interface/IMetaRendererSceneVision.h
+new file mode 100644
+index 0000000..c8adc2f
+--- /dev/null
++++ b/include/Interface/IMetaRendererSceneVision.h
+@@ -0,0 +1,18 @@
++#pragma once
++#include <IMetaRendererScene.h>
++
++// Optional per-observer extension. Does not mutate map lighting or cvars.
++struct MetaRendererSceneVision
++{
++    float nightVision, blindness, darkness, darknessPulse;
++};
++static_assert(sizeof(MetaRendererSceneVision) == 16);
++class IMetaRendererSceneVision : public IBaseInterface
++{
++public:
++    // Registered scene owner only; finite [0,1] coefficients. Values expire
++    // after 350ms of engine time, including on backward time/map transitions.
++    virtual bool UpdateVision(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneVision& state) noexcept = 0;
++    virtual void ClearVision(IMetaRendererSceneCallbacks* owner) noexcept = 0;
++};
++#define METARENDERER_SCENE_VISION_INTERFACE_VERSION "MetaRendererSceneVision_API_001"
+diff --git a/src/gl_scene_vision.cpp b/src/gl_scene_vision.cpp
+new file mode 100644
+index 0000000..73e898a
+--- /dev/null
++++ b/src/gl_scene_vision.cpp
+@@ -0,0 +1,42 @@
++#include "gl_local.h"
++#include "gl_external_scene.h"
++#include <cmath>
++
++namespace
++{
++IMetaRendererSceneCallbacks* visionOwner{};
++MetaRendererSceneVision vision{};
++double visionTime{};
++class CMetaRendererSceneVision : public IMetaRendererSceneVision
++{
++public:
++    bool UpdateVision(IMetaRendererSceneCallbacks* owner, const MetaRendererSceneVision& state) noexcept override
++    {
++        if (!owner || !R_IsExternalSceneOwner(owner) || (visionOwner && visionOwner != owner)) return false;
++        for (float value : {state.nightVision, state.blindness, state.darkness, state.darknessPulse})
++            if (!std::isfinite(value) || value < 0 || value > 1) return false;
++        if (state.darknessPulse > state.darkness * .45f + .00001f) return false;
++        visionOwner = owner;
++        vision = state;
++        visionTime = *cl_time;
++        return true;
++    }
++    void ClearVision(IMetaRendererSceneCallbacks* owner) noexcept override { R_ClearExternalSceneVision(owner); }
++};
++}
++void R_ClearExternalSceneVision(IMetaRendererSceneCallbacks* owner) noexcept
++{
++    if (!owner || owner == visionOwner) { visionOwner = nullptr; vision = {}; visionTime = 0; }
++}
++void R_ApplyExternalSceneVision(scene_ubo_t& scene) noexcept
++{
++    for (auto& value : scene.statusVision) value = 0;
++    const double now = *cl_time;
++    if (visionOwner && (now < visionTime || now - visionTime >= .35)) R_ClearExternalSceneVision(nullptr);
++    if (!visionOwner || R_IsRenderingShadowView()) return;
++    scene.statusVision[0] = vision.nightVision;
++    scene.statusVision[1] = vision.blindness;
++    scene.statusVision[2] = vision.darkness;
++    scene.statusVision[3] = vision.darknessPulse;
++}
++EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneVision, IMetaRendererSceneVision, METARENDERER_SCENE_VISION_INTERFACE_VERSION);
+diff --git a/tests/scene_vision_gl_tests.cpp b/tests/scene_vision_gl_tests.cpp
+new file mode 100644
+index 0000000..9a1b1c2
+--- /dev/null
++++ b/tests/scene_vision_gl_tests.cpp
+@@ -0,0 +1,127 @@
++// Real production observer extension and shaders on a hidden driver context.
++// Owner registration/time/shadow view are observing host adapters.
++#include "../src/gl_local.h"
++#include <GLFW/glfw3.h>
++#include <cassert>
++#include <cmath>
++#include <cstdio>
++#include <fstream>
++#include <sstream>
++#include <limits>
++#include "../src/gl_external_scene.h"
++double testTime=1;double* cl_time=&testTime;
++bool shadow=false;
++IMetaRendererSceneCallbacks* registered=nullptr;
++bool R_IsExternalSceneOwner(IMetaRendererSceneCallbacks* owner) noexcept {return owner==registered;}
++bool R_IsRenderingShadowView(){return shadow;}
++#undef EXPOSE_SINGLE_INTERFACE
++#define EXPOSE_SINGLE_INTERFACE(...)
++#include "../src/gl_scene_vision.cpp"
++namespace {
++unsigned checks=0;
++void Check(bool ok){++checks;if(!ok){std::fprintf(stderr,"vision check %u failed\n",checks);std::abort();}}
++struct Owner:IMetaRendererSceneCallbacks {void DrawOpaqueScene(std::uint32_t) override {}};
++std::string Read(const char* filename){std::ifstream file(std::string(RENDERER_SHADER_DIRECTORY)+"/"+filename,std::ios::binary);
++ Check(file.good());std::ostringstream text;text<<file.rdbuf();return text.str();}
++GLuint Compile(GLenum stage,std::string source,const char* defines=""){
++ auto i=source.find("#include \"common.h\"");if(i!=std::string::npos)source.replace(i,19,Read("common.h"));
++ source.insert(source.find('\n')+1,std::string(defines)+(stage==GL_FRAGMENT_SHADER?"\n#define IS_FRAGMENT_SHADER\n":"\n#define IS_VERTEX_SHADER\n"));
++ GLuint shader=glCreateShader(stage);const char* text=source.c_str();glShaderSource(shader,1,&text,nullptr);glCompileShader(shader);
++ GLint ok=0;glGetShaderiv(shader,GL_COMPILE_STATUS,&ok);if(!ok){char log[16384]{};glGetShaderInfoLog(shader,sizeof(log),nullptr,log);std::fprintf(stderr,"%s\n",log);}Check(ok!=0);return shader;
++}
++const char* Vertex="#version 430\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2-1,0,1);}";
++GLuint Program(const char* defines=""){
++ GLuint vs=Compile(GL_VERTEX_SHADER,Vertex),fs=Compile(GL_FRAGMENT_SHADER,R"(#version 430
++#include "common.h"
++uniform vec4 illumination;uniform vec4 material;uniform float testDistance;uniform int mode;
++layout(location=0) out vec4 result;
++void main(){
++ if(mode==0)result=ApplyStatusLighting(illumination)*material;
++ else if(mode==1)result=CalcFog(material,testDistance);
++ else result=ApplyStatusFog(material,testDistance,true);
++})",defines);
++ GLuint p=glCreateProgram();glAttachShader(p,vs);glAttachShader(p,fs);glLinkProgram(p);GLint ok=0;glGetProgramiv(p,GL_LINK_STATUS,&ok);Check(ok!=0);
++ glDeleteShader(vs);glDeleteShader(fs);return p;
++}
++std::array<float,4> Pixel(GLuint program,int mode,float distance=0){glUseProgram(program);
++ glUniform4f(glGetUniformLocation(program,"illumination"),.02f,.01f,.005f,1);
++ glUniform4f(glGetUniformLocation(program,"material"),.4f,.2f,.1f,.6f);
++ glUniform1i(glGetUniformLocation(program,"mode"),mode);glUniform1f(glGetUniformLocation(program,"testDistance"),distance);
++ glDrawArrays(GL_TRIANGLES,0,3);std::array<float,4> pixel{};glReadPixels(0,0,1,1,GL_RGBA,GL_FLOAT,pixel.data());Check(glGetError()==GL_NO_ERROR);return pixel;}
++void Near(float a,float b){Check(std::abs(a-b)<.0001f);}
++GLuint DeferredProgram(const char* defines=""){
++ GLuint vs=Compile(GL_VERTEX_SHADER,"#version 430\nout vec2 texCoord;void main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);texCoord=p;gl_Position=vec4(p*2-1,0,1);}"),
++ fs=Compile(GL_FRAGMENT_SHADER,Read("dfinal_shader.frag.glsl"),defines);
++ GLuint p=glCreateProgram();glAttachShader(p,vs);glAttachShader(p,fs);glLinkProgram(p);GLint ok=0;glGetProgramiv(p,GL_LINK_STATUS,&ok);Check(ok!=0);
++ glDeleteShader(vs);glDeleteShader(fs);return p;
++}
++}
++int main(){
++ Owner owner,other;registered=&owner;CMetaRendererSceneVision api;scene_ubo_t scene{};
++ Check(!api.UpdateVision(&other,{1,0,0,0}));Check(!api.UpdateVision(nullptr,{1,0,0,0}));
++ Check(!api.UpdateVision(&owner,{std::numeric_limits<float>::quiet_NaN(),0,0,0}));
++ Check(!api.UpdateVision(&owner,{0,0,.5f,.3f}));Check(!api.UpdateVision(&owner,{1.01f,0,0,0}));
++ Check(api.UpdateVision(&owner,{1,.5f,.4f,.1f}));R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],1);Near(scene.statusVision[3],.1f);
++ api.ClearVision(&other);R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],1);
++ shadow=true;R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],0);shadow=false;
++ testTime+=.349;R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],1);
++ testTime+=.002;R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],0);
++ Check(api.UpdateVision(&owner,{1,0,0,0}));testTime-=.1;R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],0);
++ Check(api.UpdateVision(&owner,{1,0,0,0}));api.ClearVision(&owner);R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],0);
++ Check(api.UpdateVision(&owner,{1,0,0,0}));R_ClearExternalSceneVision(nullptr);R_ApplyExternalSceneVision(scene);Near(scene.statusVision[0],0);
++ if(!glfwInit())return 2;glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,4);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
++ auto* window=glfwCreateWindow(8,8,"status vision regression",nullptr,nullptr);if(!window)return 2;glfwMakeContextCurrent(window);glewExperimental=GL_TRUE;if(glewInit()!=GLEW_OK)return 2;
++ while(glGetError()!=GL_NO_ERROR){}std::printf("Driver: %s / %s\n",glGetString(GL_RENDERER),glGetString(GL_VERSION));
++ GLuint vao,fbo,texture,ubo,cameraBuffer;glGenVertexArrays(1,&vao);glBindVertexArray(vao);
++ glGenFramebuffers(1,&fbo);glBindFramebuffer(GL_FRAMEBUFFER,fbo);glGenTextures(1,&texture);glBindTexture(GL_TEXTURE_2D,texture);
++ glTexStorage2D(GL_TEXTURE_2D,1,GL_RGBA32F,8,8);glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,texture,0);
++ Check(glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);glViewport(0,0,8,8);
++ glGenBuffers(1,&ubo);glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferData(GL_UNIFORM_BUFFER,sizeof(scene),nullptr,GL_DYNAMIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,BINDING_POINT_SCENE_UBO,ubo);
++ // Camera layout is production std140; the single view uses the first record.
++ camera_ubo_t camera{};camera.numViews=1;camera.views[0].vup_zfar[3]=2048;
++ glGenBuffers(1,&cameraBuffer);glBindBuffer(GL_UNIFORM_BUFFER,cameraBuffer);glBufferData(GL_UNIFORM_BUFFER,sizeof(camera),&camera,GL_STATIC_DRAW);glBindBufferBase(GL_UNIFORM_BUFFER,BINDING_POINT_CAMERA_UBO,cameraBuffer);
++ auto upload=[&](MetaRendererSceneVision value){scene.statusVision[0]=value.nightVision;scene.statusVision[1]=value.blindness;
++  scene.statusVision[2]=value.darkness;scene.statusVision[3]=value.darknessPulse;
++  scene.fogStart=100;scene.fogEnd=1000;scene.fogColor[0]=.2f;scene.fogColor[1]=.3f;scene.fogColor[2]=.4f;scene.fogColor[3]=1;
++  glBindBuffer(GL_UNIFORM_BUFFER,ubo);glBufferSubData(GL_UNIFORM_BUFFER,0,sizeof(scene),&scene);};
++ GLuint program=Program();upload({});auto pixel=Pixel(program,0);Near(pixel[0],.008f);Near(pixel[1],.002f);Near(pixel[2],.0005f);Near(pixel[3],.6f);
++ upload({1,0,0,0});pixel=Pixel(program,0);Near(pixel[0],.4f);Near(pixel[1],.2f);Near(pixel[2],.1f);Near(pixel[3],.6f);
++ upload({.5f,0,0,0});pixel=Pixel(program,0);Near(pixel[0],.204f);Near(pixel[1],.101f);Near(pixel[2],.05025f);
++ upload({1,0,1,.45f});pixel=Pixel(program,0);Near(pixel[0],.22f);Near(pixel[1],.11f);Near(pixel[2],.055f);
++ upload({0,1,0,0});pixel=Pixel(program,1,40);Near(pixel[0],.4f);pixel=Pixel(program,1,160);Near(pixel[0],0);Near(pixel[3],.6f);
++ pixel=Pixel(program,1,100);Near(pixel[0],.2f);pixel=Pixel(program,2,128);Near(pixel[0],0);
++ upload({0,0,1,0});pixel=Pixel(program,1,360);Near(pixel[0],.4f);pixel=Pixel(program,1,480);Near(pixel[0],0);
++ upload({0,1,1,.45f});pixel=Pixel(program,1,160);Near(pixel[0],0);upload({});pixel=Pixel(program,1,1000);Near(pixel[0],.4f);
++ // Execute the actual deferred composition with the production RGB8 specular
++ // attachment. This catches missing markers, double application and sky escape.
++ GLuint buffers[6];glGenTextures(6,buffers);
++ auto textureData=[&](int unit,const std::array<float,4>& value,GLint format=GL_RGBA32F){
++  glActiveTexture(GL_TEXTURE0+unit);glBindTexture(GL_TEXTURE_2D,buffers[unit]);
++  glTexImage2D(GL_TEXTURE_2D,0,format,1,1,0,GL_RGBA,GL_FLOAT,value.data());
++  glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);};
++ auto stencilData=[&](unsigned char value){glActiveTexture(GL_TEXTURE0+DFINAL_BIND_STENCIL_TEXTURE);
++  glBindTexture(GL_TEXTURE_2D,buffers[DFINAL_BIND_STENCIL_TEXTURE]);glTexImage2D(GL_TEXTURE_2D,0,GL_R8UI,1,1,0,GL_RED_INTEGER,GL_UNSIGNED_BYTE,&value);
++  glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);};
++ textureData(DFINAL_BIND_DIFFUSE_TEXTURE,{.4f,.2f,.1f,.6f});textureData(DFINAL_BIND_LIGHTMAP_TEXTURE,{.02f,.01f,.005f,1});
++ textureData(DFINAL_BIND_WORLDNORM_TEXTURE,{0,0,100,0});textureData(DFINAL_BIND_DEPTH_TEXTURE,{1,0,0,0});
++ for(const char* defs:{"","#define SKY_FOG_ENABLED\n"}){
++  GLuint deferred=DeferredProgram(defs);stencilData(0);textureData(DFINAL_BIND_SPECULAR_TEXTURE,{0,0,0,1},GBUFFER_INTERNAL_FORMAT_SPECULAR);
++  upload({});pixel=Pixel(deferred,0);Near(pixel[0],.008f);Near(pixel[1],.002f);Near(pixel[3],.6f);
++  upload({1,0,0,0});pixel=Pixel(deferred,0);Near(pixel[0],.4f);Near(pixel[1],.2f);Near(pixel[2],.1f);
++  textureData(DFINAL_BIND_SPECULAR_TEXTURE,{0,0,1,1},GBUFFER_INTERNAL_FORMAT_SPECULAR);
++  pixel=Pixel(deferred,0);Near(pixel[0],.008f);Near(pixel[1],.002f);
++  textureData(DFINAL_BIND_SPECULAR_TEXTURE,{0,0,0,1},GBUFFER_INTERNAL_FORMAT_SPECULAR);stencilData(STENCIL_MASK_NO_LIGHTING);
++  pixel=Pixel(deferred,0);Near(pixel[0],.008f);stencilData(0);
++  upload({1,1,0,0});pixel=Pixel(deferred,0);Near(pixel[0],.2f);Near(pixel[3],.6f);
++  stencilData(STENCIL_MASK_NO_FOG);pixel=Pixel(deferred,0);Near(pixel[0],0);Near(pixel[3],.6f);
++  stencilData(0);textureData(DFINAL_BIND_SPECULAR_TEXTURE,{0,0,.75f,1},GBUFFER_INTERNAL_FORMAT_SPECULAR);
++  pixel=Pixel(deferred,0);Near(pixel[0],0);Near(pixel[3],.6f);
++  upload({});pixel=Pixel(deferred,0);Near(pixel[0],.008f);glDeleteProgram(deferred);
++ }
++ glDeleteTextures(6,buffers);glActiveTexture(GL_TEXTURE0);
++ // Compile production fragment variants, including shadow, forward and deferred.
++ for(const char* name:{"wsurf_shader.frag.glsl","studio_shader.frag.glsl","dfinal_shader.frag.glsl","water_shader.frag.glsl","sprite_shader.frag.glsl"})
++  for(const char* defs:{"","#define GBUFFER_ENABLED\n","#define SHADOW_CASTER_ENABLED\n","#define LINEAR_FOG_ENABLED\n","#define SKYBOX_ENABLED\n#define FULLBRIGHT_ENABLED\n"})glDeleteShader(Compile(GL_FRAGMENT_SHADER,Read(name),defs));
++ glDeleteProgram(program);glDeleteBuffers(1,&ubo);glDeleteBuffers(1,&cameraBuffer);glDeleteTextures(1,&texture);glDeleteFramebuffers(1,&fbo);glDeleteVertexArrays(1,&vao);
++ glfwDestroyWindow(window);glfwTerminate();std::printf("%u vision GL checks: actual extension/lease, lighting/fog and production shader variants; no gameplay/FPS acceptance\n",checks);
++}
 diff --git a/include/Interface/IMetaRendererScene.h b/include/Interface/IMetaRendererScene.h
 new file mode 100644
 index 0000000..c9c42ef
@@ -8626,10 +9050,10 @@ index 0000000..14cc56f
 +#define METARENDERER_SCENE_CULLING_INTERFACE_VERSION "MetaRendererSceneCulling_API_001"
 diff --git a/tests/scene_culling_tests.cpp b/tests/scene_culling_tests.cpp
 new file mode 100644
-index 0000000..875bf0c
+index 0000000..37cc9b2
 --- /dev/null
 +++ b/tests/scene_culling_tests.cpp
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,258 @@
 +// Execute the actual CPU volume implementation and extracted scene dispatch/
 +// interface factories. Engine view flags and the GBuffer mask are adapters;
 +// this test neither opens GL nor substitutes a camera/light culling oracle.
@@ -8688,6 +9112,7 @@ index 0000000..875bf0c
 +// Light ownership/cleanup is exercised by scene_lights_tests; this fixture
 +// retains only the scene dispatch and culling dependencies.
 +void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks*) noexcept {}
++void R_ClearExternalSceneVision(IMetaRendererSceneCallbacks*) noexcept {}
 +void R_InvalidateWorldShadowCaches(std::span<const goldcraft::carving::Box>) noexcept {}
 +
 +#include "scene_culling_dispatch.inc"
@@ -8932,14 +9357,17 @@ index 0000000..44e2e80
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/src/gl_external_scene.h b/src/gl_external_scene.h
 new file mode 100644
-index 0000000..4160cd9
+index 0000000..eee6054
 --- /dev/null
 +++ b/src/gl_external_scene.h
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,15 @@
 +#pragma once
 +#include <IMetaRendererScene.h>
 +#include <IMetaRendererSceneCulling.h>
 +#include <IMetaRendererSceneLights.h>
++#include <IMetaRendererSceneVision.h>
++void R_ClearExternalSceneVision(IMetaRendererSceneCallbacks* owner) noexcept;
++void R_ApplyExternalSceneVision(scene_ubo_t& scene) noexcept;
 +void     R_DrawExternalOpaqueScene();
 +unsigned R_GetExternalDlightShadowSize(int key);
 +bool R_IsExternalSceneOwner(IMetaRendererSceneCallbacks* owner) noexcept;
@@ -19638,10 +20066,10 @@ index 0000000..faee9b8
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/tests/scene_lights_tests.cpp b/tests/scene_lights_tests.cpp
 new file mode 100644
-index 0000000..31eec3a
+index 0000000..7a9d80a
 --- /dev/null
 +++ b/tests/scene_lights_tests.cpp
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,424 @@
 +// Production snapshot/owner/API implementation and complete extracted engine
 +// dispatch/visibility code. Host PVS/frustum inputs and texture objects are
 +// adapters; this is CPU correctness evidence, not GL pixels or game FPS.
@@ -19712,6 +20140,7 @@ index 0000000..31eec3a
 +bool R_IsRenderingGammaBlending() { return false; }
 +void R_SetGBufferMask(int) {}
 +void R_ProfileShadowCull(bool) {}
++void R_ClearExternalSceneVision(IMetaRendererSceneCallbacks*) noexcept {}
 +qboolean R_CullBox(vec3_t mins, vec3_t maxs)
 +{
 +    ++cullQueries;
@@ -20438,10 +20867,10 @@ index 0000000..4f44664
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/tests/scene_static_shadows_tests.cpp b/tests/scene_static_shadows_tests.cpp
 new file mode 100644
-index 0000000..b7dfe6c
+index 0000000..cb6eb27
 --- /dev/null
 +++ b/tests/scene_static_shadows_tests.cpp
-@@ -0,0 +1,315 @@
+@@ -0,0 +1,316 @@
 +#include "../src/gl_scene_static_shadows.cpp"
 +#include "../src/gl_shadow_cull.cpp"
 +#include <cassert>
@@ -20493,6 +20922,7 @@ index 0000000..b7dfe6c
 +void R_SetGBufferMask(int mask) { Check(mask == GBUFFER_MASK_ALL); }
 +void R_ProfileShadowCull(bool) {}
 +void R_ClearExternalSceneLights(IMetaRendererSceneCallbacks*) noexcept {}
++void R_ClearExternalSceneVision(IMetaRendererSceneCallbacks*) noexcept {}
 +
 +#include "scene_culling_dispatch.inc"
 +

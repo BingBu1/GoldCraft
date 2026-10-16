@@ -35,6 +35,10 @@ struct EndpointAdapter {
     bool connected() const{return ready;}
     std::uint64_t generation() const{return current_generation;}
 } link;
+struct DiscoveryAdapter {
+    std::uint64_t observed_world=0;bool observed_connected=false;
+    void state(std::uint64_t value,bool connected){observed_world=value;observed_connected=connected;}
+} discovery;
 void Log(const std::string& text){errors.push_back(text);}
 float GetCvar(const char* name){return cvars.at(name);}
 void SetCvar(const char* name,float value){cvars.at(name)=value;writes.emplace_back(name,value);}

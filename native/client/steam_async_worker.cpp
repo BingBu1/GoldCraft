@@ -2,6 +2,7 @@
 // process. Those SteamClient APIs explicitly forbid concurrent API access.
 #include "steam_async_state.hpp"
 #include "steam_async_wire.hpp"
+#include "steam_worker_environment.hpp"
 #include <Windows.h>
 #include <cstdlib>
 #include <memory>
@@ -19,7 +20,7 @@ bool transfer(HANDLE pipe,void* data,unsigned bytes,bool write){
 }
 struct Steam {
     HMODULE module{};void* client{};int pipe{},user{};void* voice{};void* friends{};void* utils{};
-    int error{};
+    int error{};unsigned app_id{};int logged_on=-1;
     ~Steam(){
         if(client&&user)invoke<void>(client,4,pipe,user);
         if(client&&pipe)invoke<bool>(client,1,pipe);
@@ -34,18 +35,28 @@ struct Steam {
         voice=invoke<void*>(client,5,user,pipe,"SteamUser023");
         friends=invoke<void*>(client,8,user,pipe,"SteamFriends017");
         utils=invoke<void*>(client,9,pipe,"SteamUtils010");
-        error=voice?(friends?(utils?0:9):8):7;return error==0;
+        error=voice?(friends?(utils?0:9):8):7;
+        if(error)return false;
+        app_id=invoke<unsigned>(utils,9);
+        // An optional worker must never become a second CS game/auth process.
+        // Do not create/cancel tickets or weaken the actual game's validation.
+        if(app_id){error=10;return false;}
+        logged_on=invoke<bool>(voice,1)?1:0;return true;
     }
 };
 }
 int wmain(int argc,wchar_t** argv){
     if(argc!=3)return 2;
+    // Also protect manual launches; parent-side filtering prevents inherited
+    // game identity from being visible even before this entry point runs.
+    if(!clear_worker_game_environment())return 2;
     const auto pipe=reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(wcstoull(argv[1],nullptr,10)));
     if(!pipe||pipe==INVALID_HANDLE_VALUE)return 2;
     // No new login, ticket or ownership emulation: attach to the user's real
     // running Steam session. The parent passes no account/token/password.
     Steam steam;wire::Reply reply;
     if(!steam.initialize(argv[2]))reply.result=steam.error;
+    reply.app_id=steam.app_id;reply.logged_on=steam.logged_on;
     if(!transfer(pipe,&reply,sizeof(reply),true)||reply.result)return 3;
     auto image=std::make_unique<Avatar>();auto audio=std::make_unique<VoicePacket>();
     bool recording=false;
@@ -55,6 +66,8 @@ int wmain(int argc,wchar_t** argv){
         if(request.signature!=wire::magic||request.protocol!=wire::version)break;
         reply={};unsigned bytes1=0,bytes2=0;void* data1=nullptr;void* data2=nullptr;
         switch(request.op){
+        case wire::Op::status:
+            reply.app_id=steam.app_id;reply.logged_on=invoke<bool>(steam.voice,1)?1:0;break;
         case wire::Op::avatar:
             if(request.size>2){reply.result=1;break;}
             invoke<bool>(steam.friends,37,request.id,false);

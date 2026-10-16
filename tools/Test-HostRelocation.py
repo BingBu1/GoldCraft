@@ -150,6 +150,9 @@ public class SharedVitals {public static void disconnect(UUID u){}public static 
 public static boolean prepare(ServerPlayerEntity p,HostWorldState h,HostWorldState.Actor a){return false;}
 public static boolean deferRemoval(ServerPlayerEntity p){return false;}public static int pending(UUID u){return 0;}}''',
     'dev/goldcraft/world/HostWorldReset.java': '''public class HostWorldReset {public static void activate(net.minecraft.server.world.ServerWorld w,long epoch){}}''',
+    'dev/goldcraft/world/HostDeathView.java': '''public class HostDeathView {
+public static net.minecraft.server.network.ServerPlayerEntity follow(net.minecraft.server.MinecraftServer s,net.minecraft.server.world.ServerWorld w,
+dev.goldcraft.bridge.HostWorldState h,dev.goldcraft.bridge.HostWorldState.Actor a,net.minecraft.server.network.ServerPlayerEntity p){return p;}}''',
     'dev/goldcraft/net/HostPayload.java': '''public class HostPayload {public static final Object ID=new Object();}''',
     'dev/goldcraft/GoldCraft.java': '''import dev.goldcraft.bridge.*;import java.util.*;
 public class GoldCraft {public static HostWorldState HOST_WORLD;public static boolean negotiated=true;public static long generation=9,frequency=1000000;

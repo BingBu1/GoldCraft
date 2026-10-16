@@ -12,20 +12,14 @@ public:
         if(clear_blocks==clear&&drop_items==drops)return;
         clear_blocks=clear;drop_items=drops;++revision;
     }
-    void observe_round(bool ended) {
-        if(ended&&!ended_)finish_round();
-        ended_=ended;
-    }
+    // Called only by the outermost real CleanUpMap, during RestartRound.
+    // A win/termination announcement must leave the completed round intact.
     void cleanup_round() {
-        if(!ended_)finish_round(); // Direct rg_restart_round / sv_restart.
-        ended_=false;
+        if(world&&clear_blocks){++clear_revision;++revision;}
     }
     Bytes encode() const {
         Writer w;w.u64(world);w.u64(revision);w.u64(clear_revision);
         w.u32(clear_blocks?1:0);w.u32(drop_items?1:0);return std::move(w.data);
     }
-private:
-    bool ended_=false;
-    void finish_round() { if(world&&clear_blocks){++clear_revision;++revision;} }
 };
 }

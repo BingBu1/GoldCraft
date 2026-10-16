@@ -13,6 +13,7 @@
 #include "vitals.hpp"
 #include "status_motion.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/status_vision.hpp"
 #include "input_audit.hpp"
 #include "goldcraft/host_key_events.hpp"
 #include "map_collision.hpp"
@@ -70,6 +71,7 @@ local_discovery::Publisher discovery;
 metahook_api_t* api = nullptr;
 Bytes binding;
 status_motion::Receiver native_motion;
+status_vision::Receiver native_vision;
 client_map::EditTransaction map_edits;
 edits::Assembler edit_assembler;
 double next_edit_query=0;
@@ -499,7 +501,7 @@ void ResetWorld() {
     ReleaseHostUse();
     RestoreViewModel();
     ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
-    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();native_motion.clear();
+    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();native_motion.clear();native_vision.clear();
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;minecraft_transition_until=0;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -693,6 +695,8 @@ void WriteDiagnostics() {
            <<",\"renderer\":"<<(gpu.renderer?"true":"false")<<",\"sceneApi\":"<<(gpu.scene_api?"true":"false")
            <<",\"sceneCullingApi\":"<<(gpu.scene_culling_api?"true":"false")<<",\"sceneCullingEnabled\":"<<((!render_scene_cull||render_scene_cull->value!=0)?"true":"false")
            <<",\"sceneLightsApi\":"<<(gpu.scene_lights_api?"true":"false")<<",\"sceneLightsSubmitted\":"<<gpu.scene_lights<<",\"sceneLightsFresh\":"<<(FreshLights()?"true":"false")
+           <<",\"sceneVisionApi\":"<<(gpu.scene_vision_api?"true":"false")<<",\"sceneVisionAccepted\":"<<(gpu.scene_vision_accepted?"true":"false")
+           <<",\"sceneVision\":["<<gpu.scene_vision_state.nightVision<<','<<gpu.scene_vision_state.blindness<<','<<gpu.scene_vision_state.darkness<<','<<gpu.scene_vision_state.darknessPulse<<']'
            <<",\"sceneStaticShadowsApi\":"<<(gpu.scene_static_shadows_api?"true":"false")
            <<",\"sceneStaticShadowsRegistered\":"<<(gpu.scene_static_shadows_registered?"true":"false")
            <<",\"sceneStaticShadowsEnabled\":"<<((!render_scene_static_shadows||render_scene_static_shadows->value!=0)?"true":"false")
@@ -799,6 +803,15 @@ void WriteDiagnostics() {
         frame_work_max_ms=view_frame_max_ms=0;
     }
 }
+int VisionMessage(const char*,int size,void* data){
+    try{
+        if(!data||size!=status_vision::wire_bytes)throw ProtocolError("Invalid GCVision length");
+        const auto s=status_vision::decode(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        if(s.epoch==world&&s.slot==player_slot&&s.serial==player_serial&&s.life==server_player_life)
+            native_vision.accept(s,Seconds());
+    }catch(const std::exception& e){Log(e.what());}
+    return 1;
+}
 int MotionMessage(const char*,int size,void* data){
     try{
         if(!data||size!=44)throw ProtocolError("Invalid GCMotion length");
@@ -815,7 +828,7 @@ int BindingMessage(const char*,int size,void* data) {
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
         if(new_world!=world){ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
-        if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
+        if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();native_vision.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
         if(!section_logged) Log("received server pairing identity for current map");
@@ -920,7 +933,7 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
-            native_motion.clear();minecraft_transition_until=form?Seconds()+0.5:0;
+            native_motion.clear();native_vision.clear();minecraft_transition_until=form?Seconds()+0.5:0;
             ClearPostEffects();
             // Resource uploads keep their epoch/generation identity across a
             // form or spawn change. Presentation frames still require new life.
@@ -1038,6 +1051,9 @@ void InitHud() {
     gEngfuncs.pfnRegisterVariable(status_motion::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue(status_motion::client_capability,client_motion::ready()?1.f:0.f);
     gEngfuncs.pfnHookUserMsg(status_motion::message_name,MotionMessage);
+    gEngfuncs.pfnRegisterVariable(status_vision::client_capability,"1",FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(status_vision::client_capability,1);
+    gEngfuncs.pfnHookUserMsg(status_vision::message_name,VisionMessage);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -1079,7 +1095,7 @@ int VidInit() {
     // epoch so a same-map video reset can recover through a fresh snapshot.
     map_edits.reset(world);edit_assembler.reset(world);edit_recovery=world!=0;next_edit_query=0;
     visible_entities::fixture_clear();
-    client_vitals::reset();native_motion.clear();
+    client_vitals::reset();native_motion.clear();native_vision.clear();
     packet_client::reset();
     ClearSections();ClearDynamic();ClearHud();
     next_scene_request=0;
@@ -1126,6 +1142,8 @@ void CalcRefDef(ref_params_t* params) {
             else motion_capture<<now-motion_start<<','<<minecraft_feet.x<<','<<minecraft_feet.y<<','<<minecraft_feet.z<<','<<pose.feet.x<<','<<pose.feet.y<<','<<pose.feet.z<<','<<pose.eye<<','<<pose_sequence<<','<<input_sequence<<','<<last_input_buttons<<','<<last_input_forward<<','<<last_input_side<<','<<input_latency_ms<<'\n';
         }
     }
+    const auto* vision=native_vision.active(world,player_slot,player_serial,server_player_life,now);
+    render::update_scene_vision(vision?MetaRendererSceneVision{vision->night,vision->blindness,vision->darkness,vision->pulse}:MetaRendererSceneVision{});
     observed_origin={params->simorg[0],params->simorg[1],params->simorg[2]};
     std::copy_n(params->vieworg, 3, native_view_origin.begin());
     observed_angles={params->viewangles[0],params->viewangles[1],params->viewangles[2]};
@@ -1763,7 +1781,7 @@ void PlayerMoveWithFluids(playermove_t* move,int server){
 void PlayerMove(playermove_t* move,int server){
     prediction_objects=0;
     if(!server&&!MatchingHostProtocol()){
-        native_fluids.clear();native_motion.clear();
+        native_fluids.clear();native_motion.clear();native_vision.clear();
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
         gExportfuncs.HUD_PlayerMove(move,server);return;
     }

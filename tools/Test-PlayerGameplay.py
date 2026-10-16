@@ -7,11 +7,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser(description=__doc__)
-p.add_argument('--output', type=Path, default=ROOT / 'analysis/player-gameplay-check')
+p.add_argument('--output', type=Path, default=ROOT / 'build/player-gameplay-check')
 a = p.parse_args()
 out = a.output.resolve()
-if not out.is_relative_to(ROOT / 'analysis'):
-    raise ValueError('Output must be in workspace analysis')
+if not out.is_relative_to(ROOT / 'build'):
+    raise ValueError('Output must be in workspace build')
 for part in (out, *out.parents):
     if part.is_symlink() or part.is_junction():
         raise ValueError('Redirected output')
@@ -41,6 +41,9 @@ public record Modifier(double value){}
 public void applyAttributeModifiers(EquipmentSlot target,BiConsumer<String,Modifier> action){if(slot==target)action.accept(attribute,new Modifier(amount));}}''',
     'net/minecraft/server/network/ServerPlayerEntity.java': '''import java.util.EnumMap;import net.minecraft.entity.EquipmentSlot;import net.minecraft.item.ItemStack;
 public class ServerPlayerEntity {public boolean removed,creative,alive=true;public final EnumMap<EquipmentSlot,ItemStack> equipment=new EnumMap<>(EquipmentSlot.class);
+public static class Connection {public boolean open=true;public boolean isOpen(){return open;}}
+public static class Handler {public ServerPlayerEntity player;public Connection connection=new Connection();public Connection getConnection(){return connection;}}
+public Handler networkHandler=new Handler();public ServerPlayerEntity(){networkHandler.player=this;}
 public boolean isRemoved(){return removed;}public boolean isCreative(){return creative;}public boolean isAlive(){return alive;}
 public ItemStack getEquippedStack(EquipmentSlot slot){return equipment.getOrDefault(slot,new ItemStack(null,"",0,slot));}}''',
     'net/minecraft/server/MinecraftServer.java': '''import java.util.*;import net.minecraft.server.network.ServerPlayerEntity;
@@ -48,7 +51,8 @@ public class MinecraftServer {public final Map<UUID,ServerPlayerEntity> players=
 public ServerPlayerEntity getPlayer(UUID id){return players.get(id);}}''',
     'dev/goldcraft/bridge/HostWorldState.java': '''import java.util.*;
 public class HostWorldState {public final List<Actor> actors=new ArrayList<>();public long world=11;public long epoch(){return world;}public List<Actor> actors(){return actors;}
-public record Actor(int slot,int serial,int spawn,int life,UUID minecraftPlayer){}}''',
+public record Actor(int slot,int serial,int spawn,int life,UUID minecraftPlayer,int flags){
+public Actor(int slot,int serial,int spawn,int life,UUID id){this(slot,serial,spawn,life,id,1);}}}''',
     'dev/goldcraft/GoldCraft.java': '''import java.util.*;import dev.goldcraft.bridge.HostWorldState;
 public class GoldCraft {public static final HostWorldState HOST_WORLD=new HostWorldState();public static boolean available=true,send=true;
 public static final List<byte[]> packets=new ArrayList<>();public static boolean playerGameplayAvailable(){return available;}

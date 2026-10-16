@@ -3,6 +3,7 @@
 #include <Windows.h>
 #include <cstdlib>
 #include <cwchar>
+#include <initializer_list>
 using namespace goldcraft::steam_async;
 bool transfer(HANDLE pipe,void* data,unsigned size,bool write){
     auto* p=static_cast<unsigned char*>(data);
@@ -11,6 +12,12 @@ bool transfer(HANDLE pipe,void* data,unsigned size,bool write){
 }
 int wmain(int argc,wchar_t** argv){
     if(argc!=3)return 2;
+    if(GetEnvironmentVariableW(L"GOLDCRAFT_STEAM_TEST_CHECK_ENV",nullptr,0)){
+        // Unlike the production helper, this fixture does not scrub anything:
+        // prove CreateProcess received a clean environment before entry.
+        for(const auto* key:{L"SteamAppId",L"SteamGameId",L"SteamOverlayGameId",L"SteamEnv",L"SteamClientLaunch"})
+            if(GetEnvironmentVariableW(key,nullptr,0))return 9;
+    }
     auto pipe=reinterpret_cast<HANDLE>(static_cast<std::uintptr_t>(wcstoull(argv[1],nullptr,10)));
     if(!wcscmp(argv[2],L"startup-block"))Sleep(5000);
     wire::Reply reply;if(!transfer(pipe,&reply,sizeof(reply),true))return 3;

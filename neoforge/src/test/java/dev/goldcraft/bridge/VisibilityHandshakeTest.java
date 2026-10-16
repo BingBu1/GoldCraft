@@ -66,6 +66,7 @@ class VisibilityHandshakeTest {
     }
     @Test void legacyMotionHostDropsOnlyVisibility() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_VISION_CAP);}
 
             int first;try(var socket=host.accept()){first=hello(socket,false);}
             try(var socket=host.accept()){
@@ -78,6 +79,7 @@ class VisibilityHandshakeTest {
     }
     @Test void retryRejectsUnrequestedVisibility() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_VISION_CAP);}
 
             try(var socket=host.accept()){hello(socket,false);}
             try(var socket=host.accept()){

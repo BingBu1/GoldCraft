@@ -1,0 +1,3 @@
+LIBRARY steam_worker_fake_api
+EXPORTS
+    CreateInterface

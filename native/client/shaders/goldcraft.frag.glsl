@@ -56,9 +56,10 @@ void main(){
     out_Diffuse=diffuse;
     out_Lightmap=ambient;
     out_WorldNorm=vec4(UnitVectorToOctahedron(normal),distanceToCamera,diffuse.a);
-    out_Specular=vec4(0.0);
+    out_Specular=vec4(0.0,0.0,u_emissive!=0?1.0:0.0,0.0);
     #else
-    out_Diffuse=ProcessLinearBlendShift(diffuse*ambient);
+    if(u_emissive==0)ambient=ApplyStatusLighting(ambient);
+    out_Diffuse=ApplyStatusFog(ProcessLinearBlendShift(diffuse*ambient),distanceToCamera,false);
     #endif
 #endif
 }

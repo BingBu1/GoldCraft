@@ -3,6 +3,7 @@
 Scratch repositories contain only the files changed by that patch. External
 worktrees and runtime installations are read only for this verification.
 """
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -18,11 +19,18 @@ def run(cwd, *args):
 
 def main():
     lock = json.loads((ROOT / "sources.lock.json").read_text(encoding="utf-8"))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--only', nargs='+', choices=lock['sources'])
+    parser.add_argument('--output', type=Path, default=ROOT/'build/publication/source-patches.json')
+    args = parser.parse_args()
+    output = args.output.resolve()
+    if not output.is_relative_to(ROOT/'build'):
+        raise ValueError('Patch verification output must remain in workspace build')
     scratch = ROOT / "build/source-patch-validation" / str(time.time_ns())
     scratch.mkdir(parents=True)
     reports = []
     for name, entry in lock["sources"].items():
-        if "patch" not in entry:
+        if "patch" not in entry or (args.only and name not in args.only):
             continue
         source, patch = ROOT / entry["path"], ROOT / entry["patch"]
         actual = run(source, "rev-parse", "HEAD").stdout.decode().strip()
@@ -61,7 +69,6 @@ def main():
                   "patchSha256": hashlib.sha256(patch.read_bytes()).hexdigest(), "passed": True}
         reports.append(result)
         print(json.dumps(result))
-    output = ROOT / "analysis/publication/source-patches.json"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(reports, indent=2), encoding="utf-8")
 

@@ -9,6 +9,7 @@
 #include <IMetaRendererScene.h>
 #include <IMetaRendererSceneCulling.h>
 #include <IMetaRendererSceneLights.h>
+#include <IMetaRendererSceneVision.h>
 #include <IMetaRendererSceneStaticShadows.h>
 #include <IMetaRendererWorldEdit.h>
 #include <IMetaRendererPostScene.h>
@@ -45,6 +46,8 @@ struct Statistics {
     std::uint64_t shadow_bounds_tests=0,shadow_bounds_culled=0;
     bool core=false,renderer=false,scene_api=false,post_scene_api=false,scene_culling_api=false;
     bool scene_lights_api=false;
+    bool scene_vision_api=false,scene_vision_accepted=false;
+    MetaRendererSceneVision scene_vision_state{};
     std::uint32_t scene_lights=0;
     bool scene_static_shadows_api=false,scene_static_shadows_registered=false;
     std::uint64_t static_shadow_invalidations=0;
@@ -61,6 +64,7 @@ bool owns_context();
 void set_light_shadow(int key, unsigned size);
 bool update_scene_lights(std::span<const SceneLight> lights) noexcept;
 void clear_scene_lights();
+bool update_scene_vision(const MetaRendererSceneVision& state) noexcept;
 bool set_static_scene(IMetaRendererStaticSceneCallbacks* callbacks,bool enabled) noexcept;
 void invalidate_static_scene(const RenderBounds* bounds=nullptr) noexcept;
 bool static_scene_covered() noexcept;

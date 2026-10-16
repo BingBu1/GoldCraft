@@ -23,6 +23,9 @@
       "path": "external/MetaHookSv-20261007/Plugins/Renderer",
       "patch": "patches/renderer-goldcraft.patch",
       "newFiles": [
+        "include/Interface/IMetaRendererSceneVision.h",
+        "src/gl_scene_vision.cpp",
+        "tests/scene_vision_gl_tests.cpp",
         "include/Interface/IMetaRendererScene.h",
         "include/Interface/IMetaRendererSceneCulling.h",
         "tests/scene_culling_tests.cpp",

@@ -368,7 +368,13 @@ public final class HostSession {
                 !wantsControl&&(state.enabled||state.effects!=null||state.effectAligned)))
                 retireEffects(state,alive&&actor.minecraftForm());
             if((!alive||!wantsControl)&&state.enabled){hold(player);state.placed=state.enabled=false;}
-            if(!alive){if(state.alive)hold(player);state.placed=false;}
+            if(!alive){
+                player=HostDeathView.follow(server,world,host,actor,player);
+                state.entity=player;state.ready=state.placed=state.alive=state.enabled=false;
+                SharedVitals.active(player,false);
+                sendPose(host,actor,player,false,effectsNegotiated,null);
+                continue;
+            }
             if(alive&&(!state.placed||!player.isAlive()||player.getWorld()!=world)) {
                 if(effectsNegotiated&&state.effects!=null)retireEffects(state,true);
                 hold(player);

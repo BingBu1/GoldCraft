@@ -26,7 +26,7 @@ struct WorkerState {
     State state;
     Binding avatars,voice;
     std::atomic<bool> avatars_bound{},voice_bound{};
-    std::atomic<int> avatar_initialization{-1},voice_initialization{-1};
+    HelperStatus avatar_status,voice_status;
     std::atomic<bool> hooks_released{};
     HANDLE cancel=CreateEventW(nullptr,TRUE,FALSE,nullptr);
     std::wstring executable,steam;
@@ -102,10 +102,10 @@ DWORD WINAPI worker(void* opaque){
     HMODULE pin;
     {std::unique_ptr<Work> work(static_cast<Work*>(opaque));pin=work->pin;
         auto& s=*work->state;
-        ProcessBackend backend(s.executable,s.steam,s.cancel);
+        ProcessBackend backend(s.executable,s.steam,s.cancel,work->voice?&s.voice_status:&s.avatar_status);
         try {
-            if(work->voice){s.state.run_voice(backend);s.voice_initialization=backend.initialization_result();}
-            else {s.state.run_avatars(backend);s.avatar_initialization=backend.initialization_result();}
+            if(work->voice)s.state.run_voice(backend);
+            else s.state.run_avatars(backend);
         }catch(...){work->state->state.stopping.store(true);}
     }
     // The worker owns the plugin reference while Steam is blocked. Releasing it
@@ -210,8 +210,13 @@ void diagnostics(std::ostream& out){
         out<<",\"avatarsCompleted\":"<<c.avatar_completed.load()<<",\"voicePackets\":"<<c.voice_packets.load()
            <<",\"voiceDropped\":"<<c.dropped.load()<<",\"lockMisses\":"<<c.lock_misses.load()
            <<",\"voiceResult\":"<<c.last_voice_result.load()<<",\"avatarReady\":"<<c.avatar_ready.load()
-           <<",\"voiceReady\":"<<c.voice_ready.load()<<",\"avatarInitResult\":"<<state->avatar_initialization.load()
-           <<",\"voiceInitResult\":"<<state->voice_initialization.load();}
+           <<",\"voiceReady\":"<<c.voice_ready.load()<<",\"avatarInitResult\":"<<state->avatar_status.initialization.load()
+           <<",\"voiceInitResult\":"<<state->voice_status.initialization.load();
+        auto helper=[&](const char* name,HelperStatus& s){const auto stamp=s.sample_tick_ms.load();const auto now=GetTickCount64();
+            out<<",\""<<name<<"\":{\"appId\":"<<s.app_id.load()
+            <<",\"loggedOn\":"<<s.logged_on.load()<<",\"samples\":"<<s.samples.load()<<",\"failures\":"<<s.failures.load()
+            <<",\"sampleAgeMs\":"<<(stamp?static_cast<long long>(now>=stamp?now-stamp:0):-1)<<'}';};
+        helper("avatarHelper",state->avatar_status);helper("voiceHelper",state->voice_status);}
     out<<'}';
 }
 }
