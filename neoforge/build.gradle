@@ -86,6 +86,8 @@ def testResources = layout.buildDirectory.dir('generated/test-resources')
 tasks.register('generateTestTemplate') {
     def template = testResources.map { it.file('data/goldcraft_tests/structure/empty.nbt') }
     outputs.file(template)
+    def supportTemplate = testResources.map { it.file('data/goldcraft_support/structure/empty.nbt') }
+    outputs.file(supportTemplate)
     doLast {
         def output = template.get().asFile
         output.parentFile.mkdirs()
@@ -101,6 +103,9 @@ tasks.register('generateTestTemplate') {
             }
             nbt.writeByte(0)
         }
+        def supportOutput = supportTemplate.get().asFile
+        supportOutput.parentFile.mkdirs()
+        supportOutput.bytes = output.bytes
     }
 }
 sourceSets.offlineTest.resources.srcDir(testResources)

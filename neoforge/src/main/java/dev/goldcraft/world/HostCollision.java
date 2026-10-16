@@ -22,7 +22,7 @@ public final class HostCollision {
     private static final double[] POINTS=new double[RESOLUTION+1];
     static {for(int i=0;i<POINTS.length;i++)POINTS[i]=(double)i/RESOLUTION;}
     private HostCollision(){}
-    public static void attach(World world,HostWorldState host){WORLDS.put(world,new Cache(host));}
+    public static void attach(World world,HostWorldState host){WORLDS.put(world,new Cache(host));HostSupportUpdates.attach(world);}
     public static HostWorldState state(World world){Cache c=WORLDS.get(world);return c==null?null:c.host;}
     public static World world(BlockView view){
         if(view instanceof World world)return world;

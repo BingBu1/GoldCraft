@@ -181,6 +181,7 @@ public final class GoldCraft {
     public GoldCraft(net.neoforged.bus.api.IEventBus modBus) {
         dev.goldcraft.world.NativePlayerHitboxEntity.initialize(modBus);
         HostWorldReset.initialize();
+        dev.goldcraft.world.HostSupportUpdates.initialize();
         MinecraftObjects.initialize();
         MinecraftFluids.initialize();
         modBus.addListener(this::registerPayloads);
@@ -305,6 +306,7 @@ public final class GoldCraft {
             TRACE_VALIDATION.tick(HOST_WORLD);
             HostSession.tick(server,HOST_WORLD);
             HostGameplayRules.tick(server,HOST_WORLD);
+            dev.goldcraft.world.HostSupportUpdates.tick(server,HOST_WORLD);
             HostMining.tick(server,HOST_WORLD);
             NativePlayers.tick(server,HOST_WORLD);
             dev.goldcraft.world.NativeArmorServer.flush(nativeArmorAvailable());

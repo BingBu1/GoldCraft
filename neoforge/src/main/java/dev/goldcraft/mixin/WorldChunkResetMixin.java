@@ -15,7 +15,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class WorldChunkResetMixin {
     @Inject(method="setBlockState",at=@At("RETURN"))
     private void goldcraft$objectGeometryChanged(BlockPos pos,BlockState state,boolean moved,CallbackInfoReturnable<BlockState> cir){
-        if(cir.getReturnValue()!=null)dev.goldcraft.world.MinecraftObjects.changed((WorldChunk)(Object)this);
+        if(cir.getReturnValue()!=null){
+            dev.goldcraft.world.MinecraftObjects.changed((WorldChunk)(Object)this);
+            dev.goldcraft.world.HostSupportUpdates.changed((WorldChunk)(Object)this,pos,state);
+        }
     }
     @Redirect(method="setBlockState",at=@At(value="INVOKE",target="Lnet/minecraft/block/BlockState;onStateReplaced(Lnet/minecraft/world/World;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/BlockState;Z)V"))
     private void goldcraft$resetWithoutDrops(BlockState old,World world,BlockPos pos,BlockState next,boolean moved) {
