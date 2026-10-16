@@ -126,7 +126,7 @@ def main():
         records.append({"path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     report = {"scope": "git-index" if args.staged else "working-files", "fileCount": len(records),
               "bytes": sum(r["bytes"] for r in records), "errors": errors, "files": records}
-    directory = ROOT / "analysis/publication"
+    directory = ROOT / "build/publication"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / (report["scope"] + "-scan.json")).write_text(json.dumps(report, indent=2), encoding="utf-8")
     if errors:

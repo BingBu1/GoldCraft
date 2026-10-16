@@ -13,6 +13,7 @@
     "amxbuild.yml",
     "build-amxx.cmd",
     "docs/BUILD.md",
+    "docs/WORKSPACE_CLEANUP.md",
     "docs/HOST_TEXT_INPUT.md",
     "tools/Test-HostText.py",
     "docs/LOCAL_PLAYTEST.md",
