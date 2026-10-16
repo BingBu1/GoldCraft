@@ -131,6 +131,20 @@ public final class HostMovement {
     public static boolean canPose(PlayerEntity player,EntityPose pose) {
         var host=state(player);return host==null||fits(host,hull(pose),player.getPos());
     }
+    /** A server teleport may cross obstacles, but its destination must fit the
+     * actual player clip hull, Minecraft blocks/entities and world border. */
+    static boolean canTeleport(PlayerEntity player,Vec3d feet) {
+        if(!Double.isFinite(feet.x)||!Double.isFinite(feet.y)||!Double.isFinite(feet.z))return false;
+        // Match the float pose sent to ReHLDS, including its standing-origin
+        // offset. Checking only MC's much larger world bounds is insufficient.
+        float x=(float)feet.x*SCALE,z=((float)feet.y-Wire.Y_OFFSET)*SCALE,y=-(float)feet.z*SCALE;
+        if(!Float.isFinite(x)||!Float.isFinite(y)||!Float.isFinite(z)||
+            Math.abs(x)>16384||Math.abs(y)>16384||Math.abs(z)>16384||Math.abs(z+36)>16384)return false;
+        var host=state(player);
+        if(host==null||!fits(host,hull(player),feet))return false;
+        var box=player.getBoundingBox().offset(feet.subtract(player.getPos()));
+        return player.getWorld().getWorldBorder().contains(box)&&player.getWorld().isSpaceEmpty(player,box.contract(EPSILON));
+    }
     public static boolean supported(Entity entity) {
         if(!(entity instanceof PlayerEntity))return false;
         var host=state(entity);if(host==null)return false;

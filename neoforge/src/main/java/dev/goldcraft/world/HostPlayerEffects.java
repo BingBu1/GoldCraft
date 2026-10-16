@@ -262,17 +262,23 @@ public final class HostPlayerEffects {
         boolean previous=e.correction;e.correction=true;
         try {correction.run();} finally {e.correction=previous;}
     }
-    public static void teleporting(ServerPlayerEntity player) {
+    public static void teleporting(ServerPlayerEntity player,double x,double y,double z) {
         Binding binding=BOUND.get(player.networkHandler);
         if(binding==null || binding.player!=player || binding.networkHandler!=player.networkHandler) {
             HostSession.effectTeleporting(player);return;
         }
-        Entry e=LIVE.get(player.networkHandler);
+        Entry e=current(player);
         if (e!=null) {
             e.accepted=null;
-            // An external requestTeleport invalidates this execution binding. The
-            // authority adapter must re-establish its actual life/pose basis.
-            if (!e.correction) {HostSession.effectTeleporting(player);retire(binding);}
+            if(e.correction)return;
+            var grant=HostSession.relocationGrant(player,binding);
+            // requestTeleport arguments are absolute in pinned 1.21.1, even
+            // when PositionFlag encodes a relative packet. Keep the existing
+            // token only for an admitted, live, same-world server relocation.
+            // readiness() still blocks pose publication until vanilla's ACK.
+            if(grant!=null&&e.address.equals(grant.address())&&e.snapshot.equals(grant.snapshot())&&
+                e.lease.equals(grant.lease())&&!outside(e,x,y,z)&&HostMovement.canTeleport(player,new Vec3d(x,y,z)))return;
+            HostSession.effectTeleporting(player);retire(binding);
         } else {
             HostSession.effectTeleporting(player);
             retire(binding);

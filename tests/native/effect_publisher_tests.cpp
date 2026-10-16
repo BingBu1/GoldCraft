@@ -1,4 +1,3 @@
-// Candidate source only: not compiled or executed in this preparation window.
 // Includes the actual publisher, HostEffects and provider/registry; engine,
 // Endpoint delivery and QPC are explicit boundary substitutes. This fixture
 // proves no ReHLDS/Metamod/Pawn execution or live Minecraft physics acceptance.
@@ -313,6 +312,56 @@ void normal_pose_timeout_still_requires_actual_release() {
     CHECK(next.stream > first.stream && next.bootstrap);
     CHECK(f.commit(next, placement(next)));
 }
+
+void admitted_relocation_preserves_holds_bounds_and_lifecycle() {
+    for (std::uint32_t axes = 0; axes < 8; ++axes) {
+        Fixture f;
+        if (axes) f.apply({effects::position_hold, 0, axes, 0, 1});
+        const auto first = f.publish();
+        CHECK(f.commit(first, placement(first)));
+        f.advance(100); const auto renewal = f.publish();
+        CHECK(renewal.operation == effects::GrantOperation::update);
+        auto destination = placement(renewal);
+        for (unsigned axis = 0; axis < destination.size(); ++axis)
+            if (!(axes & (std::uint32_t{1} << axis))) destination[axis] += 4096.0f;
+        CHECK(f.commit(renewal, destination));
+        CHECK(entities[1].v.origin.x == destination[0]);
+        CHECK(entities[1].v.origin.y == destination[1]);
+        CHECK(entities[1].v.origin.z == destination[2] + 36);
+        const auto committed = entities[1].v.origin;
+        const auto last = controlled[1].last_update;
+        for (unsigned axis = 0; axis < destination.size(); ++axis) {
+            for (float invalid : {std::numeric_limits<float>::quiet_NaN(),
+                                  std::numeric_limits<float>::infinity(), 16385.0f, -16385.0f}) {
+                auto wrong = destination; wrong[axis] = invalid;
+                CHECK(!f.commit(renewal, wrong));
+            }
+            if (axes & (std::uint32_t{1} << axis)) {
+                auto wrong = destination; wrong[axis] += 1;
+                CHECK(!f.commit(renewal, wrong));
+            }
+        }
+        CHECK(entities[1].v.origin.x == committed.x && entities[1].v.origin.y == committed.y &&
+              entities[1].v.origin.z == committed.z && controlled[1].last_update == last);
+        CHECK(f.commit(renewal, destination));
+        f.advance(renewal.deadlineMs - f.now());
+        CHECK(!f.commit(renewal, destination));
+    }
+    for (unsigned change = 0; change < 6; ++change) {
+        Fixture f; const auto first = f.publish(); CHECK(f.commit(first, placement(first)));
+        f.advance(100); const auto renewal = f.publish();
+        auto destination = placement(renewal); destination[0] += 4096;
+        switch (change) {
+        case 0: ++player_lives[1]; break;
+        case 1: ++registry.binding.serial; break;
+        case 2: ++registry.binding.uuid[0]; break;
+        case 3: minecraft_forms[1] = false; break;
+        case 4: ++registry.epoch; break;
+        case 5: ++link.current; break;
+        }
+        CHECK(!f.commit(renewal, destination));
+    }
+}
 } // namespace
 
 int main() {
@@ -325,6 +374,7 @@ int main() {
     lifecycle_identity_and_clock_are_reread_at_admission();
     channel_reset_and_counter_exhaustion_never_reuse_streams();
     normal_pose_timeout_still_requires_actual_release();
+    admitted_relocation_preserves_holds_bounds_and_lifecycle();
     std::cout << "actual effect publisher with boundary substitutes: " << checks << " assertions, "
               << failures << " failures; no ReHLDS/Pawn/live-Minecraft acceptance\n";
     return failures ? 1 : 0;

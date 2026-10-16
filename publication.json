@@ -345,7 +345,9 @@
     "docs/NATIVE_MOTION.md",
     "native/engine/tests/Build-Tests.ps1",
     "native/engine/tests/Test-Package.ps1",
-    "docs/CONTROL_OWNERSHIP.md"
+    "docs/CONTROL_OWNERSHIP.md",
+    "tools/Test-HostRelocation.py",
+    "docs/HOST_RELOCATION.md"
   ],
   "trees": {
     "native": [

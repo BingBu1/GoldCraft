@@ -39,6 +39,6 @@ public abstract class HostEffectMovementMixin {
     }
     @Inject(method="requestTeleport(DDDFFLjava/util/Set;)V",at=@At("HEAD"),require=1)
     private void goldcraft$requestTeleport(double x,double y,double z,float yaw,float pitch,Set<PositionFlag> flags,CallbackInfo ci) {
-        HostPlayerEffects.teleporting(player);
+        HostPlayerEffects.teleporting(player,x,y,z);
     }
 }

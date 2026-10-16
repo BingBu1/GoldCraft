@@ -174,6 +174,23 @@ public final class HostSession {
         if(state!=null&&state.grant!=null&&state.effectPlayer==player&&state.effectHandler==player.networkHandler&&
             !state.effectTeleportAllowed)retireEffects(state,true);
     }
+    /** UPDATE is the native server's acknowledgement that this exact stream
+     * has acquired movement. OPEN still requires placement at native feet. */
+    static HostEffectGrant.Grant relocationGrant(ServerPlayerEntity player,HostPlayerEffects.Binding binding){
+        Player state=PLAYERS.get(player.getUuid());
+        if(state==null||state.effects!=binding||!state.enabled||!state.placed||!state.ready||
+            System.nanoTime()-state.lastReady>=1_000_000_000L||state.entity!=player||
+            state.effectPlayer!=player||state.effectHandler!=player.networkHandler||!effectClient(player))return null;
+        var host=GoldCraft.HOST_WORLD;var actor=host.actor(player.getUuid());var grant=state.grant;
+        long generation=GoldCraft.currentAuthorityGeneration(),frequency=GoldCraft.currentAuthorityClockFrequency();
+        if(!GoldCraft.effectsNegotiated()||generation==0||generation!=state.effectGeneration||
+            generation!=effectGeneration||grant==null||grant.operation()!=HostEffectGrant.UPDATE||
+            grant.serviceGeneration()!=effectServiceGeneration||grant.nativeConnection()!=effectNativeConnection||
+            frequency<=0||frequency!=grant.frequency()||state.epoch!=host.epoch()||
+            !effectTarget(grant,host,actor,player.getUuid())||!hostAlive(actor)||!actor.minecraftForm()||
+            state.serial!=actor.serial()||state.life!=actor.life()||player.getWorld()!=hostWorld(player.getServer(),host))return null;
+        return grant;
+    }
     static void effectCorrection(ServerPlayerEntity player,Runnable correction){
         Player state=PLAYERS.get(player.getUuid());
         if(state==null||state.effectPlayer!=player||state.effectHandler!=player.networkHandler){correction.run();return;}
