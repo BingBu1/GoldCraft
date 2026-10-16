@@ -344,7 +344,8 @@
     "tools/Test-NativeMotion.py",
     "docs/NATIVE_MOTION.md",
     "native/engine/tests/Build-Tests.ps1",
-    "native/engine/tests/Test-Package.ps1"
+    "native/engine/tests/Test-Package.ps1",
+    "docs/CONTROL_OWNERSHIP.md"
   ],
   "trees": {
     "native": [

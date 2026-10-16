@@ -88,14 +88,14 @@ public final class HostInput {
             client.player!=null&&client.player.isAlive(),client.world!=null&&client.world.getRegistryKey().getValue().toString().equals(GoldCraftClient.HOST.dimension()),
             actor!=null&&actor.minecraftForm(),actor==null?0:actor.life(),actor==null?0:actor.flags(),epoch==GoldCraftClient.HOST.epoch(),System.nanoTime()-lastInput<500_000_000L,changed);
         if(readinessReasons!=reasons){readinessReasons=reasons;++readinessTransitions;}
-        boolean ready=(reasons&~(ControlReadiness.LEASE|ControlReadiness.IDENTITY))==0;
+        boolean ready=ControlReadiness.ready(reasons);
         final long requestTime=System.nanoTime();
         if(MinecraftClient.getInstance().getNetworkHandler()!=null&&MinecraftClient.getInstance().getNetworkHandler().hasChannel(ControlPayload.ID)
             &&controlRequests.due(requestTime,ready,(reasons&ControlReadiness.LEASE)==0)) {
             PacketDistributor.sendToServer(new ControlPayload(GoldCraftClient.HOST.epoch(),serial,life,ready));
             controlRequests.sent(requestTime,ready);lastReady=requestTime;
         }
-        boolean wasControlling=controlling;controlling=ready&&(reasons&(ControlReadiness.LEASE|ControlReadiness.IDENTITY))==0;
+        boolean wasControlling=controlling;controlling=ControlReadiness.controlling(reasons);
         if(wasControlling&&!controlling)++controlLosses;
         if(!controlling||!active()||client.currentScreen!=null)HostKeys.releaseAll();
         if(wasControlling&&!controlling&&actor!=null&&!actor.minecraftForm()&&client.currentScreen instanceof net.minecraft.client.gui.screen.ingame.HandledScreen<?>)client.player.closeHandledScreen();
