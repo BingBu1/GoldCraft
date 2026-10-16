@@ -16,6 +16,8 @@
 
 世界、配对 UUID、serial、spawn、life 任一不匹配，断链、死亡、回拨时钟或过期均不授予技能保护；重复 revision 不续租。动作结束或效果移除时发送撤销。原生 Pawn helper 仅对 MC 形态且有效连接的玩家认可“盔甲或技能”感染保护。三个引用它的 ZP 插件需要同时更新：`goldcraft_zp_rules`、`zp50_gamemodes`、`zp50_human_armor`。免感染后保留正常伤害入口，技能免伤由 MC 事件结算。
 
+死亡入口在 ReGameDLL 更新 `deadflag` 前同步撤销创造、盔甲和技能位；读取接口同时检查原生存活状态。真实连接位保留，死亡和旧生命快照不会被当作断线；重生必须收到匹配新生命的状态才能恢复权限。
+
 ## 验证及剩余验收
 
 生产 NeoForge JAR、Clang x86 客户端/服务端与三个 Pawn 已构建；318 项 Java 单元回归零失败/错误/跳过，12,184 项生产发布器检查与四组原生测试通过。原生测试覆盖新能力依赖和客户端拒绝、旧位拒绝、150ms 到期、重复修订、断链与生命隔离。
@@ -28,6 +30,10 @@ python tools/Test-NativeSkillGuard.py --candidate --profile full
 python tools/Test-NativeSkillGuard.py --candidate --profile none
 ```
 
-已冻结包含 TNT Renderer 的 26 项联合候选：`build/candidates/combined-skill-guard-20261016/manifest.json`。相对此前 TNT Renderer 候选，仅客户端/服务端 DLL、Core JAR 和上述三个 Pawn 共六项变化；原始构建与测试检查点为 `build/epic-invulnerability-20261016/checkpoint.json`。当前运行文件和已交付安装包未替换。
+真实 ReHLDS/ReGameDLL/ReAPI/ZP 消费端另完成 28 项检查：实际感染模式中刀击感染强制退出 MC、僵尸拒绝重入、技能保护与真实原生命中请求、零伤害和减伤返回、直接强制感染、重复 revision 到期、原生形态、死亡/重生及断链。旧三个 Pawn 的负对照实际发生错误感染。追加死亡检查还复现旧 DLL 在死亡瞬间返回 flags=9；新版返回 flags=1，保留连接且撤销权限，三组原生回归通过。
+
+此检查使用三个真实原生 fake-client 玩家和显式 Python MC 权威测试对端；没有运行 MC JVM，也没有验证真人刀击输入。测试对端只提供配对状态、位置和伤害回复，仍经过实际原生身份、碰撞、控制和 Pawn 链。它与上述真实 Epic 专服证据分别证明两端行为，不能合称真人双服配对验收。测试入口为 `tools/Exercise-SkillGuard.py`，测试 Pawn 为 `amxx/zombie_plague/tests/goldcraft_skill_guard_test.sma`，默认关闭且不进入生产候选。证据在 `build/skill-guard-native-20261016/{native03,baseline01,native02}/result.json`；每次独立测试均退出并恢复文件。
+
+最新 26 项联合候选为 `build/candidates/combined-skill-guard-life-20261016/manifest.json`，在原技能候选上仅替换生产 `mp.dll`，不包含用于导出测试配对记录的 headless DLL。原 JAR、三个生产 Pawn 和 TNT Renderer 验证继续适用；729 项构建输入前后不变。最新检查点为 `build/skill-guard-native-20261016/checkpoint.json`，原 Epic 检查点为 `build/epic-invulnerability-20261016/checkpoint.json`。当前运行文件和已交付安装包未替换。
 
 完整上线前仍需联合更新并实测：僵尸刀击在技能前/中/后是否感染与掉血，连续技能、真实断链/重生/换图、多人及网络积压下保护时限。现有原生装备请求在超时或链路不可用时按原生规则回退，不把缺少有效 MC 状态当作永久无敌。此候选不修改公网配置或自动换图。

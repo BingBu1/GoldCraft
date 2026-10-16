@@ -364,7 +364,9 @@
     "tools/update-package/package.py",
     "tools/update-package/Update-GoldCraft.ps1",
     "tools/update-package/test_update.py",
-    "tools/update-package/README.md"
+    "tools/update-package/README.md",
+    "tools/Exercise-SkillGuard.py",
+    "amxx/zombie_plague/tests/goldcraft_skill_guard_test.sma"
   ],
   "trees": {
     "native": [

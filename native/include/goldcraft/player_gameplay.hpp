@@ -32,16 +32,17 @@ class PlayerGameplayLease {
     float expires_=0;
     float updated_=0;
 public:
+    void revoke_privileges(){state_.flags&=player_connected;}
     bool update(const PlayerGameplay& next,float now){
         if(next.epoch==state_.epoch&&next.serial==state_.serial&&next.uuid==state_.uuid&&next.revision<=state_.revision)return false;
         state_=next;updated_=now;expires_=now+1.0f;return true;
     }
-    int flags(std::uint64_t world,unsigned serial,unsigned spawn,unsigned life,const Key& uuid,float now,bool connected)const{
+    int flags(std::uint64_t world,unsigned serial,unsigned spawn,unsigned life,const Key& uuid,float now,bool connected,bool alive=true)const{
         if(state_.epoch!=world||state_.serial!=serial||state_.uuid!=uuid)return 0;
         if(!connected||now<updated_||now>=expires_)return 0;
         // Presence survives form/respawn. Equipment and creative privileges do not.
         const auto flags=now<updated_+.15f?state_.flags:state_.flags&~player_skill_guard;
-        return state_.spawn==spawn&&state_.life==life?static_cast<int>(flags):static_cast<int>(flags&player_connected);
+        return alive&&state_.spawn==spawn&&state_.life==life?static_cast<int>(flags):static_cast<int>(flags&player_connected);
     }
 };
 }

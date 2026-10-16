@@ -92,7 +92,9 @@ int PlayerGameplayFlags(int slot){
     if(!edicts||slot<1||slot>max_clients||edicts[slot].free)return -1;
     const auto* pair=registry.get(slot);if(!pair||!pair->paired)return -1;
     if(!player_gameplay_supported)return -2;
-    return player_gameplay[slot].flags(registry.world(),pair->serial,player_births[slot],player_lives[slot],pair->uuid,gpGlobals->time,link.connected());
+    // Read native death state without invoking a reentrant Pawn/Ham virtual.
+    const bool alive=edicts[slot].v.deadflag==DEAD_NO&&edicts[slot].v.health>0;
+    return player_gameplay[slot].flags(registry.world(),pair->serial,player_births[slot],player_lives[slot],pair->uuid,gpGlobals->time,link.connected(),alive);
 }
 cvar_t default_form={"mc_default_form","1",FCVAR_SERVER,1,nullptr};
 cvar_t allow_switch={"mc_allow_switch","1",FCVAR_SERVER,1,nullptr};
@@ -1030,6 +1032,9 @@ void GoldCraft_PlayerKilled(edict_t* player) {
     const auto slot=ENTINDEX(player);
     if(!edicts||slot<1||slot>max_clients)return;
     if(player!=edicts+slot)return;
+    // Killed enters before ReGameDLL updates deadflag. Preserve presence, but
+    // revoke equipment/creative/skill privileges before its callbacks execute.
+    player_gameplay[slot].revoke_privileges();
     const auto killed=CaptureNativePlayer(static_cast<unsigned>(slot));
     host_effects.Forget(slot);
     if(!CurrentNativePlayer(killed))return;

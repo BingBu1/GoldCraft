@@ -42,6 +42,15 @@ int main(){
     ++s.revision;assert(lease.update(s,21));assert(lease.flags(11,3,4,6,s.uuid,21.01f,true)==1);
     assert(lease.flags(11,3,4,5,s.uuid,21.01f,false)==0);
     ++s.revision;s.flags=1;assert(lease.update(s,21.02f));assert(lease.flags(11,3,4,5,s.uuid,21.03f,true)==1);
+    ++s.revision;s.flags=15;assert(lease.update(s,22));
+    assert(lease.flags(11,3,4,5,s.uuid,22.01f,true,false)==1);
+    lease.revoke_privileges();assert(lease.flags(11,3,4,5,s.uuid,22.02f,true)==1);
+    assert(!lease.update(s,22.03f));assert(lease.flags(11,3,4,5,s.uuid,22.04f,true)==1);
+    ++s.revision;assert(lease.update(s,22.05f));
+    assert(lease.flags(11,3,4,5,s.uuid,22.06f,true,false)==1);
+    assert(lease.flags(11,3,5,6,s.uuid,22.06f,true,true)==1);
+    ++s.revision;s.spawn=5;s.life=6;assert(lease.update(s,22.07f));
+    assert(lease.flags(11,3,5,6,s.uuid,22.08f,true,true)==15);
     for(unsigned flags:{8u,16u,17u}){auto bad=s;bad.flags=flags;bool refused=false;try{read_player_gameplay(packet(bad),true);}catch(const ProtocolError&){refused=true;}assert(refused);}
     ActivePlayerAttack attack{2,3,4,1,11,12,3,4,5,6,7,8};
     assert(attack.match(2,3,1,11,12)==4&&attack.current(3,4,5,6,7,8));
