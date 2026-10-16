@@ -20,6 +20,7 @@ for part in (out, *out.parents):
 src, classes = out / 'src', out / 'classes'
 classes.mkdir(parents=True, exist_ok=True)
 adapters = {
+    'dev/goldcraft/world/NativeSkillGuard.java': 'public class NativeSkillGuard {public static boolean protect; public static boolean infectionProtected(net.minecraft.server.network.ServerPlayerEntity p){return protect;}}',
     'net/minecraft/util/Identifier.java': 'public record Identifier(String namespace,String path){public static Identifier of(String n,String p){return new Identifier(n,p);}}',
     'net/minecraft/registry/RegistryKeys.java': 'public class RegistryKeys {public static final String DAMAGE_TYPE="damage_type";}',
     'net/minecraft/registry/tag/TagKey.java': 'public record TagKey<T>(String registry,net.minecraft.util.Identifier id){public static <T> TagKey<T> of(String r,net.minecraft.util.Identifier i){return new TagKey<T>(r,i);}}',
@@ -55,7 +56,7 @@ public record Actor(int slot,int serial,int spawn,int life,UUID minecraftPlayer,
 public Actor(int slot,int serial,int spawn,int life,UUID id){this(slot,serial,spawn,life,id,1);}}}''',
     'dev/goldcraft/GoldCraft.java': '''import java.util.*;import dev.goldcraft.bridge.HostWorldState;
 public class GoldCraft {public static final HostWorldState HOST_WORLD=new HostWorldState();public static boolean available=true,send=true;
-public static final List<byte[]> packets=new ArrayList<>();public static boolean playerGameplayAvailable(){return available;}
+public static final List<byte[]> packets=new ArrayList<>();public static boolean playerGameplayAvailable(){return available;}public static boolean skillGuardAvailable(){return skill;}public static boolean skill;
 public static boolean sendPlayerGameplay(int type,byte[] packet){if(!send)return false;packets.add(packet);return true;}}''',
 }
 for name, body in adapters.items():

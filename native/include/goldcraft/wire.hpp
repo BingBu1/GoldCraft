@@ -23,6 +23,7 @@ constexpr std::uint32_t capability_status_environment = 2048;
 constexpr std::uint32_t capability_status_motion = 4096;
 constexpr std::uint32_t capability_status_visibility = 8192;
 constexpr std::uint32_t capability_status_vision = 16384;
+constexpr std::uint32_t capability_skill_guard = 32768;
 constexpr std::size_t wire_type_count = 91;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;

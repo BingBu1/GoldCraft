@@ -42,6 +42,7 @@ public final class PlayerGameplay {
                 if(player.isCreative())flags|=2;
                 for(var slot:EquipmentSlot.values())
                     if(armor(player.getEquippedStack(slot),slot)){flags|=4;break;}
+                if(GoldCraft.skillGuardAvailable()&&NativeSkillGuard.infectionProtected(player))flags|=8;
             }
             var packet=new Wire.Writer().i64(host.epoch()).i64(++revision)
                 .i32(actor.slot()).i32(actor.serial()).i32(actor.spawn()).i32(actor.life())

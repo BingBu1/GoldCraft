@@ -322,6 +322,8 @@
     "tests/neoforge-explosion/src/dev/goldcraft/test/PairedTntPlayer.java",
     "tools/Build-ExplosionFixture.py",
     "docs/PLAYER_GAMEPLAY.md",
+    "docs/NATIVE_SKILL_GUARD.md",
+    "tools/Test-NativeSkillGuard.py",
     "tools/Test-PlayerGameplay.py",
     "amxx/goldcraft/goldcraft_connection.sma",
     "amxx/goldcraft/configs/plugins-goldcraft-connection.ini",

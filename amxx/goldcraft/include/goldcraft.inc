@@ -20,6 +20,7 @@ forward goldcraft_form_changed(id, previous, current);
 #define GC_PLAYER_CONNECTED 1
 #define GC_PLAYER_CREATIVE 2
 #define GC_PLAYER_ARMORED 4
+#define GC_PLAYER_SKILL_GUARD 8
 native gc_gameplay_api_version();
 // -2 unsupported, -1 unpaired; >=0 is the authenticated GC_PLAYER_* mask.
 native gc_player_flags(id);
@@ -34,5 +35,6 @@ stock bool:gc_mc_infection_protected(id)
 {
     if (gc_get_form(id) != GC_FORM_MINECRAFT) return false;
     new flags = gc_player_flags(id);
-    return flags >= 0 && (flags & (GC_PLAYER_CONNECTED | GC_PLAYER_ARMORED)) == (GC_PLAYER_CONNECTED | GC_PLAYER_ARMORED);
+    return flags >= 0 && (flags & GC_PLAYER_CONNECTED) != 0
+        && (flags & (GC_PLAYER_ARMORED | GC_PLAYER_SKILL_GUARD)) != 0;
 }

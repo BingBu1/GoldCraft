@@ -125,6 +125,9 @@ public final class GoldCraft {
     public static boolean hostExplosionsAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.hostExplosions(generation);
     }
+    public static boolean skillGuardAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.skillGuard(generation);
+    }
     public static boolean playerGameplayAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.playerGameplay(generation);
     }

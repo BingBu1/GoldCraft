@@ -30,6 +30,8 @@ public final class NativeArmorDefense {
         // Creative immunity must not consume equipment durability. Calling the
         // protected stage directly otherwise skips PlayerEntity's outer guard.
         if(wearer.isCreative())return new Reduction(0,1);
+        amount=NativeIncomingDamage.accepted(wearer,source,amount);
+        if(amount==0)return new Reduction(0,1);
         float afterArmor=((NativeArmorAccessor)wearer).goldcraft$applyNativeArmor(source,amount);
         float protection=source.isIn(DamageTypeTags.BYPASSES_EFFECTS)
             ||source.isIn(DamageTypeTags.BYPASSES_ENCHANTMENTS)?0:

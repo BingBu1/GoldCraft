@@ -54,7 +54,14 @@ public class PlayerGameplayProbe {
         GoldCraft.HOST_WORLD.actors.set(0,new HostWorldState.Actor(2,3,4,5,UUID1));
         player.creative=false;
         player.equipment.put(EquipmentSlot.LEGS,new ItemStack("cosmetic","speed",3,EquipmentSlot.LEGS));
-        snapshot(server,true,1);server.players.clear();snapshot(server,true,0);
+        snapshot(server,true,1);
+        NativeSkillGuard.protect=true;snapshot(server,true,1); // Old host never receives the new bit.
+        GoldCraft.skill=true;snapshot(server,true,9);snapshot(server,false,0);
+        player.alive=false;snapshot(server,true,1);player.alive=true;
+        player.removed=true;snapshot(server,true,1);player.removed=false;
+        player.networkHandler.connection.open=false;snapshot(server,true,0);player.networkHandler.connection.open=true;
+        NativeSkillGuard.protect=false;snapshot(server,true,1);GoldCraft.skill=false;
+        server.players.clear();snapshot(server,true,0);
         GoldCraft.available=false;int count=GoldCraft.packets.size();PlayerGameplay.tick(server,a->true);check(GoldCraft.packets.size()==count);
         GoldCraft.available=true;GoldCraft.send=false;PlayerGameplay.tick(server,a->true);check(GoldCraft.packets.size()==count);
         for(var type:new DamageType[]{DamageTypes.PLAYER_ATTACK,DamageTypes.ARROW,DamageTypes.TRIDENT}){

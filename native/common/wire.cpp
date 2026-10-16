@@ -100,13 +100,15 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
         unsigned difference = 0;
         for (std::size_t i = 0; i < 16; ++i) difference |= (session[i] ^ session_[i]) | (token[i] ^ token_[i]);
         const auto allowed = peer_ == Role::fabric_client ? capability_shared_bulk_v1 :
-            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions | capability_tnt_damage | capability_player_gameplay | capability_status_environment | capability_status_motion | capability_status_visibility | capability_status_vision;
+            capability_local_qpc_v1 | capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions | capability_tnt_damage | capability_player_gameplay | capability_status_environment | capability_status_motion | capability_status_visibility | capability_status_vision | capability_skill_guard;
         if ((capabilities & capability_effect_position_hold) && !(capabilities & capability_local_qpc_v1))
             throw ProtocolError("Effect execution requires local QPC capability");
         if (difference || role != static_cast<std::uint32_t>(peer_) || (capabilities & ~allowed))
             throw ProtocolError("pairing credentials/role/capabilities mismatch");
         if ((capabilities & capability_native_armor) && !(capabilities & capability_status_attributes))
             throw ProtocolError("Native armor requires status attributes");
+        if ((capabilities & capability_skill_guard) && !(capabilities & capability_player_gameplay))
+            throw ProtocolError("Skill guard requires player gameplay");
         peer_capabilities_ = capabilities;
         ready_ = true;
     } else {
@@ -117,7 +119,7 @@ void HostHandshake::accept(const Header& h, std::span<const std::uint8_t> payloa
 }
 Bytes HostHandshake::welcome() const {
     Writer w; w.bytes(session_); w.u32(static_cast<std::uint32_t>(host_));
-    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions | capability_tnt_damage | capability_player_gameplay | capability_status_environment | capability_status_motion | capability_status_visibility | capability_status_vision) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
+    w.u32(peer_ == Role::fabric_server ? peer_capabilities_ & (capability_effect_position_hold | capability_status_effects | capability_status_attributes | capability_fluid_volumes | capability_native_armor | capability_gameplay_rules | capability_host_explosions | capability_tnt_damage | capability_player_gameplay | capability_status_environment | capability_status_motion | capability_status_visibility | capability_status_vision | capability_skill_guard) : 0); w.f32(units_per_block); w.f32(minecraft_y_offset); return w.data;
 }
 Vec3 to_minecraft(Vec3 v) { return { v.x / units_per_block, v.z / units_per_block + minecraft_y_offset, -v.y / units_per_block }; }
 Vec3 to_goldsrc(Vec3 v) { return { v.x * units_per_block, -v.z * units_per_block, (v.y - minecraft_y_offset) * units_per_block }; }

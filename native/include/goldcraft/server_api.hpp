@@ -19,7 +19,8 @@ using PlayerAttackListener=void(*)(int victim,int attacker,int kind,float health
 class IServerGameplay : public IBaseInterface {
 public:
     // -2 unsupported bridge, -1 unpaired/unknown; otherwise connected=1,
-    // creative=2, any worn armor=4, all from the authenticated MC server.
+    // creative=2, any worn armor=4, skill infection immunity=8 (150ms lease),
+    // all from the authenticated MC server.
     virtual int GetPlayerFlags(int player)=0;
     // Positive only during the matching authenticated active player TakeDamage.
     virtual int GetPlayerAttack(int victim,int attacker)=0;

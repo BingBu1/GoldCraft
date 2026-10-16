@@ -725,7 +725,7 @@ void HandleVitals(std::span<const std::uint8_t> bytes){
 }
 void HandlePlayerGameplay(std::span<const std::uint8_t> bytes){
     if(!link.player_gameplay())throw ProtocolError("Unnegotiated player gameplay");
-    const auto state=read_player_gameplay(bytes);
+    const auto state=read_player_gameplay(bytes,link.skill_guard());
     const auto* pair=state.slot<=static_cast<unsigned>(max_clients)?registry.get(state.slot):nullptr;
     if(!pair||!pair->paired||state.epoch!=registry.world()||state.serial!=pair->serial||state.uuid!=pair->uuid
         ||state.spawn!=player_births[state.slot]||state.life!=player_lives[state.slot]||edicts[state.slot].free)return;

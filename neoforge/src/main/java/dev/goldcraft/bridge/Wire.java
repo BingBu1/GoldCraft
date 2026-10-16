@@ -21,6 +21,7 @@ public final class Wire {
     public static final int LOCAL_QPC_V1 = 2, CLOCK_OFFER = 70, CLOCK_ACK = 71, CLOCK_READY = 72, TYPE_COUNT = 91;
     public static final int HOST_EXPLOSIONS_CAP = 256, HOST_EXPLOSION = 83, HOST_MATERIALS = 84;
     public static final int TNT_DAMAGE_CAP = 512;
+    public static final int SKILL_GUARD_CAP = 32768;
     public static final int STATUS_VISION_CAP = 16384, STATUS_VISION = 90;
     public static final int STATUS_VISIBILITY_CAP = 8192, STATUS_VISIBILITY = 89;
     public static final int STATUS_MOTION_CAP = 4096, STATUS_MOTION = 88, STATUS_ENVIRONMENT_CAP = 2048, STATUS_ENVIRONMENT = 87;
