@@ -77,6 +77,48 @@ class CarvedMapTest {
         var restored=host.collision();assertEquals(MapEdits.Applied.IGNORED,host.edits().accept(new MapEdits.Snapshot(31,3,opening(false))));assertSame(restored,host.collision());
         host.world(new Wire.Writer().i64(32).string("cs_assault").toByteArray());assertNull(host.collision());assertTrue(host.edits().cuts().isEmpty());
     }
+    @Test void blastCellsPreserveRemainingMaterial() throws Exception {
+        var bsp=map();
+        for(int radius:new int[]{2,4,5}) {
+            var cuts=new ArrayList<MapEdits.Cut>();
+            for(int x=-radius;x<=radius;x++)for(int y=-radius;y<=radius;y++)for(int z=-radius;z<=radius;z++)
+                cuts.add(new MapEdits.Cut(cuts.size()+1,WORLD,new MapEdits.Box(96+x*32,2880+y*32,384+z*32,128+x*32,2912+y*32,416+z*32)));
+            long started=System.nanoTime();var edit=new CarvedMap(bsp,cuts);long prepared=System.nanoTime();
+            int queries=0;
+            for(int x=-radius-1;x<=radius+1;x++)for(int y=-radius-1;y<=radius+1;y++)for(int z=-radius-1;z<=radius+1;z++) {
+                var q=new BspMap.Bounds(v(96+x*32,2880+y*32,384+z*32),v(128+x*32,2912+y*32,416+z*32));
+                boolean inside=Math.abs(x)<=radius&&Math.abs(y)<=radius&&Math.abs(z)<=radius;
+                assertEquals(inside?BspMap.CLEAR:bsp.classify(0,q),edit.classify(null,q));queries++;
+            }
+            System.out.printf("blastCollision cuts=%d prepareMs=%.3f queries=%d queryMs=%.3f%n",cuts.size(),(prepared-started)/1e6,queries,(System.nanoTime()-prepared)/1e6);
+            var unmerged=cuts.stream().map(c->{var b=c.box();return new CarvedVolume.Box(
+                new CarvedVolume.P(b.minX(),b.minY(),b.minZ()),new CarvedVolume.P(b.maxX(),b.maxY(),b.maxZ()));}).toList();
+            var random=new Random(954+radius);
+            double maxEndError=0,maxFractionError=0;
+            for(int hull=0;hull<4;hull++) {
+                var reference=new CarvedHull(bsp,0,hull,unmerged,4_194_304);
+                for(int i=0;i<200;i++) {
+                    var a=v(96+(random.nextFloat()*2-1)*(radius+2)*32,2880+(random.nextFloat()*2-1)*(radius+2)*32,384+(random.nextFloat()*2-1)*(radius+2)*32);
+                    var b=v(a.x()+random.nextFloat()*128-64,a.y()+random.nextFloat()*128-64,a.z()+random.nextFloat()*128-64);
+                    var expected=reference.affects(a,b)?reference.trace(a,b):bsp.trace(0,hull,a,b);
+                    var actual=edit.trace(null,hull,a,b);
+                    var label="radius="+radius+" hull="+hull+" a="+a+" b="+b+" old="+expected+" new="+actual;
+                    // Different exact union partitions can round axial contact
+                    // coordinates differently. Bound physical error far below
+                    // GoldSrc's 1/32-unit trace epsilon, as well as the fraction.
+                    maxFractionError=Math.max(maxFractionError,Math.abs(expected.fraction()-actual.fraction()));
+                    assertEquals(expected.fraction(),actual.fraction(),1e-5,label);
+                    for(int axis=0;axis<3;axis++) {
+                        maxEndError=Math.max(maxEndError,Math.abs(expected.end().axis(axis)-actual.end().axis(axis)));
+                        assertEquals(expected.end().axis(axis),actual.end().axis(axis),.001);
+                    }
+                    assertEquals(expected.startSolid(),actual.startSolid(),label);assertEquals(expected.allSolid(),actual.allSolid(),label);
+                    assertEquals(reference.affects(a,a)?reference.contents(a):bsp.contents(0,hull,a),edit.contents(null,hull,a),label);
+                }
+            }
+            System.out.printf("blastTraceParity cuts=%d traces=800 maxEndUnits=%.9f maxFraction=%.9f%n",cuts.size(),maxEndError,maxFractionError);
+        }
+    }
     private static void write(BufferedWriter out,Object... values) throws Exception {
         for(var value:values) { out.write(value.toString());out.write(' '); }out.newLine();
     }

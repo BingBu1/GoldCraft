@@ -1,4 +1,5 @@
 #include "goldcraft/world_carving.hpp"
+#include "goldcraft/cut_index.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -278,6 +279,8 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
             if (box.min[axis] >= box.max[axis]) throw std::invalid_argument("World carving box has no volume");
     }
     Interior output;
+    const CutIndex index(boxes,[&](auto n){consume(work,limits,n);});
+    std::vector<std::size_t> neighbours;
     for (std::size_t current = 0; current < boxes.size(); ++current) {
         const auto& box = boxes[current];
         for (int axis = 0; axis < 3; ++axis) for (bool upper : {false, true}) {
@@ -293,7 +296,10 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
             if (upper) std::reverse(polygon.begin(), polygon.end());
             Point normal{}; normal[axis] = upper ? -1.0 : 1.0;
             std::vector<Polygon> visible{std::move(polygon)};
-            for (std::size_t other = 0; other < boxes.size() && !visible.empty(); ++other) {
+            auto bounds=box; bounds.min[axis]=bounds.max[axis]=face;
+            index.query(bounds,neighbours,[&](auto n){consume(work,limits,n);});
+            for (auto other : neighbours) {
+                if(visible.empty()) break;
                 consume(work, limits, 1);
                 if (other == current) continue;
                 const auto& occluder = boxes[other];

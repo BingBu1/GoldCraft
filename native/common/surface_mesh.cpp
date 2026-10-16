@@ -1,4 +1,5 @@
 #include "goldcraft/surface_mesh.hpp"
+#include "goldcraft/cut_index.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -56,13 +57,6 @@ void validate(const Mesh &mesh, Work &work) {
     }
 }
 carving::Point point(const Vertex &v) { return {v.pos[0], v.pos[1], v.pos[2]}; }
-bool overlaps(const carving::Triangle &t, const carving::Box &b) {
-    for (int a = 0; a < 3; ++a)
-        if (std::max({t[0][a], t[1][a], t[2][a]}) < b.min[a] ||
-            std::min({t[0][a], t[1][a], t[2][a]}) > b.max[a])
-            return false;
-    return true;
-}
 template <std::size_t N, class T>
 void interpolate(float (&out)[N], const float (T::*field)[N], const std::vector<T> &source,
                  const std::array<std::uint32_t, 3> &indices,
@@ -104,20 +98,30 @@ void append_indices(Mesh &mesh, std::span<const std::uint32_t> indices, Work &wo
         throw std::length_error("Surface mesh index budget");
     mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
 }
-Range clip_range(Mesh &out, const Mesh &source, Range input, std::span<const carving::Box> boxes,
-                 Work &work, bool &changed) {
+Range clip_range(Mesh &out, const Mesh &source, Range input, std::span<const Selection> cuts,
+                 const carving::CutIndex& index, std::size_t face, Work &work, bool &changed) {
     Range result{static_cast<std::uint32_t>(out.indices.size()), 0};
+    std::vector<std::size_t> candidates;
+    std::vector<carving::Box> nearby;
     for (std::size_t at = input.first; at < std::size_t(input.first) + input.count; at += 3) {
         const std::array<std::uint32_t, 3> indices{source.indices[at], source.indices[at + 1],
                                                    source.indices[at + 2]};
         carving::Triangle triangle{point(source.vertices[indices[0]]),
                                    point(source.vertices[indices[1]]),
                                    point(source.vertices[indices[2]])};
-        std::vector<carving::Box> nearby;
-        work.consume(boxes.size() + 1);
-        for (const auto &box : boxes)
-            if (overlaps(triangle, box))
-                nearby.push_back(box);
+        nearby.clear();
+        if (source.faces[face].editable) {
+            carving::Box bounds;
+            for(int a=0;a<3;++a) {
+                bounds.min[a]=std::min({triangle[0][a],triangle[1][a],triangle[2][a]});
+                bounds.max[a]=std::max({triangle[0][a],triangle[1][a],triangle[2][a]});
+            }
+            index.query(bounds,candidates,[&](auto n){work.consume(n);});
+            for(auto id:candidates) {
+                const auto& cut=cuts[id];
+                if(face>=cut.first_face && face-cut.first_face<cut.face_count) nearby.push_back(cut.box);
+            }
+        }
         if (nearby.empty()) {
             append_indices(out, indices, work);
             continue;
@@ -173,19 +177,18 @@ Prepared prepare(std::shared_ptr<const Mesh> original, std::span<const Selection
         return {original, 0, 0, work.operations};
     auto next = std::make_shared<Mesh>(*original);
     next->indices.clear();
+    std::vector<carving::Box> boxes;
+    boxes.reserve(cuts.size());
+    for(const auto& cut:cuts) boxes.push_back(cut.box);
+    const carving::CutIndex index(boxes,[&](auto n){work.consume(n);});
     std::size_t changed_faces = 0;
     for (std::size_t i = 0; i < original->faces.size(); ++i) {
         const auto &face = original->faces[i];
-        std::vector<carving::Box> boxes;
-        work.consume(cuts.size() + 1);
-        if (face.editable)
-            for (const auto &cut : cuts)
-                if (i >= cut.first_face && i - cut.first_face < cut.face_count)
-                    boxes.push_back(cut.box);
+        work.consume(1);
         bool changed = false;
         auto &target = next->faces[i];
-        target.forward = clip_range(*next, *original, face.forward, boxes, work, changed);
-        target.reverse = clip_range(*next, *original, face.reverse, boxes, work, changed);
+        target.forward = clip_range(*next, *original, face.forward, cuts, index, i, work, changed);
+        target.reverse = clip_range(*next, *original, face.reverse, cuts, index, i, work, changed);
         if (changed) {
             ++changed_faces;
             target.polygons = (target.forward.count + target.reverse.count) / 3;

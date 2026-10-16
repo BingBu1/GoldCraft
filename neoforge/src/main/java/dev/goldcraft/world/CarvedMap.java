@@ -11,7 +11,7 @@ import static dev.goldcraft.world.CarvedVolume.*;
 /** Immutable geometry prepared before a host edit becomes visible to physics. */
 public final class CarvedMap {
     private static final MapEdits.Target WORLD=new MapEdits.Target(0,0,0);
-    private record Target(List<MapEdits.Box> cuts,CarvedHull[] hulls) {}
+    private record Target(CarvedCutIndex cuts,CarvedHull[] hulls) {}
     private final BspMap map;
     private final Map<MapEdits.Target,Target> targets;
     public CarvedMap(BspMap map,List<MapEdits.Cut> cuts) {
@@ -27,13 +27,14 @@ public final class CarvedMap {
         }
         var prepared=new HashMap<MapEdits.Target,Target>();long operations=0;
         for(var group:groups.entrySet()) {
-            var boxes=group.getValue().stream().map(b->new Box(new P(b.minX(),b.minY(),b.minZ()),new P(b.maxX(),b.maxY(),b.maxZ()))).toList();
+            var boxes=CarvedCutUnion.compact(group.getValue().stream()
+                .map(b->new Box(new P(b.minX(),b.minY(),b.minZ()),new P(b.maxX(),b.maxY(),b.maxZ()))).toList());
             var hulls=new CarvedHull[4];
             for(int hull=0;hull<4;hull++) {
                 hulls[hull]=new CarvedHull(map,group.getKey().model(),hull,boxes,Math.min(4_194_304,limit-operations));
                 operations+=hulls[hull].operations;
             }
-            prepared.put(group.getKey(),new Target(List.copyOf(group.getValue()),hulls));
+            prepared.put(group.getKey(),new Target(new CarvedCutIndex(group.getValue()),hulls));
         }
         targets=Map.copyOf(prepared);
     }
@@ -55,13 +56,15 @@ public final class CarvedMap {
     public int classify(HostWorldState.Brush brush,BspMap.Bounds query) {
         var target=identity(brush);var edit=targets.get(target);
         if(edit==null)return map.classify(target.model(),query);
+        var nearby=edit.cuts.query(query);
+        if(nearby.isEmpty())return map.classify(target.model(),query);
         var pieces=new ArrayList<BspMap.Bounds>();pieces.add(query);boolean removed=false;
         long work=0;
-        for(var cut:edit.cuts) {
+        for(var cut:nearby) {
             var next=new ArrayList<BspMap.Bounds>();
+            float[] lo={cut.minX(),cut.minY(),cut.minZ()},hi={cut.maxX(),cut.maxY(),cut.maxZ()};
             for(var piece:pieces) {
                 if(++work>262144)throw new IllegalArgumentException("Carved voxel query budget");
-                float[] lo={cut.minX(),cut.minY(),cut.minZ()},hi={cut.maxX(),cut.maxY(),cut.maxZ()};
                 boolean overlaps=true;
                 for(int i=0;i<3;i++)if(piece.max().axis(i)<=lo[i]||piece.min().axis(i)>=hi[i])overlaps=false;
                 if(!overlaps)next.add(piece);

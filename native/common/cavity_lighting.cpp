@@ -1,4 +1,5 @@
 #include "goldcraft/cavity_lighting.hpp"
+#include "goldcraft/cut_index.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -63,7 +64,8 @@ struct Candidate {
 class Field {
   public:
     Field(const Model &model, const Settings &settings, std::size_t &work)
-        : model_(model), settings_(settings), work_(work), order_(model.probes.size()) {
+        : model_(model), settings_(settings), work_(work), order_(model.probes.size()),
+          cut_index_(model.cuts,[&](auto n){consume(work,settings.mesh.operations,n);}) {
         if (order_.empty()) throw std::invalid_argument("Missing baked map lighting probes");
         if (order_.size() > settings.probes || model.values.size() > settings.values)
             throw std::length_error("Cavity lighting probe capacity");
@@ -108,7 +110,15 @@ class Field {
             const auto weight = cosine*radial*radial/(1+candidate.distance);
             total += weight;
             ++result.rays;
-            if (!visible(model_.hull, model_.cuts, p, probe.position, work_, settings_.mesh.operations)) {
+            carving::Box bounds;
+            for(int a=0;a<3;++a) {
+                bounds.min[a]=std::min(p[a],probe.position[a]);
+                bounds.max[a]=std::max(p[a],probe.position[a]);
+            }
+            cut_index_.query(bounds,cut_candidates_,[&](auto n){consume(work_,settings_.mesh.operations,n);});
+            nearby_cuts_.clear();
+            for(auto id:cut_candidates_) nearby_cuts_.push_back(model_.cuts[id]);
+            if (!visible(model_.hull, nearby_cuts_, p, probe.position, work_, settings_.mesh.operations)) {
                 ++result.occluded;
                 continue;
             }
@@ -171,11 +181,20 @@ class Field {
     std::size_t &work_;
     std::vector<std::uint32_t> order_;
     std::vector<Candidate> heap_;
+    carving::CutIndex cut_index_;
+    std::vector<std::size_t> cut_candidates_;
+    std::vector<carving::Box> nearby_cuts_;
 };
 using Key = std::array<std::uint32_t, 6>;
 struct Hash { std::size_t operator()(const Key &key) const {
-    std::size_t result = 2166136261u;
-    for (auto v : key) result = (result^v)*16777619u;
+    // Integral voxel positions/normals share low mantissa bits. Multiplying
+    // whole float words as FNV left those bits identical in MSVC's power-of-two
+    // buckets, turning the sample cache into a long linear chain after TNT.
+    std::uint32_t result = 2166136261u;
+    for (auto v : key) {
+        v ^= v >> 16; v *= 0x7feb352du; v ^= v >> 15; v *= 0x846ca68bu; v ^= v >> 16;
+        result = (std::rotl(result, 5) ^ v) * 0x9e3779b1u;
+    }
     return result;
 }};
 Key key(const surface::Vertex &v, const surface::Frame &frame) {

@@ -14152,10 +14152,10 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..e0fa6c1
+index 0000000..088fb5c
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,264 @@
+@@ -0,0 +1,278 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -14412,6 +14412,20 @@ index 0000000..e0fa6c1
 +        totalUs+=elapsed; maxUs=(std::max)(maxUs,elapsed); ++cases;
 +    }
 +    assert(cases==12 && rays>0 && values>0 && occluded>0 && occluded<rays);
++    // Real map luxels and actual GPU upload, including a dense TNT-sized union.
++    for(int radius:{2,4,5}) {
++        std::vector<carving::Box> cuts;
++        for(int x=-radius;x<=radius;++x)for(int y=-radius;y<=radius;++y)for(int z=-radius;z<=radius;++z)
++            cuts.push_back({{96.+x*32,2880.+y*32,384.+z*32},{128.+x*32,2912.+y*32,416.+z*32}});
++        const cavity::Model blast{first,count,hull,cuts};
++        const auto started=std::chrono::steady_clock::now();
++        const auto lit=R_PrepareLitCarvedWorldGeometry(original,{&blast,1});
++        assert(lit->m_pCavityLighting && !lit->m_vCavityDraws.empty());
++        assert(glGetError()==GL_NO_ERROR);
++        std::printf("{\"actualMapBlast\":true,\"cuts\":%zu,\"lightWork\":%zu,\"prepareMs\":%.3f,\"passed\":true}\n",
++            cuts.size(),lit->m_pCavityLighting->operations,
++            std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
++    }
 +    assert(opened_rays && bounded_views);
 +    std::printf("{\"mapCarvedVisibility\":true,\"cases\":%zu,\"leaves\":%zu,\"newSightlines\":%zu,\"boundedViews\":%zu,\"maxVisibleLeaves\":%zu,\"operations\":%zu,\"prepareCpuUsMean\":%.3f,\"passed\":true}\n",
 +        cases,visibility_source->contents.size()-1,opened_rays,bounded_views,max_visible,vis_operations,visibility_us/cases);
@@ -18368,10 +18382,10 @@ index 0000000..029fb40
 +#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..a02bca1
+index 0000000..43e95c3
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,524 @@
+@@ -0,0 +1,525 @@
 +#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
@@ -18686,7 +18700,8 @@ index 0000000..a02bca1
 +        }
 +        catch (const std::exception& error)
 +        {
-+            if (gEngfuncs.Con_DPrintf) gEngfuncs.Con_DPrintf("Renderer: world edit preparation failed: %s\n", error.what());
++            if (gEngfuncs.Con_Printf) gEngfuncs.Con_Printf("Renderer: world edit preparation failed (revision %llu, cuts %u): %s\n",
++                static_cast<unsigned long long>(revision), count, error.what());
 +            return 0;
 +        }
 +        catch (...)

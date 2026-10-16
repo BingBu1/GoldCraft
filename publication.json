@@ -356,7 +356,8 @@
     "docs/ROUND_CLEANUP.md",
     "docs/STEAM_DISCONNECT.md",
     "tools/Test-DeathView.py",
-    "tests/native/steam_worker_fake_api.def"
+    "tests/native/steam_worker_fake_api.def",
+    "docs/TNT_PERFORMANCE.md"
   ],
   "trees": {
     "native": [

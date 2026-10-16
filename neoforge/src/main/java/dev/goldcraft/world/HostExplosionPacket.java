@@ -20,9 +20,10 @@ public final class HostExplosionPacket {
     }
     public static List<MapMining.Cell> finalCells(Vec3d center,float power,Set<BlockPos> reached,List<BlockPos> affected) {
         if(!validOrigin(center,power))return List.of();
+        Set<BlockPos> allowed=new HashSet<>(affected);
         Set<MapMining.Cell> cells=new HashSet<>();double radius=power*2.0+2.0;
         for(BlockPos pos:reached) {
-            if(!validCell(pos)||!affected.contains(pos))continue;
+            if(!validCell(pos)||!allowed.contains(pos))continue;
             double dx=pos.getX()+.5-center.x,dy=pos.getY()+.5-center.y,dz=pos.getZ()+.5-center.z;
             if(dx*dx+dy*dy+dz*dz>radius*radius)continue;
             cells.add(new MapMining.Cell(pos.getX(),-pos.getZ()-1,pos.getY()-64));

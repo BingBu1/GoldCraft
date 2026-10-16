@@ -3,6 +3,7 @@
 #include "goldcraft/wire.hpp"
 #include "goldcraft/surface_mesh.hpp"
 #include "goldcraft/cavity_mesh.hpp"
+#include "blast_mesh_tests.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -686,6 +687,7 @@ void actual_map(const char* path) {
     std::cout << "{\"map\":\"cs_assault\",\"multiCuts\":" << many_cuts.size()
               << ",\"walls\":" << prepared.walls << ",\"operations\":" << prepared.operations
               << ",\"defaultBudget\":true,\"passed\":true}\n";
+    blast_mesh_tests::run(map_mesh, hull, many_cuts);
 }
 } // namespace
 
