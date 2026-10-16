@@ -1,6 +1,14 @@
-# Steam 掉服调查与辅助进程隔离候选
+# Steam 掉服调查与在线会话恢复
 
-已确认本地服务器实际出现“Steam connection lost”和“Unable to connect to Steam”；后者来自 ReHLDS 的 `k_EDenySteamConnectionError=12`，前者对应11。另一次是 MC断链90秒踢出，属于不同路径。此次只完成现场只读诊断与修复候选，尚不能宣称 Steam 掉服解决。
+## 2026-10-16 实际恢复
+
+隔离新版仍在进服113/121秒后收到拒绝12。个人Steam日志停在前一晚的I/O断开，没有新的账号登录成功；当天HTTP连通性测试成功、进程存在和在线模式偏好都不能证明用户会话在线。专服则有独立的成功登录记录。
+
+主调度使用Steam官方正常退出入口，旧CS退出码0，保留MC及双服；重新启动同一Steam后，16:02:55出现个人登录OK/Logged On。随后启动同一沙盒CS、同一已部署DLL/helper与服务端，在16:03:35收到真实`STEAM USERID validated`。保留现有VPN/代理和认证规则，没有改为LAN、屏蔽拒绝或更换票据。同一userid/serial连续在线6分24秒，无重连或再次拒绝，已跨越多个旧两分钟失败窗口；MC重新配对，HUD/相机/实体持续接收。
+
+两个AppID0 helper的真实新鲜状态也从loggedOn0变成1；这是辅助证据，服务端认证批准才是本次游戏准入依据。恢复前后证据在`build/steam-disconnect-20261016/OFFLINE_HANDOFF.md`与`build/status-vision-20261016/recovery-*.json`。为何原Steam用户会话未自行恢复仍未定位；不将本次恢复当作未来网络异常或所有语音/头像功能的永久保证。
+
+已确认本地服务器实际出现“Steam connection lost”和“Unable to connect to Steam”；后者来自 ReHLDS 的 `k_EDenySteamConnectionError=12`，前者对应11。另一次是 MC断链90秒踢出，属于不同路径。隔离候选已部署且生效，但随后仍约两分钟掉服；进一步确认个人Steam连接未恢复，而专服已独立在线。正常重启Steam后已重新登录并得到服务端认证通过，同一会话连续6分24秒无再次拒绝，本次恢复已验证。
 
 ## 已证事实及边界
 
@@ -27,4 +35,4 @@ Clang x86/C++20/O3/ThinLTO/AVX2/precise独立构建采用单worker、低优先�
 
 本地证据：`build/steam-disconnect-20261016/{observation02.json,process-env.json,live-abi.json,build03.log,build05.log,HANDOFF.md,manifest.json}`。最初三次构建在测试DLL的链接命令／导出声明处失败，记录保留；不将其写成全部构建首次通过。历史analysis证据已删除。
 
-主调度已集成CMake测试补丁，生产GoldCraft/helper和完整84项CTest通过，IPC2 DLL/helper进入26项联合候选，尚未部署。保持VPN，在同一服务器至少跨越多个既有约两分钟失败窗口；观察Steam进程登记不再把helper当AppID10、辅助管道AppID0、有效登录状态、游戏真实认证持续通过，以及TAB／K、语音、普通服、重连／自然退出。若仍掉服，按同一时刻的服务器拒绝码、Steam连接状态及样本年龄继续定位，不能忽略认证失败。
+主调度已集成CMake测试补丁，生产GoldCraft/helper和完整84项CTest通过，IPC2 DLL/helper已随26项联合候选部署。保持VPN，在同一服务器至少跨越多个既有约两分钟失败窗口；观察Steam进程登记不再把helper当AppID10、辅助管道AppID0、有效登录状态、游戏真实认证持续通过，以及TAB／K、语音、普通服、重连／自然退出。若仍掉服，按同一时刻的服务器拒绝码、Steam连接状态及样本年龄继续定位，不能忽略认证失败。

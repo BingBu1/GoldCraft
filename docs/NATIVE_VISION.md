@@ -21,6 +21,6 @@ Renderer使用独立可选接口`MetaRendererSceneVision_API_001`，仅接受已
 
 当前证据位于`build/status-vision-20261016`。完整Java测试308项、生产JAR及生产发布器446项检查通过。测试覆盖时长、真实fade输入、脉冲、叠加/移除、能力、死亡/身份/世界重置；Minecraft API使用观察适配器。
 
-隐藏窗口的真实OpenGL测试执行实际Renderer接口与完整延迟合成shader，191项检查覆盖租约、着色器编译、材质颜色、发光跳过、天空/地形雾、零状态恢复。生产客户端、ReGameDLL、Renderer及JAR构建通过；原生84项和Renderer25项回归全过。它证明GPU计算，不代表实机画面、性能或多人验收。需同时更新Renderer、GoldCraft与配套的7个shader文件，候选尚未部署。
+隐藏窗口的真实OpenGL测试执行实际Renderer接口与完整延迟合成shader，191项检查覆盖租约、着色器编译、材质颜色、发光跳过、天空/地形雾、零状态恢复。生产客户端、ReGameDLL、Renderer及JAR构建通过；原生84项和Renderer25项回归全过。它证明GPU计算，不代表实机画面、性能或多人验收。需同时更新Renderer、GoldCraft与配套的7个shader文件，用户授权后已配套部署本地B/双服，MC母本/A/B/server同步；现场sceneVisionApi/Accepted为true、glError为0。
 
 尚需两种形态在暗室、天空、水面、发光方块与不同材质上真人验收，覆盖到期、喝奶、死亡、重连和换图。潮涌水下视觉、反胃、发光轮廓和剩余玩家/死亡回调仍单独开放，不能据此关闭全部39种效果的目标。
