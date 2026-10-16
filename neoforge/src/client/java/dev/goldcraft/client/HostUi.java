@@ -3,6 +3,7 @@ package dev.goldcraft.client;
 import com.google.gson.JsonObject;
 import dev.goldcraft.bridge.Wire;
 import net.minecraft.client.MinecraftClient;
+import net.neoforged.neoforge.client.ClientHooks;
 
 /** GUI events target the screen generation the CS client actually displayed. */
 public final class HostUi {
@@ -40,7 +41,15 @@ public final class HostUi {
                     if(code<32||code>348)throw new IllegalArgumentException("Host UI key");
                     if(action!=0)screen.keyPressed(code,0,mods);else screen.keyReleased(code,0,mods);
                 }
-                case 5 -> {if(code<32||code>65535||Character.isSurrogate((char)code))throw new IllegalArgumentException("Host UI character");screen.charTyped((char)code,mods);}
+                case 5 -> {
+                    if(code<32||code==127||!Character.isValidCodePoint(code)||(code>=0xd800&&code<=0xdfff))
+                        throw new IllegalArgumentException("Host UI character");
+                    // Match vanilla Keyboard.onChar: Screen accepts UTF-16 units.
+                    for(char unit:Character.toChars(code)){
+                        if(!ClientHooks.onScreenCharTypedPre(screen,unit,mods)&&!screen.charTyped(unit,mods))
+                            ClientHooks.onScreenCharTypedPost(screen,unit,mods);
+                    }
+                }
             }
             accepted++;
         }finally{dispatching=false;}

@@ -1,6 +1,7 @@
 #include "render_backend.hpp"
 #include "post_effect_replay.hpp"
 #include "host_ui.hpp"
+#include "host_text.hpp"
 #include "work_history.hpp"
 #include "async_diagnostics.hpp"
 #include "server_hud.hpp"
@@ -218,6 +219,7 @@ void WriteWorkDiagnostics(std::ostream& out) {
     out<<"\"nativeWork\":"<<work_snapshot;
     out<<",\"nativeWorkHistory\":";work_history.write(out,work_names);
     out<<",\"hostUiWork\":";host_ui::write_work_diagnostics(out);
+    out<<",\"hostText\":";host_text::diagnostics(out);
     const auto& gl=render::statistics();
     out<<",\"glLoader\":{\"calls\":"<<gl.gl_loader_calls<<",\"reuses\":"<<gl.gl_loader_reuses<<'}';
 }
@@ -971,6 +973,12 @@ void InitHud() {
         if(key>=0&&key<int(menu_pressed.size()))menu_pressed[key]=false;
         if(key>=0&&key<int(forwarded_keys.size())&&forwarded_keys[key])ForwardKey(0,key);
     });
+    Log(host_text::install(api,[]()->host_text::Context{
+        return ui_active&&HudFresh()&&!gEngfuncs.Con_IsVisible()&&!host_ui::game_menu_active()
+            ?host_text::Context{world,hud_menu_id}:host_text::Context{};
+    },[](std::uint32_t cp,unsigned mods){
+        const auto previous=ui_modifiers;ui_modifiers=mods;SendUi(5,int(cp));ui_modifiers=previous;
+    })?"SDL text input and IME candidate bridge installed":"SDL text input bridge unavailable");
     gEngfuncs.pfnAddCommand("goldcraft_status",Status);
     gEngfuncs.pfnAddCommand("goldcraft_close_menu",CloseMinecraftMenu);
     gEngfuncs.pfnAddCommand("goldcraft_reload_resources",ReloadMinecraftResources);
@@ -1428,7 +1436,7 @@ void TestCommands() {
     else if(action=="ui_click"){int button=0;if(input>>button&&button>=0&&button<=2){SendUi(2,button,1);SendUi(2,button,0);}}
     else if(action=="ui_scroll"){float amount=0;if(input>>amount&&std::abs(amount)<=16)SendUi(3,0,0,amount);}
     else if(action=="ui_key"){int key=0,mods=0;if(input>>key>>mods&&key>=32&&key<=348&&mods>=0&&mods<=7){const auto before=ui_modifiers;ui_modifiers=mods;SendUi(4,key,1);SendUi(4,key,0);ui_modifiers=before;}}
-    else if(action=="ui_char"){int character=0;if(input>>character&&character>=32&&character<=65535)SendUi(5,character);}
+    else if(action=="ui_char"){int character=0;if(input>>character&&character>=32&&character<=0x10ffff&&character!=127&&(character<0xd800||character>0xdfff))SendUi(5,character);}
     else if(action=="kill")gEngfuncs.pfnClientCmd(const_cast<char*>("kill\n"));
     else if(action=="team"){int team=0;if(input>>team&&team>=1&&team<=2){std::string command="jointeam "+std::to_string(team)+"\njoinclass 1\n";gEngfuncs.pfnClientCmd(command.data());}}
     else if(action=="observer")gEngfuncs.pfnClientCmd("jointeam 6\n");
@@ -1791,18 +1799,12 @@ int KeyEvent(int down,int key,const char* binding_text) {
     }
     host_keys::modifier(ui_modifiers,key==K_SHIFT?1:key==K_CTRL?2:key==K_ALT?4:0,down!=0);
     if(ui_active&&HudFresh()){
+        ui_modifiers=host_text::modifiers(ui_modifiers);
         if(key>=K_MOUSE1&&key<=K_MOUSE3){SendUi(2,key-K_MOUSE1,down?1:0);return 0;}
         if(key==K_MWHEELUP||key==K_MWHEELDOWN){if(down)SendUi(3,0,0,key==K_MWHEELUP?1.0f:-1.0f);return 0;}
         const int glfw=glfw_key(key);
+        if(host_text::block_key(glfw))return 0;
         if(glfw>=32&&glfw<=348)SendUi(4,glfw,down?1:0);
-        if(down&&key>=32&&key<127&&(ui_modifiers&6)==0){
-            int character=key;
-            if(ui_modifiers&1){
-                if(key>='a'&&key<='z')character=key-'a'+'A';
-                else {const char* plain="1234567890-=[]\\;',./`",*shift="!@#$%^&*()_+{}|:\"<>?~";const char* found=std::strchr(plain,key);if(found)character=shift[found-plain];}
-            }
-            SendUi(5,character);
-        }
         return 0;
     }
     if(HasControl()&&!host_ui::state().keyboard) {
@@ -2063,7 +2065,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::ExitGame(int) { client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

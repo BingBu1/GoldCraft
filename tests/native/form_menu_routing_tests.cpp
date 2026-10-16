@@ -25,6 +25,12 @@ namespace host_ui {
 struct State {bool game_menu=false,keyboard=false,hooked=true;} current;
 const State& state(){return current;}
 }
+namespace host_text {
+bool composing=false;
+unsigned mods=0;
+bool block_key(int){return composing;}
+unsigned modifiers(unsigned){return mods;}
+}
 struct Engine {
     int (*Con_IsVisible)()=+[](){return console?1:0;};
     void (*pfnServerCmd)(const char*)=+[](const char* text){command=text;++commands;};
@@ -100,9 +106,16 @@ int main(){
     world=1;console=true;
     assert(KeyEvent(1,K_F6,"save quick")==1&&KeyEvent(0,K_F6,"save quick")==1&&commands==before);
     console=false;ui_active=true;fresh=true;
-    assert(KeyEvent(1,'x',"goldcraft_menu")==0&&ui_events==2&&commands==before);
-    assert(KeyEvent(0,'x',"goldcraft_menu")==0&&ui_events==3);
-    assert(KeyEvent(1,K_F6,"save quick")==0&&ui_events==4&&commands==before);
-    assert(KeyEvent(0,K_F6,"save quick")==0&&ui_events==5);
+    assert(KeyEvent(1,'x',"goldcraft_menu")==0&&ui_events==1&&commands==before);
+    assert(KeyEvent(0,'x',"goldcraft_menu")==0&&ui_events==2);
+    assert(KeyEvent(1,K_F6,"save quick")==0&&ui_events==3&&commands==before);
+    assert(KeyEvent(0,K_F6,"save quick")==0&&ui_events==4);
+    // Key callbacks no longer synthesize text: Shift, layouts and keypad text
+    // come from SDL_TEXTINPUT exactly once, independent of frame key resets.
+    ui_modifiers=0;host_text::mods=1;
+    assert(KeyEvent(1,'2',"")==0&&ui_events==5&&ui_modifiers==1);
+    assert(KeyEvent(1,170,"")==0&&ui_events==6);
+    host_text::composing=true;
+    for(int key:{13,27,8,int('2')})assert(KeyEvent(1,key,"")==0&&ui_events==6);
     std::cout<<"PASS production F6 press/release, stock bindings, native/MC menu open/close, custom bindings, ordinary servers, console and MC text input\n";
 }

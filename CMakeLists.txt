@@ -213,7 +213,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     set(ONLY_LIBS ON CACHE BOOL "" FORCE)
     add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
     include(cmake/goldcraft-diagnostics.cmake)
-    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/server_hud.cpp native/client/render_backend.cpp native/client/post_scene_snapshot.cpp native/client/post_effect_replay.cpp
+    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/host_text.cpp native/client/server_hud.cpp native/client/render_backend.cpp native/client/post_scene_snapshot.cpp native/client/post_effect_replay.cpp
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/vitals.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
@@ -225,6 +225,8 @@ if(GOLDCRAFT_BUILD_CLIENT)
         "${METAHOOK_SOURCE_PATH}/include/Interface/VGUI" "${METAHOOK_SOURCE_PATH}/include/VGUI"
         "${METAHOOK_SOURCE_PATH}/include/SourceSDK" "${METAHOOK_SOURCE_PATH}/include/SourceSDK/tier0"
         "${METAHOOK_SOURCE_PATH}/include/SourceSDK/tier1"
+        "${METAHOOKSV_SOURCE_PATH}/Plugins/VGUI2Extension/include/Interface"
+        "${METAHOOKSV_SOURCE_PATH}/MetaHook/thirdparty/SDL3_fork/include"
         "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/include/Interface" "${METAHOOKSV_SOURCE_PATH}/Plugins/Renderer/src")
     target_compile_definitions(GoldCraft PRIVATE WIN32 _WINDOWS _MBCS NOMINMAX WIN32_LEAN_AND_MEAN GLEW_STATIC _CRT_SECURE_NO_WARNINGS)
     target_compile_options(GoldCraft PRIVATE /W3 /utf-8 /Zi /wd4311 /wd4312 /wd4996)
@@ -309,6 +311,16 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_link_libraries(goldcraft_form_menu_routing_tests PRIVATE goldcraft_common)
         target_compile_options(goldcraft_form_menu_routing_tests PRIVATE /W4 /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_form_menu_routing COMMAND goldcraft_form_menu_routing_tests)
+        add_executable(goldcraft_text_input_tests tests/native/text_input_tests.cpp)
+        target_include_directories(goldcraft_text_input_tests PRIVATE native/include)
+        target_compile_options(goldcraft_text_input_tests PRIVATE /W4 /WX /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_text_input COMMAND goldcraft_text_input_tests)
+        add_executable(goldcraft_host_text_adapter_tests tests/native/host_text_adapter_tests.cpp
+            "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
+        target_include_directories(goldcraft_host_text_adapter_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES} native/include)
+        target_compile_definitions(goldcraft_host_text_adapter_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+        target_compile_options(goldcraft_host_text_adapter_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_host_text_adapter COMMAND goldcraft_host_text_adapter_tests)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/native/extract_texture_resource.py)
         execute_process(COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/extract_texture_resource.py"
