@@ -98,9 +98,19 @@ void collisionRevision(std::uint64_t expected) {
 void finish(client_map::EditTransaction& transaction, IMetaRendererWorldEdit2* renderer, model_t* world) {
     const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (transaction.pending()) {
+        worldedit::BeginUploadFrame();
         assert(std::chrono::steady_clock::now() < limit);
         transaction.pump(renderer, world, renderer);
         if (transaction.pending()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+}
+void waitForLeaf(client_map::EditTransaction& transaction, IMetaRendererWorldEdit2* renderer, model_t* world) {
+    const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (WaitForSingleObject(entered, 0) != WAIT_OBJECT_0) {
+        worldedit::BeginUploadFrame();
+        assert(std::chrono::steady_clock::now() < limit && transaction.pending());
+        transaction.pump(renderer, world, renderer);
+        std::this_thread::yield();
     }
 }
 void run() {
@@ -173,7 +183,7 @@ void run() {
     assert(transaction.accept(state) == edits::Applied::changed);
     holdWork = true; ResetEvent(resume); ResetEvent(entered);
     transaction.pump(renderer, worldModel, renderer);
-    assert(WaitForSingleObject(entered, 5000) == WAIT_OBJECT_0);
+    waitForLeaf(transaction, renderer, worldModel);
     assert(transaction.pending() && !transaction.applied().revision); coupled(false, false);
     holdWork = false; SetEvent(resume); finish(transaction, renderer, worldModel);
     assert(transaction.applied().revision == 2); coupled(false, true);
@@ -208,17 +218,18 @@ void run() {
 
     // Real GL preparation and worker creation failures preserve both old views.
     assert(transaction.accept(state) == edits::Applied::changed); failUpload = true;
-    Reject([&] { transaction.pump(renderer, worldModel, renderer); });
+    Reject([&] { finish(transaction, renderer, worldModel); });
     assert(!transaction.ready()); preserved();
     assert(transaction.accept(state) == edits::Applied::changed); failCreate = true;
-    Reject([&] { transaction.pump(renderer, worldModel, renderer); }); failCreate = false;
+    Reject([&] { finish(transaction, renderer, worldModel); }); failCreate = false;
     assert(!transaction.ready()); preserved();
 
     // Fail a leaf upload during Poll, after Begin has already returned a ticket.
     assert(transaction.accept(state) == edits::Applied::changed);
     holdWork = true; ResetEvent(resume); ResetEvent(entered);
     transaction.pump(renderer, worldModel, renderer);
-    assert(WaitForSingleObject(entered, 5000) == WAIT_OBJECT_0 && transaction.pending());
+    waitForLeaf(transaction, renderer, worldModel);
+    assert(transaction.pending());
     failUpload = true; holdWork = false; SetEvent(resume);
     Reject([&] { finish(transaction, renderer, worldModel); });
     assert(!transaction.ready()); preserved();
@@ -227,7 +238,7 @@ void run() {
     assert(transaction.accept(state) == edits::Applied::changed);
     holdWork = true; ResetEvent(resume); ResetEvent(entered);
     transaction.pump(renderer, worldModel, renderer);
-    assert(WaitForSingleObject(entered, 5000) == WAIT_OBJECT_0);
+    waitForLeaf(transaction, renderer, worldModel);
     state.revision = 5;
     for (auto& cut : state.cuts) { cut.box.min[0] -= 32; cut.box.max[0] -= 32; }
     assert(transaction.accept(state) == edits::Applied::changed); preserved();

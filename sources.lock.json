@@ -90,7 +90,13 @@
         "tests/extract_draw_parameter_dispatch.py",
         "tests/studio_bone_palette_tests.cpp",
         "tests/studio_bone_palette_gl_tests.cpp",
-        "tests/extract_studio_palette_upload.py"
+        "tests/extract_studio_palette_upload.py",
+        "src/world_edit_prepare.h",
+        "src/world_edit_prepare.cpp",
+        "src/world_prepare_budget.h",
+        "tests/world_edit_prepare_tests.cpp",
+        "tests/world_prepare_budget_tests.cpp",
+        "tests/legacy_cavity_probe_fixture.h"
       ]
     },
     "BulletPhysics": {

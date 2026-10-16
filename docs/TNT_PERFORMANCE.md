@@ -2,11 +2,21 @@
 
 ## 2026-10-16 后续：Renderer后台准备与分阶段测量
 
-已部署版仍在Renderer Begin中同步生成内壁、采样烘焙光照并准备可见性。正在拆为主线程捕获拥有数据、CPU worker计算及主线程GL上传/原子提交；当前尚未完成Renderer自动验证或部署。GPU上传和叶子任务泵送仍须独立检查，不能把CPU异步等同于整帧有界。
+已部署版仍在 Renderer Begin 中同步生成内壁、采样烘焙光照并准备可见性。候选已拆为主线程复制输入、单个后台线程计算、主线程分帧上传和原子提交；生产构建成功，完整 27 项 CTest 全部通过，尚未部署。
+
+后台输入保留独立几何、hull、PVS、烘焙面和 RGB 光照数据，不依赖可释放的引擎地图内存，不包含 GL 对象。最多一个运行任务和一个可替换的新任务；取消不等待，退出插件前明确取消并等待线程结束。上传前再次核对上下文、模型提供者和世界身份，碰撞与画面仍须一起就绪才提交；失败保留此前两者。
+
+模型与叶子上传共享每 HUD 帧四个工作单元及 2ms 的停止后续工作目标，同帧重复 Poll 不补充额度，延迟模型优先进入下一帧。单次驱动调用不能抢占，因此不是硬性 2ms 上限，也不是四条 GL API。任务输入/结果与 GPU 核算预算为 256MiB，总保留资源核算上限为 768MiB，烘焙捕获上限为 128MiB；公共算法内部临时工作仍由原有元素/操作限额约束，768MiB 不是进程内存峰值上限。
+
+独立 CPU、共享帧预算、实际 GL 事务/碰撞回归已通过；真实 cs_assault 十五组旧版算法对照包括 125/729/1331 切口，逐项几何、探针/光照系数与射线一致。测试还覆盖七个模型、三帧额度耗尽后同帧 32 次重复泵送、地图数据释放、取消和上传前上下文/模型更换。114 文件补丁从固定上游回放一致。证据为 `build/tnt-renderer-20261016/HANDOFF.md`、`renderer-agent-source-freeze.json`、`renderer-patch-validation.json`；离线耗时不代表实机 FPS，连续爆破的同步收敛和形态稳定性仍待。
 
 客户端新增`mapEditWork`，覆盖identity、copy、physicsPrepare、rendererBegin、physicsPoll、rendererPoll、rendererCommit、collisionCommit和cancel。固定64条历史保留>=2ms、失败、Begin和完成提交，20万次安静poll不会冲掉慢记录。attempt/epoch/revision/ticket/切口数量及稳定字段hash关联实际准备批次；hash只用于诊断，不作为权威证明。64位身份以字符串输出，steady时刻使用double往返精度以保留长uptime的毫秒顺序。记录过程无分配/文件IO，写入沿用已有限频诊断路径。
 
-生产GoldCraft与5项原生CTest通过，包括真实EditTransaction连续65→129推进、失败事件身份、环覆盖顺序、大整数/时间精度、真实cs_assault与复制引擎碰撞入口。证据`build/tnt-renderer-20261016/native-timing-tests.xml`。这些不是爆破实机或FPS证据；新诊断未部署，已交付累计补丁保持52677018冻结版。下一步完成Renderer取消、换图、provider/上下文、late model、内存及GL失败路径验证，并取得相同视角/切口输入的实时提交和帧时间记录。
+生产GoldCraft与5项原生CTest通过，包括真实EditTransaction连续65→129推进、失败事件身份、环覆盖顺序、大整数/时间精度、真实cs_assault与复制引擎碰撞入口。证据`build/tnt-renderer-20261016/native-timing-tests.xml`。
+
+主协调生产 Renderer 构建退出 0，27/27 CTest 零失败/跳过（29.59 秒），427 个构建输入前后 hash 一致；114 文件补丁回放一致，与上一发布版相比只改变预期 17 个 Renderer 文件。证据 `build/tnt-renderer-20261016/renderer-checkpoint.json`、`renderer-production-tests.xml`、`renderer-input-verification.json`、`renderer-patch-scope.json`。首次误用 Windows PowerShell 5 在工具链初始化时因 Avx2 类型缺失退出，随后使用既有 PowerShell 7 成功，未修改工具链要求。
+
+26 项候选已冻结于 `build/candidates/combined-tnt-renderer-20261016/manifest.json`，只替换客户端 `GoldCraft.dll` 与 `Renderer_AVX2.dll`，其余逐项匹配已部署版本；两个 DLL 已确认 x86。已交付累计补丁和图形包保持原稳定基线。下一步在合适时机更新 CS，取得切口仍存在时的服务端、接收、画面和碰撞 revision，以及固定视角帧时间、单发/连续 TNT 和形态稳定性证据；自动回归不代替实机验收。
 
 ## 2026-10-16 后续：原生碰撞停顿与传输积压
 
