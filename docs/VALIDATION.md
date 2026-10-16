@@ -1,5 +1,13 @@
 # 验证状态
 
+## 2026-10-16 — 联合实机发现地图编辑重试卡顿（未修复）
+
+实际 B 的地图编辑阶段最大耗时2539.51ms，57次超过50ms；连续失败重试约140–152ms。收到revision1352、已应用1262且pending=false；客户端日志重复记录Renderer refused world edit preparation。生产代码确认失败后使Replica失效、每秒补收快照并重新同步准备碰撞及Renderer候选。Renderer内部具体拒绝原因尚未取得，不能认定为预算、GPU或精度故障。
+
+之后同一world的权威切除数变为0、revision1353，两端收到/应用重新一致；未由代理换图、重启或清除地图，不能把该自然恢复写成修复。10:23四个原进程仍在线，MC实际网络玩家ready/enabled/effectsReady，HUD持续更新；F6插件仍待地图重载，公网未部署。F6 ZIP精确成员、CRC和hash再次核对通过。
+
+证据：analysis/live-mapedit-20261016/client-before.json、recovery.json及analysis/local-combined-20261016/observation-022306.json。本检查点仅只读诊断/交接，无性能源码或运行文件变更。下一步在再次出现非空失败切除集时保留完整切除与Renderer内部错误，分别测量碰撞、网格、光照和GPU准备；实现后须验证绘制/碰撞原子提交与固定视角实机帧时间，不能以关闭校验或只降低重试频率验收。
+
 ## 2026-10-16 — 联合实机与独立F6入服绑定
 
 本地已统一部署流体、状态属性、护甲、盾牌、TNT及点燃身份修复。combined44 Core四端一致SHA `708e412183a8656be84b67de532c4483aba3071301b570c47f4654f27d033db1`；生产mp.dll `39ba59aa7cb41677b4f2a17d1b5d2c870c57f83b495f727d09b04b4d0834f889`，六个ZP插件核对源码/产物后部署。Modpack只改4个Core，保留FerriteCore及完整Mod集；无测试夹具。B使用既有匹配客户端，Steam启动后重开成功。
