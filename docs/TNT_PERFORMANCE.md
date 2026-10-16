@@ -2,7 +2,7 @@
 
 ## 2026-10-16 后续：Renderer后台准备与分阶段测量
 
-已部署版仍在 Renderer Begin 中同步生成内壁、采样烘焙光照并准备可见性。候选已拆为主线程复制输入、单个后台线程计算、主线程分帧上传和原子提交；生产构建成功，完整 27 项 CTest 全部通过，尚未部署。
+此前部署版仍在 Renderer Begin 中同步生成内壁、采样烘焙光照并准备可见性。新版本已拆为主线程复制输入、单个后台线程计算、主线程分帧上传和原子提交；生产构建成功，完整 27 项 CTest 全部通过，现已按用户授权部署到本地 CS B。
 
 后台输入保留独立几何、hull、PVS、烘焙面和 RGB 光照数据，不依赖可释放的引擎地图内存，不包含 GL 对象。最多一个运行任务和一个可替换的新任务；取消不等待，退出插件前明确取消并等待线程结束。上传前再次核对上下文、模型提供者和世界身份，碰撞与画面仍须一起就绪才提交；失败保留此前两者。
 
@@ -16,7 +16,13 @@
 
 主协调生产 Renderer 构建退出 0，27/27 CTest 零失败/跳过（29.59 秒），427 个构建输入前后 hash 一致；114 文件补丁回放一致，与上一发布版相比只改变预期 17 个 Renderer 文件。证据 `build/tnt-renderer-20261016/renderer-checkpoint.json`、`renderer-production-tests.xml`、`renderer-input-verification.json`、`renderer-patch-scope.json`。首次误用 Windows PowerShell 5 在工具链初始化时因 Avx2 类型缺失退出，随后使用既有 PowerShell 7 成功，未修改工具链要求。
 
-26 项候选已冻结于 `build/candidates/combined-tnt-renderer-20261016/manifest.json`，只替换客户端 `GoldCraft.dll` 与 `Renderer_AVX2.dll`，其余逐项匹配已部署版本；两个 DLL 已确认 x86。已交付累计补丁和图形包保持原稳定基线。下一步在合适时机更新 CS，取得切口仍存在时的服务端、接收、画面和碰撞 revision，以及固定视角帧时间、单发/连续 TNT 和形态稳定性证据；自动回归不代替实机验收。
+26 项候选已冻结于 `build/candidates/combined-tnt-renderer-20261016/manifest.json`，其中两个 x86 客户端 DLL 已更新至本地 CS B：`GoldCraft.dll` 和 `Renderer_AVX2.dll`。12 项客户端配套文件保持匹配，服务端和 Minecraft 更新数均为 0；已交付累计补丁及图形包仍是此前稳定基线。新技能保护及死亡效果联合候选继续独立保留。
+
+本次重启已进入原公网 CS 服务器。最初使用域名出现 `Bad server address`，外部公网查询可达；使用同一域名当前解析的 IPv4 和原端口后完成加载。该结果支持域名地址处理是本次连接阻塞，不证明长期 DNS 问题。最终正常启动没有 `-condebug`，临时诊断日志已移到本轮证据目录，未保留无界控制台日志。
+
+实际进程模块路径和两个 DLL 的部署 hash 均核对成功；十次只读采样显示地图身份和资源清单持续有效，931/931 项资源完成，Renderer/scene API/viewReady 就绪，GL 错误和碰撞失败均为 0。接收、画面应用和碰撞 revision 均为 557，但当前切口数是 0。本次没有启动 MC 客户端，因此不能把这些数据视为 MC 配对、HUD 操作、TNT 性能或帧率验收。原安装 19575 文件元数据/5 项内容 hash、25 个原生目标与四份 Core 叠加核验通过，root index 保持。
+
+部署和启动证据：`build/tnt-renderer-20261016/client-deployment.json`、`client-restart.json`、`client-live-verification.json`、`client-runtime-verification.json`。下一步取得切口仍存在时的服务端、接收、画面和碰撞 revision，以及固定视角帧时间、单发/连续 TNT 和形态稳定性证据；自动回归和成功入服不代替实机验收。
 
 ## 2026-10-16 后续：原生碰撞停顿与传输积压
 
