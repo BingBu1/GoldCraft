@@ -324,7 +324,9 @@
     "amxx/goldcraft/configs/plugins-goldcraft-connection.ini",
     "amxx/zombie_plague/integration/goldcraft_zp_rules.sma",
     "amxx/zombie_plague/integration/goldcraft_zp_combat.sma",
-    "amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini"
+    "amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini",
+    "docs/NATIVE_SWIMMING.md",
+    "docs/STATUS_EFFECT_COVERAGE.md"
   ],
   "trees": {
     "native": [

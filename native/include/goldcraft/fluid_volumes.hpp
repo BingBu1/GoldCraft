@@ -123,10 +123,34 @@ template<class PM> class MovementScope {
     const Field* field_;
     MovementScope* previous_;
     inline static thread_local MovementScope* current_=nullptr;
+    int swimming_contents(const float* p) const noexcept {
+        const int actual=field_->contents(p);
+        if(actual!=empty)return actual;
+        // GoldSrc samples the waist (36 units above standing feet), whereas
+        // one MC source block is only 28.44 units deep. MC allows buoyancy
+        // above 0.4 blocks. Promote only PM's waist sample to swimming level;
+        // the eye sample and TruePointContents must still describe real water.
+        // No volume inflation, trace/hull changes, or change to native BSP water.
+        if(pm_.movetype!=3||pm_.dead||pm_.deadflag||pm_.spectator||pm_.iuser1
+            ||pm_.usehull<0||pm_.usehull>=4)return empty;
+        const auto* mins=pm_.player_mins[pm_.usehull];
+        const auto* maxs=pm_.player_maxs[pm_.usehull];
+        for(int a=0;a<3;++a)
+            if(p[a]!=pm_.origin[a]+(mins[a]+maxs[a])*0.5f)return empty;
+        constexpr float swimming_depth=0.4f*32.0f;
+        float probe[3]{p[0],p[1],pm_.origin[2]+mins[2]+swimming_depth};
+        // If this hull's waist is already below the MC buoyancy threshold,
+        // the actual sample is authoritative. Never lower that threshold.
+        if(probe[2]>=p[2])return empty;
+        const int liquid=field_->contents(probe);
+        if(liquid==empty)return empty;
+        probe[2]=pm_.origin[2]+mins[2]+1.0f;
+        return field_->contents(probe)==liquid?liquid:empty;
+    }
     static int point(float* p,int* real){
         auto& s=*current_;const int native=s.point_(p,real);
         if(native!=empty)return native;
-        const int value=s.field_->contents(p);if(value!=empty&&real)*real=value;return value;
+        const int value=s.swimming_contents(p);if(value!=empty&&real)*real=value;return value;
     }
     static int truth(float* p){auto& s=*current_;const int value=s.true_(p);return value==empty?s.field_->contents(p):value;}
 public:

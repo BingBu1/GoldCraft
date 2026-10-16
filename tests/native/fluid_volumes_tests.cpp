@@ -8,7 +8,11 @@ namespace {
 int checks=0;
 void check(bool value){++checks;if(!value)throw std::runtime_error("fluid check "+std::to_string(checks));}
 template<class F> void rejects(F action){bool caught=false;try{action();}catch(const ProtocolError&){caught=true;}check(caught);}
-struct PM {int (*PM_PointContents)(float*,int*);int (*PM_TruePointContents)(float*);};
+struct PM {
+    int (*PM_PointContents)(float*,int*);int (*PM_TruePointContents)(float*);
+    int movetype=3,dead=0,deadflag=0,spectator=0,iuser1=0,usehull=0;
+    float origin[3]{},player_mins[4][3]{},player_maxs[4][3]{};
+};
 int native=-1,calls=0;
 int point(float*,int* real){++calls;if(real)*real=native;return native;}
 int truth(float*){return native;}
