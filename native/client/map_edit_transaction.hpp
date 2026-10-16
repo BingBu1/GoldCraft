@@ -1,5 +1,6 @@
 #pragma once
 #include "map_collision.hpp"
+#include "map_edit_history.hpp"
 #include <IMetaRendererWorldEdit.h>
 
 namespace goldcraft::client_map {
@@ -21,6 +22,7 @@ class EditTransaction {
     bool pending() const { return dirty_ || ticket_ != 0; }
     const edits::Snapshot &state() const { return desired_.state(); }
     const edits::Snapshot &applied() const { return applied_.state(); }
+    void write_work_status(std::ostream& out) const { work_history_.write(out); }
 
   private:
     void cancel();
@@ -37,5 +39,8 @@ class EditTransaction {
     std::array<MetaWorldEditTarget, brush::max_entities> identities_{};
     bool published_ = false;
     bool dirty_ = false;
+    EditWorkHistory work_history_;
+    EditWorkIdentity work_identity_;
+    std::uint64_t attempt_ = 0;
 };
 } // namespace goldcraft::client_map

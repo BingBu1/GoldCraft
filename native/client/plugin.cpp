@@ -681,6 +681,7 @@ void WriteDiagnostics() {
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
+        out<<"\"mapEditWork\":";map_edits.write_work_status(out);out<<',';
         out<<"\"mapEditReceived\":"<<map_edits.state().revision<<",\"mapEditApplied\":"<<map_edits.applied().revision
            <<",\"mapEditPending\":"<<(map_edits.pending()?"true":"false")<<',';
         std::size_t vertices=0; for(const auto& [key,s]:sections) vertices+=s.vertices.size();

@@ -4,6 +4,7 @@
 
 namespace goldcraft::client_map {
 void EditTransaction::cancel() {
+    EditWorkScope work(work_history_, EditStage::cancel, work_identity_);
     if (renderer_ && ticket_)
         renderer_->Cancel(ticket_);
     ticket_ = 0;
@@ -74,6 +75,11 @@ void EditTransaction::provider_lost() {
 }
 void EditTransaction::publish(IMetaRendererWorldEdit *renderer, model_s *world,
                               IMetaRendererWorldEdit2 *targeted) {
+    // Publication can precede a new preparation. Do not label it with the
+    // previous candidate's ticket/hash when the received ledger has advanced.
+    const EditWorkIdentity identity{0, desired_.state().epoch, desired_.state().revision,
+        0, 0, static_cast<std::uint32_t>(desired_.state().cuts.size())};
+    EditWorkScope work(work_history_, EditStage::identity, identity);
     if (targeted && static_cast<IMetaRendererWorldEdit *>(targeted) != renderer) {
         provider_lost();
         throw ProtocolError("Client world edit interface mismatch");
@@ -128,39 +134,50 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
         return;
     if (dirty_ && !ticket_) {
         try {
-            prepared_ = desired_;
             std::vector<MetaWorldEditBox> boxes;
             std::vector<MetaWorldEditCut> cuts;
-            if (targeted_)
-                cuts.reserve(prepared_.state().cuts.size());
-            else
-                boxes.reserve(prepared_.state().cuts.size());
-            for (const auto &cut : prepared_.state().cuts) {
-                if (cut.target.slot && !targeted_)
-                    throw ProtocolError("Dynamic BSP edits require per-instance Renderer support");
-                MetaWorldEditBox box{};
-                for (int axis = 0; axis < 3; ++axis) {
-                    box.min[axis] = cut.box.min[axis];
-                    box.max[axis] = cut.box.max[axis];
-                }
+            {
+                EditWorkScope work(work_history_, EditStage::copy, work_identity_);
+                work_identity_ = edit_work_identity(desired_.state(), ++attempt_);
+                prepared_ = desired_;
                 if (targeted_)
-                    cuts.push_back({{cut.target.slot, cut.target.serial, cut.target.model}, box});
+                    cuts.reserve(prepared_.state().cuts.size());
                 else
-                    boxes.push_back(box);
+                    boxes.reserve(prepared_.state().cuts.size());
+                for (const auto &cut : prepared_.state().cuts) {
+                    if (cut.target.slot && !targeted_)
+                        throw ProtocolError("Dynamic BSP edits require per-instance Renderer support");
+                    MetaWorldEditBox box{};
+                    for (int axis = 0; axis < 3; ++axis) {
+                        box.min[axis] = cut.box.min[axis];
+                        box.max[axis] = cut.box.max[axis];
+                    }
+                    if (targeted_)
+                        cuts.push_back({{cut.target.slot, cut.target.serial, cut.target.model}, box});
+                    else
+                        boxes.push_back(box);
+                }
             }
             // Mining one block keeps the short synchronous path. An explosion
             // builds from owned hull snapshots off the render/input thread.
-            if (prepared_.state().cuts.size() >= 32)
-                physics_task_ = client_map::prepare_async(prepared_, world);
-            else
-                physics_ = client_map::prepare(prepared_, world);
-            ticket_ = targeted_
-                ? targeted_->BeginTargeted(world, prepared_.state().epoch, prepared_.state().revision,
-                                           cuts.data(), static_cast<uint32_t>(cuts.size()))
-                : renderer_->Begin(world, prepared_.state().epoch, prepared_.state().revision,
-                                   boxes.data(), static_cast<uint32_t>(boxes.size()));
-            if (!ticket_)
-                throw ProtocolError("Renderer refused world edit preparation");
+            {
+                EditWorkScope work(work_history_, EditStage::physics_prepare, work_identity_);
+                if (prepared_.state().cuts.size() >= 32)
+                    physics_task_ = client_map::prepare_async(prepared_, world);
+                else
+                    physics_ = client_map::prepare(prepared_, world);
+            }
+            {
+                EditWorkScope work(work_history_, EditStage::renderer_begin, work_identity_);
+                ticket_ = targeted_
+                    ? targeted_->BeginTargeted(world, prepared_.state().epoch, prepared_.state().revision,
+                                               cuts.data(), static_cast<uint32_t>(cuts.size()))
+                    : renderer_->Begin(world, prepared_.state().epoch, prepared_.state().revision,
+                                       boxes.data(), static_cast<uint32_t>(boxes.size()));
+                work_identity_.ticket = ticket_;
+                if (!ticket_)
+                    throw ProtocolError("Renderer refused world edit preparation");
+            }
             dirty_ = false;
         } catch (...) {
             invalidate();
@@ -171,6 +188,7 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
         return;
     if (physics_task_) {
         try {
+            EditWorkScope work(work_history_, EditStage::physics_poll, work_identity_);
             if (!client_map::poll(physics_task_, physics_)) return;
             physics_task_.reset();
         } catch (...) {
@@ -178,7 +196,13 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
             throw;
         }
     }
-    const auto status = renderer_->Poll(ticket_);
+    MetaWorldEditStatus status;
+    {
+        EditWorkScope work(work_history_, EditStage::renderer_poll, work_identity_);
+        status = renderer_->Poll(ticket_);
+        if (status != MetaWorldEditStatus::Preparing && status != MetaWorldEditStatus::Ready)
+            work.fail();
+    }
     if (status == MetaWorldEditStatus::Preparing)
         return;
     if (status != MetaWorldEditStatus::Ready) {
@@ -187,9 +211,12 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
     }
     // No callback/yield between renderer publication and these noexcept moves.
     // A failed render commit leaves both collision and applied Replica intact.
-    if (!renderer_->Commit(ticket_))
-        return;
+    {
+        EditWorkScope work(work_history_, EditStage::renderer_commit, work_identity_);
+        if (!renderer_->Commit(ticket_)) return;
+    }
     ticket_ = 0;
+    EditWorkScope work(work_history_, EditStage::collision_commit, work_identity_);
     client_map::commit(std::move(physics_));
     static_assert(std::is_nothrow_move_assignable_v<edits::Replica>);
     applied_ = std::move(prepared_);

@@ -483,6 +483,14 @@ void render_transaction() {
         std::this_thread::yield();
     }
     assert(!transaction.pending()&&renderer.visible==129&&transaction.applied().cuts.size()==128);
+    std::ostringstream timings; transaction.write_work_status(timings);
+    assert(timings.str().find("\"revision\":\"65\"") != std::string::npos);
+    assert(timings.str().find("\"revision\":\"129\"") != std::string::npos);
+    assert(timings.str().find("\"stage\":\"collisionCommit\"") != std::string::npos);
+    assert(timings.str().find("\"rendererPoll\":{\"count\":") != std::string::npos);
+    // The earlier Failed renderer result is retained with its own revision.
+    assert(timings.str().find("\"failed\":true") != std::string::npos);
+    std::cout << "Map edit transaction timing: " << timings.str() << '\n';
     float tail_a[3]{-64,300,0},tail_b[3]{64,300,0};run(tail_a,tail_b);assert(result.fraction==1);
     // Explicit unload joins outside DllMain, and the next session can restart.
     transaction.reset(0);client_map::shutdown_preparation();

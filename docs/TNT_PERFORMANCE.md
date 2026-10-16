@@ -1,5 +1,13 @@
 # TNT 爆破准备与地图同步
 
+## 2026-10-16 后续：Renderer后台准备与分阶段测量
+
+已部署版仍在Renderer Begin中同步生成内壁、采样烘焙光照并准备可见性。正在拆为主线程捕获拥有数据、CPU worker计算及主线程GL上传/原子提交；当前尚未完成Renderer自动验证或部署。GPU上传和叶子任务泵送仍须独立检查，不能把CPU异步等同于整帧有界。
+
+客户端新增`mapEditWork`，覆盖identity、copy、physicsPrepare、rendererBegin、physicsPoll、rendererPoll、rendererCommit、collisionCommit和cancel。固定64条历史保留>=2ms、失败、Begin和完成提交，20万次安静poll不会冲掉慢记录。attempt/epoch/revision/ticket/切口数量及稳定字段hash关联实际准备批次；hash只用于诊断，不作为权威证明。64位身份以字符串输出，steady时刻使用double往返精度以保留长uptime的毫秒顺序。记录过程无分配/文件IO，写入沿用已有限频诊断路径。
+
+生产GoldCraft与5项原生CTest通过，包括真实EditTransaction连续65→129推进、失败事件身份、环覆盖顺序、大整数/时间精度、真实cs_assault与复制引擎碰撞入口。证据`build/tnt-renderer-20261016/native-timing-tests.xml`。这些不是爆破实机或FPS证据；新诊断未部署，已交付累计补丁保持52677018冻结版。下一步完成Renderer取消、换图、provider/上下文、late model、内存及GL失败路径验证，并取得相同视角/切口输入的实时提交和帧时间记录。
+
 ## 2026-10-16 后续：原生碰撞停顿与传输积压
 
 用户复测仍出现同步慢、MC形态卡掉。只读现场记录的客户端 `mapEdits.maxMs=1562.58`，服务端四次 `pose_stale` 在同一生命/连接的姿态约1000–1106ms后撤销控制。当前MC服务端日志未见对应的落后提示。该证据说明原生主线程停顿与姿态超时同时存在，不证明其中全部耗时都来自碰撞；现场记录在 `build/tnt-stall-20261016/live-before.json`。
