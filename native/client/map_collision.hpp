@@ -14,6 +14,13 @@ void engine_initialized(const cl_enginefuncs_s *engine) noexcept;
 struct Prepared;
 using Candidate = std::shared_ptr<const Prepared>;
 Candidate prepare(const edits::Replica &replica, model_s *world_model);
+// Capture engine-owned data on the game thread. A single worker builds only
+// owned immutable hull data; polling and discarding a job never wait for it.
+struct Preparation;
+using PreparationTask = std::shared_ptr<Preparation>;
+PreparationTask prepare_async(const edits::Replica &replica, model_s *world_model);
+bool poll(const PreparationTask &task, Candidate &candidate);
+void shutdown_preparation();
 void commit(Candidate candidate) noexcept;
 void move(playermove_s *movement, int server, void (*original)(playermove_s *, int));
 // Keep the engine's public table untouched. Only the client receives this proxy.

@@ -20,7 +20,8 @@ def region(start, end):
     return source[begin:source.index(end, begin)]
 
 
-parts = [region("bool HudFresh(){", "bool ServerMenuInput(){"),
+parts = [region("bool MinecraftFormWaiting(){", "ControlTrace control_trace;"),
+         region("bool HudFresh(){", "bool ServerMenuInput(){"),
          region("void ClearHud(){", "void UpdateViewModel(){"),
          region("void ReadHud(Reader& r){", "void SendControl("),
          region("int Redraw(float time,int intermission) {", "void DrawNormal()")]

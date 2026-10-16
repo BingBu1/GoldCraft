@@ -19,6 +19,8 @@
 #include "pm_movevars.h"
 #include "goldcraft/native_armor.hpp"
 #include "goldcraft/control_diagnostics.hpp"
+#include "goldcraft/map_edit_delivery.hpp"
+#include "goldcraft/host_delivery_api.hpp"
 #include "goldcraft/transport_diagnostics.hpp"
 #include "goldcraft/authoritative_dimensions.hpp"
 #include "goldcraft/gameplay_rules.hpp"
@@ -60,6 +62,7 @@ struct EditDelivery {
 };
 std::array<EditDelivery,65> edit_deliveries;
 IHostEntityPhysics* entity_physics=nullptr;
+IHostDelivery* host_delivery=nullptr;
 struct ControlState {
     std::uint64_t sequence=0,use_dispatch_token=0;
     bool active=false,use_requested=false,use_applied=false,use_dispatching=false;
@@ -820,26 +823,25 @@ void SendEdits(){
         if(!link.send(message.type,message.payload))break;
         edit_revision_sent=EditRevision(message);
     }
-    // Bound total work and rotate fairly through native clients. One fragment
-    // is at most186 bytes, below the engine's192-byte user-message ceiling.
-    for(int checked=0,sent=0;checked<max_clients&&sent<16;++checked){
-        const int slot=edit_client_cursor=edit_client_cursor%max_clients+1;
+    edits::pump_fragments(max_clients,edit_client_cursor,[&](int slot){
         auto& delivery=edit_deliveries[slot];
-        if(!delivery.enabled||edicts[slot].free)continue;
+        if(!delivery.enabled||edicts[slot].free)return false;
         if(delivery.message.payload.empty()){
-            auto changes=ledger.since(delivery.revision);if(changes.empty())continue;
+            auto changes=ledger.since(delivery.revision);if(changes.empty())return false;
             if(edit_transfer==UINT64_MAX)throw ProtocolError("Map edit transfer exhausted");
             delivery.message=std::move(changes.front());delivery.offset=0;delivery.transfer=++edit_transfer;
         }
         const auto bytes=edits::fragment(registry.world(),delivery.transfer,delivery.message,delivery.offset);
+        if(host_delivery&&host_delivery->ReliableRoom(slot)<bytes.size()+2)return false;
         MESSAGE_BEGIN(MSG_ONE,edit_message,nullptr,edicts+slot);
         for(auto byte:bytes)WRITE_BYTE(byte);
-        MESSAGE_END();++sent;
+        MESSAGE_END();
         delivery.offset+=std::min(edits::fragment_bytes,delivery.message.payload.size()-delivery.offset);
         if(delivery.offset==delivery.message.payload.size()){
             delivery.revision=EditRevision(delivery.message);delivery.message.payload.clear();delivery.offset=0;
         }
-    }
+        return true;
+    },host_delivery?8:1);
 }
 void HandleMining(std::span<const std::uint8_t> bytes, bool sample=false){
     const auto request=mining::decode_request(bytes);
@@ -929,6 +931,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         if(auto config=environment_config("GOLDCRAFT_SERVER",Role::host_server,Role::fabric_server)) {
             auto factory=Sys_GetFactory("swds.dll");
             entity_physics=factory?static_cast<IHostEntityPhysics*>(factory(host_entity_api_version,nullptr)):nullptr;
+            host_delivery=factory?static_cast<IHostDelivery*>(factory(host_delivery_api_version,nullptr)):nullptr;
             if(!entity_physics)throw ProtocolError("GoldCraft host entity API unavailable; build/deploy the workspace ReHLDS engine");
             LoadBsp();
             link.start(*config); BridgeLog("server bridge listening on loopback port "+std::to_string(link.port())+", map "+STRING(gpGlobals->mapname));

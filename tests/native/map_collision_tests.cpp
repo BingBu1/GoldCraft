@@ -22,6 +22,7 @@
 #include <stdexcept>
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <cstdlib>
 #include <new>
 #include <bcrypt.h>
@@ -427,6 +428,72 @@ void render_transaction() {
     }
     assert(renderer.begins == begins && !transaction.ready());
     transaction.reset(0);
+    // A large candidate captures hulls before enqueue. The worker must never
+    // read pointers which a map unload can invalidate, nor publish by itself.
+    edits::Snapshot batch{9,65,{}};
+    for(std::uint64_t id=2;id<=65;++id)
+        batch.cuts.push_back({id,{},{{-1,float(int(id)-34)*4,-64},{17,float(int(id)-33)*4,64}}});
+    edits::Replica replica;replica.reset(9);replica.accept(batch);
+    auto task=client_map::prepare_async(replica,&model);
+    auto saved_hulls=std::array{model.hulls[0],model.hulls[1],model.hulls[2],model.hulls[3]};
+    for(auto& hull:model.hulls){hull.planes=nullptr;hull.clipnodes=nullptr;}
+    client_map::Candidate prepared;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(!client_map::poll(task,prepared)){
+        assert(std::chrono::steady_clock::now()<deadline);
+        std::this_thread::yield();
+    }
+    for(int h=0;h<4;++h)model.hulls[h]=saved_hulls[h];
+    run(a,b);assert(result.hitgroup==77);
+    client_map::commit(prepared);run(a,b);assert(result.fraction==1);
+    client_map::reset();
+    transaction.reset(9);transaction.accept(batch);
+    renderer.status=MetaWorldEditStatus::Preparing;
+    transaction.pump(&renderer,&model);
+    transaction.reset(10); // Cancellation cannot wait on the worker or publish old epoch.
+    transaction.accept(edits::Snapshot{10,1,{}});renderer.status=MetaWorldEditStatus::Ready;
+    transaction.pump(&renderer,&model);
+    assert(transaction.applied().epoch==10&&transaction.applied().revision==1);
+    run(a,b);assert(result.hitgroup==77);
+    transaction.reset(0);
+    // Continuous explosions extend the authoritative replica while the first
+    // build is in flight. It must commit, then reach the exact latest revision.
+    transaction.reset(9);transaction.accept(batch);
+    renderer.status=MetaWorldEditStatus::Preparing;
+    transaction.pump(&renderer,&model);
+    const auto inflight=renderer.ticket;
+    const auto previous_cancels=renderer.cancels;
+    for(std::uint64_t revision=66;revision<=129;++revision){
+        assert(transaction.accept(edits::Delta{9,revision-1,revision,edits::Operation::add,{},
+            {{-1,float(int(revision)-34)*4,-64},{17,float(int(revision)-33)*4,64}}})==edits::Applied::changed);
+        assert(renderer.ticket==inflight&&renderer.cancels==previous_cancels);
+    }
+    assert(transaction.state().revision==129&&transaction.applied().revision==0);
+    renderer.status=MetaWorldEditStatus::Ready;
+    const auto complete_by=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(transaction.applied().revision!=65){
+        transaction.pump(&renderer,&model);
+        assert(std::chrono::steady_clock::now()<complete_by);
+        std::this_thread::yield();
+    }
+    assert(transaction.pending()&&renderer.visible==65);
+    while(transaction.applied().revision!=129){
+        transaction.pump(&renderer,&model);
+        assert(std::chrono::steady_clock::now()<complete_by);
+        std::this_thread::yield();
+    }
+    assert(!transaction.pending()&&renderer.visible==129&&transaction.applied().cuts.size()==128);
+    float tail_a[3]{-64,300,0},tail_b[3]{64,300,0};run(tail_a,tail_b);assert(result.fraction==1);
+    // Explicit unload joins outside DllMain, and the next session can restart.
+    transaction.reset(0);client_map::shutdown_preparation();
+    task=client_map::prepare_async(replica,&model);prepared.reset();
+    const auto restart_by=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(!client_map::poll(task,prepared)){
+        assert(std::chrono::steady_clock::now()<restart_by);std::this_thread::yield();
+    }
+    client_map::shutdown_preparation();client_map::shutdown_preparation();
+    run(a,b);assert(result.hitgroup==77);
+    std::cout << "Async hull: owned source, no worker publication, epoch cancellation, continuous 65->129 revision completion, explicit unload/restart passed\n";
     std::cout << "{\"renderCollisionTransaction\":true,\"waitKeepsOldCollision\":true,"
                  "\"failedCommitKeepsOld\":true,\"coalescesDeltas\":true,\"failureResync\":true,"
                  "\"restore\":true,\"dynamicRejectsAtomically\":true,\"passed\":true}\n";
@@ -1084,8 +1151,10 @@ int main(int argc, char **argv) {
         std::ostringstream out;
         client_map::write_status(out);
         std::cout << "{" << out.str() << "}\n";
+        client_map::shutdown_preparation();
         return 0;
     } catch (const std::exception &error) {
+        client_map::shutdown_preparation();
         std::cerr << error.what() << '\n';
         return 1;
     }

@@ -7,6 +7,7 @@ void EditTransaction::cancel() {
     if (renderer_ && ticket_)
         renderer_->Cancel(ticket_);
     ticket_ = 0;
+    physics_task_.reset();
     physics_.reset();
 }
 void EditTransaction::reset(std::uint64_t epoch) {
@@ -32,7 +33,14 @@ void EditTransaction::invalidate() {
 }
 edits::Applied EditTransaction::receive(edits::Replica next, edits::Applied result) {
     if (result != edits::Applied::ignored) {
-        cancel();
+        // Continuous additive explosions must not starve an in-flight large
+        // preparation. Its exact revision may commit before the newest one.
+        // Clears/removals, gaps and identity changes cancel immediately.
+        const auto& before=desired_.state();const auto& after=next.state();
+        const bool extends=ticket_&&prepared_.state().cuts.size()>=32&&result==edits::Applied::changed&&
+            after.epoch==before.epoch&&after.cuts.size()>=before.cuts.size()&&
+            std::equal(before.cuts.begin(),before.cuts.end(),after.cuts.begin());
+        if(!extends)cancel();
         desired_ = std::move(next);
         dirty_ = result == edits::Applied::changed;
     }
@@ -118,7 +126,7 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
     publish(renderer, world, targeted);
     if (!desired_.ready() || !desired_.state().epoch || !renderer || !world)
         return;
-    if (dirty_) {
+    if (dirty_ && !ticket_) {
         try {
             prepared_ = desired_;
             std::vector<MetaWorldEditBox> boxes;
@@ -140,7 +148,12 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
                 else
                     boxes.push_back(box);
             }
-            physics_ = client_map::prepare(prepared_, world);
+            // Mining one block keeps the short synchronous path. An explosion
+            // builds from owned hull snapshots off the render/input thread.
+            if (prepared_.state().cuts.size() >= 32)
+                physics_task_ = client_map::prepare_async(prepared_, world);
+            else
+                physics_ = client_map::prepare(prepared_, world);
             ticket_ = targeted_
                 ? targeted_->BeginTargeted(world, prepared_.state().epoch, prepared_.state().revision,
                                            cuts.data(), static_cast<uint32_t>(cuts.size()))
@@ -156,6 +169,15 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
     }
     if (!ticket_)
         return;
+    if (physics_task_) {
+        try {
+            if (!client_map::poll(physics_task_, physics_)) return;
+            physics_task_.reset();
+        } catch (...) {
+            invalidate();
+            throw;
+        }
+    }
     const auto status = renderer_->Poll(ticket_);
     if (status == MetaWorldEditStatus::Preparing)
         return;

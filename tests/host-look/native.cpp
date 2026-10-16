@@ -13,7 +13,10 @@ using namespace goldcraft;
 using DWORD=unsigned long;
 constexpr unsigned IN_USE=32;
 struct usercmd_t {float viewangles[3]{},forwardmove=0,sidemove=0,upmove=0;unsigned buttons=0,impulse=0;};
-bool controlling=true,focused=true,window_focused=false,ui_active=false,console=false,camera_fresh=true;
+bool minecraft_control=true,server_minecraft_form=true,focused=true,window_focused=false,ui_active=false,console=false,camera_fresh=true;
+unsigned minecraft_life=4,server_player_life=4;
+auto last_pose=std::chrono::steady_clock::now();
+namespace client_vitals {bool living=true;bool alive(){return living;}}
 float engine_angles[3]{20,100,0},mouse_pitch=0,mouse_yaw=0;
 float ui_angles[3]{20,100,0},ui_x=.5f,ui_y=.5f;
 unsigned viewport_width=1000,viewport_height=1000,host_use_sources=0,input_buttons_observed=0,original_calls=0;
@@ -25,7 +28,7 @@ std::uint64_t world=1,input_sequence=0;
 struct InputTime {std::uint64_t sequence;std::chrono::steady_clock::time_point time;};
 std::array<InputTime,256> input_times{};
 struct Camera{struct Angles{float x=30,y=-90;}angles;}camera_pose;
-bool HasControl(){return controlling;}bool CameraFresh(){return camera_fresh;}
+bool CameraFresh(){return camera_fresh;}
 int GetForegroundWindow(){return 0;}DWORD GetCurrentProcessId(){return 17;}
 void GetWindowThreadProcessId(int,DWORD* process){*process=focused?17:18;}
 void UpdateUi(){}void SendUi(int){}void ReleaseMinecraftKeys(){}void ReleaseHostUse(){}void UpdateHostUse(){}
@@ -45,7 +48,7 @@ struct Exports{
         engine_angles[0]=std::clamp(engine_angles[0]+mouse_pitch,-89.0f,89.0f);
         engine_angles[1]=std::fmod(engine_angles[1]+mouse_yaw+360.0f,360.0f);
         std::copy(std::begin(engine_angles),std::end(engine_angles),cmd->viewangles);
-        cmd->forwardmove=400;cmd->sidemove=-400;cmd->buttons=1|IN_USE;
+        cmd->forwardmove=400;cmd->sidemove=-400;cmd->upmove=100;cmd->buttons=1|IN_USE;cmd->impulse=100;
     }
 }gExportfuncs;
 struct Link {Bytes payload;bool live=true;bool connected(){return live;}bool send(Type type,const Bytes& bytes){assert(type==Type::input);payload=bytes;return true;}}link;
@@ -65,9 +68,27 @@ int main(){
     // An Epic camera already looking vertically must not saturate host delta.
     camera_pose.angles.x=89;camera_pose.angles.y=170;
     for(int i=0;i<150;i++){CreateMove(.01f,&cmd,1);s=sample();near(s.pitch,2);near(s.yaw,-3);near(engine_angles[0],89);}
-    // Temporary lease loss sends absolute INPUT, followed by an explicit delta.
-    controlling=false;CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==1);near(s.pitch,89);near(s.yaw,167);assert(cmd.forwardmove==400&&cmd.buttons!=0);
-    controlling=true;mouse_pitch=mouse_yaw=0;CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==3);near(s.pitch,0);near(s.yaw,0);
+    // A stale authoritative pose revokes MC movement authority, but must never
+    // release native CS movement/fire while the selected living form stays MC.
+    auto suppressed=[&]{assert(cmd.forwardmove==0&&cmd.sidemove==0&&cmd.upmove==0&&cmd.buttons==0&&cmd.impulse==0);};
+    last_pose=std::chrono::steady_clock::now()-std::chrono::milliseconds(351);
+    assert(!HasControl()&&MinecraftFormWaiting());
+    CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==1);near(s.pitch,89);near(s.yaw,167);suppressed();
+    // Staleness never grants a grace lease or reuses the old camera.
+    camera_fresh=false;engine_angles[0]=5;engine_angles[1]=15;
+    CreateMove(.01f,&cmd,1);s=sample();near(s.pitch,7);near(s.yaw,12);suppressed();
+    // A disconnected IPC path also suppresses commands, before its early return.
+    link.live=false;const auto sequence=input_sequence;
+    CreateMove(.01f,&cmd,1);assert(input_sequence==sequence&&!HasControl());suppressed();
+    link.live=true;last_pose=std::chrono::steady_clock::now();
+    // Fresh data from the previous life cannot grant control to the new life.
+    ++server_player_life;assert(!HasControl());CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==1);suppressed();
+    minecraft_life=server_player_life;camera_fresh=true;
+    mouse_pitch=mouse_yaw=0;CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==3);near(s.pitch,0);near(s.yaw,0);suppressed();
+    // Death ends the pending presentation/input hold, preserving spectating.
+    minecraft_control=false;client_vitals::living=false;
+    CreateMove(.01f,&cmd,1);assert(!MinecraftFormWaiting()&&cmd.forwardmove==400&&cmd.buttons!=0);
+    client_vitals::living=true;minecraft_control=true;last_pose=std::chrono::steady_clock::now();
     for(int mode=0;mode<4;mode++){
         focused=mode!=0;console=mode==1;host_ui::current.game_menu=mode==2;ui_active=mode==3;
         mouse_pitch=1;mouse_yaw=2;CreateMove(.01f,&cmd,1);s=sample();near(s.pitch,0);near(s.yaw,0);
@@ -77,7 +98,10 @@ int main(){
     focused=true;console=ui_active=host_ui::current.game_menu=false;mouse_pitch=mouse_yaw=0;
     CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==3);near(s.pitch,0);near(s.yaw,0);
     // Ordinary CS keeps both its absolute camera and native movement/buttons.
-    controlling=false;engine_angles[0]=12;engine_angles[1]=35;mouse_pitch=2;mouse_yaw=-3;
+    server_minecraft_form=false;engine_angles[0]=12;engine_angles[1]=35;mouse_pitch=2;mouse_yaw=-3;
     CreateMove(.01f,&cmd,1);s=sample();assert(s.flags==1);near(s.pitch,14);near(s.yaw,32);near(engine_angles[1],32);assert(cmd.forwardmove==400&&cmd.buttons!=0);
-    std::cout<<"PASS exact CreateMove adapter: relative motion, 150 pitch-edge frames, movement/button routing, control loss/reacquisition, focus/console/menu, GUI cursor and native CS.\n";
+    link.live=false;CreateMove(.01f,&cmd,1);assert(cmd.forwardmove==400&&cmd.buttons!=0&&cmd.impulse==100);
+    server_minecraft_form=true;world=0;assert(!MinecraftFormWaiting());CreateMove(.01f,&cmd,1);assert(cmd.forwardmove==400);
+    world=1;server_player_life=0;assert(!MinecraftFormWaiting());CreateMove(.01f,&cmd,1);assert(cmd.forwardmove==400);
+    std::cout<<"PASS exact HasControl/MinecraftFormWaiting/CreateMove: relative motion, 150 pitch-edge frames, 351ms stale lease, no stale camera/native movement/fire/impulse, disconnect, old life, recovery, death, explicit native form, epoch/life reset, focus/console/menu and GUI cursor.\n";
 }

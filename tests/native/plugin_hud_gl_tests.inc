@@ -214,8 +214,11 @@ void tests(Resources& r){
     minecraft_transition_until=now+.5;
     assert(MinecraftPresentationPending()&&!HasControl()&&!HudFresh());redraw(r,0,0,1,1);
     client_vitals::living=false;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
-    client_vitals::living=true;link.online=false;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
-    link.online=true;now=minecraft_transition_until;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
+    client_vitals::living=true;link.online=false;assert(MinecraftPresentationPending());redraw(r,0,0,1,1);
+    link.online=true;now=minecraft_transition_until+10;assert(MinecraftPresentationPending());redraw(r,0,0,1,1);
+    server_minecraft_form=false;assert(!MinecraftPresentationPending());redraw(r,1,0,0,0);
+    server_minecraft_form=true;server_player_life=4;assert(MinecraftPresentationPending()&&!HudFresh());redraw(r,0,0,1,1);
+    server_player_life=3;
     minecraft_transition_until=now+.5;control=true;f.flags=6;++f.revision;receive(message(f));
     assert(HudFresh()&&!MinecraftPresentationPending());redraw(r,0,1,1,1);
     server_minecraft_form=false;client_vitals::living=false;minecraft_transition_until=0;

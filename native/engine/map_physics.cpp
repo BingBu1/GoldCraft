@@ -4,6 +4,8 @@
 #include "goldcraft/edited_hull.hpp"
 #include "goldcraft/host_map_api.hpp"
 #include "goldcraft/host_map_sample_api.hpp"
+#include "goldcraft/host_delivery_api.hpp"
+#include "goldcraft/map_edit_delivery.hpp"
 #include "goldcraft/mining_cell.hpp"
 #include "goldcraft/brush_identity.hpp"
 #include <array>
@@ -327,15 +329,35 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
     bool has_brushes = false;
 };
 MapPhysics physics;
+class HostDelivery final : public IHostDelivery {
+    std::uint32_t ReliableRoom(std::uint32_t slot) const override {
+        if (!slot || slot > static_cast<unsigned>(g_psvs.maxclients) || !g_psvs.clients) return 0;
+        const auto& client = g_psvs.clients[slot - 1];
+        const auto& channel = client.netchan;
+        const bool usable = client.edict && !client.fakeclient && client.active &&
+            client.spawned && client.hasusrmsgs && channel.message.data &&
+            !(channel.message.flags & SIZEBUF_OVERFLOWED);
+        // Unacknowledged reliable_buf is separate from message. At most one
+        // bounded next batch may queue while it retransmits; cursize then
+        // stops additional edits until Netchan_Transmit actually drains it.
+        const bool fragments = channel.fragbufs[FRAG_NORMAL_STREAM] ||
+            channel.waitlist[FRAG_NORMAL_STREAM];
+        return edits::reliable_room(channel.message.maxsize, channel.message.cursize, usable, fragments);
+    }
+};
+HostDelivery host_delivery;
 } // namespace
 using goldcraft::IHostMapPhysics;
 using goldcraft::IHostMapSample;
+using goldcraft::IHostDelivery;
 // The singleton macro casts directly to IBaseInterface and does not support
 // two base interfaces. Typed factories preserve each interface's correct this.
 static IBaseInterface *CreateMapPhysics() { return static_cast<IHostMapPhysics *>(&physics); }
 static IBaseInterface *CreateMapSample() { return static_cast<IHostMapSample *>(&physics); }
 EXPOSE_INTERFACE_FN(CreateMapPhysics, IHostMapPhysics, goldcraft::host_map_api_version);
 EXPOSE_INTERFACE_FN(CreateMapSample, IHostMapSample, goldcraft::host_map_sample_api_version);
+static IBaseInterface *CreateHostDelivery() { return &host_delivery; }
+EXPOSE_INTERFACE_FN(CreateHostDelivery, IHostDelivery, goldcraft::host_delivery_api_version);
 bool GoldCraft_MapTrace(int slot, model_t *model, hull_t *hull, const float *start,
                         const float *end, trace_t *trace) {
     return physics.trace(slot, model, hull, start, end, trace);

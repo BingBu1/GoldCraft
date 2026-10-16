@@ -1,4 +1,5 @@
 #include "goldcraft/map_edits.hpp"
+#include "goldcraft/map_edit_delivery.hpp"
 #include <cassert>
 #include <cstdio>
 #include <limits>
@@ -8,6 +9,31 @@ using namespace goldcraft::edits;
 template<class F> void rejects(F action){bool failed=false;try{action();}catch(const ProtocolError&){failed=true;}assert(failed);}
 Box volume(float x=0){return {{x,-16,-32},{x+32,16,32}};}
 int main(){
+    {
+        int cursor=0;std::array<int,65> delivered{};
+        assert(pump_fragments(32,cursor,[&](int slot){if(slot!=26)return false;++delivered[slot];return true;})==8);
+        assert(delivered[26]==8); // Single paired client uses otherwise idle turns.
+        delivered={};cursor=0;
+        for(int frame=0;frame<8;++frame)
+            assert(pump_fragments(32,cursor,[&](int slot){++delivered[slot];return true;})==16);
+        for(int slot=1;slot<=32;++slot)assert(delivered[slot]==4);
+        int attempts=0;assert(pump_fragments(32,cursor,[&](int){++attempts;return false;})==0&&attempts==32);
+        assert(pump_fragments(0,cursor,[](int){assert(false);return false;})==0);
+        assert(reliable_room(3990,0,true,false)==1536);
+        assert(reliable_room(3990,1500,true,false)==36);
+        assert(!reliable_room(3990,1536,true,false));
+        assert(!reliable_room(3990,0,true,true));
+        assert(!reliable_room(3990,0,false,false));
+        assert(!reliable_room(3990,-1,true,false));
+        assert(!reliable_room(3990,4000,true,false));
+        std::array<int,65> queued{};cursor=0;
+        auto send=[&](int slot){if(slot!=1&&slot!=26)return false;
+            if(reliable_room(3990,queued[slot],true,false)<188)return false;
+            queued[slot]+=188;return true;};
+        assert(pump_fragments(32,cursor,send)==16);
+        for(int retry=0;retry<100;++retry)assert(pump_fragments(32,cursor,send)==0);
+        queued[26]=0;assert(pump_fragments(32,cursor,send)==8&&queued[1]==1504);
+    }
     Ledger ledger;Replica peer;ledger.reset(7);peer.reset(7);
     assert(!peer.ready());auto messages=ledger.since(0);assert(messages.size()==1);
     assert(peer.accept(snapshot(messages.front().payload))==Applied::changed&&peer.ready());
@@ -46,6 +72,36 @@ int main(){
         complete=assembly.accept(chunk);if(offset+fragment_bytes<full.payload.size())assert(!complete);
     }
     assert(complete&&complete->payload==full.payload);assert(!assembly.accept(fragment(8,1,full,0)));
+    // Actual wire fragments/assemblers, two clients: stalled reliable output
+    // stays bounded while the other reaches the complete authoritative state.
+    Snapshot blast{8,1332,{}};
+    for(std::uint64_t id=2;id<=1332;++id)blast.cuts.push_back({id,{},volume(float(id))});
+    const Message explosion{Type::map_edit_snapshot,encode(blast)};
+    std::array<Assembler,33> receiving;
+    std::array<std::size_t,33> offsets{};
+    std::array<unsigned,33> queue_bytes{};
+    std::array<bool,33> finished{};
+    for(int slot:{1,26})receiving[slot].reset(8);
+    int cursor=0,fast_completed=0;
+    for(int frame=1;frame<=150&&(!finished[1]||!finished[26]);++frame){
+        queue_bytes[26]=0;if(frame>100)queue_bytes[1]=0;
+        pump_fragments(32,cursor,[&](int slot){
+            if((slot!=1&&slot!=26)||finished[slot])return false;
+            const auto bytes=fragment(8,50,explosion,offsets[slot]);
+            if(reliable_room(3990,queue_bytes[slot],true,false)<bytes.size()+2)return false;
+            queue_bytes[slot]+=static_cast<unsigned>(bytes.size()+2);
+            offsets[slot]+=std::min(fragment_bytes,explosion.payload.size()-offsets[slot]);
+            if(auto result=receiving[slot].accept(bytes)){
+                assert(snapshot(result->payload)==blast);finished[slot]=true;
+                if(slot==26)fast_completed=frame;
+            }
+            return true;
+        });
+        assert(queue_bytes[1]<=1536&&queue_bytes[26]<=1536);
+        if(frame==100)assert(!finished[1]&&finished[26]);
+    }
+    assert(finished[1]&&finished[26]&&fast_completed<=46);
+    std::printf("1331-cut snapshot: fast client complete in %d simulated frames; stalled peer bounded then completes\n",fast_completed);
     assert(!assembly.accept(fragment(7,2,full,0)));
     assembly.reset(8);assert(!assembly.accept(fragment(8,3,full,0)));
     rejects([&]{assembly.accept(fragment(8,3,full,2*fragment_bytes));});

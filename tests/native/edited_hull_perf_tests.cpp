@@ -2,6 +2,7 @@
 // pre-change executable writes the optional comparison file; no old algorithm
 // is duplicated here. Timings describe CPU queries, never game frame rate.
 #include "goldcraft/edited_hull.hpp"
+#include "goldcraft/cut_union.hpp"
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -292,6 +293,48 @@ void retention() {
     std::cout << "{\"oversizedQuery\":true,\"nativeLeaves\":8192,\"retainedBytes\":" << retained
               << "}\n";
 }
+void blast(const Bsp& bsp, const std::array<Box, 4>& bodies,
+           std::ofstream& saved, std::ifstream& previous) {
+    std::size_t compared = 0;
+    for (int radius : {2, 3, 4, 5}) {
+        std::vector<Box> cuts;
+        for (int x = -radius; x <= radius; ++x)
+            for (int y = -radius; y <= radius; ++y)
+                for (int z = -radius; z <= radius; ++z)
+                    cuts.push_back({{96. + x * 32, 2880. + y * 32, 384. + z * 32},
+                                    {128. + x * 32, 2912. + y * 32, 416. + z * 32}});
+        const auto compact = compact_cuts(cuts);
+        assert(compact.size() == 1);
+        double total_ms = 0;
+        std::uint64_t hash = 1469598103934665603ull;
+        for (int h = 0; h < 4; ++h) {
+            const auto begin = std::chrono::steady_clock::now();
+            const EditedHull edit(bsp.hull(0), bsp.hull(h), bodies[h], cuts);
+            total_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            Random random;
+            for (int i = 0; i < 600; ++i) {
+                Query q{};
+                for (int axis = 0; axis < 3; ++axis) {
+                    const double low = compact[0].min[axis] - 100, extent = compact[0].max[axis] - low + 100;
+                    q.a[axis] = low + random.get() * extent;
+                    q.b[axis] = i % 3 ? q.a[axis] + random.get() * 96 - 48 : low + random.get() * extent;
+                }
+                const auto r = result(edit, q); hash = digest(hash, r);
+                if (saved.is_open()) saved.write(reinterpret_cast<const char*>(&r), sizeof(r));
+                if (previous.is_open()) {
+                    QueryResult old{}; previous.read(reinterpret_cast<char*>(&old), sizeof(old));
+                    if (!previous || !std::equal(r.words.begin(), r.words.begin() + 8, old.words.begin()))
+                        throw std::runtime_error("Blast differential mismatch radius=" + std::to_string(radius) +
+                            " hull=" + std::to_string(h) + " query=" + std::to_string(i));
+                }
+                ++compared;
+            }
+        }
+        std::cout << "{\"blastCuts\":" << cuts.size() << ",\"fourHullBuildMs\":" << total_ms
+                  << ",\"queries\":2400,\"digest\":" << hash << "}\n";
+    }
+    std::cout << "{\"blastQueries\":" << compared << ",\"compared\":" << (previous.is_open()?"true":"false") << "}\n";
+}
 } // namespace
 int main(int argc, char **argv) {
     try {
@@ -389,6 +432,7 @@ int main(int argc, char **argv) {
             }
         }
         retention();
+        blast(bsp, bodies, saved, previous);
         if (previous.is_open()) {
             assert(previous.peek() == std::char_traits<char>::eof());
             std::cout << "{\"differentialQueries\":" << compared

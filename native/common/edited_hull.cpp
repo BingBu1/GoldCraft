@@ -1,4 +1,5 @@
 #include "goldcraft/edited_hull.hpp"
+#include "goldcraft/cut_union.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -143,6 +144,8 @@ EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::s
     operations_ = validate_hull(body_hull, limits);
     if (cuts.empty())
         throw std::invalid_argument("Edited hull needs cuts");
+    const auto compact = compact_cuts(cuts);
+    cuts = compact;
     Box affected = cuts.front();
     for (const auto &cut : cuts)
         for (int axis = 0; axis < 3; ++axis) {

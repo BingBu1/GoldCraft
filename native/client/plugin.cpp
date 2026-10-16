@@ -508,6 +508,11 @@ void ResetWorld() {
     hud_texture=0;hud_width=hud_height=0;hud_revision=hud_menu_id=0;last_hud=next_viewport=0;ui_active=false;hud_blank=false;
 }
 bool HasControl(){return server_minecraft_form&&minecraft_life==server_player_life&&minecraft_control&&link.connected()&&std::chrono::steady_clock::now()-last_pose<std::chrono::milliseconds(350);}
+bool MinecraftFormWaiting(){
+    // Fresh pose ownership and the server's selected form are different state.
+    // A renderer stall stops controls, but cannot turn the CS weapon back on.
+    return world&&server_player_life&&server_minecraft_form&&client_vitals::alive();
+}
 ControlTrace control_trace;
 ControlSample SampleControl(){
     const auto now=std::chrono::steady_clock::now();ControlSample s;
@@ -555,9 +560,8 @@ void EndHostUse(){host_use_sources&=~1u;UpdateHostUse();}
 bool HudFresh(){return link.connected()&&(HasControl()||(hud_flags&8)||minecraft_menu)&&hud_texture&&hud_revision&&hud_life==minecraft_life&&hud_life==server_player_life&&(!minecraft_hud||minecraft_hud->value!=0)&&Seconds()-last_hud<0.5;}
 bool MinecraftPresentationPending(){
     // Presentation only: never reuse a pose/HUD from the previous life or grant
-    // input ownership. Native death HUD and a failed handoff keep their fallback.
-    return world&&server_player_life&&server_minecraft_form&&link.connected()
-        &&client_vitals::alive()&&Seconds()<minecraft_transition_until
+    // input ownership. Death and an explicit native-form update end the hold.
+    return MinecraftFormWaiting()
         &&(!minecraft_hud||minecraft_hud->value!=0)&&!(HudFresh()&&!(hud_flags&8));
 }
 bool ServerMenuInput(){
@@ -1764,13 +1768,16 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
     else host_use_sources&=~2u;
     if(!input_active)ReleaseHostUse();else UpdateHostUse();
     last_input_active=input_active;last_input_buttons=input_active?cmd->buttons:0;last_input_forward=input_active?cmd->forwardmove:0;last_input_side=input_active?cmd->sidemove:0;
-    if(!link.connected()||!world) return;
+    if(!link.connected()||!world) {
+        if(MinecraftFormWaiting()){cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->buttons=0;cmd->impulse=0;}
+        return;
+    }
     WorkScope forward(WorkStage::input_forward);
     Writer w; w.u64(world);w.u64(++input_sequence); w.f32(frame_time); w.u32((input_active?1u:0u)|(mc_look?2u:0u)); w.u32(last_input_buttons);
     input_times[input_sequence%input_times.size()]={input_sequence,std::chrono::steady_clock::now()};
     w.f32(mc_look?look_pitch:cmd->viewangles[0]); w.f32(mc_look?look_yaw:cmd->viewangles[1]); w.f32(last_input_forward); w.f32(last_input_side); w.f32(input_active?cmd->upmove:0);
     link.send(Type::input,w.data);
-    if(HasControl()){cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->buttons=0;cmd->impulse=0;}
+    if(MinecraftFormWaiting()){cmd->forwardmove=cmd->sidemove=cmd->upmove=0;cmd->buttons=0;cmd->impulse=0;}
 }
 void PlayerMoveWithFluids(playermove_t* move,int server){
     const auto* field=!server&&!HasControl()?native_fluids.active(world,Seconds()):nullptr;
@@ -2106,7 +2113,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
+void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

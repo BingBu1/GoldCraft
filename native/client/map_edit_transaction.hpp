@@ -28,6 +28,7 @@ class EditTransaction {
     edits::Applied receive(edits::Replica next, edits::Applied result);
     edits::Replica desired_, applied_, prepared_;
     Candidate physics_;
+    PreparationTask physics_task_;
     IMetaRendererWorldEdit *renderer_ = nullptr;
     IMetaRendererWorldEdit2 *targeted_ = nullptr;
     model_s *loaded_ = nullptr;

@@ -15,6 +15,11 @@
 #include <ostream>
 #include <stdexcept>
 #include <utility>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 namespace goldcraft::client_map {
 using namespace carving;
@@ -62,10 +67,34 @@ struct SourceHull {
     }
     HullView view() const { return {planes, nodes, root}; }
 };
+struct SourceModel {
+    std::array<SourceHull, 4> hulls;
+    std::array<Box, 4> bodies{};
+    std::vector<Box> cuts;
+    explicit SourceModel(model_t* model, std::vector<Box> input)
+        : hulls{SourceHull(model, model->hulls[0]), SourceHull(model, model->hulls[1]),
+                SourceHull(model, model->hulls[2]), SourceHull(model, model->hulls[3])},
+          cuts(std::move(input)) {
+        for (int h = 1; h < 4; ++h)
+            for (int a = 0; a < 3; ++a) {
+                bodies[h].min[a] = model->hulls[h].clip_mins[a];
+                bodies[h].max[a] = model->hulls[h].clip_maxs[a];
+            }
+    }
+    void build(std::array<std::unique_ptr<EditedHull>, 4>& output, std::size_t& work) const {
+        for (int h = 0; h < 4; ++h) {
+            output[h] = std::make_unique<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], cuts);
+            work += output[h]->operations();
+            if (work > 32'000'000) throw std::length_error("Client map physics budget");
+        }
+    }
+};
 std::shared_ptr<const Prepared> active;
 brush::Receiver identities;
 std::uint64_t traces = 0, positions = 0, points = 0, frames = 0, failures = 0;
 std::uint64_t event_traces = 0;
+std::uint64_t async_preparations = 0;
+double capture_ms = 0, capture_max_ms = 0, preparation_ms = 0, preparation_max_ms = 0;
 playermove_t *event_movement = nullptr;
 event_api_t native_events{}, client_events{};
 decltype(cl_enginefunc_t::CL_LoadModel) load_model = nullptr;
@@ -680,7 +709,66 @@ void shutdown_events() noexcept {
 }
 brush::Receiver &brush_identities() noexcept { return identities; }
 void reset() { active.reset(); }
-Candidate prepare(const edits::Replica &replica, model_t *loaded) {
+struct Preparation {
+    std::shared_ptr<Prepared> output;
+    std::unique_ptr<SourceModel> world;
+    std::vector<SourceModel> brushes;
+    Candidate result;
+    std::exception_ptr error;
+    std::atomic_bool complete{false};
+    double elapsed_ms = 0;
+    void build() noexcept {
+        if (complete.load(std::memory_order_acquire)) return;
+        const auto began = std::chrono::steady_clock::now();
+        try {
+            std::size_t work = 0;
+            if (world) world->build(output->hulls, work);
+            for (std::size_t i = 0; i < brushes.size(); ++i)
+                brushes[i].build(output->targets[i].hulls, work);
+            result = std::move(output);
+        } catch (...) { error = std::current_exception(); }
+        world.reset(); brushes.clear();
+        elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-began).count();
+        complete.store(true, std::memory_order_release);
+    }
+};
+namespace {
+class PreparationWorker {
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    PreparationTask queued_;
+    bool stopping_ = false;
+    std::thread thread_;
+    void run() {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        for (;;) {
+            PreparationTask task;
+            {
+                std::unique_lock lock(mutex_);
+                wake_.wait(lock, [&] { return stopping_ || queued_; });
+                if (stopping_) return;
+                task = std::move(queued_);
+            }
+            task->build();
+        }
+    }
+public:
+    PreparationWorker() : thread_([this] { run(); }) {}
+    ~PreparationWorker() {
+        { std::lock_guard lock(mutex_); stopping_ = true; queued_.reset(); }
+        wake_.notify_one(); thread_.join();
+    }
+    void queue(PreparationTask task) {
+        // At most one running and one newest waiting candidate. Superseded
+        // preparations own their data until they finish, with no engine reads.
+        { std::lock_guard lock(mutex_); queued_ = std::move(task); }
+        wake_.notify_one();
+    }
+};
+// Explicit engine lifecycle owns shutdown. Never join a thread from the DLL's
+// CRT static-destructor path while Windows holds the loader lock.
+PreparationWorker* preparation_worker = nullptr;
+std::shared_ptr<Preparation> capture(const edits::Replica &replica, model_t *loaded) {
     if (!replica.ready())
         throw ProtocolError("Client map physics needs a validated snapshot");
     const auto &state = replica.state();
@@ -691,10 +779,12 @@ Candidate prepare(const edits::Replica &replica, model_t *loaded) {
         if (state.revision == active->state.revision) {
             if (state != active->state)
                 throw ProtocolError("Client map physics revision conflict");
-            return active;
+            auto job = std::make_shared<Preparation>();
+            job->result = active; job->complete.store(true); return job;
         }
     }
-    auto next = std::make_shared<Prepared>();
+    auto job = std::make_shared<Preparation>();
+    auto next = job->output = std::make_shared<Prepared>();
     next->model = loaded;
     next->state = state;
     std::vector<Box> cuts;
@@ -735,48 +825,47 @@ Candidate prepare(const edits::Replica &replica, model_t *loaded) {
             throw ProtocolError("Client brush slot has mixed identities");
         brush_cuts[cut.target.slot].push_back(box);
     }
-    std::size_t work = 0;
     if (!cuts.empty()) {
-        if (!loaded)
-            throw ProtocolError("Client world model not loaded");
-        const SourceHull original(loaded, loaded->hulls[0]);
-        for (int i = 0; i < 4; ++i) {
-            const SourceHull body_hull(loaded, loaded->hulls[i]);
-            Box body{};
-            for (int axis = 0; axis < 3; ++axis) {
-                next->clip_mins[i][axis] = loaded->hulls[i].clip_mins[axis];
-                if (i) {
-                    body.min[axis] = loaded->hulls[i].clip_mins[axis];
-                    body.max[axis] = loaded->hulls[i].clip_maxs[axis];
-                }
-            }
-            next->hulls[i] =
-                std::make_unique<EditedHull>(original.view(), body_hull.view(), body, cuts);
-            work += next->hulls[i]->operations();
-            if (work > 32'000'000)
-                throw std::length_error("Client map physics budget");
-        }
+        if (!loaded) throw ProtocolError("Client world model not loaded");
+        job->world = std::make_unique<SourceModel>(loaded, std::move(cuts));
+        for (int h = 0; h < 4; ++h)
+            for (int axis = 0; axis < 3; ++axis)
+                next->clip_mins[h][axis] = loaded->hulls[h].clip_mins[axis];
     }
     for (auto &entry : next->targets) {
-        const SourceHull original(entry.model, entry.model->hulls[0]);
-        for (int i = 0; i < 4; ++i) {
-            const auto &hull = entry.model->hulls[i];
-            const SourceHull body_hull(entry.model, hull);
-            Box body{};
-            for (int axis = 0; axis < 3; ++axis) {
-                entry.clip_mins[i][axis] = hull.clip_mins[axis];
-                if (i) {
-                    body.min[axis] = hull.clip_mins[axis];
-                    body.max[axis] = hull.clip_maxs[axis];
-                }
-            }
-            entry.hulls[i] = std::make_unique<EditedHull>(original.view(), body_hull.view(), body,
-                                                        brush_cuts.at(entry.identity.slot));
-            work += entry.hulls[i]->operations();
-            if (work > 32'000'000) throw std::length_error("Client map physics budget");
-        }
+        job->brushes.emplace_back(entry.model, std::move(brush_cuts.at(entry.identity.slot)));
+        for (int h = 0; h < 4; ++h)
+            for (int axis = 0; axis < 3; ++axis)
+                entry.clip_mins[h][axis] = entry.model->hulls[h].clip_mins[axis];
     }
-    return next;
+    return job;
+}
+} // namespace
+Candidate prepare(const edits::Replica &replica, model_t *loaded) {
+    auto task = capture(replica, loaded); task->build();
+    Candidate result; poll(task, result); return result;
+}
+PreparationTask prepare_async(const edits::Replica &replica, model_t *loaded) {
+    const auto began = std::chrono::steady_clock::now();
+    auto task = capture(replica, loaded);
+    capture_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-began).count();
+    capture_max_ms = std::max(capture_max_ms, capture_ms);
+    if (!task->complete.load(std::memory_order_acquire)) {
+        if (!preparation_worker) preparation_worker = new PreparationWorker;
+        preparation_worker->queue(task);
+        ++async_preparations;
+    }
+    return task;
+}
+bool poll(const PreparationTask &task, Candidate &candidate) {
+    if (!task || !task->complete.load(std::memory_order_acquire)) return false;
+    if (task->error) std::rethrow_exception(task->error);
+    preparation_ms = task->elapsed_ms;
+    preparation_max_ms = std::max(preparation_max_ms, preparation_ms);
+    candidate = task->result; return true;
+}
+void shutdown_preparation() {
+    delete std::exchange(preparation_worker, nullptr);
 }
 void commit(Candidate candidate) noexcept { active = std::move(candidate); }
 void move(playermove_t *pm, int server, void (*original)(playermove_t *, int)) {
@@ -826,6 +915,11 @@ void write_status(std::ostream &out) {
         << ",\"mapCollisionPositions\":" << positions << ",\"mapCollisionPoints\":" << points
         << ",\"mapCollisionFailures\":" << failures
         << ",\"mapCollisionEventTraces\":" << event_traces
+        << ",\"mapCollisionAsyncPreparations\":" << async_preparations
+        << ",\"mapCollisionCaptureMs\":" << capture_ms
+        << ",\"mapCollisionCaptureMaxMs\":" << capture_max_ms
+        << ",\"mapCollisionPreparationMs\":" << preparation_ms
+        << ",\"mapCollisionPreparationMaxMs\":" << preparation_max_ms
         << ",\"mapCollisionBrushTargets\":" << (active ? active->targets.size() : 0)
         << ",\"mapCollisionDeferredTargets\":0";
 }
