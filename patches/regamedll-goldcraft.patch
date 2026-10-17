@@ -22,7 +22,7 @@ index d48898a..30da234 100644
  }
  
 diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
-index e6edc87..126e307 100644
+index e6edc87..c315d6b 100644
 --- a/regamedll/dlls/cbase.cpp
 +++ b/regamedll/dlls/cbase.cpp
 @@ -1,4 +1,5 @@
@@ -39,7 +39,39 @@ index e6edc87..126e307 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pentTouched);
  	CBaseEntity *pOther = GET_PRIVATE<CBaseEntity>(pentOther);
  
-@@ -1257,7 +1259,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
+@@ -633,17 +635,18 @@ void SaveReadFields(SAVERESTOREDATA *pSaveData, const char *pname, void *pBaseDa
+ 
+ BOOL CBaseEntity::TakeHealth(float flHealth, int bitsDamageType)
+ {
++	const float maximum = GoldCraft_StatusMaxHealth(ENT(pev), pev->max_health);
+ 	if (pev->takedamage == DAMAGE_NO)
+ 		return FALSE;
+ 
+-	if (pev->health >= pev->max_health)
++	if (pev->health >= maximum)
+ 		return FALSE;
+ 
+ 	pev->health += flHealth;
+ 
+-	if (pev->health > pev->max_health)
++	if (pev->health > maximum)
+ 	{
+-		pev->health = pev->max_health;
++		pev->health = maximum;
+ 	}
+ 
+ 	return TRUE;
+@@ -651,7 +654,8 @@ BOOL CBaseEntity::TakeHealth(float flHealth, int bitsDamageType)
+ 
+ bool CBaseEntity::CanTakeHealth(float flHealth) const
+ {
+-	if ((pev->health + flHealth) > pev->max_health)
++	const float maximum = GoldCraft_StatusMaxHealth(ENT(pev), pev->max_health);
++	if ((pev->health + flHealth) > maximum)
+ 		return false;
+ 
+ 	return true;
+@@ -1257,7 +1261,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
  
  bool EXT_FUNC IsPenetrableEntity_default(Vector &vecSrc, Vector &vecEnd, entvars_t *pevAttacker, edict_t *pHit)
  {

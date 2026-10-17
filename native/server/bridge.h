@@ -31,6 +31,8 @@ bool GoldCraft_FinalMinecraftDamage(edict_s* player);
 bool GoldCraft_MinecraftAttack(edict_s* player);
 // Falling belongs to vanilla only while its authenticated server owns movement.
 bool GoldCraft_MinecraftFallAuthority(edict_s* player);
+// Read-only effective healing cap; native class maximum remains authoritative.
+float GoldCraft_StatusMaxHealth(edict_s* player,float native_maximum);
 struct GoldCraft_FallAdjustment {float velocity, multiplier;};
 GoldCraft_FallAdjustment GoldCraft_StatusFall(edict_s* player,float velocity,float gravity);
 void GoldCraft_EntityTouched(edict_s* entity,edict_s* other);

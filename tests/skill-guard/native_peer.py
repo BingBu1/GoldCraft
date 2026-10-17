@@ -17,7 +17,7 @@ CAPABILITIES = 16 | 64 | 1024 | 32768
 
 
 class AuthorityPeer:
-    def __init__(self, config, identity):
+    def __init__(self, config, identity, capabilities=CAPABILITIES):
         self.identity = identity
         self.socket = socket.create_connection(('127.0.0.1', config['serverPort']), timeout=3)
         self.socket.settimeout(.01)
@@ -34,7 +34,7 @@ class AuthorityPeer:
         self.repeat = False
         self.last_gameplay = None
         self.damage_reply = 0.0
-        self.send(1, bytes.fromhex(config['serverSession']) + bytes.fromhex(config['serverToken']) + struct.pack('<II', 4, CAPABILITIES))
+        self.send(1, bytes.fromhex(config['serverSession']) + bytes.fromhex(config['serverToken']) + struct.pack('<II', 4, capabilities))
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 

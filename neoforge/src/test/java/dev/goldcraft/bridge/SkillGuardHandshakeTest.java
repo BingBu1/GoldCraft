@@ -38,6 +38,7 @@ class SkillGuardHandshakeTest {
     }
     @Test void oldHostDropsOnlyGuardAndKeepsGameplay()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_HEALTH_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_FALL_CAP);}
             int first;try(var s=host.accept()){first=hello(s);}
             try(var s=host.accept()){
@@ -53,6 +54,7 @@ class SkillGuardHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedGuard()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_HEALTH_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_FALL_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){

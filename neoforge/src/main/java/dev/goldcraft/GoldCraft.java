@@ -101,6 +101,12 @@ public final class GoldCraft {
     public static boolean sendMotion(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendMotion(generation,payload);
     }
+    public static boolean healthLimitsAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.healthLimits(generation);
+    }
+    public static boolean sendHealthLimit(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendHealthLimit(generation,payload);
+    }
     public static boolean environmentAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.environment(generation);
     }
@@ -261,6 +267,10 @@ public final class GoldCraft {
                             HostExplosions.materials(HOST_WORLD,message.payload());
                         }
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
+                        case Wire.HEALTH_LIMITS -> {
+                            if(!healthLimitsAvailable())throw new IllegalArgumentException("Unnegotiated health limits");
+                            HOST_WORLD.healthLimits().accept(HOST_WORLD,message.payload());
+                        }
                         case Wire.BRUSHES -> {HOST_WORLD.brushes(message.payload());brushPayload=message.payload();broadcast(Wire.BRUSHES,brushPayload);}
                         case Wire.PAIR_RESULT -> paired(server,message.payload());
                         case Wire.GAMEPLAY_RULES -> {

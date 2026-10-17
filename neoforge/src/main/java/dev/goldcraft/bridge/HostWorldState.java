@@ -27,6 +27,8 @@ public final class HostWorldState {
     private long brushTick;
     private boolean freeze;
     private MapMining.Policy mining=MapMining.Policy.none();
+    private final NativeHealthLimits healthLimits=new NativeHealthLimits();
+    public NativeHealthLimits healthLimits(){return healthLimits;}
     // Prepare geometry before committing the edit revision. A failed candidate
     // leaves both previous geometry and records intact for snapshot recovery.
     private final MapEdits.Replica edits=new MapEdits.Replica(cuts->{
@@ -51,7 +53,7 @@ public final class HostWorldState {
         if(epoch==0||policy.epoch()!=epoch||Long.compareUnsigned(policy.revision(),mining.revision())<=0)return;
         mining=policy;
     }
-    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;collision=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);}
+    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;collision=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);healthLimits.clear();}
     private static Vector vector(Wire.Reader r){return new Vector(r.f32(),r.f32(),r.f32());}
     public void world(byte[] payload) {
         Wire.Reader r=new Wire.Reader(payload); long newEpoch=r.i64(); String newMap=r.string(128);r.finish();
