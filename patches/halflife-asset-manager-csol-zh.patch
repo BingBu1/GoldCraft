@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c7d3633..5dc0212 100644
+index c7d3633..606754a 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,13 +1,15 @@
@@ -23,9 +23,19 @@ index c7d3633..5dc0212 100644
  
  set(HLAM_VERSION_MAJOR 3)
  set(HLAM_VERSION_MINOR 0)
-@@ -125,14 +127,15 @@ target_link_libraries(HLAM
+@@ -78,6 +80,7 @@ find_package(glm CONFIG REQUIRED)
+ find_package(spdlog CONFIG REQUIRED)
+ find_package(OpenAL CONFIG REQUIRED)
+ find_package(libnyquist CONFIG REQUIRED)
++find_package(BZip2 REQUIRED)
+ 
+ # TODO: need to move everything from src/hlam to src once WIP stuff is done
+ 
+@@ -124,15 +127,17 @@ target_link_libraries(HLAM
+ 		glm::glm
  		${CMAKE_DL_LIBS}
  		libnyquist)
++target_link_libraries(HLAM PRIVATE BZip2::BZip2)
  
 -target_compile_options(HLAM
 -	PRIVATE
@@ -47,7 +57,7 @@ index c7d3633..5dc0212 100644
  
  target_sources(HLAM
  	PRIVATE
-@@ -179,6 +182,23 @@ copy_qt_dependencies(HLAM Qt5Network_PLUGINS)
+@@ -179,6 +184,23 @@ copy_qt_dependencies(HLAM Qt5Network_PLUGINS)
  
  set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT HLAM)
  
@@ -58,10 +68,10 @@ index c7d3633..5dc0212 100644
 +	target_compile_definitions(HLAM PRIVATE HLAM_ENABLE_CSOL_SMOKE_TEST)
 +endif()
 +if(BUILD_TESTING)
-+	add_executable(CSOLFormatsTests tests/CSOLFormatsTests.cpp src/hlam/formats/csol/CSOLFormats.cpp)
++	add_executable(CSOLFormatsTests tests/CSOLFormatsTests.cpp src/hlam/formats/csol/CSOLFormats.cpp src/hlam/formats/csol/CSOLArchive.cpp)
 +	target_include_directories(CSOLFormatsTests PRIVATE src/hlam)
 +	target_compile_features(CSOLFormatsTests PRIVATE cxx_std_20)
-+	target_link_libraries(CSOLFormatsTests PRIVATE Qt5::Gui)
++	target_link_libraries(CSOLFormatsTests PRIVATE Qt5::Gui BZip2::BZip2)
 +	if(MSVC)
 +		target_compile_options(CSOLFormatsTests PRIVATE /utf-8 "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/hlam/qt/Qt5STLCompatibility.hpp")
 +	endif()
@@ -118,62 +128,75 @@ index 0000000..686fc00
 +endif()
 diff --git "a/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md" "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
 new file mode 100644
-index 0000000..3354038
+index 0000000..4a450ba
 --- /dev/null
 +++ "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,45 @@
 +# CSOL 中文预览版
 +
-+基于 Half-Life Asset Manager `4df74a58a50438b8f4b974e04ab9f24fdfcbb811`。界面中文由模型直接编写，没有调用在线翻译服务。资源名、骨骼名、动画名、QC 指令及版权声明保留原文。
++基于 Half-Life Asset Manager `4df74a58a50438b8f4b974e04ab9f24fdfcbb811`。中文界面由模型直接编写，没有调用翻译服务；资源名、骨骼名、动画名、QC 指令和版权声明保留原文。
 +
-+当前是 CSOL 预览支持版本，还没有达到与游戏完全一致的验收标准。已支持用户提供的 IDST v10 模型、外部角色手部贴图、特殊材质状态、type 0 环境反射和 SPR v3 动画。复活枪右手四个 SPR 的挂点、缩放、帧率和混合已从客户端和引擎副本确认；状态触发时机仍需游戏对照。样本缺少 `shader/@004.txt`，工具会报告缺失，不会自动替换成其他描述符。v20/v21、加密角色表和完整武器状态机尚未支持。
++## 打开即可预览
 +
-+## 打开模型并切换手部
++使用 `启动中文版.cmd` 启动，打开 `v_revivegun.mdl`。程序根据模型路径识别 `models` 的上层资源目录，搜索同目录、相邻语言目录和基础资源目录，自动启用已识别的 CSOL 扩展。普通 CS 模型仍使用原预览方式。
 +
-+1. 解压整个程序目录，运行 `HLAM.exe`。使用 `启动中文版.cmd` 会把设置和日志保存在程序目录内。
-+2. 从“文件 → 打开”载入模型。例如 `v_revivegun.mdl`。
-+3. 打开底部“CSOL 预览”。若面板已关闭，从“视图”的面板菜单重新打开。
-+4. 在“资源与手部”选择解包后的资源目录：可以是包含 `gfx/tattoo`、`shader` 的目录，也可以是包含 `common` / `locale_chn` 的上层目录。
-+5. 选择角色外观和男性/女性手部，点击“应用资源”。列表保留资源原始前缀，例如 `buffclasschoijiyoon`。
++复活枪自动缓存八组普通/复活、待机/拔枪、左右手 SPR；切换模型动作即切换效果。默认右手，拔枪特效持续 1 秒后转为待机，换弹动作隐藏圆环。挂点 5、零偏移、千分比缩放、帧率、加色、亮度和覆盖队列参数来自对应客户端/引擎分析，不需要逐个填写。
 +
-+手部贴图按材料类别查找，例如 `gfx/tattoo/buffclasschoijiyoon_FemaleLong.tga`。缺少角色版本时只回退到同类型默认手部，不使用其他手型替代。`#512512` 表示 UV 使用的 512×512 尺寸；模型里 4×1 的占位图不是完整手部贴图。
++“CSOL 预览 → 预览”可切换左右手、角色外观和男女手部。选择角色后立即应用贴图。角色名称保留资源原名；仍未实现加密角色表的数字编号到名称映射。
 +
-+选择手部只覆盖当前预览的绘制结果。取消“启用 CSOL 特殊材质预览”会恢复普通模型的绘制及原先子模型选择。
++## 自动补齐基础资源
 +
-+## 播放彩色动画
++程序支持直接只读读取 NAR v1 索引及 raw/encoded/encoded+compressed 三类文件，校验存储数据 CRC，不需要解包整个资源包。模型树附近存在 `Data` 时会自动使用；同级已解包的 `cstrike/dstrike/estrike/fstrike/valve` 也可作为资源来源。
 +
-+在“附加动画”选择配套 SPR，再点击“应用资源”。复活枪资源包括 `ef_revivegun_idle1.spr`、`idle2`、`draw1`、`draw2`。动画位于模型之外，普通 HLMV 只加载 MDL 时不会自动知道它的触发和摆放规则。
++若模型来自单独复制到其他磁盘的 PAK 解包目录，程序无法从这个路径推导任意位置的游戏安装。“高级设置 → 补充游戏目录”只需指定一次游戏目录，之后全局记忆；不是逐模型配置。已提供目录的本地研究环境可以预先保存此设置。
 +
-+“动画与附着”提供附着点、局部偏移、宽高、播放速度、混合方式、朝向相机及循环设置。定位帧从 0 开始，会暂停附加动画。动态播放同时受主时间轴播放开关和面板中的播放开关控制。
++复活枪引用的 `shader/@004.txt` 在 **dstrike.nar** 中，指向 `wm` 环境贴图，参数为 type 0 / env 4 / mulBright 0.5 / addBright 0。模型所在的 `lstrike/common` 并不包含这份基础描述。程序读取真实描述及六张环境面；不会用 `@008` 替代。原始 CSO_ENV shader 未使用 mulBright，因此预览也不额外乘 0.5。
 +
-+默认勾选“应用资源时套用已核实的武器参数”。当模型含复活枪根骨骼和第 5 号 `sprite_attach01` 挂点，并选择上述四个右手 SPR 时，“应用资源”会自动设置零偏移、朝向相机、ONE/ONE 加色和第一人称覆盖绘制。第 5 号按 0 开始计数，是列表中的第六个模型挂点。
++查找优先级为模型资源树的松散文件，然后相邻/指定基础目录；NAR 回退顺序为 fstrike、estrike、dstrike、cstrike_chn、cstrike、valve。此顺序是查看器的确定性策略，未宣称覆盖所有游戏版本的挂载配置。单个资源及总动画缓存有大小上限，索引缓存有数量上限；绘制过程中不扫描目录、读取文件或上传贴图。
 +
-+| SPR | 宽高（256² 资源） | 帧率 |
-+|---|---:|---:|
-+| idle1 | 7.168 | 20 |
-+| idle2 | 10.240 | 30 |
-+| draw1 | 7.168 | 30 |
-+| draw2 | 10.240 | 30 |
++## 查看资源与高级配置
 +
-+尺寸来自引擎的 `28/1000` 或 `40/1000` 缩放乘以资源像素尺寸，不是手调坐标。每帧按当前模型动画变换挂点，使 SPR 跟随枪身。要保存自定义参数，先取消预设选项。旧版配置保留自己的参数，载入后可勾选预设并再次应用，纠正旧的临时位置。SPR 动画与模型动作暂时需要手动选择；“清除附加动画”只移除当前附加动画。
++“资源状态”列出已载入的材质、缺失/损坏资源和关联的模型、特效、音效。**发现同名资源不等于已绑定它的全部游戏事件**，不会把光束或爆炸随意叠在枪身上。模型自带声音事件会搜索自动识别的松散资源目录；NAR 声音还没有接入原声音系统。
 +
-+## 保存和检查
++“高级设置”保留手动 SPR、挂点、尺寸和混合方式。关闭自动动作模式后可使用这些参数；JSON 配置独立保存。旧配置仍按手动设置恢复。
 +
-+“保存预览配置”将资源路径、角色、手部和特效参数写入独立 JSON；“载入预览配置”恢复这些设置。移动资源后需要更新其中的路径。加载失败会保留已成功加载的资源。
++手部替换、镜像、SPR、环境反射都只影响预览，不写入 MDL，不改变模型撤销历史。模型真正的编辑操作仍按原程序工作。
 +
-+外部手部、SPR 和环境贴图不嵌入 MDL，不进入模型撤销历史。保存 MDL 仍只保存标准模型编辑数据。请查看“资源状态”区分缺少文件、格式不支持与已成功加载；仅出现彩色图像不代表游戏时序已经一致。
++## 验证范围
 +
-+## 验证与构建
++Clang 22.1.7、C++20、x86、O3/ThinLTO/AVX2/precise FP 构建。648 项解析检查通过，包括目录优先级、截断、越界、CRC 损坏、NAR 索引边界及含 `#`/`%` 的文件名。41 个真实 NAR 资源（10,560,074 字节、覆盖三种存储类型）与独立解包工具逐字节 SHA-256 一致；此前 154 帧 SPR 与 3 张手部 TGA 的 RGBA 和 Pillow 一致。
 +
-+本机 Clang 22.1.7 / C++20 / x86 / O3 / ThinLTO / AVX2 / precise FP 构建成功，Qt 5.15.2 使用动态库。解析器通过 606 项合成及边界检查；实际 154 帧 SPR 和 3 张手部 TGA 的 RGBA SHA-256 与 Pillow 独立解码一致。真实 NVIDIA OpenGL 检查覆盖帧变化、手部替换、显式测试用 `@008` 反射、资源重建、禁用还原和 MDL 字节/撤销记录不变。Qt 控件测试覆盖配置往返、角色切换和帧定位。专项测试覆盖复活枪四种 SPR 预设，以及待机/拔枪各三个姿态；附着渲染与当前骨骼挂点的参考渲染一致。旧版临时坐标截图已作废。
++真实 RTX4090 OpenGL/Qt 集成覆盖默认打开自动加载、八组左右手动作、原始 @004/wm、拔枪时序、换弹隐藏、资源释放/重建、配置、手部切换、帧定位、模型重载，以及 MDL 字节/undo/禁用还原。截图来自实际查看器绘制，不是 CSO 游戏截图。
 +
-+Qt 自身生成的控件截图用于检查中文布局。桌面 Computer Use 截图接口超时，因此这不是人工鼠标操作验收；离屏 GL 测试也不是 CSO 游戏画面对照。
++仍未达到“与 CSO 完全一致”的验收标准：完整武器世界特效、所有角色映射、v20/v21、游戏场景光照/后处理与同姿态画面对照仍未完成。当前只对已识别并核实的武器自动绑定动作，其他武器的通用材质和手部仍可自动加载。
 +
-+从上游固定提交应用随附源码补丁，初始化 vcpkg 子模块到 `0c20b2a97c390e106150837042d921b0939e7ecb`。需要 PowerShell 7、CMake、Visual Studio C++ 工具/Windows SDK、Qt 5.15.2 x86、LLVM 和 pkgconf。`tools/Build-CSOLPreview.ps1` 接受 `LLVMRoot`、`QtRoot`、`PkgConfig` 与 `BuildRoot` 路径，最多使用两个编译作业。工具链和两项依赖修复随源码提供；独立构建入口已做语法检查，尚未在另一台干净电脑复现。
++## 从源码构建
 +
-+解析测试：`ctest --test-dir <构建目录> --output-on-failure`。真实资源测试另需合法持有原始模型及配套贴图，不包含在源码或程序交付包中。
++在上游固定提交应用随附补丁，初始化 vcpkg 到 `0c20b2a97c390e106150837042d921b0939e7ecb`。需要 PowerShell 7、CMake、Visual Studio C++ 工具/Windows SDK、Qt 5.15.2 x86、LLVM 和 pkgconf。新增 bzip2 为 NAR 索引解压依赖。
 +
-+保留上游 `LICENSE.md`、`licenses/` 和依赖许可说明。程序包用于本地研究，未包含游戏 DLL、商业模型/贴图或逆向数据库。
++`tools/Build-CSOLPreview.ps1` 接受 LLVMRoot、QtRoot、PkgConfig、BuildRoot，最多两个编译作业；工具链和依赖兼容补丁随源码提供。本机使用固定领域构建环境验证，通用脚本只有语法检查，尚无另一台干净机器复现。
++
++运行 `ctest --test-dir <构建目录> --output-on-failure` 验证解析器。真实资源测试需自行合法持有资源。交付包保留上游和依赖许可，不包含商业 DLL、模型、贴图、SPR、NAR 或逆向数据库。
+diff --git a/docs/third-party-dependencies.md b/docs/third-party-dependencies.md
+index 153cba9..d50c525 100644
+--- a/docs/third-party-dependencies.md
++++ b/docs/third-party-dependencies.md
+@@ -27,10 +27,14 @@ Used for message logging.
+ 
+ Vector mathematics and interaction with OpenGL APIs.
+ 
+-* [OpenAL Soft](https://github.com/kcat/openal-soft) - Copyright (c) 2015, Archontis Politis, Copyright (c) 2019, Anis A. Hireche, Copyright (c) 2019, Christopher Robinson, distributed under the BSD 3-Clause.
++* [OpenAL Soft](https://github.com/kcat/openal-soft) - Copyright (c) 2015, Archontis Politis, Copyright (c) 2019, Anis A. Hireche, Copyright (c) 2019, Christopher Robinson, distributed under the GNU Library General Public License, version 2 or later. See the included dependency license for component notices.
+ 
+ Used for audio playback.
+ 
++* [bzip2](https://sourceware.org/bzip2/) - Copyright (C) 1996-2019 Julian R Seward, distributed under the bzip2 license.
++
++Used to decode the NAR v1 resource index. The full license is included with the CSOL preview distribution.
++
+ * [libnyquist](https://github.com/ddiakopoulos/libnyquist) - Copyright (c) 2019, Dimitri Diakopoulos, distributed under the BSD 2-Clause "Simplified" License.
+ 
+ Used for audio file decoding.
 diff --git a/patches/fmt-clang22.patch b/patches/fmt-clang22.patch
 new file mode 100644
 index 0000000..765a3b6
@@ -315,10 +338,18 @@ index 529030f..610b450 100644
 +	throw AssetException("不支持此文件类型");
  }
 diff --git a/src/hlam/application/ToolApplication.cpp b/src/hlam/application/ToolApplication.cpp
-index 5f9c1bd..c8de8bb 100644
+index 5f9c1bd..eb972e8 100644
 --- a/src/hlam/application/ToolApplication.cpp
 +++ b/src/hlam/application/ToolApplication.cpp
-@@ -26,6 +26,7 @@
+@@ -14,6 +14,7 @@
+ #include <QOffscreenSurface>
+ #include <QOpenGLContext>
+ #include <QSettings>
++#include "formats/csol/CSOLFormats.hpp"
+ #include <QSurfaceFormat>
+ #include <QTextCodec>
+ #include <QTextStream>
+@@ -26,6 +27,7 @@
  #include "plugins/halflife/HalfLifeAssetManagerPlugin.hpp"
  
  #include "qt/QtLogging.hpp"
@@ -326,7 +357,7 @@ index 5f9c1bd..c8de8bb 100644
  
  #include "settings/ApplicationSettings.hpp"
  
-@@ -55,7 +56,7 @@ void AssetManagerMessageOutput(QtMsgType type, const QMessageLogContext& context
+@@ -55,7 +57,7 @@ void AssetManagerMessageOutput(QtMsgType type, const QMessageLogContext& context
  
  	if (!logFile.open(QFile::WriteOnly | QFile::Append))
  	{
@@ -335,7 +366,7 @@ index 5f9c1bd..c8de8bb 100644
  		.arg(QFileInfo{logFile}.absoluteFilePath()));
  	}
  	else
-@@ -125,6 +126,8 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -125,6 +127,8 @@ int ToolApplication::Run(int argc, char* argv[])
  		ConfigureOpenGL();
  
  		QApplication app(argc, argv);
@@ -344,7 +375,7 @@ index 5f9c1bd..c8de8bb 100644
  
  		_guiApplication = &app;
  
-@@ -136,7 +139,13 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -136,7 +140,13 @@ int ToolApplication::Run(int argc, char* argv[])
  
  		_singleInstance = std::make_unique<SingleInstance>();
  
@@ -359,7 +390,7 @@ index 5f9c1bd..c8de8bb 100644
  		{
  			return EXIT_SUCCESS;
  		}
-@@ -168,6 +177,16 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -168,6 +178,16 @@ int ToolApplication::Run(int argc, char* argv[])
  			_application->LoadFile(commandLine.FileName);
  		}
  
@@ -376,7 +407,7 @@ index 5f9c1bd..c8de8bb 100644
  		return app.exec();
  	}
  	catch (const std::exception& e)
-@@ -191,8 +210,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
+@@ -191,8 +211,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
  {
  	QCommandLineParser parser;
  
@@ -387,7 +418,7 @@ index 5f9c1bd..c8de8bb 100644
  
  	parser.process(arguments);
  
-@@ -288,8 +307,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
+@@ -288,8 +308,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
  	//Only check this once
  	if (!settings.value("Video/CheckedOpenGLVersion", false).toBool() && versionCode < minimumSupportedVersionCode)
  	{
@@ -398,7 +429,7 @@ index 5f9c1bd..c8de8bb 100644
  			.arg(programName)
  			.arg(openGLFormat.majorVersion())
  			.arg(openGLFormat.minorVersion()));
-@@ -311,7 +330,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -311,7 +331,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->create())
  	{
@@ -407,7 +438,7 @@ index 5f9c1bd..c8de8bb 100644
  		return {};
  	}
  
-@@ -323,7 +342,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -323,7 +343,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->makeCurrent(surface.get()))
  	{
@@ -416,23 +447,283 @@ index 5f9c1bd..c8de8bb 100644
  		return {};
  	}
  
+@@ -332,6 +352,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+ 
+ std::unique_ptr<AssetManager> ToolApplication::CreateApplication(std::unique_ptr<QSettings> settings)
+ {
++	csol::SetGameDirectory(settings->value("CSOL/GameDirectory").toString());
+ 	auto graphicsContext{InitializeOpenGL()};
+ 
+ 	if (!graphicsContext)
+diff --git a/src/hlam/entity/StudioModelEntity.cpp b/src/hlam/entity/StudioModelEntity.cpp
+index 5073836..26d83b6 100644
+--- a/src/hlam/entity/StudioModelEntity.cpp
++++ b/src/hlam/entity/StudioModelEntity.cpp
+@@ -59,7 +59,7 @@ void StudioModelEntity::Draw(graphics::SceneContext& sc, RenderPasses renderPass
+ 
+ 	graphics::SetupRenderMode(sc.OpenGLFunctions, asset->CurrentRenderMode, asset->EnableBackfaceCulling);
+ 
+-	const glm::vec3& vecScale = GetScale();
++	const glm::vec3 vecScale = GetRenderInfo().Scale;
+ 
+ 	//Determine if an odd number of scale values are negative. The cull face has to be changed if so.
+ 	const float flScale = vecScale.x * vecScale.y * vecScale.z;
+@@ -175,6 +175,9 @@ studiomdl::ModelRenderInfo StudioModelEntity::GetRenderInfo() const
+ 	renderInfo.Origin = GetOrigin();
+ 	renderInfo.Angles = GetAngles();
+ 	renderInfo.Scale = GetScale();
++	const auto& preview = GetEditableModel()->CSOL;
++	if (preview.Enabled && preview.FollowWeapon && preview.RecognizedWeapon && preview.RightHand)
++		renderInfo.Scale.y = -renderInfo.Scale.y;
+ 
+ 	renderInfo.Model = GetEditableModel();
+ 
+@@ -396,6 +399,7 @@ void StudioModelEntity::SetFrame(float frame)
+ 		_frame -= (int)(_frame / (sequenceDescriptor.NumFrames - 1)) * (sequenceDescriptor.NumFrames - 1);
+ 	}
+ 
++	_editableModel->CSOL.SetAction(_sequence, sequenceDescriptor.FPS > 0 ? _frame / sequenceDescriptor.FPS : 0);
+ 	_animTime = GetContext()->Time->GetTime();
+ }
+ 
+@@ -432,6 +436,7 @@ void StudioModelEntity::SetSequence(int sequence)
+ 	}
+ 
+ 	_sequence = sequence;
++	_editableModel->CSOL.SetAction(sequence);
+ 	_frame = 0;
+ 	_lastEventCheck = 0;
+ }
 diff --git a/src/hlam/formats/CMakeLists.txt b/src/hlam/formats/CMakeLists.txt
-index 0c215e2..1eb14c0 100644
+index 0c215e2..0ab5324 100644
 --- a/src/hlam/formats/CMakeLists.txt
 +++ b/src/hlam/formats/CMakeLists.txt
-@@ -6,3 +6,5 @@ target_sources(HLAM
+@@ -6,3 +6,6 @@ target_sources(HLAM
  		liblist/LiblistReader.hpp)
  
  add_subdirectory(studiomodel)
 +
 +target_sources(HLAM PRIVATE csol/CSOLFormats.hpp csol/CSOLFormats.cpp csol/CSOLPreview.hpp csol/CSOLPreview.cpp)
++target_sources(HLAM PRIVATE csol/CSOLArchive.hpp csol/CSOLArchive.cpp)
+diff --git a/src/hlam/formats/csol/CSOLArchive.cpp b/src/hlam/formats/csol/CSOLArchive.cpp
+new file mode 100644
+index 0000000..9523dba
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLArchive.cpp
+@@ -0,0 +1,186 @@
++#include "formats/csol/CSOLArchive.hpp"
++#include <bzlib.h>
++#include <QCache>
++#include <QDateTime>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QHash>
++#include <QRegularExpression>
++#include <QUrl>
++#include <array>
++#include <cstdint>
++#include <stdexcept>
++#include <memory>
++
++namespace csol
++{
++namespace
++{
++constexpr int MaxIndex = 32 * 1024 * 1024;
++constexpr int MaxResource = 128 * 1024 * 1024;
++[[noreturn]] void Invalid() { throw std::runtime_error("NAR 资源包损坏或格式不受支持"); }
++std::uint32_t U32(const QByteArray& data, int at)
++{
++	if (at < 0 || data.size() - at < 4) Invalid();
++	const auto p = reinterpret_cast<const unsigned char*>(data.constData() + at);
++	return p[0] | (std::uint32_t(p[1]) << 8) | (std::uint32_t(p[2]) << 16) | (std::uint32_t(p[3]) << 24);
++}
++QByteArray ReadAt(QFile& file, qint64 at, qint64 size, int limit)
++{
++	if (at < 0 || size < 0 || size > limit || at > file.size() || size > file.size() - at || !file.seek(at)) Invalid();
++	auto data = file.read(size);
++	if (data.size() != size) Invalid();
++	return data;
++}
++struct Entry { QByteArray Name; std::uint32_t Type, Offset, Stored, Size, CRC; };
++struct Index
++{
++	qint64 Bytes = 0, Modified = 0;
++	QHash<QString, Entry> Entries;
++};
++// GUI-thread resource loading only; bounded cache never holds open archive handles.
++QCache<QString, Index> cache(16);
++const Index& OpenIndex(const QString& path)
++{
++	const QFileInfo info(path);
++	if (const auto* old = cache.object(path); old && old->Bytes == info.size()
++		&& old->Modified == info.lastModified().toMSecsSinceEpoch()) return *old;
++	QFile file(path);
++	if (!file.open(QIODevice::ReadOnly)) Invalid();
++	const auto magic = ReadAt(file, 0, 8, 8);
++	if (U32(magic, 0) != 0x0052414e || U32(magic, 4) != 0x01000000) Invalid();
++	const auto tail = ReadAt(file, file.size() - 8, 8, 8);
++	if (U32(tail, 4) != 0x0052414e) Invalid();
++	const auto stored = U32(tail, 0) ^ 0x4076551fu;
++	const qint64 indexStart = file.size() - 8 - stored;
++	if (indexStart < 8) Invalid();
++	auto compressed = ReadAt(file, indexStart, stored, MaxIndex);
++	constexpr unsigned char key[]{0x19,0x5b,0x7b,0x2c,0x65,0x5e,0x79,0x25,0x6e,0x4b,0x07,0x21,0x62,0x7f,0x00,0x29};
++	for (int i = 0; i < compressed.size(); ++i) compressed[i] = char(static_cast<unsigned char>(compressed[i]) ^ key[i % 16]);
++	QByteArray data(MaxIndex, Qt::Uninitialized); unsigned size = data.size();
++	if (BZ2_bzBuffToBuffDecompress(data.data(), &size, compressed.data(), compressed.size(), 0, 0) != BZ_OK) Invalid();
++	data.resize(size);
++	if (data.size() < 20 || U32(data, 0) != 1) Invalid();
++	const auto count = U32(data, 16);
++	if (count > 200000 || count > unsigned(data.size() - 20) / 27) Invalid();
++	auto index = std::make_unique<Index>(); index->Bytes = info.size(); index->Modified = info.lastModified().toMSecsSinceEpoch();
++	int offset = 20;
++	for (unsigned i = 0; i < count; ++i)
++	{
++		if (data.size() - offset < 2) Invalid();
++		const unsigned length = static_cast<unsigned char>(data[offset]) | (unsigned(static_cast<unsigned char>(data[offset + 1])) << 8);
++		offset += 2;
++		if (!length || length > 4096 || data.size() - offset < int(length) + 24) Invalid();
++		Entry e; e.Name = data.mid(offset, length); offset += length;
++		e.Type = U32(data, offset); e.Offset = U32(data, offset + 4); e.Stored = U32(data, offset + 8);
++		e.Size = U32(data, offset + 12); e.CRC = U32(data, offset + 20); offset += 24;
++		if (e.Type > 2 || e.Offset < 8 || qint64(e.Offset) + e.Stored > indexStart) Invalid();
++		const auto name = QString::fromLatin1(e.Name).replace('\\', '/');
++		if (!name.startsWith('/') || name.contains("/../") || name.contains(QChar(0))) Invalid();
++		index->Entries.insert(name.toLower(), std::move(e));
++	}
++	if (offset != data.size()) Invalid();
++	auto* result = index.release(); cache.insert(path, result); return *result;
++}
++QStringList Archives(const QStringList& directories)
++{
++	QStringList files;
++	for (const auto& path : directories)
++	{
++		const QDir dir(path);
++		// Deterministic viewer fallback order; game-version mount precedence can differ.
++		for (const auto& name : {"fstrike.nar", "estrike.nar", "dstrike.nar", "cstrike_chn.nar", "cstrike.nar", "valve.nar"})
++		{
++			const auto file = dir.filePath(name);
++			if (QFileInfo::exists(file) && !files.contains(file, Qt::CaseInsensitive)) files.append(file);
++		}
++	}
++	return files;
++}
++std::uint32_t CRC32(const QByteArray& bytes)
++{
++	std::uint32_t crc = ~0u;
++	for (unsigned char c : bytes)
++	{
++		crc ^= c;
++		for (int bit = 0; bit < 8; ++bit) crc = (crc >> 1) ^ (0xedb88320u & (0u - (crc & 1)));
++	}
++	return ~crc;
++}
++}
++
++void ClearArchiveCache() { cache.clear(); }
++
++QString FindArchiveResource(const QStringList& directories, const QString& relative)
++{
++	for (const auto& archive : Archives(directories))
++	{
++		const auto& index = OpenIndex(archive);
++		const auto mount = QFileInfo(archive).completeBaseName();
++		const QString key = "/" + mount + "/" + relative.toLower();
++		if (!index.Entries.contains(key)) continue;
++		auto url = QUrl::fromLocalFile(archive); url.setScheme("csol-nar"); url.setFragment(key, QUrl::DecodedMode);
++		return url.toString(QUrl::FullyEncoded);
++	}
++	return {};
++}
++
++QByteArray ReadArchiveResource(const QString& resource)
++{
++	QUrl url(resource); const auto key = url.fragment(QUrl::FullyDecoded).toLower(); url.setFragment({}); url.setScheme("file");
++	const auto archive = url.toLocalFile();
++	const auto& index = OpenIndex(archive);
++	const auto it = index.Entries.constFind(key);
++	if (it == index.Entries.cend()) Invalid();
++	const auto e = *it;
++	if (e.Size > MaxResource || e.Stored > MaxResource) Invalid();
++	QFile file(archive); if (!file.open(QIODevice::ReadOnly)) Invalid();
++	auto data = ReadAt(file, e.Offset, e.Stored, MaxResource);
++	if (CRC32(data) != e.CRC) Invalid();
++	if (e.Type)
++	{
++		std::uint32_t hash = 0;
++		for (unsigned char c : e.Name) hash = hash * 1000003u ^ c;
++		hash ^= e.Name.size();
++		std::array<unsigned char, 16> key;
++		for (auto& byte : key) { hash = hash * 1103515245u + 12345u; byte = hash & 255; }
++		for (int i = 0; i < data.size(); ++i) data[i] = char(static_cast<unsigned char>(data[i]) ^ key[i % 16]);
++	}
++	if (e.Type < 2) { if (data.size() != e.Size) Invalid(); return data; }
++	QByteArray out; out.reserve(e.Size); int at = 0;
++	auto byte = [&]() -> unsigned { if (at >= data.size()) Invalid(); return static_cast<unsigned char>(data[at++]); };
++	while (out.size() < e.Size)
++	{
++		const unsigned control = byte(); unsigned length = control >> 5;
++		if (!length)
++		{
++			length = (control & 31) + 1;
++			if (length > e.Size - out.size() || length > unsigned(data.size() - at)) Invalid();
++			out.append(data.constData() + at, length); at += length;
++		}
++		else
++		{
++			if (length == 7) length += byte();
++			length += 2; const unsigned distance = ((control & 31) << 8 | byte()) + 1;
++			if (distance > unsigned(out.size()) || length > e.Size - out.size()) Invalid();
++			for (unsigned i = 0; i < length; ++i) out.append(out[out.size() - distance]);
++		}
++	}
++	if (at != data.size()) Invalid();
++	return out;
++}
++
++QStringList ArchiveAppearances(const QStringList& directories)
++{
++	QStringList result;
++	static const QRegularExpression pattern("/gfx/tattoo/([^/]+)_(?:male|female)(?:long|short|org)\\.tga$");
++	for (const auto& file : Archives(directories))
++		for (auto it = OpenIndex(file).Entries.cbegin(), end = OpenIndex(file).Entries.cend(); it != end; ++it)
++		{
++			const auto match = pattern.match(it.key());
++			if (match.hasMatch()) result.append(match.captured(1));
++		}
++	result.removeDuplicates(); return result;
++}
++}
+diff --git a/src/hlam/formats/csol/CSOLArchive.hpp b/src/hlam/formats/csol/CSOLArchive.hpp
+new file mode 100644
+index 0000000..27deef7
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLArchive.hpp
+@@ -0,0 +1,13 @@
++#pragma once
++#include <QByteArray>
++#include <QString>
++#include <QStringList>
++
++namespace csol
++{
++// Read-only NAR resource access. Returned URLs are consumed by ReadResource.
++QString FindArchiveResource(const QStringList& directories, const QString& relative);
++QByteArray ReadArchiveResource(const QString& url);
++QStringList ArchiveAppearances(const QStringList& directories);
++void ClearArchiveCache();
++}
 diff --git a/src/hlam/formats/csol/CSOLFormats.cpp b/src/hlam/formats/csol/CSOLFormats.cpp
 new file mode 100644
-index 0000000..888fa64
+index 0000000..44cac75
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.cpp
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,391 @@
 +#include "formats/csol/CSOLFormats.hpp"
++#include "formats/csol/CSOLArchive.hpp"
 +
 +#include <algorithm>
 +#include <array>
@@ -449,6 +740,7 @@ index 0000000..888fa64
 +{
 +namespace
 +{
++QString gameDirectory;
 +[[noreturn]] void Invalid(const char* reason) { throw std::runtime_error(reason); }
 +
 +struct Reader
@@ -583,6 +875,7 @@ index 0000000..888fa64
 +
 +QByteArray ReadResource(const QString& path)
 +{
++	if (path.startsWith("csol-nar:")) return ReadArchiveResource(path);
 +	QFile file(path);
 +	if (!file.open(QIODevice::ReadOnly)) throw std::runtime_error(QString("无法读取资源：%1").arg(path).toStdString());
 +	if (file.size() > 128 * 1024 * 1024) Invalid("单个资源超过 128 MiB 限制");
@@ -663,14 +956,73 @@ index 0000000..888fa64
 +	return image;
 +}
 +
++void SetGameDirectory(const QString& root) { gameDirectory = root; ClearArchiveCache(); }
++QString GameDirectory() { return gameDirectory; }
++
++QStringList ResourceDirectories(const QString& root)
++{
++	if (root.isEmpty()) return {};
++	QStringList result;
++	auto add = [&](const QString& path)
++	{
++		const QFileInfo info(path);
++		if (info.isDir() && !result.contains(info.absoluteFilePath(), Qt::CaseInsensitive))
++			result.append(info.absoluteFilePath());
++	};
++	QDir base(root);
++	add(base.path());
++	// Preserve the loaded model's resource tree first, then search sibling packs.
++	if (base.dirName().compare("common", Qt::CaseInsensitive) == 0
++		|| base.dirName().startsWith("locale_", Qt::CaseInsensitive)) base.cdUp();
++	add(base.filePath("common"));
++	for (const auto& name : base.entryList({"locale_*"}, QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
++		add(base.filePath(name));
++	QDir parent(base); parent.cdUp();
++	for (const auto& mount : {"fstrike", "estrike", "dstrike", "cstrike", "valve"})
++	{
++		add(base.filePath(mount)); add(parent.filePath(mount));
++	}
++	for (int i = 0; i < 8; ++i)
++	{
++		add(base.filePath("Data"));
++		if (!base.cdUp()) break;
++	}
++	if (!gameDirectory.isEmpty())
++	{
++		const QDir game(gameDirectory); add(game.path()); add(game.filePath("Data"));
++		for (const auto& mount : {"lstrike/common", "fstrike", "estrike", "dstrike", "cstrike", "valve"}) add(game.filePath(mount));
++	}
++	return result;
++}
++
++QString DiscoverResourceRoot(const QString& modelFile)
++{
++	if (modelFile.isEmpty()) return {};
++	QDir dir(QFileInfo(modelFile).absolutePath());
++	// Only inspect ancestors, never recursively scan drives or unrelated games.
++	for (int level = 0; level < 16; ++level)
++	{
++		if (dir.dirName().compare("models", Qt::CaseInsensitive) == 0)
++		{
++			dir.cdUp(); return dir.absolutePath();
++		}
++		if (QFileInfo(dir.filePath("sprites")).isDir() || QFileInfo(dir.filePath("gfx/tattoo")).isDir()
++			|| QFileInfo(dir.filePath("common/models")).isDir()) return dir.absolutePath();
++		if (!dir.cdUp()) break;
++	}
++	return {};
++}
++
 +QString LocateResource(const QString& root, const QString& relative)
 +{
 +	if (root.isEmpty() || QDir::isAbsolutePath(relative)) return {};
-+	const auto clean = QDir::cleanPath(relative);
++	const auto clean = QDir::cleanPath(QString(relative).replace('\\', '/'));
 +	if (clean == ".." || clean.startsWith("../")) return {};
-+	for (const auto& prefix : {QString(), QString("common"), QString("locale_chn")})
++	for (const auto& directory : ResourceDirectories(root))
 +	{
-+		QDir dir(QDir(root).filePath(prefix));
++		const auto exact = QDir(directory).filePath(clean);
++		if (QFileInfo::exists(exact)) return exact;
++		QDir dir(directory);
 +		QString found;
 +		for (const auto& part : clean.split('/'))
 +		{
@@ -682,20 +1034,23 @@ index 0000000..888fa64
 +		}
 +		if (!found.isEmpty() && QFileInfo::exists(found)) return found;
 +	}
-+	return {};
++	return FindArchiveResource(ResourceDirectories(root), clean);
 +}
 +
 +QStringList FindAppearances(const QString& root)
 +{
 +	QStringList result{QString()};
 +	static const QRegularExpression suffix("_(male|female)(long|short|org)\\.tga$", QRegularExpression::CaseInsensitiveOption);
-+	const QDir dir(LocateResource(root, "gfx/tattoo"));
-+	if (LocateResource(root, "gfx/tattoo").isEmpty()) return result;
-+	for (const auto& name : dir.entryList(QDir::Files))
++	for (const auto& directory : ResourceDirectories(root))
 +	{
-+		const auto match = suffix.match(name);
-+		if (match.hasMatch()) result.append(name.left(match.capturedStart()));
++		const QDir dir(QDir(directory).filePath("gfx/tattoo"));
++		for (const auto& name : dir.entryList(QDir::Files))
++		{
++			const auto match = suffix.match(name);
++			if (match.hasMatch()) result.append(name.left(match.capturedStart()));
++		}
 +	}
++	result.append(ArchiveAppearances(ResourceDirectories(root)));
 +	result.removeDuplicates();
 +	result.sort(Qt::CaseInsensitive);
 +	return result;
@@ -760,10 +1115,10 @@ index 0000000..888fa64
 +}
 diff --git a/src/hlam/formats/csol/CSOLFormats.hpp b/src/hlam/formats/csol/CSOLFormats.hpp
 new file mode 100644
-index 0000000..19d8b47
+index 0000000..609711d
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.hpp
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,41 @@
 +#pragma once
 +
 +#include <vector>
@@ -795,6 +1150,10 @@ index 0000000..19d8b47
 +QImage DecodeTGA(const QByteArray& bytes);
 +std::vector<QImage> DecodeSpriteV3(const QByteArray& bytes);
 +QString LocateResource(const QString& root, const QString& relative);
++QString DiscoverResourceRoot(const QString& modelFile);
++QStringList ResourceDirectories(const QString& root);
++void SetGameDirectory(const QString& root);
++QString GameDirectory();
 +QStringList FindAppearances(const QString& root);
 +QString ResolveHand(const QString& root, const QString& appearance, const QString& suffix);
 +struct Environment { int Index = 0; float Multiply = 1; float Add = 0; };
@@ -803,10 +1162,10 @@ index 0000000..19d8b47
 +}
 diff --git a/src/hlam/formats/csol/CSOLPreview.cpp b/src/hlam/formats/csol/CSOLPreview.cpp
 new file mode 100644
-index 0000000..b84d9b1
+index 0000000..b764b4f
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.cpp
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,328 @@
 +#include "formats/csol/CSOLPreview.hpp"
 +#include "formats/studiomodel/EditableStudioModel.hpp"
 +#include "graphics/TextureLoader.hpp"
@@ -816,6 +1175,7 @@ index 0000000..b84d9b1
 +#include <QOpenGLFunctions>
 +#include <QRegularExpression>
 +#include <QFileInfo>
++#include <QDir>
 +#include <stdexcept>
 +
 +namespace csol
@@ -827,12 +1187,48 @@ index 0000000..b84d9b1
 +	p.FPS = FPS; p.Attachment = Attachment; p.Hands = Hands; p.Offset = Offset; p.Width = Width; p.Height = Height;
 +	p.SpriteBlend = SpriteBlend; p.Billboard = Billboard; p.Loop = Loop;
 +	p.WeaponPreset = WeaponPreset; p.DepthTest = DepthTest; p.Brightness = Brightness;
++	p.FollowWeapon = FollowWeapon; p.RightHand = RightHand; p.SourceFile = SourceFile;
 +	return p;
++}
++
++namespace
++{
++bool IsRevivegun(const studiomdl::EditableStudioModel& model)
++{
++	static const char* names[]{"idle", "reload", "draw", "shootA", "shootB_start", "shootB",
++		"revive_idle", "revive_reload", "revive_draw", "revive_shootA", "revive_shootB_start", "revive_shootB", "revive"};
++	if (model.Bones.empty() || model.Bones[0]->Name != "revivegun_root" || model.Attachments.size() <= 5
++		|| !model.Attachments[5]->Bone || model.Attachments[5]->Bone->Name != "sprite_attach01"
++		|| model.Sequences.size() != std::size(names)) return false;
++	for (std::size_t i = 0; i < std::size(names); ++i)
++		if (model.Sequences[i]->Label != names[i]) return false;
++	return true;
++}
++}
++
++void Preview::Discover(const QString& file, const studiomdl::EditableStudioModel& model)
++{
++	SourceFile = file;
++	bool special = IsRevivegun(model);
++	for (const auto& texture : model.Textures)
++	{
++		const auto info = ParseMaterial(QString::fromStdString(texture->Name));
++		special |= info.Special || info.Width > 0 || !info.Descriptor.isEmpty()
++			|| (!info.HandSuffix.isEmpty() && info.Name.compare("hand.bmp", Qt::CaseInsensitive) != 0);
++	}
++	if (!special) return;
++	Root = DiscoverResourceRoot(file);
++	if (Root.isEmpty()) Root = GameDirectory();
++	Enabled = true;
++	FollowWeapon = IsRevivegun(model);
++	Load(model);
 +}
 +
 +void Preview::Load(const studiomdl::EditableStudioModel& model)
 +{
-+	Textures.clear(); Frames.clear(); FrameHandles.clear(); Time = 0;
++	Textures.clear(); Frames.clear(); FrameHandles.clear(); Effects = {}; RelatedResources.clear(); Time = ActionTime = 0;
++	ActionSequence = -1;
++	RecognizedWeapon = IsRevivegun(model);
 +	HandModels.assign(model.Bodyparts.size(), {-1, -1});
 +	for (std::size_t group = 0; group < model.Bodyparts.size(); ++group)
 +		for (std::size_t sub = 0; sub < model.Bodyparts[group]->Models.size(); ++sub)
@@ -842,17 +1238,32 @@ index 0000000..b84d9b1
 +			if (name.contains("cso_hand_female")) HandModels[group][1] = int(sub);
 +		}
 +	QStringList messages;
++	if (Root.isEmpty()) messages.append("未找到模型旁的资源目录；特殊效果所需的外部文件可能不完整。");
++	else messages.append("自动搜索目录：\n" + ResourceDirectories(Root).join("\n"));
 +	int hands = 0;
 +	for (const auto& texture : model.Textures)
 +	{
 +		PreviewTexture preview;
 +		preview.Info = ParseMaterial(QString::fromStdString(texture->Name));
++		try
++		{
++		if (preview.Info.Width > 0)
++		{
++			const auto path = LocateResource(Root, "models/texture/" + QString::fromStdString(texture->Name));
++			if (!path.isEmpty())
++			{
++				preview.Image = QImage::fromData(ReadResource(path)).convertToFormat(QImage::Format_RGBA8888);
++				if (preview.Image.isNull()) throw std::runtime_error("无法解码外部模型贴图");
++			}
++		}
 +		if (!preview.Info.HandSuffix.isEmpty())
 +		{
 +			const auto path = ResolveHand(Root, Appearance, preview.Info.HandSuffix);
 +			if (!path.isEmpty()) { preview.Image = DecodeTGA(ReadResource(path)); ++hands; }
 +			else messages.append(QString("缺少手部贴图：%1").arg(preview.Info.HandSuffix));
 +		}
++		}
++		catch (const std::exception& e) { messages.append(QString::fromUtf8(e.what())); }
 +		if (!preview.Info.Descriptor.isEmpty())
 +		{
 +			const auto path = LocateResource(Root, "shader/" + preview.Info.Descriptor + ".txt");
@@ -884,7 +1295,41 @@ index 0000000..b84d9b1
 +		}
 +		Textures.push_back(std::move(preview));
 +	}
-+	if (!SpriteFile.isEmpty()) Frames = DecodeSpriteV3(ReadResource(SpriteFile));
++	if (FollowWeapon && RecognizedWeapon)
++	{
++		Attachment = 5; Offset = glm::vec3(0); SpriteBlend = Blend::Add; Billboard = true; Loop = true;
++		DepthTest = false; Brightness = 250.f / 255.f;
++		std::size_t decodedBytes = 0;
++		for (int i = 0; i < int(Effects.size()); ++i)
++		{
++			const auto relative = QString("sprites/ef_revivegun_%1%2%3.spr")
++				.arg((i % 4) >= 2 ? "draw" : "idle").arg((i % 2) + 1).arg(i >= 4 ? "_left" : "");
++			auto& clip = Effects[i]; clip.File = LocateResource(Root, relative);
++			if (clip.File.isEmpty()) { messages.append("缺少动作特效：" + relative); continue; }
++			try
++			{
++				auto frames = DecodeSpriteV3(ReadResource(clip.File));
++				std::size_t bytes = 0;
++				for (const auto& frame : frames) bytes += frame.sizeInBytes();
++				if (bytes > 256 * 1024 * 1024 - decodedBytes) throw std::runtime_error("动作特效总缓存超过 256 MiB");
++				decodedBytes += bytes; clip.Frames = std::move(frames);
++			}
++			catch (const std::exception& e) { messages.append(relative + "：" + QString::fromUtf8(e.what())); }
++		}
++		messages.append("复活枪：已自动绑定左右手、普通/复活状态与拔枪→待机（1 秒）。换弹时隐藏圆环；场景光束/爆炸仍需独立事件支持。");
++	}
++	// Inventory associated resources without loading arbitrary similarly named effects.
++	QString stem = QFileInfo(SourceFile).completeBaseName();
++	if (stem.startsWith("v_") || stem.startsWith("w_") || stem.startsWith("p_")) stem = stem.mid(2);
++	if (!stem.isEmpty())
++		for (const auto& directory : ResourceDirectories(Root))
++			for (const auto& sub : {"sprites", "sound/weapons", "models", "shader"})
++			{
++				const QDir dir(QDir(directory).filePath(sub));
++				const auto filter = QString(sub) == "shader" ? QStringList{"*.txt", "mdlrender.*"} : QStringList{"*" + stem + "*"};
++				for (const auto& name : dir.entryList(filter, QDir::Files, QDir::Name)) RelatedResources.append(dir.filePath(name));
++			}
++	if (!FollowWeapon && !SpriteFile.isEmpty()) Frames = DecodeSpriteV3(ReadResource(SpriteFile));
 +	// Verified client calls and engine registration: attachment is zero-based,
 +	// scale is per mille of the SPR pixel dimensions, flags 9 select the
 +	// viewmodel overlay queue. This recipe does not infer weapon event timing.
@@ -892,7 +1337,7 @@ index 0000000..b84d9b1
 +		&& model.Bones[0]->Name == "revivegun_root" && model.Attachments.size() > 5
 +		&& model.Attachments[5]->Bone && model.Attachments[5]->Bone->Name == "sprite_attach01")
 +	{
-+		const auto name = QFileInfo(SpriteFile).fileName().toLower();
++		const auto name = QFileInfo(SpriteFile).fileName().toLower().replace("_left.spr", ".spr");
 +		const bool first = name == "ef_revivegun_idle1.spr" || name == "ef_revivegun_draw1.spr";
 +		const bool second = name == "ef_revivegun_idle2.spr" || name == "ef_revivegun_draw2.spr";
 +		if (first || second)
@@ -907,7 +1352,45 @@ index 0000000..b84d9b1
 +		}
 +	}
 +	messages.removeDuplicates();
-+	Status = QString("已加载 %1 张手部贴图、%2 帧特效。\n").arg(hands).arg(Frames.size()) + messages.join("\n");
++	int clips = 0; std::size_t frameCount = Frames.size();
++	for (const auto& clip : Effects) if (!clip.Frames.empty()) { ++clips; frameCount += clip.Frames.size(); }
++	Status = QString("已加载 %1 张手部贴图、%2 组动作特效（%3 帧）。\n").arg(hands).arg(clips).arg(frameCount) + messages.join("\n");
++	if (!RelatedResources.empty()) Status += "\n\n关联资源（发现不代表已绑定全部游戏事件）：\n" + RelatedResources.join("\n");
++}
++
++void Preview::SetAction(int sequence, double seconds)
++{
++	if (sequence == ActionSequence || sequence / 6 != ActionSequence / 6 || sequence % 6 == 2 || ActionSequence < 0)
++		Time = seconds;
++	else if (ActionSequence % 6 == 1 || ActionSequence >= 12) Time = seconds;
++	else if (ActionSequence % 6 == 2) Time = std::max(0.0, ActionTime - 1.0) + seconds;
++	ActionSequence = sequence; ActionTime = seconds;
++}
++
++EffectView Preview::CurrentEffect(const studiomdl::EditableStudioModel& model, int sequence) const
++{
++	EffectView view;
++	if (!FollowWeapon || !RecognizedWeapon)
++	{
++		view.Frame = FrameIndex(); view.Width = Width; view.Height = Height;
++		if (view.Frame < FrameHandles.size()) view.Handle = FrameHandles[view.Frame];
++		return view;
++	}
++	// client weapon +0x174 is the reload latch (base post-frame transfers clip/ammo).
++	if (sequence < 0 || sequence >= 12 || sequence % 6 == 1) return view;
++	const bool variant2 = sequence >= 6;
++	const bool draw = sequence % 6 == 2 && ActionTime < 1.0;
++	view.Clip = (RightHand ? 0 : 4) + (draw ? 2 : 0) + (variant2 ? 1 : 0);
++	const auto& clip = Effects[view.Clip];
++	if (clip.Frames.empty()) return view;
++	const double fps = draw || variant2 ? 30 : 20;
++	const double time = sequence % 6 == 2 ? (draw ? ActionTime : ActionTime - 1.0) : Time;
++	if (!std::isfinite(time)) return view;
++	view.Frame = std::size_t(std::fmod(std::floor(std::max(0.0, time) * fps), double(clip.Frames.size())));
++	const float scale = (variant2 ? 40.f : 28.f) / 1000.f;
++	view.Width = clip.Frames.front().width() * scale; view.Height = clip.Frames.front().height() * scale;
++	if (view.Frame < clip.Handles.size()) view.Handle = clip.Handles[view.Frame];
++	return view;
 +}
 +
 +void Preview::Upload(graphics::TextureLoader& loader)
@@ -923,6 +1406,11 @@ index 0000000..b84d9b1
 +	for (auto& texture : Textures) if (!texture.Image.isNull()) texture.Handle = upload(texture.Image);
 +	FrameHandles.reserve(Frames.size());
 +	for (const auto& frame : Frames) FrameHandles.push_back(upload(frame));
++	for (auto& clip : Effects)
++	{
++		clip.Handles.reserve(clip.Frames.size());
++		for (const auto& frame : clip.Frames) clip.Handles.push_back(upload(frame));
++	}
 +	auto gl = QOpenGLContext::currentContext()->functions();
 +	const unsigned targets[]{GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
 +		GL_TEXTURE_CUBE_MAP_NEGATIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y, GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z};
@@ -984,12 +1472,18 @@ index 0000000..b84d9b1
 +	for (auto& texture : Textures) if (texture.Handle) { loader.DeleteTexture(texture.Handle); texture.Handle = 0; }
 +	for (auto handle : FrameHandles) loader.DeleteTexture(handle);
 +	FrameHandles.clear();
++	for (auto& clip : Effects)
++	{
++		for (auto handle : clip.Handles) loader.DeleteTexture(handle);
++		clip.Handles.clear();
++	}
 +}
 +
 +void Preview::UpdateFilters(graphics::TextureLoader& loader)
 +{
 +	for (const auto& texture : Textures) if (texture.Handle) loader.SetFilters(texture.Handle, false);
 +	for (auto handle : FrameHandles) loader.SetFilters(handle, false);
++	for (const auto& clip : Effects) for (auto handle : clip.Handles) loader.SetFilters(handle, false);
 +}
 +
 +std::size_t Preview::FrameIndex() const
@@ -1002,10 +1496,10 @@ index 0000000..b84d9b1
 +}
 diff --git a/src/hlam/formats/csol/CSOLPreview.hpp b/src/hlam/formats/csol/CSOLPreview.hpp
 new file mode 100644
-index 0000000..b0457ce
+index 0000000..733af00
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.hpp
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,82 @@
 +#pragma once
 +#include "formats/csol/CSOLFormats.hpp"
 +#include "graphics/OpenGL.hpp"
@@ -1027,6 +1521,21 @@ index 0000000..b0457ce
 +	std::array<QImage, 6> CubeFaces;
 +	GLuint Cube = 0;
 +	Environment Env;
++};
++
++struct EffectClip
++{
++	QString File;
++	std::vector<QImage> Frames;
++	std::vector<GLuint> Handles;
++};
++
++struct EffectView
++{
++	GLuint Handle = 0;
++	int Clip = -1;
++	std::size_t Frame = 0;
++	float Width = 0, Height = 0;
 +};
 +
 +// Viewer state only. ConvertFromEditable deliberately does not serialize this.
@@ -1053,8 +1562,19 @@ index 0000000..b0457ce
 +	bool WeaponPreset = true;
 +	bool DepthTest = true;
 +	float Brightness = 1;
++	bool FollowWeapon = false;
++	bool RightHand = true;
++	bool RecognizedWeapon = false;
++	QString SourceFile;
++	QStringList RelatedResources;
++	std::array<EffectClip, 8> Effects;
++	double ActionTime = 0;
++	int ActionSequence = -1;
 +
++	void Discover(const QString& file, const studiomdl::EditableStudioModel& model);
 +	void Load(const studiomdl::EditableStudioModel& model);
++	void SetAction(int sequence, double seconds = 0);
++	EffectView CurrentEffect(const studiomdl::EditableStudioModel& model, int sequence) const;
 +	void Upload(graphics::TextureLoader& loader);
 +	void Release(graphics::TextureLoader& loader);
 +	void UpdateFilters(graphics::TextureLoader& loader);
@@ -1225,7 +1745,7 @@ index 8b8f86f..a633a5a 100644
  	}
  }
 diff --git a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
-index ed0b42e..617e376 100644
+index ed0b42e..8c494dd 100644
 --- a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 +++ b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 @@ -1,10 +1,13 @@
@@ -1354,7 +1874,7 @@ index ed0b42e..617e376 100644
  				_openglFunctions->glVertex3fv(glm::value_ptr(_xformverts[ptricmds[0]]));
  			}
  			_openglFunctions->glEnd();
-@@ -724,11 +782,71 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -724,11 +782,73 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  				_openglFunctions->glDisable(GL_ALPHA_TEST);
  			}
  		}
@@ -1373,7 +1893,9 @@ index ed0b42e..617e376 100644
 +void StudioModelRenderer::DrawCSOLEffect()
 +{
 +	const auto& preview = _studioModel->CSOL;
-+	if (!preview.Enabled || preview.FrameHandles.empty()) return;
++	if (!preview.Enabled) return;
++	const auto effect = preview.CurrentEffect(*_studioModel, _renderInfo->Sequence);
++	if (!effect.Handle) return;
 +	glm::vec3 center = preview.Offset;
 +	glm::vec3 right{1, 0, 0}, up{0, 0, 1};
 +	if (preview.Attachment >= 0 && preview.Attachment < _studioModel->Attachments.size())
@@ -1396,8 +1918,8 @@ index ed0b42e..617e376 100644
 +		// SPR_VP_PARALLEL uses the camera basis, not a per-sprite look-at.
 +		up = inverse * _viewerUp;
 +	}
-+	right *= preview.Width * 0.5f;
-+	up *= preview.Height * 0.5f;
++	right *= effect.Width * 0.5f;
++	up *= effect.Height * 0.5f;
 +	const glm::vec3 vertices[]{center - right + up, center + right + up, center + right - up, center - right - up};
 +	const float uv[4][2]{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
 +	_openglFunctions->glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT);
@@ -1412,7 +1934,7 @@ index ed0b42e..617e376 100644
 +	_openglFunctions->glBlendFunc(preview.SpriteBlend == csol::Blend::Add ? GL_ONE : GL_SRC_ALPHA,
 +		preview.SpriteBlend == csol::Blend::Alpha ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
 +	_openglFunctions->glColor4f(preview.Brightness, preview.Brightness, preview.Brightness, _renderInfo->Transparency);
-+	_openglFunctions->glBindTexture(GL_TEXTURE_2D, preview.FrameHandles[preview.FrameIndex()]);
++	_openglFunctions->glBindTexture(GL_TEXTURE_2D, effect.Handle);
 +	_openglFunctions->glBegin(GL_QUADS);
 +	for (int i = 0; i < 4; ++i)
 +	{
@@ -1594,7 +2116,7 @@ index 22eb5e4..0b9e7b9 100644
  	auto colorSettings = settings->GetColorSettings();
  
 diff --git a/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp b/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
-index 41830bc..2870ff2 100644
+index 41830bc..47832f2 100644
 --- a/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
 +++ b/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
 @@ -1,6 +1,7 @@
@@ -1605,7 +2127,17 @@ index 41830bc..2870ff2 100644
  
  #include <QDir>
  #include <QDockWidget>
-@@ -176,10 +177,10 @@ void StudioModelAsset::Save()
+@@ -120,6 +121,9 @@ StudioModelAsset::StudioModelAsset(QString&& fileName,
+ 		_provider->GetStudioModelSettings()))
+ 	, _settingsVersion(settingsVersion)
+ {
++	try { _editableStudioModel->CSOL.Discover(GetFileName(), *_editableStudioModel); }
++	catch (const std::exception& e) { _editableStudioModel->CSOL.Status = QString::fromUtf8(e.what()); }
++	if (!GetFileName().isEmpty()) UpdateFileSystem();
+ 	CreateMainScene();
+ 	CreateTextureScene();
+ 
+@@ -176,10 +180,10 @@ void StudioModelAsset::Save()
  	if (_editableStudioModel->IsXashModel)
  	{
  		const auto action = QMessageBox::question(_application->GetMainWindow(),
@@ -1619,7 +2151,7 @@ index 41830bc..2870ff2 100644
  
  		if (action != QMessageBox::Yes)
  		{
-@@ -214,7 +215,7 @@ std::unique_ptr<studiomdl::EditableStudioModel> TryReloadModel(const QString& fi
+@@ -214,7 +218,7 @@ std::unique_ptr<studiomdl::EditableStudioModel> TryReloadModel(const QString& fi
  
  		if (!file)
  		{
@@ -1628,7 +2160,7 @@ index 41830bc..2870ff2 100644
  		}
  
  		auto studioModel = studiomdl::LoadStudioModel(filePath, file.get(), fileSystem);
-@@ -223,8 +224,8 @@ std::unique_ptr<studiomdl::EditableStudioModel> TryReloadModel(const QString& fi
+@@ -223,8 +227,8 @@ std::unique_ptr<studiomdl::EditableStudioModel> TryReloadModel(const QString& fi
  	}
  	catch (const AssetException& e)
  	{
@@ -1639,7 +2171,7 @@ index 41830bc..2870ff2 100644
  		return {};
  	}
  }
-@@ -239,6 +240,13 @@ bool StudioModelAsset::TryRefresh()
+@@ -239,6 +243,13 @@ bool StudioModelAsset::TryRefresh()
  	}
  
  	auto snapshot = std::make_unique<StateSnapshot>();
@@ -1653,7 +2185,7 @@ index 41830bc..2870ff2 100644
  
  	SaveEntityToSnapshot(snapshot.get());
  
-@@ -338,9 +346,9 @@ void StudioModelAsset::TakeScreenshot()
+@@ -338,9 +349,9 @@ void StudioModelAsset::TakeScreenshot()
  	// Show error after taking screenshot to avoid scene changing during messagebox display.
  	if (!fbIsValid)
  	{
@@ -1665,7 +2197,7 @@ index 41830bc..2870ff2 100644
  	}
  
  	graphicsContext->End();
-@@ -351,7 +359,7 @@ The screenshot will be rendered without transparency)");
+@@ -351,7 +362,7 @@ The screenshot will be rendered without transparency)");
  	{
  		if (!screenshot.save(fileName))
  		{
@@ -1674,7 +2206,17 @@ index 41830bc..2870ff2 100644
  		}
  	}
  }
-@@ -486,7 +494,7 @@ void StudioModelAsset::OnDeactivated()
+@@ -397,6 +408,9 @@ void StudioModelAsset::UpdateSettingsState()
+ void StudioModelAsset::UpdateFileSystem()
+ {
+ 	_application->InitializeFileSystem(*_fileSystem, GetFileName());
++	if (_editableStudioModel->CSOL.Enabled)
++		for (const auto& path : csol::ResourceDirectories(_editableStudioModel->CSOL.Root))
++			_fileSystem->AddSearchPath(path.toStdString());
+ }
+ 
+ bool StudioModelAsset::CameraIsFirstPerson() const
+@@ -486,7 +500,7 @@ void StudioModelAsset::OnDeactivated()
  
  void StudioModelAsset::CreateMainScene()
  {
@@ -1683,7 +2225,7 @@ index 41830bc..2870ff2 100644
  
  	_scenes.push_back(_scene.get());
  
-@@ -503,7 +511,7 @@ void StudioModelAsset::CreateMainScene()
+@@ -503,7 +517,7 @@ void StudioModelAsset::CreateMainScene()
  
  void StudioModelAsset::CreateTextureScene()
  {
@@ -1692,13 +2234,17 @@ index 41830bc..2870ff2 100644
  
  	_scenes.push_back(_textureScene.get());
  
-@@ -673,6 +681,9 @@ bool StudioModelAsset::HandleMouseInput(QMouseEvent* event)
+@@ -673,6 +687,13 @@ bool StudioModelAsset::HandleMouseInput(QMouseEvent* event)
  
  void StudioModelAsset::Tick()
  {
 +	auto& preview = _editableStudioModel->CSOL;
 +	if (preview.Enabled && preview.Playing && PlaySequence)
-+		preview.Time += _application->GetWorldTime()->GetFrameTime();
++	{
++		const double delta = _application->GetWorldTime()->GetFrameTime() * _modelEntity->GetFrameRate();
++		preview.Time += delta;
++		preview.ActionTime += delta;
++	}
  	//TODO: update asset-local world time
  	for (auto scene : _scenes)
  	{
@@ -2854,14 +3400,15 @@ index 7cabff0..b3abbfa 100644
  		AttachmentsPanel.ui
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
 new file mode 100644
-index 0000000..0c3d1de
+index 0000000..c57e868
 --- /dev/null
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,303 @@
 +#include "plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp"
 +#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
 +#include "entity/HLMVStudioModelEntity.hpp"
 +#include "graphics/IGraphicsContext.hpp"
++#include "settings/ApplicationSettings.hpp"
 +#include <QCheckBox>
 +#include <QComboBox>
 +#include <QDoubleSpinBox>
@@ -2880,6 +3427,8 @@ index 0000000..0c3d1de
 +#include <QSpinBox>
 +#include <QTabWidget>
 +#include <QDir>
++#include <QSettings>
++#include <QScrollArea>
 +
 +namespace studiomodel
 +{
@@ -2892,9 +3441,26 @@ index 0000000..0c3d1de
 +	layout->addWidget(tabs);
 +	auto resources = new QWidget;
 +	auto form = new QFormLayout(resources);
-+	tabs->addTab(resources, "资源与手部");
++	tabs->addTab(resources, "预览");
++	_summary = new QLabel; _summary->setWordWrap(true); form->addRow(_summary);
 +	_enabled = new QCheckBox("启用 CSOL 特殊材质预览");
 +	form->addRow(_enabled);
++	_automatic = new QCheckBox("自动匹配武器动作与特效");
++	_automatic->setObjectName("CSOLAutomatic"); form->addRow(_automatic);
++	_rightHand = new QCheckBox("右手持枪"); _rightHand->setChecked(true);
++	_rightHand->setObjectName("CSOLRightHand"); form->addRow(_rightHand);
++	auto rescan = new QPushButton("重新扫描模型目录"); form->addRow(rescan);
++	connect(rescan, &QPushButton::clicked, this, [this]
++	{
++		if (!_asset) return;
++		_root->setText(csol::DiscoverResourceRoot(_asset->GetFileName()));
++		_automatic->setChecked(_asset->GetEditableStudioModel()->CSOL.RecognizedWeapon);
++		ScanHands(); Apply();
++	});
++	auto effect = new QWidget;
++	auto ef = new QFormLayout(effect);
++	auto scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setWidget(effect);
++	tabs->addTab(scroll, "高级设置");
 +	auto pathRow = [&](QLineEdit*& field, const QString& label, bool directory)
 +	{
 +		auto row = new QWidget;
@@ -2902,7 +3468,7 @@ index 0000000..0c3d1de
 +		field = new QLineEdit;
 +		auto browse = new QPushButton("浏览…");
 +		box->addWidget(field); box->addWidget(browse);
-+		form->addRow(label, row);
++		ef->addRow(label, row);
 +		connect(browse, &QPushButton::clicked, this, [this, field, directory]
 +		{
 +			const auto path = directory ? QFileDialog::getExistingDirectory(this, "选择解包后的资源目录", field->text())
@@ -2913,6 +3479,8 @@ index 0000000..0c3d1de
 +	pathRow(_root, "资源目录", true);
 +	_root->setObjectName("CSOLRoot");
 +	_root->setPlaceholderText("包含 gfx/tattoo、sprites、shader 的目录，或其上层 lstrike");
++	pathRow(_game, "补充游戏目录（全局记忆）", true); _game->setText(csol::GameDirectory());
++	_game->setPlaceholderText("分离的解包目录可补充原游戏目录；直接只读加载 Data 中的 NAR");
 +	_appearance = new QComboBox; _appearance->setEditable(true);
 +	_appearance->setObjectName("CSOLAppearance");
 +	form->addRow("角色外观", _appearance);
@@ -2923,7 +3491,7 @@ index 0000000..0c3d1de
 +	_sprite->setObjectName("CSOLSprite");
 +	_sprite->setPlaceholderText("可留空；支持内含 DDS 的 SPR v3");
 +	_preset = new QCheckBox("应用资源时套用已核实的武器参数"); _preset->setChecked(true);
-+	_preset->setObjectName("CSOLWeaponPreset"); form->addRow(_preset);
++	_preset->setObjectName("CSOLWeaponPreset"); ef->addRow(_preset);
 +	auto buttons = new QGridLayout;
 +	int buttonIndex = 0;
 +	for (const auto& label : {QString("应用资源"), QString("清除附加动画"), QString("保存预览配置…"), QString("载入预览配置…")})
@@ -2931,15 +3499,12 @@ index 0000000..0c3d1de
 +		auto button = new QPushButton(label); buttons->addWidget(button, buttonIndex / 2, buttonIndex % 2);
 +		++buttonIndex;
 +		if (label == "应用资源") connect(button, &QPushButton::clicked, this, &CSOLPanel::Apply);
-+		else if (label == "清除附加动画") connect(button, &QPushButton::clicked, this, [this] { _sprite->clear(); Apply(); });
++		else if (label == "清除附加动画") connect(button, &QPushButton::clicked, this, [this] { _automatic->setChecked(false); _sprite->clear(); Apply(); });
 +		else connect(button, &QPushButton::clicked, this, [this, label] { Profile(label.startsWith("保存")); });
 +	}
-+	form->addRow(buttons);
-+	auto note = new QLabel("仅影响预览，不写入 MDL。角色列表保留资源原名。加密角色表的外观编号映射尚未实现。");
++	ef->addRow(buttons);
++	auto note = new QLabel("打开模型即搜索所在资源树。切换动作可直接预览配套效果；选择角色后手部贴图立即更新。仅影响预览，不写入 MDL。");
 +	note->setWordWrap(true); form->addRow(note);
-+	auto effect = new QWidget;
-+	auto ef = new QFormLayout(effect);
-+	tabs->addTab(effect, "动画与附着");
 +	_attachment = new QComboBox; ef->addRow("附着点（从 0 开始）", _attachment);
 +	_attachment->setObjectName("CSOLAttachment");
 +	auto vectorRow = new QHBoxLayout;
@@ -2967,11 +3532,15 @@ index 0000000..0c3d1de
 +	ef->addRow(_billboard); ef->addRow(_depth); ef->addRow(_loop); ef->addRow(_play);
 +	_frame = new QSpinBox; ef->addRow("定位帧（从 0 开始）", _frame);
 +	_frame->setObjectName("CSOLFrame");
-+	note = new QLabel("复活枪右手 idle1/idle2/draw1/draw2 已有挂点、缩放、帧率和混合预设。其他资源需自行配置；动作切换时机尚未实机校准。");
++	note = new QLabel("自动模式按已核实的武器逻辑选择资源。关闭自动模式后才使用手动附加动画；关联资源不代表已支持它的全部游戏事件。");
 +	note->setWordWrap(true); ef->addRow(note);
 +	_status = new QPlainTextEdit; _status->setReadOnly(true); tabs->addTab(_status, "资源状态");
 +	connect(_root, &QLineEdit::editingFinished, this, &CSOLPanel::ScanHands);
 +	connect(_enabled, &QCheckBox::toggled, this, &CSOLPanel::Parameters);
++	connect(_rightHand, &QCheckBox::toggled, this, &CSOLPanel::Parameters);
++	connect(_automatic, &QCheckBox::toggled, this, [this] { if (!_loading) Apply(); });
++	connect(_appearance, qOverload<int>(&QComboBox::activated), this, [this] { if (!_loading) Apply(); });
++	connect(_appearance->lineEdit(), &QLineEdit::editingFinished, this, [this] { if (!_loading) Apply(); });
 +	for (auto* box : {_play, _billboard, _loop, _preset, _depth}) connect(box, &QCheckBox::toggled, this, &CSOLPanel::Parameters);
 +	for (auto* box : {_width, _height, _fps, _brightness, _offset[0], _offset[1], _offset[2]})
 +		connect(box, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &CSOLPanel::Parameters);
@@ -2993,20 +3562,18 @@ index 0000000..0c3d1de
 +	auto model = asset->GetEditableStudioModel();
 +	auto& p = model->CSOL;
 +	setEnabled(!model->Textures.empty());
-+	if (p.Root.isEmpty())
-+	{
-+		QDir dir(QFileInfo(asset->GetFileName()).absolutePath());
-+		for (int i = 0; i < 4; ++i)
-+		{
-+			if (!csol::LocateResource(dir.path(), "gfx/tattoo").isEmpty()) { p.Root = dir.path(); break; }
-+			if (!dir.cdUp()) break;
-+		}
-+	}
 +	_root->setText(p.Root); ScanHands();
 +	_appearance->setCurrentIndex(0);
 +	if (!p.Appearance.isEmpty()) _appearance->setCurrentText(p.Appearance);
 +	_sprite->setText(p.SpriteFile);
 +	_enabled->setChecked(p.Enabled); _play->setChecked(p.Playing); _billboard->setChecked(p.Billboard); _loop->setChecked(p.Loop);
++	_automatic->setChecked(p.FollowWeapon); _automatic->setEnabled(p.RecognizedWeapon);
++	_rightHand->setChecked(p.RightHand); _rightHand->setEnabled(p.RecognizedWeapon && p.FollowWeapon);
++	for (QWidget* control : std::initializer_list<QWidget*>{_sprite, _preset, _attachment, _width, _height, _fps,
++		_brightness, _blend, _billboard, _depth, _loop, _frame, _offset[0], _offset[1], _offset[2]})
++		control->setEnabled(!p.FollowWeapon);
++	_summary->setText(p.Status.isEmpty() ? "普通模型预览" : p.Status.section('\n', 0, 0)
++		+ (p.Status.contains("缺少") || p.Root.isEmpty() ? "\n部分资源缺失，详见“资源状态”。" : ""));
 +	_preset->setChecked(p.WeaponPreset); _depth->setChecked(p.DepthTest); _brightness->setValue(p.Brightness);
 +	_attachment->clear(); _attachment->addItem("模型原点");
 +	for (int i = 0; i < model->Attachments.size(); ++i)
@@ -3021,7 +3588,7 @@ index 0000000..0c3d1de
 +	_blend->setCurrentIndex(p.SpriteBlend == csol::Blend::Alpha ? 0 : p.SpriteBlend == csol::Blend::Add ? 1 : 2);
 +	for (int i = 0; i < 3; ++i) _offset[i]->setValue(p.Offset[i]);
 +	_frame->setRange(0, std::max(0, int(p.Frames.size()) - 1)); _frame->setValue(int(p.FrameIndex()));
-+	_status->setPlainText(p.Status.isEmpty() ? "选择资源目录后点击“应用资源”。普通 MDL 可关闭特殊材质预览。" : p.Status);
++	_status->setPlainText(p.Status.isEmpty() ? "未识别到 CSOL 扩展。普通模型保持标准预览。" : p.Status);
 +	_loading = false;
 +}
 +
@@ -3029,7 +3596,11 @@ index 0000000..0c3d1de
 +{
 +	const auto previous = _appearance->currentText();
 +	_appearance->clear(); _appearance->addItem("默认手部", QString());
-+	for (const auto& name : csol::FindAppearances(_root->text())) if (!name.isEmpty()) _appearance->addItem(name, name);
++	try
++	{
++		for (const auto& name : csol::FindAppearances(_root->text())) if (!name.isEmpty()) _appearance->addItem(name, name);
++	}
++	catch (const std::exception& e) { _summary->setText(QString::fromUtf8(e.what())); }
 +	const auto index = _appearance->findText(previous);
 +	_appearance->setCurrentIndex(index < 0 ? 0 : index);
 +}
@@ -3042,16 +3613,24 @@ index 0000000..0c3d1de
 +		auto model = _asset->GetEditableStudioModel();
 +		// Decode before releasing the previous resources, so invalid files keep the existing preview intact.
 +		csol::Preview next;
++		if (_game->text() != csol::GameDirectory())
++		{
++			csol::SetGameDirectory(_game->text());
++			_asset->GetEntity()->GetContext()->AppSettings->GetSettings()->setValue("CSOL/GameDirectory", _game->text());
++		}
 +		ReadParameters(next); next.Enabled = true;
++		next.SourceFile = _asset->GetFileName();
 +		next.Root = _root->text(); next.SpriteFile = _sprite->text();
 +		next.Appearance = _appearance->currentText() == "默认手部" ? QString() : _appearance->currentText();
 +		next.Load(*model);
++		next.SetAction(_asset->GetEntity()->GetSequence());
 +		auto context = _asset->GetGraphicsContext(); context->Begin();
 +		try { next.Upload(*_asset->GetTextureLoader()); }
 +		catch (...) { next.Release(*_asset->GetTextureLoader()); context->End(); throw; }
 +		model->CSOL.Release(*_asset->GetTextureLoader());
 +		model->CSOL = std::move(next);
 +		context->End();
++		_asset->UpdateSettingsState();
 +		SetAsset(_asset);
 +		return true;
 +	}
@@ -3068,6 +3647,7 @@ index 0000000..0c3d1de
 +void CSOLPanel::ReadParameters(csol::Preview& p) const
 +{
 +	p.WeaponPreset = _preset->isChecked(); p.DepthTest = _depth->isChecked(); p.Brightness = _brightness->value();
++	p.FollowWeapon = _automatic->isChecked(); p.RightHand = _rightHand->isChecked();
 +	p.Enabled = _enabled->isChecked(); p.Playing = _play->isChecked(); p.Billboard = _billboard->isChecked(); p.Loop = _loop->isChecked();
 +	p.FPS = _fps->value(); p.Width = _width->value(); p.Height = _height->value(); p.Attachment = _attachment->currentIndex() - 1;
 +	p.Hands = _hands->currentIndex();
@@ -3095,6 +3675,7 @@ index 0000000..0c3d1de
 +		{"width", _width->value()}, {"height", _height->value()}, {"fps", _fps->value()}, {"blend", _blend->currentIndex()},
 +		{"billboard", _billboard->isChecked()}, {"loop", _loop->isChecked()}};
 +	o.insert("weaponPreset", _preset->isChecked()); o.insert("depthTest", _depth->isChecked()); o.insert("brightness", _brightness->value());
++	o.insert("followWeapon", _automatic->isChecked()); o.insert("rightHand", _rightHand->isChecked());
 +	for (int i = 0; i < 3; ++i) o.insert(QString("offset%1").arg(i), _offset[i]->value());
 +	QSaveFile out(file);
 +	if (!out.open(QIODevice::WriteOnly)) throw std::runtime_error("无法保存配置");
@@ -3113,6 +3694,7 @@ index 0000000..0c3d1de
 +	_sprite->setText(o.value("sprite").toString());
 +	// Older profiles keep their explicit settings until the user enables presets.
 +	_preset->setChecked(o.value("weaponPreset").toBool(false));
++	_automatic->setChecked(o.value("followWeapon").toBool(false)); _rightHand->setChecked(o.value("rightHand").toBool(true));
 +	_depth->setChecked(o.value("depthTest").toBool(true)); _brightness->setValue(o.value("brightness").toDouble(1));
 +	_attachment->setCurrentIndex(o.value("attachment").toInt()); _hands->setCurrentIndex(o.value("hands").toInt());
 +	_width->setValue(o.value("width").toDouble(8)); _height->setValue(o.value("height").toDouble(8)); _fps->setValue(o.value("fps").toDouble(20));
@@ -3127,10 +3709,10 @@ index 0000000..0c3d1de
 +}
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp
 new file mode 100644
-index 0000000..fef7f38
+index 0000000..9313dce
 --- /dev/null
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,40 @@
 +#pragma once
 +#include "ui/DockableWidget.hpp"
 +#include <array>
@@ -3140,6 +3722,7 @@ index 0000000..fef7f38
 +class QLineEdit;
 +class QPlainTextEdit;
 +class QSpinBox;
++class QLabel;
 +namespace csol { struct Preview; }
 +namespace studiomodel
 +{
@@ -3159,8 +3742,9 @@ index 0000000..fef7f38
 +	void ReadParameters(csol::Preview& preview) const;
 +	void Profile(bool save);
 +	StudioModelAsset* _asset = nullptr;
-+	QLineEdit *_root, *_sprite;
-+	QCheckBox *_enabled, *_play, *_billboard, *_loop, *_preset, *_depth;
++	QLineEdit *_root, *_sprite, *_game;
++	QCheckBox *_enabled, *_play, *_billboard, *_loop, *_preset, *_depth, *_automatic, *_rightHand;
++	QLabel* _summary;
 +	QComboBox *_appearance, *_hands, *_attachment, *_blend;
 +	QDoubleSpinBox *_fps, *_width, *_height, *_brightness;
 +	std::array<QDoubleSpinBox*, 3> _offset;
@@ -6639,10 +7223,10 @@ index f7598f5..bbe6eb6 100644
       </item>
 diff --git a/tests/CSOLFormatsTests.cpp b/tests/CSOLFormatsTests.cpp
 new file mode 100644
-index 0000000..a3524f4
+index 0000000..d8c862c
 --- /dev/null
 +++ b/tests/CSOLFormatsTests.cpp
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,195 @@
 +#include "formats/csol/CSOLFormats.hpp"
 +#include <QCoreApplication>
 +#include <QCryptographicHash>
@@ -6651,6 +7235,9 @@ index 0000000..a3524f4
 +#include <QJsonDocument>
 +#include <QJsonObject>
 +#include <QFile>
++#include <QTemporaryDir>
++#include "formats/csol/CSOLArchive.hpp"
++#include <bzlib.h>
 +#include <iostream>
 +#include <functional>
 +#include <stdexcept>
@@ -6738,8 +7325,77 @@ index 0000000..a3524f4
 +		tga[24] = char(0x82); Reject([&] { csol::DecodeTGA(tga); });
 +		Check(csol::LocateResource(".", "../private").isEmpty(), "Parent traversal");
 +		Check(csol::ResolveHand(".", "../bad", "MaleLong.tga").isEmpty(), "Appearance traversal");
++		QTemporaryDir tree;
++		Check(tree.isValid(), "Temporary resource tree");
++		QDir root(tree.path());
++		root.mkpath("lstrike/common/models/nested"); root.mkpath("lstrike/locale_chn/sprites");
++		root.mkpath("lstrike/common/sprites"); root.mkpath("lstrike/locale_chn/gfx/tattoo");
++		auto touch = [&](const QString& name) { QFile f(root.filePath(name)); Check(f.open(QIODevice::WriteOnly), "Create resource fixture"); };
++		touch("lstrike/common/sprites/shared.spr"); touch("lstrike/locale_chn/sprites/shared.spr");
++		touch("lstrike/locale_chn/sprites/locale.spr"); touch("lstrike/locale_chn/gfx/tattoo/hero_FemaleLong.tga");
++		const auto discovered = csol::DiscoverResourceRoot(root.filePath("lstrike/common/models/nested/v_sample.mdl"));
++		Check(discovered == root.filePath("lstrike/common"), "Nested model root discovery");
++		Check(csol::LocateResource(discovered, "sprites/shared.spr") == root.filePath("lstrike/common/sprites/shared.spr"), "Model resource tree priority");
++		Check(csol::LocateResource(discovered, "sprites/locale.spr") == root.filePath("lstrike/locale_chn/sprites/locale.spr"), "Sibling locale discovery");
++		Check(csol::FindAppearances(discovered).contains("hero"), "Sibling locale appearance discovery");
++		Check(csol::LocateResource(discovered, "..\\private").isEmpty(), "Windows parent traversal");
++		Check(csol::LocateResource(discovered, "sprites/missing.spr").isEmpty(), "Missing resource must not become a directory");
++		// Independent small archive builder: raw "hello" with its known CRC32.
++		auto archive = [&](unsigned entryOffset, unsigned storedSize, const QByteArray& name = "/dstrike/test.txt")
++		{
++			QByteArray index(22 + name.size() + 24, 0); Put(index, 0, 1); Put(index, 16, 1);
++			index[20] = char(name.size()); index.replace(22, name.size(), name);
++			const int at = 22 + name.size(); Put(index, at + 4, entryOffset); Put(index, at + 8, storedSize);
++			Put(index, at + 12, 5); Put(index, at + 20, 0x3610a686);
++			QByteArray compressed(4096, 0); unsigned length = compressed.size();
++			Check(BZ2_bzBuffToBuffCompress(compressed.data(), &length, index.data(), index.size(), 1, 0, 30) == BZ_OK, "Fixture index compression");
++			compressed.resize(length);
++			const auto mask = QByteArray::fromHex("195b7b2c655e79256e4b0721627f0029");
++			for (int i = 0; i < compressed.size(); ++i) compressed[i] = compressed[i] ^ mask[i % 16];
++			QByteArray nar = QByteArray::fromHex("4e41520000000001"); nar.append("hello"); nar.append(compressed);
++			const int tail = nar.size(); nar.resize(tail + 8); Put(nar, tail, length ^ 0x4076551f); Put(nar, tail + 4, 0x0052414e);
++			return nar;
++		};
++		auto saveArchive = [&](const QByteArray& data)
++		{
++			csol::ClearArchiveCache(); QFile file(root.filePath("dstrike.nar"));
++			Check(file.open(QIODevice::WriteOnly), "Write NAR fixture"); Check(file.write(data) == data.size(), "NAR fixture complete");
++		};
++		const auto validArchive = archive(8, 5); saveArchive(validArchive);
++		const auto archiveURL = csol::LocateResource(root.path(), "test.txt");
++		Check(csol::ReadResource(archiveURL) == "hello", "Read NAR raw entry");
++		for (const auto& name : {QByteArray("models/texture/#512512hand.bmp"), QByteArray("percent%23 space.txt")})
++		{
++			saveArchive(archive(8, 5, "/dstrike/" + name));
++			Check(csol::ReadResource(csol::LocateResource(root.path(), QString::fromLatin1(name))) == "hello", "NAR reserved filename characters");
++		}
++		auto damaged = validArchive; damaged[8] = 'H'; saveArchive(damaged);
++		Reject([&] { csol::ReadResource(archiveURL); });
++		saveArchive(archive(0xfffffff0, 64)); Reject([&] { csol::ReadResource(archiveURL); });
++		for (int cut : {0, 7, 12, validArchive.size() - 1})
++		{
++			saveArchive(validArchive.left(cut)); Reject([&] { csol::ReadResource(archiveURL); });
++		}
++		csol::ClearArchiveCache();
 +		QJsonObject report{{"syntheticChecks", checks}};
-+		if (argc >= 3)
++		if (argc == 5 && QString::fromLocal8Bit(argv[1]) == "--nar")
++		{
++			const auto expected = QJsonDocument::fromJson(csol::ReadResource(QString::fromLocal8Bit(argv[3]))).array();
++			QJsonArray results;
++			for (const auto& value : expected)
++			{
++				const auto row = value.toObject();
++				const auto path = csol::LocateResource(QString::fromLocal8Bit(argv[2]), row.value("relative").toString());
++				if (!path.startsWith("csol-nar:")) throw std::runtime_error(("Archive resource not found: " + row.value("relative").toString() + " -> " + path).toStdString());
++				const auto hash = QString::fromLatin1(QCryptographicHash::hash(csol::ReadResource(path), QCryptographicHash::Sha256).toHex());
++				Check(hash == row.value("sha256").toString(), "NAR decoder differs from independent extractor");
++				results.append(QJsonObject{{"path", path}, {"sha256", hash}});
++			}
++			report.insert("archiveComparisons", results);
++			QFile out(QString::fromLocal8Bit(argv[4])); Check(out.open(QIODevice::WriteOnly), "Write archive evidence");
++			out.write(QJsonDocument(report).toJson());
++		}
++		else if (argc >= 3)
 +		{
 +			const QDir root(QString::fromLocal8Bit(argv[1]));
 +			QJsonArray images;
@@ -6768,10 +7424,10 @@ index 0000000..a3524f4
 +}
 diff --git a/tests/CSOLSmokeTest.cpp b/tests/CSOLSmokeTest.cpp
 new file mode 100644
-index 0000000..a780df5
+index 0000000..d98dc38
 --- /dev/null
 +++ b/tests/CSOLSmokeTest.cpp
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,262 @@
 +#include "application/AssetManager.hpp"
 +#include "application/AssetList.hpp"
 +#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
@@ -6786,6 +7442,7 @@ index 0000000..a780df5
 +#include <QLineEdit>
 +#include <QComboBox>
 +#include <QSpinBox>
++#include <QCheckBox>
 +#include <QPushButton>
 +#include "graphics/IGraphicsContext.hpp"
 +#include "graphics/Scene.hpp"
@@ -6822,6 +7479,18 @@ index 0000000..a780df5
 +		const int undoIndex = asset->GetUndoStack()->index();
 +		asset->PlaySequence = false;
 +		auto& p = model->CSOL;
++		require(p.Enabled && p.FollowWeapon && p.RecognizedWeapon && !p.Root.isEmpty(), "Opening model did not automatically enable CSOL resources");
++		require(p.EnvShader && p.Textures[0].Cube && p.Textures[0].Env.Index == 4, "Original @004/wm environment did not load from the base archive");
++		report.insert("originalEnvironment004", true);
++		for (const auto& clip : p.Effects) require(!clip.Handles.empty(), "Automatic effect cache missing a left/right variant");
++		report.insert("automaticRoot", p.Root); report.insert("automaticEffectClips", 8);
++		{
++			studiomdl::EditableStudioModel ordinaryModel;
++			auto texture = std::make_unique<studiomdl::StudioTexture>(); texture->Name = "hand.bmp";
++			ordinaryModel.Textures.push_back(std::move(texture));
++			ordinaryModel.CSOL.Discover(asset->GetFileName(), ordinaryModel);
++			require(!ordinaryModel.CSOL.Enabled && ordinaryModel.CSOL.Textures.empty(), "Ordinary CS hand texture incorrectly enabled CSOL");
++		}
 +		{
 +		asset->GetGraphicsContext()->Begin(); current = true;
 +		auto gl = application.GetOpenGLFunctions();
@@ -6840,11 +7509,36 @@ index 0000000..a780df5
 +			require(image.save(out.filePath(name + ".png")), "Cannot save screenshot");
 +			return QCryptographicHash::hash(QByteArray(reinterpret_cast<const char*>(image.constBits()), image.sizeInBytes()), QCryptographicHash::Sha256);
 +		};
++		QJsonArray autoSamples;
++		for (bool right : {true, false})
++		{
++			p.RightHand = right;
++			for (int seq : {0, 2, 6, 8})
++			{
++				asset->GetEntity()->SetSequence(seq); asset->GetEntity()->SetFrame(12);
++				const auto effect = p.CurrentEffect(*model, seq);
++				const int expected = (right ? 0 : 4) + (seq % 6 == 2 ? 2 : 0) + (seq >= 6 ? 1 : 0);
++				require(effect.Clip == expected && effect.Handle, "Wrong automatic action/hand selection");
++				draw(QString("auto-%1-%2").arg(right ? "right" : "left").arg(seq));
++				autoSamples.append(QJsonObject{{"sequence", seq}, {"rightHand", right}, {"clip", effect.Clip}, {"frame", int(effect.Frame)}});
++			}
++		}
++		asset->GetEntity()->SetSequence(2); p.SetAction(2, 1.1);
++		require(p.CurrentEffect(*model, 2).Clip == 4, "Draw effect did not switch to idle after one second");
++		for (int seq : {1, 7, 12}) require(!p.CurrentEffect(*model, seq).Handle, "Inactive ring effect remained visible");
++		report.insert("automaticActionSamples", autoSamples);
++		report.insert("drawToIdleSeconds", 1);
++		const auto retainedHandle = p.Effects[0].Handles[0];
++		p.Release(*asset->GetTextureLoader()); require(!gl->glIsTexture(retainedHandle), "Leaked automatic sprite texture");
++		p.Upload(*asset->GetTextureLoader()); require(gl->glIsTexture(p.Effects[0].Handles[0]), "Automatic sprite cache not recreated");
++		asset->GetEntity()->SetSequence(0); p.Enabled = false;
 +		const auto ordinary = draw("ordinary");
++		p.Release(*asset->GetTextureLoader()); p.FollowWeapon = false;
 +		p.Root = QDir(resources).filePath("resources/common");
 +		p.Appearance = "buffclasschoijiyoon";
 +		p.SpriteFile = QDir(resources).filePath("sprites/ef_revivegun_idle1.spr");
 +		p.Load(*model); p.Enabled = true; p.Upload(*asset->GetTextureLoader());
++		report.insert("manualResourceStatus", p.Status);
 +		require(p.Frames.size() == 45, "Real sprite frame count");
 +		require(p.Textures.size() == 8 && p.Textures[6].Handle != 0, "Hand texture not loaded");
 +		p.Hands = 2;
@@ -6900,8 +7594,8 @@ index 0000000..a780df5
 +			draw(QString("preset-%1").arg(name));
 +		}
 +		report.insert("revivegunPresets", 4);
-+		// The current sample references missing @004. Exercise the supported @008
-+		// path as an explicitly synthetic test material, then restore the original identifier.
++		// Exercise a different environment as an explicitly synthetic test material,
++		// then restore the original @004 identifier already checked above.
 +		p.Release(*asset->GetTextureLoader());
 +		const auto originalName = model->Textures[0]->Name;
 +		model->Textures[0]->Name = "$20@008_test.bmp";
@@ -6941,6 +7635,7 @@ index 0000000..a780df5
 +		panel->findChild<QLineEdit*>("CSOLSprite")->setText(p.SpriteFile);
 +		panel->findChild<QComboBox*>("CSOLAppearance")->setCurrentText("buffclasschoijiyoon");
 +		panel->findChild<QComboBox*>("CSOLHands")->setCurrentIndex(2);
++		panel->findChild<QCheckBox*>("CSOLAutomatic")->setChecked(false);
 +		panel->SaveProfile(out.filePath("profile.json"));
 +		require(panel->LoadProfile(out.filePath("profile.json")), "Profile load failed");
 +		require(p.Enabled && p.Appearance == "buffclasschoijiyoon" && p.Hands == 2 && p.Frames.size() == 45, "Profile did not restore settings");
@@ -6968,7 +7663,8 @@ index 0000000..a780df5
 +		require(QFile::copy(asset->GetFileName(), secondModel), "Cannot create isolated second asset");
 +		application.LoadFile(secondModel);
 +		auto* other = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
-+		require(other && other != asset && !other->GetEditableStudioModel()->CSOL.Enabled, "Preview leaked into another asset");
++		require(other && other != asset && other->GetEditableStudioModel()->CSOL.Appearance.isEmpty()
++			&& other->GetEditableStudioModel()->CSOL.Effects[0].Handles.empty(), "Preview leaked into another asset");
 +		application.GetAssets()->SetCurrent(asset);
 +		require(panel->findChild<QComboBox*>("CSOLHands")->currentIndex() == 2
 +			&& panel->findChild<QComboBox*>("CSOLAppearance")->currentText() == "buffclasschoijiyoon", "Asset switch lost panel settings");
@@ -6977,6 +7673,15 @@ index 0000000..a780df5
 +		require(refreshed.Enabled && refreshed.Hands == 2 && refreshed.Appearance == "buffclasschoijiyoon"
 +			&& refreshed.FrameHandles.size() == 45 && refreshed.Textures[6].Handle, "Refresh did not recreate preview");
 +		report.insert("qtAssetIsolation", true); report.insert("qtReloadResources", true);
++		// End on the actual zero-configuration workflow, and capture its simplified UI.
++		for (auto* button : panel->findChildren<QPushButton*>()) if (button->text() == "重新扫描模型目录") button->click();
++		auto& automatic = asset->GetEditableStudioModel()->CSOL;
++		require(automatic.Enabled && automatic.FollowWeapon && !automatic.Effects[7].Handles.empty(), "Rescan did not restore automatic mode");
++		require(automatic.EnvShader && automatic.Textures[0].Env.Index == 4, "Rescan lost original material");
++		panel->findChild<QTabWidget*>("CSOLTabs")->setCurrentIndex(0);
++		QApplication::processEvents();
++		require(main->grab().save(out.filePath("ui-automatic-main.png")), "Automatic UI capture failed");
++		require(panel->grab().save(out.filePath("ui-automatic-panel.png")), "Automatic panel capture failed");
 +	}
 +	catch (const std::exception& e) { report.insert("result", "failed"); report.insert("error", QString::fromUtf8(e.what())); }
 +	if (current) asset->GetGraphicsContext()->End();
@@ -7073,6 +7778,18 @@ index 0000000..b2f384c
 +if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
 +& ctest --test-dir $BuildRoot --output-on-failure
 +if ($LASTEXITCODE -ne 0) { throw 'Parser tests failed' }
+diff --git a/vcpkg.json b/vcpkg.json
+index 81eadd4..76304ca 100644
+--- a/vcpkg.json
++++ b/vcpkg.json
+@@ -4,6 +4,7 @@
+ 	"version-semver": "2.0.0",
+ 	"builtin-baseline": "0c20b2a97c390e106150837042d921b0939e7ecb",
+ 	"dependencies": [
++		"bzip2",
+ 		{
+ 			"name": "glm",
+ 			"version>=": "0.9.9.8#2",
 diff --git a/vcpkg_config/registry/ports/libnyquist/0.1.0_0/portfile.cmake b/vcpkg_config/registry/ports/libnyquist/0.1.0_0/portfile.cmake
 index d111649..22c8af7 100644
 --- a/vcpkg_config/registry/ports/libnyquist/0.1.0_0/portfile.cmake
