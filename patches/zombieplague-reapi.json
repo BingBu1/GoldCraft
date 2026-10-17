@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "cd122212218ee38a9eac481f1861e4fff5d07b9ad51160ee8f62543a1a1239ab",
+  "patchSha256": "0372d9516f6fee105d7c85c37dc8e85398706a36f45edb0e4960cae0a99e7477",
   "files": [
     {
       "path": "admin/zp50_admin_commands.sma",
@@ -59,7 +59,7 @@
     {
       "path": "classes/zp50_class_human.sma",
       "seedSha256LF": "581fbff9b5e69755aea2f9ceaa736a69cf5635feeb098eb6d4d735227eeb9521",
-      "resultSha256LF": "a398e2e8c1e5dc54e9aebab8aaacc7890852384f7144da152fe83754a5c5b1f1"
+      "resultSha256LF": "2ba35895f4ac99ed1f2c4369126cd765490ba40961dc3edbdfe99c7b656f4fed"
     },
     {
       "path": "classes/zp50_class_human_classic.sma",
@@ -69,17 +69,17 @@
     {
       "path": "classes/zp50_class_nemesis.sma",
       "seedSha256LF": "af0238440aed306bacc99efab1d8bdfbcb91daa62a8152be012785ff88744843",
-      "resultSha256LF": "debf808815ae81245cdd2c000f83732eca5c710a60da47cc0c45412dc94632e0"
+      "resultSha256LF": "eed080cd934b3233e598daf0f7fd02414940368e2d06837d9bc68410383a1c27"
     },
     {
       "path": "classes/zp50_class_survivor.sma",
       "seedSha256LF": "dc5f22d3c27e4b55e881f94256f03186fdc902cd5845231241589215b0c87788",
-      "resultSha256LF": "151d7e4e6023b64145a551e2b27963808c081e8534f69228d8fedde54967b0d9"
+      "resultSha256LF": "74f0dda8a6b90d8844873d8f5ec5ce145f1560aa4e662a9958fbe17bfa29555b"
     },
     {
       "path": "classes/zp50_class_zombie.sma",
       "seedSha256LF": "17e5b23b46c29483bc3d39f55bc270148a531ed20252f6fc8569a95a6e9ed609",
-      "resultSha256LF": "79269387ba1b5f698c2ef99789a634ba23f6078dceeb3f52228a6587f89cff1a"
+      "resultSha256LF": "9887b4484f966b0dcaf5fa528c123fa6ec539601eecd38fd64a9a611d9bf58e6"
     },
     {
       "path": "classes/zp50_class_zombie_leech.sma",
@@ -389,12 +389,12 @@
     {
       "path": "modes/zp50_gamemode_armageddon.sma",
       "seedSha256LF": "a5ff96b9080549959cac0710c85f8acc51966648cbc7ec536a756c17aa569796",
-      "resultSha256LF": "43ac33079f3384d7aef3b7bc7d237e000c3af0d3466ea1b50f62feb181cea7e8"
+      "resultSha256LF": "47ee58562d05d2367a6d650aed3c4fac4d8670a8e6fbe4915ea5db6dea92201d"
     },
     {
       "path": "modes/zp50_gamemode_infection.sma",
       "seedSha256LF": "16c112bc70583d9b85a512af96d0e29631f3deabffff226b4584ef60dc1a25e9",
-      "resultSha256LF": "e5cf55052879aedc68b00906c1e3b52ae41e5266472ff6ceba29ebeff3153229"
+      "resultSha256LF": "b9f0ad598213645e3119cb5c8b24b967f87c1c5ba0bd59a4aee8b0758aca2fe4"
     },
     {
       "path": "modes/zp50_gamemode_multi.sma",
@@ -409,7 +409,7 @@
     {
       "path": "modes/zp50_gamemode_plague.sma",
       "seedSha256LF": "41a2cf71b794b06b28c0f2293a7e5bf247efb75f9ac6ac8f553005ba3c3e4786",
-      "resultSha256LF": "ab3cdbe5c31ec2848278ed6b961e62d25754ff8f51e19e73b7a83e9e3bc4b75e"
+      "resultSha256LF": "631d6ccbd49b7f283ad09fb9f3f0d92a39e19b721f1bc0d3faea88b0fffa2e39"
     },
     {
       "path": "modes/zp50_gamemode_survivor.sma",

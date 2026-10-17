@@ -39,6 +39,16 @@ stock gc_set_health(const player, const health)
         dllfunc(DLLFunc_ClientKill, player);
 }
 
+// A class/mode initialization owns both the starting HP and the healing cap.
+// Ordinary damage, healing and ZP health rewards must keep using gc_set_health;
+// otherwise each hit would lower the cap and rewards would redefine the class.
+stock gc_set_class_health(const player, const health)
+{
+    if (health > 0)
+        set_entvar(player, var_max_health, float(health));
+    gc_set_health(player, health);
+}
+
 stock gc_set_rendering(const entity, const effect = kRenderFxNone,
     const red = 0, const green = 0, const blue = 0,
     const mode = kRenderNormal, const amount = 0)

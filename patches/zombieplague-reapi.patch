@@ -2062,7 +2062,7 @@ diff --git a/classes/zp50_class_human.sma b/classes/zp50_class_human.sma
  	// Apply human attributes
 -	set_user_health(id, ArrayGetCell(g_HumanClassHealth, g_HumanClass[id]))
 -	set_user_gravity(id, Float:ArrayGetCell(g_HumanClassGravity, g_HumanClass[id]))
-+	gc_set_health(id, ArrayGetCell(g_HumanClassHealth, g_HumanClass[id]))
++	gc_set_class_health(id, ArrayGetCell(g_HumanClassHealth, g_HumanClass[id]))
 +	set_entvar(id, var_gravity, Float:ArrayGetCell(g_HumanClassGravity, g_HumanClass[id]))
  	cs_set_player_maxspeed_auto(id, Float:ArrayGetCell(g_HumanClassSpeed, g_HumanClass[id]))
  	
@@ -2267,10 +2267,10 @@ diff --git a/classes/zp50_class_nemesis.sma b/classes/zp50_class_nemesis.sma
  	// Health
  	if (get_pcvar_num(cvar_nemesis_health) == 0)
 -		set_user_health(id, get_pcvar_num(cvar_nemesis_base_health) * GetAliveCount())
-+		gc_set_health(id, get_pcvar_num(cvar_nemesis_base_health) * GetAliveCount())
++		gc_set_class_health(id, get_pcvar_num(cvar_nemesis_base_health) * GetAliveCount())
  	else
 -		set_user_health(id, get_pcvar_num(cvar_nemesis_health))
-+		gc_set_health(id, get_pcvar_num(cvar_nemesis_health))
++		gc_set_class_health(id, get_pcvar_num(cvar_nemesis_health))
  	
  	// Gravity
 -	set_user_gravity(id, get_pcvar_float(cvar_nemesis_gravity))
@@ -2444,10 +2444,10 @@ diff --git a/classes/zp50_class_survivor.sma b/classes/zp50_class_survivor.sma
  	// Health
  	if (get_pcvar_num(cvar_survivor_health) == 0)
 -		set_user_health(id, get_pcvar_num(cvar_survivor_base_health) * GetAliveCount())
-+		gc_set_health(id, get_pcvar_num(cvar_survivor_base_health) * GetAliveCount())
++		gc_set_class_health(id, get_pcvar_num(cvar_survivor_base_health) * GetAliveCount())
  	else
 -		set_user_health(id, get_pcvar_num(cvar_survivor_health))
-+		gc_set_health(id, get_pcvar_num(cvar_survivor_health))
++		gc_set_class_health(id, get_pcvar_num(cvar_survivor_health))
  	
  	// Gravity
 -	set_user_gravity(id, get_pcvar_float(cvar_survivor_gravity))
@@ -2701,7 +2701,7 @@ diff --git a/classes/zp50_class_zombie.sma b/classes/zp50_class_zombie.sma
  	// Apply zombie attributes
 -	set_user_health(id, ArrayGetCell(g_ZombieClassHealth, g_ZombieClass[id]))
 -	set_user_gravity(id, Float:ArrayGetCell(g_ZombieClassGravity, g_ZombieClass[id]))
-+	gc_set_health(id, ArrayGetCell(g_ZombieClassHealth, g_ZombieClass[id]))
++	gc_set_class_health(id, ArrayGetCell(g_ZombieClassHealth, g_ZombieClass[id]))
 +	set_entvar(id, var_gravity, Float:ArrayGetCell(g_ZombieClassGravity, g_ZombieClass[id]))
  	cs_set_player_maxspeed_auto(id, Float:ArrayGetCell(g_ZombieClassSpeed, g_ZombieClass[id]))
  	
@@ -7790,7 +7790,7 @@ diff --git a/modes/zp50_gamemode_armageddon.sma b/modes/zp50_gamemode_armageddon
  		
  		// Apply survivor health multiplier
 -		set_user_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_surv_hp_multi)))
-+		gc_set_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_surv_hp_multi)))
++		gc_set_class_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_surv_hp_multi)))
  	}
  	
  	// Turn specified amount of players into Nemesis
@@ -7799,7 +7799,7 @@ diff --git a/modes/zp50_gamemode_armageddon.sma b/modes/zp50_gamemode_armageddon
  		
  		// Apply nemesis health multiplier
 -		set_user_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_nem_hp_multi)))
-+		gc_set_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_nem_hp_multi)))
++		gc_set_class_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_armageddon_nem_hp_multi)))
  	}
  	
  	// Play Armageddon sound
@@ -7870,7 +7870,7 @@ diff --git a/modes/zp50_gamemode_infection.sma b/modes/zp50_gamemode_infection.s
  	// Turn player into the first zombie
  	zp_core_infect(g_TargetPlayer, g_TargetPlayer) // victim = atttacker so that infection sound is played
 -	set_user_health(g_TargetPlayer, floatround(get_user_health(g_TargetPlayer) * get_pcvar_float(cvar_zombie_first_hp_multiplier)))
-+	gc_set_health(g_TargetPlayer, floatround(get_user_health(g_TargetPlayer) * get_pcvar_float(cvar_zombie_first_hp_multiplier)))
++	gc_set_class_health(g_TargetPlayer, floatround(get_user_health(g_TargetPlayer) * get_pcvar_float(cvar_zombie_first_hp_multiplier)))
  	
  	// Remaining players should be humans (CTs)
  	new id
@@ -8167,7 +8167,7 @@ diff --git a/modes/zp50_gamemode_plague.sma b/modes/zp50_gamemode_plague.sma
  		
  		// Apply survivor health multiplier
 -		set_user_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_surv_hp_multi)))
-+		gc_set_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_surv_hp_multi)))
++		gc_set_class_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_surv_hp_multi)))
  	}
  	
  	// Turn specified amount of players into Nemesis
@@ -8176,7 +8176,7 @@ diff --git a/modes/zp50_gamemode_plague.sma b/modes/zp50_gamemode_plague.sma
  		
  		// Apply nemesis health multiplier
 -		set_user_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_nem_hp_multi)))
-+		gc_set_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_nem_hp_multi)))
++		gc_set_class_health(id, floatround(get_user_health(id) * get_pcvar_float(cvar_plague_nem_hp_multi)))
  	}
  	
  	// Randomly turn iMaxZombies players into zombies

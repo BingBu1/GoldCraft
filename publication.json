@@ -377,7 +377,10 @@
     "docs/2026-10-17_\u5206\u6790-CSOL\u6a21\u578b-report.md",
     "tools/Test-NativeNutrition.py",
     "tests/nutrition/NativeNutritionProbe.java",
-    "docs/NATIVE_NUTRITION.md"
+    "docs/NATIVE_NUTRITION.md",
+    "docs/NATIVE_HEALTH_LIMITS.md",
+    "tools/Exercise-NativeHealthLimits.py",
+    "amxx/zombie_plague/tests/goldcraft_health_limit_test.sma"
   ],
   "trees": {
     "native": [
