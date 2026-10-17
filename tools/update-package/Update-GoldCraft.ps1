@@ -44,9 +44,13 @@ function Enable-ServerPlugins {
     $relative='cs/cstrike/addons/amxmodx/configs'
     $directory=Join-CheckedPath $script:target $relative
     $seen=@{}
-    foreach($file in Get-ChildItem -LiteralPath $directory -File | Where-Object {$_.Name -eq 'plugins.ini' -or $_.Name -like 'plugins-*.ini'} | Sort-Object Name) {
-        [void](Assert-PlainPath $file.FullName)
-        $original=[IO.File]::ReadAllText($file.FullName)
+    $listings=@(Get-ChildItem -LiteralPath $directory -File | Where-Object {$_.Name -eq 'plugins.ini' -or $_.Name -like 'plugins-*.ini'} | ForEach-Object {$relative+'/'+$_.Name})
+    $listings+=@($script:changes.Keys | Where-Object {$_ -match ('^'+[regex]::Escape($relative)+'/plugins(?:-[^/]+)?\.ini$')})
+    foreach($listing in $listings | Sort-Object -Unique) {
+        $path=Join-CheckedPath $script:target $listing
+        # A shipped enable-list must not replace an owner's edits to that list.
+        # Missing required entries are added below after all existing lists merge.
+        $original=if(Test-Path -LiteralPath $path){[IO.File]::ReadAllText($path)}else{[Text.Encoding]::UTF8.GetString($script:changes[$listing])}
         $lines=[Collections.Generic.List[string]]::new()
         foreach($line in $original -split '\r?\n') {
             $parts=@(($line -split ';',2)[0].Trim() -split '\s+')
@@ -57,7 +61,7 @@ function Enable-ServerPlugins {
             } else {$lines.Add($line)}
         }
         $text=$lines -join "`r`n"
-        if($text -ne $original){Add-TextChange ($relative+'/'+$file.Name) $text}
+        if($text -ne $original -or $script:changes.ContainsKey($listing)){Add-TextChange $listing $text}
     }
     $missing=@($manifest.requiredPlugins | Where-Object {-not $seen.ContainsKey($_)})
     if($missing.Count) {

@@ -153,9 +153,11 @@ public final class NativePlayers {
         long key=MinecraftObjects.key(attacker);
         var playerSource=attacker instanceof net.minecraft.server.network.ServerPlayerEntity p?GoldCraft.HOST_WORLD.actor(p.getUuid()):null;
         if(target.epoch()!=epoch||target.isRemoved()||(key==0&&playerSource==null)||amount>1000||pending.size()>=256)return false;
-        int kind=source.isIn(DamageTypeTags.IS_EXPLOSION)?3:source.isIn(DamageTypeTags.IS_PROJECTILE)?2:NativeSkillDamage.isSkill(source)?4:1;
+        int kind=source.isIn(DamageTypeTags.IS_EXPLOSION)?3:NativeProjectileDamage.isProjectile(source)?2:NativeSkillDamage.isSkill(source)?4:1;
         Entity direct=source.getSource();
         var point=direct==null?attacker.getPos():direct.getPos();
+        var contact=kind==2?NativeProjectileDamage.contact(target,source):null;
+        if(contact!=null)point=contact;
         // Melee originates inside the attacking body, above the supporting floor.
         if(kind==1||kind==4)point=attacker.getBoundingBox().getCenter();
         var gs=HostCollision.goldsrc(point.x,point.y,point.z);var actor=target.actor();long event=++sequence;

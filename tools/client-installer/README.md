@@ -24,7 +24,7 @@ Install-GoldCraft.cmd -GameDirectory "D:\Games\Half-Life"
 
 生成的 CS 快捷方式本身不会启动 Minecraft。当前 GoldCraft 二进制按包内引擎和 CS 客户端身份安装，版本不匹配会在写入前停止；不能视为支持任意旧版 GoldSrc。Renderer 使用 AVX2 版本。
 
-本包采用已部署并确认加载的 GoldCraft 客户端，包含 TNT 第二轮同步、流体、药水、盔甲、盾牌、死亡观战和输入修复。需搭配相应版本的 GoldCraft 服务端及服主提供的 Minecraft 整合包；完整玩法和经安装器快捷方式首次启动、配对仍待验证。
+2026-10-17 本包采用已部署并确认加载的 GoldCraft 客户端，带入最新 TNT Renderer 及托管输入修复，同时包含流体、药水、盔甲、盾牌、死亡观战等配套更新。ALT+Y、Z 轮盘和 TACZ 左右键还需本次配套 GoldCraft Core；误封与枪械倍率需要同时更新服务器。Minecraft 整合包由服主提供；当前沙盒单 B 重启配对已验证，完整玩法和普通玩家经安装器快捷方式首次启动仍待验证。
 
 安装前备份将被改写的文件，失败自动恢复。需要撤回成功安装时，在界面选择同一 CS 目录后点击“恢复上次安装”，或运行：
 

@@ -92,7 +92,8 @@ int main(){
     for(int mode=0;mode<4;mode++){
         focused=mode!=0;console=mode==1;host_ui::current.game_menu=mode==2;ui_active=mode==3;
         mouse_pitch=1;mouse_yaw=2;CreateMove(.01f,&cmd,1);s=sample();near(s.pitch,0);near(s.yaw,0);
-        if(!focused||console)assert(s.flags==2);
+        if(!focused||console||host_ui::current.game_menu)assert(s.flags==2);
+        else assert(s.flags==3);
         if(ui_active){near(engine_angles[0],ui_angles[0]);near(engine_angles[1],ui_angles[1]);assert(ui_x!=.5f&&ui_y!=.5f);}
     }
     focused=true;console=ui_active=host_ui::current.game_menu=false;mouse_pitch=mouse_yaw=0;

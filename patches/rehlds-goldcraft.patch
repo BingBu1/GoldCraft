@@ -1704,7 +1704,7 @@ index c35b293..966b6cb 100644
  		int nAppId = GetGameAppID();
  		if (nAppId > 0 && g_pcls.state == ca_dedicated)
 diff --git a/rehlds/engine/sv_user.cpp b/rehlds/engine/sv_user.cpp
-index 4e0d26e..90546f0 100644
+index 4e0d26e..8580c75 100644
 --- a/rehlds/engine/sv_user.cpp
 +++ b/rehlds/engine/sv_user.cpp
 @@ -27,6 +27,7 @@
@@ -1812,6 +1812,17 @@ index 4e0d26e..90546f0 100644
  				if (pModel)
  				{
  					if (pModel->flags & STUDIO_TRACE_HITBOX)
+@@ -1698,7 +1700,9 @@ void SV_ParseMove(client_t *pSenderClient)
+ 	//check move commands rate for this player
+ #ifdef REHLDS_FIXES
+ 	int numCmdsToIssue = numcmds;
+-	if (net_drop > 0) {
++	// Match the recovery loop below. Large packet gaps are discarded, not
++	// replayed; charging them here turns ordinary loss into a burst ban.
++	if (net_drop > 0 && net_drop < 24) {
+ 		numCmdsToIssue += net_drop;
+ 	}
+ 	g_MoveCommandRateLimiter.MoveCommandsIssued(host_client - g_psvs.clients, numCmdsToIssue);
 diff --git a/rehlds/engine/world.cpp b/rehlds/engine/world.cpp
 index 8038ab7..05faef7 100644
 --- a/rehlds/engine/world.cpp

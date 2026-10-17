@@ -16,7 +16,7 @@
 | `mc_zombie_knockback` | 160.0 | 每次有效命中的水平速度增量，0 关闭；遵循现有蹲伏/僵尸职业/Nemesis 系数 |
 | `mc_zombie_stagger` | 0.5 | 原生受伤速度系数，1 不增加僵直；恢复沿用原生逻辑 |
 
-其他 Mod 可将明确的主动伤害类型加入服务端数据标签 `goldcraft:active_player_attack`；默认标签为空。此标签只适用于真实服务端玩家来源，不能用于将药水、被动、持续或环境伤害改为主动攻击。
+其他 Mod 可将明确的主动伤害类型加入服务端数据标签 `goldcraft:active_player_attack`。2026-10-17 候选明确加入 TACZ 的四种可选子弹类型，并通过独立 `goldcraft:projectile_attack` 分类和真实接触点适配补齐高速弹丸；尚未部署，见[枪械适配](PROJECTILE_DAMAGE.md)。此标签只适用于真实服务端玩家来源，不能用于将药水、被动、持续或环境伤害改为主动攻击。
 
 ## 边界与模块
 

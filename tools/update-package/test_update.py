@@ -19,13 +19,14 @@ def main():
     parser.add_argument('--packages', type=Path, required=True)
     parser.add_argument('--fixtures', type=Path, required=True)
     parser.add_argument('--game', type=Path, required=True)
+    parser.add_argument('--server-only', action='store_true')
     args = parser.parse_args()
     root = args.fixtures.absolute()
     if root.exists():
         raise ValueError('Use a new fixture folder')
     root.mkdir(parents=True)
-    packages = {role: next(args.packages.glob('GoldCraft-' + kind + '-Update-*'))
-                for role, kind in [('server', 'Server'), ('cs', 'Players'), ('minecraft', 'Players')]}
+    roles = [('server', 'Server')] if args.server_only else [('server', 'Server'), ('cs', 'Players'), ('minecraft', 'Players')]
+    packages = {role: next(args.packages.glob('GoldCraft-' + kind + '-Update-*')) for role, kind in roles}
     packages = {k: v if v.is_dir() else v.with_suffix('') for k, v in packages.items()}
     reports = []
 
@@ -70,6 +71,7 @@ def main():
             'cs/cstrike/addons/amxmodx/configs/users.ini': '; private administrator data',
             'cs/cstrike/addons/amxmodx/configs/plugins.ini': 'custom.amxx\ngoldcraft.amxx disabled\ngoldcraft.amxx\n',
             'cs/cstrike/addons/amxmodx/configs/plugins-existing.ini': 'goldcraft_controls.amxx\ngoldcraft_controls.amxx\n',
+            'cs/cstrike/addons/amxmodx/configs/plugins-goldcraft-connection.ini': '; owner note\ncustom_connection.amxx\ngoldcraft_connection.amxx disabled\n',
             'cs/cstrike/addons/amxmodx/configs/plugins.stock.ini': 'goldcraft.amxx\n',
             'cs/cstrike/addons/amxmodx/configs/modules.ini': 'reapi\n',
             'cs/swds.dll': b'oldengine', 'minecraft/mods/renamed-core.jar': core.read_bytes(),
@@ -82,17 +84,18 @@ def main():
     # Windows PowerShell 5.1, including its parser and the real -File invocation.
     version = subprocess.check_output(['powershell.exe', '-NoProfile', '-Command', '$PSVersionTable.PSVersion.ToString()']).decode().strip()
     assert version.startswith('5.1.'), version
-    target = mc_fixture('minecraft')
-    before = snapshot(target)
-    plan = run('minecraft', target, plan=True)
-    assert not plan['applied'] and plan['files'] == 2 and before == snapshot(target)
-    run('minecraft', target)
-    assert not (target / 'mods/old-renamed-goldcraft.jar').exists()
-    assert before['mods/ferritecore.jar'] == snapshot(target)['mods/ferritecore.jar']
-    assert before['saves/private/level.dat'] == snapshot(target)['saves/private/level.dat']
-    assert run('minecraft', target, plan=True)['files'] == 0
-    assert 'Already current' in run('minecraft', target)
-    reports.append('MC renamed-core removal, unrelated mods/world/config, plan and idempotency')
+    if not args.server_only:
+        target = mc_fixture('minecraft')
+        before = snapshot(target)
+        plan = run('minecraft', target, plan=True)
+        assert not plan['applied'] and plan['files'] == 2 and before == snapshot(target)
+        run('minecraft', target)
+        assert not (target / 'mods/old-renamed-goldcraft.jar').exists()
+        assert before['mods/ferritecore.jar'] == snapshot(target)['mods/ferritecore.jar']
+        assert before['saves/private/level.dat'] == snapshot(target)['saves/private/level.dat']
+        assert run('minecraft', target, plan=True)['files'] == 0
+        assert 'Already current' in run('minecraft', target)
+        reports.append('MC renamed-core removal, unrelated mods/world/config, plan and idempotency')
 
     server = server_fixture('server')
     before = snapshot(server)
@@ -110,6 +113,8 @@ def main():
     required = json.loads((packages['server'] / 'update-manifest.json').read_text())['requiredPlugins']
     assert all(active.count(n) == 1 for n in required)
     assert 'custom.amxx' in active
+    assert 'custom_connection.amxx' in active
+    assert '; owner note' in (server / 'cs/cstrike/addons/amxmodx/configs/plugins-goldcraft-connection.ini').read_text()
     assert not (server / 'minecraft/mods/renamed-core.jar').exists()
     assert not (server / 'client-update/mods/renamed-core.jar').exists()
     assert run('server', server, plan=True)['files'] == 0
@@ -123,6 +128,19 @@ def main():
     transaction = next((failed / '.goldcraft-updates').glob('*/transaction.json'))
     assert json.loads(transaction.read_text())['status'] == 'rolled-back'
     reports.append('Real mid-install locked-file failure restores every changed file')
+
+    if args.server_only:
+        package = packages['server']
+        entry = package / 'Update-Server.cmd'
+        before = snapshot(server)
+        result = subprocess.run(['cmd.exe', '/d', '/c', str(entry), '-TargetDirectory', str(server), '-Plan'],
+                                input=b'\r\n', capture_output=True, timeout=90)
+        assert b'"applied":  false' in result.stdout and before == snapshot(server), result.stdout
+        reports.append('Shipped server CMD invokes PowerShell 5.1 without changing current files')
+        report = dict(passed=True, powerShell=version, checks=reports, gameLaunched=False, liveInstallTouched=False)
+        (root / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report))
+        return
 
     cs = root / 'cs'
     for name in ('hw.dll', 'cstrike/cl_dlls/client.dll'):

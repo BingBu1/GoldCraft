@@ -3,6 +3,7 @@
   "package": "dev.goldcraft.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "TaczProjectileHitMixin",
     "HostBlockSupportMixin",
     "HostFallingBlockMixin",
     "HostFallingEntityMixin",

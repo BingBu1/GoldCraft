@@ -39,6 +39,7 @@
     "SoundSystemMixin",
     "WorldRendererAccessor",
     "HostKeyStateMixin",
+    "HostFocusMixin",
     "MouseAccessor",
     "HostMouseMixin",
     "EpicFightInputMixin",

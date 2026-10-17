@@ -1760,7 +1760,7 @@ void CreateMove(float frame_time,usercmd_t* cmd,int active) {
         if(ui_x!=old_x||ui_y!=old_y)SendUi(1);
         cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;
     }
-    const bool input_active=active&&window_focused&&!gEngfuncs.Con_IsVisible();
+    const bool input_active=active&&window_focused&&!gEngfuncs.Con_IsVisible()&&!host_ui::game_menu_active();
     if(!input_active)menu_pressed.fill(false);
     if(!input_active||!HasControl()||ui_active||gEngfuncs.Con_IsVisible()||host_ui::game_menu_active())ReleaseMinecraftKeys();
     // Preserve the user's actual +use binding; only its destination changes

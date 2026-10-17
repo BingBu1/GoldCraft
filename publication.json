@@ -382,7 +382,13 @@
     "tools/Exercise-NativeHealthLimits.py",
     "amxx/zombie_plague/tests/goldcraft_health_limit_test.sma",
     "tools/Exercise-StatusHealth.py",
-    "amxx/zombie_plague/tests/goldcraft_status_health_test.sma"
+    "amxx/zombie_plague/tests/goldcraft_status_health_test.sma",
+    "tools/Test-HostControls.py",
+    "tools/Test-MoveCommandRate.py",
+    "tools/Test-TaczDamage.py",
+    "docs/HOST_CONTROLS.md",
+    "docs/MOVE_COMMAND_RATE.md",
+    "docs/PROJECTILE_DAMAGE.md"
   ],
   "trees": {
     "native": [

@@ -2,7 +2,7 @@
 
 为已经安装 GoldCraft 的服务器与玩家生成配套更新；不是游戏本体或完整整合包。生成器读取已部署冻结候选、隔离 B 客户端的插件资源与专服已启用的 AMXX 插件。不会启动游戏或修改运行中的实例。
 
-2026-10-16 版本包含 TNT 第二轮同步/碰撞优化、卡顿时维持所选形态、宿主地面重力方块及火把支撑，以及此前配套修复。TNT 的 Renderer 同步准备仍有已知停顿；Epic 技能无敌请求尚未实现。运行代码基线为 `52677018b28697470a24a4487ebb69de09179faa`。
+2026-10-17 版本包含移动指令丢包计数修正、TACZ 子弹主动伤害/接触点校验，以及共用托管焦点输入修复。累计带入 TNT/支撑、Epic 技能保护、死亡效果、跳跃减摔、饥饿/饱和及职业基础生命上限等已验证候选。MC 生命提升的完整属性发布/账本仍未完成，不包含工作树中未验证的后半实现。精确源码版本记录在每个更新包的 `update-manifest.json`。
 
 ## 使用
 
@@ -12,7 +12,7 @@
 
 服务器保留端口、管理员、RCON、存档、桥接身份和其他 Mod；仅在原 `server.cfg` 合并 `mc_map_mining 2`、`mc_round_clear_blocks 1`、`mc_death_drop_items 0`。不覆盖完整插件列表，必要 GoldCraft 插件启用一次。玩家保留按键、账号、存档、其他 Mod；旧核心按 JAR 内实际类识别。CS 引擎/游戏客户端版本不匹配时停止，不覆盖引擎或跳过检查。
 
-**手动覆盖 `payload/server` 并不会启用新增插件。** 若已覆盖正确目录，还需把以下三个独立清单放入 `cs/cstrike/addons/amxmodx/configs/`，保留原 `plugins.ini`：
+新版 `payload/server` 已包含以下三个独立启用清单；手动覆盖时也须复制它们，保留原 `plugins.ini` 并检查重复启用。使用 `Update-Server.cmd` 会统一去重；旧包若漏了清单，需补入 `cs/cstrike/addons/amxmodx/configs/`：
 
 - [plugins-goldcraft-controls.ini](../../amxx/goldcraft/configs/plugins-goldcraft-controls.ini)：入服 F6。
 - [plugins-goldcraft-connection.ini](../../amxx/goldcraft/configs/plugins-goldcraft-connection.ini)：MC 真实断链提示。
@@ -25,10 +25,10 @@
 ## 构建与验证
 
 ```text
-python tools/update-package/package.py --candidate build/candidates/combined-tnt-support-20261016 --output server-packages/new-update --revision <运行代码完整提交>
-python tools/update-package/test_update.py --packages server-packages/new-update --fixtures build/update-fixtures-new --game sandbox/cs-client-b/Half-Life
+python tools/update-package/package.py --candidate build/candidates/combined-input-projectile-20261017 --output server-packages/new-update --revision <运行代码完整提交> --release 20261017-Input-Projectile --server-only
+python tools/update-package/test_update.py --packages server-packages/new-update --fixtures build/update-fixtures-new --game sandbox/cs-client-b/Half-Life --server-only
 ```
 
-输出两个 ZIP、独立载荷清单及 ZIP 的 SHA256SUMS。构建拒绝冻结文件/部署文件不一致，读取玩家资源时沿用完整安装器的资源清单；不把玩家配置、日志、存档、配对密钥、CS 引擎/client.dll 或其他 MC Mod 打包。
+`--server-only` 输出服务器 ZIP、载荷清单和 SHA256SUMS；玩家使用完整图形安装器。测试工具同样支持仅验证服务器安装、已有同名清单中的自定义内容保留、去重/幂等、真实文件占用回滚及 CMD 入口。省略该选项可生成兼容脚本包并运行双端更新器回归。构建拒绝冻结文件/部署文件不一致，读取玩家资源时沿用完整安装器的资源清单；不把玩家配置、日志、存档、配对密钥、CS 引擎/client.dll 或其他 MC Mod 打包。
 
 真实 Windows PowerShell 5.1 隔离安装覆盖：旧核心清理、服务器配置保留/插件去重、CS 别名与列表合并、幂等、实际文件占用中途失败回滚、引擎不符/损坏/未列载荷拒绝和实际 CMD 入口。测试不启动游戏；这些结果不等于远端安装或多人游玩验收。公网与其他玩家仍需应用后验证。

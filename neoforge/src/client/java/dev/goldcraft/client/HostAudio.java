@@ -9,6 +9,7 @@ import net.minecraft.sound.SoundCategory;
 import com.sun.jna.Pointer;
 import com.sun.jna.platform.win32.User32;
 import org.lwjgl.glfw.GLFWNativeWin32;
+import org.lwjgl.glfw.GLFW;
 import org.lwjgl.system.Platform;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,7 +27,8 @@ public final class HostAudio {
     public static void configure(){managed=true;audible=false;}
 
     public static boolean standaloneFocused(MinecraftClient client){
-        if(Platform.get()!=Platform.WINDOWS)return client.isWindowFocused();
+        // Read physical focus, never the logical getter exposed to hosted mods.
+        if(Platform.get()!=Platform.WINDOWS)return GLFW.glfwGetWindowAttrib(client.getWindow().getHandle(),GLFW.GLFW_FOCUSED)!=0;
         var foreground=User32.INSTANCE.GetForegroundWindow();
         return foreground!=null&&Pointer.nativeValue(foreground.getPointer())==GLFWNativeWin32.glfwGetWin32Window(client.getWindow().getHandle());
     }
