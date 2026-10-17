@@ -14,6 +14,7 @@
 #include "goldcraft/status_attributes.hpp"
 #include "goldcraft/status_environment.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/status_fall.hpp"
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "pm_movevars.h"
@@ -685,6 +686,7 @@ namespace {
 #include "status_attributes.inc"
 #include "status_environment.inc"
 #include "status_motion.inc"
+#include "status_fall.inc"
 #include "status_visibility.inc"
 #include "status_vision.inc"
 #include "armor_defense.inc"
@@ -916,7 +918,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();ClearStatusVisibility();ClearStatusVision();
+        ClearStatusMotion();ClearStatusFall();ClearStatusVisibility();ClearStatusVision();
         vision_message=REG_USER_MSG(status_vision::message_name,status_vision::wire_bytes);
         motion_message=REG_USER_MSG(status_motion::message_name,44);
         binding_message=REG_USER_MSG("GCBind",32);
@@ -1173,6 +1175,11 @@ bool GoldCraft_ObjectAction(std::uint64_t key,unsigned action,edict_t* attacker,
     if(action==1)++object_damage_actions;else ++object_use_actions;
     return link.send(Type::object_action,w.data);
 }
+GoldCraft_FallAdjustment GoldCraft_StatusFall(edict_t* player,float velocity,float gravity){
+    const auto* state=player?CurrentFall(static_cast<unsigned>(ENTINDEX(player))):nullptr;
+    if(!state)return {velocity,1};
+    return {status_fall::velocity(velocity,gravity,*state),state->multiplier};
+}
 void GoldCraft_StatusCategorize(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::categorize(original);}
 void GoldCraft_StatusJump(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::jump(original);}
 void GoldCraft_StatusWater(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::water(original);}
@@ -1205,7 +1212,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusVisibility();ClearStatusVision();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusVisibility();ClearStatusVision();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1236,6 +1243,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);
             else if(message.type==Type::status_visibility)HandleStatusVisibility(message.payload);
+            else if(message.type==Type::status_fall)HandleStatusFall(message.payload);
             else if(message.type==Type::status_motion)HandleStatusMotion(message.payload);
             else if(message.type==Type::status_environment)HandleStatusEnvironment(message.payload);
             else if(message.type==Type::status_hud)HandleStatusHud(message.payload);

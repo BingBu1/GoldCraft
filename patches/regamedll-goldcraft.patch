@@ -280,7 +280,7 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..c43a349 100644
+index 8a219ea..a5881f1 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -609,7 +609,7 @@ index 8a219ea..c43a349 100644
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -5375,6 +5264,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5375,6 +5264,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -617,10 +617,27 @@ index 8a219ea..c43a349 100644
 +	if (GoldCraft_MinecraftFallAuthority(edict()) || GoldCraft_StatusImmunity(edict(), DMG_FALL))
 +		m_flFallVelocity = 0;
 +
++	GoldCraft_FallAdjustment fall{m_flFallVelocity, 1};
++	if ((pev->flags & FL_ONGROUND) && pev->health > 0.0f)
++	{
++		const float gravity = g_psv_gravity ? g_psv_gravity->value * (pev->gravity == 0 ? 1 : pev->gravity) : 0;
++		fall = GoldCraft_StatusFall(edict(), m_flFallVelocity, gravity);
++		m_flFallVelocity = fall.velocity;
++	}
++
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5779,6 +5672,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5387,7 +5288,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+ 			// after this point, we start doing damage
+ 			if (m_flFallVelocity > MAX_PLAYER_SAFE_FALL_SPEED)
+ 			{
+-				float flFallDamage = g_pGameRules->FlPlayerFallDamage(this);
++				float flFallDamage = g_pGameRules->FlPlayerFallDamage(this) * fall.multiplier;
+ 
+ 				// splat
+ 				if (flFallDamage > pev->health)
+@@ -5779,6 +5680,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
  
@@ -629,7 +646,7 @@ index 8a219ea..c43a349 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6027,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6035,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -638,7 +655,7 @@ index 8a219ea..c43a349 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -7746,28 +7643,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7651,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  

@@ -2,7 +2,7 @@
 
 用户需要保持 VPN/Karing 开启。此候选把已定位的 TAB 头像查询和 K 录音请求移出游戏主线程，保留真实 Steam 登录、票据、服务器认证及原生语音编码。没有修改代理分流，没有 Steam 模拟器或认证绕过。
 
-已并入 GoldCraft 入口、构建、沙盒初始化/部署和完整包载荷规划。随后完成并部署 IPC2 辅助进程隔离，正常重启 Steam 后取得真实服务器认证，详见 [掉服调查](STEAM_DISCONNECT.md)。用户已确认 K、TAB 正常；真实语音、普通服、重连与长期运行仍待验收。ESC 使用另外的 Steam Input/RichPresence 接口，双进程证据已发现 Steam IPC 处理线程进入额外模块的网络等待；重装后的菜单对照仍待，见 [ESC 调查](2026-10-17_分析-ESC-Steam阻塞-report.md)。接收语音的 DecompressVoice 和其他 Steam 接口保持原行为。
+已并入 GoldCraft 入口、构建、沙盒初始化/部署和完整包载荷规划。随后完成并部署 IPC2 辅助进程隔离，正常重启 Steam 后取得真实服务器认证，详见 [掉服调查](STEAM_DISCONNECT.md)。用户已确认 K、TAB 正常；真实语音、普通服、重连与长期运行仍待验收。ESC 使用另外的 Steam Input/RichPresence 接口，双进程证据已发现 Steam IPC 处理线程进入额外模块的网络等待；用户已确认重装后ESC不卡，本次菜单故障结案，见 [ESC 调查](2026-10-17_分析-ESC-Steam阻塞-report.md)。接收语音的 DecompressVoice 和其他 Steam 接口保持原行为。
 
 ## 已定位的调用
 

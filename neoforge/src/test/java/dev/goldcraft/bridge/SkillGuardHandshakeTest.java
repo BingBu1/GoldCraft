@@ -38,6 +38,7 @@ class SkillGuardHandshakeTest {
     }
     @Test void oldHostDropsOnlyGuardAndKeepsGameplay()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_FALL_CAP);}
             int first;try(var s=host.accept()){first=hello(s);}
             try(var s=host.accept()){
                 assertEquals(first&~Wire.SKILL_GUARD_CAP,hello(s));welcome(s,Wire.PLAYER_GAMEPLAY_CAP|Wire.STATUS_VISION_CAP,false);until(link::connected);
@@ -52,6 +53,7 @@ class SkillGuardHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedGuard()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_FALL_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
                 assertEquals(0,hello(s)&Wire.SKILL_GUARD_CAP);welcome(s,Wire.SKILL_GUARD_CAP|Wire.PLAYER_GAMEPLAY_CAP,false);

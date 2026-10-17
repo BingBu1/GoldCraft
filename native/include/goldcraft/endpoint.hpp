@@ -44,6 +44,7 @@ public:
     bool status_effects() const;
     bool status_attributes() const;
     bool status_environment() const;
+    bool status_fall() const;
     bool status_motion() const;
     bool status_visibility() const;
     bool status_vision() const;

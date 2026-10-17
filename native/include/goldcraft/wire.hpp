@@ -24,7 +24,8 @@ constexpr std::uint32_t capability_status_motion = 4096;
 constexpr std::uint32_t capability_status_visibility = 8192;
 constexpr std::uint32_t capability_status_vision = 16384;
 constexpr std::uint32_t capability_skill_guard = 32768;
-constexpr std::size_t wire_type_count = 91;
+constexpr std::uint32_t capability_status_fall = 65536;
+constexpr std::size_t wire_type_count = 92;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;
 constexpr std::uint32_t capability_native_armor = 64;
@@ -41,7 +42,7 @@ enum class Type : std::uint16_t {
     host_explosion = 83,
     host_materials = 84,
     player_gameplay = 85, player_attack = 86,
-    status_environment = 87, status_motion = 88, status_visibility = 89, status_vision = 90,
+    status_environment = 87, status_motion = 88, status_visibility = 89, status_vision = 90, status_fall = 91,
     hello = 1, welcome = 2, heartbeat = 3,
     world = 10, actors = 11, client_binding = 12, pair_player = 13, pair_result = 14,
     bsp = 15, brushes = 16,

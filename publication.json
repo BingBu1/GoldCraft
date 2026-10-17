@@ -370,7 +370,9 @@
     "docs/NATIVE_STATUS_DEATH.md",
     "tools/Test-NativeStatusDeath.py",
     "tools/Observe-SteamStall.py",
-    "docs/2026-10-17_\u5206\u6790-ESC-Steam\u963b\u585e-report.md"
+    "docs/2026-10-17_\u5206\u6790-ESC-Steam\u963b\u585e-report.md",
+    "docs/NATIVE_FALL.md",
+    "tools/Test-NativeFall.py"
   ],
   "trees": {
     "native": [

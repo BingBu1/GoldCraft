@@ -89,6 +89,12 @@ public final class GoldCraft {
     public static boolean sendVisibility(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendVisibility(generation,payload);
     }
+    public static boolean fallAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.fall(generation);
+    }
+    public static boolean sendFall(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendFall(generation,payload);
+    }
     public static boolean motionAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.motion(generation);
     }

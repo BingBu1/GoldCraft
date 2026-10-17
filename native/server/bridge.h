@@ -31,6 +31,8 @@ bool GoldCraft_FinalMinecraftDamage(edict_s* player);
 bool GoldCraft_MinecraftAttack(edict_s* player);
 // Falling belongs to vanilla only while its authenticated server owns movement.
 bool GoldCraft_MinecraftFallAuthority(edict_s* player);
+struct GoldCraft_FallAdjustment {float velocity, multiplier;};
+GoldCraft_FallAdjustment GoldCraft_StatusFall(edict_s* player,float velocity,float gravity);
 void GoldCraft_EntityTouched(edict_s* entity,edict_s* other);
 bool GoldCraft_ClientCommand(edict_s* player, const char* command);
 void GoldCraft_StartFrame();
