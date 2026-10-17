@@ -390,7 +390,8 @@
     "docs/MOVE_COMMAND_RATE.md",
     "docs/PROJECTILE_DAMAGE.md",
     "tools/Test-DepthCopy.py",
-    "docs/2026-10-17_\u5206\u6790-MC\u6df1\u5ea6\u590d\u5236-report.md"
+    "docs/2026-10-17_\u5206\u6790-MC\u6df1\u5ea6\u590d\u5236-report.md",
+    "docs/2026-10-17_\u5206\u6790-CSOL\u6269\u5c55\u4e8b\u4ef6-report.md"
   ],
   "trees": {
     "native": [

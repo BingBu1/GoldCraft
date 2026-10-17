@@ -1,6 +1,25 @@
 # CSOL 模型加载与材质效果研究
 
-## 自动加载与原始材质（当前检查点）
+## 原生模型 JSON 动态贴图（当前检查点）
+
+2026-10-17：修复漏读模型同名 JSON 的问题。`bindSpr` 将 SPR 帧替换到 `texIndex` 对应的现有网格贴图槽，沿用 UV、骨骼和材质混合；此前的复活枪独立挂点实现不能覆盖这条通用路径。现打开模型即可读取旁置 JSON，并从资源树/NAR 查找 SPR。用户指定工具目录已更新，原配置字节完整保留。中文由模型编写。
+
+| Evidence（本地 analysis/csol-model-20261017 下） | Finding | Path / 边界 |
+|---|---|---|
+| `bindspr-loader.asm`、`bindspr-lookup.asm`、`bindspr-oracle.json` | 固定 hw.dll 的 JSON 加载和帧计算已核实；600 组原始 x86 指令仿真对照通过 | 同步模式使用模型帧减 offsetFrame 加 startFrame；非同步按 sprFPS×frameRate 累进且始终循环。end 默认末帧索引，循环采用整数取余后加 start。时钟按贴图槽保留，不因每次序列切换而重置；仿真辅助调用按持续可见资源桩化，未运行完整游戏 |
+| `hlam-json-decode.json`、`hlam-json-decode-comparison.json`、`ctest-json.xml` | 675 项解析/边界检查、279 份真实模型 JSON、434 帧独立 RGBA 比对通过 | 新增普通 SPR v2 帧支持；无效动作/贴图槽跳过并提示，字段按引擎精确大小写读取 |
+| `gl-json-soul01/result.json`、`gl-json-frost01/result.json` | 灵魂收割者 5 绑定、寒冰武器 7 绑定；实际 Asset Tick 自动播放、暂停/定位、全部动作、资源释放/重建、模型隔离/重载、MDL/undo 不变，RTX4090 GL0 | 动态贴图使用模型表面；不逐帧读盘/解码/上传。未列出的动作保留原贴图 |
+| `gl-json-revive01/result.json` | 既有复活枪挂点/左右手/材质及 Qt 流程回归通过 | 专用挂点与通用 JSON 表面动态贴图独立 |
+| `package-json-verification.json`、`user-tool-json-deployment.json` | 清空开发 PATH 的最终解压包两模型通过，12 张关键截图逐字节一致；16 份原资源 hash 不变；40 交付文件安装后 hash 一致 | 用户主动关闭旧版后更新，保留 INI，未强关窗口、未写游戏安装 |
+| `hlam-source-replay-json.json`、`hlam-source-scan-json.json` | 117 文件源码补丁固定上游回放 LF hash 一致，敏感扫描无命中 | 根 index 未写，发布仍由主协调串行完成 |
+
+固定 hw.dll SHA256：`c7bddfda93c2e0877ea126a15a318b83cce74c59bb95e38a7301b08033ac7783`。关键 RVA：JSON 加载 `0x3b47d0`，bindSpr 消费 `0x3b3d00`，末帧默认值 `0x3b6768`，sprite 帧选择 `0x759e20`。fadeTex 位于独立路径 `0x3b3810`。
+
+最终 ZIP `HLAM-CSOL-zh-20261017-json.zip`：40 文件/12,095,372B，SHA256 `4659e13f635cac363f952af40fe9d0cc352d496b92090cba6d66e85116e9d286`。EXE SHA256 `9ab50924f817fa0080368fa50a7f55d1c0ae927e6bb2c5a8556504814b815430`。117 文件补丁 SHA256 `71715c18da3a827d4ea758b267900222c59cde1d7b83fe01c9e3973c23121312`。包无商业资源或私人设置；完整实现和失败审计见本地 `JSON-IMPLEMENTATION.md`。
+
+验收边界：`fadeTex`、`bindTex`、`colorTex` 和 SPR v2 分组帧尚未实现，资源状态会提示；寒冰模型的附加淡入淡出/颜色通道不能以 bindSpr 测试替代。CSO 原游戏同姿态画面、光照/后处理、世界事件、角色编号、v20/v21、PAK/NAR 音频仍待。上述真实 GL 是查看器证据，不是 CSO 完全一致性验收。
+
+## 自动加载与原始材质（先前检查点）
 
 2026-10-17：根据用户“应按载入目录自动获取资源、效果仍与游戏不同”的反馈，已将查看器改为打开模型时自动发现资源、识别复活枪并绑定动作。无需逐模型选择 SPR 或填写挂点/缩放。中文界面仍由模型直接编写，未使用翻译服务。以下检查点取代历史章节中的“缺少 @004、左手/动作未实现”等状态；**CSO 完全一致性仍未验收**。
 

@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c7d3633..606754a 100644
+index c7d3633..a7571d6 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,13 +1,15 @@
@@ -57,21 +57,22 @@ index c7d3633..606754a 100644
  
  target_sources(HLAM
  	PRIVATE
-@@ -179,6 +184,23 @@ copy_qt_dependencies(HLAM Qt5Network_PLUGINS)
+@@ -179,6 +184,24 @@ copy_qt_dependencies(HLAM Qt5Network_PLUGINS)
  
  set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT HLAM)
  
 +include(CTest)
 +option(HLAM_ENABLE_CSOL_SMOKE_TEST "Enable explicit local CSOL integration test driver" OFF)
 +if(HLAM_ENABLE_CSOL_SMOKE_TEST)
-+	target_sources(HLAM PRIVATE tests/CSOLSmokeTest.cpp)
++	target_sources(HLAM PRIVATE tests/CSOLSmokeTest.cpp tests/CSOLJSONSmokeTest.cpp tests/CSOLEventSmokeTest.cpp)
 +	target_compile_definitions(HLAM PRIVATE HLAM_ENABLE_CSOL_SMOKE_TEST)
 +endif()
 +if(BUILD_TESTING)
-+	add_executable(CSOLFormatsTests tests/CSOLFormatsTests.cpp src/hlam/formats/csol/CSOLFormats.cpp src/hlam/formats/csol/CSOLArchive.cpp)
++	add_executable(CSOLFormatsTests tests/CSOLFormatsTests.cpp src/hlam/formats/csol/CSOLFormats.cpp src/hlam/formats/csol/CSOLArchive.cpp src/hlam/formats/csol/CSOLModelJSON.cpp)
++	target_sources(CSOLFormatsTests PRIVATE src/hlam/formats/csol/CSOLEvents.cpp src/hlam/formats/csol/CSOLExport.cpp)
 +	target_include_directories(CSOLFormatsTests PRIVATE src/hlam)
 +	target_compile_features(CSOLFormatsTests PRIVATE cxx_std_20)
-+	target_link_libraries(CSOLFormatsTests PRIVATE Qt5::Gui BZip2::BZip2)
++	target_link_libraries(CSOLFormatsTests PRIVATE Qt5::Gui BZip2::BZip2 glm::glm)
 +	if(MSVC)
 +		target_compile_options(CSOLFormatsTests PRIVATE /utf-8 "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/hlam/qt/Qt5STLCompatibility.hpp")
 +	endif()
@@ -128,21 +129,61 @@ index 0000000..686fc00
 +endif()
 diff --git "a/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md" "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
 new file mode 100644
-index 0000000..4a450ba
+index 0000000..140d293
 --- /dev/null
 +++ "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,89 @@
 +# CSOL 中文预览版
 +
 +基于 Half-Life Asset Manager `4df74a58a50438b8f4b974e04ab9f24fdfcbb811`。中文界面由模型直接编写，没有调用翻译服务；资源名、骨骼名、动画名、QC 指令和版权声明保留原文。
 +
 +## 打开即可预览
 +
-+使用 `启动中文版.cmd` 启动，打开 `v_revivegun.mdl`。程序根据模型路径识别 `models` 的上层资源目录，搜索同目录、相邻语言目录和基础资源目录，自动启用已识别的 CSOL 扩展。普通 CS 模型仍使用原预览方式。
++使用 `启动中文版.cmd` 启动，打开模型。程序根据模型路径识别 `models` 的上层资源目录，搜索同目录、相邻语言目录和基础资源目录，自动启用已识别的 CSOL 扩展。普通 CS 模型仍使用原预览方式。
 +
 +复活枪自动缓存八组普通/复活、待机/拔枪、左右手 SPR；切换模型动作即切换效果。默认右手，拔枪特效持续 1 秒后转为待机，换弹动作隐藏圆环。挂点 5、零偏移、千分比缩放、帧率、加色、亮度和覆盖队列参数来自对应客户端/引擎分析，不需要逐个填写。
 +
 +“CSOL 预览 → 预览”可切换左右手、角色外观和男女手部。选择角色后立即应用贴图。角色名称保留资源原名；仍未实现加密角色表的数字编号到名称映射。
++
++## 模型 JSON 动态贴图
++
++打开模型时自动读取旁边同名 JSON，例如 `v_soulreaperex.mdl` 对应 `v_soulreaperex.json`；缺少旁置文件时按模型资源路径查询资源目录与 NAR。无需手动导入配置。
++
++`bindSpr` 的 `texIndex` 指定模型贴图槽，`sprName` 指定 SPR。动画沿用该网格的 UV、骨骼和材质混合方式，直接贴在枪身上。程序一次解码并上传各帧，绘制时只切换纹理。支持内含 DDS 的 SPR v3，以及普通单帧记录组成的 SPR v2。
++
++`sequence` 决定哪些动作启用替换，未列出的动作显示原贴图。同步规则使用模型帧减 `offsetFrame` 加 `startFrame`；非同步规则按 `sprFPS × frameRate` 累进。依照已核实引擎，非同步规则始终循环，只有同步规则使用 `isLoop`。`endFrame` 默认是末帧索引，循环取整数帧对 end 取余后加 start。主时间轴支持播放、暂停、动作切换和定位。字段区分大小写；不存在的动作/贴图槽会忽略并提示。
++
++“资源状态”显示 JSON 路径、每个动态贴图槽及缺失资源。高级设置中的“载入预览配置”用于查看器自己保存的设置，与游戏模型 JSON 的自动读取分开。复活枪圆环属于独立挂点效果，继续使用专用配置。
++
++`fadeTex`、`bindTex`、`colorTex` 尚未实现，遇到时会在资源状态提示。SPR v2 分组帧仍不支持。动态贴图生效不代表整份模型 JSON 或游戏世界效果已经完全复现。
++
++## CSOL 扩展模型事件
++
++以 `#` 开头的事件选项是 CSOL 的扩展精灵指令，独立于 JSON `bindSpr`。打开模型时自动预载这些事件的 SPR，播放动作时按事件帧触发；支持同帧多个挂点、暂停、定位、循环重播和资源重建。动作面板的事件选项下方显示中文释义，原事件编号和参数保持不变。
++
++`v_soulreaper` 的 `drawA`（序列 3）在第 5 帧触发事件 `5061`：`#I362 S0.05 R0 F0 P30 T999 A1 L0 U1 O0 X6 D1 H1`。它使用 `sprites/muzzleflash362.spr`，跟随第 6 号挂点，256 像素乘 0.05 得到 12.8 模型单位；35 帧按 30 FPS 播放一次，持续约 1.167 秒。
++
++| 参数 | 含义 |
++|---|---|
++| 事件号 | 初始挂点为 `(编号 - 5000) / 10`，从 0 开始；5061 对应 6 |
++| I / E | 主 SPR 编号 / 特定游戏角色状态的备用编号；独立预览采用 I |
++| S / P | 浮点缩放 / 每秒帧数 |
++| R / F | 随机旋转模式（0 不旋转、1 为 0–20°、2 为 0–359°）/ 随机起始帧开关 |
++| A / L / T | 帧动画 / 循环 / 生存秒数；A1、L0、T≥998 时按 SPR 总帧数除以 FPS |
++| X | 持续跟随的零起始挂点；未提供时保留首次绘制的位置 |
++| U | 出现此字母就使用第一人称覆盖队列，U0 也有效 |
++| D / H | 非零使用透明混合 / 左手时水平翻转 SPR 的 UV |
++| Q / O | 绑定当前序列 / 当前研究版本读取后未使用 |
++
++切换预览动作会清理旧事件，定位时间轴会重建当前动作已触发且未到期的事件。随机效果在重新定位时重新抽样。事件 SPR 当前支持 type 2 面向相机朝向，其他类型会明确提示；第一人称以外的完整世界事件仍需单独实现。
++
++## 导出全部关联素材
++
++在“CSOL 预览 → 预览”点击“导出全部关联素材…”，选择目标位置。程序自动新建模型素材文件夹；已有同名目录会换用新编号，避免覆盖。直接打开其中 `common/models` 下的模型即可按正常目录规则加载。
++
++导出保留 `common/models`、`sprites`、`gfx/tattoo`、`gfx/env`、`shader`、`sound` 等相对路径。同名素材采用当前预览相同的搜索优先级，NAR 中实际命中的资源解出为普通文件。收集模型、外部 T 模型和序列组、同名 JSON 的资源引用、编号特效、声音事件、环境材质及六面图、相关角色手部贴图、同武器命名素材与 HUD 列表引用。
++
++`resources.json` 记录每个导出文件的来源、理由、SHA-256，以及缺失或无法解析的依赖；`读取说明.txt` 说明重新打开方式。导出的是磁盘文件，未保存的模型编辑和手动预览参数不写入导出；嵌入 MDL 的贴图随模型保留。DLL 在游戏运行中构造的全部依赖不能仅靠静态资源引用穷尽，缺失项会显示在结果中。
 +
 +## 自动补齐基础资源
 +
@@ -164,11 +205,15 @@ index 0000000..4a450ba
 +
 +## 验证范围
 +
++扩展事件与素材导出新增验证：698 项解析/路径检查通过。真实 `v_soulreaper` 的 9 个扩展事件、7 个数字 SPR 和 7 处 JSON 动态贴图自动加载；实际 OpenGL 测试通过帧 4/5 边界、可见负对照、Tick、暂停、循环、到期、同帧双挂点、左右手 UV 和 GPU 重建。导出 197 个文件、95,584,893 字节，缺失清单为空；逐文件与原资源核对，其中 73 个 NAR 文件经独立库解包验证。清空游戏目录设置后从导出树重新打开，Draw 画面 hash 与原资源相同。原有两把武器的 JSON 动画及复活枪的自动挂点/手部/材质回归通过，MDL 和 undo 保持。这些都是查看器证据，尚非 CSO 同画面对照。
++
++本次原生 JSON 修复通过 675 项解析/边界检查、600 组原引擎 x86 帧计算指令仿真对照、279 份真实模型 JSON 解析，以及两把模型所需 434 帧 SPR 的独立 RGBA 比对。灵魂收割者 5 绑定、寒冰武器 7 绑定的实际查看器 GL 测试覆盖主 Tick 自动播放、暂停、帧偏移、全部动作、模型隔离与重载；复活枪既有路径回归通过。指令仿真将持续可见资源的登记辅助调用桩化，不能代替游戏完整运行。
++
 +Clang 22.1.7、C++20、x86、O3/ThinLTO/AVX2/precise FP 构建。648 项解析检查通过，包括目录优先级、截断、越界、CRC 损坏、NAR 索引边界及含 `#`/`%` 的文件名。41 个真实 NAR 资源（10,560,074 字节、覆盖三种存储类型）与独立解包工具逐字节 SHA-256 一致；此前 154 帧 SPR 与 3 张手部 TGA 的 RGBA 和 Pillow 一致。
 +
 +真实 RTX4090 OpenGL/Qt 集成覆盖默认打开自动加载、八组左右手动作、原始 @004/wm、拔枪时序、换弹隐藏、资源释放/重建、配置、手部切换、帧定位、模型重载，以及 MDL 字节/undo/禁用还原。截图来自实际查看器绘制，不是 CSO 游戏截图。
 +
-+仍未达到“与 CSO 完全一致”的验收标准：完整武器世界特效、所有角色映射、v20/v21、游戏场景光照/后处理与同姿态画面对照仍未完成。当前只对已识别并核实的武器自动绑定动作，其他武器的通用材质和手部仍可自动加载。
++仍未达到“与 CSO 完全一致”的验收标准：完整武器世界特效、所有角色映射、v20/v21、游戏场景光照/后处理与同姿态画面对照仍未完成。原生 bindSpr 和 # 模型事件可用于不同武器；复活枪专用客户端逻辑保留独立实现。
 +
 +## 从源码构建
 +
@@ -338,7 +383,7 @@ index 529030f..610b450 100644
 +	throw AssetException("不支持此文件类型");
  }
 diff --git a/src/hlam/application/ToolApplication.cpp b/src/hlam/application/ToolApplication.cpp
-index 5f9c1bd..eb972e8 100644
+index 5f9c1bd..83a31b1 100644
 --- a/src/hlam/application/ToolApplication.cpp
 +++ b/src/hlam/application/ToolApplication.cpp
 @@ -14,6 +14,7 @@
@@ -375,7 +420,7 @@ index 5f9c1bd..eb972e8 100644
  
  		_guiApplication = &app;
  
-@@ -136,7 +140,13 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -136,7 +140,14 @@ int ToolApplication::Run(int argc, char* argv[])
  
  		_singleInstance = std::make_unique<SingleInstance>();
  
@@ -383,18 +428,31 @@ index 5f9c1bd..eb972e8 100644
 +		auto instanceName = programName;
 +#ifdef HLAM_ENABLE_CSOL_SMOKE_TEST
 +		// A smoke test must not forward its fixture to a user's open editor.
-+		if (qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_ROOT") && qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_OUTPUT"))
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_EVENT_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_JSON_OUTPUT")
++			|| (qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_ROOT") && qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_OUTPUT")))
 +			instanceName += "-CSOL-test-" + QString::number(QCoreApplication::applicationPid());
 +#endif
 +		if (!_singleInstance->Create(instanceName, commandLine.FileName))
  		{
  			return EXIT_SUCCESS;
  		}
-@@ -168,6 +178,16 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -168,6 +179,28 @@ int ToolApplication::Run(int argc, char* argv[])
  			_application->LoadFile(commandLine.FileName);
  		}
  
 +#ifdef HLAM_ENABLE_CSOL_SMOKE_TEST
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_EVENT_OUTPUT"))
++		{
++			extern int RunCSOLEventSmokeTest(AssetManager&, const QString&);
++			const int result = RunCSOLEventSmokeTest(*_application, qEnvironmentVariable("HLAM_CSOL_EVENT_OUTPUT"));
++			OnExit(); return result;
++		}
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_JSON_OUTPUT"))
++		{
++			extern int RunCSOLJSONSmokeTest(AssetManager&, const QString&);
++			const int result = RunCSOLJSONSmokeTest(*_application, qEnvironmentVariable("HLAM_CSOL_JSON_OUTPUT"));
++			OnExit(); return result;
++		}
 +		if (qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_ROOT") && qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_OUTPUT"))
 +		{
 +			extern int RunCSOLSmokeTest(AssetManager&, const QString&, const QString&);
@@ -407,7 +465,7 @@ index 5f9c1bd..eb972e8 100644
  		return app.exec();
  	}
  	catch (const std::exception& e)
-@@ -191,8 +211,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
+@@ -191,8 +224,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
  {
  	QCommandLineParser parser;
  
@@ -418,7 +476,7 @@ index 5f9c1bd..eb972e8 100644
  
  	parser.process(arguments);
  
-@@ -288,8 +308,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
+@@ -288,8 +321,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
  	//Only check this once
  	if (!settings.value("Video/CheckedOpenGLVersion", false).toBool() && versionCode < minimumSupportedVersionCode)
  	{
@@ -429,7 +487,7 @@ index 5f9c1bd..eb972e8 100644
  			.arg(programName)
  			.arg(openGLFormat.majorVersion())
  			.arg(openGLFormat.minorVersion()));
-@@ -311,7 +331,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -311,7 +344,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->create())
  	{
@@ -438,7 +496,7 @@ index 5f9c1bd..eb972e8 100644
  		return {};
  	}
  
-@@ -323,7 +343,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -323,7 +356,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->makeCurrent(surface.get()))
  	{
@@ -447,7 +505,7 @@ index 5f9c1bd..eb972e8 100644
  		return {};
  	}
  
-@@ -332,6 +352,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -332,6 +365,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  std::unique_ptr<AssetManager> ToolApplication::CreateApplication(std::unique_ptr<QSettings> settings)
  {
@@ -455,8 +513,22 @@ index 5f9c1bd..eb972e8 100644
  	auto graphicsContext{InitializeOpenGL()};
  
  	if (!graphicsContext)
+diff --git a/src/hlam/entity/HLMVStudioModelEntity.cpp b/src/hlam/entity/HLMVStudioModelEntity.cpp
+index 9d2d493..9326f81 100644
+--- a/src/hlam/entity/HLMVStudioModelEntity.cpp
++++ b/src/hlam/entity/HLMVStudioModelEntity.cpp
+@@ -35,6 +35,9 @@ void HLMVStudioModelEntity::Spawn()
+ 
+ void HLMVStudioModelEntity::HandleAnimEvent(const AnimEvent& event)
+ {
++	// CSOL dispatches '#' before the ordinary event switch. The preview timeline
++	// advances these sprites directly so seeks and loop boundaries are reproducible.
++	if (event.options && event.options[0] == '#') return;
+ 	// Play a named wave file
+ 	if (IsSoundEvent(event.id)
+ 		|| GetContext()->StudioSettings->GetSoundEventIds().contains(event.id))
 diff --git a/src/hlam/entity/StudioModelEntity.cpp b/src/hlam/entity/StudioModelEntity.cpp
-index 5073836..26d83b6 100644
+index 5073836..3faa644 100644
 --- a/src/hlam/entity/StudioModelEntity.cpp
 +++ b/src/hlam/entity/StudioModelEntity.cpp
 @@ -59,7 +59,7 @@ void StudioModelEntity::Draw(graphics::SceneContext& sc, RenderPasses renderPass
@@ -478,39 +550,55 @@ index 5073836..26d83b6 100644
  
  	renderInfo.Model = GetEditableModel();
  
-@@ -396,6 +399,7 @@ void StudioModelEntity::SetFrame(float frame)
+@@ -254,6 +257,9 @@ float StudioModelEntity::AdvanceFrame(float deltaTime, const float maximum)
+ 	}
+ 
+ 	const float increment = deltaTime * sequenceDescriptor.FPS * _frameRate;
++	_editableModel->CSOL.AdvanceEvents(_sequence, oldFrame,
++		oldFrame < sequenceDescriptor.NumFrames - 1 || shouldLoop ? increment : 0,
++		sequenceDescriptor.NumFrames - 1, deltaTime * _frameRate, shouldLoop);
+ 
+ 	if (_frame < (sequenceDescriptor.NumFrames - 1) || shouldLoop)
+ 	{
+@@ -396,6 +402,9 @@ void StudioModelEntity::SetFrame(float frame)
  		_frame -= (int)(_frame / (sequenceDescriptor.NumFrames - 1)) * (sequenceDescriptor.NumFrames - 1);
  	}
  
 +	_editableModel->CSOL.SetAction(_sequence, sequenceDescriptor.FPS > 0 ? _frame / sequenceDescriptor.FPS : 0);
++	_editableModel->CSOL.UpdateBindings(_sequence, _frame, sequenceDescriptor.FPS > 0 ? _frame / sequenceDescriptor.FPS : 0, true);
++	_editableModel->CSOL.SeekEvents(_sequence, _frame, sequenceDescriptor.FPS);
  	_animTime = GetContext()->Time->GetTime();
  }
  
-@@ -432,6 +436,7 @@ void StudioModelEntity::SetSequence(int sequence)
+@@ -432,6 +441,9 @@ void StudioModelEntity::SetSequence(int sequence)
  	}
  
  	_sequence = sequence;
 +	_editableModel->CSOL.SetAction(sequence);
++	_editableModel->CSOL.UpdateBindings(sequence, 0, 0);
++	_editableModel->CSOL.SeekEvents(sequence, 0, 0);
  	_frame = 0;
  	_lastEventCheck = 0;
  }
 diff --git a/src/hlam/formats/CMakeLists.txt b/src/hlam/formats/CMakeLists.txt
-index 0c215e2..0ab5324 100644
+index 0c215e2..a55f242 100644
 --- a/src/hlam/formats/CMakeLists.txt
 +++ b/src/hlam/formats/CMakeLists.txt
-@@ -6,3 +6,6 @@ target_sources(HLAM
+@@ -6,3 +6,8 @@ target_sources(HLAM
  		liblist/LiblistReader.hpp)
  
  add_subdirectory(studiomodel)
 +
 +target_sources(HLAM PRIVATE csol/CSOLFormats.hpp csol/CSOLFormats.cpp csol/CSOLPreview.hpp csol/CSOLPreview.cpp)
 +target_sources(HLAM PRIVATE csol/CSOLArchive.hpp csol/CSOLArchive.cpp)
++target_sources(HLAM PRIVATE csol/CSOLModelJSON.hpp csol/CSOLModelJSON.cpp)
++target_sources(HLAM PRIVATE csol/CSOLEvents.hpp csol/CSOLEvents.cpp csol/CSOLExport.hpp csol/CSOLExport.cpp)
 diff --git a/src/hlam/formats/csol/CSOLArchive.cpp b/src/hlam/formats/csol/CSOLArchive.cpp
 new file mode 100644
-index 0000000..9523dba
+index 0000000..5a863b9
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLArchive.cpp
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,199 @@
 +#include "formats/csol/CSOLArchive.hpp"
 +#include <bzlib.h>
 +#include <QCache>
@@ -625,6 +713,19 @@ index 0000000..9523dba
 +
 +void ClearArchiveCache() { cache.clear(); }
 +
++QStringList ArchiveResourceNames(const QStringList& directories)
++{
++	QStringList result;
++	for (const auto& archive : Archives(directories))
++	{
++		const auto& index = OpenIndex(archive);
++		const auto prefix = "/" + QFileInfo(archive).completeBaseName().toLower() + "/";
++		for (auto it = index.Entries.cbegin(); it != index.Entries.cend(); ++it)
++			if (it.key().startsWith(prefix)) result.append(it.key().mid(prefix.size()));
++	}
++	result.removeDuplicates(); result.sort(Qt::CaseInsensitive); return result;
++}
++
 +QString FindArchiveResource(const QStringList& directories, const QString& relative)
 +{
 +	for (const auto& archive : Archives(directories))
@@ -699,10 +800,10 @@ index 0000000..9523dba
 +}
 diff --git a/src/hlam/formats/csol/CSOLArchive.hpp b/src/hlam/formats/csol/CSOLArchive.hpp
 new file mode 100644
-index 0000000..27deef7
+index 0000000..758f47b
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLArchive.hpp
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +#pragma once
 +#include <QByteArray>
 +#include <QString>
@@ -714,14 +815,385 @@ index 0000000..27deef7
 +QString FindArchiveResource(const QStringList& directories, const QString& relative);
 +QByteArray ReadArchiveResource(const QString& url);
 +QStringList ArchiveAppearances(const QStringList& directories);
++QStringList ArchiveResourceNames(const QStringList& directories);
 +void ClearArchiveCache();
++}
+diff --git a/src/hlam/formats/csol/CSOLEvents.cpp b/src/hlam/formats/csol/CSOLEvents.cpp
+new file mode 100644
+index 0000000..77a81f4
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLEvents.cpp
+@@ -0,0 +1,71 @@
++#include "formats/csol/CSOLEvents.hpp"
++#include <QRegularExpression>
++#include <cmath>
++#include <stdexcept>
++
++namespace csol
++{
++QString SpriteEvent::ResourceName() const { return QString("sprites/muzzleflash%1.spr").arg(Resource); }
++double SpriteEvent::Duration(int frames) const
++{
++	return Animate && !Loop && Life >= 998 ? frames / FPS : Life;
++}
++std::optional<SpriteEvent> ParseSpriteEvent(int id, const QString& options)
++{
++	if (!options.startsWith('#')) return {};
++	if (id < 5000 || id >= 5640) throw std::runtime_error("CSOL 特效事件的初始挂点超出范围");
++	SpriteEvent event; event.Attachment = (id - 5000) / 10;
++	static const QRegularExpression token("([A-Z])([+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+))?");
++	int at = 1;
++	while (at < options.size())
++	{
++		if (options[at].isSpace()) { ++at; continue; }
++		const auto match = token.match(options, at, QRegularExpression::NormalMatch, QRegularExpression::AnchoredMatchOption);
++		if (!match.hasMatch()) throw std::runtime_error("无效的 CSOL # 特效参数");
++		at = match.capturedEnd();
++		const auto key = match.captured(1)[0].toLatin1();
++		if (key == 'U') { event.Overlay = true; continue; } // Presence, including U0, enables queue 3.
++		bool ok = false; const float n = match.captured(2).toFloat(&ok);
++		if (!ok || !std::isfinite(n) || std::abs(n) > 1000000) throw std::runtime_error("无效的 CSOL 特效数值");
++		switch (key)
++		{
++		case 'I': event.Resource = int(n); break;
++		case 'E': event.Alternate = int(n); break;
++		case 'S': event.Scale = n; break;
++		case 'R': event.Rotation = int(n); break;
++		case 'F': event.RandomFrame = int(n) != 0; break;
++		case 'P': event.FPS = int(n); break;
++		case 'T': event.Life = n; break;
++		case 'A': event.Animate = int(n) != 0; break;
++		case 'L': event.Loop = int(n) != 0; break;
++		case 'X': event.Follow = int(n); break;
++		case 'D': event.Alpha = int(n) != 0; break;
++		case 'H': event.HandFlip = int(n) != 0; break;
++		case 'Q': event.SequenceOnly = int(n) != 0; break;
++		case 'O': break; // Parsed but not consumed by this engine build.
++		default: event.Notices += QString("未支持参数 %1；").arg(QChar(key)); break;
++		}
++	}
++	if (event.Resource < 1 || event.Resource > 65535 || event.Alternate < 0 || event.Alternate > 65535
++		|| event.Follow < -1 || event.Follow > 63 || event.Scale <= 0 || event.Scale > 1024
++		|| event.FPS <= 0 || event.FPS > 10000 || event.Life < 0 || event.Life > 86400)
++		throw std::runtime_error("CSOL 特效参数超出可预览范围");
++	if (event.Alternate) event.Notices += "E 依赖游戏角色状态，独立预览采用 I；";
++	return event;
++}
++QString DescribeSpriteEvent(int id, const QString& options)
++{
++	try
++	{
++		const auto parsed = ParseSpriteEvent(id, options);
++		if (!parsed) return {};
++		const auto& e = *parsed;
++		return QString("CSOL 扩展挂点特效：%1\n初始挂点 %2；%3；缩放 %4；%5 帧/秒；%6；%7。%8")
++			.arg(e.ResourceName()).arg(e.Attachment)
++			.arg(e.Follow >= 0 ? QString("持续跟随挂点 %1").arg(e.Follow) : QString("停留在触发位置"))
++			.arg(e.Scale).arg(e.FPS).arg(e.Loop ? "循环" : "播放一次")
++			.arg(e.Overlay ? "第一人称覆盖绘制" : "参与深度测试").arg(e.Notices);
++	}
++	catch (const std::exception& e) { return QString::fromUtf8(e.what()); }
++}
++}
+diff --git a/src/hlam/formats/csol/CSOLEvents.hpp b/src/hlam/formats/csol/CSOLEvents.hpp
+new file mode 100644
+index 0000000..1697687
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLEvents.hpp
+@@ -0,0 +1,22 @@
++#pragma once
++#include <QString>
++#include <optional>
++
++namespace csol
++{
++// CSOL HUD_StudioEvent '#' branch / engine R_MuzzleFlash2, independent of bindSpr.
++struct SpriteEvent
++{
++	int Resource = 2, Alternate = 0, Attachment = 0, Follow = -1;
++	float Scale = .2f;
++	double FPS = 20, Life = .01;
++	int Rotation = 0;
++	bool RandomFrame = true, Animate = false, Loop = false, Overlay = false;
++	bool Alpha = false, HandFlip = false, SequenceOnly = false;
++	QString Notices;
++	QString ResourceName() const;
++	double Duration(int frames) const;
++};
++std::optional<SpriteEvent> ParseSpriteEvent(int id, const QString& options);
++QString DescribeSpriteEvent(int id, const QString& options);
++}
+diff --git a/src/hlam/formats/csol/CSOLExport.cpp b/src/hlam/formats/csol/CSOLExport.cpp
+new file mode 100644
+index 0000000..05e82cd
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLExport.cpp
+@@ -0,0 +1,236 @@
++#include "formats/csol/CSOLExport.hpp"
++#include "formats/csol/CSOLFormats.hpp"
++#include "formats/csol/CSOLArchive.hpp"
++#include "formats/csol/CSOLModelJSON.hpp"
++#include "formats/csol/CSOLEvents.hpp"
++#include "formats/studiomodel/StudioModelFileFormat.hpp"
++#include <QCryptographicHash>
++#include <QDirIterator>
++#include <QFileInfo>
++#include <QJsonArray>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QMap>
++#include <QRegularExpression>
++#include <QSaveFile>
++#include <QSet>
++#include <QUrl>
++#include <cstring>
++#include <algorithm>
++#include <functional>
++#include <stdexcept>
++
++namespace csol
++{
++namespace
++{
++QString SafeRelative(QString name)
++{
++	name.replace('\\', '/');
++	if (QDir::isAbsolutePath(name)) throw std::runtime_error("资源引用不是相对路径");
++	for (const auto& part : name.split('/'))
++		if (part.isEmpty() || part == "." || part == ".." || part.endsWith('.') || part.endsWith(' ')
++			|| part.contains(QRegularExpression("^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\\.|$)", QRegularExpression::CaseInsensitiveOption))
++			|| part.contains(QRegularExpression("[<>:\"|?*\\x00-\\x1f]")))
++			throw std::runtime_error("资源包含不安全的导出路径");
++	return name;
++}
++QString ResourceName(const QString& path, const QString& root)
++{
++	if (path.startsWith("csol-nar:")) return SafeRelative(QUrl(path).fragment(QUrl::FullyDecoded).section('/', 2));
++	for (const auto& directory : ResourceDirectories(root))
++	{
++		const auto relative = QDir(directory).relativeFilePath(path);
++		if (!relative.startsWith("../") && !QDir::isAbsolutePath(relative)) return SafeRelative(relative);
++	}
++	return {};
++}
++template<class T> T Record(const QByteArray& bytes, qint64 offset)
++{
++	if (offset < 0 || offset > bytes.size() || sizeof(T) > std::size_t(bytes.size() - offset))
++		throw std::runtime_error("关联模型的记录越界");
++	T result; std::memcpy(&result, bytes.constData() + offset, sizeof(T)); return result;
++}
++template<std::size_t N> QString String(const char (&value)[N])
++{
++	return QString::fromLatin1(value, int(std::find(value, value + N, '\0') - value));
++}
++}
++
++ExportResult ExportResources(const QString& sourceModel, const QString& root, const QString& destination, const QString& extraSprite)
++{
++	ExportResult result; result.Directory = QFileInfo(destination).absoluteFilePath();
++	if (QFileInfo::exists(result.Directory) || QFileInfo(result.Directory).isSymLink())
++		throw std::runtime_error("导出目录已存在；请选择新的子文件夹，避免覆盖文件");
++	struct Resource { QString Name, Source, Reason; };
++	QMap<QString, Resource> resources;
++	QSet<QString> visited;
++	QStringList modelQueue;
++	auto add = [&](QString name, const QString& reason, bool required = true, QString source = {}) -> QString
++	{
++		name = SafeRelative(name); const auto key = name.toLower();
++		if (resources.contains(key))
++		{
++			if (!source.isEmpty()) resources[key] = {name, source, reason};
++			return resources[key].Source;
++		}
++		if (source.isEmpty()) source = LocateResource(root, name);
++		if (source.isEmpty()) { if (required) result.Missing.append(name + "（" + reason + "）"); return {}; }
++		resources.insert(key, {name, source, reason});
++		if (name.endsWith(".mdl", Qt::CaseInsensitive)) modelQueue.append(key);
++		return source;
++	};
++	QString main = ResourceName(sourceModel, root);
++	if (!main.startsWith("models/", Qt::CaseInsensitive)) main = "models/" + QFileInfo(sourceModel).fileName();
++	add(main, "当前模型（磁盘版本）", true, sourceModel); result.Model = "common/" + main;
++	if (!extraSprite.isEmpty())
++	{
++		auto name = ResourceName(extraSprite, root); if (name.isEmpty()) name = "sprites/" + QFileInfo(extraSprite).fileName();
++		add(name, "手动附加动画", true, extraSprite);
++	}
++	QString stem = QFileInfo(sourceModel).completeBaseName();
++	if (stem.startsWith("v_") || stem.startsWith("w_") || stem.startsWith("p_")) stem = stem.mid(2);
++	const QRegularExpression family("(?:^|_)" + QRegularExpression::escape(stem) + "(?:$|[_\\.0-9])", QRegularExpression::CaseInsensitiveOption);
++	QStringList names = ArchiveResourceNames(ResourceDirectories(root));
++	for (const auto& directory : ResourceDirectories(root))
++		for (const auto* folder : {"models", "sprites", "sound/weapons", "gfx/tattoo", "resource"})
++		{
++			QDirIterator it(QDir(directory).filePath(folder), QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
++			while (it.hasNext()) names.append(QDir(directory).relativeFilePath(it.next()));
++		}
++	names.removeDuplicates(); names.sort(Qt::CaseInsensitive);
++	for (const auto& name : names)
++		if (!stem.isEmpty() && family.match(QFileInfo(name).fileName()).hasMatch()) add(name, "同武器命名资源", false);
++	QSet<QString> handSuffixes;
++	auto inspect = [&](const QString& name, const auto& work)
++	{
++		try { work(); }
++		catch (const std::exception& e) { result.Missing.append(name + "：" + QString::fromUtf8(e.what())); }
++	};
++	std::function<void(const QJsonValue&)> jsonRefs = [&](const QJsonValue& value)
++	{
++		if (value.isObject()) for (const auto& v : value.toObject()) jsonRefs(v);
++		else if (value.isArray()) for (const auto& v : value.toArray()) jsonRefs(v);
++		else if (value.isString())
++		{
++			const auto name = value.toString().replace('\\', '/');
++			if (name.contains(QRegularExpression("^(models|sprites|gfx|shader|sound|resource)/", QRegularExpression::CaseInsensitiveOption)))
++				add(name, "模型 JSON 引用");
++		}
++	};
++	while (!modelQueue.isEmpty())
++	{
++		const auto key = modelQueue.takeFirst(); if (visited.contains(key)) continue; visited.insert(key);
++		const auto resource = resources[key];
++		try
++		{
++			const auto bytes = ReadResource(resource.Source);
++			if (bytes.left(4) == "IDSQ") continue;
++			const auto h = Record<studiohdr_t>(bytes, 0);
++			if (bytes.left(4) != "IDST" || h.version != 10 || h.numseq < 0 || h.numseq > 4096
++				|| h.numtextures < 0 || h.numtextures > 4096 || h.numseqgroups < 0 || h.numseqgroups > 100)
++				throw std::runtime_error("关联模型不是受支持的 v10 MDL");
++			const auto base = resource.Name.left(resource.Name.size() - 4);
++			if (!h.textureindex) add(base + "T.mdl", "外部模型贴图");
++			for (int i = 1; i < h.numseqgroups; ++i) add(base + QString("%1.mdl").arg(i, 2, 10, QChar('0')), "外部序列组");
++			const auto json = resource.Source.startsWith("csol-nar:") ? LocateResource(root, base + ".json") : LocateModelJSON(resource.Source, root);
++			if (!json.isEmpty()) inspect(base + ".json", [&]
++			{
++				add(base + ".json", "旁置模型 JSON", true, json);
++				QJsonParseError error; const auto doc = QJsonDocument::fromJson(ReadResource(json), &error);
++				if (error.error || !doc.isObject()) throw std::runtime_error("无法解析模型 JSON 的资源依赖");
++				jsonRefs(doc.object());
++			});
++			for (int i = 0; i < h.numtextures; ++i)
++			{
++				const auto t = Record<mstudiotexture_t>(bytes, qint64(h.textureindex) + i * sizeof(mstudiotexture_t));
++				const auto name = String(t.name); const auto m = ParseMaterial(name);
++				if (m.Width > 0) add("models/texture/" + name, "外部模型贴图");
++				if (!m.HandSuffix.isEmpty()) handSuffixes.insert(m.HandSuffix);
++				if (!m.Descriptor.isEmpty())
++				{
++					inspect(m.Descriptor, [&]
++					{
++						const auto descriptor = add("shader/" + m.Descriptor + ".txt", "模型材质");
++						const auto mapping = add("shader/env.txt", "环境贴图映射");
++						if (!descriptor.isEmpty() && !mapping.isEmpty())
++						{
++							const auto env = ParseEnvironment(ReadResource(descriptor));
++							for (const auto& line : QString::fromUtf8(ReadResource(mapping)).split(QRegularExpression("[\\r\\n]+")))
++							{
++								const auto parts = line.simplified().split(' '); bool ok; const int index = parts.value(0).toInt(&ok);
++								if (parts.size() == 2 && ok && index == env.Index)
++									for (const auto* face : {"rt", "bk", "lf", "ft", "up", "dn"}) add("gfx/env/" + parts[1] + face + ".tga", "环境反射六面图");
++							}
++						}
++					});
++				}
++			}
++			for (int i = 0; i < h.numseq; ++i)
++			{
++				const auto seq = Record<mstudioseqdesc_t>(bytes, qint64(h.seqindex) + i * sizeof(mstudioseqdesc_t));
++				if (seq.numevents < 0 || seq.numevents > 4096) throw std::runtime_error("模型事件数量越界");
++				for (int j = 0; j < seq.numevents; ++j)
++				{
++					const auto event = Record<mstudioevent_t>(bytes, qint64(seq.eventindex) + j * sizeof(mstudioevent_t));
++					const auto options = String(event.options);
++					inspect(resource.Name + QString(" 事件 %1").arg(event.event), [&]
++					{
++						if (auto parsed = ParseSpriteEvent(event.event, options))
++						{
++							add(parsed->ResourceName(), "模型 # 扩展事件");
++							if (parsed->Alternate) add(QString("sprites/muzzleflash%1.spr").arg(parsed->Alternate), "模型 E 备用特效");
++						}
++						else if (options.endsWith(".wav", Qt::CaseInsensitive)) add("sound/" + options, "模型声音事件");
++					});
++				}
++			}
++		}
++		catch (const std::exception& e) { result.Missing.append(resource.Name + "：" + QString::fromUtf8(e.what())); }
++	}
++	for (const auto& suffix : handSuffixes)
++	{
++		add("gfx/tattoo/" + suffix, "默认手部贴图");
++		for (const auto& name : names)
++			if (name.startsWith("gfx/tattoo/", Qt::CaseInsensitive) && name.endsWith("_" + suffix, Qt::CaseInsensitive))
++				add(name, "可切换角色手部贴图");
++	}
++	// GoldSrc HUD lists: label resolution spriteName x y w h.
++	const auto inventory = resources.values();
++	for (const auto& resource : inventory)
++		if (resource.Name.startsWith("sprites/", Qt::CaseInsensitive) && resource.Name.endsWith(".txt", Qt::CaseInsensitive))
++			for (const auto& line : QString::fromLatin1(ReadResource(resource.Source)).split(QRegularExpression("[\\r\\n]+")))
++			{
++				const auto parts = line.simplified().split(' ');
++				if (parts.size() >= 7) add("sprites/" + parts[2] + ".spr", "HUD 列表引用");
++			}
++	if (!QDir().mkpath(result.Directory)) throw std::runtime_error("无法创建导出目录");
++	auto write = [&](const QString& relative, const QByteArray& bytes)
++	{
++		const auto path = QDir(result.Directory).filePath(SafeRelative(relative));
++		if (!QDir().mkpath(QFileInfo(path).absolutePath())) throw std::runtime_error("无法创建资源子目录");
++		QSaveFile file(path);
++		if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) throw std::runtime_error("导出文件写入失败");
++	};
++	QJsonArray manifest;
++	for (const auto& resource : resources)
++	{
++		try
++		{
++			const auto bytes = ReadResource(resource.Source); const auto relative = "common/" + resource.Name;
++			write(relative, bytes); ++result.Files; result.Bytes += bytes.size();
++			manifest.append(QJsonObject{{"path", relative}, {"source", resource.Source}, {"reason", resource.Reason},
++				{"sha256", QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())}, {"bytes", bytes.size()}});
++		}
++		catch (const std::exception& e) { result.Missing.append(resource.Name + "：" + QString::fromUtf8(e.what())); }
++	}
++	result.Missing.removeDuplicates();
++	write("resources.json", QJsonDocument(QJsonObject{{"version", 1}, {"model", result.Model}, {"files", manifest},
++		{"missing", QJsonArray::fromStringList(result.Missing)}, {"searchOrder", QJsonArray::fromStringList(ResourceDirectories(root))}}).toJson());
++	write("读取说明.txt", QString("在 HLAM 中打开 %1。common 下保留 models、sprites、gfx、shader、sound 等相对路径。\n"
++		"同名资源按本次预览的搜索顺序选取；NAR 资源已解出。resources.json 记录来源、校验值与缺失项。\n"
++		"导出的是磁盘文件，包含同武器命名资源与可识别的静态依赖；DLL 在运行时动态生成的引用无法保证穷尽。\n"
++		"未保存的模型修改和手动预览参数不会写入此导出。\n缺失/未解析：%2\n").arg(result.Model).arg(result.Missing.join("\n")).toUtf8());
++	return result;
++}
++}
+diff --git a/src/hlam/formats/csol/CSOLExport.hpp b/src/hlam/formats/csol/CSOLExport.hpp
+new file mode 100644
+index 0000000..e88ee4c
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLExport.hpp
+@@ -0,0 +1,17 @@
++#pragma once
++#include <QString>
++#include <QStringList>
++
++namespace csol
++{
++struct ExportResult
++{
++	QString Directory, Model;
++	int Files = 0;
++	qint64 Bytes = 0;
++	QStringList Missing;
++};
++// Destination must not exist. Copies disk resources, with the same precedence as preview.
++ExportResult ExportResources(const QString& sourceModel, const QString& root, const QString& destination,
++	const QString& extraSprite = {});
 +}
 diff --git a/src/hlam/formats/csol/CSOLFormats.cpp b/src/hlam/formats/csol/CSOLFormats.cpp
 new file mode 100644
-index 0000000..44cac75
+index 0000000..e9efbd2
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.cpp
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,431 @@
 +#include "formats/csol/CSOLFormats.hpp"
 +#include "formats/csol/CSOLArchive.hpp"
 +
@@ -897,6 +1369,46 @@ index 0000000..44cac75
 +	frames.reserve(count);
 +	for (unsigned i = 0; i < count; ++i) frames.push_back(DDS(reader, w, height));
 +	if (reader.Offset != bytes.size()) Invalid("SPR 帧末尾有未识别的数据");
++	return frames;
++}
++
++std::vector<QImage> DecodeSprite(const QByteArray& bytes)
++{
++	Reader reader{bytes};
++	const auto* h = reader.Take(40);
++	if (std::memcmp(h, "IDSP", 4)) Invalid("无效 SPR 标识");
++	if (U32(h + 4) == 3) return DecodeSpriteV3(bytes);
++	if (U32(h + 4) != 2) Invalid("仅支持 SPR v2/v3");
++	const auto count = U32(h + 28), format = U32(h + 12);
++	Dimensions(U32(h + 20), U32(h + 24));
++	if (!count || count > 2048 || format > 3) Invalid("SPR v2 帧数或颜色格式无效");
++	const auto colors = U16(reader.Take(2));
++	if (!colors || colors > 256 || (format >= 2 && colors != 256)) Invalid("SPR v2 调色板无效");
++	const auto* palette = reader.Take(colors * 3);
++	std::vector<QImage> frames;
++	std::uint64_t totalBytes = 0;
++	for (unsigned i = 0; i < count; ++i)
++	{
++		if (U32(reader.Take(4)) != 0) Invalid("暂不支持 SPR v2 分组帧");
++		const auto* frame = reader.Take(16);
++		const auto w = U32(frame + 8), height = U32(frame + 12);
++		Dimensions(w, height);
++		totalBytes += std::uint64_t(w) * height * 4;
++		if (totalBytes > 256 * 1024 * 1024) Invalid("动画解码内存超过 256 MiB");
++		const auto* indices = reader.Take(w * height);
++		QImage image(w, height, QImage::Format_RGBA8888);
++		for (unsigned pixel = 0; pixel < w * height; ++pixel)
++		{
++			const auto index = indices[pixel];
++			if (index >= colors) Invalid("SPR v2 颜色索引越界");
++			const auto* rgb = palette + (format == 2 ? 255 : index) * 3;
++			auto* out = image.bits() + pixel * 4;
++			std::copy_n(rgb, 3, out);
++			out[3] = format == 2 ? index : format == 3 && index == 255 ? 0 : 255;
++		}
++		frames.push_back(std::move(image));
++	}
++	if (reader.Offset != bytes.size()) Invalid("SPR v2 帧末尾有未识别的数据");
 +	return frames;
 +}
 +
@@ -1115,10 +1627,10 @@ index 0000000..44cac75
 +}
 diff --git a/src/hlam/formats/csol/CSOLFormats.hpp b/src/hlam/formats/csol/CSOLFormats.hpp
 new file mode 100644
-index 0000000..609711d
+index 0000000..f4d9997
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.hpp
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,42 @@
 +#pragma once
 +
 +#include <vector>
@@ -1149,6 +1661,7 @@ index 0000000..609711d
 +QByteArray ReadResource(const QString& path);
 +QImage DecodeTGA(const QByteArray& bytes);
 +std::vector<QImage> DecodeSpriteV3(const QByteArray& bytes);
++std::vector<QImage> DecodeSprite(const QByteArray& bytes);
 +QString LocateResource(const QString& root, const QString& relative);
 +QString DiscoverResourceRoot(const QString& modelFile);
 +QStringList ResourceDirectories(const QString& root);
@@ -1160,12 +1673,187 @@ index 0000000..609711d
 +Environment ParseEnvironment(const QByteArray& bytes);
 +QImage OrientCubeFace(const QImage& image, int face);
 +}
+diff --git a/src/hlam/formats/csol/CSOLModelJSON.cpp b/src/hlam/formats/csol/CSOLModelJSON.cpp
+new file mode 100644
+index 0000000..001274c
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLModelJSON.cpp
+@@ -0,0 +1,128 @@
++#include "formats/csol/CSOLModelJSON.hpp"
++#include "formats/csol/CSOLFormats.hpp"
++#include <QDir>
++#include <QFileInfo>
++#include <QJsonArray>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++
++namespace csol
++{
++namespace
++{
++double Number(const QJsonObject& object, const char* key, double fallback, double low, double high, bool integer = false)
++{
++	const auto value = object.value(key);
++	if (value.isUndefined()) return fallback;
++	const double n = value.toDouble();
++	if (!value.isDouble() || !std::isfinite(n) || n < low || n > high || (integer && std::floor(n) != n))
++		throw std::runtime_error(QString("模型 JSON 的 %1 数值无效").arg(key).toStdString());
++	return n;
++}
++bool Boolean(const QJsonObject& object, const char* key)
++{
++	const auto value = object.value(key);
++	if (!value.isUndefined() && !value.isBool()) throw std::runtime_error("模型 JSON 的布尔值无效");
++	return value.toBool(false);
++}
++}
++
++ModelJSON ParseModelJSON(const QByteArray& data, int textures, int sequences)
++{
++	if (textures < 0 || textures > 4096 || sequences < 0 || sequences > 4096) throw std::runtime_error("模型 JSON 索引表过大");
++	if (data.size() > 4 * 1024 * 1024) throw std::runtime_error("模型 JSON 超过 4 MiB");
++	QJsonParseError error;
++	const auto doc = QJsonDocument::fromJson(data, &error);
++	if (error.error != QJsonParseError::NoError || !doc.isObject())
++		throw std::runtime_error(("模型 JSON 解析失败：" + error.errorString()).toStdString());
++	ModelJSON result;
++	const auto object = doc.object();
++	for (const auto* key : {"fadeTex", "bindTex", "colorTex"})
++		if (object.contains(key)) result.Notices.append(QString("此模型还包含 %1；该通道尚未实现。").arg(key));
++	const auto value = object.value("bindSpr");
++	if (value.isUndefined()) return result;
++	if (!value.isArray() || value.toArray().size() > 256) throw std::runtime_error("bindSpr 必须是最多 256 项的数组");
++	for (const auto item : value.toArray())
++	{
++		if (!item.isObject()) throw std::runtime_error("bindSpr 项必须是对象");
++		const auto entry = item.toObject();
++		SpriteBinding binding;
++		binding.Texture = int(Number(entry, "texIndex", -1, -1, 1000000, true));
++		if (binding.Texture < 0 || binding.Texture >= textures)
++		{
++			result.Notices.append(QString("忽略不存在的贴图槽 %1。").arg(binding.Texture));
++			continue;
++		}
++		binding.Sprite = entry.value("sprName").toString().replace('\\', '/');
++		if (binding.Texture < 0 || binding.Sprite.isEmpty() || binding.Sprite.size() > 256
++			|| binding.Sprite.startsWith('/') || binding.Sprite.contains(':') || binding.Sprite.contains(QChar(0))
++			|| binding.Sprite.split('/').contains("..") || !binding.Sprite.endsWith(".spr", Qt::CaseInsensitive))
++			throw std::runtime_error("bindSpr 的贴图索引或 SPR 相对路径无效");
++		binding.FPS = Number(entry, "sprFPS", 30, 0, 1000);
++		const auto rules = entry.value("sequence");
++		if (!rules.isArray() || rules.toArray().size() > 4096) throw std::runtime_error("bindSpr 的 sequence 数组无效");
++		binding.Rules.resize(sequences);
++		for (const auto ruleValue : rules.toArray())
++		{
++			if (!ruleValue.isObject()) throw std::runtime_error("bindSpr 动作规则必须是对象");
++			const auto ruleObject = ruleValue.toObject();
++			SpriteRule rule;
++			rule.Sequence = int(Number(ruleObject, "index", -1, -1, 1000000, true));
++			if (rule.Sequence < 0 || rule.Sequence >= sequences)
++			{
++				result.Notices.append(QString("贴图槽 %1：忽略不存在的动作 %2。").arg(binding.Texture).arg(rule.Sequence));
++				continue;
++			}
++			rule.Loop = Boolean(ruleObject, "isLoop"); rule.Sync = Boolean(ruleObject, "isSyncFrame");
++			rule.Offset = int(Number(ruleObject, "offsetFrame", 0, -1000000, 1000000, true));
++			rule.Start = int(Number(ruleObject, "startFrame", 0, -1000000, 1000000, true));
++			rule.End = int(Number(ruleObject, "endFrame", 0, -1000000, 1000000, true));
++			rule.Rate = Number(ruleObject, "frameRate", 1, 0, 1000);
++			if (ruleObject.contains("isloop") || ruleObject.contains("offsetframe"))
++				result.Notices.append("JSON 中小写 isloop/offsetframe 按引擎行为忽略；字段区分大小写。");
++			// The engine inserts into a map: the first duplicate wins.
++			if (binding.Rules[rule.Sequence].Sequence < 0) binding.Rules[rule.Sequence] = rule;
++		}
++		if (std::none_of(result.Sprites.begin(), result.Sprites.end(), [&](const auto& b) { return b.Texture == binding.Texture; }))
++			result.Sprites.push_back(std::move(binding));
++	}
++	result.Notices.removeDuplicates();
++	return result;
++}
++
++QString LocateModelJSON(const QString& modelFile, const QString& root)
++{
++	const QFileInfo model(modelFile);
++	const auto name = model.completeBaseName() + ".json";
++	const auto adjacent = model.dir().filePath(name);
++	if (QFileInfo(adjacent).isFile()) return adjacent;
++	// Preserve nested models/player/... paths for archive fallback.
++	const auto normalized = QDir::fromNativeSeparators(model.absoluteFilePath());
++	const int pos = normalized.toLower().lastIndexOf("/models/");
++	const auto relative = pos >= 0 ? normalized.mid(pos + 1, normalized.size() - pos - 1 - model.fileName().size()) + name
++		: "models/" + name;
++	return LocateResource(root, relative);
++}
++
++double AdvanceSpriteFrame(const SpriteRule& rule, double fps, int frames,
++	double previous, double seconds, double modelFrame)
++{
++	if (frames <= 1 || !std::isfinite(previous) || !std::isfinite(seconds) || !std::isfinite(modelFrame)) return 0;
++	const double start = std::max(0, rule.Start);
++	const double end = rule.End > 0 ? rule.End : frames - 1;
++	double frame = rule.Sync ? start + std::max(0.0, modelFrame - rule.Offset)
++		: std::max(start, previous + std::max(0.0, seconds) * fps * rule.Rate);
++	if (frame >= end)
++		frame = rule.Sync && !rule.Loop ? end : std::fmod(std::trunc(frame), end) + start;
++	return frame;
++}
++
++int SpriteFrameIndex(double frame, int frames)
++{
++	// R_GetSpriteFrame falls back to frame zero for an out-of-range result.
++	return std::isfinite(frame) && frame >= 0 && frame < frames ? int(frame) : 0;
++}
++}
+diff --git a/src/hlam/formats/csol/CSOLModelJSON.hpp b/src/hlam/formats/csol/CSOLModelJSON.hpp
+new file mode 100644
+index 0000000..e11e336
+--- /dev/null
++++ b/src/hlam/formats/csol/CSOLModelJSON.hpp
+@@ -0,0 +1,35 @@
++#pragma once
++#include <QByteArray>
++#include <QString>
++#include <QStringList>
++#include <vector>
++
++namespace csol
++{
++struct SpriteRule
++{
++	int Sequence = -1;
++	bool Loop = false, Sync = false;
++	int Offset = 0, Start = 0, End = 0;
++	double Rate = 1;
++};
++struct SpriteBinding
++{
++	int Texture = -1;
++	QString Sprite;
++	double FPS = 30;
++	std::vector<SpriteRule> Rules;
++};
++struct ModelJSON
++{
++	std::vector<SpriteBinding> Sprites;
++	QStringList Notices;
++};
++ModelJSON ParseModelJSON(const QByteArray& data, int textures, int sequences);
++QString LocateModelJSON(const QString& modelFile, const QString& root);
++// Engine semantics: non-sync always cycles; sync ignores sprFPS/frameRate.
++// End defaults to the last frame index, and wrapping uses int(frame) % end + start.
++double AdvanceSpriteFrame(const SpriteRule& rule, double fps, int frames,
++	double previous, double seconds, double modelFrame);
++int SpriteFrameIndex(double frame, int frames);
++}
 diff --git a/src/hlam/formats/csol/CSOLPreview.cpp b/src/hlam/formats/csol/CSOLPreview.cpp
 new file mode 100644
-index 0000000..b764b4f
+index 0000000..fe7d965
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.cpp
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,503 @@
 +#include "formats/csol/CSOLPreview.hpp"
 +#include "formats/studiomodel/EditableStudioModel.hpp"
 +#include "graphics/TextureLoader.hpp"
@@ -1176,6 +1864,7 @@ index 0000000..b764b4f
 +#include <QRegularExpression>
 +#include <QFileInfo>
 +#include <QDir>
++#include <QRandomGenerator>
 +#include <stdexcept>
 +
 +namespace csol
@@ -1209,16 +1898,19 @@ index 0000000..b764b4f
 +void Preview::Discover(const QString& file, const studiomdl::EditableStudioModel& model)
 +{
 +	SourceFile = file;
++	Root = DiscoverResourceRoot(file);
++	if (Root.isEmpty()) Root = GameDirectory();
++	ModelJSONFile = LocateModelJSON(file, Root);
 +	bool special = IsRevivegun(model);
++	for (const auto& sequence : model.Sequences)
++		for (const auto& event : sequence->Events) special |= event->Options.starts_with('#');
 +	for (const auto& texture : model.Textures)
 +	{
 +		const auto info = ParseMaterial(QString::fromStdString(texture->Name));
 +		special |= info.Special || info.Width > 0 || !info.Descriptor.isEmpty()
 +			|| (!info.HandSuffix.isEmpty() && info.Name.compare("hand.bmp", Qt::CaseInsensitive) != 0);
 +	}
-+	if (!special) return;
-+	Root = DiscoverResourceRoot(file);
-+	if (Root.isEmpty()) Root = GameDirectory();
++	if (!special && ModelJSONFile.isEmpty()) return;
 +	Enabled = true;
 +	FollowWeapon = IsRevivegun(model);
 +	Load(model);
@@ -1227,6 +1919,10 @@ index 0000000..b764b4f
 +void Preview::Load(const studiomdl::EditableStudioModel& model)
 +{
 +	Textures.clear(); Frames.clear(); FrameHandles.clear(); Effects = {}; RelatedResources.clear(); Time = ActionTime = 0;
++	BoundSprites.clear(); BoundClips.clear();
++	EventClips.clear(); EventDefinitions.clear(); EventSprites.clear(); EventsStarted = false;
++	EventSprites.reserve(256);
++	ModelJSONFile = LocateModelJSON(SourceFile, Root);
 +	ActionSequence = -1;
 +	RecognizedWeapon = IsRevivegun(model);
 +	HandModels.assign(model.Bodyparts.size(), {-1, -1});
@@ -1238,8 +1934,71 @@ index 0000000..b764b4f
 +			if (name.contains("cso_hand_female")) HandModels[group][1] = int(sub);
 +		}
 +	QStringList messages;
++	std::size_t eventBytes = 0;
++	for (int sequence = 0; sequence < int(model.Sequences.size()); ++sequence)
++		for (const auto& event : model.Sequences[sequence]->Events)
++		{
++			try
++			{
++				auto parsed = ParseSpriteEvent(event->EventId, QString::fromStdString(event->Options));
++				if (!parsed) continue;
++				if (parsed->Attachment >= int(model.Attachments.size()) || parsed->Follow >= int(model.Attachments.size()))
++					throw std::runtime_error("事件引用了不存在的模型挂点");
++				const auto file = LocateResource(Root, parsed->ResourceName());
++				if (file.isEmpty()) throw std::runtime_error(("缺少事件特效：" + parsed->ResourceName()).toStdString());
++				auto it = std::find_if(EventClips.begin(), EventClips.end(), [&](const auto& clip) { return clip.File == file; });
++				const auto index = std::size_t(it - EventClips.begin());
++				if (it == EventClips.end())
++				{
++					const auto bytes = ReadResource(file);
++					if (bytes.size() < 12 || bytes[8] != 2 || bytes[9] || bytes[10] || bytes[11])
++						throw std::runtime_error("事件 SPR 目前仅支持 type 2 面向相机的朝向");
++					EffectClip clip; clip.File = file; clip.Frames = DecodeSprite(bytes);
++					std::size_t size = 0; for (const auto& frame : clip.Frames) size += frame.sizeInBytes();
++					if (size > 256 * 1024 * 1024 - eventBytes) throw std::runtime_error("事件特效缓存超过 256 MiB");
++					eventBytes += size; EventClips.push_back(std::move(clip));
++				}
++				EventDefinitions.push_back({*parsed, sequence, event->Frame, index});
++				messages.append(QString("%1 第 %2 帧：%3").arg(QString::fromStdString(model.Sequences[sequence]->Label))
++					.arg(event->Frame).arg(DescribeSpriteEvent(event->EventId, QString::fromStdString(event->Options))));
++			}
++			catch (const std::exception& e) { messages.append(QString::fromUtf8(e.what())); }
++		}
 +	if (Root.isEmpty()) messages.append("未找到模型旁的资源目录；特殊效果所需的外部文件可能不完整。");
 +	else messages.append("自动搜索目录：\n" + ResourceDirectories(Root).join("\n"));
++	if (!ModelJSONFile.isEmpty())
++	{
++		messages.append("自动加载模型 JSON：" + ModelJSONFile);
++		try
++		{
++			auto config = ParseModelJSON(ReadResource(ModelJSONFile), int(model.Textures.size()), int(model.Sequences.size()));
++			messages.append(config.Notices);
++			std::size_t decodedBytes = 0;
++			for (auto& binding : config.Sprites)
++			{
++				try
++				{
++					const auto file = LocateResource(Root, binding.Sprite);
++					if (file.isEmpty()) throw std::runtime_error("未找到 SPR 资源");
++					auto it = std::find_if(BoundClips.begin(), BoundClips.end(), [&](const auto& clip) { return clip.File == file; });
++					std::size_t index = std::size_t(it - BoundClips.begin());
++					if (it == BoundClips.end())
++					{
++						EffectClip clip; clip.File = file; clip.Frames = DecodeSprite(ReadResource(file));
++						std::size_t bytes = 0;
++						for (const auto& frame : clip.Frames) bytes += frame.sizeInBytes();
++						if (bytes > 256 * 1024 * 1024 - decodedBytes) throw std::runtime_error("动态贴图缓存超过 256 MiB");
++						decodedBytes += bytes;
++						BoundClips.push_back(std::move(clip));
++					}
++					messages.append(QString("贴图槽 %1 ← %2（%3 帧）").arg(binding.Texture).arg(binding.Sprite).arg(BoundClips[index].Frames.size()));
++					BoundSprites.push_back({std::move(binding), index});
++				}
++				catch (const std::exception& e) { messages.append(binding.Sprite + "：" + QString::fromUtf8(e.what())); }
++			}
++		}
++		catch (const std::exception& e) { messages.append(QString::fromUtf8(e.what())); }
++	}
 +	int hands = 0;
 +	for (const auto& texture : model.Textures)
 +	{
@@ -1354,17 +2113,102 @@ index 0000000..b764b4f
 +	messages.removeDuplicates();
 +	int clips = 0; std::size_t frameCount = Frames.size();
 +	for (const auto& clip : Effects) if (!clip.Frames.empty()) { ++clips; frameCount += clip.Frames.size(); }
-+	Status = QString("已加载 %1 张手部贴图、%2 组动作特效（%3 帧）。\n").arg(hands).arg(clips).arg(frameCount) + messages.join("\n");
++	UpdateBindings(0, 0, 0);
++	Status = QString("已加载 %1 张手部贴图、%2 处 JSON 动态贴图、%3 组专用特效、%4 个扩展事件。\n")
++		.arg(hands).arg(BoundSprites.size()).arg(clips).arg(EventDefinitions.size()) + messages.join("\n");
 +	if (!RelatedResources.empty()) Status += "\n\n关联资源（发现不代表已绑定全部游戏事件）：\n" + RelatedResources.join("\n");
 +}
 +
 +void Preview::SetAction(int sequence, double seconds)
 +{
++	EventSprites.clear(); EventsStarted = false;
 +	if (sequence == ActionSequence || sequence / 6 != ActionSequence / 6 || sequence % 6 == 2 || ActionSequence < 0)
 +		Time = seconds;
 +	else if (ActionSequence % 6 == 1 || ActionSequence >= 12) Time = seconds;
 +	else if (ActionSequence % 6 == 2) Time = std::max(0.0, ActionTime - 1.0) + seconds;
 +	ActionSequence = sequence; ActionTime = seconds;
++}
++
++void Preview::AdvanceEvents(int sequence, double start, double advance, double duration, double seconds, bool loop)
++{
++	if (!Enabled || !Playing || !std::isfinite(seconds) || seconds < 0 || !std::isfinite(advance) || advance < 0) return;
++	for (auto& sprite : EventSprites) sprite.Age += seconds;
++	for (std::size_t i = 0; i < EventDefinitions.size(); ++i)
++	{
++		const auto& def = EventDefinitions[i]; if (def.Sequence != sequence) continue;
++		const double end = start + advance;
++		double when = def.Frame;
++		if (loop && duration > 0 && when < start) when += std::ceil((start - when) / duration) * duration;
++		for (int repeats = 0; repeats < 256 && when <= end + 1e-6; ++repeats)
++		{
++			if (when > start + 1e-6 || (!EventsStarted && when >= start - 1e-6))
++			{
++				EventSprite sprite; sprite.Definition = i;
++				sprite.Age = advance > 0 ? std::max(0.0, (end - when) / advance * seconds) : 0;
++				const auto& e = def.Parameters;
++				if (e.RandomFrame) sprite.FirstFrame = QRandomGenerator::global()->bounded(int(EventClips[def.Clip].Frames.size()));
++				if (e.Rotation == 1 || e.Rotation == 2) sprite.Angle = QRandomGenerator::global()->bounded(e.Rotation == 1 ? 21 : 360);
++				if (EventSprites.size() < 256) EventSprites.push_back(sprite);
++			}
++			if (!loop || duration <= 0) break;
++			when += duration;
++		}
++	}
++	EventsStarted = true;
++	std::erase_if(EventSprites, [&](const auto& sprite)
++	{
++		const auto& def = EventDefinitions[sprite.Definition]; const auto& e = def.Parameters;
++		const auto frames = EventClips[def.Clip].Frames.size();
++		return sprite.Age >= e.Duration(int(frames)) || (e.SequenceOnly && def.Sequence != sequence)
++			|| (e.Animate && !e.Loop && sprite.FirstFrame + sprite.Age * e.FPS >= frames);
++	});
++}
++
++void Preview::SeekEvents(int sequence, double frame, double fps)
++{
++	EventSprites.clear(); EventsStarted = false;
++	// Seeking remains available while either playback toggle is paused.
++	const bool playing = Playing; Playing = true;
++	AdvanceEvents(sequence, 0, frame, 0, fps > 0 ? frame / fps : 0, false);
++	Playing = playing;
++}
++
++EffectView Preview::EventEffect(const EventSprite& sprite) const
++{
++	EffectView view;
++	const auto& def = EventDefinitions[sprite.Definition]; const auto& e = def.Parameters;
++	const auto& clip = EventClips[def.Clip];
++	if (clip.Frames.empty()) return view;
++	view.Frame = std::size_t(std::fmod(sprite.FirstFrame + (e.Animate ? std::floor(sprite.Age * e.FPS + 1e-6) : 0), double(clip.Frames.size())));
++	view.Width = clip.Frames[view.Frame].width() * e.Scale; view.Height = clip.Frames[view.Frame].height() * e.Scale;
++	if (view.Frame < clip.Handles.size()) view.Handle = clip.Handles[view.Frame];
++	return view;
++}
++
++void Preview::UpdateBindings(int sequence, double modelFrame, double seconds, bool seek)
++{
++	for (auto& sprite : BoundSprites)
++	{
++		const auto& binding = sprite.Binding;
++		sprite.Active = sequence >= 0 && sequence < int(binding.Rules.size()) && binding.Rules[sequence].Sequence >= 0;
++		if (!sprite.Active) continue;
++		const auto& rule = binding.Rules[sequence];
++		if (seek) sprite.Frame = std::max(0, rule.Start);
++		sprite.Frame = AdvanceSpriteFrame(rule, binding.FPS, int(BoundClips[sprite.Clip].Frames.size()),
++			sprite.Frame, seconds, modelFrame);
++	}
++}
++
++GLuint Preview::BoundTexture(int texture) const
++{
++	for (const auto& sprite : BoundSprites)
++		if (sprite.Active && sprite.Binding.Texture == texture)
++		{
++			const auto& clip = BoundClips[sprite.Clip];
++			const auto index = SpriteFrameIndex(sprite.Frame, int(clip.Frames.size()));
++			return index < int(clip.Handles.size()) ? clip.Handles[index] : 0;
++		}
++	return 0;
 +}
 +
 +EffectView Preview::CurrentEffect(const studiomdl::EditableStudioModel& model, int sequence) const
@@ -1411,6 +2255,13 @@ index 0000000..b764b4f
 +		clip.Handles.reserve(clip.Frames.size());
 +		for (const auto& frame : clip.Frames) clip.Handles.push_back(upload(frame));
 +	}
++	for (auto& clip : BoundClips)
++	{
++		clip.Handles.reserve(clip.Frames.size());
++		for (const auto& frame : clip.Frames) clip.Handles.push_back(upload(frame));
++	}
++	for (auto& clip : EventClips)
++		for (const auto& frame : clip.Frames) clip.Handles.push_back(upload(frame));
 +	auto gl = QOpenGLContext::currentContext()->functions();
 +	const unsigned targets[]{GL_TEXTURE_CUBE_MAP_POSITIVE_X, GL_TEXTURE_CUBE_MAP_POSITIVE_Y,
 +		GL_TEXTURE_CUBE_MAP_NEGATIVE_X, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y, GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z};
@@ -1467,11 +2318,21 @@ index 0000000..b764b4f
 +
 +void Preview::Release(graphics::TextureLoader& loader)
 +{
++	for (auto& clip : EventClips)
++	{
++		for (auto handle : clip.Handles) loader.DeleteTexture(handle);
++		clip.Handles.clear();
++	}
 +	EnvShader.reset();
 +	for (auto& texture : Textures) if (texture.Cube) { loader.DeleteTexture(texture.Cube); texture.Cube = 0; }
 +	for (auto& texture : Textures) if (texture.Handle) { loader.DeleteTexture(texture.Handle); texture.Handle = 0; }
 +	for (auto handle : FrameHandles) loader.DeleteTexture(handle);
 +	FrameHandles.clear();
++	for (auto& clip : BoundClips)
++	{
++		for (auto handle : clip.Handles) loader.DeleteTexture(handle);
++		clip.Handles.clear();
++	}
 +	for (auto& clip : Effects)
 +	{
 +		for (auto handle : clip.Handles) loader.DeleteTexture(handle);
@@ -1481,8 +2342,10 @@ index 0000000..b764b4f
 +
 +void Preview::UpdateFilters(graphics::TextureLoader& loader)
 +{
++	for (const auto& clip : EventClips) for (auto handle : clip.Handles) loader.SetFilters(handle, false);
 +	for (const auto& texture : Textures) if (texture.Handle) loader.SetFilters(texture.Handle, false);
 +	for (auto handle : FrameHandles) loader.SetFilters(handle, false);
++	for (const auto& clip : BoundClips) for (auto handle : clip.Handles) loader.SetFilters(handle, false);
 +	for (const auto& clip : Effects) for (auto handle : clip.Handles) loader.SetFilters(handle, false);
 +}
 +
@@ -1496,12 +2359,14 @@ index 0000000..b764b4f
 +}
 diff --git a/src/hlam/formats/csol/CSOLPreview.hpp b/src/hlam/formats/csol/CSOLPreview.hpp
 new file mode 100644
-index 0000000..733af00
+index 0000000..890b572
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.hpp
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,121 @@
 +#pragma once
 +#include "formats/csol/CSOLFormats.hpp"
++#include "formats/csol/CSOLModelJSON.hpp"
++#include "formats/csol/CSOLEvents.hpp"
 +#include "graphics/OpenGL.hpp"
 +#include <glm/vec3.hpp>
 +#include <array>
@@ -1538,6 +2403,31 @@ index 0000000..733af00
 +	float Width = 0, Height = 0;
 +};
 +
++struct BoundSprite
++{
++	SpriteBinding Binding;
++	std::size_t Clip = 0;
++	double Frame = 0;
++	bool Active = false;
++};
++
++struct EventDefinition
++{
++	SpriteEvent Parameters;
++	int Sequence = 0, Frame = 0;
++	std::size_t Clip = 0;
++};
++struct EventSprite
++{
++	std::size_t Definition = 0;
++	double Age = 0;
++	int FirstFrame = 0;
++	float Angle = 0;
++	// Unfollowed effects retain their first rendered attachment position.
++	mutable bool Positioned = false;
++	mutable glm::vec3 Position{0};
++};
++
 +// Viewer state only. ConvertFromEditable deliberately does not serialize this.
 +struct Preview
 +{
@@ -1568,12 +2458,24 @@ index 0000000..733af00
 +	QString SourceFile;
 +	QStringList RelatedResources;
 +	std::array<EffectClip, 8> Effects;
++	QString ModelJSONFile;
++	std::vector<EffectClip> BoundClips;
++	std::vector<BoundSprite> BoundSprites;
++	std::vector<EffectClip> EventClips;
++	std::vector<EventDefinition> EventDefinitions;
++	std::vector<EventSprite> EventSprites;
++	bool EventsStarted = false;
 +	double ActionTime = 0;
 +	int ActionSequence = -1;
 +
 +	void Discover(const QString& file, const studiomdl::EditableStudioModel& model);
 +	void Load(const studiomdl::EditableStudioModel& model);
 +	void SetAction(int sequence, double seconds = 0);
++	void AdvanceEvents(int sequence, double start, double advance, double duration, double seconds, bool loop);
++	void SeekEvents(int sequence, double frame, double fps);
++	EffectView EventEffect(const EventSprite& sprite) const;
++	void UpdateBindings(int sequence, double modelFrame, double seconds, bool seek = false);
++	GLuint BoundTexture(int texture) const;
 +	EffectView CurrentEffect(const studiomdl::EditableStudioModel& model, int sequence) const;
 +	void Upload(graphics::TextureLoader& loader);
 +	void Release(graphics::TextureLoader& loader);
@@ -1745,7 +2647,7 @@ index 8b8f86f..a633a5a 100644
  	}
  }
 diff --git a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
-index ed0b42e..8c494dd 100644
+index ed0b42e..4e2f8d1 100644
 --- a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 +++ b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 @@ -1,10 +1,13 @@
@@ -1838,7 +2740,7 @@ index ed0b42e..8c494dd 100644
  
  		if (!bWireframe)
  		{
-@@ -662,7 +700,21 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -662,7 +700,23 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  				_openglFunctions->glAlphaFunc(GL_GREATER, 0.5f);
  			}
  
@@ -1857,11 +2759,13 @@ index ed0b42e..8c494dd 100644
 +						info.Blending == csol::Blend::Alpha ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
 +				}
 +			}
-+			_openglFunctions->glBindTexture(GL_TEXTURE_2D, preview && preview->Handle ? preview->Handle : _studioModel->TextureHandles[textureIndex]);
++			const auto animated = preview ? _studioModel->CSOL.BoundTexture(textureIndex) : 0;
++			_openglFunctions->glBindTexture(GL_TEXTURE_2D, animated ? animated
++				: preview && preview->Handle ? preview->Handle : _studioModel->TextureHandles[textureIndex]);
  		}
  
  		int i;
-@@ -707,6 +759,12 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -707,6 +761,12 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  					}
  				}
  
@@ -1874,7 +2778,7 @@ index ed0b42e..8c494dd 100644
  				_openglFunctions->glVertex3fv(glm::value_ptr(_xformverts[ptricmds[0]]));
  			}
  			_openglFunctions->glEnd();
-@@ -724,11 +782,73 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -724,11 +784,100 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  				_openglFunctions->glDisable(GL_ALPHA_TEST);
  			}
  		}
@@ -1894,55 +2798,82 @@ index ed0b42e..8c494dd 100644
 +{
 +	const auto& preview = _studioModel->CSOL;
 +	if (!preview.Enabled) return;
-+	const auto effect = preview.CurrentEffect(*_studioModel, _renderInfo->Sequence);
-+	if (!effect.Handle) return;
-+	glm::vec3 center = preview.Offset;
-+	glm::vec3 right{1, 0, 0}, up{0, 0, 1};
-+	if (preview.Attachment >= 0 && preview.Attachment < _studioModel->Attachments.size())
++	auto draw = [&](const csol::EffectView& effect, int attachmentIndex, glm::vec3 offset,
++		bool billboard, bool depth, csol::Blend blend, float brightness, float angle, bool flip,
++		const csol::EventSprite* fixed)
 +	{
-+		const auto& attachment = *_studioModel->Attachments[preview.Attachment];
-+		const auto& bone = _bonetransform[attachment.Bone->ArrayIndex];
-+		center = bone * glm::vec4(attachment.Origin + preview.Offset, 1);
-+		right = glm::normalize(glm::vec3(bone * glm::vec4(right, 0)));
-+		up = glm::normalize(glm::vec3(bone * glm::vec4(up, 0)));
-+	}
-+	if (preview.Billboard)
-+	{
-+		glm::mat4 rotation(1);
-+		rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.y), glm::vec3(0, 0, 1));
-+		rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.x), glm::vec3(0, 1, 0));
-+		rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.z), glm::vec3(1, 0, 0));
-+		const auto inverse = glm::transpose(glm::mat3(rotation));
-+		// Camera's stored Y axis is left of lookAt's +X view direction.
-+		right = inverse * -_viewerRight;
-+		// SPR_VP_PARALLEL uses the camera basis, not a per-sprite look-at.
-+		up = inverse * _viewerUp;
-+	}
-+	right *= effect.Width * 0.5f;
-+	up *= effect.Height * 0.5f;
-+	const glm::vec3 vertices[]{center - right + up, center + right + up, center + right - up, center - right - up};
-+	const float uv[4][2]{{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-+	_openglFunctions->glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT);
-+	_openglFunctions->glEnable(GL_TEXTURE_2D);
-+	if (preview.DepthTest) _openglFunctions->glEnable(GL_DEPTH_TEST);
-+	else _openglFunctions->glDisable(GL_DEPTH_TEST);
-+	_openglFunctions->glDisable(GL_ALPHA_TEST);
-+	_openglFunctions->glDisable(GL_CULL_FACE);
-+	_openglFunctions->glDisable(GL_LIGHTING);
-+	_openglFunctions->glEnable(GL_BLEND);
-+	_openglFunctions->glDepthMask(GL_FALSE);
-+	_openglFunctions->glBlendFunc(preview.SpriteBlend == csol::Blend::Add ? GL_ONE : GL_SRC_ALPHA,
-+		preview.SpriteBlend == csol::Blend::Alpha ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
-+	_openglFunctions->glColor4f(preview.Brightness, preview.Brightness, preview.Brightness, _renderInfo->Transparency);
-+	_openglFunctions->glBindTexture(GL_TEXTURE_2D, effect.Handle);
-+	_openglFunctions->glBegin(GL_QUADS);
-+	for (int i = 0; i < 4; ++i)
-+	{
-+		_openglFunctions->glTexCoord2fv(uv[i]);
-+		_openglFunctions->glVertex3fv(glm::value_ptr(vertices[i]));
-+	}
-+	_openglFunctions->glEnd();
-+	_openglFunctions->glPopAttrib();
++		if (!effect.Handle) return;
++		glm::vec3 center = offset;
++		glm::vec3 right{1, 0, 0}, up{0, 0, 1};
++		if (attachmentIndex >= 0 && attachmentIndex < _studioModel->Attachments.size())
++		{
++			const auto& attachment = *_studioModel->Attachments[attachmentIndex];
++			const auto& bone = _bonetransform[attachment.Bone->ArrayIndex];
++			center = bone * glm::vec4(attachment.Origin + offset, 1);
++			right = glm::normalize(glm::vec3(bone * glm::vec4(right, 0)));
++			up = glm::normalize(glm::vec3(bone * glm::vec4(up, 0)));
++		}
++		if (fixed)
++		{
++			if (!fixed->Positioned) { fixed->Position = center; fixed->Positioned = true; }
++			center = fixed->Position;
++		}
++		if (billboard)
++		{
++			glm::mat4 rotation(1);
++			rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.y), glm::vec3(0, 0, 1));
++			rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.x), glm::vec3(0, 1, 0));
++			rotation = glm::rotate(rotation, glm::radians(_renderInfo->Angles.z), glm::vec3(1, 0, 0));
++			const auto inverse = glm::transpose(glm::mat3(rotation));
++			// Camera's stored Y axis is left of lookAt's +X view direction.
++			right = inverse * -_viewerRight;
++			// SPR_VP_PARALLEL uses the camera basis, not a per-sprite look-at.
++			up = inverse * _viewerUp;
++		}
++		if (angle != 0)
++		{
++			const float c = std::cos(glm::radians(angle)), s = std::sin(glm::radians(angle));
++			const auto rotated = c * right + s * up; up = c * up - s * right; right = rotated;
++		}
++		right *= effect.Width * 0.5f;
++		up *= effect.Height * 0.5f;
++		const glm::vec3 vertices[]{center - right + up, center + right + up, center + right - up, center - right - up};
++		const float u0 = flip ? 1.f : 0.f, u1 = 1.f - u0;
++		const float uv[4][2]{{u0, 0}, {u1, 0}, {u1, 1}, {u0, 1}};
++		_openglFunctions->glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT);
++		_openglFunctions->glEnable(GL_TEXTURE_2D);
++		if (depth) _openglFunctions->glEnable(GL_DEPTH_TEST);
++		else _openglFunctions->glDisable(GL_DEPTH_TEST);
++		_openglFunctions->glDisable(GL_ALPHA_TEST);
++		_openglFunctions->glDisable(GL_CULL_FACE);
++		_openglFunctions->glDisable(GL_LIGHTING);
++		_openglFunctions->glEnable(GL_BLEND);
++		_openglFunctions->glDepthMask(GL_FALSE);
++		_openglFunctions->glBlendFunc(blend == csol::Blend::Add ? GL_ONE : GL_SRC_ALPHA,
++			blend == csol::Blend::Alpha ? GL_ONE_MINUS_SRC_ALPHA : GL_ONE);
++		_openglFunctions->glColor4f(brightness, brightness, brightness, _renderInfo->Transparency);
++		_openglFunctions->glBindTexture(GL_TEXTURE_2D, effect.Handle);
++		_openglFunctions->glBegin(GL_QUADS);
++		for (int i = 0; i < 4; ++i)
++		{
++			_openglFunctions->glTexCoord2fv(uv[i]);
++			_openglFunctions->glVertex3fv(glm::value_ptr(vertices[i]));
++		}
++		_openglFunctions->glEnd();
++		_openglFunctions->glPopAttrib();
++	};
++	draw(preview.CurrentEffect(*_studioModel, _renderInfo->Sequence), preview.Attachment, preview.Offset,
++		preview.Billboard, preview.DepthTest, preview.SpriteBlend, preview.Brightness, 0, false, nullptr);
++	// Match the normal queue before the first-person overlay queue.
++	for (bool overlay : {false, true})
++		for (const auto& sprite : preview.EventSprites)
++		{
++			const auto& e = preview.EventDefinitions[sprite.Definition].Parameters;
++			if (e.Overlay != overlay) continue;
++			draw(preview.EventEffect(sprite), e.Follow >= 0 ? e.Follow : e.Attachment, glm::vec3(0),
++				true, !e.Overlay, e.Alpha ? csol::Blend::Alpha : csol::Blend::Add, 1, sprite.Angle,
++				e.HandFlip && !preview.RightHand, e.Follow < 0 ? &sprite : nullptr);
++		}
 +}
 +
  unsigned int StudioModelRenderer::DrawShadows(const bool fixZFighting, const bool wireframe, float floorHeight)
@@ -2116,7 +3047,7 @@ index 22eb5e4..0b9e7b9 100644
  	auto colorSettings = settings->GetColorSettings();
  
 diff --git a/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp b/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
-index 41830bc..47832f2 100644
+index 41830bc..cfb49f8 100644
 --- a/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
 +++ b/src/hlam/plugins/halflife/studiomodel/StudioModelAsset.cpp
 @@ -1,6 +1,7 @@
@@ -2234,7 +3165,7 @@ index 41830bc..47832f2 100644
  
  	_scenes.push_back(_textureScene.get());
  
-@@ -673,6 +687,13 @@ bool StudioModelAsset::HandleMouseInput(QMouseEvent* event)
+@@ -673,11 +687,21 @@ bool StudioModelAsset::HandleMouseInput(QMouseEvent* event)
  
  void StudioModelAsset::Tick()
  {
@@ -2248,6 +3179,14 @@ index 41830bc..47832f2 100644
  	//TODO: update asset-local world time
  	for (auto scene : _scenes)
  	{
+ 		scene->Tick();
+ 	}
++	if (preview.Enabled && preview.Playing && PlaySequence)
++		preview.UpdateBindings(_modelEntity->GetSequence(), _modelEntity->GetFrame(),
++			_application->GetWorldTime()->GetFrameTime() * _modelEntity->GetFrameRate());
+ }
+ 
+ void StudioModelAsset::OnSceneWidgetRecreated()
 diff --git a/src/hlam/plugins/halflife/studiomodel/StudioModelAssetProvider.cpp b/src/hlam/plugins/halflife/studiomodel/StudioModelAssetProvider.cpp
 index 8cba692..816fa2a 100644
 --- a/src/hlam/plugins/halflife/studiomodel/StudioModelAssetProvider.cpp
@@ -3400,15 +4339,16 @@ index 7cabff0..b3abbfa 100644
  		AttachmentsPanel.ui
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
 new file mode 100644
-index 0000000..c57e868
+index 0000000..ed2ee58
 --- /dev/null
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,332 @@
 +#include "plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp"
 +#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
 +#include "entity/HLMVStudioModelEntity.hpp"
 +#include "graphics/IGraphicsContext.hpp"
 +#include "settings/ApplicationSettings.hpp"
++#include "formats/csol/CSOLExport.hpp"
 +#include <QCheckBox>
 +#include <QComboBox>
 +#include <QDoubleSpinBox>
@@ -3445,11 +4385,34 @@ index 0000000..c57e868
 +	_summary = new QLabel; _summary->setWordWrap(true); form->addRow(_summary);
 +	_enabled = new QCheckBox("启用 CSOL 特殊材质预览");
 +	form->addRow(_enabled);
-+	_automatic = new QCheckBox("自动匹配武器动作与特效");
++	_automatic = new QCheckBox("复活枪专用挂点特效");
 +	_automatic->setObjectName("CSOLAutomatic"); form->addRow(_automatic);
 +	_rightHand = new QCheckBox("右手持枪"); _rightHand->setChecked(true);
 +	_rightHand->setObjectName("CSOLRightHand"); form->addRow(_rightHand);
 +	auto rescan = new QPushButton("重新扫描模型目录"); form->addRow(rescan);
++	auto exportResources = new QPushButton("导出全部关联素材…");
++	exportResources->setObjectName("CSOLExportResources"); form->addRow(exportResources);
++	connect(exportResources, &QPushButton::clicked, this, [this]
++	{
++		if (!_asset) return;
++		const auto parent = QFileDialog::getExistingDirectory(this, "选择导出位置（将新建素材子文件夹）");
++		if (parent.isEmpty()) return;
++		const auto base = QFileInfo(_asset->GetFileName()).completeBaseName() + "_素材";
++		QString directory = QDir(parent).filePath(base);
++		for (int i = 2; QFileInfo::exists(directory); ++i) directory = QDir(parent).filePath(base + "_" + QString::number(i));
++		try
++		{
++			const auto& p = _asset->GetEditableStudioModel()->CSOL;
++			setCursor(Qt::WaitCursor);
++			const auto result = csol::ExportResources(_asset->GetFileName(), p.Root, directory, p.SpriteFile);
++			unsetCursor();
++			const auto message = QString("已导出 %1 个资源文件。\n%2\n\n可直接打开：%3\n%4")
++				.arg(result.Files).arg(result.Directory).arg(result.Model)
++				.arg(result.Missing.isEmpty() ? "静态依赖已导出；来源与校验值见 resources.json。" : QString("有 %1 项缺失或未解析，详情见 resources.json。").arg(result.Missing.size()));
++			QMessageBox::information(this, "关联素材导出", message);
++		}
++		catch (const std::exception& e) { unsetCursor(); QMessageBox::warning(this, "导出未完成", QString::fromUtf8(e.what())); }
++	});
 +	connect(rescan, &QPushButton::clicked, this, [this]
 +	{
 +		if (!_asset) return;
@@ -3503,7 +4466,7 @@ index 0000000..c57e868
 +		else connect(button, &QPushButton::clicked, this, [this, label] { Profile(label.startsWith("保存")); });
 +	}
 +	ef->addRow(buttons);
-+	auto note = new QLabel("打开模型即搜索所在资源树。切换动作可直接预览配套效果；选择角色后手部贴图立即更新。仅影响预览，不写入 MDL。");
++	auto note = new QLabel("打开模型即搜索资源树及同名 JSON。bindSpr 自动贴合模型表面，并按动作播放；使用主时间轴暂停或定位。选择角色后手部贴图立即更新。仅影响预览，不写入 MDL。");
 +	note->setWordWrap(true); form->addRow(note);
 +	_attachment = new QComboBox; ef->addRow("附着点（从 0 开始）", _attachment);
 +	_attachment->setObjectName("CSOLAttachment");
@@ -3528,7 +4491,7 @@ index 0000000..c57e868
 +	_billboard = new QCheckBox("始终朝向相机"); _billboard->setChecked(true);
 +	_loop = new QCheckBox("循环播放"); _loop->setChecked(true);
 +	_depth = new QCheckBox("受模型深度遮挡"); _depth->setChecked(true);
-+	_play = new QCheckBox("播放附加动画（跟随主播放开关）"); _play->setChecked(true);
++	_play = new QCheckBox("播放动态贴图与附加动画（跟随主播放开关）"); _play->setChecked(true);
 +	ef->addRow(_billboard); ef->addRow(_depth); ef->addRow(_loop); ef->addRow(_play);
 +	_frame = new QSpinBox; ef->addRow("定位帧（从 0 开始）", _frame);
 +	_frame->setObjectName("CSOLFrame");
@@ -3568,7 +4531,7 @@ index 0000000..c57e868
 +	_sprite->setText(p.SpriteFile);
 +	_enabled->setChecked(p.Enabled); _play->setChecked(p.Playing); _billboard->setChecked(p.Billboard); _loop->setChecked(p.Loop);
 +	_automatic->setChecked(p.FollowWeapon); _automatic->setEnabled(p.RecognizedWeapon);
-+	_rightHand->setChecked(p.RightHand); _rightHand->setEnabled(p.RecognizedWeapon && p.FollowWeapon);
++	_rightHand->setChecked(p.RightHand); _rightHand->setEnabled((p.RecognizedWeapon && p.FollowWeapon) || !p.EventDefinitions.empty());
 +	for (QWidget* control : std::initializer_list<QWidget*>{_sprite, _preset, _attachment, _width, _height, _fps,
 +		_brightness, _blend, _billboard, _depth, _loop, _frame, _offset[0], _offset[1], _offset[2]})
 +		control->setEnabled(!p.FollowWeapon);
@@ -3624,6 +4587,11 @@ index 0000000..c57e868
 +		next.Appearance = _appearance->currentText() == "默认手部" ? QString() : _appearance->currentText();
 +		next.Load(*model);
 +		next.SetAction(_asset->GetEntity()->GetSequence());
++		const int sequence = _asset->GetEntity()->GetSequence();
++		const double frame = _asset->GetEntity()->GetFrame();
++		const double fps = sequence >= 0 && sequence < int(model->Sequences.size()) ? model->Sequences[sequence]->FPS : 0;
++		next.UpdateBindings(sequence, frame, fps > 0 ? frame / fps : 0, true);
++		next.SeekEvents(sequence, frame, fps);
 +		auto context = _asset->GetGraphicsContext(); context->Begin();
 +		try { next.Upload(*_asset->GetTextureLoader()); }
 +		catch (...) { next.Release(*_asset->GetTextureLoader()); context->End(); throw; }
@@ -4367,10 +5335,21 @@ index 52df6fe..3c764f4 100644
    <layout class="QHBoxLayout" name="MainLayout" stretch="0,1">
     <property name="sizeConstraint">
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.cpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.cpp
-index 192f20d..f66c5c4 100644
+index 192f20d..14284fe 100644
 --- a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.cpp
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.cpp
-@@ -31,7 +31,7 @@ SequencesPanel::SequencesPanel(StudioModelAssetProvider* provider)
+@@ -2,6 +2,10 @@
+ 
+ #include <QAbstractItemView>
+ #include <QRegularExpressionValidator>
++#include <QLabel>
++#include <QLayout>
++#include <QGridLayout>
++#include "formats/csol/CSOLEvents.hpp"
+ 
+ #include "entity/HLMVStudioModelEntity.hpp"
+ 
+@@ -31,7 +35,7 @@ SequencesPanel::SequencesPanel(StudioModelAssetProvider* provider)
  	{
  		QStringList items;
  
@@ -4379,7 +5358,18 @@ index 192f20d..f66c5c4 100644
  
  		for (const auto& activity : ActivityMap)
  		{
-@@ -150,7 +150,7 @@ void SequencesPanel::OnAssetChanged(StudioModelAsset* asset)
+@@ -82,6 +86,10 @@ SequencesPanel::SequencesPanel(StudioModelAssetProvider* provider)
+ 	_ui.EventOptions->setValidator(new qt::ByteLengthValidator(STUDIO_MAX_EVENT_OPTIONS_LENGTH - 1, this));
+ 
+ 	_ui.EventDataWidget->setEnabled(false);
++	auto explanation = new QLabel;
++	explanation->setObjectName("CSOLEventExplanation"); explanation->setWordWrap(true);
++	auto eventLayout = qobject_cast<QGridLayout*>(_ui.EventDataWidget->layout());
++	eventLayout->addWidget(explanation, eventLayout->rowCount(), 0, 1, eventLayout->columnCount());
+ 
+ 	OnAssetChanged(_provider->GetDummyAsset());
+ }
+@@ -150,7 +158,7 @@ void SequencesPanel::OnAssetChanged(StudioModelAsset* asset)
  					const QSignalBlocker blocker{_ui.Events};
  
  					//Add new entry to the combo box
@@ -4388,7 +5378,7 @@ index 192f20d..f66c5c4 100644
  					_ui.Events->setCurrentIndex(eventIndex);
  					_ui.Events->setEnabled(true);
  				}
-@@ -414,7 +414,7 @@ void SequencesPanel::OnSequenceChanged(int index)
+@@ -414,7 +422,7 @@ void SequencesPanel::OnSequenceChanged(int index)
  
  		for (int i = 0; i < sequence.Events.size(); ++i)
  		{
@@ -4397,6 +5387,28 @@ index 192f20d..f66c5c4 100644
  		}
  
  		_ui.Events->addItems(events);
+@@ -516,6 +524,21 @@ void SequencesPanel::OnEventChanged(int index)
+ 	//Only call setText if the text is different
+ 	//This prevents the edit state from being overwritten
+ 	const QString options{QString::fromStdString(event->Options)};
++	const auto explanation = csol::DescribeSpriteEvent(event->EventId, options);
++	_ui.EventOptions->setToolTip(explanation);
++	_ui.EventId->setToolTip(explanation);
++	_ui.Events->setToolTip(explanation);
++	if (auto* label = findChild<QLabel*>("CSOLEventExplanation"))
++	{
++		label->setText(explanation); label->setToolTip(explanation); label->setVisible(!explanation.isEmpty());
++		try
++		{
++			if (const auto parsed = csol::ParseSpriteEvent(event->EventId, options))
++				label->setText(QString("CSOL：SPR %1 → 挂点 %2\n%3 帧/秒，缩放 %4（悬停查看详情）")
++					.arg(parsed->Resource).arg(parsed->Follow >= 0 ? parsed->Follow : parsed->Attachment).arg(parsed->FPS).arg(parsed->Scale));
++		}
++		catch (const std::exception&) {} // DescribeSpriteEvent already supplies the diagnostic.
++	}
+ 
+ 	if (_ui.EventOptions->text() != options)
+ 	{
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.ui b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.ui
 index 1728a65..303cf7c 100644
 --- a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/SequencesPanel.ui
@@ -7221,16 +8233,175 @@ index f7598f5..bbe6eb6 100644
         </property>
        </widget>
       </item>
+diff --git a/tests/CSOLEventSmokeTest.cpp b/tests/CSOLEventSmokeTest.cpp
+new file mode 100644
+index 0000000..c151a1a
+--- /dev/null
++++ b/tests/CSOLEventSmokeTest.cpp
+@@ -0,0 +1,147 @@
++#include "application/AssetManager.hpp"
++#include "application/AssetList.hpp"
++#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
++#include "entity/HLMVStudioModelEntity.hpp"
++#include "formats/studiomodel/StudioModelUtils.hpp"
++#include "formats/csol/CSOLExport.hpp"
++#include "graphics/IGraphicsContext.hpp"
++#include "graphics/Scene.hpp"
++#include "graphics/SceneContext.hpp"
++#include "utility/WorldTime.hpp"
++#include "ui/MainWindow.hpp"
++#include <QApplication>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QJsonArray>
++#include <QOpenGLFramebufferObject>
++#include <QOpenGLFunctions_1_1>
++#include <QCryptographicHash>
++#include <QUndoStack>
++#include <QPushButton>
++#include <QComboBox>
++#include <QLabel>
++#include <QDockWidget>
++#include <QTabWidget>
++#include <stdexcept>
++
++int RunCSOLEventSmokeTest(AssetManager& application, const QString& evidence)
++{
++	QDir out(evidence); out.mkpath("."); QJsonObject report;
++	auto require = [](bool b, const char* why) { if (!b) throw std::runtime_error(why); };
++	auto hash = [](const QByteArray& b) { return QCryptographicHash::hash(b, QCryptographicHash::Sha256); };
++	auto* asset = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
++	bool current = false;
++	try
++	{
++		require(asset, "No asset"); auto* model = asset->GetEditableStudioModel(); auto* entity = asset->GetEntity(); auto& p = model->CSOL;
++		report.insert("status", p.Status);
++		require(p.Enabled && p.EventDefinitions.size() == 9 && p.EventClips.size() == 7, "Soulreaper numeric events not discovered");
++		require(p.BoundSprites.size() == 7, "Soulreaper native JSON lost");
++		const auto original = hash(csol::ReadResource(asset->GetFileName())); const auto undo = asset->GetUndoStack()->index();
++		auto serialized = [&]()
++		{
++			auto binary = studiomdl::ConvertFromEditable("invariant.mdl", *model); const auto& bytes = binary.GetStudioHeaderPtr();
++			return hash(QByteArray(reinterpret_cast<const char*>(bytes.get()), bytes.SizeInBytes));
++		};
++		const auto before = serialized();
++		auto* clock = application.GetWorldTime();
++		auto tick = [&](int count)
++		{
++			for (int i = 0; i < count; ++i)
++			{
++				clock->SetPreviousTime(clock->GetTime()); clock->SetTime(clock->GetTime() + .05f); clock->SetFrameTime(.05f); asset->Tick();
++			}
++		};
++		asset->PlaySequence = false; entity->SetLoopingMode(StudioLoopingMode::NeverLoop); entity->SetSequence(3);
++		entity->SetFrame(4); require(p.EventSprites.empty(), "Draw event fired before frame 5");
++		entity->SetFrame(5); require(p.EventSprites.size() == 1, "Draw event not fired at frame 5");
++		const auto def = p.EventDefinitions[p.EventSprites[0].Definition];
++		require(def.Parameters.Resource == 362 && def.Parameters.Follow == 6 && p.EventEffect(p.EventSprites[0]).Frame == 0, "Wrong Draw resource/attachment/frame");
++		asset->GetGraphicsContext()->Begin(); current = true;
++		QByteArray expectedImage;
++		{
++			auto* gl = application.GetOpenGLFunctions(); graphics::SceneContext sc(gl, asset->GetTextureLoader());
++			sc.WindowWidth = 960; sc.WindowHeight = 640;
++			auto* scene = asset->GetScene(); scene->UpdateWindowSize(960, 640);
++			scene->GetCurrentCamera()->GetCamera()->SetProperties(glm::vec3(0), 0, 0, 0);
++			QOpenGLFramebufferObjectFormat format; format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
++			QOpenGLFramebufferObject fbo(960, 640, format); require(fbo.isValid(), "No FBO");
++			auto draw = [&](const QString& name)
++			{
++				require(fbo.bind(), "FBO bind failed"); scene->Draw(sc, glm::vec4(.12f, .13f, .15f, 1));
++				const auto image = fbo.toImage(); require(gl->glGetError() == GL_NO_ERROR, "OpenGL error");
++				require(image.save(out.filePath(name + ".png")), "Image save failed");
++				return hash(QByteArray(reinterpret_cast<const char*>(image.constBits()), image.sizeInBytes()));
++			};
++			draw("draw-trigger-frame5"); entity->SetFrame(10);
++			auto saved = p.EventSprites; p.EventSprites.clear(); const auto absent = draw("draw-without-event"); p.EventSprites = saved;
++			expectedImage = draw("draw-frame10"); require(absent != expectedImage, "Draw sprite has no rendered effect");
++			const auto age = p.EventSprites[0].Age; tick(8);
++			require(p.EventSprites[0].Age == age && draw("draw-paused") == expectedImage, "Pause changed sprite or model");
++			p.RightHand = false; require(draw("draw-left-uv") != expectedImage, "H mirror flag ignored"); p.RightHand = true;
++			entity->SetFrame(0); require(p.EventSprites.empty(), "Seek left stale effect");
++			asset->PlaySequence = true; tick(8); require(p.EventSprites.size() == 1 && p.EventSprites[0].Age > 0, "Actual asset Tick did not trigger and animate event");
++			draw("draw-live-tick"); const auto pausedAge = p.EventSprites[0].Age; p.Playing = false; tick(2);
++			require(p.EventSprites[0].Age == pausedAge, "Effect playback toggle ignored"); p.Playing = true;
++			tick(35); require(p.EventSprites.empty(), "Nonloop effect did not expire after sequence end"); draw("draw-expired");
++			entity->SetLoopingMode(StudioLoopingMode::AlwaysLoop); entity->SetSequence(3); entity->SetFrame(27); tick(6);
++			require(!p.EventSprites.empty(), "Loop lost Draw event"); tick(4);
++			require(p.EventSprites.size() >= 1 && p.EventSprites.back().Age < .5, "Loop did not retrigger Draw"); draw("draw-loop");
++			asset->PlaySequence = false; entity->SetSequence(4); require(p.EventSprites.size() == 2, "Simultaneous attachments dropped"); draw("shoot-two-attachments");
++			entity->SetSequence(0); require(p.EventSprites.empty(), "Sequence change retained stale effect");
++			entity->SetSequence(3); entity->SetFrame(10);
++			const auto old = p.EventClips[0].Handles[0]; p.Release(*asset->GetTextureLoader()); require(!gl->glIsTexture(old), "Event texture leak");
++			p.Upload(*asset->GetTextureLoader()); p.UpdateFilters(*asset->GetTextureLoader());
++			require(gl->glIsTexture(p.EventClips[0].Handles[0]) && draw("draw-recreated") == expectedImage, "Event resource recreation changed output");
++			report.insert("gpu", QString::fromLatin1(reinterpret_cast<const char*>(gl->glGetString(GL_RENDERER)))); fbo.release();
++		}
++		asset->GetGraphicsContext()->End(); current = false;
++		require(serialized() == before && asset->GetUndoStack()->index() == undo, "Preview modified MDL/undo");
++		const auto exported = csol::ExportResources(asset->GetFileName(), p.Root, out.filePath("exported"));
++		report.insert("exportFiles", exported.Files); report.insert("exportBytes", double(exported.Bytes));
++		report.insert("missing", QJsonArray::fromStringList(exported.Missing));
++		require(hash(csol::ReadResource(exported.Directory + "/" + exported.Model)) == original, "Export modified model");
++		for (int i = 356; i <= 362; ++i) require(QFileInfo::exists(exported.Directory + QString("/common/sprites/muzzleflash%1.spr").arg(i)), "Export omitted numbered event");
++		auto* panel = application.GetMainWindow()->findChild<QWidget*>("CSOLPanel"); require(panel, "No CSOL panel");
++		require(panel->findChild<QPushButton*>("CSOLExportResources"), "No Chinese export button");
++		application.GetMainWindow()->resize(1280, 900);
++		if (auto* dock = qobject_cast<QDockWidget*>(panel->parentWidget())) { dock->show(); dock->raise(); }
++		application.GetMainWindow()->show(); panel->findChild<QTabWidget*>("CSOLTabs")->setCurrentIndex(0); QApplication::processEvents();
++		require(panel->grab().save(out.filePath("ui-export.png")), "UI capture failed");
++		auto* sequences = application.GetMainWindow()->findChild<QComboBox*>("Sequences"); require(sequences, "No sequence selector");
++		sequences->setCurrentIndex(3);
++		auto* events = application.GetMainWindow()->findChild<QComboBox*>("Events"); require(events, "No event selector");
++		for (int i = 0; i < int(model->Sequences[3]->Events.size()); ++i)
++			if (model->Sequences[3]->Events[i]->EventId == 5061) events->setCurrentIndex(i);
++		auto* explanation = application.GetMainWindow()->findChild<QLabel*>("CSOLEventExplanation");
++		require(explanation && explanation->toolTip().contains("muzzleflash362.spr") && explanation->text().contains("挂点 6"), "Chinese event explanation missing");
++		QWidget* eventDock = explanation; while (eventDock && !qobject_cast<QDockWidget*>(eventDock)) eventDock = eventDock->parentWidget();
++		if (eventDock) { eventDock->show(); eventDock->raise(); QApplication::processEvents(); require(eventDock->grab().save(out.filePath("ui-event-explanation.png")), "Event explanation capture failed"); }
++		csol::SetGameDirectory({}); application.LoadFile(exported.Directory + "/" + exported.Model);
++		auto* offline = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
++		require(offline && offline != asset, "Cannot open exported model"); const auto& op = offline->GetEditableStudioModel()->CSOL;
++		require(op.EventDefinitions.size() == 9 && op.BoundSprites.size() == 7, "Offline export lost effects");
++		for (const auto& clip : op.EventClips) require(clip.File.startsWith(exported.Directory) && !clip.Handles.empty(), "Offline events depend on original tree");
++		for (const auto& clip : op.BoundClips) require(clip.File.startsWith(exported.Directory) && !clip.Handles.empty(), "Offline JSON depends on original tree");
++		offline->PlaySequence = false; offline->GetEntity()->SetSequence(3); offline->GetEntity()->SetFrame(10);
++		offline->GetGraphicsContext()->Begin();
++		{
++			auto* gl = application.GetOpenGLFunctions(); graphics::SceneContext sc(gl, offline->GetTextureLoader()); sc.WindowWidth = 960; sc.WindowHeight = 640;
++			auto* scene = offline->GetScene(); scene->UpdateWindowSize(960, 640); scene->GetCurrentCamera()->GetCamera()->SetProperties(glm::vec3(0), 0, 0, 0);
++			QOpenGLFramebufferObjectFormat format; format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil); QOpenGLFramebufferObject fbo(960, 640, format);
++			require(fbo.bind(), "Offline FBO failed"); scene->Draw(sc, glm::vec4(.12f, .13f, .15f, 1)); const auto image = fbo.toImage();
++			require(image.save(out.filePath("draw-offline.png")) && hash(QByteArray(reinterpret_cast<const char*>(image.constBits()), image.sizeInBytes())) == expectedImage, "Offline exported render differs");
++			require(gl->glGetError() == GL_NO_ERROR, "Offline GL error"); fbo.release();
++		}
++		offline->GetGraphicsContext()->End();
++		require(hash(csol::ReadResource(asset->GetFileName())) == original, "Original model changed");
++		report.insert("offlineRenderIdentical", true); report.insert("mdlAndUndoUnchanged", true); report.insert("glErrors", 0); report.insert("result", "passed");
++	}
++	catch (const std::exception& e) { report.insert("result", "failed"); report.insert("error", QString::fromUtf8(e.what())); }
++	if (current) asset->GetGraphicsContext()->End();
++	QFile output(out.filePath("result.json")); if (!output.open(QIODevice::WriteOnly)) return 2;
++	output.write(QJsonDocument(report).toJson()); return report.value("result").toString() == "passed" ? 0 : 1;
++}
 diff --git a/tests/CSOLFormatsTests.cpp b/tests/CSOLFormatsTests.cpp
 new file mode 100644
-index 0000000..d8c862c
+index 0000000..e323c57
 --- /dev/null
 +++ b/tests/CSOLFormatsTests.cpp
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,316 @@
 +#include "formats/csol/CSOLFormats.hpp"
++#include "formats/csol/CSOLModelJSON.hpp"
++#include "formats/csol/CSOLEvents.hpp"
++#include "formats/csol/CSOLExport.hpp"
++#include "formats/studiomodel/StudioModelFileFormat.hpp"
++#include <cstring>
 +#include <QCoreApplication>
 +#include <QCryptographicHash>
 +#include <QDir>
++#include <QDirIterator>
 +#include <QJsonArray>
 +#include <QJsonDocument>
 +#include <QJsonObject>
@@ -7240,6 +8411,7 @@ index 0000000..d8c862c
 +#include <bzlib.h>
 +#include <iostream>
 +#include <functional>
++#include <cmath>
 +#include <stdexcept>
 +
 +static int checks = 0;
@@ -7280,6 +8452,103 @@ index 0000000..d8c862c
 +	QCoreApplication app(argc, argv);
 +	try
 +	{
++		const auto drawEvent = csol::ParseSpriteEvent(5061, "#I362 S0.05 R0 F0 P30 T999 A1 L0 U1 O0 X6 D1 H1");
++		Check(drawEvent && drawEvent->ResourceName() == "sprites/muzzleflash362.spr", "Numeric event resource");
++		Check(drawEvent->Attachment == 6 && drawEvent->Follow == 6 && drawEvent->Overlay && drawEvent->Alpha, "Event attachment/queue/blend");
++		Check(std::abs(drawEvent->Scale * 256 - 12.8) < 1e-5 && std::abs(drawEvent->Duration(35) - 35.0/30) < 1e-8, "Event float scale/lifetime");
++		Check(!csol::ParseSpriteEvent(5004, "weapons/draw.wav"), "Ordinary sound event intercepted");
++		Check(csol::ParseSpriteEvent(5001, "#I1 U0")->Overlay, "U is a presence flag");
++		Check(csol::ParseSpriteEvent(5001, "#I1 P30 T999 A1 L1")->Duration(35) == 999, "Loop T must remain explicit");
++		Reject([] { csol::ParseSpriteEvent(5061, "#I362 P0"); });
++		Reject([] { csol::ParseSpriteEvent(5061, "#I362 X99999"); });
++		Reject([] { csol::ParseSpriteEvent(5061, "#I362 Snan"); });
++		{
++			QTemporaryDir fixture; Check(fixture.isValid(), "Export fixture directory");
++			const QString root = fixture.path() + "/tree/common";
++			auto put = [&](const QString& name, const QByteArray& bytes)
++			{
++				const auto path = QDir(root).filePath(name); QDir().mkpath(QFileInfo(path).absolutePath());
++				QFile f(path); Check(f.open(QIODevice::WriteOnly) && f.write(bytes) == bytes.size(), "Export fixture file");
++			};
++			studiohdr_t header{}; header.version = 10; header.numseq = 1; header.numseqgroups = 2;
++			header.seqindex = sizeof(header);
++			mstudioseqdesc_t seq{}; seq.numevents = 2; seq.eventindex = sizeof(header) + sizeof(seq);
++			mstudioevent_t event{}; event.event = 5061; std::strcpy(event.options, "#I362 S0.05 F0 P30 T999 A1 X6");
++			mstudioevent_t sound{}; sound.event = 5004; std::strcpy(sound.options, "weapons/export_draw.wav");
++			QByteArray mdl(reinterpret_cast<const char*>(&header), sizeof(header)); mdl.replace(0, 4, "IDST");
++			mdl.append(reinterpret_cast<const char*>(&seq), sizeof(seq)); mdl.append(reinterpret_cast<const char*>(&event), sizeof(event));
++			mdl.append(reinterpret_cast<const char*>(&sound), sizeof(sound));
++			put("models/v_export.mdl", mdl); put("sprites/muzzleflash362.spr", "chosen-local");
++			studiohdr_t textureHeader{}; textureHeader.version = 10; textureHeader.textureindex = sizeof(textureHeader);
++			QByteArray textureModel(reinterpret_cast<const char*>(&textureHeader), sizeof(textureHeader)); textureModel.replace(0, 4, "IDST");
++			put("models/v_exportT.mdl", textureModel); put("models/v_export01.mdl", "IDSQ");
++			put("models/v_export.json", R"({"bindSpr":[{"sprName":"sprites/unrelated-name.spr"}]})");
++			put("sprites/unrelated-name.spr", "json-resource"); put("sound/weapons/export_draw.wav", "sound");
++			const auto oldGame = csol::GameDirectory(); csol::SetGameDirectory({});
++			const auto out = csol::ExportResources(root + "/models/v_export.mdl", root, fixture.path() + "/export");
++			Check(out.Files == 7 && out.Missing.isEmpty(), "Complete event/JSON/sound/T/sequence-group dependency export");
++			Check(csol::ReadResource(out.Directory + "/common/sprites/muzzleflash362.spr") == "chosen-local", "Export keeps relative resource path");
++			Check(csol::ReadResource(out.Directory + "/" + out.Model) == mdl, "Export preserves model bytes");
++			Reject([&] { csol::ExportResources(root + "/models/v_export.mdl", root, out.Directory); });
++			put("models/v_export.json", R"({"bindSpr":[{"sprName":"sprites/../../escape.spr"}]})");
++			const auto bad = csol::ExportResources(root + "/models/v_export.mdl", root, fixture.path() + "/unsafe");
++			Check(!bad.Missing.isEmpty() && !QFileInfo::exists(fixture.path() + "/escape.spr"), "Unsafe dependency must not escape export");
++			csol::SetGameDirectory(oldGame);
++		}
++		const QByteArray modelJSON = R"({"bindSpr":[{"texIndex":2,"sprName":"sprites/test.spr","sequence":[{"index":1}]}]})";
++		auto bindings = csol::ParseModelJSON(modelJSON, 3, 2);
++		Check(bindings.Sprites.size() == 1 && bindings.Sprites[0].Rules[0].Sequence == -1, "JSON sequence gating");
++		const auto& binding = bindings.Sprites[0];
++		Check(binding.FPS == 30 && binding.Rules[1].Rate == 1 && !binding.Rules[1].Loop && !binding.Rules[1].Sync, "Engine JSON defaults");
++		Check(csol::ParseModelJSON(modelJSON, 2, 2).Sprites.empty(), "Nonexistent texture slot safely skipped");
++		Check(csol::ParseModelJSON(modelJSON, 3, 1).Sprites[0].Rules[0].Sequence == -1, "Unused sequence index safely skipped");
++		for (const char* bad : {"../bad.spr", "C:/bad.spr", "/bad.spr", "sprites/../../bad.spr", "bad.png"})
++			Reject([&] { auto bytes = modelJSON; bytes.replace("sprites/test.spr", bad); csol::ParseModelJSON(bytes, 3, 2); });
++		Reject([] { csol::ParseModelJSON("{", 1, 1); });
++		Reject([] { csol::ParseModelJSON("[]", 1, 1); });
++		Reject([&] { auto bytes = modelJSON; bytes.replace("\"index\":1", "\"index\":0.5"); csol::ParseModelJSON(bytes, 3, 2); });
++		Reject([&] { auto bytes = modelJSON; bytes.replace("\"index\":1", "\"index\":1,\"isLoop\":1"); csol::ParseModelJSON(bytes, 3, 2); });
++		auto lower = modelJSON; lower.replace("\"index\":1", "\"index\":1,\"isloop\":true,\"offsetframe\":15");
++		const auto caseRules = csol::ParseModelJSON(lower, 3, 2);
++		Check(!caseRules.Sprites[0].Rules[1].Loop && caseRules.Sprites[0].Rules[1].Offset == 0 && !caseRules.Notices.empty(), "JSON exact key casing");
++		csol::SpriteRule rule;
++		Check(csol::AdvanceSpriteFrame(rule, 30, 45, 0, 0.5, 0) == 15, "Time-based sprite FPS");
++		Check(csol::AdvanceSpriteFrame(rule, 30, 45, 43.5, 0.05, 0) == 1, "Default end is count minus one; integer wrap");
++		rule.Start = 45; rule.End = 88;
++		Check(csol::AdvanceSpriteFrame(rule, 30, 89, 87, 0.1, 0) == 47, "Non-sync wraps even with isLoop false");
++		rule.Sync = true; rule.Start = 0; rule.Offset = 10; rule.Rate = 5;
++		Check(csol::AdvanceSpriteFrame(rule, 10, 89, 0, 100, 9) == 0, "Sync offset delays animation");
++		Check(csol::AdvanceSpriteFrame(rule, 10, 89, 0, 100, 30) == 20, "Sync follows model frame, ignores speed fields");
++		Check(csol::AdvanceSpriteFrame(rule, 10, 89, 0, 100, 120) == 88, "Sync non-loop holds end");
++		rule.Loop = true;
++		Check(csol::AdvanceSpriteFrame(rule, 10, 89, 0, 100, 120) == 22, "Sync loop wraps");
++		Check(csol::SpriteFrameIndex(89, 89) == 0 && csol::SpriteFrameIndex(88.9, 89) == 88, "Engine out of range sprite fallback");
++		Check(csol::AdvanceSpriteFrame(rule, 30, 1, 0, 100, 100) == 0, "Single-frame sprite avoids modulo zero");
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_RULE_ORACLE"))
++		{
++			const auto oracle = QJsonDocument::fromJson(csol::ReadResource(qEnvironmentVariable("HLAM_CSOL_RULE_ORACLE"))).object();
++			for (const auto value : oracle.value("cases").toArray())
++			{
++				const auto c = value.toObject(); csol::SpriteRule r;
++				r.Sync = c.value("sync").toBool(); r.Loop = c.value("loop").toBool();
++				r.Start = c.value("start").toInt(); r.End = c.value("end").toInt(); r.Offset = c.value("offset").toInt(); r.Rate = c.value("rate").toDouble();
++				const auto frame = csol::AdvanceSpriteFrame(r, c.value("fps").toDouble(), c.value("frames").toInt(),
++					c.value("previous").toDouble(), c.value("seconds").toDouble(), c.value("modelFrame").toDouble());
++				Check(std::abs(frame - c.value("expected").toDouble()) < 0.001, "Native x86 instruction oracle mismatch");
++			}
++		}
++		QByteArray v2(42 + 768 + 20 + 1, 0); v2.replace(0, 4, "IDSP"); Put(v2, 4, 2); Put(v2, 12, 2);
++		Put(v2, 20, 1); Put(v2, 24, 1); Put(v2, 28, 1); v2[41] = 1; v2[42 + 765] = char(255);
++		Put(v2, 822, 1); Put(v2, 826, 1); v2[830] = 127;
++		auto indexed = csol::DecodeSprite(v2);
++		Check(indexed.size() == 1 && indexed[0].constBits()[0] == 255 && indexed[0].constBits()[3] == 127, "SPR v2 indexalpha");
++		Reject([&] { csol::DecodeSprite(v2.left(v2.size() - 1)); });
++		{
++			QTemporaryDir tree; QDir(tree.path()).mkpath("models/player/test");
++			const auto file = tree.filePath("models/player/test/sample.json"); QFile output(file); output.open(QIODevice::WriteOnly); output.write(modelJSON); output.close();
++			Check(csol::LocateModelJSON(tree.filePath("models/player/test/sample.mdl"), tree.path()) == file, "Adjacent native JSON discovery");
++			Check(csol::LocateModelJSON("/missing/models/player/test/sample.mdl", tree.path()) == file, "Nested model resource fallback");
++		}
 +		const auto hand = csol::ParseMaterial("#512512CSO_Girl_Hand_long.bmp");
 +		Check(hand.Width == 512 && hand.Height == 512 && hand.HandSuffix == "FemaleLong.tga", "Hand dimensions or suffix");
 +		Check(csol::ParseMaterial("#000512hand.bmp").Width == 0, "Zero dimension");
@@ -7378,6 +8647,23 @@ index 0000000..d8c862c
 +		}
 +		csol::ClearArchiveCache();
 +		QJsonObject report{{"syntheticChecks", checks}};
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_JSON_MODELS"))
++		{
++			QJsonArray models;
++			QDirIterator files(qEnvironmentVariable("HLAM_CSOL_JSON_MODELS"), {"*.json"}, QDir::Files, QDirIterator::Subdirectories);
++			while (files.hasNext())
++			{
++				const auto path = files.next(); QFile mdl(path.left(path.size() - 5) + ".mdl");
++				if (!mdl.open(QIODevice::ReadOnly)) continue;
++				const auto header = mdl.read(244); if (header.size() < 244) continue;
++				auto field = [&](int at) { unsigned n = 0; for (int i = 0; i < 4; ++i) n |= unsigned(static_cast<unsigned char>(header[at + i])) << (i * 8); return int(n); };
++				const auto bytes = csol::ReadResource(path); const auto object = QJsonDocument::fromJson(bytes).object();
++				if (!object.contains("bindSpr")) continue;
++				const auto config = csol::ParseModelJSON(bytes, field(180), field(164));
++				models.append(QJsonObject{{"file", QFileInfo(path).fileName()}, {"bindings", int(config.Sprites.size())}, {"notices", QJsonArray::fromStringList(config.Notices)}});
++			}
++			report.insert("nativeModelJSON", models);
++		}
 +		if (argc == 5 && QString::fromLocal8Bit(argv[1]) == "--nar")
 +		{
 +			const auto expected = QJsonDocument::fromJson(csol::ReadResource(QString::fromLocal8Bit(argv[3]))).array();
@@ -7401,7 +8687,7 @@ index 0000000..d8c862c
 +			QJsonArray images;
 +			for (const auto& name : QDir(root.filePath("sprites")).entryList({"*.spr"}, QDir::Files))
 +			{
-+				const auto frames = csol::DecodeSpriteV3(csol::ReadResource(root.filePath("sprites/" + name)));
++				const auto frames = csol::DecodeSprite(csol::ReadResource(root.filePath("sprites/" + name)));
 +				QJsonArray hashes; for (const auto& frame : frames) hashes.append(Hash(frame));
 +				images.append(QJsonObject{{"file", name}, {"frames", int(frames.size())}, {"rgbaSha256", hashes}});
 +			}
@@ -7421,6 +8707,156 @@ index 0000000..d8c862c
 +		return 0;
 +	}
 +	catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
++}
+diff --git a/tests/CSOLJSONSmokeTest.cpp b/tests/CSOLJSONSmokeTest.cpp
+new file mode 100644
+index 0000000..3368974
+--- /dev/null
++++ b/tests/CSOLJSONSmokeTest.cpp
+@@ -0,0 +1,144 @@
++#include "application/AssetManager.hpp"
++#include "application/AssetList.hpp"
++#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
++#include "entity/HLMVStudioModelEntity.hpp"
++#include "formats/studiomodel/StudioModelUtils.hpp"
++#include "graphics/IGraphicsContext.hpp"
++#include "graphics/Scene.hpp"
++#include "graphics/SceneContext.hpp"
++#include "utility/WorldTime.hpp"
++#include "ui/MainWindow.hpp"
++#include <QApplication>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QJsonArray>
++#include <QOpenGLFramebufferObject>
++#include <QOpenGLFunctions_1_1>
++#include <QCryptographicHash>
++#include <QUndoStack>
++#include <QPlainTextEdit>
++#include <QTabWidget>
++#include <QDockWidget>
++#include <cmath>
++#include <stdexcept>
++
++int RunCSOLJSONSmokeTest(AssetManager& application, const QString& evidence)
++{
++	QDir out(evidence); out.mkpath(".");
++	QJsonObject report;
++	auto require = [](bool value, const char* message) { if (!value) throw std::runtime_error(message); };
++	auto* asset = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
++	bool current = false;
++	try
++	{
++		require(asset != nullptr, "No asset");
++		auto* model = asset->GetEditableStudioModel();
++		auto* entity = asset->GetEntity();
++		auto& p = model->CSOL;
++		const bool soul = QFileInfo(asset->GetFileName()).baseName() == "v_soulreaperex";
++		const int expected = soul ? 5 : 7;
++		require(p.Enabled && !p.ModelJSONFile.isEmpty() && int(p.BoundSprites.size()) == expected, "Native JSON not loaded automatically");
++		require(!p.FollowWeapon && !p.RecognizedWeapon && p.FrameHandles.empty(), "JSON incorrectly uses attachment billboard");
++		for (const auto& clip : p.BoundClips) require(!clip.Handles.empty(), "SPR cache missing");
++		report.insert("status", p.Status); report.insert("automaticBindings", expected);
++		auto serialized = [&]()
++		{
++			auto binary = studiomdl::ConvertFromEditable("preview-invariant.mdl", *asset->GetEditableStudioModel());
++			const auto& data = binary.GetStudioHeaderPtr();
++			return QCryptographicHash::hash(QByteArray(reinterpret_cast<const char*>(data.get()), data.SizeInBytes), QCryptographicHash::Sha256);
++		};
++		const auto baseline = serialized(); const int undo = asset->GetUndoStack()->index();
++		auto* clock = application.GetWorldTime();
++		auto tick = [&](int count)
++		{
++			for (int i = 0; i < count; ++i)
++			{
++				clock->SetPreviousTime(clock->GetTime()); clock->SetTime(clock->GetTime() + 0.05f); clock->SetFrameTime(0.05f);
++				asset->Tick();
++			}
++		};
++		asset->PlaySequence = false;
++		entity->SetSequence(0); entity->SetFrame(0);
++		asset->GetGraphicsContext()->Begin(); current = true;
++		{
++			auto* gl = application.GetOpenGLFunctions();
++			graphics::SceneContext sc(gl, asset->GetTextureLoader()); sc.WindowWidth = 960; sc.WindowHeight = 640;
++			auto* scene = asset->GetScene(); scene->UpdateWindowSize(960, 640);
++			scene->GetCurrentCamera()->GetCamera()->SetProperties(glm::vec3(0), 0, 0, 0);
++			QOpenGLFramebufferObjectFormat format; format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
++			QOpenGLFramebufferObject fbo(960, 640, format); require(fbo.isValid(), "No FBO");
++			auto draw = [&](const QString& name)
++			{
++				require(fbo.bind(), "Cannot bind FBO"); scene->Draw(sc, glm::vec4(0.12f, 0.13f, 0.15f, 1));
++				const auto image = fbo.toImage(); require(gl->glGetError() == GL_NO_ERROR, "OpenGL error");
++				require(image.save(out.filePath(name + ".png")), "Cannot save image");
++				return QCryptographicHash::hash(QByteArray(reinterpret_cast<const char*>(image.constBits()), image.sizeInBytes()), QCryptographicHash::Sha256);
++			};
++			// Negative control: same renderer/materials/pose with the missing binding path.
++			auto saved = p.BoundSprites; p.BoundSprites.clear();
++			const auto without = draw("without-json"); p.BoundSprites = saved;
++			const auto first = draw("auto-frame0"); require(first != without, "Binding has no visible effect");
++			asset->PlaySequence = true; tick(10);
++			require(p.BoundSprites[0].Frame >= (soul ? 14 : 29), "Real asset Tick did not animate SPR");
++			const auto second = draw("auto-tick10"); require(first != second, "Automatic playback did not change image");
++			asset->PlaySequence = false; const double paused = p.BoundSprites[0].Frame; const auto pose = entity->GetFrame(); tick(10);
++			require(p.BoundSprites[0].Frame == paused && entity->GetFrame() == pose && draw("paused") == second, "Pause did not freeze model and SPR");
++			asset->PlaySequence = true; p.Playing = false; tick(2);
++			require(p.BoundSprites[0].Frame == paused, "Preview animation toggle ignored"); p.Playing = true;
++			asset->PlaySequence = false; entity->SetSequence(soul ? 8 : 4); entity->SetFrame(soul ? 30 : 35);
++			const auto& sync = p.BoundSprites[soul ? 1 : 0];
++			require(sync.Active && std::abs(sync.Frame - 20) < 0.01, "Timeline seek did not use JSON offset");
++			draw("sync-offset-frame20");
++			QJsonArray actions;
++			for (int sequence = 0; sequence < int(model->Sequences.size()); ++sequence)
++			{
++				entity->SetSequence(sequence); entity->SetFrame(12);
++				QJsonArray active;
++				for (const auto& sprite : p.BoundSprites)
++				{
++					const bool applies = sprite.Binding.Rules[sequence].Sequence >= 0;
++					require(sprite.Active == applies && bool(p.BoundTexture(sprite.Binding.Texture)) == applies, "Sequence gating failed");
++					if (applies) active.append(sprite.Binding.Texture);
++				}
++				draw(QString("sequence-%1").arg(sequence));
++				actions.append(QJsonObject{{"sequence", sequence}, {"activeTextureSlots", active}});
++			}
++			report.insert("sequences", actions);
++			const auto old = p.BoundClips[0].Handles[0]; p.Release(*asset->GetTextureLoader());
++			require(!gl->glIsTexture(old), "SPR texture leak"); p.Upload(*asset->GetTextureLoader());
++			require(gl->glIsTexture(p.BoundClips[0].Handles[0]), "SPR recreation failed"); p.UpdateFilters(*asset->GetTextureLoader());
++			draw("recreated");
++			report.insert("gpu", QString::fromLatin1(reinterpret_cast<const char*>(gl->glGetString(GL_RENDERER))));
++			fbo.release();
++		}
++		asset->GetGraphicsContext()->End(); current = false;
++		require(serialized() == baseline && asset->GetUndoStack()->index() == undo, "Preview modified MDL/undo");
++		require(application.GetAssets()->RefreshCurrent(), "Model refresh failed");
++		require(int(asset->GetEditableStudioModel()->CSOL.BoundSprites.size()) == expected
++			&& !asset->GetEditableStudioModel()->CSOL.BoundClips[0].Handles.empty(), "Refresh lost native JSON");
++		auto* panel = application.GetMainWindow()->findChild<QWidget*>("CSOLPanel"); require(panel, "Missing Chinese panel");
++		auto* main = application.GetMainWindow(); main->resize(1280, 900);
++		if (auto* dock = qobject_cast<QDockWidget*>(panel->parentWidget())) { dock->show(); dock->raise(); }
++		main->show(); panel->findChild<QTabWidget*>("CSOLTabs")->setCurrentIndex(2); QApplication::processEvents();
++		require(panel->findChild<QPlainTextEdit*>()->toPlainText().contains("JSON 动态贴图"), "UI status missing JSON bindings");
++		require(panel->grab().save(out.filePath("ui-json-status.png")), "UI capture failed");
++		const auto isolated = out.filePath("json-asset-isolation.mdl");
++		require(QFile::copy(asset->GetFileName(), isolated), "Cannot create isolated model");
++		application.LoadFile(isolated);
++		auto* other = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
++		require(other && other != asset && other->GetEditableStudioModel()->CSOL.BoundSprites.empty(), "JSON binding leaked into another asset");
++		application.GetAssets()->SetCurrent(asset);
++		require(int(asset->GetEditableStudioModel()->CSOL.BoundSprites.size()) == expected, "Asset switch lost bindings");
++		report.insert("assetIsolation", true);
++		report.insert("realAssetTickPlayback", true); report.insert("pauseAndSeek", true); report.insert("resourceRecreation", true);
++		report.insert("modelRefresh", true); report.insert("mdlAndUndoUnchanged", true); report.insert("glErrors", 0);
++		report.insert("result", "passed");
++	}
++	catch (const std::exception& e) { report.insert("result", "failed"); report.insert("error", QString::fromUtf8(e.what())); }
++	if (current) asset->GetGraphicsContext()->End();
++	QFile output(out.filePath("result.json")); if (!output.open(QIODevice::WriteOnly)) return 2;
++	output.write(QJsonDocument(report).toJson()); return report.value("result").toString() == "passed" ? 0 : 1;
 +}
 diff --git a/tests/CSOLSmokeTest.cpp b/tests/CSOLSmokeTest.cpp
 new file mode 100644
