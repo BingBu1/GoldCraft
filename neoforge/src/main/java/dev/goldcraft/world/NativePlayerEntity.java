@@ -21,11 +21,21 @@ public final class NativePlayerEntity extends PlayerEntity {
     private HostWorldState.Actor actor;
     private float lastNativeDamage;
     private NativePlayerHitboxEntity hitbox;
+    private final NativeNutrition nutrition=new NativeNutrition();
     private dev.goldcraft.bridge.NativeHealthLedger healthLedger;
     public NativePlayerHitboxEntity hitbox(){return hitbox;}
+    NativeNutrition nutrition(){return nutrition;}
     public dev.goldcraft.bridge.NativeHealthLedger healthLedger(){return healthLedger;}
-    void inheritHealth(NativePlayerEntity previous){healthLedger=previous.healthLedger;}
+    void inheritHealth(NativePlayerEntity previous){healthLedger=previous.healthLedger;nutrition.inherit(this,previous);}
     public float predictedHealth(){return healthLedger==null?super.getHealth():healthLedger.health(getMaxHealth());}
+    @Override public float getHealth(){return nutrition!=null&&nutrition.running()?predictedHealth():super.getHealth();}
+    @Override public void heal(float amount){
+        if(nutrition!=null&&nutrition.running()&&hitbox!=null)hitbox.heal(amount);
+        else super.heal(amount);
+    }
+    @Override public void addExhaustion(float exhaustion){
+        if(nutrition==null||nutrition.exhaustionAllowed())super.addExhaustion(exhaustion);
+    }
 
     public NativePlayerEntity(ServerWorld world,long epoch,HostWorldState.Actor actor,DamageSink damageSink){
         super(world,BlockPos.ORIGIN,0,new GameProfile(identity(epoch,actor),"CS_"+actor.slot()));
@@ -70,6 +80,7 @@ public final class NativePlayerEntity extends PlayerEntity {
     @Override public boolean isPushable(){return false;}
     @Override public void tick(){if(hitbox==null&&timeUntilRegen>0)timeUntilRegen--;setVelocity(0,0,0);}
     @Override public boolean damage(DamageSource source,float amount){
+        if(nutrition.running()&&!nutrition.exhaustionAllowed())return false;
         if(hitbox!=null&&!hitbox.isRemoved())return hitbox.damage(source,amount);
         if(isRemoved()||!isAlive()||isInvulnerableTo(source)||!Float.isFinite(amount)||amount<=0)return false;
         amount=difficultyDamage(source,amount);

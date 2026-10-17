@@ -101,5 +101,5 @@ public final class NativeStatusEffects {
             ||wait.ledger().settled(GoldCraft.HOST_WORLD.tick())){handoffs.remove(player.getUuid());return false;}
         return true;
     }
-    public static void clear(){NativeEnvironment.clear();NativeMotion.clear();NativeFall.clear();NativeVisibility.clear();NativeVision.clear();NativeStatusAttributes.clear();for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
+    public static void clear(){NativeNutrition.clear();NativeEnvironment.clear();NativeMotion.clear();NativeFall.clear();NativeVisibility.clear();NativeVision.clear();NativeStatusAttributes.clear();for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
 }

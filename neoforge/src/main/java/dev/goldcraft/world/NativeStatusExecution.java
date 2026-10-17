@@ -28,6 +28,9 @@ public final class NativeStatusExecution implements AutoCloseable {
     public static NativeStatusExecution instant(LivingEntity target,Entity direct,Entity attacker){
         return open(target,NativeStatusOrigin.capture(attacker),false,direct==null?target.getBoundingBox().getCenter():direct.getPos(),false,direct!=null);
     }
+    public static NativeStatusExecution nutrition(NativePlayerHitboxEntity target){
+        return open(target,null,true,target.getBoundingBox().getCenter(),false,false);
+    }
     private static NativeStatusExecution open(LivingEntity target,NativeStatusOrigin origin,boolean periodic,Vec3d contact,boolean poison,boolean traceContact){
         return target instanceof NativePlayerHitboxEntity&&target.getWorld() instanceof ServerWorld
             ?new NativeStatusExecution(target,origin,periodic,contact,poison,traceContact):null;

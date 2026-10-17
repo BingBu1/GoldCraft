@@ -42,6 +42,9 @@
     "NativeStatusCloudMixin",
     "NativeStatusLifecycleAccessor",
     "NativeAbsorptionAccessor",
+    "NativeHungerAccessor",
+    "NativeNutritionEffectMixin",
+    "NativeNutritionTickMixin",
     "NativeArmorAccessor",
     "NativeStatusRoutingMixin"
   ],

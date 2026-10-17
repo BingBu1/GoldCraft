@@ -374,7 +374,10 @@
     "docs/NATIVE_FALL.md",
     "tools/Test-NativeFall.py",
     "patches/halflife-asset-manager-csol-zh.patch",
-    "docs/2026-10-17_\u5206\u6790-CSOL\u6a21\u578b-report.md"
+    "docs/2026-10-17_\u5206\u6790-CSOL\u6a21\u578b-report.md",
+    "tools/Test-NativeNutrition.py",
+    "tests/nutrition/NativeNutritionProbe.java",
+    "docs/NATIVE_NUTRITION.md"
   ],
   "trees": {
     "native": [

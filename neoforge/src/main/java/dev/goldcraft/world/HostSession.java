@@ -61,6 +61,10 @@ public final class HostSession {
         boolean effectAligned,effectsReady,effectTeleportAllowed;
     }
     private HostSession(){}
+    static GameMode gameplayMode(ServerPlayerEntity player){
+        var held=HELD.get(player.getUuid());
+        return held==null?player.interactionManager.getGameMode():held.mode;
+    }
     public static void clear(MinecraftServer server){
         HostPlayerEffects.clear();Arrays.fill(EFFECT_STREAMS,null);
         effectGeneration=effectServiceGeneration=effectNativeConnection=0;

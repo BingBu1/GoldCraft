@@ -77,7 +77,7 @@ public final class NativePlayers {
             proxy=new NativePlayerEntity(world,epoch,actor,NativePlayers::damage);players.put(actor.slot(),proxy);
             if(paired!=null)transferTargets(paired,proxy);
         }else proxy.update(actor);
-        ensureHitbox(proxy);return proxy;
+        ensureHitbox(proxy);proxy.nutrition().bind(proxy,paired);return proxy;
     }
     private static NativePlayerHitboxEntity ensureHitbox(NativePlayerEntity body){
         var actor=body.actor();

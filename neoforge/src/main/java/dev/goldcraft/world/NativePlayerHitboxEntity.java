@@ -122,7 +122,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         age++;if(timeUntilRegen>0)timeUntilRegen--;if(hurtTime>0)hurtTime--;
         prevX=getX();prevY=getY();prevZ=getZ();prevYaw=getYaw();prevPitch=getPitch();
         if(!getWorld().isClient&&body!=null&&!body.isRemoved()&&body.isAlive()){
-            tickStatusEffects();setInvisible(true);
+            tickStatusEffects();NativeNutrition.tick(this);setInvisible(true);
         }
     }
     @Override public void updateTrackedPositionAndAngles(double x,double y,double z,float yaw,float pitch,int steps){

@@ -18,7 +18,9 @@ GoldCraft 的 ReHLDS 内置 HTTP 服务默认开启，普通 CS 客户端使用�
 
 保留其他现有字段；`httpPort` 是本地 TCP 端口，监听地址沿用 `bindAddress`。启动脚本检查端口占用、Minecraft/桥接 TCP 端口冲突和引擎是否含新模块。旧设置文件缺少这些字段时使用同样的默认值；使用旧版引擎应先更新引擎，或显式关闭 `httpDownload`。
 
-内网穿透需将玩家可访问的 TCP 入口转发到本机 `httpPort`，并把 `httpPublicUrl` 设为 `http://公网主机:公网TCP端口/goldcraft/`。HTTP 隧道也必须保留 `/goldcraft/` 路径。公网端口可以与本地端口不同，不能根据 CS 的 UDP 映射推定 HTTP 地址。当前未提供公网 HTTP 映射，默认 URL 留空；模块不会向远程玩家广播环回或内网猜测地址。
+内网穿透需将玩家可访问的 TCP 入口转发到本机 `httpPort`，并把 `httpPublicUrl` 设为 `http://公网主机:公网TCP端口/goldcraft/`。HTTP 隧道也必须保留 `/goldcraft/` 路径。公网端口可以与本地端口不同，不能根据 CS 的 UDP 映射推定 HTTP 地址。默认 URL 留空，须显式配置实际入口；模块不会向远程玩家广播环回或内网猜测地址。
+
+TCP 能传输 HTTP，但穿透服务商可能在节点上禁止明文 HTTP。2026-10-17 公网测试先收到“自动 HTTPS”页面，关闭该选项后仍收到节点策略拦截的 `501`，尚未到达 GoldCraft。此类节点需更换为允许 HTTP 的入口或另设可用下载站；当前 URL 校验只接受 HTTP，不能只把配置前缀改成 HTTPS。以具体资源路径测试，不能仅用 `/goldcraft/` 根路径判断成功：服务不提供目录列表，根路径返回 404 可以是正常行为；实际成功响应的 Server 头为 `GoldCraftFastDL/2`。
 
 不使用服务包时，可在专服配置中设置：
 
