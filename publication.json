@@ -372,7 +372,9 @@
     "tools/Observe-SteamStall.py",
     "docs/2026-10-17_\u5206\u6790-ESC-Steam\u963b\u585e-report.md",
     "docs/NATIVE_FALL.md",
-    "tools/Test-NativeFall.py"
+    "tools/Test-NativeFall.py",
+    "patches/halflife-asset-manager-csol-zh.patch",
+    "docs/2026-10-17_\u5206\u6790-CSOL\u6a21\u578b-report.md"
   ],
   "trees": {
     "native": [
