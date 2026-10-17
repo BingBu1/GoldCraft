@@ -75,7 +75,7 @@ public final class GoldCraftClient {
             GoldCraft.LOGGER.error("Invalid local-client configuration: {}",e.getMessage());
         }
         var events=net.neoforged.neoforge.common.NeoForge.EVENT_BUS;
-        events.addListener((net.neoforged.neoforge.event.GameShuttingDownEvent event)->{ if(discovery!=null)discovery.close();if(hud!=null)hud.close();if(link!=null)link.close(); });
+        events.addListener((net.neoforged.neoforge.event.GameShuttingDownEvent event)->{ if(discovery!=null)discovery.close();if(hud!=null)hud.close();DepthCopy.close();if(link!=null)link.close(); });
         events.addListener((net.neoforged.neoforge.client.event.RenderLevelStageEvent event)->{
             if(event.getStage()==net.neoforged.neoforge.client.event.RenderLevelStageEvent.Stage.AFTER_LEVEL&&exporter!=null)exporter.renderFrame();
         });

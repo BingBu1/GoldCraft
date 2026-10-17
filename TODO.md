@@ -14,7 +14,7 @@
 - [ ] 公网部署并实测移动误封与TACZ倍率：本地引擎/Core已更新；3026023计数/12184玩法/真实FML38+4通过，公网尚旧版。保留真实洪泛防护、身份/遮挡检查；后续核长期在线及真实僵尸倍率/击退/归属。[计数](docs/MOVE_COMMAND_RATE.md) · [枪械](docs/PROJECTILE_DAMAGE.md)
 - [ ] 接收HLAM JSON/bindSpr领域交接并精确发布；已收40文件部署/434帧RGBA报告，主协调尚未独立复跑。动态Draw/导出全部相关资产按钮已授权独立maxJobs2构建窗口；fadeTex/bindTex/colorTex、SPR分组帧和原游戏一致性仍待。
 
-- [ ] 排查本次MC重启日志中的重复深度格式错误（Depth formats do not match）；配对/HUD/实体/相机已恢复，仅保存82条现场记录，尚未确定来源，不能写成图形无错误。证据build/host-input-20261017/deployment-verification.json。
+- [ ] 后续联合部署并实测深度复制兼容候选：330JUnit、实际可选Mixin及生产JAR的80组真实GL/141380断言通过；候选仅换Core、尚未部署。原始现场FBO/堆栈未捕获；核对转换计数、日志、手持/粒子/特效遮挡、窗口变化和长期帧时间。[说明](docs/2026-10-17_分析-MC深度复制-report.md)
 - [ ] 完成CSOL通用JSON自动关联和SPR资源播放：领域独立maxJobs2窗口进行中，灵魂收割者/寒冰配置及SPR v2为当前范围；待精确交接与GL/Qt/包验证，旧复活枪验收不能覆盖新模型。
 
 - [ ] 继续CSOL与原游戏同姿态画面对照、场景光照/后处理及完整世界特效事件；恢复角色编号映射和v20/v21，补原始PAK与NAR声音。目录/NAR/@004/左右手及已验证动作交接已核验。[领域报告](docs/2026-10-17_分析-CSOL模型-report.md)

@@ -230,6 +230,7 @@ public final class HudExporter implements AutoCloseable {
         finally{Performance.end("hudEncode",began);}
     }
     public void diagnostics(JsonObject data){
+        data.addProperty("depthFormatConversions",DepthCopy.conversions());
         data.addProperty("hudFrames",sent);data.addProperty("hudBytes",bytes);data.addProperty("hudSkipped",skipped);
         data.addProperty("hudWidth",width);data.addProperty("hudHeight",height);data.addProperty("hudGlError",glError);
         data.addProperty("hudTextureWidth",viewWidth);data.addProperty("hudTextureHeight",viewHeight);
