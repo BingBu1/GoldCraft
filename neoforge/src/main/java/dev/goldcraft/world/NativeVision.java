@@ -11,11 +11,11 @@ import net.minecraft.util.math.MathHelper;
 public final class NativeVision {
     private static long revision;
     private NativeVision(){}
-    public static void clear(){revision=0;}
+    public static void clear(){revision=0;NativeUnderwaterVision.clear();}
     public static void update(HostWorldState.Actor actor,LivingEntity owner){
         if(!GoldCraft.visionAvailable()||!owner.isAlive()||GoldCraft.HOST_WORLD.epoch()==0
             ||actor.slot()<1||actor.slot()>64||actor.serial()==0||actor.spawn()==0||actor.life()==0)return;
-        float night=0,blindness=0,darkness=0,pulse=0;
+        float night=NativeUnderwaterVision.strength(actor,owner),blindness=0,darkness=0,pulse=0;
         var vision=owner.getStatusEffect(StatusEffects.NIGHT_VISION);
         if(vision!=null)night=vision.isDurationBelow(200)
             ?.7f+MathHelper.sin(vision.getDuration()*(float)Math.PI*.2f)*.3f:1;

@@ -47,6 +47,7 @@ class MeleeHandshakeTest {
     }
     @Test void oldHostDropsOnlyMeleeAndKeepsNausea()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var nativeView=host.accept()){hello(nativeView);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){
                 assertEquals(first&~Wire.STATUS_MELEE_CAP,hello(s));welcome(s,Wire.STATUS_NAUSEA_CAP,false);until(link::connected);
@@ -56,6 +57,7 @@ class MeleeHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedMelee()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var nativeView=host.accept()){hello(nativeView);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
                 assertEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);welcome(s,Wire.STATUS_MELEE_CAP,false);

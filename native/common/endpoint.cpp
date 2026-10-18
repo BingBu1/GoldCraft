@@ -287,6 +287,10 @@ bool Endpoint::status_vision() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_vision) != 0;
 }
+bool Endpoint::native_view() const {
+    return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_native_view) != 0;
+}
 bool Endpoint::status_melee() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_melee) != 0;

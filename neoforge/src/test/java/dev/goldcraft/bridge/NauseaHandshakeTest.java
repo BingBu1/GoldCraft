@@ -47,6 +47,7 @@ class NauseaHandshakeTest {
     }
     @Test void oldHostDropsOnlyNauseaAndKeepsGlow()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_VIEW_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.STATUS_NAUSEA_CAP);}
             try(var s=host.accept()){
@@ -57,6 +58,7 @@ class NauseaHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedNausea()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_VIEW_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){

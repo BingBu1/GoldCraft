@@ -433,7 +433,11 @@
     "neoforge/src/test/java/dev/goldcraft/bridge/MeleeHandshakeTest.java",
     "tools/Update-AMXX.py",
     "amxx/floating_damage/tests/vm-support/CPlugin.h",
-    "amxx/floating_damage/tests/vm-support/amxmodx.h"
+    "amxx/floating_damage/tests/vm-support/amxmodx.h",
+    "tools/Test-ConduitVision.py",
+    "tools/Exercise-NativeView.py",
+    "tools/Exercise-ConduitServers.py",
+    "amxx/tests/goldcraft_native_view_test.sma"
   ],
   "trees": {
     "native": [

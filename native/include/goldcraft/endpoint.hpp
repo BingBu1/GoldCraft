@@ -47,6 +47,7 @@ public:
     bool status_fall() const;
     bool status_health() const;
     bool status_motion() const;
+    bool native_view() const;
     bool status_melee() const;
     bool status_nausea() const;
     bool status_glow() const;

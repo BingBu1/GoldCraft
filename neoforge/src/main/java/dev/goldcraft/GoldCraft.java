@@ -83,6 +83,9 @@ public final class GoldCraft {
     public static boolean sendVision(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendVision(generation,payload);
     }
+    public static boolean nativeViewAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeView(generation);
+    }
     public static boolean meleeAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.melee(generation);
     }
@@ -285,6 +288,10 @@ public final class GoldCraft {
                             HostExplosions.materials(HOST_WORLD,message.payload());
                         }
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
+                        case Wire.NATIVE_VIEW -> {
+                            if(!nativeViewAvailable())throw new IllegalArgumentException("Unnegotiated native view");
+                            HOST_WORLD.nativeView().accept(HOST_WORLD,message.payload(),server.getTicks());
+                        }
                         case Wire.HEALTH_LIMITS -> {
                             if(!healthLimitsAvailable())throw new IllegalArgumentException("Unnegotiated health limits");
                             HOST_WORLD.healthLimits().accept(HOST_WORLD,message.payload());

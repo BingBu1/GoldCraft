@@ -1,6 +1,6 @@
 # 服务端权威视觉效果
 
-夜视、失明和黑暗使用独立的视觉状态通道，覆盖 MC 形态和原生 CS 形态。状态来自唯一的 MC 服务端效果所有者；HUD 图标和客户端声明不作为依据。
+夜视、失明、黑暗和潮涌水下视觉使用独立的视觉状态通道，覆盖 MC 形态和原生 CS 形态。状态来自唯一的 MC 服务端效果所有者；HUD 图标和客户端声明不作为依据。
 
 ## 状态及失效
 
@@ -23,4 +23,37 @@ Renderer使用独立可选接口`MetaRendererSceneVision_API_001`，仅接受已
 
 隐藏窗口的真实OpenGL测试执行实际Renderer接口与完整延迟合成shader，191项检查覆盖租约、着色器编译、材质颜色、发光跳过、天空/地形雾、零状态恢复。生产客户端、ReGameDLL、Renderer及JAR构建通过；原生84项和Renderer25项回归全过。它证明GPU计算，不代表实机画面、性能或多人验收。需同时更新Renderer、GoldCraft与配套的7个shader文件，用户授权后已配套部署本地B/双服，MC母本/A/B/server同步；现场sceneVisionApi/Accepted为true、glError为0。
 
-尚需两种形态在暗室、天空、水面、发光方块与不同材质上真人验收，覆盖到期、喝奶、死亡、重连和换图。潮涌水下视觉、反胃、发光轮廓和剩余玩家/死亡回调仍单独开放，不能据此关闭全部39种效果的目标。
+尚需两种形态在暗室、天空、水面、发光方块与不同材质上真人验收，覆盖到期、喝奶、死亡、重连和换图。各视觉候选的局部验证不能关闭全部39种效果的目标。
+
+## 潮涌能量水下视觉
+
+2026-10-18 候选新增独立 `NativeUnderwaterVision`。按固定 1.21.1
+`ClientPlayerEntity.getUnderwaterVisibility` 与 `LightmapTextureManager` 的实际规则：
+眼睛进入水后，前100 tick适应到0.6，后500 tick逐步到1；出水立即不提亮，适应值每tick减10。
+没有潮涌效果时仍累计适应，获得药效后使用当前值；夜视优先，保留末200tick闪烁。
+观战玩家按原版每tick增加10。world、连接generation、serial、spawn、life和不连续时钟均隔离；
+同一server tick多次调用只推进一次。原生未取得新鲜眼点证据时重置，旧服不猜测水深。
+
+原生CS代理不执行完整 `Entity.tick`，也没有原生玩家的准确眼高。
+因此由ReGameDLL读取实际 `origin + view_ofs`（包含蹲伏和AMXX自定义偏移），
+用真实 `PointContents` 查询原生BSP/液体brush；仅原生内容为空时查有效MC液体字段。
+原生岩浆、固体和水体优先，浅水浮力提升不等于眼睛没顶。MC形态使用真实服务端玩家的
+`isSubmergedIn(WATER)`，沿用NeoForge FluidType、水面高度和船内排除语义。
+
+协议30可选服务端能力 `8388608`、消息 `99`：20字节头部为world u64、actor tick u64、count u32，
+其后每条32字节为slot/serial/spawn/life u32、eye xyz f32、water flag u32。
+必须跟随对应ACTORS快照，最多64条；有限坐标、重复slot、身份、精确长度和未知flags严格检查。
+完整batch通过才提交，7个MC server tick到期；新ACTORS不沿用旧眼点。
+客户端不协商这个消息。最终亮度复用现有48字节 `GCVision` 的night字段及既有Renderer消费路径。
+完整降级循环会重新尝试最新能力，旧版本仍能协商其支持的子集。
+
+验证在 `build/conduit-vision-20261018`：
+
+- 350份Java输入冻结，生产Core/mp构建，362JUnit、44生产眼点发送检查、1068原生协议和446视觉发布器检查通过。
+- 真实NeoForge无附加Mod与Epic Fight/NightFall环境各1001检查/13出站包：实际效果实例、到期、眼部FluidType、船内判定、适应曲线、夜视优先及唯一效果形态交接。无附加Mod首轮JAR早于最后的握手回绕修复；最终JAR通过附加Mod及下述真实双服。宿主输入及玩家连接为夹具。
+- AMXX1.10真实ReHLDS完成18项：实际自定义眼偏移、MC水面精确边界、真实原生brush水/岩浆优先、BSP固体优先、液体租约、死亡/重生/重连；MC液体发布者为协议夹具。
+- 真实ReHLDS与NeoForge双服完成7项，观察到179条眼点和155条视觉帧。透明中继原样转发生产数据，入水亮度连续递增，原生岩浆、药效移除/真实到期及新生命清零通过。只用测试玩家及效果授予命令，不伪造actor/眼点/视觉包。
+
+37项联合候选只替换Core和mp，继承AMXX1.10、枪镜、反胃、发光等版本；未整体部署。
+测试服务已停止并恢复隔离文件。真人双形态画面、客户端收到的GCVision、多人及固定视角帧时间仍待联合验收，
+上述双服发布证据不等于客户端渲染验收。

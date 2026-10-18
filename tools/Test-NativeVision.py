@@ -19,12 +19,14 @@ for part in (out, *out.parents):
 src, classes = out/'src', out/'classes'
 classes.mkdir(parents=True, exist_ok=True)
 adapters = {
+    'dev/goldcraft/world/NativeUnderwaterVision.java': '''public class NativeUnderwaterVision {
+public static void clear(){} public static float strength(dev.goldcraft.bridge.HostWorldState.Actor actor,net.minecraft.entity.LivingEntity owner){return 0;}}''',
     'net/minecraft/entity/effect/StatusEffects.java':
         'public class StatusEffects {public static final int NIGHT_VISION=0,BLINDNESS=1,DARKNESS=2;}',
     'net/minecraft/entity/effect/StatusEffectInstance.java': '''public class StatusEffectInstance {
 public int duration;public float fade;public StatusEffectInstance(int ticks,float fade){duration=ticks;this.fade=fade;}
 public boolean isInfinite(){return duration==-1;}public int getDuration(){return duration;}
-public boolean isDurationBelow(int ticks){return !isInfinite()&&duration<ticks;}
+public boolean isDurationBelow(int ticks){return !isInfinite()&&duration<=ticks;}
 public float getFadeFactor(net.minecraft.entity.LivingEntity owner,float delta){if(delta!=1)throw new AssertionError();return fade;}}''',
     'net/minecraft/entity/LivingEntity.java': '''import net.minecraft.entity.effect.StatusEffectInstance;
 public class LivingEntity {public int age;public boolean alive=true;
@@ -59,7 +61,7 @@ public static void main(String[] args){
  var owner=new LivingEntity();for(float x:publish(owner))near(x,0);
  for(int ticks:new int[]{-1,1200,200,199,198,195,100,5,1}){
   owner.effects[0]=new StatusEffectInstance(ticks,0);float[] v=publish(owner);
-  near(v[0],ticks<0||ticks>=200?1:.7f+(float)Math.sin(ticks*(float)Math.PI*.2f)*.3f);near(v[1],0);near(v[2],0);
+  near(v[0],ticks<0||ticks>200?1:.7f+(float)Math.sin(ticks*(float)Math.PI*.2f)*.3f);near(v[1],0);near(v[2],0);
  }
  owner.effects[0]=null;
  for(int ticks:new int[]{-1,100,20,10,1,0}){owner.effects[1]=new StatusEffectInstance(ticks,0);
