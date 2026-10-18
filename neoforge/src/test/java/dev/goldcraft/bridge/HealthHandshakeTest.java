@@ -47,6 +47,7 @@ class HealthHandshakeTest {
     }
     @Test void oldHostDropsOnlyHealthAndKeepsFall()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.STATUS_HEALTH_CAP);}
             try(var s=host.accept()){
                 assertEquals(first&~Wire.STATUS_HEALTH_CAP,hello(s));welcome(s,Wire.STATUS_FALL_CAP,false);until(link::connected);
@@ -56,6 +57,7 @@ class HealthHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedHealth()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
                 assertEquals(0,hello(s)&Wire.STATUS_HEALTH_CAP);welcome(s,Wire.STATUS_HEALTH_CAP,false);

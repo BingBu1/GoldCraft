@@ -404,7 +404,8 @@
     "tools/Test-HostedRenderTarget.py",
     "tools/Test-EntityOutline.py",
     "docs/ENTITY_OUTLINE.md",
-    "tools/Test-OutlineCapture.py"
+    "tools/Test-OutlineCapture.py",
+    "tools/Test-NativeGlow.py"
   ],
   "trees": {
     "native": [

@@ -24,6 +24,9 @@ final class HealthBridgeFixture implements AutoCloseable {
     private long sequence=1;
 
     HealthBridgeFixture()throws Exception {
+        this(Wire.STATUS_HEALTH_CAP|Wire.STATUS_EFFECTS);
+    }
+    HealthBridgeFixture(int accepted)throws Exception {
         // Production BridgeLink explicitly connects to IPv4 loopback.
         listener=new ServerSocket(0,4,InetAddress.getByName("127.0.0.1"));listener.setSoTimeout(4000);
         link=new BridgeLink(new BridgeLink.Config(listener.getLocalPort(),KEY,KEY,Wire.FABRIC_SERVER,Wire.HOST_SERVER));
@@ -33,8 +36,7 @@ final class HealthBridgeFixture implements AutoCloseable {
         peer=acceptedPeer;peer.setSoTimeout(4000);
         var hello=read();if(hello.type()!=Wire.HELLO)throw new AssertionError("missing real HELLO");
         var h=new Wire.Reader(hello.payload());h.bytes(16);h.bytes(16);h.i32();int caps=h.i32();h.finish();
-        int accepted=Wire.STATUS_HEALTH_CAP|Wire.STATUS_EFFECTS;
-        if((caps&accepted)!=accepted)throw new AssertionError("missing requested health/effect capability");
+        if((caps&accepted)!=accepted)throw new AssertionError("missing requested fixture capability: "+accepted);
         write(Wire.WELCOME,new Wire.Writer().bytes(KEY).i32(Wire.HOST_SERVER).i32(accepted)
             .f32(Wire.UNITS_PER_BLOCK).f32(Wire.Y_OFFSET).toByteArray());
         long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(4);

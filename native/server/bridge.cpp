@@ -18,6 +18,7 @@
 #include "goldcraft/status_health.hpp"
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_visibility.hpp"
+#include "goldcraft/status_glow.hpp"
 #include "pm_movevars.h"
 #include "goldcraft/native_armor.hpp"
 #include "goldcraft/control_diagnostics.hpp"
@@ -692,6 +693,7 @@ namespace {
 #include "status_fall.inc"
 #include "status_health.inc"
 #include "status_visibility.inc"
+#include "status_glow.inc"
 #include "status_vision.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
@@ -922,8 +924,9 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();
+        ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusGlow(true);
         vision_message=REG_USER_MSG(status_vision::message_name,status_vision::wire_bytes);
+        glow_message=REG_USER_MSG(status_glow::message_name,status_glow::wire_bytes);
         motion_message=REG_USER_MSG(status_motion::message_name,44);
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
@@ -1049,6 +1052,7 @@ void GoldCraft_PlayerKilled(edict_t* player) {
     ReleaseControl(slot,ControlCause::death);
     if(CurrentNativePlayer(killed))next_snapshot=0;
 }
+bool GoldCraft_StatusGlowVisible(edict_t* entity,edict_t* viewer){return StatusGlowVisible(entity,viewer);}
 void GoldCraft_StatusVisibility(entity_state_t* state,edict_t* entity){
     if(!state||!StatusInvisible(entity))return;
     state->rendermode=kRenderTransTexture;state->renderamt=0;state->renderfx=kRenderFxNone;
@@ -1223,7 +1227,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusGlow();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1253,6 +1257,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);
+            else if(message.type==Type::status_glow)HandleStatusGlow(message.payload);
             else if(message.type==Type::status_visibility)HandleStatusVisibility(message.payload);
             else if(message.type==Type::status_fall)HandleStatusFall(message.payload);
             else if(message.type==Type::status_health)HandleStatusHealth(message.payload);
@@ -1286,6 +1291,7 @@ void GoldCraft_StartFrame() {
         ExpireNativeArmor();
         if(edicts!=dispatch_table||registry.world()!=dispatch_world||connection_generation!=dispatch_authority
             ||link.connected()!=dispatch_connected||link.generation()!=dispatch_link_generation)return;
+        SendStatusGlow();
         ExpireStatusHud();
         GoldCraft_ObjectsExpire();
         SendEdits();

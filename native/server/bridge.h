@@ -50,6 +50,8 @@ float GoldCraft_StatusDefense(edict_s* player,float damage,edict_s* inflictor,ed
 struct entity_state_s;
 // Packet rendering only; never changes native collision, traces or plugin entvars.
 void GoldCraft_StatusVisibility(entity_state_s* state,edict_s* player);
+// Only the authenticated glow lease can bypass PVS; other visibility rules stay.
+bool GoldCraft_StatusGlowVisible(edict_s* player,edict_s* viewer);
 struct playermove_s;
 void GoldCraft_StatusCategorize(void (*original)());
 void GoldCraft_StatusJump(void (*original)());

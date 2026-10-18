@@ -81,7 +81,7 @@ index e6edc87..c315d6b 100644
  
  
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..e20cd64 100644
+index daee11d..c87087b 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,6 @@
@@ -216,7 +216,22 @@ index daee11d..e20cd64 100644
  		ResetPlayerPVS(host, hostnum);
  
  #ifdef REGAMEDLL_ADD
-@@ -4721,6 +4739,8 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+@@ -4581,10 +4599,11 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+ 				if (!ENGINE_CHECK_VISIBILITY(ent, pSet))
+ 				{
+ 					MarkEntityInPVS(hostnum, e, 0, false);
+-					return FALSE;
++					if (!player || !GoldCraft_StatusGlowVisible(ent, host))
++						return FALSE;
+ 				}
+-
+-				MarkEntityInPVS(hostnum, e, gpGlobals->time, true);
++				else
++					MarkEntityInPVS(hostnum, e, gpGlobals->time, true);
+ 			}
+ 		}
+ 	}
+@@ -4721,6 +4740,8 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
  		state->playerclass = ent->v.playerclass;
  
  	state->iuser4 = ent->v.iuser4;
@@ -225,7 +240,7 @@ index daee11d..e20cd64 100644
  	return TRUE;
  }
  
-@@ -5036,7 +5056,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5036,7 +5057,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  
  	cd->flags = pev->flags;
  #ifdef REGAMEDLL_FIXES
@@ -234,7 +249,7 @@ index daee11d..e20cd64 100644
  #else
  	cd->health = pev->health;
  #endif
-@@ -5057,7 +5077,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5057,7 +5078,7 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  
  	Q_strlcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
  

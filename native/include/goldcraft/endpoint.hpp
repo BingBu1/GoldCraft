@@ -47,6 +47,7 @@ public:
     bool status_fall() const;
     bool status_health() const;
     bool status_motion() const;
+    bool status_glow() const;
     bool status_visibility() const;
     bool status_vision() const;
     bool view_distortion() const;
