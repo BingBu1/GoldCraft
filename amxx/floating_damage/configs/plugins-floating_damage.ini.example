@@ -1,0 +1,2 @@
+; Add this line ONCE to an active plugins INI if it is not already present.
+addon_floating_damage.amxx

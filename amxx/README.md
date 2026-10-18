@@ -18,6 +18,7 @@
 | `zombie_plague/docs/` | 原作者说明、许可条款和更新记录 |
 | `zombie_plague/tests/` | ReAPI 迁移的独立服务器回归，不在日常服加载 |
 | `nade_modes/` | Nade Modes 七模式手雷；接入头文件、中文、配置、许可和独立测试分别分类保存 |
+| `floating_damage/` | 每次伤害独立飘字、每名攻击者最多五条；[构建与安装](floating_damage/README.md)，原源代码仅本地保留，公开本地修改补丁 |
 | `maps/` | 地图实体／出生点适配，包括 72 街仓库的 32 人容量 |
 | `tests/` | 显式启用的测试插件，不属于日常配置 |
 

@@ -405,7 +405,19 @@
     "tools/Test-EntityOutline.py",
     "docs/ENTITY_OUTLINE.md",
     "tools/Test-OutlineCapture.py",
-    "tools/Test-NativeGlow.py"
+    "tools/Test-NativeGlow.py",
+    "amxx/floating_damage/.gitignore",
+    "amxx/floating_damage/README.md",
+    "amxx/floating_damage/build.ps1",
+    "amxx/floating_damage/configs/plugins-floating_damage.ini.example",
+    "amxx/floating_damage/docs/ORIGIN.md",
+    "amxx/floating_damage/include/floating_damage_events.inc",
+    "amxx/floating_damage/include/floating_damage_runtime.inc",
+    "amxx/floating_damage/package.py",
+    "amxx/floating_damage/tests/build_runner.ps1",
+    "amxx/floating_damage/tests/pawn_runner.cpp",
+    "amxx/floating_damage/tests/test_bytecode.py",
+    "patches/floating-damage-goldcraft.patch"
   ],
   "trees": {
     "native": [

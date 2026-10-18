@@ -10,6 +10,8 @@
 
 ## 优先修复与完善
 
+- [ ] 联合实测Floating Damage：每名攻击者独立五条队列、大数值、皮肤及双形态可见性；1.0.7-gc零警告编译、25项生产Pawn字节码回归及交付包核验通过，未部署，正常换图加载。[说明](amxx/floating_damage/README.md)
+
 - [ ] 联合实测枪械瞄准镜：离屏模板缓冲/主目标作用域已修，生产JAR/338JUnit及开发正式各69,548真实GPU检查通过；33项候选未部署。继续真实狙击镜/红点/组合瞄具、开镜/换弹/切镜/窗口变化，不把夹具当真人画面。[说明](docs/2026-10-18_分析-托管瞄准镜-report.md)
 
 - [ ] 联合部署并实测MC生命上限/死亡观战属性恢复、玩家属性/幸运掉落及深度复制：335JUnit、真实NeoForge两环境各185检查通过；33项combined-player-attributes候选仅Core变化、未部署。下一轮同场核HUD上限、治疗/到期、双形态/重生、原生枪击掉落及特效遮挡，不逐项重启。[生命上限](docs/NATIVE_HEALTH_LIMITS.md) · [玩家属性](docs/NATIVE_PLAYER_ATTRIBUTES.md) · [深度复制](docs/2026-10-17_分析-MC深度复制-report.md)

@@ -1,0 +1,7 @@
+# The user's original ZIP has no explicit redistribution license.
+# Publish only local additions and the diff, not the complete upstream files.
+/addon_floating_damage.sma
+/include/non_reapi_support.inc
+/lang/floating_damage.txt
+/docs/UPSTREAM.md
+/docs/HANDOFF.md
