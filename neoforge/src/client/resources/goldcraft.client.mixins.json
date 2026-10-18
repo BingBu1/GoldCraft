@@ -21,6 +21,7 @@
     "HandledInventoryKeyMixin",
     "GameRendererAccessor",
     "PresentationFrameMixin",
+    "HostedFramebufferMixin",
     "HostPresentationMixin",
     "ParticleManagerAccessor",
     "ParticleBuffersMixin",

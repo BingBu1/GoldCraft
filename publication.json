@@ -399,7 +399,9 @@
     "docs/2026-10-18_分析-CSOL附属系列-report.md",
     "docs/2026-10-18_分析-CSOL双附属模型-report.md",
     "docs/NATIVE_VIEW_DISTORTION.md",
-    "tools/Test-ViewDistortion.py"
+    "tools/Test-ViewDistortion.py",
+    "docs/2026-10-18_分析-托管瞄准镜-report.md",
+    "tools/Test-HostedRenderTarget.py"
   ],
   "trees": {
     "native": [

@@ -110,7 +110,7 @@ public final class HudExporter implements AutoCloseable {
         final boolean controlling=HostInput.controlling()&&!deathHud;
         var window=client.getWindow();
         int oldWidth=window.getFramebufferWidth(),oldHeight=window.getFramebufferHeight();double oldScale=window.getScaleFactor();
-        try(var saved=new GlState()) {
+        try(var saved=new GlState();var stencil=new HostedStencilState()) {
             window.setFramebufferWidth(viewWidth);window.setFramebufferHeight(viewHeight);
             int scale=window.calculateScaleFactor(requestedScale==0?client.options.getGuiScale().getValue():requestedScale,client.forcesUnicodeFont());
             while((viewWidth+scale-1)/scale>1024||(viewHeight+scale-1)/scale>1024)scale++;
@@ -118,15 +118,15 @@ public final class HudExporter implements AutoCloseable {
             // Keep the full raster resolution: glyphs and item models lose detail if a GUI-sized image is enlarged.
             window.setScaleFactor(scale);
             if(target==null||target.textureWidth!=viewWidth||target.textureHeight!=viewHeight) {
-                if(target!=null)target.delete();target=new SimpleFramebuffer(viewWidth,viewHeight,true,MinecraftClient.IS_SYSTEM_MAC);
-                target.setClearColor(0,0,0,0);
+                if(target!=null)target.delete();target=HostedRenderTarget.create(viewWidth,viewHeight);
             }
             Screen visibleScreen=deathHud?null:client.currentScreen;
             if(screen!=visibleScreen){screen=visibleScreen;menuGeneration++;HostUi.reset();}
             if(screen!=null&&(screen.width!=width||screen.height!=height))screen.resize(client,width,height);
             RenderSystem.disableScissor();RenderSystem.colorMask(true,true,true,true);RenderSystem.depthMask(true);
             target.clear(MinecraftClient.IS_SYSTEM_MAC);target.beginWrite(true);
-            try(var matrices=ModelViewScope.begin(modelView)) {
+            HostedStencilState.prepare();
+            try(var hostedTarget=HostedRenderTarget.begin(target);var matrices=ModelViewScope.begin(modelView)) {
                 rendering=true;
                 tickDelta=client.getRenderTickCounter().getTickDelta(false);
                 modelView.identity();RenderSystem.applyModelViewMatrix();
@@ -145,6 +145,7 @@ public final class HudExporter implements AutoCloseable {
                 handVisible=controlling&&client.options.getPerspective().isFirstPerson()&&!client.options.hudHidden
                     &&!client.player.isSleeping()&&!client.player.isSpectator();
                 if(handVisible)handFrames++;
+                target.beginWrite(true);
                 RenderSystem.clear(GL11.GL_DEPTH_BUFFER_BIT,MinecraftClient.IS_SYSTEM_MAC);
                 RenderSystem.setProjectionMatrix(new Matrix4f().setOrtho(0,(float)viewWidth/scale,(float)viewHeight/scale,0,1000,21000),VertexSorter.BY_Z);
                 modelView.translation(0,0,-11000);RenderSystem.applyModelViewMatrix();
@@ -177,6 +178,7 @@ public final class HudExporter implements AutoCloseable {
             slot.life=HostInput.life();slot.produced=System.nanoTime();
             var player=client.player;slot.slot=player.getInventory().selectedSlot;slot.health=player.getHealth();
             slot.food=player.getHungerManager().getFoodLevel();slot.armor=player.getArmor();slot.level=player.experienceLevel;slot.experience=player.experienceProgress;
+            target.beginWrite(false);
             enqueue(slot);glError=GL11.glGetError();
         }finally{rendering=false;window.setFramebufferWidth(oldWidth);window.setFramebufferHeight(oldHeight);window.setScaleFactor(oldScale);}
     }
@@ -252,10 +254,15 @@ public final class HudExporter implements AutoCloseable {
         final int src=GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB),dst=GL11.glGetInteger(GL14.GL_BLEND_DST_RGB),srcA=GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA),dstA=GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
         final int[] viewport=new int[4],scissorBox=new int[4],textures=new int[3],shaderTextures=new int[3];
         final float[] clear=new float[4],color=RenderSystem.getShaderColor().clone();
+        final int colorMask;
         final Matrix4f projection=new Matrix4f(RenderSystem.getProjectionMatrix());
         final VertexSorter sorter=RenderSystem.getVertexSorting();
         final net.minecraft.client.gl.ShaderProgram shader=RenderSystem.getShader();
         GlState(){
+            try(var stack=org.lwjgl.system.MemoryStack.stackPush()) {
+                var mask=stack.malloc(4);GL11.glGetBooleanv(GL11.GL_COLOR_WRITEMASK,mask);
+                colorMask=(mask.get(0)!=0?1:0)|(mask.get(1)!=0?2:0)|(mask.get(2)!=0?4:0)|(mask.get(3)!=0?8:0);
+            }
             GL11.glGetIntegerv(GL11.GL_VIEWPORT,viewport);GL11.glGetIntegerv(GL11.GL_SCISSOR_BOX,scissorBox);GL11.glGetFloatv(GL11.GL_COLOR_CLEAR_VALUE,clear);
             for(int i=0;i<3;i++){RenderSystem.activeTexture(GL13.GL_TEXTURE0+i);textures[i]=GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);shaderTextures[i]=RenderSystem.getShaderTexture(i);}
             RenderSystem.activeTexture(active);
@@ -271,6 +278,7 @@ public final class HudExporter implements AutoCloseable {
             RenderSystem.blendFuncSeparate(src,dst,srcA,dstA);
             if(scissor)RenderSystem.enableScissor(scissorBox[0],scissorBox[1],scissorBox[2],scissorBox[3]);else RenderSystem.disableScissor();
             RenderSystem.clearColor(clear[0],clear[1],clear[2],clear[3]);
+            RenderSystem.colorMask((colorMask&1)!=0,(colorMask&2)!=0,(colorMask&4)!=0,(colorMask&8)!=0);
         }
     }
 }
