@@ -176,6 +176,6 @@ public final class GoldCraftClient {
         return "The CS client is paired with a different server or map session; reconnect to the matching server.";
     }
     public static void presentationFrame(net.minecraft.client.MinecraftClient client) {
-        if(active!=null&&active.hud!=null){HostCamera.frame(client,active.link);active.hud.frame(client);active.exporter.presentationFrame();}
+        if(active!=null&&active.hud!=null){ViewDistortionExporter.frame(client,active.link);HostCamera.frame(client,active.link);active.hud.frame(client);active.exporter.presentationFrame();}
     }
 }

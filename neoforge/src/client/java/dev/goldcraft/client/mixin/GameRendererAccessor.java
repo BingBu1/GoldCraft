@@ -8,6 +8,10 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 
 @Mixin(GameRenderer.class)
 public interface GameRendererAccessor {
+    @org.spongepowered.asm.mixin.gen.Accessor("ticks")
+    int goldcraft$ticks();
+    @Invoker("renderNausea")
+    void goldcraft$renderNausea(net.minecraft.client.gui.DrawContext context,float intensity);
     @Invoker("getFov")
     double goldcraft$fov(Camera camera,float tickDelta,boolean changingFov);
     @Invoker("renderHand")

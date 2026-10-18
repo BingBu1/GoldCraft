@@ -17,6 +17,7 @@ IMetaRendererScene* scene=nullptr;
 IMetaRendererSceneCulling* scene_culling=nullptr;
 IMetaRendererSceneLights* scene_lights=nullptr;
 IMetaRendererSceneVision* scene_vision=nullptr;
+IMetaRendererSceneDistortion* scene_distortion=nullptr;
 IMetaRendererSceneStaticShadows* scene_static_shadows=nullptr;
 IMetaRendererStaticSceneCallbacks* static_callback=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
@@ -153,6 +154,11 @@ bool static_scene_covered() noexcept {
         scene_static_shadows->IsStaticSceneCovered(callback);
 }
 
+bool update_scene_distortion(const MetaRendererSceneDistortion& state) noexcept {
+    stats.scene_distortion_accepted=scene_distortion&&callback&&scene_distortion->UpdateDistortion(callback,state);
+    stats.scene_distortion_state=stats.scene_distortion_accepted?state:MetaRendererSceneDistortion{};
+    return stats.scene_distortion_accepted;
+}
 bool update_scene_vision(const MetaRendererSceneVision& state) noexcept {
     stats.scene_vision_accepted=scene_vision&&callback&&scene_vision->UpdateVision(callback,state);
     stats.scene_vision_state=stats.scene_vision_accepted?state:MetaRendererSceneVision{};
@@ -161,6 +167,8 @@ bool update_scene_vision(const MetaRendererSceneVision& state) noexcept {
 bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::string&)) {
     logger=log;
     set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
+    if(scene_distortion&&callback)scene_distortion->ClearDistortion(callback);
+    scene_distortion=nullptr;stats.scene_distortion_api=stats.scene_distortion_accepted=false;stats.scene_distortion_state={};
     if(scene_vision&&callback)scene_vision->ClearVision(callback);
     scene_vision=nullptr;stats.scene_vision_api=stats.scene_vision_accepted=false;stats.scene_vision_state={};
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;
@@ -206,6 +214,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.scene_lights_api=scene_lights!=nullptr;
     scene_vision=scene?static_cast<IMetaRendererSceneVision*>(factory(METARENDERER_SCENE_VISION_INTERFACE_VERSION,nullptr)):nullptr;
     stats.scene_vision_api=scene_vision!=nullptr;
+    scene_distortion=scene?static_cast<IMetaRendererSceneDistortion*>(factory(METARENDERER_SCENE_DISTORTION_INTERFACE_VERSION,nullptr)):nullptr;
+    stats.scene_distortion_api=scene_distortion!=nullptr;
     scene_static_shadows=scene?static_cast<IMetaRendererSceneStaticShadows*>(factory(METARENDERER_SCENE_STATIC_SHADOWS_INTERFACE_VERSION,nullptr)):nullptr;
     stats.scene_static_shadows_api=scene_static_shadows!=nullptr;
     post_scene_provider=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
@@ -225,6 +235,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
 }
 void shutdown(){
     set_static_scene(nullptr,false);scene_static_shadows=nullptr;stats.scene_static_shadows_api=false;
+    if(scene_distortion&&callback)scene_distortion->ClearDistortion(callback);
+    scene_distortion=nullptr;stats.scene_distortion_api=stats.scene_distortion_accepted=false;stats.scene_distortion_state={};
     if(scene_vision&&callback)scene_vision->ClearVision(callback);
     scene_vision=nullptr;stats.scene_vision_api=stats.scene_vision_accepted=false;stats.scene_vision_state={};
     clear_scene_lights();scene_lights=nullptr;stats.scene_lights_api=false;

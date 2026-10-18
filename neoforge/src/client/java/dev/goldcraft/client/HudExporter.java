@@ -151,6 +151,7 @@ public final class HudExporter implements AutoCloseable {
                 RenderSystem.setShaderColor(1,1,1,1);RenderSystem.disableCull();RenderSystem.enableBlend();
                 RenderSystem.defaultBlendFunc();DiffuseLighting.enableGuiDepthLighting();
                 var context=new DrawContext(client,client.getBufferBuilders().getEntityVertexConsumers());
+                ViewDistortionExporter.overlay(client,context,tickDelta);
                 if(controlling)client.inGameHud.render(context,client.getRenderTickCounter());
                 else if(!client.options.hudHidden&&!client.inGameHud.getChatHud().isChatFocused()) {
                     // Preserve vanilla message formatting, death notices and fading.

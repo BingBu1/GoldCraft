@@ -661,6 +661,17 @@ void run(bool benchmark) {
     assert(draw_hud(r.hud, .25f, .25f, true, Size, Size));
     assert(snapshot() == before);
     assert(color_count(pixels(), {51, 102, 153, 255}) < Size * Size);
+    // Minecraft's nausea fallback is additive. RGB at alpha zero must survive
+    // HUD composition and preserve the host scene, rather than cover it.
+    clear();
+    glClearColor(.2f,.2f,.2f,1);glClear(GL_COLOR_BUFFER_BIT);
+    const std::array<std::uint8_t,4> additive{51,102,51,0};
+    upload_texture(r.hud,r.hw,r.hh,1,1,additive);
+    r.sentinel();before=snapshot();
+    assert(draw_hud(r.hud,0,0,false,Size,Size));assert(snapshot()==before);
+    assert(color_count(pixels(),{102,153,102,255})==Size*Size);
+    const std::array<std::uint8_t,4> blue{51,102,153,255};
+    upload_texture(r.hud,r.hw,r.hh,1,1,blue);
     // Force different host state between scopes. No across-callback state cache.
     glDepthFunc(GL_GEQUAL);
     glStencilFuncSeparate(GL_FRONT, GL_NEVER, 9, 0x55);
