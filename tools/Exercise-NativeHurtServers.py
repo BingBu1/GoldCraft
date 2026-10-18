@@ -89,12 +89,14 @@ def prepare_mc(work,jar,port,config):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--name',required=True);parser.add_argument('--jar',type=Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--name',required=True);parser.add_argument('--jar',type=Path,required=True)
+    parser.add_argument('--server-dll',type=Path,help='Exact workspace ReGameDLL candidate; defaults to the current production build')
+    args=parser.parse_args()
     if Path(args.name).name!=args.name:raise ValueError('Single output name required')
     out=ROOT/'build/native-hit-notify-20261018'/args.name
     if any(p.is_symlink() or p.is_junction() for p in [out,*out.parents]):raise ValueError('Linked output refused')
     out.mkdir(exist_ok=False);base.FIXTURE_LOG=out/'server.log';base.FIXTURE_LOG.write_text('')
-    run=native.Run(out);run.report['scope']=__doc__;relay=mc=log=None
+    run=native.Run(out,args.server_dll);run.report['scope']=__doc__;relay=mc=log=None
     def observed():
         path=out/'minecraft/native-hurt-live.json'
         try:return json.loads(path.read_text()) if path.exists() else None
@@ -110,7 +112,13 @@ def main():
         env.update(GOLDCRAFT_HTTP_ENABLED='0',GOLDCRAFT_SERVER_LOG=str(out/'bridge.log'))
         startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=subprocess.SW_HIDE
         run.process=subprocess.Popen([str(base.GAME/'hlds.exe'),'-game','cstrike','-insecure','-nomaster','-console','-condebug','+sv_rcon_condebug','0','+ip','127.0.0.1','-port',str(run.config['csPort']),'-maxplayers','4','+map','cs_assault'],cwd=base.GAME,env=env,startupinfo=startup,creationflags=subprocess.CREATE_NEW_CONSOLE)
-        run.report['pid']=run.process.pid;run.ready();relay=Relay(run.config['serverPort'])
+        run.report['pid']=run.process.pid;run.ready()
+        run.report['serverDllSha256']=hashlib.sha256((base.GAME/'cstrike/dlls/mp.dll').read_bytes()).hexdigest()
+        run.check('Exact requested native DLL loaded',run.report['serverDllSha256']==hashlib.sha256(run.server_dll.read_bytes()).hexdigest())
+        run.report['amxxVersion']=run.command('amxx version');run.report['plugins']=run.command('amxx plugins')
+        run.check('AMXX 1.10 runtime loaded','1.10.0.5487' in run.report['amxxVersion'])
+        run.check('Floating Damage production plugin loaded once',run.report['plugins'].count('1.0.7-gc')==1 and '3 plugins, 3 running' in run.report['plugins'])
+        relay=Relay(run.config['serverPort'])
         java,argfile,env=prepare_mc(out/'minecraft',args.jar.resolve(),relay.port,run.config)
         log=(out/'minecraft/runtime.log').open('wb')
         mc=subprocess.Popen([str(java),'@'+str(argfile)],cwd=out/'minecraft',env=env,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,creationflags=subprocess.CREATE_NO_WINDOW)

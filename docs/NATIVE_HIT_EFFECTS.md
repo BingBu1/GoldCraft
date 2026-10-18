@@ -69,7 +69,7 @@ and removal, malformed receipts, failed transmission, lethal outcomes, absorptio
 form handoff, respawn, authority changes and nested Mod damage. Detailed frozen
 artifact hashes and results are recorded under `build/status-hit-callback-20261018`.
 
-The combined candidate remains undeployed pending the planned joint playtest.
+The cumulative candidate was deployed locally on 2026-10-18; graphical playtesting remains pending.
 
 The native-origin component uses `tests/status-hit/NativeHurtProbe.java` and
 `tools/Test-NativeHurt.py`: production TCP, original Infested spawning and custom
@@ -102,4 +102,9 @@ The final native/Core pair passes 11 dual-server checks, including original hurt
 callbacks, cancellation, fatal delivery, actual absorption payment and no duplicate
 callback after later actor snapshots. Results are
 recorded in `build/native-hit-notify-20261018` together with failed runs.
-No graphical/multiplayer acceptance or whole-candidate deployment is claimed.
+The later cumulative local deployment passes 14 checks with the final raid-capable
+Core and native DLL. `--server-dll` selects the exact workspace candidate; the
+report records its hash, AMXX 1.10.0.5487 and one Floating Damage instance in
+addition to the 11 gameplay-protocol checks. Evidence is in
+`build/native-hit-notify-20261018/combined-playtest01`. The fixture stops both
+servers and restores their files. No graphical or multiplayer acceptance is claimed.
