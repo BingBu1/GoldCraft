@@ -14,9 +14,7 @@ import java.util.UUID;
 public abstract class NativePlayerLookupMixin {
     @Inject(method="getEntity(Ljava/util/UUID;)Lnet/minecraft/entity/Entity;",at=@At("RETURN"),cancellable=true)
     private void goldcraft$nativeIdentity(UUID uuid,CallbackInfoReturnable<Entity> result){
-        if(result.getReturnValue()==null){
-            var body=NativePlayers.byUuid((ServerWorld)(Object)this,uuid);
-            if(body!=null)result.setReturnValue(body);
-        }
+        var body=NativePlayers.byUuid((ServerWorld)(Object)this,uuid);
+        if(body!=null)result.setReturnValue(body);
     }
 }

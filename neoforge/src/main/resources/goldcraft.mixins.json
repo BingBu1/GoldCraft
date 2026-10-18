@@ -27,6 +27,8 @@
     "NavigationConditionsMixin",
     "NativePlayerTrackingMixin",
     "NativePlayerTargetsMixin",
+    "NativePlayerSelectorMixin",
+    "NativePlayerSensorMixin",
     "SharedVitalsDeathMixin",
     "SharedVitalsRespawnMixin",
     "SharedVitalsRemovalMixin",

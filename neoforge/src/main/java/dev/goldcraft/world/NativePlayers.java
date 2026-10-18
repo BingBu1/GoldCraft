@@ -135,13 +135,16 @@ public final class NativePlayers {
     }
     public static List<? extends PlayerEntity> targetingPlayers(ServerWorld view,List<? extends PlayerEntity> vanilla){
         if(view!=world||players.isEmpty())return vanilla;
-        List<PlayerEntity> result=new ArrayList<>(vanilla);
+        List<PlayerEntity> result=new ArrayList<>();
+        // The parked network player and its native body share one gameplay
+        // identity. Discovery must expose the current body exactly once.
+        for(var p:vanilla)if(byUuid(view,p.getUuid())==null)result.add(p);
         for(var p:players.values())if(!p.isRemoved()&&p.isAlive())result.add(p);
         return result;
     }
     public static NativePlayerEntity byUuid(ServerWorld view,UUID uuid){
         if(view!=world)return null;
-        for(var body:players.values())if(!body.isRemoved()&&body.getUuid().equals(uuid))return body;
+        for(var body:players.values())if(!body.isRemoved()&&body.isAlive()&&body.getUuid().equals(uuid))return body;
         return null;
     }
     private static boolean damage(NativePlayerEntity target,DamageSource source,float amount){

@@ -7,6 +7,8 @@ import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.effect.StatusEffect;
+import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.tag.DamageTypeTags;
 import net.minecraft.registry.entry.RegistryEntry;
@@ -57,7 +59,12 @@ public final class NativePlayerEntity extends PlayerEntity {
         this.epoch=epoch;this.damageSink=damageSink;update(actor);
     }
     private static UUID identity(long epoch,HostWorldState.Actor actor){
-        return UUID.nameUUIDFromBytes(("goldcraft/native/"+Long.toUnsignedString(epoch)+"/"+actor.slot()+"/"+actor.serial()+"/"+actor.life()).getBytes(StandardCharsets.UTF_8));
+        // Gameplay identity survives a form change, just like the real player's
+        // UUID. Removed object references and native serial/spawn fences still
+        // prevent damage/effects from being redirected to a replacement life.
+        UUID paired=actor.minecraftPlayer();
+        if(paired.getMostSignificantBits()!=0||paired.getLeastSignificantBits()!=0)return paired;
+        return UUID.nameUUIDFromBytes(("goldcraft/native/"+Long.toUnsignedString(epoch)+"/"+actor.slot()+"/"+actor.serial()+"/"+actor.spawn()).getBytes(StandardCharsets.UTF_8));
     }
     public long epoch(){return epoch;}
     public HostWorldState.Actor actor(){return actor;}
@@ -90,6 +97,18 @@ public final class NativePlayerEntity extends PlayerEntity {
     }
     // Vanilla AI reads this logical player, not the permanently hidden proxy.
     @Override public boolean isInvisible(){return hitbox!=null&&!hitbox.isRemoved()&&NativeVisibility.invisible(hitbox);}
+    // Queries see the single live effect owner. Keep getActiveStatusEffects()
+    // local: lifecycle transfer must still distinguish source and destination.
+    @Override public boolean hasStatusEffect(RegistryEntry<StatusEffect> effect){
+        return getStatusEffect(effect)!=null;
+    }
+    @Override public StatusEffectInstance getStatusEffect(RegistryEntry<StatusEffect> effect){
+        // Confirmed death transfers effects back to this logical player for
+        // original player-specific removal callbacks before it is discarded.
+        var local=super.getStatusEffect(effect);if(local!=null)return local;
+        return hitbox!=null&&!hitbox.isRemoved()&&hitbox.follows(this)
+            ?hitbox.getStatusEffect(effect):null;
+    }
     @Override public boolean isSpectator(){return false;}
     @Override public boolean isCreative(){return false;}
     @Override public boolean shouldSave(){return false;}

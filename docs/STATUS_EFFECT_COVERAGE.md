@@ -36,10 +36,10 @@
 | 缓降 slow_falling | 已接免摔伤与下降重力，实际PM半重力/正常跳跃负对照通过；两种形态的宿主控制/摔伤和预测仍待真人验收。 |
 | 潮涌能量 conduit_power | 呼吸防护/实际挖掘速度已验证。水下视觉新增原生真实眼点与原版渐进适应，362JUnit、两FML各1001项、真实ReHLDS18项及双服7项通过；联合候选未部署，客户端画面、完整宿主挖图及多人仍待。[视觉](NATIVE_VISION.md) · [挖掘](NATIVE_MELEE.md) |
 | 海豚的恩惠 dolphins_grace | 已接原生水中拖曳/速度上限与加速度临时适配，普通水/岩浆与恢复自动对照通过；完整原版水中travel语义及真人行为仍待。 |
-| 不祥之兆 bad_omen | 必须核验真正 ServerPlayer 触发的村庄/试炼转换；代理类别不同。 |
-| 村庄英雄 hero_of_the_village | 必须核验交易折扣/村民行为使用的真实玩家。 |
+| 不祥之兆 bad_omen | 试炼默认玩家检测及唯一效果查询已接入，真实刷怪器将III转换为45分钟试炼之兆；两FML各50项通过。村庄转换仍依赖ServerPlayer，尚待实现，候选未部署。[说明](NATIVE_PLAYER_STATUS.md) |
+| 村庄英雄 hero_of_the_village | 已接真实村民感知、唯一效果查询和稳定玩家身份；真实英雄III定价20→12、幼年村民一次赠礼及到期恢复通过。真人交易、袭击胜利授予和多人仍待，候选未部署。[说明](NATIVE_PLAYER_STATUS.md) |
 | 黑暗 darkness | 读取权威效果实例的真实fade factor，接入15格视距与原版余弦暗度；真实GL通过，联合构建及渐入/消退真人验收进行中。[说明](NATIVE_VISION.md) |
-| 试炼之兆 trial_omen | 需真实玩家与试炼刷怪器触发，不能以计时结束验收。 |
+| 试炼之兆 trial_omen | 真实默认选择器/试炼转换、效果单计时、双形态参与者去重及原版奖励消费通过；夹具快进完成边界并固定钥匙表，未验完整试炼战斗/随机奖励。候选未部署，真人多人待验。[说明](NATIVE_PLAYER_STATUS.md) |
 | 袭击之兆 raid_omen | 需真实玩家/村庄/袭击事件，不重复触发。 |
 | 蓄风 wind_charged | 权威死亡已接独立一次性KILLED移除；真实FML风爆及配对观战换体通过，死亡/观战位置与重复快照有对照。原生位移和真人双服待验，未部署。[说明](NATIVE_STATUS_DEATH.md) |
 | 盘丝 weaving | 同一死亡模块保留玩家类型；真实蛛网及mobGriefing=false检查通过。宿主BSP上的支撑、蛛网移动和真人待验，未部署。[说明](NATIVE_STATUS_DEATH.md) |
