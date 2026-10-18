@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c7d3633..093f7d0 100644
+index c7d3633..ae35bc1 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,13 +1,15 @@
@@ -64,7 +64,7 @@ index c7d3633..093f7d0 100644
 +include(CTest)
 +option(HLAM_ENABLE_CSOL_SMOKE_TEST "Enable explicit local CSOL integration test driver" OFF)
 +if(HLAM_ENABLE_CSOL_SMOKE_TEST)
-+	target_sources(HLAM PRIVATE tests/CSOLSmokeTest.cpp tests/CSOLJSONSmokeTest.cpp tests/CSOLEventSmokeTest.cpp tests/CSOLPartsSmokeTest.cpp tests/CSOLFamiliesSmokeTest.cpp)
++	target_sources(HLAM PRIVATE tests/CSOLSmokeTest.cpp tests/CSOLJSONSmokeTest.cpp tests/CSOLEventSmokeTest.cpp tests/CSOLPartsSmokeTest.cpp tests/CSOLFamiliesSmokeTest.cpp tests/CSOLDualSmokeTest.cpp)
 +	target_compile_definitions(HLAM PRIVATE HLAM_ENABLE_CSOL_SMOKE_TEST)
 +endif()
 +if(BUILD_TESTING)
@@ -129,10 +129,10 @@ index 0000000..686fc00
 +endif()
 diff --git "a/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md" "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
 new file mode 100644
-index 0000000..dfccf1e
+index 0000000..ad5532e
 --- /dev/null
 +++ "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,115 @@
 +# CSOL 中文预览版
 +
 +基于 Half-Life Asset Manager `4df74a58a50438b8f4b974e04ab9f24fdfcbb811`。中文界面由模型直接编写，没有调用翻译服务；资源名、骨骼名、动画名、QC 指令和版权声明保留原文。
@@ -208,6 +208,12 @@ index 0000000..dfccf1e
 +新系列默认开启“按客户端时长自动转入持续／待机动作”：联动霰弹枪展开与收回各 0.7 秒；机械臂分别 0.33／0.67 秒；飞镖分别 0.7／0.53 秒。关闭后可停在所选动作的末帧。动作列表按实际文件显示中文与原序列名，机械臂的两根独立根骨骼均跟随主体，飞镖附属件皮肤与主体同步。此选项控制动作衔接，充能／弹量／投掷条件仍需在查看器中选择相应动作；不把主体序列编号当作附属序列编号。
 +
 +如果先打开 `_parts.mdl`，同一页的“打开完整武器”可以打开旁边的主体文件。只想检查主体时取消“显示自动加载的配套模型”。“右手持枪”会同时镜像这套组合。“导出全部关联素材”从任意一份导出都会包含另一份及其依赖；从导出目录打开主体仍能自动组合。
++
++`v_alterationammogun` 会同时载入 `_parts01.mdl` 和 `_parts02.mdl`。组合页的“附属件”选择要检查的槽位；两个槽位都有自己的动作、时间和 JSON 动态贴图，定位其中一个不会重置另一个。窗口较小时可滚动查看全部控件。
++
++部件 1 的待机不是循环动画：客户端把帧固定为 `截断((66 / 最大弹量) × 当前弹量)`。输入“预览当前弹量”和“预览最大弹量”即可查看相应姿态，SPR 仍独立播放。部件 2 展开 0.5 秒后持续、收回 1 秒后待机。选择主体 `shootC` 会同时启动两个部件的 C 射击；1 秒后部件 1 恢复弹量姿态，部件 2 根据“C 射击后保持展开形态”进入持续或收回。关闭自动衔接可单独检查射击动作。
++
++这些弹量及形态值是查看器输入，默认 1/1 仅表示满比例，不表示游戏武器的真实容量；没有从运行中的游戏读取角色状态。EX 版本有明确的双部件登记，但当前样本缺少对应 MDL，不能用普通版代替。三份模型中任意一份导出都会显式收集其余两份，缺失时保留明确清单。
 +
 +CSO 用客户端武器状态控制附属动作，JSON 仅负责各自的动态贴图。因此主体 `shoot1` 与附属件 `change_start` 虽然编号同为 1，也不能直接绑定为同一动作。查看器提供真实的独立动作预览，尚未模拟完整充能/跳跃状态、世界效果及附属件的声音事件；不是完整游戏逻辑的回放。
 +
@@ -403,7 +409,7 @@ index 529030f..610b450 100644
 +	throw AssetException("不支持此文件类型");
  }
 diff --git a/src/hlam/application/ToolApplication.cpp b/src/hlam/application/ToolApplication.cpp
-index 5f9c1bd..c6fcafd 100644
+index 5f9c1bd..87d71cb 100644
 --- a/src/hlam/application/ToolApplication.cpp
 +++ b/src/hlam/application/ToolApplication.cpp
 @@ -14,6 +14,7 @@
@@ -448,7 +454,7 @@ index 5f9c1bd..c6fcafd 100644
 +		auto instanceName = programName;
 +#ifdef HLAM_ENABLE_CSOL_SMOKE_TEST
 +		// A smoke test must not forward its fixture to a user's open editor.
-+		if (qEnvironmentVariableIsSet("HLAM_CSOL_FAMILIES_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_PARTS_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_EVENT_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_JSON_OUTPUT")
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_DUAL_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_FAMILIES_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_PARTS_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_EVENT_OUTPUT") || qEnvironmentVariableIsSet("HLAM_CSOL_JSON_OUTPUT")
 +			|| (qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_ROOT") && qEnvironmentVariableIsSet("HLAM_CSOL_SMOKE_OUTPUT")))
 +			instanceName += "-CSOL-test-" + QString::number(QCoreApplication::applicationPid());
 +#endif
@@ -456,11 +462,17 @@ index 5f9c1bd..c6fcafd 100644
  		{
  			return EXIT_SUCCESS;
  		}
-@@ -168,6 +179,40 @@ int ToolApplication::Run(int argc, char* argv[])
+@@ -168,6 +179,46 @@ int ToolApplication::Run(int argc, char* argv[])
  			_application->LoadFile(commandLine.FileName);
  		}
  
 +#ifdef HLAM_ENABLE_CSOL_SMOKE_TEST
++		if (qEnvironmentVariableIsSet("HLAM_CSOL_DUAL_OUTPUT"))
++		{
++			extern int RunCSOLDualSmokeTest(AssetManager&, const QString&);
++			const int result = RunCSOLDualSmokeTest(*_application, qEnvironmentVariable("HLAM_CSOL_DUAL_OUTPUT"));
++			OnExit(); return result;
++		}
 +		if (qEnvironmentVariableIsSet("HLAM_CSOL_FAMILIES_OUTPUT"))
 +		{
 +			extern int RunCSOLFamiliesSmokeTest(AssetManager&, const QString&);
@@ -497,7 +509,7 @@ index 5f9c1bd..c6fcafd 100644
  		return app.exec();
  	}
  	catch (const std::exception& e)
-@@ -191,8 +236,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
+@@ -191,8 +242,8 @@ ParsedCommandLine ToolApplication::ParseCommandLine(const QStringList& arguments
  {
  	QCommandLineParser parser;
  
@@ -508,7 +520,7 @@ index 5f9c1bd..c6fcafd 100644
  
  	parser.process(arguments);
  
-@@ -288,8 +333,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
+@@ -288,8 +339,8 @@ void ToolApplication::CheckOpenGLVersion(const QString& programName, QSettings&
  	//Only check this once
  	if (!settings.value("Video/CheckedOpenGLVersion", false).toBool() && versionCode < minimumSupportedVersionCode)
  	{
@@ -519,7 +531,7 @@ index 5f9c1bd..c6fcafd 100644
  			.arg(programName)
  			.arg(openGLFormat.majorVersion())
  			.arg(openGLFormat.minorVersion()));
-@@ -311,7 +356,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -311,7 +362,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->create())
  	{
@@ -528,7 +540,7 @@ index 5f9c1bd..c6fcafd 100644
  		return {};
  	}
  
-@@ -323,7 +368,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -323,7 +374,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  	if (!context->makeCurrent(surface.get()))
  	{
@@ -537,7 +549,7 @@ index 5f9c1bd..c6fcafd 100644
  		return {};
  	}
  
-@@ -332,6 +377,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
+@@ -332,6 +383,7 @@ std::unique_ptr<graphics::IGraphicsContext> ToolApplication::InitializeOpenGL()
  
  std::unique_ptr<AssetManager> ToolApplication::CreateApplication(std::unique_ptr<QSettings> settings)
  {
@@ -560,7 +572,7 @@ index 9d2d493..9326f81 100644
  	if (IsSoundEvent(event.id)
  		|| GetContext()->StudioSettings->GetSoundEventIds().contains(event.id))
 diff --git a/src/hlam/entity/StudioModelEntity.cpp b/src/hlam/entity/StudioModelEntity.cpp
-index 5073836..5f55752 100644
+index 5073836..264fd5f 100644
 --- a/src/hlam/entity/StudioModelEntity.cpp
 +++ b/src/hlam/entity/StudioModelEntity.cpp
 @@ -59,7 +59,7 @@ void StudioModelEntity::Draw(graphics::SceneContext& sc, RenderPasses renderPass
@@ -577,7 +589,7 @@ index 5073836..5f55752 100644
  	renderInfo.Angles = GetAngles();
  	renderInfo.Scale = GetScale();
 +	const auto& preview = GetEditableModel()->CSOL;
-+	if (preview.Enabled && (preview.Parts || (preview.FollowWeapon && preview.RecognizedWeapon)) && preview.RightHand)
++	if (preview.Enabled && (preview.HasParts() || (preview.FollowWeapon && preview.RecognizedWeapon)) && preview.RightHand)
 +		renderInfo.Scale.y = -renderInfo.Scale.y;
  
  	renderInfo.Model = GetEditableModel();
@@ -963,7 +975,7 @@ index 0000000..1697687
 +}
 diff --git a/src/hlam/formats/csol/CSOLExport.cpp b/src/hlam/formats/csol/CSOLExport.cpp
 new file mode 100644
-index 0000000..fcb1e7f
+index 0000000..3d23b2a
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLExport.cpp
 @@ -0,0 +1,248 @@
@@ -1053,12 +1065,12 @@ index 0000000..fcb1e7f
 +	QString main = ResourceName(sourceModel, root);
 +	if (!main.startsWith("models/", Qt::CaseInsensitive)) main = "models/" + QFileInfo(sourceModel).fileName();
 +	add(main, "当前模型（磁盘版本）", true, sourceModel); result.Model = "common/" + main;
-+	if (const auto companion = CompanionModel(sourceModel); !companion.isEmpty())
++	const auto primary = PrimaryModel(sourceModel);
++	for (const auto& companion : CompanionModels(primary.isEmpty() ? sourceModel : primary))
 +	{
 +		const auto adjacent = QFileInfo(sourceModel).dir().filePath(QFileInfo(companion).fileName());
 +		add(companion, "客户端组合模型", true, QFileInfo(adjacent).isFile() ? adjacent : QString());
 +	}
-+	const auto primary = PrimaryModel(sourceModel);
 +	if (!primary.isEmpty())
 +	{
 +		const auto adjacent = QFileInfo(sourceModel).dir().filePath(QFileInfo(primary).fileName());
@@ -1946,10 +1958,10 @@ index 0000000..e11e336
 +}
 diff --git a/src/hlam/formats/csol/CSOLParts.cpp b/src/hlam/formats/csol/CSOLParts.cpp
 new file mode 100644
-index 0000000..ff303ba
+index 0000000..d443ea2
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLParts.cpp
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,166 @@
 +#include "formats/csol/CSOLParts.hpp"
 +#include "formats/csol/CSOLPreview.hpp"
 +#include "formats/studiomodel/StudioModelUtils.hpp"
@@ -1987,7 +1999,7 @@ index 0000000..ff303ba
 +	table(h.numtextures, h.textureindex, sizeof(mstudiotexture_t), 4096);
 +	table(h.numbodyparts, h.bodypartindex, sizeof(mstudiobodyparts_t), 256);
 +	table(h.numattachments, h.attachmentindex, sizeof(mstudioattachment_t), 1024);
-+	if (h.numbones == 0 || h.numseq != 4) throw std::runtime_error("附属模型骨骼或动作与客户端定义不符");
++	if (h.numbones == 0 || h.numseq == 0) throw std::runtime_error("附属模型缺少骨骼或动作");
 +	for (int i = 0; i < h.numbones; ++i)
 +	{
 +		mstudiobone_t b; std::memcpy(&b, bytes.constData() + h.boneindex + i * sizeof(b), sizeof(b));
@@ -2009,16 +2021,28 @@ index 0000000..ff303ba
 +}
 +}
 +
++Companion::Companion() = default;
++Companion::~Companion() = default;
++Companion::Companion(Companion&&) noexcept = default;
++Companion& Companion::operator=(Companion&&) noexcept = default;
++
++bool Preview::HasParts() const
++{
++	return std::any_of(Parts.begin(), Parts.end(), [](const auto& part) { return bool(part.Model); });
++}
++
 +void Preview::LoadParts(const studiomdl::EditableStudioModel& model)
 +{
-+	Parts.reset(); PartsFile.clear(); PartsBoneMap.clear(); PartsTime = PartsFrame = 0;
-+	PartsRenderSequence = 0; PartsOpenSeconds = PartsCloseSeconds = 0;
-+	PartsFollowSkin = PartsActiveSkin = false;
-+	const auto relative = CompanionModel(SourceFile);
-+	if (relative.isEmpty()) return;
-+	try
++	for (int slot = 0; slot < int(Parts.size()); ++slot)
 +	{
-+		const auto profile = PartsProfile(SourceFile);
++		auto& state = Parts[slot];
++		const int selected = state.Sequence;
++		state = Companion(); state.Sequence = selected;
++		const auto relative = CompanionModel(SourceFile, slot);
++		if (relative.isEmpty()) continue;
++		try
++		{
++		const auto profile = PartsProfile(SourceFile, slot);
 +		auto checkActions = [](const auto& model, const QStringList& actions)
 +		{
 +			if (model.Sequences.size() != std::size_t(actions.size())) return false;
@@ -2043,51 +2067,73 @@ index 0000000..ff303ba
 +				throw std::runtime_error("缺少可合并的同名根骨骼");
 +		part->CSOL.SourceFile = file; part->CSOL.Root = Root; part->CSOL.Enabled = true;
 +		part->CSOL.Load(*part);
-+		PartsFile = file; PartsBoneMap = std::move(map); Parts = std::move(part);
-+		PartsOpenSeconds = profile.OpenSeconds; PartsCloseSeconds = profile.CloseSeconds;
-+		PartsFollowSkin = profile.FollowSkin; PartsActiveSkin = profile.ActiveSkin;
-+		PartsInclusiveTimer = profile.InclusiveTimer;
-+		SetPartsSequence(PartsSequence);
-+		Status += "\n\n已自动组合附属模型：" + PartsFile
-+			+ "\n同名骨骼跟随主体，附属件动作独立播放；可在“组合模型”中预览展开、持续和收回。\n附属件资源：\n" + Parts->CSOL.Status;
++		state.File = file; state.BoneMap = std::move(map); state.Model = std::move(part); state.Definition = profile;
++		SetPartsSequence(selected, slot);
++		Status += QString("\n\n已自动组合附属槽位 %1：").arg(slot + 1) + state.File
++			+ "\n同名骨骼跟随主体，附属件动作独立播放。\n附属件资源：\n" + state.Model->CSOL.Status;
++		}
++		catch (const std::exception& e) { Status += QString("\n组合模型未加载（槽位 %1）：").arg(slot + 1) + QString::fromUtf8(e.what()); }
 +	}
-+	catch (const std::exception& e) { Status += "\n组合模型未加载：" + QString::fromUtf8(e.what()); }
 +}
 +
-+void Preview::SetPartsSequence(int sequence)
++void Preview::SetPartsSequence(int sequence, int slot)
 +{
-+	PartsSequence = Parts ? std::clamp(sequence, 0, int(Parts->Sequences.size()) - 1) : 0;
-+	UpdateParts(0, true);
++	if (slot < 0 || slot >= int(Parts.size())) return;
++	auto& part = Parts[slot];
++	part.Sequence = part.Model ? std::clamp(sequence, 0, int(part.Model->Sequences.size()) - 1) : 0;
++	UpdatePart(slot, 0, true);
 +}
 +
 +void Preview::UpdateParts(double seconds, bool seek)
 +{
-+	if (!Parts || !std::isfinite(seconds) || seconds < 0) return;
-+	PartsTime = seek ? seconds : PartsTime + seconds;
-+	const int previous = PartsRenderSequence;
-+	PartsRenderSequence = PartsSequence;
-+	double phaseTime = PartsTime;
-+	const double transition = PartsSequence == 1 ? PartsOpenSeconds : PartsSequence == 3 ? PartsCloseSeconds : 0;
-+	if (PartsAutoAdvance && transition > 0 && (PartsInclusiveTimer ? phaseTime >= transition : phaseTime > transition))
++	for (int slot = 0; slot < int(Parts.size()); ++slot) UpdatePart(slot, seconds, seek);
++}
++
++void Preview::UpdatePart(int slot, double seconds, bool seek)
++{
++	if (slot < 0 || slot >= int(Parts.size()) || !std::isfinite(seconds) || seconds < 0) return;
++	auto& part = Parts[slot];
++	if (!part.Model) return;
++	const auto& profile = part.Definition;
++	part.Time = seek ? seconds : part.Time + seconds;
++	const int previous = part.RenderSequence;
++	part.RenderSequence = part.Sequence;
++	double phaseTime = part.Time;
++	if (profile.Behavior == PartsBehavior::AmmoGauge)
 +	{
-+		PartsRenderSequence = PartsSequence == 1 ? 2 : 0;
-+		phaseTime -= transition;
++		if (PartsAutoAdvance && part.Sequence == 1 && phaseTime > 1.) { part.RenderSequence = 0; phaseTime -= 1.; }
 +	}
-+	const auto& sequence = *Parts->Sequences[PartsRenderSequence];
++	else
++	{
++		if (profile.Behavior == PartsBehavior::AmmoState && PartsAutoAdvance && part.Sequence == 4 && phaseTime > 1.)
++		{
++			part.RenderSequence = PartsExpandedAfterShot ? 2 : 3;
++			phaseTime -= 1.;
++		}
++		const double transition = part.RenderSequence == 1 ? profile.OpenSeconds : part.RenderSequence == 3 ? profile.CloseSeconds : 0;
++		if (PartsAutoAdvance && transition > 0 && (profile.InclusiveTimer ? phaseTime >= transition : phaseTime > transition))
++		{
++			part.RenderSequence = part.RenderSequence == 1 ? 2 : 0;
++			phaseTime -= transition;
++		}
++	}
++	const auto& sequence = *part.Model->Sequences[part.RenderSequence];
 +	const double end = std::max(0, sequence.NumFrames - 1);
-+	PartsFrame = phaseTime * sequence.FPS;
-+	if ((sequence.Flags & STUDIO_LOOPING) && end > 0) PartsFrame = std::fmod(PartsFrame, end);
-+	else PartsFrame = std::min(PartsFrame, end);
-+	const bool restart = seek || previous != PartsRenderSequence;
-+	Parts->CSOL.UpdateBindings(PartsRenderSequence, PartsFrame, restart ? phaseTime : seconds, restart);
++	part.Frame = phaseTime * sequence.FPS;
++	if (profile.Behavior == PartsBehavior::AmmoGauge && part.RenderSequence == 0)
++		part.Frame = int((66.f / float(std::max(1, PartsMaxAmmo))) * float(std::clamp(PartsAmmo, 0, std::max(1, PartsMaxAmmo))));
++	else if ((sequence.Flags & STUDIO_LOOPING) && end > 0) part.Frame = std::fmod(part.Frame, end);
++	else part.Frame = std::min(part.Frame, end);
++	const bool restart = seek || previous != part.RenderSequence;
++	part.Model->CSOL.UpdateBindings(part.RenderSequence, part.Frame, restart ? phaseTime : seconds, restart);
 +}
 +}
 diff --git a/src/hlam/formats/csol/CSOLParts.hpp b/src/hlam/formats/csol/CSOLParts.hpp
 new file mode 100644
-index 0000000..94f9e0c
+index 0000000..0d6bb39
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLParts.hpp
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,83 @@
 +#pragma once
 +#include <QFileInfo>
 +#include <QString>
@@ -2095,17 +2141,24 @@ index 0000000..94f9e0c
 +
 +namespace csol
 +{
++enum class PartsBehavior { Standard, AmmoGauge, AmmoState };
 +struct PartsDefinition
 +{
 +	QStringList PrimaryActions, Actions;
 +	double OpenSeconds = 0, CloseSeconds = 0;
 +	bool FollowSkin = false, ActiveSkin = false;
 +	bool InclusiveTimer = true;
++	PartsBehavior Behavior = PartsBehavior::Standard;
 +};
 +
-+inline PartsDefinition PartsProfile(const QString& source)
++inline PartsDefinition PartsProfile(const QString& source, int slot = 0)
 +{
 +	const auto name = QFileInfo(source).completeBaseName().toLower();
++	if ((name == "v_alterationammogun" || name == "v_alterationammogunex") && slot >= 0 && slot < 2)
++		return {{"idle", "shootA", "shootB", "shootC", "draw"},
++			slot == 0 ? QStringList{"idle", "shootC"} : QStringList{"idle", "change_start", "change_idle", "change_end", "shootC"},
++			.5, 1., false, false, false, slot == 0 ? PartsBehavior::AmmoGauge : PartsBehavior::AmmoState};
++	if (slot != 0) return {};
 +	if (name == "v_leapstrikegun" || name == "v_leapstrikegunex")
 +		return {{"idle", "shoot1", "shoot2", "draw", "reload"}, {"idle", "change_start", "change", "change_end"}};
 +	// Verified client registrations and transition timers. Names alone are not a pairing rule.
@@ -2127,6 +2180,8 @@ index 0000000..94f9e0c
 +	if (label == "change_start") return "展开（change_start）";
 +	if (label == "change" || label == "change_loop") return "展开持续（" + label + "）";
 +	if (label == "change_end") return "收回（change_end）";
++	if (label == "change_idle") return "展开持续（change_idle）";
++	if (label == "shootC") return "C 射击（shootC）";
 +	if (label == "idleA") return "形态 A 待机（idleA）";
 +	if (label == "idleB") return "形态 B 待机（idleB）";
 +	if (label == "changeAB") return "切换到形态 B（changeAB）";
@@ -2135,27 +2190,39 @@ index 0000000..94f9e0c
 +}
 +
 +// Explicit client registrations, not a wildcard rule for arbitrary *_parts files.
-+inline QString CompanionModel(const QString& source)
++inline QString CompanionModel(const QString& source, int slot = 0)
 +{
 +	const auto name = QFileInfo(source).completeBaseName().toLower();
-+	if (!PartsProfile(source).Actions.isEmpty())
-+		return "models/" + name + "_parts.mdl";
++	const auto profile = PartsProfile(source, slot);
++	if (!profile.Actions.isEmpty())
++		return "models/" + name + "_parts" + (profile.Behavior == PartsBehavior::Standard ? QString() : QString("%1").arg(slot + 1, 2, 10, QChar('0'))) + ".mdl";
 +	return {};
++}
++inline QStringList CompanionModels(const QString& source)
++{
++	QStringList result;
++	for (int slot = 0; slot < 2; ++slot)
++		if (const auto file = CompanionModel(source, slot); !file.isEmpty()) result.append(file);
++	return result;
 +}
 +inline QString PrimaryModel(const QString& source)
 +{
 +	const auto name = QFileInfo(source).completeBaseName().toLower();
-+	if (name.endsWith("_parts") && !PartsProfile(name.left(name.size() - 6) + ".mdl").Actions.isEmpty())
-+		return "models/" + name.left(name.size() - 6) + ".mdl";
++	for (const auto* suffix : {"_parts", "_parts01", "_parts02"})
++		if (name.endsWith(suffix))
++		{
++			const auto primary = "models/" + name.left(name.size() - int(qstrlen(suffix))) + ".mdl";
++			if (CompanionModels(primary).contains("models/" + name + ".mdl")) return primary;
++		}
 +	return {};
 +}
 +}
 diff --git a/src/hlam/formats/csol/CSOLPreview.cpp b/src/hlam/formats/csol/CSOLPreview.cpp
 new file mode 100644
-index 0000000..a576bef
+index 0000000..df51ef8
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.cpp
-@@ -0,0 +1,516 @@
+@@ -0,0 +1,523 @@
 +#include "formats/csol/CSOLPreview.hpp"
 +#include "formats/csol/CSOLParts.hpp"
 +#include "formats/studiomodel/EditableStudioModel.hpp"
@@ -2185,8 +2252,10 @@ index 0000000..a576bef
 +	p.SpriteBlend = SpriteBlend; p.Billboard = Billboard; p.Loop = Loop;
 +	p.WeaponPreset = WeaponPreset; p.DepthTest = DepthTest; p.Brightness = Brightness;
 +	p.FollowWeapon = FollowWeapon; p.RightHand = RightHand; p.SourceFile = SourceFile;
-+	p.ShowParts = ShowParts; p.PartsSequence = PartsSequence;
++	p.ShowParts = ShowParts;
++	for (std::size_t i = 0; i < Parts.size(); ++i) p.Parts[i].Sequence = Parts[i].Sequence;
 +	p.PartsAutoAdvance = PartsAutoAdvance;
++	p.PartsAmmo = PartsAmmo; p.PartsMaxAmmo = PartsMaxAmmo; p.PartsExpandedAfterShot = PartsExpandedAfterShot;
 +	return p;
 +}
 +
@@ -2432,6 +2501,11 @@ index 0000000..a576bef
 +
 +void Preview::SetAction(int sequence, double seconds)
 +{
++	if (sequence == 3 && Parts[0].Definition.Behavior == PartsBehavior::AmmoGauge)
++	{
++		// The client's C-shot event starts slot 0 sequence 1, slot 1 sequence 4 and primary sequence 3.
++		SetPartsSequence(1, 0); SetPartsSequence(4, 1);
++	}
 +	EventSprites.clear(); EventsStarted = false;
 +	if (sequence == ActionSequence || sequence / 6 != ActionSequence / 6 || sequence % 6 == 2 || ActionSequence < 0)
 +		Time = seconds;
@@ -2552,7 +2626,7 @@ index 0000000..a576bef
 +void Preview::Upload(graphics::TextureLoader& loader)
 +{
 +	Release(loader);
-+	if (Parts) Parts->CreateTextures(loader);
++	for (auto& part : Parts) if (part.Model) part.Model->CreateTextures(loader);
 +	auto upload = [&](const QImage& image)
 +	{
 +		const auto handle = loader.CreateTexture();
@@ -2631,7 +2705,7 @@ index 0000000..a576bef
 +
 +void Preview::Release(graphics::TextureLoader& loader)
 +{
-+	if (Parts) Parts->DeleteTextures(loader);
++	for (auto& part : Parts) if (part.Model) part.Model->DeleteTextures(loader);
 +	for (auto& clip : EventClips)
 +	{
 +		for (auto handle : clip.Handles) loader.DeleteTexture(handle);
@@ -2656,7 +2730,7 @@ index 0000000..a576bef
 +
 +void Preview::UpdateFilters(graphics::TextureLoader& loader)
 +{
-+	if (Parts) Parts->UpdateFilters(loader);
++	for (auto& part : Parts) if (part.Model) part.Model->UpdateFilters(loader);
 +	for (const auto& clip : EventClips) for (auto handle : clip.Handles) loader.SetFilters(handle, false);
 +	for (const auto& texture : Textures) if (texture.Handle) loader.SetFilters(texture.Handle, false);
 +	for (auto handle : FrameHandles) loader.SetFilters(handle, false);
@@ -2674,14 +2748,15 @@ index 0000000..a576bef
 +}
 diff --git a/src/hlam/formats/csol/CSOLPreview.hpp b/src/hlam/formats/csol/CSOLPreview.hpp
 new file mode 100644
-index 0000000..f308714
+index 0000000..0a9f92c
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLPreview.hpp
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,151 @@
 +#pragma once
 +#include "formats/csol/CSOLFormats.hpp"
 +#include "formats/csol/CSOLModelJSON.hpp"
 +#include "formats/csol/CSOLEvents.hpp"
++#include "formats/csol/CSOLParts.hpp"
 +#include "graphics/OpenGL.hpp"
 +#include <glm/vec3.hpp>
 +#include <array>
@@ -2743,6 +2818,20 @@ index 0000000..f308714
 +	mutable glm::vec3 Position{0};
 +};
 +
++struct Companion
++{
++	Companion();
++	~Companion();
++	Companion(Companion&&) noexcept;
++	Companion& operator=(Companion&&) noexcept;
++	std::unique_ptr<studiomdl::EditableStudioModel> Model;
++	QString File;
++	std::vector<int> BoneMap;
++	int Sequence = 0, RenderSequence = 0;
++	double Time = 0, Frame = 0;
++	PartsDefinition Definition;
++};
++
 +// Viewer state only. ConvertFromEditable deliberately does not serialize this.
 +struct Preview
 +{
@@ -2786,20 +2875,16 @@ index 0000000..f308714
 +	bool EventsStarted = false;
 +	double ActionTime = 0;
 +	int ActionSequence = -1;
-+	// The client owns a second studio model with a separate animation clock.
-+	std::unique_ptr<studiomdl::EditableStudioModel> Parts;
-+	QString PartsFile;
-+	std::vector<int> PartsBoneMap;
++	// The verified client has two independent 28-byte companion state slots.
++	std::array<Companion, 2> Parts;
 +	bool ShowParts = true;
-+	int PartsSequence = 0;
-+	int PartsRenderSequence = 0;
 +	bool PartsAutoAdvance = true;
-+	bool PartsFollowSkin = false, PartsActiveSkin = false;
-+	bool PartsInclusiveTimer = true;
-+	double PartsOpenSeconds = 0, PartsCloseSeconds = 0;
-+	double PartsTime = 0, PartsFrame = 0;
++	int PartsAmmo = 1, PartsMaxAmmo = 1;
++	bool PartsExpandedAfterShot = false;
++	bool HasParts() const;
 +	void LoadParts(const studiomdl::EditableStudioModel& model);
-+	void SetPartsSequence(int sequence);
++	void SetPartsSequence(int sequence, int slot = 0);
++	void UpdatePart(int slot, double seconds, bool seek = false);
 +	void UpdateParts(double seconds, bool seek = false);
 +
 +	void Discover(const QString& file, const studiomdl::EditableStudioModel& model);
@@ -3036,7 +3121,7 @@ index 8b8f86f..a633a5a 100644
  	}
  }
 diff --git a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
-index ed0b42e..731962a 100644
+index ed0b42e..e97fc06 100644
 --- a/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 +++ b/src/hlam/formats/studiomodel/StudioModelRenderer.cpp
 @@ -1,10 +1,13 @@
@@ -3062,31 +3147,35 @@ index ed0b42e..731962a 100644
  
  	// draw bones
  	if (flags & renderer::DrawFlag::DRAW_BONES)
-@@ -151,6 +156,23 @@ unsigned int StudioModelRenderer::DrawModel(
+@@ -151,6 +156,27 @@ unsigned int StudioModelRenderer::DrawModel(
  	_openglFunctions->glPopMatrix();
  
  	_drawnPolygonsCount += uiDrawnPolys;
 +	auto& preview = renderInfo.Model->CSOL;
-+	if (preview.Enabled && preview.ShowParts && preview.Parts)
++	if (preview.Enabled && preview.ShowParts && preview.HasParts())
 +	{
 +		// Save the primary pose before the second draw overwrites the renderer cache.
 +		// Matching bones copy this pose; unmatched bones keep their local animation.
 +		std::array<glm::mat4x4, MAXSTUDIOBONES> primaryBones;
 +		std::copy_n(_bonetransform, renderInfo.Model->Bones.size(), primaryBones.begin());
-+		auto partsInfo = renderInfo;
-+		partsInfo.Model = preview.Parts.get();
-+		partsInfo.Sequence = preview.PartsRenderSequence; partsInfo.Frame = float(preview.PartsFrame);
-+		partsInfo.Bodygroup = 0;
-+		partsInfo.Skin = preview.PartsFollowSkin ? renderInfo.Skin :
-+			preview.PartsActiveSkin && (preview.PartsRenderSequence == 1 || preview.PartsRenderSequence == 2) ? 1 : 0;
-+		partsInfo.MergeBones = &preview.PartsBoneMap; partsInfo.MergeTransforms = &primaryBones;
-+		uiDrawnPolys += DrawModel(partsInfo, floorHeight, flags);
++		for (auto& part : preview.Parts)
++		{
++			if (!part.Model) continue;
++			auto partsInfo = renderInfo;
++			partsInfo.Model = part.Model.get();
++			partsInfo.Sequence = part.RenderSequence; partsInfo.Frame = float(part.Frame);
++			partsInfo.Bodygroup = 0;
++			partsInfo.Skin = part.Definition.FollowSkin ? renderInfo.Skin :
++				part.Definition.ActiveSkin && (part.RenderSequence == 1 || part.RenderSequence == 2) ? 1 : 0;
++			partsInfo.MergeBones = &part.BoneMap; partsInfo.MergeTransforms = &primaryBones;
++			uiDrawnPolys += DrawModel(partsInfo, floorHeight, flags);
++		}
 +		_renderInfo = &renderInfo; _studioModel = renderInfo.Model;
 +	}
  
  	return uiDrawnPolys;
  }
-@@ -528,7 +550,9 @@ void StudioModelRenderer::SetUpBones()
+@@ -528,7 +554,9 @@ void StudioModelRenderer::SetUpBones()
  			_renderInfo->Scale,
  			_renderInfo->Blender,
  			_renderInfo->Controller,
@@ -3097,7 +3186,7 @@ index ed0b42e..731962a 100644
  		}).data();
  }
  
-@@ -552,6 +576,13 @@ void StudioModelRenderer::SetupModel(int bodypart)
+@@ -552,6 +580,13 @@ void StudioModelRenderer::SetupModel(int bodypart)
  	}
  
  	_model = _studioModel->GetModelByBodyPart(_renderInfo->Bodygroup, bodypart);
@@ -3111,7 +3200,7 @@ index ed0b42e..731962a 100644
  }
  
  unsigned int StudioModelRenderer::DrawPoints(const bool bWireframe)
-@@ -559,7 +590,8 @@ unsigned int StudioModelRenderer::DrawPoints(const bool bWireframe)
+@@ -559,7 +594,8 @@ unsigned int StudioModelRenderer::DrawPoints(const bool bWireframe)
  	unsigned int uiDrawnPolys = 0;
  
  	//TODO: do this earlier
@@ -3121,7 +3210,7 @@ index ed0b42e..731962a 100644
  
  	for (int i = 0; i < _model->Vertices.size(); i++)
  	{
-@@ -583,6 +615,13 @@ unsigned int StudioModelRenderer::DrawPoints(const bool bWireframe)
+@@ -583,6 +619,13 @@ unsigned int StudioModelRenderer::DrawPoints(const bool bWireframe)
  
  		meshes[j].Mesh = &mesh;
  		meshes[j].Flags = flags;
@@ -3135,7 +3224,7 @@ index ed0b42e..731962a 100644
  
  		for (int i = 0; i < mesh.NumNorms; i++, ++lv, ++normals)
  		{
-@@ -631,8 +670,26 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -631,8 +674,26 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  
  		const auto& texture = *_studioModel->Textures[textureIndex];
  
@@ -3164,7 +3253,7 @@ index ed0b42e..731962a 100644
  
  		if (!bWireframe)
  		{
-@@ -662,7 +719,23 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -662,7 +723,23 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  				_openglFunctions->glAlphaFunc(GL_GREATER, 0.5f);
  			}
  
@@ -3189,7 +3278,7 @@ index ed0b42e..731962a 100644
  		}
  
  		int i;
-@@ -707,6 +780,12 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -707,6 +784,12 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  					}
  				}
  
@@ -3202,7 +3291,7 @@ index ed0b42e..731962a 100644
  				_openglFunctions->glVertex3fv(glm::value_ptr(_xformverts[ptricmds[0]]));
  			}
  			_openglFunctions->glEnd();
-@@ -724,11 +803,100 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
+@@ -724,11 +807,100 @@ unsigned int StudioModelRenderer::DrawMeshes(const bool bWireframe, const Sorted
  				_openglFunctions->glDisable(GL_ALPHA_TEST);
  			}
  		}
@@ -4763,10 +4852,10 @@ index 7cabff0..b3abbfa 100644
  		AttachmentsPanel.ui
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
 new file mode 100644
-index 0000000..ba24acd
+index 0000000..2dc4ebe
 --- /dev/null
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.cpp
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,465 @@
 +#include "plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp"
 +#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
 +#include "entity/HLMVStudioModelEntity.hpp"
@@ -4784,6 +4873,7 @@ index 0000000..ba24acd
 +#include <QGridLayout>
 +#include <QJsonDocument>
 +#include <QJsonObject>
++#include <QJsonArray>
 +#include <QLabel>
 +#include <QLineEdit>
 +#include <QMessageBox>
@@ -4811,7 +4901,10 @@ index 0000000..ba24acd
 +	_summary = new QLabel; _summary->setWordWrap(true); form->addRow(_summary);
 +	auto combined = new QWidget;
 +	auto cf = new QFormLayout(combined);
-+	tabs->addTab(combined, "组合模型");
++	auto combinedScroll = new QScrollArea;
++	combinedScroll->setObjectName("CSOLPartsScroll"); combinedScroll->setWidgetResizable(true);
++	combinedScroll->setFrameShape(QFrame::NoFrame); combinedScroll->setWidget(combined);
++	tabs->addTab(combinedScroll, "组合模型");
 +	_showParts = new QCheckBox("显示自动加载的配套模型"); _showParts->setObjectName("CSOLShowParts"); cf->addRow(_showParts);
 +	_partsFile = new QLabel; _partsFile->setWordWrap(true); cf->addRow(_partsFile);
 +	_openComplete = new QPushButton("打开完整武器"); _openComplete->setObjectName("CSOLOpenComplete"); cf->addRow(_openComplete);
@@ -4819,6 +4912,8 @@ index 0000000..ba24acd
 +	{
 +		if (_asset) _asset->GetApplication()->LoadFile(_openComplete->property("modelFile").toString());
 +	});
++	_partsSlot = new QComboBox; _partsSlot->setObjectName("CSOLPartsSlot"); cf->addRow("附属件", _partsSlot);
++	connect(_partsSlot, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] { if (!_loading) RefreshPart(); });
 +	_partsSequence = new QComboBox; _partsSequence->setObjectName("CSOLPartsSequence");
 +	cf->addRow("附属件动作", _partsSequence);
 +	_partsAutoAdvance = new QCheckBox("按客户端时长自动转入持续／待机动作");
@@ -4827,32 +4922,44 @@ index 0000000..ba24acd
 +	{
 +		if (_loading || !_asset) return;
 +		auto& p = _asset->GetEditableStudioModel()->CSOL;
-+		p.PartsAutoAdvance = _partsAutoAdvance->isChecked(); p.UpdateParts(p.PartsTime, true);
++		p.PartsAutoAdvance = _partsAutoAdvance->isChecked(); p.UpdateParts(0);
 +	});
++	_partsAmmo = new QSpinBox; _partsAmmo->setObjectName("CSOLPartsAmmo"); _partsAmmo->setRange(0, 1000000); cf->addRow("预览当前弹量", _partsAmmo);
++	_partsMaxAmmo = new QSpinBox; _partsMaxAmmo->setObjectName("CSOLPartsMaxAmmo"); _partsMaxAmmo->setRange(1, 1000000); cf->addRow("预览最大弹量", _partsMaxAmmo);
++	_partsAfterShot = new QCheckBox("C 射击后保持展开形态"); _partsAfterShot->setObjectName("CSOLPartsAfterShot"); cf->addRow(_partsAfterShot);
++	auto ammoChanged = [this]
++	{
++		if (_loading || !_asset) return;
++		auto& p = _asset->GetEditableStudioModel()->CSOL;
++		p.PartsAmmo = _partsAmmo->value(); p.PartsMaxAmmo = _partsMaxAmmo->value();
++		p.PartsExpandedAfterShot = _partsAfterShot->isChecked(); p.UpdateParts(0);
++	};
++	connect(_partsAmmo, qOverload<int>(&QSpinBox::valueChanged), this, ammoChanged);
++	connect(_partsMaxAmmo, qOverload<int>(&QSpinBox::valueChanged), this, ammoChanged);
++	connect(_partsAfterShot, &QCheckBox::toggled, this, ammoChanged);
 +	_partsFrame = new QSpinBox; _partsFrame->setObjectName("CSOLPartsFrame"); cf->addRow("附属件定位帧", _partsFrame);
 +	auto replayParts = new QPushButton("从头播放附属件动作"); replayParts->setObjectName("CSOLPartsReplay"); cf->addRow(replayParts);
-+	auto partsNote = new QLabel("打开主体 MDL 即自动组合已核实的配套件。附属动作可独立选择；启用自动衔接后，所选展开／收回动作会按已核实的客户端时长转入持续／待机。定位帧从所选动作起算，主时间轴暂停也会暂停附属件。武器充能、弹量和投掷状态尚需独立设置动作。");
++	auto partsNote = new QLabel("打开主体即自动组合已核实的配套件。各槽位动作独立，主暂停控制全部槽位。自动衔接按客户端时长进入持续／待机。alterationammogun 的主体 C 射击会同时启动两个附属件；部件 1 待机姿态由预览弹量决定，部件 2 的射击后形态可选。弹量和游戏触发条件属于预览输入，没有读取游戏中的角色状态。");
 +	partsNote->setWordWrap(true); cf->addRow(partsNote);
 +	connect(_showParts, &QCheckBox::toggled, this, &CSOLPanel::Parameters);
 +	connect(_partsSequence, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int sequence)
 +	{
 +		if (_loading || !_asset) return;
-+		auto& p = _asset->GetEditableStudioModel()->CSOL; p.SetPartsSequence(sequence);
-+		_loading = true; _partsFrame->setRange(0, p.Parts ? p.Parts->Sequences[p.PartsSequence]->NumFrames - 1 : 0); _partsFrame->setValue(0); _loading = false;
++		auto& p = _asset->GetEditableStudioModel()->CSOL; p.SetPartsSequence(sequence, PartSlot()); RefreshPart();
 +	});
 +	connect(_partsFrame, qOverload<int>(&QSpinBox::valueChanged), this, [this](int frame)
 +	{
 +		if (_loading || !_asset) return;
 +		auto& p = _asset->GetEditableStudioModel()->CSOL;
-+		if (!p.Parts) return;
++		auto& part = p.Parts[PartSlot()]; if (!part.Model) return;
 +		_play->setChecked(false);
-+		const auto fps = p.Parts->Sequences[p.PartsSequence]->FPS;
-+		p.UpdateParts(fps > 0 ? double(frame) / fps : 0, true);
++		const auto fps = part.Model->Sequences[part.Sequence]->FPS;
++		p.UpdatePart(PartSlot(), fps > 0 ? double(frame) / fps : 0, true);
 +	});
 +	connect(replayParts, &QPushButton::clicked, this, [this]
 +	{
 +		if (!_asset) return;
-+		_asset->GetEditableStudioModel()->CSOL.SetPartsSequence(_partsSequence->currentIndex());
++		_asset->GetEditableStudioModel()->CSOL.SetPartsSequence(_partsSequence->currentIndex(), PartSlot());
 +		_loading = true; _partsFrame->setValue(0); _loading = false;
 +		_play->setChecked(true); _asset->PlaySequence = true;
 +	});
@@ -4934,7 +5041,7 @@ index 0000000..ba24acd
 +	{
 +		auto button = new QPushButton(label); buttons->addWidget(button, buttonIndex / 2, buttonIndex % 2);
 +		++buttonIndex;
-+		if (label == "应用资源") connect(button, &QPushButton::clicked, this, &CSOLPanel::Apply);
++		if (label == "应用资源") connect(button, &QPushButton::clicked, this, [this] { Apply(); });
 +		else if (label == "清除附加动画") connect(button, &QPushButton::clicked, this, [this] { _automatic->setChecked(false); _sprite->clear(); Apply(); });
 +		else connect(button, &QPushButton::clicked, this, [this, label] { Profile(label.startsWith("保存")); });
 +	}
@@ -4992,21 +5099,49 @@ index 0000000..ba24acd
 +	SetAsset(provider->GetDummyAsset());
 +}
 +
++int CSOLPanel::PartSlot() const
++{
++	return std::clamp(_partsSlot->currentData().toInt(), 0, 1);
++}
++
++void CSOLPanel::RefreshPart()
++{
++	if (!_asset) return;
++	const bool loading = _loading; _loading = true;
++	auto& p = _asset->GetEditableStudioModel()->CSOL; auto& part = p.Parts[PartSlot()];
++	_partsSequence->clear();
++	if (part.Model) for (const auto& sequence : part.Model->Sequences)
++		_partsSequence->addItem(csol::PartsActionLabel(QString::fromStdString(sequence->Label)));
++	_partsSequence->setEnabled(bool(part.Model)); _partsSequence->setCurrentIndex(part.Sequence);
++	const bool gauge = part.Definition.Behavior == csol::PartsBehavior::AmmoGauge && part.Sequence == 0;
++	_partsFrame->setEnabled(part.Model && !gauge);
++	_partsFrame->setRange(0, part.Model ? part.Model->Sequences[part.Sequence]->NumFrames - 1 : 0);
++	_partsFrame->setValue(int(part.Frame));
++	_loading = loading;
++}
++
 +void CSOLPanel::SetAsset(StudioModelAsset* asset)
 +{
 +	_loading = true; _asset = asset;
 +	auto model = asset->GetEditableStudioModel();
 +	auto& p = model->CSOL;
-+	_showParts->setChecked(p.ShowParts); _showParts->setEnabled(bool(p.Parts));
-+	_partsSequence->clear();
-+	if (p.Parts) for (const auto& sequence : p.Parts->Sequences)
-+		_partsSequence->addItem(csol::PartsActionLabel(QString::fromStdString(sequence->Label)));
++	_showParts->setChecked(p.ShowParts); _showParts->setEnabled(p.HasParts());
++	_partsSlot->clear(); QStringList partFiles;
++	bool timed = false, ammo = false;
++	for (int i = 0; i < int(p.Parts.size()); ++i)
++	{
++		const auto& part = p.Parts[i]; if (!part.Model) continue;
++		_partsSlot->addItem(QString("%1：%2").arg(i + 1).arg(QFileInfo(part.File).fileName()), i);
++		partFiles.append(part.File); timed |= part.Definition.OpenSeconds > 0 || part.Definition.CloseSeconds > 0;
++		ammo |= part.Definition.Behavior != csol::PartsBehavior::Standard;
++	}
++	_partsSlot->setEnabled(_partsSlot->count() > 1);
++	RefreshPart();
 +	_partsAutoAdvance->setChecked(p.PartsAutoAdvance);
-+	_partsAutoAdvance->setEnabled(p.PartsOpenSeconds > 0 || p.PartsCloseSeconds > 0);
-+	_partsSequence->setEnabled(bool(p.Parts)); _partsSequence->setCurrentIndex(p.PartsSequence);
-+	_partsFrame->setEnabled(bool(p.Parts)); _partsFrame->setRange(0, p.Parts ? p.Parts->Sequences[p.PartsSequence]->NumFrames - 1 : 0);
-+	_partsFrame->setValue(int(p.PartsFrame));
-+	_partsFile->setText(p.Parts ? "已组合：" + p.PartsFile : "此模型没有已核实的自动组合规则，或缺少配套文件；详见资源状态。");
++	_partsAutoAdvance->setEnabled(timed);
++	_partsAmmo->setEnabled(ammo); _partsMaxAmmo->setEnabled(ammo); _partsAfterShot->setEnabled(ammo);
++	_partsAmmo->setValue(p.PartsAmmo); _partsMaxAmmo->setValue(p.PartsMaxAmmo); _partsAfterShot->setChecked(p.PartsExpandedAfterShot);
++	_partsFile->setText(p.HasParts() ? "已组合：\n" + partFiles.join("\n") : "此模型没有已核实的自动组合规则，或缺少配套文件；详见资源状态。");
 +	const auto primary = csol::PrimaryModel(asset->GetFileName());
 +	auto primaryFile = primary.isEmpty() ? QString() : QFileInfo(asset->GetFileName()).dir().filePath(QFileInfo(primary).fileName());
 +	if (!primary.isEmpty() && !QFileInfo(primaryFile).isFile()) primaryFile = csol::LocateResource(p.Root, primary);
@@ -5020,7 +5155,7 @@ index 0000000..ba24acd
 +	_sprite->setText(p.SpriteFile);
 +	_enabled->setChecked(p.Enabled); _play->setChecked(p.Playing); _billboard->setChecked(p.Billboard); _loop->setChecked(p.Loop);
 +	_automatic->setChecked(p.FollowWeapon); _automatic->setEnabled(p.RecognizedWeapon);
-+	_rightHand->setChecked(p.RightHand); _rightHand->setEnabled(p.Parts || (p.RecognizedWeapon && p.FollowWeapon) || !p.EventDefinitions.empty());
++	_rightHand->setChecked(p.RightHand); _rightHand->setEnabled(p.HasParts() || (p.RecognizedWeapon && p.FollowWeapon) || !p.EventDefinitions.empty());
 +	for (QWidget* control : std::initializer_list<QWidget*>{_sprite, _preset, _attachment, _width, _height, _fps,
 +		_brightness, _blend, _billboard, _depth, _loop, _frame, _offset[0], _offset[1], _offset[2]})
 +		control->setEnabled(!p.FollowWeapon);
@@ -5057,26 +5192,29 @@ index 0000000..ba24acd
 +	_appearance->setCurrentIndex(index < 0 ? 0 : index);
 +}
 +
-+bool CSOLPanel::Apply()
++bool CSOLPanel::Apply(const std::array<int, 2>* partsSequences)
 +{
 +	if (!_asset) return false;
 +	try
 +	{
 +		auto model = _asset->GetEditableStudioModel();
 +		// Decode before releasing the previous resources, so invalid files keep the existing preview intact.
-+		csol::Preview next;
++		auto next = model->CSOL.SettingsOnly();
 +		if (_game->text() != csol::GameDirectory())
 +		{
 +			csol::SetGameDirectory(_game->text());
 +			_asset->GetEntity()->GetContext()->AppSettings->GetSettings()->setValue("CSOL/GameDirectory", _game->text());
 +		}
 +		ReadParameters(next); next.Enabled = true;
-+		next.PartsSequence = _partsSequence->currentIndex();
++		std::array<int, 2> selected;
++		for (int i = 0; i < int(next.Parts.size()); ++i)
++			selected[i] = partsSequences ? (*partsSequences)[i] : next.Parts[i].Sequence;
 +		next.SourceFile = _asset->GetFileName();
 +		next.Root = _root->text(); next.SpriteFile = _sprite->text();
 +		next.Appearance = _appearance->currentText() == "默认手部" ? QString() : _appearance->currentText();
 +		next.Load(*model);
 +		next.SetAction(_asset->GetEntity()->GetSequence());
++		for (int i = 0; i < int(next.Parts.size()); ++i) next.SetPartsSequence(selected[i], i);
 +		const int sequence = _asset->GetEntity()->GetSequence();
 +		const double frame = _asset->GetEntity()->GetFrame();
 +		const double fps = sequence >= 0 && sequence < int(model->Sequences.size()) ? model->Sequences[sequence]->FPS : 0;
@@ -5106,6 +5244,8 @@ index 0000000..ba24acd
 +{
 +	p.ShowParts = _showParts->isChecked();
 +	p.PartsAutoAdvance = _partsAutoAdvance->isChecked();
++	p.PartsAmmo = _partsAmmo->value(); p.PartsMaxAmmo = _partsMaxAmmo->value();
++	p.PartsExpandedAfterShot = _partsAfterShot->isChecked();
 +	p.WeaponPreset = _preset->isChecked(); p.DepthTest = _depth->isChecked(); p.Brightness = _brightness->value();
 +	p.FollowWeapon = _automatic->isChecked(); p.RightHand = _rightHand->isChecked();
 +	p.Enabled = _enabled->isChecked(); p.Playing = _play->isChecked(); p.Billboard = _billboard->isChecked(); p.Loop = _loop->isChecked();
@@ -5136,7 +5276,12 @@ index 0000000..ba24acd
 +		{"billboard", _billboard->isChecked()}, {"loop", _loop->isChecked()}};
 +	o.insert("weaponPreset", _preset->isChecked()); o.insert("depthTest", _depth->isChecked()); o.insert("brightness", _brightness->value());
 +	o.insert("followWeapon", _automatic->isChecked()); o.insert("rightHand", _rightHand->isChecked());
-+	o.insert("showParts", _showParts->isChecked()); o.insert("partsSequence", _partsSequence->currentIndex());
++	o.insert("showParts", _showParts->isChecked());
++	QJsonArray selections;
++	if (_asset) for (const auto& part : _asset->GetEditableStudioModel()->CSOL.Parts) selections.append(part.Sequence);
++	o.insert("partsSequences", selections); o.insert("partsSequence", selections.isEmpty() ? 0 : selections[0].toInt());
++	o.insert("partsAmmo", _partsAmmo->value()); o.insert("partsMaxAmmo", _partsMaxAmmo->value());
++	o.insert("partsExpandedAfterShot", _partsAfterShot->isChecked());
 +	o.insert("partsAutoAdvance", _partsAutoAdvance->isChecked());
 +	for (int i = 0; i < 3; ++i) o.insert(QString("offset%1").arg(i), _offset[i]->value());
 +	QSaveFile out(file);
@@ -5152,8 +5297,13 @@ index 0000000..ba24acd
 +	if (error.error || !doc.isObject() || doc.object().value("version").toInt() != 1) throw std::runtime_error("无效的预览配置");
 +	const auto o = doc.object();
 +	_loading = true;
-+	_showParts->setChecked(o.value("showParts").toBool(true)); _partsSequence->setCurrentIndex(std::clamp(o.value("partsSequence").toInt(0), 0, 3));
++	_showParts->setChecked(o.value("showParts").toBool(true));
++	std::array<int, 2> selections{o.value("partsSequence").toInt(0), 0};
++	const auto parts = o.value("partsSequences").toArray();
++	for (int i = 0; i < std::min(2, parts.size()); ++i) selections[i] = parts[i].toInt();
 +	_partsAutoAdvance->setChecked(o.value("partsAutoAdvance").toBool(true));
++	_partsAmmo->setValue(o.value("partsAmmo").toInt(1)); _partsMaxAmmo->setValue(o.value("partsMaxAmmo").toInt(1));
++	_partsAfterShot->setChecked(o.value("partsExpandedAfterShot").toBool(false));
 +	_root->setText(o.value("resourceRoot").toString()); ScanHands(); _appearance->setCurrentText(o.value("appearance").toString());
 +	_sprite->setText(o.value("sprite").toString());
 +	// Older profiles keep their explicit settings until the user enables presets.
@@ -5165,7 +5315,7 @@ index 0000000..ba24acd
 +	_blend->setCurrentIndex(o.value("blend").toInt(2)); _billboard->setChecked(o.value("billboard").toBool(true)); _loop->setChecked(o.value("loop").toBool(true));
 +	for (int i = 0; i < 3; ++i) _offset[i]->setValue(o.value(QString("offset%1").arg(i)).toDouble());
 +	_loading = false;
-+	const bool loaded = Apply();
++	const bool loaded = Apply(&selections);
 +	if (!loaded) SetAsset(_asset);
 +	return loaded;
 +}
@@ -5173,10 +5323,10 @@ index 0000000..ba24acd
 +}
 diff --git a/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp
 new file mode 100644
-index 0000000..a08cba1
+index 0000000..7a8820b
 --- /dev/null
 +++ b/src/hlam/plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,48 @@
 +#pragma once
 +#include "ui/DockableWidget.hpp"
 +#include <array>
@@ -5202,7 +5352,9 @@ index 0000000..a08cba1
 +private:
 +	void SetAsset(StudioModelAsset* asset);
 +	void ScanHands();
-+	bool Apply();
++	bool Apply(const std::array<int, 2>* partsSequences = nullptr);
++	void RefreshPart();
++	int PartSlot() const;
 +	void Parameters();
 +	void ReadParameters(csol::Preview& preview) const;
 +	void Profile(bool save);
@@ -5216,9 +5368,9 @@ index 0000000..a08cba1
 +	QSpinBox* _frame;
 +	QPlainTextEdit* _status;
 +	bool _loading = false;
-+	QCheckBox *_showParts, *_partsAutoAdvance;
-+	QComboBox* _partsSequence;
-+	QSpinBox* _partsFrame;
++	QCheckBox *_showParts, *_partsAutoAdvance, *_partsAfterShot;
++	QComboBox *_partsSequence, *_partsSlot;
++	QSpinBox *_partsFrame, *_partsAmmo, *_partsMaxAmmo;
 +	QLabel* _partsFile;
 +	QPushButton* _openComplete;
 +};
@@ -8735,6 +8887,176 @@ index f7598f5..bbe6eb6 100644
         </property>
        </widget>
       </item>
+diff --git a/tests/CSOLDualSmokeTest.cpp b/tests/CSOLDualSmokeTest.cpp
+new file mode 100644
+index 0000000..a2a70fc
+--- /dev/null
++++ b/tests/CSOLDualSmokeTest.cpp
+@@ -0,0 +1,164 @@
++#include "application/AssetManager.hpp"
++#include "application/AssetList.hpp"
++#include "plugins/halflife/studiomodel/StudioModelAsset.hpp"
++#include "plugins/halflife/studiomodel/ui/dockpanels/CSOLPanel.hpp"
++#include "entity/HLMVStudioModelEntity.hpp"
++#include "formats/studiomodel/StudioModelUtils.hpp"
++#include "formats/studiomodel/BoneTransformer.hpp"
++#include "formats/csol/CSOLExport.hpp"
++#include "formats/csol/CSOLParts.hpp"
++#include "graphics/IGraphicsContext.hpp"
++#include "graphics/Scene.hpp"
++#include "graphics/SceneContext.hpp"
++#include "utility/WorldTime.hpp"
++#include "ui/MainWindow.hpp"
++#include <QApplication>
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QJsonArray>
++#include <QOpenGLFramebufferObject>
++#include <QOpenGLFunctions_1_1>
++#include <QCryptographicHash>
++#include <QUndoStack>
++#include <QComboBox>
++#include <QCheckBox>
++#include <QSpinBox>
++#include <QPushButton>
++#include <QTabWidget>
++#include <QDockWidget>
++#include <algorithm>
++#include <cmath>
++#include <stdexcept>
++
++int RunCSOLDualSmokeTest(AssetManager& application, const QString& evidence)
++{
++	QDir out(evidence); out.mkpath("."); QJsonObject report;
++	auto require = [](bool b, const char* why) { if (!b) throw std::runtime_error(why); };
++	auto hash = [](const QByteArray& b) { return QCryptographicHash::hash(b, QCryptographicHash::Sha256); };
++	auto* asset = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent()); bool current = false;
++	try
++	{
++		require(asset, "No primary"); auto* model = asset->GetEditableStudioModel(); auto* entity = asset->GetEntity(); auto& p = model->CSOL;
++		report.insert("status", p.Status);
++		require(p.Enabled && p.Parts[0].Model && p.Parts[1].Model, "Both companions must load automatically");
++		require(p.Parts[0].Model->Bones.size() == 37 && p.Parts[1].Model->Bones.size() == 35, "Wrong companion models");
++		require(p.Parts[0].Model->CSOL.BoundSprites.size() == 1 && p.Parts[1].Model->CSOL.BoundSprites.size() == 1, "Own JSON missing");
++		require(csol::PrimaryModel(p.Parts[0].File) == "models/v_alterationammogun.mdl" && csol::PrimaryModel(p.Parts[1].File) == "models/v_alterationammogun.mdl", "Reverse registration missing");
++		const auto sourceHash = hash(csol::ReadResource(asset->GetFileName())); const int undo = asset->GetUndoStack()->index();
++		std::array<QByteArray, 2> partHashes{hash(csol::ReadResource(p.Parts[0].File)), hash(csol::ReadResource(p.Parts[1].File))};
++		auto serialized = [&] { auto b = studiomdl::ConvertFromEditable("invariant.mdl", *model); const auto& h = b.GetStudioHeaderPtr(); return hash(QByteArray(reinterpret_cast<const char*>(h.get()), h.SizeInBytes)); };
++		const auto original = serialized(); studiomdl::BoneTransformer bones; int poses = 0; double error = 0;
++		for (const auto scale : {glm::vec3(1), glm::vec3(1, -1, 1)})
++			for (int seq = 0; seq < int(model->Sequences.size()); ++seq)
++				for (float fraction : {0.f, .35f, .8f})
++				{
++					const auto main = bones.SetUpBones(*model, {seq, fraction * (model->Sequences[seq]->NumFrames - 1), scale, {}, {}, 0});
++					for (const auto& part : p.Parts)
++						for (int ps = 0; ps < int(part.Model->Sequences.size()); ++ps)
++							for (float pf : {0.f, .4f, .9f})
++							{
++								const float frame = pf * (part.Model->Sequences[ps]->NumFrames - 1);
++								const auto local = bones.SetUpBones(*part.Model, {ps, frame, scale, {}, {}, 0});
++								const auto merged = bones.SetUpBones(*part.Model, {ps, frame, scale, {}, {}, 0, &part.BoneMap, &main});
++								for (int i = 0; i < int(part.Model->Bones.size()); ++i)
++								{
++									int anchor = i;
++									while (part.BoneMap[anchor] < 0) { require(part.Model->Bones[anchor]->Parent, "Unbound root"); anchor = part.Model->Bones[anchor]->Parent->ArrayIndex; }
++									const auto expected = main[part.BoneMap[anchor]] * glm::inverse(local[anchor]) * local[i];
++									for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) error = std::max(error, double(std::abs(expected[c][r] - merged[i][c][r])));
++								}
++								++poses;
++							}
++				}
++		require(error < .002, "Dual bone transforms differ"); report.insert("bonePoses", poses); report.insert("maxMatrixError", error);
++		p.PartsMaxAmmo = 10; p.SetPartsSequence(0, 0);
++		for (const auto values : {std::array{0, 0}, std::array{1, 6}, std::array{5, 33}, std::array{9, 59}, std::array{10, 66}})
++		{
++			p.PartsAmmo = values[0]; p.UpdatePart(0, 5., true); require(p.Parts[0].Frame == values[1], "Ammo pose differs from client SSE result");
++			const auto spr = p.Parts[0].Model->CSOL.BoundSprites[0].Frame; p.UpdatePart(0, .1);
++			require(p.Parts[0].Frame == values[1] && p.Parts[0].Model->CSOL.BoundSprites[0].Frame != spr, "Frozen geometry stopped independent SPR clock");
++		}
++		for (int seq : {1, 3})
++		{
++			const double duration = seq == 1 ? .5 : 1.; p.SetPartsSequence(seq, 1); p.UpdatePart(1, duration, true);
++			require(p.Parts[1].RenderSequence == seq, "State changed at strict deadline"); p.UpdatePart(1, .0001);
++			require(p.Parts[1].RenderSequence == (seq == 1 ? 2 : 0) && std::abs(p.Parts[1].Frame - .003) < .0001, "Timed state transition failed");
++		}
++		asset->PlaySequence = false; entity->SetSequence(0); entity->SetSequence(3);
++		require(p.Parts[0].Sequence == 1 && p.Parts[1].Sequence == 4, "Primary C shot did not start both parts");
++		p.UpdateParts(1., true); require(p.Parts[0].RenderSequence == 1 && p.Parts[1].RenderSequence == 4, "C shot ended early");
++		p.UpdateParts(.0001); require(p.Parts[0].RenderSequence == 0 && p.Parts[1].RenderSequence == 3, "C shot did not return to gauge/close");
++		p.UpdatePart(1, 2., true); require(p.Parts[1].RenderSequence == 3, "Close interval ended early");
++		p.UpdatePart(1, .001); require(p.Parts[1].RenderSequence == 0, "Close did not return to idle");
++		p.PartsExpandedAfterShot = true; p.SetPartsSequence(4, 1); p.UpdatePart(1, 1.2, true);
++		require(p.Parts[1].RenderSequence == 2 && std::abs(p.Parts[1].Frame - 6) < .001, "Expanded post-shot state failed");
++		p.SetPartsSequence(0, 0); const auto other = p.Parts[1].Time; p.UpdatePart(0, .2, true); require(p.Parts[1].Time == other, "Seeking one part reset the other");
++		auto* clock = application.GetWorldTime();
++		auto tick = [&] { clock->SetPreviousTime(clock->GetTime()); clock->SetTime(clock->GetTime() + .05f); clock->SetFrameTime(.05f); asset->Tick(); };
++		const double paused0 = p.Parts[0].Time, paused1 = p.Parts[1].Time; tick();
++		require(p.Parts[0].Time == paused0 && p.Parts[1].Time == paused1, "Pause did not cover both parts");
++		asset->PlaySequence = true; tick(); require(p.Parts[0].Time > paused0 && p.Parts[1].Time > paused1, "Tick did not advance both parts"); asset->PlaySequence = false;
++		auto pose = [](auto* a)
++		{
++			a->PlaySequence = false; a->GetEntity()->SetSequence(0); a->GetEntity()->SetFrame(12); auto& v = a->GetEditableStudioModel()->CSOL;
++			v.PartsAmmo = 5; v.PartsMaxAmmo = 10; v.SetPartsSequence(0, 0); v.SetPartsSequence(2, 1); v.UpdateParts(.4, true);
++		};
++		pose(asset); QByteArray reference;
++		auto render = [&](studiomodel::StudioModelAsset* target, const QString& filename)
++		{
++			auto* gl = application.GetOpenGLFunctions(); graphics::SceneContext sc(gl, target->GetTextureLoader()); sc.WindowWidth = 960; sc.WindowHeight = 640;
++			auto* scene = target->GetScene(); scene->UpdateWindowSize(960, 640); scene->GetCurrentCamera()->GetCamera()->SetProperties(glm::vec3(0), 0, 0, 0);
++			QOpenGLFramebufferObjectFormat format; format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil); QOpenGLFramebufferObject fbo(960, 640, format);
++			require(fbo.bind(), "FBO missing"); scene->Draw(sc, glm::vec4(.12f, .13f, .15f, 1)); const auto image = fbo.toImage();
++			require(gl->glGetError() == GL_NO_ERROR && image.save(out.filePath(filename + ".png")), "GL/capture failed");
++			fbo.release(); return hash(QByteArray(reinterpret_cast<const char*>(image.constBits()), image.sizeInBytes()));
++		};
++		asset->GetGraphicsContext()->Begin(); current = true; reference = render(asset, "combined-reference");
++		for (int slot = 0; slot < 2; ++slot)
++		{
++			auto held = std::move(p.Parts[slot].Model); const auto without = render(asset, QString("without-part%1").arg(slot + 1)); p.Parts[slot].Model = std::move(held);
++			require(without != reference, "Companion not drawn");
++		}
++		p.PartsAmmo = 0; p.UpdatePart(0, .4, true); require(render(asset, "ammo-empty") != reference, "Ammo did not change geometry"); pose(asset);
++		const auto handles = std::array{p.Parts[0].Model->TextureHandles[0], p.Parts[1].Model->TextureHandles[0]};
++		p.Release(*asset->GetTextureLoader()); for (auto handle : handles) require(!application.GetOpenGLFunctions()->glIsTexture(handle), "Part GPU texture leaked");
++		p.Upload(*asset->GetTextureLoader()); require(render(asset, "combined-recreated") == reference, "GPU recreation changed dual image");
++		report.insert("gpu", QString::fromLatin1(reinterpret_cast<const char*>(application.GetOpenGLFunctions()->glGetString(GL_RENDERER))));
++		asset->GetGraphicsContext()->End(); current = false;
++		auto* panel = dynamic_cast<studiomodel::CSOLPanel*>(application.GetMainWindow()->findChild<QWidget*>("CSOLPanel")); require(panel, "Missing panel");
++		auto* selector = panel->findChild<QComboBox*>("CSOLPartsSlot"); auto* choices = panel->findChild<QComboBox*>("CSOLPartsSequence");
++		require(selector && selector->count() == 2, "Missing slot selector"); selector->setCurrentIndex(1); require(choices->count() == 5, "Second slot actions missing");
++		choices->setCurrentIndex(4); selector->setCurrentIndex(0); require(choices->count() == 2 && p.Parts[1].Sequence == 4, "Selecting slot reset its action"); choices->setCurrentIndex(1);
++		panel->findChild<QSpinBox*>("CSOLPartsMaxAmmo")->setValue(10); panel->findChild<QSpinBox*>("CSOLPartsAmmo")->setValue(5);
++		panel->SaveProfile(out.filePath("profile.json")); p.SetPartsSequence(0, 0); p.SetPartsSequence(0, 1);
++		require(panel->LoadProfile(out.filePath("profile.json")) && p.Parts[0].Sequence == 1 && p.Parts[1].Sequence == 4 && p.PartsAmmo == 5 && p.PartsMaxAmmo == 10, "Profile lost second slot/ammo");
++		application.GetMainWindow()->resize(1280, 900);
++		if (auto* dock = qobject_cast<QDockWidget*>(panel->parentWidget())) { dock->show(); dock->raise(); }
++		application.GetMainWindow()->show(); panel->findChild<QTabWidget*>("CSOLTabs")->setCurrentIndex(1); QApplication::processEvents(); require(panel->grab().save(out.filePath("ui-dual.png")), "UI capture failed");
++		const auto exported = csol::ExportResources(asset->GetFileName(), p.Root, out.filePath("exported"));
++		report.insert("exportFiles", exported.Files); report.insert("exportBytes", double(exported.Bytes)); report.insert("missing", QJsonArray::fromStringList(exported.Missing)); require(exported.Missing.empty(), "Export missing dependencies");
++		csol::SetGameDirectory({}); application.LoadFile(exported.Directory + "/" + exported.Model);
++		auto* offline = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent()); require(offline && offline != asset, "Offline open failed"); auto& op = offline->GetEditableStudioModel()->CSOL;
++		for (int i = 0; i < 2; ++i)
++		{
++			require(op.Parts[i].Model && op.Parts[i].File.startsWith(exported.Directory) && hash(csol::ReadResource(op.Parts[i].File)) == partHashes[i], "Offline companion escaped export");
++			for (const auto& clip : op.Parts[i].Model->CSOL.BoundClips) require(clip.File.startsWith(exported.Directory), "Offline SPR escaped export");
++		}
++		pose(offline); offline->GetGraphicsContext()->Begin(); const auto offlineImage = render(offline, "combined-offline"); offline->GetGraphicsContext()->End(); require(offlineImage == reference, "Offline render differs");
++		for (int i = 0; i < 2; ++i)
++		{
++			const auto reverse = csol::ExportResources(op.Parts[i].File, op.Root, out.filePath(QString("part%1-export").arg(i + 1))); require(reverse.Missing.empty(), "Reverse export missing resources");
++			for (int j = 0; j < 2; ++j) require(hash(csol::ReadResource(reverse.Directory + "/common/" + csol::CompanionModel(asset->GetFileName(), j))) == partHashes[j], "Reverse export omitted other part");
++		}
++		require(serialized() == original && asset->GetUndoStack()->index() == undo && hash(csol::ReadResource(asset->GetFileName())) == sourceHash, "Preview changed primary");
++		for (int i = 0; i < 2; ++i) require(hash(csol::ReadResource(p.Parts[i].File)) == partHashes[i], "Preview changed companion");
++		report.insert("offlineRenderIdentical", true); report.insert("mdlAndUndoUnchanged", true); report.insert("glErrors", 0); report.insert("result", "passed");
++	}
++	catch (const std::exception& e) { report.insert("result", "failed"); report.insert("error", QString::fromUtf8(e.what())); }
++	if (current) asset->GetGraphicsContext()->End();
++	QFile output(out.filePath("result.json")); if (!output.open(QIODevice::WriteOnly)) return 2;
++	output.write(QJsonDocument(report).toJson()); return report.value("result").toString() == "passed" ? 0 : 1;
++}
 diff --git a/tests/CSOLEventSmokeTest.cpp b/tests/CSOLEventSmokeTest.cpp
 new file mode 100644
 index 0000000..c151a1a
@@ -8890,7 +9212,7 @@ index 0000000..c151a1a
 +}
 diff --git a/tests/CSOLFamiliesSmokeTest.cpp b/tests/CSOLFamiliesSmokeTest.cpp
 new file mode 100644
-index 0000000..eefe494
+index 0000000..70034f3
 --- /dev/null
 +++ b/tests/CSOLFamiliesSmokeTest.cpp
 @@ -0,0 +1,184 @@
@@ -8940,15 +9262,15 @@ index 0000000..eefe494
 +	{
 +		require(asset, "No asset"); auto* model = asset->GetEditableStudioModel(); auto* entity = asset->GetEntity(); auto& p = model->CSOL;
 +		report.insert("status", p.Status);
-+		require(p.Enabled && p.Parts && p.ShowParts, "No automatic companion");
++		require(p.Enabled && p.Parts[0].Model && p.ShowParts, "No automatic companion");
 +		const auto name = QFileInfo(asset->GetFileName()).completeBaseName();
 +		const bool link = name == "v_linkattacksg", robo = name.startsWith("v_roboarm"), boomerang = name.startsWith("v_sfboomerang");
 +		require(link || robo || boomerang, "Unknown test fixture");
-+		require(p.Parts->Bones.size() == (link ? 5 : robo ? 23 : 11), "Wrong companion bone count");
-+		require(std::count_if(p.PartsBoneMap.begin(), p.PartsBoneMap.end(), [](int n) { return n >= 0; }) == (link ? 1 : 2), "Wrong shared bones");
-+		const int bindings = int(p.Parts->CSOL.BoundSprites.size());
++		require(p.Parts[0].Model->Bones.size() == (link ? 5 : robo ? 23 : 11), "Wrong companion bone count");
++		require(std::count_if(p.Parts[0].BoneMap.begin(), p.Parts[0].BoneMap.end(), [](int n) { return n >= 0; }) == (link ? 1 : 2), "Wrong shared bones");
++		const int bindings = int(p.Parts[0].Model->CSOL.BoundSprites.size());
 +		require((boomerang && bindings == 0) || (!boomerang && bindings > 0), "Companion JSON missing");
-+		const auto sourceHash = hash(csol::ReadResource(asset->GetFileName())), partHash = hash(csol::ReadResource(p.PartsFile));
++		const auto sourceHash = hash(csol::ReadResource(asset->GetFileName())), partHash = hash(csol::ReadResource(p.Parts[0].File));
 +		const int undo = asset->GetUndoStack()->index();
 +		auto serialized = [&] { auto binary = studiomdl::ConvertFromEditable("invariant.mdl", *model); const auto& bytes = binary.GetStudioHeaderPtr(); return hash(QByteArray(reinterpret_cast<const char*>(bytes.get()), bytes.SizeInBytes)); };
 +		const auto original = serialized();
@@ -8961,19 +9283,19 @@ index 0000000..eefe494
 +					for (int sequence = 0; sequence < 4; ++sequence)
 +						for (float fraction : {0.f, .4f, .9f})
 +						{
-+							const float frame = fraction * (p.Parts->Sequences[sequence]->NumFrames - 1);
-+							const auto local = bones.SetUpBones(*p.Parts, {sequence, frame, scale, {}, {}, 0});
-+							const auto merged = bones.SetUpBones(*p.Parts, {sequence, frame, scale, {}, {}, 0, &p.PartsBoneMap, &primary});
++							const float frame = fraction * (p.Parts[0].Model->Sequences[sequence]->NumFrames - 1);
++							const auto local = bones.SetUpBones(*p.Parts[0].Model, {sequence, frame, scale, {}, {}, 0});
++							const auto merged = bones.SetUpBones(*p.Parts[0].Model, {sequence, frame, scale, {}, {}, 0, &p.Parts[0].BoneMap, &primary});
 +							// Independent change of coordinates at the nearest merged ancestor, including multiple roots.
-+							for (std::size_t i = 0; i < p.Parts->Bones.size(); ++i)
++							for (std::size_t i = 0; i < p.Parts[0].Model->Bones.size(); ++i)
 +							{
 +								int anchor = int(i);
-+								while (p.PartsBoneMap[anchor] < 0)
++								while (p.Parts[0].BoneMap[anchor] < 0)
 +								{
-+									require(p.Parts->Bones[anchor]->Parent, "Unattached root");
-+									anchor = p.Parts->Bones[anchor]->Parent->ArrayIndex;
++									require(p.Parts[0].Model->Bones[anchor]->Parent, "Unattached root");
++									anchor = p.Parts[0].Model->Bones[anchor]->Parent->ArrayIndex;
 +								}
-+								const auto expected = primary[p.PartsBoneMap[anchor]] * glm::inverse(local[anchor]) * local[i];
++								const auto expected = primary[p.Parts[0].BoneMap[anchor]] * glm::inverse(local[anchor]) * local[i];
 +								for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r) error = std::max(error, double(std::abs(expected[c][r] - merged[i][c][r])));
 +							}
 +							++poses;
@@ -8982,35 +9304,35 @@ index 0000000..eefe494
 +		require(error < .002, "Merged pose disagrees with independent coordinate transform");
 +		report.insert("bonePoses", poses); report.insert("maxMatrixError", error);
 +		QJsonArray roots;
-+		for (std::size_t i = 0; i < p.PartsBoneMap.size(); ++i) if (p.PartsBoneMap[i] >= 0)
-+			roots.append(QJsonObject{{"name", QString::fromStdString(p.Parts->Bones[i]->Name)}, {"part", int(i)}, {"primary", p.PartsBoneMap[i]}});
++		for (std::size_t i = 0; i < p.Parts[0].BoneMap.size(); ++i) if (p.Parts[0].BoneMap[i] >= 0)
++			roots.append(QJsonObject{{"name", QString::fromStdString(p.Parts[0].Model->Bones[i]->Name)}, {"part", int(i)}, {"primary", p.Parts[0].BoneMap[i]}});
 +		report.insert("mergedBones", roots);
 +		const double open = link ? .7 : robo ? double(.33f) : double(.7f);
 +		const double close = link ? .7 : robo ? double(.67f) : double(.53f);
-+		require(p.PartsOpenSeconds == open && p.PartsCloseSeconds == close, "Wrong client transition timers");
++		require(p.Parts[0].Definition.OpenSeconds == open && p.Parts[0].Definition.CloseSeconds == close, "Wrong client transition timers");
 +		for (int start : {1, 3})
 +		{
 +			const double duration = start == 1 ? open : close;
 +			p.SetPartsSequence(start); p.UpdateParts(duration - .0001, true);
-+			require(p.PartsRenderSequence == start, "Transition occurred early");
++			require(p.Parts[0].RenderSequence == start, "Transition occurred early");
 +			p.UpdateParts(.0002);
-+			require(p.PartsSequence == start && p.PartsRenderSequence == (start == 1 ? 2 : 0), "Transition did not advance");
-+			require(std::abs(p.PartsFrame - .003) < .0001, "Transition lost elapsed remainder");
++			require(p.Parts[0].Sequence == start && p.Parts[0].RenderSequence == (start == 1 ? 2 : 0), "Transition did not advance");
++			require(std::abs(p.Parts[0].Frame - .003) < .0001, "Transition lost elapsed remainder");
 +			p.UpdateParts(duration, true);
-+			require(p.PartsRenderSequence == (link ? start : start == 1 ? 2 : 0), "Wrong transition equality boundary");
++			require(p.Parts[0].RenderSequence == (link ? start : start == 1 ? 2 : 0), "Wrong transition equality boundary");
 +			p.PartsAutoAdvance = false; p.SetPartsSequence(start); p.UpdateParts(duration + .2, true);
-+			require(p.PartsRenderSequence == start && p.PartsFrame == p.Parts->Sequences[start]->NumFrames - 1, "Manual action did not hold end frame");
++			require(p.Parts[0].RenderSequence == start && p.Parts[0].Frame == p.Parts[0].Model->Sequences[start]->NumFrames - 1, "Manual action did not hold end frame");
 +			p.PartsAutoAdvance = true;
 +		}
 +		report.insert("openSeconds", open); report.insert("closeSeconds", close);
 +		auto* clock = application.GetWorldTime();
 +		auto tick = [&] { clock->SetPreviousTime(clock->GetTime()); clock->SetTime(clock->GetTime() + .05f); clock->SetFrameTime(.05f); asset->Tick(); };
 +		asset->PlaySequence = false; entity->SetLoopingMode(StudioLoopingMode::AlwaysLoop); entity->SetSequence(0); entity->SetFrame(0);
-+		p.SetPartsSequence(1); const auto stopped = p.PartsTime; tick(); require(p.PartsTime == stopped, "Main pause ignored");
++		p.SetPartsSequence(1); const auto stopped = p.Parts[0].Time; tick(); require(p.Parts[0].Time == stopped, "Main pause ignored");
 +		asset->PlaySequence = true; for (int i = 0; i < 20; ++i) tick();
-+		require(p.PartsRenderSequence == 2 && p.PartsFrame > 0, "Asset Tick did not advance to loop");
-+		p.Playing = false; const auto paused = p.PartsTime; tick(); require(p.PartsTime == paused, "Preview pause ignored"); p.Playing = true;
-+		const auto independent = p.PartsTime; entity->SetSequence(1); require(p.PartsTime == independent, "Main action reset companion");
++		require(p.Parts[0].RenderSequence == 2 && p.Parts[0].Frame > 0, "Asset Tick did not advance to loop");
++		p.Playing = false; const auto paused = p.Parts[0].Time; tick(); require(p.Parts[0].Time == paused, "Preview pause ignored"); p.Playing = true;
++		const auto independent = p.Parts[0].Time; entity->SetSequence(1); require(p.Parts[0].Time == independent, "Main action reset companion");
 +		asset->PlaySequence = false; entity->SetSequence(0); entity->SetFrame(12); p.SetPartsSequence(2); p.UpdateParts(.4, true);
 +		asset->GetGraphicsContext()->Begin(); current = true; QByteArray reference;
 +		{
@@ -9025,14 +9347,14 @@ index 0000000..eefe494
 +			};
 +			p.ShowParts = false; const auto main = draw("main-only"); p.ShowParts = true;
 +			reference = draw("combined-reference"); require(main != reference, "Companion not rendered");
-+			const auto mapping = p.PartsBoneMap; std::fill(p.PartsBoneMap.begin(), p.PartsBoneMap.end(), -1);
-+			require(draw("without-bone-merge") != reference, "Renderer ignored bone merge"); p.PartsBoneMap = mapping;
++			const auto mapping = p.Parts[0].BoneMap; std::fill(p.Parts[0].BoneMap.begin(), p.Parts[0].BoneMap.end(), -1);
++			require(draw("without-bone-merge") != reference, "Renderer ignored bone merge"); p.Parts[0].BoneMap = mapping;
 +			for (int sequence = 0; sequence < 4; ++sequence) { p.SetPartsSequence(sequence); p.UpdateParts(.15, true); draw(QString("action-%1").arg(sequence)); }
 +			p.SetPartsSequence(1); p.UpdateParts(open + .1, true); draw("auto-open-loop");
 +			p.SetPartsSequence(3); p.UpdateParts(close + .1, true); draw("auto-close-idle");
 +			p.SetPartsSequence(2); p.UpdateParts(.4, true);
 +			if (boomerang) { entity->SetSkin(1); require(draw("skin-1") != reference, "Skin switch did not render"); entity->SetSkin(0); }
-+			const auto mesh = p.Parts->TextureHandles[0]; p.Release(*asset->GetTextureLoader()); require(!gl->glIsTexture(mesh), "Companion texture leaked");
++			const auto mesh = p.Parts[0].Model->TextureHandles[0]; p.Release(*asset->GetTextureLoader()); require(!gl->glIsTexture(mesh), "Companion texture leaked");
 +			p.Upload(*asset->GetTextureLoader()); p.UpdateFilters(*asset->GetTextureLoader()); require(draw("combined-recreated") == reference, "GPU recreation changed image");
 +			report.insert("gpu", QString::fromLatin1(reinterpret_cast<const char*>(gl->glGetString(GL_RENDERER)))); fbo.release();
 +		}
@@ -9042,10 +9364,10 @@ index 0000000..eefe494
 +		require(choices && choices->count() == 4 && automatic && automatic->isEnabled(), "Family controls missing");
 +		require(choices->itemText(2).contains(boomerang ? "idleB" : robo ? "change_loop" : "change"), "Wrong family action labels");
 +		automatic->setChecked(false); choices->setCurrentIndex(3);
-+		panel->findChild<QSpinBox*>("CSOLPartsFrame")->setValue(5); require(p.PartsFrame == 5 && !p.Playing, "Companion seek failed");
++		panel->findChild<QSpinBox*>("CSOLPartsFrame")->setValue(5); require(p.Parts[0].Frame == 5 && !p.Playing, "Companion seek failed");
 +		panel->SaveProfile(out.filePath("profile.json")); automatic->setChecked(true); choices->setCurrentIndex(0);
-+		require(panel->LoadProfile(out.filePath("profile.json")) && !p.PartsAutoAdvance && p.PartsSequence == 3, "Profile lost playback settings");
-+		panel->findChild<QPushButton*>("CSOLPartsReplay")->click(); require(p.PartsFrame == 0 && p.Playing && asset->PlaySequence, "Replay failed"); asset->PlaySequence = false;
++		require(panel->LoadProfile(out.filePath("profile.json")) && !p.PartsAutoAdvance && p.Parts[0].Sequence == 3, "Profile lost playback settings");
++		panel->findChild<QPushButton*>("CSOLPartsReplay")->click(); require(p.Parts[0].Frame == 0 && p.Playing && asset->PlaySequence, "Replay failed"); asset->PlaySequence = false;
 +		application.GetMainWindow()->resize(1280, 900); if (auto* dock = qobject_cast<QDockWidget*>(panel->parentWidget())) { dock->show(); dock->raise(); }
 +		application.GetMainWindow()->show(); panel->findChild<QTabWidget*>("CSOLTabs")->setCurrentIndex(1); QApplication::processEvents(); require(panel->grab().save(out.filePath("ui-combined.png")), "UI capture failed");
 +		const auto exported = csol::ExportResources(asset->GetFileName(), p.Root, out.filePath("exported"));
@@ -9054,8 +9376,8 @@ index 0000000..eefe494
 +		require(hash(csol::ReadResource(exported.Directory + "/common/" + csol::CompanionModel(asset->GetFileName()))) == partHash, "Export omitted companion");
 +		csol::SetGameDirectory({}); application.LoadFile(exported.Directory + "/" + exported.Model);
 +		auto* offline = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent()); require(offline && offline != asset, "Offline open failed");
-+		auto& op = offline->GetEditableStudioModel()->CSOL; require(op.Parts && op.PartsFile.startsWith(exported.Directory) && int(op.Parts->CSOL.BoundSprites.size()) == bindings, "Offline parts/JSON missing");
-+		for (const auto& clip : op.Parts->CSOL.BoundClips) require(clip.File.startsWith(exported.Directory), "Offline dependencies escaped export");
++		auto& op = offline->GetEditableStudioModel()->CSOL; require(op.Parts[0].Model && op.Parts[0].File.startsWith(exported.Directory) && int(op.Parts[0].Model->CSOL.BoundSprites.size()) == bindings, "Offline parts/JSON missing");
++		for (const auto& clip : op.Parts[0].Model->CSOL.BoundClips) require(clip.File.startsWith(exported.Directory), "Offline dependencies escaped export");
 +		offline->PlaySequence = false; offline->GetEntity()->SetSequence(0); offline->GetEntity()->SetFrame(12); op.SetPartsSequence(2); op.UpdateParts(.4, true);
 +		offline->GetGraphicsContext()->Begin();
 +		{
@@ -9067,9 +9389,9 @@ index 0000000..eefe494
 +			require(gl->glGetError() == GL_NO_ERROR, "Offline GL error"); fbo.release();
 +		}
 +		offline->GetGraphicsContext()->End();
-+		require(serialized() == original && asset->GetUndoStack()->index() == undo && hash(csol::ReadResource(asset->GetFileName())) == sourceHash && hash(csol::ReadResource(p.PartsFile)) == partHash, "Preview modified model or undo");
-+		application.LoadFile(op.PartsFile); auto* standalone = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
-+		require(standalone && !standalone->GetEditableStudioModel()->CSOL.Parts, "Recursive combination");
++		require(serialized() == original && asset->GetUndoStack()->index() == undo && hash(csol::ReadResource(asset->GetFileName())) == sourceHash && hash(csol::ReadResource(p.Parts[0].File)) == partHash, "Preview modified model or undo");
++		application.LoadFile(op.Parts[0].File); auto* standalone = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
++		require(standalone && !standalone->GetEditableStudioModel()->CSOL.Parts[0].Model, "Recursive combination");
 +		auto* complete = panel->findChild<QPushButton*>("CSOLOpenComplete"); require(complete->isEnabled(), "No primary shortcut"); complete->click(); require(application.GetAssets()->GetCurrent() == offline, "Primary shortcut failed");
 +		report.insert("offlineRenderIdentical", true); report.insert("mdlAndUndoUnchanged", true); report.insert("glErrors", 0); report.insert("result", "passed");
 +	}
@@ -9574,7 +9896,7 @@ index 0000000..4e300cc
 +}
 diff --git a/tests/CSOLPartsSmokeTest.cpp b/tests/CSOLPartsSmokeTest.cpp
 new file mode 100644
-index 0000000..e44b4cf
+index 0000000..5e6d5ee
 --- /dev/null
 +++ b/tests/CSOLPartsSmokeTest.cpp
 @@ -0,0 +1,207 @@
@@ -9624,13 +9946,13 @@ index 0000000..e44b4cf
 +	{
 +		require(asset, "No asset"); auto* model = asset->GetEditableStudioModel(); auto* entity = asset->GetEntity(); auto& p = model->CSOL;
 +		report.insert("status", p.Status);
-+		require(p.Enabled && p.Parts && p.ShowParts, "No automatic companion");
++		require(p.Enabled && p.Parts[0].Model && p.ShowParts, "No automatic companion");
 +		const int expectedBones = QFileInfo(asset->GetFileName()).completeBaseName() == "v_leapstrikegunex" ? 11 : 10;
-+		require(p.PartsBoneMap.size() == expectedBones && p.PartsBoneMap[0] == 0, "Wrong shared root");
-+		require(std::count(p.PartsBoneMap.begin(), p.PartsBoneMap.end(), -1) == expectedBones - 1, "Independent bones were merged");
-+		require(p.BoundSprites.size() == 3 && p.Parts->CSOL.BoundSprites.size() == 2, "Own JSON not loaded on both models");
++		require(p.Parts[0].BoneMap.size() == expectedBones && p.Parts[0].BoneMap[0] == 0, "Wrong shared root");
++		require(std::count(p.Parts[0].BoneMap.begin(), p.Parts[0].BoneMap.end(), -1) == expectedBones - 1, "Independent bones were merged");
++		require(p.BoundSprites.size() == 3 && p.Parts[0].Model->CSOL.BoundSprites.size() == 2, "Own JSON not loaded on both models");
 +		QJsonArray sprites;
-+		for (const auto* preview : {&p, &p.Parts->CSOL}) for (const auto& clip : preview->BoundClips)
++		for (const auto* preview : {&p, &p.Parts[0].Model->CSOL}) for (const auto& clip : preview->BoundClips)
 +		{
 +			QJsonArray frames;
 +			for (const auto& image : clip.Frames)
@@ -9638,8 +9960,8 @@ index 0000000..e44b4cf
 +			sprites.append(QJsonObject{{"file", QFileInfo(clip.File).fileName()}, {"rgbaSha256", frames}});
 +		}
 +		report.insert("sprites", sprites);
-+		require(csol::CompanionModel("v_unrelated.mdl").isEmpty() && csol::CompanionModel(p.PartsFile).isEmpty(), "Guessed a companion from suffix");
-+		const auto sourceHash = hash(csol::ReadResource(asset->GetFileName())); const auto partsHash = hash(csol::ReadResource(p.PartsFile));
++		require(csol::CompanionModel("v_unrelated.mdl").isEmpty() && csol::CompanionModel(p.Parts[0].File).isEmpty(), "Guessed a companion from suffix");
++		const auto sourceHash = hash(csol::ReadResource(asset->GetFileName())); const auto partsHash = hash(csol::ReadResource(p.Parts[0].File));
 +		const auto undo = asset->GetUndoStack()->index();
 +		auto serialized = [&]()
 +		{
@@ -9657,12 +9979,12 @@ index 0000000..e44b4cf
 +					for (int partSequence = 0; partSequence < 4; ++partSequence)
 +						for (float fraction : {0.f, .4f, .9f})
 +						{
-+							const float frame = fraction * (p.Parts->Sequences[partSequence]->NumFrames - 1);
-+							const auto local = bones.SetUpBones(*p.Parts, {partSequence, frame, scale, {}, {}, 0});
-+							const auto merged = bones.SetUpBones(*p.Parts, {partSequence, frame, scale, {}, {}, 0, &p.PartsBoneMap, &primary});
++							const float frame = fraction * (p.Parts[0].Model->Sequences[partSequence]->NumFrames - 1);
++							const auto local = bones.SetUpBones(*p.Parts[0].Model, {partSequence, frame, scale, {}, {}, 0});
++							const auto merged = bones.SetUpBones(*p.Parts[0].Model, {partSequence, frame, scale, {}, {}, 0, &p.Parts[0].BoneMap, &primary});
 +							// Independent reference: change the root coordinate system of the entire animated assembly.
 +							const auto replacement = primary[0] * glm::inverse(local[0]);
-+							for (std::size_t i = 0; i < p.Parts->Bones.size(); ++i)
++							for (std::size_t i = 0; i < p.Parts[0].Model->Bones.size(); ++i)
 +							{
 +								const auto expected = replacement * local[i];
 +								for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r)
@@ -9697,25 +10019,25 @@ index 0000000..e44b4cf
 +			};
 +			p.ShowParts = false; const auto mainOnly = draw("main-only"); p.ShowParts = true;
 +			const auto combined = draw("combined-idle"); require(mainOnly != combined, "Companion not rendered");
-+			p.PartsBoneMap[0] = -1; require(draw("without-bone-merge") != combined, "Renderer ignored bone merge"); p.PartsBoneMap[0] = 0;
++			p.Parts[0].BoneMap[0] = -1; require(draw("without-bone-merge") != combined, "Renderer ignored bone merge"); p.Parts[0].BoneMap[0] = 0;
 +			for (int sequence = 0; sequence < 4; ++sequence)
 +			{
 +				p.SetPartsSequence(sequence); p.UpdateParts(.4, true); draw(QString("parts-action-%1").arg(sequence));
 +			}
 +			p.SetPartsSequence(1); p.UpdateParts(.4, true);
-+			const auto frozen = draw("parts-frozen"); const double frame = p.PartsFrame; tick(5);
-+			require(frame == p.PartsFrame && frozen == draw("parts-paused"), "Main pause did not pause companion");
-+			asset->PlaySequence = true; tick(3); require(p.PartsFrame > frame, "Actual Tick did not animate companion");
++			const auto frozen = draw("parts-frozen"); const double frame = p.Parts[0].Frame; tick(5);
++			require(frame == p.Parts[0].Frame && frozen == draw("parts-paused"), "Main pause did not pause companion");
++			asset->PlaySequence = true; tick(3); require(p.Parts[0].Frame > frame, "Actual Tick did not animate companion");
 +			require(draw("parts-playing") != frozen, "Companion animation did not change pixels");
-+			p.Playing = false; const auto stopped = p.PartsFrame; tick(3); require(p.PartsFrame == stopped, "Preview pause ignored"); p.Playing = true;
-+			const auto independentTime = p.PartsTime; entity->SetSequence(4); require(p.PartsTime == independentTime && p.PartsSequence == 1, "Reload reset independent action");
-+			entity->SetFrame(15); require(std::abs(p.PartsFrame - 15) < .001, "Timeline seek failed"); draw("combined-reload");
-+			tick(50); require(p.PartsFrame == p.Parts->Sequences[1]->NumFrames - 1, "Nonloop companion exceeded last frame");
-+			p.SetPartsSequence(2); tick(25); require(p.PartsFrame > 0 && p.PartsFrame < p.Parts->Sequences[2]->NumFrames - 1, "Looping companion stopped"); draw("parts-loop");
++			p.Playing = false; const auto stopped = p.Parts[0].Frame; tick(3); require(p.Parts[0].Frame == stopped, "Preview pause ignored"); p.Playing = true;
++			const auto independentTime = p.Parts[0].Time; entity->SetSequence(4); require(p.Parts[0].Time == independentTime && p.Parts[0].Sequence == 1, "Reload reset independent action");
++			entity->SetFrame(15); require(std::abs(p.Parts[0].Frame - 15) < .001, "Timeline seek failed"); draw("combined-reload");
++			tick(50); require(p.Parts[0].Frame == p.Parts[0].Model->Sequences[1]->NumFrames - 1, "Nonloop companion exceeded last frame");
++			p.SetPartsSequence(2); tick(25); require(p.Parts[0].Frame > 0 && p.Parts[0].Frame < p.Parts[0].Model->Sequences[2]->NumFrames - 1, "Looping companion stopped"); draw("parts-loop");
 +			asset->PlaySequence = false; entity->SetSequence(3); entity->SetFrame(15); p.SetPartsSequence(0); draw("combined-draw");
 +			entity->SetSequence(0); entity->SetFrame(12); p.SetPartsSequence(2); p.UpdateParts(.4, true);
 +			expectedImage = draw("combined-reference");
-+			const auto handle = p.Parts->CSOL.BoundClips[0].Handles[0]; const auto meshHandle = p.Parts->TextureHandles[0];
++			const auto handle = p.Parts[0].Model->CSOL.BoundClips[0].Handles[0]; const auto meshHandle = p.Parts[0].Model->TextureHandles[0];
 +			p.Release(*asset->GetTextureLoader()); require(!gl->glIsTexture(handle) && !gl->glIsTexture(meshHandle), "Companion GPU resources leaked");
 +			p.Upload(*asset->GetTextureLoader()); p.UpdateFilters(*asset->GetTextureLoader());
 +			require(draw("combined-recreated") == expectedImage, "GPU recreation changed image");
@@ -9725,11 +10047,11 @@ index 0000000..e44b4cf
 +		require(serialized() == before && asset->GetUndoStack()->index() == undo, "Preview changed MDL or undo");
 +		auto* panel = dynamic_cast<studiomodel::CSOLPanel*>(application.GetMainWindow()->findChild<QWidget*>("CSOLPanel")); require(panel, "No CSOL panel");
 +		auto* choices = panel->findChild<QComboBox*>("CSOLPartsSequence"); require(choices && choices->isEnabled(), "No companion controls");
-+		choices->setCurrentIndex(3); require(p.PartsSequence == 3 && p.PartsFrame == 0, "Action UI not connected");
-+		auto* position = panel->findChild<QSpinBox*>("CSOLPartsFrame"); position->setValue(18); require(std::abs(p.PartsFrame - 18) < .001 && !p.Playing, "Companion seek UI failed");
++		choices->setCurrentIndex(3); require(p.Parts[0].Sequence == 3 && p.Parts[0].Frame == 0, "Action UI not connected");
++		auto* position = panel->findChild<QSpinBox*>("CSOLPartsFrame"); position->setValue(18); require(std::abs(p.Parts[0].Frame - 18) < .001 && !p.Playing, "Companion seek UI failed");
 +		panel->SaveProfile(out.filePath("profile.json")); choices->setCurrentIndex(0);
-+		require(panel->LoadProfile(out.filePath("profile.json")) && p.PartsSequence == 3, "Profile lost companion action");
-+		panel->findChild<QPushButton*>("CSOLPartsReplay")->click(); require(p.Playing && asset->PlaySequence && p.PartsFrame == 0, "Companion replay failed");
++		require(panel->LoadProfile(out.filePath("profile.json")) && p.Parts[0].Sequence == 3, "Profile lost companion action");
++		panel->findChild<QPushButton*>("CSOLPartsReplay")->click(); require(p.Playing && asset->PlaySequence && p.Parts[0].Frame == 0, "Companion replay failed");
 +		asset->PlaySequence = false;
 +		application.GetMainWindow()->resize(1280, 900);
 +		if (auto* dock = qobject_cast<QDockWidget*>(panel->parentWidget())) { dock->show(); dock->raise(); }
@@ -9742,8 +10064,8 @@ index 0000000..e44b4cf
 +		csol::SetGameDirectory({}); application.LoadFile(exported.Directory + "/" + exported.Model);
 +		auto* offline = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
 +		require(offline && offline != asset, "Offline open failed"); auto& op = offline->GetEditableStudioModel()->CSOL;
-+		require(op.Parts && op.PartsFile.startsWith(exported.Directory) && op.Parts->CSOL.BoundSprites.size() == 2, "Offline companion/JSON missing");
-+		for (const auto& clip : op.Parts->CSOL.BoundClips) require(clip.File.startsWith(exported.Directory), "Offline dependency escaped export");
++		require(op.Parts[0].Model && op.Parts[0].File.startsWith(exported.Directory) && op.Parts[0].Model->CSOL.BoundSprites.size() == 2, "Offline companion/JSON missing");
++		for (const auto& clip : op.Parts[0].Model->CSOL.BoundClips) require(clip.File.startsWith(exported.Directory), "Offline dependency escaped export");
 +		offline->PlaySequence = false; offline->GetEntity()->SetSequence(0); offline->GetEntity()->SetFrame(12); op.SetPartsSequence(2); op.UpdateParts(.4, true);
 +		offline->GetGraphicsContext()->Begin();
 +		{
@@ -9755,15 +10077,15 @@ index 0000000..e44b4cf
 +			require(gl->glGetError() == GL_NO_ERROR, "Offline GL error"); fbo.release();
 +		}
 +		offline->GetGraphicsContext()->End();
-+		require(hash(csol::ReadResource(asset->GetFileName())) == sourceHash && hash(csol::ReadResource(p.PartsFile)) == partsHash, "Source files changed");
-+		application.LoadFile(op.PartsFile);
++		require(hash(csol::ReadResource(asset->GetFileName())) == sourceHash && hash(csol::ReadResource(p.Parts[0].File)) == partsHash, "Source files changed");
++		application.LoadFile(op.Parts[0].File);
 +		auto* standalone = dynamic_cast<studiomodel::StudioModelAsset*>(application.GetAssets()->GetCurrent());
-+		require(standalone && !standalone->GetEditableStudioModel()->CSOL.Parts, "Parts-only open recursively combined");
++		require(standalone && !standalone->GetEditableStudioModel()->CSOL.Parts[0].Model, "Parts-only open recursively combined");
 +		if (qEnvironmentVariableIsSet("HLAM_CSOL_PARTS_EXPORT_CHECK"))
 +		{
-+			const auto reverse = csol::ExportResources(op.PartsFile, op.Root, out.filePath("parts-export"));
++			const auto reverse = csol::ExportResources(op.Parts[0].File, op.Root, out.filePath("parts-export"));
 +			require(reverse.Missing.empty(), "Parts-only export dependencies missing");
-+			require(hash(csol::ReadResource(reverse.Directory + "/common/" + csol::PrimaryModel(op.PartsFile))) == sourceHash, "Parts-only export lost primary");
++			require(hash(csol::ReadResource(reverse.Directory + "/common/" + csol::PrimaryModel(op.Parts[0].File))) == sourceHash, "Parts-only export lost primary");
 +			report.insert("partsOnlyExportFiles", reverse.Files);
 +		}
 +		auto* openComplete = panel->findChild<QPushButton*>("CSOLOpenComplete");
@@ -9773,10 +10095,10 @@ index 0000000..e44b4cf
 +		// Missing/corrupt companions must leave a usable primary model, without guessing another family.
 +		const auto isolated = out.filePath("missing/common"); QDir().mkpath(isolated + "/models");
 +		csol::Preview missing; missing.SourceFile = isolated + "/models/" + QFileInfo(asset->GetFileName()).fileName(); missing.Root = isolated;
-+		missing.Load(*model); require(!missing.Parts && missing.Status.contains("缺少配套模型"), "Missing companion was hidden or guessed");
++		missing.Load(*model); require(!missing.Parts[0].Model && missing.Status.contains("缺少配套模型"), "Missing companion was hidden or guessed");
 +		const auto corruptFile = isolated + "/" + csol::CompanionModel(missing.SourceFile);
 +		QFile corrupt(corruptFile); require(corrupt.open(QIODevice::WriteOnly), "Cannot create malformed fixture"); corrupt.write("IDST"); corrupt.close();
-+		missing.Load(*model); require(!missing.Parts && missing.Status.contains("组合模型未加载"), "Truncated companion accepted");
++		missing.Load(*model); require(!missing.Parts[0].Model && missing.Status.contains("组合模型未加载"), "Truncated companion accepted");
 +		require(serialized() == before, "Failure path mutated primary model");
 +		report.insert("offlineRenderIdentical", true); report.insert("mdlAndUndoUnchanged", true); report.insert("glErrors", 0); report.insert("result", "passed");
 +	}
