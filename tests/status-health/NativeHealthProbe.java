@@ -211,7 +211,7 @@ public final class NativeHealthProbe {
             attributes(server,world);
             try(var peer=new HealthBridgeFixture()){
                 check(GoldCraft.healthLimitsAvailable(),"real negotiated health capability available");
-                nativeEffects(peer);pairedVitals(peer);formAndDeath(peer);respawnCopies();
+                nativeEffects(peer);pairedVitals(peer);formAndDeath(peer);respawnCopies();NativePlayerAttributeChecks.run();
             }
             result.addProperty("passed",true);
         }

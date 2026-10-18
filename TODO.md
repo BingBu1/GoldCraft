@@ -10,7 +10,7 @@
 
 ## 优先修复与完善
 
-- [ ] 联合部署并实测MC生命上限/死亡观战属性恢复及深度复制：16项健康源码、335JUnit、真实NeoForge两环境各143检查通过；已冻结33项combined-health-depth候选（仅Core变化），未部署。下一轮同场核HUD上限、治疗/到期、双形态与重生、手持/特效遮挡，不再逐项重启。[生命上限](docs/NATIVE_HEALTH_LIMITS.md) · [深度复制](docs/2026-10-17_分析-MC深度复制-report.md)
+- [ ] 联合部署并实测MC生命上限/死亡观战属性恢复、玩家属性/幸运掉落及深度复制：335JUnit、真实NeoForge两环境各185检查通过；33项combined-player-attributes候选仅Core变化、未部署。下一轮同场核HUD上限、治疗/到期、双形态/重生、原生枪击掉落及特效遮挡，不逐项重启。[生命上限](docs/NATIVE_HEALTH_LIMITS.md) · [玩家属性](docs/NATIVE_PLAYER_ATTRIBUTES.md) · [深度复制](docs/2026-10-17_分析-MC深度复制-report.md)
 
 - [ ] 实测已本地部署的共用托管输入修复：ALT+Y/Z/TACZ左右键门控、316输入/实际生产Mixin/330JUnit及原生检查通过；CS B与XMCL母本已正常重启并重新配对，不要求重复复现或注入自动按键。[说明](docs/HOST_CONTROLS.md)
 - [ ] 公网部署并实测移动误封与TACZ倍率：本地引擎/Core已更新；3026023计数/12184玩法/真实FML38+4通过，公网尚旧版。保留真实洪泛防护、身份/遮挡检查；后续核长期在线及真实僵尸倍率/击退/归属。[计数](docs/MOVE_COMMAND_RATE.md) · [枪械](docs/PROJECTILE_DAMAGE.md)

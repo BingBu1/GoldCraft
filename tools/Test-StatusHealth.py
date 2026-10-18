@@ -1,4 +1,4 @@
-"""Run the real NeoForge 1.21.1 per-instance health attribute and effect probe."""
+"""Run real NeoForge health, player attributes, effects and death-loot probes."""
 from pathlib import Path
 from zipfile import ZipFile,ZIP_DEFLATED
 import argparse,hashlib,json,os,shutil,subprocess,time
@@ -35,6 +35,11 @@ compileResult=subprocess.run([str(java.with_name('javac.exe')),'--release','21',
 if compileResult.returncode:raise RuntimeError('Compile failed; see '+str(work/'compile.log'))
 with ZipFile(mods/'native-health-probe.jar','w',ZIP_DEFLATED) as jar:
     jar.writestr('META-INF/neoforge.mods.toml','modLoader="javafml"\nloaderVersion="[4,)"\nlicense="Test fixture"\n[[mods]]\nmodId="goldcraft_native_health_probe"\nversion="1.0.0"\n')
+    # Two zero-weight entries expose the real death loot context's luck sign:
+    # positive selects gold, negative selects diamond, zero produces no loot.
+    jar.writestr('data/minecraft/loot_table/entities/cow.json',json.dumps({'type':'minecraft:entity','pools':[{'rolls':1,'entries':[
+        {'type':'minecraft:item','name':'minecraft:gold_ingot','weight':0,'quality':1},
+        {'type':'minecraft:item','name':'minecraft:diamond','weight':0,'quality':-1}]}]}))
     for file in classes.rglob('*.class'):jar.write(file,file.relative_to(classes).as_posix())
 shutil.copyfile(goldcraft,mods/goldcraft.name)
 mod_hashes={goldcraft.name:hashlib.sha256(goldcraft.read_bytes()).hexdigest()}

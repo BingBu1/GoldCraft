@@ -6,6 +6,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.minecraft.entity.*;
 import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.data.DataTracker;
 import net.minecraft.entity.data.TrackedData;
@@ -59,7 +60,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     boolean follows(NativePlayerEntity value){return body==value;}
     public static void initialize(IEventBus bus){
         ENTITIES.register(bus);
-        bus.addListener((EntityAttributeCreationEvent event)->event.put(TYPE.get(),LivingEntity.createLivingAttributes().add(EntityAttributes.GENERIC_MOVEMENT_SPEED,0.1).build()));
+        bus.addListener((EntityAttributeCreationEvent event)->event.put(TYPE.get(),PlayerEntity.createPlayerAttributes().build()));
     }
     public NativePlayerHitboxEntity(EntityType<? extends NativePlayerHitboxEntity> type,World world){
         super(type,world);setInvisible(true);setNoGravity(true);

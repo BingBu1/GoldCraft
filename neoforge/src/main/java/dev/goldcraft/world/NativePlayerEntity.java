@@ -5,9 +5,11 @@ import dev.goldcraft.bridge.HostWorldState;
 import net.minecraft.entity.EntityDimensions;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.tag.DamageTypeTags;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import java.nio.charset.StandardCharsets;
@@ -29,6 +31,19 @@ public final class NativePlayerEntity extends PlayerEntity {
     void inheritHealth(NativePlayerEntity previous){healthLedger=previous.healthLedger;nutrition.inherit(this,previous);}
     public float predictedHealth(){return healthLedger==null?super.getHealth():healthLedger.health(getMaxHealth());}
     @Override public float getHealth(){return nutrition!=null&&nutrition.running()?predictedHealth():super.getHealth();}
+    private NativePlayerHitboxEntity attributeOwner(RegistryEntry<EntityAttribute> attribute){
+        // Effects live on the hitbox, while vanilla loot/AI queries this Player.
+        // Health keeps its separately negotiated base/effective ownership.
+        return hitbox!=null&&!hitbox.isRemoved()&&hitbox.follows(this)
+            &&!attribute.matches(EntityAttributes.GENERIC_MAX_HEALTH)
+            &&hitbox.getAttributes().hasAttribute(attribute)?hitbox:null;
+    }
+    @Override public double getAttributeValue(RegistryEntry<EntityAttribute> attribute){
+        var owner=attributeOwner(attribute);return owner==null?super.getAttributeValue(attribute):owner.getAttributeValue(attribute);
+    }
+    @Override public double getAttributeBaseValue(RegistryEntry<EntityAttribute> attribute){
+        var owner=attributeOwner(attribute);return owner==null?super.getAttributeBaseValue(attribute):owner.getAttributeBaseValue(attribute);
+    }
     @Override public void heal(float amount){
         if(nutrition!=null&&nutrition.running()&&hitbox!=null)hitbox.heal(amount);
         else super.heal(amount);
