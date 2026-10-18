@@ -447,7 +447,9 @@
     "tools/Exercise-NativeHurt.py",
     "tools/Exercise-NativeHurtServers.py",
     "tools/Test-NativePlayerStatus.py",
-    "docs/NATIVE_PLAYER_STATUS.md"
+    "docs/NATIVE_PLAYER_STATUS.md",
+    "tools/Test-NativeRaids.py",
+    "docs/NATIVE_RAIDS.md"
   ],
   "trees": {
     "native": [

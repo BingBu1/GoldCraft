@@ -25,6 +25,7 @@ public final class NativePlayerEntity extends PlayerEntity {
     private HostWorldState.Actor actor;
     private float lastNativeDamage;
     private NativePlayerHitboxEntity hitbox;
+    BlockPos raidOrigin;
     private final NativeNutrition nutrition=new NativeNutrition();
     private dev.goldcraft.bridge.NativeHealthLedger healthLedger;
     public NativePlayerHitboxEntity hitbox(){return hitbox;}

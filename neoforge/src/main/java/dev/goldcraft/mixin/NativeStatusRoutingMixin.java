@@ -14,6 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LivingEntity.class)
 abstract class NativeStatusRoutingMixin {
+    @Inject(method="onStatusEffectRemoved",at=@At("RETURN"))
+    private void goldcraft$raidRemoved(StatusEffectInstance effect,CallbackInfo ci){
+        NativeRaids.removed((LivingEntity)(Object)this,effect);
+    }
     @Inject(method="tickStatusEffects",at=@At("HEAD"),cancellable=true)
     private void goldcraft$awaitNativeHealth(CallbackInfo ci){
         if(NativeStatusEffects.waitingForHealth((LivingEntity)(Object)this))ci.cancel();

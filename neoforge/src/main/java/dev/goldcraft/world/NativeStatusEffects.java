@@ -33,6 +33,7 @@ public final class NativeStatusEffects {
     }
     public static void transfer(LivingEntity from,LivingEntity to){
         if(from==null||from==to)return;
+        var raid=NativeRaids.capture(from);
         if(to!=null){
             HostWorldState.Actor actor=null;
             if(from instanceof NativePlayerHitboxEntity box&&box.body()!=null)actor=box.body().actor();
@@ -66,6 +67,7 @@ public final class NativeStatusEffects {
             from.setAbsorptionAmount(0);
             if(to!=null)to.setAbsorptionAmount(absorption);
         }
+        NativeRaids.handoff(from,to,raid);
     }
     public static void hud(HostWorldState.Actor actor,LivingEntity owner,ServerPlayerEntity paired,long tick){
         NativeHealth.update(actor,owner,paired);

@@ -10,7 +10,7 @@
 
 ## 优先修复与完善
 
-- [ ] 补村庄不祥转换/袭击启动与生命周期；试炼检测/转换、英雄真实定价/赠礼及身份去重已构建，两FML各50项、369JUnit、受伤603/206和死亡38回归通过。37项combined-player-status候选未部署，完整试炼/宝库、交易和双形态多人待统一验收。[说明](docs/NATIVE_PLAYER_STATUS.md)
+- [ ] 联合实测试炼/村庄袭击/英雄：原生不祥转换、倒计时、真实首波击杀/胜利及地图生命周期已构建，两FML141/143项、369JUnit、试炼50/死亡38回归通过；37项combined-native-raids未部署。完整逐波/宝库、交易、声音/BossBar和双形态多人待统一验收。[试炼](docs/NATIVE_PLAYER_STATUS.md) · [袭击](docs/NATIVE_RAIDS.md)
 
 - [ ] 联合实测双向受伤效果与吸收生命：原生结算通知及吸收池误清零已修，369JUnit、两FML各206、MC回调603、原生41及最终双服11项通过；37项combined-native-hit未部署。验证真实寄生/Mod效果、双形态多人及取消/死亡/断链，不关闭全部39效果。[说明](docs/NATIVE_HIT_EFFECTS.md)
 

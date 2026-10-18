@@ -68,6 +68,7 @@ public final class HostWorldReset {
         // entities carry their epoch, so unloaded mobs cannot return later.
         for(var dimension:world.getServer().getWorlds()){
             if(!managed(dimension))continue;
+            NativeRaids.resetWorld(dimension);
             var session=WORLDS.computeIfAbsent(dimension,ignored->new Session());
             session.epoch=epoch;session.removed=session.removedEntities=session.clearRevision=0;session.prepared.clear();
             List<Entity> stale=new ArrayList<>();
