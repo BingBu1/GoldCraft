@@ -3,6 +3,10 @@
 #include "particles.hpp"
 
 namespace goldcraft {
+constexpr unsigned entity_outline=8u,entity_outline_cull=16u;
+inline bool valid_entity_batch_flags(unsigned flags,bool outlines) noexcept {
+    return flags&entity_outline ? outlines&&!(flags&~(entity_outline|entity_outline_cull)) : !(flags&~7u);
+}
 struct EntityFrameVertex {Vec3 position;float u=0,v=0;std::uint32_t color=0,normal=0;};
 struct EntityFrameBatch {unsigned texture=0,flags=0;std::vector<EntityFrameVertex> vertices;};
 struct EntityBaseSnapshot {
@@ -13,7 +17,7 @@ struct EntityBaseSnapshot {
 };
 struct EntityFrame {EntityBaseSnapshot base;ParticleSnapshot effects;};
 
-inline EntityBaseSnapshot read_entity_base(Reader& r) {
+inline EntityBaseSnapshot read_entity_base(Reader& r,bool outlines=false) {
     EntityBaseSnapshot base;
     base.epoch=r.u64();base.revision=r.u64();base.count=r.u32();base.blocks=r.u32();const auto groups=r.u32();
     if(!base.epoch||!base.revision||base.count>128||base.blocks>128||groups>128)
@@ -21,7 +25,7 @@ inline EntityBaseSnapshot read_entity_base(Reader& r) {
     base.batches.reserve(groups);unsigned total=0;
     for(unsigned i=0;i<groups;++i) {
         EntityFrameBatch batch;batch.texture=r.u32();batch.flags=r.u32();const auto count=r.u32();
-        if(batch.texture>256||(batch.flags&~7u)||count%4||count>299592-total||std::uint64_t(count)*28>r.remaining())
+        if(batch.texture>256||!valid_entity_batch_flags(batch.flags,outlines)||count%4||count>299592-total||std::uint64_t(count)*28>r.remaining())
             throw ProtocolError("Invalid entity frame vertices");
         total+=count;batch.vertices.reserve(count);
         for(unsigned j=0;j<count;++j) {
@@ -36,11 +40,11 @@ inline EntityBaseSnapshot read_entity_base(Reader& r) {
     if(base.avatars.size()>base.count)throw ProtocolError("Avatar count exceeds entity frame");
     return base;
 }
-inline EntityFrame read_entity_frame(Reader& r) {
+inline EntityFrame read_entity_frame(Reader& r,bool outlines=false) {
     if(r.remaining()>max_payload)throw ProtocolError("Entity frame byte budget");
     const auto base_size=r.u32();
     if(base_size<32||base_size>r.remaining())throw ProtocolError("Invalid entity base length");
-    Reader base_reader(r.bytes(base_size));auto base=read_entity_base(base_reader);
+    Reader base_reader(r.bytes(base_size));auto base=read_entity_base(base_reader,outlines);
     const auto effect_size=r.u32();
     if(effect_size!=r.remaining())throw ProtocolError("Invalid entity effect length");
     Reader effect_reader(r.bytes(effect_size));auto effects=read_particles(effect_reader,false);r.finish();

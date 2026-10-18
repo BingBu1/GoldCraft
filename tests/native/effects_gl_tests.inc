@@ -224,6 +224,28 @@ void effect_tests(Resources& r){
     assert(snapshot()==before);
     glReadPixels(40,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&item_depth);
     assert(std::abs(item_depth-.75f)<1e-6f);
+    // Real outline program: any nonzero texture alpha produces an opaque team
+    // mask, independent of vertex alpha, texture color, overlay and world depth.
+    GLuint outline_texture=0;unsigned outline_w=0,outline_h=0;
+    const std::array<std::uint8_t,8> outline_texels{255,0,0,0,255,0,0,1};
+    upload_texture(outline_texture,outline_w,outline_h,2,1,outline_texels);
+    quad=r.quad;for(auto& v:quad){v.color=0x0057b912;v.overlay=0x4d0000ff;}++revision;
+    post.projection_matrix[0]=post.projection_matrix[5]=1;
+    clear();glDepthMask(GL_TRUE);glClearDepth(.1);glClear(GL_DEPTH_BUFFER_BIT);r.sentinel();before=snapshot();
+    {Pass mask(true,0,&post);assert(mask.outline(false));mask.texture(outline_texture);mesh.draw(quad,revision,false);}
+    assert(snapshot()==before);assert(color_count(pixels(),{18,185,87,255})==512);
+    assert(color_count(pixels(),{0,0,0,0})==Size*Size-512);
+    glReadPixels(40,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&item_depth);assert(std::abs(item_depth-.1f)<1e-6f);
+    // Face culling remains a material property; a reversed invisible model
+    // must not create a filled silhouette when the original layer culls it.
+    std::reverse(quad.begin(),quad.end());++revision;clear();r.sentinel();before=snapshot();
+    {Pass mask(true,0,&post);assert(mask.outline(true));mask.texture(outline_texture);mesh.draw(quad,revision,false);}
+    assert(snapshot()==before);assert(color_count(pixels(),{0,0,0,0})==Size*Size);
+    {Pass mask(true,0,&post);assert(mask.outline(false));mask.texture(outline_texture);mesh.draw(quad,revision,false);}
+    assert(color_count(pixels(),{18,185,87,255})==512);
+    {Pass ordinary(true,0);assert(!ordinary.outline(false));}
+    glDeleteTextures(1,&outline_texture);
+    std::puts("{\"entityOutlineMask\":true,\"nonzeroAlpha\":true,\"teamColor\":true,\"ignoresWorldDepth\":true,\"culling\":true,\"stateRestored\":true}");
     glDeleteTextures(1,&glint_texture);
     assert(glGetError()==GL_NO_ERROR);
     glDeleteTextures(1,&texture);glDeleteBuffers(2,ubos);programs.clear();r.adapter.effects_shader=false;

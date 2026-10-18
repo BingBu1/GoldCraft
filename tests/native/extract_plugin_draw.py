@@ -34,6 +34,7 @@ types.write_text("\n".join(parts), encoding="utf-8")
 args.output.write_text(region("void UpdateStaticScene(){", "void ClearPostEffects(){")+"\n"+
                       region("void ClearSections(){", "struct Texture {")+"\n"+
                       region("void RebuildSectionFootprint(Section& section) noexcept {", "void ReadEntityTexture(")+"\n"+
+                      region("bool DrawEntityOutlineMask(", "bool DrawStaticShadow(std::uint32_t flags) noexcept {")+"\n"+
                       region("bool DrawStaticShadow(std::uint32_t flags) noexcept {", "int Redraw("), encoding="utf-8")
 print(json.dumps({"sourceSha256": hashlib.sha256(args.source.read_bytes()).hexdigest(),
                   "extractedSha256": hashlib.sha256(args.output.read_bytes()).hexdigest(),

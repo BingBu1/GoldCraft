@@ -1,5 +1,6 @@
 #include "render_backend.hpp"
 #include "post_effect_replay.hpp"
+#include "entity_outline.hpp"
 #include "host_ui.hpp"
 #include "host_text.hpp"
 #include "work_history.hpp"
@@ -238,7 +239,7 @@ WorkStage MessageWork(Type type) noexcept {
     case Type::atlas:return WorkStage::atlas;
     case Type::atlas_patches:return WorkStage::atlas_patches;
     case Type::entity_texture:return WorkStage::entity_texture;
-    case Type::entity_frame:return WorkStage::entity_frame;
+    case Type::entity_frame:case Type::entity_outline_frame:return WorkStage::entity_frame;
     case Type::particle_texture:return WorkStage::particle_texture;
     case Type::particle_texture_chunk:return WorkStage::particle_texture_chunk;
     case Type::particle_mesh:return WorkStage::particles;
@@ -405,6 +406,9 @@ std::vector<EffectBatch> post_batches;
 std::vector<PostEffectStage> post_stages;
 std::array<bool,max_particle_batches> post_depth_resets{};
 std::unique_ptr<render::PostEffectReplay> post_replay;
+std::unique_ptr<render::EntityOutline> entity_outline_replay;
+cvar_t* entity_outline_gamma=nullptr;
+std::string entity_outline_error;
 IMetaRendererPostScene* post_provider=nullptr;
 std::uint64_t post_revision=0,post_generation=0,post_frames=0,post_draws=0,post_failures=0;
 std::uint64_t post_callbacks=0,post_nonempty_frames=0;
@@ -428,9 +432,10 @@ bool DrawStaticShadow(std::uint32_t flags) noexcept;
 int KeyEvent(int down,int key,const char* binding_text);
 void ReleaseMinecraftKeys();
 void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept;
+void DrawEntityOutlines(const MetaRendererPostSceneFrame& frame) noexcept;
 class PostSceneCallbacks final : public IMetaRendererPostSceneCallbacks {
 public:
-    void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override {DrawPostEffects(frame);}
+    void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override {DrawEntityOutlines(frame);DrawPostEffects(frame);}
 } post_scene_callbacks;
 class SceneCallbacks final : public IMetaRendererSceneCallbacks {
 public:
@@ -463,7 +468,7 @@ bool EntityFrameFresh(){
 }
 void StopPostScene(){
     if(post_provider)post_provider->UnregisterPostSceneCallbacks(&post_scene_callbacks);
-    post_provider=nullptr;post_replay.reset();ClearPostEffects();
+    post_provider=nullptr;entity_outline_replay.reset();entity_outline_gamma=nullptr;entity_outline_error.clear();post_replay.reset();ClearPostEffects();
 }
 void ClearParticles(bool delete_textures=true){
     ClearPostEffects();
@@ -1122,6 +1127,8 @@ int VidInit() {
     lamps_dirty=true;lamps_published=false;
     WorkScope post(WorkStage::post_initialize);
     post_replay=std::make_unique<render::PostEffectReplay>();
+    entity_outline_replay=std::make_unique<render::EntityOutline>();
+    entity_outline_gamma=gEngfuncs.pfnGetCvarPointer?gEngfuncs.pfnGetCvarPointer("gamma"):nullptr;
     const char* game=gEngfuncs.pfnGetGameDirectory?gEngfuncs.pfnGetGameDirectory():nullptr;
     post_replay->set_shader_directory((std::filesystem::path(game?game:"cstrike")/"metahook/shaders/goldcraft/vix-post").string());
     post_provider=render::post_scene();
@@ -1285,8 +1292,9 @@ void ReadEntityTexture(Reader& r) {
     render::upload_texture(texture.id,texture.width,texture.height,width,height,pixels);
     ++entity_texture_uploads;entity_texture_bytes+=pixels.size();
 }
-void ReadEntityFrame(Reader& r) {
-    auto frame=read_entity_frame(r);const auto& base=frame.base;const auto& effects=frame.effects;
+void ReadEntityFrame(Reader& r,bool outlines=false) {
+    if(outlines&&!link.entity_outlines())throw ProtocolError("Unnegotiated entity outline frame");
+    auto frame=read_entity_frame(r,outlines);const auto& base=frame.base;const auto& effects=frame.effects;
     if(!MatchingHostProtocol()||effects.life!=server_player_life||
        !current_entity_frame(frame,world,particle_generation,entity_revision,minecraft_life))return;
     // HUD_VidInit can invalidate textures while IPC is still delivering the old scene.
@@ -1675,6 +1683,7 @@ void Frame(double time) {
             else if(message.type==Type::atlas_patches)ReadAtlasPatches(r);
             else if(message.type==Type::entity_texture)ReadEntityTexture(r);
             else if(message.type==Type::entity_frame)ReadEntityFrame(r);
+            else if(message.type==Type::entity_outline_frame)ReadEntityFrame(r,true);
             else if(message.type==Type::particle_texture)ReadParticleTexture(r);
             else if(message.type==Type::particle_texture_chunk){
                 try{ReadParticleTextureChunk(r);}catch(...){particle_texture_upload.reset();throw;}
@@ -1917,6 +1926,33 @@ void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
         try{if(post_error!=post_replay->last_error()){post_error=post_replay->last_error();Log(post_error);}}catch(...){}
     }
 }
+bool DrawEntityOutlineMask(void*,const MetaRendererPostSceneFrame& frame) noexcept {
+    try{
+        const auto errors=render::statistics().error_count;
+        {
+            render::Pass pass(true,0,&frame);if(!pass.ready())return false;
+            for(const auto& batch:entity_batches){
+                if(!(batch.flags&entity_outline)||batch.vertices.empty())continue;
+                const auto found=entity_textures.find(batch.texture);
+                if(batch.texture&&found==entity_textures.end())return false;
+                if(!pass.outline((batch.flags&entity_outline_cull)!=0))return false;
+                pass.texture(batch.texture?found->second.id:atlas_texture);
+                batch.gpu->draw(batch.vertices,entity_revision,true);
+            }
+        }
+        return errors==render::statistics().error_count;
+    }catch(...){return false;}
+}
+void DrawEntityOutlines(const MetaRendererPostSceneFrame& frame) noexcept {
+    if(!entity_outline_replay||!link.entity_outlines()||link.generation()!=last_link_generation||!world||
+       !MatchingHostProtocol()||!atlas_texture||!atlas_generation||!EntityFrameFresh()||!render::owns_context())return;
+    const bool any=std::any_of(entity_batches.begin(),entity_batches.end(),[](const auto& b){return (b.flags&entity_outline)&&!b.vertices.empty();});
+    if(!any)return;
+    if((frame.flags&META_POST_SCENE_LINEAR)&&!entity_outline_gamma)return;
+    const float gamma=(frame.flags&META_POST_SCENE_LINEAR)?entity_outline_gamma->value:1.f;
+    if(entity_outline_replay->replay(frame,gamma,DrawEntityOutlineMask,nullptr))entity_outline_error.clear();
+    else try{if(entity_outline_error!=entity_outline_replay->last_error()){entity_outline_error=entity_outline_replay->last_error();Log(entity_outline_error);}}catch(...){}
+}
 bool DrawStaticShadow(std::uint32_t flags) noexcept {
     ++static_shadow_callbacks;
     try{
@@ -1976,7 +2012,7 @@ void Draw(bool transparent,std::uint32_t flags) {
     WorkScope timing(WorkStage::entities);
     for(const auto& batch:entity_batches) {
         if(!EntityFrameFresh())break;
-        if(((batch.flags&1)!=0)!=transparent||batch.vertices.empty())continue;
+        if((batch.flags&entity_outline)||((batch.flags&1)!=0)!=transparent||batch.vertices.empty())continue;
         auto texture=entity_textures.find(batch.texture);if(batch.texture&&texture==entity_textures.end())continue;
         if(cull_shadow&&render::cull_shadow_bounds(batch.bounds))continue;
         auto& pass=measured_pass.get();if(!pass.ready())return;

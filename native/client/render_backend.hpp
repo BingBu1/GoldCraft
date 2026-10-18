@@ -91,6 +91,7 @@ public:
     void depth_write(bool value);
     void view_offset(bool value);
     void feedback(unsigned mode);
+    bool outline(bool cull);
     bool effect(const ParticleMaterial& material,GLuint texture);
 private:
     std::optional<DrawState> state_;

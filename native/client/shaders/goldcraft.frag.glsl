@@ -4,7 +4,7 @@ layout(binding=0) uniform sampler2D diffuseTex;
 uniform int u_emissive;
 uniform int u_feedback;
 // bit0 effect, bit1 untextured, bit2 cutoff before modulation,
-// bit3 texture-only cutoff, bit4 exact-zero alpha discard.
+// bit3 texture-only cutoff, bit4 exact-zero alpha discard, bit5 outline mask.
 uniform int u_effect;
 uniform float u_alpha_cutoff;
 uniform vec4 u_color_mod;
@@ -20,6 +20,14 @@ layout(location=3) out vec4 out_Specular;
 #endif
 void main(){
     vec4 texel=u_feedback==2||(u_effect&2)!=0?vec4(1.0):texture(diffuseTex,g_uv);
+#ifdef RAW_POST_MASK
+    if((u_effect&32)!=0){
+        // The original outline shader rejects only fully transparent texels.
+        // Model tint/lighting/texture RGB and hurt overlay do not tint the mask.
+        if(texel.a==0.0)discard;
+        out_Diffuse=vec4(g_color.rgb,1.0);return;
+    }
+#endif
     if((u_effect&1)!=0){
         float alpha=(u_effect&8)!=0?texel.a:texel.a*g_color.a;
         if((u_effect&12)==0)alpha*=u_color_mod.a;

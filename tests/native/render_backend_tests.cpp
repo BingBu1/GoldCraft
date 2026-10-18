@@ -25,6 +25,8 @@
 #include <limits>
 #include "goldcraft/hud.hpp"
 #include "goldcraft/atlas_footprint.hpp"
+#include "goldcraft/entity_frame.hpp"
+#include "../../native/client/entity_outline.hpp"
 
 namespace probe {
 CreateInterfaceFn initialize_factory=nullptr;

@@ -50,6 +50,7 @@ public:
     bool status_visibility() const;
     bool status_vision() const;
     bool view_distortion() const;
+    bool entity_outlines() const;
     bool player_gameplay() const;
     bool skill_guard() const;
     bool fluid_volumes() const;

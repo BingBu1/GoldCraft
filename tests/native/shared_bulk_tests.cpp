@@ -82,10 +82,10 @@ void layout_and_security() {
 void data_and_bounds() {
     for (const auto length : {bulk_min_payload, bulk_min_payload + 1, static_cast<std::uint32_t>(max_payload)}) {
         Bytes bytes(length); for (std::size_t i = 0; i < bytes.size(); ++i) bytes[i] = static_cast<std::uint8_t>(i * 37u + 11u);
-        for (const auto cursor : {0u, bulk_capacity - 32u, 0xffffffe0u}) {
+        for (const auto cursor : {0u, bulk_capacity - 32u, 0xffffffe0u}) for(auto type:{Type::entity_frame,Type::entity_outline_frame}) {
             auto b = active(); SharedBulkTestAccess::seed(*b, cursor);
             publish(*b, bytes, cursor);
-            auto message = b->consume(ref(66, length, cursor)); require(message.type == Type::entity_frame); require(message.payload == bytes);
+            auto message = b->consume(ref(static_cast<unsigned>(type), length, cursor)); require(message.type == type); require(message.payload == bytes);
             const auto expected = cursor + ((length + 7u) & ~7u);
             Reader reader({SharedBulkTestAccess::view(*b) + 64, 4}); require(reader.u32() == expected);
             // The copy remains valid after the producer reuses the entire mapped data range.

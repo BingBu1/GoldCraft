@@ -400,7 +400,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
         execute_process(COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/renderer_stub.py" "${GOLDCRAFT_RENDERER_SDK}"
             "${CMAKE_CURRENT_BINARY_DIR}/renderer_unused.inc" COMMAND_ERROR_IS_FATAL ANY)
-        add_executable(goldcraft_render_backend_tests tests/native/render_backend_tests.cpp)
+        add_executable(goldcraft_render_backend_tests tests/native/render_backend_tests.cpp native/client/entity_outline.cpp)
         target_include_directories(goldcraft_render_backend_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES}
             "${CMAKE_CURRENT_BINARY_DIR}")
         target_compile_definitions(goldcraft_render_backend_tests PRIVATE WIN32 _WINDOWS NOMINMAX

@@ -47,6 +47,23 @@ void check_pair(const EntityFrame& value,std::uint64_t revision,float x){
 }
 int main(int argc,char** argv){
     static_assert(protocol_version==30);assert(known_type(Type::entity_frame));
+    assert(known_type(Type::entity_outline_frame));
+    for(unsigned caps:{0u,capability_entity_outlines,capability_view_distortion|capability_entity_outlines}){
+        Key key{};Writer hello;hello.bytes(key);hello.bytes(key);hello.u32(static_cast<unsigned>(Role::fabric_client));hello.u32(caps);
+        HostHandshake peer(key,key,Role::host_client,Role::fabric_client,7);
+        Header header{Type::hello,static_cast<unsigned>(hello.data.size()),0,1};peer.accept(header,hello.data);
+        auto welcome=peer.welcome();Reader r(welcome);r.key();assert(r.u32()==static_cast<unsigned>(Role::host_client));assert(r.u32()==caps);
+        HostHandshake server(key,key,Role::host_server,Role::fabric_server,7);put(hello.data,32,static_cast<unsigned>(Role::fabric_server));
+        if(caps){bool failed=false;try{server.accept(header,hello.data);}catch(const ProtocolError&){failed=true;}assert(failed);}
+    }
+    // A negotiated frame changes only the allowed batch semantics. Old frames
+    // still reject every new bit; no alpha/depth/blend mixture is allowed on a mask.
+    for(unsigned flags=0;flags<64;++flags){
+        auto data=packet(10,1);put(data,36,flags);
+        const auto accepts=[&](bool outlines){try{Reader r(data);read_entity_frame(r,outlines);return true;}catch(const ProtocolError&){return false;}};
+        assert(accepts(false)==(flags<=7));
+        assert(accepts(true)==(flags<=7||flags==entity_outline||flags==(entity_outline|entity_outline_cull)));
+    }
     const auto first=packet(11,1),second=packet(12,2);check_pair(decode(first),11,1);check_pair(decode(second),12,2);
     assert(decode(first).base.avatars.size()==1);
     for(std::size_t n=0;n<second.size();++n)reject(Bytes(second.begin(),second.begin()+n));

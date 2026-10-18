@@ -410,6 +410,13 @@ void Pass::texture(GLuint id){
     texture_=id;
 }
 void Pass::depth_write(bool value){if(depth_write_==value)return;glDepthMask(value?GL_TRUE:GL_FALSE);depth_write_=value;}
+bool Pass::outline(bool cull){
+    if(!ready_||!raw_mask_)return false;
+    state_->save_effects();glUniform1i(effect_location_,32);glUniform1i(feedback_location_,0);
+    depth_write(false);view_offset(false);glDisable(GL_DEPTH_TEST);glDisable(GL_STENCIL_TEST);glDisablei(GL_BLEND,0);
+    enabled(GL_CULL_FACE,cull);glCullFace(GL_BACK);glFrontFace(GL_CCW);
+    return true;
+}
 void Pass::view_offset(bool value){
     value=value&&!shadow_;
     if(view_offset_==value)return;

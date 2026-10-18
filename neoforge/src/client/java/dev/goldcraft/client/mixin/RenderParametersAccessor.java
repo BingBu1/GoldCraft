@@ -8,4 +8,5 @@ public interface RenderParametersAccessor {
     @Accessor("texture") RenderPhase.TextureBase goldcraft$texture();
     @Accessor("writeMaskState") RenderPhase.WriteMaskState goldcraft$writeMask();
     @Accessor("layering") RenderPhase.Layering goldcraft$layering();
+    @Accessor("cull") RenderPhase.Cull goldcraft$cull();
 }

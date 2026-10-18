@@ -10,6 +10,8 @@ using goldcraft::Reader;
 using goldcraft::Vec3;
 using goldcraft::ProtocolError;
 using goldcraft::to_goldsrc;
+using goldcraft::entity_outline;
+using goldcraft::entity_outline_cull;
 using goldcraft::read_atlas_patches;
 using goldcraft::AtlasFootprint;
 using goldcraft::AtlasPixelTiles;
@@ -22,7 +24,7 @@ struct WorkScope {
 };
 #include "plugin_draw_types.inc"
 
-struct Link {bool online=true;std::uint64_t current_generation=1;bool connected()const{return online;}std::uint64_t generation()const{return current_generation;}} link;
+struct Link {bool online=true,outlines=true;std::uint64_t current_generation=1;bool connected()const{return online;}bool entity_outlines()const{return online&&outlines;}std::uint64_t generation()const{return current_generation;}} link;
 std::uint64_t world=1,last_link_generation=1;
 GLuint atlas_texture{};
 unsigned atlas_width{},atlas_height{};
@@ -45,6 +47,10 @@ unsigned minecraft_life=1,server_player_life=1,feedback_life=1,particle_life=1;
 double now=10,last_feedback=10,last_particle_frame=10;
 bool fresh=true,control=true,minecraft_menu=false,section_logged=false,draw_logged=false;
 struct Cvar {float value=1;} particle_cvar;
+std::unique_ptr<render::EntityOutline> entity_outline_replay;
+Cvar* entity_outline_gamma=nullptr;
+std::string entity_outline_error;
+bool matching_protocol=true;
 Cvar* render_particles=nullptr;
 Cvar* render_scene_cull=nullptr;
 Cvar* render_scene_static_shadows=nullptr;
@@ -52,6 +58,7 @@ GLenum last_gl_error{};
 unsigned logs{},cases{},empty_cases{};
 double Seconds(){return now;}
 bool EntityFrameFresh(){return fresh;}
+bool MatchingHostProtocol(){return matching_protocol;}
 bool HasControl(){return control;}
 void Log(const std::string&){++logs;}
 bool DrawStaticShadow(std::uint32_t flags) noexcept;
@@ -63,6 +70,7 @@ void reset(Resources& r){
     crack_batches.clear();entity_effect_batches.clear();particle_batches.clear();outline_vertices.clear();
     outline_gpu=std::make_shared<Mesh>();
     link={};last_link_generation=1;world=1;atlas_texture=r.texture;atlas_generation=1;
+    matching_protocol=true;entity_outline_error.clear();
     atlas_width=r.tw;atlas_height=r.th;atlas_alpha.assign(std::size_t(r.tw)*r.th,255);
     atlas_pixel_tiles.reset(atlas_width,atlas_height);
     atlas_uploads=atlas_animation_packets=atlas_patch_bytes=0;last_atlas_animation=atlas_animation_interval_ms=0;atlas_logged=false;
@@ -381,6 +389,82 @@ void selective_atlas_shadow_tests(Resources& r){
     const auto texture=atlas_texture;reset(r);glDeleteTextures(1,&texture);
 }
 
+void entity_outline_tests(Resources& r){
+    reset(r);
+    // Real immutable host color/depth attachments and a distinct depth view.
+    // Replace this fixture's renderbuffer only for the post-scene callback.
+    GLuint depth_texture{},depth_view{};
+    glGenTextures(1,&depth_texture);glBindTexture(GL_TEXTURE_2D,depth_texture);
+    glTexStorage2D(GL_TEXTURE_2D,1,GL_DEPTH24_STENCIL8,Size,Size);
+    glGenTextures(1,&depth_view);glTextureView(depth_view,GL_TEXTURE_2D,depth_texture,GL_DEPTH24_STENCIL8,0,1,0,1);
+    glBindFramebuffer(GL_FRAMEBUFFER,r.fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_STENCIL_ATTACHMENT,GL_TEXTURE_2D,depth_texture,0);
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE);
+    MetaRendererPostSceneFrame frame{};frame.struct_size=sizeof(frame);frame.flags=META_POST_SCENE_GAMMA;
+    frame.framebuffer=r.fbo;frame.color_texture=r.colors[0];frame.depth_texture=depth_texture;frame.depth_sample_texture=depth_view;
+    frame.width=frame.height=Size;frame.color_format=GL_RGBA8;frame.depth_format=GL_DEPTH24_STENCIL8;frame.samples=1;
+    frame.viewport[0]=4;frame.viewport[1]=5;frame.viewport[2]=56;frame.viewport[3]=54;
+    frame.near_plane=4;frame.far_plane=2048;
+    for(unsigned i=0;i<16;i+=5)frame.world_matrix[i]=frame.projection_matrix[i]=frame.inverse_world_matrix[i]=frame.inverse_projection_matrix[i]=1;
+    entity_outline_replay=std::make_unique<render::EntityOutline>();
+    auto mask=entity(r,0,entity_outline);for(auto& v:mask.vertices){v.color=0x0057b912;v.overlay=0x4d0000ff;}
+    entity_batches.push_back(mask);
+    // The same mask cannot enter ordinary opaque/translucent or shadow draws.
+    draw_case(r,false,0,0);draw_case(r,true,0,0);draw_case(r,false,META_SCENE_SHADOW,0);
+    const auto seed=[&]{
+        clear();glViewport(0,0,Size,Size);const float color[]={0,0,0,.5f};glClearBufferfv(GL_COLOR,0,color);
+        glClearBufferfi(GL_DEPTH_STENCIL,0,.1f,17);glReadBuffer(GL_COLOR_ATTACHMENT0);r.sentinel();
+    };
+    const auto state=[](){
+        auto s=snapshot();GLint values[4]{};glGetIntegerv(GL_VIEWPORT,values);s.insert(s.end(),values,values+4);
+        for(auto p:{GL_DRAW_FRAMEBUFFER_BINDING,GL_READ_FRAMEBUFFER_BINDING,GL_READ_BUFFER}){glGetIntegerv(p,values);s.push_back(values[0]);}
+        return s;
+    };
+    seed();const auto before=state();const auto original=pixels();const auto depths=depth_pixels();const auto extra=pixels(1);glReadBuffer(GL_COLOR_ATTACHMENT0);
+    DrawEntityOutlines(frame);
+    assert(entity_outline_error.empty()&&entity_outline_replay->statistics().frames==1&&state()==before);
+    const auto outlined=pixels();assert(outlined!=original&&depth_pixels()==depths&&stencil(32,32)==17);
+    assert(pixels(1)==extra);glReadBuffer(GL_COLOR_ATTACHMENT0);
+    unsigned colored=0;
+    for(unsigned y=0;y<Size;++y)for(unsigned x=0;x<Size;++x){
+        const auto i=(y*Size+x)*4;assert(outlined[i+3]==original[i+3]);
+        if(x<4||x>=60||y<5||y>=59)for(unsigned c=0;c<4;++c)assert(outlined[i+c]==original[i+c]);
+        if(outlined[i+1]){++colored;assert(outlined[i+1]>outlined[i]&&outlined[i+1]>outlined[i+2]);}
+    }
+    assert(colored>0&&outlined[(32*Size+32)*4+1]==0); // Edges, not a solid silhouette.
+    const auto skip=[&]{
+        seed();const auto old=pixels();const auto saved=state();const auto draws=statistics().draws,frames=entity_outline_replay->statistics().frames;
+        probe::reset();probe::count_allocations=true;DrawEntityOutlines(frame);probe::count_allocations=false;
+        assert(probe::queries==0&&probe::bindings==0&&probe::allocations==0&&probe::errors==0);
+        assert(statistics().draws==draws&&entity_outline_replay->statistics().frames==frames&&state()==saved&&pixels()==old);++cases;
+    };
+    link.outlines=false;skip();link.outlines=true;
+    link.online=false;skip();link.online=true;
+    ++link.current_generation;skip();--link.current_generation;
+    world=0;skip();world=1;
+    matching_protocol=false;skip();matching_protocol=true;
+    fresh=false;skip();fresh=true;
+    atlas_texture=0;skip();atlas_texture=r.texture;
+    atlas_generation=0;skip();atlas_generation=1;
+    const auto context=render::current_context;render::current_context=nullptr;skip();render::current_context=context;
+    entity_batches.clear();skip();entity_batches.push_back(entity(r));skip();entity_batches.clear();entity_batches.push_back(mask);
+    frame.flags=META_POST_SCENE_LINEAR;entity_outline_gamma=nullptr;skip();
+    Cvar gamma;gamma.value=2.2f;entity_outline_gamma=&gamma;
+    seed();const auto linear_frames=entity_outline_replay->statistics().frames;DrawEntityOutlines(frame);
+    assert(entity_outline_replay->statistics().frames==linear_frames+1&&entity_outline_error.empty());
+    frame.flags=META_POST_SCENE_GAMMA;entity_outline_gamma=nullptr;
+    // A missing resource aborts the private mask, retaining all host pixels.
+    entity_batches.push_back(entity(r,77,entity_outline));seed();const auto old=pixels();const auto saved=state();
+    DrawEntityOutlines(frame);assert(!entity_outline_error.empty()&&pixels()==old&&state()==saved);
+    entity_batches.pop_back();seed();DrawEntityOutlines(frame);assert(entity_outline_error.empty()&&pixels()!=old);
+    // Received empty frame/life reset cannot replay the previous GPU mask.
+    entity_batches.clear();skip();entity_outline_replay.reset();
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_STENCIL_ATTACHMENT,GL_RENDERBUFFER,r.depth);
+    glDeleteTextures(1,&depth_view);glDeleteTextures(1,&depth_texture);glViewport(0,0,Size,Size);
+    assert(glGetError()==GL_NO_ERROR);reset(r);
+    std::puts("{\"entityOutlineProductionCallbacks\":true,\"realAttachments\":true,\"ordinaryShadowIsolation\":true,\"lifecycleGates\":13,\"failurePreservesHost\":true,\"teamEdgesAndDepth\":true}");
+}
+
 void tests(Resources& r){
     using namespace goldcraft;
     cases=empty_cases=0;programs.clear();r.adapter.effects_shader=true;
@@ -393,6 +477,7 @@ void tests(Resources& r){
     static_shadow_tests(r);
     atlas_shadow_tests(r);
     selective_atlas_shadow_tests(r);
+    entity_outline_tests(r);
 
     // Bounds are published with the actual received section revision. A
     // failed replacement cannot expose candidate bounds over the old mesh.

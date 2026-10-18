@@ -9,6 +9,7 @@
     "RenderParametersAccessor",
     "RenderTextureAccessor",
     "RenderWriteMaskAccessor",
+    "RenderToggleAccessor",
     "EntityRenderDispatcherAccessor",
     "SpriteAtlasTextureMixin",
     "SpriteContentsMixin",

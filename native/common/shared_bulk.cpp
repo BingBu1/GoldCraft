@@ -33,7 +33,7 @@ bool bulk_eligible(Type t) {
     case Type::atlas: case Type::section_mesh: case Type::entity_texture:
     case Type::atlas_patches: case Type::hud_frame: case Type::particle_texture:
     case Type::particle_mesh: case Type::post_effect_plan: case Type::particle_texture_chunk:
-    case Type::entity_frame: return true;
+    case Type::entity_frame: case Type::entity_outline_frame: return true;
     default: return false;
     }
 }

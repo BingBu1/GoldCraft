@@ -61,6 +61,9 @@ public final class ParticleExporter {
         return sendEntityFrame(epoch,life,entityRevision,new EntityFrame.Base(payload.length,out->out.bytes(payload)),effects);
     }
     public static boolean sendEntityFrame(long epoch,int life,long entityRevision,EntityFrame.Base base,DirectMeshCapture effects){
+        return active!=null&&sendEntityFrame(epoch,life,entityRevision,base,effects,active.link.generation(),false);
+    }
+    public static boolean sendEntityFrame(long epoch,int life,long entityRevision,EntityFrame.Base base,DirectMeshCapture effects,long connection,boolean outlines){
         if(active==null||!active.link.connected()||epoch==0||life==0||epoch!=GoldCraftClient.HOST.epoch()||life!=HostInput.life())return false;
         var exporter=active;exporter.prepareTextureContext(epoch);
         var draws=effects.draws();
@@ -69,7 +72,7 @@ public final class ParticleExporter {
         if(!exporter.prepareTextures(epoch,used,0))return false;
         var ready=exporter.effectBatches(draws,atlas);
         byte[] frame=EntityFrame.encode(epoch,exporter.generation,entityRevision,life,base,ready);
-        if(!exporter.link.send(Wire.ENTITY_FRAME,frame))return false;
+        if(!exporter.link.sendEntityFrame(connection,outlines,frame))return false;
         exporter.entityEffectFrames++;exporter.entityEffectBytes+=frame.length;exporter.entityEffectDraws=draws.size();
         return true;
     }

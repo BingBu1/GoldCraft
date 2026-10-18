@@ -403,7 +403,8 @@
     "docs/2026-10-18_分析-托管瞄准镜-report.md",
     "tools/Test-HostedRenderTarget.py",
     "tools/Test-EntityOutline.py",
-    "docs/ENTITY_OUTLINE.md"
+    "docs/ENTITY_OUTLINE.md",
+    "tools/Test-OutlineCapture.py"
   ],
   "trees": {
     "native": [

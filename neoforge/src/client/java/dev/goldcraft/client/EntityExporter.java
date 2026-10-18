@@ -12,6 +12,7 @@ import dev.goldcraft.client.mixin.RenderLayerAccessor;
 import dev.goldcraft.client.mixin.RenderParametersAccessor;
 import dev.goldcraft.client.mixin.RenderTextureAccessor;
 import dev.goldcraft.client.mixin.RenderWriteMaskAccessor;
+import dev.goldcraft.client.mixin.RenderToggleAccessor;
 import dev.goldcraft.client.mixin.EntityRenderDispatcherAccessor;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.RenderLayer;
@@ -30,7 +31,9 @@ import java.util.*;
 
 /** Uses the actual Minecraft entity and block-entity renderers, preserving animated model vertices. */
 public final class EntityExporter {
-    record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset) {}
+    record Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset,boolean outline,boolean cull) {
+        Material(Identifier texture,boolean translucent,boolean depthWrite,boolean triangles,boolean viewOffset){this(texture,translucent,depthWrite,triangles,viewOffset,false,false);}
+    }
     private record TextureStamp(AbstractTexture texture,int glId,long revision) {}
     record Batch(int texture,int flags,WorldExporter.Collector vertices,int bytes) {}
     private final BridgeLink link;
@@ -78,6 +81,7 @@ public final class EntityExporter {
         long now=System.nanoTime();if(!pacing.ready(now))return;
         if(lastFrame!=0)intervalMs=(now-lastFrame)/1_000_000.0;lastFrame=now;
         long began=Performance.begin();
+        long connection=link.generation();boolean outlines=link.entityOutlines(connection);
         try (var buffers=collectorBuffers.beginFrame()) {
             boolean completed=false;
             try (var effects=DirectMeshCapture.begin(net.minecraft.util.math.Vec3d.ZERO,false)) {
@@ -91,6 +95,8 @@ public final class EntityExporter {
                 if(layer instanceof RenderLayerDelegate wrapped) {
                     layer=wrapped.goldcraft$delegateLayer();wrappedLayers++;
                 }
+                boolean outline=layer.isOutline();
+                if(outline&&!outlines)return HostedOutlineProvider.DISCARD;
                 // Glint textures are opaque purple. Minecraft masks them with
                 // GL_EQUAL against the item's depth and uses a dedicated blend
                 // mode and animated texture matrix. Preserve that actual draw.
@@ -106,10 +112,12 @@ public final class EntityExporter {
                 var mask=((RenderParametersAccessor)(Object)parameters).goldcraft$writeMask();
                 // Translucent layers can still write depth: vanilla player skins do.
                 // Sorting/blending and depth writes are independent material properties.
-                Material material=new Material(texture.get(),layer.isTranslucent(),((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles,
-                    LayerSemantics.viewOffset(parameters));
+                Material material=new Material(texture.get(),!outline&&layer.isTranslucent(),!outline&&((RenderWriteMaskAccessor)mask).goldcraft$writesDepth(),triangles,
+                    !outline&&LayerSemantics.viewOffset(parameters),outline,
+                    outline&&((RenderToggleAccessor)((RenderParametersAccessor)(Object)parameters).goldcraft$cull()).goldcraft$enabled());
                 return buffers.collector(material,triangles);
             };
+            var outlineProvider=new HostedOutlineProvider(provider);
             var camera=client.gameRenderer.getCamera();
             var dispatcher=client.getEntityRenderDispatcher();dispatcher.configure(client.world,camera,client.targetedEntity);
             int entityCount=0;
@@ -126,10 +134,12 @@ public final class EntityExporter {
                 if(entityCount>=128)break;entityCount++;
                 float delta=client.world.getTickManager().shouldSkipTick(entity)?1:tickDelta;
                 effects.source("entity:"+entity.getClass().getName());
+                boolean glow=outlines&&client.hasOutline(entity);
+                if(glow)outlineProvider.color(entity.getTeamColorValue());
                 // Same interpolation fields used by vanilla WorldRenderer.renderEntity.
                 dispatcher.render(entity,MathHelper.lerp(delta,entity.lastRenderX,entity.getX()),
                     MathHelper.lerp(delta,entity.lastRenderY,entity.getY()),MathHelper.lerp(delta,entity.lastRenderZ,entity.getZ()),
-                    MathHelper.lerp(delta,entity.prevYaw,entity.getYaw()),delta,new MatrixStack(),provider,dispatcher.getLight(entity,delta));
+                    MathHelper.lerp(delta,entity.prevYaw,entity.getYaw()),delta,new MatrixStack(),glow?outlineProvider:provider,dispatcher.getLight(entity,delta));
                 if(actor!=null)avatars.add(actor);
             }
             } finally {
@@ -165,11 +175,12 @@ public final class EntityExporter {
                     var stamp=new TextureStamp(texture,texture.getGlId(),textureRevisions.getOrDefault(texture,0L));
                     if(!stamp.equals(uploaded.get(id))){if(!upload(epoch,stamp,id,number)){sendFailures++;return;}uploaded.put(id,stamp);}
                 }
-                int flags=(entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0)|(entry.getKey().viewOffset?4:0);
+                int flags=entry.getKey().outline?8|(entry.getKey().cull?16:0):
+                    (entry.getKey().translucent?1:0)|(entry.getKey().depthWrite?2:0)|(entry.getKey().viewOffset?4:0);
                 ready.add(new Batch(number,flags,vertices,size));bytes+=size;
             }
             var base=prepareBase(epoch,++revision,entityCount,blockCount,ready,avatars);
-            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,base,effects)){frames++;meshBytes+=base.size();lastError="";completed=true;}else sendFailures++;
+            if(ParticleExporter.sendEntityFrame(epoch,HostInput.life(),revision,base,effects,connection,outlines)){frames++;meshBytes+=base.size();lastError="";completed=true;}else sendFailures++;
             }
             // Effects close/restore first. Any early return or failed close
             // discards this frame's buffers instead of retaining partial work.
