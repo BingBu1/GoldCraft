@@ -137,6 +137,25 @@ def main():
                                 input=b'\r\n', capture_output=True, timeout=90)
         assert b'"applied":  false' in result.stdout and before == snapshot(server), result.stdout
         reports.append('Shipped server CMD invokes PowerShell 5.1 without changing current files')
+        # A mistaken paste must be recoverable in the same window, before any
+        # transaction or target mutation. Exercise actual Read-Host input.
+        command = ['powershell.exe', '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                   '-File', str(package / 'Update-GoldCraft.ps1'), '-Role', 'server', '-Plan']
+        for first in ('E:\\bad<path', str(server / 'Start.cmd'), 'Start.cmd'):
+            result = subprocess.run(command, input=(first+'\r\n"'+str(server)+'"\r\n').encode(),
+                                    capture_output=True, timeout=90)
+            assert result.returncode == 0 and b'Invalid target:' in result.stdout, result.stdout + result.stderr
+            assert b'"applied":  false' in result.stdout and before == snapshot(server)
+        cancelled = subprocess.run(command, input=b'\r\n', capture_output=True, timeout=90)
+        assert cancelled.returncode != 0 and b'Update cancelled' in cancelled.stderr
+        for path in ('E:\\bad<path', str(server / 'Start.cmd')):
+            result = subprocess.run(command + ['-TargetDirectory', path], capture_output=True, timeout=90)
+            assert result.returncode != 0 and before == snapshot(server)
+        for quote in ('"', "'"):
+            result = subprocess.run(command + ['-TargetDirectory', '  '+quote+str(server)+quote+'  '], capture_output=True, timeout=90)
+            assert result.returncode == 0 and b'"applied":  false' in result.stdout, result.stdout + result.stderr
+            assert before == snapshot(server)
+        reports.append('Invalid interactive paths retry, blank cancels, explicit invalid paths fail before writes, quoted folders accepted')
         report = dict(passed=True, powerShell=version, checks=reports, gameLaunched=False, liveInstallTouched=False)
         (root / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report))

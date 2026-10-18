@@ -97,6 +97,9 @@ def build(candidate,output,revision,release='20261017-Input-Projectile',server_o
 3. 双击 Update-Server.cmd，输入原 Start.cmd 所在目录。
 4. 显示 Updated server 后，用原目录 Start.cmd 启动。
 
+输入的是文件夹，例如 E:\\GoldCraft-Servers，不是 Start.cmd 文件或补丁解压目录。
+新版遇到路径错误会提示重新输入，直接回车取消；此时尚未覆盖文件。
+
 保留 server-settings.json、公网端口、RCON/管理员、其他配置、.state、存档及其他 Mod。
 只将 mc_map_mining=2、mc_round_clear_blocks=1、mc_death_drop_items=0 写入现有 server.cfg。
 清块/还原发生在下一回合开始。会去重并启用 GoldCraft/F6/僵尸规则插件，备份实际变更至 .goldcraft-updates。

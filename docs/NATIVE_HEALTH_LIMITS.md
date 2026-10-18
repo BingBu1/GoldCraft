@@ -35,8 +35,23 @@ ReGameDLL的实际 `TakeHealth` 和 `CanTakeHealth` 读取350ms短租约。`pev.
 
 证据：`build/status-health-native-20261017/{checkpoint.json,native-tests.xml,java-build01.log,native-live02/result.json}`。实服消费者复验入口：`python tools/Exercise-StatusHealth.py --name native-new`。夹具插件只属于测试，不进入正式候选。
 
+## Minecraft 属性、账本与重生
+
+2026-10-18：实际 `max-health` 属性已接入发布器。宿主只提供职业基础值，Minecraft 在唯一效果所有者上计算有效上限；原生代理及配对玩家的治疗预测均使用这个上限。奖励血量继续是当前血量，不能变成额外治疗额度。
+
+高血量范围只扩展受宿主授权的单个属性实例，不修改全局属性的 1024 上限。接管时记录原基础值，NBT 保存和撤销接管都使用原值。效果到期不再把原版属性降低产生的 `setHealth` 当作第二次伤害；随后由原生权威快照收敛。
+
+真实死亡观战回归发现：`ServerPlayerEntity.copyFrom` 会先复制属性基础值，再初始化生命并触发 NeoForge Clone 事件，因而把临时职业上限复制给新玩家。共同复制入口现在在生命初始化前恢复原基础值，同时保留原版效果复制规则。该修复覆盖死亡观战、普通死亡及存活换体，未硬编码基础值 20，也不覆盖其他 Mod 在 Clone 事件中的后续修改。
+
+333 项冻结构建输入的生产 JAR 与 335 项 JUnit 通过。真实 NeoForge 无额外 Mod、Epic Fight/NightFall/Invincible/GeckoLib 两环境各 143 项检查通过，包括实际效果到期、13 次上限消息、2 次伤害请求和 3 次生命差量、超额奖励、自定义原基础值、形态同实例交接、真实 PlayerList 重生、能力撤销及地图生命周期。旧候选在观战换体检查中实际得到错误的 1024，失败记录保留；另一次存活换体夹具误用了 KILLED，核对原版入口后改用 CHANGED_DIMENSION，未放宽断言。
+
+测试通过真实 `BridgeLink` TCP 发布，但宿主快照、确认消息和客户端连接为显式夹具。这些证据与之前的真实 ReHLDS 消费者验证分开记录，不能合称真人双服验证。证据：`build/status-health-mc-20261017/checkpoint-20261018.json`。复验：
+
+```text
+python tools/Test-StatusHealth.py --name health-new --jar <生产JAR>
+python tools/Test-StatusHealth.py --name health-full-new --jar <生产JAR> --profile full
+```
+
 ## 剩余工作
 
-职业基础修复、原生有效上限消费者和MC通道已完成，尚未部署或通过真人验收。普通 Pawn 插件须换图或重启服务器才能重载，`sv_restart` 不会重载插件。
-
-Minecraft仍需把实际max-health属性接入这个通道，修正代理与真实玩家的健康账本、原版1024属性夹限与高血量职业兼容，以及效果到期、形态切换、死亡重生的收敛。尤其不能把原版属性降低产生的setHealth误发成伤害。目前MC端只接收/校验原生上限，尚未从实际效果发布有效上限；33项联合候选保持原版本。本阶段构建产物单独冻结，不进入运行部署。
+职业基础及原生消费者已随此前联合更新本地部署；此次 MC 属性与账本候选尚未部署。已并入含深度复制修复的 33 项联合候选，只替换 Core；下一轮同时验证实际客户端 HUD、治疗/到期、双形态与重生、多人和深度遮挡，避免逐项重启。普通 Pawn 插件仍须换图或重启服务器才能重载，`sv_restart` 不会重载插件。完整状态效果和玩法目标保持开放。

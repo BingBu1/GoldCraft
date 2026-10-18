@@ -33,8 +33,8 @@ public final class NativeHealthLedger {
     }
     public float health(float maximum){
         float value=health;
-        for(float delta:pending.values())value=Math.clamp(value+delta,0,maximum);
-        return Math.clamp(value,0,maximum);
+        for(float delta:pending.values())value=HealthPrediction.apply(value,delta,maximum);
+        return Math.max(0,value);
     }
     public int pending(){return pending.size();}
     public boolean settled(long tick){return pending.isEmpty()&&tick>receiptBarrier;}

@@ -65,7 +65,8 @@ public final class NativePlayerEntity extends PlayerEntity {
         float health=Math.max(0,next.health()/MinecraftObjects.CS_HEALTH_PER_MC);
         if(healthLedger==null)healthLedger=new dev.goldcraft.bridge.NativeHealthLedger(health);
         else healthLedger.snapshot(health,dev.goldcraft.GoldCraft.HOST_WORLD.tick());
-        getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(Math.max(20,health));setHealth(health);
+        if(!NativeHealth.prepare(this,next))getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(Math.max(20,health));
+        NativeHealth.synchronize(this,health);
     }
     @Override public EntityDimensions getBaseDimensions(EntityPose pose){
         if(actor==null)return super.getBaseDimensions(pose);

@@ -76,7 +76,10 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         dataTracker.set(WIDTH,dimensions.width());dataTracker.set(HEIGHT,dimensions.height());
         refreshPositionAndAngles(value.getX(),value.getY(),value.getZ(),value.getYaw(),value.getPitch());
         following=true;
-        try{getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(value.getMaxHealth());super.setHealth(value.getHealth());}
+        try{
+            if(!NativeHealth.prepare(this,actor))getAttributeInstance(EntityAttributes.GENERIC_MAX_HEALTH).setBaseValue(value.getMaxHealth());
+            NativeHealth.synchronize(this,value.getHealth());
+        }
         finally{following=false;}
     }
     @Override public EntityDimensions getBaseDimensions(EntityPose pose){
@@ -109,7 +112,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         }
         var status=following?null:NativeStatusExecution.current(this);
         if(status!=null&&body!=null&&Float.isFinite(value)){
-            float amount=getHealth()-Math.clamp(value,0,getMaxHealth());
+            float amount=getHealth()-Math.clamp(value,0,Math.max(getHealth(),getMaxHealth()));
             if(amount!=0)body.requestDamage(getDamageSources().generic(),amount);
             return;
         }

@@ -2,6 +2,37 @@ param([Parameter(Mandatory)][ValidateSet('server','cs','minecraft')][string]$Rol
       [string]$TargetDirectory,[switch]$Plan)
 . (Join-Path $PSScriptRoot 'Common.ps1')
 
+function Read-UpdateTarget {
+    $interactive=[string]::IsNullOrWhiteSpace($TargetDirectory)
+    $inputPath=$TargetDirectory
+    while($true) {
+        if($interactive){$inputPath=Read-Host 'Existing install FOLDER (server: folder containing Start.cmd; empty to cancel)'}
+        if([string]::IsNullOrWhiteSpace($inputPath)){throw 'Update cancelled: no target folder was entered.'}
+        try {
+            $inputPath=$inputPath.Trim()
+            if($inputPath.Length -ge 2 -and
+               (($inputPath[0] -eq '"' -and $inputPath[-1] -eq '"') -or
+                ($inputPath[0] -eq "'" -and $inputPath[-1] -eq "'"))) {
+                $inputPath=$inputPath.Substring(1,$inputPath.Length-2).Trim()
+            }
+            if($inputPath -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)') {
+                throw 'Enter a full folder path, for example E:\GoldCraft-Servers.'
+            }
+            if($inputPath.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0 -or $inputPath -match '[*?]') {
+                throw 'The folder path contains invalid characters. Paste only the folder path, without a command.'
+            }
+            $resolved=(Assert-PlainPath $inputPath).TrimEnd('\')
+            if(-not(Test-Path -LiteralPath $resolved -PathType Container)) {
+                throw 'Folder not found. Select the installed folder containing Start.cmd, not Start.cmd itself or the update ZIP.'
+            }
+            return $resolved
+        } catch {
+            if(-not $interactive){throw}
+            Write-Host ('Invalid target: '+$_.Exception.Message) -ForegroundColor Red
+        }
+    }
+}
+
 function Add-TextChange([string]$Relative,[string]$Text) {
     $script:changes[$Relative]=[Text.UTF8Encoding]::new($false).GetBytes($Text)
 }
@@ -84,9 +115,7 @@ function Enable-ServerPlugins {
 try {
     $manifest=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'update-manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if($manifest.schema -ne 1 -or $Role -notin $manifest.roles){throw 'Wrong update package for this role.'}
-    if(-not $TargetDirectory){$TargetDirectory=Read-Host 'Existing target folder (server: Start.cmd folder; CS: hl.exe folder; MC: instance folder containing mods)'}
-    $target=(Assert-PlainPath $TargetDirectory.Trim().Trim('"')).TrimEnd('\')
-    if(-not(Test-Path -LiteralPath $target -PathType Container)){throw 'Target folder does not exist.'}
+    $target=Read-UpdateTarget
     $patchRoot=(Assert-PlainPath $PSScriptRoot).TrimEnd('\')
     if($target -eq $patchRoot -or $target.StartsWith($patchRoot+'\',[StringComparison]::OrdinalIgnoreCase) -or
        $patchRoot.StartsWith($target+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Extract this patch outside the installed game/server and select its installed folder.'}

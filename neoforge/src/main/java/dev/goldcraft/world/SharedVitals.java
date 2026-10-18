@@ -28,7 +28,7 @@ public final class SharedVitals {
     }
     private SharedVitals(){}
     public static void clear(){states.clear();sequence=0;}
-    public static void disconnect(UUID uuid){states.remove(uuid);}
+    public static void disconnect(UUID uuid){var state=states.remove(uuid);if(state!=null)NativeHealth.detach(state.entity);}
     static void presentationRespawn(ServerPlayerEntity corpse,ServerPlayerEntity viewer,
                                     HostWorldState host,HostWorldState.Actor actor){
         var state=states.get(corpse.getUuid());
@@ -81,6 +81,7 @@ public final class SharedVitals {
     }
     /** Returns true only while a speculative MC death awaits native confirmation. */
     public static boolean prepare(ServerPlayerEntity player,HostWorldState host,HostWorldState.Actor actor){
+        NativeHealth.prepare(player,actor);
         State state=states.get(player.getUuid());
         if(state==null||state.epoch!=host.epoch()||state.serial!=actor.serial()||state.spawn!=actor.spawn()){
             boolean died=state!=null&&state.entity==player&&state.deathConfirmed&&!state.presentationBody;
@@ -106,7 +107,8 @@ public final class SharedVitals {
                 }finally{state.confirming=false;}
             }
         }else if(!state.deathConfirmed){
-            player.setHealth(state.ledger.health(player.getMaxHealth()*SCALE)/SCALE);
+            float maxNative=player.getMaxHealth()*SCALE;
+            NativeHealth.synchronize(player,state.ledger.health(maxNative)/SCALE);
             if(player.isAlive())state.deathSource=null;
         }
         state.observed=player.getHealth();

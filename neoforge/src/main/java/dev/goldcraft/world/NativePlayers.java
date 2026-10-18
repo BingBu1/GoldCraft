@@ -131,6 +131,7 @@ public final class NativePlayers {
         if(!players.isEmpty())world.resetIdleTimeout();
         pending.entrySet().removeIf(e->{var old=e.getValue().target().actor();
             return host.actors().stream().noneMatch(a->a.slot()==old.slot()&&a.serial()==old.serial()&&a.spawn()==old.spawn()&&alive(a));});
+        NativeHealth.prune(host);
     }
     public static List<? extends PlayerEntity> targetingPlayers(ServerWorld view,List<? extends PlayerEntity> vanilla){
         if(view!=world||players.isEmpty())return vanilla;

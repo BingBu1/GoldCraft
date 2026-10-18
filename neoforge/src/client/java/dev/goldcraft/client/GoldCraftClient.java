@@ -45,6 +45,12 @@ public final class GoldCraftClient {
     }
     public void initialize() {
         active=this;
+        dev.goldcraft.world.NativeHealth.clientOwnership(entity->{
+            if(HOST.epoch()==0||entity.isRemoved())return false;
+            if(entity instanceof dev.goldcraft.world.NativePlayerHitboxEntity box)
+                return box.hostEpoch()==HOST.epoch()&&HOST.actors().stream().anyMatch(a->a.slot()==box.hostSlot()&&a.serial()==box.hostSerial()&&a.life()==box.hostLife());
+            return entity instanceof net.minecraft.entity.player.PlayerEntity&&HOST.actor(entity.getUuid())!=null;
+        });
         dev.goldcraft.net.HostNetwork.clientBinding(()->link!=null&&link.connected()&&link.generation()==generation&&binding!=null?binding.clone():null);
         dev.goldcraft.net.HostNetwork.clientPairingProblem(this::pairingProblem);
         dev.goldcraft.net.HostNetwork.clientReceiver(part-> {

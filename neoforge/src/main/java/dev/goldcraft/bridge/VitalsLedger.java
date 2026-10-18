@@ -24,8 +24,8 @@ public final class VitalsLedger {
     }
     public float health(float maximum){
         float result=authority;
-        for(var change:pending)result=Math.clamp(result+change.delta(),0,maximum);
-        return Math.clamp(result,0,maximum);
+        for(var change:pending)result=HealthPrediction.apply(result,change.delta(),maximum);
+        return Math.max(0,result);
     }
     public List<Change> pending(){return List.copyOf(pending);}
     public int size(){return pending.size();}

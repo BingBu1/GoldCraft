@@ -10,6 +10,12 @@
 - 玩家：CS 改用[完整图形安装包](../client-installer/README.md)，退出 CS 后选择原游戏目录安装。Minecraft 整合包由服主自行提供；本次 CS 图形包不包含 MC 更新。
 - 服务器和玩家须使用匹配版本。只有服务器更新不会替换玩家的 CS DLL 或 MC JAR。
 
+服务端输入示例：`E:\GoldCraft-Servers`。应选择里面同时有 `Start.cmd`、`cs` 和 `minecraft` 的安装根目录，不是补丁的解压目录，也不是 `Start.cmd` 文件。新版遇到路径输入错误会在同一窗口提示重新输入，空行取消；尚未开始写入。也可在补丁目录的 PowerShell 明确指定：
+
+```powershell
+.\Update-Server.cmd -TargetDirectory 'E:\GoldCraft-Servers'
+```
+
 服务器保留端口、管理员、RCON、存档、桥接身份和其他 Mod；仅在原 `server.cfg` 合并 `mc_map_mining 2`、`mc_round_clear_blocks 1`、`mc_death_drop_items 0`。不覆盖完整插件列表，必要 GoldCraft 插件启用一次。玩家保留按键、账号、存档、其他 Mod；旧核心按 JAR 内实际类识别。CS 引擎/游戏客户端版本不匹配时停止，不覆盖引擎或跳过检查。
 
 新版 `payload/server` 已包含以下三个独立启用清单；手动覆盖时也须复制它们，保留原 `plugins.ini` 并检查重复启用。使用 `Update-Server.cmd` 会统一去重；旧包若漏了清单，需补入 `cs/cstrike/addons/amxmodx/configs/`：
