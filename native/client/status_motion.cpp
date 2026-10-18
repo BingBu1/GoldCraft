@@ -3,6 +3,7 @@
 #include <pm_movevars.h>
 #include "status_motion.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/native_water.hpp"
 #include <array>
 #include <stdexcept>
 #include <string>
@@ -17,7 +18,7 @@ std::array<hook_t*,3> hooks{};
 bool enabled=false;std::string failure;
 void __cdecl categorize(){Scope::categorize(originals[0]);}
 void __cdecl jump(){Scope::jump(originals[1]);}
-void __cdecl water(){Scope::water(originals[2]);}
+void __cdecl water(){if(!native_water::MovementScope<playermove_t>::water(originals[2]))Scope::water(originals[2]);}
 }
 bool install(metahook_api_t* value){
     if(enabled)return true;api=value;

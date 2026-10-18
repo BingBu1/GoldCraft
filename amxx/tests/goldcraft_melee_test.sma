@@ -59,6 +59,14 @@ public Command()
         }
     }
     if (!gAttacker || !gVictim) return PLUGIN_HANDLED;
+    if (equal(action, "waterstep")) {
+        gMotion = false;
+        set_entvar(gVictim, var_flags, get_entvar(gVictim, var_flags) & ~(FL_FROZEN | FL_ONGROUND));
+        set_entvar(gVictim, var_movetype, MOVETYPE_WALK);
+        engfunc(EngFunc_SetOrigin, gVictim, Float:{524.0, 176.0, 100.0});
+        set_entvar(gVictim, var_velocity, Float:{100.0, 0.0, 100.0});
+        engfunc(EngFunc_RunPlayerMove, gVictim, Float:{0.0, 0.0, 0.0}, 250.0, 0.0, 0.0, 0, 0, 50);
+    }
     if (equal(action, "motion")) {
         if (!is_user_alive(gVictim)) rg_round_respawn(gVictim);
         set_entvar(gVictim, var_health, 1000.0);
@@ -116,7 +124,9 @@ public Command()
         else ExecuteHamB(Ham_Weapon_PrimaryAttack, gKnife);
         gCancel = 0;
     }
-    server_print("[GC Melee] attacker=%d victim=%d traces=%d trace=%.3f health=%.3f armor=%.3f",
-        gAttacker, gVictim, gTraces, gTraceDamage, Float:get_entvar(gVictim, var_health), Float:get_entvar(gVictim, var_armorvalue));
+    new Float:at[3], Float:velocity[3];get_entvar(gVictim, var_origin, at);get_entvar(gVictim, var_velocity, velocity);
+    server_print("[GC Melee] attacker=%d victim=%d traces=%d trace=%.3f health=%.3f armor=%.3f x=%.5f y=%.5f z=%.5f vx=%.5f vy=%.5f vz=%.5f water=%d kind=%d",
+        gAttacker, gVictim, gTraces, gTraceDamage, Float:get_entvar(gVictim, var_health), Float:get_entvar(gVictim, var_armorvalue),
+        at[0], at[1], at[2], velocity[0], velocity[1], velocity[2], get_entvar(gVictim, var_waterlevel), get_entvar(gVictim, var_watertype));
     return PLUGIN_HANDLED;
 }

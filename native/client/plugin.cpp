@@ -15,6 +15,7 @@
 #include "vitals.hpp"
 #include "status_motion.hpp"
 #include "goldcraft/status_motion.hpp"
+#include "goldcraft/native_water.hpp"
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_nausea.hpp"
 #include "goldcraft/view_distortion.hpp"
@@ -75,6 +76,7 @@ local_discovery::Publisher discovery;
 metahook_api_t* api = nullptr;
 Bytes binding;
 status_motion::Receiver native_motion;
+native_water::Receiver water_state;
 status_vision::Receiver native_vision;
 status_nausea::Receiver native_nausea;
 status_glow::Receiver native_glow;
@@ -516,7 +518,7 @@ void ResetWorld() {
     ReleaseHostUse();
     RestoreViewModel();
     ClearSections();ClearLights();ClearDynamic();player_presentations={};presentation_times={};view_interpolator.clear();
-    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();native_motion.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
+    native_colliders.clear();collider_sequence=0;last_colliders=0;native_fluids.clear();native_motion.clear();water_state.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
     map_edits.reset(0);edit_assembler.reset(0);client_map::reset();next_edit_query=0;edit_recovery=false;
     world=0;atlas_generation=0;binding.clear();minecraft_control=minecraft_menu=server_minecraft_form=false;minecraft_transition_until=0;input_sequence=pose_sequence=0;player_slot=player_serial=minecraft_life=server_player_life=0;
     if(hud_texture&&render::owns_context())glDeleteTextures(1,&hud_texture);
@@ -852,6 +854,14 @@ int VisionMessage(const char*,int size,void* data){
     }catch(const std::exception& e){Log(e.what());}
     return 1;
 }
+int WaterMessage(const char*,int size,void* data){
+    try{
+        if(!data||size!=56)throw ProtocolError("Invalid GCWater length");
+        const auto s=native_water::decode(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        if(s.epoch==world&&s.slot==player_slot&&s.serial==player_serial&&s.life==server_player_life)water_state.accept(s,Seconds());
+    }catch(const std::exception& e){Log(e.what());}
+    return 1;
+}
 int MotionMessage(const char*,int size,void* data){
     try{
         if(!data||size!=44)throw ProtocolError("Invalid GCMotion length");
@@ -868,7 +878,7 @@ int BindingMessage(const char*,int size,void* data) {
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
         if(new_world!=world){native_glow.clear();ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
-        if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
+        if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();water_state.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
         if(!section_logged) Log("received server pairing identity for current map");
@@ -973,7 +983,7 @@ int FormMessage(const char*,int size,void* data){
         if(epoch!=world)return 1;
         if(form>1)throw ProtocolError("Invalid native player form");
         if(life!=server_player_life||server_minecraft_form!=(form!=0)){
-            native_motion.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();minecraft_transition_until=form?Seconds()+0.5:0;
+            native_motion.clear();water_state.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();minecraft_transition_until=form?Seconds()+0.5:0;
             ClearPostEffects();
             // Resource uploads keep their epoch/generation identity across a
             // form or spawn change. Presentation frames still require new life.
@@ -1091,6 +1101,9 @@ void InitHud() {
     gEngfuncs.pfnRegisterVariable(status_motion::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue(status_motion::client_capability,client_motion::ready()?1.f:0.f);
     gEngfuncs.pfnHookUserMsg(status_motion::message_name,MotionMessage);
+    gEngfuncs.pfnRegisterVariable(native_water::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(native_water::client_capability,client_motion::ready()?1.f:0.f);
+    gEngfuncs.pfnHookUserMsg(native_water::message_name,WaterMessage);
     gEngfuncs.pfnRegisterVariable(status_nausea::client_capability,"1",FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue(status_nausea::client_capability,1);
     gEngfuncs.pfnHookUserMsg(status_nausea::message_name,NauseaMessage);
@@ -1141,7 +1154,7 @@ int VidInit() {
     // epoch so a same-map video reset can recover through a fresh snapshot.
     map_edits.reset(world);edit_assembler.reset(world);edit_recovery=world!=0;next_edit_query=0;
     visible_entities::fixture_clear();
-    client_vitals::reset();native_motion.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
+    client_vitals::reset();native_motion.clear();water_state.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
     packet_client::reset();
     ClearSections();ClearDynamic();ClearHud();
     next_scene_request=0;
@@ -1841,12 +1854,14 @@ void PlayerMoveWithFluids(playermove_t* move,int server){
     const auto* field=!server&&!HasControl()?native_fluids.active(world,Seconds()):nullptr;
     fluids::MovementScope scope(*move,field);
     const auto* state=!server&&!server_minecraft_form&&client_motion::ready()?native_motion.active(world,player_slot,player_serial,server_player_life,Seconds()):nullptr;
-    status_motion::MovementScope motion(*move,state);gExportfuncs.HUD_PlayerMove(move,server);
+    status_motion::MovementScope motion(*move,state);
+    const auto* water=!server&&!server_minecraft_form&&client_motion::ready()?water_state.active(world,player_slot,player_serial,server_player_life,Seconds()):nullptr;
+    native_water::MovementScope water_scope(*move,water);gExportfuncs.HUD_PlayerMove(move,server);
 }
 void PlayerMove(playermove_t* move,int server){
     prediction_objects=0;
     if(!server&&!MatchingHostProtocol()){
-        native_fluids.clear();native_motion.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
+        native_fluids.clear();native_motion.clear();water_state.clear();native_vision.clear();native_nausea.clear();view_distortion_frames.clear();
         map_edits.reset(0);edit_assembler.reset(0);client_map::reset();edit_recovery=false;
         gExportfuncs.HUD_PlayerMove(move,server);return;
     }

@@ -452,7 +452,10 @@
     "docs/NATIVE_RAIDS.md",
     "docs/NATIVE_IMPULSE.md",
     "tools/Test-NativeImpulse.py",
-    "tools/Exercise-NativeImpulseServers.py"
+    "tools/Exercise-NativeImpulseServers.py",
+    "docs/NATIVE_WATER.md",
+    "tools/Test-NativeWater.py",
+    "tools/Exercise-NativeWaterServers.py"
   ],
   "trees": {
     "native": [

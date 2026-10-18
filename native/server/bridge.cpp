@@ -20,6 +20,7 @@
 #include "goldcraft/status_nausea.hpp"
 #include "goldcraft/status_melee.hpp"
 #include "goldcraft/native_impulse.hpp"
+#include "goldcraft/native_water.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "goldcraft/status_glow.hpp"
 #include "pm_movevars.h"
@@ -696,6 +697,7 @@ namespace {
 #include "status_attributes.inc"
 #include "status_environment.inc"
 #include "status_motion.inc"
+#include "native_water.inc"
 #include "status_fall.inc"
 #include "status_health.inc"
 #include "status_visibility.inc"
@@ -934,11 +936,12 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea(true);ClearStatusGlow(true);
+        ClearStatusMotion();ClearNativeWater();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea(true);ClearStatusGlow(true);
         nausea_message=REG_USER_MSG(status_nausea::message_name,status_nausea::wire_bytes);
         vision_message=REG_USER_MSG(status_vision::message_name,status_vision::wire_bytes);
         glow_message=REG_USER_MSG(status_glow::message_name,status_glow::wire_bytes);
         motion_message=REG_USER_MSG(status_motion::message_name,44);
+        water_message=REG_USER_MSG(native_water::message_name,56);
         binding_message=REG_USER_MSG("GCBind",32);
         avatar_message=REG_USER_MSG("GCAvatar",40);
         form_message=REG_USER_MSG("GCForm",16);
@@ -1213,12 +1216,12 @@ GoldCraft_FallAdjustment GoldCraft_StatusFall(edict_t* player,float velocity,flo
 }
 void GoldCraft_StatusCategorize(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::categorize(original);}
 void GoldCraft_StatusJump(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::jump(original);}
-void GoldCraft_StatusWater(void (*original)()){goldcraft::status_motion::MovementScope<playermove_t>::water(original);}
+void GoldCraft_StatusWater(void (*original)()){if(!goldcraft::native_water::MovementScope<playermove_t>::water(original))goldcraft::status_motion::MovementScope<playermove_t>::water(original);}
 void GoldCraft_FluidMove(playermove_s* move,int server,void (*original)(int)) {
     const unsigned slot=static_cast<unsigned>(move->player_index+1);
     const auto* field=slot<controlled.size()&&!controlled[slot].active?ActiveFluids():nullptr;
     fluids::MovementScope scope(*move,field);
-    status_motion::MovementScope motion(*move,CurrentMotion(slot));original(server);
+    status_motion::MovementScope motion(*move,CurrentMotion(slot));native_water::MovementScope water(*move,CurrentWater(slot));original(server);
 }
 void GoldCraft_StartFrame() {
     if(!edicts) return;
@@ -1243,7 +1246,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea();ClearStatusGlow();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearNativeWater();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea();ClearStatusGlow();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1272,6 +1275,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::native_water)HandleNativeWater(message.payload);
             else if(message.type==Type::native_impulse)HandleNativeImpulse(message.payload);
             else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);
             else if(message.type==Type::status_nausea)HandleStatusNausea(message.payload);

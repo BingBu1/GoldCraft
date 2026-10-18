@@ -48,6 +48,7 @@ class NativeHitHandshakeTest {
     }
     @Test void oldHostDropsOnlyNativeHitAndKeepsNativeView()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var water=host.accept()){hello(water);} // reject native-water extension
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.NATIVE_HIT_CAP);}
             try(var s=host.accept()){
@@ -58,6 +59,7 @@ class NativeHitHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedNativeHit()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var water=host.accept()){hello(water);} // reject native-water extension
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
@@ -74,7 +76,7 @@ class NativeHitHandshakeTest {
     }
     @Test void completeFallbackCycleRetriesNewestCapability()throws Exception{
         try(var host=host();var link=link(host,false)){
-            for(int offer=15;offer>=0;offer--)try(var s=host.accept()){
+            for(int offer=16;offer>=0;offer--)try(var s=host.accept()){
                 int caps=hello(s);assertEquals(offer>=15,(caps&Wire.NATIVE_IMPULSE_CAP)!=0);assertEquals(offer>=14,(caps&Wire.NATIVE_HIT_CAP)!=0);
                 assertEquals(offer>=13,(caps&Wire.NATIVE_VIEW_CAP)!=0);
             }
