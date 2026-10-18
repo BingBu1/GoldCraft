@@ -19,6 +19,7 @@
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_nausea.hpp"
 #include "goldcraft/status_melee.hpp"
+#include "goldcraft/native_impulse.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "goldcraft/status_glow.hpp"
 #include "pm_movevars.h"
@@ -701,6 +702,7 @@ namespace {
 #include "status_glow.inc"
 #include "status_vision.inc"
 #include "native_view.inc"
+#include "native_impulse.inc"
 #include "status_nausea.inc"
 #include "status_melee.inc"
 #include "armor_defense.inc"
@@ -1270,6 +1272,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::native_impulse)HandleNativeImpulse(message.payload);
             else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);
             else if(message.type==Type::status_nausea)HandleStatusNausea(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);

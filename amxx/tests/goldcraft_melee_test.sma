@@ -4,8 +4,8 @@
 #include <fakemeta>
 #include <hamsandwich>
 
-new gEnabled, gAttacker, gVictim, gKnife, gCancel, gTraces;
-new Float:gTraceDamage;
+new gEnabled, gAttacker, gVictim, gKnife, gCancel, gTraces, bool:gMotion;
+new Float:gTraceDamage, Float:gMotionTime;
 public plugin_init()
 {
     register_plugin("GoldCraft melee test", "1.0", "GoldCraft contributors");
@@ -13,6 +13,19 @@ public plugin_init()
     register_srvcmd("gc_melee", "Command");
     RegisterHookChain(RG_CBasePlayer_TraceAttack, "TraceBefore");
     RegisterHookChain(RG_CBasePlayer_TakeDamage, "DamageBefore");
+    register_forward(FM_StartFrame, "MotionFrame");
+}
+public MotionFrame()
+{
+    if (!gMotion || !get_pcvar_num(gEnabled) || !is_user_alive(gVictim)) return FMRES_IGNORED;
+    new Float:now = get_gametime();
+    new msec = floatround((now - gMotionTime) * 1000.0, floatround_floor);
+    if (msec < 1) return FMRES_IGNORED;
+    msec = min(msec, 100); gMotionTime = now;
+    // Fake clients need real engine movement commands even when no key is held.
+    // Matched AMXX 1.10 EngFunc_RunPlayerMove: angles, fwd/side/up, buttons, impulse, msec.
+    engfunc(EngFunc_RunPlayerMove, gVictim, Float:{0.0, 0.0, 0.0}, 0.0, 0.0, 0.0, 0, 0, msec);
+    return FMRES_IGNORED;
 }
 public TraceBefore(id, attacker, Float:damage, Float:direction[3], trace, bits)
 {
@@ -46,6 +59,15 @@ public Command()
         }
     }
     if (!gAttacker || !gVictim) return PLUGIN_HANDLED;
+    if (equal(action, "motion")) {
+        if (!is_user_alive(gVictim)) rg_round_respawn(gVictim);
+        set_entvar(gVictim, var_health, 1000.0);
+        set_entvar(gVictim, var_flags, get_entvar(gVictim, var_flags) & ~FL_FROZEN);
+        set_entvar(gVictim, var_movetype, MOVETYPE_WALK);
+        engfunc(EngFunc_SetOrigin, gVictim, Float:{524.0, 176.0, 36.03125});
+        set_entvar(gVictim, var_velocity, Float:{0.0, 0.0, 0.0});
+        gMotion = true; gMotionTime = get_gametime();
+    }
     if (equal(action, "hurt")) {
         new kind = str_to_num(first), armor = str_to_num(second);
         if (!is_user_alive(gVictim)) rg_round_respawn(gVictim);

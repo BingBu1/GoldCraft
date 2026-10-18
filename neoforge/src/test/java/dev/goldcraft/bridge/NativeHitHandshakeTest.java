@@ -48,6 +48,7 @@ class NativeHitHandshakeTest {
     }
     @Test void oldHostDropsOnlyNativeHitAndKeepsNativeView()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.NATIVE_HIT_CAP);}
             try(var s=host.accept()){
                 assertEquals(first&~Wire.NATIVE_HIT_CAP,hello(s));welcome(s,Wire.NATIVE_VIEW_CAP,false);until(link::connected);
@@ -57,6 +58,7 @@ class NativeHitHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedNativeHit()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
                 assertEquals(0,hello(s)&Wire.NATIVE_HIT_CAP);welcome(s,Wire.NATIVE_HIT_CAP,false);
@@ -72,14 +74,38 @@ class NativeHitHandshakeTest {
     }
     @Test void completeFallbackCycleRetriesNewestCapability()throws Exception{
         try(var host=host();var link=link(host,false)){
-            for(int offer=14;offer>=0;offer--)try(var s=host.accept()){
-                int caps=hello(s);assertEquals(offer>=14,(caps&Wire.NATIVE_HIT_CAP)!=0);
+            for(int offer=15;offer>=0;offer--)try(var s=host.accept()){
+                int caps=hello(s);assertEquals(offer>=15,(caps&Wire.NATIVE_IMPULSE_CAP)!=0);assertEquals(offer>=14,(caps&Wire.NATIVE_HIT_CAP)!=0);
                 assertEquals(offer>=13,(caps&Wire.NATIVE_VIEW_CAP)!=0);
             }
             try(var s=host.accept()){
                 assertNotEquals(0,hello(s)&Wire.NATIVE_HIT_CAP);welcome(s,Wire.NATIVE_HIT_CAP,false);
                 until(link::connected);assertTrue(link.nativeHit(link.generation()));
             }
+        }
+    }
+    @Test void nativeImpulseRequiresNegotiationAndCurrentServerGeneration()throws Exception{
+        try(var host=host();var link=link(host,false)){
+            long previous;
+            try(var s=host.accept()){
+                assertNotEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);welcome(s,Wire.NATIVE_IMPULSE_CAP,false);until(link::connected);
+                previous=link.generation();assertFalse(link.sendNativeImpulse(0,new byte[0]));
+                assertTrue(link.sendNativeImpulse(previous,new byte[]{1,2,3}));
+                Wire.Message m;do{m=read(s);}while(m.type()==Wire.HEARTBEAT);
+                assertEquals(Wire.NATIVE_IMPULSE,m.type());assertArrayEquals(new byte[]{1,2,3},m.payload());
+            }
+            until(()->!link.connected());assertFalse(link.sendNativeImpulse(previous,new byte[0]));
+            try(var s=host.accept()){
+                hello(s);welcome(s,Wire.NATIVE_HIT_CAP,false);until(link::connected);
+                assertFalse(link.nativeImpulse(link.generation()));assertFalse(link.sendNativeImpulse(link.generation(),new byte[0]));
+            }
+        }
+    }
+    @Test void graphicalClientCannotSendNativeImpulse()throws Exception{
+        try(var host=host();var link=link(host,true);var s=host.accept()){
+            assertEquals(0,hello(s)&Wire.NATIVE_IMPULSE_CAP);welcome(s,Wire.NATIVE_IMPULSE_CAP,true);
+            until(()->link.lastError().contains("contract mismatch"));assertFalse(link.connected());
+            assertFalse(link.sendNativeImpulse(link.generation(),new byte[0]));
         }
     }
 }

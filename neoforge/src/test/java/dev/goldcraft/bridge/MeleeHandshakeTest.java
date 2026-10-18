@@ -47,6 +47,7 @@ class MeleeHandshakeTest {
     }
     @Test void oldHostDropsOnlyMeleeAndKeepsNausea()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var impulse=host.accept()){hello(impulse);} // reject native-impulse extension
             try(var nativeHit=host.accept()){hello(nativeHit);}
             try(var nativeView=host.accept()){hello(nativeView);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.STATUS_MELEE_CAP);}
@@ -58,6 +59,7 @@ class MeleeHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedMelee()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var impulse=host.accept()){hello(impulse);} // reject native-impulse extension
             try(var nativeHit=host.accept()){hello(nativeHit);}
             try(var nativeView=host.accept()){hello(nativeView);}
             try(var s=host.accept()){hello(s);}

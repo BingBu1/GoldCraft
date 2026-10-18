@@ -449,7 +449,10 @@
     "tools/Test-NativePlayerStatus.py",
     "docs/NATIVE_PLAYER_STATUS.md",
     "tools/Test-NativeRaids.py",
-    "docs/NATIVE_RAIDS.md"
+    "docs/NATIVE_RAIDS.md",
+    "docs/NATIVE_IMPULSE.md",
+    "tools/Test-NativeImpulse.py",
+    "tools/Exercise-NativeImpulseServers.py"
   ],
   "trees": {
     "native": [

@@ -26,8 +26,8 @@ HEADER=struct.Struct('<IHHIIQQ')
 
 
 class Relay:
-    def __init__(self,port):
-        self.hostport=port;self.stop=False;self.error=None;self.frames=[];self.sockets=[]
+    def __init__(self,port,observed_types=(100,77,78)):
+        self.hostport=port;self.stop=False;self.error=None;self.frames=[];self.sockets=[];self.observed_types=observed_types
         self.listener=socket.socket();self.listener.bind(('127.0.0.1',0));self.listener.listen(1);self.listener.settimeout(.2)
         self.port=self.listener.getsockname()[1];self.thread=threading.Thread(target=self.run,daemon=True);self.thread.start()
     def run(self):
@@ -48,7 +48,7 @@ class Relay:
                         if magic!=0x31464347 or flags or size>32*1024*1024:raise ValueError('Bad production frame')
                         if len(buffers[s])<HEADER.size+size:break
                         body=buffers[s][HEADER.size:HEADER.size+size];buffers[s]=buffers[s][HEADER.size+size:]
-                        if kind in (100,77,78):self.frames.append((time.monotonic(),'host' if s is host else 'mc',kind,body))
+                        if kind in self.observed_types:self.frames.append((time.monotonic(),'host' if s is host else 'mc',kind,body))
         except BaseException as e:
             if not self.stop:self.error=str(e)
     def close(self):
@@ -57,19 +57,19 @@ class Relay:
         self.listener.close()
 
 
-def prepare_mc(work,jar,port,config):
+def prepare_mc(work,jar,port,config,probe=None,mod_id='goldcraft_native_hurt_servers_probe'):
     java=ROOT/'.tools/java/jdk-21.0.12.1+1/bin/java.exe'
     manifest=json.loads((ROOT/'build/neoforge-production/runServer.json').read_text(encoding='utf-8'))
     libs=ROOT/'.tools/neoforge-runtime/21.1.256/libraries'
     dependencies=[libs/'net/neoforged/neoforge/21.1.256/neoforge-21.1.256-server.jar',libs/'net/minecraft/server/1.21.1-20240808.144430/server-1.21.1-20240808.144430-srg.jar',libs/'net/neoforged/neoforge/21.1.256/neoforge-21.1.256-universal.jar']
     legacy=next(v.split('=',1)[1] for v in manifest['jvm'] if v.startswith('-DlegacyClassPath='))
     work.mkdir();classes=work/'classes';classes.mkdir();mods=work/'mods';mods.mkdir();(work/'tmp').mkdir()
-    source=ROOT/'tests/status-hit/NativeHurtServersProbe.java';shutil.copyfile(source,work/source.name)
+    source=probe or ROOT/'tests/status-hit/NativeHurtServersProbe.java';shutil.copyfile(source,work/source.name)
     compile=subprocess.run([str(java.with_name('javac.exe')),'--release','21','-proc:none','-encoding','UTF-8','-cp',';'.join(map(str,[*dependencies,legacy,jar])),'-d',str(classes),str(work/source.name)],capture_output=True)
     (work/'compile.log').write_bytes(compile.stdout+compile.stderr)
     if compile.returncode:raise RuntimeError('Conduit integration probe compile failed')
     with ZipFile(mods/'native-hurt-servers-probe.jar','w',ZIP_DEFLATED) as z:
-        z.writestr('META-INF/neoforge.mods.toml','modLoader="javafml"\nloaderVersion="[4,)"\nlicense="Test fixture"\n[[mods]]\nmodId="goldcraft_native_hurt_servers_probe"\nversion="1.0.0"\n')
+        z.writestr('META-INF/neoforge.mods.toml','modLoader="javafml"\nloaderVersion="[4,)"\nlicense="Test fixture"\n[[mods]]\nmodId="'+mod_id+'"\nversion="1.0.0"\n')
         for p in classes.rglob('*.class'):z.write(p,p.relative_to(classes).as_posix())
     shutil.copyfile(jar,mods/jar.name)
     (work/'eula.txt').write_text('eula=true\n')

@@ -2,6 +2,8 @@ package dev.goldcraft.mixin;
 
 import dev.goldcraft.world.HostExplosions;
 import dev.goldcraft.world.NativeTntDamage;
+import dev.goldcraft.world.NativeImpulse;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.block.BlockState;
@@ -28,6 +30,14 @@ public abstract class HostExplosionMixin {
     @WrapOperation(method="collectBlocksAndDamageEntities",at=@At(value="INVOKE",target="Lnet/minecraft/entity/Entity;damage(Lnet/minecraft/entity/damage/DamageSource;F)Z"),require=1,allow=1)
     private boolean goldcraft$hurt(Entity target,DamageSource source,float amount,Operation<Boolean> original) {
         return NativeTntDamage.hurt(world,(Explosion)(Object)this,target,source,()->original.call(target,source,amount));
+    }
+    @WrapOperation(method="collectBlocksAndDamageEntities",at=@At(value="INVOKE",target="Lnet/minecraft/entity/Entity;setVelocity(Lnet/minecraft/util/math/Vec3d;)V"),require=1,allow=1)
+    private void goldcraft$impulse(Entity target,Vec3d velocity,Operation<Void> original) {
+        // This point follows exposure, resistance and NeoForge's final knockback event.
+        // Damage-free wind bursts use it too; hurt return values do not gate the impulse.
+        Vec3d delta=velocity.subtract(target.getVelocity());
+        original.call(target,velocity);
+        NativeImpulse.explosion(target,delta);
     }
     @WrapOperation(method="collectBlocksAndDamageEntities",at=@At(value="INVOKE",target="Lnet/minecraft/world/explosion/ExplosionBehavior;getBlastResistance(Lnet/minecraft/world/explosion/Explosion;Lnet/minecraft/world/BlockView;Lnet/minecraft/util/math/BlockPos;Lnet/minecraft/block/BlockState;Lnet/minecraft/fluid/FluidState;)Ljava/util/Optional;"),require=1,allow=1)
     private Optional<Float> goldcraft$resistance(ExplosionBehavior behavior,Explosion explosion,BlockView view,BlockPos pos,BlockState state,FluidState fluid,Operation<Optional<Float>> original) {

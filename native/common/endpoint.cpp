@@ -291,6 +291,10 @@ bool Endpoint::native_view() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_native_view) != 0;
 }
+bool Endpoint::native_impulse() const {
+    return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_native_impulse) != 0;
+}
 bool Endpoint::native_hit() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_native_hit) != 0;

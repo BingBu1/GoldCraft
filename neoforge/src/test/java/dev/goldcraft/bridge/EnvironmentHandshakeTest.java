@@ -64,6 +64,7 @@ class EnvironmentHandshakeTest {
     }
     @Test void legacyGameplayHostDropsOnlyEnvironment() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_IMPULSE_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_HIT_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_VIEW_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_MELEE_CAP);}
@@ -87,6 +88,7 @@ class EnvironmentHandshakeTest {
     }
     @Test void retryRejectsUnrequestedEnvironment() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_IMPULSE_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_HIT_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_VIEW_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_MELEE_CAP);}

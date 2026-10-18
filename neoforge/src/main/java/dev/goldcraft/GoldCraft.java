@@ -87,6 +87,12 @@ public final class GoldCraft {
     public static boolean nativeViewAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.nativeView(generation);
     }
+    public static boolean nativeImpulseAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeImpulse(generation);
+    }
+    public static boolean sendNativeImpulse(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendNativeImpulse(generation,payload);
+    }
     public static boolean nativeHitAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.nativeHit(generation);
     }

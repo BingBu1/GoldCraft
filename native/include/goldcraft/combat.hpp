@@ -64,11 +64,15 @@ public:
     }
     bool matches(const MobDamage& damage,float time,Vec3 current)const{
         if((damage.kind!=MobDamageKind::skill&&damage.kind!=MobDamageKind::status&&damage.kind!=MobDamageKind::tnt)||!damage.target_tick||!damage.slot||damage.slot>=65)return false;
-        const auto& frame=frames_[damage.target_tick%frames_.size()];
-        const auto& actor=frame.actors[damage.slot];
-        return frame.epoch==damage.epoch&&frame.tick==damage.target_tick&&time>=frame.time&&time-frame.time<=1.0f
-            &&actor.serial==damage.serial&&actor.spawn==damage.life
-            &&distance2(actor.center,damage.target)<=1.0f&&distance2(current,damage.target)<=64.0f*64.0f;
+        return matches(damage.epoch,damage.target_tick,damage.slot,damage.serial,damage.life,damage.target,time,current);
+    }
+    bool matches(std::uint64_t epoch,std::uint64_t tick,std::uint32_t slot,std::uint32_t serial,std::uint32_t spawn,Vec3 target,float time,Vec3 current)const{
+        if(!tick||!slot||slot>=65)return false;
+        const auto& frame=frames_[tick%frames_.size()];
+        const auto& actor=frame.actors[slot];
+        return frame.epoch==epoch&&frame.tick==tick&&time>=frame.time&&time-frame.time<=1.0f
+            &&actor.serial==serial&&actor.spawn==spawn
+            &&distance2(actor.center,target)<=1.0f&&distance2(current,target)<=64.0f*64.0f;
     }
 };
 inline bool current_mob_damage(const MobDamage& d,std::uint64_t epoch,std::uint64_t last,std::uint32_t serial,std::uint32_t life){

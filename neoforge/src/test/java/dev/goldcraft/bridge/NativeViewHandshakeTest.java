@@ -48,6 +48,7 @@ class NativeViewHandshakeTest {
     }
     @Test void oldHostDropsOnlyNativeViewAndKeepsMelee()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var impulse=host.accept()){hello(impulse);} // reject native-impulse extension
             try(var s=host.accept()){hello(s);} // reject native-hit extension
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.NATIVE_VIEW_CAP);}
             try(var s=host.accept()){
@@ -58,6 +59,7 @@ class NativeViewHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedNativeView()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var impulse=host.accept()){hello(impulse);} // reject native-impulse extension
             try(var s=host.accept()){hello(s);} // reject native-hit extension
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){
@@ -74,7 +76,7 @@ class NativeViewHandshakeTest {
     }
     @Test void completeFallbackCycleRetriesNewestCapability()throws Exception{
         try(var host=host();var link=link(host,false)){
-            for(int offer=14;offer>=0;offer--)try(var s=host.accept()){
+            for(int offer=15;offer>=0;offer--)try(var s=host.accept()){
                 int caps=hello(s);assertEquals(offer>=13,(caps&Wire.NATIVE_VIEW_CAP)!=0);
                 assertEquals(offer>=12,(caps&Wire.STATUS_MELEE_CAP)!=0);
             }
