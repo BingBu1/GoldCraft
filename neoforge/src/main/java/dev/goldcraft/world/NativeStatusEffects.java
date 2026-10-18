@@ -47,7 +47,10 @@ public final class NativeStatusEffects {
         }
         NativeNausea.handoff(from,to);
         float absorption=from.getAbsorptionAmount();
-        boolean moveAbsorption=absorption>0||from.getAttributeValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_MAX_ABSORPTION)>0;
+        // The logical PlayerEntity redirects effective attribute reads to its
+        // hitbox. A transfer must inspect the source's own attribute container,
+        // or an empty logical body repeatedly clears the hitbox's golden hearts.
+        boolean moveAbsorption=absorption>0||from.getAttributes().getValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_MAX_ABSORPTION)>0;
         // Move the instances themselves: the copy constructor loses hidden effects.
         // Lifecycle hooks migrate attributes/packets, never replay combat onApplied.
         for(var effect:List.copyOf(from.getActiveStatusEffects().values())){

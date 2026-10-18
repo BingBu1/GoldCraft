@@ -85,6 +85,8 @@ void SettleNativeArmor(const PendingNativeArmor& pending,float afterArmor,float 
         edict_t* target=settling_native_armor;float factor=settling_native_enchantment;const char* weapon=settling_native_weapon;
         ~Scope(){settling_native_armor=target;settling_native_enchantment=factor;settling_native_weapon=weapon;}
     };
+    GoldCraft_NativeHitScope hit_scope(victim,inflictor,attacker,pending.bits);
+    NativeHitImpact(static_cast<unsigned>(q.kind),q.position);
     float finalDamage;
     {
         Scope scope;

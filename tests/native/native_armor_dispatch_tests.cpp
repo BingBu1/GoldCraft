@@ -73,6 +73,12 @@ edict_t* CurrentStatusSource(const StatusSource& source){
 bool attributes_available=true;int attribute_marker=1;
 int* CurrentAttributes(edict_t*){return attributes_available?&attribute_marker:nullptr;}
 float GoldCraft_StatusDefense(edict_t*,float,edict_t*,edict_t*,int);
+// Notification behavior is covered by the production scope/status dispatch test.
+GoldCraft_NativeHitScope::GoldCraft_NativeHitScope(edict_s*,edict_s*,edict_s*,int){}
+GoldCraft_NativeHitScope::~GoldCraft_NativeHitScope(){}
+unsigned notification_kind=0;
+std::array<float,3> notification_position{};
+void NativeHitImpact(unsigned kind,const std::array<float,3>& position){notification_kind=kind;notification_position=position;}
 #include "../../native/server/armor_defense.inc"
 edict_t* final_minecraft_damage=nullptr;edict_t* minecraft_attack=nullptr;
 unsigned native_damage_depth=0;
@@ -106,7 +112,9 @@ int main(){try{
     check(commit.hitgroup==1&&commit.armor==7&&commit.team&&commit.weapon=="ak47"&&commit.attacker==&edicts[2].v);
     check(edicts[1].player.m_LastHitGroup==3&&settling_native_armor==nullptr&&settling_native_weapon==nullptr);
     HandleNativeArmorResult(accepted);check(commit.calls==1);
-    reset();edicts[2].player.item.m_iId=WEAPON_KNIFE;check(queue());check(read_armor_request(link.packets.back()).kind==ArmorDamageKind::melee);
+    reset();edicts[2].player.item.m_iId=WEAPON_KNIFE;edicts[2].v.origin={1,2,3};check(queue());check(read_armor_request(link.packets.back()).kind==ArmorDamageKind::melee);
+    edicts[2].player.item.m_iId=0;edicts[2].v.origin={4,5,6};HandleNativeArmorResult(reply());
+    check(notification_kind==1&&notification_position[0]==1&&notification_position[1]==2&&notification_position[2]==3);
     reset();check(queue());check(read_armor_request(link.packets.back()).kind==ArmorDamageKind::projectile);
     auto wrong=reply();wrong[28]=9;HandleNativeArmorResult(wrong);check(commit.calls==0&&pending_native_armor.size()==1);
     bool rejected=false;try{HandleNativeArmorResult(reply(41));}catch(const ProtocolError&){rejected=true;}check(rejected&&commit.calls==0);

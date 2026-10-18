@@ -439,7 +439,13 @@
     "tools/Exercise-ConduitServers.py",
     "amxx/tests/goldcraft_native_view_test.sma",
     "tools/Test-NativeHitEffects.py",
-    "docs/NATIVE_HIT_EFFECTS.md"
+    "docs/NATIVE_HIT_EFFECTS.md",
+    "native/server/native_hit.inc",
+    "tests/status-hit/NativeHurtProbe.java",
+    "tests/status-hit/NativeHurtServersProbe.java",
+    "tools/Test-NativeHurt.py",
+    "tools/Exercise-NativeHurt.py",
+    "tools/Exercise-NativeHurtServers.py"
   ],
   "trees": {
     "native": [

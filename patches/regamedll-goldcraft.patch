@@ -1,3 +1,21 @@
+diff --git a/regamedll/dlls/basemonster.cpp b/regamedll/dlls/basemonster.cpp
+index bfa9a1e..421fb32 100644
+--- a/regamedll/dlls/basemonster.cpp
++++ b/regamedll/dlls/basemonster.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../native/server/bridge.h"
+ 
+ void CBaseMonster::GibMonster()
+ {
+@@ -442,6 +443,7 @@ BOOL CBaseMonster::TakeDamage(entvars_t *pevInflictor, entvars_t *pevAttacker, f
+ 	}
+ 
+ 	pev->health -= flTake;
++	GoldCraft_NativeDamageCommitted(edict(),flTake);
+ 
+ 	if (m_MonsterState == MONSTERSTATE_SCRIPT)
+ 	{
 diff --git a/regamedll/dlls/bot/cs_bot_chatter.cpp b/regamedll/dlls/bot/cs_bot_chatter.cpp
 index d48898a..30da234 100644
 --- a/regamedll/dlls/bot/cs_bot_chatter.cpp
@@ -327,7 +345,7 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..a5881f1 100644
+index 8a219ea..b1552bd 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -348,7 +366,7 @@ index 8a219ea..a5881f1 100644
  	// by default, the player is killed by the world
  	const char *killer_weapon_name = "world";
  
-@@ -899,7 +903,18 @@ void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int
+@@ -899,7 +903,19 @@ void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int
  	}
  }
  
@@ -358,6 +376,7 @@ index 8a219ea..a5881f1 100644
 +{
 +    // A shield block must precede ZP's infection in TakeDamage pre hooks.
 +    GoldCraft_EquipmentDamageScope equipment_scope;
++    GoldCraft_NativeHitScope hit_validation_scope;
 +    if (GoldCraft_StatusShield(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, flDamage, bitsDamageType))
 +        return FALSE;
 +    return g_ReGameHookchains.m_CBasePlayer_TakeDamage.callChain(&CBasePlayer::TakeDamage_OrigFunc, this, pevInflictor, pevAttacker, flDamage, bitsDamageType);
@@ -368,13 +387,14 @@ index 8a219ea..a5881f1 100644
  
  // Take some damage.
  // RETURN: TRUE took damage, FALSE otherwise
-@@ -908,7 +923,18 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+@@ -908,7 +924,19 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
 -	BOOL bTookDamage;
 +#ifndef REGAMEDLL_API
 +    GoldCraft_EquipmentDamageScope equipment_scope;
++    GoldCraft_NativeHitScope hit_validation_scope;
 +    if (GoldCraft_StatusShield(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, flDamage, bitsDamageType))
 +        return FALSE;
 +#endif
@@ -388,7 +408,7 @@ index 8a219ea..a5881f1 100644
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
  	int iGunType = 0;
-@@ -987,7 +1013,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -987,7 +1015,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -397,7 +417,7 @@ index 8a219ea..a5881f1 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1022,85 +1048,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1022,85 +1050,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  			Pain(m_LastHitGroup, false);
  		}
  
@@ -483,12 +503,13 @@ index 8a219ea..a5881f1 100644
 +		if (GoldCraft_QueueNativeArmor(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr,
 +		    pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType, pAttack ? pAttack->edict() : nullptr, bTeamAttack != FALSE, armorHit))
 +		    return TRUE;
-+		flDamage = GoldCraft_StatusDefense(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
++		GoldCraft_NativeHitScope hit_scope(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
++	flDamage = GoldCraft_StatusDefense(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
 +		return GoldCraft_CommitEquipmentDamage(pevInflictor, pevAttacker, flDamage, bitsDamageType, pAttack, bTeamAttack, armorHit, true);
  	}
  
  	CBaseEntity *pAttacker = CBaseEntity::Instance(pevAttacker);
-@@ -1182,7 +1134,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1182,7 +1137,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -497,7 +518,7 @@ index 8a219ea..a5881f1 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1205,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1208,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -506,7 +527,7 @@ index 8a219ea..a5881f1 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1291,86 +1243,11 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1291,86 +1246,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	}
  
  	// keep track of amount of damage last sustained
@@ -593,12 +614,13 @@ index 8a219ea..a5881f1 100644
 +	if (GoldCraft_QueueNativeArmor(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr,
 +	    pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType, pAttack ? pAttack->edict() : nullptr, bTeamAttack != FALSE, armorHit))
 +	    return TRUE;
++	GoldCraft_NativeHitScope hit_scope(edict(), pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
 +	flDamage = GoldCraft_StatusDefense(edict(), flDamage, pevInflictor ? ENT(pevInflictor) : nullptr, pevAttacker ? ENT(pevAttacker) : nullptr, bitsDamageType);
 +	return GoldCraft_CommitEquipmentDamage(pevInflictor, pevAttacker, flDamage, bitsDamageType, pAttack, bTeamAttack, armorHit, false);
  }
  
  LINK_HOOK_CHAIN(CWeaponBox *, CreateWeaponBox, (CBasePlayerItem *pItem, CBasePlayer *pPlayerOwner, const char *modelName, Vector &origin, Vector &angles, Vector &velocity, float lifeTime, bool packAmmo), pItem, pPlayerOwner, modelName, origin, angles, velocity, lifeTime, packAmmo)
-@@ -2230,6 +2107,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2111,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -607,7 +629,7 @@ index 8a219ea..a5881f1 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2430,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+@@ -2551,7 +2434,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -616,7 +638,7 @@ index 8a219ea..a5881f1 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3185,6 +3064,14 @@ void CBasePlayer::WaterMove()
+@@ -3185,6 +3068,14 @@ void CBasePlayer::WaterMove()
  		return;
  #endif
  
@@ -631,7 +653,7 @@ index 8a219ea..a5881f1 100644
  	// waterlevel 0 - not in water
  	// waterlevel 1 - feet in water
  	// waterlevel 2 - waist in water
-@@ -3897,6 +3784,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
+@@ -3897,6 +3788,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -639,7 +661,7 @@ index 8a219ea..a5881f1 100644
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3812,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+@@ -3924,7 +3816,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -648,7 +670,7 @@ index 8a219ea..a5881f1 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4151,6 +4039,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
+@@ -4151,6 +4043,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -656,7 +678,7 @@ index 8a219ea..a5881f1 100644
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -5375,6 +5264,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5375,6 +5268,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -675,7 +697,7 @@ index 8a219ea..a5881f1 100644
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5387,7 +5288,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5387,7 +5292,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  			// after this point, we start doing damage
  			if (m_flFallVelocity > MAX_PLAYER_SAFE_FALL_SPEED)
  			{
@@ -684,7 +706,7 @@ index 8a219ea..a5881f1 100644
  
  				// splat
  				if (flFallDamage > pev->health)
-@@ -5779,6 +5680,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5779,6 +5684,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
  
@@ -693,7 +715,7 @@ index 8a219ea..a5881f1 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6035,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6039,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -702,7 +724,7 @@ index 8a219ea..a5881f1 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -7746,28 +7651,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7655,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  

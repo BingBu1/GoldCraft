@@ -46,6 +46,30 @@ public Command()
         }
     }
     if (!gAttacker || !gVictim) return PLUGIN_HANDLED;
+    if (equal(action, "hurt")) {
+        new kind = str_to_num(first), armor = str_to_num(second);
+        if (!is_user_alive(gVictim)) rg_round_respawn(gVictim);
+        set_entvar(gVictim, var_health, kind == 8 ? 10.0 : 1000.0);
+        set_entvar(gVictim, var_takedamage, kind == 9 ? DAMAGE_NO : DAMAGE_AIM);
+        rg_set_user_armor(gVictim, armor, armor ? ARMOR_VESTHELM : ARMOR_NONE);
+        // Exact Ham_TakeDamage signature from the matched 1.10 ham_const.inc.
+        new bits = DMG_GENERIC, attacker = 0;
+        switch (kind) {
+            case 1, 8, 9: { bits = DMG_CLUB; attacker = gAttacker; }
+            case 2: { bits = DMG_BULLET; attacker = gAttacker; }
+            case 3: { bits = DMG_BLAST; attacker = gAttacker; }
+            case 4: bits = DMG_BURN;
+            case 5: bits = DMG_FALL;
+            case 6: bits = DMG_DROWN;
+            case 7: bits = DMG_POISON;
+        }
+        if (kind == 2) {
+            new gun = rg_find_weapon_bpack_by_name(gAttacker, "weapon_ak47");
+            if (gun <= 0) gun = rg_give_item(gAttacker, "weapon_ak47");
+            set_member(gAttacker, m_pActiveItem, gun);
+        }
+        ExecuteHamB(Ham_TakeDamage, gVictim, attacker, attacker, 25.0, bits);
+    }
     if (equal(action, "attack")) {
         new kind = str_to_num(first), armor = str_to_num(second);
         gCancel = kind == 3; gTraceDamage = 0.0; gTraces = 0;

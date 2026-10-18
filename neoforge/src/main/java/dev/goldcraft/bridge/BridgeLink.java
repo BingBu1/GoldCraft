@@ -103,6 +103,10 @@ public final class BridgeLink implements AutoCloseable {
         return connected&&expectedGeneration!=0&&generation==expectedGeneration&&config.role()==Wire.FABRIC_SERVER
             &&config.hostRole()==Wire.HOST_SERVER&&(acceptedCapabilities&Wire.NATIVE_VIEW_CAP)!=0;
     }
+    public synchronized boolean nativeHit(long expectedGeneration) {
+        return connected&&expectedGeneration!=0&&generation==expectedGeneration&&config.role()==Wire.FABRIC_SERVER
+            &&config.hostRole()==Wire.HOST_SERVER&&(acceptedCapabilities&Wire.NATIVE_HIT_CAP)!=0;
+    }
     public synchronized boolean melee(long expectedGeneration) {
         return connected&&expectedGeneration!=0&&generation==expectedGeneration&&config.role()==Wire.FABRIC_SERVER
             &&config.hostRole()==Wire.HOST_SERVER&&(acceptedCapabilities&Wire.STATUS_MELEE_CAP)!=0;
@@ -302,7 +306,7 @@ public final class BridgeLink implements AutoCloseable {
         boolean helloSent, received;
     }
     private void run() {
-        int offerLevel=13;
+        int offerLevel=14;
         int clientOfferLevel=2;
         while (running) {
             long previousGeneration=generation;
@@ -312,16 +316,16 @@ public final class BridgeLink implements AutoCloseable {
                 socket.socket().connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"),config.port()),2000);
                 socket.socket().setTcpNoDelay(true);
                 socket.configureBlocking(false);
-                exchange(socket,offerLevel>=1,offerLevel>=2,offerLevel>=3,offerLevel>=4,offerLevel>=5,offerLevel>=6,offerLevel>=7,offerLevel>=8,offerLevel>=9,offerLevel>=10,offerLevel>=11,offerLevel>=12,offerLevel>=13,clientOfferLevel>=1,clientOfferLevel>=2,attempt);
+                exchange(socket,offerLevel>=1,offerLevel>=2,offerLevel>=3,offerLevel>=4,offerLevel>=5,offerLevel>=6,offerLevel>=7,offerLevel>=8,offerLevel>=9,offerLevel>=10,offerLevel>=11,offerLevel>=12,offerLevel>=13,offerLevel>=14,clientOfferLevel>=1,clientOfferLevel>=2,attempt);
             } catch (IOException | IllegalArgumentException e) {
                 if (running) lastError=e.getClass().getSimpleName()+": "+e.getMessage();
                 // Protocol30 hosts predating TNT reject unknown HELLO bits.
                 // Retry their original capability set with identical credentials;
                 // never send kind6 without an authenticated accepted capability.
-                if(generation!=previousGeneration){offerLevel=13;clientOfferLevel=2;}
+                if(generation!=previousGeneration){offerLevel=14;clientOfferLevel=2;}
                 else if(attempt.helloSent&&!attempt.received&&(e instanceof EOFException||e instanceof SocketException)){
                     if(config.role()==Wire.FABRIC_CLIENT)clientOfferLevel=clientOfferLevel==0?2:clientOfferLevel-1;
-                    else offerLevel=offerLevel==0?13:offerLevel-1;
+                    else offerLevel=offerLevel==0?14:offerLevel-1;
                 }
             }
             finally { channel=null; reset(); }
@@ -353,14 +357,14 @@ public final class BridgeLink implements AutoCloseable {
             }
         }
     }
-    private void exchange(SocketChannel socket,boolean offerTnt,boolean offerGameplay,boolean offerEnvironment,boolean offerMotion,boolean offerVisibility,boolean offerVision,boolean offerSkillGuard,boolean offerFall,boolean offerHealth,boolean offerGlow,boolean offerNausea,boolean offerMelee,boolean offerNativeView,boolean offerView,boolean offerOutline,HandshakeAttempt attempt) throws IOException {
+    private void exchange(SocketChannel socket,boolean offerTnt,boolean offerGameplay,boolean offerEnvironment,boolean offerMotion,boolean offerVisibility,boolean offerVision,boolean offerSkillGuard,boolean offerFall,boolean offerHealth,boolean offerGlow,boolean offerNausea,boolean offerMelee,boolean offerNativeView,boolean offerNativeHit,boolean offerView,boolean offerOutline,HandshakeAttempt attempt) throws IOException {
         ByteBuffer input=ByteBuffer.allocate(Wire.MAX_PAYLOAD+Wire.HEADER_BYTES);
         boolean statusCapable=config.role()==Wire.FABRIC_SERVER&&config.hostRole()==Wire.HOST_SERVER;
         boolean capable=SharedBulkSender.supported(config.role(), config.hostRole());
         boolean clockCapable=LocalQpcProof.supported(config.role(), config.hostRole());
         boolean viewCapable=offerView&&config.role()==Wire.FABRIC_CLIENT&&config.hostRole()==Wire.HOST_CLIENT;
         boolean outlineCapable=offerOutline&&config.role()==Wire.FABRIC_CLIENT&&config.hostRole()==Wire.HOST_CLIENT;
-        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((outlineCapable?Wire.ENTITY_OUTLINES_CAP:0)|(viewCapable?Wire.VIEW_DISTORTION_CAP:0)|(capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | (offerTnt?Wire.TNT_DAMAGE_CAP:0)|(offerGameplay?Wire.PLAYER_GAMEPLAY_CAP:0)|(offerEnvironment?Wire.STATUS_ENVIRONMENT_CAP:0)|(offerMotion?Wire.STATUS_MOTION_CAP:0)|(offerVisibility?Wire.STATUS_VISIBILITY_CAP:0)|(offerVision?Wire.STATUS_VISION_CAP:0)|(offerSkillGuard?Wire.SKILL_GUARD_CAP:0)|(offerFall?Wire.STATUS_FALL_CAP:0)|(offerHealth?Wire.STATUS_HEALTH_CAP:0)|(offerGlow?Wire.STATUS_GLOW_CAP:0)|(offerNausea?Wire.STATUS_NAUSEA_CAP:0)|(offerMelee?Wire.STATUS_MELEE_CAP:0)|(offerNativeView?Wire.NATIVE_VIEW_CAP:0):0)).toByteArray();
+        byte[] hello=new Wire.Writer().bytes(config.session()).bytes(config.token()).i32(config.role()).i32((outlineCapable?Wire.ENTITY_OUTLINES_CAP:0)|(viewCapable?Wire.VIEW_DISTORTION_CAP:0)|(capable?Wire.SHARED_BULK_V1:0)|(clockCapable?Wire.LOCAL_QPC_V1|Wire.EFFECT_POSITION_HOLD:0)|(statusCapable?Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | (offerTnt?Wire.TNT_DAMAGE_CAP:0)|(offerGameplay?Wire.PLAYER_GAMEPLAY_CAP:0)|(offerEnvironment?Wire.STATUS_ENVIRONMENT_CAP:0)|(offerMotion?Wire.STATUS_MOTION_CAP:0)|(offerVisibility?Wire.STATUS_VISIBILITY_CAP:0)|(offerVision?Wire.STATUS_VISION_CAP:0)|(offerSkillGuard?Wire.SKILL_GUARD_CAP:0)|(offerFall?Wire.STATUS_FALL_CAP:0)|(offerHealth?Wire.STATUS_HEALTH_CAP:0)|(offerGlow?Wire.STATUS_GLOW_CAP:0)|(offerNausea?Wire.STATUS_NAUSEA_CAP:0)|(offerMelee?Wire.STATUS_MELEE_CAP:0)|(offerNativeView?Wire.NATIVE_VIEW_CAP:0)|(offerNativeHit?Wire.NATIVE_HIT_CAP:0):0)).toByteArray();
         Pending pending=new Pending(Wire.HELLO,hello,0,1,false);
         Queued blocked=null;
         SharedBulkSender shared=null;
@@ -442,6 +446,7 @@ public final class BridgeLink implements AutoCloseable {
                             throw new IOException("Unrequested or incomplete skill guard capability");
                         if((accepted&Wire.STATUS_VISION_CAP)!=0&&!offerVision)throw new IOException("Unrequested vision capability");
                         if((accepted&Wire.NATIVE_VIEW_CAP)!=0&&!offerNativeView)throw new IOException("Unrequested native view capability");
+                        if((accepted&Wire.NATIVE_HIT_CAP)!=0&&!offerNativeHit)throw new IOException("Unrequested native hit capability");
                         if((accepted&Wire.STATUS_MELEE_CAP)!=0&&!offerMelee)throw new IOException("Unrequested melee capability");
                         if((accepted&Wire.STATUS_NAUSEA_CAP)!=0&&!offerNausea)throw new IOException("Unrequested nausea capability");
                         if((accepted&Wire.STATUS_GLOW_CAP)!=0&&!offerGlow)throw new IOException("Unrequested native outline capability");
@@ -450,7 +455,7 @@ public final class BridgeLink implements AutoCloseable {
                         if((accepted&Wire.STATUS_ENVIRONMENT_CAP)!=0&&!offerEnvironment)throw new IOException("Unrequested environment capability");
                         if((accepted&Wire.PLAYER_GAMEPLAY_CAP)!=0&&!offerGameplay)throw new IOException("Unrequested player gameplay capability");
                         if((accepted&Wire.TNT_DAMAGE_CAP)!=0&&!offerTnt)throw new IOException("Unrequested TNT capability");
-                        if (((accepted&NativeArmorProtocol.CAPABILITY)!=0&&(accepted&Wire.STATUS_ATTRIBUTES_CAP)==0) || (accepted & ~(Wire.ENTITY_OUTLINES_CAP|Wire.VIEW_DISTORTION_CAP|Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP | Wire.STATUS_ENVIRONMENT_CAP | Wire.STATUS_MOTION_CAP | Wire.STATUS_VISIBILITY_CAP | Wire.STATUS_VISION_CAP | Wire.SKILL_GUARD_CAP | Wire.STATUS_FALL_CAP | Wire.STATUS_HEALTH_CAP | Wire.STATUS_GLOW_CAP | Wire.STATUS_NAUSEA_CAP | Wire.STATUS_MELEE_CAP | Wire.NATIVE_VIEW_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP | Wire.STATUS_ENVIRONMENT_CAP | Wire.STATUS_MOTION_CAP | Wire.STATUS_VISIBILITY_CAP | Wire.STATUS_VISION_CAP | Wire.SKILL_GUARD_CAP | Wire.STATUS_FALL_CAP | Wire.STATUS_HEALTH_CAP | Wire.STATUS_GLOW_CAP | Wire.STATUS_NAUSEA_CAP | Wire.STATUS_MELEE_CAP | Wire.NATIVE_VIEW_CAP))!=0&&!statusCapable) ||
+                        if (((accepted&NativeArmorProtocol.CAPABILITY)!=0&&(accepted&Wire.STATUS_ATTRIBUTES_CAP)==0) || (accepted & ~(Wire.ENTITY_OUTLINES_CAP|Wire.VIEW_DISTORTION_CAP|Wire.EFFECT_POSITION_HOLD|Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP | Wire.STATUS_ENVIRONMENT_CAP | Wire.STATUS_MOTION_CAP | Wire.STATUS_VISIBILITY_CAP | Wire.STATUS_VISION_CAP | Wire.SKILL_GUARD_CAP | Wire.STATUS_FALL_CAP | Wire.STATUS_HEALTH_CAP | Wire.STATUS_GLOW_CAP | Wire.STATUS_NAUSEA_CAP | Wire.STATUS_MELEE_CAP | Wire.NATIVE_VIEW_CAP | Wire.NATIVE_HIT_CAP))!=0 || ((accepted&Wire.EFFECT_POSITION_HOLD)!=0&&!clockCapable) || ((accepted&(Wire.STATUS_EFFECTS|Wire.STATUS_ATTRIBUTES_CAP|Wire.FLUID_CAPABILITY|NativeArmorProtocol.CAPABILITY|Wire.GAMEPLAY_RULES_CAP | Wire.HOST_EXPLOSIONS_CAP | Wire.TNT_DAMAGE_CAP | Wire.PLAYER_GAMEPLAY_CAP | Wire.STATUS_ENVIRONMENT_CAP | Wire.STATUS_MOTION_CAP | Wire.STATUS_VISIBILITY_CAP | Wire.STATUS_VISION_CAP | Wire.SKILL_GUARD_CAP | Wire.STATUS_FALL_CAP | Wire.STATUS_HEALTH_CAP | Wire.STATUS_GLOW_CAP | Wire.STATUS_NAUSEA_CAP | Wire.STATUS_MELEE_CAP | Wire.NATIVE_VIEW_CAP | Wire.NATIVE_HIT_CAP))!=0&&!statusCapable) ||
                             r.f32()!=Wire.UNITS_PER_BLOCK || r.f32()!=Wire.Y_OFFSET)
                             throw new IOException("Host capability/coordinate contract mismatch");
                         r.finish(); epoch=header.epoch(); authenticated(epoch,accepted);

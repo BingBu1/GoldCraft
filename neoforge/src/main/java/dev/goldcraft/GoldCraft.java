@@ -19,6 +19,7 @@ import dev.goldcraft.world.HostGameplayRules;
 import dev.goldcraft.world.MinecraftObjects;
 import dev.goldcraft.world.MinecraftFluids;
 import dev.goldcraft.world.NativePlayers;
+import dev.goldcraft.world.NativeHurt;
 import dev.goldcraft.world.SharedVitals;
 import dev.goldcraft.world.HostMining;
 import dev.goldcraft.world.HostExplosions;
@@ -85,6 +86,9 @@ public final class GoldCraft {
     }
     public static boolean nativeViewAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.nativeView(generation);
+    }
+    public static boolean nativeHitAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeHit(generation);
     }
     public static boolean meleeAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.melee(generation);
@@ -191,7 +195,7 @@ public final class GoldCraft {
         dev.goldcraft.world.PlayerGameplay.reset();
         HostGameplayRules.reset();
         nextEditQuery=0;
-        dev.goldcraft.world.NativeArmorServer.clear();HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();MinecraftFluids.clear();HostMining.clear();HostExplosions.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
+        dev.goldcraft.world.NativeArmorServer.clear();NativeHurt.clear();HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();MinecraftFluids.clear();HostMining.clear();HostExplosions.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
     private static void broadcast(int type,byte[] data) {
         for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey()))entry.getValue().enqueue(type,data);
@@ -288,6 +292,7 @@ public final class GoldCraft {
                             HostExplosions.materials(HOST_WORLD,message.payload());
                         }
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
+                        case Wire.NATIVE_HIT -> NativeHurt.handle(server,message.payload());
                         case Wire.NATIVE_VIEW -> {
                             if(!nativeViewAvailable())throw new IllegalArgumentException("Unnegotiated native view");
                             HOST_WORLD.nativeView().accept(HOST_WORLD,message.payload(),server.getTicks());

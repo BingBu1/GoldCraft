@@ -61,6 +61,7 @@ final class HealthBridgeFixture implements AutoCloseable {
     private synchronized void write(int type,byte[] data)throws Exception {
         var out=peer.getOutputStream();out.write(Wire.frameHeader(type,41,sequence++,data.length).array());out.write(data);out.flush();
     }
+    void send(int type,byte[] data)throws Exception {write(type,data);}
     Wire.Message take(int type)throws Exception {
         var m=messages.computeIfAbsent(type,unused->new LinkedBlockingQueue<>()).poll(4,TimeUnit.SECONDS);
         if(m==null)throw new AssertionError("missing outbound message "+type+"; "+failure+"; "+link.lastError());

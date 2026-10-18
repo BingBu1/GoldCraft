@@ -690,6 +690,7 @@ void SendActors() {
 }
 }
 
+#include "native_hit.inc"
 namespace {
 #include "status_attributes.inc"
 #include "status_environment.inc"
@@ -1104,12 +1105,13 @@ bool GoldCraft_StatusShield(edict_t* player,edict_t* inflictor,float damage,int 
 float GoldCraft_StatusDefense(edict_t* player,float damage,edict_t* inflictor,edict_t* attacker,int bits){
     if(player==final_minecraft_damage||player==minecraft_attack||!std::isfinite(damage)||damage<=0)return damage;
     const float enchantment=player==settling_native_armor?settling_native_enchantment:1;
-    auto* state=CurrentAttributes(player);if(!state)return damage*enchantment;
+    auto* state=CurrentAttributes(player);
+    if(!state){NativeHitPayment(player,damage*enchantment);return damage*enchantment;}
     damage*=state->budget.state.resistance;
     damage*=enchantment;
     const float absorbed=std::min(damage/5.0f,state->budget.absorption());
     const float immediate=std::max(0.0f,damage-absorbed*5.0f);
-    const StatusDamageOrigin origin{CaptureStatusSource(inflictor),CaptureStatusSource(attacker),bits,damage,immediate};
+    const StatusDamageOrigin origin{CaptureStatusSource(inflictor),CaptureStatusSource(attacker),bits,damage,immediate,NativeHitPayment(player,damage)};
     if(absorbed>0&&SpendStatus(*state,absorbed,0,0,origin))damage=immediate;
     return damage;
 }

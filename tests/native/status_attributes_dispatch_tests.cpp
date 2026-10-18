@@ -1,4 +1,5 @@
 #include "goldcraft/status_attributes.hpp"
+#include "../../native/server/bridge.h"
 #include <array>
 #include <cmath>
 #include <iostream>
@@ -6,26 +7,30 @@
 #include <functional>
 using namespace goldcraft;
 struct Vector {float x=0,y=0,z=0;Vector operator-(const Vector& r)const{return{x-r.x,y-r.y,z-r.z};}};
-struct entvars_t {int iuser1=0;Vector origin,v_angle;float health=100;};
+constexpr int DAMAGE_NO=0,DEAD_NO=0;
+struct entvars_t {int takedamage=1,deadflag=0,iuser1=0;Vector origin,v_angle;float health=100;};
+edict_s* fixture_entity(entvars_t*);
 struct CBaseMonster {
     entvars_t* pev=nullptr;bool alive=true;int calls=0,bits=0;float damage=0;
     entvars_t* inflictor=nullptr;entvars_t* attacker=nullptr;
     void TakeDamage(entvars_t* source,entvars_t* owner,float amount,int flags){
-        ++calls;inflictor=source;attacker=owner;bits=flags;damage+=amount;pev->health-=amount;
+        ++calls;inflictor=source;attacker=owner;bits=flags;damage+=amount;pev->health-=amount;GoldCraft_NativeDamageCommitted(fixture_entity(pev),amount);
         if(pev->health<=0)alive=false;
     }
 };
 std::function<void()> alive_hook;
 struct CBasePlayer:CBaseMonster {bool IsAlive()const{if(alive_hook)alive_hook();return alive;}};
-struct edict_t {bool free=false;int serialnumber=1;entvars_t v;CBasePlayer player;};
+struct edict_s {bool free=false;int serialnumber=1;entvars_t v;CBasePlayer player;};
+using edict_t=edict_s;
 std::array<edict_t,65> storage;
+edict_s* fixture_entity(entvars_t* v){for(auto& e:storage)if(&e.v==v)return &e;return nullptr;}
 edict_t* edicts=storage.data();int max_clients=2;
 int ENTINDEX(edict_t* e){return static_cast<int>(e-edicts);}
 template<class T>T* GET_PRIVATE(edict_t* e){return &e->player;}
 struct Binding{unsigned serial=3;};
 struct{Binding pair,source;unsigned worldValue=1;const Binding* get(unsigned slot){return slot==1?&pair:slot==2?&source:nullptr;}unsigned world(){return worldValue;}}registry;
-struct{bool capable=true,queue=true;std::vector<Bytes> packets;bool status_attributes(){return capable;}
-    bool send(Type type,std::span<const std::uint8_t> b){if(!queue)return false;packets.emplace_back(b.begin(),b.end());return type==Type::status_spend;}}link;
+struct{bool capable=true,queue=true,hit_capable=true;std::uint64_t gen=1;std::vector<Bytes> packets,hits;bool native_hit(){return capable&&hit_capable;}std::uint64_t generation(){return gen;}bool status_attributes(){return capable;}
+    bool send(Type type,std::span<const std::uint8_t> b){if(!queue)return false;if(type==Type::native_hit){hits.emplace_back(b.begin(),b.end());return true;}packets.emplace_back(b.begin(),b.end());return type==Type::status_spend;}}link;
 struct{float time=1;}globals;auto* gpGlobals=&globals;
 std::array<unsigned,65> player_births,player_lives;
 std::array<bool,65> minecraft_forms;
@@ -39,6 +44,9 @@ NativeIdentity CaptureNativePlayer(unsigned slot){
 bool CurrentNativePlayer(const NativeIdentity& i){return !edicts[i.slot].free&&i.world==registry.world()&&i.serial==registry.get(i.slot)->serial
     &&i.spawn==player_births[i.slot]&&i.life==player_lives[i.slot]&&i.engineSerial==edicts[i.slot].serialnumber&&i.form==minecraft_forms[i.slot];}
 constexpr int DMG_BULLET=2,DMG_CLUB=128,DMG_SLASH=4;
+std::uint64_t tick=10;
+namespace {unsigned NativeArmorKind(int,edict_t*,edict_t*){return 2;}}
+#include "../../native/server/native_hit.inc"
 #include "../../native/server/status_attributes.inc"
 // This fixture has no negotiated equipment peer; preserve the status-only fallback.
 edict_t* settling_native_armor=nullptr;float settling_native_enchantment=1;
@@ -143,5 +151,46 @@ int main(){try{
     valid.push_back(0);rejected(valid);
     valid=receipt(1,0);valid[31]=0x7f;valid[30]=0xc0;rejected(valid); // NaN
     rejected(receipt(1,-1));
+    // Exact production hit scope and absorption dispatch, with a health sink.
+    auto apply=[&](float amount){
+        GoldCraft_NativeHitScope scope(victim,source,source,DMG_BULLET);
+        const float immediate=hit(amount);
+        victim->player.TakeDamage(&source->v,&source->v,std::trunc(immediate),DMG_BULLET);
+    };
+    reset();link.hits.clear();apply(30);
+    check(link.hits.size()==1&&victim->v.health==90);
+    HandleStatusSpendResult(receipt(1,0));check(link.hits.size()==1&&victim->v.health==70);
+    Reader notification(link.hits[0]);check(notification.u64()==1&&notification.u64()!=0&&notification.u64()==tick);
+    check(notification.u32()==1&&notification.u32()==3&&notification.u32()==5&&notification.u32()==6);
+    check(notification.u32()==2&&notification.u32()==registry.source.serial&&notification.u32()==player_births[2]);
+    check(notification.u32()==2&&notification.f32()==30);notification.f32();notification.f32();notification.f32();notification.finish();
+    for(float paid:{0.0f,1.0f,4.0f}){
+        reset();link.hits.clear();apply(20);check(link.hits.empty());
+        HandleStatusSpendResult(receipt(1,paid));check(link.hits.size()==1);
+        HandleStatusSpendResult(receipt(1,paid));check(link.hits.size()==1);
+    }
+    reset();link.hits.clear();apply(20);++player_lives[1];HandleStatusSpendResult(receipt(1,4));check(link.hits.size()==1);
+    reset();link.hits.clear();apply(20);++player_births[1];HandleStatusSpendResult(receipt(1,4));check(link.hits.empty());
+    reset();link.hits.clear();apply(20);++link.gen;HandleStatusSpendResult(receipt(1,4));check(link.hits.empty());
+    reset();link.hits.clear();
+    {GoldCraft_NativeHitScope parent(victim,source,source,DMG_BULLET);NativeHitPayment(victim,10);
+        {GoldCraft_NativeHitScope validating;GoldCraft_NativeDamageCommitted(victim,10);check(link.hits.empty());}
+        {GoldCraft_NativeHitScope child(victim,source,source,DMG_BULLET);NativeHitPayment(victim,5);GoldCraft_NativeDamageCommitted(victim,5);}
+        GoldCraft_NativeDamageCommitted(victim,10);GoldCraft_NativeDamageCommitted(victim,10);}
+    check(link.hits.size()==2);
+    for(int reject=0;reject<7;++reject){
+        reset();link.hits.clear();
+        if(reject==0)minecraft_attack=victim;
+        if(reject==1)final_minecraft_damage=victim;
+        if(reject==2)victim->v.takedamage=DAMAGE_NO;
+        if(reject==3)victim->v.deadflag=1;
+        if(reject==4)victim->v.health=0;
+        if(reject==5)link.hit_capable=false;
+        {GoldCraft_NativeHitScope scope(victim,source,source,DMG_BULLET);NativeHitPayment(victim,10);
+            if(reject==6)++victim->serialnumber;
+            GoldCraft_NativeDamageCommitted(victim,10);}
+        check(link.hits.empty());
+        minecraft_attack=final_minecraft_damage=nullptr;link.hit_capable=true;victim->v.takedamage=1;victim->v.deadflag=0;
+    }
     std::cout<<count<<" actual status dispatch checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

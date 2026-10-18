@@ -1,6 +1,22 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 struct edict_s;
+// One accepted native hit, shared with an outstanding absorption payment.
+// A default scope masks an outer hit while reentrant player damage validates.
+class GoldCraft_NativeHitScope {
+public:
+    struct State;
+    GoldCraft_NativeHitScope();
+    GoldCraft_NativeHitScope(edict_s* target,edict_s* inflictor,edict_s* attacker,int bits);
+    explicit GoldCraft_NativeHitScope(std::shared_ptr<State> state);
+    ~GoldCraft_NativeHitScope();
+    GoldCraft_NativeHitScope(const GoldCraft_NativeHitScope&)=delete;
+    GoldCraft_NativeHitScope& operator=(const GoldCraft_NativeHitScope&)=delete;
+private:
+    std::shared_ptr<State> previous_;
+};
+void GoldCraft_NativeDamageCommitted(edict_s* target,float amount);
 void GoldCraft_InitCvars();
 void GoldCraft_ObjectsPrecache();
 bool GoldCraft_ObjectBlocksPenetration(edict_s* entity);

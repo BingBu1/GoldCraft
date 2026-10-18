@@ -14,7 +14,10 @@ edict_t* CurrentStatusSource(const StatusSource& source){
         if(!pair||pair->serial!=source.serial||player_births[index]!=source.spawn)return edicts;}
     return source.entity;
 }
-struct StatusDamageOrigin {StatusSource inflictor,attacker;int bits=0;float damage=0,immediate=0;};
+struct StatusDamageOrigin {
+    StatusSource inflictor,attacker;int bits=0;float damage=0,immediate=0;
+    std::shared_ptr<GoldCraft_NativeHitScope::State> hit;
+};
 struct NativeAttributes {
     StatusBudget budget;float expires=0;std::uint64_t settled=0;
     std::map<std::uint64_t,StatusDamageOrigin> origins;
@@ -73,6 +76,7 @@ void HandleStatusSpendResult(std::span<const std::uint8_t> bytes){
     const StatusDamageOrigin origin=old==value.origins.end()?StatusDamageOrigin{}:old->second;
     if(old!=value.origins.end())value.origins.erase(old);
     value.settled=event;
+    if(paid>0)EmitNativeHit(origin.hit);
     // Match the single integer truncation in CBasePlayer::TakeDamage. Rounding
     // the fractional deficit independently can lose one native HP per hit.
     const float deficit=std::trunc(std::max(0.0f,origin.damage-paid*5.0f))-std::trunc(origin.immediate);
@@ -85,6 +89,7 @@ void HandleStatusSpendResult(std::span<const std::uint8_t> bytes){
     // CS armor, resistance and ReAPI pre callbacks already ran for this hit.
     // Settle only the health part MC could not pay, through native death/credit.
     // Replaying TakeDamage here could rerun an infection or spend armor twice.
+    GoldCraft_NativeHitScope hit_scope(origin.hit);
     player->CBaseMonster::TakeDamage(&inflictor->v,&attacker->v,deficit,origin.bits);
     next_snapshot=0;
 }

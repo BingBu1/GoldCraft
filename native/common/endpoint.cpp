@@ -291,6 +291,10 @@ bool Endpoint::native_view() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_native_view) != 0;
 }
+bool Endpoint::native_hit() const {
+    return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_native_hit) != 0;
+}
 bool Endpoint::status_melee() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_melee) != 0;
@@ -362,7 +366,11 @@ const std::string& Endpoint::error() const { return impl_->last_error; }
 std::vector<Message> Endpoint::take_messages() { std::vector<Message> result; result.swap(impl_->messages); impl_->incoming_bytes = 0; return result; }
 bool Endpoint::send(Type t, std::span<const std::uint8_t> p) {
     if (!connected() || t == Type::hello || t == Type::welcome || bulk_internal(t) || clock_internal(t)) return false;
-    try { return impl_->queue(t, p); } catch (const std::exception& e) { impl_->disconnect(e.what()); return false; }
+    try {
+        const bool queued=impl_->queue(t,p);
+        if(!queued&&t==Type::native_hit)impl_->disconnect("Native hit notification queue full");
+        return queued;
+    } catch (const std::exception& e) { impl_->disconnect(e.what()); return false; }
 }
 TransportStats Endpoint::transport_stats() const {
     auto result = impl_->stats;
