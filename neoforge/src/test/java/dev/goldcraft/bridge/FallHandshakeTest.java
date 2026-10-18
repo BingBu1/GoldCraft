@@ -47,6 +47,7 @@ class FallHandshakeTest {
     }
     @Test void oldHostDropsOnlyFallAndKeepsSkillGuard()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_NAUSEA_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_HEALTH_CAP);}
@@ -59,6 +60,7 @@ class FallHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedFall()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_NAUSEA_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_HEALTH_CAP);}

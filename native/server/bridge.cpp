@@ -18,6 +18,7 @@
 #include "goldcraft/status_health.hpp"
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_nausea.hpp"
+#include "goldcraft/status_melee.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "goldcraft/status_glow.hpp"
 #include "pm_movevars.h"
@@ -697,6 +698,7 @@ namespace {
 #include "status_glow.inc"
 #include "status_vision.inc"
 #include "status_nausea.inc"
+#include "status_melee.inc"
 #include "armor_defense.inc"
 #include "status_effects.inc"
 #include "tnt_damage.inc"
@@ -926,7 +928,7 @@ void GoldCraft_ServerActivate(edict_t* entities,int client_max) {
         edit_deliveries={};edit_revision_sent=edit_transfer=0;next_edit_query=0;edit_client_cursor=0;
         GoldCraft_InitCvars();
         touch_dispatches=use_calls=use_presses=use_releases=host_relocations=stale_use_commands=0;entity_touches.clear();entity_physics=nullptr;
-        ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusNausea(true);ClearStatusGlow(true);
+        ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea(true);ClearStatusGlow(true);
         nausea_message=REG_USER_MSG(status_nausea::message_name,status_nausea::wire_bytes);
         vision_message=REG_USER_MSG(status_vision::message_name,status_vision::wire_bytes);
         glow_message=REG_USER_MSG(status_glow::message_name,status_glow::wire_bytes);
@@ -1070,6 +1072,10 @@ bool GoldCraft_StatusImmunity(edict_t* player,int bits){
     if(player==final_minecraft_damage||player==minecraft_attack)return false;
     const auto* state=CurrentEnvironment(player);
     return state&&status_environment::immune(state->flags,bits,DMG_BURN|DMG_SLOWBURN,DMG_DROWN,DMG_FALL,DMG_ALWAYSGIB|DMG_NEVERGIB);
+}
+float GoldCraft_StatusMeleeDamage(edict_t* player,float base){
+    const auto* state=CurrentMelee(player);
+    return state?status_melee::apply(*state,base):base;
 }
 float GoldCraft_StatusMaxSpeed(edict_t* player,float base){
     auto* state=CurrentAttributes(player);
@@ -1230,7 +1236,7 @@ void GoldCraft_StartFrame() {
             }
             ResetFluids();
             GoldCraft_ObjectsReset(true);object_revision=0;
-            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusNausea();ClearStatusGlow();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
+            ClearStatusHud();ClearStatusAttributes();ClearStatusEnvironment();ClearStatusMotion();ClearStatusFall();ClearStatusHealth();ClearStatusVisibility();ClearStatusVision();ClearStatusMelee();ClearStatusNausea();ClearStatusGlow();player_gameplay={};player_gameplay_supported=link.player_gameplay();RetireNativeArmor();
             if(edicts!=retiring_table||registry.world()!=retiring_world||!link.connected()||link.generation()!=retiring_authority)return;
             mob_damage_event=0;vitals_ack={};mining_events={};next_mining={};next_mining_sample={};mining_policy_sent=0;mining_materials_sent=false;next_snapshot=0;
             skill_damage_snapshots.clear();
@@ -1259,6 +1265,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_armor_result)HandleNativeArmorResult(message.payload);
             else if(message.type==Type::status_spend)HandleStatusSpendResult(message.payload);
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
+            else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);
             else if(message.type==Type::status_nausea)HandleStatusNausea(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);
             else if(message.type==Type::status_glow)HandleStatusGlow(message.payload);

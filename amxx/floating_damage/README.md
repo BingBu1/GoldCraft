@@ -55,6 +55,14 @@ values, real production Think/lifecycle entrypoints, allocation failure,
 recycled entities and missing-anchor expiry. See `tests/test_bytecode.py` and
 local `build/floating-damage-20261018/bytecode-results.json`.
 
-No game/server process was started, no live plugin was replaced, and no gameplay
-or screenshot acceptance is claimed. Check the final number layout, all skins,
-rapid fire and ordinary/MC-form visibility after the next planned map reload.
+The delivered plugin, original model/language and one plugin-list entry have now
+been installed in the stopped local test server at the user's request. A separate
+real ReHLDS/ReGameDLL/ReAPI fixture loaded version 1.0.7-gc once alongside the
+native knife checks, with no new Pawn runtime errors. That owned fixture was
+stopped and its files restored. See `build/floating-damage-20261018/local-install`
+and `build/native-melee-20261018/rehlds02/result.json` for local evidence.
+
+No gameplay or screenshot acceptance is claimed. Check the final number layout,
+all skins, rapid fire, each attacker's independent five entries and ordinary/MC
+form visibility together in the next planned local session. The public server
+has not been changed by this installation.

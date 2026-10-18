@@ -871,6 +871,34 @@ index f7294b7..750f6bd 100644
  extern MULTIDAMAGE gMultiDamage;
  
  void WeaponsPrecache();
+diff --git a/regamedll/dlls/wpn_shared/wpn_knife.cpp b/regamedll/dlls/wpn_shared/wpn_knife.cpp
+index 45269d5..ce86f88 100644
+--- a/regamedll/dlls/wpn_shared/wpn_knife.cpp
++++ b/regamedll/dlls/wpn_shared/wpn_knife.cpp
+@@ -1,4 +1,5 @@
+ #include "precompiled.h"
++#include "../../../../../native/server/bridge.h"
+ 
+ LINK_ENTITY_TO_CLASS(weapon_knife, CKnife, CCSKnife)
+ 
+@@ -391,7 +392,7 @@ BOOL CKnife::Swing(BOOL fFirst)
+ 		ClearMultiDamage();
+ 
+ 		pEntity->TraceAttack(m_pPlayer->pev,
+-			KnifeSwingDamage(m_flNextPrimaryAttack + 0.4f < UTIL_WeaponTimeBase()),
++			GoldCraft_StatusMeleeDamage(m_pPlayer->edict(), KnifeSwingDamage(m_flNextPrimaryAttack + 0.4f < UTIL_WeaponTimeBase())),
+ 			gpGlobals->v_forward,
+ 			&tr,
+ 			(DMG_NEVERGIB | DMG_BULLET));
+@@ -560,7 +561,7 @@ BOOL CKnife::Stab(BOOL fFirst)
+ 		// player "shoot" animation
+ 		m_pPlayer->SetAnimation(PLAYER_ATTACK1);
+ 
+-		float flDamage = KnifeStabDamage();
++		float flDamage = GoldCraft_StatusMeleeDamage(m_pPlayer->edict(), KnifeStabDamage());
+ 
+ 		if (pEntity && pEntity->IsPlayer())
+ 		{
 diff --git a/regamedll/game_shared/bot/bot_util.cpp b/regamedll/game_shared/bot/bot_util.cpp
 index 8857d4e..2c044dc 100644
 --- a/regamedll/game_shared/bot/bot_util.cpp

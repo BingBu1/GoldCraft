@@ -419,7 +419,18 @@
     "amxx/floating_damage/tests/test_bytecode.py",
     "patches/floating-damage-goldcraft.patch",
     "docs/NATIVE_NAUSEA.md",
-    "tools/Test-NativeNausea.py"
+    "tools/Test-NativeNausea.py",
+    "docs/NATIVE_MELEE.md",
+    "tools/Exercise-NativeMelee.py",
+    "tools/Test-NativeMelee.py",
+    "amxx/tests/goldcraft_melee_test.sma",
+    "tests/native-melee/NativeMeleeProbe.java",
+    "tests/native/status_melee_tests.cpp",
+    "tests/native/extract_status_melee.py",
+    "native/include/goldcraft/status_melee.hpp",
+    "native/server/status_melee.inc",
+    "neoforge/src/main/java/dev/goldcraft/world/NativeMelee.java",
+    "neoforge/src/test/java/dev/goldcraft/bridge/MeleeHandshakeTest.java"
   ],
   "trees": {
     "native": [

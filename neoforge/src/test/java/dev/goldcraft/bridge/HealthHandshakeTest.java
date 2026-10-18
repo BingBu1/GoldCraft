@@ -47,6 +47,7 @@ class HealthHandshakeTest {
     }
     @Test void oldHostDropsOnlyHealthAndKeepsFall()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_NAUSEA_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.STATUS_HEALTH_CAP);}
@@ -58,6 +59,7 @@ class HealthHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedHealth()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_MELEE_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_NAUSEA_CAP);}
             try(var s=host.accept()){assertNotEquals(0,hello(s)&Wire.STATUS_GLOW_CAP);}
             try(var s=host.accept()){hello(s);}

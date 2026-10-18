@@ -40,6 +40,8 @@ bool GoldCraft_ClientCommand(edict_s* player, const char* command);
 void GoldCraft_StartFrame();
 // Read-only speed transform: never overwrites weapon/ZP base speed.
 float GoldCraft_StatusMaxSpeed(edict_s* player,float native_speed);
+// Native melee only, before TraceAttack/armor/plugin consumers; MC damage already owns attributes.
+float GoldCraft_StatusMeleeDamage(edict_s* player,float native_damage);
 // Native environment consumes server status, never HUD/client claims.
 bool GoldCraft_StatusImmunity(edict_s* player,int bits);
 bool GoldCraft_StatusBreathing(edict_s* player);
