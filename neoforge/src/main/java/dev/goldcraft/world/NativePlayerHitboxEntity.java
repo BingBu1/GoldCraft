@@ -95,11 +95,12 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
         DamageSource previous=activeDamage;boolean previousRequested=damageRequested;
         activeDamage=source;damageRequested=false;
         float absorptionBefore=getAbsorptionAmount();
-        try{
+        try(var effects=NativeHitEffects.begin(this)){
             // Run vanilla, NeoForge and Epic's actual hurt pipeline on the one
             // spatial target. Skills can reset its real cooldown and receive
             // normal hit feedback/damage modifiers. Only native health commits.
             boolean hit=super.damage(source,body.difficultyDamage(source,amount));
+            effects.localResult(hit,getAbsorptionAmount()<absorptionBefore);
             // A hit paid entirely by golden hearts still landed, even though
             // it has no native health delta to send.
             return hit&&(damageRequested||getAbsorptionAmount()<absorptionBefore);

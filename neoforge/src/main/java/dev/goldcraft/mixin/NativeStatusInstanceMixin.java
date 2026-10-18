@@ -5,6 +5,8 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.goldcraft.world.NativeStatusExecution;
 import dev.goldcraft.world.NativeStatusInstance;
 import dev.goldcraft.world.NativeStatusOrigin;
+import dev.goldcraft.world.NativeHitEffects;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.effect.StatusEffectInstance;
 import net.minecraft.entity.effect.StatusEffect;
@@ -21,6 +23,10 @@ abstract class NativeStatusInstanceMixin implements NativeStatusInstance {
     @Unique private boolean goldcraft$replaceOrigin;
     public NativeStatusOrigin goldcraft$statusOrigin(){return goldcraft$origin;}
     public void goldcraft$statusOrigin(NativeStatusOrigin origin){goldcraft$origin=origin;}
+    @Inject(method="onEntityDamage",at=@At("HEAD"),cancellable=true)
+    private void goldcraft$confirmedHit(LivingEntity entity,DamageSource source,float amount,CallbackInfo ci){
+        if(NativeHitEffects.capture(entity,(StatusEffectInstance)(Object)this,source,amount))ci.cancel();
+    }
     @Inject(method="copyFrom",at=@At("RETURN"))
     private void goldcraft$copyOrigin(StatusEffectInstance source,CallbackInfo ci){
         goldcraft$origin=((NativeStatusInstance)(Object)source).goldcraft$statusOrigin();

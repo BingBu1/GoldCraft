@@ -437,7 +437,9 @@
     "tools/Test-ConduitVision.py",
     "tools/Exercise-NativeView.py",
     "tools/Exercise-ConduitServers.py",
-    "amxx/tests/goldcraft_native_view_test.sma"
+    "amxx/tests/goldcraft_native_view_test.sma",
+    "tools/Test-NativeHitEffects.py",
+    "docs/NATIVE_HIT_EFFECTS.md"
   ],
   "trees": {
     "native": [

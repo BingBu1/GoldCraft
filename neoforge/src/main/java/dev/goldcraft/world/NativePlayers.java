@@ -26,7 +26,7 @@ public final class NativePlayers {
     private static ServerWorld world;
     private static long epoch,sequence,requests,accepted,rejected;
     private static final long[] damageStatus=new long[7];
-    private record Pending(NativePlayerEntity target,int kind,long generation){}
+    private record Pending(NativePlayerEntity target,int kind,long generation,NativeHitEffects effects){}
     private static final Map<Long,Pending> pending=new LinkedHashMap<>();
     public static NativePlayerHitboxEntity hitbox(HostWorldState.Actor actor){
         var box=hitboxes.get(actor.slot());
@@ -173,7 +173,7 @@ public final class NativePlayers {
         }
         boolean active=playerSource!=null&&ActivePlayerDamage.eligible(source,kind)&&GoldCraft.playerGameplayAvailable();
         if(!(active?GoldCraft.sendPlayerGameplay(Wire.PLAYER_ATTACK,request.toByteArray()):GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray())))return false;
-        pending.put(event,new Pending(target,kind,GoldCraft.authorityGeneration()));
+        pending.put(event,new Pending(target,kind,GoldCraft.authorityGeneration(),NativeHitEffects.request(target)));
         target.healthLedger().awaitReceipt(event);requests++;return true;
     }
     private static boolean tntDamage(NativePlayerEntity target,DamageSource source,float amount,net.minecraft.util.math.Vec3d center){
@@ -189,7 +189,7 @@ public final class NativePlayers {
             .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
             .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f).toByteArray();
         if(!GoldCraft.sendTntDamage(packet))return false;
-        pending.put(event,new Pending(target,6,GoldCraft.authorityGeneration()));
+        pending.put(event,new Pending(target,6,GoldCraft.authorityGeneration(),NativeHitEffects.request(target)));
         target.healthLedger().awaitReceipt(event);requests++;return true;
     }
     private static boolean statusDamage(NativePlayerEntity target,DamageSource source,float amount,NativeStatusExecution status){
@@ -218,7 +218,7 @@ public final class NativePlayers {
             .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
             .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f).i32(flags).toByteArray();
         if(!GoldCraft.sendStatusToHost(Wire.DAMAGE_REQUEST,packet))return false;
-        pending.put(event,new Pending(target,5,GoldCraft.authorityGeneration()));target.healthLedger().sent(event,-amount);requests++;return true;
+        pending.put(event,new Pending(target,5,GoldCraft.authorityGeneration(),NativeHitEffects.request(target)));target.healthLedger().sent(event,-amount);requests++;return true;
     }
     public static void result(byte[] bytes){
         Wire.Reader r=new Wire.Reader(bytes);long e=r.i64(),event=r.i64();int slot=r.i32(),serial=r.i32(),spawn=r.i32(),status=r.i32();
@@ -231,6 +231,7 @@ public final class NativePlayers {
         if(target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=spawn||armor<0||status<0||status>6)return;
         pending.remove(event);
         target.healthLedger().receipt(event,Math.max(0,health)/MinecraftObjects.CS_HEALTH_PER_MC,tick);
+        if(request.effects()!=null)request.effects().complete(status==0);
         if(status==0)accepted++;else rejected++;
         damageStatus[status]++;
     }
