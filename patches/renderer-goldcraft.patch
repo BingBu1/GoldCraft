@@ -2512,7 +2512,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..70a77ec 100644
+index fa85f25..71f70f2 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,7 @@
@@ -2523,13 +2523,20 @@ index fa85f25..70a77ec 100644
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +11,30 @@
+@@ -9,33 +11,37 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
 +#include <array>
 +#include <climits>
 +#include <deque>
++#include "post_scene.h"
++#include <IMetaRendererStudioOutline.h>
++
++static bool g_StudioOutlineMask{}, g_StudioOutlineFailed{};
++static uint32_t g_StudioOutlineColor{};
++bool R_IsDrawingStudioOutline() { return g_StudioOutlineMask; }
++static void R_ShutdownStudioOutline();
  
  static GLuint g_hStudioUBO{};
 +static CStudioBonePaletteStorage<> g_StudioBonePalettes;
@@ -2570,7 +2577,7 @@ index fa85f25..70a77ec 100644
  
  //Engine private vars
  
-@@ -154,83 +153,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +160,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -2654,7 +2661,7 @@ index fa85f25..70a77ec 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1345,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1423,6 +1352,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -2662,7 +2669,7 @@ index fa85f25..70a77ec 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1359,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1366,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -2680,7 +2687,7 @@ index fa85f25..70a77ec 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1451,14 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1458,15 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -2692,10 +2699,11 @@ index fa85f25..70a77ec 100644
  void R_ShutdownStudio(void)
  {
 +    R_ResetStudioBonePalette();
++    R_ShutdownStudioOutline();
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1473,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1481,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -2703,7 +2711,7 @@ index fa85f25..70a77ec 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1524,12 @@ void R_InitStudio(void)
+@@ -1583,6 +1532,12 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -2716,7 +2724,7 @@ index fa85f25..70a77ec 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1835,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1843,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -2733,10 +2741,12 @@ index fa85f25..70a77ec 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,6 +2090,13 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,11 +2098,25 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
++#include "studio_outline.inc"
++
 +static void R_StudioUploadDrawBuffers(const studio_ubo_t& parameters, const void* matrices, uint32_t frame, bool cache)
 +{
 +    GL_UploadDrawParameters(g_hStudioUBO, BINDING_POINT_STUDIO_UBO, sizeof(parameters), &parameters);
@@ -2747,7 +2757,17 @@ index fa85f25..70a77ec 100644
  void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>& pRenderData)
  {
      studio_ubo_t StudioUBO = {0};
-@@ -2310,8 +2268,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+ 
+     g_CurrentRenderData = pRenderData;
++    if (g_StudioOutlineMask)
++    {
++        R_StudioOutlineBegin(pRenderData.get());
++        return;
++    }
+ 
+     StudioUBO.r_origin[0] = r_origin[0];
+     StudioUBO.r_origin[1] = r_origin[1];
+@@ -2310,8 +2283,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2756,7 +2776,7 @@ index fa85f25..70a77ec 100644
      if (R_IsRenderingClippedLowerBody())
      {
          auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
-@@ -2327,9 +2283,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2298,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -2771,7 +2791,7 @@ index fa85f25..70a77ec 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2345,164 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2360,164 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
@@ -2936,7 +2956,7 @@ index fa85f25..70a77ec 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2513,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2528,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -2944,7 +2964,7 @@ index fa85f25..70a77ec 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2661,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2676,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -2957,7 +2977,7 @@ index fa85f25..70a77ec 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2902,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2917,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -2983,7 +3003,7 @@ index fa85f25..70a77ec 100644
          }
          else
          {
-@@ -2878,10 +2984,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +2999,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -2995,7 +3015,7 @@ index fa85f25..70a77ec 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3207,8 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3222,8 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -3062,7 +3082,24 @@ index fa85f25..70a77ec 100644
  }
  
  void R_StudioDrawMesh(
-@@ -3259,6 +3306,173 @@ void R_StudioDrawMesh(
+@@ -3178,7 +3240,16 @@ void R_StudioDrawMesh(
+         StudioResolveTextureIndex(pskinref, ptexturehdr->numskinref, ptexturehdr->numtextures, pmesh->skinref) :
+         -1;
+     if (uskinref < 0 || ptexture[uskinref].width <= 0 || ptexture[uskinref].height <= 0)
++    {
++        if (g_StudioOutlineMask) g_StudioOutlineFailed = true;
+         return;
++    }
++
++    if (g_StudioOutlineMask)
++    {
++        R_StudioOutlineMesh(pRenderData, pRenderMesh, ptexturehdr, ptexture, uskinref);
++        return;
++    }
+ 
+     program_state_t StudioProgramState = (program_state_t)(ptexture[uskinref].flags & 0x00000000FFFFFFFFull);
+ 
+@@ -3259,6 +3330,173 @@ void R_StudioDrawMesh(
      }
  }
  
@@ -3236,7 +3273,7 @@ index fa85f25..70a77ec 100644
  void R_StudioDrawSubmodel(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* VBOSubmodel,
-@@ -3266,11 +3480,19 @@ void R_StudioDrawSubmodel(
+@@ -3266,11 +3504,19 @@ void R_StudioDrawSubmodel(
      mstudiotexture_t*           ptexture,
      short*                      pskinref)
  {
@@ -3257,7 +3294,36 @@ index fa85f25..70a77ec 100644
      }
  }
  
-@@ -3377,7 +3599,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3317,12 +3563,14 @@ void R_GLStudioDrawPoints(void)
+     if (!pRenderData)
+     {
+         //Sys_Error("R_GLStudioDrawPoints: no available pRenderData for \"%s\"!", (*pstudiohdr)->name);
++        if (g_StudioOutlineMask) g_StudioOutlineFailed = true;
+         return;
+     }
+ 
+     if (!pRenderData->hVAO)
+     {
+         //GPU resources not ready yet.
++        if (g_StudioOutlineMask) g_StudioOutlineFailed = true;
+         return;
+     }
+ 
+@@ -3364,11 +3612,13 @@ void studioapi_GL_SetRenderMode(int rendermode)
+ 
+ void studioapi_SetupRenderer(int rendermode)
+ {
++    if (g_StudioOutlineMask) return;
+     g_StudioRendererRendermode = rendermode;
+ }
+ 
+ void studioapi_RestoreRenderer(void)
+ {
++    if (g_StudioOutlineMask) return;
+     glDepthMask(GL_TRUE);
+     glDisable(GL_BLEND);
+ }
+@@ -3377,7 +3627,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -3269,7 +3335,20 @@ index fa85f25..70a77ec 100644
      }
  
      mplane_t plane;
-@@ -3861,15 +4086,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3546,6 +3799,12 @@ __forceinline void StudioRenderFinal_Template(CallType pfnRenderFinal, void* pth
+ template <typename CallType>
+ __forceinline void StudioRenderModel_Template(CallType pfnRenderModel, CallType pfnRenderFinal, void* pthis = nullptr, int dummy = 0)
+ {
++    if (g_StudioOutlineMask)
++    {
++        pfnRenderModel(pthis, dummy);
++        return;
++    }
++
+     if (R_IsRenderingShadowView())
+     {
+         pfnRenderModel(pthis, dummy);
+@@ -3861,15 +4120,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -3285,7 +3364,7 @@ index fa85f25..70a77ec 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +4096,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +4130,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -3448,7 +3527,7 @@ index fa85f25..70a77ec 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +4113,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +4147,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -3476,7 +3555,7 @@ index fa85f25..70a77ec 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +4125,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +4159,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -3484,7 +3563,7 @@ index fa85f25..70a77ec 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,30 +4141,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +4175,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -3521,7 +3600,7 @@ index fa85f25..70a77ec 100644
          pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
-@@ -4117,27 +4161,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4117,27 +4195,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
      //Never cache bones for viewmodel !
      if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
      {
@@ -3559,7 +3638,7 @@ index fa85f25..70a77ec 100644
      pfnMergeBones(pthis, dummy, pSubModel);
  }
  
-@@ -4959,6 +4999,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -4959,6 +5033,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
          gEngfuncs.Con_DPrintf("R_CreateStudioRenderData: Found modelindex[%d] modname[%s].\n", EngineGetModelIndex(mod), mod->name);
  
          //Always reload
@@ -3567,7 +3646,7 @@ index fa85f25..70a77ec 100644
          pRenderData->mStudioMaterials.clear();
  
          R_StudioLoadTextureModel(mod, studiohdr, pRenderData.get());
-@@ -5021,18 +5062,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +5096,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -3589,7 +3668,7 @@ index fa85f25..70a77ec 100644
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..c74547f 100644
+index eeb137d..bd0ef54 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
 @@ -9,6 +9,7 @@
@@ -3723,7 +3802,7 @@ index eeb137d..c74547f 100644
  void     R_StudioEndFrame(void);
  void     R_SaveStudioProgramStates(void);
  void     R_LoadStudioProgramStates(void);
-@@ -356,20 +410,22 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +410,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -3737,6 +3816,7 @@ index eeb137d..c74547f 100644
 -int __fastcall  GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer);
 +int             studiointerface_StudioDrawPlayer(int flags, struct entity_state_s* pplayer);
 +void            R_StudioPlayerStartFrame();
++bool            R_IsDrawingStudioOutline();
 +int             R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence);
  void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int);
  void __fastcall GameStudioRenderer_StudioRenderFinal(void* pthis, int);
@@ -8485,10 +8565,10 @@ index 4f14187..3143b87 100644
      void (*R_StudioRenderFinal)(void);
      void (*R_StudioSetupBones)(void);
 diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
-index 93166e2..2f4b3c3 100644
+index 93166e2..088880b 100644
 --- a/tests/CMakeLists.txt
 +++ b/tests/CMakeLists.txt
-@@ -26,15 +26,126 @@ if(NOT TARGET glfw)
+@@ -26,15 +26,143 @@ if(NOT TARGET glfw)
      add_subdirectory("${GLFW_SOURCE_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/glfw" EXCLUDE_FROM_ALL)
  endif()
  
@@ -8614,10 +8694,27 @@ index 93166e2..2f4b3c3 100644
 +target_compile_options(post_scene_tests PRIVATE /UNDEBUG)
 +add_test(NAME post_scene_tests COMMAND post_scene_tests)
 +set_tests_properties(post_scene_tests PROPERTIES TIMEOUT 20)
++
++add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/studio_outline_functions.inc"
++    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/extract_studio_outline.py"
++        --src "${PROJECT_SOURCE_DIR}/src" --output "${CMAKE_CURRENT_BINARY_DIR}/studio_outline_functions.inc"
++    DEPENDS extract_studio_outline.py extract_studio_depth_executor.py
++        "${PROJECT_SOURCE_DIR}/src/gl_studio.cpp" "${PROJECT_SOURCE_DIR}/src/gl_rmisc.cpp" "${PROJECT_SOURCE_DIR}/src/gl_shader.cpp"
++    VERBATIM)
++add_executable(studio_outline_gl_tests studio_outline_gl_tests.cpp
++    "${CMAKE_CURRENT_BINARY_DIR}/studio_outline_functions.inc" "${PROJECT_SOURCE_DIR}/src/post_scene.cpp"
++    "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
++target_include_directories(studio_outline_gl_tests PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
++target_compile_definitions(studio_outline_gl_tests PRIVATE GLEW_STATIC GLFW_INCLUDE_NONE
++    RENDERER_SHADER_DIRECTORY="${PROJECT_SOURCE_DIR}/assets/svencoop/renderer/shader")
++target_compile_options(studio_outline_gl_tests PRIVATE /UNDEBUG)
++target_link_libraries(studio_outline_gl_tests PRIVATE renderer_settings libglew_static glfw)
++add_test(NAME studio_outline_gl_tests COMMAND studio_outline_gl_tests)
++set_tests_properties(studio_outline_gl_tests PROPERTIES SKIP_RETURN_CODE 2 TIMEOUT 60)
  
  # Unlike the CPU regression suites above nothing here is patched out: the probe
  # opens a real GL context through GLFW, so it links the vendored GLEW and GLFW
-@@ -47,3 +158,208 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
+@@ -47,3 +175,208 @@ add_test(NAME gl_parallel_shader_compile_tests COMMAND gl_parallel_shader_compil
  # (WGL reports no OpenGL support, e.g. headless CI) exit with this code so CTest
  # marks the test skipped instead of failing the build.
  set_tests_properties(gl_parallel_shader_compile_tests PROPERTIES SKIP_RETURN_CODE 2)
@@ -9533,7 +9630,7 @@ index 0000000..d67177f
 +}
 diff --git a/src/gl_studio_shadow.cpp b/src/gl_studio_shadow.cpp
 new file mode 100644
-index 0000000..83424cc
+index 0000000..95030df
 --- /dev/null
 +++ b/src/gl_studio_shadow.cpp
 @@ -0,0 +1,39 @@
@@ -9543,7 +9640,7 @@ index 0000000..83424cc
 +{
 +    // The legacy contact shadow is an alpha-blended sprite on the receiving
 +    // floor. It must never become geometry in a light's shadow/depth pass.
-+    if (R_IsRenderingShadowView() || r_draw_lineardepth)
++    if (R_IsRenderingShadowView() || r_draw_lineardepth || R_IsDrawingStudioOutline())
 +    {
 +        R_StudioDiagnosticsShadow(sprite, true);
 +        return;
@@ -9578,10 +9675,10 @@ index 0000000..83424cc
 +}
 diff --git a/tests/studio_shadow_gl_tests.cpp b/tests/studio_shadow_gl_tests.cpp
 new file mode 100644
-index 0000000..0564c4d
+index 0000000..1899bd1
 --- /dev/null
 +++ b/tests/studio_shadow_gl_tests.cpp
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,261 @@
 +// Real MRT readback through the production StudioRenderShadow wrapper and
 +// GBuffer routing. A hidden test context never takes focus or operates CS.
 +#include "../src/gl_local.h"
@@ -9599,6 +9696,8 @@ index 0000000..0564c4d
 +private_funcs_t gPrivateFuncs{};
 +bool            r_draw_lineardepth = false;
 +static bool     deferred = true, shadow = false;
++static bool     outline = false;
++bool            R_IsDrawingStudioOutline() { return outline; }
 +bool            R_IsRenderingGBuffer() { return deferred; }
 +bool            R_IsRenderingShadowView() { return shadow; }
 +bool            g_bDrawingStudioShadow{};
@@ -9808,6 +9907,7 @@ index 0000000..0564c4d
 +    r_draw_lineardepth = true;
 +    DrawShadow();
 +    r_draw_lineardepth = false;
++    outline = true; DrawShadow(); outline = false;
 +    R_SetGBufferMask(GBUFFER_MASK_LIGHTMAP);
 +    DrawShadow();
 +    assert(calls == beforeSkip);
@@ -11337,10 +11437,10 @@ index 0000000..e959c35
 +    main()
 diff --git a/src/gl_studio_player.cpp b/src/gl_studio_player.cpp
 new file mode 100644
-index 0000000..ae22570
+index 0000000..16f2faa
 --- /dev/null
 +++ b/src/gl_studio_player.cpp
-@@ -0,0 +1,201 @@
+@@ -0,0 +1,226 @@
 +#include "gl_local.h"
 +#include "CounterStrike.h"
 +
@@ -11511,6 +11611,31 @@ index 0000000..ae22570
 +        return 0;
 +    const int  playerindex = pplayer->number - 1;
 +    auto       storage     = playerindex >= 0 && playerindex < MAX_CLIENTS ? &g_PlayerInfoStorage[playerindex] : nullptr;
++    // A post-scene silhouette may be the first draw for an invisible player.
++    // Reuse the ordinary pre-frame gait cache, then restore both the live gait
++    // and its cache even when drawing fails. It must not advance animation.
++    struct OutlinePlayerState {
++        player_info_t* info{};
++        player_info_t saved_info{};
++        CEnginePlayerInfoStorage* cache{};
++        CEnginePlayerInfoStorage saved_cache{};
++        ~OutlinePlayerState() {
++            if (info) CopyPlayerInfoStudioRenderData(&saved_info, info);
++            if (cache) *cache = saved_cache;
++        }
++    } outline_state;
++    if (R_IsDrawingStudioOutline())
++    {
++        flags &= ~STUDIO_EVENTS;
++        if (storage && playerindex < gEngfuncs.GetMaxClients())
++        {
++            outline_state.cache = storage;
++            outline_state.saved_cache = *storage;
++            outline_state.info = IEngineStudio.PlayerInfo(playerindex);
++            if (outline_state.info)
++                CopyPlayerInfoStudioRenderData(outline_state.info, &outline_state.saved_info);
++        }
++    }
 +    const bool auxiliary   = R_IsRenderingShadowView() || R_IsRenderingLinearDepth() ||
 +        R_IsRenderingWaterView() || R_IsRenderingPortal();
 +    if (auxiliary || (storage && storage->EventsDispatched))
@@ -12231,14 +12356,15 @@ index 0000000..5f4f3c1
 +}
 diff --git a/tests/studio_player_tests.cpp b/tests/studio_player_tests.cpp
 new file mode 100644
-index 0000000..58fa881
+index 0000000..e6d0dad
 --- /dev/null
 +++ b/tests/studio_player_tests.cpp
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,159 @@
 +// Exercise the production public player callback: CS invokes its derived core
 +// directly, so protecting only the base C++ virtual entry is insufficient.
 +#include "../src/gl_studio_player.cpp"
 +#include <cstdio>
++#include <stdexcept>
 +
 +private_funcs_t     gPrivateFuncs{};
 +cl_enginefunc_t     gEngfuncs{};
@@ -12253,6 +12379,9 @@ index 0000000..58fa881
 +int*                cl_viewentity = &viewEntity;
 +player_info_t       info[2]{};
 +static bool         shadow{}, depth{}, water{}, portal{}, firstPerson{}, lowerBody{}, visible = true;
++static bool         outline{};
++static bool         failDraw{};
++bool R_IsDrawingStudioOutline() { return outline; }
 +static unsigned     calls{}, events{}, renders{}, suppressed{};
 +static int          lastFlags{}, frame = 20;
 +static int          redirectedPlayerNumber = -1;
@@ -12285,6 +12414,7 @@ index 0000000..58fa881
 +    player.gaityaw += 2.f;
 +    player.prevgaitorigin[0] += 4.f;
 +    player.renderframe = frame;
++    if (failDraw) throw std::runtime_error("fixture draw failure");
 +    if (!visible && (flags & STUDIO_RENDER)) return 0;
 +    if (flags & STUDIO_RENDER) ++renders;
 +    if (flags & STUDIO_EVENTS) ++events;
@@ -12367,6 +12497,26 @@ index 0000000..58fa881
 +    entity.index = state->number = 2;
 +    assert(studiointerface_StudioDrawPlayer(3, state));
 +    assert(redirectedPlayerNumber == 2);
++    lowerBody = false;
++    // Extra outlines preserve both already-rendered and previously invisible
++    // players, including failure; the next ordinary draw still advances once.
++    for (bool previouslyRendered : {false, true}) {
++        R_StudioPlayerStartFrame();
++        if (previouslyRendered) assert(studiointerface_StudioDrawPlayer(3, state));
++        const auto originalInfo=info[1];
++        const auto originalStorage=g_PlayerInfoStorage[1];
++        const auto originalEvents=events;
++        outline=true;
++        for (int i=0;i<5;++i) assert(studiointerface_StudioDrawPlayer(3,state));
++        failDraw=true;
++        try {studiointerface_StudioDrawPlayer(3,state);assert(false);} catch(const std::runtime_error&) {}
++        failDraw=false;outline=false;
++        assert(!std::memcmp(&originalInfo,&info[1],sizeof(originalInfo)));
++        assert(!std::memcmp(&originalStorage,&g_PlayerInfoStorage[1],sizeof(originalStorage)));
++        assert(events==originalEvents);
++        assert(studiointerface_StudioDrawPlayer(3,state));
++        assert(info[1].gaitframe==originalInfo.gaitframe+(previouslyRendered?0.f:1.25f));
++    }
 +    std::puts("PASS: public callback, 16 shadow passes, one gait step/event, culled-first pass, next frame, player isolation and first/third-person visibility.");
 +}
 diff --git a/src/gl_shadow_cull.h b/src/gl_shadow_cull.h
@@ -19476,10 +19626,10 @@ index 0000000..c528bd4
 +#define METARENDERER_POST_SCENE_INTERFACE_VERSION "MetaRendererPostScene_API_001"
 diff --git a/src/post_scene.h b/src/post_scene.h
 new file mode 100644
-index 0000000..d6772b3
+index 0000000..68510d7
 --- /dev/null
 +++ b/src/post_scene.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,32 @@
 +#pragma once
 +#include <IMetaRendererPostScene.h>
 +
@@ -19509,14 +19659,15 @@ index 0000000..d6772b3
 +uint32_t NormalizeViewIndex(int engine_view_index, bool explicit_view_index) noexcept;
 +bool HasCallbacks() noexcept;
 +bool ValidFrame(const MetaRendererPostSceneFrame& frame) noexcept;
++bool IsCurrentFrame(const MetaRendererPostSceneFrame& frame) noexcept;
 +uint32_t Dispatch(const Context& context, const MetaRendererPostSceneFrame& frame) noexcept;
 +} // namespace RendererPostScene
 diff --git a/src/post_scene.cpp b/src/post_scene.cpp
 new file mode 100644
-index 0000000..8a9f955
+index 0000000..41c7523
 --- /dev/null
 +++ b/src/post_scene.cpp
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,128 @@
 +#include "post_scene.h"
 +#include <array>
 +#include <cmath>
@@ -19532,6 +19683,7 @@ index 0000000..8a9f955
 +uint64_t next_generation = 1;
 +uint32_t callback_count{};
 +bool dispatching{};
++const MetaRendererPostSceneFrame* current_frame{};
 +
 +class CMetaRendererPostScene final : public IMetaRendererPostScene
 +{
@@ -19591,6 +19743,11 @@ index 0000000..8a9f955
 +    return callback_count != 0 && !dispatching;
 +}
 +
++bool IsCurrentFrame(const MetaRendererPostSceneFrame& frame) noexcept
++{
++    return dispatching && current_frame == &frame;
++}
++
 +bool ValidFrame(const MetaRendererPostSceneFrame& frame) noexcept
 +{
 +    constexpr uint32_t known_flags = META_POST_SCENE_GAMMA | META_POST_SCENE_LINEAR | META_POST_SCENE_HDR;
@@ -19622,6 +19779,7 @@ index 0000000..8a9f955
 +{
 +    if (!HasCallbacks() || !Eligible(context) || !ValidFrame(frame)) return 0;
 +    dispatching = true;
++    current_frame = &frame;
 +    const uint64_t limit = next_generation;
 +    uint32_t invoked = 0;
 +    for (const auto& slot : slots)
@@ -19633,16 +19791,17 @@ index 0000000..8a9f955
 +        ++invoked;
 +        callback->DrawPostScene(frame);
 +    }
++    current_frame = nullptr;
 +    dispatching = false;
 +    return invoked;
 +}
 +} // namespace RendererPostScene
 diff --git a/tests/post_scene_tests.cpp b/tests/post_scene_tests.cpp
 new file mode 100644
-index 0000000..c7d90d0
+index 0000000..2f60fc7
 --- /dev/null
 +++ b/tests/post_scene_tests.cpp
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,350 @@
 +#include "../src/post_scene.h"
 +#include <array>
 +#include <cassert>
@@ -19761,6 +19920,8 @@ index 0000000..c7d90d0
 +    {
 +        ++calls;
 +        seen = frame;
++        Check(RendererPostScene::IsCurrentFrame(frame));
++        Check(!RendererPostScene::IsCurrentFrame(seen));
 +        if (action) action(*this, frame);
 +    }
 +};
@@ -19988,6 +20149,7 @@ index 0000000..c7d90d0
 +    TestFrames(*api);
 +    TestRegistry(*api);
 +    TestMutationAndRecursion(*api);
++    Check(!RendererPostScene::IsCurrentFrame(Frame()));
 +    std::printf("post-scene production factory/dispatch: %u checks; 4096 warm callbacks allocate 0\n", checks);
 +}
 diff --git a/tests/extract_post_scene_dispatch.py b/tests/extract_post_scene_dispatch.py
@@ -24446,3 +24608,448 @@ index 0000000..3a4ac7c
 +    std::printf("%u scene distortion checks; 42 projections / 1344 GPU vertices; GL %s\n",checks,glGetString(GL_VERSION));
 +    glDeleteBuffers(1,&buffer);glDeleteVertexArrays(1,&vao);glDeleteProgram(program);glfwDestroyWindow(window);glfwTerminate();return 0;
 +}
+diff --git a/include/Interface/IMetaRendererStudioOutline.h b/include/Interface/IMetaRendererStudioOutline.h
+new file mode 100644
+index 0000000..7111526
+--- /dev/null
++++ b/include/Interface/IMetaRendererStudioOutline.h
+@@ -0,0 +1,23 @@
++#pragma once
++#include <IMetaRendererPostScene.h>
++
++struct MetaRendererStudioOutlinePlayer
++{
++    uint32_t slot;
++    uint32_t color; // 0xRRGGBB; authority belongs to the caller's current roster.
++};
++static_assert(sizeof(MetaRendererStudioOutlinePlayer) == 8, "Studio outline ABI");
++
++// Optional extension; no existing Renderer vtable changes. Called only inside
++// the current post-scene callback, with its exact borrowed frame descriptor.
++// Draws actual accepted player Studio models into the caller's current mask
++// target, using the host's pose, bodygroups, skin and material alpha/culling.
++// Does not clear the target or use host depth. A false return invalidates the
++// entire mask. No events, game-state updates, model substitution or GlowShell.
++class IMetaRendererStudioOutline : public IBaseInterface
++{
++public:
++    virtual bool DrawPlayerMask(const MetaRendererPostSceneFrame& frame,
++        const MetaRendererStudioOutlinePlayer* players, uint32_t count) noexcept = 0;
++};
++#define METARENDERER_STUDIO_OUTLINE_INTERFACE_VERSION "MetaRendererStudioOutline_API_001"
+diff --git a/src/studio_outline.inc b/src/studio_outline.inc
+new file mode 100644
+index 0000000..01f06d0
+--- /dev/null
++++ b/src/studio_outline.inc
+@@ -0,0 +1,183 @@
++// Included after the ordinary Studio skin setup. This path uses the same
++// client StudioDrawPlayer/bodygroup/skin code, without STUDIO_EVENTS or any
++// ordinary lighting/deferred/GlowShell pass. All GL writes target the caller's
++// private silhouette FBO. Its two UBOs never overwrite a borrowed host buffer.
++namespace {
++GLuint studio_outline_buffers[2]{};
++
++struct StudioOutlineGLState {
++    GLint program{}, vao{}, array{}, uniform{}, active{}, texture_cache{}, cull_mode{}, front_face{};
++    GLint textures[6][2]{}, samplers[6]{}, unpack_buffer{}, unpack[4]{};
++    GLint binding[2]{}; GLint64 start[2]{}, size[2]{};
++    GLboolean depth{}, depth_write{}, cull{}, blend{}, stencil{};
++    StudioOutlineGLState() {
++        glGetIntegerv(GL_CURRENT_PROGRAM,&program); glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
++        glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&array); glGetIntegerv(GL_UNIFORM_BUFFER_BINDING,&uniform);
++        glGetIntegerv(GL_ACTIVE_TEXTURE,&active); texture_cache=*currenttexture;
++        glGetIntegerv(GL_CULL_FACE_MODE,&cull_mode); glGetIntegerv(GL_FRONT_FACE,&front_face);
++        depth=glIsEnabled(GL_DEPTH_TEST); cull=glIsEnabled(GL_CULL_FACE);
++        stencil=glIsEnabled(GL_STENCIL_TEST); blend=glIsEnabledi(GL_BLEND,0);
++        glGetBooleanv(GL_DEPTH_WRITEMASK,&depth_write);
++        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING,&unpack_buffer);
++        const GLenum names[]={GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,GL_UNPACK_SKIP_ROWS,GL_UNPACK_SKIP_PIXELS};
++        for(unsigned i=0;i<4;++i)glGetIntegerv(names[i],unpack+i);
++        // First use of an invisible skin can upload it. Host HUD consumers may
++        // leave a PBO or row strides bound; ordinary CPU skin uploads need none.
++        glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);
++        glPixelStorei(GL_UNPACK_ALIGNMENT,4);
++        for(unsigned i=1;i<4;++i)glPixelStorei(names[i],0);
++        for(unsigned i=0;i<6;++i){
++            glActiveTexture(GL_TEXTURE0+i); glGetIntegerv(GL_TEXTURE_BINDING_2D,&textures[i][0]);
++            glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY,&textures[i][1]); glGetIntegeri_v(GL_SAMPLER_BINDING,i,samplers+i);
++            glBindSampler(i,0);
++        }
++        for(unsigned i=0;i<2;++i){
++            glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,3+i,binding+i);
++            glGetInteger64i_v(GL_UNIFORM_BUFFER_START,3+i,start+i); glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE,3+i,size+i);
++        }
++        glActiveTexture(GL_TEXTURE0);
++    }
++    ~StudioOutlineGLState(){
++        glUseProgram(program); glBindVertexArray(vao); glBindBuffer(GL_ARRAY_BUFFER,array);
++        for(unsigned i=0;i<2;++i){
++            if(binding[i]&&size[i]>0)glBindBufferRange(GL_UNIFORM_BUFFER,3+i,binding[i],GLintptr(start[i]),GLsizeiptr(size[i]));
++            else glBindBufferBase(GL_UNIFORM_BUFFER,3+i,binding[i]);
++        }
++        glBindBuffer(GL_UNIFORM_BUFFER,uniform);
++        for(unsigned i=0;i<6;++i){
++            glActiveTexture(GL_TEXTURE0+i); glBindTexture(GL_TEXTURE_2D,textures[i][0]);
++            glBindTexture(GL_TEXTURE_2D_ARRAY,textures[i][1]); glBindSampler(i,samplers[i]);
++        }
++        glActiveTexture(active); *currenttexture=texture_cache;
++        glBindBuffer(GL_PIXEL_UNPACK_BUFFER,unpack_buffer);
++        const GLenum names[]={GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,GL_UNPACK_SKIP_ROWS,GL_UNPACK_SKIP_PIXELS};
++        for(unsigned i=0;i<4;++i)glPixelStorei(names[i],unpack[i]);
++        const auto restore=[](GLenum cap,GLboolean value){if(value)glEnable(cap);else glDisable(cap);};
++        restore(GL_DEPTH_TEST,depth);restore(GL_CULL_FACE,cull);restore(GL_STENCIL_TEST,stencil);
++        if(blend)glEnablei(GL_BLEND,0);else glDisablei(GL_BLEND,0);
++        glDepthMask(depth_write);glCullFace(cull_mode);glFrontFace(front_face);
++    }
++};
++
++struct StudioOutlineHostState {
++    cl_entity_t* entity=*currententity;
++    studiohdr_t* header=*pstudiohdr;
++    mstudiomodel_t* submodel=*psubmodel;
++    std::shared_ptr<CStudioModelRenderData> render_data=g_CurrentRenderData;
++    std::array<float,MAXSTUDIOBONES*12> bones{},lights{};
++    float rotation[3][4]{},lightvec[3]{},colormix[3]{},entorigin[3]{};
++    float blend=*r_blend,shade=*r_shadelight;
++    int ambient=*r_ambientlight,forced=*g_ForcedFaceFlags,top=*r_topcolor,bottom=*r_bottomcolor;
++    bool analyzing=r_draw_analyzingstudio;
++    StudioOutlineHostState(){
++        memcpy(bones.data(),*pbonetransform,sizeof(*pbonetransform));
++        memcpy(lights.data(),*plighttransform,sizeof(*plighttransform));
++        memcpy(rotation,*rotationmatrix,sizeof(rotation));memcpy(lightvec,*r_plightvec,sizeof(lightvec));
++        memcpy(colormix,r_colormix,sizeof(colormix));memcpy(entorigin,r_entorigin,sizeof(entorigin));
++        r_draw_analyzingstudio=false;
++    }
++    ~StudioOutlineHostState(){
++        *currententity=entity;*pstudiohdr=header;*psubmodel=submodel;g_CurrentRenderData=render_data;
++        memcpy(*pbonetransform,bones.data(),sizeof(*pbonetransform));
++        memcpy(*plighttransform,lights.data(),sizeof(*plighttransform));
++        memcpy(*rotationmatrix,rotation,sizeof(rotation));memcpy(*r_plightvec,lightvec,sizeof(lightvec));
++        memcpy(r_colormix,colormix,sizeof(colormix));memcpy(r_entorigin,entorigin,sizeof(entorigin));
++        *r_blend=blend;*r_shadelight=shade;*r_ambientlight=ambient;*g_ForcedFaceFlags=forced;
++        *r_topcolor=top;*r_bottomcolor=bottom;r_draw_analyzingstudio=analyzing;
++        g_StudioOutlineMask=false;
++    }
++};
++
++struct StudioOutlineEntityState {
++    cl_entity_t& entity;
++    cl_entity_t saved;
++    explicit StudioOutlineEntityState(cl_entity_t& value):entity(value),saved(value){}
++    ~StudioOutlineEntityState(){entity=saved;}
++};
++
++class CMetaRendererStudioOutline final:public IMetaRendererStudioOutline {
++public:
++    bool DrawPlayerMask(const MetaRendererPostSceneFrame& frame,
++        const MetaRendererStudioOutlinePlayer* players,uint32_t count) noexcept override {
++        if(!RendererPostScene::IsCurrentFrame(frame)||g_StudioOutlineMask||count>64||(!players&&count))return false;
++        std::array<uint32_t,65> colors{}; std::array<bool,65> selected{};
++        for(unsigned i=0;i<count;++i){
++            const auto& p=players[i];if(!p.slot||p.slot>64||(p.color&0xff000000u)||selected[p.slot])return false;
++            selected[p.slot]=true;colors[p.slot]=p.color;
++        }
++        if(!count||!r_drawentities->value)return true;
++        if(!gpStudioInterface||!*gpStudioInterface||!(*gpStudioInterface)->StudioDrawPlayer||
++            !currententity||!pstudiohdr||!psubmodel||!pbonetransform||!plighttransform||!rotationmatrix)return false;
++        try {
++            StudioOutlineGLState gl_state;
++            StudioOutlineHostState host_state;
++            g_StudioOutlineMask=true;g_StudioOutlineFailed=false;
++            // cl_visedicts is the actual list accepted by HUD_AddEntity for this
++            // view. Suppressed MC avatars cannot be reintroduced by looking up
++            // arbitrary slots. The Studio player wrapper retains self hiding.
++            for(int i=0;i<*cl_numvisedicts;++i){
++                auto* entity=cl_visedicts[i];
++                if(!entity||!entity->player||entity->index<1||entity->index>64||!selected[entity->index]||
++                    !entity->model||entity->model->type!=mod_studio||R_IsHidingEntity(entity))continue;
++                selected[entity->index]=false;
++                const auto* state=R_GetPlayerState(entity->index-1);if(!state)continue;
++                StudioOutlineEntityState saved(*entity); auto player_state=*state;
++                *currententity=entity;g_StudioOutlineColor=colors[entity->index];
++                // Invoke only rendering, including real gait/body/skin setup.
++                // Hidden players still need pose setup; presentation is restored
++                // before returning and no ordinary color pass is invoked.
++                entity->curstate.rendermode=kRenderNormal;entity->curstate.renderamt=255;
++                entity->curstate.renderfx=kRenderFxNone;*r_blend=1;*g_ForcedFaceFlags=0;
++                (*gpStudioInterface)->StudioDrawPlayer(STUDIO_RENDER,&player_state);
++                if(g_StudioOutlineFailed)return false;
++            }
++            return glGetError()==GL_NO_ERROR;
++        }catch(...){g_StudioOutlineMask=false;return false;}
++    }
++};
++}
++EXPOSE_SINGLE_INTERFACE(CMetaRendererStudioOutline,IMetaRendererStudioOutline,METARENDERER_STUDIO_OUTLINE_INTERFACE_VERSION);
++
++static void R_ShutdownStudioOutline(){
++    glDeleteBuffers(2,studio_outline_buffers);studio_outline_buffers[0]=studio_outline_buffers[1]=0;
++    g_StudioOutlineMask=g_StudioOutlineFailed=false;
++}
++static void R_StudioOutlineBegin(CStudioModelRenderData* data){
++    studio_ubo_t parameters{};
++    memcpy(parameters.r_origin,r_origin,3*sizeof(float));
++    parameters.r_color[0]=float((g_StudioOutlineColor>>16)&255)/255.f;
++    parameters.r_color[1]=float((g_StudioOutlineColor>>8)&255)/255.f;
++    parameters.r_color[2]=float(g_StudioOutlineColor&255)/255.f;parameters.r_color[3]=1;
++    const void* bytes[]={&parameters,*pbonetransform};
++    const size_t sizes[]={sizeof(parameters),sizeof(*pbonetransform)};
++    for(unsigned i=0;i<2;++i){
++        const bool allocate=studio_outline_buffers[i]==0;
++        if(allocate)glGenBuffers(1,studio_outline_buffers+i);
++        glBindBuffer(GL_UNIFORM_BUFFER,studio_outline_buffers[i]);
++        if(allocate)glBufferData(GL_UNIFORM_BUFFER,sizes[i],bytes[i],GL_STREAM_DRAW);
++        else glBufferSubData(GL_UNIFORM_BUFFER,0,sizes[i],bytes[i]);
++        glBindBufferBase(GL_UNIFORM_BUFFER,3+i,studio_outline_buffers[i]);
++    }
++    GL_BindVAO(data->hVAO);
++}
++static void R_StudioOutlineMesh(CStudioModelRenderData* data,CStudioModelRenderMesh* mesh,
++    studiohdr_t* texture_header,mstudiotexture_t* textures,int skin){
++    if(mesh->iIndiceCount<=0)return;
++    constexpr program_state_t material_bits=STUDIO_NF_MASKED|STUDIO_NF_DOUBLE_FACE|STUDIO_NF_CHROME|
++        STUDIO_PACKED_DIFFUSETEXTURE_ENABLED|STUDIO_ANIMATED_TEXTURE_ENABLED;
++    program_state_t state=textures[skin].flags&(STUDIO_NF_MASKED|STUDIO_NF_DOUBLE_FACE|STUDIO_NF_CHROME);
++    CStudioSetupSkinContext context(&state);
++    context.width=textures[skin].width;context.height=textures[skin].height;
++    R_StudioSetupSkinEx(data,texture_header,skin,&context);
++    state=(state&material_bits)|STUDIO_GLOW_COLOR_ENABLED;
++    if(context.width<=0||context.height<=0){g_StudioOutlineFailed=true;return;}
++    studio_program_t program{};R_UseStudioProgram(state,&program);
++    glUniform2f(program.r_uvscale,context.scaleX/context.width,context.scaleY/context.height);
++    if(program.r_packed_stride!=-1)glUniform1f(program.r_packed_stride,context.packedCount>0?1.f/context.packedCount:0.f);
++    if(program.r_packed_index!=-1)glUniform4f(program.r_packed_index,context.packedDiffuseIndex,context.packedNormalIndex,context.packedParallaxIndex,context.packedSpecularIndex);
++    if(program.r_framerate_numframes!=-1)glUniform2f(program.r_framerate_numframes,context.framerate,context.numframes);
++    glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);glDisable(GL_STENCIL_TEST);glDisablei(GL_BLEND,0);
++    glCullFace(GL_FRONT);
++    if(state&STUDIO_NF_DOUBLE_FACE)glDisable(GL_CULL_FACE);else glEnable(GL_CULL_FACE);
++    glDrawElements(GL_TRIANGLES,mesh->iIndiceCount,GL_UNSIGNED_INT,BUFFER_OFFSET(mesh->iStartIndex));
++}
+diff --git a/tests/studio_outline_gl_tests.cpp b/tests/studio_outline_gl_tests.cpp
+new file mode 100644
+index 0000000..d773771
+--- /dev/null
++++ b/tests/studio_outline_gl_tests.cpp
+@@ -0,0 +1,196 @@
++// Actual provider, shader selection, skin-family lookup and GPU mask drawing.
++// Engine StudioDrawPlayer/pose and resource loading are explicit adapters; this
++// does not substitute for live client model/animation acceptance.
++#define main UnusedStudioFaceMain
++#include "studio_shadow_face_gl_tests.cpp"
++#undef main
++#include "../src/post_scene.h"
++#include <IMetaRendererStudioOutline.h>
++#include <stdexcept>
++
++namespace {
++bool g_StudioOutlineMask{},g_StudioOutlineFailed{};
++uint32_t g_StudioOutlineColor{};
++std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData;
++std::unordered_map<program_state_t,studio_program_t> g_StudioProgramTable;
++cl_entity_t entities[3]{},*current=&entities[0],*visibleEntities[3]{};
++int visibleCount{},textureCache{},forced{},ambient{},top{},bottom{};
++studiohdr_t* header{};mstudiomodel_t* submodel{};
++float boneTransforms[MAXSTUDIOBONES][3][4]{},lightTransforms[MAXSTUDIOBONES][3][4]{};
++float rotation[3][4]{},light[3]{},mix[3]{},origin[3]{},viewOrigin[3]{};
++float blend=.3f,shade=.4f;cvar_t drawEntities{},faceCull{},baseSpecular{};
++bool hidden{},throwDraw{},recursive{};unsigned playerCalls{},skinSeen{};
++float poseOffset{};IMetaRendererStudioOutline* provider{};
++const MetaRendererPostSceneFrame* borrowedFrame{};
++std::shared_ptr<CStudioModelRenderData> renderData;
++CStudioModelRenderMesh renderMesh;
++struct ModelResource {studiohdr_t header{};mstudiotexture_t textures[2]{};short skins[2]{0,1};} resource;
++}
++cl_entity_t** currententity=&current;
++cl_entity_t** cl_visedicts=visibleEntities;
++int* cl_numvisedicts=&visibleCount;
++int* currenttexture=&textureCache;
++studiohdr_t** pstudiohdr=&header;
++mstudiomodel_t** psubmodel=&submodel;
++float (*pbonetransform)[MAXSTUDIOBONES][3][4]=&boneTransforms;
++float (*plighttransform)[MAXSTUDIOBONES][3][4]=&lightTransforms;
++float (*rotationmatrix)[3][4]=&rotation;
++vec3_t* r_plightvec=&light;
++float *r_colormix=mix,*r_entorigin=origin,*r_origin=viewOrigin,*r_blend=&blend,*r_shadelight=&shade;
++int *r_ambientlight=&ambient,*g_ForcedFaceFlags=&forced,*r_topcolor=&top,*r_bottomcolor=&bottom;
++cvar_t *r_drawentities=&drawEntities,*r_studio_shadow_face_cull=&faceCull,*r_studio_base_specular=&baseSpecular;
++bool r_draw_analyzingstudio{},g_bUseOITBlend{};
++r_studio_interface_t studioInterface{},*studioPointer=&studioInterface;
++r_studio_interface_t** gpStudioInterface=&studioPointer;
++bool R_IsHidingEntity(cl_entity_t*){return hidden;}
++entity_state_t* R_GetPlayerState(int index){return index==0?&entities[1].curstate:nullptr;}
++qboolean UTIL_ParseCvarAsVector2(cvar_t*,float*){return false;}
++void GL_BindVAO(GLuint value){glBindVertexArray(value);}
++StudioConVar::StudioConVar(){} StudioConVar::~StudioConVar(){}
++CStudioModelRenderData::~CStudioModelRenderData(){}
++GLuint GL_CompileShaderFileEx(const CCompileShaderArgs* args){
++    Check(!args->gsfile,"mask is a single view");
++    return Program(args->vsdefine?args->vsdefine:"",nullptr);
++}
++#undef Sys_Error
++#define Sys_Error(...) throw std::runtime_error("shader failure")
++#include "studio_outline_functions.inc"
++#undef Sys_Error
++void R_StudioSetupSkinEx(const CStudioModelRenderData*,studiohdr_t*,int skin,CStudioSetupSkinContext*){
++    GLint unpack{};glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING,&unpack);Check(unpack==0,"CPU skin upload is not interpreted as PBO offset");
++    for(GLenum p:{GL_UNPACK_ROW_LENGTH,GL_UNPACK_SKIP_ROWS,GL_UNPACK_SKIP_PIXELS}){glGetIntegerv(p,&unpack);Check(unpack==0,"CPU skin upload strides normalized");}
++    skinSeen=skin;
++    GL_BindTextureUnit(0,GL_TEXTURE_2D,resource.textures[skin].index);
++}
++#include "../src/studio_outline.inc"
++
++namespace {
++using ColorPixels=std::vector<unsigned char>;
++ColorPixels ReadColors(){ColorPixels result(Size*Size*4);glReadPixels(0,0,Size,Size,GL_RGBA,GL_UNSIGNED_BYTE,result.data());return result;}
++unsigned Colored(const ColorPixels& p){unsigned n=0;for(size_t i=3;i<p.size();i+=4)n+=p[i]!=0;return n;}
++int EnginePlayer(int flags,entity_state_t* state){
++    ++playerCalls;Check(flags==STUDIO_RENDER,"no repeated gameplay events");
++    Check(state!=&entities[1].curstate,"player network state is copied");
++    Check(current->curstate.rendermode==kRenderNormal&&current->curstate.renderamt==255,"invisible player receives pose setup");
++    Check(current->curstate.skin==1&&current->curstate.body==7,"actual skin and body preserved");
++    if(recursive){MetaRendererStudioOutlinePlayer p{1,0x12b957};Check(!provider->DrawPlayerMask(*borrowedFrame,&p,1),"nested mask rejected");}
++    state->body=13;current->curstate.body=99;
++    current->origin[0]=27;
++    if(throwDraw)throw std::runtime_error("engine failure");
++    header=&resource.header;
++    for(auto& bone:boneTransforms){std::memset(bone,0,sizeof(bone));for(int i=0;i<3;++i)bone[i][i]=1;bone[0][3]=poseOffset;}
++    mstudiotexture_t* textures=nullptr;short* skin=nullptr;
++    R_StudioGetTextureHeaderSkinref(header,header,renderData.get(),current,&textures,&skin);
++    Check(textures&&skin&&skin[0]==1,"production skin-family selection");
++    R_StudioOutlineBegin(renderData.get());
++    R_StudioOutlineMesh(renderData.get(),&renderMesh,header,textures,skin[0]);
++    return 1;
++}
++std::vector<GLint64> GLState(){
++    std::vector<GLint64> s;
++    for(GLenum p:{GL_CURRENT_PROGRAM,GL_VERTEX_ARRAY_BINDING,GL_ARRAY_BUFFER_BINDING,GL_UNIFORM_BUFFER_BINDING,GL_ACTIVE_TEXTURE,
++        GL_CULL_FACE_MODE,GL_FRONT_FACE,GL_DEPTH_WRITEMASK,GL_PIXEL_UNPACK_BUFFER_BINDING,GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,
++        GL_UNPACK_SKIP_ROWS,GL_UNPACK_SKIP_PIXELS,GL_DRAW_FRAMEBUFFER_BINDING,GL_READ_FRAMEBUFFER_BINDING}){
++        GLint v{};glGetIntegerv(p,&v);s.push_back(v);
++    }
++    for(GLenum p:{GL_DEPTH_TEST,GL_CULL_FACE,GL_STENCIL_TEST})s.push_back(glIsEnabled(p));
++    for(int i=0;i<4;++i)s.push_back(glIsEnabledi(GL_BLEND,i));
++    GLint active{};glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
++    for(unsigned i=0;i<6;++i){glActiveTexture(GL_TEXTURE0+i);GLint v{};for(GLenum p:{GL_TEXTURE_BINDING_2D,GL_TEXTURE_BINDING_2D_ARRAY}){glGetIntegerv(p,&v);s.push_back(v);}glGetIntegeri_v(GL_SAMPLER_BINDING,i,&v);s.push_back(v);}
++    glActiveTexture(active);
++    for(int i=3;i<=4;++i)for(GLenum p:{GL_UNIFORM_BUFFER_BINDING,GL_UNIFORM_BUFFER_START,GL_UNIFORM_BUFFER_SIZE}){GLint64 v{};glGetInteger64i_v(p,i,&v);s.push_back(v);}
++    s.push_back(textureCache);return s;
++}
++struct Callback : IMetaRendererPostSceneCallbacks {
++    bool result{};MetaRendererStudioOutlinePlayer selected{1,0x12b957};uint32_t count=1;
++    void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override {
++        borrowedFrame=&frame;result=provider->DrawPlayerMask(frame,&selected,count);borrowedFrame=nullptr;
++    }
++};
++void MaskCases(){
++    GLint status{};provider=static_cast<IMetaRendererStudioOutline*>(CreateInterface(METARENDERER_STUDIO_OUTLINE_INTERFACE_VERSION,&status));
++    auto* post=static_cast<IMetaRendererPostScene*>(CreateInterface(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
++    Check(provider&&post&&status==IFACE_OK,"real optional interface factories");
++    GLuint fbo{},color{},depth{},ebo{},sentinels[4]{},samplers[6]{};
++    glGenFramebuffers(1,&fbo);glBindFramebuffer(GL_FRAMEBUFFER,fbo);
++    glGenTextures(1,&color);glBindTexture(GL_TEXTURE_2D,color);glTexStorage2D(GL_TEXTURE_2D,1,GL_RGBA8,Size,Size);
++    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,GL_TEXTURE_2D,color,0);
++    glGenTextures(1,&depth);glBindTexture(GL_TEXTURE_2D,depth);glTexStorage2D(GL_TEXTURE_2D,1,GL_DEPTH24_STENCIL8,Size,Size);
++    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_DEPTH_STENCIL_ATTACHMENT,GL_TEXTURE_2D,depth,0);
++    Check(glCheckFramebufferStatus(GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE,"mask target complete");
++    glViewport(0,0,Size,Size);
++    glGenVertexArrays(1,&vao);glBindVertexArray(vao);glGenBuffers(1,&vbo);
++    SetupMesh({{{-.6f,-.6f,0},{0,0},0},{{0,.6f,0},{.5f,1},0},{{.6f,-.6f,0},{1,0},0}});
++    glEnableVertexAttribArray(STUDIO_VA_POSITION);glVertexAttribPointer(STUDIO_VA_POSITION,3,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)offsetof(Vertex,position));
++    glEnableVertexAttribArray(STUDIO_VA_TEXCOORD);glVertexAttribPointer(STUDIO_VA_TEXCOORD,2,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)offsetof(Vertex,uv));
++    glEnableVertexAttribArray(STUDIO_VA_PACKEDBONE);glVertexAttribIPointer(STUDIO_VA_PACKEDBONE,1,GL_UNSIGNED_INT,sizeof(Vertex),(void*)offsetof(Vertex,bone));
++    glVertexAttrib3f(STUDIO_VA_NORMAL,0,0,1);glVertexAttrib3f(STUDIO_VA_SMOOTHNORMAL,0,0,1);
++    glVertexAttrib3f(STUDIO_VA_TANGENT,1,0,0);glVertexAttrib3f(STUDIO_VA_BITANGENT,0,1,0);
++    glGenBuffers(1,&ebo);glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ebo);const unsigned indices[]{0,1,2};glBufferData(GL_ELEMENT_ARRAY_BUFFER,sizeof(indices),indices,GL_STATIC_DRAW);
++    glGenBuffers(1,&cameraBuffer);camera_ubo_t camera{};camera.numViews=1;for(int i=0;i<4;++i)camera.views[0].worldMatrix[i][i]=camera.views[0].projMatrix[i][i]=1;
++    Upload(cameraBuffer,camera);glBindBufferBase(GL_UNIFORM_BUFFER,1,cameraBuffer);
++    glGenBuffers(1,&sceneBuffer);scene={};scene.r_g=scene.v_gamma=scene.v_texgamma=scene.v_lightgamma=1;Upload(sceneBuffer,scene);glBindBufferBase(GL_UNIFORM_BUFFER,0,sceneBuffer);
++    const auto white=Texture2D(1,1,{255,255,255,255});
++    const auto cutout=Texture2D(2,1,{255,255,255,127,255,255,255,128});
++    resource.header.textureindex=offsetof(ModelResource,textures);resource.header.skinindex=offsetof(ModelResource,skins);
++    resource.header.numtextures=resource.header.numskinfamilies=2;resource.header.numskinref=1;
++    for(auto& texture:resource.textures){texture.index=white;texture.width=texture.height=1;}
++    renderData=std::make_shared<CStudioModelRenderData>(nullptr);renderData->hVAO=vao;renderMesh.iStartIndex=0;renderMesh.iIndiceCount=3;
++    model_t model{};model.type=mod_studio;entities[1]={};entities[1].index=entities[1].player=1;entities[1].model=&model;
++    entities[1].curstate.number=1;entities[1].curstate.body=7;entities[1].curstate.skin=1;
++    entities[1].curstate.rendermode=kRenderTransAlpha;entities[1].curstate.renderamt=0;
++    visibleEntities[0]=visibleEntities[1]=&entities[1];visibleCount=2;drawEntities.value=1;studioInterface.StudioDrawPlayer=EnginePlayer;
++    glGenBuffers(4,sentinels);std::array<unsigned char,8192> pattern{};pattern.fill(0xa7);
++    for(auto b:sentinels){glBindBuffer(GL_UNIFORM_BUFFER,b);glBufferData(GL_UNIFORM_BUFFER,pattern.size(),pattern.data(),GL_STATIC_DRAW);}
++    GLint alignment{};glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,&alignment);
++    glBindBufferRange(GL_UNIFORM_BUFFER,3,sentinels[0],alignment,512);glBindBufferBase(GL_UNIFORM_BUFFER,4,sentinels[1]);
++    glBindBuffer(GL_UNIFORM_BUFFER,sentinels[2]);glBindBuffer(GL_ARRAY_BUFFER,sentinels[3]);
++    glGenSamplers(6,samplers);for(int i=0;i<6;++i){glActiveTexture(GL_TEXTURE0+i);glBindTexture(GL_TEXTURE_2D,white);glBindSampler(i,samplers[i]);}
++    glActiveTexture(GL_TEXTURE4);glEnablei(GL_BLEND,1);glEnablei(GL_BLEND,3);glFrontFace(GL_CCW);glCullFace(GL_BACK);
++    glEnable(GL_DEPTH_TEST);glEnable(GL_STENCIL_TEST);glBindBuffer(GL_PIXEL_UNPACK_BUFFER,sentinels[3]);
++    glPixelStorei(GL_UNPACK_ALIGNMENT,8);glPixelStorei(GL_UNPACK_ROW_LENGTH,13);glPixelStorei(GL_UNPACK_SKIP_PIXELS,2);textureCache=1234;
++    MetaRendererPostSceneFrame frame{};frame.struct_size=sizeof(frame);frame.flags=META_POST_SCENE_GAMMA;frame.framebuffer=fbo;frame.color_texture=color;frame.depth_texture=depth;frame.depth_sample_texture=depth+100;
++    frame.width=frame.height=Size;frame.color_format=GL_RGBA8;frame.depth_format=GL_DEPTH24_STENCIL8;frame.samples=1;frame.viewport[2]=frame.viewport[3]=Size;frame.near_plane=1;frame.far_plane=100;
++    for(int i=0;i<16;i+=5)frame.world_matrix[i]=frame.projection_matrix[i]=frame.inverse_world_matrix[i]=frame.inverse_projection_matrix[i]=1;
++    RendererPostScene::Context context{};context.rendering_view=true;Callback callback;Check(post->RegisterPostSceneCallbacks(&callback),"callback registered");
++    Check(!provider->DrawPlayerMask(frame,&callback.selected,1),"calls outside callback rejected");
++    const auto draw=[&](bool success=true){
++        const auto before=GLState();const auto savedEntity=entities[1];auto savedBones=std::array<float,MAXSTUDIOBONES*12>{};memcpy(savedBones.data(),boneTransforms,sizeof(boneTransforms));
++        const float clear[4]{};glClearBufferfv(GL_COLOR,0,clear);glClearBufferfi(GL_DEPTH_STENCIL,0,.125f,19);
++        Check(RendererPostScene::Dispatch(context,frame)==1&&callback.result==success,"actual provider result");
++        Check(GLState()==before,"GL bindings, ranges, textures, samplers and indexed blend restored");
++        Check(!memcmp(&savedEntity,&entities[1],sizeof(savedEntity))&&!memcmp(savedBones.data(),boneTransforms,sizeof(boneTransforms)),"entity and bones restored");
++        float z{};unsigned char stencil{};glReadPixels(32,32,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&z);glReadPixels(32,32,1,1,GL_STENCIL_INDEX,GL_UNSIGNED_BYTE,&stencil);
++        Check(std::abs(z-.125f)<1e-6f&&stencil==19,"mask ignores and preserves depth/stencil");
++        return ReadColors();
++    };
++    recursive=true;const auto opaque=draw();recursive=false;Check(Colored(opaque)>400&&playerCalls==1,"real triangles rendered once despite duplicate list");
++    for(size_t i=0;i<opaque.size();i+=4)if(opaque[i+3])Check(opaque[i]==0x12&&opaque[i+1]==0xb9&&opaque[i+2]==0x57,"exact team color");
++    poseOffset=.3f;Check(draw()!=opaque,"real bone transform moves pixels");poseOffset=0;
++    resource.textures[1].flags=STUDIO_NF_MASKED;resource.textures[1].index=cutout;
++    const auto masked=draw();Check(Colored(masked)>0&&Colored(masked)<Colored(opaque)&&skinSeen==1,"actual skin alpha 127 discarded, 128 retained");
++    resource.textures[1].flags=0;resource.textures[1].index=white;
++    glFrontFace(GL_CW);Check(Colored(draw())==0,"ordinary material culling retained");resource.textures[1].flags=STUDIO_NF_DOUBLE_FACE;Check(Colored(draw())==Colored(opaque),"double-sided material retained");glFrontFace(GL_CCW);
++    hidden=true;Check(Colored(draw())==0,"hidden accepted entity skipped");hidden=false;
++    visibleCount=0;Check(Colored(draw())==0,"suppressed MC avatar cannot be resurrected");visibleCount=2;
++    throwDraw=true;Check(Colored(draw(false))==0,"exception restores state without a mask");throwDraw=false;Check(Colored(draw())>0,"recovery after draw failure");
++    callback.selected.color=0x1000000;draw(false);callback.selected.color=0x12b957;
++    for(auto b:{sentinels[0],sentinels[1]}){glBindBuffer(GL_UNIFORM_BUFFER,b);std::array<unsigned char,8192> read{};glGetBufferSubData(GL_UNIFORM_BUFFER,0,read.size(),read.data());Check(read==pattern,"borrowed UBO contents preserved");}
++    Check(post->UnregisterPostSceneCallbacks(&callback),"callback revoked");R_ShutdownStudioOutline();
++    for(const auto& [state,p]:g_StudioProgramTable)glDeleteProgram(p.program);g_StudioProgramTable.clear();
++    glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);glPixelStorei(GL_UNPACK_ALIGNMENT,4);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
++    glDeleteSamplers(6,samplers);glDeleteBuffers(4,sentinels);glDeleteBuffers(1,&cameraBuffer);glDeleteBuffers(1,&sceneBuffer);glDeleteBuffers(1,&ebo);glDeleteBuffers(1,&vbo);glDeleteVertexArrays(1,&vao);
++    glDeleteTextures(1,&white);glDeleteTextures(1,&cutout);glDeleteTextures(1,&color);glDeleteTextures(1,&depth);glDeleteFramebuffers(1,&fbo);renderData.reset();
++    Check(glGetError()==GL_NO_ERROR,"no GL errors");
++}
++}
++int main(){
++    if(!glfwInit())return 2;
++    for(int profile:{GLFW_OPENGL_CORE_PROFILE,GLFW_OPENGL_COMPAT_PROFILE}){
++        glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,4);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);glfwWindowHint(GLFW_OPENGL_PROFILE,profile);
++        auto* window=glfwCreateWindow(Size,Size,"Studio outline regression",nullptr,nullptr);if(!window)return 2;
++        glfwMakeContextCurrent(window);glewExperimental=GL_TRUE;if(glewInit()!=GLEW_OK)return 2;while(glGetError()!=GL_NO_ERROR){}
++        playerCalls=0;MaskCases();std::printf("Studio outline GPU profile %d passed on %s\n",profile,glGetString(GL_RENDERER));glfwDestroyWindow(window);
++    }
++    glfwTerminate();std::printf("Studio outline: %u checks passed; engine pose/resource adapters, no live gameplay.\n",checks);
++}
+diff --git a/tests/extract_studio_outline.py b/tests/extract_studio_outline.py
+new file mode 100644
+index 0000000..053c80b
+--- /dev/null
++++ b/tests/extract_studio_outline.py
+@@ -0,0 +1,19 @@
++"""Extract whole production shader/material functions for the Studio mask GPU test."""
++import argparse
++import hashlib
++import json
++from pathlib import Path
++from extract_studio_depth_executor import function
++
++p = argparse.ArgumentParser(description=__doc__)
++p.add_argument('--src', type=Path, required=True)
++p.add_argument('--output', type=Path, required=True)
++a = p.parse_args()
++studio = (a.src / 'gl_studio.cpp').read_text(encoding='utf-8-sig')
++skin = 'void R_StudioGetTextureHeaderSkinref(\n    studiohdr_t*            studiohdr,\n    studiohdr_t*            ptexturehdr,'
++parts = [function(studio, name) for name in ('void R_UseStudioProgram(', skin)]
++parts += [function((a.src / file).read_text(encoding='utf-8-sig'), name) for file, name in (
++    ('gl_rmisc.cpp', 'void GL_BindTextureUnit('), ('gl_shader.cpp', 'void GL_UseProgram('))]
++a.output.write_text('\n\n'.join(parts), encoding='utf-8')
++print(json.dumps({'production': hashlib.sha256(studio.encode()).hexdigest(),
++                  'extracted': hashlib.sha256(a.output.read_bytes()).hexdigest()}))

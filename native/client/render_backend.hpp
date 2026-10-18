@@ -14,6 +14,7 @@
 #include <IMetaRendererSceneStaticShadows.h>
 #include <IMetaRendererWorldEdit.h>
 #include <IMetaRendererPostScene.h>
+#include <IMetaRendererStudioOutline.h>
 #include "goldcraft/atlas.hpp"
 #include "goldcraft/particles.hpp"
 #include "goldcraft/render_bounds.hpp"
@@ -63,6 +64,7 @@ bool cull_shadow_bounds(const RenderBounds& bounds);
 IMetaRendererWorldEdit* world_edit();
 IMetaRendererWorldEdit2* world_edit2();
 IMetaRendererPostScene* post_scene();
+IMetaRendererStudioOutline* studio_outline();
 bool owns_context();
 void set_light_shadow(int key, unsigned size);
 bool update_scene_lights(std::span<const SceneLight> lights) noexcept;

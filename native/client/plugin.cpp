@@ -1,6 +1,7 @@
 #include "render_backend.hpp"
 #include "post_effect_replay.hpp"
 #include "entity_outline.hpp"
+#include "native_outline.hpp"
 #include "host_ui.hpp"
 #include "host_text.hpp"
 #include "work_history.hpp"
@@ -74,6 +75,8 @@ metahook_api_t* api = nullptr;
 Bytes binding;
 status_motion::Receiver native_motion;
 status_vision::Receiver native_vision;
+status_glow::Receiver native_glow;
+bool native_outline_ready=false;
 view_distortion::Receiver view_distortion_frames;
 client_map::EditTransaction map_edits;
 edits::Assembler edit_assembler;
@@ -467,6 +470,8 @@ bool EntityFrameFresh(){
         minecraft_life,server_player_life,Seconds()-last_entity_frame);
 }
 void StopPostScene(){
+    native_outline_ready=false;native_glow.clear();
+    if(gEngfuncs.Cvar_SetValue)gEngfuncs.Cvar_SetValue(status_glow::client_capability,0);
     if(post_provider)post_provider->UnregisterPostSceneCallbacks(&post_scene_callbacks);
     post_provider=nullptr;entity_outline_replay.reset();entity_outline_gamma=nullptr;entity_outline_error.clear();post_replay.reset();ClearPostEffects();
 }
@@ -502,6 +507,7 @@ void ReleaseHostUse(){
     host_use_sources=0;host_use_sent=false;host_use_world=0;host_use_life=0;next_host_use=0;
 }
 void ResetWorld() {
+    native_glow.clear();
     RestoreBenchmarkFramerate();
     ReleaseMinecraftKeys();
     form_menu.clear();menu_pressed.fill(false);server_hud::reset();
@@ -818,6 +824,14 @@ void WriteDiagnostics() {
         frame_work_max_ms=view_frame_max_ms=0;
     }
 }
+int GlowMessage(const char*,int size,void* data){
+    try{
+        if(!data||size!=status_glow::wire_bytes)throw ProtocolError("Invalid GCOutline length");
+        const auto p=status_glow::decode_presentation(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
+        if(native_outline_ready)native_glow.accept(p,world,Seconds());
+    }catch(const std::exception& e){Log(e.what());}
+    return 1;
+}
 int VisionMessage(const char*,int size,void* data){
     try{
         if(!data||size!=status_vision::wire_bytes)throw ProtocolError("Invalid GCVision length");
@@ -842,7 +856,7 @@ int BindingMessage(const char*,int size,void* data) {
         auto view=std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size));
         Reader r(view); auto new_world=r.u64();auto slot=r.u32(),serial=r.u32(); r.key(); r.finish();
         if(new_world!=map_edits.state().epoch){map_edits.reset(new_world);edit_assembler.reset(new_world);client_map::reset();next_edit_query=0;edit_recovery=true;}
-        if(new_world!=world){ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
+        if(new_world!=world){native_glow.clear();ClearSections();ClearLights();ClearDynamic();ClearHud();player_presentations={};presentation_times={};view_interpolator.clear();atlas_generation=0;minecraft_control=false;pose_sequence=input_sequence=0;}
         if(new_world!=world||slot!=player_slot||serial!=player_serial){native_motion.clear();native_vision.clear();view_distortion_frames.clear();ReleaseHostUse();minecraft_life=server_player_life=0;minecraft_control=server_minecraft_form=false;view_interpolator.clear();}
         world=new_world;player_slot=slot;player_serial=serial;binding.assign(view.begin(),view.end());
         link.send(Type::client_binding,binding);
@@ -1069,6 +1083,9 @@ void InitHud() {
     gEngfuncs.pfnRegisterVariable(status_vision::client_capability,"1",FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue(status_vision::client_capability,1);
     gEngfuncs.pfnHookUserMsg(status_vision::message_name,VisionMessage);
+    gEngfuncs.pfnRegisterVariable(status_glow::client_capability,"0",FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(status_glow::client_capability,0);
+    gEngfuncs.pfnHookUserMsg(status_glow::message_name,GlowMessage);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
     gEngfuncs.pfnHookUserMsg("GCEdit",EditMessage);
     gEngfuncs.pfnHookUserMsg(brush::message_name,BrushIdentityMessage);
@@ -1135,6 +1152,8 @@ int VidInit() {
     if(post_provider&&!post_provider->RegisterPostSceneCallbacks(&post_scene_callbacks)){
         post_provider=nullptr;Log("Post-scene callback registration failed");
     }
+    native_outline_ready=post_provider&&render::studio_outline();
+    gEngfuncs.Cvar_SetValue(status_glow::client_capability,native_outline_ready?1.f:0.f);
     return result;
 }
 void CalcRefDef(ref_params_t* params) {
@@ -1926,10 +1945,11 @@ void DrawPostEffects(const MetaRendererPostSceneFrame& frame) noexcept {
         try{if(post_error!=post_replay->last_error()){post_error=post_replay->last_error();Log(post_error);}}catch(...){}
     }
 }
-bool DrawEntityOutlineMask(void*,const MetaRendererPostSceneFrame& frame) noexcept {
+bool DrawEntityOutlineMask(void* user,const MetaRendererPostSceneFrame& frame) noexcept {
+    const auto& submission=*static_cast<const OutlineSubmission*>(user);
     try{
         const auto errors=render::statistics().error_count;
-        {
+        if(submission.minecraft){
             render::Pass pass(true,0,&frame);if(!pass.ready())return false;
             for(const auto& batch:entity_batches){
                 if(!(batch.flags&entity_outline)||batch.vertices.empty())continue;
@@ -1940,17 +1960,20 @@ bool DrawEntityOutlineMask(void*,const MetaRendererPostSceneFrame& frame) noexce
                 batch.gpu->draw(batch.vertices,entity_revision,true);
             }
         }
+        if(submission.count&&(!render::studio_outline()||!render::studio_outline()->DrawPlayerMask(frame,submission.players.data(),submission.count)))return false;
         return errors==render::statistics().error_count;
     }catch(...){return false;}
 }
 void DrawEntityOutlines(const MetaRendererPostSceneFrame& frame) noexcept {
-    if(!entity_outline_replay||!link.entity_outlines()||link.generation()!=last_link_generation||!world||
-       !MatchingHostProtocol()||!atlas_texture||!atlas_generation||!EntityFrameFresh()||!render::owns_context())return;
-    const bool any=std::any_of(entity_batches.begin(),entity_batches.end(),[](const auto& b){return (b.flags&entity_outline)&&!b.vertices.empty();});
-    if(!any)return;
+    if(!entity_outline_replay||!world||!MatchingHostProtocol()||!render::owns_context())return;
+    OutlineSubmission submission;
+    if(native_outline_ready)submission=native_outline_submission(native_glow,player_presentations,presentation_times,world,Seconds());
+    submission.minecraft=link.entity_outlines()&&link.generation()==last_link_generation&&atlas_texture&&atlas_generation&&EntityFrameFresh()&&
+        std::any_of(entity_batches.begin(),entity_batches.end(),[](const auto& b){return (b.flags&entity_outline)&&!b.vertices.empty();});
+    if(!submission.minecraft&&!submission.count)return;
     if((frame.flags&META_POST_SCENE_LINEAR)&&!entity_outline_gamma)return;
     const float gamma=(frame.flags&META_POST_SCENE_LINEAR)?entity_outline_gamma->value:1.f;
-    if(entity_outline_replay->replay(frame,gamma,DrawEntityOutlineMask,nullptr))entity_outline_error.clear();
+    if(entity_outline_replay->replay(frame,gamma,DrawEntityOutlineMask,&submission))entity_outline_error.clear();
     else try{if(entity_outline_error!=entity_outline_replay->last_error()){entity_outline_error=entity_outline_replay->last_error();Log(entity_outline_error);}}catch(...){}
 }
 bool DrawStaticShadow(std::uint32_t flags) noexcept {

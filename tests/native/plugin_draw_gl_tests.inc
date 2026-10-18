@@ -12,6 +12,8 @@ using goldcraft::ProtocolError;
 using goldcraft::to_goldsrc;
 using goldcraft::entity_outline;
 using goldcraft::entity_outline_cull;
+using goldcraft::OutlineSubmission;
+using goldcraft::native_outline_submission;
 using goldcraft::read_atlas_patches;
 using goldcraft::AtlasFootprint;
 using goldcraft::AtlasPixelTiles;
@@ -51,6 +53,10 @@ std::unique_ptr<render::EntityOutline> entity_outline_replay;
 Cvar* entity_outline_gamma=nullptr;
 std::string entity_outline_error;
 bool matching_protocol=true;
+bool native_outline_ready=false;
+goldcraft::status_glow::Receiver native_glow;
+std::array<goldcraft::PlayerPresentation,65> player_presentations{};
+std::array<double,65> presentation_times{};
 Cvar* render_particles=nullptr;
 Cvar* render_scene_cull=nullptr;
 Cvar* render_scene_static_shadows=nullptr;
@@ -71,6 +77,7 @@ void reset(Resources& r){
     outline_gpu=std::make_shared<Mesh>();
     link={};last_link_generation=1;world=1;atlas_texture=r.texture;atlas_generation=1;
     matching_protocol=true;entity_outline_error.clear();
+    native_outline_ready=false;native_glow.clear();player_presentations={};presentation_times={};
     atlas_width=r.tw;atlas_height=r.th;atlas_alpha.assign(std::size_t(r.tw)*r.th,255);
     atlas_pixel_tiles.reset(atlas_width,atlas_height);
     atlas_uploads=atlas_animation_packets=atlas_patch_bytes=0;last_atlas_animation=atlas_animation_interval_ms=0;atlas_logged=false;
@@ -458,11 +465,53 @@ void entity_outline_tests(Resources& r){
     DrawEntityOutlines(frame);assert(!entity_outline_error.empty()&&pixels()==old&&state()==saved);
     entity_batches.pop_back();seed();DrawEntityOutlines(frame);assert(entity_outline_error.empty()&&pixels()!=old);
     // Received empty frame/life reset cannot replay the previous GPU mask.
-    entity_batches.clear();skip();entity_outline_replay.reset();
+    entity_batches.clear();skip();
+    struct Studio final : IMetaRendererStudioOutline {
+        Resources& resources; bool fail=false; unsigned calls=0;
+        explicit Studio(Resources& r):resources(r){}
+        bool DrawPlayerMask(const MetaRendererPostSceneFrame& frame,const MetaRendererStudioOutlinePlayer* players,std::uint32_t count) noexcept override {
+            ++calls;assert(count==1&&players[0].slot==2&&players[0].color==0x2244ff);
+            try {
+                auto batch=entity(resources,0,entity_outline,-.3f,.4f);
+                for(auto& vertex:batch.vertices)vertex.color=0x00ff4422;
+                render::Pass pass(true,0,&frame);if(!pass.ready()||!pass.outline(false))return false;
+                pass.texture(resources.texture);batch.gpu->draw(batch.vertices,123,true);
+                return !fail;
+            } catch(...) {return false;}
+        }
+    } studio(r);
+    render::studio_outline_provider=&studio;native_outline_ready=true;
+    goldcraft::status_glow::Presentation glow;
+    glow.state={world,1,2,7,3,4,1,0x2244ff};glow.userid=55;glow.uuid[0]=8;
+    player_presentations[2].identity=glow.identity();player_presentations[2].flags=1;presentation_times[2]=now;
+    assert(native_glow.accept(glow,world,now));
+    // Native outlines use authoritative CS state without a local MC link/atlas.
+    link.online=false;atlas_texture=0;atlas_generation=0;fresh=false;
+    seed();const auto nativeBefore=state();const auto nativeOriginal=pixels();DrawEntityOutlines(frame);
+    assert(studio.calls==1&&entity_outline_error.empty()&&pixels()!=nativeOriginal&&state()==nativeBefore);
+    assert(depth_pixels()==depths&&stencil(32,32)==17);++cases;
+    // Both masks enter one compositor. A native failure cannot commit the MC mask.
+    link.online=true;atlas_texture=r.texture;atlas_generation=1;fresh=true;entity_batches.push_back(mask);
+    seed();const auto bothFrames=entity_outline_replay->statistics().frames;DrawEntityOutlines(frame);
+    assert(studio.calls==2&&entity_outline_error.empty()&&entity_outline_replay->statistics().frames==bothFrames+1);
+    const auto both=pixels();assert(both!=nativeOriginal);++cases;
+    studio.fail=true;seed();DrawEntityOutlines(frame);
+    assert(!entity_outline_error.empty()&&pixels()==nativeOriginal&&state()==nativeBefore);++cases;
+    studio.fail=false;seed();DrawEntityOutlines(frame);assert(entity_outline_error.empty()&&pixels()==both);++cases;
+    entity_batches.clear();
+    native_outline_ready=false;skip();native_outline_ready=true;
+    ++player_presentations[2].identity.serial;skip();--player_presentations[2].identity.serial;
+    player_presentations[2].flags=5;skip();player_presentations[2].flags=0;skip();player_presentations[2].flags=1;
+    now+=.36;skip();now-=.36;
+    presentation_times[2]=now-3;skip();presentation_times[2]=now;
+    presentation_times[2]=now+1;skip();presentation_times[2]=now;
+    render::studio_outline_provider=nullptr;seed();DrawEntityOutlines(frame);assert(pixels()==nativeOriginal&&!entity_outline_error.empty());++cases;
+    native_glow.clear();skip();native_outline_ready=false;
+    entity_outline_replay.reset();
     glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_STENCIL_ATTACHMENT,GL_RENDERBUFFER,r.depth);
     glDeleteTextures(1,&depth_view);glDeleteTextures(1,&depth_texture);glViewport(0,0,Size,Size);
     assert(glGetError()==GL_NO_ERROR);reset(r);
-    std::puts("{\"entityOutlineProductionCallbacks\":true,\"realAttachments\":true,\"ordinaryShadowIsolation\":true,\"lifecycleGates\":13,\"failurePreservesHost\":true,\"teamEdgesAndDepth\":true}");
+    std::puts("{\"entityOutlineProductionCallbacks\":true,\"realAttachments\":true,\"ordinaryShadowIsolation\":true,\"minecraftLifecycleGates\":13,\"nativeLifecycleGates\":8,\"nativeWithoutMinecraft\":true,\"combinedMaskAtomicity\":true,\"failurePreservesHost\":true,\"teamEdgesAndDepth\":true}");
 }
 
 void tests(Resources& r){

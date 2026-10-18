@@ -99,7 +99,11 @@
         "tests/legacy_cavity_probe_fixture.h",
         "include/Interface/IMetaRendererSceneDistortion.h",
         "src/gl_scene_distortion.cpp",
-        "tests/scene_distortion_gl_tests.cpp"
+        "tests/scene_distortion_gl_tests.cpp",
+        "include/Interface/IMetaRendererStudioOutline.h",
+        "src/studio_outline.inc",
+        "tests/studio_outline_gl_tests.cpp",
+        "tests/extract_studio_outline.py"
       ]
     },
     "BulletPhysics": {

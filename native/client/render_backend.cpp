@@ -23,6 +23,7 @@ IMetaRendererStaticSceneCallbacks* static_callback=nullptr;
 IMetaRendererWorldEdit* edits=nullptr;
 IMetaRendererWorldEdit2* targeted_edits=nullptr;
 IMetaRendererPostScene* post_scene_provider=nullptr;
+IMetaRendererStudioOutline* studio_outline_provider=nullptr;
 IMetaRendererSceneCallbacks* callback=nullptr;
 void(*logger)(const std::string&)=nullptr;
 Statistics stats;
@@ -113,6 +114,7 @@ bool cull_shadow_bounds(const RenderBounds& bounds){
 IMetaRendererWorldEdit* world_edit(){return edits;}
 IMetaRendererWorldEdit2* world_edit2(){return targeted_edits;}
 IMetaRendererPostScene* post_scene(){return post_scene_provider;}
+IMetaRendererStudioOutline* studio_outline(){return studio_outline_provider;}
 bool owns_context(){return current_context&&current_context==wglGetCurrentContext();}
 void set_light_shadow(int key,unsigned size){if(scene)scene->SetDynamicLightShadowSize(key,size);}
 bool update_scene_lights(std::span<const SceneLight> lights) noexcept{
@@ -220,6 +222,8 @@ bool initialize(IMetaRendererSceneCallbacks* callbacks,void(*log)(const std::str
     stats.scene_static_shadows_api=scene_static_shadows!=nullptr;
     post_scene_provider=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
     stats.post_scene_api=post_scene_provider!=nullptr;
+    studio_outline_provider=post_scene_provider?static_cast<IMetaRendererStudioOutline*>(
+        factory(METARENDERER_STUDIO_OUTLINE_INTERFACE_VERSION,nullptr)):nullptr;
     targeted_edits=static_cast<IMetaRendererWorldEdit2*>(factory(METARENDERER_WORLD_EDIT2_INTERFACE_VERSION,nullptr));
     edits=targeted_edits?static_cast<IMetaRendererWorldEdit*>(targeted_edits):
         static_cast<IMetaRendererWorldEdit*>(factory(METARENDERER_WORLD_EDIT_INTERFACE_VERSION,nullptr));
@@ -244,7 +248,7 @@ void shutdown(){
     if(scene&&callback)scene->UnregisterSceneCallbacks(callback);
     if(owns_context()){if(hud_program)glDeleteProgram(hud_program);if(hud_vao)glDeleteVertexArrays(1,&hud_vao);if(repeat_linear_sampler)glDeleteSamplers(1,&repeat_linear_sampler);}
     hud_program=hud_vao=repeat_linear_sampler=0;hud_uniforms={};max_texture_size=max_draw_buffers=0;feedback_line_width=0;
-    scene=nullptr;edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;stats.post_scene_api=false;
+    scene=nullptr;edits=nullptr;targeted_edits=nullptr;post_scene_provider=nullptr;studio_outline_provider=nullptr;stats.post_scene_api=false;
     scene_culling=nullptr;stats.scene_culling_api=false;
     callback=nullptr;renderer=nullptr;programs.clear();current_context=nullptr;gl_initialized=false;
     stats.scene_api=stats.renderer=false;

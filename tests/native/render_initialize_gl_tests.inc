@@ -17,6 +17,14 @@ struct Edits : IMetaRendererWorldEdit {
     void Reset() noexcept override {}
 };
 Renderer* renderer=nullptr;
+struct Post : IMetaRendererPostScene {
+    bool RegisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks*) noexcept override {return true;}
+    bool UnregisterPostSceneCallbacks(IMetaRendererPostSceneCallbacks*) noexcept override {return true;}
+} post;
+struct Studio : IMetaRendererStudioOutline {
+    bool DrawPlayerMask(const MetaRendererPostSceneFrame&,const MetaRendererStudioOutlinePlayer*,std::uint32_t) noexcept override {return true;}
+} studio;
+bool post_available=true;
 Scene* scene=nullptr;
 Edits* edits=nullptr;
 bool main_available=true,optional_available=true;
@@ -25,6 +33,8 @@ IBaseInterface* factory(const char* name,int*){
     if(!optional_available)return nullptr;
     if(!std::strcmp(name,METARENDERER_SCENE_INTERFACE_VERSION))return scene;
     if(!std::strcmp(name,METARENDERER_WORLD_EDIT_INTERFACE_VERSION))return edits;
+    if(!std::strcmp(name,METARENDERER_POST_SCENE_INTERFACE_VERSION))return post_available?&post:nullptr;
+    if(!std::strcmp(name,METARENDERER_STUDIO_OUTLINE_INTERFACE_VERSION))return &studio;
     return nullptr;
 }
 }
@@ -44,9 +54,14 @@ void initialize_tests(GLFWwindow* window){
     assert(probe::loader_calls==calls+1&&statistics().gl_loader_reuses==reuses+9);
     assert(probe::queries==queries&&probe::factory_lookups==lookups+10);
     assert(scene.registered==&callback&&world_edit()==&edits&&scene_active());
+    assert(post_scene()==&init::post&&studio_outline()==&init::studio);
+    init::post_available=false;assert(initialize(&callback,log_message));
+    assert(!post_scene()&&!studio_outline());
+    init::post_available=true;assert(initialize(&callback,log_message));
+    assert(post_scene()&&studio_outline());
     // Cache only GL dispatch/limits. Query optional/main providers on every reset.
     init::optional_available=false;assert(initialize(&callback,log_message));
-    assert(!scene.registered&&!scene_active()&&!world_edit()&&!post_scene());
+    assert(!scene.registered&&!scene_active()&&!world_edit()&&!post_scene()&&!studio_outline());
     init::optional_available=true;assert(initialize(&callback,log_message));
     init::main_available=false;assert(!initialize(&callback,log_message));
     assert(!scene.registered&&!scene_active()&&!world_edit()&&!statistics().renderer);
