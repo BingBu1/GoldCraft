@@ -29,7 +29,8 @@ constexpr std::uint32_t capability_status_health = 131072;
 constexpr std::uint32_t capability_view_distortion = 262144;
 constexpr std::uint32_t capability_entity_outlines = 524288;
 constexpr std::uint32_t capability_status_glow = 1048576;
-constexpr std::size_t wire_type_count = 97;
+constexpr std::uint32_t capability_status_nausea = 2097152;
+constexpr std::size_t wire_type_count = 98;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;
 constexpr std::uint32_t capability_native_armor = 64;
@@ -41,7 +42,7 @@ constexpr float minecraft_y_offset = 64.0f;
 
 enum class Role : std::uint32_t { host_client = 1, fabric_client = 2, host_server = 3, fabric_server = 4 };
 enum class Type : std::uint16_t {
-    health_limits = 92, status_health = 93, view_distortion = 94, entity_outline_frame = 95, status_glow = 96,
+    health_limits = 92, status_health = 93, view_distortion = 94, entity_outline_frame = 95, status_glow = 96, status_nausea = 97,
     status_hud = 76, status_attributes = 77, status_spend = 78, fluid_volumes = 79, native_armor_request = 80, native_armor_result = 81,
     gameplay_rules = 82,
     host_explosion = 83,

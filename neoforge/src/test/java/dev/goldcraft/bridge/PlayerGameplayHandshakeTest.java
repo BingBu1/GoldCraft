@@ -65,6 +65,7 @@ class PlayerGameplayHandshakeTest {
     }
     @Test void legacyTntHostRetainsTntWithoutGameplay() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_NAUSEA_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_GLOW_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_HEALTH_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_FALL_CAP);}
@@ -85,6 +86,7 @@ class PlayerGameplayHandshakeTest {
     }
     @Test void retryCannotAcceptCapabilityItDidNotOffer() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_NAUSEA_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_GLOW_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_HEALTH_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.STATUS_FALL_CAP);}

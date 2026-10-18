@@ -45,6 +45,7 @@ public final class NativeStatusEffects {
             if(!box.body().healthLedger().settled(GoldCraft.HOST_WORLD.tick()))
                 handoffs.put(player.getUuid(),new Handoff(box.body().epoch(),actor.serial(),actor.spawn(),box.body().healthLedger()));
         }
+        NativeNausea.handoff(from,to);
         float absorption=from.getAbsorptionAmount();
         boolean moveAbsorption=absorption>0||from.getAttributeValue(net.minecraft.entity.attribute.EntityAttributes.GENERIC_MAX_ABSORPTION)>0;
         // Move the instances themselves: the copy constructor loses hidden effects.
@@ -65,7 +66,7 @@ public final class NativeStatusEffects {
     }
     public static void hud(HostWorldState.Actor actor,LivingEntity owner,ServerPlayerEntity paired,long tick){
         NativeHealth.update(actor,owner,paired);
-        NativeEnvironment.update(actor,owner);NativeMotion.update(actor,owner);NativeFall.update(actor,owner);NativeVisibility.update(actor,owner);NativeGlow.update(actor,owner,paired);NativeVision.update(actor,owner);
+        NativeEnvironment.update(actor,owner);NativeMotion.update(actor,owner);NativeFall.update(actor,owner);NativeVisibility.update(actor,owner);NativeGlow.update(actor,owner,paired);NativeVision.update(actor,owner);NativeNausea.update(actor,owner,tick);
         NativeStatusAttributes.update(actor,owner,paired);
         if(tick%10!=0)return;
         var previous=mirrors.get(actor.slot());
@@ -109,5 +110,5 @@ public final class NativeStatusEffects {
             ||wait.ledger().settled(GoldCraft.HOST_WORLD.tick())){handoffs.remove(player.getUuid());return false;}
         return true;
     }
-    public static void clear(){NativeHealth.clear();NativeNutrition.clear();NativeEnvironment.clear();NativeMotion.clear();NativeFall.clear();NativeVisibility.clear();NativeGlow.clear();NativeVision.clear();NativeStatusAttributes.clear();for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
+    public static void clear(){NativeHealth.clear();NativeNutrition.clear();NativeEnvironment.clear();NativeMotion.clear();NativeFall.clear();NativeVisibility.clear();NativeGlow.clear();NativeVision.clear();NativeNausea.clear();NativeStatusAttributes.clear();for(int slot:List.copyOf(mirrors.keySet()))clearMirror(slot);handoffs.clear();revision=0;}
 }

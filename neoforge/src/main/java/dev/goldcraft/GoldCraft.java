@@ -83,6 +83,12 @@ public final class GoldCraft {
     public static boolean sendVision(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendVision(generation,payload);
     }
+    public static boolean nauseaAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nausea(generation);
+    }
+    public static boolean sendNausea(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendNausea(generation,payload);
+    }
     public static boolean glowAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.glow(generation);
     }

@@ -50,7 +50,8 @@
     "NativeNutritionEffectMixin",
     "NativeNutritionTickMixin",
     "NativeArmorAccessor",
-    "NativeStatusRoutingMixin"
+    "NativeStatusRoutingMixin",
+    "NativeNauseaMixin"
   ],
   "injectors": {
     "defaultRequire": 1

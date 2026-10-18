@@ -397,9 +397,9 @@
     "docs/2026-10-18_分析-CSOL资源补齐-report.md",
     "docs/NATIVE_PLAYER_ATTRIBUTES.md",
     "docs/2026-10-18_分析-CSOL附属系列-report.md",
-    "docs/2026-10-18_分析-CSOL双附属模型-report.md",
     "docs/NATIVE_VIEW_DISTORTION.md",
     "tools/Test-ViewDistortion.py",
+    "docs/2026-10-18_分析-CSOL双附属模型-report.md",
     "docs/2026-10-18_分析-托管瞄准镜-report.md",
     "tools/Test-HostedRenderTarget.py",
     "tools/Test-EntityOutline.py",
@@ -417,7 +417,9 @@
     "amxx/floating_damage/tests/build_runner.ps1",
     "amxx/floating_damage/tests/pawn_runner.cpp",
     "amxx/floating_damage/tests/test_bytecode.py",
-    "patches/floating-damage-goldcraft.patch"
+    "patches/floating-damage-goldcraft.patch",
+    "docs/NATIVE_NAUSEA.md",
+    "tools/Test-NativeNausea.py"
   ],
   "trees": {
     "native": [
