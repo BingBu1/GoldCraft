@@ -393,7 +393,8 @@
     "docs/2026-10-17_\u5206\u6790-MC\u6df1\u5ea6\u590d\u5236-report.md",
     "docs/2026-10-17_\u5206\u6790-CSOL\u6269\u5c55\u4e8b\u4ef6-report.md",
     "docs/2026-10-17_\u5206\u6790-CSOL\u7ec4\u5408\u6a21\u578b-report.md",
-    "tools/Test-StatusHealth.py"
+    "tools/Test-StatusHealth.py",
+    "docs/2026-10-18_\u5206\u6790-CSOL\u8d44\u6e90\u8865\u9f50-report.md"
   ],
   "trees": {
     "native": [

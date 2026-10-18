@@ -129,10 +129,10 @@ index 0000000..686fc00
 +endif()
 diff --git "a/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md" "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
 new file mode 100644
-index 0000000..c842076
+index 0000000..cbbeea8
 --- /dev/null
 +++ "b/docs/CSOL\344\270\255\346\226\207\351\242\204\350\247\210.md"
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,107 @@
 +# CSOL 中文预览版
 +
 +基于 Half-Life Asset Manager `4df74a58a50438b8f4b974e04ab9f24fdfcbb811`。中文界面由模型直接编写，没有调用翻译服务；资源名、骨骼名、动画名、QC 指令和版权声明保留原文。
@@ -191,6 +191,10 @@ index 0000000..c842076
 +
 +若模型来自单独复制到其他磁盘的 PAK 解包目录，程序无法从这个路径推导任意位置的游戏安装。“高级设置 → 补充游戏目录”只需指定一次游戏目录，之后全局记忆；不是逐模型配置。已提供目录的本地研究环境可以预先保存此设置。
 +
++也可以选择安装目录中的 `Bin` 或 `HL`：程序会查找上一级的 `Data` 和资源挂载目录。已解到模型资源树的文件始终优先，找到同名松散文件后不会再用 NAR 覆盖它。
++
++少数旧 NAR 外部贴图名含韩文 CP949 字节。查看器保留模型中的原始字节标识，同时支持解包后恢复为韩文的文件名；从目录或 NAR 读取均可。不会把原始名称改写到 MDL 中，也不会用问号替代无法解码的字节。
++
 +复活枪引用的 `shader/@004.txt` 在 **dstrike.nar** 中，指向 `wm` 环境贴图，参数为 type 0 / env 4 / mulBright 0.5 / addBright 0。模型所在的 `lstrike/common` 并不包含这份基础描述。程序读取真实描述及六张环境面；不会用 `@008` 替代。原始 CSO_ENV shader 未使用 mulBright，因此预览也不额外乘 0.5。
 +
 +查找优先级为模型资源树的松散文件，然后相邻/指定基础目录；NAR 回退顺序为 fstrike、estrike、dstrike、cstrike_chn、cstrike、valve。此顺序是查看器的确定性策略，未宣称覆盖所有游戏版本的挂载配置。单个资源及总动画缓存有大小上限，索引缓存有数量上限；绘制过程中不扫描目录、读取文件或上传贴图。
@@ -214,6 +218,8 @@ index 0000000..c842076
 +手部替换、镜像、SPR、环境反射都只影响预览，不写入 MDL，不改变模型撤销历史。模型真正的编辑操作仍按原程序工作。
 +
 +## 验证范围
++
++资源路径新增验证：712 项解析/目录检查通过，覆盖 `Bin` 上级 `Data`、松散文件优先、目录误识别和韩文文件名。22 个真实韩文名外部贴图经独立解码一致；原始字节名与 Unicode 名分别在 NAR 和解包目录中读取，88 次 SHA-256 比较均通过。此项只验证路径与内容读取，不代表这些武器的全部游戏逻辑已实现。
 +
 +组合模型新增验证：普通版与 EX 版分别通过 360 组骨骼姿态对照（含镜像），实际 GL/Qt 验证自动组合、四种独立动作、主暂停/定位、换弹不重置附属动作、循环/到期、资源重建、配置和完整武器快捷打开。两组动态贴图共 341 帧与 Pillow 独立解码一致。EX 导出 183 文件、67,080,645 字节；普通版 184 文件、72,163,188 字节，均无静态缺失，并各有 73 项 NAR 资源经独立库核对。两组离线重开画面与原资源相同；EX 从附属件导出也包含完整主体。仍没有 CSO 同相机逐帧对照。
 +
@@ -614,11 +620,12 @@ index 0c215e2..00bd468 100644
 +target_sources(HLAM PRIVATE csol/CSOLEvents.hpp csol/CSOLEvents.cpp csol/CSOLExport.hpp csol/CSOLExport.cpp)
 diff --git a/src/hlam/formats/csol/CSOLArchive.cpp b/src/hlam/formats/csol/CSOLArchive.cpp
 new file mode 100644
-index 0000000..5a863b9
+index 0000000..d9b2536
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLArchive.cpp
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,204 @@
 +#include "formats/csol/CSOLArchive.hpp"
++#include "formats/csol/CSOLFormats.hpp"
 +#include <bzlib.h>
 +#include <QCache>
 +#include <QDateTime>
@@ -747,14 +754,18 @@ index 0000000..5a863b9
 +
 +QString FindArchiveResource(const QStringList& directories, const QString& relative)
 +{
++	const auto variants = ResourceNameVariants(relative);
 +	for (const auto& archive : Archives(directories))
 +	{
 +		const auto& index = OpenIndex(archive);
 +		const auto mount = QFileInfo(archive).completeBaseName();
-+		const QString key = "/" + mount + "/" + relative.toLower();
-+		if (!index.Entries.contains(key)) continue;
-+		auto url = QUrl::fromLocalFile(archive); url.setScheme("csol-nar"); url.setFragment(key, QUrl::DecodedMode);
-+		return url.toString(QUrl::FullyEncoded);
++		for (const auto& name : variants)
++		{
++			const QString key = "/" + mount + "/" + name.toLower();
++			if (!index.Entries.contains(key)) continue;
++			auto url = QUrl::fromLocalFile(archive); url.setScheme("csol-nar"); url.setFragment(key, QUrl::DecodedMode);
++			return url.toString(QUrl::FullyEncoded);
++		}
 +	}
 +	return {};
 +}
@@ -1221,10 +1232,10 @@ index 0000000..e88ee4c
 +}
 diff --git a/src/hlam/formats/csol/CSOLFormats.cpp b/src/hlam/formats/csol/CSOLFormats.cpp
 new file mode 100644
-index 0000000..e9efbd2
+index 0000000..3307217
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.cpp
-@@ -0,0 +1,431 @@
+@@ -0,0 +1,475 @@
 +#include "formats/csol/CSOLFormats.hpp"
 +#include "formats/csol/CSOLArchive.hpp"
 +
@@ -1238,6 +1249,7 @@ index 0000000..e9efbd2
 +#include <QFile>
 +#include <QFileInfo>
 +#include <QRegularExpression>
++#include <QTextCodec>
 +
 +namespace csol
 +{
@@ -1532,8 +1544,25 @@ index 0000000..e9efbd2
 +	}
 +	if (!gameDirectory.isEmpty())
 +	{
-+		const QDir game(gameDirectory); add(game.path()); add(game.filePath("Data"));
-+		for (const auto& mount : {"lstrike/common", "fstrike", "estrike", "dstrike", "cstrike", "valve"}) add(game.filePath(mount));
++		const QDir game(gameDirectory);
++		add(game.path());
++		add(game.filePath("Data"));
++		// CSO commonly keeps Bin beside Data. The selected game path may be Bin,
++		// while the NAR archives live one directory above it.
++		QDir install(game);
++		if (game.dirName().compare("bin", Qt::CaseInsensitive) == 0
++			|| game.dirName().compare("hl", Qt::CaseInsensitive) == 0)
++			install.cdUp();
++		if (install.absolutePath() != game.absolutePath())
++		{
++			add(install.path());
++			add(install.filePath("Data"));
++		}
++		for (const auto& mount : {"lstrike/common", "fstrike", "estrike", "dstrike", "cstrike", "valve"})
++		{
++			add(game.filePath(mount));
++			if (install.absolutePath() != game.absolutePath()) add(install.filePath(mount));
++		}
 +	}
 +	return result;
 +}
@@ -1556,18 +1585,44 @@ index 0000000..e9efbd2
 +	return {};
 +}
 +
++QStringList ResourceNameVariants(const QString& name)
++{
++	QStringList result{name};
++	// Old MDL names are byte strings, represented as Latin-1 in the model editor.
++	// NAR contains Korean CP949 names; extraction tools may instead expose Unicode.
++	auto* codec = QTextCodec::codecForName("CP949");
++	if (!codec) codec = QTextCodec::codecForName("EUC-KR");
++	if (!codec) return result;
++	const auto bytes = name.toLatin1();
++	if (QString::fromLatin1(bytes) == name)
++	{
++		QTextCodec::ConverterState state;
++		const auto decoded = codec->toUnicode(bytes.constData(), bytes.size(), &state);
++		if (!state.invalidChars && codec->fromUnicode(decoded) == bytes && decoded != name)
++			result.append(decoded);
++	}
++	QTextCodec::ConverterState state;
++	const auto encoded = codec->fromUnicode(name.constData(), name.size(), &state);
++	const auto raw = QString::fromLatin1(encoded);
++	if (!state.invalidChars && codec->toUnicode(encoded) == name && !result.contains(raw))
++		result.append(raw);
++	return result;
++}
++
 +QString LocateResource(const QString& root, const QString& relative)
 +{
 +	if (root.isEmpty() || QDir::isAbsolutePath(relative)) return {};
 +	const auto clean = QDir::cleanPath(QString(relative).replace('\\', '/'));
 +	if (clean == ".." || clean.startsWith("../")) return {};
++	const auto variants = ResourceNameVariants(clean);
 +	for (const auto& directory : ResourceDirectories(root))
++	for (const auto& name : variants)
 +	{
-+		const auto exact = QDir(directory).filePath(clean);
-+		if (QFileInfo::exists(exact)) return exact;
++		const auto exact = QDir(directory).filePath(name);
++		if (QFileInfo(exact).isFile()) return exact;
 +		QDir dir(directory);
 +		QString found;
-+		for (const auto& part : clean.split('/'))
++		for (const auto& part : name.split('/'))
 +		{
 +			found.clear();
 +			for (const auto& name : dir.entryList(QDir::AllEntries | QDir::NoDotAndDotDot))
@@ -1575,7 +1630,7 @@ index 0000000..e9efbd2
 +			if (found.isEmpty()) break;
 +			dir.setPath(found);
 +		}
-+		if (!found.isEmpty() && QFileInfo::exists(found)) return found;
++		if (!found.isEmpty() && QFileInfo(found).isFile()) return found;
 +	}
 +	return FindArchiveResource(ResourceDirectories(root), clean);
 +}
@@ -1658,10 +1713,10 @@ index 0000000..e9efbd2
 +}
 diff --git a/src/hlam/formats/csol/CSOLFormats.hpp b/src/hlam/formats/csol/CSOLFormats.hpp
 new file mode 100644
-index 0000000..f4d9997
+index 0000000..666f1b8
 --- /dev/null
 +++ b/src/hlam/formats/csol/CSOLFormats.hpp
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,44 @@
 +#pragma once
 +
 +#include <vector>
@@ -1694,6 +1749,8 @@ index 0000000..f4d9997
 +std::vector<QImage> DecodeSpriteV3(const QByteArray& bytes);
 +std::vector<QImage> DecodeSprite(const QByteArray& bytes);
 +QString LocateResource(const QString& root, const QString& relative);
++// Preserve raw MDL/NAR byte identifiers while also accepting decoded Korean filenames.
++QStringList ResourceNameVariants(const QString& name);
 +QString DiscoverResourceRoot(const QString& modelFile);
 +QStringList ResourceDirectories(const QString& root);
 +void SetGameDirectory(const QString& root);
@@ -8741,10 +8798,10 @@ index 0000000..c151a1a
 +}
 diff --git a/tests/CSOLFormatsTests.cpp b/tests/CSOLFormatsTests.cpp
 new file mode 100644
-index 0000000..e323c57
+index 0000000..f656677
 --- /dev/null
 +++ b/tests/CSOLFormatsTests.cpp
-@@ -0,0 +1,316 @@
+@@ -0,0 +1,338 @@
 +#include "formats/csol/CSOLFormats.hpp"
 +#include "formats/csol/CSOLModelJSON.hpp"
 +#include "formats/csol/CSOLEvents.hpp"
@@ -8962,6 +9019,25 @@ index 0000000..e323c57
 +		Check(csol::FindAppearances(discovered).contains("hero"), "Sibling locale appearance discovery");
 +		Check(csol::LocateResource(discovered, "..\\private").isEmpty(), "Windows parent traversal");
 +		Check(csol::LocateResource(discovered, "sprites/missing.spr").isEmpty(), "Missing resource must not become a directory");
++		Check(csol::LocateResource(discovered, "sprites").isEmpty(), "Resource lookup must not return a directory");
++		const auto oldGame = csol::GameDirectory();
++		root.mkpath("game/Bin"); root.mkpath("game/Data"); root.mkpath("game/lstrike/common/sprites");
++		touch("game/lstrike/common/sprites/fromgame.spr");
++		csol::SetGameDirectory(root.filePath("game/Bin"));
++		Check(csol::ResourceDirectories(discovered).contains(root.filePath("game/Data")), "Bin discovers sibling Data archives");
++		Check(csol::LocateResource(discovered, "sprites/fromgame.spr") == root.filePath("game/lstrike/common/sprites/fromgame.spr"), "Bin discovers installed loose mounts");
++		Check(csol::LocateResource(discovered, "sprites/shared.spr") == root.filePath("lstrike/common/sprites/shared.spr"), "Supplemental game keeps model tree precedence");
++		csol::SetGameDirectory(oldGame);
++		const auto rawKorean = QByteArray::fromHex("bca6b0c7"); // CP949 for the original NAR name: shotgun.
++		const auto korean = QString::fromUtf8("샷건");
++		Check(csol::ResourceNameVariants(QString::fromLatin1(rawKorean)).contains(korean), "Korean NAR bytes resolve to decoded filenames");
++		Check(csol::ResourceNameVariants(korean).contains(QString::fromLatin1(rawKorean)), "Decoded Korean name resolves to original NAR bytes");
++		Check(csol::ResourceNameVariants(QString::fromLatin1(QByteArray(1, char(0xff)))).size() == 1, "Invalid CP949 must not generate replacement filename");
++		root.mkpath("lstrike/common/models/texture");
++		const auto koreanPath = "models/texture/#256256m1887[" + korean + "]_p.bmp";
++		touch("lstrike/common/" + koreanPath);
++		Check(csol::LocateResource(discovered, "models/texture/#256256m1887[" + QString::fromLatin1(rawKorean) + "]_p.bmp")
++			== root.filePath("lstrike/common/" + koreanPath), "Raw MDL reference locates extracted Korean filename");
 +		// Independent small archive builder: raw "hello" with its known CRC32.
 +		auto archive = [&](unsigned entryOffset, unsigned storedSize, const QByteArray& name = "/dstrike/test.txt")
 +		{
@@ -8991,6 +9067,8 @@ index 0000000..e323c57
 +			saveArchive(archive(8, 5, "/dstrike/" + name));
 +			Check(csol::ReadResource(csol::LocateResource(root.path(), QString::fromLatin1(name))) == "hello", "NAR reserved filename characters");
 +		}
++		saveArchive(archive(8, 5, "/dstrike/" + rawKorean + ".bmp"));
++		Check(csol::ReadResource(csol::LocateResource(root.path(), korean + ".bmp")) == "hello", "Unicode lookup preserves raw NAR key");
 +		auto damaged = validArchive; damaged[8] = 'H'; saveArchive(damaged);
 +		Reject([&] { csol::ReadResource(archiveURL); });
 +		saveArchive(archive(0xfffffff0, 64)); Reject([&] { csol::ReadResource(archiveURL); });
@@ -9017,15 +9095,16 @@ index 0000000..e323c57
 +			}
 +			report.insert("nativeModelJSON", models);
 +		}
-+		if (argc == 5 && QString::fromLocal8Bit(argv[1]) == "--nar")
++		if (argc == 5 && (QString::fromLocal8Bit(argv[1]) == "--nar" || QString::fromLocal8Bit(argv[1]) == "--resources"))
 +		{
++			const bool archiveOnly = QString::fromLocal8Bit(argv[1]) == "--nar";
 +			const auto expected = QJsonDocument::fromJson(csol::ReadResource(QString::fromLocal8Bit(argv[3]))).array();
 +			QJsonArray results;
 +			for (const auto& value : expected)
 +			{
 +				const auto row = value.toObject();
 +				const auto path = csol::LocateResource(QString::fromLocal8Bit(argv[2]), row.value("relative").toString());
-+				if (!path.startsWith("csol-nar:")) throw std::runtime_error(("Archive resource not found: " + row.value("relative").toString() + " -> " + path).toStdString());
++				if (path.isEmpty() || (archiveOnly && !path.startsWith("csol-nar:"))) throw std::runtime_error(("Resource not found: " + row.value("relative").toString() + " -> " + path).toStdString());
 +				const auto hash = QString::fromLatin1(QCryptographicHash::hash(csol::ReadResource(path), QCryptographicHash::Sha256).toHex());
 +				Check(hash == row.value("sha256").toString(), "NAR decoder differs from independent extractor");
 +				results.append(QJsonObject{{"path", path}, {"sha256", hash}});
