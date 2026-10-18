@@ -37,8 +37,11 @@ class MeleePeer(AuthorityPeer):
 
 
 class Run(base.Run):
-    def __init__(self,output):
+    def __init__(self,output,server_dll=None):
         super().__init__();self.output=output;self.peer=None;self.command_at=0
+        self.server_dll=(server_dll or ROOT/'build/regamedll/Release/mp.dll').resolve()
+        if not self.server_dll.is_relative_to(ROOT) or not self.server_dll.is_file():
+            raise ValueError('Server DLL must be an existing workspace artifact')
         self.report.update(scope=__doc__,checks={},snapshots=[])
         for key,kind in [('csPort',socket.SOCK_DGRAM),('serverPort',socket.SOCK_STREAM)]:
             with socket.socket(socket.AF_INET,kind) as s:s.bind(('127.0.0.1',0));self.config[key]=s.getsockname()[1]
@@ -79,14 +82,17 @@ class Run(base.Run):
         for p in (base.AMXX/'configs').glob('plugins-*.ini'):self.put(p,b'; isolated health fixture\n')
         lines=(base.AMXX/'configs/plugins.ini').read_text().splitlines()
         lines=[s for s in lines if not s.startswith('goldcraft_zp_reapi_test.')]
-        lines=['addon_floating_damage.amxx debug','goldcraft_melee_test.amxx debug']
+        lines=['goldcraft.amxx debug','addon_floating_damage.amxx debug','goldcraft_melee_test.amxx debug']
         self.put(base.AMXX/'configs/plugins.ini',('\n'.join(lines)+'\n').encode())
+        self.put(base.AMXX/'configs/modules.ini',(base.AMXX/'configs/modules.ini').read_bytes()+b'goldcraft\n')
+        self.copy(ROOT/'build/native-x86/Release/goldcraft_amxx.dll',base.AMXX/'modules/goldcraft_amxx.dll')
+        self.copy(ROOT/'build/amxx/plugins/goldcraft.amxx',base.AMXX/'plugins/goldcraft.amxx')
         for relative in ['addons/amxmodx/plugins/addon_floating_damage.amxx',
                          'addons/amxmodx/data/lang/floating_damage.txt',
                          'models/x_re/floating_damage.mdl']:
             self.copy(base.LIVE/'cstrike'/relative,base.GAME/'cstrike'/relative)
         self.copy(ROOT/'build/amxx/plugins/goldcraft_melee_test.amxx',base.AMXX/'plugins/goldcraft_melee_test.amxx')
-        self.copy(ROOT/'build/regamedll/Release/mp.dll',base.GAME/'cstrike/dlls/mp.dll')
+        self.copy(self.server_dll,base.GAME/'cstrike/dlls/mp.dll')
         self.put(base.GAME/'cstrike/game_init.cfg',b'mc_map_mining 0\n')
         self.put(base.GAME/'cstrike/server.cfg',(base.GAME/'cstrike/server.cfg').read_bytes()+b'exec goldcraft_zp_reapi.cfg\nmc_melee_test 1\nzp_gamemode_delay 100000\n')
         for p in [base.GAME/'qconsole.log',base.GAME/'cstrike/qconsole.log']:self.put(p,b'')
@@ -103,8 +109,13 @@ class Run(base.Run):
         self.until(connect,'Bridge listening');self.until(lambda:self.peer.world,'World')
         self.check('Capability accepted',self.peer.capabilities==CAP)
         self.report['plugins']=self.command('amxx plugins');self.report['modules']=self.command('amxx modules')
+        self.report['amxxVersion']=self.command('amxx version')
+        self.report['goldcraftApi']=self.command('gc_amxx_status')
+        self.check('Pinned AMXX 1.10 runtime loaded','1.10.0.5487' in self.report['amxxVersion'])
+        self.check('GoldCraft and ReAPI natives callable',
+                   bool(re.search(r'api=[1-9]\d* rehlds=1 regamedll=1',self.report['goldcraftApi'])))
         self.check('Floating Damage production plugin loaded once',
-                   self.report['plugins'].count('1.0.7-gc')==1 and '2 plugins, 2 running' in self.report['plugins'])
+                   self.report['plugins'].count('1.0.7-gc')==1 and '3 plugins, 3 running' in self.report['plugins'])
         self.slot=int(self.action('create')['attacker']);self.command('sv_restart 1');self.wait(1.5)
         self.configure();normal=self.action('attack 0 0')
         self.check('Actual knife trace hits victim',normal['traces']==1 and normal['trace']>0 and normal['health']<1000)
@@ -135,12 +146,13 @@ class Run(base.Run):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--name',default='run-'+str(time.time_ns()));args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--name',default='run-'+str(time.time_ns()))
+    parser.add_argument('--server-dll',type=Path);args=parser.parse_args()
     if Path(args.name).name!=args.name:parser.error('Single output directory name required')
     out=ROOT/'build/native-melee-20261018'/args.name
     if any(p.is_symlink() or p.is_junction() for p in [out,*out.parents]):raise ValueError('Linked output refused')
     out.mkdir(parents=True,exist_ok=False);base.FIXTURE_LOG=out/'server.log';base.FIXTURE_LOG.write_text('')
-    run=Run(out)
+    run=Run(out,args.server_dll)
     try:run.run()
     except Exception as exc:run.report.update(error=str(exc),passed=False);raise
     finally:

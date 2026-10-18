@@ -44,7 +44,7 @@ def digest(data):
 
 def plan():
     manifest = json.loads(safe(ROOT / "dist/nademodes/manifest.json").read_text(encoding="utf-8"))
-    if manifest["format"] != 1 or manifest["amxx"] != "1.9.0.5303":
+    if manifest["format"] != 1 or manifest["amxx"] != "1.10.0.5487":
         raise ValueError("Rebuild with the pinned AMXX compiler")
     if manifest["patchSha256"] != digest(safe(ROOT / "patches/nademodes-reapi.patch").read_bytes()):
         raise ValueError("Source patch changed after the build")

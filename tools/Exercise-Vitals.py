@@ -80,7 +80,7 @@ def prepare():
     put(GAME / 'cstrike/addons/metamod/plugins.ini', b'win32 addons/amxmodx/dlls/amxmodx_mm.dll\n')
     put(GAME / 'cstrike/dlls/mp.dll', (ROOT / 'build/regamedll/Release/mp.dll').read_bytes())
     for folder in ('dlls', 'data', 'configs', 'modules'):
-        source = ROOT / '.tools/amxx-1.9.0.5303/addons/amxmodx' / folder
+        source = ROOT / '.tools/amxx-1.10.0.5487/addons/amxmodx' / folder
         for p in source.rglob('*'):
             if p.is_file() and (folder != 'modules' or p.name in ('fakemeta_amxx.dll', 'hamsandwich_amxx.dll')):
                 put(AMXX / folder / p.relative_to(source), p.read_bytes())

@@ -430,7 +430,10 @@
     "native/include/goldcraft/status_melee.hpp",
     "native/server/status_melee.inc",
     "neoforge/src/main/java/dev/goldcraft/world/NativeMelee.java",
-    "neoforge/src/test/java/dev/goldcraft/bridge/MeleeHandshakeTest.java"
+    "neoforge/src/test/java/dev/goldcraft/bridge/MeleeHandshakeTest.java",
+    "tools/Update-AMXX.py",
+    "amxx/floating_damage/tests/vm-support/CPlugin.h",
+    "amxx/floating_damage/tests/vm-support/amxmodx.h"
   ],
   "trees": {
     "native": [

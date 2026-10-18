@@ -13,7 +13,7 @@ python tools/Deploy-NadeModes.py --check-only
 python tools/Deploy-NadeModes.py --reload-map
 ```
 
-要求 AMXX 1.9.0.5303、匹配的 ReAPI 和 ReGameDLL。当前 ReAPI SDK 压缩包名为 5.29.0.358，匹配 DLL 实际报告 5.29.0.359；按源码修订和产物哈希匹配，不能仅按目录名认定运行版本。
+要求 AMXX 1.10.0.5487、匹配的 ReAPI 和 ReGameDLL。当前 ReAPI SDK 压缩包名为 5.29.0.358，匹配 DLL 实际报告 5.29.0.359；按源码修订和产物哈希匹配，不能仅按目录名认定运行版本。
 
 可编辑文件均保留在本目录：主源码、`include`、`lang`、`configs`、`tests` 和许可。编译结果进入 `build/amxx/plugins`。部署只复制字节码、语言和所需配置，不安装测试插件，也不把源码复制到服务器。现有配置保留，旧部署备份最多两份。
 

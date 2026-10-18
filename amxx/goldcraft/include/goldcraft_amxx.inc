@@ -1,5 +1,5 @@
 // Shared AMXX 1.9 / ReAPI operations whose side effects need more than a member write.
-// Matched sources: AMXX b88b763a and ReAPI 1c448d06.
+// Matched sources: AMXX 8fc12670 and ReAPI 1c448d06.
 #if defined _goldcraft_amxx_included
     #endinput
 #endif

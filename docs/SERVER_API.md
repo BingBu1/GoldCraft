@@ -5,7 +5,7 @@
 | 组件 | 当前固定版本 |
 |---|---|
 | Metamod-R | 1.3.0.149 |
-| AMX Mod X | 1.9.0.5303 |
+| AMX Mod X | 1.10.0.5487 |
 | ReAPI | 5.29.0.358 |
 | ReHLDS / ReGameDLL API | 3.15 / 5.30 |
 | GoldCraft Pawn API | 1 |

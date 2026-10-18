@@ -1,4 +1,4 @@
-// AMXX 1.9 menu resources owned by each plugin and each connected player.
+// AMXX 1.10 menu resources owned by each plugin and each connected player.
 #if defined _goldcraft_menus_included
     #endinput
 #endif
@@ -28,7 +28,7 @@ stock gc_menu_close(const player)
         gc_menu_release(owned);
 }
 
-stock gc_menu_create(const player, const title[], const handler[], const multilingual = 0)
+stock gc_menu_create(const player, const title[], const handler[], const bool:multilingual = false)
 {
     gc_menu_close(player);
     new menu = menu_create(title, handler, multilingual);

@@ -2,6 +2,7 @@
 
 This verifies plugin execution, not a live ReHLDS server, network client or rendering.
 """
+import argparse
 import collections
 import hashlib
 import json
@@ -13,9 +14,9 @@ import subprocess
 import zlib
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT = ROOT / 'build/floating-damage-20261018'
+OUT = ROOT / 'build/amxx-1.10-20261018/floating'
 SDK = ROOT / '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include'
-AMXX = ROOT / '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/include'
+AMXX = ROOT / '.tools/amxx-1.10.0.5487/addons/amxmodx/scripting/include'
 
 
 def clean(path):
@@ -358,4 +359,10 @@ class Engine:
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output-directory', type=Path, default=OUT)
+    args = parser.parse_args()
+    OUT = args.output_directory.resolve()
+    if not OUT.is_relative_to(ROOT) or any(p.is_symlink() or p.is_junction() for p in [OUT, *OUT.parents]):
+        raise ValueError('Output must stay in the workspace without links')
     Engine().run()

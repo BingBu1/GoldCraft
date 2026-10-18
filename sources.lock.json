@@ -161,8 +161,9 @@
     },
     "AMXModX": {
       "url": "https://github.com/alliedmodders/amxmodx",
-      "commit": "b88b763a63bc7165f48e326c226eb05f9db0e54a",
-      "path": "external/amxmodx"
+      "commit": "8fc12670ea86470a0bfed4c35db5de73d3a39e8a",
+      "path": "external/amxmodx",
+      "version": "1.10.0.5487"
     },
     "AMXXBuilder": {
       "url": "https://github.com/AmxxModularEcosystem/amxx-builder",

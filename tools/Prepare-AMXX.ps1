@@ -1,15 +1,20 @@
 param()
+$ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $ProgressPreference='SilentlyContinue'
 $downloads=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/downloads')
-$runtime=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303')
+$runtime=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.10.0.5487')
+$adminSeed=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303')
 $metamod=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/metamod-1.3.0.149')
 $reapi=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358')
-New-Item -ItemType Directory -Path $downloads,$runtime,$metamod,$reapi -Force | Out-Null
+New-Item -ItemType Directory -Path $downloads,$runtime,$adminSeed,$metamod,$reapi,(Join-Path $script:GoldCraftRoot 'build') -Force | Out-Null
 $packages=@(
+    # Historical Admin Base patch input and stock-plugin upgrade comparison.
+    @{ name='amxmodx-1.9.0-git5303-base-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.9.0.5303/amxmodx-1.9.0-git5303-base-windows.zip'; sha256='DD5C0F64B3974CE60E9A35D5BEC957E8E2DB95AE6FA12E45F24563373F550364'; target=$adminSeed },
+    @{ name='amxmodx-1.9.0-git5303-cstrike-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.9.0.5303/amxmodx-1.9.0-git5303-cstrike-windows.zip'; sha256='54C83A9C632C86FF4DCF90793B47950C7308AB1D96F57052DBCAA203BD2FEF35'; target=$adminSeed },
     @{ name='metamod-bin-1.3.0.149.zip'; url='https://github.com/rehlds/Metamod-R/releases/download/1.3.0.149/metamod-bin-1.3.0.149.zip'; sha256='EDE7F59C4E0220AFE8C02AA348A130CCE527F87D36FFDB674E37A501CE57BE94'; target=$metamod },
-    @{ name='amxmodx-1.9.0-git5303-base-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.9.0.5303/amxmodx-1.9.0-git5303-base-windows.zip'; sha256='DD5C0F64B3974CE60E9A35D5BEC957E8E2DB95AE6FA12E45F24563373F550364'; target=$runtime },
-    @{ name='amxmodx-1.9.0-git5303-cstrike-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.9.0.5303/amxmodx-1.9.0-git5303-cstrike-windows.zip'; sha256='54C83A9C632C86FF4DCF90793B47950C7308AB1D96F57052DBCAA203BD2FEF35'; target=$runtime },
+    @{ name='amxmodx-1.10.0-git5487-base-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.10.0.5487/amxmodx-1.10.0-git5487-base-windows.zip'; sha256='CA13B474741F5F0B035507969CB853B7EAC9052614402114801E21C4DC2F2EBD'; target=$runtime },
+    @{ name='amxmodx-1.10.0-git5487-cstrike-windows.zip'; url='https://github.com/alliedmodders/amxmodx/releases/download/1.10.0.5487/amxmodx-1.10.0-git5487-cstrike-windows.zip'; sha256='47F358B4DD40C0259576BBDE9790442DEE4B642FE31BFED0421180B81429D4AA'; target=$runtime },
     @{ name='reapi-bin-5.29.0.358.zip'; url='https://github.com/rehlds/ReAPI/releases/download/5.29.0.358/reapi-bin-5.29.0.358.zip'; sha256='F33A7435540BEA8706DB3FA948E51A85B511F5B18C383B97402A204DC5419195'; target=$reapi }
 )
 $evidence=@()
@@ -29,6 +34,6 @@ foreach($header in Get-ChildItem -LiteralPath $sourceIncludes -Filter '*.inc' -F
     if((Get-FileHash -LiteralPath $header.FullName).Hash -ne (Get-FileHash -LiteralPath $packageHeader).Hash){throw "ReAPI source/package include mismatch: $($header.Name)"}
     $matchingIncludes+=$header.Name
 }
-@{amxxSource='b88b763a63bc7165f48e326c226eb05f9db0e54a';reapiSource='1c448d06e8c1cebaea061d6b81b94e85f6262649';packages=$evidence;matchingReapiIncludes=$matchingIncludes;rehldsApi='3.15';regamedllApi='5.30'} | ConvertTo-Json -Depth 4 |
-    Set-Content -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'analysis/amxx-dependencies.json')) -Encoding utf8
+@{amxxSource='8fc12670ea86470a0bfed4c35db5de73d3a39e8a';reapiSource='1c448d06e8c1cebaea061d6b81b94e85f6262649';packages=$evidence;matchingReapiIncludes=$matchingIncludes;rehldsApi='3.15';regamedllApi='5.30'} | ConvertTo-Json -Depth 4 |
+    Set-Content -LiteralPath (Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/amxx-dependencies.json')) -Encoding utf8
 Write-Output "Pinned AMXX and Metamod packages prepared under .tools; no server configuration changed."

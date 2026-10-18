@@ -47,12 +47,12 @@ function clearOwned(directory) {
 function prepareCompiler(builder) {
   const AdmZip = require(path.join(builder, 'node_modules/adm-zip'));
   const cache = safe('.tools/amxx-builder-cache');
-  const compilerDir = safe(path.join(cache, 'amxxpc/1.9.5303/windows'));
+  const compilerDir = safe(path.join(cache, 'amxxpc/1.10.5487/windows'));
   const packages = [
-    ['amxmodx-1.9.0-git5303-base-windows.zip',
-      'dd5c0f64b3974ce60e9a35d5bec957e8e2db95ae6fa12e45f24563373f550364', '.tools/amxx-1.9.0.5303'],
-    ['amxmodx-1.9.0-git5303-cstrike-windows.zip',
-      '54c83a9c632c86ff4dcf90793b47950c7308ab1d96f57052dbcaa203bd2fef35', '.tools/amxx-1.9.0.5303'],
+    ['amxmodx-1.10.0-git5487-base-windows.zip',
+      'ca13b474741f5f0b035507969cb853b7eac9052614402114801e21c4dc2f2ebd', '.tools/amxx-1.10.0.5487'],
+    ['amxmodx-1.10.0-git5487-cstrike-windows.zip',
+      '47f358b4dd40c0259576bbde9790442dee4b642fe31bfed0421180b81429d4aa', '.tools/amxx-1.10.0.5487'],
     ['reapi-bin-5.29.0.358.zip',
       'f33a7435540bea8706db3fa948e51a85b511f5b18c383b97402a204dc5419195', '.tools/reapi-5.29.0.358'],
   ];
@@ -68,15 +68,15 @@ function prepareCompiler(builder) {
       const data = entry.getData();
       const installed = safe(path.join(directory, name));
       if (sha(fs.readFileSync(installed)) !== sha(data)) throw new Error(`SDK differs from pinned archive: ${relative(installed)}`);
-      if (directory.includes('amxx-1.9')) {
+      if (directory.includes('amxx-1.10')) {
         const dest = safe(path.join(compilerDir, rel));
         if (!fs.existsSync(dest) || sha(fs.readFileSync(dest)) !== sha(data)) write(dest, data);
       }
     }
   }
-  write(path.join(compilerDir, '.complete'), '1.9.5303');
+  write(path.join(compilerDir, '.complete'), '1.10.5487');
   process.env.AMXX_BUILDER_CACHE = cache;
-  return { version: '1.9.0.5303', sha256: sha(fs.readFileSync(path.join(compilerDir, 'amxxpc.exe'))) };
+  return { version: '1.10.0.5487', sha256: sha(fs.readFileSync(path.join(compilerDir, 'amxxpc.exe'))) };
 }
 
 async function build() {
@@ -94,7 +94,7 @@ async function build() {
   const manifest = parseManifest(safe('amxbuild.yml'));
   const input = safe('build/amxx/builder-input');
   const work = safe('build/amxx/builder-output');
-  if (manifest.amxmodx.version !== '1.9.5303' || safe(manifest.amxmodx.dir) !== input ||
+  if (manifest.amxmodx.version !== '1.10.5487' || safe(manifest.amxmodx.dir) !== input ||
       manifest.repos.length || manifest.assets.sources.length || manifest.pluginIni.enabled) {
     throw new Error('Keep the pinned compiler, staging path and compile-only settings in amxbuild.yml.');
   }

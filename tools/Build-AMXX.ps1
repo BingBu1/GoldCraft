@@ -9,9 +9,9 @@ $buildLock=Assert-WorkspacePath (Join-Path $out '../builder.lock')
 try{$guard=[IO.File]::Open($buildLock,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
 catch{throw 'Another AMXX build/deployment is active. Wait for it to finish.'}
 try{
-$compiler=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx/scripting/amxxpc.exe')
+$compiler=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.10.0.5487/addons/amxmodx/scripting/amxxpc.exe')
 $reapi=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot '.tools/reapi-5.29.0.358/addons/amxmodx/scripting/include/reapi.inc')
-$archives=@('amxmodx-1.9.0-git5303-base-windows.zip','amxmodx-1.9.0-git5303-cstrike-windows.zip','reapi-bin-5.29.0.358.zip')
+$archives=@('amxmodx-1.10.0-git5487-base-windows.zip','amxmodx-1.10.0-git5487-cstrike-windows.zip','reapi-bin-5.29.0.358.zip')
 $missingArchives=@($archives | Where-Object { -not(Test-Path -LiteralPath (Join-Path $script:GoldCraftRoot ".tools/downloads/$_")) })
 if(-not(Test-Path -LiteralPath $compiler) -or -not(Test-Path -LiteralPath $reapi) -or $missingArchives.Count){
     & (Join-Path $PSScriptRoot 'Prepare-AMXX.ps1')

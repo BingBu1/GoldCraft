@@ -1,7 +1,7 @@
 # Floating Damage local adaptation
 
 Yoshioka Haruki's AMXX Floating Damage 1.0.6 is adapted for this project's
-AMXX 1.9.0.5303, ReAPI and ReGameDLL server. Version: `1.0.7-gc`.
+AMXX 1.10.0.5487, ReAPI and ReGameDLL server. Version: `1.0.7-gc`.
 
 Each accepted enemy hit creates a separate damage number. Each attacker has an
 independent FIFO of five active numbers; a sixth immediately removes that
@@ -66,3 +66,12 @@ No gameplay or screenshot acceptance is claimed. Check the final number layout,
 all skins, rapid fire, each attacker's independent five entries and ordinary/MC
 form visibility together in the next planned local session. The public server
 has not been changed by this installation.
+
+AMXX 1.10 update: compiler/runtime pinned to 1.10.0.5487, matching source
+`8fc12670ea86470a0bfed4c35db5de73d3a39e8a`. The 25 bytecode checks/6022
+fixture calls pass again using the 1.10 interpreter; the real server loads the
+plugin once alongside GoldCraft/ReAPI and passes 13 native melee/runtime checks.
+Local installed bytecode is the tested standalone build. New delivery:
+`dist/Floating-Damage-1.0.7-gc-AMXX110.zip`; the previous ZIP is retained.
+Evidence: `build/amxx-1.10-20261018` and
+`build/native-melee-20261018/amxx110-02/result.json`. Visual acceptance remains pending.

@@ -152,7 +152,7 @@ def build():
                (WORK / "lang/nademodes.txt", "data/lang/nademodes.txt"),
                (WORK / "lang/nademodes_goldcraft.txt", "data/lang/nademodes_goldcraft.txt"),
                (WORK / "configs/nade_modes.cfg", "configs/nade_modes.cfg")]
-    manifest = {"format": 1, "upstream": "Nade Modes 11.2", "amxx": "1.9.0.5303", "reapiSdk": "5.29.0.358",
+    manifest = {"format": 1, "upstream": "Nade Modes 11.2", "amxx": "1.10.0.5487", "reapiSdk": "5.29.0.358",
                 "sources": [{"path": path.relative_to(ROOT).as_posix(), "sha256": digest(path.read_bytes())} for path in sources],
                 "runtime": [{"source": path.relative_to(ROOT).as_posix(), "destination": destination,
                              "sha256": digest(path.read_bytes())} for path, destination in runtime],

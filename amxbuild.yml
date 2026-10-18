@@ -5,8 +5,8 @@ version: "1.0.0"
 platform: windows
 
 amxmodx:
-  # amxx-builder uses major.minor.build: this means AMXX 1.9.0.5303.
-  version: "1.9.5303"
+  # amxx-builder uses major.minor.build: this means AMXX 1.10.0.5487.
+  version: "1.10.5487"
   dir: build/amxx/builder-input
   exclude_files: ["**"]
   defines: []
@@ -17,8 +17,8 @@ deps:
     path: .tools/reapi-5.29.0.358/addons/amxmodx/scripting/include
     include_path: "."
   - source: local
-    name: amxx-1.9.0.5303
-    path: .tools/amxx-1.9.0.5303/addons/amxmodx/scripting/include
+    name: amxx-1.10.0.5487
+    path: .tools/amxx-1.10.0.5487/addons/amxmodx/scripting/include
     include_path: "."
   - source: local
     name: sypb-1.50

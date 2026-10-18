@@ -24,7 +24,8 @@ The local `non_reapi_support.inc` is archived unchanged and not compiled.
 
 ## Exact implementation references
 
-- AMXX source `b88b763a63bc7165f48e326c226eb05f9db0e54a`; compiler 1.9.0.5303.
+- AMXX source `8fc12670ea86470a0bfed4c35db5de73d3a39e8a`; compiler 1.10.0.5487.
+  The previous 1.9.0.5303 delivery remains a separate historical artifact.
 - ReAPI source `1c448d06e8c1cebaea061d6b81b94e85f6262649`.
   Workspace SDK folder is `reapi-5.29.0.358`; its version include reports 5.29.0.359.
 - ReGameDLL_CS source `4a50c42e85fd3778c2b7d24731c7d30c83bbab01`.
@@ -34,6 +35,9 @@ Reviewed matching declarations for TakeDamage's full five-argument post callback
 integer hook return, Spawn, RestartRound, SetThink, entity creation and entvars.
 The offline fixture mirrors ReAPI/Fakemeta by-reference variable argument cells;
 it executes the production AMXX bytecode in the pinned, unmodified Pawn VM.
+The standalone 1.10 VM harness supplies absent engine logging/plugin-manager
+adapters for the optional performance wrapper; it calls the actual amx_Exec
+interpreter directly, not the performance wrapper.
 
 ReHLDS `engine/common.cpp` MSG_WriteBits clamps an unsigned 8-bit value to 255.
 The original model's four bodygroups have 11 choices and bases 1,11,121,1331:

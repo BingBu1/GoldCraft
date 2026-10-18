@@ -24,7 +24,7 @@
 
 新增 Mod 建立自己的目录，保留相关 `include`、`lang`、配置及许可证。编译器自动发现分类目录；插件文件名须唯一，各 Mod 的公开 `include` 自动加入搜索路径。同名源码或内容不同的同名公开头文件会报错，避免覆盖。
 
-修改 Pawn 时优先使用匹配源码的 ReAPI hookchain、具名成员和 AMXX 1.9.0 API，核对参数、返回值与前后置时机。已有等价接口时移除固定 pdata 偏移；缺少等价阶段的实体 Think／Touch 等保留 Ham/Fakemeta。Nade Modes 的具体实现、安装和操作见 [手雷模式说明](nade_modes/README.md)。
+修改 Pawn 时优先使用匹配源码的 ReAPI hookchain、具名成员和 AMXX 1.10 API，核对参数、返回值与前后置时机。已有等价接口时移除固定 pdata 偏移；缺少等价阶段的实体 Think／Touch 等保留 Ham/Fakemeta。Nade Modes 的具体实现、安装和操作见 [手雷模式说明](nade_modes/README.md)。
 
 ```powershell
 .\build-amxx.cmd                              # 编译全部 SMA，包括测试源码
@@ -35,7 +35,7 @@
 
 在仓库根目录运行。入口使用 [amxx-builder](https://github.com/AmxxModularEcosystem/amxx-builder) **1.8.0-beta.1** 的清单解析、依赖收集和并行编译核心，修订固定在 [sources.lock.json](../sources.lock.json)。需 Node.js 18.3+ 和 npm，建议当前 LTS。首次运行自动在工作区安装锁定依赖，无需全局安装；后续构建使用本地缓存。
 
-[amxbuild.yml](../amxbuild.yml) 固定 AMXX **1.9.0.5303**、ReAPI **5.29.0.358 SDK** 和 SyPB **1.50** 头文件；上游编译器版本格式 `1.9.5303` 对应 AMXX `1.9.0.5303`。额外头文件可用 `-Includes` 指定工作区内目录。ZP 和 Nade Modes 的准备工具也调用同一入口。
+[amxbuild.yml](../amxbuild.yml) 固定 AMXX **1.10.0.5487**、ReAPI **5.29.0.358 SDK** 和 SyPB **1.50** 头文件；上游编译器版本格式 `1.10.5487` 对应 AMXX `1.10.0.5487`。额外头文件可用 `-Includes` 指定工作区内目录。ZP 和 Nade Modes 的准备工具也调用同一入口。
 
 输出统一为 `build/amxx/plugins/*.amxx`，不改源码分类、汉化或配置。适配层在 `build/amxx/builder-input` 保留相对源码引用，amxx-builder 只清理独立的 `build/amxx/builder-output`；不要用上游默认 `build` 清理范围直接运行。编译错误返回非零退出码，整组选定插件成功后才更新正式产物。`last-build.json` 记录最近成功的源码／产物哈希；`last-builder.json` 保存编译器输出与成功／失败状态。调试文件路径指向暂存源码，源码映射见前一份记录。
 
@@ -60,3 +60,11 @@ ZP 的 ReAPI 补丁由 `Prepare-ZombiePlague.py` 自动应用；更新命令和�
 启用后，服务器命令 `gc_tnt_trace <hull0..3> <起点xyz> <终点xyz>` 调用实际引擎TraceLine/TraceHull；`gc_tnt_create` 创建并复活专用假客户端，`gc_tnt_move <xyz> <yaw> <speed> <frames> <duck0/1>` 运行每帧20ms的真实RunPlayerMove。夹具假客户端免伤，仅测移动。`gc_tnt_round` 报告实际回合成员及已接受RG_RoundEnd后置事件；夹具不结束回合、不生成切除，不替代生产TNT。
 
 水平前后对照可在隔离服临时关闭重力，但结果仅证明同高度移动；引擎点射线也不等于实际武器开火。测试完成后退出专服并移除临时插件/清单，还原配置。当前证据和剩余边界见[验证记录](../docs/VALIDATION.md)。
+
+## AMXX 1.10 升级
+
+当前工具链和本地运行库固定为 **1.10.0.5487**，源码 `8fc12670ea86470a0bfed4c35db5de73d3a39e8a`。官方 Windows base/cstrike 包均核验 GitHub release SHA-256。旧 1.9 包保留用于 Admin Base 补丁来源与回滚，不作为当前编译器。
+
+停止目标专服后运行 `python tools/Update-AMXX.py`，默认升级本地测试服和独立回归服。额外目标用 `--target sandbox/名称/Half-Life`。脚本备份并更新官方 DLL、gamedata 和未修改的官方插件，保留用户配置、自定义插件与额外 gamedata。AMXX 1.10 Ham Sandwich 改用 `common.games`，不能仅替换 DLL；同名官方 gamedata 若有自定义修改会停止等待协调。备份和逐文件结果在 `build/amxx-upgrades`。
+
+项目插件重新运行 `build-amxx.cmd`；编译所有源码不会自动启用测试插件。升级实际运行核验与已安装产物记录见本地 `build/amxx-1.10-20261018`。

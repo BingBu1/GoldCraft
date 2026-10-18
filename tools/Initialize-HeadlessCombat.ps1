@@ -49,10 +49,12 @@ $meta=Assert-SandboxPath (Join-Path $game 'cstrike/addons/metamod')
 if(-not(Test-Path -LiteralPath $amxx)){
     New-Item -ItemType Directory -Path (Split-Path $amxx) -Force | Out-Null
     New-Item -ItemType Directory -Path $amxx -Force | Out-Null
-    Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.9.0.5303/addons/amxmodx') | Where-Object Name -ne 'scripting' | ForEach-Object {
+    Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/amxx-1.10.0.5487/addons/amxmodx') | Where-Object Name -ne 'scripting' | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $amxx -Recurse
     }
 }
+& python (Join-Path $PSScriptRoot 'Update-AMXX.py') --target sandbox/headless-combat/Half-Life
+if($LASTEXITCODE){throw 'Headless AMXX runtime upgrade failed'}
 if(-not(Test-Path -LiteralPath $meta)){
     Copy-Item -LiteralPath (Join-Path $script:GoldCraftRoot '.tools/metamod-1.3.0.149/addons/metamod') -Destination $meta -Recurse
 }
