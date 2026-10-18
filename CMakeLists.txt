@@ -233,7 +233,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     set(ONLY_LIBS ON CACHE BOOL "" FORCE)
     add_subdirectory("${METAHOOKSV_SOURCE_PATH}/thirdparty/glew_fork" thirdparty/glew EXCLUDE_FROM_ALL)
     include(cmake/goldcraft-diagnostics.cmake)
-    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/host_text.cpp native/client/server_hud.cpp native/client/render_backend.cpp native/client/post_scene_snapshot.cpp native/client/post_effect_replay.cpp
+    add_library(GoldCraft SHARED native/client/plugin.cpp native/client/host_ui.cpp native/client/host_text.cpp native/client/server_hud.cpp native/client/render_backend.cpp native/client/post_scene_snapshot.cpp native/client/post_effect_replay.cpp native/client/entity_outline.cpp
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/vitals.cpp native/client/status_motion.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
@@ -311,6 +311,15 @@ if(GOLDCRAFT_BUILD_CLIENT)
         set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
         set(USE_MSVC_RUNTIME_LIBRARY_DLL OFF CACHE BOOL "" FORCE)
         add_subdirectory("${GLFW_SOURCE_PATH}" thirdparty/glfw EXCLUDE_FROM_ALL)
+        add_executable(goldcraft_entity_outline_tests tests/native/entity_outline_gl_tests.cpp native/client/entity_outline.cpp)
+        target_include_directories(goldcraft_entity_outline_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_compile_definitions(goldcraft_entity_outline_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX GLEW_STATIC GLFW_INCLUDE_NONE)
+        target_compile_options(goldcraft_entity_outline_tests PRIVATE /W4 /utf-8 /UNDEBUG)
+        target_link_libraries(goldcraft_entity_outline_tests PRIVATE opengl32 libglew_static glfw)
+        set(GOLDCRAFT_TEST_OUTLINE_REFERENCE "${CMAKE_CURRENT_SOURCE_DIR}/build/entity-outline-reference/reference" CACHE PATH
+            "Locally extracted Minecraft outline shaders; tools/Test-EntityOutline.py --output build/entity-outline-reference")
+        add_test(NAME goldcraft_entity_outline COMMAND goldcraft_entity_outline_tests "${GOLDCRAFT_TEST_OUTLINE_REFERENCE}")
+        set_tests_properties(goldcraft_entity_outline PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 2)
         add_executable(goldcraft_post_effect_replay_tests tests/native/post_effect_replay_gl_tests.cpp
             native/client/post_effect_replay.cpp native/client/post_scene_snapshot.cpp)
         target_include_directories(goldcraft_post_effect_replay_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
