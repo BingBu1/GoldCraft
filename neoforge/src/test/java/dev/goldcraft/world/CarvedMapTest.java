@@ -14,8 +14,43 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static dev.goldcraft.world.CarvedVolume.*;
 
 class CarvedMapTest {
+    @Test void pairedDecompositionRetainsIndependentGeometryAndCombinedBudget() {
+        var region=new Box(new P(-4,-4,-4),new P(4,4,4));
+        var a=new Box(new P(-2,-2,-2),new P(2,2,2));
+        var b=new Box(new P(0,-2,-2),new P(4,2,2));
+        var cuts=List.of(a,b,a,new Box(new P(20,20,20),new P(24,24,24)));
+        float n=(float)Math.sqrt(.5);
+        var slope=new BspMap.Hull(new BspMap.Plane[]{new BspMap.Plane(v(n,n,0),0,3)},
+            new BspMap.Node[]{new BspMap.Node(0,-1,-2)},0);
+        var solid=new BspMap.Hull(new BspMap.Plane[0],new BspMap.Node[0],-2);
+        var empty=new BspMap.Hull(new BspMap.Plane[0],new BspMap.Node[0],-1);
+        var water=new BspMap.Hull(new BspMap.Plane[0],new BspMap.Node[0],-3);
+        for(var hull:List.of(solid,empty,water,slope)) {
+            for(var boxes:List.of(List.<Box>of(),cuts,List.of(region))) {
+                var oldWork=new Work(4_194_304,4096);oldWork.use(17);
+                var original=carve(hull,region,List.of(),oldWork);
+                var remaining=carve(hull,region,boxes,oldWork);
+                var work=new Work(oldWork.used,4096);work.use(17);
+                var pair=carvePair(hull,region,boxes,work);
+                assertEquals(original,pair.original());assertEquals(remaining,pair.remaining());
+                assertEquals(oldWork.used,work.used);
+                var shortWork=new Work(oldWork.used-1,4096);shortWork.use(17);
+                assertThrows(IllegalArgumentException.class,()->carvePair(hull,region,boxes,shortWork));
+                // Consumers may share uncut cells, but subtraction and body
+                // expansion must leave those source faces and vertices intact.
+                var body=new Box(new P(-1,-1,-2),new P(1,1,2));
+                var expected=expand(remaining,body,new Work(4_194_304,4096));
+                assertEquals(expected,expand(pair.remaining(),body,new Work(4_194_304,4096)));
+                expand(pair.original(),body,new Work(4_194_304,4096));
+                assertEquals(original,pair.original());assertEquals(remaining,pair.remaining());
+            }
+        }
+        assertThrows(IllegalArgumentException.class,()->carvePair(solid,region,cuts,new Work(4_194_304,1)));
+    }
+
     private static final MapEdits.Target WORLD=new MapEdits.Target(0,0,0);
     private static final Path MAP=Path.of("../sandbox/cs-client-b/Half-Life/cstrike/maps/cs_assault.bsp");
     private static BspMap.Vec v(float x,float y,float z) { return new BspMap.Vec(x,y,z); }

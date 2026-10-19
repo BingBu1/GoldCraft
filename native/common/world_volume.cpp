@@ -348,18 +348,16 @@ bool intersects(const BoundsIndex &index, Point start, Point end) {
     return visit_bounds(index, start, end, [](std::size_t) { return true; });
 }
 
-Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits limits) {
-    validate(region);
-    Work work{limits};
-    work.operations = validate_hull(hull, limits);
-    if (cuts.size() > limits.operations)
+namespace {
+void validate_cuts(std::span<const Box> cuts, Work& work) {
+    if (cuts.size() > work.limits.operations)
         throw std::length_error("Carved volume cut budget");
     for (const auto &b : cuts) {
         validate(b);
         work.use();
     }
-    Volume result{region, {}};
-    collect(hull, hull.root, cube(region), work, result.cells);
+}
+Volume subtract_collected(Volume result, std::span<const Box> cuts, Work& work) {
     if (cuts.empty()) {
         result.operations = work.operations;
         return result;
@@ -390,6 +388,35 @@ Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits
     }
     result.operations = work.operations;
     return result;
+}
+} // namespace
+
+Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits limits) {
+    validate(region);
+    Work work{limits};
+    work.operations = validate_hull(hull, limits);
+    validate_cuts(cuts, work);
+    Volume result{region, {}};
+    collect(hull, hull.root, cube(region), work, result.cells);
+    return subtract_collected(std::move(result), cuts, work);
+}
+
+VolumePair carve_volumes(HullView hull, Box region, std::span<const Box> cuts, Limits limits) {
+    VolumePair pair;
+    pair.original = carve_volume(hull, region, {}, limits);
+    Work work{{limits.fragments, limits.operations - pair.original.operations}};
+    // validate_hull also bounds the full input arrays, including unreachable
+    // nodes. Preserve that second-call guard even when its visited work is less.
+    if (!work.limits.operations)
+        throw std::invalid_argument("World carving requires nonzero work limits");
+    if (hull.nodes.size() > work.limits.operations || hull.planes.size() > work.limits.operations)
+        throw std::length_error("World carving input exceeds operation budget");
+    // Retain the old validation/decomposition charge without repeating its
+    // clipping. The exact original cell/face/vertex order survives the copy.
+    work.use(pair.original.operations);
+    validate_cuts(cuts, work);
+    pair.remaining = subtract_collected(pair.original, cuts, work);
+    return pair;
 }
 
 CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits) {

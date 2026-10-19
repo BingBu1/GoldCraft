@@ -18,6 +18,14 @@ struct Volume {
 // No part of the outside region is implied. Material is retained as disjoint
 // convex cells, including the new cavity walls. Empty/water leaves stay empty.
 Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits limits = {4096, 4'194'304});
+struct VolumePair {
+    Volume original, remaining;
+};
+// One validated BSP decomposition feeds both uncut and cut geometry. The work
+// limit covers both results, retaining the charges of two independent builds.
+// Neither result refers to caller-owned hull storage or to the other result.
+VolumePair carve_volumes(HullView hull, Box region, std::span<const Box> cuts,
+                         Limits limits = {4096, 4'194'304});
 
 struct CollisionCell {
     Box bounds;

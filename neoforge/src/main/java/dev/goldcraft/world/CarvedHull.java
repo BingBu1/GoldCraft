@@ -23,9 +23,8 @@ final class CarvedHull {
         var padding=new P(1,1,1);
         var region=new Box(affected.min().add(body.min()).sub(padding),affected.max().add(body.max()).add(padding));
         var work=new Work(limit,4096);
-        var old=carve(map.hull(model,0),region,List.of(),work);
-        var next=carve(map.hull(model,0),region,cuts,work);
-        original=expand(old,body,work);remaining=expand(next,body,work);
+        var volumes=carvePair(map.hull(model,0),region,cuts,work);
+        original=expand(volumes.original(),body,work);remaining=expand(volumes.remaining(),body,work);
         originalIndex=index(original,work);
         remainingIndex=index(remaining,work);
         operations=work.used;

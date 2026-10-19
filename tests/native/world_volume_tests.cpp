@@ -73,6 +73,66 @@ struct Random {
 constexpr HullView solid{{}, {}, -2}, empty{{}, {}, -1}, water{{}, {}, -3};
 constexpr Box point{{0, 0, 0}, {0, 0, 0}};
 
+void same_volume(const Volume &a, const Volume &b) {
+    assert(a.region.min == b.region.min && a.region.max == b.region.max);
+    assert(a.operations == b.operations && a.cells.size() == b.cells.size());
+    for (std::size_t i = 0; i < a.cells.size(); ++i) {
+        const auto &x = a.cells[i].faces, &y = b.cells[i].faces;
+        assert(x.size() == y.size());
+        for (std::size_t j = 0; j < x.size(); ++j) {
+            assert(x[j].plane.normal == y[j].plane.normal && x[j].plane.distance == y[j].plane.distance);
+            assert(x[j].vertices == y[j].vertices);
+        }
+    }
+}
+
+void paired_decomposition() {
+    const Box region{{-4, -4, -4}, {4, 4, 4}};
+    const Box a{{-2, -2, -2}, {2, 2, 2}}, b{{0, -2, -2}, {4, 2, 2}};
+    const std::vector<Box> cuts{a, b, a, Box{{20, 20, 20}, {24, 24, 24}}};
+    const double n = std::sqrt(.5);
+    const std::array<Plane, 1> planes{Plane{{n, n, 0}, 0}};
+    const std::array<HullNode, 1> nodes{HullNode{0, {-1, -2}}};
+    const HullView slope{planes, nodes, 0};
+    for (auto hull : {solid, empty, water, slope}) {
+        for (const auto &boxes : {std::vector<Box>{}, cuts, std::vector<Box>{region}}) {
+            const Limits limit{4096, 4'194'304};
+            const auto original = carve_volume(hull, region, {}, limit);
+            const auto remaining = carve_volume(hull, region, boxes,
+                {limit.fragments, limit.operations - original.operations});
+            const auto pair = carve_volumes(hull, region, boxes, limit);
+            same_volume(pair.original, original);
+            same_volume(pair.remaining, remaining);
+            const auto used = original.operations + remaining.operations;
+            const auto tight = carve_volumes(hull, region, boxes, {limit.fragments, used});
+            same_volume(tight.original, original);
+            same_volume(tight.remaining, remaining);
+            rejects<std::length_error>([&] { carve_volumes(hull, region, boxes, {limit.fragments, used - 1}); });
+        }
+    }
+    auto owned = carve_volumes(solid, region, cuts);
+    const auto original_copy = owned.original;
+    owned.remaining.cells.front().faces.front().vertices.front()[0] += 1;
+    same_volume(owned.original, original_copy);
+    auto no_cuts = carve_volumes(solid, region, {});
+    no_cuts.remaining.cells.front().faces.front().vertices.clear();
+    same_volume(no_cuts.original, original_copy);
+
+    // Most nodes need not be reachable from this model's root. The input-array
+    // guard is separate from actual charged traversal work in each old call.
+    const std::vector<HullNode> unused(128, HullNode{0, {-1, -2}});
+    const HullView sparse{{}, unused, -2};
+    const auto sparse_original = carve_volume(sparse, region, {}, {4096, 129});
+    assert(sparse_original.operations == 2);
+    rejects<std::length_error>([&] { carve_volume(sparse, region, {}, {4096, 127}); });
+    rejects<std::length_error>([&] { carve_volumes(sparse, region, {}, {4096, 129}); });
+    const auto sparse_pair = carve_volumes(sparse, region, {}, {4096, 130});
+    same_volume(sparse_pair.original, sparse_original);
+    same_volume(sparse_pair.remaining, sparse_original);
+    rejects<std::invalid_argument>([&] { carve_volumes(solid, region, {}, {4096, 2}); });
+    rejects<std::length_error>([&] { carve_volumes(solid, region, cuts, {1, 4'194'304}); });
+}
+
 void conservation() {
     const Box region{{-4, -4, -4}, {4, 4, 4}};
     const Box a{{-2, -2, -2}, {2, 2, 2}}, b{{0, -2, -2}, {4, 2, 2}};
@@ -412,6 +472,7 @@ void indexed_queries() {
 
 int main() {
     try {
+        paired_decomposition();
         conservation();
         std::cout << "Conservation passed\n";
         openings();

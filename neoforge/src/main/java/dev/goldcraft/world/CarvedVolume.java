@@ -160,6 +160,19 @@ final class CarvedVolume {
         for(int i=0;i<3;i++)if(region.min.at(i)>=region.max.at(i))throw new IllegalArgumentException("Carved region volume");
         work.use(cuts.size());
         var cells=new ArrayList<Cell>();collect(hull,hull.root(),cube(region),work,cells);
+        return subtractCollected(cells,cuts,work);
+    }
+    record VolumePair(List<Cell> original,List<Cell> remaining) {}
+    static VolumePair carvePair(BspMap.Hull hull,Box region,List<Box> cuts,Work work) {
+        long before=work.used;
+        var original=carve(hull,region,List.of(),work);
+        // Keep the original second build's budget charge. Cells are only read
+        // by subtraction; clip constructs new cells rather than editing input.
+        work.use(work.used-before);
+        work.use(cuts.size());
+        return new VolumePair(original,subtractCollected(original,cuts,work));
+    }
+    private static List<Cell> subtractCollected(List<Cell> cells,List<Box> cuts,Work work) {
         if(cuts.isEmpty())return cells;
         var index=new CarvedBoundsIndex(cuts,work);
         var nearby=new CarvedBoundsIndex.Candidates();
