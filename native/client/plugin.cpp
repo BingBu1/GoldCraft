@@ -1534,6 +1534,7 @@ void TestCommands() {
     if(now<next_poll)return;next_poll=now+std::chrono::milliseconds(50);
     std::ifstream input(path);std::uint64_t id=0;std::string action;
     if(!(input>>id>>action)||id<=test_command_id)return;test_command_id=id;
+    if(action=="userinfo_set") {client_userinfo::test_command(input);return;}
     if(action=="view") {float yaw=0,pitch=0;if(input>>yaw>>pitch&&std::isfinite(yaw)&&std::isfinite(pitch)&&std::abs(pitch)<=89){float angles[3]{pitch,yaw,0};gEngfuncs.SetViewAngles(angles);}}
     else if(action=="capture")capture_requested=true;
     else if(action=="scene_resync")atlas_generation=0;

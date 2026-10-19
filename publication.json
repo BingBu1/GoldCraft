@@ -18,6 +18,7 @@
     "docs/NATIVE_VISION.md",
     "tools/Test-NativeVision.py",
     "tools/Test-HostText.py",
+    "tools/Exercise-UserInfo.py",
     "docs/LOCAL_PLAYTEST.md",
     "amxx/goldcraft/goldcraft_controls.sma",
     "amxx/goldcraft/configs/plugins-goldcraft-controls.ini",

@@ -9,4 +9,5 @@ void reset();
 void shutdown();
 const char* error();
 void diagnostics(std::ostream& out);
+void test_command(std::istream& input);
 }

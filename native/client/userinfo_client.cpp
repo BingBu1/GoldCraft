@@ -7,6 +7,7 @@
 #include <cstring>
 #include <deque>
 #include <iomanip>
+#include <istream>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -27,6 +28,10 @@ using Get = const char*(__cdecl*)(const char*,const char*);
 using Remove = void(__cdecl*)(char*,const char*);
 Set original_set{}; Get original_get{}; Remove original_remove{};
 std::array<hook_t*,3> hooks{};
+xcommand_t original_setinfo{};
+bool setinfo_hooked = false;
+std::string probe_key;
+int probe_slot = 0;
 struct Operand { const char* name; unsigned offset, delta; };
 constexpr Operand operands[]{
 #include "userinfo_refs.inc"
@@ -55,17 +60,28 @@ int player_index(const char* info) {
 bool local_buffer(const char* info) { return info == legacy || info == local.full.data(); }
 void publish_local() { local.publish(legacy,userinfo::legacy_capacity-userinfo::identity_reserve); }
 
+bool accepts(const char* key,const char* value) {
+    if (key && value && userinfo::token(key) && userinfo::token(value)
+        && std::strlen(key)<127 && std::strlen(value)<127
+        && userinfo::fits(local.full.data(),key,value,userinfo::capacity-userinfo::identity_reserve)) return true;
+    ++rejected;
+    gEngfuncs.Con_Printf("GoldCraft userinfo rejected: invalid field or 1024-byte capacity exceeded\n");
+    return false;
+}
+void setinfo_command() {
+    // The engine forwards setinfo even when its void storage setter rejects it.
+    // Apply the local budget before that handler so a rejected replacement
+    // cannot still change the authenticated server's copy.
+    if (installed && gEngfuncs.Cmd_Argc()==3 && !accepts(gEngfuncs.Cmd_Argv(1),gEngfuncs.Cmd_Argv(2))) return;
+    if (original_setinfo) original_setinfo();
+}
+
 void __cdecl set(char* info,const char* key,const char* value,int capacity) {
     if (!local_buffer(info)) { original_set(info,key,value,capacity); return; }
     if (!key || !value) return;
     // Match the stricter dedicated-engine limit, and leave space for the
     // Steam identity added by the authenticated server.
-    if (!userinfo::token(key) || !userinfo::token(value) || std::strlen(key)>=127 || std::strlen(value)>=127 ||
-        !userinfo::fits(local.full.data(),key,value,userinfo::capacity-userinfo::identity_reserve)) {
-        ++rejected;
-        gEngfuncs.Con_Printf("GoldCraft userinfo capacity exceeded (1024 bytes including server identity)\n");
-        return;
-    }
+    if (!accepts(key,value)) return;
     original_set(local.full.data(),key,value,int(userinfo::capacity));
     publish_local(); ++revision;
 }
@@ -148,6 +164,14 @@ bool install(metahook_api_t* value) {
 }
 void initialize() {
     if (!installed) return;
+    if (!setinfo_hooked) {
+        original_setinfo=api->FindCmd && api->HookCmd ? api->HookCmd("setinfo",setinfo_command) : nullptr;
+        if (!original_setinfo) {
+            shutdown(); failure="userinfo setinfo command unavailable";
+            return;
+        }
+        setinfo_hooked=true;
+    }
     gEngfuncs.pfnRegisterVariable("_gcu","1",FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue("_gcu",1);
     gEngfuncs.pfnAddCommand("gc_userinfo_sync",sync);
@@ -163,20 +187,41 @@ void frame() {
     }
     if (pending.empty()) syncing=false;
 }
-void reset() { pending.clear(); syncing=false; players={}; }
+void reset() { pending.clear(); syncing=false; players={}; probe_key.clear();probe_slot=0; }
 void shutdown() {
     if (api) {
+        const auto* command=api->FindCmd ? api->FindCmd("setinfo") : nullptr;
+        if (command && command->function==setinfo_command) api->HookCmd("setinfo",original_setinfo);
         if (copy_call && original_copy[0]==0xe8) api->WriteMemory(copy_call,original_copy.data(),DWORD(original_copy.size()));
         for (const auto& patch:patches) api->WriteDWORD(patch.address,patch.before);
         for (auto& hook:hooks) if (hook) {api->UnHook(hook);hook=nullptr;}
     }
-    patches.clear();copy_call=nullptr;installed=false;reset();
+    patches.clear();copy_call=nullptr;installed=false;setinfo_hooked=false;reset();
 }
 const char* error() { return failure.c_str(); }
+void test_command(std::istream& input) {
+    std::string key,value;int slot=0;
+    if (!installed || !(input>>std::quoted(key)>>std::quoted(value)>>slot)
+        || !key.starts_with("gcuit_") || key.size()>=127 || value.size()>=127
+        || !userinfo::token(key) || !userinfo::token(value) || slot<1 || slot>32) return;
+    // Only the opt-in sandbox command channel calls this. Probe fields cannot
+    // change a real player's name, identity, credentials or decoding abilities.
+    probe_key=key;probe_slot=slot;
+    auto command="setinfo \""+key+"\" \""+value+"\"\n";
+    gEngfuncs.pfnClientCmd(command.data());
+}
 void diagnostics(std::ostream& out) {
     out << "\"userinfo\":{\"installed\":" << installed << ",\"capacity\":" << (installed?userinfo::capacity:userinfo::legacy_capacity)
         << ",\"localBytes\":" << std::strlen(local.full.data()) << ",\"legacyBytes\":" << (legacy?std::strlen(legacy):0)
         << ",\"pending\":" << pending.size() << ",\"sent\":" << sent << ",\"received\":" << received
-        << ",\"rejected\":" << rejected << ",\"error\":" << std::quoted(failure) << '}';
+        << ",\"rejected\":" << rejected << ",\"commandGuard\":" << (installed && setinfo_hooked ? 1 : 0)
+        << ",\"error\":" << std::quoted(failure);
+    if (!probe_key.empty()) {
+        out << ",\"probeKey\":" << std::quoted(probe_key)
+            << ",\"probeLocal\":" << std::quoted(std::string(userinfo::value(local.full.data(),probe_key)));
+        const char* received_value=gEngfuncs.PlayerInfo_ValueForKey(probe_slot,probe_key.c_str());
+        out << ",\"probeReceived\":" << std::quoted(received_value ? received_value : "");
+    }
+    out << '}';
 }
 }
