@@ -89,34 +89,47 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
             if (!epoch || epoch != stats.epoch || revision <= stats.revision || count > 65536 ||
                 (!cuts && count))
                 throw std::invalid_argument("Map physics session/revision/count");
-            std::map<int, std::vector<Box>> groups;
-            std::map<int, Target> next;
+            struct CutGroup {
+                std::uint32_t serial{}, model{};
+                std::vector<Box> boxes;
+            };
+            std::map<std::uint32_t, CutGroup> groups;
             for (std::uint32_t i = 0; i < count; ++i) {
                 const auto &cut = cuts[i];
-                auto *model = TargetModel(cut.slot, cut.serial, cut.model);
-                auto *entity = &g_psv.edicts[cut.slot];
-                auto [entry, inserted] = next.try_emplace(static_cast<int>(cut.slot));
+                if (cut.slot >= static_cast<unsigned>(g_psv.num_edicts))
+                    throw std::invalid_argument("Map physics target slot");
+                auto [entry, inserted] = groups.try_emplace(cut.slot);
+                auto &group = entry->second;
                 if (inserted) {
-                    entry->second.serial = entity->serialnumber;
-                    entry->second.model = model;
-                    entry->second.inline_model = cut.model;
-                } else if (entry->second.serial != entity->serialnumber ||
-                           entry->second.inline_model != cut.model)
+                    group.serial = cut.serial;
+                    group.model = cut.model;
+                } else if (group.serial != cut.serial || group.model != cut.model)
                     throw std::invalid_argument("Mixed map physics identity");
                 Box box{};
                 for (int axis = 0; axis < 3; ++axis) {
                     box.min[axis] = cut.min[axis];
                     box.max[axis] = cut.max[axis];
                 }
-                groups[static_cast<int>(cut.slot)].push_back(box);
+                group.boxes.push_back(box);
+            }
+            // Replace runs synchronously on the engine thread. Grouping and
+            // collision preparation do not invoke game/plugin callbacks, so
+            // validate each requested target once, never across replacements.
+            std::map<int, Target> next;
+            for (const auto &[slot, group] : groups) {
+                auto *model = TargetModel(slot, group.serial, group.model);
+                auto &target = next[static_cast<int>(slot)];
+                target.serial = g_psv.edicts[slot].serialnumber;
+                target.model = model;
+                target.inline_model = group.model;
             }
             std::size_t total_work = 0, source_bytes = 0;
             for (auto &[slot, target] : next) {
-                std::shared_ptr<const SourceModel> source = std::make_shared<SourceModel>(target.model,groups.at(slot));
+                std::shared_ptr<const SourceModel> source = std::make_shared<SourceModel>(target.model,groups.at(slot).boxes);
                 const auto previous = targets.find(slot);
                 if (previous != targets.end()) {
                     const auto& old = previous->second;
-                    // TargetModel was checked again for every current cut.
+                    // TargetModel was checked for this group in this replacement.
                     // A reused pointer or matching cut list alone is insufficient.
                     if (old.serial == target.serial && old.model == target.model &&
                         old.inline_model == target.inline_model && old.source && source->same(*old.source)) {
@@ -143,7 +156,7 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
                 }
             }
             auto visible = engine_map::prepare_visibility(g_psv.worldmodel,
-                groups.contains(0) ? std::span<const Box>(groups.at(0)) : std::span<const Box>{});
+                groups.contains(0) ? std::span<const Box>(groups.at(0).boxes) : std::span<const Box>{});
             targets.swap(next);
             has_brushes = targets.size() > (targets.contains(0) ? 1u : 0u);
             engine_map::commit_visibility(std::move(visible));
