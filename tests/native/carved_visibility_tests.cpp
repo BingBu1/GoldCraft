@@ -244,6 +244,70 @@ void DeliveryInterest() {
     assert(allocations.load() == before);
     std::printf("{\"deliveryInterest\":true,\"queries\":%zu,\"allocations\":0,\"queryCpuUs\":%.4f,\"oneExpansion\":true,\"independentContexts\":true,\"sealedCavities\":true,\"passed\":true}\n", repeats, elapsed / repeats);
 }
+std::size_t CheckAudibleExpansion(const std::shared_ptr<const visibility::Source>& source,
+                                  const std::vector<carving::Box>& cuts) {
+    const visibility::Prepared topology(source, cuts);
+    visibility::EntityCache cache(source, cuts);
+    const auto count = topology.leaf_count() + topology.component_count();
+    const auto row_words = (topology.leaf_count() - 1 + 63) / 64 + (topology.component_count() + 63) / 64;
+    std::vector<std::vector<bool>> visible(count, std::vector<bool>(count));
+    auto operations = topology.operations();
+    for (std::uint32_t from = 0; from < count; ++from) {
+        const auto view = topology.view(from);
+        operations += view.operations + 2 * row_words;
+        for (std::uint32_t to = 1; to < count; ++to) {
+            if (to < topology.leaf_count()) visible[from][to] = view.sees_leaf(to);
+            else {
+                const auto bit = to - topology.leaf_count();
+                visible[from][to] = (view.components[bit / 64] & (std::uint64_t{1} << (bit % 64))) != 0;
+            }
+            if (visible[from][to]) operations += row_words + 1;
+        }
+    }
+    // Independent boolean relation composition: PAS takes exactly one extra
+    // step over the original visual relation, not a transitive closure.
+    for (std::uint32_t from = 1; from < count; ++from)
+        for (std::uint32_t to = 1; to < count; ++to) {
+            bool audible = visible[from][to];
+            for (std::size_t via = 1; via < count; ++via)
+                audible |= visible[from][via] && visible[via][to];
+            assert(cache.reaches(from, to) == visible[from][to]);
+            assert(cache.reaches(from, to, true) == audible);
+        }
+    assert(cache.operations() == operations);
+    assert(cache.cached_words() == 2 * (count + 1) * row_words);
+    auto limits = visibility::Limits{};
+    limits.operations = operations;
+    const visibility::EntityCache exact(source, cuts, limits);
+    assert(exact.operations() == operations && exact.reused_audible_rows() == cache.reused_audible_rows());
+    --limits.operations;
+    Reject([&] { visibility::EntityCache invalid(source, cuts, limits); });
+    return cache.reused_audible_rows();
+}
+void ReusedAudibleRows() {
+    auto all_visible = std::make_shared<visibility::Source>();
+    all_visible->contents.resize(66, -1); all_visible->contents[0] = -2;
+    all_visible->root = -2;
+    for (int leaf = 0; leaf < 65; ++leaf) {
+        all_visible->pvs.push_back(~std::uint64_t{});
+        all_visible->pvs.push_back(1);
+    }
+    // Includes key zero's equal no-vis row; its preparation charge differs.
+    assert(CheckAudibleExpansion(all_visible, {}) == 65);
+    const auto rooms = Rooms();
+    assert(CheckAudibleExpansion(rooms, {Hole(0, 2), Hole(10, 12), Hole(20.5, 21.5)}) > 0);
+    // Two sealed cavities have identical leaf masks but different component
+    // masks. Reusing one for the other would leak sounds through solid walls.
+    assert(CheckAudibleExpansion(rooms, {Hole(20.5, 21.5), Hole(30.5, 31.5)}) == 0);
+    auto directed = Rooms();
+    directed->pvs = {3, 6, 12, 24, 16};
+    assert(CheckAudibleExpansion(directed, {}) == 0);
+    assert(CheckAudibleExpansion(directed, {Hole(0, 2), Hole(20.5, 21.5)}) > 0);
+    auto solid = std::make_shared<visibility::Source>();
+    solid->contents = {-2}; solid->root = -1;
+    assert(CheckAudibleExpansion(solid, {}) == 0);
+    assert(CheckAudibleExpansion(solid, {Hole(0, 2), Hole(10, 12)}) == 0);
+}
 void ReusedEntityPreparation() {
     auto source = Rooms();
     source->pvs = {3, 6, 12, 24, 16};
@@ -463,4 +527,4 @@ void ReusedCutContacts() {
                 assert(new_rows.reaches(from, to, sound) == fresh_rows.reaches(from, to, sound));
 }
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); ReusedSourceValidation(); ReusedCutContacts(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedAudibleRows(); ReusedEntityPreparation(); ReusedSourceValidation(); ReusedCutContacts(); }

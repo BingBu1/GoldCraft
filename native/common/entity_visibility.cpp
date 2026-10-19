@@ -5,10 +5,25 @@
 #include <stdexcept>
 
 namespace goldcraft::visibility {
+namespace {
+// A fingerprint only selects a slot; both complete bit arrays must match.
+std::uint64_t row_fingerprint(const View& row) noexcept {
+    std::uint64_t hash = 14695981039346656037ull;
+    for (auto word : row.leaves) hash = (hash ^ word) * 1099511628211ull;
+    for (auto word : row.components) hash = (hash ^ word) * 1099511628211ull;
+    return hash;
+}
+struct AudibleReuse {
+    std::uint64_t hash = 0;
+    std::size_t key = 0, operations = 0;
+    bool valid = false;
+};
+} // namespace
 struct EntityCache::PreparedRows {
     Prepared topology_;
     std::vector<View> rows_, audible_rows_;
     std::size_t row_bytes_ = 0, operations_ = 0, cached_words_ = 0;
+    std::size_t reused_audible_rows_ = 0;
     PreparedRows(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
                  Limits limits, const PreparedRows* previous);
 };
@@ -46,7 +61,25 @@ EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
             throw std::length_error("Entity PAS cache preparation budget");
         operations_ += work;
     };
+    // Temporary direct-mapped index: at most 64 KiB, no copied row keys or
+    // ownership of previous revisions. A collision merely replaces one slot.
+    const auto reuse_count = std::min<std::size_t>(count, 64 * 1024 / sizeof(AudibleReuse));
+    const auto reuse = std::make_unique<AudibleReuse[]>(reuse_count);
     for (const auto &visual : rows_) {
+        const auto hash = row_fingerprint(visual);
+        auto& slot = reuse[hash % reuse_count];
+        if (slot.valid && slot.hash == hash && rows_[slot.key].leaves == visual.leaves &&
+            rows_[slot.key].components == visual.components) {
+            // Keep the original expansion charge and independent output row.
+            // Equal masks can have different visual preparation work counts.
+            consume(slot.operations);
+            auto heard = audible_rows_[slot.key];
+            heard.operations = visual.operations;
+            audible_rows_.push_back(std::move(heard));
+            ++reused_audible_rows_;
+            continue;
+        }
+        const auto before = operations_;
         consume(row_words);
         auto heard = visual;
         const auto expand = [&](const Bits &bits, std::size_t offset) {
@@ -65,7 +98,9 @@ EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
         };
         expand(visual.leaves, 1);
         expand(visual.components, topology_.leaf_count());
+        const auto key = audible_rows_.size();
         audible_rows_.push_back(std::move(heard));
+        slot = {hash, key, operations_ - before, true};
     }
 }
 EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
@@ -87,6 +122,7 @@ std::size_t EntityCache::operations() const noexcept { return prepared_->operati
 std::size_t EntityCache::cached_words() const noexcept { return prepared_->cached_words_; }
 std::size_t EntityCache::reused_contacts() const noexcept { return prepared_->topology_.reused_contacts(); }
 std::size_t EntityCache::contact_cache_bytes() const noexcept { return prepared_->topology_.contact_cache_bytes(); }
+std::size_t EntityCache::reused_audible_rows() const noexcept { return prepared_->reused_audible_rows_; }
 void EntityCache::begin(bool audible) noexcept {
     auto &current = audible ? current_audible_ : current_;
     std::fill(current.leaves.begin(), current.leaves.end(), 0);
