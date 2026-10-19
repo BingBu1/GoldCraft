@@ -5,8 +5,15 @@
 #include <stdexcept>
 
 namespace goldcraft::visibility {
-EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
-                         Limits limits)
+struct EntityCache::PreparedRows {
+    Prepared topology_;
+    std::vector<View> rows_, audible_rows_;
+    std::size_t row_bytes_ = 0, operations_ = 0, cached_words_ = 0;
+    PreparedRows(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
+                 Limits limits);
+};
+EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
+                                        std::span<const carving::Box> cuts, Limits limits)
     : topology_(std::move(source), cuts, limits) {
     static_assert(std::endian::native == std::endian::little);
     const auto leaves = topology_.leaf_count() - 1;
@@ -19,8 +26,6 @@ EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const c
     if (row_words && count + 1 > limits.words / (2 * row_words))
         throw std::length_error("Entity PVS cache storage budget");
     cached_words_ = 2 * (count + 1) * row_words;
-    current_ = {Bits(words), Bits(component_words)};
-    current_audible_ = {Bits(words), Bits(component_words)};
     rows_.reserve(count);
     operations_ = topology_.operations();
     for (std::uint32_t key = 0; key < count; ++key) {
@@ -61,6 +66,22 @@ EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const c
         audible_rows_.push_back(std::move(heard));
     }
 }
+EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
+                         Limits limits, const EntityCache* previous)
+    : prepared_(previous && previous->prepared_ && previous->prepared_->topology_.matches_input(source, cuts, limits)
+        ? previous->prepared_ : std::make_shared<PreparedRows>(std::move(source), cuts, limits)) {
+    // Never share FatPVS/FatPAS accumulators with the previous transaction.
+    // Their storage is included in PreparedRows' original per-cache budget.
+    const auto& row = prepared_->rows_.front();
+    current_ = {Bits(row.leaves.size()), Bits(row.components.size())};
+    current_audible_ = {Bits(row.leaves.size()), Bits(row.components.size())};
+}
+std::uint32_t EntityCache::key(std::uint32_t leaf, carving::Point point) const noexcept {
+    return prepared_->topology_.key(leaf, point);
+}
+std::size_t EntityCache::leaf_count() const noexcept { return prepared_->topology_.leaf_count(); }
+std::size_t EntityCache::operations() const noexcept { return prepared_->operations_; }
+std::size_t EntityCache::cached_words() const noexcept { return prepared_->cached_words_; }
 void EntityCache::begin(bool audible) noexcept {
     auto &current = audible ? current_audible_ : current_;
     std::fill(current.leaves.begin(), current.leaves.end(), 0);
@@ -69,17 +90,17 @@ void EntityCache::begin(bool audible) noexcept {
 bool EntityCache::valid_width(std::size_t bytes) const noexcept {
     // ReHLDS uses four-byte rows with gPVS, and (numleafs + 31) >> 3
     // without it. That legacy padding can extend beyond our final 64-bit word.
-    return bytes >= row_bytes_ && bytes - row_bytes_ <= 3;
+    return bytes >= prepared_->row_bytes_ && bytes - prepared_->row_bytes_ <= 3;
 }
 bool EntityCache::merge(std::uint32_t key, std::span<std::uint8_t> mask, bool audible) noexcept {
     // Key zero is the Renderer no-vis convention. A server eye in untouched
     // solid must retain the engine result, not disclose every entity.
-    if (!key || key >= rows_.size() || !valid_width(mask.size()))
+    if (!key || key >= prepared_->rows_.size() || !valid_width(mask.size()))
         return false;
-    const auto &row = (audible ? audible_rows_ : rows_)[key];
+    const auto &row = (audible ? prepared_->audible_rows_ : prepared_->rows_)[key];
     auto &current = audible ? current_audible_ : current_;
     const auto *bytes = reinterpret_cast<const std::uint8_t *>(row.leaves.data());
-    for (std::size_t i = 0; i < row_bytes_; ++i)
+    for (std::size_t i = 0; i < prepared_->row_bytes_; ++i)
         mask[i] |= bytes[i];
     for (std::size_t i = 0; i < current.leaves.size(); ++i)
         current.leaves[i] |= row.leaves[i];
@@ -88,20 +109,20 @@ bool EntityCache::merge(std::uint32_t key, std::span<std::uint8_t> mask, bool au
     return true;
 }
 bool EntityCache::sees_bounds(const carving::Box &bounds, bool audible) const {
-    return topology_.sees_bounds(audible ? current_audible_ : current_, bounds);
+    return prepared_->topology_.sees_bounds(audible ? current_audible_ : current_, bounds);
 }
 bool EntityCache::matches(std::span<const std::uint8_t> mask, bool audible) const noexcept {
     const auto &current = audible ? current_audible_ : current_;
     return valid_width(mask.size()) &&
-           (!row_bytes_ || std::memcmp(mask.data(), current.leaves.data(), row_bytes_) == 0) &&
-           std::all_of(mask.begin() + row_bytes_, mask.end(), [](auto byte) { return byte == 0; });
+           (!prepared_->row_bytes_ || std::memcmp(mask.data(), current.leaves.data(), prepared_->row_bytes_) == 0) &&
+           std::all_of(mask.begin() + prepared_->row_bytes_, mask.end(), [](auto byte) { return byte == 0; });
 }
 bool EntityCache::reaches(std::uint32_t from, std::uint32_t to, bool audible) const noexcept {
-    if (!from || !to || from >= rows_.size() || to >= rows_.size())
+    if (!from || !to || from >= prepared_->rows_.size() || to >= prepared_->rows_.size())
         return false;
-    const auto &row = (audible ? audible_rows_ : rows_)[from];
-    const bool leaf = to < topology_.leaf_count();
-    const auto bit = leaf ? to - 1 : to - topology_.leaf_count();
+    const auto &row = (audible ? prepared_->audible_rows_ : prepared_->rows_)[from];
+    const bool leaf = to < prepared_->topology_.leaf_count();
+    const auto bit = leaf ? to - 1 : to - prepared_->topology_.leaf_count();
     const auto &bits = leaf ? row.leaves : row.components;
     return (bits[bit / 64] & (std::uint64_t{1} << (bit % 64))) != 0;
 }

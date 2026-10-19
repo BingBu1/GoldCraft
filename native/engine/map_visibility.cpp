@@ -84,8 +84,8 @@ struct Visibility {
     };
     std::array<Query, 2> queries{};
     Visibility(model_t *model, std::shared_ptr<const visibility::Source> captured,
-               std::span<const carving::Box> cuts)
-        : world(model), source(std::move(captured)), cache(source, cuts) {}
+               std::span<const carving::Box> cuts, const visibility::EntityCache* previous)
+        : world(model), source(std::move(captured)), cache(source, cuts, {}, previous) {}
 };
 namespace {
 VisibilityCandidate active;
@@ -93,8 +93,12 @@ VisibilityCandidate active;
 VisibilityCandidate prepare_visibility(model_t *world, std::span<const carving::Box> cuts) {
     if (cuts.empty())
         return {};
-    auto source = active && active->world == world ? active->source : capture(world);
-    return std::make_shared<Visibility>(world, std::move(source), cuts);
+    const auto* previous = active && active->world == world ? active.get() : nullptr;
+    auto source = previous ? previous->source : capture(world);
+    // Reuse only immutable topology/rows. Query pointers and accumulators are
+    // newly allocated, so a rejected preparation cannot disturb active queries.
+    return std::make_shared<Visibility>(world, std::move(source), cuts,
+                                        previous ? &previous->cache : nullptr);
 }
 void commit_visibility(VisibilityCandidate candidate) noexcept { active = std::move(candidate); }
 } // namespace goldcraft::engine_map

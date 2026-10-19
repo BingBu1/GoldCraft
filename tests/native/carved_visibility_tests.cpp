@@ -244,5 +244,69 @@ void DeliveryInterest() {
     assert(allocations.load() == before);
     std::printf("{\"deliveryInterest\":true,\"queries\":%zu,\"allocations\":0,\"queryCpuUs\":%.4f,\"oneExpansion\":true,\"independentContexts\":true,\"sealedCavities\":true,\"passed\":true}\n", repeats, elapsed / repeats);
 }
+void ReusedEntityPreparation() {
+    auto source = Rooms();
+    source->pvs = {3, 6, 12, 24, 16};
+    const std::vector cuts{Hole(0, 2), Hole(20.5, 21.5), Hole(30.5, 31.5)};
+    auto previous = std::make_unique<visibility::EntityCache>(source, cuts);
+    std::array<std::uint8_t, 4> visual{}, audible{}, zero{};
+    assert(previous->merge(1, visual) && visual[0] == 7);
+    assert(previous->merge(1, audible, true) && audible[0] == 15);
+    visibility::EntityCache reused(source, cuts, {}, previous.get());
+    assert(reused.shares_preparation(*previous));
+    assert(reused.operations() == previous->operations());
+    assert(reused.cached_words() == previous->cached_words());
+    assert(reused.matches(zero) && reused.matches(zero, true));
+    assert(!reused.sees_bounds(cuts[0]) && !reused.sees_bounds(cuts[0], true));
+    assert(previous->matches(visual) && previous->matches(audible, true));
+    const auto sealed = reused.cavity_key({21, 0, 0});
+    std::array<std::uint8_t, 4> cavity{};
+    assert(reused.merge(sealed, cavity) && cavity == zero);
+    assert(reused.sees_bounds(cuts[1]) && !previous->sees_bounds(cuts[1]));
+    assert(!reused.sees_bounds(cuts[1], true));
+    assert(previous->matches(visual) && previous->matches(audible, true));
+    previous->begin();
+    assert(!previous->sees_bounds(cuts[0]) && reused.sees_bounds(cuts[1]));
+    assert(previous->matches(audible, true));
+
+    const visibility::EntityCache fresh(source, cuts);
+    const auto keys = source->contents.size() + cuts.size();
+    for (std::uint32_t from = 0; from < keys; ++from)
+        for (std::uint32_t to = 0; to < keys; ++to)
+            for (const bool sound : {false, true})
+                assert(reused.reaches(from, to, sound) == fresh.reaches(from, to, sound));
+    const visibility::EntityCache recaptured(std::make_shared<visibility::Source>(*source), cuts, {}, previous.get());
+    assert(!recaptured.shares_preparation(*previous));
+    auto changed = cuts;
+    changed[0].min[0] = -0.0;
+    const visibility::EntityCache signed_zero(source, changed, {}, previous.get());
+    assert(!signed_zero.shares_preparation(*previous));
+    changed = cuts;
+    std::swap(changed[1], changed[2]);
+    const visibility::EntityCache reordered(source, changed, {}, previous.get());
+    assert(!reordered.shares_preparation(*previous));
+    changed.pop_back();
+    const visibility::EntityCache removed(source, changed, {}, previous.get());
+    assert(!removed.shares_preparation(*previous));
+    const visibility::EntityCache restored(source, {}, {}, previous.get());
+    assert(!restored.shares_preparation(*previous) && restored.cavity_key({21, 0, 0}) == 0);
+    auto limits = visibility::Limits{};
+    --limits.boxes;
+    const visibility::EntityCache changed_limits(source, cuts, limits, previous.get());
+    assert(!changed_limits.shares_preparation(*previous));
+    limits = {};
+    limits.words = previous->cached_words() - 1;
+    Reject([&] { visibility::EntityCache invalid(source, cuts, limits, previous.get()); });
+    limits = {};
+    limits.operations = previous->operations() - 1;
+    Reject([&] { visibility::EntityCache invalid(source, cuts, limits, previous.get()); });
+    changed = cuts;
+    changed[0].min[0] = std::numeric_limits<double>::quiet_NaN();
+    Reject([&] { visibility::EntityCache invalid(source, changed, {}, previous.get()); });
+    assert(previous->matches(audible, true) && reused.sees_bounds(cuts[1]));
+    previous.reset();
+    assert(reused.reaches(1, 3) && reused.reaches(1, 4, true));
+    assert(reused.sees_bounds(cuts[1]));
+}
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); }

@@ -184,6 +184,17 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
     for (auto &component : components_) trim(component.pvs, leaves);
 }
 
+bool Prepared::matches_input(const std::shared_ptr<const Source>& source,
+                             std::span<const Box> cuts, Limits limits) const noexcept {
+    if (source_ != source || cuts_.size() != cuts.size() || limits_.boxes != limits.boxes ||
+        limits_.words != limits.words || limits_.operations != limits.operations) return false;
+    for (std::size_t i = 0; i < cuts.size(); ++i)
+        for (int axis = 0; axis < 3; ++axis)
+            if (std::bit_cast<std::uint64_t>(cuts_[i].min[axis]) != std::bit_cast<std::uint64_t>(cuts[i].min[axis]) ||
+                std::bit_cast<std::uint64_t>(cuts_[i].max[axis]) != std::bit_cast<std::uint64_t>(cuts[i].max[axis])) return false;
+    return true;
+}
+
 View Prepared::view(std::uint32_t key) const {
     if (key >= source_->contents.size() + components_.size()) throw std::out_of_range("Carved PVS view key");
     View result{Bits(words_), Bits((components_.size() + 63) / 64)};

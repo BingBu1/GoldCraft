@@ -41,6 +41,10 @@ public:
     std::size_t leaf_count() const noexcept { return source_->contents.size(); }
     std::size_t component_count() const noexcept { return components_.size(); }
     std::size_t operations() const noexcept { return operations_; }
+    // Source is immutable within its map session. Equal coordinates alone do
+    // not permit reuse after a new capture or under different capacity limits.
+    bool matches_input(const std::shared_ptr<const Source>& source,
+                       std::span<const carving::Box> cuts, Limits limits = {}) const noexcept;
 private:
     struct Node {
         carving::Box bounds;
