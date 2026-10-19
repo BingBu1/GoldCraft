@@ -8,6 +8,7 @@
 #include "map_collision.hpp"
 #include "goldcraft/edited_hull.hpp"
 #include <array>
+#include <bit>
 #include <charconv>
 #include <cmath>
 #include <map>
@@ -23,19 +24,24 @@
 
 namespace goldcraft::client_map {
 using namespace carving;
+namespace { struct SourceModel; }
+using HullSet = std::array<std::shared_ptr<const EditedHull>, 4>;
 struct BrushTarget {
     edits::Target identity;
     model_t *model = nullptr;
-    std::array<std::unique_ptr<EditedHull>, 4> hulls;
+    HullSet hulls;
+    std::shared_ptr<const SourceModel> source;
     std::array<std::array<float, 3>, 4> clip_mins;
 };
 struct Prepared {
     model_t *model = nullptr;
     edits::Snapshot state;
-    std::array<std::unique_ptr<EditedHull>, 4> hulls;
+    HullSet hulls;
+    std::shared_ptr<const SourceModel> source;
     std::array<Point, 4> clip_mins;
     std::vector<BrushTarget> targets;
     std::vector<int> slots;
+    std::size_t reused_targets = 0, source_bytes = 0;
 };
 namespace {
 static_assert(sizeof(model_t) == 392 && sizeof(hull_t) == 40 && sizeof(physent_t) == 224);
@@ -81,9 +87,38 @@ struct SourceModel {
                 bodies[h].max[a] = model->hulls[h].clip_maxs[a];
             }
     }
-    void build(std::array<std::unique_ptr<EditedHull>, 4>& output, std::size_t& work) const {
+    bool same(const SourceModel& other) const {
+        const auto scalar = [](double a, double b) {
+            return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
+        };
+        const auto point = [&](const Point& a, const Point& b) {
+            for (int axis = 0; axis < 3; ++axis) if (!scalar(a[axis], b[axis])) return false;
+            return true;
+        };
+        const auto box = [&](const Box& a, const Box& b) { return point(a.min,b.min)&&point(a.max,b.max); };
+        if (cuts.size() != other.cuts.size()) return false;
+        for (std::size_t i = 0; i < cuts.size(); ++i) if (!box(cuts[i], other.cuts[i])) return false;
+        for (std::size_t h = 0; h < hulls.size(); ++h) {
+            const auto &a = hulls[h], &b = other.hulls[h];
+            if (!box(bodies[h], other.bodies[h]) || a.root != b.root ||
+                a.planes.size() != b.planes.size() || a.nodes.size() != b.nodes.size()) return false;
+            for (std::size_t i = 0; i < a.planes.size(); ++i)
+                if (!point(a.planes[i].normal,b.planes[i].normal) ||
+                    !scalar(a.planes[i].distance,b.planes[i].distance)) return false;
+            for (std::size_t i = 0; i < a.nodes.size(); ++i)
+                if (a.nodes[i].plane != b.nodes[i].plane || a.nodes[i].children != b.nodes[i].children) return false;
+        }
+        return true;
+    }
+    std::size_t retained_bytes() const {
+        std::size_t bytes = sizeof(SourceModel) + 64 + cuts.capacity() * sizeof(Box);
+        for (const auto& hull : hulls)
+            bytes += hull.planes.capacity() * sizeof(Plane) + hull.nodes.capacity() * sizeof(HullNode);
+        return bytes; // SourceHull bounds and cut count keep this below size_t overflow on x86.
+    }
+    void build(HullSet& output, std::size_t& work) const {
         for (int h = 0; h < 4; ++h) {
-            output[h] = std::make_unique<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], cuts);
+            if (!output[h]) output[h] = std::make_shared<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], cuts);
             work += output[h]->operations();
             if (work > 32'000'000) throw std::length_error("Client map physics budget");
         }
@@ -711,8 +746,8 @@ brush::Receiver &brush_identities() noexcept { return identities; }
 void reset() { active.reset(); }
 struct Preparation {
     std::shared_ptr<Prepared> output;
-    std::unique_ptr<SourceModel> world;
-    std::vector<SourceModel> brushes;
+    std::shared_ptr<const SourceModel> world;
+    std::vector<std::shared_ptr<const SourceModel>> brushes;
     Candidate result;
     std::exception_ptr error;
     std::atomic_bool complete{false};
@@ -724,7 +759,19 @@ struct Preparation {
             std::size_t work = 0;
             if (world) world->build(output->hulls, work);
             for (std::size_t i = 0; i < brushes.size(); ++i)
-                brushes[i].build(output->targets[i].hulls, work);
+                brushes[i]->build(output->targets[i].hulls, work);
+            // Optional exact-input cache, bounded across all targets in this
+            // candidate. Shared hulls never retain previous Prepared objects.
+            const auto retain = [&](const std::shared_ptr<const SourceModel>& source,
+                                    std::shared_ptr<const SourceModel>& destination) {
+                constexpr std::size_t limit = 16 * 1024 * 1024;
+                const auto bytes = source->retained_bytes();
+                if (bytes <= limit - output->source_bytes) {
+                    destination = source; output->source_bytes += bytes;
+                }
+            };
+            if (world) retain(world, output->source);
+            for (std::size_t i = 0; i < brushes.size(); ++i) retain(brushes[i], output->targets[i].source);
             result = std::move(output);
         } catch (...) { error = std::current_exception(); }
         world.reset(); brushes.clear();
@@ -827,13 +874,28 @@ std::shared_ptr<Preparation> capture(const edits::Replica &replica, model_t *loa
     }
     if (!cuts.empty()) {
         if (!loaded) throw ProtocolError("Client world model not loaded");
-        job->world = std::make_unique<SourceModel>(loaded, std::move(cuts));
+        job->world = std::make_shared<SourceModel>(loaded, std::move(cuts));
+        if (active && active->source && loaded == active->model && job->world->same(*active->source)) {
+            next->hulls = active->hulls;
+            job->world = active->source;
+            ++next->reused_targets;
+        }
         for (int h = 0; h < 4; ++h)
             for (int axis = 0; axis < 3; ++axis)
                 next->clip_mins[h][axis] = loaded->hulls[h].clip_mins[axis];
     }
     for (auto &entry : next->targets) {
-        job->brushes.emplace_back(entry.model, std::move(brush_cuts.at(entry.identity.slot)));
+        auto source = std::make_shared<SourceModel>(entry.model, std::move(brush_cuts.at(entry.identity.slot)));
+        const BrushTarget* old = nullptr;
+        if (active && loaded == active->model && entry.identity.slot < active->slots.size()) {
+            const auto index = active->slots[entry.identity.slot];
+            if (index >= 0) old = &active->targets[static_cast<std::size_t>(index)];
+        }
+        if (old && old->identity == entry.identity && old->model == entry.model && old->source && source->same(*old->source)) {
+            entry.hulls = old->hulls;
+            job->brushes.push_back(old->source);
+            ++next->reused_targets;
+        } else job->brushes.push_back(std::move(source));
         for (int h = 0; h < 4; ++h)
             for (int axis = 0; axis < 3; ++axis)
                 entry.clip_mins[h][axis] = entry.model->hulls[h].clip_mins[axis];
@@ -921,6 +983,8 @@ void write_status(std::ostream &out) {
         << ",\"mapCollisionPreparationMs\":" << preparation_ms
         << ",\"mapCollisionPreparationMaxMs\":" << preparation_max_ms
         << ",\"mapCollisionBrushTargets\":" << (active ? active->targets.size() : 0)
+        << ",\"mapCollisionReusedTargets\":" << (active ? active->reused_targets : 0)
+        << ",\"mapCollisionSourceBytes\":" << (active ? active->source_bytes : 0)
         << ",\"mapCollisionDeferredTargets\":0";
 }
 } // namespace goldcraft::client_map

@@ -355,11 +355,15 @@ void engine_brushes(Bsp &bsp, unsigned char *base_address, event_api_t *native, 
     both.cuts.push_back({3, {23, 66, 11}, state.cuts[0].box});
     frame.revision = 3; frame.total = 2; frame.entries[1] = {23, 66, 11}; publish();
     prepare(both, &empty);
+    // The first door is unchanged; a second instance of the same model has a
+    // distinct slot/serial and must build its own overlay before it can reuse.
+    assert(status().find("\"mapCollisionReusedTargets\":1") != std::string::npos);
     b[0] = 320;
     event(); assert(result.fraction == 1);
     // Removing one instance's edit does not discard another instance's cut.
     both.revision = 4; both.cuts.erase(both.cuts.begin());
     frame.revision = 4; publish(); prepare(both, &empty);
+    assert(status().find("\"mapCollisionReusedTargets\":1") != std::string::npos);
     event(); assert(result.ent == 1);
     event(2, PM_NORMAL, 1); assert(result.fraction == 1);
     prepare({9, 5, {}}, nullptr);

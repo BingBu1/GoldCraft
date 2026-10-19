@@ -4,6 +4,8 @@ import dev.goldcraft.bridge.HostWorldState;
 import dev.goldcraft.bridge.MapEdits;
 import dev.goldcraft.bridge.Wire;
 import java.io.BufferedWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -17,6 +19,55 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static dev.goldcraft.world.CarvedVolume.*;
 
 class CarvedMapTest {
+    @Test void unchangedTargetsReuseOnlySameMapIdentityAndOrderedGeometry() {
+        byte[] floor=BspMapTest.floor();
+        byte[] bytes=java.util.Arrays.copyOf(floor,floor.length+128);
+        System.arraycopy(floor,308,bytes,372,64);System.arraycopy(floor,308,bytes,436,64);
+        ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).putInt(4+14*8+4,192);
+        var bsp=BspMap.read(bytes);
+        var door=new MapEdits.Target(7,11,1);var glass=new MapEdits.Target(8,12,2);
+        var box=new MapEdits.Box(-32,-32,-16,32,32,16);
+        var extra=new MapEdits.Box(40,-32,-16,64,32,16);
+        var original=List.of(new MapEdits.Cut(1,WORLD,box),new MapEdits.Cut(2,door,box),new MapEdits.Cut(3,glass,box));
+        var first=new CarvedMap(bsp,original);assertEquals(0,first.reusedTargets());
+        var changed=new ArrayList<>(original);changed.add(new MapEdits.Cut(4,door,extra));
+        var next=new CarvedMap(bsp,changed,first);var rebuilt=new CarvedMap(bsp,changed);
+        assertEquals(2,next.reusedTargets());assertEquals(rebuilt.operations,next.operations);
+        var repeated=new CarvedMap(bsp,changed,next);assertEquals(3,repeated.reusedTargets());
+        assertThrows(IllegalArgumentException.class,()->new CarvedMap(bsp,changed,next.operations-1,next));
+        assertEquals(3,new CarvedMap(bsp,changed,next.operations,next).reusedTargets());
+        assertEquals(0,new CarvedMap(BspMap.read(bytes),changed,next).reusedTargets());
+        var respawned=new ArrayList<>(changed);respawned.set(1,new MapEdits.Cut(2,new MapEdits.Target(7,99,1),box));
+        respawned.set(3,new MapEdits.Cut(4,new MapEdits.Target(7,99,1),extra));
+        assertEquals(2,new CarvedMap(bsp,respawned,next).reusedTargets());
+        var reordered=List.of(changed.get(0),changed.get(3),changed.get(2),changed.get(1));
+        assertEquals(2,new CarvedMap(bsp,reordered,next).reusedTargets());
+        var removed=new CarvedMap(bsp,List.of(original.get(0),original.get(2)),next);
+        assertEquals(2,removed.reusedTargets());
+        var cleared=new CarvedMap(bsp,List.of(),next);assertEquals(0,cleared.reusedTargets());
+        var actor=new HostWorldState.Brush(7,11,1,0,1,new HostWorldState.Vector(0,0,0),
+            new HostWorldState.Vector(0,0,0),new HostWorldState.Vector(-128,-128,-128),
+            new HostWorldState.Vector(128,128,128),new HostWorldState.Vector(0,0,0));
+        for(int hull=0;hull<4;hull++)for(float x:new float[]{0,48,80}) {
+            var a=v(x,0,100);var b=v(x,0,-100);
+            assertEquals(rebuilt.trace(null,hull,a,b),next.trace(null,hull,a,b));
+            assertEquals(rebuilt.trace(actor,hull,a,b),next.trace(actor,hull,a,b));
+            assertEquals(bsp.trace(1,hull,a,b),removed.trace(actor,hull,a,b));
+            assertEquals(bsp.trace(0,hull,a,b),cleared.trace(null,hull,a,b));
+        }
+        var host=new HostWorldState();host.world(new Wire.Writer().i64(33).string("fixture").toByteArray());
+        host.bsp(new Wire.Writer().i64(33).i32((int)bsp.crc()).i32(bytes.length).bytes(bytes).toByteArray());
+        host.edits().accept(new MapEdits.Snapshot(33,3,original));
+        host.edits().accept(new MapEdits.Delta(33,3,4,MapEdits.ADD,door,extra));
+        assertEquals(2,host.collision().reusedTargets());
+        var committed=host.collision();
+        assertThrows(IllegalArgumentException.class,()->host.edits().accept(new MapEdits.Delta(33,4,5,
+            MapEdits.ADD,new MapEdits.Target(9,1,4095),box)));
+        assertSame(committed,host.collision());assertEquals(4,host.edits().revision());
+        host.edits().accept(new MapEdits.Delta(33,4,5,MapEdits.CLEAR,null,null));
+        assertEquals(0,host.collision().reusedTargets());
+    }
+
     @Test void pairedDecompositionRetainsIndependentGeometryAndCombinedBudget() {
         var region=new Box(new P(-4,-4,-4),new P(4,4,4));
         var a=new Box(new P(-2,-2,-2),new P(2,2,2));

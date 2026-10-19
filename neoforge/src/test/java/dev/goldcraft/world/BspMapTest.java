@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class BspMapTest {
     private static BspMap.Vec v(float x,float y,float z){return new BspMap.Vec(x,y,z);}
-    private static byte[] floor() {
+    static byte[] floor() {
         ByteBuffer b=ByteBuffer.allocate(372).order(ByteOrder.LITTLE_ENDIAN);b.putInt(30);
         int[] offsets=new int[15],lengths=new int[15];
         offsets[1]=124;lengths[1]=80;offsets[5]=204;lengths[5]=24;

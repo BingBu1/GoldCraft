@@ -36,7 +36,7 @@ public final class HostWorldState {
     // Prepare geometry before committing the edit revision. A failed candidate
     // leaves both previous geometry and records intact for snapshot recovery.
     private final MapEdits.Replica edits=new MapEdits.Replica(cuts->{
-        var prepared=geometry==null?null:new CarvedMap(geometry,cuts);
+        var prepared=geometry==null?null:new CarvedMap(geometry,cuts,collision);
         collision=prepared;
     });
     public MapEdits.Replica edits(){return edits;}

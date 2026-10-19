@@ -11,14 +11,22 @@ import static dev.goldcraft.world.CarvedVolume.*;
 /** Immutable geometry prepared before a host edit becomes visible to physics. */
 public final class CarvedMap {
     private static final MapEdits.Target WORLD=new MapEdits.Target(0,0,0);
-    private record Target(CarvedCutIndex cuts,CarvedHull[] hulls) {}
+    private record Target(List<MapEdits.Box> source,CarvedCutIndex cuts,CarvedHull[] hulls) {}
     private final BspMap map;
     private final List<MapEdits.Cut> sourceCuts;
     private final Map<MapEdits.Target,Target> targets;
+    private final int reusedTargets;
+    final long operations;
     public CarvedMap(BspMap map,List<MapEdits.Cut> cuts) {
-        this(map,cuts,32_000_000);
+        this(map,cuts,32_000_000,null);
+    }
+    public CarvedMap(BspMap map,List<MapEdits.Cut> cuts,CarvedMap previous) {
+        this(map,cuts,32_000_000,previous);
     }
     CarvedMap(BspMap map,List<MapEdits.Cut> cuts,long limit) {
+        this(map,cuts,limit,null);
+    }
+    CarvedMap(BspMap map,List<MapEdits.Cut> cuts,long limit,CarvedMap previous) {
         this.map=map;
         if(cuts.size()>MapEdits.MAX_CUTS)throw new IllegalArgumentException("Carved map capacity");
         sourceCuts=List.copyOf(cuts);
@@ -27,19 +35,33 @@ public final class CarvedMap {
             if(cut.target().model()>=map.modelCount())throw new IllegalArgumentException("Carved model index");
             groups.computeIfAbsent(cut.target(),ignored->new ArrayList<>()).add(cut.box());
         }
-        var prepared=new HashMap<MapEdits.Target,Target>();long operations=0;
+        var prepared=new HashMap<MapEdits.Target,Target>();long work=0;int reused=0;
         for(var group:groups.entrySet()) {
+            // BspMap is immutable after decoding. Never retain the previous
+            // CarvedMap itself, and require complete identity and ordered cuts.
+            var old=previous!=null&&map==previous.map?previous.targets.get(group.getKey()):null;
+            if(old!=null&&old.source.equals(group.getValue())) {
+                for(var hull:old.hulls) {
+                    long allowance=Math.min(4_194_304,limit-work);
+                    if(allowance<=0||hull.operations>allowance)
+                        throw new IllegalArgumentException("Carved operation budget");
+                    work+=hull.operations;
+                }
+                prepared.put(group.getKey(),old);reused++;continue;
+            }
             var boxes=CarvedCutUnion.compact(group.getValue().stream()
                 .map(b->new Box(new P(b.minX(),b.minY(),b.minZ()),new P(b.maxX(),b.maxY(),b.maxZ()))).toList());
             var hulls=new CarvedHull[4];
             for(int hull=0;hull<4;hull++) {
-                hulls[hull]=new CarvedHull(map,group.getKey().model(),hull,boxes,Math.min(4_194_304,limit-operations));
-                operations+=hulls[hull].operations;
+                hulls[hull]=new CarvedHull(map,group.getKey().model(),hull,boxes,Math.min(4_194_304,limit-work));
+                work+=hulls[hull].operations;
             }
-            prepared.put(group.getKey(),new Target(new CarvedCutIndex(group.getValue()),hulls));
+            prepared.put(group.getKey(),new Target(List.copyOf(group.getValue()),new CarvedCutIndex(group.getValue()),hulls));
         }
         targets=Map.copyOf(prepared);
+        operations=work;reusedTargets=reused;
     }
+    public int reusedTargets(){return reusedTargets;}
     /** Cache invalidation for authenticated append-only updates in the same map.
      * Restores, replacements and identity changes require a complete invalidation. */
     public static final class AppendedChanges {

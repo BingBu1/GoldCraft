@@ -534,6 +534,46 @@ std::string status() {
     client_map::write_status(out);
     return out.str();
 }
+void target_reuse() {
+    setup();client_map::reset();
+    auto state = snapshot({-1, -64, -64}, {17, 64, 64});
+    const auto check = [&](unsigned reused) {
+        assert(status().find("\"mapCollisionReusedTargets\":" + std::to_string(reused)) != std::string::npos);
+    };
+    prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(1);
+    // Same model pointer is insufficient: actual copied geometry, hull roots,
+    // body sizes and ordered cut coordinates participate in reuse eligibility.
+    planes[0].dist += .25f;
+    ++state.revision;prepare(state, &model);check(0);
+    planes[0].dist -= .25f;
+    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(1);
+    model.hulls[0].firstclipnode = 1;
+    ++state.revision;prepare(state, &model);check(0);
+    model.hulls[0].firstclipnode = 0;
+    ++state.revision;prepare(state, &model);check(0);
+    model.hulls[1].clip_maxs[0] += 1;
+    ++state.revision;prepare(state, &model);check(0);
+    model.hulls[1].clip_maxs[0] -= 1;
+    ++state.revision;prepare(state, &model);check(0);
+    state.cuts[0].box.max[1] -= 1;
+    ++state.revision;prepare(state, &model);check(0);
+    const auto saved = status();
+    auto invalid = state; ++invalid.revision;
+    model.type = mod_studio;
+    try { prepare(invalid, &model);assert(false); } catch (const std::exception&) {}
+    model.type = mod_brush;assert(status() == saved);
+    // A candidate owns shared immutable hulls even if the active owner resets.
+    edits::Replica verified;verified.reset(state.epoch);++state.revision;verified.accept(state);
+    auto retained = client_map::prepare(verified, &model);
+    client_map::reset();client_map::commit(std::move(retained));check(1);
+    float a[3]{-64, 0, 0}, b[3]{64, 0, 0};run(a,b);assert(result.fraction == 1);
+    client_map::reset();++state.epoch;prepare(state, &model);check(0);
+    prepare({state.epoch, ++state.revision, {}}, &model);check(0);
+    assert(status().find("\"mapCollisionSourceBytes\":0") != std::string::npos);
+    client_map::reset();
+}
 void lifecycle() {
     setup();
     client_map::reset();
@@ -1160,6 +1200,7 @@ int main(int argc, char **argv) {
             assault(argv[1]);
         else {
             synthetic();
+            target_reuse();
             additive_progress();
             parallel_preparation_progress();
             render_transaction();
