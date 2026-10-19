@@ -57,6 +57,17 @@ void cached_revisions() {
         return actual;
     };
     auto same=compare(true);assert(same.reused_samples==same.samples);
+    // Cached allocation hints must respect a tighter caller budget without
+    // rejecting geometry that exactly fits, or changing any generated data.
+    auto tight=settings;
+    tight.mesh.vertices=same.mesh->vertices.size();tight.mesh.indices=same.mesh->indices.size();
+    tight.values=std::max(same.values.size(),values.size());
+    model.previous=before.caches[0].samples;
+    const auto exact=lighting::prepare(source,{&model,1},tight);
+    assert(*exact.mesh==*same.mesh && exact.values==same.values && exact.vertices==same.vertices);
+    auto starved=settings;starved.mesh.operations=32;
+    rejected([&]{lighting::prepare(source,{&model,1},starved);});
+    assert(lighting::cache_bytes(*before.caches[0].samples)<=settings.cache_bytes);
     cuts.insert(cuts.begin(),carving::Box{{-2048,-2048,-2048},{-2016,-2016,-2016}});model.cuts=cuts;
     before=compare(true); // Added cut sorts before the original; no prefix assumption.
     cuts.push_back({{15,-1,-1},{18,17,17}});model.cuts=cuts;

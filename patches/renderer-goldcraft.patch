@@ -14371,7 +14371,7 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..b565673
+index 0000000..a9bd0a3
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
 @@ -0,0 +1,423 @@
@@ -14629,8 +14629,8 @@ index 0000000..b565673
 +                assert(*result.mesh==*expected.mesh && result.lighting->vertices==expected.lighting->vertices &&
 +                    result.lighting->values==expected.lighting->values && result.lighting->rays==expected.lighting->rays &&
 +                    result.lighting->occluded==expected.lighting->occluded);
-+                std::printf("{\"cachedVsCold\":true,\"cachedLightMs\":%.3f,\"coldLightMs\":%.3f,\"passed\":true}\n",
-+                    result.timings.lightMs,expected.timings.lightMs);
++                std::printf("{\"cachedVsCold\":true,\"cachedLightMs\":%.3f,\"coldLightMs\":%.3f,\"cavityMs\":%.3f,\"probesMs\":%.3f,\"visibilityMs\":%.3f,\"passed\":true}\n",
++                    result.timings.lightMs,expected.timings.lightMs,result.timings.cavityMs,result.timings.probesMs,result.timings.visibilityMs);
 +            }
 +        }
 +        catch(const std::exception& error)

@@ -8,7 +8,6 @@
 #include <map>
 #include <numeric>
 #include <stdexcept>
-#include <unordered_map>
 
 namespace goldcraft::lighting {
 class SampleCache {
@@ -28,6 +27,7 @@ class SampleCache {
     std::vector<Probe> probes;
     std::vector<Value> probe_values, values;
     std::vector<Entry> entries;
+    std::size_t refined_vertices{}, refined_indices{};
 };
 std::uint64_t cache_bytes(const SampleCache& cache) noexcept {
     return sizeof(cache) + cache.planes.capacity()*sizeof(carving::Plane) +
@@ -368,6 +368,50 @@ Key key(const surface::Vertex &v, const surface::Frame &frame) {
     }
     return result;
 }
+// Transient half-full tables index current and immutable previous samples.
+// Entries stay tightly packed, with no per-entry allocation or sorting.
+// Hash collisions always compare the complete position/normal bit key.
+class SampleLookup {
+    std::vector<std::uint32_t> slots_;
+    void place(std::span<const SampleCache::Entry> entries, std::size_t i, std::size_t& work, std::size_t limit) {
+        auto slot=Hash{}(entries[i].key)&(slots_.size()-1);
+        while (slots_[slot]) {consume(work,limit);slot=(slot+1)&(slots_.size()-1);}
+        consume(work,limit);
+        slots_[slot]=static_cast<std::uint32_t>(i+1);
+    }
+  public:
+    void build(std::span<const SampleCache::Entry> entries, std::size_t& work, std::size_t limit,
+               const std::atomic_bool* cancelled) {
+        if (entries.empty()) {slots_.clear();return;}
+        if (entries.size()>std::numeric_limits<std::uint32_t>::max()/4)
+            throw std::length_error("Cavity sample lookup capacity");
+        const auto capacity=std::bit_ceil(entries.size()*2);
+        consume(work,limit,capacity);
+        slots_.assign(capacity,0);
+        for (std::size_t i=0;i<entries.size();++i) {
+            if (!(i%1024) && cancelled && cancelled->load(std::memory_order_relaxed))
+                throw std::runtime_error("Cavity lighting cancelled");
+            place(entries,i,work,limit);
+        }
+    }
+    void append(std::span<const SampleCache::Entry> entries, std::size_t& work, std::size_t limit,
+                const std::atomic_bool* cancelled) {
+        if (entries.size()>slots_.size()/2) build(entries,work,limit,cancelled);
+        else place(entries,entries.size()-1,work,limit);
+    }
+    const SampleCache::Entry* find(std::span<const SampleCache::Entry> entries, const Key& key,
+                                   std::size_t& work, std::size_t limit) const {
+        if (slots_.empty()) return nullptr;
+        auto slot=Hash{}(key)&(slots_.size()-1);
+        for (;;) {
+            consume(work,limit);
+            const auto index=slots_[slot];
+            if (!index) return nullptr;
+            if (entries[index-1].key==key) return &entries[index-1];
+            slot=(slot+1)&(slots_.size()-1);
+        }
+    }
+};
 bool box_less(const carving::Box& a, const carving::Box& b) {
     return a.min != b.min ? a.min < b.min : a.max < b.max;
 }
@@ -431,7 +475,7 @@ Reuse reuse(const Model& model, const Settings& settings, std::size_t& work,
 }
 std::shared_ptr<const SampleCache> retain(const Model& model, const Settings& settings,
     const std::vector<SampleCache::Entry>& samples, Prepared& result,
-    const std::atomic_bool* cancelled) {
+    std::size_t refined_vertices, std::size_t refined_indices, const std::atomic_bool* cancelled) {
     if (!settings.cache_bytes || samples.empty()) return {};
     const std::uint64_t inputs=sizeof(SampleCache)+model.hull.planes.size()*sizeof(carving::Plane)+
         model.hull.nodes.size()*sizeof(carving::HullNode)+model.cuts.size()*sizeof(carving::Box)+
@@ -445,10 +489,11 @@ std::shared_ptr<const SampleCache> retain(const Model& model, const Settings& se
     if (!count) return {};
     consume(result.operations,settings.mesh.operations,model.hull.planes.size()+model.hull.nodes.size()+
         model.probes.size()+model.values.size()+model.cuts.size()*std::max<std::size_t>(1,std::bit_width(model.cuts.size()))+
-        count*std::max<std::size_t>(1,std::bit_width(count))+values);
+        count+values);
     auto cache=std::make_shared<SampleCache>();
     cache->first_face=model.first_face;cache->face_count=model.face_count;
     cache->radius=settings.radius;cache->neighbours=settings.neighbours;cache->root=model.hull.root;
+    cache->refined_vertices=refined_vertices;cache->refined_indices=refined_indices;
     cache->planes.assign(model.hull.planes.begin(),model.hull.planes.end());
     cache->nodes.assign(model.hull.nodes.begin(),model.hull.nodes.end());
     cache->cuts.assign(model.cuts.begin(),model.cuts.end());
@@ -464,7 +509,6 @@ std::shared_ptr<const SampleCache> retain(const Model& model, const Settings& se
             result.values.begin()+samples[i].values.first+entry.values.count);
         cache->entries.push_back(entry);
     }
-    std::sort(cache->entries.begin(),cache->entries.end(),[](const auto& a,const auto& b){return a.key<b.key;});
     if (cache_bytes(*cache)>settings.cache_bytes) return {}; // Account actual retained capacities.
     return cache;
 }
@@ -501,10 +545,27 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
             for (int i = 0; i < 3; ++i) if (cut.min[i] >= cut.max[i]) throw std::invalid_argument("Cavity lighting cut");
         }
         Field field(model, settings, result.operations, cancelled);
-        std::unordered_map<Key, surface::Range, Hash> cache;
         const auto prior=reuse(model,settings,result.operations,cancelled);
+        SampleLookup currentSamples, previousSamples;
+        if (prior.previous) previousSamples.build(prior.previous->entries,result.operations,settings.mesh.operations,cancelled);
         const carving::CutIndex changed(prior.changed,[&](auto n){consume(result.operations,settings.mesh.operations,n);});
         std::vector<SampleCache::Entry> samples;
+        const auto firstVertex=mesh->vertices.size(),firstIndex=mesh->indices.size();
+        if (prior.previous) {
+            // Previous counts are allocation hints only. Small headroom avoids
+            // doubling large mesh buffers for one additional block; all actual
+            // inserts still pass their original vertex/index/value guards.
+            const auto capacity=[](std::size_t start,std::size_t extra,std::size_t limit) {
+                const auto available=limit-start;
+                extra=std::min(available,extra);
+                return start+extra+std::min(available-extra,extra/16+64);
+            };
+            const auto vertices=capacity(firstVertex,prior.previous->refined_vertices,settings.mesh.vertices);
+            mesh->vertices.reserve(vertices);mesh->frames.reserve(vertices);result.vertices.reserve(vertices);
+            mesh->indices.reserve(capacity(firstIndex,prior.previous->refined_indices,settings.mesh.indices));
+            result.values.reserve(capacity(result.values.size(),prior.previous->values.size(),settings.values));
+            samples.reserve(capacity(0,prior.previous->entries.size(),settings.mesh.vertices));
+        }
         for (std::size_t d = 0; d < result.draws.size(); ++d) {
             auto &draw = result.draws[d];
             if (draw.first_face != model.first_face || draw.face_count != model.face_count) continue;
@@ -515,6 +576,7 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                 throw std::invalid_argument("Cavity lighting draw range");
             draw.indices = {static_cast<std::uint32_t>(mesh->indices.size()), 0};
             for (std::size_t at = old.first; at < std::size_t(old.first)+old.count; at += 3) {
+                if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("Cavity lighting cancelled");
                 std::array<surface::Vertex, 3> triangle;
                 for (int i = 0; i < 3; ++i) {
                     if (source.indices[at+i] >= source.vertices.size()) throw std::invalid_argument("Cavity lighting vertex");
@@ -558,8 +620,10 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                         vertex.texcoord[axis] = static_cast<float>(uv); vertex.lightmaptexcoord[axis] = static_cast<float>(lm);
                     }
                     const auto sample_key = key(vertex, frame);
-                    auto it = cache.find(sample_key);
-                    if (it == cache.end()) {
+                    const auto* cached=currentSamples.find(samples,sample_key,result.operations,settings.mesh.operations);
+                    surface::Range range;
+                    if (cached) range=cached->values;
+                    else {
                         if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("Cavity lighting cancelled");
                         const auto rays=result.rays,occluded=result.occluded;
                         const auto p=point(vertex.pos);
@@ -568,13 +632,8 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                                 for(int a=0;a<3;++a) if(p[a]<bounds.min[a] || p[a]>bounds.max[a])return false;
                                 return true;
                             },[&](auto n){consume(result.operations,settings.mesh.operations,n);})) {
-                            const auto& entries=prior.previous->entries;
-                            consume(result.operations,settings.mesh.operations,std::bit_width(entries.size()));
-                            const auto found=std::lower_bound(entries.begin(),entries.end(),sample_key,
-                                [](const auto& entry,const auto& k){return entry.key<k;});
-                            if(found!=entries.end() && found->key==sample_key)previous=&*found;
+                            previous=previousSamples.find(prior.previous->entries,sample_key,result.operations,settings.mesh.operations);
                         }
-                        surface::Range range;
                         if (previous) {
                             range={static_cast<std::uint32_t>(result.values.size()),previous->values.count};
                             if(range.count>settings.values-result.values.size())throw std::length_error("Cavity light buffer capacity");
@@ -584,12 +643,12 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                             ++result.samples; ++result.reused_samples;
                             result.rays+=previous->rays;result.occluded+=previous->occluded;
                         } else range=field.sample(p,point(frame.normal),result);
-                        it=cache.emplace(sample_key,range).first;
-                        // Bounded transient records; skipped entries simply calculate again next revision.
-                        if (settings.cache_bytes && samples.size()<settings.cache_bytes/sizeof(SampleCache::Entry))
-                            samples.push_back({sample_key,range,static_cast<std::uint32_t>(result.rays-rays),static_cast<std::uint32_t>(result.occluded-occluded)});
+                        // At most one entry per generated vertex, bounded by
+                        // the existing mesh capacity. Also reused by retain().
+                        samples.push_back({sample_key,range,static_cast<std::uint32_t>(result.rays-rays),static_cast<std::uint32_t>(result.occluded-occluded)});
+                        currentSamples.append(samples,result.operations,settings.mesh.operations,cancelled);
                     }
-                    mesh->vertices.push_back(vertex); mesh->frames.push_back(frame); result.vertices.push_back(it->second);
+                    mesh->vertices.push_back(vertex); mesh->frames.push_back(frame); result.vertices.push_back(range);
                     for (int axis = 0; axis < 3; ++axis) {
                         draw.bounds.min[axis] = std::min(draw.bounds.min[axis], double(vertex.pos[axis]));
                         draw.bounds.max[axis] = std::max(draw.bounds.max[axis], double(vertex.pos[axis]));
@@ -612,7 +671,8 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
             draw.indices.count = static_cast<std::uint32_t>(mesh->indices.size())-draw.indices.first;
             draw.needs_lighting = false;
         }
-        if (auto retained=retain(model,settings,samples,result,cancelled))
+        if (auto retained=retain(model,settings,samples,result,mesh->vertices.size()-firstVertex,
+                                 mesh->indices.size()-firstIndex,cancelled))
             result.caches.push_back({model.first_face,model.face_count,std::move(retained)});
     }
     if (std::find(handled.begin(), handled.end(), false) != handled.end()) throw std::invalid_argument("Missing cavity lighting model");
