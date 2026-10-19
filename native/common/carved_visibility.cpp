@@ -263,6 +263,28 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
     for (auto &component : components_) trim(component.pvs, leaves);
 }
 
+std::uint64_t Prepared::retained_bytes() const noexcept {
+    std::uint64_t bytes = sizeof(Prepared) + 64;
+    if (source_) {
+        bytes += sizeof(Source) + 64 + std::uint64_t(source_->planes.capacity()) * sizeof(carving::Plane) +
+                 std::uint64_t(source_->nodes.capacity()) * sizeof(carving::HullNode) +
+                 std::uint64_t(source_->contents.capacity()) * sizeof(std::int32_t) +
+                 std::uint64_t(source_->pvs.capacity()) * sizeof(std::uint64_t);
+    }
+    bytes += std::uint64_t(cuts_.capacity()) * sizeof(Box) + std::uint64_t(tree_.capacity()) * sizeof(Node) +
+             std::uint64_t(order_.capacity()) * sizeof(std::uint32_t) +
+             std::uint64_t(cut_components_.capacity()) * sizeof(std::uint32_t) +
+             std::uint64_t(components_.capacity()) * sizeof(Component) +
+             std::uint64_t(leaf_components_.capacity()) * sizeof(leaf_components_[0]);
+    for (const auto& component : components_) bytes += std::uint64_t(component.pvs.capacity()) * sizeof(std::uint64_t);
+    for (const auto& adjacent : leaf_components_) bytes += std::uint64_t(adjacent.capacity()) * sizeof(std::uint32_t);
+    bytes += std::uint64_t(contacts_.capacity()) * sizeof(contacts_[0]) +
+             std::uint64_t(contact_order_.capacity()) * sizeof(contact_order_[0]);
+    for (const auto& contact : contacts_) if (contact)
+        bytes += sizeof(Contacts) + 64 + std::uint64_t(contact->leaves.capacity()) * sizeof(std::uint32_t);
+    return bytes;
+}
+
 bool Prepared::matches_input(const std::shared_ptr<const Source>& source,
                              std::span<const Box> cuts, Limits limits) const noexcept {
     if (source_ != source || cuts_.size() != cuts.size() || limits_.boxes != limits.boxes ||

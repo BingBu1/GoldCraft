@@ -44,6 +44,9 @@ public:
     std::size_t operations() const noexcept { return operations_; }
     std::size_t reused_contacts() const noexcept { return reused_contacts_; }
     std::size_t contact_cache_bytes() const noexcept { return contact_cache_bytes_; }
+    // Capacity-based retained ownership including Source and shared contacts;
+    // shared owners are conservatively charged separately. Not a peak-RSS bound.
+    std::uint64_t retained_bytes() const noexcept;
     // Source is immutable within its map session. Equal coordinates alone do
     // not permit reuse after a new capture or under different capacity limits.
     bool matches_input(const std::shared_ptr<const Source>& source,

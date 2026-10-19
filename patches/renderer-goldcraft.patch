@@ -18947,10 +18947,10 @@ index 0000000..029fb40
 +#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..77fc2f6
+index 0000000..01fb3ca
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,754 @@
+@@ -0,0 +1,756 @@
 +#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
@@ -19067,9 +19067,10 @@ index 0000000..77fc2f6
 +constexpr uint64_t MeshBudget = 256ull * 1024 * 1024;
 +uint64_t MeshBytes(const CWorldSurfaceWorldModel& geometry) noexcept
 +{
-+    if (!geometry.m_pSurfaceMesh) return 0;
++    uint64_t result = geometry.m_pCarvedVisibility ? geometry.m_pCarvedVisibility->retained_bytes() : 0;
++    if (!geometry.m_pSurfaceMesh) return result;
 +    const auto& mesh = *geometry.m_pSurfaceMesh;
-+    uint64_t result = 2 * (uint64_t(mesh.vertices.capacity()) * sizeof(surface::Vertex) +
++    result += 2 * (uint64_t(mesh.vertices.capacity()) * sizeof(surface::Vertex) +
 +        uint64_t(mesh.frames.capacity()) * sizeof(surface::Frame) +
 +        uint64_t(mesh.instances.capacity()) * sizeof(surface::Instance) +
 +        uint64_t(mesh.indices.capacity()) * sizeof(uint32_t));
@@ -19172,6 +19173,7 @@ index 0000000..77fc2f6
 +        if (!session.visibility) session.visibility = session.original->m_pVisibilitySource ?
 +            session.original->m_pVisibilitySource : R_CaptureWorldVisibility(model);
 +        input.visibility = session.visibility;
++        input.previousVisibility = session.active->m_pCarvedVisibility;
 +        input.worldCuts.assign(cuts.begin(), cuts.end());
 +    }
 +    return input;
@@ -23930,10 +23932,10 @@ index 0000000..10ea710
 +    main()
 diff --git a/src/world_edit_prepare.h b/src/world_edit_prepare.h
 new file mode 100644
-index 0000000..46f00b4
+index 0000000..5de4af6
 --- /dev/null
 +++ b/src/world_edit_prepare.h
-@@ -0,0 +1,130 @@
+@@ -0,0 +1,131 @@
 +#pragma once
 +#include <goldcraft/cavity_lighting.hpp>
 +#include <goldcraft/carved_visibility.hpp>
@@ -23990,6 +23992,7 @@ index 0000000..46f00b4
 +    std::shared_ptr<const BakedSource> baked;
 +    std::vector<Model> models;
 +    std::shared_ptr<const goldcraft::visibility::Source> visibility;
++    std::shared_ptr<const goldcraft::visibility::Prepared> previousVisibility;
 +    std::vector<goldcraft::carving::Box> worldCuts;
 +    std::vector<goldcraft::lighting::ModelCache> previousLighting;
 +    goldcraft::cavity::Limits limits;
@@ -24066,10 +24069,10 @@ index 0000000..46f00b4
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..3edf257
+index 0000000..9a01248
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
-@@ -0,0 +1,413 @@
+@@ -0,0 +1,419 @@
 +#include "world_edit_prepare.h"
 +#include <goldcraft/cut_index.hpp>
 +#include <algorithm>
@@ -24318,7 +24321,12 @@ index 0000000..3edf257
 +        result.visibilityBytes = sizeof(visibility::Prepared) + 64 + cuts * 208 + leaves * sizeof(std::vector<std::uint32_t>) +
 +            components * sizeof(std::uint64_t) + 2 * contacts * sizeof(std::uint32_t);
 +        const auto started = Clock::now();
-+        result.visibility = std::make_shared<visibility::Prepared>(input.visibility, input.worldCuts);
++        result.visibility = std::make_shared<visibility::Prepared>(input.visibility, input.worldCuts,
++            limits, input.previousVisibility.get(), 16 * 1024 * 1024);
++        // Preserve the old conservative estimate, adding the optional cache.
++        // Actual capacities also cover repeated DAG contacts beyond cuts*leaves.
++        result.visibilityBytes = (std::max)(result.visibilityBytes + result.visibility->contact_cache_bytes(),
++                                             result.visibility->retained_bytes());
 +        result.timings.visibilityMs = Elapsed(started);
 +    }
 +    if (cancelled.load(std::memory_order_relaxed)) throw std::runtime_error("World edit preparation cancelled");
@@ -24366,6 +24374,7 @@ index 0000000..3edf257
 +    if (input.baked) { bytes += sizeof(BakedSource) + input.baked->surfaces.capacity() * sizeof(BakedSurface); for (const auto& s : input.baked->surfaces) bytes += s.samples.capacity() * sizeof(s.samples[0]); }
 +    for (const auto& model : input.models) bytes += sizeof(Model) + model.cuts.capacity() * sizeof(carving::Box) + (model.hull ? model.hull->planes.capacity() * sizeof(carving::Plane) + model.hull->nodes.capacity() * sizeof(carving::HullNode) : 0);
 +    bytes += input.worldCuts.capacity() * sizeof(carving::Box);
++    if (input.previousVisibility) bytes += input.previousVisibility->retained_bytes();
 +    bytes += input.previousLighting.capacity() * sizeof(lighting::ModelCache);
 +    for (const auto& previous : input.previousLighting) if (previous.samples) bytes += lighting::cache_bytes(*previous.samples);
 +    if (input.visibility) bytes += input.visibility->planes.capacity() * sizeof(carving::Plane) + input.visibility->nodes.capacity() * sizeof(carving::HullNode) + input.visibility->contents.capacity() * sizeof(std::int32_t) + input.visibility->pvs.capacity() * sizeof(std::uint64_t);
@@ -24564,10 +24573,10 @@ index 0000000..36b0607
 +} // namespace worldedit
 diff --git a/tests/world_edit_prepare_tests.cpp b/tests/world_edit_prepare_tests.cpp
 new file mode 100644
-index 0000000..cbd45a0
+index 0000000..21113f7
 --- /dev/null
 +++ b/tests/world_edit_prepare_tests.cpp
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,274 @@
 +#include "world_edit_prepare.h"
 +#include <cassert>
 +#include <chrono>
@@ -24709,6 +24718,52 @@ index 0000000..cbd45a0
 +    auto probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), {});
 +    assert(probes.probes.size() == 81 && probes.values.size() == 162);
 +}
++void VisibilityReuse()
++{
++    std::atomic_bool cancelled{};
++    auto input = Fixture();
++    auto first = Prepare(input, cancelled);
++    assert(first.visibility && first.visibility->contact_cache_bytes() > 0);
++    const std::weak_ptr<const visibility::Prepared> old = first.visibility;
++    input.previousVisibility = first.visibility;
++    input.models[0].cuts.push_back({{80, 80, -8}, {96, 96, 8}});
++    input.worldCuts = input.models[0].cuts;
++    auto cold = input; cold.previousVisibility.reset();
++    assert(InputBytes(input) == InputBytes(cold) + first.visibility->retained_bytes());
++    auto warm = Prepare(input, cancelled);
++    const auto full = Prepare(cold, cancelled);
++    assert(warm.visibility->reused_contacts() == 1 && full.visibility->reused_contacts() == 0);
++    assert(warm.visibility->operations() == full.visibility->operations());
++    assert(warm.visibility->component_count() == full.visibility->component_count());
++    assert(*warm.mesh == *full.mesh && warm.lighting->values == full.lighting->values);
++    assert(warm.visibilityBytes >= warm.visibility->retained_bytes());
++    assert(ResultBytes(warm) >= warm.visibilityBytes);
++    for (std::uint32_t key = 0; key < warm.visibility->leaf_count() + warm.visibility->component_count(); ++key)
++    {
++        const auto a = warm.visibility->view(key), b = full.visibility->view(key);
++        assert(a.leaves == b.leaves && a.components == b.components);
++    }
++    // Keeping the old topology must be included before a task is admitted.
++    Worker bounded;
++    bool rejected = false;
++    try { bounded.Submit({input}, InputBytes(cold)); }
++    catch (const std::length_error&) { rejected = true; }
++    assert(rejected);
++    bounded.Shutdown();
++    auto recaptured = input;
++    recaptured.visibility = std::make_shared<visibility::Source>(*input.visibility);
++    const auto freshMap = Prepare(recaptured, cancelled);
++    assert(freshMap.visibility->reused_contacts() == 0);
++    recaptured.previousVisibility.reset();
++    first = {}; input.previousVisibility.reset();
++    assert(old.expired()); // Results retain contact records, not the old Prepared.
++    assert(warm.visibility->view(1).sees_leaf(1));
++    cancelled.store(true);
++    rejected = false;
++    try { Prepare(cold, cancelled); }
++    catch (const std::runtime_error&) { rejected = true; }
++    assert(rejected && warm.visibility->view(1).sees_leaf(1));
++}
 +std::atomic_bool entered{}, release{};
 +std::atomic<unsigned> calls{};
 +const auto mainThread = std::this_thread::get_id();
@@ -24729,6 +24784,7 @@ index 0000000..cbd45a0
 +    _set_error_mode(_OUT_TO_STDERR);
 +    ProbeNeighbourhood();
 +    ProbeVisibility();
++    VisibilityReuse();
 +    constexpr std::uint64_t budget = 32ull * 1024 * 1024;
 +    auto input = Fixture();
 +    const auto model = input.models[0].View();
