@@ -70,8 +70,9 @@ def main():
             'cs/cstrike/server.cfg': 'hostname "private"\nrcon_password "fixture-only-value"\nmc_map_mining 1\nmc_round_clear_blocks 0\nmc_death_drop_items 1\n',
             'cs/cstrike/addons/amxmodx/configs/users.ini': '; private administrator data',
             'cs/cstrike/addons/amxmodx/configs/plugins.ini': 'custom.amxx\ngoldcraft.amxx disabled\ngoldcraft.amxx\n',
-            'cs/cstrike/addons/amxmodx/configs/plugins-existing.ini': 'goldcraft_controls.amxx\ngoldcraft_controls.amxx\n',
+            'cs/cstrike/addons/amxmodx/configs/plugins-existing.ini': 'goldcraft_controls.amxx\ngoldcraft_controls.amxx\ngoldcraft_zombie_armor.amxx\ngoldcraft_zombie_armor.amxx\ngoldcraft_zombie_respawn.amxx disabled\n',
             'cs/cstrike/addons/amxmodx/configs/plugins-goldcraft-connection.ini': '; owner note\ncustom_connection.amxx\ngoldcraft_connection.amxx disabled\n',
+            'cs/cstrike/addons/amxmodx/configs/plugins-floating_damage.ini': '; floating owner note\ncustom_numbers.amxx\naddon_floating_damage.amxx\naddon_floating_damage.amxx\n',
             'cs/cstrike/addons/amxmodx/configs/plugins.stock.ini': 'goldcraft.amxx\n',
             'cs/cstrike/addons/amxmodx/configs/modules.ini': 'reapi\n',
             'cs/swds.dll': b'oldengine', 'minecraft/mods/renamed-core.jar': core.read_bytes(),
@@ -115,6 +116,24 @@ def main():
     assert 'custom.amxx' in active
     assert 'custom_connection.amxx' in active
     assert '; owner note' in (server / 'cs/cstrike/addons/amxmodx/configs/plugins-goldcraft-connection.ini').read_text()
+    manifest = json.loads((packages['server'] / 'update-manifest.json').read_text())
+    floating = [row for row in manifest['files'] if 'floating_damage' in row['destination']]
+    assert len(floating) == 4 and 'addon_floating_damage.amxx' in required
+    for row in floating:
+        if not row['destination'].endswith('.ini'):
+            assert digest((server / row['destination']).read_bytes()) == row['sha256']
+    listing = (server / 'cs/cstrike/addons/amxmodx/configs/plugins-floating_damage.ini').read_text()
+    assert '; floating owner note' in listing and 'custom_numbers.amxx' in active
+    reports.append('Floating damage plugin/model/translation installed, enabled once, owner list preserved')
+    for name in ('goldcraft_zombie_armor.amxx', 'goldcraft_zombie_respawn.amxx', 'goldcraft_zombie_knockback.amxx'):
+        if name in required:
+            destination = 'cs/cstrike/addons/amxmodx/plugins/' + name
+            row = next(r for r in manifest['files'] if r['destination'] == destination)
+            assert digest((server / destination).read_bytes()) == row['sha256']
+            assert active.count(name) == 1
+    if 'goldcraft_zombie_respawn.amxx' in required:
+        assert (server / 'cs/cstrike/addons/amxmodx/data/lang/goldcraft_respawn.txt').is_file()
+        reports.append('Zombie armor/respawn/headshot compiled plugins installed and enabled once with translation')
     assert not (server / 'minecraft/mods/renamed-core.jar').exists()
     assert not (server / 'client-update/mods/renamed-core.jar').exists()
     assert run('server', server, plan=True)['files'] == 0
@@ -147,7 +166,11 @@ def main():
             assert result.returncode == 0 and b'Invalid target:' in result.stdout, result.stdout + result.stderr
             assert b'"applied":  false' in result.stdout and before == snapshot(server)
         cancelled = subprocess.run(command, input=b'\r\n', capture_output=True, timeout=90)
-        assert cancelled.returncode != 0 and b'Update cancelled' in cancelled.stderr
+        # Windows PowerShell wraps error text to console width, including within
+        # words when the package path makes the error prefix long.
+        error = cancelled.stderr.replace(b'\r', b'').replace(b'\n', b'')
+        assert cancelled.returncode != 0 and b'Update cancelled' in error
+        assert before == snapshot(server)
         for path in ('E:\\bad<path', str(server / 'Start.cmd')):
             result = subprocess.run(command + ['-TargetDirectory', path], capture_output=True, timeout=90)
             assert result.returncode != 0 and before == snapshot(server)

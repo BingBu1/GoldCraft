@@ -21,6 +21,8 @@ new gSpawn[33], gTeamInfo[33], gScoreInfo[33], gLastGib[33];
 new gDamageCalls, bool:gDamageOriginal, Float:gPostDamage;
 new gTraceCalls, bool:gTraceOriginal;
 new bool:gObserve;
+new gRespawnCounts[2];
+new Float:gDeathAt;
 new TeamName:gNotifiedTeam[33];
 
 public plugin_init()
@@ -30,6 +32,11 @@ public plugin_init()
     register_srvcmd("gc_zp_reapi_create", "CreatePlayers");
     register_srvcmd("gc_zp_reapi_api", "TestApis");
     register_srvcmd("gc_zp_reapi_combat", "TestCombat");
+    register_srvcmd("gc_zp_reapi_armor", "TestZombieArmor");
+    register_srvcmd("gc_zp_reapi_respawn_begin", "BeginZombieRespawn");
+    register_srvcmd("gc_zp_reapi_respawn_early", "CheckRespawnEarly");
+    register_srvcmd("gc_zp_reapi_respawn_done", "CheckRespawnDone");
+    register_srvcmd("gc_zp_reapi_head_knockback", "TestHeadKnockback");
     register_srvcmd("gc_zp_reapi_finish", "TestAfterProtection");
     register_srvcmd("gc_zp_reapi_round", "TestRound");
     register_srvcmd("gc_zp_reapi_team_refresh", "TestTeamRefresh");
@@ -181,6 +188,128 @@ TraceHit(victim, attacker, Float:amount, hitgroup)
     ExecuteHamB(Ham_TraceAttack, victim, attacker, amount, Float:{1.0, 0.0, 0.0}, trace, DMG_BULLET);
     rg_multidmg_apply(attacker, attacker);
     free_tr2(trace);
+}
+
+public TestZombieArmor()
+{
+    if (!get_pcvar_num(gEnabled) || !is_user_alive(gPlayer[0])) return PLUGIN_HANDLED;
+    // This phase explicitly exercises immediate native respawn for armor.
+    // Countdown ownership is verified separately by the timed phase below.
+    set_cvar_num("mc_zombie_respawn_delay", 0);
+    set_cvar_num("mc_human_respawn_delay", 0);
+    new z = gPlayer[0], h = gPlayer[1];
+    set_cvar_num("zp_spawn_protection_time", 0);
+    set_cvar_num("zp_zombie_strip_armor", 1);
+    set_cvar_num("zp_zombie_hitzones", 0);
+    if (zp_gamemodes_get_current() < 0)
+        zp_gamemodes_start(zp_gamemodes_get_id("Infection Mode"), z);
+    Check("armor_fixture_infection_mode_active", zp_gamemodes_get_current() == zp_gamemodes_get_id("Infection Mode"));
+    Check("zombie_armor_default_2000", get_cvar_num("mc_zombie_armor") == 2000);
+    for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
+    zp_core_force_infect(z);
+    Check("infection_grants_vest_and_helmet", Float:get_entvar(z, var_armorvalue) == 2000.0 && get_member(z, m_iKevlar) == ARMOR_VESTHELM);
+    for (new hit = HIT_HEAD; hit <= HIT_CHEST; hit++) {
+        new Float:health = Float:get_entvar(z, var_health);
+        rg_set_user_armor(z, 0, ARMOR_NONE);
+        TraceHit(z, h, 40.0, hit);
+        new Float:unarmored = health - Float:get_entvar(z, var_health);
+        zp_core_force_infect(z);
+        health = Float:get_entvar(z, var_health);
+        TraceHit(z, h, 40.0, hit);
+        new Float:armored = health - Float:get_entvar(z, var_health);
+        Check(hit == HIT_HEAD ? "helmet_reduces_head_damage" : "vest_reduces_chest_damage", armored > 0.0 && armored < unarmored);
+        Check("shot_consumes_granted_armor", Float:get_entvar(z, var_armorvalue) > 0.0 && Float:get_entvar(z, var_armorvalue) < 2000.0);
+    }
+    Human(h);
+    Damage(h, z, 20.0);
+    Check("ordinary_attack_infection_grants_armor", zp_core_is_zombie(h) && Float:get_entvar(h, var_armorvalue) == 2000.0 && get_member(h, m_iKevlar) == ARMOR_VESTHELM);
+    set_cvar_num("zp_human_armor_default", 65);
+    zp_core_force_cure(h);
+    Check("cure_clears_zombie_grant_preserves_human_default", !zp_core_is_zombie(h) && Float:get_entvar(h, var_armorvalue) == 65.0);
+    set_cvar_num("zp_human_armor_default", 0);
+    set_cvar_num("mc_zombie_armor", 0);
+    zp_core_force_infect(h);
+    Check("disabled_grant_keeps_no_armor", Float:get_entvar(h, var_armorvalue) == 0.0 && get_member(h, m_iKevlar) == ARMOR_NONE);
+    set_cvar_num("mc_zombie_armor", 2000);
+    zp_core_respawn_as_zombie(h, true);
+    ExecuteHamB(Ham_Killed, h, z, GIB_NEVER);
+    rg_round_respawn(h);
+    Check("zombie_respawn_grants_helmet_armor", is_user_alive(h) && zp_core_is_zombie(h) && Float:get_entvar(h, var_armorvalue) == 2000.0 && get_member(h, m_iKevlar) == ARMOR_VESTHELM);
+    zp_class_nemesis_set(z);
+    Check("nemesis_also_receives_helmet_armor", zp_class_nemesis_get(z) && Float:get_entvar(z, var_armorvalue) == 2000.0 && get_member(z, m_iKevlar) == ARMOR_VESTHELM);
+    set_cvar_num("mc_zombie_respawn_delay", 3);
+    set_cvar_num("mc_human_respawn_delay", 3);
+    return Summary();
+}
+
+public BeginZombieRespawn()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
+    zp_core_force_infect(gPlayer[0]);
+    zp_core_force_infect(gPlayer[2]);
+    Check("respawn_delays_default_three", get_cvar_num("mc_zombie_respawn_delay") == 3 && get_cvar_num("mc_human_respawn_delay") == 3);
+    // Stock deathmatch would revive both as humans before our three seconds.
+    set_cvar_num("zp_deathmatch", 1);
+    set_cvar_float("zp_respawn_delay", 0.3);
+    gDeathAt = get_gametime();
+    for (new n = 0; n < 2; n++) {
+        gRespawnCounts[n] = gSpawn[gPlayer[n]];
+        ExecuteHamB(Ham_Killed, gPlayer[n], gPlayer[3], GIB_NEVER);
+    }
+    Check("human_and_zombie_dead", !is_user_alive(gPlayer[0]) && !is_user_alive(gPlayer[1]));
+    return Summary();
+}
+
+public CheckRespawnEarly()
+{
+    Check("no_early_or_stock_deathmatch_respawn", get_gametime() - gDeathAt < 3.0 && !is_user_alive(gPlayer[0]) && !is_user_alive(gPlayer[1]));
+    return Summary();
+}
+
+public CheckRespawnDone()
+{
+    Check("respawn_after_three_seconds", get_gametime() - gDeathAt >= 3.0);
+    for (new n = 0; n < 2; n++) {
+        new id = gPlayer[n];
+        Check(n ? "dead_human_returns_as_zombie" : "dead_zombie_returns_as_zombie", is_user_alive(id) && zp_core_is_zombie(id) && get_member(id, m_iTeam) == TEAM_TERRORIST);
+        Check("respawn_gets_2000_and_helmet", Float:get_entvar(id, var_armorvalue) == 2000.0 && get_member(id, m_iKevlar) == ARMOR_VESTHELM);
+        Check("respawn_once_only", gSpawn[id] == gRespawnCounts[n] + 1);
+    }
+    return Summary();
+}
+
+public TestHeadKnockback()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    new z = gPlayer[0], h = gPlayer[3];
+    Human(h); zp_core_force_infect(z);
+    new weapon = rg_give_item(h, "weapon_ak47", GT_REPLACE);
+    Check("knockback_uses_actual_rifle", !is_nullent(weapon) && rg_switch_weapon(h, weapon));
+    new Float:origin[3]; get_entvar(h, var_origin, origin); origin[0] += 80.0;
+    engfunc(EngFunc_SetOrigin, z, origin);
+    set_entvar(z, var_flags, (get_entvar(z, var_flags) | FL_ONGROUND) & ~FL_DUCKING);
+    set_cvar_num("zp_knockback_obey_class", 0);
+    set_cvar_num("zp_knockback_power", 0);
+    set_cvar_num("zp_knockback_damage", 1);
+    Check("headshot_extra_disabled_by_default", get_cvar_num("mc_zombie_headshot_extra_knockback") == 0);
+    new Float:speeds[4], Float:loss[4], Float:velocity[3];
+    for (new n = 0; n < 4; n++) {
+        set_cvar_num("mc_zombie_headshot_extra_knockback", n % 2);
+        set_entvar(z, var_velocity, Float:{0.0, 0.0, 0.0});
+        set_entvar(z, var_health, 10000.0);
+        rg_set_user_armor(z, 2000, ARMOR_VESTHELM);
+        TraceHit(z, h, 40.0, n < 2 ? HIT_HEAD : HIT_CHEST);
+        get_entvar(z, var_velocity, velocity);
+        speeds[n] = vector_length(velocity);
+        loss[n] = 10000.0 - Float:get_entvar(z, var_health);
+    }
+    Check("headshot_extra_removed_normal_push_kept", speeds[0] > 0.0 && speeds[1] > speeds[0] + 1.0);
+    Check("headshot_damage_unchanged", loss[0] > 0.0 && floatabs(loss[0] - loss[1]) < 0.01);
+    Check("chest_knockback_unchanged", floatabs(speeds[2] - speeds[3]) < 0.01);
+    server_print("[GC ZP ReAPI] headImpulseOff=%.2f on=%.2f chestOff=%.2f on=%.2f", speeds[0], speeds[1], speeds[2], speeds[3]);
+    set_cvar_num("mc_zombie_headshot_extra_knockback", 0);
+    return Summary();
 }
 
 public TestCombat()
