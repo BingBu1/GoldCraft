@@ -69,6 +69,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
     if set(sources)!=set(deployed):raise ValueError('Unmapped candidate artifacts: '+str(set(sources)-set(deployed)))
     for name,path in deployed.items():
         if sha(client.safe(path).read_bytes())!=sha(sources[name].read_bytes()):raise ValueError('Deployed file differs from candidate: '+name)
+    post_effects=None if server_only else client.runtime_resources.verify_post_runtime(game,client.safe)
     output.mkdir(parents=True)
     receipts=[]
     for kind in (('Server',) if server_only else ('Server','Players')):
@@ -193,6 +194,9 @@ CS 若提示引擎/client.dll 不匹配，停止更新并把提示发给服主�
         manifest=dict(schema=1,release=release,sourceRevision=revision,roles=roles,files=files,
             supportedGame=dict(engineSha256=sha((game/'hw.dll').read_bytes()),clientSha256=sha((game/'cstrike/cl_dlls/client.dll').read_bytes())),
             protocol=protocol,plugins=list(client.PLUGINS),requiredPlugins=required_plugins)
+        if kind=='Players':
+            client.runtime_resources.verify_post_rows(files,'payload/cs/cstrike/',post_effects)
+            manifest['postEffects']=post_effects
         (root/'update-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         for path in (R/'notices').glob('*.txt'):
             destination=root/'licenses'/path.name;destination.parent.mkdir(exist_ok=True);destination.write_bytes(path.read_bytes())

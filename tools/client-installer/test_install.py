@@ -41,6 +41,24 @@ def check_package_plan(plan_path, output):
         rejected.append('case-insensitive duplicate')
     else:
         raise AssertionError('Duplicate path accepted')
+    post_path = 'install/output/svencoop/' + next(iter(plan['postEffects']['resources']))
+    for case in ('missing shader', 'wrong shader hash', 'missing contract', 'stale contract'):
+        changed = copy.deepcopy(plan)
+        if case == 'missing shader':
+            changed['files'] = [row for row in changed['files'] if row['path'] != post_path]
+        elif case == 'wrong shader hash':
+            next(row for row in changed['files'] if row['path'] == post_path)['sha256'] = '0' * 64
+        elif case == 'missing contract':
+            del changed['postEffects']
+        else:
+            changed['postEffects']['resources'].pop(next(iter(changed['postEffects']['resources'])))
+        try:
+            validate_publish(changed, output)
+        except ValueError:
+            rejected.append(case)
+        else:
+            raise AssertionError('Incomplete post resources accepted: ' + case)
+        assert not output.exists() and not output.with_suffix('.zip').exists()
     try:
         validate_publish(plan, Path(plan['files'][0]['source']).parent)
     except ValueError:
@@ -163,6 +181,11 @@ def main():
             resource = game / 'cstrike' / relative
             check(resource.is_file() and resource.stat().st_size > 0,
                   'Plugin startup resource present: ' + relative)
+        # Independently require the native shader contract, even if an omitted
+        # file would leave package.json internally consistent.
+        from package import runtime_resources
+        runtime_resources.verify_post_runtime(game, safe)
+        check(manifest.get('postEffects') == runtime_resources.post_contract(), 'Current native post contract installed')
         write('cstrike/metahook/configs/dllpaths.lst', 'changed after installation\n')
         changed = snapshot(game)
         report['steps'].append(run(package, game, ['-Restore'], expected=1))

@@ -9,6 +9,8 @@ import json
 import subprocess
 import zipfile
 
+from package import client
+
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -206,6 +208,8 @@ def main():
     entries = (cs / 'cstrike/metahook/configs/plugins.lst').read_text().splitlines()
     assert 'Custom.dll' in entries and entries[entries.index('Renderer_AVX2.dll') + 1] == 'GoldCraft.dll'
     assert run('cs', cs, plan=True)['files'] == 0
+    contract = client.runtime_resources.verify_post_runtime(cs, client.safe)
+    assert json.loads((packages['cs'] / 'update-manifest.json').read_text(encoding='utf-8'))['postEffects'] == contract
     reports.append('CS complete resource update, plugin merge/alias removal, bindings/engine preserved and idempotency')
     write(cs, 'hw.dll', b'mismatched-engine')
     before = snapshot(cs)

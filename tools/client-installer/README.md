@@ -47,6 +47,10 @@ Install-GoldCraft.cmd -Plan
 
 然后用 `package.py --runtime <已验证CS根目录> --official <官方解压目录> --installer-license <官方LICENSE> --gui <新构建目录/publish> --plan <本地计划.json>` 生成只读计划，增加 `--output <新输出目录>` 生成目录和 ZIP。运行内容来自指定的已验证客户端，不会自动混入未部署候选。打包前核对图形构建身份与产物；清单按 SHA-256 记录每个文件。含本机源路径的计划仅留本地，发布清单不含源路径。`upstream.json` 固定官方安装器身份，升级时须重新核对上游源和安装行为。
 
+2026-10-19新增后处理资源契约检查：打包计划要求运行目录具备 `native/client/post_effect_assets.hpp` 声明的全部fragment及精确SHA，当前包括新增的 `hsv_filter.fsh`。递归收集已有文件不能替代必需文件检查。计划/发布清单记录 `postEffects`；`--from-plan` 重新核对当前契约和载荷，缺失或旧契约必须重新生成计划。缺资源时先完成配套部署验证，不从其他版本补一个同名文件，也不放宽校验。纯参考vertex不作为生产回放必需项。
+
+原生部署脚本随每次GoldCraft客户端DLL更新排入锁定后处理资源，即使没有指定 `-WithPostEffects`；该选项仍控制额外Renderer更新。资源暂存及部署报告位于 `build/metahook-runtime-update`。本次仅通过五份Python AST及PowerShell解析，未执行打包器、安装器、部署脚本或新回归；当前已部署运行目录缺少新增HSV资源，因此尚不能用新源码生成配套完整包。后续累计交付仍须核对旧未安装包的全部载荷，并完成实际安装与画面验证。
+
 本批完整图形包包含感染☣图标的配套 GoldCraft.dll 与 sprites/zp_infection.spr。开发构建可运行 `tools/Build-InfectionSprite.ps1` 生成资源，加入隔离客户端后由安装器清单一起打包；不覆盖整个 hud.txt，普通武器击杀图标和用户已有 d_infection 定义保留。仅服务端 AMXX 更新无法替换客户端图标。
 
 服务端累计包也包含 `cs/cstrike/sprites/zp_infection.spr`，感染效果插件通过 `precache_generic` 将它加入游戏下载清单。内置HTTP自动提供该资源；外部FastDL站需同步 `sprites/zp_infection.spr`。玩家仍须新版GoldCraft.dll注册感染图标，单独下载SPR不能升级旧客户端逻辑。隔离真实专服已通过HTTP 200/206与内容hash核验；缺文件的普通客户端首次入服及画面仍待实测。

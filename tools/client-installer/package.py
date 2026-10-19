@@ -7,12 +7,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
 import zipfile
 
 HERE = Path(__file__).resolve().parent
+_resource_spec = importlib.util.spec_from_file_location('goldcraft_runtime_resources', HERE / 'runtime_resources.py')
+runtime_resources = importlib.util.module_from_spec(_resource_spec)
+_resource_spec.loader.exec_module(runtime_resources)
 PLUGINS = (
     'VGUI2Extension.dll', 'CaptionMod.dll', 'Renderer_AVX2.dll', 'GoldCraft.dll',
     'BulletPhysics.dll', 'StudioEvents.dll', 'PrecacheManager.dll', 'HeapPatch.dll',
@@ -95,6 +99,7 @@ def verified_gui(directory):
 
 def make_plan(game, upstream, license_file, gui):
     game, upstream, license_file = map(safe, (game, upstream, license_file))
+    post_effects = runtime_resources.verify_post_runtime(game, safe)
     pin = json.loads((HERE / 'upstream.json').read_text('utf-8'))
     cli = upstream / 'MetahookInstallerCLI.exe'
     if digest(cli) != pin['cliSha256']:
@@ -168,7 +173,9 @@ def make_plan(game, upstream, license_file, gui):
     add(repo / 'THIRD_PARTY_NOTICES.md', 'licenses/THIRD_PARTY_NOTICES.md')
     engine = dict(engineSha256=digest(safe(game / 'hw.dll')),
                   clientSha256=digest(safe(game / 'cstrike/cl_dlls/client.dll')))
+    runtime_resources.verify_post_rows(files.values(), 'install/output/svencoop/', post_effects)
     return dict(schema=1, product='GoldCraft MetaHook client plugins', runtimeChannel='deployed-stable', officialInstaller=pin,
+                postEffects=post_effects,
                 gui=gui_identity, supportedGame=engine, appId=10, modDirectory='cstrike', plugins=list(PLUGINS),
                 dllPaths=['FreeImage'], files=sorted(files.values(), key=lambda row: row['path']))
 
@@ -180,6 +187,7 @@ def validate_publish(plan, output):
         raise ValueError('Use a new output directory; previous packages are preserved')
     if plan.get('schema') != 1 or not isinstance(plan.get('files'), list) or not plan['files']:
         raise ValueError('Invalid package plan schema or empty file list')
+    runtime_resources.verify_post_rows(plan['files'], 'install/output/svencoop/', plan.get('postEffects'))
     destinations = set()
     sources = []
     for row in plan['files']:

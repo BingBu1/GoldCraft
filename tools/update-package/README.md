@@ -44,6 +44,8 @@ python tools/update-package/test_update.py --packages server-packages/new-update
 
 `--server-only` 输出服务器 ZIP、载荷清单和 SHA256SUMS；玩家使用完整图形安装器。测试工具同样支持仅验证服务器安装、已有同名清单中的自定义内容保留、去重/幂等、真实文件占用回滚及 CMD 入口。省略该选项可生成兼容脚本包并运行双端更新器回归。构建拒绝冻结文件/部署文件不一致，读取玩家资源时沿用完整安装器的资源清单；不把玩家配置、日志、存档、配对密钥、CS 引擎/client.dll 或其他 MC Mod 打包。
 
+兼容玩家包另从同一原生声明核对必需后处理fragment的SHA，在创建输出目录前拒绝缺失/过期资源，生成归档前再次核对实际载荷并记录 `postEffects`。仅服务器包不要求客户端shader。完整图形包采用同一检查模块，含HSV的新DLL不能仅凭旧资源目录的自洽清单生成配套包。此项2026-10-19仅完成源码和语法检查；未生成新包、未执行安装/回滚测试、未部署。下次仍按累计包交付，不假定用户已经安装之前的更新。
+
 发布冻结清单必须自包含：每个 artifact 位于候选目录内，`deployed` 为 true，`publishedSourceRevision` 与命令行版本一致，`protocol` 包含已核验的 `version` 和 `nativeMessageCount`。额外服务端资源以 `server/runtime/` 路径和对应 `runtimeRelative` 登记，仅接受插件、独立启用清单、翻译、模型和 `sprites/zp_*.spr`；逐项比对已部署文件，同目的路径只允许内容完全相同的重叠，未知类型立即报错。
 
 真实 Windows PowerShell 5.1 隔离安装覆盖：旧核心清理、服务器配置保留/插件去重、CS 别名与列表合并、幂等、实际文件占用中途失败回滚、引擎不符/损坏/未列载荷拒绝和实际 CMD 入口。测试不启动游戏；这些结果不等于远端安装或多人游玩验收。公网与其他玩家仍需应用后验证。

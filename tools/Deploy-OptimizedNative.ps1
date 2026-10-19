@@ -18,6 +18,7 @@ foreach($process in $running){
     }
 }
 $files=[Collections.Generic.Dictionary[string,object]]::new([StringComparer]::OrdinalIgnoreCase)
+$script:GoldCraftPostResources=$null
 function Queue-File([string]$Source,[string]$Destination){
     $from=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $Source)
     $to=Assert-SandboxPath (Join-Path $script:GoldCraftRoot $Destination)
@@ -31,6 +32,23 @@ function Queue-GoldCraftShaders([string]$Game){
     $directory=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'native/client/shaders')
     foreach($file in Get-ChildItem -LiteralPath $directory -File -Filter '*.glsl'){
         Queue-File "native/client/shaders/$($file.Name)" "$Game/cstrike/renderer/shader/$($file.Name)"
+    }
+    Queue-GoldCraftPostResources $Game
+}
+function Queue-GoldCraftPostResources([string]$Game){
+    $stage='build/metahook-runtime-update/vix-post'
+    if($null -eq $script:GoldCraftPostResources){
+        $result=& python (Join-Path $PSScriptRoot 'Extract-VixPostShaders.py') --output (Join-Path $script:GoldCraftRoot $stage)
+        if($LASTEXITCODE){throw 'Pinned local post shader extraction failed; no runtime deployed.'}
+        $script:GoldCraftPostResources=($result -join "`n") | ConvertFrom-Json
+        if(-not $script:GoldCraftPostResources.assets){throw 'Missing pinned post shader receipt.'}
+    }
+    # Queue only the extractor's verified allowlist, never stale stage files.
+    foreach($asset in $script:GoldCraftPostResources.assets.PSObject.Properties){
+        if($asset.Name -notmatch '^[a-z_]+\.(fsh|vsh)$'){throw 'Invalid post shader receipt path.'}
+        $source=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "$stage/$($asset.Name)")
+        if((Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash -ne $asset.Value){throw 'Pinned post shader changed after extraction.'}
+        Queue-File "$stage/$($asset.Name)" "$Game/cstrike/metahook/shaders/goldcraft/vix-post/$($asset.Name)"
     }
 }
 function Queue-GoldCraftSteam([string]$Instance,[string]$Game){
@@ -104,9 +122,6 @@ foreach($instance in $Clients){
     $game="sandbox/$instance/Half-Life"
     if($BridgeOnly){
         if($WithPostEffects){
-            $stage='analysis/vix-post/runtime-shaders'
-            & python (Join-Path $PSScriptRoot 'Extract-VixPostShaders.py') --output (Join-Path $script:GoldCraftRoot $stage)
-            if($LASTEXITCODE){throw 'Pinned local post shader extraction failed; no runtime deployed.'}
             Queue-File 'dist/renderer/svencoop/metahook/plugins/Renderer_AVX2.dll' "$game/cstrike/metahook/plugins/Renderer_AVX2.dll"
             # Renderer hook definitions belong to the same build as its DLL.
             $catalogRoot=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'dist/renderer/svencoop/metahook/gamedata/renderer')
@@ -117,9 +132,6 @@ foreach($instance in $Clients){
             foreach($shader in Get-ChildItem -LiteralPath $shaderRoot -Recurse -File){
                 $relative=$shader.FullName.Substring($shaderRoot.Length+1).Replace('\','/')
                 Queue-File "dist/renderer/svencoop/renderer/shader/$relative" "$game/cstrike/renderer/shader/$relative"
-            }
-            foreach($shader in Get-ChildItem -LiteralPath (Join-Path $script:GoldCraftRoot $stage) -File | Where-Object Extension -in @('.fsh','.vsh')){
-                Queue-File "$stage/$($shader.Name)" "$game/cstrike/metahook/shaders/goldcraft/vix-post/$($shader.Name)"
             }
         }
         Queue-File 'build/native-x86/Release/GoldCraft.dll' "$game/cstrike/metahook/plugins/GoldCraft.dll"
@@ -215,7 +227,7 @@ if($ValidateOnly){
         -not(Test-Path -LiteralPath $_.destination) -or
         (Get-FileHash -LiteralPath $_.destination -Algorithm SHA256).Hash -ne $_.sha256
     })
-    $plan=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'analysis/goldcraft-tests/native-deployment-plan.json')
+    $plan=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/metahook-runtime-update/native-deployment-plan.json')
     New-Item -ItemType Directory -Path (Split-Path $plan) -Force | Out-Null
     @{clients=$Clients;runtimeRelease=$(if($runtime){$runtime.release}else{$null});files=@($files.Values);changed=@($changes | ForEach-Object {$_.path});preserved=$preserved.ToArray()} |
         ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $plan -Encoding utf8
@@ -251,7 +263,7 @@ foreach($name in @('rehlds-deployment.json','amxx-deployment.json','zombie-deplo
     }
     $data | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path -Encoding utf8
 }
-$report=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "analysis/goldcraft-tests/clang-precache-deployment-$stamp.json")
+$report=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/metahook-runtime-update/clang-precache-deployment-$stamp.json")
 New-Item -ItemType Directory -Path (Split-Path $report) -Force | Out-Null
 @{utc=$stamp;clients=$Clients;files=$records.ToArray();backup=$backup;runtimeRelease=$(if($runtime){$runtime.release}else{$null});preserved=$preserved.ToArray();note='C++20 clang-cl, x86, O3/ThinLTO/AVX2. Runtime validation follows separately.'} |
     ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $report -Encoding utf8
