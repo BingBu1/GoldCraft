@@ -234,7 +234,7 @@ public final class NativePlayers {
         if(target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=spawn||armor<0||status<0||status>6)return;
         pending.remove(event);
         target.healthLedger().receipt(event,Math.max(0,health)/MinecraftObjects.CS_HEALTH_PER_MC,tick);
-        if(request.effects()!=null)request.effects().complete(status==0);
+        if(request.effects()!=null)request.effects().complete(status==0,event);
         if(status==0)accepted++;else rejected++;
         damageStatus[status]++;
     }

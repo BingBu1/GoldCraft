@@ -27,6 +27,8 @@
     "NavigationConditionsMixin",
     "NativePlayerTrackingMixin",
     "NativePlayerTargetsMixin",
+    "NativePlayerAttackMixin",
+    "NativeMobAttackMixin",
     "NativePlayerSelectorMixin",
     "NativePlayerSensorMixin",
     "NativeRaidManagerAccessor",

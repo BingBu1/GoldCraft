@@ -20,6 +20,7 @@
 #include "goldcraft/status_nausea.hpp"
 #include "goldcraft/status_melee.hpp"
 #include "goldcraft/native_impulse.hpp"
+#include "goldcraft/native_knockback.hpp"
 #include "goldcraft/native_water.hpp"
 #include "goldcraft/client_features.hpp"
 #include "goldcraft/status_visibility.hpp"
@@ -801,6 +802,8 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
                     // Health is never assigned by this bridge; no invented headshot.
                     const auto previous_hitgroup=player->m_LastHitGroup;player->m_LastHitGroup=HITGROUP_GENERIC;
                     const float before_health=victim->v.health,before_armor=victim->v.armorvalue;
+                    const auto velocity_before_damage=victim->v.velocity,basevelocity_before_damage=victim->v.basevelocity;
+                    const auto damage_authority=link.generation();
                     const auto target_slot=CaptureNativeSlot(damage.slot);
                     const auto target_identity=CaptureNativePlayer(damage.slot),source_identity=CaptureNativePlayer(damage.attacker);
                     active=active&&minecraft_forms[damage.attacker];
@@ -819,10 +822,19 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
                     // armor consumed by an integer-rounded zero-health-damage hit.
                     status=accepted||victim->v.health<before_health||victim->v.armorvalue<before_armor?0u:5u;
                     player->m_LastHitGroup=previous_hitgroup;
+                    const bool damage_pushed=victim->v.velocity!=velocity_before_damage||victim->v.basevelocity!=basevelocity_before_damage;
                     if(active&&player_attack_listener&&CurrentNativePlayer(target_identity)&&CurrentNativePlayer(source_identity)&&status==0&&(victim->v.health<before_health||victim->v.armorvalue<before_armor))
                         player_attack_listener(damage.slot,damage.attacker,static_cast<int>(damage.kind),
                             std::max(0.0f,before_health-victim->v.health),std::max(0.0f,before_armor-victim->v.armorvalue));
                     if(!CurrentNativeSlot(target_slot)||victim->free||victim->serialnumber!=target_identity.entity_serial||GET_PRIVATE(victim)!=player)return;
+                    // ReGameDLL/ReAPI damage hooks and confirmed-hit listeners
+                    // own their explicit push. Do not stack vanilla on either.
+                    if(status==0&&link.native_knockback()&&CurrentNativePlayer(target_identity)
+                        &&link.generation()==damage_authority&&!target_identity.form
+                        &&damage.kind!=MobDamageKind::explosion&&!damage_pushed
+                        &&victim->v.velocity==velocity_before_damage&&victim->v.basevelocity==basevelocity_before_damage)
+                        native_knockback_grants.grant(registry.world(),damage_authority,damage.event,
+                            damage.slot,damage.serial,damage.life,player_lives[damage.slot],target_identity.team,gpGlobals->time);
                 }else status=4;
             }else status=skill&&!near_target?6:3;
         }else status=2;
@@ -1288,6 +1300,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::native_water)HandleNativeWater(message.payload);
             else if(message.type==Type::native_impulse)HandleNativeImpulse(message.payload);
+            else if(message.type==Type::native_knockback)HandleNativeKnockback(message.payload);
             else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);
             else if(message.type==Type::status_nausea)HandleStatusNausea(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);

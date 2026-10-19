@@ -23,3 +23,16 @@ void HandleNativeImpulse(std::span<const std::uint8_t> bytes){
     if(q.delta.z>0)victim->v.flags&=~FL_ONGROUND;
     // Normal ReHLDS movement/collision and maxvelocity processing own the result.
 }
+
+native_knockback::Grants native_knockback_grants;
+void HandleNativeKnockback(std::span<const std::uint8_t> bytes){
+    if(!link.native_knockback())throw ProtocolError("Unnegotiated native knockback");
+    if(bytes.size()!=72)throw ProtocolError("Invalid native knockback length");
+    const auto q=native_impulse::decode(bytes.first(64));
+    Reader r(bytes.subspan(64));const auto damage_event=r.u64();r.finish();
+    if(!damage_event)throw ProtocolError("Missing native knockback damage event");
+    const auto identity=CaptureNativePlayer(q.slot);
+    if(!CurrentNativePlayer(identity))return;
+    if(!native_knockback_grants.consume(q,damage_event,link.generation(),identity.team,gpGlobals->time))return;
+    HandleNativeImpulse(bytes.first(64));
+}

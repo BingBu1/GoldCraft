@@ -10,6 +10,12 @@ public final class NativeImpulse {
     private static long epoch,generation,sequence;
     private NativeImpulse(){}
     public static boolean explosion(Entity entity,Vec3d delta){
+        return send(entity,delta,0,0,null);
+    }
+    static boolean confirmed(Entity entity,Vec3d delta,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot){
+        return damageEvent!=0&&GoldCraft.nativeKnockbackAvailable()&&send(entity,delta,damageEvent,snapshotTick,snapshot);
+    }
+    private static boolean send(Entity entity,Vec3d delta,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot){
         NativePlayerEntity body=entity instanceof NativePlayerHitboxEntity box?box.body()
             :entity instanceof NativePlayerEntity player?player:null;
         if(body==null||body.isRemoved()||!body.isAlive()||entity.isRemoved()||entity.getWorld().isClient()
@@ -27,12 +33,14 @@ public final class NativeImpulse {
         long currentGeneration=GoldCraft.authorityGeneration();
         if(epoch!=host.epoch()||generation!=currentGeneration){epoch=host.epoch();generation=currentGeneration;sequence=0;}
         if(sequence==Long.MAX_VALUE)return false;
-        var w=new Wire.Writer().i64(epoch).i64(++sequence).i64(host.tick())
+        var origin=snapshot==null?actor:snapshot;
+        if(origin.slot()!=actor.slot()||origin.serial()!=actor.serial()||origin.spawn()!=actor.spawn()||origin.life()!=actor.life())return false;
+        var w=new Wire.Writer().i64(epoch).i64(++sequence).i64(damageEvent==0?host.tick():snapshotTick)
             .i32(actor.slot()).i32(actor.serial()).i32(actor.spawn()).i32(actor.life());
-        w.f32(actor.origin().x()+(actor.mins().x()+actor.maxs().x())*.5f)
-            .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
-            .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f)
+        w.f32(origin.origin().x()+(origin.mins().x()+origin.maxs().x())*.5f)
+            .f32(origin.origin().y()+(origin.mins().y()+origin.maxs().y())*.5f)
+            .f32(origin.origin().z()+(origin.mins().z()+origin.maxs().z())*.5f)
             .f32((float)x).f32((float)y).f32((float)z);
-        return GoldCraft.sendNativeImpulse(w.toByteArray());
+        return damageEvent==0?GoldCraft.sendNativeImpulse(w.toByteArray()):GoldCraft.sendNativeKnockback(w.i64(damageEvent).toByteArray());
     }
 }

@@ -119,6 +119,9 @@ public final class NativePlayerEntity extends PlayerEntity {
     @Override public boolean isCreative(){return false;}
     @Override public boolean shouldSave(){return false;}
     @Override public boolean isPushable(){return false;}
+    @Override public void takeKnockback(double strength,double x,double z){
+        if(hitbox!=null&&!hitbox.isRemoved())hitbox.takeKnockback(strength,x,z);
+    }
     @Override public void tick(){if(hitbox==null&&timeUntilRegen>0)timeUntilRegen--;setVelocity(0,0,0);}
     @Override public boolean damage(DamageSource source,float amount){
         if(nutrition.running()&&!nutrition.exhaustionAllowed())return false;

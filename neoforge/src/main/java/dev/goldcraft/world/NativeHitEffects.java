@@ -16,14 +16,18 @@ public final class NativeHitEffects implements AutoCloseable {
     private final long epoch,generation;
     private final int serial,spawn;
     private final List<Callback> callbacks=new ArrayList<>();
+    private final NativeKnockback.Hit knockback;
     private int requests,receipts;
     private boolean closed,finished,ready;
     private NativeHitEffects(NativePlayerHitboxEntity target){
         this.target=target;previous=CURRENT.get();
         var actor=target.body().actor();epoch=target.body().epoch();generation=GoldCraft.authorityGeneration();
-        serial=actor.serial();spawn=actor.spawn();CURRENT.set(this);
+        serial=actor.serial();spawn=actor.spawn();knockback=NativeKnockback.hurt(target);CURRENT.set(this);
     }
     public static NativeHitEffects begin(NativePlayerHitboxEntity target){return new NativeHitEffects(target);}
+    static NativeKnockback.Hit knockback(NativePlayerHitboxEntity target){
+        var hit=CURRENT.get();return hit!=null&&hit.target==target?hit.knockback:null;
+    }
     static NativeHitEffects request(NativePlayerEntity body){
         var hit=CURRENT.get();
         if(hit==null||hit.target.body()!=body)return null;
@@ -37,7 +41,7 @@ public final class NativeHitEffects implements AutoCloseable {
         hit.callbacks.add(new Callback(new StatusEffectInstance(effect),source,amount));return true;
     }
     public void localResult(boolean accepted,boolean absorptionPaid){
-        ready=accepted;close();
+        ready=accepted;knockback.local(accepted);close();
         if(requests==0)complete(accepted&&absorptionPaid);
     }
     private LivingEntity recipient(){
@@ -54,6 +58,9 @@ public final class NativeHitEffects implements AutoCloseable {
         return box!=null&&!box.isRemoved()&&box.getWorld()==target.getWorld()?box:null;
     }
     void complete(boolean accepted){
+        complete(accepted,0);
+    }
+    void complete(boolean accepted,long event){
         if(finished)return;
         // A Mod can emit more than one native delta within one hurt call.
         // Any accepted delta confirms the hit; one rejected delta alone does
@@ -62,6 +69,7 @@ public final class NativeHitEffects implements AutoCloseable {
         finished=true;
         var calls=List.copyOf(callbacks);callbacks.clear();
         if(!accepted||!closed||!ready)return;
+        if(event!=0)knockback.confirmed(event);
         // Replay outside any surrounding hurt scope. A nested damage call opens
         // its own scope normally and waits for its own authority receipt.
         var surrounding=CURRENT.get();CURRENT.remove();

@@ -135,7 +135,9 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
     }
     @Override public boolean isPushable(){return false;}
     @Override public boolean isCollidable(){return isAlive();}
-    @Override public void takeKnockback(double strength,double x,double z){}
+    @Override public void takeKnockback(double strength,double x,double z){
+        if(body!=null&&!getWorld().isClient)NativeKnockback.apply(this,()->super.takeKnockback(strength,x,z));
+    }
     @Override public boolean shouldSave(){return false;}
     @Override public Iterable<ItemStack> getArmorItems(){return List.of();}
     @Override public ItemStack getEquippedStack(EquipmentSlot slot){return ItemStack.EMPTY;}

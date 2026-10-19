@@ -52,6 +52,7 @@ public:
     bool native_impulse() const;
     bool native_water() const;
     bool native_movement() const;
+    bool native_knockback() const;
     bool status_melee() const;
     bool status_nausea() const;
     bool status_glow() const;
