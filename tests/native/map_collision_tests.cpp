@@ -29,9 +29,15 @@
 
 namespace {
 std::atomic<std::size_t> allocations{};
+const auto allocation_main_thread = std::this_thread::get_id();
+std::atomic_bool hold_worker_allocation{}, worker_allocation_held{};
 }
 void *operator new(std::size_t size) {
     ++allocations;
+    if (hold_worker_allocation.load() && std::this_thread::get_id() != allocation_main_thread) {
+        worker_allocation_held.store(true);
+        hold_worker_allocation.wait(true);
+    }
     if (auto *p = std::malloc(size ? size : 1))
         return p;
     throw std::bad_alloc();
@@ -1155,6 +1161,7 @@ int main(int argc, char **argv) {
         else {
             synthetic();
             additive_progress();
+            parallel_preparation_progress();
             render_transaction();
             targeted_transaction();
             lifecycle();

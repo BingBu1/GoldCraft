@@ -8232,7 +8232,7 @@ index 41f24f3..92aa141 100644
  
  /*
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..60a6b1c 100644
+index 0d340e9..1fe61b6 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
 @@ -1,9 +1,18 @@
@@ -8396,7 +8396,7 @@ index 0d340e9..60a6b1c 100644
      GLuint hEntityUBO{};
      GLuint hDecalVBO[WSURF_VBO_MAX]{};
      GLuint hDecalEBO{};
-@@ -270,9 +316,102 @@ typedef struct
+@@ -270,9 +316,104 @@ typedef struct
  {
      int program;
      int u_parallaxScale;
@@ -8440,6 +8440,8 @@ index 0d340e9..60a6b1c 100644
 +    std::uint32_t cuts{};
 +    double captureMs{}, uploadMs{}, leafMs{};
 +    worldedit::Timings cpu;
++    // Wall intervals include frame scheduling; CPU stages above are inclusive.
++    double cpuObservedMs{}, leafWaitMs{}, readyMs{}, totalMs{};
 +};
 +std::span<const CWorldEditPreparationTiming> R_WorldEditPreparationHistory() noexcept;
 +CWorldLightProbes R_CollectCavityLightProbes(const CWorldSurfaceWorldModel& original,
@@ -8499,7 +8501,7 @@ index 0d340e9..60a6b1c 100644
  
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
-@@ -330,13 +469,14 @@ void        R_LoadBaseDetailTextures(void);
+@@ -330,13 +471,14 @@ void        R_LoadBaseDetailTextures(void);
  void        R_LoadMapDetailTextures(void);
  
  
@@ -11749,10 +11751,10 @@ index 0000000..5ea67d8
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..5f4f3c1
+index 0000000..37769ff
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,601 @@
+@@ -0,0 +1,625 @@
 +#include "gl_local.h"
 +#include "draw_parameter_dispatch.h"
 +#include "draw_parameter_stream.h"
@@ -12028,6 +12030,28 @@ index 0000000..5f4f3c1
 +
 +namespace
 +{
++// The history is fixed at 32 completed edits and is written only with an
++// explicitly requested profile. It is not an append-only gameplay log.
++void WriteEditHistory(std::ostream& out)
++{
++    out << "{\"schema\":1,\"capacity\":32,\"wallIntervalsIncludeScheduling\":true,\"completed\":[";
++    bool first = true;
++    for (const auto& edit : R_WorldEditPreparationHistory())
++    {
++        if (!edit.ticket) continue;
++        if (!first) out << ',';
++        first = false;
++        out << "{\"ticket\":\"" << edit.ticket << "\",\"epoch\":\"" << edit.epoch
++            << "\",\"revision\":\"" << edit.revision << "\",\"cuts\":" << edit.cuts
++            << ",\"captureMs\":" << edit.captureMs << ",\"uploadMs\":" << edit.uploadMs
++            << ",\"leafDispatchMs\":" << edit.leafMs << ",\"cpuObservedMs\":" << edit.cpuObservedMs
++            << ",\"leafWaitMs\":" << edit.leafWaitMs << ",\"readyMs\":" << edit.readyMs
++            << ",\"totalMs\":" << edit.totalMs << ",\"cavityMs\":" << edit.cpu.cavityMs
++            << ",\"probesMs\":" << edit.cpu.probesMs << ",\"lightMs\":" << edit.cpu.lightMs
++            << ",\"visibilityMs\":" << edit.cpu.visibilityMs << '}';
++    }
++    out << "]}";
++}
 +constexpr size_t      MaxProfileFrames            = 8192;
 +constexpr size_t      ProfileStages               = static_cast<size_t>(RProfileStage::Count);
 +constexpr const char* ProfileNames[ProfileStages] = {
@@ -12169,7 +12193,9 @@ index 0000000..5f4f3c1
 +                << ",\"gpu_" << ProfileNames[i] << "\":" << f.gpuStages[i];
 +        out << '}';
 +    }
-+    out << "]}";
++    out << "],\"mapEdits\":";
++    WriteEditHistory(out);
++    out << '}';
 +    if (auto file = FILESYSTEM_ANY_OPEN("renderer/frame-profile.json", "wt", "GAMECONFIG"))
 +    {
 +        const auto result = out.str();
@@ -16465,10 +16491,10 @@ index 0000000..d5768fe
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..7f3b79a
+index 0000000..fe36409
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1756 @@
+@@ -0,0 +1,1763 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -17196,6 +17222,13 @@ index 0000000..7f3b79a
 +    assert(second);
 +    wait(second);
 +    assert(api->Commit(second));
++    const auto history = R_WorldEditPreparationHistory();
++    const auto timing = std::find_if(history.begin(), history.end(),
++        [&](const auto& value) { return value.ticket == second; });
++    assert(timing != history.end() && timing->epoch == 9 && timing->revision == 3 && timing->cuts == 2);
++    assert(timing->captureMs >= 0 && timing->cpuObservedMs >= timing->captureMs);
++    assert(timing->leafWaitMs >= timing->leafMs && timing->readyMs >= timing->cpuObservedMs);
++    assert(timing->totalMs >= timing->readyMs && timing->totalMs >= timing->leafWaitMs);
 +    assert(nearLight->pStaticShadowTexture->IsReady() && !next->pStaticShadowTexture->IsReady());
 +    assert(distant->pStaticShadowTexture->IsReady());
 +
@@ -18737,10 +18770,10 @@ index 0000000..029fb40
 +#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..f75c48e
+index 0000000..f55778f
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,682 @@
+@@ -0,0 +1,694 @@
 +#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
@@ -18786,6 +18819,8 @@ index 0000000..f75c48e
 +    bool worldCpu{}, initialized{};
 +    HGLRC context{};
 +    double captureMs{}, uploadMs{}, leafMs{};
++    std::chrono::steady_clock::time_point started{}, leavesStarted{};
++    double cpuObservedMs{}, leafWaitMs{}, readyMs{};
 +    worldedit::Timings timings;
 +    ~Pending()
 +    {
@@ -18978,6 +19013,7 @@ index 0000000..f75c48e
 +        auto prepared = R_PrepareWorldSurfaceLeafModel(pending.geometry, model->m_model, 0);
 +        if (pending.geometry == session.original) R_LinkShadowProxyForWorldSurfaceModel(prepared.get());
 +        pending.models.push_back({i, model, std::move(prepared)});
++        pending.readyMs = 0;
 +    }
 +    if (pending.models.empty()) throw std::runtime_error("Missing loaded world surface model");
 +}
@@ -19006,6 +19042,7 @@ index 0000000..f75c48e
 +                !epoch || count > 65536 || (count && !edits) || !wglGetCurrentContext()) return 0;
 +            if (session.world && (!Current() || session.epoch != epoch || (session.committed && revision < session.revision))) return 0;
 +            auto candidate = std::make_unique<Pending>();
++            candidate->started = started;
 +            candidate->cuts.reserve(count);
 +            std::vector<carving::Box> cuts;
 +            cuts.reserve(count);
@@ -19172,6 +19209,7 @@ index 0000000..f75c48e
 +                if (pending.cpu)
 +                {
 +                    if (!pending.cpu->finished.load(std::memory_order_acquire)) return MetaWorldEditStatus::Preparing;
++                    if (!pending.cpuObservedMs) pending.cpuObservedMs = Elapsed(pending.started);
 +                    if (pending.cpu->error) std::rethrow_exception(pending.cpu->error);
 +                    if (pending.cpu->cancelled.load(std::memory_order_acquire) ||
 +                        pending.cpu->results.size() != pending.cpu->expectedResults)
@@ -19203,6 +19241,7 @@ index 0000000..f75c48e
 +                    }
 +                }
 +                const auto leafStarted = PrepareClock::now();
++                pending.leavesStarted = leafStarted;
 +                for (auto& instance : pending.instances)
 +                    instance.prepared = R_PrepareWorldSurfaceLeafModel(instance.geometry, instance.source, 0);
 +                CollectModels(pending);
@@ -19234,6 +19273,11 @@ index 0000000..f75c48e
 +                        throw std::runtime_error("Brush edit leaf failed");
 +                    if (!leaf->m_bIsReady) return MetaWorldEditStatus::Preparing;
 +                }
++            if (!pending.readyMs)
++            {
++                pending.leafWaitMs = Elapsed(pending.leavesStarted);
++                pending.readyMs = Elapsed(pending.started);
++            }
 +            return MetaWorldEditStatus::Ready;
 +        }
 +        catch (...)
@@ -19284,7 +19328,8 @@ index 0000000..f75c48e
 +        else if (!pending.changedBounds.empty()) R_InvalidateWorldShadowCaches(pending.changedBounds);
 +        const auto& timing = pending.timings;
 +        preparationHistory[historyNext++ % preparationHistory.size()] = {pending.ticket, pending.epoch, pending.revision,
-+            static_cast<std::uint32_t>(session.cuts.size()), pending.captureMs, pending.uploadMs, pending.leafMs, timing};
++            static_cast<std::uint32_t>(session.cuts.size()), pending.captureMs, pending.uploadMs, pending.leafMs, timing,
++            pending.cpuObservedMs, pending.leafWaitMs, pending.readyMs, Elapsed(pending.started)};
 +        if (pending.captureMs + pending.uploadMs + pending.leafMs + timing.cavityMs + timing.probesMs + timing.lightMs + timing.visibilityMs > 10 && gEngfuncs.Con_Printf)
 +            gEngfuncs.Con_Printf("Renderer: edit timing ticket %llu epoch %llu revision %llu capture %.3f upload %.3f leaf %.3f CPU cavity %.3f probes %.3f light %.3f visibility %.3f ms\n",
 +                static_cast<unsigned long long>(pending.ticket), static_cast<unsigned long long>(pending.epoch),

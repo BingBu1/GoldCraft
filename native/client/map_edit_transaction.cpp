@@ -190,8 +190,8 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
     if (physics_task_) {
         try {
             EditWorkScope work(work_history_, EditStage::physics_poll, work_identity_);
-            if (!client_map::poll(physics_task_, physics_)) return;
-            physics_task_.reset();
+            if (client_map::poll(physics_task_, physics_))
+                physics_task_.reset();
         } catch (...) {
             invalidate();
             throw;
@@ -204,12 +204,14 @@ void EditTransaction::pump(IMetaRendererWorldEdit *renderer, model_s *world,
         if (status != MetaWorldEditStatus::Preparing && status != MetaWorldEditStatus::Ready)
             work.fail();
     }
-    if (status == MetaWorldEditStatus::Preparing)
-        return;
-    if (status != MetaWorldEditStatus::Ready) {
+    if (status != MetaWorldEditStatus::Preparing && status != MetaWorldEditStatus::Ready) {
         invalidate();
         throw ProtocolError("Renderer world edit preparation failed or expired");
     }
+    // Poll advances bounded GPU uploads and starts leaf work, independently of
+    // the collision worker. Neither consumer may publish until both are ready.
+    if (status == MetaWorldEditStatus::Preparing || physics_task_)
+        return;
     // No callback/yield between renderer publication and these noexcept moves.
     // A failed render commit leaves both collision and applied Replica intact.
     {
