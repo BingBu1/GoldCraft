@@ -14327,10 +14327,10 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..b656042
+index 0000000..046461d
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,357 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -14576,6 +14576,27 @@ index 0000000..b656042
 +                a.bounds.max == b.bounds.max && a.needs_lighting == b.needs_lighting);
 +        }
 +        assert(prepared.visibility && prepared.visibility->leaf_count() == visibility_source->contents.size());
++        // Fieldwise fingerprint can be compared with a separately built old
++        // executable; it excludes padding, timings and operation counters.
++        std::uint64_t lightDigest = 14695981039346656037ull;
++        const auto digest = [&]<class T>(T value) {
++            for (auto byte : std::bit_cast<std::array<unsigned char, sizeof(T)>>(value))
++                lightDigest = (lightDigest ^ byte) * 1099511628211ull;
++        };
++        for (const auto& vertex : prepared.mesh->vertices) {
++            for (auto value : vertex.pos) digest(value);
++            for (auto value : vertex.texcoord) digest(value);
++            for (auto value : vertex.lightmaptexcoord) digest(value);
++        }
++        for (auto index : prepared.mesh->indices) digest(index);
++        for (const auto& range : prepared.lighting->vertices) { digest(range.first); digest(range.count); }
++        for (const auto& value : prepared.lighting->values) {
++            for (auto color : value.rgb) digest(color);
++            digest(value.style);
++        }
++        digest(prepared.lighting->rays); digest(prepared.lighting->occluded);
++        std::printf("{\"mapLightingDigest\":true,\"cuts\":%zu,\"digest\":%llu}\n", carve.boxes.size(),
++            static_cast<unsigned long long>(lightDigest));
 +        std::printf("{\"mapPreparationStages\":true,\"cuts\":%zu,\"legacyProbesMs\":%.6f,\"ownedProbesMs\":%.6f,\"cavityMs\":%.6f,\"probesMs\":%.6f,\"lightMs\":%.6f,\"visibilityMs\":%.6f,\"probes\":%zu,\"passed\":true}\n",
 +            carve.boxes.size(), oldMs, newMs, prepared.timings.cavityMs, prepared.timings.probesMs,
 +            prepared.timings.lightMs, prepared.timings.visibilityMs, newProbes.probes.size());

@@ -1,5 +1,13 @@
 # TNT 爆破准备与地图同步
 
+## 2026-10-19 light-ray union preparation
+
+Lighting now compacts exactly touching or overlapping cuts with identical cross sections before building its ray-query index, and reuses the ray interval buffer for one model's preparation. Only visibility openings use the compact union: authoritative cut records, geometry, material ownership and probe selection are unchanged. No epsilon closes small gaps. Compaction validation, sorting and linear passes count toward the existing preparation operation budget; scratch storage is released with the preparation field.
+
+Three runs with actual `cs_assault` baked lightmaps measured median background light preparation of 6.964→5.435 ms (125 cuts), 41.388→25.842 ms (729), and 79.091→40.077 ms (1331). Twelve single-cut positions had an aggregate median of 1.511→1.556 ms. The intermediate compaction-only run measured 47.587 ms at 1331 cuts. These are CPU-stage samples, not live latency or FPS; unchanged geometry timings also varied under the running game load.
+
+All 15 real-map geometry/light coefficient/ray fingerprints match a separately built old executable. Seven distributed/dense native geometry/light cases also match the old executable and stay within default budgets. Focused native and real GL transaction/preparation checks pass, including duplicate cuts and a 2e-9-unit gap that must retain solid occlusion. Production Renderer/GoldCraft builds, 250 unchanged build-input hashes, and the 121-file Renderer patch replay pass. Evidence: `build/tnt-light-visibility-20261019` (`measurements.json`, `world-parity.json`, `native-tests.log`, `production-tests.log`, `candidate.json`). The combined two-DLL candidate includes the previous probe-index and slowest-operation diagnostics changes and remains **undeployed**. Continue geometry-stage investigation and joint live TNT, fixed-view and multiplayer acceptance.
+
 ## 2026-10-19 probe neighbourhood indexing
 
 The CPU preparation worker previously scanned every cut for each baked face and luxel. It now builds one `CutIndex` per model and stops at the first exact Euclidean distance match. Enclosing-node distance rejects irrelevant subtrees; this preserves the spherical radius and inclusive boundary, probe order, style values and lighting. Traversal allocates no candidate vectors or sorting buffers. Index construction and visited nodes/cuts count toward the existing work budget, with cancellation checked during traversal. Draw/upload budgets are unchanged.

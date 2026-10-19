@@ -1,17 +1,20 @@
 #pragma once
 #include "world_carving.hpp"
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <stdexcept>
 #include <tuple>
 
 namespace goldcraft::carving {
-// Exact union simplification for collision preparation. Equal cross sections
+// Exact union simplification for collision and visibility. Equal cross sections
 // can merge only when they touch or overlap; no epsilon fills a gap. The
 // authority's individual records, revisions and render material owners remain
 // unchanged. Bounded passes may leave redundant boxes, never alter the union.
-inline std::vector<Box> compact_cuts(std::span<const Box> input) {
+template<class Consume>
+inline std::vector<Box> compact_cuts(std::span<const Box> input, Consume consume) {
     if (input.size() > 65536) throw std::length_error("Cut union capacity");
+    consume(input.size());
     std::vector<Box> boxes(input.begin(), input.end());
     for (const auto& b : boxes)
         for (int a = 0; a < 3; ++a)
@@ -20,6 +23,7 @@ inline std::vector<Box> compact_cuts(std::span<const Box> input) {
     for (int pass = 0; pass < 8; ++pass) {
         const auto previous = boxes.size();
         for (int a = 0; a < 3; ++a) {
+            consume(boxes.size() * (std::bit_width(boxes.size()) + 1));
             const auto u = (a + 1) % 3, v = (a + 2) % 3;
             std::ranges::sort(boxes, [=](const Box& x, const Box& y) {
                 return std::tie(x.min[u], x.max[u], x.min[v], x.max[v], x.min[a], x.max[a]) <
@@ -43,5 +47,8 @@ inline std::vector<Box> compact_cuts(std::span<const Box> input) {
         if (boxes.size() == previous) break;
     }
     return boxes;
+}
+inline std::vector<Box> compact_cuts(std::span<const Box> input) {
+    return compact_cuts(input, [](std::size_t) {});
 }
 } // namespace goldcraft::carving

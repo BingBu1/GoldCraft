@@ -1,5 +1,6 @@
 #include "goldcraft/cavity_lighting.hpp"
 #include "goldcraft/cut_index.hpp"
+#include "goldcraft/cut_union.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -26,7 +27,7 @@ struct Interval { double begin, end; };
 struct Visibility {
     carving::HullView hull;
     Point start, delta;
-    std::vector<Interval> openings;
+    std::vector<Interval> &openings;
     std::size_t &work;
     std::size_t limit;
     bool covered(double a, double b) const {
@@ -52,6 +53,38 @@ struct Visibility {
         return visit(branch.children[near], a, split, depth+1) && visit(branch.children[near^1], split, b, depth+1);
     }
 };
+bool visible_with_scratch(carving::HullView hull, std::span<const carving::Box> cuts, Point start, Point end,
+                          std::size_t &operations, std::size_t limit, std::vector<Interval> &openings) {
+    valid(start); valid(end);
+    openings.clear();
+    Visibility view{hull, start, sub(end, start), openings, operations, limit};
+    consume(operations, limit, cuts.size());
+    for (const auto &cut : cuts) {
+        Interval part{0, 1};
+        for (int axis = 0; axis < 3; ++axis) {
+            if (view.delta[axis] == 0) {
+                if (start[axis] < cut.min[axis] || start[axis] > cut.max[axis]) { part.end = -1; break; }
+            } else {
+                const auto a = (cut.min[axis]-start[axis])/view.delta[axis];
+                const auto b = (cut.max[axis]-start[axis])/view.delta[axis];
+                part.begin = std::max(part.begin, std::min(a,b));
+                part.end = std::min(part.end, std::max(a,b));
+            }
+        }
+        if (part.begin < part.end) view.openings.push_back(part);
+    }
+    consume(operations, limit, view.openings.size()*std::max<std::size_t>(1, std::bit_width(view.openings.size())));
+    std::sort(view.openings.begin(), view.openings.end(), [](auto a, auto b) { return a.begin < b.begin; });
+    std::size_t kept = 0;
+    for (auto part : view.openings) {
+        if (kept && view.openings[kept-1].end >= part.begin)
+            view.openings[kept-1].end = std::max(view.openings[kept-1].end, part.end);
+        else view.openings[kept++] = part;
+    }
+    view.openings.resize(kept);
+    return view.visit(hull.root, 0, 1);
+}
+
 struct Candidate {
     double distance;
     std::uint32_t probe;
@@ -65,7 +98,8 @@ class Field {
   public:
     Field(const Model &model, const Settings &settings, std::size_t &work)
         : model_(model), settings_(settings), work_(work), order_(model.probes.size()),
-          cut_index_(model.cuts,[&](auto n){consume(work,settings.mesh.operations,n);}) {
+          visibility_cuts_(carving::compact_cuts(model.cuts,[&](auto n){consume(work,settings.mesh.operations,n);})),
+          cut_index_(visibility_cuts_,[&](auto n){consume(work,settings.mesh.operations,n);}) {
         if (order_.empty()) throw std::invalid_argument("Missing baked map lighting probes");
         if (order_.size() > settings.probes || model.values.size() > settings.values)
             throw std::length_error("Cavity lighting probe capacity");
@@ -117,8 +151,8 @@ class Field {
             }
             cut_index_.query(bounds,cut_candidates_,[&](auto n){consume(work_,settings_.mesh.operations,n);});
             nearby_cuts_.clear();
-            for(auto id:cut_candidates_) nearby_cuts_.push_back(model_.cuts[id]);
-            if (!visible(model_.hull, nearby_cuts_, p, probe.position, work_, settings_.mesh.operations)) {
+            for(auto id:cut_candidates_) nearby_cuts_.push_back(visibility_cuts_[id]);
+            if (!visible_with_scratch(model_.hull, nearby_cuts_, p, probe.position, work_, settings_.mesh.operations, openings_)) {
                 ++result.occluded;
                 continue;
             }
@@ -181,9 +215,13 @@ class Field {
     std::size_t &work_;
     std::vector<std::uint32_t> order_;
     std::vector<Candidate> heap_;
+    // Only ray openings use the compact union. Keep the original records for
+    // geometry, material ownership and authoritative revision accounting.
+    std::vector<carving::Box> visibility_cuts_;
     carving::CutIndex cut_index_;
     std::vector<std::size_t> cut_candidates_;
     std::vector<carving::Box> nearby_cuts_;
+    std::vector<Interval> openings_;
 };
 using Key = std::array<std::uint32_t, 6>;
 struct Hash { std::size_t operator()(const Key &key) const {
@@ -209,33 +247,8 @@ Key key(const surface::Vertex &v, const surface::Frame &frame) {
 
 bool visible(carving::HullView hull, std::span<const carving::Box> cuts, Point start, Point end,
              std::size_t &operations, std::size_t limit) {
-    valid(start); valid(end);
-    Visibility view{hull, start, sub(end, start), {}, operations, limit};
-    consume(operations, limit, cuts.size());
-    for (const auto &cut : cuts) {
-        Interval part{0, 1};
-        for (int axis = 0; axis < 3; ++axis) {
-            if (view.delta[axis] == 0) {
-                if (start[axis] < cut.min[axis] || start[axis] > cut.max[axis]) { part.end = -1; break; }
-            } else {
-                const auto a = (cut.min[axis]-start[axis])/view.delta[axis];
-                const auto b = (cut.max[axis]-start[axis])/view.delta[axis];
-                part.begin = std::max(part.begin, std::min(a,b));
-                part.end = std::min(part.end, std::max(a,b));
-            }
-        }
-        if (part.begin < part.end) view.openings.push_back(part);
-    }
-    consume(operations, limit, view.openings.size()*std::max<std::size_t>(1, std::bit_width(view.openings.size())));
-    std::sort(view.openings.begin(), view.openings.end(), [](auto a, auto b) { return a.begin < b.begin; });
-    std::size_t kept = 0;
-    for (auto part : view.openings) {
-        if (kept && view.openings[kept-1].end >= part.begin)
-            view.openings[kept-1].end = std::max(view.openings[kept-1].end, part.end);
-        else view.openings[kept++] = part;
-    }
-    view.openings.resize(kept);
-    return view.visit(hull.root, 0, 1);
+    std::vector<Interval> openings;
+    return visible_with_scratch(hull, cuts, start, end, operations, limit, openings);
 }
 
 Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models, Settings settings) {

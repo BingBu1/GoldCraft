@@ -63,6 +63,23 @@ int main() {
     model.cuts = cuts;
     const auto opened = lighting::prepare(source,{&model,1});
     assert(at_origin(opened) == origin && opened.occluded == 0);
+    // Light-only compaction must retain sub-epsilon solid gaps. Duplicated
+    // adjacent cuts may coalesce, but may not change any sample coefficient.
+    std::vector<carving::Box> duplicate(cuts.begin(), cuts.end());
+    duplicate.insert(duplicate.end(), cuts.begin(), cuts.end());
+    model.cuts = duplicate;
+    const auto compacted = lighting::prepare(source,{&model,1});
+    assert(compacted.values == opened.values && compacted.vertices == opened.vertices &&
+           *compacted.mesh == *opened.mesh && compacted.rays == opened.rays && compacted.occluded == opened.occluded);
+    duplicate.resize(2);
+    duplicate[1].min[0] = 16.000000002;
+    model.cuts = duplicate;
+    const auto gap = lighting::prepare(source,{&model,1});
+    assert(gap.values.empty() && gap.occluded == gap.rays);
+    rejected([&] {
+        auto limited = lighting::Settings{}; limited.mesh.operations = 8;
+        (void)lighting::prepare(source,{&model,1},limited);
+    });
     model.cuts = {};
     assert(lighting::prepare(source,{&model,1}).values.empty());
     // Occluded red must not leak, and visible green must not renormalize away
