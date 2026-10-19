@@ -182,8 +182,13 @@ Prepared prepare(std::shared_ptr<const Mesh> original, std::span<const Selection
     }
     if (cuts.empty())
         return {original, 0, 0, work.operations};
-    auto next = std::make_shared<Mesh>(*original);
-    next->indices.clear();
+    auto next = std::make_shared<Mesh>();
+    next->vertices = original->vertices;
+    next->frames = original->frames;
+    next->instances = original->instances;
+    next->faces = original->faces;
+    // clip_range rewrites every index range; do not copy the discarded indices.
+    next->indices.reserve(original->indices.size());
     std::vector<carving::Box> boxes;
     boxes.reserve(cuts.size());
     for(const auto& cut:cuts) boxes.push_back(cut.box);
