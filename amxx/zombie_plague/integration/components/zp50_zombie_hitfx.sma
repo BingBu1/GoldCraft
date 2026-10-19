@@ -1,3 +1,4 @@
+// Implementation included by zp50_zombie_gore.sma, not a standalone plugin.
 // Ham wraps the complete virtual call, including ReAPI HC_BREAK/HC_BYPASS.
 // ReAPI's own post stage can be skipped, so it cannot own this paired scope.
 enum _:TraceScope { TraceVictim, TraceLife, TraceHandle };

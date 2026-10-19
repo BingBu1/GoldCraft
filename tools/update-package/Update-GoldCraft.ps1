@@ -71,6 +71,27 @@ function Find-OldCore([string]$ModsRelative) {
         } finally {$archive.Dispose()}
     }
 }
+function Update-ZombieRuleCvars {
+    $names=@('zombie_armor','zombie_respawn_delay','human_respawn_delay',
+        'zombie_headshot_extra_knockback','zombie_blood','zombie_gib_damage')
+    $paths=@('cs/cstrike/server.cfg','cs/cstrike/autoexec.cfg')
+    foreach($directory in @('cs/cstrike/addons/amxmodx/configs','cs/cstrike/maps')) {
+        $base=Join-CheckedPath $script:target $directory
+        if(Test-Path -LiteralPath $base) {
+            $paths+=@(Get-ChildItem -LiteralPath $base -Filter '*.cfg' -File -Recurse |
+                ForEach-Object {$_.FullName.Substring($script:target.Length+1).Replace('\','/')})
+        }
+    }
+    foreach($relative in $paths | Sort-Object -Unique) {
+        $path=Join-CheckedPath $script:target $relative
+        $prior=if($script:changes.ContainsKey($relative)){[Text.Encoding]::UTF8.GetString($script:changes[$relative])}else{Read-TextOrEmpty $path}
+        $updated=$prior
+        foreach($name in $names) {
+            $updated=[regex]::Replace($updated,'(?mi)^([ \t]*)mc_'+$name+'(?=[ \t]|$)','${1}zp_'+$name)
+        }
+        if($updated -cne $prior){Add-TextChange $relative $updated}
+    }
+}
 function Enable-ServerPlugins {
     $relative='cs/cstrike/addons/amxmodx/configs'
     $directory=Join-CheckedPath $script:target $relative
@@ -127,6 +148,7 @@ function Enable-ServerPlugins {
     $path='cs/cstrike/server.cfg';$prior=Read-TextOrEmpty (Join-CheckedPath $script:target $path)
     $kept=@($prior -split '\r?\n' | Where-Object {$_ -notmatch '^\s*(mc_map_mining|mc_round_clear_blocks|mc_death_drop_items)\s+'})
     Add-TextChange $path (($kept -join "`r`n").TrimEnd()+"`r`nmc_map_mining 2`r`nmc_round_clear_blocks 1`r`nmc_death_drop_items 0`r`n")
+    Update-ZombieRuleCvars
 }
 
 try {

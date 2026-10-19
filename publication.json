@@ -472,8 +472,8 @@
     "amxx/zombie_plague/integration/configs/plugins-zp50-zombie-knockback.ini",
     "amxx/zombie_plague/integration/configs/plugins-zp50-zombie-gore.ini",
     "amxx/zombie_plague/integration/zp50_zombie_gore.sma",
-    "amxx/zombie_plague/integration/include/zp50_zombie_hitfx.inc",
-    "amxx/zombie_plague/integration/include/zp50_zombie_injury.inc",
+    "amxx/zombie_plague/integration/components/zp50_zombie_hitfx.sma",
+    "amxx/zombie_plague/integration/components/zp50_zombie_injury.sma",
     "amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-gore.ini",
     "tools/Exercise-ZombieGore.py",
     "tools/Build-InfectionSprite.ps1"

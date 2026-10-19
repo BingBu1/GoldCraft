@@ -51,3 +51,5 @@ python tools/update-package/test_update.py --packages server-packages/new-update
 本轮开发候选增加 `zp50_zombie_gore`、模式复活限制、感染☣资源及 CS 禁食物回血。独立 ZP 玩法插件已改为 `zp50_`，更新器会禁用旧 `goldcraft_zombie_*` 别名并只启用新名一次，保留服主其他配置。完整累计包只允许从实际已部署且 hash 一致的候选生成；本轮 DLL/JAR 已本地部署；新增感染资源及其预缓存插件已暂存，主服下次换图加载，当前地图未被重置。
 
 感染图标在服务端的路径为 `cs/cstrike/sprites/zp_infection.spr`（普通CS目录为 `cstrike/sprites/zp_infection.spr`），配套 `zp50_effects_infect.amxx` 在换图时使用 `precache_generic` 加入下载清单，不额外占用模型编号。内置HTTP自动从清单提供该文件；外部FastDL站需同步同一相对路径。只放SPR而不更新/重载插件不会自动加入清单；只更新服务端不能替代玩家新版GoldCraft.dll。真实隔离专服HTTP完整/Range下载内容一致，普通玩家首次下载/画面及公网仍待验收。
+
+独立ZP参数已改为 `zp_zombie_armor`、`zp_zombie_respawn_delay`、`zp_human_respawn_delay`、`zp_zombie_headshot_extra_knockback`、`zp_zombie_blood`、`zp_zombie_gib_damage`。更新器迁移server/autoexec及AMXX/地图cfg中的这六项旧名，保留值、顺序、注释；MC专属伤害倍率等不变。手动覆盖者请同步改名配置。

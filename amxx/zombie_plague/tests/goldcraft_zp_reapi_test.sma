@@ -261,8 +261,8 @@ public TestZombieArmor()
     if (!get_pcvar_num(gEnabled) || !is_user_alive(gPlayer[0])) return PLUGIN_HANDLED;
     // This phase explicitly exercises immediate native respawn for armor.
     // Countdown ownership is verified separately by the timed phase below.
-    set_cvar_num("mc_zombie_respawn_delay", 0);
-    set_cvar_num("mc_human_respawn_delay", 0);
+    set_cvar_num("zp_zombie_respawn_delay", 0);
+    set_cvar_num("zp_human_respawn_delay", 0);
     new z = gPlayer[0], h = gPlayer[1];
     set_cvar_num("zp_spawn_protection_time", 0);
     set_cvar_num("zp_zombie_strip_armor", 1);
@@ -270,7 +270,7 @@ public TestZombieArmor()
     if (zp_gamemodes_get_current() < 0)
         zp_gamemodes_start(zp_gamemodes_get_id("Infection Mode"), z);
     Check("armor_fixture_infection_mode_active", zp_gamemodes_get_current() == zp_gamemodes_get_id("Infection Mode"));
-    Check("zombie_armor_default_2000", get_cvar_num("mc_zombie_armor") == 2000);
+    Check("zombie_armor_default_2000", get_cvar_num("zp_zombie_armor") == 2000);
     for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
     zp_core_force_infect(z);
     Check("infection_grants_vest_and_helmet", Float:get_entvar(z, var_armorvalue) == 2000.0 && get_member(z, m_iKevlar) == ARMOR_VESTHELM);
@@ -293,18 +293,18 @@ public TestZombieArmor()
     zp_core_force_cure(h);
     Check("cure_clears_zombie_grant_preserves_human_default", !zp_core_is_zombie(h) && Float:get_entvar(h, var_armorvalue) == 65.0);
     set_cvar_num("zp_human_armor_default", 0);
-    set_cvar_num("mc_zombie_armor", 0);
+    set_cvar_num("zp_zombie_armor", 0);
     zp_core_force_infect(h);
     Check("disabled_grant_keeps_no_armor", Float:get_entvar(h, var_armorvalue) == 0.0 && get_member(h, m_iKevlar) == ARMOR_NONE);
-    set_cvar_num("mc_zombie_armor", 2000);
+    set_cvar_num("zp_zombie_armor", 2000);
     zp_core_respawn_as_zombie(h, true);
     ExecuteHamB(Ham_Killed, h, z, GIB_NEVER);
     rg_round_respawn(h);
     Check("zombie_respawn_grants_helmet_armor", is_user_alive(h) && zp_core_is_zombie(h) && Float:get_entvar(h, var_armorvalue) == 2000.0 && get_member(h, m_iKevlar) == ARMOR_VESTHELM);
     zp_class_nemesis_set(z);
     Check("nemesis_also_receives_helmet_armor", zp_class_nemesis_get(z) && Float:get_entvar(z, var_armorvalue) == 2000.0 && get_member(z, m_iKevlar) == ARMOR_VESTHELM);
-    set_cvar_num("mc_zombie_respawn_delay", 3);
-    set_cvar_num("mc_human_respawn_delay", 3);
+    set_cvar_num("zp_zombie_respawn_delay", 3);
+    set_cvar_num("zp_human_respawn_delay", 3);
     return Summary();
 }
 
@@ -314,7 +314,7 @@ public BeginZombieRespawn()
     for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
     zp_core_force_infect(gPlayer[0]);
     zp_core_force_infect(gPlayer[2]);
-    Check("respawn_delays_default_three", get_cvar_num("mc_zombie_respawn_delay") == 3 && get_cvar_num("mc_human_respawn_delay") == 3);
+    Check("respawn_delays_default_three", get_cvar_num("zp_zombie_respawn_delay") == 3 && get_cvar_num("zp_human_respawn_delay") == 3);
     // Stock deathmatch would revive both as humans before our three seconds.
     set_cvar_num("zp_deathmatch", 1);
     set_cvar_float("zp_respawn_delay", 0.3);
@@ -385,10 +385,10 @@ public TestHeadKnockback()
     set_cvar_num("zp_knockback_obey_class", 0);
     set_cvar_num("zp_knockback_power", 0);
     set_cvar_num("zp_knockback_damage", 1);
-    Check("headshot_extra_disabled_by_default", get_cvar_num("mc_zombie_headshot_extra_knockback") == 0);
+    Check("headshot_extra_disabled_by_default", get_cvar_num("zp_zombie_headshot_extra_knockback") == 0);
     new Float:speeds[4], Float:loss[4], Float:velocity[3];
     for (new n = 0; n < 4; n++) {
-        set_cvar_num("mc_zombie_headshot_extra_knockback", n % 2);
+        set_cvar_num("zp_zombie_headshot_extra_knockback", n % 2);
         set_entvar(z, var_velocity, Float:{0.0, 0.0, 0.0});
         set_entvar(z, var_health, 10000.0);
         rg_set_user_armor(z, 2000, ARMOR_VESTHELM);
@@ -401,7 +401,7 @@ public TestHeadKnockback()
     Check("headshot_damage_unchanged", loss[0] > 0.0 && floatabs(loss[0] - loss[1]) < 0.01);
     Check("chest_knockback_unchanged", floatabs(speeds[2] - speeds[3]) < 0.01);
     server_print("[GC ZP ReAPI] headImpulseOff=%.2f on=%.2f chestOff=%.2f on=%.2f", speeds[0], speeds[1], speeds[2], speeds[3]);
-    set_cvar_num("mc_zombie_headshot_extra_knockback", 0);
+    set_cvar_num("zp_zombie_headshot_extra_knockback", 0);
     return Summary();
 }
 

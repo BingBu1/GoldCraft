@@ -14,11 +14,11 @@ new bool:gRestarting;
 
 public plugin_init()
 {
-    register_plugin("Zombie Plague Respawn", "1.1.0", "GoldCraft contributors");
+    register_plugin("Zombie Plague Respawn", "1.1.1", "GoldCraft contributors");
     register_dictionary("zp50_zombie_respawn.txt");
-    gZombieDelay = create_cvar("mc_zombie_respawn_delay", "3", FCVAR_NONE,
+    gZombieDelay = create_cvar("zp_zombie_respawn_delay", "3", FCVAR_NONE,
         "Seconds before a dead zombie respawns; 0 disables", true, 0.0, true, 60.0);
-    gHumanDelay = create_cvar("mc_human_respawn_delay", "3", FCVAR_NONE,
+    gHumanDelay = create_cvar("zp_human_respawn_delay", "3", FCVAR_NONE,
         "Seconds before a dead human respawns as a zombie; 0 disables", true, 0.0, true, 60.0);
     RegisterHookChain(RG_CBasePlayer_Killed, "PlayerKilledPost", true);
     RegisterHookChain(RG_CBasePlayer_Spawn, "PlayerSpawnPost", true);

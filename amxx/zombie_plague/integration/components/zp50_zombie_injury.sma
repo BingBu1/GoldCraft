@@ -1,3 +1,4 @@
+// Implementation included by zp50_zombie_gore.sma, not a standalone plugin.
 enum _:InjuryScope {
     InjuryVictim, InjuryLife, InjuryUser,
     Float:InjuryHealth, Float:InjuryArmor, Float:InjuryNested

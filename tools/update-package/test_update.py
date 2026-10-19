@@ -67,7 +67,8 @@ def main():
         for path, data in {
             'Start.cmd': '@echo off\n', 'cs/hlds.exe': b'fixture',
             'server-settings.json': '{"csPort":27015,"csPublicPort":46344,"minecraftPort":25565}',
-            'cs/cstrike/server.cfg': 'hostname "private"\nrcon_password "fixture-only-value"\nmc_map_mining 1\nmc_round_clear_blocks 0\nmc_death_drop_items 1\n',
+            'cs/cstrike/server.cfg': 'hostname "private"\nrcon_password "fixture-only-value"\nmc_map_mining 1\nmc_round_clear_blocks 0\nmc_death_drop_items 1\nmc_zombie_armor "3456" // owner armor\nmc_zombie_damage_multiplier 7\n',
+            'cs/cstrike/addons/amxmodx/configs/owner-zombies.cfg': '// mc_zombie_blood 1 is a comment\nmc_zombie_blood 0\nmc_zombie_gib_damage 750\nmc_zombie_respawn_delay 8\nmc_human_respawn_delay 9\nmc_zombie_headshot_extra_knockback 1\n',
             'cs/cstrike/addons/amxmodx/configs/users.ini': '; private administrator data',
             'cs/cstrike/addons/amxmodx/configs/plugins.ini': 'custom.amxx\ngoldcraft.amxx disabled\ngoldcraft.amxx\n',
             'cs/cstrike/addons/amxmodx/configs/plugins-existing.ini': 'goldcraft_controls.amxx\ngoldcraft_controls.amxx\ngoldcraft_zombie_armor.amxx\ngoldcraft_zombie_armor.amxx\ngoldcraft_zombie_respawn.amxx disabled\n',
@@ -109,6 +110,10 @@ def main():
     assert 'rcon_password "fixture-only-value"' in cfg and 'hostname "private"' in cfg
     assert all(cfg.count(line) == 1 for line in ['mc_map_mining 2', 'mc_round_clear_blocks 1', 'mc_death_drop_items 0'])
     assert 'mc_map_mining 1' not in cfg
+    assert 'zp_zombie_armor "3456" // owner armor' in cfg and 'mc_zombie_damage_multiplier 7' in cfg
+    rules = (server / 'cs/cstrike/addons/amxmodx/configs/owner-zombies.cfg').read_text()
+    assert rules == '// mc_zombie_blood 1 is a comment\nzp_zombie_blood 0\nzp_zombie_gib_damage 750\nzp_zombie_respawn_delay 8\nzp_human_respawn_delay 9\nzp_zombie_headshot_extra_knockback 1\n'
+    reports.append('Independent ZP cvars renamed while preserving owner values/comments and MC-specific combat multiplier')
     listings = [server / 'cs/cstrike/addons/amxmodx/configs/plugins.ini', *sorted((server / 'cs/cstrike/addons/amxmodx/configs').glob('plugins-*.ini'))]
     active = [line.split(';')[0].strip() for p in listings for line in p.read_text().splitlines()]
     required = json.loads((packages['server'] / 'update-manifest.json').read_text())['requiredPlugins']

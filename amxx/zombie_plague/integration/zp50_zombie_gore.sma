@@ -8,8 +8,8 @@ new gBlood, gGibDamage, gGibModel;
 new gLife[MAX_PLAYERS + 1];
 new Float:gGibRemainder[MAX_PLAYERS + 1];
 
-#include "include/zp50_zombie_hitfx.inc"
-#include "include/zp50_zombie_injury.inc"
+#include "components/zp50_zombie_hitfx.sma"
+#include "components/zp50_zombie_injury.sma"
 
 public plugin_precache()
 {
@@ -18,10 +18,10 @@ public plugin_precache()
 
 public plugin_init()
 {
-    register_plugin("Zombie Plague Gore", "1.0.0", "GoldCraft contributors");
-    gBlood = create_cvar("mc_zombie_blood", "1", FCVAR_NONE,
+    register_plugin("Zombie Plague Gore", "1.0.1", "GoldCraft contributors");
+    gBlood = create_cvar("zp_zombie_blood", "1", FCVAR_NONE,
         "Blood stream on confirmed zombie injury", true, 0.0, true, 1.0);
-    gGibDamage = create_cvar("mc_zombie_gib_damage", "1000", FCVAR_NONE,
+    gGibDamage = create_cvar("zp_zombie_gib_damage", "1000", FCVAR_NONE,
         "Actual health lost per random flesh gib; 0 disables", true, 0.0, true, 1000000.0);
     InitZombieHitEffects();
     InitZombieInjury();
