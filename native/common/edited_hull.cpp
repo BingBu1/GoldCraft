@@ -164,10 +164,10 @@ EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::s
     const auto budget = [&] { return Limits{limits.fragments, limits.operations - operations_}; };
     const auto volumes = carve_volumes(point_hull, region, cuts, budget());
     operations_ += volumes.original.operations + volumes.remaining.operations;
-    original_ = expand_volume(volumes.original, body, budget());
-    operations_ += original_.operations;
-    remaining_ = expand_volume(volumes.remaining, body, budget());
-    operations_ += remaining_.operations;
+    auto expanded = expand_volumes(volumes, body, budget());
+    operations_ += expanded.original.operations + expanded.remaining.operations;
+    original_ = std::move(expanded.original);
+    remaining_ = std::move(expanded.remaining);
     original_index_ = index_volume(original_, budget());
     operations_ += original_index_.operations;
     remaining_index_ = index_volume(remaining_, budget());

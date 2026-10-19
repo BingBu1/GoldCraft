@@ -29,7 +29,7 @@ class CarvedMapTest {
         var empty=new BspMap.Hull(new BspMap.Plane[0],new BspMap.Node[0],-1);
         var water=new BspMap.Hull(new BspMap.Plane[0],new BspMap.Node[0],-3);
         for(var hull:List.of(solid,empty,water,slope)) {
-            for(var boxes:List.of(List.<Box>of(),cuts,List.of(region))) {
+            for(var boxes:List.of(List.<Box>of(),cuts,List.of(region),List.of(cuts.getLast()))) {
                 var oldWork=new Work(4_194_304,4096);oldWork.use(17);
                 var original=carve(hull,region,List.of(),oldWork);
                 var remaining=carve(hull,region,boxes,oldWork);
@@ -44,11 +44,40 @@ class CarvedMapTest {
                 var body=new Box(new P(-1,-1,-2),new P(1,1,2));
                 var expected=expand(remaining,body,new Work(4_194_304,4096));
                 assertEquals(expected,expand(pair.remaining(),body,new Work(4_194_304,4096)));
+                var separateWork=new Work(4_194_304,4096);
+                var expectedOriginal=expand(original,body,separateWork);
+                var expectedRemaining=expand(remaining,body,separateWork);
+                var pairedWork=new Work(Math.max(1,separateWork.used),4096);
+                var expanded=expandPair(pair,body,pairedWork);
+                assertEquals(expectedOriginal,expanded.original());assertEquals(expectedRemaining,expanded.remaining());
+                assertEquals(separateWork.used,pairedWork.used);
+                if(separateWork.used>1)assertThrows(IllegalArgumentException.class,
+                    ()->expandPair(pair,body,new Work(separateWork.used-1,4096)));
                 expand(pair.original(),body,new Work(4_194_304,4096));
                 assertEquals(original,pair.original());assertEquals(remaining,pair.remaining());
             }
         }
         assertThrows(IllegalArgumentException.class,()->carvePair(solid,region,cuts,new Work(4_194_304,1)));
+        var partitions=new BspMap.Hull(
+            new BspMap.Plane[]{new BspMap.Plane(v(1,0,0),-2,0),new BspMap.Plane(v(1,0,0),2,0)},
+            new BspMap.Node[]{new BspMap.Node(0,1,-2),new BspMap.Node(1,-2,-2)},0);
+        var left=new Box(new P(-3.5,-1,-1),new P(-2.5,1,1));
+        var mixed=carvePair(partitions,region,List.of(left),new Work(4_194_304,4096));
+        var body=new Box(new P(-1,-2,-3),new P(2,1,4));
+        var expanded=expandPair(mixed,body,new Work(4_194_304,4096));
+        assertEquals(3,mixed.original().size());
+        int shared=0;
+        for(int i=0;i<mixed.remaining().size();i++)for(int j=0;j<mixed.original().size();j++) {
+            if(mixed.remaining().get(i)==mixed.original().get(j)) {
+                assertSame(expanded.original().get(j),expanded.remaining().get(i));shared++;
+            }
+        }
+        assertEquals(2,shared);
+        assertEquals(expand(mixed.remaining(),body,new Work(4_194_304,4096)),expanded.remaining());
+        assertThrows(UnsupportedOperationException.class,()->expanded.original().getFirst().planes().clear());
+        var otherBody=new Box(ZERO,ZERO);
+        assertEquals(expand(mixed.remaining(),otherBody,new Work(4_194_304,4096)),
+            expandPair(mixed,otherBody,new Work(4_194_304,4096)).remaining());
     }
 
     private static final MapEdits.Target WORLD=new MapEdits.Target(0,0,0);

@@ -20,6 +20,9 @@ struct Volume {
 Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits limits = {4096, 4'194'304});
 struct VolumePair {
     Volume original, remaining;
+    // Source cell ordinals are reuse hints, never authority. Expansion checks
+    // exact geometry again because this public value type remains mutable.
+    std::vector<std::size_t> remaining_sources;
 };
 // One validated BSP decomposition feeds both uncut and cut geometry. The work
 // limit covers both results, retaining the charges of two independent builds.
@@ -47,12 +50,19 @@ struct CollisionVolume {
     std::vector<CollisionCell> cells;
     std::size_t operations = 0;
 };
+struct CollisionVolumePair {
+    CollisionVolume original, remaining;
+};
 // Convex-cell Minkowski sum with the reflected axis-aligned body. Original
 // face planes alone are insufficient: axes and edge/axis bevels are included.
 // Supply the volume produced by carve_volume, with its closed convex cells intact.
 // Point bodies are allowed. This does not recover clip-only map brushes and
 // must not replace an unedited native hull with the point BSP's geometry.
 CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits = {4096, 4'194'304});
+// Reuse identical source cells only within this pair and body. Both results
+// own their planes; the combined limit retains independent expansion charges.
+CollisionVolumePair expand_volumes(const VolumePair &volumes, Box body,
+                                   Limits limits = {4096, 4'194'304});
 bool contains(const CollisionVolume &volume, Point point);
 // Explicit index ownership leaves the ordinary mutable CollisionVolume API
 // unchanged. These overloads require the indexed bounds/cell order unchanged.

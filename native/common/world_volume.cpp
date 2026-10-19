@@ -1,6 +1,7 @@
 #include "goldcraft/world_volume.hpp"
 #include "goldcraft/cut_index.hpp"
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -357,8 +358,13 @@ void validate_cuts(std::span<const Box> cuts, Work& work) {
         work.use();
     }
 }
-Volume subtract_collected(Volume result, std::span<const Box> cuts, Work& work) {
+Volume subtract_collected(Volume result, std::span<const Box> cuts, Work& work,
+                          std::vector<std::size_t>* sources = nullptr) {
     if (cuts.empty()) {
+        if (sources) {
+            sources->resize(result.cells.size());
+            std::iota(sources->begin(), sources->end(), std::size_t{0});
+        }
         result.operations = work.operations;
         return result;
     }
@@ -370,7 +376,8 @@ Volume subtract_collected(Volume result, std::span<const Box> cuts, Work& work) 
     auto source = std::move(result.cells);
     std::vector<std::size_t> candidates;
     std::vector<Cell> pieces, next;
-    for (auto &cell : source) {
+    for (std::size_t ordinal = 0; ordinal < source.size(); ++ordinal) {
+        auto &cell = source[ordinal];
         for (const auto &face : cell.faces) work.use(face.vertices.size());
         index.query(bounds(cell), candidates, [&](auto n) { work.use(n); });
         pieces.clear();
@@ -384,7 +391,11 @@ Volume subtract_collected(Volume result, std::span<const Box> cuts, Work& work) 
             pieces.swap(next);
             if (pieces.empty()) break;
         }
-        for (auto &piece : pieces) work.cell(result.cells, std::move(piece));
+        for (auto &piece : pieces) {
+            const auto before = result.cells.size();
+            work.cell(result.cells, std::move(piece));
+            if (sources && result.cells.size() != before) sources->push_back(ordinal);
+        }
     }
     result.operations = work.operations;
     return result;
@@ -415,11 +426,36 @@ VolumePair carve_volumes(HullView hull, Box region, std::span<const Box> cuts, L
     // clipping. The exact original cell/face/vertex order survives the copy.
     work.use(pair.original.operations);
     validate_cuts(cuts, work);
-    pair.remaining = subtract_collected(pair.original, cuts, work);
+    pair.remaining = subtract_collected(pair.original, cuts, work, &pair.remaining_sources);
     return pair;
 }
 
-CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits) {
+namespace {
+bool identical(const Cell &a, const Cell &b) {
+    const auto scalar = [](double x, double y) {
+        return std::bit_cast<std::uint64_t>(x) == std::bit_cast<std::uint64_t>(y);
+    };
+    const auto point = [&](const Point &x, const Point &y) {
+        for (int axis = 0; axis < 3; ++axis) if (!scalar(x[axis], y[axis])) return false;
+        return true;
+    };
+    if (a.faces.size() != b.faces.size()) return false;
+    for (std::size_t i = 0; i < a.faces.size(); ++i) {
+        const auto &x = a.faces[i], &y = b.faces[i];
+        if (!point(x.plane.normal, y.plane.normal) || !scalar(x.plane.distance, y.plane.distance) ||
+            x.vertices.size() != y.vertices.size()) return false;
+        for (std::size_t j = 0; j < x.vertices.size(); ++j)
+            if (!point(x.vertices[j], y.vertices[j])) return false;
+    }
+    return true;
+}
+struct ExpansionReuse {
+    const VolumePair &volumes;
+    const CollisionVolume &expanded;
+    std::span<const std::size_t> charges;
+};
+CollisionVolume expand_cells(const Volume &volume, Box body, Limits limits,
+                             std::vector<std::size_t>* charges, const ExpansionReuse* reuse) {
     validate(body, true);
     validate(volume.region);
     if (!limits.operations || !limits.fragments)
@@ -428,7 +464,18 @@ CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits) {
         throw std::length_error("Carved collision cell budget");
     Work work{limits};
     CollisionVolume result;
-    for (const auto &cell : volume.cells) {
+    for (std::size_t ordinal = 0; ordinal < volume.cells.size(); ++ordinal) {
+        const auto &cell = volume.cells[ordinal];
+        const auto before = work.operations;
+        if (reuse && reuse->volumes.remaining_sources.size() == volume.cells.size()) {
+            const auto source = reuse->volumes.remaining_sources[ordinal];
+            if (source < reuse->expanded.cells.size() &&
+                identical(cell, reuse->volumes.original.cells[source])) {
+                work.use(reuse->charges[source]);
+                result.cells.push_back(reuse->expanded.cells[source]);
+                continue;
+            }
+        }
         if (cell.faces.size() < 4)
             throw std::invalid_argument("Incomplete convex cell");
         for (const auto &face : cell.faces) {
@@ -489,8 +536,22 @@ CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits) {
         if (result.cells.size() >= limits.fragments)
             throw std::length_error("Carved collision cell budget");
         result.cells.push_back(std::move(expanded));
+        if (charges) charges->push_back(work.operations - before);
     }
     result.operations = work.operations;
+    return result;
+}
+} // namespace
+CollisionVolume expand_volume(const Volume &volume, Box body, Limits limits) {
+    return expand_cells(volume, body, limits, nullptr, nullptr);
+}
+CollisionVolumePair expand_volumes(const VolumePair &volumes, Box body, Limits limits) {
+    CollisionVolumePair result;
+    std::vector<std::size_t> charges;
+    result.original = expand_cells(volumes.original, body, limits, &charges, nullptr);
+    const ExpansionReuse reuse{volumes, result.original, charges};
+    result.remaining = expand_cells(volumes.remaining, body,
+        {limits.fragments, limits.operations - result.original.operations}, nullptr, &reuse);
     return result;
 }
 bool contains(const CollisionVolume &volume, Point point) {

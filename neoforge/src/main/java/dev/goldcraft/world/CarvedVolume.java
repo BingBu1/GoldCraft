@@ -3,6 +3,7 @@ package dev.goldcraft.world;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /** Double-precision counterpart of native world_volume/edited_hull geometry.
@@ -202,8 +203,29 @@ final class CarvedVolume {
         planes.add(new Plane(normal,distance));
     }
     static List<CollisionCell> expand(List<Cell> cells,Box body,Work work) {
+        return expandCells(cells,body,work,null,false);
+    }
+    record CollisionPair(List<CollisionCell> original,List<CollisionCell> remaining) {}
+    private record ExpandedCell(CollisionCell shape,long operations) {}
+    static CollisionPair expandPair(VolumePair volumes,Box body,Work work) {
+        // The cells are local read-only geometry. Identity is sufficient and
+        // avoids structural hashing; the cache never survives this one body.
+        var cache=new IdentityHashMap<Cell,ExpandedCell>();
+        var original=expandCells(volumes.original,body,work,cache,true);
+        var remaining=expandCells(volumes.remaining,body,work,cache,false);
+        return new CollisionPair(original,remaining);
+    }
+    private static List<CollisionCell> expandCells(List<Cell> cells,Box body,Work work,
+                                                  IdentityHashMap<Cell,ExpandedCell> cache,boolean remember) {
         var result=new ArrayList<CollisionCell>();
         for(var cell:cells) {
+            var cached=cache!=null&&!remember?cache.get(cell):null;
+            if(cached!=null) {
+                work.use(cached.operations);
+                if(result.size()>=work.capacity)throw new IllegalArgumentException("Carved collision cell budget");
+                result.add(cached.shape);continue;
+            }
+            long before=work.used;
             if(cell.faces.size()<4)throw new IllegalArgumentException("Incomplete carved convex cell");
             var original=bounds(cell);var box=new Box(original.min.sub(body.max),original.max.sub(body.min));
             var points=new ArrayList<P>();var planes=new ArrayList<Plane>();
@@ -221,7 +243,9 @@ final class CarvedVolume {
                 }
             }
             if(result.size()>=work.capacity)throw new IllegalArgumentException("Carved collision cell budget");
-            result.add(new CollisionCell(box,List.copyOf(planes)));
+            var expanded=new CollisionCell(box,List.copyOf(planes));
+            result.add(expanded);
+            if(remember)cache.put(cell,new ExpandedCell(expanded,work.used-before));
         }
         return List.copyOf(result);
     }

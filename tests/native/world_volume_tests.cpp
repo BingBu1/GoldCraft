@@ -86,6 +86,17 @@ void same_volume(const Volume &a, const Volume &b) {
     }
 }
 
+void same_collision(const CollisionVolume &a, const CollisionVolume &b) {
+    assert(a.operations == b.operations && a.cells.size() == b.cells.size());
+    for (std::size_t i = 0; i < a.cells.size(); ++i) {
+        const auto &x = a.cells[i], &y = b.cells[i];
+        assert(x.bounds.min == y.bounds.min && x.bounds.max == y.bounds.max);
+        assert(x.planes.size() == y.planes.size());
+        for (std::size_t j = 0; j < x.planes.size(); ++j)
+            assert(x.planes[j].normal == y.planes[j].normal && x.planes[j].distance == y.planes[j].distance);
+    }
+}
+
 void paired_decomposition() {
     const Box region{{-4, -4, -4}, {4, 4, 4}};
     const Box a{{-2, -2, -2}, {2, 2, 2}}, b{{0, -2, -2}, {4, 2, 2}};
@@ -95,7 +106,7 @@ void paired_decomposition() {
     const std::array<HullNode, 1> nodes{HullNode{0, {-1, -2}}};
     const HullView slope{planes, nodes, 0};
     for (auto hull : {solid, empty, water, slope}) {
-        for (const auto &boxes : {std::vector<Box>{}, cuts, std::vector<Box>{region}}) {
+        for (const auto &boxes : {std::vector<Box>{}, cuts, std::vector<Box>{region}, std::vector<Box>{cuts.back()}}) {
             const Limits limit{4096, 4'194'304};
             const auto original = carve_volume(hull, region, {}, limit);
             const auto remaining = carve_volume(hull, region, boxes,
@@ -108,6 +119,27 @@ void paired_decomposition() {
             same_volume(tight.original, original);
             same_volume(tight.remaining, remaining);
             rejects<std::length_error>([&] { carve_volumes(hull, region, boxes, {limit.fragments, used - 1}); });
+            for (auto body : {point, Box{{-1, -2, -3}, {2, 1, 4}}}) {
+                const auto old_expanded = expand_volume(original, body, limit);
+                const auto new_expanded = expand_volume(remaining, body,
+                    {limit.fragments, limit.operations - old_expanded.operations});
+                const auto expanded = expand_volumes(pair, body, limit);
+                same_collision(expanded.original, old_expanded);
+                same_collision(expanded.remaining, new_expanded);
+                const auto expansion_work = old_expanded.operations + new_expanded.operations;
+                if (expansion_work) {
+                    // The second native call requires a nonzero budget even
+                    // when all material was removed and it charges no work.
+                    const auto minimum = old_expanded.operations + std::max(std::size_t{1}, new_expanded.operations);
+                    const auto exact = expand_volumes(pair, body, {limit.fragments, minimum});
+                    same_collision(exact.original, old_expanded);
+                    same_collision(exact.remaining, new_expanded);
+                    if (new_expanded.operations)
+                        rejects<std::length_error>([&] { expand_volumes(pair, body, {limit.fragments, minimum - 1}); });
+                    else
+                        rejects<std::invalid_argument>([&] { expand_volumes(pair, body, {limit.fragments, minimum - 1}); });
+                }
+            }
         }
     }
     auto owned = carve_volumes(solid, region, cuts);
@@ -131,6 +163,29 @@ void paired_decomposition() {
     same_volume(sparse_pair.remaining, sparse_original);
     rejects<std::invalid_argument>([&] { carve_volumes(solid, region, {}, {4096, 2}); });
     rejects<std::length_error>([&] { carve_volumes(solid, region, cuts, {1, 4'194'304}); });
+
+    // Three source cells: only the left one changes. Hints must still be safe
+    // when public VolumePair values are edited or their hint vector is stale.
+    const std::array<Plane, 2> split_planes{Plane{{1, 0, 0}, -2}, Plane{{1, 0, 0}, 2}};
+    const std::array<HullNode, 2> split_nodes{HullNode{0, {1, -2}}, HullNode{1, {-2, -2}}};
+    const Box left{{-3.5, -1, -1}, {-2.5, 1, 1}};
+    auto mixed = carve_volumes({split_planes, split_nodes, 0}, region, {&left, 1});
+    assert(mixed.original.cells.size() == 3 && mixed.remaining_sources.size() == mixed.remaining.cells.size());
+    const Box body{{-1, -2, -3}, {2, 1, 4}};
+    const auto compare = [&] {
+        const auto expected = expand_volume(mixed.remaining, body);
+        const auto pair = expand_volumes(mixed, body);
+        same_collision(pair.remaining, expected);
+    };
+    compare();
+    std::ranges::reverse(mixed.remaining.cells);
+    compare(); // source hints are now out of order
+    mixed.remaining_sources.clear();
+    compare(); // absent hints fall back to independent expansion
+    auto copied = expand_volumes(carve_volumes(solid, region, {}), body);
+    const auto saved = copied.original;
+    copied.remaining.cells.front().planes.clear();
+    same_collision(copied.original, saved);
 }
 
 void conservation() {
