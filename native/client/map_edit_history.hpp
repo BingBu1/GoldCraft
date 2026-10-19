@@ -42,14 +42,19 @@ struct EditWorkHistory {
     struct Counter { std::uint64_t count{}, failed{}; double last_ms{}, max_ms{}; };
     struct Event { EditWorkIdentity identity; EditStage stage{}; double elapsed_ms{}, finished{}; bool failed{}; };
     std::array<Counter, edit_stage_names.size()> counters{};
+    std::array<Event, edit_stage_names.size()> slowest{};
     std::array<Event, capacity> events{};
     std::uint64_t event_count{};
 
     void record(EditStage stage, const EditWorkIdentity& identity, double elapsed_ms,
                 double finished, bool failed = false) noexcept {
-        auto& counter = counters[static_cast<std::size_t>(stage)];
+        const auto index = static_cast<std::size_t>(stage);
+        auto& counter = counters[index];
         ++counter.count; counter.failed += failed; counter.last_ms = elapsed_ms;
-        counter.max_ms = (std::max)(counter.max_ms, elapsed_ms);
+        if (counter.count == 1 || elapsed_ms > counter.max_ms) {
+            counter.max_ms = elapsed_ms;
+            slowest[index] = {identity, stage, elapsed_ms, finished, failed};
+        }
         // Quiet polls cannot erase a slow operation. Begin/commit delimit the
         // exact attempted revision, even when their own CPU cost is small.
         if (elapsed_ms < threshold_ms && !failed && stage != EditStage::renderer_begin &&
@@ -67,23 +72,28 @@ struct EditWorkHistory {
             if (i) out << ',';
             const auto& c = counters[i];
             out << '"' << edit_stage_names[i] << "\":{\"count\":" << c.count << ",\"failed\":" << c.failed
-                << ",\"lastMs\":" << c.last_ms << ",\"maxMs\":" << c.max_ms << '}';
+                << ",\"lastMs\":" << c.last_ms << ",\"maxMs\":" << c.max_ms << ",\"slowest\":";
+            if (c.count) write_event(out, slowest[i]); else out << "null";
+            out << '}';
         }
         out << "},\"events\":[";
         const auto count = (std::min<std::uint64_t>)(event_count, capacity);
         for (std::uint64_t i = 0; i < count; ++i) {
             if (i) out << ',';
-            const auto& e = events[(event_count - count + i) % capacity];
-            const auto& id = e.identity;
-            out << "{\"stage\":\"" << edit_stage_names[static_cast<std::size_t>(e.stage)]
-                << "\",\"attempt\":\"" << id.attempt << "\",\"epoch\":\"" << id.epoch
-                << "\",\"revision\":\"" << id.revision << "\",\"ticket\":\"" << id.ticket
-                << "\",\"cutsHash\":\"" << id.cuts_hash << "\",\"cuts\":" << id.cuts
-                << ",\"elapsedMs\":" << e.elapsed_ms << ",\"completedSteadySeconds\":" << e.finished
-                << ",\"failed\":" << (e.failed ? "true" : "false") << '}';
+            write_event(out, events[(event_count - count + i) % capacity]);
         }
         out << "]}";
         out.precision(precision);
+    }
+private:
+    static void write_event(std::ostream& out, const Event& e) {
+        const auto& id = e.identity;
+        out << "{\"stage\":\"" << edit_stage_names[static_cast<std::size_t>(e.stage)]
+            << "\",\"attempt\":\"" << id.attempt << "\",\"epoch\":\"" << id.epoch
+            << "\",\"revision\":\"" << id.revision << "\",\"ticket\":\"" << id.ticket
+            << "\",\"cutsHash\":\"" << id.cuts_hash << "\",\"cuts\":" << id.cuts
+            << ",\"elapsedMs\":" << e.elapsed_ms << ",\"completedSteadySeconds\":" << e.finished
+            << ",\"failed\":" << (e.failed ? "true" : "false") << '}';
     }
 };
 class EditWorkScope {

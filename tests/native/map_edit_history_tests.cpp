@@ -41,6 +41,15 @@ int main() {
     assert(wrapped.str().find("\"epoch\":\"18446744073709551614\"") != std::string::npos);
     assert(wrapped.str().find("\"revision\":\"9007199254740993\"") != std::string::npos);
     assert(wrapped.str().find("\"overwritten\":19") != std::string::npos);
+    // Busy mining can wrap the chronology too. The worst pause must retain
+    // its original world/revision even after newer operations replace the ring.
+    assert(wrapped.str().find("\"slowest\":{\"stage\":\"rendererPoll\",\"attempt\":\"3\",\"epoch\":\"7\",\"revision\":\"42\"") != std::string::npos);
+    assert(wrapped.str().find("\"maxMs\":0,\"slowest\":null") != std::string::npos);
+    history.record(client_map::EditStage::renderer_poll, wide, 5.0, 400000.0, true);
+    const auto poll = static_cast<std::size_t>(client_map::EditStage::renderer_poll);
+    assert(history.slowest[poll].identity.epoch == wide.epoch && history.slowest[poll].failed);
+    history.record(client_map::EditStage::renderer_poll, a, 5.0, 400001.0);
+    assert(history.slowest[poll].identity.epoch == wide.epoch);
     const auto stage = static_cast<std::size_t>(client_map::EditStage::physics_prepare);
     try {
         client_map::EditWorkScope scope(history, client_map::EditStage::physics_prepare, wide);
