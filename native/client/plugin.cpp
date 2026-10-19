@@ -2194,6 +2194,13 @@ void CreateEntities() {
     }
 }
 void DrawTransparent() { gExportfuncs.HUD_DrawTransparentTriangles(); Draw(true); }
+void ShutdownClient() {
+    // Engine shutdown still calls Steam after unloading the client DLL. Release
+    // context hooks while their IAT slots and client descriptors remain mapped.
+    steam_async::shutdown();
+    Log("Steam async hooks released before client shutdown");
+    gExportfuncs.HUD_Shutdown();
+}
 }
 
 void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
@@ -2231,6 +2238,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     Log(client_precache::install_client() ? "client media v3 installed" :
         std::string("client media unavailable: ") + client_precache::install_error());
     functions->HUD_Init=InitHud; functions->HUD_VidInit=VidInit; functions->HUD_Frame=Frame;
+    functions->HUD_Shutdown=ShutdownClient;
     functions->HUD_Redraw=Redraw;
     functions->V_CalcRefdef=CalcRefDef;
     functions->HUD_UpdateClientData=UpdateClientData;

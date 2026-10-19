@@ -201,6 +201,8 @@ void shutdown(){
     if(!state)return;
     state->state.stop_voice();state->state.stopping.store(true);SetEvent(state->cancel);
     rollback(0);avatar_hooks=voice_hooks=false;state->hooks_released.store(true);state.reset();
+    user_context=friends_context=utils_context=nullptr;
+    client_begin=client_end=0;
 }
 void diagnostics(std::ostream& out){
     out<<"{\"avatarsHooked\":"<<(avatar_hooks?"true":"false")<<",\"voiceHooked\":"<<(voice_hooks?"true":"false")

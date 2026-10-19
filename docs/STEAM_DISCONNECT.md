@@ -1,5 +1,7 @@
 # Steam 掉服调查与在线会话恢复
 
+2026-10-19退出修复：实际AV定位到Steam异步frame读取已卸载CS客户端的friends_context；清理早于ExitGame才有效。现通过HUD_Shutdown在客户端卸载前撤销上下文IAT及接口VFT钩子，停止helper并清空上下文。调试器真实关闭已走完ExitGame/Shutdown，无新AV；这是退出生命周期修复，不改变Steam认证或证明长期掉服已完全解决。证据 `build/userinfo-fields-20261019/steam-shutdown-before.dmp` 与 `steam-shutdown-after.log`。
+
 ## 2026-10-17 重装后的有限对照
 
 用户自行重装 Steam 后已正常登录。保持同一沙盒 B、DLL/helper 和原公网服务器，主调度未改认证、代理或服务器设置。三次公网只读状态保持同一玩家连接和真实 Steam 身份，末次持续 6 分 37 秒，跨过旧约两分钟掉服窗口；两辅助通道均为 AppID0/已登录，样本新鲜。原安装19575项元数据及5项内容hash保持。

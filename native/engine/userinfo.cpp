@@ -7,7 +7,7 @@ namespace {
 struct Entry { char* legacy = nullptr; goldcraft::userinfo::Storage storage; };
 std::array<Entry, 32> entries{};
 std::array<unsigned, 32> pending{};
-cvar_t capacityCvar = {"gc_userinfo_capacity", "1024", FCVAR_SERVER};
+cvar_t capacityCvar = {"gc_userinfo_capacity", "1024", FCVAR_SERVER | FCVAR_USERINFO};
 
 Entry* find(const char* buffer) {
     for (auto& entry : entries) if (entry.legacy == buffer && buffer) return &entry;
@@ -15,7 +15,13 @@ Entry* find(const char* buffer) {
 }
 }
 
-void GC_UserInfoInit() { Cvar_RegisterVariable(&capacityCvar); }
+void GC_UserInfoInit() {
+    Cvar_RegisterVariable(&capacityCvar);
+    // Registration alone does not populate the fullserverinfo string read by
+    // clients. Publish the capability before the first signon, without a live
+    // broadcast during engine initialization.
+    Info_SetValueForKey(Info_Serverinfo(), capacityCvar.name, capacityCvar.string, MAX_INFO_STRING);
+}
 void GC_UserInfoForget(char* legacy) {
     if (auto* entry = find(legacy)) *entry = {};
     for (int i = 0; i < g_psvs.maxclients && i < 32; ++i) if (g_psvs.clients[i].userinfo == legacy) {

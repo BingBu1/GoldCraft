@@ -1161,7 +1161,7 @@ index ceffd0d..fb4b7db 100644
  void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
  void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..01a9038 100644
+index dfd68c2..6be7706 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
 @@ -27,6 +27,16 @@
@@ -1758,6 +1758,24 @@ index dfd68c2..01a9038 100644
  }
  
  void SV_ClearCaches(void)
+@@ -6022,7 +6054,7 @@ void SV_BroadcastCommand(char *fmt, ...)
+ {
+ 	va_list argptr;
+ 	char string[1024];
+-	char data[128];
++	char data[sizeof(string) + 1]; // command including NUL, plus svc_stufftext
+ 	sizebuf_t msg;
+ 
+ 	if (!g_psv.active)
+@@ -6046,7 +6078,7 @@ void SV_BroadcastCommand(char *fmt, ...)
+ 	for (int i = 0; i < g_psvs.maxclients; ++i)
+ 	{
+ 		client_t *cl = &g_psvs.clients[i];
+-		if (cl->active || cl->connected || (cl->spawned && !cl->fakeclient))
++		if (!cl->fakeclient && (cl->active || cl->connected || cl->spawned))
+ 		{
+ 			SZ_Write(&cl->netchan.message, msg.data, msg.cursize);
+ 		}
 @@ -6182,13 +6214,14 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
  
  void PrecacheModelSpecifiedFiles()

@@ -1,5 +1,9 @@
 # 本地联合实机测试
 
+2026-10-19 实机修正：客户端Steam异步模块在引擎卸载CS客户端后读取好友接口描述符，已在HUD_Shutdown原回调前解除钩子并清空上下文，真实调试关闭无AV。服务端首次实机发现FCVAR_SERVER并不写fullserverinfo，已在初始化显式公告容量；现场补公告另暴露旧SV_BroadcastCommand把命令写入Bot未初始化netchan，现跳过Bot并按格式化命令上限分配临时缓冲。新端实际978字节/130测试字段全部到服，126条补发清空、拒绝0，933资源及MC配对正常；同一广播在25角色在线时复验RCON持续响应。证据build/userinfo-fields-20261019；用户确认MC已重新进入；最后一次状态显示MC形态／输入控制有效、HUD3385帧／相机3374帧、25 actor、GL0，普通退出码0且130测试字段已删除，完整goal active。
+
+下列分步记录为此前状态；最新运行以上述记录为准。
+
 2026-10-19分步更新：CS B已退出时，仅更新GoldCraft DLL与两份匹配元数据，并启动接回当前本地服；CS服及两个MC JVM保持。实际precache v3／933资源、1024客户端存储、MC配对及GL0通过，地图编号保持，25个actor中除本次人类配对外有24个其他actor。欢迎页仍打开，尚未选队，不将此记录为玩法通过。原安装19589项元数据／五项hash保持。服务器扩容仍待既有重启时机答复；其剩余两文件计划在`build/userinfo-fields-20261019/deploy-server.py`，本次连接证据为同目录`client-live-compatibility.json`。
 
 2026-10-19退出问题补记：当前已部署批次退出码为`0xC0000005`，Windows记录指向已卸载的`hw.dll`；末尾已有`ExitGame`日志。源码核对发现`Shutdown`在引擎卸载后重复调用Cvar清理，已将引擎相关清理全部留在卸载前，并修正扩容候选的补丁恢复时机。新的累计候选仍未部署；下一次联合测试须包含正常退出。证据`build/userinfo-20261019/shutdown-evidence.json`。
