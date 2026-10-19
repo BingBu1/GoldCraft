@@ -21,6 +21,7 @@
 #include "goldcraft/status_melee.hpp"
 #include "goldcraft/native_impulse.hpp"
 #include "goldcraft/native_knockback.hpp"
+#include "goldcraft/native_knockback_steps.hpp"
 #include "goldcraft/native_absorbed_hit.hpp"
 #include "goldcraft/native_water.hpp"
 #include "goldcraft/client_features.hpp"
@@ -1319,6 +1320,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::status_attributes)HandleStatusAttributes(message.payload);
             else if(message.type==Type::native_water)HandleNativeWater(message.payload);
             else if(message.type==Type::native_impulse)HandleNativeImpulse(message.payload);
+            else if(message.type==Type::native_knockback_steps)HandleNativeKnockbackSteps(message.payload);
             else if(message.type==Type::native_knockback)HandleNativeKnockback(message.payload);
             else if(message.type==Type::native_absorbed_hit)HandleMobDamage(message.payload,false,true);
             else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);

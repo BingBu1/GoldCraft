@@ -38,7 +38,8 @@ constexpr std::uint32_t capability_native_water = 67108864;
 constexpr std::uint32_t capability_native_movement = 134217728;
 constexpr std::uint32_t capability_native_knockback = 268435456;
 constexpr std::uint32_t capability_native_absorbed_hit = 536870912;
-constexpr std::size_t wire_type_count = 106;
+constexpr std::uint32_t capability_native_knockback_steps = 1073741824;
+constexpr std::size_t wire_type_count = 107;
 constexpr std::uint32_t capability_status_attributes = 16;
 constexpr std::uint32_t capability_fluid_volumes = 32;
 constexpr std::uint32_t capability_native_armor = 64;
@@ -50,7 +51,7 @@ constexpr float minecraft_y_offset = 64.0f;
 
 enum class Role : std::uint32_t { host_client = 1, fabric_client = 2, host_server = 3, fabric_server = 4 };
 enum class Type : std::uint16_t {
-    health_limits = 92, status_health = 93, view_distortion = 94, entity_outline_frame = 95, status_glow = 96, status_nausea = 97, status_melee = 98, native_view = 99, native_hit = 100, native_impulse = 101, native_water = 102, native_movement = 103, native_knockback = 104, native_absorbed_hit = 105,
+    health_limits = 92, status_health = 93, view_distortion = 94, entity_outline_frame = 95, status_glow = 96, status_nausea = 97, status_melee = 98, native_view = 99, native_hit = 100, native_impulse = 101, native_water = 102, native_movement = 103, native_knockback = 104, native_absorbed_hit = 105, native_knockback_steps = 106,
     status_hud = 76, status_attributes = 77, status_spend = 78, fluid_volumes = 79, native_armor_request = 80, native_armor_result = 81,
     gameplay_rules = 82,
     host_explosion = 83,

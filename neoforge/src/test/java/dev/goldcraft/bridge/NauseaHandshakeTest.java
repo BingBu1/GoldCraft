@@ -47,6 +47,7 @@ class NauseaHandshakeTest {
     }
     @Test void oldHostDropsOnlyNauseaAndKeepsGlow()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var steps=host.accept()){hello(steps);} // reject knockback-steps extension
             try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension
@@ -64,6 +65,7 @@ class NauseaHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedNausea()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var steps=host.accept()){hello(steps);} // reject knockback-steps extension
             try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension

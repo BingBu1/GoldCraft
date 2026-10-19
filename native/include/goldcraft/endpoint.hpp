@@ -52,6 +52,7 @@ public:
     bool native_impulse() const;
     bool native_water() const;
     bool native_movement() const;
+    bool native_knockback_steps() const;
     bool native_knockback() const;
     bool native_absorbed_hit() const;
     bool status_melee() const;

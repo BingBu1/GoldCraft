@@ -43,6 +43,7 @@ class NativeMovementHandshakeTest {
     }
     @Test void oldHostRejectsUnknownBitThenAcceptsOriginalOffer()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var steps=host.accept()){hello(steps);} // reject knockback-steps extension
             try(var absorbed=host.accept()){hello(absorbed);}
             try(var knockback=host.accept()){hello(knockback);}
             int offered;

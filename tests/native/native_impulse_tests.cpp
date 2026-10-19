@@ -1,5 +1,6 @@
 #include "goldcraft/native_impulse.hpp"
 #include "goldcraft/native_knockback.hpp"
+#include "goldcraft/native_knockback_steps.hpp"
 #include "goldcraft/combat.hpp"
 #include <cassert>
 #include <functional>
@@ -14,7 +15,7 @@ struct edict_t{bool free=false;Vars v;};edict_t table[65],*edicts=table;
 struct Player{bool alive=true;std::function<void()> hook;bool IsAlive(){if(hook)hook();return alive;}}player;
 struct Pair{unsigned serial=7;}pair;
 struct Registry{std::uint64_t epoch=1;std::uint64_t world()const{return epoch;}const Pair* get(unsigned s)const{return s==1?&pair:nullptr;}}registry;
-struct Link{bool capable=true;std::uint64_t gen=2;bool native_impulse()const{return capable;}bool native_knockback()const{return capable;}std::uint64_t generation()const{return gen;}}link;
+struct Link{bool capable=true;std::uint64_t gen=2;bool native_impulse()const{return capable;}bool native_knockback()const{return capable;}bool native_knockback_steps()const{return capable;}std::uint64_t generation()const{return gen;}}link;
 std::array<unsigned,65> player_births,player_lives;std::array<bool,65> minecraft_forms;
 struct Globals{float time=10;}globals,*gpGlobals=&globals;int max_clients=32;
 constexpr int MOVETYPE_WALK=3,FL_ONGROUND=512;

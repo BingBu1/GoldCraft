@@ -29,6 +29,7 @@
     "NativePlayerTargetsMixin",
     "NativePlayerAttackMixin",
     "NativeMobAttackMixin",
+    "NativeKnockbackMixin",
     "NativePlayerSelectorMixin",
     "NativePlayerSensorMixin",
     "NativeRaidManagerAccessor",

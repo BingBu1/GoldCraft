@@ -4,18 +4,22 @@ import dev.goldcraft.GoldCraft;
 import dev.goldcraft.bridge.Wire;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.math.Vec3d;
+import java.util.List;
 
-/** Forward the final vanilla/NeoForge explosion delta to the native movement owner. */
+/** Send explosion deltas or confirmed hurt operations to the native movement owner. */
 public final class NativeImpulse {
     private static long epoch,generation,sequence;
     private NativeImpulse(){}
     public static boolean explosion(Entity entity,Vec3d delta){
-        return send(entity,delta,0,0,null);
+        return send(entity,delta,0,0,null,null);
     }
     static boolean confirmed(Entity entity,Vec3d delta,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot){
-        return damageEvent!=0&&GoldCraft.nativeKnockbackAvailable()&&send(entity,delta,damageEvent,snapshotTick,snapshot);
+        return damageEvent!=0&&GoldCraft.nativeKnockbackAvailable()&&send(entity,delta,damageEvent,snapshotTick,snapshot,null);
     }
-    private static boolean send(Entity entity,Vec3d delta,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot){
+    static boolean confirmedSteps(Entity entity,List<NativeKnockback.Step> steps,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot){
+        return damageEvent!=0&&GoldCraft.nativeKnockbackStepsAvailable()&&send(entity,Vec3d.ZERO,damageEvent,snapshotTick,snapshot,steps);
+    }
+    private static boolean send(Entity entity,Vec3d delta,long damageEvent,long snapshotTick,dev.goldcraft.bridge.HostWorldState.Actor snapshot,List<NativeKnockback.Step> steps){
         NativePlayerEntity body=entity instanceof NativePlayerHitboxEntity box?box.body()
             :entity instanceof NativePlayerEntity player?player:null;
         if(body==null||body.isRemoved()||!body.isAlive()||entity.isRemoved()||entity.getWorld().isClient()
@@ -29,7 +33,15 @@ public final class NativeImpulse {
         // MC vectors are blocks/tick; GoldSrc uses units/second and a different up axis.
         double x=delta.x*640,y=-delta.z*640,z=delta.y*640;
         if(!Double.isFinite(x)||!Double.isFinite(y)||!Double.isFinite(z)
-            ||Math.abs(x)>65536||Math.abs(y)>65536||Math.abs(z)>65536||(x==0&&y==0&&z==0))return false;
+            ||Math.abs(x)>65536||Math.abs(y)>65536||Math.abs(z)>65536||(steps==null&&x==0&&y==0&&z==0))return false;
+        if(steps!=null){
+            if(steps.isEmpty()||steps.size()>32)return false;
+            for(var step:steps){
+                var v=step.value();
+                if(step.kind()<0||step.kind()>1||(step.kind()==1&&(float)(v.y*640)<=0)
+                    ||!validStep(v.x)||!validStep(v.y)||!validStep(v.z))return false;
+            }
+        }
         long currentGeneration=GoldCraft.authorityGeneration();
         if(epoch!=host.epoch()||generation!=currentGeneration){epoch=host.epoch();generation=currentGeneration;sequence=0;}
         if(sequence==Long.MAX_VALUE)return false;
@@ -41,6 +53,15 @@ public final class NativeImpulse {
             .f32(origin.origin().y()+(origin.mins().y()+origin.maxs().y())*.5f)
             .f32(origin.origin().z()+(origin.mins().z()+origin.maxs().z())*.5f)
             .f32((float)x).f32((float)y).f32((float)z);
+        if(steps!=null){
+            w.i64(damageEvent).i32(steps.size());
+            for(var step:steps){
+                var v=step.value();
+                w.i32(step.kind()).f32((float)(v.x*640)).f32((float)(-v.z*640)).f32((float)(v.y*640));
+            }
+            return GoldCraft.sendNativeKnockbackSteps(w.toByteArray());
+        }
         return damageEvent==0?GoldCraft.sendNativeImpulse(w.toByteArray()):GoldCraft.sendNativeKnockback(w.i64(damageEvent).toByteArray());
     }
+    private static boolean validStep(double value){return Double.isFinite(value)&&Math.abs(value*640)<=65536;}
 }

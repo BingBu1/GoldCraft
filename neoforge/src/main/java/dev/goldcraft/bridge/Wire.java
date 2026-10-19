@@ -18,9 +18,10 @@ public final class Wire {
     public static final int STATUS_ATTRIBUTES_CAP = 16, STATUS_ATTRIBUTES = 77, STATUS_SPEND = 78;
     public static final int GAMEPLAY_RULES_CAP = 128, GAMEPLAY_RULES = 82;
     public static final int HELLO = 1, WELCOME = 2, HEARTBEAT = 3;
-    public static final int LOCAL_QPC_V1 = 2, CLOCK_OFFER = 70, CLOCK_ACK = 71, CLOCK_READY = 72, TYPE_COUNT = 106;
+    public static final int LOCAL_QPC_V1 = 2, CLOCK_OFFER = 70, CLOCK_ACK = 71, CLOCK_READY = 72, TYPE_COUNT = 107;
     public static final int NATIVE_HIT_CAP = 16777216, NATIVE_HIT = 100;
     public static final int NATIVE_ABSORBED_HIT_CAP = 536870912, NATIVE_ABSORBED_HIT = 105;
+    public static final int NATIVE_KNOCKBACK_STEPS_CAP = 1073741824, NATIVE_KNOCKBACK_STEPS = 106;
     public static final int NATIVE_KNOCKBACK_CAP = 268435456, NATIVE_KNOCKBACK = 104;
     public static final int NATIVE_MOVEMENT_CAP = 134217728, NATIVE_MOVEMENT = 103;
     public static final int NATIVE_WATER_CAP = 67108864, NATIVE_WATER = 102;

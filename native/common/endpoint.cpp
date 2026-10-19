@@ -294,6 +294,9 @@ bool Endpoint::native_view() const {
 bool Endpoint::native_absorbed_hit() const {
     return native_knockback() && (impl_->handshake->peer_capabilities() & capability_native_absorbed_hit) != 0;
 }
+bool Endpoint::native_knockback_steps() const {
+    return native_knockback() && (impl_->handshake->peer_capabilities() & capability_native_knockback_steps) != 0;
+}
 bool Endpoint::native_knockback() const {
     return native_movement() && native_impulse() && (impl_->handshake->peer_capabilities() & capability_native_knockback) != 0;
 }
