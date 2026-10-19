@@ -323,6 +323,76 @@ void SameTopology(const visibility::Prepared& a, const visibility::Prepared& b,
         assert(a.key(0, p) == b.key(0, p));
     }
 }
+void ReusedSourceValidation() {
+    const auto source = Rooms();
+    const std::vector cuts{Hole(0, 2), Hole(10, 12)};
+    auto previous = std::make_shared<visibility::Prepared>(source, cuts);
+    assert(!previous->reused_validation());
+    const std::vector changed{Hole(30, 32), cuts[0], cuts[1]};
+    const visibility::Prepared cold(source, changed);
+    const visibility::Prepared warm(source, changed, {}, previous.get());
+    assert(warm.reused_validation());
+    SameTopology(warm, cold, changed);
+    const visibility::Prepared recaptured(std::make_shared<visibility::Source>(*source), changed, {}, previous.get());
+    assert(!recaptured.reused_validation());
+    SameTopology(recaptured, cold, changed);
+
+    auto limits = visibility::Limits{};
+    limits.operations = cold.operations();
+    SameTopology(visibility::Prepared(source, changed, limits, previous.get()), cold, changed);
+    --limits.operations;
+    Reject([&] { visibility::Prepared invalid(source, changed, limits, previous.get()); });
+    Reject([&] { visibility::Prepared invalid(source, changed, limits); });
+    // A new capture must still check contents, all negative child references,
+    // planes and reachable topology before using any prior validation result.
+    for (int fault = 0; fault < 6; ++fault) {
+        auto malformed = std::make_shared<visibility::Source>(*source);
+        switch (fault) {
+        case 0: malformed->contents.back() = 0; break;
+        case 1: malformed->nodes.push_back({0, {-100, -1}}); break;
+        case 2: malformed->planes[0].normal[0] = 2; break;
+        case 3: malformed->nodes[0].children[0] = 0; break;
+        case 4: malformed->root = -100; break;
+        case 5: malformed->nodes[0].plane = 100; break;
+        }
+        Reject([&] { visibility::Prepared invalid(malformed, changed, {}, previous.get()); });
+    }
+    SameTopology(*previous, visibility::Prepared(source, cuts), cuts);
+    const std::weak_ptr<const visibility::Prepared> owner = previous;
+    previous.reset();
+    assert(owner.expired());
+    SameTopology(warm, cold, changed);
+    const visibility::Prepared cleared(source, {}, {}, &warm);
+    assert(cleared.reused_validation() && cleared.component_count() == 0);
+    SameTopology(cleared, visibility::Prepared(source, {}), {});
+
+    auto leaf = std::make_shared<visibility::Source>();
+    leaf->root = -2; leaf->contents = {-2, -1}; leaf->pvs = {1};
+    const visibility::Prepared leaf_previous(leaf, {});
+    limits = {};
+    limits.operations = leaf_previous.operations();
+    SameTopology(visibility::Prepared(leaf, {}, limits, &leaf_previous), leaf_previous, {});
+    --limits.operations; // Exactly zero work remains for validate_hull.
+    for (const auto* prior : {static_cast<const visibility::Prepared*>(nullptr), &leaf_previous}) {
+        bool rejected = false;
+        try { visibility::Prepared invalid(leaf, {}, limits, prior); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        assert(rejected);
+    }
+
+    // The validator's full-array limit is independent of traversal work:
+    // these nodes are unreachable, but their size still bounds admission.
+    auto padded = std::make_shared<visibility::Source>(*leaf);
+    padded->nodes.resize(128, {0, {-1, -1}});
+    const visibility::Prepared padded_previous(padded, {});
+    limits = {};
+    limits.operations = padded_previous.operations();
+    Reject([&] { visibility::Prepared invalid(padded, {}, limits); });
+    Reject([&] { visibility::Prepared invalid(padded, {}, limits, &padded_previous); });
+    limits.operations = padded->pvs.size() + padded->contents.size() + 2 * padded->nodes.size();
+    SameTopology(visibility::Prepared(padded, {}, limits, &padded_previous),
+                 visibility::Prepared(padded, {}, limits), {});
+}
 void ReusedCutContacts() {
     constexpr std::size_t cache_bytes = 4096;
     auto source = Rooms();
@@ -393,4 +463,4 @@ void ReusedCutContacts() {
                 assert(new_rows.reaches(from, to, sound) == fresh_rows.reaches(from, to, sound));
 }
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); ReusedCutContacts(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); ReusedSourceValidation(); ReusedCutContacts(); }

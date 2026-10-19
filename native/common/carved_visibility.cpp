@@ -66,22 +66,36 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
         (words_ && leaves > limits.words / words_)) throw std::length_error("Carved PVS capacity");
     if (source_->pvs.size() != words_ * leaves) throw std::invalid_argument("Carved PVS row dimensions");
     consume(operations_, limits.operations, source_->pvs.size() + source_->contents.size() + cuts.size());
-    for (auto contents : source_->contents)
-        if (contents >= 0 || contents < -15) throw std::invalid_argument("Carved PVS leaf contents");
-    // Validate topology with the existing bounded collision validator, while
-    // retaining unique render-leaf identities for all visibility queries.
-    const auto to_contents = [&](std::int32_t child) {
-        if (child >= 0) return child;
-        const auto leaf = leaf_index(child);
-        if (leaf >= source_->contents.size()) throw std::invalid_argument("Carved PVS leaf index");
-        return source_->contents[leaf];
-    };
-    consume(operations_, limits.operations, source_->nodes.size());
-    auto nodes = source_->nodes;
-    for (auto &node : nodes) for (auto &child : node.children) child = to_contents(child);
-    const auto validated = carving::validate_hull({source_->planes, nodes, to_contents(source_->root)},
-        {limits.operations, limits.operations - operations_});
-    consume(operations_, limits.operations, validated);
+    if (previous && source_ != previous->source_) previous = nullptr;
+    if (previous) {
+        // The same immutable capture was fully validated by a completed
+        // Prepared. Keep validate_hull's input-size guards and work charge:
+        // unreachable nodes can outnumber the recorded traversal operations.
+        consume(operations_, limits.operations, source_->nodes.size());
+        const auto remaining = limits.operations - operations_;
+        if (!remaining) throw std::invalid_argument("World carving requires nonzero work limits");
+        if (source_->nodes.size() > remaining || source_->planes.size() > remaining)
+            throw std::length_error("World carving input exceeds operation budget");
+        validation_operations_ = previous->validation_operations_;
+        reused_validation_ = true;
+    } else {
+        for (auto contents : source_->contents)
+            if (contents >= 0 || contents < -15) throw std::invalid_argument("Carved PVS leaf contents");
+        // Convert render-leaf identities only for the collision validator.
+        // Every negative child is checked, including unreachable nodes.
+        const auto to_contents = [&](std::int32_t child) {
+            if (child >= 0) return child;
+            const auto leaf = leaf_index(child);
+            if (leaf >= source_->contents.size()) throw std::invalid_argument("Carved PVS leaf index");
+            return source_->contents[leaf];
+        };
+        consume(operations_, limits.operations, source_->nodes.size());
+        auto nodes = source_->nodes;
+        for (auto &node : nodes) for (auto &child : node.children) child = to_contents(child);
+        validation_operations_ = carving::validate_hull({source_->planes, nodes, to_contents(source_->root)},
+            {limits.operations, limits.operations - operations_});
+    }
+    consume(operations_, limits.operations, validation_operations_);
     for (const auto &cut : cuts) validate(cut);
     cuts_.assign(cuts.begin(), cuts.end());
     order_.resize(cuts.size());
@@ -167,7 +181,6 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
             contact_cache_bytes_ = 0;
         }
     }
-    if (previous && source_ != previous->source_) previous = nullptr;
     // Each cut is classified against the original BSP planes, never a leaf's
     // rounded file bounding box. Inclusive boundaries conservatively preserve
     // doors opened exactly up to the original air/solid plane.

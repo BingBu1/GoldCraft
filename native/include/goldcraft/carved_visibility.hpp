@@ -42,6 +42,7 @@ public:
     std::size_t leaf_count() const noexcept { return source_->contents.size(); }
     std::size_t component_count() const noexcept { return components_.size(); }
     std::size_t operations() const noexcept { return operations_; }
+    bool reused_validation() const noexcept { return reused_validation_; }
     std::size_t reused_contacts() const noexcept { return reused_contacts_; }
     std::size_t contact_cache_bytes() const noexcept { return contact_cache_bytes_; }
     // Capacity-based retained ownership including Source and shared contacts;
@@ -63,7 +64,8 @@ private:
     };
     std::shared_ptr<const Source> source_;
     Limits limits_;
-    std::size_t words_ = 0, operations_ = 0;
+    std::size_t words_ = 0, operations_ = 0, validation_operations_ = 0;
+    bool reused_validation_ = false;
     std::vector<carving::Box> cuts_;
     std::vector<Node> tree_;
     std::vector<std::uint32_t> order_, cut_components_;
