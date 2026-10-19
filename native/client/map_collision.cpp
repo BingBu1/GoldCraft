@@ -13,6 +13,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <stdexcept>
 #include <utility>
@@ -82,8 +83,12 @@ struct SourceModel : CollisionSource {
             }
     }
     void build(HullSet& output, std::size_t& work) const {
+        std::optional<CompactedCuts> compact;
         for (int h = 0; h < 4; ++h) {
-            if (!output[h]) output[h] = std::make_shared<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], cuts);
+            if (!output[h]) {
+                if (!compact) compact.emplace(cuts);
+                output[h] = std::make_shared<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], *compact);
+            }
             work += output[h]->operations();
             if (work > 32'000'000) throw std::length_error("Client map physics budget");
         }

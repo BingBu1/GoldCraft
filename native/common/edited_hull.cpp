@@ -136,16 +136,19 @@ void subtract(std::span<const CollisionSpan> a, std::span<const CollisionSpan> b
     }
 }
 } // namespace
+CompactedCuts::CompactedCuts(std::span<const Box> cuts) : boxes_(compact_cuts(cuts)) {}
 EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, std::span<const Box> cuts,
+                       Limits limits)
+    : EditedHull(point_hull, body_hull, body, CompactedCuts(cuts), limits) {}
+EditedHull::EditedHull(HullView point_hull, HullView body_hull, Box body, const CompactedCuts& compact,
                        Limits limits)
     : planes_(body_hull.planes.begin(), body_hull.planes.end()),
       nodes_(body_hull.nodes.begin(), body_hull.nodes.end()), root_(body_hull.root),
       query_limit_(limits.operations) {
     operations_ = validate_hull(body_hull, limits);
+    const auto cuts = compact.boxes();
     if (cuts.empty())
         throw std::invalid_argument("Edited hull needs cuts");
-    const auto compact = compact_cuts(cuts);
-    cuts = compact;
     Box affected = cuts.front();
     for (const auto &cut : cuts)
         for (int axis = 0; axis < 3; ++axis) {

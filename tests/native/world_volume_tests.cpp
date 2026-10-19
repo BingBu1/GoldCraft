@@ -454,6 +454,54 @@ void native_overlay() {
     rejects<std::invalid_argument>([&]{EditedHull(point_source.view(),native.view(),body,{});});
     rejects<std::length_error>([&]{EditedHull(point_source.view(),native.view(),body,cuts,{4096,80});});
 }
+void compacted_hulls() {
+    std::vector<Box> cuts{Box{{-48,-16,-48},{0,16,48}}, Box{{0,-16,-48},{48,16,48}},
+                          Box{{-48,-16,-48},{0,16,48}}, Box{{56,-16,-48},{64,16,48}}};
+    const auto original = cuts;
+    const std::array<Box,4> bodies{point, Box{{-16,-16,-36},{16,16,36}},
+        Box{{-32,-32,-32},{32,32,32}}, Box{{-16,-16,-18},{16,16,18}}};
+    std::vector<EditedHull> shared;
+    shared.reserve(bodies.size());
+    {
+        const CompactedCuts compact(cuts);
+        assert(compact.boxes().size() == 2); // Adjacent/duplicate boxes merge, gap remains.
+        cuts.clear(); // The prepared union owns its input independently.
+        for (const auto& body : bodies) shared.emplace_back(solid, solid, body, compact);
+    } // Prepared cuts are temporary; each resulting hull must remain usable.
+    const std::array<Point,6> points{Point{0,0,0}, Point{52,0,0}, Point{60,0,0},
+        Point{-80,-64,0}, Point{0,64,0}, Point{0,0,80}};
+    for (std::size_t h = 0; h < bodies.size(); ++h) {
+        const EditedHull raw(solid, solid, bodies[h], original);
+        const auto& prepared = shared[h];
+        assert(prepared.operations() == raw.operations());
+        for (const auto& a : points) for (const auto& b : points) {
+            assert(prepared.contents(a) == raw.contents(a));
+            assert(prepared.affects(a,b) == raw.affects(a,b));
+            const auto actual = prepared.trace(a,b), expected = raw.trace(a,b);
+            assert(actual.fraction == expected.fraction && actual.plane.normal == expected.plane.normal &&
+                actual.plane.distance == expected.plane.distance && actual.start_solid == expected.start_solid &&
+                actual.all_solid == expected.all_solid && actual.in_open == expected.in_open &&
+                actual.in_water == expected.in_water);
+        }
+        const CompactedCuts compact(original);
+        const Limits exact{4096,raw.operations()};
+        assert(EditedHull(solid,solid,bodies[h],compact,exact).operations() == raw.operations());
+        rejects<std::length_error>([&]{EditedHull(solid,solid,bodies[h],compact,{4096,raw.operations()-1});});
+    }
+    assert(shared[0].contents({0,0,0}) == -1 && shared[0].contents({52,0,0}) == -2);
+    auto invalid = original; invalid[0].min[0] = std::numeric_limits<double>::quiet_NaN();
+    rejects<std::invalid_argument>([&]{CompactedCuts bad(invalid);});
+    invalid = original; invalid[0].max[0] = invalid[0].min[0];
+    rejects<std::invalid_argument>([&]{CompactedCuts bad(invalid);});
+    const std::vector<Box> too_many(65537, original[0]);
+    rejects<std::length_error>([&]{CompactedCuts bad(too_many);});
+    const CompactedCuts none(std::span<const Box>{}), compact(original);
+    rejects<std::invalid_argument>([&]{EditedHull(solid,solid,point,none);});
+    const std::array<Plane,1> planes{Plane{{1,0,0},0}};
+    const std::array<HullNode,1> cycle{HullNode{0,{0,-2}}};
+    rejects<std::invalid_argument>([&]{EditedHull(solid,{planes,cycle,0},point,compact);});
+    rejects<std::invalid_argument>([&]{EditedHull(solid,solid,{{1,0,0},{0,0,0}},compact);});
+}
 void indexed_queries() {
     std::vector<Box> boxes;
     for (int x = 0; x < 16; ++x)
@@ -571,6 +619,7 @@ int main() {
         validation();
         std::cout << "Validation passed\n";
         native_overlay();
+        compacted_hulls();
         indexed_queries();
         std::cout << "Prepared indices: 10000 independent box queries, 3000 exact volume queries, 4000 sloped point/body queries, boundary ties, water/clip preservation, bounded preparation and mutable volume API passed\n";
         std::cout << "Native overlay: 20000 oracle cases, retained clip-only obstacles, native empty/water, entrance and union traces passed\n";

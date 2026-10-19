@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 
 namespace {
@@ -123,9 +124,13 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
                         source = old.source;
                     }
                 }
+                std::optional<CompactedCuts> compact;
                 for (int i = 0; i < 4; ++i) {
-                    if (!target.hulls[i]) target.hulls[i] = std::make_shared<EditedHull>(source->hulls[0].view(),
-                        source->hulls[i].view(), source->bodies[i], source->cuts);
+                    if (!target.hulls[i]) {
+                        if (!compact) compact.emplace(source->cuts);
+                        target.hulls[i] = std::make_shared<EditedHull>(source->hulls[0].view(),
+                            source->hulls[i].view(), source->bodies[i], *compact);
+                    }
                     total_work += target.hulls[i]->operations();
                     if (total_work > 32'000'000)
                         throw std::length_error("Map physics transaction budget");

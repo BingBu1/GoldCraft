@@ -5,6 +5,15 @@ namespace goldcraft::carving {
 struct HullTrace : VolumeTrace {
     bool in_open = false, in_water = false;
 };
+// Owned exact union, prepared once for all body hulls of one target. Only the
+// constructor can supply the compacted boxes; no unchecked precompacted span.
+class CompactedCuts {
+  public:
+    explicit CompactedCuts(std::span<const Box> cuts);
+    std::span<const Box> boxes() const noexcept { return boxes_; }
+  private:
+    std::vector<Box> boxes_;
+};
 // Immutable prepared collision overlay. H is the original body hull, O is
 // original point-solid expanded by the body, and R is the remaining expansion:
 // new solid = H minus (O minus R). Thus unedited native empty space stays empty,
@@ -14,6 +23,8 @@ struct HullTrace : VolumeTrace {
 class EditedHull {
   public:
     EditedHull(HullView point_hull, HullView body_hull, Box body, std::span<const Box> cuts,
+               Limits limits = {4096, 4'194'304});
+    EditedHull(HullView point_hull, HullView body_hull, Box body, const CompactedCuts& cuts,
                Limits limits = {4096, 4'194'304});
     bool affects(Point start, Point end) const;
     int contents(Point point) const;
