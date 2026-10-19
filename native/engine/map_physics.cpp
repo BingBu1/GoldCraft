@@ -19,41 +19,41 @@
 namespace {
 using namespace goldcraft;
 using namespace goldcraft::carving;
-struct SourceHull : CollisionSource::Hull {
-    SourceHull(model_t *model, const hull_t &hull) {
-        root = hull.firstclipnode;
+struct SourceHull : CollisionGeometry::Hull {
+    static void check(model_t *model, const hull_t &hull) {
         if (model->numplanes < 0 || model->numplanes > 262144 || hull.lastclipnode >= 262144 ||
             !hull.planes || !hull.clipnodes)
             throw std::invalid_argument("Invalid engine BSP hull");
+    }
+    SourceHull(model_t *model, const hull_t &hull) {
+        check(model, hull);
+        root = hull.firstclipnode;
         planes.reserve(model->numplanes);
         if (hull.lastclipnode >= 0) nodes.reserve(hull.lastclipnode + 1);
-        for (int i = 0; i < model->numplanes; ++i) {
-            const auto &p = hull.planes[i];
-            Plane plane{{}, p.dist};
-            if (p.type < 3)
-                plane.normal[p.type] = 1;
-            else
-                for (int axis = 0; axis < 3; ++axis)
-                    plane.normal[axis] = p.normal[axis];
-            planes.push_back(plane);
-        }
-        for (int i = 0; i <= hull.lastclipnode; ++i) {
-            const auto &node = hull.clipnodes[i];
-            nodes.push_back(
-                {static_cast<std::uint32_t>(node.planenum), {node.children[0], node.children[1]}});
-        }
+        for (int i = 0; i < model->numplanes; ++i)
+            planes.push_back(CollisionGeometry::copy_plane(hull.planes[i]));
+        for (int i = 0; i <= hull.lastclipnode; ++i)
+            nodes.push_back(CollisionGeometry::copy_node(hull.clipnodes[i]));
     }
 };
-struct SourceModel : CollisionSource {
-    SourceModel(model_t* model, const std::vector<Box>& input) {
+struct SourceGeometry : CollisionGeometry {
+    explicit SourceGeometry(model_t* model) {
         hulls = {SourceHull(model,model->hulls[0]),SourceHull(model,model->hulls[1]),
                  SourceHull(model,model->hulls[2]),SourceHull(model,model->hulls[3])};
-        cuts = input;
         for (int h = 1; h < 4; ++h)
             for (int axis = 0; axis < 3; ++axis) {
                 bodies[h].min[axis] = model->hulls[h].clip_mins[axis];
                 bodies[h].max[axis] = model->hulls[h].clip_maxs[axis];
             }
+    }
+};
+struct SourceModel : CollisionSource {
+    SourceModel(model_t* model, const std::vector<Box>& input, const SourceModel* previous) {
+        for (const auto& hull : model->hulls) SourceHull::check(model, hull);
+        if (previous && previous->geometry->matches_native(model->numplanes, model->hulls))
+            geometry = previous->geometry;
+        else geometry = std::make_shared<SourceGeometry>(model);
+        cuts = input;
     }
 };
 struct Target {
@@ -125,24 +125,24 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
             }
             std::size_t total_work = 0, source_bytes = 0;
             for (auto &[slot, target] : next) {
-                std::shared_ptr<const SourceModel> source = std::make_shared<SourceModel>(target.model,groups.at(slot).boxes);
                 const auto previous = targets.find(slot);
-                if (previous != targets.end()) {
-                    const auto& old = previous->second;
-                    // TargetModel was checked for this group in this replacement.
-                    // A reused pointer or matching cut list alone is insufficient.
-                    if (old.serial == target.serial && old.model == target.model &&
-                        old.inline_model == target.inline_model && old.source && source->same(*old.source)) {
-                        target.hulls = old.hulls;
-                        source = old.source;
-                    }
+                const auto* old = previous == targets.end() ? nullptr : &previous->second;
+                const bool same_target = old && old->serial == target.serial && old->model == target.model &&
+                    old->inline_model == target.inline_model;
+                std::shared_ptr<const SourceModel> source = std::make_shared<SourceModel>(
+                    target.model, groups.at(slot).boxes, same_target ? old->source.get() : nullptr);
+                // TargetModel was checked for this group in this replacement;
+                // geometry was also compared before sharing its owned arrays.
+                if (same_target && old->source && source->same(*old->source)) {
+                    target.hulls = old->hulls;
+                    source = old->source;
                 }
                 std::optional<CompactedCuts> compact;
                 for (int i = 0; i < 4; ++i) {
                     if (!target.hulls[i]) {
                         if (!compact) compact.emplace(source->cuts);
-                        target.hulls[i] = std::make_shared<EditedHull>(source->hulls[0].view(),
-                            source->hulls[i].view(), source->bodies[i], *compact);
+                        target.hulls[i] = std::make_shared<EditedHull>(source->geometry->hulls[0].view(),
+                            source->geometry->hulls[i].view(), source->geometry->bodies[i], *compact);
                     }
                     total_work += target.hulls[i]->operations();
                     if (total_work > 32'000'000)

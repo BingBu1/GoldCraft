@@ -76,32 +76,97 @@ constexpr Box point{{0, 0, 0}, {0, 0, 0}};
 
 void collision_source_identity() {
     CollisionSource source;
-    for (auto& hull : source.hulls) {
+    auto geometry = std::make_shared<CollisionGeometry>();
+    for (auto& hull : geometry->hulls) {
         hull.planes = {Plane{{1,0,0},0}, Plane{{0,1,0},8}};
         hull.nodes = {HullNode{0,{-1,-2}}};
     }
+    source.geometry = geometry;
     source.cuts = {Box{{-4,-4,-4},{4,4,4}}, Box{{8,8,8},{16,16,16}}};
     const auto unchanged = source;
     assert(source.same(unchanged));
     const auto changed = [&](auto mutate) {
-        auto next = source;mutate(next);
+        auto next = source;
+        auto shape = std::make_shared<CollisionGeometry>(*source.geometry);
+        next.geometry = shape;
+        mutate(next, *shape);
         assert(!source.same(next) && !next.same(source));
         assert(source.same(unchanged));
     };
-    changed([](auto& s) { s.hulls[2].root = -1; });
-    changed([](auto& s) { s.hulls[3].nodes[0].children[1] = -3; });
-    changed([](auto& s) { s.hulls[0].nodes[0].plane = 1; });
-    changed([](auto& s) { s.hulls[1].planes[0].distance = 1; });
-    changed([](auto& s) { s.hulls[1].planes[0].normal[1] = -0.0; });
-    changed([](auto& s) { s.hulls[0].planes.pop_back(); });
-    changed([](auto& s) { s.bodies[1].min[2] = -36; });
-    changed([](auto& s) { s.bodies[2].max[0] = 32; });
-    changed([](auto& s) { std::ranges::reverse(s.cuts); });
-    changed([](auto& s) { s.cuts[0].max[0] = 3; });
+    changed([](auto&, auto& g) { g.hulls[2].root = -1; });
+    changed([](auto&, auto& g) { g.hulls[3].nodes[0].children[1] = -3; });
+    changed([](auto&, auto& g) { g.hulls[0].nodes[0].plane = 1; });
+    changed([](auto&, auto& g) { g.hulls[1].planes[0].distance = 1; });
+    changed([](auto&, auto& g) { g.hulls[1].planes[0].normal[1] = -0.0; });
+    changed([](auto&, auto& g) { g.hulls[0].planes.pop_back(); });
+    changed([](auto&, auto& g) { g.bodies[1].min[2] = -36; });
+    changed([](auto&, auto& g) { g.bodies[2].max[0] = 32; });
+    changed([](auto& s, auto&) { std::ranges::reverse(s.cuts); });
+    changed([](auto& s, auto&) { s.cuts[0].max[0] = 3; });
     auto reserved = source;
     const auto before = reserved.retained_bytes();
-    reserved.hulls[0].planes.reserve(100);
+    auto larger = std::make_shared<CollisionGeometry>(*source.geometry);
+    larger->hulls[0].planes.reserve(100);
+    reserved.geometry = larger;
     assert(reserved.same(source) && reserved.retained_bytes() > before);
+    // A new cut list owns the shared geometry, never the preceding source.
+    auto previous = std::make_shared<CollisionSource>(source);
+    std::weak_ptr<const CollisionSource> lifetime = previous;
+    CollisionSource added{previous->geometry, previous->cuts};
+    added.cuts.push_back(Box{{20,20,20},{24,24,24}});
+    previous.reset();
+    assert(lifetime.expired() && added.geometry == source.geometry && !added.same(source));
+    assert(added.retained_bytes() >= added.geometry->retained_bytes() + added.cuts.capacity() * sizeof(Box));
+
+    // Deliberately different native layouts: conversion uses named fields,
+    // axial plane semantics and numeric widening, not object bytes or padding.
+    struct NativePlane { float normal[3], dist; unsigned char type; };
+    struct NativeNode { int planenum; short children[2]; };
+    struct NativeHull {
+        NativeNode* clipnodes; NativePlane* planes;
+        int firstclipnode, lastclipnode;
+        float clip_mins[3], clip_maxs[3];
+    };
+    NativePlane native_planes[]{{{9,9,9},0,0},{{9,9,9},8,1}};
+    NativeNode native_nodes[]{{0,{-1,-2}}};
+    std::array<NativeHull,4> native{};
+    for (auto& h : native) { h.planes=native_planes; h.clipnodes=native_nodes; }
+    assert(source.geometry->matches_native(2,native.data()));
+    assert(!source.geometry->matches_native(1,native.data()));
+    native_planes[0].normal[0]=77; // Ignored for an axial plane, like engine capture.
+    assert(source.geometry->matches_native(2,native.data()));
+    native_planes[0].dist=-0.0f;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native_planes[0].dist=0;
+    native_planes[0].type=3;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native_planes[0].normal[0]=1; native_planes[0].normal[1]=native_planes[0].normal[2]=0;
+    assert(source.geometry->matches_native(2,native.data()));
+    native_planes[0].normal[1]=-0.0f;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native_planes[0].normal[1]=0;
+    for (auto& h : native) {
+        h.firstclipnode=-1; assert(!source.geometry->matches_native(2,native.data())); h.firstclipnode=0;
+        h.lastclipnode=-1; assert(!source.geometry->matches_native(2,native.data())); h.lastclipnode=0;
+    }
+    native_nodes[0].children[1]=-3;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native_nodes[0].children[1]=-2;
+    native[0].clip_mins[0]=-16; // Point hull body stays zero, as before.
+    assert(source.geometry->matches_native(2,native.data()));
+    native[1].clip_mins[0]=-16;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native[1].clip_mins[0]=0;
+    native_nodes[0].planenum=1;
+    assert(!source.geometry->matches_native(2,native.data()));
+    native_nodes[0].planenum=0;
+    // Server capture permits constant-content hulls with no nodes/planes.
+    CollisionGeometry constant;
+    for (std::size_t h=0; h<native.size(); ++h) {
+        constant.hulls[h].root=-2;
+        native[h].firstclipnode=-2; native[h].lastclipnode=-1;
+    }
+    assert(constant.matches_native(0,native.data()));
 }
 
 void same_volume(const Volume &a, const Volume &b) {

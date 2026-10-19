@@ -42,52 +42,54 @@ struct Prepared {
     std::array<Point, 4> clip_mins;
     std::vector<BrushTarget> targets;
     std::vector<int> slots;
-    std::size_t reused_targets = 0, source_bytes = 0;
+    std::size_t reused_targets = 0, shared_geometry = 0, source_bytes = 0;
 };
 namespace {
 static_assert(sizeof(model_t) == 392 && sizeof(hull_t) == 40 && sizeof(physent_t) == 224);
 constexpr std::array<int, 4> hull_index{1, 3, 0, 2};
-struct SourceHull : CollisionSource::Hull {
-    SourceHull(model_t *model, const hull_t &hull) {
-        root = hull.firstclipnode;
+struct SourceHull : CollisionGeometry::Hull {
+    static void check(model_t *model, const hull_t &hull) {
         if (model->type != mod_brush || model->numplanes < 1 || model->numplanes > 262144 ||
             hull.lastclipnode < 0 || hull.lastclipnode >= 262144 || !hull.planes || !hull.clipnodes)
             throw std::invalid_argument("Client map hull bounds");
+    }
+    SourceHull(model_t *model, const hull_t &hull) {
+        check(model, hull);
+        root = hull.firstclipnode;
         planes.reserve(model->numplanes);
         nodes.reserve(hull.lastclipnode + 1);
-        for (int i = 0; i < model->numplanes; ++i) {
-            const auto &p = hull.planes[i];
-            Plane plane{{}, p.dist};
-            if (p.type < 3)
-                plane.normal[p.type] = 1;
-            else
-                for (int axis = 0; axis < 3; ++axis)
-                    plane.normal[axis] = p.normal[axis];
-            planes.push_back(plane);
-        }
-        for (int i = 0; i <= hull.lastclipnode; ++i) {
-            const auto &n = hull.clipnodes[i];
-            nodes.push_back({static_cast<unsigned>(n.planenum), {n.children[0], n.children[1]}});
-        }
+        for (int i = 0; i < model->numplanes; ++i)
+            planes.push_back(CollisionGeometry::copy_plane(hull.planes[i]));
+        for (int i = 0; i <= hull.lastclipnode; ++i)
+            nodes.push_back(CollisionGeometry::copy_node(hull.clipnodes[i]));
     }
 };
-struct SourceModel : CollisionSource {
-    explicit SourceModel(model_t* model, std::vector<Box> input) {
+struct SourceGeometry : CollisionGeometry {
+    explicit SourceGeometry(model_t* model) {
         hulls = {SourceHull(model, model->hulls[0]), SourceHull(model, model->hulls[1]),
                  SourceHull(model, model->hulls[2]), SourceHull(model, model->hulls[3])};
-        cuts = std::move(input);
         for (int h = 1; h < 4; ++h)
             for (int a = 0; a < 3; ++a) {
                 bodies[h].min[a] = model->hulls[h].clip_mins[a];
                 bodies[h].max[a] = model->hulls[h].clip_maxs[a];
             }
     }
+};
+struct SourceModel : CollisionSource {
+    SourceModel(model_t* model, std::vector<Box> input, const SourceModel* previous) {
+        for (const auto& hull : model->hulls) SourceHull::check(model, hull);
+        if (previous && previous->geometry->matches_native(model->numplanes, model->hulls))
+            geometry = previous->geometry;
+        else geometry = std::make_shared<SourceGeometry>(model);
+        cuts = std::move(input);
+    }
     void build(HullSet& output, std::size_t& work) const {
         std::optional<CompactedCuts> compact;
         for (int h = 0; h < 4; ++h) {
             if (!output[h]) {
                 if (!compact) compact.emplace(cuts);
-                output[h] = std::make_shared<EditedHull>(hulls[0].view(), hulls[h].view(), bodies[h], *compact);
+                output[h] = std::make_shared<EditedHull>(geometry->hulls[0].view(),
+                    geometry->hulls[h].view(), geometry->bodies[h], *compact);
             }
             work += output[h]->operations();
             if (work > 32'000'000) throw std::length_error("Client map physics budget");
@@ -844,7 +846,9 @@ std::shared_ptr<Preparation> capture(const edits::Replica &replica, model_t *loa
     }
     if (!cuts.empty()) {
         if (!loaded) throw ProtocolError("Client world model not loaded");
-        job->world = std::make_shared<SourceModel>(loaded, std::move(cuts));
+        const auto* previous = active && loaded == active->model ? active->source.get() : nullptr;
+        job->world = std::make_shared<SourceModel>(loaded, std::move(cuts), previous);
+        if (previous && job->world->geometry == previous->geometry) ++next->shared_geometry;
         if (active && active->source && loaded == active->model && job->world->same(*active->source)) {
             next->hulls = active->hulls;
             job->world = active->source;
@@ -855,13 +859,16 @@ std::shared_ptr<Preparation> capture(const edits::Replica &replica, model_t *loa
                 next->clip_mins[h][axis] = loaded->hulls[h].clip_mins[axis];
     }
     for (auto &entry : next->targets) {
-        auto source = std::make_shared<SourceModel>(entry.model, std::move(brush_cuts.at(entry.identity.slot)));
         const BrushTarget* old = nullptr;
         if (active && loaded == active->model && entry.identity.slot < active->slots.size()) {
             const auto index = active->slots[entry.identity.slot];
             if (index >= 0) old = &active->targets[static_cast<std::size_t>(index)];
         }
-        if (old && old->identity == entry.identity && old->model == entry.model && old->source && source->same(*old->source)) {
+        const bool same_target = old && old->identity == entry.identity && old->model == entry.model;
+        auto source = std::make_shared<SourceModel>(entry.model, std::move(brush_cuts.at(entry.identity.slot)),
+                                                  same_target ? old->source.get() : nullptr);
+        if (same_target && old->source && source->geometry == old->source->geometry) ++next->shared_geometry;
+        if (same_target && old->source && source->same(*old->source)) {
             entry.hulls = old->hulls;
             job->brushes.push_back(old->source);
             ++next->reused_targets;
@@ -954,6 +961,7 @@ void write_status(std::ostream &out) {
         << ",\"mapCollisionPreparationMaxMs\":" << preparation_max_ms
         << ",\"mapCollisionBrushTargets\":" << (active ? active->targets.size() : 0)
         << ",\"mapCollisionReusedTargets\":" << (active ? active->reused_targets : 0)
+        << ",\"mapCollisionSharedGeometry\":" << (active ? active->shared_geometry : 0)
         << ",\"mapCollisionSourceBytes\":" << (active ? active->source_bytes : 0)
         << ",\"mapCollisionDeferredTargets\":0";
 }

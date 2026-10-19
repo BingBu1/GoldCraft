@@ -537,40 +537,66 @@ std::string status() {
 void target_reuse() {
     setup();client_map::reset();
     auto state = snapshot({-1, -64, -64}, {17, 64, 64});
-    const auto check = [&](unsigned reused) {
+    const auto check = [&](unsigned reused, unsigned shared) {
         assert(status().find("\"mapCollisionReusedTargets\":" + std::to_string(reused)) != std::string::npos);
+        assert(status().find("\"mapCollisionSharedGeometry\":" + std::to_string(shared)) != std::string::npos);
     };
-    prepare(state, &model);check(0);
-    ++state.revision;prepare(state, &model);check(1);
+    prepare(state, &model);check(0,0);
+    ++state.revision;prepare(state, &model);check(1,1);
     // Same model pointer is insufficient: actual copied geometry, hull roots,
     // body sizes and ordered cut coordinates participate in reuse eligibility.
     planes[0].dist += .25f;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,0);
     planes[0].dist -= .25f;
-    ++state.revision;prepare(state, &model);check(0);
-    ++state.revision;prepare(state, &model);check(1);
+    ++state.revision;prepare(state, &model);check(0,0);
+    ++state.revision;prepare(state, &model);check(1,1);
     model.hulls[0].firstclipnode = 1;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,0);
     model.hulls[0].firstclipnode = 0;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,0);
     model.hulls[1].clip_maxs[0] += 1;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,0);
     model.hulls[1].clip_maxs[0] -= 1;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,0);
     state.cuts[0].box.max[1] -= 1;
-    ++state.revision;prepare(state, &model);check(0);
+    ++state.revision;prepare(state, &model);check(0,1);
     const auto saved = status();
     auto invalid = state; ++invalid.revision;
-    model.type = mod_studio;
-    try { prepare(invalid, &model);assert(false); } catch (const std::exception&) {}
-    model.type = mod_brush;assert(status() == saved);
+    const auto rejects_capture = [&](auto mutate) {
+        const auto original = model;
+        mutate(model);
+        try { prepare(invalid, &model);assert(false); } catch (const std::exception&) {}
+        model = original; assert(status() == saved);
+    };
+    rejects_capture([](auto& m) { m.type = mod_studio; });
+    rejects_capture([](auto& m) { m.numplanes = 0; });
+    rejects_capture([](auto& m) { m.numplanes = 262145; });
+    rejects_capture([](auto& m) { m.hulls[2].lastclipnode = -1; });
+    rejects_capture([](auto& m) { m.hulls[3].lastclipnode = 262144; });
+    rejects_capture([](auto& m) { m.hulls[1].planes = nullptr; });
+    rejects_capture([](auto& m) { m.hulls[0].clipnodes = nullptr; });
+    // A changed cut can use old owned geometry after both the active source
+    // and engine arrays disappear; the worker must never consult raw pointers.
+    auto changed = state; ++changed.revision; changed.cuts[0].box.max[1] -= 1;
+    edits::Replica changed_replica; changed_replica.reset(changed.epoch); changed_replica.accept(changed);
+    auto task = client_map::prepare_async(changed_replica, &model);
+    const auto original = model;
+    for (auto& h : model.hulls) { h.planes=nullptr; h.clipnodes=nullptr; }
+    client_map::reset();
+    client_map::Candidate rebuilt;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!client_map::poll(task, rebuilt)) {
+        assert(std::chrono::steady_clock::now() < deadline); std::this_thread::yield();
+    }
+    model = original; client_map::commit(std::move(rebuilt)); check(0,1);
+    client_map::shutdown_preparation(); state = std::move(changed);
     // A candidate owns shared immutable hulls even if the active owner resets.
     edits::Replica verified;verified.reset(state.epoch);++state.revision;verified.accept(state);
     auto retained = client_map::prepare(verified, &model);
-    client_map::reset();client_map::commit(std::move(retained));check(1);
+    client_map::reset();client_map::commit(std::move(retained));check(1,1);
     float a[3]{-64, 0, 0}, b[3]{64, 0, 0};run(a,b);assert(result.fraction == 1);
-    client_map::reset();++state.epoch;prepare(state, &model);check(0);
-    prepare({state.epoch, ++state.revision, {}}, &model);check(0);
+    client_map::reset();++state.epoch;prepare(state, &model);check(0,0);
+    prepare({state.epoch, ++state.revision, {}}, &model);check(0,0);
     assert(status().find("\"mapCollisionSourceBytes\":0") != std::string::npos);
     client_map::reset();
 }
