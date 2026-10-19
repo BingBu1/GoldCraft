@@ -235,15 +235,15 @@ Result subtract(const Triangle& triangle, std::span<const Box> boxes, Limits lim
         consume(result, limits, 1);
         std::vector<Polygon> next;
         bool changed = false;
-        for (const auto& polygon : result.pieces) {
+        for (auto& polygon : result.pieces) {
             consume(result, limits, polygon.size());
-            if (!overlaps(polygon, box)) append(next, polygon, limits);
+            if (!overlaps(polygon, box)) append(next, std::move(polygon), limits);
             else changed |= subtract_box(polygon, box, next, result, limits);
         }
-        if (changed) {
-            result.pieces = std::move(next);
-            result.changed = true;
-        }
+        // Every surviving polygon is already in next, including those moved
+        // unchanged. Keep their order without cloning all their vertex arrays.
+        result.pieces = std::move(next);
+        result.changed |= changed;
         if (result.pieces.empty()) break;
     }
     return result;
@@ -328,10 +328,10 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
                 if (!occludes(other)) continue;
                 const auto& occluder = boxes[other];
                 std::vector<Polygon> next;
-                for (const auto& piece : visible) {
+                for (auto& piece : visible) {
                     consume(work, limits, piece.size());
                     if (overlaps(piece, occluder)) subtract_box(piece, occluder, next, work, limits);
-                    else append(next, piece, limits);
+                    else append(next, std::move(piece), limits);
                 }
                 visible = std::move(next);
             }

@@ -96,16 +96,17 @@ void append(surface::Mesh &mesh, const surface::Mesh &original, const Model &mod
     }
     const double anchored_uv[]{donor.uv[0] + dot(donor.gradient[0], sub(from_anchor, donor.closest)),
                                donor.uv[1] + dot(donor.gradient[1], sub(from_anchor, donor.closest))};
+    // One wall has one frame; its normal and UV gradients do not vary by vertex.
+    surface::Frame frame{};
+    store(frame.normal, wall.normal);
+    store(frame.smoothnormal, wall.normal);
+    store(frame.s_tangent, scale(gradients[0], 1 / std::sqrt(dot(gradients[0], gradients[0]))));
+    store(frame.t_tangent, scale(gradients[1], 1 / std::sqrt(dot(gradients[1], gradients[1]))));
     for (const auto &p : wall.vertices) {
         surface::Vertex vertex{};
-        surface::Frame frame{};
         store(vertex.pos, p);
         store(vertex.texcoord, std::array{anchored_uv[0] + dot(gradients[0], sub(p, to_anchor)),
                                        anchored_uv[1] + dot(gradients[1], sub(p, to_anchor))});
-        store(frame.normal, wall.normal);
-        store(frame.smoothnormal, wall.normal);
-        store(frame.s_tangent, scale(gradients[0], 1 / std::sqrt(dot(gradients[0], gradients[0]))));
-        store(frame.t_tangent, scale(gradients[1], 1 / std::sqrt(dot(gradients[1], gradients[1]))));
         mesh.vertices.push_back(vertex);
         mesh.frames.push_back(frame);
         for (int axis = 0; axis < 3; ++axis) {
@@ -170,6 +171,7 @@ Prepared prepare(std::shared_ptr<const surface::Mesh> original, std::span<const 
         work.consume(interior.operations);
         MaterialIndex materials(*original, model, !interior.walls.empty(), work);
         std::vector<WallMaterial> walls;
+        walls.reserve(interior.walls.size());
         for (auto &wall : interior.walls) {
             if (work.fragments >= limits.mesh.fragments) throw std::length_error("Cavity fragment budget");
             ++work.fragments;

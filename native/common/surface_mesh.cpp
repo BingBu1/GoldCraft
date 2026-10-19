@@ -98,11 +98,17 @@ void append_indices(Mesh &mesh, std::span<const std::uint32_t> indices, Work &wo
         throw std::length_error("Surface mesh index budget");
     mesh.indices.insert(mesh.indices.end(), indices.begin(), indices.end());
 }
-Range clip_range(Mesh &out, const Mesh &source, Range input, std::span<const Selection> cuts,
-                 const carving::CutIndex& index, std::size_t face, Work &work, bool &changed) {
-    Range result{static_cast<std::uint32_t>(out.indices.size()), 0};
+struct ClipScratch {
     std::vector<std::size_t> candidates;
     std::vector<carving::Box> nearby;
+    std::vector<std::uint32_t> vertices;
+};
+Range clip_range(Mesh &out, const Mesh &source, Range input, std::span<const Selection> cuts,
+                 const carving::CutIndex& index, std::size_t face, Work &work,
+                 ClipScratch &scratch, bool &changed) {
+    Range result{static_cast<std::uint32_t>(out.indices.size()), 0};
+    auto &candidates = scratch.candidates;
+    auto &nearby = scratch.nearby;
     for (std::size_t at = input.first; at < std::size_t(input.first) + input.count; at += 3) {
         const std::array<std::uint32_t, 3> indices{source.indices[at], source.indices[at + 1],
                                                    source.indices[at + 2]};
@@ -139,7 +145,8 @@ Range clip_range(Mesh &out, const Mesh &source, Range input, std::span<const Sel
             if (work.fragments >= work.limits.fragments)
                 throw std::length_error("Surface mesh fragment budget");
             ++work.fragments;
-            std::vector<std::uint32_t> vertices;
+            auto &vertices = scratch.vertices;
+            vertices.clear();
             vertices.reserve(polygon.size());
             for (const auto &v : polygon)
                 vertices.push_back(append_vertex(out, source, v, indices, work));
@@ -182,13 +189,14 @@ Prepared prepare(std::shared_ptr<const Mesh> original, std::span<const Selection
     for(const auto& cut:cuts) boxes.push_back(cut.box);
     const carving::CutIndex index(boxes,[&](auto n){work.consume(n);});
     std::size_t changed_faces = 0;
+    ClipScratch scratch; // Reused only inside this immutable preparation.
     for (std::size_t i = 0; i < original->faces.size(); ++i) {
         const auto &face = original->faces[i];
         work.consume(1);
         bool changed = false;
         auto &target = next->faces[i];
-        target.forward = clip_range(*next, *original, face.forward, cuts, index, i, work, changed);
-        target.reverse = clip_range(*next, *original, face.reverse, cuts, index, i, work, changed);
+        target.forward = clip_range(*next, *original, face.forward, cuts, index, i, work, scratch, changed);
+        target.reverse = clip_range(*next, *original, face.reverse, cuts, index, i, work, scratch, changed);
         if (changed) {
             ++changed_faces;
             target.polygons = (target.forward.count + target.reverse.count) / 3;
