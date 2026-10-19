@@ -51,7 +51,31 @@ public final class HostCollision {
         final Map<Long,VoxelShape> staticShapes=lru(),movingShapes=lru();
         Cache(HostWorldState host){this.host=host;}
         private static Map<Long,VoxelShape> lru(){return new LinkedHashMap<>(256,0.75f,true){@Override protected boolean removeEldestEntry(Map.Entry<Long,VoxelShape> e){return size()>32768;}};}
-        void refresh(){if(map!=host.geometry()||collision!=host.collision()){map=host.geometry();collision=host.collision();staticShapes.clear();movingShapes.clear();revision++;}if(snapshot!=host.brushes()){snapshot=host.brushes();var solids=snapshot.stream().filter(HostWorldState.Brush::solid).toList();if(!brushState.equals(solids)){brushState=solids;movingShapes.clear();revision++;}}}
+        void refresh(){
+            if(map!=host.geometry()) {
+                map=host.geometry();collision=host.collision();staticShapes.clear();movingShapes.clear();revision++;
+            }else if(collision!=host.collision()) {
+                var next=host.collision();
+                var changes=next==null?null:next.appendedChanges(collision);
+                collision=next;
+                if(changes==null){staticShapes.clear();movingShapes.clear();}
+                else {
+                    // Appending a distant hole does not change the cached voxel
+                    // shapes under every player, mob and pathfinding query.
+                    staticShapes.keySet().removeIf(key->{
+                        var pos=BlockPos.fromLong(key);
+                        return changes.affectsWorld(goldsrc(new Box(pos.getX(),pos.getY(),pos.getZ(),
+                            pos.getX()+1.,pos.getY()+1.,pos.getZ()+1.)));
+                    });
+                    if(changes.affectsBrushes())movingShapes.clear();
+                }
+                revision++;
+            }
+            if(snapshot!=host.brushes()) {
+                snapshot=host.brushes();var solids=snapshot.stream().filter(HostWorldState.Brush::solid).toList();
+                if(!brushState.equals(solids)){brushState=solids;movingShapes.clear();revision++;}
+            }
+        }
         VoxelShape shape(BlockPos pos,boolean moving) {
             Map<Long,VoxelShape> shapes=moving?movingShapes:staticShapes;
             return shapes.computeIfAbsent(pos.asLong(),ignored->build(pos,moving));

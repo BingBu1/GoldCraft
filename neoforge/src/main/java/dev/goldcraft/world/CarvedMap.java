@@ -13,6 +13,7 @@ public final class CarvedMap {
     private static final MapEdits.Target WORLD=new MapEdits.Target(0,0,0);
     private record Target(CarvedCutIndex cuts,CarvedHull[] hulls) {}
     private final BspMap map;
+    private final List<MapEdits.Cut> sourceCuts;
     private final Map<MapEdits.Target,Target> targets;
     public CarvedMap(BspMap map,List<MapEdits.Cut> cuts) {
         this(map,cuts,32_000_000);
@@ -20,6 +21,7 @@ public final class CarvedMap {
     CarvedMap(BspMap map,List<MapEdits.Cut> cuts,long limit) {
         this.map=map;
         if(cuts.size()>MapEdits.MAX_CUTS)throw new IllegalArgumentException("Carved map capacity");
+        sourceCuts=List.copyOf(cuts);
         var groups=new HashMap<MapEdits.Target,List<MapEdits.Box>>();
         for(var cut:cuts) {
             if(cut.target().model()>=map.modelCount())throw new IllegalArgumentException("Carved model index");
@@ -37,6 +39,28 @@ public final class CarvedMap {
             prepared.put(group.getKey(),new Target(new CarvedCutIndex(group.getValue()),hulls));
         }
         targets=Map.copyOf(prepared);
+    }
+    /** Cache invalidation for authenticated append-only updates in the same map.
+     * Restores, replacements and identity changes require a complete invalidation. */
+    public static final class AppendedChanges {
+        private final CarvedCutIndex world;
+        private final boolean brushes;
+        private AppendedChanges(List<MapEdits.Box> boxes,boolean brushes) {
+            world=new CarvedCutIndex(boxes);this.brushes=brushes;
+        }
+        public boolean affectsWorld(BspMap.Bounds bounds){return world.any(bounds);}
+        public boolean affectsBrushes(){return brushes;}
+    }
+    public AppendedChanges appendedChanges(CarvedMap previous) {
+        if(previous==null||map!=previous.map||sourceCuts.size()<previous.sourceCuts.size())return null;
+        for(int i=0;i<previous.sourceCuts.size();i++)
+            if(!sourceCuts.get(i).equals(previous.sourceCuts.get(i)))return null;
+        var boxes=new ArrayList<MapEdits.Box>();boolean brushes=false;
+        for(int i=previous.sourceCuts.size();i<sourceCuts.size();i++) {
+            var cut=sourceCuts.get(i);
+            if(cut.target().slot()==0)boxes.add(cut.box());else brushes=true;
+        }
+        return new AppendedChanges(boxes,brushes);
     }
     private static MapEdits.Target identity(HostWorldState.Brush brush) {
         return brush==null?WORLD:new MapEdits.Target(brush.slot(),brush.serial(),brush.model());

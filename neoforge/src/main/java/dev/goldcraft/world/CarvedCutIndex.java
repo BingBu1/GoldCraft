@@ -46,4 +46,11 @@ final class CarvedCutIndex {
         found.sort(Comparator.comparingInt(Entry::ordinal));
         return found.stream().map(Entry::box).toList();
     }
+    boolean any(BspMap.Bounds query) { return any(root,query); }
+    private boolean any(Node node,BspMap.Bounds query) {
+        if(node==null||!overlaps(node.bounds(),query))return false;
+        if(node.left()!=null)return any(node.left(),query)||any(node.right(),query);
+        for(int i=node.first();i<node.last();i++)if(overlaps(entries[i].box(),query))return true;
+        return false;
+    }
 }

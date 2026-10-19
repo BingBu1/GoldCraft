@@ -17,6 +17,7 @@
     "docs/HOST_TEXT_INPUT.md",
     "docs/NATIVE_VISION.md",
     "tools/Test-NativeVision.py",
+    "tools/Test-CarvedCache.py",
     "tools/Test-HostText.py",
     "tools/Exercise-UserInfo.py",
     "docs/LOCAL_PLAYTEST.md",

@@ -137,11 +137,13 @@ final class CarvedVolume {
         collect(hull,branch.back(),clip(cell,plane,work),work,output);
     }
     private static Box bounds(Cell cell) {
-        P min=cell.faces.getFirst().vertices.getFirst(),max=min;
-        for(var face:cell.faces)for(var p:face.vertices)for(int i=0;i<3;i++) {
-            min=min.at(i,Math.min(min.at(i),p.at(i)));max=max.at(i,Math.max(max.at(i),p.at(i)));
+        var first=cell.faces.getFirst().vertices.getFirst();
+        double x=first.x,y=first.y,z=first.z,u=x,v=y,w=z;
+        for(var face:cell.faces)for(var p:face.vertices) {
+            x=Math.min(x,p.x);y=Math.min(y,p.y);z=Math.min(z,p.z);
+            u=Math.max(u,p.x);v=Math.max(v,p.y);w=Math.max(w,p.z);
         }
-        return new Box(min,max);
+        return new Box(new P(x,y,z),new P(u,v,w));
     }
     private static void subtract(Cell cell,Box box,Work work,List<Cell> output) {
         if(!bounds(cell).overlaps(box)) { work.add(output,cell);return; }
@@ -158,12 +160,24 @@ final class CarvedVolume {
         for(int i=0;i<3;i++)if(region.min.at(i)>=region.max.at(i))throw new IllegalArgumentException("Carved region volume");
         work.use(cuts.size());
         var cells=new ArrayList<Cell>();collect(hull,hull.root(),cube(region),work,cells);
-        for(var cut:cuts) {
-            var next=new ArrayList<Cell>();
-            for(var cell:cells) { work.use(1);subtract(cell,cut,work,next); }
-            cells=next;
+        if(cuts.isEmpty())return cells;
+        var index=new CarvedBoundsIndex(cuts,work);
+        var nearby=new CarvedBoundsIndex.Candidates();
+        var result=new ArrayList<Cell>();
+        var pieces=new ArrayList<Cell>();var next=new ArrayList<Cell>();
+        for(var cell:cells) {
+            for(var face:cell.faces)work.use(face.vertices.size());
+            var box=bounds(cell);index.query(box.min,box.max,nearby,work);
+            pieces.clear();work.add(pieces,cell);
+            for(int i=0;i<nearby.size();i++) {
+                next.clear();var cut=cuts.get(nearby.get(i));
+                for(var piece:pieces){work.use(1);subtract(piece,cut,work,next);}
+                var swap=pieces;pieces=next;next=swap;
+                if(pieces.isEmpty())break;
+            }
+            for(var piece:pieces)work.add(result,piece);
         }
-        return cells;
+        return result;
     }
     private static void addPlane(List<Plane> planes,List<P> points,Box body,P normal,Work work) {
         work.use(1);double length=Math.sqrt(normal.dot(normal));if(length<1e-12)return;
@@ -204,17 +218,33 @@ final class CarvedVolume {
         return false;
     }
     static boolean contains(List<CollisionCell> cells,P point) {
-        for(var cell:cells) {
-            if(!cell.bounds.lineBounds(point,point))continue;
-            boolean inside=true;
-            for(var plane:cell.planes)if(!negative(plane,plane.distance(point))) { inside=false;break; }
-            if(inside)return true;
-        }
+        return contains(cells,null,point);
+    }
+    static boolean contains(CollisionCell cell,P point) {
+        if(!cell.bounds.lineBounds(point,point))return false;
+        for(var plane:cell.planes)if(!negative(plane,plane.distance(point)))return false;
+        return true;
+    }
+    // Pure internal queries do not call external code or nest another index
+    // query while reading these IDs. One bounded buffer is shared per thread.
+    private static final ThreadLocal<CarvedBoundsIndex.Candidates> QUERY=ThreadLocal.withInitial(CarvedBoundsIndex.Candidates::new);
+    static final int LINEAR_CELL_LIMIT=64;
+    static boolean contains(List<CollisionCell> cells,CarvedBoundsIndex index,P point) {
+        if(index!=null&&cells.size()>LINEAR_CELL_LIMIT)return index.contains(cells,point);
+        for(var cell:cells)if(contains(cell,point))return true;
         return false;
     }
     static List<Span> spans(List<CollisionCell> cells,P start,P end) {
+        return spans(cells,null,start,end);
+    }
+    static List<Span> spans(List<CollisionCell> cells,CarvedBoundsIndex index,P start,P end) {
         var intervals=new ArrayList<Span>();var move=end.sub(start);
-        for(var cell:cells) {
+        if(cells.size()<=LINEAR_CELL_LIMIT)index=null;
+        var nearby=index==null?null:QUERY.get();
+        if(index!=null)index.query(start,end,nearby,null);
+        int count=index==null?cells.size():nearby.size();
+        for(int i=0;i<count;i++) {
+            var cell=cells.get(index==null?i:nearby.get(i));
             if(!cell.bounds.lineBounds(start,end))continue;
             double enter=Double.NEGATIVE_INFINITY,exit=Double.POSITIVE_INFINITY;
             Plane in=NO_PLANE,out=NO_PLANE;boolean miss=false;

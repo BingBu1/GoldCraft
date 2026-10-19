@@ -21,8 +21,11 @@ class CarvedCutIndexTest {
             var reference=cuts.stream().filter(c->c.maxX()>q.min().x()&&c.minX()<q.max().x()
                 &&c.maxY()>q.min().y()&&c.minY()<q.max().y()&&c.maxZ()>q.min().z()&&c.minZ()<q.max().z()).toList();
             assertEquals(reference,index.query(q));
+            assertEquals(!reference.isEmpty(),index.any(q));
         }
         assertTrue(index.query(new BspMap.Bounds(v(-64,-64,-64),v(0,0,0))).isEmpty());
+        assertFalse(index.any(new BspMap.Bounds(v(-64,-64,-64),v(0,0,0))));
+        assertFalse(new CarvedCutIndex(List.of()).any(new BspMap.Bounds(v(0,0,0),v(32,32,32))));
         assertTrue(new CarvedCutIndex(List.of()).query(new BspMap.Bounds(v(0,0,0),v(32,32,32))).isEmpty());
     }
 }

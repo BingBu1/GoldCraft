@@ -10,6 +10,7 @@ final class CarvedHull {
     private final BspMap.Hull nativeHull;
     private final Box affected;
     private final List<CollisionCell> original,remaining;
+    private final CarvedBoundsIndex originalIndex,remainingIndex;
     final long operations;
     CarvedHull(BspMap map,int model,int hull,List<Box> cuts,long limit) {
         nativeHull=map.hull(model,hull);
@@ -24,7 +25,13 @@ final class CarvedHull {
         var work=new Work(limit,4096);
         var old=carve(map.hull(model,0),region,List.of(),work);
         var next=carve(map.hull(model,0),region,cuts,work);
-        original=expand(old,body,work);remaining=expand(next,body,work);operations=work.used;
+        original=expand(old,body,work);remaining=expand(next,body,work);
+        originalIndex=index(original,work);
+        remainingIndex=index(remaining,work);
+        operations=work.used;
+    }
+    private static CarvedBoundsIndex index(List<CollisionCell> cells,Work work) {
+        return cells.size()<=LINEAR_CELL_LIMIT?null:new CarvedBoundsIndex(cells.stream().map(CollisionCell::bounds).toList(),work);
     }
     private static Box body(int hull) {
         return switch(hull) {
@@ -47,7 +54,7 @@ final class CarvedHull {
     int contents(BspMap.Vec point) { return contents(new P(point)); }
     private int contents(P point) {
         int old=nativeContents(point);
-        return old==BspMap.SOLID&&affected.lineBounds(point,point)&&contains(original,point)&&!contains(remaining,point)?BspMap.EMPTY:old;
+        return old==BspMap.SOLID&&affected.lineBounds(point,point)&&contains(original,originalIndex,point)&&!contains(remaining,remainingIndex,point)?BspMap.EMPTY:old;
     }
     private record Leaf(Span interval,int contents) {}
     private void gather(int node,P start,P delta,Span interval,List<Leaf> output,Work work) {
@@ -67,7 +74,7 @@ final class CarvedHull {
         var start=new P(a);var end=new P(b);var delta=end.sub(start);
         var leaves=new ArrayList<Leaf>();gather(nativeHull.root(),start,delta,new Span(0,1,NO_PLANE,NO_PLANE),leaves,new Work(4_194_304,4096));
         var nativeSpans=new ArrayList<Span>();for(var leaf:leaves)if(leaf.contents==BspMap.SOLID)nativeSpans.add(leaf.interval);
-        var removed=subtract(spans(original,start,end),spans(remaining,start,end));
+        var removed=subtract(spans(original,originalIndex,start,end),spans(remaining,remainingIndex,start,end));
         var spans=merge(subtract(nativeSpans,removed));
         boolean startSolid=contents(start)==BspMap.SOLID;
         boolean allSolid=startSolid&&contents(end)==BspMap.SOLID&&!spans.isEmpty()&&spans.getFirst().begin()<=0&&spans.getFirst().end()>=1;
