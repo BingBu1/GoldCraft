@@ -13,6 +13,7 @@ def load_module(name,path):
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);return module
 
 client=load_module('client_package',R/'tools/client-installer/package.py')
+server_resources=load_module('server_resources',R/'tools/update-package/server_resources.py')
 
 def sha(data):return hashlib.sha256(data).hexdigest()
 def read(p):return json.loads(p.read_text(encoding='utf-8-sig'))
@@ -69,15 +70,14 @@ def build(candidate,output,revision,release='20261019',server_only=False):
     if set(sources)!=set(deployed):raise ValueError('Unmapped candidate artifacts: '+str(set(sources)-set(deployed)))
     for name,path in deployed.items():
         if sha(client.safe(path).read_bytes())!=sha(sources[name].read_bytes()):raise ValueError('Deployed file differs from candidate: '+name)
+    frozen_server_resources=server_resources.freeze_requirements(sources,runtime_resources,client.digest)
     post_effects=None if server_only else client.runtime_resources.verify_post_runtime(game,client.safe)
     output.mkdir(parents=True)
     receipts=[]
     for kind in (('Server',) if server_only else ('Server','Players')):
         root=output/('GoldCraft-'+kind+'-Update-'+release);root.mkdir()
         files=[];names={};roles=['server'] if kind=='Server' else ['cs','minecraft']
-        required_plugins=['goldcraft.amxx','goldcraft_controls.amxx','goldcraft_connection.amxx','goldcraft_zp_rules.amxx','goldcraft_zp_combat.amxx']
-        for plugin in ('zp50_zombie_armor.amxx','zp50_zombie_respawn.amxx','zp50_zombie_knockback.amxx','zp50_zombie_gore.amxx'):
-            if 'server/plugins/'+plugin in sources:required_plugins.append(plugin)
+        required_plugins=list(server_resources.REQUIRED_PLUGINS)
         def add(role,destination,source,*,allow_identical=False):
             name='payload/'+role+'/'+client.relative_name(destination)
             data=source if isinstance(source,bytes) else client.safe(source).read_bytes()
@@ -92,7 +92,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
             add('server','cs/cstrike/dlls/mp.dll',sources['mp.dll'])
             add('server','cs/cstrike/addons/amxmodx/modules/goldcraft_amxx.dll',sources['server/goldcraft_amxx.dll'])
             amxx=server/'cstrike/addons/amxmodx'
-            plugins=set()
+            plugins=set(required_plugins)
             for listing in [amxx/'configs/plugins.ini',*sorted((amxx/'configs').glob('plugins-*.ini'))]:
                 for line in listing.read_text(encoding='utf-8-sig').splitlines():
                     fields=line.split(';',1)[0].strip().split()
@@ -100,7 +100,10 @@ def build(candidate,output,revision,release='20261019',server_only=False):
                     name=fields[0]
                     if not re.fullmatch(r'[\w-]+\.amxx',name) or 'test' in name or 'fixture' in name:raise ValueError('Unexpected runtime plugin '+name)
                     plugins.add(name)
-            for name in sorted(plugins):add('server','cs/cstrike/addons/amxmodx/plugins/'+name,amxx/'plugins'/name)
+            for name in sorted(plugins):
+                destination=server_resources.PLUGIN_DIRECTORY+name
+                source=frozen_server_resources[destination]['source'] if destination in frozen_server_resources else amxx/'plugins'/name
+                add('server',destination,source)
             for name,source in sorted(sources.items()):
                 if name.startswith('server/configs/'):
                     add('server','cs/cstrike/addons/amxmodx/configs/'+Path(name).name,source)
@@ -194,6 +197,8 @@ CS 若提示引擎/client.dll 不匹配，停止更新并把提示发给服主�
         manifest=dict(schema=1,release=release,sourceRevision=revision,roles=roles,files=files,
             supportedGame=dict(engineSha256=sha((game/'hw.dll').read_bytes()),clientSha256=sha((game/'cstrike/cl_dlls/client.dll').read_bytes())),
             protocol=protocol,plugins=list(client.PLUGINS),requiredPlugins=required_plugins)
+        if kind=='Server':
+            manifest['serverResources']=server_resources.verify_payload(files,required_plugins,frozen_server_resources)
         if kind=='Players':
             client.runtime_resources.verify_post_rows(files,'payload/cs/cstrike/',post_effects)
             manifest['postEffects']=post_effects

@@ -479,7 +479,8 @@
     "tools/Exercise-NativeMovement.py",
     "docs/2026-10-19_分析-HSV后处理-report.md",
     "tests/native/hsv_filter_gl_tests.inc",
-    "tools/client-installer/runtime_resources.py"
+    "tools/client-installer/runtime_resources.py",
+    "tools/update-package/server_resources.py"
   ],
   "trees": {
     "native": [

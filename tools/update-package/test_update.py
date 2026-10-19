@@ -9,7 +9,49 @@ import json
 import subprocess
 import zipfile
 
-from package import client
+from package import client, server_resources
+
+
+def check_cumulative_manifest(manifest):
+    """Independently reject omitted resources even if remaining hashes agree."""
+    import copy
+
+    receipt = manifest['serverResources']
+    frozen = receipt['resources']
+    assert server_resources.verify_payload(manifest['files'], manifest['requiredPlugins'], frozen) == receipt
+    for destination in (
+        'cs/cstrike/models/x_re/floating_damage.mdl',
+        'cs/cstrike/sprites/zp_infection.spr',
+        'cs/cstrike/addons/amxmodx/data/lang/zp50_zombie_respawn.txt',
+        'cs/cstrike/addons/amxmodx/configs/plugins-zp50-zombie-respawn.ini',
+        'cs/cstrike/addons/amxmodx/plugins/zp50_zombie_gore.amxx',
+    ):
+        changed = [row for row in manifest['files'] if row['destination'] != destination]
+        try:
+            server_resources.verify_payload(changed, manifest['requiredPlugins'], frozen)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Incomplete cumulative payload accepted: ' + destination)
+    for failure in ('activation', 'changed resource', 'duplicate destination', 'missing freeze'):
+        changed = copy.deepcopy(manifest['files'])
+        plugins = list(manifest['requiredPlugins'])
+        expected = copy.deepcopy(frozen)
+        name = 'cs/cstrike/sprites/zp_infection.spr'
+        if failure == 'activation':
+            plugins.remove('zp50_effects_infect.amxx')
+        elif failure == 'changed resource':
+            next(row for row in changed if row['destination'] == name)['sha256'] = '0' * 64
+        elif failure == 'duplicate destination':
+            changed.append(copy.deepcopy(next(row for row in changed if row['destination'] == name)))
+        else:
+            del expected[name]
+        try:
+            server_resources.verify_payload(changed, plugins, expected)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError('Invalid cumulative payload accepted: ' + failure)
 
 
 def digest(data):
@@ -30,6 +72,8 @@ def main():
     roles = [('server', 'Server')] if args.server_only else [('server', 'Server'), ('cs', 'Players'), ('minecraft', 'Players')]
     packages = {role: next(args.packages.glob('GoldCraft-' + kind + '-Update-*')) for role, kind in roles}
     packages = {k: v if v.is_dir() else v.with_suffix('') for k, v in packages.items()}
+    server_manifest = json.loads((packages['server'] / 'update-manifest.json').read_text(encoding='utf-8'))
+    check_cumulative_manifest(server_manifest)
     reports = []
 
     def write(target, name, data):
@@ -124,6 +168,13 @@ def main():
     assert 'custom_connection.amxx' in active
     assert '; owner note' in (server / 'cs/cstrike/addons/amxmodx/configs/plugins-goldcraft-connection.ini').read_text()
     manifest = json.loads((packages['server'] / 'update-manifest.json').read_text())
+    for name, expected in manifest['serverResources']['resources'].items():
+        installed = server / name
+        assert installed.is_file(), name
+        # Plugin lists merge owner edits, so their bytes intentionally differ.
+        if not name.startswith(server_resources.CONFIG_DIRECTORY):
+            assert installed.stat().st_size == expected['bytes'] and digest(installed.read_bytes()) == expected['sha256'], name
+    reports.append('Cumulative server resources installed and all required features enabled once')
     floating = [row for row in manifest['files'] if 'floating_damage' in row['destination']]
     assert len(floating) == 4 and 'addon_floating_damage.amxx' in required
     for row in floating:
