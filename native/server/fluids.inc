@@ -25,7 +25,7 @@ void SendFluids(){
     for(int slot=1;slot<=max_clients;++slot){
         auto* player=edicts+slot;auto& delivery=fluid_deliveries[slot];
         if(!fluid_message||!client_ready[slot]||player->free||(player->v.flags&FL_FAKECLIENT)
-            ||Q_strcmp(GET_KEY_VALUE(GET_INFO_BUFFER(player),fluids::client_capability),"1"))continue;
+            ||!HasClientFeature(player,client_features::fluid,fluids::client_capability))continue;
         // Do not starve a bounded in-flight snapshot when flowing water changes
         // again; finish it before preparing the next. Authority loss cancels it.
         if(delivery.pending.empty()||!active){

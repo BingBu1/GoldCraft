@@ -31,7 +31,7 @@ for name in ("Section", "Texture", "EntityBatch", "EffectBatch"):
 args.output.parent.mkdir(parents=True, exist_ok=True)
 types = args.output.with_name(args.output.stem + "_types.inc")
 types.write_text("\n".join(parts), encoding="utf-8")
-args.output.write_text(region("void UpdateStaticScene(){", "void ClearPostEffects(){")+"\n"+
+args.output.write_text(region("void UpdateStaticScene(){", "void PublishClientFeatures() {")+"\n"+
                       region("void ClearSections(){", "struct Texture {")+"\n"+
                       region("void RebuildSectionFootprint(Section& section) noexcept {", "void ReadEntityTexture(")+"\n"+
                       region("bool DrawEntityOutlineMask(", "bool DrawStaticShadow(std::uint32_t flags) noexcept {")+"\n"+

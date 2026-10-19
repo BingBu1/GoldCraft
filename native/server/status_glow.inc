@@ -43,7 +43,7 @@ bool GlowViewer(edict_t* viewer){
     const int slot=ENTINDEX(viewer);
     return slot>=1&&slot<=max_clients&&client_ready[slot]&&registry.get(slot)&&!viewer->free
         &&viewer->pvPrivateData&&!(viewer->v.flags&FL_FAKECLIENT)
-        &&std::strcmp(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(viewer),status_glow::client_capability),"1")==0;
+        &&HasClientFeature(viewer,client_features::outline,status_glow::client_capability);
 }
 bool StatusGlowVisible(edict_t* entity,edict_t* viewer){
     return GlowViewer(viewer)&&entity&&CurrentGlow(static_cast<unsigned>(ENTINDEX(entity)));

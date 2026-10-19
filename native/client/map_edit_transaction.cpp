@@ -34,11 +34,12 @@ void EditTransaction::invalidate() {
 }
 edits::Applied EditTransaction::receive(edits::Replica next, edits::Applied result) {
     if (result != edits::Applied::ignored) {
-        // Continuous additive explosions must not starve an in-flight large
-        // preparation. Its exact revision may commit before the newest one.
+        // Every additive stream must let in-flight preparation finish, even
+        // below the asynchronous collision threshold. Renderer preparation
+        // spans frames for small edits too. Commit its exact revision first.
         // Clears/removals, gaps and identity changes cancel immediately.
         const auto& before=desired_.state();const auto& after=next.state();
-        const bool extends=ticket_&&prepared_.state().cuts.size()>=32&&result==edits::Applied::changed&&
+        const bool extends=ticket_&&result==edits::Applied::changed&&
             after.epoch==before.epoch&&after.cuts.size()>=before.cuts.size()&&
             std::equal(before.cuts.begin(),before.cuts.end(),after.cuts.begin());
         if(!extends)cancel();

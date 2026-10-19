@@ -14,7 +14,7 @@ void HandleStatusVision(std::span<const std::uint8_t> bytes){
     old=state;
     auto* e=edicts+state.slot;
     if(vision_message&&client_ready[state.slot]&&!(e->v.flags&FL_FAKECLIENT)
-        &&std::strcmp(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(e),status_vision::client_capability),"1")==0){
+        &&HasClientFeature(e,client_features::vision,status_vision::client_capability)){
         MESSAGE_BEGIN(MSG_ONE,vision_message,nullptr,e);for(auto b:bytes)WRITE_BYTE(b);MESSAGE_END();
     }
 }

@@ -17,7 +17,7 @@ void HandleNativeWater(std::span<const std::uint8_t> bytes){
     current={state,gpGlobals->time,gpGlobals->time+.35f,authority};
     auto* e=edicts+state.slot;
     if(water_message&&client_ready[state.slot]&&!(e->v.flags&FL_FAKECLIENT)
-        &&std::strcmp(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(e),native_water::client_capability),"1")==0){
+        &&HasClientFeature(e,client_features::water,native_water::client_capability)){
         MESSAGE_BEGIN(MSG_ONE,water_message,nullptr,e);for(auto b:bytes)WRITE_BYTE(b);MESSAGE_END();
     }
 }

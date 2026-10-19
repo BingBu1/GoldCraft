@@ -1,3 +1,4 @@
+#include "goldcraft/client_features.hpp"
 #include "goldcraft/status_glow.hpp"
 #include <cstring>
 #include <cstdlib>
@@ -33,11 +34,12 @@ NativePlayerIdentity CaptureNativePlayer(unsigned slot){const auto* pair=registr
     player_births[slot],player_lives[slot],registry.world(),edicts[slot].serialnumber};}
 bool CurrentNativePlayer(const NativePlayerIdentity& i){const auto* pair=registry.get(i.slot);return pair&&i.table==edicts&&!edicts[i.slot].free&&i.world==registry.world()
     &&i.serial==pair->serial&&i.spawn==player_births[i.slot]&&i.life==player_lives[i.slot]&&i.entity_serial==edicts[i.slot].serialnumber;}
-struct {edict_t* pfnGetInfoKeyBuffer(edict_t* e){return e;}const char* pfnInfoKeyValue(edict_t* e,const char*){return viewer_caps[ENTINDEX(e)];}}g_engfuncs;
+struct {edict_t* pfnGetInfoKeyBuffer(edict_t* e){return e;}const char* pfnInfoKeyValue(edict_t* e,const char* key){return std::strcmp(key,client_features::key)==0?"":viewer_caps[ENTINDEX(e)];}}g_engfuncs;
 struct Sent {int slot=0;Bytes bytes;};std::vector<Sent> sent;
 void MESSAGE_BEGIN(int,int,const void*,edict_t* e){sent.push_back({ENTINDEX(e),{}});}
 void WRITE_BYTE(unsigned b){sent.back().bytes.push_back(static_cast<std::uint8_t>(b));}
 void MESSAGE_END(){}
+#include "client_features_adapter.hpp"
 #include "../../native/server/status_glow.inc"
 bool GoldCraft_StatusGlowVisible(edict_t* entity,edict_t* viewer){return StatusGlowVisible(entity,viewer);}
 bool pvs=false,recent=false,leaf_changed=false,map_changed=false;int positive_marks=0,negative_marks=0,g_groupop=GROUP_OP_AND;

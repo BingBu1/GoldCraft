@@ -1,3 +1,4 @@
+#include "goldcraft/client_features.hpp"
 #include "goldcraft/native_water.hpp"
 #include <cstring>
 #include "regamedll/regamedll_const.h"
@@ -45,10 +46,11 @@ struct Controlled {bool active=false;};std::array<Controlled,65> controlled;
 constexpr int FL_FAKECLIENT=8192,MSG_ONE=1;
 goldcraft::Bytes sent;edict_t* recipient=nullptr;
 const char* userCapability="1";
-struct Engine {char* pfnGetInfoKeyBuffer(edict_t*){return nullptr;}const char* pfnInfoKeyValue(char*,const char*){return userCapability;}}g_engfuncs;
+struct Engine {char* pfnGetInfoKeyBuffer(edict_t*){return nullptr;}const char* pfnInfoKeyValue(char*,const char* key){return std::strcmp(key,client_features::key)==0?"":userCapability;}}g_engfuncs;
 #define MESSAGE_BEGIN(mode,id,origin,entity) assert(mode==MSG_ONE&&id!=0);sent.clear();recipient=entity
 #define WRITE_BYTE(b) sent.push_back(b)
 #define MESSAGE_END() ((void)0)
+#include "client_features_adapter.hpp"
 #include "../../native/server/native_water.inc"
 int checks=0;
 void check(bool ok){++checks;if(!ok){std::cerr<<"check "<<checks<<" failed\n";std::abort();}}

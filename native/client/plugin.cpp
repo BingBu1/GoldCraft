@@ -16,6 +16,7 @@
 #include "status_motion.hpp"
 #include "goldcraft/status_motion.hpp"
 #include "goldcraft/native_water.hpp"
+#include "goldcraft/client_features.hpp"
 #include "goldcraft/status_vision.hpp"
 #include "goldcraft/status_nausea.hpp"
 #include "goldcraft/view_distortion.hpp"
@@ -459,6 +460,14 @@ void UpdateStaticScene(){
     render::set_static_scene(&static_scene_callbacks,ready);
 }
 
+void PublishClientFeatures() {
+    using namespace client_features;
+    const unsigned bits = nausea | vision | fluid |
+        (client_motion::ready() ? motion | water : 0u) |
+        (native_outline_ready ? outline : 0u);
+    if (gEngfuncs.Cvar_SetValue && gEngfuncs.pfnGetCvarPointer(key))
+        gEngfuncs.Cvar_SetValue(key, static_cast<float>(bits));
+}
 void ClearPostEffects(){
     post_batches.clear();post_stages.clear();post_revision=post_generation=0;
     post_depth_resets.fill(false);
@@ -476,6 +485,7 @@ bool EntityFrameFresh(){
 void StopPostScene(){
     native_outline_ready=false;native_glow.clear();
     if(gEngfuncs.Cvar_SetValue)gEngfuncs.Cvar_SetValue(status_glow::client_capability,0);
+    PublishClientFeatures();
     if(post_provider)post_provider->UnregisterPostSceneCallbacks(&post_scene_callbacks);
     post_provider=nullptr;entity_outline_replay.reset();entity_outline_gamma=nullptr;entity_outline_error.clear();post_replay.reset();ClearPostEffects();
 }
@@ -1098,19 +1108,19 @@ void InitHud() {
     render_post_effects=gEngfuncs.pfnRegisterVariable("mc_post_effects","1",0);
     render_scene_cull=gEngfuncs.pfnRegisterVariable("mc_scene_cull","1",0);
     render_scene_static_shadows=gEngfuncs.pfnRegisterVariable("mc_scene_static_shadows","1",0);
-    gEngfuncs.pfnRegisterVariable(status_motion::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(status_motion::client_capability,client_motion::ready()?"1":"0",0);
     gEngfuncs.Cvar_SetValue(status_motion::client_capability,client_motion::ready()?1.f:0.f);
     gEngfuncs.pfnHookUserMsg(status_motion::message_name,MotionMessage);
-    gEngfuncs.pfnRegisterVariable(native_water::client_capability,client_motion::ready()?"1":"0",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(native_water::client_capability,client_motion::ready()?"1":"0",0);
     gEngfuncs.Cvar_SetValue(native_water::client_capability,client_motion::ready()?1.f:0.f);
     gEngfuncs.pfnHookUserMsg(native_water::message_name,WaterMessage);
-    gEngfuncs.pfnRegisterVariable(status_nausea::client_capability,"1",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(status_nausea::client_capability,"1",0);
     gEngfuncs.Cvar_SetValue(status_nausea::client_capability,1);
     gEngfuncs.pfnHookUserMsg(status_nausea::message_name,NauseaMessage);
-    gEngfuncs.pfnRegisterVariable(status_vision::client_capability,"1",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(status_vision::client_capability,"1",0);
     gEngfuncs.Cvar_SetValue(status_vision::client_capability,1);
     gEngfuncs.pfnHookUserMsg(status_vision::message_name,VisionMessage);
-    gEngfuncs.pfnRegisterVariable(status_glow::client_capability,"0",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(status_glow::client_capability,"0",0);
     gEngfuncs.Cvar_SetValue(status_glow::client_capability,0);
     gEngfuncs.pfnHookUserMsg(status_glow::message_name,GlowMessage);
     gEngfuncs.pfnHookUserMsg("GCBind",BindingMessage);
@@ -1141,8 +1151,15 @@ void InitHud() {
             native_fluids.accept(world,std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)),Seconds());
         }catch(const std::exception& e){Log(e.what());}return 1;
     });
-    gEngfuncs.pfnRegisterVariable(fluids::client_capability,"1",FCVAR_USERINFO);
+    gEngfuncs.pfnRegisterVariable(fluids::client_capability,"1",0);
     gEngfuncs.Cvar_SetValue(fluids::client_capability,1.f);
+    // Remove only our obsolete optional advertisements, never user settings.
+    for (const char* key : {status_motion::client_capability, native_water::client_capability,
+            status_nausea::client_capability, status_vision::client_capability,
+            status_glow::client_capability, fluids::client_capability})
+        gEngfuncs.PlayerInfo_SetValueForKey(key, "");
+    gEngfuncs.pfnRegisterVariable(client_features::key, "0", FCVAR_USERINFO);
+    PublishClientFeatures();
     Log("client HUD hooks registered");
 }
 int VidInit() {
@@ -1181,6 +1198,7 @@ int VidInit() {
     }
     native_outline_ready=post_provider&&render::studio_outline();
     gEngfuncs.Cvar_SetValue(status_glow::client_capability,native_outline_ready?1.f:0.f);
+    PublishClientFeatures();
     return result;
 }
 void CalcRefDef(ref_params_t* params) {

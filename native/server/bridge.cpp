@@ -21,6 +21,7 @@
 #include "goldcraft/status_melee.hpp"
 #include "goldcraft/native_impulse.hpp"
 #include "goldcraft/native_water.hpp"
+#include "goldcraft/client_features.hpp"
 #include "goldcraft/status_visibility.hpp"
 #include "goldcraft/status_glow.hpp"
 #include "pm_movevars.h"
@@ -46,6 +47,13 @@
 
 namespace {
 using namespace goldcraft;
+bool HasClientFeature(edict_t* entity, client_features::Feature feature, const char* legacy) {
+    if (!entity) return false;
+    return client_features::supports([&](const char* key) {
+        return g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(entity), key);
+    }, feature, legacy);
+}
+
 Endpoint link;
 PairRegistry registry;
 edict_t* edicts=nullptr;

@@ -20,7 +20,7 @@ void HandleStatusNausea(std::span<const std::uint8_t> bytes){
     current={s,identity,authority};
     auto* e=edicts+s.slot;
     if(nausea_message&&client_ready[s.slot]&&!(e->v.flags&FL_FAKECLIENT)
-        &&std::strcmp(g_engfuncs.pfnInfoKeyValue(g_engfuncs.pfnGetInfoKeyBuffer(e),status_nausea::client_capability),"1")==0
+        &&HasClientFeature(e,client_features::nausea,status_nausea::client_capability)
         &&CurrentNativePlayer(identity)&&link.status_nausea()&&authority==link.generation()){
         if(nausea_delivery_revision==UINT64_MAX)return;
         auto next=s;next.revision=++nausea_delivery_revision;const auto payload=status_nausea::encode(next);

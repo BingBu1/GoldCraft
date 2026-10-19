@@ -1,3 +1,4 @@
+#include "goldcraft/client_features.hpp"
 #include "goldcraft/status_nausea.hpp"
 #include <array>
 #include <cstdlib>
@@ -24,11 +25,12 @@ bool CurrentNativePlayer(const NativePlayerIdentity& i){const auto* pair=registr
  &&i.serial==pair->serial&&i.spawn==player_births[i.slot]&&i.life==player_lives[i.slot]&&i.entity_serial==edicts[i.slot].serialnumber;}
 const char* capability="1";
 struct {edict_t* pfnGetInfoKeyBuffer(edict_t* e){return e;}
- const char* pfnInfoKeyValue(edict_t*,const char*){return capability;}}g_engfuncs;
+ const char* pfnInfoKeyValue(edict_t*,const char* key){return std::strcmp(key,client_features::key)==0?"":capability;}}g_engfuncs;
 unsigned sent=0;Bytes forwarded;
 void MESSAGE_BEGIN(int,int,void*,edict_t*){++sent;forwarded.clear();}
 void WRITE_BYTE(unsigned char b){forwarded.push_back(b);}
 void MESSAGE_END(){}
+#include "client_features_adapter.hpp"
 #include "../../native/server/status_nausea.inc"
 int checks;
 void check(bool ok){++checks;if(!ok){std::cerr<<"failed check "<<checks<<'\n';std::abort();}}

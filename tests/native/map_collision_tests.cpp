@@ -399,12 +399,14 @@ void render_transaction() {
     assert(transaction.accept(
                edits::Delta{9, 4, 5, edits::Operation::add, {}, {{-1, 100, -64}, {17, 200, 64}}}) ==
            edits::Applied::changed);
-    assert(renderer.ticket == 0 && renderer.cancels == 2);
+    assert(renderer.ticket == superseded && renderer.cancels == 1);
     transaction.pump(&renderer, &model);
-    assert(renderer.ticket != superseded && transaction.state().cuts.size() == 2);
+    assert(renderer.ticket == superseded && transaction.state().cuts.size() == 2);
     run(a, b);
     assert(result.hitgroup == 77);
     renderer.status = MetaWorldEditStatus::Ready;
+    transaction.pump(&renderer, &model);
+    assert(renderer.visible == 4 && transaction.applied().revision == 4 && transaction.pending());
     transaction.pump(&renderer, &model);
     run(a, b);
     assert(result.fraction == 1 && renderer.visible == 5 && transaction.applied().revision == 5);
@@ -507,6 +509,7 @@ void render_transaction() {
                  "\"restore\":true,\"dynamicRejectsAtomically\":true,\"passed\":true}\n";
 }
 #include "map_edit_transaction_tests.inc"
+#include "map_edit_progress_tests.inc"
 int nested_predicate(physent_t *entity) {
     if (entity->info != 1)
         return 0;
@@ -1151,6 +1154,7 @@ int main(int argc, char **argv) {
             assault(argv[1]);
         else {
             synthetic();
+            additive_progress();
             render_transaction();
             targeted_transaction();
             lifecycle();
