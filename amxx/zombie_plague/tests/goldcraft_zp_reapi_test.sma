@@ -23,6 +23,8 @@ new gTraceCalls, bool:gTraceOriginal;
 new bool:gObserve;
 new gRespawnCounts[2];
 new Float:gDeathAt;
+new bool:gGoreObserve;
+new gGoreBlood, gGoreFlesh, gGoreSparks;
 new TeamName:gNotifiedTeam[33];
 
 public plugin_init()
@@ -36,7 +38,10 @@ public plugin_init()
     register_srvcmd("gc_zp_reapi_respawn_begin", "BeginZombieRespawn");
     register_srvcmd("gc_zp_reapi_respawn_early", "CheckRespawnEarly");
     register_srvcmd("gc_zp_reapi_respawn_done", "CheckRespawnDone");
+    register_srvcmd("gc_zp_reapi_respawn_policy", "BeginRespawnPolicy");
+    register_srvcmd("gc_zp_reapi_respawn_denied", "CheckRespawnDenied");
     register_srvcmd("gc_zp_reapi_head_knockback", "TestHeadKnockback");
+    register_srvcmd("gc_zp_reapi_gore", "TestZombieGore");
     register_srvcmd("gc_zp_reapi_finish", "TestAfterProtection");
     register_srvcmd("gc_zp_reapi_round", "TestRound");
     register_srvcmd("gc_zp_reapi_team_refresh", "TestTeamRefresh");
@@ -50,6 +55,67 @@ public plugin_init()
     register_forward(FM_SetClientKeyValue, "ModelWrite");
     register_message(get_user_msgid("TeamInfo"), "TeamMessage");
     register_message(get_user_msgid("ScoreInfo"), "ScoreMessage");
+    RegisterMessage(SVC_TEMPENTITY, "ObserveGoreMessage", true);
+}
+
+public ObserveGoreMessage(message, destination, receiver)
+{
+    if (!gGoreObserve || GetMessageArgsNum() < 1) return HC_CONTINUE;
+    switch (GetMessageData(MsgArg, 1)) {
+        case TE_BLOODSTREAM: gGoreBlood++;
+        case TE_STREAK_SPLASH: if (GetMessageArgsNum() == 11) gGoreSparks += GetMessageData(MsgArg, 9);
+        case TE_BREAKMODEL: if (GetMessageArgsNum() == 15) gGoreFlesh += GetMessageData(MsgArg, 13);
+    }
+    return HC_CONTINUE;
+}
+
+public TestZombieGore()
+{
+    if (!get_pcvar_num(gEnabled) || !is_user_alive(gPlayer[0])) return PLUGIN_HANDLED;
+    new z = gPlayer[0], h = gPlayer[1], other = gPlayer[2];
+    if (zp_gamemodes_get_current() < 0) zp_gamemodes_start(zp_gamemodes_get_id("Infection Mode"), z);
+    set_cvar_num("zp_spawn_protection_time", 0);
+    set_cvar_num("zp_zombie_hitzones", 0);
+    new Float:defense = get_cvar_float("zp_zombie_defense");
+    set_cvar_float("zp_zombie_defense", 1.0);
+    for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
+    zp_core_force_infect(z);
+    gGoreObserve = true; gGoreBlood = gGoreFlesh = gGoreSparks = 0;
+    TraceHit(z, h, 40.0, HIT_HEAD);
+    Check("gore_helmet_sparks_zero", gGoreSparks == 0);
+    Check("gore_armored_head_bleeds", gGoreBlood == 1);
+    Check("gore_helmet_and_armor_retained", get_member(z, m_iKevlar) == ARMOR_VESTHELM && Float:get_entvar(z, var_armorvalue) > 0.0);
+    // Same native effect outside a player hit must remain untouched.
+    new Float:point[3]; get_entvar(z, var_origin, point);
+    message_begin_f(MSG_PVS, SVC_TEMPENTITY, point);
+    write_byte(TE_STREAK_SPLASH);
+    for (new axis = 0; axis < 3; axis++) write_coord_f(point[axis]);
+    write_coord(0); write_coord(0); write_coord(1);
+    write_byte(5); write_short(22); write_short(25); write_short(65); message_end();
+    Check("gore_unrelated_streak_preserved", gGoreSparks == 22);
+    zp_core_force_infect(z); rg_set_user_armor(z, 0, ARMOR_NONE); set_entvar(z, var_health, 10000.0);
+    gGoreBlood = gGoreFlesh = 0;
+    Damage(z, h, 600.0); Damage(z, h, 399.0);
+    Check("gore_no_fragment_before_1000", gGoreFlesh == 0 && gGoreBlood == 2);
+    Damage(z, h, 1.0);
+    Check("gore_fragment_at_1000", gGoreFlesh == 1);
+    Damage(z, h, 2500.0); Check("gore_multiple_thresholds", gGoreFlesh == 3);
+    zp_core_force_infect(other); rg_set_user_armor(other, 0, ARMOR_NONE); set_entvar(other, var_health, 10000.0);
+    Damage(other, h, 999.0); Check("gore_players_have_separate_counters", gGoreFlesh == 3);
+    Damage(z, h, 500.0); Check("gore_fractional_remainder_preserved", gGoreFlesh == 4);
+    Damage(other, h, 1.0); Check("gore_second_player_threshold", gGoreFlesh == 5);
+    new blood = gGoreBlood, flesh = gGoreFlesh;
+    set_entvar(z, var_takedamage, DAMAGE_NO); Damage(z, h, 5000.0);
+    Check("gore_rejected_damage_no_effects", gGoreBlood == blood && gGoreFlesh == flesh);
+    set_entvar(z, var_takedamage, DAMAGE_AIM);
+    Damage(z, h, 999.0); zp_core_force_cure(z); zp_core_force_infect(z);
+    rg_set_user_armor(z, 0, ARMOR_NONE); set_entvar(z, var_health, 1250.0);
+    Damage(z, h, 1.0); Check("gore_cure_infection_resets_counter", gGoreFlesh == flesh);
+    Damage(z, h, 100000.0);
+    Check("gore_lethal_overkill_counts_remaining_health", gGoreFlesh == flesh + 1);
+    gGoreObserve = false;
+    set_cvar_float("zp_zombie_defense", defense);
+    return Summary();
 }
 
 Check(const name[], condition)
@@ -276,6 +342,33 @@ public CheckRespawnDone()
         Check("respawn_gets_2000_and_helmet", Float:get_entvar(id, var_armorvalue) == 2000.0 && get_member(id, m_iKevlar) == ARMOR_VESTHELM);
         Check("respawn_once_only", gSpawn[id] == gRespawnCounts[n] + 1);
     }
+    return Summary();
+}
+
+public BeginRespawnPolicy()
+{
+    if (!get_pcvar_num(gEnabled)) return PLUGIN_HANDLED;
+    new argument[16]; read_argv(1, argument, charsmax(argument));
+    new mode = str_to_num(argument);
+    new const names[][] = {"Infection Mode", "Nemesis Mode", "Survivor Mode", "Swarm Mode", "Multiple Infection Mode", "Plague Mode", "Armageddon Mode"};
+    if (mode < 0 || mode >= sizeof names) return PLUGIN_HANDLED;
+    for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
+    set_cvar_num("zp_deathmatch", 0);
+    Check("respawn_policy_actual_mode_started", zp_gamemodes_start(zp_gamemodes_get_id(names[mode]), gPlayer[2]));
+    for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
+    zp_core_force_infect(gPlayer[0]); zp_core_force_infect(gPlayer[2]);
+    for (new n = 0; n < 2; n++) {
+        gRespawnCounts[n] = gSpawn[gPlayer[n]];
+        ExecuteHamB(Ham_Killed, gPlayer[n], gPlayer[3], GIB_NEVER);
+    }
+    return Summary();
+}
+
+public CheckRespawnDenied()
+{
+    for (new n = 0; n < 2; n++)
+        Check(n ? "mode_veto_blocks_dead_human" : "mode_veto_blocks_dead_zombie",
+            !is_user_alive(gPlayer[n]) && gSpawn[gPlayer[n]] == gRespawnCounts[n]);
     return Summary();
 }
 

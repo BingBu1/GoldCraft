@@ -8,6 +8,7 @@
 #include "async_diagnostics.hpp"
 #include "steam_async.hpp"
 #include "server_hud.hpp"
+#include "hud_sprites.hpp"
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
 #include "packet_entities.hpp"
@@ -1907,8 +1908,10 @@ void PlayerMove(playermove_t* move,int server){
 }
 int InitializeClient(cl_enginefunc_t* engine,int version){
     client_map::engine_initialized(engine);
+    hud_sprites::bind(engine->pfnSPR_GetList);
     const int result=client::initialize_with_events(engine,version,
-        client_map::event_api(engine->pEventAPI),gExportfuncs.Initialize);
+        client_map::event_api(engine->pEventAPI),gExportfuncs.Initialize,hud_sprites::list);
+    if(result)gEngfuncs.pfnSPR_GetList=hud_sprites::list;
     if(!result)client_map::shutdown_events();
     return result;
 }

@@ -4,6 +4,7 @@
 #include <limits>
 #include <set>
 #include <tuple>
+#include <utility>
 
 namespace goldcraft::edits {
 namespace {
@@ -54,14 +55,16 @@ void apply(Snapshot& s, const Delta& d) {
 }
 }
 Bytes encode(const Snapshot& s) {
-    validate(s); Writer w; w.u64(s.epoch); w.u64(s.revision); w.u32(static_cast<std::uint32_t>(s.cuts.size()));
-    for (const auto& c : s.cuts) { w.u64(c.id); write(w, c.target); write(w, c.box); } return w.data;
+    validate(s); Writer w; w.data.reserve(20 + s.cuts.size() * 44);
+    w.u64(s.epoch); w.u64(s.revision); w.u32(static_cast<std::uint32_t>(s.cuts.size()));
+    for (const auto& c : s.cuts) { w.u64(c.id); write(w, c.target); write(w, c.box); } return std::move(w.data);
 }
 Bytes encode(const Delta& d) {
-    validate(d); Writer w; w.u64(d.epoch); w.u64(d.base); w.u64(d.revision); w.u32(static_cast<std::uint32_t>(d.operation));
+    validate(d); Writer w; w.data.reserve(64);
+    w.u64(d.epoch); w.u64(d.base); w.u64(d.revision); w.u32(static_cast<std::uint32_t>(d.operation));
     if (d.operation != Operation::clear) write(w, d.target);
     if (d.operation == Operation::add) write(w, d.box);
-    return w.data;
+    return std::move(w.data);
 }
 Snapshot snapshot(std::span<const std::uint8_t> bytes) {
     Reader r(bytes); Snapshot s; s.epoch = r.u64(); s.revision = r.u64(); const auto count = r.u32();
@@ -77,14 +80,19 @@ Delta delta(std::span<const std::uint8_t> bytes) {
     if (d.operation == Operation::add) d.box = box(r);
     r.finish(); validate(d); return d;
 }
-void Ledger::reset(std::uint64_t epoch) { state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); }
-void Ledger::swap(Ledger& other) noexcept { std::swap(state_,other.state_); journal_.swap(other.journal_); }
+void Ledger::reset(std::uint64_t epoch) {
+    state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); snapshot_message_.reset();
+}
+void Ledger::swap(Ledger& other) noexcept {
+    std::swap(state_,other.state_); journal_.swap(other.journal_); snapshot_message_.swap(other.snapshot_message_);
+}
 void Ledger::commit(Delta d) {
     validate(d);
     // Allocate journal storage before changing the authoritative state. Roll it
     // back if cut allocation fails, so peers never receive an uncommitted edit.
-    journal_.push_back(d);
+    journal_.push_back({d,{}});
     try { apply(state_, d); } catch (...) { journal_.pop_back(); throw; }
+    snapshot_message_.reset();
     if (journal_.size() > journal_size) journal_.pop_front();
 }
 bool Ledger::add(Target t, Box b) {
@@ -109,6 +117,7 @@ bool Ledger::add_batch(std::span<const Cut> cuts) {
     }
     if (revision == state_.revision) return false;
     state_.cuts.swap(next); state_.revision = revision;
+    snapshot_message_.reset();
     // One snapshot avoids thousands of delta allocations/fragments. All
     // recipients already recover from an expired journal using this path.
     journal_.clear();
@@ -123,12 +132,25 @@ bool Ledger::restore() {
     if (state_.cuts.empty()) return false;
     commit({state_.epoch, state_.revision, state_.revision + 1, Operation::clear, {}, {}}); return true;
 }
-std::vector<Message> Ledger::since(std::uint64_t revision) const {
+std::shared_ptr<const Message> Ledger::next(std::uint64_t revision) const {
     if (!state_.epoch || revision == state_.revision) return {};
+    if (revision && revision < state_.revision && !journal_.empty() && revision >= journal_.front().change.base) {
+        // The journal is contiguous, so select one delta without scanning or
+        // serializing the backlog again for each recipient and fragment.
+        const auto& entry = journal_[static_cast<std::size_t>(revision - journal_.front().change.base)];
+        if (!entry.message) entry.message = std::make_shared<const Message>(Message{Type::map_edit_delta, encode(entry.change)});
+        return entry.message;
+    }
+    if (!snapshot_message_) snapshot_message_ = std::make_shared<const Message>(Message{Type::map_edit_snapshot, encode(state_)});
+    return snapshot_message_;
+}
+std::vector<Message> Ledger::since(std::uint64_t revision) const {
     std::vector<Message> messages;
-    if (revision && revision < state_.revision && !journal_.empty() && revision >= journal_.front().base) {
-        for (const auto& d : journal_) if (d.base >= revision) messages.push_back({Type::map_edit_delta, encode(d)});
-    } else messages.push_back({Type::map_edit_snapshot, encode(state_)});
+    while (auto message = next(revision)) {
+        Reader r(message->payload); r.u64(); revision = r.u64();
+        if (message->type == Type::map_edit_delta) revision = r.u64();
+        messages.push_back(*message);
+    }
     return messages;
 }
 void Replica::reset(std::uint64_t epoch) { state_ = {epoch, 0, {}}; ready_ = false; }
@@ -154,9 +176,10 @@ void transfer_bounds(Type type, std::size_t total) {
 Bytes fragment(std::uint64_t epoch, std::uint64_t transfer, const Message& m, std::size_t offset) {
     transfer_bounds(m.type, m.payload.size());
     if (!epoch || !transfer || offset >= m.payload.size()) throw ProtocolError("Map edit fragment bounds");
-    Writer w; w.u64(epoch); w.u64(transfer); w.u16(static_cast<std::uint16_t>(m.type));
+    Writer w; w.data.reserve(26 + std::min(fragment_bytes, m.payload.size() - offset));
+    w.u64(epoch); w.u64(transfer); w.u16(static_cast<std::uint16_t>(m.type));
     w.u32(static_cast<std::uint32_t>(m.payload.size())); w.u32(static_cast<std::uint32_t>(offset));
-    w.bytes(std::span(m.payload).subspan(offset, std::min(fragment_bytes, m.payload.size() - offset))); return w.data;
+    w.bytes(std::span(m.payload).subspan(offset, std::min(fragment_bytes, m.payload.size() - offset))); return std::move(w.data);
 }
 void Assembler::reset(std::uint64_t epoch) { epoch_ = epoch; transfer_ = total_ = 0; pending_.clear(); }
 std::optional<Message> Assembler::accept(std::span<const std::uint8_t> bytes) {

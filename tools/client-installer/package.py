@@ -32,6 +32,7 @@ TREES = {
 # list: recursively copying renderer/maps/models would also ship profiling
 # output, game assets and Blender source files from the development runtime.
 RESOURCE_FILES = (
+    'sprites/zp_infection.spr',
     'renderer/decal_textures.txt', 'renderer/default_entity.txt',
     'renderer/gameui_english.txt', 'renderer/gameui_koreana.txt',
     'renderer/gameui_schinese.txt', 'renderer/OptionsSubVideoAdvancedDlg.res',

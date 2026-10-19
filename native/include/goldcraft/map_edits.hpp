@@ -1,6 +1,7 @@
 #pragma once
 #include "goldcraft/wire.hpp"
 #include <deque>
+#include <memory>
 #include <optional>
 
 namespace goldcraft::edits {
@@ -50,13 +51,21 @@ public:
     bool restore();
     void swap(Ledger& other) noexcept;
     const Snapshot& state() const { return state_; }
+    // Return only the next ordered message. Peers share immutable encoding;
+    // an in-flight transfer stays valid through later edits, swaps and resets.
+    std::shared_ptr<const Message> next(std::uint64_t revision) const;
     // Missing/expired history returns a complete snapshot. A disconnected
     // authority can recover even after the bounded delta journal has rolled.
     std::vector<Message> since(std::uint64_t revision) const;
 private:
     void commit(Delta change);
+    struct JournalEntry {
+        Delta change;
+        mutable std::shared_ptr<const Message> message;
+    };
     Snapshot state_;
-    std::deque<Delta> journal_;
+    std::deque<JournalEntry> journal_;
+    mutable std::shared_ptr<const Message> snapshot_message_;
 };
 
 enum class Applied { ignored, changed, need_snapshot };

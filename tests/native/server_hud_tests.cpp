@@ -1,4 +1,5 @@
 #include "../../native/client/server_hud.hpp"
+#include "../../native/client/hud_sprites.hpp"
 #include "goldcraft/death_notice.hpp"
 #include <array>
 #include <cassert>
@@ -87,5 +88,24 @@ int main(){
     server_hud::death(death(2,2,false,"world"),29);clear_draws();server_hud::draw(29,m,false);assert(drawn[0].empty()&&drawn[1]=="Victim");
     server_hud::reset();assert(server_hud::notices(29)==0);
     server_hud::video_reset();server_hud::draw(29,m,true);assert(loads==old_load+3);
+    // Both the native client and hosted HUD consume this same extended list.
+    hud_sprites::bind(engine.pfnSPR_GetList);
+    engine.pfnSPR_GetList=hud_sprites::list;
+    int count=0;char hud_path[]="sprites/hud.txt", other_path[]="sprites/weapon.txt";
+    auto* extended_list=engine.pfnSPR_GetList(hud_path,&count);
+    assert(count==5&&extended_list[3].iRes==320&&extended_list[4].iRes==640);
+    assert(!std::strcmp(extended_list[4].szName,"d_infection")&&extended_list[4].rc.right==20);
+    assert(engine.pfnSPR_GetList(hud_path,&count)==extended_list);
+    assert(engine.pfnSPR_GetList(other_path,&count)==assets&&count==3);
+    server_hud::initialize(&engine);server_hud::reset();server_hud::video_reset();
+    const auto old_infection_load=loads;
+    server_hud::death(death(1,2,false,"infection"),30);clear_draws();server_hud::draw(30,m,false);
+    assert(loads==old_infection_load+4&&drawn_sprites.size()==1&&drawn_sprites[0]==static_cast<int>(loads));
+    server_hud::reset();server_hud::death(death(1,2,false,"ak47"),31);clear_draws();server_hud::draw(31,m,false);
+    assert(drawn_sprites.size()==1&&drawn_sprites[0]==static_cast<int>(old_infection_load+1));
+    std::strcpy(assets[0].szName,"d_infection");std::strcpy(assets[0].szSprite,"custom_infection");
+    hud_sprites::bind([](char*,int* n){*n=3;return assets;});
+    extended_list=hud_sprites::list(hud_path,&count);
+    assert(count==4&&!std::strcmp(extended_list[0].szSprite,"custom_infection"));
     std::cout<<"PASS: arbitrary/fragmented/paged/colored menus, cancellation/timeout, native slots, real HUD draw routing, team/weapon/headshot/world deaths, bounded expiry and warm layout cache\n";
 }

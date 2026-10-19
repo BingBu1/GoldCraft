@@ -18,6 +18,7 @@ using FilteredCommand = int (__cdecl*)(const char*);
 struct RuntimeEngine { cl_enginefunc_t known{}; FilteredCommand filtered{}; };
 static_assert(sizeof(cl_enginefunc_t) == 536 && offsetof(RuntimeEngine, filtered) == 536);
 int calls = 0;
+client_sprite_t* sprite_list(char*,int* count) { *count=0;return nullptr; }
 int __cdecl filtered_command(const char* command) {
     assert(std::strcmp(command, "goldcraft_initialize_probe\n") == 0);
     ++calls;
@@ -63,8 +64,9 @@ int main(int argc, char** argv) {
     const auto before = engine;
     // Version6 returns immediately AFTER the real540-byte copy, avoiding game
     // initialization. Then execute the unchanged native Director text branch.
-    assert(goldcraft::client::initialize_with_events(&engine.known, 6, &proxy, initialize) == 0);
+    assert(goldcraft::client::initialize_with_events(&engine.known, 6, &proxy, initialize, sprite_list) == 0);
     assert(captured->known.pEventAPI == &proxy && captured->filtered == filtered_command);
+    assert(captured->known.pfnSPR_GetList == sprite_list);
     assert(!std::memcmp(&engine, &before, sizeof(engine)));
     char message[] = "\x0a" "goldcraft_initialize_probe\n";
     director(sizeof(message), message);
@@ -85,7 +87,10 @@ int main(int argc, char** argv) {
     bool caught = false;
     try {
         goldcraft::client::initialize_with_events(&engine.known, 7, &proxy,
-            [](cl_enginefunc_t*, int) -> int { throw std::runtime_error("initialize failure"); });
+            [](cl_enginefunc_t* forwarded, int) -> int {
+                assert(forwarded->pfnSPR_GetList == sprite_list);
+                throw std::runtime_error("initialize failure");
+            }, sprite_list);
     } catch (const std::runtime_error&) { caught = true; }
     assert(caught && !std::memcmp(&engine, &before, sizeof(engine)));
     FreeLibrary(module);

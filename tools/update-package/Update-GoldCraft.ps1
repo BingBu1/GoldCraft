@@ -75,6 +75,12 @@ function Enable-ServerPlugins {
     $relative='cs/cstrike/addons/amxmodx/configs'
     $directory=Join-CheckedPath $script:target $relative
     $seen=@{}
+    $retired=@{}
+    foreach($suffix in @('armor','respawn','knockback','gore')) {
+        if(('zp50_zombie_'+$suffix+'.amxx') -in $manifest.requiredPlugins) {
+            $retired['goldcraft_zombie_'+$suffix+'.amxx']=$false
+        }
+    }
     $listings=@(Get-ChildItem -LiteralPath $directory -File | Where-Object {$_.Name -eq 'plugins.ini' -or $_.Name -like 'plugins-*.ini'} | ForEach-Object {$relative+'/'+$_.Name})
     $listings+=@($script:changes.Keys | Where-Object {$_ -match ('^'+[regex]::Escape($relative)+'/plugins(?:-[^/]+)?\.ini$')})
     foreach($listing in $listings | Sort-Object -Unique) {
@@ -85,7 +91,9 @@ function Enable-ServerPlugins {
         $lines=[Collections.Generic.List[string]]::new()
         foreach($line in $original -split '\r?\n') {
             $parts=@(($line -split ';',2)[0].Trim() -split '\s+')
-            if($parts[0] -in $manifest.requiredPlugins) {
+            if($retired.ContainsKey($parts[0])) {
+                if(-not $retired[$parts[0]]){$lines.Add($parts[0]+' disabled');$retired[$parts[0]]=$true}
+            } elseif($parts[0] -in $manifest.requiredPlugins) {
                 if($seen.ContainsKey($parts[0])){continue}
                 $seen[$parts[0]]=$true
                 $lines.Add($parts[0])
@@ -93,6 +101,15 @@ function Enable-ServerPlugins {
         }
         $text=$lines -join "`r`n"
         if($text -ne $original -or $script:changes.ContainsKey($listing)){Add-TextChange $listing $text}
+    }
+    # AMXX scans disabled entries before loading any list. Block retired names
+    # even when an owner still has them enabled in another plugin list.
+    $unblocked=@($retired.Keys | Where-Object {-not $retired[$_]} | Sort-Object)
+    if($unblocked.Count) {
+        $path=$relative+'/plugins-zp50-retired.ini'
+        $prior=Read-TextOrEmpty (Join-CheckedPath $script:target $path)
+        if($script:changes.ContainsKey($path)){$prior=[Text.Encoding]::UTF8.GetString($script:changes[$path])}
+        Add-TextChange $path ($prior.TrimEnd()+"`r`n"+(($unblocked | ForEach-Object {$_+' disabled'}) -join "`r`n")+"`r`n")
     }
     $missing=@($manifest.requiredPlugins | Where-Object {-not $seen.ContainsKey($_)})
     if($missing.Count) {

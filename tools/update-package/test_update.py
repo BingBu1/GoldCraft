@@ -125,14 +125,16 @@ def main():
     listing = (server / 'cs/cstrike/addons/amxmodx/configs/plugins-floating_damage.ini').read_text()
     assert '; floating owner note' in listing and 'custom_numbers.amxx' in active
     reports.append('Floating damage plugin/model/translation installed, enabled once, owner list preserved')
-    for name in ('goldcraft_zombie_armor.amxx', 'goldcraft_zombie_respawn.amxx', 'goldcraft_zombie_knockback.amxx'):
+    for name in ('zp50_zombie_armor.amxx', 'zp50_zombie_respawn.amxx', 'zp50_zombie_knockback.amxx', 'zp50_zombie_gore.amxx'):
         if name in required:
             destination = 'cs/cstrike/addons/amxmodx/plugins/' + name
             row = next(r for r in manifest['files'] if r['destination'] == destination)
             assert digest((server / destination).read_bytes()) == row['sha256']
             assert active.count(name) == 1
-    if 'goldcraft_zombie_respawn.amxx' in required:
-        assert (server / 'cs/cstrike/addons/amxmodx/data/lang/goldcraft_respawn.txt').is_file()
+            retired = name.replace('zp50_', 'goldcraft_', 1)
+            assert retired not in active and active.count(retired+' disabled') == 1
+    if 'zp50_zombie_respawn.amxx' in required:
+        assert (server / 'cs/cstrike/addons/amxmodx/data/lang/zp50_zombie_respawn.txt').is_file()
         reports.append('Zombie armor/respawn/headshot compiled plugins installed and enabled once with translation')
     assert not (server / 'minecraft/mods/renamed-core.jar').exists()
     assert not (server / 'client-update/mods/renamed-core.jar').exists()

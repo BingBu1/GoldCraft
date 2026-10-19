@@ -51,6 +51,11 @@ public final class NativePlayerEntity extends PlayerEntity {
         if(nutrition!=null&&nutrition.running()&&hitbox!=null)hitbox.heal(amount);
         else super.heal(amount);
     }
+    @Override public boolean canFoodHeal(){
+        // CS form keeps food state for the next MC handoff, but food must not
+        // regenerate native health. Potion/Mod healing uses heal directly.
+        return (nutrition==null||!nutrition.running())&&super.canFoodHeal();
+    }
     @Override public void addExhaustion(float exhaustion){
         if(nutrition==null||nutrition.exhaustionAllowed())super.addExhaustion(exhaustion);
     }

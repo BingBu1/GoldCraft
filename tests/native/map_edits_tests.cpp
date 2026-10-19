@@ -65,6 +65,49 @@ int main(){
     assert(ledger.since(300).size()==1&&ledger.since(300).front().type==Type::map_edit_delta);
     assert(ledger.since(999).front().type==Type::map_edit_snapshot);
     assert(ledger.since(301).empty());
+    {
+        // Candidate commits must never mutate a slow peer's in-flight bytes.
+        Ledger sending; sending.reset(9);
+        std::vector<Cut> cuts;
+        for(unsigned i=0;i<1331;++i)cuts.push_back({0,{},volume(float(i))});
+        assert(sending.add_batch(cuts));
+        auto pending=sending.next(0);const auto original=pending->payload;
+        for(unsigned peer_id=0;peer_id<32;++peer_id)assert(sending.next(0)==pending);
+        assert(!sending.next(sending.state().revision));
+        assert(!sending.add_batch(cuts)&&sending.next(0)==pending);
+        auto malformed=cuts;malformed.back().target={0,1,0};
+        rejects([&]{sending.add_batch(malformed);});assert(sending.next(0)==pending);
+        Ledger candidate=sending;
+        assert(candidate.add({},volume(2000)));
+        const auto queued=candidate.next(sending.state().revision);
+        assert(queued->type==Type::map_edit_delta);
+        assert(candidate.next(sending.state().revision)==queued);
+        assert(sending.next(0)==pending&&candidate.next(0)!=pending);
+        sending.swap(candidate);
+        assert(candidate.next(0)==pending);
+        Assembler slow;slow.reset(9);std::optional<Message> result;
+        for(std::size_t offset=0;offset<pending->payload.size();offset+=fragment_bytes){
+            if(offset==fragment_bytes)assert(sending.restore());
+            result=slow.accept(fragment(9,1,*pending,offset));
+        }
+        assert(result&&result->payload==original);
+        Replica caught_up;caught_up.reset(9);caught_up.accept(snapshot(result->payload));
+        unsigned changes=0;
+        while(auto message=sending.next(caught_up.state().revision)){
+            assert(message->type==Type::map_edit_delta);
+            assert(caught_up.accept(delta(message->payload))==Applied::changed);++changes;
+        }
+        assert(changes==2&&caught_up.state()==sending.state()&&caught_up.state().cuts.empty());
+        // Rollover falls back to the current snapshot without invalidating
+        // references to evicted messages or crossing map epochs.
+        for(unsigned i=0;i<300;++i)assert(sending.add({},volume(float(i))));
+        assert(sending.next(1332)->type==Type::map_edit_snapshot);
+        assert(delta(queued->payload).revision==1333);
+        auto retained=sending.next(0);
+        sending.reset(10);assert(snapshot(sending.next(0)->payload)==sending.state());
+        assert(snapshot(retained->payload).epoch==9&&pending->payload==original);
+        sending.reset(0);assert(!sending.next(0)&&!sending.next(1));
+    }
     Message full{Type::map_edit_snapshot,encode(ledger.state())};
     Assembler assembly;assembly.reset(8);std::optional<Message> complete;
     for(std::size_t offset=0;offset<full.payload.size();offset+=fragment_bytes){

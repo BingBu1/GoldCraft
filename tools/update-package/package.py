@@ -51,7 +51,11 @@ def build(candidate,output,revision,release='20261019',server_only=False):
         'server/goldcraft_amxx.dll':server/'cstrike/addons/amxmodx/modules/goldcraft_amxx.dll',
         'goldcraft-neoforge-0.1.0-dev.jar':R/'sandbox/neoforge-server/mods'/core.name}
     for name,path in sources.items():
-        if name.startswith('client/'):
+        if name.startswith('client/runtime/'):
+            relative=client.relative_name(name.removeprefix('client/runtime/'))
+            if not re.fullmatch(r'sprites/zp_[\w-]+\.spr',relative):raise ValueError('Unsupported client runtime resource '+relative)
+            deployed[name]=game/'cstrike'/relative
+        elif name.startswith('client/'):
             relative=name.removeprefix('client/')
             deployed[name]=game/('cstrike/'+relative if relative.startswith('renderer/') else 'cstrike/metahook/plugins/'+relative)
         elif name.startswith('gamedata/'):
@@ -71,7 +75,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
         root=output/('GoldCraft-'+kind+'-Update-'+release);root.mkdir()
         files=[];names={};roles=['server'] if kind=='Server' else ['cs','minecraft']
         required_plugins=['goldcraft.amxx','goldcraft_controls.amxx','goldcraft_connection.amxx','goldcraft_zp_rules.amxx','goldcraft_zp_combat.amxx']
-        for plugin in ('goldcraft_zombie_armor.amxx','goldcraft_zombie_respawn.amxx','goldcraft_zombie_knockback.amxx'):
+        for plugin in ('zp50_zombie_armor.amxx','zp50_zombie_respawn.amxx','zp50_zombie_knockback.amxx','zp50_zombie_gore.amxx'):
             if 'server/plugins/'+plugin in sources:required_plugins.append(plugin)
         def add(role,destination,source,*,allow_identical=False):
             name='payload/'+role+'/'+client.relative_name(destination)
@@ -136,9 +140,9 @@ def build(candidate,output,revision,release='20261019',server_only=False):
 client-update/mods 中是供整合包使用的同版 GoldCraft Core；服务端更新不能自动替换玩家文件。
 若自行覆盖 payload/server，所有独立 plugins-goldcraft 清单和 plugins-floating_damage.ini 也须复制；保留自己的 plugins.ini 并避免重复启用。
 '''
-            if all(p in required_plugins for p in ('goldcraft_zombie_armor.amxx','goldcraft_zombie_respawn.amxx')):
+            if all(p in required_plugins for p in ('zp50_zombie_armor.amxx','zp50_zombie_respawn.amxx')):
                 instructions+='\n本批额外包含独立 AMXX 护甲/复活插件：感染获得 2000 护甲和头盔；人类和僵尸死亡默认 3 秒后以僵尸复活并显示进度条。回合结束取消等待。\n'
-            if 'goldcraft_zombie_knockback.amxx' in required_plugins:
+            if 'zp50_zombie_knockback.amxx' in required_plugins:
                 instructions+='另含取消活僵尸爆头额外击退的 AMXX 插件，保留普通击退和爆头伤害。\n'
         else:
             for name in ('MetaHook.exe','SDL2.dll','SDL3.dll'):add('cs',name,game/name)

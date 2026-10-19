@@ -93,8 +93,9 @@ public final class NativeNutrition {
                 }
                 if(box.age%10==0&&food.isNotFull())food.setFoodLevel(food.getFoodLevel()+1);
             }
-            // Vanilla owns exhaustion, saturation, healing/starvation timing,
-            // difficulty and naturalRegeneration. Health still commits in CS.
+            // Vanilla owns exhaustion, saturation and starvation. The native
+            // body denies canFoodHeal here, so neither food nor peaceful-mode
+            // recovery adds CS health; active healing effects stay independent.
             food.update(body);
         }finally{state.running=false;}
     }

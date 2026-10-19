@@ -7,7 +7,7 @@ new bool:gGranted[MAX_PLAYERS + 1];
 
 public plugin_init()
 {
-    register_plugin("GoldCraft Zombie Armor", "1.0.0", "GoldCraft contributors");
+    register_plugin("Zombie Plague Armor", "1.0.0", "GoldCraft contributors");
     gArmor = create_cvar("mc_zombie_armor", "2000", FCVAR_NONE,
         "Vest and helmet armor granted on each successful zombie infection", true, 0.0, true, 32767.0);
 }

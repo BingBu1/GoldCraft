@@ -46,3 +46,5 @@ Install-GoldCraft.cmd -Plan
 源码维护者先准备以上提交的官方完整源码，运行 `python tools/client-installer/build_gui.py --upstream <官方源码目录> --work <新构建目录> --build`。需要 .NET SDK；源码输入由 `gui-source.json` 逐文件固定，依赖和输出均保存在新构建目录。省略 `--build` 只核验输入并回放补丁。
 
 然后用 `package.py --runtime <已验证CS根目录> --official <官方解压目录> --installer-license <官方LICENSE> --gui <新构建目录/publish> --plan <本地计划.json>` 生成只读计划，增加 `--output <新输出目录>` 生成目录和 ZIP。运行内容来自指定的已验证客户端，不会自动混入未部署候选。打包前核对图形构建身份与产物；清单按 SHA-256 记录每个文件。含本机源路径的计划仅留本地，发布清单不含源路径。`upstream.json` 固定官方安装器身份，升级时须重新核对上游源和安装行为。
+
+感染☣图标候选需要配套 GoldCraft.dll 与 sprites/zp_infection.spr。开发构建可运行 `tools/Build-InfectionSprite.ps1` 生成资源，加入隔离客户端后由安装器清单一起打包；不覆盖整个 hud.txt，普通武器击杀图标和用户已有 d_infection 定义保留。仅服务端 AMXX 更新无法替换客户端图标。

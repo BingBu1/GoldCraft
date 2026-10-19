@@ -146,6 +146,9 @@ public final class NativeNutritionProbe {
         check(p.getFoodData()==food&&box.isRemoved(),"switch to Minecraft preserves food and retires native body");
         p.doTick();near(food.getExhaustionLevel(),6,"same-frame form switch cannot double food update");
         clock();p.doTick();near(food.getExhaustionLevel(),2,"Minecraft actual player tick resumes vanilla food update");
+        p.setHealth(10);food.setFoodLevel(20);food.setSaturation(5);food.setExhaustion(0);
+        for(int tick=0;tick<12;tick++){clock();p.doTick();}
+        check(p.getHealth()>10,"returning to MC restores vanilla food regeneration");
         snapshot(actor(3,7,13,17,p.getUUID(),100));HostSession.hold(p);NativePlayers.tick(server,host);
         var back=NativePlayers.hitbox(host.actors().getFirst());check(back.body().getFoodData()==food,"switch back retains exact food object");
         var previous=back;food.setExhaustion(3);
@@ -159,13 +162,13 @@ public final class NativeNutritionProbe {
         near(food.getExhaustionLevel(),0,"saved creative mode ignores hunger exhaustion");check(healthRequests==0,"saved creative mode cannot starve in presentation spectator");
 
         fresh();box=living(NONE,50);food=box.body().getFoodData();healingTarget=box;step(box,10);
-        check(healthRequests==1&&healEvents==1&&lastAmount<0,"vanilla food healing runs NeoForge event and requests native health");
-        check(periodic&&environment,"food health uses environmental periodic authority scope");
+        check(healthRequests==0&&healEvents==0,"CS form cannot heal from full food and saturation");
+        near(food.getSaturationLevel(),5,"disabled food healing does not consume saturation");
         near(box.body().getHealth(),10,"unacknowledged healing does not overwrite authoritative native body health");
-        near(box.getHealth(),10+5f/6,"pending heal prediction is used for following food decisions");
+        near(box.getHealth(),10,"CS form has no pending food heal prediction");
         check(NativeStatusExecution.current(box)==null,"nutrition health scope is closed after ticking");
         fresh();box=living(NONE,50);healingTarget=box;healingCanceled=true;step(box,10);
-        check(healEvents==1&&healthRequests==0,"Mod cancellation prevents food healing commit");
+        check(healEvents==0&&healthRequests==0,"CS food healing does not invoke healing events");
         fresh();box=living(NONE,50);world.getGameRules().getRule(GameRules.RULE_NATURAL_REGENERATION).set(false,server);step(box,100);
         check(healthRequests==0,"naturalRegeneration false suppresses food healing");
         fresh();p=player(new UUID(0,9125));HostSession.hold(p);box=living(p.getUUID(),50);
@@ -173,7 +176,7 @@ public final class NativeNutritionProbe {
         p.setHealth(10);p.tickCount=19;box.tickCount=19;clock();p.doTick();
         check(food.getFoodLevel()==2&&food.getSaturationLevel()==0&&p.getHealth()==10,"parked player does not duplicate peaceful recovery");
         box.tick();check(food.getFoodLevel()==3&&food.getSaturationLevel()==1,"native peaceful nutrition recovery matches vanilla cadence");
-        check(healthRequests==1&&lastAmount==-1,"peaceful healing uses native health authority");
+        check(healthRequests==0,"peaceful mode cannot regenerate CS health");
         for(var difficulty:List.of(Difficulty.EASY,Difficulty.NORMAL,Difficulty.HARD)){
             fresh();server.setDifficulty(difficulty,true);box=living(NONE,difficulty==Difficulty.EASY?55:10);
             food=box.body().getFoodData();food.setFoodLevel(0);food.setSaturation(0);step(box,160);

@@ -28,8 +28,8 @@
 - [plugins-goldcraft-connection.ini](../../amxx/goldcraft/configs/plugins-goldcraft-connection.ini)：MC 真实断链提示。
 - [plugins-goldcraft-zp-rules.ini](../../amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini)：僵尸禁止 MC、感染强制退出，以及主动攻击倍率/反馈。
 - [plugins-floating_damage.ini.example](../../amxx/floating_damage/configs/plugins-floating_damage.ini.example)：飘字；包内使用 `plugins-floating_damage.ini`，同时提供模型、翻译和编译插件。
-- [plugins-goldcraft-zombie-armor.ini](../../amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-armor.ini) 与 [plugins-goldcraft-zombie-respawn.ini](../../amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-respawn.ini)：新增护甲/死亡复活；复活提示翻译同时包含。
-- [plugins-goldcraft-zombie-knockback.ini](../../amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-knockback.ini)：取消活僵尸爆头额外推力。
+- [plugins-zp50-zombie-armor.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-armor.ini) 与 [plugins-zp50-zombie-respawn.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-respawn.ini)：新增护甲/死亡复活；复活提示翻译同时包含。
+- [plugins-zp50-zombie-knockback.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-knockback.ini)：取消活僵尸爆头额外推力。
 
 本包替换引擎 DLL 和 Core，需要正常停止并重启双服。启动后用 `amxx plugins goldcraft` 和 `amxx plugins floating` 核对加载。仅更新 Pawn 时也需换图，`sv_restart` 不会重载 Pawn；换图会执行既有地图清理规则。手动覆盖还需自行核对上述三个玩法 CVAR 和旧 Core 是否重复，或使用累计更新脚本完成合并。
 
@@ -47,3 +47,5 @@ python tools/update-package/test_update.py --packages server-packages/new-update
 发布冻结清单必须自包含：每个 artifact 位于候选目录内，`deployed` 为 true，`publishedSourceRevision` 与命令行版本一致，`protocol` 包含已核验的 `version` 和 `nativeMessageCount`。额外服务端资源以 `server/runtime/` 路径和对应 `runtimeRelative` 登记，仅接受插件、独立启用清单、翻译和模型；逐项比对已部署文件，同目的路径只允许内容完全相同的重叠，未知类型立即报错。
 
 真实 Windows PowerShell 5.1 隔离安装覆盖：旧核心清理、服务器配置保留/插件去重、CS 别名与列表合并、幂等、实际文件占用中途失败回滚、引擎不符/损坏/未列载荷拒绝和实际 CMD 入口。测试不启动游戏；这些结果不等于远端安装或多人游玩验收。公网与其他玩家仍需应用后验证。
+
+本轮开发候选增加 `zp50_zombie_gore`、模式复活限制、感染☣资源及 CS 禁食物回血。独立 ZP 玩法插件已改为 `zp50_`，更新器会禁用旧 `goldcraft_zombie_*` 别名并只启用新名一次，保留服主其他配置。完整累计包只允许从实际已部署且 hash 一致的候选生成；本轮 DLL/JAR 未部署前不会重标旧包为新版。

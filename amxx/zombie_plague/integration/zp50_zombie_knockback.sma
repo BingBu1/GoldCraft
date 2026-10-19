@@ -6,7 +6,7 @@ new gExtraHeadshotImpulse;
 
 public plugin_init()
 {
-    register_plugin("GoldCraft Zombie Headshot Knockback", "1.0.0", "GoldCraft contributors");
+    register_plugin("Zombie Plague Headshot Knockback", "1.0.0", "GoldCraft contributors");
     gExtraHeadshotImpulse = create_cvar("mc_zombie_headshot_extra_knockback", "0", FCVAR_NONE,
         "Allow native large-flinch impulse on zombie headshots in addition to ZP knockback", true, 0.0, true, 1.0);
     RegisterHookChain(RG_CBasePlayer_TakeDamageImpulse, "DamageImpulse", false);

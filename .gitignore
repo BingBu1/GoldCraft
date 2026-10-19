@@ -9,9 +9,10 @@
 /analysis/
 /amxx/zombie_plague/*/*.sma
 !/amxx/zombie_plague/integration/goldcraft_zp50.sma
-!/amxx/zombie_plague/integration/goldcraft_zombie_armor.sma
-!/amxx/zombie_plague/integration/goldcraft_zombie_respawn.sma
-!/amxx/zombie_plague/integration/goldcraft_zombie_knockback.sma
+!/amxx/zombie_plague/integration/zp50_zombie_armor.sma
+!/amxx/zombie_plague/integration/zp50_zombie_respawn.sma
+!/amxx/zombie_plague/integration/zp50_zombie_knockback.sma
+!/amxx/zombie_plague/integration/zp50_zombie_gore.sma
 !/amxx/zombie_plague/tests/goldcraft_zp_reapi_test.sma
 /amxx/zombie_plague/include/
 /amxx/zombie_plague/configs/

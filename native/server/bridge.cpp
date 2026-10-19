@@ -72,7 +72,7 @@ struct EditDelivery {
     bool enabled=false;
     std::uint64_t revision=0,transfer=0;
     float next_query=0;
-    Message message{Type::map_edit_snapshot,{}};
+    std::shared_ptr<const Message> message;
     std::size_t offset=0;
 };
 std::array<EditDelivery,65> edit_deliveries;
@@ -849,26 +849,26 @@ std::uint64_t EditRevision(const Message& message){
 }
 void SendEdits(){
     const auto& ledger=GoldCraft_MapEdits();
-    if(link.connected())for(const auto& message:ledger.since(edit_revision_sent)){
-        if(!link.send(message.type,message.payload))break;
-        edit_revision_sent=EditRevision(message);
+    if(link.connected())while(const auto message=ledger.next(edit_revision_sent)){
+        if(!link.send(message->type,message->payload))break;
+        edit_revision_sent=EditRevision(*message);
     }
     edits::pump_fragments(max_clients,edit_client_cursor,[&](int slot){
         auto& delivery=edit_deliveries[slot];
         if(!delivery.enabled||edicts[slot].free)return false;
-        if(delivery.message.payload.empty()){
-            auto changes=ledger.since(delivery.revision);if(changes.empty())return false;
+        if(!delivery.message){
+            auto message=ledger.next(delivery.revision);if(!message)return false;
             if(edit_transfer==UINT64_MAX)throw ProtocolError("Map edit transfer exhausted");
-            delivery.message=std::move(changes.front());delivery.offset=0;delivery.transfer=++edit_transfer;
+            delivery.message=std::move(message);delivery.offset=0;delivery.transfer=++edit_transfer;
         }
-        const auto bytes=edits::fragment(registry.world(),delivery.transfer,delivery.message,delivery.offset);
+        const auto bytes=edits::fragment(registry.world(),delivery.transfer,*delivery.message,delivery.offset);
         if(host_delivery&&host_delivery->ReliableRoom(slot)<bytes.size()+2)return false;
         MESSAGE_BEGIN(MSG_ONE,edit_message,nullptr,edicts+slot);
         for(auto byte:bytes)WRITE_BYTE(byte);
         MESSAGE_END();
-        delivery.offset+=std::min(edits::fragment_bytes,delivery.message.payload.size()-delivery.offset);
-        if(delivery.offset==delivery.message.payload.size()){
-            delivery.revision=EditRevision(delivery.message);delivery.message.payload.clear();delivery.offset=0;
+        delivery.offset+=std::min(edits::fragment_bytes,delivery.message->payload.size()-delivery.offset);
+        if(delivery.offset==delivery.message->payload.size()){
+            delivery.revision=EditRevision(*delivery.message);delivery.message.reset();delivery.offset=0;
         }
         return true;
     },host_delivery?8:1);
@@ -1157,7 +1157,7 @@ bool GoldCraft_ClientCommand(edict_t* player,const char* command) {
         char* end=nullptr;const auto epoch=std::strtoull(CMD_ARGV(1),&end,10);
         auto& delivery=edit_deliveries[slot];
         if(!*CMD_ARGV(1)||*end||epoch!=registry.world()||gpGlobals->time<delivery.next_query)return true;
-        delivery.revision=0;delivery.message.payload.clear();delivery.offset=0;delivery.next_query=gpGlobals->time+1;
+        delivery.revision=0;delivery.message.reset();delivery.offset=0;delivery.next_query=gpGlobals->time+1;
         return true;
     }
     if(std::strcmp(command,"goldcraft_form")==0){
