@@ -623,6 +623,7 @@ void SendAvatar(unsigned slot,bool refresh) {
 #include "observer_view.inc"
 void SendHealthLimits(const std::vector<int>& slots);
 void SendNativeView(const std::vector<int>& slots);
+void SendNativeMovement(const std::vector<int>& slots);
 void SendActors() {
     std::vector<int> slots;
     for(int i=1;i<=max_clients;++i) {
@@ -654,6 +655,7 @@ void SendActors() {
     link.send(Type::actors,w.data);
     SendHealthLimits(slots);
     SendNativeView(slots);
+    SendNativeMovement(slots);
     if(tick%10==0)if(const char* path=std::getenv("GOLDCRAFT_SERVER_STATUS")) {
         std::ofstream out(path);out<<"{\"world\":\""<<registry.world()<<"\",\"map\":\""<<STRING(gpGlobals->mapname)<<"\",\"tick\":"<<tick<<",\"bridgeGeneration\":"<<connection_generation
             <<",\"dedicated\":"<<(IS_DEDICATED_SERVER()?"true":"false")<<",\"staleLifePoses\":"<<stale_life_poses
@@ -712,6 +714,7 @@ namespace {
 #include "status_glow.inc"
 #include "status_vision.inc"
 #include "native_view.inc"
+#include "native_movement.inc"
 #include "native_impulse.inc"
 #include "status_nausea.inc"
 #include "status_melee.inc"

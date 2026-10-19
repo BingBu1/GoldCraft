@@ -67,6 +67,7 @@ class VisionHandshakeTest {
     @Test void legacyVisibilityHostDropsOnlyVision() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
 
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_MOVEMENT_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_WATER_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_IMPULSE_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_HIT_CAP);}
@@ -91,6 +92,7 @@ class VisionHandshakeTest {
     @Test void retryRejectsUnrequestedVision() throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),false)){
 
+            try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_MOVEMENT_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_WATER_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_IMPULSE_CAP);}
             try(var socket=host.accept()){assertNotEquals(0,hello(socket,false)&Wire.NATIVE_HIT_CAP);}

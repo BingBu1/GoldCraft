@@ -474,7 +474,8 @@
     "amxx/zombie_plague/integration/zp50_zombie_gore.sma",
     "amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-gore.ini",
     "tools/Exercise-ZombieGore.py",
-    "tools/Build-InfectionSprite.ps1"
+    "tools/Build-InfectionSprite.ps1",
+    "tools/Exercise-NativeMovement.py"
   ],
   "trees": {
     "native": [

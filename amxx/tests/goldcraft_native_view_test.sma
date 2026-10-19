@@ -3,8 +3,9 @@
 #include <reapi>
 #include <fakemeta>
 
-new gEnabled, gPlayer, gWater, gPin;
+new gEnabled, gPlayer, gWater, gPin, gMovement, gGrounded, gMoveType;
 new Float:gOrigin[3], Float:gOffset[3];
+new Float:gVelocity[3];
 public plugin_init()
 {
     register_plugin("GoldCraft native view test", "1.0", "GoldCraft contributors");
@@ -17,8 +18,15 @@ public Frame()
     if (!get_pcvar_num(gEnabled) || !gPin || !is_user_alive(gPlayer)) return FMRES_IGNORED;
     engfunc(EngFunc_SetOrigin, gPlayer, gOrigin);
     set_entvar(gPlayer, var_view_ofs, gOffset);
-    set_entvar(gPlayer, var_velocity, Float:{0.0, 0.0, 0.0});
-    set_entvar(gPlayer, var_movetype, MOVETYPE_NONE);
+    if (gMovement) {
+        set_entvar(gPlayer, var_velocity, gVelocity);
+        set_entvar(gPlayer, var_movetype, gMoveType);
+        new flags = get_entvar(gPlayer, var_flags);
+        set_entvar(gPlayer, var_flags, gGrounded ? flags | FL_ONGROUND : flags & ~FL_ONGROUND);
+    } else {
+        set_entvar(gPlayer, var_velocity, Float:{0.0, 0.0, 0.0});
+        set_entvar(gPlayer, var_movetype, MOVETYPE_NONE);
+    }
     return FMRES_IGNORED;
 }
 public Command()
@@ -36,7 +44,14 @@ public Command()
         set_member(gPlayer, m_iMenu, Menu_OFF); rg_set_user_team(gPlayer, TEAM_CT); rg_round_respawn(gPlayer);
     }
     if (!gPlayer) return PLUGIN_HANDLED;
+    if (equal(action, "movement") && read_argc() == 7) {
+        for (new i; i < 3; i++) { read_argv(2 + i, arg, charsmax(arg)); gVelocity[i] = str_to_float(arg); }
+        read_argv(5, arg, charsmax(arg)); gGrounded = str_to_num(arg);
+        read_argv(6, arg, charsmax(arg)); gMoveType = str_to_num(arg);
+        gMovement = 1; gPin = 1; Frame();
+    }
     if (equal(action, "pose") && read_argc() == 8) {
+        gMovement = 0;
         for (new i; i < 3; i++) {
             read_argv(2 + i, arg, charsmax(arg)); gOrigin[i] = str_to_float(arg);
             read_argv(5 + i, arg, charsmax(arg)); gOffset[i] = str_to_float(arg);

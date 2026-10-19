@@ -27,6 +27,8 @@ public final class HostWorldState {
     private long brushTick;
     private boolean freeze;
     private MapMining.Policy mining=MapMining.Policy.none();
+    private final NativeMovement nativeMovement=new NativeMovement();
+    public NativeMovement nativeMovement(){return nativeMovement;}
     private final NativeView nativeView=new NativeView();
     public NativeView nativeView(){return nativeView;}
     private final NativeHealthLimits healthLimits=new NativeHealthLimits();
@@ -55,7 +57,7 @@ public final class HostWorldState {
         if(epoch==0||policy.epoch()!=epoch||Long.compareUnsigned(policy.revision(),mining.revision())<=0)return;
         mining=policy;
     }
-    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;collision=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);healthLimits.clear();nativeView.clear();}
+    public void clear(){epoch=tick=brushTick=0;map=dimension="";actors=List.of();brushes=List.of();geometry=null;collision=null;bspBytes=null;freeze=false;mining=MapMining.Policy.none();edits.reset(0);healthLimits.clear();nativeView.clear();nativeMovement.clear();}
     private static Vector vector(Wire.Reader r){return new Vector(r.f32(),r.f32(),r.f32());}
     public void world(byte[] payload) {
         Wire.Reader r=new Wire.Reader(payload); long newEpoch=r.i64(); String newMap=r.string(128);r.finish();

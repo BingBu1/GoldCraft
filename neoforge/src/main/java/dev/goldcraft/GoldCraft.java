@@ -84,6 +84,9 @@ public final class GoldCraft {
     public static boolean sendVision(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendVision(generation,payload);
     }
+    public static boolean nativeMovementAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeMovement(generation);
+    }
     public static boolean nativeViewAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.nativeView(generation);
     }
@@ -305,6 +308,10 @@ public final class GoldCraft {
                         }
                         case Wire.ACTORS -> {HOST_WORLD.actors(message.payload());actorPayload=message.payload();broadcast(Wire.ACTORS,actorPayload);}
                         case Wire.NATIVE_HIT -> NativeHurt.handle(server,message.payload());
+                        case Wire.NATIVE_MOVEMENT -> {
+                            if(!nativeMovementAvailable())throw new IllegalArgumentException("Unnegotiated native movement");
+                            HOST_WORLD.nativeMovement().accept(HOST_WORLD,message.payload(),server.getTicks());
+                        }
                         case Wire.NATIVE_VIEW -> {
                             if(!nativeViewAvailable())throw new IllegalArgumentException("Unnegotiated native view");
                             HOST_WORLD.nativeView().accept(HOST_WORLD,message.payload(),server.getTicks());
