@@ -1,4 +1,5 @@
 #include "goldcraft/world_volume.hpp"
+#include "goldcraft/cut_index.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -218,9 +219,9 @@ bool overlap(Box a, Box b) {
             return false;
     return true;
 }
-void subtract_cell(const Cell &cell, const Box &box, Work &work, std::vector<Cell> &output) {
+void subtract_cell(Cell cell, const Box &box, Work &work, std::vector<Cell> &output) {
     if (!overlap(bounds(cell), box)) {
-        work.cell(output, cell);
+        work.cell(output, std::move(cell));
         return;
     }
     Cell remaining = cell;
@@ -230,7 +231,7 @@ void subtract_cell(const Cell &cell, const Box &box, Work &work, std::vector<Cel
             const auto p = axial(axis, upper, upper ? box.max[axis] : box.min[axis]);
             auto inside = clip(remaining, p, work);
             if (inside.faces.empty()) {
-                work.cell(output, cell);
+                work.cell(output, std::move(cell));
                 return;
             }
             work.cell(pieces, clip(remaining, reverse(p), work));
@@ -359,13 +360,33 @@ Volume carve_volume(HullView hull, Box region, std::span<const Box> cuts, Limits
     }
     Volume result{region, {}};
     collect(hull, hull.root, cube(region), work, result.cells);
-    for (const auto &cut : cuts) {
-        std::vector<Cell> next;
-        for (const auto &cell : result.cells) {
-            work.use();
-            subtract_cell(cell, cut, work, next);
+    if (cuts.empty()) {
+        result.operations = work.operations;
+        return result;
+    }
+    // Subtraction never enlarges a source cell. Query its cut neighbourhood
+    // once, then retain the original cut order for all of its descendants.
+    // Independent source cells keep their order too, including boundary ties.
+    // This avoids rescanning/copying every distant cell for every old hole.
+    const CutIndex index(cuts, [&](auto n) { work.use(n); });
+    auto source = std::move(result.cells);
+    std::vector<std::size_t> candidates;
+    std::vector<Cell> pieces, next;
+    for (auto &cell : source) {
+        for (const auto &face : cell.faces) work.use(face.vertices.size());
+        index.query(bounds(cell), candidates, [&](auto n) { work.use(n); });
+        pieces.clear();
+        work.cell(pieces, std::move(cell));
+        for (auto id : candidates) {
+            next.clear();
+            for (auto &piece : pieces) {
+                work.use();
+                subtract_cell(std::move(piece), cuts[id], work, next);
+            }
+            pieces.swap(next);
+            if (pieces.empty()) break;
         }
-        result.cells = std::move(next);
+        for (auto &piece : pieces) work.cell(result.cells, std::move(piece));
     }
     result.operations = work.operations;
     return result;

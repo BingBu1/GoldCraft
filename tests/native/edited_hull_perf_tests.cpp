@@ -335,6 +335,50 @@ void blast(const Bsp& bsp, const std::array<Box, 4>& bodies,
     }
     std::cout << "{\"blastQueries\":" << compared << ",\"compared\":" << (previous.is_open()?"true":"false") << "}\n";
 }
+void scattered(const Bsp& bsp, const std::array<Box, 4>& bodies,
+               std::ofstream& saved, std::ifstream& previous) {
+    // Separated holes cannot collapse to the one box used by the dense blast
+    // fixture. Repeated damage enlarges both the region and fragment count.
+    for (int count : {32, 128, 384}) {
+        std::vector<Box> cuts;
+        for (int i = 0; i < count; ++i) {
+            const Point p{32. + (i % 16) * 32, 2800. + ((i / 16) % 8) * 32,
+                          288. + (i / 128) * 48};
+            cuts.push_back({p, {p[0]+16, p[1]+16, p[2]+24}});
+        }
+        double elapsed = 0;
+        std::size_t operations = 0, allocations = 0;
+        std::uint64_t hash = 1469598103934665603ull;
+        for (int h = 0; h < 4; ++h) {
+            const auto before = allocation::count.load();
+            const auto began = std::chrono::steady_clock::now();
+            const EditedHull edit(bsp.hull(0), bsp.hull(h), bodies[h], cuts);
+            elapsed += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-began).count();
+            allocations += allocation::count.load()-before;
+            operations += edit.operations();
+            Random random;
+            for (int i = 0; i < 1000; ++i) {
+                const auto& c = cuts[std::size_t(i) % cuts.size()];
+                Query q{};
+                for (int axis = 0; axis < 3; ++axis) {
+                    q.a[axis] = c.min[axis] - 64 + random.get() * 144;
+                    q.b[axis] = c.min[axis] - 64 + random.get() * 144;
+                }
+                const auto r = result(edit, q); hash = digest(hash, r);
+                if (saved.is_open()) saved.write(reinterpret_cast<const char*>(&r), sizeof(r));
+                if (previous.is_open()) {
+                    QueryResult old{}; previous.read(reinterpret_cast<char*>(&old), sizeof(old));
+                    if (!previous || r != old)
+                        throw std::runtime_error("Scattered differential mismatch cuts=" + std::to_string(count) +
+                            " hull=" + std::to_string(h) + " query=" + std::to_string(i));
+                }
+            }
+        }
+        std::cout << "{\"scatteredCuts\":" << count << ",\"fourHullBuildMs\":" << elapsed
+                  << ",\"operations\":" << operations << ",\"allocations\":" << allocations
+                  << ",\"queries\":4000,\"digest\":" << hash << "}\n";
+    }
+}
 } // namespace
 int main(int argc, char **argv) {
     try {
@@ -433,6 +477,7 @@ int main(int argc, char **argv) {
         }
         retention();
         blast(bsp, bodies, saved, previous);
+        scattered(bsp, bodies, saved, previous);
         if (previous.is_open()) {
             assert(previous.peek() == std::char_traits<char>::eof());
             std::cout << "{\"differentialQueries\":" << compared
