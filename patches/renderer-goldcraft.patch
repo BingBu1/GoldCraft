@@ -24066,10 +24066,10 @@ index 0000000..46f00b4
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..815c13a
+index 0000000..8883611
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
-@@ -0,0 +1,350 @@
+@@ -0,0 +1,413 @@
 +#include "world_edit_prepare.h"
 +#include <goldcraft/cut_index.hpp>
 +#include <algorithm>
@@ -24121,6 +24121,50 @@ index 0000000..815c13a
 +    }
 +    return false;
 +}
++// Every probe offset for a surface lies in one thin, bounded prism. Build an
++// exact local BSP for that prism once, avoiding the distant map root on every
++// luxel. This scratch never crosses models, tasks or revisions.
++class ProbeHull
++{
++    std::vector<carving::HullNode> nodes_;
++public:
++    template<class Consume> carving::HullView Select(carving::HullView hull,
++        const carving::Box& bounds, Consume consume)
++    {
++        nodes_.clear();
++        constexpr std::size_t maxNodes = 16384;
++        bool overflow = false;
++        std::size_t visits = 0;
++        const auto copy = [&](auto&& self, std::int32_t index) -> std::int32_t {
++            if (overflow || index < 0) return index;
++            if (visits++ == maxNodes) { overflow = true; return -1; }
++            consume(1);
++            const auto& node = hull.nodes[index];
++            const auto& plane = hull.planes[node.plane];
++            Point near{}, far{};
++            double scale = 1 + std::abs(plane.distance);
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                near[axis] = plane.normal[axis] >= 0 ? bounds.min[axis] : bounds.max[axis];
++                far[axis] = plane.normal[axis] >= 0 ? bounds.max[axis] : bounds.min[axis];
++                scale += (std::max)(std::abs(near[axis]), std::abs(far[axis])) * std::abs(plane.normal[axis]);
++            }
++            // Touching planes and numerical uncertainty retain both children.
++            const auto low = Dot(near, plane.normal) - plane.distance, high = Dot(far, plane.normal) - plane.distance;
++            if (low > scale * 1e-9) return self(self, node.children[0]);
++            if (high < -scale * 1e-9) return self(self, node.children[1]);
++            const auto front = self(self, node.children[0]), back = self(self, node.children[1]);
++            if (front == back) return front;
++            if (nodes_.size() == maxNodes) { overflow = true; return -1; }
++            const auto result = static_cast<std::int32_t>(nodes_.size());
++            nodes_.push_back({node.plane, {front, back}});
++            return result;
++        };
++        const auto root = copy(copy, hull.root);
++        if (overflow) { nodes_.clear(); return hull; }
++        return {hull.planes, nodes_, root};
++    }
++};
 +} // namespace
 +
 +goldcraft::cavity::Model Model::View() const
@@ -24151,6 +24195,7 @@ index 0000000..815c13a
 +        return cuts.any([&](const carving::Box& cut) { return NearCut(bounds, cut, radius); }, consume);
 +    };
 +    Probes result;
++    ProbeHull probeHull;
 +    for (std::size_t index = model.first_face; index < std::size_t(model.first_face) + model.face_count; ++index)
 +    {
 +        if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("World edit preparation cancelled");
@@ -24188,20 +24233,38 @@ index 0000000..815c13a
 +        if (size > settings.probes || size > settings.mesh.operations - operations ||
 +            surface.samples.size() % size != 0) throw std::length_error("BSP lightmap extraction capacity");
 +        operations += size;
++        const auto project = [&](int x, int y) {
++            const double u = surface.mins[0] + x * 16.0 - surface.texture[0][3],
++                         v = surface.mins[1] + y * 16.0 - surface.texture[1][3];
++            Point position{};
++            for (int axis = 0; axis < 3; ++axis)
++                position[axis] = (tn[axis] * u + ns[axis] * v + st[axis] * surface.plane.distance) / determinant;
++            return position;
++        };
++        carving::Box probeBounds{project(0, 0), project(0, 0)};
++        for (int y : {0, height - 1}) for (int x : {0, width - 1})
++        {
++            const auto position = project(x, y);
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                const auto offset = position[axis] + n[axis] * direction * .03125;
++                probeBounds.min[axis] = (std::min)({probeBounds.min[axis], position[axis], offset});
++                probeBounds.max[axis] = (std::max)({probeBounds.max[axis], position[axis], offset});
++            }
++        }
++        const auto localHull = probeHull.Select(model.hull, probeBounds, consume);
 +        for (int y = 0; y < height; ++y) for (int x = 0; x < width; ++x)
 +        {
 +            if (x == 0 && cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("World edit preparation cancelled");
-+            const double u = surface.mins[0] + x * 16.0 - surface.texture[0][3],
-+                         v = surface.mins[1] + y * 16.0 - surface.texture[1][3];
-+            Point position{}, probe{};
++            const Point position = project(x, y);
++            Point probe{};
 +            for (int axis = 0; axis < 3; ++axis)
 +            {
-+                position[axis] = (tn[axis] * u + ns[axis] * v + st[axis] * surface.plane.distance) / determinant;
 +                probe[axis] = position[axis] + n[axis] * direction * .03125;
 +            }
 +            if (!nearCuts({probe, probe}, settings.radius)) continue;
 +            if (!OnFace(mesh, face, position, operations, settings.mesh.operations) ||
-+                !lighting::visible(model.hull, {}, position, probe, operations, settings.mesh.operations)) continue;
++                !lighting::visible(localHull, {}, position, probe, operations, settings.mesh.operations)) continue;
 +            const auto first = static_cast<std::uint32_t>(result.values.size());
 +            for (std::size_t style = 0; style < 4; ++style)
 +            {
@@ -24501,14 +24564,15 @@ index 0000000..36b0607
 +} // namespace worldedit
 diff --git a/tests/world_edit_prepare_tests.cpp b/tests/world_edit_prepare_tests.cpp
 new file mode 100644
-index 0000000..7c75079
+index 0000000..cbd45a0
 --- /dev/null
 +++ b/tests/world_edit_prepare_tests.cpp
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,227 @@
 +#include "world_edit_prepare.h"
 +#include <cassert>
 +#include <chrono>
 +#include <cstdio>
++#include <cstdlib>
 +#include <stdexcept>
 +
 +using namespace worldedit;
@@ -24585,6 +24649,66 @@ index 0000000..7c75079
 +    probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), {});
 +    assert(probes.probes.empty() && probes.values.empty());
 +}
++void ProbeVisibility()
++{
++    // Exercise short rays crossing thin solids on front/back/oblique surfaces.
++    // The full original hull is an independent visibility oracle for each luxel.
++    for (int shape = 0; shape < 3; ++shape) for (bool back : {false, true})
++    {
++        auto input = Fixture();
++        auto mesh = std::make_shared<surface::Mesh>(*input.original);
++        auto baked = std::make_shared<BakedSource>(*input.baked);
++        auto& face = baked->surfaces[0];
++        face.back = back;
++        if (shape == 1) { // Oblique normalized plane z=0.75*x.
++            face.plane.normal = {-.6, 0, .8};
++            for (auto& v : mesh->vertices) v.pos[2] = v.pos[0] * .75f;
++        }
++        if (shape == 2) {
++            face.plane.normal = {0, 0, -1};
++            face.texture[0][0] = -1;
++            face.mins[0] = -128;
++        }
++        input.original = mesh; input.baked = baked;
++        const auto n = face.plane.normal;
++        const double direction = back ? -1 : 1;
++        auto hull = std::make_shared<Hull>();
++        hull->planes = {{{1, 0, 0}, 64}, {n, direction * .0125}, {n, direction * .02},
++                        {{1, 0, 0}, -10000}, {{0, 1, 0}, 10000}};
++        // At x>=64 insert a very thin blocker strictly inside the offset ray.
++        hull->nodes = {{0, {1, -1}}, {1, {back ? -1 : 2, back ? 2 : -1}},
++                       {2, {back ? -2 : -1, back ? -1 : -2}},
++                       {3, {4, -2}}, {4, {-2, 0}}};
++        hull->root = 3; input.models[0].hull = hull;
++        input.models[0].cuts = {{{-256, -256, -256}, {256, 256, 256}}};
++        auto probes = CollectProbes(*mesh, *baked, input.models[0].View(), {});
++        std::vector<carving::Point> expected;
++        std::size_t work = 0;
++        for (int y = 0; y <= 128; y += 16) for (int i = 0; i <= 128; i += 16)
++        {
++            const double x = shape == 2 ? 128 - i : i;
++            carving::Point p{x, double(y), shape == 1 ? x * .75 : 0};
++            auto end = p;
++            for (int axis = 0; axis < 3; ++axis) end[axis] += n[axis] * direction * .03125;
++            if (lighting::visible(input.models[0].View().hull, {}, p, end, work, 100000)) expected.push_back(end);
++        }
++        assert(!expected.empty() && expected.size() < 81);
++        assert(probes.probes.size() == expected.size() && probes.values.size() == expected.size() * 2);
++        for (std::size_t i = 0; i < expected.size(); ++i)
++            for (int axis = 0; axis < 3; ++axis)
++                assert(std::abs(probes.probes[i].position[axis] - expected[i][axis]) < 1e-10);
++    }
++    // A shared DAG can expand exponentially when copied as a tree. The local
++    // optimization must abandon bounded scratch work and use the original hull.
++    auto input = Fixture();
++    auto hull = std::make_shared<Hull>();
++    hull->planes = {{{1, 0, 0}, 64}};
++    hull->nodes.push_back({0, {-1, -1}});
++    for (int i = 1; i < 22; ++i) hull->nodes.push_back({0, {i - 1, i - 1}});
++    hull->root = 21; input.models[0].hull = hull;
++    auto probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), {});
++    assert(probes.probes.size() == 81 && probes.values.size() == 162);
++}
 +std::atomic_bool entered{}, release{};
 +std::atomic<unsigned> calls{};
 +const auto mainThread = std::this_thread::get_id();
@@ -24602,7 +24726,9 @@ index 0000000..7c75079
 +
 +int main()
 +{
++    _set_error_mode(_OUT_TO_STDERR);
 +    ProbeNeighbourhood();
++    ProbeVisibility();
 +    constexpr std::uint64_t budget = 32ull * 1024 * 1024;
 +    auto input = Fixture();
 +    const auto model = input.models[0].View();
