@@ -2242,7 +2242,31 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_DrawNormalTriangles=DrawNormal; functions->HUD_DrawTransparentTriangles=DrawTransparent;
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
-void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { client_userinfo::shutdown(); goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::ExitGame(int) {
+    // MetaHook unloads hw.dll between ExitGame and Shutdown. Restore engine
+    // patches and release every engine/renderer callback while it is mapped.
+    goldcraft::steam_async::shutdown();
+    client_motion::shutdown();
+    client_map::shutdown_preparation();
+    client_map::shutdown_events();
+    input_audit::shutdown();
+    host_text::shutdown();
+    host_ui::shutdown();
+    discovery.stop();
+    link.stop();
+    ResetWorld();
+    StopPostScene();
+    render::shutdown();
+    client_userinfo::shutdown();
+    Log("ExitGame");
+}
+void IPluginsV4::Shutdown() {
+    // Only plugin-owned services are valid after engine unload. In particular,
+    // repeating StopPostScene here calls Cvar_SetValue in the unloaded module.
+    discovery.stop();
+    link.stop();
+    Log("Shutdown");
+    diagnostic_io.stop();
+}
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);
