@@ -13,7 +13,7 @@ std::uint64_t row_fingerprint(const View& row) noexcept {
     for (auto word : row.components) hash = (hash ^ word) * 1099511628211ull;
     return hash;
 }
-struct AudibleReuse {
+struct RowReuse {
     std::uint64_t hash = 0;
     std::size_t key = 0, operations = 0;
     bool valid = false;
@@ -23,14 +23,14 @@ struct EntityCache::PreparedRows {
     Prepared topology_;
     std::vector<View> rows_, audible_rows_;
     std::size_t row_bytes_ = 0, operations_ = 0, cached_words_ = 0;
-    std::size_t reused_audible_rows_ = 0;
+    std::size_t reused_visual_rows_ = 0, reused_audible_rows_ = 0;
     PreparedRows(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
                  Limits limits, const PreparedRows* previous);
 };
 EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
                                         std::span<const carving::Box> cuts, Limits limits,
                                         const PreparedRows* previous)
-    : topology_(std::move(source), cuts, limits, previous ? &previous->topology_ : nullptr,
+    : topology_(source, cuts, limits, previous ? &previous->topology_ : nullptr,
                 16 * 1024 * 1024) {
     static_assert(std::endian::native == std::endian::little);
     const auto leaves = topology_.leaf_count() - 1;
@@ -45,12 +45,43 @@ EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
     cached_words_ = 2 * (count + 1) * row_words;
     rows_.reserve(count);
     operations_ = topology_.operations();
+    // Reuse the same temporary direct-mapped index for visual and audible
+    // preparation. At most 64 KiB; no copied keys or old revision owners.
+    const auto reuse_count = std::min<std::size_t>(count, 64 * 1024 / sizeof(RowReuse));
+    const auto reuse = std::make_unique<RowReuse[]>(reuse_count);
+    // Match Prepared::view's ordinary-leaf seed: original PVS, self included,
+    // tail padding removed. Key zero and virtual cavities use different seeds.
+    const auto seed_word = [&](std::size_t key, std::size_t word) {
+        auto bits = source->pvs[(key - 1) * words + word];
+        if ((key - 1) / 64 == word) bits |= std::uint64_t{1} << ((key - 1) % 64);
+        if (word + 1 == words && leaves % 64) bits &= (std::uint64_t{1} << (leaves % 64)) - 1;
+        return bits;
+    };
+    const auto same_seed = [&](std::size_t a, std::size_t b) {
+        for (std::size_t word = 0; word < words; ++word)
+            if (seed_word(a, word) != seed_word(b, word)) return false;
+        return true;
+    };
     for (std::uint32_t key = 0; key < count; ++key) {
-        auto row = topology_.view(key);
+        RowReuse* slot = nullptr;
+        std::uint64_t hash = 14695981039346656037ull;
+        if (key && key <= leaves) {
+            for (std::size_t word = 0; word < words; ++word)
+                hash = (hash ^ seed_word(key, word)) * 1099511628211ull;
+            slot = &reuse[hash % reuse_count];
+        }
+        View row;
+        if (slot && slot->valid && slot->hash == hash && same_seed(slot->key, key)) {
+            // Identical seeds in this topology follow the same queue order
+            // and retain exactly the same operation charge and complete view.
+            row = rows_[slot->key];
+            ++reused_visual_rows_;
+        } else row = topology_.view(key);
         if (row.operations > limits.operations - operations_)
             throw std::length_error("Entity PVS cache preparation budget");
         operations_ += row.operations;
         rows_.push_back(std::move(row));
+        if (slot) *slot = {hash, key, 0, true};
     }
     // Match CM_CalcPAS: union the PVS of each directly visible region ONCE.
     // Iterate the immutable visual row, not the growing audible result. Virtual
@@ -61,10 +92,9 @@ EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
             throw std::length_error("Entity PAS cache preparation budget");
         operations_ += work;
     };
-    // Temporary direct-mapped index: at most 64 KiB, no copied row keys or
-    // ownership of previous revisions. A collision merely replaces one slot.
-    const auto reuse_count = std::min<std::size_t>(count, 64 * 1024 / sizeof(AudibleReuse));
-    const auto reuse = std::make_unique<AudibleReuse[]>(reuse_count);
+    // Visual seeds and final masks are different keys. Clear the index before
+    // reusing its storage; a collision merely replaces one completed row.
+    std::fill_n(reuse.get(), reuse_count, RowReuse{});
     for (const auto &visual : rows_) {
         const auto hash = row_fingerprint(visual);
         auto& slot = reuse[hash % reuse_count];
@@ -122,6 +152,7 @@ std::size_t EntityCache::operations() const noexcept { return prepared_->operati
 std::size_t EntityCache::cached_words() const noexcept { return prepared_->cached_words_; }
 std::size_t EntityCache::reused_contacts() const noexcept { return prepared_->topology_.reused_contacts(); }
 std::size_t EntityCache::contact_cache_bytes() const noexcept { return prepared_->topology_.contact_cache_bytes(); }
+std::size_t EntityCache::reused_visual_rows() const noexcept { return prepared_->reused_visual_rows_; }
 std::size_t EntityCache::reused_audible_rows() const noexcept { return prepared_->reused_audible_rows_; }
 void EntityCache::begin(bool audible) noexcept {
     auto &current = audible ? current_audible_ : current_;

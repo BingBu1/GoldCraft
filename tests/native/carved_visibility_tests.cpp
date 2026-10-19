@@ -309,6 +309,49 @@ void ReusedAudibleRows() {
     assert(CheckAudibleExpansion(solid, {}) == 0);
     assert(CheckAudibleExpansion(solid, {Hole(0, 2), Hole(10, 12)}) == 0);
 }
+void ReusedVisualRows() {
+    auto normalized = std::make_shared<visibility::Source>();
+    normalized->contents.resize(66, -1); normalized->contents[0] = -2;
+    normalized->root = -2;
+    normalized->pvs.resize(130, ~std::uint64_t{});
+    for (std::size_t leaf = 0; leaf < 65; ++leaf) {
+        // Raw rows differ: each lacks its own self bit and padding alternates.
+        if (leaf % 2) normalized->pvs[leaf * 2 + 1] = 1;
+        normalized->pvs[leaf * 2 + leaf / 64] &= ~(std::uint64_t{1} << (leaf % 64));
+    }
+    const visibility::EntityCache all(normalized, {});
+    assert(all.reused_visual_rows() == 64); // key zero must not supply a seed.
+    CheckAudibleExpansion(normalized, {});
+
+    auto self_only = std::make_shared<visibility::Source>(*normalized);
+    std::fill(self_only->pvs.begin(), self_only->pvs.end(), 0);
+    const visibility::EntityCache distinct(self_only, {}, {}, &all);
+    assert(distinct.reused_visual_rows() == 0); // Same raw rows, different self bits.
+    assert(!distinct.reaches(1, 2) && all.reaches(1, 2));
+    CheckAudibleExpansion(self_only, {});
+
+    auto rooms = Rooms(); rooms->pvs = {2, 1, 4, 8, 16};
+    const std::vector cuts{Hole(10, 12), Hole(20.5, 21.5)};
+    const visibility::EntityCache edited(rooms, cuts);
+    assert(edited.reused_visual_rows() == 1);
+    assert(edited.reaches(1, 3) && edited.reaches(2, 3));
+    const auto sealed = edited.cavity_key({21, 0, 0});
+    assert(sealed && !edited.reaches(1, sealed));
+    CheckAudibleExpansion(rooms, cuts);
+    // Removing the connecting cut changes the result despite identical seeds.
+    const std::vector remaining{cuts[1]};
+    const visibility::EntityCache removed(rooms, remaining, {}, &edited);
+    assert(removed.reused_visual_rows() == 1 && !removed.reaches(1, 3));
+    CheckAudibleExpansion(rooms, remaining);
+    auto limits = visibility::Limits{};
+    limits.words = edited.cached_words();
+    assert(visibility::EntityCache(rooms, cuts, limits).reused_visual_rows() == 1);
+    --limits.words;
+    Reject([&] { visibility::EntityCache invalid(rooms, cuts, limits); });
+    auto solid = std::make_shared<visibility::Source>();
+    solid->contents = {-2}; solid->root = -1;
+    assert(visibility::EntityCache(solid, {cuts.data(), cuts.size()}).reused_visual_rows() == 0);
+}
 void ReusedEntityPreparation() {
     auto source = Rooms();
     source->pvs = {3, 6, 12, 24, 16};
@@ -567,4 +610,4 @@ void ReusedCutContacts() {
                 assert(new_rows.reaches(from, to, sound) == fresh_rows.reaches(from, to, sound));
 }
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedAudibleRows(); ReusedEntityPreparation(); SparseContactLeaves(); ReusedSourceValidation(); ReusedCutContacts(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedAudibleRows(); ReusedVisualRows(); ReusedEntityPreparation(); SparseContactLeaves(); ReusedSourceValidation(); ReusedCutContacts(); }
