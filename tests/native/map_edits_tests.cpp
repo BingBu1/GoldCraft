@@ -10,6 +10,27 @@ template<class F> void rejects(F action){bool failed=false;try{action();}catch(c
 Box volume(float x=0){return {{x,-16,-32},{x+32,16,32}};}
 int main(){
     {
+        Ledger indexed;indexed.reset(11);
+        const Target first{17,9,3},second{17,10,3},third{18,4,3};
+        const std::array<Cut,6> input{{{0,third,volume(96)},{0,first,volume()},
+            {0,{},volume()},{0,second,volume(32)},{0,first,volume(64)},{0,first,volume()}}};
+        assert(indexed.add_batch(input));assert(indexed.state().cuts.size()==5);
+        assert((std::vector<Target>(indexed.targets().begin(),indexed.targets().end())==std::vector<Target>{first,second,third}));
+        assert(indexed.state().cuts[0].target==third&&indexed.state().cuts[1].target==first);
+        auto candidate=indexed;assert(candidate.targets().data()==indexed.targets().data());
+        auto zero=volume();zero.min[0]=-0.0f;assert(!candidate.add(first,zero));
+        assert(candidate.remove(first));assert(candidate.targets().size()==2&&indexed.targets().size()==3);
+        assert(!candidate.remove(first));assert(candidate.add(first,zero));
+        assert(candidate.targets().front()==first);
+        indexed.swap(candidate);assert(indexed.state().cuts.back().box==zero);
+        assert(candidate.state().cuts.size()==5&&candidate.targets().size()==3);
+        assert(indexed.restore());assert(indexed.targets().empty());
+        assert(indexed.add_batch(input));assert(indexed.targets().size()==3);
+        indexed.reset(12);assert(indexed.targets().empty());
+        assert(indexed.add_batch(input));indexed=candidate;assert(indexed.state()==candidate.state());
+        assert(indexed.targets().data()==candidate.targets().data());
+    }
+    {
         Ledger batches; batches.reset(7); Replica replica; replica.reset(7); replica.accept(batches.state());
         std::array<Cut,3> input{{{0,{},volume(0)},{0,{},volume(32)},{0,{},volume(32)}}};
         assert(batches.add_batch(input));

@@ -111,12 +111,59 @@ void background_failure_isolation(const edits::Ledger &original) {
     assert(continued==4138 && ledger.state().cuts.size()==2);
     std::puts("background: 32 repeated failures+same-frame continuation, retry recovery, allocation/non-std/diagnostic failures contained, episode/reset diagnostics, 4096 no-op frames allocate0");
 }
+void indexed_maintenance(const edits::Ledger& original) {
+    auto ledger=original;Physics physics;unsigned checked=0;
+    const auto allocation_count=allocations;
+    forbid_allocation=true;
+    assert(!server_edits::prune(ledger,physics,[&](auto target){assert(target.slot);++checked;return true;}));
+    assert(checked==3&&allocations==allocation_count);
+    // Existing keys and a wholly duplicate batch need neither tree nodes nor a
+    // state/index copy. Both positive and negative zero are the same volume.
+    assert(!ledger.add({},box(0)));assert(!ledger.add_batch(ledger.state().cuts));
+    forbid_allocation=false;
+    edits::Ledger world;world.reset(23);
+    std::vector<edits::Cut> cuts;for(unsigned i=0;i<4096;++i)cuts.push_back({0,{},box(float(i))});
+    assert(world.add_batch(cuts));checked=0;
+    forbid_allocation=true;
+    assert(!server_edits::prune(world,physics,[&](auto){++checked;return true;}));
+    forbid_allocation=false;assert(checked==0);
+
+    const std::array<edits::Cut,3> added{{{0,{10,100,2},box(32)},{0,{13,400,5},box(0)},{0,{},box(32)}}};
+    unsigned rejected=0;bool succeeded=false;
+    for(long allocation=0;allocation<200&&!succeeded;++allocation){
+        auto trial=original;const auto message=trial.next(0);const auto targets=trial.targets().data();
+        fail_after=allocation;
+        try{succeeded=trial.add_batch(added);}catch(const std::bad_alloc&){++rejected;}
+        fail_after=-1;
+        if(!succeeded){
+            assert(trial.state()==original.state()&&trial.targets().data()==targets&&trial.next(0)==message);
+            assert(!trial.add({},box(0)));assert(trial.remove({10,100,2}));
+        }else{
+            assert(trial.targets().size()==4&&original.targets().size()==3);
+            assert(trial.state().cuts.size()==original.state().cuts.size()+added.size());
+        }
+    }
+    assert(succeeded&&rejected>0);
+    // Copy assignment cannot publish only the state and leave an older index
+    // behind when a subsequent journal allocation fails.
+    succeeded=false;
+    for(long allocation=0;allocation<100&&!succeeded;++allocation){
+        edits::Ledger trial;trial.reset(99);trial.add({19,2,7},box(48));const auto before=trial.state();
+        fail_after=allocation;
+        try{trial=original;succeeded=true;}catch(const std::bad_alloc&){}
+        fail_after=-1;
+        if(!succeeded){assert(trial.state()==before&&trial.targets().size()==1);assert(!trial.add({19,2,7},box(48)));}
+        else assert(trial.state()==original.state()&&trial.targets().data()==original.targets().data());
+    }
+    assert(succeeded);
+}
 int main() {
     edits::Ledger original; original.reset(23);
     original.add({},box(0));
     original.add({10,100,2},box(0)); original.add({10,100,2},box(16));
     original.add({11,200,2},box(0)); // A separate instance of the same model.
     original.add({12,300,4},box(0));
+    indexed_maintenance(original);
     background_failure_isolation(original);
     auto alive = [](edits::Target target) { return target.slot == 11; };
     for (int failure = 0; failure < 2; ++failure) {

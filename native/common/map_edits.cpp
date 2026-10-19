@@ -2,8 +2,10 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <iterator>
 #include <set>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace goldcraft::edits {
@@ -63,7 +65,35 @@ void apply(Snapshot& s, const Delta& d) {
     } else s.cuts.clear();
     s.revision = d.revision;
 }
+struct CutKey {
+    Target target;
+    Box box;
+    bool operator<(const CutKey& other) const {
+        return std::tie(target.slot,target.serial,target.model,box.min,box.max) <
+            std::tie(other.target.slot,other.target.serial,other.target.model,other.box.min,other.box.max);
+    }
+};
 }
+// Candidate ledgers share immutable lookup data. Only a successful edit builds
+// a new contiguous index; no per-old-cut tree allocation on each explosion.
+struct Ledger::IdentityIndex {
+    std::vector<CutKey> keys;
+    std::vector<Target> targets;
+    template<class Range> IdentityIndex(std::span<const CutKey> old, const Range& added) {
+        keys.reserve(old.size()+added.size());
+        std::merge(old.begin(),old.end(),added.begin(),added.end(),std::back_inserter(keys));
+        collect_targets();
+    }
+    IdentityIndex(std::span<const CutKey> old, Target removed) {
+        keys.reserve(old.size());
+        for (const auto& key : old) if (key.target != removed) keys.push_back(key);
+        collect_targets();
+    }
+    void collect_targets() {
+        for (const auto& key : keys)
+            if (key.target.slot && (targets.empty() || targets.back() != key.target)) targets.push_back(key.target);
+    }
+};
 Bytes encode(const Snapshot& s) {
     validate(s); Writer w; w.data.reserve(20 + s.cuts.size() * 44);
     w.u64(s.epoch); w.u64(s.revision); w.u32(static_cast<std::uint32_t>(s.cuts.size()));
@@ -104,10 +134,18 @@ Batch batch(std::span<const std::uint8_t> bytes) {
     r.finish(); validate(b); return b;
 }
 void Ledger::reset(std::uint64_t epoch) {
-    state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); journal_bytes_ = 0; snapshot_message_.reset();
+    state_ = {epoch, epoch ? 1u : 0u, {}}; identities_.reset(); journal_.clear(); journal_bytes_ = 0; snapshot_message_.reset();
+}
+Ledger& Ledger::operator=(const Ledger& other) {
+    if (this != &other) { Ledger next(other); swap(next); }
+    return *this;
+}
+std::span<const Target> Ledger::targets() const {
+    return identities_ ? std::span<const Target>(identities_->targets) : std::span<const Target>{};
 }
 void Ledger::swap(Ledger& other) noexcept {
     std::swap(state_,other.state_); journal_.swap(other.journal_); snapshot_message_.swap(other.snapshot_message_);
+    identities_.swap(other.identities_);
     std::swap(journal_bytes_,other.journal_bytes_);
 }
 void Ledger::trim() noexcept {
@@ -115,55 +153,76 @@ void Ledger::trim() noexcept {
         journal_bytes_ -= journal_.front().bytes; journal_.pop_front();
     }
 }
-void Ledger::commit(Delta d) {
+void Ledger::commit(Delta d, std::shared_ptr<const IdentityIndex> identities) {
     validate(d);
     // Allocate journal storage before changing the authoritative state. Roll it
     // back if cut allocation fails, so peers never receive an uncommitted edit.
     journal_.push_back({d.base,d.revision,d,{},64});
     try { apply(state_, d); } catch (...) { journal_.pop_back(); throw; }
+    identities_ = std::move(identities);
     snapshot_message_.reset();
     journal_bytes_ += 64; trim();
 }
 bool Ledger::add(Target t, Box b) {
     validate(t); validate(b);
     if (!state_.epoch) throw ProtocolError("No active map edit session");
-    if (std::ranges::any_of(state_.cuts, [&](const Cut& c) { return c.target == t && c.box == b; })) return false;
-    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::add, t, b}); return true;
+    const auto old = identities_ ? std::span<const CutKey>(identities_->keys) : std::span<const CutKey>{};
+    const CutKey key{t,b};
+    if (std::binary_search(old.begin(),old.end(),key)) return false;
+    if (state_.cuts.size() == max_cuts || state_.revision == UINT64_MAX) throw ProtocolError("Map edit capacity");
+    auto identities = std::make_shared<const IdentityIndex>(old,std::array{key});
+    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::add, t, b},std::move(identities)); return true;
 }
 bool Ledger::add_batch(std::span<const Cut> cuts) {
     if (!state_.epoch || !state_.revision) throw ProtocolError("No active map edit session");
-    using Identity = std::tuple<std::uint32_t,std::uint32_t,std::uint32_t,std::array<float,3>,std::array<float,3>>;
-    auto key = [](const Cut& c) { return Identity{c.target.slot,c.target.serial,c.target.model,c.box.min,c.box.max}; };
-    std::set<Identity> known;
-    for (const auto& c : state_.cuts) known.insert(key(c));
-    auto next = state_.cuts;
+    const auto old = identities_ ? std::span<const CutKey>(identities_->keys) : std::span<const CutKey>{};
+    // MSVC's empty std::set allocates a sentinel. Delay even that allocation
+    // until a genuinely new key appears, so duplicate-only batches stay cheap.
+    std::optional<std::set<CutKey>> added;
+    std::vector<Cut> next;
     auto revision = state_.revision;
     for (const auto& c : cuts) {
         validate(c.target); validate(c.box);
-        if (!known.insert(key(c)).second) continue;
-        if (next.size() == max_cuts || revision == UINT64_MAX) throw ProtocolError("Map edit capacity");
+        const CutKey key{c.target,c.box};
+        if (std::binary_search(old.begin(),old.end(),key)) continue;
+        if (!added) added.emplace();
+        if (!added->insert(key).second) continue;
+        if (next.size() == max_cuts-state_.cuts.size() || revision == UINT64_MAX) throw ProtocolError("Map edit capacity");
         next.push_back({++revision,c.target,c.box});
     }
     if (revision == state_.revision) return false;
-    Batch change{state_.epoch,state_.revision,revision,{next.begin()+state_.cuts.size(),next.end()}};
+    Batch change{state_.epoch,state_.revision,revision,std::move(next)};
+    auto identities = std::make_shared<const IdentityIndex>(old,*added);
     auto message = std::make_shared<const Message>(Message{Type::map_edit_batch,encode(change)});
     const auto bytes = message->payload.size();
     // Complete allocation/encoding before publishing state. In-flight peers
     // keep immutable messages even after eviction, a candidate swap or reset.
+    state_.cuts.reserve(state_.cuts.size()+change.cuts.size());
     journal_.push_back({change.base,change.revision,{},std::move(message),bytes});
-    state_.cuts.swap(next); state_.revision = revision;
+    // Capacity is available and Cut has nonthrowing value copies. No allocation
+    // remains after the journal entry, including publication of the index.
+    static_assert(std::is_nothrow_copy_constructible_v<Cut> && std::is_nothrow_copy_assignable_v<Cut>);
+    state_.cuts.insert(state_.cuts.end(),change.cuts.begin(),change.cuts.end()); state_.revision = revision;
+    identities_ = std::move(identities);
     snapshot_message_.reset();
     journal_bytes_ += bytes; trim();
     return true;
 }
 bool Ledger::remove(Target t) {
     validate(t);
-    if (!std::ranges::any_of(state_.cuts, [&](const Cut& c) { return c.target == t; })) return false;
-    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::remove_target, t, {}}); return true;
+    if (!identities_) return false;
+    const auto found = std::lower_bound(identities_->keys.begin(),identities_->keys.end(),t,
+        [](const CutKey& key, Target target) {
+            return std::tie(key.target.slot,key.target.serial,key.target.model) < std::tie(target.slot,target.serial,target.model);
+        });
+    if (found == identities_->keys.end() || found->target != t) return false;
+    if (state_.revision == UINT64_MAX) throw ProtocolError("Map edit revision sequence");
+    auto identities = std::make_shared<const IdentityIndex>(std::span<const CutKey>(identities_->keys),t);
+    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::remove_target, t, {}},std::move(identities)); return true;
 }
 bool Ledger::restore() {
     if (state_.cuts.empty()) return false;
-    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::clear, {}, {}}); return true;
+    commit({state_.epoch, state_.revision, state_.revision + 1, Operation::clear, {}, {}},{}); return true;
 }
 std::shared_ptr<const Message> Ledger::next(std::uint64_t revision, bool batches) const {
     if (!state_.epoch || revision == state_.revision) return {};

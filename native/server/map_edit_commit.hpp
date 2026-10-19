@@ -1,8 +1,6 @@
 #pragma once
 #include "goldcraft/map_edits.hpp"
 #include "goldcraft/host_map_api.hpp"
-#include <algorithm>
-#include <tuple>
 
 namespace goldcraft::server_edits {
 // The caller owns candidate. All allocation (including the removal journal)
@@ -26,13 +24,9 @@ inline void publish(edits::Ledger &current, edits::Ledger &candidate, IHostMapPh
 
 template <class Alive> bool prune(edits::Ledger &current, IHostMapPhysics &physics, Alive alive) {
     std::vector<edits::Target> stale;
-    for (const auto &cut : current.state().cuts)
-        if (cut.target.slot && !alive(cut.target)) stale.push_back(cut.target);
+    for (const auto &target : current.targets())
+        if (!alive(target)) stale.push_back(target);
     if (stale.empty()) return false;
-    std::ranges::sort(stale, [](const auto &a, const auto &b) {
-        return std::tie(a.slot, a.serial, a.model) < std::tie(b.slot, b.serial, b.model);
-    });
-    stale.erase(std::unique(stale.begin(), stale.end()), stale.end());
     auto candidate = current;
     for (const auto &target : stale) candidate.remove(target);
     publish(current, candidate, physics);
