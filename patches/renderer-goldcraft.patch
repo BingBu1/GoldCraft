@@ -14327,10 +14327,10 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..ae2d71e
+index 0000000..b656042
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,336 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -14534,8 +14534,12 @@ index 0000000..ae2d71e
 +    const auto asyncMatches = [&](const cavity::Model& carve, const CWorldSurfaceWorldModel& expected) {
 +        // Compare against the pre-async direct engine-surface extractor, not
 +        // only the new synchronous wrapper and worker sharing one algorithm.
++        const auto oldStarted = std::chrono::steady_clock::now();
 +        const auto oldProbes = legacy_probe::Collect(*original, carve, {});
++        const auto oldMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - oldStarted).count();
++        const auto newStarted = std::chrono::steady_clock::now();
 +        const auto newProbes = worldedit::CollectProbes(*mesh, *bakedSnapshot, carve, {});
++        const auto newMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - newStarted).count();
 +        assert(oldProbes.values == newProbes.values && oldProbes.probes.size() == newProbes.probes.size());
 +        for (std::size_t i = 0; i < oldProbes.probes.size(); ++i)
 +            assert(oldProbes.probes[i].position == newProbes.probes[i].position && oldProbes.probes[i].values == newProbes.probes[i].values);
@@ -14572,6 +14576,9 @@ index 0000000..ae2d71e
 +                a.bounds.max == b.bounds.max && a.needs_lighting == b.needs_lighting);
 +        }
 +        assert(prepared.visibility && prepared.visibility->leaf_count() == visibility_source->contents.size());
++        std::printf("{\"mapPreparationStages\":true,\"cuts\":%zu,\"legacyProbesMs\":%.6f,\"ownedProbesMs\":%.6f,\"cavityMs\":%.6f,\"probesMs\":%.6f,\"lightMs\":%.6f,\"visibilityMs\":%.6f,\"probes\":%zu,\"passed\":true}\n",
++            carve.boxes.size(), oldMs, newMs, prepared.timings.cavityMs, prepared.timings.probesMs,
++            prepared.timings.lightMs, prepared.timings.visibilityMs, newProbes.probes.size());
 +    };
 +    std::size_t cases=0, rays=0, occluded=0, values=0, samples=0, triangles=0;
 +    std::size_t opened_rays=0, bounded_views=0, max_visible=0, vis_operations=0;
@@ -23742,11 +23749,12 @@ index 0000000..50fab8c
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..1fca452
+index 0000000..3d93e71
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,338 @@
 +#include "world_edit_prepare.h"
++#include <goldcraft/cut_index.hpp>
 +#include <algorithm>
 +#include <cmath>
 +#include <chrono>
@@ -23769,19 +23777,15 @@ index 0000000..1fca452
 +}
 +double Dot(const Point& a, const Point& b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 +Point Position(const surface::Vertex& v) { return {v.pos[0], v.pos[1], v.pos[2]}; }
-+bool NearCuts(const carving::Box& bounds, std::span<const carving::Box> cuts, double radius)
++bool NearCut(const carving::Box& bounds, const carving::Box& cut, double radius)
 +{
-+    for (const auto& cut : cuts)
++    double squared = 0;
++    for (int axis = 0; axis < 3; ++axis)
 +    {
-+        double squared = 0;
-+        for (int axis = 0; axis < 3; ++axis)
-+        {
-+            const double gap = (std::max)(0.0, (std::max)(cut.min[axis] - bounds.max[axis], bounds.min[axis] - cut.max[axis]));
-+            squared += gap * gap;
-+        }
-+        if (squared <= radius * radius) return true;
++        const double gap = (std::max)(0.0, (std::max)(cut.min[axis] - bounds.max[axis], bounds.min[axis] - cut.max[axis]));
++        squared += gap * gap;
 +    }
-+    return false;
++    return squared <= radius * radius;
 +}
 +bool OnFace(const surface::Mesh& mesh, const surface::Face& face, const Point& position,
 +    std::size_t& operations, std::size_t limit)
@@ -23818,6 +23822,17 @@ index 0000000..1fca452
 +    if (!std::isfinite(settings.radius) || settings.radius <= 0 || settings.radius > 65536)
 +        throw std::invalid_argument("BSP probe radius");
 +    std::size_t operations = carving::validate_hull(model.hull, {settings.mesh.fragments, settings.mesh.operations});
++    const auto consume = [&](std::size_t count) {
++        if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("World edit preparation cancelled");
++        if (count > settings.mesh.operations - operations) throw std::length_error("BSP probe neighbourhood budget");
++        operations += count;
++    };
++    const carving::CutIndex cuts(model.boxes, consume);
++    const auto nearCuts = [&](const carving::Box& bounds, double radius) {
++        // Keep the exact Euclidean distance test, including touching bounds.
++        // A rejected enclosing node cannot contain a contributing cut.
++        return cuts.any([&](const carving::Box& cut) { return NearCut(bounds, cut, radius); }, consume);
++    };
 +    Probes result;
 +    for (std::size_t index = model.first_face; index < std::size_t(model.first_face) + model.face_count; ++index)
 +    {
@@ -23830,9 +23845,9 @@ index 0000000..1fca452
 +            throw std::invalid_argument("Invalid immutable BSP probe surface");
 +        for (std::size_t at = face.forward.first; at < std::size_t(face.forward.first) + face.forward.count; ++at)
 +            if (mesh.indices[at] >= mesh.vertices.size()) throw std::invalid_argument("Invalid immutable BSP probe vertex");
-+        if (face.forward.count + model.boxes.size() > settings.mesh.operations - operations)
++        if (face.forward.count > settings.mesh.operations - operations)
 +            throw std::length_error("BSP probe bounds budget");
-+        operations += face.forward.count + model.boxes.size();
++        operations += face.forward.count;
 +        carving::Box bounds{Position(mesh.vertices[mesh.indices[face.forward.first]]), Position(mesh.vertices[mesh.indices[face.forward.first]])};
 +        for (std::size_t at = face.forward.first; at < std::size_t(face.forward.first) + face.forward.count; ++at)
 +            for (int axis = 0; axis < 3; ++axis)
@@ -23840,7 +23855,7 @@ index 0000000..1fca452
 +                bounds.min[axis] = (std::min)(bounds.min[axis], double(mesh.vertices[mesh.indices[at]].pos[axis]));
 +                bounds.max[axis] = (std::max)(bounds.max[axis], double(mesh.vertices[mesh.indices[at]].pos[axis]));
 +            }
-+        if (!NearCuts(bounds, model.boxes, settings.radius + .03125)) continue;
++        if (!nearCuts(bounds, settings.radius + .03125)) continue;
 +        const Point s{surface.texture[0][0], surface.texture[0][1], surface.texture[0][2]},
 +                    t{surface.texture[1][0], surface.texture[1][1], surface.texture[1][2]},
 +                    n{surface.plane.normal[0], surface.plane.normal[1], surface.plane.normal[2]};
@@ -23867,9 +23882,7 @@ index 0000000..1fca452
 +                position[axis] = (tn[axis] * u + ns[axis] * v + st[axis] * surface.plane.distance) / determinant;
 +                probe[axis] = position[axis] + n[axis] * direction * .03125;
 +            }
-+            if (model.boxes.size() > settings.mesh.operations - operations) throw std::length_error("BSP probe neighbourhood budget");
-+            operations += model.boxes.size();
-+            if (!NearCuts({probe, probe}, model.boxes, settings.radius)) continue;
++            if (!nearCuts({probe, probe}, settings.radius)) continue;
 +            if (!OnFace(mesh, face, position, operations, settings.mesh.operations) ||
 +                !lighting::visible(model.hull, {}, position, probe, operations, settings.mesh.operations)) continue;
 +            const auto first = static_cast<std::uint32_t>(result.values.size());
@@ -24159,10 +24172,10 @@ index 0000000..36b0607
 +} // namespace worldedit
 diff --git a/tests/world_edit_prepare_tests.cpp b/tests/world_edit_prepare_tests.cpp
 new file mode 100644
-index 0000000..bef3653
+index 0000000..6395aa8
 --- /dev/null
 +++ b/tests/world_edit_prepare_tests.cpp
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,148 @@
 +#include "world_edit_prepare.h"
 +#include <cassert>
 +#include <chrono>
@@ -24211,6 +24224,38 @@ index 0000000..bef3653
 +    input.worldCuts = input.models[0].cuts;
 +    return input;
 +}
++void ProbeNeighbourhood()
++{
++    auto input = Fixture();
++    auto& cuts = input.models[0].cuts;
++    cuts.clear();
++    // Far cuts force tree traversal; only the last cut touches the 3-4-5
++    // radius around the first luxel. A rectangular expansion would wrongly
++    // retain the diagonal case after it moves beyond the spherical radius.
++    for (int i = 0; i < 256; ++i)
++        cuts.push_back({{1024.0 + 32 * i, 1024, -8}, {1040.0 + 32 * i, 1040, 8}});
++    cuts.push_back({{3, 4, -8}, {4, 5, 8}});
++    lighting::Settings settings; settings.radius = 5;
++    auto probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), settings);
++    assert(probes.probes.size() == 1 && probes.values.size() == 2);
++    assert((probes.probes[0].position == carving::Point{0, 0, .03125}));
++    cuts.back().min[1] += .000001;
++    probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), settings);
++    assert(probes.probes.empty() && probes.values.empty());
++    bool rejected = false;
++    settings.mesh.operations = 16;
++    try { CollectProbes(*input.original, *input.baked, input.models[0].View(), settings); }
++    catch (const std::length_error&) { rejected = true; }
++    assert(rejected); // Index construction is included in the work budget.
++    const std::atomic_bool cancelled{true};
++    rejected = false;
++    try { CollectProbes(*input.original, *input.baked, input.models[0].View(), {}, &cancelled); }
++    catch (const std::runtime_error&) { rejected = true; }
++    assert(rejected);
++    cuts.clear();
++    probes = CollectProbes(*input.original, *input.baked, input.models[0].View(), {});
++    assert(probes.probes.empty() && probes.values.empty());
++}
 +std::atomic_bool entered{}, release{};
 +std::atomic<unsigned> calls{};
 +const auto mainThread = std::this_thread::get_id();
@@ -24228,6 +24273,7 @@ index 0000000..bef3653
 +
 +int main()
 +{
++    ProbeNeighbourhood();
 +    constexpr std::uint64_t budget = 32ull * 1024 * 1024;
 +    auto input = Fixture();
 +    const auto model = input.models[0].View();

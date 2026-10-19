@@ -1,5 +1,13 @@
 # TNT 爆破准备与地图同步
 
+## 2026-10-19 probe neighbourhood indexing
+
+The CPU preparation worker previously scanned every cut for each baked face and luxel. It now builds one `CutIndex` per model and stops at the first exact Euclidean distance match. Enclosing-node distance rejects irrelevant subtrees; this preserves the spherical radius and inclusive boundary, probe order, style values and lighting. Traversal allocates no candidate vectors or sorting buffers. Index construction and visited nodes/cuts count toward the existing work budget, with cancellation checked during traversal. Draw/upload budgets are unchanged.
+
+Three x86 runs on the actual `cs_assault` fixture compared the frozen linear extractor against the indexed extractor, preserving all 15 geometry, probe, coefficient, ray and visibility cases. Median owned probe collection time before/after was 2.114/0.845 ms for 125 cuts, 10.064/1.747 ms for 729 cuts, and 18.935/2.508 ms for 1331 cuts. The single-cut median across 12 positions was 0.196/0.226 ms. Background CPU geometry and lighting remain larger stages; timings of those unchanged stages fluctuated between runs and are not attributed to this change.
+
+Production Renderer compilation, the focused preparation and real GL transaction/collision tests, and the 121-file source-patch replay passed. Added checks cover an exact 3-4-5 radius boundary, diagonal rejection, empty cuts, index-build budget exhaustion and cancellation. Evidence: `build/tnt-probe-index-20261019` (`measurements.json`, `final-tests.log`, `patch-validation.json`, `candidate.json`). The new Renderer plus the earlier GoldCraft slowest-operation diagnostics DLL are saved as a joint candidate, **not deployed**. These are CPU/hidden-GL results, not live TNT latency or game FPS; retain the pending fixed-view and multiplayer acceptance.
+
 ## 2026-10-19：非空地图更新现场与慢操作记录
 
 已部署的消息缓存版本取得非空现场数据：同一世界从82推进到129个切口，第二次样本服务端、客户端接收、画面和碰撞revision均为130，无待提交，MC形态/控制与相机有效，GL错误0。保留的27个完整准备事务从Renderer Begin到碰撞提交耗时中位数305.02ms、最大1221.82ms；这些间隔包含后台准备与帧调度，不是网络耗时或固定视角FPS。采样没有证明触发者使用了TNT，也不能代表全程形态稳定。证据 `build/tnt-live-followup-20261019/convergence.json`。

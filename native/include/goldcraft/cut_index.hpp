@@ -54,6 +54,17 @@ class CutIndex {
                 if(overlaps(boxes_[order_[i]],bounds)) out.push_back(order_[i]);
         }
     }
+    template<class Match,class Consume> bool visit_any(std::size_t at,Match& match,Consume& consume) const {
+        consume(1);
+        const auto& node=nodes_[at];
+        if (!match(node.bounds)) return false;
+        if (node.right) return visit_any(node.left,match,consume) || visit_any(node.right,match,consume);
+        for (auto i=node.first;i<node.last;++i) {
+            consume(1);
+            if (match(boxes_[order_[i]])) return true;
+        }
+        return false;
+    }
   public:
     template<class Consume> CutIndex(std::span<const Box> boxes,Consume consume):boxes_(boxes) {
         consume(boxes.size());
@@ -65,6 +76,12 @@ class CutIndex {
         if(!nodes_.empty()) visit(0,bounds,out,consume);
         consume(out.size()*std::bit_width(out.size()));
         std::sort(out.begin(),out.end());
+    }
+    // Existence queries need neither source ordering nor a candidate vector.
+    // Match must be conservative for enclosing bounds: if a child matches,
+    // its ancestors must match too (for example, a maximum distance test).
+    template<class Match,class Consume> bool any(Match match,Consume consume) const {
+        return !nodes_.empty() && visit_any(0,match,consume);
     }
 };
 }
