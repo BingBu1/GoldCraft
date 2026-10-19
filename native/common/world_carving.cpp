@@ -286,6 +286,32 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
         for (int axis = 0; axis < 3; ++axis) for (bool upper : {false, true}) {
             const int u = (axis + 1) % 3, v = (axis + 2) % 3;
             const double face = upper ? box.max[axis] : box.min[axis];
+            auto bounds=box; bounds.min[axis]=bounds.max[axis]=face;
+            index.query(bounds,neighbours,[&](auto n){consume(work,limits,n);});
+            const auto occludes = [&](std::size_t other) {
+                if (other == current) return false;
+                const auto& occluder = boxes[other];
+                const bool outside = upper ? occluder.min[axis] <= face && occluder.max[axis] > face
+                                           : occluder.max[axis] >= face && occluder.min[axis] < face;
+                const bool shared_exterior = upper ? occluder.max[axis] == face : occluder.min[axis] == face;
+                // Coincident exterior faces retain the first box's ownership.
+                return outside || (other < current && shared_exterior);
+            };
+            bool covered = false;
+            for (auto other : neighbours) {
+                consume(work, limits, 1);
+                if (!occludes(other)) continue;
+                const auto& occluder = boxes[other];
+                if (occluder.min[u] <= box.min[u] && occluder.max[u] >= box.max[u] &&
+                    occluder.min[v] <= box.min[v] && occluder.max[v] >= box.max[v]) {
+                    covered = true;
+                    break;
+                }
+            }
+            // Dense adjacent cuts hide most faces completely. Reject those
+            // before allocating/clipping polygons; partial coverage still
+            // follows the original ordered subtraction and BSP traversal.
+            if (covered) continue;
             Polygon polygon(4);
             for (int vertex = 0; vertex < 4; ++vertex) {
                 auto& point = polygon[vertex].position;
@@ -296,19 +322,11 @@ Interior interior_walls(HullView hull, std::span<const Box> boxes, Limits limits
             if (upper) std::reverse(polygon.begin(), polygon.end());
             Point normal{}; normal[axis] = upper ? -1.0 : 1.0;
             std::vector<Polygon> visible{std::move(polygon)};
-            auto bounds=box; bounds.min[axis]=bounds.max[axis]=face;
-            index.query(bounds,neighbours,[&](auto n){consume(work,limits,n);});
             for (auto other : neighbours) {
                 if(visible.empty()) break;
                 consume(work, limits, 1);
-                if (other == current) continue;
+                if (!occludes(other)) continue;
                 const auto& occluder = boxes[other];
-                const bool outside = upper ? occluder.min[axis] <= face && occluder.max[axis] > face
-                                           : occluder.max[axis] >= face && occluder.min[axis] < face;
-                const bool shared_exterior = upper ? occluder.max[axis] == face : occluder.min[axis] == face;
-                // When exterior faces coincide, the first box owns their shared
-                // area. A touching neighbour on the other side always removes it.
-                if (!outside && !(other < current && shared_exterior)) continue;
                 std::vector<Polygon> next;
                 for (const auto& piece : visible) {
                     consume(work, limits, piece.size());

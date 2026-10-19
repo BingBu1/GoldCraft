@@ -1,5 +1,13 @@
 # TNT 爆破准备与地图同步
 
+## 2026-10-19 fully covered cavity faces
+
+Interior wall preparation now rejects a rectangular cut face wholly covered by one eligible neighbour before allocating and repeatedly clipping its polygon. The existing neighbour index and first-record ownership rule are retained. Partial coverage still runs the original ordered subtraction and BSP clipping; no cuts, materials or surviving polygons are merged. The precheck counts against the work budget.
+
+Three actual `cs_assault` runs measured median background cavity preparation of 7.082→4.512 ms for 125 dense cuts, 29.881→10.159 ms for 729, and 50.324→15.340 ms for 1331. The aggregate single-cut median was 3.129→3.063 ms. Native distributed 64/256/512/1024-cut cases measured 5.466/14.907/20.672/33.886→5.617/13.547/19.950/31.401 ms; do not claim a general improvement for every arrangement. Game load remains a source of timing variation.
+
+Fifteen actual-lightmap and seven native geometry/light fingerprints match separately frozen old executables in all three runs. Focused checks retain first-box ownership on duplicates, a 2^-30-wide exposed strip and a gap between adjacent cuts. Five native/real-GL checks, production GoldCraft/Renderer builds and 250 frozen build-input hashes pass. Evidence: `build/tnt-geometry-20261019` (`measurements.json`, `native-tests.log`, `renderer-tests.log`, `candidate.json`). The joint two-DLL candidate includes the preceding probe and lighting optimizations. It is **not deployed**; live TNT delay, form retention, fixed-view FPS and multiplayer remain open. These three independent phase improvements must not be added or advertised as a measured end-to-end result.
+
 ## 2026-10-19 light-ray union preparation
 
 Lighting now compacts exactly touching or overlapping cuts with identical cross sections before building its ray-query index, and reuses the ray interval buffer for one model's preparation. Only visibility openings use the compact union: authoritative cut records, geometry, material ownership and probe selection are unchanged. No epsilon closes small gaps. Compaction validation, sorting and linear passes count toward the existing preparation operation budget; scratch storage is released with the preparation field.

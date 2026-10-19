@@ -260,8 +260,23 @@ void interior_cases() {
     check(HullView{{}, {}, -3}, {&cube, 1}, 0);
     std::array<Box, 2> pair{cube, cube};
     check(solid, pair, 24); // Coincident faces have exactly one owner.
+    const auto repeated = interior_walls(solid, pair);
+    assert(repeated.walls.size() == 6);
+    for (const auto& wall : repeated.walls) assert(wall.box == 0);
     pair[1] = {{2, 0, 0}, {4, 2, 2}};
     check(solid, pair, 40); // Shared wall between adjacent cells disappears.
+    // A neighbour missing even a thin strip cannot hide the whole face.
+    const auto slit = std::ldexp(1.0, -30);
+    pair[1].min[1] = slit;
+    const auto partial = interior_walls(solid, pair);
+    double strip_area = 0;
+    for (const auto& wall : partial.walls)
+        if (wall.box == 0 && wall.normal == Point{-1, 0, 0})
+            for (std::size_t i = 1; i + 1 < wall.vertices.size(); ++i)
+                strip_area += area(Triangle{wall.vertices[0], wall.vertices[i], wall.vertices[i + 1]});
+    close(strip_area, 2 * slit, 1e-15);
+    pair[1] = {{2 + slit, 0, 0}, {4 + slit, 2, 2}};
+    assert(interior_walls(solid, pair).walls.size() == 12);
     pair[1] = {{1, 0, 0}, {3, 2, 2}};
     check(solid, pair, 32);
     std::reverse(pair.begin(), pair.end()); check(solid, pair, 32);
