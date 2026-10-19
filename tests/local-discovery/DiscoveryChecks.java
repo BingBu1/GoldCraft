@@ -6,6 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class DiscoveryChecks {
     static int checks;
@@ -19,6 +22,63 @@ public final class DiscoveryChecks {
         long deadline=System.nanoTime()+2_000_000_000L;
         while(!condition.getAsBoolean()&&System.nanoTime()-deadline<0)Thread.sleep(20);
         return condition.getAsBoolean();
+    }
+    static final class ScanGate {
+        final CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+        void block(){
+            entered.countDown();
+            try{if(!release.await(3,TimeUnit.SECONDS))throw new AssertionError("scan gate timeout");}
+            catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
+        }
+    }
+    static void requestIsolation(Path root)throws Exception{
+        Files.createDirectories(root);
+        Path file=root.resolve("1-1001.gclink");Files.writeString(file,record(1,1001,40001,99,false));
+        AtomicReference<ScanGate> gate=new AtomicReference<>();
+        var identity=new LocalClientDiscovery.Identity(){
+            public boolean privatePath(Path path){
+                if(path.equals(file)){ScanGate next=gate.getAndSet(null);if(next!=null)next.block();}
+                return true;
+            }
+            public boolean live(LocalClientDiscovery.Endpoint value){return true;}
+        };
+        try(var discovery=new LocalClientDiscovery(root,30,identity)){
+            discovery.request(99,null);
+            check(await(()->!discovery.result().pending()&&discovery.result().endpoint()!=null),"initial request completes");
+            var a=discovery.result().endpoint();
+            discovery.request(99,null);
+            check(!discovery.result().pending(),"same tick request preserves completed result");
+
+            ScanGate old=new ScanGate();gate.set(old);
+            try{
+                check(old.entered.await(2,TimeUnit.SECONDS),"old scan paused before completion");
+                discovery.request(0,null);discovery.request(99,null);
+                check(discovery.result().pending(),"same-world reconnect cannot consume old completion");
+                ScanGate fresh=new ScanGate();gate.set(fresh);old.release.countDown();
+                try{
+                    check(fresh.entered.await(2,TimeUnit.SECONDS),"fresh same-world scan started");
+                    check(discovery.result().pending(),"late pre-disconnect scan remains obsolete");
+                }finally{fresh.release.countDown();}
+                check(await(()->!discovery.result().pending()),"fresh same-world completion accepted");
+                check(discovery.result().endpoint().sameTransport(a),"fresh result preserves exact transport");
+            }finally{old.release.countDown();ScanGate queued=gate.getAndSet(null);if(queued!=null)queued.release.countDown();}
+
+            ScanGate changing=new ScanGate();gate.set(changing);
+            try{
+                check(changing.entered.await(2,TimeUnit.SECONDS),"scan paused for request changes");
+                discovery.request(99,null,false,1);
+                discovery.request(99,null,false,2);
+                check(discovery.result().pending(),"new admission attempt invalidates same-world completion without a standalone tick");
+                discovery.request(99,a);
+                check(discovery.result().pending(),"new owner invalidates old ownerless completion");
+                discovery.request(99,a,true);
+                check(discovery.result().pending(),"admitted retention awaits its own scan");
+                discovery.request(100,null);
+                check(discovery.result().pending(),"new server challenge cannot consume prior result");
+            }finally{changing.release.countDown();}
+            check(await(()->!discovery.result().pending()),"new challenge gets a completed scan");
+            check(discovery.result().endpoint()==null,"completed wrong-world result is not pending");
+        }
     }
     public static void main(String[] args)throws Exception{
         Path root=Path.of(args[0]),privateRoot=root.resolve("private"),scanRoot=root.resolve("scan");
@@ -83,8 +143,9 @@ public final class DiscoveryChecks {
             discovery.request(101,null);
             check(await(()->discovery.result().endpoint()!=null),"background discovery completes");
             discovery.request(0,null);
-            check(await(()->discovery.result().endpoint()==null),"ordinary standalone MC remains unattached");
+            check(await(()->!discovery.result().pending()&&discovery.result().endpoint()==null),"ordinary standalone MC remains unattached");
         }
+        requestIsolation(root.resolve("request-isolation"));
         for(int i=0;i<129;i++)Files.writeString(scanRoot.resolve((500+i)+"-"+(1500+i)+".gclink"),record(500+i,1500+i,42000,101,false));
         check(LocalClientDiscovery.scan(scanRoot,30,101,null,identity).endpoint()==null,"scan bounded under stale-record flood");
         System.out.println("PASS "+checks+" discovery checks; no gameplay, server admission or native publisher execution.");

@@ -159,8 +159,12 @@ public final class GoldCraftClient {
         }
         if(discoveryWorld==0)return;
         boolean keepTransport=hosted&&challenge==0;
-        discovery.request(discoveryWorld,discoveredEndpoint,keepTransport);
-        var result=discovery.result();var endpoint=result.endpoint();pairingProblem=result.reason();
+        if(!keepTransport&&discoveredEndpoint!=null&&discoveredEndpoint.world()!=discoveryWorld)detach();
+        discovery.request(discoveryWorld,discoveredEndpoint,keepTransport,dev.goldcraft.net.HostNetwork.pairingAttempt());
+        var result=discovery.result();
+        // A new request has no answer yet, not a confirmed loss of this pair.
+        if(result.pending())return;
+        var endpoint=result.endpoint();pairingProblem=result.reason();
         // A result from the previous server must not be used during a new admission.
         if(endpoint!=null&&endpoint.world()!=discoveryWorld&&
             !(keepTransport&&discoveredEndpoint!=null&&discoveredEndpoint.sameTransport(endpoint)))endpoint=null;

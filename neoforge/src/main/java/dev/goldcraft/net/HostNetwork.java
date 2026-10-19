@@ -14,6 +14,7 @@ public final class HostNetwork {
     private static CsAdmissionChallengePayload admission;
     private static IPayloadContext admissionContext;
     private static IPayloadContext pairingContext;
+    private static long pairingAttempt;
     private static long admissionDeadline;
     private HostNetwork() {}
     public static void clientReceiver(Consumer<HostPayload> value) {
@@ -35,12 +36,15 @@ public final class HostNetwork {
         if(pairingContext!=null&&!pairingContext.connection().isOpen())pairingContext=null;
         return pairingContext!=null;
     }
+    /** A reconnect to the same world is still a different discovery request. */
+    public static long pairingAttempt() { return pairingConnectionOpen()?pairingAttempt:0; }
     public static void receiveAdmission(CsAdmissionChallengePayload payload, IPayloadContext context) {
         if (admissionContext != null && admissionContext.connection().isOpen()
             && admissionContext.connection().getPacketListener() == admissionContext.listener()) {
             context.disconnect(Text.literal("Repeated CS admission challenge.")); return;
         }
         admission = payload; admissionContext = context; pairingContext = context;
+        if(++pairingAttempt==0)pairingAttempt++;
         admissionDeadline = System.nanoTime() + 10_000_000_000L;
         tickAdmission();
     }

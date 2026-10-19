@@ -28,7 +28,10 @@ final class LocalClientDiscovery implements AutoCloseable {
         }
         @Override public String toString(){return "Local CS endpoint [credentials redacted]";}
     }
-    record Result(Endpoint endpoint,String reason) {}
+    record Result(Endpoint endpoint,String reason,boolean pending) {
+        Result(Endpoint endpoint,String reason){this(endpoint,reason,false);}
+    }
+    private static final Result PENDING=new Result(null,"Scanning for the matching local CS client.",true);
     interface Identity {
         boolean privatePath(Path path) throws IOException;
         boolean live(Endpoint endpoint);
@@ -36,9 +39,10 @@ final class LocalClientDiscovery implements AutoCloseable {
     private final Path directory;
     private final int protocol;
     private final Identity identity;
-    private record Request(long world,Endpoint active,boolean keepTransport) {}
-    private volatile Request request=new Request(0,null,false);
-    private volatile Result result=new Result(null,"No local CS discovery requested.");
+    private record Request(long world,Endpoint active,boolean keepTransport,long attempt) {}
+    private record Completed(Request request,Result result) {}
+    private volatile Request request=new Request(0,null,false,0);
+    private volatile Completed completed;
     private volatile boolean running=true;
     private final Thread worker;
 
@@ -57,16 +61,26 @@ final class LocalClientDiscovery implements AutoCloseable {
         return path.normalize();
     }
     void request(long world,Endpoint current){request(world,current,false);}
-    void request(long world,Endpoint current,boolean keepTransport){request=new Request(world,current,keepTransport);}
-    Result result(){return result;}
+    void request(long world,Endpoint current,boolean keepTransport){
+        request(world,current,keepTransport,0);
+    }
+    void request(long world,Endpoint current,boolean keepTransport,long attempt){
+        Request next=new Request(world,current,keepTransport,attempt);
+        // Preserve identity across ordinary ticks, but never across A -> B -> A.
+        if(!next.equals(request))request=next;
+    }
+    Result result(){
+        Request current=request;Completed observed=completed;
+        return observed!=null&&observed.request==current?observed.result:PENDING;
+    }
     private void run(){
         while(running){
             Request current=request;
-            if(current.world!=0){
-                Result next=scan(directory,protocol,current.world,current.active,identity,current.keepTransport);
-                // Compare values: the game thread refreshes the same request every tick.
-                if(current.equals(request))result=next;
-            }else result=new Result(null,"Connect to a GoldCraft Minecraft server to select its matching CS client.");
+            Result next=current.world!=0?scan(directory,protocol,current.world,current.active,identity,current.keepTransport):
+                new Result(null,"Connect to a GoldCraft Minecraft server to select its matching CS client.");
+            // Tag the completion atomically. A request can change even between a
+            // worker-side equality check and publication; consumers check identity.
+            completed=new Completed(current,next);
             try{Thread.sleep(250);}catch(InterruptedException ignored){/* close wakes the worker */}
         }
     }
