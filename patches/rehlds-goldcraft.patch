@@ -115,7 +115,7 @@ index 04e4fa5..4ef116a 100644
  	Con_Printf("  decal   : %-5d %-5d\n", SV_CountResourceByType(t_decal), MAX_DECALS - 1);
  	Con_Printf("------------------------\n%d Total of precached resource count\n\n", g_psv.num_resources, RESOURCE_MAX_COUNT);
 diff --git a/rehlds/engine/info.cpp b/rehlds/engine/info.cpp
-index 22e7b6a..7345ee7 100644
+index 22e7b6a..535f5e6 100644
 --- a/rehlds/engine/info.cpp
 +++ b/rehlds/engine/info.cpp
 @@ -27,6 +27,8 @@
@@ -179,7 +179,7 @@ index 22e7b6a..7345ee7 100644
  	char key[MAX_KV_LEN];
  	char value[MAX_KV_LEN];
  	char *c;
-@@ -858,6 +877,7 @@ void Info_Print(const char *s)
+@@ -858,11 +877,14 @@ void Info_Print(const char *s)
  
  qboolean Info_IsValid(const char *s)
  {
@@ -187,7 +187,15 @@ index 22e7b6a..7345ee7 100644
  #ifdef REHLDS_FIXES
  	struct {
  		const char*	start;
-@@ -1059,6 +1079,7 @@ void Info_SetFieldsToTransmit()
+ 		size_t		len;
+-	} existingKeys[MAX_INFO_STRING * 2 / 4];
++	// Each nonempty pair needs at least four bytes (\\k\\v). The duplicate-key
++	// table must cover the expanded storage, not the legacy userinfo member.
++	} existingKeys[goldcraft::userinfo::capacity / 4];
+ 	size_t existingKeysNum = 0;
+ 
+ 	auto isAlreadyExists = [&](const char* key, size_t len)
+@@ -1059,6 +1081,7 @@ void Info_SetFieldsToTransmit()
  
  void Info_CollectFields(char *destInfo, const char *srcInfo, size_t maxsize)
  {
