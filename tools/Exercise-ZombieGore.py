@@ -3,7 +3,7 @@ from pathlib import Path
 import importlib.util,json,sys,os,subprocess
 R=Path(__file__).resolve().parents[1]
 import argparse
-parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path,required=True);parser.add_argument('--migration-only',action='store_true');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path,required=True);parser.add_argument('--migration-only',action='store_true');parser.add_argument('--gore-only',action='store_true');args=parser.parse_args()
 O=args.output.resolve();assert O.is_relative_to((R/'build').resolve());O.mkdir(parents=True,exist_ok=False)
 s=importlib.util.spec_from_file_location('zp_fixture',R/'tools/Exercise-ZombieReAPI.py')
 m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
@@ -54,29 +54,31 @@ try:
     run.command('exec goldcraft_zp_reapi.cfg');run.wait(.5)
     run.command('gc_zp_reapi_create')
     run.command('sv_restart 1');run.wait(2)
-    run.command('gc_zp_reapi_armor')
-    run.command('gc_zp_reapi_respawn_begin');run.wait(1)
-    run.command('gc_zp_reapi_respawn_early');run.wait(2.3)
-    run.command('gc_zp_reapi_respawn_done')
-    run.command('gc_zp_reapi_head_knockback')
+    if not args.gore_only:
+        run.command('gc_zp_reapi_armor')
+        run.command('gc_zp_reapi_respawn_begin');run.wait(1)
+        run.command('gc_zp_reapi_respawn_early');run.wait(2.3)
+        run.command('gc_zp_reapi_respawn_done')
+        run.command('gc_zp_reapi_head_knockback')
     run.command('gc_zp_reapi_gore')
-    for mode,cvar in enumerate(('infection','nemesis','survivor','swarm','multi','plague','armageddon')):
+    for mode,cvar in enumerate(() if args.gore_only else ('infection','nemesis','survivor','swarm','multi','plague','armageddon')):
         run.command('sv_restart 1');run.wait(2)
         run.command('zp_'+cvar+'_allow_respawn 0')
         run.command('gc_zp_reapi_respawn_policy '+str(mode));run.wait(3.3)
         run.command('gc_zp_reapi_respawn_denied')
     # Permission can change while the timer is pending; check again at expiry.
-    run.command('sv_restart 1');run.wait(2)
-    run.command('zp_infection_allow_respawn 1')
-    run.command('gc_zp_reapi_respawn_policy 0');run.wait(.7)
-    run.command('zp_infection_allow_respawn 0');run.wait(2.6)
-    run.command('gc_zp_reapi_respawn_denied')
+    if not args.gore_only:
+        run.command('sv_restart 1');run.wait(2)
+        run.command('zp_infection_allow_respawn 1')
+        run.command('gc_zp_reapi_respawn_policy 0');run.wait(.7)
+        run.command('zp_infection_allow_respawn 0');run.wait(2.6)
+        run.command('gc_zp_reapi_respawn_denied')
     checks=[json.loads(line) for line in (m.AMXX/'logs/goldcraft-zp-reapi.jsonl').read_text().splitlines() if line]
     errors={}
     for p in (m.AMXX/'logs').glob('error_*.log'):
         extra=p.read_bytes()[run.error_offsets.get(p,0):].decode(errors='replace')
         if extra.strip():errors[p.name]=extra
-    run.report.update(checks=checks,runtimeErrors=errors,passed=len(checks)>=68 and all(c['passed'] for c in checks) and not errors)
+    run.report.update(checks=checks,runtimeErrors=errors,goreOnly=args.gore_only,passed=len(checks)>=(18 if args.gore_only else 73) and all(c['passed'] for c in checks) and not errors)
     print(json.dumps(dict(checks=len(checks),failed=[c for c in checks if not c['passed']],runtimeErrors=errors)))
 except Exception as e:
     run.report.update(passed=False,error=str(e));raise

@@ -145,7 +145,7 @@ client-update/mods 中是供整合包使用的同版 GoldCraft Core；服务端�
             if 'zp50_zombie_knockback.amxx' in required_plugins:
                 instructions+='另含取消活僵尸爆头额外击退的 AMXX 插件，保留普通击退和爆头伤害。\n'
             if 'zp50_zombie_gore.amxx' in required_plugins:
-                instructions+='僵尸受击喷血、隐藏头盔火花；每只累计1000实际扣血抛出碎肉。旧 goldcraft_zombie_* 被禁用，新 zp50_zombie_* 各启用一次。\n'
+                instructions+='僵尸受击喷血、隐藏头盔火花；每只累计1000实际扣血独立随机判定，zp_zombie_gib_chance默认50（百分比），成功后使用ReAPI生成内脏或头骨。未触发也消耗本次判定，余数保留。旧 goldcraft_zombie_* 被禁用，新 zp50_zombie_* 各启用一次。\n'
             if 'server/runtime/sprites/zp_infection.spr' in sources:
                 instructions+='感染图标位于 cs/cstrike/sprites/zp_infection.spr，配套感染效果插件在换图时预缓存，自动加入游戏下载及内置HTTP清单。玩家仍需配套新版GoldCraft.dll；外部FastDL站需同步 sprites/zp_infection.spr。\n'
         else:

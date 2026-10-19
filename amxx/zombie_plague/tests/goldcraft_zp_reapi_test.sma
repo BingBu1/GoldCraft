@@ -24,7 +24,7 @@ new bool:gObserve;
 new gRespawnCounts[2];
 new Float:gDeathAt;
 new bool:gGoreObserve;
-new gGoreBlood, gGoreFlesh, gGoreSparks;
+new gGoreBlood, gGoreFlesh, gGoreSparks, gGoreInvalidGibs;
 new TeamName:gNotifiedTeam[33];
 
 public plugin_init()
@@ -56,6 +56,16 @@ public plugin_init()
     register_message(get_user_msgid("TeamInfo"), "TeamMessage");
     register_message(get_user_msgid("ScoreInfo"), "ScoreMessage");
     RegisterMessage(SVC_TEMPENTITY, "ObserveGoreMessage", true);
+    RegisterHookChain(RG_CGib_Spawn, "ObserveGoreGib", true);
+}
+
+public ObserveGoreGib(entity, const model[])
+{
+    if (!gGoreObserve) return;
+    gGoreFlesh++;
+    if (!is_entity(entity) || get_entvar(entity, var_movetype) != MOVETYPE_BOUNCE
+        || (!equal(model, "models/hgibs.mdl") && !equal(model, "models/germangibs.mdl")))
+        gGoreInvalidGibs++;
 }
 
 public ObserveGoreMessage(message, destination, receiver)
@@ -64,7 +74,6 @@ public ObserveGoreMessage(message, destination, receiver)
     switch (GetMessageData(MsgArg, 1)) {
         case TE_BLOODSTREAM: gGoreBlood++;
         case TE_STREAK_SPLASH: if (GetMessageArgsNum() == 11) gGoreSparks += GetMessageData(MsgArg, 9);
-        case TE_BREAKMODEL: if (GetMessageArgsNum() == 15) gGoreFlesh += GetMessageData(MsgArg, 13);
     }
     return HC_CONTINUE;
 }
@@ -77,10 +86,14 @@ public TestZombieGore()
     set_cvar_num("zp_spawn_protection_time", 0);
     set_cvar_num("zp_zombie_hitzones", 0);
     new Float:defense = get_cvar_float("zp_zombie_defense");
+    new vanillaGibs = get_cvar_num("violence_hgibs");
+    new gibChance = get_cvar_num("zp_zombie_gib_chance");
+    set_cvar_num("zp_zombie_gib_chance", 100);
+    set_cvar_num("violence_hgibs", 0); // Observe injury gibs without vanilla death gibs.
     set_cvar_float("zp_zombie_defense", 1.0);
     for (new n = 0; n < sizeof gPlayer; n++) Human(gPlayer[n]);
     zp_core_force_infect(z);
-    gGoreObserve = true; gGoreBlood = gGoreFlesh = gGoreSparks = 0;
+    gGoreObserve = true; gGoreBlood = gGoreFlesh = gGoreSparks = gGoreInvalidGibs = 0;
     TraceHit(z, h, 40.0, HIT_HEAD);
     Check("gore_helmet_sparks_zero", gGoreSparks == 0);
     Check("gore_armored_head_bleeds", gGoreBlood == 1);
@@ -100,6 +113,7 @@ public TestZombieGore()
     Damage(z, h, 1.0);
     Check("gore_fragment_at_1000", gGoreFlesh == 1);
     Damage(z, h, 2500.0); Check("gore_multiple_thresholds", gGoreFlesh == 3);
+    Check("gore_native_gibs_do_not_kill_victim", is_user_alive(z));
     zp_core_force_infect(other); rg_set_user_armor(other, 0, ARMOR_NONE); set_entvar(other, var_health, 10000.0);
     Damage(other, h, 999.0); Check("gore_players_have_separate_counters", gGoreFlesh == 3);
     Damage(z, h, 500.0); Check("gore_fractional_remainder_preserved", gGoreFlesh == 4);
@@ -113,8 +127,20 @@ public TestZombieGore()
     Damage(z, h, 1.0); Check("gore_cure_infection_resets_counter", gGoreFlesh == flesh);
     Damage(z, h, 100000.0);
     Check("gore_lethal_overkill_counts_remaining_health", gGoreFlesh == flesh + 1);
+    flesh = gGoreFlesh;
+    set_cvar_num("zp_zombie_gib_chance", 0);
+    Damage(other, h, 1500.0);
+    Check("gore_zero_chance_skips_fragment", gGoreFlesh == flesh);
+    set_cvar_num("zp_zombie_gib_chance", 100);
+    Damage(other, h, 499.0);
+    Check("gore_skipped_roll_consumed_with_remainder", gGoreFlesh == flesh);
+    Damage(other, h, 1.0);
+    Check("gore_next_threshold_rolls_again", gGoreFlesh == flesh + 1);
+    Check("gore_native_gib_entities_and_physics", gGoreFlesh > 0 && gGoreInvalidGibs == 0);
     gGoreObserve = false;
     set_cvar_float("zp_zombie_defense", defense);
+    set_cvar_num("violence_hgibs", vanillaGibs);
+    set_cvar_num("zp_zombie_gib_chance", gibChance);
     return Summary();
 }
 

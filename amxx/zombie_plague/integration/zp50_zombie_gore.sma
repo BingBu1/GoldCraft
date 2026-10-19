@@ -4,7 +4,7 @@
 #include <reapi>
 #include <zp50_core>
 
-new gBlood, gGibDamage, gGibModel;
+new gBlood, gGibDamage, gGibChance;
 new gLife[MAX_PLAYERS + 1];
 new Float:gGibRemainder[MAX_PLAYERS + 1];
 
@@ -21,18 +21,15 @@ enum _:InjuryScope {
 };
 new Array:gInjuryScopes;
 
-public plugin_precache()
-{
-    gGibModel = precache_model("models/hgibs.mdl");
-}
-
 public plugin_init()
 {
-    register_plugin("Zombie Plague Gore", "1.0.1", "GoldCraft contributors");
+    register_plugin("Zombie Plague Gore", "1.0.2", "GoldCraft contributors");
     gBlood = create_cvar("zp_zombie_blood", "1", FCVAR_NONE,
         "Blood stream on confirmed zombie injury", true, 0.0, true, 1.0);
     gGibDamage = create_cvar("zp_zombie_gib_damage", "1000", FCVAR_NONE,
-        "Actual health lost per random flesh gib; 0 disables", true, 0.0, true, 1000000.0);
+        "Actual health lost per gib chance roll; 0 disables", true, 0.0, true, 1000000.0);
+    gGibChance = create_cvar("zp_zombie_gib_chance", "50", FCVAR_NONE,
+        "Percent chance per damage threshold to spawn one gib", true, 0.0, true, 100.0);
     InitZombieHitEffects();
     InitZombieInjury();
     RegisterHookChain(RG_CBasePlayer_Spawn, "GoreSpawnPost", true);
@@ -134,21 +131,17 @@ ZombieBlood(id, Float:amount)
 
 ZombieFlesh(id, count)
 {
-    // Native client-side gib physics: random body parts, bounce and a short
-    // lifetime, with no persistent server edicts for 24 zombies under fire.
-    new Float:point[3]; get_entvar(id, var_origin, point);
-    point[2] += 12.0;
-    while (count > 0) {
-        new batch = min(count, 255);
-        message_begin_f(MSG_PVS, SVC_TEMPENTITY, point);
-        write_byte(TE_BREAKMODEL);
-        write_coord_f(point[0]); write_coord_f(point[1]); write_coord_f(point[2]);
-        write_coord(12); write_coord(12); write_coord(24);
-        write_coord(random_num(-100, 100)); write_coord(random_num(-100, 100)); write_coord(random_num(150, 250));
-        write_byte(100); write_short(gGibModel); write_byte(batch);
-        write_byte(40); write_byte(0x04); // Four seconds; BREAK_FLESH.
-        message_end();
-        count -= batch;
+    new chance = get_pcvar_num(gGibChance);
+    if (!chance) return;
+    // ReGameDLL precaches the language-specific gib models and owns their
+    // bounce/fade lifecycle. Reserve entity slots for gameplay under load.
+    new available = global_get(glb_maxEntities) - engfunc(EngFunc_NumberOfEntities) - 64;
+    count = min(count, max(0, available));
+    while (count-- > 0) {
+        if (random_num(1, 100) > chance) continue;
+        // Random human gibs exclude body 0 (the skull); select it separately.
+        if (random_num(0, 5) == 0) rg_spawn_head_gib(id);
+        else rg_spawn_random_gibs(id, 1, true);
     }
 }
 
