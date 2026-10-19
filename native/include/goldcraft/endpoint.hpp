@@ -63,6 +63,7 @@ public:
     bool status_vision() const;
     bool view_distortion() const;
     bool entity_outlines() const;
+    bool hsv_post() const;
     bool player_gameplay() const;
     bool skill_guard() const;
     bool fluid_volumes() const;

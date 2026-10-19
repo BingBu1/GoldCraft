@@ -74,3 +74,8 @@ Java 状态包含 effectDrawSources、effectUnsupportedReasons、particleError�
 真实NightFall ScreenDistortionEffect及VIX生命周期在末tick产生NaN：age等于lifetime时仍保留，而partial使normalizedAge大于1，原强度公式对负数开平方。VixPostCapture只跳过kind5中age非负、lifetime为正且normalizedAge有限且大于1的过期阶段，保留正常时段公式、精确端点、同帧其他stage/mesh/depth reset；不放宽Stage参数校验，失败时补充实际参数。
 
 `python tools/Test-ScreenDistortion.py`使用本机锁定4个原始class及精确生产guard/Stage，658cases/7706checks：628有限域逐bit相同、30尾tick NaN复现，非法状态不被吞，邻接stage与mesh逐byte保留。源码与范围伤害统一协议30构建，已同步master/A/B/server并重启单B与两专服；五份核心JAR及本轮11项原生部署文件哈希一致。新鲜空闲采样VIX失败0、过期计数0，尚未触发此寿命边界。此前旧日志缺具体拒绝值，不能唯一归因所有历史Stage失败；实机过期计数、画面连续性与热重载仍需验证。
+
+
+## 2026-10-19 — HSV滤色源码候选，仅静态检查
+
+既有游玩状态最后一次VIX失败定位到未支持的 `efn:hsv_filter`；1040是全部历史失败数，不能全部归因此效果。新增kind8、角色内能力协商/旧端降级、原getAlpha与blit乘数采集、原shader两次RGBA8回放，保留其余效果和严格资源/参数校验。7个原生单元语法检查、Java生产/验证源码类型检查通过；新验证用例未执行，无生产链接/运行包/部署，真实画面/多人/性能仍待累计验收。[证据、兼容和资源要求](2026-10-19_分析-HSV后处理-report.md)。

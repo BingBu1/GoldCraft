@@ -175,7 +175,8 @@ public final class ParticleExporter {
             }finally{rendering=null;dispatcher.setRenderShadows(shadows);HostedEffectStages.afterParticles(stage);}
             // This second invocation is post-only. Each real particle renderer still runs once;
             // VIX's own tail owns its shader/layout/sorting and never joins ordinary draws.
-            VixPostCapture.Frame post=VixPostCapture.capture(client,tickDelta);
+            long postLinkGeneration=link.generation();
+            VixPostCapture.Frame post=VixPostCapture.capture(client,tickDelta,link.hsvPost(postLinkGeneration));
             postStages=post.stages().size();postVertices=0;
             unsupported=unsupportedReasons.values().stream().mapToInt(Integer::intValue).sum();
             int blockAtlas=client.getTextureManager().getTexture(SpriteAtlasTexture.BLOCK_ATLAS_TEXTURE).getGlId();
@@ -213,7 +214,8 @@ public final class ParticleExporter {
                 frames++;bytes+=payload.length;
                 for(String kind:kinds.keySet())if(kindFrames.size()<128||kindFrames.containsKey(kind))kindFrames.merge(kind,1L,Long::sum);
             }else throw new IllegalStateException("World effect mesh not queued");
-            if(link.send(Wire.POST_EFFECT_PLAN,postPayload)){postFrames++;postBytes+=postPayload.length;}
+            boolean hasHsv=false;for(var postStage:post.stages())hasHsv|=postStage.kind()==PostEffectPlan.HSV_FILTER;
+            if(link.sendPostEffects(postLinkGeneration,hasHsv,postPayload)){postFrames++;postBytes+=postPayload.length;}
             else throw new IllegalStateException("Post effect plan not queued");
             error="";
         }catch(RuntimeException failure){

@@ -4,7 +4,7 @@ import java.util.List;
 
 /** An atomic typed post sequence and its own mesh; ordinary particles are never mask inputs. */
 public final class PostEffectPlan {
-    public static final int BLOOM=1,SPACE_BROKEN=2,CHROMATIC=3,AIR=4,SCREEN_DISTORTION=5,COLOR_DISPERSION=6,BW_CONTRAST=7;
+    public static final int BLOOM=1,SPACE_BROKEN=2,CHROMATIC=3,AIR=4,SCREEN_DISTORTION=5,COLOR_DISPERSION=6,BW_CONTRAST=7,HSV_FILTER=8;
     public static final int MAX_STAGES=32;
     /** Bloom uses strength=intensive, frequency=base, extra0=upper, extra1=lower; space uses strength=InterScale.
      * Color dispersion's eight floats are Level RGB, Center XY, then ColorModulate RGB. */
@@ -20,13 +20,19 @@ public final class PostEffectPlan {
         public static Stage impact(int priority,Impact impact) {
             return impact(priority,0,impact);
         }
+        /** Hue_W XY, Alpha, pre-blit ColorModulate RGBA and one reserved zero. */
+        public static Stage hsv(int priority,int firstBatch,float hue,float width,float alpha,
+                                float blitR,float blitG,float blitB,float blitA) {
+            return new Stage(HSV_FILTER,priority,firstBatch,0,hue,width,alpha,blitR,blitG,blitB,blitA,0);
+        }
         public Stage {
-            if(kind<BLOOM||kind>BW_CONTRAST||priority<-32768||priority>32767||firstBatch<0||batchCount<0
+            if(kind<BLOOM||kind>HSV_FILTER||priority<-32768||priority>32767||firstBatch<0||batchCount<0
                 ||firstBatch>ParticleSnapshot.MAX_BATCHES||batchCount>ParticleSnapshot.MAX_BATCHES-firstBatch
                 ||(maskless(kind)?batchCount!=0:batchCount==0)
                 ||(kind==BW_CONTRAST?(impact==null||time!=0||directionX!=0||directionY!=0
                     ||strength!=0||frequency!=0||progress!=0||extra0!=0||extra1!=0):impact!=null)
                 ||(kind==COLOR_DISPERSION&&(time<=0||directionX<=0||directionY<=0))
+                ||(kind==HSV_FILTER&&extra1!=0)
                 ||!finite(time)||!finite(directionX)||!finite(directionY)||!finite(strength)
                 ||!finite(frequency)||!finite(progress)||!finite(extra0)||!finite(extra1))
                 throw new IllegalArgumentException("Post-effect stage bounds: kind="+kind+" priority="+priority
@@ -62,7 +68,7 @@ public final class PostEffectPlan {
     }
     private static boolean finite(float value){return Float.isFinite(value)&&Math.abs(value)<=1000000f;}
     private static boolean unit(float value){return Float.isFinite(value)&&value>=0&&value<=1;}
-    public static boolean maskless(int kind){return kind==SCREEN_DISTORTION||kind==COLOR_DISPERSION||kind==BW_CONTRAST;}
+    public static boolean maskless(int kind){return kind==SCREEN_DISTORTION||kind==COLOR_DISPERSION||kind==BW_CONTRAST||kind==HSV_FILTER;}
     private PostEffectPlan() {}
     public static byte[] encode(long epoch,long generation,long revision,int life,int count,List<Stage> stages,
                                 List<Integer> depthResets,List<ParticleSnapshot.Batch> batches) {

@@ -6,7 +6,7 @@ namespace goldcraft::render::post_assets {
 inline constexpr char nightfall_sha256[]="ec66e0b42a0f8561ebbf57af356dfd237be170297cc5e5e712de0bec34a7fa4c";
 struct Asset {const char* name;const char* sha256;};
 inline constexpr Asset reference_vertex{"blit.vsh","87b5456f4fbf4565af12da6db03cd756d748fbbdb07f6d46f761d8ac64449d19"};
-inline constexpr std::array<Asset,10> shaders{{
+inline constexpr std::array<Asset,11> shaders{{
     {"down_sampling.fsh","f52ac09094c5778871ccfd53b117157a256835644e1598c7d42ea09635c6ae2b"},
     {"up_sampling.fsh","1e59ec8371be20e6de9aefee2d0aa0579bfe1b032ef19123f1db0e44e932bbf4"},
     {"unity_composite.fsh","cf87d4ff378f96fdafc8af8d32679f3786a85953ef282e55e6319496ab7b5365"},
@@ -16,6 +16,7 @@ inline constexpr std::array<Asset,10> shaders{{
     {"screen_distortion.fsh","2a710be6c5493d4971587c05ea627685826955f56de04005d3c3cc12e2194f14"},
     {"color_dispersion.fsh","08dcd85523d534a8af5db2b154146475b7d9aefe9d26ea9845d7193d149b7fa9"},
     {"black_white_simple.fsh","89432ec2c4e4565898eeece0d70f1a1d1999ce59790be13d946ebf16825d3abe"},
-    {"blit.fsh","bb9351ccd461eef6a0b6780a8756691081fbc4b4e0fa34734fb1f5db37d92b18"}
+    {"blit.fsh","bb9351ccd461eef6a0b6780a8756691081fbc4b4e0fa34734fb1f5db37d92b18"},
+    {"hsv_filter.fsh","9b9b3a4393980a6ab50da58235c1d16de1a4921cbcfa917459ab0334bf6518a2"}
 }};
 }

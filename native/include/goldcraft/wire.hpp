@@ -12,6 +12,8 @@ using Key = std::array<std::uint8_t, 16>;
 constexpr std::uint32_t magic = 0x31464347; // GCF1, little endian
 constexpr std::uint16_t protocol_version = 30;
 constexpr std::uint32_t capability_status_effects = 8;
+// Role-scoped: bit 3 is HSV post replay on the client link, status on the server link.
+constexpr std::uint32_t capability_hsv_post = 8;
 constexpr std::uint32_t capability_gameplay_rules = 128;
 constexpr std::uint32_t capability_shared_bulk_v1 = 1;
 constexpr std::uint32_t capability_local_qpc_v1 = 2;

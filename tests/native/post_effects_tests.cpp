@@ -45,7 +45,7 @@ int main(int argc,char** argv){
     for(std::size_t size=0;size<data.size();++size)reject(Bytes(data.begin(),data.begin()+size));
     auto bad=data;bad.push_back(0);reject(bad);
     bad=data;bad[0]=33;reject(bad);
-    for(unsigned kind:{0u,8u,255u}){bad=data;bad[1]=static_cast<std::uint8_t>(kind);reject(bad);}
+    for(unsigned kind:{0u,9u,255u}){bad=data;bad[1]=static_cast<std::uint8_t>(kind);reject(bad);}
     for(auto priority:{-32769,32768}){bad=data;put(bad,2,std::bit_cast<unsigned>(priority));reject(bad);}
     for(unsigned field:{6u,7u}){bad=data;bad[field]=129;reject(bad);}
     bad=data;bad[7]=0;reject(bad); // A non-screen pass needs a mask.
@@ -69,6 +69,26 @@ int main(int argc,char** argv){
     auto packet=encode_frame(Type::post_effect_plan,9,1,data);assert(decode_header(std::span(packet).first(header_bytes)).type==Type::post_effect_plan);
     const PostEffectStage impact{7,9999,0,0,{2.25f,.65f,.42f,.85f,1,1,.45f,.12f,.2f,.8f,.03f,-.25f,
         .02f,.03f,.08f,.95f,.96f,1,.1f,1,.02f,17,.1f,.2f,.3f,.4f,.8f,.9f,.7f,.6f}};
+    const PostEffectStage hsv{8,101,0,0,{1,.97f,.6f,.8f,1.2f,.3f,.5f,0}};
+    const auto hsv_bytes=encode(std::span(&hsv,1),0);
+    reject(hsv_bytes); // Legacy/unsolicited stages cannot be consumed.
+    {Reader r(hsv_bytes);assert(read_post_effects(r,true).stages[0].params==hsv.params);}
+    assert(hsv_bytes.size()==81);
+    for(unsigned i=0;i<30;++i){auto invalid=hsv;invalid.params[i]=std::numeric_limits<float>::quiet_NaN();assert(!valid_post_effect_stage(invalid));}
+    for(unsigned i=7;i<30;++i){auto invalid=hsv;invalid.params[i]=1;assert(!valid_post_effect_stage(invalid));}
+    auto masked_hsv=hsv;masked_hsv.batch_count=1;assert(!valid_post_effect_stage(masked_hsv));
+    const std::array<PostEffectStage,3> hsv_chain{hsv,impact,hsv};
+    {const auto bytes=encode(hsv_chain,0);Reader r(bytes);const auto graph=read_post_effects(r,true);
+     assert(graph.stages.size()==3&&graph.stages[0].kind==8&&graph.stages[1].kind==7&&graph.stages[2].kind==8);}
+    // The reused bit has distinct meanings only inside authenticated roles.
+    for(auto role:{Role::fabric_client,Role::fabric_server}){
+        Key key{};HostHandshake handshake(key,key,role==Role::fabric_client?Role::host_client:Role::host_server,role,9);
+        Writer hello;hello.bytes(key);hello.bytes(key);hello.u32(static_cast<unsigned>(role));hello.u32(capability_hsv_post);
+        auto bytes=encode_frame(Type::hello,0,1,hello.data);
+        handshake.accept(decode_header(std::span(bytes).first(header_bytes)),hello.data);
+        auto response=handshake.welcome();Reader reader(response);reader.key();reader.u32();
+        assert(reader.u32()==(role==Role::fabric_client?capability_hsv_post:capability_status_effects));
+    }
     const auto impact_bytes=encode(std::span(&impact,1),0);
     assert(impact_bytes.size()==169&&decode(impact_bytes).stages[0].params==impact.params);
     for(unsigned i=0;i<30;++i){

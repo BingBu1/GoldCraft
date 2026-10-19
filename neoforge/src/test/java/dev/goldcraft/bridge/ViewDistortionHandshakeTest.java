@@ -37,12 +37,15 @@ class ViewDistortionHandshakeTest {
     @Test void legacyHostRetryKeepsExistingClientFeatures()throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),true)){
             int first;try(var s=host.accept()){first=hello(s);assertNotEquals(0,first&Wire.VIEW_DISTORTION_CAP);}
+            try(var s=host.accept()){assertEquals(first&~Wire.HSV_POST_CAP,hello(s));}
+            first &= ~Wire.HSV_POST_CAP;
             try(var s=host.accept()){assertEquals(first&~Wire.ENTITY_OUTLINES_CAP,hello(s));}
             try(var s=host.accept()){assertEquals(first&~(Wire.VIEW_DISTORTION_CAP|Wire.ENTITY_OUTLINES_CAP),hello(s));welcome(s,0,Wire.HOST_CLIENT);until(link::connected);assertFalse(link.viewDistortion(link.generation()));assertTrue(link.send(Wire.CAMERA,new byte[0]));}
         }
     }
     @Test void rejectsUnrequestedAndWrongRole()throws Exception{
         try(var host=host();var link=link(host.getLocalPort(),true)){
+            try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){hello(s);}
             try(var s=host.accept()){assertEquals(0,hello(s)&Wire.VIEW_DISTORTION_CAP);welcome(s,Wire.VIEW_DISTORTION_CAP,Wire.HOST_CLIENT);until(()->link.lastError().contains("Unrequested view distortion"));assertFalse(link.connected());}

@@ -137,7 +137,7 @@ bool PostEffectReplay::initialize_programs() noexcept {
     if(initialization_failed_)return false;
     initialization_failed_=true;
     if(shader_directory_.empty())return fail("Post shader directory is unset");
-    std::array<Program,10> next{};GLuint vertex=0,vao=0,sampler=0;
+    std::array<Program,11> next{};GLuint vertex=0,vao=0,sampler=0;
     const auto cleanup=[&](){if(vertex)glDeleteShader(vertex);for(auto& p:next)if(p.id)glDeleteProgram(p.id);if(vao)glDeleteVertexArrays(1,&vao);if(sampler)glDeleteSamplers(1,&sampler);};
     try{
         vertex=compile(GL_VERTEX_SHADER,vertex_source,sizeof(vertex_source)-1);
@@ -177,6 +177,10 @@ bool PostEffectReplay::initialize_programs() noexcept {
                     if(uniform<0){cleanup();return fail("Pinned bw_contrast uniform missing");}
             }
             if(i==9&&p.color_modulate<0){cleanup();return fail("Pinned blit ColorModulate uniform missing");}
+            if(i==10){
+                p.hue_width=location("Hue_W");p.alpha=location("Alpha");
+                if(p.hue_width<0||p.alpha<0){cleanup();return fail("Pinned HSV uniform missing");}
+            }
         }
         glGenVertexArrays(1,&vao);glGenSamplers(1,&sampler);
         if(!vao||!sampler){cleanup();return fail("Post geometry/sampler creation failed");}
@@ -211,7 +215,9 @@ void PostEffectReplay::pass(unsigned index,const Target& output,GLuint first,GLu
     for(unsigned i=0;i<3;++i){glActiveTexture(texture_units[i]);glBindTexture(GL_TEXTURE_2D,textures[i]);glBindSampler(i,sampler_);}
     glUniform2f(p.in_size,float(input_width),float(input_height));glUniform2f(p.out_size,float(output.width),float(output.height));
     if(stage&&index==9){
-        glUniform4fv(p.color_modulate,1,stage->params.data()+26);
+        glUniform4fv(p.color_modulate,1,stage->params.data()+(stage->kind==static_cast<unsigned>(PostEffectKind::hsv_filter)?3:26));
+    }else if(stage&&stage->kind==static_cast<unsigned>(PostEffectKind::hsv_filter)){
+        glUniform2f(p.hue_width,stage->params[0],stage->params[1]);glUniform1f(p.alpha,stage->params[2]);
     }else if(stage&&stage->kind==static_cast<unsigned>(PostEffectKind::bw_contrast)){
         const auto& v=stage->params;
         glUniform1f(p.contrast,v[0]);glUniform1f(p.brightness,v[1]);glUniform1f(p.time,v[2]);
@@ -281,12 +287,13 @@ bool PostEffectReplay::replay(const MetaRendererPostSceneFrame& frame,std::span<
             for(unsigned i=0;i<5;++i){pass(0,down_[i],source,0,0,width,height,nullptr);source=down_[i].color;width=down_[i].width;height=down_[i].height;}
             for(int i=3;i>=0;--i){pass(1,up_[i],source,down_[i].color,0,width,height,nullptr);source=up_[i].color;width=up_[i].width;height=up_[i].height;}
             pass(2,output,source,mask_.color,scene_color,width,height,&stage);
-        }else if(stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)){
+        }else if(stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)||stage.kind==static_cast<unsigned>(PostEffectKind::hsv_filter)){
+            const unsigned final_program=stage.kind==static_cast<unsigned>(PostEffectKind::hsv_filter)?10u:8u;
             // NightFall first blits with its effective ColorModulate into an
             // RGBA8 TextureTarget. Reuse the mask target: this kind owns no mask.
             pass(9,mask_,scene_color,0,0,frame.width,frame.height,&stage);
             if(output.format==GL_RGBA8){
-                pass(8,output,mask_.color,0,0,frame.width,frame.height,&stage);
+                pass(final_program,output,mask_.color,0,0,frame.width,frame.height,&stage);
             }else{
                 // The original main target is RGBA8 as well. Retain both its
                 // pre-blend clear quantization and final rounding on HDR hosts
@@ -294,7 +301,7 @@ bool PostEffectReplay::replay(const MetaRendererPostSceneFrame& frame,std::span<
                 // preserves the quantized input while mask_ becomes the output.
                 glBindFramebuffer(GL_READ_FRAMEBUFFER,mask_.fbo);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,output.fbo);
                 glBlitFramebuffer(0,0,frame.width,frame.height,0,0,frame.width,frame.height,GL_COLOR_BUFFER_BIT,GL_NEAREST);++stats_.passes;
-                pass(8,mask_,output.color,0,0,frame.width,frame.height,&stage);
+                pass(final_program,mask_,output.color,0,0,frame.width,frame.height,&stage);
                 glBindFramebuffer(GL_READ_FRAMEBUFFER,mask_.fbo);glBindFramebuffer(GL_DRAW_FRAMEBUFFER,output.fbo);
                 glBlitFramebuffer(0,0,frame.width,frame.height,0,0,frame.width,frame.height,GL_COLOR_BUFFER_BIT,GL_NEAREST);++stats_.passes;
             }

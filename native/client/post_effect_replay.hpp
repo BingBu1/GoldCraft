@@ -41,6 +41,7 @@ private:
         GLuint id=0;
         GLint in_size=-1,out_size=-1,time=-1,direction=-1,strength=-1,frequency=-1,progress=-1;
         GLint level=-1,center=-1,color_modulate=-1;
+        GLint hue_width=-1,alpha=-1;
         GLint inter_scale=-1,intensive=-1,base=-1,upper=-1,lower=-1;
         GLint contrast=-1,brightness=-1,intensity=-1,speed=-1,mode=-1;
         GLint impact_threshold=-1,impact_threshold_lerp=-1,focal_uv=-1,chromatic_strength=-1,lens_distort_strength=-1;
@@ -55,7 +56,7 @@ private:
     GLuint vao_=0,sampler_=0;
     PostSceneSnapshot scene_;
     Target mask_{},ping_[2]{},down_[5]{},up_[4]{};
-    std::array<Program,10> programs_{};
+    std::array<Program,11> programs_{};
     std::string shader_directory_;
     Statistics stats_{};
     bool initialization_failed_=false;

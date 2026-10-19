@@ -4,9 +4,9 @@
 
 namespace goldcraft {
 constexpr unsigned max_post_effect_stages=32;
-enum class PostEffectKind : std::uint8_t { bloom=1,space_broken=2,chromatic=3,air=4,screen_distortion=5,color_dispersion=6,bw_contrast=7 };
+enum class PostEffectKind : std::uint8_t { bloom=1,space_broken=2,chromatic=3,air=4,screen_distortion=5,color_dispersion=6,bw_contrast=7,hsv_filter=8 };
 inline constexpr unsigned post_effect_parameter_count(unsigned kind) noexcept {
-    return kind==static_cast<unsigned>(PostEffectKind::bw_contrast)?30u:(kind>=1&&kind<=6?8u:0u);
+    return kind==static_cast<unsigned>(PostEffectKind::bw_contrast)?30u:((kind>=1&&kind<=6)||kind==8?8u:0u);
 }
 struct PostEffectStage {
     std::uint8_t kind=0;
@@ -14,6 +14,7 @@ struct PostEffectStage {
     std::uint8_t first_batch=0,batch_count=0;
     // time, direction X/Y, strength, frequency/base, progress, upper, lower.
     // Color dispersion: Level RGB, Center XY, ColorModulate RGB.
+    // HSV: Hue_W XY, Alpha, pre-blit ColorModulate RGBA, reserved zero.
     // BW contrast: Contrast, Brightness, Time, Intensity, Speed, Mode,
     // ImpactThreshold, ImpactThresholdLerp, FocalUV XY, ChromaticStrength,
     // LensDistortStrength, ColorDark RGB, ColorLight RGB, InvertFactor,
@@ -32,13 +33,14 @@ inline bool valid_post_effect_stage(const PostEffectStage& stage) noexcept {
     if(!count||stage.priority<-32768||stage.priority>32767||
        stage.first_batch>max_particle_batches||stage.batch_count>max_particle_batches-stage.first_batch)
         return false;
-    if(stage.kind==static_cast<unsigned>(PostEffectKind::screen_distortion)||stage.kind==static_cast<unsigned>(PostEffectKind::color_dispersion)||stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)) {
+    if(stage.kind==static_cast<unsigned>(PostEffectKind::screen_distortion)||stage.kind==static_cast<unsigned>(PostEffectKind::color_dispersion)||stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)||stage.kind==static_cast<unsigned>(PostEffectKind::hsv_filter)) {
         if(stage.batch_count)return false;
     }else if(!stage.batch_count)return false;
     if(stage.kind==static_cast<unsigned>(PostEffectKind::color_dispersion)&&
        (stage.params[0]<=0||stage.params[1]<=0||stage.params[2]<=0))return false;
     for(float p:stage.params)if(!std::isfinite(p)||std::abs(p)>1000000.f)return false;
     for(unsigned i=count;i<stage.params.size();++i)if(stage.params[i]!=0)return false;
+    if(stage.kind==static_cast<unsigned>(PostEffectKind::hsv_filter)&&stage.params[7]!=0)return false;
     if(stage.kind==static_cast<unsigned>(PostEffectKind::bw_contrast)){
         for(unsigned i:{2u,8u,9u})if(stage.params[i]<0||stage.params[i]>1)return false;
         if(stage.params[21]!=std::trunc(stage.params[21]))return false;
@@ -48,7 +50,7 @@ inline bool valid_post_effect_stage(const PostEffectStage& stage) noexcept {
 // One atomic frame carries the ordered graph and its private mask geometry.
 // No separate ordinary mesh can be mistaken for an unpaired post mask, even
 // when either latest-frame queue coalesces or a send is dropped.
-inline PostEffectFrame read_post_effects(Reader& reader) {
+inline PostEffectFrame read_post_effects(Reader& reader,bool hsv_supported=false) {
     PostEffectFrame frame;
     const auto count=reader.u8();
     if(count>max_post_effect_stages)throw ProtocolError("Post-effect stage budget");
@@ -56,6 +58,8 @@ inline PostEffectFrame read_post_effects(Reader& reader) {
     for(unsigned i=0;i<count;++i) {
         PostEffectStage stage;
         stage.kind=reader.u8();stage.priority=reader.i32();
+        if(stage.kind==static_cast<unsigned>(PostEffectKind::hsv_filter)&&!hsv_supported)
+            throw ProtocolError("Unnegotiated HSV post stage");
         stage.first_batch=reader.u8();stage.batch_count=reader.u8();
         const auto parameter_count=post_effect_parameter_count(stage.kind);
         if(!parameter_count)throw ProtocolError("Unknown post-effect kind");

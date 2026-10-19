@@ -476,7 +476,9 @@
     "amxx/zombie_plague/integration/configs/plugins-goldcraft-zombie-gore.ini",
     "tools/Exercise-ZombieGore.py",
     "tools/Build-InfectionSprite.ps1",
-    "tools/Exercise-NativeMovement.py"
+    "tools/Exercise-NativeMovement.py",
+    "docs/2026-10-19_分析-HSV后处理-report.md",
+    "tests/native/hsv_filter_gl_tests.inc"
   ],
   "trees": {
     "native": [

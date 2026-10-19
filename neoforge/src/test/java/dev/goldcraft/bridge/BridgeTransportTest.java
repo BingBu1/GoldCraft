@@ -30,7 +30,7 @@ class BridgeTransportTest {
     @Test void actualSocketAckPrecedesReferenceAndFullRingAllowsUrgentReliableOrdering()throws Exception{
         try(var peer=new ServerSocket(0,1,InetAddress.getLoopbackAddress());var link=link(peer.getLocalPort());var socket=peer.accept();var mapping=new SharedBulkSenderTest.NativeMap()){
             socket.setSoTimeout(6000);var input=socket.getInputStream();var output=socket.getOutputStream();
-            var hello=readApplication(input);assertEquals(Wire.SHARED_BULK_V1|Wire.VIEW_DISTORTION_CAP|Wire.ENTITY_OUTLINES_CAP,ByteBuffer.wrap(hello.payload()).order(ByteOrder.LITTLE_ENDIAN).getInt(36));
+            var hello=readApplication(input);assertEquals(Wire.SHARED_BULK_V1|Wire.VIEW_DISTORTION_CAP|Wire.ENTITY_OUTLINES_CAP|Wire.HSV_POST_CAP,ByteBuffer.wrap(hello.payload()).order(ByteOrder.LITTLE_ENDIAN).getInt(36));
             welcome(output);write(output,Wire.BULK_OFFER,2,SharedBulkSenderTest.offer(mapping.name,EPOCH));
             Frame ack=readApplication(input);assertEquals(Wire.BULK_ACK,ack.header().type());assertEquals(1,ByteBuffer.wrap(ack.payload()).order(ByteOrder.LITTLE_ENDIAN).getInt(4));
             await(()->link.metrics().enabled()==1);
@@ -62,7 +62,7 @@ class BridgeTransportTest {
         String previous=System.getProperty("os.name");System.setProperty("os.name","Linux");
         try(var peer=new ServerSocket(0,1,InetAddress.getLoopbackAddress());var link=link(peer.getLocalPort());var socket=peer.accept()){
             socket.setSoTimeout(6000);var input=socket.getInputStream();var output=socket.getOutputStream();Frame hello=readApplication(input);
-            assertEquals(Wire.VIEW_DISTORTION_CAP|Wire.ENTITY_OUTLINES_CAP,ByteBuffer.wrap(hello.payload()).order(ByteOrder.LITTLE_ENDIAN).getInt(36));welcome(output);await(link::connected);
+            assertEquals(Wire.VIEW_DISTORTION_CAP|Wire.ENTITY_OUTLINES_CAP|Wire.HSV_POST_CAP,ByteBuffer.wrap(hello.payload()).order(ByteOrder.LITTLE_ENDIAN).getInt(36));welcome(output);await(link::connected);
             assertTrue(link.send(Wire.ENTITY_TEXTURE,new byte[65536]));assertEquals(Wire.ENTITY_TEXTURE,readApplication(input).header().type());assertEquals(0,link.metrics().offered());
             assertFalse(link.send(Wire.BULK_REF,new byte[16]));
         }finally{System.setProperty("os.name",previous);}

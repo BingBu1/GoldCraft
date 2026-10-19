@@ -15,6 +15,8 @@ public final class Wire {
     public static final int HOST_CLIENT = 1, FABRIC_CLIENT = 2, HOST_SERVER = 3, FABRIC_SERVER = 4;
     public static final int FLUID_VOLUMES=79, FLUID_CAPABILITY=32;
     public static final int STATUS_EFFECTS = 8, STATUS_HUD = 76;
+    // Role-scoped: client presentation only; the same bit denotes status on the server link.
+    public static final int HSV_POST_CAP = 8;
     public static final int STATUS_ATTRIBUTES_CAP = 16, STATUS_ATTRIBUTES = 77, STATUS_SPEND = 78;
     public static final int GAMEPLAY_RULES_CAP = 128, GAMEPLAY_RULES = 82;
     public static final int HELLO = 1, WELCOME = 2, HEARTBEAT = 3;

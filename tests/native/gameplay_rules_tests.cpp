@@ -65,7 +65,8 @@ void test_handshake() {
         if(accepted){auto response=combined.welcome();Reader reply(response);reply.key();
             assert(reply.u32()==3&&reply.u32()==server_caps);}
     }
-    for(auto cap:{capability_status_effects,capability_status_attributes,capability_fluid_volumes,
+    // Bit 3 is now explicitly scoped as HSV on client links; other server bits stay forbidden.
+    for(auto cap:{capability_status_attributes,capability_fluid_volumes,
                   capability_native_armor,capability_gameplay_rules,server_caps}) {
         HostHandshake client(key,key,Role::host_client,Role::fabric_client,35);
         Writer request;request.bytes(key);request.bytes(key);request.u32(2);request.u32(cap);

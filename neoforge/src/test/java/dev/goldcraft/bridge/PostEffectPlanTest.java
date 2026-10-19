@@ -5,6 +5,18 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PostEffectPlanTest {
+    @Test void hsvPreservesTwoPassUniformsWithoutOwningMasks(){
+        var hsv=PostEffectPlan.Stage.hsv(101,1,1,.97f,.6f,.8f,1.2f,.3f,.5f);
+        var encoded=PostEffectPlan.encode(1,1,1,1,1,List.of(mask(0,1),hsv),List.of(0),List.of(batch()));
+        var r=new Wire.Reader(encoded);assertEquals(2,r.u8());r.bytes(39);
+        assertEquals(8,r.u8());assertEquals(101,r.i32());assertEquals(1,r.u8());assertEquals(0,r.u8());
+        for(float value:new float[]{1,.97f,.6f,.8f,1.2f,.3f,.5f,0})assertEquals(value,r.f32());
+        assertEquals(1,r.u8());assertEquals(0,r.u8());int size=r.i32();r.bytes(size);r.finish();
+        for(float bad:new float[]{Float.NaN,Float.POSITIVE_INFINITY,1000001})
+            assertThrows(IllegalArgumentException.class,()->PostEffectPlan.Stage.hsv(101,0,1,.97f,bad,1,1,1,1));
+        assertThrows(IllegalArgumentException.class,()->new PostEffectPlan.Stage(8,101,0,1,1,.97f,1,1,1,1,1,0));
+        assertThrows(IllegalArgumentException.class,()->new PostEffectPlan.Stage(8,101,0,0,1,.97f,1,1,1,1,1,1));
+    }
     private static ParticleSnapshot.Batch batch(){return new ParticleSnapshot.Batch(1,0,new byte[96]);}
     private static PostEffectPlan.Stage mask(int first,int count){return new PostEffectPlan.Stage(1,0,first,count,0,0,0,1.65f,0,0,1.35f,.28f);}
     @Test void includesIndependentMeshAndAllEightParameters(){

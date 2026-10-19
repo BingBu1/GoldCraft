@@ -45,15 +45,18 @@ public final class VixPostCapture {
     private static final String TYPE="com.guhao.vix.client.pipeline.PostParticleRenderType";
     private static final String NF="com.hm.efn.client.render.custom.";
     private static final String SCREEN="com.hm.efn.client.screeneffect.ScreenDistortionEffect$Distortion_Pipeline";
+    private static final String HSV="com.hm.efn.client.screeneffect.HsvFilterEffect";
     private static final String DISPERSION="com.hm.efn.client.screeneffect.ColorDispersionEffect";
     private static Api api;
     private static boolean resolved,resourcesVerified;
     private static Context active;
     private static String error="",lastFailure="",lastFailureParticles="";
-    private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades,expiredScreenDistortions;
-    private static final long[] stageFrames=new long[PostEffectPlan.BW_CONTRAST+1];
+    private static long frames,failures,nonemptyFrames,lastFailureLog,undefinedNightfallBlades,expiredScreenDistortions,hsvUnsupportedStages;
+    private static final long[] stageFrames=new long[PostEffectPlan.HSV_FILTER+1];
     private static int lastStages,lastDraws;
     private static final Map<String,String> RESOURCE_HASHES=Map.ofEntries(
+        Map.entry("hsv_filter.fsh","9b9b3a4393980a6ab50da58235c1d16de1a4921cbcfa917459ab0334bf6518a2"),
+        Map.entry("hsv_filter.json","733232038f66266adbf8d663ffe49003ecac4c045e96dd5e262228bac005a967"),
         Map.entry("black_white_simple.fsh","89432ec2c4e4565898eeece0d70f1a1d1999ce59790be13d946ebf16825d3abe"),
         Map.entry("black_white_simple.json","e398b28b123ee73a18ea3d8838ddb1d12f0988536b431325f6cf476bdf5b9912"),
         Map.entry("air_disturbance.fsh","336c0123bc1bd5a7cdca6190ce6a21976035cc623d9c3cf80e7dceb2f629a0cf"),
@@ -86,7 +89,7 @@ public final class VixPostCapture {
         Map.entry("minecraft:shaders/core/particle.json","1acb68ecbb60b06ed1acb7a3f0f0fdf64cc18b47f56850de450a33a22f9b5f59"));
     private VixPostCapture(){}
 
-    static Frame capture(MinecraftClient client,float partialTick) {
+    static Frame capture(MinecraftClient client,float partialTick,boolean hsvSupported) {
         resolve();
         if(api==null)return Frame.empty();
         if(active!=null)throw new IllegalStateException("Nested VIX capture");
@@ -125,7 +128,7 @@ public final class VixPostCapture {
                         modelView,projection,client.worldRenderer.getTicks(),client.getRenderTickCounter(),camera,frustum);
                     // Exact installed callback retains HashSet insertion iteration and shouldPost/frustum behavior.
                     invoke(api.screenRender,null,event);
-                    Frame result=context.drain(client,particleCount);
+                    Frame result=context.drain(client,particleCount,hsvSupported);
                     lastStages=result.stages().size();lastDraws=result.draws().size();frames++;error="";
                     if(lastStages>0)nonemptyFrames++;
                     for(var stage:result.stages())stageFrames[stage.kind()]++;
@@ -175,6 +178,7 @@ public final class VixPostCapture {
         data.addProperty("vixPostFrames",frames);data.addProperty("vixPostFailures",failures);
         data.addProperty("vixPostUndefinedNightfallBlades",undefinedNightfallBlades);
         data.addProperty("vixPostExpiredScreenDistortions",expiredScreenDistortions);
+        data.addProperty("vixPostHsvUnsupportedStages",hsvUnsupportedStages);
         data.addProperty("vixPostStages",lastStages);data.addProperty("vixPostBatches",lastDraws);
         data.addProperty("vixPostCaptureError",error);
         data.addProperty("vixPostLastFailure",lastFailure);data.addProperty("vixPostLastFailureParticles",lastFailureParticles);
@@ -238,7 +242,7 @@ public final class VixPostCapture {
             if(currentReset&&!next.isEmpty())resetOffsets.get(pipeline).add(mask.size());
             mask.addAll(next);current=null;currentReset=false;
         }
-        Frame drain(MinecraftClient client,int count)throws ReflectiveOperationException {
+        Frame drain(MinecraftClient client,int count,boolean hsvSupported)throws ReflectiveOperationException {
             // Use the installed PriorityQueue itself, including its unspecified tie behavior.
             Object pipeline;
             while((pipeline=api.queue.poll())!=null){owned.add(pipeline);api.priorityQueue.add(pipeline);}
@@ -248,6 +252,21 @@ public final class VixPostCapture {
                 int kind=spec(pipeline);boolean screen=PostEffectPlan.maskless(kind);
                 if(!screen&&!api.called.getBoolean(pipeline))continue;
                 var mask=masks.getOrDefault(pipeline,List.of());
+                if(kind==PostEffectPlan.HSV_FILTER) {
+                    if(!mask.isEmpty())throw new IllegalStateException("Maskless HSV owns geometry");
+                    Object effect=api.screenEffect.get(pipeline);
+                    float alpha=((Number)invoke(api.hsvAlpha,effect)).floatValue();
+                    var program=api.effect("hsv_filter");
+                    program.getUniformByNameOrDummy("Hue_W").set(1f,.97f);
+                    program.getUniformByNameOrDummy("Alpha").set(alpha);
+                    var blit=api.effect("blit");
+                    var stage=PostEffectPlan.Stage.hsv(api.priority.getInt(pipeline),draws.size(),1f,.97f,alpha,
+                        uniform(blit,"ColorModulate",0,4),uniform(blit,"ColorModulate",1,4),
+                        uniform(blit,"ColorModulate",2,4),uniform(blit,"ColorModulate",3,4));
+                    if(!hsvSupported){hsvUnsupportedStages++;continue;}
+                    if(stages.size()>=PostEffectPlan.MAX_STAGES)throw new IllegalArgumentException("VIX stage budget");
+                    stages.add(stage);continue;
+                }
                 if(kind==PostEffectPlan.BW_CONTRAST) {
                     if(!mask.isEmpty())throw new IllegalStateException("Maskless impact owns geometry");
                     var impact=api.impact.capture(pipeline,new ImpactUniforms(client));
@@ -385,6 +404,7 @@ public final class VixPostCapture {
             case "efn:air_disturbance" -> checked(type,NF+"AirDisturbanceRenderType$Pipeline",PostEffectPlan.AIR);
             case "efn:screen_distortion" -> checked(type,SCREEN,PostEffectPlan.SCREEN_DISTORTION);
             case "efn:color_dispersion" -> checked(type,DISPERSION+"$CD_Pipeline",PostEffectPlan.COLOR_DISPERSION);
+            case "efn:hsv_filter" -> checked(type,HSV+"$HsvFilter_Pipeline",PostEffectPlan.HSV_FILTER);
             case "efn:bw_contrast" -> checked(type,BlackWhiteImpactCapture.EFFECT+"$BWC_Pipeline",PostEffectPlan.BW_CONTRAST);
             default -> throw new IllegalStateException("Unsupported VIX pipeline "+name+" ("+type+")");
         };
@@ -409,6 +429,7 @@ public final class VixPostCapture {
         final Field dispersionType=field(Class.forName(DISPERSION),"type");
         final Object dispersionPost=Class.forName(DISPERSION+"$Type").getField("POST").get(null);
         final Method screenProgress=method(screenPipeline,"getDistortionProgress"),screenIntensity=method(screenPipeline,"getDistortionIntensity",float.class);
+        final Method hsvAlpha=method(Class.forName(HSV),"getAlpha");
         final BlackWhiteImpactCapture impact=new BlackWhiteImpactCapture();
         Api()throws ReflectiveOperationException {
             for(String name:List.of("AirDisturbanceRenderType$Pipeline","ChromaticAberrationRenderType$Pipeline")) {

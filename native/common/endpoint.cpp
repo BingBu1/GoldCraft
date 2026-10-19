@@ -283,6 +283,10 @@ bool Endpoint::entity_outlines() const {
     return connected()&&impl_->config.host==Role::host_client&&impl_->config.peer==Role::fabric_client&&
         (impl_->handshake->peer_capabilities()&capability_entity_outlines)!=0;
 }
+bool Endpoint::hsv_post() const {
+    return connected()&&impl_->config.host==Role::host_client&&impl_->config.peer==Role::fabric_client&&
+        (impl_->handshake->peer_capabilities()&capability_hsv_post)!=0;
+}
 bool Endpoint::status_vision() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_status_vision) != 0;

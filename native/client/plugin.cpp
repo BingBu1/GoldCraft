@@ -1510,7 +1510,7 @@ void ReadParticles(Reader& r){
     ++particle_frames;particle_bytes+=vertices*24;
 }
 void ReadPostEffects(Reader& r){
-    auto frame=read_post_effects(r);
+    auto frame=read_post_effects(r,link.hsv_post());
     const auto& snapshot=frame.mesh;
     if(!MatchingHostProtocol()||snapshot.life!=server_player_life||
        !current_particles(snapshot,world,particle_generation,post_generation==snapshot.generation?post_revision:0,minecraft_life))return;
