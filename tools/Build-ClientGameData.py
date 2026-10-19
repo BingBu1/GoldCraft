@@ -161,6 +161,19 @@ def main():
             raise ValueError("Menu guard function changed: " + entry["name"])
         records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftMenu_" + entry["name"],
                         "kind": "function", "payload": {"func_rva": entry["rva"], "func_size": entry["size"]}})
+    clock = json.loads((ROOT / "native/client/hud_clock_10210.json").read_text())
+    if clock["sha256"] != identity["sha256"]:
+        raise ValueError("HUD clock catalog identity mismatch")
+    for entry in clock["verification"]:
+        if hashlib.sha256(raw(int(entry["rva"], 16), int(entry["size"], 16))).hexdigest() != entry["sha256"]:
+            raise ValueError("HUD clock native code changed")
+    address = IMAGE_BASE + int(clock["stateRva"], 16)
+    if raw(int(clock["accessorRva"], 16), 7) != b"\xd9\x05" + struct.pack("<I", address) + b"\xc3":
+        raise ValueError("HUD clock accessor changed")
+    records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftHudClock_State",
+                    "kind": "global", "payload": {"gv_rva": clock["stateRva"], "gv_va": hex(address),
+                        "gv_sig": "D9 05 ?? ?? ?? ?? C3", "gv_sig_va": hex(IMAGE_BASE + int(clock["accessorRva"], 16)),
+                        "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

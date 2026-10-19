@@ -6,6 +6,7 @@
 struct metahook_api_s;
 namespace goldcraft::spectator_menu {
 bool install(metahook_api_s* api);
+const char* error();
 void shutdown();
 void diagnostics(std::ostream& out);
 namespace detail {

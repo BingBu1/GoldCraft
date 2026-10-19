@@ -14,6 +14,7 @@
 #include "packet_entities.hpp"
 #include "userinfo_client.hpp"
 #include "spectator_menu.hpp"
+#include "hud_clock.hpp"
 #include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
 #include "status_motion.hpp"
@@ -710,6 +711,7 @@ void WriteDiagnostics() {
         packet_client::write_status(out); out<<',';
         client_userinfo::diagnostics(out); out<<',';
         out<<"\"spectatorMenu\":";spectator_menu::diagnostics(out);out<<',';
+        out<<"\"nativeHudClock\":";hud_clock::diagnostics(out);out<<',';
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
@@ -1037,6 +1039,11 @@ int AddEntity(int type,cl_entity_t* entity,const char* model) {
 }
 void InitHud() {
     gExportfuncs.HUD_Init();
+    // VGUI interfaces are available after the native HUD initializes. The
+    // earlier LoadClient phase can precede vgui2.dll initialization.
+    Log(spectator_menu::install(api)?"native menu stale-item guard installed":
+        std::string("native menu stale-item guard unavailable: ")+spectator_menu::error());
+    Log(hud_clock::install(api)?"native HUD clock installed":"native HUD clock unavailable");
     server_hud::initialize(&gEngfuncs);
     const char* input_audit_setting=std::getenv("GOLDCRAFT_INPUT_AUDIT");
     input_audit::install(api,input_audit_setting&&std::strcmp(input_audit_setting,"1")==0);
@@ -2161,7 +2168,8 @@ int Redraw(float time,int intermission) {
     const bool pending=MinecraftPresentationPending();
     const bool native_hud=(!visible||(hud_flags&8))&&!pending;
     int result=1;
-    const auto native_redraw=[&]{WorkScope timing(WorkStage::native_hud_redraw);return gExportfuncs.HUD_Redraw(time,intermission);};
+    bool native_updated=false;
+    const auto native_redraw=[&]{native_updated=true;WorkScope timing(WorkStage::native_hud_redraw);return gExportfuncs.HUD_Redraw(time,intermission);};
     if(native_hud)result=native_redraw();
     bool composed=false;
     if(visible){
@@ -2172,6 +2180,7 @@ int Redraw(float time,int intermission) {
             else if(!native_hud){control_trace.hud_fallback(SampleControl(),render::statistics().error);result=native_redraw();}
         }
     }
+    if(!native_updated)hud_clock::advance(time);
     // Retain server kill notices and menus above the full Minecraft HUD.
     // Native/ordinary/death HUD and render failure use the original client path.
     if((composed||pending)&&!native_hud&&!gEngfuncs.Con_IsVisible()&&!host_ui::state().game_menu){
@@ -2206,6 +2215,7 @@ void ShutdownClient() {
     steam_async::shutdown();
     Log("Steam async hooks released before client shutdown");
     spectator_menu::shutdown();
+    hud_clock::shutdown();
     gExportfuncs.HUD_Shutdown();
 }
 }
@@ -2238,7 +2248,6 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     goldcraft::steam_async::install(api);
-    Log(spectator_menu::install(api)?"native menu stale-item guard installed":"native menu stale-item guard unavailable");
     gExportfuncs=*functions;
     Log(client_motion::install(api)?"native status motion prediction installed":std::string("native motion unavailable: ")+client_motion::error());
     functions->Initialize=InitializeClient;
@@ -2264,6 +2273,7 @@ void IPluginsV4::ExitGame(int) {
     goldcraft::steam_async::shutdown();
     client_motion::shutdown();
     spectator_menu::shutdown();
+    hud_clock::shutdown();
     client_map::shutdown_preparation();
     client_map::shutdown_events();
     input_audit::shutdown();

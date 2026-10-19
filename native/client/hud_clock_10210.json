@@ -1,0 +1,27 @@
+{
+  "sha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "stateRva": "0x117b6c",
+  "accessorRva": "0x2f340",
+  "verification": [
+    {
+      "rva": "0x2f340",
+      "size": "0x7",
+      "sha256": "1d9937db295f10c537db913e3ef7b496011ad73eeb1fa77936d41730336588c4"
+    },
+    {
+      "rva": "0x47690",
+      "size": "0x22",
+      "sha256": "5aa1024451a0d17623dc71b8270653e08f74308559d28377b295df366c965ca4"
+    },
+    {
+      "rva": "0x53e80",
+      "size": "0x2c",
+      "sha256": "2944794fe590c8fef740e8adbdb47bf51cf53908271268fee14b8bd220038a57"
+    },
+    {
+      "rva": "0xab16b",
+      "size": "0x7c",
+      "sha256": "a3383df8ac99d0ef6c2ed824e7f2a0f2ddc439d64e111a5244eabd7bd18f4ea9"
+    }
+  ]
+}

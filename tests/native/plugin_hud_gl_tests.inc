@@ -28,6 +28,7 @@ int hud_slot{},hud_food{},hud_armor{},hud_level{};
 double now=20,last_hud{},next_viewport{},hud_interval_ms{},hud_work_ms{};
 GLenum last_gl_error{};
 unsigned native_draws{},overlay_draws{},overlay_menus{},fallbacks{},restores{},profile_ends{},cases{};
+namespace hud_clock {unsigned updates{};void advance(float){++updates;}}
 bool console_visible=false;
 cl_enginefunc_t gEngfuncs{};
 cl_exportfuncs_t gExportfuncs{};
@@ -88,7 +89,9 @@ Pixels redraw(Resources& r,unsigned native,unsigned composite,unsigned overlay,u
     prepare(r);const auto gpu=snapshot();const auto original=pixels();
     const auto previous_draws=hud_draws,previous_skips=hud_blank_composites_skipped;
     native_draws=overlay_draws=overlay_menus=fallbacks=0;work={};probe::reset();
+    const auto clock_before=hud_clock::updates;
     const int result=Redraw(1,0);
+    assert(hud_clock::updates==clock_before+(native?0u:1u));
     assert(native_draws==native&&overlay_draws==overlay&&overlay_menus==menu);
     assert(work[static_cast<unsigned>(WorkStage::hud_redraw)]==1&&
         work[static_cast<unsigned>(WorkStage::native_hud_redraw)]==native&&
@@ -204,7 +207,9 @@ void tests(Resources& r){
     ++f.revision;f.pixel=0xff102030;receive(message(f));hud_flags=6;control=true;
     prepare(r);gpu=snapshot();auto* renderer_before=render::renderer;render::renderer=nullptr;
     work={};native_draws=overlay_draws=fallbacks=0;const auto actual_draws=hud_draws;
+    const auto fallback_clock=hud_clock::updates;
     assert(Redraw(1,0)==7);render::renderer=renderer_before;
+    assert(hud_clock::updates==fallback_clock);
     assert(native_draws==1&&overlay_draws==0&&fallbacks==1&&hud_draws==actual_draws&&snapshot()==gpu);
     assert(work[static_cast<unsigned>(WorkStage::mc_hud_composite)]==1&&work[static_cast<unsigned>(WorkStage::native_hud_redraw)]==1);++cases;
 

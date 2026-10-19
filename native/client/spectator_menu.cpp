@@ -44,6 +44,7 @@ void (__thiscall* open_cascade)(void*){};
 void (__thiscall* select_item)(void*,int){};
 std::uint64_t accepted{},rejected{};
 bool enabled{};
+const char* failure="not attempted";
 template<class R,class... A> R invoke(void* object,unsigned slot,A... args) {
     return reinterpret_cast<R(__thiscall*)(void*,A...)>((*static_cast<void***>(object))[slot])(object,args...);
 }
@@ -63,22 +64,26 @@ template<bool Enter> void __fastcall cursor(detail::Menu* menu,void*,std::uint32
 bool install(metahook_api_t* value) {
     if(enabled)return true;
     api=value;
+    failure="client identity mismatch";
     auto* module=api->GetClientBase();std::uint64_t crc{};
     if(!module || api->GetModuleCRC64(module,&crc)!=MH_GAMESYMBOL_OK || crc!=0x124d6034a6b28b40ULL)return false;
     const auto loaded=GetModuleHandleA("vgui2.dll");
+    failure="VGUI panel interface unavailable";
     const auto factory=loaded?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(loaded,"CreateInterface")):nullptr;
     panels=factory?static_cast<vgui::IPanel*>(factory(VGUI_PANEL_INTERFACE_VERSION,nullptr)):nullptr;
     if(!panels)return false;
     const char* names[]{"GoldCraftMenu_CursorEntered","GoldCraftMenu_CursorExited","GoldCraftMenu_OpenCascade","GoldCraftMenu_SelectIndex"};
     std::array<void*,4> targets{};
-    for(unsigned i=0;i<targets.size();++i)
+    for(unsigned i=0;i<targets.size();++i) {
+        failure=names[i];
         if(api->ResolveGameSymbol(module,names[i],MH_GAMESYMBOL_KIND_FUNCTION,&targets[i])!=MH_GAMESYMBOL_OK || !targets[i])return false;
+    }
     open_cascade=reinterpret_cast<decltype(open_cascade)>(targets[2]);
     select_item=reinterpret_cast<decltype(select_item)>(targets[3]);
     hooks[0]=api->InlineHook(targets[0],reinterpret_cast<void*>(cursor<true>),&originals[0]);
     hooks[1]=api->InlineHook(targets[1],reinterpret_cast<void*>(cursor<false>),&originals[1]);
-    if(!hooks[0] || !hooks[1]){shutdown();return false;}
-    enabled=true;return true;
+    if(!hooks[0] || !hooks[1]){shutdown();failure="native menu hooks unavailable";return false;}
+    enabled=true;failure="";return true;
 }
 void shutdown() {
     for(auto& hook:hooks){if(hook&&api)api->UnHook(hook);hook=nullptr;}
@@ -86,6 +91,7 @@ void shutdown() {
     enabled=false;panels=nullptr;open_cascade=nullptr;select_item=nullptr;
 }
 void diagnostics(std::ostream& out) {
-    out<<"{\"installed\":"<<(enabled?"true":"false")<<",\"accepted\":"<<accepted<<",\"stale\":"<<rejected<<'}';
+    out<<"{\"installed\":"<<(enabled?"true":"false")<<",\"accepted\":"<<accepted<<",\"stale\":"<<rejected<<",\"error\":\""<<failure<<"\"}";
 }
+const char* error(){return failure;}
 }
