@@ -32,7 +32,8 @@ struct View {
 class Prepared {
 public:
     Prepared(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
-             Limits limits = {});
+             Limits limits = {}, const Prepared* previous = nullptr,
+             std::size_t contact_cache_bytes = 0);
     View view(std::uint32_t key) const;
     // Allocation-free camera lookup; key 0 retains the engine's no-vis view.
     std::uint32_t key(std::uint32_t original_leaf, carving::Point eye) const noexcept;
@@ -41,6 +42,8 @@ public:
     std::size_t leaf_count() const noexcept { return source_->contents.size(); }
     std::size_t component_count() const noexcept { return components_.size(); }
     std::size_t operations() const noexcept { return operations_; }
+    std::size_t reused_contacts() const noexcept { return reused_contacts_; }
+    std::size_t contact_cache_bytes() const noexcept { return contact_cache_bytes_; }
     // Source is immutable within its map session. Equal coordinates alone do
     // not permit reuse after a new capture or under different capacity limits.
     bool matches_input(const std::shared_ptr<const Source>& source,
@@ -51,6 +54,10 @@ private:
         std::uint32_t first = 0, count = 0, left = 0, right = 0;
     };
     struct Component { Bits pvs; };
+    struct Contacts {
+        std::vector<std::uint32_t> leaves;
+        std::size_t operations = 0;
+    };
     std::shared_ptr<const Source> source_;
     Limits limits_;
     std::size_t words_ = 0, operations_ = 0;
@@ -59,5 +66,10 @@ private:
     std::vector<std::uint32_t> order_, cut_components_;
     std::vector<Component> components_;
     std::vector<std::vector<std::uint32_t>> leaf_components_;
+    // Optional classification cache, never an old Prepared/row-table chain.
+    // Entries retain duplicate leaf visits and their original operation charge.
+    std::vector<std::shared_ptr<const Contacts>> contacts_;
+    std::vector<std::uint32_t> contact_order_;
+    std::size_t reused_contacts_ = 0, contact_cache_bytes_ = 0;
 };
 } // namespace goldcraft::visibility

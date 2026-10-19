@@ -10,11 +10,13 @@ struct EntityCache::PreparedRows {
     std::vector<View> rows_, audible_rows_;
     std::size_t row_bytes_ = 0, operations_ = 0, cached_words_ = 0;
     PreparedRows(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
-                 Limits limits);
+                 Limits limits, const PreparedRows* previous);
 };
 EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
-                                        std::span<const carving::Box> cuts, Limits limits)
-    : topology_(std::move(source), cuts, limits) {
+                                        std::span<const carving::Box> cuts, Limits limits,
+                                        const PreparedRows* previous)
+    : topology_(std::move(source), cuts, limits, previous ? &previous->topology_ : nullptr,
+                16 * 1024 * 1024) {
     static_assert(std::endian::native == std::endian::little);
     const auto leaves = topology_.leaf_count() - 1;
     const auto words = (leaves + 63) / 64;
@@ -69,7 +71,8 @@ EntityCache::PreparedRows::PreparedRows(std::shared_ptr<const Source> source,
 EntityCache::EntityCache(std::shared_ptr<const Source> source, std::span<const carving::Box> cuts,
                          Limits limits, const EntityCache* previous)
     : prepared_(previous && previous->prepared_ && previous->prepared_->topology_.matches_input(source, cuts, limits)
-        ? previous->prepared_ : std::make_shared<PreparedRows>(std::move(source), cuts, limits)) {
+        ? previous->prepared_ : std::make_shared<PreparedRows>(std::move(source), cuts, limits,
+            previous ? previous->prepared_.get() : nullptr)) {
     // Never share FatPVS/FatPAS accumulators with the previous transaction.
     // Their storage is included in PreparedRows' original per-cache budget.
     const auto& row = prepared_->rows_.front();
@@ -82,6 +85,8 @@ std::uint32_t EntityCache::key(std::uint32_t leaf, carving::Point point) const n
 std::size_t EntityCache::leaf_count() const noexcept { return prepared_->topology_.leaf_count(); }
 std::size_t EntityCache::operations() const noexcept { return prepared_->operations_; }
 std::size_t EntityCache::cached_words() const noexcept { return prepared_->cached_words_; }
+std::size_t EntityCache::reused_contacts() const noexcept { return prepared_->topology_.reused_contacts(); }
+std::size_t EntityCache::contact_cache_bytes() const noexcept { return prepared_->topology_.contact_cache_bytes(); }
 void EntityCache::begin(bool audible) noexcept {
     auto &current = audible ? current_audible_ : current_;
     std::fill(current.leaves.begin(), current.leaves.end(), 0);

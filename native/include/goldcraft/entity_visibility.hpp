@@ -21,6 +21,8 @@ class EntityCache {
     std::size_t leaf_count() const noexcept;
     std::size_t operations() const noexcept;
     std::size_t cached_words() const noexcept;
+    std::size_t reused_contacts() const noexcept;
+    std::size_t contact_cache_bytes() const noexcept;
     bool shares_preparation(const EntityCache& other) const noexcept { return prepared_ == other.prepared_; }
 
   private:

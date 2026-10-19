@@ -308,5 +308,89 @@ void ReusedEntityPreparation() {
     assert(reused.reaches(1, 3) && reused.reaches(1, 4, true));
     assert(reused.sees_bounds(cuts[1]));
 }
+void SameTopology(const visibility::Prepared& a, const visibility::Prepared& b,
+                  const std::vector<carving::Box>& cuts) {
+    assert(a.leaf_count() == b.leaf_count() && a.component_count() == b.component_count());
+    assert(a.operations() == b.operations());
+    for (std::uint32_t key = 0; key < a.leaf_count() + a.component_count(); ++key) {
+        const auto av = a.view(key), bv = b.view(key);
+        assert(av.leaves == bv.leaves && av.components == bv.components && av.operations == bv.operations);
+        for (const auto& cut : cuts) assert(a.sees_bounds(av, cut) == b.sees_bounds(bv, cut));
+    }
+    for (const auto& cut : cuts) {
+        carving::Point p{};
+        for (int axis = 0; axis < 3; ++axis) p[axis] = (cut.min[axis] + cut.max[axis]) / 2;
+        assert(a.key(0, p) == b.key(0, p));
+    }
+}
+void ReusedCutContacts() {
+    constexpr std::size_t cache_bytes = 4096;
+    auto source = Rooms();
+    const std::vector cuts{Hole(0, 2), Hole(10, 12), Hole(20.5, 21.5)};
+    auto previous = std::make_unique<visibility::Prepared>(source, cuts, visibility::Limits{}, nullptr, cache_bytes);
+    assert(previous->contact_cache_bytes() && previous->contact_cache_bytes() <= cache_bytes);
+    const std::vector changed{cuts[2], cuts[0], Hole(2, 10), cuts[1], cuts[0]};
+    const visibility::Prepared cold(source, changed);
+    const visibility::Prepared reused(source, changed, {}, previous.get(), cache_bytes);
+    assert(reused.reused_contacts() == 4 && reused.contact_cache_bytes() <= cache_bytes);
+    SameTopology(reused, cold, changed);
+    const visibility::Prepared removed(source, cuts, {}, &reused, cache_bytes);
+    SameTopology(removed, *previous, cuts);
+    assert(removed.reused_contacts() == cuts.size());
+    const visibility::Prepared no_cache(source, changed, {}, previous.get());
+    assert(no_cache.reused_contacts() == 4 && no_cache.contact_cache_bytes() == 0);
+    SameTopology(no_cache, cold, changed);
+    const visibility::Prepared too_small(source, changed, {}, previous.get(), 1);
+    assert(too_small.contact_cache_bytes() == 0);
+    SameTopology(too_small, cold, changed);
+    const visibility::Prepared partial(source, cuts, {}, nullptr, 256);
+    const visibility::Prepared partial_next(source, cuts, {}, &partial, 256);
+    assert(partial_next.contact_cache_bytes() <= 256);
+    assert(partial_next.reused_contacts() > 0 && partial_next.reused_contacts() < cuts.size());
+    SameTopology(partial_next, *previous, cuts);
+    const visibility::Prepared recaptured(std::make_shared<visibility::Source>(*source), changed, {}, previous.get(), cache_bytes);
+    assert(recaptured.reused_contacts() == 0);
+    SameTopology(recaptured, cold, changed);
+    auto signed_zero = cuts;
+    signed_zero[0].min[0] = -0.0;
+    const visibility::Prepared different(source, signed_zero, {}, previous.get(), cache_bytes);
+    assert(different.reused_contacts() == 2);
+    SameTopology(different, visibility::Prepared(source, signed_zero), signed_zero);
+    auto limits = visibility::Limits{};
+    limits.operations = cold.operations();
+    SameTopology(visibility::Prepared(source, changed, limits, previous.get(), cache_bytes), cold, changed);
+    --limits.operations;
+    Reject([&] { visibility::Prepared invalid(source, changed, limits, previous.get(), cache_bytes); });
+    const visibility::Prepared cleared(source, {}, {}, previous.get(), cache_bytes);
+    assert(cleared.component_count() == 0 && cleared.contact_cache_bytes() == 0);
+    previous.reset();
+    SameTopology(reused, cold, changed);
+
+    // Shared BSP children can visit the same leaf repeatedly. Cache the visit
+    // sequence, not a set, so contact storage and operation limits stay exact.
+    auto dag = std::make_shared<visibility::Source>();
+    dag->contents = {-2, -1, -1}; dag->pvs = {1, 2};
+    dag->planes = {{{1,0,0},0}, {{0,1,0},0}};
+    dag->nodes = {{0,{1,1}}, {1,{-2,-3}}};
+    const std::vector dag_cuts{Hole(-1, 1)};
+    const visibility::Prepared dag_previous(dag, dag_cuts, {}, nullptr, cache_bytes);
+    const visibility::Prepared dag_reused(dag, dag_cuts, {}, &dag_previous, cache_bytes);
+    assert(dag_reused.reused_contacts() == 1);
+    SameTopology(dag_reused, dag_previous, dag_cuts);
+    Reject([&] { visibility::Prepared invalid(dag, dag_cuts, {8,3,1000}, &dag_previous, cache_bytes); });
+    Reject([&] { visibility::Prepared invalid(dag, dag_cuts, {8,3,1000}); });
+
+    visibility::EntityCache old_rows(source, cuts);
+    visibility::EntityCache new_rows(source, changed, {}, &old_rows);
+    visibility::EntityCache fresh_rows(source, changed);
+    assert(!new_rows.shares_preparation(old_rows) && new_rows.reused_contacts() == 4);
+    assert(new_rows.operations() == fresh_rows.operations() && new_rows.cached_words() == fresh_rows.cached_words());
+    assert(new_rows.contact_cache_bytes() <= 16 * 1024 * 1024);
+    const auto keys = cold.leaf_count() + cold.component_count();
+    for (std::uint32_t from = 0; from < keys; ++from)
+        for (std::uint32_t to = 0; to < keys; ++to)
+            for (const bool sound : {false, true})
+                assert(new_rows.reaches(from, to, sound) == fresh_rows.reaches(from, to, sound));
+}
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedEntityPreparation(); ReusedCutContacts(); }

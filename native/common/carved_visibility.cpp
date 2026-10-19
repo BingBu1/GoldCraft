@@ -39,11 +39,23 @@ void validate(const Box &box, bool flat = false) {
             throw std::invalid_argument("Carved PVS bounds");
 }
 std::size_t leaf_index(std::int32_t child) { return std::size_t(-1 - std::int64_t(child)); }
+int compare_box(const Box& a, const Box& b) noexcept {
+    for (int axis = 0; axis < 3; ++axis) {
+        const auto amin = std::bit_cast<std::uint64_t>(a.min[axis]);
+        const auto bmin = std::bit_cast<std::uint64_t>(b.min[axis]);
+        if (amin != bmin) return amin < bmin ? -1 : 1;
+        const auto amax = std::bit_cast<std::uint64_t>(a.max[axis]);
+        const auto bmax = std::bit_cast<std::uint64_t>(b.max[axis]);
+        if (amax != bmax) return amax < bmax ? -1 : 1;
+    }
+    return 0;
+}
 } // namespace
 
 bool View::sees_leaf(std::uint32_t leaf) const noexcept { return leaf && test(leaves, leaf - 1); }
 
-Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cuts, Limits limits)
+Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cuts, Limits limits,
+                   const Prepared* previous, std::size_t contact_cache_bytes)
     : source_(std::move(source)), limits_(limits) {
     if (!source_ || !limits.words || !limits.operations || source_->contents.empty() ||
         source_->contents[0] != -2 || source_->contents.size() > 65'537)
@@ -141,19 +153,78 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
     }
     leaf_components_.resize(source_->contents.size());
     std::size_t contacts = 0;
+    // Cache storage is optional and separately bounded. Default callers retain
+    // no classifications; the server opts in to retain them between revisions.
+    const auto cache_limit = std::min<std::size_t>(contact_cache_bytes, 16 * 1024 * 1024);
+    if (cache_limit && cuts.size() <= cache_limit / (sizeof(contacts_[0]) + sizeof(contact_order_[0]))) {
+        contacts_.resize(cuts.size());
+        contact_order_.reserve(cuts.size());
+        contact_cache_bytes_ = contacts_.capacity() * sizeof(contacts_[0]) +
+                               contact_order_.capacity() * sizeof(contact_order_[0]);
+        if (contact_cache_bytes_ > cache_limit) {
+            decltype(contacts_){}.swap(contacts_);
+            decltype(contact_order_){}.swap(contact_order_);
+            contact_cache_bytes_ = 0;
+        }
+    }
+    if (previous && source_ != previous->source_) previous = nullptr;
     // Each cut is classified against the original BSP planes, never a leaf's
     // rounded file bounding box. Inclusive boundaries conservatively preserve
     // doors opened exactly up to the original air/solid plane.
     for (std::size_t i = 0; i < cuts.size(); ++i) {
         const auto component = cut_components_[i];
+        const auto append = [&](std::uint32_t leaf) {
+            if (contacts >= limits.words) throw std::length_error("Carved PVS contact storage");
+            ++contacts;
+            leaf_components_[leaf].push_back(component);
+        };
+        std::shared_ptr<const Contacts> cached;
+        if (previous) {
+            const auto& order = previous->contact_order_;
+            const auto found = std::lower_bound(order.begin(), order.end(), cuts[i], [&](auto index, const Box& box) {
+                return compare_box(previous->cuts_[index], box) < 0;
+            });
+            if (found != order.end() && compare_box(previous->cuts_[*found], cuts[i]) == 0)
+                cached = previous->contacts_[*found];
+        }
+        const auto retain = [&](const std::shared_ptr<const Contacts>& value) {
+            if (contacts_.empty() || !value) return;
+            const auto bytes = sizeof(Contacts) + 64 + value->leaves.capacity() * sizeof(std::uint32_t);
+            if (bytes <= cache_limit - contact_cache_bytes_) {
+                contacts_[i] = value;
+                contact_order_.push_back(static_cast<std::uint32_t>(i));
+                contact_cache_bytes_ += bytes;
+            }
+        };
+        if (cached) {
+            consume(operations_, limits.operations, cached->operations);
+            for (const auto leaf : cached->leaves) append(leaf);
+            retain(cached);
+            ++reused_contacts_;
+            continue;
+        }
+        constexpr std::size_t entry_bytes = sizeof(Contacts) + 64;
+        const auto available = cache_limit - contact_cache_bytes_;
+        auto captured = !contacts_.empty() && available >= entry_bytes ? std::make_shared<Contacts>() : nullptr;
+        const auto capture_leaf = [&](std::uint32_t leaf) {
+            if (!captured) return;
+            auto& leaves = captured->leaves;
+            const auto max_leaves = (available - entry_bytes) / sizeof(std::uint32_t);
+            if (leaves.size() == max_leaves) { captured.reset(); return; }
+            if (leaves.size() == leaves.capacity()) {
+                leaves.reserve(std::min(max_leaves, std::max<std::size_t>(4, leaves.capacity() * 2)));
+                if (leaves.capacity() > max_leaves) { captured.reset(); return; }
+            }
+            leaves.push_back(leaf);
+        };
+        const auto before = operations_;
         const auto collect = [&](auto &&self, std::int32_t at) -> void {
             consume(operations_, limits.operations);
             if (at < 0) {
                 const auto leaf = leaf_index(at);
                 if (!leaf || source_->contents[leaf] == -2) return;
-                if (contacts >= limits.words) throw std::length_error("Carved PVS contact storage");
-                ++contacts;
-                leaf_components_[leaf].push_back(component);
+                append(static_cast<std::uint32_t>(leaf));
+                capture_leaf(static_cast<std::uint32_t>(leaf));
                 return;
             }
             const auto &node = source_->nodes[at];
@@ -168,7 +239,15 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
             if (low <= error) self(self, node.children[1]);
         };
         collect(collect, source_->root);
+        if (captured) {
+            captured->operations = operations_ - before;
+            retain(captured);
+        }
     }
+    std::sort(contact_order_.begin(), contact_order_.end(), [&](auto a, auto b) {
+        const auto order = compare_box(cuts_[a], cuts_[b]);
+        return order ? order < 0 : a < b;
+    });
     for (std::size_t leaf = 1; leaf < source_->contents.size(); ++leaf) {
         auto &adjacent = leaf_components_[leaf];
         consume(operations_, limits.operations, adjacent.size() * std::max<std::size_t>(1, std::bit_width(adjacent.size())));

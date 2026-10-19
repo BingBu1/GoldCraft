@@ -24066,7 +24066,7 @@ index 0000000..46f00b4
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..8883611
+index 0000000..3edf257
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
 @@ -0,0 +1,413 @@
@@ -24315,7 +24315,7 @@ index 0000000..8883611
 +        const std::uint64_t words = leaves ? (leaves - 1 + 63) / 64 : 0;
 +        const auto components = (std::min)(cuts * words, std::uint64_t(limits.words));
 +        const auto contacts = (std::min)(cuts * leaves, std::uint64_t(limits.words));
-+        result.visibilityBytes = cuts * 208 + leaves * sizeof(std::vector<std::uint32_t>) +
++        result.visibilityBytes = sizeof(visibility::Prepared) + 64 + cuts * 208 + leaves * sizeof(std::vector<std::uint32_t>) +
 +            components * sizeof(std::uint64_t) + 2 * contacts * sizeof(std::uint32_t);
 +        const auto started = Clock::now();
 +        result.visibility = std::make_shared<visibility::Prepared>(input.visibility, input.worldCuts);
