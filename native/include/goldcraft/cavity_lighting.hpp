@@ -15,18 +15,27 @@ struct Probe {
     carving::Point position;
     surface::Range values;
 };
+class SampleCache;
+struct ModelCache {
+    std::uint32_t first_face = 0, face_count = 0;
+    std::shared_ptr<const SampleCache> samples;
+};
+// Owned CPU data only; includes input snapshots and sparse sample coefficients.
+std::uint64_t cache_bytes(const SampleCache& cache) noexcept;
 struct Model {
     std::uint32_t first_face = 0, face_count = 0;
     carving::HullView hull;
     std::span<const carving::Box> cuts;
     std::span<const Probe> probes;
     std::span<const Value> values;
+    std::shared_ptr<const SampleCache> previous{};
 };
 struct Settings {
     double radius = 128, spacing = 16;
     std::size_t neighbours = 16;
     std::size_t probes = 1'048'576, values = 4'194'304;
     surface::Limits mesh;
+    std::size_t cache_bytes = 0; // Optional retained limit per model; zero disables reuse.
 };
 struct Prepared {
     std::shared_ptr<const surface::Mesh> mesh;
@@ -35,6 +44,8 @@ struct Prepared {
     std::vector<surface::Range> vertices;
     std::vector<Value> values;
     std::size_t samples = 0, rays = 0, occluded = 0, operations = 0;
+    std::vector<ModelCache> caches{};
+    std::size_t reused_samples = 0;
 };
 // Extend the original map's baked irradiance field into new surfaces. Gather
 // nearby front-hemisphere probes through the edited point BSP, keeping blocked

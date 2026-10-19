@@ -11758,10 +11758,10 @@ index 0000000..5ea67d8
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..1e5173c
+index 0000000..2cc0b84
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,635 @@
+@@ -0,0 +1,636 @@
 +#include "gl_local.h"
 +#include "draw_parameter_dispatch.h"
 +#include "draw_parameter_stream.h"
@@ -12055,7 +12055,8 @@ index 0000000..1e5173c
 +            << ",\"leafWaitMs\":" << edit.leafWaitMs << ",\"readyMs\":" << edit.readyMs
 +            << ",\"totalMs\":" << edit.totalMs << ",\"cavityMs\":" << edit.cpu.cavityMs
 +            << ",\"probesMs\":" << edit.cpu.probesMs << ",\"lightMs\":" << edit.cpu.lightMs
-+            << ",\"visibilityMs\":" << edit.cpu.visibilityMs << '}';
++            << ",\"visibilityMs\":" << edit.cpu.visibilityMs << ",\"lightSamples\":" << edit.cpu.lightSamples
++            << ",\"reusedLightSamples\":" << edit.cpu.reusedLightSamples << ",\"lightCacheBytes\":" << edit.cpu.lightCacheBytes << '}';
 +    }
 +    const auto& failed = R_WorldEditLastFailure();
 +    out << "],\"lastFailure\":{\"count\":" << failed.count << ",\"ticket\":\"" << failed.ticket
@@ -14370,10 +14371,10 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..445c421
+index 0000000..b565673
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,399 @@
+@@ -0,0 +1,423 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -14590,6 +14591,16 @@ index 0000000..445c421
 +        const auto started=std::chrono::steady_clock::now();
 +        try
 +        {
++            if (std::getenv("GOLDCRAFT_CAVITY_REUSE")) {
++                auto previous=input;
++                assert(previous.worldCuts.size()>1);
++                previous.worldCuts.pop_back();previous.models[0].cuts=previous.worldCuts;
++                const auto firstTask=cpuWorker.Submit({previous},256ull*1024*1024);
++                while(!firstTask->finished.load(std::memory_order_acquire))std::this_thread::yield();
++                if(firstTask->error)std::rethrow_exception(firstTask->error);
++                input.previousLighting=firstTask->results[0].lighting->caches;
++                assert(!input.previousLighting.empty());
++            }
 +            const auto task=cpuWorker.Submit({input},256ull*1024*1024);
 +            while(!task->finished.load(std::memory_order_acquire)) std::this_thread::yield();
 +            if(task->error)std::rethrow_exception(task->error);
@@ -14604,9 +14615,23 @@ index 0000000..445c421
 +            for(const auto& r:result.lighting->vertices){hash(r.first);hash(r.count);}
 +            for(const auto& v:result.lighting->values){for(auto c:v.rgb)hash(c);hash(v.style);}
 +            hash(result.lighting->rays);hash(result.lighting->occluded);
-+            std::printf("{\"replay\":true,\"cuts\":%zu,\"lightWork\":%zu,\"lightMs\":%.3f,\"bytes\":%llu,\"digest\":%llu,\"passed\":true}\n",
++            std::printf("{\"replay\":true,\"cuts\":%zu,\"lightWork\":%zu,\"lightMs\":%.3f,\"bytes\":%llu,\"digest\":%llu,\"samples\":%zu,\"reused\":%zu,\"passed\":true}\n",
 +                input.worldCuts.size(),result.lighting?result.lighting->operations:0,result.timings.lightMs,
-+                static_cast<unsigned long long>(worldedit::ResultBytes(result)),static_cast<unsigned long long>(digest));
++                static_cast<unsigned long long>(worldedit::ResultBytes(result)),static_cast<unsigned long long>(digest),
++                result.lighting->samples,result.lighting->reused_samples);
++            if (std::getenv("GOLDCRAFT_CAVITY_REUSE")) {
++                assert(result.lighting->reused_samples>0);
++                auto cold=input;cold.lighting.cache_bytes=0;cold.previousLighting.clear();
++                const auto coldTask=cpuWorker.Submit({cold},256ull*1024*1024);
++                while(!coldTask->finished.load(std::memory_order_acquire))std::this_thread::yield();
++                if(coldTask->error)std::rethrow_exception(coldTask->error);
++                const auto& expected=coldTask->results[0];
++                assert(*result.mesh==*expected.mesh && result.lighting->vertices==expected.lighting->vertices &&
++                    result.lighting->values==expected.lighting->values && result.lighting->rays==expected.lighting->rays &&
++                    result.lighting->occluded==expected.lighting->occluded);
++                std::printf("{\"cachedVsCold\":true,\"cachedLightMs\":%.3f,\"coldLightMs\":%.3f,\"passed\":true}\n",
++                    result.timings.lightMs,expected.timings.lightMs);
++            }
 +        }
 +        catch(const std::exception& error)
 +        {
@@ -18922,10 +18947,10 @@ index 0000000..029fb40
 +#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..2026d69
+index 0000000..77fc2f6
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,745 @@
+@@ -0,0 +1,754 @@
 +#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
@@ -19052,8 +19077,13 @@ index 0000000..2026d69
 +        uint64_t(geometry.m_vFaceBuffer.capacity()) * sizeof(geometry.m_vFaceBuffer[0]) +
 +        uint64_t(geometry.m_vCavityDraws.capacity()) * (sizeof(cavity::Draw) + sizeof(CDrawIndexAttrib));
 +    if (geometry.m_pCavityLighting)
++    {
 +        result += 2 * (uint64_t(geometry.m_pCavityLighting->vertices.capacity()) * sizeof(surface::Range) +
 +            uint64_t(geometry.m_pCavityLighting->values.capacity()) * sizeof(lighting::Value));
++        result += geometry.m_pCavityLighting->caches.capacity() * sizeof(lighting::ModelCache);
++        for (const auto& cache : geometry.m_pCavityLighting->caches)
++            if (cache.samples) result += lighting::cache_bytes(*cache.samples);
++    }
 +    return result;
 +}
 +
@@ -19135,6 +19165,10 @@ index 0000000..2026d69
 +        captured, {cuts.begin(), cuts.end()}});
 +    if (world)
 +    {
++        // Copy only immutable CPU cache owners. The worker never retains the
++        // active model or any GL resources, including across map cancellation.
++        if (session.active->m_pCavityLighting)
++            input.previousLighting = session.active->m_pCavityLighting->caches;
 +        if (!session.visibility) session.visibility = session.original->m_pVisibilitySource ?
 +            session.original->m_pVisibilitySource : R_CaptureWorldVisibility(model);
 +        input.visibility = session.visibility;
@@ -23896,10 +23930,10 @@ index 0000000..10ea710
 +    main()
 diff --git a/src/world_edit_prepare.h b/src/world_edit_prepare.h
 new file mode 100644
-index 0000000..38f7367
+index 0000000..46f00b4
 --- /dev/null
 +++ b/src/world_edit_prepare.h
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,130 @@
 +#pragma once
 +#include <goldcraft/cavity_lighting.hpp>
 +#include <goldcraft/carved_visibility.hpp>
@@ -23957,6 +23991,7 @@ index 0000000..38f7367
 +    std::vector<Model> models;
 +    std::shared_ptr<const goldcraft::visibility::Source> visibility;
 +    std::vector<goldcraft::carving::Box> worldCuts;
++    std::vector<goldcraft::lighting::ModelCache> previousLighting;
 +    goldcraft::cavity::Limits limits;
 +    // Several thousand legitimate world cuts exceed the common small-job
 +    // work guard. This is still a finite CPU-worker budget; cancellation is
@@ -23964,14 +23999,20 @@ index 0000000..38f7367
 +    goldcraft::lighting::Settings lighting = [] {
 +        goldcraft::lighting::Settings result;
 +        result.mesh.operations = 268'435'456;
++        result.cache_bytes = 16 * 1024 * 1024;
 +        return result;
 +    }();
 +};
 +struct Timings
 +{
 +    double cavityMs{}, probesMs{}, lightMs{}, visibilityMs{};
++    std::uint64_t lightSamples{}, reusedLightSamples{}, lightCacheBytes{};
 +    Timings& operator+=(const Timings& other) noexcept
-+    { cavityMs += other.cavityMs; probesMs += other.probesMs; lightMs += other.lightMs; visibilityMs += other.visibilityMs; return *this; }
++    {
++        cavityMs += other.cavityMs; probesMs += other.probesMs; lightMs += other.lightMs; visibilityMs += other.visibilityMs;
++        lightSamples += other.lightSamples; reusedLightSamples += other.reusedLightSamples; lightCacheBytes += other.lightCacheBytes;
++        return *this;
++    }
 +};
 +struct Result
 +{
@@ -24025,10 +24066,10 @@ index 0000000..38f7367
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..b50f0e2
+index 0000000..815c13a
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,350 @@
 +#include "world_edit_prepare.h"
 +#include <goldcraft/cut_index.hpp>
 +#include <algorithm>
@@ -24234,6 +24275,9 @@ index 0000000..b50f0e2
 +        const auto& p = probes.back();
 +        lightingModels.push_back({models[i].first_face, models[i].face_count, models[i].hull,
 +                                  models[i].boxes, p.probes, p.values});
++        for (const auto& previous : input.previousLighting)
++            if (previous.first_face == models[i].first_face && previous.face_count == models[i].face_count)
++            { lightingModels.back().previous = previous.samples; break; }
 +    }
 +    if (cancelled.load(std::memory_order_relaxed)) throw std::runtime_error("World edit preparation cancelled");
 +    if (!geometry.draws.empty())
@@ -24241,6 +24285,9 @@ index 0000000..b50f0e2
 +        const auto started = Clock::now();
 +        auto prepared = std::make_shared<lighting::Prepared>(lighting::prepare(geometry, lightingModels, input.lighting, &cancelled));
 +        result.timings.lightMs = Elapsed(started);
++        result.timings.lightSamples = prepared->samples;
++        result.timings.reusedLightSamples = prepared->reused_samples;
++        for (const auto& cache : prepared->caches) if (cache.samples) result.timings.lightCacheBytes += lighting::cache_bytes(*cache.samples);
 +        result.mesh = prepared->mesh;
 +        result.draws = prepared->draws;
 +        result.lighting = std::move(prepared);
@@ -24256,6 +24303,8 @@ index 0000000..b50f0e2
 +    if (input.baked) { bytes += sizeof(BakedSource) + input.baked->surfaces.capacity() * sizeof(BakedSurface); for (const auto& s : input.baked->surfaces) bytes += s.samples.capacity() * sizeof(s.samples[0]); }
 +    for (const auto& model : input.models) bytes += sizeof(Model) + model.cuts.capacity() * sizeof(carving::Box) + (model.hull ? model.hull->planes.capacity() * sizeof(carving::Plane) + model.hull->nodes.capacity() * sizeof(carving::HullNode) : 0);
 +    bytes += input.worldCuts.capacity() * sizeof(carving::Box);
++    bytes += input.previousLighting.capacity() * sizeof(lighting::ModelCache);
++    for (const auto& previous : input.previousLighting) if (previous.samples) bytes += lighting::cache_bytes(*previous.samples);
 +    if (input.visibility) bytes += input.visibility->planes.capacity() * sizeof(carving::Plane) + input.visibility->nodes.capacity() * sizeof(carving::HullNode) + input.visibility->contents.capacity() * sizeof(std::int32_t) + input.visibility->pvs.capacity() * sizeof(std::uint64_t);
 +    return bytes;
 +}
@@ -24266,6 +24315,10 @@ index 0000000..b50f0e2
 +    if (result.visibilitySource) bytes += result.visibilitySource->planes.capacity() * sizeof(carving::Plane) + result.visibilitySource->nodes.capacity() * sizeof(carving::HullNode) + result.visibilitySource->contents.capacity() * sizeof(std::int32_t) + result.visibilitySource->pvs.capacity() * sizeof(std::uint64_t);
 +    bytes += result.draws.capacity() * sizeof(cavity::Draw) + result.cuts.capacity() * sizeof(surface::Selection) + result.visibilityBytes;
 +    if (result.lighting) bytes += result.lighting->vertices.capacity() * sizeof(surface::Range) + result.lighting->values.capacity() * sizeof(lighting::Value) + result.lighting->draws.capacity() * sizeof(cavity::Draw);
++    if (result.lighting) {
++        bytes += result.lighting->caches.capacity() * sizeof(lighting::ModelCache);
++        for (const auto& cache : result.lighting->caches) if (cache.samples) bytes += lighting::cache_bytes(*cache.samples);
++    }
 +    return bytes;
 +}
 +
@@ -24448,10 +24501,10 @@ index 0000000..36b0607
 +} // namespace worldedit
 diff --git a/tests/world_edit_prepare_tests.cpp b/tests/world_edit_prepare_tests.cpp
 new file mode 100644
-index 0000000..6395aa8
+index 0000000..7c75079
 --- /dev/null
 +++ b/tests/world_edit_prepare_tests.cpp
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,164 @@
 +#include "world_edit_prepare.h"
 +#include <cassert>
 +#include <chrono>
@@ -24568,6 +24621,22 @@ index 0000000..6395aa8
 +    assert(*result.mesh == *expected.mesh && result.lighting->values == expected.values && result.lighting->vertices == expected.vertices);
 +    assert(result.visibility && result.visibility->leaf_count() == 2 && result.visibility->view(1).sees_leaf(1));
 +    assert(result.timings.cavityMs >= 0 && result.timings.lightMs >= 0);
++    auto next=Fixture();next.previousLighting=result.lighting->caches;
++    assert(!next.previousLighting.empty());
++    assert(InputBytes(next)>InputBytes(Fixture()));
++    auto reused=worker.Submit({next},budget);Wait(reused);
++    assert(!reused->error && reused->results[0].lighting->reused_samples==expected.samples);
++    assert(reused->results[0].timings.lightCacheBytes>0 && reused->results[0].timings.reusedLightSamples==expected.samples);
++    // The cache owns immutable CPU snapshots; source/previous task lifetime
++    // does not control its validity, and cancelling must not mutate it.
++    auto changedHull=std::make_shared<Hull>(*next.models[0].hull);
++    changedHull->nodes.push_back(changedHull->nodes[0]);changedHull->root=1;next.models[0].hull=changedHull;
++    auto changed=worker.Submit({next},budget);Wait(changed);
++    assert(!changed->error && changed->results[0].lighting->reused_samples==0);
++    auto cold=next;cold.previousLighting.clear();cold.lighting.cache_bytes=0;
++    auto recomputed=worker.Submit({cold},budget);Wait(recomputed);
++    assert(!recomputed->error && *changed->results[0].mesh==*recomputed->results[0].mesh &&
++        changed->results[0].lighting->values==recomputed->results[0].lighting->values);
 +    auto malformed = Fixture(); malformed.baked = std::make_shared<BakedSource>();
 +    auto bad = worker.Submit({malformed}, budget); Wait(bad); assert(bad->error && bad->results.empty());
 +    auto overflow = worker.Submit({Fixture()}, InputBytes(Fixture()) + 1); Wait(overflow); assert(overflow->error);

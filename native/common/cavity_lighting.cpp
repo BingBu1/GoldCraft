@@ -11,6 +11,30 @@
 #include <unordered_map>
 
 namespace goldcraft::lighting {
+class SampleCache {
+  public:
+    struct Entry {
+        std::array<std::uint32_t,6> key;
+        surface::Range values;
+        std::uint32_t rays{}, occluded{};
+    };
+    std::uint32_t first_face{}, face_count{};
+    double radius{};
+    std::size_t neighbours{};
+    std::int32_t root{};
+    std::vector<carving::Plane> planes;
+    std::vector<carving::HullNode> nodes;
+    std::vector<carving::Box> cuts;
+    std::vector<Probe> probes;
+    std::vector<Value> probe_values, values;
+    std::vector<Entry> entries;
+};
+std::uint64_t cache_bytes(const SampleCache& cache) noexcept {
+    return sizeof(cache) + cache.planes.capacity()*sizeof(carving::Plane) +
+        cache.nodes.capacity()*sizeof(carving::HullNode) + cache.cuts.capacity()*sizeof(carving::Box) +
+        cache.probes.capacity()*sizeof(Probe) + (cache.probe_values.capacity()+cache.values.capacity())*sizeof(Value) +
+        cache.entries.capacity()*sizeof(SampleCache::Entry);
+}
 namespace {
 using carving::Point;
 Point sub(const Point &a, const Point &b) { return {a[0]-b[0], a[1]-b[1], a[2]-b[2]}; }
@@ -344,6 +368,106 @@ Key key(const surface::Vertex &v, const surface::Frame &frame) {
     }
     return result;
 }
+bool box_less(const carving::Box& a, const carving::Box& b) {
+    return a.min != b.min ? a.min < b.min : a.max < b.max;
+}
+struct Reuse {
+    const SampleCache* previous{};
+    std::vector<carving::Box> changed;
+};
+// Compare complete numeric inputs, not a hash or a model pointer that a new
+// map can recycle. New probes must preserve the relative order of all old
+// probes: nearest-distance ties and coefficient summation then remain exact.
+Reuse reuse(const Model& model, const Settings& settings, std::size_t& work,
+            const std::atomic_bool* cancelled) {
+    const auto* old = settings.cache_bytes ? model.previous.get() : nullptr;
+    if (!old || old->entries.empty() || old->first_face != model.first_face || old->face_count != model.face_count ||
+        old->radius != settings.radius || old->neighbours != settings.neighbours || old->root != model.hull.root ||
+        old->planes.size() != model.hull.planes.size() || old->nodes.size() != model.hull.nodes.size() ||
+        old->cuts.size() > model.cuts.size() || old->probes.size() > model.probes.size()) return {};
+    const auto charge = [&](std::size_t n) {
+        if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("Cavity lighting cancelled");
+        consume(work,settings.mesh.operations,n);
+    };
+    charge(old->planes.size()+old->nodes.size());
+    if (!std::equal(old->planes.begin(),old->planes.end(),model.hull.planes.begin(),
+            [](const auto& a,const auto& b){return a.normal==b.normal && a.distance==b.distance;}) ||
+        !std::equal(old->nodes.begin(),old->nodes.end(),model.hull.nodes.begin(),
+            [](const auto& a,const auto& b){return a.plane==b.plane && a.children==b.children;})) return {};
+    std::vector<carving::Box> sorted(model.cuts.begin(),model.cuts.end());
+    charge(sorted.size()*std::max<std::size_t>(1,std::bit_width(sorted.size())));
+    std::sort(sorted.begin(),sorted.end(),box_less);
+    Reuse result{old,{}};
+    std::size_t at=0;
+    for (const auto& cut:sorted) {
+        charge(1);
+        if (at<old->cuts.size() && cut.min==old->cuts[at].min && cut.max==old->cuts[at].max) ++at;
+        else result.changed.push_back(cut);
+    }
+    if (at!=old->cuts.size()) return {}; // Removed/replaced cuts require a full calculation.
+    at=0;
+    for (const auto& probe:model.probes) {
+        charge(1+probe.values.count);
+        bool same=false;
+        if (at<old->probes.size()) {
+            const auto& before=old->probes[at];
+            same=probe.position==before.position && probe.values.count==before.values.count &&
+                std::equal(old->probe_values.begin()+before.values.first,
+                    old->probe_values.begin()+before.values.first+before.values.count,
+                    model.values.begin()+probe.values.first);
+        }
+        if (same) ++at;
+        else result.changed.push_back({probe.position,probe.position});
+    }
+    if (at!=old->probes.size()) return {}; // Changed values, removal or reordered ties.
+    // Every lighting ray and every eligible probe is within radius of its
+    // sample. Invalidate a conservative cube around additions, including
+    // touching boundaries and rounding uncertainty. Far samples are unchanged.
+    for (auto& bounds:result.changed) for (int axis=0;axis<3;++axis) {
+        bounds.min[axis]-=settings.radius+.000001;
+        bounds.max[axis]+=settings.radius+.000001;
+    }
+    return result;
+}
+std::shared_ptr<const SampleCache> retain(const Model& model, const Settings& settings,
+    const std::vector<SampleCache::Entry>& samples, Prepared& result,
+    const std::atomic_bool* cancelled) {
+    if (!settings.cache_bytes || samples.empty()) return {};
+    const std::uint64_t inputs=sizeof(SampleCache)+model.hull.planes.size()*sizeof(carving::Plane)+
+        model.hull.nodes.size()*sizeof(carving::HullNode)+model.cuts.size()*sizeof(carving::Box)+
+        model.probes.size()*sizeof(Probe)+model.values.size()*sizeof(Value);
+    if (inputs>=settings.cache_bytes) return {};
+    std::size_t count=0, values=0;
+    for (const auto& sample:samples) {
+        if (inputs+(count+1)*sizeof(SampleCache::Entry)+(values+sample.values.count)*sizeof(Value)>settings.cache_bytes) break;
+        ++count; values+=sample.values.count;
+    }
+    if (!count) return {};
+    consume(result.operations,settings.mesh.operations,model.hull.planes.size()+model.hull.nodes.size()+
+        model.probes.size()+model.values.size()+model.cuts.size()*std::max<std::size_t>(1,std::bit_width(model.cuts.size()))+
+        count*std::max<std::size_t>(1,std::bit_width(count))+values);
+    auto cache=std::make_shared<SampleCache>();
+    cache->first_face=model.first_face;cache->face_count=model.face_count;
+    cache->radius=settings.radius;cache->neighbours=settings.neighbours;cache->root=model.hull.root;
+    cache->planes.assign(model.hull.planes.begin(),model.hull.planes.end());
+    cache->nodes.assign(model.hull.nodes.begin(),model.hull.nodes.end());
+    cache->cuts.assign(model.cuts.begin(),model.cuts.end());
+    std::sort(cache->cuts.begin(),cache->cuts.end(),box_less);
+    cache->probes.assign(model.probes.begin(),model.probes.end());
+    cache->probe_values.assign(model.values.begin(),model.values.end());
+    cache->entries.reserve(count);cache->values.reserve(values);
+    for (std::size_t i=0;i<count;++i) {
+        if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("Cavity lighting cancelled");
+        auto entry=samples[i];
+        entry.values.first=static_cast<std::uint32_t>(cache->values.size());
+        cache->values.insert(cache->values.end(),result.values.begin()+samples[i].values.first,
+            result.values.begin()+samples[i].values.first+entry.values.count);
+        cache->entries.push_back(entry);
+    }
+    std::sort(cache->entries.begin(),cache->entries.end(),[](const auto& a,const auto& b){return a.key<b.key;});
+    if (cache_bytes(*cache)>settings.cache_bytes) return {}; // Account actual retained capacities.
+    return cache;
+}
 } // namespace
 
 bool visible(carving::HullView hull, std::span<const carving::Box> cuts, Point start, Point end,
@@ -378,6 +502,9 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
         }
         Field field(model, settings, result.operations, cancelled);
         std::unordered_map<Key, surface::Range, Hash> cache;
+        const auto prior=reuse(model,settings,result.operations,cancelled);
+        const carving::CutIndex changed(prior.changed,[&](auto n){consume(result.operations,settings.mesh.operations,n);});
+        std::vector<SampleCache::Entry> samples;
         for (std::size_t d = 0; d < result.draws.size(); ++d) {
             auto &draw = result.draws[d];
             if (draw.first_face != model.first_face || draw.face_count != model.face_count) continue;
@@ -432,7 +559,36 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
                     }
                     const auto sample_key = key(vertex, frame);
                     auto it = cache.find(sample_key);
-                    if (it == cache.end()) it = cache.emplace(sample_key, field.sample(point(vertex.pos), point(frame.normal), result)).first;
+                    if (it == cache.end()) {
+                        if (cancelled && cancelled->load(std::memory_order_relaxed)) throw std::runtime_error("Cavity lighting cancelled");
+                        const auto rays=result.rays,occluded=result.occluded;
+                        const auto p=point(vertex.pos);
+                        const SampleCache::Entry* previous=nullptr;
+                        if (prior.previous && !changed.any([&](const auto& bounds) {
+                                for(int a=0;a<3;++a) if(p[a]<bounds.min[a] || p[a]>bounds.max[a])return false;
+                                return true;
+                            },[&](auto n){consume(result.operations,settings.mesh.operations,n);})) {
+                            const auto& entries=prior.previous->entries;
+                            consume(result.operations,settings.mesh.operations,std::bit_width(entries.size()));
+                            const auto found=std::lower_bound(entries.begin(),entries.end(),sample_key,
+                                [](const auto& entry,const auto& k){return entry.key<k;});
+                            if(found!=entries.end() && found->key==sample_key)previous=&*found;
+                        }
+                        surface::Range range;
+                        if (previous) {
+                            range={static_cast<std::uint32_t>(result.values.size()),previous->values.count};
+                            if(range.count>settings.values-result.values.size())throw std::length_error("Cavity light buffer capacity");
+                            const auto& values=prior.previous->values;
+                            result.values.insert(result.values.end(),values.begin()+previous->values.first,
+                                values.begin()+previous->values.first+range.count);
+                            ++result.samples; ++result.reused_samples;
+                            result.rays+=previous->rays;result.occluded+=previous->occluded;
+                        } else range=field.sample(p,point(frame.normal),result);
+                        it=cache.emplace(sample_key,range).first;
+                        // Bounded transient records; skipped entries simply calculate again next revision.
+                        if (settings.cache_bytes && samples.size()<settings.cache_bytes/sizeof(SampleCache::Entry))
+                            samples.push_back({sample_key,range,static_cast<std::uint32_t>(result.rays-rays),static_cast<std::uint32_t>(result.occluded-occluded)});
+                    }
                     mesh->vertices.push_back(vertex); mesh->frames.push_back(frame); result.vertices.push_back(it->second);
                     for (int axis = 0; axis < 3; ++axis) {
                         draw.bounds.min[axis] = std::min(draw.bounds.min[axis], double(vertex.pos[axis]));
@@ -456,6 +612,8 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
             draw.indices.count = static_cast<std::uint32_t>(mesh->indices.size())-draw.indices.first;
             draw.needs_lighting = false;
         }
+        if (auto retained=retain(model,settings,samples,result,cancelled))
+            result.caches.push_back({model.first_face,model.face_count,std::move(retained)});
     }
     if (std::find(handled.begin(), handled.end(), false) != handled.end()) throw std::invalid_argument("Missing cavity lighting model");
     result.mesh = std::move(mesh);

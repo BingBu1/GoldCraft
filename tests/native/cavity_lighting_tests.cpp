@@ -34,8 +34,57 @@ std::vector<lighting::Value> at_origin(const lighting::Prepared &baked) {
     }
     assert(false); return {};
 }
+void cached_revisions() {
+    const auto source=geometry();
+    const std::array<carving::Plane,2> planes{{{{1,0,0},16},{{1,0,0},17}}};
+    const std::array<carving::HullNode,2> nodes{{{0,{1,-1}},{1,{-1,-2}}}};
+    const std::array values{lighting::Value{{.8f,.4f,.2f},0},lighting::Value{{.1f,.2f,.3f},200}};
+    std::vector<lighting::Probe> probes{{{32,8,8},{0,2}}};
+    std::vector<carving::Box> cuts{{{1024,1024,1024},{1056,1056,1056}}};
+    lighting::Settings settings;settings.cache_bytes=1024*1024;
+    lighting::Model model{0,1,{planes,nodes,0},cuts,probes,values};
+    auto before=lighting::prepare(source,{&model,1},settings);
+    assert(before.caches.size()==1 && before.values.empty() && before.occluded);
+    const auto compare=[&](bool reusable) {
+        model.previous=before.caches[0].samples;
+        const auto actual=lighting::prepare(source,{&model,1},settings);
+        auto coldSettings=settings;coldSettings.cache_bytes=0;
+        const auto expected=lighting::prepare(source,{&model,1},coldSettings);
+        assert(*actual.mesh==*expected.mesh && actual.vertices==expected.vertices && actual.values==expected.values);
+        assert(actual.samples==expected.samples && actual.rays==expected.rays && actual.occluded==expected.occluded);
+        assert((actual.reused_samples>0)==reusable);
+        assert(actual.caches.size()==1 && lighting::cache_bytes(*actual.caches[0].samples)<=settings.cache_bytes);
+        return actual;
+    };
+    auto same=compare(true);assert(same.reused_samples==same.samples);
+    cuts.insert(cuts.begin(),carving::Box{{-2048,-2048,-2048},{-2016,-2016,-2016}});model.cuts=cuts;
+    before=compare(true); // Added cut sorts before the original; no prefix assumption.
+    cuts.push_back({{15,-1,-1},{18,17,17}});model.cuts=cuts;
+    before=compare(false);assert(!before.values.empty()); // Nearby opening changes black coefficients.
+    probes.insert(probes.begin(),lighting::Probe{{8192,8192,8192},{0,2}});model.probes=probes;
+    before=compare(true); // Far probe insertion shifts indices, preserves nearest/tie order.
+    probes.insert(probes.begin(),lighting::Probe{{24,4,4},{1,1}});model.probes=probes;
+    before=compare(false); // New nearby probe changes styles/weights.
+    std::swap(probes[0],probes[2]);model.probes=probes;
+    before=compare(false); // Reordered probes cannot reuse distance-tie decisions.
+    cuts.pop_back();model.cuts=cuts;
+    before=compare(false);assert(before.values.empty()); // Restore solid geometry.
+    auto changedValues=values;changedValues[0].rgb[0]=.3f;model.values=changedValues;
+    before=compare(false);
+    auto changedPlanes=planes;changedPlanes[0].distance=15;model.hull.planes=changedPlanes;
+    before=compare(false);
+    settings.radius=64;before=compare(false);
+    settings.neighbours=1;before=compare(false);
+    model.previous=before.caches[0].samples;
+    settings.cache_bytes=1;
+    const auto bounded=lighting::prepare(source,{&model,1},settings);
+    assert(bounded.caches.empty());
+    const std::atomic_bool cancelled{true};
+    rejected([&]{lighting::prepare(source,{&model,1},settings,&cancelled);});
+}
 } // namespace
 int main() {
+    cached_revisions();
     const auto source = geometry();
     const auto original = *source.mesh;
     const std::array values{lighting::Value{{.8f,.4f,.2f},0},lighting::Value{{.1f,.2f,.3f},200}};
