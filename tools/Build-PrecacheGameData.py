@@ -18,6 +18,11 @@ def main():
     if not engine.is_relative_to(ROOT) or not output.is_relative_to(ROOT):
         raise ValueError("Engine input and catalog output must be inside the workspace")
     config = json.loads((ROOT / "native/client/precache_10210.json").read_text(encoding="utf-8"))
+    userinfo = json.loads((ROOT / "native/client/userinfo_10210.json").read_text(encoding="utf-8"))
+    if (userinfo["sha256"], userinfo["crc64"]) != (config["sha256"], config["crc64"]):
+        raise ValueError("Userinfo catalog engine identity mismatch")
+    config["records"].extend(userinfo["records"])
+    config["verification"].extend(userinfo["verification"])
     identity = runpy.run_path(str(ROOT / "tools/Inspect-EngineIdentity.py"))["inspect"](engine)
     if (identity["sha256"] != config["sha256"] or
             identity["crc64xz"].lower() != config["crc64"]):

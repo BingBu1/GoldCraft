@@ -41,6 +41,7 @@ static_assert(sizeof(Sound) == 72 && sizeof(Consistency) == 44);
 metahook_api_t* api = nullptr;
 void* engine = nullptr;
 bool enabled = false, extended = false, receiving = false;
+void (*reset_observer)() = nullptr;
 bool legacy_manifest_received = false;
 bool client_media_enabled = false;
 unsigned brass_reads = 0, high_brass_reads = 0, last_brass_model = 0;
@@ -511,6 +512,7 @@ void __cdecl parse_static_entity() {
 }
 
 void reset_client() {
+    if (reset_observer) reset_observer();
     set_extension(false);
     resources.clear(); checks.clear();
     static_entities.clear();
@@ -675,6 +677,8 @@ void jump_patch(const char* name, void* target, unsigned size, void*& resume) {
     prepare_patch(address, code.data(), unsigned(code.size()));
 }
 }
+
+void set_reset_observer(void (*callback)()) { reset_observer = callback; }
 
 bool install(metahook_api_t* value) {
     if (enabled) return true;

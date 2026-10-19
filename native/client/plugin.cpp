@@ -11,6 +11,7 @@
 #include "precache_client.hpp"
 #include "visible_entities.hpp"
 #include "packet_entities.hpp"
+#include "userinfo_client.hpp"
 #include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
 #include "status_motion.hpp"
@@ -705,6 +706,7 @@ void WriteDiagnostics() {
         client_precache::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
+        client_userinfo::diagnostics(out); out<<',';
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
@@ -1036,6 +1038,7 @@ void InitHud() {
     const char* input_audit_setting=std::getenv("GOLDCRAFT_INPUT_AUDIT");
     input_audit::install(api,input_audit_setting&&std::strcmp(input_audit_setting,"1")==0);
     client_precache::register_commands();
+    client_userinfo::initialize();
     gEngfuncs.pfnRegisterVariable(packet_entities::capability,
         packet_client::enabled() ? packet_entities::capability_value : "0", FCVAR_USERINFO);
     gEngfuncs.Cvar_SetValue(packet_entities::capability,
@@ -1701,6 +1704,7 @@ void Frame(double time) {
     WorkScope frame_timing(WorkStage::frame);
     const double began=Seconds();
     steam_async::frame();
+    client_userinfo::frame();
     control_trace.observe(SampleControl());
     {WorkScope timing(WorkStage::native_hud);gExportfuncs.HUD_Frame(time);}
     {WorkScope timing(WorkStage::audit_commands);input_audit::sample();TestCommands();}
@@ -2202,10 +2206,13 @@ void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
 }
 void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
     gEngfuncs=*engine;
+    Log(client_userinfo::install(api) ? "1024-byte userinfo storage installed" :
+        std::string("userinfo expansion unavailable: ") + client_userinfo::error());
     Log(packet_client::install(api) ? "1024 packet entities and bounded snapshot transport installed" :
         std::string("packet entity expansion unavailable: ") + packet_client::install_error());
     Log(visible_entities::install(api) ? "visible entity capacity 4096 installed" :
         std::string("visible entity expansion unavailable: ") + visible_entities::install_error());
+    client_precache::set_reset_observer(client_userinfo::reset);
     Log(client_precache::install(api) ? "dynamic precache installed" :
         std::string("dynamic precache unavailable: ") + client_precache::install_error());
     try {
@@ -2236,6 +2243,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
 void IPluginsV4::ExitGame(int) { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("ExitGame"); }
-void IPluginsV4::Shutdown() { goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
+void IPluginsV4::Shutdown() { client_userinfo::shutdown(); goldcraft::steam_async::shutdown(); client_motion::shutdown(); client_map::shutdown_preparation(); client_map::shutdown_events();input_audit::shutdown();host_text::shutdown();host_ui::shutdown();discovery.stop();link.stop(); ResetWorld(); StopPostScene(); render::shutdown(); Log("Shutdown"); diagnostic_io.stop(); }
 const char* IPluginsV4::GetVersion() { static const auto version="GoldCraft dev protocol "+std::to_string(goldcraft::protocol_version);return version.c_str(); }
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

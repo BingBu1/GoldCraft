@@ -1,0 +1,327 @@
+{
+  "sha256": "9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295",
+  "crc64": "6ef7192cd8254e2d",
+  "records": [
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_set",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1d5260",
+        "func_size": "0x459"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_get",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1d56c0",
+        "func_size": "0xed"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_remove",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1d4f70",
+        "func_size": "0x127"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_0",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x196540"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_1",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x19655a"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_2",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1965aa"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_3",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a1ba0"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_4",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a1c28"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_5",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a30da"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_6",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a30f3"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_7",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a310c"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_8",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a3125"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_9",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a3141"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_10",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a315a"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_11",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a3173"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_12",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1bdd8f"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_13",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1cd15a"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_14",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1cf48a"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_15",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1cf4d4"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_16",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1d3f1c"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_17",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1d3f23"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_ref_18",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1d3f28"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_copy",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a8fff"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftUserInfo_roster",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a8ff2"
+      }
+    }
+  ],
+  "verification": [
+    {
+      "rva": "0x196540",
+      "bytes": "68 b4 e3 40 11 e8 76 f1 03 00 83 c4"
+    },
+    {
+      "rva": "0x19655a",
+      "bytes": "68 b4 e3 40 11 e8 5c f1 03 00 83 c4"
+    },
+    {
+      "rva": "0x1965aa",
+      "bytes": "68 b4 e3 40 11 e8 ac ec 03 00 a1 e0"
+    },
+    {
+      "rva": "0x1a1ba0",
+      "bytes": "68 b4 e3 40 11 e8 16 3b 03 00 8b f0"
+    },
+    {
+      "rva": "0x1a1c28",
+      "bytes": "68 b4 e3 40 11 e8 2e 36 03 00 83 c4"
+    },
+    {
+      "rva": "0x1a30da",
+      "bytes": "68 b4 e3 40 11 e8 4c 21 03 00 68 00"
+    },
+    {
+      "rva": "0x1a30f3",
+      "bytes": "68 b4 e3 40 11 e8 33 21 03 00 68 00"
+    },
+    {
+      "rva": "0x1a310c",
+      "bytes": "68 b4 e3 40 11 e8 1a 21 03 00 68 00"
+    },
+    {
+      "rva": "0x1a3125",
+      "bytes": "68 b4 e3 40 11 e8 01 21 03 00 83 c4"
+    },
+    {
+      "rva": "0x1a3141",
+      "bytes": "68 b4 e3 40 11 e8 e5 20 03 00 68 00"
+    },
+    {
+      "rva": "0x1a315a",
+      "bytes": "68 b4 e3 40 11 e8 cc 20 03 00 68 00"
+    },
+    {
+      "rva": "0x1a3173",
+      "bytes": "68 b4 e3 40 11 e8 b3 20 03 00 e8 ce"
+    },
+    {
+      "rva": "0x1a54a3",
+      "bytes": "68 b4 e3 40 11 50 ff 35 3c da 40 11"
+    },
+    {
+      "rva": "0x1bdd8f",
+      "bytes": "68 b4 e3 40 11 e8 97 74 01 00 83 c4"
+    },
+    {
+      "rva": "0x1cd15a",
+      "bytes": "68 b4 e3 40 11 e8 cc 80 00 00 83 c4"
+    },
+    {
+      "rva": "0x1cf48a",
+      "bytes": "68 b4 e3 40 11 e8 bc 59 00 00 83 c4"
+    },
+    {
+      "rva": "0x1cf4d4",
+      "bytes": "68 b4 e3 40 11 e8 52 5d 00 00 83 c4"
+    },
+    {
+      "rva": "0x1d3f1c",
+      "bytes": "80 3d b4 e3 40 11 5c be b4 e3 40 11"
+    },
+    {
+      "rva": "0x1d3f23",
+      "bytes": "be b4 e3 40 11 b8 b5 e3 40 11 89 0d"
+    },
+    {
+      "rva": "0x1d3f28",
+      "bytes": "b8 b5 e3 40 11 89 0d e0 94 4b 10 0f"
+    },
+    {
+      "rva": "0x1a8fff",
+      "bytes": "e8 0c 23 01 00 8d 87 80 da 3f 11 c6"
+    },
+    {
+      "rva": "0x1a8ff2",
+      "bytes": "8d b7 4c d8 3f 11 e8 b3 0e 01 00 50"
+    },
+    {
+      "rva": "0x1d5260",
+      "bytes": "55 8b ec 81 ec 10 05 00 00 a1 34 47"
+    },
+    {
+      "rva": "0x1d56c0",
+      "bytes": "55 8b ec 81 ec 84 00 00 00 a1 34 47"
+    },
+    {
+      "rva": "0x1d4f70",
+      "bytes": "55 8b ec 81 ec 88 00 00 00 a1 34 47"
+    }
+  ]
+}

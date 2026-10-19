@@ -456,7 +456,8 @@
     "tools/Exercise-NativeImpulseServers.py",
     "docs/NATIVE_WATER.md",
     "tools/Test-NativeWater.py",
-    "tools/Exercise-NativeWaterServers.py"
+    "tools/Exercise-NativeWaterServers.py",
+    "docs/USERINFO.md"
   ],
   "trees": {
     "native": [
