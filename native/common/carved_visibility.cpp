@@ -261,11 +261,16 @@ Prepared::Prepared(std::shared_ptr<const Source> source, std::span<const Box> cu
         const auto order = compare_box(cuts_[a], cuts_[b]);
         return order ? order < 0 : a < b;
     });
+    // Leave the original admission limits intact: no spare words means the
+    // original leaf scan. At most 1024 words (8 KiB) for the source leaf limit.
+    const auto spare_words = limits.words - source_->pvs.size() - components_.size() * words_;
+    if (words_ <= spare_words) contact_leaves_.resize(words_);
     for (std::size_t leaf = 1; leaf < source_->contents.size(); ++leaf) {
         auto &adjacent = leaf_components_[leaf];
         consume(operations_, limits.operations, adjacent.size() * std::max<std::size_t>(1, std::bit_width(adjacent.size())));
         std::sort(adjacent.begin(), adjacent.end());
         adjacent.erase(std::unique(adjacent.begin(), adjacent.end()), adjacent.end());
+        if (!contact_leaves_.empty() && !adjacent.empty()) set(contact_leaves_, leaf - 1);
         for (auto component : adjacent) {
             consume(operations_, limits.operations, words_);
             auto &pvs = components_[component].pvs;
@@ -288,7 +293,8 @@ std::uint64_t Prepared::retained_bytes() const noexcept {
              std::uint64_t(order_.capacity()) * sizeof(std::uint32_t) +
              std::uint64_t(cut_components_.capacity()) * sizeof(std::uint32_t) +
              std::uint64_t(components_.capacity()) * sizeof(Component) +
-             std::uint64_t(leaf_components_.capacity()) * sizeof(leaf_components_[0]);
+             std::uint64_t(leaf_components_.capacity()) * sizeof(leaf_components_[0]) +
+             std::uint64_t(contact_leaves_.capacity()) * sizeof(std::uint64_t);
     for (const auto& component : components_) bytes += std::uint64_t(component.pvs.capacity()) * sizeof(std::uint64_t);
     for (const auto& adjacent : leaf_components_) bytes += std::uint64_t(adjacent.capacity()) * sizeof(std::uint32_t);
     bytes += std::uint64_t(contacts_.capacity()) * sizeof(contacts_[0]) +
@@ -324,6 +330,13 @@ View Prepared::view(std::uint32_t key) const {
         if (!test(result.components, component)) { set(result.components, component); pending.push_back(component); }
     };
     const auto visit_bits = [&](std::size_t word, std::uint64_t bits) {
+        if (!contact_leaves_.empty()) {
+            // Both the initial row and component rows are already trimmed.
+            // Charge the original one operation per empty adjacency without
+            // fetching its vector. Remaining leaves retain their visit order.
+            consume(result.operations, limits_.operations, std::popcount(bits & ~contact_leaves_[word]));
+            bits &= contact_leaves_[word];
+        }
         while (bits) {
             const auto bit = std::countr_zero(bits);
             bits &= bits - 1;

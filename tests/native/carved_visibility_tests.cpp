@@ -1,5 +1,6 @@
 #include "goldcraft/carved_visibility.hpp"
 #include "goldcraft/entity_visibility.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -387,6 +388,45 @@ void SameTopology(const visibility::Prepared& a, const visibility::Prepared& b,
         assert(a.key(0, p) == b.key(0, p));
     }
 }
+void SparseContactLeaves() {
+    const auto check = [](const std::shared_ptr<const visibility::Source>& source,
+                          const std::vector<carving::Box>& cuts) {
+        const visibility::Prepared indexed(source, cuts);
+        const auto words = (source->contents.size() - 1 + 63) / 64;
+        auto limits = visibility::Limits{};
+        limits.words = std::max<std::size_t>(1, source->pvs.size() + indexed.component_count() * words);
+        const visibility::Prepared fallback(source, cuts, limits);
+        assert(indexed.contact_leaf_words() == words && fallback.contact_leaf_words() == 0);
+        SameTopology(indexed, fallback, cuts);
+        assert(indexed.retained_bytes() >= fallback.retained_bytes() + words * sizeof(std::uint64_t));
+        limits.words += words;
+        const visibility::Prepared exact(source, cuts, limits);
+        assert(exact.contact_leaf_words() == words);
+        SameTopology(exact, fallback, cuts);
+        if (words) {
+            --limits.words;
+            const visibility::Prepared one_short(source, cuts, limits);
+            assert(one_short.contact_leaf_words() == 0);
+            SameTopology(one_short, fallback, cuts);
+        }
+        const visibility::Prepared cleared(source, {}, {}, &indexed);
+        SameTopology(cleared, visibility::Prepared(source, {}), {});
+    };
+    check(Rooms(), {Hole(0, 2), Hole(10, 12), Hole(20.5, 21.5)});
+    check(Rooms(), {}); // No incident leaves; all visible leaves still charged.
+    auto boundary = std::make_shared<visibility::Source>();
+    boundary->contents.resize(66, -1); boundary->contents[0] = -2;
+    boundary->planes = {{{1,0,0},0}, {{1,0,0},2}};
+    boundary->nodes = {{0,{1,-2}}, {1,{-66,-1}}};
+    // Only leaves 1 and 65 touch the cut. Include invalid padding bits in the
+    // input PVS: trimming must prevent those from affecting output or charges.
+    boundary->pvs.resize(130, ~std::uint64_t{});
+    check(boundary, {Hole(0, 2)});
+    check(boundary, {Hole(.5, 1.5)}); // Sealed cut: all original leaves have no contacts.
+    auto solid = std::make_shared<visibility::Source>();
+    solid->contents = {-2}; solid->root = -1;
+    check(solid, {Hole(0, 2), Hole(10, 12)});
+}
 void ReusedSourceValidation() {
     const auto source = Rooms();
     const std::vector cuts{Hole(0, 2), Hole(10, 12)};
@@ -527,4 +567,4 @@ void ReusedCutContacts() {
                 assert(new_rows.reaches(from, to, sound) == fresh_rows.reaches(from, to, sound));
 }
 } // namespace
-int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedAudibleRows(); ReusedEntityPreparation(); ReusedSourceValidation(); ReusedCutContacts(); }
+int main() { Topology(); ObliqueAndFailures(); SpatialLookup(); EntityInterest(); DeliveryInterest(); ReusedAudibleRows(); ReusedEntityPreparation(); SparseContactLeaves(); ReusedSourceValidation(); ReusedCutContacts(); }

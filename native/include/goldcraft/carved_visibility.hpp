@@ -45,6 +45,7 @@ public:
     bool reused_validation() const noexcept { return reused_validation_; }
     std::size_t reused_contacts() const noexcept { return reused_contacts_; }
     std::size_t contact_cache_bytes() const noexcept { return contact_cache_bytes_; }
+    std::size_t contact_leaf_words() const noexcept { return contact_leaves_.size(); }
     // Capacity-based retained ownership including Source and shared contacts;
     // shared owners are conservatively charged separately. Not a peak-RSS bound.
     std::uint64_t retained_bytes() const noexcept;
@@ -71,6 +72,9 @@ private:
     std::vector<std::uint32_t> order_, cut_components_;
     std::vector<Component> components_;
     std::vector<std::vector<std::uint32_t>> leaf_components_;
+    // Optional accelerator within the remaining PVS word budget. Only leaves
+    // incident to a cut component need adjacency traversal during a view.
+    Bits contact_leaves_;
     // Optional classification cache, never an old Prepared/row-table chain.
     // Entries retain duplicate leaf visits and their original operation charge.
     std::vector<std::shared_ptr<const Contacts>> contacts_;
