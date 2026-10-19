@@ -9,7 +9,7 @@
 日常测试：72 街仓库 `cs_assault`，单 B 客户端、32 槽专服、真人加入后 24 Bot。Bot 自主投雷不作为验收条件。
 
 - [ ] 集中实测四项 `zp50_zombie_*` 规则：2000护甲/头盔、模式许可下三秒复活及本人进度条、去掉额外爆头击退、无火花喷血/每只1000实际扣血碎肉。旧名全局禁用迁移通过；当前模式否决与出生补救入口已修，最终68项真实专服检查通过；13个AMXX文件已本地暂存，待换图加载与真人画面验收。[规则](amxx/zombie_plague/integration/ZOMBIE_ARMOR.md)
-- [ ] 联合更新感染☣与CS禁饱食度回血：SPR/客户端已构建，精灵路由与真实Initialize 3项通过；Core真实NeoForge 56项证明CS不食物回血、MC恢复自然回血。DLL/JAR未部署，统一重启与双形态真人待验。[营养规则](docs/NATIVE_NUTRITION.md)
+- [ ] 联合更新感染☣与CS禁饱食度回血：SPR/客户端已构建，精灵路由与真实Initialize 3项通过；Core真实NeoForge 56项证明CS不食物回血、MC恢复自然回血。DLL/JAR未部署；2DLL＋4Core部署计划已核验，等待当前游玩统一重启时机答复，双形态真人待验。[营养规则](docs/NATIVE_NUTRITION.md)
 
 ## 优先修复与完善
 
