@@ -4758,7 +4758,7 @@ diff --git a/effects/zp50_effects_infect.sma b/effects/zp50_effects_infect.sma
  #include <hlsdk_const>
  #include <amx_settings_api>
  #include <zp50_core>
-@@ -64,22 +65,22 @@
+@@ -64,26 +65,29 @@
  	g_MsgScreenShake = get_user_msgid("ScreenShake")
  	g_MsgDamage = get_user_msgid("Damage")
  	
@@ -4797,6 +4797,13 @@ diff --git a/effects/zp50_effects_infect.sma b/effects/zp50_effects_infect.sma
  }
  
  public plugin_precache()
+ {
++	// HUD-only sprite: include it in downloads without spending a model slot.
++	precache_generic("sprites/zp_infection.spr")
++	
+ 	// Initialize arrays
+ 	g_sound_infect = ArrayCreate(SOUND_MAX_LENGTH, 1)
+ 	
 diff --git a/effects/zp50_effects_lighting.sma b/effects/zp50_effects_lighting.sma
 --- a/effects/zp50_effects_lighting.sma
 +++ b/effects/zp50_effects_lighting.sma

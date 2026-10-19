@@ -38,7 +38,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
         if name.startswith('server/runtime/'):
             relative=client.relative_name(row['runtimeRelative'])
             if relative!='cstrike/'+name.removeprefix('server/runtime/') or not re.fullmatch(
-                r'cstrike/(?:addons/amxmodx/(?:plugins/[\w-]+\.amxx|data/lang/[\w-]+\.txt|configs/plugins-[\w-]+\.ini)|models/[\w/-]+\.mdl)',relative):
+                r'cstrike/(?:addons/amxmodx/(?:plugins/[\w-]+\.amxx|data/lang/[\w-]+\.txt|configs/plugins-[\w-]+\.ini)|models/[\w/-]+\.mdl|sprites/zp_[\w-]+\.spr)',relative):
                 raise ValueError('Unsupported server runtime resource '+relative)
             runtime_resources[name]=relative
     core=sources['goldcraft-neoforge-0.1.0-dev.jar']
@@ -138,12 +138,16 @@ def build(candidate,output,revision,release='20261019',server_only=False):
 不必重新配置公网端口。原 package-manifest.json 保留原包基线，本次文件以 update-manifest.json 和安装备份记录为准。
 玩家 CS 使用本次配套的完整图形安装包，Minecraft 整合包由服主提供。
 client-update/mods 中是供整合包使用的同版 GoldCraft Core；服务端更新不能自动替换玩家文件。
-若自行覆盖 payload/server，所有独立 plugins-goldcraft 清单和 plugins-floating_damage.ini 也须复制；保留自己的 plugins.ini 并避免重复启用。
+若自行覆盖 payload/server，所有独立插件清单、翻译和 sprites 资源也须复制；保留自己的 plugins.ini 并避免重复启用。
 '''
             if all(p in required_plugins for p in ('zp50_zombie_armor.amxx','zp50_zombie_respawn.amxx')):
-                instructions+='\n本批额外包含独立 AMXX 护甲/复活插件：感染获得 2000 护甲和头盔；人类和僵尸死亡默认 3 秒后以僵尸复活并显示进度条。回合结束取消等待。\n'
+                instructions+='\n本批额外包含独立 AMXX 护甲/复活插件：感染获得 2000 护甲和头盔；当前模式允许复活时，人类和僵尸死亡默认 3 秒后以僵尸复活并显示进度条。模式禁止复活或回合结束会取消等待。\n'
             if 'zp50_zombie_knockback.amxx' in required_plugins:
                 instructions+='另含取消活僵尸爆头额外击退的 AMXX 插件，保留普通击退和爆头伤害。\n'
+            if 'zp50_zombie_gore.amxx' in required_plugins:
+                instructions+='僵尸受击喷血、隐藏头盔火花；每只累计1000实际扣血抛出碎肉。旧 goldcraft_zombie_* 被禁用，新 zp50_zombie_* 各启用一次。\n'
+            if 'server/runtime/sprites/zp_infection.spr' in sources:
+                instructions+='感染图标位于 cs/cstrike/sprites/zp_infection.spr，配套感染效果插件在换图时预缓存，自动加入游戏下载及内置HTTP清单。玩家仍需配套新版GoldCraft.dll；外部FastDL站需同步 sprites/zp_infection.spr。\n'
         else:
             for name in ('MetaHook.exe','SDL2.dll','SDL3.dll'):add('cs',name,game/name)
             for name in client.PLUGINS:add('cs','cstrike/metahook/plugins/'+name,game/'cstrike/metahook/plugins'/name)
@@ -173,6 +177,7 @@ CS 若提示引擎/client.dll 不匹配，停止更新并把提示发给服主�
 '''
         common='''
 本次带入 1024 字节玩家资料扩容、能力握手、客户端退出崩溃和服务端向 Bot 广播时的崩溃修复。
+本批加入TNT地图消息缓存/共享快照、感染☣图标、CS禁饱食度回血及ZP模式复活限制；这些项目仍需同场真人验收。
 累计包含 TNT 追加更新、沙子/铁砧/火把支撑、托管输入与枪镜、移动误封计数、TACZ 倍率、死亡观战、回合开始清理、F6/ZP 和 Epic 技能保护。
 配套 Core 含生命上限/属性、双向受伤效果、吸收生命、视觉效果、爆炸击退及试炼/袭击适配；飘字为每名攻击者独立最多五条。
 当前文件已本地部署；实测 978 字节/130 字段传输和重连、25 角色广播及正常退出通过，用户反馈枪械/反胃正常。

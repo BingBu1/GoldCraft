@@ -180,3 +180,5 @@ python -B tools/fastdl/test_fastdl.py --work build/fastdl-regression-new
 2026-10-16 实际沙盒四资源合计 1586264 字节，压缩传输 704900 字节，减少 55.6%；校验与源文件不变通过。回环原始顺序读取约 37.97 MiB/s；包含落盘/fsync 的预取单线程约 0.432 秒、四线程约 0.406/0.403 秒。这些不同路径的测量不能作为公网加速倍数，也没有 UDP 基线。
 
 旧 Python 工具的六份小型交接/结果已保留为 `build/fastdl-work/previous-*`；原 `analysis` 细节按用户要求清空，不能依赖已删除的静态数据库或原始日志重新取证。上述 22 项工具回归、四实际资源和压缩数字属于旧独立工具证据，不验证新的内置 HTTP 服务。当前运行服和正式 CS 安装未因这项工作修改。
+
+2026-10-19 感染☣资源补齐：服务端 `cstrike/sprites/zp_infection.spr` 由 `zp50_effects_infect` 的 `plugin_precache` 调用 `precache_generic` 注册；内置HTTP按实际资源清单自动提供 `/goldcraft/sprites/zp_infection.spr`。隔离真实ReHLDS使用生产插件返回HTTP 200、1230字节与原件一致，Range返回206且首32字节一致，零Pawn错误；主游戏未被重启或换图。第三方下载站须同步该文件；DLL里的 `d_infection` 注册仍需玩家安装新版客户端。该证据不证明缺文件客户端入服后HUD重载，也不证明公网已部署。证据：`build/mapedit-delivery-20261019/infection-download-runtime.json`。

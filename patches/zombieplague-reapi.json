@@ -4,7 +4,7 @@
   "amxx": "1.9.0.5303",
   "reapi": "5.29.0.358",
   "reapiRevision": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-  "patchSha256": "0372d9516f6fee105d7c85c37dc8e85398706a36f45edb0e4960cae0a99e7477",
+  "patchSha256": "e492ee908559ec93189e7d776fa026908371a8a0403aeea963487a5e4c7e49f2",
   "files": [
     {
       "path": "admin/zp50_admin_commands.sma",
@@ -179,7 +179,7 @@
     {
       "path": "effects/zp50_effects_infect.sma",
       "seedSha256LF": "1c928f9bb2e0f14fb7dd1fcbdbbdc225f0e96f9acd601660dcccbaaf29c31cdd",
-      "resultSha256LF": "07e6e88b3ff6e11789e9528a7dd75bf27286a287dc9ae014be58f7e44e13db04"
+      "resultSha256LF": "0cd5dfbf0e1d254445b0b12056d62d2292264c0dc544ab70df619d5f0bda5159"
     },
     {
       "path": "effects/zp50_effects_lighting.sma",

@@ -47,4 +47,6 @@ Install-GoldCraft.cmd -Plan
 
 然后用 `package.py --runtime <已验证CS根目录> --official <官方解压目录> --installer-license <官方LICENSE> --gui <新构建目录/publish> --plan <本地计划.json>` 生成只读计划，增加 `--output <新输出目录>` 生成目录和 ZIP。运行内容来自指定的已验证客户端，不会自动混入未部署候选。打包前核对图形构建身份与产物；清单按 SHA-256 记录每个文件。含本机源路径的计划仅留本地，发布清单不含源路径。`upstream.json` 固定官方安装器身份，升级时须重新核对上游源和安装行为。
 
-感染☣图标候选需要配套 GoldCraft.dll 与 sprites/zp_infection.spr。开发构建可运行 `tools/Build-InfectionSprite.ps1` 生成资源，加入隔离客户端后由安装器清单一起打包；不覆盖整个 hud.txt，普通武器击杀图标和用户已有 d_infection 定义保留。仅服务端 AMXX 更新无法替换客户端图标。
+本批完整图形包包含感染☣图标的配套 GoldCraft.dll 与 sprites/zp_infection.spr。开发构建可运行 `tools/Build-InfectionSprite.ps1` 生成资源，加入隔离客户端后由安装器清单一起打包；不覆盖整个 hud.txt，普通武器击杀图标和用户已有 d_infection 定义保留。仅服务端 AMXX 更新无法替换客户端图标。
+
+服务端累计包也包含 `cs/cstrike/sprites/zp_infection.spr`，感染效果插件通过 `precache_generic` 将它加入游戏下载清单。内置HTTP自动提供该资源；外部FastDL站需同步 `sprites/zp_infection.spr`。玩家仍须新版GoldCraft.dll注册感染图标，单独下载SPR不能升级旧客户端逻辑。隔离真实专服已通过HTTP 200/206与内容hash核验；缺文件的普通客户端首次入服及画面仍待实测。
