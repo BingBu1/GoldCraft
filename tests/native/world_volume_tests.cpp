@@ -1,5 +1,6 @@
 #include "goldcraft/world_volume.hpp"
 #include "goldcraft/edited_hull.hpp"
+#include "goldcraft/collision_source.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -72,6 +73,36 @@ struct Random {
 };
 constexpr HullView solid{{}, {}, -2}, empty{{}, {}, -1}, water{{}, {}, -3};
 constexpr Box point{{0, 0, 0}, {0, 0, 0}};
+
+void collision_source_identity() {
+    CollisionSource source;
+    for (auto& hull : source.hulls) {
+        hull.planes = {Plane{{1,0,0},0}, Plane{{0,1,0},8}};
+        hull.nodes = {HullNode{0,{-1,-2}}};
+    }
+    source.cuts = {Box{{-4,-4,-4},{4,4,4}}, Box{{8,8,8},{16,16,16}}};
+    const auto unchanged = source;
+    assert(source.same(unchanged));
+    const auto changed = [&](auto mutate) {
+        auto next = source;mutate(next);
+        assert(!source.same(next) && !next.same(source));
+        assert(source.same(unchanged));
+    };
+    changed([](auto& s) { s.hulls[2].root = -1; });
+    changed([](auto& s) { s.hulls[3].nodes[0].children[1] = -3; });
+    changed([](auto& s) { s.hulls[0].nodes[0].plane = 1; });
+    changed([](auto& s) { s.hulls[1].planes[0].distance = 1; });
+    changed([](auto& s) { s.hulls[1].planes[0].normal[1] = -0.0; });
+    changed([](auto& s) { s.hulls[0].planes.pop_back(); });
+    changed([](auto& s) { s.bodies[1].min[2] = -36; });
+    changed([](auto& s) { s.bodies[2].max[0] = 32; });
+    changed([](auto& s) { std::ranges::reverse(s.cuts); });
+    changed([](auto& s) { s.cuts[0].max[0] = 3; });
+    auto reserved = source;
+    const auto before = reserved.retained_bytes();
+    reserved.hulls[0].planes.reserve(100);
+    assert(reserved.same(source) && reserved.retained_bytes() > before);
+}
 
 void same_volume(const Volume &a, const Volume &b) {
     assert(a.region.min == b.region.min && a.region.max == b.region.max);
@@ -527,6 +558,7 @@ void indexed_queries() {
 
 int main() {
     try {
+        collision_source_identity();
         paired_decomposition();
         conservation();
         std::cout << "Conservation passed\n";

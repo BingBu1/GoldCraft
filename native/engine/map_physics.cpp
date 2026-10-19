@@ -2,6 +2,7 @@
 #include "map_physics.h"
 #include "map_visibility.h"
 #include "goldcraft/edited_hull.hpp"
+#include "goldcraft/collision_source.hpp"
 #include "goldcraft/host_map_api.hpp"
 #include "goldcraft/host_map_sample_api.hpp"
 #include "goldcraft/host_delivery_api.hpp"
@@ -17,14 +18,14 @@
 namespace {
 using namespace goldcraft;
 using namespace goldcraft::carving;
-struct SourceHull {
-    std::vector<Plane> planes;
-    std::vector<HullNode> nodes;
-    int root;
-    SourceHull(model_t *model, const hull_t &hull) : root(hull.firstclipnode) {
+struct SourceHull : CollisionSource::Hull {
+    SourceHull(model_t *model, const hull_t &hull) {
+        root = hull.firstclipnode;
         if (model->numplanes < 0 || model->numplanes > 262144 || hull.lastclipnode >= 262144 ||
             !hull.planes || !hull.clipnodes)
             throw std::invalid_argument("Invalid engine BSP hull");
+        planes.reserve(model->numplanes);
+        if (hull.lastclipnode >= 0) nodes.reserve(hull.lastclipnode + 1);
         for (int i = 0; i < model->numplanes; ++i) {
             const auto &p = hull.planes[i];
             Plane plane{{}, p.dist};
@@ -41,13 +42,25 @@ struct SourceHull {
                 {static_cast<std::uint32_t>(node.planenum), {node.children[0], node.children[1]}});
         }
     }
-    HullView view() const { return {planes, nodes, root}; }
+};
+struct SourceModel : CollisionSource {
+    SourceModel(model_t* model, const std::vector<Box>& input) {
+        hulls = {SourceHull(model,model->hulls[0]),SourceHull(model,model->hulls[1]),
+                 SourceHull(model,model->hulls[2]),SourceHull(model,model->hulls[3])};
+        cuts = input;
+        for (int h = 1; h < 4; ++h)
+            for (int axis = 0; axis < 3; ++axis) {
+                bodies[h].min[axis] = model->hulls[h].clip_mins[axis];
+                bodies[h].max[axis] = model->hulls[h].clip_maxs[axis];
+            }
+    }
 };
 struct Target {
     int serial;
     model_t *model;
     std::uint32_t inline_model;
-    std::array<std::unique_ptr<EditedHull>, 4> hulls;
+    std::array<std::shared_ptr<const EditedHull>, 4> hulls;
+    std::shared_ptr<const SourceModel> source;
 };
 model_t *TargetModel(std::uint32_t slot, std::uint32_t serial, std::uint32_t inline_model) {
     if (slot >= static_cast<unsigned>(g_psv.num_edicts))
@@ -96,23 +109,32 @@ class MapPhysics final : public IHostMapPhysics, public IHostMapSample {
                 }
                 groups[static_cast<int>(cut.slot)].push_back(box);
             }
-            std::size_t total_work = 0;
+            std::size_t total_work = 0, source_bytes = 0;
             for (auto &[slot, target] : next) {
-                const SourceHull point(target.model, target.model->hulls[0]);
+                std::shared_ptr<const SourceModel> source = std::make_shared<SourceModel>(target.model,groups.at(slot));
+                const auto previous = targets.find(slot);
+                if (previous != targets.end()) {
+                    const auto& old = previous->second;
+                    // TargetModel was checked again for every current cut.
+                    // A reused pointer or matching cut list alone is insufficient.
+                    if (old.serial == target.serial && old.model == target.model &&
+                        old.inline_model == target.inline_model && old.source && source->same(*old.source)) {
+                        target.hulls = old.hulls;
+                        source = old.source;
+                    }
+                }
                 for (int i = 0; i < 4; ++i) {
-                    const auto &native = target.model->hulls[i];
-                    const SourceHull body_hull(target.model, native);
-                    Box body{};
-                    if (i)
-                        for (int axis = 0; axis < 3; ++axis) {
-                            body.min[axis] = native.clip_mins[axis];
-                            body.max[axis] = native.clip_maxs[axis];
-                        }
-                    target.hulls[i] = std::make_unique<EditedHull>(point.view(), body_hull.view(),
-                                                                   body, groups.at(slot));
+                    if (!target.hulls[i]) target.hulls[i] = std::make_shared<EditedHull>(source->hulls[0].view(),
+                        source->hulls[i].view(), source->bodies[i], source->cuts);
                     total_work += target.hulls[i]->operations();
                     if (total_work > 32'000'000)
                         throw std::length_error("Map physics transaction budget");
+                }
+                constexpr std::size_t cache_limit = 16 * 1024 * 1024;
+                const auto bytes = source->retained_bytes();
+                if (bytes <= cache_limit - source_bytes) {
+                    target.source = std::move(source);
+                    source_bytes += bytes;
                 }
             }
             auto visible = engine_map::prepare_visibility(g_psv.worldmodel,

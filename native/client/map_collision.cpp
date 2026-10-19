@@ -7,8 +7,8 @@
 
 #include "map_collision.hpp"
 #include "goldcraft/edited_hull.hpp"
+#include "goldcraft/collision_source.hpp"
 #include <array>
-#include <bit>
 #include <charconv>
 #include <cmath>
 #include <map>
@@ -46,11 +46,9 @@ struct Prepared {
 namespace {
 static_assert(sizeof(model_t) == 392 && sizeof(hull_t) == 40 && sizeof(physent_t) == 224);
 constexpr std::array<int, 4> hull_index{1, 3, 0, 2};
-struct SourceHull {
-    std::vector<Plane> planes;
-    std::vector<HullNode> nodes;
-    int root;
-    SourceHull(model_t *model, const hull_t &hull) : root(hull.firstclipnode) {
+struct SourceHull : CollisionSource::Hull {
+    SourceHull(model_t *model, const hull_t &hull) {
+        root = hull.firstclipnode;
         if (model->type != mod_brush || model->numplanes < 1 || model->numplanes > 262144 ||
             hull.lastclipnode < 0 || hull.lastclipnode >= 262144 || !hull.planes || !hull.clipnodes)
             throw std::invalid_argument("Client map hull bounds");
@@ -71,50 +69,17 @@ struct SourceHull {
             nodes.push_back({static_cast<unsigned>(n.planenum), {n.children[0], n.children[1]}});
         }
     }
-    HullView view() const { return {planes, nodes, root}; }
 };
-struct SourceModel {
-    std::array<SourceHull, 4> hulls;
-    std::array<Box, 4> bodies{};
-    std::vector<Box> cuts;
-    explicit SourceModel(model_t* model, std::vector<Box> input)
-        : hulls{SourceHull(model, model->hulls[0]), SourceHull(model, model->hulls[1]),
-                SourceHull(model, model->hulls[2]), SourceHull(model, model->hulls[3])},
-          cuts(std::move(input)) {
+struct SourceModel : CollisionSource {
+    explicit SourceModel(model_t* model, std::vector<Box> input) {
+        hulls = {SourceHull(model, model->hulls[0]), SourceHull(model, model->hulls[1]),
+                 SourceHull(model, model->hulls[2]), SourceHull(model, model->hulls[3])};
+        cuts = std::move(input);
         for (int h = 1; h < 4; ++h)
             for (int a = 0; a < 3; ++a) {
                 bodies[h].min[a] = model->hulls[h].clip_mins[a];
                 bodies[h].max[a] = model->hulls[h].clip_maxs[a];
             }
-    }
-    bool same(const SourceModel& other) const {
-        const auto scalar = [](double a, double b) {
-            return std::bit_cast<std::uint64_t>(a) == std::bit_cast<std::uint64_t>(b);
-        };
-        const auto point = [&](const Point& a, const Point& b) {
-            for (int axis = 0; axis < 3; ++axis) if (!scalar(a[axis], b[axis])) return false;
-            return true;
-        };
-        const auto box = [&](const Box& a, const Box& b) { return point(a.min,b.min)&&point(a.max,b.max); };
-        if (cuts.size() != other.cuts.size()) return false;
-        for (std::size_t i = 0; i < cuts.size(); ++i) if (!box(cuts[i], other.cuts[i])) return false;
-        for (std::size_t h = 0; h < hulls.size(); ++h) {
-            const auto &a = hulls[h], &b = other.hulls[h];
-            if (!box(bodies[h], other.bodies[h]) || a.root != b.root ||
-                a.planes.size() != b.planes.size() || a.nodes.size() != b.nodes.size()) return false;
-            for (std::size_t i = 0; i < a.planes.size(); ++i)
-                if (!point(a.planes[i].normal,b.planes[i].normal) ||
-                    !scalar(a.planes[i].distance,b.planes[i].distance)) return false;
-            for (std::size_t i = 0; i < a.nodes.size(); ++i)
-                if (a.nodes[i].plane != b.nodes[i].plane || a.nodes[i].children != b.nodes[i].children) return false;
-        }
-        return true;
-    }
-    std::size_t retained_bytes() const {
-        std::size_t bytes = sizeof(SourceModel) + 64 + cuts.capacity() * sizeof(Box);
-        for (const auto& hull : hulls)
-            bytes += hull.planes.capacity() * sizeof(Plane) + hull.nodes.capacity() * sizeof(HullNode);
-        return bytes; // SourceHull bounds and cut count keep this below size_t overflow on x86.
     }
     void build(HullSet& output, std::size_t& work) const {
         for (int h = 0; h < 4; ++h) {
