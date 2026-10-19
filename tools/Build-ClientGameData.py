@@ -152,6 +152,15 @@ def main():
         raw(int(rva, 16), int(size, 16))
         records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftMotion_" + name,
                         "kind": "function", "payload": {"func_rva": rva, "func_size": size}})
+    menu = json.loads((ROOT / "native/client/spectator_menu_10210.json").read_text())
+    if menu["sha256"] != identity["sha256"]:
+        raise ValueError("Menu guard catalog identity mismatch")
+    for entry in menu["functions"]:
+        rva, size = int(entry["rva"], 16), int(entry["size"], 16)
+        if hashlib.sha256(raw(rva, size)).hexdigest() != entry["sha256"]:
+            raise ValueError("Menu guard function changed: " + entry["name"])
+        records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftMenu_" + entry["name"],
+                        "kind": "function", "payload": {"func_rva": entry["rva"], "func_size": entry["size"]}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

@@ -42,6 +42,8 @@ int main() {
     const std::array probes{lighting::Probe{{32,8,8},{0,2}}};
     const carving::HullView empty{{},{},-1};
     lighting::Model model{0,1,empty,{},probes,values};
+    const std::atomic_bool cancelled{true};
+    rejected([&] { (void)lighting::prepare(source,{&model,1},{},&cancelled); });
     auto baked = lighting::prepare(source,{&model,1});
     assert(!baked.draws[0].needs_lighting && baked.samples > 4 && baked.rays > 4 && !baked.occluded);
     assert(baked.mesh->faces == source.mesh->faces && baked.mesh->instances == source.mesh->instances);

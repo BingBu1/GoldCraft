@@ -13,6 +13,7 @@
 #include "visible_entities.hpp"
 #include "packet_entities.hpp"
 #include "userinfo_client.hpp"
+#include "spectator_menu.hpp"
 #include "goldcraft/packet_entities.hpp"
 #include "vitals.hpp"
 #include "status_motion.hpp"
@@ -708,6 +709,7 @@ void WriteDiagnostics() {
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
         client_userinfo::diagnostics(out); out<<',';
+        out<<"\"spectatorMenu\":";spectator_menu::diagnostics(out);out<<',';
         client_vitals::write_status(out); out<<',';
         input_audit::write_status(out); out<<',';
         client_map::write_status(out); out<<',';
@@ -2203,6 +2205,7 @@ void ShutdownClient() {
     // context hooks while their IAT slots and client descriptors remain mapped.
     steam_async::shutdown();
     Log("Steam async hooks released before client shutdown");
+    spectator_menu::shutdown();
     gExportfuncs.HUD_Shutdown();
 }
 }
@@ -2235,6 +2238,7 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* engine) {
 }
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     goldcraft::steam_async::install(api);
+    Log(spectator_menu::install(api)?"native menu stale-item guard installed":"native menu stale-item guard unavailable");
     gExportfuncs=*functions;
     Log(client_motion::install(api)?"native status motion prediction installed":std::string("native motion unavailable: ")+client_motion::error());
     functions->Initialize=InitializeClient;
@@ -2259,6 +2263,7 @@ void IPluginsV4::ExitGame(int) {
     // patches and release every engine/renderer callback while it is mapped.
     goldcraft::steam_async::shutdown();
     client_motion::shutdown();
+    spectator_menu::shutdown();
     client_map::shutdown_preparation();
     client_map::shutdown_events();
     input_audit::shutdown();

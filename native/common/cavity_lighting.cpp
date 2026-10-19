@@ -5,6 +5,7 @@
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <stdexcept>
 #include <unordered_map>
@@ -96,8 +97,8 @@ struct Candidate {
 // The heap is reused for every sample and never appears in the drawing path.
 class Field {
   public:
-    Field(const Model &model, const Settings &settings, std::size_t &work)
-        : model_(model), settings_(settings), work_(work), order_(model.probes.size()),
+    Field(const Model &model, const Settings &settings, std::size_t &work, const std::atomic_bool* cancelled)
+        : model_(model), settings_(settings), work_(work), cancelled_(cancelled), order_(model.probes.size()), bounds_(model.probes.size()),
           visibility_cuts_(carving::compact_cuts(model.cuts,[&](auto n){consume(work,settings.mesh.operations,n);})),
           cut_index_(visibility_cuts_,[&](auto n){consume(work,settings.mesh.operations,n);}) {
         if (order_.empty()) throw std::invalid_argument("Missing baked map lighting probes");
@@ -125,14 +126,17 @@ class Field {
         std::iota(order_.begin(), order_.end(), 0u);
         split(0, order_.size(), 0);
         heap_.reserve(settings.neighbours);
+        if(model.cuts.size()>=32)ray_cache_.resize(131072);
     }
     surface::Range sample(Point p, Point normal, Prepared &result) {
+        if(cancelled_ && cancelled_->load(std::memory_order_relaxed))throw std::runtime_error("Cavity lighting cancelled");
         valid(p); valid(normal);
         if (std::abs(dot(normal, normal)-1) > 1e-4) throw std::invalid_argument("Cavity lighting normal");
         heap_.clear();
         query(0, order_.size(), 0, p, normal);
         // Stable summation, independent of the median partition/heap order.
         std::sort(heap_.begin(), heap_.end());
+        const auto hull = local_hull(p);
         std::array<Point, 255> coefficients{};
         double total = 0;
         for (const auto &candidate : heap_) {
@@ -144,15 +148,25 @@ class Field {
             const auto weight = cosine*radial*radial/(1+candidate.distance);
             total += weight;
             ++result.rays;
-            carving::Box bounds;
-            for(int a=0;a<3;++a) {
-                bounds.min[a]=std::min(p[a],probe.position[a]);
-                bounds.max[a]=std::max(p[a],probe.position[a]);
+            const std::array<std::uint32_t,4> ray_key{std::bit_cast<std::uint32_t>(static_cast<float>(p[0])),
+                std::bit_cast<std::uint32_t>(static_cast<float>(p[1])),std::bit_cast<std::uint32_t>(static_cast<float>(p[2])),candidate.probe};
+            std::uint64_t hash=0x9e3779b97f4a7c15ULL;
+            for(auto value:ray_key) {hash^=value;hash*=0xbf58476d1ce4e5b9ULL;hash^=hash>>31;}
+            Ray uncached;
+            auto& cached=ray_cache_.empty()?uncached:ray_cache_[hash&(ray_cache_.size()-1)];
+            if(!cached.valid || cached.key!=ray_key) {
+                carving::Box bounds;
+                for(int a=0;a<3;++a) {
+                    bounds.min[a]=std::min(p[a],probe.position[a]);
+                    bounds.max[a]=std::max(p[a],probe.position[a]);
+                }
+                cut_index_.query(bounds,cut_candidates_,[&](auto n){consume(work_,settings_.mesh.operations,n);});
+                nearby_cuts_.clear();
+                for(auto id:cut_candidates_) nearby_cuts_.push_back(visibility_cuts_[id]);
+                cached.visible=visible_with_scratch(hull,nearby_cuts_,p,probe.position,work_,settings_.mesh.operations,openings_);
+                cached.key=ray_key;cached.valid=true;
             }
-            cut_index_.query(bounds,cut_candidates_,[&](auto n){consume(work_,settings_.mesh.operations,n);});
-            nearby_cuts_.clear();
-            for(auto id:cut_candidates_) nearby_cuts_.push_back(visibility_cuts_[id]);
-            if (!visible_with_scratch(model_.hull, nearby_cuts_, p, probe.position, work_, settings_.mesh.operations, openings_)) {
+            if (!cached.visible) {
                 ++result.occluded;
                 continue;
             }
@@ -175,6 +189,62 @@ class Field {
         return range;
     }
   private:
+    struct Region {
+        std::vector<carving::HullNode> nodes;
+        std::int32_t root = -1;
+    };
+    carving::HullView local_hull(Point point) {
+        if (model_.hull.root < 0 || heap_.empty()) return model_.hull;
+        std::array<int,3> key;
+        carving::Box bounds;
+        for (int axis=0;axis<3;++axis) {
+            key[axis]=static_cast<int>(std::floor(point[axis]/64));
+            bounds.min[axis]=key[axis]*64.0-settings_.radius;
+            bounds.max[axis]=(key[axis]+1)*64.0+settings_.radius;
+        }
+        if (const auto found=regions_.find(key); found!=regions_.end())
+            return {model_.hull.planes,found->second.nodes,found->second.root};
+        // Small immutable neighbourhood trees omit only planes that cannot
+        // intersect ANY candidate ray in this tile. This avoids walking the
+        // distant map root for every sample/probe pair. Bound retained scratch
+        // to 4096 regions and 262144 nodes; overflow uses the original BSP.
+        constexpr std::size_t max_nodes=262144;
+        if (regions_.size()>=4096 || regions_full_ || region_nodes_>=max_nodes) return model_.hull;
+        Region region;
+        bool overflow=false;
+        std::vector<std::int32_t> remap(model_.hull.nodes.size(),std::numeric_limits<std::int32_t>::min());
+        const auto copy=[&](auto&& self,std::int32_t index)->std::int32_t {
+            if (overflow) return -1; // The incomplete region is discarded below.
+            if (index<0) return index;
+            if (remap[index]!=std::numeric_limits<std::int32_t>::min()) return remap[index];
+            consume(work_,settings_.mesh.operations);
+            const auto& node=model_.hull.nodes[index];
+            const auto& plane=model_.hull.planes[node.plane];
+            Point near{},far{};
+            double scale=1+std::abs(plane.distance);
+            for (int axis=0;axis<3;++axis) {
+                near[axis]=plane.normal[axis]>=0?bounds.min[axis]:bounds.max[axis];
+                far[axis]=plane.normal[axis]>=0?bounds.max[axis]:bounds.min[axis];
+                scale+=std::max(std::abs(near[axis]),std::abs(far[axis]))*std::abs(plane.normal[axis]);
+            }
+            // Retain touching/near-plane nodes, including floating-point
+            // uncertainty in the original distance+speed*t ray traversal.
+            const double low=dot(near,plane.normal)-plane.distance, high=dot(far,plane.normal)-plane.distance;
+            if (low>scale*1e-9) return remap[index]=self(self,node.children[0]);
+            if (high<-scale*1e-9) return remap[index]=self(self,node.children[1]);
+            const auto front=self(self,node.children[0]),back=self(self,node.children[1]);
+            if (front==back) return remap[index]=front;
+            if (region.nodes.size()>=max_nodes-region_nodes_) {overflow=true;return -1;}
+            const auto result=static_cast<std::int32_t>(region.nodes.size());
+            region.nodes.push_back({node.plane,{front,back}});
+            return remap[index]=result;
+        };
+        region.root=copy(copy,model_.hull.root);
+        if (overflow) {regions_full_=true;return model_.hull;}
+        region_nodes_+=region.nodes.size();
+        const auto& retained=regions_.emplace(key,std::move(region)).first->second;
+        return {model_.hull.planes,retained.nodes,retained.root};
+    }
     void split(std::size_t begin, std::size_t end, unsigned depth) {
         if (begin == end) return;
         consume(work_, settings_.mesh.operations, end-begin);
@@ -185,11 +255,32 @@ class Field {
                 return pa != pb ? pa < pb : a < b;
             });
         split(begin, mid, depth+1); split(mid+1, end, depth+1);
+        auto& bounds=bounds_[mid];
+        bounds.min=bounds.max=model_.probes[order_[mid]].position;
+        const auto merge=[&](std::size_t child) {
+            for(int axis=0;axis<3;++axis) {
+                bounds.min[axis]=std::min(bounds.min[axis],bounds_[child].min[axis]);
+                bounds.max[axis]=std::max(bounds.max[axis],bounds_[child].max[axis]);
+            }
+        };
+        if(begin<mid)merge(begin+(mid-begin)/2);
+        if(mid+1<end)merge(mid+1+(end-mid-1)/2);
     }
     void query(std::size_t begin, std::size_t end, unsigned depth, Point p, Point normal) {
         if (begin == end) return;
         consume(work_, settings_.mesh.operations);
         const auto mid = begin+(end-begin)/2, index = order_[mid];
+        // A split plane alone cannot prune a subtree wholly behind a sample,
+        // or far away along another axis. Bound the complete probe subtree
+        // while preserving exact nearest-distance/index tie selection.
+        const auto& bounds=bounds_[mid];
+        Point closest{},front{};
+        for(int axis=0;axis<3;++axis) {
+            closest[axis]=std::clamp(p[axis],bounds.min[axis],bounds.max[axis])-p[axis];
+            front[axis]=(normal[axis]>=0?bounds.max[axis]:bounds.min[axis])-p[axis];
+        }
+        const auto maximum=heap_.size()==settings_.neighbours?heap_.front().distance:settings_.radius*settings_.radius;
+        if(dot(closest,closest)>maximum || dot(front,normal)<=0)return;
         const auto delta = sub(model_.probes[index].position, p);
         const auto distance = dot(delta, delta);
         const Candidate candidate{distance, index};
@@ -213,7 +304,9 @@ class Field {
     const Model &model_;
     const Settings &settings_;
     std::size_t &work_;
+    const std::atomic_bool* cancelled_;
     std::vector<std::uint32_t> order_;
+    std::vector<carving::Box> bounds_;
     std::vector<Candidate> heap_;
     // Only ray openings use the compact union. Keep the original records for
     // geometry, material ownership and authoritative revision accounting.
@@ -222,6 +315,14 @@ class Field {
     std::vector<std::size_t> cut_candidates_;
     std::vector<carving::Box> nearby_cuts_;
     std::vector<Interval> openings_;
+    std::map<std::array<int,3>,Region> regions_;
+    std::size_t region_nodes_ = 0;
+    bool regions_full_ = false;
+    // The same position can be sampled with several face normals. Visibility
+    // is normal-independent; exact-key replacement keeps this scratch bounded
+    // and never reuses an answer across models, cuts or preparation revisions.
+    struct Ray { std::array<std::uint32_t,4> key{}; bool valid{},visible{}; };
+    std::vector<Ray> ray_cache_;
 };
 using Key = std::array<std::uint32_t, 6>;
 struct Hash { std::size_t operator()(const Key &key) const {
@@ -251,7 +352,8 @@ bool visible(carving::HullView hull, std::span<const carving::Box> cuts, Point s
     return visible_with_scratch(hull, cuts, start, end, operations, limit, openings);
 }
 
-Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models, Settings settings) {
+Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models, Settings settings,
+                 const std::atomic_bool* cancelled) {
     if (!geometry.mesh || !std::isfinite(settings.radius) || settings.radius <= 0 || settings.radius > 65536 ||
         !std::isfinite(settings.spacing) || settings.spacing <= 0 || !settings.neighbours || settings.neighbours > 256 ||
         settings.values > std::numeric_limits<std::uint32_t>::max() ||
@@ -267,13 +369,14 @@ Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models
     result.vertices.resize(mesh->vertices.size());
     std::vector<bool> handled(result.draws.size());
     for (const auto &model : models) {
+        if(cancelled && cancelled->load(std::memory_order_relaxed))throw std::runtime_error("Cavity lighting cancelled");
         consume(result.operations, settings.mesh.operations, carving::validate_hull(model.hull,
             {settings.mesh.fragments, settings.mesh.operations-result.operations}));
         for (const auto &cut : model.cuts) {
             valid(cut.min); valid(cut.max);
             for (int i = 0; i < 3; ++i) if (cut.min[i] >= cut.max[i]) throw std::invalid_argument("Cavity lighting cut");
         }
-        Field field(model, settings, result.operations);
+        Field field(model, settings, result.operations, cancelled);
         std::unordered_map<Key, surface::Range, Hash> cache;
         for (std::size_t d = 0; d < result.draws.size(); ++d) {
             auto &draw = result.draws[d];

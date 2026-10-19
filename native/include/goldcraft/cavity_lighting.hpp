@@ -1,5 +1,6 @@
 #pragma once
 #include "goldcraft/cavity_mesh.hpp"
+#include <atomic>
 
 namespace goldcraft::lighting {
 // RGB coefficients in the same pre-gamma [0,1] units as GoldSrc luxels.
@@ -44,7 +45,7 @@ struct Prepared {
 // Refine new triangles at preparation time; geometry/lighting/indices commit
 // together. No original surface/lightmap or live resource is mutated.
 Prepared prepare(const cavity::Prepared &geometry, std::span<const Model> models,
-                 Settings settings = {});
+                 Settings settings = {}, const std::atomic_bool* cancelled = nullptr);
 // Shared bounded visibility primitive, also used to reject probe offsets that
 // cross thin original solids. Endpoints alone never count as a solid interval.
 // Hull and cut data must be validated once before querying (prepare does so).

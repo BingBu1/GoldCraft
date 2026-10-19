@@ -1,0 +1,30 @@
+{
+  "sha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "crc64": "124d6034a6b28b40",
+  "functions": [
+    {
+      "name": "CursorEntered",
+      "rva": "0x9ef00",
+      "size": "0x112",
+      "sha256": "5741db709ee097d1d6af1741e9a34da7912c376ffd6deaacc4acba75ec4179ef"
+    },
+    {
+      "name": "CursorExited",
+      "rva": "0x9f020",
+      "size": "0x3e",
+      "sha256": "2d6dd84fc3b258c793b3c48416574c41143e336ca58e3912c865e3c54090d6d7"
+    },
+    {
+      "name": "OpenCascade",
+      "rva": "0xa1b00",
+      "size": "0x2f",
+      "sha256": "514c774adeb414f0f66f6192564b84d1d854ceb5f2ae5d83d447e48c8b02207a"
+    },
+    {
+      "name": "SelectIndex",
+      "rva": "0xa0470",
+      "size": "0xe2",
+      "sha256": "3deadae20ab07f8e673175735cdc5087c4312709c3747fbd12b84f2c8415500a"
+    }
+  ]
+}

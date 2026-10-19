@@ -241,6 +241,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/userinfo_client.cpp native/client/vitals.cpp native/client/status_motion.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
+    target_sources(GoldCraft PRIVATE native/client/spectator_menu.cpp)
     target_include_directories(GoldCraft PRIVATE
         "${METAHOOK_SOURCE_PATH}/include" "${METAHOOK_SOURCE_PATH}/include/Interface"
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common" "${METAHOOK_SOURCE_PATH}/include/HLSDK/cl_dll"
@@ -270,6 +271,11 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_compile_options(goldcraft_server_hud_tests PRIVATE /W3 /utf-8 /UNDEBUG)
         add_test(NAME goldcraft_server_hud COMMAND goldcraft_server_hud_tests)
         add_executable(goldcraft_client_initialize_tests tests/native/client_initialize_tests.cpp)
+        add_executable(goldcraft_spectator_menu_tests tests/native/spectator_menu_tests.cpp native/client/spectator_menu.cpp)
+        target_include_directories(goldcraft_spectator_menu_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_compile_definitions(goldcraft_spectator_menu_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+        target_compile_options(goldcraft_spectator_menu_tests PRIVATE /W3 /utf-8 /UNDEBUG)
+        add_test(NAME goldcraft_spectator_menu COMMAND goldcraft_spectator_menu_tests)
         target_include_directories(goldcraft_client_initialize_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
         target_compile_definitions(goldcraft_client_initialize_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
         target_compile_options(goldcraft_client_initialize_tests PRIVATE /W3 /utf-8 /UNDEBUG)

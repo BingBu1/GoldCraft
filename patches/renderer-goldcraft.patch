@@ -8232,7 +8232,7 @@ index 41f24f3..92aa141 100644
  
  /*
 diff --git a/src/gl_wsurf.h b/src/gl_wsurf.h
-index 0d340e9..1fe61b6 100644
+index 0d340e9..dc9a127 100644
 --- a/src/gl_wsurf.h
 +++ b/src/gl_wsurf.h
 @@ -1,9 +1,18 @@
@@ -8396,7 +8396,7 @@ index 0d340e9..1fe61b6 100644
      GLuint hEntityUBO{};
      GLuint hDecalVBO[WSURF_VBO_MAX]{};
      GLuint hDecalEBO{};
-@@ -270,9 +316,104 @@ typedef struct
+@@ -270,9 +316,111 @@ typedef struct
  {
      int program;
      int u_parallaxScale;
@@ -8444,6 +8444,13 @@ index 0d340e9..1fe61b6 100644
 +    double cpuObservedMs{}, leafWaitMs{}, readyMs{}, totalMs{};
 +};
 +std::span<const CWorldEditPreparationTiming> R_WorldEditPreparationHistory() noexcept;
++struct CWorldEditFailure
++{
++    std::uint64_t count{}, ticket{}, epoch{}, revision{};
++    std::uint32_t cuts{};
++    std::array<char, 160> reason{};
++};
++const CWorldEditFailure& R_WorldEditLastFailure() noexcept;
 +CWorldLightProbes R_CollectCavityLightProbes(const CWorldSurfaceWorldModel& original,
 +    const goldcraft::cavity::Model& model, const goldcraft::lighting::Settings& settings);
 +// Caller selects a consecutive range with matching texture/shader state.
@@ -8501,7 +8508,7 @@ index 0d340e9..1fe61b6 100644
  
  extern float  r_shadow_matrix[3][16];
  extern vec3_t r_frustum_origin[4];
-@@ -330,13 +471,14 @@ void        R_LoadBaseDetailTextures(void);
+@@ -330,13 +478,14 @@ void        R_LoadBaseDetailTextures(void);
  void        R_LoadMapDetailTextures(void);
  
  
@@ -11751,10 +11758,10 @@ index 0000000..5ea67d8
 +};
 diff --git a/src/studio_diagnostics.cpp b/src/studio_diagnostics.cpp
 new file mode 100644
-index 0000000..37769ff
+index 0000000..1e5173c
 --- /dev/null
 +++ b/src/studio_diagnostics.cpp
-@@ -0,0 +1,625 @@
+@@ -0,0 +1,635 @@
 +#include "gl_local.h"
 +#include "draw_parameter_dispatch.h"
 +#include "draw_parameter_stream.h"
@@ -12050,7 +12057,17 @@ index 0000000..37769ff
 +            << ",\"probesMs\":" << edit.cpu.probesMs << ",\"lightMs\":" << edit.cpu.lightMs
 +            << ",\"visibilityMs\":" << edit.cpu.visibilityMs << '}';
 +    }
-+    out << "]}";
++    const auto& failed = R_WorldEditLastFailure();
++    out << "],\"lastFailure\":{\"count\":" << failed.count << ",\"ticket\":\"" << failed.ticket
++        << "\",\"epoch\":\"" << failed.epoch << "\",\"revision\":\"" << failed.revision
++        << "\",\"cuts\":" << failed.cuts << ",\"reason\":\"";
++    for (char value : failed.reason)
++    {
++        if (!value) break;
++        if (value == '\\' || value == '"') out << '\\';
++        out << value;
++    }
++    out << "\"}}";
 +}
 +constexpr size_t      MaxProfileFrames            = 8192;
 +constexpr size_t      ProfileStages               = static_cast<size_t>(RProfileStage::Count);
@@ -14353,10 +14370,10 @@ index 0000000..956fd5c
 +}
 diff --git a/tests/cavity_map_fixture.h b/tests/cavity_map_fixture.h
 new file mode 100644
-index 0000000..046461d
+index 0000000..445c421
 --- /dev/null
 +++ b/tests/cavity_map_fixture.h
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,399 @@
 +#pragma once
 +#include <bit>
 +#include <limits>
@@ -14557,6 +14574,48 @@ index 0000000..046461d
 +    const auto bakedSnapshot = R_CaptureCavityBakedSurfaces(*original);
 +    auto hullSnapshot = std::make_shared<worldedit::Hull>();
 +    hullSnapshot->planes = hullPlanes; hullSnapshot->nodes = nodes; hullSnapshot->root = hull.root;
++    if (const auto* replayPath = std::getenv("GOLDCRAFT_CAVITY_REPLAY"))
++    {
++        std::ifstream replay(replayPath); assert(replay.good());
++        worldedit::Input input;
++        input.original=mesh; input.baked=bakedSnapshot; input.visibility=visibility_source;
++        carving::Box box;
++        while (replay >> box.min[0] >> box.min[1] >> box.min[2] >> box.max[0] >> box.max[1] >> box.max[2])
++        { assert(input.worldCuts.size()<65536); input.worldCuts.push_back(box); }
++        assert(replay.eof() && !input.worldCuts.empty());
++        input.models.push_back({first,count,hullSnapshot,input.worldCuts});
++        // Test-only oracle: the old executable can finish a valid workload
++        // beyond its normal work guard, for fieldwise output comparison.
++        if (std::getenv("GOLDCRAFT_CAVITY_REPLAY_REFERENCE")) input.lighting.mesh.operations=1'000'000'000;
++        const auto started=std::chrono::steady_clock::now();
++        try
++        {
++            const auto task=cpuWorker.Submit({input},256ull*1024*1024);
++            while(!task->finished.load(std::memory_order_acquire)) std::this_thread::yield();
++            if(task->error)std::rethrow_exception(task->error);
++            assert(task->results.size()==1);
++            const auto& result=task->results[0];
++            const auto uploaded=R_UploadPreparedWorldGeometry(original,result);
++            assert(glGetError()==GL_NO_ERROR);
++            std::uint64_t digest=14695981039346656037ull;
++            const auto hash=[&]<class T>(T value) { for(auto b:std::bit_cast<std::array<unsigned char,sizeof(T)>>(value)) digest=(digest^b)*1099511628211ull; };
++            for(const auto& v:result.mesh->vertices) {for(auto p:v.pos)hash(p);for(auto p:v.texcoord)hash(p);for(auto p:v.lightmaptexcoord)hash(p);}
++            for(auto i:result.mesh->indices)hash(i);
++            for(const auto& r:result.lighting->vertices){hash(r.first);hash(r.count);}
++            for(const auto& v:result.lighting->values){for(auto c:v.rgb)hash(c);hash(v.style);}
++            hash(result.lighting->rays);hash(result.lighting->occluded);
++            std::printf("{\"replay\":true,\"cuts\":%zu,\"lightWork\":%zu,\"lightMs\":%.3f,\"bytes\":%llu,\"digest\":%llu,\"passed\":true}\n",
++                input.worldCuts.size(),result.lighting?result.lighting->operations:0,result.timings.lightMs,
++                static_cast<unsigned long long>(worldedit::ResultBytes(result)),static_cast<unsigned long long>(digest));
++        }
++        catch(const std::exception& error)
++        {
++            std::printf("{\"replay\":true,\"cuts\":%zu,\"error\":\"%s\",\"elapsedMs\":%.3f,\"passed\":false}\n",
++                input.worldCuts.size(),error.what(),std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count());
++            throw;
++        }
++        return;
++    }
 +    const auto asyncMatches = [&](const cavity::Model& carve, const CWorldSurfaceWorldModel& expected) {
 +        // Compare against the pre-async direct engine-surface extractor, not
 +        // only the new synchronous wrapper and worker sharing one algorithm.
@@ -16491,10 +16550,10 @@ index 0000000..d5768fe
 +}
 diff --git a/tests/world_leaf_gl_tests.cpp b/tests/world_leaf_gl_tests.cpp
 new file mode 100644
-index 0000000..fe36409
+index 0000000..8bd2de0
 --- /dev/null
 +++ b/tests/world_leaf_gl_tests.cpp
-@@ -0,0 +1,1763 @@
+@@ -0,0 +1,1856 @@
 +// Production leaf preparation/draw/cache code with real Win32 worker threads
 +// and a hidden OpenGL driver context. Engine services are narrow test adapters;
 +// this is not an in-game FPS or actual hw.dll lifecycle acceptance test.
@@ -17156,6 +17215,95 @@ index 0000000..fe36409
 +    void         SetCSMDistance(int, float) override {}
 +    float        GetCSMDistance(int) const override { return 0; }
 +};
++void InlineReuseIntegration()
++{
++    auto* api = static_cast<IMetaRendererWorldEdit*>(CreateInterface(METARENDERER_WORLD_EDIT_INTERFACE_VERSION, nullptr));
++    Scene scene;
++    worldModel = &scene.model;
++    scene.model.nummodelsurfaces = 1;
++    scene.model.numsubmodels = 94;
++    dclipnode_t clip{0, {-1, -2}};
++    scene.model.hulls[0] = {&clip, &scene.plane, 0, 0};
++    auto original = R_PrepareWorldSurfaceLeafModel(scene.geometry, &scene.model, 0);
++    Finish(original);
++    g_WorldSurfaceModels = {nullptr, original};
++    g_WorldSurfaceWorldModels = {nullptr, scene.geometry};
++    std::vector<model_t> brushes(93, scene.model);
++    std::vector<std::shared_ptr<CWorldSurfaceModel>> retained;
++    std::vector<GLuint> buffers;
++    for (std::size_t i = 0; i < 92; ++i)
++    {
++        auto& brush = brushes[i];
++        std::snprintf(brush.name, sizeof(brush.name), "*%u", static_cast<unsigned>(i + 1));
++        brush.firstmodelsurface = 1;
++        auto model = R_PrepareWorldSurfaceLeafModel(scene.geometry, &brush, 0);
++        Finish(model);
++        buffers.push_back(model->GetLeafByIndex(0)->hABO);
++        retained.push_back(model);
++        g_WorldSurfaceModels.push_back(std::move(model));
++    }
++    const auto verify = [&] {
++        for (std::size_t i = 0; i < retained.size(); ++i)
++        {
++            assert(g_WorldSurfaceModels[i + 2] == retained[i]);
++            const auto leaf = retained[i]->GetLeafByIndex(0);
++            assert(leaf && leaf->hABO == buffers[i] && leaf->m_bIsReady && !leaf->m_bIsClosing.load());
++            assert(retained[i]->m_pWorldModel.lock() == scene.geometry && glIsBuffer(buffers[i]));
++        }
++    };
++    MetaWorldEditBox cut{{32, 32, -8}, {64, 64, 8}};
++    for (uint64_t revision = 1; revision <= 5; ++revision)
++    {
++        const auto beforeWorkers = deletedWork;
++        const bool empty = revision == 1 || revision == 5;
++        const auto ticket = api->Begin(&scene.model, 9, revision, empty ? nullptr : &cut, empty ? 0 : 1);
++        assert(ticket);
++        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
++        while (api->Poll(ticket) == MetaWorldEditStatus::Preparing)
++        {
++            worldedit::BeginUploadFrame();
++            assert(std::chrono::steady_clock::now() < deadline);
++            std::this_thread::sleep_for(std::chrono::milliseconds(1));
++        }
++        verify();
++        if (revision == 3)
++        {
++            auto& brush = brushes.back();
++            std::strcpy(brush.name, "*93");
++            brush.firstmodelsurface = 1;
++            auto late = R_PrepareWorldSurfaceLeafModel(g_WorldSurfaceWorldModels[1], &brush, 0);
++            Finish(late);
++            g_WorldSurfaceModels.push_back(late);
++            assert(!api->Commit(ticket));
++            while (api->Poll(ticket) == MetaWorldEditStatus::Preparing)
++            {
++                worldedit::BeginUploadFrame();
++                assert(std::chrono::steady_clock::now() < deadline);
++                std::this_thread::sleep_for(std::chrono::milliseconds(1));
++            }
++        }
++        assert(api->Poll(ticket) == MetaWorldEditStatus::Ready && api->Commit(ticket));
++        if (revision == 3)
++        {
++            const auto late = g_WorldSurfaceModels.back();
++            retained.push_back(late);
++            buffers.push_back(late->GetLeafByIndex(0)->hABO);
++        }
++        verify();
++        assert(deletedWork == beforeWorkers + (revision == 3 ? 3 : 1));
++        cut.max[0] += 8;
++    }
++    api->Reset();
++    verify();
++    R_ForgetWorldEdits(&scene.model);
++    R_DrainWorldLeafTasks(&scene.model);
++    retained.clear();
++    g_WorldSurfaceModels.clear();
++    g_WorldSurfaceWorldModels.clear();
++    assert(liveWork == 0 && glGetError() == GL_NO_ERROR);
++    std::printf("{\"unchangedInlineGL\":true,\"inlineModels\":92,\"commits\":5,\"editLeafWorkers\":6,\"lateInlineMigratesOnce\":true,\"unchangedBuffers\":true,\"restore\":true,\"passed\":true}\n");
++}
++
 +void EditIntegration()
 +{
 +    auto* api = static_cast<IMetaRendererWorldEdit*>(CreateInterface(METARENDERER_WORLD_EDIT_INTERFACE_VERSION, nullptr));
@@ -17309,6 +17457,9 @@ index 0000000..fe36409
 +        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 +        while (api->Poll(failed) == MetaWorldEditStatus::Preparing) { worldedit::BeginUploadFrame(); assert(std::chrono::steady_clock::now() < deadline); std::this_thread::yield(); }
 +        assert(api->Poll(failed) == MetaWorldEditStatus::Failed && !api->Commit(failed));
++        const auto& failure = R_WorldEditLastFailure();
++        assert(failure.count && failure.ticket == failed && failure.epoch == 9 && failure.revision == 4);
++        assert(failure.cuts == 1 && failure.reason[0]);
 +        api->Cancel(failed);
 +    }
 +    assert(g_WorldSurfaceWorldModels[1] == beforeFailure);
@@ -18245,6 +18396,7 @@ index 0000000..fe36409
 +        R_DrainWorldLeafTasks();
 +    }
 +    StaticWorldCompletionIntegration();
++    InlineReuseIntegration();
 +    EditIntegration();
 +    BrushEditIntegration();
 +    joint_edit_test::run();
@@ -18770,10 +18922,10 @@ index 0000000..029fb40
 +#define METARENDERER_WORLD_EDIT2_INTERFACE_VERSION "MetaRendererWorldEdit_API_002"
 diff --git a/src/world_edit.cpp b/src/world_edit.cpp
 new file mode 100644
-index 0000000..f55778f
+index 0000000..2026d69
 --- /dev/null
 +++ b/src/world_edit.cpp
-@@ -0,0 +1,694 @@
+@@ -0,0 +1,745 @@
 +#include <goldcraft/brush_identity.hpp>
 +#include "gl_local.h"
 +#include <IMetaRendererWorldEdit.h>
@@ -18849,6 +19001,17 @@ index 0000000..f55778f
 +worldedit::Worker* cpuWorker{};
 +std::array<CWorldEditPreparationTiming, 32> preparationHistory{};
 +std::size_t historyNext{};
++CWorldEditFailure lastFailure;
++void RecordFailure(std::uint64_t ticket, std::uint64_t epoch, std::uint64_t revision,
++    std::uint32_t cuts, const char* reason) noexcept
++{
++    ++lastFailure.count;
++    lastFailure.ticket = ticket; lastFailure.epoch = epoch;
++    lastFailure.revision = revision; lastFailure.cuts = cuts;
++    lastFailure.reason.fill(0);
++    for (std::size_t i = 0; reason[i] && i + 1 < lastFailure.reason.size(); ++i)
++        lastFailure.reason[i] = reason[i] >= 32 && reason[i] < 127 ? reason[i] : '?';
++}
 +using PrepareClock = std::chrono::steady_clock;
 +double Elapsed(PrepareClock::time_point start) noexcept
 +{ return std::chrono::duration<double, std::milli>(PrepareClock::now() - start).count(); }
@@ -18997,6 +19160,32 @@ index 0000000..f55778f
 +        session.index < g_WorldSurfaceWorldModels.size() && g_WorldSurfaceWorldModels[session.index] == session.active;
 +}
 +
++bool UnchangedInline(const CWorldSurfaceModel& model) noexcept
++{
++    const auto* bsp = model.m_model;
++    const auto* world = session.world;
++    if (!bsp || !world || bsp == world || bsp->name[0] != '*' ||
++        bsp->surfaces != world->surfaces || bsp->planes != world->planes ||
++        bsp->firstmodelsurface < 0 || bsp->nummodelsurfaces < 0 ||
++        world->firstmodelsurface < 0 || world->nummodelsurfaces < 0 || world->numsurfaces < 0)
++        return false;
++    const auto first = static_cast<std::uint64_t>(bsp->firstmodelsurface);
++    const auto end = first + static_cast<std::uint64_t>(bsp->nummodelsurfaces);
++    const auto worldFirst = static_cast<std::uint64_t>(world->firstmodelsurface);
++    const auto worldEnd = worldFirst + static_cast<std::uint64_t>(world->nummodelsurfaces);
++    // World cuts address only the world's face interval. Per-instance cuts
++    // have their own identity-gated model and never alter this ordinary model.
++    return end <= static_cast<std::uint64_t>(world->numsurfaces) &&
++        worldEnd <= static_cast<std::uint64_t>(world->numsurfaces) &&
++        (end <= worldFirst || first >= worldEnd);
++}
++
++bool NeedsPreparation(const std::shared_ptr<CWorldSurfaceModel>& model) noexcept
++{
++    return model && model->m_pWorldModel.lock() == session.active &&
++        !(session.active == session.original && UnchangedInline(*model));
++}
++
 +void CollectModels(Pending& pending)
 +{
 +    for (std::size_t i = 0; i < g_WorldSurfaceModels.size(); ++i)
@@ -19009,9 +19198,12 @@ index 0000000..f55778f
 +            if (found->expected != model) throw std::runtime_error("World model changed during edit preparation");
 +            continue;
 +        }
-+        if (!model || model->m_pWorldModel.lock() != session.active) continue;
-+        auto prepared = R_PrepareWorldSurfaceLeafModel(pending.geometry, model->m_model, 0);
-+        if (pending.geometry == session.original) R_LinkShadowProxyForWorldSurfaceModel(prepared.get());
++        if (!NeedsPreparation(model)) continue;
++        // Pin unchanged inline leaves to the original immutable geometry. New
++        // inline models first seen after an edit migrate once at this commit.
++        const auto geometry = UnchangedInline(*model) ? session.original : pending.geometry;
++        auto prepared = R_PrepareWorldSurfaceLeafModel(geometry, model->m_model, 0);
++        if (geometry == session.original) R_LinkShadowProxyForWorldSurfaceModel(prepared.get());
 +        pending.models.push_back({i, model, std::move(prepared)});
 +        pending.readyMs = 0;
 +    }
@@ -19280,8 +19472,17 @@ index 0000000..f55778f
 +            }
 +            return MetaWorldEditStatus::Ready;
 +        }
++        catch (const std::exception& error)
++        {
++            RecordFailure(pending.ticket, pending.epoch, pending.revision,
++                static_cast<std::uint32_t>(pending.cuts.size()), error.what());
++            pending.failed = true;
++            return MetaWorldEditStatus::Failed;
++        }
 +        catch (...)
 +        {
++            RecordFailure(pending.ticket, pending.epoch, pending.revision,
++                static_cast<std::uint32_t>(pending.cuts.size()), "Unknown world edit preparation failure");
 +            pending.failed = true;
 +            return MetaWorldEditStatus::Failed;
 +        }
@@ -19296,7 +19497,7 @@ index 0000000..f55778f
 +        // loaded/replaced an inline model after the previous Poll.
 +        std::size_t affected = 0;
 +        for (const auto& model : g_WorldSurfaceModels)
-+            if (model && model->m_pWorldModel.lock() == session.active) ++affected;
++            if (NeedsPreparation(model)) ++affected;
 +        if (affected != pending.models.size()) return false;
 +        for (const auto& entry : pending.models)
 +        {
@@ -19416,6 +19617,8 @@ index 0000000..f55778f
 +
 +std::span<const CWorldEditPreparationTiming> R_WorldEditPreparationHistory() noexcept
 +{ return preparationHistory; }
++const CWorldEditFailure& R_WorldEditLastFailure() noexcept
++{ return lastFailure; }
 +
 +void R_ShutdownWorldEditPreparation() noexcept
 +{
@@ -23693,10 +23896,10 @@ index 0000000..10ea710
 +    main()
 diff --git a/src/world_edit_prepare.h b/src/world_edit_prepare.h
 new file mode 100644
-index 0000000..50fab8c
+index 0000000..38f7367
 --- /dev/null
 +++ b/src/world_edit_prepare.h
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,123 @@
 +#pragma once
 +#include <goldcraft/cavity_lighting.hpp>
 +#include <goldcraft/carved_visibility.hpp>
@@ -23755,7 +23958,14 @@ index 0000000..50fab8c
 +    std::shared_ptr<const goldcraft::visibility::Source> visibility;
 +    std::vector<goldcraft::carving::Box> worldCuts;
 +    goldcraft::cavity::Limits limits;
-+    goldcraft::lighting::Settings lighting;
++    // Several thousand legitimate world cuts exceed the common small-job
++    // work guard. This is still a finite CPU-worker budget; cancellation is
++    // checked between lighting samples, and CPU/GPU byte limits stay separate.
++    goldcraft::lighting::Settings lighting = [] {
++        goldcraft::lighting::Settings result;
++        result.mesh.operations = 268'435'456;
++        return result;
++    }();
 +};
 +struct Timings
 +{
@@ -23815,7 +24025,7 @@ index 0000000..50fab8c
 +} // namespace worldedit
 diff --git a/src/world_edit_prepare.cpp b/src/world_edit_prepare.cpp
 new file mode 100644
-index 0000000..3d93e71
+index 0000000..b50f0e2
 --- /dev/null
 +++ b/src/world_edit_prepare.cpp
 @@ -0,0 +1,338 @@
@@ -24029,7 +24239,7 @@ index 0000000..3d93e71
 +    if (!geometry.draws.empty())
 +    {
 +        const auto started = Clock::now();
-+        auto prepared = std::make_shared<lighting::Prepared>(lighting::prepare(geometry, lightingModels, input.lighting));
++        auto prepared = std::make_shared<lighting::Prepared>(lighting::prepare(geometry, lightingModels, input.lighting, &cancelled));
 +        result.timings.lightMs = Elapsed(started);
 +        result.mesh = prepared->mesh;
 +        result.draws = prepared->draws;

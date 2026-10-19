@@ -1,5 +1,15 @@
 # TNT 爆破准备与地图同步
 
+## 2026-10-19：破坏后画面停止更新
+
+用户报告碰撞已消失但后续破坏不刷新。旧版现场曾收到 revision9111/3773 切口，客户端画面与碰撞共同提交仍为8094，Renderer Poll 反复失败。服务端权威状态先行不代表客户端画面/碰撞原子提交已拆开。旧 Renderer 未保存异常原因，且随后自然回合开始清理到9112/0切口，未成功保存原3773洞口坐标，因此不能声称已对该次失败做精确坐标回放。
+
+从真实 cs_assault 面附近确定性生成3773个分散洞口，旧可执行文件在原光照工作上限67,108,864处复现拒绝。仅测试用高预算旧版完成后，逐字段几何/光照摘要为16063885539757745590，输出56,410,796字节。新实现对探针树增加子树边界剔除，按64单位邻域缓存保守裁剪的BSP，并对相同采样位置/探针复用精确可见性结果；缓存不跨模型或revision。邻域最多4096个/262144节点、射线缓存131072项，溢出回退原BSP，取消在模型/采样间检查。工作线程光照预算也明确提高至268,435,456，仍有有限保护；并非仅靠计算减量消除旧拒绝。
+
+未受影响的普通inline模型复用原始不可变几何/叶面，避免世界洞口变化时重复准备93个子模型；晚加载与针对实体的编辑仍按身份分别处理。新增有界lastFailure保存ticket/epoch/revision/切口数/原因，随主动请求的frame-profile输出；没有常驻追加日志。
+
+源码与回归证据位于 `build/mining-stale-20261019`，inline真实GL补充证据在 `build/mining-inline-20261019`。生产2DLL、三组针对性真实GL/准备检查及121文件补丁回放通过。构建结束后三轮交替旧/新3773数据，光照中位2049.137→1609.996ms，工作计数158980792→108598313，所有逐字段摘要与输出字节数一致；旧版仅测试oracle提高预算，新版使用实际默认预算。首次未传地图参数的运行仅检查基础GL，另一次构建并行期间3312.888ms原始结果保留，不计入最终交替对照。尚未安装新候选。当前全量重建仍随规模增长；离线准备时间不是实际点击到显示延迟，长期累计破坏、固定视角FPS及多人仍未验收。
+
 ## 2026-10-19 Java rebuilding and local voxel invalidation
 
 Post-deployment live burst: at 1923 server cuts the fresh adjacent-read sample showed server revision1924 but receive/render/collision626; MC form stayed selected while control/camera freshness temporarily expired. Five later samples at1928–1931 cuts show control/camera restored, and the last three show server/receive/render/collision revision1932 equal with GL0. This confirms recovery/convergence for this burst, **not** elimination of large-burst waiting or a foreground-FPS improvement. Evidence: `final-live-sample.json`, `post-update-burst.json`, `post-update-diagnostics.json` in the same directory. Continue from the observed backlog; do not close the cumulative issue.
