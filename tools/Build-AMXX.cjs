@@ -114,8 +114,7 @@ async function build() {
   const sources = new Map();
   const headers = new Map();
   for (const item of inputs) {
-    // components/ contains included SMA implementations, never plugin entries.
-    if (item.rel.endsWith('.sma') && !item.rel.split('/').includes('components')) {
+    if (item.rel.endsWith('.sma')) {
       const name = path.basename(item.rel, '.sma');
       const key = name.toLowerCase();
       if (!/^[a-z0-9_]+$/i.test(name)) throw new Error(`Invalid plugin filename: ${item.rel}`);

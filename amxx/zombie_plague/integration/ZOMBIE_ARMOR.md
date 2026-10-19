@@ -37,4 +37,4 @@
 
 2026-10-19 命名修正：上述六项独立玩法CVAR统一使用 `zp_`。更新器把server.cfg、autoexec.cfg以及AMXX/地图cfg中的对应旧 `mc_` 名称改成 `zp_`，保留值、顺序和注释；MC主动攻击倍率/击退/僵直仍属于桥接参数。手动复制者须自行替换这六个旧参数名。护甲/击退/受击版本为1.0.1，复活为1.1.1；独立专服六个新默认值和旧名未注册已核验，主服暂存待换图。
 
-实现组织：受击视觉和扣血累计分别位于 `components/zp50_zombie_hitfx.sma` 与 `components/zp50_zombie_injury.sma`，由 `zp50_zombie_gore.sma` 明确包含。构建器仅编译插件入口，components下的SMA不单独生成插件。普通函数和回调不放进inc；inc用于声明、常量和stock工具。
+实现组织：护甲、复活、击退、受击各是独立SMA插件。受击视觉和扣血累计均属于 `zp50_zombie_gore.sma`，按函数分区；不include其他SMA，不在inc定义普通函数或回调。inc用于声明、常量和stock工具。
