@@ -48,6 +48,20 @@ public final class MapEdits {
             if(operation!=CLEAR)write(w,target);if(operation==ADD)write(w,box);return w.toByteArray();
         }
     }
+    public record Batch(long epoch,long base,long revision,List<Cut> cuts) {
+        public Batch {
+            cuts=List.copyOf(cuts);
+            if(epoch==0||base==0||cuts.isEmpty()||cuts.size()>MAX_CUTS||
+                Long.compareUnsigned(base,-1L-cuts.size())>0||revision!=base+cuts.size())
+                throw new IllegalArgumentException("Map edit batch bounds");
+            long id=base;
+            for(var cut:cuts)if(cut.id()!=++id)throw new IllegalArgumentException("Map edit batch identity order");
+        }
+        public byte[] encode(){
+            var w=new Wire.Writer().i64(epoch).i64(base).i64(revision).i32(cuts.size());
+            for(var c:cuts){w.i64(c.id());write(w,c.target());write(w,c.box());}return w.toByteArray();
+        }
+    }
     private static void write(Wire.Writer w,Target t){w.i32(t.slot()).i32(t.serial()).i32(t.model());}
     private static void write(Wire.Writer w,Box b){w.f32(b.minX()).f32(b.minY()).f32(b.minZ()).f32(b.maxX()).f32(b.maxY()).f32(b.maxZ());}
     private static Target target(Wire.Reader r){return new Target(r.i32(),r.i32(),r.i32());}
@@ -62,6 +76,12 @@ public final class MapEdits {
         var r=new Wire.Reader(bytes);long epoch=r.i64(),base=r.i64(),revision=r.i64();int op=r.i32();
         var target=op==CLEAR?null:target(r);var box=op==ADD?box(r):null;
         r.finish();return new Delta(epoch,base,revision,op,target,box);
+    }
+    public static Batch batch(byte[] bytes){
+        var r=new Wire.Reader(bytes);long epoch=r.i64(),base=r.i64(),revision=r.i64();int count=r.i32();
+        if(count<=0||count>MAX_CUTS||r.remaining()!=count*44)throw new IllegalArgumentException("Map edit batch length");
+        var cuts=new ArrayList<Cut>(count);for(int i=0;i<count;i++)cuts.add(new Cut(r.i64(),target(r),box(r)));
+        r.finish();return new Batch(epoch,base,revision,cuts);
     }
     public enum Applied { IGNORED, CHANGED, NEED_SNAPSHOT }
     public static final class Replica {
@@ -94,6 +114,16 @@ public final class MapEdits {
             var accepted=List.copyOf(next);
             prepare.accept(accepted);
             cuts=accepted;revision=d.revision();return Applied.CHANGED;
+        }
+        public Applied accept(Batch b){
+            if(epoch==0||b.epoch()!=epoch||Long.compareUnsigned(b.revision(),revision)<=0)return Applied.IGNORED;
+            if(!ready||b.base()!=revision){ready=false;return Applied.NEED_SNAPSHOT;}
+            if(b.cuts().size()>MAX_CUTS-cuts.size())throw new IllegalArgumentException("Map edit capacity");
+            var next=new ArrayList<Cut>(cuts.size()+b.cuts().size());next.addAll(cuts);next.addAll(b.cuts());
+            var accepted=List.copyOf(next);
+            // Build collision once for the complete explosion, before publishing.
+            prepare.accept(accepted);
+            cuts=accepted;revision=b.revision();return Applied.CHANGED;
         }
     }
     private MapEdits(){}

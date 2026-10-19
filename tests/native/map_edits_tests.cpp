@@ -10,6 +10,38 @@ template<class F> void rejects(F action){bool failed=false;try{action();}catch(c
 Box volume(float x=0){return {{x,-16,-32},{x+32,16,32}};}
 int main(){
     {
+        Ledger batches; batches.reset(7); Replica replica; replica.reset(7); replica.accept(batches.state());
+        std::array<Cut,3> input{{{0,{},volume(0)},{0,{},volume(32)},{0,{},volume(32)}}};
+        assert(batches.add_batch(input));
+        auto pending=batches.next(1,true); assert(pending->type==Type::map_edit_batch);
+        assert(pending->payload.size()==28+2*44);
+        assert(batches.next(1)->type==Type::map_edit_snapshot);
+        assert(batches.next(2,true)->type==Type::map_edit_snapshot); // No partial explosion checkpoint.
+        assert(replica.accept(batch(pending->payload))==Applied::changed&&replica.state()==batches.state());
+        assert(replica.accept(batch(pending->payload))==Applied::ignored);
+        assert(batches.add({},volume(64)));assert(batches.restore());
+        auto tail=batches.since(3,true);assert(tail.size()==2);
+        for(const auto& m:tail)assert(replica.accept(delta(m.payload))==Applied::changed);
+        assert(replica.state()==batches.state());
+        Assembler fragments;fragments.reset(7);std::optional<Message> result;
+        for(std::size_t offset=0;offset<pending->payload.size();offset+=fragment_bytes)
+            result=fragments.accept(fragment(7,1,*pending,offset));
+        assert(result&&result->payload==pending->payload);
+        auto bad=batch(pending->payload);bad.cuts.back().id++;rejects([&]{encode(bad);});
+        bad=batch(pending->payload);bad.base=UINT64_MAX-1;bad.revision=1;rejects([&]{encode(bad);});
+        replica.reset(7);assert(replica.accept(batch(pending->payload))==Applied::need_snapshot);
+        batches.reset(8);assert(batch(pending->payload).epoch==7);
+        // Encoded history is byte-bounded, including large batches interleaved
+        // with clears. Evicted messages remain valid for slow recipients.
+        std::vector<Cut> large;large.reserve(50000);
+        for(unsigned i=0;i<50000;++i){const float x=-30000.0f+float(i);large.push_back({0,{},volume(x)});}
+        assert(batches.add_batch(large));auto retained=batches.next(1,true);
+        assert(batches.restore());const auto base=batches.state().revision;
+        assert(batches.add_batch(large));assert(batches.next(1,true)->type==Type::map_edit_snapshot);
+        assert(batches.next(base,true)->type==Type::map_edit_batch);
+        assert(batch(retained->payload).cuts.size()==50000);
+    }
+    {
         int cursor=0;std::array<int,65> delivered{};
         assert(pump_fragments(32,cursor,[&](int slot){if(slot!=26)return false;++delivered[slot];return true;})==8);
         assert(delivered[26]==8); // Single paired client uses otherwise idle turns.

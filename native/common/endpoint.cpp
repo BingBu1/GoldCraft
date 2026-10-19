@@ -294,6 +294,10 @@ bool Endpoint::native_view() const {
 bool Endpoint::native_absorbed_hit() const {
     return native_knockback() && (impl_->handshake->peer_capabilities() & capability_native_absorbed_hit) != 0;
 }
+bool Endpoint::map_edit_batches() const {
+    return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
+        (impl_->handshake->peer_capabilities() & capability_map_edit_batch) != 0;
+}
 bool Endpoint::native_knockback_steps() const {
     return native_knockback() && (impl_->handshake->peer_capabilities() & capability_native_knockback_steps) != 0;
 }

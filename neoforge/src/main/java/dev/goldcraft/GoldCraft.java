@@ -10,6 +10,7 @@ import dev.goldcraft.bridge.MapEdits;
 import dev.goldcraft.net.BindingPayload;
 import dev.goldcraft.net.CsAdmission;
 import dev.goldcraft.net.HostPayload;
+import dev.goldcraft.net.HostEditBatchPayload;
 import dev.goldcraft.net.ControlPayload;
 import dev.goldcraft.world.HostCollision;
 import dev.goldcraft.world.TraceValidation;
@@ -49,15 +50,19 @@ public final class GoldCraft {
     private static final class Delivery {
         final HostDeliveryQueue queue=new HostDeliveryQueue();
         long nextEditRequest;
+        boolean editBatches;
         void enqueue(int type,byte[] bytes) {
             if(type==Wire.MAP_EDIT_SNAPSHOT)queue.editSnapshot(bytes);
             else if(type==Wire.MAP_EDIT_DELTA)queue.editDelta(bytes,()->HOST_WORLD.edits().snapshot().encode());
+            else if(type==Wire.MAP_EDIT_BATCH)queue.editBatch(bytes,()->HOST_WORLD.edits().snapshot().encode());
             else queue.snapshot(type,bytes);
         }
         void flush(ServerPlayerEntity player) {
             for(int sent=0;sent<8&&queue.first()!=null;sent++) {
                 Wire.Message message=queue.first();byte[] data=message.payload();int offset=queue.offset(),end=Math.min(data.length,offset+HostPayload.FRAGMENT);
-                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,new HostPayload(message.type(),data.length,offset,Arrays.copyOfRange(data,offset,end)));
+                var fragment=new HostPayload(message.type(),data.length,offset,Arrays.copyOfRange(data,offset,end));
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                    message.type()==Wire.MAP_EDIT_BATCH?new HostEditBatchPayload(fragment):fragment);
                 queue.advance(end-offset);
             }
         }
@@ -231,7 +236,14 @@ public final class GoldCraft {
         dev.goldcraft.world.NativeArmorServer.clear();NativeHurt.clear();HostSession.clear(server);SharedVitals.clear();NativePlayers.clear();MinecraftObjects.clear();MinecraftFluids.clear();HostMining.clear();HostExplosions.clear();HOST_WORLD.clear();TRACE_VALIDATION.reset();BINDINGS.clear();DELIVERIES.clear();worldPayload=bspPayload=actorPayload=brushPayload=miningPayload=null;
     }
     private static void broadcast(int type,byte[] data) {
-        for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey()))entry.getValue().enqueue(type,data);
+        byte[] fallback=null;
+        for(var entry:DELIVERIES.entrySet())if(BINDINGS.containsKey(entry.getKey())){
+            var delivery=entry.getValue();
+            if(type==Wire.MAP_EDIT_BATCH&&!delivery.editBatches){
+                if(fallback==null)fallback=HOST_WORLD.edits().snapshot().encode();
+                delivery.enqueue(Wire.MAP_EDIT_SNAPSHOT,fallback);
+            }else delivery.enqueue(type,data);
+        }
     }
     private static void paired(MinecraftServer server,byte[] bytes) {
         if(!CsAdmission.deliverResult(bytes))return;
@@ -239,6 +251,7 @@ public final class GoldCraft {
         ServerPlayerEntity player=server.getPlayerManager().getPlayer(uuid);if(player==null||world!=HOST_WORLD.epoch())return;
         Binding binding=new Binding(world,slot,serial);boolean first=!binding.equals(BINDINGS.get(uuid));
         Delivery delivery=DELIVERIES.computeIfAbsent(uuid,ignored->new Delivery());
+        delivery.editBatches=player.networkHandler.hasChannel(HostEditBatchPayload.ID);
         if(status==0&&first) {
             BINDINGS.put(uuid,binding);
             HostSession.hold(player);
@@ -361,15 +374,18 @@ public final class GoldCraft {
                         }
                         case Wire.MAP_MINING_RESULT -> HostMining.result(server,HOST_WORLD,message.payload());
                         case Wire.MAP_MINING_SURFACE -> HostMining.surface(server,HOST_WORLD,message.payload());
-                        case Wire.MAP_EDIT_SNAPSHOT,Wire.MAP_EDIT_DELTA -> {
+                        case Wire.MAP_EDIT_SNAPSHOT,Wire.MAP_EDIT_DELTA,Wire.MAP_EDIT_BATCH -> {
+                            if(message.type()==Wire.MAP_EDIT_BATCH&&!serverLink.mapEditBatches(generation))
+                                throw new IllegalArgumentException("Unnegotiated map edit batch");
                             var result=message.type()==Wire.MAP_EDIT_SNAPSHOT?HOST_WORLD.edits().accept(MapEdits.snapshot(message.payload())):
+                                message.type()==Wire.MAP_EDIT_BATCH?HOST_WORLD.edits().accept(MapEdits.batch(message.payload())):
                                 HOST_WORLD.edits().accept(MapEdits.delta(message.payload()));
                             if(result==MapEdits.Applied.CHANGED)broadcast(message.type(),message.payload());
                         }
                         default -> { }
                     }
                 }catch(IllegalArgumentException e){
-                    if(message.type()==Wire.MAP_EDIT_SNAPSHOT||message.type()==Wire.MAP_EDIT_DELTA)HOST_WORLD.edits().invalidate();
+                    if(message.type()==Wire.MAP_EDIT_SNAPSHOT||message.type()==Wire.MAP_EDIT_DELTA||message.type()==Wire.MAP_EDIT_BATCH)HOST_WORLD.edits().invalidate();
                     LOGGER.warn("Rejected host-server payload: {}",e.getMessage());
                 }
             }
@@ -416,6 +432,8 @@ public final class GoldCraft {
             if(context.player() instanceof ServerPlayerEntity player)HostMining.intent(player,payload);
         });
         registrar.playToClient(HostPayload.ID,HostPayload.CODEC,dev.goldcraft.net.HostNetwork::receive);
+        registrar.playToClient(HostEditBatchPayload.ID,HostEditBatchPayload.CODEC,(payload,context)->
+            dev.goldcraft.net.HostNetwork.receive(payload.fragment(),context));
         registrar.playToServer(EditRequestPayload.ID,EditRequestPayload.CODEC,(payload,context)->{
             var id=context.player().getUuid();var binding=BINDINGS.get(id);var delivery=DELIVERIES.get(id);
             if(binding==null||delivery==null||binding.world()!=payload.epoch()||payload.epoch()!=HOST_WORLD.epoch()||

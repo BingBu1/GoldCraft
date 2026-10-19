@@ -33,11 +33,19 @@ struct Delta {
     Target target;
     Box box;
 };
+// One append transaction, regardless of how many explosion cells it contains.
+struct Batch {
+    std::uint64_t epoch = 0, base = 0, revision = 0;
+    std::vector<Cut> cuts;
+};
 constexpr std::size_t max_cuts = 65536, journal_size = 256;
+constexpr std::size_t journal_bytes = 4 * 1024 * 1024;
 Bytes encode(const Snapshot& snapshot);
 Bytes encode(const Delta& delta);
+Bytes encode(const Batch& batch);
 Snapshot snapshot(std::span<const std::uint8_t> bytes);
 Delta delta(std::span<const std::uint8_t> bytes);
+Batch batch(std::span<const std::uint8_t> bytes);
 
 // Owned by the native map session, never by an IPC connection. Geometry users
 // must prepare rendering/physics successfully before committing a cut here.
@@ -45,7 +53,7 @@ class Ledger {
 public:
     void reset(std::uint64_t epoch);
     bool add(Target target, Box box);
-    // An explosion publishes one snapshot and one physics build.
+    // An explosion publishes one atomic append and one physics build.
     bool add_batch(std::span<const Cut> cuts);
     bool remove(Target target);
     bool restore();
@@ -53,18 +61,22 @@ public:
     const Snapshot& state() const { return state_; }
     // Return only the next ordered message. Peers share immutable encoding;
     // an in-flight transfer stays valid through later edits, swaps and resets.
-    std::shared_ptr<const Message> next(std::uint64_t revision) const;
+    std::shared_ptr<const Message> next(std::uint64_t revision, bool batches = false) const;
     // Missing/expired history returns a complete snapshot. A disconnected
     // authority can recover even after the bounded delta journal has rolled.
-    std::vector<Message> since(std::uint64_t revision) const;
+    std::vector<Message> since(std::uint64_t revision, bool batches = false) const;
 private:
     void commit(Delta change);
+    void trim() noexcept;
     struct JournalEntry {
+        std::uint64_t base = 0, revision = 0;
         Delta change;
         mutable std::shared_ptr<const Message> message;
+        std::size_t bytes = 0;
     };
     Snapshot state_;
     std::deque<JournalEntry> journal_;
+    std::size_t journal_bytes_ = 0;
     mutable std::shared_ptr<const Message> snapshot_message_;
 };
 
@@ -74,6 +86,7 @@ public:
     void reset(std::uint64_t epoch);
     Applied accept(const Snapshot& snapshot);
     Applied accept(const Delta& delta);
+    Applied accept(const Batch& batch);
     void invalidate() { ready_ = false; }
     const Snapshot& state() const { return state_; }
     bool ready() const { return ready_; }

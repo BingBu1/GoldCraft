@@ -53,6 +53,7 @@ public:
     bool native_water() const;
     bool native_movement() const;
     bool native_knockback_steps() const;
+    bool map_edit_batches() const;
     bool native_knockback() const;
     bool native_absorbed_hit() const;
     bool status_melee() const;

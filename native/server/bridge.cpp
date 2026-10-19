@@ -877,11 +877,11 @@ void SendGameplayRules() {
 }
 std::uint64_t EditRevision(const Message& message){
     Reader r(message.payload);r.u64();const auto revision=r.u64();
-    return message.type==Type::map_edit_delta?r.u64():revision;
+    return message.type==Type::map_edit_snapshot?revision:r.u64();
 }
 void SendEdits(){
     const auto& ledger=GoldCraft_MapEdits();
-    if(link.connected())while(const auto message=ledger.next(edit_revision_sent)){
+    if(link.connected())while(const auto message=ledger.next(edit_revision_sent,link.map_edit_batches())){
         if(!link.send(message->type,message->payload))break;
         edit_revision_sent=EditRevision(*message);
     }
@@ -889,7 +889,7 @@ void SendEdits(){
         auto& delivery=edit_deliveries[slot];
         if(!delivery.enabled||edicts[slot].free)return false;
         if(!delivery.message){
-            auto message=ledger.next(delivery.revision);if(!message)return false;
+            auto message=ledger.next(delivery.revision,HasClientFeature(edicts+slot,client_features::edit_batch,nullptr));if(!message)return false;
             if(edit_transfer==UINT64_MAX)throw ProtocolError("Map edit transfer exhausted");
             delivery.message=std::move(message);delivery.offset=0;delivery.transfer=++edit_transfer;
         }

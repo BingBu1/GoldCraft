@@ -10,6 +10,36 @@ class MapEditsTest {
     private final MapEdits.Target world=new MapEdits.Target(0,0,0);
     private final MapEdits.Box box=new MapEdits.Box(-32,-16,-8,32,16,8);
     private MapEdits.Delta add(long revision){return new MapEdits.Delta(7,revision-1,revision,MapEdits.ADD,world,box);}
+    @Test void batchPreparesOnceAndFailureKeepsPreviousState(){
+        int[] prepares={0};boolean[] reject={false};
+        var replica=new MapEdits.Replica(cuts->{prepares[0]++;if(reject[0])throw new IllegalArgumentException("prepare rejected");});
+        replica.reset(7);replica.accept(new MapEdits.Snapshot(7,1,List.of()));
+        var batch=new MapEdits.Batch(7,1,3,List.of(new MapEdits.Cut(2,world,box),new MapEdits.Cut(3,world,box)));
+        assertEquals(batch,MapEdits.batch(batch.encode()));assertEquals(116,batch.encode().length);
+        reject[0]=true;assertThrows(IllegalArgumentException.class,()->replica.accept(batch));
+        assertEquals(1,replica.revision());assertTrue(replica.cuts().isEmpty());assertTrue(replica.ready());
+        reject[0]=false;assertEquals(MapEdits.Applied.CHANGED,replica.accept(batch));assertEquals(3,prepares[0]);
+        assertEquals(MapEdits.Applied.IGNORED,replica.accept(batch));assertEquals(3,prepares[0]);
+        var gap=new MapEdits.Batch(7,4,5,List.of(new MapEdits.Cut(5,world,box)));
+        assertEquals(MapEdits.Applied.NEED_SNAPSHOT,replica.accept(gap));assertEquals(3,replica.revision());
+        assertThrows(IllegalArgumentException.class,()->new MapEdits.Batch(7,-1L,0,List.of(new MapEdits.Cut(1,world,box))));
+        assertThrows(IllegalArgumentException.class,()->new MapEdits.Batch(7,1,3,List.of(new MapEdits.Cut(2,world,box),new MapEdits.Cut(4,world,box))));
+        var crossing=new MapEdits.Batch(7,Long.MAX_VALUE,Long.MIN_VALUE,List.of(new MapEdits.Cut(Long.MIN_VALUE,world,box)));
+        assertEquals(crossing,MapEdits.batch(crossing.encode()));
+        for(int i=0;i<batch.encode().length;i++){
+            var truncated=Arrays.copyOf(batch.encode(),i);assertThrows(IllegalArgumentException.class,()->MapEdits.batch(truncated));
+        }
+        assertTrue(Wire.knownType(Wire.NATIVE_KNOCKBACK_STEPS));assertTrue(Wire.knownType(Wire.MAP_EDIT_BATCH));
+    }
+    @Test void byteBackpressurePreservesStartedBatchThenReplacesPendingEdits(){
+        var q=new HostDeliveryQueue();var initial=new byte[2*1024*1024];
+        q.editBatch(initial,()->{throw new AssertionError();});q.advance(1);
+        q.editBatch(new byte[2*1024*1024],()->{throw new AssertionError();});
+        var snapshot=new MapEdits.Snapshot(7,1,List.of()).encode();
+        q.editDelta(add(2).encode(),()->snapshot);
+        assertEquals(2,q.size());assertEquals(1,q.offset());assertSame(initial,q.first().payload());
+        q.advance(initial.length-1);assertEquals(Wire.MAP_EDIT_SNAPSHOT,q.first().type());assertSame(snapshot,q.first().payload());
+    }
     @Test void recoveryNeverCommitsAGapOrAnOlderWorld(){
         var replica=new MapEdits.Replica();replica.reset(7);
         assertEquals(MapEdits.Applied.NEED_SNAPSHOT,replica.accept(add(2)));

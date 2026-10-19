@@ -64,11 +64,12 @@ public final class GoldCraftClient {
                     case Wire.MAP_MINING_POLICY -> HOST.mining(message.payload());
                     case Wire.MAP_EDIT_SNAPSHOT -> HOST.edits().accept(MapEdits.snapshot(message.payload()));
                     case Wire.MAP_EDIT_DELTA -> HOST.edits().accept(MapEdits.delta(message.payload()));
+                    case Wire.MAP_EDIT_BATCH -> HOST.edits().accept(MapEdits.batch(message.payload()));
                     default -> { }
                 }
             }catch(IllegalArgumentException e){
                 GoldCraft.LOGGER.warn("Rejected host map stream: {}",e.getMessage());assembler.clear();
-                if(part.type()==Wire.MAP_EDIT_SNAPSHOT||part.type()==Wire.MAP_EDIT_DELTA)HOST.edits().invalidate();else HOST.clear();
+                if(part.type()==Wire.MAP_EDIT_SNAPSHOT||part.type()==Wire.MAP_EDIT_DELTA||part.type()==Wire.MAP_EDIT_BATCH)HOST.edits().invalidate();else HOST.clear();
             }
         });
         try {

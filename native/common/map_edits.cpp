@@ -36,6 +36,16 @@ void validate(const Delta& d) {
     default: throw ProtocolError("Map edit operation");
     }
 }
+void validate(const Batch& b) {
+    if (!b.epoch || !b.base || b.cuts.empty() || b.cuts.size() > max_cuts ||
+        b.base > UINT64_MAX - b.cuts.size() || b.revision != b.base + b.cuts.size())
+        throw ProtocolError("Map edit batch bounds");
+    auto id = b.base;
+    for (const auto& c : b.cuts) {
+        if (c.id != ++id) throw ProtocolError("Map edit batch identity order");
+        validate(c.target); validate(c.box);
+    }
+}
 void write(Writer& w, Target t) { w.u32(t.slot); w.u32(t.serial); w.u32(t.model); }
 void write(Writer& w, const Box& b) { for (auto n : b.min) w.f32(n); for (auto n : b.max) w.f32(n); }
 Target target(Reader& r) { return {r.u32(), r.u32(), r.u32()}; }
@@ -66,6 +76,12 @@ Bytes encode(const Delta& d) {
     if (d.operation == Operation::add) write(w, d.box);
     return std::move(w.data);
 }
+Bytes encode(const Batch& b) {
+    validate(b); Writer w; w.data.reserve(28 + b.cuts.size() * 44);
+    w.u64(b.epoch); w.u64(b.base); w.u64(b.revision); w.u32(static_cast<std::uint32_t>(b.cuts.size()));
+    for (const auto& c : b.cuts) { w.u64(c.id); write(w, c.target); write(w, c.box); }
+    return std::move(w.data);
+}
 Snapshot snapshot(std::span<const std::uint8_t> bytes) {
     Reader r(bytes); Snapshot s; s.epoch = r.u64(); s.revision = r.u64(); const auto count = r.u32();
     if (count > max_cuts || r.remaining() != count * 44ull) throw ProtocolError("Map edit snapshot length");
@@ -80,20 +96,33 @@ Delta delta(std::span<const std::uint8_t> bytes) {
     if (d.operation == Operation::add) d.box = box(r);
     r.finish(); validate(d); return d;
 }
+Batch batch(std::span<const std::uint8_t> bytes) {
+    Reader r(bytes); Batch b; b.epoch = r.u64(); b.base = r.u64(); b.revision = r.u64(); const auto count = r.u32();
+    if (!count || count > max_cuts || r.remaining() != count * 44ull) throw ProtocolError("Map edit batch length");
+    b.cuts.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) b.cuts.push_back({r.u64(), target(r), box(r)});
+    r.finish(); validate(b); return b;
+}
 void Ledger::reset(std::uint64_t epoch) {
-    state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); snapshot_message_.reset();
+    state_ = {epoch, epoch ? 1u : 0u, {}}; journal_.clear(); journal_bytes_ = 0; snapshot_message_.reset();
 }
 void Ledger::swap(Ledger& other) noexcept {
     std::swap(state_,other.state_); journal_.swap(other.journal_); snapshot_message_.swap(other.snapshot_message_);
+    std::swap(journal_bytes_,other.journal_bytes_);
+}
+void Ledger::trim() noexcept {
+    while (journal_.size() > journal_size || journal_bytes_ > journal_bytes) {
+        journal_bytes_ -= journal_.front().bytes; journal_.pop_front();
+    }
 }
 void Ledger::commit(Delta d) {
     validate(d);
     // Allocate journal storage before changing the authoritative state. Roll it
     // back if cut allocation fails, so peers never receive an uncommitted edit.
-    journal_.push_back({d,{}});
+    journal_.push_back({d.base,d.revision,d,{},64});
     try { apply(state_, d); } catch (...) { journal_.pop_back(); throw; }
     snapshot_message_.reset();
-    if (journal_.size() > journal_size) journal_.pop_front();
+    journal_bytes_ += 64; trim();
 }
 bool Ledger::add(Target t, Box b) {
     validate(t); validate(b);
@@ -116,11 +145,15 @@ bool Ledger::add_batch(std::span<const Cut> cuts) {
         next.push_back({++revision,c.target,c.box});
     }
     if (revision == state_.revision) return false;
+    Batch change{state_.epoch,state_.revision,revision,{next.begin()+state_.cuts.size(),next.end()}};
+    auto message = std::make_shared<const Message>(Message{Type::map_edit_batch,encode(change)});
+    const auto bytes = message->payload.size();
+    // Complete allocation/encoding before publishing state. In-flight peers
+    // keep immutable messages even after eviction, a candidate swap or reset.
+    journal_.push_back({change.base,change.revision,{},std::move(message),bytes});
     state_.cuts.swap(next); state_.revision = revision;
     snapshot_message_.reset();
-    // One snapshot avoids thousands of delta allocations/fragments. All
-    // recipients already recover from an expired journal using this path.
-    journal_.clear();
+    journal_bytes_ += bytes; trim();
     return true;
 }
 bool Ledger::remove(Target t) {
@@ -132,23 +165,27 @@ bool Ledger::restore() {
     if (state_.cuts.empty()) return false;
     commit({state_.epoch, state_.revision, state_.revision + 1, Operation::clear, {}, {}}); return true;
 }
-std::shared_ptr<const Message> Ledger::next(std::uint64_t revision) const {
+std::shared_ptr<const Message> Ledger::next(std::uint64_t revision, bool batches) const {
     if (!state_.epoch || revision == state_.revision) return {};
-    if (revision && revision < state_.revision && !journal_.empty() && revision >= journal_.front().change.base) {
-        // The journal is contiguous, so select one delta without scanning or
-        // serializing the backlog again for each recipient and fragment.
-        const auto& entry = journal_[static_cast<std::size_t>(revision - journal_.front().change.base)];
-        if (!entry.message) entry.message = std::make_shared<const Message>(Message{Type::map_edit_delta, encode(entry.change)});
-        return entry.message;
+    if (revision && revision < state_.revision) {
+        const auto entry = std::lower_bound(journal_.begin(),journal_.end(),revision,
+            [](const JournalEntry& e, std::uint64_t value) { return e.base < value; });
+        // A revision inside a batch is not a checkpoint. Legacy peers and
+        // missing/expired history recover through a complete snapshot.
+        if (entry != journal_.end() && entry->base == revision &&
+            (batches || !entry->message || entry->message->type != Type::map_edit_batch)) {
+            if (!entry->message) entry->message = std::make_shared<const Message>(Message{Type::map_edit_delta, encode(entry->change)});
+            return entry->message;
+        }
     }
     if (!snapshot_message_) snapshot_message_ = std::make_shared<const Message>(Message{Type::map_edit_snapshot, encode(state_)});
     return snapshot_message_;
 }
-std::vector<Message> Ledger::since(std::uint64_t revision) const {
+std::vector<Message> Ledger::since(std::uint64_t revision, bool batches) const {
     std::vector<Message> messages;
-    while (auto message = next(revision)) {
+    while (auto message = next(revision,batches)) {
         Reader r(message->payload); r.u64(); revision = r.u64();
-        if (message->type == Type::map_edit_delta) revision = r.u64();
+        if (message->type != Type::map_edit_snapshot) revision = r.u64();
         messages.push_back(*message);
     }
     return messages;
@@ -166,10 +203,21 @@ Applied Replica::accept(const Delta& d) {
     if (!ready_ || d.base != state_.revision) { ready_ = false; return Applied::need_snapshot; }
     apply(state_, d); return Applied::changed;
 }
+Applied Replica::accept(const Batch& b) {
+    validate(b);
+    if (!state_.epoch || b.epoch != state_.epoch || b.revision <= state_.revision) return Applied::ignored;
+    if (!ready_ || b.base != state_.revision) { ready_ = false; return Applied::need_snapshot; }
+    if (b.cuts.size() > max_cuts - state_.cuts.size()) throw ProtocolError("Map edit capacity");
+    // Cut is trivially copyable; insertion provides the strong guarantee.
+    state_.cuts.insert(state_.cuts.end(),b.cuts.begin(),b.cuts.end());
+    state_.revision = b.revision; return Applied::changed;
+}
 namespace {
 void transfer_bounds(Type type, std::size_t total) {
-    if ((type != Type::map_edit_snapshot && type != Type::map_edit_delta) || total < 20 ||
-        total > (type == Type::map_edit_snapshot ? 20 + max_cuts * 44 : 64))
+    const auto limit = type == Type::map_edit_snapshot ? 20 + max_cuts * 44 :
+        type == Type::map_edit_batch ? 28 + max_cuts * 44 : 64;
+    if ((type != Type::map_edit_snapshot && type != Type::map_edit_delta && type != Type::map_edit_batch) ||
+        total < (type == Type::map_edit_batch ? 72u : 20u) || total > limit)
         throw ProtocolError("Map edit transfer bounds");
 }
 }

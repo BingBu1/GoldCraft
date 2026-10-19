@@ -6,12 +6,13 @@ namespace goldcraft::client_features {
 // Keep optional presentation/prediction capabilities in one compact field.
 inline constexpr const char* key = "_gcf";
 enum Feature : std::uint32_t {
-    motion = 1, water = 2, nausea = 4, vision = 8, outline = 16, fluid = 32
+    motion = 1, water = 2, nausea = 4, vision = 8, outline = 16, fluid = 32, edit_batch = 64
 };
 template<class Read>
 bool supports(Read read, Feature feature, const char* legacy) {
     const char* value = read(key);
     if (!value || !*value) {
+        if (!legacy) return false;
         value = read(legacy);
         return value && value[0] == '1' && value[1] == '\0';
     }

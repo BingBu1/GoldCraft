@@ -11,6 +11,7 @@ class EditTransaction {
     void reset(std::uint64_t epoch);
     edits::Applied accept(const edits::Snapshot &snapshot);
     edits::Applied accept(const edits::Delta &delta);
+    edits::Applied accept(const edits::Batch &batch);
     // Identity publication is independent of edit preparation. Call after a
     // received frame changes and again before the engine starts entity drawing.
     void publish(IMetaRendererWorldEdit *renderer, model_s *world,

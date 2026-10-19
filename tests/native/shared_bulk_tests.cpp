@@ -124,11 +124,11 @@ void handshake_tests() {
         HostHandshake h(session, token, Role::host_client, Role::fabric_client, 42); auto p = hello(Role::fabric_client, caps);
         h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p); require(h.ready() && h.peer_capabilities() == caps);
     }
-    for (auto caps : {capability_shared_bulk_v1, 0x80000000u}) {
+    for (auto caps : {capability_shared_bulk_v1, capability_view_distortion}) {
         HostHandshake h(session, token, Role::host_server, Role::fabric_server, 42); auto p = hello(Role::fabric_server, caps);
         rejects([&] { h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p); });
     }
-    for (auto caps : {capability_local_qpc_v1, capability_local_qpc_v1 | capability_gameplay_rules}) {
+    for (auto caps : {capability_local_qpc_v1, capability_local_qpc_v1 | capability_gameplay_rules, capability_map_edit_batch}) {
         HostHandshake h(session, token, Role::host_server, Role::fabric_server, 42); auto p = hello(Role::fabric_server, caps);
         h.accept({Type::hello, static_cast<std::uint32_t>(p.size()), 0, 1}, p);
         require(h.ready() && h.peer_capabilities() == caps);

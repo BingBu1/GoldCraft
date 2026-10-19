@@ -20,10 +20,19 @@ public final class HostDeliveryQueue {
         queue.removeIf(m->isEdit(m)&&unstarted(m));queue.addLast(new Wire.Message(Wire.MAP_EDIT_SNAPSHOT,bytes));
     }
     public void editDelta(byte[] bytes,Supplier<byte[]> currentSnapshot){
-        if(queue.stream().filter(HostDeliveryQueue::isEdit).count()>=256){editSnapshot(currentSnapshot.get());return;}
-        queue.addLast(new Wire.Message(Wire.MAP_EDIT_DELTA,bytes));
+        editChange(Wire.MAP_EDIT_DELTA,bytes,currentSnapshot);
     }
-    private static boolean isEdit(Wire.Message m){return m.type()==Wire.MAP_EDIT_SNAPSHOT||m.type()==Wire.MAP_EDIT_DELTA;}
+    public void editBatch(byte[] bytes,Supplier<byte[]> currentSnapshot){
+        editChange(Wire.MAP_EDIT_BATCH,bytes,currentSnapshot);
+    }
+    private void editChange(int type,byte[] bytes,Supplier<byte[]> currentSnapshot){
+        int count=0;long retained=bytes.length;
+        for(var message:queue)if(isEdit(message)){count++;retained+=message.payload().length;}
+        // Keep the started message intact, then catch up with one full state.
+        if(count>=256||retained>4*1024*1024){editSnapshot(currentSnapshot.get());return;}
+        queue.addLast(new Wire.Message(type,bytes));
+    }
+    private static boolean isEdit(Wire.Message m){return m.type()==Wire.MAP_EDIT_SNAPSHOT||m.type()==Wire.MAP_EDIT_DELTA||m.type()==Wire.MAP_EDIT_BATCH;}
     public void advance(int bytes){
         if(queue.isEmpty()||bytes<=0||bytes>queue.peekFirst().payload().length-offset)throw new IllegalArgumentException("Host delivery progress");
         offset+=bytes;if(offset==queue.peekFirst().payload().length){queue.removeFirst();offset=0;}

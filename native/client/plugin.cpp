@@ -466,7 +466,7 @@ void UpdateStaticScene(){
 
 void PublishClientFeatures() {
     using namespace client_features;
-    const unsigned bits = nausea | vision | fluid |
+    const unsigned bits = nausea | vision | fluid | edit_batch |
         (client_motion::ready() ? motion | water : 0u) |
         (native_outline_ready ? outline : 0u);
     if (gEngfuncs.Cvar_SetValue && gEngfuncs.pfnGetCvarPointer(key))
@@ -984,6 +984,7 @@ int EditMessage(const char*,int size,void* data){
         const auto message=edit_assembler.accept(std::span(static_cast<const std::uint8_t*>(data),static_cast<std::size_t>(size)));
         if(!message)return 1;
         const auto result=message->type==Type::map_edit_snapshot?map_edits.accept(edits::snapshot(message->payload)):
+            message->type==Type::map_edit_batch?map_edits.accept(edits::batch(message->payload)):
             map_edits.accept(edits::delta(message->payload));
         if(result==edits::Applied::need_snapshot)edit_recovery=true;
         else if(map_edits.ready())edit_recovery=false;

@@ -58,6 +58,11 @@ edits::Applied EditTransaction::accept(const edits::Delta &delta) {
     const auto result = next.accept(delta);
     return receive(std::move(next), result);
 }
+edits::Applied EditTransaction::accept(const edits::Batch &batch) {
+    auto next = desired_;
+    const auto result = next.accept(batch);
+    return receive(std::move(next), result);
+}
 void EditTransaction::provider_lost() {
     const auto epoch = desired_.state().epoch;
     cancel();
