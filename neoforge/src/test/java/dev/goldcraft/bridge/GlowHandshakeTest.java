@@ -47,6 +47,7 @@ class GlowHandshakeTest {
     }
     @Test void oldHostDropsOnlyGlowAndKeepsHealth()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension
             try(var water=host.accept()){hello(water);} // reject native-water extension
@@ -64,6 +65,7 @@ class GlowHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedGlow()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension
             try(var water=host.accept()){hello(water);} // reject native-water extension

@@ -47,6 +47,7 @@ class FallHandshakeTest {
     }
     @Test void oldHostDropsOnlyFallAndKeepsSkillGuard()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension
             try(var water=host.accept()){hello(water);} // reject native-water extension
@@ -66,6 +67,7 @@ class FallHandshakeTest {
     }
     @Test void oldHostCannotAcceptUnrequestedFall()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var absorbed=host.accept()){hello(absorbed);} // reject absorbed-hit extension
             try(var knockback=host.accept()){hello(knockback);} // reject native-knockback extension
             try(var movement=host.accept()){hello(movement);} // reject native-movement extension
             try(var water=host.accept()){hello(water);} // reject native-water extension

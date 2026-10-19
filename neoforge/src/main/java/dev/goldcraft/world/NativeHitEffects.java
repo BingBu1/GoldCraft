@@ -44,6 +44,11 @@ public final class NativeHitEffects implements AutoCloseable {
         ready=accepted;knockback.local(accepted);close();
         if(requests==0)complete(accepted&&absorptionPaid);
     }
+    public void absorbed(DamageSource source,float amount){
+        // Keep the real hurt scope open so this no-health contact receives the
+        // same callback/knockback confirmation as a normal damage request.
+        if(!closed&&requests==0)NativePlayers.absorbed(target.body(),source,amount);
+    }
     private LivingEntity recipient(){
         var actor=GoldCraft.HOST_WORLD.actors().stream().filter(a->a.slot()==target.hostSlot()).findFirst().orElse(null);
         if(epoch!=GoldCraft.HOST_WORLD.epoch()||generation!=GoldCraft.authorityGeneration()

@@ -45,6 +45,8 @@ void GoldCraft_PlayerKilled(edict_s* player);
 // True only during a final, already vanilla-armored MC health commit.
 bool GoldCraft_FinalMinecraftDamage(edict_s* player);
 bool GoldCraft_MinecraftAttack(edict_s* player);
+// One exact TakeDamage invocation: MC already paid the hit from golden hearts.
+bool GoldCraft_AbsorbedMinecraftAttack(edict_s* player);
 // Falling belongs to vanilla only while its authenticated server owns movement.
 bool GoldCraft_MinecraftFallAuthority(edict_s* player);
 // Read-only effective healing cap; native class maximum remains authoritative.

@@ -100,6 +100,7 @@ public final class NativePlayerHitboxEntity extends LivingEntity {
             // spatial target. Skills can reset its real cooldown and receive
             // normal hit feedback/damage modifiers. Only native health commits.
             boolean hit=super.damage(source,body.difficultyDamage(source,amount));
+            if(hit)effects.absorbed(source,absorptionBefore-getAbsorptionAmount());
             effects.localResult(hit,getAbsorptionAmount()<absorptionBefore);
             // A hit paid entirely by golden hearts still landed, even though
             // it has no native health delta to send.

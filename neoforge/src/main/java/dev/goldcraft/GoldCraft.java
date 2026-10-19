@@ -84,6 +84,12 @@ public final class GoldCraft {
     public static boolean sendVision(byte[] payload){
         var link=serverLink;return link!=null&&link==authorityLink&&link.sendVision(generation,payload);
     }
+    public static boolean nativeAbsorbedHitAvailable(){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.nativeAbsorbedHit(generation);
+    }
+    public static boolean sendNativeAbsorbedHit(byte[] payload){
+        var link=serverLink;return link!=null&&link==authorityLink&&link.sendNativeAbsorbedHit(generation,payload);
+    }
     public static boolean nativeKnockbackAvailable(){
         var link=serverLink;return link!=null&&link==authorityLink&&link.nativeKnockback(generation);
     }

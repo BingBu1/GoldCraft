@@ -345,7 +345,7 @@ index 3ccefc4..da9ec23 100644
  		MESSAGE_END();
  
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..b1552bd 100644
+index 8a219ea..153d227 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,8 @@
@@ -509,7 +509,21 @@ index 8a219ea..b1552bd 100644
  	}
  
  	CBaseEntity *pAttacker = CBaseEntity::Instance(pevAttacker);
-@@ -1182,7 +1137,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1121,6 +1076,13 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+ 	if (!IsAlive())
+ 		return FALSE;
+ 
++	// The MC server already spent golden hearts. ReAPI pre hooks, immunity,
++	// spawn protection and game rules above still decide whether this hit lands.
++	// Do not run native armor/health/flinch a second time; nested hurts have a
++	// different bridge damage depth and continue through their ordinary path.
++	if (GoldCraft_AbsorbedMinecraftAttack(edict()))
++		return std::isfinite(float(flDamage)) && flDamage > 0 && pev->takedamage != DAMAGE_NO && !(pev->flags & FL_GODMODE);
++
+ 	pAttacker = GetClassPtr<CCSEntity>((CBaseEntity *)pevAttacker);
+ 
+ 	if (pAttacker->IsPlayer() && !(pAttacker == this && (bitsDamageType & DMG_FALL)))
+@@ -1182,7 +1144,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -518,7 +532,7 @@ index 8a219ea..b1552bd 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1253,7 +1208,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1215,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -527,7 +541,7 @@ index 8a219ea..b1552bd 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1291,86 +1246,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1291,86 +1253,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	}
  
  	// keep track of amount of damage last sustained
@@ -620,7 +634,7 @@ index 8a219ea..b1552bd 100644
  }
  
  LINK_HOOK_CHAIN(CWeaponBox *, CreateWeaponBox, (CBasePlayerItem *pItem, CBasePlayer *pPlayerOwner, const char *modelName, Vector &origin, Vector &angles, Vector &velocity, float lifeTime, bool packAmmo), pItem, pPlayerOwner, modelName, origin, angles, velocity, lifeTime, packAmmo)
-@@ -2230,6 +2111,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2118,8 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -629,7 +643,7 @@ index 8a219ea..b1552bd 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2434,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+@@ -2551,7 +2441,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -638,7 +652,7 @@ index 8a219ea..b1552bd 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3185,6 +3068,14 @@ void CBasePlayer::WaterMove()
+@@ -3185,6 +3075,14 @@ void CBasePlayer::WaterMove()
  		return;
  #endif
  
@@ -653,7 +667,7 @@ index 8a219ea..b1552bd 100644
  	// waterlevel 0 - not in water
  	// waterlevel 1 - feet in water
  	// waterlevel 2 - waist in water
-@@ -3897,6 +3788,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
+@@ -3897,6 +3795,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -661,7 +675,7 @@ index 8a219ea..b1552bd 100644
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3816,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+@@ -3924,7 +3823,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -670,7 +684,7 @@ index 8a219ea..b1552bd 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4151,6 +4043,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
+@@ -4151,6 +4050,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -678,7 +692,7 @@ index 8a219ea..b1552bd 100644
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -5375,6 +5268,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5375,6 +5275,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -697,7 +711,7 @@ index 8a219ea..b1552bd 100644
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5387,7 +5292,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5387,7 +5299,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  			// after this point, we start doing damage
  			if (m_flFallVelocity > MAX_PLAYER_SAFE_FALL_SPEED)
  			{
@@ -706,7 +720,7 @@ index 8a219ea..b1552bd 100644
  
  				// splat
  				if (flFallDamage > pev->health)
-@@ -5779,6 +5684,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5779,6 +5691,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
  
@@ -715,7 +729,7 @@ index 8a219ea..b1552bd 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6039,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6046,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -724,7 +738,7 @@ index 8a219ea..b1552bd 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -7746,28 +7655,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7662,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  

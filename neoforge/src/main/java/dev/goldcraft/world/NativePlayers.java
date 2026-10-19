@@ -153,6 +153,16 @@ public final class NativePlayers {
         if(amount<=0)return false;
         var explosion=NativeTntDamage.center(target,source);
         if(explosion!=null)return tntDamage(target,source,amount,explosion);
+        return attackDamage(target,source,amount,false);
+    }
+    static boolean absorbed(NativePlayerEntity target,DamageSource source,float amount){
+        if(!GoldCraft.nativeAbsorbedHitAvailable()||!Float.isFinite(amount)||amount<=0
+            ||target.actor().life()==0||target.actor().minecraftForm()||GoldCraft.HOST_WORLD.tick()==0
+            ||source.isIn(DamageTypeTags.IS_EXPLOSION)
+            ||(target.hitbox()!=null&&NativeStatusExecution.current(target.hitbox())!=null))return false;
+        return attackDamage(target,source,amount,true);
+    }
+    private static boolean attackDamage(NativePlayerEntity target,DamageSource source,float amount,boolean absorbed){
         Entity attacker=source.getAttacker();
         long key=MinecraftObjects.key(attacker);
         var playerSource=attacker instanceof net.minecraft.server.network.ServerPlayerEntity p?GoldCraft.HOST_WORLD.actor(p.getUuid()):null;
@@ -174,9 +184,17 @@ public final class NativePlayers {
                 .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
                 .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f);
         }
-        boolean active=playerSource!=null&&ActivePlayerDamage.eligible(source,kind)&&GoldCraft.playerGameplayAvailable();
-        if(!(active?GoldCraft.sendPlayerGameplay(Wire.PLAYER_ATTACK,request.toByteArray()):GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray())))return false;
-        pending.put(event,new Pending(target,kind,GoldCraft.authorityGeneration(),NativeHitEffects.request(target)));
+        boolean active=!absorbed&&playerSource!=null&&ActivePlayerDamage.eligible(source,kind)&&GoldCraft.playerGameplayAvailable();
+        boolean sent;
+        if(absorbed){
+            request.i32(actor.life()).i64(GoldCraft.HOST_WORLD.tick())
+                .f32(actor.origin().x()+(actor.mins().x()+actor.maxs().x())*.5f)
+                .f32(actor.origin().y()+(actor.mins().y()+actor.maxs().y())*.5f)
+                .f32(actor.origin().z()+(actor.mins().z()+actor.maxs().z())*.5f);
+            sent=GoldCraft.sendNativeAbsorbedHit(request.toByteArray());
+        }else sent=active?GoldCraft.sendPlayerGameplay(Wire.PLAYER_ATTACK,request.toByteArray()):GoldCraft.sendToHost(Wire.DAMAGE_REQUEST,request.toByteArray());
+        if(!sent)return false;
+        pending.put(event,new Pending(target,absorbed?7:kind,GoldCraft.authorityGeneration(),NativeHitEffects.request(target)));
         target.healthLedger().awaitReceipt(event);requests++;return true;
     }
     private static boolean tntDamage(NativePlayerEntity target,DamageSource source,float amount,net.minecraft.util.math.Vec3d center){
@@ -229,7 +247,7 @@ public final class NativePlayers {
         if(e!=epoch||request==null)return;
         long tick=request.kind()==5?r.i64():GoldCraft.HOST_WORLD.tick();r.finish();
         if(request.generation()!=GoldCraft.authorityGeneration()||(request.kind()==5&&!GoldCraft.statusEffectsAvailable())
-            ||(request.kind()==6&&!GoldCraft.tntDamageAvailable()))return;
+            ||(request.kind()==6&&!GoldCraft.tntDamageAvailable())||(request.kind()==7&&!GoldCraft.nativeAbsorbedHitAvailable()))return;
         var target=request.target();
         if(target.actor().slot()!=slot||target.actor().serial()!=serial||target.actor().spawn()!=spawn||armor<0||status<0||status>6)return;
         pending.remove(event);

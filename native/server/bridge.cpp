@@ -21,6 +21,7 @@
 #include "goldcraft/status_melee.hpp"
 #include "goldcraft/native_impulse.hpp"
 #include "goldcraft/native_knockback.hpp"
+#include "goldcraft/native_absorbed_hit.hpp"
 #include "goldcraft/native_water.hpp"
 #include "goldcraft/client_features.hpp"
 #include "goldcraft/status_visibility.hpp"
@@ -101,6 +102,8 @@ FormGuard form_guard=nullptr;
 PlayerAttackListener player_attack_listener=nullptr;
 ActivePlayerAttack active_player_attack;
 unsigned native_damage_depth=0;
+struct AbsorbedAttack {edict_t* target=nullptr;unsigned depth=0;};
+AbsorbedAttack absorbed_minecraft_attack;
 std::array<bool,65> form_guard_busy{};
 std::array<PlayerGameplayLease,65> player_gameplay;
 bool player_gameplay_supported=false;
@@ -765,9 +768,11 @@ void HandlePlayerGameplay(std::span<const std::uint8_t> bytes){
         ||state.spawn!=player_births[state.slot]||state.life!=player_lives[state.slot]||edicts[state.slot].free)return;
     player_gameplay[state.slot].update(state,gpGlobals->time);
 }
-void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
+void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false,bool absorbed=false){
     if(active&&!link.player_gameplay())throw ProtocolError("Unnegotiated player attack");
-    const auto damage=read_mob_damage(bytes);
+    if(absorbed&&!link.native_absorbed_hit())throw ProtocolError("Unnegotiated absorbed hit");
+    AbsorbedHit contact;
+    const auto damage=absorbed?(contact=read_absorbed_hit(bytes)).damage:read_mob_damage(bytes);
     if(active&&(!damage.attacker||damage.source_key||
         (damage.kind!=MobDamageKind::melee&&damage.kind!=MobDamageKind::projectile&&damage.kind!=MobDamageKind::skill)))
         throw ProtocolError("Invalid active player attack");
@@ -794,7 +799,10 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
             const bool near_target=skill?skill_damage_snapshots.matches(damage,gpGlobals->time,{destination.x,destination.y,destination.z})
                 :(point-destination).LengthSquared()<=radius*radius;
             const bool near_source=(damage.kind!=MobDamageKind::melee&&!skill)||(point-source->v.origin).LengthSquared()<=128.0f*128.0f;
-            if(near_target&&near_source){
+            const bool current_contact=!absorbed||(contact.life==player_lives[damage.slot]&&!minecraft_forms[damage.slot]
+                &&skill_damage_snapshots.matches(damage.epoch,contact.tick,damage.slot,damage.serial,damage.life,
+                    contact.center,gpGlobals->time,{destination.x,destination.y,destination.z}));
+            if(near_target&&near_source&&current_contact){
                 TraceResult trace;UTIL_TraceLine(point,destination,dont_ignore_monsters,source,&trace);
                 if(!trace.fStartSolid&&(trace.flFraction>=0.999f||trace.pHit==victim)&&g_pGameRules->FPlayerCanTakeDamage(player,GET_PRIVATE<CBaseEntity>(source))){
                     const int bits=damage.kind==MobDamageKind::explosion?DMG_BLAST:damage.kind==MobDamageKind::projectile?DMG_BULLET:DMG_CLUB;
@@ -812,7 +820,15 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
                     minecraft_attack=victim;
                     active_player_attack=active?ActivePlayerAttack{static_cast<int>(damage.slot),static_cast<int>(damage.attacker),static_cast<int>(damage.kind),native_damage_depth+1,registry.world(),connection_generation,
                         damage.serial,player_births[damage.slot],player_lives[damage.slot],damage.attacker_serial,player_births[damage.attacker],player_lives[damage.attacker]}:ActivePlayerAttack{};
-                    const bool accepted=player->TakeDamage(&source->v,&source->v,damage.amount,bits)!=FALSE;
+                    bool accepted;
+                    {
+                        struct Scope {
+                            AbsorbedAttack previous=absorbed_minecraft_attack;
+                            ~Scope(){absorbed_minecraft_attack=previous;}
+                        } absorbed_scope;
+                        absorbed_minecraft_attack=absorbed?AbsorbedAttack{victim,native_damage_depth+1}:AbsorbedAttack{};
+                        accepted=player->TakeDamage(&source->v,&source->v,damage.amount,bits)!=FALSE;
+                    }
                     active_player_attack=previous_attack;minecraft_attack=previous_minecraft_attack;
                     // Callbacks can retire a map, player life or connection. Never
                     // apply a follow-up impulse to a replacement occupant.
@@ -836,7 +852,7 @@ void HandleMobDamage(std::span<const std::uint8_t> bytes,bool active=false){
                         native_knockback_grants.grant(registry.world(),damage_authority,damage.event,
                             damage.slot,damage.serial,damage.life,player_lives[damage.slot],target_identity.team,gpGlobals->time);
                 }else status=4;
-            }else status=skill&&!near_target?6:3;
+            }else status=!current_contact||(skill&&!near_target)?6:3;
         }else status=2;
         if(player&&!victim->free){health=victim->v.health;armor=victim->v.armorvalue;}
     }
@@ -1159,6 +1175,9 @@ GoldCraft_EquipmentDamageScope::~GoldCraft_EquipmentDamageScope() noexcept{
 }
 bool GoldCraft_FinalMinecraftDamage(edict_t* player){return player&&player==final_minecraft_damage;}
 bool GoldCraft_MinecraftAttack(edict_t* player){return player&&(player==final_minecraft_damage||player==minecraft_attack);}
+bool GoldCraft_AbsorbedMinecraftAttack(edict_t* player){
+    return player&&player==absorbed_minecraft_attack.target&&native_damage_depth==absorbed_minecraft_attack.depth;
+}
 bool GoldCraft_MinecraftFallAuthority(edict_t* player){
     if(!player||!edicts||!link.connected()||player==final_minecraft_damage)return false;
     const int slot=ENTINDEX(player);
@@ -1301,6 +1320,7 @@ void GoldCraft_StartFrame() {
             else if(message.type==Type::native_water)HandleNativeWater(message.payload);
             else if(message.type==Type::native_impulse)HandleNativeImpulse(message.payload);
             else if(message.type==Type::native_knockback)HandleNativeKnockback(message.payload);
+            else if(message.type==Type::native_absorbed_hit)HandleMobDamage(message.payload,false,true);
             else if(message.type==Type::status_melee)HandleStatusMelee(message.payload);
             else if(message.type==Type::status_nausea)HandleStatusNausea(message.payload);
             else if(message.type==Type::status_vision)HandleStatusVision(message.payload);

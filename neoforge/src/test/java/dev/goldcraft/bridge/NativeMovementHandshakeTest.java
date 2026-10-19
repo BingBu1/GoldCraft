@@ -43,6 +43,7 @@ class NativeMovementHandshakeTest {
     }
     @Test void oldHostRejectsUnknownBitThenAcceptsOriginalOffer()throws Exception{
         try(var host=host();var link=link(host,false)){
+            try(var absorbed=host.accept()){hello(absorbed);}
             try(var knockback=host.accept()){hello(knockback);}
             int offered;
             try(var s=host.accept()){offered=hello(s);assertNotEquals(0,offered&Wire.NATIVE_MOVEMENT_CAP);}

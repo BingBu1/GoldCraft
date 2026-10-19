@@ -291,6 +291,9 @@ bool Endpoint::native_view() const {
     return connected() && impl_->config.host==Role::host_server && impl_->config.peer==Role::fabric_server &&
         (impl_->handshake->peer_capabilities() & capability_native_view) != 0;
 }
+bool Endpoint::native_absorbed_hit() const {
+    return native_knockback() && (impl_->handshake->peer_capabilities() & capability_native_absorbed_hit) != 0;
+}
 bool Endpoint::native_knockback() const {
     return native_movement() && native_impulse() && (impl_->handshake->peer_capabilities() & capability_native_knockback) != 0;
 }
