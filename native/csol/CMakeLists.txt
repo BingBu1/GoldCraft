@@ -8,8 +8,8 @@ endif()
 get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
-add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/scene.cpp client/assets.cpp client/hands.cpp
-    model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp
+add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/scene.cpp client/assets.cpp client/hands.cpp client/weapons.cpp
+    model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
@@ -27,14 +27,17 @@ target_sources(CSOLSupport PRIVATE "${METAHOOK_ROOT}/thirdparty/glew_fork/src/gl
 target_link_libraries(CSOLSupport PRIVATE opengl32)
 target_link_options(CSOLSupport PRIVATE /DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF)
 install(TARGETS CSOLSupport RUNTIME DESTINATION cstrike/metahook/plugins)
-add_executable(csol_resources resource_list.cpp dependencies.cpp model_codec.cpp model_json.cpp events.cpp)
+add_executable(csol_resources resource_list.cpp dependencies.cpp model_codec.cpp model_json.cpp events.cpp model_source.cpp sequences.cpp)
 target_compile_features(csol_resources PRIVATE cxx_std_20)
 target_include_directories(csol_resources PRIVATE "${METAHOOK_ROOT}/MetaHook/thirdparty/rapidjson/include")
 target_compile_definitions(csol_resources PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
 target_compile_options(csol_resources PRIVATE /utf-8 /W3)
 option(CSOL_BUILD_CODEC_TESTS "Build offline codec/oracle checks" OFF)
 if(CSOL_BUILD_CODEC_TESTS)
-    add_executable(csol_codec_tests codec_tests.cpp model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp)
+    add_executable(csol_sequence_tests sequence_tests.cpp sequences.cpp model_codec.cpp)
+    target_compile_features(csol_sequence_tests PRIVATE cxx_std_20)
+    target_compile_definitions(csol_sequence_tests PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)
+    add_executable(csol_codec_tests codec_tests.cpp model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp)
     target_compile_features(csol_codec_tests PRIVATE cxx_std_20)
     target_include_directories(csol_codec_tests PRIVATE "${METAHOOK_ROOT}/MetaHook/thirdparty/rapidjson/include")
     target_compile_definitions(csol_codec_tests PRIVATE NOMINMAX _CRT_SECURE_NO_WARNINGS)

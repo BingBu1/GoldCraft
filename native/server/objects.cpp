@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "objects.h"
+#include "../csol/server/weapons.h"
 #include <algorithm>
 #include <map>
 
@@ -28,7 +29,7 @@ std::map<std::uint64_t,Entry> objects;
 float last_snapshot=0;
 bool valid(const Entry& entry){return entry.entity&&!entry.entity->edict()->free&&entry.entity->edict()->serialnumber==entry.serial&&entry.entity->pev->iuser4==proxy_marker;}
 }
-void GoldCraft_ObjectsPrecache(){PRECACHE_MODEL(const_cast<char*>(proxy_model));}
+void GoldCraft_ObjectsPrecache(){PRECACHE_MODEL(const_cast<char*>(proxy_model));CSOL_PrecacheWeapons();}
 void GoldCraft_ObjectsReset(bool remove){
     if(remove)for(auto& [key,entry]:objects)if(valid(entry))REMOVE_ENTITY(entry.entity->edict());
     objects.clear();last_snapshot=0;

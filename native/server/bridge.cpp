@@ -945,9 +945,10 @@ void HandleMining(std::span<const std::uint8_t> bytes, bool sample=false){
 }
 }
 
+void CSOL_InitWeapons();
 void GoldCraft_InitCvars(){
     static bool registered=false;
-    if(!registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);CVAR_REGISTER(&round_clear_blocks);CVAR_REGISTER(&death_drop_items);registered=true;}
+    if(!registered){CVAR_REGISTER(&default_form);CVAR_REGISTER(&allow_switch);CVAR_REGISTER(&round_clear_blocks);CVAR_REGISTER(&death_drop_items);CSOL_InitWeapons();registered=true;}
     GoldCraft_MapMiningInit();
 }
 void GoldCraft_RoundCleanup() {

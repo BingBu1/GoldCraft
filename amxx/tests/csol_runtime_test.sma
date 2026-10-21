@@ -5,7 +5,9 @@
 
 new const Models[][] = {
     "models/v_revivegun.mdl", "models/v_soulreaperex.mdl", "models/v_gungnir.mdl",
-    "models/v_leapstrikegunex.mdl", "models/v_leapstrikegunex_parts.mdl", "models/v_ak47.mdl"
+    "models/v_leapstrikegunex.mdl", "models/v_leapstrikegunex_parts.mdl", "models/v_ak47.mdl",
+    "models/v_balrog1b.mdl", "models/v_sfboomerang1.mdl", "models/v_alterationammogunex.mdl",
+    "models/v_burstdischarge1.mdl", "models/v_bpythonzf.mdl"
 };
 new gIndices[sizeof Models], gSelected[33], gPartMessage, gViewMessage;
 public plugin_precache()

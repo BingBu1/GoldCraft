@@ -5,6 +5,7 @@
 #include "../body_effects.hpp"
 #include "../image_codec.hpp"
 #include "../material_state.hpp"
+#include "../model_source.hpp"
 #include <cstring>
 
 namespace csol::client
@@ -27,6 +28,7 @@ struct Batch { unsigned offset{},count{}; int group{},submodel{},skinref{}; };
 struct Asset
 {
     std::string name;
+    ModelSource source;
     std::vector<std::byte> bytes;
     std::vector<Material> materials;
     std::vector<model_t*> sprites;

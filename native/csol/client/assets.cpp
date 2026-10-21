@@ -118,10 +118,12 @@ void Materials(Asset& asset)
     {
         const auto& src=textures[i];Material m;m.width=src.width;m.height=src.height;m.flags=src.flags;
         if(src.width<1 || src.height<1 || src.width>4096 || src.height>4096)throw std::runtime_error("invalid model texture size");
-        std::string name=Name(src.name);bool replacement=false;
-        for(const auto& bind:asset.config.Textures)if(bind.Texture==i){name=bind.Name;replacement=true;}
+        const auto original=Name(src.name);std::string replacement;
+        for(const auto& bind:asset.config.Textures)if(bind.Texture==i)replacement=bind.Name;
+        const auto source=ResolveTextureSource(asset.source,original,replacement,[](const std::string& file){return Exists(file.c_str());});
+        const auto& name=source.Name;
         names.push_back(name);
-        static_cast<MaterialPolicy&>(m)=ParseMaterialPolicy(name);asset.special|=m.special;
+        static_cast<MaterialPolicy&>(m)=source.Policy;asset.special|=m.special;
         bool dimensions=false;
         if(name.size()>7 && name[0]=='#' && std::all_of(name.begin()+1,name.begin()+7,[](char c){return c>='0'&&c<='9';}))
         {
@@ -133,10 +135,10 @@ void Materials(Asset& asset)
         const auto embedded=asset.Data<uint8_t>(src.index,src.width*src.height+768);const auto* palette=embedded.data()+src.width*src.height;
         Image image{unsigned(src.width),unsigned(src.height),std::vector<uint8_t>(size_t(src.width)*src.height*4)};
         for(size_t p=0;p<image.RGBA.size()/4;++p){const auto index=embedded[p];memcpy(image.RGBA.data()+p*4,palette+index*3,3);image.RGBA[p*4+3]=(src.flags&0x40)&&index==255?0:255;}
-        const auto path=ExternalTexture(asset.name,name,replacement,[](const std::string& file){return Exists(file.c_str());});
+        const auto& path=source.Resource;
         if(!path.empty() && Exists(path.c_str()))m.texture=LoadImage(path,m.width,m.height);
-        else {m.texture=UploadImage(image);images.emplace(asset.name+"#"+std::to_string(i),CachedImage{m.texture,m.width,m.height});if(replacement||dimensions)engine.Con_Printf("CSOLSupport: missing external texture %s/%s\n",asset.name.c_str(),name.c_str());}
-        const auto env=LoadEnvironment(name);m.environment=env.texture;m.environmentAdd=env.add;asset.special|=env.texture!=0;
+        else {m.texture=UploadImage(image);images.emplace(asset.name+"#"+std::to_string(i),CachedImage{m.texture,m.width,m.height});if(source.External && !source.EmbeddedFallback)engine.Con_Printf("CSOLSupport: missing external texture %s/%s\n",asset.name.c_str(),name.c_str());}
+        const auto env=LoadEnvironment(source.Descriptor);m.environment=env.texture;m.environmentAdd=env.add;asset.special|=env.texture!=0;
         asset.materials.push_back(m);
     }
     CommonMaterials(asset,names);
@@ -203,8 +205,10 @@ Asset* GetAsset(model_t* model)
 {
     if(!model)return nullptr;std::string name=model->name;
     if(auto found=assets.find(name);found!=assets.end()){auto* result=found->second.get();modelAssets[model]=result;return result;}
-    auto asset=std::make_unique<Asset>();asset->name=name;asset->bytes=ReadResource(name.c_str());
-    asset->special=DecodeStudioModel(asset->bytes);const auto& h=asset->Header();
+    auto asset=std::make_unique<Asset>();asset->name=name;
+    asset->source=ResolveModelSource(name,[](const std::string& file){return ReadResource(file.c_str());},[](const std::string& file){return Exists(file.c_str());});
+    asset->bytes=ReadResource(asset->source.File.c_str());
+    asset->special=DecodeStudioModel(asset->bytes) || asset->source.Redirected;const auto& h=asset->Header();
     if(h.id!=0x54534449 || h.version!=10 || h.length<sizeof(studiohdr_t) || h.length>asset->bytes.size() || h.numbones<1 || h.numbones>MAXSTUDIOBONES || h.numtextures<0 || h.numtextures>4096 || h.numseq<1 || h.numseq>2048 || h.numbodyparts<0 || h.numbodyparts>256 || h.numattachments<0 || h.numattachments>64)throw std::runtime_error("unsupported studio layout");
     // Stock models may use a separate T.mdl. Leave their loading to the host.
     if(!asset->special && !h.numtextures){assets.emplace(name,nullptr);modelAssets[model]=nullptr;return nullptr;}

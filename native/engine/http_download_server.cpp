@@ -106,7 +106,7 @@ bool resource_name(const std::string& name) {
     }
     const auto root = lower(name.substr(0, slash));
     return (root == "maps" && (ext == ".bsp" || ext == ".res" || ext == ".txt")) ||
-           (root == "models" && (ext == ".mdl" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
+           (root == "models" && (ext == ".mdl" || ext == ".seq" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
            (root == "sprites" && (ext == ".spr" || ext == ".txt")) ||
            (root == "gfx" && (ext == ".tga" || ext == ".bmp")) ||

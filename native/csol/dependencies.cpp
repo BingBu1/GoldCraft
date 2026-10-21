@@ -4,6 +4,8 @@
 #include "model_json.hpp"
 #include "events.hpp"
 #include "parts.hpp"
+#include "sequences.hpp"
+#include "weapon_resources.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
 #include <cstring>
@@ -34,28 +36,17 @@ size_t Record(const std::vector<std::byte>& b,int at,int index,int count,size_t 
 }
 std::string ExternalTexture(const std::string& model,std::string texture,bool replacement,const ResourceExists& exists)
 {
-    bool dimensions=texture.size()>7 && texture[0]=='#' && std::all_of(texture.begin()+1,texture.begin()+7,[](char c){return c>='0'&&c<='9';});
-    if(!Safe(texture))throw std::runtime_error("invalid texture dependency");
-    auto tga=texture.substr(0,texture.find_last_of('.'))+".tga";
-    if(replacement || dimensions)
-    {
-        if(texture.starts_with('$') && exists("models/texture/"+tga))return "models/texture/"+tga;
-        if(exists("models/texture/"+texture))return "models/texture/"+texture;
-    }
-    else if(texture.starts_with('$'))
-    {
-        const auto path=model.substr(0,model.find_last_of('/')+1)+tga;
-        if(exists(path))return path;
-    }
-    return {};
+    const auto source=ResolveTextureSource({model,model,model},texture,replacement?texture:"",exists);
+    return !source.Resource.empty() && exists(source.Resource)?source.Resource:std::string{};
 }
-std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists)
+std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured)
 {
     std::set<std::string> files,visited;std::vector<std::string> queue;
     auto add=[&](const std::string& path,bool required=true)
     {
         if(!Safe(path))throw std::runtime_error("invalid weapon dependency: "+path);
-        if(!exists(path)){if(required)throw std::runtime_error("missing weapon dependency: "+path);return;}
+        const auto physical=Lower(path).ends_with(".mdl")?ResolveModelSource(path,read,exists,configured).File:path;
+        if(!exists(physical)){if(required)throw std::runtime_error("missing weapon dependency: "+path);return;}
         if(files.insert(path).second && Lower(path).ends_with(".mdl"))queue.push_back(path);
     };
     add(model);
@@ -64,10 +55,16 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
     while(!queue.empty())
     {
         const auto name=queue.back();queue.pop_back();if(!visited.insert(name).second)continue;
+        if(Lower(name)=="models/v_tknifeex2.mdl")for(const auto* file:TKnifeEx2Resources)add(file);
         if(visited.size()>64 || files.size()>8192)throw std::runtime_error("weapon dependency budget exceeded");
-        auto bytes=read(name);DecodeStudioModel(bytes);
+        const auto source=ResolveModelSource(name,read,exists,configured);
+        if(source.Redirected)add(ModelSourceDescriptor(name),false);
+        auto bytes=read(source.File);DecodeStudioModel(bytes);
         if(Word(bytes,0)!=0x54534449 || Word(bytes,4)!=10)throw std::runtime_error("unsupported dependency model");
         const int length=Word(bytes,72);if(length<244 || size_t(length)>bytes.size())throw std::runtime_error("invalid dependency model length");bytes.resize(length);
+        std::vector<std::vector<std::byte>> sequenceData;
+        for(const auto& file:SequenceFiles(source.File,exists)){add(file);sequenceData.push_back(read(file));}
+        if(!sequenceData.empty())bytes=AppendSequences(bytes,sequenceData);
         const int textures=Word(bytes,180),textureAt=Word(bytes,184),sequences=Word(bytes,164),sequenceAt=Word(bytes,168);
         if(textures<0 || textures>4096 || sequences<1 || sequences>2048)throw std::runtime_error("invalid dependency table count");
         ModelJSON config;const auto json=name.substr(0,name.size()-4)+".json";
@@ -75,9 +72,12 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         for(const auto& sprite:config.Sprites)add(sprite.Sprite);
         for(int i=0;i<textures;++i)
         {
-            const auto at=Record(bytes,textureAt,i,textures,80);std::string texture=Name(bytes,at,64);bool replacement=false;
-            for(const auto& binding:config.Textures)if(binding.Texture==i){texture=binding.Name;replacement=true;}
-            const auto external=ExternalTexture(name,texture,replacement,exists);if(!external.empty())add(external);
+            const auto at=Record(bytes,textureAt,i,textures,80);const auto original=Name(bytes,at,64);std::string replacement;
+            for(const auto& binding:config.Textures)if(binding.Texture==i)replacement=binding.Name;
+            const auto textureSource=ResolveTextureSource(source,original,replacement,exists);
+            const auto texture=textureSource.Name;
+            for(const auto& probe:textureSource.Probes)add(probe);
+            if(!textureSource.Resource.empty())add(textureSource.Resource,!textureSource.EmbeddedFallback);
             const auto key=Lower(name+"/"+texture);
             if(common.IsObject() && common.HasMember("Materials") && common["Materials"].IsArray())for(const auto& row:common["Materials"].GetArray())
             {
@@ -87,20 +87,19 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
                 for(const auto* field:{"BaseTexture","NormalTexture","SpecularTexture","EmissiveTexture","DispTexture"})
                     if(row.HasMember(field) && row[field].IsString() && row[field].GetStringLength() && std::string_view(row[field].GetString())!="OriginalTexture")add(row[field].GetString());
             }
-            const int env=texture.starts_with('@')?0:texture.size()>=7 && texture[3]=='@'?3:-1;
-            if(env>=0)
+            if(!textureSource.Descriptor.empty())
             {
-                std::string descriptor=texture.substr(env,4);if(descriptor=="@00a")descriptor="@000";
+                const auto& descriptor=textureSource.Descriptor;
                 const auto file="shader/"+descriptor+".txt";add(file);add("shader/env.txt");
                 std::istringstream parameters(Text(read,file));std::string key;float value;int p,index=0;
                 parameters>>key>>value;while(parameters>>p>>key>>value)if(p==0)index=int(value);
                 std::istringstream mapping(Text(read,"shader/env.txt"));std::string line;
                 while(std::getline(mapping,line)){std::istringstream row(line);int n;std::string base,extra;if((row>>n>>base) && !(row>>extra) && n==index)for(const auto* face:{"rt","bk","lf","ft","up","dn"})add("gfx/env/"+base+face+".tga");}
             }
-            if(texture.starts_with('#') && texture.size()>7)texture.erase(0,7);
+            auto handTexture=texture;if(handTexture.starts_with('#') && handTexture.size()>7)handTexture.erase(0,7);
             constexpr const char* hands[]{"cso_highq_hand__long_512.bmp","cso_highq_hand_512.bmp","cso_girl_hand_long.bmp","cso_girl_hand.bmp","hand.bmp"};
             constexpr const char* suffix[]{"MaleLong.tga","MaleShort.tga","FemaleLong.tga","FemaleShort.tga","MaleOrg.tga"};
-            for(int h=0;h<5;++h)if(Lower(texture)==hands[h]){add("gfx/tattoo/"+std::string(suffix[h]));add("gfx/tattoo/tattoo.cso",false);}
+            for(int h=0;h<5;++h)if(Lower(handTexture)==hands[h]){add("gfx/tattoo/"+std::string(suffix[h]));add("gfx/tattoo/tattoo.cso",false);}
         }
         for(int i=0;i<sequences;++i)
         {

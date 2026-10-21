@@ -3,6 +3,7 @@
 #include "gl_state.hpp"
 #include "../model_codec.hpp"
 #include "../sprite_codec.hpp"
+#include "../sequences.hpp"
 #include <cstring>
 
 namespace csol::client
@@ -22,11 +23,18 @@ void LoadStudio(model_t* model,void* bytes)
 {
     const auto* header=(const studiohdr_t*)bytes;
     const bool encoded=header->version==20 || header->version==21;
-    if(!encoded && (header->version!=10 || header->numattachments<=4)){loadStudio(model,bytes);return;}
+    const auto sequenceFiles=SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
+    if(sequenceFiles.empty() && !encoded && (header->version!=10 || header->numattachments<=4)){loadStudio(model,bytes);return;}
     try
     {
         auto owned=ReadResource(model->name);
         if(encoded && !DecodeStudioModel(owned))throw std::runtime_error("model changed during load");
+        if(!sequenceFiles.empty())
+        {
+            std::vector<std::vector<std::byte>> sequences;
+            for(const auto& file:sequenceFiles)sequences.push_back(ReadResource(file.c_str()));
+            owned=AppendSequences(owned,sequences);
+        }
         // The stock client writes attachments into cl_entity_t::attachment[4].
         // CSOLSupport retains the full original list in its owned render asset.
         auto* decoded=reinterpret_cast<studiohdr_t*>(owned.data());

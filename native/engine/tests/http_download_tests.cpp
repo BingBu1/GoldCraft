@@ -121,7 +121,7 @@ static void adapter_tests(){
     GC_HttpInit();CHECK(cvars.at("mc_http_download")->value==1);Cvar_Set("mc_http_port",std::to_string(port).c_str());Cvar_Set("mc_http_bind","127.0.0.1");
     files["models/a.mdl"].bytes=pattern(1024*1024+27);files["sound/a.wav"].bytes=pattern(37,1);files["sprites/test.spr"].bytes=pattern(13,2);
     add("models/a.mdl",t_model,files["models/a.mdl"].bytes.size());add("a.wav",t_sound,37);add("sprites/test.spr",t_generic,13);add("server.cfg",t_generic,20);add("*1",t_model,20);add("!sentence",t_sound,20);add("spray.wad",t_generic,20,RES_CUSTOM);add("decal",t_decal,20);
-    const char* csol_resources[]{"models/v_weapon.json", "models/$0a_sphere.tga", "models/texture/hand.bmp",
+    const char* csol_resources[]{"models/v_weapon.json", "models/player/leet/leet1.seq", "models/$0a_sphere.tga", "models/texture/hand.bmp",
         "shader/@004.txt", "shader/env.txt", "materials/common.json", "materials/weapon/base.tga", "gfx/tattoo/tattoo.cso"};
     for(const auto* name:csol_resources){files[name].bytes=pattern(31,3);add(name,t_generic,31);}
     files["models/texture/#512512hand.bmp"].bytes=pattern(41,4);add("models/texture/#512512hand.bmp",t_generic,41);

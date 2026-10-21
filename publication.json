@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tools/Build-CSOLWeapons.ps1",
+    "docs/2026-10-21_分析-tknifeex2武器-report.md",
     "tools/Build-CSOLSupport.ps1",
     "tools/Prepare-CSOLResources.py",
     "tools/Deploy-CSOLSupport.ps1",

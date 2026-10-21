@@ -4,13 +4,31 @@
 #include "../csol/sprite_codec.hpp"
 #include "../csol/dependencies.hpp"
 #include "../csol/parts.hpp"
+#include "../csol/sequences.hpp"
+
+void GoldCraftCsolSequenceDelta(delta_t* delta)
+{
+    // The server transmits this schema to clients. Extend before delta JIT
+    // compilation, otherwise appended player sequences >=256 wrap on the wire.
+    for(int i=0;i<delta->fieldCount;++i)
+    {
+        auto& field=delta->pdd[i];
+        if(!Q_strcmp(field.fieldName,"sequence") || !Q_strcmp(field.fieldName,"gaitsequence"))
+        {
+            field.fieldType=DT_INTEGER;
+            field.significant_bits=16;
+            field.premultiply=field.postmultiply=1.0f;
+        }
+    }
+}
 
 void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
 {
     static_assert(offsetof(studiohdr_t,numtextures)==180 && offsetof(studiohdr_t,numseq)==164);
     static_assert(sizeof(mstudiotexture_t)==80 && sizeof(mstudioseqdesc_t)==176 && sizeof(mstudioevent_t)==76);
     const std::string model=name,json=model.substr(0,model.size()-4)+".json";
-    bool special=FS_FileExists(json.c_str()) || !csol::PartsProfile(model).Actions.empty();
+    bool special=model=="models/v_tknifeex2.mdl" || FS_FileExists(json.c_str()) || FS_FileExists(csol::ModelSourceDescriptor(model).c_str()) || !csol::PartsProfile(model).Actions.empty()
+        || !csol::SequenceFiles(model,[](const std::string& path){return FS_FileExists(path.c_str())!=0;}).empty();
     if(header->textureindex>0 && header->numtextures>0 && header->textureindex<=header->length &&
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))
     {
@@ -36,17 +54,34 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     catch(const std::exception& error){Sys_Error("CSOL dependency preparation failed: %s: %s",name,error.what());}
 }
 
-void GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name)
+std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name)
 {
     try
     {
         if (csol::DecodeStudioModel(bytes))
             Con_DPrintf("CSOL: decoded model %s\n", name);
+        const auto files=csol::SequenceFiles(name,[](const std::string& path){return FS_FileExists(path.c_str())!=0;});
+        if(files.empty())return {};
+        std::vector<std::vector<std::byte>> sequences;
+        for(const auto& path:files)
+        {
+            auto file=FS_Open(path.c_str(),"rb");if(!file)throw std::runtime_error("missing SEQ file");
+            const auto size=FS_Size(file);
+            if(size<8 || size>128*1024*1024){FS_Close(file);throw std::runtime_error("SEQ size outside budget");}
+            std::vector<std::byte> data;
+            try{data.resize(size);if(FS_Read(data.data(),size,1,file)!=size)throw std::runtime_error("short SEQ read");}
+            catch(...){FS_Close(file);throw;}
+            FS_Close(file);sequences.push_back(std::move(data));
+        }
+        auto result=csol::AppendSequences(bytes,sequences);
+        Con_Printf("CSOL: %s appended %u SEQ files\n",name,unsigned(files.size()));
+        return result;
     }
     catch (const std::exception& error)
     {
         Sys_Error("CSOL: cannot load model %s: %s", name, error.what());
     }
+    return {};
 }
 
 bool GoldCraftLoadCsolSprite(model_t* model, std::span<const std::byte> bytes)

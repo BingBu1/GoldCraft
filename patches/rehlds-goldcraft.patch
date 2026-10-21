@@ -227,7 +227,7 @@ index 22e7b6a..535f5e6 100644
  		Q_strlcpy(destInfo, srcInfo, maxsize);
  		Info_RemovePrefixedKeys(destInfo, '_');
 diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
-index e69d2c9..9fc8086 100644
+index e69d2c9..c217f5b 100644
 --- a/rehlds/engine/model.cpp
 +++ b/rehlds/engine/model.cpp
 @@ -27,6 +27,8 @@
@@ -344,7 +344,7 @@ index e69d2c9..9fc8086 100644
  		if (p->shouldCRC)
  		{
  			CRC32_Init(&currentCRC);
-@@ -348,9 +321,11 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -348,11 +321,15 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  		Mod_LoadAliasModel(mod, buf);
  		break;
  	case IDSPRITEHEADER:
@@ -353,11 +353,16 @@ index e69d2c9..9fc8086 100644
 +			Mod_LoadSpriteModel(mod, buf);
  		break;
  	case IDSTUDIOHEADER:
-+		GoldCraftDecodeStudio({reinterpret_cast<std::byte*>(buf), (size_t)length}, mod->name);
- 		Mod_LoadStudioModel(mod, buf);
+-		Mod_LoadStudioModel(mod, buf);
++	{
++		auto expanded = GoldCraftDecodeStudio({reinterpret_cast<std::byte*>(buf), (size_t)length}, mod->name);
++		Mod_LoadStudioModel(mod, expanded.empty() ? buf : reinterpret_cast<byte*>(expanded.data()));
  		break;
++	}
  	default:
-@@ -1888,8 +1863,9 @@ void Mod_Print(void)
+ 		Mod_LoadBrushModel(mod, buf);
+ 		break;
+@@ -1888,8 +1865,9 @@ void Mod_Print(void)
  	int i;
  	model_t *mod;
  	Con_Printf("Cached models:\n");
@@ -368,7 +373,7 @@ index e69d2c9..9fc8086 100644
  		Con_Printf("%8p : %s", mod->cache.data, mod->name);
  		if (mod->needload & NL_UNREFERENCED)
  			Con_Printf(" (!R)");
-@@ -1908,7 +1884,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1908,7 +1886,7 @@ NOXREF void Mod_ChangeGame(void)
  
  	for (i = 0; i < mod_numknown; i++)
  	{
@@ -377,7 +382,7 @@ index e69d2c9..9fc8086 100644
  
  		if (mod->type == mod_studio)
  		{
-@@ -1916,7 +1892,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1916,7 +1894,7 @@ NOXREF void Mod_ChangeGame(void)
  				Cache_Free(&mod->cache);
  		}
  
@@ -386,7 +391,7 @@ index e69d2c9..9fc8086 100644
  
  		p->firstCRCDone = FALSE;
  		p->initialCRC = 0;
-@@ -1926,12 +1902,12 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1926,12 +1904,12 @@ NOXREF void Mod_ChangeGame(void)
  model_t *Mod_Handle(int modelindex)
  {
  #ifdef REHLDS_FIXES
@@ -1198,7 +1203,7 @@ index ceffd0d..fb4b7db 100644
  void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
  void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..da3250d 100644
+index dfd68c2..f61d4dd 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
 @@ -27,6 +27,17 @@
@@ -1908,15 +1913,16 @@ index dfd68c2..da3250d 100644
  	SV_ReadPackets();
  	if (SV_IsSimulating())
  	{
-@@ -8351,6 +8378,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
+@@ -8351,6 +8378,8 @@ void SV_RegisterDelta(char *name, char *loadfile)
  	p->delta = pdesc;
  	p->next = g_sv_delta;
  	g_sv_delta = p;
 +	GC_WidenModelDelta(pdesc);
++	GoldCraftCsolSequenceDelta(pdesc);
  
  #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
  	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
-@@ -8417,6 +8445,14 @@ void SV_InitEncoders(void)
+@@ -8417,6 +8446,14 @@ void SV_InitEncoders(void)
  
  void SV_Init(void)
  {
@@ -1931,7 +1937,7 @@ index dfd68c2..da3250d 100644
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
-@@ -8553,6 +8589,7 @@ void SV_Init(void)
+@@ -8553,6 +8590,7 @@ void SV_Init(void)
  	Cvar_RegisterVariable(&sv_rehlds_hull_centering);
  	Cvar_RegisterVariable(&sv_rcon_condebug);
  	Cvar_RegisterVariable(&sv_rehlds_userinfo_transmitted_fields);
@@ -1939,7 +1945,7 @@ index dfd68c2..da3250d 100644
  	Cvar_RegisterVariable(&sv_rehlds_attachedentities_playeranimationspeed_fix);
  	Cvar_RegisterVariable(&sv_rehlds_local_gametime);
  	Cvar_RegisterVariable(&sv_rehlds_send_mapcycle);
-@@ -8605,6 +8642,7 @@ void SV_Init(void)
+@@ -8605,6 +8643,7 @@ void SV_Init(void)
  	{
  		client_t *cl = &g_psvs.clients[i];
  		SV_ClearFrames(&cl->frames);

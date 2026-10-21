@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
+  </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp;$(GoldCraftRoot)\native\server\map_mining.cpp;$(GoldCraftRoot)\native\server\effect_service_provider.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp;$(GoldCraftRoot)\native\server\map_mining.cpp;$(GoldCraftRoot)\native\server\effect_service_provider.cpp;$(GoldCraftRoot)\native\csol\server\wpn_tknifeex2.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -9,10 +12,22 @@
       <PreprocessorDefinitions Condition="'$(GoldCraftHeadlessFixture)' == 'true'">GOLDCRAFT_HEADLESS_FIXTURE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL' and '$(GoldCraftCsolWeaponTests)' == 'true'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_tests.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(GoldCraftCsolWeaponTests)' == 'true'">
+    <ClCompile>
+      <PreprocessorDefinitions>GOLDCRAFT_CSOL_WEAPON_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
     <Link>
       <AdditionalOptions>/SECTION:.data,RW %(AdditionalOptions)</AdditionalOptions>
-      <AdditionalDependencies>$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib;ws2_32.lib;bcrypt.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(GoldCraftCommonLibrary);ws2_32.lib;bcrypt.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <PropertyGroup>

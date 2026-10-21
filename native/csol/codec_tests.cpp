@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <bcrypt.h>
 #include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <rapidjson/stringbuffer.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -158,6 +160,78 @@ static void DependencyChecks(const std::filesystem::path& root)
     Check(external=="models/texture/#512502hand.bmp","dimension prefix missing from resource path");
     Check(csol::ExternalTexture("models/test.mdl","#512502hand.bmp",false,[](const std::string& file){return file=="models/texture/hand.bmp";}).empty(),"unprefixed texture must not replace prefixed resource");
 }
+static void SourceChecks(const std::filesystem::path& oracleRoot,const std::filesystem::path& resourceRoot)
+{
+    const auto aliases=Json(oracleRoot/"model-redirect-static-oracle.json");
+    for(const auto& row:aliases["records"].GetArray())
+    {
+        if(!row["index"].GetInt())continue;
+        const std::string requested=row["requested"].GetString(),physical=row["model"].GetString();
+        const auto source=csol::ResolveModelSource(requested,[](const std::string&){return std::vector<std::byte>{};},[&](const std::string& p){return p==physical;});
+        Check(source.Redirected && source.File==physical && source.TexturePrefix==row["texturePrefix"].GetString(),"static model mapping differs from original engine");
+        const auto descriptor=csol::SerializeModelSource(source);
+        const auto prepared=csol::ResolveModelSource(requested,[&](const std::string&){std::vector<std::byte> b(descriptor.size());memcpy(b.data(),descriptor.data(),b.size());return b;},[&](const std::string& p){return p==csol::ModelSourceDescriptor(requested);});
+        Check(prepared.Redirected && prepared.File==requested && prepared.PhysicalName==physical && prepared.TexturePrefix==source.TexturePrefix,"prepared alias lost physical provenance");
+    }
+    const auto textures=Json(oracleRoot/"texture-redirect-oracle.json");
+    for(const auto& row:textures["cases"].GetArray())
+    {
+        csol::ModelSource model{"models/test.mdl","models/test.mdl","models/test.mdl",row["prefix"].GetString(),{},true};
+        auto exists=[&](const std::string& path){for(const auto& name:row["available"].GetArray())if(path=="models/texture/"+std::string(name.GetString()))return true;return false;};
+        const auto texture=csol::ResolveTextureSource(model,row["original"].GetString(),row["replacement"].GetString(),exists);
+        Check(texture.Name==row["headerName"].GetString(),"alias texture name differs from engine");
+        if(!row["uploads"].Empty())Check(texture.Resource==row["uploads"][0]["path"].GetString(),"alias texture upload path differs from engine");
+        else Check(!texture.External || texture.EmbeddedFallback,"engine embedded texture unexpectedly replaced");
+    }
+    const auto configured=csol::ParseWeaponRedirects(R"({/* comment */"baseWpnName":"base","resourceName":"variant","texPrefix":"@skin_","vModelTexPrefix":""})","weapons/test.json");
+    Check(configured.size()==3 && configured[0].Requested=="models/p_variant.mdl","explicit empty V prefix did not disable alias");
+    const auto weaponOracle=Json(oracleRoot/"weapon-redirect-oracle.json");
+    for(const auto& row:weaponOracle["cases"].GetArray())
+    {
+        rapidjson::StringBuffer json;rapidjson::Writer writer(json);row["input"].Accept(writer);
+        const auto actual=csol::ParseWeaponRedirects({json.GetString(),json.GetSize()},"weapons/test.json");
+        const auto& expected=row["records"];Check(actual.size()==expected.Size(),"configured model count differs from engine");
+        for(size_t i=0;i<actual.size();++i){const auto& e=expected[rapidjson::SizeType(i)];Check(actual[i].Requested==e["requested"].GetString() && actual[i].Model==e["model"].GetString() && actual[i].TexturePrefix==e["texturePrefix"].GetString(),"configured model mapping differs from engine");}
+    }
+    const auto prefixOracle=Json(oracleRoot/"prefix-material-oracle.json");
+    for(const auto& row:prefixOracle["cases"].GetArray())
+    {
+        auto exists=[&](const std::string& path){for(const auto& name:row["available"].GetArray())if(path=="models/texture/"+std::string(name.GetString()))return true;return false;};
+        const auto actual=csol::ResolveTextureSource({"models/test.mdl","models/test.mdl","models/test.mdl",row["prefix"].GetString(),{},true},row["original"].GetString(),row["replacement"].GetString(),exists);
+        // The captured helper starts with cleared material globals. It only
+        // overrides those globals when the prefixed material probe succeeds;
+        // the full loader has already parsed the ordinary texture before it.
+        const auto draw=std::string(row["prefix"].GetString())+row["headerName"].GetString();
+        const bool override=exists("models/texture/"+draw) || (draw.starts_with('$') && exists("models/texture/"+draw.substr(0,draw.find_last_of('.'))+".tga"));
+        Check(actual.Name==row["headerName"].GetString(),"prefixed texture name differs from engine");
+        if(override)Check(actual.Descriptor==row["descriptor"].GetString(),"prefixed descriptor override differs from engine");
+        const auto bits=row["flags"][0].GetInt(),blend=row["flags"][1].GetInt();
+        if(bits){const auto expected=blend=='0'?csol::Blend::Opaque:blend=='a'?csol::Blend::Alpha:actual.Name.size()>3 && actual.Name[3]=='a'?csol::Blend::AddAlpha:csol::Blend::Add;
+            Check(actual.Policy.special && actual.Policy.cull==bool((bits-'0')&1) && actual.Policy.depth==bool((bits-'0')&2) && actual.Policy.blend==expected,"prefixed blend/depth/cull differ from engine");}
+        for(const auto& upload:row["uploads"].GetArray())if(std::string_view(upload["kind"].GetString())=="embedded")
+        {
+            // A material probe is not an image upload. A missing explicit
+            // bindTex also leaves the embedded image in the original engine;
+            // it still remains a required dependency for resource delivery.
+            Check(actual.Resource.empty() || !exists(actual.Resource),"prefix material probe incorrectly selected an available image");
+            if(std::string_view(row["replacement"].GetString()).empty())
+                Check(actual.Resource.empty() || actual.EmbeddedFallback,"missing optional prefix image did not retain embedded pixels");
+        }
+    }
+    Reject([&]{csol::ParseWeaponRedirects(R"({"baseWpnName":"../bad","resourceName":"x","texPrefix":""})","weapons/test.json");});
+    Reject([&]{csol::ParseWeaponRedirects(R"({"baseWpnName":"base","resourceName":"x","texPrefix":null})","weapons/test.json");});
+    auto descriptor=[](std::string text){return [text](const std::string&){std::vector<std::byte> b(text.size());memcpy(b.data(),text.data(),b.size());return b;};};
+    Check(csol::ModelSourceDescriptor("models/test.mdl")=="models/test_csol.json","source descriptor is incompatible with GoldSrc download filename checks");
+    auto hasDescriptor=[](const std::string& p){return p=="models/test_csol.json";};
+    Reject([&]{csol::ResolveModelSource("models/test.mdl",descriptor(R"({"version":1,"requested":"models/other.mdl","physical":"models/base.mdl","texturePrefix":"","configuration":""})"),hasDescriptor);});
+    Reject([&]{csol::ResolveModelSource("models/test.mdl",descriptor(R"({"version":1,"requested":"models/test.mdl","physical":"../base.mdl","texturePrefix":"","configuration":""})"),hasDescriptor);});
+    Reject([&]{csol::ResolveModelSource("models/test.mdl",descriptor(R"({"version":2,"requested":"models/test.mdl","physical":"models/base.mdl","texturePrefix":"","configuration":""})"),hasDescriptor);});
+    const auto read=[&](const std::string& file){return Read(resourceRoot/file);};
+    const auto exists=[&](const std::string& file){return std::filesystem::is_regular_file(resourceRoot/file);};
+    const auto dual=csol::WeaponDependencies("models/v_alterationammogunex.mdl",read,exists);
+    Check(std::find(dual.begin(),dual.end(),"models/v_alterationammogunex_parts01.mdl")!=dual.end() && std::find(dual.begin(),dual.end(),"models/v_alterationammogunex_parts02.mdl")!=dual.end(),"alias lost either companion");
+    Check(std::find(dual.begin(),dual.end(),"models/v_alterationammogunex.json")!=dual.end(),"alias selected physical model JSON");
+}
 int wmain(int argc, wchar_t** argv)
 {
     try
@@ -167,6 +241,7 @@ int wmain(int argc, wchar_t** argv)
         PresentationChecks();
         MaterialChecks(std::filesystem::path(argv[1]).parent_path());
         DependencyChecks(std::filesystem::path(argv[3]));
+        SourceChecks(std::filesystem::path(argv[1]).parent_path(),std::filesystem::path(argv[3]));
         const auto models = Json(argv[1]);
         for (const auto& entry : models["models"].GetArray())
         {
