@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\csol_loader.cpp;$(GoldCraftRoot)\native\csol\model_codec.cpp;$(GoldCraftRoot)\native\csol\sprite_codec.cpp;$(GoldCraftRoot)\native\csol\dependencies.cpp;$(GoldCraftRoot)\native\csol\model_json.cpp;$(GoldCraftRoot)\native\csol\events.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\engine\precache.cpp;$(GoldCraftRoot)\native\engine\userinfo.cpp;$(GoldCraftRoot)\native\engine\map_physics.cpp;$(GoldCraftRoot)\native\engine\map_visibility.cpp;$(GoldCraftRoot)\native\common\world_carving.cpp;$(GoldCraftRoot)\native\common\world_volume.cpp;$(GoldCraftRoot)\native\common\edited_hull.cpp;$(GoldCraftRoot)\native\common\carved_visibility.cpp;$(GoldCraftRoot)\native\common\entity_visibility.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -34,7 +37,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\engine;$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\engine;$(GoldCraftRoot)\native\include;$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>

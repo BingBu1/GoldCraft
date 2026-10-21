@@ -84,7 +84,7 @@ void socket_timeout(Socket socket) {
 bool resource_name(const std::string& name) {
     if (name.empty() || name.size() > 255 || name.front() == '/') return false;
     for (unsigned char c : name)
-        if (c < 32 || c > 126 || std::string("\\:%?#<>\"|*~").find(static_cast<char>(c)) != std::string::npos) return false;
+        if (c < 32 || c > 126 || std::string("\\:%?<>\"|*~").find(static_cast<char>(c)) != std::string::npos) return false;
     std::size_t begin = 0;
     do {
         auto end = name.find('/', begin);
@@ -106,10 +106,13 @@ bool resource_name(const std::string& name) {
     }
     const auto root = lower(name.substr(0, slash));
     return (root == "maps" && (ext == ".bsp" || ext == ".res" || ext == ".txt")) ||
-           (root == "models" && ext == ".mdl") ||
+           (root == "models" && (ext == ".mdl" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
            (root == "sprites" && (ext == ".spr" || ext == ".txt")) ||
            (root == "gfx" && (ext == ".tga" || ext == ".bmp")) ||
+           lower(name) == "gfx/tattoo/tattoo.cso" ||
+           (root == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
+           (root == "shader" && ext == ".txt") ||
            (root == "overviews" && (ext == ".txt" || ext == ".bmp" || ext == ".tga")) ||
            (root == "events" && ext == ".sc");
 }
@@ -192,6 +195,9 @@ struct Server::Impl {
         const auto method = request.substr(0, first);
         if (method != "GET" && method != "HEAD") { reply(socket, 405); return; }
         const auto target = request.substr(first + 1, last - first - 1);
+        // GoldSrc sends the literal # in CSOL texture filenames. Treat it as
+        // part of the exact precached resource name, also accepting %23 from
+        // conventional URL clients. Never strip a suffix as a fragment.
         if (target.substr(0, 11) != "/goldcraft/") { reply(socket, 404); return; }
         const auto name = decode(target.substr(11));
         if (!resource_name(name)) { reply(socket, 404); return; }

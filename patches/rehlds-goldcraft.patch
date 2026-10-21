@@ -11,6 +11,29 @@ index 1a67bd5..53618f4 100644
 +#define MAX_PACKET_ENTITIES		1024	// negotiated entity states per snapshot
  
  #endif // QLIMITS_H
+diff --git a/rehlds/engine/filesystem.cpp b/rehlds/engine/filesystem.cpp
+index 12c4a5a..2d00db5 100644
+--- a/rehlds/engine/filesystem.cpp
++++ b/rehlds/engine/filesystem.cpp
+@@ -451,6 +451,18 @@ int FileSystem_SetGameDirectory(const char *pDefaultDir, const char *pGameDir)
+ 	COM_FixSlashes(temp);
+ 	g_pFileSystem->AddSearchPath(temp, "PLATFORM");
+ 
++	const int csolResources = COM_CheckParm("-csol_resources");
++	const char* csolPath = std::getenv("CSOL_RESOURCE_ROOT");
++	if ((!csolPath || !*csolPath) && csolResources && csolResources + 1 < com_argc)
++		csolPath = com_argv[csolResources + 1];
++	if (csolPath && *csolPath)
++	{
++		std::string resourcePath(csolPath);
++		if (resourcePath.size() >= 2 && resourcePath.front() == '"' && resourcePath.back() == '"')
++			resourcePath = resourcePath.substr(1, resourcePath.size() - 2);
++		g_pFileSystem->AddSearchPathNoWrite(resourcePath.c_str(), "CSOL_RESOURCES");
++	}
++
+ 	return 1;
+ }
+ 
 diff --git a/rehlds/engine/host.cpp b/rehlds/engine/host.cpp
 index 9cd73e6..f073f8d 100644
 --- a/rehlds/engine/host.cpp
@@ -204,18 +227,19 @@ index 22e7b6a..535f5e6 100644
  		Q_strlcpy(destInfo, srcInfo, maxsize);
  		Info_RemovePrefixedKeys(destInfo, '_');
 diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
-index e69d2c9..f1f01b9 100644
+index e69d2c9..9fc8086 100644
 --- a/rehlds/engine/model.cpp
 +++ b/rehlds/engine/model.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "csol_loader.h"
  
  model_t *loadmodel;
  char loadname[MAX_MODEL_NAME];
-@@ -114,8 +115,9 @@ void Mod_ClearAll(void)
+@@ -114,8 +116,9 @@ void Mod_ClearAll(void)
  {
  	int i;
  	model_t *mod;
@@ -226,7 +250,7 @@ index e69d2c9..f1f01b9 100644
  		if (mod->type != mod_alias && mod->needload != (NL_NEEDS_LOADED | NL_UNREFERENCED))
  		{
  			mod->needload = NL_UNREFERENCED;
-@@ -129,7 +131,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -129,7 +132,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  {
  	mod_known_info_t *p;
  
@@ -235,7 +259,7 @@ index e69d2c9..f1f01b9 100644
  	p->shouldCRC = trackCRC;
  	p->firstCRCDone = 0;
  	p->initialCRC = 0;
-@@ -137,48 +139,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -137,48 +140,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  
  model_t *Mod_FindName(qboolean trackCRC, const char *name)
  {
@@ -293,7 +317,7 @@ index e69d2c9..f1f01b9 100644
  }
  
  NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
-@@ -188,7 +160,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
+@@ -188,7 +161,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(TRUE, name);
@@ -302,7 +326,7 @@ index e69d2c9..f1f01b9 100644
  
  	if (p->firstCRCDone)
  	{
-@@ -205,7 +177,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
+@@ -205,7 +178,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(FALSE, name);
@@ -311,7 +335,7 @@ index e69d2c9..f1f01b9 100644
  
  	p->shouldCRC = needCRC;
  }
-@@ -296,7 +268,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -296,7 +269,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  
  	if (trackCRC)
  	{
@@ -320,7 +344,20 @@ index e69d2c9..f1f01b9 100644
  		if (p->shouldCRC)
  		{
  			CRC32_Init(&currentCRC);
-@@ -1888,8 +1860,9 @@ void Mod_Print(void)
+@@ -348,9 +321,11 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+ 		Mod_LoadAliasModel(mod, buf);
+ 		break;
+ 	case IDSPRITEHEADER:
+-		Mod_LoadSpriteModel(mod, buf);
++		if (!GoldCraftLoadCsolSprite(mod, {reinterpret_cast<const std::byte*>(buf), (size_t)length}))
++			Mod_LoadSpriteModel(mod, buf);
+ 		break;
+ 	case IDSTUDIOHEADER:
++		GoldCraftDecodeStudio({reinterpret_cast<std::byte*>(buf), (size_t)length}, mod->name);
+ 		Mod_LoadStudioModel(mod, buf);
+ 		break;
+ 	default:
+@@ -1888,8 +1863,9 @@ void Mod_Print(void)
  	int i;
  	model_t *mod;
  	Con_Printf("Cached models:\n");
@@ -331,7 +368,7 @@ index e69d2c9..f1f01b9 100644
  		Con_Printf("%8p : %s", mod->cache.data, mod->name);
  		if (mod->needload & NL_UNREFERENCED)
  			Con_Printf(" (!R)");
-@@ -1908,7 +1881,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1908,7 +1884,7 @@ NOXREF void Mod_ChangeGame(void)
  
  	for (i = 0; i < mod_numknown; i++)
  	{
@@ -340,7 +377,7 @@ index e69d2c9..f1f01b9 100644
  
  		if (mod->type == mod_studio)
  		{
-@@ -1916,7 +1889,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1916,7 +1892,7 @@ NOXREF void Mod_ChangeGame(void)
  				Cache_Free(&mod->cache);
  		}
  
@@ -349,7 +386,7 @@ index e69d2c9..f1f01b9 100644
  
  		p->firstCRCDone = FALSE;
  		p->initialCRC = 0;
-@@ -1926,12 +1899,12 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1926,12 +1902,12 @@ NOXREF void Mod_ChangeGame(void)
  model_t *Mod_Handle(int modelindex)
  {
  #ifdef REHLDS_FIXES
@@ -1161,10 +1198,10 @@ index ceffd0d..fb4b7db 100644
  void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
  void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..6be7706 100644
+index dfd68c2..da3250d 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
-@@ -27,6 +27,16 @@
+@@ -27,6 +27,17 @@
  */
  
  #include "precompiled.h"
@@ -1172,6 +1209,7 @@ index dfd68c2..6be7706 100644
 +#include "goldcraft/userinfo.hpp"
 +#include "precache.h"
 +#include "http_download.h"
++#include "csol_loader.h"
 +#include "map_physics.h"
 +#include "map_visibility.h"
 +#include "packet_entities.h"
@@ -1181,7 +1219,7 @@ index dfd68c2..6be7706 100644
  
  typedef struct full_packet_entities_s
  {
-@@ -461,6 +471,9 @@ void SV_ClearPacketEntities(client_frame_t *frame)
+@@ -461,6 +472,9 @@ void SV_ClearPacketEntities(client_frame_t *frame)
  
  void SV_AllocPacketEntities(client_frame_t *frame, int numents)
  {
@@ -1191,7 +1229,7 @@ index dfd68c2..6be7706 100644
  	if (frame)
  	{
  #ifdef REHLDS_OPT_PEDANTIC
-@@ -655,17 +668,17 @@ void SV_FindModelNumbers(void)
+@@ -655,17 +669,17 @@ void SV_FindModelNumbers(void)
  {
  	sv_playermodel = -1;
  
@@ -1214,7 +1252,7 @@ index dfd68c2..6be7706 100644
  			sv_playermodel = i;
  #endif
  	}
-@@ -775,7 +788,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
+@@ -775,7 +789,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
  	else
  	{
  		sound_num = SV_LookupSoundIndex(sample);
@@ -1223,7 +1261,7 @@ index dfd68c2..6be7706 100644
  		{
  			Con_Printf("%s: %s not precached (%d)\n", __func__, sample, sound_num);
  			return FALSE;
-@@ -802,7 +815,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
+@@ -802,7 +816,7 @@ qboolean SV_BuildSoundMsg(edict_t *entity, int channel, const char *sample, int
  		MSG_WriteBits((uint32)(attenuation * 64.0f), 8);
  	MSG_WriteBits(channel, 3);
  	MSG_WriteBits(ent, MAX_EDICT_BITS);
@@ -1232,7 +1270,7 @@ index dfd68c2..6be7706 100644
  	MSG_WriteBitVec3Coord(origin);
  	if (field_mask & SND_FL_PITCH)
  		MSG_WriteBits(pitch, 8);
-@@ -826,48 +839,19 @@ int SV_HashString(const char *string, int iBounds)
+@@ -826,48 +840,19 @@ int SV_HashString(const char *string, int iBounds)
  
  int EXT_FUNC SV_LookupSoundIndex(const char *sample)
  {
@@ -1286,7 +1324,7 @@ index dfd68c2..6be7706 100644
  	}
  
  	g_psv.sound_precache_hashedlookup_built = TRUE;
-@@ -892,7 +876,7 @@ void SV_AddSampleToHashedLookupTable(const char *pszSample, int iSampleIndex)
+@@ -892,7 +877,7 @@ void SV_AddSampleToHashedLookupTable(const char *pszSample, int iSampleIndex)
  	g_psv.sound_precache_hashedlookup[index] = iSampleIndex;
  }
  
@@ -1295,7 +1333,7 @@ index dfd68c2..6be7706 100644
  {
  	if (Host_IsSinglePlayerGame() || client->proxy)
  	{
-@@ -928,7 +912,13 @@ qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to)
+@@ -928,7 +913,13 @@ qboolean SV_ValidClientMulticast(client_t *client, int soundLeaf, int to)
  		return TRUE;
  	}
  
@@ -1309,7 +1347,7 @@ index dfd68c2..6be7706 100644
  	if (mask[(bitNumber - 1) >> 3] & (1 << ((bitNumber - 1) & 7)))
  	{
  		return TRUE;
-@@ -976,7 +966,7 @@ void SV_Multicast(edict_t *ent, vec_t *origin, int to, qboolean reliable)
+@@ -976,7 +967,7 @@ void SV_Multicast(edict_t *ent, vec_t *origin, int to, qboolean reliable)
  			}
  		}
  
@@ -1318,7 +1356,7 @@ index dfd68c2..6be7706 100644
  		{
  			sizebuf_t *pBuffer = &client->netchan.message;
  			if (!reliable)
-@@ -1210,6 +1200,10 @@ void SV_SendServerinfo_internal(sizebuf_t *msg, client_t *client)
+@@ -1210,6 +1201,10 @@ void SV_SendServerinfo_internal(sizebuf_t *msg, client_t *client)
  	client->connected = TRUE;
  	client->fully_connected = FALSE;
  	client->movevars = sv_movevars;
@@ -1329,7 +1367,7 @@ index dfd68c2..6be7706 100644
  }
  
  void SV_SendResources(sizebuf_t *msg)
-@@ -1219,6 +1213,7 @@ void SV_SendResources(sizebuf_t *msg)
+@@ -1219,6 +1214,7 @@ void SV_SendResources(sizebuf_t *msg)
  
  void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
  {
@@ -1337,7 +1375,7 @@ index dfd68c2..6be7706 100644
  	unsigned char nullbuffer[32];
  	Q_memset(nullbuffer, 0, sizeof(nullbuffer));
  
-@@ -1237,12 +1232,13 @@ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
+@@ -1237,12 +1233,13 @@ void EXT_FUNC SV_SendResources_internal(sizebuf_t *msg)
  	MSG_WriteBits(g_psv.num_resources, RESOURCE_INDEX_BITS);
  
  #ifdef REHLDS_FIXES
@@ -1353,7 +1391,7 @@ index dfd68c2..6be7706 100644
  		MSG_WriteBits(r->type, 4);
  		MSG_WriteBitString(r->szFileName);
  		MSG_WriteBits(r->nIndex, RESOURCE_INDEX_BITS);
-@@ -1626,6 +1622,8 @@ void SV_SendRes_f(void)
+@@ -1626,6 +1623,8 @@ void SV_SendRes_f(void)
  		if (g_psvs.maxclients <= 1 || host_client->m_sendrescount <= 1)
  		{
  			host_client->m_sendrescount++;
@@ -1362,7 +1400,7 @@ index dfd68c2..6be7706 100644
  			SV_SendResources(&msg);
  			Netchan_CreateFragments(true, &host_client->netchan, &msg);
  			Netchan_FragSend(&host_client->netchan);
-@@ -2564,6 +2562,7 @@ void EXT_FUNC SV_ConnectClient_internal(void)
+@@ -2564,6 +2563,7 @@ void EXT_FUNC SV_ConnectClient_internal(void)
  	Q_strncpy(host_client->userinfo, userinfo, MAX_INFO_STRING);
  #endif
  	host_client->userinfo[MAX_INFO_STRING - 1] = 0;
@@ -1370,7 +1408,7 @@ index dfd68c2..6be7706 100644
  
  	SV_ExtractFromUserinfo(host_client);
  	Info_SetValueForStarKey(host_client->userinfo, "*sid", va("%lld", host_client->network_userid.m_SteamID), MAX_INFO_STRING);
-@@ -4108,6 +4107,7 @@ void EXT_FUNC SV_WriteFullClientUpdate_internal(IGameClient *client, char *info,
+@@ -4108,6 +4108,7 @@ void EXT_FUNC SV_WriteFullClientUpdate_internal(IGameClient *client, char *info,
  	MD5Final(digest, &ctx);
  #endif
  
@@ -1378,7 +1416,7 @@ index dfd68c2..6be7706 100644
  	MSG_WriteByte(sb, svc_updateuserinfo);
  	MSG_WriteByte(sb, cl - g_psvs.clients);
  	MSG_WriteLong(sb, cl->userid);
-@@ -4142,17 +4142,23 @@ void SV_SendFullClientUpdateForAll(client_t *client)
+@@ -4142,17 +4143,23 @@ void SV_SendFullClientUpdateForAll(client_t *client)
  
  void SV_FullClientUpdate(client_t *cl, sizebuf_t *sb)
  {
@@ -1405,7 +1443,7 @@ index dfd68c2..6be7706 100644
  }
  
  void EXT_FUNC SV_EmitEvents_api(IGameClient *cl, packet_entities_t *pack, sizebuf_t *ms)
-@@ -4338,6 +4344,8 @@ void SV_AddToFatPVS(vec_t *org, mnode_t *node)
+@@ -4338,6 +4345,8 @@ void SV_AddToFatPVS(vec_t *org, mnode_t *node)
  	}
  	if (node->contents != CONTENTS_SOLID)
  	{
@@ -1414,7 +1452,7 @@ index dfd68c2..6be7706 100644
  		unsigned char *pvs = Mod_LeafPVS((mleaf_t *)node, g_psv.worldmodel);
  		for (int i = 0; i < fatbytes; i++)
  			fatpvs[i] |= pvs[i];
-@@ -4357,6 +4365,7 @@ unsigned char* EXT_FUNC SV_FatPVS(float *org)
+@@ -4357,6 +4366,7 @@ unsigned char* EXT_FUNC SV_FatPVS(float *org)
  		Sys_Error("%s: MAX_MAP_LEAFS limit exceeded\n", __func__);
  
  	Q_memset(fatpvs, 0, fatbytes);
@@ -1422,7 +1460,7 @@ index dfd68c2..6be7706 100644
  	SV_AddToFatPVS(org, g_psv.worldmodel->nodes);
  	return fatpvs;
  }
-@@ -4395,6 +4404,8 @@ void SV_AddToFatPAS(vec_t *org, mnode_t *node)
+@@ -4395,6 +4405,8 @@ void SV_AddToFatPAS(vec_t *org, mnode_t *node)
  		return;
  	}
  
@@ -1431,7 +1469,7 @@ index dfd68c2..6be7706 100644
  	int leafnum = (mleaf_t *)node - g_psv.worldmodel->leafs;
  	pas = CM_LeafPAS(leafnum);
  
-@@ -4417,6 +4428,7 @@ unsigned char* EXT_FUNC SV_FatPAS(float *org)
+@@ -4417,6 +4429,7 @@ unsigned char* EXT_FUNC SV_FatPAS(float *org)
  		Sys_Error("%s: MAX_MAP_LEAFS limit exceeded\n", __func__);
  
  	Q_memset(fatpas, 0, fatpasbytes);
@@ -1439,7 +1477,7 @@ index dfd68c2..6be7706 100644
  	SV_AddToFatPAS(org, g_psv.worldmodel->nodes);
  	return fatpas;
  }
-@@ -4585,10 +4597,44 @@ int SV_CreatePacketEntities(sv_delta_t type, client_t *client, packet_entities_t
+@@ -4585,10 +4598,44 @@ int SV_CreatePacketEntities(sv_delta_t type, client_t *client, packet_entities_t
  	return g_RehldsHookchains.m_SV_CreatePacketEntities.callChain(SV_CreatePacketEntities_api, type, GetRehldsApiClient(client), to, msg);
  }
  
@@ -1484,7 +1522,7 @@ index dfd68c2..6be7706 100644
  	edict_t *ent;
  	client_frame_t *fromframe;
  	packet_entities_t *from;		// Entity packet for that frame
-@@ -4612,9 +4658,12 @@ int SV_CreatePacketEntities_internal(sv_delta_t type, client_t *client, packet_e
+@@ -4612,9 +4659,12 @@ int SV_CreatePacketEntities_internal(sv_delta_t type, client_t *client, packet_e
  		// This is the frame that we are going to delta update from
  		fromframe = &client->frames[SV_UPDATE_MASK & client->delta_sequence];
  		from = &fromframe->entities;
@@ -1499,7 +1537,7 @@ index dfd68c2..6be7706 100644
  
  		MSG_WriteByte(msg, svc_deltapacketentities);    // This is a delta
  		MSG_WriteShort(msg, to->num_entities);          // This is how many ents are in the new packet
-@@ -4840,7 +4889,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
+@@ -4840,7 +4890,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
  			if (pset[leaf >> 3] & (1 << (leaf & 7)))
  				return 1;
  		}
@@ -1508,7 +1546,7 @@ index dfd68c2..6be7706 100644
  	}
  	else
  	{
-@@ -4861,7 +4910,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
+@@ -4861,7 +4911,7 @@ int EXT_FUNC SV_CheckVisibility(edict_t *entity, unsigned char *pset)
  			return 2;
  		}
  
@@ -1517,7 +1555,7 @@ index dfd68c2..6be7706 100644
  	}
  }
  
-@@ -4901,6 +4950,7 @@ void EXT_FUNC SV_EmitPings_internal(client_t *client, sizebuf_t *msg)
+@@ -4901,6 +4951,7 @@ void EXT_FUNC SV_EmitPings_internal(client_t *client, sizebuf_t *msg)
  void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  {
  	client_frame_t *frame = &client->frames[SV_UPDATE_MASK & client->netchan.outgoing_sequence];
@@ -1525,7 +1563,7 @@ index dfd68c2..6be7706 100644
  
  	unsigned char *pvs = NULL;
  	unsigned char *pas = NULL;
-@@ -4928,6 +4978,8 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4928,6 +4979,8 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  	int e;
  	for (e = 1; e <= g_psvs.maxclients; e++)
  	{
@@ -1534,7 +1572,7 @@ index dfd68c2..6be7706 100644
  		client_t *cl = &g_psvs.clients[e - 1];
  		if ((!cl->active && !cl->spawned) || cl->proxy)
  			continue;
-@@ -4939,7 +4991,7 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4939,7 +4992,7 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  
  	for (; e < g_psv.num_edicts; e++)
  	{
@@ -1543,7 +1581,7 @@ index dfd68c2..6be7706 100644
  		{
  			Con_DPrintf("Too many entities in visible packet list.\n");
  			break;
-@@ -4982,9 +5034,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4982,9 +5035,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  					// Prevent crash "Cache_UnlinkLRU: NULL link" on client-side
  					// if aiment with sprite model will be to render as a studio model
  					edict_t *ent = &g_psv.edicts[entityState.aiment];
@@ -1556,7 +1594,7 @@ index dfd68c2..6be7706 100644
  					{
  						entityState.aiment = 0;
  						entityState.movetype = MOVETYPE_NONE;
-@@ -4999,9 +5051,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -4999,9 +5052,9 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  
  			// Prevent spam "Non-sprite set to glow!" in console on client-side
  			if (entityState.rendermode == kRenderGlow
@@ -1569,7 +1607,7 @@ index dfd68c2..6be7706 100644
  			{
  				entityState.rendermode = kRenderNormal;
  			}
-@@ -5026,6 +5078,7 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
+@@ -5026,6 +5079,7 @@ void SV_WriteEntitiesToClient(client_t *client, sizebuf_t *msg)
  #endif
  
  	SV_EmitPacketEntities(client, pack, msg);
@@ -1577,7 +1615,7 @@ index dfd68c2..6be7706 100644
  	SV_EmitEvents(client, pack, msg);
  	if (sendping)
  		SV_EmitPings(client, msg);
-@@ -5042,12 +5095,12 @@ void SV_CleanupEnts(void)
+@@ -5042,12 +5096,12 @@ void SV_CleanupEnts(void)
  
  qboolean SV_SendClientDatagram(client_t *client)
  {
@@ -1592,7 +1630,7 @@ index dfd68c2..6be7706 100644
  	msg.cursize = 0;
  	msg.flags = SIZEBUF_ALLOW_OVERFLOW;
  
-@@ -5121,6 +5174,7 @@ void SV_UpdateUserInfo(client_t *client)
+@@ -5121,6 +5175,7 @@ void SV_UpdateUserInfo(client_t *client)
  
  void SV_UpdateToReliableMessages(void)
  {
@@ -1600,7 +1638,7 @@ index dfd68c2..6be7706 100644
  	int i;
  	client_t *client;
  
-@@ -5417,26 +5471,10 @@ void SV_ExtractFromUserinfo(client_t *cl)
+@@ -5417,26 +5472,10 @@ void SV_ExtractFromUserinfo(client_t *cl)
  
  int SV_ModelIndex(const char *name)
  {
@@ -1631,7 +1669,7 @@ index dfd68c2..6be7706 100644
  }
  
  void EXT_FUNC SV_AddResource_hook(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
-@@ -5451,29 +5489,16 @@ void EXT_FUNC SV_AddResource(resourcetype_t type, const char *name, int size, un
+@@ -5451,29 +5490,16 @@ void EXT_FUNC SV_AddResource(resourcetype_t type, const char *name, int size, un
  
  void SV_AddResource_internal(resourcetype_t type, const char *name, int size, unsigned char flags, int index)
  {
@@ -1671,7 +1709,7 @@ index dfd68c2..6be7706 100644
  }
  
  size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, size_t nListMax, size_t *nWidthFileNameMax)
-@@ -5486,14 +5511,15 @@ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, s
+@@ -5486,14 +5512,15 @@ size_t SV_CountResourceByType(resourcetype_t type, resource_t **pResourceList, s
  
  	resource_t *r;
  #ifdef REHLDS_FIXES
@@ -1689,7 +1727,7 @@ index dfd68c2..6be7706 100644
  		if (r->type != type)
  			continue;
  
-@@ -5765,17 +5791,18 @@ void SV_CreateResourceList(void)
+@@ -5765,17 +5792,18 @@ void SV_CreateResourceList(void)
  	event_t *ep;
  
  	g_psv.num_resources = 0;
@@ -1711,7 +1749,7 @@ index dfd68c2..6be7706 100644
  	}
  #else // REHLDS_FIXES
  #ifdef REHLDS_CHECKS
-@@ -5794,11 +5821,13 @@ void SV_CreateResourceList(void)
+@@ -5794,11 +5822,13 @@ void SV_CreateResourceList(void)
  #endif // REHLDS_FIXES
  
  #ifdef REHLDS_CHECKS
@@ -1727,7 +1765,7 @@ index dfd68c2..6be7706 100644
  		if (**s == '!')
  		{
  			if (!ffirstsent)
-@@ -5816,17 +5845,19 @@ void SV_CreateResourceList(void)
+@@ -5816,17 +5846,19 @@ void SV_CreateResourceList(void)
  		}
  	}
  #ifdef REHLDS_CHECKS
@@ -1750,7 +1788,7 @@ index dfd68c2..6be7706 100644
  	}
  	for (i = 0; i < sv_decalnamecount; i++)
  		SV_AddResource(t_decal, sv_decalnames[i].name, Draw_DecalSize(i), 0, i);
-@@ -5839,6 +5870,7 @@ void SV_CreateResourceList(void)
+@@ -5839,6 +5871,7 @@ void SV_CreateResourceList(void)
  
  		SV_AddResource(t_eventscript, (char *)ep->filename, ep->filesize, RES_FATALIFMISSING, i);
  	}
@@ -1758,7 +1796,7 @@ index dfd68c2..6be7706 100644
  }
  
  void SV_ClearCaches(void)
-@@ -6022,7 +6054,7 @@ void SV_BroadcastCommand(char *fmt, ...)
+@@ -6022,7 +6055,7 @@ void SV_BroadcastCommand(char *fmt, ...)
  {
  	va_list argptr;
  	char string[1024];
@@ -1767,7 +1805,7 @@ index dfd68c2..6be7706 100644
  	sizebuf_t msg;
  
  	if (!g_psv.active)
-@@ -6046,7 +6078,7 @@ void SV_BroadcastCommand(char *fmt, ...)
+@@ -6046,7 +6079,7 @@ void SV_BroadcastCommand(char *fmt, ...)
  	for (int i = 0; i < g_psvs.maxclients; ++i)
  	{
  		client_t *cl = &g_psvs.clients[i];
@@ -1776,7 +1814,7 @@ index dfd68c2..6be7706 100644
  		{
  			SZ_Write(&cl->netchan.message, msg.data, msg.cursize);
  		}
-@@ -6182,13 +6214,14 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
+@@ -6182,16 +6215,18 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
  
  void PrecacheModelSpecifiedFiles()
  {
@@ -1795,7 +1833,11 @@ index dfd68c2..6be7706 100644
  
  		PrecacheModelTexture(*s, pStudioHeader);
  		PrecacheModelSeqGroups(pStudioHeader);
-@@ -6201,7 +6234,7 @@ void PrecacheModelSpecifiedFiles()
++		GoldCraftPrecacheCsolResources(*s,pStudioHeader);
+ 		if (sv_auto_precache_sounds_in_models.value)
+ 			PrecacheModelSounds(pStudioHeader);
+ 	}
+@@ -6201,7 +6236,7 @@ void PrecacheModelSpecifiedFiles()
  #ifdef REHLDS_FIXES
  void MoveCheckedResourcesToFirstPositions()
  {
@@ -1804,7 +1846,7 @@ index dfd68c2..6be7706 100644
  	size_t j = 0;
  	for (size_t i = 0; i < (size_t)g_psv.num_resources; i++)
  	{
-@@ -6448,6 +6481,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6448,6 +6483,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	SV_AllocClientFrames();
  	Q_memset(&g_psv, 0, sizeof(server_t));
@@ -1812,7 +1854,7 @@ index dfd68c2..6be7706 100644
  
  #ifdef REHLDS_OPT_PEDANTIC
  	g_rehlds_sv.modelsMap.clear();
-@@ -6594,18 +6628,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6594,18 +6630,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  		CM_CalcPAS(g_psv.worldmodel);
  	}
  
@@ -1832,7 +1874,7 @@ index dfd68c2..6be7706 100644
  	g_psv.sound_precache[0] = pr_strings;
  	g_psv.model_precache[0] = pr_strings;
  #ifndef REHLDS_FIXES
-@@ -6613,14 +6637,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6613,14 +6639,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	for (i = 1; i < g_psv.worldmodel->numsubmodels; i++)
  	{
@@ -1850,7 +1892,7 @@ index dfd68c2..6be7706 100644
  		}
  #endif
  	}
-@@ -8172,6 +8195,7 @@ void SV_SetMaxclients(void)
+@@ -8172,6 +8197,7 @@ void SV_SetMaxclients(void)
  	g_psvs.clients = (client_t *)Hunk_AllocName(sizeof(client_t) * g_psvs.maxclientslimit, "clients");
  	for (i = 0, cl = g_psvs.clients; i < g_psvs.maxclientslimit; i++, cl++)
  	{
@@ -1858,7 +1900,7 @@ index dfd68c2..6be7706 100644
  		Q_memset(cl, 0, sizeof(client_t));
  
  		cl->resourcesneeded.pPrev = &cl->resourcesneeded;
-@@ -8311,6 +8335,7 @@ void EXT_FUNC SV_Frame_Internal()
+@@ -8311,6 +8337,7 @@ void EXT_FUNC SV_Frame_Internal()
  	gGlobalVariables.frametime = host_frametime;
  	g_psv.oldtime = g_psv.time;
  	SV_CheckCmdTimes();
@@ -1866,7 +1908,7 @@ index dfd68c2..6be7706 100644
  	SV_ReadPackets();
  	if (SV_IsSimulating())
  	{
-@@ -8351,6 +8376,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
+@@ -8351,6 +8378,7 @@ void SV_RegisterDelta(char *name, char *loadfile)
  	p->delta = pdesc;
  	p->next = g_sv_delta;
  	g_sv_delta = p;
@@ -1874,7 +1916,7 @@ index dfd68c2..6be7706 100644
  
  #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
  	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
-@@ -8417,6 +8443,14 @@ void SV_InitEncoders(void)
+@@ -8417,6 +8445,14 @@ void SV_InitEncoders(void)
  
  void SV_Init(void)
  {
@@ -1889,7 +1931,7 @@ index dfd68c2..6be7706 100644
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
-@@ -8553,6 +8587,7 @@ void SV_Init(void)
+@@ -8553,6 +8589,7 @@ void SV_Init(void)
  	Cvar_RegisterVariable(&sv_rehlds_hull_centering);
  	Cvar_RegisterVariable(&sv_rcon_condebug);
  	Cvar_RegisterVariable(&sv_rehlds_userinfo_transmitted_fields);
@@ -1897,7 +1939,7 @@ index dfd68c2..6be7706 100644
  	Cvar_RegisterVariable(&sv_rehlds_attachedentities_playeranimationspeed_fix);
  	Cvar_RegisterVariable(&sv_rehlds_local_gametime);
  	Cvar_RegisterVariable(&sv_rehlds_send_mapcycle);
-@@ -8605,6 +8640,7 @@ void SV_Init(void)
+@@ -8605,6 +8642,7 @@ void SV_Init(void)
  	{
  		client_t *cl = &g_psvs.clients[i];
  		SV_ClearFrames(&cl->frames);

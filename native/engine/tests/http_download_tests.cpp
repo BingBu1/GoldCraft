@@ -121,10 +121,19 @@ static void adapter_tests(){
     GC_HttpInit();CHECK(cvars.at("mc_http_download")->value==1);Cvar_Set("mc_http_port",std::to_string(port).c_str());Cvar_Set("mc_http_bind","127.0.0.1");
     files["models/a.mdl"].bytes=pattern(1024*1024+27);files["sound/a.wav"].bytes=pattern(37,1);files["sprites/test.spr"].bytes=pattern(13,2);
     add("models/a.mdl",t_model,files["models/a.mdl"].bytes.size());add("a.wav",t_sound,37);add("sprites/test.spr",t_generic,13);add("server.cfg",t_generic,20);add("*1",t_model,20);add("!sentence",t_sound,20);add("spray.wad",t_generic,20,RES_CUSTOM);add("decal",t_decal,20);
+    const char* csol_resources[]{"models/v_weapon.json", "models/$0a_sphere.tga", "models/texture/hand.bmp",
+        "shader/@004.txt", "shader/env.txt", "materials/common.json", "materials/weapon/base.tga", "gfx/tattoo/tattoo.cso"};
+    for(const auto* name:csol_resources){files[name].bytes=pattern(31,3);add(name,t_generic,31);}
+    files["models/texture/#512512hand.bmp"].bytes=pattern(41,4);add("models/texture/#512512hand.bmp",t_generic,41);
     GC_HttpResources();frame();CHECK(std::string(sv_downloadurl.string).empty());
     auto f=async_request(port,"models/a.mdl");CHECK(pump(f).body==files["models/a.mdl"].bytes);CHECK(largest_read_frame==256*1024&&seeks>=5&&opens==closes);
     f=async_request(port,"sound/a.wav");CHECK(pump(f).body==files["sound/a.wav"].bytes);
     f=async_request(port,"sprites/test.spr");CHECK(pump(f).body==files["sprites/test.spr"].bytes);
+    for(const auto* name:csol_resources){f=async_request(port,name);auto response=pump(f);CHECK(response.status==200 && response.body==files[name].bytes);}
+    f=async_request(port,"models/texture/%23512512hand.bmp");CHECK(pump(f).body==files["models/texture/#512512hand.bmp"].bytes);
+    f=async_request(port,"models/texture/#512512hand.bmp");CHECK(pump(f).body==files["models/texture/#512512hand.bmp"].bytes);
+    f=async_request(port,"models/texture/#512512hand.bmp#extra");CHECK(pump(f).status==404);
+    f=async_request(port,"models/not_precached.json");CHECK(pump(f).status==404);
     f=async_request(port,"spray.wad");CHECK(pump(f).status==404);
     Cvar_Set("sv_allow_dlfile","0");Cvar_Set("mc_http_public_url","http://example.invalid:12345/goldcraft/");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://example.invalid:12345/goldcraft/");CHECK(sv_allow_dlfile.value==0);
     Cvar_Set("sv_downloadurl","http://admin.invalid/");Cvar_Set("mc_http_public_url","");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://admin.invalid/");
@@ -142,6 +151,7 @@ int main(){
     WSADATA w;CHECK(WSAStartup(MAKEWORD(2,2),&w)==0);
     for(const auto& u:{"http://example.com/goldcraft/","http://127.0.0.1:27080/goldcraft/"})CHECK(public_url(u));
     for(const auto& u:{"http://localhost:0/goldcraft/","https://example.com/goldcraft/","http://user@x/goldcraft/","http://x/other/","http://x:65536/goldcraft/","http://x/goldcraft/;quit"})CHECK(!public_url(u));
+    for(const auto* name:{"models/server.cfg", "models/plugin.dll", "materials/../server.json", "shader/program.glsl", "gfx/tattoo/other.cso", "config/private.json"})CHECK(!resource_name(name));
     server_tests();store_tests();adapter_tests();WSACleanup();
     std::cout<<"HTTP production server/store/adapter checks="<<checks.load()<<" passed\n";
 }

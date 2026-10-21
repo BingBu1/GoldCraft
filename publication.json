@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "tools/Build-CSOLSupport.ps1",
+    "tools/Prepare-CSOLResources.py",
+    "tools/Deploy-CSOLSupport.ps1",
+    "amxx/tests/csol_runtime_test.sma",
+    "docs/2026-10-21_分析-CSOL客户端接入-report.md",
     ".gitattributes",
     ".gitignore",
     "README.md",
