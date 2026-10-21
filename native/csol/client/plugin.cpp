@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "weapons.hpp"
+#include "camera.hpp"
 #include <cstring>
 
 namespace csol::client
@@ -65,27 +66,34 @@ static void Init()
     engine.pfnAddCommand("weapon_tknifeex2",[](){engine.pfnServerCmd("weapon_tknifeex2");});
     InitializeScene();
     InitializeWeapons();
+    InitializeCamera();
 }
 static int VidInit()
 {
+    ResetCamera();
     ClearScene();
     ResetWeapons(true);WeaponVideoInit();
     level.clear();clientTime=-1;
     return downstream.HUD_VidInit();
 }
-static void Frame(double time)
+void SynchronizeSession()
 {
     const char* current=engine.pfnGetLevelName();if(!current)current="";
     const double now=engine.GetClientTime();
     if(level!=current || (clientTime>=0 && now<clientTime))
-    {ClearScene();ResetWeapons(true);level=current;}
+    {ClearScene();ResetWeapons(true);ResetCamera();level=current;}
     clientTime=now;
+}
+static void Frame(double time)
+{
+    SynchronizeSession();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
 }
 static void CalcRefdef(ref_params_t* params)
 {
     downstream.V_CalcRefdef(params);
+    CameraRefdef(params);
     view=*params;
 }
 static void Transparent()
@@ -123,6 +131,9 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_DrawTransparentTriangles=Transparent;
     functions->HUD_Redraw=WeaponRedraw;
     functions->HUD_PostRunCmd=WeaponPostRunCmd;
+    functions->CAM_Think=CameraThink;
+    functions->CL_IsThirdPerson=CameraIsThirdPerson;
+    functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){}
 void IPluginsV4::ExitGame(int){csol::client::ClearScene();csol::client::RemoveHooks();}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "assets.hpp"
 #include "weapons.hpp"
+#include "camera.hpp"
 #include "gl_state.hpp"
 #include "../events.hpp"
 #include "../parts.hpp"
@@ -481,7 +482,7 @@ void SceneFrame()
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);file<<'}';
+    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);file<<'}';
 }
 void Report(){engine.Con_Printf("CSOLSupport independent DLL: assets=%u draws=%d events=%d active=%u rendererAPI=%d partMessages=%d viewMessages=%d rejected=%d\n",unsigned(AssetCount()),draws,eventCount,unsigned(effects.size()),renderer!=nullptr,partMessages,viewMessages,rejectedMessages);}
 }

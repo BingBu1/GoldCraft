@@ -35,6 +35,7 @@ void MountResources();
 void InstallLoaders();
 void RemoveHooks();
 void ClearScene();
+void SynchronizeSession();
 void InitializeScene();
 void SceneFrame();
 bool EnsureGraphics();

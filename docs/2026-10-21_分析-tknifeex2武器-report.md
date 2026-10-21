@@ -42,8 +42,18 @@ tools/Build-CSOLWeapons.ps1 -TestWeapons
 
 客户端`cl_lw 1`测试预测，`cl_lw 0`应走服务器状态。原版CS服务端未注册该classname时，不启用新增武器HUD。保留普通CS原有控制和HUD，未将武器逻辑放入Pawn或Renderer。
 
+## 本地第三人称观察
+
+独立 `CSOLSupport.dll` 支持 `cam_command 3` 开启本地第三人称，`cam_command 2` 返回第一人称。`csol_cam_distance` 默认128（范围16–256），`csol_cam_height` 默认12（范围−32–64）。镜头沿当前视角后移，使用引擎预测实体列表检查墙和实体BSP；忽略人物模型，避免镜头撞到自身。它只改变观察视点，不改服务器位置、射击方向或武器逻辑。
+
+`camera-live-final.json`及`camera-third-person.png`记录真实角色/持刀显示、稳定第三人称期间第一人称模型停止绘制、墙面距离128.561→92.3764、返回第一人称恢复武器模型、投掷30→29、死亡退出及复活恢复。角色共有361动作，实际此次投掷为sequence57，不能作为高编号动作验收。已修快速本机入服时WeaponList早于HUD_Frame、注册被随后清空的顺序问题：接收武器注册前先同步会话。
+
+镜头实现位于`native/csol/client/camera.cpp`，通过标准客户端导出函数接入，无Renderer修改。实测输入由显式启用的本地夹具把原样`cam_command`送入`pfnClientCmd`；键盘输入链本轮未验收。夹具仅在设置`CSOL_CAMERA_TEST_COMMAND`时读取指定文件，接受递增编号及模式1–3，不接受任意命令。普通启动无这项文件轮询。
+
+重连测试另有未解决问题：投掷后retry在运行Renderer的`R_IsDecalSurfaceReady`读取无效`surface.polys=0xE22`时崩溃。全新进程从未开启第三人称亦在同一RVA复现；证据`camera-reconnect-failure.json`及`camera-reconnect-debug.log`。不能将相机局部通过当成重连通过。当前仅更新隔离客户端，正式B/专服未部署本轮。
+
 ## 剩余验收
 
-完整伤害、护甲、友伤与攻击者生命周期，第三人称/高编号动作、换服及HUD边界、新别名冷下载仍待；补验`tknife-ammo-unpredicted-live.json`在真实`cl_lw=0`新进程确认总数30→29，与服务端clip1/reserve29→28一致；`tknife-ammo-death-hud.json`确认死亡后health0/active0，两次draws均2314，蓝HUD停止绘制。隔离客户端随后恢复`cl_lw=1`；换服及其余HUD/预测边界仍待。当前飞刀插墙使用5秒网络实体，原CSO的临时模型消息、连续碰撞与部分材质穿透行为尚未全部复刻。编译和局部实机通过不代表这些已完成。
+完整伤害、护甲、友伤与攻击者生命周期，高编号动作、第三人称的多人/换图边界、换服及HUD边界、新别名冷下载仍待；补验`tknife-ammo-unpredicted-live.json`在真实`cl_lw=0`新进程确认总数30→29，与服务端clip1/reserve29→28一致；`tknife-ammo-death-hud.json`确认死亡后health0/active0，两次draws均2314，蓝HUD停止绘制。隔离客户端随后恢复`cl_lw=1`；换服及其余HUD/预测边界仍待。当前飞刀插墙使用5秒网络实体，原CSO的临时模型消息、连续碰撞与部分材质穿透行为尚未全部复刻。编译和局部实机通过不代表这些已完成。
 
 按用户排队，完成tknifeex2后研究`v_beamgunle`。其mp.dll逻辑片段不完整，需要结合客户端、模型事件和资源配置；推定行为须与已确认原版行为分别记录。

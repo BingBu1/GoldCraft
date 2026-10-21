@@ -8,7 +8,7 @@ endif()
 get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
-add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/scene.cpp client/assets.cpp client/hands.cpp client/weapons.cpp
+add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/scene.cpp client/assets.cpp client/hands.cpp client/weapons.cpp client/camera.cpp
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)

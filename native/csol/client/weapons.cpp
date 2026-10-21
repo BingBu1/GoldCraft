@@ -49,6 +49,9 @@ void Fill(int x,int y,int width,int height,int r,int g,int b,int a)
 }
 int WeaponList(const char* name,int size,void* data)
 {
+    // Sign-on messages can precede HUD_Frame on a fast local connection.
+    // Retire the previous session before accepting this server's registration.
+    SynchronizeSession();
     if(data && size>0)
     {
         const auto* bytes=static_cast<const unsigned char*>(data);
