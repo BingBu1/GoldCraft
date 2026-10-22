@@ -19,6 +19,8 @@ int predictedClip=-1, predictedTotal=-1;
 int hudDraws{}, predictionCalls{}, postRunCalls{}, sourceWeaponId{};
 SCREENINFO screen{};
 struct Sprite { int handle{}; wrect_t rect{}; } digits[10], ammoIcon;
+int nativeDigitSprites[10]{};
+struct { int numberX{}, numberY{}, iconX{}, iconY{}; } hudLayout;
 int currentSprite{};
 pfnUserMsgHook oldWeaponList{}, oldCurWeapon{}, oldAmmo{}, oldHide{}, oldReset{};
 decltype(engine.pfnSPR_Set) originalSet{};
@@ -38,7 +40,7 @@ void SetSprite(int sprite,int r,int g,int b)
 }
 void DrawSprite(int frame,int x,int y,const wrect_t* rect)
 {
-    bool digit=false;for(const auto& item:digits)if(item.handle==currentSprite)digit=true;
+    bool digit=false;for(const int sprite:nativeDigitSprites)if(sprite==currentSprite)digit=true;
     if(AmmoArea(x,y) && (digit || currentSprite==ammoIcon.handle))return;
     originalDraw(frame,x,y,rect);
 }
@@ -107,9 +109,15 @@ void LoadSprites()
             char name[24];std::snprintf(name,sizeof(name),"number_%d",digit);
             if(std::strcmp(list[i].szName,name))continue;
             char path[160];std::snprintf(path,sizeof(path),"sprites/%s.spr",list[i].szSprite);
-            digits[digit]={engine.pfnSPR_Load(path),list[i].rc};
+            nativeDigitSprites[digit]=engine.pfnSPR_Load(path);
         }
     }
+    // CSO hud.txt: number_0..9 use 20x25 cells in 640hud7. Stock CS
+    // uses the same rectangles but different pixels; keep its atlas intact.
+    constexpr int digitLeft[]{0,23,47,70,95,119,144,169,192,216};
+    const int atlas=engine.pfnSPR_Load("sprites/csol/640hud7.spr");
+    for(int digit=0;digit<10;++digit)
+        digits[digit]={atlas,{digitLeft[digit],digitLeft[digit]+20,0,25}};
     ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud12.spr"),{49,73,231,255}};
 }
 }
@@ -132,7 +140,9 @@ void ResetWeapons(bool forgetRegistration)
 }
 void WeaponVideoInit()
 {
-    for(auto& sprite:digits)sprite={};ammoIcon={};screen={};
+    for(auto& sprite:digits)sprite={};
+    std::fill(std::begin(nativeDigitSprites),std::end(nativeDigitSprites),0);
+    ammoIcon={};screen={};hudLayout={};
 }
 int WeaponRedraw(float time,int intermission)
 {
@@ -147,18 +157,25 @@ int WeaponRedraw(float time,int intermission)
     const int width=digits[0].rect.right-digits[0].rect.left;
     const int height=digits[0].rect.bottom-digits[0].rect.top;
     const int y=screen.iHeight-height-height/2;
-    const int iconX=screen.iWidth-24-width;
+    const int iconWidth=ammoIcon.rect.right-ammoIcon.rect.left;
+    const int iconHeight=ammoIcon.rect.bottom-ammoIcon.rect.top;
+    const int fieldX=screen.iWidth-4*width-iconWidth;
+    const int iconX=fieldX+3*width;
+    const int iconY=y-iconHeight/8;
     // CSO CHudAmmo::Draw's special-ammo path uses RGB(114,197,255)
     // Show every remaining throw, including the one ready in the internal clip.
     // Reload only transfers that throw; it must not change this total.
     char value[16];std::snprintf(value,sizeof(value),"%d",AmmoTotal());
-    int x=iconX-width-int(std::strlen(value))*width;
+    // Original DrawHudNumber with DHN_3DIGITS advances over empty leading
+    // cells and returns the icon's x. There is no extra cell between them.
+    int x=fieldX+std::max(0,3-int(std::strlen(value)))*width;
+    hudLayout={x,y,iconX,iconY};
     for(const char* digit=value;*digit;++digit)
     {
         const auto& item=digits[*digit-'0'];originalSet(item.handle,BlueR,BlueG,BlueB);
         originalDraw(0,x,y,&item.rect);x+=width;
     }
-    originalSet(ammoIcon.handle,BlueR,BlueG,BlueB);originalDraw(0,iconX,y,&ammoIcon.rect);
+    originalSet(ammoIcon.handle,BlueR,BlueG,BlueB);originalDraw(0,iconX,iconY,&ammoIcon.rect);
     ++hudDraws;
     return result;
 }
@@ -170,7 +187,10 @@ void WeaponDiagnostics(std::ostream& out)
         <<",\"health\":"<<view.health<<",\"draws\":"<<hudDraws<<",\"predictionCalls\":"<<predictionCalls
         <<",\"total\":"<<AmmoTotal()<<",\"postRunCalls\":"<<postRunCalls<<",\"sourceWeaponId\":"<<sourceWeaponId
         <<",\"cl_lw\":"<<engine.pfnGetCvarFloat("cl_lw")
-        <<",\"digitSprite\":"<<digits[0].handle<<",\"ammoSprite\":"<<ammoIcon.handle<<'}';
+        <<",\"digitSprite\":"<<digits[0].handle<<",\"ammoSprite\":"<<ammoIcon.handle
+        <<",\"screenWidth\":"<<screen.iWidth<<",\"screenHeight\":"<<screen.iHeight
+        <<",\"numberX\":"<<hudLayout.numberX<<",\"numberY\":"<<hudLayout.numberY
+        <<",\"iconX\":"<<hudLayout.iconX<<",\"iconY\":"<<hudLayout.iconY<<'}';
 }
 
 void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int runFunctions,double time,unsigned int seed)

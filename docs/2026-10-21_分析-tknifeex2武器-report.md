@@ -52,6 +52,34 @@ tools/Build-CSOLWeapons.ps1 -TestWeapons
 
 重连测试另有未解决问题：投掷后retry在运行Renderer的`R_IsDecalSurfaceReady`读取无效`surface.polys=0xE22`时崩溃。全新进程从未开启第三人称亦在同一RVA复现；证据`camera-reconnect-failure.json`及`camera-reconnect-debug.log`。不能将相机局部通过当成重连通过。当前仅更新隔离客户端，正式B/专服未部署本轮。
 
+## 2026-10-22 蓝色弹药位置校准
+
+用户指出数字位置与原版不符。检查原版客户端后，修正了数字左偏一格、图标偏低，以及误用普通CS数字像素三个问题。实现仍在独立`CSOLSupport.dll`；服务端仅新增原字库预缓存和依赖清单，不改武器弹药逻辑。
+
+分析范围是所提供x86 `client.dll`的经典精灵HUD路径，样本SHA256为`f4145136edbd229c219ea793bb3a6dcacea0b406ccc1e610138abbb8063bcbfd`、首选基址`0x01900000`。下面是该样本VA，不能用于其他版本注入。原版其他HUD模式有独立坐标分支，本次不宣称已还原全部模式，也没有运行CSO原客户端作整屏对照。
+
+| 证据 | 结论 | 执行路径 |
+| --- | --- | --- |
+| E1：`client-ammo-draw.asm`，VA `0x02a22fe8`、`0x02a23068`、`0x02a234c8` | F1：特殊弹药字段从`W−4w−a`开始，传入三位占位标志；数字函数返回的位置就是图标横坐标。旧实现额外留了一位，数字左偏20像素。 | P1：`CHudAmmo::Draw` → `DrawHudNumber` → `SPR_DrawAdditive` |
+| E2：`client-hud-number.asm`及`hud-number-oracle.json`，VA `0x02a6bf40` | F2：标志5下缺失的百位/十位只推进位置，不画前导零。原机器码离线执行验证0、1、9、10、29、30、100、999，两分辨率共16样本。 | Unicorn执行原始x86，仅替换引擎绘制调用和模式查询，记录实际绘制参数及返回值 |
+| E3：VA `0x02a234df`至`0x02a23559` | F3：经典分支图标纵坐标为数字Y减图标高度的八分之一，24像素图标应上移3像素。 | 数字Y=`H−h−h/2`；图标Y=`数字Y−图标高度/8` |
+| E4：两个`640hud7.spr`按原`hud.txt`矩形解码比较 | F4：十个数字均存在像素差异，尺寸/矩形相同不足以证明字体相同。 | `WeaponResourceSource` → 独立`sprites/csol/640hud7.spr` → `LoadSprites` |
+| E5：`hud-live-1280.json`、`hud-live-1024.json`及对应PNG | 两个真实客户端进程中，30/10/9/1发位置与E2逐项相符；耗尽切刀且特殊HUD绘制计数停止。8个有效弹药样本诊断GL错误均为0。 | 专服夹具布置库存 → 真实消息/预测 → `WeaponRedraw` → GL帧缓冲截图 |
+| E6：`hud-cold-preflight.json`、`hud-cold-download.json` | 新字库在游戏、下载目录和B回退目录预先全缺；专服HTTP请求1→2，缓存命中0→1，失败/拒绝0；客户端实际下载66366字节，SHA与原字库一致。 | 专服预缓存 → HTTP → `cstrike_downloads` → 精灵加载 |
+
+其中`w/h`是数字宽高20/25，`a`是图标宽24。当前武器最多30发，显示全部剩余投掷次数；本次没有更改总量语义。
+
+| 分辨率 | 30的数字起点 | 9的数字起点 | 图标起点 |
+| --- | --- | --- | --- |
+| 1280×720 | (1196,683) | (1216,683) | (1236,680) |
+| 1024×768 | (940,731) | (960,731) | (980,728) |
+
+离线复验：在本地合法样本及已安装Capstone/Unicorn/Pillow的环境，运行`analysis/csol-model-20261017/tknifeex2/verify-hud-number.py`；此脚本与原反汇编证据仅留本地。实机复验：构建两端，以`Prepare-CSOLResources.py`收集`models/v_tknifeex2.mdl`到隔离专服，在客户端缺少新字库时入服，依次设置`tknife_fixture ammo 30/10/9/1`并检查对应画面，最后实际投掷验证耗尽。0的字形来自原机器码离线验证；实际武器耗尽会退役，不能把瞬间0当作可持续显示状态。
+
+新增字库SHA256为`1d60497c8d534cdfb92f446a4720a045664ec9dd53abca7ba7ae02b0035eea58`。普通CS数字atlas继续用于识别被替换的原生弹药绘制；CSO数字使用单独句柄，避免换字库后旧白/黄数字重复绘制。未注册特殊武器时不启用本HUD。
+
+本轮时间线：先核原caller/callee和像素差异；修改三份C++/资源清单；两端编译；隔离HTTP下载及两分辨率实测；恢复1280×720、30发、`cam_command 3`现场。`hud-final-check.json`核候选/部署DLL一致，受保护原版安装三关键文件不变。重复BMP逐像素核对PNG后清理，记录`hud-cleanup.json`。首次抓图期间弹药被输入改变，已以固定库存且前后核值的正式样本替代；没有把该次抓图当作30发证据。正式B/正式专服尚未部署本轮，既有Renderer重连崩溃仍待修复，本轮启动新进程不算通过原进程重连验收。
+
 ## 剩余验收
 
 完整伤害、护甲、友伤与攻击者生命周期，高编号动作、第三人称的多人/换图边界、换服及HUD边界、新别名冷下载仍待；补验`tknife-ammo-unpredicted-live.json`在真实`cl_lw=0`新进程确认总数30→29，与服务端clip1/reserve29→28一致；`tknife-ammo-death-hud.json`确认死亡后health0/active0，两次draws均2314，蓝HUD停止绘制。隔离客户端随后恢复`cl_lw=1`；换服及其余HUD/预测边界仍待。当前飞刀插墙使用5秒网络实体，原CSO的临时模型消息、连续碰撞与部分材质穿透行为尚未全部复刻。编译和局部实机通过不代表这些已完成。

@@ -196,6 +196,7 @@ void CTKnifeEx2::Precache()
     PRECACHE_GENERIC("sprites/weapon_tknifeex2.txt");
     PRECACHE_MODEL("sprites/csol/640hud97.spr");
     PRECACHE_MODEL("sprites/csol/640hud12.spr");
+    PRECACHE_MODEL("sprites/csol/640hud7.spr");
 }
 
 int CTKnifeEx2::GetItemInfo(ItemInfo* info)
