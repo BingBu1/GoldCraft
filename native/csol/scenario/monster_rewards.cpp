@@ -55,13 +55,17 @@ bool ResolveMonsterHitMoney(float randomValue, bool moneyExtractor, int roomOpti
     std::int32_t& output)
 {
     if (!std::isfinite(randomValue)) return false;
-    auto money = Truncate(randomValue);
+    output = ResolveMonsterKillMoney(Truncate(randomValue), moneyExtractor, roomOption);
+    return true;
+}
+
+std::int32_t ResolveMonsterKillMoney(std::int32_t baseMoney, bool moneyExtractor, int roomOption)
+{
     if (moneyExtractor && roomOption != 800)
     {
-        const float scaled = static_cast<float>(money) * 1.5f;
-        money = Truncate(scaled);
+        const float scaled = static_cast<float>(baseMoney) * 1.5f;
+        return Truncate(scaled);
     }
-    output = money;
-    return true;
+    return baseMoney;
 }
 }

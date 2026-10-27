@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_damage.h"
+#include "game_rules_gate.h"
 #include "scenario_monster_ordinary.h"
 #include "weapons.h"
 
@@ -130,7 +131,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     csol::scenario::ConfigError& error, bool (*ownerValid)(const void*),
     const void* ownerContext, CSOLMonsterDeathContext context)
 {
-    auto services = m_services;
+    auto services = m_services.lock();
+    if (!services) return FALSE;
     auto rewards = m_rewards;
     auto players = m_players;
     auto equipment = m_equipment;
@@ -210,8 +212,10 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
                 if (!samePlayer()) return FALSE;
                 if (!step(awarded, "scenario Boss hit experience failed")) return FALSE;
             }
-            const float ratio = services->RulesDamageScale();
+            float ratio{};
+            const bool scaled = CSOL_ReadScenarioDamageScale(m_map, ratio);
             if (!samePlayer()) return FALSE;
+            if (!step(scaled, "scenario player-count damage scale owner is unavailable")) return FALSE;
             call.damage *= ratio;
             if (!step(true, "scenario player-count damage scale failed")) return FALSE;
             if (!step(services->RulesAfterAttackDamage(call, error), "mode15 addon/statistics stage failed") ||

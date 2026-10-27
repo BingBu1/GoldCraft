@@ -36,14 +36,15 @@ Vector Feet(const CCSOLScenarioMonster& monster)
 }
 }
 
-bool CCSOLOrdinaryMonsterBehavior::UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state)
+bool CCSOLOrdinaryMonsterBehavior::UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state,
+    CCSOLOrdinaryMonsterServices& services)
 {
     #pragma clang fp contract(off)
     auto* monster = Current(call, state);
     if (!monster || !gpGlobals) return false;
     const auto skill = state->spawn->skill;
     if (skill != 1 && skill != 2)
-        return m_services->UseSkill(call, *state, state->error);
+        return services.UseSkill(call, *state, state->error);
     // 113F0970, mode15. These first-wave skills update their own active and
     // reuse clocks. They do NOT assign enhancedUntil: the ordinary D0 tail
     // still restores the material/speed using its independent host deadline.
@@ -70,6 +71,45 @@ bool CCSOLOrdinaryMonsterBehavior::UseSkill(CSOLMonsterSpawnCall& call, const St
     const float jitter = state->jitter * 5.0f;
     StartClock(state->skillActive, duration);
     StartClock(state->skill, cooldown + jitter);
+    return Current(call, state) != nullptr;
+}
+
+bool CCSOLOrdinaryMonsterBehavior::UpdateSkill(CSOLMonsterSpawnCall& call, const StatePtr& state)
+{
+    #pragma clang fp contract(off)
+    auto* monster = Current(call, state);
+    if (!monster || !gpGlobals) return false;
+    // 113F03D0: an SK row and an unexpired (or unordered) secondary clock
+    // both leave the entire state untouched. This is not the frozen gate.
+    if (monster->HostState().hasSkillRow || !(gpGlobals->time > state->secondarySkill.deadline))
+        return true;
+    StartClock(state->secondarySkill, 99999.0f);
+    if (monster->HostState().activeSkill != 9) return true;
+    auto* target = state->target.Get<CBaseEntity>();
+    if (!Current(call, state)) return false;
+    if (!target) return true;
+
+    const Vector delta = target->pev->origin - monster->pev->origin;
+    // The original normalizes in 3D before using XY: float squares/sum,
+    // double sqrt narrowed to float, then a single float reciprocal.
+    const float square = (delta.x * delta.x + delta.y * delta.y) + delta.z * delta.z;
+    const float length = static_cast<float>(std::sqrt(static_cast<double>(square)));
+    Vector direction(0, 0, 1);
+    if (length != 0.0f)
+    {
+        const float inverse = 1.0f / length;
+        direction = Vector(delta.x * inverse, delta.y * inverse, delta.z * inverse);
+    }
+    monster->pev->velocity = Vector(direction.x * 1200.0f, direction.y * 1200.0f, 120.0f);
+    state->position.updateInterval = 0.5f;
+    state->position.updateAfter = gpGlobals->time + 0.5f;
+    state->updateStamp = gpGlobals->time;
+    state->secondaryUpdateInterval = 0.5f;
+    state->secondaryUpdateAfter = gpGlobals->time + 0.5f;
+    state->secondaryUpdateStamp = gpGlobals->time;
+    // Slot+10 is attackDamage; speed is +1C. Touch consumes this separately
+    // from both motion clocks. Do not clear activeSkill or skillActive here.
+    state->skillCollisionDamage = state->spawn->attributes.attackDamage * 3.0f;
     return Current(call, state) != nullptr;
 }
 
@@ -145,28 +185,36 @@ bool CCSOLOrdinaryMonsterBehavior::ResetMotion(CSOLMonsterSpawnCall& call, State
 
 bool CCSOLOrdinaryMonsterBehavior::MoveTo(CSOLMonsterSpawnCall& call, const Vector& goal)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto state = m_state;
     return Current(call, state) && MoveTo(call, *state, goal);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Stop(CSOLMonsterSpawnCall& call)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto state = m_state;
     return Current(call, state) && Stop(call, *state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Jump(CSOLMonsterSpawnCall& call)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster) return false;
-    CSOLMonsterSpawnCall bound(m_services->Map(), m_services->Pool(), m_services->Deaths(), *monster, this);
+    CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this);
     return CSOL_PrepareMonsterJumpDirection(bound, state->position) &&
         CSOL_StartMonsterJump(bound, state->position, state->spawn->sequences) && Current(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Flinch(CSOLMonsterSpawnCall& call)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     const auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster || !gpGlobals || !std::isfinite(gpGlobals->time)) return false;
@@ -211,11 +259,13 @@ bool CCSOLOrdinaryMonsterBehavior::Flinch(CSOLMonsterSpawnCall& call)
 bool CCSOLOrdinaryMonsterBehavior::UpdateStatusTick(CSOLMonsterSpawnCall& call, bool& elapsed)
 {
     elapsed = false;
+    auto services = m_services.lock();
+    if (!services) return false;
     auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster || !gpGlobals) return false;
     auto& status = monster->HostState();
-    if (gpGlobals->time < status.statusUpdateAt) return true;
+    if (!(gpGlobals->time >= status.statusUpdateAt)) return true;
     elapsed = true;
     status.statusUpdateAt = gpGlobals->time + 1.0f;
     if (monster->pev->health > 0 && status.damageScaleCount != 0)
@@ -223,7 +273,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateStatusTick(CSOLMonsterSpawnCall& call, 
         status.damageScaleCount = std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(status.damageScaleCount) - 1u);
         monster->pev->health -= status.nonlethalDamage;
-        if (monster->pev->health <= 0) monster->pev->health = 1;
+        if (!(monster->pev->health > 0)) monster->pev->health = 1;
     }
     else if (status.damageScaleCount <= 0)
     {
@@ -234,11 +284,36 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateStatusTick(CSOLMonsterSpawnCall& call, 
     return true;
 }
 
+bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall& call,
+    const StatePtr& state, CCSOLOrdinaryMonsterServices& services)
+{
+    #pragma clang fp contract(off)
+    auto* monster = Current(call, state);
+    if (!monster || !gpGlobals) return false;
+    const auto* appearance = csol::scenario::FindMonsterAppearance(monster->Type()->appearance);
+    if (!Step(call, state, appearance != nullptr, "ordinary ambient appearance is unavailable")) return false;
+    if (!appearance->ambientSound.empty() && gpGlobals->time > state->spawn->ambientAt)
+    {
+        if (!Step(call, state, g_engfuncs.pfnEmitSound != nullptr, "ordinary ambient sound service is unavailable"))
+            return false;
+        state->spawn->ambientAt = (gpGlobals->time + 7.0f) + static_cast<float>(std::rand() % 15);
+        EMIT_SOUND_DYN(monster->edict(), CHAN_BODY, appearance->ambientSound.data(),
+            1.0f, ATTN_NORM, 0, PITCH_NORM);
+        if (!Current(call, state)) return false;
+    }
+    bool elapsed{};
+    if (!Step(call, state, UpdateStatusTick(call, elapsed), "ordinary status update failed")) return false;
+    return Step(call, state, services.UpdateDamageEffectsAndGait(call, *state->spawn, elapsed, state->error),
+        "ordinary damage effects or gait update failed");
+}
+
 bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& call,
     CSOLMonsterSpawnState& spawn, csol::scenario::ConfigError& error)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto* monster = call.Current();
-    if (!m_services || !monster || !gpGlobals || monster->Behavior() != this ||
+    if (!monster || !gpGlobals || monster->Behavior() != this ||
         monster->Type()->skill >= 1000 || monster->Type()->propensity != 0 ||
         !std::isfinite(gpGlobals->time))
     { error.message = "ordinary behavior requires a valid propensity0 spawn"; return false; }
@@ -264,7 +339,7 @@ bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& call,
     // history, but never let that route become the new lease's live route.
     state->position.follower.Reset();
     const auto previous = m_state;
-    auto navigation = m_services->PinNavigation();
+    auto navigation = services->PinNavigation();
     // PinNavigation may enter map code. Do not replace a newer reset.
     if (m_state != previous || call.Current() != monster) return false;
     if (!navigation)
@@ -300,15 +375,21 @@ bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& call,
     state->lastActionAt = std::bit_cast<float>(std::uint32_t{0xc97423f0});
     state->solidAfter = 0;
     state->position.missingAreaUntil = -1;
-    if (monster->Type()->appearance == "zombiedog" &&
-        !Step(call, state, m_services->SpawnHowl(call, error), "ordinary spawn howl failed")) return false;
+    if (monster->Type()->appearance == "zombiedog")
+    {
+        if (!g_engfuncs.pfnEmitSound)
+        { error.message = "ordinary spawn howl sound service is unavailable"; return false; }
+        EMIT_SOUND_DYN(monster->edict(), CHAN_BODY, "zombi/zombiedog_howls.wav",
+            1.0f, ATTN_NORM, 0, PITCH_NORM);
+    }
     if (!Current(call, state)) return false;
     state->actionState = 0;
     state->canSkill = state->canAttack = false;
     return true;
 }
 
-bool CCSOLOrdinaryMonsterBehavior::ValidateTarget(CSOLMonsterSpawnCall& call, const StatePtr& state)
+bool CCSOLOrdinaryMonsterBehavior::ValidateTarget(CSOLMonsterSpawnCall& call, const StatePtr& state,
+    CCSOLOrdinaryMonsterServices& services)
 {
     auto* target = state->target.Get<CBaseEntity>();
     if (!target) return true;
@@ -321,7 +402,7 @@ bool CCSOLOrdinaryMonsterBehavior::ValidateTarget(CSOLMonsterSpawnCall& call, co
     {
         // Capture flags before the feature callback, matching the original.
         const bool dormant = static_cast<std::uint32_t>(target->pev->flags) == 0x80000000u;
-        if (!Step(call, state, m_services->PlayerTargetExcluded(call, state->target,
+        if (!Step(call, state, services.PlayerTargetExcluded(call, state->target,
             excluded, state->error), "ordinary player target feature query failed")) return false;
         excluded = excluded || dormant;
     }
@@ -367,7 +448,8 @@ bool CCSOLOrdinaryMonsterBehavior::FindPath(CSOLMonsterSpawnCall& call,
     return true;
 }
 
-bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, const StatePtr& state)
+bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, const StatePtr& state,
+    CCSOLOrdinaryMonsterServices& services)
 {
     if (!gpGlobals || gpGlobals->maxClients < 0 || gpGlobals->maxClients > 32 ||
         !g_engfuncs.pfnPEntityOfEntIndex || !g_engfuncs.pfnRandomLong ||
@@ -392,7 +474,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
         if (!Current(call, state)) return false;
         if (!alive || !handle.Get<CBaseEntity>()) continue;
         bool excluded{};
-        if (!Step(call, state, m_services->PlayerTargetExcluded(call, handle, excluded, state->error),
+        if (!Step(call, state, services.PlayerTargetExcluded(call, handle, excluded, state->error),
             "ordinary candidate feature query failed")) return false;
         if (excluded) continue;
         auto* candidate = handle.Get<CBaseEntity>();
@@ -486,13 +568,14 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
     return true;
 }
 
-bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state)
+bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state,
+    CCSOLOrdinaryMonsterServices& services)
 {
-    const bool stopped = m_services->LogicStopped();
+    const bool stopped = services.LogicStopped();
     if (!Current(call, state)) return false;
     if (stopped) return true;
     state->jitter = static_cast<float>(std::rand() % 30) * FrameInterval;
-    const bool& suppressed = m_services->DamageSuppressed();
+    const bool& suppressed = services.DamageSuppressed();
     if (!Current(call, state)) return false;
     state->canSkill = state->spawn->skill != 0 && !suppressed &&
         (gpGlobals->time > state->skill.deadline || gpGlobals->time > state->secondarySkill.deadline);
@@ -503,10 +586,10 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
         if (used)
         {
             Current(call, state)->HostState().activeSkill = state->spawn->skill;
-            if (!Step(call, state, UseSkill(call, state),
+            if (!Step(call, state, UseSkill(call, state, services),
                 "ordinary skill execution failed")) return false;
         }
-        if (!Step(call, state, m_services->UpdateSkill(call, *state, state->error),
+        if (!Step(call, state, UpdateSkill(call, state),
             "ordinary skill update failed")) return false;
         if (used) return true;
     }
@@ -528,7 +611,7 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
     if (!state->specialTarget && gpGlobals->time > state->findTarget.deadline)
     {
         StartClock(state->findTarget, 3.0f + state->jitter);
-        if (!SelectTarget(call, state)) return false;
+        if (!SelectTarget(call, state, services)) return false;
         if (state->spawn->skill == 7)
         {
             const auto* target = state->target.Get<CBaseEntity>();
@@ -560,7 +643,8 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
     return true;
 }
 
-bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state)
+bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state,
+    CCSOLOrdinaryMonsterServices& services)
 {
     auto* monster = Current(call, state);
     if (!monster || monster->pev->deadflag == DEAD_DEAD) return true;
@@ -569,7 +653,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
     state->deltaX = monster->pev->origin.x - state->previousOrigin.x;
     state->deltaY = monster->pev->origin.y - state->previousOrigin.y;
     state->previousOrigin = monster->pev->origin;
-    if (!RunTree(call, state)) return false;
+    if (!RunTree(call, state, services)) return false;
     monster = Current(call, state);
     if (!monster) return false;
     struct ResetContext { CCSOLOrdinaryMonsterBehavior* owner; CSOLMonsterSpawnCall* call; StatePtr state; };
@@ -604,7 +688,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
 
 void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
 {
-    auto services = m_services;
+    auto services = m_services.lock();
     auto state = m_state;
     if (!services || !state || state->thinking || !state->error.message.empty() || !gpGlobals) return;
     CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this);
@@ -627,7 +711,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
             }
         }
         monster->pev->nextthink = gpGlobals->time + FrameInterval;
-        if (!ValidateTarget(call, state)) return;
+        if (!ValidateTarget(call, state, *services)) return;
         monster = Current(call, state);
         if (!monster || (monster->pev->effects & EF_NODRAW)) return;
         auto& host = monster->HostState();
@@ -714,9 +798,8 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         state->spawn->updateAt = gpGlobals->time + 0.1f;
         monster = Current(call, state);
         if (!monster) return;
-        if (monster->HostState().frozenRemaining <= 0 && !UpdateBehavior(call, state)) return;
-        Step(call, state, services->UpdateAmbientAndEffects(call, *state->spawn, state->error),
-            "ordinary ambient/effect update failed");
+        if (monster->HostState().frozenRemaining <= 0 && !UpdateBehavior(call, state, *services)) return;
+        UpdateAmbientAndEffects(call, state, *services);
     }
     catch (...)
     {
@@ -724,10 +807,90 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
     }
 }
 
+void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEntity* other)
+{
+    #pragma clang fp contract(off)
+    auto services = m_services.lock();
+    auto state = m_state;
+    if (!other || !services || !state || !gpGlobals || !state->error.message.empty()) return;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this);
+    const EHANDLE target(other);
+    const auto current = [&]() -> CCSOLScenarioMonster*
+    {
+        auto* monster = Current(call, state);
+        return monster && target.Get<CBaseEntity>() ? monster : nullptr;
+    };
+    auto* monster = current();
+    if (!monster) return;
+    const auto skill = monster->HostState().activeSkill;
+    if (skill != 9 && skill != 12) return; // Original mode15 ordinary early return.
+    const auto enemyPlayer = [&](CBaseEntity& receiver)
+    {
+        // Native CS keeps player team in m_iTeam, not entvars.team.
+        const auto* player = dynamic_cast<CBasePlayer*>(&receiver);
+        return (player ? static_cast<int>(player->m_iTeam) : receiver.pev->team) != monster->pev->team;
+    };
+    try
+    {
+        if (skill == 9)
+        {
+            const bool player = other->IsPlayer() != FALSE;
+            if (!current()) return;
+            if (!player)
+            {
+                const int classification = target.Get<CBaseEntity>()->Classify();
+                if (!current() || classification != 17) return;
+            }
+            // Original COMISS/JA skips only ordered greater, including the
+            // deadline itself and unordered input in the active branch.
+            if (gpGlobals->time > state->secondaryUpdateAfter) return;
+            other = target.Get<CBaseEntity>();
+            const bool nowPlayer = other->IsPlayer() != FALSE;
+            monster = current();
+            if (!monster) return;
+            other = target.Get<CBaseEntity>();
+            if (nowPlayer && enemyPlayer(*other))
+            {
+                other->TakeDamage(monster->pev, monster->pev, state->skillCollisionDamage, DMG_BULLET);
+                if (!current()) return;
+            }
+            const auto& facing = state->position.motion.facingDirection;
+            const Vector requested(500.0f * facing.x, 500.0f * facing.y, 300.0f);
+            if (!Step(call, state, services->ApplyContactImpulse(call, target, requested, state->error),
+                    "ordinary contact impulse service failed")) return;
+            monster = current();
+            if (!monster) return;
+            // Re-read the saved direction after the helper's rule callbacks.
+            // A rejected target impulse still reaches this host-velocity tail.
+            monster->pev->velocity.x = state->position.motion.facingDirection.x * 500.0f;
+            monster->pev->velocity.y = state->position.motion.facingDirection.y * 500.0f;
+            return; // Skill9 preserves both contact clocks and vertical speed.
+        }
+        if (gpGlobals->time > state->secondaryUpdateAfter) return;
+        const bool player = other->IsPlayer() != FALSE;
+        monster = current();
+        if (!monster || !player) return;
+        other = target.Get<CBaseEntity>();
+        if (!enemyPlayer(*other)) return;
+        other->TakeDamage(monster->pev, monster->pev, state->skillCollisionDamage, DMG_BULLET);
+        if (!current()) return;
+        const auto& messages = services->Messages();
+        if (!current()) return;
+        const bool sent = messages.SendMonsterContactEffect(target.Get<CBaseEntity>()->edict());
+        if (!current() || !Step(call, state, sent, "ordinary contact effect packet failed")) return;
+        // Only skill12 performs this reset, after the complete packet.
+        state->secondaryUpdateAfter = state->secondaryUpdateStamp = -1.0f;
+    }
+    catch (...)
+    {
+        if (Current(call, state)) state->error.message = "ordinary Touch callback threw";
+    }
+}
+
 BOOL CCSOLOrdinaryMonsterBehavior::TakeDamage(CCSOLScenarioMonster& monster,
     entvars_t* inflictor, entvars_t* attacker, float damage, int damageType)
 {
-    auto services = m_services;
+    auto services = m_services.lock();
     auto state = m_state;
     if (!services || !state) return FALSE;
     CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this);
@@ -750,7 +913,7 @@ BOOL CCSOLOrdinaryMonsterBehavior::TakeDamage(CCSOLScenarioMonster& monster,
 
 void CCSOLOrdinaryMonsterBehavior::Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int)
 {
-    auto services = m_services;
+    auto services = m_services.lock();
     auto state = m_state;
     if (!services || !state) return;
     CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this);
@@ -768,14 +931,18 @@ CSOLMonsterDeathParameters CCSOLOrdinaryMonsterBehavior::DeathParameters() const
 
 bool CCSOLOrdinaryMonsterBehavior::BeforeDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto* monster = call.Current();
-    if (!monster || !m_services) return false;
-    return !(monster->HostState().frozenRemaining > 0) || m_services->FrozenDeath(call, error);
+    if (!monster) return false;
+    return !(monster->HostState().frozenRemaining > 0) || services->FrozenDeath(call, error);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::SelectDeathSequence(CSOLMonsterDeathCall& call,
     int& sequence, csol::scenario::ConfigError&)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     auto* monster = call.Current();
     if (!monster || !m_state || !m_state->spawn) return false;
     sequence = csol::scenario::SelectOrdinaryMonsterDeathSequence(
@@ -786,10 +953,14 @@ bool CCSOLOrdinaryMonsterBehavior::SelectDeathSequence(CSOLMonsterDeathCall& cal
 bool CCSOLOrdinaryMonsterBehavior::AdjustDeathDuration(CSOLMonsterDeathCall& call,
     float&, csol::scenario::ConfigError&)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     return call.Current() != nullptr; // Ordinary override returns the input unchanged.
 }
 
 bool CCSOLOrdinaryMonsterBehavior::PostDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError&)
 {
+    auto services = m_services.lock();
+    if (!services) return false;
     return call.Current() != nullptr; // Ordinary v128=10611B90 is ret8.
 }

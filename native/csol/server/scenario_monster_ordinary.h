@@ -20,6 +20,7 @@ struct CSOLOrdinaryMonsterState
     Vector lastObstacleOrigin{};
     float deltaX{}, deltaY{}, motionRemainder{}, jitter{};
     float updateStamp{-1.0f}, secondaryUpdateAfter{-1.0f}, secondaryUpdateStamp{-1.0f};
+    float secondaryUpdateInterval{}, skillCollisionDamage{};
     float lastActionAt{}, solidAfter{};
     int actionState{};
     bool knownGoodValid{}, previousKnownGoodValid{}, specialTarget{}, obstacleBlocked{};
@@ -28,7 +29,8 @@ struct CSOLOrdinaryMonsterState
 
 // These are actual rule/skill/effect integration points, not default-success
 // substitutes. A session owns this provider and all the managers it returns.
-// The behavior keeps a shared reference through callbacks and map shutdown.
+// The behavior holds this provider weakly and pins it for each full entry.
+// The provider must own the returned managers until that entry unwinds.
 class CCSOLOrdinaryMonsterDamage;
 
 class CCSOLOrdinaryMonsterServices
@@ -39,6 +41,7 @@ public:
     virtual CCSOLMonsterPool& Pool() = 0;
     virtual CCSOLMonsterDeathRequests& Deaths() = 0;
     virtual CCSOLScenarioOccupancy& Occupancy() = 0;
+    virtual const CCSOLScenarioMessages& Messages() const = 0;
     virtual std::shared_ptr<const CCSOLMonsterNavigation> PinNavigation() = 0;
     virtual std::span<const std::size_t> ProtectedSlots() const = 0;
     virtual const bool& DamageSuppressed() const = 0; // original root+309
@@ -49,11 +52,16 @@ public:
         bool& excluded, csol::scenario::ConfigError& error) = 0;
     virtual bool UseSkill(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterState& state,
         csol::scenario::ConfigError& error) = 0;
-    virtual bool UpdateSkill(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterState& state,
-        csol::scenario::ConfigError& error) = 0;
-    virtual bool UpdateAmbientAndEffects(CSOLMonsterSpawnCall& call,
-        CSOLMonsterSpawnState& spawn, csol::scenario::ConfigError& error) = 0;
-    virtual bool SpawnHowl(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) = 0;
+    // Original 114ECF00 with weapon/source/category/force = -1/null/-1/false.
+    // Apply real rule/player-effect gates and interpolate the requested
+    // velocity. A permitted rule rejection still returns true: the caller
+    // must continue its own velocity tail. False means failure/cancellation.
+    virtual bool ApplyContactImpulse(CSOLMonsterSpawnCall& call, const EHANDLE& target,
+        const Vector& requested, csol::scenario::ConfigError& error) = 0;
+    // Sound and the nonlethal status clock are already applied by the owner.
+    // Consume the 32 DOT slots only when statusElapsed; gait runs every call.
+    virtual bool UpdateDamageEffectsAndGait(CSOLMonsterSpawnCall& call,
+        CSOLMonsterSpawnState& spawn, bool statusElapsed, csol::scenario::ConfigError& error) = 0;
     virtual bool FrozenDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
 };
 
@@ -70,6 +78,7 @@ public:
     bool ResetForSpawn(CSOLMonsterSpawnCall& call, CSOLMonsterSpawnState& state,
         csol::scenario::ConfigError& error) override;
     void Think(CCSOLScenarioMonster& monster) override;
+    void Touch(CCSOLScenarioMonster& monster, CBaseEntity* other) override;
     BOOL TakeDamage(CCSOLScenarioMonster& monster, entvars_t* inflictor,
         entvars_t* attacker, float damage, int damageType) override;
     void Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int gib) override;
@@ -87,8 +96,8 @@ public:
     // Called by the damage owner only after the original frozen/appearance/
     // type flinch gates. This runs v164 and the accepted sequence/motion tail.
     bool Flinch(CSOLMonsterSpawnCall& call);
-    // Ambient services call this after their sound stage and before DOT/gait.
-    // The returned gate also controls that service's 32-entry DOT traversal.
+    // The owner calls this after sound and before the DOT/gait service.
+    // The returned gate controls that service's 32-entry DOT traversal.
     bool UpdateStatusTick(CSOLMonsterSpawnCall& call, bool& elapsed);
     const csol::scenario::ConfigError& Error() const { return m_state ? m_state->error : m_emptyError; }
 
@@ -105,15 +114,17 @@ private:
     bool MoveTo(CSOLMonsterSpawnCall& call, State& state, const Vector& goal);
     bool Stop(CSOLMonsterSpawnCall& call, State& state);
     bool ResetMotion(CSOLMonsterSpawnCall& call, State& state);
-    bool ValidateTarget(CSOLMonsterSpawnCall& call, const StatePtr& state);
-    bool SelectTarget(CSOLMonsterSpawnCall& call, const StatePtr& state);
-    bool RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state);
-    bool UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state);
+    bool ValidateTarget(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
+    bool SelectTarget(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
+    bool RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
+    bool UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
+    bool UpdateSkill(CSOLMonsterSpawnCall& call, const StatePtr& state);
+    bool UpdateAmbientAndEffects(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool CheckObstacles(CSOLMonsterSpawnCall& call, const StatePtr& state);
     bool FindPath(CSOLMonsterSpawnCall& call, const StatePtr& state, bool& acted);
-    bool UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state);
+    bool UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool Step(CSOLMonsterSpawnCall& call, const StatePtr& state, bool ok, const char* failure);
-    std::shared_ptr<CCSOLOrdinaryMonsterServices> m_services;
+    std::weak_ptr<CCSOLOrdinaryMonsterServices> m_services;
     std::shared_ptr<CCSOLOrdinaryMonsterDamage> m_damage;
     StatePtr m_state;
     csol::scenario::ConfigError m_emptyError;

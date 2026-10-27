@@ -54,9 +54,6 @@ public:
     // guess a zombie/bot/death meaning. The item-catalog prefix is concrete.
     virtual bool WeaponEffectsBlocked21F2(CSOLMonsterDamageCall& call) const = 0;
     virtual bool WeaponEffectsBlocked34F0(CSOLMonsterDamageCall& call) const = 0;
-    // Authoritative rules+220, initialized/reset to 1 and updated by the
-    // original qualified-player timer. It is not a count of alive players.
-    virtual float RulesDamageScale() const = 0;
     // Remaining v1D8 addon consumer and weapon-damage statistics. Both this
     // and the preceding stages run before the friendly-fire rejection.
     virtual bool RulesAfterAttackDamage(CSOLMonsterDamageCall& call,
@@ -100,6 +97,9 @@ private:
     std::shared_ptr<CCSOLScenarioPlayers> m_players;
     std::shared_ptr<CCSOLScenarioEquipment> m_equipment;
     std::shared_ptr<CCSOLScenarioWeaponState> m_weapons;
-    std::shared_ptr<CCSOLMonsterDamageServices> m_services;
+    // Rules/runtime owns this damage consumer and the referenced map/deaths.
+    // Pin the provider before touching those references, without owning it
+    // permanently through runtime -> pool -> behavior -> damage -> runtime.
+    std::weak_ptr<CCSOLMonsterDamageServices> m_services;
     bool m_valid{true};
 };

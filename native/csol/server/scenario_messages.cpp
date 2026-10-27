@@ -77,6 +77,27 @@ bool CCSOLScenarioMessages::SendWaveEvent(std::span<const std::uint8_t, 4> paylo
     return true;
 }
 
+bool CCSOLScenarioMessages::SendMonsterContactEffect(edict_t* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteLong)
+        return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(0x51);
+    WRITE_SHORT(10);
+    // CSO PF_WriteFloat_I writes the little-endian IEEE754 word; the stock
+    // SDK's WriteLong transmits that same word without changing its bits.
+    WRITE_LONG(std::bit_cast<std::int32_t>(1.0f));
+    WRITE_BYTE(255);
+    WRITE_BYTE(255);
+    WRITE_BYTE(255);
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::SendMonsterDeath(edict_t* recipient, int monsterIndex) const
 {
     if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||

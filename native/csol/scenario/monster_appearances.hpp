@@ -26,6 +26,8 @@ struct MonsterAppearance
     float feetZ{};
     float centroidZ{};
     float eyesZ{};
+    // Original appearance +0x34. Null in 140 of the 143 ordered rows.
+    std::string_view ambientSound{};
 };
 
 inline constexpr std::size_t MonsterAppearanceCount = 143;

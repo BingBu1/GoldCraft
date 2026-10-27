@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_death_owner.h"
+#include "scenario_player_upgrades.h"
+#include "../scenario/monster_rewards.hpp"
 
+#include <limits>
 #include <utility>
 
 CSOLMonsterDeathCall::CSOLMonsterDeathCall(CCSOLScenarioMap& map,
@@ -57,6 +60,61 @@ bool CCSOLMonsterDeathOwner::Reset()
     return true;
 }
 
+bool CCSOLMonsterDeathOwner::AwardKillMoney(CSOLMonsterDeathCall& call,
+    std::int32_t baseMoney, csol::scenario::ConfigError& error)
+{
+    if (!call.Current()) return false;
+    const auto fail = [&](const char* reason)
+    {
+        if (call.Current() && error.message.empty()) error.message = reason;
+        return false;
+    };
+    auto* attacker = dynamic_cast<CBasePlayer*>(call.Attacker());
+    if (!attacker) return fail("scenario kill money attacker is not a native player");
+    const EHANDLE player(attacker);
+    const auto players = m_services.Players();
+    if (!players) return fail("scenario kill money player registry is unavailable");
+    const auto state = players->Upgrades(player);
+    if (!state) return fail("scenario kill money attacker has no authoritative upgrade state");
+    const auto current = [&]()
+    {
+        // Death can already have parked the monster: use the death transaction,
+        // not the damage path's alive/borrowed gate. Check owners before edicts.
+        if (!call.Current() || m_services.Players() != players || !state->Current() ||
+            !call.Current() || players->Upgrades(player) != state) return false;
+        auto* live = player.Get<CBaseEntity>();
+        return live && live == call.Attacker() && !(live->pev->flags & FL_KILLME);
+    };
+    if (!current()) return false;
+    bool extractor{};
+    const bool extracted = m_services.MoneyExtractor(call, player, extractor, error);
+    if (!current()) return false;
+    if (!extracted) return fail("scenario kill money extractor state is unavailable");
+    int roomOption{};
+    if (extractor)
+    {
+        const bool queried = m_services.RoomOption(call, roomOption, error);
+        if (!current()) return false;
+        if (!queried) return fail("scenario kill money room state is unavailable");
+    }
+    int money = csol::scenario::ResolveMonsterKillMoney(baseMoney, extractor, roomOption);
+    // MP 1137CF79..1137D01F: extractor, rules.v250, AddAccount, then MarkDead.
+    // Zero/negative amounts and a dead player are not skipped by this branch.
+    const bool modified = state->ModifyMoney(money);
+    if (!current()) return false;
+    if (!modified) return fail("scenario kill money character modifier failed");
+    attacker = dynamic_cast<CBasePlayer*>(player.Get<CBaseEntity>());
+    if (!attacker) return false;
+    const auto balance = static_cast<std::int64_t>(attacker->m_iAccount) + money;
+    if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
+        return fail("scenario kill money would overflow the native account");
+    // CSO defers its Money notification. Native AddAccount always sends it;
+    // keep the SDK hooks/limits and suppress only its HUD change indicator,
+    // consistently with the hit/wall reward consumers.
+    attacker->AddAccount(money, RT_NONE, false);
+    return current();
+}
+
 bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
     const CSOLMonsterDeathArguments& arguments)
 {
@@ -108,7 +166,7 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
             {
                 const auto money = moneyBehavior->DeathParameters().bonusMoney;
                 if (!step(true, "scenario changed while reading money attributes")) return false;
-                if (!step(m_services.AwardKillMoney(call, money, error), "scenario kill money failed")) return false;
+                if (!step(AwardKillMoney(call, money, error), "scenario kill money failed")) return false;
             }
         }
         if (!step(call.m_stages.MarkDead(), "scenario dead state failed")) return false;

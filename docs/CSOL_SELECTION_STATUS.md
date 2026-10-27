@@ -35,3 +35,13 @@ The collector compiled one changed translation unit and CSOLSupport compiled two
 The actual CLI passed 161 checks across 14 models and 62 resources. Fourteen MDL files and eleven SEQ files retained their bytes; six converted materials retained their RGBA pixels. All five planner boundary cases passed after three initial failures were fixed. The incompatible `zombi_host` model/SEQ pair still fails explicitly because its bone counts differ (40 versus 32).
 
 The matching engine preload change is source-only and was not rebuilt. These new artifacts were archived without deployment. Full-map closure, HTTP delivery, actual materials/normal-map rendering, animation and sound playback remain unverified. The earlier selection and living-player acceptance boundaries still apply.
+
+## October 27 ordinary-monster and reward source checkpoint
+
+Ordinary monsters now contain the skill clock and contact-damage paths, ambient and death sound calls, and the status-update stage. Skill 9 caches three times attack damage and retains the original movement clocks; skill 12 writes the ten-byte contact-effect message. The concrete impulse service and client effect consumer are still required.
+
+Death rewards now preserve integer base money, query room options only when the extractor applies, and call the real player upgrade modifier and SDK AddAccount. GameRules stores the eligible-player damage multiplier after the first 300 seconds of a round and refreshes it every 60 seconds; actual monster damage reads that field. Ordinary and damage providers use weak ownership with a strong reference held across each complete entry. This breaks ownership cycles but does not implement safe shutdown by itself. Failed character configuration clears damage-scaling eligibility.
+
+These 25 production files received bounded source, interface and recorded-evidence review only. There was no new C++ compilation, test execution, deployment or gameplay run. The matching test edits remain in local checkpoints because their historical observation interfaces and full SDK link dependencies still need migration; isolated fragments are not included in this publication.
+
+Concrete runtime composition, DOT and gait, death statistics and drops, reward delivery, Golden behavior and shutdown unwinding remain unfinished. Native AddAccount sends Money immediately; the original delayed HUD and extra account modes are not reproduced. The first wave is not playable and full scenario acceptance remains 0/9. The model/SEQ source conflict and all living-player, prediction, simultaneous-spawn and 32-human requirements remain open.

@@ -6,6 +6,8 @@
 #include "scenario_death_targets.h"
 #include "scenario_monster_models.h"
 
+class CCSOLScenarioPlayers;
+
 // A stack-owned transaction. Services must call Current again after any engine
 // or plugin callback, before using the monster or resolving player handles.
 // The owner/map/dispatcher outlive the call; reset the dispatcher BEFORE the
@@ -61,7 +63,14 @@ class CCSOLMonsterDeathServices
 {
 public:
     virtual ~CCSOLMonsterDeathServices() = default;
-    virtual bool AwardKillMoney(CSOLMonsterDeathCall& call, std::int32_t baseMoney,
+    // Resolve the active Session registry, not a null pointer captured before
+    // Session activation. This accessor does not invoke engine callbacks.
+    virtual std::shared_ptr<CCSOLScenarioPlayers> Players() const = 0;
+    // Authoritative item353 flag (player+20AE), independent of class/addon19.
+    virtual bool MoneyExtractor(CSOLMonsterDeathCall& call, const EHANDLE& player,
+        bool& enabled, csol::scenario::ConfigError& error) = 0;
+    // The original room query runs only when the extractor flag is set.
+    virtual bool RoomOption(CSOLMonsterDeathCall& call, int& option,
         csol::scenario::ConfigError& error) = 0;
     virtual bool RulesDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
     // Manager/clearpoint -> frags/message -> attribution -> drops -> counters
@@ -94,6 +103,8 @@ private:
     // the same gates. This remains callable by the dispatcher via its base.
     bool ExecuteDeath(CCSOLScenarioMonster& monster,
         const CSOLMonsterDeathArguments& arguments) override;
+    bool AwardKillMoney(CSOLMonsterDeathCall& call, std::int32_t baseMoney,
+        csol::scenario::ConfigError& error);
     CCSOLScenarioMap& m_map;
     CCSOLMonsterPool& m_pool;
     CCSOLMonsterModels& m_models;

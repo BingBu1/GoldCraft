@@ -20,6 +20,7 @@ struct CSOLMonsterPositionState
     std::uint64_t updateSerial{};
     bool updating{}, startingJump{};
     float updateAfter{-1.0f}, missingAreaUntil{-1.0f}, obstacleAfter{-1.0f};
+    float updateInterval{}; // original ordinary +1D80; preserved on reuse
     float jumpUntil{-1.0f}, jumpStamp{-1.0f};
     float jumpInterval{};
     Vector2D jumpDirection{};

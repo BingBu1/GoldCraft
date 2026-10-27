@@ -51,6 +51,9 @@ public:
     std::shared_ptr<CSOLScenarioWallPlayer> WallState() const { return m_wall; }
     const csol::scenario::ConfigError& Error() const { return m_error; }
     const csol::scenario::UpgradeProgressState* State() const { return m_progress.State(); }
+    // A failed/reentrant reconfiguration must not count the previous class as
+    // a valid record for the new character. Class zero is valid but uncounted.
+    int ConfiguredClass() const { return m_progress.State() ? m_classId : -1; }
 
     bool Current() const override;
     bool ReadBonus(csol::scenario::UpgradeStat stat, std::int32_t& output) override;
@@ -72,6 +75,7 @@ private:
     csol::scenario::UpgradeProgress m_progress;
     csol::scenario::ConfigError m_error;
     float m_experienceRatio{};
+    int m_classId{-1};
     bool m_valid{true}, m_busy{};
 };
 
@@ -89,6 +93,7 @@ public:
     bool ModifyMoney(const EHANDLE& player, int& amount) override;
     bool AddExperience(const EHANDLE& player, int amount) override;
     std::shared_ptr<CCSOLScenarioPlayerUpgrades> Upgrades(const EHANDLE& player) const;
+    bool CountDamageScalePlayers(int& count) const;
 private:
     std::array<std::shared_ptr<CCSOLScenarioPlayerUpgrades>, 33> m_players;
 };

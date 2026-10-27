@@ -5,6 +5,7 @@
 class CGameRules;
 class CHalfLifeMultiplay;
 class CBasePlayer;
+class CCSOLScenarioMap;
 struct edict_s;
 
 // InstallGameRules starts one map's decision after game.cfg. This consumes the
@@ -20,6 +21,8 @@ std::uint32_t CSOL_ScenarioPassMask(int playerIndex);
 // Called inside ReGameDLL's existing ReAPI original-function wrappers. A
 // true result consumes only the scenario branch; other modes remain native.
 bool CSOL_ScenarioThink(CHalfLifeMultiplay& rules);
+// Read the current map's stored rules multiplier, never recalculate on hit.
+bool CSOL_ReadScenarioDamageScale(const CCSOLScenarioMap& map, float& value);
 bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules);
 bool CSOL_ScenarioCheckWinConditions(CHalfLifeMultiplay& rules);
 bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player);

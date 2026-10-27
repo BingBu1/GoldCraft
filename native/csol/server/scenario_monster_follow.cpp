@@ -548,23 +548,28 @@ CSOLMonsterFollowResult CCSOLMonsterPathFollower::Advance(CSOLMonsterSpawnCall& 
     }
     if (!CSOL_TrackMonsterPath(call, feet, goal, deltaTime, motion.moveType,
         motion.crouching, motion.jumping, skill, motion.velocity,
-        motion.moveYaw, motion.turnSide, motion.jumpGoal)) return Result::Failed;
+        motion.moveYaw, motion.turnSide, motion.jumpGoal, motion.facingDirection)) return Result::Failed;
     return step.result;
 }
 
 bool CSOL_TrackMonsterPath(CSOLMonsterSpawnCall& call, const Vector& feet,
     const Vector& goal, float deltaTime, int moveType, bool crouching,
     bool jumping, std::int16_t skill, Vector2D& velocity,
-    float& moveYaw, float& turnSide, Vector& jumpGoal)
+    float& moveYaw, float& turnSide, Vector& jumpGoal, Vector2D& facingDirection)
 {
+    #pragma clang fp contract(off)
     auto* monster = Active(call);
     if (!monster || !Finite(feet) || !Finite(goal) || !std::isfinite(deltaTime) ||
         deltaTime < 0 || moveType < 0 || moveType > 2) return false;
     Vector delta = goal - feet;
     delta.z = 0;
-    const float distance = Length2(delta);
+    const float square = delta.x * delta.x + delta.y * delta.y;
+    const float distance = static_cast<float>(std::sqrt(static_cast<double>(square)));
     if (!std::isfinite(distance)) return false;
     const Vector facing = distance > 0 ? delta / distance : Vector(1, 0, 0);
+    // FaceTowards stores the normalized goal direction before its turn gate.
+    // Collision skills consume this history, not the entity's quantized yaw.
+    facingDirection = Vector2D(facing.x, facing.y);
     float cosine{}, sine{};
     if (!CSOL_MonsterHeading(moveYaw, cosine, sine)) return false;
     const float forward = facing.x * cosine + facing.y * sine;

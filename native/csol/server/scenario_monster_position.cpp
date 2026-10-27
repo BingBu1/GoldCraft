@@ -25,11 +25,14 @@ CCSOLScenarioMonster* Active(CSOLMonsterSpawnCall& call)
 bool FacePoint(CCSOLScenarioMonster& monster, const Vector& feet,
     CSOLMonsterPositionState& state, float deltaTime)
 {
+    #pragma clang fp contract(off)
     Vector delta = state.faceGoal - feet;
     delta.z = 0;
-    const float length = static_cast<float>(std::sqrt(static_cast<double>(Square3(delta))));
+    const float square = delta.x * delta.x + delta.y * delta.y;
+    const float length = static_cast<float>(std::sqrt(static_cast<double>(square)));
     if (!std::isfinite(length)) return false;
     const Vector direction = length > 0 ? delta / length : Vector(1, 0, 0);
+    state.motion.facingDirection = Vector2D(direction.x, direction.y);
     float cosine{}, sine{};
     if (!CSOL_MonsterHeading(state.motion.moveYaw, cosine, sine)) return false;
     const float forward = direction.x * cosine + direction.y * sine;

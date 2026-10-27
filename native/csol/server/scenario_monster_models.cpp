@@ -3,6 +3,8 @@
 #include "scenario_monster_models.h"
 #include "scenario_monster_pool.h"
 
+#include <set>
+
 namespace
 {
 struct Operation
@@ -48,6 +50,15 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
     const auto catalog = csol::scenario::MonsterAppearances();
     std::array<int, csol::scenario::MonsterAppearanceCount> candidate{};
     std::array<bool, csol::scenario::MonsterAppearanceCount> deathSounds{};
+    std::set<std::string_view> sounds;
+    const auto precacheSound = [&](std::string_view sound)
+    {
+        if (sound.empty() || sounds.contains(sound)) return true;
+        if (!g_engfuncs.pfnPrecacheSound || PRECACHE_SOUND(const_cast<char*>(sound.data())) <= 0)
+            return false;
+        sounds.insert(sound);
+        return true;
+    };
     for (std::size_t i = 0; i < needed.size(); ++i)
     {
         if (!needed[i]) continue;
@@ -62,20 +73,13 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
         if (!candidate[i])
             candidate[i] = PRECACHE_MODEL(const_cast<char*>(catalog[i].model.data()));
         if (candidate[i] <= 0) return Fail(error, "scenario monster model precache failed");
-        if (catalog[i].deathSound.empty()) continue;
-        for (std::size_t previous = 0; previous < i; ++previous)
-            if (deathSounds[previous] && catalog[previous].deathSound == catalog[i].deathSound)
-            {
-                deathSounds[i] = true;
-                break;
-            }
-        if (!deathSounds[i])
-        {
-            if (!g_engfuncs.pfnPrecacheSound ||
-                PRECACHE_SOUND(const_cast<char*>(catalog[i].deathSound.data())) <= 0)
-                return Fail(error, "scenario monster death sound precache failed");
-            deathSounds[i] = true;
-        }
+        if (!precacheSound(catalog[i].deathSound))
+            return Fail(error, "scenario monster death sound precache failed");
+        deathSounds[i] = !catalog[i].deathSound.empty();
+        if (!precacheSound(catalog[i].ambientSound))
+            return Fail(error, "scenario monster ambient sound precache failed");
+        if (catalog[i].name == "zombiedog" && !precacheSound("zombi/zombiedog_howls.wav"))
+            return Fail(error, "scenario monster spawn howl precache failed");
     }
     m_indices = candidate;
     m_deathSounds = deathSounds;

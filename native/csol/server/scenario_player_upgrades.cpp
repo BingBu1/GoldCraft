@@ -65,6 +65,7 @@ bool CCSOLScenarioPlayerUpgrades::Fail(const char* reason)
 void CCSOLScenarioPlayerUpgrades::Invalidate()
 {
     m_valid = false;
+    m_classId = -1;
     if (m_wall) ++m_wall->generation;
     m_progress.Clear();
 }
@@ -75,6 +76,7 @@ bool CCSOLScenarioPlayerUpgrades::Configure(int classId, std::uint8_t feature, b
     if (m_busy || !Current()) return false;
     Busy busy(m_busy);
     m_error = {};
+    m_classId = -1;
     const auto* type = m_tables->classes.Find(classId);
     if (!type) return Fail("scenario character upgrade class is unavailable");
     std::array<csol::scenario::UpgradeAttribute, 5> attributes;
@@ -93,10 +95,13 @@ bool CCSOLScenarioPlayerUpgrades::Configure(int classId, std::uint8_t feature, b
     if (!Current()) return false;
     if (!initialized) return Fail("scenario character initialization failed");
     if (!m_progress.Initialize(m_tables, classId, attributes, experience, m_error)) return false;
+    m_classId = classId;
     m_wall->characterFeature = feature;
     m_wall->elevenLevelLimit = elevenLevelLimit;
     // Initialize publishes existing levels; it does not award XP or heal.
-    return PublishCurrent();
+    const bool published = PublishCurrent();
+    if (!published) m_classId = -1;
+    return published;
 }
 
 bool CCSOLScenarioPlayerUpgrades::Publish()
@@ -316,6 +321,32 @@ std::shared_ptr<CSOLScenarioWallPlayer> CCSOLScenarioPlayers::Find(const EHANDLE
 {
     const auto state = Upgrades(player);
     return state ? state->WallState() : nullptr;
+}
+
+bool CCSOLScenarioPlayers::CountDamageScalePlayers(int& count) const
+{
+    if (!gpGlobals || !g_engfuncs.pfnIndexOfEdict) return false;
+    const int limit = std::min(gpGlobals->maxClients, static_cast<int>(m_players.size()) - 1);
+    int eligible{};
+    for (int index = 1; index <= limit; ++index)
+    {
+        const auto state = m_players[index];
+        if (!state || !state->Current() || m_players[index] != state || state->ConfiguredClass() <= 0)
+            continue;
+        const auto wall = state->WallState();
+        auto* entity = wall->player.Get<CBaseEntity>();
+        if (!entity || (entity->pev->flags & FL_DORMANT)) continue;
+        const int actualIndex = entity->entindex();
+        if (!state->Current() || m_players[index] != state || state->ConfiguredClass() <= 0)
+            continue;
+        entity = wall->player.Get<CBaseEntity>();
+        if (actualIndex != index || !entity || (entity->pev->flags & FL_DORMANT)) continue;
+        // MP 108F56B0 counts registered class records, including dead players.
+        // Neither native team/health nor a profile-supplied flag is this gate.
+        ++eligible;
+    }
+    count = eligible;
+    return true;
 }
 
 bool CCSOLScenarioPlayers::ModifyMoney(const EHANDLE& player, int& amount)

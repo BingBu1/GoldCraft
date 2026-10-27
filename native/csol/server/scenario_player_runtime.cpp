@@ -94,8 +94,9 @@ bool CCSOLScenarioPlayerRuntime::Prepare(CBasePlayer& player)
         return Fail("selected scenario character has no verified upgrade class");
     if (Resolve(state->player) != state) return false;
     const auto players = m_session->Players();
+    const auto upgrades = players ? players->Upgrades(state->player) : nullptr;
     if (state->classId == classId && state->appliedRevision == state->profileRevision &&
-        players && players->Upgrades(state->player)) return true;
+        upgrades && upgrades->ConfiguredClass() == classId) return true;
     const auto revision = state->profileRevision;
     // Bind the actual owned inventory before Configure publishes levels or a
     // weapon callback asks ResetMaxSpeed to consume them.

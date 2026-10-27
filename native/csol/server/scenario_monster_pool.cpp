@@ -47,6 +47,7 @@ void CCSOLScenarioMonster::Spawn()
     pev->velocity = g_vecZero;
     m_speed.emplace();
     m_host = {};
+    m_touchComponents.emplace();
     pev->skin = std::max(pev->skin, 0);
     SetThink(nullptr);
     SetTouch(nullptr);
@@ -126,6 +127,40 @@ void CCSOLScenarioMonster::BehaviorThink()
     }
 }
 
+bool CCSOLScenarioMonster::SetTouchComponent(std::size_t index,
+    std::shared_ptr<CCSOLMonsterTouchComponent> component)
+{
+    if (m_destroying || !m_touchComponents || index >= m_touchComponents->size()) return false;
+    (*m_touchComponents)[index] = std::move(component);
+    return true;
+}
+
+void CCSOLScenarioMonster::Touch(CBaseEntity* other)
+{
+    // CMonster vEC=11387890 is a virtual override, independent of the stock
+    // m_pfnTouch member. Ownership checks adapt it to the reusable SDK pool.
+    if (!m_pool || m_pool->Busy() || !m_pool->Borrowed(*this) || !m_behaviorReady || !m_behavior)
+        return;
+    const EHANDLE self(this), target(other);
+    auto* pool = m_pool;
+    const auto lease = pool->Lease(*this);
+    auto behavior = RetainBehavior();
+    const auto current = [&]()
+    {
+        return self.Get<CBaseEntity>() == this && m_pool == pool &&
+            pool->Borrowed(*this) && pool->Lease(*this) == lease && m_behavior == behavior &&
+            m_touchComponents && (!other || target.Get<CBaseEntity>());
+    };
+    behavior->Touch(*this, other);
+    if (!current()) return;
+    for (std::size_t i = 0; i < m_touchComponents->size(); ++i)
+    {
+        auto component = (*m_touchComponents)[i];
+        if (component) component->Touch(*this, target.Get<CBaseEntity>());
+        if (!current()) return;
+    }
+}
+
 void CCSOLScenarioMonster::FreeThink()
 {
     if (m_pool) m_pool->Free(*this);
@@ -139,6 +174,7 @@ void CCSOLScenarioMonster::OnDestroy()
     m_pool = nullptr; // Destructors may reenter; detach before releasing them.
     m_behaviorReady = false;
     m_speed.reset();
+    m_touchComponents.reset();
     if (owner) owner->EntityDestroyed(*this);
     auto behavior = std::move(m_behavior);
     CBaseAnimating::OnDestroy();

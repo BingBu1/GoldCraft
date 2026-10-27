@@ -28,4 +28,7 @@ bool PrepareMonsterHitReward(const MonsterHitRewardSettings& settings, float dam
 // moneyExtractor is the authoritative item353 flag, not characterFeature.
 bool ResolveMonsterHitMoney(float randomValue, bool moneyExtractor, int roomOption,
     std::int32_t& output);
+// Death's slot bonus is already an integer. An absent extractor (or room800)
+// must preserve it without a float round trip, including values above 2^24.
+std::int32_t ResolveMonsterKillMoney(std::int32_t baseMoney, bool moneyExtractor, int roomOption);
 }

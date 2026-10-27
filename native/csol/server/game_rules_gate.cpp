@@ -223,6 +223,32 @@ public:
             m_flRestartRoundTime = 0;
         }
     }
+    void UpdateDamageScale()
+    {
+        if (!SelectionReady() || !IsGameStarted() || !(gpGlobals->time > m_damageScaleAt)) return;
+        // MP 10828E7C: after the root frame, independently of freeze/result
+        // gates. Schedule once from now rather than replaying missed minutes.
+        m_damageScaleAt = gpGlobals->time + 60.0f;
+        const auto session = m_session;
+        const auto roundGeneration = session->Map().RoundGeneration();
+        const auto players = session->Players();
+        int count{};
+        const bool counted = players && players->CountDamageScalePlayers(count);
+        if (g_pGameRules != this || !SelectionReady() || m_session != session ||
+            session->Map().RoundGeneration() != roundGeneration || session->Players() != players) return;
+        if (!counted)
+        {
+            CSOL_RejectGameRules("Scenario damage scaling requires the player registry.");
+            return;
+        }
+        m_damageScale = count < 2 ? 1.0f : count < 4 ? 0.97f : count < 7 ? 0.94f : 0.91f;
+    }
+    bool ReadDamageScale(const CCSOLScenarioMap& map, float& value) const
+    {
+        if (!Ready() || &m_session->Map() != &map) return false;
+        value = m_damageScale;
+        return true;
+    }
     void ScenarioRestartRound()
     {
         if (!Ready() || m_restarting || m_phase == Phase::Complete) return;
@@ -272,6 +298,11 @@ public:
         if (!Ready()) return;
         m_bCompleteReset = false;
         CheckWinConditions();
+        if (!Ready()) return;
+        // The original post-restart stage runs after respawns/map cleanup.
+        // Its first interval is five minutes; subsequent intervals are one.
+        m_damageScale = 1.0f;
+        m_damageScaleAt = gpGlobals->time + 300.0f;
     }
     bool PrepareSpawn(CBasePlayer& player)
     {
@@ -522,6 +553,7 @@ private:
     std::size_t m_roundIndex{};
     int m_aliveCt{};
     float m_freezeUntil{};
+    float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{};
 };
 }
@@ -581,7 +613,14 @@ bool CSOL_ScenarioThink(CHalfLifeMultiplay& rules)
     auto* scenario = dynamic_cast<CCSOLScenarioRules*>(&rules);
     if (!scenario) return false;
     scenario->ScenarioThink();
+    if (g_pGameRules == scenario) scenario->UpdateDamageScale();
     return true;
+}
+
+bool CSOL_ReadScenarioDamageScale(const CCSOLScenarioMap& map, float& value)
+{
+    const auto* scenario = dynamic_cast<const CCSOLScenarioRules*>(g_pGameRules);
+    return scenario && scenario->ReadDamageScale(map, value);
 }
 
 bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules)

@@ -20,6 +20,15 @@ class CCSOLScenarioMonster;
 class CCSOLMonsterModels;
 class CCSOLMonsterFactory;
 
+// Six original host component references receive Touch after the behavior.
+// A callback may replace a later slot, so dispatch reads each slot in order.
+class CCSOLMonsterTouchComponent
+{
+public:
+    virtual ~CCSOLMonsterTouchComponent() = default;
+    virtual void Touch(CCSOLScenarioMonster& monster, CBaseEntity* other) = 0;
+};
+
 // Original host fields survive behavior replacement and pool reuse. Only the
 // documented spawn stages reset them; these are not AI-context timers.
 struct CSOLMonsterHostState
@@ -28,6 +37,9 @@ struct CSOLMonsterHostState
     float moveAfter{};
     float enhancedUntil{-1.0f};
     std::int16_t activeSkill{};
+    // Presence of the original +1328 SK-table row, not the ordinary skill ID.
+    // Ordinary pool reuse preserves it. Boss row ownership is separate.
+    bool hasSkillRow{};
     int lastHitgroup{};
     int targetPolicy{-1}; // original host1368, retained on ordinary reuse
     bool navigationExpired{};
@@ -50,6 +62,9 @@ public:
     virtual BOOL TakeDamage(CCSOLScenarioMonster& monster, entvars_t* inflictor,
         entvars_t* attacker, float damage, int damageType) = 0;
     virtual void Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int gib) = 0;
+    // Original CMonsterImprov vE0=10611F70 is ret4. Derived ordinary behavior
+    // has its own skill-specific contact path; this base performs no action.
+    virtual void Touch(CCSOLScenarioMonster&, CBaseEntity*) {}
 };
 
 class CCSOLScenarioMonster : public CBaseAnimating
@@ -62,6 +77,7 @@ public:
         TraceResult* trace, int damageType) override;
     BOOL TakeDamage(entvars_t* inflictor, entvars_t* attacker, float damage, int damageType) override;
     void Killed(entvars_t* attacker, int gib) override;
+    void Touch(CBaseEntity* other) override;
     void OnDestroy() override;
     void EXPORT BehaviorThink();
     void EXPORT FreeThink();
@@ -84,6 +100,7 @@ public:
     CCSOLMonsterAnimation& Animation() { return m_animation; }
     CSOLMonsterSpeedState& SpeedState() { return *m_speed; }
     CSOLMonsterHostState& HostState() { return m_host; }
+    bool SetTouchComponent(std::size_t index, std::shared_ptr<CCSOLMonsterTouchComponent> component);
 
 private:
     friend class CCSOLMonsterPool;
@@ -100,6 +117,8 @@ private:
     // explicitly in OnDestroy; optional also permits normal test destruction.
     std::optional<CSOLMonsterSpeedState> m_speed{std::in_place};
     CSOLMonsterHostState m_host;
+    // Explicit reset is required when the engine releases private data.
+    std::optional<std::array<std::shared_ptr<CCSOLMonsterTouchComponent>, 6>> m_touchComponents{std::in_place};
     bool m_behaviorReady{};
     bool m_destroying{};
 };

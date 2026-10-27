@@ -23,6 +23,9 @@ public:
     bool SendMonsterEffectRemoval(int monsterIndex, int effectId, bool builtIn) const;
     bool SendUpgradeTotal(edict_s* recipient, int level, bool increased) const;
     bool SendUpgradeStat(edict_s* recipient, unsigned stat, int level, int cap) const;
+    // Original ordinary skill12: 0x51, short10, float1, RGB255. The float is
+    // four raw bytes, not GoldSrc's quantized WriteCoord representation.
+    bool SendMonsterContactEffect(edict_s* recipient) const;
     int MessageId() const { return m_messageId; }
 private:
     friend class CCSOLScenarioDeathNotice;

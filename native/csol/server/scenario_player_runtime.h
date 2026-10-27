@@ -12,7 +12,6 @@ struct CSOLScenarioPlayerProfile
     std::uint8_t characterFeature{};
     bool elevenLevelLimit{}, moneyExtractor{};
     bool weaponEffectsBlocked21F2{}, weaponEffectsBlocked34F0{};
-    bool damageScaleEligible{};
     std::vector<int> targetFeature3Categories;
 };
 
