@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_pool.h"
+#include "scenario_monster_effects.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,6 +22,25 @@ struct Operation
 bool Live(CBaseEntity* entity)
 {
     return entity && UTIL_IsValidEntity(entity->edict());
+}
+bool ClearPoolEffects(CCSOLMonsterPool& pool, CCSOLScenarioMonster& monster)
+{
+    struct Capture
+    {
+        CCSOLMonsterPool& pool;
+        std::size_t slot;
+        std::uint64_t lease;
+        const CCSOLScenarioMonster* identity;
+    } capture{pool, monster.Slot(), pool.Lease(monster), &monster};
+    const CSOLMonsterEffectGuard guard{[](const void* value) -> CCSOLScenarioMonster*
+    {
+        const auto& scope = *static_cast<const Capture*>(value);
+        if (scope.pool.State() != CSOLMonsterPoolState::Ready) return nullptr;
+        auto* current = scope.pool.At(scope.slot);
+        return current == scope.identity && current && scope.pool.Lease(*current) == scope.lease ? current : nullptr;
+    }, &capture};
+    auto effects = monster.DamageEffects();
+    return effects && effects->ClearAll(guard);
 }
 }
 
@@ -47,6 +67,7 @@ void CCSOLScenarioMonster::Spawn()
     pev->velocity = g_vecZero;
     m_speed.emplace();
     m_host = {};
+    if (!m_damageEffects) m_damageEffects = std::make_shared<CCSOLMonsterEffects>();
     m_touchComponents.emplace();
     pev->skin = std::max(pev->skin, 0);
     SetThink(nullptr);
@@ -105,7 +126,8 @@ BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
         pev->takedamage == DAMAGE_NO)
         return FALSE;
     auto behavior = RetainBehavior();
-    return behavior->TakeDamage(*this, inflictor, attacker, damage, damageType);
+    const auto context = CSOL_ConsumeMonsterDamageContext(*this, inflictor, attacker, damageType);
+    return behavior->TakeDamageWithContext(*this, inflictor, attacker, damage, damageType, context);
 }
 
 void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
@@ -175,10 +197,12 @@ void CCSOLScenarioMonster::OnDestroy()
     m_behaviorReady = false;
     m_speed.reset();
     m_touchComponents.reset();
+    auto effects = std::move(m_damageEffects);
     if (owner) owner->EntityDestroyed(*this);
     auto behavior = std::move(m_behavior);
     CBaseAnimating::OnDestroy();
     behavior.reset(); // Engine Mem_Free does not run the C++ destructor.
+    effects.reset(); // Destruction only; map removal does not notify DOTs.
 }
 
 CCSOLMonsterPool::~CCSOLMonsterPool()
@@ -252,6 +276,9 @@ void CCSOLMonsterPool::Park(CCSOLScenarioMonster& monster, bool clearCallbacks)
 
 void CCSOLMonsterPool::RemoveOwned()
 {
+    const auto inflictor = m_damageInflictor;
+    m_damageInflictor = static_cast<CBaseEntity*>(nullptr);
+    if (Live(inflictor.Get<CBaseEntity>())) UTIL_Remove(inflictor.Get<CBaseEntity>());
     for (auto& slot : m_slots)
     {
         auto* base = slot.entity.Get<CBaseEntity>();
@@ -266,7 +293,9 @@ void CCSOLMonsterPool::RemoveOwned()
             monster->SetThink(nullptr);
             monster->SetTouch(nullptr);
             auto behavior = std::move(monster->m_behavior);
+            auto effects = std::move(monster->m_damageEffects);
             behavior.reset();
+            effects.reset();
             // A concrete behavior's destructor may invoke engine callbacks.
             // Resolve the entity again before touching its private data.
             base = slot.entity.Get<CBaseEntity>();
@@ -340,6 +369,7 @@ bool CCSOLMonsterPool::ForgetMap()
     // actual engine OnDestroy must detach them before forgetting the map.
     if (m_busy || m_registered) return false;
     m_slots = {};
+    m_damageInflictor = static_cast<CBaseEntity*>(nullptr);
     m_idle.clear();
     m_active = 0;
     m_category = {};
@@ -404,6 +434,9 @@ bool CCSOLMonsterPool::RestartRound()
     // Preserve idle FIFO. Append only borrowed slots, in ascending slot order.
     for (std::size_t i = 0; i < m_slots.size(); ++i)
     {
+        // Destination round reset must not carry an old player's DOT into
+        // the new round. Ordinary Free and early death parking still retain it.
+        if (!ClearPoolEffects(*this, *At(i))) return Fail("scenario round effect cleanup cancelled");
         if (!Return(i)) return false;
         At(i)->m_type = nullptr;
     }
@@ -443,6 +476,8 @@ CCSOLScenarioMonster* CCSOLMonsterPool::Acquire(const csol::scenario::MonsterTyp
             points.ReturnPointQuota(old->pev->team, old->m_spawnPoint);
             old->pev->solid = SOLID_NOT;
             if (!Return(i)) return nullptr;
+            if (!ClearPoolEffects(*this, *At(i)))
+            { Fail("scenario evicted monster effect cleanup cancelled"); return nullptr; }
             break;
         }
     }

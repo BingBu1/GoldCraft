@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "scenario_monster_ordinary.h"
 #include "scenario_monster_damage.h"
+#include "scenario_monster_effects.h"
 #include "../scenario/monster_death.hpp"
 #include "hostage/hostage.h"
 
@@ -303,8 +304,24 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
     }
     bool elapsed{};
     if (!Step(call, state, UpdateStatusTick(call, elapsed), "ordinary status update failed")) return false;
-    return Step(call, state, services.UpdateDamageEffectsAndGait(call, *state->spawn, elapsed, state->error),
-        "ordinary damage effects or gait update failed");
+    struct Capture { CCSOLOrdinaryMonsterBehavior* owner; CSOLMonsterSpawnCall& call; StatePtr state; };
+    const Capture capture{this, call, state};
+    const CSOLMonsterEffectGuard guard{[](const void* value)
+    {
+        const auto& scope = *static_cast<const Capture*>(value);
+        return scope.owner->Current(scope.call, scope.state);
+    }, &capture};
+    monster = Current(call, state);
+    if (!monster) return false;
+    auto effects = monster->DamageEffects();
+    if (!Step(call, state, effects != nullptr, "ordinary damage effects are unavailable")) return false;
+    if (elapsed && !Step(call, state, effects->Tick(call, guard, state->error), "ordinary DOT update failed"))
+        return false;
+    return Step(call, state, CSOL_UpdateMonsterGait(call, state->error, [](const void* value)
+    {
+        const auto& scope = *static_cast<const Capture*>(value);
+        return scope.owner->Current(scope.call, scope.state) != nullptr;
+    }, &capture), "ordinary gait update failed");
 }
 
 bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& call,
@@ -890,6 +907,13 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
 BOOL CCSOLOrdinaryMonsterBehavior::TakeDamage(CCSOLScenarioMonster& monster,
     entvars_t* inflictor, entvars_t* attacker, float damage, int damageType)
 {
+    return TakeDamageWithContext(monster, inflictor, attacker, damage, damageType, {});
+}
+
+BOOL CCSOLOrdinaryMonsterBehavior::TakeDamageWithContext(CCSOLScenarioMonster& monster,
+    entvars_t* inflictor, entvars_t* attacker, float damage, int damageType,
+    const CSOLMonsterDeathContext& damageContext)
+{
     auto services = m_services.lock();
     auto state = m_state;
     if (!services || !state) return FALSE;
@@ -908,7 +932,7 @@ BOOL CCSOLOrdinaryMonsterBehavior::TakeDamage(CCSOLScenarioMonster& monster,
         {
             const auto& context = *static_cast<const DamageContext*>(pointer);
             return context.owner->Current(*context.call, context.state) != nullptr;
-        }, &context);
+        }, &context, damageContext);
 }
 
 void CCSOLOrdinaryMonsterBehavior::Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int)

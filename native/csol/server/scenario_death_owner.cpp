@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_death_owner.h"
+#include "scenario_monster_effects.h"
 #include "scenario_player_upgrades.h"
 #include "../scenario/monster_rewards.hpp"
 
@@ -187,7 +188,8 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
         if (!step(m_services.RulesDeath(call, error), "scenario rules death callback failed")) return false;
         if (call.Attacker() && !step(m_services.PlayerKilledMonster(call, error),
             "scenario player kill services failed")) return false;
-        if (!step(m_services.ClearEffects(call, error), "scenario death effect cleanup failed")) return false;
+        if (!step(CSOL_ClearMonsterEffects(call), "scenario death DOT cleanup failed")) return false;
+        if (!step(m_services.ClearEffects(call, error), "scenario remaining death effect cleanup failed")) return false;
         if (!step(m_targets.Fire(call.m_stages, error), "scenario death targets failed")) return false;
         // Use callbacks may have replaced the type. Do not cache it before Fire.
         const int actualType = call.Current()->TypeId();

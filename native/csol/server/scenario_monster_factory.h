@@ -26,6 +26,9 @@ public:
         CCSOLMonsterDeathRequests& deaths, CCSOLScenarioMonster& monster,
         const CCSOLMonsterBehavior* expectedBehavior = nullptr);
     bool SameSession() const;
+    // For cleaning up an entity just returned by an engine allocation after
+    // this borrow/round was cancelled. Does not authorize gameplay callbacks.
+    bool SameMap() const;
     CCSOLScenarioMonster* Current() const;
     void ReturnIncomplete() const;
 

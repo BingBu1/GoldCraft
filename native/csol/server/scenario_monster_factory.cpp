@@ -111,6 +111,11 @@ bool CSOLMonsterSpawnCall::SameSession() const
         m_map.State() == CSOLScenarioMapState::RoundActive;
 }
 
+bool CSOLMonsterSpawnCall::SameMap() const
+{
+    return m_mapGeneration == m_map.SpawnPoints().Generation();
+}
+
 CCSOLScenarioMonster* CSOLMonsterSpawnCall::Current() const
 {
     if (!SameSession() || !m_deaths.Error().empty()) return nullptr;

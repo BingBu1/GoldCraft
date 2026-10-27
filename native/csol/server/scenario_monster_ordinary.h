@@ -58,10 +58,6 @@ public:
     // must continue its own velocity tail. False means failure/cancellation.
     virtual bool ApplyContactImpulse(CSOLMonsterSpawnCall& call, const EHANDLE& target,
         const Vector& requested, csol::scenario::ConfigError& error) = 0;
-    // Sound and the nonlethal status clock are already applied by the owner.
-    // Consume the 32 DOT slots only when statusElapsed; gait runs every call.
-    virtual bool UpdateDamageEffectsAndGait(CSOLMonsterSpawnCall& call,
-        CSOLMonsterSpawnState& spawn, bool statusElapsed, csol::scenario::ConfigError& error) = 0;
     virtual bool FrozenDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
 };
 
@@ -81,6 +77,8 @@ public:
     void Touch(CCSOLScenarioMonster& monster, CBaseEntity* other) override;
     BOOL TakeDamage(CCSOLScenarioMonster& monster, entvars_t* inflictor,
         entvars_t* attacker, float damage, int damageType) override;
+    BOOL TakeDamageWithContext(CCSOLScenarioMonster& monster, entvars_t* inflictor,
+        entvars_t* attacker, float damage, int damageType, const CSOLMonsterDeathContext& context) override;
     void Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int gib) override;
     CSOLMonsterDeathParameters DeathParameters() const override;
     bool BeforeDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) override;
@@ -96,8 +94,8 @@ public:
     // Called by the damage owner only after the original frozen/appearance/
     // type flinch gates. This runs v164 and the accepted sequence/motion tail.
     bool Flinch(CSOLMonsterSpawnCall& call);
-    // The owner calls this after sound and before the DOT/gait service.
-    // The returned gate controls that service's 32-entry DOT traversal.
+    // The owner calls this after sound and before the concrete DOT/gait pass.
+    // The returned gate controls its 33 records, including player slot32.
     bool UpdateStatusTick(CSOLMonsterSpawnCall& call, bool& elapsed);
     const csol::scenario::ConfigError& Error() const { return m_state ? m_state->error : m_emptyError; }
 

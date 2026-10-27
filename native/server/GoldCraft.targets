@@ -4,6 +4,11 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_gait.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_effects.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_damage.cpp;$(GoldCraftRoot)\native\csol\server\scenario_weapon_state.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>

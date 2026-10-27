@@ -4,6 +4,7 @@
 #include "cbase.h"
 #include "ehandle.h"
 #include "scenario_monster_animation.h"
+#include "scenario_monster_gait.h"
 #include "scenario_monster_speed.h"
 #include "../scenario/monster_types.hpp"
 
@@ -19,6 +20,9 @@ class CCSOLMonsterPool;
 class CCSOLScenarioMonster;
 class CCSOLMonsterModels;
 class CCSOLMonsterFactory;
+class CCSOLMonsterEffects;
+class CSOLMonsterSpawnCall;
+struct CSOLMonsterDeathContext;
 
 // Six original host component references receive Touch after the behavior.
 // A callback may replace a later slot, so dispatch reads each slot in order.
@@ -61,6 +65,9 @@ public:
     virtual void Think(CCSOLScenarioMonster& monster) = 0;
     virtual BOOL TakeDamage(CCSOLScenarioMonster& monster, entvars_t* inflictor,
         entvars_t* attacker, float damage, int damageType) = 0;
+    virtual BOOL TakeDamageWithContext(CCSOLScenarioMonster& monster, entvars_t* inflictor,
+        entvars_t* attacker, float damage, int damageType, const CSOLMonsterDeathContext&)
+    { return TakeDamage(monster, inflictor, attacker, damage, damageType); }
     virtual void Killed(CCSOLScenarioMonster& monster, entvars_t* attacker, int gib) = 0;
     // Original CMonsterImprov vE0=10611F70 is ret4. Derived ordinary behavior
     // has its own skill-specific contact path; this base performs no action.
@@ -100,6 +107,8 @@ public:
     CCSOLMonsterAnimation& Animation() { return m_animation; }
     CSOLMonsterSpeedState& SpeedState() { return *m_speed; }
     CSOLMonsterHostState& HostState() { return m_host; }
+    CSOLMonsterGaitState& GaitState() { return m_gait; }
+    std::shared_ptr<CCSOLMonsterEffects> DamageEffects() const { return m_damageEffects; }
     bool SetTouchComponent(std::size_t index, std::shared_ptr<CCSOLMonsterTouchComponent> component);
 
 private:
@@ -117,6 +126,8 @@ private:
     // explicitly in OnDestroy; optional also permits normal test destruction.
     std::optional<CSOLMonsterSpeedState> m_speed{std::in_place};
     CSOLMonsterHostState m_host;
+    CSOLMonsterGaitState m_gait;
+    std::shared_ptr<CCSOLMonsterEffects> m_damageEffects;
     // Explicit reset is required when the engine releases private data.
     std::optional<std::array<std::shared_ptr<CCSOLMonsterTouchComponent>, 6>> m_touchComponents{std::in_place};
     bool m_behaviorReady{};
@@ -173,6 +184,8 @@ public:
     CSOLMonsterPoolState State() const { return m_state; }
     const std::string& Error() const { return m_error; }
     bool Busy() const { return m_busy; }
+    // One real damage-source entity per pool/session, allocated on first DOT.
+    CBaseEntity* DamageInflictor(CSOLMonsterSpawnCall& call);
     // Engine private-data destruction happens before serial/free changes.
     void EntityDestroyed(CCSOLScenarioMonster& monster);
 
@@ -202,4 +215,6 @@ private:
     CSOLMonsterPoolState m_state{CSOLMonsterPoolState::Empty};
     std::string m_error;
     bool m_busy{};
+    EHANDLE m_damageInflictor;
+    bool m_creatingInflictor{};
 };
