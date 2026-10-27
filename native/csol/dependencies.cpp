@@ -5,6 +5,7 @@
 #include "events.hpp"
 #include "parts.hpp"
 #include "sequences.hpp"
+#include "texture_model.hpp"
 #include "weapon_resources.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
@@ -17,11 +18,11 @@ namespace csol
 namespace
 {
 std::string Lower(std::string s){for(auto& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;}
-bool Safe(const std::string& s)
+bool Safe(const std::string& s,size_t pathLimit)
 {
     if(s.empty() || s.front()=='/' || s.front()=='\\' || s.find("..")!=s.npos)return false;
     for(unsigned char c:s)if(c<32 || c==':' || c=='\\' || c=='"' || c=='*' || c=='?')return false;
-    return s.size()<64;
+    return s.size()<=pathLimit;
 }
 int Word(const std::vector<std::byte>& b,size_t at)
 {if(at>b.size() || b.size()-at<4)throw std::runtime_error("truncated studio dependency record");int n{};memcpy(&n,b.data()+at,4);return n;}
@@ -39,15 +40,16 @@ std::string ExternalTexture(const std::string& model,std::string texture,bool re
     const auto source=ResolveTextureSource({model,model,model},texture,replacement?texture:"",exists);
     return !source.Resource.empty() && exists(source.Resource)?source.Resource:std::string{};
 }
-std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured)
+std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured,size_t pathLimit)
 {
+    if(pathLimit<1 || pathLimit>128)throw std::runtime_error("invalid dependency path budget");
     std::set<std::string> files,visited;std::vector<std::string> queue;
-    auto add=[&](const std::string& path,bool required=true)
+    auto add=[&](const std::string& path,bool required=true,bool inspectModel=true)
     {
-        if(!Safe(path))throw std::runtime_error("invalid weapon dependency: "+path);
-        const auto physical=Lower(path).ends_with(".mdl")?ResolveModelSource(path,read,exists,configured).File:path;
+        if(!Safe(path,pathLimit))throw std::runtime_error("invalid weapon dependency: "+path);
+        const auto physical=inspectModel && Lower(path).ends_with(".mdl")?ResolveModelSource(path,read,exists,configured).File:path;
         if(!exists(physical)){if(required)throw std::runtime_error("missing weapon dependency: "+path);return;}
-        if(files.insert(path).second && Lower(path).ends_with(".mdl"))queue.push_back(path);
+        if(files.insert(path).second && inspectModel && Lower(path).ends_with(".mdl"))queue.push_back(path);
     };
     add(model);
     rapidjson::Document common;
@@ -56,12 +58,37 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
     {
         const auto name=queue.back();queue.pop_back();if(!visited.insert(name).second)continue;
         if(Lower(name)=="models/v_tknifeex2.mdl")for(const auto* file:TKnifeEx2Resources)add(file);
+        if(Lower(name)=="models/v_cannon.mdl")for(const auto* file:CannonResources)add(file);
+        if(Lower(name)=="models/v_beamgun.mdl" || Lower(name)=="models/v_beamgunle.mdl")
+        {
+            const auto& resources=Lower(name)=="models/v_beamgunle.mdl"?BeamgunLEResources:BeamgunResources;
+            for(const auto* file:resources)add(file);
+            for(const auto* file:BeamgunSounds)add(file);
+        }
         if(visited.size()>64 || files.size()>8192)throw std::runtime_error("weapon dependency budget exceeded");
         const auto source=ResolveModelSource(name,read,exists,configured);
         if(source.Redirected)add(ModelSourceDescriptor(name),false);
+        const auto handConfig=name.substr(0,name.size()-4)+"_hands.json";
+        if(exists(handConfig)) {
+            add(handConfig);const auto text=Text(read,handConfig);
+            if(text.size()>65536)throw std::runtime_error("hand profile exceeds size limit");
+            rapidjson::Document hands;hands.Parse(text.data(),text.size());
+            if(hands.HasParseError() || !hands.IsObject() || !hands.HasMember("version") || !hands["version"].IsInt() || hands["version"].GetInt()!=1)
+                throw std::runtime_error("invalid hand profile version");
+            std::string donor="models/csol/hands/v_hegrenade.mdl";
+            if(hands.HasMember("donor")){if(!hands["donor"].IsString())throw std::runtime_error("invalid hand donor");donor=hands["donor"].GetString();}
+            if(!donor.starts_with("models/csol/hands/") || !donor.ends_with(".mdl"))throw std::runtime_error("invalid hand donor path");
+            add(donor);
+        }
         auto bytes=read(source.File);DecodeStudioModel(bytes);
         if(Word(bytes,0)!=0x54534449 || Word(bytes,4)!=10)throw std::runtime_error("unsupported dependency model");
         const int length=Word(bytes,72);if(length<244 || size_t(length)>bytes.size())throw std::runtime_error("invalid dependency model length");bytes.resize(length);
+        if(Word(bytes,184)==0){
+            auto textureFile=StudioTextureModel(source.File);
+            if(!exists(textureFile) && source.Redirected)textureFile=StudioTextureModel(source.PhysicalName);
+            add(textureFile,true,false);
+            auto textureBytes=read(textureFile);DecodeStudioModel(textureBytes);bytes=AppendStudioTextures(bytes,textureBytes);
+        }
         std::vector<std::vector<std::byte>> sequenceData;
         for(const auto& file:SequenceFiles(source.File,exists)){add(file);sequenceData.push_back(read(file));}
         if(!sequenceData.empty())bytes=AppendSequences(bytes,sequenceData);

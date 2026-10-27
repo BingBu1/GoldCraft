@@ -1,10 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "weapons.h"
+#include "weapon_damage_runtime.h"
+#include "wpn_beamgun.h"
+#include "wpn_cannon.h"
+#include "characters.h"
+#include "../projectile_effects.hpp"
 
 namespace
 {
 cvar_t csol_weapons = { "csol_weapons", "0", FCVAR_SERVER, 0, nullptr };
+bool weaponsPrecached{};
+int knifeTrailModelIndex{};
+int knifeTrailMessage{};
+#ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
+cvar_t csol_projectile_trace = { "csol_projectile_trace", "0", 0, 0, nullptr };
+void ProjectileTrace(const char* event, CBaseEntity* knife, float age, float damage = 0)
+{
+    if (csol_projectile_trace.value == 0) return;
+    SERVER_PRINT(UTIL_VarArgs("[CSOLProjectile] event=%s entity=%d age=%.5f damage=%.5f move=%d vx=%.5f vy=%.5f vz=%.5f\n",
+        event, knife->entindex(), age, damage, knife->pev->movetype,
+        knife->pev->velocity.x, knife->pev->velocity.y, knife->pev->velocity.z));
+}
+#else
+void ProjectileTrace(const char*, CBaseEntity*, float, float = 0) {}
+#endif
 // One ready throw plus 29 reserve throws, 30 in total.
 constexpr int TKNIFE_DEFAULT_GIVE = 30;
 constexpr int TKNIFE_MAX_CARRY = TKNIFE_DEFAULT_GIVE - 1;
@@ -25,35 +45,54 @@ void FleshSound(CBaseEntity* entity)
 }
 }
 
-class CThrowingKnife : public CBaseEntity
+class CThrowingKnife : public CBaseEntity, public CSOLWeaponDamageSource
 {
 public:
     void Spawn() override;
     void Precache() override;
     int ObjectCaps() override { return FCAP_DONT_SAVE; }
-    static void Shoot(CBasePlayer* owner, const Vector& origin, const Vector& direction);
+    static CThrowingKnife* Shoot(CBasePlayer* owner, int weaponId, const Vector& origin, const Vector& direction);
+    int DamageWeaponId() const override { return m_iSourceWeaponId; }
     void FlyingThink();
     void KnifeTouch(CBaseEntity* other);
     void ImpactSound(const TraceResult& trace);
+    void Bounce(const TraceResult& trace);
+#ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
+    static void TestProjectile();
+    static void MapProjectile();
+#endif
 
 private:
+    int m_iSourceWeaponId{};
     EHANDLE m_hThrower;
     Vector m_vecPreviousVelocity;
+    Vector m_vecPreviousTouchOrigin;
+    float m_flSpawnTime;
+    float m_flPreviousTouchTime;
     float m_flExpireTime;
     float m_flDamage;
 };
 
 LINK_ENTITY_TO_CLASS(throwingknife_entity, CThrowingKnife, CCSEntity)
 
+const char* CSOL_DeathWeapon(const entvars_t* inflictor)
+{
+    // The projectile keeps its weapon identity even if its owner switches
+    // weapons before impact. Melee already uses the active weapon's name.
+    return inflictor && FStrEq(STRING(inflictor->classname), "throwingknife_entity") ? "tknifeex2" : nullptr;
+}
+
 void CThrowingKnife::Precache()
 {
     PRECACHE_MODEL("models/tknifeb.mdl");
+    knifeTrailModelIndex = PRECACHE_MODEL("sprites/smoke.spr");
     for (auto sound : impactSounds) PRECACHE_SOUND(const_cast<char*>(sound));
     for (auto sound : fleshSounds) PRECACHE_SOUND(const_cast<char*>(sound));
 }
 
 void CThrowingKnife::Spawn()
 {
+    if (!weaponsPrecached) { UTIL_Remove(this); return; }
     Precache();
     SET_MODEL(edict(), "models/tknifeb.mdl");
     pev->movetype = MOVETYPE_BOUNCE;
@@ -62,33 +101,47 @@ void CThrowingKnife::Spawn()
     pev->health = 1;
     pev->takedamage = DAMAGE_NO;
     UTIL_SetSize(pev, g_vecZero, g_vecZero);
-    m_flExpireTime = gpGlobals->time + 10.0f;
+    m_flSpawnTime = gpGlobals->time;
+    m_flExpireTime = m_flSpawnTime + 10.0f;
+    m_flPreviousTouchTime = 0;
+    m_vecPreviousTouchOrigin = g_vecZero;
     m_flDamage = 70.0f;
     SetTouch(&CThrowingKnife::KnifeTouch);
     SetThink(&CThrowingKnife::FlyingThink);
     pev->nextthink = gpGlobals->time + 0.1f;
+    MESSAGE_BEGIN(MSG_ALL, knifeTrailMessage);
+        WRITE_BYTE(csol::KnifeEffectVersion);
+        WRITE_SHORT(entindex());
+        WRITE_SHORT(knifeTrailModelIndex);
+    MESSAGE_END();
 }
 
-void CThrowingKnife::Shoot(CBasePlayer* owner, const Vector& origin, const Vector& direction)
+CThrowingKnife* CThrowingKnife::Shoot(CBasePlayer* owner, int weaponId, const Vector& origin, const Vector& direction)
 {
+    if (!weaponsPrecached) return nullptr;
     auto* knife = GetClassPtr<CCSEntity>(static_cast<CThrowingKnife*>(nullptr));
-    if (!knife) return;
+    if (!knife) return nullptr;
     knife->pev->classname = MAKE_STRING("throwingknife_entity");
     knife->Spawn();
+    knife->m_iSourceWeaponId = weaponId;
     knife->m_hThrower = owner;
     knife->pev->owner = owner->edict();
     UTIL_SetOrigin(knife->pev, origin);
     knife->pev->velocity = direction * 2000.0f + owner->pev->velocity * 0.5f;
-    knife->m_vecPreviousVelocity = knife->pev->velocity;
+    // CSO starts this at zero; the first 100 ms Think records the velocity.
+    // Initializing it to launch speed makes every nearby wall embed too early.
+    knife->m_vecPreviousVelocity = g_vecZero;
     knife->pev->angles = UTIL_VecToAngles(direction);
     knife->pev->angles.z += 90.0f;
     knife->pev->avelocity.x = -1800.0f;
+    return knife;
 }
 
 void CThrowingKnife::FlyingThink()
 {
-    if (!IsInWorld() || gpGlobals->time >= m_flExpireTime)
+    if (!IsInWorld() || gpGlobals->time > m_flExpireTime)
     {
+        ProjectileTrace("expired", this, gpGlobals->time - m_flSpawnTime);
         UTIL_Remove(this);
         return;
     }
@@ -115,26 +168,45 @@ void CThrowingKnife::ImpactSound(const TraceResult& trace)
 
 void CThrowingKnife::KnifeTouch(CBaseEntity* other)
 {
-    if (other == m_hThrower) return;
+    if (!other || other == m_hThrower) return;
     TraceResult trace = UTIL_GetGlobalTrace();
     if (other->pev->takedamage != DAMAGE_NO)
     {
+        const bool transparentBrush = other->pev->rendermode != kRenderNormal &&
+            (FClassnameIs(other->pev, "func_breakable") || FClassnameIs(other->pev, "func_pushable"));
         // EHANDLE prevents a disconnected owner's reused edict becoming the attacker.
         CBaseEntity* owner = m_hThrower;
         auto* attacker = owner ? owner->pev : pev;
+        float damage = m_flDamage - 10.0f * (gpGlobals->time - m_flSpawnTime);
+        if (damage < 1.0f) damage = 0;
+        ProjectileTrace("damage", this, gpGlobals->time - m_flSpawnTime, damage);
         ClearMultiDamage();
-        other->TraceAttack(attacker, m_flDamage, m_vecPreviousVelocity.Normalize(), &trace, DMG_BULLET);
+        other->TraceAttack(attacker, damage, pev->velocity.Normalize(), &trace, DMG_BULLET);
         ApplyMultiDamage(pev, attacker);
+        if (transparentBrush)
+        {
+            // Honor CS breakable material/trigger rules through TakeDamage.
+            // A surviving pane bounces once in SV_Physics_Toss after Touch.
+            // Negating here would reflect twice and trap the knife in glass.
+            if (other->pev->solid != SOLID_NOT && other->pev->health > 0)
+            {
+                Bounce(trace);
+                return;
+            }
+            ProjectileTrace("glass-broken", this, gpGlobals->time - m_flSpawnTime, damage);
+            UTIL_Remove(this);
+            return;
+        }
         FleshSound(this);
         UTIL_Remove(this);
         return;
     }
-    ImpactSound(trace);
     if (other->IsBSPModel() && m_vecPreviousVelocity.Length() > 0 &&
         -DotProduct(m_vecPreviousVelocity.Normalize(), trace.vecPlaneNormal) >= 0.258819045f)
     {
+        ImpactSound(trace);
         // Original CSO converts an embedded knife into a client temp model.
-        // Keep the same visible orientation/lifetime as a networked entity here.
+        // Temporary network-entity fallback; TE138 orientation/fade is still pending.
         pev->angles = UTIL_VecToAngles(-m_vecPreviousVelocity);
         pev->angles.z += 90.0f;
         pev->velocity = pev->avelocity = g_vecZero;
@@ -142,11 +214,198 @@ void CThrowingKnife::KnifeTouch(CBaseEntity* other)
         pev->solid = SOLID_NOT;
         SetTouch(nullptr);
         m_flExpireTime = gpGlobals->time + 5.0f;
+        ProjectileTrace("embedded", this, gpGlobals->time - m_flSpawnTime);
         return;
     }
-    // GoldSrc's bounce mover handles plane reflection after Touch.
-    pev->velocity = pev->velocity * 0.25f;
+    Bounce(trace);
 }
+
+void CThrowingKnife::Bounce(const TraceResult& trace)
+{
+    pev->velocity = pev->velocity * 0.5f;
+    if (m_flPreviousTouchTime != 0 && gpGlobals->time - m_flPreviousTouchTime < 0.2f &&
+        (m_vecPreviousTouchOrigin - pev->origin).Length() < 1.0f)
+    {
+        m_flPreviousTouchTime = gpGlobals->time;
+        pev->velocity = pev->avelocity = g_vecZero;
+        pev->movetype = MOVETYPE_TOSS;
+        SetTouch(nullptr);
+        ProjectileTrace("stopped", this, gpGlobals->time - m_flSpawnTime);
+        return;
+    }
+    m_flPreviousTouchTime = gpGlobals->time;
+    m_vecPreviousTouchOrigin = pev->origin;
+    // CSO applies its 0.5 factor twice. GoldSrc reflects the plane after Touch.
+    pev->velocity = pev->velocity * 0.5f;
+    ProjectileTrace("bounce", this, gpGlobals->time - m_flSpawnTime);
+    ImpactSound(trace);
+}
+
+#ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
+namespace
+{
+class CKnifeDamageProbe : public CBaseEntity
+{
+public:
+    void TraceAttack(entvars_t*, float damage, Vector, TraceResult*, int) override { receivedDamage = damage; }
+    float receivedDamage = -1;
+};
+}
+
+void CThrowingKnife::TestProjectile()
+{
+    if (!CSOL_WeaponsReady()) { SERVER_PRINT("[CSOLProjectileTest] unavailable\n"); return; }
+    int passed = 0, total = 0;
+    auto check = [&](const char* name, bool valid, float actual)
+    {
+        ++total;
+        if (valid) ++passed;
+        SERVER_PRINT(UTIL_VarArgs("[CSOLProjectileTest] case=%s pass=%d actual=%.5f\n", name, valid, actual));
+    };
+    auto makeKnife = []()
+    {
+        auto* knife = GetClassPtr<CCSEntity>(static_cast<CThrowingKnife*>(nullptr));
+        knife->pev->classname = MAKE_STRING("throwingknife_entity");
+        knife->Spawn();
+        knife->pev->velocity = Vector(100, -200, 50);
+        knife->m_vecPreviousVelocity = knife->pev->velocity;
+        knife->pev->avelocity = Vector(-1800, 0, 0);
+        return knife;
+    };
+    auto* target = GetClassPtr<CCSEntity>(static_cast<CKnifeDamageProbe*>(nullptr));
+    target->pev->classname = MAKE_STRING("csol_damage_probe");
+    target->pev->solid = SOLID_NOT;
+    target->pev->takedamage = DAMAGE_YES;
+    // Original x86 oracle vectors, through the actual Touch implementation.
+    struct DamageCase { float age, base, expected; const char* name; };
+    const DamageCase damageCases[] = {
+        {0, 70, 70, "fresh"}, {0.5f, 70, 65, "half-second"}, {1, 70, 60, "one-second"},
+        {5, 70, 20, "five-seconds"}, {7, 70, 0, "exhausted"},
+        {0, 1, 1, "one-damage-kept"}, {0, 0.99f, 0, "below-one-zero"}
+    };
+    for (const auto& test : damageCases)
+    {
+        auto* knife = makeKnife();
+        knife->m_flSpawnTime = gpGlobals->time - test.age;
+        knife->m_flDamage = test.base;
+        target->receivedDamage = -1;
+        knife->KnifeTouch(target);
+        check(test.name, fabs(target->receivedDamage - test.expected) < 0.001f && (knife->pev->flags & FL_KILLME), target->receivedDamage);
+        UTIL_Remove(knife);
+    }
+    for (const char* name : {"func_breakable", "func_pushable"})
+    {
+        auto* knife = makeKnife();
+        target->pev->classname = ALLOC_STRING(name);
+        target->pev->rendermode = kRenderTransTexture;
+        target->pev->solid = SOLID_BSP;
+        target->pev->health = 100;
+        target->receivedDamage = -1;
+        knife->KnifeTouch(target);
+        // This branch intentionally follows the user's CS glass requirement;
+        // it is not the older CSO binary's transparent-object immunity branch.
+        check(name, target->receivedDamage == 70 && knife->pev->velocity == Vector(25, -50, 12.5f) &&
+            !(knife->pev->flags & FL_KILLME) && knife->m_flDamage == 70, knife->pev->velocity.x);
+        UTIL_Remove(knife);
+    }
+    // Non-normal rendering alone must not make an ordinary damage target bounce.
+    target->pev->classname = MAKE_STRING("csol_damage_probe");
+    auto* knife = makeKnife();
+    knife->KnifeTouch(target);
+    check("transparent-other-damaged", target->receivedDamage == 70, target->receivedDamage);
+    UTIL_Remove(knife);
+    target->pev->classname = MAKE_STRING("func_breakable");
+    target->pev->rendermode = kRenderNormal;
+    knife = makeKnife();
+    knife->KnifeTouch(target);
+    check("opaque-breakable-damaged", target->receivedDamage == 70, target->receivedDamage);
+    UTIL_Remove(knife);
+    UTIL_Remove(target);
+
+    TraceResult trace{};
+    trace.pHit = INDEXENT(0);
+    struct BounceCase { float gap, distance; bool previous, stops; const char* name; };
+    const BounceCase bounceCases[] = {
+        {0.1f, 0, false, false, "first-collision"}, {0.1f, 0.5f, true, true, "rapid-near-collision"},
+        {0.1f, 1, true, false, "one-unit-keeps-bouncing"}, {0.3f, 0.5f, true, false, "slow-near-collision"}
+    };
+    for (const auto& test : bounceCases)
+    {
+        knife = makeKnife();
+        knife->m_flPreviousTouchTime = test.previous ? gpGlobals->time - test.gap : 0;
+        knife->m_vecPreviousTouchOrigin = knife->pev->origin - Vector(test.distance, 0, 0);
+        knife->Bounce(trace);
+        bool valid = test.stops ? knife->pev->velocity == g_vecZero && knife->pev->avelocity == g_vecZero &&
+            knife->pev->movetype == MOVETYPE_TOSS && !knife->m_pfnTouch :
+            knife->pev->velocity == Vector(25, -50, 12.5f) && knife->pev->movetype == MOVETYPE_BOUNCE && knife->m_pfnTouch;
+        check(test.name, valid, knife->pev->velocity.x);
+        UTIL_Remove(knife);
+    }
+    for (float remaining : {0.01f, 0.0f, -0.01f})
+    {
+        knife = makeKnife();
+        knife->m_flExpireTime = gpGlobals->time + remaining;
+        knife->FlyingThink();
+        check(remaining > 0 ? "before-expiry" : remaining == 0 ? "exact-expiry-kept" : "after-expiry-removed",
+            bool(knife->pev->flags & FL_KILLME) == (remaining < 0), knife->pev->flags & FL_KILLME);
+        UTIL_Remove(knife);
+    }
+    SERVER_PRINT(UTIL_VarArgs("[CSOLProjectileTest] passed=%d total=%d\n", passed, total));
+}
+
+void CThrowingKnife::MapProjectile()
+{
+    const char* action = CMD_ARGV(1);
+    if (!Q_strcmp(action, "status"))
+    {
+        for (const char* classname : {"func_breakable", "throwingknife_entity"})
+        {
+            if (CMD_ARGC() == 3 && !Q_strcmp(CMD_ARGV(2), "knives") && Q_strcmp(classname, "throwingknife_entity")) continue;
+            CBaseEntity* entity = nullptr;
+            while ((entity = UTIL_FindEntityByClassname(entity, classname)))
+            {
+                const auto* v = entity->pev;
+                SERVER_PRINT(UTIL_VarArgs("[CSOLMapProjectile] entity=%d class=%s health=%.3f damage=%.0f solid=%d render=%d move=%d origin=%.3f,%.3f,%.3f velocity=%.3f,%.3f,%.3f spin=%.3f bounds=%.3f,%.3f,%.3f:%.3f,%.3f,%.3f\n",
+                    entity->entindex(), classname, v->health, v->takedamage, v->solid, v->rendermode, v->movetype,
+                    v->origin.x, v->origin.y, v->origin.z, v->velocity.x, v->velocity.y, v->velocity.z, v->avelocity.x,
+                    v->absmin.x, v->absmin.y, v->absmin.z, v->absmax.x, v->absmax.y, v->absmax.z));
+            }
+        }
+        return;
+    }
+    if (Q_strcmp(action, "shoot") || (CMD_ARGC() != 4 && CMD_ARGC() != 5) || !CSOL_WeaponsReady()) return;
+    const int index = Q_atoi(CMD_ARGV(2));
+    const float distance = Q_atof(CMD_ARGV(3));
+    const float age = CMD_ARGC() == 5 ? Q_atof(CMD_ARGV(4)) : 0;
+    if (age < 0 || age > 9) return;
+    if (index <= gpGlobals->maxClients || index >= gpGlobals->maxEntities || distance < 16 || distance > 1024) return;
+    auto* target = CBaseEntity::Instance(INDEXENT(index));
+    if (!target || !FClassnameIs(target->pev, "func_breakable") || target->pev->solid == SOLID_NOT) return;
+    CBasePlayer* player = nullptr;
+    for (int i = 1; i <= gpGlobals->maxClients; ++i)
+    {
+        auto* candidate = static_cast<CBasePlayer*>(UTIL_PlayerByIndex(i));
+        if (candidate && !candidate->IsDormant() && !(candidate->pev->flags & FL_FAKECLIENT)) { player = candidate; break; }
+    }
+    if (!player) return;
+    const Vector center = (target->pev->absmin + target->pev->absmax) * 0.5f;
+    const Vector size = target->pev->absmax - target->pev->absmin;
+    int axis = size.x < size.y ? 0 : 1;
+    if (size.z < size[axis]) axis = 2;
+    Vector normal = g_vecZero;
+    normal[axis] = player->pev->origin[axis] >= center[axis] ? 1.0f : -1.0f;
+    const Vector start = center + normal * (size[axis] * 0.5f + distance);
+    TraceResult trace;
+    UTIL_TraceLine(start, center, dont_ignore_monsters, player->edict(), &trace);
+    if (trace.fStartSolid || trace.pHit != target->edict()) { SERVER_PRINT("[CSOLMapProjectile] blocked\n"); return; }
+    auto* knife = Shoot(player, CSOL_WEAPON_TKNIFEEX2, start, -normal);
+    if (!knife) return;
+    knife->m_flSpawnTime -= age;
+    knife->m_flExpireTime -= age;
+    SERVER_PRINT(UTIL_VarArgs("[CSOLMapProjectile] launched entity=%d target=%d health=%.3f distance=%.3f age=%.3f\n",
+        knife->entindex(), index, target->pev->health, distance, age));
+}
+#endif
 
 class CTKnifeEx2 : public CBasePlayerWeapon
 {
@@ -174,6 +433,12 @@ LINK_ENTITY_TO_CLASS(weapon_tknifeex2, CTKnifeEx2, CCSPlayerWeapon)
 
 void CTKnifeEx2::Spawn()
 {
+    if (!CSOL_WeaponsReady())
+    {
+        ALERT(at_console, "CSOL: weapon_tknifeex2 unavailable; enable csol_weapons before loading the map.\n");
+        UTIL_Remove(this);
+        return;
+    }
     Precache();
     m_iId = CSOL_WEAPON_TKNIFEEX2;
     SET_MODEL(edict(), "models/w_tknifeex2.mdl");
@@ -246,7 +511,7 @@ void CTKnifeEx2::ThrowKnife(int ordinal)
         const float radius = ordinal * 5.0f;
         for (int i = 0; i < 3; ++i) origin[i] += RANDOM_FLOAT(-radius, radius);
     }
-    CThrowingKnife::Shoot(m_pPlayer, origin, direction);
+    CThrowingKnife::Shoot(m_pPlayer, m_iId, origin, direction);
 }
 
 void CTKnifeEx2::PrimaryAttack()
@@ -327,29 +592,58 @@ void CTKnifeEx2::WeaponIdle()
 void CSOL_InitWeapons()
 {
     CVAR_REGISTER(&csol_weapons);
+    CSOL_InitBeamDamage();
+    CSOL_InitBeamWeapons();
+    CSOL_InitCannon();
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
+    CVAR_REGISTER(&csol_projectile_trace);
+    ADD_SERVER_COMMAND("tknife_projectile_test", CThrowingKnife::TestProjectile);
+    ADD_SERVER_COMMAND("tknife_map_projectile", CThrowingKnife::MapProjectile);
     CSOL_InitWeaponTests();
 #endif
 }
 
 bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
 {
-    return weapon && weapon->m_iId == CSOL_WEAPON_TKNIFEEX2 &&
-        !Q_strcmp(STRING(weapon->pev->classname), "weapon_tknifeex2");
+    if (!weapon) return false;
+    const char* name = STRING(weapon->pev->classname);
+    return (weapon->m_iId == CSOL_WEAPON_TKNIFEEX2 && !Q_strcmp(name, "weapon_tknifeex2")) ||
+        (weapon->m_iId == CSOL_WEAPON_BEAMGUN && !Q_strcmp(name, "weapon_beamgun")) ||
+        (weapon->m_iId == CSOL_WEAPON_BEAMGUNLE && !Q_strcmp(name, "weapon_beamgunle")) ||
+        (weapon->m_iId == CSOL_WEAPON_CANNON && !Q_strcmp(name, "weapon_cannon"));
 }
 
 const char* CSOL_WorldModel(const CBasePlayerItem* item)
 {
+    if (item && item->m_iId == CSOL_WEAPON_CANNON && FClassnameIs(item->pev, "weapon_cannon"))
+        return "models/w_cannon.mdl";
     if (item && item->m_iId == CSOL_WEAPON_TKNIFEEX2 &&
         !Q_strcmp(STRING(item->pev->classname), "weapon_tknifeex2"))
         return "models/w_tknifeex2.mdl";
+    if (item && item->m_iId == CSOL_WEAPON_BEAMGUN && FClassnameIs(item->pev, "weapon_beamgun"))
+        return "models/w_beamgun.mdl";
+    if (item && item->m_iId == CSOL_WEAPON_BEAMGUNLE && FClassnameIs(item->pev, "weapon_beamgunle"))
+        return "models/w_beamgunle.mdl";
     return nullptr;
 }
 
 void CSOL_PrecacheWeapons()
 {
-    if (csol_weapons.value != 0) UTIL_PrecacheOtherWeapon("weapon_tknifeex2");
+    CSOL_PrecacheCharacters();
+    weaponsPrecached = false;
+    if (!knifeTrailMessage) knifeTrailMessage = REG_USER_MSG(csol::KnifeTrailMessage, csol::KnifeTrailMessageBytes);
+    if (csol_weapons.value != 0)
+    {
+        CSOL_ReloadBeamDamage();
+        UTIL_PrecacheOtherWeapon("weapon_tknifeex2");
+        const auto* info = CSOL_ItemInfo(CSOL_WEAPON_TKNIFEEX2);
+        weaponsPrecached = info && info->pszName && !Q_strcmp(info->pszName, "weapon_tknifeex2");
+        CSOL_PrecacheBeamWeapons();
+        CSOL_PrecacheCannon();
+    }
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CSOL_PrecacheWeaponTests();
 #endif
 }
+
+bool CSOL_WeaponsReady() { return weaponsPrecached && csol_weapons.value != 0; }

@@ -43,7 +43,9 @@ BOOL CBasePlayer::GoldCraft_CommitEquipmentDamage(entvars_t *pevInflictor, entva
 		}
 		else
 		{
-			if (bitsDamageType & DMG_BLAST)
+			// CS reserves BLAST deaths for the C4 and skips PlayerKilled.
+			// These owned weapon attacks must retain normal kill credit/DeathMsg.
+			if ((bitsDamageType & DMG_BLAST) && !CSOL_BeamInflictor(pevInflictor))
 				m_bKilledByBomb = true;
 
 			else if (bitsDamageType & DMG_EXPLOSION)

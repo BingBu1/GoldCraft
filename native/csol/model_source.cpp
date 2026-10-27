@@ -88,7 +88,10 @@ ModelSource ResolveModelSource(const std::string& model,const ResourceReader& re
 }
 TextureSource ResolveTextureSource(const ModelSource& model,const std::string& original,const std::string& replacement,const ResourceExists& exists)
 {
-    if(!Safe(original) || (!replacement.empty() && !Safe(replacement)))throw std::runtime_error("invalid texture source name");
+    // Real studio textures may contain internal spaces (including before the
+    // extension). Keep their exact names; still reject separators/traversal.
+    auto textureName=[](std::string_view name){return Safe(name,true) && name.find('/')==name.npos;};
+    if(!textureName(original) || (!replacement.empty() && !textureName(replacement)))throw std::runtime_error("invalid texture source name");
     TextureSource source;source.Name=replacement.empty()?original:replacement;source.Policy=ParseMaterialPolicy(source.Name);source.Descriptor=Descriptor(source.Name);
     auto probe=[&](const std::string& name)
     {

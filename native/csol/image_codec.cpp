@@ -81,7 +81,10 @@ Image DecodeTGA(std::span<const std::byte> bytes)
 			return palette[p[0]];
 		}
 		if (type == 3) return {p[0], p[0], p[0], 255};
-		return {p[2], p[1], p[0], static_cast<unsigned char>(h[16] == 32 && (h[17] & 15) ? p[3] : 255)};
+		// CSO's 32-bit HUD and effect TGAs carry alpha even when the descriptor
+		// declares zero attribute bits. Preserve the stored channel, including
+		// fully transparent images used to hide inactive effect geometry.
+		return {p[2], p[1], p[0], static_cast<unsigned char>(h[16] == 32 ? p[3] : 255)};
 	};
 	Image image{w, height, std::vector<std::uint8_t>(std::size_t(w) * height * 4)};
 	unsigned index = 0;

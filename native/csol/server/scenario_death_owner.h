@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "scenario_death_notice.h"
+#include "scenario_death_rules.h"
+#include "scenario_death_targets.h"
+#include "scenario_monster_models.h"
+
+// A stack-owned transaction. Services must call Current again after any engine
+// or plugin callback, before using the monster or resolving player handles.
+// The owner/map/dispatcher outlive the call; reset the dispatcher BEFORE the
+// engine releases an old map's edict array or starts a replacement round.
+class CSOLMonsterDeathCall
+{
+public:
+    CSOLMonsterDeathCall(CCSOLScenarioMap& map, CCSOLMonsterDeathRequests& requests,
+        CCSOLScenarioMonster& monster, const CSOLMonsterDeathArguments& arguments);
+    bool SameSession() const;
+    CCSOLScenarioMonster* Current() const;
+    CBaseEntity* Inflictor() const;
+    CBaseEntity* Attacker() const;
+    const CSOLMonsterDeathContext& Context() const { return m_arguments.context; }
+    bool SuppressSound() const { return m_arguments.suppressSound; }
+
+private:
+    friend class CCSOLMonsterDeathOwner;
+    CCSOLScenarioMap& m_map;
+    CCSOLMonsterDeathRequests& m_requests;
+    std::uint64_t m_mapGeneration{}, m_roundGeneration{}, m_requestGeneration{};
+    CCSOLMonsterDeathStages m_stages;
+    CSOLMonsterDeathArguments m_arguments;
+};
+
+struct CSOLMonsterDeathParameters
+{
+    std::int32_t bonusMoney{};
+    std::int16_t slotSkill{};
+    bool shortDeath{};
+};
+
+// Concrete ordinary/Boss behaviors provide these callbacks. No default success
+// methods hide missing frozen effects or derived behavior. Parameters reads
+// only the factory's attribute-stage state and invokes no engine callbacks.
+class CCSOLMonsterDeathBehavior : public CCSOLMonsterBehavior
+{
+public:
+    virtual CSOLMonsterDeathParameters DeathParameters() const = 0;
+    virtual bool BeforeDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
+    virtual bool SelectDeathSequence(CSOLMonsterDeathCall& call, int& sequence,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool AdjustDeathDuration(CSOLMonsterDeathCall& call, float& seconds,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool PostDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
+};
+
+// Required game-rule services, intentionally abstract until their real owners
+// are installed. Local kill money and opaque external drop rewards are separate
+// operations. Implementations must preserve the call's generation checks even
+// within a service that itself performs more than one external callback.
+class CCSOLMonsterDeathServices
+{
+public:
+    virtual ~CCSOLMonsterDeathServices() = default;
+    virtual bool AwardKillMoney(CSOLMonsterDeathCall& call, std::int32_t baseMoney,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool RulesDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
+    // Manager/clearpoint -> frags/message -> attribution -> drops -> counters
+    // -> attacker notification. Null attackers never enter this service.
+    virtual bool PlayerKilledMonster(CSOLMonsterDeathCall& call,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool ClearEffects(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
+    // Even without an attacker, restore the tracked original type and erase
+    // its Golden record. A missing player skips only the reward/announcement.
+    virtual bool GoldenDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
+    // Stable manager-owned field; nested deaths may change its value.
+    virtual const std::int8_t& DrainTeamFilter() const = 0;
+};
+
+// Concrete synchronous mode15/SubType1 execution order. The factory and rules
+// supply actual behaviors/services before gameplay can be enabled. Keep this
+// owner alive until every active callback has unwound, including map resets.
+class CCSOLMonsterDeathOwner final : public CCSOLMonsterDeathExecutor
+{
+public:
+    CCSOLMonsterDeathOwner(CCSOLScenarioMap& map, CCSOLMonsterPool& pool,
+        CCSOLMonsterModels& models, const CCSOLScenarioMessages& messages,
+        CCSOLMonsterDeathServices& services, int mapId);
+    bool Reset();
+    CCSOLMonsterDeathRequests& Requests() { return m_requests; }
+    const csol::scenario::ConfigError& Error() const { return m_error; }
+
+private:
+    // Enter through Requests so deferred and recursively repeated deaths share
+    // the same gates. This remains callable by the dispatcher via its base.
+    bool ExecuteDeath(CCSOLScenarioMonster& monster,
+        const CSOLMonsterDeathArguments& arguments) override;
+    CCSOLScenarioMap& m_map;
+    CCSOLMonsterPool& m_pool;
+    CCSOLMonsterModels& m_models;
+    CCSOLMonsterDeathServices& m_services;
+    int m_mapId{};
+    CCSOLMonsterDeathRequests m_requests;
+    CCSOLScenarioDeathNotice m_notice;
+    CCSOLScenarioDeathTargets m_targets;
+    CCSOLScenarioDeathRules m_rules;
+    csol::scenario::ConfigError m_error;
+};

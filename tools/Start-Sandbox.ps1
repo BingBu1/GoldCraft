@@ -7,6 +7,7 @@ param(
     [switch]$ListenServer,
     [switch]$Capture,
     [switch]$ConsoleLog,
+    [ValidateSet('0','1','2')][string]$CsolGameMode,
     [switch]$PrecacheFixture,
     [switch]$WithDebugger,
     [switch]$Wait
@@ -25,6 +26,7 @@ if(Test-Path -LiteralPath $runningRecord){
     }
 }
 if($ListenServer){throw 'Use the ReHLDS dedicated server: -Role CsServer -Instance cs-server; clients join without -ListenServer.'}
+if($CsolGameMode -and $Role -ne 'CsServer'){throw 'CsolGameMode is only valid for the dedicated sandbox server.'}
 if($PrecacheFixture -and $Role -ne 'CsServer'){throw 'PrecacheFixture is only valid for the dedicated sandbox server.'}
 if($Role -in @('MinecraftClient','MinecraftServer') -and (Test-Path -LiteralPath (Join-Path $script:GoldCraftRoot "sandbox/$packName/instance.json"))) {
     & python (Join-Path $PSScriptRoot 'Modpack.py') sync --quiet
@@ -116,6 +118,10 @@ if($Role -in @('CsClient','CsServer')){
         # Issuing +jointeam immediately after asynchronous +connect would run too early.
         else {$arguments+=@('+connect',"127.0.0.1:$($cluster.csPort)")}
     }else{
+        # The AMXX precache gate locks this value while the map loads. A
+        # The GameDLL consumes this once at registration, before AMXX locks
+        # the first map. +cvar command-buffer ordering is not sufficient.
+        if($CsolGameMode){$arguments+=@('-csol_game_mode',$CsolGameMode)}
         $arguments+=@('-maxplayers',"$MaxPlayers",'+sv_lan','0','+map',$Map,'+exec','goldcraft_test.cfg')
     }
     if($WithDebugger){

@@ -210,8 +210,10 @@ class Maps(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def bsp(self, name='cs_demo', *, texture=False):
-        entities = b'{"classname" "worldspawn" "wad" "Z:\\compiler\\used.wad;Z:\\missing-unused.wad"}\0'
+    def bsp(self, name='cs_demo', *, texture=False, wad=None):
+        if wad is None:
+            wad = 'Z:\\compiler\\used.wad' if texture else ''
+        entities = ('{"classname" "worldspawn" "wad" "' + wad + '"}\0').encode('latin1')
         textures = (struct.pack('<ii', 1, 8) + b'wall\0'.ljust(16, b'\0') +
                     struct.pack('<6I', 16, 16, 0, 0, 0, 0)) if texture else struct.pack('<i', 0)
         lumps = [(124, len(entities)), (0, 0), (124 + len(entities), len(textures))] + [(0, 0)] * 12
@@ -237,10 +239,19 @@ class Maps(unittest.TestCase):
             with self.assertRaises(ValueError):
                 select_maps(self.game, names, default)
 
-    def test_missing_actual_texture_rejected_but_unused_wad_allowed(self):
+    def test_missing_actual_texture_rejected(self):
         self.resources(self.bsp())
         with self.assertRaisesRegex(ValueError, 'missing WAD textures'):
-            self.resources(self.bsp(texture=True))
+            self.resources(self.bsp(texture=True, wad=''))
+
+    def test_declared_wad_is_required_even_without_matching_textures(self):
+        bsp = self.bsp(wad='Z:\\compiler\\decals_bg.wad')
+        with self.assertRaisesRegex(ValueError, 'missing declared WAD: decals_bg.wad'):
+            self.resources(bsp)
+        path = self.game / 'decals_bg.wad'
+        path.write_bytes(b'WAD3' + struct.pack('<ii', 0, 12))
+        resources, _ = self.resources(bsp)
+        self.assertEqual(resources['cs/cstrike/decals_bg.wad'], path)
 
     def test_needed_wad_included(self):
         path = self.game / 'used.wad'

@@ -6,6 +6,7 @@
 #include "../image_codec.hpp"
 #include "../material_state.hpp"
 #include "../model_source.hpp"
+#include "../hand_adapter.hpp"
 #include <cstring>
 
 namespace csol::client
@@ -33,9 +34,14 @@ struct Asset
     std::vector<Material> materials;
     std::vector<model_t*> sprites;
     std::vector<Batch> batches;
+    std::vector<std::array<int,2>> handModels;
+    std::vector<HandBodygroup> handBodygroups;
     ModelJSON config;
     BodyEffectProfile profile{};
     bool special{},revive{};
+    bool handAdaptationChecked{};
+    int adaptedMeshes{},adaptedBones{};
+    std::unique_ptr<Asset> adaptedHands;
     GLuint vao{},vbo{},ibo{};
     ~Asset();
     const studiohdr_t& Header() const { return Range<studiohdr_t>(bytes,0)[0]; }
@@ -48,6 +54,7 @@ struct EngineSprite { short type,format; int width,height,frames,palette; float 
 static_assert(sizeof(EngineSprite)==36 && sizeof(EngineSpriteFrame)==28);
 EngineSpriteFrame* SpriteFrameAt(model_t* model,int frame,double time=0);
 Asset* GetAsset(model_t* model);
+Asset* ViewHandAsset(Asset* asset);
 std::pair<bool,Asset*> CachedAsset(model_t* model);
 GLuint UploadImage(const Image& image);
 void ClearAssets(bool deleteGraphics=true);
@@ -57,4 +64,6 @@ void InitializeHands();
 void UpdateHands();
 void ApplyHand(const Material& material,GLuint& texture,float& width,float& height,float* uv);
 void ResetHands(bool deleteGraphics=true);
+int CharacterHandSubmodel(const Asset& asset,int group,int original,int body=0);
+void FindHandModels(Asset& asset);
 }

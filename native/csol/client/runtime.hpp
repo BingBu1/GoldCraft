@@ -15,6 +15,7 @@
 #include <array>
 #include <unordered_map>
 #include <stdexcept>
+#include <iosfwd>
 
 namespace csol::client
 {
@@ -35,11 +36,17 @@ void MountResources();
 void InstallLoaders();
 void RemoveHooks();
 void ClearScene();
+void ForgetSceneEntity(const cl_entity_t* entity);
 void SynchronizeSession();
+void SynchronizeFrameSession();
+void SessionDiagnostics(std::ostream& out);
 void InitializeScene();
 void SceneFrame();
 bool EnsureGraphics();
 bool DrawModel(cl_entity_t* entity, int flags, int (*original)(int));
+bool DrawWorldWeaponPoints();
+extern void* currentStudioHeader;
+extern model_t* currentStudioModel;
 void StudioEvent(const mstudioevent_t* event, const cl_entity_t* entity);
 void DrawWorldEffects();
 void Report();

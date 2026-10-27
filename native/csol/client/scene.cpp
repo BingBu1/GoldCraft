@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "assets.hpp"
+#include "characters.hpp"
+#include "player_animation.hpp"
+#include "stock_hands.hpp"
 #include "weapons.hpp"
+#include "beamgun.hpp"
+#include "cannon.hpp"
 #include "camera.hpp"
+#include "projectiles.hpp"
 #include "gl_state.hpp"
 #include "../events.hpp"
 #include "../parts.hpp"
 #include "../presentation.hpp"
 #include <IMetaRenderer.h>
+#include <IMetaRendererPostScene.h>
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -18,6 +25,20 @@ namespace csol::client
 namespace
 {
 IMetaRenderer* renderer{};
+IMetaRendererPostScene* postRenderer{};
+const MetaRendererPostSceneFrame* postFrame{};
+void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept;
+class WorldCallbacks final : public IMetaRendererPostSceneCallbacks
+{
+public:void DrawPostScene(const MetaRendererPostSceneFrame& frame) noexcept override { DrawOwnedWorld(frame); }
+} worldCallbacks;
+struct WorldDraw
+{
+    cl_entity_t* entity{};unsigned identity{};int frame{};bool events{};
+    FBO_Container_t* target{};
+    std::array<float,16> world{},projection{};
+};
+std::array<WorldDraw,256> worldDraws;
 HGLRC graphicsContext{};
 cvar_t* colorSettings[6]{};
 GLuint program{},quadVAO{},quadVBO{};
@@ -26,6 +47,8 @@ struct State
 {
     Asset* asset{};model_t* model{};int frame=-1,sequence=-1;double time=-1,start{},reviveTime{},action{};
     Bones bones{};std::vector<std::array<float,3>> attachments;
+    std::array<float,3> lightDirection{},lightColor{};
+    int ambient{},shade{},eventFrame=-1,eventRequestedFrame=-1;
     std::vector<double> sprites;std::vector<FadeState> fades;std::vector<FadeResult> results;
     BodyEffects body;
 };
@@ -47,6 +70,41 @@ struct Effect
 std::unordered_map<const cl_entity_t*,State> states;
 std::vector<Effect> effects;
 std::unordered_set<const model_t*> failures;
+struct WorldWeapon
+{
+    const cl_entity_t* source{};
+    model_t* sourceModel{};
+    model_t* weaponModel{};
+    cl_entity_t entity{};
+    unsigned generation{};
+    int frame=-1;
+    bool attached{};
+};
+std::array<WorldWeapon,128> worldWeapons;
+unsigned worldWeaponGeneration{};
+bool HostDrawsLocalHeldWeapon(const cl_entity_t* source)
+{
+    // Renderer supplies a clipped local body in first person. Post-scene
+    // meshes do not carry its bone/near-plane clipping; preserve that path.
+    return engine.GetLocalPlayer && source==engine.GetLocalPlayer() && !CameraIsThirdPerson();
+}
+WorldWeapon* WorldWeaponFor(const cl_entity_t* entity)
+{
+    for(auto& weapon:worldWeapons)if(&weapon.entity==entity && weapon.source)return &weapon;
+    return nullptr;
+}
+unsigned WorldIdentity(const cl_entity_t* entity)
+{
+    if(auto* weapon=WorldWeaponFor(entity))
+    {
+        if(weapon->source->model!=weapon->sourceModel || (weapon->source->curstate.effects&EF_NODRAW))return 0;
+        if(!weapon->attached && weapon->source->player && HostDrawsLocalHeldWeapon(weapon->source))return 0;
+        if(weapon->attached && (HostDrawsLocalHeldWeapon(weapon->source) ||
+            studio.GetModelByIndex(weapon->source->curstate.weaponmodel)!=weapon->weaponModel))return 0;
+        return weapon->generation;
+    }
+    return BeamEffectIdentity(entity);
+}
 int draws{},eventCount{};
 int partMessages{},viewMessages{},rejectedMessages{};
 std::array<PendingPresentation<PartPresentation>,2> pendingParts;
@@ -68,7 +126,12 @@ bool EnsureGL()
         auto module=api->GetPluginModuleHandleByBaseFileName("Renderer");
         if(!module)module=api->GetPluginModuleHandleByBaseFileName("Renderer_AVX2");
         auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress((HMODULE)module,"CreateInterface")):nullptr;
-        if(factory)renderer=static_cast<IMetaRenderer*>(factory(METARENDERER_INTERFACE_VERSION,nullptr));
+        if(factory)
+        {
+            renderer=static_cast<IMetaRenderer*>(factory(METARENDERER_INTERFACE_VERSION,nullptr));
+            postRenderer=static_cast<IMetaRendererPostScene*>(factory(METARENDERER_POST_SCENE_INTERFACE_VERSION,nullptr));
+            if(postRenderer && !postRenderer->RegisterPostSceneCallbacks(&worldCallbacks))postRenderer=nullptr;
+        }
     }
     return true;
 }
@@ -131,9 +194,14 @@ void Camera()
     auto setting=[](int index,float fallback){const auto* v=colorSettings[index];return v && std::isfinite(v->value)?v->value:fallback;};
     glUniform4f(uniform.gamma,std::max(.1f,setting(0,2.2f)),std::max(.1f,setting(1,2.f)),std::max(.1f,setting(2,2.5f)),!renderer || setting(3,1)>0?1.f:0.f);
     glUniform2f(uniform.lighting,std::max(0.f,setting(4,0)),std::max(1.f,setting(5,1.5f)));
-    if(renderer){glUniformMatrix4fv(uniform.world,1,GL_FALSE,renderer->GetWorldMatrix());glUniformMatrix4fv(uniform.projection,1,GL_FALSE,renderer->GetProjectionMatrix());}
+    if(postFrame)
+    {
+        glUniformMatrix4fv(uniform.world,1,GL_FALSE,postFrame->world_matrix);glUniformMatrix4fv(uniform.projection,1,GL_FALSE,postFrame->projection_matrix);
+        glUniform4f(uniform.gamma,std::max(.1f,setting(0,2.2f)),std::max(.1f,setting(1,2.f)),std::max(.1f,setting(2,2.5f)),postFrame->flags&META_POST_SCENE_GAMMA?1.f:0.f);
+    }
+    else if(renderer){glUniformMatrix4fv(uniform.world,1,GL_FALSE,renderer->GetWorldMatrix());glUniformMatrix4fv(uniform.projection,1,GL_FALSE,renderer->GetProjectionMatrix());}
     else {float w[16],p[16];glGetFloatv(GL_MODELVIEW_MATRIX,w);glGetFloatv(GL_PROJECTION_MATRIX,p);glUniformMatrix4fv(uniform.world,1,GL_FALSE,w);glUniformMatrix4fv(uniform.projection,1,GL_FALSE,p);}
-    glUniform3fv(uniform.eye,1,view.vieworg);
+    glUniform3fv(uniform.eye,1,postFrame?postFrame->inverse_world_matrix+12:view.vieworg);
 }
 float Frame(const cl_entity_t* ent,const mstudioseqdesc_t& seq,double time)
 {
@@ -152,6 +220,12 @@ State& Capture(cl_entity_t* ent,Asset& asset,State* supplied=nullptr)
         state.sprites.resize(asset.sprites.size());state.fades.resize(asset.config.Fades.size());state.results.resize(state.fades.size());state.attachments.resize(asset.Header().numattachments);
     }
     memcpy(state.bones.data(),studio.StudioGetBoneTransform(),asset.Header().numbones*sizeof(state.bones[0]));
+    if(BeamEffectIdentity(ent) && ent->curstate.scale>0 && ent->curstate.scale!=1)
+        for(int bone=0;bone<asset.Header().numbones;++bone)for(int axis=0;axis<3;++axis)
+        {
+            for(int n=0;n<3;++n)state.bones[bone][axis][n]*=ent->curstate.scale;
+            state.bones[bone][axis][3]=ent->origin[axis]+(state.bones[bone][axis][3]-ent->origin[axis])*ent->curstate.scale;
+        }
     const auto& h=asset.Header();auto attachments=asset.Data<mstudioattachment_t>(h.attachmentindex,h.numattachments);
     for(size_t i=0;i<attachments.size();++i)
     {
@@ -216,7 +290,7 @@ void LoadParts(cl_entity_t* entity,Asset& primary)
         EnsureGeometry(*asset);part.model=model;part.asset=asset;part.definition=definition;part.start=engine.GetClientTime();
     }
 }
-void DrawAsset(cl_entity_t* ent,Asset& asset,State& state);
+void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass=-1);
 void DrawParts(cl_entity_t* entity,Asset& primary,const State& parent,int (*original)(int))
 {
     LoadParts(entity,primary);
@@ -299,11 +373,15 @@ void Blending(Blend blend)
     else if(blend==Blend::AddAlpha)glBlendFunc(GL_SRC_ALPHA,GL_ONE);
     else glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
 }
-void DrawAsset(cl_entity_t* ent,Asset& asset,State& state)
+void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
 {
     const auto& h=asset.Header();Camera();glUniform4fv(uniform.bones,h.numbones*3,(float*)state.bones.data());
-    float direction[3]{};alight_t lighting{};lighting.plightvec=direction;studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
-    glUniform3fv(uniform.light,1,direction);glUniform3fv(uniform.lightColor,1,lighting.color);glUniform1f(uniform.ambient,float(lighting.ambientlight));glUniform1f(uniform.shade,float(lighting.shadelight));
+    if(!postFrame)
+    {
+        alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
+        std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
+    }
+    glUniform3fv(uniform.light,1,state.lightDirection.data());glUniform3fv(uniform.lightColor,1,state.lightColor.data());glUniform1f(uniform.ambient,float(state.ambient));glUniform1f(uniform.shade,float(state.shade));
     glBindVertexArray(asset.vao);glEnable(GL_DEPTH_TEST);
     const auto groups=asset.Data<mstudiobodyparts_t>(h.bodypartindex,h.numbodyparts);
     const auto skins=asset.Data<int16_t>(h.skinindex,h.numskinref*h.numskinfamilies);
@@ -313,6 +391,7 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state)
     float materialAlpha=1,savedAlpha=1;int lastGroup=-1;bool bodyAlpha=false;
     for(int pass=0;pass<2;++pass)
     {
+    if(onlyPass>=0 && onlyPass!=pass)continue;
     lastGroup=-1;
     for(const auto& batch:asset.batches)
     {
@@ -325,7 +404,9 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state)
         }
         const auto& group=groups[batch.group];int body=ent->curstate.body;
         if(batch.group<state.body.Groups.size() && state.body.Groups[batch.group].Body>=0)body=state.body.Groups[batch.group].Body;
-        if(batch.submodel!=(std::max(0,body)/group.base)%group.nummodels)continue;
+        int selected=(std::max(0,body)/group.base)%group.nummodels;
+        if(ent==engine.GetViewModel())selected=CharacterHandSubmodel(asset,batch.group,selected,ent->curstate.body);
+        if(batch.submodel!=selected)continue;
         const int index=skins[skin*h.numskinref+batch.skinref];const auto& m=asset.materials[index];
         auto scroll=state.body.Scroll(batch.group);
         const bool transparent=(m.flags&0x20) || (m.special && m.blend!=Blend::Opaque) || m.fade>=0 || m.commonAlpha || m.commonAdd;
@@ -341,7 +422,7 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state)
             {if(auto* frame=SpriteFrameAt(asset.sprites[m.sprite],SpriteFrameIndex(state.sprites[m.sprite],asset.sprites[m.sprite]->numframes),state.time))texture=frame->texture;}
         }
         if(ent==engine.GetViewModel())ApplyHand(m,texture,width,height,scroll.data());
-        Blending(draw.blend);glDepthMask(draw.depth);GLState::Enable(GL_CULL_FACE,draw.cull);glCullFace(GL_FRONT);
+        Blending(draw.blend);glDepthMask(postFrame ? (onlyPass==0 && draw.depth) : draw.depth);GLState::Enable(GL_CULL_FACE,draw.cull);glCullFace(GL_FRONT);
         const auto* right=engine.pfnGetCvarPointer("cl_righthand");if(ent==engine.GetViewModel() && right && right->value>0)glDisable(GL_CULL_FACE);
         glActiveTexture(GL_TEXTURE0);glBindTexture(GL_TEXTURE_2D,texture);glActiveTexture(GL_TEXTURE1);glBindTexture(GL_TEXTURE_CUBE_MAP,m.environment);glActiveTexture(GL_TEXTURE0);
         glUniform4f(uniform.uv,1/width,1/height,scroll[0],scroll[1]);glUniform4fv(uniform.color,1,draw.color.data());
@@ -357,7 +438,10 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state)
 void Quad(model_t* model,int index,const float* origin,float scale,float alpha,float angle,bool alphaBlend,bool overlay,bool flip)
 {
     const auto* frame=SpriteFrameAt(model,index);if(!frame)return;
-    float eye[3],up[3],right[3],normal[3];studio.GetViewInfo(eye,up,right,normal);
+    float eye[3],up[3],right[3],normal[3];
+    if(postFrame)for(int i=0;i<3;++i)
+    {right[i]=postFrame->inverse_world_matrix[i];up[i]=postFrame->inverse_world_matrix[4+i];normal[i]=-postFrame->inverse_world_matrix[8+i];}
+    else studio.GetViewInfo(eye,up,right,normal);
     const float sine=std::sin(angle),cosine=std::cos(angle);float u[3],r[3];
     for(int i=0;i<3;++i){u[i]=up[i]*cosine+right[i]*sine;r[i]=right[i]*cosine-up[i]*sine;}
     constexpr int corners[]{0,1,2,0,2,3};const float x[]{frame->left,frame->right,frame->right,frame->left};const float y[]{frame->up,frame->up,frame->down,frame->down};
@@ -389,18 +473,166 @@ void Revive(cl_entity_t* ent,State& state)
     const auto phase=state.sequence%6==2?(draw?state.action:state.action-1):state.reviveTime;
     Quad(sprite,int(phase*(draw||variant?30:20))%sprite->numframes,state.attachments[5].data(),variant?.04f:.028f,250/255.f,0,false,true,false);
 }
+void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept
+{
+    if(!enabled || !enabled->value || !program)return;
+    try
+    {
+        GLState save;postFrame=&frame;
+        glDisable(GL_STENCIL_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_FALSE);
+        // Host transparency/OIT has resolved and world depth is still intact.
+        // No Renderer changes or viewmodel depth/projection are involved.
+        auto distance=[](const WorldDraw& d){float value=0;for(int n=0;n<3;++n){const float x=d.entity->origin[n]-view.vieworg[n];value+=x*x;}return value;};
+        std::array<WorldDraw,256> visible{};size_t count=0;
+        for(auto& draw:worldDraws)
+        {
+            if(draw.entity && draw.frame==int(frame.frame_number) && WorldIdentity(draw.entity)==draw.identity &&
+                draw.target==renderer->GetCurrentSceneFBO() &&
+                std::equal(draw.world.begin(),draw.world.end(),frame.world_matrix) &&
+                std::equal(draw.projection.begin(),draw.projection.end(),frame.projection_matrix))
+                visible[count++]=draw;
+            draw={};
+        }
+        std::sort(visible.begin(),visible.begin()+count,[&](const auto& a,const auto& b){return distance(a)>distance(b);});
+        // World weapon bodies participate in occlusion before any transparent
+        // weapon/effect layer. TEMPENTITY effects never write scene depth.
+        for(size_t i=0;i<count;++i)if(WorldWeaponFor(visible[i].entity))
+        {
+            const auto found=states.find(visible[i].entity);
+            if(found!=states.end())DrawAsset(visible[i].entity,*found->second.asset,found->second,0);
+        }
+        for(size_t i=0;i<count;++i)
+        {
+            auto* entity=visible[i].entity;const auto found=states.find(entity);
+            if(found==states.end())continue;
+            auto& state=found->second;
+            if(visible[i].events && state.eventFrame!=state.frame)
+            {
+                // StudioClientEvents reads the engine's current entity/header.
+                // Dispatch only for this eligible main view, once per frame.
+                auto* previous=studio.GetCurrentEntity();
+                auto* previousHeader=currentStudioHeader;
+                auto* previousModel=currentStudioModel;
+                Bones previousBones{},previousLights{};
+                memcpy(previousBones.data(),studio.StudioGetBoneTransform(),sizeof(Bones));
+                memcpy(previousLights.data(),studio.StudioGetLightTransform(),sizeof(Bones));
+                memcpy(studio.StudioGetBoneTransform(),state.bones.data(),sizeof(Bones));
+                memcpy(studio.StudioGetLightTransform(),state.bones.data(),sizeof(Bones));
+                renderer->SetCurrentEntity(entity);studio.StudioSetHeader(studio.Mod_Extradata(entity->model));studio.SetRenderModel(entity->model);
+                studio.StudioClientEvents();state.eventFrame=state.frame;
+                renderer->SetCurrentEntity(previous);
+                studio.StudioSetHeader(previousHeader);studio.SetRenderModel(previousModel);
+                memcpy(studio.StudioGetBoneTransform(),previousBones.data(),sizeof(Bones));
+                memcpy(studio.StudioGetLightTransform(),previousLights.data(),sizeof(Bones));
+            }
+            DrawAsset(entity,*state.asset,state,WorldWeaponFor(entity)?1:-1);DrawEffects(entity,state.time);
+        }
+    }
+    catch(const std::exception& e){engine.Con_Printf("CSOLSupport: world effects: %s\n",e.what());}
+    postFrame=nullptr;
+}
+}
+
+bool DrawWorldWeaponPoints()
+{
+    auto* source=studio.GetCurrentEntity();auto* model=currentStudioModel;
+    if(!source || source==engine.GetViewModel() || !model || model->type!=mod_studio || !enabled || !enabled->value)return false;
+    auto name=std::string_view(model->name,strnlen(model->name,sizeof(model->name)));
+    // CS changes the studio header for a merged held weapon without updating
+    // SetRenderModel (which still identifies the player). Match the active
+    // header to that player's precached weapon before taking over its meshes.
+    if(!name.starts_with("models/p_") && source->curstate.weaponmodel>0)
+    {
+        auto* held=studio.GetModelByIndex(source->curstate.weaponmodel);
+        if(held && held->type==mod_studio && std::string_view(held->name,strnlen(held->name,sizeof(held->name))).starts_with("models/p_") &&
+            studio.Mod_Extradata(held)==currentStudioHeader)
+        {model=held;name=std::string_view(model->name,strnlen(model->name,sizeof(model->name)));}
+    }
+    const bool attached=name.starts_with("models/p_");
+    const bool character=source->player && name.starts_with("models/player/csol");
+    if(!attached && !character && !name.starts_with("models/w_"))return false;
+    if((attached || character) && HostDrawsLocalHeldWeapon(source))return false;
+    if(!EnsureGL() || !renderer || !postRenderer || failures.contains(model))return false;
+    try
+    {
+        auto [cached,asset]=CachedAsset(model);
+        if(!cached){GLState save;asset=GetAsset(model);}
+        if(!asset || !asset->special)return false;
+        if(!asset->vao || !program){GLState save;EnsureGeometry(*asset);Program();}
+        int frame;double now,old;studio.GetTimes(&frame,&now,&old);
+        auto slot=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& w){return w.source==source && w.weaponModel==model;});
+        if(slot==worldWeapons.end())slot=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& w){return !w.source || w.frame+2<frame;});
+        if(slot==worldWeapons.end())return false;
+        if(slot->source!=source || slot->weaponModel!=model || slot->sourceModel!=source->model || slot->frame+2<frame)
+        {
+            ForgetSceneEntity(&slot->entity);*slot={};
+            if(++worldWeaponGeneration==0)++worldWeaponGeneration;
+            slot->generation=worldWeaponGeneration;
+        }
+        slot->source=source;slot->sourceModel=source->model;slot->weaponModel=model;slot->attached=attached;slot->frame=frame;
+        slot->entity=*source;slot->entity.model=model;
+        // The host has already merged the held model's bones into the player.
+        // Its sequence number is not the player's skull8 sequence.
+        if(attached){slot->entity.curstate.sequence=0;slot->entity.curstate.frame=0;}
+        auto& state=Capture(&slot->entity,*asset);
+        alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(source,&lighting);studio.StudioEntityLight(&lighting);
+        std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
+        auto draw=std::find_if(worldDraws.begin(),worldDraws.end(),[&](const WorldDraw& d){return d.entity==&slot->entity || !d.entity;});
+        if(draw==worldDraws.end())return false;
+        *draw={&slot->entity,slot->generation,frame,false,renderer->GetCurrentSceneFBO()};
+        std::copy_n(renderer->GetWorldMatrix(),16,draw->world.begin());std::copy_n(renderer->GetProjectionMatrix(),16,draw->projection.begin());
+        return true;
+    }
+    catch(const std::exception& error){failures.insert(model);engine.Con_Printf("CSOLSupport: world weapon %s: %s\n",model->name,error.what());return false;}
 }
 
 bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
 {
-    if(!ent->model || !enabled || !enabled->value || !EnsureGL())return false;
-    // World and player weapon passes need the host's deferred/shadow contract.
-    // This first integration owns viewmodels; ordinary world drawing stays live.
-    if(ent!=engine.GetViewModel())return false;
+    if(!ent->model || !enabled || !enabled->value)return false;
+    const bool isView=ent==engine.GetViewModel();
+    const unsigned worldIdentity=isView?0:BeamEffectIdentity(ent);
+    if(!isView && !worldIdentity)return false;
+    if(!EnsureGL())return false;
+    StockHandScope stockHands(isView?ent:nullptr);
+    if(!isView)
+    {
+        if(!worldIdentity || !postRenderer)return false;
+        try
+        {
+            auto [cached,asset]=CachedAsset(ent->model);
+            if(!cached || !asset || !asset->vao || !program)
+            {GLState save;if(!cached)asset=GetAsset(ent->model);if(!asset)return false;EnsureGeometry(*asset);Program();}
+            // Ask the host for unscaled bones, then apply scale exactly once in
+            // Capture. Client implementations differ in whether they scale here.
+            const float scale=ent->curstate.scale;ent->curstate.scale=1;
+            const int result=original(flags&~(STUDIO_RENDER|STUDIO_EVENTS));ent->curstate.scale=scale;
+            if(!result)return true;
+            auto& state=Capture(ent,*asset);
+            if(flags&STUDIO_EVENTS)state.eventRequestedFrame=state.frame;
+            alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
+            std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
+            if(flags&STUDIO_RENDER)
+            {
+                auto slot=std::find_if(worldDraws.begin(),worldDraws.end(),[&](const WorldDraw& d){return d.entity==ent || !d.entity;});
+                if(slot!=worldDraws.end())
+                {
+                    *slot={ent,worldIdentity,state.frame,state.eventRequestedFrame==state.frame,renderer->GetCurrentSceneFBO()};
+                    std::copy_n(renderer->GetWorldMatrix(),16,slot->world.begin());
+                    std::copy_n(renderer->GetProjectionMatrix(),16,slot->projection.begin());
+                }
+            }
+        }
+        catch(const std::exception& error){engine.Con_Printf("CSOLSupport: world model: %s\n",error.what());}
+        return true;
+    }
     if(presentationModel!=ent->model){presentationModel=ent->model;viewState.reset();parts={};}
     const char* name=ent->model->name;if(failures.contains(ent->model))return false;
     auto [cached,asset]=CachedAsset(ent->model);
-    try {if(!cached || !program){GLState save;if(!cached)asset=GetAsset(ent->model);if(asset && asset->special)Program();}}
+    try {
+        if(!cached || !program || (asset && !asset->handAdaptationChecked && ViewCharacter())) {
+            GLState save;if(!cached)asset=GetAsset(ent->model);asset=ViewHandAsset(asset);if(asset && asset->special)Program();
+        } else if(asset && ViewCharacter() && asset->adaptedHands)asset=asset->adaptedHands.get();
+    }
     catch(const std::exception& error){failures.insert(ent->model);engine.Con_Printf("CSOLSupport: %s: %s\n",name,error.what());return false;}
     if(!asset || !asset->special)return false;
     const double now=engine.GetClientTime();
@@ -418,11 +650,13 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
     const auto skin=ent->curstate.skin;const auto body=ent->curstate.body;
     struct RestorePresentation{cl_entity_t* ent;short skin;int body;~RestorePresentation(){ent->curstate.skin=skin;ent->curstate.body=body;}} restore{ent,skin,body};
     if(viewState){ent->curstate.skin=viewState->Skin;ent->curstate.body=viewState->Body;}
+    const int beamSkin=BeamgunViewSkin(ent);
+    if(beamSkin>=0 && beamSkin<asset->Header().numskinfamilies)ent->curstate.skin=short(beamSkin);
     if(!original(flags & ~(STUDIO_RENDER|STUDIO_EVENTS)))return true;
     try
     {
         auto& state=Capture(ent,*asset);
-        if(flags&STUDIO_EVENTS)studio.StudioClientEvents();
+        if(flags&STUDIO_EVENTS)stockHands.ClientEvents();
         if(flags&STUDIO_RENDER){GLState save;UpdateHands();DrawAsset(ent,*asset,state);DrawParts(ent,*asset,state,original);Camera();DrawEffects(ent,state.time);Revive(ent,state);}
     }
     catch(const std::exception& error){failures.insert(ent->model);engine.Con_Printf("CSOLSupport: %s: %s\n",name,error.what());}
@@ -430,6 +664,7 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
 }
 void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
 {
+    if(CannonStudioEvent(event,entity))return;
     if(!event || event->options[0]!='#'){if(downstream.HUD_StudioEvent)downstream.HUD_StudioEvent(event,entity);return;}
     try
     {
@@ -449,7 +684,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     }
     catch(const std::exception& error){engine.Con_Printf("CSOLSupport: event: %s\n",error.what());}
 }
-void DrawWorldEffects(){}
+void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();}}
 bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {
@@ -462,15 +697,31 @@ void InitializeScene()
 }
 void ClearScene()
 {
+    if(postRenderer)postRenderer->UnregisterPostSceneCallbacks(&worldCallbacks);
+    postRenderer=nullptr;postFrame=nullptr;worldDraws={};
     states.clear();effects.clear();failures.clear();parts={};
+    ResetStockHands();
+    for(auto& weapon:worldWeapons)weapon={};
     pendingParts={};pendingView={};viewState.reset();presentationModel=nullptr;nextDiagnostic=0;
     const bool deleteGraphics=glewReady && graphicsContext && graphicsContext==wglGetCurrentContext();
+    if(deleteGraphics)ResetBeamScope();
     ClearAssets(deleteGraphics);
     if(deleteGraphics){if(program)glDeleteProgram(program);if(quadVAO)glDeleteVertexArrays(1,&quadVAO);if(quadVBO)glDeleteBuffers(1,&quadVBO);}
     program=quadVAO=quadVBO=0;glewReady=false;graphicsContext=nullptr;renderer=nullptr;draws=eventCount=0;partMessages=viewMessages=rejectedMessages=0;
+    ResetBeamScope();
+}
+void ForgetSceneEntity(const cl_entity_t* entity)
+{
+    states.erase(entity);
+    std::erase_if(effects,[&](const Effect& e){return e.owner==entity;});
+    for(auto& draw:worldDraws)if(draw.entity==entity)draw={};
 }
 void SceneFrame()
 {
+    PruneBeamEffects();
+    int frame;double time,old;studio.GetTimes(&frame,&time,&old);
+    for(auto& weapon:worldWeapons)if(weapon.source && (weapon.frame+2<frame || frame<weapon.frame))
+    {ForgetSceneEntity(&weapon.entity);weapon={};}
     // Explicitly enabled local test diagnostics; no per-frame file I/O in normal play.
     if(diagnosticPath.empty())return;
     const double now=engine.GetClientTime();if(now<nextDiagnostic)return;nextDiagnostic=now+.1;
@@ -482,7 +733,12 @@ void SceneFrame()
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);file<<'}';
+    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);
+    const auto* hands=ViewCharacter() && state && state->asset?state->asset:nullptr;
+    const int handBody=ent?ent->curstate.body:0;
+    file<<",\"handAdapter\":{\"meshes\":"<<(hands?hands->adaptedMeshes:0)<<",\"bones\":"<<(hands?hands->adaptedBones:0)
+        <<",\"body\":"<<handBody<<",\"conditionalGroups\":"<<(hands?hands->handBodygroups.size():0)
+        <<",\"submodel\":"<<(hands && !hands->handBodygroups.empty()?CharacterHandSubmodel(*hands,hands->Header().numbodyparts-1,0,handBody):-1)<<'}';file<<'}';
 }
 void Report(){engine.Con_Printf("CSOLSupport independent DLL: assets=%u draws=%d events=%d active=%u rendererAPI=%d partMessages=%d viewMessages=%d rejected=%d\n",unsigned(AssetCount()),draws,eventCount,unsigned(effects.size()),renderer!=nullptr,partMessages,viewMessages,rejectedMessages);}
 }

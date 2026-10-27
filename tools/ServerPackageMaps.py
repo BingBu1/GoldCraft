@@ -69,7 +69,9 @@ def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
     found = set()
     for name in sorted(wad_names):
         if name not in available_wads:
-            continue  # Compilers also list unused WADs. Check actual textures below.
+            # ReHLDS TEX_InitFromWad opens every declared archive before it
+            # resolves textures; even an unused missing WAD aborts map load.
+            raise ValueError(f'{bsp.name}: missing declared WAD: {name}')
         path, target = available_wads[name]
         with safe_file(path).open('rb') as stream:
             header = stream.read(12)
@@ -81,9 +83,8 @@ def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
             stream.seek(offset)
             table = stream.read(count * 32)
             names = {table[i * 32 + 16:i * 32 + 32].split(b'\0')[0].lower() for i in range(count)}
-        if names & external:
-            resources[target] = path
-            found.update(names)
+        resources[target] = path
+        found.update(names)
     if external - found:
         missing = ', '.join(n.decode('latin1') for n in sorted(external - found))
         raise ValueError(f'{bsp.name}: missing WAD textures: {missing}')

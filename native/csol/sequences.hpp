@@ -9,6 +9,7 @@ namespace csol
 std::vector<std::string> SequenceFiles(const std::string& model, const ResourceExists& exists);
 
 // Returns an owned v10 model with the original geometry/textures intact.
+// Requantizes native and fixed-unit CSO SEQ tracks to shared bone scales.
 // Original sequence numbers are preserved; malformed input throws atomically.
 std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
     const std::vector<std::vector<std::byte>>& sequences);

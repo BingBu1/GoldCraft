@@ -3,6 +3,10 @@
 #include "../model_codec.hpp"
 #include "../parts.hpp"
 #include "../dependencies.hpp"
+#include "../hand_adapter.hpp"
+#include "../texture_model.hpp"
+#include "characters.hpp"
+#include <event_api.h>
 #include <rapidjson/document.h>
 #include <algorithm>
 #include <cmath>
@@ -77,7 +81,14 @@ Environment LoadEnvironment(std::string_view name)
 
 void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
 {
-    if(!commonLoaded){commonLoaded=true;if(Exists("materials/common.json")){const auto text=Text("materials/common.json");common.Parse(text.data(),text.size());}}
+    if(!commonLoaded){
+        commonLoaded=true;common.SetObject();common.AddMember("Materials",rapidjson::Value(rapidjson::kArrayType),common.GetAllocator());
+        for(const auto* path:{"materials/common.json","materials/csol/characters.json"})if(Exists(path)){
+            const auto text=Text(path);rapidjson::Document document;document.Parse(text.data(),text.size());
+            if(document.HasParseError() || !document.IsObject() || !document.HasMember("Materials") || !document["Materials"].IsArray())throw std::runtime_error("invalid common materials");
+            for(const auto& row:document["Materials"].GetArray()){rapidjson::Value copy;copy.CopyFrom(row,common.GetAllocator());common["Materials"].PushBack(copy,common.GetAllocator());}
+        }
+    }
     if(common.IsNull())return;
     if(common.HasParseError() || !common.IsObject() || !common.HasMember("Materials") || !common["Materials"].IsArray())throw std::runtime_error("invalid common materials");
     const auto prefix=Lower(asset.name)+"/";
@@ -90,6 +101,13 @@ void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
         for(size_t i=0;i<names.size();++i)if(key==prefix+Lower(names[i]))
         {
             auto& m=asset.materials[i];asset.special=true;
+            if(asset.name.starts_with("models/player/csol") && row.HasMember("BaseTexture") && row["BaseTexture"].IsString()){
+                const std::string path=row["BaseTexture"].GetString();
+                if(!path.empty()){
+                    if(!Exists(path.c_str()))throw std::runtime_error("missing character base texture: "+path);
+                    m.texture=LoadImage(path,m.width,m.height);
+                }
+            }
             if(row.HasMember("BlendMode") && row["BlendMode"].IsString())
             {const std::string_view mode=row["BlendMode"].GetString();m.commonAlpha=mode=="Translucent";m.commonAdd=mode=="Additive";}
             if(row.HasMember("BaseColor"))
@@ -130,14 +148,20 @@ void Materials(Asset& asset)
             const int w=atoi(name.substr(1,3).c_str()),height=atoi(name.substr(4,3).c_str());
             if(w && height){m.width=w;m.height=height;dimensions=true;asset.special=true;}
         }
-        m.originalHeight=m.height;m.hand=HandType(name);if(m.hand==4 && m.originalHeight!=252)m.hand=-1;
+        m.originalHeight=m.height;m.hand=HandType(name);
+        // CSO's ordinary guns also use the full 256x256 MaleOrg atlas. Keep
+        // stock unprefixed hand.bmp out of this mapping (different UV layout).
+        if(m.hand==4 && m.originalHeight!=252 && !(dimensions && m.width==256 && m.height==256))m.hand=-1;
         asset.special|=m.hand>=0;
         const auto embedded=asset.Data<uint8_t>(src.index,src.width*src.height+768);const auto* palette=embedded.data()+src.width*src.height;
         Image image{unsigned(src.width),unsigned(src.height),std::vector<uint8_t>(size_t(src.width)*src.height*4)};
         for(size_t p=0;p<image.RGBA.size()/4;++p){const auto index=embedded[p];memcpy(image.RGBA.data()+p*4,palette+index*3,3);image.RGBA[p*4+3]=(src.flags&0x40)&&index==255?0:255;}
         const auto& path=source.Resource;
         if(!path.empty() && Exists(path.c_str()))m.texture=LoadImage(path,m.width,m.height);
-        else {m.texture=UploadImage(image);images.emplace(asset.name+"#"+std::to_string(i),CachedImage{m.texture,m.width,m.height});if(source.External && !source.EmbeddedFallback)engine.Con_Printf("CSOLSupport: missing external texture %s/%s\n",asset.name.c_str(),name.c_str());}
+        else {const auto key=asset.name+"#"+std::to_string(i);
+            if(auto found=images.find(key);found!=images.end())m.texture=found->second.texture;
+            else {m.texture=UploadImage(image);images.emplace(key,CachedImage{m.texture,m.width,m.height});}
+            if(source.External && !source.EmbeddedFallback)engine.Con_Printf("CSOLSupport: missing external texture %s/%s\n",asset.name.c_str(),name.c_str());}
         const auto env=LoadEnvironment(source.Descriptor);m.environment=env.texture;m.environmentAdd=env.add;asset.special|=env.texture!=0;
         asset.materials.push_back(m);
     }
@@ -208,10 +232,24 @@ Asset* GetAsset(model_t* model)
     auto asset=std::make_unique<Asset>();asset->name=name;
     asset->source=ResolveModelSource(name,[](const std::string& file){return ReadResource(file.c_str());},[](const std::string& file){return Exists(file.c_str());});
     asset->bytes=ReadResource(asset->source.File.c_str());
-    asset->special=DecodeStudioModel(asset->bytes) || asset->source.Redirected;const auto& h=asset->Header();
+    asset->special=DecodeStudioModel(asset->bytes) || asset->source.Redirected;
+    if(asset->Header().textureindex==0){
+        auto textureFile=StudioTextureModel(asset->source.File);
+        // Prepared aliases store the main bytes at the requested name while
+        // the source descriptor retains the physical companion's location.
+        if(!Exists(textureFile.c_str()) && asset->source.Redirected)
+            textureFile=StudioTextureModel(asset->source.PhysicalName);
+        if(Exists(textureFile.c_str())){
+            auto textureBytes=ReadResource(textureFile.c_str());asset->special|=DecodeStudioModel(textureBytes);
+            asset->bytes=AppendStudioTextures(asset->bytes,textureBytes);
+        }
+    }
+    const auto& h=asset->Header();
     if(h.id!=0x54534449 || h.version!=10 || h.length<sizeof(studiohdr_t) || h.length>asset->bytes.size() || h.numbones<1 || h.numbones>MAXSTUDIOBONES || h.numtextures<0 || h.numtextures>4096 || h.numseq<1 || h.numseq>2048 || h.numbodyparts<0 || h.numbodyparts>256 || h.numattachments<0 || h.numattachments>64)throw std::runtime_error("unsupported studio layout");
-    // Stock models may use a separate T.mdl. Leave their loading to the host.
-    if(!asset->special && !h.numtextures){assets.emplace(name,nullptr);modelAssets[model]=nullptr;return nullptr;}
+    // A missing companion or a genuinely textureless stock model stays with
+    // the host; the hand adapter never removes geometry without materials.
+    if(!asset->special && (!h.numtextures || !h.textureindex)){assets.emplace(name,nullptr);modelAssets[model]=nullptr;return nullptr;}
+    if(!h.textureindex)throw std::runtime_error("missing texture model companion");
     if(h.numskinref<1 || h.numskinref>4096 || h.numskinfamilies<1 || h.numskinfamilies>4096 || !h.numtextures)throw std::runtime_error("invalid skin dimensions");
     asset->bytes.resize(h.length);
     asset->Data<mstudiobone_t>(h.boneindex,h.numbones);asset->Data<mstudioattachment_t>(h.attachmentindex,h.numattachments);
@@ -220,9 +258,73 @@ Asset* GetAsset(model_t* model)
     for(const auto& seq:sequences)for(const auto& event:asset->Data<mstudioevent_t>(seq.eventindex,seq.numevents))asset->special|=event.options[0]=='#';
     asset->profile=FindBodyEffects(name);asset->special|=asset->profile!=BodyEffectProfile::None || !PartsProfile(name).Actions.empty();
     asset->revive=h.numseq==13 && h.numattachments>5 && Name(asset->Data<mstudiobone_t>(h.boneindex)[0].name)=="revivegun_root";
-    asset->special|=asset->revive;Materials(*asset);
+    asset->special|=asset->revive;Materials(*asset);FindHandModels(*asset);
     if(asset->special)Geometry(*asset);
     auto* result=asset.get();assets.emplace(name,std::move(asset));modelAssets[model]=result;return result;
+}
+Asset* ViewHandAsset(Asset* original)
+{
+    if(!original || !ViewCharacter())return original;
+    if(original->handAdaptationChecked)return original->adaptedHands?original->adaptedHands.get():original;
+    original->handAdaptationChecked=true;
+    // Existing CSO hand geometry is already selected by the character system.
+    if(std::any_of(original->materials.begin(),original->materials.end(),[](const Material& m){return m.hand>=0;}))return original;
+    std::string donor="models/csol/hands/v_hegrenade.mdl";
+    HandAdapterOptions options;
+    try {
+        const std::string config=original->name.substr(0,original->name.size()-4)+"_hands.json";
+        if(Exists(config.c_str())) {
+            const auto text=Text(config.c_str());if(text.size()>65536)throw std::runtime_error("hand profile exceeds size limit");
+            rapidjson::Document doc;doc.Parse(text.data(),text.size());
+            if(doc.HasParseError() || !doc.IsObject() || !doc.HasMember("version") || !doc["version"].IsInt() || doc["version"].GetInt()!=1)throw std::runtime_error("invalid hand profile version");
+            if(doc.HasMember("donor")) {
+                if(!doc["donor"].IsString())throw std::runtime_error("invalid hand donor");
+                donor=doc["donor"].GetString();
+                if(!SafePath(donor) || !donor.starts_with("models/csol/hands/") || !donor.ends_with(".mdl"))throw std::runtime_error("invalid hand donor path");
+            }
+            if(doc.HasMember("textures")) {
+                const auto& rows=doc["textures"];if(!rows.IsArray() || rows.Size()>128)throw std::runtime_error("invalid hand texture selection");
+                for(const auto& row:rows.GetArray()){if(!row.IsString())throw std::runtime_error("invalid hand texture name");options.textures.push_back(Lower(row.GetString()));}
+            }
+            if(doc.HasMember("bones")) {
+                const auto& rows=doc["bones"];if(!rows.IsArray() || rows.Size()>128)throw std::runtime_error("invalid hand bone mapping");
+                for(const auto& row:rows.GetArray()) {
+                    if(!row.IsObject() || !row.HasMember("donor") || !row["donor"].IsString() || !row.HasMember("target") || !row["target"].IsString())throw std::runtime_error("invalid hand bone names");
+                    HandBoneBinding bone;bone.donor=Lower(row["donor"].GetString());bone.target=Lower(row["target"].GetString());
+                    if(row.HasMember("transform")) {
+                        const auto& matrix=row["transform"];if(!matrix.IsArray() || matrix.Size()!=12)throw std::runtime_error("invalid hand bone matrix");
+                        for(unsigned i=0;i<12;++i){if(!matrix[i].IsNumber())throw std::runtime_error("invalid hand bone coefficient");bone.transform[i]=float(matrix[i].GetDouble());}
+                    }
+                    options.bones.push_back(std::move(bone));
+                }
+            }
+        }
+        // These shared templates are downloaded/pre-cached by the role pack.
+        // Never discover donor resources from an unrelated local installation.
+        if(!engine.pEventAPI || !engine.pEventAPI->EV_FindModelIndex || engine.pEventAPI->EV_FindModelIndex(donor.c_str())<=0)return original;
+        auto bytes=ReadResource(donor.c_str());DecodeStudioModel(bytes);
+        if(Range<studiohdr_t>(bytes,0)[0].textureindex==0) {
+            auto textures=ReadResource(StudioTextureModel(donor).c_str());DecodeStudioModel(textures);
+            bytes=AppendStudioTextures(bytes,textures);
+        }
+        auto merged=AdaptViewmodelHands(original->bytes,bytes,options);
+        if(merged.bytes.empty()) {
+            engine.Con_Printf("CSOLSupport: hands %s: %s\n",original->name.c_str(),merged.reason.c_str());return original;
+        }
+        if(!merged.bodygroups.empty() && original->profile!=BodyEffectProfile::None) {
+            engine.Con_Printf("CSOLSupport: hands %s: conditional arms with body effects require asset preparation\n",original->name.c_str());return original;
+        }
+        auto adapted=std::make_unique<Asset>();adapted->name=original->name;adapted->source=original->source;
+        adapted->bytes=std::move(merged.bytes);adapted->special=true;adapted->profile=original->profile;adapted->revive=original->revive;
+        adapted->adaptedMeshes=merged.removedMeshes;adapted->adaptedBones=merged.mappedBones;
+        adapted->handBodygroups=std::move(merged.bodygroups);
+        Materials(*adapted);FindHandModels(*adapted);Geometry(*adapted);
+        engine.Con_Printf("CSOLSupport: hands %s: adapted %d meshes, %d bones\n",original->name.c_str(),merged.removedMeshes,merged.mappedBones);
+        original->adaptedHands=std::move(adapted);
+    } catch(const std::exception& error) {
+        engine.Con_Printf("CSOLSupport: hands %s: %s\n",original->name.c_str(),error.what());
+    }
+    return original->adaptedHands?original->adaptedHands.get():original;
 }
 EngineSpriteFrame* SpriteFrameAt(model_t* model,int frame,double time)
 {
@@ -237,7 +339,8 @@ size_t AssetCount(){return assets.size();}
 void EnsureGeometry(Asset& asset){if(!asset.vao)Geometry(asset);}
 void ClearAssets(bool deleteGraphics)
 {
-    if(!deleteGraphics)for(auto& row:assets)if(row.second)row.second->vao=row.second->vbo=row.second->ibo=0;
+    if(!deleteGraphics)for(auto& row:assets)if(row.second){row.second->vao=row.second->vbo=row.second->ibo=0;
+        if(auto* hand=row.second->adaptedHands.get())hand->vao=hand->vbo=hand->ibo=0;}
     modelAssets.clear();assets.clear();if(deleteGraphics)for(const auto& row:images)glDeleteTextures(1,&row.second.texture);images.clear();
     if(deleteGraphics)for(const auto& row:environments)glDeleteTextures(1,&row.second.texture);environments.clear();common.SetNull();commonLoaded=false;ResetHands(deleteGraphics);
 }
