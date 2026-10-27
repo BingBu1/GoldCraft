@@ -48,6 +48,10 @@ public:
     // A selected knife/grenade or linked skin can supply its verified item
     // identity here. Ordinary weapons resolve from the real item.csv index.
     bool SetItemIdentity(CBasePlayerWeapon& weapon, std::int32_t item);
+    // Shared by damage and kill statistics: source IDs are mapped through
+    // the actual catalog/owned weapon identity, never through HUD aliases.
+    bool Item(CBasePlayer& attacker, int source, std::int32_t& item,
+        csol::scenario::ConfigError& error) const;
     bool ApplyItemMultiplier(CSOLMonsterDamageCall& call, bool blocked21F2,
         csol::scenario::ConfigError& error) const;
     bool ApplyPartDamage(CSOLMonsterDamageCall& call, bool blocked21F2, bool blocked34F0,
@@ -61,8 +65,6 @@ private:
     };
     Weapon* Edit(CBasePlayerWeapon& weapon);
     const Weapon* Find(const CBasePlayerWeapon& weapon) const;
-    bool Item(CBasePlayer& attacker, int source, std::int32_t& item,
-        csol::scenario::ConfigError& error) const;
     std::map<std::int32_t, std::int32_t> m_items;
     std::vector<std::int32_t> m_itemIds;
     std::vector<Weapon> m_weapons;

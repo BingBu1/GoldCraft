@@ -3,6 +3,8 @@
 #include "scenario_messages.h"
 
 #include <bit>
+#include <algorithm>
+#include <array>
 
 namespace
 {
@@ -94,6 +96,44 @@ bool CCSOLScenarioMessages::SendMonsterContactEffect(edict_t* recipient) const
     WRITE_BYTE(255);
     WRITE_BYTE(255);
     WRITE_BYTE(255);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendPlayerFrags(int playerIndex, std::int32_t frags) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || playerIndex < 1 || playerIndex > 32 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort) return false;
+    const int id = m_messageId;
+    const auto value = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(frags));
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_BROADCAST, id, nullptr, static_cast<edict_t*>(nullptr));
+    WRITE_BYTE(27);
+    WRITE_BYTE(2);
+    WRITE_BYTE(playerIndex);
+    WRITE_SHORT(value);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendAnnounceRibbons(edict_t* recipient,
+    std::span<const std::uint8_t> ids) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||
+        ids.empty() || ids.size() > 6 || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    // A message callback can release the owning service and its vector.
+    // Copy the payload before opening the packet and never reread that owner.
+    std::array<std::uint8_t, 6> payload{};
+    const auto count = ids.size();
+    std::copy(ids.begin(), ids.end(), payload.begin());
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(124);
+    WRITE_BYTE(static_cast<int>(count));
+    for (std::size_t i = 0; i < count; ++i) WRITE_BYTE(payload[i]);
     MESSAGE_END();
     return true;
 }

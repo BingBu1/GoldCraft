@@ -6,6 +6,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace
 {
@@ -39,10 +40,10 @@ public:
     void Removing();
 
 private:
+    friend class CCSOLScenarioDrops;
     std::shared_ptr<CCSOLScenarioDrops> m_owner;
     EHANDLE m_player;
-    std::uint64_t m_generation{};
-    std::int32_t m_reward{};
+    std::uint64_t m_generation{}, m_ticket{};
     float m_deadline{};
     bool m_claimed{}, m_removing{}, m_destroying{};
 };
@@ -58,14 +59,21 @@ void CCSOLScenarioDrops::Precache()
 
 bool CCSOLScenarioDrops::Active() const
 {
-    return m_active && m_session && m_players && m_players->Active() &&
+    return m_active && !m_closing && m_session && m_players && m_players->Active() &&
+        SameMap() &&
         m_session->State() == CSOLScenarioSessionState::Active;
+}
+
+bool CCSOLScenarioDrops::SameMap() const
+{
+    return m_session && m_mapGeneration == m_session->Map().SpawnPoints().Generation();
 }
 
 bool CCSOLScenarioDrops::Activate()
 {
-    if (m_active || !m_session || !m_players || !m_players->Active() ||
+    if (m_active || m_closing || !m_session || !m_players || !m_players->Active() ||
         m_session->State() != CSOLScenarioSessionState::Active) return false;
+    m_mapGeneration = m_session->Map().SpawnPoints().Generation();
     m_active = true;
     return true;
 }
@@ -79,14 +87,31 @@ CBasePlayer* CCSOLScenarioDrops::Recipient(const EHANDLE& player, std::uint64_t 
     return entity;
 }
 
-void CCSOLScenarioDrops::RecordReward(const EHANDLE& player, std::uint64_t generation,
+std::uint64_t CCSOLScenarioDrops::RegisterReward(const EHANDLE& player, std::uint64_t generation,
     std::int32_t reward)
 {
-    // Removal submits to the saved identity even after disconnect. Keep the
-    // opaque generation in the request; never resolve it to a replacement
-    // player, and never claim the external reward was delivered.
-    if (!m_active || !generation) return;
-    m_rewards.push_back({++m_sequence, generation, player, reward});
+    if (!Active() || m_removing || !generation || !Recipient(player, generation) ||
+        m_sequence == std::numeric_limits<std::uint64_t>::max()) return 0;
+    const auto ticket = m_sequence + 1;
+    m_pendingRewards.emplace(ticket, CSOLScenarioDropReward{ticket, generation, player, reward});
+    m_sequence = ticket;
+    return ticket;
+}
+
+bool CCSOLScenarioDrops::SubmitReward(std::uint64_t ticket)
+{
+    // A previously issued ticket remains valid while pickup/removal unwinds,
+    // even after a nested Deactivate or player disconnect. No edict is read.
+    const auto found = m_pendingRewards.find(ticket);
+    if (found == m_pendingRewards.end()) return false;
+    m_rewards.push_back(found->second);
+    m_pendingRewards.erase(found);
+    return true; // Queued only; commercial/account reward is not delivered.
+}
+
+void CCSOLScenarioDrops::DiscardReward(std::uint64_t ticket)
+{
+    m_pendingRewards.erase(ticket);
 }
 
 bool CCSOLScenarioDrops::Acknowledge(std::uint64_t sequence, std::uint64_t playerGeneration,
@@ -106,22 +131,35 @@ void CCSOLScenarioDrops::RemoveItems()
     auto keepAlive = shared_from_this();
     if (m_removing) return;
     m_removing = true;
+    struct RemovalScope
+    {
+        CCSOLScenarioDrops& owner;
+        ~RemovalScope()
+        {
+            owner.m_removing = false;
+            if (owner.m_closing) owner.m_active = false;
+        }
+    } scope{*this};
     // Detach the container before engine callbacks; raw-free can reenter.
     auto items = std::move(m_items);
     m_items.clear();
     for (const auto& handle : items)
     {
-        if (!Active()) break;
-        if (auto* item = dynamic_cast<CCSOLScenarioDropItem*>(handle.Get<CBaseEntity>()))
+        // Player/profile invalidation and a nested close must not abandon
+        // remaining boxes. Only the map fence authorizes reading their edicts.
+        if (!SameMap()) break;
+        if (auto* item = dynamic_cast<CCSOLScenarioDropItem*>(handle.Get<CBaseEntity>());
+            item && item->m_owner.get() == this && !(item->pev->flags & FL_KILLME))
             UTIL_Remove(item);
     }
-    m_removing = false;
 }
 
 void CCSOLScenarioDrops::Deactivate()
 {
     auto keepAlive = shared_from_this();
     if (!m_active) return;
+    m_closing = true; // Reject new creation/pickup before the first callback.
+    if (m_removing) return; // The existing removal scope completes this close.
     RemoveItems();
     m_active = false;
 }
@@ -142,10 +180,12 @@ bool CCSOLScenarioDropItem::Configure(std::shared_ptr<CCSOLScenarioDrops> owner,
 {
     if (m_owner || m_removing || m_destroying || !owner || !owner->Active() || rule.dropEffect != 0)
         return false;
+    const auto ticket = owner->RegisterReward(player, generation, rule.rewardId);
+    if (!ticket) return false;
     m_owner = owner;
     m_player = player;
     m_generation = generation;
-    m_reward = rule.rewardId;
+    m_ticket = ticket;
     m_deadline = gpGlobals->time + SignedShort(rule.removeSeconds);
     const EHANDLE self(this);
     UTIL_SetSize(pev, Vector(-32, -32, 0), Vector(32, 32, 32));
@@ -162,7 +202,7 @@ void CCSOLScenarioDropItem::ItemTouch(CBaseEntity* other)
     auto owner = m_owner;
     const auto player = m_player;
     const auto generation = m_generation;
-    const auto reward = m_reward;
+    const auto ticket = m_ticket;
     auto* recipient = owner->Recipient(player, generation);
     if (!CanReceive(recipient) || recipient != other) return;
     const EHANDLE self(this);
@@ -173,13 +213,14 @@ void CCSOLScenarioDropItem::ItemTouch(CBaseEntity* other)
     SetTouch(nullptr);
     UTIL_Remove(this);
     // No access to this after removal: the engine/plugin may free it now.
-    owner->RecordReward(player, generation, reward);
+    owner->SubmitReward(ticket);
 }
 
 void CCSOLScenarioDropItem::ItemThink()
 {
     if (!m_owner || m_claimed || m_removing || m_destroying) return;
     auto owner = m_owner;
+    if (!owner->Active()) return;
     pev->nextthink = gpGlobals->time + 1.0f;
     if (m_deadline > gpGlobals->time) return;
     auto* recipient = owner->Recipient(m_player, m_generation);
@@ -189,6 +230,8 @@ void CCSOLScenarioDropItem::ItemThink()
         // Invalidate the saved identity before removal so a replacement in
         // the same player slot cannot inherit the timed-out reward.
         m_generation = 0;
+        owner->DiscardReward(m_ticket);
+        m_ticket = 0;
         UTIL_Remove(this);
     }
 }
@@ -203,7 +246,7 @@ void CCSOLScenarioDropItem::Removing()
     if (owner && !m_claimed)
     {
         m_claimed = true;
-        owner->RecordReward(m_player, m_generation, m_reward);
+        owner->SubmitReward(m_ticket);
     }
 }
 
@@ -287,21 +330,40 @@ bool CCSOLScenarioDrops::SpawnItem(CSOLMonsterDeathCall& call,
     // SDK Create returns its original private pointer even when DispatchSpawn
     // frees it. Capture the handle before that callback and re-resolve it.
     auto* edict = CREATE_NAMED_ENTITY(MAKE_STRING("zbsitem"));
-    if (!Active() || !call.Current()) return false;
-    if (FNullEnt(edict)) return true; // Failed creation still consumes this recipient.
+    if (!SameMap()) return false;
     const EHANDLE handle(edict);
+    const bool missing = FNullEnt(edict);
+    // OFFSET is an engine callback too; it may retire the edict array.
+    if (!SameMap()) return false;
+    if (missing) return true; // Failed creation still consumes this recipient.
+    const auto removeCandidate = [&]
+    {
+        if (!SameMap()) return;
+        auto* candidate = dynamic_cast<CCSOLScenarioDropItem*>(handle.Get<CBaseEntity>());
+        if (candidate && !(candidate->pev->flags & FL_KILLME) &&
+            (!candidate->m_owner || candidate->m_owner.get() == this)) UTIL_Remove(candidate);
+    };
+    if (!Active() || !call.Current())
+    {
+        removeCandidate();
+        return false;
+    }
     auto* item = dynamic_cast<CCSOLScenarioDropItem*>(handle.Get<CBaseEntity>());
     if (!item)
     {
         if (auto* entity = handle.Get<CBaseEntity>()) UTIL_Remove(entity);
-        else REMOVE_ENTITY(edict);
+        else if (auto* captured = handle.Get()) REMOVE_ENTITY(captured);
         return Active() && call.Current();
     }
     item->pev->owner = nullptr;
     item->pev->origin = position;
     item->pev->angles = g_vecZero;
     const int spawnResult = DispatchSpawn(edict);
-    if (!Active() || !call.Current()) return false;
+    if (!Active() || !call.Current())
+    {
+        removeCandidate();
+        return false;
+    }
     item = dynamic_cast<CCSOLScenarioDropItem*>(handle.Get<CBaseEntity>());
     if (!item || item->pev->flags & FL_KILLME) return true;
     if (spawnResult < 0)
@@ -312,7 +374,13 @@ bool CCSOLScenarioDrops::SpawnItem(CSOLMonsterDeathCall& call,
     if (!Active() || m_removing || !call.Current() ||
         !item->Configure(shared_from_this(), recipient, generation, rule))
     {
-        if (Active() && call.Current() && handle.Get<CBaseEntity>() == item) UTIL_Remove(item);
+        removeCandidate();
+        return false;
+    }
+    if (!Active() || !call.Current() || handle.Get<CBaseEntity>() != item ||
+        item->pev->flags & FL_KILLME)
+    {
+        removeCandidate();
         return false;
     }
     // Compact handles opportunistically; an indefinitely running map must
@@ -324,12 +392,18 @@ bool CCSOLScenarioDrops::SpawnItem(CSOLMonsterDeathCall& call,
     UTIL_TraceLine(item->pev->origin, item->pev->origin - Vector(0, 0, 8192),
         ignore_monsters, item->edict(), &trace);
     if (!Active() || !call.Current() || handle.Get<CBaseEntity>() != item || item->pev->flags & FL_KILLME)
+    {
+        removeCandidate();
         return false;
+    }
     if (trace.flFraction != 1.0f)
     {
         UTIL_SetOrigin(item->pev, trace.vecEndPos);
         if (!Active() || !call.Current() || handle.Get<CBaseEntity>() != item || item->pev->flags & FL_KILLME)
+        {
+            removeCandidate();
             return false;
+        }
         item->pev->flags |= FL_ONGROUND;
         item->pev->groundentity = trace.pHit;
     }

@@ -15,6 +15,7 @@
 #include "../scenario/difficulty.hpp"
 #include "../scenario/drop_items.hpp"
 #include "../scenario/upgrade_tables.hpp"
+#include "../scenario/announce.hpp"
 
 enum class CSOLScenarioSessionState { Empty, Precached, Active, Failed };
 enum class CSOLScenarioResourceScope { Selection, Combat };
@@ -65,6 +66,7 @@ public:
     std::shared_ptr<CCSOLScenarioEquipment> EquipmentState() const { return m_equipment; }
     std::shared_ptr<CCSOLMonsterHitRewards> HitRewards() const { return m_hitRewards; }
     std::shared_ptr<CCSOLScenarioWeaponState> Weapons() const { return m_weapons; }
+    std::shared_ptr<const csol::scenario::AnnounceTable> Announcements() const { return m_announcements.Snapshot(); }
 
 private:
     bool Fail(csol::scenario::ResourceError error);
@@ -75,6 +77,7 @@ private:
     csol::scenario::DropItemResources m_dropItems;
     csol::scenario::UpgradeResources m_upgrades;
     csol::scenario::EquipmentResources m_equipmentResources;
+    csol::scenario::AnnounceResources m_announcements;
     CCSOLMonsterModels m_models;
     CCSOLScenarioMessages m_messages;
     std::shared_ptr<CCSOLScenarioNavigation> m_navigation;

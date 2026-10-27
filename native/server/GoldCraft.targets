@@ -65,7 +65,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty_monsters.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\announce.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty_monsters.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>

@@ -68,6 +68,7 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         m_state = CSOLScenarioSessionState::Precached;
         return true;
     }
+    if (!m_announcements.Load(files, resourceError)) return Fail(std::move(resourceError));
     csol::scenario::ConfigError error;
     if (!m_models.Precache(m_map.Tables()->monsterTypes, error))
         return Fail({"", std::move(error)});
@@ -139,7 +140,8 @@ bool CCSOLScenarioSession::Deactivate()
     m_navigation.reset();
     if (!m_models.Reset())
         return Fail({"", {0, "scenario model cache is busy during shutdown"}});
-    if (!m_difficulty.Clear() || !m_dropItems.Clear() || !m_upgrades.Clear() || !m_equipmentResources.Clear())
+    if (!m_difficulty.Clear() || !m_dropItems.Clear() || !m_upgrades.Clear() ||
+        !m_equipmentResources.Clear() || !m_announcements.Clear())
         return Fail({"", {0, "scenario difficulty resources are busy during shutdown"}});
     m_messages = {};
     m_error = {};

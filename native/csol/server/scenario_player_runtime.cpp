@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_player_runtime.h"
+#include "scenario_death_owner.h"
 #include "characters.h"
+
+#include <cmath>
+#include <limits>
 
 bool CCSOLScenarioPlayerRuntime::Active() const
 {
@@ -153,5 +157,92 @@ bool CCSOLScenarioPlayerRuntime::AcknowledgeCapEvent(const EHANDLE& player,
     if (!state || !state->capEventPending || state->generation != generation ||
         state->capEventSequence != sequence) return false;
     state->capEventPending = false;
+    return true;
+}
+
+bool CCSOLScenarioPlayerRuntime::RecordActiveWeaponKill(CSOLMonsterDeathCall& call,
+    csol::scenario::ConfigError& error)
+{
+    auto keepAlive = shared_from_this();
+    if (!Active() || !call.Current()) return false;
+    auto* player = dynamic_cast<CBasePlayer*>(call.Attacker());
+    if (!player) { error.message = "scenario weapon kill has no player attacker"; return false; }
+    const EHANDLE handle(player);
+    const auto state = Resolve(handle);
+    if (!state) return false;
+    const auto current = [&]
+    { return Active() && call.Current() && Resolve(handle) == state && call.Attacker() == player; };
+    auto* weapon = dynamic_cast<CBasePlayerWeapon*>(player->m_pActiveItem);
+    if (!weapon || (weapon->pev->flags & FL_KILLME)) return true;
+    const auto weapons = m_session->Weapons();
+    if (!weapons || !weapons->Current())
+    { error.message = "scenario weapon kill catalog is unavailable"; return false; }
+    std::int32_t item{};
+    // This phase deliberately uses the current weapon, not the lethal source.
+    if (!weapons->Item(*player, weapon->m_iId, item, error) || !current()) return false;
+    // CSO captures the catalog item before its virtual Bot query. A callback
+    // may switch weapons, but this statistic still belongs to that item.
+    const bool bot = player->IsBot();
+    if (!current()) return false;
+    if (!bot && item && !state->profile.weaponEffectsBlocked21F2) ++state->weaponKills[item];
+    return true;
+}
+
+bool CCSOLScenarioPlayerRuntime::AddMonsterFrag(CSOLMonsterDeathCall& call, bool& incremented,
+    csol::scenario::ConfigError& error)
+{
+    #pragma clang fp contract(off)
+    auto keepAlive = shared_from_this();
+    incremented = false;
+    if (!Active() || !call.Current()) return false;
+    auto* player = dynamic_cast<CBasePlayer*>(call.Attacker());
+    if (!player) { error.message = "scenario frag has no player attacker"; return false; }
+    const EHANDLE handle(player);
+    const auto state = Resolve(handle);
+    if (!state) return false;
+    const auto current = [&]
+    { return Active() && call.Current() && Resolve(handle) == state && call.Attacker() == player; };
+    const float before = player->pev->frags;
+    const bool add = before < 65000.0f;
+    if (add) player->pev->frags = before + 1.0f;
+    incremented = add;
+    const int index = player->entindex();
+    if (!current()) return false;
+    if (index < 1 || index > 32)
+    { error.message = "scenario frag player index is invalid"; return false; }
+    // Index lookup is an engine callback. As in CSO, sample frags afterwards.
+    const double integer = std::trunc(static_cast<double>(player->pev->frags));
+    if (!std::isfinite(integer) || integer < std::numeric_limits<std::int32_t>::min() ||
+        integer > std::numeric_limits<std::int32_t>::max())
+    { error.message = "scenario frags cannot be represented by the original message conversion"; return false; }
+    // Even a capped value is broadcast. Keep the comparison/add separate;
+    // min(before + 1, 65000) changes the original noninteger boundary.
+    const auto messages = m_session->Messages();
+    if (!messages.SendPlayerFrags(index, static_cast<std::int32_t>(integer)))
+    { if (current()) error.message = "scenario frag notification failed"; return false; }
+    return current();
+}
+
+bool CCSOLScenarioPlayerRuntime::ClassifyKill(CSOLMonsterDeathCall& call, int kind,
+    csol::scenario::AnnounceCandidates& output, csol::scenario::ConfigError& error)
+{
+    auto keepAlive = shared_from_this();
+    output = {};
+    if (!Active() || !call.Current()) return false;
+    auto* player = dynamic_cast<CBasePlayer*>(call.Attacker());
+    if (!player) { error.message = "scenario classification has no player attacker"; return false; }
+    const EHANDLE handle(player);
+    const auto state = Resolve(handle);
+    if (!state) return false;
+    if (player->pev->flags & FL_DORMANT) return true;
+    const auto candidates = state->classification.Record(kind);
+    const bool bot = player->IsBot();
+    if (!Active() || !call.Current() || Resolve(handle) != state || call.Attacker() != player) return false;
+    // Original counters (including C/D resets) have already changed for Bots.
+    if (bot || (player->pev->flags & FL_DORMANT)) return true;
+    const auto table = m_session->Announcements();
+    if (!table) { error.message = "scenario announce table is unavailable"; return false; }
+    for (const auto id : candidates.Values())
+        if (table->Allowed(15, id)) output.ids[output.count++] = id;
     return true;
 }

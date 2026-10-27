@@ -26,6 +26,11 @@ public:
     // Original ordinary skill12: 0x51, short10, float1, RGB255. The float is
     // four raw bytes, not GoldSrc's quantized WriteCoord representation.
     bool SendMonsterContactEffect(edict_s* recipient) const;
+    // Original broadcast 27/2 uses the low 16 bits of the truncated frags.
+    bool SendPlayerFrags(int playerIndex, std::int32_t frags) const;
+    // Mode15 classification produces at most six candidates per call.
+    // NoRibbon affects account submission only, never this client message.
+    bool SendAnnounceRibbons(edict_s* recipient, std::span<const std::uint8_t> ids) const;
     int MessageId() const { return m_messageId; }
 private:
     friend class CCSOLScenarioDeathNotice;

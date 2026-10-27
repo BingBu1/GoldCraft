@@ -217,6 +217,7 @@ bool CCSOLScenarioWeaponState::Item(CBasePlayer& attacker, int source, std::int3
     csol::scenario::ConfigError& error) const
 {
     item = 0;
+    if (!Current()) return false;
     if (!source) return true;
     const int alias = Alias(source);
     if (source != 4 && source != 29)

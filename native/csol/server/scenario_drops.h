@@ -3,6 +3,7 @@
 
 #include "scenario_player_runtime.h"
 #include "scenario_death_owner.h"
+#include <map>
 
 // The original event 0x22 carries an opaque reward ID. A local request is not
 // an inventory grant: an explicit account/reward consumer must acknowledge it.
@@ -34,13 +35,19 @@ public:
     void RemoveItems();
     void Deactivate();
     std::span<const CSOLScenarioDropReward> Rewards() const { return m_rewards; }
+    std::size_t PendingRewardCount() const { return m_pendingRewards.size(); }
     bool Acknowledge(std::uint64_t sequence, std::uint64_t playerGeneration,
         CSOLScenarioDropReward::Status status);
 
 private:
     friend class CCSOLScenarioDropItem;
     CBasePlayer* Recipient(const EHANDLE& player, std::uint64_t generation) const;
-    void RecordReward(const EHANDLE& player, std::uint64_t generation, std::int32_t reward);
+    // Register while the box is configured. Only an issued ticket can submit
+    // after shutdown; this does not resolve a disconnected/recycled player.
+    std::uint64_t RegisterReward(const EHANDLE& player, std::uint64_t generation, std::int32_t reward);
+    bool SubmitReward(std::uint64_t ticket);
+    void DiscardReward(std::uint64_t ticket);
+    bool SameMap() const;
     bool Position(CSOLMonsterDeathCall& call, const Vector& source, const EHANDLE& recipient,
         std::size_t created, Vector& result);
     bool SpawnItem(CSOLMonsterDeathCall& call, const csol::scenario::DropItemRule& rule,
@@ -50,8 +57,9 @@ private:
     std::shared_ptr<CCSOLScenarioPlayerRuntime> m_players;
     std::vector<EHANDLE> m_items;
     std::vector<CSOLScenarioDropReward> m_rewards;
-    std::uint64_t m_sequence{};
-    bool m_active{}, m_removing{};
+    std::map<std::uint64_t, CSOLScenarioDropReward> m_pendingRewards;
+    std::uint64_t m_sequence{}, m_mapGeneration{};
+    bool m_active{}, m_removing{}, m_closing{};
 };
 
 // ReGameDLL's UpdateOnRemove is nonvirtual. UTIL_Remove calls this narrow
