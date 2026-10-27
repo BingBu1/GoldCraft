@@ -5,6 +5,7 @@
 #include "../csol/dependencies.hpp"
 #include "../csol/parts.hpp"
 #include "../csol/sequences.hpp"
+#include "../csol/material_source.hpp"
 
 void GoldCraftCsolSequenceDelta(delta_t* delta)
 {
@@ -27,7 +28,7 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     static_assert(offsetof(studiohdr_t,numtextures)==180 && offsetof(studiohdr_t,numseq)==164);
     static_assert(sizeof(mstudiotexture_t)==80 && sizeof(mstudioseqdesc_t)==176 && sizeof(mstudioevent_t)==76);
     const std::string model=name,json=model.substr(0,model.size()-4)+".json";
-    bool special=model=="models/v_tknifeex2.mdl" || FS_FileExists(json.c_str()) || FS_FileExists(csol::ModelSourceDescriptor(model).c_str()) || !csol::PartsProfile(model).Actions.empty()
+    bool special=model=="models/v_tknifeex2.mdl" || FS_FileExists(json.c_str()) || FS_FileExists(csol::ModelMaterialSource(model).c_str()) || FS_FileExists(csol::ModelSourceDescriptor(model).c_str()) || !csol::PartsProfile(model).Actions.empty()
         || !csol::SequenceFiles(model,[](const std::string& path){return FS_FileExists(path.c_str())!=0;}).empty();
     if(header->textureindex>0 && header->numtextures>0 && header->textureindex<=header->length &&
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))

@@ -25,3 +25,13 @@ Ten map-resource checks passed, and the actual map closure included seven WADs p
 This publication merges the frozen CSOL changes into the newer published source baseline, preserving its existing Minecraft work. The publication merge receives source, dependency and patch checks; it has not had a new combined build or gameplay run. Optional test sources are included so their build entries remain complete; they were not rerun for publication.
 
 Still required: menu visuals and physical input, living allied pass-through and matching prediction, simultaneous spawning without crush deaths, 32 real players, eight monster-resource failures, complete first-wave combat and the remaining scenario objective. Selection success does not close those requirements.
+
+## October 27 resource follow-up
+
+The resource collector now treats the first three bytes of event 5005 as parameters before the sound filename. Other sound events keep their filename behavior. Model-local `.mat.json` tables provide short material names without rewriting model names or animations. `tools/Prepare-CSOLResources.py --relocate-materials` creates a new staging directory under `build`, converts DDS material images to TGA with RGBA equality checks, and reruns the strict 63-byte collector against that directory. Pillow is required for DDS conversion. Unsupported long non-material references remain errors.
+
+The collector compiled one changed translation unit and CSOLSupport compiled two. The recorded 678 inputs were unchanged; 651 observed dependencies were known. Both outputs were x86 and the client PDB matched. Reused object files were not individually hashed before compilation, so this evidence does not establish their pre-build byte identity. Four existing warning signatures remained, with no new signatures. Two post-build recording errors were retained and fixed without recompiling.
+
+The actual CLI passed 161 checks across 14 models and 62 resources. Fourteen MDL files and eleven SEQ files retained their bytes; six converted materials retained their RGBA pixels. All five planner boundary cases passed after three initial failures were fixed. The incompatible `zombi_host` model/SEQ pair still fails explicitly because its bone counts differ (40 versus 32).
+
+The matching engine preload change is source-only and was not rebuilt. These new artifacts were archived without deployment. Full-map closure, HTTP delivery, actual materials/normal-map rendering, animation and sound playback remain unverified. The earlier selection and living-player acceptance boundaries still apply.

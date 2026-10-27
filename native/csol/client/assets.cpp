@@ -5,6 +5,7 @@
 #include "../dependencies.hpp"
 #include "../hand_adapter.hpp"
 #include "../texture_model.hpp"
+#include "../material_source.hpp"
 #include "characters.hpp"
 #include <event_api.h>
 #include <rapidjson/document.h>
@@ -81,7 +82,16 @@ Environment LoadEnvironment(std::string_view name)
 
 void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
 {
-    if(!commonLoaded){
+    const auto materialFile=ModelMaterialSource(asset.name);
+    const bool preparedMaterials=Exists(materialFile.c_str());
+    rapidjson::Document localMaterials;
+    if(preparedMaterials){
+        const auto text=Text(materialFile.c_str());localMaterials.Parse(text.data(),text.size());
+        if(localMaterials.HasParseError() || !localMaterials.IsObject() ||
+            !localMaterials.HasMember("Materials") || !localMaterials["Materials"].IsArray())
+            throw std::runtime_error("invalid model materials: "+materialFile);
+    }
+    if(!preparedMaterials && !commonLoaded){
         commonLoaded=true;common.SetObject();common.AddMember("Materials",rapidjson::Value(rapidjson::kArrayType),common.GetAllocator());
         for(const auto* path:{"materials/common.json","materials/csol/characters.json"})if(Exists(path)){
             const auto text=Text(path);rapidjson::Document document;document.Parse(text.data(),text.size());
@@ -89,10 +99,11 @@ void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
             for(const auto& row:document["Materials"].GetArray()){rapidjson::Value copy;copy.CopyFrom(row,common.GetAllocator());common["Materials"].PushBack(copy,common.GetAllocator());}
         }
     }
-    if(common.IsNull())return;
-    if(common.HasParseError() || !common.IsObject() || !common.HasMember("Materials") || !common["Materials"].IsArray())throw std::runtime_error("invalid common materials");
+    const auto& materials=preparedMaterials?localMaterials:common;
+    if(materials.IsNull())return;
+    if(materials.HasParseError() || !materials.IsObject() || !materials.HasMember("Materials") || !materials["Materials"].IsArray())throw std::runtime_error("invalid common materials");
     const auto prefix=Lower(asset.name)+"/";
-    for(const auto& row:common["Materials"].GetArray())
+    for(const auto& row:materials["Materials"].GetArray())
     {
         if(!row.IsObject() || !row.HasMember("OriginalTexture") || !row["OriginalTexture"].IsString())continue;
         if(row.HasMember("SubKey") && (!row["SubKey"].IsInt() || row["SubKey"].GetInt()))continue;
@@ -101,10 +112,10 @@ void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
         for(size_t i=0;i<names.size();++i)if(key==prefix+Lower(names[i]))
         {
             auto& m=asset.materials[i];asset.special=true;
-            if(asset.name.starts_with("models/player/csol") && row.HasMember("BaseTexture") && row["BaseTexture"].IsString()){
+            if((preparedMaterials || asset.name.starts_with("models/player/csol")) && row.HasMember("BaseTexture") && row["BaseTexture"].IsString()){
                 const std::string path=row["BaseTexture"].GetString();
-                if(!path.empty()){
-                    if(!Exists(path.c_str()))throw std::runtime_error("missing character base texture: "+path);
+                if(!path.empty() && path!="OriginalTexture"){
+                    if(!Exists(path.c_str()))throw std::runtime_error("missing material base texture: "+path);
                     m.texture=LoadImage(path,m.width,m.height);
                 }
             }

@@ -7,6 +7,7 @@
 #include "sequences.hpp"
 #include "texture_model.hpp"
 #include "weapon_resources.hpp"
+#include "material_source.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
 #include <cstring>
@@ -96,6 +97,18 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         if(textures<0 || textures>4096 || sequences<1 || sequences>2048)throw std::runtime_error("invalid dependency table count");
         ModelJSON config;const auto json=name.substr(0,name.size()-4)+".json";
         if(exists(json)){add(json);config=ParseModelJSON(Text(read,json),textures,sequences);}
+        const auto materialFile=ModelMaterialSource(name);
+        rapidjson::Document localMaterials;
+        const bool preparedMaterials=exists(materialFile);
+        if(preparedMaterials)
+        {
+            add(materialFile);
+            const auto text=Text(read,materialFile);localMaterials.Parse(text.data(),text.size());
+            if(localMaterials.HasParseError() || !localMaterials.IsObject() ||
+                !localMaterials.HasMember("Materials") || !localMaterials["Materials"].IsArray())
+                throw std::runtime_error("invalid model materials: "+materialFile);
+        }
+        const auto& materials=preparedMaterials?localMaterials:common;
         for(const auto& sprite:config.Sprites)add(sprite.Sprite);
         for(int i=0;i<textures;++i)
         {
@@ -106,11 +119,11 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
             for(const auto& probe:textureSource.Probes)add(probe);
             if(!textureSource.Resource.empty())add(textureSource.Resource,!textureSource.EmbeddedFallback);
             const auto key=Lower(name+"/"+texture);
-            if(common.IsObject() && common.HasMember("Materials") && common["Materials"].IsArray())for(const auto& row:common["Materials"].GetArray())
+            if(materials.IsObject() && materials.HasMember("Materials") && materials["Materials"].IsArray())for(const auto& row:materials["Materials"].GetArray())
             {
                 if(!row.IsObject() || !row.HasMember("OriginalTexture") || !row["OriginalTexture"].IsString())continue;
                 auto original=Lower(row["OriginalTexture"].GetString());std::replace(original.begin(),original.end(),'\\','/');if(original!=key)continue;
-                add("materials/common.json");
+                if(!preparedMaterials)add("materials/common.json");
                 for(const auto* field:{"BaseTexture","NormalTexture","SpecularTexture","EmissiveTexture","DispTexture"})
                     if(row.HasMember(field) && row[field].IsString() && row[field].GetStringLength() && std::string_view(row[field].GetString())!="OriginalTexture")add(row[field].GetString());
             }
@@ -136,7 +149,13 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
                 const auto event=Record(bytes,events,e,count,76);const auto options=Name(bytes,event+12,64);const int id=Word(bytes,event+4);
                 if(id>=5000 && id<=5639 && options.starts_with('#'))
                 {if(const auto rule=ParseSpriteEvent(id,options)){add(rule->ResourceName());if(rule->Alternate)add("sprites/muzzleflash"+std::to_string(rule->Alternate)+".spr");}}
-                else if(Lower(options).ends_with(".wav"))add("sound/"+options);
+                // CSO event5005 consumes three parameter bytes before its
+                // sample name. Event5004 and ordinary sound events do not.
+                else if(Lower(options).ends_with(".wav"))
+                {
+                    if(id==5005 && options.size()<=3)throw std::runtime_error("invalid event5005 sound");
+                    add("sound/"+(id==5005?options.substr(3):options));
+                }
             }
         }
         for(int slot=0;slot<2;++slot)

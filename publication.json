@@ -462,6 +462,7 @@
     "tools/client-installer/runtime_resources.py",
     "tools/client-installer/test_install.py",
     "tools/client-installer/upstream.json",
+    "tools/csol_material_stage.py",
     "tools/fastdl/common.py",
     "tools/fastdl/fetch.py",
     "tools/fastdl/publish.py",
