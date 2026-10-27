@@ -201,6 +201,7 @@
     "tests/bw-contrast/PrepareProducer.java",
     "tests/bw-contrast/RemapFramebuffer.java",
     "tests/bw-contrast/TransformFramebuffer.java",
+    "tests/csol-weapon-slots/server/precompiled.h",
     "tests/native-melee/NativeMeleeProbe.java",
     "tests/native/actual_armor_context.inc",
     "tests/native/actual_status_hud_functions.inc",
