@@ -18,9 +18,14 @@ public:
     CSOLMonsterDeathCall(CCSOLScenarioMap& map, CCSOLMonsterDeathRequests& requests,
         CCSOLScenarioMonster& monster, const CSOLMonsterDeathArguments& arguments);
     bool SameSession() const;
+    bool BelongsTo(const CCSOLScenarioMap& map) const { return &m_map == &map; }
     CCSOLScenarioMonster* Current() const;
     CBaseEntity* Inflictor() const;
     CBaseEntity* Attacker() const;
+    // A disconnected/replaced player must not receive the remaining player
+    // tail. The already committed monster death still runs effects, targets,
+    // death rules, Golden cleanup and PostDeath with no attacker.
+    void RevokeAttacker() { m_arguments.attacker = static_cast<CBaseEntity*>(nullptr); }
     const CSOLMonsterDeathContext& Context() const { return m_arguments.context; }
     bool SuppressSound() const { return m_arguments.suppressSound; }
 
@@ -29,6 +34,7 @@ private:
     CCSOLScenarioMap& m_map;
     CCSOLMonsterDeathRequests& m_requests;
     std::uint64_t m_mapGeneration{}, m_roundGeneration{}, m_requestGeneration{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access;
     CCSOLMonsterDeathStages m_stages;
     CSOLMonsterDeathArguments m_arguments;
 };
@@ -73,16 +79,15 @@ public:
     virtual bool RoomOption(CSOLMonsterDeathCall& call, int& option,
         csol::scenario::ConfigError& error) = 0;
     virtual bool RulesDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
-    // Manager/clearpoint -> frags/message -> attribution -> drops -> counters
-    // -> attacker notification. Null attackers never enter this service.
+    // The owner has committed the manager's team counter. Continue with
+    // root character/current-weapon effects -> clearpoint -> frags/message
+    // -> attribution -> drops -> counters -> attacker notification.
+    // Null attackers never enter this service.
     virtual bool PlayerKilledMonster(CSOLMonsterDeathCall& call,
         csol::scenario::ConfigError& error) = 0;
-    virtual bool ClearEffects(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
     // Even without an attacker, restore the tracked original type and erase
     // its Golden record. A missing player skips only the reward/announcement.
     virtual bool GoldenDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) = 0;
-    // Stable manager-owned field; nested deaths may change its value.
-    virtual const std::int8_t& DrainTeamFilter() const = 0;
 };
 
 // Concrete synchronous mode15/SubType1 execution order. The factory and rules
@@ -95,6 +100,8 @@ public:
         CCSOLMonsterModels& models, const CCSOLScenarioMessages& messages,
         CCSOLMonsterDeathServices& services, int mapId);
     bool Reset();
+    // Ending batches and death-table recursion share the map's live filter.
+    CSOLMonsterDrainResult Drain(std::int32_t limit, bool includeBosses);
     CCSOLMonsterDeathRequests& Requests() { return m_requests; }
     const csol::scenario::ConfigError& Error() const { return m_error; }
 

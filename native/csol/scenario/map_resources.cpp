@@ -82,11 +82,20 @@ bool MapResources::BeginMapFromCatalog(std::string_view mapName, ResourceFileApi
     }
     // Free the catalog buffer before requesting the map's table files.
     scenarioType_ = scenarioType;
+    mapId_ = catalog.UniqueMapId(mapName_);
+    if (mapId_)
+    {
+        int limit{};
+        ConfigError detail;
+        if (!catalog.DifficultyLimit(*mapId_, limit, detail))
+        { error = {path, std::move(detail)}; return false; }
+        difficultyLimit_ = limit;
+    }
     return Reload(files, error);
 }
 
 bool MapResources::BeginMap(std::string_view mapName, ResourceFileApi files, ResourceError& error,
-    int scenarioType)
+    int scenarioType, std::optional<int> selectedMapId)
 {
     // The caller may pass MapName() when restarting the same map.
     std::string nextMap(mapName);
@@ -98,7 +107,13 @@ bool MapResources::BeginMap(std::string_view mapName, ResourceFileApi files, Res
         return false;
     }
     mapName_ = std::move(nextMap);
+    if (selectedMapId && *selectedMapId <= 0)
+    {
+        error.detail.message = "scenario numeric map selection must be positive";
+        return false;
+    }
     scenarioType_ = scenarioType;
+    mapId_ = selectedMapId;
     return Reload(files, error);
 }
 
@@ -123,6 +138,8 @@ bool MapResources::Reload(ResourceFileApi files, ResourceError& error)
     MapTables candidate;
     candidate.mapName = mapName_;
     candidate.scenarioType = *scenarioType_;
+    candidate.mapId = mapId_;
+    candidate.difficultyLimit = difficultyLimit_;
     if (!ReadFile("maps/zbs_wave_" + mapName_ + ".cso", files,
         candidate.waves, ReadWaveResource, error) ||
         !ReadFile("maps/zbs_" + mapName_ + ".cso", files,
@@ -159,6 +176,8 @@ void MapResources::Clear()
     tables_.reset();
     mapName_.clear();
     scenarioType_.reset();
+    mapId_.reset();
+    difficultyLimit_.reset();
     difficultyApplied_ = false;
 }
 }

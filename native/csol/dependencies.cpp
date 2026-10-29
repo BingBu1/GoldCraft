@@ -92,7 +92,10 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         }
         std::vector<std::vector<std::byte>> sequenceData;
         for(const auto& file:SequenceFiles(source.File,exists)){add(file);sequenceData.push_back(read(file));}
-        if(!sequenceData.empty())bytes=AppendSequences(bytes,sequenceData);
+        // Enumeration reads descriptors/events/textures, never bone samples.
+        // Keep dependencies from every authored track, including tracks that
+        // guarded runtime samplers cannot use with this model's skeleton.
+        bytes=AppendSequences(bytes,sequenceData,SequenceReadPolicy::AllowUnsupportedTracks);
         const int textures=Word(bytes,180),textureAt=Word(bytes,184),sequences=Word(bytes,164),sequenceAt=Word(bytes,168);
         if(textures<0 || textures>4096 || sequences<1 || sequences>2048)throw std::runtime_error("invalid dependency table count");
         ModelJSON config;const auto json=name.substr(0,name.size()-4)+".json";

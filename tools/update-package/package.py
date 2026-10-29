@@ -5,6 +5,9 @@ worlds, game engine/client DLLs or unrelated Minecraft mods are distributed.
 """
 from pathlib import Path
 import argparse,hashlib,importlib.util,json,re,zipfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from retired_resources import RETIRED_PLUGINS, retired_resource, payload_bytes
 
 R=Path(__file__).resolve().parents[2]
 
@@ -69,7 +72,8 @@ def build(candidate,output,revision,release='20261019',server_only=False):
             deployed[name]=server/runtime_resources[name]
     if set(sources)!=set(deployed):raise ValueError('Unmapped candidate artifacts: '+str(set(sources)-set(deployed)))
     for name,path in deployed.items():
-        if sha(client.safe(path).read_bytes())!=sha(sources[name].read_bytes()):raise ValueError('Deployed file differs from candidate: '+name)
+        if retired_resource(path):continue
+        if sha(payload_bytes(path,client.safe(path).read_bytes()))!=sha(payload_bytes(path,sources[name].read_bytes())):raise ValueError('Deployed file differs from candidate: '+name)
     frozen_server_resources=server_resources.freeze_requirements(sources,runtime_resources,client.digest)
     post_effects=None if server_only else client.runtime_resources.verify_post_runtime(game,client.safe)
     output.mkdir(parents=True)
@@ -79,8 +83,10 @@ def build(candidate,output,revision,release='20261019',server_only=False):
         files=[];names={};roles=['server'] if kind=='Server' else ['cs','minecraft']
         required_plugins=list(server_resources.REQUIRED_PLUGINS)
         def add(role,destination,source,*,allow_identical=False):
+            if retired_resource(destination):return
             name='payload/'+role+'/'+client.relative_name(destination)
             data=source if isinstance(source,bytes) else client.safe(source).read_bytes()
+            data=payload_bytes(destination,data)
             if name.casefold() in names:
                 if allow_identical and names[name.casefold()]==sha(data):return
                 raise ValueError('Duplicate or conflicting payload '+name)
@@ -98,6 +104,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
                     fields=line.split(';',1)[0].strip().split()
                     if not fields or 'disabled' in fields[1:]:continue
                     name=fields[0]
+                    if name.casefold() in RETIRED_PLUGINS:continue
                     if not re.fullmatch(r'[\w-]+\.amxx',name) or 'test' in name or 'fixture' in name:raise ValueError('Unexpected runtime plugin '+name)
                     plugins.add(name)
             for name in sorted(plugins):
@@ -110,7 +117,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
             for path in sorted((amxx/'data/lang').glob('*.txt')):add('server','cs/cstrike/addons/amxmodx/data/lang/'+path.name,path)
             for name,relative in sorted(runtime_resources.items()):
                 add('server','cs/'+relative,sources[name],allow_identical=True)
-                if relative.startswith('cstrike/addons/amxmodx/plugins/'):
+                if relative.startswith('cstrike/addons/amxmodx/plugins/') and not retired_resource(relative):
                     plugin=Path(relative).name
                     if plugin not in required_plugins:required_plugins.append(plugin)
             for path in sorted((R/'tools/server-package').rglob('*')):
@@ -138,7 +145,7 @@ def build(candidate,output,revision,release='20261019',server_only=False):
 只将 mc_map_mining=2、mc_round_clear_blocks=1、mc_death_drop_items=0 写入现有 server.cfg。
 清块/还原发生在下一回合开始。会去重并启用 GoldCraft/F6/僵尸规则及飘字插件，备份实际变更至 .goldcraft-updates。
 需要服务器已安装 AMXX 1.10；本批 Pawn 使用官方 1.10.0.5487 编译，不替换 AMXX 核心及用户自定义 gamedata。
-所有当前启用的 AMXX 二进制和翻译、飘字模型及启用清单随更新包提供，保留用户自己的插件列表与无关插件。
+当前启用且未退役的 AMXX 二进制、翻译及启用清单随包提供，保留用户自己的插件列表与无关插件。旧 Floating Damage 插件、模型及翻译不再分发，旧启用行会被精确禁用。
 不必重新配置公网端口。原 package-manifest.json 保留原包基线，本次文件以 update-manifest.json 和安装备份记录为准。
 玩家 CS 使用本次配套的完整图形安装包，Minecraft 整合包由服主提供。
 client-update/mods 中是供整合包使用的同版 GoldCraft Core；服务端更新不能自动替换玩家文件。
@@ -189,6 +196,7 @@ CS 若提示引擎/client.dll 不匹配，停止更新并把提示发给服主�
 '''
         (root/'先读我.txt').write_text(instructions+common,encoding='utf-8-sig')
         (root/'Update-GoldCraft.ps1').write_bytes((R/'tools/update-package/Update-GoldCraft.ps1').read_bytes())
+        (root/'Retired-Plugins.ps1').write_bytes((R/'tools/update-package/Retired-Plugins.ps1').read_bytes())
         (root/'Common.ps1').write_bytes((R/'tools/client-installer/Common.ps1').read_bytes())
         for role in roles:
             name={'server':'Server','cs':'CS','minecraft':'Minecraft'}[role]
@@ -196,7 +204,7 @@ CS 若提示引擎/client.dll 不匹配，停止更新并把提示发给服主�
             (root/f'Update-{name}.cmd').write_bytes(cmd.encode('ascii'))
         manifest=dict(schema=1,release=release,sourceRevision=revision,roles=roles,files=files,
             supportedGame=dict(engineSha256=sha((game/'hw.dll').read_bytes()),clientSha256=sha((game/'cstrike/cl_dlls/client.dll').read_bytes())),
-            protocol=protocol,plugins=list(client.PLUGINS),requiredPlugins=required_plugins)
+            protocol=protocol,plugins=list(client.PLUGINS),requiredPlugins=required_plugins,retiredPlugins=list(RETIRED_PLUGINS))
         if kind=='Server':
             manifest['serverResources']=server_resources.verify_payload(files,required_plugins,frozen_server_resources)
         if kind=='Players':

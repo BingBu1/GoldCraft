@@ -41,7 +41,7 @@ bool CCSOLScenarioOccupancy::Fail(const char* message)
 
 bool CCSOLScenarioOccupancy::PoolReady()
 {
-    if (m_pool.State() != CSOLMonsterPoolState::Ready || m_pool.Busy())
+    if (!m_pool.EntityAccessAllowed() || m_pool.State() != CSOLMonsterPoolState::Ready || m_pool.Busy())
         return Fail("scenario occupancy pool is unavailable");
     return true;
 }
@@ -286,6 +286,7 @@ bool CCSOLScenarioOccupancy::SpawnNeighbors(const Vector& origin,
 bool CCSOLScenarioOccupancy::MakeRoom(const Vector& origin)
 {
     if (m_busy || !Ready() || !PoolReady()) return false;
+    const auto access = m_pool.EntityAccess();
     OccupancyOperation operation(m_busy);
     int x{}, y{};
     if (!Cell(origin, x, y)) return false;
@@ -324,24 +325,27 @@ bool CCSOLScenarioOccupancy::MakeRoom(const Vector& origin)
     }
     for (std::size_t i = 0; i < candidateCount; ++i)
     {
+        if (!access->Allowed() || !PoolReady()) return false;
         auto* monster = candidates[i].Get<CCSOLScenarioMonster>();
         if (!monster || m_pool.At(candidateSlots[i]) != monster || !PoolReady() ||
             monster->Type() != candidateTypes[i] || m_pool.Lease(*monster) != candidateLeases[i])
             return Fail("scenario occupancy death callback changed the pool");
         const auto* type = monster->Type();
         if (type && (type->skill >= 1000 || type->eventClass > 149)) continue;
-        m_deaths.BeforeSpawnClear(*monster);
-        if (candidates[i].Get<CBaseEntity>() != monster ||
-            m_pool.At(candidateSlots[i]) != monster || !PoolReady() ||
+        const bool prepared = m_deaths.BeforeSpawnClear(*monster);
+        if (!access->Allowed() || !PoolReady() || candidates[i].Get<CBaseEntity>() != monster ||
+            m_pool.At(candidateSlots[i]) != monster ||
             monster->Type() != candidateTypes[i] || m_pool.Lease(*monster) != candidateLeases[i])
             return Fail("scenario pre-death callback changed a pool lease");
-        m_deaths.RequestSpawnClearDeath(*monster);
+        if (!prepared) return Fail("scenario spawn-clear preparation failed");
+        const bool requested = m_deaths.RequestSpawnClearDeath(*monster);
         // Golden-monster death may restore the original type in this same
         // lease. Only a new lease/entity invalidates the completed request.
-        if (!PoolReady() || candidates[i].Get<CBaseEntity>() != monster ||
+        if (!access->Allowed() || !PoolReady() || candidates[i].Get<CBaseEntity>() != monster ||
             m_pool.At(candidateSlots[i]) != monster ||
             m_pool.Lease(*monster) != candidateLeases[i])
             return Fail("scenario death callback changed a pool lease");
+        if (!requested) return Fail("scenario spawn-clear death request failed");
     }
     // A skipped, delayed or declined death does not change the original result.
     return true;

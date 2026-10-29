@@ -4,10 +4,11 @@
 
 using namespace csol::scenario;
 
-CCSOLScenarioEquipment::CCSOLScenarioEquipment(std::shared_ptr<const EquipmentTables> tables, CapEvent capEvent)
-    : m_tables(std::move(tables)), m_abilities(m_tables), m_capEvent(std::move(capEvent)) {}
+CCSOLScenarioEquipment::CCSOLScenarioEquipment(std::shared_ptr<const EquipmentTables> tables, CapEvent capEvent,
+    std::shared_ptr<const CSOLScenarioEntityAccess> access)
+    : m_tables(std::move(tables)), m_abilities(m_tables), m_capEvent(std::move(capEvent)), m_access(std::move(access)) {}
 
-bool CCSOLScenarioEquipment::Current() const { return m_valid && m_tables != nullptr; }
+bool CCSOLScenarioEquipment::Current() const { return m_valid && m_access && m_access->Allowed() && m_tables != nullptr; }
 
 bool CCSOLScenarioEquipment::Current(const Player& player) const
 {
@@ -47,6 +48,7 @@ bool CCSOLScenarioEquipment::BindPlayer(CBasePlayer& player, int classId, Equipm
     const EHANDLE handle(&player);
     const int index = player.entindex();
     // ENTINDEX is an engine callback; do not use the old C++ reference afterward.
+    if (!Current() || m_generation != generation) return false;
     auto* entity = handle.Get<CBaseEntity>();
     if (!Current() || m_generation != generation || !entity || entity != &player || (entity->pev->flags & FL_KILLME) ||
         index < 1 || index >= static_cast<int>(m_players.size())) return false;

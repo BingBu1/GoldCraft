@@ -72,12 +72,13 @@ bool TriggerProgram::Install(const TriggerRuleTable& table, const TriggerVolumes
 
 bool TriggerProgram::CountGoal(const State& state, int aliveCtCount, TriggerActions& actions)
 {
+    if (!actions.Current()) return false;
     ++arrivals_;
     const auto count = std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(aliveCtCount));
     if (static_cast<float>(std::bit_cast<std::int32_t>(arrivals_)) <
         static_cast<float>(count) * state.ratio) return false;
     actions.GoalReached();
-    return true;
+    return actions.Current();
 }
 
 void TriggerProgram::BeginMap()
@@ -99,11 +100,20 @@ bool TriggerProgram::Execute(State& state, float elapsed, bool spatial,
     TriggerActions& actions, bool& changed)
 {
     auto& rule = state.rule;
+    if (!actions.Current()) return false;
     if (rule.cooldown == -1 || state.nextTime > elapsed) return false;
     state.nextTime = elapsed + static_cast<float>(rule.cooldown);
-    for (const auto wave : rule.waves) actions.ActivateWave(wave, elapsed);
+    for (const auto wave : rule.waves)
+    {
+        actions.ActivateWave(wave, elapsed);
+        if (!actions.Current()) return false;
+    }
     changed |= !rule.waves.empty();
-    for (const auto wave : rule.endWaves) changed |= actions.EndWave(wave, spatial);
+    for (const auto wave : rule.endWaves)
+    {
+        changed |= actions.EndWave(wave, spatial);
+        if (!actions.Current()) return false;
+    }
     if (rule.cooldown == 0)
     {
         if (used_.size() < 30) used_.push_back(rule.trigger);
@@ -115,7 +125,7 @@ bool TriggerProgram::Execute(State& state, float elapsed, bool spatial,
 TriggerResult TriggerProgram::CheckPlayer(const std::array<float, 3>& origin, float elapsed,
     int aliveCtCount, TriggerActions& actions)
 {
-    if (executing_ || !std::isfinite(elapsed)) return {};
+    if (executing_ || !std::isfinite(elapsed) || !actions.Current()) return {};
     ExecutionScope scope(executing_);
     // Collect matches before dispatch, as MP does. No map entity or client
     // pointer survives here; the game adapter owns player/gate validation.
@@ -126,6 +136,7 @@ TriggerResult TriggerProgram::CheckPlayer(const std::array<float, 3>& origin, fl
     bool changed = false;
     for (const auto id : matches_)
     {
+        if (!actions.Current()) { result.valid = false; return result; }
         auto& state = states_.at(id);
         if (state.rule.command == 'w')
         {
@@ -139,23 +150,29 @@ TriggerResult TriggerProgram::CheckPlayer(const std::array<float, 3>& origin, fl
                 break;
             }
         }
+        if (!actions.Current()) { result.valid = false; return result; }
     }
     if (changed) actions.RefreshWaves();
+    result.valid = actions.Current();
     return result;
 }
 
 TriggerResult TriggerProgram::ExecuteTrigger(int id, float elapsed, int aliveCtCount,
     TriggerActions& actions)
 {
-    if (executing_ || !std::isfinite(elapsed)) return {};
+    if (executing_ || !std::isfinite(elapsed) || !actions.Current()) return {};
     const auto found = states_.find(TriggerKey(id));
     if (found == states_.end()) return {true, 0, false};
     ExecutionScope scope(executing_);
     if (found->second.rule.command == 'g')
-        return {true, 0, CountGoal(found->second, aliveCtCount, actions)};
+    {
+        const bool reached = CountGoal(found->second, aliveCtCount, actions);
+        return {actions.Current(), 0, reached};
+    }
     bool changed = false;
     const bool executed = Execute(found->second, elapsed, false, actions, changed);
+    if (!actions.Current()) return {};
     if (changed) actions.RefreshWaves();
-    return {true, executed ? 1u : 0u, false};
+    return {actions.Current(), executed ? 1u : 0u, false};
 }
 }

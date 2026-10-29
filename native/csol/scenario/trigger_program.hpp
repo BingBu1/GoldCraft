@@ -14,6 +14,9 @@ class TriggerActions
 {
 public:
     virtual ~TriggerActions() = default;
+    // Identity/status only, with no engine or observer callbacks. False stops
+    // the current command prefix without consuming its remaining side effects.
+    virtual bool Current() const = 0;
     virtual void ActivateWave(std::uint16_t id, float elapsed) = 0;
     virtual bool EndWave(std::uint16_t id, bool spatial) = 0;
     virtual void RefreshWaves() = 0;

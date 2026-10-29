@@ -1,5 +1,13 @@
 # Floating Damage local adaptation
 
+Retired on 2026-10-29. This folder is historical source and license provenance.
+Do not install or enable it: damage display now belongs to the native
+CSOLSupport/ReGameDLL protocol. `package.py` refuses new delivery. The updaters
+exclude the old plugin/model/translation and disable its activation lines while
+preserving other entries. The implementation and runtime validation boundary
+are recorded in the native display contract（本地记录，未随源码发布）.
+The behavior and build notes below describe the archived implementation only.
+
 Yoshioka Haruki's AMXX Floating Damage 1.0.6 is adapted for this project's
 AMXX 1.10.0.5487, ReAPI and ReGameDLL server. Version: `1.0.7-gc`.
 

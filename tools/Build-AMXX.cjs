@@ -32,6 +32,7 @@ function filesUnder(directory) {
 
 function write(file, bytes) {
   file = safe(file);
+  if (fs.existsSync(file) && fs.statSync(file).nlink !== 1) throw new Error(`Shared build output refused: ${file}`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, bytes);
 }
@@ -83,6 +84,7 @@ async function build() {
   const { values } = parseArgs({ options: {
     plugin: { type: 'string', multiple: true, default: [] },
     include: { type: 'string', multiple: true, default: [] },
+    output: { type: 'string', default: 'build/amxx' },
   } });
   const lock = JSON.parse(fs.readFileSync(safe('sources.lock.json'), 'utf8'));
   const builder = safe(lock.sources.AMXXBuilder.path);
@@ -92,12 +94,14 @@ async function build() {
   const { on, EVENTS } = require(path.join(builder, 'src/events'));
   const { subscribeCompiledRendering } = require(path.join(builder, 'src/commands/compile-renderer'));
   const manifest = parseManifest(safe('amxbuild.yml'));
-  const input = safe('build/amxx/builder-input');
-  const work = safe('build/amxx/builder-output');
-  if (manifest.amxmodx.version !== '1.10.5487' || safe(manifest.amxmodx.dir) !== input ||
+  const output = safe(values.output);
+  const input = safe(path.join(output, 'builder-input'));
+  const work = safe(path.join(output, 'builder-output'));
+  if (manifest.amxmodx.version !== '1.10.5487' || safe(manifest.amxmodx.dir) !== safe('build/amxx/builder-input') ||
       manifest.repos.length || manifest.assets.sources.length || manifest.pluginIni.enabled) {
     throw new Error('Keep the pinned compiler, staging path and compile-only settings in amxbuild.yml.');
   }
+  manifest.amxmodx.dir = input;
   manifest.globalDeps.push(...parseDepsLines(values.include.map((directory, index) => ({
     source: 'local', name: `extra-${index}`, path: safe(directory), include_path: '.',
   }))));
@@ -163,16 +167,16 @@ async function build() {
       const data = fs.readFileSync(artifact);
       if (!data.length) throw new Error(`Missing bytecode: ${item.name}`);
       return { name: item.name, source: relative(item.file), sourceSha256: sha(item.data),
-        artifact: `build/amxx/plugins/${item.name}.amxx`, sha256: sha(data), data };
+        artifact: relative(path.join(output, 'plugins', `${item.name}.amxx`)), sha256: sha(data), data };
     });
     for (const entry of built) write(entry.artifact, entry.data);
-    write('build/amxx/last-build.json', JSON.stringify(built.map(({ data, ...entry }) => entry), null, 2) + '\n');
+    write(path.join(output, 'last-build.json'), JSON.stringify(built.map(({ data, ...entry }) => entry), null, 2) + '\n');
     report.ok = true;
     report.warnings = events.reduce((n, event) => n + (event.output.match(/\bwarning \d+:/gi) || []).length, 0);
-    console.log(`Built ${built.length} plugin(s), ${report.warnings} warning(s) -> build/amxx/plugins`);
+    console.log(`Built ${built.length} plugin(s), ${report.warnings} warning(s) -> ${relative(path.join(output, 'plugins'))}`);
   } finally {
     report.results = events;
-    write('build/amxx/last-builder.json', JSON.stringify(report, null, 2) + '\n');
+    write(path.join(output, 'last-builder.json'), JSON.stringify(report, null, 2) + '\n');
   }
 }
 

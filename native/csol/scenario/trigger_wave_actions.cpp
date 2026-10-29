@@ -5,6 +5,13 @@
 
 namespace csol::scenario
 {
+bool WaveTriggerActions::Current() const
+{
+    if (!current_ || !error_.message.empty()) return false;
+    current_ = events_.Check(error_);
+    return current_ && error_.message.empty();
+}
+
 void WaveTriggerActions::ActivateWave(std::uint16_t id, float elapsed)
 {
     if (!Valid() || !waves_.ActivateWave(id, elapsed, error_)) return;
@@ -20,6 +27,7 @@ bool WaveTriggerActions::EndWave(std::uint16_t id, bool spatial)
     const auto active = waves_.ActiveWaves();
     if (std::find(active.begin(), active.end(), id) == active.end()) return false;
     if (spatial) events_.BeforeSpatialWaveEnd(id);
+    if (!Current()) return false;
     return waves_.EndWave(id);
 }
 

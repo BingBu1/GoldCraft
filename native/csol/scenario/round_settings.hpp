@@ -16,4 +16,7 @@ struct RoundSettings
 // Missing/empty cells read as zero. Failure leaves the previous output intact.
 bool ReadRoundSettings(const RoundTable& table, std::size_t index,
     RoundSettings& output, ConfigError& error);
+// Original manager+284: integer cell column1/row5, independent of the
+// per-round row and its music/spawn settings. Zero disables reward markers.
+bool ReadRewardRound(const RoundTable& table, std::int32_t& output, ConfigError& error);
 }

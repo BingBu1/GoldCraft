@@ -1,4 +1,5 @@
-param([ValidateSet('Release','Debug')][string]$Configuration='Release')
+param([ValidateSet('Release','Debug')][string]$Configuration='Release',
+      [ValidateSet('all','bot','api')][string]$Component='all')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 . (Join-Path $PSScriptRoot 'ClangToolchain.ps1')
 $compiler=Initialize-GoldCraftCompiler
@@ -9,6 +10,7 @@ $vs=& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.
 if(-not $vs){throw 'MSVC installation not found'}
 $msbuild=Join-Path $vs 'MSBuild/Current/Bin/MSBuild.exe'
 foreach($project in @(@{Name='bot';Path='SyPB_BOT/SyPB Bot.vcxproj'},@{Name='api';Path='SyPB_API/SyPB API.vcxproj'})){
+    if($Component -ne 'all' -and $Component -ne $project.Name){continue}
     $out=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/sypb/$Configuration")
     $intermediate=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot "build/sypb/obj/$Configuration/$($project.Name)")
     New-Item -ItemType Directory -Path $out,$intermediate -Force | Out-Null

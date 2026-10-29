@@ -5,6 +5,7 @@
 #include "goldcraft/server_api.hpp"
 #include "goldcraft/csol_weapon_api.hpp"
 #include "goldcraft/csol_game_mode_api.hpp"
+#include "goldcraft/csol_scenario_admin_api.hpp"
 #include "effect_adapter.hpp"
 
 namespace {
@@ -13,6 +14,30 @@ goldcraft::IServerGameplay* gameplay=nullptr;
 csol::IWeaponService* weapons=nullptr;
 csol::IWeaponAmmoService* weaponAmmo=nullptr;
 csol::IGameModeService* gameModes=nullptr;
+csol::IScenarioAdminService* scenarioAdmin=nullptr;
+bool ResolveScenarioAdmin(){
+    if(scenarioAdmin)return true;
+    auto module=GetModuleHandleA("mp.dll");
+    auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
+    scenarioAdmin=factory?static_cast<csol::IScenarioAdminService*>(factory(csol::ScenarioAdminServiceVersion,nullptr)):nullptr;
+    return scenarioAdmin!=nullptr;
+}
+cell AMX_NATIVE_CALL ScenarioAdminVersion(AMX*,cell* p){
+    return p && p[0]==0 && ResolveScenarioAdmin()?1:0;
+}
+cell AMX_NATIVE_CALL ScenarioDifficultyInfo(AMX* amx,cell* p){
+    if(!p || p[0]!=4*sizeof(cell) || !ResolveScenarioAdmin())return 0;
+    csol::ScenarioDifficultyInfo info;
+    if(!scenarioAdmin->DifficultyInfo(info))return 0;
+    *MF_GetAmxAddr(amx,p[1])=info.active;
+    *MF_GetAmxAddr(amx,p[2])=info.requested;
+    *MF_GetAmxAddr(amx,p[3])=info.maximum;
+    *MF_GetAmxAddr(amx,p[4])=info.mapId;
+    return 1;
+}
+cell AMX_NATIVE_CALL ScenarioDifficultyRequest(AMX*,cell* p){
+    return p && p[0]==2*sizeof(cell) && ResolveScenarioAdmin() && scenarioAdmin->RequestDifficulty(p[1],p[2]);
+}
 bool ResolveGameModes(){
     if(gameModes)return true;
     auto module=GetModuleHandleA("mp.dll");
@@ -72,6 +97,9 @@ void FormChanged(int player,int previous,int current){
     if(changed_forward>=0)MF_ExecuteForward(changed_forward,player,previous,current);
 }
 const AMX_NATIVE_INFO natives[]={
+    {"csol_scenario_admin_api_version",ScenarioAdminVersion},
+    {"csol_scenario_difficulty_info",ScenarioDifficultyInfo},
+    {"csol_scenario_difficulty_request",ScenarioDifficultyRequest},
     {"csol_game_mode_api_version",GameModeVersion},{"csol_game_mode_current",GameModeCurrent},
     {"csol_game_mode_confirm",GameModeConfirm},
     {"csol_weapon_api_version",WeaponVersion},{"csol_weapon_can_buy",WeaponCanBuy},{"csol_weapon_buy",WeaponBuy},
@@ -101,4 +129,4 @@ void OnPluginsUnloading(){
     changed_forward=guard_forward=attack_forward=-1;
     if(gameModes)gameModes->EndMap();
 }
-void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;}
+void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;scenarioAdmin=nullptr;}

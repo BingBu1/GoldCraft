@@ -8,6 +8,7 @@
 #include "../cannon_resources.hpp"
 #include <rapidjson/document.h>
 #include <cmath>
+#include <typeinfo>
 
 namespace {
 int effectMessage{};
@@ -58,6 +59,11 @@ public:
     void WeaponIdle() override;
 };
 LINK_ENTITY_TO_CLASS(weapon_cannon, CCannon, CCSPlayerWeapon)
+
+bool CSOL_CannonEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon)
+{
+    return typeid(weapon) == typeid(CCannon) && weapon.m_iId == CSOL_WEAPON_CANNON;
+}
 
 void CCannon::Precache()
 {

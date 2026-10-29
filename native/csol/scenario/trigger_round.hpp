@@ -17,7 +17,7 @@ public:
     bool Begin(const WaveTable& table, const TriggerRuleTable& rules,
         const TriggerVolumes& volumes, const RoundRow& round,
         float now, float freezeTime, SpawnPoints& points,
-        TriggerWaveEvents& events, ConfigError& error);
+        TriggerWaveEvents& events, ConfigError& error, bool* committed = nullptr);
 
     WaveController& Waves() { return waves_; }
     const WaveController& Waves() const { return waves_; }

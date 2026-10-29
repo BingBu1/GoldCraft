@@ -27,7 +27,7 @@
 - [plugins-goldcraft-controls.ini](../../amxx/goldcraft/configs/plugins-goldcraft-controls.ini)：入服 F6。
 - [plugins-goldcraft-connection.ini](../../amxx/goldcraft/configs/plugins-goldcraft-connection.ini)：MC 真实断链提示。
 - [plugins-goldcraft-zp-rules.ini](../../amxx/zombie_plague/integration/configs/plugins-goldcraft-zp-rules.ini)：僵尸禁止 MC、感染强制退出，以及主动攻击倍率/反馈。
-- [plugins-floating_damage.ini.example](../../amxx/floating_damage/configs/plugins-floating_damage.ini.example)：飘字；包内使用 `plugins-floating_damage.ini`，同时提供模型、翻译和编译插件。
+- Floating Damage 已退役：不再打包其插件、模型和翻译；升级器精确禁用旧清单中的 `addon_floating_damage.amxx`，保留其他插件与注释，并处理地图专用清单。原生替代属于 CSOLSupport，运行验收记录见伤害显示领域文档。
 - [plugins-zp50-zombie-armor.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-armor.ini) 与 [plugins-zp50-zombie-respawn.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-respawn.ini)：新增护甲/死亡复活；复活提示翻译同时包含。
 - [plugins-zp50-zombie-knockback.ini](../../amxx/zombie_plague/integration/configs/plugins-zp50-zombie-knockback.ini)：取消活僵尸爆头额外推力。
 

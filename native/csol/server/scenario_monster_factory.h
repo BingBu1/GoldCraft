@@ -19,13 +19,25 @@ struct CSOLMonsterSpawnState : std::enable_shared_from_this<CSOLMonsterSpawnStat
     bool shortDeath{};
 };
 
+// A path follower retains SpawnCall copies. Keep only a weak owner identity,
+// never a stack callback or a strong service reference which would form a
+// service -> pool -> behavior -> follower -> service cycle.
+class CCSOLMonsterSpawnOwner
+{
+public:
+    virtual ~CCSOLMonsterSpawnOwner() = default;
+    virtual bool OwnerCurrent() const = 0; // No engine/plugin callbacks.
+};
+
 class CSOLMonsterSpawnCall
 {
 public:
     CSOLMonsterSpawnCall(CCSOLScenarioMap& map, CCSOLMonsterPool& pool,
         CCSOLMonsterDeathRequests& deaths, CCSOLScenarioMonster& monster,
-        const CCSOLMonsterBehavior* expectedBehavior = nullptr);
+        const CCSOLMonsterBehavior* expectedBehavior = nullptr,
+        std::shared_ptr<const CCSOLMonsterSpawnOwner> owner = {});
     bool SameSession() const;
+    bool BelongsTo(const CCSOLScenarioMap& map) const { return &m_map == &map; }
     // For cleaning up an entity just returned by an engine allocation after
     // this borrow/round was cancelled. Does not authorize gameplay callbacks.
     bool SameMap() const;
@@ -42,6 +54,9 @@ private:
     // Optional identity only, never dereferenced. Unlike a stack callback,
     // this remains safe when the path follower retains a copy of the call.
     const CCSOLMonsterBehavior* m_expectedBehavior{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access;
+    std::weak_ptr<const CCSOLMonsterSpawnOwner> m_owner;
+    bool m_hasOwner{};
 };
 
 // Real ReAPI sequence-reset chain with session/lease checks around its two
@@ -97,9 +112,9 @@ public:
     CCSOLMonsterFactory(CCSOLScenarioMap& map, CCSOLMonsterPool& pool,
         CCSOLMonsterModels& models, CCSOLScenarioOccupancy& occupancy,
         CCSOLMonsterDeathRequests& deaths, CCSOLMonsterFactoryServices& services,
-        const CCSOLScenarioMessages& messages)
+        const CCSOLScenarioMessages& messages, std::shared_ptr<const CCSOLMonsterSpawnOwner> owner = {})
         : m_map(map), m_pool(pool), m_models(models), m_occupancy(occupancy),
-          m_deaths(deaths), m_services(services), m_messages(messages) {}
+          m_deaths(deaths), m_services(services), m_messages(messages), m_owner(owner), m_hasOwner(owner != nullptr) {}
 
     CSOLMonsterSpawnResult Spawn(int team, int requestedType, int point, int rowArgument);
     // The manager schedules these records; the wrapper updates next before
@@ -126,6 +141,8 @@ private:
     CCSOLMonsterDeathRequests& m_deaths;
     CCSOLMonsterFactoryServices& m_services;
     const CCSOLScenarioMessages& m_messages;
+    std::weak_ptr<const CCSOLMonsterSpawnOwner> m_owner;
+    bool m_hasOwner{};
     // Each borrow has its own state. Behaviors pin it through callback-driven
     // factory reset/reuse, including before initial timer publication finishes.
     std::array<std::shared_ptr<CSOLMonsterSpawnState>, CCSOLMonsterPool::Capacity> m_states{};

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "scenario_player_upgrades.h"
+#include "scenario_entity_access.h"
 #include "../scenario/equipment.hpp"
 #include <functional>
 
@@ -12,7 +13,8 @@ public:
     // The scenario event owner must handle the original service event 0x26,
     // including its eligibility gates. An absent sink is a reported failure.
     using CapEvent = std::function<bool(const EHANDLE&)>;
-    CCSOLScenarioEquipment(std::shared_ptr<const csol::scenario::EquipmentTables> tables, CapEvent capEvent);
+    CCSOLScenarioEquipment(std::shared_ptr<const csol::scenario::EquipmentTables> tables, CapEvent capEvent,
+        std::shared_ptr<const CSOLScenarioEntityAccess> access = std::make_shared<CSOLScenarioEntityAccess>());
     bool BindPlayer(CBasePlayer& player, int classId, csol::scenario::EquipmentLoadout loadout);
     void RemovePlayer(const EHANDLE& player);
     void Invalidate();
@@ -45,4 +47,5 @@ private:
     CapEvent m_capEvent;
     std::uint64_t m_generation{1};
     bool m_valid{true}, m_binding{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access;
 };

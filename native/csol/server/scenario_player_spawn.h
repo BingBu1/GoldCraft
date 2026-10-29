@@ -29,6 +29,7 @@ class CCSOLScenarioPlayerSpawns
 public:
     explicit CCSOLScenarioPlayerSpawns(CCSOLScenarioSpawnSpace& space) : m_space(space) {}
     bool BeginMap();
+    void BindEntityAccess(std::shared_ptr<const CSOLScenarioEntityAccess> access) { m_access = std::move(access); }
     bool UpdateOccupancy();
     CCSOLPlayerSpawn* Select(CCSOLScenarioMap& map, CBasePlayer& player,
         const std::int32_t& groupOffset, csol::scenario::ConfigError& error);
@@ -36,8 +37,10 @@ public:
 
 private:
     bool RefreshOccupancy();
-    bool OccupiedByPlayer(const Vector& origin, int exceptIndex) const;
+    bool OccupiedByPlayer(const Vector& origin, int exceptIndex,
+        const std::shared_ptr<const CSOLScenarioEntityAccess>& access, bool& occupied) const;
     CCSOLScenarioSpawnSpace& m_space;
     float m_nextOccupancyRefresh{};
     bool m_busy{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access{std::make_shared<CSOLScenarioEntityAccess>()};
 };

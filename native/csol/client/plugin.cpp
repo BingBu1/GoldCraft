@@ -7,10 +7,15 @@
 #include "weapon_inventory.hpp"
 #include "characters.hpp"
 #include "player_animation.hpp"
+#include "sequence_guard.hpp"
 #include <ostream>
+#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <cmath>
 #include "stock_hands.hpp"
+#include "status_icons.hpp"
+#include "damage_display.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
 
@@ -104,6 +109,8 @@ static void ObservePlayerPose()
 }
 static int StudioDrawPlayer(int flags,entity_state_t* player)
 {
+    try{InstallSequenceStudioGuards();}
+    catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
     if(!entity || !player || !entity->player || player->number<1 || player->number>32)
         return originalDrawPlayer(flags,player);
@@ -152,11 +159,18 @@ void* Resolve(const char* name, mh_gamesymbol_kind_t kind)
     if(status!=MH_GAMESYMBOL_OK || !address) throw std::runtime_error(std::string("unavailable matched engine symbol: ")+name);
     return address;
 }
-void Hook(void* address, void* replacement, void** original)
+hook_t* Hook(void* address, void* replacement, void** original)
 {
     auto* hook=api->InlineHook(address,replacement,original);
     if(!hook) throw std::runtime_error("cannot install CSOL engine hook");
     hooks.push_back(hook);
+    return hook;
+}
+void RemoveHook(hook_t* hook)
+{
+    const auto found=std::find(hooks.begin(),hooks.end(),hook);
+    if(found==hooks.end())return;
+    api->UnHook(hook);hooks.erase(found);
 }
 void RemoveHooks()
 {
@@ -165,6 +179,8 @@ void RemoveHooks()
 }
 static int StudioDrawModel(int flags)
 {
+    try{InstallSequenceStudioGuards();}
+    catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
     try { if(entity && DrawModel(entity,flags,originalDrawModel)) return 1; }
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: %s\n",e.what());}
@@ -208,6 +224,8 @@ static void Init()
     InitializeCamera();
     InitializeProjectiles();
     InitializeCharacters();
+    InitializeStatusIcons();
+    InitializeDamageDisplay();
 }
 static int VidInit()
 {
@@ -217,7 +235,16 @@ static int VidInit()
     // A video mode change does not re-send the server's sign-on definitions.
     // Keep inventory until SynchronizeSession observes an actual session change.
     WeaponVideoInit();
+    StatusIconsVideoInit();
+    DamageDisplayVideoInit();
     return downstream.HUD_VidInit();
+}
+static void HudShutdown()
+{
+    if(downstream.HUD_Shutdown)downstream.HUD_Shutdown();
+    // Renderer is the outer export wrapper and removes its own studio detours
+    // after this returns. Remove our later outer detours first.
+    RemoveSequenceClientGuards();
 }
 static void Frame(double time)
 {
@@ -225,6 +252,14 @@ static void Frame(double time)
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();
+    StatusIconsFrame();
+    DamageDisplayFrame();
+}
+static int Redraw(float time, int intermission)
+{
+    const int result = WeaponRedraw(time, intermission);
+    DrawStatusIcons(time);
+    return result;
 }
 static void CalcRefdef(ref_params_t* params)
 {
@@ -257,7 +292,7 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* functions)
 {
     using namespace csol::client;
     engine=*functions;
-    try { InstallLoaders(); }
+    try { InstallSequenceEngineGuards(); InstallLoaders(); InstallDamageOptions(); }
     catch(const std::exception& error)
     {
         RemoveHooks();
@@ -267,8 +302,16 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* functions)
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
 {
     using namespace csol::client;
+    try { InstallSequenceClientGuards(); }
+    catch(const std::exception& error)
+    {
+        RemoveHooks();
+        api->SysError("CSOLSupport: %s",error.what());
+        std::abort();
+    }
     downstream=*functions;
     functions->HUD_Init=csol::client::Init;
+    functions->HUD_Shutdown=HudShutdown;
     functions->HUD_VidInit=VidInit;
     functions->HUD_Frame=Frame;
     functions->HUD_PlayerMove=PlayerMove;
@@ -277,7 +320,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;
     functions->HUD_DrawTransparentTriangles=Transparent;
-    functions->HUD_Redraw=WeaponRedraw;
+    functions->HUD_Redraw=Redraw;
     functions->HUD_PostRunCmd=WeaponPostRunCmd;
     functions->CL_CreateMove=CharacterCreateMove;
     functions->CAM_Think=CameraThink;
@@ -285,6 +328,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveHooks();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownDamageDisplay();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

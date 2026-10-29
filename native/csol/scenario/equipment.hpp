@@ -63,6 +63,10 @@ struct EquipmentLoadout
     {
         std::int32_t classId{};
         std::array<std::int32_t, UpgradeStatCount> values{};
+        // Same original 0xCC record: five caps followed by nine groups of five
+        // item slots. Unsent slots retain -1; an incoming u16 stays unsigned.
+        std::array<std::int32_t, 45> slots = []
+        { std::array<std::int32_t, 45> result; result.fill(-1); return result; }();
     };
     std::vector<std::int32_t> buffItems;
     std::vector<std::int32_t> carriedItems;
@@ -72,6 +76,94 @@ struct EquipmentLoadout
     // Original ClassModManager stores these per player. A missing record uses
     // the normal class cap; the character model ID cannot synthesize a record.
     std::vector<ClassCaps> classCaps;
+    // Explicit trusted import boundary. An empty default profile is unknown,
+    // not evidence that the player's current ClassMod list is empty.
+    bool classModsComplete{};
+};
+
+struct ClassModDefinition
+{
+    std::int32_t item{}, category{};
+    std::int16_t type{}, subtype{};
+    std::array<float, 7> values{};
+};
+
+struct ClassModTable
+{
+    CsvDocument source;
+    std::map<std::int32_t, ClassModDefinition> definitions;
+};
+
+struct ClassModQuery
+{
+    bool (*current)(const void*){}; // Pure lifetime check.
+    const void* owner{};
+    bool (*mode)(const void*, int&){};
+    const void* modeOwner{};
+};
+
+struct ClassModCurrent
+{
+    std::shared_ptr<const ClassModTable> table;
+    std::vector<const ClassModDefinition*> records;
+    std::int32_t classId{};
+    bool complete{}, building{};
+};
+
+bool ReadClassMods(std::string_view bytes, ClassModTable& output, ConfigError& error);
+bool ClassModEligible(const ClassModDefinition& definition, const ClassModQuery& query,
+    bool& eligible, ConfigError& error);
+// Clears before building, preserving the ordered prefix on a later failure.
+// identity0 leaves the old state unchanged. Input records must remain alive
+// through the call; the host cancels if its authoritative import is replaced.
+bool RebuildClassMods(std::uint32_t identity, std::int32_t classId,
+    std::span<const EquipmentLoadout::ClassCaps> records, std::shared_ptr<const ClassModTable> table,
+    ClassModCurrent& current, const ClassModQuery& query, ConfigError& error);
+// v54 rechecks mode for each matching type; v50's exact-pair query does not.
+bool FindClassModType(const ClassModCurrent& current, int type, const ClassModQuery& query,
+    const ClassModDefinition*& result, ConfigError& error);
+bool FindClassModPair(const ClassModCurrent& current, int type, int subtype,
+    const ClassModDefinition*& result, ConfigError& error);
+
+class ClassModResources
+{
+public:
+    bool Load(ResourceFileApi files, ResourceError& error);
+    bool Clear();
+    std::shared_ptr<const ClassModTable> Snapshot() const { return m_table; }
+private:
+    std::shared_ptr<const ClassModTable> m_table;
+    bool m_busy{};
+};
+
+// Original manager+4C contains defaults by classId. This is separate from
+// the player's imported records and never marks a loadout complete by itself.
+struct ClassModPresetTable
+{
+    CsvDocument source;
+    std::array<std::int32_t, 9> categorySlots{};
+    std::map<std::int32_t, EquipmentLoadout::ClassCaps> records;
+};
+
+bool ReadClassModCategorySlots(std::string_view json,
+    std::array<std::int32_t, 9>& output, ConfigError& error);
+bool ReadClassModPresets(std::string_view bytes, const std::array<std::int32_t, 9>& categorySlots,
+    const CsvDocument& items, ClassModPresetTable& output, ResourceError& error);
+
+class ClassModPresetResources
+{
+public:
+    // Reuse the item catalog already loaded by the map's weapon owner.
+    // A null snapshot is unknown, unlike a valid catalog with a missing item.
+    // Pure lifetime check, also called after each file load/release callback.
+    // Cancellation returns false with no resource error and publishes nothing.
+    bool Load(ResourceFileApi files, std::shared_ptr<const CsvDocument> items,
+        bool (*current)(const void*), const void* owner, ResourceError& error);
+    bool Clear();
+    std::shared_ptr<const ClassModPresetTable> Snapshot() const { return m_table; }
+private:
+    std::shared_ptr<const ClassModPresetTable> m_table;
+    bool m_busy{};
 };
 
 // Only the five scenario upgrade capabilities are exposed here. Other buff

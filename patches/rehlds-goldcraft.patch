@@ -227,19 +227,20 @@ index 22e7b6a..535f5e6 100644
  		Q_strlcpy(destInfo, srcInfo, maxsize);
  		Info_RemovePrefixedKeys(destInfo, '_');
 diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
-index e69d2c9..c217f5b 100644
+index e69d2c9..44419bd 100644
 --- a/rehlds/engine/model.cpp
 +++ b/rehlds/engine/model.cpp
-@@ -27,6 +27,8 @@
+@@ -27,6 +27,9 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
 +#include "csol_loader.h"
++#include "csol_sequence_guard.h"
  
  model_t *loadmodel;
  char loadname[MAX_MODEL_NAME];
-@@ -114,8 +116,9 @@ void Mod_ClearAll(void)
+@@ -114,8 +117,9 @@ void Mod_ClearAll(void)
  {
  	int i;
  	model_t *mod;
@@ -250,7 +251,7 @@ index e69d2c9..c217f5b 100644
  		if (mod->type != mod_alias && mod->needload != (NL_NEEDS_LOADED | NL_UNREFERENCED))
  		{
  			mod->needload = NL_UNREFERENCED;
-@@ -129,7 +132,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -129,7 +133,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  {
  	mod_known_info_t *p;
  
@@ -259,7 +260,7 @@ index e69d2c9..c217f5b 100644
  	p->shouldCRC = trackCRC;
  	p->firstCRCDone = 0;
  	p->initialCRC = 0;
-@@ -137,48 +140,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -137,48 +141,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  
  model_t *Mod_FindName(qboolean trackCRC, const char *name)
  {
@@ -317,7 +318,7 @@ index e69d2c9..c217f5b 100644
  }
  
  NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
-@@ -188,7 +161,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
+@@ -188,7 +162,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(TRUE, name);
@@ -326,7 +327,7 @@ index e69d2c9..c217f5b 100644
  
  	if (p->firstCRCDone)
  	{
-@@ -205,7 +178,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
+@@ -205,7 +179,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(FALSE, name);
@@ -335,7 +336,7 @@ index e69d2c9..c217f5b 100644
  
  	p->shouldCRC = needCRC;
  }
-@@ -296,7 +269,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -296,7 +270,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  
  	if (trackCRC)
  	{
@@ -344,7 +345,7 @@ index e69d2c9..c217f5b 100644
  		if (p->shouldCRC)
  		{
  			CRC32_Init(&currentCRC);
-@@ -348,11 +321,15 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -348,11 +322,16 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  		Mod_LoadAliasModel(mod, buf);
  		break;
  	case IDSPRITEHEADER:
@@ -356,13 +357,14 @@ index e69d2c9..c217f5b 100644
 -		Mod_LoadStudioModel(mod, buf);
 +	{
 +		auto expanded = GoldCraftDecodeStudio({reinterpret_cast<std::byte*>(buf), (size_t)length}, mod->name);
-+		Mod_LoadStudioModel(mod, expanded.empty() ? buf : reinterpret_cast<byte*>(expanded.data()));
++		GoldCraftLoadStudioOwned(mod, expanded.empty() ?
++			std::span<std::byte>(reinterpret_cast<std::byte*>(buf), (size_t)length) : std::span<std::byte>(expanded));
  		break;
 +	}
  	default:
  		Mod_LoadBrushModel(mod, buf);
  		break;
-@@ -1888,8 +1865,9 @@ void Mod_Print(void)
+@@ -1888,8 +1867,9 @@ void Mod_Print(void)
  	int i;
  	model_t *mod;
  	Con_Printf("Cached models:\n");
@@ -373,7 +375,7 @@ index e69d2c9..c217f5b 100644
  		Con_Printf("%8p : %s", mod->cache.data, mod->name);
  		if (mod->needload & NL_UNREFERENCED)
  			Con_Printf(" (!R)");
-@@ -1908,7 +1886,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1908,7 +1888,7 @@ NOXREF void Mod_ChangeGame(void)
  
  	for (i = 0; i < mod_numknown; i++)
  	{
@@ -382,7 +384,7 @@ index e69d2c9..c217f5b 100644
  
  		if (mod->type == mod_studio)
  		{
-@@ -1916,7 +1894,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1916,7 +1896,7 @@ NOXREF void Mod_ChangeGame(void)
  				Cache_Free(&mod->cache);
  		}
  
@@ -391,7 +393,7 @@ index e69d2c9..c217f5b 100644
  
  		p->firstCRCDone = FALSE;
  		p->initialCRC = 0;
-@@ -1926,12 +1904,12 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1926,12 +1906,12 @@ NOXREF void Mod_ChangeGame(void)
  model_t *Mod_Handle(int modelindex)
  {
  #ifdef REHLDS_FIXES
@@ -1097,18 +1099,77 @@ index 2d380c5..32cf4ab 100644
  				}
  			}
 diff --git a/rehlds/engine/r_studio.cpp b/rehlds/engine/r_studio.cpp
-index 4124bf6..cfbe70d 100644
+index 4124bf6..ab134bf 100644
 --- a/rehlds/engine/r_studio.cpp
 +++ b/rehlds/engine/r_studio.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,9 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "csol_sequence_guard.h"
++#include <cmath>
  
  typedef struct r_studiocache_s
  {
-@@ -764,7 +765,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+@@ -473,6 +476,7 @@ void R_StudioSlerpBones(vec4_t *q1, vec3_t *pos1, vec4_t *q2, vec3_t *pos2, floa
+ 
+ mstudioanim_t *R_GetAnim(model_t *psubmodel, mstudioseqdesc_t *pseqdesc)
+ {
++	GoldCraftStudioSelected(psubmodel, pstudiohdr, pseqdesc);
+ 	mstudioseqgroup_t *pseqgroup;
+ 	cache_user_t *paSequences;
+ 
+@@ -515,6 +519,7 @@ void EXT_FUNC SV_StudioSetupBones(model_t *pModel, float frame, int sequence, co
+ 	float s;
+ 
+ 	chainlength = 0;
++	const bool guarded = GoldCraftStudioTagged(pModel, pstudiohdr);
+ 	if (sequence < 0 || sequence >= pstudiohdr->numseq)
+ 	{
+ 		Con_DPrintf("SV_StudioSetupBones:  sequence %i/%i out of range for model %s\n", sequence, pstudiohdr->numseq, pstudiohdr->name);
+@@ -547,9 +552,12 @@ void EXT_FUNC SV_StudioSetupBones(model_t *pModel, float frame, int sequence, co
+ 	}
+ 
+ 	f = (pseqdesc->numframes > 1) ? (pseqdesc->numframes - 1) * frame / 256.0f : 0.0f;
++	if (guarded && (!std::isfinite(f) || f < 0 || f > pseqdesc->numframes - 1))
++		Sys_Error("CSOL studio server frame outside sequence: %s", pModel->name);
+ 
+ 	R_StudioCalcBoneAdj(0.0, adj, pcontroller, pcontroller, 0);
+ 	s = f - (float)(int)f;
++	GoldCraftStudioSample(pModel, pstudiohdr, pseqdesc, panim, (float)(int)f, s, true);
+ 
+ 	for (int i = chainlength - 1; i >= 0; i--)
+ 	{
+@@ -563,6 +571,7 @@ void EXT_FUNC SV_StudioSetupBones(model_t *pModel, float frame, int sequence, co
+ 	{
+ 		panim = R_GetAnim(pModel, pseqdesc);
+ 		panim += pstudiohdr->numbones;
++		GoldCraftStudioSample(pModel, pstudiohdr, pseqdesc, panim, (float)(int)f, s, true);
+ 
+ 		for (int i = chainlength - 1; i >= 0; i--)
+ 		{
+@@ -608,8 +617,9 @@ void SV_SetStudioHullPlane(mplane_t *pplane, int iBone, int k, float dist)
+ hull_t *R_StudioHull(model_t *pModel, float frame, int sequence, const vec_t *angles, const vec_t *origin, const vec_t *size, const unsigned char *pcontroller, const unsigned char *pblending, int *pNumHulls, const edict_t *pEdict, int bSkipShield)
+ {
+ 	SV_InitStudioHull();
++	const bool guarded = GoldCraftStudioTagged(pModel, (studiohdr_t *)Mod_Extradata(pModel));
+ 
+-	if (r_cachestudio.value != 0)
++	if (r_cachestudio.value != 0 && !guarded)
+ 	{
+ 		r_studiocache_t *pCached = R_CheckStudioCache(pModel, frame, sequence, angles, origin, size, pcontroller, pblending);
+ 
+@@ -656,7 +666,7 @@ hull_t *R_StudioHull(model_t *pModel, float frame, int sequence, const vec_t *an
+ 	}
+ 
+ 	*pNumHulls = (bSkipShield == 1) ? pstudiohdr->numhitboxes - 1 : pstudiohdr->numhitboxes;
+-	if (r_cachestudio.value != 0)
++	if (r_cachestudio.value != 0 && !guarded)
+ 	{
+ 		R_AddToStudioCache(frame, sequence, angles, origin, size, pcontroller, pblending, pModel, studio_hull, *pNumHulls);
+ 	}
+@@ -764,7 +774,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
  	if (pEdict->v.gamestate == 1 && (g_eGameType == GT_TerrorStrike || g_eGameType == GT_CStrike || g_eGameType == GT_CZero))
  		bSkipShield = 1;
  
@@ -1117,7 +1178,7 @@ index 4124bf6..cfbe70d 100644
  	{
  		VectorScale(size, factor, size);
  		offset[0] = 0;
-@@ -772,7 +773,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+@@ -772,7 +782,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
  		offset[2] = 0;
  		if (pEdict->v.flags & FL_CLIENT)
  		{
@@ -1126,7 +1187,7 @@ index 4124bf6..cfbe70d 100644
  
  			mstudioseqdesc_t* pseqdesc = (mstudioseqdesc_t *)((char*)pstudiohdr + pstudiohdr->seqindex);
  			pseqdesc += pEdict->v.sequence;
-@@ -788,7 +789,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+@@ -788,7 +798,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
  			unsigned char blending[2] = { (unsigned char)iBlend, 0 };
  			unsigned char controller[4] = { 0x7F, 0x7F, 0x7F, 0x7F };
  			return R_StudioHull(
@@ -1135,7 +1196,7 @@ index 4124bf6..cfbe70d 100644
  				pEdict->v.frame,
  				pEdict->v.sequence,
  				angles,
-@@ -803,7 +804,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
+@@ -803,7 +813,7 @@ hull_t *SV_HullForStudioModel(const edict_t *pEdict, const vec_t *mins, const ve
  		else
  		{
  			return R_StudioHull(
@@ -1144,7 +1205,7 @@ index 4124bf6..cfbe70d 100644
  				pEdict->v.frame,
  				pEdict->v.sequence,
  				pEdict->v.angles,
-@@ -863,7 +864,7 @@ qboolean SV_CheckSphereIntersection(edict_t *ent, const vec_t *start, const vec_
+@@ -863,7 +873,7 @@ qboolean SV_CheckSphereIntersection(edict_t *ent, const vec_t *start, const vec_
  	traceDir[1] = end[1] - start[1];
  	traceDir[2] = end[2] - start[2];
  
@@ -1153,7 +1214,7 @@ index 4124bf6..cfbe70d 100644
  	pseqdesc = (mstudioseqdesc_t *)((char *)studiohdr + studiohdr->seqindex);
  	pseqdesc += ent->v.sequence;
  	for (int i = 0; i < 3; i++)
-@@ -880,7 +881,7 @@ void EXT_FUNC AnimationAutomove(const edict_t *pEdict, float flTime)
+@@ -880,7 +890,7 @@ void EXT_FUNC AnimationAutomove(const edict_t *pEdict, float flTime)
  
  void EXT_FUNC GetBonePosition(const edict_t *pEdict, int iBone, float *rgflOrigin, float *rgflAngles)
  {
@@ -1162,7 +1223,7 @@ index 4124bf6..cfbe70d 100644
  
  #ifdef REHLDS_FIXES
  	if (!pstudiohdr)
-@@ -891,7 +892,7 @@ void EXT_FUNC GetBonePosition(const edict_t *pEdict, int iBone, float *rgflOrigi
+@@ -891,7 +901,7 @@ void EXT_FUNC GetBonePosition(const edict_t *pEdict, int iBone, float *rgflOrigi
  #endif
  
  	g_pSvBlendingAPI->SV_StudioSetupBones(
@@ -1171,7 +1232,7 @@ index 4124bf6..cfbe70d 100644
  		pEdict->v.frame,
  		pEdict->v.sequence,
  		pEdict->v.angles,
-@@ -915,7 +916,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
+@@ -915,7 +925,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
  	mstudioattachment_t *pattachment;
  	vec3_t angles;
  
@@ -1180,7 +1241,7 @@ index 4124bf6..cfbe70d 100644
  
  #ifdef REHLDS_FIXES
  	if (!pstudiohdr)
-@@ -933,7 +934,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
+@@ -933,7 +943,7 @@ void EXT_FUNC GetAttachment(const edict_t *pEdict, int iAttachment, float *rgflO
  	angles[2] = pEdict->v.angles[2];
  
  	g_pSvBlendingAPI->SV_StudioSetupBones(
@@ -1189,6 +1250,24 @@ index 4124bf6..cfbe70d 100644
  		pEdict->v.frame,
  		pEdict->v.sequence,
  		angles,
+@@ -1123,12 +1133,15 @@ int R_GetStudioBounds(const char *filename, float *mins, float *maxs)
+ 	if (pBuffer)
+ 		usingReadBuffer = 1;
+ 	else
+-		pBuffer = (char*) COM_LoadFile(filename, 5, 0);
++		pBuffer = (char*) COM_LoadFile(filename, 5, &length);
+ 
+ 	if (pBuffer)
+ 	{
+-		if (LittleLong(*(unsigned int *)pBuffer) == IDSTUDIOHEADER)
++		if (length >= sizeof(studiohdr_t) && LittleLong(*(unsigned int *)pBuffer) == IDSTUDIOHEADER)
++		{
++			GoldCraftCheckStudioBounds({reinterpret_cast<const std::byte*>(pBuffer), (size_t)length});
+ 			iret = R_StudioComputeBounds((unsigned char*)pBuffer, mins, maxs);
++		}
+ #ifndef REHLDS_FIXES
+ 		// wrong release memory code
+ 		else
 diff --git a/rehlds/engine/server.h b/rehlds/engine/server.h
 index ceffd0d..fb4b7db 100644
 --- a/rehlds/engine/server.h
@@ -2163,6 +2242,34 @@ index 8038ab7..05faef7 100644
  
  	if (trace->fraction != 1.0f)
  	{
+diff --git a/rehlds/engine/zone.cpp b/rehlds/engine/zone.cpp
+index 3a1ab65..ff4e92c 100644
+--- a/rehlds/engine/zone.cpp
++++ b/rehlds/engine/zone.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "csol_sequence_guard.h"
+ 
+ // ZONE MEMORY ALLOCATION
+ //
+@@ -830,6 +831,7 @@ void* EXT_FUNC Cache_Check(cache_user_t *c)
+ 
+ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+ {
++	GoldCraftStudioAllocating(c, size);
+ 	cache_system_t *cs;
+ 
+ 	if (c->data)
+@@ -869,6 +871,7 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+ 
+ void Memory_Init(void *buf, int size)
+ {
++	GoldCraftStudioMemoryReset();
+ 	int zonesize = ZONE_DYNAMIC_SIZE;
+ 
+ 	hunk_base = (byte *)buf;
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
 index 85c04cb..5b189a1 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp

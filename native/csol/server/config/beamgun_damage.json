@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "defaults": {
+    "ShootADamage": 40,
+    "ShootADamageZombie": 850,
+    "ShootADamageScenario": 3600,
+    "ShootAExplosionDamage": 10,
+    "ShootAExplosionDamageZombie": 600,
+    "ShootAExplosionDamageScenario": 1800,
+    "ShootAFullExplosionDamage": 10,
+    "ShootAFullExplosionDamageZombie": 11760,
+    "ShootAFullExplosionDamageScenario": 19000,
+    "FullChargeExplosionDamage": 5,
+    "FullChargeExplosionDamageZombie": 3000,
+    "FullChargeExplosionDamageScenario": 3000,
+    "ShootB1Damage": 20,
+    "ShootB1DamageZombie": 3000,
+    "ShootB1DamageScenario": 3000,
+    "ShootB2Damage": 5,
+    "ShootB2DamageZombie": 2000,
+    "ShootB2DamageScenario": 2000,
+    "ChargeShootADamage": 40,
+    "ChargeShootADamageZombie": 16800,
+    "ChargeShootADamageScenario": 78500,
+    "ChargeShootBExplosionDamage": 40,
+    "ChargeShootBExplosionDamageZombie": 18000,
+    "ChargeShootBExplosionDamageScenario": 65000,
+    "WingManAttack1Damage": 0,
+    "WingManAttack1DamageZombie": 100,
+    "WingManAttack1DamageScenario": 250,
+    "WingManAttack2Damage": 0,
+    "WingManAttack2DamageZombie": 75,
+    "WingManAttack2DamageScenario": 75,
+    "KillEvasionExplosionDamage": 0,
+    "KillEvasionExplosionDamageZombie": 6000,
+    "KillEvasionExplosionDamageScenario": 16000
+  },
+  "overrides": {
+    "beamgun": {},
+    "beamgunle": {}
+  }
+}

@@ -4,6 +4,8 @@
 #include "camera.hpp"
 #include "projectiles.hpp"
 #include "characters.hpp"
+#include "status_icons.hpp"
+#include "damage_display.hpp"
 #include <ostream>
 #include <algorithm>
 
@@ -23,6 +25,8 @@ void ResetSession()
     ResetCamera();
     ResetProjectiles();
     ResetCharacters();
+    ResetStatusIcons();
+    ResetDamageDisplay();
 }
 }
 

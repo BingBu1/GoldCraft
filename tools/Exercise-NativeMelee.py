@@ -82,15 +82,11 @@ class Run(base.Run):
         for p in (base.AMXX/'configs').glob('plugins-*.ini'):self.put(p,b'; isolated health fixture\n')
         lines=(base.AMXX/'configs/plugins.ini').read_text().splitlines()
         lines=[s for s in lines if not s.startswith('goldcraft_zp_reapi_test.')]
-        lines=['goldcraft.amxx debug','addon_floating_damage.amxx debug','goldcraft_melee_test.amxx debug']
+        lines=['goldcraft.amxx debug','goldcraft_melee_test.amxx debug']
         self.put(base.AMXX/'configs/plugins.ini',('\n'.join(lines)+'\n').encode())
         self.put(base.AMXX/'configs/modules.ini',(base.AMXX/'configs/modules.ini').read_bytes()+b'goldcraft\n')
         self.copy(ROOT/'build/native-x86/Release/goldcraft_amxx.dll',base.AMXX/'modules/goldcraft_amxx.dll')
         self.copy(ROOT/'build/amxx/plugins/goldcraft.amxx',base.AMXX/'plugins/goldcraft.amxx')
-        for relative in ['addons/amxmodx/plugins/addon_floating_damage.amxx',
-                         'addons/amxmodx/data/lang/floating_damage.txt',
-                         'models/x_re/floating_damage.mdl']:
-            self.copy(base.LIVE/'cstrike'/relative,base.GAME/'cstrike'/relative)
         self.copy(ROOT/'build/amxx/plugins/goldcraft_melee_test.amxx',base.AMXX/'plugins/goldcraft_melee_test.amxx')
         self.copy(self.server_dll,base.GAME/'cstrike/dlls/mp.dll')
         self.put(base.GAME/'cstrike/game_init.cfg',b'mc_map_mining 0\n')

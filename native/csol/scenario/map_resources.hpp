@@ -34,6 +34,12 @@ struct MapTables
     // Only manager subtypes 1/3/4/10 load this file in the original engine.
     // Presence means loaded successfully, not that all its commands are supported.
     std::optional<TriggerRuleTable> triggerRules;
+    // Host selection identity, distinct from the manager subtype. Missing
+    // means the filename was ambiguous or the caller supplied only a subtype.
+    std::optional<int> mapId;
+    // Captured with the catalog identity, retained across table reloads.
+    // Direct subtype-only callers have no catalog authority for a menu.
+    std::optional<int> difficultyLimit;
 };
 
 // Own one map session. BeginMap always drops the old session, even when the
@@ -45,12 +51,14 @@ class MapResources
 public:
     // scenarioType is the manager's resolved subtype, not the public game-mode
     // number. Its selection belongs to GameRules; do not infer it from filenames
-    // or silently apply a trigger table to every scenario map.
+    // or silently apply a trigger table to every scenario map. selectedMapId
+    // is an explicit positive numeric selection; omission leaves it unknown.
     bool BeginMap(std::string_view mapName, ResourceFileApi files, ResourceError& error,
-        int scenarioType = 0);
+        int scenarioType = 0, std::optional<int> selectedMapId = {});
     // Resolve the subtype from resource/maplist.csv on each new map session.
     // No archive scan or stale previous-map fallback. Reload keeps that session's
-    // resolved subtype; explicit numeric-ID selection can use BeginMap above.
+    // resolved subtype and optional numeric ID; explicit numeric selection
+    // can use BeginMap above. Reload never re-reads a changed map catalog.
     bool BeginMapFromCatalog(std::string_view mapName, ResourceFileApi files, ResourceError& error);
     bool Reload(ResourceFileApi files, ResourceError& error);
     // Once for each successfully loaded set of type records, before a round
@@ -63,6 +71,8 @@ public:
 private:
     std::string mapName_;
     std::optional<int> scenarioType_;
+    std::optional<int> mapId_;
+    std::optional<int> difficultyLimit_;
     std::optional<MapTables> tables_;
     bool difficultyApplied_{};
 };

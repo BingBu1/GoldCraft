@@ -33,6 +33,9 @@ struct CSOLMonsterSpeedState
     std::deque<CSOLMonsterSpeedLimit> limits;
     std::list<CSOLMonsterVelocityEffect> effects;
     float recovery{1.0f};
+    // Original host+1378. The legacy name predates the part10 consumer:
+    // this deadline blocks nearby-monster healing, not motion/animation.
+    // The normal motion pass clears it on expiry; pool reuse preserves it.
     double impulseProtectionUntil{};
     Vector2D impulse{};
     float impulseUntil{};

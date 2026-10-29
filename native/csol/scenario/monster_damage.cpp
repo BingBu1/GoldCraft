@@ -2,9 +2,27 @@
 #include "monster_damage.hpp"
 
 #include <cmath>
+#include <random>
 
 namespace csol::scenario
 {
+double WeaponAttributeRandom(std::uint32_t seed)
+{
+    std::mt19937 engine(seed);
+    return WeaponAttributeRandom(engine);
+}
+
+double WeaponAttributeRandom(std::mt19937& engine)
+{
+    const auto first = static_cast<std::uint32_t>(engine());
+    const auto second = static_cast<std::uint32_t>(engine());
+    // CSO's old distribution puts the second word in the high 32 bits of
+    // this 53-bit integer. std::uniform_real_distribution is not a portable
+    // substitute: its word order and rounding are implementation-defined.
+    const std::uint64_t value = (std::uint64_t{second} << 21) + (first >> 11);
+    return static_cast<double>(value) * 0x1p-53;
+}
+
 namespace
 {
 float WeaponMinimum(int weapon)

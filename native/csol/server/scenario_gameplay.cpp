@@ -10,12 +10,19 @@
 
 CCSOLScenarioGameplay::CCSOLScenarioGameplay(CCSOLScenarioSession& session,
     CCSOLMonsterDeathServices& deathServices, CCSOLSpawnClearDeaths& spawnDeaths,
-    CCSOLMonsterFactoryServices& factoryServices, int mapId)
-    : m_session(session), m_spawnDeaths(spawnDeaths),
+    CCSOLMonsterFactoryServices& factoryServices, int mapId,
+    std::shared_ptr<const CCSOLMonsterSpawnOwner> owner)
+    : m_session(session), m_owner(owner), m_hasOwner(owner != nullptr), m_spawnDeaths(spawnDeaths),
       m_deaths(session.Map(), session.Monsters(), session.Models(), session.Messages(), deathServices, mapId),
       m_occupancy(session.Monsters(), spawnDeaths), m_spawns(m_occupancy),
       m_factory(session.Map(), session.Monsters(), session.Models(), m_occupancy,
-          m_deaths.Requests(), factoryServices, session.Messages()) {}
+          m_deaths.Requests(), factoryServices, session.Messages(), std::move(owner)) {}
+
+bool CCSOLScenarioGameplay::OwnerCurrent() const
+{
+    const auto owner = m_owner.lock();
+    return !m_hasOwner || (owner && owner->OwnerCurrent());
+}
 
 bool CCSOLScenarioGameplay::Fail(const char* reason)
 {
@@ -25,11 +32,13 @@ bool CCSOLScenarioGameplay::Fail(const char* reason)
 
 bool CCSOLScenarioGameplay::Activate()
 {
+    const auto owner = m_owner.lock();
+    if (!OwnerCurrent()) return false;
     if (m_active || m_updating || m_resetting ||
         m_session.State() != CSOLScenarioSessionState::Active)
         return Fail("scenario gameplay activated outside its collected map session");
     const auto* tables = m_session.Map().Tables();
-    if (!tables || tables->mapName != "zs_deadend" || tables->scenarioType != 1)
+    if (!tables || !SupportsMap(tables->mapName, tables->scenarioType))
         return Fail("scenario gameplay currently requires zs_deadend subtype1");
     const auto navigation = m_session.ScenarioNavigation();
     if (!navigation || !navigation->World().Ready())
@@ -37,6 +46,7 @@ bool CCSOLScenarioGameplay::Activate()
     const auto areas = navigation->Areas();
     const std::list<CNavArea*> gridAreas(areas.begin(), areas.end());
     if (!m_occupancy.Initialize(gridAreas)) return Fail(m_occupancy.Error().c_str());
+    m_spawns.BindEntityAccess(m_session.Map().EntityAccess());
     if (!m_spawns.BeginMap()) return Fail("scenario player spawn manager could not start");
     m_spawnGroupOffset = 0;
     m_error = {};
@@ -48,6 +58,7 @@ bool CCSOLScenarioGameplay::Activate()
 bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float freezeTime,
     csol::scenario::TriggerWaveEvents& events)
 {
+    const auto owner = m_owner.lock();
     if (!Active() || m_updating || m_resetting || m_selecting) return false;
     struct ResetScope { bool& flag; ~ResetScope() { flag = false; } } scope{m_resetting};
     m_resetting = true;
@@ -61,7 +72,10 @@ bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float 
     if (!m_occupancy.ResetGrid()) return Fail(m_occupancy.Error().c_str());
     m_spawnGroupOffset = 0; // mode15/subtype1; the next round supplies its own group.
     if (!m_session.BeginRound(roundIndex, now, freezeTime, events))
+    {
+        if (!Active() || generation != m_generation || m_session.Error().detail.message.empty()) return false;
         return Fail(m_session.Error().detail.message.c_str());
+    }
     return Active() && generation == m_generation;
 }
 
@@ -101,23 +115,50 @@ void CCSOLScenarioGameplay::Dispatch(void* context, const csol::scenario::WaveRo
 bool CCSOLScenarioGameplay::Update(CHalfLifeMultiplay& rules, float thinkTime,
     int aliveCtCount, csol::scenario::TriggerWaveEvents& events)
 {
+    const auto owner = m_owner.lock();
     if (!Active() || m_updating || m_resetting || m_selecting) return false;
     struct UpdateScope { bool& flag; ~UpdateScope() { flag = false; } } scope{m_updating};
     m_updating = true;
     const auto generation = m_generation;
-    if (!rules.IsGameStarted() || rules.IsFreezePeriod() || rules.m_bRoundTerminating) return true;
+    if (!rules.IsGameStarted() || rules.IsFreezePeriod()) return true;
+    if (rules.m_bRoundTerminating)
+    {
+        bool due{};
+        if (!m_session.Map().AdvanceMonsterDrain(gpGlobals->time, due))
+            return Fail("scenario round drain clock is invalid");
+        if (!due) return true;
+        const auto round = m_session.Map().RoundGeneration();
+        const auto requests = m_deaths.Requests().Generation();
+        const auto result = m_deaths.Drain(3, true);
+        if (m_generation != generation || !Active() ||
+            m_session.Map().RoundGeneration() != round ||
+            m_deaths.Requests().Generation() != requests) return false;
+        if (!result.valid) return Fail(result.error.message.c_str());
+        if (!result.selected) m_session.Map().CompleteMonsterDrain();
+        return true;
+    }
     if (!m_spawns.UpdateOccupancy()) return Fail("scenario live occupancy refresh failed");
     if (m_generation != generation || !Active()) return false;
     const auto frame = m_session.Map().UpdateFrame(rules, thinkTime, aliveCtCount, Dispatch, this, events);
     if (m_generation != generation || !Active()) return false;
-    if (!frame.valid) return Fail(m_session.Map().Error().detail.message.c_str());
+    if (!frame.valid)
+    {
+        if (m_session.Map().Error().detail.message.empty()) return false;
+        return Fail(m_session.Map().Error().detail.message.c_str());
+    }
     if (!m_deaths.Error().message.empty()) return Fail(m_deaths.Error().message.c_str());
     if (!m_deaths.Requests().Error().empty()) return Fail(m_deaths.Requests().Error().c_str());
     return true;
 }
 
+bool CCSOLScenarioGameplay::ScheduleRoundDrain(float now)
+{
+    return Active() && m_session.Map().ScheduleMonsterDrain(now, 0);
+}
+
 CCSOLPlayerSpawn* CCSOLScenarioGameplay::SelectSpawn(CBasePlayer& player)
 {
+    const auto owner = m_owner.lock();
     if (!Active() || m_selecting || m_session.Map().State() != CSOLScenarioMapState::RoundActive) return nullptr;
     struct SelectScope { bool& flag; ~SelectScope() { flag = false; } } scope{m_selecting};
     m_selecting = true;
@@ -125,6 +166,12 @@ CCSOLPlayerSpawn* CCSOLScenarioGameplay::SelectSpawn(CBasePlayer& player)
     csol::scenario::ConfigError error;
     auto* spot = m_spawns.Select(m_session.Map(), player, m_spawnGroupOffset, error);
     if (!Active() || generation != m_generation) return nullptr;
+    if (!m_deaths.Error().message.empty() || !m_deaths.Requests().Error().empty())
+    {
+        Fail(m_deaths.Error().message.empty() ? m_deaths.Requests().Error().c_str() :
+            m_deaths.Error().message.c_str());
+        return nullptr;
+    }
     if (!spot) Fail(error.message.empty() ? "scenario player spawn selection failed" : error.message.c_str());
     return spot;
 }
@@ -136,7 +183,15 @@ bool CCSOLScenarioGameplay::Deactivate()
     // Always cancel before the enclosing Session releases old-map edicts.
     if (!m_deaths.Reset()) return Fail(m_deaths.Error().message.c_str());
     if (m_updating || m_resetting || m_selecting)
-        return Fail("scenario gameplay is still inside a callback during shutdown");
+        return false; // Deferred cleanup, not a gameplay failure.
+    if (!m_session.Map().EntityAccessAllowed())
+    {
+        // Do not run round-reset effects against a map being freed. Keep type
+        // caches until the engine's actual OnDestroy calls have detached them.
+        if (!m_session.Monsters().Shutdown() || !m_session.Monsters().ForgetMap()) return false;
+        if (!m_factory.Reset() || !m_occupancy.Shutdown()) return false;
+        return true;
+    }
     if (!m_session.Monsters().RestartRound()) return Fail(m_session.Monsters().Error().c_str());
     if (!m_factory.Reset()) return Fail(m_factory.Error().message.c_str());
     if (!m_occupancy.Shutdown()) return Fail(m_occupancy.Error().c_str());
@@ -144,11 +199,13 @@ bool CCSOLScenarioGameplay::Deactivate()
 }
 
 bool CCSOLScenarioGameplay::ResolveSpawnOverlap(CSOLMonsterSpawnCall& call,
-    std::span<const std::size_t> protectedSlots, csol::scenario::ConfigError& error)
+    std::span<const std::size_t> protectedSlots, csol::scenario::ConfigError& error,
+    bool (*ownerValid)(const void*), const void* ownerContext)
 {
     #pragma clang fp contract(off)
+    const auto owner = m_owner.lock();
     auto* current = call.Current();
-    if (!Active() || !current) return false;
+    if (!Active() || !current || (ownerValid && !ownerValid(ownerContext))) return false;
     // Golden membership is queried live in CSO, including mutations caused
     // by earlier deaths. A borrowed snapshot cannot implement that contract.
     // This composition currently accepts only explicitly empty membership;
@@ -159,7 +216,11 @@ bool CCSOLScenarioGameplay::ResolveSpawnOverlap(CSOLMonsterSpawnCall& call,
         return false;
     }
     const auto generation = m_generation;
-    const auto same = [&]() { return Active() && generation == m_generation && call.Current(); };
+    const auto same = [&]()
+    {
+        return (!ownerValid || ownerValid(ownerContext)) && Active() &&
+            generation == m_generation && call.Current();
+    };
     const auto fail = [&](const char* reason)
     {
         if (same() && error.message.empty()) error.message = reason;
@@ -176,8 +237,9 @@ bool CCSOLScenarioGameplay::ResolveSpawnOverlap(CSOLMonsterSpawnCall& call,
     {
         const EHANDLE handle(&victim);
         const auto lease = m_session.Monsters().Lease(victim);
-        m_spawnDeaths.BeforeSpawnClear(victim);
+        const bool prepared = m_spawnDeaths.BeforeSpawnClear(victim);
         if (!same()) return false;
+        if (!prepared) return fail("scenario overlap pre-death service failed");
         auto* live = dynamic_cast<CCSOLScenarioMonster*>(handle.Get<CBaseEntity>());
         if (!live || m_session.Monsters().Lease(*live) != lease)
             return fail("scenario overlap pre-death changed the victim lease");

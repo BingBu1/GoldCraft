@@ -79,13 +79,16 @@ const char* CSOL_CharacterModel(CBasePlayer* player)
 {
     if(const auto* c=Selected(player))return c->model.c_str();return nullptr;
 }
-bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId)
+bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId,
+    std::shared_ptr<const CSOLScenarioEntityAccess> access)
 {
-    if(!ready || !player)return false;
+    if((access && !access->Allowed()) || !ready || !player)return false;
     const EHANDLE handle(player);
     const int index=player->entindex();
+    if(access && !access->Allowed())return false;
     if(!handle.Get() || index<1 || index>32)return false;
     const int userid=GETPLAYERUSERID(handle.Get());
+    if(access && !access->Allowed())return false;
     auto* current=dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>());
     if(!ready || !current || (current->pev->flags&FL_KILLME) || states[index].userid!=userid)return false;
     const auto* character=csol::FindCharacter(catalog,states[index].selected);
@@ -93,17 +96,21 @@ bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId)
     classId=character->scenarioClass;
     return true;
 }
-bool CSOL_EnsureScenarioBotCharacter(CBasePlayer* player)
+bool CSOL_EnsureScenarioBotCharacter(CBasePlayer* player,
+    std::shared_ptr<const CSOLScenarioEntityAccess> access)
 {
-    if(!ready || !player || !(player->pev->flags&FL_FAKECLIENT))return false;
+    if((access && !access->Allowed()) || !ready || !player || !(player->pev->flags&FL_FAKECLIENT))return false;
     const EHANDLE handle(player);
     int classId{};
-    if(CSOL_CharacterScenarioClass(player,classId))return true;
-    if(!ready || handle.Get<CBaseEntity>()!=player)return false;
+    if(CSOL_CharacterScenarioClass(player,classId,access))return true;
+    if((access && !access->Allowed()) || !ready || handle.Get<CBaseEntity>()!=player)return false;
     const int index=player->entindex();
+    if(access && !access->Allowed())return false;
     if(index<1 || index>32 || handle.Get<CBaseEntity>()!=player)return false;
-    auto& state=State(player);
-    if(handle.Get<CBaseEntity>()!=player || !ready)return false;
+    const int userid=GETPLAYERUSERID(handle.Get());
+    if((access && !access->Allowed()) || handle.Get<CBaseEntity>()!=player || !ready)return false;
+    auto& state=states[index];
+    if(state.userid!=userid){state={};state.userid=userid;}
     for(const auto& character:catalog)
         if(character.team==player->m_iTeam && character.scenarioClass>=0){
             state.selected=character.id;return true;

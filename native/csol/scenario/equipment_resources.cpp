@@ -4,7 +4,9 @@
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
+#include <algorithm>
 #include <charconv>
+#include <bit>
 #include <cmath>
 #include <memory>
 
@@ -242,6 +244,202 @@ bool EquipmentResources::Clear()
 {
     if (m_busy) return false;
     m_tables.reset();
+    return true;
+}
+
+bool ReadClassMods(std::string_view bytes, ClassModTable& output, ConfigError& error)
+{
+    error = {};
+    ClassModTable candidate;
+    if (!ReadCsv(bytes, candidate.source, error)) return false;
+    for (std::size_t row = 1; row < candidate.source.records.size(); ++row)
+    {
+        const auto& record = candidate.source.records[row];
+        if (record.fields.size() < 11)
+        { error = {record.byteOffset, "class mod definition requires eleven columns"}; return false; }
+        ClassModDefinition definition;
+        std::int32_t type{}, subtype{};
+        // Original readers are atoi/atof and store the low16 bits for these
+        // two fields. Empty integer keys are malformed host input: the original
+        // reuses an uninitialized temporary for some of them, not reliable0.
+        for (std::size_t column = 0; column < 4; ++column)
+            if (Trim(record.fields[column]).empty())
+            { error = {record.byteOffset, "class mod integer key is empty"}; return false; }
+        if (!Integer(record.fields[0], definition.item) || !Integer(record.fields[1], definition.category) ||
+            !Integer(record.fields[2], type) || !Integer(record.fields[3], subtype))
+        { error = {record.byteOffset, "class mod integer exceeds int32"}; return false; }
+        definition.type = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(type));
+        definition.subtype = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(subtype));
+        for (std::size_t column = 0; column < definition.values.size(); ++column)
+            if (!Number(record.fields[4 + column], definition.values[column]))
+            { error = {record.byteOffset, "class mod parameter exceeds finite float"}; return false; }
+        if (!candidate.definitions.emplace(definition.item, definition).second)
+        { error = {record.byteOffset, "duplicate class mod item definition"}; return false; }
+    }
+    output = std::move(candidate);
+    return true;
+}
+
+bool ClassModResources::Load(ResourceFileApi files, ResourceError& error)
+{
+    error = {};
+    if (m_busy || !files.load || !files.release)
+    { error.detail.message = "class mod loader is busy or unavailable"; return false; }
+    m_busy = true;
+    struct Busy { bool& flag; ~Busy() { flag = false; } } busy{m_busy};
+    m_table.reset();
+    constexpr const char* path = "resource/buff/ClassMod.csv";
+    std::string bytes;
+    if (!File(path, files, bytes, error)) return false;
+    auto candidate = std::make_shared<ClassModTable>();
+    ConfigError detail;
+    if (!ReadClassMods(bytes, *candidate, detail))
+    { error = {path, std::move(detail)}; return false; }
+    m_table = std::move(candidate);
+    return true;
+}
+
+bool ClassModResources::Clear()
+{
+    if (m_busy) return false;
+    m_table.reset();
+    return true;
+}
+
+bool ReadClassModCategorySlots(std::string_view json,
+    std::array<std::int32_t, 9>& output, ConfigError& error)
+{
+    error = {};
+    if (json.empty() || json.size() > 8 * 1024 * 1024 || json.find('\0') != json.npos)
+    { error.message = "invalid class mod configuration size or embedded NUL"; return false; }
+    if (json.starts_with("\xEF\xBB\xBF")) json.remove_prefix(3);
+    rapidjson::Document document;
+    document.Parse(json.data(), json.size());
+    if (document.HasParseError())
+    { error = {document.GetErrorOffset(), rapidjson::GetParseError_En(document.GetParseError())}; return false; }
+    const auto* slots = Member(document, "CategoryMaxSlots");
+    if (!slots || !slots->IsArray() || slots->Size() != output.size())
+    { error.message = "class mod CategoryMaxSlots must contain nine counts"; return false; }
+    std::array<std::int32_t, 9> candidate{};
+    for (rapidjson::SizeType i = 0; i < slots->Size(); ++i)
+    {
+        const auto& value = (*slots)[i];
+        // The original writes directly into five slots per group. Reject
+        // malformed counts instead of reproducing that out-of-bounds write.
+        if (!value.IsInt() || value.GetInt() < 0 || value.GetInt() > 5)
+        { error.message = "class mod category count exceeds its five slots"; return false; }
+        candidate[i] = value.GetInt();
+    }
+    output = candidate;
+    return true;
+}
+
+bool ReadClassModPresets(std::string_view bytes, const std::array<std::int32_t, 9>& categorySlots,
+    const CsvDocument& items, ClassModPresetTable& output, ResourceError& error)
+{
+    error = {};
+    constexpr const char* presetPath = "resource/buff/ClassModPreset.csv";
+    constexpr const char* itemPath = "resource/item.csv";
+    if (std::any_of(categorySlots.begin(), categorySlots.end(), [](int value) { return value < 0 || value > 5; }))
+    { error = {"resource/buff/ClassModConfig.json", {0, "class mod category count exceeds its five slots"}}; return false; }
+    ClassModPresetTable candidate;
+    candidate.categorySlots = categorySlots;
+    if (!ReadCsv(bytes, candidate.source, error.detail)) { error.path = presetPath; return false; }
+
+    // Reuse the same physical item rows. Only caps consumed by a preset need
+    // conversion; Selection and unrelated weapon rows gain no new column gate.
+    std::map<std::int32_t, const CsvRecord*> byItem;
+    for (std::size_t row = 2; row < items.records.size(); ++row)
+    {
+        const auto& item = items.records[row];
+        std::int32_t id{};
+        if (item.fields.empty() || !Integer(item.fields[0], id))
+        { error = {itemPath, {item.byteOffset, "invalid class mod item catalog key"}}; return false; }
+        if (!byItem.emplace(id, &item).second)
+        { error = {itemPath, {item.byteOffset, "duplicate class mod item catalog key"}}; return false; }
+    }
+    for (std::size_t row = 1; row < candidate.source.records.size(); ++row)
+    {
+        const auto& source = candidate.source.records[row];
+        EquipmentLoadout::ClassCaps record;
+        if (!source.fields.empty() && !Integer(source.fields[0], record.classId))
+        { error = {presetPath, {source.byteOffset, "class mod preset class ID exceeds int32"}}; return false; }
+        // Column1 (PresetID) is ignored by the original, including when it
+        // differs from1. Groups0/1 and unfilled slots retain their initial -1.
+        std::size_t column = 2;
+        for (std::size_t group = 2; group < categorySlots.size(); ++group)
+            for (int slot = 0; slot < categorySlots[group]; ++slot, ++column)
+            {
+                if (column >= source.fields.size() || source.fields[column].empty()) continue;
+                if (!Integer(source.fields[column], record.slots[group * 5 + slot]))
+                { error = {presetPath, {source.byteOffset, "class mod preset slot exceeds int32"}}; return false; }
+            }
+        if (const auto found = byItem.find(record.classId); found != byItem.end())
+        {
+            const auto& item = *found->second;
+            for (std::size_t i = 0; i < record.values.size(); ++i)
+            {
+                // ItemTable.v58(i,0) selects the first integer from CSV
+                // columns21..25. strtok skips comma delimiters, not spaces.
+                // A missing item returns0, with no class fallback. The raw
+                // CSV loader's treatment of absent columns is not verified;
+                // require the five actual fields on a referenced item row.
+                if (21 + i >= item.fields.size())
+                { error = {itemPath, {item.byteOffset, "class mod item catalog is missing a default cap column"}}; return false; }
+                std::string_view value = item.fields[21 + i];
+                const auto start = value.find_first_not_of(',');
+                if (start != value.npos)
+                {
+                    value.remove_prefix(start);
+                    value = value.substr(0, value.find(','));
+                }
+                if (!Integer(value, record.values[i]))
+                { error = {itemPath, {item.byteOffset, "class mod default cap exceeds int32"}}; return false; }
+            }
+        }
+        // manager+4C is keyed only by classId; a later physical row replaces
+        // the complete record, irrespective of its ignored PresetID.
+        candidate.records.insert_or_assign(record.classId, std::move(record));
+    }
+    output = std::move(candidate);
+    return true;
+}
+
+bool ClassModPresetResources::Load(ResourceFileApi files,
+    std::shared_ptr<const CsvDocument> items, bool (*current)(const void*), const void* owner,
+    ResourceError& error)
+{
+    error = {};
+    if (m_busy || !files.load || !files.release || !items || !current)
+    { error.detail.message = "class mod preset loader or item catalog is unavailable"; return false; }
+    m_busy = true;
+    struct Busy { bool& flag; ~Busy() { flag = false; } } busy{m_busy};
+    m_table.reset();
+    if (!current(owner)) return false;
+    constexpr const char* settings = "resource/buff/ClassModConfig.json";
+    constexpr const char* presets = "resource/buff/ClassModPreset.csv";
+    std::string bytes;
+    ConfigError detail;
+    auto candidate = std::make_shared<ClassModPresetTable>();
+    const bool settingsLoaded = File(settings, files, bytes, error);
+    if (!current(owner)) { error = {}; return false; }
+    if (!settingsLoaded) return false;
+    std::array<std::int32_t, 9> slots{};
+    if (!ReadClassModCategorySlots(bytes, slots, detail))
+    { error = {settings, std::move(detail)}; return false; }
+    const bool presetsLoaded = File(presets, files, bytes, error);
+    if (!current(owner)) { error = {}; return false; }
+    if (!presetsLoaded) return false;
+    if (!ReadClassModPresets(bytes, slots, *items, *candidate, error)) return false;
+    if (!current(owner)) { error = {}; return false; }
+    m_table = std::move(candidate);
+    return true;
+}
+
+bool ClassModPresetResources::Clear()
+{
+    if (m_busy) return false;
+    m_table.reset();
     return true;
 }
 }

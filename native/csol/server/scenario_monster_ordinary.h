@@ -33,10 +33,13 @@ struct CSOLOrdinaryMonsterState
 // The provider must own the returned managers until that entry unwinds.
 class CCSOLOrdinaryMonsterDamage;
 
-class CCSOLOrdinaryMonsterServices
+class CCSOLOrdinaryMonsterServices : public CCSOLMonsterSpawnOwner
 {
 public:
     virtual ~CCSOLOrdinaryMonsterServices() = default;
+    // Pure identity check, with no engine/plugin callbacks. A retained service
+    // can outlive its registration; every behavior continuation must stop then.
+    bool OwnerCurrent() const override = 0;
     virtual CCSOLScenarioMap& Map() = 0;
     virtual CCSOLMonsterPool& Pool() = 0;
     virtual CCSOLMonsterDeathRequests& Deaths() = 0;

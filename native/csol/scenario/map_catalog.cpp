@@ -66,6 +66,50 @@ bool MapCatalog::ResolveScenarioType(std::string_view fileName, int& output, Con
     return true;
 }
 
+std::optional<int> MapCatalog::UniqueMapId(std::string_view fileName) const
+{
+    std::optional<int> selected;
+    for (const auto& row : rows)
+    {
+        if (row.fileName != fileName || Find(row.id) != &row) continue;
+        if (row.id <= 0 || (selected && *selected != row.id)) return {};
+        selected = row.id;
+    }
+    return selected;
+}
+
+bool MapCatalog::DifficultyLimit(int mapId, int& output, ConfigError& error) const
+{
+    error = {};
+    int limit = 6;
+    const auto* selected = mapId >= 0 ? Find(mapId) : nullptr;
+    if (selected && selected->recordIndex < source.records.size())
+    {
+        const auto& row = source.records[selected->recordIndex];
+        const auto value = Trim(Field(row, 102));
+        if (!value.empty())
+        {
+            if (source.records.empty() || Trim(Field(source.records.front(), 102)) != "ZSmaxDifficulty")
+            { error = {row.byteOffset, "unexpected map difficulty column102"}; return false; }
+            auto number = value;
+            if (number.front() == '+')
+            {
+                number.remove_prefix(1);
+                if (number.empty() || number.front() < '0' || number.front() > '9')
+                { error = {row.byteOffset, "invalid map difficulty limit"}; return false; }
+            }
+            const auto parsed = std::from_chars(number.data(), number.data() + number.size(), limit);
+            if (number.empty() || parsed.ec != std::errc{} || parsed.ptr != number.data() + number.size())
+            { error = {row.byteOffset, "invalid map difficulty limit"}; return false; }
+        }
+    }
+    if (limit <= 0) limit = 7;
+    if (limit > 7)
+    { error.message = "map difficulty limit exceeds the seven original grades"; return false; }
+    output = limit;
+    return true;
+}
+
 bool ReadMapCatalog(std::string_view bytes, MapCatalog& output, ConfigError& error)
 {
     MapCatalog candidate;

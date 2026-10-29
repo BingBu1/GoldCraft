@@ -46,6 +46,7 @@ private:
     EntityHandle<CCSOLScenarioMonster> m_entity;
     CCSOLMonsterPool* m_pool{};
     std::uint64_t m_lease{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access;
     SessionCheck m_sessionCheck{};
     const void* m_sessionContext{};
     Stage m_stage{Stage::Invalid};

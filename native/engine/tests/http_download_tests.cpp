@@ -122,7 +122,8 @@ static void adapter_tests(){
     files["models/a.mdl"].bytes=pattern(1024*1024+27);files["sound/a.wav"].bytes=pattern(37,1);files["sprites/test.spr"].bytes=pattern(13,2);
     add("models/a.mdl",t_model,files["models/a.mdl"].bytes.size());add("a.wav",t_sound,37);add("sprites/test.spr",t_generic,13);add("server.cfg",t_generic,20);add("*1",t_model,20);add("!sentence",t_sound,20);add("spray.wad",t_generic,20,RES_CUSTOM);add("decal",t_decal,20);
     const char* csol_resources[]{"models/v_weapon.json", "models/player/leet/leet1.seq", "models/$0a_sphere.tga", "models/texture/hand.bmp",
-        "shader/@004.txt", "shader/env.txt", "materials/common.json", "materials/weapon/base.tga", "gfx/tattoo/tattoo.cso"};
+        "shader/@004.txt", "shader/env.txt", "materials/common.json", "materials/weapon/base.tga", "gfx/tattoo/tattoo.cso",
+        "sprites/huntbow_aim_default1.tga", "sprites/beamgunle_gauge_fx.webm"};
     for(const auto* name:csol_resources){files[name].bytes=pattern(31,3);add(name,t_generic,31);}
     files["models/texture/#512512hand.bmp"].bytes=pattern(41,4);add("models/texture/#512512hand.bmp",t_generic,41);
     GC_HttpResources();frame();CHECK(std::string(sv_downloadurl.string).empty());
@@ -130,10 +131,19 @@ static void adapter_tests(){
     f=async_request(port,"sound/a.wav");CHECK(pump(f).body==files["sound/a.wav"].bytes);
     f=async_request(port,"sprites/test.spr");CHECK(pump(f).body==files["sprites/test.spr"].bytes);
     for(const auto* name:csol_resources){f=async_request(port,name);auto response=pump(f);CHECK(response.status==200 && response.body==files[name].bytes);}
+    for(const auto* name:{"sprites/huntbow_aim_default1.tga","sprites/beamgunle_gauge_fx.webm"})
+    {
+        f=std::async(std::launch::async,[=]{return request(port,std::string("/goldcraft/")+name,"Range: bytes=3-17\r\n");});
+        const auto response=pump(f);const auto& bytes=files[name].bytes;
+        CHECK(response.status==206&&response.body==Bytes(bytes.begin()+3,bytes.begin()+18));
+        CHECK(response.header.find("Content-Range: bytes 3-17/31")!=std::string::npos);
+    }
     f=async_request(port,"models/texture/%23512512hand.bmp");CHECK(pump(f).body==files["models/texture/#512512hand.bmp"].bytes);
     f=async_request(port,"models/texture/#512512hand.bmp");CHECK(pump(f).body==files["models/texture/#512512hand.bmp"].bytes);
     f=async_request(port,"models/texture/#512512hand.bmp#extra");CHECK(pump(f).status==404);
     f=async_request(port,"models/not_precached.json");CHECK(pump(f).status==404);
+    for(const auto* name:{"sprites/not_precached.webm","sprites/not_precached.tga","sprites/../server.cfg","sprites/payload.dll","sprites/payload.exe","sprites/payload.tga.exe"})
+    {f=async_request(port,name);CHECK(pump(f).status==404);}
     f=async_request(port,"spray.wad");CHECK(pump(f).status==404);
     Cvar_Set("sv_allow_dlfile","0");Cvar_Set("mc_http_public_url","http://example.invalid:12345/goldcraft/");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://example.invalid:12345/goldcraft/");CHECK(sv_allow_dlfile.value==0);
     Cvar_Set("sv_downloadurl","http://admin.invalid/");Cvar_Set("mc_http_public_url","");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://admin.invalid/");

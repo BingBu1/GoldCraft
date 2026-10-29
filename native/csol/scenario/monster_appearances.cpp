@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "monster_appearances.hpp"
+#include "monster_types.hpp"
 
 namespace csol::scenario
 {
@@ -308,5 +309,26 @@ const MonsterAppearance* FindMonsterAppearance(std::string_view name)
     for (const auto& appearance : Catalog)
         if (appearance.name == name) return &appearance;
     return nullptr;
+}
+
+bool MonsterStatisticsBoss(const MonsterType* type, int cachedMapId, int currentMapId,
+    bool& output, ConfigError& error)
+{
+    output = false;
+    error = {};
+    if (!type) return true;
+    if (type->id == 32000 || type->id == 32001)
+    {
+        if (cachedMapId <= 0) { error.message = "cached scenario map ID is unresolved"; return false; }
+        output = cachedMapId != 143;
+        return true;
+    }
+    if (type->id == 31805) return true;
+    if (currentMapId <= 0) { error.message = "current scenario map ID is unresolved"; return false; }
+    if (currentMapId == 361 && !type->column18) return true;
+    const auto* appearance = FindMonsterAppearance(type->appearance);
+    if (!appearance) { error.message = "scenario statistics appearance is unavailable"; return false; }
+    output = appearance->healthSummary;
+    return true;
 }
 }

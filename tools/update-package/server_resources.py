@@ -4,10 +4,12 @@ Keep new feature resources explicit: a DLL-only candidate must not silently drop
 previously delivered plugin activation, translations, models or download assets.
 """
 from pathlib import Path
+import hashlib
+from retired_resources import RETIRED_PLUGINS, retired_resource, payload_bytes
 
 
 FEATURE_PLUGINS = (
-    'addon_floating_damage.amxx', 'zp50_zombie_armor.amxx',
+    'zp50_zombie_armor.amxx',
     'zp50_zombie_respawn.amxx', 'zp50_zombie_knockback.amxx',
     'zp50_zombie_gore.amxx', 'zp50_effects_infect.amxx',
 )
@@ -21,13 +23,11 @@ FROZEN_RESOURCES = (
     *(PLUGIN_DIRECTORY + name for name in FEATURE_PLUGINS),
     *(CONFIG_DIRECTORY + name for name in (
         'plugins-goldcraft-controls.ini', 'plugins-goldcraft-connection.ini',
-        'plugins-goldcraft-zp-rules.ini', 'plugins-floating_damage.ini',
+        'plugins-goldcraft-zp-rules.ini',
         'plugins-zp50-zombie-armor.ini', 'plugins-zp50-zombie-respawn.ini',
         'plugins-zp50-zombie-knockback.ini', 'plugins-zp50-zombie-gore.ini',
     )),
-    'cs/cstrike/addons/amxmodx/data/lang/floating_damage.txt',
     'cs/cstrike/addons/amxmodx/data/lang/zp50_zombie_respawn.txt',
-    'cs/cstrike/models/x_re/floating_damage.mdl',
     'cs/cstrike/sprites/zp_infection.spr',
 )
 
@@ -44,7 +44,10 @@ def freeze_requirements(sources, runtime_resources, digest):
             destination = 'cs/' + runtime_resources[name]
         else:
             continue
-        row = dict(source=source, bytes=source.stat().st_size, sha256=digest(source))
+        if retired_resource(destination):
+            continue
+        data = payload_bytes(destination, source.read_bytes())
+        row = dict(source=source, bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
         key = destination.casefold()
         if key in indexed and any(indexed[key][field] != row[field] for field in ('bytes', 'sha256')):
             raise ValueError('Conflicting frozen server destination: ' + destination)
@@ -62,11 +65,15 @@ def verify_payload(rows, required_plugins, frozen):
     """Check actual payload and installer activation before publishing an archive."""
     if not set(REQUIRED_PLUGINS).issubset(required_plugins):
         raise ValueError('Cumulative server plugin activation is incomplete')
+    if any(p.casefold() in RETIRED_PLUGINS for p in required_plugins):
+        raise ValueError('Retired plugin in activation')
     indexed = {}
     for row in rows:
         if row['role'] != 'server':
             continue
         name = row['destination']
+        if retired_resource(name):
+            raise ValueError('Retired resource in payload: ' + name)
         key = name.casefold()
         if key in indexed or row['path'] != 'payload/server/' + name:
             raise ValueError('Duplicate or inconsistent server payload: ' + name)

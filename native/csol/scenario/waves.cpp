@@ -157,9 +157,11 @@ bool WaveRunner::Load(const WaveTable& table, int waveId, ConfigError& error)
     return true;
 }
 
-WaveTickResult WaveRunner::Tick(float elapsed, Dispatch dispatch, void* context)
+WaveTickResult WaveRunner::Tick(float elapsed, Dispatch dispatch, void* context,
+    Current current, const void* ownerContext)
 {
-    if (!loaded_ || ticking_ || !dispatch || !std::isfinite(elapsed)) return {};
+    if (!loaded_ || ticking_ || !dispatch || !std::isfinite(elapsed) ||
+        (current && !current(ownerContext))) return {};
     ticking_ = true;
     struct TickScope
     {
@@ -171,6 +173,7 @@ WaveTickResult WaveRunner::Tick(float elapsed, Dispatch dispatch, void* context)
     {
         for (const auto index : point)
         {
+            if (current && !current(ownerContext)) { result.valid = false; result.finished = false; return result; }
             auto& clock = clocks_[index];
             const auto step = AdvanceRow(clock, elapsed);
             if (step == RowStep::Invalid)
@@ -188,6 +191,7 @@ WaveTickResult WaveRunner::Tick(float elapsed, Dispatch dispatch, void* context)
             {
                 ++result.attempts;
                 dispatch(context, rows_[index], clock);
+                if (current && !current(ownerContext)) { result.valid = false; result.finished = false; return result; }
             }
             // Creation failure does not roll the clock back. The handler may
             // modify clock fields, which MP also reads again for the end check.

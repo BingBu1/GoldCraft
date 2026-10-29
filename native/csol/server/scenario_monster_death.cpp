@@ -18,6 +18,7 @@ CCSOLMonsterDeathStages::CCSOLMonsterDeathStages(CCSOLScenarioMonster& monster,
     if (!lease) return;
     m_entity = &monster;
     m_pool = pool;
+    m_access = pool->EntityAccess();
     m_lease = lease;
     m_stage = Stage::Captured;
 }
@@ -26,7 +27,7 @@ CCSOLScenarioMonster* CCSOLMonsterDeathStages::Current() const
 {
     // Engine callbacks in animation/sound can release the entire edict array.
     // The synchronous owner supplies its generation check, before any EHANDLE.
-    if (m_sessionCheck && !m_sessionCheck(m_sessionContext)) return nullptr;
+    if (!m_access || !m_access->Allowed() || (m_sessionCheck && !m_sessionCheck(m_sessionContext))) return nullptr;
     auto* base = m_entity.Get<CBaseEntity>();
     auto* monster = base ? dynamic_cast<CCSOLScenarioMonster*>(base) : nullptr;
     // Shutdown detaches the entity before destroying the owner. Never read a

@@ -51,5 +51,6 @@ void StudioEvent(const mstudioevent_t* event, const cl_entity_t* entity);
 void DrawWorldEffects();
 void Report();
 void* Resolve(const char* name, mh_gamesymbol_kind_t kind);
-void Hook(void* address, void* replacement, void** original);
+hook_t* Hook(void* address, void* replacement, void** original);
+void RemoveHook(hook_t* hook);
 }

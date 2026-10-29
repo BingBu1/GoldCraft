@@ -3,6 +3,7 @@
 #include "monster_types.hpp"
 #include "trigger_rules.hpp"
 #include "upgrade_tables.hpp"
+#include "boss_skills.hpp"
 
 #include "../config_codec.hpp"
 
@@ -35,6 +36,12 @@ bool ReadWaveResource(std::span<const std::byte> encoded, WaveTable& output, Con
 {
     std::string plain;
     return DecodeResource(encoded, plain, error) && ReadWaves(plain, output, error);
+}
+
+bool ReadBossSkillResource(std::span<const std::byte> encoded, BossSkillTable& output, ConfigError& error)
+{
+    std::string plain;
+    return DecodeResource(encoded, plain, error) && ReadBossSkills(plain, output, error);
 }
 
 bool ReadRoundResource(std::span<const std::byte> encoded, RoundTable& output, ConfigError& error)

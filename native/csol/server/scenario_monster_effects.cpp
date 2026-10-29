@@ -37,11 +37,11 @@ LINK_ENTITY_TO_CLASS(dummy_inflictor, CCSOLScenarioDamageInflictor, CCSEntity)
 namespace
 {
 constexpr int DamageBits = 0x08000000;
-struct Busy
+struct BusyScope
 {
     bool& value;
-    explicit Busy(bool& flag) : value(flag) { value = true; }
-    ~Busy() { value = false; }
+    explicit BusyScope(bool& flag) : value(flag) { value = true; }
+    ~BusyScope() { value = false; }
 };
 bool Live(const EHANDLE& handle)
 {
@@ -86,7 +86,7 @@ void EXT_FUNC ApplyDotMultiDamageOriginal(entvars_t* inflictor, entvars_t* attac
     // Only this invocation's original-function trampoline arms the context.
     // A hook's earlier ordinary TakeDamage/ApplyMultiDamage uses the normal
     // SDK entry, so cannot consume our pending context even with identical args.
-    Busy armed(scope->armed);
+    BusyScope armed(scope->armed);
 #ifdef REGAMEDLL_API
     ApplyMultiDamage_OrigFunc(inflictor, attacker);
 #else
@@ -114,13 +114,14 @@ CBaseEntity* CCSOLMonsterPool::DamageInflictor(CSOLMonsterSpawnCall& call)
     if (!monster || monster->Pool() != this || m_busy || m_creatingInflictor) return nullptr;
     if (Live(m_damageInflictor))
         return dynamic_cast<CCSOLScenarioDamageInflictor*>(m_damageInflictor.Get<CBaseEntity>());
-    Busy busy(m_creatingInflictor);
+    BusyScope busy(m_creatingInflictor);
     const auto name = ALLOC_STRING("dummy_inflictor");
     if (!call.Current()) return nullptr;
     auto* created = CREATE_NAMED_ENTITY(name);
     if (!call.SameMap()) return nullptr; // Old-map edicts may already be released.
-    if (FNullEnt(created)) return nullptr;
     EHANDLE candidate(created);
+    const bool missing = FNullEnt(created);
+    if (!call.SameMap() || missing) return nullptr;
     if (!call.Current())
     {
         if (Live(candidate)) UTIL_Remove(candidate.Get<CBaseEntity>());
@@ -252,6 +253,12 @@ bool CSOL_ClearMonsterEffects(CSOLMonsterDeathCall& call)
         { return static_cast<const CSOLMonsterDeathCall*>(context)->Current(); }, &call};
     auto* monster = guard.Current();
     if (!monster) return false;
+    // MP 1137D545..1137D563 resets the host BEFORE v1F4 notifies and
+    // destroys its 33 source records. Those callbacks observe these values.
+    auto& host = monster->HostState();
+    host.nonlethalDamage = 0.0f;
+    host.damageScaleCount = 0;
+    host.damageScale = 1.0f;
     auto effects = monster->DamageEffects();
     return effects && effects->ClearAll(guard);
 }
@@ -260,7 +267,7 @@ bool CCSOLMonsterEffects::Tick(CSOLMonsterSpawnCall& call,
     const CSOLMonsterEffectGuard& guard, csol::scenario::ConfigError& error)
 {
     if (!Current(guard) || m_ticking) return false;
-    Busy busy(m_ticking);
+    BusyScope busy(m_ticking);
     // CSO allocated/cleared 33 records but ticked only 0..31. Include slot32
     // for the requested 32-player server; preserve direct index addressing.
     for (std::size_t i = 0; i < Slots; ++i)

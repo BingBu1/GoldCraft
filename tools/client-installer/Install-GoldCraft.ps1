@@ -57,6 +57,19 @@ try {
         [void](Join-CheckedPath $game $relative)
         $destinations[$relative] = $row.sha256
     }
+    # GoldSrc may prefer downloaded models over the normal mod directory.
+    # Retire only package-owned cache paths, inside the same rollback transaction.
+    $managedCache = @()
+    if ($manifest.PSObject.Properties.Name -contains 'managedDownloadCache') {
+        foreach ($relative in $manifest.managedDownloadCache) {
+            if ($relative -notmatch '^(models|sprites|sound|gfx|shader)/' -or
+                !$destinations.ContainsKey('cstrike/' + $relative)) { throw 'Invalid managed download cache entry.' }
+            $cached = 'cstrike_downloads/' + $relative
+            [void](Join-CheckedPath $game $cached)
+            $managedCache += $cached
+            $destinations[$cached] = $null
+        }
+    }
     $pluginsPath = Join-CheckedPath $game 'cstrike/metahook/configs/plugins.lst'
     $pathsPath = Join-CheckedPath $game 'cstrike/metahook/configs/dllpaths.lst'
     $pluginText = Merge-Plugins (Read-TextOrEmpty $pluginsPath) $manifest.plugins
@@ -131,7 +144,7 @@ try {
         [IO.Directory]::CreateDirectory((Split-Path -Parent $pluginsPath)) | Out-Null
         [IO.File]::WriteAllText($pluginsPath, $pluginText, [Text.UTF8Encoding]::new($false))
         [IO.File]::WriteAllText($pathsPath, $dllText, [Text.UTF8Encoding]::new($false))
-        foreach ($alias in $obsoleteAliases) {
+        foreach ($alias in @($obsoleteAliases) + @($managedCache)) {
             $path = Join-CheckedPath $game $alias
             if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force }
         }

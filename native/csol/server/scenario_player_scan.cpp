@@ -14,7 +14,9 @@ csol::scenario::TriggerResult CCSOLTriggerPlayerScan::Update(bool enabled,
     csol::scenario::TriggerProgram& program, float elapsed, int aliveCtCount,
     csol::scenario::TriggerActions& actions)
 {
-    if (m_scanning || !gpGlobals || !std::isfinite(elapsed)) return {};
+    const auto access = m_access;
+    if (!access || !access->Allowed() || m_scanning || !gpGlobals || !std::isfinite(elapsed) ||
+        !actions.Current()) return {};
     if (!enabled) return {true, 0, false};
     const int clientCount = gpGlobals->maxClients;
     if (clientCount <= 0) return {};
@@ -31,6 +33,7 @@ csol::scenario::TriggerResult CCSOLTriggerPlayerScan::Update(bool enabled,
 
     csol::scenario::TriggerResult result{true, 0, false};
     edict_t* edict = INDEXENT(m_nextPlayer + 1);
+    if (!access->Allowed() || m_access != access || !actions.Current()) return {};
     if (edict && !edict->free)
     {
         auto* player = dynamic_cast<CBasePlayer*>(CBaseEntity::Instance(edict));
@@ -42,10 +45,12 @@ csol::scenario::TriggerResult CCSOLTriggerPlayerScan::Update(bool enabled,
         {
             const auto& origin = player->pev->origin;
             result = program.CheckPlayer({origin.x, origin.y, origin.z}, elapsed, aliveCtCount, actions);
+            if (!access->Allowed() || m_access != access || !actions.Current() || !result.valid) return {};
         }
     }
     // Advance even for an empty/dead slot. Clear the goal count only when the
     // next full cycle starts, including when its first player slot is empty.
+    if (!actions.Current()) return {};
     m_nextPlayer = (m_nextPlayer + 1) % clientCount;
     return result;
 }

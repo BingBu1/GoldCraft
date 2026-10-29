@@ -1,9 +1,12 @@
 param([string[]]$Plugins=@(),[string[]]$Includes=@(),[switch]$Deploy,
+      [string]$Output='build/amxx',
       [ValidatePattern('^plugins(?:-[a-zA-Z0-9_]+)?\.ini$')][string]$PluginList='plugins.ini')
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $Plugins=@($Plugins | ForEach-Object { $_.Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if($Deploy -and -not $Plugins.Count){throw 'Deployment requires explicit -Plugins names; compile-all does not enable test plugins.'}
-$out=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot 'build/amxx/plugins')
+$buildPath=if([IO.Path]::IsPathRooted($Output)){$Output}else{Join-Path $script:GoldCraftRoot $Output}
+$buildRoot=Assert-WorkspacePath $buildPath
+$out=Join-Path $buildRoot 'plugins'
 New-Item -ItemType Directory -Path $out -Force | Out-Null
 $buildLock=Assert-WorkspacePath (Join-Path $out '../builder.lock')
 try{$guard=[IO.File]::Open($buildLock,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)}
@@ -18,7 +21,7 @@ if(-not(Test-Path -LiteralPath $compiler) -or -not(Test-Path -LiteralPath $reapi
 }
 & (Join-Path $PSScriptRoot 'Prepare-AMXXBuilder.ps1')
 $node=(Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
-$arguments=@()
+$arguments=@('--output',$buildRoot)
 foreach($plugin in $Plugins){$arguments+=@('--plugin',$plugin)}
 foreach($include in $Includes){$arguments+=@('--include',$include)}
 & $node (Join-Path $PSScriptRoot 'Build-AMXX.cjs') @arguments

@@ -4,6 +4,11 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\boss_skills.cpp;$(GoldCraftRoot)\native\csol\scenario\final_result.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_boss_control.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_gait.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_effects.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -14,7 +19,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\equipment.cpp;$(GoldCraftRoot)\native\csol\scenario\equipment_resources.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\equipment.cpp;$(GoldCraftRoot)\native\csol\scenario\equipment_resources.cpp;$(GoldCraftRoot)\native\csol\scenario\golden.cpp;$(GoldCraftRoot)\native\csol\scenario\damage_display_modes.cpp;$(GoldCraftRoot)\native\csol\scenario\feature3.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -71,12 +76,12 @@
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_factory.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario_recovery_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wave_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_factory.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_spawn_points.cpp;$(GoldCraftRoot)\native\csol\server\scenario_point_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_scan.cpp;$(GoldCraftRoot)\native\csol\server\scenario_map.cpp;$(GoldCraftRoot)\native\csol\server\scenario_frame.cpp;$(GoldCraftRoot)\native\csol\server\scenario_messages.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_pool.cpp;$(GoldCraftRoot)\native\csol\server\scenario_event_sink.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_models.cpp;$(GoldCraftRoot)\native\csol\server\game_mode.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_spawn_points.cpp;$(GoldCraftRoot)\native\csol\server\scenario_point_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_scan.cpp;$(GoldCraftRoot)\native\csol\server\scenario_map.cpp;$(GoldCraftRoot)\native\csol\server\scenario_frame.cpp;$(GoldCraftRoot)\native\csol\server\scenario_messages.cpp;$(GoldCraftRoot)\native\csol\server\damage_numbers.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_pool.cpp;$(GoldCraftRoot)\native\csol\server\scenario_event_sink.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_models.cpp;$(GoldCraftRoot)\native\csol\server\game_mode.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
@@ -127,6 +132,9 @@
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <Link>
       <AdditionalOptions>/SECTION:.data,RW %(AdditionalOptions)</AdditionalOptions>
       <AdditionalDependencies>$(GoldCraftCommonLibrary);ws2_32.lib;bcrypt.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>

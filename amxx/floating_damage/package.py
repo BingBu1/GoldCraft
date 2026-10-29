@@ -16,6 +16,10 @@ def sha(data):
 
 
 def main():
+    raise SystemExit('Floating Damage is retired; use the native CSOLSupport damage display. Historical ZIPs remain unchanged.')
+
+
+def build_historical_reference():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('upstream_zip', type=Path)
     parser.add_argument('--evidence-directory', type=Path, default=ROOT/'build/amxx-1.10-20261018/floating')

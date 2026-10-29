@@ -63,5 +63,6 @@ void CCSOLMonsterSpawn::KeyValue(KeyValueData* data)
 
 void CCSOLMonsterSpawn::Collect(csol::scenario::SpawnPoints& points)
 {
-    points.RegisterMonsterPoint(Snapshot(*this, m_iTeam, m_iId), m_iMaxSpawn);
+    const int maximum = m_iMaxSpawn;
+    points.RegisterMonsterPoint(Snapshot(*this, m_iTeam, m_iId), maximum);
 }

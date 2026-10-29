@@ -1,17 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_breakable.h"
+#include "game_rules_gate.h"
 #include "scenario_breakable_guard.h"
+#include "scenario_entity_lookup.h"
 
 #include <cmath>
 #include <cstdlib>
+#include <bit>
+#include <cstdio>
+#include <cstring>
 
 LINK_ENTITY_TO_CLASS(zbsbreak, CCSOLScenarioBreakable, CCSEntity)
+LINK_ENTITY_TO_CLASS(zbstarget, CCSOLScenarioTarget, CCSEntity)
 
 TYPEDESCRIPTION CCSOLScenarioBreakable::m_SaveData[] =
 {
     DEFINE_FIELD(CCSOLScenarioBreakable, m_playerRatio, FIELD_FLOAT),
     DEFINE_FIELD(CCSOLScenarioBreakable, m_monsterRatio, FIELD_FLOAT),
+};
+
+TYPEDESCRIPTION CCSOLScenarioTarget::m_SaveData[] =
+{
+    DEFINE_FIELD(CCSOLScenarioTarget, m_active, FIELD_CHARACTER),
 };
 
 class CSOLScenarioWallCall
@@ -22,20 +33,22 @@ class CSOLScenarioWallCall
         EHANDLE handle;
         std::shared_ptr<std::uint64_t> lifetime;
         std::uint64_t life;
+        std::shared_ptr<const CSOLScenarioEntityAccess> access;
         std::shared_ptr<CCSOLScenarioWallRules> rules;
         std::uint64_t generation, serial;
         bool Current() const
         {
-            return lifetime && *lifetime == life &&
-                (!rules || rules->Generation() == generation) &&
+            return (!access || access->Allowed()) && lifetime && *lifetime == life &&
+                (!rules || (rules->EntityAccessAllowed() && rules->Generation() == generation)) &&
                 handle.Get<CBaseEntity>() == wall && !(wall->pev->flags & FL_KILLME) &&
                 wall->m_serial == serial;
         }
     };
 public:
-    explicit CSOLScenarioWallCall(CCSOLScenarioBreakable& wall, bool newOperation = false)
+    explicit CSOLScenarioWallCall(CCSOLScenarioBreakable& wall, bool newOperation = false,
+        std::shared_ptr<const CSOLScenarioEntityAccess> access = {})
         : m_state{&wall, EHANDLE(&wall), wall.m_lifetime,
-              wall.m_lifetime ? *wall.m_lifetime : 0, wall.m_rules,
+              wall.m_lifetime ? *wall.m_lifetime : 0, std::move(access), wall.m_rules,
               wall.m_rules ? wall.m_rules->Generation() : 0, wall.m_serial},
           m_scope([state = m_state]() { return state.Current(); }, newOperation) {}
     bool Current() const { return m_state.Current() && CSOLBreakableScope::Current(nullptr); }
@@ -46,16 +59,22 @@ private:
 
 int CCSOLScenarioBreakable::Save(CSave& save)
 {
-    if (!CBreakable::Save(save)) return 0;
-    return save.WriteFields("CCSOLScenarioBreakable", this, m_SaveData, ARRAYSIZE(m_SaveData));
+    CSOLScenarioSdkScope sdk;
+    if (sdk.Scenario() && !sdk.Current()) return 0;
+    CSOLScenarioWallCall call(*this, false, sdk.EntityAccess());
+    if (!CBreakable::Save(save) || !call.Current()) return 0;
+    const int result = save.WriteFields("CCSOLScenarioBreakable", this, m_SaveData, ARRAYSIZE(m_SaveData));
+    return call.Current() ? result : 0;
 }
 
 int CCSOLScenarioBreakable::Restore(CRestore& restore)
 {
+    CSOLScenarioSdkScope sdk;
+    if (sdk.Scenario() && !sdk.Current()) return 0;
     ++m_serial;
     if (m_lifetime) ++*m_lifetime;
     m_damaging = false;
-    CSOLScenarioWallCall call(*this, true);
+    CSOLScenarioWallCall call(*this, true, sdk.EntityAccess());
     if (!CBreakable::Restore(restore) || !call.Current()) return 0;
     const int result = restore.ReadFields("CCSOLScenarioBreakable", this, m_SaveData, ARRAYSIZE(m_SaveData));
     if (!call.Current()) return 0;
@@ -105,6 +124,8 @@ void CCSOLScenarioBreakable::Spawn()
 
 void CCSOLScenarioBreakable::Restart()
 {
+    CSOLScenarioSdkScope sdkScope(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (sdkScope.Scenario() && !sdkScope.Current()) return;
     ++m_serial;
     // A legitimate new-round reset must finish even when invoked by an old
     // target chain. Returning to that chain still cancels its older scope.
@@ -125,6 +146,7 @@ void CCSOLScenarioBreakable::BindRules(std::shared_ptr<CCSOLScenarioWallRules> r
 
 void CCSOLScenarioBreakable::OnDestroy()
 {
+    CSOLScenarioSdkScope sdkScope(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
     ++m_serial;
     if (m_lifetime) ++*m_lifetime;
     m_lifetime.reset();
@@ -135,6 +157,8 @@ void CCSOLScenarioBreakable::OnDestroy()
 
 void CCSOLScenarioBreakable::MonsterTouch(CBaseEntity* other)
 {
+    CSOLScenarioSdkScope sdkScope(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (sdkScope.Scenario() && !sdkScope.Current()) return;
     if (!other || !gpGlobals) return;
     CSOLScenarioWallCall call(*this);
     const int classification = other->Classify();
@@ -154,6 +178,8 @@ void CCSOLScenarioBreakable::MonsterTouch(CBaseEntity* other)
 
 void CCSOLScenarioBreakable::Use(CBaseEntity* activator, CBaseEntity* caller, USE_TYPE type, float value)
 {
+    CSOLScenarioSdkScope sdkScope(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (sdkScope.Scenario() && !sdkScope.Current()) return;
     CSOLScenarioWallCall call(*this);
     CBreakable::Use(activator, caller, type, value);
 }
@@ -161,6 +187,8 @@ void CCSOLScenarioBreakable::Use(CBaseEntity* activator, CBaseEntity* caller, US
 BOOL CCSOLScenarioBreakable::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
     float damage, int bits)
 {
+    CSOLScenarioSdkScope sdkScope(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (sdkScope.Scenario() && !sdkScope.Current()) return FALSE;
     auto rules = m_rules;
     if (!rules || !m_valid || m_damaging || !inflictor || !attacker || !std::isfinite(damage)) return FALSE;
     CSOLScenarioWallCall call(*this);
@@ -193,6 +221,10 @@ BOOL CCSOLScenarioBreakable::TakeDamage(entvars_t* inflictor, entvars_t* attacke
     entity = actor.Get<CBaseEntity>();
     auto* originator = source.Get<CBaseEntity>();
     if (!entity || !originator) return FALSE;
+    // Original CBreakable checks this after CZBSBreak credits the scaled
+    // input. The destination SDK omits that gate for direct virtual damage.
+    // Keep the original order while protecting targets from melee callers.
+    if (pev->takedamage == DAMAGE_NO) return FALSE;
     const float delay = m_flDelay;
     const BOOL result = CBreakable::TakeDamage(originator->pev, entity->pev, scaled, bits);
     // Base sends targets once. Restore only its delay mutation, without
@@ -202,8 +234,123 @@ BOOL CCSOLScenarioBreakable::TakeDamage(entvars_t* inflictor, entvars_t* attacke
     return result;
 }
 
+void CCSOLScenarioTarget::Spawn()
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current()) return;
+    ++m_serial;
+    if (m_lifetime) ++*m_lifetime;
+    CSOLScenarioWallCall call(*this, true, sdk.EntityAccess());
+    CBreakable::Spawn();
+    if (!sdk.Current() || !call.Current()) return;
+    ConfigureTouch();
+    if (m_playerRatio == 0.0f && m_monsterRatio > 0.0f) pev->team = 2;
+    else if (m_playerRatio > 0.0f && m_monsterRatio == 0.0f) pev->team = 1;
+    m_active = !(pev->spawnflags & SF_BREAK_TRIGGER_ONLY);
+    // Original target explicitly uses the current max_health; its source is
+    // not CBreakable's saved m_flHealth and must not be synthesized here.
+    pev->health = pev->max_health;
+    m_iconPublished = false;
+    m_damaging = false;
+    pev->nextthink = gpGlobals->time;
+}
+
+void CCSOLScenarioTarget::Restart()
+{
+    CSOLScenarioSdkScope sdk(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (!sdk.Scenario() || !sdk.Current()) return;
+    ++m_serial;
+    CSOLScenarioWallCall call(*this, true, sdk.EntityAccess());
+    CBreakable::Restart();
+    if (!sdk.Current() || !call.Current()) return;
+    ConfigureTouch();
+    m_active = !(pev->spawnflags & SF_BREAK_TRIGGER_ONLY);
+    pev->health = pev->max_health;
+    m_damaging = false;
+    // Restart does not reset icon publication, nextthink or Spawn's team.
+}
+
+void CCSOLScenarioTarget::KeyValue(KeyValueData* data)
+{
+    if (std::strncmp(data->szKeyName, "icon", 4) == 0)
+    {
+        int icon{};
+        Vector position;
+        // Reject malformed input rather than retaining uninitialized values.
+        // The valid resource format and low-byte conversion follow CSO.
+        if (std::sscanf(data->szValue, "%d %f %f %f", &icon, &position.x, &position.y, &position.z) != 4 ||
+            !std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+            m_valid = false;
+        else
+        {
+            m_icon = std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(icon));
+            m_iconPosition = position;
+        }
+        data->fHandled = TRUE;
+        return;
+    }
+    CCSOLScenarioBreakable::KeyValue(data);
+}
+
+void CCSOLScenarioTarget::Use(CBaseEntity*, CBaseEntity*, USE_TYPE, float)
+{
+    CSOLScenarioSdkScope sdk(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (!sdk.Scenario() || !sdk.Current()) return;
+    CSOLScenarioWallCall call(*this);
+    if (!call.Current()) return;
+    m_active = !m_active;
+    pev->takedamage = m_active ? DAMAGE_YES : DAMAGE_NO;
+}
+
+BOOL CCSOLScenarioTarget::TakeDamage(entvars_t* inflictor, entvars_t* attacker, float damage, int bits)
+{
+    CSOLScenarioSdkScope sdk(CSOL_ScenarioOwnerRules(m_rules ? m_rules->EntityAccess().get() : nullptr));
+    if (!sdk.Scenario() || !sdk.Current()) return FALSE;
+    CSOLScenarioWallCall call(*this);
+    if (!call.Current() || !m_active) return FALSE;
+    const BOOL result = CCSOLScenarioBreakable::TakeDamage(inflictor, attacker, damage, bits);
+    return sdk.Current() && call.Current() ? result : FALSE;
+}
+
+void CCSOLScenarioTarget::SetClearPointProtection(bool enabled)
+{
+    // This setter has no callbacks. The manager validates the current map
+    // and target identity immediately before invoking it.
+    pev->takedamage = enabled || ((pev->spawnflags & SF_BREAK_TRIGGER_ONLY) && !m_active)
+        ? DAMAGE_NO : DAMAGE_YES;
+}
+
+int CCSOLScenarioTarget::Save(CSave& save)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current()) return 0;
+    CSOLScenarioWallCall call(*this, false, sdk.EntityAccess());
+    if (!CCSOLScenarioBreakable::Save(save) || !call.Current()) return 0;
+    const int result = save.WriteFields("CCSOLScenarioTarget", this, m_SaveData, ARRAYSIZE(m_SaveData));
+    return call.Current() ? result : 0;
+}
+
+int CCSOLScenarioTarget::Restore(CRestore& restore)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current()) return 0;
+    ++m_serial;
+    if (m_lifetime) ++*m_lifetime;
+    m_damaging = false;
+    CSOLScenarioWallCall call(*this, true, sdk.EntityAccess());
+    if (!CBreakable::Restore(restore) || !call.Current()) return 0;
+    if (!restore.ReadFields("CCSOLScenarioBreakable", this,
+        CCSOLScenarioBreakable::m_SaveData, ARRAYSIZE(CCSOLScenarioBreakable::m_SaveData)) || !call.Current()) return 0;
+    const int result = restore.ReadFields("CCSOLScenarioTarget", this, m_SaveData, ARRAYSIZE(m_SaveData));
+    if (!call.Current()) return 0;
+    m_valid = result && std::isfinite(m_playerRatio) && std::isfinite(m_monsterRatio);
+    return m_valid ? result : 0;
+}
+
 bool CCSOLScenarioWalls::Collect(csol::scenario::ConfigError& error)
 {
+    const auto access = m_access;
+    if (!access || !access->Allowed()) return false;
     error = {};
     if (m_busy || !g_engfuncs.pfnFindEntityByString)
     {
@@ -213,19 +360,24 @@ bool CCSOLScenarioWalls::Collect(csol::scenario::ConfigError& error)
     struct Busy { bool& value; Busy(bool& v) : value(v) { value = true; } ~Busy() { value = false; } } busy(m_busy);
     const auto generation = m_generation;
     std::vector<EntityHandle<CCSOLScenarioBreakable>> candidate;
-    CBaseEntity* entity{};
-    while (true)
+    for (const char* classname : {"zbsbreak", "zbstarget"})
     {
-        entity = UTIL_FindEntityByClassname(entity, "zbsbreak");
-        if (m_generation != generation) { error = {0, "scenario map changed during wall collection"}; return false; }
-        if (!entity) break;
-        auto* wall = dynamic_cast<CCSOLScenarioBreakable*>(entity);
-        if (!wall || !wall->ValidConfiguration())
+        CBaseEntity* entity{};
+        while (true)
         {
-            error = {0, "invalid scenario wall entity or damage ratio"};
-            return false;
+            const auto found = CSOL_LookupScenarioEntity(entity, classname, access);
+            if (!access->Allowed() || m_generation != generation) { error = {0, "scenario map changed during wall collection"}; return false; }
+            if (!found.valid) { error = {0, "scenario wall lookup was cancelled"}; return false; }
+            entity = found.entity;
+            if (!entity) break;
+            auto* wall = dynamic_cast<CCSOLScenarioBreakable*>(entity);
+            if (!wall || !wall->ValidConfiguration())
+            {
+                error = {0, "invalid scenario wall or target configuration"};
+                return false;
+            }
+            candidate.emplace_back(wall);
         }
-        candidate.emplace_back(wall);
     }
     for (const auto& handle : candidate)
         if (auto* wall = handle.Get<CCSOLScenarioBreakable>()) wall->BindRules(m_rules);
@@ -235,9 +387,10 @@ bool CCSOLScenarioWalls::Collect(csol::scenario::ConfigError& error)
 
 bool CCSOLScenarioWalls::BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules)
 {
-    if (m_busy || !rules) return false;
+    if (!m_access || !m_access->Allowed() || m_busy || !rules) return false;
     if (m_rules && m_rules != rules) m_rules->Invalidate();
     m_rules = std::move(rules);
+    m_rules->BindEntityAccess(m_access);
     for (const auto& handle : m_walls)
         if (auto* wall = handle.Get<CCSOLScenarioBreakable>()) wall->BindRules(m_rules);
     return true;
@@ -248,7 +401,10 @@ void CCSOLScenarioWalls::Reset()
     ++m_generation;
     if (m_rules) m_rules->Invalidate();
     for (const auto& handle : m_walls)
+    {
+        if (!m_access || !m_access->Allowed()) break;
         if (auto* wall = handle.Get<CCSOLScenarioBreakable>()) wall->BindRules(nullptr);
+    }
     m_walls.clear();
     m_rules.reset();
 }
@@ -259,5 +415,8 @@ void CCSOLScenarioWalls::CancelPending()
     // when they do not go through native CleanUpMap's DelayedUse removal.
     if (m_rules) m_rules->Invalidate();
     for (const auto& handle : m_walls)
+    {
+        if (!m_access || !m_access->Allowed()) break;
         if (auto* wall = handle.Get<CCSOLScenarioBreakable>()) wall->BindRules(m_rules);
+    }
 }

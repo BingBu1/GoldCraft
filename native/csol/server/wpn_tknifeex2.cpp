@@ -6,6 +6,7 @@
 #include "wpn_cannon.h"
 #include "characters.h"
 #include "../projectile_effects.hpp"
+#include <typeinfo>
 
 namespace
 {
@@ -430,6 +431,11 @@ private:
 };
 
 LINK_ENTITY_TO_CLASS(weapon_tknifeex2, CTKnifeEx2, CCSPlayerWeapon)
+
+bool CSOL_TKnifeEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon)
+{
+    return typeid(weapon) == typeid(CTKnifeEx2) && weapon.m_iId == CSOL_WEAPON_TKNIFEEX2;
+}
 
 void CTKnifeEx2::Spawn()
 {

@@ -20,7 +20,8 @@ public:
     // trigger activates it; the group ID is never an active wave ID.
     bool Prepare(const WaveTable& table, std::span<const std::uint16_t> waveIds,
         ConfigError& error);
-    WaveTickResult Tick(float elapsed, WaveRunner::Dispatch dispatch, void* context);
+    WaveTickResult Tick(float elapsed, WaveRunner::Dispatch dispatch, void* context,
+        WaveRunner::Current current = nullptr, const void* ownerContext = nullptr);
     // Spatial/direct trigger activation appends without deduplicating and
     // restarts the shared program at the current scenario elapsed time.
     // An ID absent from the preloaded runtime remains empty, even if another

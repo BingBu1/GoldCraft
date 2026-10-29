@@ -14,7 +14,159 @@ void Select(const EquipmentBuff*& selected, const EquipmentBuff& candidate)
     if (!selected || candidate.priority > selected->priority ||
         (candidate.priority == selected->priority && candidate.item > selected->item)) selected = &candidate;
 }
+}
 
+bool ClassModEligible(const ClassModDefinition& definition, const ClassModQuery& query,
+    bool& eligible, ConfigError& error)
+{
+    eligible = false;
+    const auto mode = [&](int& value)
+    {
+        if (!query.current || !query.current(query.owner)) return false;
+        if (!query.mode || !query.mode(query.modeOwner, value))
+        { if (query.current(query.owner)) error.message = "class mod mode query is unavailable"; return false; }
+        return query.current(query.owner);
+    };
+    int value{};
+    if (!mode(value)) return false;
+    if (value == -2 && !mode(value)) return false;
+    if (value == 58 || value == 60) return true;
+    switch (definition.type)
+    {
+    case 2:
+        if (!mode(value)) return false;
+        eligible = value != 0 && value != 6 && value != 7 && value != 42;
+        return true;
+    case 5:
+        if (!mode(value)) return false;
+        eligible = value == 14 || value == 54 || value == 44 || value == 24 || value == 45 ||
+            value == 41 || value == 55 || value == 60 || value == 56;
+        return true;
+    case 8: case 10:
+        if (!mode(value)) return false;
+        if (value == 15) { eligible = true; return true; }
+        if (!mode(value)) return false;
+        eligible = value == 48;
+        return true;
+    case 9:
+        if (!mode(value)) return false;
+        eligible = value == 15;
+        return true;
+    default:
+        // Includes original signed types outside2..10, including the real
+        // directory's1001..1030 entries. It is an explicit original branch.
+        eligible = true;
+        return true;
+    }
+}
+
+namespace
+{
+bool FindCurrentType(const ClassModCurrent& current, int type, const ClassModQuery& query,
+    const ClassModDefinition*& result, ConfigError& error)
+{
+    result = nullptr;
+    if (!type) return true;
+    for (const auto* definition : current.records)
+    {
+        if (!query.current || !query.current(query.owner)) return false;
+        if (!definition) { error.message = "class mod current list contains a missing definition"; return false; }
+        if (definition->type != type) continue;
+        bool eligible{};
+        if (!ClassModEligible(*definition, query, eligible, error)) return false;
+        if (eligible) { result = definition; return true; }
+    }
+    return true;
+}
+}
+
+bool FindClassModType(const ClassModCurrent& current, int type, const ClassModQuery& query,
+    const ClassModDefinition*& result, ConfigError& error)
+{
+    error = {};
+    result = nullptr;
+    if (!current.complete || current.building || !current.table)
+    { error.message = "class mod current list has not been rebuilt from complete records"; return false; }
+    if (!query.current || !query.current(query.owner)) return false;
+    return FindCurrentType(current, type, query, result, error);
+}
+
+bool FindClassModPair(const ClassModCurrent& current, int type, int subtype,
+    const ClassModDefinition*& result, ConfigError& error)
+{
+    error = {};
+    result = nullptr;
+    if (!current.complete || current.building || !current.table)
+    { error.message = "class mod current list has not been rebuilt from complete records"; return false; }
+    // Original v50 compares the two low16 halves as one packed DWORD.
+    if (!type) return true;
+    for (const auto* definition : current.records)
+    {
+        if (!definition) { error.message = "class mod current list contains a missing definition"; return false; }
+        if (static_cast<std::uint16_t>(definition->type) == static_cast<std::uint16_t>(type) &&
+            static_cast<std::uint16_t>(definition->subtype) == static_cast<std::uint16_t>(subtype))
+        { result = definition; break; }
+    }
+    return true;
+}
+
+bool RebuildClassMods(std::uint32_t identity, std::int32_t classId,
+    std::span<const EquipmentLoadout::ClassCaps> records, std::shared_ptr<const ClassModTable> table,
+    ClassModCurrent& current, const ClassModQuery& query, ConfigError& error)
+{
+    if (!identity) return true;
+    error = {};
+    if (!query.current || !query.current(query.owner)) return false;
+    if (current.building) { error.message = "class mod list rebuild is already active"; return false; }
+    current.building = true;
+    struct Scope { bool& building; ~Scope() { building = false; } } scope{current.building};
+    current.complete = false;
+    current.records.clear();
+    current.table = table;
+    current.classId = classId;
+    if (!table) { error.message = "class mod definition directory is unavailable"; return false; }
+    for (const auto& record : records)
+    {
+        if (record.classId != classId) continue;
+        for (const int item : record.slots)
+        {
+            if (item == -1 || item == 0) continue;
+            const auto found = table->definitions.find(item);
+            if (found == table->definitions.end()) continue;
+            bool eligible{};
+            if (!ClassModEligible(found->second, query, eligible, error)) return false;
+            if (eligible) current.records.push_back(&found->second);
+        }
+    }
+    const ClassModDefinition* combined{};
+    if (!FindCurrentType(current, 4, query, combined, error)) return false;
+    if (combined)
+    {
+        for (const int type : {2, 3})
+        {
+            const ClassModDefinition* definition{};
+            for (const auto& [item, candidate] : table->definitions)
+            {
+                if (candidate.type != type || candidate.subtype != 0) continue;
+                // The original uses its unordered directory iteration order.
+                // Real defaults are unique. Reject ambiguous custom resources
+                // instead of inventing a winner by itemID or CSV row order.
+                if (definition)
+                { error.message = "class mod display default is ambiguous"; return false; }
+                definition = &candidate;
+            }
+            current.records.push_back(definition); // Preserve original null append.
+        }
+        if (std::find(current.records.begin(), current.records.end(), nullptr) != current.records.end())
+        { error.message = "class mod combined display default is missing"; return false; }
+    }
+    if (!query.current(query.owner)) return false;
+    current.complete = true;
+    return true;
+}
+
+namespace
+{
 std::int32_t Truncate(float value)
 {
     return static_cast<double>(value) >= -2147483648.0 && static_cast<double>(value) < 2147483648.0 ?

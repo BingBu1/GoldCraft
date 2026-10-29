@@ -42,6 +42,7 @@ class WaveRunner
 {
 public:
     using Dispatch = void (*)(void* context, const WaveRow& row, RowClock& clock);
+    using Current = bool (*)(const void* context); // No callbacks; owner/error gate, not the wave-stop flag.
 
     // Builds one wave in first-seen point order, retaining every row. Failure
     // leaves the previous program intact; no missing wave is synthesized.
@@ -49,7 +50,8 @@ public:
     // Original runtime-map lookup creates an empty program for absent IDs.
     // It still has an identity/offset and completes on its next valid tick.
     static WaveRunner Empty(int waveId);
-    WaveTickResult Tick(float elapsed, Dispatch dispatch, void* context);
+    WaveTickResult Tick(float elapsed, Dispatch dispatch, void* context,
+        Current current = nullptr, const void* ownerContext = nullptr);
     bool ResetRunningRows();
     // Trigger activation resets every row, including rows that already ended.
     // Original event-load +2 is not applied again by this distinct operation.

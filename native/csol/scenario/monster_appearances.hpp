@@ -9,6 +9,8 @@
 
 namespace csol::scenario
 {
+struct MonsterType;
+struct ConfigError;
 struct MonsterAppearance
 {
     std::uint16_t index{};
@@ -35,4 +37,8 @@ std::span<const MonsterAppearance, MonsterAppearanceCount> MonsterAppearances();
 // Original mode15 catalog: exact, case-sensitive name; first match wins.
 // A numeric string is a name, not an index. Unknown names have no fallback.
 const MonsterAppearance* FindMonsterAppearance(std::string_view name);
+// MP 11380280, mode15. This is a statistics predicate, not skill/Boss AI
+// selection. Unknown appearances fail instead of becoming ordinary kills.
+bool MonsterStatisticsBoss(const MonsterType* type, int cachedMapId, int currentMapId,
+    bool& output, ConfigError& error);
 }

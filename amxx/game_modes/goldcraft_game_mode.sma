@@ -8,6 +8,12 @@
 new g_Patterns[MAX_MODE_RULES][MAX_PLUGIN_NAME];
 new g_Masks[MAX_MODE_RULES];
 new g_RuleCount;
+new bool:g_Scenario;
+new bool:g_RestoringBots;
+new g_BotCvars[3];
+new g_BotPrevious[3][32];
+new const g_BotNames[][] = { "sypb_auto_players", "sypb_quota_save", "sypb_quota" };
+new const g_BotDisabled[] = { -1, -1, 0 };
 
 public plugin_precache()
 {
@@ -24,6 +30,7 @@ public plugin_precache()
         set_fail_state("模式服务未就绪，csol_game_mode 只允许 0、1、2");
         return;
     }
+    g_Scenario = mode == _:CSOL_MODE_SCENARIO;
     if (!ReadModePolicy())
     {
         set_fail_state("无法读取有效的 goldcraft/game_modes.ini");
@@ -52,7 +59,54 @@ public plugin_precache()
 
 public plugin_init()
 {
-    register_plugin("GoldCraft 地图模式", "0.1.0", "GoldCraft contributors");
+    register_plugin("GoldCraft 地图模式", "0.1.1", "GoldCraft contributors");
+    IsolateScenarioBots();
+}
+
+public OnConfigsExecuted()
+{
+    // Server and SyPB configs can execute after plugin_init. Keep the native
+    // Bot population manager out of scenario maps for their entire lifetime.
+    IsolateScenarioBots();
+}
+
+IsolateScenarioBots()
+{
+    if (!g_Scenario) return;
+    for (new i; i < sizeof g_BotCvars; i++)
+    {
+        if (!g_BotCvars[i])
+        {
+            g_BotCvars[i] = get_cvar_pointer(g_BotNames[i]);
+            if (!g_BotCvars[i]) continue;
+            get_pcvar_string(g_BotCvars[i], g_BotPrevious[i], charsmax(g_BotPrevious[]));
+            hook_cvar_change(g_BotCvars[i], "ScenarioBotCvarChanged");
+        }
+        if (get_pcvar_num(g_BotCvars[i]) != g_BotDisabled[i])
+            set_pcvar_num(g_BotCvars[i], g_BotDisabled[i]);
+    }
+}
+
+public ScenarioBotCvarChanged(pcvar, const oldValue[], const newValue[])
+{
+    if (!g_Scenario || g_RestoringBots) return;
+    for (new i; i < sizeof g_BotCvars; i++)
+    {
+        if (pcvar == g_BotCvars[i] && str_to_num(newValue) != g_BotDisabled[i])
+        {
+            set_pcvar_num(pcvar, g_BotDisabled[i]);
+            return;
+        }
+    }
+}
+
+public plugin_end()
+{
+    // Restore the previous mode's policy; do not persist scenario-only values
+    // to sypb.cfg or change the configured Bot population for native CS/ZP.
+    g_RestoringBots = true;
+    for (new i; i < sizeof g_BotCvars; i++)
+        if (g_BotCvars[i]) set_pcvar_string(g_BotCvars[i], g_BotPrevious[i]);
 }
 
 bool:ReadModePolicy()

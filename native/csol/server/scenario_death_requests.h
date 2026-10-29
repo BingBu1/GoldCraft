@@ -79,6 +79,7 @@ private:
         CCSOLMonsterPool* pool{};
         std::uint64_t lease{}, generation{};
         CSOLMonsterDeathArguments arguments;
+        std::shared_ptr<const CSOLScenarioEntityAccess> access;
     };
     struct Local
     {

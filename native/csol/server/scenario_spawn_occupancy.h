@@ -17,8 +17,10 @@ class CCSOLSpawnClearDeaths
 {
 public:
     virtual ~CCSOLSpawnClearDeaths() = default;
-    virtual void BeforeSpawnClear(CCSOLScenarioMonster& monster) = 0;
-    virtual void RequestSpawnClearDeath(CCSOLScenarioMonster& monster) = 0;
+    virtual bool BeforeSpawnClear(CCSOLScenarioMonster& monster) = 0;
+    // Ignored/deferred deaths are accepted. False reports a failed service or
+    // cancelled owner, not an ordinary refusal to kill this particular slot.
+    virtual bool RequestSpawnClearDeath(CCSOLScenarioMonster& monster) = 0;
 };
 
 // Mode 15 occupancy is a separate 39.37-unit grid derived from the loaded NAV
@@ -56,7 +58,7 @@ public:
     bool MakeRoom(const Vector& origin) override;
     bool Ready() const override
     {
-        return m_ready && m_error.empty() &&
+        return m_ready && m_error.empty() && m_pool.EntityAccessAllowed() &&
             m_pool.State() == CSOLMonsterPoolState::Ready && !m_pool.Busy();
     }
     const std::string& Error() const { return m_error; }

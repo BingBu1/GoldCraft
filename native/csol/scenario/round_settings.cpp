@@ -51,4 +51,21 @@ bool ReadRoundSettings(const RoundTable& table, std::size_t index,
         std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(playerSpawn))};
     return true;
 }
+
+bool ReadRewardRound(const RoundTable& table, std::int32_t& output, ConfigError& error)
+{
+    error = {};
+    if (table.headerRecord != 6 || table.source.records.size() <= 5)
+    { error.message = "scenario reward round has no metadata row"; return false; }
+    std::int32_t value{};
+    const auto& record = table.source.records[5];
+    // The original getter does not write a null/empty cell. This host has no
+    // previous external manager value to preserve, so reject that input.
+    if (record.fields.size() <= 1 || record.fields[1].empty())
+    { error = {record.byteOffset, "scenario reward round metadata is empty"}; return false; }
+    if (!IntegerCell(record, 1, value))
+    { error = {record.byteOffset, "scenario reward round overflows the original int32 getter"}; return false; }
+    output = value;
+    return true;
+}
 }

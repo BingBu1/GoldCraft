@@ -3,6 +3,9 @@
 
 #include "scenario_spawn_points.h"
 #include "ehandle.h"
+#include "scenario_entity_access.h"
+#include <memory>
+#include <utility>
 
 enum class CSOLPointCollection
 {
@@ -20,6 +23,7 @@ public:
     // Forget old handles without accessing edicts from the previous map.
     // The engine owns/removes those edicts. Also call this on same-map reload.
     void BeginMap();
+    void BindEntityAccess(std::shared_ptr<const CSOLScenarioEntityAccess> access) { m_access = std::move(access); }
     CSOLPointCollection CollectMap();
     CSOLPointCollection Status() const { return m_status; }
     std::uint64_t Generation() const { return m_generation; }
@@ -40,4 +44,5 @@ private:
     std::uint8_t m_nextPlayer{};
     std::uint64_t m_generation{};
     bool m_busy{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_access{std::make_shared<CSOLScenarioEntityAccess>()};
 };

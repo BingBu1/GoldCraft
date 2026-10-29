@@ -8,10 +8,12 @@ endif()
 get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
-add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
+add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp
     client/projectiles.cpp client/cannon.cpp
     client/death_notices.cpp
+    client/status_icons.cpp client/status_icons_gl.cpp
+    client/damage_numbers.cpp client/damage_styles.cpp client/damage_display.cpp client/damage_options.cpp
     client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/beamgun_scope.cpp beamgun_state.cpp weapon_slots.cpp
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
     "${SDK}/HLSDK/common/interface.cpp")
@@ -31,6 +33,16 @@ target_compile_definitions(CSOLSupport PRIVATE WIN32 _WINDOWS _USRDLL _MBCS NO_M
 target_compile_options(CSOLSupport PRIVATE /utf-8 /W3 /Zi)
 target_sources(CSOLSupport PRIVATE "${METAHOOK_ROOT}/thirdparty/glew_fork/src/glew.c")
 target_link_libraries(CSOLSupport PRIVATE opengl32 gdi32 bcrypt)
+include(damage_vgui.cmake)
+option(CSOL_BUILD_DAMAGE_TESTS "Build offline damage consumer/session checks" OFF)
+if(CSOL_BUILD_DAMAGE_TESTS)
+    add_executable(csol_damage_client_tests ../../tests/csol-damage-display/client.cpp
+        client/damage_display.cpp client/damage_styles.cpp client/damage_numbers.cpp client/session.cpp)
+    target_compile_features(csol_damage_client_tests PRIVATE cxx_std_20)
+    target_include_directories(csol_damage_client_tests PRIVATE ${CSOL_DAMAGE_INCLUDES})
+    target_compile_definitions(csol_damage_client_tests PRIVATE WIN32 NOMINMAX NO_MALLOC_OVERRIDE _CRT_SECURE_NO_WARNINGS)
+    target_compile_options(csol_damage_client_tests PRIVATE /utf-8 /W3)
+endif()
 set(CSOL_CHARACTER_FONT_FILE "" CACHE FILEPATH "Optional supplied CSOL font, embedded privately in the local DLL")
 if(CSOL_CHARACTER_FONT_FILE)
     if(NOT EXISTS "${CSOL_CHARACTER_FONT_FILE}")
@@ -45,6 +57,45 @@ endif()
 target_link_options(CSOLSupport PRIVATE /DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF)
 install(TARGETS CSOLSupport RUNTIME DESTINATION cstrike/metahook/plugins)
 option(CSOL_BUILD_CHARACTER_TESTS "Build actual hand GPU checks" OFF)
+option(CSOL_BUILD_STATUS_ICON_TESTS "Build actual status message and session checks" OFF)
+option(CSOL_BUILD_STATUS_ICON_GL_TESTS "Build actual status renderer driver checks" OFF)
+if(CSOL_BUILD_STATUS_ICON_TESTS OR CSOL_BUILD_STATUS_ICON_GL_TESTS)
+    get_target_property(STATUS_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
+    get_target_property(STATUS_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)
+    enable_testing()
+endif()
+if(CSOL_BUILD_STATUS_ICON_TESTS)
+    add_executable(csol_status_icon_client_tests ../../tests/csol-status-icons/client.cpp
+        client/status_icons.cpp client/session.cpp ../../tests/csol-damage-display/session_stub.cpp)
+    target_compile_features(csol_status_icon_client_tests PRIVATE cxx_std_20)
+    target_include_directories(csol_status_icon_client_tests PRIVATE ${STATUS_INCLUDES})
+    target_compile_definitions(csol_status_icon_client_tests PRIVATE ${STATUS_DEFINITIONS})
+    target_compile_options(csol_status_icon_client_tests PRIVATE /utf-8 /W3)
+    add_test(NAME csol_status_icon_client COMMAND csol_status_icon_client_tests)
+    add_test(NAME csol_status_icon_client_no_previous COMMAND csol_status_icon_client_tests --no-previous)
+endif()
+if(CSOL_BUILD_STATUS_ICON_GL_TESTS)
+    set(CSOL_STATUS_GLFW_INCLUDE "" CACHE PATH "Existing matched GLFW include directory")
+    set(CSOL_STATUS_GLFW_LIBRARY "" CACHE FILEPATH "Existing matched x86 static GLFW library")
+    set(CSOL_STATUS_TEST_COMMON "" CACHE PATH "CSOL common resource root for status rendering checks")
+    if(NOT EXISTS "${CSOL_STATUS_GLFW_INCLUDE}/GLFW/glfw3.h" OR NOT EXISTS "${CSOL_STATUS_GLFW_LIBRARY}" OR
+       NOT EXISTS "${CSOL_STATUS_TEST_COMMON}/resource/Hud/Skillicon/hud_playerstatus_7.tga")
+        message(FATAL_ERROR "Status GL tests require existing GLFW headers/library and the original protection TGA")
+    endif()
+    # gpu.cpp includes the actual renderer; do not compile that TU twice.
+    # Link UploadImage from its real owner and existing model dependencies.
+    add_executable(csol_status_icon_gl_tests ../../tests/csol-status-icons/gpu.cpp
+        client/assets.cpp client/hands.cpp hand_adapter.cpp character_catalog.cpp texture_model.cpp
+        model_codec.cpp model_json.cpp image_codec.cpp events.cpp model_source.cpp
+        "${METAHOOK_ROOT}/thirdparty/glew_fork/src/glew.c")
+    target_compile_features(csol_status_icon_gl_tests PRIVATE cxx_std_20)
+    target_include_directories(csol_status_icon_gl_tests PRIVATE ${STATUS_INCLUDES} "${CSOL_STATUS_GLFW_INCLUDE}")
+    target_compile_definitions(csol_status_icon_gl_tests PRIVATE ${STATUS_DEFINITIONS} GLFW_INCLUDE_NONE)
+    target_compile_options(csol_status_icon_gl_tests PRIVATE /utf-8 /W3)
+    target_link_libraries(csol_status_icon_gl_tests PRIVATE opengl32 gdi32 "${CSOL_STATUS_GLFW_LIBRARY}")
+    add_test(NAME csol_status_icon_gl COMMAND csol_status_icon_gl_tests "${CSOL_STATUS_TEST_COMMON}")
+    add_test(NAME csol_status_icon_gl_core COMMAND csol_status_icon_gl_tests "${CSOL_STATUS_TEST_COMMON}" --core)
+endif()
 if(CSOL_BUILD_CHARACTER_TESTS)
     add_executable(csol_player_animation_tests ../../tests/csol-characters/player_animation.cpp)
     get_target_property(PLAYER_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
@@ -118,7 +169,7 @@ if(CSOL_BUILD_SCENE_TESTS)
 endif()
 if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     add_executable(csol_weapon_client_tests ../../tests/csol-weapon-slots/client.cpp
-        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp beamgun_state.cpp weapon_slots.cpp)
+        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-damage-display/session_stub.cpp)
     target_compile_features(csol_weapon_client_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SLOT_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SLOT_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)

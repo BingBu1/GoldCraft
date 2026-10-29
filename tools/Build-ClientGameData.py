@@ -19,9 +19,11 @@ VTABLE_RVA = 0xCF164
 FUNCTIONS = (
     ("StudioDrawModel", 2, 0x66B50, 0x47A),
     ("StudioDrawPlayer", 3, 0x4B450, 0x362),
+    ("StudioGetAnim", 4, 0x67CD0, 0x9A),
     ("StudioSetupBones", 6, 0x4BF00, 0xCF3),
     ("StudioSaveBones", 8, 0x68620, 0xB7),
     ("StudioMergeBones", 9, 0x67D70, 0x280),
+    ("StudioCalcRotations", 17, 0x66910, 0x23D),
     ("StudioRenderModel", 18, 0x68580, 0x98),
     ("StudioRenderFinal", 19, 0x68390, 0x18),
 )
@@ -69,6 +71,12 @@ def main():
             "payload": {"vfunc_index": slot, "vtable_name": "GameStudioRenderer",
                         "func_rva": hex(rva), "func_size": hex(size)},
         })
+
+    # Matched Setup/GetAnim object reads. Merge uses its explicit model argument.
+    for name, member, offset in (("Header", "studioHeader", 0x44), ("SetupModel", "setupModel", 0x34)):
+        records.append({"platform": "windows", "module": "client",
+                        "symbolName": "CSOL_StudioRenderer_" + name, "kind": "structMember",
+                        "payload": {"struct_name": "GameStudioRenderer", "member_name": member, "offset": hex(offset)}})
 
     # ScoreInfo's store of frags: mov word ptr [eax+g_PlayerExtraInfo], bx.
     # ScoreAttrib independently confirms VIP +12, dead +60, defuse +112,
@@ -192,7 +200,7 @@ def main():
                 if name not in wanted or candidate.get("module") != "client" or candidate.get("platform") != "windows":
                     continue
                 verified = wanted[name]
-                address_key = {"global": "gv_rva", "patch": "patch_rva"}.get(verified["kind"], "func_rva")
+                address_key = {"global": "gv_rva", "patch": "patch_rva", "structMember": "offset"}.get(verified["kind"], "func_rva")
                 payload = candidate.get("payload", {})
                 if (candidate.get("kind") != verified["kind"] or
                     int(str(payload.get(address_key, "-1")), 0) != int(str(verified["payload"][address_key]), 0) or

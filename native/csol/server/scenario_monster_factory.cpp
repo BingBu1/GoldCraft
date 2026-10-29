@@ -96,24 +96,31 @@ void CBaseAnimating::CSOL_ResetSpawnSequenceInfo()
 
 CSOLMonsterSpawnCall::CSOLMonsterSpawnCall(CCSOLScenarioMap& map, CCSOLMonsterPool& pool,
     CCSOLMonsterDeathRequests& deaths, CCSOLScenarioMonster& monster,
-    const CCSOLMonsterBehavior* expectedBehavior)
+    const CCSOLMonsterBehavior* expectedBehavior, std::shared_ptr<const CCSOLMonsterSpawnOwner> owner)
     : m_map(map), m_pool(pool), m_deaths(deaths), m_mapGeneration(map.SpawnPoints().Generation()),
       m_roundGeneration(map.RoundGeneration()), m_deathGeneration(deaths.Generation()),
       m_lease(pool.Lease(monster)), m_slot(monster.Slot()), m_entity(&monster),
-      m_expectedBehavior(expectedBehavior)
+      m_expectedBehavior(expectedBehavior), m_access(map.EntityAccess()), m_owner(owner), m_hasOwner(owner != nullptr)
 {
 }
 
 bool CSOLMonsterSpawnCall::SameSession() const
 {
-    return m_mapGeneration == m_map.SpawnPoints().Generation() &&
+    if (m_hasOwner)
+    {
+        const auto owner = m_owner.lock();
+        if (!owner || !owner->OwnerCurrent()) return false;
+    }
+    return m_access->Allowed() && m_map.EntityAccess() == m_access && m_pool.EntityAccessAllowed() &&
+        m_mapGeneration == m_map.SpawnPoints().Generation() &&
         m_roundGeneration == m_map.RoundGeneration() && m_deathGeneration == m_deaths.Generation() &&
         m_map.State() == CSOLScenarioMapState::RoundActive;
 }
 
 bool CSOLMonsterSpawnCall::SameMap() const
 {
-    return m_mapGeneration == m_map.SpawnPoints().Generation();
+    return m_access->Allowed() && m_map.EntityAccess() == m_access && m_pool.EntityAccessAllowed() &&
+        m_mapGeneration == m_map.SpawnPoints().Generation();
 }
 
 CCSOLScenarioMonster* CSOLMonsterSpawnCall::Current() const
@@ -133,7 +140,7 @@ void CSOLMonsterSpawnCall::ReturnIncomplete() const
     // A dispatcher-only reset can cancel this call without destroying the
     // pool. Resolve the pool's current slot rather than an old-map handle.
     // Never reclaim a replacement lease, or touch a pool during map shutdown.
-    if (m_mapGeneration != m_map.SpawnPoints().Generation() ||
+    if (!SameMap() ||
         m_roundGeneration != m_map.RoundGeneration() ||
         m_pool.State() != CSOLMonsterPoolState::Ready || m_pool.Busy()) return;
     auto* monster = m_pool.At(m_slot);
@@ -183,6 +190,8 @@ const CSOLMonsterSpawnState* CCSOLMonsterFactory::State(const CCSOLScenarioMonst
 CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, int point, int rowArgument)
 {
     using Result = CSOLMonsterSpawnResult;
+    const auto owner = m_owner.lock();
+    if (m_hasOwner && (!owner || !owner->OwnerCurrent())) return Result::Cancelled;
     if (m_busy || !m_error.message.empty()) return Result::Failed;
     FactoryOperation operation(m_busy);
     if (m_map.State() != CSOLScenarioMapState::RoundActive || !m_map.Tables() ||
@@ -305,12 +314,14 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         return Result::Failed;
     }
     const csol::scenario::MonsterType* previousType{};
+    const auto owner = m_owner.lock();
+    if (m_hasOwner && (!owner || !owner->OwnerCurrent())) return Result::Cancelled;
     const auto mapGeneration = m_map.SpawnPoints().Generation();
     const auto roundGeneration = m_map.RoundGeneration();
     const auto deathGeneration = m_deaths.Generation();
     const auto sameSession = [&]
     {
-        return mapGeneration == m_map.SpawnPoints().Generation() &&
+        return (!owner || owner->OwnerCurrent()) && mapGeneration == m_map.SpawnPoints().Generation() &&
             roundGeneration == m_map.RoundGeneration() && deathGeneration == m_deaths.Generation() &&
             m_map.State() == CSOLScenarioMapState::RoundActive;
     };
@@ -334,7 +345,18 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         { Fail(m_pool.Error().c_str()); return Result::Failed; }
         return Result::Skipped;
     }
-    CSOLMonsterSpawnCall call(m_map, m_pool, m_deaths, *monster);
+    CSOLMonsterSpawnCall call(m_map, m_pool, m_deaths, *monster, nullptr, owner);
+    if (!call.SameSession())
+    {
+        call.ReturnIncomplete();
+        return Result::Cancelled;
+    }
+    if (!call.Current())
+    {
+        call.ReturnIncomplete();
+        Fail("scenario allocated monster is unavailable before spawn initialization");
+        return Result::Failed;
+    }
     m_states[monster->Slot()] = spawnState;
     auto& state = *spawnState;
     state.lease = m_pool.Lease(*monster);
@@ -428,6 +450,10 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         if (!step(m_services.ResolveSpawnOverlap(call, error), "scenario spawn overlap resolution failed")) return false;
         if (call.Current()->pev->health > 0)
         {
+            // MP 1138594A..11385982: use the CURRENT type, after overlap
+            // callbacks. Failed/skipped creation must not enable progress.
+            if (!step(m_map.EnableMonsterClearPoint(call.Current()->Type()->clearPoint),
+                "scenario spawn clear-point activation failed")) return false;
             call.Current()->HostState().navigationExpired = false;
             if (!step(m_services.RulesMonsterSpawned(call, error), "scenario spawn rules callback failed")) return false;
         }

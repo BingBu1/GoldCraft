@@ -108,7 +108,7 @@ bool resource_name(const std::string& name) {
     return (root == "maps" && (ext == ".bsp" || ext == ".res" || ext == ".txt")) ||
            (root == "models" && (ext == ".mdl" || ext == ".seq" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
-           (root == "sprites" && (ext == ".spr" || ext == ".txt")) ||
+           (root == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||
            (root == "gfx" && (ext == ".tga" || ext == ".bmp")) ||
            lower(name) == "gfx/tattoo/tattoo.cso" ||
            (root == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||

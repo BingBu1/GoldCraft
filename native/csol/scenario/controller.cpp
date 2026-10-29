@@ -82,9 +82,11 @@ bool WaveController::EndWave(std::uint16_t id)
     return true;
 }
 
-WaveTickResult WaveController::Tick(float elapsed, WaveRunner::Dispatch dispatch, void* context)
+WaveTickResult WaveController::Tick(float elapsed, WaveRunner::Dispatch dispatch, void* context,
+    WaveRunner::Current current, const void* ownerContext)
 {
-    if (!loaded_ || ticking_ || !dispatch || !std::isfinite(elapsed)) return {};
+    if (!loaded_ || ticking_ || !dispatch || !std::isfinite(elapsed) ||
+        (current && !current(ownerContext))) return {};
     ticking_ = true;
     struct TickScope
     {
@@ -95,10 +97,11 @@ WaveTickResult WaveController::Tick(float elapsed, WaveRunner::Dispatch dispatch
     std::size_t index = 0;
     while (index < active_.size())
     {
+        if (current && !current(ownerContext)) { result.valid = false; return result; }
         const auto id = active_[index];
         const auto found = waves_.find(id);
         WaveTickResult tick{true, true, 0};
-        if (found != waves_.end()) tick = found->second.Tick(elapsed, dispatch, context);
+        if (found != waves_.end()) tick = found->second.Tick(elapsed, dispatch, context, current, ownerContext);
         result.attempts += tick.attempts;
         if (!tick.valid)
         {

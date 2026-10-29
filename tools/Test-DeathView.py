@@ -73,6 +73,7 @@ production = [ROOT/name for name in (
  'neoforge/src/main/java/dev/goldcraft/bridge/Wire.java',
  'neoforge/src/main/java/dev/goldcraft/bridge/NativeArmorProtocol.java',
  'neoforge/src/main/java/dev/goldcraft/bridge/VitalsLedger.java',
+ 'neoforge/src/main/java/dev/goldcraft/bridge/HealthPrediction.java',
  'tests/death-view/DeathViewProbe.java')]
 java = next((ROOT/'.tools/java').glob('jdk-21*/bin'))
 args = ['--release', '21', '-encoding', 'UTF-8', '-proc:none', '-d', str(classes), *map(str, production), *map(str, src.rglob('*.java'))]

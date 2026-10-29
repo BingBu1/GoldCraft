@@ -29,6 +29,7 @@ void ClearScene(){}
 void ForgetSceneEntity(const cl_entity_t*){}
 void ResetCamera(){}
 void ResetCharacters(){}
+void ResetStatusIcons(){}
 int testThirdPerson{};
 int CameraIsThirdPerson(){return testThirdPerson;}
 void ResetProjectiles(){}

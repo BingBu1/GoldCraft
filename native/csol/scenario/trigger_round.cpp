@@ -17,9 +17,11 @@ bool TriggerRound::BeginMap()
 
 bool TriggerRound::Begin(const WaveTable& table, const TriggerRuleTable& rules,
     const TriggerVolumes& volumes, const RoundRow& round, float now, float freezeTime,
-    SpawnPoints& points, TriggerWaveEvents& events, ConfigError& error)
+    SpawnPoints& points, TriggerWaveEvents& events, ConfigError& error, bool* committed)
 {
     error = {};
+    if (committed) *committed = false;
+    if (!events.Check(error)) return false;
     if (starting_ || waves_.IsDispatching() || triggers_.IsExecuting())
     {
         error.message = "cannot begin a scenario round during dispatch";
@@ -71,9 +73,11 @@ bool TriggerRound::Begin(const WaveTable& table, const TriggerRuleTable& rules,
     waves_ = std::move(waves);
     triggers_ = std::move(triggers);
     group_ = group;
+    if (committed) *committed = true;
     // MP uses active[0] temporarily to transfer the TRG group. It clears that
     // temporary value before this notification; do not expose it as a wave.
     events.WavesChanged(waves_.ActiveWaves());
+    if (!events.Check(error)) return false;
     points.ResetMonsterQuotas();
     // Retain nextThink, elapsed and scan-cycle arrivals across ordinary rounds.
     // The separate player scanner retains its cursor until BeginMap.

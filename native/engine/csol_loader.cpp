@@ -5,6 +5,7 @@
 #include "../csol/dependencies.hpp"
 #include "../csol/parts.hpp"
 #include "../csol/sequences.hpp"
+#include "../csol/sequence_safety.hpp"
 #include "../csol/material_source.hpp"
 
 void GoldCraftCsolSequenceDelta(delta_t* delta)
@@ -61,6 +62,16 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
     {
         if (csol::DecodeStudioModel(bytes))
             Con_DPrintf("CSOL: decoded model %s\n", name);
+        csol::SequenceSafetyView safety;
+        // Mod_LoadModel passes this owned result to GoldCraftLoadStudioOwned;
+        // all supported engine/GameDLL samplers check the selected track.
+        constexpr auto policy=csol::SequenceReadPolicy::AllowUnsupportedTracks;
+        const auto stored=csol::ReadSequenceSafety(bytes,safety,policy);
+        if(stored==csol::SequenceSafetyStatus::Invalid)
+            throw std::runtime_error("invalid studio sequence safety data");
+        // Already packed files retain their sequence numbering even when the
+        // original SEQ files are still present next to them.
+        if(stored==csol::SequenceSafetyStatus::Ready)return {};
         const auto files=csol::SequenceFiles(name,[](const std::string& path){return FS_FileExists(path.c_str())!=0;});
         if(files.empty())return {};
         std::vector<std::vector<std::byte>> sequences;
@@ -74,7 +85,9 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
             catch(...){FS_Close(file);throw;}
             FS_Close(file);sequences.push_back(std::move(data));
         }
-        auto result=csol::AppendSequences(bytes,sequences);
+        auto result=csol::AppendSequences(bytes,sequences,policy);
+        if(csol::ReadSequenceSafety(result,safety,policy)!=csol::SequenceSafetyStatus::Ready)
+            throw std::runtime_error("converted studio model lacks valid sequence safety data");
         Con_Printf("CSOL: %s appended %u SEQ files\n",name,unsigned(files.size()));
         return result;
     }

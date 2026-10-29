@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "scenario_entity_access.h"
 
 #include "cbase.h"
 #include "ehandle.h"
@@ -54,6 +55,7 @@ struct CSOLMonsterHostState
     float nonlethalDamage{}; // original host+12C0, shares damageScaleCount
     float statusUpdateAt{}; // original host+12CC, independent one-second gate
     int damageEffect{}; // original host+90; cleared by the player part stage
+    double damageEffectMagnitude{}; // original host+98; consumed with nonzero effect
 };
 
 // Implementations belong to the actual monster/Boss factory. Pool ownership
@@ -150,6 +152,9 @@ public:
     CCSOLMonsterPool& operator=(const CCSOLMonsterPool&) = delete;
 
     bool Initialize();
+    bool BindEntityAccess(std::shared_ptr<const CSOLScenarioEntityAccess> access);
+    bool EntityAccessAllowed() const { return m_entityAccess && m_entityAccess->Allowed(); }
+    std::shared_ptr<const CSOLScenarioEntityAccess> EntityAccess() const { return m_entityAccess; }
     bool Shutdown();
     // Forget old-map handles without accessing the previous edict array.
     bool ForgetMap();
@@ -184,6 +189,8 @@ public:
     CSOLMonsterPoolState State() const { return m_state; }
     const std::string& Error() const { return m_error; }
     bool Busy() const { return m_busy; }
+    bool TeardownBusy() const { return m_busy || m_creatingInflictor; }
+    std::size_t RegisteredCount() const { return m_registered; }
     // One real damage-source entity per pool/session, allocated on first DOT.
     CBaseEntity* DamageInflictor(CSOLMonsterSpawnCall& call);
     // Engine private-data destruction happens before serial/free changes.
@@ -195,6 +202,9 @@ private:
     struct Slot
     {
         EntityHandle<CCSOLScenarioMonster> entity;
+        // Compared only as an address by actual OnDestroy; never dereferenced.
+        // Unlike EHANDLE this does not read an old edict after map revocation.
+        const CCSOLScenarioMonster* identity{};
         std::uint64_t lease{};
         bool borrowed{};
         std::uint8_t priority{};
@@ -217,4 +227,5 @@ private:
     bool m_busy{};
     EHANDLE m_damageInflictor;
     bool m_creatingInflictor{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> m_entityAccess{std::make_shared<CSOLScenarioEntityAccess>()};
 };

@@ -11,6 +11,7 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <typeinfo>
 
 namespace
 {
@@ -79,6 +80,12 @@ private:
 };
 LINK_ENTITY_TO_CLASS(weapon_beamgun, CBeamGun, CCSPlayerWeapon)
 LINK_ENTITY_TO_CLASS(weapon_beamgunle, CBeamGun, CCSPlayerWeapon)
+
+bool CSOL_BeamEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon)
+{
+    return typeid(weapon) == typeid(CBeamGun) &&
+        (weapon.m_iId == CSOL_WEAPON_BEAMGUN || weapon.m_iId == CSOL_WEAPON_BEAMGUNLE);
+}
 
 bool CSOL_BeamInflictor(const entvars_t* inflictor)
 {

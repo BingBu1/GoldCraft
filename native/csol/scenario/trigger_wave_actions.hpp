@@ -13,6 +13,9 @@ class TriggerWaveEvents
 {
 public:
     virtual ~TriggerWaveEvents() = default;
+    // No callbacks. False with an empty error means owner cancellation;
+    // a nonempty error reports a failed service. Success leaves error intact.
+    virtual bool Check(ConfigError& error) const = 0;
     virtual void WaveActivated(std::uint16_t id) = 0;
     virtual void BeforeSpatialWaveEnd(std::uint16_t id) = 0;
     virtual void WavesChanged(std::span<const std::uint16_t> active) = 0;
@@ -32,13 +35,15 @@ public:
     bool EndWave(std::uint16_t id, bool spatial) override;
     void RefreshWaves() override;
     void GoalReached() override;
-    const ConfigError& Error() const { return error_; }
-    bool Valid() const { return error_.message.empty(); }
+    const ConfigError& Error() const { Current(); return error_; }
+    bool Current() const override;
+    bool Valid() const { return Current(); }
 
 private:
     WaveController& waves_;
     WaveSchedule& schedule_;
     TriggerWaveEvents& events_;
-    ConfigError error_;
+    mutable ConfigError error_;
+    mutable bool current_{true};
 };
 }

@@ -34,7 +34,13 @@ public:
     // Removing an unclaimed box follows the same event path as the original.
     void RemoveItems();
     void Deactivate();
+    // Live private objects, not handles queued for removal or reward tickets.
+    std::size_t RegisteredCount() const { return m_registered; }
+    bool Busy() const { return m_removing; }
     std::span<const CSOLScenarioDropReward> Rewards() const { return m_rewards; }
+    // Issued tickets are not submitted event22 requests. Shutdown persistence
+    // records them separately and never infers successful delivery.
+    const std::map<std::uint64_t, CSOLScenarioDropReward>& PendingRewards() const { return m_pendingRewards; }
     std::size_t PendingRewardCount() const { return m_pendingRewards.size(); }
     bool Acknowledge(std::uint64_t sequence, std::uint64_t playerGeneration,
         CSOLScenarioDropReward::Status status);
@@ -59,6 +65,7 @@ private:
     std::vector<CSOLScenarioDropReward> m_rewards;
     std::map<std::uint64_t, CSOLScenarioDropReward> m_pendingRewards;
     std::uint64_t m_sequence{}, m_mapGeneration{};
+    std::size_t m_registered{};
     bool m_active{}, m_removing{}, m_closing{};
 };
 

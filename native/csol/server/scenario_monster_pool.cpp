@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_pool.h"
+#include "scenario_monster_resources.h"
 #include "scenario_monster_effects.h"
+#include "game_rules_gate.h"
 
 #include <algorithm>
 #include <cmath>
@@ -12,7 +14,14 @@ LINK_ENTITY_TO_CLASS(monster_entity, CCSOLScenarioMonster, CCSEntity)
 
 namespace
 {
-constexpr const char* InitialModel = "models/player/zombi_origin/zombi_origin.mdl";
+thread_local std::shared_ptr<const CSOLScenarioEntityAccess> spawningAccess;
+struct SpawnAccessScope
+{
+    std::shared_ptr<const CSOLScenarioEntityAccess> previous;
+    explicit SpawnAccessScope(std::shared_ptr<const CSOLScenarioEntityAccess> access)
+        : previous(std::move(spawningAccess)) { spawningAccess = std::move(access); }
+    ~SpawnAccessScope() { spawningAccess = std::move(previous); }
+};
 struct Operation
 {
     bool& busy;
@@ -46,14 +55,18 @@ bool ClearPoolEffects(CCSOLMonsterPool& pool, CCSOLScenarioMonster& monster)
 
 void CCSOLScenarioMonster::Precache()
 {
-    PRECACHE_MODEL(const_cast<char*>(InitialModel));
+    PRECACHE_MODEL(CSOLScenarioInitialMonsterModel);
 }
 
 void CCSOLScenarioMonster::Spawn()
 {
+    // Pool initialization sets this before DispatchSpawn: m_pool is published
+    // only after Spawn has returned, so it cannot guard this precache callback.
+    const auto access = spawningAccess;
+    if (!access || !access->Allowed()) return;
     EHANDLE self(this);
     Precache();
-    if (self.Get<CBaseEntity>() != this || !Live(self.Get<CBaseEntity>())) return;
+    if (!access->Allowed() || self.Get<CBaseEntity>() != this || !Live(self.Get<CBaseEntity>())) return;
     pev->movetype = MOVETYPE_STEP;
     pev->solid = SOLID_SLIDEBOX;
     // No default CBaseEntity damage/death path: it deletes the edict and does
@@ -72,7 +85,7 @@ void CCSOLScenarioMonster::Spawn()
     pev->skin = std::max(pev->skin, 0);
     SetThink(nullptr);
     SetTouch(nullptr);
-    SET_MODEL(edict(), InitialModel);
+    SET_MODEL(edict(), CSOLScenarioInitialMonsterModel);
 }
 
 bool CCSOLScenarioMonster::InstallBehavior(std::unique_ptr<CCSOLMonsterBehavior> behavior)
@@ -83,6 +96,8 @@ bool CCSOLScenarioMonster::InstallBehavior(std::unique_ptr<CCSOLMonsterBehavior>
 void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
     Vector direction, TraceResult* trace, int damageType)
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return;
     // CSO's base trace stage scales the trace hitgroup, then queues damage;
     // TakeDamage has its own later hitgroup/armor/reward stages. Applying it
     // immediately here would break shotgun aggregation and attacker credit.
@@ -92,12 +107,14 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
     const EHANDLE self(this);
     const auto lease = m_pool->Lease(*this);
     auto* pool = m_pool;
+    const auto access = pool->EntityAccess();
     auto behavior = RetainBehavior();
     m_host.lastHitgroup = trace->iHitgroup;
     if (trace->pHit && trace->pHit->pvPrivateData)
     {
         const auto* hit = CBaseEntity::Instance(trace->pHit);
-        if (self.Get<CBaseEntity>() != this || m_pool != pool ||
+        if (!access->Allowed() || pool->EntityAccess() != access ||
+            self.Get<CBaseEntity>() != this || m_pool != pool ||
             pool->Lease(*this) != lease || m_behavior != behavior) return;
         // Preserve the trace's hitgroup even when only the stored group is
         // cleared for a trace referring to a different private entity.
@@ -122,6 +139,8 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
 BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
     float damage, int damageType)
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return FALSE;
     if (!m_pool || m_pool->Busy() || !m_pool->Borrowed(*this) || !m_behaviorReady || !m_behavior ||
         pev->takedamage == DAMAGE_NO)
         return FALSE;
@@ -132,6 +151,8 @@ BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
 
 void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return;
     if (m_pool && !m_pool->Busy() && m_pool->Borrowed(*this) && m_behaviorReady && m_behavior &&
         pev->deadflag != DEAD_DEAD)
     {
@@ -142,6 +163,8 @@ void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
 
 void CCSOLScenarioMonster::BehaviorThink()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return;
     if (m_pool && !m_pool->Busy() && m_pool->Borrowed(*this) && m_behaviorReady && m_behavior)
     {
         auto behavior = RetainBehavior();
@@ -159,17 +182,21 @@ bool CCSOLScenarioMonster::SetTouchComponent(std::size_t index,
 
 void CCSOLScenarioMonster::Touch(CBaseEntity* other)
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return;
     // CMonster vEC=11387890 is a virtual override, independent of the stock
     // m_pfnTouch member. Ownership checks adapt it to the reusable SDK pool.
     if (!m_pool || m_pool->Busy() || !m_pool->Borrowed(*this) || !m_behaviorReady || !m_behavior)
         return;
     const EHANDLE self(this), target(other);
     auto* pool = m_pool;
+    const auto access = pool->EntityAccess();
     const auto lease = pool->Lease(*this);
     auto behavior = RetainBehavior();
     const auto current = [&]()
     {
-        return self.Get<CBaseEntity>() == this && m_pool == pool &&
+        return access->Allowed() && pool->EntityAccess() == access &&
+            self.Get<CBaseEntity>() == this && m_pool == pool &&
             pool->Borrowed(*this) && pool->Lease(*this) == lease && m_behavior == behavior &&
             m_touchComponents && (!other || target.Get<CBaseEntity>());
     };
@@ -185,15 +212,19 @@ void CCSOLScenarioMonster::Touch(CBaseEntity* other)
 
 void CCSOLScenarioMonster::FreeThink()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
+    if (scope.Scenario() && !scope.Current()) return;
     if (m_pool) m_pool->Free(*this);
 }
 
 void CCSOLScenarioMonster::OnDestroy()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
     if (m_destroying) return;
     m_destroying = true;
     auto* owner = m_pool;
     m_pool = nullptr; // Destructors may reenter; detach before releasing them.
+    m_type = nullptr;
     m_behaviorReady = false;
     m_speed.reset();
     m_touchComponents.reset();
@@ -238,7 +269,7 @@ CCSOLScenarioMonster* CCSOLMonsterPool::At(std::size_t slot) const
     // FClassnameIs expands STRING and reads the engine's string table. Check
     // it before resolving this slot, including teardown and missing-service
     // failures reached indirectly through a captured death's Lease check.
-    if (!gpGlobals || !gpGlobals->pStringBase || slot >= m_slots.size()) return nullptr;
+    if (!EntityAccessAllowed() || !gpGlobals || !gpGlobals->pStringBase || slot >= m_slots.size()) return nullptr;
     auto* base = m_slots[slot].entity.Get<CBaseEntity>();
     if (!Live(base) || !FClassnameIs(base->pev, "monster_entity")) return nullptr;
     auto* entity = dynamic_cast<CCSOLScenarioMonster*>(base);
@@ -247,13 +278,13 @@ CCSOLScenarioMonster* CCSOLMonsterPool::At(std::size_t slot) const
 
 bool CCSOLMonsterPool::Borrowed(const CCSOLScenarioMonster& monster) const
 {
-    return m_state == CSOLMonsterPoolState::Ready && monster.m_slot < m_slots.size() &&
+    return EntityAccessAllowed() && m_state == CSOLMonsterPoolState::Ready && monster.m_slot < m_slots.size() &&
         At(monster.m_slot) == &monster && m_slots[monster.m_slot].borrowed;
 }
 
 std::uint64_t CCSOLMonsterPool::Lease(const CCSOLScenarioMonster& monster) const
 {
-    if (m_state != CSOLMonsterPoolState::Ready || monster.m_slot >= m_slots.size() ||
+    if (!EntityAccessAllowed() || m_state != CSOLMonsterPoolState::Ready || monster.m_slot >= m_slots.size() ||
         At(monster.m_slot) != &monster) return 0;
     return m_slots[monster.m_slot].lease;
 }
@@ -276,11 +307,14 @@ void CCSOLMonsterPool::Park(CCSOLScenarioMonster& monster, bool clearCallbacks)
 
 void CCSOLMonsterPool::RemoveOwned()
 {
+    const auto access = m_entityAccess;
+    if (!access->Allowed()) return;
     const auto inflictor = m_damageInflictor;
     m_damageInflictor = static_cast<CBaseEntity*>(nullptr);
     if (Live(inflictor.Get<CBaseEntity>())) UTIL_Remove(inflictor.Get<CBaseEntity>());
     for (auto& slot : m_slots)
     {
+        if (!access->Allowed()) return;
         auto* base = slot.entity.Get<CBaseEntity>();
         // A matching private object marked FL_KILLME still needs detaching;
         // its OnDestroy runs later and must not call a dead pool owner.
@@ -292,13 +326,17 @@ void CCSOLMonsterPool::RemoveOwned()
             monster->m_behaviorReady = false;
             monster->SetThink(nullptr);
             monster->SetTouch(nullptr);
+            const auto handle = slot.entity;
+            slot = {};
+            if (m_registered) --m_registered;
             auto behavior = std::move(monster->m_behavior);
             auto effects = std::move(monster->m_damageEffects);
             behavior.reset();
             effects.reset();
             // A concrete behavior's destructor may invoke engine callbacks.
             // Resolve the entity again before touching its private data.
-            base = slot.entity.Get<CBaseEntity>();
+            if (!access->Allowed()) return;
+            base = handle.Get<CBaseEntity>();
             if (Live(base) && base == monster && dynamic_cast<CCSOLScenarioMonster*>(base) == monster)
                 UTIL_Remove(base);
         }
@@ -312,19 +350,26 @@ void CCSOLMonsterPool::RemoveOwned()
 
 bool CCSOLMonsterPool::Initialize()
 {
-    if (m_busy || m_state != CSOLMonsterPoolState::Empty) return false;
+    if (!EntityAccessAllowed() || m_busy || m_state != CSOLMonsterPoolState::Empty) return false;
     Operation operation(m_busy);
     m_error.clear();
     for (std::size_t i = 0; i < m_slots.size(); ++i)
     {
-        const auto edict = CREATE_NAMED_ENTITY(ALLOC_STRING("monster_entity"));
-        if (FNullEnt(edict))
+        const auto name = ALLOC_STRING("monster_entity");
+        if (!EntityAccessAllowed()) return false;
+        const auto edict = CREATE_NAMED_ENTITY(name);
+        if (!EntityAccessAllowed()) return false;
+        EHANDLE created(edict);
+        const bool nullEntity = FNullEnt(edict);
+        if (!EntityAccessAllowed()) return false;
+        if (nullEntity || created.Get() != edict)
         {
             RemoveOwned();
             return Fail("scenario monster entity allocation failed");
         }
-        EHANDLE created(edict);
+        SpawnAccessScope spawnAccess(m_entityAccess);
         const int result = DispatchSpawn(edict);
+        if (!EntityAccessAllowed()) return false;
         auto* base = created.Get<CBaseEntity>();
         auto* monster = Live(base) && FClassnameIs(base->pev, "monster_entity") ?
             dynamic_cast<CCSOLScenarioMonster*>(base) : nullptr;
@@ -338,6 +383,7 @@ bool CCSOLMonsterPool::Initialize()
         monster->m_slot = i;
         monster->m_type = nullptr;
         m_slots[i].entity = monster;
+        m_slots[i].identity = monster;
         ++m_registered;
         Park(*monster);
         m_idle.push_back(i);
@@ -358,8 +404,19 @@ bool CCSOLMonsterPool::Shutdown()
     if (m_busy) return false;
     Operation operation(m_busy);
     RemoveOwned();
+    // Engine teardown owns the remaining OnDestroy calls after revocation.
+    // Their registration records must survive until those calls have returned.
+    if (m_registered) return false;
     m_state = CSOLMonsterPoolState::Empty;
     m_error.clear();
+    return true;
+}
+
+bool CCSOLMonsterPool::BindEntityAccess(std::shared_ptr<const CSOLScenarioEntityAccess> access)
+{
+    if (!access || !access->Allowed() || m_busy || m_registered ||
+        m_state != CSOLMonsterPoolState::Empty) return false;
+    m_entityAccess = std::move(access);
     return true;
 }
 
@@ -412,7 +469,7 @@ bool CCSOLMonsterPool::Return(std::size_t slot, bool clearCallbacks)
 
 bool CCSOLMonsterPool::Free(CCSOLScenarioMonster& monster)
 {
-    if (m_busy || m_state != CSOLMonsterPoolState::Ready || At(monster.m_slot) != &monster)
+    if (!EntityAccessAllowed() || m_busy || m_state != CSOLMonsterPoolState::Ready || At(monster.m_slot) != &monster)
         return false;
     Operation operation(m_busy);
     return Return(monster.m_slot);
@@ -420,7 +477,7 @@ bool CCSOLMonsterPool::Free(CCSOLScenarioMonster& monster)
 
 bool CCSOLMonsterPool::ParkForDeath(CCSOLScenarioMonster& monster)
 {
-    if (m_busy || m_state != CSOLMonsterPoolState::Ready || At(monster.m_slot) != &monster)
+    if (!EntityAccessAllowed() || m_busy || m_state != CSOLMonsterPoolState::Ready || At(monster.m_slot) != &monster)
         return false;
     Operation operation(m_busy);
     return Return(monster.m_slot, false);
@@ -546,9 +603,10 @@ std::size_t CCSOLMonsterPool::CategoryCount(std::size_t priority) const
 void CCSOLMonsterPool::EntityDestroyed(CCSOLScenarioMonster& monster)
 {
     if (monster.m_slot >= m_slots.size()) return;
-    // OnDestroy has already detached owner, so compare the actual handle.
-    if (m_slots[monster.m_slot].entity.Get<CBaseEntity>() != &monster) return;
-    m_slots[monster.m_slot].entity = nullptr;
+    // The engine guarantees this private object for the OnDestroy call only.
+    // Other edicts may already be gone; compare a saved address, not EHANDLE.
+    if (m_slots[monster.m_slot].identity != &monster) return;
+    m_slots[monster.m_slot] = {};
     if (m_registered) --m_registered;
-    Fail("scenario monster private data was destroyed before pool shutdown");
+    if (EntityAccessAllowed()) Fail("scenario monster private data was destroyed before pool shutdown");
 }

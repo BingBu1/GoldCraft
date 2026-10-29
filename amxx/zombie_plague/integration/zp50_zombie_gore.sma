@@ -141,7 +141,7 @@ ZombieFlesh(id, count)
         if (random_num(1, 100) > chance) continue;
         // Random human gibs exclude body 0 (the skull); select it separately.
         if (random_num(0, 5) == 0) rg_spawn_head_gib(id);
-        else rg_spawn_random_gibs(id, 1, true);
+        else rg_spawn_random_gibs(id, 5, true);
     }
 }
 

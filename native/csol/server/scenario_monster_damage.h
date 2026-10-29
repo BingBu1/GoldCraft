@@ -18,6 +18,12 @@ public:
     CBaseEntity* Inflictor() const;
     CBaseEntity* Attacker() const;
     CBasePlayer* Player() const;
+    // Cancel only this hit after an observed owner/state replacement. This
+    // does not roll back committed armor, health or rewards, or poison the
+    // monster's persistent diagnostic. An unexplained callback failure is
+    // still an error and must not be converted into cancellation.
+    bool Cancel() { m_cancelled = true; return false; }
+    bool Cancelled() const { return m_cancelled; }
     CSOLMonsterSpawnCall& Spawn() const { return m_spawn; }
     const EHANDLE& InflictorHandle() const { return m_inflictor; }
     const EHANDLE& AttackerHandle() const { return m_attacker; }
@@ -31,6 +37,7 @@ private:
     const CCSOLMonsterBehavior* m_behavior{};
     float m_originalDamage{};
     bool m_hadInflictor{}, m_hadAttacker{};
+    bool m_cancelled{};
     const bool& m_ownerActive;
     bool (*m_ownerValid)(const void*);
     const void* m_ownerContext{};
@@ -42,9 +49,18 @@ struct CSOLMonsterHitAccount
     int roomOption{};
 };
 
+class CCSOLScenarioRuntime;
+// Original 1140A220 consumer for an actual scenario-monster host. A nonzero
+// effect is cleared after its notification/skip path; zero leaves magnitude.
+// The complete BeforeHitReward provider must call this at the original stage.
+bool CSOL_ConsumeMonsterDamageEffect(CSOLMonsterDamageCall& call,
+    std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error);
+
 // These are the remaining actual mode15 rule/weapon consumers, in their
 // original order. They are required, not optional successful no-op callbacks.
 // Damage/armor, hit rewards, health, death dispatch and flinch belong below.
+// A provider returning false for a normal operation cancellation must call
+// call.Cancel(). Returning false without cancellation remains a real failure.
 class CCSOLMonsterDamageServices
 {
 public:
@@ -56,7 +72,9 @@ public:
     virtual bool WeaponEffectsBlocked34F0(CSOLMonsterDamageCall& call) const = 0;
     // Remaining v1D8 addon consumer and weapon-damage statistics. Both this
     // and the preceding stages run before the friendly-fire rejection.
-    virtual bool RulesAfterAttackDamage(CSOLMonsterDamageCall& call,
+    // Source is sampled at v1D8 entry, before item multipliers, upgrades and
+    // their callbacks. Statistics must not query the current gun again here.
+    virtual bool RulesAfterAttackDamage(CSOLMonsterDamageCall& call, int capturedSource,
         csol::scenario::ConfigError& error) = 0;
     // Remaining 11386504..11386B1A effects after the concrete part sum.
     // Do not repeat the target+90 reset or kinds1/6/7/14 here. Also resolve
@@ -72,6 +90,34 @@ public:
     virtual bool AfterHealthDamage(CSOLMonsterDamageCall& call,
         csol::scenario::ConfigError& error) = 0;
 };
+
+// Concrete ordered mode15 consumers. Construction alone does not install or
+// enable combat; unknown ability/weapon/Boss paths remain explicit failures.
+// Session services resolve at each call, after the actual Precache/Activate.
+class CCSOLScenarioDamageServices final : public CCSOLMonsterDamageServices
+{
+public:
+    explicit CCSOLScenarioDamageServices(std::weak_ptr<CCSOLScenarioRuntime> runtime)
+        : m_runtime(std::move(runtime)) {}
+    const bool& DamageSuppressed() const override;
+    bool WeaponEffectsBlocked21F2(CSOLMonsterDamageCall& call) const override;
+    bool WeaponEffectsBlocked34F0(CSOLMonsterDamageCall& call) const override;
+    bool RulesAfterAttackDamage(CSOLMonsterDamageCall& call, int capturedSource,
+        csol::scenario::ConfigError& error) override;
+    bool BeforeHitReward(CSOLMonsterDamageCall& call, CSOLMonsterHitAccount& account,
+        csol::scenario::ConfigError& error) override;
+    bool AfterHitReward(CSOLMonsterDamageCall& call,
+        csol::scenario::ConfigError& error) override;
+    bool AfterHealthDamage(CSOLMonsterDamageCall& call,
+        csol::scenario::ConfigError& error) override;
+private:
+    std::shared_ptr<CCSOLScenarioRuntime> Pin(CSOLMonsterDamageCall& call) const;
+    std::weak_ptr<CCSOLScenarioRuntime> m_runtime;
+    const bool m_retiredDamageSuppressed{true};
+};
+
+bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
+    std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error);
 
 class CCSOLOrdinaryMonsterDamage final
 {

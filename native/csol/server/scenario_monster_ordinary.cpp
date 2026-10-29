@@ -117,6 +117,8 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateSkill(CSOLMonsterSpawnCall& call, const
 CCSOLScenarioMonster* CCSOLOrdinaryMonsterBehavior::Current(
     CSOLMonsterSpawnCall& call, const StatePtr& state) const
 {
+    const auto services = m_services.lock();
+    if (!services || !services->OwnerCurrent()) return nullptr;
     auto* monster = call.Current();
     if (!monster || !state || state != m_state || !state->spawn || state->spawn->lease != state->lease)
         return nullptr;
@@ -187,27 +189,33 @@ bool CCSOLOrdinaryMonsterBehavior::ResetMotion(CSOLMonsterSpawnCall& call, State
 bool CCSOLOrdinaryMonsterBehavior::MoveTo(CSOLMonsterSpawnCall& call, const Vector& goal)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    return Current(call, state) && MoveTo(call, *state, goal);
+    auto* monster = Current(call, state);
+    if (!monster) return false;
+    CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
+    return MoveTo(bound, *state, goal) && Current(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Stop(CSOLMonsterSpawnCall& call)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    return Current(call, state) && Stop(call, *state);
+    auto* monster = Current(call, state);
+    if (!monster) return false;
+    CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
+    return Stop(bound, *state) && Current(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Jump(CSOLMonsterSpawnCall& call)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster) return false;
-    CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this);
+    CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
     return CSOL_PrepareMonsterJumpDirection(bound, state->position) &&
         CSOL_StartMonsterJump(bound, state->position, state->spawn->sequences) && Current(call, state);
 }
@@ -215,7 +223,7 @@ bool CCSOLOrdinaryMonsterBehavior::Jump(CSOLMonsterSpawnCall& call)
 bool CCSOLOrdinaryMonsterBehavior::Flinch(CSOLMonsterSpawnCall& call)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     const auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster || !gpGlobals || !std::isfinite(gpGlobals->time)) return false;
@@ -261,7 +269,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateStatusTick(CSOLMonsterSpawnCall& call, 
 {
     elapsed = false;
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
     auto* monster = Current(call, state);
     if (!monster || !gpGlobals) return false;
@@ -324,16 +332,19 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
     }, &capture), "ordinary gait update failed");
 }
 
-bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& call,
+bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& input,
     CSOLMonsterSpawnState& spawn, csol::scenario::ConfigError& error)
 {
     auto services = m_services.lock();
-    if (!services) return false;
-    auto* monster = call.Current();
+    if (!services || !services->OwnerCurrent()) return false;
+    auto* monster = input.Current();
     if (!monster || !gpGlobals || monster->Behavior() != this ||
         monster->Type()->skill >= 1000 || monster->Type()->propensity != 0 ||
         !std::isfinite(gpGlobals->time))
     { error.message = "ordinary behavior requires a valid propensity0 spawn"; return false; }
+    if (!input.BelongsTo(services->Map()) || monster->Pool() != &services->Pool()) return false;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
+    if (!call.Current()) return false;
     if (m_state && m_state->position.startingJump)
     { error.message = "ordinary reset reentered a Jump animation transaction"; return false; }
 
@@ -707,8 +718,8 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
 {
     auto services = m_services.lock();
     auto state = m_state;
-    if (!services || !state || state->thinking || !state->error.message.empty() || !gpGlobals) return;
-    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this);
+    if (!services || !services->OwnerCurrent() || !state || state->thinking || !state->error.message.empty() || !gpGlobals) return;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this, services);
     auto* monster = Current(call, state);
     if (!monster) return;
     struct Scope { bool& busy; Scope(bool& value) : busy(value) { busy = true; } ~Scope() { busy = false; } } scope(state->thinking);
@@ -829,8 +840,8 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
     #pragma clang fp contract(off)
     auto services = m_services.lock();
     auto state = m_state;
-    if (!other || !services || !state || !gpGlobals || !state->error.message.empty()) return;
-    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this);
+    if (!other || !services || !services->OwnerCurrent() || !state || !gpGlobals || !state->error.message.empty()) return;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this, services);
     const EHANDLE target(other);
     const auto current = [&]() -> CCSOLScenarioMonster*
     {
@@ -916,8 +927,8 @@ BOOL CCSOLOrdinaryMonsterBehavior::TakeDamageWithContext(CCSOLScenarioMonster& m
 {
     auto services = m_services.lock();
     auto state = m_state;
-    if (!services || !state) return FALSE;
-    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this);
+    if (!services || !services->OwnerCurrent() || !state) return FALSE;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this, services);
     if (!Current(call, state)) return FALSE;
     auto owner = m_damage;
     if (!owner)
@@ -939,8 +950,8 @@ void CCSOLOrdinaryMonsterBehavior::Killed(CCSOLScenarioMonster& monster, entvars
 {
     auto services = m_services.lock();
     auto state = m_state;
-    if (!services || !state) return;
-    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this);
+    if (!services || !services->OwnerCurrent() || !state) return;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), monster, this, services);
     if (!Current(call, state)) return;
     CSOLMonsterDeathArguments arguments;
     if (attacker) arguments.attacker = CBaseEntity::Instance(attacker);
@@ -956,7 +967,7 @@ CSOLMonsterDeathParameters CCSOLOrdinaryMonsterBehavior::DeathParameters() const
 bool CCSOLOrdinaryMonsterBehavior::BeforeDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto* monster = call.Current();
     if (!monster) return false;
     return !(monster->HostState().frozenRemaining > 0) || services->FrozenDeath(call, error);
@@ -966,7 +977,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectDeathSequence(CSOLMonsterDeathCall& cal
     int& sequence, csol::scenario::ConfigError&)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     auto* monster = call.Current();
     if (!monster || !m_state || !m_state->spawn) return false;
     sequence = csol::scenario::SelectOrdinaryMonsterDeathSequence(
@@ -978,13 +989,13 @@ bool CCSOLOrdinaryMonsterBehavior::AdjustDeathDuration(CSOLMonsterDeathCall& cal
     float&, csol::scenario::ConfigError&)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     return call.Current() != nullptr; // Ordinary override returns the input unchanged.
 }
 
 bool CCSOLOrdinaryMonsterBehavior::PostDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError&)
 {
     auto services = m_services.lock();
-    if (!services) return false;
+    if (!services || !services->OwnerCurrent()) return false;
     return call.Current() != nullptr; // Ordinary v128=10611B90 is ret8.
 }

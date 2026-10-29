@@ -20,7 +20,6 @@ def check_cumulative_manifest(manifest):
     frozen = receipt['resources']
     assert server_resources.verify_payload(manifest['files'], manifest['requiredPlugins'], frozen) == receipt
     for destination in (
-        'cs/cstrike/models/x_re/floating_damage.mdl',
         'cs/cstrike/sprites/zp_infection.spr',
         'cs/cstrike/addons/amxmodx/data/lang/zp50_zombie_respawn.txt',
         'cs/cstrike/addons/amxmodx/configs/plugins-zp50-zombie-respawn.ini',
@@ -176,13 +175,13 @@ def main():
             assert installed.stat().st_size == expected['bytes'] and digest(installed.read_bytes()) == expected['sha256'], name
     reports.append('Cumulative server resources installed and all required features enabled once')
     floating = [row for row in manifest['files'] if 'floating_damage' in row['destination']]
-    assert len(floating) == 4 and 'addon_floating_damage.amxx' in required
-    for row in floating:
-        if not row['destination'].endswith('.ini'):
-            assert digest((server / row['destination']).read_bytes()) == row['sha256']
+    assert all(row['destination'].endswith('.ini') for row in floating)
+    assert 'addon_floating_damage.amxx' not in required
+    assert 'addon_floating_damage.amxx' not in active
+    assert 'addon_floating_damage.amxx disabled' in active
     listing = (server / 'cs/cstrike/addons/amxmodx/configs/plugins-floating_damage.ini').read_text()
     assert '; floating owner note' in listing and 'custom_numbers.amxx' in active
-    reports.append('Floating damage plugin/model/translation installed, enabled once, owner list preserved')
+    reports.append('Floating damage retired, plugin/model/translation excluded, owner list preserved')
     for name in ('zp50_zombie_armor.amxx', 'zp50_zombie_respawn.amxx', 'zp50_zombie_knockback.amxx', 'zp50_zombie_gore.amxx'):
         if name in required:
             destination = 'cs/cstrike/addons/amxmodx/plugins/' + name

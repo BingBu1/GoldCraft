@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_drops.h"
+#include "game_rules_gate.h"
 
 #include <algorithm>
 #include <bit>
@@ -66,7 +67,8 @@ bool CCSOLScenarioDrops::Active() const
 
 bool CCSOLScenarioDrops::SameMap() const
 {
-    return m_session && m_mapGeneration == m_session->Map().SpawnPoints().Generation();
+    return m_session && m_session->Map().EntityAccessAllowed() &&
+        m_mapGeneration == m_session->Map().SpawnPoints().Generation();
 }
 
 bool CCSOLScenarioDrops::Activate()
@@ -183,6 +185,7 @@ bool CCSOLScenarioDropItem::Configure(std::shared_ptr<CCSOLScenarioDrops> owner,
     const auto ticket = owner->RegisterReward(player, generation, rule.rewardId);
     if (!ticket) return false;
     m_owner = owner;
+    ++owner->m_registered;
     m_player = player;
     m_generation = generation;
     m_ticket = ticket;
@@ -198,6 +201,8 @@ bool CCSOLScenarioDropItem::Configure(std::shared_ptr<CCSOLScenarioDrops> owner,
 
 void CCSOLScenarioDropItem::ItemTouch(CBaseEntity* other)
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_owner ? m_owner->m_session.get() : nullptr));
+    if (scope.Scenario() && !scope.Current()) return;
     if (!m_owner || m_claimed || m_removing || m_destroying) return;
     auto owner = m_owner;
     const auto player = m_player;
@@ -218,6 +223,8 @@ void CCSOLScenarioDropItem::ItemTouch(CBaseEntity* other)
 
 void CCSOLScenarioDropItem::ItemThink()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_owner ? m_owner->m_session.get() : nullptr));
+    if (scope.Scenario() && !scope.Current()) return;
     if (!m_owner || m_claimed || m_removing || m_destroying) return;
     auto owner = m_owner;
     if (!owner->Active()) return;
@@ -238,6 +245,7 @@ void CCSOLScenarioDropItem::ItemThink()
 
 void CCSOLScenarioDropItem::Removing()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_owner ? m_owner->m_session.get() : nullptr));
     if (m_removing) return;
     m_removing = true;
     SetTouch(nullptr);
@@ -252,11 +260,13 @@ void CCSOLScenarioDropItem::Removing()
 
 void CCSOLScenarioDropItem::OnDestroy()
 {
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_owner ? m_owner->m_session.get() : nullptr));
     if (m_destroying) return;
     m_destroying = true;
     Removing();
     // GoldSrc frees pvPrivateData directly; it does not run this C++ destructor.
     auto owner = std::move(m_owner);
+    if (owner) --owner->m_registered;
     CBaseEntity::OnDestroy();
     owner.reset();
 }

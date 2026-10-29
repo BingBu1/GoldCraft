@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "gl_state.hpp"
+#include "sequence_guard.hpp"
 #include "../model_codec.hpp"
 #include "../sprite_codec.hpp"
 #include "../sequences.hpp"
+#include "../sequence_safety.hpp"
+#include <cstdlib>
 #include <cstring>
 
 namespace csol::client
@@ -22,27 +25,44 @@ void Put32(std::vector<std::byte>& out,size_t offset,uint32_t n){memcpy(out.data
 void LoadStudio(model_t* model,void* bytes)
 {
     const auto* header=(const studiohdr_t*)bytes;
-    const bool encoded=header->version==20 || header->version==21;
-    const auto sequenceFiles=SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
-    if(sequenceFiles.empty() && !encoded && (header->version!=10 || header->numattachments<=4)){loadStudio(model,bytes);return;}
+    if(header->version!=10 && header->version!=20 && header->version!=21){loadStudio(model,bytes);return;}
     try
     {
+        // Inspect the actual file span even for v10: an already converted model
+        // can carry safety records without adjacent SEQ files. A naked buffer
+        // and its declared length do not establish the file's readable bounds.
         auto owned=ReadResource(model->name);
-        if(encoded && !DecodeStudioModel(owned))throw std::runtime_error("model changed during load");
-        if(!sequenceFiles.empty())
+        DecodeStudioModel(owned);
+        if(owned.size()<sizeof(studiohdr_t))throw std::runtime_error("short studio header");
+        const auto* source=reinterpret_cast<const studiohdr_t*>(owned.data());
+        if(source->id!=0x54534449 || source->version!=10 || source->length<sizeof(studiohdr_t) ||
+            std::size_t(source->length)>owned.size())throw std::runtime_error("unsupported or truncated studio model");
+        owned.resize(source->length);
+        SequenceSafetyView safety;
+        // This loader publishes through SequenceLoadScope; actual selections
+        // and bone sampling reject unsupported tracks before stock code runs.
+        constexpr auto policy=SequenceReadPolicy::AllowUnsupportedTracks;
+        const auto stored=ReadSequenceSafety(owned,safety,policy);
+        if(stored==SequenceSafetyStatus::Invalid)throw std::runtime_error("invalid studio sequence safety data");
+        const auto sequenceFiles=SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
+        if(stored!=SequenceSafetyStatus::Ready && !sequenceFiles.empty())
         {
             std::vector<std::vector<std::byte>> sequences;
             for(const auto& file:sequenceFiles)sequences.push_back(ReadResource(file.c_str()));
-            owned=AppendSequences(owned,sequences);
+            owned=AppendSequences(owned,sequences,policy);
+            if(ReadSequenceSafety(owned,safety,policy)!=SequenceSafetyStatus::Ready)
+                throw std::runtime_error("converted studio model lacks valid sequence safety data");
         }
         // The stock client writes attachments into cl_entity_t::attachment[4].
         // CSOLSupport retains the full original list in its owned render asset.
         auto* decoded=reinterpret_cast<studiohdr_t*>(owned.data());
         decoded->numattachments=(std::min)(decoded->numattachments,4);
+        SequenceLoadScope sequenceLoad(model,owned);
         loadStudio(model,owned.data());
+        sequenceLoad.Complete();
         engine.Con_DPrintf("CSOLSupport: MDL decoded %s\n",model->name);
     }
-    catch(const std::exception& e){api->SysError("CSOLSupport: %s: %s",model->name,e.what());}
+    catch(const std::exception& e){api->SysError("CSOLSupport: %s: %s",model->name,e.what());std::abort();}
 }
 void LoadSprite(model_t* model,void* bytes)
 {

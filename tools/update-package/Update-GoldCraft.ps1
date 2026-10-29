@@ -1,6 +1,7 @@
 param([Parameter(Mandatory)][ValidateSet('server','cs','minecraft')][string]$Role,
       [string]$TargetDirectory,[switch]$Plan)
 . (Join-Path $PSScriptRoot 'Common.ps1')
+. (Join-Path $PSScriptRoot 'Retired-Plugins.ps1')
 
 function Read-UpdateTarget {
     $interactive=[string]::IsNullOrWhiteSpace($TargetDirectory)
@@ -183,6 +184,12 @@ try {
         Find-OldCore 'minecraft/mods'
         if(Test-Path -LiteralPath (Join-CheckedPath $target 'client-update/mods') -PathType Container){Find-OldCore 'client-update/mods'}
         Enable-ServerPlugins
+        $pendingText=@{}
+        foreach($key in $changes.Keys){if($key -match '/configs/(?:maps/)?plugins(?:-[^/]+)?\.ini$' -and $changes[$key]){$pendingText[$key]=[Text.Encoding]::UTF8.GetString($changes[$key])}}
+        $retiredNames=@('addon_floating_damage.amxx')
+        if($manifest.PSObject.Properties['retiredPlugins']){$retiredNames+=@($manifest.retiredPlugins)}
+        $retireChanges=Get-RetiredPluginChanges $target 'cs/cstrike/addons/amxmodx/configs' $pendingText ($retiredNames | Sort-Object -Unique)
+        foreach($key in $retireChanges.Keys){Add-TextChange $key $retireChanges[$key]}
     } elseif($Role -eq 'cs') {
         if((Get-Sha256 (Join-CheckedPath $target 'hw.dll')) -ne $manifest.supportedGame.engineSha256 -or
            (Get-Sha256 (Join-CheckedPath $target 'cstrike/cl_dlls/client.dll')) -ne $manifest.supportedGame.clientSha256){throw 'CS engine/client build does not match this patch.'}

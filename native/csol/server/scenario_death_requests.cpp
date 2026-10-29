@@ -45,12 +45,12 @@ std::optional<CCSOLMonsterDeathRequests::Pending> CCSOLMonsterDeathRequests::Cap
         !monster.Behavior() || monster.pev->deadflag == DEAD_DEAD) return {};
     const auto lease = pool->Lease(monster);
     if (!lease) return {};
-    return Pending{EntityHandle<CCSOLScenarioMonster>(&monster), pool, lease, m_generation, arguments};
+    return Pending{EntityHandle<CCSOLScenarioMonster>(&monster), pool, lease, m_generation, arguments, pool->EntityAccess()};
 }
 
 CCSOLScenarioMonster* CCSOLMonsterDeathRequests::Resolve(const Pending& pending) const
 {
-    if (pending.generation != m_generation) return nullptr;
+    if (!pending.access || !pending.access->Allowed() || pending.generation != m_generation) return nullptr;
     auto* base = pending.monster.Get<CBaseEntity>();
     auto* monster = base ? dynamic_cast<CCSOLScenarioMonster*>(base) : nullptr;
     if (!monster || !pending.pool || monster->Pool() != pending.pool || !monster->Type()) return nullptr;

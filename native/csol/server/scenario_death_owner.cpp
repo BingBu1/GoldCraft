@@ -13,6 +13,7 @@ CSOLMonsterDeathCall::CSOLMonsterDeathCall(CCSOLScenarioMap& map,
     const CSOLMonsterDeathArguments& arguments)
     : m_map(map), m_requests(requests), m_mapGeneration(map.SpawnPoints().Generation()),
       m_roundGeneration(map.RoundGeneration()), m_requestGeneration(requests.Generation()),
+      m_access(map.EntityAccess()),
       m_stages(monster, [](const void* context)
       {
           return static_cast<const CSOLMonsterDeathCall*>(context)->SameSession();
@@ -23,7 +24,8 @@ CSOLMonsterDeathCall::CSOLMonsterDeathCall(CCSOLScenarioMap& map,
 bool CSOLMonsterDeathCall::SameSession() const
 {
     // Never dereference a retained edict until these owner generations match.
-    return m_requestGeneration == m_requests.Generation() &&
+    return m_access->Allowed() && m_map.EntityAccess() == m_access &&
+        m_requestGeneration == m_requests.Generation() &&
         m_mapGeneration == m_map.SpawnPoints().Generation() &&
         m_roundGeneration == m_map.RoundGeneration() &&
         m_map.State() == CSOLScenarioMapState::RoundActive;
@@ -61,6 +63,11 @@ bool CCSOLMonsterDeathOwner::Reset()
     return true;
 }
 
+CSOLMonsterDrainResult CCSOLMonsterDeathOwner::Drain(std::int32_t limit, bool includeBosses)
+{
+    return m_rules.Drain(limit, includeBosses, m_map.MonsterDrainTeam());
+}
+
 bool CCSOLMonsterDeathOwner::AwardKillMoney(CSOLMonsterDeathCall& call,
     std::int32_t baseMoney, csol::scenario::ConfigError& error)
 {
@@ -77,43 +84,63 @@ bool CCSOLMonsterDeathOwner::AwardKillMoney(CSOLMonsterDeathCall& call,
     if (!players) return fail("scenario kill money player registry is unavailable");
     const auto state = players->Upgrades(player);
     if (!state) return fail("scenario kill money attacker has no authoritative upgrade state");
+    const auto playerGeneration = state->WallState()->generation;
     const auto current = [&]()
     {
         // Death can already have parked the monster: use the death transaction,
         // not the damage path's alive/borrowed gate. Check owners before edicts.
         if (!call.Current() || m_services.Players() != players || !state->Current() ||
             !call.Current() || players->Upgrades(player) != state) return false;
-        auto* live = player.Get<CBaseEntity>();
-        return live && live == call.Attacker() && !(live->pev->flags & FL_KILLME);
+        auto* live = dynamic_cast<CBasePlayer*>(player.Get<CBaseEntity>());
+        return live && live == call.Attacker() && !live->has_disconnected && !(live->pev->flags & FL_KILLME);
     };
-    if (!current()) return false;
-    bool extractor{};
-    const bool extracted = m_services.MoneyExtractor(call, player, extractor, error);
-    if (!current()) return false;
-    if (!extracted) return fail("scenario kill money extractor state is unavailable");
-    int roomOption{};
-    if (extractor)
+    const auto run = [&]() -> bool
     {
-        const bool queried = m_services.RoomOption(call, roomOption, error);
         if (!current()) return false;
-        if (!queried) return fail("scenario kill money room state is unavailable");
+        bool extractor{};
+        const bool extracted = m_services.MoneyExtractor(call, player, extractor, error);
+        if (!current()) return false;
+        if (!extracted) return fail("scenario kill money extractor state is unavailable");
+        int roomOption{};
+        if (extractor)
+        {
+            const bool queried = m_services.RoomOption(call, roomOption, error);
+            if (!current()) return false;
+            if (!queried) return fail("scenario kill money room state is unavailable");
+        }
+        int money = csol::scenario::ResolveMonsterKillMoney(baseMoney, extractor, roomOption);
+        // MP 1137CF79..1137D01F: extractor, rules.v250, AddAccount, then MarkDead.
+        // Zero/negative amounts and a dead player are not skipped by this branch.
+        const bool modified = state->ModifyMoney(money);
+        if (!current()) return false;
+        if (!modified) return fail("scenario kill money character modifier failed");
+        attacker = dynamic_cast<CBasePlayer*>(player.Get<CBaseEntity>());
+        if (!attacker) return false;
+        const auto balance = static_cast<std::int64_t>(attacker->m_iAccount) + money;
+        if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
+            return fail("scenario kill money would overflow the native account");
+        // CSO defers its Money notification. Native AddAccount always sends it;
+        // keep the SDK hooks/limits and suppress only its HUD change indicator,
+        // consistently with the hit/wall reward consumers.
+        attacker->AddAccount(money, RT_NONE, false);
+        return current();
+    };
+    const bool completed = run();
+    if (completed) return true;
+    if (error.message.empty() && state->Error().message.empty() && call.Current() && m_services.Players() == players)
+    {
+        auto* live = dynamic_cast<CBasePlayer*>(player.Get<CBaseEntity>());
+        if (!live || live->has_disconnected || (live->pev->flags & FL_KILLME) ||
+            state->WallState()->generation != playerGeneration)
+        {
+            // Only the recorded recipient retired. Continue MarkDead/timer
+            // and monster cleanup; a completed AddAccount is never undone or
+            // repeated, and no later player stage can credit its replacement.
+            call.RevokeAttacker();
+            return true;
+        }
     }
-    int money = csol::scenario::ResolveMonsterKillMoney(baseMoney, extractor, roomOption);
-    // MP 1137CF79..1137D01F: extractor, rules.v250, AddAccount, then MarkDead.
-    // Zero/negative amounts and a dead player are not skipped by this branch.
-    const bool modified = state->ModifyMoney(money);
-    if (!current()) return false;
-    if (!modified) return fail("scenario kill money character modifier failed");
-    attacker = dynamic_cast<CBasePlayer*>(player.Get<CBaseEntity>());
-    if (!attacker) return false;
-    const auto balance = static_cast<std::int64_t>(attacker->m_iAccount) + money;
-    if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
-        return fail("scenario kill money would overflow the native account");
-    // CSO defers its Money notification. Native AddAccount always sends it;
-    // keep the SDK hooks/limits and suppress only its HUD change indicator,
-    // consistently with the hit/wall reward consumers.
-    attacker->AddAccount(money, RT_NONE, false);
-    return current();
+    return false;
 }
 
 bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
@@ -186,14 +213,25 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
 
         // RulesDeath is called even for an environmental death with no attacker.
         if (!step(m_services.RulesDeath(call, error), "scenario rules death callback failed")) return false;
-        if (call.Attacker() && !step(m_services.PlayerKilledMonster(call, error),
-            "scenario player kill services failed")) return false;
-        if (!step(CSOL_ClearMonsterEffects(call), "scenario death DOT cleanup failed")) return false;
-        if (!step(m_services.ClearEffects(call, error), "scenario remaining death effect cleanup failed")) return false;
+        if (call.Attacker())
+        {
+            auto* attacker = dynamic_cast<CBasePlayer*>(call.Attacker());
+            if (!step(attacker != nullptr, "scenario manager kill attacker is not a native player")) return false;
+            // The original manager counts before root v168, even if that
+            // callback later changes the player team. Use m_iTeam, not pev.
+            if (!step(m_map.RecordTeamMonsterKill(attacker->m_iTeam),
+                "scenario manager team kill counter failed")) return false;
+            if (!step(m_services.PlayerKilledMonster(call, error),
+                "scenario player kill services failed")) return false;
+        }
+        // MP 1137D541..1137D569: reset host damage accumulators, then the
+        // single v1F4 source-record cleanup. Its callbacks may change the
+        // current type; the following target stage must resolve it afresh.
+        if (!step(CSOL_ClearMonsterEffects(call), "scenario death effect cleanup failed")) return false;
         if (!step(m_targets.Fire(call.m_stages, error), "scenario death targets failed")) return false;
         // Use callbacks may have replaced the type. Do not cache it before Fire.
         const int actualType = call.Current()->TypeId();
-        if (!step(m_rules.ApplyRule(actualType, m_services.DrainTeamFilter(), error),
+        if (!step(m_rules.ApplyRule(actualType, m_map.MonsterDrainTeam(), error),
             "scenario death table failed")) return false;
         if (!step(m_services.GoldenDeath(call, error), "scenario Golden death cleanup failed")) return false;
         // Keep the entry behavior alive even if another callback installed a new
