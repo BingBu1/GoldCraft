@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "scenario_monster_position.h"
 #include "scenario_monster_heading.h"
+#include "scenario_performance.h"
 
 #include <bit>
 #include <cmath>
@@ -53,6 +54,7 @@ CSOLMonsterPositionResult CSOL_UpdateOrdinaryMonsterPosition(CSOLMonsterSpawnCal
     float deltaTime, float hostMoveAfter, float avoidanceUntil,
     std::span<const CNavLadder* const> climberLadders)
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Position);
     using Result = CSOLMonsterPositionResult;
     auto* owner = Active(call);
     if (!owner) return Result::Cancelled;
@@ -139,6 +141,7 @@ CSOLMonsterPositionResult CSOL_UpdateOrdinaryMonsterPosition(CSOLMonsterSpawnCal
             base.y * base.y + base.x * base.x < 100.0f)
         {
             const auto expectedRevision = state.follower.Revision() + 1;
+            csol::scenario::perf::Add(csol::scenario::perf::Counter::Rebuild);
             state.follower.Build(call, world, feet, state.destination, climber, climberLadders);
             if (!current() || state.follower.Revision() != expectedRevision) return Result::Cancelled;
         }

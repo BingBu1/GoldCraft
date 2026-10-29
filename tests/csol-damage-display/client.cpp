@@ -40,6 +40,8 @@ void ResetCamera(){}
 void ResetProjectiles(){}
 void ResetCharacters(){}
 void ResetStatusIcons(){}
+void ResetWallStatus(){}
+void ResetBuyMenu(){}
 void PrepareDamageGraphics(int){++fixture::prepared;}
 void ResetDamageGraphics(){++fixture::graphicsResets;}
 void ShutdownDamageOptions(){}

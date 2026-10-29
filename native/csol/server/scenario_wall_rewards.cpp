@@ -88,7 +88,8 @@ bool CCSOLScenarioWallRewards::CreditPlayerDamage(const EHANDLE& player, float s
         const auto balance = static_cast<std::int64_t>(entity->m_iAccount) + money;
         if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
             return Fail("scenario wall reward would overflow the native account");
-        entity->AddAccount(money, RT_NONE, false);
+        // Each earned threshold sends its clamped balance and native HUD delta.
+        entity->AddAccount(money, RT_NONE, true);
         if (!current()) return false;
         // MP 11398349..113983C1: money, signed16 threshold subtraction,
         // then XP. Keep this order for reentrant account and upgrade hooks.

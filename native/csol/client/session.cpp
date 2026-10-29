@@ -5,6 +5,8 @@
 #include "projectiles.hpp"
 #include "characters.hpp"
 #include "status_icons.hpp"
+#include "wall_status.hpp"
+#include "buy_menu.hpp"
 #include "damage_display.hpp"
 #include <ostream>
 #include <algorithm>
@@ -26,6 +28,8 @@ void ResetSession()
     ResetProjectiles();
     ResetCharacters();
     ResetStatusIcons();
+    ResetWallStatus();
+    ResetBuyMenu();
     ResetDamageDisplay();
 }
 }

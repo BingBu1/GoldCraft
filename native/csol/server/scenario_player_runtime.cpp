@@ -6,6 +6,7 @@
 #include "scenario_runtime.h"
 #include "characters.h"
 #include "scenario_entity_lookup.h"
+#include "scenario_native_weapons.h"
 #include "weapons.h"
 #include "../scenario/monster_appearances.hpp"
 
@@ -305,6 +306,17 @@ std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Reso
 std::shared_ptr<const CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Find(const EHANDLE& player) const
 {
     return Resolve(player);
+}
+
+bool CCSOLScenarioPlayerRuntime::ReadUpgradeStat(const EHANDLE& player,
+    csol::scenario::UpgradeStat stat, float& value) const
+{
+    const auto state = Resolve(player);
+    if (!state) return false;
+    const auto players = m_session->Players();
+    const auto upgrades = players ? players->Upgrades(player) : nullptr;
+    return upgrades && upgrades->StatValue(stat, value) && Active() &&
+        m_session->Players() == players && Resolve(player) == state;
 }
 
 bool CCSOLScenarioPlayerRuntime::WasRemoved(const EHANDLE& player) const
@@ -1606,10 +1618,9 @@ bool CCSOLScenarioPlayerRuntime::ReadEntitySource(CBaseEntity& entity, int& valu
     if (const auto* source = dynamic_cast<const CSOLWeaponDamageSource*>(&entity))
     { value = source->DamageWeaponId(); return true; }
     if (typeid(entity) == typeid(CBasePlayer) || typeid(entity) == typeid(CCSOLScenarioMonster)) return true;
-    if (typeid(entity) == typeid(CKnife)) { value = WEAPON_KNIFE; return true; }
     if (const auto* weapon = dynamic_cast<const CBasePlayerWeapon*>(&entity))
     {
-        if (typeid(*weapon) == typeid(CUSP) || typeid(*weapon) == typeid(CAK47) ||
+        if (CSOL_NativeWeaponMonsterCallbacks(*weapon) ||
             CSOL_CannonEmptyMonsterKillCallbacks(*weapon) || CSOL_BeamEmptyMonsterKillCallbacks(*weapon) ||
             CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon))
         { value = weapon->m_iId; return true; }
@@ -2653,8 +2664,7 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterKill(CSOLMonsterDeathCall& call,
         }
         // Original ret 8 methods have no result. This bool reports adapter
         // coverage, not a fabricated return value from the original method.
-        if (typeid(*weapon) == typeid(CKnife) || typeid(*weapon) == typeid(CUSP) ||
-            typeid(*weapon) == typeid(CAK47) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
+        if (CSOL_NativeWeaponMonsterCallbacks(*weapon) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
             CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon)) return true;
         error.message = active ? "scenario active weapon kill callback is unsupported" :
             "scenario source weapon kill callback is unsupported";

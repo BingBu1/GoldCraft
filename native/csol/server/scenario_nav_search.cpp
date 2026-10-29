@@ -4,6 +4,7 @@
 // climber ladder restrictions replace the ordinary CS navigation policy.
 #include "precompiled.h"
 #include "scenario_nav_search.h"
+#include "scenario_performance.h"
 
 #include <algorithm>
 #include <cmath>
@@ -35,6 +36,8 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
     const Vector& destination, bool climber,
     std::span<const CNavLadder* const> climberLadders, CNavArea*& closest)
 {
+    using namespace csol::scenario::perf;
+    Scope performance(Timer::Search);
     using Result = CSOLNavSearchResult;
     closest = nullptr;
     if (!start || !Finite(destination) || !Finite(*start->GetCenter()) ||
@@ -44,6 +47,7 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
     if (start == goal)
     {
         closest = start;
+        Add(Counter::SearchReached);
         return Result::Reached;
     }
 
@@ -53,6 +57,7 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
     start->SetTotalCost(initialDistance);
     start->SetCostSoFar(0);
     start->AddToOpenList();
+    Add(Counter::SearchInsert);
     closest = start;
     float closestDistance = initialDistance;
     bool valid = true;
@@ -60,14 +65,17 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
     while (!CNavArea::IsOpenListEmpty())
     {
         CNavArea* area = CNavArea::PopOpenList();
+        Add(Counter::SearchExpanded);
         if (area == goal)
         {
             closest = goal;
+            Add(Counter::SearchReached);
             return Result::Reached;
         }
 
         const auto visit = [&](CNavArea* next, NavTraverseType how)
         {
+            Add(Counter::SearchEdges);
             if (!valid || !next || next == area) return;
             if (!Finite(*next->GetCenter())) { valid = false; return; }
             // MP 109347DB: squared centre distance, including ladder edges.
@@ -88,8 +96,8 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
             next->SetParent(area, how);
             next->SetCostSoFar(cost);
             next->SetTotalCost(total);
-            if (next->IsOpen()) next->UpdateOnOpenList();
-            else next->AddToOpenList();
+            if (next->IsOpen()) { Add(Counter::SearchDecrease); next->UpdateOnOpenList(); }
+            else { Add(Counter::SearchInsert); next->AddToOpenList(); }
         };
 
         // Preserve N/E/S/W list order, then ascending ladders, then descending.
@@ -133,5 +141,6 @@ CSOLNavSearchResult CSOL_FindScenarioRoute(CNavArea* start, CNavArea* goal,
     }
     // The caller builds a partial path through closest; lack of a connected
     // goal is not a fabricated direct line through the obstacle.
+    Add(Counter::SearchPartial);
     return Result::Partial;
 }

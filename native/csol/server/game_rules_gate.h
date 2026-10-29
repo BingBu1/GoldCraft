@@ -87,6 +87,7 @@ CGameRules* CSOL_CreateGameRules();
 void CSOL_PrecacheGameRules();
 bool CSOL_ActivateGameRules();
 bool CSOL_UsesScenarioRules();
+bool CSOL_ScenarioCanBuy();
 bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);
 bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player);

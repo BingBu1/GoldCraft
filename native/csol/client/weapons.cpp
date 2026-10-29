@@ -32,6 +32,13 @@ bool nativeHudLoaded{}, adjustMoney{}, moneyAnchor{};
 int moneyX{}, moneyY{}, moneyHeight{}, shiftedMoneySprites{};
 struct { int numberX{}, numberY{}, iconX{}, iconY{}; } hudLayout;
 int currentSprite{}, loadedAmmoId{};
+int spriteR{}, spriteG{}, spriteB{};
+struct WideAmmoDraw
+{
+    bool enabled{}, drawn{}, hasClip{};
+    int value{}, x{}, clipX{}, y{}, width{}, height{}, shift{};
+} wideAmmo;
+int wideAmmoWeapon{}, wideAmmoIconWidth{}, wideAmmoDraws{};
 crosshair::State crosshairState;
 int playerFlags=0x200, fieldOfView=90;
 float playerSpeed{};
@@ -95,7 +102,7 @@ int AmmoTotal()
 bool AmmoArea(int x,int y) { return drawingNative && Custom() && x>=screen.iWidth-200 && y>=screen.iHeight-48; }
 void SetSprite(int sprite,int r,int g,int b)
 {
-    currentSprite=sprite; originalSet(sprite,r,g,b);
+    currentSprite=sprite;spriteR=r;spriteG=g;spriteB=b;originalSet(sprite,r,g,b);
 }
 bool Matches(const Sprite& sprite, const wrect_t* rect)
 {
@@ -126,12 +133,41 @@ int MoneySpriteY(int x, int y, const wrect_t* rect)
 }
 void DrawSprite(int frame,int x,int y,const wrect_t* rect)
 {
+    // Only substitute the exact ordinary-ammo glyph cells emitted by CS.
+    // Keep its icon, clip, fade color, crosshair and all unrelated HUD draws.
+    if(drawingNative && wideAmmo.enabled && y==wideAmmo.y)
+    {
+        bool number=false;for(const auto& glyph:nativeDigits)if(Matches(glyph,rect)){number=true;break;}
+        if(number && wideAmmo.hasClip && x>=wideAmmo.clipX && x<wideAmmo.clipX+3*wideAmmo.width &&
+            (x-wideAmmo.clipX)%wideAmmo.width==0)
+        {originalDraw(frame,x-wideAmmo.shift,y,rect);return;}
+        if(number && x>=wideAmmo.x && x<wideAmmo.x+3*wideAmmo.width && (x-wideAmmo.x)%wideAmmo.width==0)
+        {
+            if(!wideAmmo.drawn)
+            {
+                char value[16];std::snprintf(value,sizeof(value),"%d",wideAmmo.value);
+                int cursor=wideAmmo.x-wideAmmo.shift;
+                for(const char* p=value;*p;++p)
+                {
+                    const auto& glyph=nativeDigits[*p-'0'];originalSet(glyph.handle,spriteR,spriteG,spriteB);
+                    originalDraw(frame,cursor,y,&glyph.rect);cursor+=wideAmmo.width;
+                }
+                originalSet(currentSprite,spriteR,spriteG,spriteB);
+                wideAmmo.drawn=true;++wideAmmoDraws;
+            }
+            return;
+        }
+    }
     bool digit=false;for(const int sprite:nativeDigitSprites)if(sprite==currentSprite)digit=true;
     if(AmmoArea(x,y) && (digit || currentSprite==ammoIcon.handle))return;
     originalDraw(frame,x,MoneySpriteY(x,y,rect),rect);
 }
 void Fill(int x,int y,int width,int height,int r,int g,int b,int a)
 {
+    if(drawingNative && wideAmmo.enabled && wideAmmo.hasClip && y==wideAmmo.y &&
+        x==wideAmmo.clipX+3*wideAmmo.width+wideAmmo.width/2 &&
+        width==wideAmmo.width/10 && height==wideAmmo.height)
+    {originalFill(x-wideAmmo.shift,y,width,height,r,g,b,a);return;}
     if(AmmoArea(x,y) && width<=4 && height<=32)return;
     originalFill(x,y,width,height,r,g,b,a);
 }
@@ -228,6 +264,41 @@ void LoadSprites()
     else ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud12.spr"),{49,73,231,255}};
     loadedAmmoId=active;
 }
+void PrepareWideAmmo(int intermission)
+{
+    wideAmmo={};
+    const auto& current=CurrentExtendedWeapon();
+    const auto* definition=FindWeaponDefinition(active);
+    // CSOWpnCur is already capability-negotiated and carries a signed 16-bit
+    // reserve for ordinary weapons too. Stock AmmoX stays byte-compatible.
+    if(intermission || (hidden&5) || view.health<=0 || view.spectator ||
+        !current.state || current.id!=active || active<=0 || active>=LegacyWeaponLimit ||
+        current.reserve<=255 || !definition || definition->ammo1<0 ||
+        engine.pfnGetCvarFloat("hud_draw")==0)return;
+    if(!nativeHudLoaded)LoadNativeHudSprites();
+    const int width=nativeDigits[0].rect.right-nativeDigits[0].rect.left;
+    const int height=nativeDigits[0].rect.bottom-nativeDigits[0].rect.top;
+    if(width<=0 || height<=0)return;
+    for(const auto& glyph:nativeDigits)
+        if(!glyph.handle || glyph.rect.right-glyph.rect.left!=width || glyph.rect.bottom-glyph.rect.top!=height)return;
+    if(wideAmmoWeapon!=active)
+    {
+        wideAmmoWeapon=active;wideAmmoIconWidth=0;
+        int count{};std::string path="sprites/"+definition->name+".txt";
+        const auto* list=engine.pfnSPR_GetList(path.data(),&count);
+        const int resolution=screen.iWidth<640?320:640;
+        for(int i=0;list && i<count;++i)
+            if(list[i].iRes==resolution && std::memchr(list[i].szName,0,sizeof(list[i].szName)) &&
+                !std::strcmp(list[i].szName,"ammo"))wideAmmoIconWidth=list[i].rc.right-list[i].rc.left;
+    }
+    if(wideAmmoIconWidth<=0)return;
+    char value[16];std::snprintf(value,sizeof(value),"%d",current.reserve);
+    wideAmmo.enabled=true;wideAmmo.hasClip=current.clip>=0;wideAmmo.value=current.reserve;
+    wideAmmo.width=width;wideAmmo.height=height;wideAmmo.y=screen.iHeight-height-height/2;
+    wideAmmo.clipX=screen.iWidth-8*width-wideAmmoIconWidth;
+    wideAmmo.x=screen.iWidth-4*width-wideAmmoIconWidth+(wideAmmo.hasClip?width/10:0);
+    wideAmmo.shift=std::max(0,int(std::strlen(value))-3)*width;
+}
 }
 
 void InitializeWeapons()
@@ -254,6 +325,7 @@ void ResetWeapons(bool forgetRegistration)
     ResetCannon();
     ResetCannonEffects();
     active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
+    wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
     adjustMoney=moneyAnchor=false;
     crosshairState={};fieldOfView=90;nightVision=false;playerFlags=0x200;playerSpeed=0;
     if(forgetRegistration){registered=false;ammoType=-1;}
@@ -276,6 +348,7 @@ void WeaponVideoInit()
     for(auto& sprite:currency)sprite={};
     nativeHudLoaded=adjustMoney=moneyAnchor=false;moneyHeight=0;
     ammoIcon={};loadedAmmoId=0;screen={};hudLayout={};
+    wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
 }
 int WeaponRedraw(float time,int intermission)
 {
@@ -284,10 +357,12 @@ int WeaponRedraw(float time,int intermission)
     if(Custom() && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
     adjustMoney=BeamgunSecondaryAmmoVisible(hidden,intermission);
     if(adjustMoney && !nativeHudLoaded)LoadNativeHudSprites();
+    PrepareWideAmmo(intermission);
     moneyAnchor=false;
     drawingNative=true;
     const int result=downstream.HUD_Redraw(time,intermission);
     drawingNative=false;
+    wideAmmo.enabled=false;
     adjustMoney=moneyAnchor=false;
     DrawWeaponSelection(hidden,intermission);
     DrawWeaponGuard(hidden,intermission);
@@ -334,7 +409,7 @@ void WeaponDiagnostics(std::ostream& out)
         <<",\"screenWidth\":"<<screen.iWidth<<",\"screenHeight\":"<<screen.iHeight
         <<",\"numberX\":"<<hudLayout.numberX<<",\"numberY\":"<<hudLayout.numberY
         <<",\"iconX\":"<<hudLayout.iconX<<",\"iconY\":"<<hudLayout.iconY
-        <<",\"moneyShiftDraws\":"<<shiftedMoneySprites<<'}';
+        <<",\"moneyShiftDraws\":"<<shiftedMoneySprites<<",\"wideAmmoDraws\":"<<wideAmmoDraws<<'}';
     PickupHistoryDiagnostics(out);
     WeaponSelectionDiagnostics(out);
     SessionDiagnostics(out);

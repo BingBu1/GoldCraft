@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_ordinary.h"
+#include "scenario_performance.h"
 #include "scenario_monster_damage.h"
 #include "scenario_monster_effects.h"
 #include "../scenario/monster_death.hpp"
@@ -599,6 +600,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
 bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state,
     CCSOLOrdinaryMonsterServices& services)
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Behavior);
     const bool stopped = services.LogicStopped();
     if (!Current(call, state)) return false;
     if (stopped) return true;
@@ -716,6 +718,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
 
 void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Think);
     auto services = m_services.lock();
     auto state = m_state;
     if (!services || !services->OwnerCurrent() || !state || state->thinking || !state->error.message.empty() || !gpGlobals) return;

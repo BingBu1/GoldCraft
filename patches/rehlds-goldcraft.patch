@@ -35,7 +35,7 @@ index 12c4a5a..2d00db5 100644
  }
  
 diff --git a/rehlds/engine/host.cpp b/rehlds/engine/host.cpp
-index 9cd73e6..f073f8d 100644
+index 9cd73e6..fd0d3df 100644
 --- a/rehlds/engine/host.cpp
 +++ b/rehlds/engine/host.cpp
 @@ -27,6 +27,9 @@
@@ -104,6 +104,15 @@ index 9cd73e6..f073f8d 100644
  	CL_ClearClientState();
  	SV_ClearClientStates();
  }
+@@ -1101,7 +1111,7 @@ int Host_Init(quakeparms_t *parms)
+ 	com_argv = parms->argv;
+ 	realtime = 0;
+ 
+-	Memory_Init(parms->membase, parms->memsize);
++	Memory_Init(parms->membase, parms->memsize, Sys_CacheMemory(), Sys_CacheMemorySize());
+ 
+ 	Voice_RegisterCvars();
+ 	Cvar_RegisterVariable(&console);
 @@ -1227,6 +1237,7 @@ void Host_Shutdown(void)
  	}
  
@@ -2179,6 +2188,148 @@ index 4e0d26e..8580c75 100644
  		numCmdsToIssue += net_drop;
  	}
  	g_MoveCommandRateLimiter.MoveCommandsIssued(host_client - g_psvs.clients, numCmdsToIssue);
+diff --git a/rehlds/engine/sys_dll2.cpp b/rehlds/engine/sys_dll2.cpp
+index 3f2b09e..c6f7cb8 100644
+--- a/rehlds/engine/sys_dll2.cpp
++++ b/rehlds/engine/sys_dll2.cpp
+@@ -317,62 +317,74 @@ NOXREF void Sys_ShutdownArgv(void)
+ 	NOXREFCHECK;
+ }
+ 
+-void Sys_InitMemory(void)
++namespace
+ {
+-	int i;
++void *modelCacheMemory;
++int modelCacheMemorySize;
++}
+ 
+-	i = COM_CheckParm("-heapsize");
+-	if (i && i < com_argc - 1)
+-		host_parms.memsize = Q_atoi(com_argv[i + 1]) * 1024;
++void *Sys_CacheMemory() { return modelCacheMemory; }
++int Sys_CacheMemorySize() { return modelCacheMemorySize; }
+ 
+-	if (host_parms.memsize < MINIMUM_WIN_MEMORY)
++void Sys_InitMemory(void)
++{
++	// CSOL hw 37941D50: a fixed 64 MiB hunk plus a distinct cache arena.
++	// -heapsize specifies the cache budget in KiB, as in that engine.
++	const int maximum = g_bIsDedicatedServer ? DEFAULT_CACHE_MEMORY : MAXIMUM_CACHE_MEMORY;
++	int requested = 0;
++	const int parameter = COM_CheckParm("-heapsize");
++	if (parameter && parameter < com_argc - 1)
++	{
++		const char *text = com_argv[parameter + 1];
++		char *tail = nullptr;
++		const long long kib = strtoll(text, &tail, 10);
++		if (!text[0] || tail == text || *tail || kib <= 0 || kib > INT_MAX / 1024)
++			Sys_Error("%s: invalid -heapsize in KiB", __func__);
++		requested = int(kib * 1024);
++	}
++	if (requested < MINIMUM_WIN_MEMORY)
+ 	{
+ #ifdef _WIN32
+-		MEMORYSTATUS lpBuffer;
+-		lpBuffer.dwLength = sizeof(MEMORYSTATUS);
+-		GlobalMemoryStatus(&lpBuffer);
+-
+-		if (lpBuffer.dwTotalPhys)
+-		{
+-			if (lpBuffer.dwTotalPhys < FIFTEEN_MB)
+-				Sys_Error("%s: Available memory less than 15MB!!! %i", __func__, host_parms.memsize);
+-
+-			host_parms.memsize = (int)(lpBuffer.dwTotalPhys >> 1);
+-			if (host_parms.memsize < MINIMUM_WIN_MEMORY)
+-				host_parms.memsize = MINIMUM_WIN_MEMORY;
+-		}
+-		else
+-			host_parms.memsize = MAXIMUM_WIN_MEMORY;
+-
+-		if (g_bIsDedicatedServer)
+-			host_parms.memsize = DEFAULT_MEMORY;
++		MEMORYSTATUSEX status = {};
++		status.dwLength = sizeof(status);
++		if (!GlobalMemoryStatusEx(&status))
++			Sys_Error("%s: could not read physical memory size", __func__);
++		if (status.ullTotalPhys < 0x10000000)
++			Sys_Error("%s: available physical memory less than 256 MiB", __func__);
++		requested = int(Q_min(status.ullTotalPhys / 2, static_cast<ULONGLONG>(maximum)));
+ #else
+-		host_parms.memsize = DEFAULT_MEMORY;
+-#endif // _WIN32
++		requested = maximum;
++#endif
+ 	}
+-
+-	if (host_parms.memsize > MAXIMUM_DEDICATED_MEMORY)
+-		host_parms.memsize = MAXIMUM_DEDICATED_MEMORY;
+-
+-	if (COM_CheckParm("-minmemory"))
+-		host_parms.memsize = MINIMUM_WIN_MEMORY;
++	modelCacheMemorySize = Q_max(MINIMUM_WIN_MEMORY, Q_min(requested, maximum));
++	if (COM_CheckParm("-minmemory")) modelCacheMemorySize = MINIMUM_WIN_MEMORY;
++	host_parms.memsize = DEFAULT_MEMORY;
+ #ifdef _WIN32
+-	host_parms.membase = (void *)GlobalAlloc(GMEM_FIXED, host_parms.memsize);
++	host_parms.membase = GlobalAlloc(GMEM_FIXED, host_parms.memsize);
++	modelCacheMemory = GlobalAlloc(GMEM_FIXED, modelCacheMemorySize);
+ #else
+ 	host_parms.membase = Mem_Malloc(host_parms.memsize);
+-#endif // _WIN32
+-
+-	if (!host_parms.membase)
+-		Sys_Error("%s: Unable to allocate %.2f MB\n", __func__, (float)host_parms.memsize / (1024.0f * 1024.0f));
++	modelCacheMemory = Mem_Malloc(modelCacheMemorySize);
++#endif
++	if (!host_parms.membase || !modelCacheMemory)
++	{
++		Sys_ShutdownMemory();
++		Sys_Error("%s: unable to allocate independent hunk and model cache", __func__);
++	}
+ }
+ 
+ void Sys_ShutdownMemory(void)
+ {
++	Memory_Shutdown();
+ #ifdef _WIN32
++	GlobalFree((HGLOBAL)modelCacheMemory);
+ 	GlobalFree((HGLOBAL)host_parms.membase);
+ #else
++	Mem_Free(modelCacheMemory);
+ 	Mem_Free(host_parms.membase);
+-#endif // _WIN32
++#endif
++	modelCacheMemory = nullptr;
++	modelCacheMemorySize = 0;
+ 	host_parms.membase = NULL;
+ 	host_parms.memsize = 0;
+ }
+diff --git a/rehlds/engine/sys_dll2.h b/rehlds/engine/sys_dll2.h
+index 1c62ebc..4d8fdfb 100644
+--- a/rehlds/engine/sys_dll2.h
++++ b/rehlds/engine/sys_dll2.h
+@@ -42,7 +42,10 @@ const int FIFTEEN_MB = (15 * 1024 * 1024);
+ #define WARNING_MEMORY           0x0200000
+ #define MAXIMUM_WIN_MEMORY       0x8000000 // Ask for 128 MB max
+ #define MAXIMUM_DEDICATED_MEMORY 0x8000000 // Ask for 128 MB max
+-#define DEFAULT_MEMORY           0x2800000
++// CSOL allocates a fixed hunk and an independent bounded model cache.
++#define DEFAULT_MEMORY           0x4000000
++#define DEFAULT_CACHE_MEMORY     0x5000000
++#define MAXIMUM_CACHE_MEMORY     0x10000000
+ 
+ extern IDedicatedExports *dedicated_;
+ extern qboolean g_bIsWin95;
+@@ -88,6 +91,8 @@ void Sys_InitArgv(char *lpCmdLine);
+ NOXREF void Sys_ShutdownArgv();
+ void Sys_InitMemory();
+ void Sys_ShutdownMemory();
++void *Sys_CacheMemory();
++int Sys_CacheMemorySize();
+ void Sys_InitLauncherInterface();
+ NOXREF void Sys_ShutdownLauncherInterface();
+ void Sys_InitAuthentication();
 diff --git a/rehlds/engine/world.cpp b/rehlds/engine/world.cpp
 index 8038ab7..05faef7 100644
 --- a/rehlds/engine/world.cpp
@@ -2243,7 +2394,7 @@ index 8038ab7..05faef7 100644
  	if (trace->fraction != 1.0f)
  	{
 diff --git a/rehlds/engine/zone.cpp b/rehlds/engine/zone.cpp
-index 3a1ab65..ff4e92c 100644
+index 3a1ab65..7af1944 100644
 --- a/rehlds/engine/zone.cpp
 +++ b/rehlds/engine/zone.cpp
 @@ -27,6 +27,7 @@
@@ -2254,7 +2405,119 @@ index 3a1ab65..ff4e92c 100644
  
  // ZONE MEMORY ALLOCATION
  //
-@@ -830,6 +831,7 @@ void* EXT_FUNC Cache_Check(cache_user_t *c)
+@@ -279,6 +280,12 @@ int hunk_size;
+ int hunk_low_used;
+ int hunk_high_used;
+ 
++// CSOL gives the model cache its own arena, separate from the map hunk.
++// Keep the original two-argument Memory_Init contract for engine embedders.
++static byte *cache_base;
++static int cache_size;
++static bool memory_initialized;
++
+ qboolean hunk_tempactive;
+ int hunk_tempmark;
+ 
+@@ -517,6 +524,22 @@ typedef struct cache_system_s
+ } cache_system_t;
+ 
+ cache_system_t cache_head;
++static unsigned long long goldcraftCacheAllocations;
++static unsigned long long goldcraftCacheEvictions;
++
++static void GoldCraftCacheStats()
++{
++	int used = 0, count = 0;
++	for (auto *entry = cache_head.next; entry != &cache_head; entry = entry->next)
++	{
++		used += entry->size;
++		++count;
++	}
++	Con_Printf("GoldCraft cache: heap=%d low=%d high=%d budget=%d used=%d entries=%d allocations=%llu evictions=%llu separate=%d\n",
++		hunk_size, hunk_low_used, hunk_high_used,
++		cache_base ? cache_size : hunk_size - hunk_low_used - hunk_high_used, used, count,
++		goldcraftCacheAllocations, goldcraftCacheEvictions, cache_base ? 1 : 0);
++}
+ 
+ void Cache_Move(cache_system_t *c)
+ {
+@@ -539,6 +562,7 @@ void Cache_Move(cache_system_t *c)
+ // Throw things out until the hunk can be expanded to the given point
+ void Cache_FreeLow(int new_low_hunk)
+ {
++	if (cache_base) return;
+ 	cache_system_t	*c;
+ 
+ 	while (true)
+@@ -555,6 +579,7 @@ void Cache_FreeLow(int new_low_hunk)
+ // Throw things out until the hunk can be expanded to the given point
+ void Cache_FreeHigh(int new_high_hunk)
+ {
++	if (cache_base) return;
+ 	cache_system_t	*c, *prev;
+ 
+ 	prev = NULL;
+@@ -606,15 +631,19 @@ cache_system_t *Cache_TryAlloc(int size, qboolean nobottom)
+ {
+ 	cache_system_t *cs;
+ 	cache_system_t *newmem;
++	byte *begin = cache_base ? cache_base : hunk_base + hunk_low_used;
++	byte *end = cache_base ? cache_base + cache_size : hunk_base + hunk_size - hunk_high_used;
++	if (size <= 0)
++		Sys_Error("%s: invalid cache size %i", __func__, size);
+ 
+ 	if (!nobottom && cache_head.prev == &cache_head)
+ 	{
+-		if (hunk_size - hunk_low_used - hunk_high_used < size)
++		if (end - begin < size)
+ 		{
+ 			Sys_Error("%s: %i is greater then free hunk", __func__, size);
+ 		}
+ 
+-		newmem = (cache_system_t *)(hunk_base + hunk_low_used);
++		newmem = (cache_system_t *)begin;
+ 		Q_memset(newmem, 0, sizeof(cache_system_t));
+ 		newmem->size = size;
+ 		cache_head.next = cache_head.prev = newmem;
+@@ -625,7 +654,7 @@ cache_system_t *Cache_TryAlloc(int size, qboolean nobottom)
+ 	}
+ 
+ 	cs = cache_head.next;
+-	newmem = (cache_system_t *)(hunk_base + hunk_low_used);
++	newmem = (cache_system_t *)begin;
+ 
+ 	do
+ 	{
+@@ -648,7 +677,7 @@ cache_system_t *Cache_TryAlloc(int size, qboolean nobottom)
+ 		cs = cs->next;
+ 	} while (cs != &cache_head);
+ 
+-	if ((int)(hunk_size + hunk_base - hunk_high_used - (byte *)newmem) < size)
++	if (end - (byte *)newmem < size)
+ 	{
+ 		return 0;
+ 	}
+@@ -768,7 +797,7 @@ NOXREF char *CommatizeNumber(int num, char *pout)
+ NOXREF void Cache_Report()
+ {
+ 	NOXREFCHECK;
+-	Con_DPrintf("%4.1f megabyte data cache\n", (hunk_size - hunk_low_used - hunk_high_used) / (float)(1024 * 1024));
++	Con_DPrintf("%4.1f megabyte data cache\n", (cache_base ? cache_size : hunk_size - hunk_low_used - hunk_high_used) / (float)(1024 * 1024));
+ }
+ 
+ NOXREF void Cache_Compact()
+@@ -780,8 +809,10 @@ void Cache_Init()
+ {
+ 	cache_head.next = cache_head.prev = &cache_head;
+ 	cache_head.lru_next = cache_head.lru_prev = &cache_head;
++	goldcraftCacheAllocations = goldcraftCacheEvictions = 0;
+ 
+ 	Cmd_AddCommand("flush", Cache_Flush);
++	Cmd_AddCommand("gc_cache_stats", GoldCraftCacheStats);
+ }
+ 
+ // Frees the memory and removes it from the LRU list
+@@ -830,6 +861,7 @@ void* EXT_FUNC Cache_Check(cache_user_t *c)
  
  void *Cache_Alloc(cache_user_t *c, int size, char *name)
  {
@@ -2262,14 +2525,105 @@ index 3a1ab65..ff4e92c 100644
  	cache_system_t *cs;
  
  	if (c->data)
-@@ -869,6 +871,7 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+@@ -837,10 +869,12 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+ 		Sys_Error("%s: already allocated", __func__);
+ 	}
+ 
+-	if (size <= 0)
++	if (size <= 0 || size > 0x7fffffff - int(sizeof(cache_system_t)) - 15)
+ 	{
+ 		Sys_Error("%s: size %i", __func__, size);
+ 	}
++	if (cache_base && ((size + int(sizeof(cache_system_t)) + 15) & ~15) > cache_size)
++		Sys_Error("%s: size %i is greater than cache arena", __func__, size);
+ 
+ 	while (true)
+ 	{
+@@ -852,6 +886,7 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+ 			cs->name[CACHE_NAME_LEN - 1] = 0;
+ 			c->data = cs + 1;
+ 			cs->user = c;
++			++goldcraftCacheAllocations;
+ 
+ 			break;
+ 		}
+@@ -861,6 +896,7 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
+ 			Sys_Error("%s: out of memory", __func__);
+ 		}
+ 
++		++goldcraftCacheEvictions;
+ 		Cache_Free(cache_head.lru_prev->user);
+ 	}
+ 
+@@ -869,14 +905,33 @@ void *Cache_Alloc(cache_user_t *c, int size, char *name)
  
  void Memory_Init(void *buf, int size)
  {
++	Memory_Init(buf, size, nullptr, 0);
++}
++
++void Memory_Init(void *buf, int size, void *cachebuf, int cachesize)
++{
++	const auto hunkBegin = reinterpret_cast<uintptr_t>(buf);
++	const auto cacheBegin = reinterpret_cast<uintptr_t>(cachebuf);
++	if (!buf || size <= 0 || hunkBegin % alignof(hunk_t) || size > UINTPTR_MAX - hunkBegin ||
++		(cachebuf ? cachesize <= int(sizeof(cache_system_t)) || cacheBegin % alignof(cache_system_t) ||
++			cachesize > UINTPTR_MAX - cacheBegin ||
++			(hunkBegin < cacheBegin + cachesize && cacheBegin < hunkBegin + size) : cachesize != 0))
++		Sys_Error("%s: invalid or overlapping memory arenas", __func__);
++	if (memory_initialized) Memory_Shutdown();
 +	GoldCraftStudioMemoryReset();
  	int zonesize = ZONE_DYNAMIC_SIZE;
  
  	hunk_base = (byte *)buf;
+ 	hunk_size = size;
+ 	hunk_low_used = 0;
+ 	hunk_high_used = 0;
++	hunk_tempactive = FALSE;
++	hunk_tempmark = 0;
++	cache_base = (byte *)cachebuf;
++	cache_size = cachesize;
+ 
+ 	Cache_Init();
++	memory_initialized = true;
+ 
+ 	int p = COM_CheckParm("-zone");
+ 
+@@ -896,6 +951,22 @@ void Memory_Init(void *buf, int size)
+ 	Z_ClearZone(mainzone, zonesize);
+ }
+ 
++void Memory_Shutdown()
++{
++	if (!memory_initialized) return;
++	// Cache users can live in the map hunk: clear them before either arena dies.
++	Cache_Force_Flush();
++	GoldCraftStudioMemoryReset();
++	cache_base = nullptr;
++	cache_size = 0;
++	hunk_base = nullptr;
++	hunk_size = hunk_low_used = hunk_high_used = 0;
++	hunk_tempactive = FALSE;
++	hunk_tempmark = 0;
++	mainzone = nullptr;
++	memory_initialized = false;
++}
++
+ NOXREF void Cache_Print_Models_And_Totals()
+ {
+ 	NOXREFCHECK;
+diff --git a/rehlds/engine/zone.h b/rehlds/engine/zone.h
+index 8c7b437..d496e95 100644
+--- a/rehlds/engine/zone.h
++++ b/rehlds/engine/zone.h
+@@ -86,5 +86,7 @@ NOXREF int Cache_TotalUsed();
+ void *Cache_Check(cache_user_t *c);
+ void *Cache_Alloc(cache_user_t *c, int size, char *name);
+ void Memory_Init(void *buf, int size);
++void Memory_Init(void *buf, int size, void *cachebuf, int cachesize);
++void Memory_Shutdown();
+ NOXREF void Cache_Print_Models_And_Totals();
+ NOXREF void Cache_Print_Sounds_And_Totals();
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
 index 85c04cb..5b189a1 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp

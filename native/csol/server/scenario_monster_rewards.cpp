@@ -91,9 +91,8 @@ CSOLMonsterRewardResult CCSOLMonsterHitRewards::Credit(CSOLMonsterSpawnCall& cal
     const auto balance = static_cast<std::int64_t>(attacker->m_iAccount) + money;
     if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
         return Fail("scenario monster reward would overflow the native account");
-    // ReGameDLL sends Money immediately even with trackChange=false. CSO's
-    // true argument defers that notice. Preserve native hooks/account limits;
-    // deferred HUD timing needs a separate client/account integration.
-    attacker->AddAccount(money, RT_NONE, false);
+    // Native trackChange controls the HUD delta, not CSO's deferred send.
+    // Send one clamped balance; the native client derives the actual change.
+    attacker->AddAccount(money, RT_NONE, true);
     return current() ? CSOLMonsterRewardResult::Awarded : CSOLMonsterRewardResult::Cancelled;
 }

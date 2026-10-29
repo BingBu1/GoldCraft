@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "precompiled.h"
+#include "scenario_native_weapons.h"
+#include <typeinfo>
+
+bool CSOL_NativeWeaponMonsterCallbacks(const CBasePlayerWeapon& weapon)
+{
+    // Original MP SHA 39f962f3: each RTTI-confirmed table has v1E4/v1E8
+    // pointing to 10611B90 (ret 8). Source v138 reads the weapon ID, except
+    // knife/HE return their same fixed IDs. Do not infer this from id < 32.
+    const auto& type = typeid(weapon);
+#define NATIVE_WEAPON(Type, Id) if (type == typeid(Type)) return weapon.m_iId == Id
+    NATIVE_WEAPON(CUSP, WEAPON_USP);
+    NATIVE_WEAPON(CMP5N, WEAPON_MP5N);
+    NATIVE_WEAPON(CSG552, WEAPON_SG552);
+    NATIVE_WEAPON(CAK47, WEAPON_AK47);
+    NATIVE_WEAPON(CAUG, WEAPON_AUG);
+    NATIVE_WEAPON(CAWP, WEAPON_AWP);
+    NATIVE_WEAPON(CC4, WEAPON_C4);
+    NATIVE_WEAPON(CDEAGLE, WEAPON_DEAGLE);
+    NATIVE_WEAPON(CFlashbang, WEAPON_FLASHBANG);
+    NATIVE_WEAPON(CG3SG1, WEAPON_G3SG1);
+    NATIVE_WEAPON(CGLOCK18, WEAPON_GLOCK18);
+    NATIVE_WEAPON(CHEGrenade, WEAPON_HEGRENADE);
+    NATIVE_WEAPON(CKnife, WEAPON_KNIFE);
+    NATIVE_WEAPON(CM249, WEAPON_M249);
+    NATIVE_WEAPON(CM3, WEAPON_M3);
+    NATIVE_WEAPON(CM4A1, WEAPON_M4A1);
+    NATIVE_WEAPON(CMAC10, WEAPON_MAC10);
+    NATIVE_WEAPON(CP228, WEAPON_P228);
+    NATIVE_WEAPON(CP90, WEAPON_P90);
+    NATIVE_WEAPON(CSCOUT, WEAPON_SCOUT);
+    NATIVE_WEAPON(CSmokeGrenade, WEAPON_SMOKEGRENADE);
+    NATIVE_WEAPON(CTMP, WEAPON_TMP);
+    NATIVE_WEAPON(CXM1014, WEAPON_XM1014);
+    NATIVE_WEAPON(CELITE, WEAPON_ELITE);
+    NATIVE_WEAPON(CFiveSeven, WEAPON_FIVESEVEN);
+    NATIVE_WEAPON(CUMP45, WEAPON_UMP45);
+    NATIVE_WEAPON(CSG550, WEAPON_SG550);
+    NATIVE_WEAPON(CGalil, WEAPON_GALIL);
+    NATIVE_WEAPON(CFamas, WEAPON_FAMAS);
+#undef NATIVE_WEAPON
+    return false;
+}

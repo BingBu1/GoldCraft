@@ -695,6 +695,13 @@ public:
         return count >= m_iSpawnPointCount_CT;
     }
     bool Selecting() const { return SelectionReady() && m_phase == Phase::Selecting; }
+    bool CanBuyThroughoutScenario() const
+    {
+        if (!Ready() || m_restarting || m_completing || m_applyingFinish) return false;
+        return m_phase == Phase::Waiting || m_phase == Phase::Starting ||
+            m_phase == Phase::Playing || m_phase == Phase::Advancing ||
+            m_phase == Phase::Completing || m_phase == Phase::FreePlay;
+    }
     std::uint32_t PassMask(int playerIndex) const
     {
         if (!SelectionReady() || playerIndex < 1 || playerIndex > gpGlobals->maxClients) return 0;
@@ -1436,6 +1443,14 @@ bool CSOL_ActivateGameRules()
 bool CSOL_UsesScenarioRules()
 {
     return dynamic_cast<CCSOLScenarioRules*>(g_pGameRules) != nullptr;
+}
+
+bool CSOL_ScenarioCanBuy()
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return false;
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(g_pGameRules);
+    return rules && rules->CanBuyThroughoutScenario();
 }
 
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed)

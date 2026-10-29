@@ -6,6 +6,7 @@
 #include "scenario_nav_path.h"
 #include "scenario_nav_portal.h"
 #include "scenario_nav_world.h"
+#include "scenario_performance.h"
 
 #include <cmath>
 
@@ -104,6 +105,7 @@ bool CSOL_BuildScenarioRoute(CSOLScenarioRoute& route, const CCSOLScenarioNavWor
     const Vector& start, const Vector& goal, bool climber,
     std::span<const CNavLadder* const> climberLadders)
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Route);
     route.Invalidate();
     if (!Finite(start) || !Finite(goal)) return false;
     const auto generation = world.Generation();

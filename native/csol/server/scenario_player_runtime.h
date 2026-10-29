@@ -347,6 +347,8 @@ public:
     bool CurrentClassModPair(const EHANDLE& player, int type, int subtype,
         std::optional<csol::scenario::ClassModDefinition>& result, csol::scenario::ConfigError& error);
     std::shared_ptr<const CSOLScenarioPlayerRuntimeState> Find(const EHANDLE& player) const;
+    // Current character/effect-adjusted level, read by inventory rule consumers.
+    bool ReadUpgradeStat(const EHANDLE& player, csol::scenario::UpgradeStat stat, float& value) const;
     // Disconnect detaches profiles before the SDK sets has_disconnected.
     // Distinguish that window from an active player never registered here.
     bool WasRemoved(const EHANDLE& player) const;

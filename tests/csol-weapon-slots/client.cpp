@@ -22,6 +22,7 @@
 #include <source_location>
 #include <algorithm>
 #include <iomanip>
+#include <fstream>
 namespace csol::client
 {
 cl_enginefunc_t engine{};cl_exportfuncs_t downstream{};ref_params_t view{};metahook_api_t* api{};
@@ -35,12 +36,13 @@ int CameraIsThirdPerson(){return testThirdPerson;}
 void ResetProjectiles(){}
 void ResetBeamScope(){}
 void DrawBeamScope(int,int,int,float){}
-void Hook(void* address,void* replacement,void** original)
+hook_t* Hook(void* address,void* replacement,void** original)
 {
     *original=address;
     if(address==reinterpret_cast<void*>(engine.pfnSPR_Set))engine.pfnSPR_Set=reinterpret_cast<decltype(engine.pfnSPR_Set)>(replacement);
     else if(address==reinterpret_cast<void*>(engine.pfnSPR_DrawAdditive))engine.pfnSPR_DrawAdditive=reinterpret_cast<decltype(engine.pfnSPR_DrawAdditive)>(replacement);
     else if(address==reinterpret_cast<void*>(engine.pfnFillRGBA))engine.pfnFillRGBA=reinterpret_cast<decltype(engine.pfnFillRGBA)>(replacement);
+    return nullptr;
 }
 }
 namespace
@@ -751,6 +753,7 @@ void BeamHudChecks()
     }
     view.health=100;view.spectator=0;hud=1;ResetWeapons(false);downstream.HUD_Redraw=native;
 }
+#include "wide_ammo.hpp"
 }
 int main(int argc,char** argv)
 {
@@ -792,7 +795,8 @@ int main(int argc,char** argv)
         else {
             add("weapon","test_weapon",640,{0,170,0,45});add("weapon_s","test_active",640,{0,170,45,90});
             if(lowResolutionSprites){add("weapon","test_low_weapon",320,{0,85,0,23});add("weapon_s","test_low_active",320,{0,85,23,46});}
-            if(!std::strcmp(path,"sprites/weapon_tknifeex2.txt"))add("ammo","csol/640hud12",640,{49,73,231,255});}
+            if(!std::strcmp(path,"sprites/weapon_tknifeex2.txt"))add("ammo","csol/640hud12",640,{49,73,231,255});
+            if(!std::strcmp(path,"sprites/weapon_ak47.txt"))for(int res:{320,640})add("ammo","test_ammo",res,{0,24,231,255});}
         *count=int(icons.size());return icons.data();};
     engine.pfnSPR_Load=[](const char* path)->int{++spriteLoads;if(std::strstr(path,"buckets"))return 80;if(std::strstr(path,"selection"))return 81;
         if(std::strstr(path,"test_small_digits"))return 91;if(std::strstr(path,"test_digits"))return 90;
@@ -810,6 +814,7 @@ int main(int argc,char** argv)
         ++predicts;Check(from->client.m_iId>=0&&from->client.m_iId<32);
         if(from->client.m_iId!=0)*to=*from;}; // Actual stock ID 0 exits without copying weapon state.
     view.health=100;InitializeWeapons();InitializeWeaponInventory();Check(protocol.value==1);
+    if(argc==3 && !std::strcmp(argv[1],"--wide-ammo")){WideAmmoChecks(argv[2]);return 0;}
     SynchronizeFrameSession();
     commands["slot1"]();Check(fallbacks==1);
     WeaponDefinition knife{220,1,6,14,-1,29,-1,1,24,"weapon_tknifeex2"};

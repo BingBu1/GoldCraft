@@ -119,10 +119,9 @@ bool CCSOLMonsterDeathOwner::AwardKillMoney(CSOLMonsterDeathCall& call,
         const auto balance = static_cast<std::int64_t>(attacker->m_iAccount) + money;
         if (balance < std::numeric_limits<int>::min() || balance > std::numeric_limits<int>::max())
             return fail("scenario kill money would overflow the native account");
-        // CSO defers its Money notification. Native AddAccount always sends it;
-        // keep the SDK hooks/limits and suppress only its HUD change indicator,
-        // consistently with the hit/wall reward consumers.
-        attacker->AddAccount(money, RT_NONE, false);
+        // Native trackChange requests the HUD delta for this actual reward.
+        // AddAccount retains hooks/limits and sends the clamped balance once.
+        attacker->AddAccount(money, RT_NONE, true);
         return current();
     };
     const bool completed = run();

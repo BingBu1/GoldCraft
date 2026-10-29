@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "interface.h"
 #include "game_mode.h"
+#include "scenario_performance.h"
 #include "../../include/goldcraft/csol_game_mode_api.hpp"
 
 #include <charconv>
@@ -55,6 +56,7 @@ EXPOSE_SINGLE_INTERFACE_GLOBALVAR(GameModeService, IGameModeService, csol::GameM
 void CSOL_InitGameModes()
 {
     if (registered) return;
+    CSOL_InitScenarioPerformance();
     CVAR_REGISTER(&requestedMode);
     CVAR_REGISTER(&requestedDifficulty);
     CVAR_REGISTER(&shortFinalDelay);

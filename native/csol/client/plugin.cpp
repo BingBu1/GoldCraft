@@ -15,6 +15,8 @@
 #include <cmath>
 #include "stock_hands.hpp"
 #include "status_icons.hpp"
+#include "wall_status.hpp"
+#include "buy_menu.hpp"
 #include "damage_display.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
@@ -225,6 +227,8 @@ static void Init()
     InitializeProjectiles();
     InitializeCharacters();
     InitializeStatusIcons();
+    InitializeWallStatus();
+    InitializeBuyMenu();
     InitializeDamageDisplay();
 }
 static int VidInit()
@@ -254,11 +258,18 @@ static void Frame(double time)
     CharacterFrame();
     StatusIconsFrame();
     DamageDisplayFrame();
+    BuyMenuFrame();
+}
+static void CreateMove(float frame, usercmd_t* cmd, int active)
+{
+    CharacterCreateMove(frame, cmd, active);
+    BuyMenuCreateMove(cmd, active);
 }
 static int Redraw(float time, int intermission)
 {
     const int result = WeaponRedraw(time, intermission);
     DrawStatusIcons(time);
+    DrawWallStatus(intermission);
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -322,12 +333,12 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_DrawTransparentTriangles=Transparent;
     functions->HUD_Redraw=Redraw;
     functions->HUD_PostRunCmd=WeaponPostRunCmd;
-    functions->CL_CreateMove=CharacterCreateMove;
+    functions->CL_CreateMove=CreateMove;
     functions->CAM_Think=CameraThink;
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownDamageDisplay();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

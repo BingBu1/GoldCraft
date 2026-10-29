@@ -5,6 +5,7 @@
 #include "precompiled.h"
 #include "scenario_monster_follow.h"
 #include "scenario_monster_heading.h"
+#include "scenario_performance.h"
 
 #include <algorithm>
 #include <bit>
@@ -85,6 +86,7 @@ struct CCSOLMonsterPathFollower::Query
         for (int attempt = 0; attempt < 50; ++attempt)
         {
             TraceResult trace{};
+            csol::scenario::perf::Add(csol::scenario::perf::Counter::FollowTraces);
             UTIL_TraceLine(start, to, ignore_monsters, dont_ignore_glass, ignored, &trace);
             if (!Current()) return false;
             if (!std::isfinite(trace.flFraction) || !Finite(trace.vecEndPos))
@@ -182,8 +184,16 @@ bool CCSOLMonsterPathFollower::Build(CSOLMonsterSpawnCall& call,
     CSOLScenarioRoute candidate;
     const bool built = CSOL_BuildScenarioRoute(candidate, world, feet, goal, climber, climberLadders);
     // Nested callbacks can replace this route without replacing the entity.
-    if (revision != m_revision || generation != world.Generation() || !Active(call)) return false;
-    if (!built) return false;
+    if (revision != m_revision || generation != world.Generation() || !Active(call))
+    {
+        csol::scenario::perf::Add(csol::scenario::perf::Counter::RouteCancelled);
+        return false;
+    }
+    if (!built)
+    {
+        csol::scenario::perf::Add(csol::scenario::perf::Counter::RouteFailed);
+        return false;
+    }
     m_route = candidate;
     m_owner.emplace(call);
     return true;
@@ -352,6 +362,7 @@ bool CCSOLMonsterPathFollower::StandUp(Query& q, CSOLMonsterFollowStep& step) co
             if (!q.Positions()) return false;
             auto* monster = Active(q.call);
             TraceResult trace{};
+            csol::scenario::perf::Add(csol::scenario::perf::Counter::FollowTraces);
             UTIL_TraceLine(q.feet + Vector(0, 0, 3), q.feet + Vector(float(x), float(y), 72),
                 ignore_monsters, ignore_glass, monster->edict(), &trace);
             if (!q.Current()) return false;
@@ -473,6 +484,7 @@ CSOLMonsterFollowResult CCSOLMonsterPathFollower::Advance(CSOLMonsterSpawnCall& 
     CNavArea* lastArea, CSOLMonsterRouteMotion& motion,
     float deltaTime, std::int16_t skill, bool avoidObstacles)
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Follow);
     using Result = CSOLMonsterFollowResult;
     if (!std::isfinite(deltaTime) || deltaTime < 0 || motion.moveType < 0 ||
         motion.moveType > 2 || motion.maxMoveType < 0 || motion.maxMoveType > 2)

@@ -46,6 +46,9 @@ public:
     void OnDestroy() override;
     void EXPORT MonsterTouch(CBaseEntity* other);
     bool ValidConfiguration() const { return m_valid; }
+    // CZBSBreak's original target-info pair is {3, trunc(health)}. Pure
+    // monster-touch triggers (both ratios zero) publish no information.
+    bool StatusHealth(int& health) const;
     void BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules);
     static TYPEDESCRIPTION m_SaveData[];
 private:

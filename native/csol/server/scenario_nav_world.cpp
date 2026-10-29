@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_nav_world.h"
+#include "scenario_performance.h"
 
 #include <algorithm>
 #include <array>
@@ -101,6 +102,7 @@ CNavArea* CCSOLScenarioNavWorld::AreaAt(const Vector& point, float beneath) cons
     float highest = -100000000.0f;
     for (auto* area : m_cells[GridX(point.x) + GridY(point.y) * m_sizeX])
     {
+        csol::scenario::perf::Add(csol::scenario::perf::Counter::AreaCandidates);
         const auto& extent = *area->GetExtent();
         if (point.x < extent.lo.x || point.x > extent.hi.x ||
             point.y < extent.lo.y || point.y > extent.hi.y) continue;
@@ -116,6 +118,7 @@ CNavArea* CCSOLScenarioNavWorld::AreaAt(const Vector& point, float beneath) cons
 
 bool CCSOLScenarioNavWorld::GroundHeight(const Vector& point, float& height, Vector* normal) const
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Ground);
     if (!Finite(point) || !g_engfuncs.pfnTraceLine) return false;
     const auto generation = m_generation;
     struct Layer { float height; Vector normal; };
@@ -130,6 +133,7 @@ bool CCSOLScenarioNavWorld::GroundHeight(const Vector& point, float& height, Vec
         Vector start = point;
         start.z += offset;
         TraceResult trace{};
+        csol::scenario::perf::Add(csol::scenario::perf::Counter::GroundTraces);
         UTIL_TraceLine(start, end, ignore_monsters, dont_ignore_glass, ignored, &trace);
         // A map/round callback can release the NAV and the old edict array.
         // Do not inspect either a returned hit or an old cell iterator first.
@@ -169,6 +173,7 @@ bool CCSOLScenarioNavWorld::SimpleGroundHeight(const Vector& point, float& heigh
     end.z -= GroundDepth;
     if (!Finite(end)) return false;
     TraceResult trace{};
+    csol::scenario::perf::Add(csol::scenario::perf::Counter::SimpleGroundTraces);
     UTIL_TraceLine(point, end, ignore_monsters, dont_ignore_glass, nullptr, &trace);
     if (generation != m_generation || trace.fStartSolid ||
         !Finite(trace.vecEndPos) || !Finite(trace.vecPlaneNormal)) return false;
@@ -179,6 +184,7 @@ bool CCSOLScenarioNavWorld::SimpleGroundHeight(const Vector& point, float& heigh
 
 CNavArea* CCSOLScenarioNavWorld::Nearest(const Vector& point, bool anyZ, bool skipGround) const
 {
+    csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Nearest);
     if (m_cells.empty() || !Finite(point)) return nullptr;
     if (auto* area = AreaAt(point)) return area;
     const auto generation = m_generation;
@@ -203,6 +209,7 @@ CNavArea* CCSOLScenarioNavWorld::Nearest(const Vector& point, bool anyZ, bool sk
                 if (x != lowX && x != highX && y != lowY && y != highY) continue;
                 for (auto* area : m_cells[x + y * m_sizeX])
                 {
+                    csol::scenario::perf::Add(csol::scenario::perf::Counter::NearestCandidates);
                     Vector position;
                     area->GetClosestPointOnArea(&source, &position);
                     const float distance = DistanceSquared(position, source);
@@ -212,6 +219,7 @@ CNavArea* CCSOLScenarioNavWorld::Nearest(const Vector& point, bool anyZ, bool sk
                         if (position.z > source.z) continue;
                         position.z += 36.0f;
                         TraceResult trace{};
+                        csol::scenario::perf::Add(csol::scenario::perf::Counter::NearestTraces);
                         UTIL_TraceLine(source, position, ignore_monsters, ignore_glass, nullptr, &trace);
                         if (generation != m_generation) return nullptr;
                         if (trace.flFraction != 1.0f) continue;

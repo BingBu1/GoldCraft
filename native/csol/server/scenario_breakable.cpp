@@ -105,6 +105,16 @@ int CCSOLScenarioBreakable::Classify()
     return m_playerRatio == 0.0f && m_monsterRatio == 0.0f ? 0 : 16;
 }
 
+bool CCSOLScenarioBreakable::StatusHealth(int& health) const
+{
+    if (!m_valid || !m_rules || !m_rules->EntityAccessAllowed() ||
+        (m_playerRatio == 0 && m_monsterRatio == 0) || (pev->flags & FL_KILLME) ||
+        (pev->effects & EF_NODRAW) || pev->solid == SOLID_NOT || !std::isfinite(pev->health) ||
+        pev->health <= 0 || double(pev->health) > 2147483647.0) return false;
+    health = static_cast<int>(pev->health);
+    return true;
+}
+
 void CCSOLScenarioBreakable::ConfigureTouch()
 {
     if (m_playerRatio == 0.0f && m_monsterRatio == 0.0f)

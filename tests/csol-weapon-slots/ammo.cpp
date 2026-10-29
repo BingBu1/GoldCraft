@@ -11,6 +11,7 @@
 #define __API_HOOK(x) x
 #define REGAMEDLL_FIXES
 #define Q_min std::min
+#define Q_max std::max
 #define Q_strcmp std::strcmp
 #define BOOL int
 #define TRUE 1
@@ -27,6 +28,9 @@ int gmsgAmmoPickup=1;bool g_bClientPrintEnable=true;
 struct Vars{int flags{};const char* classname="weapon_tknifeex2";};
 struct CBasePlayerItem;
 struct CBasePlayerWeapon;
+// These existing ammo fixtures run ordinary mode; scenario capacities have
+// their own current-rules/upgrade tests.
+int CSOL_PlayerAmmoCapacity(struct CBasePlayer*, const char*, int maximum){return maximum;}
 bool CSOL_ClipAmmo(const CBasePlayerWeapon*);
 int CSOL_GiveClipAmmo(struct CBasePlayer*,CBasePlayerWeapon*,int);
 bool FClassnameIs(const Vars* v,const char* name){return !std::strcmp(v->classname,name);}

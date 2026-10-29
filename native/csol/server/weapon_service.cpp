@@ -6,6 +6,7 @@
 #include "wpn_cannon.h"
 #include "weapon_service.h"
 #include "characters.h"
+#include "game_rules_gate.h"
 #include "interface.h"
 #include "../../include/goldcraft/csol_weapon_api.hpp"
 #include <array>
@@ -15,6 +16,10 @@ namespace {
 struct Role { int userid{}, value{}; };
 std::array<Role, 33> roles{};
 bool zombieMode{};
+bool ShopHuman(CBasePlayer* player)
+{
+    return CSOL_ZombieHuman(player) || (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy());
+}
 // Touch/Deploy hooks may synchronously request another purchase. In particular,
 // the original cannon is temporarily outside the inventory during replacement.
 class CannonPurchaseGuard {
@@ -142,7 +147,7 @@ private:
         auto* entity=Live(buyer);
         auto* player=Player(index);
         return player && entity==player && GETPLAYERUSERID(player->edict())==userid &&
-            player->IsAlive() && CSOL_ZombieHuman(player) ? player : nullptr;
+            player->IsAlive() && ShopHuman(player) ? player : nullptr;
     }
     static bool Contains(CBasePlayer* player,CBaseEntity* entity)
     {
@@ -256,15 +261,24 @@ class WeaponService final : public csol::IWeaponService {
 public:
     int CanBuy(int index, int weapon) override
     {
+        return CanDeliver(index,weapon,false);
+    }
+    int CanDeliver(int index, int weapon, bool scenario)
+    {
         auto* player = Player(index);
         const auto* info = CSOL_ItemInfo(weapon);
-        return WeaponName(weapon) && player && player->IsAlive() && CSOL_ZombieHuman(player) &&
+        const bool human=scenario ? (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy()) : CSOL_ZombieHuman(player);
+        return WeaponName(weapon) && player && player->IsAlive() && human &&
             CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
             !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady());
     }
     int Buy(int index, int weapon) override
     {
-        if (!CanBuy(index, weapon)) return 0;
+        return Deliver(index,weapon,false);
+    }
+    int Deliver(int index, int weapon, bool scenario)
+    {
+        if (!CanDeliver(index, weapon, scenario)) return 0;
         CannonPurchaseGuard guard(weapon==CSOL_WEAPON_CANNON ? index : 0);
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
@@ -369,3 +383,11 @@ bool CSOL_ZombieHuman(CBasePlayer* player)
 }
 void CSOL_ResetWeaponService() { zombieMode = false; roles = {}; }
 bool CSOL_ZombieMode() { return zombieMode; }
+bool CSOL_CanDeliverScenarioWeapon(CBasePlayer* player,int weapon)
+{
+    return player && CSOL_ScenarioCanBuy() && WeaponService{}.CanDeliver(player->entindex(),weapon,true);
+}
+bool CSOL_DeliverScenarioWeapon(CBasePlayer* player,int weapon)
+{
+    return CSOL_CanDeliverScenarioWeapon(player,weapon) && WeaponService{}.Deliver(player->entindex(),weapon,true);
+}
