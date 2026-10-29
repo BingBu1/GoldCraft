@@ -8,6 +8,7 @@ $compiler=Initialize-GoldCraftCompiler
 $destination=Initialize-GoldCraftBuildDirectory $Output $Fresh.IsPresent
 $common=Join-Path $destination 'common'
 $arguments=Get-GoldCraftClangCMakeArguments $compiler
+$arguments+="-DCMAKE_SHARED_LINKER_FLAGS=/machine:X86 /threads:$MaxJobs"
 & cmake -S $script:GoldCraftRoot -B $common -G Ninja "-DCMAKE_MAKE_PROGRAM=$($compiler.Ninja)" @arguments `
     -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=$common" "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$common"
 if($LASTEXITCODE){throw 'CSOL shared library configure failed'}

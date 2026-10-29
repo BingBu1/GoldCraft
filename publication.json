@@ -392,6 +392,7 @@
     "tools/Sync-Modpack.ps1",
     "tools/Test-Bridge.ps1",
     "tools/Test-BwContrast.py",
+    "tools/Test-CSOLScenarioLive.py",
     "tools/Test-CSOLSequenceAdapters.ps1",
     "tools/Test-CarvedCache.py",
     "tools/Test-ConduitVision.py",

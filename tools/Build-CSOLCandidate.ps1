@@ -45,7 +45,8 @@ Invoke-CandidateStep 'engine-catalog' {
     if($LASTEXITCODE){throw 'Engine catalog generation failed'}
 }
 Invoke-CandidateStep 'client-catalog' {
-    & $python -B "$PSScriptRoot/Build-ClientGameData.py" --client "$client/cstrike/cl_dlls/client.dll" --output "$destination/gamedata/goldcraft-cs"
+    & $python -B "$PSScriptRoot/Build-ClientGameData.py" --client "$client/cstrike/cl_dlls/client.dll" `
+        --existing-catalog "$client/cstrike/metahook/gamedata" --output "$destination/gamedata/goldcraft-cs"
     if($LASTEXITCODE){throw 'Client catalog generation failed'}
 }
 & $python -B $helper seal --output $destination

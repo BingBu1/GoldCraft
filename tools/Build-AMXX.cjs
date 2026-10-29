@@ -101,7 +101,9 @@ async function build() {
       manifest.repos.length || manifest.assets.sources.length || manifest.pluginIni.enabled) {
     throw new Error('Keep the pinned compiler, staging path and compile-only settings in amxbuild.yml.');
   }
-  manifest.amxmodx.dir = input;
+  // The pinned collector/compiler use path.join(manifestDir, dir), so this
+  // field remains workspace-relative even for an absolute output argument.
+  manifest.amxmodx.dir = relative(input);
   manifest.globalDeps.push(...parseDepsLines(values.include.map((directory, index) => ({
     source: 'local', name: `extra-${index}`, path: safe(directory), include_path: '.',
   }))));

@@ -7,6 +7,7 @@ $ErrorActionPreference='Stop'
 $compiler=Initialize-GoldCraftCompiler
 $destination=Initialize-GoldCraftBuildDirectory $Output $Fresh.IsPresent
 $arguments=Get-GoldCraftClangCMakeArguments $compiler
+$arguments+="-DCMAKE_SHARED_LINKER_FLAGS=/machine:X86 /threads:$MaxJobs"
 if($CharacterFont){$arguments+="-DCSOL_CHARACTER_FONT_FILE=$(Assert-WorkspacePath $CharacterFont)"}
 & cmake -S "$script:GoldCraftRoot/native/csol" -B $destination -G Ninja "-DCMAKE_MAKE_PROGRAM=$($compiler.Ninja)" -DCMAKE_BUILD_TYPE=Release @arguments
 if($LASTEXITCODE){throw 'CSOLSupport configure failed'}
