@@ -1996,7 +1996,7 @@ index d59b139..62a36ba 100644
  {
  public:
 diff --git a/src/gl_rsurf.cpp b/src/gl_rsurf.cpp
-index 32334ba..7a0162c 100644
+index 32334ba..8841fbd 100644
 --- a/src/gl_rsurf.cpp
 +++ b/src/gl_rsurf.cpp
 @@ -38,6 +38,9 @@ static void R_ClearCachedDecalDrawData(CCachedDecal& cachedDecal)
@@ -2009,7 +2009,7 @@ index 32334ba..7a0162c 100644
  }
  
  static void R_BuildCachedDecalBounds(float* v, int vertCount, CCachedDecal& cachedDecal)
-@@ -75,23 +78,82 @@ int EngineGetMaxDecalCount()
+@@ -75,23 +78,85 @@ int EngineGetMaxDecalCount()
      return MAX_DECALS;
  }
  
@@ -2054,8 +2054,11 @@ index 32334ba..7a0162c 100644
 +        return false;
 +    const auto address = reinterpret_cast<uintptr_t>(decal.psurface);
 +    const auto base = reinterpret_cast<uintptr_t>(model.surfaces);
-+    if (address < base || (address - base) % sizeof(msurface_t)) return false;
-+    const auto index = (address - base) / sizeof(msurface_t);
++    // HL25 extends each engine surface by 16 bytes; model.surfaces keeps the
++    // legacy pointer type. Match R_GetWorldSurfaceByIndex's engine layout.
++    const auto stride = g_iEngineType == ENGINE_GOLDSRC_HL25 ? sizeof(msurface_hl25_t) : sizeof(msurface_t);
++    if (address < base || (address - base) % stride) return false;
++    const auto index = (address - base) / stride;
 +    if (index < static_cast<size_t>(model.firstmodelsurface) ||
 +        index - model.firstmodelsurface >= static_cast<size_t>(model.nummodelsurfaces))
 +        return false;
@@ -2103,7 +2106,7 @@ index 32334ba..7a0162c 100644
      }
  }
  
-@@ -750,6 +812,7 @@ int SHClip(float* vert, int vertCount, float* out, int edge)
+@@ -750,6 +815,7 @@ int SHClip(float* vert, int vertCount, float* out, int edge)
      float *s, *p;
  
      outCount = 0;
@@ -2111,7 +2114,7 @@ index 32334ba..7a0162c 100644
  
      s = &vert[(vertCount - 1) * VERTEXSIZE];
      for (j = 0; j < vertCount; j++)
-@@ -959,33 +1022,39 @@ void R_UploadDecalTextures(int decalIndex, texture_t* ptexture, const std::share
+@@ -959,33 +1025,39 @@ void R_UploadDecalTextures(int decalIndex, texture_t* ptexture, const std::share
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].matId = matId;
  }
  
@@ -2170,7 +2173,7 @@ index 32334ba..7a0162c 100644
  
      std::vector<vertex3f_t>       vPolyVertices;
      std::vector<decalvertex_t>    vVertexDataBuffer;
-@@ -1052,27 +1121,88 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
+@@ -1052,27 +1124,88 @@ void R_UploadDecalVertexBuffer(int decalIndex, int vertCount, float* v, msurface
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].indiceCount   = vTriangleListIndices.size();
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].startInstance = decalIndex;
      g_WorldSurfaceRenderer.vCachedDecals[decalIndex].instanceCount = 1;
@@ -2272,7 +2275,7 @@ index 32334ba..7a0162c 100644
  {
      if (CL_IsDevOverviewMode())
          return;
-@@ -1095,6 +1225,14 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1095,6 +1228,14 @@ void R_DrawDecals(cl_entity_t* ent)
          return;
  
      g_DecalDrawBatch.BatchCount = 0;
@@ -2287,7 +2290,7 @@ index 32334ba..7a0162c 100644
  
      for (size_t i = 0; i < pEntityComponentContainer->Decals.size(); i++)
      {
-@@ -1105,55 +1243,26 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1105,55 +1246,26 @@ void R_DrawDecals(cl_entity_t* ent)
              int   decalIndex  = R_DecalIndex(plist);
              auto& cachedDecal = g_WorldSurfaceRenderer.vCachedDecals[decalIndex];
  
@@ -2358,7 +2361,7 @@ index 32334ba..7a0162c 100644
  
                  if (g_DecalDrawBatch.BatchCount < MAX_DECALS)
                  {
-@@ -1163,6 +1272,8 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1163,6 +1275,8 @@ void R_DrawDecals(cl_entity_t* ent)
                      g_DecalDrawBatch.pRenderMaterial[g_DecalDrawBatch.BatchCount] = cachedDecal.pRenderMaterial.get();
                      g_DecalDrawBatch.StartInstance[g_DecalDrawBatch.BatchCount]   = cachedDecal.startInstance;
                      g_DecalDrawBatch.InstanceCount[g_DecalDrawBatch.BatchCount]   = cachedDecal.instanceCount;
@@ -2367,7 +2370,7 @@ index 32334ba..7a0162c 100644
                      ++g_DecalDrawBatch.BatchCount;
                  }
              }
-@@ -1294,12 +1405,17 @@ void R_DrawDecals(cl_entity_t* ent)
+@@ -1294,12 +1408,17 @@ void R_DrawDecals(cl_entity_t* ent)
          WSurfProgramState &= ~(WSURF_LEGACY_DLIGHT_ENABLED);
      }
  
