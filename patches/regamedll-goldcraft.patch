@@ -1889,7 +1889,7 @@ index 3ccefc4..6c4a8b8 100644
  			MESSAGE_END();
  		}
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..da8aa05 100644
+index 8a219ea..5d82c42 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,16 @@
@@ -2593,7 +2593,26 @@ index 8a219ea..da8aa05 100644
  	{
  		// Send the message that ammo has been picked up
  		MESSAGE_BEGIN(MSG_ONE, gmsgAmmoPickup, nullptr, pev);
-@@ -7746,28 +7770,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7586,6 +7610,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
+ // reflecting all of the HUD state info.
+ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+ {
++	const bool replayScenarioHud = m_fInitHUD != FALSE;
+ 	if (m_fInitHUD)
+ 	{
+ 		m_fInitHUD = FALSE;
+@@ -7696,6 +7721,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+ #endif
+ 	}
+ 
++	// Run after ResetHUD/InitHUD so demo recording receives authoritative
++	// progress without constructing a new ability or restarting its cooldown.
++	if (!CSOL_UpdateScenarioHud(*this, replayScenarioHud)) return;
++
+ 	if (m_iHideHUD != m_iClientHideHUD)
+ 	{
+ 		MESSAGE_BEGIN(MSG_ONE, gmsgHideWeapon, nullptr, pev);
+@@ -7746,28 +7775,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  
@@ -2630,7 +2649,7 @@ index 8a219ea..da8aa05 100644
  		MESSAGE_END();
  	}
  
-@@ -7855,6 +7876,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7855,6 +7881,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  	}
  
  	SendAmmoUpdate();
@@ -2639,7 +2658,7 @@ index 8a219ea..da8aa05 100644
  
  	// Update all the items
  	for (int i = 0; i < MAX_ITEM_TYPES; i++)
-@@ -8124,6 +8147,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
+@@ -8124,6 +8152,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
  	}
  
  	pev->maxspeed = speed;
@@ -2650,7 +2669,7 @@ index 8a219ea..da8aa05 100644
  }
  
  LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, HintMessageEx, (const char *pMessage, float duration, bool bDisplayIfPlayerDead, bool bOverride), pMessage, duration, bDisplayIfPlayerDead, bOverride)
-@@ -8257,6 +8284,7 @@ void CBasePlayer::InitStatusBar()
+@@ -8257,6 +8289,7 @@ void CBasePlayer::InitStatusBar()
  {
  	m_flStatusBarDisappearDelay = 0.0f;
  	m_SbarString0[0] = '\0';
@@ -2658,7 +2677,7 @@ index 8a219ea..da8aa05 100644
  }
  
  LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateStatusBar)
-@@ -8284,6 +8312,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
+@@ -8284,6 +8317,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
  
  	UTIL_TraceLine(vecSrc, vecEnd, dont_ignore_monsters, edict(), &tr);
  
@@ -2668,7 +2687,7 @@ index 8a219ea..da8aa05 100644
  	if (tr.flFraction != 1.0f)
  	{
  		if (!FNullEnt(tr.pHit))
-@@ -8474,12 +8505,16 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8474,12 +8510,16 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			return nullptr;
  		}
  
@@ -2687,7 +2706,7 @@ index 8a219ea..da8aa05 100644
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
-@@ -8530,8 +8565,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8530,8 +8570,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			}
  		}
  
@@ -2696,7 +2715,7 @@ index 8a219ea..da8aa05 100644
  		Vector vecOrigin   = pev->origin + gpGlobals->v_forward * 10;
  		Vector vecAngles   = pev->angles;
  		Vector vecVelocity = gpGlobals->v_forward * 300 + gpGlobals->v_forward * 100;
-@@ -9671,6 +9704,9 @@ bool IsPrimaryWeaponClass(int classId)
+@@ -9671,6 +9709,9 @@ bool IsPrimaryWeaponClass(int classId)
  
  bool IsPrimaryWeaponId(int id)
  {
@@ -2706,7 +2725,7 @@ index 8a219ea..da8aa05 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -9689,6 +9725,9 @@ bool IsSecondaryWeaponClass(int classId)
+@@ -9689,6 +9730,9 @@ bool IsSecondaryWeaponClass(int classId)
  
  bool IsSecondaryWeaponId(int id)
  {
@@ -2716,7 +2735,7 @@ index 8a219ea..da8aa05 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -10569,11 +10608,11 @@ void CBasePlayer::RemoveBomb()
+@@ -10569,11 +10613,11 @@ void CBasePlayer::RemoveBomb()
  	}
  
  	if (RemovePlayerItem(pBomb)) {

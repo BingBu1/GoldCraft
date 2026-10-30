@@ -42,6 +42,9 @@ public:
     void Invalidate();
     bool Publish();
     bool RefreshBonuses();
+    // MP's periodic HUD path refreshes bonuses and changed XP percentages at
+    // half-second intervals. force replays XP after an engine HUD reset.
+    bool Update(float now, bool force = false);
     bool AddExperience(int amount);
     bool ModifyMoney(int& amount);
     bool ApplyMovement(float weaponSpeed);
@@ -75,6 +78,8 @@ private:
     csol::scenario::UpgradeProgress m_progress;
     csol::scenario::ConfigError m_error;
     float m_experienceRatio{};
+    float m_nextUpdate{};
+    int m_experiencePercent{};
     int m_classId{-1};
     bool m_valid{true}, m_busy{};
 };

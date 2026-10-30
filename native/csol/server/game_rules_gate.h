@@ -92,6 +92,7 @@ bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);
 bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player);
 bool CSOL_UpdateScenarioPlayerBuffs(CBasePlayer& player);
+bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force);
 bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player);
 std::uint32_t CSOL_ScenarioPassMask(int playerIndex);
 

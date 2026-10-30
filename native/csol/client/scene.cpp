@@ -7,6 +7,7 @@
 #include "weapons.hpp"
 #include "beamgun.hpp"
 #include "cannon.hpp"
+#include "scenario_smoke.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
 #include "gl_state.hpp"
@@ -685,7 +686,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     }
     catch(const std::exception& error){engine.Con_Printf("CSOLSupport: event: %s\n",error.what());}
 }
-void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();}}
+void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();}}
 bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {

@@ -747,7 +747,7 @@ void FinalResultPayloads()
     for(const auto& caption:std::vector<std::string>{"","result",std::string(169,'a'),std::string(170,'b'),std::string("\xE5\xAE\x8C\xE6\x88\x90")})
     {
         calls.clear();Check(messages.SendFinalResult(&recipient,caption,FinalFields)&&FinalResultSent(217,&recipient,caption,FinalFields),
-            "final result is one reliable ZBSVer2 byte18/string/five signed LONG packet in exact original order");
+            "final result is one reliable ZBSVer2 byte0x18/string/five signed LONG packet in exact original order");
         Check(calls.size()==9&&1+calls[2].name.size()+1+5*4==caption.size()+22&&caption.size()+22<=192,
             "result string includes its terminating NUL within the stock192-byte payload budget");
     }

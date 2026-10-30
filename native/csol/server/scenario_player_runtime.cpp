@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_player_runtime.h"
+#include "scenario_active_skill.h"
 #include "scenario_death_owner.h"
 #include "scenario_monster_damage.h"
 #include "scenario_runtime.h"
@@ -9,6 +10,7 @@
 #include "scenario_native_weapons.h"
 #include "weapons.h"
 #include "../scenario/monster_appearances.hpp"
+#include "../scenario_abilities.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -412,7 +414,8 @@ bool CCSOLScenarioPlayerRuntime::Prepare(CBasePlayer& player)
         state->profile.equipment.classModsComplete)
     {
         csol::scenario::ConfigError error;
-        if (!RefreshClassMods(state->player, classId, error))
+        if (!RefreshClassMods(state->player, classId, error) ||
+            !RefreshActiveSkill(state, classId, error))
         {
             if (Resolve(state->player) != state) return false;
             return error.message.empty() ? false : Fail(error.message.c_str());
@@ -432,6 +435,50 @@ bool CCSOLScenarioPlayerRuntime::Prepare(CBasePlayer& player)
     return true;
 }
 
+bool CCSOLScenarioPlayerRuntime::UpdateHud(CBasePlayer& player, float now, bool force)
+{
+    const auto keepAlive = shared_from_this();
+    const EHANDLE handle(&player);
+    const auto state = Resolve(handle);
+    if (!state) return true; // Selection has not installed this player's state.
+    state->hudReplayPending = state->hudReplayPending || force;
+    if (state->updatingHud) return true;
+    struct Updating { bool& flag; ~Updating() { flag = false; } } updating{state->updatingHud};
+    state->updatingHud = true;
+    force = std::exchange(state->hudReplayPending, false);
+    const auto upgrades = m_session->Players()->Upgrades(handle);
+    if (!upgrades || upgrades->ConfiguredClass() < 0) return true;
+    const auto revision = state->profileRevision;
+    const auto skillRevision = state->activeSkillRevision;
+    const auto skill = state->activeSkill;
+    const auto current = [&]
+    { return Resolve(handle) == state && state->profileRevision == revision &&
+        state->activeSkillRevision == skillRevision && state->activeSkill == skill &&
+        m_session->Players()->Upgrades(handle) == upgrades && handle.Get<CBasePlayer>() == &player; };
+    if (force)
+    {
+        const bool sent = upgrades->Publish();
+        if (!current()) return false;
+        if (!sent) return Fail("scenario upgrade HUD snapshot failed");
+    }
+    const bool updated = upgrades->Update(now, force);
+    if (!current()) return false;
+    if (!updated) return Fail(upgrades->Error().message.empty() ?
+        "scenario upgrade HUD update failed" : upgrades->Error().message.c_str());
+    if (!force) return true;
+    csol::abilities::Snapshot snapshot;
+    if (skill)
+    {
+        const bool captured = skill->HudSnapshot(now, snapshot);
+        if (!current()) return false;
+        if (!captured) return Fail("scenario character skill HUD snapshot is unsupported");
+    }
+    auto* recipient = player.edict();
+    if (!current()) return false;
+    const bool sent = m_session->Messages().SendActiveSkillSnapshot(recipient, snapshot);
+    return current() && (sent || Fail("scenario character skill HUD snapshot failed"));
+}
+
 bool CCSOLScenarioPlayerRuntime::SetClassModRecords(CBasePlayer& player,
     std::vector<csol::scenario::EquipmentLoadout::ClassCaps> records)
 {
@@ -442,6 +489,55 @@ bool CCSOLScenarioPlayerRuntime::SetClassModRecords(CBasePlayer& player,
     profile.equipment.classCaps = std::move(records);
     profile.equipment.classModsComplete = true;
     return SetProfile(player, std::move(profile));
+}
+
+bool CCSOLScenarioPlayerRuntime::RefreshActiveSkill(
+    const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state, int classId,
+    csol::scenario::ConfigError& error)
+{
+    std::optional<csol::scenario::ClassModDefinition> selected;
+    if (!CurrentClassMod(state->player, 10, selected, error)) return false;
+    const auto sameDefinition = [&]
+    {
+        if (selected.has_value() != state->activeSkillDefinition.has_value()) return false;
+        if (!selected) return true;
+        const auto& old = *state->activeSkillDefinition;
+        return selected->item == old.item && selected->type == old.type &&
+            selected->subtype == old.subtype && selected->values == old.values;
+    };
+    // Original same-character preparation calls v30; both concrete classes
+    // implemented here have a verified empty v30. Do not restart their cooldown
+    // on respawn, weapon selection, or an unrelated profile refresh.
+    if (state->activeSkillPrepared && state->activeSkillClass == classId && sameDefinition()) return true;
+    if (!gpGlobals) { error.message = "scenario character skill clock is unavailable"; return false; }
+    std::shared_ptr<CSOLScenarioActiveSkill> skill;
+    if (selected)
+        skill = CSOL_CreateScenarioActiveSkill(shared_from_this(), state, *selected, gpGlobals->time, error);
+    if (!error.message.empty()) return false;
+    const auto profile = state->profileRevision;
+    const auto revision = state->classModRevision;
+    if (!SetActiveSkill(state->player, skill)) return false;
+    const auto skillRevision = state->activeSkillRevision;
+    const auto current = [&]
+    { return Resolve(state->player) == state && state->profileRevision == profile &&
+        state->classModRevision == revision && state->activeSkillRevision == skillRevision &&
+        state->activeSkill == skill; };
+    if (!current()) return false;
+    state->activeSkillPrepared = false;
+    auto* player = state->player.Get<CBasePlayer>();
+    if (!player) return false;
+    // MP108F7F00 publishes type0 when there is no active object. Otherwise a
+    // character change leaves the previous role's icon/cooldown on the client.
+    // Unknown factories still remain explicit in the damage consumer; clearing
+    // presentation must not claim that their activation has been implemented.
+    const bool sent = m_session->Messages().SendActiveSkillCooldown(player->edict(),
+        skill ? selected->subtype : 0, skill ? selected->values[0] : 0, 0);
+    if (!current()) return false;
+    if (!sent) { error.message = "scenario character skill initialization notification failed"; return false; }
+    state->activeSkillDefinition = selected;
+    state->activeSkillClass = classId;
+    state->activeSkillPrepared = true;
+    return true;
 }
 
 bool CCSOLScenarioPlayerRuntime::RefreshClassMods(const EHANDLE& player, int classId,
@@ -870,6 +966,16 @@ bool CCSOLScenarioPlayerRuntime::SetProfile(CBasePlayer& player, CSOLScenarioPla
     state->profile = std::move(profile);
     state->classModSource = CSOLScenarioClassModSource::ExplicitProfile;
     ++state->profileRevision;
+    if (!state->profile.equipment.classModsComplete)
+    {
+        // An incomplete authoritative import is unknown, not the old known
+        // loadout. Clear the adapter before a damage callback can reuse it;
+        // CurrentClassMod retains its explicit unknown-state diagnostic.
+        state->activeSkillPrepared = false;
+        state->activeSkillDefinition.reset();
+        state->activeSkillClass = -1;
+        return SetActiveSkill(state->player, {});
+    }
     return true;
 }
 
@@ -2228,11 +2334,6 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterHitComponent(CSOLMonsterDamageCall
     if (!state) { error.message = "scenario hit component player state is unavailable"; return false; }
     const auto current = [&]
     { return owned() && Resolve(handle) == state && call.Player() == player; };
-    std::shared_ptr<CSOLScenarioDisplayAbilities> abilities;
-    std::shared_ptr<csol::scenario::Feature3> feature;
-    const auto featureCurrent = [&]
-    { return current() && (!feature || (state->displayAbilities == abilities &&
-        abilities->feature3 == feature && feature->Valid())); };
     const auto resolvePlayer = [&]
     {
         const auto registered = std::find(m_players.begin(), m_players.end(), state);
@@ -2278,6 +2379,33 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterHitComponent(CSOLMonsterDamageCall
             if (!source) return true;
         }
         if (!resolvePlayer()) return false;
+        const bool stopped = StopDamageCloaking(call, state, 0x0E, error);
+        if (!current()) return call.Cancel();
+        return stopped;
+    }
+    catch (...)
+    {
+        if (!current()) return call.Cancel();
+        throw;
+    }
+}
+
+bool CCSOLScenarioPlayerRuntime::StopDamageCloaking(CSOLMonsterDamageCall& call,
+    const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state, int key,
+    csol::scenario::ConfigError& error)
+{
+    const auto keepAlive = shared_from_this();
+    const auto current = [&]
+    { return Active() && call.Current() && call.Spawn().BelongsTo(m_session->Map()) &&
+        Resolve(state->player) == state && call.Player() == state->player.Get<CBasePlayer>(); };
+    if (!current()) return call.Cancel();
+    std::shared_ptr<CSOLScenarioDisplayAbilities> abilities;
+    std::shared_ptr<csol::scenario::Feature3> feature;
+    const auto featureCurrent = [&]
+    { return current() && (!feature || (state->displayAbilities == abilities &&
+        abilities->feature3 == feature && feature->Valid())); };
+    try
+    {
         abilities = state->displayAbilities;
         if (!abilities) { error.message = "scenario hit component directory is unavailable"; return false; }
         feature = abilities->feature3;
@@ -2291,7 +2419,7 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterHitComponent(CSOLMonsterDamageCall
                 return true;
             }, nullptr};
         bool changed{};
-        const bool stopped = feature->Stop(0x0E, false, query, changed, error);
+        const bool stopped = feature->Stop(key, false, query, changed, error);
         if (!featureCurrent() || (!stopped && error.message.empty())) return call.Cancel();
         if (!stopped || !error.message.empty()) return false;
         if (!changed) return true;
@@ -2333,6 +2461,44 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterHitComponent(CSOLMonsterDamageCall
         if (!featureCurrent()) return call.Cancel();
         throw;
     }
+}
+
+bool CCSOLScenarioPlayerRuntime::StopCharacterCloaking(CSOLMonsterDamageCall& call,
+    const CSOLScenarioActiveSkill* skill, csol::scenario::ConfigError& error)
+{
+    const auto keepAlive = shared_from_this();
+    auto* player = call.Player();
+    if (!player || !Active() || !call.Current() || !call.Spawn().BelongsTo(m_session->Map()))
+        return call.Cancel();
+    const EHANDLE handle(player);
+    const auto state = Resolve(handle);
+    if (!state || !skill) return call.Cancel();
+    const auto current = [&]
+    { return Active() && call.Current() && Resolve(handle) == state && call.Player() == player; };
+    // 106E2240 uses the component owner, not the statistics-slot resolver.
+    // It tests OFFSET before the three context flags, then direct owner or v138.
+    auto* source = call.Inflictor();
+    if (!source || !source->pev || !player->pev) return true;
+    if (!g_engfuncs.pfnEntOffsetOfPEntity)
+    { error.message = "scenario character skill source validation is unavailable"; return false; }
+    auto* sourcePev = source->pev;
+    const int offset = OFFSET(sourcePev->pContainingEntity);
+    if (!current()) return call.Cancel();
+    if (!offset || call.context.bytes[2] || call.context.bytes[20] || call.context.bytes[7]) return true;
+    if (sourcePev != player->pev)
+    {
+        if (call.Inflictor() != source || source->pev != sourcePev ||
+            !sourcePev->pContainingEntity || CBaseEntity::Instance(sourcePev->pContainingEntity) != source)
+        { error.message = "scenario character skill source private data is unavailable"; return false; }
+        int weapon{};
+        const bool resolved = ReadEntitySource(*source, weapon, error);
+        if (!current()) return call.Cancel();
+        if (!resolved || !error.message.empty()) return false;
+        if (!weapon) return true;
+    }
+    // Stop itself broadcasts v104 when its timing changed; subtype29 adds no
+    // second broadcast after it. The normal later hit component uses key14.
+    return StopDamageCloaking(call, state, 12, error);
 }
 
 bool CCSOLScenarioPlayerRuntime::NotifyClassModMonsterDamage(CSOLMonsterDamageCall& call,

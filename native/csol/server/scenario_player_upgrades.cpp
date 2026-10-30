@@ -81,6 +81,7 @@ bool CCSOLScenarioPlayerUpgrades::Configure(int classId, std::uint8_t feature, b
     if (!type) return Fail("scenario character upgrade class is unavailable");
     std::array<csol::scenario::UpgradeAttribute, 5> attributes;
     int experience = 0;
+    const bool firstConfiguration = !m_progress.State();
     if (const auto* previous = m_progress.State())
     { attributes = previous->attributes; experience = previous->experience; }
     else
@@ -99,7 +100,16 @@ bool CCSOLScenarioPlayerUpgrades::Configure(int classId, std::uint8_t feature, b
     m_wall->characterFeature = feature;
     m_wall->elevenLevelLimit = elevenLevelLimit;
     // Initialize publishes existing levels; it does not award XP or heal.
-    const bool published = PublishCurrent();
+    bool published = PublishCurrent();
+    if (published && firstConfiguration)
+    {
+        // MP's independent InitHUD path starts the experience bar at zero.
+        // Only a new player state needs that initial packet; changing class
+        // retains XP and its last transmitted percentage.
+        auto* player = Player();
+        published = player && m_messages.SendUpgradeExperience(player->edict(), 0);
+        published = Current() && published;
+    }
     if (!published) m_classId = -1;
     return published;
 }
@@ -146,6 +156,44 @@ bool CCSOLScenarioPlayerUpgrades::RefreshBonuses()
     // The periodic original sends the six notices only when the aggregate
     // changes. HP/speed have already been applied per attribute in order.
     return previous == m_progress.State()->bonus || PublishCurrent();
+}
+
+bool CCSOLScenarioPlayerUpgrades::Update(float now, bool force)
+{
+    auto keepAlive = shared_from_this();
+    if (m_busy || !Current() || !m_progress.State()) return false;
+    if (!std::isfinite(now)) return Fail("scenario upgrade HUD time is not finite");
+    if (!force && !(now > m_nextUpdate)) return true;
+    Busy busy(m_busy);
+    m_nextUpdate = now + 0.5f;
+    const int previousBonus = m_progress.State()->bonus;
+    if (!m_progress.RefreshBonuses(keepAlive, m_error)) return false;
+    if (previousBonus != m_progress.State()->bonus && !PublishCurrent()) return false;
+
+    const auto* state = m_progress.State();
+    if (!state) return false;
+    const int level = state->level + state->bonus;
+    int percent = 0;
+    if (level < state->cap)
+    {
+        const auto* threshold = m_tables->levels.ExperienceLevel(level);
+        if (!threshold || threshold->experience <= 0)
+            return Fail("scenario upgrade experience threshold is missing or nonpositive");
+        // MP 108FA8AD: convert both integers to float32, multiply XP by
+        // 100, divide, then truncate. Integer arithmetic/double/reversed
+        // operations differ at percentage boundaries. Effective cap sends 0.
+        const float scaled = static_cast<float>(state->experience) * 100.0f;
+        percent = Truncate(scaled / static_cast<float>(threshold->experience));
+    }
+    if (!force && percent == m_experiencePercent) return true;
+    auto* player = Player();
+    if (!player) return false;
+    const int previousPercent = m_experiencePercent;
+    m_experiencePercent = percent;
+    const bool sent = m_messages.SendUpgradeExperience(player->edict(), percent);
+    if (!Current()) return false;
+    if (!sent) m_experiencePercent = previousPercent;
+    return sent;
 }
 
 bool CCSOLScenarioPlayerUpgrades::AddExperience(int amount)

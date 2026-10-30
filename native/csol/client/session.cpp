@@ -8,6 +8,11 @@
 #include "wall_status.hpp"
 #include "buy_menu.hpp"
 #include "damage_display.hpp"
+#include "scenario_kill.hpp"
+#include "scenario_effects.hpp"
+#include "scenario_smoke.hpp"
+#include "scenario_upgrades.hpp"
+#include "scenario_abilities.hpp"
 #include <ostream>
 #include <algorithm>
 
@@ -31,6 +36,11 @@ void ResetSession()
     ResetWallStatus();
     ResetBuyMenu();
     ResetDamageDisplay();
+    ResetScenarioKill();
+    ResetScenarioEffects();
+    ResetScenarioSmoke();
+    ResetScenarioUpgrades();
+    ResetScenarioAbilities();
 }
 }
 

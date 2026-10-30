@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "scenario_messages.h"
 #include "damage_numbers.h"
+#include "../scenario_abilities.hpp"
 
 #include <bit>
 #include <algorithm>
@@ -25,6 +26,7 @@ bool CCSOLScenarioMessages::Register()
     m_messageId = 0;
     m_upgradeMessageId = 0;
     m_statusMessageId = 0;
+    m_skillSnapshotId = 0;
     if (!g_engfuncs.pfnRegUserMsg) return false;
     const int id = REG_USER_MSG("MPToCL", -1);
     // GoldSrc transmits a user-message number as a byte. A failed registration
@@ -34,9 +36,12 @@ bool CCSOLScenarioMessages::Register()
     if (upgrades < 64 || upgrades > 255) return false;
     const int status = REG_USER_MSG("MPToCL2", -1);
     if (status < 64 || status > 255) return false;
+    const int skillSnapshot = REG_USER_MSG("CsoSkState", 15);
+    if (skillSnapshot < 64 || skillSnapshot > 255) return false;
     m_messageId = id;
     m_upgradeMessageId = upgrades;
     m_statusMessageId = status;
+    m_skillSnapshotId = skillSnapshot;
     return true;
 }
 
@@ -112,6 +117,60 @@ bool CCSOLScenarioMessages::SendUpgradeTotal(edict_t* recipient, int level, bool
     MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
     WRITE_BYTE(increased ? 5 : 4);
     WRITE_LONG(level);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendUpgradeExperience(edict_t* recipient, int percent) const
+{
+    if (g_scenarioMessageOpen || !m_upgradeMessageId || !recipient || recipient->free ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_upgradeMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(3);
+    WRITE_LONG(percent);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendActiveSkillSnapshot(edict_t* recipient,
+    const csol::abilities::Snapshot& value) const
+{
+    if (g_scenarioMessageOpen || !m_skillSnapshotId || !recipient || recipient->free || value.type > 55 ||
+        !std::isfinite(value.cooldown) || !std::isfinite(value.elapsed) || !std::isfinite(value.duration) ||
+        value.cooldown < 0 || value.elapsed < 0 || value.elapsed > value.cooldown || value.duration < 0 ||
+        (!value.type && (value.cooldown != 0 || value.elapsed != 0 || value.duration != 0)) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte ||
+        !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_skillSnapshotId;
+    const auto snapshot = value;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(1);
+    WRITE_SHORT(snapshot.type);
+    WRITE_LONG(std::bit_cast<std::int32_t>(snapshot.cooldown));
+    WRITE_LONG(std::bit_cast<std::int32_t>(snapshot.elapsed));
+    WRITE_LONG(std::bit_cast<std::int32_t>(snapshot.duration));
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendActiveSkillCooldown(edict_t* recipient, int subtype,
+    float cooldown, float duration) const
+{
+    if (g_scenarioMessageOpen || !m_upgradeMessageId || !recipient || recipient->free ||
+        subtype < 0 || subtype > 32767 || !std::isfinite(cooldown) || !std::isfinite(duration) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_upgradeMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(0x24);
+    WRITE_SHORT(subtype);
+    WRITE_LONG(std::bit_cast<std::int32_t>(cooldown));
+    WRITE_LONG(std::bit_cast<std::int32_t>(duration));
     MESSAGE_END();
     return true;
 }
@@ -373,6 +432,23 @@ bool CCSOLScenarioMessages::SendPlayerFrags(int playerIndex, std::int32_t frags)
     WRITE_BYTE(2);
     WRITE_BYTE(playerIndex);
     WRITE_SHORT(value);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendMonsterHealing(int monsterIndex, const float* origin, bool self) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !origin || monsterIndex < 1 || monsterIndex > 0xffff ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort) return false;
+    const Vector position(origin);
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z)) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, id, position);
+    WRITE_BYTE(4);
+    WRITE_SHORT(std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(monsterIndex)));
+    WRITE_BYTE(self ? 13 : 9);
     MESSAGE_END();
     return true;
 }

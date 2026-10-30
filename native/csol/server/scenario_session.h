@@ -3,6 +3,7 @@
 
 #include "scenario_map.h"
 #include "scenario_messages.h"
+#include "scenario_music.h"
 #include "scenario_monster_models.h"
 #include "scenario_monster_pool.h"
 #include "scenario_navigation.h"
@@ -61,6 +62,8 @@ public:
     CCSOLMonsterPool& Monsters() { return m_monsters; }
     CCSOLMonsterModels& Models() { return m_models; }
     const CCSOLScenarioMessages& Messages() const { return m_messages; }
+    std::shared_ptr<CCSOLScenarioMusic> Music() const { return m_music; }
+    unsigned short SmokeEvent() const { return m_smokeEvent; }
     const csol::scenario::DifficultyResources& Difficulty() const { return m_difficulty; }
     const csol::scenario::DropItemTable& DropRules() const { return m_dropItems.Rules(); }
     std::shared_ptr<const CCSOLMonsterNavigation> Navigation() const { return m_navigation; }
@@ -95,6 +98,8 @@ private:
     csol::scenario::BossSkillResources m_bossSkills;
     CCSOLMonsterModels m_models;
     CCSOLScenarioMessages m_messages;
+    std::shared_ptr<CCSOLScenarioMusic> m_music;
+    unsigned short m_smokeEvent{};
     std::shared_ptr<CCSOLScenarioNavigation> m_navigation;
     CCSOLScenarioWalls m_walls;
     std::shared_ptr<CCSOLScenarioWallRewards> m_wallRewards;

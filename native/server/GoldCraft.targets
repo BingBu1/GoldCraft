@@ -4,6 +4,12 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario_music.cpp">
+      <ObjectFileName>$(IntDir)csol_scenario_music_data.obj</ObjectFileName>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\buy_menu.cpp">
       <ObjectFileName>$(IntDir)csol_buy_menu_data.obj</ObjectFileName>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -57,7 +63,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_events.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_healing.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_events.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
@@ -88,7 +94,7 @@
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario_recovery_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wave_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_factory.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_music.cpp;$(GoldCraftRoot)\native\csol\server\scenario_bgm_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario_active_skill.cpp;$(GoldCraftRoot)\native\csol\server\scenario_recovery_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wave_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_factory.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>

@@ -10,8 +10,11 @@ set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
 add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
-    client/projectiles.cpp client/cannon.cpp
-    client/death_notices.cpp
+    client/projectiles.cpp client/cannon.cpp client/scenario_music.cpp scenario_music.cpp
+    client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp
+    client/scenario_smoke.cpp scenario_smoke.cpp
+    client/scenario_upgrades.cpp scenario_upgrades.cpp
+    client/scenario_abilities.cpp scenario_abilities.cpp
     client/status_icons.cpp client/status_icons_gl.cpp client/wall_status.cpp
     client/damage_numbers.cpp client/damage_styles.cpp client/damage_display.cpp client/damage_options.cpp
     client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/beamgun_scope.cpp beamgun_state.cpp weapon_slots.cpp
@@ -19,7 +22,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
-set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"
     "${SDK}/HLSDK/pm_shared" "${SDK}/HLSDK/public" "${SDK}/SourceSDK"
@@ -196,6 +199,9 @@ if(CSOL_BUILD_PROJECTILE_TESTS)
     target_compile_options(csol_projectile_tests PRIVATE /utf-8 /W3)
     add_test(NAME csol_projectile COMMAND csol_projectile_tests)
 endif()
+add_executable(csol_music_resources music_resources.cpp scenario_music.cpp scenario/config.cpp scenario/round_settings.cpp scenario/spawn_points.cpp)
+target_compile_features(csol_music_resources PRIVATE cxx_std_20)
+target_compile_options(csol_music_resources PRIVATE /utf-8 /W3)
 add_executable(csol_resources resource_list.cpp dependencies.cpp model_codec.cpp model_json.cpp events.cpp model_source.cpp sequences.cpp texture_model.cpp)
 target_compile_features(csol_resources PRIVATE cxx_std_20)
 target_include_directories(csol_resources PRIVATE "${METAHOOK_ROOT}/MetaHook/thirdparty/rapidjson/include")

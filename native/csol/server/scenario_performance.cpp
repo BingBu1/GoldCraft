@@ -3,6 +3,8 @@
 #include "scenario_performance.h"
 #include "game_rules_gate.h"
 #include "scenario_monster_pool.h"
+#include "scenario_monster_ordinary.h"
+#include "scenario_player_runtime.h"
 
 #include <cmath>
 #include <cstring>
@@ -146,7 +148,61 @@ void Command()
         Report();
     }
     else if (!std::strcmp(action, "report")) Report();
-    else SERVER_PRINT("Usage: csol_scenario_perf begin|reset|report|end\n");
+    else if (!std::strcmp(action, "players"))
+    {
+        CSOLScenarioSdkScope scope;
+        if (!scope.Scenario() || !scope.Current() || !g_pEdicts || !gpGlobals) return;
+        const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+        if (!players) return;
+        for (int i = 1; i <= gpGlobals->maxClients; ++i)
+        {
+            if (!scope.Current()) return;
+            auto& edict = g_pEdicts[i];
+            if (edict.free || !edict.pvPrivateData) continue;
+            auto* player = dynamic_cast<CBasePlayer*>(CBaseEntity::Instance(&edict));
+            if (!player || player->has_disconnected) continue;
+            const EHANDLE handle(player);
+            const auto state = players->Find(handle);
+            if (!state) continue;
+            std::optional<csol::scenario::ClassModDefinition> selected;
+            csol::scenario::ConfigError error;
+            const bool queried = players->CurrentClassMod(handle, 10, selected, error);
+            if (!scope.Current() || players->Find(handle) != state) return;
+            const auto* weapon = dynamic_cast<CBasePlayerWeapon*>(player->m_pActiveItem);
+            // Explicit, read-only diagnostics distinguish missing character
+            // abilities from global death-owner errors without logging per hit.
+            SERVER_PRINT(UTIL_VarArgs("[csol_player] entity=%d class=%d weapon=%d fake=%d classmod_current=%d ability_item=%d ability_subtype=%d ability_installed=%d damage_hits=%u error=%s\n",
+                i, state->classId, weapon ? weapon->m_iId : 0,
+                (player->pev->flags & FL_FAKECLIENT) != 0, queried ? 1 : 0,
+                selected ? selected->item : 0, selected ? selected->subtype : 0,
+                state->activeSkill ? 1 : 0, state->monsterDamageHits, error.message.c_str()));
+        }
+        frames.hasPrevious = false;
+    }
+    else if (!std::strcmp(action, "ai"))
+    {
+        CSOLScenarioSdkScope scope;
+        if (!scope.Scenario() || !scope.Current() || !g_pEdicts || !gpGlobals) return;
+        // An explicit snapshot keeps diagnostics out of the Think hot path.
+        // A standing corpse and a live AI error have different causes.
+        for (int i = 1; i < gpGlobals->maxEntities; ++i)
+        {
+            if (!scope.Current()) return;
+            auto& edict = g_pEdicts[i];
+            if (edict.free || !edict.pvPrivateData) continue;
+            auto* monster = dynamic_cast<CCSOLScenarioMonster*>(CBaseEntity::Instance(&edict));
+            if (!monster || !monster->Pool() || !monster->Pool()->EntityAccessAllowed() ||
+                !monster->Pool()->Borrowed(*monster)) continue;
+            const auto* ordinary = dynamic_cast<const CCSOLOrdinaryMonsterBehavior*>(monster->Behavior());
+            const auto error = ordinary ? ordinary->Error().message : std::string{};
+            SERVER_PRINT(UTIL_VarArgs("[csol_ai] entity=%d type=%d skill=%d health=%.3f deadflag=%d sequence=%d frame=%.3f rate=%.3f animtime=%.3f nextthink=%.3f now=%.3f error=%s\n",
+                i, monster->TypeId(), monster->Type() ? monster->Type()->skill : 0,
+                monster->pev->health, monster->pev->deadflag, monster->pev->sequence,
+                monster->pev->frame, monster->pev->framerate, monster->pev->animtime,
+                monster->pev->nextthink, gpGlobals->time, error.c_str()));
+        }
+    }
+    else SERVER_PRINT("Usage: csol_scenario_perf begin|reset|report|end|ai|players\n");
 }
 }
 

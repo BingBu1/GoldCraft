@@ -32,14 +32,31 @@ foreach($dir in @('scripts','cs/cstrike/maps','minecraft/mods','minecraft/goldcr
 }
 foreach($name in @('Common.ps1','Start-Servers.ps1')) { Copy-Item -LiteralPath (Join-Path $sourceRoot "tools/server-package/scripts/$name") -Destination (Join-Path $package "scripts/$name") }
 $fixtureSettings=Read-Json (Join-Path $sourceRoot 'tools/server-package/server-settings.json')
-# Allocate distinct temporary test ports without a fixed host-wide dependency.
-$held=@(); $ports=@()
+# Match Start-Servers: the CS/Steam listeners are UDP and the remaining three
+# are TCP, all bound to Any with exclusive use. A free TCP port can be reserved
+# or unavailable for UDP on Windows, so TCP-only allocation is not sufficient.
+$heldTcp=@(); $heldUdp=@(); $ports=@()
 try {
-    for($i=0;$i -lt 5;$i++) {
-        $listener=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0)
-        $listener.Start();$held+=,$listener;$ports+=,$listener.LocalEndpoint.Port
+    while($ports.Count -lt 5) {
+        if($ports.Count -lt 2) {
+            $listener=New-Object Net.Sockets.UdpClient
+            $heldUdp+=,$listener
+            $listener.ExclusiveAddressUse=$true
+            $listener.Client.Bind((New-Object Net.IPEndPoint([Net.IPAddress]::Any,0)))
+            $port=$listener.Client.LocalEndPoint.Port
+        } else {
+            $listener=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any,0)
+            $heldTcp+=,$listener
+            $listener.Server.ExclusiveAddressUse=$true
+            $listener.Start()
+            $port=$listener.LocalEndpoint.Port
+        }
+        if($port -notin $ports){$ports+=,$port}
     }
-} finally { foreach($listener in $held){$listener.Stop()} }
+} finally {
+    foreach($listener in $heldTcp){$listener.Stop()}
+    foreach($listener in $heldUdp){$listener.Dispose()}
+}
 $fixtureSettings.csPort=$ports[0];$fixtureSettings.steamPort=$ports[1];$fixtureSettings.minecraftPort=$ports[2]
 $fixtureSettings.bridgePort=$ports[3];$fixtureSettings.httpPort=$ports[4];$fixtureSettings.bindAddress='127.0.0.1'
 $bsp=Join-Path $package 'cs/cstrike/maps/cs_assault.bsp'

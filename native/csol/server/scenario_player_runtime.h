@@ -23,6 +23,7 @@ class CSOLScenarioActiveSkill
 public:
     virtual ~CSOLScenarioActiveSkill() = default;
     virtual int Type() const = 0;
+    virtual bool HudSnapshot(float, csol::abilities::Snapshot&) const { return false; }
     virtual bool Ready(CSOLMonsterDeathCall& call, bool& ready,
         csol::scenario::ConfigError& error) = 0;
     // Owns the second readiness check, probability, cooldown and real effects.
@@ -286,6 +287,10 @@ struct CSOLScenarioPlayerRuntimeState
     std::vector<CSOLScenarioKillSubscription> killComponents;
     std::shared_ptr<CSOLScenarioActiveSkill> activeSkill;
     std::uint64_t activeSkillRevision{};
+    std::optional<csol::scenario::ClassModDefinition> activeSkillDefinition;
+    int activeSkillClass{-1};
+    bool activeSkillPrepared{};
+    bool updatingHud{}, hudReplayPending{};
     CSOLScenarioAddonDamageInputs addonDamage;
     // Shared module flag written during pre-damage and consumed after health
     // subtraction. Early rejection preserves it, including nested hits.
@@ -332,6 +337,7 @@ public:
     bool Activate();
     void Invalidate();
     bool Prepare(CBasePlayer& player);
+    bool UpdateHud(CBasePlayer& player, float now, bool force);
     void Remove(const EHANDLE& player);
     // Trusted server code supplies inventory/ability state. No client command
     // calls this setter. Untouched local players receive default ClassMod
@@ -442,6 +448,8 @@ public:
     // follow statistics; the complete AfterHealthDamage owner calls them once.
     bool NotifyActiveSkillMonsterHit(CSOLMonsterDamageCall& call,
         std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error);
+    bool StopCharacterCloaking(CSOLMonsterDamageCall& call,
+        const CSOLScenarioActiveSkill* skill, csol::scenario::ConfigError& error);
     bool RecordMonsterDamage(CSOLMonsterDamageCall& call,
         std::shared_ptr<CCSOLScenarioRuntime> runtime, bool boss, float amount,
         csol::scenario::ConfigError& error);
@@ -496,6 +504,11 @@ private:
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> ResolveDamageStatisticPlayer(CSOLMonsterDamageCall& call,
         const std::shared_ptr<CCSOLScenarioRuntime>& runtime, csol::scenario::ConfigError& error);
     bool RecordCapEvent(const EHANDLE& player);
+    bool RefreshActiveSkill(const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state,
+        int classId, csol::scenario::ConfigError& error);
+    bool StopDamageCloaking(CSOLMonsterDamageCall& call,
+        const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state, int key,
+        csol::scenario::ConfigError& error);
     bool Fail(const char* reason);
     void RetainStatistics(CSOLScenarioPlayerRuntimeState& state) noexcept;
     bool AddClearPointProtection(CBasePlayer& player);

@@ -6,6 +6,7 @@
 #include <string_view>
 
 struct edict_s;
+namespace csol::abilities { struct Snapshot; }
 
 // Register while preparing the selected scenario, before sending events. The
 // engine owns user-message IDs; never retain a guessed ID from the original DLL.
@@ -23,7 +24,7 @@ public:
     bool SendAllRoundsClear(int textMessageId) const;
     bool SendRoundOutcome(bool success) const;
     bool SendRoundRewardState(bool pastRewardRound) const;
-    // Original10828CC0: ZBSVer2 { BYTE18, STRING, five signed LONGs }.
+    // Original10828CC0: ZBSVer2 { BYTE0x18 (24), STRING, five signed LONGs }.
     // The result owner supplies verified statistics, never guessed defaults.
     // A stock GoldSrc user message allows at most192 payload bytes.
     bool SendFinalResult(edict_s* recipient, std::string_view text,
@@ -40,7 +41,12 @@ public:
     // and built-in effect IDs use distinct trailing flags (0 and 1).
     bool SendMonsterEffectRemoval(int monsterIndex, int effectId, bool builtIn) const;
     bool SendUpgradeTotal(edict_s* recipient, int level, bool increased) const;
+    bool SendUpgradeExperience(edict_s* recipient, int percent) const;
     bool SendUpgradeStat(edict_s* recipient, unsigned stat, int level, int cap) const;
+    // Original active-ability initialization/activation: 0x24, SHORT subtype,
+    // two raw IEEE754 float32 values. Initial second duration is zero.
+    bool SendActiveSkillCooldown(edict_s* recipient, int subtype, float cooldown, float duration) const;
+    bool SendActiveSkillSnapshot(edict_s* recipient, const csol::abilities::Snapshot&) const;
     // Original head-hit statistic: ZBSVer2 { BYTE 2, LONG signed count }.
     bool SendMonsterHeadHits(edict_s* recipient, std::int32_t count) const;
     // Original kill chain: ZBSVer2 { BYTE 1, LONG signed count }.
@@ -62,6 +68,9 @@ public:
     // Original ordinary skill12: 0x51, short10, float1, RGB255. The float is
     // four raw bytes, not GoldSrc's quantized WriteCoord representation.
     bool SendMonsterContactEffect(edict_s* recipient) const;
+    // Original ordinary heal skill: MPToCL/4 in the healed entity's PVS,
+    // SHORT entity and BYTE effect (13 self, 9 another monster).
+    bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
     // Original broadcast 27/2 uses the low 16 bits of the truncated frags.
     bool SendPlayerFrags(int playerIndex, std::int32_t frags) const;
     // Mode15 classification produces at most six candidates per call.
@@ -82,4 +91,5 @@ private:
     int m_messageId{};
     int m_upgradeMessageId{};
     int m_statusMessageId{};
+    int m_skillSnapshotId{};
 };

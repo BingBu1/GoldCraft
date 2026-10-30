@@ -62,6 +62,10 @@ private:
     std::shared_ptr<CCSOLScenarioDeathServices> m_deaths;
     std::shared_ptr<CCSOLScenarioGameplay> m_gameplay;
     std::shared_ptr<CCSOLMonsterDamageServices> m_damage;
+    // Original manager owns four smoke deadline slots, independent of actual
+    // particle lifetime. Reset on a new round, not when a monster dies.
+    std::array<float, 4> m_smokeUntil{};
+    std::uint64_t m_smokeRound{};
     // Safe reference returned only after owner retirement; live state comes
     // directly from the registered rule's m_bRoundTerminating.
     const bool m_retiredDamageSuppressed{true};

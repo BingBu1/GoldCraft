@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_services.h"
+#include "scenario_monster_healing.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -242,11 +243,57 @@ bool CCSOLScenarioMonsterServices::PlayerTargetExcluded(CSOLMonsterSpawnCall& ca
 }
 
 bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
-    CSOLOrdinaryMonsterState&, csol::scenario::ConfigError& error)
+    CSOLOrdinaryMonsterState& state, csol::scenario::ConfigError& error)
 {
-    if (!Current(call)) return false;
-    // Skills 1/2 are already executed inside OrdinaryBehavior. Other skill
-    // activation branches still need their real producers/effects.
+    #pragma clang fp contract(off)
+    const auto runtime = Pin();
+    if (!runtime || !Current(call) || !gpGlobals) return false;
+    if (call.Current()->Type()->skill == 4)
+    {
+        const auto round = Map().RoundGeneration();
+        if (m_smokeRound != round) { m_smokeRound = round; m_smokeUntil = {}; }
+        const float now = gpGlobals->time;
+        // The original manager clears only strictly expired positive slots.
+        for (auto& until : m_smokeUntil) if (until > 0 && now > until) until = 0;
+        const auto slot = std::find(m_smokeUntil.begin(), m_smokeUntil.end(), 0.0f);
+        float duration = 99999.0f, cooldown = 5.0f;
+        if (slot != m_smokeUntil.end())
+        {
+            const auto event = m_session->SmokeEvent();
+            if (!event || !g_engfuncs.pfnPlaybackEvent)
+            { error.message = "scenario smoke event service is unavailable"; return false; }
+            *slot = now + 20.0f;
+            Vector origin = call.Current()->pev->origin;
+            origin.z -= 30.0f;
+            Vector angles(0, 0, 0);
+            // MP113F0CCF mode15: no invoker, fparams=0, iparam2=1.
+            g_engfuncs.pfnPlaybackEvent(0, nullptr, event, 0, origin, angles, 0, 0, 0, 1, 0, 0);
+            if (!Current(call) || Pin() != runtime) return false;
+            call.Current()->pev->maxspeed = 1.0f;
+            duration = 1.0f;
+            cooldown = 25.0f;
+        }
+        const float interval = cooldown + state.jitter * 5.0f;
+        state.skillActive = {duration, gpGlobals->time + duration, gpGlobals->time};
+        state.skill = {interval, gpGlobals->time + interval, gpGlobals->time};
+        return true;
+    }
+    if (call.Current()->Type()->skill == 5)
+    {
+        struct Owner
+        {
+            const CCSOLScenarioMonsterServices* services;
+            const CCSOLScenarioRuntime* runtime;
+        } owner{this, runtime.get()};
+        return CSOL_UseMonsterHealing(call, Pool(), Messages(), state,
+            {[](const void* context)
+            {
+                const auto& owner = *static_cast<const Owner*>(context);
+                return owner.services->Pin().get() == owner.runtime;
+            }, &owner}, error);
+    }
+    // Skills 1/2 execute inside OrdinaryBehavior. Keep unsupported producers
+    // explicit until their real entities and effects have been implemented.
     error.message = "scenario ordinary skill activation is not implemented for skill " +
         std::to_string(call.Current()->Type()->skill);
     return false;

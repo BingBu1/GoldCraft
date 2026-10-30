@@ -123,15 +123,39 @@ static void adapter_tests(){
     add("models/a.mdl",t_model,files["models/a.mdl"].bytes.size());add("a.wav",t_sound,37);add("sprites/test.spr",t_generic,13);add("server.cfg",t_generic,20);add("*1",t_model,20);add("!sentence",t_sound,20);add("spray.wad",t_generic,20,RES_CUSTOM);add("decal",t_decal,20);
     const char* csol_resources[]{"models/v_weapon.json", "models/player/leet/leet1.seq", "models/$0a_sphere.tga", "models/texture/hand.bmp",
         "shader/@004.txt", "shader/env.txt", "materials/common.json", "materials/weapon/base.tga", "gfx/tattoo/tattoo.cso",
-        "sprites/huntbow_aim_default1.tga", "sprites/beamgunle_gauge_fx.webm"};
+        "sprites/huntbow_aim_default1.tga", "sprites/beamgunle_gauge_fx.webm",
+        "bgm/Scenario_Ready.mp3", "bgm/Scenario_Normal.mp3", "bgm/stage2/Scenario_Rush.mp3",
+        "resource/Hud/ZBS/ZBSkill.tga", "resource/Hud/ZBS/ZBSKillNumber.tga", "resource/ZBSVER2/combo.tga",
+        "resource/ZBSVER2/combo_10.tga", "resource/ZBSVER2/combo_20.tga", "resource/ZBSVER2/combo_30.tga",
+        "resource/ZBSVER2/perfect.tga", "resource/font/df_gb_y9.ttf"};
     for(const auto* name:csol_resources){files[name].bytes=pattern(31,3);add(name,t_generic,31);}
+    // A file on disk is not a downloadable resource until the engine has
+    // registered it. Even registered BGM entries must keep the MP3 policy.
+    files["bgm/not_precached.mp3"].bytes=pattern(31,5);
+    for(const auto* name:{"bgm/private.cfg","bgm/payload.dll","bgm/music.mp3.exe","bgm/music.wav"})
+    {files[name].bytes=pattern(31,6);add(name,t_generic,31);}
+    files["resource/ZBSVER2/not_precached.tga"].bytes=pattern(31,7);
+    files["resource/font/not_precached.ttf"].bytes=pattern(31,7);
+    for(const auto* name:{"resource/private.cfg","resource/payload.dll","resource/ZBSVER2/combo.tga.exe","resource/private.json",
+        "resource/other.ttf","resource/font2/a.ttf","resource/font/a.ttf.exe","resource/font/a.otf"})
+    {files[name].bytes=pattern(31,8);add(name,t_generic,31);}
     files["models/texture/#512512hand.bmp"].bytes=pattern(41,4);add("models/texture/#512512hand.bmp",t_generic,41);
     GC_HttpResources();frame();CHECK(std::string(sv_downloadurl.string).empty());
     auto f=async_request(port,"models/a.mdl");CHECK(pump(f).body==files["models/a.mdl"].bytes);CHECK(largest_read_frame==256*1024&&seeks>=5&&opens==closes);
     f=async_request(port,"sound/a.wav");CHECK(pump(f).body==files["sound/a.wav"].bytes);
     f=async_request(port,"sprites/test.spr");CHECK(pump(f).body==files["sprites/test.spr"].bytes);
     for(const auto* name:csol_resources){f=async_request(port,name);auto response=pump(f);CHECK(response.status==200 && response.body==files[name].bytes);}
-    for(const auto* name:{"sprites/huntbow_aim_default1.tga","sprites/beamgunle_gauge_fx.webm"})
+    for(const auto* name:{"sprites/huntbow_aim_default1.tga","sprites/beamgunle_gauge_fx.webm",
+        "bgm/Scenario_Ready.mp3","bgm/Scenario_Normal.mp3","bgm/stage2/Scenario_Rush.mp3"})
+    {
+        f=std::async(std::launch::async,[=]{return request(port,std::string("/goldcraft/")+name,"Range: bytes=3-17\r\n");});
+        const auto response=pump(f);const auto& bytes=files[name].bytes;
+        CHECK(response.status==206&&response.body==Bytes(bytes.begin()+3,bytes.begin()+18));
+        CHECK(response.header.find("Content-Range: bytes 3-17/31")!=std::string::npos);
+    }
+    for(const auto* name:{"resource/Hud/ZBS/ZBSkill.tga","resource/Hud/ZBS/ZBSKillNumber.tga","resource/ZBSVER2/combo.tga",
+        "resource/ZBSVER2/combo_10.tga","resource/ZBSVER2/combo_20.tga","resource/ZBSVER2/combo_30.tga","resource/ZBSVER2/perfect.tga",
+        "resource/font/df_gb_y9.ttf"})
     {
         f=std::async(std::launch::async,[=]{return request(port,std::string("/goldcraft/")+name,"Range: bytes=3-17\r\n");});
         const auto response=pump(f);const auto& bytes=files[name].bytes;
@@ -144,6 +168,20 @@ static void adapter_tests(){
     f=async_request(port,"models/not_precached.json");CHECK(pump(f).status==404);
     for(const auto* name:{"sprites/not_precached.webm","sprites/not_precached.tga","sprites/../server.cfg","sprites/payload.dll","sprites/payload.exe","sprites/payload.tga.exe"})
     {f=async_request(port,name);CHECK(pump(f).status==404);}
+    const auto before_bgm_rejections=opens;
+    for(const auto* name:{"bgm/not_precached.mp3","bgm/private.cfg","bgm/payload.dll","bgm/music.mp3.exe","bgm/music.wav",
+        "bgm/../sound/a.wav","bgm/%2e%2e/Scenario_Ready.mp3","bgm%2FScenario_Ready.mp3",
+        "bgm/Scenario_Ready.mp3?download=1","bgm/CON.mp3","bgm/Scenario_Ready.mp3:private"})
+    {f=async_request(port,name);CHECK(pump(f).status==404);}
+    CHECK(opens==before_bgm_rejections);
+    const auto before_resource_rejections=opens;
+    for(const auto* name:{"resource/ZBSVER2/not_precached.tga","resource/private.cfg","resource/payload.dll",
+        "resource/ZBSVER2/combo.tga.exe","resource/private.json","resource/../gfx/private.tga",
+        "resource/%2e%2e/gfx/private.tga","resource%2FZBSVER2/combo.tga","resource/ZBSVER2/CON.tga",
+        "resource/font/not_precached.ttf","resource/other.ttf","resource/font2/a.ttf","resource/font/a.ttf.exe",
+        "resource/font/a.otf","resource/font/../other.ttf","resource/font/%2e%2e/other.ttf"})
+    {f=async_request(port,name);CHECK(pump(f).status==404);}
+    CHECK(opens==before_resource_rejections);
     f=async_request(port,"spray.wad");CHECK(pump(f).status==404);
     Cvar_Set("sv_allow_dlfile","0");Cvar_Set("mc_http_public_url","http://example.invalid:12345/goldcraft/");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://example.invalid:12345/goldcraft/");CHECK(sv_allow_dlfile.value==0);
     Cvar_Set("sv_downloadurl","http://admin.invalid/");Cvar_Set("mc_http_public_url","");realtime+=2;frame();CHECK(std::string(sv_downloadurl.string)=="http://admin.invalid/");
@@ -155,6 +193,9 @@ static void adapter_tests(){
     commands.at("mc_http_refresh")();f=async_request(port,"models/a.mdl");CHECK(pump(f).body==files["models/a.mdl"].bytes);
     commands.at("mc_http_refresh")();files["models/a.mdl"].broken=true;f=async_request(port,"models/a.mdl");CHECK(pump(f).status==404);CHECK(opens==closes);files["models/a.mdl"].broken=false;
     GC_HttpReset();f=async_request(port,"models/a.mdl");CHECK(pump(f).status==404);
+    f=async_request(port,"bgm/Scenario_Ready.mp3");CHECK(pump(f).status==404);
+    f=async_request(port,"resource/Hud/ZBS/ZBSkill.tga");CHECK(pump(f).status==404);
+    f=async_request(port,"resource/font/df_gb_y9.ttf");CHECK(pump(f).status==404);
     GC_HttpResources();f=async_request(port,"models/a.mdl");until([&]{frame();return read_frame>0;});auto began=std::chrono::steady_clock::now();GC_HttpShutdown();CHECK(std::chrono::steady_clock::now()-began<1500ms);f.get();CHECK(opens==closes);
 }
 int main(){
@@ -162,6 +203,13 @@ int main(){
     for(const auto& u:{"http://example.com/goldcraft/","http://127.0.0.1:27080/goldcraft/"})CHECK(public_url(u));
     for(const auto& u:{"http://localhost:0/goldcraft/","https://example.com/goldcraft/","http://user@x/goldcraft/","http://x/other/","http://x:65536/goldcraft/","http://x/goldcraft/;quit"})CHECK(!public_url(u));
     for(const auto* name:{"models/server.cfg", "models/plugin.dll", "materials/../server.json", "shader/program.glsl", "gfx/tattoo/other.cso", "config/private.json"})CHECK(!resource_name(name));
+    for(const auto* name:{"bgm/Scenario_Ready.mp3","BGM/Scenario_Normal.MP3","bgm/stage2/Scenario_Rush.mp3"})CHECK(resource_name(name));
+    for(const auto* name:{"bgm/track.wav","bgm/private.cfg","bgm/track.mp3.exe","bgm/../track.mp3","bgm/CON.mp3","bgm/track.mp3:private"})CHECK(!resource_name(name));
+    CHECK(resource_name("resource/Hud/ZBS/ZBSkill.tga"));
+    for(const auto* name:{"resource/font/df_gb_y9.ttf","RESOURCE/FONT/DF_GB_Y9.TTF","resource/font/subdir/font.ttf"})CHECK(resource_name(name));
+    for(const auto* name:{"resource/private.cfg","resource/payload.dll","resource/combo.tga.exe","resource/../combo.tga","resource/CON.tga"})CHECK(!resource_name(name));
+    for(const auto* name:{"resource/other.ttf","resource/font2/a.ttf","resource/font.ttf","resource/font/a.ttf.exe",
+        "resource/font/a.otf","resource/font/../other.ttf","resource/font/CON.ttf","resource/font/font.ttf:private"})CHECK(!resource_name(name));
     server_tests();store_tests();adapter_tests();WSACleanup();
     std::cout<<"HTTP production server/store/adapter checks="<<checks.load()<<" passed\n";
 }

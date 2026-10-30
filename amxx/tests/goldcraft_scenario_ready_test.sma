@@ -9,6 +9,7 @@
 
 new g_Enabled, g_Restarts;
 new g_OwnedUserid[33];
+new g_OwnedSerial[33];
 new bool:g_CapacityBusy;
 new bool:g_ReportedInitialization;
 new bool:g_Live, g_LiveSequence, g_LiveDamageDepth, g_LiveOverflow;
@@ -18,10 +19,16 @@ new bool:g_LiveMessageHooks[3];
 new g_LiveDamage[64][7]; // event, entity, attacker, userid, weapon, solid, kind
 new Float:g_LiveHealth[64], Float:g_LiveFrags[64];
 new g_LiveTarget[64][64];
+const COMBAT_SAMPLE_TASK = 672839;
+new g_CombatVictim, g_CombatSample;
+new g_CombatSession[49];
+new g_WalkSlot, g_WalkUserid, g_WalkSerial, g_WalkCommands;
+new Float:g_WalkYaw, Float:g_WalkDeadline, Float:g_WalkLast;
+new g_WalkSession[49];
 
 public plugin_init()
 {
-    register_plugin("CSOL selection live checks", "0.2.0", "GoldCraft contributors");
+    register_plugin("CSOL selection live checks", "0.3.2", "GoldCraft contributors");
     g_Enabled = create_cvar("csol_ready_test", "0");
     register_srvcmd("csol_ready_status", "Status");
     register_srvcmd("csol_ready_force_spawn", "ForceSpawn");
@@ -31,6 +38,14 @@ public plugin_init()
     register_srvcmd("csol_live_begin", "LiveBegin");
     register_srvcmd("csol_live_status", "LiveStatus");
     register_srvcmd("csol_live_end", "LiveEnd");
+    register_srvcmd("csol_combat_bot", "CombatBot");
+    register_srvcmd("csol_combat_weapon", "CombatWeapon");
+    register_srvcmd("csol_combat_hit", "CombatHit");
+    register_srvcmd("csol_combat_snapshot", "CombatSnapshot");
+    register_srvcmd("csol_combat_walk", "CombatWalk");
+    register_srvcmd("csol_combat_wall", "CombatWall");
+    register_srvcmd("csol_combat_cannon", "CombatCannon");
+    register_forward(FM_StartFrame, "CombatWalkFrame", false);
     RegisterHookChain(RG_CSGameRules_RestartRound, "RoundRestarted", true);
     RegisterHookChain(RG_CBasePlayer_Spawn, "LivePlayerSpawn", true);
     RegisterHookChain(RG_CBasePlayer_Killed, "LivePlayerKilled", true);
@@ -95,12 +110,23 @@ public ClientCommand()
     return Status();
 }
 
-bool:OwnedClient(index)
+bool:OwnedConnection(index)
 {
     return index >= 1 && index <= MaxClients && g_OwnedUserid[index] > 0 &&
         is_user_connected(index) && is_user_bot(index) &&
         get_user_userid(index) == g_OwnedUserid[index] &&
-        (pev(index, pev_flags) & FL_FAKECLIENT) != 0;
+        pev_valid(index) != 0 && pev_serial(index) == g_OwnedSerial[index];
+}
+
+bool:OwnedClient(index)
+{
+    return OwnedConnection(index) && (pev(index, pev_flags) & FL_FAKECLIENT) != 0;
+}
+
+public client_disconnected(index)
+{
+    g_OwnedUserid[index] = 0;
+    g_OwnedSerial[index] = 0;
 }
 
 CapacityIdentity(const stage[], index)
@@ -111,9 +137,9 @@ CapacityIdentity(const stage[], index)
         return;
     }
     new valid = pev_valid(index);
-    server_print("[CSOL capacity] stage=%s slot=%d owned_userid=%d userid=%d connected=%d bot=%d flags=%d private=%d",
-        stage, index, g_OwnedUserid[index], get_user_userid(index), is_user_connected(index),
-        is_user_bot(index), valid ? pev(index, pev_flags) : 0, valid == 2);
+    server_print("[CSOL capacity] stage=%s slot=%d owned_userid=%d userid=%d owned_serial=%d serial=%d connected=%d bot=%d flags=%d private=%d",
+        stage, index, g_OwnedUserid[index], get_user_userid(index), g_OwnedSerial[index],
+        valid ? pev_serial(index) : 0, is_user_connected(index), is_user_bot(index), valid ? pev(index, pev_flags) : 0, valid == 2);
     if (valid == 2)
         server_print("[CSOL capacity] stage=%s slot=%d team=%d joining=%d menu=%d just_connected=%d",
             stage, index, get_member(index, m_iTeam), get_member(index, m_iJoiningState),
@@ -125,7 +151,7 @@ CapacityIdentity(const stage[], index)
 // inventory, GoldCraft connection generation and initial observer state.
 // Do not call DLLFunc_ClientConnect: pinned Fakemeta passes a literal empty
 // string as the native writable reject buffer and reads an undocumented length.
-CreateCapacityClient(const name[])
+CreateCapacityClient(const name[], character = 0)
 {
     new index = engfunc(EngFunc_CreateFakeClient, name);
     if (!index) return 0;
@@ -139,6 +165,7 @@ CreateCapacityClient(const name[])
     // Like SDK CreateBot, discard a previous occupant's private object before
     // constructing the real player. Never free an existing connected client.
     if (pev_valid(index) == 2) engfunc(EngFunc_FreeEntPrivateData, index);
+    g_OwnedSerial[index] = pev_serial(index);
     // The edict exists here but its new SDK private object does not yet.
     set_pev(index, pev_flags, pev(index, pev_flags) | FL_FAKECLIENT | FL_CLIENT);
     dllfunc(DLLFunc_ClientPutInServer, index);
@@ -169,7 +196,18 @@ CreateCapacityClient(const name[])
     // A fake client has no HUD initialization frames before this synchronous
     // test. Set its normal camera preference through the native command.
     engclient_cmd(index, "specmode", "3");
-    engclient_cmd(index, "joinclass", "1");
+    if (character)
+    {
+        new flags = get_entvar(index, var_flags), protocol[32], selected[16];
+        get_user_info(index, "csol_protocol", protocol, charsmax(protocol)); num_to_str(character, selected, charsmax(selected));
+        set_user_info(index, "csol_protocol", "1"); set_entvar(index, var_flags, flags & ~FL_FAKECLIENT);
+        LiveEmit("event=mutation operation=scoped_character_selection stage=begin slot=%d character=%d", index, character);
+        engclient_cmd(index, "csol_character_select", selected);
+        set_entvar(index, var_flags, (get_entvar(index, var_flags) & ~FL_FAKECLIENT) | (flags & FL_FAKECLIENT));
+        set_user_info(index, "csol_protocol", protocol);
+        LiveEmit("event=mutation operation=scoped_character_selection stage=end slot=%d flags=%d", index, get_entvar(index, var_flags));
+    }
+    else engclient_cmd(index, "joinclass", "1");
     new Float:angles[3];
     get_entvar(index, var_v_angle, angles);
     engfunc(EngFunc_RunPlayerMove, index, angles, 0.0, 0.0, 0.0, 0, 0, 10);
@@ -251,6 +289,339 @@ public ClearCapacity()
     server_print("[CSOL capacity] cleanup removed=%d failed=%d", removed, failed);
     g_CapacityBusy = false;
     return Status();
+}
+
+// Explicitly mutating integration fixture. It uses one plugin-owned fake
+// client and actual GameDLL damage methods. It is never physical firing,
+// client prediction, aim/visibility validation, or a passive observation.
+public CombatBot()
+{
+    if (!LiveActive() || g_CapacityBusy || read_argc() > 2 ||
+        get_cvar_num("csol_game_mode") != 2 || MaxClients != 32 ||
+        get_member_game(m_bGameStarted)) return PLUGIN_HANDLED;
+    for (new index = 1; index <= MaxClients; index++)
+        if (OwnedClient(index)) { server_print("[CSOL combat] rejected=already_owns_client slot=%d", index); return PLUGIN_HANDLED; }
+    LiveEmit("event=mutation operation=single_combat_client");
+    g_CapacityBusy = true;
+    new argument[16]; read_argv(1, argument, charsmax(argument)); new character = str_to_num(argument);
+    if (character != 0 && character != 101 && character != 139) { g_CapacityBusy = false; return PLUGIN_HANDLED; }
+    new index = CreateCapacityClient("CSOL_Combat_Probe", character);
+    g_CapacityBusy = false;
+    LiveEmit("event=combat_client slot=%d userid=%d created=%d", index, LiveUserid(index), index != 0);
+    return Status();
+}
+
+public CombatWeapon()
+{
+    if (!LiveActive() || read_argc() != 3)
+    { server_print("[CSOL combat] rejected=weapon_command session_active=%d argc=%d", LiveActive(), read_argc()); return PLUGIN_HANDLED; }
+    new argument[12], name[32]; read_argv(1, argument, charsmax(argument)); read_argv(2, name, charsmax(name));
+    new index = str_to_num(argument);
+    if (!OwnedClient(index) || !is_user_alive(index))
+    { CapacityIdentity("weapon_rejected_identity_or_dead", index); return PLUGIN_HANDLED; }
+    if (!equal(name, "weapon_m4a1") && !equal(name, "weapon_ak47") && !equal(name, "weapon_glock18") && !equal(name, "weapon_cannon"))
+    { server_print("[CSOL combat] rejected=weapon_not_allowed"); return PLUGIN_HANDLED; }
+    LiveEmit("event=mutation operation=give_test_weapon slot=%d userid=%d name=%s", index, LiveUserid(index), name);
+    // Extended inventory rejects FL_FAKECLIENT by design. For this owned
+    // fixture only, simulate a negotiated human during the synchronous give;
+    // restore both fields before returning to any engine frame.
+    new flags, protocol[32], bool:simulate = equal(name, "weapon_cannon") != 0;
+    if (simulate)
+    {
+        flags = get_entvar(index, var_flags); get_user_info(index, "csol_protocol", protocol, charsmax(protocol));
+        set_user_info(index, "csol_protocol", "1"); set_entvar(index, var_flags, flags & ~FL_FAKECLIENT);
+        LiveEmit("event=mutation operation=scoped_human_protocol stage=begin slot=%d saved_flags=%d", index, flags);
+    }
+    new item = rg_give_item(index, name, GT_APPEND);
+    if (simulate)
+    {
+        set_entvar(index, var_flags, (get_entvar(index, var_flags) & ~FL_FAKECLIENT) | (flags & FL_FAKECLIENT));
+        set_user_info(index, "csol_protocol", protocol);
+        LiveEmit("event=mutation operation=scoped_human_protocol stage=end slot=%d flags=%d", index, get_entvar(index, var_flags));
+    }
+    new switched;
+    if (item > MaxClients && pev_valid(item) == 2 && OwnedClient(index)) switched = rg_switch_weapon(index, item);
+    LiveEmit("event=combat_weapon slot=%d entity=%d switched=%d active_weapon=%d", index, item, switched, LiveWeapon(index));
+    return PLUGIN_HANDLED;
+}
+
+bool:CombatMonster(entity)
+{
+    if (entity <= MaxClients || pev_valid(entity) != 2) return false;
+    new classname[32]; get_entvar(entity, var_classname, classname, charsmax(classname));
+    return equal(classname, "monster_entity") != 0;
+}
+
+CombatEntitySample(entity, const stage[])
+{
+    if (!CombatMonster(entity)) { LiveEmit("event=combat_entity stage=%s entity=%d valid=0", stage, entity); return; }
+    new Float:origin[3], Float:velocity[3]; get_entvar(entity, var_origin, origin); get_entvar(entity, var_velocity, velocity);
+    LiveEmit("event=combat_entity stage=%s entity=%d valid=1 hp=%.4f dead=%d solid=%d effects=%d sequence=%d frame=%.4f rate=%.4f animtime=%.4f nextthink=%.4f model=%d origin=%.3f,%.3f,%.3f velocity=%.3f,%.3f,%.3f identity=slot_not_pool_lease",
+        stage, entity, Float:get_entvar(entity, var_health), get_entvar(entity, var_deadflag), get_entvar(entity, var_solid),
+        get_entvar(entity, var_effects), get_entvar(entity, var_sequence), Float:get_entvar(entity, var_frame),
+        Float:get_entvar(entity, var_framerate), Float:get_entvar(entity, var_animtime), Float:get_entvar(entity, var_nextthink),
+        get_entvar(entity, var_modelindex), origin[0], origin[1], origin[2], velocity[0], velocity[1], velocity[2]);
+}
+
+public CombatSnapshot()
+{
+    if (!LiveActive()) return PLUGIN_HANDLED;
+    new entity, count;
+    LiveEmit("event=combat_rules started=%d freeze=%d terminating=%d restarts=%d",
+        get_member_game(m_bGameStarted), get_member_game(m_bFreezePeriod), get_member_game(m_bRoundTerminating), g_Restarts);
+    while ((entity = rg_find_ent_by_class(entity, "monster_entity")))
+    {
+        if (get_entvar(entity, var_solid) == SOLID_NOT || get_entvar(entity, var_deadflag) != DEAD_NO ||
+            (get_entvar(entity, var_effects) & EF_NODRAW)) continue;
+        if (count++ < 64) CombatEntitySample(entity, "living");
+    }
+    LiveEmit("event=combat_population living=%d details_limit=64", count);
+    return PLUGIN_HANDLED;
+}
+
+public CombatHit()
+{
+    if (!LiveActive() || read_argc() != 5 || task_exists(COMBAT_SAMPLE_TASK) ||
+        !get_member_game(m_bGameStarted) || get_member_game(m_bFreezePeriod) ||
+        get_member_game(m_bRoundTerminating))
+    {
+        server_print("[CSOL combat] rejected=hit_phase active=%d argc=%d sampling=%d started=%d freeze=%d terminating=%d",
+            LiveActive(), read_argc(), task_exists(COMBAT_SAMPLE_TASK), get_member_game(m_bGameStarted),
+            get_member_game(m_bFreezePeriod), get_member_game(m_bRoundTerminating));
+        return PLUGIN_HANDLED;
+    }
+    new argument[32], method[12]; read_argv(1, argument, charsmax(argument)); new index = str_to_num(argument);
+    read_argv(2, argument, charsmax(argument)); new entity = str_to_num(argument);
+    read_argv(3, method, charsmax(method)); read_argv(4, argument, charsmax(argument)); new Float:damage = str_to_float(argument);
+    if (!OwnedClient(index) || !is_user_alive(index))
+    { CapacityIdentity("hit_rejected_identity_or_dead", index); return PLUGIN_HANDLED; }
+    if (!(damage > 0.0 && damage <= 1000000.0) || (!equal(method, "trace") && !equal(method, "direct")) ||
+        !IsHamValid(Ham_TraceAttack) || !IsHamValid(Ham_TakeDamage))
+    { server_print("[CSOL combat] rejected=hit_arguments_or_api"); return PLUGIN_HANDLED; }
+    if (!entity)
+    {
+        while ((entity = rg_find_ent_by_class(entity, "monster_entity")))
+            if (get_entvar(entity, var_solid) != SOLID_NOT && get_entvar(entity, var_deadflag) == DEAD_NO &&
+                !(get_entvar(entity, var_effects) & EF_NODRAW) && Float:get_entvar(entity, var_health) > 0.0) break;
+    }
+    if (!CombatMonster(entity) || get_entvar(entity, var_deadflag) != DEAD_NO ||
+        get_entvar(entity, var_solid) == SOLID_NOT || Float:get_entvar(entity, var_health) <= 0.0)
+    { server_print("[CSOL combat] rejected=no_live_target entity=%d", entity); return PLUGIN_HANDLED; }
+    LiveAttach(entity, 0);
+    LiveEmit("event=mutation operation=injected_monster_damage method=%s entity=%d attacker=%d userid=%d weapon=%d amount=%.4f bits=%d",
+        method, entity, index, LiveUserid(index), LiveWeapon(index), damage, DMG_BULLET);
+    CombatSnapshot(); CombatEntitySample(entity, "before");
+    if (equal(method, "trace"))
+    {
+        new trace = create_tr2();
+        new Float:position[3], Float:source[3], Float:direction[3], Float:length;
+        get_entvar(entity, var_origin, position); get_entvar(index, var_origin, source);
+        for (new axis; axis < 3; axis++) { direction[axis] = position[axis] - source[axis]; length += direction[axis] * direction[axis]; }
+        length = floatsqroot(length);
+        if (length > 0.001) for (new axis; axis < 3; axis++) direction[axis] /= length;
+        else direction[0] = 1.0;
+        set_tr2(trace, TR_pHit, entity); set_tr2(trace, TR_iHitgroup, HIT_GENERIC);
+        set_tr2(trace, TR_flFraction, 0.5); set_tr2(trace, TR_vecEndPos, position);
+        // This is a synthetic trace result, followed by the real accumulated
+        // damage application. It does not claim a real bullet intersected it.
+        rg_multidmg_clear();
+        ExecuteHamB(Ham_TraceAttack, entity, index, damage, direction, trace, DMG_BULLET);
+        rg_multidmg_apply(index, index);
+        free_tr2(trace);
+    }
+    else ExecuteHamB(Ham_TakeDamage, entity, index, index, damage, DMG_BULLET);
+    CombatEntitySample(entity, "immediate");
+    g_CombatVictim = entity; g_CombatSample = 0;
+    copy(g_CombatSession, charsmax(g_CombatSession), g_LiveSession);
+    set_task(0.1, "CombatSample", COMBAT_SAMPLE_TASK, _, _, "a", 60);
+    return PLUGIN_HANDLED;
+}
+
+// Aim an owned fake client, then invoke the actual CCannon::PrimaryAttack.
+// The cannon performs its own sphere/cone/visibility traces and all damage.
+// No target health, ammunition, cooldown or damage configuration is changed.
+public CombatCannon()
+{
+    if (!LiveActive() || read_argc() != 2 || g_WalkSlot || task_exists(COMBAT_SAMPLE_TASK) ||
+        !get_member_game(m_bGameStarted) || get_member_game(m_bFreezePeriod) ||
+        get_member_game(m_bRoundTerminating) || !IsHamValid(Ham_Weapon_PrimaryAttack))
+    { server_print("[CSOL combat] rejected=cannon_phase_or_api"); return PLUGIN_HANDLED; }
+    new argument[16]; read_argv(1, argument, charsmax(argument)); new index = str_to_num(argument);
+    if (!OwnedClient(index) || !is_user_alive(index))
+    { CapacityIdentity("cannon_rejected_identity_or_dead", index); return PLUGIN_HANDLED; }
+    new weapon = get_member(index, m_pActiveItem), name[32];
+    if (weapon <= MaxClients || pev_valid(weapon) != 2) return PLUGIN_HANDLED;
+    get_entvar(weapon, var_classname, name, charsmax(name));
+    if (!equal(name, "weapon_cannon") || get_member(weapon, m_iId) != 144)
+    { server_print("[CSOL combat] rejected=not_cannon"); return PLUGIN_HANDLED; }
+    new clip = get_member(weapon, m_Weapon_iClip);
+    new Float:next = get_member(weapon, m_Weapon_flNextPrimaryAttack), Float:playerNext = get_member(index, m_flNextAttack);
+    if (clip <= 0 || next > 0.0 || playerNext > 0.0)
+    { LiveEmit("event=cannon_wait reason=cooldown_or_clip clip=%d next=%.4f player_next=%.4f", clip, next, playerNext); return PLUGIN_HANDLED; }
+    new Float:source[3], Float:view[3], Float:mins[3], Float:maxs[3], Float:body[3], Float:delta[3], Float:aim[3];
+    get_entvar(index, var_origin, source); get_entvar(index, var_view_ofs, view);
+    for (new axis; axis < 3; axis++) source[axis] += view[axis];
+    new entities[64], serials[64], Float:health[64], count, entity, nearest, trace = create_tr2();
+    new Float:distance, Float:best = 380.0;
+    while ((entity = rg_find_ent_by_class(entity, "monster_entity")))
+    {
+        if (get_entvar(entity, var_deadflag) != DEAD_NO || get_entvar(entity, var_solid) == SOLID_NOT ||
+            (get_entvar(entity, var_effects) & EF_NODRAW) || Float:get_entvar(entity, var_health) <= 0.0) continue;
+        if (count < sizeof entities)
+        { entities[count] = entity; serials[count] = pev_serial(entity); health[count++] = get_entvar(entity, var_health); }
+        get_entvar(entity, var_absmin, mins); get_entvar(entity, var_absmax, maxs); distance = 0.0;
+        for (new axis; axis < 3; axis++)
+        { body[axis] = (mins[axis] + maxs[axis]) * 0.5; delta[axis] = body[axis] - source[axis]; distance += delta[axis] * delta[axis]; }
+        distance = floatsqroot(distance);
+        if (distance >= best) continue;
+        engfunc(EngFunc_TraceLine, source, body, IGNORE_MONSTERS, index, trace);
+        new Float:fraction; get_tr2(trace, TR_flFraction, fraction);
+        if (fraction < 1.0 && get_tr2(trace, TR_pHit) != entity) continue;
+        nearest = entity; best = distance;
+        for (new axis; axis < 3; axis++) aim[axis] = delta[axis];
+    }
+    free_tr2(trace);
+    if (!nearest) { LiveEmit("event=cannon_wait reason=no_visible_target range=380 living=%d", count); return PLUGIN_HANDLED; }
+    new Float:angles[3]; engfunc(EngFunc_VecToAngles, aim, angles); angles[0] = -angles[0];
+    for (new axis; axis < 2; axis++)
+    {
+        while (angles[axis] > 180.0) angles[axis] -= 360.0;
+        while (angles[axis] < -180.0) angles[axis] += 360.0;
+    }
+    // A fake client never receives svc_setangle, so its Spawn fixangle is
+    // never cleared by SV_WriteClientdataToMessage. Permit only this normal
+    // aim command to update v_angle, then restore that transport-only field.
+    new fixangle = get_entvar(index, var_fixangle);
+    set_entvar(index, var_fixangle, 0);
+    engfunc(EngFunc_RunPlayerMove, index, angles, 0.0, 0.0, 0.0, 0, 0, 20);
+    set_entvar(index, var_fixangle, fixangle);
+    new Float:actual[3]; get_entvar(index, var_v_angle, actual);
+    LiveEmit("event=cannon_aim requested=%.4f,%.4f,%.4f actual=%.4f,%.4f,%.4f scoped_fixangle=%d", angles[0], angles[1], angles[2], actual[0], actual[1], actual[2], fixangle);
+    LiveAttach(nearest, 0); CombatSnapshot();
+    LiveEmit("event=mutation operation=actual_cannon_primary attacker=%d userid=%d weapon_entity=%d weapon=144 target=%d distance=%.4f clip=%d next=%.4f player_next=%.4f angles=%.3f,%.3f,%.3f",
+        index, LiveUserid(index), weapon, nearest, best, clip, next, playerNext, angles[0], angles[1], angles[2]);
+    new flags = get_entvar(index, var_flags), protocol[32];
+    get_user_info(index, "csol_protocol", protocol, charsmax(protocol));
+    set_user_info(index, "csol_protocol", "1"); set_entvar(index, var_flags, flags & ~FL_FAKECLIENT);
+    LiveEmit("event=mutation operation=scoped_human_protocol stage=attack_begin slot=%d saved_flags=%d", index, flags);
+    ExecuteHamB(Ham_Weapon_PrimaryAttack, weapon);
+    set_entvar(index, var_flags, (get_entvar(index, var_flags) & ~FL_FAKECLIENT) | (flags & FL_FAKECLIENT));
+    set_user_info(index, "csol_protocol", protocol);
+    LiveEmit("event=mutation operation=scoped_human_protocol stage=attack_end slot=%d flags=%d", index, get_entvar(index, var_flags));
+    new changed, killed, zeroHealthLiving;
+    g_CombatVictim = nearest;
+    for (new n; n < count; n++)
+    {
+        entity = entities[n];
+        if (!CombatMonster(entity) || pev_serial(entity) != serials[n]) continue;
+        if (Float:get_entvar(entity, var_health) == health[n] && get_entvar(entity, var_deadflag) == DEAD_NO) continue;
+        changed++; CombatEntitySample(entity, "cannon_immediate");
+        if (get_entvar(entity, var_deadflag) == DEAD_DEAD)
+        { killed++; g_CombatVictim = entity; }
+        else if (Float:get_entvar(entity, var_health) <= 0.0)
+        { zeroHealthLiving++; g_CombatVictim = entity; }
+    }
+    LiveEmit("event=cannon_fired weapon=144 clip_before=%d clip_after=%d changed=%d killed=%d zero_health_living=%d sample_entity=%d", clip,
+        get_member(weapon, m_Weapon_iClip), changed, killed, zeroHealthLiving, g_CombatVictim);
+    g_CombatSample = 0; copy(g_CombatSession, charsmax(g_CombatSession), g_LiveSession);
+    set_task(0.1, "CombatSample", COMBAT_SAMPLE_TASK, _, _, "a", 60);
+    return PLUGIN_HANDLED;
+}
+
+public CombatWalk()
+{
+    if (!LiveActive() || read_argc() != 4 || g_WalkSlot || !get_member_game(m_bGameStarted) ||
+        get_member_game(m_bFreezePeriod) || get_member_game(m_bRoundTerminating))
+    { server_print("[CSOL combat] rejected=walk_phase_or_arguments"); return PLUGIN_HANDLED; }
+    new argument[32]; read_argv(1, argument, charsmax(argument)); new index = str_to_num(argument);
+    read_argv(2, argument, charsmax(argument)); new Float:yaw = str_to_float(argument);
+    read_argv(3, argument, charsmax(argument)); new Float:duration = str_to_float(argument);
+    if (!OwnedClient(index) || !is_user_alive(index))
+    { CapacityIdentity("walk_rejected_identity_or_dead", index); return PLUGIN_HANDLED; }
+    if (!(yaw >= -180.0 && yaw <= 180.0) || !(duration > 0.0 && duration <= 8.0)) return PLUGIN_HANDLED;
+    g_WalkSlot = index; g_WalkUserid = get_user_userid(index); g_WalkSerial = pev_serial(index);
+    g_WalkYaw = yaw; g_WalkLast = get_gametime(); g_WalkDeadline = g_WalkLast + duration; g_WalkCommands = 0;
+    copy(g_WalkSession, charsmax(g_WalkSession), g_LiveSession);
+    LiveEmit("event=mutation operation=engine_walk slot=%d userid=%d serial=%d yaw=%.3f duration=%.3f speed=240",
+        index, g_WalkUserid, g_WalkSerial, yaw, duration);
+    return PLUGIN_HANDLED;
+}
+
+public CombatWall()
+{
+    if (!LiveActive() || read_argc() != 4 || !get_member_game(m_bGameStarted) ||
+        get_member_game(m_bFreezePeriod) || get_member_game(m_bRoundTerminating))
+    { server_print("[CSOL combat] rejected=wall_phase_or_arguments"); return PLUGIN_HANDLED; }
+    new argument[32]; read_argv(1, argument, charsmax(argument)); new index = str_to_num(argument);
+    read_argv(2, argument, charsmax(argument)); new entity = str_to_num(argument);
+    read_argv(3, argument, charsmax(argument)); new Float:damage = str_to_float(argument);
+    if (!OwnedClient(index) || !is_user_alive(index))
+    { CapacityIdentity("wall_rejected_identity_or_dead", index); return PLUGIN_HANDLED; }
+    if (!(damage > 0.0 && damage <= 1000000.0) || !IsHamValid(Ham_TraceAttack) || !IsHamValid(Ham_TakeDamage)) return PLUGIN_HANDLED;
+    if (entity <= MaxClients || pev_valid(entity) != 2) return PLUGIN_HANDLED;
+    new classname[32], target[64]; get_entvar(entity, var_classname, classname, charsmax(classname));
+    get_entvar(entity, var_target, target, charsmax(target));
+    if (!equal(classname, "zbsbreak") || Float:get_entvar(entity, var_health) <= 0.0 ||
+        get_entvar(entity, var_solid) == SOLID_NOT || Float:get_entvar(entity, var_takedamage) == 0.0) return PLUGIN_HANDLED;
+    new serial = pev_serial(entity), trace = create_tr2();
+    new Float:position[3], Float:source[3], Float:mins[3], Float:maxs[3], Float:direction[3], Float:length;
+    get_entvar(entity, var_absmin, mins); get_entvar(entity, var_absmax, maxs); get_entvar(index, var_origin, source);
+    for (new axis; axis < 3; axis++)
+    {
+        position[axis] = (mins[axis] + maxs[axis]) * 0.5;
+        direction[axis] = position[axis] - source[axis]; length += direction[axis] * direction[axis];
+    }
+    length = floatsqroot(length);
+    // Only the wall immediately in front of this owned test player is eligible.
+    if (!(length > 0.001 && length <= 256.0)) { free_tr2(trace); return PLUGIN_HANDLED; }
+    for (new axis; axis < 3; axis++) direction[axis] /= length;
+    LiveAttach(entity, 1);
+    LiveEmit("event=mutation operation=injected_wall_trace entity=%d serial=%d attacker=%d userid=%d weapon=%d amount=%.4f health=%.4f target=%s distance=%.3f",
+        entity, serial, index, LiveUserid(index), LiveWeapon(index), damage, Float:get_entvar(entity, var_health), target, length);
+    set_tr2(trace, TR_pHit, entity); set_tr2(trace, TR_iHitgroup, HIT_GENERIC);
+    set_tr2(trace, TR_flFraction, 0.5); set_tr2(trace, TR_vecEndPos, position);
+    rg_multidmg_clear();
+    ExecuteHamB(Ham_TraceAttack, entity, index, damage, direction, trace, DMG_BULLET);
+    rg_multidmg_apply(index, index); free_tr2(trace);
+    if (pev_valid(entity) == 2 && pev_serial(entity) == serial)
+        LiveEmit("event=wall_after entity=%d health=%.4f solid=%d effects=%d target=%s", entity,
+            Float:get_entvar(entity, var_health), get_entvar(entity, var_solid), get_entvar(entity, var_effects), target);
+    else LiveEmit("event=wall_after entity=%d removed=1 target=%s", entity, target);
+    return PLUGIN_HANDLED;
+}
+
+public CombatWalkFrame()
+{
+    if (!g_WalkSlot) return FMRES_IGNORED;
+    new index = g_WalkSlot;
+    if (!OwnedClient(index) || get_user_userid(index) != g_WalkUserid || pev_serial(index) != g_WalkSerial)
+    { g_WalkSlot = 0; return FMRES_IGNORED; }
+    new Float:now = get_gametime(), Float:delta = now - g_WalkLast;
+    if (delta < 0.02) return FMRES_IGNORED;
+    new bool:stop = now >= g_WalkDeadline || !LiveActive() || !equal(g_WalkSession, g_LiveSession) ||
+        !is_user_alive(index) || get_member_game(m_bFreezePeriod) || get_member_game(m_bRoundTerminating);
+    new Float:angles[3]; angles[1] = g_WalkYaw;
+    new msec = clamp(floatround(delta * 1000.0), 1, 50);
+    g_WalkLast = now; g_WalkCommands++;
+    // A normal engine user command performs movement, collision and Touch.
+    // No origin, velocity, wave, monster or trigger entity is written here.
+    engfunc(EngFunc_RunPlayerMove, index, angles, stop ? 0.0 : 240.0, 0.0, 0.0, 0, 0, msec);
+    if (stop)
+    {
+        new Float:origin[3]; get_entvar(index, var_origin, origin);
+        LiveEmit("event=engine_walk_end slot=%d commands=%d origin=%.3f,%.3f,%.3f", index, g_WalkCommands, origin[0], origin[1], origin[2]);
+        g_WalkSlot = 0;
+    }
+    return FMRES_IGNORED;
+}
+
+public CombatSample()
+{
+    if (!LiveActive() || !equal(g_CombatSession, g_LiveSession)) { remove_task(COMBAT_SAMPLE_TASK); return; }
+    g_CombatSample++;
+    CombatEntitySample(g_CombatVictim, "after");
+    if (g_CombatSample % 10 == 0) CombatSnapshot();
+    if (g_CombatSample == 60) LiveEmit("event=combat_sample_end entity=%d samples=%d", g_CombatVictim, g_CombatSample);
 }
 
 // Passive combat observation is separate from the older capacity fixtures.
@@ -404,6 +775,21 @@ public LiveStatus()
 
 public LivePlayerSpawn(index)
 {
+    // The fixture constructs a CBasePlayer, not CBot. Match CBot::Spawn's
+    // restoration after the actual base method clears all but FL_PROXY.
+    // Userid plus edict serial and AMXX's Bot identity retain ownership;
+    // ordinary players and recycled slots can never enter this mutation.
+    if (get_pcvar_num(g_Enabled) && OwnedConnection(index) && pev_valid(index) == 2 &&
+        IsReapiHookOriginalWasCalled(RG_CBasePlayer_Spawn))
+    {
+        CapacityIdentity("owned_spawn_before", index);
+        if (!(pev(index, pev_flags) & FL_FAKECLIENT))
+        {
+            LiveEmit("event=mutation operation=restore_owned_bot_flag slot=%d userid=%d serial=%d", index, get_user_userid(index), pev_serial(index));
+            set_pev(index, pev_flags, pev(index, pev_flags) | FL_FAKECLIENT | FL_CLIENT);
+        }
+        CapacityIdentity("owned_spawn_after", index);
+    }
     if (LiveActive() && LiveUserid(index))
         LiveEmit("event=player_spawn slot=%d userid=%d team=%d alive=%d health=%.3f started=%d freeze=%d original=%d",
             index, get_user_userid(index), get_member(index, m_iTeam), is_user_alive(index), Float:get_entvar(index, var_health),

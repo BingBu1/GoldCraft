@@ -361,6 +361,15 @@ public:
         m_flRestartRoundTime = 0;
         return true;
     }
+    void InitHUD(CBasePlayer* player) override
+    {
+        CSOLScenarioSdkScope scope(this);
+        const EHANDLE handle(player);
+        CHalfLifeMultiplay::InitHUD(player);
+        if (!scope.Current() || !player || handle.Get<CBaseEntity>() != player) return;
+        const auto music = m_runtime->session->Music();
+        if (music) music->Replay(*player);
+    }
     void ServerDeactivate() override
     {
         CSOLScenarioSdkScope scope(this);
@@ -422,6 +431,7 @@ public:
             };
             m_bFreezePeriod = FALSE;
             m_fRoundStartTime = m_fRoundStartTimeReal = gpGlobals->time;
+            m_musicCountdown.Thaw(gpGlobals->time);
             m_iRoundTimeSecs = 0; // Scenario time is sent by its own HUD owner.
             ForPlayers([&](CBasePlayer& player)
             {
@@ -435,6 +445,34 @@ public:
                 player.SyncRoundTimer();
             });
         }
+        UpdateMusic();
+    }
+    void UpdateMusic()
+    {
+        if(!Ready()||m_phase!=Phase::Playing||m_bRoundTerminating)return;
+        const auto session=m_runtime->session;
+        const auto round=session->Map().RoundGeneration();
+        const auto music=session->Music();
+        if(!music)return;
+        const auto current=[&]
+        {return Ready()&&m_runtime->session==session&&session->Map().RoundGeneration()==round&&m_phase==Phase::Playing;};
+        const auto cue=m_musicCountdown.Tick(gpGlobals->time);
+        bool sent=true;
+        if(cue==csol::music::Cue::Ready)
+        {
+            sent=music->Fade();
+            if(!current())return;
+            if(sent)sent=music->Select(1);
+        }
+        else if(cue==csol::music::Cue::Round)
+        {
+            csol::scenario::RoundSettings settings;
+            csol::scenario::ConfigError error;
+            const auto* tables=session->Map().Tables();
+            sent=tables&&csol::scenario::ReadRoundSettings(tables->rounds,m_roundIndex,settings,error)&&
+                music->Select(settings.music);
+        }
+        if(!sent&&current())CSOL_RejectGameRules("Scenario music state could not be published.");
     }
     void ScenarioCheckWinConditions()
     {
@@ -552,6 +590,7 @@ public:
         m_pendingRound.reset();
         m_completionLocked = false;
         m_phase = Phase::Playing;
+        m_musicCountdown.Restart(now);
         const auto round = session->Map().RoundGeneration();
         const auto current = [&]()
         { return ownerCurrent() && session->Map().RoundGeneration() == round && m_phase == Phase::Playing; };
@@ -947,12 +986,23 @@ public:
     {
         // GetIntoGame resets speed before JOINED and before the real Spawn;
         // the initial UNASSIGNED Spawn also has no selected character yet.
-        if (player.m_bJustConnected || player.m_iTeam == UNASSIGNED || player.m_iTeam == SPECTATOR ||
-            player.m_iJoiningState != JOINED || (player.pev->flags & FL_SPECTATOR)) return;
-        const auto players = m_runtime->session->Players();
-        const auto state = players ? players->Upgrades(EHANDLE(&player)) : nullptr;
+        if (player.has_disconnected || player.m_bJustConnected || player.m_iTeam == UNASSIGNED || player.m_iTeam == SPECTATOR ||
+            player.m_iJoiningState != JOINED || (player.pev->flags & (FL_SPECTATOR | FL_KILLME))) return;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto profiles = runtime->players;
+        const EHANDLE handle(&player);
+        // ClientDisconnect retires the upgrade state before the native SDK
+        // holsters/removes weapons and calls ResetMaxSpeed. That callback is
+        // valid cleanup, even while has_disconnected is still false.
+        if (profiles && profiles->WasRemoved(handle)) return;
+        const auto players = session->Players();
+        const auto state = players ? players->Upgrades(handle) : nullptr;
         const bool applied = state && state->ApplyMovement(weaponSpeed);
-        if (g_pGameRules == this && !applied)
+        if (!OwnsRules() || m_runtime != runtime || runtime->session != session ||
+            runtime->players != profiles || session->Players() != players ||
+            handle.Get<CBaseEntity>() != &player || (profiles && profiles->WasRemoved(handle))) return;
+        if (!applied)
             CSOL_RejectGameRules("Scenario player movement upgrade state is unavailable.");
     }
 private:
@@ -1175,6 +1225,7 @@ private:
     bool m_shortFinalDelay{};
     int m_aliveCt{};
     float m_freezeUntil{};
+    csol::music::Countdown m_musicCountdown;
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
 };
@@ -1485,6 +1536,21 @@ bool CSOL_UpdateScenarioPlayerBuffs(CBasePlayer& player)
     return updated;
 }
 
+bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players || !players->Active()) return true;
+    const EHANDLE handle(&player);
+    const bool updated = players->UpdateHud(player, gpGlobals->time, force);
+    if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
+    if (!updated && !players->Error().message.empty())
+        CSOL_RejectGameRules(players->Error().message.c_str());
+    return updated;
+}
+
 bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
@@ -1514,6 +1580,24 @@ bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
         CSOL_RejectGameRules(error.message.c_str());
     }
     return updated;
+}
+
+std::shared_ptr<CCSOLScenarioMusic> CSOL_ScenarioMusic(const CSOLScenarioEntityAccess* access)
+{
+    if (!access || !access->Allowed()) return {};
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing() ||
+        record->runtime->session->Map().EntityAccess().get() != access) return {};
+    return record->runtime->session->Music();
+}
+bool CSOL_ScenarioMusicPrecacheAllowed(const CSOLScenarioEntityAccess* access)
+{
+    if (!access || !access->Allowed()) return false;
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing() ||
+        record->runtime->session->Map().EntityAccess().get() != access) return false;
+    const auto state = record->runtime->session->State();
+    return state == CSOLScenarioSessionState::Empty || state == CSOLScenarioSessionState::Precached;
 }
 
 std::shared_ptr<CCSOLScenarioPlayerRuntime> CSOL_ScenarioPlayerAuthority(

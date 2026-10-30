@@ -4,6 +4,11 @@
 #include "scenario_drops.h"
 #include "scenario_monster_resources.h"
 #include "../status_icons.hpp"
+#include "../scenario_kill.hpp"
+#include "../scenario_healing.hpp"
+#include "../scenario_smoke.hpp"
+#include "../scenario_upgrades.hpp"
+#include "../scenario_abilities.hpp"
 
 #include <utility>
 #include <set>
@@ -74,6 +79,9 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     if (!m_messages.Register())
         return Fail({"", {0, "scenario MPToCL message registration failed"}});
     if (!m_map.EntityAccessAllowed()) return false;
+    m_music = std::make_shared<CCSOLScenarioMusic>(m_map.EntityAccess());
+    if (!m_music->Precache(mapTables->rounds, resourceError)) return Fail(std::move(resourceError));
+    if (!m_map.EntityAccessAllowed()) return false;
     // Selection uses the real map tables, current spawn group and character
     // upgrade data. AI models/NAV/pool belong to combat startup, and may only
     // be precached during a map load with actual combat services installed.
@@ -121,12 +129,47 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         return Fail({csol::status::ProtectionImage, {0, "scenario status image download registration is unavailable"}});
     PRECACHE_GENERIC(csol::status::ProtectionImage);
     if (!m_map.EntityAccessAllowed()) return false;
+    for (const auto& image : csol::scenario_kill::Resources)
+    {
+        if (!g_engfuncs.pfnGetFileSize)
+            return Fail({image.path, {0, "scenario kill image filesystem check is unavailable"}});
+        const int size = g_engfuncs.pfnGetFileSize(image.path);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        if (size <= 0)
+            return Fail({image.path, {0, "required scenario kill image is missing or empty"}});
+        PRECACHE_GENERIC(image.path);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    }
+    // UI assets are part of the authoritative map download list, so a clean
+    // client receives the same original images/font over the built-in HTTP
+    // service. The two converted Bink strips retain their original RGBA frames.
+    std::set<std::string> hudPaths{csol::upgrades::FontPath, "sprites/640hud8.spr"};
+    for (const auto& image : csol::upgrades::Resources) hudPaths.emplace(image.path);
+    for (const auto* image : csol::abilities::DownloadResources) hudPaths.emplace(image);
+    for (const auto& path : hudPaths)
+    {
+        const int size = g_engfuncs.pfnGetFileSize(path.c_str());
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        if (size <= 0)
+            return Fail({path, {0, "required scenario HUD resource is missing or empty"}});
+        PRECACHE_GENERIC(path.c_str());
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    }
+    const std::string upgradeSound = std::string("sound/") + csol::upgrades::SoundPath;
+    const int upgradeSoundSize = g_engfuncs.pfnGetFileSize(upgradeSound.c_str());
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    if (upgradeSoundSize <= 0)
+        return Fail({upgradeSound, {0, "required scenario upgrade sound is missing or empty"}});
+    PRECACHE_SOUND(csol::upgrades::SoundPath);
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
     // PRECACHE_MODEL terminates ReHLDS on a missing file. Diagnose the whole
     // effective catalog and the pool's initial model before entering that
     // irreversible engine path.
     if (!g_engfuncs.pfnGetFileSize)
         return Fail({"", {0, "scenario model filesystem check is unavailable"}});
     std::set<std::string> modelPaths{CSOLScenarioInitialMonsterModel};
+    for (const auto* sprite : csol::healing::Sprites) modelPaths.emplace(sprite);
+    modelPaths.emplace(csol::smoke::Sprite);
     const auto& types = m_map.Tables()->monsterTypes;
     for (const auto& [id, row] : types.byId)
     {
@@ -145,6 +188,22 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
             return Fail({path, {0, "required scenario monster model is missing or empty: " + path}});
     }
     csol::scenario::ConfigError error;
+    for (const auto* sprite : csol::healing::Sprites)
+    {
+        PRECACHE_MODEL(sprite);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    }
+    PRECACHE_MODEL(csol::smoke::Sprite);
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    constexpr auto smokeEvent = "events/createsmoke.sc";
+    const int eventSize = g_engfuncs.pfnGetFileSize(smokeEvent);
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    if (eventSize <= 0 || !g_engfuncs.pfnPrecacheEvent)
+        return Fail({smokeEvent, {0, "scenario smoke event is missing or cannot be registered"}});
+    const auto event = PRECACHE_EVENT(1, smokeEvent);
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    if (!event) return Fail({smokeEvent, {0, "scenario smoke event registration failed"}});
+    m_smokeEvent = event;
     if (!m_models.Precache(m_map.Tables()->monsterTypes, error))
         return Fail({"", std::move(error)});
     if (!m_map.EntityAccessAllowed()) return false;
@@ -200,6 +259,9 @@ bool CCSOLScenarioSession::Deactivate()
 {
     if (m_busy) return false;
     SessionOperation operation(m_busy);
+    if (m_music) m_music->Reset();
+    m_music.reset();
+    m_smokeEvent = 0;
     // Shutdown detaches the behavior/owner pointers before engine removals.
     // Do not clear the table first: behaviors still borrow its type records.
     if (m_navigation) m_navigation->Invalidate();

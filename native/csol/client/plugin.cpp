@@ -9,6 +9,7 @@
 #include "player_animation.hpp"
 #include "sequence_guard.hpp"
 #include <ostream>
+#include <sstream>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -18,6 +19,12 @@
 #include "wall_status.hpp"
 #include "buy_menu.hpp"
 #include "damage_display.hpp"
+#include "scenario_music.hpp"
+#include "scenario_kill.hpp"
+#include "scenario_effects.hpp"
+#include "scenario_smoke.hpp"
+#include "scenario_upgrades.hpp"
+#include "scenario_abilities.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
 
@@ -212,6 +219,13 @@ static int GetStudioInterface(int version,r_studio_interface_t** result,engine_s
     }
     return accepted;
 }
+static void ScenarioHudInfo()
+{
+    std::ostringstream report;
+    ScenarioUpgradesDiagnostics(report);
+    ScenarioAbilitiesDiagnostics(report);
+    engine.Con_Printf("%s", report.str().c_str());
+}
 static void Init()
 {
     animationProbe=GetEnvironmentVariableA("CSOL_DIAGNOSTIC_PATH",nullptr,0)>0;
@@ -220,6 +234,7 @@ static void Init()
     downstream.HUD_Init();
     studioBoneCache=engine.pfnGetCvarPointer("r_studio_bone_caches");
     engine.pfnAddCommand("csol_info",Report);
+    engine.pfnAddCommand("csol_scenario_hud_info",ScenarioHudInfo);
     InitializeScene();
     InitializeWeapons();
     InitializeWeaponInventory();
@@ -230,6 +245,12 @@ static void Init()
     InitializeWallStatus();
     InitializeBuyMenu();
     InitializeDamageDisplay();
+    InitializeScenarioMusic();
+    InitializeScenarioKill();
+    InitializeScenarioEffects();
+    InitializeScenarioSmoke();
+    InitializeScenarioUpgrades();
+    InitializeScenarioAbilities();
 }
 static int VidInit()
 {
@@ -241,6 +262,9 @@ static int VidInit()
     WeaponVideoInit();
     StatusIconsVideoInit();
     DamageDisplayVideoInit();
+    ScenarioKillVideoInit();
+    ScenarioUpgradesVideoInit();
+    ScenarioAbilitiesVideoInit();
     return downstream.HUD_VidInit();
 }
 static void HudShutdown()
@@ -253,6 +277,10 @@ static void HudShutdown()
 static void Frame(double time)
 {
     SynchronizeFrameSession();
+    ScenarioMusicFrame();
+    ScenarioKillFrame();
+    ScenarioUpgradesFrame();
+    ScenarioAbilitiesFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();
@@ -270,6 +298,9 @@ static int Redraw(float time, int intermission)
     const int result = WeaponRedraw(time, intermission);
     DrawStatusIcons(time);
     DrawWallStatus(intermission);
+    DrawScenarioKill(time, intermission);
+    DrawScenarioUpgrades(time, intermission);
+    DrawScenarioAbilities(time, intermission);
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -339,6 +370,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);
