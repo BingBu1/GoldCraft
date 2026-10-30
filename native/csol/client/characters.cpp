@@ -105,7 +105,7 @@ void Layout()
 {
     if(!surface)return;
     surface->GetScreenSize(screenW,screenH);
-    scale=originalMode?std::min(screenW/640.f,screenH/480.f):std::min({screenW/640.f,screenH/460.f,1.6f});
+    scale=originalMode?std::min(float(screenW)/original.width,float(screenH)/original.height):std::min({screenW/640.f,screenH/460.f,1.6f});
     scale=std::max(.1f,scale);
     left=(screenW-int((originalMode?original.width:606)*scale))/2;
     top=(screenH-int((originalMode?original.height:420)*scale))/2;
@@ -114,6 +114,7 @@ std::vector<const Character*> Filtered()
 {
     std::vector<const Character*> rows;for(const auto& c:catalog)if(c.team==team)rows.push_back(&c);return rows;
 }
+int PageSize(){return originalMode?9:10;}
 void Open()
 {
     if(visible){Close();return;}
@@ -122,7 +123,7 @@ void Open()
     Layout();hovered=-1;detailScroll=0;detailId=0;
     const auto* current=ViewCharacter();if(current){team=current->team;chosen=current->id;}
     auto rows=Filtered();page=0;
-    for(size_t i=0;i<rows.size();++i)if(rows[i]->id==chosen)page=int(i/10);
+    for(size_t i=0;i<rows.size();++i)if(rows[i]->id==chosen)page=int(i/PageSize());
     if(!chosen && !rows.empty())chosen=rows.front()->id;
     status=L"选择角色后点击「使用角色」";visible=true;selectionPending=false;focusSuspended=false;engine.GetViewAngles(menuAngles);
     mouseFromEngine=false;lastButtons=input && input->IsMouseDown(vgui::MOUSE_LEFT);
@@ -150,7 +151,7 @@ bool OpenAppearance(int requestedTeam)
     auto rows=Filtered();
     const auto* current=FindCharacter(catalog,chosen);
     if(!current || current->team!=team)chosen=rows.empty()?0:rows.front()->id;
-    for(size_t i=0;i<rows.size();++i)if(rows[i]->id==chosen)page=int(i/10);
+    for(size_t i=0;i<rows.size();++i)if(rows[i]->id==chosen)page=int(i/PageSize());
     // Clear the native HUD menu and the inventory hook's number-key lease.
     unsigned char clear[5]{};
     if(previousShowMenu)previousShowMenu("ShowMenu",sizeof(clear),clear);
@@ -190,27 +191,36 @@ void Select()
 {
     const auto* c=FindCharacter(catalog,chosen);if(!c)return;
     selectionPending=true;pendingId=c->id;std::string command="csol_character_select "+std::to_string(c->id)+"\n";engine.pfnServerCmd(command.data());
-    status=L"已请求切换；仅当前阵营或生化人类可用";
+    status=L"正在选择角色…";
 }
 void ChangePage(int delta)
 {
-    auto rows=Filtered();page=std::clamp(page+delta,0,std::max(0,(int(rows.size())-1)/10));
-    if(originalMode && !rows.empty()){chosen=rows[page*10]->id;detailId=0;detailScroll=0;}
+    auto rows=Filtered();page=std::clamp(page+delta,0,std::max(0,(int(rows.size())-1)/PageSize()));
+    if(originalMode && !rows.empty()){chosen=rows[page*PageSize()]->id;detailId=0;detailScroll=0;}
     hovered=-1;
+}
+void SelectRow(int row)
+{
+    const auto rows=Filtered();if(rows.empty())return;
+    // 0 is automatic selection; it must never address a tenth character.
+    const int index=originalMode && row==9?engine.pfnRandomLong(0,int(rows.size())-1):page*PageSize()+row;
+    if(index<0 || index>=int(rows.size()))return;
+    chosen=rows[index]->id;detailScroll=0;if(originalMode)Select();
 }
 int OriginalHit(float x,float y)
 {
     for(int i=0;i<10;++i)if(original.slots[i].Contains(x,y))return i;
     for(int i=0;i<2;++i)if(original.teams[i].Contains(x,y))return 10+i;
     if(original.previous.Contains(x,y))return 12;if(original.next.Contains(x,y))return 13;
-    if(MenuRect{original.width-25,6,17,17}.Contains(x,y))return 14;
+    const auto close=original.closeButton.w?original.closeButton:MenuRect{original.width-25,6,17,17};
+    if(close.Contains(x,y))return 14;
     return -1;
 }
 void Hover(int x,int y)
 {
     if(!originalMode)return;
     const int hit=OriginalHit((x-left)/scale,(y-top)/scale);
-    if(hit!=hovered && hit>=0 && hit<10){auto rows=Filtered();const int index=page*10+hit;if(index<int(rows.size())){chosen=rows[index]->id;detailScroll=0;}}
+    if(hit!=hovered && hit>=0 && hit<PageSize()){auto rows=Filtered();const int index=page*PageSize()+hit;if(index<int(rows.size())){chosen=rows[index]->id;detailScroll=0;}}
     hovered=hit;
 }
 void Click(int x,int y)
@@ -218,14 +228,14 @@ void Click(int x,int y)
     const float px=(x-left)/scale,py=(y-top)/scale;
     if(originalMode){
         const int hit=OriginalHit(px,py);auto rows=Filtered();
-        if(hit>=0 && hit<10){const int i=page*10+hit;if(i<int(rows.size())){chosen=rows[i]->id;Select();}}
-        else if((hit==10 || hit==11) && !appearanceMenu){team=hit-9;page=0;rows=Filtered();if(!rows.empty())chosen=rows.front()->id;detailScroll=0;}
+        if(hit>=0 && hit<10)SelectRow(hit);
+        else if(hit==10 || hit==11){team=hit-9;page=0;rows=Filtered();if(!rows.empty())chosen=rows.front()->id;detailScroll=0;}
         else if(hit==12 || hit==13)ChangePage(hit==12?-1:1);
         else if(hit==14)Cancel();else if(hit==15)SetMenuMode(false);
         return;
     }
     if(py>=370 && py<394 && px>=240 && px<350){SetMenuMode(true);return;}
-    if(!appearanceMenu && py>=25 && py<48 && px>=16 && px<216){team=px<116?1:2;page=0;auto rows=Filtered();if(!rows.empty())chosen=rows.front()->id;return;}
+    if(py>=25 && py<48 && px>=16 && px<216){team=px<116?1:2;page=0;auto rows=Filtered();if(!rows.empty())chosen=rows.front()->id;return;}
     auto rows=Filtered();
     if(px>=16 && px<216 && py>=50 && py<300){const size_t i=page*10+int((py-50)/25);if(i<rows.size())chosen=rows[i]->id;return;}
     if(py>=312 && py<338){if(px>=16 && px<88)page=std::max(0,page-1);if(px>=144 && px<216)page=std::min(int((rows.size()-1)/10),page+1);return;}
@@ -260,17 +270,21 @@ void OriginalText(int x,int y,const std::wstring& value,const char* color="baset
     const auto& c=original.colors.at(color);surface->DrawSetTextFont(title?originalTitle:originalFont);
     surface->DrawSetTextColor(c[0],c[1],c[2],c[3]);surface->DrawSetTextPos(X(x),Y(y));surface->DrawPrintText(value.c_str(),int(value.size()));
 }
-void OriginalButton(const MenuRect& r,const std::wstring& label,int hit,bool enabled=true)
+void OriginalCenteredText(const MenuRect& r,const std::wstring& value,const char* color="basetext",bool title=false)
 {
-    const int state=hovered==hit?(input && input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):0;
-    const auto& tiles=original.buttons[state];const int a=tiles[0].width,b=tiles[2].width;
+    int w,h;surface->GetTextSize(title?originalTitle:originalFont,value.c_str(),w,h);
+    OriginalText(r.x+int((r.w-w/scale)/2),r.y+int((r.h-h/scale)/2),value,color,title);
+}
+void OriginalButton(const MenuRect& r,const std::wstring& label,int hit,bool enabled=true,bool selected=false)
+{
+    const int state=hovered==hit?(input && input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):(selected?2:0);
+    const auto& tiles=original.buttons[state];const int a=std::min(tiles[0].width,r.w/2),b=std::min(tiles[2].width,r.w/2);
     MenuImage(tiles[0],{r.x,r.y,a,r.h},enabled?255:90);MenuImage(tiles[1],{r.x+a,r.y,r.w-a-b,r.h},enabled?255:90);MenuImage(tiles[2],{r.x+r.w-b,r.y,b,r.h},enabled?255:90);
-    int w,h;surface->GetTextSize(originalFont,label.c_str(),w,h);
-    OriginalText(r.x+int((r.w-w/scale)/2),r.y+int((r.h-h/scale)/2),label,hovered==hit?"brightcontroltext":"basetext");
+    OriginalCenteredText(r,label,hovered==hit || selected?"brightcontroltext":"basetext");
 }
 void PrepareOriginalFont()
 {
-    const int size=std::max(9,int(9*scale));if(originalFont && size==originalFontHeight)return;
+    const int size=std::max(9,int(original.fontSize*scale));if(originalFont && size==originalFontHeight)return;
     if(!originalFont){
         HMODULE module{};
         if(GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCSTR>(&InitializeCharacters),&module)){
@@ -281,26 +295,37 @@ void PrepareOriginalFont()
         originalFont=surface->CreateFont();originalTitle=surface->CreateFont();
     }
     const char* name=privateFont?original.font.c_str():"Microsoft YaHei";
-    surface->AddGlyphSetToFont(originalFont,name,size,400,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
-    surface->AddGlyphSetToFont(originalTitle,name,std::max(11,int(11*scale)),800,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
+    surface->AddGlyphSetToFont(originalFont,name,size,original.fontWeight,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
+    surface->AddGlyphSetToFont(originalTitle,name,std::max(11,int(original.titleSize*scale)),original.titleWeight,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
     originalFontHeight=size;detailId=0;
 }
 void PaintOriginal()
 {
     PrepareOriginalFont();const auto& f=original.frame;
-    const int xs[]{0,f[0].width,original.width-f[2].width,original.width},ys[]{0,f[0].height,original.height-f[6].height,original.height};
+    surface->DrawSetColor(0,0,0,150);surface->DrawFilledRect(0,0,screenW,screenH);
+    // Keep the content aspect ratio while the frame covers wide displays.
+    const int frameLeft=original.fullScreenFrame?7-int(left/scale):0;
+    const int frameTop=original.fullScreenFrame?11-int(top/scale):0;
+    const int frameRight=original.fullScreenFrame?int((screenW-left)/scale):original.width;
+    const int frameBottom=original.fullScreenFrame?int((screenH-top)/scale):original.height;
+    const int xs[]{frameLeft,frameLeft+f[0].width,frameRight-f[2].width,frameRight},ys[]{frameTop,frameTop+f[0].height,frameBottom-f[6].height,frameBottom};
     for(int i=0;i<9;++i){const int x=i%3,y=i/3;MenuImage(f[i],{xs[x],ys[y],xs[x+1]-xs[x],ys[y+1]-ys[y]});}
-    OriginalText(16,6,L"选择角色","basetext",true);
-    for(int i=0;!appearanceMenu && i<2;++i){OriginalButton(original.teams[i],Wide(original.teamNames[i]),10+i);
-        if(team==i+1){const auto& r=original.teams[i];Box(r.x+8,r.y+r.h-2,r.w-16,1,255,176,0);}}
+    OriginalCenteredText(original.title.w?original.title:MenuRect{0,6,original.width,14},L"选择角色","basetext",true);
+    for(int i=0;i<2;++i)OriginalButton(original.teams[i],Wide(original.teamNames[i]),10+i,true,team==i+1);
     const auto rows=Filtered();
-    for(int i=0;i<10;++i){const int index=page*10+i;if(index>=int(rows.size()))break;const auto& r=original.slots[i];const auto* c=rows[index];
-        OriginalButton(r,L"",i);OriginalText(r.x+8,r.y+int((r.h-originalFontHeight/scale)/2),std::to_wstring((i+1)%10)+L"  "+Wide(c->name),chosen==c->id?"brightcontroltext":"basetext");
+    for(int i=0;i<10;++i){const int index=page*PageSize()+i;const auto& r=original.slots[i];const auto* c=i<9 && index<int(rows.size())?rows[index]:nullptr;
+        if(i<9 && !c)continue;
+        if(!original.keyboard.path.empty()){
+            MenuImage(original.slotBackground[hovered==i || (c && chosen==c->id)?1:0],r);
+            MenuImage(original.keyboard,{r.x+3,r.y+4,17,r.h-7});
+            OriginalCenteredText({r.x+3,r.y+4,17,r.h-7},std::to_wstring((i+1)%10));
+        }else OriginalButton(r,L"",i);
+        OriginalText(r.x+32,r.y+int((r.h-originalFontHeight/scale)/2),c?Wide(c->name):L"自动选择",c && chosen==c->id?"brightcontroltext":"basetext");
         const auto* current=ViewCharacter();
-        if(!appearanceMenu && current && current->id==c->id && !original.pin.path.empty())MenuImage(original.pin,{194,r.y+5,13,13});}
+        if(!appearanceMenu && c && current && current->id==c->id && !original.pin.path.empty())MenuImage(original.pin,{r.x+r.w-19,r.y+5,13,13});}
     if(page>0)OriginalButton(original.previous,Wide(original.previousLabel),12);
-    if((page+1)*10<int(rows.size()))OriginalButton(original.next,Wide(original.nextLabel),13);
-    OriginalText(94,311,std::to_wstring(page+1)+L" / "+std::to_wstring((rows.size()+9)/10));
+    if((page+1)*PageSize()<int(rows.size()))OriginalButton(original.next,Wide(original.nextLabel),13);
+    OriginalCenteredText(original.pageLabel.w?original.pageLabel:MenuRect{88,307,56,17},std::to_wstring(page+1)+L" / "+std::to_wstring(std::max(1,(int(rows.size())+PageSize()-1)/PageSize())));
     const auto* c=FindCharacter(catalog,chosen);
     if(c){
         const auto found=original.descriptions.find(c->id);
@@ -309,6 +334,18 @@ void PaintOriginal()
             auto it=portraits.find(c->id);
             if(it==portraits.end()){int texture=0;try{const auto image=DecodeTGA(ReadResource(c->portrait.c_str()));texture=surface->CreateNewTextureID(true);surface->DrawSetTextureRGBA(texture,image.RGBA.data(),image.Width,image.Height,1,true);}catch(const std::exception& e){engine.Con_Printf("CSOL portrait: %s\n",e.what());}it=portraits.emplace(c->id,texture).first;}
             if(it->second){surface->DrawSetColor(255,255,255,255);surface->DrawSetTexture(it->second);surface->DrawTexturedRect(X(r.x),Y(r.y),X(r.x+r.w),Y(r.y+r.h));}
+            if(d.defaultCaps && original.stats.maximum){
+                const auto& stats=original.stats;
+                OriginalText(stats.heading.x,stats.heading.y,Wide(stats.headingText),"statheading");
+                const auto& color=original.colors.at("statbar");
+                for(size_t i=0;i<stats.names.size();++i){
+                    OriginalText(stats.labels[i].x,stats.labels[i].y,Wide(stats.names[i]));
+                    const auto& bar=stats.bars[i];const int value=(*d.defaultCaps)[i];
+                    const int width=bar.w*std::min(value,stats.maximum)/stats.maximum;
+                    if(width)Box(bar.x,bar.y,width,bar.h,color[0],color[1],color[2],color[3]);
+                    OriginalText(stats.values[i].x,stats.values[i].y,std::to_wstring(value),"statvalue");
+                }
+            }
             const int x=original.info.x+d.description.x,y=original.info.y+d.description.y,width=std::min(d.description.w,original.width-x-16);
             if(detailId!=c->id){
                 detailLines.clear();std::wstring line;int used=0;
@@ -325,8 +362,8 @@ void PaintOriginal()
         }
     }
     const int closeState=hovered==14?(input&&input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):0;
-    MenuImage(original.close[closeState],{original.width-24,7,15,15});
-    if(selectionPending)OriginalText(16,402,status,"labeldimtext");
+    MenuImage(original.close[closeState],original.closeButton.w?original.closeButton:MenuRect{original.width-24,7,15,15});
+    if(selectionPending)OriginalText(22,original.height-28,status,"labeldimtext");
 }
 void Paint()
 {
@@ -375,12 +412,12 @@ public:
             if(context->pPluginReturnValue)*static_cast<int*>(context->pPluginReturnValue)=1;context->Result=VGUI2Extension_Result::SUPERCEDE_SKIP_PLUGINS;return;
         }
         if(down && !focusSuspended){if(key==27)Cancel();else if(key==13)Select();else if(key>='0' && key<='9'){
-            auto rows=Filtered();const int i=page*10+(key=='0'?9:key-'1');if(i>=0 && i<int(rows.size())){chosen=rows[i]->id;detailScroll=0;if(originalMode)Select();}}
+            SelectRow(key=='0'?9:key-'1');}
             else if(key==239 || key==240){
                 int x=0,y=0;if(input)input->GetCursorPos(x,y);
                 if(originalMode && original.info.Contains((x-left)/scale,(y-top)/scale))detailScroll=std::max(0,detailScroll+(key==239?1:-1));
                 else ChangePage(key==239?1:-1);}
-            else if((key==130 || key==131) && !appearanceMenu){team=key==130?1:2;page=0;auto rows=Filtered();if(!rows.empty())chosen=rows.front()->id;}
+            else if(key==130 || key==131){team=key==130?1:2;page=0;auto rows=Filtered();if(!rows.empty())chosen=rows.front()->id;}
             else if(key==149 || key==150 || (originalMode && (key=='-' || key=='=' || key=='+')))ChangePage((key==149 || key=='=' || key=='+')?1:-1);
             else if(key==241){mouseFromEngine=true;int x,y;surface->SurfaceGetCursorPos(x,y);Click(x,y);}}
         // BaseUI returns one for consumed keys. Skip the post callbacks too:

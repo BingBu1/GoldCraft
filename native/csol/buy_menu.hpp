@@ -20,6 +20,11 @@ struct Presentation {
     int width{},height{};
     std::string title,font;
     MenuRect info,previous,next,quit,account;
+    MenuRect search{56,22,90,12},rebuy{219,281,150,25};
+    std::array<MenuRect,2> teams{{{14,37,68,15},{82,37,70,15}}};
+    std::array<MenuRect,8> favorites;
+    std::array<MenuTexture,2> slotBackground;
+    MenuTexture keyboard,favoriteBackground;
     std::array<MenuRect,10> slots;
     std::array<MenuTexture,9> frame;
     std::array<std::array<MenuTexture,3>,3> buttons;
@@ -27,6 +32,10 @@ struct Presentation {
     std::unordered_map<std::string,std::array<int,4>> colors;
     std::unordered_map<int,MenuTexture> images;
 };
+using Favorites=std::array<std::uint16_t,8>;
+Favorites ParseFavorites(std::string_view text);
+std::string SerializeFavorites(const Favorites& favorites);
+bool InTeamList(const Item& item,int team);
 Presentation ParsePresentation(std::string_view json);
 std::vector<std::string> Resources(const Presentation& presentation);
 }

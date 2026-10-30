@@ -49,6 +49,13 @@ bool Number(const char* text,std::uint16_t& n)
 }
 }
 void CSOL_ResetBuyMenu(){ready=false;clients={};resources.clear();}
+bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
+{
+    // Scenario participants remain CT. The T/CT tabs classify equipment;
+    // choosing a T weapon must not temporarily change authoritative team state.
+    const auto* item=csol::buy::Find(weaponId);
+    return CSOL_UsesScenarioRules()&&playerTeam==CT&&item&&item->id<1000&&!CSOL_ExtendedWeapon(item->id);
+}
 bool CSOL_PrecacheBuyMenu()
 {
     CSOL_ResetBuyMenu();if(!CSOL_UsesScenarioRules())return false;
@@ -96,7 +103,33 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     const int price=Price(player,*item);bool success=false;Result result=Result::Failed;
     if(!Available(player,*item)||!current())result=Result::Unavailable;
     else if(item->id<2000&&player->m_iAccount<price)result=Result::Insufficient;
-    else if(item->id>=2000){success=BuyAmmo(player,item->id==2001?PRIMARY_WEAPON_SLOT:PISTOL_SLOT,true);}
+    else if(item->id>=2000){
+        const int slot=item->id==2001?PRIMARY_WEAPON_SLOT:PISTOL_SLOT;
+        const auto ammoState=[&](){
+            std::array<int,MAX_AMMO_SLOTS+2> ammo{};
+            std::copy_n(player->m_rgAmmo,MAX_AMMO_SLOTS,ammo.begin());
+            // Clip-only CSOL ammunition and the shield's pistol redirection
+            // must also count as progress when reserve ammunition is unchanged.
+            for(int i=0;i<2;++i){
+                auto* owned=player->m_rgpPlayerItems[i==0?PRIMARY_WEAPON_SLOT:PISTOL_SLOT];
+                auto* gun=owned?static_cast<CBasePlayerWeapon*>(owned->GetWeaponPtr()):nullptr;
+                ammo[MAX_AMMO_SLOTS+i]=gun?gun->m_iClip:-1;
+            }
+            return ammo;
+        };
+        bool first=true;
+        while(current()&&Eligible(player)){
+            const auto before=ammoState();
+            const bool bought=BuyAmmo(player,slot,first);
+            if(!current())return true;
+            const bool gained=ammoState()!=before;
+            success|=gained;
+            // Follow primammo/secammo: repeat native purchases until full or
+            // unaffordable. A hook returning success without progress must stop.
+            if(!bought||!gained)break;
+            first=false;
+        }
+    }
     else if(item->id>=1000){
         const int before=player->m_iAccount;
         constexpr int slots[]{MENU_SLOT_ITEM_VEST,MENU_SLOT_ITEM_VESTHELM,MENU_SLOT_ITEM_HEGREN,MENU_SLOT_ITEM_FLASHGREN,MENU_SLOT_ITEM_SMOKEGREN};

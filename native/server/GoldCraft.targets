@@ -130,7 +130,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_file.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_runtime.cpp;$(GoldCraftRoot)\native\csol\server\wpn_cannon.cpp;$(GoldCraftRoot)\native\csol\server\wpn_beamgun.cpp;$(GoldCraftRoot)\native\csol\beamgun_state.cpp;$(GoldCraftRoot)\native\csol\weapon_slots.cpp;$(GoldCraftRoot)\native\csol\server\weapon_registry.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_file.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_runtime.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_mode.cpp;$(GoldCraftRoot)\native\csol\server\wpn_cannon.cpp;$(GoldCraftRoot)\native\csol\server\wpn_beamgun.cpp;$(GoldCraftRoot)\native\csol\beamgun_state.cpp;$(GoldCraftRoot)\native\csol\weapon_slots.cpp;$(GoldCraftRoot)\native\csol\server\weapon_registry.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

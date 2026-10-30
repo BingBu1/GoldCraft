@@ -505,7 +505,7 @@ bool CCSOLScenarioPlayerRuntime::RefreshActiveSkill(
         return selected->item == old.item && selected->type == old.type &&
             selected->subtype == old.subtype && selected->values == old.values;
     };
-    // Original same-character preparation calls v30; both concrete classes
+    // Original same-character preparation calls v30; all concrete classes
     // implemented here have a verified empty v30. Do not restart their cooldown
     // on respawn, weapon selection, or an unrelated profile refresh.
     if (state->activeSkillPrepared && state->activeSkillClass == classId && sameDefinition()) return true;

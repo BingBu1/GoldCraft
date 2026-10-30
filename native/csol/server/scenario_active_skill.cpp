@@ -34,7 +34,7 @@ public:
     bool Ready(CSOLMonsterDeathCall&, bool& ready, csol::scenario::ConfigError& error) override
     {
         ready = false;
-        // Neither supported type is the knife-kill type10 consumer. Keep the
+        // None of these types is the knife-kill type10 consumer. Keep the
         // unimplemented activation gates explicit instead of fabricating Ready.
         return Unsupported(error);
     }
@@ -63,9 +63,10 @@ public:
         csol::scenario::ConfigError& error) override
     {
         if (!Current(call)) return call.Cancel();
-        // Heal v20/v24 are the verified 10617DA0 ret16. Type29 instead stops
+        // Heal and infinite-ammo v20/v24 are the verified 10617DA0 ret16.
+        // Type29 instead stops
         // cloaking key12 with its own source/context gate. Stop owns v104.
-        if (m_type == 1) return true;
+        if (m_type == 1 || m_type == 5) return true;
         const auto players = m_players.lock();
         return players && players->StopCharacterCloaking(call, this, error);
     }
@@ -103,7 +104,8 @@ std::shared_ptr<CSOLScenarioActiveSkill> CSOL_CreateScenarioActiveSkill(
     const csol::scenario::ClassModDefinition& definition,
     float now, csol::scenario::ConfigError& error)
 {
-    if (definition.type != 10 || (definition.subtype != 1 && definition.subtype != 29)) return {};
+    if (definition.type != 10 ||
+        (definition.subtype != 1 && definition.subtype != 5 && definition.subtype != 29)) return {};
     if (!players || !state || !players->Active() || players->Find(state->player) != state ||
         !std::isfinite(now) || !std::isfinite(definition.values[0]) ||
         !std::isfinite(definition.values[1]) || !std::isfinite(now + definition.values[0]))

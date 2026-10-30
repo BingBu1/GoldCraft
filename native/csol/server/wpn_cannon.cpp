@@ -4,6 +4,7 @@
 #include "wpn_cannon.h"
 #include "weapon_slots.h"
 #include "weapon_service.h"
+#include "weapon_damage_mode.h"
 #include "../cannon.hpp"
 #include "../cannon_resources.hpp"
 #include <rapidjson/document.h>
@@ -112,7 +113,12 @@ void CCannon::PrimaryAttack()
     // event separately uses v_angle + punchangle for the flame cloud.
     UTIL_MakeVectors(m_pPlayer->pev->v_angle);const Vector forward=gpGlobals->v_forward;
     const int mode=int(damageMode.value);
-    const float base=mode==2?scenarioDamage:mode==3?escapeDamage:(mode==1 || CSOL_ZombieMode())?zombieDamage:normalDamage;
+    const auto legacy=mode==2?CSOLWeaponDamageMode::Scenario:mode==3?CSOLWeaponDamageMode::ZombieEscape:
+        (mode==1 || CSOL_ZombieMode())?CSOLWeaponDamageMode::Zombie:CSOLWeaponDamageMode::Normal;
+    const auto selected=CSOL_CurrentWeaponDamageMode(legacy);
+    const float base=selected==CSOLWeaponDamageMode::Scenario?scenarioDamage:
+        selected==CSOLWeaponDamageMode::ZombieEscape?escapeDamage:
+        selected==CSOLWeaponDamageMode::Zombie?zombieDamage:normalDamage;
     const bool water=UTIL_PointContents(origin)==CONTENTS_WATER;
     CBaseEntity* target=nullptr;
     while ((target=UTIL_FindEntityInSphere(target,origin,csol::cannon::Distance))) {

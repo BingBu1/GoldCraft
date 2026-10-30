@@ -29,6 +29,7 @@ inline constexpr std::array<Resource, unsigned(Image::Count)> Resources{{
 }};
 inline constexpr char FontPath[]="resource/font/df_gb_y9.ttf";
 inline constexpr char SoundPath[]="events/Lvup.wav";
+inline constexpr char DigitSpritePath[]="sprites/csol/scenario/level_digits.spr";
 struct Quad
 {
     Image image{};

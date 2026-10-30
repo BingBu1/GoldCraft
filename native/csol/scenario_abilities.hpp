@@ -26,15 +26,17 @@ inline constexpr std::array<const char*,9> NumberImages{{
     "resource/hud/buffclassskill_num5.tga","resource/hud/buffclassskill_num6.tga",
     "resource/hud/buffclassskill_num7.tga","resource/hud/buffclassskill_num8.tga",
     "resource/hud/buffclassskill_num9.tga"}};
-// Only the two currently implemented server ability types are required at
+// Only the currently installed server ability types are required at
 // map precache. Other type images remain lazily loaded on a matching message.
-inline constexpr std::array<const char*,17> DownloadResources{{
+inline constexpr std::array<const char*,19> DownloadResources{{
     "resource/hud/buffclassskill_heal.tga",
     "resource/hud/buffclassskill_heal_number.tga",
     "resource/hud/buffclassskill_heal_bg.tga",
     "resource/hud/buffclassskill_23s1ct.tga",
     "resource/hud/buffclassskill_damage_number.tga",
     "resource/hud/buffclassskill_23s1ct_bg.tga",
+    "resource/hud/buffclassskill_ammo.tga",
+    "resource/hud/buffclassskill_ammo_bg.tga",
     ReadyHighlight,NumberHighlight,
     NumberImages[0],NumberImages[1],NumberImages[2],NumberImages[3],NumberImages[4],
     NumberImages[5],NumberImages[6],NumberImages[7],NumberImages[8]}};

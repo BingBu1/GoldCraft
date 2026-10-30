@@ -15,6 +15,7 @@ public:
     explicit StockHandScope(cl_entity_t* entity);
     ~StockHandScope();
     void ClientEvents();
+    void PrepareCustomRender(int flags);
     StockHandScope(const StockHandScope&)=delete;
     StockHandScope& operator=(const StockHandScope&)=delete;
 private:
@@ -23,5 +24,7 @@ private:
     int index{};
     studiohdr_t* nativeHeader{};
     studiohdr_t* aliasHeader{};
+    cvar_t* handedness{};
+    float savedHandedness{};
 };
 }

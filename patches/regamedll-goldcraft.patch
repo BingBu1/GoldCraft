@@ -12,10 +12,29 @@ index 398c8a1..edd31e9 100644
  
  AmmoInfoStruct *CReGameApi::GetAmmoInfoEx(AmmoType ammoID) { return ::GetAmmoInfo(ammoID); }
 diff --git a/regamedll/dlls/API/CSPlayer.cpp b/regamedll/dlls/API/CSPlayer.cpp
-index cab27a4..9685dac 100644
+index cab27a4..555fbf2 100644
 --- a/regamedll/dlls/API/CSPlayer.cpp
 +++ b/regamedll/dlls/API/CSPlayer.cpp
-@@ -226,7 +226,7 @@ EXT_FUNC bool CCSPlayer::RemovePlayerItemEx(const char* pszItemName, bool bRemov
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "../../../../../native/csol/server/scenario_money.h"
+ 
+ EXT_FUNC bool CCSPlayer::JoinTeam(TeamName team)
+ {
+@@ -78,8 +79,8 @@ EXT_FUNC bool CCSPlayer::JoinTeam(TeamName team)
+ 			pPlayer->m_iIgnoreGlobalChat = IGNOREMSG_NONE;
+ 			pPlayer->m_iTeamKills = 0;
+ 
+-			if (pPlayer->m_iAccount < int(startmoney.value)) {
+-				pPlayer->AddAccount(startmoney.value, RT_PLAYER_JOIN);
++			if (pPlayer->m_iAccount < CSOL_AccountStartMoney(int(startmoney.value))) {
++				pPlayer->AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_JOIN);
+ 			}
+ 
+ 			pPlayer->pev->solid = SOLID_NOT;
+@@ -226,7 +227,7 @@ EXT_FUNC bool CCSPlayer::RemovePlayerItemEx(const char* pszItemName, bool bRemov
  			if (pItem == pPlayer->m_pActiveItem) {
  				((CBasePlayerWeapon *)pItem)->RetireWeapon();
  
@@ -430,12 +449,13 @@ index 70cdd7d..4ad0af7 100644
  	float SetBoneController(int iController, float flValue = 0.0f);
  	void InitBoneControllers();
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..465ae25 100644
+index daee11d..40dd019 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
-@@ -1,4 +1,15 @@
+@@ -1,4 +1,16 @@
  #include "precompiled.h"
 +#include "../../../../native/csol/server/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario_money.h"
 +#include "../../../../native/server/bridge.h"
 +#include "../../../../native/server/vitals.hpp"
 +#include "../../../../native/csol/server/weapons.h"
@@ -449,7 +469,7 @@ index daee11d..465ae25 100644
  
  int gmsgWeapPickup = 0;
  int gmsgHudText = 0;
-@@ -138,7 +149,7 @@ bool g_bServerActive = false;
+@@ -138,7 +150,7 @@ bool g_bServerActive = false;
  bool g_bItemCreatedByBuying = false;
  PLAYERPVSSTATUS g_PVSStatus[MAX_CLIENTS];
  unsigned short m_usResetDecals;
@@ -458,7 +478,7 @@ index daee11d..465ae25 100644
  
  void LinkUserMessages()
  {
-@@ -149,9 +160,9 @@ void LinkUserMessages()
+@@ -149,9 +161,9 @@ void LinkUserMessages()
  	gmsgGeigerRange   = REG_USER_MSG("Geiger", 1);
  	gmsgFlashlight    = REG_USER_MSG("Flashlight", 2);
  	gmsgFlashBattery  = REG_USER_MSG("FlashBat", 1);
@@ -470,7 +490,7 @@ index daee11d..465ae25 100644
  	gmsgTrain         = REG_USER_MSG("Train", 1);
  	gmsgHudTextPro    = REG_USER_MSG("HudTextPro", -1);
  	gmsgHudText       = REG_USER_MSG("HudText", -1);
-@@ -205,7 +216,7 @@ void LinkUserMessages()
+@@ -205,7 +217,7 @@ void LinkUserMessages()
  	gmsgHostagePos    = REG_USER_MSG("HostagePos", 8);
  	gmsgHostageK      = REG_USER_MSG("HostageK", 1);
  	gmsgHLTV          = REG_USER_MSG("HLTV", 2);
@@ -479,7 +499,7 @@ index daee11d..465ae25 100644
  	gmsgForceCam      = REG_USER_MSG("ForceCam", 3);
  	gmsgADStop        = REG_USER_MSG("ADStop", 0);
  	gmsgReceiveW      = REG_USER_MSG("ReceiveW", 1);
-@@ -216,7 +227,7 @@ void LinkUserMessages()
+@@ -216,7 +228,7 @@ void LinkUserMessages()
  	gmsgScenarioIcon  = REG_USER_MSG("Scenario", -1);
  	gmsgBotVoice      = REG_USER_MSG("BotVoice", 2);
  	gmsgBuyClose      = REG_USER_MSG("BuyClose", 0);
@@ -488,7 +508,7 @@ index daee11d..465ae25 100644
  	gmsgBarTime2      = REG_USER_MSG("BarTime2", 4);
  	gmsgItemStatus    = REG_USER_MSG("ItemStatus", 1);
  	gmsgLocation      = REG_USER_MSG("Location", -1);
-@@ -234,6 +245,7 @@ void LinkUserMessages()
+@@ -234,6 +246,7 @@ void LinkUserMessages()
  
  void WriteSigonMessages()
  {
@@ -496,7 +516,7 @@ index daee11d..465ae25 100644
  	for (int i = 0; i < MAX_WEAPONS; i++)
  	{
  		ItemInfo &info = CBasePlayerItem::m_ItemInfoArray[i];
-@@ -310,16 +322,41 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
+@@ -310,16 +323,41 @@ void BlinkAccount(CBasePlayer *pPlayer, int numBlinks)
  
  BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *pszAddress, char *szRejectReason)
  {
@@ -538,7 +558,7 @@ index daee11d..465ae25 100644
  #ifndef REGAMEDLL_FIXES
  		CSound *pSound = CSoundEnt::SoundPointerForIndex(CSoundEnt::ClientSoundIndex(pEntity));
  
-@@ -333,10 +370,13 @@ void EXT_FUNC ClientDisconnect(edict_t *pEntity)
+@@ -333,10 +371,13 @@ void EXT_FUNC ClientDisconnect(edict_t *pEntity)
  		if (pPlayer)
  		{
  			pPlayer->Disconnect();
@@ -552,7 +572,7 @@ index daee11d..465ae25 100644
  	}
  
  #ifndef REGAMEDLL_FIXES
-@@ -373,6 +413,15 @@ void respawn(entvars_t *pev, BOOL fCopyCorpse)
+@@ -373,6 +414,15 @@ void respawn(entvars_t *pev, BOOL fCopyCorpse)
  // Suicide...
  void EXT_FUNC ClientKill(edict_t *pEntity)
  {
@@ -568,7 +588,7 @@ index daee11d..465ae25 100644
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -401,6 +450,9 @@ LINK_HOOK_VOID_CHAIN(ShowVGUIMenu, (CBasePlayer *pPlayer, int MenuType, int BitM
+@@ -401,6 +451,9 @@ LINK_HOOK_VOID_CHAIN(ShowVGUIMenu, (CBasePlayer *pPlayer, int MenuType, int BitM
  
  void EXT_FUNC __API_HOOK(ShowVGUIMenu)(CBasePlayer *pPlayer, int MenuType, int BitMask, char *szOldMenu)
  {
@@ -578,7 +598,15 @@ index daee11d..465ae25 100644
  #ifdef REGAMEDLL_ADD
  	if (CSGameRules()->ShouldSkipShowMenu()) {
  		CSGameRules()->MarkShowMenuSkipped();
-@@ -615,11 +667,23 @@ void CheckStartMoney()
+@@ -590,6 +643,7 @@ void ProcessKickVote(CBasePlayer *pVotingPlayer, CBasePlayer *pKickPlayer)
+ 
+ void CheckStartMoney()
+ {
++	if (CSOL_UsesScenarioRules()) return;
+ 	int money = int(startmoney.value);
+ 
+ #ifndef REGAMEDLL_ADD
+@@ -615,11 +669,23 @@ void CheckStartMoney()
  
  void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  {
@@ -602,7 +630,7 @@ index daee11d..465ae25 100644
  
  	if (!g_pGameRules->IsMultiplayer())
  	{
-@@ -635,13 +699,16 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -635,15 +701,18 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  	pPlayer->m_iTeamKills = 0;
  	pPlayer->m_bJustConnected = true;
  	pPlayer->Spawn();
@@ -614,12 +642,16 @@ index daee11d..465ae25 100644
 +	if (!scope.Current()) return;
  
  #ifdef REGAMEDLL_ADD
- 	pPlayer->AddAccount(startmoney.value, RT_PLAYER_JOIN);
+-	pPlayer->AddAccount(startmoney.value, RT_PLAYER_JOIN);
++	pPlayer->AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_JOIN);
 +	if (!scope.Current()) return;
  #else
- 	pPlayer->m_iAccount = int(startmoney.value);
+-	pPlayer->m_iAccount = int(startmoney.value);
++	pPlayer->m_iAccount = CSOL_AccountStartMoney(int(startmoney.value));
  #endif
-@@ -672,12 +739,16 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+ 
+ 	pPlayer->m_fGameHUDInitialized = FALSE;
+@@ -672,12 +741,16 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  	pPlayer->m_rebuyString = nullptr;
  
  	SET_CLIENT_MAXSPEED(ENT(pPlayer->pev), 1);
@@ -637,7 +669,7 @@ index daee11d..465ae25 100644
  
  #ifndef REGAMEDLL_FIXES
  	if (g_pGameRules && g_pGameRules->IsMultiplayer())
-@@ -690,6 +761,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -690,6 +763,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  	{
  		// find the target (by default info_target) for the camera view direction.
  		pTarget = UTIL_FindEntityByTargetname(nullptr, STRING(pPlayer->m_pIntroCamera->pev->target));
@@ -645,7 +677,7 @@ index daee11d..465ae25 100644
  	}
  
  	if (pPlayer->m_pIntroCamera && pTarget)
-@@ -698,6 +770,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -698,6 +772,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  		CamAngles.x = -CamAngles.x;
  
  		UTIL_SetOrigin(pPlayer->pev, pPlayer->m_pIntroCamera->pev->origin);
@@ -653,7 +685,7 @@ index daee11d..465ae25 100644
  
  		pPlayer->pev->angles = CamAngles;
  		pPlayer->pev->v_angle = pPlayer->pev->angles;
-@@ -718,6 +791,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -718,6 +793,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  		if (g_pGameRules)
  		{
  			g_pGameRules->GetPlayerSpawnSpot(pPlayer);
@@ -661,7 +693,7 @@ index daee11d..465ae25 100644
  		}
  
  		pPlayer->m_iTeam = UNASSIGNED;
-@@ -729,6 +803,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -729,6 +805,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  	if (TheBots)
  	{
  		TheBots->OnEvent(EVENT_PLAYER_CHANGED_TEAM, (CBaseEntity *)pPlayer);
@@ -669,7 +701,7 @@ index daee11d..465ae25 100644
  	}
  
  	pPlayer->m_iJoiningState = SHOWLTEXT;
-@@ -744,6 +819,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
+@@ -744,6 +821,7 @@ void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  
  #ifdef REGAMEDLL_API
  	pPlayer->CSPlayer()->OnConnect();
@@ -677,7 +709,7 @@ index daee11d..465ae25 100644
  #endif
  
  	UTIL_ClientPrintAll(HUD_PRINTNOTIFY, "#Game_connected", (sName[0] != '\0') ? sName : "<unconnected>");
-@@ -1308,7 +1384,7 @@ void EXT_FUNC __API_HOOK(BuyItem)(CBasePlayer *pPlayer, int iSlot)
+@@ -1308,7 +1386,7 @@ void EXT_FUNC __API_HOOK(BuyItem)(CBasePlayer *pPlayer, int iSlot)
  			return;
  	}
  
@@ -686,7 +718,7 @@ index daee11d..465ae25 100644
  	bool bHasHelmet = (pPlayer->m_iKevlar == ARMOR_VESTHELM);
  	bool bEnoughMoney = false;
  
-@@ -1655,6 +1731,7 @@ LINK_HOOK_VOID_CHAIN(HandleMenu_ChooseAppearance, (CBasePlayer *pPlayer, int slo
+@@ -1655,6 +1733,7 @@ LINK_HOOK_VOID_CHAIN(HandleMenu_ChooseAppearance, (CBasePlayer *pPlayer, int slo
  
  void EXT_FUNC __API_HOOK(HandleMenu_ChooseAppearance)(CBasePlayer *pPlayer, int slot)
  {
@@ -694,7 +726,7 @@ index daee11d..465ae25 100644
  	int numSkins = AreRunningCZero() ? CZ_NUM_SKIN : CS_NUM_SKIN;
  
  	struct
-@@ -1814,6 +1891,9 @@ LINK_HOOK_CHAIN(BOOL, HandleMenu_ChooseTeam, (CBasePlayer *pPlayer, int slot), p
+@@ -1814,6 +1893,9 @@ LINK_HOOK_CHAIN(BOOL, HandleMenu_ChooseTeam, (CBasePlayer *pPlayer, int slot), p
  // can be closed...false if the menu should be displayed again
  BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
  {
@@ -704,7 +736,7 @@ index daee11d..465ae25 100644
  	// If this player is a VIP, don't allow him to switch teams/appearances unless the following conditions are met :
  	// a) There is another TEAM_CT player who is in the queue to be a VIP
  	// b) This player is dead
-@@ -2023,7 +2103,8 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
+@@ -2023,7 +2105,8 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
  	// If the code gets this far, the team is not TEAM_UNASSIGNED
  	// Player is switching to a new team (It is possible to switch to the
  	// same team just to choose a new appearance)
@@ -714,7 +746,7 @@ index daee11d..465ae25 100644
  	{
  		// The specified team is full
  		// attempt to kick a bot to make room for this player
-@@ -2052,7 +2133,7 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
+@@ -2052,7 +2135,7 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
  		return FALSE;
  	}
  
@@ -723,7 +755,7 @@ index daee11d..465ae25 100644
  #ifdef REGAMEDLL_ADD
  		&& !(pPlayer->pev->flags & FL_FAKECLIENT) && auto_join_team.value != 1.0f
  #endif
-@@ -2081,7 +2162,7 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
+@@ -2081,7 +2164,7 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
  	}
  
  	// If we already died and changed teams once, deny
@@ -732,7 +764,19 @@ index daee11d..465ae25 100644
  	{
  		if (pPlayer->pev->deadflag != DEAD_NO)
  		{
-@@ -2332,35 +2413,43 @@ bool EXT_FUNC __API_HOOK(BuyGunAmmo)(CBasePlayer *pPlayer, CBasePlayerItem *weap
+@@ -2101,9 +2184,9 @@ BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
+ 
+ 		// all players start with "mp_startmoney" bucks
+ #ifdef REGAMEDLL_ADD
+-		pPlayer->AddAccount(startmoney.value, RT_PLAYER_SPEC_JOIN, false);
++		pPlayer->AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_SPEC_JOIN, false);
+ #else
+-		pPlayer->m_iAccount = int(startmoney.value);
++		pPlayer->m_iAccount = CSOL_AccountStartMoney(int(startmoney.value));
+ #endif
+ 
+ 		pPlayer->pev->solid = SOLID_NOT;
+@@ -2332,35 +2415,43 @@ bool EXT_FUNC __API_HOOK(BuyGunAmmo)(CBasePlayer *pPlayer, CBasePlayerItem *weap
  
  	// Ensure that the weapon uses ammo
  	int nAmmo = weapon->PrimaryAmmoIndex();
@@ -783,7 +827,7 @@ index daee11d..465ae25 100644
  		return true;
  	}
  
-@@ -2653,6 +2742,9 @@ BOOL HandleRadioAliasCommands(CBasePlayer *pPlayer, const char *pszCommand)
+@@ -2653,6 +2744,9 @@ BOOL HandleRadioAliasCommands(CBasePlayer *pPlayer, const char *pszCommand)
  
  void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *parg1)
  {
@@ -793,7 +837,7 @@ index daee11d..465ae25 100644
  	const char *pstr = nullptr;
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
-@@ -3205,7 +3297,8 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
+@@ -3205,7 +3299,8 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
  		if (pPlayer->m_iMenu == Menu_ChooseAppearance)
  			return;
  
@@ -803,7 +847,7 @@ index daee11d..465ae25 100644
  		{
  			if (pPlayer->pev->deadflag != DEAD_NO)
  			{
-@@ -3217,6 +3310,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
+@@ -3217,6 +3312,7 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
  		if (!CSGameRules()->IsCareer())
  		{
  			pPlayer->m_iMenu = Menu_ChooseTeam;
@@ -811,7 +855,7 @@ index daee11d..465ae25 100644
  			if (CSGameRules()->m_bMapHasVIPSafetyZone && pPlayer->m_iJoiningState == JOINED && pPlayer->m_iTeam == CT)
  			{
  				if (CSGameRules()->IsFreezePeriod() || pPlayer->pev->deadflag != DEAD_NO)
-@@ -3693,6 +3787,13 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
+@@ -3693,6 +3789,13 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
  							pPlayer->GiveAmmo(pInfo->maxRounds, pInfo->ammoName2);
  						}
  					}
@@ -825,7 +869,7 @@ index daee11d..465ae25 100644
  				}
  			}
  #endif
-@@ -3731,6 +3832,9 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
+@@ -3731,6 +3834,9 @@ void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *pa
  // Use CMD_ARGV, CMD_ARGV, and CMD_ARGC to get pointers the character string command.
  void EXT_FUNC ClientCommand_(edict_t *pEntity)
  {
@@ -835,7 +879,7 @@ index daee11d..465ae25 100644
  	// Is the client spawned yet?
  	if (!pEntity->pvPrivateData)
  		return;
-@@ -3738,6 +3842,19 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
+@@ -3738,6 +3844,19 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
  	static char command[128] = "";
  	Q_strncpy(command, CMD_ARGV_(0), sizeof command - 1);
  	command[sizeof command - 1] = '\0';
@@ -855,7 +899,7 @@ index daee11d..465ae25 100644
  
  	g_ReGameHookchains.m_InternalCommand.callChain(InternalCommand, pEntity, command, CMD_ARGV_(1));
  }
-@@ -3745,12 +3862,20 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
+@@ -3745,12 +3864,20 @@ void EXT_FUNC ClientCommand_(edict_t *pEntity)
  // called after the player changes userinfo - gives dll a chance to modify it before it gets sent into the rest of the engine.
  void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
  {
@@ -876,7 +920,7 @@ index daee11d..465ae25 100644
  
  	// msg everyone if someone changes their name, and it isn't the first time (changing no name to current name)
  	if (pEntity->v.netname && STRING(pEntity->v.netname)[0] != '\0' && !FStrEq(STRING(pEntity->v.netname), szBufferName))
-@@ -3770,10 +3895,15 @@ void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
+@@ -3770,10 +3897,15 @@ void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
  			szName[0] = '*';
  
  		// Can set it a new name?
@@ -894,7 +938,7 @@ index daee11d..465ae25 100644
  		}
  	}
  
-@@ -3787,15 +3917,19 @@ void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
+@@ -3787,15 +3919,19 @@ void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
  
  void EXT_FUNC ServerDeactivate()
  {
@@ -915,7 +959,7 @@ index daee11d..465ae25 100644
  	CLocalNav::Reset();
  
  	if (TheBots)
-@@ -3813,6 +3947,12 @@ void EXT_FUNC ServerDeactivate()
+@@ -3813,6 +3949,12 @@ void EXT_FUNC ServerDeactivate()
  
  void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  {
@@ -928,7 +972,7 @@ index daee11d..465ae25 100644
  	g_pEdicts = pEdictList;
  
  #ifdef REGAMEDLL_ADD
-@@ -3839,6 +3979,7 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
+@@ -3839,6 +3981,7 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  	// Clients have not been initialized yet
  	for (i = 0; i < edictCount; i++)
  	{
@@ -936,7 +980,7 @@ index daee11d..465ae25 100644
  		edict_t *pEdict = &pEdictList[i];
  
  		if (pEdict->free)
-@@ -3854,7 +3995,7 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
+@@ -3854,7 +3997,7 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  		if (pClass && !pClass->IsDormant())
  		{
  			AddEntityHashValue(&pEdict->v, STRING(pEdict->v.classname), CLASSNAME);
@@ -945,7 +989,7 @@ index daee11d..465ae25 100644
  		}
  		else
  		{
-@@ -3862,23 +4003,59 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
+@@ -3862,23 +4005,59 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  		}
  	}
  
@@ -1005,7 +1049,7 @@ index daee11d..465ae25 100644
  	}
  
  #ifdef REGAMEDLL_ADD
-@@ -3888,6 +4065,9 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
+@@ -3888,6 +4067,9 @@ void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  
  void EXT_FUNC PlayerPreThink(edict_t *pEntity)
  {
@@ -1015,7 +1059,7 @@ index daee11d..465ae25 100644
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
-@@ -3899,6 +4079,9 @@ void EXT_FUNC PlayerPreThink(edict_t *pEntity)
+@@ -3899,6 +4081,9 @@ void EXT_FUNC PlayerPreThink(edict_t *pEntity)
  
  void EXT_FUNC PlayerPostThink(edict_t *pEntity)
  {
@@ -1025,7 +1069,7 @@ index daee11d..465ae25 100644
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
-@@ -3926,24 +4109,43 @@ void EXT_FUNC ParmsChangeLevel()
+@@ -3926,24 +4111,43 @@ void EXT_FUNC ParmsChangeLevel()
  
  void EXT_FUNC StartFrame()
  {
@@ -1071,7 +1115,7 @@ index daee11d..465ae25 100644
  	}
  
  	EndFrame();
-@@ -3956,6 +4158,7 @@ void EndFrame()
+@@ -3956,6 +4160,7 @@ void EndFrame()
  
  void ClientPrecache()
  {
@@ -1079,7 +1123,7 @@ index daee11d..465ae25 100644
  	int i;
  
  	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
-@@ -4387,6 +4590,7 @@ void EXT_FUNC SysEngine_Error(const char *error_string)
+@@ -4387,6 +4592,7 @@ void EXT_FUNC SysEngine_Error(const char *error_string)
  
  void EXT_FUNC PlayerCustomization(edict_t *pEntity, customization_t *pCust)
  {
@@ -1087,7 +1131,7 @@ index daee11d..465ae25 100644
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
  	if (!pPlayer)
-@@ -4418,6 +4622,7 @@ void EXT_FUNC PlayerCustomization(edict_t *pEntity, customization_t *pCust)
+@@ -4418,6 +4624,7 @@ void EXT_FUNC PlayerCustomization(edict_t *pEntity, customization_t *pCust)
  
  void EXT_FUNC SpectatorConnect(edict_t *pEntity)
  {
@@ -1095,7 +1139,7 @@ index daee11d..465ae25 100644
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4428,6 +4633,7 @@ void EXT_FUNC SpectatorConnect(edict_t *pEntity)
+@@ -4428,6 +4635,7 @@ void EXT_FUNC SpectatorConnect(edict_t *pEntity)
  
  void EXT_FUNC SpectatorDisconnect(edict_t *pEntity)
  {
@@ -1103,7 +1147,7 @@ index daee11d..465ae25 100644
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4438,6 +4644,7 @@ void EXT_FUNC SpectatorDisconnect(edict_t *pEntity)
+@@ -4438,6 +4646,7 @@ void EXT_FUNC SpectatorDisconnect(edict_t *pEntity)
  
  void EXT_FUNC SpectatorThink(edict_t *pEntity)
  {
@@ -1111,7 +1155,7 @@ index daee11d..465ae25 100644
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4448,6 +4655,13 @@ void EXT_FUNC SpectatorThink(edict_t *pEntity)
+@@ -4448,6 +4657,13 @@ void EXT_FUNC SpectatorThink(edict_t *pEntity)
  
  void EXT_FUNC SetupVisibility(edict_t *pViewEntity, edict_t *pClient, unsigned char **pvs, unsigned char **pas)
  {
@@ -1125,7 +1169,7 @@ index daee11d..465ae25 100644
  	edict_t *pView = pClient;
  
  	// Find the client's PVS
-@@ -4541,6 +4755,7 @@ bool CheckEntityRecentlyInPVS(int clientnum, int entitynum, float currenttime)
+@@ -4541,6 +4757,7 @@ bool CheckEntityRecentlyInPVS(int clientnum, int entitynum, float currenttime)
  
  BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, edict_t *host, int hostflags, BOOL player, unsigned char *pSet)
  {
@@ -1133,7 +1177,7 @@ index daee11d..465ae25 100644
  	if (ent != host)
  	{
  		if ((ent->v.effects & EF_NODRAW) == EF_NODRAW)
-@@ -4567,7 +4782,10 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+@@ -4567,7 +4784,10 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
  
  	int i;
  	int hostnum = ENTINDEX(host) - 1;
@@ -1145,7 +1189,7 @@ index daee11d..465ae25 100644
  		ResetPlayerPVS(host, hostnum);
  
  #ifdef REGAMEDLL_ADD
-@@ -4581,10 +4799,11 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+@@ -4581,10 +4801,11 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
  				if (!ENGINE_CHECK_VISIBILITY(ent, pSet))
  				{
  					MarkEntityInPVS(hostnum, e, 0, false);
@@ -1160,7 +1204,7 @@ index daee11d..465ae25 100644
  			}
  		}
  	}
-@@ -4721,6 +4940,8 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
+@@ -4721,6 +4942,8 @@ BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, e
  		state->playerclass = ent->v.playerclass;
  
  	state->iuser4 = ent->v.iuser4;
@@ -1169,7 +1213,7 @@ index daee11d..465ae25 100644
  	return TRUE;
  }
  
-@@ -4946,6 +5167,11 @@ void EXT_FUNC RegisterEncoders()
+@@ -4946,6 +5169,11 @@ void EXT_FUNC RegisterEncoders()
  
  int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
  {
@@ -1181,7 +1225,7 @@ index daee11d..465ae25 100644
  #ifdef CLIENT_WEAPONS
  	entvars_t *pev = &pEdict->v;
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
-@@ -4975,9 +5201,10 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
+@@ -4975,9 +5203,10 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
  				weapon->GetItemInfo(&II);
  #endif
  
@@ -1194,7 +1238,7 @@ index daee11d..465ae25 100644
  
  					item->m_iId = II.iId;
  					item->m_iClip = weapon->m_iClip;
-@@ -4993,9 +5220,10 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
+@@ -4993,9 +5222,10 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
  					item->fuser2 = weapon->m_flStartThrow;
  					item->fuser3 = weapon->m_flReleaseThrow;
  					item->iuser1 = weapon->m_iSwing;
@@ -1206,7 +1250,7 @@ index daee11d..465ae25 100644
  					{
  						const WeaponInfoStruct *wpnInfo = GetDefaultWeaponInfo(II.iId);
  
-@@ -5019,6 +5247,17 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
+@@ -5019,6 +5249,17 @@ int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
  // Data sent to current client only engine sets cd to 0 before calling.
  void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clientdata_s *cd)
  {
@@ -1224,7 +1268,7 @@ index daee11d..465ae25 100644
  	if (!ent || !ent->pvPrivateData)
  		return;
  
-@@ -5036,12 +5275,13 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5036,12 +5277,13 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  
  	cd->flags = pev->flags;
  #ifdef REGAMEDLL_FIXES
@@ -1239,7 +1283,7 @@ index daee11d..465ae25 100644
  	cd->waterlevel = pev->waterlevel;
  	cd->watertype = pev->watertype;
  	cd->weapons = pev->weapons;
-@@ -5056,8 +5296,24 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5056,8 +5298,24 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  	cd->waterjumptime = int(pev->teleport_time);
  
  	Q_strlcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
@@ -1266,7 +1310,7 @@ index daee11d..465ae25 100644
  	cd->fov = pev->fov;
  	cd->weaponanim = pev->weaponanim;
  	cd->pushmsec = pev->pushmsec;
-@@ -5135,6 +5391,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5135,6 +5393,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  				)
  			{
  				cd->m_iId = II.iId;
@@ -1276,7 +1320,7 @@ index daee11d..465ae25 100644
  
  				if ((unsigned int)weapon->m_iPrimaryAmmoType < MAX_AMMO_SLOTS)
  				{
-@@ -5153,6 +5412,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5153,6 +5414,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  
  void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsigned int random_seed)
  {
@@ -1286,7 +1330,7 @@ index daee11d..465ae25 100644
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5162,11 +5424,20 @@ void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsig
+@@ -5162,11 +5426,20 @@ void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsig
  	if (pPlayer->pev->groupinfo)
  		UTIL_SetGroupTrace(pPlayer->pev->groupinfo, GROUP_OP_AND);
  
@@ -1307,7 +1351,7 @@ index daee11d..465ae25 100644
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5176,6 +5447,7 @@ void EXT_FUNC CmdEnd(const edict_t *pEdict)
+@@ -5176,6 +5449,7 @@ void EXT_FUNC CmdEnd(const edict_t *pEdict)
  	if (pPlayer->pev->groupinfo)
  		UTIL_UnsetGroupTrace();
  
@@ -1889,10 +1933,10 @@ index 3ccefc4..6c4a8b8 100644
  			MESSAGE_END();
  		}
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..5d82c42 100644
+index 8a219ea..f602eda 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
-@@ -27,6 +27,16 @@
+@@ -27,6 +27,17 @@
  */
  
  #include "precompiled.h"
@@ -1900,6 +1944,7 @@ index 8a219ea..5d82c42 100644
 +#include "../../../../native/csol/server/scenario_breakable_guard.h"
 +#include "../../../../native/csol/server/scenario_wall_status.h"
 +#include "../../../../native/csol/server/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario_money.h"
 +#include "../../../../native/csol/server/weapons.h"
 +#include "../../../../native/csol/server/wpn_beamgun.h"
 +#include "../../../../native/csol/server/wpn_cannon.h"
@@ -1909,7 +1954,7 @@ index 8a219ea..5d82c42 100644
  
  BOOL gInitHUD = TRUE;
  
-@@ -208,6 +218,13 @@ const char *GetCSModelName(int item_id)
+@@ -208,6 +219,13 @@ const char *GetCSModelName(int item_id)
  	return modelName;
  }
  
@@ -1923,7 +1968,7 @@ index 8a219ea..5d82c42 100644
  LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, SetClientUserInfoName, (char *infobuffer, char *szNewName), infobuffer, szNewName)
  
  bool EXT_FUNC CBasePlayer::__API_HOOK(SetClientUserInfoName)(char *infobuffer, char *szNewName)
-@@ -352,6 +369,7 @@ void CBasePlayer::SetPlayerModel(BOOL HasC4)
+@@ -352,6 +370,7 @@ void CBasePlayer::SetPlayerModel(BOOL HasC4)
  		model = "urban";
  
  	SetClientUserInfoModel(infobuffer, model);
@@ -1931,7 +1976,7 @@ index 8a219ea..5d82c42 100644
  }
  
  CBasePlayer *CBasePlayer::GetNextRadioRecipient(CBasePlayer *pStartPlayer)
-@@ -823,6 +841,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(TraceAttack)(entvars_t *pevAttacker, float
+@@ -823,6 +842,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(TraceAttack)(entvars_t *pevAttacker, float
  
  const char *CBasePlayer::GetKillerWeaponName(entvars_t *pevInflictor, entvars_t *pevKiller) const
  {
@@ -1942,7 +1987,7 @@ index 8a219ea..5d82c42 100644
  	// by default, the player is killed by the world
  	const char *killer_weapon_name = "world";
  
-@@ -899,7 +921,29 @@ void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int
+@@ -899,7 +922,29 @@ void LogAttack(CBasePlayer *pAttacker, CBasePlayer *pVictim, int teamAttack, int
  	}
  }
  
@@ -1973,7 +2018,7 @@ index 8a219ea..5d82c42 100644
  
  // Take some damage.
  // RETURN: TRUE took damage, FALSE otherwise
-@@ -908,7 +952,25 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
+@@ -908,7 +953,25 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayer, TakeDamage, (entvars_t *pevInflictor, e
  // etc are implemented with subsequent calls to TakeDamage using DMG_GENERIC.
  BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entvars_t *pevAttacker, FloatRef flDamage, int bitsDamageType)
  {
@@ -2000,7 +2045,7 @@ index 8a219ea..5d82c42 100644
  	float flRatio = ARMOR_RATIO;
  	float flBonus = ARMOR_BONUS;
  	int iGunType = 0;
-@@ -944,6 +1006,20 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -944,6 +1007,20 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!IsAlive())
  			return FALSE;
  
@@ -2021,7 +2066,7 @@ index 8a219ea..5d82c42 100644
  		if (bitsDamageType & DMG_EXPLOSION)
  		{
  			CBaseEntity *temp = GetClassPtr<CCSEntity>((CBaseEntity *)pevInflictor);
-@@ -987,7 +1063,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -987,7 +1064,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  		if (!FNullEnt(ENT(pevInflictor)))
  			m_vBlastVector = pev->origin - pevInflictor->origin;
  
@@ -2030,7 +2075,7 @@ index 8a219ea..5d82c42 100644
  		{
  			real_t flNew = flRatio * flDamage;
  			real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1022,85 +1098,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1022,85 +1099,12 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  			Pain(m_LastHitGroup, false);
  		}
  
@@ -2122,7 +2167,7 @@ index 8a219ea..5d82c42 100644
  	}
  
  	CBaseEntity *pAttacker = CBaseEntity::Instance(pevAttacker);
-@@ -1121,6 +1124,13 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1121,6 +1125,13 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	if (!IsAlive())
  		return FALSE;
  
@@ -2136,7 +2181,7 @@ index 8a219ea..5d82c42 100644
  	pAttacker = GetClassPtr<CCSEntity>((CBaseEntity *)pevAttacker);
  
  	if (pAttacker->IsPlayer() && !(pAttacker == this && (bitsDamageType & DMG_FALL)))
-@@ -1182,7 +1192,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1182,7 +1193,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  #endif
  		}
  
@@ -2145,7 +2190,7 @@ index 8a219ea..5d82c42 100644
  		{
  			iGunType = pAttack->m_pActiveItem->m_iId;
  			flRatio += flShieldRatio;
-@@ -1210,6 +1220,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1210,6 +1221,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  				break;
  			case WEAPON_SCOUT:
  			case WEAPON_KNIFE:
@@ -2153,7 +2198,7 @@ index 8a219ea..5d82c42 100644
  				flRatio *= 1.7;
  				break;
  			case WEAPON_FAMAS:
-@@ -1253,7 +1264,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1253,7 +1265,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  
  	// Armor
  	// armor doesn't protect against fall or drown damage!
@@ -2162,7 +2207,7 @@ index 8a219ea..5d82c42 100644
  	{
  		real_t flNew = flRatio * flDamage;
  		real_t flArmor = (flDamage - flNew) * flBonus;
-@@ -1291,92 +1302,21 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
+@@ -1291,92 +1303,21 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(TakeDamage)(entvars_t *pevInflictor, entva
  	}
  
  	// keep track of amount of damage last sustained
@@ -2264,7 +2309,7 @@ index 8a219ea..5d82c42 100644
  	// create a box to pack the stuff into.
  	CWeaponBox *pWeaponBox = (CWeaponBox *)CBaseEntity::Create("weaponbox", origin, angles, pPlayerOwner ? ENT(pPlayerOwner->pev) : nullptr);
  
-@@ -1449,7 +1389,7 @@ CWeaponBox *PackPlayerItem(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool pa
+@@ -1449,7 +1390,7 @@ CWeaponBox *PackPlayerItem(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool pa
  	if (!pItem)
  		return nullptr;
  
@@ -2273,7 +2318,7 @@ index 8a219ea..5d82c42 100644
  	if (modelName)
  	{
  		Vector vecOrigin   = pPlayer->pev->origin;
-@@ -1479,7 +1419,7 @@ void PackPlayerNade(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool packAmmo)
+@@ -1479,7 +1420,7 @@ void PackPlayerNade(CBasePlayer *pPlayer, CBasePlayerItem *pItem, bool packAmmo)
  		return;
  	}
  
@@ -2282,7 +2327,7 @@ index 8a219ea..5d82c42 100644
  	if (modelName)
  	{
  		float flOffset = 0.0f;
-@@ -2230,6 +2170,9 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
+@@ -2230,6 +2171,9 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, Killed, (entvars_t *pevAttacker, int iGi
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  {
@@ -2292,7 +2337,7 @@ index 8a219ea..5d82c42 100644
  	m_canSwitchObserverModes = false;
  
  	if (m_LastHitGroup == HITGROUP_HEAD)
-@@ -2551,7 +2494,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
+@@ -2551,7 +2495,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Killed)(entvars_t *pevAttacker, int iGib)
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -2301,7 +2346,7 @@ index 8a219ea..5d82c42 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -3185,6 +3128,14 @@ void CBasePlayer::WaterMove()
+@@ -3185,6 +3129,14 @@ void CBasePlayer::WaterMove()
  		return;
  #endif
  
@@ -2316,7 +2361,72 @@ index 8a219ea..5d82c42 100644
  	// waterlevel 0 - not in water
  	// waterlevel 1 - feet in water
  	// waterlevel 2 - waist in water
-@@ -3897,6 +3848,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
+@@ -3541,11 +3493,27 @@ CGrenade *CBasePlayer::__API_HOOK(ThrowGrenade)(CBasePlayerWeapon *pWeapon, Vect
+ 	return nullptr;
+ }
+ 
+-LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, AddAccount, (int amount, RewardType type, bool bTrackChange), amount, type, bTrackChange)
++#ifdef REGAMEDLL_API
++void CBasePlayer::AddAccount(int amount, RewardType type, bool bTrackChange)
++{
++    CSOLScenarioSdkScope scenarioScope;
++    if (!scenarioScope.Current() || !CSOLBreakableScope::Current(nullptr)) return;
++    const EHANDLE self(this);
++    CSOLBreakableScope entityScope(scenarioScope.Scenario() ? CSOLBreakableScope::Guard(
++        [&scenarioScope, access = scenarioScope.EntityAccess(), self, player = this]()
++        { return scenarioScope.Current() && access && access->Allowed() && self.Get<CBaseEntity>() == player &&
++            !(player->pev->flags & FL_KILLME) && !player->has_disconnected; }) : CSOLBreakableScope::Guard{}, false, false);
++    g_ReGameHookchains.m_CBasePlayer_AddAccount.callChain(&CBasePlayer::AddAccount_OrigFunc, this, amount, type, bTrackChange);
++}
++#endif
+ 
+ #ifdef REGAMEDLL_ADD
+ void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)(int amount, RewardType type, bool bTrackChange)
+ {
++    CSOLScenarioSdkScope scenarioScope;
++    // ReAPI pre hooks may retire the map or replace the player in this slot.
++    // Validate the wrapper's original identity before touching its account.
++    if (!scenarioScope.Current() || !CSOLBreakableScope::Current(nullptr)) return;
+ 	bool bSendMoney = true;
+ 	switch (type)
+ 	{
+@@ -3558,11 +3526,14 @@ void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)(int amount, RewardType type, b
+ 		break;
+ 	}
+ 
+-	m_iAccount += amount;
++	if (CSOL_UsesScenarioRules())
++		m_iAccount = int(clamp<std::int64_t>(std::int64_t(m_iAccount) + amount, 0, csol::scenario::MaximumMoney));
++	else
++		m_iAccount += amount;
+ 
+ 	if (bSendMoney)
+ 	{
+-		m_iAccount = clamp<int>(m_iAccount, 0, maxmoney.value);
++		m_iAccount = clamp<int>(m_iAccount, 0, CSOL_AccountMaxMoney(int(maxmoney.value)));
+ 
+ 		// Send money update to HUD
+ 		MESSAGE_BEGIN(MSG_ONE, gmsgMoney, nullptr, pev);
+@@ -3574,10 +3545,15 @@ void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)(int amount, RewardType type, b
+ #else
+ void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)(int amount, RewardType type, bool bTrackChange)
+ {
+-	m_iAccount += amount;
++    CSOLScenarioSdkScope scenarioScope;
++    if (!scenarioScope.Current() || !CSOLBreakableScope::Current(nullptr)) return;
++	if (CSOL_UsesScenarioRules())
++		m_iAccount = int(clamp<std::int64_t>(std::int64_t(m_iAccount) + amount, 0, csol::scenario::MaximumMoney));
++	else
++		m_iAccount += amount;
+ 
+-	if (m_iAccount > 16000)
+-		m_iAccount = 16000;
++	if (m_iAccount > CSOL_AccountMaxMoney(16000))
++		m_iAccount = CSOL_AccountMaxMoney(16000);
+ 
+ 	else if (m_iAccount < 0)
+ 		m_iAccount = 0;
+@@ -3897,6 +3873,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Disappear)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -2324,7 +2434,7 @@ index 8a219ea..5d82c42 100644
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3876,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
+@@ -3924,7 +3901,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -2333,7 +2443,7 @@ index 8a219ea..5d82c42 100644
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4151,6 +4103,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
+@@ -4151,6 +4128,7 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, StartObserver, (Vector &vecPosition, Vec
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -2341,7 +2451,7 @@ index 8a219ea..5d82c42 100644
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -4656,14 +4609,25 @@ bool CBasePlayer::CanPlayerBuy(bool display)
+@@ -4656,14 +4634,25 @@ bool CBasePlayer::CanPlayerBuy(bool display)
  		return false;
  	}
  
@@ -2370,7 +2480,7 @@ index 8a219ea..5d82c42 100644
  #endif
  	{
  		int buyTime = int(buytime.value * 60.0f);
-@@ -4721,6 +4685,12 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PreThink)
+@@ -4721,6 +4710,12 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PreThink)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(PreThink)()
  {
@@ -2383,7 +2493,7 @@ index 8a219ea..5d82c42 100644
  	// These buttons have changed this frame
  	int buttonsChanged = (m_afButtonLast ^ pev->button);
  
-@@ -5348,6 +5318,10 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PostThink)
+@@ -5348,6 +5343,10 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, PostThink)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  {
@@ -2394,7 +2504,7 @@ index 8a219ea..5d82c42 100644
  	// intermission or finale
  	if (g_pGameRules->IsGameOver())
  		goto pt_end;
-@@ -5375,6 +5349,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5375,6 +5374,18 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	// do weapon stuff
  	ItemPostFrame();
  
@@ -2413,7 +2523,7 @@ index 8a219ea..5d82c42 100644
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
  	// play a bootscrape sound, and no damage will be inflicted. Fallling a distance shorter than half
-@@ -5387,7 +5373,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5387,7 +5398,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  			// after this point, we start doing damage
  			if (m_flFallVelocity > MAX_PLAYER_SAFE_FALL_SPEED)
  			{
@@ -2422,7 +2532,7 @@ index 8a219ea..5d82c42 100644
  
  				// splat
  				if (flFallDamage > pev->health)
-@@ -5489,6 +5475,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5489,6 +5500,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  					{
  						gun->m_flTimeWeaponIdle = Q_max(gun->m_flTimeWeaponIdle - gpGlobals->frametime, -0.001f);
  					}
@@ -2430,7 +2540,7 @@ index 8a219ea..5d82c42 100644
  				}
  
  				pPlayerItem = pPlayerItem->m_pNext;
-@@ -5507,6 +5494,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
+@@ -5507,6 +5519,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  	m_iGaitsequence = pev->gaitsequence;
  
  	StudioProcessGait();
@@ -2441,7 +2551,7 @@ index 8a219ea..5d82c42 100644
  }
  
  // checks if the spot is clear of players
-@@ -5622,6 +5613,8 @@ LINK_HOOK_CLASS_CHAIN2(edict_t *, CBasePlayer, EntSelectSpawnPoint)
+@@ -5622,6 +5638,8 @@ LINK_HOOK_CLASS_CHAIN2(edict_t *, CBasePlayer, EntSelectSpawnPoint)
  
  edict_t *EXT_FUNC CBasePlayer::__API_HOOK(EntSelectSpawnPoint)()
  {
@@ -2450,7 +2560,7 @@ index 8a219ea..5d82c42 100644
  	CBaseEntity *pSpot;
  
  	// choose a info_player_deathmatch point
-@@ -5770,6 +5763,8 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Spawn)
+@@ -5770,6 +5788,8 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, Spawn)
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  {
@@ -2459,7 +2569,7 @@ index 8a219ea..5d82c42 100644
  	int i;
  
  #ifdef REGAMEDLL_FIXES
-@@ -5779,6 +5774,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -5779,6 +5799,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	}
  #endif
  
@@ -2469,7 +2579,7 @@ index 8a219ea..5d82c42 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6130,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6155,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -2478,7 +2588,27 @@ index 8a219ea..5d82c42 100644
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -7152,34 +7152,43 @@ void CBasePlayer::HandleSignals()
+@@ -6273,7 +6298,7 @@ void CBasePlayer::Reset()
+ #endif
+ 
+ 	CheckStartMoney();
+-	AddAccount(startmoney.value, RT_PLAYER_RESET);
++	AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_RESET);
+ 
+ 	MESSAGE_BEGIN(MSG_ALL, gmsgScoreInfo);
+ 		WRITE_BYTE(ENTINDEX(edict()));
+@@ -6887,8 +6912,8 @@ void CBasePlayer::CheatImpulseCommands(int iImpulse)
+ 	{
+ 		case 101:
+ #ifdef REGAMEDLL_ADD
+-			AddAccount(int(maxmoney.value));
+-			ALERT(at_console, "Crediting %s with $%i\n", STRING(pev->netname), int(maxmoney.value));
++			AddAccount(CSOL_AccountMaxMoney(int(maxmoney.value)));
++			ALERT(at_console, "Crediting %s with $%i\n", STRING(pev->netname), CSOL_AccountMaxMoney(int(maxmoney.value)));
+ #else
+ 			AddAccount(16000);
+ 			ALERT(at_console, "Crediting %s with $16000\n", STRING(pev->netname));
+@@ -7152,34 +7177,43 @@ void CBasePlayer::HandleSignals()
  {
  	if (CSGameRules()->IsMultiplayer())
  	{
@@ -2541,7 +2671,7 @@ index 8a219ea..5d82c42 100644
  			}
  		}
  
-@@ -7341,6 +7350,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
+@@ -7341,6 +7375,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
  	if (pPrev == pItem)
  	{
  		m_rgpPlayerItems[pItem->iItemSlot()] = pItem->m_pNext;
@@ -2549,7 +2679,7 @@ index 8a219ea..5d82c42 100644
  		return TRUE;
  	}
  
-@@ -7350,6 +7360,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
+@@ -7350,6 +7385,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
  	if (pPrev)
  	{
  		pPrev->m_pNext = pItem->m_pNext;
@@ -2557,7 +2687,7 @@ index 8a219ea..5d82c42 100644
  		return TRUE;
  	}
  
-@@ -7372,6 +7383,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7372,6 +7408,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  
  	if (iMax == -1)
  		iMax = MaxAmmoCarry(szName);
@@ -2565,7 +2695,7 @@ index 8a219ea..5d82c42 100644
  
  	if (!g_pGameRules->CanHaveAmmo(this, szName, iMax))
  	{
-@@ -7383,6 +7395,18 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7383,6 +7420,18 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  	if (i < 0 || i >= MAX_AMMO_SLOTS)
  		return -1;
  
@@ -2584,7 +2714,7 @@ index 8a219ea..5d82c42 100644
  	int iAdd = Q_min(iCount, iMax - m_rgAmmo[i]);
  	if (iAdd < 1)
  		return i;
-@@ -7390,7 +7414,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7390,7 +7439,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  	m_rgAmmo[i] += iAdd;
  
  	// make sure the ammo messages have been linked first
@@ -2593,7 +2723,7 @@ index 8a219ea..5d82c42 100644
  	{
  		// Send the message that ammo has been picked up
  		MESSAGE_BEGIN(MSG_ONE, gmsgAmmoPickup, nullptr, pev);
-@@ -7586,6 +7610,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
+@@ -7586,6 +7635,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
  // reflecting all of the HUD state info.
  void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  {
@@ -2601,7 +2731,7 @@ index 8a219ea..5d82c42 100644
  	if (m_fInitHUD)
  	{
  		m_fInitHUD = FALSE;
-@@ -7696,6 +7721,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7696,6 +7746,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  #endif
  	}
  
@@ -2612,7 +2742,7 @@ index 8a219ea..5d82c42 100644
  	if (m_iHideHUD != m_iClientHideHUD)
  	{
  		MESSAGE_BEGIN(MSG_ONE, gmsgHideWeapon, nullptr, pev);
-@@ -7746,28 +7775,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7800,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  
@@ -2649,7 +2779,7 @@ index 8a219ea..5d82c42 100644
  		MESSAGE_END();
  	}
  
-@@ -7855,6 +7881,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7855,6 +7906,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  	}
  
  	SendAmmoUpdate();
@@ -2658,7 +2788,7 @@ index 8a219ea..5d82c42 100644
  
  	// Update all the items
  	for (int i = 0; i < MAX_ITEM_TYPES; i++)
-@@ -8124,6 +8152,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
+@@ -8124,6 +8177,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
  	}
  
  	pev->maxspeed = speed;
@@ -2669,7 +2799,7 @@ index 8a219ea..5d82c42 100644
  }
  
  LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, HintMessageEx, (const char *pMessage, float duration, bool bDisplayIfPlayerDead, bool bOverride), pMessage, duration, bDisplayIfPlayerDead, bOverride)
-@@ -8257,6 +8289,7 @@ void CBasePlayer::InitStatusBar()
+@@ -8257,6 +8314,7 @@ void CBasePlayer::InitStatusBar()
  {
  	m_flStatusBarDisappearDelay = 0.0f;
  	m_SbarString0[0] = '\0';
@@ -2677,7 +2807,7 @@ index 8a219ea..5d82c42 100644
  }
  
  LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateStatusBar)
-@@ -8284,6 +8317,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
+@@ -8284,6 +8342,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
  
  	UTIL_TraceLine(vecSrc, vecEnd, dont_ignore_monsters, edict(), &tr);
  
@@ -2687,7 +2817,7 @@ index 8a219ea..5d82c42 100644
  	if (tr.flFraction != 1.0f)
  	{
  		if (!FNullEnt(tr.pHit))
-@@ -8474,12 +8510,16 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8474,12 +8535,16 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			return nullptr;
  		}
  
@@ -2706,7 +2836,7 @@ index 8a219ea..5d82c42 100644
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
-@@ -8530,8 +8570,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8530,8 +8595,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			}
  		}
  
@@ -2715,7 +2845,7 @@ index 8a219ea..5d82c42 100644
  		Vector vecOrigin   = pev->origin + gpGlobals->v_forward * 10;
  		Vector vecAngles   = pev->angles;
  		Vector vecVelocity = gpGlobals->v_forward * 300 + gpGlobals->v_forward * 100;
-@@ -9671,6 +9709,9 @@ bool IsPrimaryWeaponClass(int classId)
+@@ -9671,6 +9734,9 @@ bool IsPrimaryWeaponClass(int classId)
  
  bool IsPrimaryWeaponId(int id)
  {
@@ -2725,7 +2855,7 @@ index 8a219ea..5d82c42 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -9689,6 +9730,9 @@ bool IsSecondaryWeaponClass(int classId)
+@@ -9689,6 +9755,9 @@ bool IsSecondaryWeaponClass(int classId)
  
  bool IsSecondaryWeaponId(int id)
  {
@@ -2735,7 +2865,7 @@ index 8a219ea..5d82c42 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -10569,11 +10613,11 @@ void CBasePlayer::RemoveBomb()
+@@ -10569,11 +10638,11 @@ void CBasePlayer::RemoveBomb()
  	}
  
  	if (RemovePlayerItem(pBomb)) {
@@ -2749,6 +2879,15 @@ index 8a219ea..5d82c42 100644
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
+@@ -10752,7 +10821,7 @@ bool EXT_FUNC CBasePlayer::__API_HOOK(GetIntoGame)()
+ 		m_iAccount = 0;
+ #endif
+ 		CheckStartMoney();
+-		AddAccount(startmoney.value, RT_INTO_GAME);
++		AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_INTO_GAME);
+ 	}
+ 
+ 	if (g_pGameRules->FPlayerCanRespawn(this))
 diff --git a/regamedll/dlls/player.h b/regamedll/dlls/player.h
 index 3e916a4..051ae24 100644
 --- a/regamedll/dlls/player.h
@@ -3699,16 +3838,17 @@ index f7294b7..d20c519 100644
  
  void WeaponsPrecache();
 diff --git a/regamedll/dlls/weapontype.cpp b/regamedll/dlls/weapontype.cpp
-index 08d0495..a0e1040 100644
+index 08d0495..ab65a42 100644
 --- a/regamedll/dlls/weapontype.cpp
 +++ b/regamedll/dlls/weapontype.cpp
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  #include "precompiled.h"
 +#include "../../../../native/csol/server/weapon_slots.h"
++#include "../../../../native/csol/server/buy_menu.h"
  
  WeaponStruct g_weaponStruct[MAX_WEAPONS] =
  {
-@@ -445,6 +446,9 @@ WeaponClassType WeaponIDToWeaponClass(ArmouryItemPack id)
+@@ -445,6 +447,9 @@ WeaponClassType WeaponIDToWeaponClass(ArmouryItemPack id)
  // Return true if given weapon ID is a primary weapon
  bool IsPrimaryWeapon(int id)
  {
@@ -3718,7 +3858,7 @@ index 08d0495..a0e1040 100644
  	switch (id)
  	{
  	case WEAPON_SCOUT:
-@@ -477,6 +481,9 @@ bool IsPrimaryWeapon(int id)
+@@ -477,6 +482,9 @@ bool IsPrimaryWeapon(int id)
  // Return true if given weapon ID is a secondary weapon
  bool IsSecondaryWeapon(int id)
  {
@@ -3728,7 +3868,7 @@ index 08d0495..a0e1040 100644
  	switch (id)
  	{
  	case WEAPON_P228:
-@@ -573,6 +580,7 @@ void WeaponInfoReset()
+@@ -573,6 +581,7 @@ void WeaponInfoReset()
  
  WeaponSlotInfo *GetWeaponSlot(WeaponIdType weaponID)
  {
@@ -3736,7 +3876,7 @@ index 08d0495..a0e1040 100644
  	for (auto& infoSlot : g_weaponSlotInfo) {
  		if (infoSlot.id == weaponID) {
  			return &infoSlot;
-@@ -584,6 +592,7 @@ WeaponSlotInfo *GetWeaponSlot(WeaponIdType weaponID)
+@@ -584,6 +593,7 @@ WeaponSlotInfo *GetWeaponSlot(WeaponIdType weaponID)
  
  WeaponSlotInfo *GetWeaponSlot(const char *weaponName)
  {
@@ -3744,6 +3884,15 @@ index 08d0495..a0e1040 100644
  	for (auto& infoSlot : g_weaponSlotInfo) {
  		if (!Q_stricmp(infoSlot.weaponName, weaponName)) {
  			return &infoSlot;
+@@ -595,6 +605,8 @@ WeaponSlotInfo *GetWeaponSlot(const char *weaponName)
+ 
+ bool CanBuyWeaponByMaptype(int playerTeam, WeaponIdType weaponID, bool useAssasinationRestrictions)
+ {
++	if (CSOL_CanBuyScenarioNativeWeapon(playerTeam, static_cast<int>(weaponID)))
++		return true;
+ 	if (useAssasinationRestrictions)
+ 	{
+ 		if (playerTeam == CT)
 diff --git a/regamedll/dlls/world.cpp b/regamedll/dlls/world.cpp
 index cc4a3de..b58cfde 100644
 --- a/regamedll/dlls/world.cpp

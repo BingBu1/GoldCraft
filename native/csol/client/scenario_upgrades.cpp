@@ -55,7 +55,7 @@ void Prepare()
 {
     if(prepared||!surface)return;
     prepared=true;
-    if(!additiveSurface)digitSprite=engine.pfnSPR_Load("sprites/640hud8.spr");
+    if(!additiveSurface)digitSprite=engine.pfnSPR_Load(upgrades::DigitSpritePath);
     for(unsigned i=0;i<textures.size();++i)
     {
         try

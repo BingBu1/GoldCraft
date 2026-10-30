@@ -6,3 +6,4 @@ struct edict_s;
 bool CSOL_PrecacheBuyMenu();
 bool CSOL_BuyMenuCommand(edict_s* entity,const char* command);
 void CSOL_ResetBuyMenu();
+bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId);

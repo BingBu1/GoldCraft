@@ -20,10 +20,8 @@ def main():
     def read(name):
         data=(source/name).read_bytes();inputs[name]=hashlib.sha256(data).hexdigest();return data
     def kv(name):read(name);return next(iter(module.keyvalues(source/name).values()))
-    scheme=kv('resource/clientscheme.res');frame=kv('resource/UI/CSO_BuyMenu.res')['buymenu'];layout=kv('resource/UI/cso_buysubmenu_ver3.res')
-    # The copied current client explicitly loads ver7. Its sparse file supplies
-    # updated panels; retain original slot/page geometry for omitted controls.
-    layout.update(kv('resource/UI/CSO_BuySubMenu_ver7.res'))
+    scheme=kv('resource/clientscheme.res');frame=kv('resource/UI/CSO_BuyMenu.res')['buymenu']
+    layout=kv('resource/UI/CSO_BuySubMenu_ver7.res')
     text={}
     for n in ['resource/cstrike_chn.txt','resource/cso_chn.txt']:text.update(kv(n)['tokens'])
     def texture(name,alias):
@@ -40,8 +38,16 @@ def main():
     for i,price in [(144,4100),(220,30)]:
         token='cstrike_'+('cannon' if i==144 else 'tknifeex2')+'price';assert int(re.search(r'\d+',text[token])[0])==price
     for n in ['beamgun','beamgunle']:assert json.loads(read('weapons/weapon_'+n+'.json'))['price']==6100
-    menu=dict(version=1,width=int(frame['wide']),height=int(frame['tall']),title=text[frame['title'][1:].lower()],font=scheme['fonts']['default']['1']['name'],
-              info=rect('iteminfo'),slots=[rect('slot'+str(i)) for i in range(10)],previous=rect('prevbtn'),next=rect('nextbtn'),quit=rect('quitbutton'),account=rect('account_num'),
+    # ver7 declares the detail/rebuy/account controls. Its runtime-created list
+    # and eight favorites are measured from the supplied modern CSOL screenshot,
+    # in the same 606-wide logical space; do not merge unrelated ver3 controls.
+    menu=dict(version=2,width=int(frame['wide']),height=440,title=text[frame['title'][1:].lower()],font=scheme['fonts']['default']['1']['name'],
+              info=rect('iteminfo'),slots=[[14,52+i*25,200,25] for i in range(10)],previous=[14,306,72,18],next=[142,306,72,18],quit=[14,277,200,25],account=rect('account_num'),
+              search=[56,22,90,12],teams=[[14,37,68,15],[82,37,70,15]],rebuy=rect('rebuybutton'),
+              favorites=[[374+(i%2)*110,52+(i//2)*35,107,31] for i in range(8)],
+              slotBackground=[texture(theme['buybutton'][key],'slot'+str(i)) for i,key in enumerate(['up','on'])],
+              keyboard=texture('resource/control/button_ingame/keyboard','keyboard'),
+              favoriteBackground=texture('resource/control/button_ingame/favoritebg','favorite'),
               frame=[texture(theme['frame'][edge],'f'+str(i)) for i,edge in enumerate(edges)],
               buttons=[[texture(theme['button'][edge+state],'b'+str(i)+str(j)) for j,edge in enumerate(['left','center','right'])] for i,state in enumerate(['n','o','c'])],
               close=[texture('resource/control/frame/btn_default_close@'+s,'x'+str(i)) for i,s in enumerate(['n','o','c'])],

@@ -39,7 +39,7 @@ const csol::Character* Selected(CBasePlayer* p)
     if(!ready || !p || p->entindex()<1 || p->entindex()>32 || p->IsDormant())return nullptr;
     const auto* c=csol::FindCharacter(catalog,State(p).selected);
     if(!c || !p->IsAlive() || (CSOL_ZombieMode() && !CSOL_ZombieHuman(p)) ||
-        !csol::CharacterTeamAllowed(*c,p->m_iTeam,CSOL_ZombieHuman(p)))return nullptr;
+        !csol::CharacterTeamAllowed(*c,p->m_iTeam,CSOL_UsesScenarioRules() || CSOL_ZombieHuman(p)))return nullptr;
     return c;
 }
 void Send(CBasePlayer* recipient,const csol::CharacterState& state)
@@ -92,7 +92,8 @@ bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId,
     auto* current=dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>());
     if(!ready || !current || (current->pev->flags&FL_KILLME) || states[index].userid!=userid)return false;
     const auto* character=csol::FindCharacter(catalog,states[index].selected);
-    if(!character || character->scenarioClass<0 || character->team!=current->m_iTeam)return false;
+    if(!character || character->scenarioClass<0 ||
+        !csol::CharacterTeamAllowed(*character,current->m_iTeam,CSOL_UsesScenarioRules()))return false;
     classId=character->scenarioClass;
     return true;
 }
@@ -162,7 +163,7 @@ bool CSOL_CharacterCommand(edict_t* entity,const char* command)
     if(!ready || CMD_ARGC_()!=2 || !*argument || !end || *end || !c ||
         (CSOL_UsesScenarioRules() && c->scenarioClass<0) ||
         (!appearance && (!player->IsAlive() || (CSOL_ZombieMode() && !CSOL_ZombieHuman(player)))) ||
-        !csol::CharacterTeamAllowed(*c,player->m_iTeam,!appearance && CSOL_ZombieHuman(player))){
+        !csol::CharacterTeamAllowed(*c,player->m_iTeam,CSOL_UsesScenarioRules() || (!appearance && CSOL_ZombieHuman(player)))){
         ClientPrint(player->pev,HUD_PRINTCENTER,"Character unavailable for current team or role");return true;
     }
     state.selected=int(id);

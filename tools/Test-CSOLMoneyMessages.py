@@ -1,8 +1,9 @@
 """Exercise native AddAccount serialization and the matched CS x86 Money reader.
 
-The SDK function and reward call expressions are extracted unchanged into a
-small executable; only engine message sinks and unrelated player fields are
-stubbed. The client reader executes its original machine code in Unicorn.
+The complete SDK account wrapper/original, guard stack, actual hook registry
+and reward call expressions are compiled unchanged into a small executable.
+SDK rules/entity lifecycle and engine message sinks are controlled edges.
+The client reader executes its original machine code in Unicorn.
 No game process, deployment, or UI is used. Requires an initialized x86 Clang
 environment plus capstone/unicorn in the selected Python interpreter.
 """
@@ -10,6 +11,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from csol_account_fixture import account_source
 import re
 import struct
 import subprocess
@@ -29,44 +31,19 @@ def digest(path):
 
 def native_fixture(output, clang):
     source = ROOT / 'external/ReGameDLL_CS/regamedll/dlls/player.cpp'
-    text = source.read_text(encoding='utf-8-sig')
-    begin = text.index('void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)')
-    end = text.index('\n#else', begin)
-    function = text[begin:end]
-    calls, inputs = [], [source]
+    calls, inputs = [], [source, ROOT / 'native/csol/server/scenario_money.h']
     for i, name in enumerate(CONSUMERS):
         path = ROOT / 'native/csol/server' / name
         inputs.append(path)
         matches = re.findall(r'\b(?:attacker|entity)->AddAccount\(money, RT_NONE, (?:true|false)\);', path.read_text())
         assert len(matches) == 1, name
         calls.append(f'void reward{i}(CBasePlayer* attacker, int money){{auto* entity=attacker; {matches[0]}}}')
-    fixture = r'''
-#include <algorithm>
-#include <cstdint>
-#include <cstdio>
-#include <vector>
-enum RewardType {RT_NONE, RT_INTO_GAME, RT_PLAYER_JOIN, RT_PLAYER_RESET, RT_PLAYER_SPEC_JOIN};
-struct entvars_t {};
-struct {float value=16000;} maxmoney;
-using std::clamp;
-struct CBasePlayer {int m_iAccount=0; entvars_t* pev=nullptr; void AddAccount(int,RewardType,bool);};
-std::vector<std::vector<unsigned char>> messages;
-void Begin(int,int,const float*,entvars_t*){messages.emplace_back();}
-void Long(int value){for(int i=0;i<4;++i)messages.back().push_back(static_cast<std::uint32_t>(value)>>(8*i));}
-void Byte(int value){messages.back().push_back(value);}
-void End(){}
-#define EXT_FUNC
-#define __API_HOOK(name) name
-#define MSG_ONE 1
-#define gmsgMoney 42
-#define MESSAGE_BEGIN Begin
-#define WRITE_LONG Long
-#define WRITE_BYTE Byte
-#define MESSAGE_END End
-'''
-    fixture += function + '\n' + '\n'.join(calls)
+    fixture, hook_inputs = account_source()
+    inputs.extend(path for path in hook_inputs if path not in inputs)
+    fixture += '\n'.join(calls)
     fixture += r'''
-void Emit(const char* name, int before, int amount, int maximum, int track, int type, int repeats, int consumer=-1){
+void Emit(const char* name, int before, int amount, int maximum, int track, int type, int repeats, int consumer=-1, bool scenario=false){
+    scenarioMode=scenario;
     CBasePlayer player;player.m_iAccount=before;maxmoney.value=static_cast<float>(maximum);messages.clear();
     for(int i=0;i<repeats;++i){
         if(consumer==0)reward0(&player,amount);
@@ -90,6 +67,23 @@ int main(){
     Emit("silent-sync",800,200,16000,0,RT_NONE,1);
     Emit("join-no-message",123,800,16000,0,RT_INTO_GAME,1);
     Emit("reset-no-delta",123,800,16000,0,RT_PLAYER_RESET,1);
+    scenarioMode=true;
+    Emit("scenario-initial",123,CSOL_AccountStartMoney(800),16000,0,RT_PLAYER_JOIN,1,-1,true);
+    Emit("scenario-reset",28000,CSOL_AccountStartMoney(1000),16000,0,RT_PLAYER_RESET,2,-1,true);
+    Emit("scenario-spec-join",28000,CSOL_AccountStartMoney(16000),16000,0,RT_PLAYER_SPEC_JOIN,1,-1,true);
+    Emit("scenario-above-native-cap",15900,500,16000,1,RT_NONE,1,0,true);
+    Emit("scenario-partial-cap",31900,500,16000,1,RT_NONE,1,1,true);
+    Emit("scenario-at-cap",32000,500,16000,1,RT_NONE,1,2,true);
+    Emit("scenario-purchase",7500,-6000,16000,1,RT_NONE,1,-1,true);
+    Emit("scenario-negative-clamped",100,-300,16000,1,RT_NONE,1,-1,true);
+    Emit("scenario-api-set",0,40000,16000,1,RT_NONE,1,-1,true);
+    Emit("scenario-silent-sync",7500,1000,16000,0,RT_NONE,1,-1,true);
+    Emit("scenario-silent-join-cap",123,40000,16000,0,RT_PLAYER_JOIN,1,-1,true);
+    Emit("scenario-positive-overflow",32000,2147483647,16000,1,RT_NONE,1,-1,true);
+    Emit("scenario-negative-overflow",-1,(-2147483647-1),16000,1,RT_NONE,1,-1,true);
+    scenarioMode=false;
+    Emit("native-custom-initial",123,CSOL_AccountStartMoney(1200),16000,0,RT_PLAYER_RESET,1);
+    Emit("native-custom-cap",39000,5000,40000,1,RT_NONE,1);
 }
 '''
     generated = output / 'native-account-fixture.cpp'
@@ -97,7 +91,7 @@ int main(){
     obj, exe = output / 'native-account-fixture.obj', output / 'native-account-fixture.exe'
     commands = [
         [clang, '--target=i686-pc-windows-msvc', '/nologo', '/std:c++20', '/EHsc', '/MT', '/O2',
-         '/clang:-O3', '/clang:-flto=thin', '/arch:AVX2', '/fp:precise', '/c', str(generated), '/Fo'+str(obj)],
+         '/clang:-O3', '/clang:-flto=thin', '/arch:AVX2', '/fp:precise', '/I'+str(ROOT), '/I'+str(ROOT / 'external/ReGameDLL_CS/regamedll/public/regamedll'), '/c', str(generated), '/Fo'+str(obj)],
         [clang, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', str(obj), '/Fe'+str(exe),
          '/link', '/OPT:REF', '/OPT:LLDLTO=3', '/threads:1'],
     ]
@@ -172,6 +166,16 @@ def main():
         'zero': (800, [0], [0]), 'negative-clamped': (0, [-100], [1]),
         'signed32-balance': (61000, [1000], [1]), 'silent-sync': (1000, [200], [0]),
         'join-no-message': (800, [], []), 'reset-no-delta': (800, [677], [0]),
+        'scenario-initial': (7500, [], []), 'scenario-reset': (7500, [-20500, 0], [0, 0]),
+        'scenario-spec-join': (7500, [-20500], [0]),
+        'scenario-above-native-cap': (16400, [500], [1]),
+        'scenario-partial-cap': (32000, [100], [1]), 'scenario-at-cap': (32000, [0], [0]),
+        'scenario-purchase': (1500, [-6000], [1]), 'scenario-negative-clamped': (0, [-100], [1]),
+        'scenario-api-set': (32000, [32000], [1]), 'scenario-silent-sync': (8500, [1000], [0]),
+        'scenario-silent-join-cap': (32000, [], []),
+        'scenario-positive-overflow': (32000, [0], [0]),
+        'scenario-negative-overflow': (0, [1], [1]),
+        'native-custom-initial': (1200, [1077], [0]), 'native-custom-cap': (40000, [1000], [1]),
     }
     for row in rows:
         receive(struct.pack('<iB', row['before'], 0))

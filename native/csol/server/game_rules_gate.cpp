@@ -5,6 +5,7 @@
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
 #include "scenario_player_runtime.h"
+#include "scenario_money.h"
 #include "scenario_recovery_notice.h"
 #include "scenario_drops.h"
 #include "scenario_entity_lookup.h"
@@ -603,6 +604,13 @@ public:
             const bool spawnable = Spawnable(player);
             if (!current() || handle.Get<CBaseEntity>() != &player || !spawnable) return;
             if (!PreparePlayer(player) || !current() || handle.Get<CBaseEntity>() != &player) return;
+            if (m_bCompleteReset)
+            {
+                // AddAccount's reset reason replaces the balance. Ordinary
+                // stage progression preserves the player's earned money.
+                player.AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_RESET, false);
+                if (!current() || handle.Get<CBaseEntity>() != &player) return;
+            }
             player.m_iNumSpawns = 0;
             player.m_bTeamChanged = false;
             player.RoundRespawn();

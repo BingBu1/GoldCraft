@@ -143,7 +143,7 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     // UI assets are part of the authoritative map download list, so a clean
     // client receives the same original images/font over the built-in HTTP
     // service. The two converted Bink strips retain their original RGBA frames.
-    std::set<std::string> hudPaths{csol::upgrades::FontPath, "sprites/640hud8.spr"};
+    std::set<std::string> hudPaths{csol::upgrades::FontPath, csol::upgrades::DigitSpritePath};
     for (const auto& image : csol::upgrades::Resources) hudPaths.emplace(image.path);
     for (const auto* image : csol::abilities::DownloadResources) hudPaths.emplace(image);
     for (const auto& path : hudPaths)

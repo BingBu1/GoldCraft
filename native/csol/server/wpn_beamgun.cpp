@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "weapon_damage_mode.h"
 #include "weapons.h"
 #include "wpn_beamgun.h"
 #include "weapon_damage_runtime.h"
@@ -18,6 +19,14 @@ namespace
 constexpr float Metre = 39.37f;
 constexpr int ClipSize = 80, ReserveSize = 200;
 cvar_t damageMode = {"csol_beam_damage_mode", "0", FCVAR_SERVER, 0, nullptr};
+CSOLDamageMode CurrentDamageMode()
+{
+    const auto legacy = damageMode.value == 1 ? CSOLWeaponDamageMode::Zombie :
+        damageMode.value == 2 ? CSOLWeaponDamageMode::Scenario : CSOLWeaponDamageMode::Normal;
+    const auto selected = CSOL_CurrentWeaponDamageMode(legacy);
+    return selected == CSOLWeaponDamageMode::Scenario ? CSOLDamageMode::Scenario :
+        selected == CSOLWeaponDamageMode::Zombie ? CSOLDamageMode::Zombie : CSOLDamageMode::Normal;
+}
 int effectMessage{},guardMessage{};
 bool beamPrecached{};
 struct BeamSkin
@@ -152,11 +161,7 @@ bool CBeamGun::CanAttackNow() const
 }
 float CBeamGun::Damage(CSOLBeamDamage kind) const
 {
-    // Authoritative server setting, never userinfo. Normal CS defaults to 0;
-    // the owning game mode explicitly selects Zombie=1 or Scenario=2.
-    const auto mode = damageMode.value == 1 ? CSOLDamageMode::Zombie :
-        damageMode.value == 2 ? CSOLDamageMode::Scenario : CSOLDamageMode::Normal;
-    return CSOL_BeamDamage(Skin().id == 726 ? CSOLBeamVariant::BeamgunLE : CSOLBeamVariant::Beamgun, mode, kind);
+    return CSOL_BeamDamage(Skin().id == 726 ? CSOLBeamVariant::BeamgunLE : CSOLBeamVariant::Beamgun, CurrentDamageMode(), kind);
 }
 
 int CBeamGun::AddToPlayer(CBasePlayer* player)
@@ -323,7 +328,7 @@ void CBeamGun::Apply(const csol::BeamAction& action)
     case BeamAttack::Secondary2:
         UTIL_TraceLine(source, source + gpGlobals->v_forward * (10 * Metre), dont_ignore_monsters, m_pPlayer->edict(), &trace);
         Blast(trace.vecEndPos + trace.vecPlaneNormal, 4, CSOLBeamDamage::ShootB2);
-        Effect(2, damageMode.value==1 ? 1 : damageMode.value==2 ? 2 : 0, trace.vecEndPos); break;
+        Effect(2, static_cast<int>(CurrentDamageMode()), trace.vecEndPos); break;
     case BeamAttack::ChargedPrimary:
         UTIL_TraceLine(source, source + gpGlobals->v_forward * (100 * Metre), dont_ignore_monsters, m_pPlayer->edict(), &trace);
         Blast(trace.vecEndPos + trace.vecPlaneNormal, 6, CSOLBeamDamage::ChargeShootA);

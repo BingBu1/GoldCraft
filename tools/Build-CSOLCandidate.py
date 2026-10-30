@@ -150,7 +150,7 @@ def relative_resource(value):
     path = Path(value)
     if path.is_absolute() or path.drive or '..' in path.parts or ':' in value or '\\' in value:
         raise ValueError(f'Invalid resource path: {value}')
-    if not path.parts or path.parts[0].lower() not in ('models', 'sprites', 'sound', 'bgm', 'materials', 'resource', 'maps', 'events', 'gfx'):
+    if not path.parts or path.parts[0].lower() not in ('models', 'sprites', 'sound', 'bgm', 'materials', 'resource', 'maps', 'events', 'gfx', 'shader'):
         raise ValueError(f'Resource destination outside game resource directories: {value}')
     if path.parts[0].lower() == 'bgm' and path.suffix.lower() != '.mp3':
         raise ValueError(f'BGM resources must be MP3 files: {value}')

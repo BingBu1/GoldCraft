@@ -2,6 +2,7 @@
 #include "buy_menu.hpp"
 #include <algorithm>
 #include <bit>
+#include <charconv>
 #include <rapidjson/document.h>
 #include <stdexcept>
 
@@ -20,12 +21,12 @@ constexpr Item items[]{
     {22,4,"m4a1","M4A1","m4a1",0},{24,4,"g3sg1","G3SG1","g3sg1",0},
     {27,4,"sg552","SG552","sg552",0},{28,4,"ak47","AK-47","ak47",0},
     {20,5,"m249","M249","m249",0},
-    {144,6,"cannon","黑龙炮","cannon",4100},{725,6,"beamgun","赤血龙骧","beamgun",6100},
-    {726,6,"beamgunle","御天绝影","beamgunle",6100},
-    {1001,7,"vest","防弹衣","kevlar",650},{1002,7,"vesthelm","防弹衣与头盔","assaultsuit",1000},
-    {1003,7,"hegren","高爆手雷","hegrenade",300},{1004,7,"flash","闪光弹","flashbang",200},
-    {1005,7,"sgren","烟雾弹","smokegrenade",300},
-    {2001,8,"primammo","主武器弹药","",0},{2002,9,"secammo","副武器弹药","",0}
+    {144,8,"cannon","黑龙炮","cannon",4100},{725,8,"beamgun","赤血龙骧","beamgun",6100},
+    {726,8,"beamgunle","御天绝影","beamgunle",6100},
+    {1001,8,"vest","防弹衣","kevlar",650},{1002,8,"vesthelm","防弹衣与头盔","assaultsuit",1000},
+    {1003,8,"hegren","高爆手雷","hegrenade",300},{1004,8,"flash","闪光弹","flashbang",200},
+    {1005,8,"sgren","烟雾弹","smokegrenade",300},
+    {2001,6,"primammo","主武器弹药","",0},{2002,7,"secammo","副武器弹药","",0}
 };
 using Value=rapidjson::Value;
 void Require(bool ok){if(!ok)throw std::runtime_error("invalid CSOL buy menu presentation");}
@@ -39,6 +40,27 @@ template<class T,std::size_t N,class F>void Array(const Value& v,std::array<T,N>
 }
 std::span<const Item> Catalog(){return items;}
 const Item* Find(int id){for(const auto& i:items)if(i.id==id)return &i;return nullptr;}
+Favorites ParseFavorites(std::string_view text){
+    Favorites result{};std::size_t index=0;
+    while(!text.empty()&&index<result.size()){
+        const auto end=text.find(',');const auto token=text.substr(0,end);unsigned id{};
+        const auto parsed=std::from_chars(token.data(),token.data()+token.size(),id);
+        if(parsed.ec!=std::errc{}||parsed.ptr!=token.data()+token.size())return {};
+        if(id&&id<2000&&Find(int(id))&&std::find(result.begin(),result.end(),id)==result.end())result[index]=std::uint16_t(id);
+        ++index;if(end==text.npos)break;text.remove_prefix(end+1);
+    }
+    return result;
+}
+std::string SerializeFavorites(const Favorites& favorites){
+    std::string text;for(const auto id:favorites){if(!text.empty())text+=',';text+=std::to_string(id);}return text;
+}
+bool InTeamList(const Item& item,int team){
+    switch(item.id){
+    case 8:case 11:case 13:case 15:case 22:case 23:return team==2;
+    case 7:case 10:case 14:case 24:case 27:case 28:return team==1;
+    default:return team==1||team==2;
+    }
+}
 std::array<std::uint8_t,MessageBytes> Encode(const Packet& p){
     std::array<std::uint8_t,MessageBytes> b{1,std::uint8_t(p.kind)};
     const auto put=[&](int o,std::uint32_t n,int count){for(int i=0;i<count;++i)b[o+i]=std::uint8_t(n>>(i*8));};
@@ -52,19 +74,30 @@ bool Decode(std::span<const std::uint8_t> b,Packet& p){
 }
 Presentation ParsePresentation(std::string_view json){
     Require(!json.empty()&&json.size()<=128*1024);rapidjson::Document d;d.Parse(json.data(),json.size());Require(!d.HasParseError());
-    Require(Number(Field(d,"version"))==1);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
+    const int version=Number(Field(d,"version"),1,2);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
     p.title=Text(Field(d,"title"),128);p.font=Text(Field(d,"font"),128);p.info=Rect(Field(d,"info"));p.previous=Rect(Field(d,"previous"));p.next=Rect(Field(d,"next"));p.quit=Rect(Field(d,"quit"));p.account=Rect(Field(d,"account"));
     Array(Field(d,"slots"),p.slots,Rect);Array(Field(d,"frame"),p.frame,Texture);Array(Field(d,"close"),p.close,Texture);
     const auto& buttons=Field(d,"buttons");Require(buttons.IsArray()&&buttons.Size()==3);for(int i=0;i<3;++i)Array(buttons[i],p.buttons[i],Texture);
+    for(int i=0;i<8;++i)p.favorites[i]={374+(i%2)*110,52+(i/2)*35,107,31};
+    if(version>=2){
+        p.search=Rect(Field(d,"search"));p.rebuy=Rect(Field(d,"rebuy"));
+        Array(Field(d,"teams"),p.teams,Rect);Array(Field(d,"favorites"),p.favorites,Rect);
+        Array(Field(d,"slotBackground"),p.slotBackground,Texture);
+        p.keyboard=Texture(Field(d,"keyboard"));p.favoriteBackground=Texture(Field(d,"favoriteBackground"));
+    }
     for(const auto* key:{"basetext","brightcontroltext","labeldimtext","windowbg","borderbright"})Array(Field(Field(d,"colors"),key),p.colors[key],[](const Value& v){return Number(v,0,255);});
     const auto& images=Field(d,"images");Require(images.IsArray()&&images.Size()<=Catalog().size());
     for(const auto& v:images.GetArray()){const int id=Number(Field(v,"id"),1,65535);Require(Find(id)&&!p.images.contains(id));p.images.emplace(id,Texture(v));}
     for(const auto& r:p.slots)Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);
+    const auto inside=[&](const MenuRect& r){Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);};
+    for(const auto& r:p.favorites)inside(r);for(const auto& r:p.teams)inside(r);inside(p.search);inside(p.rebuy);inside(p.account);
     for(const auto& i:Catalog())if(i.id==144||i.id==220||i.id==725||i.id==726)Require(p.images.contains(i.id));
     return p;
 }
 std::vector<std::string> Resources(const Presentation& p){
     std::vector<std::string> r{"models/csol/buymenu.json"};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
+    for(const auto& t:p.slotBackground)if(!t.path.empty())r.push_back(t.path);
+    for(const auto* t:{&p.keyboard,&p.favoriteBackground})if(!t->path.empty())r.push_back(t->path);
     std::sort(r.begin(),r.end());r.erase(std::unique(r.begin(),r.end()),r.end());return r;
 }
 }

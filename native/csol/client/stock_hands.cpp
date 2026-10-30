@@ -158,7 +158,25 @@ StockHandScope::StockHandScope(cl_entity_t* ent)
         return;
     }
 }
-StockHandScope::~StockHandScope(){if(entity){entity->model=model;entity->curstate.modelindex=index;}}
+StockHandScope::~StockHandScope()
+{
+    if(handedness)handedness->value=savedHandedness;
+    if(entity){entity->model=model;entity->curstate.modelindex=index;}
+}
+void StockHandScope::PrepareCustomRender(int flags)
+{
+    if(!(flags&STUDIO_RENDER) || !entity || handedness || std::strcmp(model->name,"models/v_knife.mdl") ||
+        !engine.pfnGetGameDirectory || !engine.pfnGetCvarPointer)return;
+    const char* game=engine.pfnGetGameDirectory();
+    if(!game || _stricmp(game,"cstrike"))return;
+    auto* value=engine.pfnGetCvarPointer("cl_righthand");
+    if(!value || !std::isfinite(value->value))return;
+    // The native CS draw toggles knife handedness only for STUDIO_RENDER.
+    // Our bone-only call omits that flag. Preserve its temporary value for
+    // both bone sampling and culling, then restore the user's setting.
+    handedness=value;savedHandedness=value->value;
+    value->value=std::trunc(savedHandedness)==0?1.f:0.f;
+}
 void StockHandScope::ClientEvents()
 {
     if(!entity){studio.StudioClientEvents();return;}
