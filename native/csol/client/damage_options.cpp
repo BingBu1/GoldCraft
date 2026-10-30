@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "damage_display.hpp"
+#include "hd_spray.hpp"
 #include "../image_codec.hpp"
 #include <IVGUI2Extension.h>
 #include <vgui_controls/Controls.h>
@@ -298,14 +299,19 @@ public:
         c->AddPage(page,"#CSOL_DamageNumbers");
     }
     void COptionsSubVideo_ApplyVidSettings(void*&,bool&,VGUI2Extension_CallbackContext*)override{}
-    void COptionsDialogSubPage_ctor(IGameUIOptionsDialogSubPageCtorCallbackContext*)override{}
-    void COptionsSubPage_OnApplyChanges(void*&,const char*,VGUI2Extension_CallbackContext*)override{}
+    void COptionsDialogSubPage_ctor(IGameUIOptionsDialogSubPageCtorCallbackContext* c)override{
+        if(ready&&!std::strcmp(c->GetName(),"COptionsSubMultiplayer"))CreateSprayOptions(c->GetPage());
+    }
+    void COptionsSubPage_OnApplyChanges(void*& page,const char* name,VGUI2Extension_CallbackContext* c)override{
+        if(c->IsPost&&!std::strcmp(name,"COptionsSubMultiplayer"))ApplySprayOptions(page);
+    }
 } optionCallbacks;
 void ReleaseDamageUI()
 {
     // BaseUI calls ClientVGUI_Shutdown before unhooking GameUI and unloading
     // vgui2.dll. Release DHANDLEs and textures while those interfaces live.
     if (!ready) return;
+    ReleaseSprayOptions();
     for (auto& page : pages) if (page.Get()) delete page.Get();
     pages.clear();
     if (overlay.Get()) delete overlay.Get();
@@ -349,9 +355,9 @@ public:
     void ActivateGameUI(VGUI2Extension_CallbackContext*)override{}
     void ActivateDemoUI(VGUI2Extension_CallbackContext*)override{}
     void HasExclusiveInput(VGUI2Extension_CallbackContext*)override{}
-    void RunFrame(VGUI2Extension_CallbackContext*)override{}
-    void ConnectToServer(const char*&,int&,int&,VGUI2Extension_CallbackContext*)override{ResetDamageDisplay();}
-    void DisconnectFromServer(VGUI2Extension_CallbackContext*)override{ResetDamageDisplay();}
+    void RunFrame(VGUI2Extension_CallbackContext*)override{SprayOptionsFrame();}
+    void ConnectToServer(const char*&,int&,int&,VGUI2Extension_CallbackContext*)override{ResetDamageDisplay();ResetSpray();}
+    void DisconnectFromServer(VGUI2Extension_CallbackContext*)override{ResetDamageDisplay();ResetSpray();}
     void HideGameUI(VGUI2Extension_CallbackContext*)override{}
     void IsGameUIActive(VGUI2Extension_CallbackContext*)override{}
     void LoadingStarted(const char*&,const char*&,VGUI2Extension_CallbackContext*)override{}

@@ -21,6 +21,8 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
+target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cpp client/hd_spray_options.cpp client/hd_spray_gl.cpp)
+target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
 set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"

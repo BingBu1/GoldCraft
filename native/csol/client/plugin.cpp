@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "hd_spray.hpp"
 #include "weapons.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
@@ -245,6 +246,7 @@ static void Init()
     InitializeWallStatus();
     InitializeBuyMenu();
     InitializeDamageDisplay();
+    InitializeSpray();
     InitializeScenarioMusic();
     InitializeScenarioKill();
     InitializeScenarioEffects();
@@ -269,6 +271,7 @@ static int VidInit()
 }
 static void HudShutdown()
 {
+    ShutdownSpray();
     if(downstream.HUD_Shutdown)downstream.HUD_Shutdown();
     // Renderer is the outer export wrapper and removes its own studio detours
     // after this returns. Remove our later outer detours first.
@@ -286,6 +289,7 @@ static void Frame(double time)
     CharacterFrame();
     StatusIconsFrame();
     DamageDisplayFrame();
+    SprayFrame();
     BuyMenuFrame();
 }
 static void CreateMove(float frame, usercmd_t* cmd, int active)
@@ -313,6 +317,7 @@ static void Transparent()
 {
     downstream.HUD_DrawTransparentTriangles();
     DrawWorldEffects();
+    DrawSprays();
 }
 static void PlayerMove(playermove_t* move, int server)
 {
@@ -369,7 +374,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){}
+void IPluginsV4::Shutdown(){csol::client::ShutdownSpray();}
 void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

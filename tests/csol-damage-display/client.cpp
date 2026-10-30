@@ -42,6 +42,12 @@ void ResetCharacters(){}
 void ResetStatusIcons(){}
 void ResetWallStatus(){}
 void ResetBuyMenu(){}
+void ResetScenarioKill(){}
+void ResetScenarioEffects(){}
+void ResetScenarioSmoke(){}
+void ResetScenarioUpgrades(){}
+void ResetScenarioAbilities(){}
+void ResetSpray(){}
 void PrepareDamageGraphics(int){++fixture::prepared;}
 void ResetDamageGraphics(){++fixture::graphicsResets;}
 void ShutdownDamageOptions(){}

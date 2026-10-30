@@ -15,7 +15,7 @@ set(CSOL_DAMAGE_VGUI_DEFINITIONS VGUI_USE_SURFACE2 VGUI_USE_SCHEME2 VGUI_USE_INP
 target_include_directories(csol_damage_vgui PRIVATE ${CSOL_DAMAGE_INCLUDES} ${CSOL_DAMAGE_VGUI_INCLUDES})
 target_compile_definitions(csol_damage_vgui PRIVATE WIN32 _WINDOWS NOMINMAX _CRT_SECURE_NO_WARNINGS ${CSOL_DAMAGE_VGUI_DEFINITIONS})
 target_compile_options(csol_damage_vgui PRIVATE /W3 /wd4996)
-set_source_files_properties(client/damage_options.cpp client/buy_menu.cpp PROPERTIES
+set_source_files_properties(client/damage_options.cpp client/buy_menu.cpp client/hd_spray_options.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${CSOL_DAMAGE_VGUI_INCLUDES}"
     COMPILE_DEFINITIONS "${CSOL_DAMAGE_VGUI_DEFINITIONS}")
 target_link_libraries(CSOLSupport PRIVATE csol_damage_vgui imm32 winmm)

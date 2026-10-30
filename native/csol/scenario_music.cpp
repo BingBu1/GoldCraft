@@ -76,13 +76,17 @@ std::optional<std::string> Command(const Packet& packet)
     {
         if(!packet.path.empty())return {};
         // B hw mp3 command has no fadeout branch. Its cd fadeout operates on
-        // the same stream owner as mp3 playfile/loopfile, including MP3 state.
+        // the same stream owner as mp3 play/loop, including MP3 state.
         return packet.action==Action::Fade?"cd fadeout\n":"mp3 stop\n";
     }
     if(packet.action!=Action::Play && packet.action!=Action::Loop)return {};
     const auto path=ResourcePath(packet.path);
     if(!path || *path!=packet.path)return {};
-    return std::string(packet.action==Action::Loop?"mp3 loopfile \"":"mp3 playfile \"")+*path+"\"\n";
+    // Register the path as a track before queuing playback. On the matched
+    // GoldSrc engine, playfile/loopfile share a request buffer which a queued
+    // Stop can clear before Play consumes it when another stream is active.
+    // play/loop retain the track ID across Stop and use the same file resolver.
+    return std::string(packet.action==Action::Loop?"mp3 loop \"":"mp3 play \"")+*path+"\"\n";
 }
 
 std::vector<std::uint8_t> Encode(const Packet& packet)

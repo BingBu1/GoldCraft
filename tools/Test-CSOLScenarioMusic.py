@@ -26,7 +26,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--clang', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--countdown-only', action='store_true')
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument('--countdown-only', action='store_true')
+    selection.add_argument('--client-only', action='store_true')
     args = parser.parse_args()
     output = args.output.absolute()
     if not output.resolve().is_relative_to(ROOT / 'build'):
@@ -47,12 +49,23 @@ def main():
         'native/csol/scenario/map_resources.hpp', 'native/csol/scenario/config.hpp',
         'native/csol/scenario/resources.hpp', 'native/csol/scenario/monster_types.hpp',
         'native/csol/scenario/trigger_rules.hpp')]
-    inputs += sorted(path for path in TESTS.rglob('*') if path.is_file())
+    if args.client_only:
+        inputs = [ROOT / name for name in (
+            'native/csol/scenario_music.hpp', 'native/csol/scenario_music.cpp',
+            'native/csol/client/runtime.hpp', 'native/csol/client/scenario_music.hpp',
+            'native/csol/client/scenario_music.cpp',
+            'external/MetaHookSv-20261007/MetaHook/src/metahook.cpp')]
+        inputs += [TESTS / 'client.cpp', TESTS / 'README.md']
+    else:
+        inputs += sorted(path for path in TESTS.rglob('*') if path.is_file())
+    inputs += [Path(__file__), ROOT / 'tools/Test-CSOLScenarioMusic.ps1']
     before = [identity(path) for path in inputs]
     extracted = []
     for filename, signature, target in (
         ('scenario_music.cpp', 'bool CCSOLScenarioMusic::PrecacheFile', 'actual_server.inc'),
         ('scenario_bgm_trigger.cpp', 'void CCSOLTriggerBGM::KeyValue', 'actual_trigger.inc')):
+        if args.client_only:
+            continue
         source = ROOT / 'native/csol/server' / filename
         text = source.read_text(encoding='utf-8')
         if text.count(signature) != 1:
@@ -106,6 +119,8 @@ def main():
     for name, source, extra in units:
         if args.countdown_only and name not in ('protocol', 'countdown-test'):
             continue
+        if args.client_only and name not in ('protocol', 'client', 'client-test'):
+            continue
         obj = output / (name + '.obj')
         run(name + '-compile', [args.clang, *flags,
             *['/I' + str(path) for path in extra + includes], '/c', source, '/Fo' + str(obj)])
@@ -117,6 +132,8 @@ def main():
         ('trigger', ('protocol', 'trigger-test'))):
         if args.countdown_only and name != 'countdown':
             continue
+        if args.client_only and name != 'client':
+            continue
         run(name + '-link', [args.clang, '--target=i686-pc-windows-msvc', '/MT',
             '/clang:-fuse-ld=lld', *[objects[member] for member in members],
             '/Fe' + str(output / (name + '.exe')), '/link', '/OPT:REF', '/OPT:ICF',
@@ -126,8 +143,11 @@ def main():
         ('countdown', [output / 'countdown.exe']),
         ('client', [output / 'client.exe']),
         ('client-no-previous', [output / 'client.exe', '--no-previous']),
+        ('client-registered-null', [output / 'client.exe', '--registered-null']),
         ('server', [output / 'server.exe']), ('trigger', [output / 'trigger.exe'])):
         if args.countdown_only and name != 'countdown':
+            continue
+        if args.client_only and not name.startswith('client'):
             continue
         log = run(name + '-run', command)
         match = re.search(r'PASS BGM actual .*? (\d+) checks', log)
@@ -141,11 +161,16 @@ def main():
     receipt = dict(at=datetime.now(timezone.utc).isoformat(), inputs=before,
         extractedMethods=extracted, checks=checks, inputHashesUnchanged=True,
         actualProductionSource=True, countdownOnly=args.countdown_only,
+        clientOnly=args.client_only,
         parallelCompiles=1, audioDevice=False,
         deployed=False, liveGameplay=False,
         boundaries=['Current() authority, message delivery and engine entity operations are fixtures.',
-                    'Server and trigger method bodies are extracted unchanged from production source.',
+                    ('Server and trigger methods are not extracted or compiled in client-only mode.'
+                     if args.client_only else
+                     'Server and trigger method bodies are extracted unchanged from production source.'),
                     'The client uses actual SDK types and real production decoder/consumer.',
+                    'MetaHook only replaces registered message nodes; the engine registration fixture installs missing nodes.',
+                    'Client command strings are captured, not executed by the engine or an audio device.',
                     'Foreign MP3 commands are outside module ownership tracking.'])
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
 

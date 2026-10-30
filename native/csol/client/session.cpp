@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "hd_spray.hpp"
 #include "weapons.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
@@ -36,6 +37,7 @@ void ResetSession()
     ResetWallStatus();
     ResetBuyMenu();
     ResetDamageDisplay();
+    ResetSpray();
     ResetScenarioKill();
     ResetScenarioEffects();
     ResetScenarioSmoke();
