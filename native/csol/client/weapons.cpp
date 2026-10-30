@@ -329,6 +329,9 @@ void ResetWeapons(bool forgetRegistration)
     adjustMoney=moneyAnchor=false;
     crosshairState={};fieldOfView=90;nightVision=false;playerFlags=0x200;playerSpeed=0;
     if(forgetRegistration){registered=false;ammoType=-1;}
+    // Release the native HUD suppression owned by the departing extended gun.
+    // Clearing only our fields leaves the stock slot commands hidden as well.
+    ApplyNativeWeaponVisibility();
 }
 void ClearNativeWeaponSelection()
 {

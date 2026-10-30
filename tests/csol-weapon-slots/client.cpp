@@ -754,6 +754,7 @@ void BeamHudChecks()
     view.health=100;view.spectator=0;hud=1;ResetWeapons(false);downstream.HUD_Redraw=native;
 }
 #include "wide_ammo.hpp"
+#include "session_clock.hpp"
 }
 int main(int argc,char** argv)
 {
@@ -820,6 +821,7 @@ int main(int argc,char** argv)
     WeaponDefinition knife{220,1,6,14,-1,29,-1,1,24,"weapon_tknifeex2"};
     WeaponDefinition beam{725,0,8,15,16,200,100,80,0,"weapon_beamgun"};
     WeaponDefinition le=beam;le.id=726;le.name="weapon_beamgunle";le.position=9;
+    if(argc>1 && !std::strcmp(argv[1],"--session-clock-only"))return SessionClockChecks(knife);
     if(argc>1 && !std::strcmp(argv[1],"--cannon-only")){CannonChecks();CannonFlashChecks();std::cout<<"PASS cannon "<<checks<<" checks\n";return 0;}
     if(argc>1 && !std::strcmp(argv[1],"--cannon-flash")){CannonFlashOracle();return 0;}
     if(argc>1 && !std::strcmp(argv[1],"--cannon-muzzle")){CannonMuzzleOracle();return 0;}
@@ -926,7 +928,8 @@ int main(int argc,char** argv)
     Owned(owned);Send(WeaponCurrentMessage,EncodeWeaponCurrent({220,1,1,29,0}));
     Check(ExtendedWeaponActive());
     now=1;SynchronizeFrameSession();
-    Check(!ExtendedWeaponActive()&&!FindWeaponDefinition(220));
+    // A large render-clock correction is not a new connection either.
+    Check(ExtendedWeaponActive()&&FindWeaponDefinition(220));
     level="";SynchronizeFrameSession();
     level="maps/cs_assault.bsp";now=50;
     Send(WeaponDefinitionMessage,EncodeWeaponDefinition(knife));

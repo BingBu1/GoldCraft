@@ -22,7 +22,7 @@ namespace
 {
 std::string level;
 double frameTime = -1;
-unsigned clockCorrections{}, clockResets{};
+unsigned clockCorrections{}, largeClockCorrections{};
 double largestCorrection{};
 
 void ResetSession()
@@ -61,18 +61,20 @@ void SynchronizeFrameSession()
     // Compare frame samples only, or an ordinary packet clears all definitions.
     const double now = engine.GetClientTime();
     // cl.time is a network-adjusted render clock, not a connection identity.
-    // Small corrections must not discard sign-on weapon definitions/inventory.
+    // Its correction size does not identify a new connection either. The
+    // server does not replay sign-on definitions after a render-clock jump.
+    // Only SynchronizeSession's level lifecycle may retire that state.
     if (frameTime >= 0 && now < frameTime)
     {
         const double correction=frameTime-now;
         ++clockCorrections;largestCorrection=std::max(largestCorrection,correction);
-        if(correction>1.0){++clockResets;ResetSession();}
+        if(correction>1.0)++largeClockCorrections;
     }
     frameTime = now;
 }
 void SessionDiagnostics(std::ostream& out)
 {
     out<<",\"session\":{\"clockCorrections\":"<<clockCorrections
-        <<",\"clockResets\":"<<clockResets<<",\"largestCorrection\":"<<largestCorrection<<'}';
+        <<",\"largeClockCorrections\":"<<largeClockCorrections<<",\"largestCorrection\":"<<largestCorrection<<'}';
 }
 }

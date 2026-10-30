@@ -172,7 +172,7 @@ if(CSOL_BUILD_SCENE_TESTS)
 endif()
 if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     add_executable(csol_weapon_client_tests ../../tests/csol-weapon-slots/client.cpp
-        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-damage-display/session_stub.cpp)
+        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
     target_compile_features(csol_weapon_client_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SLOT_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SLOT_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)

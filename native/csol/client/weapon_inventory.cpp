@@ -139,7 +139,21 @@ void Cycle(int slot,int direction,xcommand_t original)
 }
 template<int Slot>void SlotCommand(){Cycle(Slot,1,originalSlots[Slot]);}
 void Next(){Cycle(-1,1,originalNext);}void Previous(){Cycle(-1,-1,originalPrevious);}
-void Cancel(){if(selected)selected=0;else if(originalCancel)originalCancel();}
+void Cancel()
+{
+    const bool weaponSelection=selected!=0;
+    selected=0;
+    if(textMenu)
+    {
+        // Native cancelselect only opens Escape; it does not clear CHudMenu.
+        // Close both the native menu and our mirror before forwarding. A new
+        // menu delivered by the callback can then acquire its own number keys.
+        textMenu=false;menuSlots=0;menuUntil=0;
+        if(oldShowMenu){unsigned char clear[5]{};oldShowMenu("ShowMenu",sizeof(clear),clear);}
+        if(originalCancel)originalCancel();
+    }
+    else if(!weaponSelection && originalCancel)originalCancel();
+}
 int Definition(const char*,int size,void* data)
 {
     SynchronizeSession();WeaponDefinition def;
