@@ -588,7 +588,9 @@
     "tools/update-package/Update-GoldCraft.ps1",
     "tools/update-package/package.py",
     "tools/update-package/server_resources.py",
-    "tools/update-package/test_update.py"
+    "tools/update-package/test_update.py",
+    "tools/Test-EngineReconnect.py",
+    "docs/csol-engine-reconnect.md"
   ],
   "trees": {
     "native": [
