@@ -14,7 +14,7 @@ from package import plain, sha
 from package_resources import index
 
 
-def run(package, receipt_path, output, reuse):
+def run(package, receipt_path, output, reuse, previous_patch=None):
     package, receipt_path, output = map(plain, (package, receipt_path, output))
     output.mkdir(parents=True, exist_ok=False)
     server = output/'server'
@@ -34,7 +34,7 @@ def run(package, receipt_path, output, reuse):
         p.write_bytes(content.encode('utf-8') if isinstance(content, str) else content)
 
     def snapshot():
-        return {p.relative_to(server).as_posix(): sha(p) for p in server.rglob('*') if p.is_file()
+        return {p.relative_to(server).as_posix().lower(): sha(p) for p in server.rglob('*') if p.is_file()
                 and '.bingsang-resource-updates' not in p.parts}
 
     def call(*args, success=True):
@@ -93,14 +93,34 @@ def run(package, receipt_path, output, reuse):
             'minecraft/world/level.dat':'preserve world'}
         for name, value in protected.items():
             put(name, value)
-        same = next(r for r in manifest['files'] if r['path'] not in {x['path'] for x in receipt['previous']})
+        prior_payload = None
+        if previous_patch:
+            previous_patch = plain(previous_patch)
+            prior_payload = index([dict(path=str(previous_patch), bytes=previous_patch.stat().st_size,
+                                        sha256=sha(previous_patch))])
+        same = next(r for r in manifest['files'] if r['path'] not in {x['path'] for x in receipt['previous']}
+                    and (prior_payload is None or r['path'].lower() in prior_payload))
         put(same['path'], (package/'payload'/same['path']).read_bytes())
         initial = snapshot()
         old_model = next(r for r in receipt['previous'] if r['path'].endswith('.mdl'))
         alias = output/'old-model-owner.mdl'
         os.link(server/old_model['path'], alias)
         call('-Plan')
-        check(snapshot() == initial, 'full 885-file baseline plan changes no server files')
+        check(snapshot() == initial, f'full {len(manifest["requiredBaseline"])}-file baseline plan changes no server files')
+        music = next((r for r in manifest['files'] if r['path'].endswith('.mp3')), None)
+        if music:
+            p = package/'payload'/music['path']
+            original = p.read_bytes()
+            temporary = p.with_name(p.name+'.test-independent')
+            try:
+                temporary.write_bytes(b'incomplete MP3')
+                os.replace(temporary, p)
+                call('-Plan', success=False)
+                check(snapshot() == initial, 'corrupted MP3 payload rejected before any server write')
+            finally:
+                temporary.write_bytes(original)
+                os.replace(temporary, p)
+            check(sha(p) == music['sha256'], 'MP3 fixture restored without modifying its frozen hardlink peer')
         baseline = next(r for r in manifest['requiredBaseline'] if r['bytes'] < 2048)
         p = server/baseline['path']
         original = p.read_bytes()
@@ -125,14 +145,45 @@ def run(package, receipt_path, output, reuse):
         check(snapshot() == initial, 'actual late write failure rolls back new and replaced resources')
         call()
         installed = snapshot()
-        check(all(installed[r['path']] == r['sha256'] for r in manifest['files']), 'all 111 final resource hashes installed')
-        check(all(installed[r['path']] == r['sha256'] for r in manifest['requiredBaseline']), 'all 880 baseline resources and 5 stable anchors preserved')
-        check(all(installed[name] == initial[name] for name in protected), 'native mode, ports, credentials, admins, MC and earlier mode rollback unchanged')
+        check(all(installed[r['path'].lower()] == r['sha256'] for r in manifest['files']), f'all {len(manifest["files"])} final resource hashes installed')
+        check(all(installed[r['path'].lower()] == r['sha256'] for r in manifest['requiredBaseline']), f'all {len(manifest["requiredBaseline"])} required baseline resources and stable anchors preserved')
+        check(all(installed[name.lower()] == initial[name.lower()] for name in protected), 'native mode, ports, credentials, admins, MC and earlier mode rollback unchanged')
         check(sha(alias) == old_model['sha256'] and sha(server/old_model['path']) != sha(alias), 'shared old model detached by atomic replacement')
         check('Already current' in call(), 'second update skips every identical payload file')
         check(snapshot() == installed, 'second update has zero content changes')
         call('-Restore')
         check(snapshot() == initial, 'resource-only restore returns original bytes and mode rollback stays intact')
+        if previous_patch:
+            previous_patch = plain(previous_patch)
+            previous = index([dict(path=str(previous_patch), bytes=previous_patch.stat().st_size,
+                                   sha256=sha(previous_patch))])
+            final = {r['path'].lower(): r for r in manifest['files']}
+            with zipfile.ZipFile(previous_patch) as archive:
+                for key, row in previous.items():
+                    if key not in final or final[key]['sha256'] != row['sha256']:
+                        raise AssertionError('Cumulative patch does not retain the previous payload')
+                    content = archive.read(row['member'])
+                    if len(content) != row['bytes'] or hashlib.sha256(content).hexdigest() != row['sha256']:
+                        raise AssertionError('Previous resource ZIP bytes mismatch')
+                    dest = server/row['path']
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = dest.with_name(dest.name+'.test-independent')
+                    temporary.write_bytes(content)
+                    os.replace(temporary, dest)
+            prior_installed = snapshot()
+            plan_output = call('-Plan')
+            plan = json.loads(plan_output[plan_output.index('{'):])
+            check(plan['changed'] == len(final) - len(previous) and plan['unchanged'] == len(previous),
+                  'already installed previous patch skips its entire payload and plans only new resources')
+            call()
+            updated = snapshot()
+            check(all(updated[r['path'].lower()] == r['sha256'] for r in manifest['files']),
+                  'cumulative update also installs correctly over the previous resource patch')
+            check(all(updated[name.lower()] == initial[name.lower()] for name in protected),
+                  'cumulative upgrade preserves native mode, settings and earlier rollback')
+            call('-Restore')
+            check(snapshot() == prior_installed, 'cumulative upgrade restores the previous patch exactly')
+            result['previousPatch'] = dict(path=str(previous_patch), sha256=sha(previous_patch), files=len(previous))
         result['passed'] = True
         # Release only baseline files created by this test after their final hash
         # check. ZIPs and reusable frozen resources remain intact.
@@ -158,5 +209,6 @@ if __name__ == '__main__':
     for name in ['package', 'receipt', 'output']:
         p.add_argument('--'+name, type=Path, required=True)
     p.add_argument('--reuse', type=Path)
+    p.add_argument('--previous-patch', type=Path)
     a = p.parse_args()
-    run(a.package, a.receipt, a.output, a.reuse)
+    run(a.package, a.receipt, a.output, a.reuse, a.previous_patch)

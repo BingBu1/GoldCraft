@@ -7,9 +7,11 @@ File coverage is not a replacement for the production parser or gameplay tests.
 from pathlib import Path
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import stat
+import subprocess
 import zipfile
 
 
@@ -49,11 +51,109 @@ def literal(source, name, token, evidence):
     return text
 
 
-def collect(source, deployed, common, map_name, dependency_lists=()):
+class SourceTree:
+    """Resolve the exact clang VFS overlay used by the selected DLL build."""
+    def __init__(self, root, overlay=None):
+        self.root, self.files = plain(root), {}
+        if overlay:
+            document = json.loads(plain(overlay).read_text('utf-8-sig'))
+            for row in document['roots']:
+                name = row['name'].replace('\\', '/')
+                if row['type'] != 'file' or '/native/' not in name.lower():
+                    continue
+                key = 'native/' + re.split('/native/', name, flags=re.I)[-1]
+                actual = plain(row['external-contents'])
+                if key.lower() in self.files and self.files[key.lower()] != actual:
+                    raise ValueError('Duplicate source overlay entry: ' + key)
+                self.files[key.lower()] = actual
+
+    def __truediv__(self, name):
+        normalized = (self.root / name).resolve().relative_to(self.root).as_posix()
+        return self.files.get(normalized.lower(), self.root / normalized)
+
+
+def music_paths(source, common, map_name, reader, evidence):
+    """Run the production round/path readers, including BSP trigger_bgm."""
+    if reader is None:
+        raise ValueError('Scenario closure requires --music-reader; BGM must not be omitted')
+    reader = plain(reader)
+    evidence[str(reader)] = identity(reader)
+    literal(source, 'native/csol/server/scenario_music.cpp',
+            'PrecacheFile("Scenario_Ready.mp3"', evidence)
+    literal(source, 'native/csol/server/scenario_bgm_trigger.cpp',
+            'music->PrecacheFile(m_filename', evidence)
+    for name in ('native/csol/scenario_music.cpp', 'native/csol/music_resources.cpp',
+                 'native/csol/scenario/round_settings.cpp', 'native/csol/scenario/config.cpp'):
+        literal(source, name, 'namespace' if name.endswith(('config.cpp', 'round_settings.cpp')) else 'ResourcePath', evidence)
+    helper = Path(__file__).with_name('Prepare-CSOLScenarioMusic.py')
+    evidence[str(helper)] = identity(helper)
+    spec = importlib.util.spec_from_file_location('scenario_music_bsp', helper)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def resolve(mode, data):
+        result = subprocess.run([str(reader), mode], input=data, capture_output=True,
+                                check=True, timeout=30)
+        paths = {relative(line) for line in result.stdout.decode('ascii').splitlines()}
+        if not paths or any(not name.startswith('bgm/') or not name.endswith('.mp3') for name in paths):
+            raise ValueError('Invalid production BGM reader output')
+        return paths
+
+    def read(name):
+        path = plain(common / name)
+        evidence[str(path)] = identity(path)
+        return path.read_bytes()
+
+    paths = resolve('round', read('maps/zbs_' + map_name + '.cso'))
+    if 'bgm/Scenario_Ready.mp3' not in paths:
+        raise ValueError('BGM reader omitted the mandatory preparation track')
+    for entity in module.entities(read('maps/' + map_name + '.bsp')):
+        if entity.get('classname') == 'trigger_bgm' and entity.get('filename'):
+            paths.update(resolve('path', entity['filename'].encode('latin1')))
+    return paths
+
+
+def plan_resources(path):
+    """Keep generated/JSON-derived dependencies with their original identities."""
+    document = json.loads(plain(path).read_text('utf-8-sig'))
+    if document.get('blocked') or not isinstance(document.get('files'), list) or not document['files']:
+        raise ValueError('Missing or blocked production resource plan')
+    seen = set()
+    for row in document['files']:
+        name = relative(row['destination'])
+        if name.lower() in seen:
+            raise ValueError('Duplicate production resource: ' + name)
+        seen.add(name.lower())
+        actual = identity(row['source'])
+        if actual['bytes'] != row['bytes'] or actual['sha256'] != row['sha256']:
+            raise ValueError('Production resource plan source changed: ' + name)
+        yield name, row
+
+
+def runtime_resource_paths(text, kind):
+    """Parse a complete ReHLDS reslist capture, not an arbitrary path grep."""
+    if kind not in ('model', 'sound', 'generic', 'event'):
+        raise ValueError('Unknown reslist kind')
+    records = re.findall(r'^\s*(\d+)\.\s+\d+\s+:\s+(.+?)\s+\d+(?:\.\d+)?[KMG]?\s+[0-9a-fA-F]{8}\s', text, re.M)
+    totals = re.findall(r'^(\d+) Total ' + kind + r"'s\s*$", text, re.M)
+    if len(totals) != 1 or int(totals[0]) != len(records) or [int(r[0]) for r in records] != list(range(1, len(records) + 1)):
+        raise ValueError('Incomplete ReHLDS reslist capture: ' + kind)
+    result = set()
+    for _, name in records:
+        if kind == 'model' and re.fullmatch(r'\*\d+', name):
+            continue  # Inline BSP hull, not a downloadable file.
+        result.add(relative(('sound/' if kind == 'sound' else '') + name))
+    return result
+
+
+def collect(source, deployed, common, map_name, dependency_lists=(), resource_plans=(), music_reader=None, source_overlay=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,63}', map_name):
         raise ValueError('Invalid map basename')
-    source, deployed, common = map(plain, (source, deployed, common))
+    source = SourceTree(source, source_overlay)
+    deployed, common = map(plain, (deployed, common))
     rows, sources, absent = {}, {}, []
+    if source_overlay:
+        sources[str(source_overlay)] = identity(source_overlay)
 
     def add(name, group, source_name=None, token=None, common_required=False, optional=False):
         name = relative(name)
@@ -74,8 +174,10 @@ def collect(source, deployed, common, map_name, dependency_lists=()):
             raise ValueError('Empty required resource: ' + name)
         key = name.lower()
         if key in rows:
+            if rows[key]['sha256'] != local['sha256'] or rows[key]['bytes'] != local['bytes']:
+                raise ValueError('Case-colliding resource contents: ' + name)
             if rows[key]['resource'] != name:
-                raise ValueError('Case-colliding resource: ' + name)
+                rows[key].setdefault('caseAliases', []).append(name)
             if group not in rows[key]['groups']:
                 rows[key]['groups'].append(group)
             return
@@ -126,6 +228,43 @@ def collect(source, deployed, common, map_name, dependency_lists=()):
         add(names[0], 'server-tables', common_required=True)
     for suffix, owner in [('.bsp', 'scenario_session.cpp'), ('.nav', 'scenario_navigation.cpp')]:
         add('maps/' + map_name + suffix, 'map', 'native/csol/server/' + owner, '"' + suffix + '"', common_required=True)
+    for name in sorted(music_paths(source, common, map_name, music_reader, sources)):
+        add(name, 'map-bgm')
+    if not resource_plans:
+        raise ValueError('Scenario closure requires --resource-plan for dynamic HUD/model/voice dependencies')
+    for path in resource_plans:
+        sources[str(path)] = identity(path)
+        for name, row in plan_resources(path):
+            add(name, 'production-map-plan')
+            actual = rows[name.lower()]
+            if actual['sha256'] != row['sha256'] or actual['bytes'] != row['bytes']:
+                raise ValueError('Deployment differs from selected production resource plan: ' + name)
+
+    # Independent fixed precache coverage: the generated plan alone is not
+    # proof that every source-owned resource entered its historical inputs.
+    owners = ('server/scenario_session.cpp', 'server/scenario_drops.cpp',
+              'server/scenario_monster_skills.h',
+              'server/scenario_monster_resources.h', 'server/scenario_oberon_resources.h',
+              'server/scenario_character_skills/host.cpp',
+              'server/scenario_character_skills/host_notifications.cpp',
+              'server/scenario_character_skills/elite_visuals.cpp',
+              'character_skill_resources.hpp', 'elite_visual_resources.hpp',
+              'scenario_upgrades.hpp', 'scenario_abilities.hpp', 'scenario_round_hud.hpp',
+              'scenario_kill.hpp', 'status_icons.hpp', 'scenario_healing.hpp',
+              'scenario_smoke.hpp', 'frozen_death.hpp', 'frozen_smoke.hpp',
+              'scenario_monster_effects.hpp', 'oberon_hint.hpp')
+    asset = r'"((?:models|sprites|sound|events|resource|gfx|maps)/[^"\r\n]+\.(?:mdl|spr|wav|txt|sc|json|tga|bmp|cso|csv|ttf|webm))"'
+    for owner in owners:
+        name = 'native/csol/' + owner
+        text = literal(source, name, 'SPDX-License-Identifier', sources)
+        for resource in sorted(set(re.findall(asset, text))):
+            # Formatted paths are expanded by the production plan, not files.
+            if '%' not in resource:
+                if resource.endswith('.wav') and not resource.startswith('sound/'):
+                    resource = 'sound/' + resource
+                add(resource, 'source-precache')
+        for sound in set(re.findall(r'"((?:zombi|events|vox)/[^"\r\n]+\.wav)"', text)):
+            add('sound/' + sound, 'source-precache')
 
     # The deployed manifest is the actual CSOL_PrecacheCharacters input. Its
     # contents include SEQ/texture companions, converted models and UI assets.
@@ -259,6 +398,8 @@ def audit(closure, archives):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-root', type=Path, required=True)
+    parser.add_argument('--source-overlay', type=Path,
+                        help='Exact clang VFS overlay used to build the selected GameDLL')
     parser.add_argument('--deployed', type=Path, required=True)
     parser.add_argument('--common', type=Path, required=True)
     parser.add_argument('--map', default='zs_deadend')
@@ -266,11 +407,16 @@ def main():
                         help='Oldest baseline first, then updates in installation order')
     parser.add_argument('--dependency-list', type=Path, action='append', default=[],
                         help='JSON output from the matching production csol_resources --relocatable-json reader')
+    parser.add_argument('--resource-plan', type=Path, action='append', required=True,
+                        help='Reviewed full production map plan, including JSON/model/HUD/voice dependencies')
+    parser.add_argument('--music-reader', type=Path, required=True,
+                        help='Production csol_music_resources executable for rounds and trigger_bgm paths')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
         raise ValueError('Use a new report path')
-    closure = collect(args.source_root, args.deployed, args.common, args.map, args.dependency_list)
+    closure = collect(args.source_root, args.deployed, args.common, args.map,
+                      args.dependency_list, args.resource_plan, args.music_reader, args.source_overlay)
     report = audit(closure, args.archive)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', 'utf-8')

@@ -54,7 +54,7 @@ def build(inputs, closure_path, output):
     for row in spec['files']:
         name = relative(row['path'])
         if name.lower() in seen or not name.startswith('cs/cstrike/') or Path(name).suffix.lower() not in {
-                '.json', '.csv', '.cso', '.jsoo', '.txt', '.sc', '.tga', '.bmp', '.mdl', '.wav', '.spr'}:
+                '.json', '.csv', '.cso', '.jsoo', '.txt', '.sc', '.tga', '.bmp', '.mdl', '.wav', '.mp3', '.spr'}:
             raise ValueError('Invalid resource destination')
         seen.add(name.lower())
         source = plain(row['source'])
@@ -70,7 +70,7 @@ def build(inputs, closure_path, output):
         shutil.copy2(source, frozen)
         target = package / 'payload' / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        if target.suffix.lower() in {'.tga', '.bmp', '.mdl', '.wav', '.spr', '.cso'}:
+        if target.suffix.lower() in {'.tga', '.bmp', '.mdl', '.wav', '.mp3', '.spr', '.cso'}:
             os.link(frozen, target)
             assert os.path.samestat(frozen.stat(), target.stat())
         else:
@@ -108,7 +108,7 @@ def build(inputs, closure_path, output):
         for archive in opened.values():
             if archive:
                 archive.close()
-    manifest = dict(schema=1, scope='remote-scenario-resources', release='20261101-Scenario-Resources-v2',
+    manifest = dict(schema=1, scope='remote-scenario-resources', release='20261101-Scenario-Resources-v3',
                     files=changed, requiredBaseline=required,
                     baseline=[{k: r[k] for k in ('bytes', 'sha256')} for r in closure['archiveEvidence']])
     (package/'update-manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2)+'\n', 'utf-8')

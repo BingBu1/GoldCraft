@@ -35,7 +35,7 @@ try {
     Write-Host 'Checking changed files and required baseline resources...'
     $sources=@{};$hashes=@{};$allowed=@{};$count=0
     foreach($row in $manifest.files){
-        if($resourcesOnly -and ($row.path -notmatch '^cs/cstrike/' -or [IO.Path]::GetExtension($row.path).ToLowerInvariant() -notin @('.json','.csv','.cso','.jsoo','.txt','.sc','.tga','.bmp','.mdl','.wav','.spr'))){throw 'Resource patch contains a non-resource target'}
+        if($resourcesOnly -and ($row.path -notmatch '^cs/cstrike/' -or [IO.Path]::GetExtension($row.path).ToLowerInvariant() -notin @('.json','.csv','.cso','.jsoo','.txt','.sc','.tga','.bmp','.mdl','.wav','.mp3','.spr'))){throw 'Resource patch contains a non-resource target'}
         $dest=Under $target $row.path;$src=Under $package ('payload/'+$row.path)
         if($sources.ContainsKey($row.path)){throw 'Duplicate payload destination'}
         if((Get-Item -LiteralPath $src).Length -ne $row.bytes -or (Hash $src) -ne $row.sha256){throw "Package integrity failure: $($row.path)"}

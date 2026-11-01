@@ -3,8 +3,10 @@ from pathlib import Path
 import hashlib
 import importlib.util
 import json
+import struct
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -107,6 +109,88 @@ class ClosureTests(unittest.TestCase):
         source.write_text('new loader no longer uses the old table', 'utf-8')
         with self.assertRaisesRegex(ValueError, 'Frozen source contract changed'):
             module.literal(self.root, source.name, 'resource/maplist.csv', {})
+
+    def test_missing_music_reader_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, 'requires --music-reader'):
+            module.music_paths(self.root, self.root, 'zs_deadend', None, {})
+
+    def test_bgm_collects_round_and_trigger_tracks(self):
+        source = self.root / 'source'
+        for name, content in {
+                'server/scenario_music.cpp': 'PrecacheFile("Scenario_Ready.mp3"',
+                'server/scenario_bgm_trigger.cpp': 'music->PrecacheFile(m_filename',
+                'scenario_music.cpp': 'ResourcePath', 'music_resources.cpp': 'ResourcePath',
+                'scenario/round_settings.cpp': 'namespace', 'scenario/config.cpp': 'namespace'}.items():
+            file = source / 'native/csol' / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(content)
+        (self.root / 'maps').mkdir()
+        (self.root / 'maps/zbs_test.cso').write_bytes(b'round-data')
+        entities = b'{"classname" "trigger_bgm" "filename" "special/boss.mp3"}\0'
+        bsp = bytearray(124)
+        struct.pack_into('<iii', bsp, 0, 30, 124, len(entities))
+        (self.root / 'maps/test.bsp').write_bytes(bsp + entities)
+        reader = self.root / 'reader.exe'
+        reader.write_bytes(b'identity-only-test-stub')
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append((argv[1], kwargs['input']))
+            output = b'bgm/Scenario_Ready.mp3\nbgm/Scenario_Rush.mp3\n' if argv[1] == 'round' else b'bgm/special/boss.mp3\n'
+            return type('Output', (), {'stdout': output})()
+        with patch.object(module.subprocess, 'run', run):
+            paths = module.music_paths(source, self.root, 'test', reader, {})
+        self.assertEqual(paths, {'bgm/Scenario_Ready.mp3', 'bgm/Scenario_Rush.mp3', 'bgm/special/boss.mp3'})
+        self.assertEqual(calls, [('round', b'round-data'), ('path', b'special/boss.mp3')])
+
+    def test_generated_plan_retains_identity(self):
+        asset = self.root / 'generated.tga'
+        asset.write_bytes(b'rgba-generated')
+        plan = self.root / 'plan.json'
+        plan.write_text(json.dumps({'files': [dict(destination='resource/levelup.tga',
+            source=str(asset), bytes=14, sha256=hashlib.sha256(b'rgba-generated').hexdigest())]}))
+        self.assertEqual(list(module.plan_resources(plan))[0][0], 'resource/levelup.tga')
+        asset.write_bytes(b'changed-source')
+        with self.assertRaisesRegex(ValueError, 'source changed'):
+            list(module.plan_resources(plan))
+
+    def test_blocked_plan_is_not_accepted(self):
+        plan = self.root / 'plan.json'
+        plan.write_text(json.dumps({'blocked': ['missing model'], 'files': []}))
+        with self.assertRaisesRegex(ValueError, 'blocked'):
+            list(module.plan_resources(plan))
+
+    def test_overlay_resolves_compiled_resource_header(self):
+        old = self.root / 'source/native/csol/header.hpp'
+        old.parent.mkdir(parents=True)
+        old.write_text('old')
+        new = self.root / 'patched.hpp'
+        new.write_text('new')
+        overlay = self.root / 'overlay.json'
+        overlay.write_text(json.dumps({'roots': [dict(type='file', name='H:/repo/native/csol/header.hpp',
+            **{'external-contents': str(new)})]}))
+        tree = module.SourceTree(self.root / 'source', overlay)
+        self.assertEqual((tree / 'native/csol/header.hpp').read_text(), 'new')
+
+    def test_reslist_ignores_inline_models(self):
+        text = '1. 3 : models/a.mdl 1.23K abcdef01 FATALIFMISSING\n2. 4 : *1 0.00K 00000000 -\n2 Total model\'s\n'
+        self.assertEqual(module.runtime_resource_paths(text, 'model'), {'models/a.mdl'})
+
+    def test_reslist_sound_prefix_and_spaces(self):
+        text = '1. 3 : ambience/room wind.wav 1.23K 00000000 -\n1 Total sound\'s\n'
+        self.assertEqual(module.runtime_resource_paths(text, 'sound'), {'sound/ambience/room wind.wav'})
+
+    def test_truncated_reslist_is_not_complete_coverage(self):
+        text = '1. 3 : models/a.mdl 1.23K abcdef01 -\n2 Total model\'s\n'
+        with self.assertRaisesRegex(ValueError, 'Incomplete'):
+            module.runtime_resource_paths(text, 'model')
+
+    def test_missing_bgm_and_upgrade_are_not_hidden_by_prior_table_fix(self):
+        old = self.archive('tables.zip', {self.table: b'catalog'})
+        expected = {self.table: b'catalog', 'cs/cstrike/bgm/Scenario_Ready.mp3': b'mp3',
+                    'cs/cstrike/resource/levelup.tga': b'rgba'}
+        result = module.audit(self.closure(expected), [old])
+        self.assertEqual({r['path'] for r in result['files']}, set(expected) - {self.table})
 
 
 if __name__ == '__main__':
