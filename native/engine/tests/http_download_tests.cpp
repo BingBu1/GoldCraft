@@ -29,6 +29,9 @@ GoldCraftPrecache gc_precache;
 cvar_t sv_downloadurl{"sv_downloadurl","",0,0,nullptr}, sv_allow_download{"sv_allowdownload","1",0,1,nullptr},
     sv_send_resources{"sv_send_resources","1",0,1,nullptr}, sv_allow_dlfile{"sv_allow_dlfile","1",0,1,nullptr};
 double realtime=0;
+fixture_server_static g_psvs;
+fixture_server g_psv;
+const char* Cvar_VariableString(const char*) { main_only(); return "HTTP fixture"; }
 static std::map<std::string,cvar_t*> cvars;
 static std::map<std::string,std::string> values;
 static std::map<std::string,void(*)()> commands;

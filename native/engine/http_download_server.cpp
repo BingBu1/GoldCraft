@@ -1,4 +1,5 @@
 #include "http_download_server.h"
+#include "launcher_http.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -328,7 +329,7 @@ struct Server::Impl {
         // conventional URL clients. Never strip a suffix as a fragment.
         if (target.substr(0, 11) != "/goldcraft/") { reply(socket, 404); return; }
         const auto name = decode(target.substr(11));
-        if (!resource_name(name)) { reply(socket, 404); return; }
+        if (!resource_name(name) && !launcher_name(name)) { reply(socket, 404); return; }
         std::string range;
         bool saw_range = false, saw_if_range = false;
         for (auto pos = line + 2; pos < end;) {

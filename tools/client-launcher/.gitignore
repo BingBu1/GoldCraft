@@ -1,0 +1,6 @@
+/bin/
+/obj/
+*.pem
+bundle.json
+payload.zip
+sources.json

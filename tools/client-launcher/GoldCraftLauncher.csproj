@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>GoldCraftLauncher</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DebugType>none</DebugType>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <EmbeddedResource Include="$(LauncherAssets)/bundle.json" LogicalName="bundle.json" />
+    <EmbeddedResource Include="$(LauncherAssets)/payload.zip" LogicalName="payload.zip" />
+  </ItemGroup>
+  <Target Name="CheckBundle" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(LauncherAssets)/bundle.json')" Text="Run package.py and supply LauncherAssets." />
+  </Target>
+</Project>

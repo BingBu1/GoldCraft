@@ -10,7 +10,7 @@ $cc=Join-Path $compiler.Root 'bin/clang-cl.exe'
 $flags=@('--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/W3','/O2','/clang:-O3','/arch:AVX2','/fp:precise','/utf-8','/DNDEBUG','/D_CRT_SECURE_NO_WARNINGS')
 if($Only -in @('all','engine')){
 $engineRoot="$script:GoldCraftRoot/native/engine"
-& $cc @flags "/I$engineRoot/tests/fixture" "/I$engineRoot" "/I$script:GoldCraftRoot/native/include" "$engineRoot/tests/http_download_tests.cpp" "$engineRoot/http_download.cpp" "$engineRoot/http_download_store.cpp" "$engineRoot/http_download_server.cpp" "/Fo$dest/" "/Fe$dest/engine.exe" /link ws2_32.lib *> "$dest/engine-build.log"
+& $cc @flags "/I$engineRoot/tests/fixture" "/I$engineRoot" "/I$script:GoldCraftRoot/native/include" "$engineRoot/tests/http_download_tests.cpp" "$engineRoot/http_download.cpp" "$engineRoot/http_download_store.cpp" "$engineRoot/http_download_server.cpp" "$engineRoot/launcher_http.cpp" "/Fo$dest/" "/Fe$dest/engine.exe" /link ws2_32.lib *> "$dest/engine-build.log"
 if($LASTEXITCODE){throw "HTTP engine check build failed: $dest/engine-build.log"}
 & "$dest/engine.exe" | Tee-Object "$dest/engine-result.txt"
 if($LASTEXITCODE){throw 'HTTP engine regression failed'}

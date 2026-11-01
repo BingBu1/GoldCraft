@@ -2,6 +2,7 @@
 #include "precache.h"
 #include "http_download.h"
 #include "http_download_store.h"
+#include "launcher_http.h"
 #include <chrono>
 #include <cmath>
 
@@ -13,6 +14,9 @@ cvar_t mc_http_public_url = {"mc_http_public_url", "", 0, 0.0f, nullptr};
 // Private main-thread rendezvous with the game DLL; never a remote target URL.
 cvar_t gc_spray_http_backend = {"gc_spray_http_backend", "0", 0, 0.0f, nullptr};
 cvar_t gc_spray_http_front = {"gc_spray_http_front", "0", 0, 0.0f, nullptr};
+cvar_t gc_launcher_game_address = {"gc_launcher_game_address", "", 0, 0.0f, nullptr};
+goldcraft::http::LauncherFiles launcher;
+double next_launcher_status = 0;
 goldcraft::http::Store store;
 goldcraft::http::Server server;
 std::shared_ptr<goldcraft::http::Load> loading;
@@ -50,7 +54,9 @@ void Configure() {
     } else {
         CloseRead(false); store.publish({}); ClearAdvertised(); server.stop();
         bind = mc_http_bind.string; port = enabled ? desired : 0; config_checked = true;
-        if (enabled && !server.start(bind, port, [](const std::string& name) { return store.request(name); })) {
+        if (enabled && !server.start(bind, port, [](const std::string& name) {
+            return goldcraft::http::launcher_name(name) ? launcher.request(name) : store.request(name);
+        })) {
             Con_Printf("GoldCraft HTTP: cannot bind TCP %s:%u; UDP downloads remain available.\n", bind.c_str(), port);
             return;
         }
@@ -77,6 +83,12 @@ void GC_HttpInit() {
     Cvar_RegisterVariable(&mc_http_download); Cvar_RegisterVariable(&mc_http_bind);
     Cvar_RegisterVariable(&mc_http_port); Cvar_RegisterVariable(&mc_http_public_url);
     Cvar_RegisterVariable(&gc_spray_http_backend); Cvar_RegisterVariable(&gc_spray_http_front);
+    Cvar_RegisterVariable(&gc_launcher_game_address);
+    // Freeze an explicit OS-filesystem root at initialization. No game-root search.
+    const auto* launcher_root = getenv("GOLDCRAFT_LAUNCHER_ROOT");
+    if (!launcher.configure(launcher_root ? launcher_root : "launcher-public"))
+        Con_Printf("GoldCraft launcher: invalid publication root; endpoint disabled.\n");
+    if (const auto* value = getenv("GOLDCRAFT_LAUNCHER_GAME_ADDRESS")) Cvar_Set("gc_launcher_game_address", value);
     Cmd_AddCommand("mc_http_stats", Stats);
     Cmd_AddCommand("mc_http_refresh", GC_HttpResources);
     // Service package passes configuration through the child environment,
@@ -98,6 +110,14 @@ void GC_HttpResources() {
     store.publish(resources);
 }
 void GC_HttpFrame() {
+    if (realtime >= next_launcher_status) {
+        next_launcher_status = realtime + 1;
+        int players = 0;
+        for (int i = 0; g_psvs.clients && i < g_psvs.maxclients; ++i)
+            if (g_psvs.clients[i].active) ++players;
+        launcher.publish_status(g_psv.active != 0, Cvar_VariableString("hostname"), g_psv.name,
+            players, g_psvs.maxclients, gc_launcher_game_address.string);
+    }
     if (realtime >= next_config_check || download_allowed != (sv_allow_download.value != 0 && sv_send_resources.value != 0)) {
         next_config_check = realtime + 1; Configure();
     }
@@ -136,7 +156,8 @@ void GC_HttpFrame() {
     const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     if (elapsed > max_read_ms) max_read_ms = elapsed;
 }
-void GC_HttpReset() { CloseRead(false); store.publish({}); server.spray_backend(0); Cvar_Set("gc_spray_http_backend", "0"); }
+void GC_HttpReset() { CloseRead(false); store.publish({}); server.spray_backend(0); Cvar_Set("gc_spray_http_backend", "0");
+    launcher.publish_status(false, "", "", 0, 0, gc_launcher_game_address.string); next_launcher_status = 0; }
 void GC_HttpShutdown() {
     GC_HttpReset(); ClearAdvertised(); server.stop(); config_checked = false; next_config_check = 0;
     Cvar_Set("gc_spray_http_front", "0");
