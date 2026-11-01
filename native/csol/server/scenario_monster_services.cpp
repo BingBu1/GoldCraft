@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "scenario_monster_services.h"
 #include "scenario_monster_healing.h"
+#include "scenario_monster_skills.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -248,6 +249,48 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
     #pragma clang fp contract(off)
     const auto runtime = Pin();
     if (!runtime || !Current(call) || !gpGlobals) return false;
+    if (call.Current()->Type()->skill == 8)
+    {
+        const auto* spawn = m_gameplay->Factory().State(*call.Current());
+        if (!spawn) { error.message = "scenario disarm spawn state is unavailable"; return false; }
+        struct Owner
+        {
+            const CCSOLScenarioMonsterServices& services;
+            const CCSOLScenarioRuntime* runtime;
+            CSOLMonsterSpawnCall& call;
+            const CSOLMonsterSpawnState* spawn;
+        } owner{*this, runtime.get(), call, spawn};
+        return CSOL_UseMonsterDisarm(call, state, *spawn, runtime,
+            {[](const void* context)
+            {
+                const auto& owner = *static_cast<const Owner*>(context);
+                return owner.services.Pin().get() == owner.runtime && owner.services.Current(owner.call) &&
+                    owner.services.m_gameplay->Factory().State(*owner.call.Current()) == owner.spawn;
+            }, &owner}, error);
+    }
+    if (call.Current()->Type()->skill == 3)
+    {
+        const auto round = Map().RoundGeneration();
+        if (m_trapRound != round) { m_trapRound = round; m_trapUntil = 0; }
+        const float now = gpGlobals->time;
+        if (m_trapUntil > 0 && now > m_trapUntil) m_trapUntil = 0;
+        float duration = 99999.0f, cooldown = 5.0f;
+        // MP113F0AF0: one manager slot, separate from trap lifetime. An
+        // occupied slot is a normal retry after 5+jitter seconds.
+        if (m_trapUntil == 0)
+        {
+            m_trapUntil = now + 9.0f;
+            call.Current()->pev->maxspeed = 1.0f;
+            if (!CSOL_CreateMonsterTrap(call, runtime, error) || !Current(call) || Pin() != runtime)
+                return false;
+            duration = 1.0f;
+            cooldown = 8.0f;
+        }
+        const float interval = cooldown + state.jitter * 5.0f;
+        state.skillActive = {duration, gpGlobals->time + duration, gpGlobals->time};
+        state.skill = {interval, gpGlobals->time + interval, gpGlobals->time};
+        return true;
+    }
     if (call.Current()->Type()->skill == 4)
     {
         const auto round = Map().RoundGeneration();

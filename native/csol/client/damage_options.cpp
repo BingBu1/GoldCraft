@@ -83,7 +83,14 @@ void PaintQuad(const Texture& texture, const damage::Quad& q)
     if (q.width <= 0 || q.height <= 0 || q.alpha == 0) return;
     vgui::surface()->DrawSetColor(255,255,255,q.alpha);
     vgui::surface()->DrawSetTexture(texture.id);
-    vgui::surface()->DrawTexturedSubRect(int(q.x), int(q.y), int(q.x + q.width), int(q.y + q.height), q.u0,q.v0,q.u1,q.v1);
+    // The pinned VGUI2Extension leaves DrawTexturedSubRect empty. Its polygon
+    // bridge implements explicit UVs on both supported GoldSrc surfaces.
+    vgui::Vertex_t vertices[4];
+    vertices[0].Init({q.x,q.y},{q.u0,q.v0});
+    vertices[1].Init({q.x+q.width,q.y},{q.u1,q.v0});
+    vertices[2].Init({q.x+q.width,q.y+q.height},{q.u1,q.v1});
+    vertices[3].Init({q.x,q.y+q.height},{q.u0,q.v1});
+    vgui::surface()->DrawTexturedPolygon(4,vertices);
 }
 void PrepareText()
 {
@@ -188,8 +195,9 @@ public:
 class DamagePreview final : public vgui::Panel
 {
 public:
-    int skin{1}, style{}, flags{};
+    int skin{1};
     explicit DamagePreview(vgui::Panel* parent):Panel(parent,"DamagePreview"){}
+    void OnThink() override { vgui::Panel::OnThink(); Repaint(); }
     void Paint() override
     {
         const auto* definition = DamageSkin(skin);
@@ -201,11 +209,15 @@ public:
                     float(texture->size.width)/texture->size.paddedWidth,float(texture->size.height)/texture->size.paddedHeight,255});
             }
         damage::Number n;
-        n.message={1,std::uint8_t(style),std::uint8_t(flags),12345};
-        if(skin==0 && style==5)n.message={1,3,0,0};
-        n.text={'1','2','3','4','5'};n.textLength=5;
         n.animation=definition?definition->animation:damage::Animation{1,0,0};
-        n.age=n.effectiveAge=float(std::fmod(vgui::system()->GetCurrentTime(),n.animation.duration+0.6));
+        const double cycle=n.animation.duration+0.6;
+        const double time=vgui::system()->GetCurrentTime();
+        const int example=int(std::fmod(time/cycle,6.0));
+        constexpr std::uint8_t styles[]{0,4,0,0,5,6}, flags[]{0,0,2,1,0,4};
+        n.message={1,styles[example],flags[example],12345};
+        if(skin==0 && n.message.style==5)n.message={1,3,0,0};
+        n.text={'1','2','3','4','5'};n.textLength=5;
+        n.age=n.effectiveAge=float(std::fmod(time,cycle));
         if(n.age<=n.animation.duration)PaintNumber(n,skin,{},GetWide()*.5f,GetTall()-45.0f);
     }
 };
@@ -214,7 +226,7 @@ class DamagePage final : public vgui::PropertyPage
     DECLARE_CLASS_SIMPLE(DamagePage,vgui::PropertyPage);
     vgui::CheckButton* show;
     vgui::ComboBox* skins;
-    vgui::ComboBox* styles;
+    vgui::Label* skinTitle;
     vgui::Label* status;
     DamagePreview* preview;
     bool dirty{}, savedShow{};
@@ -231,13 +243,11 @@ class DamagePage final : public vgui::PropertyPage
 public:
     explicit DamagePage(vgui::Panel* parent):PropertyPage(parent,"CSOLDamageOptions")
     {
+        InitializeDamagePreferences();
         show=new vgui::CheckButton(this,"DamageEnabled","");show->SetText(L"显示伤害数字");show->AddActionSignalTarget(this);
-        auto* label=new vgui::Label(this,"SkinTitle",L"原版数字皮肤");label->SetBounds(18,47,140,24);
+        skinTitle=new vgui::Label(this,"SkinTitle",L"数字皮肤");
         skins=new vgui::ComboBox(this,"DamageSkins",10,false);skins->AddActionSignalTarget(this);
         PopulateSkins();
-        styles=new vgui::ComboBox(this,"DamageExamples",7,false);styles->AddActionSignalTarget(this);
-        for(const auto* title:{L"普通伤害",L"爆头",L"暴击",L"背后攻击",L"未命中",L"治疗"})styles->AddItem(title,nullptr);
-        styles->ActivateItemByRow(0);
         preview=new DamagePreview(this);
         status=new vgui::Label(this,"DamageStatus",L"选择皮肤查看预览；确定或应用后保存。");
         OnResetData();
@@ -245,9 +255,23 @@ public:
     void PerformLayout() override
     {
         BaseClass::PerformLayout();
-        show->SetBounds(18,16,240,24);skins->SetBounds(18,75,GetWide()-36,26);
-        styles->SetBounds(18,112,200,26);preview->SetBounds(18,149,GetWide()-36,(std::max)(100,GetTall()-205));
+        show->SetBounds(18,16,240,24);skinTitle->SetBounds(18,47,140,24);
+        skins->SetBounds(18,75,GetWide()-36,26);
+        preview->SetBounds(18,112,GetWide()-36,(std::max)(100,GetTall()-168));
         status->SetBounds(18,GetTall()-49,GetWide()-36,43);
+    }
+    void OnPageShow() override
+    {
+        BaseClass::OnPageShow();
+        // Retry a previously missing catalog after installation/download, and
+        // clear negative image/font cache entries only when opening the page.
+        InitializeDamagePreferences();
+        std::erase_if(textures,[](const auto& row){return !row.second.id;});
+        if(!textFonts[0]){
+            if(fontMemory){RemoveFontMemResourceEx(fontMemory);fontMemory=nullptr;}
+            fontAttempted=false;
+        }
+        preparedSkin=-1;
     }
     void OnThink() override
     {
@@ -257,9 +281,7 @@ public:
         if (std::size_t(skins->GetItemCount()) != DamageSkins().size()+1)
         { PopulateSkins(); OnResetData(); }
         auto* data=skins->GetActiveItemUserData();preview->skin=data?data->GetInt("id",1):1;
-        const int index=styles->GetActiveItem();
-        constexpr int values[]{0,4,0,0,5,6}, flags[]{0,0,2,1,0,4};
-        if(index>=0 && index<6){preview->style=values[index];preview->flags=flags[index];}
+        skins->SetEnabled(!DamageSkins().empty());
         if (!dirty && (show->IsSelected()!=savedShow || preview->skin!=savedSkin))
         {dirty=true;PostActionSignal(new KeyValues("ApplyButtonEnable"));}
         if (preparedSkin==preview->skin && preparedGeneration==graphicsGeneration) return;
@@ -272,8 +294,9 @@ public:
             for(const auto& p:skin->styles)missing|=!FindTexture(p.resource);
             for(const auto& p:skin->icons)missing|=!FindTexture(p.resource);
         }
-        status->SetText(missing?L"此皮肤有资源缺失。\n预览和游戏中会跳过缺失部分。":
-            L"确定或应用后保存。\n取消放弃尚未应用的修改。");
+        status->SetText(DamageSkins().empty()?L"伤害数字资源未安装，请更新客户端资源。":
+            missing?L"此皮肤部分资源缺失，请更新客户端资源。":
+            L"预览自动展示伤害效果。确定或应用后保存皮肤。");
     }
     void OnResetData() override
     {
@@ -284,6 +307,7 @@ public:
     }
     void OnApplyChanges() override
     {
+        if(DamageSkins().empty())return;
         if(auto* data=skins->GetActiveItemUserData())ApplyDamageSettings(show->IsSelected(),data->GetInt("id",1));
         savedShow=DamageEnabled();savedSkin=DamageSelectedSkin();dirty=false;
     }

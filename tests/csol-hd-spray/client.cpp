@@ -3,6 +3,8 @@
 // are captured. No fake process is presented as multiplayer gameplay evidence.
 #include "../../native/csol/client/hd_spray.cpp"
 #include <iostream>
+#include "../../native/csol/hd_spray_http_server.hpp"
+#include <thread>
 namespace csol::client {
 cl_enginefunc_t engine{};
 unsigned drawn{},removed{};spray::Dimensions drawnSize;
@@ -30,7 +32,7 @@ void Asset(unsigned id,const spray::Bytes& encoded){
 void Place(unsigned asset,unsigned id=1,spray::Dimensions original={1024,1024}){auto b=Packet(spray::Placement);for(auto v:{id,asset,0u,1u})spray::Put32(b,v);for(float f:{10.f,20.f,30.f,1.f,0.f,0.f})spray::PutFloat(b,f);spray::Put32(b,original.width);spray::Put32(b,original.height);spray::PutFloat(b,12.5f);Receive(b);}
 int main(){try{
     engine.pfnServerCmd=SendCommand;engine.Con_DPrintf=Log;
-    auto hello=Packet(spray::Hello);hello.push_back(spray::Version);Receive(hello);require(epoch==100&&commands.size()==1);
+    auto hello=Packet(spray::Hello);hello.push_back(spray::Version);spray::Put32(hello,0);spray::http::PutString(hello,"");Receive(hello);require(epoch==100&&commands.size()==1);
     const auto encoded=spray::Encode(Image{512,512,spray::Bytes(512*512*4,255)});
     auto begin=Packet(spray::Begin);spray::Put32(begin,7);spray::Put32(begin,unsigned(encoded.size()));spray::Put32(begin,spray::Checksum(encoded));Receive(begin);
     for(size_t at=0;at<encoded.size();at+=spray::Chunk){auto data=Packet(spray::Data);spray::Put32(data,7);spray::Put32(data,unsigned(at));data.insert(data.end(),encoded.begin()+at,encoded.begin()+std::min(encoded.size(),at+spray::Chunk));Receive(data);}
@@ -72,5 +74,33 @@ int main(){try{
     for(unsigned i=1;i<=4;++i){Asset(i,largeBytes);Place(i,i);require(images.size()==i);}
     Asset(5,largeBytes);require(!images.contains(5)&&!receiving.id&&commands.back().find(" skip 100 5")!=std::string::npos);
     ResetSpray();require(images.empty()&&placements.empty());
+    require(decodedMemory->load()==0);
+    spray::http::Server service;require(service.Start("127.0.0.1",0));
+    auto fast=Packet(spray::Hello);fast.push_back(spray::Version);spray::Put32(fast,27080);
+    spray::http::PutString(fast,"http://localhost:"+std::to_string(service.Port())+"/spray/");Receive(fast);
+    require(httpEndpoint.port==service.Port()&&httpEndpoint.host=="localhost");
+    auto old=Packet(spray::Hello);old.push_back(3);Receive(old);require(httpEndpoint.port==service.Port());
+    settings={true,encoded,{1024,1024}};dirty=true;nextSend=0;SprayFrame();const auto request=httpRequest;
+    auto ticket=service.Offer(unsigned(encoded.size()),spray::Checksum(encoded),settings.original);
+    auto assignedHttp=Packet(spray::HttpUpload);spray::Put32(assignedHttp,101);spray::Put32(assignedHttp,request);
+    assignedHttp.insert(assignedHttp.end(),ticket->token.begin(),ticket->token.end());Receive(assignedHttp);require(httpUpload&&uploadId==101);
+    auto finish=[&]{const auto end=GetTickCount64()+10000;while(httpUpload&&!httpUpload->done&&GetTickCount64()<end)std::this_thread::sleep_for(std::chrono::milliseconds(1));require(httpUpload&&httpUpload->done&&httpUpload->success);};
+    finish();require(ticket->state==spray::http::State::Ready);
+    auto result=Packet(spray::HttpResult);spray::Put32(result,101);spray::Put32(result,request-1);result.push_back(1);Receive(result);require(!httpAccepted);
+    result=Packet(spray::HttpResult);spray::Put32(result,101);spray::Put32(result,request);result.push_back(1);Receive(result);HttpFrame();require(!uploading&&images.contains(101));
+    const auto token=service.Publish(ticket->body);auto download=Packet(spray::HttpDownload);
+    spray::Put32(download,102);spray::Put32(download,unsigned(encoded.size()));spray::Put32(download,spray::Checksum(encoded));download.insert(download.end(),token.begin(),token.end());Receive(download);
+    require(bool(httpDownload));const auto end=GetTickCount64()+10000;while(httpDownload&&!httpDownload->done&&GetTickCount64()<end)std::this_thread::sleep_for(std::chrono::milliseconds(1));HttpFrame();
+    require(images.contains(102));Collect();require(images.contains(102));Place(102,10);require(drawn==1);
+    // Canceled work keeps its decode reservation until its last owner releases.
+    auto held=HttpJob(103,unsigned(encoded.size()),spray::Checksum(encoded),false,spray::Hex(token));
+    const auto reserved=decodedMemory->load();held->cancelled=true;ResetSpray();require(decodedMemory->load()==held->decodedLimit&&reserved>held->decodedLimit);
+    held.reset();require(decodedMemory->load()==0);Receive(fast);dirty=true;nextSend=0;SprayFrame();
+    const auto newer=httpRequest;Receive(result);require(uploading&&!httpAccepted);
+    auto denied=Packet(spray::HttpResult);spray::Put32(denied,0);spray::Put32(denied,newer);denied.push_back(0);Receive(denied);require(!uploading&&uploadBytes.empty());
+    dirty=true;nextSend=0;SprayFrame();httpDeadline=0;HttpFrame();require(!uploading&&uploadBytes.empty());
+    auto changed=Packet(spray::Hello);changed.push_back(spray::Version);spray::Put32(changed,0);spray::http::PutString(changed,"");
+    Receive(changed);require(!httpEndpoint.port&&dirty&&!uploading&&!httpUpload&&!httpDownload);
+    ResetSpray();Receive(old);require(!httpEndpoint.port&&protocol==3);ResetSpray();service.Stop();
     std::cout<<checks<<" actual-client HD spray protocol checks passed; live UI/network pending\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <iosfwd>
+#include <cstdint>
 #include "../weapon_slots.hpp"
 #include <usercmd.h>
 namespace csol::client
@@ -20,6 +21,14 @@ void DrawWeaponGuard(int hidden,int intermission);
 void WeaponInventoryVideoInit();
 const WeaponDefinition* FindWeaponDefinition(int id);
 const WeaponCurrent& CurrentExtendedWeapon();
+// Prediction may still replay the previous weapon after a newer current-
+// weapon message. Keep its state simulation, but do not present it on the
+// newly equipped model. Servers without this protocol retain native behavior.
+bool WeaponPresentationAllowed(int weaponId);
+// Stock CS caches its last animation separately from the engine. A custom
+// weapon can change the engine animation without updating that stock cache.
+std::uint64_t PendingWeaponAnimationSync(int weaponId);
+bool ConsumeWeaponAnimationSync(std::uint64_t token,int weaponId);
 bool ExtendedWeaponActive();
 void ReceiveExtendedWeaponState(const WeaponCurrent& current);
 void ReceiveExtendedWeaponDefinition(const WeaponDefinition& definition);

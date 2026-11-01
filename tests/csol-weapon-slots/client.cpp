@@ -503,12 +503,14 @@ void BeamSwitchChecks()
             step(0);Check(weaponAnimations.empty()); // Replay cannot consume the switch.
             step();Check(weaponAnimations.size()==1&&weaponAnimations.back()==std::array<int,2>{sequence,1});
             step();ReceiveBeamgunState({id,1,79,200,99});step();Check(weaponAnimations.size()==1);
-            weaponView.curstate.sequence=BeamReload;step();Check(weaponAnimations.size()==2&&weaponView.curstate.sequence==sequence);
+            // Rendering may still expose another sequence after prediction.
+            // Only a real action or presentation entry restarts WeaponAnim.
+            weaponView.curstate.sequence=BeamReload;step();Check(weaponAnimations.size()==1&&weaponView.curstate.sequence==BeamReload);
             local_state_t other{},otherTo{};other.client.m_iId=28;
             Check(!PredictBeamgun(&other,&otherTo,&cmd,1,now,17));
-            step();Check(weaponAnimations.size()==3); // Same sequence must restart after switching away.
-            from.client.health=0;step();Check(weaponAnimations.size()==3);
-            from.client.health=100;step();Check(weaponAnimations.size()==4);
+            step();Check(weaponAnimations.size()==2); // Same sequence must restart after switching away.
+            from.client.health=0;step();Check(weaponAnimations.size()==2);
+            from.client.health=100;step();Check(weaponAnimations.size()==3);
             ReceiveBeamgunState({id,1,79,200,100});Check(BeamgunViewSkin(&weaponView)==1&&weaponView.curstate.body==1);
             ReceiveBeamgunState({id,1,79,200,99});Check(BeamgunViewSkin(&weaponView)==0);
             from.client.m_flNextAttack=0;from.weapondata[0].iuser1=100;cmd.buttons=IN_ATTACK;

@@ -442,11 +442,12 @@ bool PredictBeamgun(local_state_t* from, local_state_t* to, usercmd_t* cmd, int 
         auto* model = engine.GetViewModel ? engine.GetViewModel() : nullptr;
         const int animation = to->client.weaponanim;
         // DefaultDeploy may skip SVC_WEAPONANIM for a predicting client. Stock
-        // prediction cannot deploy our extended ID; reconcile its authoritative
-        // sequence once on entry and after correction, never on an ammo update.
+        // prediction cannot deploy our extended ID; present its authoritative
+        // sequence on entry/model change and explicit predicted actions. The
+        // render state's sequence is committed later, so it is not a signal
+        // to restart an animation on another user command.
         if (animation >= BeamIdle && animation <= BeamChargeDraw &&
-            (animated || presentedWeapon != id || presentedModel != source.viewmodel ||
-                (model && model->curstate.sequence != animation)))
+            (animated || presentedWeapon != id || presentedModel != source.viewmodel))
             engine.pfnWeaponAnim(animation, model ? model->curstate.body : 0);
         presentedWeapon = id; presentedModel = source.viewmodel;
     }

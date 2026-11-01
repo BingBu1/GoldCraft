@@ -66,6 +66,8 @@ private:
     // particle lifetime. Reset on a new round, not when a monster dies.
     std::array<float, 4> m_smokeUntil{};
     std::uint64_t m_smokeRound{};
+    float m_trapUntil{};
+    std::uint64_t m_trapRound{};
     // Safe reference returned only after owner retirement; live state comes
     // directly from the registered rule's m_bRoundTerminating.
     const bool m_retiredDamageSuppressed{true};

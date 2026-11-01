@@ -26,6 +26,8 @@
 #include "scenario_smoke.hpp"
 #include "scenario_upgrades.hpp"
 #include "scenario_abilities.hpp"
+#include "scenario_round_hud_client.hpp"
+#include "playerclip.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
 
@@ -225,6 +227,7 @@ static void ScenarioHudInfo()
     std::ostringstream report;
     ScenarioUpgradesDiagnostics(report);
     ScenarioAbilitiesDiagnostics(report);
+    ScenarioRoundHudDiagnostics(report);
     engine.Con_Printf("%s", report.str().c_str());
 }
 static void Init()
@@ -253,6 +256,8 @@ static void Init()
     InitializeScenarioSmoke();
     InitializeScenarioUpgrades();
     InitializeScenarioAbilities();
+    InitializeScenarioRoundHud();
+    InitializePlayerClips();
 }
 static int VidInit()
 {
@@ -267,11 +272,14 @@ static int VidInit()
     ScenarioKillVideoInit();
     ScenarioUpgradesVideoInit();
     ScenarioAbilitiesVideoInit();
+    ScenarioRoundHudVideoInit();
     return downstream.HUD_VidInit();
 }
 static void HudShutdown()
 {
+    ShutdownPlayerClips();
     ShutdownSpray();
+    ShutdownScenarioRoundHud();
     if(downstream.HUD_Shutdown)downstream.HUD_Shutdown();
     // Renderer is the outer export wrapper and removes its own studio detours
     // after this returns. Remove our later outer detours first.
@@ -280,10 +288,12 @@ static void HudShutdown()
 static void Frame(double time)
 {
     SynchronizeFrameSession();
+    ScenarioEffectsFrame();
     ScenarioMusicFrame();
     ScenarioKillFrame();
     ScenarioUpgradesFrame();
     ScenarioAbilitiesFrame();
+    ScenarioRoundHudFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();
@@ -303,8 +313,10 @@ static int Redraw(float time, int intermission)
     DrawStatusIcons(time);
     DrawWallStatus(intermission);
     DrawScenarioKill(time, intermission);
+    DrawScenarioEffects(time, intermission);
     DrawScenarioUpgrades(time, intermission);
     DrawScenarioAbilities(time, intermission);
+    DrawScenarioRoundHud(time, intermission);
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -321,6 +333,7 @@ static void Transparent()
 }
 static void PlayerMove(playermove_t* move, int server)
 {
+    if (!server && !InjectPlayerClips(*move)) return;
     // Read only the server's current prediction data, never a local CVAR or
     // cached scoreboard team. Disconnect/map/slot changes therefore cannot
     // retain a previous server's pass-through permission.
@@ -375,6 +388,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){csol::client::ShutdownSpray();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

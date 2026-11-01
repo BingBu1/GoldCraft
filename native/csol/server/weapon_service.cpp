@@ -4,9 +4,11 @@
 #include "weapon_slots.h"
 #include "wpn_beamgun.h"
 #include "wpn_cannon.h"
+#include "wpn_k3.h"
 #include "weapon_service.h"
 #include "characters.h"
 #include "game_rules_gate.h"
+#include "scenario_player_runtime.h"
 #include "interface.h"
 #include "../../include/goldcraft/csol_weapon_api.hpp"
 #include <array>
@@ -51,6 +53,7 @@ const char* WeaponName(int id)
     case CSOL_WEAPON_BEAMGUN: return "weapon_beamgun";
     case CSOL_WEAPON_BEAMGUNLE: return "weapon_beamgunle";
     case CSOL_WEAPON_CANNON: return "weapon_cannon";
+    case CSOL_WEAPON_K3: return "weapon_k3";
     default: return nullptr;
     }
 }
@@ -257,6 +260,110 @@ private:
     int index{},userid{},clip{},hiddenWeapons{};
     float nextAttack{};
 };
+// The purchase has its own new entity, just like the original item grant.
+// SDK/player handles are rechecked after Spawn, Touch, Drop and Deploy hooks.
+int DeliverScenarioK3(CBasePlayer& buyer)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current()) return 0;
+    const auto players=CSOL_ScenarioPlayerAuthority(sdk.EntityAccess().get());
+    const EHANDLE playerHandle(&buyer);
+    const auto state=players ? players->Find(playerHandle) : nullptr;
+    if (!state) return 0;
+    const auto generation=state->generation;
+    const int spawns=buyer.m_iNumSpawns;
+    const auto current=[&]() {
+        return sdk.Current() && players->Active() && players->Find(playerHandle)==state &&
+            state->generation==generation && playerHandle.Get<CBaseEntity>()==&buyer &&
+            !buyer.has_disconnected && buyer.m_iNumSpawns==spawns && buyer.IsAlive() &&
+            buyer.m_iTeam==CT && !(buyer.pev->flags & (FL_KILLME|FL_DORMANT)) && CSOL_ScenarioCanBuy();
+    };
+    if (!current()) return 0;
+    EHANDLE original(buyer.GetItemById(static_cast<WeaponIdType>(CSOL_WEAPON_K3)));
+    EHANDLE fresh,box;
+    const auto live=[&](EHANDLE& handle)->CBaseEntity* {
+        if (!sdk.Current()) return nullptr;
+        auto* entity=handle.Get<CBaseEntity>();
+        return entity && !(entity->pev->flags & FL_KILLME) ? entity : nullptr;
+    };
+    const auto acquired=[&]() {
+        if (!current()) return false;
+        auto* weapon=dynamic_cast<CBasePlayerWeapon*>(live(fresh));
+        return weapon && CSOL_K3EmptyMonsterKillCallbacks(*weapon) && weapon->m_pPlayer==&buyer &&
+            weapon->pev->owner==playerHandle.Get() &&
+            buyer.GetItemById(static_cast<WeaponIdType>(CSOL_WEAPON_K3))==weapon;
+    };
+    const auto rejected=[&]() {
+        // Never remove an item transferred by a hook, nor revisit old-map entities.
+        auto* entity=live(fresh);
+        if (entity && current()) {
+            // A rejected AddPlayerItem hook may already have inserted the gun
+            // before DefaultTouch sets owner. Unlink it before removal/refund.
+            bool held=false;
+            for (int slot=0;slot<MAX_ITEM_TYPES;++slot)
+                for (auto* item=buyer.m_rgpPlayerItems[slot];item;item=item->m_pNext)
+                    held|=item==entity;
+            if (held) buyer.RemovePlayerItem(static_cast<CBasePlayerItem*>(entity));
+            if (!current()) return 0;
+            entity=live(fresh);
+        }
+        if (entity) {
+            auto* weapon=dynamic_cast<CBasePlayerWeapon*>(entity);
+            if (weapon && (!weapon->m_pPlayer || weapon->m_pPlayer==&buyer) &&
+                (!entity->pev->owner || entity->pev->owner==playerHandle.Get())) {
+                // RemovePlayerItem itself is hookable. Never delete an entity
+                // that a plugin left linked in any player's inventory.
+                bool linked=false;
+                for (int i=1;i<=gpGlobals->maxClients;++i)
+                    if (auto* player=Player(i))
+                        for (int slot=0;slot<MAX_ITEM_TYPES;++slot)
+                            for (auto* item=player->m_rgpPlayerItems[slot];item;item=item->m_pNext)
+                                linked|=item==entity;
+                if (!linked) UTIL_Remove(entity);
+            }
+        }
+        if (!current()) return 0;
+        entity=live(original);
+        auto* container=live(box);
+        if (entity && container && entity->pev->owner==container->edict() &&
+            FClassnameIs(container->pev,"weaponbox") &&
+            !buyer.GetItemById(static_cast<WeaponIdType>(CSOL_WEAPON_K3)))
+            DispatchTouch(container->edict(),playerHandle.Get());
+        return 0;
+    };
+    const auto name=ALLOC_STRING("weapon_k3");
+    if (!current()) return 0;
+    auto* created=CREATE_NAMED_ENTITY(name);
+    if (!current()) return 0;
+    if (FNullEnt(created)) return 0;
+    fresh=EHANDLE(created);
+    created->v.origin=buyer.pev->origin;
+    created->v.spawnflags|=SF_NORESPAWN;
+    const int spawned=DispatchSpawn(created);
+    if (!current()) return rejected();
+    auto* weapon=dynamic_cast<CBasePlayerWeapon*>(live(fresh));
+    if (spawned<0 || !weapon || !CSOL_ScenarioSetK3Identity(*weapon)) return rejected();
+    if (live(original)) {
+        box=buyer.DropPlayerItem("weapon_k3");
+        if (!current() || !live(fresh) || buyer.GetItemById(static_cast<WeaponIdType>(CSOL_WEAPON_K3)))
+            return rejected();
+    }
+    DispatchTouch(fresh.Get(),playerHandle.Get());
+    if (!acquired()) return rejected();
+    std::vector<EHANDLE> others;
+    for(auto* item=buyer.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT];item;item=item->m_pNext)
+        if(item!=fresh.Get<CBaseEntity>())others.emplace_back(item);
+    for(auto& handle:others) {
+        auto* entity=live(handle);
+        if (!entity || entity->pev->owner!=playerHandle.Get()) continue;
+        buyer.DropPlayerItem(STRING(entity->pev->classname));
+        if (!acquired()) return rejected();
+    }
+    buyer.SelectItem("weapon_k3");
+    if (!acquired()) return rejected();
+    CSOL_UpdateWeaponInventory(&buyer);
+    return acquired() ? 1 : 0;
+}
 class WeaponService final : public csol::IWeaponService {
 public:
     int CanBuy(int index, int weapon) override
@@ -270,7 +377,8 @@ public:
         const bool human=scenario ? (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy()) : CSOL_ZombieHuman(player);
         return WeaponName(weapon) && player && player->IsAlive() && human &&
             CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
-            !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady());
+            !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
+            (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready());
     }
     int Buy(int index, int weapon) override
     {
@@ -279,9 +387,10 @@ public:
     int Deliver(int index, int weapon, bool scenario)
     {
         if (!CanDeliver(index, weapon, scenario)) return 0;
-        CannonPurchaseGuard guard(weapon==CSOL_WEAPON_CANNON ? index : 0);
+        CannonPurchaseGuard guard(weapon==CSOL_WEAPON_CANNON || (scenario && weapon==CSOL_WEAPON_K3) ? index : 0);
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
+        if(scenario && weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);
         const char* name = WeaponName(weapon);
         if(weapon==CSOL_WEAPON_CANNON && CSOL_HasWeapon(player,weapon))
             return CannonPurchaseBackup(player).Replace();

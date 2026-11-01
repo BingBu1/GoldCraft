@@ -141,6 +141,11 @@ static void adapter_tests(){
     {files[name].bytes=pattern(31,8);add(name,t_generic,31);}
     files["models/texture/#512512hand.bmp"].bytes=pattern(41,4);add("models/texture/#512512hand.bmp",t_generic,41);
     GC_HttpResources();frame();CHECK(std::string(sv_downloadurl.string).empty());
+    CHECK(cvars.at("gc_spray_http_front")->value==port&&cvars.at("gc_spray_http_backend")->value==0);
+    CHECK(request(port,"/spray/image/0123456789abcdef0123456789abcdef").status==503);
+    Cvar_Set("gc_spray_http_backend", std::to_string(port).c_str());frame();
+    CHECK(request(port,"/spray/image/0123456789abcdef0123456789abcdef").status==503); // no self-proxy
+    Cvar_Set("gc_spray_http_backend", "0");frame();
     auto f=async_request(port,"models/a.mdl");CHECK(pump(f).body==files["models/a.mdl"].bytes);CHECK(largest_read_frame==256*1024&&seeks>=5&&opens==closes);
     f=async_request(port,"sound/a.wav");CHECK(pump(f).body==files["sound/a.wav"].bytes);
     f=async_request(port,"sprites/test.spr");CHECK(pump(f).body==files["sprites/test.spr"].bytes);
@@ -192,11 +197,11 @@ static void adapter_tests(){
     commands.at("mc_http_refresh")();f=async_request(port,"models/a.mdl");until([&]{frame();return read_frame>0;});++files["models/a.mdl"].time;CHECK(pump(f).status==404);
     commands.at("mc_http_refresh")();f=async_request(port,"models/a.mdl");CHECK(pump(f).body==files["models/a.mdl"].bytes);
     commands.at("mc_http_refresh")();files["models/a.mdl"].broken=true;f=async_request(port,"models/a.mdl");CHECK(pump(f).status==404);CHECK(opens==closes);files["models/a.mdl"].broken=false;
-    GC_HttpReset();f=async_request(port,"models/a.mdl");CHECK(pump(f).status==404);
+    GC_HttpReset();CHECK(cvars.at("gc_spray_http_backend")->value==0);f=async_request(port,"models/a.mdl");CHECK(pump(f).status==404);
     f=async_request(port,"bgm/Scenario_Ready.mp3");CHECK(pump(f).status==404);
     f=async_request(port,"resource/Hud/ZBS/ZBSkill.tga");CHECK(pump(f).status==404);
     f=async_request(port,"resource/font/df_gb_y9.ttf");CHECK(pump(f).status==404);
-    GC_HttpResources();f=async_request(port,"models/a.mdl");until([&]{frame();return read_frame>0;});auto began=std::chrono::steady_clock::now();GC_HttpShutdown();CHECK(std::chrono::steady_clock::now()-began<1500ms);f.get();CHECK(opens==closes);
+    GC_HttpResources();f=async_request(port,"models/a.mdl");until([&]{frame();return read_frame>0;});auto began=std::chrono::steady_clock::now();GC_HttpShutdown();CHECK(std::chrono::steady_clock::now()-began<1500ms);f.get();CHECK(opens==closes);CHECK(cvars.at("gc_spray_http_front")->value==0);
 }
 int main(){
     WSADATA w;CHECK(WSAStartup(MAKEWORD(2,2),&w)==0);

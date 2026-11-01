@@ -7,6 +7,9 @@ namespace csol::smoke
 {
 using Vec3 = std::array<float, 3>;
 inline constexpr char Sprite[] = "sprites/gas_puff_01.spr";
+// Stock smoke grenades also send iparam2=1/4. A separate event keeps their
+// original client callback and prediction indices intact in every mode.
+inline constexpr char EventPath[] = "events/csol_scenario_smoke.sc";
 inline constexpr int RenderMode = 4;
 inline constexpr float Color = 5.0f / 255.0f;
 inline constexpr std::size_t InitialParticles = 18;

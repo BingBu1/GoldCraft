@@ -5,6 +5,7 @@
 namespace csol::client
 {
 void InstallDamageOptions(); // LoadEngine, before GameUI initializes.
+void InitializeDamagePreferences(); // Also usable from the main menu, before HUD_Init.
 void InitializeDamageDisplay();
 void DamageDisplayFrame();
 void DamageDisplayVideoInit();

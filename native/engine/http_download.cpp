@@ -10,6 +10,9 @@ cvar_t mc_http_download = {"mc_http_download", "1", 0, 1.0f, nullptr};
 cvar_t mc_http_bind = {"mc_http_bind", "0.0.0.0", 0, 0.0f, nullptr};
 cvar_t mc_http_port = {"mc_http_port", "27080", 0, 27080.0f, nullptr};
 cvar_t mc_http_public_url = {"mc_http_public_url", "", 0, 0.0f, nullptr};
+// Private main-thread rendezvous with the game DLL; never a remote target URL.
+cvar_t gc_spray_http_backend = {"gc_spray_http_backend", "0", 0, 0.0f, nullptr};
+cvar_t gc_spray_http_front = {"gc_spray_http_front", "0", 0, 0.0f, nullptr};
 goldcraft::http::Store store;
 goldcraft::http::Server server;
 std::shared_ptr<goldcraft::http::Load> loading;
@@ -73,6 +76,7 @@ void Configure() {
 void GC_HttpInit() {
     Cvar_RegisterVariable(&mc_http_download); Cvar_RegisterVariable(&mc_http_bind);
     Cvar_RegisterVariable(&mc_http_port); Cvar_RegisterVariable(&mc_http_public_url);
+    Cvar_RegisterVariable(&gc_spray_http_backend); Cvar_RegisterVariable(&gc_spray_http_front);
     Cmd_AddCommand("mc_http_stats", Stats);
     Cmd_AddCommand("mc_http_refresh", GC_HttpResources);
     // Service package passes configuration through the child environment,
@@ -97,6 +101,10 @@ void GC_HttpFrame() {
     if (realtime >= next_config_check || download_allowed != (sv_allow_download.value != 0 && sv_send_resources.value != 0)) {
         next_config_check = realtime + 1; Configure();
     }
+    if (gc_spray_http_front.value != server.port()) Cvar_Set("gc_spray_http_front", std::to_string(server.port()).c_str());
+    const auto backend = gc_spray_http_backend.value;
+    server.spray_backend(std::isfinite(backend) && backend >= 1 && backend <= 65535 && backend == std::floor(backend) && backend != server.port()
+        ? static_cast<unsigned short>(backend) : 0);
     if (!server.port()) return;
     const auto begin = std::chrono::steady_clock::now();
     // Bounded total main-thread IO; worker threads never touch the non-thread-
@@ -128,7 +136,8 @@ void GC_HttpFrame() {
     const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
     if (elapsed > max_read_ms) max_read_ms = elapsed;
 }
-void GC_HttpReset() { CloseRead(false); store.publish({}); }
+void GC_HttpReset() { CloseRead(false); store.publish({}); server.spray_backend(0); Cvar_Set("gc_spray_http_backend", "0"); }
 void GC_HttpShutdown() {
     GC_HttpReset(); ClearAdvertised(); server.stop(); config_checked = false; next_config_check = 0;
+    Cvar_Set("gc_spray_http_front", "0");
 }

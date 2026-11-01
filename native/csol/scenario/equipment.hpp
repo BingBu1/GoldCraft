@@ -31,6 +31,16 @@ struct EquipmentAddon
 
 struct EquipmentTables
 {
+    // Missing upper JSON nodes retain the previous configuration. There is
+    // no evidenced constructor default for the original threshold.
+    std::optional<std::int32_t> weaponDropDifficulty;
+    std::map<std::int32_t, std::int32_t> weaponDropMapDifficulty;
+    bool WeaponDropRestricted(std::int32_t map, std::int32_t difficulty) const
+    {
+        const auto entry = weaponDropMapDifficulty.find(map);
+        return (entry != weaponDropMapDifficulty.end() && difficulty >= entry->second) ||
+            (weaponDropDifficulty && difficulty >= *weaponDropDifficulty);
+    }
     CsvDocument buffSource;
     std::map<std::int32_t, std::vector<EquipmentBuff>> buffs;
     std::map<std::string, std::int32_t, std::less<>> effectTypes;

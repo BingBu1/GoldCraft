@@ -6,6 +6,8 @@
 #include "beamgun.hpp"
 #include "cannon.hpp"
 #include "../cannon.hpp"
+#include "k3.hpp"
+#include "../k3.hpp"
 #include <usercmd.h>
 #include <in_buttons.h>
 #include <algorithm>
@@ -51,6 +53,7 @@ decltype(engine.pfnSPR_DrawAdditive) originalDraw{};
 decltype(engine.pfnFillRGBA) originalFill{};
 
 bool Custom() { return (registered && active==KnifeId) || (active==cannon::Id && FindWeaponDefinition(active)); }
+bool K3Active() { return active==k3::Id && FindWeaponDefinition(active); }
 int SetFov(const char* name,int size,void* data)
 {
     if(size==1 && data){fieldOfView=*static_cast<unsigned char*>(data);if(!fieldOfView)fieldOfView=90;}
@@ -63,7 +66,7 @@ int NightVision(const char* name,int size,void* data)
 }
 void DrawCrosshair(int intermission)
 {
-    if(!Custom() || intermission || (hidden&69) || view.health<=0 || view.spectator ||
+    if((!Custom() && !K3Active()) || intermission || (hidden&69) || view.health<=0 || view.spectator ||
         fieldOfView<90 || engine.pfnGetCvarFloat("hud_draw")==0)return;
     // CS draws this dynamic crosshair itself. The engine's `crosshair`
     // cvar controls its separate sprite path, not CHudAmmo::DrawCrosshair.
@@ -77,8 +80,10 @@ void DrawCrosshair(int intermission)
     style.translucent=engine.pfnGetCvarFloat("cl_crosshair_translucent")!=0;
     if(nightVision){style.r=250;style.g=style.b=50;style.translucent=false;}
     const bool dynamic=engine.pfnGetCvarFloat("cl_dynamiccrosshair")!=0;
-    const auto parameters=active==cannon::Id?crosshair::Parameters{6,3,0,3}:crosshair::ThrowingKnife;
+    const auto parameters=K3Active()?crosshair::Parameters{6,3,140,3}:
+        active==cannon::Id?crosshair::Parameters{6,3,0,3}:crosshair::ThrowingKnife;
     if(active==cannon::Id && CannonCrosshairShot())crosshairState.shot=true;
+    if(K3Active() && K3CrosshairShot())crosshairState.shot=true;
     crosshair::Advance(crosshairState,parameters,playerFlags,playerSpeed,dynamic);
     crosshair::Draw(crosshairState,crosshair::BaseGap(parameters,playerFlags,playerSpeed,dynamic),
         style,style.translucent?originalFill:engine.pfnFillRGBABlend);
@@ -260,9 +265,42 @@ void LoadSprites()
     const int atlas=engine.pfnSPR_Load("sprites/csol/640hud7.spr");
     for(int digit=0;digit<10;++digit)
         digits[digit]={atlas,{digitLeft[digit],digitLeft[digit]+20,0,25}};
-    if(active==cannon::Id)ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud2.spr"),{73,97,231,255}};
+    if(K3Active())ammoIcon={atlas,{0,24,96,120}};
+    else if(active==cannon::Id)ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud2.spr"),{73,97,231,255}};
     else ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud12.spr"),{49,73,231,255}};
     loadedAmmoId=active;
+}
+void DrawK3Ammo(int intermission)
+{
+    if(!K3Active() || intermission || (hidden&5) || view.health<=0 || view.spectator ||
+        !digits[0].handle || !ammoIcon.handle || engine.pfnGetCvarFloat("hud_draw")==0)return;
+    const bool prediction=engine.pfnGetCvarFloat("cl_lw")!=0 && K3PredictedAmmo()>=0;
+    const int currentClip=std::max(0,prediction?K3PredictedAmmo():clip);
+    const int currentReserve=std::max(0,prediction?K3PredictedReserve():reserve);
+    char clipText[16],reserveText[16];
+    std::snprintf(clipText,sizeof(clipText),"%d",currentClip);
+    std::snprintf(reserveText,sizeof(reserveText),"%d",currentReserve);
+    const int clipCells=std::max(3,int(std::strlen(clipText))),reserveCells=std::max(3,int(std::strlen(reserveText)));
+    const int width=digits[0].rect.right-digits[0].rect.left,height=digits[0].rect.bottom-digits[0].rect.top;
+    if(width<=0 || height<=0)return;
+    const int y=screen.iHeight-height-height/2,iconWidth=ammoIcon.rect.right-ammoIcon.rect.left;
+    const int clipX=screen.iWidth-(clipCells+reserveCells+2)*width-iconWidth;
+    const int dividerX=clipX+clipCells*width+width/2,dividerWidth=std::max(1,width/10);
+    const int reserveX=dividerX+dividerWidth+width/2;
+    const auto number=[&](const char* text,int x,int cells)
+    {
+        x+=(cells-int(std::strlen(text)))*width;
+        for(const char* digit=text;*digit;++digit)
+        {
+            const auto& sprite=digits[*digit-'0'];originalSet(sprite.handle,255,160,0);
+            originalDraw(0,x,y,&sprite.rect);x+=width;
+        }
+    };
+    number(clipText,clipX,clipCells);number(reserveText,reserveX,reserveCells);
+    originalFill(dividerX,y,dividerWidth,height,255,160,0,255);
+    originalSet(ammoIcon.handle,255,160,0);
+    originalDraw(0,reserveX+reserveCells*width,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
+    ++hudDraws;
 }
 void PrepareWideAmmo(int intermission)
 {
@@ -306,6 +344,7 @@ void InitializeWeapons()
     InitializePickupHistory();
     InitializeBeamgun();
     InitializeCannon();
+    InitializeK3();
     oldWeaponList=api->HookUserMsg("WeaponList",WeaponList);
     oldCurWeapon=api->HookUserMsg("CurWeapon",CurWeapon);
     oldAmmo=api->HookUserMsg("AmmoX",Ammo);
@@ -323,6 +362,7 @@ void ResetWeapons(bool forgetRegistration)
     ResetPickupHistory();
     ResetBeamgun();
     ResetCannon();
+    ResetK3();
     ResetCannonEffects();
     active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
@@ -345,6 +385,7 @@ void WeaponVideoInit()
     PickupHistoryVideoInit();
     BeamgunVideoInit();
     ResetCannonEffects();
+    ResetK3();
     for(auto& sprite:digits)sprite={};
     std::fill(std::begin(nativeDigitSprites),std::end(nativeDigitSprites),0);
     for(auto& sprite:nativeDigits)sprite={};
@@ -357,7 +398,7 @@ int WeaponRedraw(float time,int intermission)
 {
     // Preserve the ordinary HUD and selection. Only replace the selected
     // weapon's bottom-right ammo sprites and divider while it is being drawn.
-    if(Custom() && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
+    if((Custom() || K3Active()) && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
     adjustMoney=BeamgunSecondaryAmmoVisible(hidden,intermission);
     if(adjustMoney && !nativeHudLoaded)LoadNativeHudSprites();
     PrepareWideAmmo(intermission);
@@ -372,6 +413,7 @@ int WeaponRedraw(float time,int intermission)
     DrawPickupHistory(hidden,intermission);
     DrawCrosshair(intermission);
     DrawBeamgunHUD(hidden,intermission);
+    DrawK3Ammo(intermission);
     if(!Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
         (view.health<=0) || engine.pfnGetCvarFloat("hud_draw")==0)return result;
     const int width=digits[0].rect.right-digits[0].rect.left;
@@ -418,6 +460,7 @@ void WeaponDiagnostics(std::ostream& out)
     SessionDiagnostics(out);
     BeamgunDiagnostics(out);
     CannonDiagnostics(out);
+    K3Diagnostics(out);
 }
 
 void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int runFunctions,double time,unsigned int seed)
@@ -426,8 +469,13 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
     sourceWeaponId=from->client.m_iId;
     playerFlags=from->client.flags;
     playerSpeed=std::hypot(from->client.velocity[0],from->client.velocity[1]);
+    // Reliable weapon selection can arrive before the prediction snapshot
+    // catches up. Simulate old commands silently in either direction: stock
+    // CS also reconciles animations when returning from an extended weapon.
+    if(!WeaponPresentationAllowed(sourceWeaponId))runFunctions=0;
     if(PredictBeamgun(from,to,cmd,runFunctions,time,seed))return;
     if(PredictCannon(from,to,cmd,runFunctions,time,seed))return;
+    if(PredictK3(from,to,cmd,runFunctions,time,seed))return;
     if(!registered || from->client.m_iId!=KnifeId || from->weapondata[ActiveWeaponSlot].m_iId!=KnifeId)
     {
         if(ExtendedWeaponId(from->client.m_iId))
@@ -445,7 +493,24 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
             to->weapondata[ActiveWeaponSlot]=data;
             return;
         }
+        const auto sync=runFunctions?PendingWeaponAnimationSync(sourceWeaponId):0;
         downstream.HUD_PostRunCmd(from,to,cmd,runFunctions,time,seed);
+        if(sync)
+        {
+            // Stock's cached (animation, weapon) can already match this knife
+            // while the engine still holds K3's Draw (knife's StabHit). Let
+            // stock compute the real next animation, then synchronize once
+            // on return. Replayed commands must not consume this handoff.
+            if(from->client.health<=0 || from->client.deadflag || to->client.m_iId!=sourceWeaponId ||
+                (engine.pfnGetCvarFloat && engine.pfnGetCvarFloat("cl_lw")==0))
+                ConsumeWeaponAnimationSync(sync,sourceWeaponId);
+            else if(to->client.viewmodel>0 && to->client.weaponanim>=0 && to->client.weaponanim<=255 &&
+                engine.GetViewModel && engine.pfnWeaponAnim)
+            {
+                if(auto* model=engine.GetViewModel();model && ConsumeWeaponAnimationSync(sync,sourceWeaponId))
+                    engine.pfnWeaponAnim(to->client.weaponanim,model->curstate.body);
+            }
+        }
         return;
     }
     const auto source=from->client;
@@ -514,6 +579,7 @@ void ReceiveExtendedWeaponState(const WeaponCurrent& current)
 {
     ReceiveBeamgunState(current);
     ReceiveCannonState(current);
+    ReceiveK3State(current);
     active=current.state?current.id:0;clip=current.clip;reserve=current.reserve;
     ApplyNativeWeaponVisibility();
     predictedClip=predictedTotal=-1;

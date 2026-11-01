@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <unordered_set>
+#include <unordered_map>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -24,6 +25,7 @@ static bool retry_socket() { const auto e = WSAGetLastError(); return e == WSAET
 #include <sys/select.h>
 #include <unistd.h>
 #include <cerrno>
+#include <fcntl.h>
 using Socket = int;
 constexpr Socket invalid_socket = -1;
 static void close_socket(Socket socket) { close(socket); }
@@ -150,6 +152,9 @@ struct Server::Impl {
     std::condition_variable wake;
     std::deque<Socket> queue;
     std::unordered_set<Socket> sockets;
+    unsigned short spray_port = 0;
+    std::uint64_t spray_generation = 0;
+    std::unordered_map<Socket, Socket> relays;
     std::atomic<std::uint64_t> requests{0}, bytes{0}, rejected{0};
 #ifdef _WIN32
     bool winsock = false;
@@ -180,6 +185,125 @@ struct Server::Impl {
         send_all(socket, header.data(), header.size(), Clock::now() + std::chrono::seconds(5));
         if (status >= 400) ++rejected;
     }
+    void spray(Socket client, const std::string& header, std::size_t line, std::size_t end,
+               const std::string& method, const std::string& target) {
+        constexpr std::size_t limit = 10 * 1024 * 1024;
+        const bool upload = method == "PUT";
+        const std::string prefix = upload ? "/spray/upload/" : "/spray/image/";
+        if ((!upload && method != "GET") || target.compare(0, prefix.size(), prefix) ||
+            target.size() != prefix.size() + 32 || target.substr(prefix.size()).find_first_not_of("0123456789abcdef") != std::string::npos) {
+            reply(client, 404); return;
+        }
+        std::size_t length = 0; bool have_length = false;
+        for (auto pos = line + 2; pos < end;) {
+            const auto next = header.find("\r\n", pos), colon = header.find(':', pos);
+            if (next > end || colon >= next || colon == pos) { reply(client, 400); return; }
+            const auto key = lower(header.substr(pos, colon - pos));
+            auto value = header.substr(colon + 1, next - colon - 1);
+            if (key.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") != std::string::npos ||
+                std::any_of(value.begin(), value.end(), [](unsigned char c) { return (c < 32 && c != '\t') || c == 127; })) { reply(client, 400); return; }
+            const auto a = value.find_first_not_of(" \t"), b = value.find_last_not_of(" \t");
+            value = a == std::string::npos ? "" : value.substr(a, b - a + 1);
+            if (key == "transfer-encoding" || key == "expect") { reply(client, 400); return; }
+            if (key == "content-length") {
+                if (have_length || !digits(value, length)) { reply(client, 400); return; }
+                have_length = true;
+            }
+            pos = next + 2;
+        }
+        if ((upload && (!have_length || length < 22 || length > limit)) || (!upload && length) || header.size() - end - 4 > length) { reply(client, 400); return; }
+        Socket backend = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (backend == invalid_socket) { reply(client, 503); return; }
+        unsigned short port = 0; std::uint64_t generation = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            // At least half of the fixed pool remains available for FastDL.
+            if (!stopping && spray_port && relays.size() < workers / 2) {
+                port = spray_port; generation = spray_generation; relays.emplace(client, backend);
+            }
+        }
+        if (!port) { close_socket(backend); reply(client, 503); return; }
+        struct Cleanup {
+            Impl& self; Socket client, backend;
+            ~Cleanup() { std::lock_guard<std::mutex> lock(self.mutex); self.relays.erase(client); close_socket(backend); }
+        } cleanup{*this, client, backend};
+        socket_timeout(backend);
+        // Nonblocking connect keeps unavailable backends and shutdown bounded.
+#ifdef _WIN32
+        u_long nonblocking = 1; ioctlsocket(backend, FIONBIO, &nonblocking);
+#else
+        const auto flags = fcntl(backend, F_GETFL, 0); fcntl(backend, F_SETFL, flags | O_NONBLOCK);
+#endif
+        sockaddr_in address{}; address.sin_family = AF_INET; address.sin_port = htons(port); address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        connect(backend, reinterpret_cast<sockaddr*>(&address), sizeof(address));
+        fd_set ready; FD_ZERO(&ready); FD_SET(backend, &ready); timeval wait{0, 250000};
+        if (select(static_cast<int>(backend) + 1, nullptr, &ready, nullptr, &wait) <= 0) { reply(client, 503); return; }
+        int error = 0;
+#ifdef _WIN32
+        int error_size = sizeof(error);
+#else
+        socklen_t error_size = sizeof(error);
+#endif
+        if (getsockopt(backend, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &error_size) || error) { reply(client, 503); return; }
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            // A route can be retired while connect() is still pending, before
+            // shutdown() has an established backend socket to interrupt.
+            if (stopping || spray_generation != generation) return;
+        }
+#ifdef _WIN32
+        nonblocking = 0; ioctlsocket(backend, FIONBIO, &nonblocking);
+#else
+        fcntl(backend, F_SETFL, flags);
+#endif
+        const auto deadline = Clock::now() + std::chrono::seconds(120);
+        const auto canonical = method + " " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: " + std::to_string(length) + "\r\nConnection: close\r\n\r\n";
+        if (!send_all(backend, canonical.data(), canonical.size(), deadline) ||
+            !send_all(backend, header.data() + end + 4, header.size() - end - 4, deadline)) return;
+        std::array<char, 64 * 1024> buffer;
+        auto receive = [&](Socket from, char* data, std::size_t count) {
+            const auto idle = Clock::now() + std::chrono::seconds(5);
+            while (!stopping && Clock::now() < deadline && Clock::now() < idle) {
+                const int n = recv(from, data, static_cast<int>(count), 0);
+                if (n > 0) return n;
+                if (!n || !retry_socket()) return 0;
+            }
+            return 0;
+        };
+        for (auto remaining = length - (header.size() - end - 4); remaining;) {
+            const auto n = receive(client, buffer.data(), std::min(remaining, buffer.size()));
+            if (!n || !send_all(backend, buffer.data(), n, deadline)) return;
+            remaining -= n;
+        }
+        std::string response;
+        while (response.find("\r\n\r\n") == std::string::npos && response.size() < 8192) {
+            const auto n = receive(backend, buffer.data(), 1024); if (!n) return;
+            response.append(buffer.data(), n);
+        }
+        const auto head_end = response.find("\r\n\r\n"), first = response.find("\r\n");
+        if (head_end == std::string::npos || head_end > 8192 || first >= head_end || response.substr(0, 9) != "HTTP/1.1 ") return;
+        std::size_t code = 0, body_size = 0; bool body_length = false;
+        if (!digits(response.substr(9, 3), code) || (code != 200 && code != 400 && code != 403 && code != 404 && code != 409 && code != 413 && code != 503)) return;
+        for (auto pos = first + 2; pos < head_end;) {
+            const auto next = response.find("\r\n", pos), colon = response.find(':', pos);
+            if (colon >= next || next > head_end) return;
+            const auto key = lower(response.substr(pos, colon - pos));
+            auto value = response.substr(colon + 1, next - colon - 1);
+            while (!value.empty() && value.front() == ' ') value.erase(0, 1);
+            if (key == "transfer-encoding") return;
+            if (key == "content-length") { if (body_length || !digits(value, body_size)) return; body_length = true; }
+            pos = next + 2;
+        }
+        const auto initial = response.size() - head_end - 4;
+        if (!body_length || body_size > limit || ((upload || code != 200) && body_size) || initial > body_size) return;
+        reply(client, static_cast<int>(code), body_size);
+        if (!send_all(client, response.data() + head_end + 4, initial, deadline)) return;
+        for (auto remaining = body_size - initial; remaining;) {
+            const auto n = receive(backend, buffer.data(), std::min(remaining, buffer.size()));
+            if (!n || !send_all(client, buffer.data(), n, deadline)) return;
+            remaining -= n;
+        }
+    }
     void serve(Socket socket) {
         std::string header;
         std::array<char, 1024> buffer;
@@ -196,8 +320,9 @@ struct Server::Impl {
         const auto first = request.find(' '), last = request.rfind(' ');
         if (first == std::string::npos || first == last || (request.substr(last + 1) != "HTTP/1.0" && request.substr(last + 1) != "HTTP/1.1")) { reply(socket, 400); return; }
         const auto method = request.substr(0, first);
-        if (method != "GET" && method != "HEAD") { reply(socket, 405); return; }
         const auto target = request.substr(first + 1, last - first - 1);
+        if (target.compare(0, 7, "/spray/") == 0) { spray(socket, header, line, end, method, target); return; }
+        if (method != "GET" && method != "HEAD") { reply(socket, 405); return; }
         // GoldSrc sends the literal # in CSOL texture filenames. Treat it as
         // part of the exact precached resource name, also accepting %23 from
         // conventional URL clients. Never strip a suffix as a fragment.
@@ -339,6 +464,7 @@ bool Server::start(const std::string& bind, unsigned short port, Provider provid
 void Server::stop() {
     auto& c = *impl_;
     c.stopping = true;
+    spray_backend(0);
     // Listener remains valid until acceptor has observed the stop flag.
     if (c.acceptor.joinable()) c.acceptor.join();
     if (c.listener != invalid_socket) { close_socket(c.listener); c.listener = invalid_socket; }
@@ -355,6 +481,13 @@ void Server::stop() {
 #ifdef _WIN32
     if (c.winsock) { WSACleanup(); c.winsock = false; }
 #endif
+}
+void Server::spray_backend(unsigned short port) {
+    auto& c = *impl_; std::lock_guard<std::mutex> lock(c.mutex);
+    if (c.spray_port == port) return;
+    c.spray_port = port;
+    ++c.spray_generation;
+    for (const auto& relay : c.relays) { shutdown_socket(relay.first); shutdown_socket(relay.second); }
 }
 unsigned short Server::port() const { return impl_->bound_port; }
 Stats Server::stats() const { return {impl_->requests.load(), impl_->bytes.load(), impl_->rejected.load()}; }

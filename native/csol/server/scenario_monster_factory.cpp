@@ -34,20 +34,20 @@ bool RenderInteger(float value)
 
 struct SequenceResetCall
 {
-    CSOLMonsterSpawnCall& spawn;
     CBaseAnimating* expected;
     SequenceResetCall* previous;
-    bool (*ownerValid)(const void*);
-    const void* ownerContext;
+    CBaseAnimating* (*resolve)(const void*);
+    const void* context;
     bool valid{true};
     static thread_local SequenceResetCall* active;
-    SequenceResetCall(CSOLMonsterSpawnCall& call, CBaseAnimating* entity,
-        bool (*guard)(const void*), const void* context)
-        : spawn(call), expected(entity), previous(active), ownerValid(guard), ownerContext(context) { active = this; }
+    SequenceResetCall(CBaseAnimating* entity,
+        CBaseAnimating* (*resolver)(const void*), const void* value)
+        : expected(entity), previous(active), resolve(resolver), context(value) { active = this; }
     ~SequenceResetCall() { active = previous; }
-    CCSOLScenarioMonster* Current() const
+    CBaseAnimating* Current() const
     {
-        return (!ownerValid || ownerValid(ownerContext)) ? spawn.Current() : nullptr;
+        auto* current = resolve ? resolve(context) : nullptr;
+        return current == expected ? current : nullptr;
     }
 };
 thread_local SequenceResetCall* SequenceResetCall::active{};
@@ -59,14 +59,33 @@ bool CSOL_ResetMonsterSequenceInfo(CSOLMonsterSpawnCall& call,
     auto* current = call.Current();
     if (!current) return false;
     if (ownerValid && !ownerValid(ownerContext)) return false;
-    SequenceResetCall sequenceReset(call, current, ownerValid, ownerContext);
+    current = call.Current();
+    if (!current) return false;
+    struct Context
+    {
+        CSOLMonsterSpawnCall& call;
+        bool (*ownerValid)(const void*);
+        const void* ownerContext;
+    } context{call, ownerValid, ownerContext};
+    return CSOL_ResetScenarioSequenceInfo(*current, [](const void* value) -> CBaseAnimating*
+    {
+        const auto& state = *static_cast<const Context*>(value);
+        return (!state.ownerValid || state.ownerValid(state.ownerContext)) ? state.call.Current() : nullptr;
+    }, &context);
+}
+
+bool CSOL_ResetScenarioSequenceInfo(CBaseAnimating& entity,
+    CBaseAnimating* (*resolve)(const void*), const void* context)
+{
+    if (!resolve || resolve(context) != &entity) return false;
+    SequenceResetCall sequenceReset(&entity, resolve, context);
 #ifdef REGAMEDLL_API
     g_ReGameHookchains.m_CBaseAnimating_ResetSequenceInfo.callChain(
-        &CBaseAnimating::CSOL_ResetSpawnSequenceInfo, current);
+        &CBaseAnimating::CSOL_ResetSpawnSequenceInfo, &entity);
 #else
-    current->CSOL_ResetSpawnSequenceInfo();
+    entity.CSOL_ResetSpawnSequenceInfo();
 #endif
-    return sequenceReset.valid && sequenceReset.Current();
+    return sequenceReset.valid && sequenceReset.Current() == &entity;
 }
 
 void CBaseAnimating::CSOL_ResetSpawnSequenceInfo()

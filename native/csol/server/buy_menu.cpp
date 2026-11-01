@@ -59,7 +59,7 @@ bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
 bool CSOL_PrecacheBuyMenu()
 {
     CSOL_ResetBuyMenu();if(!CSOL_UsesScenarioRules())return false;
-    int length{};auto* file=LOAD_FILE_FOR_ME("models/csol/buymenu.json",&length);
+    int length{};auto* file=LOAD_FILE_FOR_ME(csol::buy::PresentationResource,&length);
     if(!file)return false;
     try{resources=csol::buy::Resources(csol::buy::ParsePresentation({reinterpret_cast<const char*>(file),std::size_t(length)}));}
     catch(const std::exception& e){FREE_FILE(file);ALERT(at_error,"CSOL buy menu: %s\n",e.what());return false;}

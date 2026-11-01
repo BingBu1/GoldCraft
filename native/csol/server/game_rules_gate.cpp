@@ -5,6 +5,7 @@
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
 #include "scenario_player_runtime.h"
+#include "scenario_playerclip.h"
 #include "scenario_money.h"
 #include "scenario_recovery_notice.h"
 #include "scenario_drops.h"
@@ -16,10 +17,16 @@
 #include "scenario_wave_services.h"
 #include "scenario_breakable.h"
 #include "scenario_trigger.h"
+#include "scenario_weapon_state.h"
+#include "wpn_k3.h"
+#include "weapon_slots.h"
+#include "weapons.h"
+#include "../k3.hpp"
 #include <list>
 #include <vector>
 #include "characters.h"
 #include "../scenario/round_settings.hpp"
+#include "../scenario/round_clock.hpp"
 #include "../scenario/map_catalog.hpp"
 #include "interface.h"
 #include "../../include/goldcraft/csol_scenario_admin_api.hpp"
@@ -116,6 +123,7 @@ bool CCSOLScenarioRuntime::TryFinalize()
             if (gameplay && !gameplay->Deactivate()) return false;
             if (!ReadyForArchive()) return false;
             gameplay.reset();
+            playerClips.reset();
             waveEvents.reset();
             monsterServices.reset();
             monsterDamageServices.reset();
@@ -239,6 +247,37 @@ public:
         return upgrades && upgrades->classes.Find(classId);
     }
     std::shared_ptr<CCSOLScenarioRuntime> Runtime() const { return m_runtime; }
+    bool PublishPlayerClips(CBasePlayer* player = nullptr)
+    {
+        CSOLScenarioSdkScope scope(this);
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto clips = runtime->playerClips;
+        if (!scope.Current() || !SelectionReady() || !clips) return false;
+        const EHANDLE recipient(player);
+        const bool sent = clips->Update(session->Messages(), player ? player->edict() : nullptr, player != nullptr);
+        if (!scope.Current() || m_runtime != runtime || runtime->session != session ||
+            runtime->playerClips != clips || (player && recipient.Get<CBaseEntity>() != player)) return false;
+        if (!sent) CSOL_RejectGameRules("Scenario playerclip state could not be published.");
+        return sent;
+    }
+    bool PublishRoundClock(CBasePlayer* player = nullptr)
+    {
+        if (!Ready() || !gpGlobals) return false;
+        const auto snapshot = m_roundClock.Snapshot(gpGlobals->time);
+        if (!snapshot) return true;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE recipient(player);
+        if (player && (!player->pev || player->has_disconnected ||
+            (player->pev->flags & (FL_KILLME | FL_DORMANT)))) return false;
+        const bool sent = session->Messages().SendRoundClock(snapshot->round, snapshot->total,
+            snapshot->elapsed, player ? player->edict() : nullptr);
+        return Ready() && m_runtime == runtime && runtime->session == session &&
+            session->Map().RoundGeneration() == round &&
+            (!player || recipient.Get<CBasePlayer>() == player) && sent;
+    }
     void Precache()
     {
         if (!OwnsRules()) return;
@@ -320,6 +359,14 @@ public:
             return false;
         }
         if (!OwnsRules()) return false;
+        const auto clips = std::make_shared<CCSOLScenarioPlayerClips>(EntityAccess());
+        m_runtime->playerClips = clips;
+        if (!clips->Collect(m_runtime->session->Messages()))
+        {
+            if (OwnsRules()) CSOL_RejectGameRules("Scenario playerclip collection is unavailable.");
+            return false;
+        }
+        if (!OwnsRules()) return false;
         m_runtime->players = std::make_shared<CCSOLScenarioPlayerRuntime>(m_runtime->session);
         if (!m_runtime->players->Activate())
         {
@@ -382,6 +429,7 @@ public:
     void ScenarioThink()
     {
         if (!SelectionReady() || m_completing || m_restarting || m_applyingFinish) return;
+        if (!PublishPlayerClips()) return;
         m_VoiceGameMgr.Update(gpGlobals->frametime);
         if (!Ready()) return;
         CheckWinConditions();
@@ -561,6 +609,10 @@ public:
         { return ownerCurrent() && session->Map().RoundGeneration() == previousRound && m_pendingRound == pending; };
         ReadMultiplayCvars();
         if (!oldRoundCurrent()) return;
+        // MP114BD6A4 chooses20 seconds for ordinary scenario mode15 before
+        // reading the intro timer. Apply that rule locally: the host's CS/ZP
+        // mp_freezetime setting must not erase preparation or leak between modes.
+        m_iIntroRoundTime = 20;
         const float freeze = static_cast<float>(m_iIntroRoundTime);
         const float now = gpGlobals->time;
         if (!std::isfinite(now) || !std::isfinite(freeze) || freeze < 0)
@@ -587,6 +639,12 @@ public:
         }
         if (session->Map().RoundGeneration() != previousRound + 1 ||
             session->Map().RoundIndex() != nextRound || m_pendingRound != pending) return;
+        const auto* tables = session->Map().Tables();
+        if (!tables || !m_roundClock.BeginRound(nextRound, tables->rounds.rows.size(), now))
+        {
+            CSOL_RejectGameRules("Scenario round clock metadata is invalid.");
+            return;
+        }
         m_roundIndex = nextRound;
         m_pendingRound.reset();
         m_completionLocked = false;
@@ -595,6 +653,7 @@ public:
         const auto round = session->Map().RoundGeneration();
         const auto current = [&]()
         { return ownerCurrent() && session->Map().RoundGeneration() == round && m_phase == Phase::Playing; };
+        if (!PublishRoundClock() || !current()) return;
         // BeginRound has now installed PlayerSpawn/TRG/waves. Use the real
         // player round transaction; teleporting alone leaves old life state.
         ForPlayers([&](CBasePlayer& player)
@@ -636,6 +695,16 @@ public:
         m_damageScale = 1.0f;
         m_damageScaleAt = gpGlobals->time + 300.0f;
     }
+    void PlayerKilled(CBasePlayer* victim, entvars_t* killer, entvars_t* inflictor) override
+    {
+        const auto runtime = m_runtime;
+        const auto players = runtime->players;
+        const EHANDLE handle(victim);
+        if (players && !players->ResetMonsterSkillState(handle)) return;
+        if (!OwnsRules() || m_runtime != runtime || runtime->players != players || handle.Get<CBaseEntity>() != victim)
+            return;
+        CHalfLifeMultiplay::PlayerKilled(victim, killer, inflictor);
+    }
     bool PrepareSpawn(CBasePlayer& player)
     {
         // ClientPutInServer calls Spawn before the player has a team/model.
@@ -643,6 +712,7 @@ public:
         if (player.m_bJustConnected || player.m_iTeam == UNASSIGNED || player.m_iTeam == SPECTATOR)
             return true;
         if (!Ready() || !PreparePlayer(player)) return true;
+        if (!m_runtime->players->ResetMonsterSkillState(EHANDLE(&player)) || !OwnsRules()) return true;
         const auto players = m_runtime->session->Players();
         const auto upgrades = players ? players->Upgrades(EHANDLE(&player)) : nullptr;
         if (!upgrades || !upgrades->ApplySpawnHealth())
@@ -651,6 +721,108 @@ public:
             return true;
         }
         return false; // Continue the native equip/model stage inside its hook.
+    }
+    bool GiveDefaultPrimary(CBasePlayer& player, const CSOLScenarioSdkScope& sdk)
+    {
+        if (!Ready()) return false;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto players = runtime->players;
+        const auto weapons = session->Weapons();
+        if (!weapons || !weapons->Current() || !CSOL_WeaponsReady() || !CSOL_K3Ready())
+        {
+            CSOL_RejectGameRules("Scenario default K3 services are unavailable.");
+            return false;
+        }
+        const auto access = session->Map().EntityAccess();
+        const auto generation = runtime->Generation();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE handle(&player);
+        const auto state = players->Find(handle);
+        const auto playerGeneration = state ? state->generation : 0;
+        const int spawns = player.m_iNumSpawns;
+        const auto current = [&]()
+        {
+            return sdk.Current() && Ready() && m_runtime == runtime && runtime->Generation() == generation &&
+                runtime->session == session && runtime->players == players && session->Weapons() == weapons && weapons->Current() &&
+                access->Allowed() && session->Map().EntityAccess() == access &&
+                session->Map().RoundGeneration() == round && state && state->generation == playerGeneration &&
+                players->Find(handle) == state &&
+                handle.Get<CBaseEntity>() == &player && !player.has_disconnected &&
+                !(player.pev->flags & (FL_KILLME | FL_DORMANT | FL_SPECTATOR)) &&
+                !player.m_bJustConnected && player.m_iTeam == CT && player.m_iNumSpawns == spawns;
+        };
+        if (!current()) return false;
+        // Retain the existing extended-weapon admission contract, including
+        // its fake-client gate. A client without that protocol gets no K3.
+        const bool supported = CSOL_CanUseExtendedWeapons(&player);
+        if (!current() || !supported) return false;
+        const int index = player.entindex();
+        if (!current() || index < 1 || index >= static_cast<int>(m_givingDefaultPrimary.size())) return false;
+        if (m_givingDefaultPrimary[index])
+        {
+            CSOL_RejectGameRules("Scenario default primary equipment was re-entered.");
+            return false;
+        }
+        m_givingDefaultPrimary[index] = true;
+        struct GrantScope
+        {
+            bool& active;
+            ~GrantScope() { active = false; }
+        } grantScope{m_givingDefaultPrimary[index]};
+        EHANDLE created;
+        const auto stop = [&](const char* reason = nullptr)
+        {
+            // A removed player may leave the new gun unowned. Never inspect
+            // an old edict after the map token closes, or remove a gun that a
+            // callback has legitimately transferred to another owner.
+            if (!sdk.Current() || runtime->Generation() != generation || runtime->session != session ||
+                !access->Allowed() || session->Map().EntityAccess() != access) return false;
+            auto* entity = created.Get<CBaseEntity>();
+            if (entity && !entity->pev->owner && !(entity->pev->flags & FL_KILLME)) UTIL_Remove(entity);
+            if (reason && current()) CSOL_RejectGameRules(reason);
+            return false;
+        };
+        // MP114D7F5E: the ordinary local mode15 state has no extra-item IDs,
+        // special-weapon flags or restriction override. Their external room
+        // producers are not inferred from defaultitems.csv or the backpack.
+        const auto classname = ALLOC_STRING(csol::k3::Classname);
+        if (!current()) return false;
+        auto* fresh = CREATE_NAMED_ENTITY(classname);
+        if (!current()) return false;
+        if (FNullEnt(fresh)) return stop("Scenario default K3 entity could not be created.");
+        created = EHANDLE(fresh);
+        fresh->v.origin = player.pev->origin;
+        fresh->v.spawnflags |= SF_NORESPAWN;
+        const int spawned = DispatchSpawn(fresh);
+        if (!current()) return stop();
+        auto* weapon = dynamic_cast<CBasePlayerWeapon*>(created.Get<CBaseEntity>());
+        if (spawned < 0 || !weapon || (weapon->pev->flags & FL_KILLME) ||
+            !CSOL_K3EmptyMonsterKillCallbacks(*weapon) || !weapons->SetItemIdentity(*weapon, csol::k3::ItemId))
+            return stop("Scenario default K3 item525 identity could not be attached.");
+        DispatchTouch(created.Get(), handle.Get());
+        if (!current()) return stop();
+        weapon = dynamic_cast<CBasePlayerWeapon*>(created.Get<CBaseEntity>());
+        if (!weapons->Current() || !weapon || (weapon->pev->flags & FL_KILLME) ||
+            !CSOL_K3EmptyMonsterKillCallbacks(*weapon) || weapon->m_pPlayer != &player ||
+            weapon->pev->owner != handle.Get() || player.GetItemById(static_cast<WeaponIdType>(csol::k3::Id)) != weapon)
+            return stop("Scenario default K3 was not added to the player's inventory.");
+
+        const int ammo = player.GetAmmoIndex("556NatoBox");
+        if (ammo < 0 || ammo >= MAX_AMMO_SLOTS) return stop("Scenario default K3 ammunition is unavailable.");
+        // Preserve the original explicit200 cap even though GiveAmmo's
+        // Scenario capacity hook permits larger reserves for later purchases.
+        // Never use refill_bpammo_weapons or iMaxAmmo1 for this initial grant.
+        const int reserve = player.m_rgAmmo[ammo];
+        const int amount = std::clamp(csol::k3::Reserve - reserve, 0, csol::k3::Reserve);
+        const int ammoResult = player.GiveAmmo(amount, "556NatoBox", csol::k3::Reserve);
+        if (!current()) return stop();
+        if (created.Get<CBaseEntity>() != weapon || (weapon->pev->flags & FL_KILLME) ||
+            !CSOL_K3EmptyMonsterKillCallbacks(*weapon) || weapon->m_pPlayer != &player ||
+            weapon->pev->owner != handle.Get()) return stop();
+        if (!weapons->Current() || (amount && ammoResult != ammo) || player.m_rgAmmo[ammo] != reserve + amount)
+            return stop("Scenario default K3 reserve ammunition could not be applied.");
+        return true;
     }
     bool CanRespawn(CBasePlayer& player) const
     {
@@ -1012,6 +1184,7 @@ public:
             handle.Get<CBaseEntity>() != &player || (profiles && profiles->WasRemoved(handle))) return;
         if (!applied)
             CSOL_RejectGameRules("Scenario player movement upgrade state is unavailable.");
+        else if (profiles && gpGlobals && profiles->ApplyMonsterTrapMovement(player, gpGlobals->time)) return;
     }
 private:
     void ApplyFinishPolicy()
@@ -1233,9 +1406,11 @@ private:
     bool m_shortFinalDelay{};
     int m_aliveCt{};
     float m_freezeUntil{};
+    csol::scenario::RoundClock m_roundClock;
     csol::music::Countdown m_musicCountdown;
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
+    std::array<bool, 33> m_givingDefaultPrimary{};
 };
 }
 
@@ -1520,6 +1695,21 @@ void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed)
     if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(g_pGameRules)) rules->ApplyMovement(player, weaponSpeed);
 }
 
+bool CSOL_InjectScenarioPlayerClips(playermove_s& movement)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Current()) return false;
+    if (!scope.Scenario()) return true;
+    const auto record = FindScenarioRules(scope.Rules());
+    if (!record || record->retired) return false;
+    const auto runtime = record->runtime;
+    const auto clips = runtime->playerClips;
+    const bool injected = clips && clips->Inject(movement);
+    if (!scope.Current() || runtime->Closing() || runtime->playerClips != clips) return false;
+    if (!injected) CSOL_RejectGameRules("Scenario playerclip BSP movement is unavailable.");
+    return injected;
+}
+
 bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
@@ -1556,6 +1746,15 @@ bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force)
     if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
     if (!updated && !players->Error().message.empty())
         CSOL_RejectGameRules(players->Error().message.c_str());
+    if (updated && force)
+    {
+        const auto record = FindScenarioRules(g_pGameRules);
+        if (!record || record->retired || record->runtime->Closing()) return false;
+        auto* rules = dynamic_cast<CCSOLScenarioRules*>(record->rules);
+        if (!rules || !rules->PublishPlayerClips(&player) || !scope.Current() ||
+            handle.Get<CBaseEntity>() != &player || !rules->PublishRoundClock(&player) || !scope.Current() ||
+            handle.Get<CBaseEntity>() != &player) return false;
+    }
     return updated;
 }
 
@@ -1708,6 +1907,17 @@ bool CSOL_ScenarioHeGrenadeCreated(CBaseEntity& grenade)
     return false;
 }
 
+bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() ||
+        (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer ||
+        !CSOL_K3EmptyMonsterKillCallbacks(weapon)) return false;
+    const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+    const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
+    return weapons && weapons->Current() && weapons->SetItemIdentity(weapon, csol::k3::ItemId) && scope.Current();
+}
+
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity)
 {
     CSOLScenarioSdkScope scope;
@@ -1743,6 +1953,16 @@ bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player)
     if (sdkScope.Scenario() && !sdkScope.Current()) return true;
     auto* scenario = dynamic_cast<CCSOLScenarioRules*>(&rules);
     return scenario && scenario->PrepareSpawn(player);
+}
+
+CSOLScenarioDefaultPrimary CSOL_ScenarioGiveDefaultPrimary(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario()) return CSOLScenarioDefaultPrimary::Native;
+    if (!sdk.Current()) return CSOLScenarioDefaultPrimary::Cancelled;
+    auto* scenario = dynamic_cast<CCSOLScenarioRules*>(sdk.Rules());
+    return scenario && scenario->GiveDefaultPrimary(player, sdk) ?
+        CSOLScenarioDefaultPrimary::Granted : CSOLScenarioDefaultPrimary::Cancelled;
 }
 
 bool CSOL_ScenarioCanRespawn(CHalfLifeMultiplay& rules, CBasePlayer& player, bool& allowed)

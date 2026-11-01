@@ -10,6 +10,8 @@ void CSOL_UpdateCharacters(CBasePlayer* player);
 void CSOL_CharacterRoleChanged(CBasePlayer* player);
 void CSOL_CharacterDisconnected(CBasePlayer* player);
 const char* CSOL_CharacterModel(CBasePlayer* player);
+bool CSOL_CharacterMale(CBasePlayer* player, bool& male,
+    std::shared_ptr<const CSOLScenarioEntityAccess> access);
 // May be queried before the player becomes alive during scenario initialization.
 // False means no selected/mapped character; it does not invent a class ID.
 bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId,

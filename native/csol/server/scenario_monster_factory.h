@@ -63,6 +63,10 @@ private:
 // model queries. Also used by live attacks after a sequence changes.
 bool CSOL_ResetMonsterSequenceInfo(CSOLMonsterSpawnCall& call,
     bool (*ownerValid)(const void*) = nullptr, const void* ownerContext = nullptr);
+// Auxiliary scenario entities use the same real ReAPI chain. The resolver
+// must check map/round and entity identity before returning the animated host.
+bool CSOL_ResetScenarioSequenceInfo(CBaseAnimating& entity,
+    CBaseAnimating* (*current)(const void*), const void* context);
 
 class CCSOLMonsterSpawnBehavior : public CCSOLMonsterDeathBehavior
 {

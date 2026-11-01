@@ -28,7 +28,9 @@ std::array<int,32768> ammo;
 int selectionHidden{},selectionIntermission{};
 WeaponInventoryReceiver inventory;
 WeaponCurrent current;
-bool available{}, textMenu{};
+bool available{}, textMenu{}, currentReceived{};
+std::uint64_t animationSyncGeneration{};
+int animationSyncWeapon{};
 unsigned menuSlots{};
 double menuUntil{}, selectionUntil{};
 int selected{};
@@ -177,10 +179,17 @@ int Current(const char*,int size,void* data)
 {
     SynchronizeSession();WeaponCurrent value;
     if(!available || !DecodeWeaponCurrent(Bytes(size,data),value) || (value.id && !definitions[value.id].id))return 1;
+    if(!currentReceived || current.id!=value.id || current.state!=value.state)
+    {
+        ++animationSyncGeneration;
+        if(!animationSyncGeneration)++animationSyncGeneration;
+        animationSyncWeapon=currentReceived && ExtendedWeaponId(current.id) && value.state &&
+            value.id>0 && value.id<LegacyWeaponLimit?value.id:0;
+    }
     if(current.id!=value.id)selected=0;
     if(value.id){clips[value.id]=value.clip;const auto& def=definitions[value.id];
         if(def.ammo1>=0)ammo[def.ammo1]=value.reserve;if(def.ammo2>=0)ammo[def.ammo2]=value.secondary;}
-    current=value;ReceiveExtendedWeaponState(value);return 1;
+    current=value;currentReceived=true;ReceiveExtendedWeaponState(value);return 1;
 }
 int Pickup(const char*,int size,void* data)
 {
@@ -235,7 +244,9 @@ void InitializeWeaponInventory()
 }
 void ResetWeaponInventory(bool forgetDefinitions)
 {
-    inventory.Reset();current={};selected=0;textMenu=false;menuSlots=0;
+    inventory.Reset();current={};currentReceived=false;selected=0;textMenu=false;menuSlots=0;
+    animationSyncWeapon=0;++animationSyncGeneration;
+    if(!animationSyncGeneration)++animationSyncGeneration;
     guardUntil=0;
     clips.fill(-1);ammo={};selectionHidden=selectionIntermission=0;
     selectionIds.clear();
@@ -358,5 +369,24 @@ bool WeaponHasAmmo(int id)
         (def->ammo1>=0 && ammo[def->ammo1]>0) || (def->ammo2>=0 && ammo[def->ammo2]>0) || (def->flags&1));
 }
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
+bool WeaponPresentationAllowed(int weaponId)
+{
+    if(!currentReceived)return true;
+    // Native CS can predict a stock-to-stock weaponselect before the server
+    // confirms it. Only the unsupported extended-ID boundary needs this gate.
+    if(!ExtendedWeaponId(weaponId) && !ExtendedWeaponId(current.id))return true;
+    return current.state && current.id==weaponId;
+}
+std::uint64_t PendingWeaponAnimationSync(int weaponId)
+{
+    return currentReceived && current.state && current.id==weaponId &&
+        animationSyncWeapon==weaponId && weaponId>0?animationSyncGeneration:0;
+}
+bool ConsumeWeaponAnimationSync(std::uint64_t token,int weaponId)
+{
+    if(!token || PendingWeaponAnimationSync(weaponId)!=token)return false;
+    animationSyncWeapon=0;
+    return true;
+}
 bool ExtendedWeaponActive(){return available&&ExtendedWeaponId(current.id);}
 }

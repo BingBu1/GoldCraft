@@ -154,6 +154,57 @@ bool ReadEquipmentSettings(std::string_view json, EquipmentTables& output, Confi
     Names types, operations;
     decltype(output.effects) effects;
     decltype(output.addons) addons;
+    auto dropDifficulty = output.weaponDropDifficulty;
+    auto dropMaps = output.weaponDropMapDifficulty;
+    const auto integerField = [](const rapidjson::Value* value, std::int32_t& result)
+    {
+        if (!value) return false;
+        if (value->IsBool()) { result = value->GetBool() ? 1 : 0; return true; }
+        if (value->IsNumber())
+        {
+            const double number = std::trunc(value->GetDouble());
+            if (!std::isfinite(number) || number < INT32_MIN || number > INT32_MAX) return false;
+            result = static_cast<std::int32_t>(number);
+            return true;
+        }
+        if (!value->IsString()) return false;
+        auto text = Trim({value->GetString(), value->GetStringLength()});
+        if (text.starts_with('+')) text.remove_prefix(1);
+        if (text.empty()) return false;
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), result);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+    };
+    if (const auto* attributes = Member(document, "zbs_add_attribute"))
+    {
+        if (!attributes->IsObject()) return fail("zbs_add_attribute must be an object");
+        if (const auto* restrictions = Member(*attributes, "restrictWeaponDrop"))
+        {
+            if (!restrictions->IsObject()) return fail("restrictWeaponDrop must be an object");
+            if (const auto* defaults = Member(*restrictions, "default"))
+            {
+                std::int32_t threshold{};
+                if (!integerField(Member(*defaults, "Difficulty"), threshold))
+                    return fail("restrictWeaponDrop.default requires a valid Difficulty");
+                dropDifficulty = threshold;
+                dropMaps.clear();
+                for (int index = 0; index < 10; ++index)
+                {
+                    const auto key = "exception" + std::to_string(index);
+                    const auto* exception = Member(*restrictions, key.c_str());
+                    if (!exception) continue;
+                    const auto* maps = Member(*exception, "mapId");
+                    if (!integerField(Member(*exception, "Difficulty"), threshold) || !maps || !maps->IsArray())
+                        return fail("restrictWeaponDrop exception requires Difficulty and mapId array");
+                    for (const auto& value : maps->GetArray())
+                    {
+                        std::int32_t map{};
+                        if (!integerField(&value, map)) return fail("restrictWeaponDrop mapId is invalid");
+                        dropMaps.emplace(map, threshold); // Original first insertion wins.
+                    }
+                }
+            }
+        }
+    }
     if (const auto* clue = Member(document, "ZBS_ClueItem"))
     {
         if (!clue->IsObject() || !ReadNames(Member(*clue, "Type"), types) ||
@@ -211,6 +262,8 @@ bool ReadEquipmentSettings(std::string_view json, EquipmentTables& output, Confi
             }
         }
     }
+    output.weaponDropDifficulty = dropDifficulty;
+    output.weaponDropMapDifficulty = std::move(dropMaps);
     output.effectTypes = std::move(types);
     output.effects = std::move(effects);
     output.addons = std::move(addons);

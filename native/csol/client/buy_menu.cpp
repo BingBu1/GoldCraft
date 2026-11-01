@@ -82,7 +82,7 @@ void Close(bool gameplay=true)
 bool Load()
 {
     if(loaded)return true;
-    try{const auto bytes=ReadResource("models/csol/buymenu.json");presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});loaded=true;return true;}
+    try{const auto bytes=ReadResource(PresentationResource);presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});loaded=true;return true;}
     catch(const std::exception& e){engine.Con_Printf("CSOL 购买菜单资源：%s\n",e.what());return false;}
 }
 void Refresh()

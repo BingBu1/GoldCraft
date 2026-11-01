@@ -3,6 +3,8 @@
 #include "scenario_messages.h"
 #include "damage_numbers.h"
 #include "../scenario_abilities.hpp"
+#include "../scenario_monster_effects.hpp"
+#include "../playerclip.hpp"
 
 #include <bit>
 #include <algorithm>
@@ -27,6 +29,8 @@ bool CCSOLScenarioMessages::Register()
     m_upgradeMessageId = 0;
     m_statusMessageId = 0;
     m_skillSnapshotId = 0;
+    m_monsterEffectId = 0;
+    m_playerClipMessageId = 0;
     if (!g_engfuncs.pfnRegUserMsg) return false;
     const int id = REG_USER_MSG("MPToCL", -1);
     // GoldSrc transmits a user-message number as a byte. A failed registration
@@ -38,10 +42,103 @@ bool CCSOLScenarioMessages::Register()
     if (status < 64 || status > 255) return false;
     const int skillSnapshot = REG_USER_MSG("CsoSkState", 15);
     if (skillSnapshot < 64 || skillSnapshot > 255) return false;
+    const int monsterEffect = REG_USER_MSG(csol::monster_effects::Message, 7);
+    if (monsterEffect < 64 || monsterEffect > 255) return false;
+    const int playerClip = REG_USER_MSG(csol::playerclip::Message, -1);
+    if (playerClip < 64 || playerClip > 255) return false;
     m_messageId = id;
     m_upgradeMessageId = upgrades;
     m_statusMessageId = status;
     m_skillSnapshotId = skillSnapshot;
+    m_monsterEffectId = monsterEffect;
+    m_playerClipMessageId = playerClip;
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendMonsterDisarmImpact(const float* origin) const
+{
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !origin ||
+        !std::isfinite(origin[0]) || !std::isfinite(origin[1]) || !std::isfinite(origin[2]) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteCoord) return false;
+    const int id = m_monsterEffectId;
+    const Vector position(origin);
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, id, position);
+    WRITE_BYTE(csol::monster_effects::Impact);
+    WRITE_COORD(position.x);
+    WRITE_COORD(position.y);
+    WRITE_COORD(position.z - 20.0f);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendRoundClock(int round, int total, float elapsed,
+    edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || round < 1 || total < round || total > 255 ||
+        !std::isfinite(elapsed) || elapsed < 0 || (recipient && recipient->free) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(recipient ? MSG_ONE : MSG_ALL, id, nullptr, recipient);
+    WRITE_BYTE(27);
+    WRITE_BYTE(3);
+    WRITE_BYTE(round);
+    WRITE_BYTE(total);
+    WRITE_LONG(std::bit_cast<std::int32_t>(elapsed));
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendPlayerClip(std::span<const std::uint8_t> payload,
+    edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_playerClipMessageId || !csol::playerclip::Read(payload) ||
+        (recipient && recipient->free) || !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_playerClipMessageId;
+    // Copy before opening a packet: message hooks can retire the map service.
+    std::array<std::uint8_t, 30> copy{};
+    std::copy(payload.begin(), payload.end(), copy.begin());
+    const auto size = payload.size();
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(recipient ? MSG_ONE : MSG_ALL, id, nullptr, recipient);
+    for (std::size_t i = 0; i < size; ++i) WRITE_BYTE(copy[i]);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendMonsterSkillShake(edict_t* recipient) const
+{
+    if (g_scenarioMessageOpen || !recipient || recipient->free || gmsgShake < 64 || gmsgShake > 255 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteShort) return false;
+    const int id = gmsgShake;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_SHORT(0xA000);
+    WRITE_SHORT(0x2000);
+    WRITE_SHORT(0x6400);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendMonsterTrapDirection(edict_t* recipient, const float* origin) const
+{
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !recipient || recipient->free || !origin ||
+        !std::isfinite(origin[0]) || !std::isfinite(origin[1]) || !std::isfinite(origin[2]) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteCoord) return false;
+    const int id = m_monsterEffectId;
+    const Vector position(origin);
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(csol::monster_effects::TrapDirection);
+    WRITE_COORD(position.x);
+    WRITE_COORD(position.y);
+    WRITE_COORD(position.z);
+    MESSAGE_END();
     return true;
 }
 

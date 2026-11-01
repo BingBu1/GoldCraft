@@ -10,13 +10,13 @@
 #include <cmath>
 
 namespace csol::spray {
-inline constexpr unsigned Version=3, MaxSide=512, MaxBytes=10*1024*1024;
+inline constexpr unsigned Version=4, MaxSide=512, MaxBytes=10*1024*1024;
 inline constexpr unsigned MaxFrameBytes=MaxSide*MaxSide*5+22, MaxFrames=256;
 inline constexpr unsigned MaxPixels=8*1024*1024, CacheBytes=128*1024*1024;
 inline constexpr unsigned Chunk=176, UploadChunk=48, MaxDecals=32;
 static_assert(13+Chunk<=192); // GoldSrc MAX_USER_MSG_DATA, including our header.
 inline constexpr char Message[]="CSHDSpray";
-enum MessageType : unsigned char { Hello, Begin, Data, Placement, Remove, UploadResult };
+enum MessageType : unsigned char { Hello, Begin, Data, Placement, Remove, UploadResult, HttpUpload, HttpDownload, HttpResult };
 using Bytes=std::vector<std::uint8_t>;
 inline void Check(bool value) { if(!value) throw std::runtime_error("Invalid HD spray"); }
 struct Dimensions { unsigned width{},height{}; };

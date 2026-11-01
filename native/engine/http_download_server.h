@@ -26,6 +26,9 @@ public:
     // bind must be a numeric IPv4 address. Port 0 is for isolated tests only.
     bool start(const std::string& bind, unsigned short port, Provider provider);
     void stop();
+    // Only the in-process game module's loopback service is reachable here.
+    // Changing/clearing it cancels outstanding spray transfers on both sides.
+    void spray_backend(unsigned short port);
     unsigned short port() const;
     Stats stats() const;
 private:

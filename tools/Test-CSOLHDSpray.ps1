@@ -1,5 +1,5 @@
 param([string]$Output='build/csol-hd-spray-20261030/offline',
-      [ValidateSet('all','codec','server','import','client','geometry','options')][string]$Only='all')
+      [ValidateSet('all','codec','server','import','client','geometry','options','http','engine')][string]$Only='all')
 $ErrorActionPreference='Stop'
 . "$PSScriptRoot/SandboxPaths.ps1"
 . "$PSScriptRoot/ClangToolchain.ps1"
@@ -8,6 +8,13 @@ $dest=Assert-WorkspacePath (Join-Path $script:GoldCraftRoot $Output)
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
 $cc=Join-Path $compiler.Root 'bin/clang-cl.exe'
 $flags=@('--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/W3','/O2','/clang:-O3','/arch:AVX2','/fp:precise','/utf-8','/DNDEBUG','/D_CRT_SECURE_NO_WARNINGS')
+if($Only -in @('all','engine')){
+$engineRoot="$script:GoldCraftRoot/native/engine"
+& $cc @flags "/I$engineRoot/tests/fixture" "/I$engineRoot" "/I$script:GoldCraftRoot/native/include" "$engineRoot/tests/http_download_tests.cpp" "$engineRoot/http_download.cpp" "$engineRoot/http_download_store.cpp" "$engineRoot/http_download_server.cpp" "/Fo$dest/" "/Fe$dest/engine.exe" /link ws2_32.lib *> "$dest/engine-build.log"
+if($LASTEXITCODE){throw "HTTP engine check build failed: $dest/engine-build.log"}
+& "$dest/engine.exe" | Tee-Object "$dest/engine-result.txt"
+if($LASTEXITCODE){throw 'HTTP engine regression failed'}
+}
 if($Only -in @('all','codec')){
 & $cc @flags "$script:GoldCraftRoot/tests/csol-hd-spray/codec.cpp" "/Fo$dest/codec.obj" "/Fe$dest/codec.exe" *> "$dest/codec-build.log"
 if($LASTEXITCODE){throw "Codec build failed: $dest/codec-build.log"}
@@ -18,7 +25,7 @@ if($Only -in @('all','server')){
 $sdk="$script:GoldCraftRoot/external/ReGameDLL_CS/regamedll"
 $includes=@('','common','dlls','engine','public','public/regamedll','pm_shared','regamedll','game_shared') | ForEach-Object {"/I$sdk/$_"}
 $defines=@('REGAMEDLL_ADD','REGAMEDLL_API','REGAMEDLL_FIXES','REGAMEDLL_SSE','REGAMEDLL_SELF','REGAMEDLL_CHECKS','UNICODE_FIXES','BUILD_LATEST','BUILD_LATEST_FIXES','CLIENT_WEAPONS','USE_QSTRING','_MBCS') | ForEach-Object {"/D$_"}
-& $cc @flags @includes @defines /Zc:strictStrings- "$script:GoldCraftRoot/tests/csol-hd-spray/server.cpp" "/Fo$dest/server.obj" "/Fe$dest/server.exe" *> "$dest/server-build.log"
+& $cc @flags @includes @defines /Zc:strictStrings- "$script:GoldCraftRoot/tests/csol-hd-spray/server.cpp" "$script:GoldCraftRoot/native/csol/hd_spray_http_server.cpp" "$script:GoldCraftRoot/native/csol/client/hd_spray_http.cpp" "/Fo$dest/" "/Fe$dest/server.exe" /link winhttp.lib ws2_32.lib bcrypt.lib *> "$dest/server-build.log"
 if($LASTEXITCODE){throw "Matched SDK server build failed: $dest/server-build.log"}
 & "$dest/server.exe" | Tee-Object "$dest/server-result.txt"
 if($LASTEXITCODE){throw 'HD spray server check failed'}
@@ -44,7 +51,7 @@ if($LASTEXITCODE){throw "Options compile failed: $dest/options-build.log"}
 'Production options compiled against matched VGUI SDK; live UI pending' | Tee-Object "$dest/options-result.txt"
 }
 if($Only -in @('all','client')){
-& $cc @flags @includes @defines "$script:GoldCraftRoot/tests/csol-hd-spray/client.cpp" "/Fo$dest/client.obj" "/Fe$dest/client.exe" *> "$dest/client-build.log"
+& $cc @flags @includes @defines "$script:GoldCraftRoot/tests/csol-hd-spray/client.cpp" "$script:GoldCraftRoot/native/csol/client/hd_spray_http.cpp" "$script:GoldCraftRoot/native/csol/hd_spray_http_server.cpp" "/Fo$dest/" "/Fe$dest/client.exe" /link winhttp.lib ws2_32.lib bcrypt.lib *> "$dest/client-build.log"
 if($LASTEXITCODE){throw "Client protocol build failed: $dest/client-build.log"}
 & "$dest/client.exe" | Tee-Object "$dest/client-result.txt"
 if($LASTEXITCODE){throw 'HD spray client protocol check failed'}
@@ -57,4 +64,11 @@ if($LASTEXITCODE){throw "Geometry build failed: $dest/geometry-build.log"}
 & "$dest/geometry.exe" | Tee-Object "$dest/geometry-result.txt"
 if($LASTEXITCODE){throw 'HD spray BSP geometry check failed'}
 }
+}
+
+if($Only -in @('all','http')){
+& $cc @flags /DNOMINMAX "$script:GoldCraftRoot/tests/csol-hd-spray/http.cpp" "$script:GoldCraftRoot/native/csol/client/hd_spray_http.cpp" "$script:GoldCraftRoot/native/csol/hd_spray_http_server.cpp" "/Fo$dest/" "/Fe$dest/http.exe" /link winhttp.lib ws2_32.lib bcrypt.lib *> "$dest/http-build.log"
+if($LASTEXITCODE){throw "HTTP build failed: $dest/http-build.log"}
+& "$dest/http.exe" | Tee-Object "$dest/http-result.txt"
+if($LASTEXITCODE){throw 'HD spray real HTTP transport check failed'}
 }

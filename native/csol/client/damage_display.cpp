@@ -71,14 +71,22 @@ void ApplyDamageSettings(bool show, int id)
     engine.Cvar_SetValue("csol_damage_numbers", show ? 1.0f : 0.0f);
     ResetDamageDisplay();
 }
-void InitializeDamageDisplay()
+void InitializeDamagePreferences()
 {
     selected = engine.pfnGetCvarPointer("cl_dmg_skin");
     if (!selected) selected = engine.pfnRegisterVariable("cl_dmg_skin", "1", FCVAR_ARCHIVE);
     enabled = engine.pfnGetCvarPointer("csol_damage_numbers");
     if (!enabled) enabled = engine.pfnRegisterVariable("csol_damage_numbers", "1", FCVAR_ARCHIVE);
+    if (!skins.empty()) return;
+    // Options is available without joining a server. Its catalog and archived
+    // cvars must not depend on the client DLL's later HUD_Init callback.
+    MountResources();
     try { skins = damage::ReadSkins(ReadResource(damage::StyleResource)); }
     catch (const std::exception& e) { engine.Con_Printf("CSOLSupport damage: %s\n", e.what()); }
+}
+void InitializeDamageDisplay()
+{
+    InitializeDamagePreferences();
     const auto old = api->HookUserMsg(damage::MessageName, ReceiveDamage);
     if (old != ReceiveDamage) previous = old;
     if (!old) engine.pfnHookUserMsg(damage::MessageName, ReceiveDamage);

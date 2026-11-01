@@ -4,6 +4,7 @@
 #include "weapon_service.h"
 #include "wpn_beamgun.h"
 #include "../weapon_slots.hpp"
+#include "../k3.hpp"
 
 namespace
 {
@@ -183,6 +184,8 @@ bool CSOL_SendWeaponPickup(CBasePlayer* player,int id)
 }
 bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
+    // Original HW ammo record 11: 556NatoBox, cost 60, box of 30.
+    if (id == csol::k3::Id) { price=60;count=30;return true; }
     if (id == 144) { price=180;count=1;return true; }
     // Original HW beamgun/beamgunle records: price 100, buy amount 20.
     if (id == csol::BeamgunId || id == csol::BeamgunLEId) { price=100;count=20;return true; }

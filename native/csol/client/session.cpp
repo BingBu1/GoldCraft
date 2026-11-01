@@ -14,6 +14,8 @@
 #include "scenario_smoke.hpp"
 #include "scenario_upgrades.hpp"
 #include "scenario_abilities.hpp"
+#include "scenario_round_hud_client.hpp"
+#include "playerclip.hpp"
 #include <ostream>
 #include <algorithm>
 
@@ -43,6 +45,8 @@ void ResetSession()
     ResetScenarioSmoke();
     ResetScenarioUpgrades();
     ResetScenarioAbilities();
+    ResetScenarioRoundHud();
+    ResetPlayerClips();
 }
 }
 

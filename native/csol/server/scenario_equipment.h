@@ -25,6 +25,7 @@ public:
     bool ModifyExperience(const EHANDLE& player, int& amount) override;
     bool MoneyAddPercent(const EHANDLE& player, std::optional<float>& percent) override;
     bool ModifyJump(const EHANDLE& player, float& gravity) override;
+    bool WeaponDropResistance(const EHANDLE& player, float& resistance);
     bool ReachedEffectiveCap(const EHANDLE& player) override;
     // Rules v1D8 applies the ordered named effects after modern ATK. The
     // caller supplies the original skill-based Boss predicate for this stage.

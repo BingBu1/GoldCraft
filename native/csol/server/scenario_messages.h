@@ -15,6 +15,12 @@ class CCSOLScenarioMessages
 public:
     bool Register();
     bool SendWaveEvent(std::span<const std::uint8_t, 4> payload) const;
+    // Original MP11385F80: 27/3, one-based round, total rounds, and a raw
+    // float32 game elapsed time. A recipient is used for authoritative replay.
+    bool SendRoundClock(int round, int total, float elapsed,
+        edict_s* recipient = nullptr) const;
+    bool PlayerClipsReady() const { return m_playerClipMessageId != 0; }
+    bool SendPlayerClip(std::span<const std::uint8_t> payload, edict_s* recipient = nullptr) const;
     // Original Boss selection: MPToCL { BYTE27, BYTE7, SHORT id }. There is
     // no trailing string; the caller suppresses the -1 sentinel.
     bool SendBossSkillStart(std::int16_t id) const;
@@ -71,6 +77,9 @@ public:
     // Original ordinary heal skill: MPToCL/4 in the healed entity's PVS,
     // SHORT entity and BYTE effect (13 self, 9 another monster).
     bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
+    bool SendMonsterDisarmImpact(const float* origin) const;
+    bool SendMonsterSkillShake(edict_t* recipient) const;
+    bool SendMonsterTrapDirection(edict_t* recipient, const float* origin) const;
     // Original broadcast 27/2 uses the low 16 bits of the truncated frags.
     bool SendPlayerFrags(int playerIndex, std::int32_t frags) const;
     // Mode15 classification produces at most six candidates per call.
@@ -92,4 +101,6 @@ private:
     int m_upgradeMessageId{};
     int m_statusMessageId{};
     int m_skillSnapshotId{};
+    int m_monsterEffectId{};
+    int m_playerClipMessageId{};
 };

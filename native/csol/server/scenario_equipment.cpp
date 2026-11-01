@@ -144,6 +144,12 @@ bool CCSOLScenarioEquipment::ModifyJump(const EHANDLE& handle, float& gravity)
     return player && m_abilities.Effect(player->index, "JUMP", gravity);
 }
 
+bool CCSOLScenarioEquipment::WeaponDropResistance(const EHANDLE& handle, float& resistance)
+{
+    const auto player = Find(handle);
+    return player && m_abilities.Effect(player->index, "DROP_WEAPON_RESIST", resistance);
+}
+
 bool CCSOLScenarioEquipment::ModifyCreatureDamage(const EHANDLE& handle, bool skillBoss, float& damage)
 {
     const auto player = Find(handle);

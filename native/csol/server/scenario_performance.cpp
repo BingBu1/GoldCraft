@@ -171,11 +171,12 @@ void Command()
             const auto* weapon = dynamic_cast<CBasePlayerWeapon*>(player->m_pActiveItem);
             // Explicit, read-only diagnostics distinguish missing character
             // abilities from global death-owner errors without logging per hit.
-            SERVER_PRINT(UTIL_VarArgs("[csol_player] entity=%d class=%d weapon=%d fake=%d classmod_current=%d ability_item=%d ability_subtype=%d ability_installed=%d damage_hits=%u error=%s\n",
+            SERVER_PRINT(UTIL_VarArgs("[csol_player] entity=%d class=%d weapon=%d fake=%d classmod_current=%d ability_item=%d ability_subtype=%d ability_installed=%d ability_prepared=%d ability_unavailable=%d damage_hits=%u error=%s\n",
                 i, state->classId, weapon ? weapon->m_iId : 0,
                 (player->pev->flags & FL_FAKECLIENT) != 0, queried ? 1 : 0,
                 selected ? selected->item : 0, selected ? selected->subtype : 0,
-                state->activeSkill ? 1 : 0, state->monsterDamageHits, error.message.c_str()));
+                state->activeSkill ? 1 : 0, state->activeSkillPrepared ? 1 : 0,
+                state->activeSkillUnavailable ? 1 : 0, state->monsterDamageHits, error.message.c_str()));
         }
         frames.hasPrevious = false;
     }

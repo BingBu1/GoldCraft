@@ -13,6 +13,7 @@ class CSOLMonsterDamageCall;
 class CSOLPlayerRecoveryCall;
 class CCSOLScenarioPlayerRuntime;
 class CCSOLScenarioRuntime;
+struct CSOLMonsterSkillGuard;
 struct CSOLMonsterDeathContext;
 
 // A trusted ClassMod loadout installs the actual ability object. The character
@@ -190,6 +191,7 @@ struct CSOLScenarioStatBuff
     float expires{};
     bool protection{}, renderHeld{}, criticalEnabled{};
     float criticalChance{}, criticalMultiplier{}, attackRatio{};
+    bool forbidWeaponDrop{};
     std::shared_ptr<CSOLScenarioBuffCondition> condition;
     std::vector<std::int32_t> labels;
     bool Active(float now) const { return !(expires > 0 && now >= expires); }
@@ -243,6 +245,10 @@ struct CSOLScenarioPlayerRuntimeState
     bool statisticsRetired{};
     EHANDLE player;
     std::uint64_t generation{}, profileRevision{}, appliedRevision{};
+    std::uint64_t monsterLifeSerial{};
+    // Independent effect17 movement entry; never a character invulnerability.
+    float monsterTrapUntil{}, monsterTrapSavedGravity{1.0f};
+    bool monsterTrapMovementApplied{}, monsterTrapPending{};
     int classId{-1};
     CSOLScenarioPlayerProfile profile;
     CSOLScenarioClassModSource classModSource{CSOLScenarioClassModSource::Uninitialized};
@@ -290,6 +296,10 @@ struct CSOLScenarioPlayerRuntimeState
     std::optional<csol::scenario::ClassModDefinition> activeSkillDefinition;
     int activeSkillClass{-1};
     bool activeSkillPrepared{};
+    // A completed character selection may have no installed adapter yet.
+    // This is distinct from an absent/stale initialization and must not make
+    // ordinary weapon damage leave a zero-health monster outside death flow.
+    bool activeSkillUnavailable{};
     bool updatingHud{}, hudReplayPending{};
     CSOLScenarioAddonDamageInputs addonDamage;
     // Shared module flag written during pre-damage and consumed after health
@@ -367,6 +377,14 @@ public:
     std::uint64_t ClearPointProtectionRevision() const { return m_protectionOperation; }
     bool ProtectionBlocksDamage(const EHANDLE& player, float now) const;
     bool UpdatePlayerBuffs(CBasePlayer& player, float now);
+    bool MonsterTrapActive(const EHANDLE& player, float now) const;
+    std::optional<std::pair<std::uint64_t, std::uint64_t>> MonsterSkillLife(const EHANDLE& player) const;
+    bool MonsterWeaponDropBlocked(const EHANDLE& player, float now) const;
+    bool TryMonsterTrap(const EHANDLE& player, float duration, CSOLMonsterSkillGuard guard,
+        const std::function<bool()>& prepare, bool& caught,
+        csol::scenario::ConfigError& error);
+    bool ApplyMonsterTrapMovement(CBasePlayer& player, float now);
+    bool ResetMonsterSkillState(const EHANDLE& player);
     // Trusted server producers only. Display/render ownership is installed by
     // its concrete producer, never accepted through this damage-data entry.
     std::uint64_t InstallStatBuff(const EHANDLE& player, CSOLScenarioStatBuff buff);

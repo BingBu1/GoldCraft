@@ -10,6 +10,7 @@
 
 class CCSOLScenarioSession;
 class CCSOLScenarioPlayerRuntime;
+class CCSOLScenarioPlayerClips;
 class CCSOLScenarioDrops;
 class CCSOLScenarioGameplay;
 class CCSOLScenarioDeathServices;
@@ -66,6 +67,7 @@ public:
 
     std::shared_ptr<CCSOLScenarioSession> session;
     std::shared_ptr<CCSOLScenarioPlayerRuntime> players;
+    std::shared_ptr<CCSOLScenarioPlayerClips> playerClips;
     std::shared_ptr<CCSOLScenarioDrops> drops;
     std::shared_ptr<CCSOLScenarioGameplay> gameplay;
     std::shared_ptr<CCSOLScenarioDeathServices> deathServices;

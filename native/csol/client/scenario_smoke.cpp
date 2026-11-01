@@ -100,7 +100,7 @@ void CreateSmoke(event_args_t* args)
 
 void InitializeScenarioSmoke()
 {
-    if (engine.pfnHookEvent) engine.pfnHookEvent("events/createsmoke.sc", CreateSmoke);
+    if (engine.pfnHookEvent) engine.pfnHookEvent(smoke::EventPath, CreateSmoke);
 }
 
 void ResetScenarioSmoke()

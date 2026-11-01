@@ -22,7 +22,7 @@ client_sprite_t* GetSpriteList(char* path, int* count)
     {
         hudSprites.assign(original, original + *count);
         struct Entry {const char *name,*sprite;int y;};
-        const Entry entries[]{{"d_tknifeex2","csol/640hud12",32},{"d_beamgun","csol/640hud266",0},{"d_beamgunle","csol/640hud266",16},{"d_cannon","csol/640hud6",160}};
+        const Entry entries[]{{"d_tknifeex2","csol/640hud12",32},{"d_beamgun","csol/640hud266",0},{"d_beamgunle","csol/640hud266",16},{"d_cannon","csol/640hud6",160},{"d_k3","csol/640hud11",64}};
         for (const auto& entry : entries) for (const int resolution : {320, 640})
         {
             const bool present = std::any_of(hudSprites.begin(), hudSprites.end(), [=](const auto& icon)
@@ -32,7 +32,7 @@ client_sprite_t* GetSpriteList(char* path, int* count)
             std::strcpy(icon.szName, entry.name);
             std::strcpy(icon.szSprite, entry.sprite);
             icon.iRes = resolution;
-            // Original CSO hud.txt: x=172, y=32, width=48, height=16.
+            // Original CSO hud.txt: shared x=172, width=48, height=16; per-icon y.
             icon.rc = {172, 220, entry.y, entry.y+16};
             hudSprites.push_back(icon);
         }

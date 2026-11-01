@@ -7,6 +7,7 @@
 // Original CSO IDs. Inventory and prediction storage are separate from IDs.
 constexpr int CSOL_WEAPON_TKNIFEEX2 = 220;
 constexpr int CSOL_WEAPON_CANNON = 144;
+constexpr int CSOL_WEAPON_K3 = 197;
 constexpr int CSOL_WEAPON_BEAMGUN = 725;
 constexpr int CSOL_WEAPON_BEAMGUNLE = 726;
 class CBasePlayerWeapon;
@@ -52,6 +53,7 @@ int CSOL_DamageWeaponId(CBaseEntity* inflictor, CBasePlayer* attacker);
 bool CSOL_CannonEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon);
 bool CSOL_BeamEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon);
 bool CSOL_TKnifeEmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon);
+bool CSOL_K3EmptyMonsterKillCallbacks(const CBasePlayerWeapon& weapon);
 bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon);
 const char* CSOL_DeathWeapon(const entvars_s* inflictor);
 const char* CSOL_WorldModel(const CBasePlayerItem* item);

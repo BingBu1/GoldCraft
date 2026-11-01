@@ -4,6 +4,7 @@
 #include "weapon_damage_runtime.h"
 #include "wpn_beamgun.h"
 #include "wpn_cannon.h"
+#include "wpn_k3.h"
 #include "characters.h"
 #include "../projectile_effects.hpp"
 #include <typeinfo>
@@ -601,6 +602,7 @@ void CSOL_InitWeapons()
     CSOL_InitBeamDamage();
     CSOL_InitBeamWeapons();
     CSOL_InitCannon();
+    CSOL_InitK3();
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CVAR_REGISTER(&csol_projectile_trace);
     ADD_SERVER_COMMAND("tknife_projectile_test", CThrowingKnife::TestProjectile);
@@ -616,11 +618,14 @@ bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
     return (weapon->m_iId == CSOL_WEAPON_TKNIFEEX2 && !Q_strcmp(name, "weapon_tknifeex2")) ||
         (weapon->m_iId == CSOL_WEAPON_BEAMGUN && !Q_strcmp(name, "weapon_beamgun")) ||
         (weapon->m_iId == CSOL_WEAPON_BEAMGUNLE && !Q_strcmp(name, "weapon_beamgunle")) ||
-        (weapon->m_iId == CSOL_WEAPON_CANNON && !Q_strcmp(name, "weapon_cannon"));
+        (weapon->m_iId == CSOL_WEAPON_CANNON && !Q_strcmp(name, "weapon_cannon")) ||
+        (weapon->m_iId == CSOL_WEAPON_K3 && !Q_strcmp(name, "weapon_k3"));
 }
 
 const char* CSOL_WorldModel(const CBasePlayerItem* item)
 {
+    if (item && item->m_iId == CSOL_WEAPON_K3 && FClassnameIs(item->pev, "weapon_k3"))
+        return "models/w_k3.mdl";
     if (item && item->m_iId == CSOL_WEAPON_CANNON && FClassnameIs(item->pev, "weapon_cannon"))
         return "models/w_cannon.mdl";
     if (item && item->m_iId == CSOL_WEAPON_TKNIFEEX2 &&
@@ -646,6 +651,7 @@ void CSOL_PrecacheWeapons()
         weaponsPrecached = info && info->pszName && !Q_strcmp(info->pszName, "weapon_tknifeex2");
         CSOL_PrecacheBeamWeapons();
         CSOL_PrecacheCannon();
+        CSOL_PrecacheK3();
     }
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CSOL_PrecacheWeaponTests();

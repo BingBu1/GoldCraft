@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "scenario_monster_skills.h"
 #include "scenario_player_runtime.h"
 #include "scenario_active_skill.h"
 #include "scenario_death_owner.h"
@@ -125,6 +126,12 @@ void UpdateProtectionRender(CSOLScenarioPlayerRuntimeState& state, CBasePlayer& 
 
 std::vector<CSOLScenarioStatBuff> ReleaseProtection(CSOLScenarioPlayerRuntimeState& state, CBasePlayer* player)
 {
+    ++state.monsterLifeSerial;
+    if (player && state.monsterTrapMovementApplied)
+        player->pev->gravity = state.monsterTrapSavedGravity;
+    state.monsterTrapUntil = 0;
+    state.monsterTrapPending = false;
+    state.monsterTrapMovementApplied = false;
     bool held{};
     for (auto& buff : state.buffs)
     {
@@ -528,14 +535,15 @@ bool CCSOLScenarioPlayerRuntime::RefreshActiveSkill(
     if (!player) return false;
     // MP108F7F00 publishes type0 when there is no active object. Otherwise a
     // character change leaves the previous role's icon/cooldown on the client.
-    // Unknown factories still remain explicit in the damage consumer; clearing
-    // presentation must not claim that their activation has been implemented.
+    // Unimplemented adapters publish no usable ability. Their explicit state
+    // is kept separate from a broken initialization; base combat still works.
     const bool sent = m_session->Messages().SendActiveSkillCooldown(player->edict(),
         skill ? selected->subtype : 0, skill ? selected->values[0] : 0, 0);
     if (!current()) return false;
     if (!sent) { error.message = "scenario character skill initialization notification failed"; return false; }
     state->activeSkillDefinition = selected;
     state->activeSkillClass = classId;
+    state->activeSkillUnavailable = selected.has_value() && !skill;
     state->activeSkillPrepared = true;
     return true;
 }
@@ -1210,6 +1218,18 @@ bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(CBasePlayer& player, float no
     if (state->updatingBuffs) return true; // Retain dirty work for the next frame.
     struct Updating { bool& value; ~Updating() { value = false; } } updating{state->updatingBuffs};
     state->updatingBuffs = true;
+    // Original ring cleanup is strict >, while its movement query is > now.
+    // At equality the entry can remain but no longer limits movement.
+    if (state->monsterTrapUntil > 0 && now > state->monsterTrapUntil)
+        state->monsterTrapUntil = 0;
+    if (state->monsterTrapMovementApplied && !(state->monsterTrapUntil > now))
+    {
+        const auto life = state->monsterLifeSerial;
+        player.pev->gravity = state->monsterTrapSavedGravity;
+        state->monsterTrapMovementApplied = false;
+        player.ResetMaxSpeed();
+        if (Resolve(state->player) != state || state->monsterLifeSerial != life) return false;
+    }
     for (std::size_t index = 0; index < state->buffs.size();)
     {
         if (!state->buffs[index].Active(now))
@@ -1222,6 +1242,123 @@ bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(CBasePlayer& player, float no
         [now](const auto& label) { return label.deadline > 0 && now > label.deadline; });
     if (removed) { state->labelsDirty = true; ++state->buffsRevision; }
     return PublishLabels(state, now);
+}
+
+bool CCSOLScenarioPlayerRuntime::MonsterTrapActive(const EHANDLE& handle, float) const
+{
+    const auto state = Resolve(handle);
+    // Seek/Touch ask whether id17 is present; expiry cleanup is a separate
+    // strict-greater pass. At deadline equality it still prevents recapture.
+    return state && state->monsterTrapUntil > 0;
+}
+
+bool CCSOLScenarioPlayerRuntime::ResetMonsterSkillState(const EHANDLE& handle)
+{
+    const auto keepAlive = shared_from_this();
+    const auto state = Resolve(handle);
+    auto* player = state ? dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()) : nullptr;
+    if (!player) return true;
+    const auto life = ++state->monsterLifeSerial;
+    const bool movement = state->monsterTrapMovementApplied;
+    state->monsterTrapUntil = 0;
+    state->monsterTrapPending = false;
+    state->monsterTrapMovementApplied = false;
+    if (movement)
+    {
+        player->pev->gravity = state->monsterTrapSavedGravity;
+        player->ResetMaxSpeed();
+    }
+    return Resolve(handle) == state && state->monsterLifeSerial == life && handle.Get<CBaseEntity>() == player;
+}
+
+std::optional<std::pair<std::uint64_t, std::uint64_t>>
+CCSOLScenarioPlayerRuntime::MonsterSkillLife(const EHANDLE& handle) const
+{
+    const auto state = Resolve(handle);
+    if (!state) return std::nullopt;
+    return std::pair{state->generation, state->monsterLifeSerial};
+}
+
+bool CCSOLScenarioPlayerRuntime::MonsterWeaponDropBlocked(const EHANDLE& handle, float now) const
+{
+    const auto state = Resolve(handle);
+    return state && std::any_of(state->buffs.begin(), state->buffs.end(),
+        [now](const auto& buff) { return buff.Active(now) && buff.forbidWeaponDrop; });
+}
+
+bool CCSOLScenarioPlayerRuntime::ApplyMonsterTrapMovement(CBasePlayer& player, float now)
+{
+    const auto state = Resolve(EHANDLE(&player));
+    if (!state || !(state->monsterTrapUntil > now)) return false;
+    player.pev->maxspeed = 1.0f;
+    player.pev->gravity = 10.0f;
+    state->monsterTrapMovementApplied = true;
+    return true;
+}
+
+bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float duration,
+    CSOLMonsterSkillGuard guard, const std::function<bool()>& prepare,
+    bool& caught, csol::scenario::ConfigError& error)
+{
+    caught = false;
+    const auto keepAlive = shared_from_this();
+    const auto state = Resolve(handle);
+    auto* player = state ? dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()) : nullptr;
+    if (!player || !gpGlobals || !guard.Current() || !prepare ||
+        !std::isfinite(duration) || duration <= 0) return false;
+    if (state->monsterTrapUntil > 0 || state->monsterTrapPending) return true;
+    const auto life = state->monsterLifeSerial;
+    struct Pending
+    {
+        std::shared_ptr<CSOLScenarioPlayerRuntimeState> state;
+        std::uint64_t life;
+        ~Pending() { if (state->monsterLifeSerial == life) state->monsterTrapPending = false; }
+    } pending{state, life};
+    state->monsterTrapPending = true;
+    const auto current = [&]
+    { return guard.Current() && Resolve(handle) == state && state->monsterLifeSerial == life &&
+        handle.Get<CBaseEntity>() == player && player->pev->deadflag == DEAD_NO && player->pev->health > 0; };
+    const auto level = state->profile.equipment.addonLevels.find(13);
+    if (level != state->profile.equipment.addonLevels.end() && level->second > 0)
+    {
+        if (!g_engfuncs.pfnRandomLong)
+        { error.message = "scenario trap resistance random service is unavailable"; return false; }
+        const int sample = RANDOM_LONG(0, 99);
+        if (!current()) return false;
+        const auto tables = m_session->Equipment();
+        if (!tables || tables->addons.size() <= 13 || !g_engfuncs.pfnRandomLong)
+        { error.message = "scenario trap resistance requires addon13 and the engine random service"; return false; }
+        const auto& addon = tables->addons[13];
+        const auto currentLevel = state->profile.equipment.addonLevels.find(13);
+        const int amount = currentLevel == state->profile.equipment.addonLevels.end() ? 0 : currentLevel->second;
+        float percent = amount > 0 ? addon.Parameter("Percent") : 0;
+        if (amount > 1)
+            percent = AddonProductAdd(addon.Parameter("PercentAdd"),
+                static_cast<float>(amount - 1), percent);
+        if (percent > static_cast<float>(sample)) return true;
+    }
+    // Native Touch clears collision and starts the trap animation before the
+    // hold is installed. Reserve this life through those engine callbacks.
+    if (!current() || !prepare() || !current()) return false;
+    state->monsterTrapSavedGravity = player->pev->gravity;
+    state->monsterTrapUntil = gpGlobals->time + duration;
+    player->ResetMaxSpeed();
+    if (!current())
+    {
+        // An engine hook can remove the trap while resetting speed. Retire
+        // only our still-current life; never touch a respawned player's state.
+        if (Resolve(handle) == state && state->monsterLifeSerial == life && handle.Get<CBaseEntity>() == player)
+        {
+            state->monsterTrapUntil = 0;
+            if (state->monsterTrapMovementApplied) player->pev->gravity = state->monsterTrapSavedGravity;
+            state->monsterTrapMovementApplied = false;
+            player->ResetMaxSpeed();
+        }
+        return false;
+    }
+    player->pev->velocity = g_vecZero;
+    caught = true;
+    return true;
 }
 
 std::uint64_t CCSOLScenarioPlayerRuntime::InstallStatBuff(const EHANDLE& player, CSOLScenarioStatBuff buff)
@@ -1698,6 +1835,7 @@ bool CCSOLScenarioPlayerRuntime::SetActiveSkill(const EHANDLE& player,
     auto keepAlive = shared_from_this();
     const auto state = Resolve(player);
     if (!state) return false;
+    state->activeSkillUnavailable = false;
     auto retired = std::exchange(state->activeSkill, std::move(skill));
     const auto revision = ++state->activeSkillRevision;
     retired.reset();
@@ -1728,7 +1866,7 @@ bool CCSOLScenarioPlayerRuntime::ReadEntitySource(CBaseEntity& entity, int& valu
     {
         if (CSOL_NativeWeaponMonsterCallbacks(*weapon) ||
             CSOL_CannonEmptyMonsterKillCallbacks(*weapon) || CSOL_BeamEmptyMonsterKillCallbacks(*weapon) ||
-            CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon))
+            CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) || CSOL_K3EmptyMonsterKillCallbacks(*weapon))
         { value = weapon->m_iId; return true; }
     }
     const auto weapons = m_session->Weapons();
@@ -2831,7 +2969,8 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterKill(CSOLMonsterDeathCall& call,
         // Original ret 8 methods have no result. This bool reports adapter
         // coverage, not a fabricated return value from the original method.
         if (CSOL_NativeWeaponMonsterCallbacks(*weapon) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
-            CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon)) return true;
+            CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
+            CSOL_K3EmptyMonsterKillCallbacks(*weapon)) return true;
         error.message = active ? "scenario active weapon kill callback is unsupported" :
             "scenario source weapon kill callback is unsupported";
         return false;

@@ -97,6 +97,23 @@ bool CSOL_CharacterScenarioClass(CBasePlayer* player, int& classId,
     classId=character->scenarioClass;
     return true;
 }
+bool CSOL_CharacterMale(CBasePlayer* player, bool& male,
+    std::shared_ptr<const CSOLScenarioEntityAccess> access)
+{
+    if (!access || !access->Allowed() || !ready || !player) return false;
+    const EHANDLE handle(player);
+    const int index = player->entindex();
+    if (!access->Allowed() || !handle.Get() || index < 1 || index > 32) return false;
+    const int userid = GETPLAYERUSERID(handle.Get());
+    if (!access->Allowed()) return false;
+    auto* current = dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>());
+    if (!ready || current != player || (current->pev->flags & FL_KILLME) || states[index].userid != userid)
+        return false;
+    const auto* character = csol::FindCharacter(catalog, states[index].selected);
+    if (!character) return false;
+    male = character->male;
+    return true;
+}
 bool CSOL_EnsureScenarioBotCharacter(CBasePlayer* player,
     std::shared_ptr<const CSOLScenarioEntityAccess> access)
 {

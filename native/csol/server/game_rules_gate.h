@@ -7,6 +7,7 @@ class CGameRules;
 class CHalfLifeMultiplay;
 class CBasePlayer;
 class CBaseEntity;
+class CBasePlayerWeapon;
 class CCSOLScenarioMap;
 class CCSOLMonsterPool;
 class CCSOLScenarioSession;
@@ -14,6 +15,7 @@ class CCSOLScenarioPlayerRuntime;
 class CSOLMonsterDeathCall;
 namespace csol::scenario { struct ConfigError; }
 struct edict_s;
+struct playermove_s;
 struct CSOLScenarioRulesRecord;
 class CSOLScenarioEntityAccess;
 
@@ -90,6 +92,7 @@ bool CSOL_UsesScenarioRules();
 bool CSOL_ScenarioCanBuy();
 bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);
+bool CSOL_InjectScenarioPlayerClips(playermove_s& movement);
 bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player);
 bool CSOL_UpdateScenarioPlayerBuffs(CBasePlayer& player);
 bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force);
@@ -106,10 +109,16 @@ bool CSOL_ReadScenarioDamageScale(const CCSOLScenarioMap& map, float& value);
 bool CSOL_CompleteScenarioMonsterClearPoint(CSOLMonsterDeathCall& call,
     csol::scenario::ConfigError& error);
 bool CSOL_ScenarioHeGrenadeCreated(CBaseEntity& grenade);
+// Purchase-only source identity, applied to the new unowned K3 before Touch.
+bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon);
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity);
 bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules);
 bool CSOL_ScenarioCheckWinConditions(CHalfLifeMultiplay& rules);
 bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player);
+// Only the primary block of GiveDefaultItems, after its native inventory
+// reset. Cancellation must stop the caller before any more equipment access.
+enum class CSOLScenarioDefaultPrimary { Native, Granted, Cancelled };
+CSOLScenarioDefaultPrimary CSOL_ScenarioGiveDefaultPrimary(CBasePlayer& player);
 bool CSOL_ScenarioCanRespawn(CHalfLifeMultiplay& rules, CBasePlayer& player, bool& allowed);
 bool CSOL_ScenarioTeamFull(CHalfLifeMultiplay& rules, int team, bool& full);
 bool CSOL_ScenarioHoldSpawn(CBasePlayer& player);

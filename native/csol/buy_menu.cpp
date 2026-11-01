@@ -20,7 +20,7 @@ constexpr Item items[]{
     {14,4,"galil","Galil","galil",0},{15,4,"famas","FAMAS","famas",0},{18,4,"awp","AWP","awp",0},
     {22,4,"m4a1","M4A1","m4a1",0},{24,4,"g3sg1","G3SG1","g3sg1",0},
     {27,4,"sg552","SG552","sg552",0},{28,4,"ak47","AK-47","ak47",0},
-    {20,5,"m249","M249","m249",0},
+    {20,5,"m249","M249","m249",0},{197,5,"k3","K3","k3",4750},
     {144,8,"cannon","黑龙炮","cannon",4100},{725,8,"beamgun","赤血龙骧","beamgun",6100},
     {726,8,"beamgunle","御天绝影","beamgunle",6100},
     {1001,8,"vest","防弹衣","kevlar",650},{1002,8,"vesthelm","防弹衣与头盔","assaultsuit",1000},
@@ -91,11 +91,11 @@ Presentation ParsePresentation(std::string_view json){
     for(const auto& r:p.slots)Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);
     const auto inside=[&](const MenuRect& r){Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);};
     for(const auto& r:p.favorites)inside(r);for(const auto& r:p.teams)inside(r);inside(p.search);inside(p.rebuy);inside(p.account);
-    for(const auto& i:Catalog())if(i.id==144||i.id==220||i.id==725||i.id==726)Require(p.images.contains(i.id));
+    for(const auto& i:Catalog())if(i.id==144||i.id==197||i.id==220||i.id==725||i.id==726)Require(p.images.contains(i.id));
     return p;
 }
 std::vector<std::string> Resources(const Presentation& p){
-    std::vector<std::string> r{"models/csol/buymenu.json"};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
+    std::vector<std::string> r{PresentationResource};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
     for(const auto& t:p.slotBackground)if(!t.path.empty())r.push_back(t.path);
     for(const auto* t:{&p.keyboard,&p.favoriteBackground})if(!t->path.empty())r.push_back(t->path);
     std::sort(r.begin(),r.end());r.erase(std::unique(r.begin(),r.end()),r.end());return r;

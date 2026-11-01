@@ -58,6 +58,7 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
     case WEAPON_G3SG1: case WEAPON_FLASHBANG: case WEAPON_DEAGLE:
     case WEAPON_SG552: case WEAPON_AK47: case WEAPON_KNIFE: case WEAPON_P90:
     case CSOL_WEAPON_TKNIFEEX2: case CSOL_WEAPON_BEAMGUN: case CSOL_WEAPON_BEAMGUNLE:
+    case CSOL_WEAPON_K3: // MP CK3 v22C -> 105FFBE0, xor al,al; ret.
         return true;
     case CSOL_WEAPON_CANNON: break;
     default:
@@ -506,7 +507,8 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
                     type == typeid(CTMP) || type == typeid(CG3SG1) || type == typeid(CFlashbang) ||
                     type == typeid(CDEAGLE) || type == typeid(CSG552) || type == typeid(CAK47) ||
                     type == typeid(CP90) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
-                    CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon))
+                    CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
+                    CSOL_K3EmptyMonsterKillCallbacks(*weapon)) // CK3 v230 is also xor al,al; ret.
                     return true;
                 error.message = "scenario weapon melee-type predicate is not implemented";
                 return false;
@@ -734,14 +736,21 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
             bool boss{};
             if (!csol::scenario::MonsterStatisticsBoss(call.Current()->Type(), cachedMap, currentMap, boss, error)) return false;
             if (!step(deaths->GoldenHit(call, error))) return false;
-            // nullptr alone is not proof of an absent original D8 ability. A
-            // complete current type10 query is required before the optional path.
+            // Optional character abilities must not interrupt base combat after
+            // health was committed. Accept only a completed, matching selection
+            // with an explicitly unavailable adapter, never a lost/stale one.
             if (!state->activeSkill)
             {
                 std::optional<csol::scenario::ClassModDefinition> selected;
                 if (!step(players->CurrentClassMod(actor, 10, selected, error))) return false;
-                if (selected)
-                { error.message = "scenario selected active ability factory is not implemented"; return false; }
+                const auto& prepared = state->activeSkillDefinition;
+                const bool sameDefinition = selected.has_value() == prepared.has_value() &&
+                    (!selected || (selected->item == prepared->item && selected->type == prepared->type &&
+                        selected->subtype == prepared->subtype && selected->values == prepared->values));
+                if (!state->activeSkillPrepared || state->activeSkillClass != state->classId ||
+                    !sameDefinition || (selected && !state->activeSkillUnavailable) ||
+                    (!selected && state->activeSkillUnavailable))
+                { error.message = "scenario active ability initialization is absent or stale"; return false; }
             }
             if (!step(players->NotifyActiveSkillMonsterHit(call, runtime, error)) ||
                 !step(players->RecordMonsterDamage(call, runtime, boss, damage, error)) ||
