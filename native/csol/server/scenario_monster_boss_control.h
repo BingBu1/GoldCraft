@@ -5,6 +5,8 @@
 #include "scenario_messages.h"
 #include "../scenario/boss_skills.hpp"
 
+class CCSOLScenarioSession;
+
 struct CSOLBossControlState
 {
     std::shared_ptr<CSOLMonsterSpawnState> spawn;
@@ -16,8 +18,9 @@ struct CSOLBossControlState
     csol::scenario::BossSkillClocks clocks;
     csol::scenario::BossSkillTimer effect, path, avoidance, movement;
     csol::scenario::BossSkillTimer knownGoodClock{0.0f, -1.0f, -1.0f};
-    Vector knownGood{}, previousKnownGood{};
+    Vector knownGood{}, previousKnownGood{}, launchVelocity{};
     float deltaX{}, deltaY{}, motionRemainder{}, launchOriginZ{-999999.0f}, solidAfter{};
+    float hintDiagnosticAt{-1.0f};
     int repeatCount{};
     bool knownGoodValid{}, previousKnownGoodValid{}, busy{};
 };
@@ -25,9 +28,9 @@ struct CSOLBossControlState
 class CCSOLBossControlServices : public CCSOLMonsterSpawnOwner
 {
 public:
-    // Ver2 v354 is conditional on the real type/skill permission directory.
-    // A provider must resolve that directory and emit its real effect; do not
-    // supply an unconditional success/no-op to make an incomplete Boss spawn.
+    // Ver2 v354 is a void notification, conditional on the permission
+    // directory. False reports missing presentation support; it cannot reject
+    // the already-started skill. Never claim an effect was sent on this path.
     virtual bool RulesSkillStarted(CSOLMonsterSpawnCall& call,
         csol::scenario::ConfigError& error) = 0;
     virtual const CCSOLScenarioMessages& BossMessages() const = 0;
@@ -56,6 +59,14 @@ public:
     // Complete the common begin stages and rules v354 first. Only Started
     // authorizes the caller's immediate Oberon type5/6/7/9 extension.
     CSOLBossBeginResult TryBegin(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error);
+    // Original113D6660 wraps the common begin and runs its extension in the
+    // same call. Pass the actual session/factory, never a synthetic effect.
+    CSOLBossBeginResult TryBeginOberon(CSOLMonsterSpawnCall& call,
+        const std::shared_ptr<CCSOLScenarioSession>& session, CCSOLMonsterFactory& factory,
+        csol::scenario::ConfigError& error);
+    // Type5's delayed effect. Other SK effects keep ownership of their own
+    // dispatch; this does not consume another type's effect clock.
+    bool LaunchOberonLeap(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error);
     // interruptState is the behavior-owned original host+1322 value. All
     // nonzero causes enter this stage, but only -1 releases the current row.
     bool Interrupt(CSOLMonsterSpawnCall& call, std::int16_t& interruptState,

@@ -7,6 +7,7 @@
 namespace csol::client
 {
 bool WeaponHasAmmo(int id);
+bool WeaponTextMenuVisible();
 void WeaponSelectionDiagnostics(std::ostream& out);
 void ClearNativeWeaponSelection();
 void WeaponSelectionVisibility(int hidden,int intermission);

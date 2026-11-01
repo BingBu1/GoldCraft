@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "weapons.hpp"
+#include "user_message_chain.hpp"
 #include "weapon_inventory.hpp"
+#include "character_skill_effects.hpp"
 #include "crosshair.hpp"
 #include "pickup_history.hpp"
 #include "beamgun.hpp"
@@ -37,7 +39,7 @@ int currentSprite{}, loadedAmmoId{};
 int spriteR{}, spriteG{}, spriteB{};
 struct WideAmmoDraw
 {
-    bool enabled{}, drawn{}, hasClip{};
+    bool enabled{}, drawn{}, hasClip{}, infinite{};
     int value{}, x{}, clipX{}, y{}, width{}, height{}, shift{};
 } wideAmmo;
 int wideAmmoWeapon{}, wideAmmoIconWidth{}, wideAmmoDraws{};
@@ -150,6 +152,15 @@ void DrawSprite(int frame,int x,int y,const wrect_t* rect)
         {
             if(!wideAmmo.drawn)
             {
+                if(wideAmmo.infinite)
+                {
+                    const int restoreSprite=currentSprite,r=spriteR,g=spriteG,b=spriteB;
+                    if(DrawCharacterSkillInfiniteAmmo(active,wideAmmo.x+3*wideAmmo.width,y,r,g,b))
+                    {
+                        engine.pfnSPR_Set(restoreSprite,r,g,b);
+                        wideAmmo.drawn=true;++wideAmmoDraws;return;
+                    }
+                }
                 char value[16];std::snprintf(value,sizeof(value),"%d",wideAmmo.value);
                 int cursor=wideAmmo.x-wideAmmo.shift;
                 for(const char* p=value;*p;++p)
@@ -280,11 +291,13 @@ void DrawK3Ammo(int intermission)
     char clipText[16],reserveText[16];
     std::snprintf(clipText,sizeof(clipText),"%d",currentClip);
     std::snprintf(reserveText,sizeof(reserveText),"%d",currentReserve);
+    const bool infinite=CharacterSkillInfiniteAmmoFor(active);
     const int clipCells=std::max(3,int(std::strlen(clipText))),reserveCells=std::max(3,int(std::strlen(reserveText)));
     const int width=digits[0].rect.right-digits[0].rect.left,height=digits[0].rect.bottom-digits[0].rect.top;
     if(width<=0 || height<=0)return;
     const int y=screen.iHeight-height-height/2,iconWidth=ammoIcon.rect.right-ammoIcon.rect.left;
-    const int clipX=screen.iWidth-(clipCells+reserveCells+2)*width-iconWidth;
+    const int reserveSpan=infinite?72:reserveCells*width;
+    const int clipX=screen.iWidth-(clipCells+2)*width-reserveSpan-iconWidth;
     const int dividerX=clipX+clipCells*width+width/2,dividerWidth=std::max(1,width/10);
     const int reserveX=dividerX+dividerWidth+width/2;
     const auto number=[&](const char* text,int x,int cells)
@@ -296,10 +309,12 @@ void DrawK3Ammo(int intermission)
             originalDraw(0,x,y,&sprite.rect);x+=width;
         }
     };
-    number(clipText,clipX,clipCells);number(reserveText,reserveX,reserveCells);
+    number(clipText,clipX,clipCells);
+    if(!infinite||!DrawCharacterSkillInfiniteAmmo(active,reserveX+reserveSpan,y,255,160,0))
+        number(reserveText,reserveX,reserveCells);
     originalFill(dividerX,y,dividerWidth,height,255,160,0,255);
     originalSet(ammoIcon.handle,255,160,0);
-    originalDraw(0,reserveX+reserveCells*width,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
+    originalDraw(0,reserveX+reserveSpan,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
     ++hudDraws;
 }
 void PrepareWideAmmo(int intermission)
@@ -307,11 +322,12 @@ void PrepareWideAmmo(int intermission)
     wideAmmo={};
     const auto& current=CurrentExtendedWeapon();
     const auto* definition=FindWeaponDefinition(active);
+    const bool infinite=CharacterSkillInfiniteAmmoFor(active);
     // CSOWpnCur is already capability-negotiated and carries a signed 16-bit
     // reserve for ordinary weapons too. Stock AmmoX stays byte-compatible.
     if(intermission || (hidden&5) || view.health<=0 || view.spectator ||
         !current.state || current.id!=active || active<=0 || active>=LegacyWeaponLimit ||
-        current.reserve<=255 || !definition || definition->ammo1<0 ||
+        (current.reserve<=255&&!infinite) || !definition || definition->ammo1<0 ||
         engine.pfnGetCvarFloat("hud_draw")==0)return;
     if(!nativeHudLoaded)LoadNativeHudSprites();
     const int width=nativeDigits[0].rect.right-nativeDigits[0].rect.left;
@@ -331,11 +347,11 @@ void PrepareWideAmmo(int intermission)
     }
     if(wideAmmoIconWidth<=0)return;
     char value[16];std::snprintf(value,sizeof(value),"%d",current.reserve);
-    wideAmmo.enabled=true;wideAmmo.hasClip=current.clip>=0;wideAmmo.value=current.reserve;
+    wideAmmo.enabled=true;wideAmmo.hasClip=current.clip>=0;wideAmmo.value=current.reserve;wideAmmo.infinite=infinite;
     wideAmmo.width=width;wideAmmo.height=height;wideAmmo.y=screen.iHeight-height-height/2;
     wideAmmo.clipX=screen.iWidth-8*width-wideAmmoIconWidth;
     wideAmmo.x=screen.iWidth-4*width-wideAmmoIconWidth+(wideAmmo.hasClip?width/10:0);
-    wideAmmo.shift=std::max(0,int(std::strlen(value))-3)*width;
+    wideAmmo.shift=infinite?std::max(0,72-3*width):std::max(0,int(std::strlen(value))-3)*width;
 }
 }
 
@@ -348,8 +364,8 @@ void InitializeWeapons()
     oldWeaponList=api->HookUserMsg("WeaponList",WeaponList);
     oldCurWeapon=api->HookUserMsg("CurWeapon",CurWeapon);
     oldAmmo=api->HookUserMsg("AmmoX",Ammo);
-    oldHide=api->HookUserMsg("HideWeapon",Hide);
-    oldReset=api->HookUserMsg("ResetHUD",Reset);
+    InstallChainedUserMessage("HideWeapon",Hide,oldHide);
+    InstallChainedUserMessage("ResetHUD",Reset,oldReset);
     oldFov=api->HookUserMsg("SetFOV",SetFov);
     oldNightVision=api->HookUserMsg("NVGToggle",NightVision);
     Hook(reinterpret_cast<void*>(engine.pfnSPR_Set),reinterpret_cast<void*>(SetSprite),reinterpret_cast<void**>(&originalSet));
@@ -432,11 +448,12 @@ int WeaponRedraw(float time,int intermission)
     // cells and returns the icon's x. There is no extra cell between them.
     int x=fieldX+std::max(0,3-int(std::strlen(value)))*width;
     hudLayout={x,y,iconX,iconY};
-    for(const char* digit=value;*digit;++digit)
-    {
-        const auto& item=digits[*digit-'0'];originalSet(item.handle,BlueR,BlueG,BlueB);
-        originalDraw(0,x,y,&item.rect);x+=width;
-    }
+    if(!DrawCharacterSkillInfiniteAmmo(active,iconX,y,BlueR,BlueG,BlueB))
+        for(const char* digit=value;*digit;++digit)
+        {
+            const auto& item=digits[*digit-'0'];originalSet(item.handle,BlueR,BlueG,BlueB);
+            originalDraw(0,x,y,&item.rect);x+=width;
+        }
     originalSet(ammoIcon.handle,BlueR,BlueG,BlueB);originalDraw(0,iconX,iconY,&ammoIcon.rect);
     ++hudDraws;
     return result;

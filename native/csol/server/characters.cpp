@@ -191,8 +191,6 @@ bool CSOL_CharacterCommand(edict_t* entity,const char* command)
         auto* rules=g_pGameRules;
         HandleMenu_ChooseAppearance(player,1);
         if(g_pGameRules!=rules || handle.Get<CBaseEntity>()!=player)return true;
-        if(player->m_iMenu!=Menu_ChooseAppearance)CSOL_ScenarioCharacterSelected(*player);
-        if(g_pGameRules!=rules || handle.Get<CBaseEntity>()!=player)return true;
     }
     CSOL_ApplyCharacterModel(player);CSOL_UpdateCharacters(player);
     Send(player,state.sent);return true;

@@ -13,7 +13,7 @@ void ShutdownStatusIcons();
 
 // Graphics are prepared outside HUD_Redraw and invalidated separately from
 // message state. A video mode refresh must not discard server-owned labels.
-void PrepareStatusIconGraphics();
+void PrepareStatusIconGraphics(const status::StatusIcons& icons);
 void ResetStatusIconGraphics();
-void DrawStatusIconGraphics(const status::ProtectionIcons& icons, int width, int height);
+void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height);
 }

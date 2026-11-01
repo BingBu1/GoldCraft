@@ -3,15 +3,24 @@
 #include "scenario_monster_services.h"
 #include "scenario_monster_healing.h"
 #include "scenario_monster_skills.h"
+#include "scenario_oberon.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
 #include "scenario_death_services.h"
 #include "scenario_player_runtime.h"
+#include "scenario_player_impulse.h"
 #include "scenario_monster_effects.h"
+#include "scenario_elite_services.h"
+#include "scenario_monster_elite.h"
+#include "scenario_monster_recovery.h"
+#include "scenario_character_skills/elite_visuals.hpp"
 #include "game_rules_gate.h"
+#include "../frozen_death.hpp"
+#include "../frozen_smoke.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <stdexcept>
 
 CCSOLScenarioMonsterServices::CCSOLScenarioMonsterServices(
@@ -82,9 +91,126 @@ std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateO
 std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateBoss(
     CSOLMonsterSpawnCall& call, std::int32_t recordId, csol::scenario::ConfigError& error)
 {
-    if (Current(call))
+    const auto runtime = Pin();
+    if (!runtime || !Current(call)) return {};
+    auto* monster = call.Current();
+    if (recordId != 30200 || !monster->Type() || monster->Type()->skill != 1002)
+    {
         error.message = "scenario boss behavior is not implemented for record " + std::to_string(recordId);
-    return {};
+        return {};
+    }
+    const auto rewards = m_session->HitRewards();
+    const auto players = m_session->Players();
+    const auto equipment = m_session->EquipmentState();
+    const auto weapons = m_session->Weapons();
+    const auto skills = m_session->BossSkills();
+    if (!m_damage || !rewards || !players || !equipment || !weapons || !skills)
+    { error.message = "Oberon requires active damage/reward/player/equipment/weapon/SK services"; return {}; }
+    if (!m_oberon)
+    {
+        auto services = std::make_shared<CCSOLOberonServices>(runtime, shared_from_this());
+        if (!services->Initialize(error) || Pin() != runtime || !Current(call)) return {};
+        m_oberon = std::move(services);
+    }
+    auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
+        rewards, players, equipment, weapons, m_damage);
+    return std::make_unique<CCSOLOberonBehavior>(m_oberon, std::move(damage), skills);
+}
+
+bool CCSOLScenarioMonsterServices::SupportsElite() const
+{
+    const auto runtime = Pin();
+    return runtime && m_gameplay && m_damage && runtime->eliteManager &&
+        runtime->eliteManager->Current() && runtime->eliteServices &&
+        runtime->eliteServices->Current() && runtime->players && runtime->players->Active() &&
+        m_session->EliteSettings() && m_session->Navigation();
+}
+
+std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateElite(
+    CSOLMonsterSpawnCall& call, bool follower, csol::scenario::ConfigError& error)
+{
+    const auto runtime = Pin();
+    if (!runtime || !Current(call) || !error.message.empty()) return {};
+    const auto rewards = m_session->HitRewards();
+    const auto players = m_session->Players();
+    const auto equipment = m_session->EquipmentState();
+    const auto weapons = m_session->Weapons();
+    const auto settings = m_session->EliteSettings();
+    if (!SupportsElite() || !rewards || !players || !equipment || !weapons ||
+        follower != runtime->eliteManager->FollowerSpawn())
+    { error.message = "scenario elite requires its current manager, player and combat services"; return {}; }
+
+    const auto weak = weak_from_this();
+    const std::weak_ptr<CCSOLScenarioEliteServices> elites = runtime->eliteServices;
+    CSOLEliteMonsterBindings bindings;
+    bindings.qualifiedPlayers = [elites](CSOLMonsterSpawnCall& spawn, int& count,
+        csol::scenario::ConfigError& status)
+    {
+        const auto service = elites.lock();
+        return service && service->QualifiedPlayers(spawn, count, status);
+    };
+    bindings.spawnFollower = [elites](CSOLMonsterSpawnCall& spawn, csol::scenario::ConfigError& status)
+    {
+        const auto service = elites.lock();
+        return service && service->SpawnFollower(spawn, status);
+    };
+    bindings.updateRecovery = [elites](CSOLMonsterSpawnCall& spawn, CSOLOrdinaryMonsterState& ordinary,
+        float& changedAt, int& previousArea, bool& relocate, csol::scenario::ConfigError& status)
+    {
+        const auto service = elites.lock();
+        return service && service->UpdateRecovery(spawn, ordinary, changedAt, previousArea, relocate, status);
+    };
+    bindings.replaceType = [weak](CSOLMonsterSpawnCall& spawn, CSOLMonsterSpawnState& state,
+        std::shared_ptr<const csol::scenario::MonsterType> type, csol::scenario::ConfigError& status)
+    {
+        const auto service = weak.lock();
+        const auto owner = service ? service->Pin() : nullptr;
+        if (!owner || !service->Current(spawn)) return false;
+        const bool replaced = service->m_gameplay->Factory().ReplaceEliteSpawnType(
+            spawn, state, std::move(type), status);
+        return service->Pin() == owner && service->Current(spawn) && replaced;
+    };
+    bindings.recoverHealth = [weak](CSOLMonsterSpawnCall& spawn, float amount,
+        const CSOLMonsterDeathContext& context, csol::scenario::ConfigError& status)
+    {
+        const auto service = weak.lock();
+        const auto owner = service ? service->Pin() : nullptr;
+        if (!owner || !service->Current(spawn)) return false;
+        const bool recovered = CSOL_RecoverMonsterSelf(owner, spawn, amount, context, status);
+        return service->Pin() == owner && service->Current(spawn) && recovered;
+    };
+    bindings.frostSlow = [weak](CSOLMonsterSpawnCall& spawn, const EHANDLE& target,
+        float duration, float speed, csol::scenario::ConfigError& status)
+    {
+        const auto service = weak.lock();
+        const auto owner = service ? service->Pin() : nullptr;
+        if (!owner || !service->Current(spawn)) return false;
+        const auto playerRuntime = owner->players;
+        if (!playerRuntime)
+        { status.message = "elite frost requires the current player registry"; return false; }
+        bool applied{};
+        const bool handled = playerRuntime->TryMonsterFrost(target, duration, speed, applied, status);
+        // A genuine slow-immunity or shorter repeat is a handled contact.
+        return service->Pin() == owner && service->Current(spawn) &&
+            owner->players == playerRuntime && handled;
+    };
+    bindings.publishEntityEffect = csol::scenario::skills::PublishEliteEntityVisual;
+    bindings.publishAreaEffect = csol::scenario::skills::PublishEliteAreaVisual;
+    auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
+        rewards, players, equipment, weapons, m_damage);
+    return std::make_unique<CCSOLEliteMonsterBehavior>(shared_from_this(), std::move(damage),
+        runtime, settings, std::move(bindings));
+}
+
+bool CCSOLScenarioMonsterServices::UpdateEliteSchedule(csol::scenario::ConfigError& error)
+{
+    const auto runtime = Pin();
+    if (!runtime || !m_gameplay || !error.message.empty()) return false;
+    const auto elites = runtime->eliteServices;
+    if (!elites)
+    { error.message = "scenario elite schedule service is unavailable"; return false; }
+    const bool updated = elites->Update(error);
+    return Pin() == runtime && runtime->eliteServices == elites && updated;
 }
 
 std::span<const std::size_t> CCSOLScenarioMonsterServices::ProtectedSlots() const
@@ -93,6 +219,37 @@ std::span<const std::size_t> CCSOLScenarioMonsterServices::ProtectedSlots() cons
     // or unsupported Golden plan must not masquerade as an empty collection.
     if (!Pin() || !m_gameplay) throw std::runtime_error("scenario Golden membership is unavailable");
     return {};
+}
+
+bool CCSOLScenarioMonsterServices::ResetRoundDamage(csol::scenario::ConfigError& error)
+{
+    error = {};
+    const auto runtime = Pin();
+    if (!runtime || !m_gameplay || !m_damage) return false;
+    const auto damage = m_damage;
+    damage->ResetBossDamageState();
+    return Pin() == runtime && m_damage == damage;
+}
+
+bool CCSOLScenarioMonsterServices::UpdateHealthSummary(float now, csol::scenario::ConfigError& error)
+{
+    error = {};
+    const auto runtime = Pin();
+    if (!runtime || !m_gameplay || !m_damage) return false;
+    const auto damage = m_damage;
+    const bool updated = damage->UpdateBossHealth(now, error);
+    return Pin() == runtime && m_damage == damage && updated;
+}
+
+bool CCSOLScenarioMonsterServices::AttributesApplied(CSOLMonsterSpawnCall& call,
+    csol::scenario::ConfigError& error)
+{
+    error = {};
+    const auto runtime = Pin();
+    if (!runtime || !Current(call) || !m_damage) return false;
+    const auto damage = m_damage;
+    const bool initialized = damage->InitializeBossHealth(call, error);
+    return Pin() == runtime && Current(call) && m_damage == damage && initialized;
 }
 
 bool CCSOLScenarioMonsterServices::ClearSpawnEffects(CSOLMonsterSpawnCall& call,
@@ -134,11 +291,19 @@ bool CCSOLScenarioMonsterServices::ResolveSpawnOverlap(CSOLMonsterSpawnCall& cal
 }
 
 bool CCSOLScenarioMonsterServices::RulesMonsterSpawned(CSOLMonsterSpawnCall& call,
-    csol::scenario::ConfigError&)
+    csol::scenario::ConfigError& error)
 {
     // Ver2 v328 notifies Golden. The actual loaded empty plan has no member
     // to update; Pin requires that specific service and its loaded state.
-    return Current(call);
+    const auto runtime = Pin();
+    if (!runtime || !Current(call)) return false;
+    const auto elites = runtime->eliteServices;
+    if (!elites)
+    { error.message = "scenario spawn has no elite point registry"; return false; }
+    // 113859AC records Create's requested point after the rule callback.
+    // Do not substitute the TRG group or rescan a nearby spawn point.
+    const bool recorded = elites->RecordSuccessfulSpawn(call, call.Current()->SpawnPointId(), error);
+    return Pin() == runtime && runtime->eliteServices == elites && Current(call) && recorded;
 }
 
 bool CCSOLScenarioMonsterServices::BeforeSpawnClear(CCSOLScenarioMonster& monster)
@@ -239,7 +404,10 @@ bool CCSOLScenarioMonsterServices::PlayerTargetExcluded(CSOLMonsterSpawnCall& ca
         excluded = true;
         return true;
     }
-    excluded = active;
+    // MP IdleThink 1137F45C and Oberon's true v114 retain hidden targets for
+    // Boss skills. Synthetic elite 32800 keeps the ordinary feature3 rule.
+    const auto* type = call.Current()->Type();
+    excluded = active && !(type && type->skill >= 1000 && type->id != 32800);
     return true;
 }
 
@@ -343,16 +511,73 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
 }
 
 bool CCSOLScenarioMonsterServices::ApplyContactImpulse(CSOLMonsterSpawnCall& call,
-    const EHANDLE&, const Vector&, csol::scenario::ConfigError& error)
+    const EHANDLE& target, const Vector& requested, csol::scenario::ConfigError& error)
 {
-    if (Current(call)) error.message = "scenario contact impulse requires the player effect multiplier service";
-    return false;
+    const auto runtime = Pin();
+    if (!runtime || !Current(call) || !error.message.empty()) return false;
+    auto* receiver = target.Get<CBaseEntity>();
+    if (!receiver || !receiver->pev || (receiver->pev->flags & (FL_KILLME | FL_DORMANT))) return true;
+    if (!std::isfinite(requested.x) || !std::isfinite(requested.y) || !std::isfinite(requested.z))
+    { error.message = "scenario contact impulse is not finite"; return false; }
+    if (dynamic_cast<CBasePlayer*>(receiver))
+    {
+        bool applied{};
+        const bool result = CSOL_ApplyScenarioPlayerImpulse(m_session, target, requested, applied, error);
+        // A modifier may reject the target's impulse. This remains a normal
+        // contact, so the caller still writes the charging monster's XY tail.
+        return Pin() == runtime && Current(call) && result;
+    }
+    // Skill9's caller permits only players and Classify17. With weapon=-1,
+    // original114ECF00 accepts the scenario rules gate and directly replaces
+    // XYZ; host+1F8 and the weapon>=536 impulse accumulator are not consulted.
+    auto* monster = dynamic_cast<CCSOLScenarioMonster*>(receiver);
+    auto* pool = monster ? monster->Pool() : nullptr;
+    const auto lease = pool ? pool->Lease(*monster) : 0;
+    if (!monster || !pool || !lease)
+    { error.message = "scenario contact impulse target has no registered monster lease"; return false; }
+    if (Pin() != runtime || !Current(call)) return false;
+    if (target.Get<CBaseEntity>() != receiver || monster->Pool() != pool || pool->Lease(*monster) != lease) return true;
+    monster->pev->velocity = requested;
+    return true;
 }
 
 bool CCSOLScenarioMonsterServices::FrozenDeath(CSOLMonsterDeathCall& call,
     csol::scenario::ConfigError& error)
 {
-    if (Pin() && call.BelongsTo(m_session->Map()) && call.Current())
-        error.message = "scenario frozen death requires the precached ice/smoke effect service";
-    return false;
+#pragma clang fp contract(off)
+    const auto runtime = Pin();
+    const auto session = m_session;
+    const auto current = [&]() -> CCSOLScenarioMonster*
+    {
+        return runtime && Pin() == runtime && call.BelongsTo(session->Map()) ? call.Current() : nullptr;
+    };
+    auto* monster = current();
+    if (!monster || !error.message.empty()) return false;
+    if (!session->Models().Ready() || monster->Pool() != &session->Monsters())
+    { error.message = "frozen death requires this session's precached monster pool"; return false; }
+    csol::frozen_death::IceEvent ice;
+    csol::frozen_smoke::Event smoke;
+    for (unsigned axis = 0; axis < 3; ++axis)
+    {
+        ice.center[axis] = monster->pev->origin[axis] +
+            (monster->pev->mins[axis] + monster->pev->maxs[axis]) * .5f;
+        ice.size[axis] = monster->pev->size[axis] * (axis == 2 ? 1.0f : 2.0f);
+        smoke.center[axis] = ice.center[axis];
+        smoke.absmin[axis] = monster->pev->absmin[axis];
+        smoke.absmax[axis] = monster->pev->absmax[axis];
+    }
+    if (!csol::frozen_death::Valid(ice) || !csol::frozen_smoke::Valid(smoke))
+    { error.message = "frozen death bounds are invalid"; return false; }
+    const bool iceSent = session->Messages().SendFrozenIce(ice);
+    if (!current()) return false;
+    if (!iceSent) { error.message = "frozen death fragment message failed"; return false; }
+    const bool smokeSent = session->Messages().SendFrozenSmoke(smoke);
+    if (!current()) return false;
+    if (!smokeSent) { error.message = "frozen death cloud message failed"; return false; }
+    // Original113EDFA0 parks immediately after both effects. Keep the captured
+    // death's lease/behavior alive so animation, money and map tails continue.
+    const bool parked = session->Monsters().ParkForDeath(*current());
+    if (!current()) return false;
+    if (!parked) error.message = "frozen death could not park its monster slot";
+    return parked;
 }

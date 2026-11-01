@@ -157,6 +157,22 @@ bool CCSOLScenarioEquipment::ModifyCreatureDamage(const EHANDLE& handle, bool sk
         skillBoss ? "BOSS_DAMAGE" : "ZOMBIE_DAMAGE", damage) && Current(*player);
 }
 
+bool CCSOLScenarioEquipment::ModifyIncomingDamage(const EHANDLE& handle,
+    bool blast, bool suicideBomb, bool zombieBomb, float& damage)
+{
+    const auto player = Find(handle);
+    if (!player) return false;
+    if (blast)
+    {
+        if (!m_abilities.Effect(player->index, "BLAST_RESIST", damage)) return false;
+        if (suicideBomb && !m_abilities.Effect(player->index,
+            "ZOMBIE_SUICIDE_BOMB_RESIST", damage)) return false;
+    }
+    if (zombieBomb && !m_abilities.Effect(player->index,
+        "ZOMBIE_BOMB_RESIST", damage)) return false;
+    return Current(*player);
+}
+
 bool CCSOLScenarioEquipment::ReachedEffectiveCap(const EHANDLE& handle)
 {
     auto keepAlive = shared_from_this();

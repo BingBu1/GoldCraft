@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "user_message_chain.hpp"
 #include "wall_status.hpp"
 #include "../wall_status.hpp"
 #include <algorithm>
@@ -105,9 +106,7 @@ int ReceiveHide(const char* name, int size, void* data)
 }
 void Install(const char* name, pfnUserMsgHook hook, pfnUserMsgHook& previous)
 {
-    const auto old = api->HookUserMsg(name, hook);
-    if (old != hook) previous = old;
-    if (!old) engine.pfnHookUserMsg(name, hook);
+    InstallChainedUserMessage(name, hook, previous);
 }
 }
 

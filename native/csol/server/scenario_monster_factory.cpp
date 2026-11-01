@@ -3,6 +3,7 @@
 #include "scenario_monster_factory.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -184,6 +185,7 @@ bool CCSOLMonsterFactory::Reset()
     m_states = {};
     m_sequences.clear();
     m_replacements.clear();
+    m_runtimeTypes.clear();
     m_error = {};
     return true;
 }
@@ -256,10 +258,107 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, i
     return Create(team, requestedType, point, rowArgument, location, *type, false, delta);
 }
 
-bool CCSOLMonsterFactory::ResolveSequences(CSOLMonsterSpawnCall& call,
-    const csol::scenario::MonsterType& type, csol::scenario::MonsterSequences& output)
+CSOLMonsterSpawnResult CCSOLMonsterFactory::SpawnElite(
+    std::shared_ptr<const csol::scenario::MonsterType> type, int point,
+    bool follower, EHANDLE& created)
 {
-    if (const auto found = m_sequences.find(&type); found != m_sequences.end())
+    using Result = CSOLMonsterSpawnResult;
+    created = nullptr;
+    const auto owner = m_owner.lock();
+    if (m_hasOwner && (!owner || !owner->OwnerCurrent())) return Result::Cancelled;
+    if (m_busy || !m_error.message.empty()) return Result::Failed;
+    FactoryOperation operation(m_busy);
+    if (m_map.State() != CSOLScenarioMapState::RoundActive || !m_map.Tables() ||
+        m_map.Tables()->scenarioType != 1 || m_map.Tables()->mapName != "zs_deadend" ||
+        !m_map.RoundIndex() || m_pool.State() != CSOLMonsterPoolState::Ready || !gpGlobals)
+    {
+        Fail("scenario elite factory requires the active zs_deadend subtype1 round");
+        return Result::Failed;
+    }
+    if (point <= 0) return Result::Skipped;
+    auto& points = m_map.SpawnPoints().Points();
+    const auto* selected = points.FindMonsterPoint(1, point);
+    if (!selected) return Result::Skipped;
+    const auto location = selected->point;
+    if (!type || type->id != 32800 || type->priority != 1 || type->skill != 1000 ||
+        type->appearance != "zbs_elite_01")
+    {
+        Fail("scenario elite factory requires the original synthetic type32800");
+        return Result::Failed;
+    }
+    // Preserve the common wrapper's attempted-spawn quota ordering.
+    if (!points.ConsumePointQuota(1, point)) return Result::Skipped;
+    csol::scenario::RoundMonsterDeltas delta;
+    if (!csol::scenario::ReadRoundMonsterDeltas(m_map.Tables()->rounds,
+        *m_map.RoundIndex(), delta, m_error)) return Result::Failed;
+    // Retain a row only once. Do not copy it per spawn: the sequence cache is
+    // keyed by this actual record identity, as in the ordinary factory.
+    if (std::none_of(m_runtimeTypes.begin(), m_runtimeTypes.end(),
+        [&](const auto& record) { return record.get() == type.get(); }))
+    {
+        try { m_runtimeTypes.push_back(type); }
+        catch (...) { Fail("scenario elite type retention failed"); return Result::Failed; }
+    }
+    return Create(1, 32800, point, 1, location, *type, false, delta, follower, &created);
+}
+
+bool CCSOLMonsterFactory::ReplaceEliteSpawnType(CSOLMonsterSpawnCall& call,
+    CSOLMonsterSpawnState& state, std::shared_ptr<const csol::scenario::MonsterType> type,
+    csol::scenario::ConfigError& error)
+{
+    error = {};
+    // This is an initialization operation within Create, not a way to replace
+    // the type of a live, dead, or subsequently reused pool slot.
+    if (!call.BelongsTo(m_map)) return false;
+    auto* monster = call.Current();
+    if (!monster) return false;
+    if (!m_busy || m_initializingState != &state || !m_error.message.empty() ||
+        monster->Pool() != &m_pool || !m_pool.Borrowed(*monster) ||
+        State(*monster) != &state || state.type != monster->Type() ||
+        monster->pev->deadflag != DEAD_NO ||
+        monster->pev->takedamage != DAMAGE_NO)
+    {
+        error.message = "elite type replacement requires the current initializing borrow";
+        return false;
+    }
+    const auto* previous = monster->Type();
+    if (!type || previous->id != 32800 || type->id != 32800 ||
+        previous->priority != 1 || type->priority != 1 ||
+        previous->skill != 1000 || type->skill != 1000 ||
+        previous->appearance != "zbs_elite_01" || type->appearance != previous->appearance ||
+        type->propensity != previous->propensity || type->Key() != previous->Key() ||
+        !std::isfinite(type->attackInterval))
+    {
+        error.message = "elite initialization cannot replace its model or behavior identity";
+        return false;
+    }
+    // Both parked slots and sequence-cache keys can outlive the behavior.
+    // Retain before publishing either pointer; allocation failure is atomic.
+    if (std::none_of(m_runtimeTypes.begin(), m_runtimeTypes.end(),
+        [&](const auto& record) { return record.get() == type.get(); }))
+    {
+        try { m_runtimeTypes.push_back(type); }
+        catch (...) { error.message = "elite initialized type retention failed"; return false; }
+    }
+    monster->m_type = type.get();
+    // ResetForSpawn specializes the elite record after the attribute stage
+    // registered its initial type. Rebind that same borrowed lease before
+    // post-origin registration; keep Register's exact type/lease checks.
+    // ApplyPriority has no callbacks and only writes after all checks pass.
+    if (!m_occupancy.ApplyPriority(*monster))
+    {
+        monster->m_type = previous;
+        error.message = "elite initialized type occupancy binding failed";
+        return false;
+    }
+    state.type = type.get();
+    return true;
+}
+
+bool CCSOLMonsterFactory::ResolveSequences(CSOLMonsterSpawnCall& call,
+    const csol::scenario::MonsterType& type, csol::scenario::MonsterSequences& output, bool refreshOberon)
+{
+    if (const auto found = m_sequences.find(&type); !refreshOberon && found != m_sequences.end())
     {
         output = found->second;
         return true;
@@ -267,22 +366,55 @@ bool CCSOLMonsterFactory::ResolveSequences(CSOLMonsterSpawnCall& call,
     struct Lookup
     {
         CSOLMonsterSpawnCall& call;
+        const csol::scenario::MonsterType* type;
         bool valid{true};
-    } lookup{call};
+    } lookup{call, &type};
     csol::scenario::MonsterSequences sequences;
-    const bool resolved = csol::scenario::ResolveMonsterSequences([](void* context, const char* name)
+    const auto query = [](void* context, const char* name)
     {
         auto& state = *static_cast<Lookup*>(context);
         auto* monster = state.call.Current();
-        if (!state.valid || !monster) { state.valid = false; return -1; }
+        if (!state.valid || !monster || monster->Type() != state.type) { state.valid = false; return -1; }
         void* model = GET_MODEL_PTR(monster->edict());
-        if (!state.call.Current()) { state.valid = false; return -1; }
+        monster = state.call.Current();
+        if (!monster || monster->Type() != state.type) { state.valid = false; return -1; }
         return ::LookupSequence(model, name);
-    }, &lookup, sequences);
+    };
+    const bool resolved = csol::scenario::ResolveMonsterSequences(query, &lookup, sequences);
     if (!resolved || !lookup.valid || !call.Current()) return false;
+    // MP113D6A40 reads health only AFTER the common sequence queries. Retain
+    // the original four separate lookups, including both knife_walk calls.
+    if (refreshOberon && call.Current()->pev->health / call.Current()->pev->max_health < 0.5f)
+    {
+        using Sequence = csol::scenario::MonsterSequence;
+        for (const auto& entry : {std::pair{Sequence::Idle, "knife_idle"},
+            std::pair{Sequence::Walk, "knife_walk"}, std::pair{Sequence::Run, "knife_walk"},
+            std::pair{Sequence::Jump, "knife_idle"}})
+        {
+            const auto value = query(&lookup, entry.second);
+            if (!lookup.valid || !call.Current()) return false;
+            sequences[entry.first] = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(value));
+        }
+    }
     // The cache is specific to this actual type record and this loaded map.
-    m_sequences.emplace(&type, sequences);
+    m_sequences.insert_or_assign(&type, sequences);
     output = sequences;
+    return true;
+}
+
+bool CCSOLMonsterFactory::RefreshOberonSequences(CSOLMonsterSpawnCall& call)
+{
+    if (m_busy || !call.BelongsTo(m_map) || !call.Current()) return false;
+    auto* monster = call.Current();
+    const auto* type = monster->Type();
+    if (!type || type->id != 30200 || !State(*monster) || !g_engfuncs.pfnGetModelPtr)
+        return Fail("Oberon animation refresh requires its factory-owned type row");
+    FactoryOperation operation(m_busy);
+    csol::scenario::MonsterSequences sequences;
+    if (!ResolveSequences(call, *type, sequences, true))
+        return call.Current() ? Fail("Oberon animation refresh was interrupted") : false;
+    for (const auto& state : m_states)
+        if (state && state->type == type) state->sequences = sequences;
     return true;
 }
 
@@ -319,13 +451,14 @@ bool CCSOLMonsterFactory::FireSpawnTargets(CSOLMonsterSpawnCall& call, int recor
 
 CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, int point,
     int rowArgument, const csol::scenario::SpawnPoint& location, const csol::scenario::MonsterType& type,
-    bool useRecordIdentity, const csol::scenario::RoundMonsterDeltas& delta)
+    bool useRecordIdentity, const csol::scenario::RoundMonsterDeltas& delta,
+    bool eliteFollower, EHANDLE* created)
 {
     using Result = CSOLMonsterSpawnResult;
     // Category2/4/5 and other maps have separate behavior contracts. Do not
     // install the ordinary class for one of them merely to make it visible.
     if (type.appearance == "elite_forceC" || type.appearance == "elite_forceT" ||
-        type.id == 32800 || type.id == 32908 || !Finite(location.origin) || !Finite(location.angles) ||
+        type.id == 32908 || !Finite(location.origin) || !Finite(location.angles) ||
         !Finite(type.color) || !RenderInteger(type.column21[0]) ||
         !RenderInteger(type.column21[1]) || !std::isfinite(type.column21[2]))
     {
@@ -338,12 +471,28 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
     const auto mapGeneration = m_map.SpawnPoints().Generation();
     const auto roundGeneration = m_map.RoundGeneration();
     const auto deathGeneration = m_deaths.Generation();
+    const auto access = m_map.EntityAccess();
     const auto sameSession = [&]
     {
-        return (!owner || owner->OwnerCurrent()) && mapGeneration == m_map.SpawnPoints().Generation() &&
+        return access && access->Allowed() && m_map.EntityAccess() == access && m_pool.EntityAccessAllowed() &&
+            (!owner || owner->OwnerCurrent()) && mapGeneration == m_map.SpawnPoints().Generation() &&
             roundGeneration == m_map.RoundGeneration() && deathGeneration == m_deaths.Generation() &&
             m_map.State() == CSOLScenarioMapState::RoundActive;
     };
+    if (type.id == 32800)
+    {
+        bool supported{};
+        try { supported = m_services.SupportsElite(); }
+        catch (...)
+        {
+            if (!sameSession()) return Result::Cancelled;
+            Fail("scenario elite capability query threw an exception");
+            return Result::Failed;
+        }
+        if (!sameSession()) return Result::Cancelled;
+        if (!supported)
+        { Fail("scenario elite behavior is unavailable"); return Result::Failed; }
+    }
     std::span<const std::size_t> protectedSlots;
     try { protectedSlots = m_services.ProtectedSlots(); }
     catch (...)
@@ -358,6 +507,19 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
     catch (...) { Fail("scenario spawn state allocation failed"); return Result::Failed; }
     auto* monster = m_pool.Acquire(type, point, m_map.SpawnPoints().Points(),
         protectedSlots, &previousType);
+    // Acquire can invoke effect cleanup while evicting an old slot. Its new
+    // SpawnCall must not bless a generation installed by that callback.
+    if (!sameSession())
+    {
+        if (monster && access && access->Allowed() && m_map.EntityAccess() == access &&
+            m_pool.EntityAccessAllowed() && mapGeneration == m_map.SpawnPoints().Generation() &&
+            roundGeneration == m_map.RoundGeneration())
+        {
+            CSOLMonsterSpawnCall cleanup(m_map, m_pool, m_deaths, *monster, nullptr, owner);
+            cleanup.ReturnIncomplete();
+        }
+        return Result::Cancelled;
+    }
     if (!monster)
     {
         if (m_pool.State() == CSOLMonsterPoolState::Failed)
@@ -378,12 +540,24 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
     }
     m_states[monster->Slot()] = spawnState;
     auto& state = *spawnState;
+    struct InitializingScope
+    {
+        const CSOLMonsterSpawnState*& current;
+        InitializingScope(const CSOLMonsterSpawnState*& target, const CSOLMonsterSpawnState& state)
+            : current(target) { current = &state; }
+        ~InitializingScope() { current = nullptr; }
+    } initializing(m_initializingState, state);
     state.lease = m_pool.Lease(*monster);
+    state.type = &type;
     state.skill = type.skill;
     monster->pev->team = team;
     monster->m_typeId = useRecordIdentity || type.column20 > 0 ? type.id : requestedType;
     csol::scenario::ConfigError error;
     const auto valid = [&] { return call.Current() != nullptr; };
+    // A real synchronous death owns FreeThink and its animation/deadline.
+    // Health alone is insufficient: callbacks may set zero without dispatch.
+    const auto died = [&]
+    { const auto* current = call.Current(); return current && current->pev->deadflag == DEAD_DEAD; };
     const auto step = [&](bool ok, const char* reason)
     {
         if (!call.SameSession()) return false;
@@ -398,11 +572,24 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
             !g_engfuncs.pfnSetOrigin || !g_engfuncs.pfnRandomFloat)
             return step(false, "scenario spawn engine services are unavailable");
         auto initial = monster->RetainBehavior();
+        struct AttributeContext
+        {
+            CCSOLMonsterFactoryServices& services;
+            CSOLMonsterSpawnCall& call;
+        } attributes{m_services, call};
         if (!step(m_models.Apply(*monster, delta, state.attributes, error, [](const void* context)
-            { return static_cast<const CSOLMonsterSpawnCall*>(context)->SameSession(); }, &call),
+            { return static_cast<const CSOLMonsterSpawnCall*>(context)->SameSession(); }, &call,
+            [](void* context, csol::scenario::ConfigError& status)
+            {
+                auto& value = *static_cast<AttributeContext*>(context);
+                return value.call.Current() && value.services.AttributesApplied(value.call, status);
+            }, &attributes),
             "scenario spawn attributes/model/bounds failed")) return false;
+        if (died()) return true;
         if (!step(m_occupancy.ApplyPriority(*call.Current()), "scenario spawn priority registration failed")) return false;
+        if (died()) return true;
         if (!step(ResolveSequences(call, type, state.sequences), "scenario spawn sequence cache failed")) return false;
+        if (died()) return true;
         call.Current()->pev->weaponmodel = 0;
         auto previous = std::dynamic_pointer_cast<CCSOLMonsterSpawnBehavior>(call.Current()->RetainBehavior());
         const bool differentCategory = previousType &&
@@ -413,20 +600,26 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         {
             recreate = previous->RecreateForSpawn();
             if (!step(true, "scenario changed while selecting spawn behavior")) return false;
+            if (died()) return true;
         }
         if (recreate)
         {
-            auto behavior = type.skill >= 1000 ? m_services.CreateBoss(call, type.id, error) :
+            auto behavior = type.id == 32800 ? m_services.CreateElite(call, eliteFollower, error) :
+                type.skill >= 1000 ? m_services.CreateBoss(call, type.id, error) :
                 m_services.CreateOrdinary(call, error);
             if (!step(behavior != nullptr, "scenario concrete behavior factory failed")) return false;
+            if (died()) return true;
             if (!step(call.Current()->InstallBehavior(std::move(behavior)), "scenario behavior installation failed")) return false;
+            if (died()) return true;
         }
         auto behavior = std::dynamic_pointer_cast<CCSOLMonsterSpawnBehavior>(call.Current()->RetainBehavior());
         if (!step(behavior != nullptr, "scenario spawn behavior is unavailable")) return false;
         if (!step(behavior->ResetForSpawn(call, state, error), "scenario behavior reset failed")) return false;
+        if (died()) return true;
         call.Current()->m_behaviorReady = true;
         call.Current()->pev->takedamage = DAMAGE_YES;
         if (type.priority != 0 && !step(FireSpawnTargets(call, type.id), "scenario spawn target failed")) return false;
+        if (died()) return true;
         auto* current = call.Current();
         current->pev->rendercolor = Vector(type.color.data());
         current->pev->rendermode = static_cast<int>(type.column21[0]);
@@ -436,10 +629,13 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         current->HostState().damageScaleCount = 0;
         current->HostState().damageScale = 1.0f;
         if (!step(m_services.ClearSpawnEffects(call, error), "scenario spawn effect cleanup failed")) return false;
+        if (died()) return true;
         if (!step(CSOL_ClearMonsterSpeedLimits(call, m_messages), "scenario spawn speed effect cleanup failed")) return false;
+        if (died()) return true;
         call.Current()->HostState().statusUpdateAt = 0;
         SET_ORIGIN(call.Current()->edict(), location.origin.data());
         if (!step(true, "scenario changed during spawn origin placement")) return false;
+        if (died()) return true;
         call.Current()->pev->angles = Vector(location.angles.data());
         call.Current()->SetThink(&CCSOLScenarioMonster::BehaviorThink);
         const auto randomDeadline = [&](float& output)
@@ -451,9 +647,12 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
             return step(std::isfinite(output), "scenario initial deadline is not finite");
         };
         if (!randomDeadline(firstThink)) return false;
+        if (died()) return true;
         call.Current()->pev->nextthink = firstThink;
-        if (!randomDeadline(state.updateAt) ||
-            !randomDeadline(state.animationAt)) return false;
+        if (!randomDeadline(state.updateAt)) return false;
+        if (died()) return true;
+        if (!randomDeadline(state.animationAt)) return false;
+        if (died()) return true;
         state.ambientAt = (gpGlobals->time + 7.0f) + static_cast<float>(std::rand() % 15);
         current = call.Current();
         current->HostState().activeSkill = 0;
@@ -461,11 +660,19 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         current->pev->frame = 0;
         current->pev->framerate = 1;
         current->Animation().SynchronizeSequence(1);
-        if (!step(CSOL_ResetMonsterSequenceInfo(call), "scenario guarded animation reset failed")) return false;
+        const bool animationReset = CSOL_ResetMonsterSequenceInfo(call, [](const void* context)
+        {
+            const auto* current = static_cast<const CSOLMonsterSpawnCall*>(context)->Current();
+            return current && current->pev->deadflag != DEAD_DEAD;
+        }, &call);
+        if (died()) return true;
+        if (!step(animationReset, "scenario guarded animation reset failed")) return false;
         if (!step(true, "scenario changed during initial animation setup")) return false;
+        call.Current()->HostState().transformed = false;
         if (useRecordIdentity) call.Current()->pev->body = 1;
         state.rowArgument = static_cast<std::uint8_t>(rowArgument);
         if (!step(m_occupancy.Register(*call.Current(), true), "scenario spawn occupancy registration failed")) return false;
+        if (died()) return true;
         if (!step(m_services.ResolveSpawnOverlap(call, error), "scenario spawn overlap resolution failed")) return false;
         if (call.Current()->pev->health > 0)
         {
@@ -491,6 +698,7 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         // Targets can kill this same lease. The original still returns it and
         // only skips the positive-health rules callback; do not reject it here
         // or restore damage after a legitimate death changed takedamage.
+        if (created) *created = call.Current();
         return Result::Spawned;
     }
     // Never roll back attempted-spawn point quota; only return this pool lease.

@@ -22,6 +22,9 @@ struct CSOLScenarioFrame
     csol::scenario::ScheduleStep schedule{csol::scenario::ScheduleStep::Waiting};
     csol::scenario::WaveTickResult waves{};
     csol::scenario::TriggerResult triggers{};
+    // MP11388566 is also reached when a post-wave rule gate skips the
+    // player scan. A negative round clock returns before this join point.
+    bool managerTailReached{};
 };
 
 struct CSOLActiveWave
@@ -54,7 +57,8 @@ public:
     // count and the scanner's current slot are not substitutes for that value.
     CSOLScenarioFrame UpdateFrame(CHalfLifeMultiplay& rules, float thinkTime,
         int aliveCtCount, csol::scenario::WaveRunner::Dispatch dispatch, void* context,
-        csol::scenario::TriggerWaveEvents& events);
+        csol::scenario::TriggerWaveEvents& events,
+        bool (*beforeWaves)(void*, csol::scenario::ConfigError&) = nullptr);
 
     CSOLScenarioMapState State() const { return m_state; }
     const csol::scenario::ResourceError& Error() const { return m_error; }

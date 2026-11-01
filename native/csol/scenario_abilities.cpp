@@ -11,68 +11,9 @@
 
 namespace csol::abilities
 {
-namespace
-{
-constexpr std::array<Resources,55> resources{{
-    {"resource/hud/buffclassskill_heal.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_heal_bg.tga"}, // 1
-    {"resource/hud/buffclassskill_damage.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_damage_bg.tga"}, // 2
-    {"resource/hud/buffclassskill_armorup.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_armorup_bg.tga"}, // 3
-    {"resource/hud/buffclassskill_speed.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_speed_bg.tga"}, // 4
-    {"resource/hud/buffclassskill_ammo.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_ammo_bg.tga"}, // 5
-    {"resource/hud/buffclassskill_shield.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_shield_bg.tga"}, // 6
-    {"resource/hud/buffclassskill_explosion.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_explosion_bg.tga"}, // 7
-    {"resource/hud/buffclassskill_maxhealth.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_maxhealth_bg.tga"}, // 8
-    {"resource/hud/buffclassskill_invincible.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_invincible_bg.tga"}, // 9
-    {"resource/hud/buffclassskill_auto_berserk.tga",nullptr,"resource/hud/buffclassskill_auto_berserk_bg.tga"}, // 10
-    {"resource/hud/buffclassskill_auto_bossdmgup.tga",nullptr,"resource/hud/buffclassskill_auto_bossdmgup_bg.tga"}, // 11
-    {"resource/hud/buffclassskill_21s1tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_21s1tr_bg.tga"}, // 12
-    {"resource/hud/buffclassskill_21s1ct.tga",nullptr,"resource/hud/buffclassskill_21s1ct_bg.tga"}, // 13
-    {"resource/hud/buffclassskill_21s2tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_21s2tr_bg.tga"}, // 14
-    {"resource/hud/buffclassskill_21s2ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_21s2ct_bg.tga"}, // 15
-    {"resource/hud/buffclassskill_21s3tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_21s3tr_bg.tga"}, // 16
-    {"resource/hud/buffclassskill_21s3ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_21s3ct_bg.tga"}, // 17
-    {"resource/hud/buffclassskill_21s4tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_21s4tr_bg.tga"}, // 18
-    {"resource/hud/buffclassskill_21s4ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_21s4ct_bg.tga"}, // 19
-    {"resource/hud/buffclassskill_22s1tr.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_22s1tr_bg.tga"}, // 20
-    {"resource/hud/buffclassskill_22s1ct.tga",nullptr,"resource/hud/buffclassskill_22s1ct_bg.tga"}, // 21
-    {"resource/hud/buffclassskill_22s2tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s2tr_bg.tga"}, // 22
-    {"resource/hud/buffclassskill_22s2ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s2ct_bg.tga"}, // 23
-    {"resource/hud/buffclassskill_22s3tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s3tr_bg.tga"}, // 24
-    {"resource/hud/buffclassskill_22s3ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s3ct_bg.tga"}, // 25
-    {"resource/hud/buffclassskill_22s4tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s4tr_bg.tga"}, // 26
-    {"resource/hud/buffclassskill_22s4ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_22s4ct_bg.tga"}, // 27
-    {"resource/hud/buffclassskill_23s1tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s1tr_bg.tga"}, // 28
-    {"resource/hud/buffclassskill_23s1ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s1ct_bg.tga"}, // 29
-    {"resource/hud/buffclassskill_23s2tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s2tr_bg.tga"}, // 30
-    {"resource/hud/buffclassskill_23s2ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s2ct_bg.tga"}, // 31
-    {"resource/hud/buffclassskill_23s3tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s3tr_bg.tga"}, // 32
-    {"resource/hud/buffclassskill_23s3ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s3ct_bg.tga"}, // 33
-    {"resource/hud/buffclassskill_23s4tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s4tr_bg.tga"}, // 34
-    {"resource/hud/buffclassskill_23s4ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s4ct_bg.tga"}, // 35
-    {"resource/hud/buffclassskill_23s5tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_23s5tr_bg.tga"}, // 36
-    {"resource/hud/buffclassskill_24s1tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s1tr_bg.tga"}, // 37
-    {"resource/hud/buffclassskill_24s1ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s1ct_bg.tga"}, // 38
-    {"resource/hud/buffclassskill_24s2tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s2tr_bg.tga"}, // 39
-    {"resource/hud/buffclassskill_24s2ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s2ct_bg.tga"}, // 40
-    {"resource/hud/buffclassskill_24s3tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s3tr_bg.tga"}, // 41
-    {"resource/hud/buffclassskill_24s3ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s3ct_bg.tga"}, // 42
-    {"resource/hud/buffclassskill_24s4tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s4tr_bg.tga"}, // 43
-    {"resource/hud/buffclassskill_24s4ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_24s4ct_bg.tga"}, // 44
-    {"resource/hud/buffclassskill_25s1tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s1tr_bg.tga"}, // 45
-    {"resource/hud/buffclassskill_25s1ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s1ct_bg.tga"}, // 46
-    {"resource/hud/buffclassskill_25s2tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s2tr_bg.tga"}, // 47
-    {"resource/hud/buffclassskill_25s2ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s2ct_bg.tga"}, // 48
-    {"resource/hud/buffclassskill_25s3tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s3tr_bg.tga"}, // 49
-    {"resource/hud/buffclassskill_25s3ct.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s3ct_bg.tga"}, // 50
-    {"resource/hud/buffclassskill_25s4tr.tga","resource/hud/buffclassskill_damage_number.tga","resource/hud/buffclassskill_25s4tr_bg.tga"}, // 51
-    {"resource/hud/buffclassskill_25s4ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_25s4ct_bg.tga"}, // 52
-    {"resource/hud/buffclassskill_25s5ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_25s5ct_bg.tga"}, // 53
-    {"resource/hud/buffclassskill_26s2ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_26s2ct_bg.tga"}, // 54
-    {"resource/hud/buffclassskill_26s3ct.tga","resource/hud/buffclassskill_heal_number.tga","resource/hud/buffclassskill_26s3ct_bg.tga"}, // 55
-}};
-}
+
 const Resources* ResourceFor(unsigned type)
-{return type>=1&&type<=resources.size()?&resources[type-1]:nullptr;}
+{return type>=1&&type<=ResourcesByType.size()?&ResourcesByType[type-1]:nullptr;}
 ParseResult Decode(std::span<const std::byte> bytes,Message& message)
 {
     if(bytes.empty())return ParseResult::Unrelated;
@@ -94,6 +35,11 @@ ParseResult Decode(std::span<const std::byte> bytes,Message& message)
     message=result;return ParseResult::Accepted;
 }
 void State::Reset(){*this={};}
+void State::NotifyReady()
+{
+    if(!visible_)return;
+    readyArmed_=false;flashes_=2;numberFlash_=false;
+}
 ParseResult DecodeSnapshot(std::span<const std::byte> bytes,Snapshot& output)
 {
     if(bytes.size()!=15||bytes[0]!=std::byte{1})return ParseResult::Malformed;

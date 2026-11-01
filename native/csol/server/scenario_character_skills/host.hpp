@@ -3,6 +3,8 @@
 #include "control.hpp"
 #include "catalog.hpp"
 #include <memory>
+#include <string>
+#include <vector>
 
 class CCSOLScenarioPlayerRuntime;
 class CCSOLScenarioSession;
@@ -20,6 +22,7 @@ class HostEffects
 {
 public:
     virtual ~HostEffects() = default;
+    virtual bool Current() const = 0;
     virtual bool Initialize(ActivationState&, ConfigError&) = 0; // v3C
     virtual bool Lifecycle30(ActivationState&, ConfigError&) = 0;
     virtual bool Lifecycle34(ActivationState&, ConfigError&) = 0;
@@ -49,4 +52,15 @@ std::shared_ptr<ActivationHost> CreateHost(
     const SkillTraits& traits, const ClassModDefinition& definition,
     const CSOLScenarioActiveSkill* owner, ActivationState& timers,
     std::shared_ptr<HostEffects> effects, ConfigError& error);
+
+bool PrecacheCharacterActions(const std::shared_ptr<CCSOLScenarioSession>& session, ConfigError&);
+bool SkillCharacterModelId(CBasePlayer&, int& modelId);
+bool SkillCharacterSourceName(CBasePlayer&, std::string& name);
+bool SkillCharacterSourceNames(CCSOLScenarioSession&, std::vector<std::string>& names);
+// SDK integration hooks. PostThink belongs immediately AFTER the existing
+// StudioFrameAdvance call; it must never advance the animation a second time.
+bool CharacterActionPostThink(CBasePlayer&);
+bool PreserveCharacterAction(CBasePlayer&, int requestedActivity);
+bool CancelCharacterAction(CBasePlayer&, bool restoreWeapon);
+float CharacterActionMaxSpeed(CBasePlayer&, float nativeSpeed);
 }

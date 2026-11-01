@@ -1,11 +1,13 @@
-param([string]$TargetDirectory,[switch]$Plan,[switch]$Restore)
+param([string]$TargetDirectory='E:\cs_MineCraft\GoldCraft-Servers',[switch]$Plan,[switch]$Restore)
 . (Join-Path $PSScriptRoot 'Files.ps1')
 . (Join-Path $PSScriptRoot 'Configure.ps1')
 $lock=$null
 try {
     if($Plan -and $Restore){throw 'Choose plan or restore'}
-    if(!$TargetDirectory){$TargetDirectory=Read-Host 'Server folder containing the original Start.cmd'}
-    $target=Plain ($TargetDirectory.Trim().Trim('"'));$package=Plain $PSScriptRoot
+    if([string]::IsNullOrWhiteSpace($TargetDirectory)){throw 'TargetDirectory cannot be empty or whitespace'}
+    $entered=$TargetDirectory.Trim().Trim('"').Trim("'").Trim()
+    if($entered -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)'){throw 'Enter an absolute server folder path'}
+    $target=Plain $entered;$package=Plain $PSScriptRoot
     if($target -eq $package -or $target.StartsWith($package+'\',[StringComparison]::OrdinalIgnoreCase) -or $package.StartsWith($target+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Extract the update outside the server installation'}
     foreach($rel in @('Start.cmd','server-settings.json','scripts/Start-Servers.ps1','scripts/Common.ps1','scripts/Run-Server.ps1','cs/hlds.exe','cs/cstrike/server.cfg','cs/cstrike/addons/amxmodx/configs/plugins.ini')){
         if(!(Test-Path -LiteralPath (Under $target $rel) -PathType Leaf)){throw "Select the existing server package root. Missing: $rel"}

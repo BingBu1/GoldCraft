@@ -10,4 +10,7 @@ void ResetScenarioEffects(){}
 void ResetScenarioSmoke(){}
 void ResetScenarioUpgrades(){}
 void ResetScenarioAbilities(){}
+void ResetBossHealth(){}
+void ResetScenarioRespawnUi(){}
+void ResetPlayerClips(){}
 }

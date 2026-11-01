@@ -54,6 +54,7 @@ private:
     std::weak_ptr<const CCSOLMonsterSpawnOwner> m_owner;
     bool m_hasOwner{};
     CCSOLSpawnClearDeaths& m_spawnDeaths;
+    CCSOLMonsterFactoryServices& m_factoryServices;
     CCSOLMonsterDeathOwner m_deaths;
     CCSOLScenarioOccupancy m_occupancy;
     CCSOLScenarioPlayerSpawns m_spawns;

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <map>
 #include <string_view>
+#include <string>
 
 namespace csol::scenario::skills
 {
@@ -11,6 +12,7 @@ struct CharacterAction5
 {
     int modelId{}, sequence{}, weaponAnimation{}, viewModel{};
     float frameRate{};
+    std::string sourceName;
 };
 using CharacterActionTable = std::map<int, CharacterAction5>;
 bool ReadCharacterActions(std::string_view csv, CharacterActionTable& output, ConfigError& error);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_effects.h"
+#include "scenario_character_skills/area_damage.hpp"
 #include "scenario_monster_factory.h"
 #include "weapons.h"
 
@@ -98,6 +99,8 @@ void EXT_FUNC ApplyDotMultiDamageOriginal(entvars_t* inflictor, entvars_t* attac
 CSOLMonsterDeathContext CSOL_ConsumeMonsterDamageContext(CCSOLScenarioMonster& monster,
     entvars_t* inflictor, entvars_t* attacker, int bits)
 {
+    if (const auto skill = CSOL_ConsumeCharacterSkillDamageContext(monster, inflictor, attacker, bits))
+        return *skill;
     auto* scope = DamageDispatch::active;
     if (!scope || !scope->armed || scope->consumed || scope->target != &monster || bits != DamageBits ||
         scope->call.Current() != &monster || scope->guard.Current() != &monster ||

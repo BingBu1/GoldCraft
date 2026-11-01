@@ -89,6 +89,11 @@ public:
     // This stage sees the clamped damage after the actual health subtraction.
     virtual bool AfterHealthDamage(CSOLMonsterDamageCall& call,
         csol::scenario::ConfigError& error) = 0;
+    virtual void ResetBossDamageState() = 0;
+    virtual void RemoveBossParticipant(const EHANDLE& player) = 0;
+    virtual bool InitializeBossHealth(CSOLMonsterSpawnCall& call,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool UpdateBossHealth(float now, csol::scenario::ConfigError& error) = 0;
 };
 
 // Concrete ordered mode15 consumers. Construction alone does not install or
@@ -97,8 +102,7 @@ public:
 class CCSOLScenarioDamageServices final : public CCSOLMonsterDamageServices
 {
 public:
-    explicit CCSOLScenarioDamageServices(std::weak_ptr<CCSOLScenarioRuntime> runtime)
-        : m_runtime(std::move(runtime)) {}
+    explicit CCSOLScenarioDamageServices(std::weak_ptr<CCSOLScenarioRuntime> runtime);
     const bool& DamageSuppressed() const override;
     bool WeaponEffectsBlocked21F2(CSOLMonsterDamageCall& call) const override;
     bool WeaponEffectsBlocked34F0(CSOLMonsterDamageCall& call) const override;
@@ -110,15 +114,32 @@ public:
         csol::scenario::ConfigError& error) override;
     bool AfterHealthDamage(CSOLMonsterDamageCall& call,
         csol::scenario::ConfigError& error) override;
+    // Original manager-owned contribution/health state. Reset on formal
+    // BeginRound, remove contribution at player retirement, initialize after
+    // a successful summary-monster spawn, poll once at the manager frame.
+    void ResetBossDamageState() override;
+    void RemoveBossParticipant(const EHANDLE& player) override;
+    bool InitializeBossHealth(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) override;
+    bool UpdateBossHealth(float now, csol::scenario::ConfigError& error) override;
+    // Called after InitHUD for this actual connection, including a late join.
+    bool ReplayBossHealth(const EHANDLE& recipient, csol::scenario::ConfigError& error);
 private:
+    struct BossState;
+    bool RecordBossParticipation(CSOLMonsterDamageCall& call, csol::scenario::ConfigError& error);
+    bool RecordBossHealth(CSOLMonsterDamageCall& call, csol::scenario::ConfigError& error);
+    bool ClearRetiredBossHealth(csol::scenario::ConfigError& error);
     std::shared_ptr<CCSOLScenarioRuntime> Pin(CSOLMonsterDamageCall& call) const;
     std::weak_ptr<CCSOLScenarioRuntime> m_runtime;
+    std::shared_ptr<BossState> m_boss;
     const bool m_retiredDamageSuppressed{true};
 };
 
 bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
     std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error);
 
+// Historical owner name retained for existing runtime assembly. The shared
+// host pipeline requires an explicit verified DamageBehavior capability and
+// now serves both ordinary zombies and Oberon; it does not create Boss AI.
 class CCSOLOrdinaryMonsterDamage final
 {
 public:

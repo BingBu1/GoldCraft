@@ -6,6 +6,13 @@
 #include "scenario_gameplay.h"
 #include "scenario_player_runtime.h"
 #include "scenario_playerclip.h"
+#include "scenario_active_skill.h"
+#include "scenario_character_skills/host.hpp"
+#include "scenario_character_skills/effects.hpp"
+#include "scenario_character_skills/host_notifications.hpp"
+#include "scenario_character_skills/elite_manager.hpp"
+#include "scenario_elite_services.h"
+#include "scenario_character_skills/elite_visuals.hpp"
 #include "scenario_money.h"
 #include "scenario_recovery_notice.h"
 #include "scenario_drops.h"
@@ -16,6 +23,7 @@
 #include "scenario_monster_damage.h"
 #include "scenario_wave_services.h"
 #include "scenario_breakable.h"
+#include "scenario_grenade_blockers.h"
 #include "scenario_trigger.h"
 #include "scenario_weapon_state.h"
 #include "wpn_k3.h"
@@ -27,7 +35,9 @@
 #include "characters.h"
 #include "../scenario/round_settings.hpp"
 #include "../scenario/round_clock.hpp"
+#include "../scenario/automatic_respawn.hpp"
 #include "../scenario/map_catalog.hpp"
+#include "../scenario/player_defense.hpp"
 #include "interface.h"
 #include "../../include/goldcraft/csol_scenario_admin_api.hpp"
 
@@ -86,7 +96,11 @@ void CCSOLScenarioRuntime::RequestClose()
     // No callbacks: retire owned render references while edicts still belong
     // to this map. Once access is revoked, finalization only drops records.
     if (!m_closing && players) players->ReleaseProtectionState();
+    if (!m_closing && eliteManager) eliteManager->Invalidate();
+    if (!m_closing && eliteServices) eliteServices->Invalidate();
+    if (!m_closing && session) csol::scenario::skills::ResetEliteVisuals(*session);
     // Revoke even when a previous close is still waiting for its callers.
+    CSOL_RetireBreakableGrenadeMap(session->Map().EntityAccess());
     session->RevokeEntityAccess();
     if (m_closing) return;
     m_closing = true;
@@ -123,6 +137,8 @@ bool CCSOLScenarioRuntime::TryFinalize()
             if (gameplay && !gameplay->Deactivate()) return false;
             if (!ReadyForArchive()) return false;
             gameplay.reset();
+            eliteManager.reset();
+            eliteServices.reset();
             playerClips.reset();
             waveEvents.reset();
             monsterServices.reset();
@@ -329,6 +345,24 @@ public:
         // Golden plans are combat resources. An unsupported nonempty plan
         // must not reject a map which currently enables selection only.
         if (scope != CSOLScenarioResourceScope::Combat) return;
+        csol::scenario::ConfigError skillError;
+        if (!csol::scenario::skills::PrecacheSkillHost(m_runtime->session, skillError))
+        {
+            if (OwnsRules() && g_engfuncs.pfnAlertMessage)
+                ALERT(at_console, "[CSOL] Character skills disabled: %s\n", skillError.message.empty() ?
+                    "character skill resources are unavailable" : skillError.message.c_str());
+        }
+        if (!OwnsRules()) return;
+        csol::scenario::ConfigError eliteVisualError;
+        const bool eliteVisualsReady = csol::scenario::skills::PrecacheEliteVisuals(
+            m_runtime->session, eliteVisualError);
+        if (!OwnsRules()) return;
+        if (!eliteVisualsReady)
+        {
+            CSOL_RejectGameRules(eliteVisualError.message.empty() ?
+                "Scenario elite visuals could not be precached." : eliteVisualError.message.c_str());
+            return;
+        }
         m_runtime->recoveryNotice = std::make_shared<CCSOLScenarioRecoveryNotice>(m_runtime);
         const auto deaths = m_runtime->deathServices;
         csol::scenario::ResourceError error;
@@ -368,6 +402,17 @@ public:
         }
         if (!OwnsRules()) return false;
         m_runtime->players = std::make_shared<CCSOLScenarioPlayerRuntime>(m_runtime->session);
+        m_runtime->eliteManager = std::make_shared<CCSOLScenarioEliteManager>(m_runtime);
+        if (m_runtime->session->ResourceScope() == CSOLScenarioResourceScope::Combat)
+        {
+            const auto settings = m_runtime->session->EliteSettings();
+            if (!settings)
+            {
+                CSOL_RejectGameRules("Scenario elite settings were not loaded during precache.");
+                return false;
+            }
+            m_runtime->eliteServices = std::make_shared<CCSOLScenarioEliteServices>(m_runtime, settings);
+        }
         if (!m_runtime->players->Activate())
         {
             if (OwnsRules()) CSOL_RejectGameRules(m_runtime->players->Error().message.c_str());
@@ -552,6 +597,14 @@ public:
             m_phase = Phase::Failed;
             m_bRoundTerminating = true;
             m_flRestartRoundTime = 0;
+            // Publish the original round-fail overlay once, on the phase
+            // transition. Repeated Think calls must not restart its fade.
+            const auto session = runtime->session;
+            const auto messages = session->Messages();
+            const bool notified = messages.SendRoundOutcome(false);
+            if (Ready() && m_runtime == runtime && runtime->session == session &&
+                m_phase == Phase::Failed && !notified)
+                CSOL_RejectGameRules("Scenario failure message failed.");
         }
     }
     void UpdateDamageScale()
@@ -639,6 +692,26 @@ public:
         }
         if (session->Map().RoundGeneration() != previousRound + 1 ||
             session->Map().RoundIndex() != nextRound || m_pendingRound != pending) return;
+        const auto elites = runtime->eliteManager;
+        csol::scenario::ConfigError eliteError;
+        if (!elites || !elites->ResetRound(now,
+            CCSOLScenarioEliteManager::OriginalSpawnInterval, eliteError))
+        {
+            if (ownerCurrent()) CSOL_RejectGameRules(eliteError.message.empty() ?
+                "Scenario elite manager could not initialize the round." : eliteError.message.c_str());
+            return;
+        }
+        if (!ownerCurrent() || runtime->eliteManager != elites ||
+            session->Map().RoundGeneration() != previousRound + 1) return;
+        const auto eliteServices = runtime->eliteServices;
+        if (!eliteServices || !eliteServices->BeginRound(now, eliteError))
+        {
+            if (ownerCurrent()) CSOL_RejectGameRules(eliteError.message.empty() ?
+                "Scenario elite services could not initialize the round." : eliteError.message.c_str());
+            return;
+        }
+        if (!ownerCurrent() || runtime->eliteServices != eliteServices ||
+            session->Map().RoundGeneration() != previousRound + 1) return;
         const auto* tables = session->Map().Tables();
         if (!tables || !m_roundClock.BeginRound(nextRound, tables->rounds.rows.size(), now))
         {
@@ -713,6 +786,13 @@ public:
             return true;
         if (!Ready() || !PreparePlayer(player)) return true;
         if (!m_runtime->players->ResetMonsterSkillState(EHANDLE(&player)) || !OwnsRules()) return true;
+        csol::scenario::ConfigError skillError;
+        if (!m_runtime->players->ResetCharacterSkillState(EHANDLE(&player), skillError))
+        {
+            if (OwnsRules() && !skillError.message.empty())
+                m_runtime->players->DisableCharacterSkill(EHANDLE(&player), skillError.message.c_str());
+            if (!OwnsRules()) return true;
+        }
         const auto players = m_runtime->session->Players();
         const auto upgrades = players ? players->Upgrades(EHANDLE(&player)) : nullptr;
         if (!upgrades || !upgrades->ApplySpawnHealth())
@@ -833,8 +913,123 @@ public:
         const bool spawnable = Spawnable(player);
         if (!Ready() || m_phase != phase || m_runtime->session->Map().RoundGeneration() != round ||
             handle.Get<CBaseEntity>() != &player || !spawnable) return false;
+        if (m_automaticSpawn.Get<CBaseEntity>() == &player && m_automaticSpawnRound == round &&
+            m_automaticSpawnLife && phase == Phase::Playing && !m_bRoundTerminating)
+            return true;
         return phase == Phase::FreePlay || (phase == Phase::Playing && !m_bRoundTerminating &&
             (m_restarting || (m_bFreezePeriod && player.m_iNumSpawns == 0)));
+    }
+    bool DeathClock(CBasePlayer& player)
+    {
+        if (!Ready()) return OwnsRules();
+        auto* slot = RespawnState(player, true);
+        if (!slot) return OwnsRules();
+        // Native PlayerDeathThink has just changed DYING to DEAD_DEAD.
+        // Do not start from Killed or from the first observer frame.
+        if (player.pev->deadflag == DEAD_DEAD)
+            slot->clock.Begin(player.m_fDeadTime);
+        return OwnsRules();
+    }
+    void SpawnStarted(CBasePlayer& player)
+    {
+        // Called before native Spawn mutates the player or invokes plugins.
+        // A clock is consumed even if a later Spawn callback fails.
+        for (auto& slot : m_respawns)
+            if (slot.player.Get<CBaseEntity>() == &player) slot.clock.Cancel();
+        if (m_automaticSpawn.Get<CBaseEntity>() == &player)
+        {
+            m_automaticSpawn = static_cast<CBaseEntity*>(nullptr);
+            m_automaticSpawnLife = m_automaticSpawnRound = 0;
+        }
+    }
+    bool RespawnThink(CBasePlayer& player)
+    {
+        if (!Ready() || m_respawning || m_restarting || m_completing || m_applyingFinish)
+            return OwnsRules();
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE handle(&player);
+        auto* slot = RespawnState(player, false);
+        if (!slot || !slot->clock.Armed()) return OwnsRules();
+        const auto life = slot->clock.Generation();
+        const int userid = slot->userid;
+        const int spawns = slot->spawns;
+        const auto current = [&]()
+        {
+            return Ready() && m_runtime == runtime && runtime->session == session &&
+                access->Allowed() && session->Map().EntityAccess() == access &&
+                session->Map().RoundGeneration() == round && handle.Get<CBaseEntity>() == &player &&
+                slot->player.Get<CBaseEntity>() == &player && slot->userid == userid && slot->round == round &&
+                slot->clock.Generation() == life && slot->spawns == spawns && player.m_iNumSpawns == spawns &&
+                !player.has_disconnected && !(player.pev->flags & (FL_DORMANT | FL_KILLME));
+        };
+        const auto eligible = [&]()
+        {
+            return current() && m_phase == Phase::Playing && !m_bRoundTerminating && IsGameStarted() &&
+                m_aliveCt > 0 && player.m_iTeam == CT && player.m_iJoiningState == JOINED &&
+                !player.m_bJustConnected && player.m_iMenu != Menu_ChooseAppearance && player.pev->iuser1 != 0 &&
+                (player.pev->deadflag == DEAD_DEAD || player.pev->deadflag == DEAD_RESPAWNABLE);
+        };
+        if (!eligible()) return OwnsRules();
+        const auto* tables = session->Map().Tables();
+        // Gameplay currently supports subtype1 only. Do not claim that the
+        // other modes' fixed-ten-second/options branches are installed.
+        if (!tables || !csol::scenario::respawn::TimedSubtype(tables->scenarioType)) return true;
+        struct Respawning { bool& value; ~Respawning() { value = false; } } guard{m_respawning};
+        m_respawning = true;
+        const bool spawnable = Spawnable(player);
+        if (!eligible() || !spawnable) return OwnsRules();
+        const auto players = session->Players();
+        auto upgrades = players ? players->Upgrades(handle) : nullptr;
+        if (!upgrades)
+        {
+            if (!PreparePlayer(player) || !eligible()) return OwnsRules();
+            upgrades = players ? players->Upgrades(handle) : nullptr;
+        }
+        const auto* progress = upgrades ? upgrades->State() : nullptr;
+        float difficulty{}, delay{};
+        csol::scenario::ConfigError error;
+        if (!progress || !session->Difficulty().Parameter(15, 6, difficulty, error) ||
+            !csol::scenario::respawn::Delay(progress->level, difficulty, delay))
+        {
+            if (current()) CSOL_RejectGameRules("Scenario automatic revival has no valid level/difficulty.");
+            return false;
+        }
+        const auto step = slot->clock.Poll(gpGlobals->time, delay);
+        if (step.action == csol::scenario::respawn::Clock::Action::Countdown)
+        {
+            const bool sent = session->Messages().SendRespawnCountdown(player.edict(), true, step.seconds);
+            if (!current()) return OwnsRules();
+            if (!sent) CSOL_RejectGameRules("Scenario automatic revival countdown could not be sent.");
+            return sent;
+        }
+        if (step.action != csol::scenario::respawn::Clock::Action::Spawn || !eligible()) return OwnsRules();
+        // A teammate can die after the rules' frame snapshot but before this
+        // player's PreThink. Refresh only when due, not once per observer/frame.
+        if (!RefreshRevivalTeam() || !eligible()) return OwnsRules();
+        m_automaticSpawn = handle;
+        m_automaticSpawnRound = round;
+        m_automaticSpawnLife = life;
+        struct Permit
+        {
+            CCSOLScenarioRules& rules;
+            ~Permit()
+            {
+                rules.m_automaticSpawn = static_cast<CBaseEntity*>(nullptr);
+                rules.m_automaticSpawnRound = rules.m_automaticSpawnLife = 0;
+            }
+        } permit{*this};
+        const bool allowed = FPlayerCanRespawn(&player) != FALSE;
+        if (!eligible() || !allowed || m_automaticSpawnLife != life) return OwnsRules();
+        if (!RefreshRevivalTeam() || !eligible() || !slot->clock.Claim(step.generation)) return OwnsRules();
+        // Use native equipment, observer exit, model and upgrade initialization.
+        // This never restarts the scenario round or reloads its waves/TRG.
+        player.RoundRespawn();
+        // Stop the old observer frame even when Spawn succeeded. The next
+        // usercmd starts the new life with native button/observer state.
+        return false;
     }
     edict_t* ObserverSpawn()
     {
@@ -891,9 +1086,41 @@ public:
     }
     void CharacterSelected(CBasePlayer& player)
     {
-        if (!SelectionReady() || m_phase != Phase::Selecting) return;
-        ClientPrint(player.pev, HUD_PRINTCENTER,
-            "角色已选择；大灾变战斗尚未就绪，当前仅可观察地图。");
+        if (!SelectionReady()) return;
+        if (m_phase == Phase::Selecting)
+        {
+            ClientPrint(player.pev, HUD_PRINTCENTER,
+                "角色已选择；大灾变战斗尚未就绪，当前仅可观察地图。");
+            return;
+        }
+        // MP1140FABD ->114BF550 runs after successful ChooseAppearance,
+        // before JoiningThink calls GetIntoGame. Preserve that timestamp even
+        // when entry into observer mode is delayed by a later server frame.
+        if (!Ready()) return;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE handle(&player);
+        const int spawns = player.m_iNumSpawns;
+        const auto selecting = [&]()
+        {
+            return Ready() && m_runtime == runtime && runtime->session == session &&
+                access->Allowed() && session->Map().EntityAccess() == access &&
+                session->Map().RoundGeneration() == round && handle.Get<CBaseEntity>() == &player &&
+                !player.has_disconnected && player.m_iNumSpawns == spawns &&
+                !(player.pev->flags & (FL_KILLME | FL_DORMANT)) &&
+                m_phase == Phase::Playing && !m_bFreezePeriod && !m_bRoundTerminating && IsGameStarted() &&
+                player.m_iTeam == CT && player.m_iMenu != Menu_ChooseAppearance &&
+                (player.m_iJoiningState == GETINTOGAME || player.m_iJoiningState == JOINED) &&
+                player.pev->deadflag != DEAD_NO;
+        };
+        if (!selecting()) return;
+        const auto* tables = session->Map().Tables();
+        if (!tables || !csol::scenario::respawn::TimedSubtype(tables->scenarioType)) return;
+        if (!RefreshRevivalTeam() || !selecting()) return;
+        auto* slot = RespawnState(player, true);
+        if (slot && selecting()) slot->clock.Begin(gpGlobals->time);
     }
     bool TeamFull(int team) const
     {
@@ -949,8 +1176,18 @@ public:
     }
     void RemovePlayer(CBasePlayer& player)
     {
-        if (m_runtime->players) m_runtime->players->Remove(EHANDLE(&player));
-        else m_runtime->session->RemovePlayer(EHANDLE(&player));
+        for (auto& slot : m_respawns)
+            if (slot.player.Get<CBaseEntity>() == &player) slot = {};
+        const auto runtime = m_runtime;
+        const EHANDLE handle(&player);
+        const auto damage = runtime->monsterDamageServices;
+        // MP10824660 subtracts this occupant's Boss contribution before
+        // player/statistics teardown; a reused client slot starts at zero.
+        if (damage) damage->RemoveBossParticipant(handle);
+        if (!OwnsRules() || m_runtime != runtime || runtime->Closing() ||
+            handle.Get<CBaseEntity>() != &player) return;
+        if (runtime->players) runtime->players->Remove(handle);
+        else runtime->session->RemovePlayer(handle);
     }
     bool Check(csol::scenario::ConfigError& error) const override
     {
@@ -1176,6 +1413,16 @@ public:
         // holsters/removes weapons and calls ResetMaxSpeed. That callback is
         // valid cleanup, even while has_disconnected is still false.
         if (profiles && profiles->WasRemoved(handle)) return;
+        // The original active status-ring branch precedes upgrades and
+        // character speed; native observer/freeze rules already ran above.
+        if (profiles && gpGlobals)
+        {
+            bool limited{};
+            csol::scenario::ConfigError error;
+            if (!profiles->ApplyMonsterStatusMovement(player, weaponSpeed, gpGlobals->time, limited, error))
+            { CSOL_RejectGameRules(error.message.c_str()); return; }
+            if (limited) return;
+        }
         const auto players = session->Players();
         const auto state = players ? players->Upgrades(handle) : nullptr;
         const bool applied = state && state->ApplyMovement(weaponSpeed);
@@ -1184,7 +1431,13 @@ public:
             handle.Get<CBaseEntity>() != &player || (profiles && profiles->WasRemoved(handle))) return;
         if (!applied)
             CSOL_RejectGameRules("Scenario player movement upgrade state is unavailable.");
-        else if (profiles && gpGlobals && profiles->ApplyMonsterTrapMovement(player, gpGlobals->time)) return;
+        else if (profiles && gpGlobals)
+        {
+            const float absolute = profiles->SkillAbsoluteSpeed(handle, gpGlobals->time);
+            float speed = absolute > 0 ? absolute : player.pev->maxspeed;
+            speed += profiles->SkillSpeed(handle, gpGlobals->time);
+            player.pev->maxspeed = csol::scenario::skills::CharacterActionMaxSpeed(player, speed);
+        }
     }
 private:
     void ApplyFinishPolicy()
@@ -1307,6 +1560,58 @@ private:
             player.m_iMenu != Menu_ChooseAppearance && CSOL_CharacterScenarioClass(&player, classId, EntityAccess()) &&
             g_pGameRules == this && HasCharacterClass(classId);
     }
+    struct RespawnSlot
+    {
+        EHANDLE player;
+        int userid{}, spawns{};
+        std::uint64_t round{};
+        csol::scenario::respawn::Clock clock;
+    };
+    bool RefreshRevivalTeam()
+    {
+        if (!Ready()) return false;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        int aliveT{}, aliveCt{}, deadT{}, deadCt{};
+        InitializePlayerCounts(aliveT, aliveCt, deadT, deadCt);
+        if (!Ready() || m_runtime != runtime || runtime->session != session ||
+            !access->Allowed() || session->Map().EntityAccess() != access ||
+            session->Map().RoundGeneration() != round) return false;
+        m_aliveCt = aliveCt;
+        runtime->ctCounts = {aliveCt, aliveCt + deadCt, true};
+        return aliveCt > 0;
+    }
+    RespawnSlot* RespawnState(CBasePlayer& player, bool create)
+    {
+        if (!Ready() || !g_engfuncs.pfnGetPlayerUserId) return nullptr;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE handle(&player);
+        const int index = player.entindex();
+        if (!Ready() || m_runtime != runtime || handle.Get<CBaseEntity>() != &player || index < 1 || index > 32)
+            return nullptr;
+        const int userid = GETPLAYERUSERID(player.edict());
+        if (!Ready() || m_runtime != runtime || runtime->session != session ||
+            !access->Allowed() || session->Map().EntityAccess() != access || session->Map().RoundGeneration() != round ||
+            handle.Get<CBaseEntity>() != &player || player.has_disconnected || userid <= 0 ||
+            (player.pev->flags & (FL_KILLME | FL_DORMANT))) return nullptr;
+        auto& slot = m_respawns[index];
+        if (slot.player.Get<CBaseEntity>() != &player || slot.userid != userid || slot.round != round ||
+            slot.spawns != player.m_iNumSpawns)
+        {
+            slot = {};
+            if (!create) return nullptr;
+            slot.player = handle;
+            slot.userid = userid;
+            slot.round = round;
+            slot.spawns = player.m_iNumSpawns;
+        }
+        return &slot;
+    }
     template<class Action> void ForPlayers(Action action)
     {
         if (!Ready() || !gpGlobals) return;
@@ -1411,6 +1716,10 @@ private:
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
     std::array<bool, 33> m_givingDefaultPrimary{};
+    std::array<RespawnSlot, 33> m_respawns{};
+    EHANDLE m_automaticSpawn;
+    std::uint64_t m_automaticSpawnRound{}, m_automaticSpawnLife{};
+    bool m_respawning{};
 };
 }
 
@@ -1525,6 +1834,7 @@ bool CSOLScenarioWorldScope::Install()
     // BeginMap created a fresh token during Precache. Bind it deliberately;
     // ordinary dispatches never refresh their captured token on cancellation.
     m_scope.Bind(candidate);
+    CSOL_BeginBreakableGrenadeMap(record ? record->runtime->session->Map().EntityAccess() : nullptr);
     m_installed = true;
     result.success = Current();
     return result.success;
@@ -1719,6 +2029,16 @@ bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player)
     return players && players->ProtectionBlocksDamage(EHANDLE(&player), gpGlobals->time);
 }
 
+bool CSOL_ScenarioApplyProtectionDamage(CBasePlayer& player, int damageType, float& damage)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current() || !gpGlobals) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    return !players || players->ApplyProtectionDamage(EHANDLE(&player), gpGlobals->time,
+        damageType, damage);
+}
+
 bool CSOL_UpdateScenarioPlayerBuffs(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
@@ -1754,6 +2074,19 @@ bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force)
         if (!rules || !rules->PublishPlayerClips(&player) || !scope.Current() ||
             handle.Get<CBaseEntity>() != &player || !rules->PublishRoundClock(&player) || !scope.Current() ||
             handle.Get<CBaseEntity>() != &player) return false;
+        const auto service = std::dynamic_pointer_cast<CCSOLScenarioDamageServices>(
+            record->runtime->monsterDamageServices);
+        if (service)
+        {
+            csol::scenario::ConfigError error;
+            const bool replayed = service->ReplayBossHealth(handle, error);
+            if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
+            if (!replayed)
+            {
+                if (!error.message.empty()) CSOL_RejectGameRules(error.message.c_str());
+                return false;
+            }
+        }
     }
     return updated;
 }
@@ -1774,7 +2107,16 @@ bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
         [](const void* value) { return static_cast<const CSOLScenarioSdkScope*>(value)->Current(); }, &scope);
     csol::scenario::ConfigError error;
     bool updated{};
-    try { updated = players->UpdateBloodSucking(call, error); }
+    try
+    {
+        updated = players->UpdateCharacterSkill(call, error);
+        if (!updated && call.Current())
+        {
+            players->DisableCharacterSkill(handle, error.message.c_str());
+            return scope.Current();
+        }
+        if (updated && call.Current()) updated = players->UpdateBloodSucking(call, error);
+    }
     catch (...)
     {
         if (!call.Current()) return false;
@@ -1787,6 +2129,247 @@ bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
         CSOL_RejectGameRules(error.message.c_str());
     }
     return updated;
+}
+
+bool CSOL_ScenarioPlayerRespawnThink(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const EHANDLE handle(&player);
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+    return rules && rules->RespawnThink(player) && scope.Current() &&
+        handle.Get<CBaseEntity>() == &player && !player.has_disconnected;
+}
+
+bool CSOL_ScenarioPlayerDeathClock(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const EHANDLE handle(&player);
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+    return rules && rules->DeathClock(player) && scope.Current() &&
+        handle.Get<CBaseEntity>() == &player && !player.has_disconnected;
+}
+
+void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return;
+    if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules())) rules->SpawnStarted(player);
+}
+
+bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command)
+{
+    if (!command || Q_strcmp(command, "buffclass_skill")) return false;
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return false;
+    if (!scope.Current()) return true;
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing()) return true;
+    const auto runtime = record->runtime;
+    const auto players = runtime->players;
+    if (!players || !players->Active() || !players->Find(EHANDLE(&player))) return true;
+    CSOLPlayerRecoveryCall call(runtime, EHANDLE(&player),
+        [](const void* value) { return static_cast<const CSOLScenarioSdkScope*>(value)->Current(); }, &scope);
+    csol::scenario::ConfigError error;
+    bool activated{};
+    const bool success = players->ActivateCharacterSkill(call, activated, error);
+    if (!call.Current() || !scope.Current()) return true;
+    if (!success) players->DisableCharacterSkill(EHANDLE(&player), error.message.c_str());
+    return true;
+}
+
+bool CSOL_ScenarioDodgeAllowsDamage(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players || !players->Active()) return true;
+    const EHANDLE handle(&player);
+    const auto state = players->Find(handle);
+    if (!state) return true;
+    const auto life = state->skillLifeSerial;
+    const auto current = [&]
+    {
+        return scope.Current() && players->Active() && players->Find(handle) == state &&
+            handle.Get<CBasePlayer>() == &player && state->skillLifeSerial == life;
+    };
+    float chance{};
+    if (!gpGlobals || !g_engfuncs.pfnRandomFloat ||
+        !csol::scenario::PlayerDodgeChance(std::span<const CSOLScenarioStatBuff>(state->buffs),
+            gpGlobals->time, chance))
+    {
+        players->DisableCharacterSkill(handle, "character dodge inputs are invalid");
+        return current();
+    }
+    //114F4707..4753 samples even an empty collection, before incoming module
+    // callbacks, energy shields and armor. Equality also evades the hit.
+    const float roll = RANDOM_FLOAT(0.0f, 100.0f);
+    if (!current()) return false;
+    if (!std::isfinite(roll))
+    {
+        players->DisableCharacterSkill(handle, "character dodge random result is invalid");
+        return current();
+    }
+    return chance < roll;
+}
+
+bool CSOL_ScenarioApplyIncomingBuffDamage(CBasePlayer& player, float& damage, int damageType)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    //114F480F..481F restores the pre-multiplier value for this exact type.
+    if (damageType == 0x08000000) return true;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players || !players->Active()) return true;
+    const EHANDLE handle(&player);
+    const auto state = players->Find(handle);
+    if (!state) return true;
+    const auto life = state->skillLifeSerial;
+    const auto current = [&]
+    {
+        return scope.Current() && players->Active() && players->Find(handle) == state &&
+            handle.Get<CBasePlayer>() == &player && state->skillLifeSerial == life;
+    };
+    float scaled{};
+    if (!gpGlobals || !csol::scenario::PlayerIncomingDamage(
+        std::span<const CSOLScenarioStatBuff>(state->buffs), gpGlobals->time, damage, scaled))
+    {
+        players->DisableCharacterSkill(handle, "character incoming damage modifiers are invalid");
+        return current();
+    }
+    damage = scaled;
+    return true;
+}
+
+bool CSOL_ScenarioNotifyBeforeProtectionSkillDamage(CBasePlayer& player,
+    entvars_t* attacker, float& damage)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing()) return false;
+    const auto runtime = record->runtime;
+    const auto players = runtime->players;
+    if (!players || !players->Active()) return true;
+    const EHANDLE handle(&player);
+    const auto state = players->Find(handle);
+    if (!state) return true;
+    const auto skill = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(state->activeSkill);
+    if (!skill || state->retiringCharacterSkillEffects) return true;
+    const auto life = state->skillLifeSerial;
+    const auto current = [&]
+    {
+        return scope.Current() && !runtime->Closing() && runtime->players == players &&
+            players->Active() && players->Find(handle) == state &&
+            handle.Get<CBasePlayer>() == &player && state->skillLifeSerial == life &&
+            state->activeSkill == skill;
+    };
+    const EHANDLE source(attacker ? CBaseEntity::Instance(attacker) : nullptr);
+    if (!current()) return false;
+    csol::scenario::ConfigError error;
+    //108270D4 ->108F98A0 ->v2C accumulates even zero or negative damage.
+    // The caller, not this notification, owns the later damage<=0 rejection.
+    const bool success = skill->BeforeProtectionDamage(runtime, source, damage, error);
+    if (!current()) return false;
+    if (success) return true;
+    players->DisableCharacterSkill(handle, error.message.c_str());
+    // Disabling may retire this skill, but must not let a stale hit continue
+    // against a respawned player or a replacement character from a callback.
+    return scope.Current() && !runtime->Closing() && runtime->players == players &&
+        players->Active() && players->Find(handle) == state &&
+        handle.Get<CBasePlayer>() == &player && state->skillLifeSerial == life;
+}
+
+bool CSOL_ScenarioNotifyIncomingSkillDamage(CBasePlayer& player, entvars_t* attacker, float& damage)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing()) return false;
+    const auto runtime = record->runtime;
+    const auto players = runtime->players;
+    if (!players || !players->Active()) return true;
+    const EHANDLE handle(&player);
+    const auto state = players->Find(handle);
+    if (!state) return true;
+    const auto skill = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(state->activeSkill);
+    if (!skill || state->retiringCharacterSkillEffects) return true;
+    const auto life = state->skillLifeSerial;
+    const EHANDLE source(attacker ? CBaseEntity::Instance(attacker) : nullptr);
+    csol::scenario::ConfigError error;
+    //10824480 ->108F9150 ->skill v28: accepted incoming-hit notification
+    // after armor/modules, before health. Shielded zero damage still arrives.
+    const bool success = skill->IncomingDamage(runtime, source, damage, error);
+    if (!scope.Current() || runtime->Closing() || runtime->players != players ||
+        !players->Active() || players->Find(handle) != state ||
+        handle.Get<CBasePlayer>() != &player || state->skillLifeSerial != life ||
+        state->activeSkill != skill) return false;
+    if (!success && state->activeSkill == skill)
+        players->DisableCharacterSkill(handle, error.message.c_str());
+    return scope.Current() && handle.Get<CBasePlayer>() == &player && state->skillLifeSerial == life;
+}
+
+bool CSOL_ScenarioAbsorbSkillDamage(CBasePlayer& player, entvars_t* attacker, float& damage)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players) return true;
+    const EHANDLE handle(&player);
+    const EHANDLE source(attacker ? CBaseEntity::Instance(attacker) : nullptr);
+    csol::scenario::ConfigError error;
+    bool absorbed{};
+    const bool success = csol::scenario::skills::AbsorbOtherSkillDamage(players, handle, source,
+        damage, absorbed, error);
+    if (!scope.Current() || handle.Get<CBasePlayer>() != &player) return false;
+    if (!success) players->DisableCharacterSkill(handle, error.message.c_str());
+    return scope.Current();
+}
+
+bool CSOL_ScenarioSkillReload(CBasePlayerWeapon& weapon)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players) return true;
+    const EHANDLE handle(&weapon);
+    csol::scenario::ConfigError error;
+    const bool success = players->CompleteSkillReload(weapon, error);
+    if (!scope.Current() || handle.Get<CBasePlayerWeapon>() != &weapon) return false;
+    if (!success && weapon.m_pPlayer)
+        players->DisableCharacterSkill(EHANDLE(weapon.m_pPlayer), error.message.c_str());
+    return scope.Current();
+}
+
+void CSOL_ScenarioPlayerSkillDied(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (!players) return;
+    csol::scenario::ConfigError error;
+    players->ResetCharacterSkillState(EHANDLE(&player), error);
+    if (scope.Current() && !error.message.empty()) players->DisableCharacterSkill(EHANDLE(&player), error.message.c_str());
+}
+
+bool CSOL_ScenarioSkillMaximumHealth(CBasePlayer& player, float base, float& maximum)
+{
+    maximum = base;
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    if (players && gpGlobals) maximum += players->SkillTemporaryHealth(EHANDLE(&player), gpGlobals->time);
+    return scope.Current() && std::isfinite(maximum);
 }
 
 std::shared_ptr<CCSOLScenarioMusic> CSOL_ScenarioMusic(const CSOLScenarioEntityAccess* access)
@@ -1816,6 +2399,15 @@ std::shared_ptr<CCSOLScenarioPlayerRuntime> CSOL_ScenarioPlayerAuthority(
         record->runtime->session->Map().EntityAccess().get() != access) return {};
     const auto players = record->runtime->players;
     return players && players->Active() ? players : nullptr;
+}
+
+std::shared_ptr<CCSOLScenarioRuntime> CSOL_ScenarioRuntimeForAccess(const CSOLScenarioEntityAccess* access)
+{
+    if (!access || !access->Allowed()) return {};
+    const auto record = FindScenarioRules(g_pGameRules);
+    if (!record || record->retired || record->runtime->Closing() ||
+        record->runtime->session->Map().EntityAccess().get() != access) return {};
+    return record->runtime;
 }
 
 namespace

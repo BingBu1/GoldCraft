@@ -80,10 +80,13 @@ bool Ready()
 void CreateSmoke(event_args_t* args)
 {
     SynchronizeSession();
-    if (!args || args->iparam2 != 1 || !Ready()) { ++invalidEvents; return; }
+    if (!args || (args->iparam2 != 1 && args->iparam2 != 10) || !Ready()) { ++invalidEvents; return; }
     const double time = engine.GetClientTime();
     if (!std::isfinite(time) || !std::all_of(std::begin(args->origin), std::end(args->origin),
         [](float value) { return std::isfinite(value); })) { ++invalidEvents; return; }
+    if (args->iparam2 == 10 && (!std::isfinite(args->fparam1) || !std::isfinite(args->fparam2) ||
+        !std::all_of(std::begin(args->angles), std::end(args->angles),
+            [](float value) { return std::isfinite(value); }))) { ++invalidEvents; return; }
     if (haveTime && static_cast<float>(time) < previousTime) ResetScenarioSmoke();
     if (!sprite && engine.CL_LoadModel)
     {
@@ -93,7 +96,12 @@ void CreateSmoke(event_args_t* args)
     }
     if (!sprite) { ++invalidEvents; return; }
     if (!haveTime) { previousTime = static_cast<float>(time); haveTime = true; }
-    smoke::CreateCloud({args->origin[0], args->origin[1], args->origin[2]}, time, services);
+    const smoke::Vec3 origin{args->origin[0], args->origin[1], args->origin[2]};
+    if (args->iparam2 == 10)
+        smoke::CreateCharacterCloud(origin, {args->angles[0], args->angles[1], args->angles[2]},
+            args->fparam1, args->fparam2, args->iparam1, time, services);
+    else
+        smoke::CreateCloud(origin, time, services);
     ++events;
 }
 }
@@ -197,7 +205,7 @@ void DrawScenarioSmoke()
         }
         const float* corners[]{topLeft, bottomLeft, bottomRight, topRight};
         tri->Begin(TRI_QUADS);
-        tri->Color4f(smoke::Color, smoke::Color, smoke::Color, particle.brightness / 255.0f);
+        tri->Color4f(particle.color[0], particle.color[1], particle.color[2], particle.brightness / 255.0f);
         for (int corner = 0; corner < 4; ++corner)
         {
             tri->TexCoord2f(uv[corner][0], uv[corner][1]);

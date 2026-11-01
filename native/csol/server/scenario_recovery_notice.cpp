@@ -11,6 +11,16 @@ bool CCSOLScenarioRecoveryNotice::NotifySelfRecovery(CSOLPlayerRecoveryCall& cal
     float amount, CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
     bool (*ownerValid)(const void*), const void* ownerContext)
 {
+    if (!call.Current()) return call.Cancel();
+    if (call.Source() != call.Player())
+    { error.message = "self recovery notice received another source"; return false; }
+    return NotifyRecovery(call, amount, context, error, ownerValid, ownerContext);
+}
+
+bool CCSOLScenarioRecoveryNotice::NotifyRecovery(CSOLPlayerRecoveryCall& call,
+    float amount, CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
+    bool (*ownerValid)(const void*), const void* ownerContext)
+{
     const auto runtime = m_runtime.lock();
     if (!runtime) return false;
     const auto notice = runtime->recoveryNotice; // Pin through message/virtual callbacks.
@@ -39,8 +49,11 @@ bool CCSOLScenarioRecoveryNotice::NotifySelfRecovery(CSOLPlayerRecoveryCall& cal
     if (!modes->Contains(15)) return true;
 
     auto* player = call.Player();
+    auto* source = call.Source();
+    if (!source) return true;
     if (!player) return true; // The original source-player gate declines it.
     const EHANDLE handle(player);
+    const EHANDLE sourceHandle(source);
     const auto state = players->Find(handle);
     if (!state) return fail("self recovery player state is unavailable");
     const auto playerGeneration = state->generation;
@@ -48,33 +61,34 @@ bool CCSOLScenarioRecoveryNotice::NotifySelfRecovery(CSOLPlayerRecoveryCall& cal
     {
         // Validate the map and outer weapon before resolving any old handle.
         return owned() && players->Find(handle) == state &&
-            state->generation == playerGeneration && call.Player() == player;
+            state->generation == playerGeneration && call.Player() == player &&
+            sourceHandle.Get<CBasePlayer>() == source && call.Source() == source;
     };
     if (!current()) return call.Cancel();
 
     // The original 1152C520 prefix. Cancellation is separate from a normal
     // invalid-entity decision. Each invocation performs its own OFFSET query.
-    const auto validEntity = [&](bool& valid)
+    const auto validEntity = [&](CBasePlayer* entity, bool& valid)
     {
         valid = false;
         if (!current()) return call.Cancel();
-        if (!player->pev || !player->pev->pContainingEntity) return true;
+        if (!entity->pev || !entity->pev->pContainingEntity) return true;
         if (!g_engfuncs.pfnEntOffsetOfPEntity)
             return fail("self recovery entity-offset query is unavailable");
-        const int offset = OFFSET(player->pev->pContainingEntity);
+        const int offset = OFFSET(entity->pev->pContainingEntity);
         if (!current()) return call.Cancel();
-        valid = offset && player->pev && player->pev->pContainingEntity &&
-            !(player->pev->flags & FL_DORMANT);
+        valid = offset && entity->pev && entity->pev->pContainingEntity &&
+            !(entity->pev->flags & FL_DORMANT);
         return true;
     };
 
     bool valid{};
-    if (!validEntity(valid)) return false;
+    if (!validEntity(source, valid)) return false;
     if (!valid) return true;
     // 1152FCB0 adds a second plain dormant read, then virtual IsPlayer.
     // Do not invent an extra callback between these two memory reads.
-    if (player->pev->flags & FL_DORMANT) return true;
-    const bool sourcePlayer = player->IsPlayer() != FALSE;
+    if (source->pev->flags & FL_DORMANT) return true;
+    const bool sourcePlayer = source->IsPlayer() != FALSE;
     if (!current()) return call.Cancel();
     if (!sourcePlayer) return true;
 
@@ -82,14 +96,14 @@ bool CCSOLScenarioRecoveryNotice::NotifySelfRecovery(CSOLPlayerRecoveryCall& cal
     // host rejects out-of-range input instead of sending the indefinite int.
     const auto value = CSOLTruncateDamageNumber(amount);
     if (!value) return fail("self recovery display delta exceeds signed32");
-    const bool bot = player->IsBot() != FALSE;
+    const bool bot = source->IsBot() != FALSE;
     if (!current()) return call.Cancel();
     if (bot) return true;
 
     // v3EC checks target and source independently even for self recovery.
-    if (!validEntity(valid)) return false;
+    if (!validEntity(player, valid)) return false;
     if (!valid) return true;
-    if (!validEntity(valid)) return false;
+    if (!validEntity(source, valid)) return false;
     if (!valid) return true;
     const bool targetPlayer = player->IsPlayer() != FALSE;
     if (!current()) return call.Cancel();
@@ -137,7 +151,7 @@ bool CCSOLScenarioRecoveryNotice::NotifySelfRecovery(CSOLPlayerRecoveryCall& cal
     // Host safety adaptation: CSO queries ENTINDEX after starting its packet.
     // Resolve first here; once Begin fires, the writer uses scalar snapshots
     // and always completes the packet, even if a hook retires this owner.
-    const bool sent = session->Messages().SendRecoveryNumber(player->edict(), index, *value);
+    const bool sent = session->Messages().SendRecoveryNumber(source->edict(), index, *value);
     if (!current()) return call.Cancel();
     return sent || fail("self recovery number could not be sent");
 }

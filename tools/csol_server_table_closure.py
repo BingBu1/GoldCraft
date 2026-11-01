@@ -253,11 +253,20 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
               'scenario_kill.hpp', 'status_icons.hpp', 'scenario_healing.hpp',
               'scenario_smoke.hpp', 'frozen_death.hpp', 'frozen_smoke.hpp',
               'scenario_monster_effects.hpp', 'oberon_hint.hpp')
+    # Historical frozen servers predate this consumer. Include its shared
+    # images and sound/-rooted retry audio only when the selected production
+    # Session uses it. A current header beside an old Session is not evidence.
+    session = literal(source, 'native/csol/server/scenario_session.cpp', 'SPDX-License-Identifier', sources)
+    if '#include "../scenario_respawn_resources.hpp"' in session:
+        owners += ('scenario_respawn_resources.hpp',)
     asset = r'"((?:models|sprites|sound|events|resource|gfx|maps)/[^"\r\n]+\.(?:mdl|spr|wav|txt|sc|json|tga|bmp|cso|csv|ttf|webm))"'
     for owner in owners:
         name = 'native/csol/' + owner
         text = literal(source, name, 'SPDX-License-Identifier', sources)
-        for resource in sorted(set(re.findall(asset, text))):
+        fixed_resources = set(re.findall(asset, text))
+        if owner == 'scenario_respawn_resources.hpp' and not fixed_resources:
+            raise ValueError('Empty scenario revival HUD resource contract')
+        for resource in sorted(fixed_resources):
             # Formatted paths are expanded by the production plan, not files.
             if '%' not in resource:
                 if resource.endswith('.wav') and not resource.startswith('sound/'):

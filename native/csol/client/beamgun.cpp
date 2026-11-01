@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "beamgun.hpp"
 #include "weapon_inventory.hpp"
+#include "character_skill_effects.hpp"
 #include "camera.hpp"
 #include "../beamgun_prediction.hpp"
 #include "../beamgun_effects.hpp"
@@ -484,14 +485,19 @@ void DrawBeamgunHUD(int hidden, int intermission)
     const int height = digits[0].rect.bottom - digits[0].rect.top;
     const int iconWidth = ammo.rect.right - ammo.rect.left;
     const int y = screen.iHeight - height - height / 2;
-    const int x = screen.iWidth - 8 * width - iconWidth;
+    const bool infinite = CharacterSkillInfiniteAmmoFor(current.id);
+    const int shift = infinite ? std::max(0,72 - 3 * width) : 0;
+    const int x = screen.iWidth - 8 * width - iconWidth - shift;
     const int dividerX = x + 3 * width + width / 2;
     const int dividerWidth = width / 10;
     const int reserveX = dividerX + dividerWidth + width / 2;
-    Number(clip, x, y); Number(usePrediction ? predictedReserve : current.reserve, reserveX, y);
+    const int ammoX = reserveX + 3 * width + shift;
+    Number(clip, x, y);
+    if (!infinite || !DrawCharacterSkillInfiniteAmmo(current.id,ammoX,y,255,160,0))
+        Number(usePrediction ? predictedReserve : current.reserve, reserveX, y);
     engine.pfnFillRGBA(dividerX, y, dividerWidth, height, 255, 160, 0, 255);
     engine.pfnSPR_Set(ammo.handle, 255, 160, 0);
-    engine.pfnSPR_DrawAdditive(0, reserveX + 3 * width, y - (ammo.rect.bottom - ammo.rect.top) / 8, &ammo.rect);
+    engine.pfnSPR_DrawAdditive(0, ammoX, y - (ammo.rect.bottom - ammo.rect.top) / 8, &ammo.rect);
     if (sync > 0)
     {
         const int energyX = screen.iWidth - 4 * width - (energy.rect.right - energy.rect.left);

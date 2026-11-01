@@ -17,7 +17,8 @@ cvar_t selected{},enabled{};
 cl_entity_t entity{};
 model_t model{};
 pfnUserMsgHook receiver{};
-int checks{},forwarded{},prepared{},graphicsResets{};
+int checks{},forwarded{},prepared{},graphicsResets{},mounts{},catalogReads{};
+bool missingCatalog{};
 void Check(bool ok,const std::source_location where=std::source_location::current())
 {++checks;if(!ok)throw std::runtime_error("client check line "+std::to_string(where.line()));}
 int Previous(const char*,int,void*){++forwarded;return 73;}
@@ -35,6 +36,7 @@ namespace csol::client
 cl_enginefunc_t engine{};
 metahook_api_t* api{};
 void ClearScene(){}
+void MountResources(){++fixture::mounts;}
 void ResetWeapons(bool){}
 void ResetCamera(){}
 void ResetProjectiles(){}
@@ -47,12 +49,17 @@ void ResetScenarioEffects(){}
 void ResetScenarioSmoke(){}
 void ResetScenarioUpgrades(){}
 void ResetScenarioAbilities(){}
+void ResetBossHealth(){}
+void ResetScenarioRespawnUi(){}
+void ResetPlayerClips(){}
 void ResetSpray(){}
 void PrepareDamageGraphics(int){++fixture::prepared;}
 void ResetDamageGraphics(){++fixture::graphicsResets;}
 void ShutdownDamageOptions(){}
 std::vector<std::byte> ReadResource(const char* name)
 {
+    ++fixture::catalogReads;
+    if(fixture::missingCatalog)throw std::runtime_error("fixture resource missing");
     std::ifstream stream(fixture::common/name,std::ios::binary|std::ios::ate);
     if(!stream)throw std::runtime_error("fixture resource missing");
     std::vector<std::byte> bytes(std::size_t(stream.tellg()));stream.seekg(0);
@@ -67,9 +74,11 @@ int wmain(int argc,wchar_t** argv)
         Check(argc==2);common=argv[1];
         static metahook_api_t host{};api=&host;
         host.HookUserMsg=[](const char*,pfnUserMsgHook callback)->pfnUserMsgHook{receiver=callback;return Previous;};
-        engine.pfnGetCvarPointer=[](const char*)->cvar_t*{return nullptr;};
+        engine.pfnGetCvarPointer=[](const char* name)->cvar_t*{
+            auto* c=std::strcmp(name,"cl_dmg_skin")==0?&selected:&enabled;return c->name?c:nullptr;};
         engine.pfnRegisterVariable=[](const char* name,const char*,int flags)->cvar_t*{
-            Check((flags&FCVAR_ARCHIVE)!=0);auto* c=std::strcmp(name,"cl_dmg_skin")==0?&selected:&enabled;c->value=1;return c;};
+            Check((flags&FCVAR_ARCHIVE)!=0);auto* c=std::strcmp(name,"cl_dmg_skin")==0?&selected:&enabled;
+            c->name=const_cast<char*>(name);c->value=1;return c;};
         engine.Cvar_SetValue=[](const char* name,float value){(std::strcmp(name,"cl_dmg_skin")==0?selected:enabled).value=value;};
         engine.GetClientTime=[](){return now;};
         engine.pfnGetLevelName=[]()->const char*{return level.c_str();};
@@ -77,7 +86,13 @@ int wmain(int argc,wchar_t** argv)
         engine.pfnRandomLong=[](int low,int)->int{return low;};
         engine.Con_Printf=engine.Con_DPrintf=Quiet;
         model.type=mod_studio;entity.model=&model;entity.origin[0]=100;entity.origin[2]=80;
-        InitializeDamageDisplay();Frame();Check(DamageSkins().size()==46);
+        missingCatalog=true;InitializeDamagePreferences();
+        Check(DamageSkins().empty() && receiver==nullptr && mounts==1);
+        selected.value=7;missingCatalog=false;InitializeDamagePreferences();
+        Check(DamageSkins().size()==46 && receiver==nullptr && DamageSelectedSkin()==7);
+        Check(catalogReads==2 && mounts==2);
+        InitializeDamagePreferences();Check(catalogReads==2 && DamageSelectedSkin()==7);
+        selected.value=1;InitializeDamageDisplay();Frame();Check(DamageSkins().size()==46 && catalogReads==2);
         Check(Send()==1 && DamageEntries().size()==1);Check(Send()==1 && DamageEntries().size()==2);
         Check(!DamageEntries()[0].newest && DamageEntries()[1].newest);
         Check(DamageEntries()[0].anchor.x==100 && DamageEntries()[0].anchor.z==100);

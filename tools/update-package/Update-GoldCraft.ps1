@@ -1,10 +1,10 @@
 param([Parameter(Mandatory)][ValidateSet('server','cs','minecraft')][string]$Role,
-      [string]$TargetDirectory,[switch]$Plan)
+      [string]$TargetDirectory=$(if($Role -eq 'server'){'E:\cs_MineCraft\GoldCraft-Servers'}else{''}),[switch]$Plan)
 . (Join-Path $PSScriptRoot 'Common.ps1')
 . (Join-Path $PSScriptRoot 'Retired-Plugins.ps1')
 
 function Read-UpdateTarget {
-    $interactive=[string]::IsNullOrWhiteSpace($TargetDirectory)
+    $interactive=($Role -ne 'server' -and [string]::IsNullOrWhiteSpace($TargetDirectory))
     $inputPath=$TargetDirectory
     while($true) {
         if($interactive){$inputPath=Read-Host 'Existing install FOLDER (server: folder containing Start.cmd; empty to cancel)'}

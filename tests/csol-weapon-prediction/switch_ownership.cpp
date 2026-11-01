@@ -18,6 +18,7 @@ void ResetCharacterSkillEffects(){}
 bool CharacterSkillInfiniteAmmoFor(int){return false;}
 bool DrawCharacterSkillInfiniteAmmo(int,int,int,int,int,int){return false;}
 bool TryActivateScenarioAbility(){return false;}
+bool TryScenarioHealingSlot(int){return false;}
 }
 
 namespace {

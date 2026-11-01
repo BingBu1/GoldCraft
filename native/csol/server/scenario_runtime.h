@@ -10,6 +10,8 @@
 
 class CCSOLScenarioSession;
 class CCSOLScenarioPlayerRuntime;
+class CCSOLScenarioEliteManager;
+class CCSOLScenarioEliteServices;
 class CCSOLScenarioPlayerClips;
 class CCSOLScenarioDrops;
 class CCSOLScenarioGameplay;
@@ -67,6 +69,10 @@ public:
 
     std::shared_ptr<CCSOLScenarioSession> session;
     std::shared_ptr<CCSOLScenarioPlayerRuntime> players;
+    // The original elite target is owned by its manager, independently of the
+    // current Boss or nearest monster. This owner is scoped to this map.
+    std::shared_ptr<CCSOLScenarioEliteManager> eliteManager;
+    std::shared_ptr<CCSOLScenarioEliteServices> eliteServices;
     std::shared_ptr<CCSOLScenarioPlayerClips> playerClips;
     std::shared_ptr<CCSOLScenarioDrops> drops;
     std::shared_ptr<CCSOLScenarioGameplay> gameplay;

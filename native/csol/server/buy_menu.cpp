@@ -13,6 +13,8 @@ using namespace csol::buy;
 struct Client {int userid{};std::uint16_t request{};bool purchased{},busy{};Packet last{};};
 std::array<Client,33> clients;
 int message{};
+int hintMessage{};
+bool sendingHint{};
 bool ready{};
 std::vector<std::string> resources;
 void Send(const Packet& p, CBasePlayer* player=nullptr)
@@ -48,7 +50,22 @@ bool Number(const char* text,std::uint16_t& n)
     if(!value)return false;n=std::uint16_t(value);return true;
 }
 }
-void CSOL_ResetBuyMenu(){ready=false;clients={};resources.clear();}
+void CSOL_ResetBuyMenu(){ready=false;hintMessage=0;clients={};resources.clear();}
+void CSOL_BuyZoneHint(CBasePlayer* player,bool inside)
+{
+    CSOLScenarioSdkScope scope;
+    if(sendingHint||!ready||!hintMessage||!scope.Scenario()||!scope.Current()||!player||
+        player->has_disconnected||(player->pev->flags&(FL_KILLME|FL_DORMANT|FL_FAKECLIENT)))return;
+    const EHANDLE handle(player);
+    if(inside&&(!Eligible(player)||!player->CanPlayerBuy(false)))return;
+    if(!scope.Current()||handle.Get<CBaseEntity>()!=player)return;
+    const int id=hintMessage;
+    sendingHint=true;
+    MESSAGE_BEGIN(MSG_ONE,id,nullptr,player->pev);
+    WRITE_BYTE(inside?16:17);
+    MESSAGE_END();
+    sendingHint=false;
+}
 bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
 {
     // Scenario participants remain CT. The T/CT tabs classify equipment;
@@ -67,7 +84,9 @@ bool CSOL_PrecacheBuyMenu()
     for(const auto& path:resources){int size{};auto* bytes=LOAD_FILE_FOR_ME(path.c_str(),&size);if(!bytes||size<=0){if(bytes)FREE_FILE(bytes);ALERT(at_error,"CSOL buy resource missing: %s\n",path.c_str());return false;}FREE_FILE(bytes);}
     for(const auto& path:resources)PRECACHE_GENERIC(const_cast<char*>(path.c_str()));
     if(!message)message=REG_USER_MSG(csol::buy::Message,static_cast<int>(csol::buy::MessageBytes));
-    ready=message!=0;if(ready)Send({Kind::Capability});return ready;
+    hintMessage=REG_USER_MSG("ZBSVer2",-1);
+    ready=message>=64&&message<=255&&hintMessage>=64&&hintMessage<=255;
+    if(ready)Send({Kind::Capability});return ready;
 }
 bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
 {

@@ -8,6 +8,8 @@
 #include "beamgun.hpp"
 #include "cannon.hpp"
 #include "scenario_smoke.hpp"
+#include "elite_visuals.hpp"
+#include "frozen_smoke.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
 #include "gl_state.hpp"
@@ -18,6 +20,7 @@
 #include <IMetaRendererPostScene.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <filesystem>
 #include <unordered_set>
@@ -552,7 +555,12 @@ bool DrawWorldWeaponPoints()
     }
     const bool attached=name.starts_with("models/p_");
     const bool character=source->player && name.starts_with("models/player/csol");
-    if(!attached && !character && !name.starts_with("models/w_"))return false;
+    // CSOL map effects and monsters carry the same external material policy
+    // as weapons (for example ef_hole's $0a textures). Let the asset decide
+    // whether it needs this renderer instead of restricting it to p_/w_.
+    // A merged player header still belongs to the native player renderer.
+    if(source->player && !attached && !character)return false;
+    if(!attached && source->model!=model)return false;
     if((attached || character) && HostDrawsLocalHeldWeapon(source))return false;
     if(!EnsureGL() || !renderer || !postRenderer || failures.contains(model))return false;
     try
@@ -668,26 +676,71 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
 void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
 {
     if(CannonStudioEvent(event,entity))return;
+    if(event && entity && event->options[0]!='#' && (event->event==5005 || event->event==5008))
+    {
+        const std::string_view options(event->options,strnlen(event->options,sizeof(event->options)));
+        if(event->event==5005)
+        {
+            if(options.size()>3 && options.size()<sizeof(event->options) && engine.pfnPlaySoundByNameAtLocation)
+            {
+                // Original HUD_StudioEvent 02A41894 uses signed bytes, not
+                // ASCII digits; the engine sound entry clamps the result.
+                #pragma clang fp contract(off)
+                const float volume=(float(static_cast<signed char>(options[1]))*.1f+
+                    float(static_cast<signed char>(options[0])))+float(static_cast<signed char>(options[2]))*.01f;
+                float position[3];std::copy_n(entity->attachment[0],3,position);
+                engine.pfnPlaySoundByNameAtLocation(event->options+3,volume,position);
+            }
+            return;
+        }
+        // The original adds 10000 for viewmodel options before this switch,
+        // so the five world-footstep variants cannot match a viewmodel.
+        if(engine.GetViewModel && entity==engine.GetViewModel())return;
+        if(options.size()==sizeof(event->options))return;
+        const char* sound{};
+        switch(std::atoi(event->options))
+        {
+        case 0:case 3:sound=(std::rand()&1)?"zombi/boss_footstep_1.wav":"zombi/boss_footstep_2.wav";break;
+        case 1:sound="zombi/oberon/knife_walk1.wav";break;
+        case 2:sound="zombi/oberon/knife_walk2.wav";break;
+        case 4:sound="zombi/boss_footstep_1.wav";break;
+        }
+        if(sound && engine.pfnPlaySoundByNameAtLocation)
+        {
+            float position[3];std::copy_n(entity->origin,3,position);
+            engine.pfnPlaySoundByNameAtLocation(sound,1,position);
+        }
+        return;
+    }
     if(!event || event->options[0]!='#'){if(downstream.HUD_StudioEvent)downstream.HUD_StudioEvent(event,entity);return;}
     try
     {
         if(event->event<5000 || event->event>5639)
         {if(downstream.HUD_StudioEvent)downstream.HUD_StudioEvent(event,entity);return;}
         const auto parsed=ParseSpriteEvent(event->event,{event->options,strnlen(event->options,64)});
-        const auto it=states.find(entity);
+        auto it=states.find(entity);
+        const cl_entity_t* owner=entity;
+        if(it==states.end())
+        {
+            // Studio events refer to the host entity; queued world meshes
+            // retain a presentation copy with the same model and pose.
+            const auto draw=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& world)
+            {return entity && world.source==entity && world.weaponModel==entity->model && WorldIdentity(&world.entity)==world.generation;});
+            if(draw!=worldWeapons.end()){owner=&draw->entity;it=states.find(owner);}
+        }
         if(!parsed || it==states.end())
         {if(downstream.HUD_StudioEvent)downstream.HUD_StudioEvent(event,entity);return;}
         if(effects.size()>=256)return;
         const auto& rule=*parsed;const auto& state=it->second;if(rule.Attachment>=state.attachments.size() || rule.Follow>=int(state.attachments.size()))return;
         auto* sprite=LoadEngineModel(rule.ResourceName().c_str());if(!sprite || sprite->type!=mod_sprite || sprite->numframes<1)return;
-        Effect e;e.owner=entity;e.ownerModel=entity->model;e.sprite=sprite;e.rule=rule;e.sequence=entity->curstate.sequence;e.birth=state.time;e.position=state.attachments[rule.Attachment];
+        Effect e;e.owner=owner;e.ownerModel=owner->model;e.sprite=sprite;e.rule=rule;e.sequence=owner->curstate.sequence;e.birth=state.time;e.position=state.attachments[rule.Attachment];
         if(rule.RandomFrame)e.first=engine.pfnRandomLong(0,sprite->numframes-1);
         if(rule.Rotation==1 || rule.Rotation==2)e.angle=engine.pfnRandomLong(0,rule.Rotation==1?20:359)*3.14159265f/180;
         effects.push_back(std::move(e));++eventCount;
     }
     catch(const std::exception& error){engine.Con_Printf("CSOLSupport: event: %s\n",error.what());}
 }
-void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();}}
+void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();DrawEliteVisuals();DrawFrozenSmoke();}}
 bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {

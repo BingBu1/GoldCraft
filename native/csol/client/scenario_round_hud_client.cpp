@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "user_message_chain.hpp"
 #include "scenario_round_hud_client.hpp"
 #include "../scenario_round_hud.hpp"
 #include "../scenario_localization.hpp"
@@ -23,6 +24,7 @@ namespace hud = scenario_hud;
 hud::State state;
 scenario::MessageTable messages;
 std::map<std::uint16_t, std::vector<std::wstring>> lines;
+std::array<std::vector<std::wstring>, hud::TextChannels.size()> localLines;
 vgui::ISurface* surface{};
 vgui::ISystem* guiSystem{};
 IVGUI2Extension* extension{};
@@ -287,14 +289,16 @@ void Paint()
         const int alpha = hud::NoticeAlpha(notice, now);
         if (!alpha) continue;
         const auto found = lines.find(notice.id);
-        if (found == lines.end() || found->second.empty()) continue;
+        const auto* text = !localLines[channel].empty() ? &localLines[channel] :
+            found != lines.end() ? &found->second : nullptr;
+        if (!text || text->empty()) continue;
         const auto font = fonts[unsigned(hud::TextChannels[channel].font)];
         if (!font) continue;
         const float x = float(width) * notice.x, y = float(height) * notice.y;
         if (!std::isfinite(x) || !std::isfinite(y) || std::abs(x) > 100000 || std::abs(y) > 100000) continue;
         // The original mode15/17 root enables the 824x32 background. Channel
         // 18 uses its own 444x32 background; a leading space clears it.
-        if (!found->second.front().empty() && found->second.front().front() != L' ')
+        if (!text->front().empty() && text->front().front() != L' ')
         {
             const int backgroundWidth = channel == 18 ? 444 : 824;
             const int left = int(x - backgroundWidth / 2), top = int(y - 16);
@@ -303,8 +307,8 @@ void Paint()
             Quad(hud::Image::TextRight, left + backgroundWidth - 128, top, 128, 32, alpha);
         }
         const int lineHeight = surface->GetFontTall(font);
-        int top = int(y) - int(found->second.size()) * lineHeight / 2;
-        for (const auto& line : found->second)
+        int top = int(y) - int(text->size()) * lineHeight / 2;
+        for (const auto& line : *text)
         {
             Text(font, line.c_str(), int(x), top, notice.color, alpha);
             top += lineHeight;
@@ -347,7 +351,8 @@ int Receive(const char* name, int size, void* data)
                 LoadCatalog();
                 if (const auto* row = messages.Find(std::uint16_t(message.value)))
                 {
-                    if (!row->text.empty()) state.Show(*row, RealTime());
+                    if (!row->text.empty() && state.Show(*row, RealTime()))
+                        localLines[unsigned(row->textType == -1 ? 1 : row->textType)].clear();
                     if (!row->image.empty()) state.ShowImage(*row, engine.GetClientTime());
                     const auto sound = scenario::DialogueSoundPath(row->sound);
                     if (sound && engine.pfnPlaySoundByNameAtPitch)
@@ -374,14 +379,12 @@ int Sync(const char* name, int size, void* data)
 int Init(const char* name, int size, void* data)
 { ResetScenarioRoundHud(); return previousInit ? previousInit(name, size, data) : 1; }
 int ResetLife(const char* name, int size, void* data)
-{ state.ClearPresentation(); hidden = 0; requested = false; return previousReset ? previousReset(name, size, data) : 1; }
+{ state.ClearPresentation(); localLines = {}; hidden = 0; requested = false; return previousReset ? previousReset(name, size, data) : 1; }
 int Hide(const char* name, int size, void* data)
 { if (data && size == 1) hidden = *static_cast<unsigned char*>(data); return previousHide ? previousHide(name, size, data) : 1; }
 void Install(const char* name, pfnUserMsgHook hook, pfnUserMsgHook& previous)
 {
-    const auto old = api->HookUserMsg(name, hook);
-    if (old != hook) previous = old;
-    if (!old) engine.pfnHookUserMsg(name, hook);
+    InstallChainedUserMessage(name, hook, previous);
 }
 }
 void InitializeScenarioRoundHud()
@@ -402,19 +405,40 @@ void InitializeScenarioRoundHud()
 }
 void ResetScenarioRoundHud()
 {
-    state.Reset(); messages = {}; lines.clear(); catalogLoaded = false;
+    state.Reset(); messages = {}; lines.clear(); localLines = {}; catalogLoaded = false;
     ReleaseDialogueImages(); catalogRetryAfter = 0; catalogReported = false;
     requested = false; hidden = 0; frameTime = 0;
 }
 void ScenarioRoundHudFrame()
 {
     if (state.Active()) { LoadCatalog(); Prepare(); }
-    else if (catalogLoaded) Prepare();
+    else if (catalogLoaded || std::any_of(localLines.begin(), localLines.end(), [](const auto& text) { return !text.empty(); })) Prepare();
     PrepareDialogueImages();
 }
 void ScenarioRoundHudVideoInit() { ReleaseImages(); }
 void DrawScenarioRoundHud(float time, int intermission)
-{ frameTime = time; requested = !intermission && (state.Active() || catalogLoaded); }
+{ frameTime = time; requested = !intermission && (state.Active() || catalogLoaded ||
+    std::any_of(localLines.begin(), localLines.end(), [](const auto& text) { return !text.empty(); })); }
+bool ShowScenarioRoundHudText(unsigned channel, std::wstring_view text,
+    const std::array<std::uint8_t, 3>& color)
+{
+    if (channel >= localLines.size() || text.empty() || text.size() > 1024) return false;
+    std::vector<std::wstring> candidate;
+    for (std::size_t first = 0; first < text.size();)
+    {
+        const auto end = text.find(L'\n', first);
+        auto line = std::wstring(text.substr(first, end == text.npos ? text.npos : end - first));
+        std::erase(line, L'\r'); candidate.push_back(std::move(line));
+        if (end == text.npos) break;
+        first = end + 1;
+    }
+    scenario::ScenarioMessage message;
+    message.textType = int(channel); message.color = color;
+    message.fadeIn = message.show = message.fadeOut = -1;
+    if (!state.Show(message, RealTime())) return false;
+    localLines[channel] = std::move(candidate);
+    return true;
+}
 void ShutdownScenarioRoundHud()
 {
     ResetScenarioRoundHud(); ReleaseImages();

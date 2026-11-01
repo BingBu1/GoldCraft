@@ -11,10 +11,14 @@
 #include "damage_display.hpp"
 #include "scenario_kill.hpp"
 #include "scenario_effects.hpp"
+#include "character_skill_effects.hpp"
 #include "scenario_smoke.hpp"
+#include "elite_visuals.hpp"
 #include "scenario_upgrades.hpp"
 #include "scenario_abilities.hpp"
+#include "boss_health.hpp"
 #include "scenario_round_hud_client.hpp"
+#include "scenario_respawn_ui.hpp"
 #include "playerclip.hpp"
 #include <ostream>
 #include <algorithm>
@@ -42,10 +46,14 @@ void ResetSession()
     ResetSpray();
     ResetScenarioKill();
     ResetScenarioEffects();
+    ResetCharacterSkillEffects();
     ResetScenarioSmoke();
+    ResetEliteVisuals();
     ResetScenarioUpgrades();
     ResetScenarioAbilities();
+    ResetBossHealth();
     ResetScenarioRoundHud();
+    ResetScenarioRespawnUi();
     ResetPlayerClips();
 }
 }

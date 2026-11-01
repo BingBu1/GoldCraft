@@ -9,6 +9,14 @@
 
 namespace csol::scenario
 {
+bool Feature3::ReadTiming(std::int32_t key, Feature3Timing& timing) const
+{
+    if (!m_valid) return false;
+    const auto found = m_records.find(key);
+    if (found == m_records.end()) return false;
+    timing = found->second->timing;
+    return true;
+}
 bool Feature3::Put(std::int32_t key, Feature3Record record)
 {
     const auto keepAlive = weak_from_this().lock();

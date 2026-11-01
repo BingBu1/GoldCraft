@@ -494,6 +494,7 @@ void CharacterCreateMove(float frame,usercmd_t* cmd,int active)
     // Suppress camera motion while keeping the engine's normal input lifecycle.
     std::copy_n(menuAngles,3,cmd->viewangles);engine.SetViewAngles(menuAngles);
 }
+bool CharacterMenuVisible(){return visible;}
 const Character* ViewCharacter()
 {
     const int index=view.playernum+1;

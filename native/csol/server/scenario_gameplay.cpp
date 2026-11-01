@@ -13,6 +13,7 @@ CCSOLScenarioGameplay::CCSOLScenarioGameplay(CCSOLScenarioSession& session,
     CCSOLMonsterFactoryServices& factoryServices, int mapId,
     std::shared_ptr<const CCSOLMonsterSpawnOwner> owner)
     : m_session(session), m_owner(owner), m_hasOwner(owner != nullptr), m_spawnDeaths(spawnDeaths),
+      m_factoryServices(factoryServices),
       m_deaths(session.Map(), session.Monsters(), session.Models(), session.Messages(), deathServices, mapId),
       m_occupancy(session.Monsters(), spawnDeaths), m_spawns(m_occupancy),
       m_factory(session.Map(), session.Monsters(), session.Models(), m_occupancy,
@@ -71,6 +72,11 @@ bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float 
     if (!m_factory.Reset()) return Fail(m_factory.Error().message.c_str());
     if (!m_occupancy.ResetGrid()) return Fail(m_occupancy.Error().c_str());
     m_spawnGroupOffset = 0; // mode15/subtype1; the next round supplies its own group.
+    csol::scenario::ConfigError damageError;
+    const bool damageReset = m_factoryServices.ResetRoundDamage(damageError);
+    if (!Active() || generation != m_generation) return false;
+    if (!damageReset)
+        return damageError.message.empty() ? false : Fail(damageError.message.c_str());
     if (!m_session.BeginRound(roundIndex, now, freezeTime, events))
     {
         if (!Active() || generation != m_generation || m_session.Error().detail.message.empty()) return false;
@@ -139,7 +145,15 @@ bool CCSOLScenarioGameplay::Update(CHalfLifeMultiplay& rules, float thinkTime,
     }
     if (!m_spawns.UpdateOccupancy()) return Fail("scenario live occupancy refresh failed");
     if (m_generation != generation || !Active()) return false;
-    const auto frame = m_session.Map().UpdateFrame(rules, thinkTime, aliveCtCount, Dispatch, this, events);
+    const auto frame = m_session.Map().UpdateFrame(rules, thinkTime, aliveCtCount, Dispatch, this, events,
+        [](void* context, csol::scenario::ConfigError& error)
+        {
+            auto& gameplay = *static_cast<CCSOLScenarioGameplay*>(context);
+            if (!gameplay.Active()) return false;
+            const auto generation = gameplay.m_generation;
+            const bool updated = gameplay.m_factoryServices.UpdateEliteSchedule(error);
+            return gameplay.Active() && gameplay.m_generation == generation && updated;
+        });
     if (m_generation != generation || !Active()) return false;
     if (!frame.valid)
     {
@@ -148,6 +162,15 @@ bool CCSOLScenarioGameplay::Update(CHalfLifeMultiplay& rules, float thinkTime,
     }
     if (!m_deaths.Error().message.empty()) return Fail(m_deaths.Error().message.c_str());
     if (!m_deaths.Requests().Error().empty()) return Fail(m_deaths.Requests().Error().c_str());
+    if (!frame.managerTailReached) return true;
+    // MP11388566 joins both the completed and skipped player-scan paths.
+    // Preserve Frame's actual continuation rather than re-reading rule gates
+    // here: a callback can end/freeze the round and still reach this tail.
+    csol::scenario::ConfigError damageError;
+    const bool healthUpdated = m_factoryServices.UpdateHealthSummary(gpGlobals->time, damageError);
+    if (m_generation != generation || !Active()) return false;
+    if (!healthUpdated)
+        return damageError.message.empty() ? false : Fail(damageError.message.c_str());
     return true;
 }
 

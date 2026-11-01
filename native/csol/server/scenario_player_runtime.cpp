@@ -3,6 +3,8 @@
 #include "scenario_monster_skills.h"
 #include "scenario_player_runtime.h"
 #include "scenario_active_skill.h"
+#include "scenario_character_skills/host.hpp"
+#include "scenario_character_skills/host_notifications.hpp"
 #include "scenario_death_owner.h"
 #include "scenario_monster_damage.h"
 #include "scenario_runtime.h"
@@ -11,11 +13,13 @@
 #include "scenario_native_weapons.h"
 #include "weapons.h"
 #include "../scenario/monster_appearances.hpp"
+#include "../scenario/player_protection.hpp"
 #include "../scenario_abilities.hpp"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <exception>
 #include <limits>
 #include <typeinfo>
 
@@ -132,6 +136,26 @@ std::vector<CSOLScenarioStatBuff> ReleaseProtection(CSOLScenarioPlayerRuntimeSta
     state.monsterTrapUntil = 0;
     state.monsterTrapPending = false;
     state.monsterTrapMovementApplied = false;
+    state.monsterMotion.Clear();
+    state.monsterMotionApplied = false;
+    ++state.skillLifeSerial;
+    if (player && state.skillCloakRenderHeld)
+    {
+        player->pev->rendermode = kRenderNormal;
+        player->pev->renderfx = kRenderFxNone;
+        player->pev->renderamt = 0;
+        player->pev->rendercolor = g_vecZero;
+    }
+    state.skillCloakRenderHeld = false;
+    state.skillCloaks.clear();
+    state.skillHealing = {};
+    state.skillShield = {};
+    state.expandedSkillWeapons.clear();
+    if (player)
+        for (const auto& [index, ammo] : state.savedSkillAmmo)
+            if (index >= 0 && index < MAX_AMMO_SLOTS) player->m_rgAmmo[index] = ammo;
+    state.savedSkillAmmo.clear();
+    state.skillInfiniteAmmo = false;
     bool held{};
     for (auto& buff : state.buffs)
     {
@@ -193,7 +217,7 @@ std::vector<CSOLScenarioPlayerStatistics> CCSOLScenarioPlayerRuntime::Statistics
 }
 
 CSOLPlayerRecoveryCall::CSOLPlayerRecoveryCall(std::shared_ptr<CCSOLScenarioRuntime> runtime,
-    EHANDLE player, bool (*ownerValid)(const void*), const void* ownerContext)
+    EHANDLE player, bool (*ownerValid)(const void*), const void* ownerContext, std::optional<EHANDLE> source)
     : m_runtime(std::move(runtime)), m_player(player), m_ownerValid(ownerValid), m_ownerContext(ownerContext)
 {
     if ((m_ownerValid && !m_ownerValid(m_ownerContext)) || !m_runtime || m_runtime->Closing()) return;
@@ -203,6 +227,20 @@ CSOLPlayerRecoveryCall::CSOLPlayerRecoveryCall(std::shared_ptr<CCSOLScenarioRunt
     m_runtimeGeneration = m_runtime->Generation();
     m_roundGeneration = m_session->Map().RoundGeneration();
     m_state = m_players->Find(m_player);
+    m_source = source.value_or(player);
+    m_sourceState = m_players->Find(m_source);
+    if (m_state) m_playerLifeSerial = m_state->skillLifeSerial;
+    if (m_sourceState) m_sourceLifeSerial = m_sourceState->skillLifeSerial;
+}
+
+CSOLPlayerRecoveryCall::CSOLPlayerRecoveryCall(std::shared_ptr<CCSOLScenarioRuntime> runtime,
+    EHANDLE player, bool (*ownerValid)(const void*), const void* ownerContext, std::nullptr_t)
+    : CSOLPlayerRecoveryCall(std::move(runtime), player, ownerValid, ownerContext)
+{
+    m_withoutSource = true;
+    m_source = EHANDLE{};
+    m_sourceState.reset();
+    m_sourceLifeSerial = 0;
 }
 
 CBasePlayer* CSOLPlayerRecoveryCall::Current() const
@@ -211,8 +249,20 @@ CBasePlayer* CSOLPlayerRecoveryCall::Current() const
         m_runtime->Closing() || m_runtime->Generation() != m_runtimeGeneration ||
         !m_session || m_runtime->session != m_session || !m_players || m_runtime->players != m_players ||
         !m_players->Active() || m_session->Map().RoundGeneration() != m_roundGeneration ||
-        !m_state || m_players->Find(m_player) != m_state) return nullptr;
+        !m_state || m_players->Find(m_player) != m_state || m_state->skillLifeSerial != m_playerLifeSerial) return nullptr;
+    if (!m_withoutSource && (!m_sourceState || m_players->Find(m_source) != m_sourceState ||
+        m_sourceState->skillLifeSerial != m_sourceLifeSerial || !m_source.Get<CBasePlayer>())) return nullptr;
     return m_player.Get<CBasePlayer>();
+}
+
+bool CSOLScenarioRecoveryNotice::NotifyRecovery(CSOLPlayerRecoveryCall& call, float amount,
+    CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
+    bool (*ownerValid)(const void*), const void* ownerContext)
+{
+    if (!call.Current()) return call.Cancel();
+    if (call.Source() != call.Player())
+    { error.message = "recovery notification provider supports self recovery only"; return false; }
+    return NotifySelfRecovery(call, amount, context, error, ownerValid, ownerContext);
 }
 
 bool CCSOLScenarioPlayerRuntime::Fail(const char* reason)
@@ -317,6 +367,18 @@ std::shared_ptr<const CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime
     return Resolve(player);
 }
 
+bool CCSOLScenarioPlayerRuntime::ReadLocalIdentity(const EHANDLE& player,
+    std::int32_t& identity, csol::scenario::ConfigError& error) const
+{
+    if (!error.message.empty()) return false;
+    const auto state = Resolve(player);
+    if (!state) return false;
+    if (state->generation > static_cast<std::uint64_t>(INT32_MAX))
+    { error.message = "scenario local player identity exceeds int32"; return false; }
+    identity = static_cast<std::int32_t>(state->generation);
+    return true;
+}
+
 bool CCSOLScenarioPlayerRuntime::ReadUpgradeStat(const EHANDLE& player,
     csol::scenario::UpgradeStat stat, float& value) const
 {
@@ -359,6 +421,10 @@ std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Ensu
     state->displayAbilities = std::make_shared<CSOLScenarioDisplayAbilities>();
     if (previous)
     {
+        csol::scenario::ConfigError retirementError;
+        RetireCharacterSkillState(retired, retirementError);
+        if (!Active() || m_lifecycle != lifecycle || previous != retired ||
+            handle.Get<CBasePlayer>() != &player) return {};
         RetainStatistics(*previous);
         retiredBuffs = ReleaseProtection(*previous, dynamic_cast<CBasePlayer*>(previous->player.Get<CBaseEntity>()));
         weapons->RemovePlayer(previous->player, previous->generation);
@@ -385,7 +451,7 @@ bool CCSOLScenarioPlayerRuntime::Prepare(CBasePlayer& player)
 {
     auto keepAlive = shared_from_this();
     const auto state = Ensure(player);
-    if (!state || state->preparing) return false;
+    if (!state || state->preparing || state->retiringCharacterSkillEffects) return false;
     struct Preparing { bool& value; ~Preparing() { value = false; } } preparing{state->preparing};
     state->preparing = true;
     int classId{};
@@ -483,7 +549,21 @@ bool CCSOLScenarioPlayerRuntime::UpdateHud(CBasePlayer& player, float now, bool 
     auto* recipient = player.edict();
     if (!current()) return false;
     const bool sent = m_session->Messages().SendActiveSkillSnapshot(recipient, snapshot);
-    return current() && (sent || Fail("scenario character skill HUD snapshot failed"));
+    if (!current()) return false;
+    if (!sent) return Fail("scenario character skill HUD snapshot failed");
+    csol::skillgate::Snapshot gate;
+    csol::scenario::ConfigError error;
+    if (const auto controlled = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(skill))
+    {
+        const bool captured = controlled->GateSnapshot(now, gate, error);
+        if (!current()) return false;
+        if (!captured) return Fail(error.message.empty() ?
+            "scenario character skill gate snapshot failed" : error.message.c_str());
+    }
+    const bool gateSent = csol::scenario::skills::PublishSkillGate(*m_session, handle, gate, error);
+    if (!current()) return false;
+    return gateSent || Fail(error.message.empty() ?
+        "scenario character skill gate notification failed" : error.message.c_str());
 }
 
 bool CCSOLScenarioPlayerRuntime::SetClassModRecords(CBasePlayer& player,
@@ -491,7 +571,7 @@ bool CCSOLScenarioPlayerRuntime::SetClassModRecords(CBasePlayer& player,
 {
     const auto keepAlive = shared_from_this();
     const auto state = Resolve(EHANDLE(&player));
-    if (!state || state->preparing) return false;
+    if (!state || state->preparing || state->retiringCharacterSkillEffects) return false;
     auto profile = state->profile;
     profile.equipment.classCaps = std::move(records);
     profile.equipment.classModsComplete = true;
@@ -515,11 +595,15 @@ bool CCSOLScenarioPlayerRuntime::RefreshActiveSkill(
     // Original same-character preparation calls v30; all concrete classes
     // implemented here have a verified empty v30. Do not restart their cooldown
     // on respawn, weapon selection, or an unrelated profile refresh.
-    if (state->activeSkillPrepared && state->activeSkillClass == classId && sameDefinition()) return true;
+    if (state->activeSkillPrepared && state->activeSkillClass == classId && sameDefinition())
+    {
+        const auto skill = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(state->activeSkill);
+        return !skill || skill->Rebuild(error);
+    }
     if (!gpGlobals) { error.message = "scenario character skill clock is unavailable"; return false; }
     std::shared_ptr<CSOLScenarioActiveSkill> skill;
     if (selected)
-        skill = CSOL_CreateScenarioActiveSkill(shared_from_this(), state, *selected, gpGlobals->time, error);
+        skill = CSOL_CreateScenarioActiveSkill(shared_from_this(), state, m_session, *selected, gpGlobals->time, error);
     if (!error.message.empty()) return false;
     const auto profile = state->profileRevision;
     const auto revision = state->classModRevision;
@@ -540,12 +624,24 @@ bool CCSOLScenarioPlayerRuntime::RefreshActiveSkill(
     const bool sent = m_session->Messages().SendActiveSkillCooldown(player->edict(),
         skill ? selected->subtype : 0, skill ? selected->values[0] : 0, 0);
     if (!current()) return false;
-    if (!sent) { error.message = "scenario character skill initialization notification failed"; return false; }
     state->activeSkillDefinition = selected;
     state->activeSkillClass = classId;
     state->activeSkillUnavailable = selected.has_value() && !skill;
     state->activeSkillPrepared = true;
-    return true;
+    if (!sent)
+    {
+        error.message = "scenario character skill initialization notification failed";
+        if (const auto controlled = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(skill))
+            return controlled->Disable(error) && current();
+        state->skillFailure = error.message;
+        if (g_engfuncs.pfnAlertMessage)
+            ALERT(at_console, "[CSOL] Character skill HUD unavailable: %s\n", error.message.c_str());
+        error = {};
+        return current();
+    }
+    if (const auto controlled = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(skill))
+        return controlled->Installed(error) && current();
+    return csol::scenario::skills::PublishSkillGate(*m_session, state->player, {}, error) && current();
 }
 
 bool CCSOLScenarioPlayerRuntime::RefreshClassMods(const EHANDLE& player, int classId,
@@ -762,6 +858,12 @@ bool CCSOLScenarioPlayerRuntime::ApplyAttributeRecovery(CSOLMonsterDamageCall& c
 bool CCSOLScenarioPlayerRuntime::ApplyRecovery(CSOLPlayerRecoveryCall& call,
     float amount, bool& applied, csol::scenario::ConfigError& error)
 {
+    return ApplyRecoveryContext(call, amount, applied, {}, error);
+}
+
+bool CCSOLScenarioPlayerRuntime::ApplyRecoveryContext(CSOLPlayerRecoveryCall& call,
+    float amount, bool& applied, CSOLMonsterDeathContext context, csol::scenario::ConfigError& error)
+{
     applied = false;
     const auto keepAlive = shared_from_this();
     const auto runtime = call.Runtime();
@@ -816,7 +918,6 @@ bool CCSOLScenarioPlayerRuntime::ApplyRecovery(CSOLPlayerRecoveryCall& call,
     // player's damage bitset stays unchanged. Do not call SDK TakeHealth again.
     player->pev->health = health;
     applied = true;
-    CSOLMonsterDeathContext context;
     const float displayAmount = player->pev->health - oldHealth;
     if (!std::isfinite(displayAmount))
     { error.message = "attribute recovery display delta is not finite"; return false; }
@@ -828,7 +929,7 @@ bool CCSOLScenarioPlayerRuntime::ApplyRecovery(CSOLPlayerRecoveryCall& call,
         bool notified{};
         try
         {
-            notified = notice->NotifySelfRecovery(call, displayAmount, context, error,
+            notified = notice->NotifyRecovery(call, displayAmount, context, error,
                 [](const void* context) { return (*static_cast<const decltype(current)*>(context))(); }, &current);
         }
         catch (...)
@@ -999,6 +1100,14 @@ void CCSOLScenarioPlayerRuntime::Remove(const EHANDLE& player)
     {
         auto& state = m_players[index];
         if (!state || state->player.Get() != player.Get()) continue;
+        const auto retiring = state;
+        const auto lifecycle = m_lifecycle;
+        if (!state->retiringCharacterSkillEffects)
+        {
+            csol::scenario::ConfigError retirementError;
+            RetireCharacterSkillState(retiring, retirementError);
+            if (!Active() || m_lifecycle != lifecycle || state != retiring) return;
+        }
         RetainStatistics(*state);
         m_removedPlayers[index] = player;
         auto retired = std::move(state);
@@ -1052,10 +1161,22 @@ bool CCSOLScenarioPlayerRuntime::ProtectionBlocksDamage(const EHANDLE& player, f
     return any && !allMask1 && !allMask4;
 }
 
+bool CCSOLScenarioPlayerRuntime::ApplyProtectionDamage(const EHANDLE& player,
+    float now, int damageType, float& damage) const
+{
+    const auto state = Resolve(player);
+    return !state || csol::scenario::PlayerProtectionDamage(
+        std::span<const CSOLScenarioStatBuff>(state->buffs), now, damageType, damage);
+}
+
 bool CCSOLScenarioPlayerRuntime::RemoveProtectionAt(CSOLScenarioPlayerRuntimeState& state,
     CBasePlayer& player, std::size_t index)
 {
+    const auto life = state.skillLifeSerial;
     auto& buff = state.buffs[index];
+    const bool resetSpeed = buff.speed != 0 || buff.absoluteSpeed != 0;
+    const bool resetClip = buff.extraClip > 0;
+    const bool resetAmmo = buff.infiniteAmmo;
     if (buff.renderHeld)
     {
         buff.renderHeld = false;
@@ -1072,7 +1193,66 @@ bool CCSOLScenarioPlayerRuntime::RemoveProtectionAt(CSOLScenarioPlayerRuntimeSta
     state.buffs.erase(state.buffs.begin() + static_cast<std::ptrdiff_t>(index));
     const auto revision = ++state.buffsRevision;
     condition.reset();
-    return Resolve(state.player).get() == &state && state.buffsRevision == revision;
+    const auto current = [&] { return Resolve(state.player).get() == &state && state.buffsRevision == revision &&
+        state.skillLifeSerial == life; };
+    if (!current()) return false;
+    if (resetClip) state.expandedSkillWeapons.clear();
+    if (resetSpeed) { player.ResetMaxSpeed(); if (!current()) return false; }
+    if (resetAmmo)
+    {
+        csol::scenario::ConfigError error;
+        if (!RefreshSkillAmmo(state.player, false, false, error))
+        { if (current()) DisableCharacterSkill(state.player, error.message.c_str()); return false; }
+    }
+    return current();
+}
+
+bool CCSOLScenarioPlayerRuntime::HoldSkillProtectionRender(const EHANDLE& handle,
+    std::uint64_t token, csol::scenario::ConfigError& error)
+{
+    const auto state = Resolve(handle);
+    auto* player = state ? handle.Get<CBasePlayer>() : nullptr;
+    if (!player || !gpGlobals) return false;
+    auto buff = std::find_if(state->buffs.begin(), state->buffs.end(),
+        [token](const auto& value) { return value.token == token; });
+    if (buff == state->buffs.end() || !buff->Active(gpGlobals->time))
+    { error.message = "character protection render requires a live owned buff"; return false; }
+    if (buff->renderHeld) return true;
+    const float duration = buff->expires < 0 ? -1 : buff->expires - gpGlobals->time;
+    if (!InstallSkillLabel(handle, 7, 0, duration, token))
+    { error.message = "character protection label could not be installed"; return false; }
+    buff->renderHeld = true;
+    ++state->buffsRevision;
+    UpdateProtectionRender(*state, *player, false);
+    return true;
+}
+
+std::int32_t CCSOLScenarioPlayerRuntime::InstallSkillLabel(const EHANDLE& player,
+    int type, int group, float duration, std::uint64_t buffToken)
+{
+    const auto state = Resolve(player);
+    if (!state || !gpGlobals || !std::isfinite(duration) || !std::isfinite(gpGlobals->time)) return 0;
+    const auto buff = std::find_if(state->buffs.begin(), state->buffs.end(),
+        [buffToken](const auto& value) { return value.token == buffToken; });
+    if (buffToken && buff == state->buffs.end()) return 0;
+    auto label = std::bit_cast<std::int32_t>(nextStatusLabel++);
+    if (!label) label = std::bit_cast<std::int32_t>(nextStatusLabel++);
+    const float now = gpGlobals->time;
+    state->labels.push_back({label, type, group,
+        duration < 0 ? std::numeric_limits<float>::max() : now + duration, now, false});
+    if (buffToken) buff->labels.push_back(label);
+    state->labelsDirty = true;
+    ++state->buffsRevision;
+    return label;
+}
+
+bool CCSOLScenarioPlayerRuntime::RemoveSkillLabel(const EHANDLE& player, std::int32_t label)
+{
+    const auto state = Resolve(player);
+    if (!state) return false;
+    if (std::erase_if(state->labels, [label](const auto& value) { return value.id == label; }))
+    { state->labelsDirty = true; ++state->buffsRevision; }
+    return true;
 }
 
 bool CCSOLScenarioPlayerRuntime::RemoveProtectionSource(CSOLScenarioPlayerRuntimeState& state,
@@ -1218,15 +1398,12 @@ bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(CBasePlayer& player, float no
     if (state->updatingBuffs) return true; // Retain dirty work for the next frame.
     struct Updating { bool& value; ~Updating() { value = false; } } updating{state->updatingBuffs};
     state->updatingBuffs = true;
-    // Original ring cleanup is strict >, while its movement query is > now.
-    // At equality the entry can remain but no longer limits movement.
-    if (state->monsterTrapUntil > 0 && now > state->monsterTrapUntil)
-        state->monsterTrapUntil = 0;
-    if (state->monsterTrapMovementApplied && !(state->monsterTrapUntil > now))
+    // Expiry can expose another ring entry, including an expired middle one.
+    // At equality keep the entry, but return to the ordinary speed branch.
+    if (state->monsterMotion.HasExpiredEnd(now) ||
+        (state->monsterMotionApplied && !state->monsterMotion.AnyActive(now)))
     {
         const auto life = state->monsterLifeSerial;
-        player.pev->gravity = state->monsterTrapSavedGravity;
-        state->monsterTrapMovementApplied = false;
         player.ResetMaxSpeed();
         if (Resolve(state->player) != state || state->monsterLifeSerial != life) return false;
     }
@@ -1249,7 +1426,7 @@ bool CCSOLScenarioPlayerRuntime::MonsterTrapActive(const EHANDLE& handle, float)
     const auto state = Resolve(handle);
     // Seek/Touch ask whether id17 is present; expiry cleanup is a separate
     // strict-greater pass. At deadline equality it still prevents recapture.
-    return state && state->monsterTrapUntil > 0;
+    return state && state->monsterMotion.Contains(17);
 }
 
 bool CCSOLScenarioPlayerRuntime::ResetMonsterSkillState(const EHANDLE& handle)
@@ -1259,13 +1436,18 @@ bool CCSOLScenarioPlayerRuntime::ResetMonsterSkillState(const EHANDLE& handle)
     auto* player = state ? dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()) : nullptr;
     if (!player) return true;
     const auto life = ++state->monsterLifeSerial;
-    const bool movement = state->monsterTrapMovementApplied;
+    const bool movement = state->monsterTrapMovementApplied || !state->monsterMotion.Empty() || state->monsterMotionApplied;
+    const bool restoreGravity = state->monsterTrapMovementApplied;
     state->monsterTrapUntil = 0;
     state->monsterTrapPending = false;
     state->monsterTrapMovementApplied = false;
+    state->monsterMotion.Clear();
+    state->monsterMotionApplied = false;
+    if (std::erase_if(state->labels, [](const auto& label) { return label.motionStatus != 0; }))
+    { state->labelsDirty = true; ++state->buffsRevision; }
     if (movement)
     {
-        player->pev->gravity = state->monsterTrapSavedGravity;
+        if (restoreGravity) player->pev->gravity = state->monsterTrapSavedGravity;
         player->ResetMaxSpeed();
     }
     return Resolve(handle) == state && state->monsterLifeSerial == life && handle.Get<CBaseEntity>() == player;
@@ -1288,12 +1470,9 @@ bool CCSOLScenarioPlayerRuntime::MonsterWeaponDropBlocked(const EHANDLE& handle,
 
 bool CCSOLScenarioPlayerRuntime::ApplyMonsterTrapMovement(CBasePlayer& player, float now)
 {
-    const auto state = Resolve(EHANDLE(&player));
-    if (!state || !(state->monsterTrapUntil > now)) return false;
-    player.pev->maxspeed = 1.0f;
-    player.pev->gravity = 10.0f;
-    state->monsterTrapMovementApplied = true;
-    return true;
+    bool active{};
+    csol::scenario::ConfigError error;
+    return ApplyMonsterStatusMovement(player, player.pev->maxspeed, now, active, error) && active;
 }
 
 bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float duration,
@@ -1305,8 +1484,9 @@ bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float dur
     const auto state = Resolve(handle);
     auto* player = state ? dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()) : nullptr;
     if (!player || !gpGlobals || !guard.Current() || !prepare ||
-        !std::isfinite(duration) || duration <= 0) return false;
-    if (state->monsterTrapUntil > 0 || state->monsterTrapPending) return true;
+        !std::isfinite(duration) || duration <= 0 || !std::isfinite(gpGlobals->time) ||
+        !std::isfinite(gpGlobals->time + duration)) return false;
+    if (state->monsterMotion.Contains(17) || state->monsterTrapPending) return true;
     const auto life = state->monsterLifeSerial;
     struct Pending
     {
@@ -1341,21 +1521,28 @@ bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float dur
     // hold is installed. Reserve this life through those engine callbacks.
     if (!current() || !prepare() || !current()) return false;
     state->monsterTrapSavedGravity = player->pev->gravity;
-    state->monsterTrapUntil = gpGlobals->time + duration;
-    player->ResetMaxSpeed();
-    if (!current())
+    const auto cancelStatus = [&]
     {
         // An engine hook can remove the trap while resetting speed. Retire
         // only our still-current life; never touch a respawned player's state.
         if (Resolve(handle) == state && state->monsterLifeSerial == life && handle.Get<CBaseEntity>() == player)
         {
             state->monsterTrapUntil = 0;
+            state->monsterMotion.Remove(17);
+            if (std::erase_if(state->labels, [](const auto& label) { return label.motionStatus == 17; }))
+            { state->labelsDirty = true; ++state->buffsRevision; }
             if (state->monsterTrapMovementApplied) player->pev->gravity = state->monsterTrapSavedGravity;
             state->monsterTrapMovementApplied = false;
             player->ResetMaxSpeed();
         }
-        return false;
-    }
+    };
+    bool applied{};
+    if (!AddMonsterMotionStatus(handle, 17, duration, 1.0f, 10.0f, applied, error) || !current())
+    { cancelStatus(); return false; }
+    // Original Trap Touch ignores AddStatus's changed/immune result, resets
+    // speed once more and clears velocity after consuming the trap.
+    player->ResetMaxSpeed();
+    if (!current()) { cancelStatus(); return false; }
     player->pev->velocity = g_vecZero;
     caught = true;
     return true;
@@ -1367,8 +1554,19 @@ std::uint64_t CCSOLScenarioPlayerRuntime::InstallStatBuff(const EHANDLE& player,
     const auto state = Resolve(player);
     if (!state || buff.token || buff.renderHeld || !buff.labels.empty() || m_buffSequence == UINT64_MAX ||
         !std::isfinite(buff.expires) || !std::isfinite(buff.criticalChance) ||
-        !std::isfinite(buff.criticalMultiplier) || !std::isfinite(buff.attackRatio)) return 0;
+        !std::isfinite(buff.criticalMultiplier) || !std::isfinite(buff.attackRatio) ||
+        !std::isfinite(buff.speed) || !std::isfinite(buff.absoluteSpeed) || !std::isfinite(buff.periodicRecovery) ||
+        !std::isfinite(buff.periodicInterval) || !std::isfinite(buff.extraClip) ||
+        !std::isfinite(buff.cooldownReduction) || !std::isfinite(buff.knockbackResistance) ||
+        !std::isfinite(buff.slowResistance) || !std::isfinite(buff.gravityResistance) ||
+        !std::isfinite(buff.dodgeChance) || !std::isfinite(buff.incomingDamageRatio) ||
+        !std::isfinite(buff.incomingDamageAmplificationRatio) || !std::isfinite(buff.periodicDamage) ||
+        !std::isfinite(buff.periodicDamageInterval) || !std::isfinite(buff.periodicDamageRadius)) return 0;
     const auto token = buff.token = ++m_buffSequence;
+    // Original channel0 has one deadline/value slot. New absolute speed
+    // replaces the older producer, even if the new value is lower.
+    if (buff.absoluteSpeed > 0)
+        for (auto& old : state->buffs) old.absoluteSpeed = 0;
     const auto position = std::upper_bound(state->buffs.begin(), state->buffs.end(), buff.group,
         [](std::int32_t group, const auto& existing) { return group < existing.group; });
     state->buffs.insert(position, std::move(buff));
@@ -1387,6 +1585,77 @@ bool CCSOLScenarioPlayerRuntime::RemoveStatBuff(const EHANDLE& handle, std::uint
         [token](const auto& buff) { return buff.token == token; });
     return found != state->buffs.end() &&
         RemoveProtectionAt(*state, *player, static_cast<std::size_t>(found - state->buffs.begin()));
+}
+
+bool CCSOLScenarioPlayerRuntime::RetireCharacterSkillEffects(const EHANDLE& handle,
+    csol::scenario::ConfigError& error)
+{
+    return RetireCharacterSkillState(Resolve(handle), error);
+}
+
+bool CCSOLScenarioPlayerRuntime::RetireCharacterSkillState(
+    const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state, csol::scenario::ConfigError& error)
+{
+    const auto keepAlive = shared_from_this();
+    if (!state) return true;
+    const auto handle = state->player;
+    if (state->retiringCharacterSkillEffects) return false;
+    state->retiringCharacterSkillEffects = true;
+    struct Scope { bool& value; ~Scope() { value = false; } } scope{state->retiringCharacterSkillEffects};
+    const auto skill = std::dynamic_pointer_cast<CSOLScenarioControlledSkill>(state->activeSkill);
+    if (!skill) return true;
+    const auto identity = skill->RetirementBuffIdentity();
+    const auto life = state->skillLifeSerial;
+    const auto lifecycle = m_lifecycle;
+    const auto access = m_access;
+    const auto targets = m_players;
+    bool result{};
+    std::exception_ptr failure;
+    try { result = skill->RetireEffects(error); }
+    catch (...) { failure = std::current_exception(); }
+    // The callback may remove this owner or replace its character. The old
+    // globally unique tag still belongs to this retirement, not the new skill.
+    // Map revocation instead leaves cleanup to ReleaseProtectionState().
+    const auto mapCurrent = [&]
+    { return Active() && m_lifecycle == lifecycle && m_access == access && access && access->Allowed(); };
+    if (identity)
+    {
+        for (const auto& target : targets)
+        {
+            if (!mapCurrent()) return false;
+            if (!target || Resolve(target->player) != target) continue;
+            const auto targetLife = target->skillLifeSerial;
+            auto* player = target->player.Get<CBasePlayer>();
+            if (!player) continue;
+            std::vector<std::uint64_t> tokens;
+            for (const auto& buff : target->buffs)
+                if (buff.skillIdentity == identity) tokens.push_back(buff.token);
+            for (const auto token : tokens)
+            {
+                if (!mapCurrent()) return false;
+                if (Resolve(target->player) != target || target->skillLifeSerial != targetLife ||
+                    target->player.Get<CBasePlayer>() != player) break;
+                const auto found = std::find_if(target->buffs.begin(), target->buffs.end(),
+                    [token](const auto& buff) { return buff.token == token; });
+                if (found == target->buffs.end()) continue;
+                // Removal erases the tag before callbacks. A callback that
+                // changes another buff must not leave the remaining old tags.
+                RemoveProtectionAt(*target, *player, static_cast<std::size_t>(found - target->buffs.begin()));
+            }
+        }
+    }
+    if (!mapCurrent() || Resolve(handle) != state || state->skillLifeSerial != life ||
+        state->activeSkill != skill) return false;
+    if (failure) std::rethrow_exception(failure);
+    if (!result && state->skillFailure.empty())
+    {
+        if (error.message.empty()) error.message = "character effect retirement failed";
+        state->skillFailure = error.message;
+        if (g_engfuncs.pfnAlertMessage)
+            ALERT(at_console, "[CSOL] Character effect retirement: %s\n", state->skillFailure.c_str());
+    }
+    return mapCurrent() && Resolve(handle) == state && state->skillLifeSerial == life &&
+        state->activeSkill == skill && result;
 }
 
 bool CCSOLScenarioPlayerRuntime::ApplyCriticalBuffDamage(CSOLMonsterDamageCall& call,
@@ -1834,8 +2103,19 @@ bool CCSOLScenarioPlayerRuntime::SetActiveSkill(const EHANDLE& player,
 {
     auto keepAlive = shared_from_this();
     const auto state = Resolve(player);
-    if (!state) return false;
+    if (!state || state->retiringCharacterSkillEffects) return false;
+    const auto previous = state->activeSkill;
+    const auto life = state->skillLifeSerial;
+    csol::scenario::ConfigError retirementError;
+    RetireCharacterSkillEffects(player, retirementError);
+    if (Resolve(player) != state || state->activeSkill != previous || state->skillLifeSerial != life) return false;
+    if (auto* owner = state->player.Get<CBasePlayer>())
+    {
+        csol::scenario::skills::CancelCharacterAction(*owner, false);
+        if (Resolve(player) != state || state->activeSkill != previous || state->skillLifeSerial != life) return false;
+    }
     state->activeSkillUnavailable = false;
+    state->skillFailure.clear();
     auto retired = std::exchange(state->activeSkill, std::move(skill));
     const auto revision = ++state->activeSkillRevision;
     retired.reset();
@@ -2533,9 +2813,10 @@ bool CCSOLScenarioPlayerRuntime::StopDamageCloaking(CSOLMonsterDamageCall& call,
     csol::scenario::ConfigError& error)
 {
     const auto keepAlive = shared_from_this();
+    const auto life = state->skillLifeSerial;
     const auto current = [&]
     { return Active() && call.Current() && call.Spawn().BelongsTo(m_session->Map()) &&
-        Resolve(state->player) == state && call.Player() == state->player.Get<CBasePlayer>(); };
+        Resolve(state->player) == state && call.Player() == state->player.Get<CBasePlayer>() && state->skillLifeSerial == life; };
     if (!current()) return call.Cancel();
     std::shared_ptr<CSOLScenarioDisplayAbilities> abilities;
     std::shared_ptr<csol::scenario::Feature3> feature;
@@ -2637,6 +2918,29 @@ bool CCSOLScenarioPlayerRuntime::StopCharacterCloaking(CSOLMonsterDamageCall& ca
     // Stop itself broadcasts v104 when its timing changed; subtype29 adds no
     // second broadcast after it. The normal later hit component uses key14.
     return StopDamageCloaking(call, state, 12, error);
+}
+
+bool CCSOLScenarioPlayerRuntime::ReadCharacterSkillSource(CSOLMonsterDamageCall& call,
+    int& weapon, csol::scenario::ConfigError& error)
+{
+    weapon = 0;
+    if (!Active() || !call.Current() || !call.Spawn().BelongsTo(m_session->Map())) return call.Cancel();
+    auto* source = call.Inflictor();
+    if (!source) return true;
+    const EHANDLE handle(source);
+    const bool result = ReadEntitySource(*source, weapon, error);
+    if (!Active() || !call.Current() || call.Inflictor() != source || handle.Get<CBaseEntity>() != source)
+        return call.Cancel();
+    return result;
+}
+
+bool CCSOLScenarioPlayerRuntime::StopCharacterSkillCloaking(CSOLMonsterDamageCall& call,
+    int key, csol::scenario::ConfigError& error)
+{
+    auto* player = call.Player();
+    const auto state = player ? Resolve(EHANDLE(player)) : nullptr;
+    if (!state) return call.Cancel();
+    return StopDamageCloaking(call, state, key, error);
 }
 
 bool CCSOLScenarioPlayerRuntime::NotifyClassModMonsterDamage(CSOLMonsterDamageCall& call,

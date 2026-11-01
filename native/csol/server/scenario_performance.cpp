@@ -194,8 +194,8 @@ void Command()
             auto* monster = dynamic_cast<CCSOLScenarioMonster*>(CBaseEntity::Instance(&edict));
             if (!monster || !monster->Pool() || !monster->Pool()->EntityAccessAllowed() ||
                 !monster->Pool()->Borrowed(*monster)) continue;
-            const auto* ordinary = dynamic_cast<const CCSOLOrdinaryMonsterBehavior*>(monster->Behavior());
-            const auto error = ordinary ? ordinary->Error().message : std::string{};
+            const auto behavior = monster->RetainBehavior();
+            const auto error = behavior ? std::string(behavior->Failure()) : std::string{};
             SERVER_PRINT(UTIL_VarArgs("[csol_ai] entity=%d type=%d skill=%d health=%.3f deadflag=%d sequence=%d frame=%.3f rate=%.3f animtime=%.3f nextthink=%.3f now=%.3f error=%s\n",
                 i, monster->TypeId(), monster->Type() ? monster->Type()->skill : 0,
                 monster->pev->health, monster->pev->deadflag, monster->pev->sequence,

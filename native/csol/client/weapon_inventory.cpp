@@ -2,6 +2,8 @@
 #include "runtime.hpp"
 #include "weapon_inventory.hpp"
 #include "pickup_history.hpp"
+#include "scenario_abilities.hpp"
+#include "scenario_respawn_ui.hpp"
 #include <algorithm>
 #include <cstring>
 #include <in_buttons.h>
@@ -126,6 +128,8 @@ void Cycle(int slot,int direction,xcommand_t original)
         if(original)original();
         return;
     }
+    if((slot==4 || slot==5) && TryScenarioHealingSlot(slot+1))return;
+    if(slot==6 && TryActivateScenarioAbility())return;
     if(slot>=5 || !ManageSelection()){if(original)original();return;}
     auto ids=Choices(slot);if(ids.empty())return;
     if(engine.GetClientTime()>selectionUntil)selected=0;
@@ -326,6 +330,10 @@ void DrawWeaponSelection(int hidden,int intermission)
         x+=(column==slot?selectedWidth:bucketWidth)+5;
     }
     ++selectionDraws;
+}
+bool WeaponTextMenuVisible()
+{
+    return textMenu && engine.GetClientTime()<=menuUntil;
 }
 void WeaponSelectionVisibility(int hidden,int intermission)
 {

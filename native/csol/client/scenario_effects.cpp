@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "user_message_chain.hpp"
 #include "scenario_effects.hpp"
+#include "oberon_hint.hpp"
+#include "frozen_death.hpp"
+#include "frozen_smoke.hpp"
+#include "../frozen_smoke.hpp"
 #include "../scenario_healing.hpp"
 #include "../scenario_monster_effects.hpp"
 #include <r_efx.h>
@@ -16,6 +21,7 @@ namespace csol::client
 namespace
 {
 pfnUserMsgHook previousMP{}, previousInit{}, previousHealth{}, previousHide{}, previousReset{};
+pfnUserMsgHook previousFrozenSmoke{};
 std::array<float, 4> pain{};
 int painSprite{}, painResolution{}, health{100}, hidden{};
 bool healthKnown{}, healthHookPending{};
@@ -40,21 +46,73 @@ bool Owns(const Owned& effect)
     return effect.entity && effect.entity->callback == Follow &&
         effect.entity->entity.curstate.iuser4 == effect.token;
 }
-void Heal(int ownerIndex, bool self)
+void AttachedSprite(int ownerIndex, float height, float duration, int type)
 {
-    if (!engine.GetEntityByIndex || !engine.CL_LoadModel || !engine.GetClientTime ||
-        !engine.pEfxAPI || !engine.pEfxAPI->CL_TempEntAlloc) return;
+    if (!std::isfinite(height) || !std::isfinite(duration) || duration < 0 ||
+        !engine.GetEntityByIndex || !engine.CL_LoadModel || !engine.GetClientTime ||
+        !engine.pEfxAPI || !engine.pEfxAPI->CL_TempEntAllocHigh) return;
     const auto* owner = engine.GetEntityByIndex(ownerIndex);
     if (!owner || !owner->model) return;
     int index{};
-    auto* model = engine.CL_LoadModel(healing::Sprites[self ? 1 : 0], &index);
+    const char* path = type == 60 ? "sprites/DoubleSideA.spr" : type == 61 ? "sprites/DoubleSideB.spr" :
+        type == 112 ? "sprites/zbt_invincibility.spr" : "sprites/ef_sbmine_debuff.spr";
+    auto* model = engine.CL_LoadModel(path, &index);
+    if (!model || model->type != mod_sprite || model->numframes <= 0) return;
+    const float now = static_cast<float>(engine.GetClientTime());
+    if (!std::isfinite(now) || !std::isfinite(now + duration)) return;
+    // Original199/62 first expires this owner's existing table102 effect.
+    if (type == 62)
+        for (auto& effect : attached)
+            if (Owns(effect) && effect.entity->clientIndex == ownerIndex && effect.entity->entity.model == model)
+                effect.entity->die = now;
+    const auto slot = std::find_if(attached.begin(), attached.end(), [&](const Owned& effect)
+    { return !Owns(effect) || now > effect.entity->die + 1.0; });
+    if (slot == attached.end()) return;
+    float position[]{owner->origin[0], owner->origin[1], owner->origin[2] + height};
+    auto* temp = engine.pEfxAPI->CL_TempEntAllocHigh(position, model);
+    if (!temp) return;
+    nextToken = nextToken == INT_MAX ? 1 : nextToken + 1;
+    *slot = {temp, nextToken};
+    temp->entity.curstate.iuser4 = nextToken;
+    temp->flags = FTENT_PERSIST | FTENT_CLIENTCUSTOM;
+    // Original 60/61 use static frame0 (0x10A000);112 loops without a
+    // fade (0x11A100). Only slow-wall62 uses the timed fade-out0x11A180.
+    if (type == 62 || type == 112) temp->flags |= FTENT_SPRANIMATE | FTENT_SPRANIMATELOOP;
+    if (type == 62) temp->flags |= FTENT_FADEOUT;
+    temp->callback = Follow;
+    temp->clientIndex = static_cast<short>(ownerIndex);
+    temp->tentOffset[0] = temp->tentOffset[1] = 0;
+    temp->tentOffset[2] = height;
+    temp->die = now + duration;
+    temp->fadeSpeed = 1;
+    temp->frameMax = static_cast<float>(model->numframes);
+    temp->entity.curstate.frame = 0;
+    temp->entity.curstate.framerate = 10;
+    temp->entity.curstate.rendermode = kRenderTransAdd;
+    temp->entity.curstate.renderfx = 14;
+    temp->entity.curstate.renderamt = temp->entity.baseline.renderamt = 254;
+    temp->entity.curstate.scale = type == 112 ? .9f : type == 62 ? .3f : 1.0f;
+}
+void Heal(int ownerIndex, int type)
+{
+    if (!engine.GetEntityByIndex || !engine.CL_LoadModel || !engine.GetClientTime ||
+        !engine.pEfxAPI || !engine.pEfxAPI->CL_TempEntAllocHigh) return;
+    const auto* owner = engine.GetEntityByIndex(ownerIndex);
+    if (!owner || !owner->model) return;
+    int index{};
+    const bool self = type == 13;
+    // Original MPToCL4/effect44 selects HW table80, then follows at z60.
+    const char* path = type == 40 ? "sprites/zb_skill_hpbuff.spr" :
+        type == 44 ? "sprites/zombiarmorheal_head.spr" : healing::Sprites[self ? 1 : 0];
+    auto* model = engine.CL_LoadModel(path, &index);
     if (!model || model->type != mod_sprite || model->numframes <= 0) return;
     const double now = engine.GetClientTime();
     const auto slot = std::find_if(attached.begin(), attached.end(), [&](const Owned& effect)
     { return !Owns(effect) || now > effect.entity->die + 1.0; });
     if (slot == attached.end()) return;
-    float position[]{owner->origin[0], owner->origin[1], owner->origin[2] + (self ? 25.0f : 40.0f)};
-    auto* temp = engine.pEfxAPI->CL_TempEntAlloc(position, model);
+    const float offset = type == 40 || type == 44 ? 60.0f : self ? 25.0f : 40.0f;
+    float position[]{owner->origin[0], owner->origin[1], owner->origin[2] + offset};
+    auto* temp = engine.pEfxAPI->CL_TempEntAllocHigh(position, model);
     if (!temp) return;
     nextToken = nextToken == INT_MAX ? 1 : nextToken + 1;
     *slot = {temp, nextToken};
@@ -66,7 +124,7 @@ void Heal(int ownerIndex, bool self)
     temp->callback = Follow;
     temp->clientIndex = static_cast<short>(ownerIndex);
     temp->tentOffset[0] = temp->tentOffset[1] = 0;
-    temp->tentOffset[2] = self ? 25.0f : 40.0f;
+    temp->tentOffset[2] = offset;
     temp->die = static_cast<float>(now + 1.0);
     temp->fadeSpeed = 1.0f;
     temp->frameMax = static_cast<float>(model->numframes);
@@ -75,19 +133,44 @@ void Heal(int ownerIndex, bool self)
     temp->entity.curstate.rendermode = kRenderTransAdd;
     temp->entity.curstate.renderfx = 14;
     temp->entity.curstate.renderamt = temp->entity.baseline.renderamt = 254;
-    temp->entity.curstate.scale = 1;
+    temp->entity.curstate.scale = type == 40 ? .5f : 1.0f;
 }
 int Receive(const char* name, int size, void* data)
 {
     SynchronizeSession();
     if (!data || size <= 0) return previousMP ? previousMP(name, size, data) : 1;
+    if (ConsumeOberonHint(size, data)) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);
+    if (bytes[0] == 112)
+    {
+        if (size != 5) return 1;
+        const int owner = bytes[1] | (int(bytes[2]) << 8);
+        const auto duration = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(bytes[3] | (int(bytes[4]) << 8)));
+        if (owner > 0 && owner <= SHRT_MAX && duration >= 0)
+            AttachedSprite(owner, 0, static_cast<float>(duration), 112);
+        return 1;
+    }
+    if (bytes[0] == 199)
+    {
+        if (size < 4) return 1;
+        if (bytes[3] != 60 && bytes[3] != 61 && bytes[3] != 62) return previousMP ? previousMP(name, size, data) : 1;
+        if (size != 12) return 1;
+        const int owner = bytes[1] | (int(bytes[2]) << 8);
+        const auto number = [&](int offset)
+        {
+            std::uint32_t bits{};
+            for (unsigned i = 0; i < 4; ++i) bits |= std::uint32_t(bytes[offset + i]) << (8 * i);
+            return std::bit_cast<float>(bits);
+        };
+        if (owner > 0 && owner <= SHRT_MAX) AttachedSprite(owner, number(4), number(8), bytes[3]);
+        return 1;
+    }
     if (bytes[0] != 4) return previousMP ? previousMP(name, size, data) : 1;
     if (size < 4) return 1;
-    if (bytes[3] != 9 && bytes[3] != 13) return previousMP ? previousMP(name, size, data) : 1;
+    if (bytes[3] != 9 && bytes[3] != 13 && bytes[3] != 40 && bytes[3] != 44) return previousMP ? previousMP(name, size, data) : 1;
     if (size != 4) return 1;
     const int owner = bytes[1] | (int(bytes[2]) << 8);
-    if (owner > 0 && owner <= SHRT_MAX) Heal(owner, bytes[3] == 13);
+    if (owner > 0 && owner <= SHRT_MAX) Heal(owner, bytes[3]);
     return 1;
 }
 int InitHUD(const char* name, int size, void* data)
@@ -170,13 +253,26 @@ int ReceiveMonsterEffect(const char*, int size, void* data)
 }
 void Install(const char* name, pfnUserMsgHook hook, pfnUserMsgHook& previous)
 {
+    if (hook != Health)
+    {
+        InstallChainedUserMessage(name, hook, previous);
+        return;
+    }
     const auto old = api->HookUserMsg(name, hook);
     if (old != hook) previous = old;
     if (!old) engine.pfnHookUserMsg(name, hook);
 }
+int ReceiveFrozenSmoke(const char* name, int size, void* data)
+{
+    SynchronizeSession();
+    if (ConsumeFrozenSmoke(size, data)) return 1;
+    return previousFrozenSmoke ? previousFrozenSmoke(name, size, data) : 1;
+}
 }
 void InitializeScenarioEffects()
 {
+    InitializeFrozenDeath();
+    Install(csol::frozen_smoke::SmokeMessage, ReceiveFrozenSmoke, previousFrozenSmoke);
     Install("MPToCL", Receive, previousMP);
     Install("InitHUD", InitHUD, previousInit);
     Install("ResetHUD", ResetHUD, previousReset);
@@ -188,12 +284,16 @@ void InitializeScenarioEffects()
 }
 void ScenarioEffectsFrame()
 {
+    FrozenSmokeFrame();
     if (!healthHookPending) return;
     healthHookPending = false;
     Install("Health", Health, previousHealth);
 }
 void ResetScenarioEffects()
 {
+    ResetFrozenDeath();
+    ResetFrozenSmoke();
+    ResetOberonHints();
     pain = {};
     painSprite = painResolution = hidden = 0;
     health = 100;

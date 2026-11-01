@@ -47,7 +47,7 @@ public:
 enum class ActivationResult { Started, NotReady, ActionRefused, PreparationRefused, Cancelled, Failed };
 
 bool Ready(const SkillTraits& traits, const ActivationState& state,
-    ActivationHost& host, bool& ready, ConfigError& error);
+    ActivationHost& host, bool& ready, ConfigError& error, bool* blocked = nullptr);
 ActivationResult Activate(const SkillTraits& traits, ActivationState& state,
     ActivationHost& host, ConfigError& error);
 bool Update(ActivationState& state, ActivationHost& host, ConfigError& error);

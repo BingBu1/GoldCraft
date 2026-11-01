@@ -30,6 +30,10 @@ public:
     // Rules v1D8 applies the ordered named effects after modern ATK. The
     // caller supplies the original skill-based Boss predicate for this stage.
     bool ModifyCreatureDamage(const EHANDLE& player, bool skillBoss, float& damage);
+    // Original v1B0's ordered resistance effects. These predicates belong to
+    // the damage source adapter, not to the victim's currently held weapon.
+    bool ModifyIncomingDamage(const EHANDLE& player, bool blast,
+        bool suicideBomb, bool zombieBomb, float& damage);
 private:
     struct Player
     {

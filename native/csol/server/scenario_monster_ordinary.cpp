@@ -42,7 +42,7 @@ bool CCSOLOrdinaryMonsterBehavior::UseSkill(CSOLMonsterSpawnCall& call, const St
     CCSOLOrdinaryMonsterServices& services)
 {
     #pragma clang fp contract(off)
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || !gpGlobals) return false;
     const auto skill = state->spawn->skill;
     if (skill != 1 && skill != 2)
@@ -73,13 +73,13 @@ bool CCSOLOrdinaryMonsterBehavior::UseSkill(CSOLMonsterSpawnCall& call, const St
     const float jitter = state->jitter * 5.0f;
     StartClock(state->skillActive, duration);
     StartClock(state->skill, cooldown + jitter);
-    return Current(call, state) != nullptr;
+    return CurrentAlive(call, state) != nullptr;
 }
 
 bool CCSOLOrdinaryMonsterBehavior::UpdateSkill(CSOLMonsterSpawnCall& call, const StatePtr& state)
 {
     #pragma clang fp contract(off)
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || !gpGlobals) return false;
     // 113F03D0: an SK row and an unexpired (or unordered) secondary clock
     // both leave the entire state untouched. This is not the frozen gate.
@@ -88,7 +88,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateSkill(CSOLMonsterSpawnCall& call, const
     StartClock(state->secondarySkill, 99999.0f);
     if (monster->HostState().activeSkill != 9) return true;
     auto* target = state->target.Get<CBaseEntity>();
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     if (!target) return true;
 
     const Vector delta = target->pev->origin - monster->pev->origin;
@@ -112,7 +112,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateSkill(CSOLMonsterSpawnCall& call, const
     // Slot+10 is attackDamage; speed is +1C. Touch consumes this separately
     // from both motion clocks. Do not clear activeSkill or skillActive here.
     state->skillCollisionDamage = state->spawn->attributes.attackDamage * 3.0f;
-    return Current(call, state) != nullptr;
+    return CurrentAlive(call, state) != nullptr;
 }
 
 CCSOLScenarioMonster* CCSOLOrdinaryMonsterBehavior::Current(
@@ -127,10 +127,19 @@ CCSOLScenarioMonster* CCSOLOrdinaryMonsterBehavior::Current(
         monster->Pool()->Lease(*monster) == state->lease ? monster : nullptr;
 }
 
+CCSOLScenarioMonster* CCSOLOrdinaryMonsterBehavior::CurrentAlive(
+    CSOLMonsterSpawnCall& call, const StatePtr& state) const
+{
+    auto* monster = Current(call, state);
+    // Death retains its lease until FreeThink. Alive AI must stop without
+    // turning that legitimate transition into a persistent behavior failure.
+    return monster && monster->pev->deadflag != DEAD_DEAD ? monster : nullptr;
+}
+
 bool CCSOLOrdinaryMonsterBehavior::Step(CSOLMonsterSpawnCall& call,
     const StatePtr& state, bool ok, const char* failure)
 {
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     if (!ok && state->error.message.empty()) state->error.message = failure;
     return ok && state->error.message.empty();
 }
@@ -139,7 +148,7 @@ bool CCSOLOrdinaryMonsterBehavior::MoveTo(CSOLMonsterSpawnCall& call,
     State& state, const Vector& goal)
 {
     auto* monster = call.Current();
-    if (!monster || !gpGlobals || !Finite(goal)) return false;
+    if (!monster || monster->pev->deadflag == DEAD_DEAD || !gpGlobals || !Finite(goal)) return false;
     auto& position = state.position;
     // A sequence hook cannot cancel or mutate the valid Jump transaction.
     if (position.startingJump) return false;
@@ -172,7 +181,7 @@ bool CCSOLOrdinaryMonsterBehavior::MoveTo(CSOLMonsterSpawnCall& call,
 bool CCSOLOrdinaryMonsterBehavior::Stop(CSOLMonsterSpawnCall& call, State& state)
 {
     auto* monster = call.Current();
-    if (!monster || !MoveTo(call, state, Feet(*monster))) return false;
+    if (!monster || monster->pev->deadflag == DEAD_DEAD || !MoveTo(call, state, Feet(*monster))) return false;
     monster->pev->velocity = g_vecZero;
     state.position.motion.moveType = std::min(0, state.position.motion.maxMoveType);
     return true;
@@ -192,10 +201,10 @@ bool CCSOLOrdinaryMonsterBehavior::MoveTo(CSOLMonsterSpawnCall& call, const Vect
     auto services = m_services.lock();
     if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
-    return MoveTo(bound, *state, goal) && Current(call, state);
+    return MoveTo(bound, *state, goal) && CurrentAlive(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Stop(CSOLMonsterSpawnCall& call)
@@ -203,10 +212,10 @@ bool CCSOLOrdinaryMonsterBehavior::Stop(CSOLMonsterSpawnCall& call)
     auto services = m_services.lock();
     if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
-    return Stop(bound, *state) && Current(call, state);
+    return Stop(bound, *state) && CurrentAlive(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Jump(CSOLMonsterSpawnCall& call)
@@ -214,11 +223,11 @@ bool CCSOLOrdinaryMonsterBehavior::Jump(CSOLMonsterSpawnCall& call)
     auto services = m_services.lock();
     if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     CSOLMonsterSpawnCall bound(services->Map(), services->Pool(), services->Deaths(), *monster, this, services);
     return CSOL_PrepareMonsterJumpDirection(bound, state->position) &&
-        CSOL_StartMonsterJump(bound, state->position, state->spawn->sequences) && Current(call, state);
+        CSOL_StartMonsterJump(bound, state->position, state->spawn->sequences) && CurrentAlive(call, state);
 }
 
 bool CCSOLOrdinaryMonsterBehavior::Flinch(CSOLMonsterSpawnCall& call)
@@ -272,7 +281,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateStatusTick(CSOLMonsterSpawnCall& call, 
     auto services = m_services.lock();
     if (!services || !services->OwnerCurrent()) return false;
     auto state = m_state;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || !gpGlobals) return false;
     auto& status = monster->HostState();
     if (!(gpGlobals->time >= status.statusUpdateAt)) return true;
@@ -298,7 +307,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
     const StatePtr& state, CCSOLOrdinaryMonsterServices& services)
 {
     #pragma clang fp contract(off)
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || !gpGlobals) return false;
     const auto* appearance = csol::scenario::FindMonsterAppearance(monster->Type()->appearance);
     if (!Step(call, state, appearance != nullptr, "ordinary ambient appearance is unavailable")) return false;
@@ -309,7 +318,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
         state->spawn->ambientAt = (gpGlobals->time + 7.0f) + static_cast<float>(std::rand() % 15);
         EMIT_SOUND_DYN(monster->edict(), CHAN_BODY, appearance->ambientSound.data(),
             1.0f, ATTN_NORM, 0, PITCH_NORM);
-        if (!Current(call, state)) return false;
+        if (!CurrentAlive(call, state)) return false;
     }
     bool elapsed{};
     if (!Step(call, state, UpdateStatusTick(call, elapsed), "ordinary status update failed")) return false;
@@ -318,9 +327,9 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
     const CSOLMonsterEffectGuard guard{[](const void* value)
     {
         const auto& scope = *static_cast<const Capture*>(value);
-        return scope.owner->Current(scope.call, scope.state);
+        return scope.owner->CurrentAlive(scope.call, scope.state);
     }, &capture};
-    monster = Current(call, state);
+    monster = CurrentAlive(call, state);
     if (!monster) return false;
     auto effects = monster->DamageEffects();
     if (!Step(call, state, effects != nullptr, "ordinary damage effects are unavailable")) return false;
@@ -329,7 +338,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateAmbientAndEffects(CSOLMonsterSpawnCall&
     return Step(call, state, CSOL_UpdateMonsterGait(call, state->error, [](const void* value)
     {
         const auto& scope = *static_cast<const Capture*>(value);
-        return scope.owner->Current(scope.call, scope.state) != nullptr;
+        return scope.owner->CurrentAlive(scope.call, scope.state) != nullptr;
     }, &capture), "ordinary gait update failed");
 }
 
@@ -340,7 +349,7 @@ bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& input,
     if (!services || !services->OwnerCurrent()) return false;
     auto* monster = input.Current();
     if (!monster || !gpGlobals || monster->Behavior() != this ||
-        monster->Type()->skill >= 1000 || monster->Type()->propensity != 0 ||
+        !AcceptsSpawnType(*monster->Type()) ||
         !std::isfinite(gpGlobals->time))
     { error.message = "ordinary behavior requires a valid propensity0 spawn"; return false; }
     if (!input.BelongsTo(services->Map()) || monster->Pool() != &services->Pool()) return false;
@@ -423,7 +432,7 @@ bool CCSOLOrdinaryMonsterBehavior::ValidateTarget(CSOLMonsterSpawnCall& call, co
     auto* target = state->target.Get<CBaseEntity>();
     if (!target) return true;
     const bool player = target->IsPlayer() != FALSE;
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     target = state->target.Get<CBaseEntity>();
     if (!target) return true;
     bool excluded{};
@@ -455,7 +464,7 @@ bool CCSOLOrdinaryMonsterBehavior::FindPath(CSOLMonsterSpawnCall& call,
     auto* target = state->target.Get<CBaseEntity>();
     if (!target) return true;
     const bool player = target->IsPlayer() != FALSE;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     target = state->target.Get<CBaseEntity>();
     if (!target) return true;
@@ -492,7 +501,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
     for (int index = 1; index <= clientCount; ++index)
     {
         auto* edict = INDEXENT(index);
-        auto* monster = Current(call, state);
+        auto* monster = CurrentAlive(call, state);
         if (!monster) return false;
         if (!edict || edict->free) continue;
         auto* player = dynamic_cast<CBasePlayer*>(CBaseEntity::Instance(edict));
@@ -500,14 +509,14 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
             static_cast<std::uint32_t>(player->pev->flags) == 0x80000000u) continue;
         EHANDLE handle(player);
         const bool alive = player->IsAlive() != FALSE;
-        if (!Current(call, state)) return false;
+        if (!CurrentAlive(call, state)) return false;
         if (!alive || !handle.Get<CBaseEntity>()) continue;
         bool excluded{};
         if (!Step(call, state, services.PlayerTargetExcluded(call, handle, excluded, state->error),
             "ordinary candidate feature query failed")) return false;
         if (excluded) continue;
         auto* candidate = handle.Get<CBaseEntity>();
-        monster = Current(call, state);
+        monster = CurrentAlive(call, state);
         if (!monster) return false;
         if (!candidate) continue;
         const float squared = Square3(monster->pev->origin - candidate->pev->origin);
@@ -520,16 +529,16 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
     // The engine RNG stream is separate from the CRT stream below. This
     // check happens even when the player candidate list is empty.
     const auto roll = RANDOM_LONG(0, 100);
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     if (roll <= 15)
     {
         auto* follower = UTIL_FindEntityByClassname(nullptr, "zs_follower");
-        if (!Current(call, state)) return false;
+        if (!CurrentAlive(call, state)) return false;
         if (follower && UTIL_IsValidEntity(follower->edict()))
         {
             EHANDLE handle(follower);
             const bool alive = follower->IsAlive() != FALSE;
-            auto* monster = Current(call, state);
+            auto* monster = CurrentAlive(call, state);
             if (!monster) return false;
             follower = handle.Get<CBaseEntity>();
             if (alive && follower)
@@ -537,7 +546,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
                 const Vector start = monster->pev->origin, end = follower->pev->origin;
                 TraceResult trace{};
                 UTIL_TraceLine(start, end, dont_ignore_monsters, monster->edict(), &trace);
-                if (!Current(call, state)) return false;
+                if (!CurrentAlive(call, state)) return false;
                 if (trace.flFraction == 1.0f && handle.Get<CBaseEntity>())
                 { state->target = handle; return true; }
             }
@@ -558,7 +567,7 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
         state->target = nearby[static_cast<std::size_t>(std::rand()) % closeCount];
         return true;
     }
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     const auto policy = monster->HostState().targetPolicy;
     const auto type = monster->TypeId();
@@ -570,20 +579,20 @@ bool CCSOLOrdinaryMonsterBehavior::SelectTarget(CSOLMonsterSpawnCall& call, cons
         if (policy == 200)
         {
             eligible = previous->IsPlayer() != FALSE;
-            if (!Current(call, state)) return false;
+            if (!CurrentAlive(call, state)) return false;
             previous = handle.Get<CBaseEntity>();
         }
         if (previous && eligible)
         {
             const bool alive = previous->IsAlive() != FALSE;
-            if (!Current(call, state)) return false;
+            if (!CurrentAlive(call, state)) return false;
             previous = handle.Get<CBaseEntity>();
             if (alive && previous)
             {
                 if (policy == 200)
                 {
                     const bool stillPlayer = previous->IsPlayer() != FALSE;
-                    if (!Current(call, state)) return false;
+                    if (!CurrentAlive(call, state)) return false;
                     previous = handle.Get<CBaseEntity>();
                     if (!previous) { state->target = nullptr; return true; }
                     if (stillPlayer && previous->pev->rendermode == kRenderTransAlpha && previous->pev->renderamt < 1.0f)
@@ -602,11 +611,11 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
 {
     csol::scenario::perf::Scope performance(csol::scenario::perf::Timer::Behavior);
     const bool stopped = services.LogicStopped();
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     if (stopped) return true;
     state->jitter = static_cast<float>(std::rand() % 30) * FrameInterval;
     const bool& suppressed = services.DamageSuppressed();
-    if (!Current(call, state)) return false;
+    if (!CurrentAlive(call, state)) return false;
     state->canSkill = state->spawn->skill != 0 && !suppressed &&
         (gpGlobals->time > state->skill.deadline || gpGlobals->time > state->secondarySkill.deadline);
     state->canAttack = gpGlobals->time > state->melee.attack.deadline;
@@ -615,24 +624,24 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
         const bool used = gpGlobals->time > state->skill.deadline;
         if (used)
         {
-            Current(call, state)->HostState().activeSkill = state->spawn->skill;
+            CurrentAlive(call, state)->HostState().activeSkill = state->spawn->skill;
             if (!Step(call, state, UseSkill(call, state, services),
                 "ordinary skill execution failed")) return false;
         }
         if (!Step(call, state, UpdateSkill(call, state),
             "ordinary skill update failed")) return false;
-        if (used) return true;
+        if (used && SkillStopsTree()) return true;
     }
     if (state->canAttack)
     {
         struct MeleeContext { CCSOLOrdinaryMonsterBehavior* owner; CSOLMonsterSpawnCall* call; StatePtr state; };
         MeleeContext context{this, &call, state};
         const auto result = CSOL_TryOrdinaryMonsterMelee(call, *state->spawn, state->target,
-            Current(call, state)->HostState().enhancedUntil, suppressed,
+            CurrentAlive(call, state)->HostState().enhancedUntil, suppressed,
             state->deltaX, state->deltaY, state->melee, [](const void* pointer)
             {
                 const auto& context = *static_cast<const MeleeContext*>(pointer);
-                return context.owner->Current(*context.call, context.state) != nullptr;
+                return context.owner->CurrentAlive(*context.call, context.state) != nullptr;
             }, &context);
         if (result == CSOLMonsterMeleeResult::Cancelled) return false;
         if (!Step(call, state, result != CSOLMonsterMeleeResult::Failed, "ordinary melee failed")) return false;
@@ -645,7 +654,7 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
         if (state->spawn->skill == 7)
         {
             const auto* target = state->target.Get<CBaseEntity>();
-            const auto* monster = Current(call, state);
+            const auto* monster = CurrentAlive(call, state);
             if (!monster) return false;
             if (target && Square3(target->pev->origin - monster->pev->origin) > 24799.94921875f)
             {
@@ -653,7 +662,7 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
                 // the newly selected enemy or the MoveTo destination.
                 if (!CSOL_PrepareMonsterJumpDirection(call, state->position)) return false;
                 CSOL_StartMonsterJump(call, state->position, state->spawn->sequences);
-                if (!Current(call, state)) return false;
+                if (!CurrentAlive(call, state)) return false;
                 // A still-active Jump cooldown is an ordinary ignored return.
             }
         }
@@ -665,7 +674,7 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
         if (acted) return true;
     }
     if (!CheckObstacles(call, state)) return false;
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return false;
     if (Square3(state->position.destination - Feet(*monster)) < 400.0f)
         return Stop(call, *state);
@@ -676,7 +685,7 @@ bool CCSOLOrdinaryMonsterBehavior::RunTree(CSOLMonsterSpawnCall& call, const Sta
 bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state,
     CCSOLOrdinaryMonsterServices& services)
 {
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || monster->pev->deadflag == DEAD_DEAD) return true;
     // The original cvar suppresses D0 only; D4 has already run this tick.
     if (cv_hostage_stop.value > 0) return true;
@@ -684,7 +693,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
     state->deltaY = monster->pev->origin.y - state->previousOrigin.y;
     state->previousOrigin = monster->pev->origin;
     if (!RunTree(call, state, services)) return false;
-    monster = Current(call, state);
+    monster = CurrentAlive(call, state);
     if (!monster) return false;
     struct ResetContext { CCSOLOrdinaryMonsterBehavior* owner; CSOLMonsterSpawnCall* call; StatePtr state; };
     ResetContext context{this, &call, state};
@@ -696,10 +705,10 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
             return CSOL_ResetMonsterSequenceInfo(*context.call, [](const void* pointer)
             {
                 const auto& context = *static_cast<const ResetContext*>(pointer);
-                return context.owner->Current(*context.call, context.state) != nullptr;
+                return context.owner->CurrentAlive(*context.call, context.state) != nullptr;
             }, &context);
         }, &context), "ordinary locomotion animation failed")) return false;
-    monster = Current(call, state);
+    monster = CurrentAlive(call, state);
     if (gpGlobals->time > monster->HostState().enhancedUntil)
     {
         monster->pev->maxspeed = state->spawn->attributes.speed;
@@ -710,7 +719,7 @@ bool CCSOLOrdinaryMonsterBehavior::UpdateBehavior(CSOLMonsterSpawnCall& call, co
         monster->pev->renderamt = type.column21[2];
     }
     const bool alive = monster->IsAlive() != FALSE;
-    monster = Current(call, state);
+    monster = CurrentAlive(call, state);
     if (!monster) return false;
     if (alive && gpGlobals->time > state->solidAfter) monster->pev->solid = SOLID_SLIDEBOX;
     return true;
@@ -723,7 +732,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
     auto state = m_state;
     if (!services || !services->OwnerCurrent() || !state || state->thinking || !state->error.message.empty() || !gpGlobals) return;
     CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this, services);
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster) return;
     struct Scope { bool& busy; Scope(bool& value) : busy(value) { busy = true; } ~Scope() { busy = false; } } scope(state->thinking);
     try
@@ -732,7 +741,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
             monster->Type()->eventClass <= 149)
         {
             const auto protectedSlots = services->ProtectedSlots();
-            if (!Current(call, state)) return;
+            if (!CurrentAlive(call, state)) return;
             if (std::find(protectedSlots.begin(), protectedSlots.end(), monster->Slot()) == protectedSlots.end())
             {
                 CSOLMonsterDeathArguments arguments;
@@ -743,7 +752,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         }
         monster->pev->nextthink = gpGlobals->time + FrameInterval;
         if (!ValidateTarget(call, state, *services)) return;
-        monster = Current(call, state);
+        monster = CurrentAlive(call, state);
         if (!monster || (monster->pev->effects & EF_NODRAW)) return;
         auto& host = monster->HostState();
         if (host.frozenRemaining > 0)
@@ -757,14 +766,14 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
                 const bool reset = CSOL_ResetMonsterSequenceInfo(call, [](const void* pointer)
                 {
                     const auto& context = *static_cast<const ResetContext*>(pointer);
-                    return context.owner->Current(*context.call, context.state) != nullptr;
+                    return context.owner->CurrentAlive(*context.call, context.state) != nullptr;
                 }, &context);
                 if (!Step(call, state, reset, "ordinary thaw sequence reset failed")) return;
             }
         }
         if (gpGlobals->time > state->spawn->animationAt)
         {
-            monster = Current(call, state);
+            monster = CurrentAlive(call, state);
             if (monster->HostState().frozenRemaining > 0) monster->pev->framerate = 0;
             else monster->StudioFrameAdvance(0);
             // CSO and the stock SDK both use a fixed .1 event window, even
@@ -774,13 +783,13 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
             const bool dispatched = CSOL_DispatchMonsterAnimationEvents(call, [](const void* pointer)
             {
                 const auto& context = *static_cast<const EventContext*>(pointer);
-                return context.owner->Current(*context.call, context.state) != nullptr;
+                return context.owner->CurrentAlive(*context.call, context.state) != nullptr;
             }, &context);
             if (!Step(call, state, dispatched,
                 "ordinary animation events failed")) return;
             state->spawn->animationAt = gpGlobals->time + FrameInterval;
         }
-        monster = Current(call, state);
+        monster = CurrentAlive(call, state);
         if (!monster) return;
         if (monster->HostState().frozenRemaining <= 0)
         {
@@ -800,7 +809,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
                         const auto& world = navigation->World();
                         auto& occupancy = services->Occupancy();
                         const auto ladders = navigation->ClimberLadders();
-                        monster = Current(call, state);
+                        monster = CurrentAlive(call, state);
                         if (!monster || world.Generation() != state->position.worldGeneration)
                             cancelled = true;
                         else
@@ -808,8 +817,8 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
                             const auto result = CSOL_UpdateOrdinaryMonsterPosition(call, world,
                                 occupancy, *appearance, state->position, FrameInterval,
                                 monster->HostState().moveAfter, state->melee.avoidance.deadline, ladders);
-                            if (Current(call, state) && result == CSOLMonsterPositionResult::NavigationExpired)
-                                Current(call, state)->HostState().navigationExpired = true;
+                            if (CurrentAlive(call, state) && result == CSOLMonsterPositionResult::NavigationExpired)
+                                CurrentAlive(call, state)->HostState().navigationExpired = true;
                             moved = result != CSOLMonsterPositionResult::Failed;
                             cancelled = result == CSOLMonsterPositionResult::Cancelled;
                         }
@@ -818,7 +827,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
             }
             catch (...)
             {
-                if (Current(call, state)) state->error.message = "ordinary position callback threw";
+                if (CurrentAlive(call, state)) state->error.message = "ordinary position callback threw";
                 moved = false;
             }
             const bool ended = services->Deaths().EndBehavior(*behavior);
@@ -827,14 +836,15 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         }
         if (state->spawn->updateAt > gpGlobals->time) return;
         state->spawn->updateAt = gpGlobals->time + 0.1f;
-        monster = Current(call, state);
+        monster = CurrentAlive(call, state);
         if (!monster) return;
         if (monster->HostState().frozenRemaining <= 0 && !UpdateBehavior(call, state, *services)) return;
+        if (!CurrentAlive(call, state)) return;
         UpdateAmbientAndEffects(call, state, *services);
     }
     catch (...)
     {
-        if (Current(call, state)) state->error.message = "ordinary Think callback threw";
+        if (CurrentAlive(call, state)) state->error.message = "ordinary Think callback threw";
     }
 }
 
@@ -848,7 +858,7 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
     const EHANDLE target(other);
     const auto current = [&]() -> CCSOLScenarioMonster*
     {
-        auto* monster = Current(call, state);
+        auto* monster = CurrentAlive(call, state);
         return monster && target.Get<CBaseEntity>() ? monster : nullptr;
     };
     auto* monster = current();
@@ -914,7 +924,7 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
     }
     catch (...)
     {
-        if (Current(call, state)) state->error.message = "ordinary Touch callback threw";
+        if (CurrentAlive(call, state)) state->error.message = "ordinary Touch callback threw";
     }
 }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "user_message_chain.hpp"
 #include "hd_spray.hpp"
 #include "weapons.hpp"
 #include "camera.hpp"
@@ -11,6 +12,7 @@
 #include "sequence_guard.hpp"
 #include <ostream>
 #include <sstream>
+#include <iomanip>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -23,10 +25,17 @@
 #include "scenario_music.hpp"
 #include "scenario_kill.hpp"
 #include "scenario_effects.hpp"
+#include "character_skill_effects.hpp"
+#include "character_skill_display.hpp"
 #include "scenario_smoke.hpp"
+#include "elite_visuals.hpp"
+#include "frozen_death.hpp"
+#include "frozen_smoke.hpp"
 #include "scenario_upgrades.hpp"
 #include "scenario_abilities.hpp"
+#include "boss_health.hpp"
 #include "scenario_round_hud_client.hpp"
+#include "scenario_respawn_ui.hpp"
 #include "playerclip.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
@@ -49,6 +58,34 @@ static int playerSequence=-1,playerGait=-1;
 static int renderedPlayerSequence=-1;
 static std::string renderedPlayerLabel;
 static bool animationProbe{};
+struct ViewAnimationSample
+{
+    std::uint64_t serial{}, pending{};
+    int frame{}, model{}, sequence{}, weapon{}, flags{};
+    double time{};
+    float animtime{};
+    std::array<char,64> modelName{};
+};
+static std::array<ViewAnimationSample,128> viewAnimationSamples{};
+static std::uint64_t viewAnimationSerial{};
+static void ObserveViewAnimation(cl_entity_t* entity,int flags)
+{
+    if(!animationProbe || !entity || !entity->model || !engine.GetViewModel ||
+        entity!=engine.GetViewModel() || !studio.GetTimes)return;
+    ViewAnimationSample sample;
+    double old{};
+    studio.GetTimes(&sample.frame,&sample.time,&old);
+    sample.serial=++viewAnimationSerial;
+    sample.model=entity->curstate.modelindex;
+    sample.sequence=entity->curstate.sequence;
+    sample.animtime=entity->curstate.animtime;
+    std::copy_n(entity->model->name,
+        std::min(sizeof(entity->model->name),sample.modelName.size()-1),sample.modelName.begin());
+    sample.weapon=CurrentExtendedWeapon().id;
+    sample.pending=PendingWeaponAnimationSync(sample.weapon);
+    sample.flags=flags;
+    viewAnimationSamples[(sample.serial-1)%viewAnimationSamples.size()]=sample;
+}
 static cvar_t* studioBoneCache{};
 static std::array<std::array<float,3>,3> playerPose{};
 static std::array<float,3> leftHandInRight{};
@@ -149,6 +186,22 @@ void PlayerAnimationDiagnostics(std::ostream& out)
         <<",\"mergeError\":"<<heldError<<",\"errorBone\":"<<heldErrorBone<<",\"playerCache\":"<<playerCacheId<<",\"heldCache\":"<<heldCacheId
         <<",\"cacheAvailable\":"<<bool(studioBoneCache)<<",\"cacheValue\":"<<(studioBoneCache?studioBoneCache->value:-1)<<",\"heldPose\":[";
     for(int i=0;i<heldBoneCount;++i){if(i)out<<',';out<<'['<<heldPose[i][0]<<','<<heldPose[i][1]<<','<<heldPose[i][2]<<']';}out<<"]}";
+    // Captured on the game thread at the studio boundary, after the engine
+    // copied its animation into the view model. External memory reads can
+    // otherwise pair a new model pointer with the preceding frame's sequence.
+    out<<",\"viewAnimationDraws\":[";
+    const auto count=std::min<std::uint64_t>(viewAnimationSerial,viewAnimationSamples.size());
+    for(std::uint64_t i=0;i<count;++i)
+    {
+        const auto& sample=viewAnimationSamples[(viewAnimationSerial-count+i)%viewAnimationSamples.size()];
+        if(i)out<<',';
+        out<<"{\"serial\":"<<sample.serial<<",\"frame\":"<<sample.frame<<",\"time\":"<<sample.time
+            <<",\"modelindex\":"<<sample.model<<",\"model\":"<<std::quoted(sample.modelName.data())
+            <<",\"sequence\":"<<sample.sequence
+            <<",\"animtime\":"<<sample.animtime<<",\"weapon\":"<<sample.weapon
+            <<",\"pending\":"<<sample.pending<<",\"flags\":"<<sample.flags<<'}';
+    }
+    out<<']';
 }
 void* currentStudioHeader{};
 model_t* currentStudioModel{};
@@ -194,6 +247,7 @@ static int StudioDrawModel(int flags)
     try{InstallSequenceStudioGuards();}
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
+    ObserveViewAnimation(entity,flags);
     try { if(entity && DrawModel(entity,flags,originalDrawModel)) return 1; }
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: %s\n",e.what());}
     NativeHandFrameGrid(entity);
@@ -227,15 +281,21 @@ static void ScenarioHudInfo()
     std::ostringstream report;
     ScenarioUpgradesDiagnostics(report);
     ScenarioAbilitiesDiagnostics(report);
+    BossHealthDiagnostics(report);
     ScenarioRoundHudDiagnostics(report);
+    ScenarioRespawnUiDiagnostics(report);
+    FrozenSmokeDiagnostics(report);
     engine.Con_Printf("%s", report.str().c_str());
 }
 static void Init()
 {
     animationProbe=GetEnvironmentVariableA("CSOL_DIAGNOSTIC_PATH",nullptr,0)>0;
+    viewAnimationSerial=0;
     MountResources();
     InitializeDeathNotices();
+    const auto messageHeads=CaptureChainedUserMessageHeads();
     downstream.HUD_Init();
+    RefreshChainedUserMessageHeads(messageHeads);
     studioBoneCache=engine.pfnGetCvarPointer("r_studio_bone_caches");
     engine.pfnAddCommand("csol_info",Report);
     engine.pfnAddCommand("csol_scenario_hud_info",ScenarioHudInfo);
@@ -253,16 +313,23 @@ static void Init()
     InitializeScenarioMusic();
     InitializeScenarioKill();
     InitializeScenarioEffects();
+    InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
+    InitializeEliteVisuals();
     InitializeScenarioUpgrades();
     InitializeScenarioAbilities();
+    InitializeBossHealth();
     InitializeScenarioRoundHud();
+    InitializeScenarioRespawnUi();
     InitializePlayerClips();
 }
 static int VidInit()
 {
+    ResetFrozenDeath();
+    ResetFrozenSmoke();
     ResetCamera();
     ResetProjectiles();
+    ResetEliteVisuals();
     ClearScene();
     // A video mode change does not re-send the server's sign-on definitions.
     // Keep inventory until SynchronizeSession observes an actual session change.
@@ -272,14 +339,23 @@ static int VidInit()
     ScenarioKillVideoInit();
     ScenarioUpgradesVideoInit();
     ScenarioAbilitiesVideoInit();
+    CharacterSkillDisplayVideoInit();
+    CharacterSkillEffectsVideoInit();
+    BossHealthVideoInit();
     ScenarioRoundHudVideoInit();
+    ScenarioRespawnUiVideoInit();
     return downstream.HUD_VidInit();
 }
 static void HudShutdown()
 {
+    ResetFrozenDeath();
+    ResetFrozenSmoke();
     ShutdownPlayerClips();
     ShutdownSpray();
+    ShutdownBossHealth();
     ShutdownScenarioRoundHud();
+    ShutdownScenarioRespawnUi();
+    ShutdownEliteVisuals();
     if(downstream.HUD_Shutdown)downstream.HUD_Shutdown();
     // Renderer is the outer export wrapper and removes its own studio detours
     // after this returns. Remove our later outer detours first.
@@ -293,7 +369,12 @@ static void Frame(double time)
     ScenarioKillFrame();
     ScenarioUpgradesFrame();
     ScenarioAbilitiesFrame();
+    CharacterSkillDisplayFrame();
+    CharacterSkillEffectsFrame();
+    BossHealthFrame();
     ScenarioRoundHudFrame();
+    ScenarioRespawnUiFrame();
+    EliteVisualsFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();
@@ -304,6 +385,7 @@ static void Frame(double time)
 }
 static void CreateMove(float frame, usercmd_t* cmd, int active)
 {
+    BossImpactCreateMove(active);
     CharacterCreateMove(frame, cmd, active);
     BuyMenuCreateMove(cmd, active);
 }
@@ -316,7 +398,10 @@ static int Redraw(float time, int intermission)
     DrawScenarioEffects(time, intermission);
     DrawScenarioUpgrades(time, intermission);
     DrawScenarioAbilities(time, intermission);
+    DrawCharacterSkillDisplay(time, intermission);
+    DrawBossHealth(intermission);
     DrawScenarioRoundHud(time, intermission);
+    DrawScenarioRespawnUi(time, intermission);
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -388,6 +473,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){csol::client::ShutdownSpray();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

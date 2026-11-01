@@ -2,6 +2,9 @@
 #include "precompiled.h"
 #include "scenario_monster_models.h"
 #include "scenario_monster_pool.h"
+#include "scenario_monster_resources.h"
+#include "../oberon_hint.hpp"
+#include "scenario_oberon_resources.h"
 
 #include <set>
 
@@ -26,18 +29,20 @@ bool CCSOLMonsterModels::Reset()
     if (m_busy) return false;
     m_indices = {};
     m_deathSounds = {};
+    m_oberonBlackHoleModel = 0;
     m_ready = false;
     return true;
 }
 
 bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
-    csol::scenario::ConfigError& error)
+    csol::scenario::ConfigError& error, const csol::scenario::MonsterType* elite)
 {
     error = {};
     if (m_busy) return Fail(error, "scenario monster model operation is already active");
     Reset();
     Operation operation(m_busy);
     std::array<bool, csol::scenario::MonsterAppearanceCount> needed{};
+    bool needsOberon{};
     // Validate every effective type before the first irreversible engine call.
     for (const auto& [key, row] : types.byId)
     {
@@ -45,6 +50,14 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
             return Fail(error, "scenario monster type index is invalid");
         const auto* appearance = csol::scenario::FindMonsterAppearance(types.rows[row].appearance);
         if (!appearance) return Fail(error, "scenario monster appearance is not in the original catalog");
+        needed[appearance->index] = true;
+        needsOberon = needsOberon || types.rows[row].id == CSOLOberonMonsterTypeId;
+    }
+    if (elite)
+    {
+        const auto* appearance = csol::scenario::FindMonsterAppearance(elite->appearance);
+        if (elite->id != 32800 || !appearance || appearance->name != "zbs_elite_01")
+            return Fail(error, "scenario synthetic elite appearance is invalid");
         needed[appearance->index] = true;
     }
     const auto catalog = csol::scenario::MonsterAppearances();
@@ -81,6 +94,22 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
         if (catalog[i].name == "zombiedog" && !precacheSound("zombi/zombiedog_howls.wav"))
             return Fail(error, "scenario monster spawn howl precache failed");
     }
+    if (needsOberon)
+    {
+        m_oberonBlackHoleModel = PRECACHE_MODEL(CSOLOberonBlackHoleModel);
+        if (m_oberonBlackHoleModel <= 0)
+            return Fail(error, "Oberon blackhole model precache failed");
+        if (PRECACHE_MODEL(CSOLOberonKnifeEffectModel) <= 0)
+            return Fail(error, "Oberon knife effect model precache failed");
+        if (PRECACHE_MODEL(const_cast<char*>(csol::oberon_hint::Sprite)) <= 0)
+            return Fail(error, "Oberon start hint sprite precache failed");
+        for (const auto* model : CSOLOberonAttackModels)
+            if (PRECACHE_MODEL(model) <= 0)
+                return Fail(error, "Oberon attack model precache failed");
+        for (const auto* sound : CSOLOberonAttackSounds)
+            if (!precacheSound(sound))
+                return Fail(error, "Oberon attack sound precache failed");
+    }
     m_indices = candidate;
     m_deathSounds = deathSounds;
     m_ready = true;
@@ -107,7 +136,8 @@ bool CCSOLMonsterModels::EmitDeathSound(CCSOLScenarioMonster& monster,
 
 bool CCSOLMonsterModels::Apply(CCSOLScenarioMonster& monster,
     const csol::scenario::RoundMonsterDeltas& delta, csol::scenario::MonsterAttributes& output,
-    csol::scenario::ConfigError& error, bool (*sessionCheck)(const void*), const void* sessionContext)
+    csol::scenario::ConfigError& error, bool (*sessionCheck)(const void*), const void* sessionContext,
+    bool (*attributesApplied)(void*, csol::scenario::ConfigError&), void* attributesContext)
 {
     error = {};
     if (sessionCheck && !sessionCheck(sessionContext))
@@ -126,10 +156,8 @@ bool CCSOLMonsterModels::Apply(CCSOLScenarioMonster& monster,
     if (!csol::scenario::ResolveMonsterAttributes(*monster.Type(), delta, attributes, error)) return false;
 
     Operation modelsOperation(m_busy);
-    Operation poolOperation(pool->m_busy);
     const auto slot = monster.Slot();
-    // Holding the pool operation excludes Free/Acquire during engine hooks.
-    // OnDestroy can still invalidate the handle; re-resolve after each call.
+    const auto lease = pool->Lease(monster);
     monster.pev->health = monster.pev->max_health = attributes.health;
     monster.pev->armorvalue = attributes.armor;
     monster.pev->maxspeed = attributes.speed;
@@ -138,10 +166,28 @@ bool CCSOLMonsterModels::Apply(CCSOLScenarioMonster& monster,
     // not the monster type or a guessed animation availability flag.
     monster.HostState().flinchEnabled = appearance->model.find("deimos") == std::string_view::npos &&
         appearance->model.find("zbs_bossS_jun01") == std::string_view::npos;
+    // MP113844F3 initializes the health summary before MP11383727 SET_MODEL.
+    // Its messages may retire/reuse this borrow. Do not enter the engine
+    // model stage until the original lease and session have been revalidated.
+    const bool initialized = !attributesApplied || attributesApplied(attributesContext, error);
+    if (sessionCheck && !sessionCheck(sessionContext))
+        return Fail(error, "scenario changed during monster attribute notification");
+    auto* current = pool->At(slot);
+    if (!current || current != &monster || pool->Busy() || !pool->Borrowed(*current) ||
+        pool->Lease(*current) != lease)
+        return Fail(error, "scenario monster lease changed during attribute notification");
+    if (!initialized)
+    {
+        if (error.message.empty()) error.message = "scenario monster attribute notification failed";
+        return false;
+    }
+    // Holding the pool operation excludes Free/Acquire during engine hooks.
+    // OnDestroy can still invalidate the handle; re-resolve after each call.
+    Operation poolOperation(pool->m_busy);
     SET_MODEL(monster.edict(), appearance->model.data());
     if (sessionCheck && !sessionCheck(sessionContext))
         return Fail(error, "scenario changed during monster model setup");
-    auto* current = pool->At(slot);
+    current = pool->At(slot);
     if (current != &monster || !current || !pool->Borrowed(*current))
         return Fail(error, "scenario monster was invalidated during model setup");
     const Vector mins(appearance->mins.data());

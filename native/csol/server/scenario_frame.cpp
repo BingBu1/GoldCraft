@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_map.h"
+#include <cmath>
 
 CSOLScenarioFrame CCSOLScenarioMap::UpdateFrame(CHalfLifeMultiplay& rules,
     float thinkTime, int aliveCtCount, csol::scenario::WaveRunner::Dispatch dispatch,
-    void* context, csol::scenario::TriggerWaveEvents& events)
+    void* context, csol::scenario::TriggerWaveEvents& events,
+    bool (*beforeWaves)(void*, csol::scenario::ConfigError&))
 {
     using namespace csol::scenario;
     const auto access = m_entityAccess;
@@ -48,6 +50,30 @@ CSOLScenarioFrame CCSOLScenarioMap::UpdateFrame(CHalfLifeMultiplay& rules,
         return result;
     }
     if (result.schedule == ScheduleStep::Frozen) return result;
+    // MP11388180 updates the mode15 elite manager after the negative elapsed
+    // return, but before the half-second wave clock at11388185. Run on both
+    // Waiting and Dispatch frames; the elite manager owns its own40s clock.
+    if (beforeWaves)
+    {
+        ConfigError error;
+        const bool updated = beforeWaves(context, error);
+        if (!continueFrame()) return result;
+        if (!updated)
+        {
+            if (!error.message.empty()) Fail(error.message.c_str());
+            result.valid = false;
+            return result;
+        }
+        // The callback can advance engine time. Original11388185 reads it
+        // after updating elites, rather than using the pre-callback sample.
+        if (!std::isfinite(gpGlobals->time))
+        {
+            Fail("invalid scenario post-manager frame time");
+            result.valid = false;
+            return result;
+        }
+        result.schedule = gpGlobals->time < clock.nextThink ? ScheduleStep::Waiting : ScheduleStep::Dispatch;
+    }
     if (result.schedule == ScheduleStep::Dispatch)
     {
         // MP checks its death-table stop once at controller entry. A stop
@@ -78,9 +104,16 @@ CSOLScenarioFrame CCSOLScenarioMap::UpdateFrame(CHalfLifeMultiplay& rules,
             return result;
         }
     }
+    // MP1138848E/4A0/4AA/4B7 skip the scan by jumping to 11388566;
+    // they do not skip the manager's health-summary tail. In contrast the
+    // negative-clock return above never reaches that common continuation.
     // A row callback can change any rule gate. Re-read all of them before
     // spatial scanning; skipped scans must not advance the player cursor.
-    if (!rules.IsGameStarted() || rules.IsFreezePeriod() || rules.m_bRoundTerminating) return result;
+    if (!rules.IsGameStarted() || rules.IsFreezePeriod() || rules.m_bRoundTerminating)
+    {
+        result.managerTailReached = true;
+        return result;
+    }
     WaveTriggerActions actions(m_round.Waves(), clock, notifications);
     result.triggers = m_scan.Update(true, m_round.Triggers(), clock.elapsed,
         aliveCtCount, actions);
@@ -97,5 +130,6 @@ CSOLScenarioFrame CCSOLScenarioMap::UpdateFrame(CHalfLifeMultiplay& rules,
         // Earlier row/trigger side effects are not rolled back. Failed maps
         // remain stopped until an explicit new map session repairs their data.
     }
+    result.managerTailReached = result.valid;
     return result;
 }

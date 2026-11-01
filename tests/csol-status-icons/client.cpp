@@ -56,13 +56,26 @@ void ResetWeapons(bool){}
 void ResetCamera(){}
 void ResetProjectiles(){}
 void ResetCharacters(){}
+void ResetScenarioKill(){}
+void ResetScenarioEffects(){}
+void ResetCharacterSkillEffects(){}
+void ResetScenarioSmoke(){}
+void ResetEliteVisuals(){}
+void ResetScenarioUpgrades(){}
+void ResetScenarioAbilities(){}
+void ResetBossHealth(){}
+void ResetScenarioRoundHud(){}
+void ResetScenarioRespawnUi(){}
+void ResetPlayerClips(){}
 void ResetStatusIconGraphics(){++fixture::resets;}
-void PrepareStatusIconGraphics(){++fixture::prepares;}
-void DrawStatusIconGraphics(const status::ProtectionIcons& icons,int width,int height)
+void PrepareStatusIconGraphics(const status::StatusIcons&){++fixture::prepares;}
+void DrawStatusIconGraphics(const status::StatusIcons& icons,int width,int height)
 {
     ++fixture::draws;fixture::count=icons.VisibleCount();
     std::array<status::Quad,status::Capacity*2> data;
-    const auto size=icons.Layout(width,height,29,29,data);
+    std::array<status::ImageSize,status::ImageCount> images;
+    images.fill({29,29});images[18]={28,29};
+    const auto size=icons.Layout(width,height,images,data);
     fixture::quads.assign(data.begin(),data.begin()+size);
 }
 }
@@ -85,7 +98,7 @@ void Wire()
     for(auto bad:std::vector<std::vector<std::byte>>{{std::byte{0x40},std::byte{1}},{std::byte{0x40},std::byte{2},std::byte{0}}})Check(Send(bad)==1);
     Check(forwards==native);Draw(10);Check(count==1);
     const int result=existing?73:1;
-    for(auto unknown:std::vector<std::vector<std::byte>>{{std::byte{0x39},std::byte{7}},{std::byte{0x40},std::byte{3},std::byte{17}},Add(9,8),Add(9,7,1)})
+    for(auto unknown:std::vector<std::vector<std::byte>>{{std::byte{0x39},std::byte{7}},{std::byte{0x40},std::byte{3},std::byte{17}},Add(9,49),Add(9,-1),Add(9,7,1)})
     {const auto before=forwards;Check(Send(unknown)==result);Check(forwards==before+(existing?1:0));if(existing)Check(lastForward==unknown);}
     const auto before=forwards;Check(receiver("MPToCL2",15,nullptr)==result&&forwards==before+(existing?1:0));
     Draw(10);Check(count==1);
@@ -132,8 +145,50 @@ void Lifecycle()
     Check(sessionResets==session+1&&count==1&&quads.size()==1&&quads[0].alpha==1);
     level.clear();SynchronizeFrameSession();Draw(103);Check(!count);
     level="maps/zs_deadend.bsp";Send(Add(3));now=200;SynchronizeFrameSession();now=199.8f;SynchronizeFrameSession();Draw(104);Check(count==1);
-    now=100;SynchronizeFrameSession();Draw(100);Check(!count);
+    now=100;SynchronizeFrameSession();Draw(100);Check(count==1); // Clock correction is not a new connection.
     Send(Add(4));ShutdownStatusIcons();Draw(100);Check(!count);
+}
+void MixedStatuses()
+{
+    Fresh();const auto prior=forwards;
+    for(int first=0;first<49;first+=30)
+    {
+        Fresh();
+        for(int type=first;type<std::min(first+30,49);++type)Check(Send(Add(100+type,type))==1);
+        Draw(10);Check(count==std::size_t(std::min(30,49-first))&&quads.size()==count);
+        for(std::size_t i=0;i<count;++i)
+        {
+            Check(quads[i].type==first+int(i));
+            Check(quads[i].right-quads[i].left==(quads[i].type==18?28:29));
+        }
+    }
+    Check(forwards==prior);
+    Fresh();Send(Add(99,10));Send(Add(99,26));Draw(10);Check(count==2);
+    Send(Remove(99));Draw(10);Check(count==1&&quads[0].type==26);
+    Fresh();Send(Add(100,10,0,8));Send(Add(101,7,0,5));Send(Add(102,18));Draw(12);
+    Check(count==3&&quads.size()==5&&quads[0].type==10&&quads[2].type==7&&quads[4].type==18);
+    Check(quads[0].bottom==699&&quads[2].bottom==704&&quads[4].right-quads[4].left==28);
+    // Cloak ends while an independently owned protection is still present.
+    // The ending buff messages reuse a free panel and keep their own timers.
+    Send(Remove(100));Send(Add(103,25,0,10));Send(Add(104,26,0,10));Draw(12);
+    Check(count==4&&quads.size()==5&&quads[0].type==25&&quads[1].type==7&&quads[3].type==18&&quads[4].type==26);
+    Check(quads[0].left==463&&quads[1].left==499&&quads[3].left==535&&quads[4].left==571);
+    Draw(15.01f);Check(count==3); // Protection ends; both ending buffs survive.
+    Check(std::none_of(quads.begin(),quads.end(),[](const auto& q){return q.type==7||q.type==10;}));
+    width=1919;height=1080;Draw(15.01f);Check(quads[0].left==782&&quads[0].top==1052);
+    width=321;height=240;Draw(15.01f);Check(quads[0].left==-16&&quads[0].top==212);
+    Send({std::byte{0x40},std::byte{2}});Draw(15.01f);Check(!count);
+
+    // Natural source dimensions, missing texture slots and 30px clipping are
+    // independent of the known current 28/29px assets.
+    csol::status::StatusIcons local;
+    local.Add({csol::status::Operation::Add,1,10,0,-1},1);
+    local.Add({csol::status::Operation::Add,2,24,0,-1},1);
+    std::array<csol::status::ImageSize,csol::status::ImageCount> dimensions{};
+    dimensions[24]={40,50};std::array<csol::status::Quad,60> result;
+    Check(local.Layout(1280,720,dimensions,result)==1);
+    Check(result[0].type==24&&result[0].left==499&&result[0].right==529&&result[0].bottom==722);
+    Check(Near(result[0].u1,0.75f)&&Near(result[0].v1,0.6f));
 }
 }
 int main(int argc,char** argv)
@@ -153,7 +208,7 @@ int main(int argc,char** argv)
         engine.pfnGetScreenInfo=[](SCREENINFO* out)->int{Check(out->iSize==sizeof(*out));out->iWidth=width;out->iHeight=height;return screen;};
         engine.pfnGetLevelName=[]()->const char*{return level.c_str();};engine.GetClientTime=[]()->float{return now;};
         InitializeStatusIcons();InitializeStatusIcons();Check(registrations==(existing?0:1));
-        SynchronizeSession();Wire();OwnershipAndOptions();LifetimeAndLayout();Lifecycle();
+        SynchronizeSession();Wire();OwnershipAndOptions();LifetimeAndLayout();Lifecycle();MixedStatuses();
         std::cout<<"status consumer/session checks: "<<checks<<'\n';return 0;
     }
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}

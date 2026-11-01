@@ -275,6 +275,15 @@ bool CCSOLScenarioPlayerUpgrades::ApplyHealth()
     if (!StatValue(UpgradeStat::Health, maximum) || maximum < 0) return false;
     auto* player = Player();
     if (!player) return false;
+    const float base = maximum;
+    if (!CSOL_ScenarioSkillMaximumHealth(*player, base, maximum) || !Current()) return false;
+    if (maximum != base)
+    {
+        // Original temporary-maximum producer preserves missing health when
+        // another upgrade recalculates the base while this effect is active.
+        player->pev->health = std::clamp(player->pev->health +
+            (maximum - player->pev->max_health), 1.0f, maximum);
+    }
     player->pev->max_health = maximum;
     return true;
 }

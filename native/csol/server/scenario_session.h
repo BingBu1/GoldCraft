@@ -19,6 +19,7 @@
 #include "../scenario/announce.hpp"
 #include "../scenario/damage_display_modes.hpp"
 #include "../scenario/boss_skills.hpp"
+#include "../scenario/elite.hpp"
 
 enum class CSOLScenarioSessionState { Empty, Precached, Active, Failed };
 enum class CSOLScenarioResourceScope { Selection, Combat };
@@ -81,6 +82,7 @@ public:
     std::shared_ptr<const csol::scenario::AnnounceTable> Announcements() const { return m_announcements.Snapshot(); }
     std::shared_ptr<const csol::scenario::DamageDisplayModes> DamageDisplayModes() const { return m_damageDisplayModes.Snapshot(); }
     std::shared_ptr<csol::scenario::BossSkills> BossSkills() const { return m_bossSkills.Snapshot(); }
+    std::shared_ptr<const csol::scenario::EliteSettings> EliteSettings() const { return m_eliteSettings.Snapshot(); }
 
 private:
     bool Fail(csol::scenario::ResourceError error);
@@ -96,6 +98,7 @@ private:
     csol::scenario::AnnounceResources m_announcements;
     csol::scenario::DamageDisplayModeResources m_damageDisplayModes;
     csol::scenario::BossSkillResources m_bossSkills;
+    csol::scenario::EliteResources m_eliteSettings;
     CCSOLMonsterModels m_models;
     CCSOLScenarioMessages m_messages;
     std::shared_ptr<CCSOLScenarioMusic> m_music;

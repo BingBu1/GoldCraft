@@ -13,4 +13,10 @@ namespace csol::scenario
 // pointers, source rows and duplicate-ID history are not relocated.
 bool ApplyMonsterDifficulty(MonsterTypeTable& types, const DifficultyResources& difficulty,
     ConfigError& error);
+
+// Rules10826C80 selects this from the attacker's original type record, before
+// resistance effects. The caller multiplies only after those effects; neither
+// the type's attackDamage nor the inflictor's type is a substitute.
+bool MonsterIncomingDamageFactor(const MonsterType& attacker,
+    const DifficultyResources& difficulty, float& factor, ConfigError& error);
 }

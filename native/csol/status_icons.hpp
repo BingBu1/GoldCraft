@@ -16,6 +16,11 @@ inline constexpr char MessageName[] = "MPToCL2";
 inline constexpr char ProtectionImage[] = "resource/Hud/Skillicon/hud_playerstatus_7.tga";
 inline constexpr std::uint8_t Opcode = 0x40;
 inline constexpr std::size_t Capacity = 30;
+// Original style0 resolves Hud_PlayerStatus_<type>. The current resource set
+// supplies every numeric type from 0 through 48; style1 has a separate lookup.
+inline constexpr std::size_t ImageCount = 49;
+inline constexpr char ImagePrefix[] = "resource/Hud/Skillicon/hud_playerstatus_";
+inline constexpr bool HasImage(std::int32_t type) { return type >= 0 && std::size_t(type) < ImageCount; }
 
 enum class Operation { Add, Remove, Clear };
 struct Message
@@ -56,28 +61,31 @@ inline ParseResult Decode(std::span<const std::byte> bytes, Message& output)
 
 struct Icon
 {
-    std::int32_t id{};
+    std::int32_t id{}, type{};
     double total{-1}, remaining{-1};
     bool visible{};
 };
 struct Quad
 {
     float left{}, top{}, right{}, bottom{}, u1{}, v0{}, v1{}, alpha{};
+    std::int32_t type{};
 };
+struct ImageSize { unsigned width{}, height{}; };
 
-// The verified style0/type7 consumer. Other types keep their downstream path
-// until their resource and secondary-consumer contracts are implemented.
-class ProtectionIcons
+// Keep independent message instances, including repeated IDs and types.
+// Unsupported styles/resources retain their downstream message consumer.
+class StatusIcons
 {
 public:
     bool Add(const Message& message, float option)
     {
-        if (message.operation != Operation::Add || message.style != 0 || message.type != 7 ||
+        if (message.operation != Operation::Add || message.style != 0 || !HasImage(message.type) ||
             !(option > 0.0001f) || !std::isfinite(message.remaining)) return false;
         auto slot = std::find_if(m_icons.begin(), m_icons.end(), [](const Icon& icon) { return !icon.visible; });
         if (slot == m_icons.end()) return false;
         *slot = {};
         slot->id = message.id;
+        slot->type = message.type;
         // FLT_MAX preserves the original reset's -1. Zero expires immediately
         // as a defined host adaptation of the original NaN/Inf removal path.
         if (message.remaining < std::numeric_limits<float>::max())
@@ -112,25 +120,28 @@ public:
         return std::count_if(m_icons.begin(), m_icons.end(), [](const Icon& icon) { return icon.visible; });
     }
     const std::array<Icon, Capacity>& Items() const { return m_icons; }
-    std::size_t Layout(int screenWidth, int screenHeight, unsigned imageWidth, unsigned imageHeight,
+    std::size_t Layout(int screenWidth, int screenHeight, std::span<const ImageSize, ImageCount> images,
         std::span<Quad, Capacity * 2> quads) const
     {
-        if (screenWidth <= 0 || screenHeight <= 0 || !imageWidth || !imageHeight) return 0;
+        if (screenWidth <= 0 || screenHeight <= 0) return 0;
         const int parentX = (screenWidth - 354) / 2, parentY = screenHeight - 100;
-        const int width = int(std::min(30u, imageWidth)), height = int(std::min(30u, imageHeight));
         std::size_t count{}, index{};
         for (const auto& icon : m_icons)
         {
             if (!icon.visible) continue;
             const int left = parentX + 36 * int(index % 10), top = parentY + 72 - 36 * int(index / 10);
             ++index;
+            const auto [imageWidth, imageHeight] = images[icon.type];
+            // An unavailable image retains its original panel position.
+            if (!imageWidth || !imageHeight) continue;
+            const int width = int(std::min(30u, imageWidth)), height = int(std::min(30u, imageHeight));
             const auto slice = [&](int from, int to, float alpha)
             {
                 from = std::clamp(from, 0, height);
                 to = std::clamp(to, 0, height);
                 if (from >= to) return;
                 quads[count++] = {float(left), float(top + from), float(left + width), float(top + to),
-                    float(width) / imageWidth, float(from) / imageHeight, float(to) / imageHeight, alpha};
+                    float(width) / imageWidth, float(from) / imageHeight, float(to) / imageHeight, alpha, icon.type};
             };
             if (icon.total < 0) slice(0, 30, 1);
             else if (icon.total > 0)

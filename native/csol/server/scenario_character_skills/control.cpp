@@ -7,18 +7,19 @@
 namespace csol::scenario::skills
 {
 bool Ready(const SkillTraits& traits, const ActivationState& state,
-    ActivationHost& host, bool& ready, ConfigError& error)
+    ActivationHost& host, bool& ready, ConfigError& error, bool* blockedOutput)
 {
     ready = false;
+    if (blockedOutput) *blockedOutput = false;
     if (!host.Current() || !error.message.empty()) return false;
     const auto step = [&](bool result)
     { return host.Current() && result && error.message.empty(); };
     bool blocked{};
     if (!step(host.FrozenWrathBlocks(blocked, error))) return false;
-    if (blocked) return true;
+    if (blocked) { if (blockedOutput) *blockedOutput = true; return true; }
     bool alive{};
     if (!step(host.PlayerAlive(alive, error))) return false;
-    if (!alive) return true;
+    if (!alive) { if (blockedOutput) *blockedOutput = true; return true; }
     if (traits.damageProgress) ready = state.progress >= state.requiredProgress;
     else
     {
@@ -29,7 +30,10 @@ bool Ready(const SkillTraits& traits, const ActivationState& state,
     // Type21's v0C wrapper invokes the common readiness first, then its actual
     // scenario-target owner. An absent target is refusal, not a fatal error.
     if (ready && traits.requiresScenarioTarget)
+    {
         if (!step(host.ScenarioTargetAvailable(ready, error))) return false;
+        if (!ready && blockedOutput) *blockedOutput = true;
+    }
     return true;
 }
 

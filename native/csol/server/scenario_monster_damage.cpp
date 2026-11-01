@@ -8,6 +8,7 @@
 #include "scenario_session.h"
 #include "scenario_player_runtime.h"
 #include "scenario_death_services.h"
+#include "scenario_character_skills/elite_manager.hpp"
 #include "../scenario/monster_appearances.hpp"
 #include "weapons.h"
 
@@ -16,6 +17,8 @@
 #include <limits>
 #include <stdexcept>
 #include <typeinfo>
+#include <cstring>
+#include <bit>
 
 #pragma clang fp contract(off)
 
@@ -238,6 +241,79 @@ bool CSOL_ConsumeMonsterDamageEffect(CSOLMonsterDamageCall& call,
     }
 }
 
+bool CCSOLMonsterDamageBehavior::ResolvePreArmorDamage(CSOLMonsterDamageCall& call,
+    csol::scenario::ConfigError&)
+{
+    // The inherited ordinary/Oberon v158 returns its input unchanged.
+    return call.Current() ? true : call.Cancel();
+}
+
+bool CCSOLOrdinaryMonsterBehavior::ResolveHitDamage(CSOLMonsterDamageCall& call,
+    int weaponId, csol::scenario::ConfigError& error)
+{
+    auto* monster = call.Current();
+    if (!monster) return call.Cancel();
+    if (csol::scenario::ResolveOrdinaryMonsterDamage(call.damage,
+            monster->HostState().lastHitgroup, weaponId, call.damage)) return true;
+    error.message = "ordinary hitgroup damage is invalid";
+    return false;
+}
+
+bool CCSOLOrdinaryMonsterBehavior::DamageFlinch(CSOLMonsterSpawnCall& call,
+    csol::scenario::ConfigError& error)
+{
+    const bool result = Flinch(call);
+    if (!result && call.Current() && error.message.empty()) error = Error();
+    return result;
+}
+
+bool CSOL_ResolveOberonHitDamage(CSOLMonsterDamageCall& call, int weaponId,
+    csol::scenario::ConfigError& error)
+{
+    auto* monster = call.Current();
+    if (!monster) return call.Cancel();
+    if (!csol::scenario::ResolveOrdinaryMonsterDamage(call.damage,
+            monster->HostState().lastHitgroup, weaponId, call.damage))
+    { error.message = "Oberon common hitgroup damage is invalid"; return false; }
+    auto* source = call.Inflictor();
+    if (!source) return true;
+    const auto classname = source->pev->classname;
+    if (!std::strcmp(STRING(classname), "at4rocket"))
+    {
+        const auto* projectile = dynamic_cast<const CSOLWeaponDamageSource*>(source);
+        if (!projectile)
+        { error.message = "Oberon AT4 source identity is unavailable"; return false; }
+        const int sourceId = projectile->DamageWeaponId();
+        if (!call.Current()) return call.Cancel();
+        // 10623830 first copies the selected weapon's parameters into the
+        // shared AT4 workspace. Reading the DLL's initial workspace alone
+        // would incorrectly assign3.0 to both ID446 branches.
+        if (sourceId == 133 || sourceId == 275) call.damage *= 3.0f;
+        else if (sourceId == 446)
+        {
+            const auto* rocket = dynamic_cast<const CSOLAt4RocketDamageState*>(source);
+            if (!rocket) { error.message = "Oberon AT4 variant state is unavailable"; return false; }
+            const bool alternate = rocket->AlternateBossDamage();
+            if (!call.Current()) return call.Cancel();
+            call.damage *= alternate ? 3.5f : 7.0f;
+        }
+    }
+    else if (!std::strcmp(STRING(classname), "block_missile"))
+    {
+        const auto* projectile = dynamic_cast<const CSOLBlockMissileDamageSource*>(source);
+        if (!projectile)
+        { error.message = "Oberon block missile parameter owner is unavailable"; return false; }
+        float multiplier{};
+        const bool resolved = projectile->OberonDamageMultiplier(call, multiplier, error);
+        if (!call.Current()) return call.Cancel();
+        if (!resolved || !error.message.empty()) return false;
+        call.damage *= multiplier;
+    }
+    if (std::isfinite(call.damage)) return true;
+    error.message = "Oberon source damage multiplier is invalid";
+    return false;
+}
+
 BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     entvars_t* inflictor, entvars_t* attacker, float input, int bits,
     csol::scenario::ConfigError& error, bool (*ownerValid)(const void*),
@@ -292,8 +368,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     auto* monster = current();
     if (!monster) return FALSE;
     auto behavior = monster->RetainBehavior();
-    auto* ordinary = dynamic_cast<CCSOLOrdinaryMonsterBehavior*>(behavior.get());
-    if (!ordinary) return fail("ordinary damage cannot handle a different monster behavior");
+    auto* damageBehavior = dynamic_cast<CCSOLMonsterDamageBehavior*>(behavior.get());
+    if (!damageBehavior) return fail("monster damage behavior is unavailable");
     EHANDLE knockbackAttribution;
     try
     {
@@ -365,8 +441,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             }
         }
 
-        // Ordinary v150 is empty; v154 clears/reuses the host hitgroup and
-        // applies the direct active weapon floor before its own multiplier.
+        // Both verified v150 entries are empty. The host clears/reuses its
+        // hitgroup before calling the actual behavior's v154 modifier.
         const auto flags = static_cast<std::uint32_t>(call.bits);
         if (!flags || (flags & 0x01000060u) || ((flags & 0x08000000u) && !call.context.bytes[6]))
             monster->HostState().lastHitgroup = 0;
@@ -376,14 +452,17 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             auto* weapon = player->m_pActiveItem;
             if (weapon && !(weapon->pev->flags & FL_KILLME)) weaponId = weapon->m_iId;
         }
-        if (!csol::scenario::ResolveOrdinaryMonsterDamage(call.damage,
-                monster->HostState().lastHitgroup, weaponId, call.damage))
-            return fail("ordinary hitgroup damage is invalid");
+        if (!step(damageBehavior->ResolveHitDamage(call, weaponId, stageError),
+                "monster hitgroup damage is invalid")) return FALSE;
+        // MP113863D3 invokes v158 before113863D9 begins the armor stage.
+        if (!step(damageBehavior->ResolvePreArmorDamage(call, stageError),
+                "monster pre-armor damage is invalid")) return FALSE;
+        monster = current();
         csol::scenario::MonsterArmorDamage armor;
         if (!csol::scenario::ResolveMonsterArmorDamage(call.damage, monster->pev->armorvalue, flags, armor))
             return fail("ordinary armor damage is invalid");
         monster->pev->armorvalue = armor.remainingArmor;
-        call.damage = armor.healthDamage; // Ordinary v158/v15C preserve this value.
+        call.damage = armor.healthDamage; // Verified v15C preserves this value.
         if (call.damage == 0.0f) return TRUE;
         if (monster->HostState().damageScaleCount > 0)
             call.damage *= monster->HostState().damageScale;
@@ -421,7 +500,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         const float health = monster->pev->health - call.damage;
         if (!std::isfinite(health)) return fail("ordinary health subtraction overflowed");
         monster->pev->health = health;
-        // Ordinary v160 is empty. Rules v1DC and the remaining statistics run
+        // Both verified v160 entries are empty. Rules v1DC and the statistics run
         // before deciding whether to dispatch a death or play a flinch.
         if (!step(services->AfterHealthDamage(call, stageError), "mode15 post-damage rules failed")) return FALSE;
         monster = current();
@@ -443,7 +522,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         if (!appearance) return fail("ordinary damage appearance is unavailable");
         if (monster->HostState().frozenRemaining <= 0 && monster->HostState().flinchEnabled &&
             !appearance->healthSummary && monster->TypeId() <= 29999)
-            if (!step(ordinary->Flinch(spawn), "ordinary flinch failed")) return FALSE;
+            if (!step(damageBehavior->DamageFlinch(spawn, stageError), "monster flinch failed")) return FALSE;
         if (!step(ApplyOrdinaryKnockback(call, knockbackAttribution, stageError), "ordinary weapon knockback failed")) return FALSE;
         return TRUE;
     }
@@ -562,6 +641,332 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
         if (!current()) return call.Cancel();
         throw;
     }
+}
+
+struct CCSOLScenarioDamageServices::BossState
+{
+    struct Participant { EHANDLE player; float damage{}; };
+    std::array<Participant, 33> participants;
+    float total{}, maximum{}, health{}, sentHealth{}, nextHealth{};
+    std::uint32_t hits{};
+    int appearance{-1}, entityIndex{};
+    std::uint64_t round{};
+    EHANDLE entity;
+    std::uint64_t lease{}, revision{};
+    bool healthVisible{};
+    std::shared_ptr<const CSOLScenarioEntityAccess> access;
+    std::vector<std::pair<int, int>> retiredHealth;
+};
+
+CCSOLScenarioDamageServices::CCSOLScenarioDamageServices(std::weak_ptr<CCSOLScenarioRuntime> runtime)
+    : m_runtime(std::move(runtime)), m_boss(std::make_shared<BossState>()) {}
+
+void CCSOLScenarioDamageServices::ResetBossDamageState()
+{
+    auto state = std::make_shared<BossState>();
+    // The manager's formal round reset disables health polling until a new
+    // summary monster is initialized (11382D39, float bits47C34F80).
+    state->nextHealth = 99999.0f;
+    if (const auto runtime = m_runtime.lock(); runtime && !runtime->Closing() && runtime->session)
+    {
+        state->round = runtime->session->Map().RoundGeneration();
+        state->access = runtime->session->Map().EntityAccess();
+        if (m_boss && state->access && m_boss->access == state->access && state->access->Allowed())
+        {
+            state->retiredHealth = m_boss->retiredHealth;
+            if (m_boss->appearance >= 0 && m_boss->entityIndex > 0)
+                state->retiredHealth.emplace_back(m_boss->appearance, m_boss->entityIndex);
+        }
+    }
+    m_boss = std::move(state);
+}
+
+bool CCSOLScenarioDamageServices::ClearRetiredBossHealth(csol::scenario::ConfigError& error)
+{
+    const auto runtime = m_runtime.lock();
+    const auto state = m_boss;
+    if (!runtime || runtime->Closing() || runtime->monsterDamageServices.get() != this || !runtime->session) return false;
+    const auto session = runtime->session;
+    const auto valid = [&] { return !runtime->Closing() && runtime->monsterDamageServices.get() == this &&
+        runtime->session == session && state == m_boss && state->access && state->access->Allowed() &&
+        session->Map().EntityAccess() == state->access && session->Map().RoundGeneration() == state->round; };
+    if (!valid()) return false;
+    while (!state->retiredHealth.empty())
+    {
+        const auto item = state->retiredHealth.front();
+        state->retiredHealth.erase(state->retiredHealth.begin());
+        const bool sent = session->Messages().SendBossHealthRatio(item.first, 0, 0, item.second);
+        if (!valid()) return false;
+        if (!sent)
+        {
+            state->retiredHealth.insert(state->retiredHealth.begin(), item);
+            error.message = "Boss retired health clear message failed";
+            return false;
+        }
+    }
+    return true;
+}
+
+void CCSOLScenarioDamageServices::RemoveBossParticipant(const EHANDLE& player)
+{
+    const auto state = m_boss;
+    if (!state || !player.Get()) return;
+    for (auto& entry : state->participants)
+        if (entry.player.Get() == player.Get() && entry.player.GetSerialNumber() == player.GetSerialNumber())
+        {
+            state->total -= entry.damage;
+            entry = {};
+            return;
+        }
+}
+
+namespace
+{
+// CVTTSS2SI returns the indefinite signed value for NaN/out-of-range. Keep
+// that wire behavior (including zero-total0/0), without undefined C++ casts.
+std::int32_t BossTruncate(float value)
+{
+    return std::isfinite(value) && value >= -2147483648.0f && value < 2147483648.0f ?
+        static_cast<std::int32_t>(value) : std::numeric_limits<std::int32_t>::min();
+}
+}
+
+bool CCSOLScenarioDamageServices::RecordBossParticipation(CSOLMonsterDamageCall& call,
+    csol::scenario::ConfigError& error)
+{
+    const auto runtime = Pin(call);
+    if (!runtime) return call.Cancel();
+    auto* player = call.Player();
+    if (!player || static_cast<std::uint32_t>(player->pev->flags) == 0x80000000u) return true;
+    const auto session = runtime->session;
+    const auto round = session->Map().RoundGeneration();
+    if (m_boss->round != round) ResetBossDamageState();
+    const auto state = m_boss;
+    const auto current = [&]
+    { return Pin(call) == runtime && runtime->session == session && m_boss == state &&
+        session->Map().RoundGeneration() == round; };
+    if (!gpGlobals || gpGlobals->maxClients < 1 || gpGlobals->maxClients > 32)
+    { error.message = "Boss contribution client capacity is invalid"; return false; }
+    const int index = ENTINDEX(player->edict());
+    if (!current()) return call.Cancel();
+    if (index < 1 || index > gpGlobals->maxClients)
+    { error.message = "Boss contribution player index is invalid"; return false; }
+    auto& participant = state->participants[index];
+    // Remove a retired occupant even if engine teardown preceded its explicit
+    // disconnect callback. A recycled client slot cannot inherit contribution.
+    if (participant.player.Get() != player->edict())
+    { state->total -= participant.damage; participant = {}; }
+    participant.player = player;
+    const float accumulated = participant.damage + call.damage;
+    const float total = state->total + call.damage;
+    if (!std::isfinite(accumulated) || !std::isfinite(total))
+    { error.message = "Boss contribution accumulation overflowed"; return false; }
+    ++state->hits;
+    participant.damage = accumulated;
+    state->total = total;
+    struct Rank { int index; float damage; };
+    std::array<Rank, 33> ranking;
+    for (int i = 0; i < 33; ++i) ranking[i] = {i, state->participants[i].damage};
+    std::sort(ranking.begin(), ranking.end(), [](const Rank& a, const Rank& b) { return a.damage > b.damage; });
+    const auto send = [&](edict_t* recipient, int rank)
+    {
+        const auto& entry = ranking[rank];
+        const bool result = session->Messages().SendBossParticipation(recipient, rank,
+            entry.damage > 0 ? entry.index : 0, BossTruncate(entry.damage / 100.0f),
+            BossTruncate((entry.damage / state->total) * 100.0f));
+        if (!current()) return call.Cancel();
+        if (!result) error.message = "Boss contribution message failed";
+        return result;
+    };
+    int attackerRank = -1;
+    for (int rank = 0; rank < 33; ++rank)
+        if (ranking[rank].index == index) attackerRank = rank;
+    for (int rank = 0; rank < 3; ++rank) if (!send(nullptr, rank)) return false;
+    if (attackerRank >= 3 && !send(player->edict(), attackerRank)) return false;
+    // Original uses the incremented hit count, so the first poll is slot2.
+    const int polled = std::bit_cast<std::int32_t>(state->hits) % gpGlobals->maxClients + 1;
+    auto* entity = CSOL_ScenarioPlayerEntity(polled, session->Map().EntityAccess());
+    if (!current()) return call.Cancel();
+    auto* recipient = dynamic_cast<CBasePlayer*>(entity);
+    if (recipient && !(recipient->pev->flags & FL_KILLME))
+    {
+        const bool playerType = recipient->IsPlayer() != 0;
+        if (!current()) return call.Cancel();
+        if (!playerType) return true;
+        for (int rank = 0; rank < 33; ++rank)
+            if (ranking[rank].index == polled) return send(recipient->edict(), rank);
+    }
+    return true;
+}
+
+bool CCSOLScenarioDamageServices::InitializeBossHealth(CSOLMonsterSpawnCall& call,
+    csol::scenario::ConfigError& error)
+{
+    const auto runtime = m_runtime.lock();
+    if (!runtime || runtime->Closing() || runtime->monsterDamageServices.get() != this ||
+        !runtime->session || !call.BelongsTo(runtime->session->Map()) || !call.Current()) return false;
+    const auto session = runtime->session;
+    const auto round = session->Map().RoundGeneration();
+    if (m_boss->round != round) ResetBossDamageState();
+    const auto state = m_boss;
+    auto revision = state->revision;
+    const auto current = [&]
+    { return !runtime->Closing() && runtime->monsterDamageServices.get() == this &&
+        runtime->session == session && m_boss == state && state->revision == revision &&
+        session->Map().RoundGeneration() == round && call.Current(); };
+    auto* monster = call.Current();
+    const auto* appearance = csol::scenario::FindMonsterAppearance(monster->Type()->appearance);
+    if (!appearance) { error.message = "Boss health appearance is unavailable"; return false; }
+    if (!appearance->healthSummary) return true;
+    if (!ClearRetiredBossHealth(error) || !current()) return false;
+    const int index = ENTINDEX(monster->edict());
+    if (!current()) return false;
+    if (!std::isfinite(monster->pev->health) || !std::isfinite(monster->pev->max_health) || index <= 0)
+    { error.message = "Boss initial health is invalid"; return false; }
+    if (state->appearance >= 0 && state->appearance != appearance->index && state->entityIndex > 0)
+    {
+        state->retiredHealth.emplace_back(state->appearance, state->entityIndex);
+        if (!ClearRetiredBossHealth(error) || !current()) return false;
+    }
+    state->maximum = monster->pev->max_health;
+    state->health = monster->pev->health;
+    state->sentHealth = 0;
+    state->nextHealth = 0;
+    state->appearance = appearance->index;
+    state->entityIndex = index;
+    state->access = session->Map().EntityAccess();
+    state->entity = monster;
+    state->lease = session->Monsters().Lease(*monster);
+    revision = ++state->revision;
+    state->healthVisible = state->health > 0;
+    const bool initialized = session->Messages().SendBossHealthInit(state->appearance,
+        BossTruncate(state->maximum), index);
+    if (!current()) return false;
+    if (!initialized) { error.message = "Boss health initialization message failed"; return false; }
+    const bool sent = session->Messages().SendBossHealthRatio(state->appearance, state->health, state->maximum, index);
+    if (!current()) return false;
+    if (!sent) error.message = "Boss initial health ratio message failed";
+    return sent;
+}
+
+bool CCSOLScenarioDamageServices::RecordBossHealth(CSOLMonsterDamageCall& call,
+    csol::scenario::ConfigError& error)
+{
+    const auto runtime = Pin(call);
+    if (!runtime) return call.Cancel();
+    const auto session = runtime->session;
+    const auto round = session->Map().RoundGeneration();
+    if (m_boss->round != round) ResetBossDamageState();
+    const auto state = m_boss;
+    const auto revision = state->revision;
+    const auto current = [&]
+    { return Pin(call) == runtime && runtime->session == session && m_boss == state &&
+        state->revision == revision && session->Map().RoundGeneration() == round; };
+    auto* monster = call.Current();
+    // A late hit on an older instance of this appearance must not remove the
+    // health panel of the Boss initialized after it (including pool reuse).
+    if (state->entity.Get<CBaseEntity>() != monster || monster->Pool() != &session->Monsters() ||
+        !session->Monsters().Borrowed(*monster) || session->Monsters().Lease(*monster) != state->lease) return true;
+    const auto* record = csol::scenario::FindMonsterAppearance(monster->Type()->appearance);
+    if (!record) { error.message = "Boss damaged health appearance is unavailable"; return false; }
+    const int appearance = record->index;
+    const int index = ENTINDEX(monster->edict());
+    if (!current()) return call.Cancel();
+    if (!std::isfinite(monster->pev->health) || !std::isfinite(monster->pev->max_health) || index <= 0)
+    { error.message = "Boss damaged health is invalid"; return false; }
+    if (monster->pev->health <= 0)
+    {
+        const bool sent = session->Messages().SendBossHealthRatio(appearance, 0, 0, index);
+        if (!current()) return call.Cancel();
+        if (!sent) { error.message = "Boss lethal health ratio message failed"; return false; }
+        state->healthVisible = false;
+        monster->pev->health = 0;
+    }
+    state->health = monster->pev->health;
+    state->maximum = monster->pev->max_health;
+    state->appearance = appearance;
+    state->entityIndex = index;
+    return true;
+}
+
+bool CCSOLScenarioDamageServices::UpdateBossHealth(float now, csol::scenario::ConfigError& error)
+{
+    const auto runtime = m_runtime.lock();
+    if (!runtime || runtime->Closing() || runtime->monsterDamageServices.get() != this || !runtime->session) return false;
+    const auto session = runtime->session;
+    const auto round = session->Map().RoundGeneration();
+    if (m_boss->round != round) ResetBossDamageState();
+    const auto state = m_boss;
+    if (!ClearRetiredBossHealth(error) || m_boss != state) return false;
+    const auto revision = state->revision;
+    if (!std::isfinite(now)) { error.message = "Boss health update time is invalid"; return false; }
+    if (!(now > state->nextHealth)) return true;
+    state->nextHealth = now + 0.3f;
+    if (state->appearance < 0 || state->entityIndex <= 0) return true;
+    auto* monster = state->access && state->access->Allowed() && session->Map().EntityAccess() == state->access ?
+        dynamic_cast<CCSOLScenarioMonster*>(state->entity.Get<CBaseEntity>()) : nullptr;
+    if (!monster || monster->Pool() != &session->Monsters() || !session->Monsters().Borrowed(*monster) ||
+        session->Monsters().Lease(*monster) != state->lease || monster->pev->deadflag != DEAD_NO)
+        state->health = 0;
+    else
+    {
+        state->health = monster->pev->health;
+        state->maximum = monster->pev->max_health;
+    }
+    // Init already made the panel visible even when the first periodic
+    // sample has not run. A world kill or pool return must still clear it.
+    if (state->health == state->sentHealth && !(state->healthVisible && state->health <= 0)) return true;
+    const bool sent = session->Messages().SendBossHealthRatio(state->appearance, state->health,
+        state->maximum, state->entityIndex);
+    if (runtime->Closing() || runtime->monsterDamageServices.get() != this || runtime->session != session ||
+        m_boss != state || state->revision != revision || session->Map().RoundGeneration() != round) return false;
+    if (!sent) { error.message = "Boss health update message failed"; return false; }
+    state->sentHealth = state->health;
+    state->healthVisible = state->health > 0;
+    return true;
+}
+
+bool CCSOLScenarioDamageServices::ReplayBossHealth(const EHANDLE& recipient,
+    csol::scenario::ConfigError& error)
+{
+    const auto runtime = m_runtime.lock();
+    if (!runtime || runtime->Closing() || runtime->monsterDamageServices.get() != this || !runtime->session) return false;
+    const auto session = runtime->session;
+    const auto state = m_boss;
+    if (state->appearance < 0 || state->entityIndex <= 0) return true;
+    const auto revision = state->revision;
+    const auto current = [&]() -> CBasePlayer*
+    {
+        if (runtime->Closing() || runtime->monsterDamageServices.get() != this || runtime->session != session ||
+            m_boss != state || state->revision != revision || !state->access || !state->access->Allowed() ||
+            session->Map().EntityAccess() != state->access || session->Map().RoundGeneration() != state->round) return nullptr;
+        auto* player = dynamic_cast<CBasePlayer*>(recipient.Get<CBaseEntity>());
+        return player && !player->has_disconnected && !(player->pev->flags & FL_KILLME) ? player : nullptr;
+    };
+    auto* player = current();
+    if (!player) return false;
+    const auto liveBoss = [&]() -> CCSOLScenarioMonster*
+    {
+        if (!current()) return nullptr;
+        auto* monster = dynamic_cast<CCSOLScenarioMonster*>(state->entity.Get<CBaseEntity>());
+        return monster && monster->Pool() == &session->Monsters() && session->Monsters().Borrowed(*monster) &&
+            session->Monsters().Lease(*monster) == state->lease && monster->pev->deadflag == DEAD_NO &&
+            monster->pev->health > 0 ? monster : nullptr;
+    };
+    auto* monster = liveBoss();
+    if (!monster) return true;
+    const float maximum = monster->pev->max_health;
+    const bool initialized = session->Messages().SendBossHealthInit(state->appearance,
+        BossTruncate(maximum), state->entityIndex, player->edict());
+    player = current();
+    if (!player) return false;
+    if (!initialized) { error.message = "Boss joined-player health initialization failed"; return false; }
+    monster = liveBoss();
+    const bool sent = session->Messages().SendBossHealthRatio(state->appearance, monster ? monster->pev->health : 0,
+        monster ? monster->pev->max_health : 0, state->entityIndex, player->edict());
+    if (!current()) return false;
+    if (!sent) error.message = "Boss joined-player health ratio failed";
+    return sent;
 }
 
 std::shared_ptr<CCSOLScenarioRuntime> CCSOLScenarioDamageServices::Pin(CSOLMonsterDamageCall& call) const
@@ -736,6 +1141,17 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
             bool boss{};
             if (!csol::scenario::MonsterStatisticsBoss(call.Current()->Type(), cachedMap, currentMap, boss, error)) return false;
             if (!step(deaths->GoldenHit(call, error))) return false;
+            // MP108258A5..108258CD: after the Golden hit callback and before
+            // the active skill. Only the resolved player's type32800 hit is
+            // forwarded; this is not a generic Boss damage redirect.
+            const auto elites = runtime->eliteManager;
+            if (elites && call.Current()->Type()->id == 32800)
+            {
+                const EHANDLE victim(call.Current());
+                if (!step(elites->ForwardFollowerDamage(victim, call.InflictorHandle(),
+                    actor, damage, error))) return false;
+                if (runtime->eliteManager != elites) return call.Cancel();
+            }
             // Optional character abilities must not interrupt base combat after
             // health was committed. Accept only a completed, matching selection
             // with an explicitly unavailable adapter, never a lost/stale one.
@@ -761,8 +1177,7 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
             // The later statistics-Boss predicate is freshly queried, after
             // component/weapon callbacks; the earlier captured boss fed v1DC.
             if (!csol::scenario::MonsterStatisticsBoss(call.Current()->Type(), cachedMap, currentMap, boss, error)) return false;
-            if (boss)
-            { error.message = "scenario Boss participation damage service is not implemented"; return false; }
+            if (boss && !step(RecordBossParticipation(call, error))) return false;
             if (!step(players->NotifyClassModMonsterDamage(call, runtime, error))) return false;
         }
         catch (...)
@@ -775,7 +1190,8 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
     const auto* type = call.Current()->Type();
     const auto* appearance = csol::scenario::FindMonsterAppearance(type->appearance);
     if (!appearance) { error.message = "scenario post-health appearance is unavailable"; return false; }
-    if (type->id == 30300 || type->id == 30700 || type->id == 31000 || appearance->healthSummary)
-    { error.message = "scenario special survival or health-summary consumer is not implemented"; return false; }
+    if (type->id == 30300 || type->id == 30700 || type->id == 31000)
+    { error.message = "scenario special survival consumer is not implemented"; return false; }
+    if (appearance->healthSummary && type->id != 31805 && !RecordBossHealth(call, error)) return false;
     return true;
 }

@@ -14,6 +14,8 @@ struct DamageState
 {
     int installedBuffId{-1}; // Only the subtype31 installed StatBuff identity.
     float accumulated46{}; // Subtype46 +30, independently of activeUntil.
+    float nextArea28{}; // Subtype28 +30; activation resets this to zero.
+    float nextArea12{}; // Subtype12 +30; independent one-second area gate.
 };
 
 class DamageHost

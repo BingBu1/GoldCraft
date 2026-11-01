@@ -6,7 +6,7 @@ namespace csol::client
 {
 namespace
 {
-status::ProtectionIcons icons;
+status::StatusIcons icons;
 cvar_t* option{};
 pfnUserMsgHook previous{};
 
@@ -22,7 +22,7 @@ int ReceiveStatus(const char* name, int size, void* data)
     switch (message.operation)
     {
     case status::Operation::Add:
-        if (message.style != 0 || message.type != 7) return previous ? previous(name, size, data) : 1;
+        if (message.style != 0 || !status::HasImage(message.type)) return previous ? previous(name, size, data) : 1;
         icons.Add(message, option ? option->value : 1.0f);
         return 1;
     case status::Operation::Remove:
@@ -53,7 +53,7 @@ void ResetStatusIcons()
 }
 void StatusIconsFrame()
 {
-    if (icons.VisibleCount()) PrepareStatusIconGraphics();
+    if (icons.VisibleCount()) PrepareStatusIconGraphics(icons);
 }
 void StatusIconsVideoInit() { ResetStatusIconGraphics(); }
 void DrawStatusIcons(float time)

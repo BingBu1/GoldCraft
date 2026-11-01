@@ -167,8 +167,39 @@ void CCSOLScenarioMonster::BehaviorThink()
     if (scope.Scenario() && !scope.Current()) return;
     if (m_pool && !m_pool->Busy() && m_pool->Borrowed(*this) && m_behaviorReady && m_behavior)
     {
-        auto behavior = RetainBehavior();
+        const auto behavior = RetainBehavior();
+        auto* pool = m_pool;
+        const auto access = pool->EntityAccess();
+        const EHANDLE self(this);
+        const auto lease = pool->Lease(*this);
+        const auto current = [&]
+        {
+            return (!scope.Scenario() || scope.Current()) && access && access->Allowed() &&
+                self.Get<CBaseEntity>() == this && m_pool == pool &&
+                pool->EntityAccess() == access && pool->Borrowed(*this) &&
+                pool->Lease(*this) == lease && m_behaviorReady && m_behavior == behavior;
+        };
+        const auto report = [&]
+        {
+            if (!current()) return true;
+            const auto failure = behavior->Failure();
+            if (failure.empty()) return false;
+            const std::string reason = "scenario monster behavior failed (type=" +
+                std::to_string(m_typeId) + ", pool_slot=" + std::to_string(m_slot) +
+                ", skill=" + std::to_string(m_type ? m_type->skill : 0) + "): " +
+                std::string(failure);
+            // Retire dispatch before the diagnostic callback can reenter.
+            // Keep the original error intact; the factory may enable only
+            // a successfully reset behavior on a subsequent spawn.
+            m_behaviorReady = false;
+            pev->nextthink = 0;
+            SetThink(nullptr);
+            CSOL_RejectGameRules(reason.c_str());
+            return true;
+        };
+        if (report()) return;
         behavior->Think(*this);
+        report();
     }
 }
 

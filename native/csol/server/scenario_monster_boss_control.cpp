@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_boss_control.h"
+#include "scenario_oberon_blackhole.h"
+#include "scenario_session.h"
 #include "../scenario/monster_appearances.hpp"
 
 #include <algorithm>
@@ -38,7 +40,10 @@ CCSOLScenarioMonster* CCSOLMonsterBossControl::Current(CSOLMonsterSpawnCall& cal
         state->lease != state->spawn->lease || !m_skills) return nullptr;
     if (state->row && *state->row >= m_skills->Table().rows.size()) return nullptr;
     auto* monster = call.Current();
-    return monster && monster->Behavior() == state->behavior && monster->Pool()->Borrowed(*monster) &&
+    // Death can finish inside a model/message hook without changing the pool
+    // lease. FreeThink then owns the corpse; the old skill may not resume.
+    return monster && monster->pev->deadflag != DEAD_DEAD &&
+        monster->Behavior() == state->behavior && monster->Pool()->Borrowed(*monster) &&
         monster->Pool()->Lease(*monster) == state->lease ? monster : nullptr;
 }
 
@@ -293,11 +298,112 @@ CSOLBossBeginResult CCSOLMonsterBossControl::TryBegin(CSOLMonsterSpawnCall& call
     if (!current()) return Result::Cancelled;
     if (!notified)
     {
-        error = std::move(diagnostic);
-        if (error.message.empty()) error.message = "Boss skill-start rule service failed";
-        return Result::Failed;
+        if (gpGlobals->time > state->hintDiagnosticAt && g_engfuncs.pfnAlertMessage)
+        {
+            state->hintDiagnosticAt = gpGlobals->time + 10.0f;
+            ALERT(at_console, "CSOL: Oberon skill hint unavailable: %s\n",
+                diagnostic.message.empty() ? "permission directory is unavailable" : diagnostic.message.c_str());
+            if (!current()) return Result::Cancelled;
+        }
     }
     return Result::Started;
+}
+
+CSOLBossBeginResult CCSOLMonsterBossControl::TryBeginOberon(CSOLMonsterSpawnCall& call,
+    const std::shared_ptr<CCSOLScenarioSession>& session, CCSOLMonsterFactory& factory,
+    csol::scenario::ConfigError& error)
+{
+    const auto keepAlive = shared_from_this();
+    const auto services = m_services.lock();
+    const auto state = m_state;
+    if (!services || !session || !call.BelongsTo(session->Map()) || !Current(call, state))
+        return CSOLBossBeginResult::Cancelled;
+    const auto result = TryBegin(call, error);
+    if (result != CSOLBossBeginResult::Started) return result;
+    auto* monster = Current(call, state);
+    if (!monster || !state->row || state->busy) return CSOLBossBeginResult::Cancelled;
+    Busy busy(state->busy);
+    const auto selectedRow = state->row;
+    const auto current = [&]() -> CCSOLScenarioMonster*
+    { return state->row == selectedRow ? Current(call, state) : nullptr; };
+    const auto& row = m_skills->Table().rows[*selectedRow];
+    switch (row.type)
+    {
+    case 5:
+    {
+        auto* target = state->target.Get<CBaseEntity>();
+        if (!target) return CSOLBossBeginResult::Cancelled;
+        const Vector delta = target->pev->origin - monster->pev->origin;
+        // MP113D6731: two separate float operations, float division before
+        // double sqrt, then narrow before dividing each velocity component.
+        const float height = row.rushPower * 39.369998931884766f;
+        const float twiceHeight = height + height;
+        const float timeSquared = twiceHeight / 1715.0f;
+        const float flightTime = static_cast<float>(std::sqrt(static_cast<double>(timeSquared)));
+        if (!(flightTime > 0) || !std::isfinite(flightTime))
+        { error.message = "Oberon leap has an invalid flight time"; return CSOLBossBeginResult::Failed; }
+        const Vector launch(delta.x / flightTime, delta.y / flightTime, twiceHeight / flightTime);
+        if (!Finite(launch))
+        { error.message = "Oberon leap velocity is not finite"; return CSOLBossBeginResult::Failed; }
+        monster->pev->gravity = 3.5f;
+        state->launchVelocity = launch;
+        break;
+    }
+    case 6:
+    {
+        const bool created = CCSOLOberonBlackHole::Create(session, call, row.damageDelay, row.rushPower, error);
+        if (!current()) return CSOLBossBeginResult::Cancelled;
+        if (!created) return CSOLBossBeginResult::Failed;
+        break;
+    }
+    case 7:
+        Start(state->movement, row.animationTime);
+        state->repeatCount = 3;
+        break;
+    case 9:
+    {
+        const bool refreshed = factory.RefreshOberonSequences(call);
+        monster = current();
+        if (!monster) return CSOLBossBeginResult::Cancelled;
+        if (!refreshed)
+        {
+            error = factory.Error();
+            if (error.message.empty()) error.message = "Oberon transformed sequence refresh failed";
+            return CSOLBossBeginResult::Failed;
+        }
+        // The original flag is set even when a callback brought health back
+        // above half during the common sequence refresh.
+        monster->HostState().transformed = true;
+        break;
+    }
+    default: break; // 3/4 attacks and type8 entrance have no start extension.
+    }
+    return current() ? CSOLBossBeginResult::Started : CSOLBossBeginResult::Cancelled;
+}
+
+bool CCSOLMonsterBossControl::LaunchOberonLeap(CSOLMonsterSpawnCall& call,
+    csol::scenario::ConfigError& error)
+{
+    const auto keepAlive = shared_from_this();
+    const auto services = m_services.lock();
+    const auto state = m_state;
+    auto* monster = Current(call, state);
+    if (!services || !monster || state->busy || !gpGlobals) return false;
+    Busy busy(state->busy);
+    if (!state->row || m_skills->Table().rows[*state->row].type != 5 ||
+        !state->effect.Elapsed(gpGlobals->time)) return true;
+    if (!Finite(state->launchVelocity))
+    { error.message = "Oberon stored leap velocity is not finite"; return false; }
+    // The tenth-second effect stage arms the real MOVETYPE_STEP velocity.
+    // It does not teleport the Boss, wait for an animation event, or require
+    // FL_ONGROUND. The per-frame landing stage is a separate original call.
+    Start(state->effect, 99999.0f);
+    monster->pev->solid = SOLID_NOT;
+    state->solidAfter = gpGlobals->time + 0.5f;
+    monster->pev->velocity = state->launchVelocity;
+    Start(state->movement, 999999.0f);
+    state->launchOriginZ = monster->pev->origin.z;
+    return true;
 }
 
 bool CCSOLMonsterBossControl::Interrupt(CSOLMonsterSpawnCall& call, std::int16_t& interruptState,

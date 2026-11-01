@@ -12,9 +12,11 @@ class CCSOLScenarioMap;
 class CCSOLMonsterPool;
 class CCSOLScenarioSession;
 class CCSOLScenarioPlayerRuntime;
+class CCSOLScenarioRuntime;
 class CSOLMonsterDeathCall;
 namespace csol::scenario { struct ConfigError; }
 struct edict_s;
+struct entvars_s;
 struct playermove_s;
 struct CSOLScenarioRulesRecord;
 class CSOLScenarioEntityAccess;
@@ -94,9 +96,28 @@ bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);
 bool CSOL_InjectScenarioPlayerClips(playermove_s& movement);
 bool CSOL_ScenarioProtectionBlocks(CBasePlayer& player);
+bool CSOL_ScenarioApplyProtectionDamage(CBasePlayer& player, int damageType, float& damage);
 bool CSOL_UpdateScenarioPlayerBuffs(CBasePlayer& player);
 bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force);
 bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player);
+// Automatic revival also runs for late-join observers, before PreThink's
+// observer return. False stops the old frame after Spawn or retirement.
+bool CSOL_ScenarioPlayerRespawnThink(CBasePlayer& player);
+bool CSOL_ScenarioPlayerDeathClock(CBasePlayer& player);
+void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player);
+bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command);
+bool CSOL_ScenarioAbsorbSkillDamage(CBasePlayer& player, entvars_s* attacker, float& damage);
+bool CSOL_ScenarioDodgeAllowsDamage(CBasePlayer& player);
+bool CSOL_ScenarioApplyIncomingBuffDamage(CBasePlayer& player, float& damage, int damageType);
+// Call once after the original scenario rule adjustments, before any
+// protection/energy-shield/armor rejection. This is distinct from v1B8 below.
+bool CSOL_ScenarioNotifyBeforeProtectionSkillDamage(CBasePlayer& player,
+    entvars_s* attacker, float& damage);
+bool CSOL_ScenarioNotifyIncomingSkillDamage(CBasePlayer& player, entvars_s* attacker, float& damage);
+bool CSOL_ScenarioSkillReload(CBasePlayerWeapon& weapon);
+void CSOL_ScenarioPlayerSkillDied(CBasePlayer& player);
+bool CSOL_ScenarioSkillMaximumHealth(CBasePlayer& player, float base, float& maximum);
+std::shared_ptr<CCSOLScenarioRuntime> CSOL_ScenarioRuntimeForAccess(const CSOLScenarioEntityAccess* access);
 std::uint32_t CSOL_ScenarioPassMask(int playerIndex);
 
 // Called inside ReGameDLL's existing ReAPI original-function wrappers. A

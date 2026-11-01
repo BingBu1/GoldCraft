@@ -49,7 +49,7 @@ std::unordered_map<int,Packet> offers;
 std::unordered_map<std::string,int> textures;
 std::vector<const Item*> visibleRows;
 int rowsCategory=-2;
-xcommand_t oldBuy{},oldCancel{};
+xcommand_t oldBuy{},oldCancel{},oldRebuy{};
 pfnUserMsgHook oldVGUI{},oldShowMenu{};
 unsigned rejected{},purchases{},draws{},restores{};
 constexpr const wchar_t* categories[]{L"手枪",L"霰弹枪",L"微型冲锋枪",L"自动步枪",L"机枪",L"主武器弹药",L"副武器弹药",L"装备",L"近身武器",L"结束武器选择"};
@@ -147,6 +147,22 @@ void ContinueRebuy(){
     }
     Close();
 }
+void StartRebuy()
+{
+    if(waiting||rebuying||lastPurchases.empty())return;
+    rebuyQueue=lastPurchases;
+    // Replacement weapons precede their remembered ammunition.
+    const auto rank=[](int id){return id>=2000?2:id>=1000?1:0;};
+    std::stable_sort(rebuyQueue.begin(),rebuyQueue.end(),[&](int a,int b){return rank(a)<rank(b);});
+    rebuying=true;ContinueRebuy();
+}
+void Rebuy()
+{
+    if(!capability){if(oldRebuy)oldRebuy();else engine.pfnServerCmd("rebuy\n");return;}
+    if(view.health<=0||view.spectator||lastPurchases.empty())return;
+    if(!visible)OpenMenu(false);
+    if(visible)StartRebuy();
+}
 int Receive(const char*,int size,void* data)
 {
     SynchronizeSession();Packet p;
@@ -160,6 +176,7 @@ int Receive(const char*,int size,void* data)
     case Kind::End:catalogReady=true;status=L"";break;
     case Kind::Result:
         waiting=false;
+        if(p.result==Result::Unavailable&&(p.id==0||rebuying)){Close();break;}
         if(p.result==Result::Success){++purchases;RememberPurchase(p.id);if(rebuying)Refresh();else Close();}
         else if(p.result==Result::Unavailable){status=L"当前状态无法购买；按 B / Esc 返回";}
         else{status=p.result==Result::Insufficient?L"金钱不足":L"购买未完成，请检查当前装备";}
@@ -244,13 +261,7 @@ void Click(int hit)
     else if(hit==20||hit==21){team=hit-19;page=0;rowsCategory=-2;LoadFavorites();}
     else if(hit>=30&&hit<38){if(const auto* item=Find(favorites[hit-30]))Purchase(*item);}
     else if(hit==40){if(searchEntry){searchEntry->SetKeyBoardInputEnabled(true);searchEntry->RequestFocus();}}
-    else if(hit==41&&!waiting&&!lastPurchases.empty()){
-        rebuyQueue=lastPurchases;
-        // A later weapon replacement must be bought before its remembered ammo.
-        const auto rank=[](int id){return id>=2000?2:id>=1000?1:0;};
-        std::stable_sort(rebuyQueue.begin(),rebuyQueue.end(),[&](int a,int b){return rank(a)<rank(b);});
-        rebuying=true;ContinueRebuy();
-    }
+    else if(hit==41)StartRebuy();
     else if((category>=0||!query.empty())&&(hit==10||hit==11)){const auto& rows=Rows();page=std::clamp(page+(hit==10?-1:1),0,std::max(0,(int(rows.size())-1)/9));}
 }
 void EditFavorite(int hit){
@@ -325,9 +336,20 @@ void InitializeBuyMenu()
 {
     favoriteCvars[0]=engine.pfnRegisterVariable("csol_buy_favorites_t","0,0,0,0,0,0,0,0",FCVAR_ARCHIVE);
     favoriteCvars[1]=engine.pfnRegisterVariable("csol_buy_favorites_ct","0,0,0,0,0,0,0,0",FCVAR_ARCHIVE);
-    engine.pfnHookUserMsg(csol::buy::Message,Receive);oldBuy=api->HookCmd("buy",Open);oldCancel=api->HookCmd("cancelselect",Cancel);
+    engine.pfnHookUserMsg(csol::buy::Message,Receive);
+    const auto previousBuy=api->HookCmd("buy",Open);
+    if(previousBuy!=Open)oldBuy=previousBuy;
+    const auto previousCancel=api->HookCmd("cancelselect",Cancel);
+    if(previousCancel!=Cancel)oldCancel=previousCancel;
+    const auto previousRebuy=api->HookCmd("rebuy",Rebuy);
+    if(previousRebuy!=Rebuy)oldRebuy=previousRebuy;
+    if(!previousRebuy)engine.pfnAddCommand("rebuy",Rebuy);
     if(!oldBuy)engine.pfnAddCommand("buy",Open);
-    engine.pfnAddCommand("csol_buymenu",Open);oldVGUI=api->HookUserMsg("VGUIMenu",VGUI);oldShowMenu=api->HookUserMsg("ShowMenu",ShowMenu);
+    engine.pfnAddCommand("csol_buymenu",Open);
+    const auto previousVGUI=api->HookUserMsg("VGUIMenu",VGUI);
+    if(previousVGUI!=VGUI)oldVGUI=previousVGUI;
+    const auto previousShowMenu=api->HookUserMsg("ShowMenu",ShowMenu);
+    if(previousShowMenu!=ShowMenu)oldShowMenu=previousShowMenu;
     const auto factory=api->GetEngineFactory();surface=factory?static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION,nullptr)):nullptr;
     const auto clientFactory=api->GetClientFactory();clientUI=clientFactory?static_cast<IClientVGUI*>(clientFactory(CLIENTVGUI_INTERFACE_VERSION,nullptr)):nullptr;
     auto module=GetModuleHandleA("vgui2.dll");const auto inputFactory=module?Sys_GetFactory(reinterpret_cast<HINTERFACEMODULE>(module)):nullptr;input=inputFactory?static_cast<vgui::IInput*>(inputFactory(VGUI_INPUT_INTERFACE_VERSION,nullptr)):nullptr;

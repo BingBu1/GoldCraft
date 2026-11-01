@@ -4,6 +4,7 @@
 #include "scenario_monster_melee.h"
 #include "scenario_monster_position.h"
 #include "scenario_navigation.h"
+#include "scenario_monster_damage_behavior.h"
 
 struct CSOLOrdinaryMonsterState
 {
@@ -67,7 +68,8 @@ public:
 // Concrete ordinary CBaseZombieImprov owner. Factory installs this class for
 // ordinary propensity0; the remaining required services must be supplied by
 // real GameRules before the mode can be enabled.
-class CCSOLOrdinaryMonsterBehavior final : public CCSOLMonsterSpawnBehavior
+class CCSOLOrdinaryMonsterBehavior : public CCSOLMonsterSpawnBehavior,
+    public CCSOLMonsterDamageBehavior
 {
 public:
     explicit CCSOLOrdinaryMonsterBehavior(std::shared_ptr<CCSOLOrdinaryMonsterServices> services,
@@ -97,12 +99,18 @@ public:
     // Called by the damage owner only after the original frozen/appearance/
     // type flinch gates. This runs v164 and the accepted sequence/motion tail.
     bool Flinch(CSOLMonsterSpawnCall& call);
+    bool ResolveHitDamage(CSOLMonsterDamageCall& call, int directPlayerWeapon,
+        csol::scenario::ConfigError& error) override;
+    bool DamageFlinch(CSOLMonsterSpawnCall& call,
+        csol::scenario::ConfigError& error) override;
     // The owner calls this after sound and before the concrete DOT/gait pass.
     // The returned gate controls its 33 records, including player slot32.
     bool UpdateStatusTick(CSOLMonsterSpawnCall& call, bool& elapsed);
     const csol::scenario::ConfigError& Error() const { return m_state ? m_state->error : m_emptyError; }
+    std::string_view Failure() const noexcept override
+    { return m_state ? std::string_view(m_state->error.message) : std::string_view{}; }
 
-private:
+protected:
     struct State : CSOLOrdinaryMonsterState
     {
         std::shared_ptr<CSOLMonsterSpawnState> spawn;
@@ -111,19 +119,31 @@ private:
         csol::scenario::ConfigError error;
     };
     using StatePtr = std::shared_ptr<State>;
+    // Pure type policy: derived CBaseZombieImprov behaviors keep the actual
+    // common reset/navigation while supplying their own verified stages.
+    virtual bool AcceptsSpawnType(const csol::scenario::MonsterType& type) const
+    { return type.skill < 1000 && type.propensity == 0; }
+    StatePtr SpawnState() const { return m_state; }
     CCSOLScenarioMonster* Current(CSOLMonsterSpawnCall& call, const StatePtr& state) const;
+    CCSOLScenarioMonster* CurrentAlive(CSOLMonsterSpawnCall& call, const StatePtr& state) const;
+    virtual bool UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state,
+        CCSOLOrdinaryMonsterServices& services);
+    virtual bool UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state,
+        CCSOLOrdinaryMonsterServices& services);
+    // Ordinary skills consume this behavior-tree pass. Elite v1B0 dispatches
+    // its independent ability clocks and then continues melee/navigation.
+    virtual bool SkillStopsTree() const { return true; }
+private:
     bool MoveTo(CSOLMonsterSpawnCall& call, State& state, const Vector& goal);
     bool Stop(CSOLMonsterSpawnCall& call, State& state);
     bool ResetMotion(CSOLMonsterSpawnCall& call, State& state);
     bool ValidateTarget(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool SelectTarget(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool RunTree(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
-    bool UseSkill(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool UpdateSkill(CSOLMonsterSpawnCall& call, const StatePtr& state);
     bool UpdateAmbientAndEffects(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool CheckObstacles(CSOLMonsterSpawnCall& call, const StatePtr& state);
     bool FindPath(CSOLMonsterSpawnCall& call, const StatePtr& state, bool& acted);
-    bool UpdateBehavior(CSOLMonsterSpawnCall& call, const StatePtr& state, CCSOLOrdinaryMonsterServices& services);
     bool Step(CSOLMonsterSpawnCall& call, const StatePtr& state, bool ok, const char* failure);
     std::weak_ptr<CCSOLOrdinaryMonsterServices> m_services;
     std::shared_ptr<CCSOLOrdinaryMonsterDamage> m_damage;

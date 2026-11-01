@@ -16,7 +16,7 @@ void StartClock(CSOLMonsterInterval& clock, float interval)
 
 bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, const StatePtr& state)
 {
-    auto* monster = Current(call, state);
+    auto* monster = CurrentAlive(call, state);
     if (!monster || !gpGlobals) return false;
     if (!state->target.Get<CBaseEntity>() || !(gpGlobals->time > state->melee.idleObstacleCheck.deadline))
         return true;
@@ -60,7 +60,7 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
         TraceResult trace{};
         // MP11533770 is the six-argument LINE wrapper, not a hull trace.
         UTIL_TraceLine(start, end, ignore_monsters, dont_ignore_glass, monster->edict(), &trace);
-        monster = Current(call, state);
+        monster = CurrentAlive(call, state);
         if (!monster) return false;
         if (!std::isfinite(trace.flFraction) || !std::isfinite(trace.vecPlaneNormal.z))
             return Step(call, state, false, "ordinary obstacle trace result is not finite");
@@ -77,7 +77,7 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
                 if (!hit && g_engfuncs.pfnPEntityOfEntIndex)
                 {
                     auto* world = INDEXENT(0);
-                    if (!Current(call, state)) return false;
+                    if (!CurrentAlive(call, state)) return false;
                     if (world && !world->free) hit = CBaseEntity::Instance(world);
                 }
             }
@@ -85,7 +85,7 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
             {
                 EHANDLE obstacle(hit);
                 const int classification = hit->Classify();
-                monster = Current(call, state);
+                monster = CurrentAlive(call, state);
                 if (!monster) return false;
                 hit = obstacle.Get<CBaseEntity>();
                 // CSO zbsbreak returns16 only when one damage ratio is nonzero.
@@ -104,9 +104,9 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
                         state->melee, [](const void* pointer)
                         {
                             const auto& context = *static_cast<const AttackContext*>(pointer);
-                            return context.owner->Current(*context.call, context.state) != nullptr;
+                            return context.owner->CurrentAlive(*context.call, context.state) != nullptr;
                         }, &context);
-                    monster = Current(call, state);
+                    monster = CurrentAlive(call, state);
                     if (!monster) return false;
                     if (!Step(call, state, animated, "ordinary obstacle attack animation failed")) return false;
                     hit = obstacle.Get<CBaseEntity>();
@@ -118,7 +118,7 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
                         if (!std::isfinite(damage))
                             return Step(call, state, false, "ordinary obstacle damage is not finite");
                         hit->TakeDamage(monster->pev, monster->pev, damage, DMG_BULLET);
-                        monster = Current(call, state);
+                        monster = CurrentAlive(call, state);
                         if (!monster) return false;
                     }
                     state->obstacleBlocked = true;
@@ -132,12 +132,12 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
     if (shouldJump && !state->position.motion.climbSequence)
     {
         CSOL_StartMonsterJump(call, state->position, state->spawn->sequences);
-        if (!Current(call, state)) return false;
+        if (!CurrentAlive(call, state)) return false;
         // Original ignores an active Jump cooldown, and still delays the
         // next obstacle check by one second.
         StartClock(state->melee.idleObstacleCheck, 1.0f);
     }
     state->obstacleBlocked = true;
-    state->lastObstacleOrigin = Current(call, state)->pev->origin;
+    state->lastObstacleOrigin = CurrentAlive(call, state)->pev->origin;
     return true;
 }

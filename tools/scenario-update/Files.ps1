@@ -34,7 +34,20 @@ function Atomic([string]$Target,[string]$Source,[byte[]]$Bytes) {
         if($Source){[IO.File]::Copy((Plain $Source),$temp,$false);$expected=Hash $Source}
         else{[IO.File]::WriteAllBytes($temp,$Bytes);$expected=Hash-Bytes $Bytes}
         if((Hash $temp) -ne $expected){throw 'Atomic staging hash mismatch'}
-        if([IO.File]::Exists($Target)){[IO.File]::Replace($temp,$Target,[NullString]::Value)}else{[IO.File]::Move($temp,$Target)}
+        if([IO.File]::Exists($Target)){
+            $original=Hash $Target
+            for($attempt=0;;$attempt++){
+                try{[IO.File]::Replace($temp,$Target,[NullString]::Value);break}
+                catch{
+                    $code=$_.Exception.GetBaseException().HResult -band 0xffff
+                    # Windows can retain a recently released sharing lock briefly.
+                    # Retry only while both paths still have their original identities.
+                    if($attempt -ge 4 -or $code -notin @(32,33,1175) -or
+                       (Hash $Target) -cne $original -or (Hash $temp) -cne $expected){throw}
+                    Start-Sleep -Milliseconds (100 * [Math]::Pow(2,$attempt))
+                }
+            }
+        }else{[IO.File]::Move($temp,$Target)}
     }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
 }
 function Json([string]$Path,$Value){Atomic $Path '' ([Text.UTF8Encoding]::new($false).GetBytes(($Value|ConvertTo-Json -Depth 30)+"`r`n"))}

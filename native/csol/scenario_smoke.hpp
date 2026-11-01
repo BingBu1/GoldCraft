@@ -14,6 +14,7 @@ inline constexpr int RenderMode = 4;
 inline constexpr float Color = 5.0f / 255.0f;
 inline constexpr std::size_t InitialParticles = 18;
 inline constexpr std::size_t FillParticles = 19;
+inline constexpr std::size_t CharacterParticles = 17;
 
 // The ordinary scenario createsmoke event (iparam2 == 1), new smoke renderer.
 // Angles retain the particle roll; drawing supplies the camera pitch and yaw.
@@ -21,6 +22,8 @@ struct Particle
 {
     Vec3 origin{}, previousOrigin{}, sourceOrigin{}, velocity{};
     Vec3 angles{0, 0, 1}, angularVelocity{};
+    // Final RGB for Color4f. Type 1 retains its original dark grey.
+    Vec3 color{Color, Color, Color};
     float size{}, initialSize{}, brightness{190}, birth{}, die{}, deadline{};
     float expansion{0.1f}, mass{}, sourceBrightness{190};
     int frame{};
@@ -48,6 +51,11 @@ public:
 };
 
 void CreateCloud(const Vec3& origin, double clientTime, Services& services);
+// Original createsmoke type 10 (character skills 22/23). Color is the event's
+// 0..255 RGB, life/brightness are fparam1/2 and radius is iparam1. The caller
+// validates finite event parameters before entering either cloud generator.
+void CreateCharacterCloud(const Vec3& origin, const Vec3& color, float life,
+    float brightness, int radius, double clientTime, Services& services);
 // Call once per changed client time, including particles outside the view.
 // previousTime is the preceding particle-manager time, not the birth time.
 // Returns false after the original post-Think expiry check.

@@ -7,6 +7,9 @@
 
 struct edict_s;
 namespace csol::abilities { struct Snapshot; }
+namespace csol::oberon_hint { struct Event; }
+namespace csol::frozen_death { struct IceEvent; }
+namespace csol::frozen_smoke { struct Event; }
 
 // Register while preparing the selected scenario, before sending events. The
 // engine owns user-message IDs; never retain a guessed ID from the original DLL.
@@ -24,11 +27,39 @@ public:
     // Original Boss selection: MPToCL { BYTE27, BYTE7, SHORT id }. There is
     // no trailing string; the caller suppresses the -1 sentinel.
     bool SendBossSkillStart(std::int16_t id) const;
+    // Original rules354 visual subset: caller resolves one valid recipient
+    // and rechecks its map/monster lease between packets.
+    bool SendOberonHint(edict_s* recipient, const csol::oberon_hint::Event& event) const;
+    // CSO TE147 is engine-private; preserve its frozen-death effect through
+    // a dedicated host message, scoped to the original center's PVS.
+    bool SendFrozenIce(const csol::frozen_death::IceEvent& event) const;
+    bool SendFrozenSmoke(const csol::frozen_smoke::Event& event) const;
+    bool SendBossParticipation(edict_s* recipient, int rank, int playerIndex,
+        std::int32_t hundreds, int percent) const;
+    bool SendBossHealthInit(int appearance, std::int32_t maximum, int entityIndex,
+        edict_s* recipient = nullptr) const;
+    // CSO PF_WriteFloat_I carries a raw float32 ratio; stock WRITE_COORD
+    // would change both its byte length and its precision.
+    bool SendBossHealthRatio(int appearance, float health, float maximum, int entityIndex,
+        edict_s* recipient = nullptr) const;
     bool SendRoundClearSound() const;
     // Adapt the original final-clear TextMsg to stock CS's single-byte
     // destination format. CSO's extra three bytes require its own decoder.
     bool SendAllRoundsClear(int textMessageId) const;
     bool SendRoundOutcome(bool success) const;
+    // Original MPToCL 27/4: byte slot, raw float32 cooldown, signed short count.
+    // Call only with the authoritative inventory result; sending is not a debit.
+    bool SendConsumableState(edict_s* recipient, unsigned index, float cooldown, int count) const;
+    // HudIcon is a shared 16-bit mask. The owner supplies the whole mask.
+    bool SendConsumableVisibility(edict_s* recipient, std::uint16_t mask) const;
+    bool SendRespawnCountdown(edict_s* recipient, bool automatic, int seconds) const;
+    bool SendRespawnUnavailable(edict_s* recipient) const;
+    bool SendRevivalHint(edict_s* recipient, bool retry) const;
+    // Original ZBSVer2 0x1C displays channel 6's "revival not cooled" text.
+    bool SendRespawnReloadWait(edict_s* recipient, int seconds) const;
+    // Original MPToCL 27/15 and 27/16 are all-client broadcasts.
+    bool SendRetryCountdown(int seconds) const;
+    bool SendRetryAnnouncement(int playerIndex, int oneBasedRound) const;
     bool SendRoundRewardState(bool pastRewardRound) const;
     // Original10828CC0: ZBSVer2 { BYTE0x18 (24), STRING, five signed LONGs }.
     // The result owner supplies verified statistics, never guessed defaults.
@@ -80,6 +111,13 @@ public:
     bool SendMonsterDisarmImpact(const float* origin) const;
     bool SendMonsterSkillShake(edict_t* recipient) const;
     bool SendMonsterTrapDirection(edict_t* recipient, const float* origin) const;
+    // One packet per call: false sends the original view kick (3), true
+    // sends the original stun sound (15/3). The attack owner checks the
+    // recipient's life and session between kick, ScreenShake and sound.
+    bool SendOberonImpact(edict_s* recipient, bool stun) const;
+    bool SendOberonDebris(const float* origin, const float* size,
+        bool landing, int modelIndex) const;
+    bool SendOberonExplosion(const float* origin, const float* visualOrigin, int modelIndex) const;
     // Original broadcast 27/2 uses the low 16 bits of the truncated frags.
     bool SendPlayerFrags(int playerIndex, std::int32_t frags) const;
     // Mode15 classification produces at most six candidates per call.
@@ -97,10 +135,16 @@ private:
     // The traversal resolves OFFSET and checks its session immediately after
     // that engine callback. This private entry performs no second lookup.
     bool WriteMonsterDeath(edict_s* recipient, int monsterIndex) const;
+    bool SendRespawnText(edict_s* recipient, const char* token, const char* argument) const;
     int m_messageId{};
     int m_upgradeMessageId{};
     int m_statusMessageId{};
     int m_skillSnapshotId{};
     int m_monsterEffectId{};
     int m_playerClipMessageId{};
+    int m_frozenIceMessageId{};
+    int m_frozenSmokeMessageId{};
+    int m_consumableIconMessageId{};
+    int m_respawnTextMessageId{};
+    int m_respawnHintMessageId{};
 };

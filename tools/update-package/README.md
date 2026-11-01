@@ -1,5 +1,7 @@
 # GoldCraft 累计更新包
 
+服务端更新／回滚默认目录为 `E:\cs_MineCraft\GoldCraft-Servers`，无需再次输入；其他位置使用 `-TargetDirectory`。显式空路径会拒绝，预览也使用同一默认目录。客户端和 Minecraft 的目录选择保持原行为。
+
 为已经安装 GoldCraft 的服务器与玩家生成配套更新；不是游戏本体或完整整合包。生成器读取已部署冻结候选、隔离 B 客户端的插件资源与专服已启用的 AMXX 插件。不会启动游戏或修改运行中的实例。
 
 2026-10-19 版本包含 1024 字节玩家资料扩容、能力握手、客户端退出及 Bot 广播崩溃修复。累计带入 TNT 追加更新、支撑、输入/枪镜、移动误封计数、TACZ 倍率、生命上限/属性、双向受伤效果、吸收生命、视觉效果、爆炸击退及试炼/袭击适配。本次还补齐飘字模型和启用清单，按每名攻击者最多五条显示。精确运行代码版本记录在 `update-manifest.json`；安装验证与剩余真人/多人玩法验收分开记录。
@@ -10,11 +12,11 @@
 
 ## 使用
 
-- 服主：用原 `Stop.cmd` 停止双服，把服务器 ZIP 解压到服务端之外的新目录，运行 `Update-Server.cmd`，输入原 `Start.cmd` 所在目录；完成后运行原 `Start.cmd`。
+- 服主：用原 `Stop.cmd` 停止双服，把服务器 ZIP 解压到服务端之外的新目录，运行 `Update-Server.cmd`，默认使用 `E:\cs_MineCraft\GoldCraft-Servers`；完成后运行原 `Start.cmd`。
 - 玩家：CS 改用[完整图形安装包](../client-installer/README.md)，退出 CS 后选择原游戏目录安装。Minecraft 整合包由服主自行提供；本次 CS 图形包不包含 MC 更新。
 - 服务器和玩家须使用匹配版本。只有服务器更新不会替换玩家的 CS DLL 或 MC JAR。
 
-服务端输入示例：`E:\GoldCraft-Servers`。应选择里面同时有 `Start.cmd`、`cs` 和 `minecraft` 的安装根目录，不是补丁的解压目录，也不是 `Start.cmd` 文件。新版遇到路径输入错误会在同一窗口提示重新输入，空行取消；尚未开始写入。也可在补丁目录的 PowerShell 明确指定：
+默认目录应同时包含 `Start.cmd`、`cs` 和 `minecraft`。路径错误或显式空白会直接拒绝，不会写文件或再次询问。其他安装位置可以在补丁目录的 PowerShell 明确指定：
 
 ```powershell
 .\Update-Server.cmd -TargetDirectory 'E:\GoldCraft-Servers'

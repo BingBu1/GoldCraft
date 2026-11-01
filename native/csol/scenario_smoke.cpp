@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "scenario_smoke.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 #if defined(__clang__)
@@ -46,6 +47,30 @@ void Emit(const Vec3& origin, const Vec3& velocity, bool stationary, bool fill,
     particle.stationary = particle.started = stationary;
     particle.emitFill = fill;
     particle.mass = services.RandomFloat(1, 1.5f);
+    services.Emit(particle);
+}
+
+void EmitCharacter(const Vec3& origin, const Vec3& color, float life,
+                   float brightness, float size, double time, Services& services)
+{
+    // 02AD3260 uses the supplied radius as size, skipping only the size RNG.
+    // These zero-velocity particles still use the moving-particle lifetime
+    // and deadline branch; they are not the type 1 stationary fill particles.
+    Particle particle;
+    particle.origin = particle.previousOrigin = particle.sourceOrigin = origin;
+    particle.size = particle.initialSize = size > 0 ? size : services.RandomFloat(175, 225);
+    particle.brightness = particle.sourceBrightness = brightness;
+    particle.birth = static_cast<float>(time);
+    particle.frame = services.RandomInt(0, 1);
+    particle.angularVelocity[2] = services.RandomFloat(-1, 1);
+    particle.deadline = static_cast<float>(time + 0.001);
+    particle.die = static_cast<float>(time + static_cast<double>(life));
+    particle.mass = services.RandomFloat(1, 1.5f);
+    Vec3 sourceColor = color;
+    if (sourceColor[0] == -999)
+        sourceColor.fill(services.RandomFloat(155, 175));
+    for (std::size_t axis = 0; axis < sourceColor.size(); ++axis)
+        particle.color[axis] = std::clamp(sourceColor[axis], 0.0f, 255.0f) / 255.0f;
     services.Emit(particle);
 }
 
@@ -144,6 +169,28 @@ void CreateCloud(const Vec3& origin, double clientTime, Services& services)
                  false, false, 190, clientTime, services);
     Emit(origin, Direction(45, 375, 120, services), false, false, 190, clientTime, services);
     Emit(origin, Direction(270, 375, 120, services), false, true, 190, clientTime, services);
+}
+
+void CreateCharacterCloud(const Vec3& origin, const Vec3& color, float life,
+    float brightness, int radius, double clientTime, Services& services)
+{
+    // 02561940 emits two rings and one particle at the unshifted origin.
+    const float extent = static_cast<float>(radius);
+    for (int ring = 1; ring <= 2; ++ring)
+    {
+        const float distance = (static_cast<float>(ring) * extent) * 0.5f;
+        for (int yaw = 0; yaw < 360; yaw += 45)
+        {
+            Vec3 forward{}, up{}, position{};
+            services.AngleVectors(static_cast<float>(yaw), forward, up);
+            Normalize(forward);
+            for (std::size_t axis = 0; axis < position.size(); ++axis)
+                position[axis] = (forward[axis] * distance + origin[axis]) +
+                    (up[axis] * extent) / 3.0f;
+            EmitCharacter(position, color, life, brightness, extent, clientTime, services);
+        }
+    }
+    EmitCharacter(origin, color, life, brightness, extent, clientTime, services);
 }
 
 bool Tick(Particle& particle, double clientTime, float previousTime, Services& services)

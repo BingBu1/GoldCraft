@@ -11,13 +11,19 @@ set(SDK "${METAHOOK_ROOT}/MetaHook/include")
 add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
     client/projectiles.cpp client/cannon.cpp client/k3.cpp client/scenario_music.cpp scenario_music.cpp
-    client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp
+    client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario_smoke.cpp scenario_smoke.cpp
+    client/elite_visuals.cpp
+    client/frozen_death.cpp
+    client/frozen_smoke.cpp
     client/scenario_upgrades.cpp scenario_upgrades.cpp
     client/scenario_abilities.cpp scenario_abilities.cpp
-    client/playerclip.cpp client/scenario_round_hud_client.cpp scenario_round_hud.cpp scenario_localization.cpp
-    scenario/dialogue_resources.cpp scenario/message_resource.cpp scenario/message_table.cpp scenario/wave_events.cpp
-    scenario/config.cpp scenario/spawn_points.cpp
+    client/boss_health.cpp boss_health.cpp client/oberon_hint.cpp
+    client/scenario_round_hud_client.cpp scenario_round_hud.cpp scenario_localization.cpp
+    client/scenario_respawn_ui.cpp
+    scenario/message_table.cpp scenario/message_resource.cpp scenario/config.cpp scenario/spawn_points.cpp
+    scenario/dialogue_resources.cpp scenario/wave_events.cpp
+    client/playerclip.cpp
     client/status_icons.cpp client/status_icons_gl.cpp client/wall_status.cpp
     client/damage_numbers.cpp client/damage_styles.cpp client/damage_display.cpp client/damage_options.cpp
     client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/beamgun_scope.cpp beamgun_state.cpp weapon_slots.cpp
@@ -27,7 +33,8 @@ target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cpp client/hd_spray_options.cpp client/hd_spray_gl.cpp client/hd_spray_http.cpp)
 target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
-set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp client/scenario_round_hud_client.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp client/character_skill_display.cpp client/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario_round_hud_client.cpp client/scenario_respawn_ui.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"
     "${SDK}/HLSDK/pm_shared" "${SDK}/HLSDK/public" "${SDK}/SourceSDK"
@@ -160,6 +167,7 @@ option(CSOL_BUILD_SCENE_TESTS "Build real OpenGL scene regression with engine fi
 if(CSOL_BUILD_SCENE_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(CSOL_GLFW_ROOT "${WORKSPACE}/build/csol-runtime-20261021/gl-test-support" CACHE PATH "Existing x86 GLFW test support")
+    set(CSOL_GLFW_LIBRARY "${CSOL_GLFW_ROOT}/glfw3.lib" CACHE FILEPATH "Existing x86 GLFW test library")
     execute_process(COMMAND "${Python3_EXECUTABLE}" -B "${WORKSPACE}/tests/csol-scene/renderer_fixture.py"
         "${METAHOOK_ROOT}/Plugins/Renderer/include/Interface/IMetaRenderer.h" "${CMAKE_CURRENT_BINARY_DIR}/renderer_fixture.hpp"
         COMMAND_ERROR_IS_FATAL ANY)
@@ -171,7 +179,7 @@ if(CSOL_BUILD_SCENE_TESTS)
     target_include_directories(csol_scene_tests PRIVATE ${SCENE_INCLUDES} "${CSOL_GLFW_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_compile_definitions(csol_scene_tests PRIVATE ${SCENE_DEFINITIONS} GLFW_INCLUDE_NONE)
     target_compile_options(csol_scene_tests PRIVATE /utf-8 /W3 /UNDEBUG)
-    target_link_libraries(csol_scene_tests PRIVATE opengl32 bcrypt "${CSOL_GLFW_ROOT}/glfw3.lib")
+    target_link_libraries(csol_scene_tests PRIVATE opengl32 bcrypt "${CSOL_GLFW_LIBRARY}")
     enable_testing()
     add_test(NAME csol_scene COMMAND csol_scene_tests)
 endif()

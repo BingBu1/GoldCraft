@@ -7,12 +7,18 @@ namespace csol::client
 {
 namespace
 {
-GLuint texture{}, program{}, vao{}, vbo{};
+GLuint program{}, vao{}, vbo{};
 GLint viewport{};
-unsigned imageWidth{}, imageHeight{};
 bool attempted{};
 bool compatibility{};
 HGLRC context{};
+struct StatusImage
+{
+    GLuint texture{};
+    bool attempted{};
+};
+std::array<StatusImage, status::ImageCount> images{};
+std::array<status::ImageSize, status::ImageCount> imageSizes{};
 
 struct StatusIconVertex { float x, y, u, v, alpha; };
 constexpr auto VertexCapacity = status::Capacity * 2 * 6;
@@ -37,75 +43,103 @@ void ResetStatusIconGraphics()
     // reset. Our creation context proves these GL entry points were loaded.
     if (context && wglGetCurrentContext() == context)
     {
-        if (texture) glDeleteTextures(1, &texture);
+        for (const auto& image : images)
+            if (image.texture) glDeleteTextures(1, &image.texture);
         if (program) glDeleteProgram(program);
         if (vao) glDeleteVertexArrays(1, &vao);
         if (vbo) glDeleteBuffers(1, &vbo);
     }
-    texture = program = vao = vbo = 0;
-    imageWidth = imageHeight = 0;
+    program = vao = vbo = 0;
+    images = {};
+    imageSizes = {};
     context = nullptr;
     attempted = false;
     compatibility = false;
 }
 
-void PrepareStatusIconGraphics()
+void PrepareStatusIconGraphics(const status::StatusIcons& icons)
 {
     if (context && context != wglGetCurrentContext()) ResetStatusIconGraphics();
-    if (attempted || !EnsureGraphics()) return;
-    attempted = true;
+    if (attempted && !program) return;
+    bool pending{};
+    for (const auto& icon : icons.Items())
+        if (icon.visible && !images[icon.type].attempted) { pending = true; break; }
+    if (!pending || !EnsureGraphics()) return;
     context = wglGetCurrentContext();
-    if (!context) { attempted = false; return; }
+    if (!context) return;
     GLState saved;
     GLuint vertex{}, fragment{};
-    try
+    if (!attempted)
     {
-        GLint profile{}; glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profile);
-        compatibility = (profile & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0;
-        const auto image = DecodeTGA(ReadResource(status::ProtectionImage));
-        imageWidth = image.Width;
-        imageHeight = image.Height;
-        texture = UploadImage(image);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        vertex = Compile(GL_VERTEX_SHADER, R"(#version 330 core
-layout(location=0) in vec4 point; layout(location=1) in float opacity;
-uniform vec2 viewportSize; out vec2 uv; out float alpha;
-void main(){uv=point.zw;alpha=opacity;gl_Position=vec4(point.x*2/viewportSize.x-1,1-point.y*2/viewportSize.y,0,1);})");
-        fragment = Compile(GL_FRAGMENT_SHADER, R"(#version 330 core
-in vec2 uv; in float alpha; uniform sampler2D image; out vec4 color;
-void main(){color=texture(image,uv);color.a*=alpha;})");
-        program = glCreateProgram();
-        glAttachShader(program, vertex); glAttachShader(program, fragment); glLinkProgram(program);
-        glDeleteShader(vertex); vertex = 0;
-        glDeleteShader(fragment); fragment = 0;
-        GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
-        if (!ok) throw std::runtime_error("status icon shader link failed");
-        viewport = glGetUniformLocation(program, "viewportSize");
-        glUseProgram(program);
-        glUniform1i(glGetUniformLocation(program, "image"), 0);
-        glGenVertexArrays(1, &vao); glBindVertexArray(vao);
-        glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(StatusIconVertex) * VertexCapacity, nullptr, GL_STREAM_DRAW);
-        glEnableVertexAttribArray(0); glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(StatusIconVertex), nullptr);
-        glEnableVertexAttribArray(1); glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(StatusIconVertex),
-            reinterpret_cast<void*>(offsetof(StatusIconVertex, alpha)));
+        attempted = true;
+        try
+        {
+            GLint profile{}; glGetIntegerv(GL_CONTEXT_PROFILE_MASK, &profile);
+            compatibility = (profile & GL_CONTEXT_COMPATIBILITY_PROFILE_BIT) != 0;
+            vertex = Compile(GL_VERTEX_SHADER, R"(#version 330 core
+    layout(location=0) in vec4 point; layout(location=1) in float opacity;
+    uniform vec2 viewportSize; out vec2 uv; out float alpha;
+    void main(){uv=point.zw;alpha=opacity;gl_Position=vec4(point.x*2/viewportSize.x-1,1-point.y*2/viewportSize.y,0,1);})");
+            fragment = Compile(GL_FRAGMENT_SHADER, R"(#version 330 core
+    in vec2 uv; in float alpha; uniform sampler2D image; out vec4 color;
+    void main(){color=texture(image,uv);color.a*=alpha;})");
+            program = glCreateProgram();
+            glAttachShader(program, vertex); glAttachShader(program, fragment); glLinkProgram(program);
+            glDeleteShader(vertex); vertex = 0;
+            glDeleteShader(fragment); fragment = 0;
+            GLint ok{}; glGetProgramiv(program, GL_LINK_STATUS, &ok);
+            if (!ok) throw std::runtime_error("status icon shader link failed");
+            viewport = glGetUniformLocation(program, "viewportSize");
+            glUseProgram(program);
+            glUniform1i(glGetUniformLocation(program, "image"), 0);
+            glGenVertexArrays(1, &vao); glBindVertexArray(vao);
+            glGenBuffers(1, &vbo); glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(StatusIconVertex) * VertexCapacity, nullptr, GL_STREAM_DRAW);
+            glEnableVertexAttribArray(0); glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(StatusIconVertex), nullptr);
+            glEnableVertexAttribArray(1); glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(StatusIconVertex),
+                reinterpret_cast<void*>(offsetof(StatusIconVertex, alpha)));
+        }
+        catch (const std::exception& error)
+        {
+            if (vertex) glDeleteShader(vertex);
+            if (fragment) glDeleteShader(fragment);
+            ResetStatusIconGraphics();
+            attempted = true; // Retry on the next video/session resource reset.
+            engine.Con_DPrintf("CSOLSupport: status icons: %s\n", error.what());
+            return;
+        }
     }
-    catch (const std::exception& error)
+    // Decode/upload only newly visible types, outside HUD_Redraw. A missing
+    // image must not hide unrelated statuses or retry every frame.
+    for (const auto& icon : icons.Items())
     {
-        if (vertex) glDeleteShader(vertex);
-        if (fragment) glDeleteShader(fragment);
-        ResetStatusIconGraphics();
-        attempted = true; // Retry on the next video/session resource reset.
-        engine.Con_DPrintf("CSOLSupport: status icons: %s\n", error.what());
+        if (!icon.visible) continue;
+        auto& cached = images[icon.type];
+        if (cached.attempted) continue;
+        cached.attempted = true;
+        try
+        {
+            const auto path = std::string(status::ImagePrefix) + std::to_string(icon.type) + ".tga";
+            const auto image = DecodeTGA(ReadResource(path.c_str()));
+            cached.texture = UploadImage(image);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            imageSizes[icon.type] = {image.Width, image.Height};
+        }
+        catch (const std::exception& error)
+        {
+            if (cached.texture) glDeleteTextures(1, &cached.texture);
+            cached.texture = 0;
+            engine.Con_DPrintf("CSOLSupport: status icon %d: %s\n", icon.type, error.what());
+        }
     }
 }
 
-void DrawStatusIconGraphics(const status::ProtectionIcons& icons, int width, int height)
+void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height)
 {
-    if (!program || !texture || context != wglGetCurrentContext()) return;
+    if (!program || context != wglGetCurrentContext()) return;
     std::array<status::Quad, status::Capacity * 2> quads;
-    const auto count = icons.Layout(width, height, imageWidth, imageHeight, quads);
+    const auto count = icons.Layout(width, height, imageSizes, quads);
     if (!count) return;
     std::array<StatusIconVertex, VertexCapacity> vertices;
     std::size_t used{};
@@ -129,9 +163,18 @@ void DrawStatusIconGraphics(const status::ProtectionIcons& icons, int width, int
     glEnable(GL_BLEND); glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(program); glUniform2f(viewport, float(width), float(height));
     glBindVertexArray(vao); glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, texture);
+    glActiveTexture(GL_TEXTURE0);
     glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(StatusIconVertex) * used, vertices.data());
-    glDrawArrays(GL_TRIANGLES, 0, GLsizei(used));
+    // Preserve panel order while batching adjacent slices of the same image.
+    // The entire frame uses one upload and fixed-capacity stack storage.
+    for (std::size_t first = 0; first < count;)
+    {
+        std::size_t end = first + 1;
+        while (end < count && quads[end].type == quads[first].type) ++end;
+        glBindTexture(GL_TEXTURE_2D, images[quads[first].type].texture);
+        glDrawArrays(GL_TRIANGLES, GLint(first * 6), GLsizei((end - first) * 6));
+        first = end;
+    }
     GLState::Enable(GL_SCISSOR_TEST, scissor);
     if (compatibility) GLState::Enable(GL_ALPHA_TEST, alphaTest);
     glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);

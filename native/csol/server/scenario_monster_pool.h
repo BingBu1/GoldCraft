@@ -16,6 +16,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 class CCSOLMonsterPool;
 class CCSOLScenarioMonster;
@@ -45,6 +46,7 @@ struct CSOLMonsterHostState
     // Presence of the original +1328 SK-table row, not the ordinary skill ID.
     // Ordinary pool reuse preserves it. Boss row ownership is separate.
     bool hasSkillRow{};
+    bool transformed{}; // original host+1320, explicitly cleared by pooled spawn
     int lastHitgroup{};
     int targetPolicy{-1}; // original host1368, retained on ordinary reuse
     bool navigationExpired{};
@@ -74,6 +76,9 @@ public:
     // Original CMonsterImprov vE0=10611F70 is ret4. Derived ordinary behavior
     // has its own skill-specific contact path; this base performs no action.
     virtual void Touch(CCSOLScenarioMonster&, CBaseEntity*) {}
+    // Read-only diagnostic, independent of engine callbacks. Waiting or
+    // retirement has no error; only a failed current behavior reports one.
+    virtual std::string_view Failure() const noexcept { return {}; }
 };
 
 class CCSOLScenarioMonster : public CBaseAnimating

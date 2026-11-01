@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "user_message_chain.hpp"
 #include "scenario_upgrades.hpp"
 #include "../scenario_upgrades.hpp"
 #include "../image_codec.hpp"
@@ -183,8 +184,7 @@ int Hide(const char* name,int size,void* data)
 {if(data&&size==1)hidden=*static_cast<unsigned char*>(data);return previousHide?previousHide(name,size,data):1;}
 void Install(const char* name,pfnUserMsgHook hook,pfnUserMsgHook& previous)
 {
-    const auto old=api->HookUserMsg(name,hook);if(old!=hook)previous=old;
-    if(!old)engine.pfnHookUserMsg(name,hook);
+    InstallChainedUserMessage(name, hook, previous);
 }
 }
 void InitializeScenarioUpgrades()

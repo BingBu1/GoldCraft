@@ -31,6 +31,7 @@ bool ReadCharacterActions(std::string_view csv, CharacterActionTable& output, Co
             return result.ec == std::errc{} && result.ptr == field.data() + field.size();
         };
         CharacterAction5 action;
+        action.sourceName = row.fields[1];
         int sequence{}, frames{};
         if (!number(0, action.modelId) || !number(8, action.weaponAnimation) ||
             !number(18, sequence) || !number(34, action.viewModel) ||

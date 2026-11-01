@@ -3,8 +3,13 @@
 
 #include "scenario_session.h"
 #include "../scenario/feature3.hpp"
+#include "../scenario/player_motion.hpp"
+#include "scenario_active_skill_effects.h"
+#include "scenario_character_skills/shield.hpp"
+#include <cstddef>
 #include <optional>
 #include <list>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -86,6 +91,18 @@ public:
         csol::scenario::ConfigError& error) = 0;
 };
 
+// Feature3 Add invokes v100(source); natural expiry invokes the same v104
+// notification as Stop, but neither operation belongs to a monster hit.
+class CSOLScenarioTimedCloakingObserver
+{
+public:
+    virtual ~CSOLScenarioTimedCloakingObserver() = default;
+    virtual bool CloakingStarted(CSOLPlayerRecoveryCall& call, const EHANDLE& source,
+        csol::scenario::ConfigError& error) = 0;
+    virtual bool CloakingEnded(CSOLPlayerRecoveryCall& call,
+        csol::scenario::ConfigError& error) = 0;
+};
+
 // Original external event7 has two positional values: [true, attacker].
 // Handles/generations replace the private process pointer for local services;
 // the metadata is lifetime validation, not extra original payload values.
@@ -118,6 +135,9 @@ class CSOLScenarioRecoveryNotice
 {
 public:
     virtual ~CSOLScenarioRecoveryNotice() = default;
+    virtual bool NotifyRecovery(CSOLPlayerRecoveryCall& call, float amount,
+        CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
+        bool (*ownerValid)(const void*), const void* ownerContext);
     virtual bool NotifySelfRecovery(CSOLPlayerRecoveryCall& call, float amount,
         CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
         bool (*ownerValid)(const void*), const void* ownerContext) = 0;
@@ -171,6 +191,9 @@ struct CSOLScenarioStatusLabel
     std::int32_t id{}, type{}, group{};
     float deadline{}, createdAt{};
     bool style{};
+    // Per-player status-ID ownership is the original stable extraKey mapping.
+    // Repeated status applications still allocate distinct label IDs.
+    int motionStatus{};
 };
 
 class CSOLScenarioBuffCondition
@@ -186,12 +209,26 @@ public:
 struct CSOLScenarioStatBuff
 {
     std::uint64_t token{};
+    std::uint64_t skillIdentity{};
     std::int32_t group{}, source{}, subsource{};
     std::uint32_t mask{};
     float expires{};
     bool protection{}, renderHeld{}, criticalEnabled{};
     float criticalChance{}, criticalMultiplier{}, attackRatio{};
     bool forbidWeaponDrop{};
+    bool blocksKnockback{}; // Original StatBuff+AC, independent of damage protection.
+    int knockbackPriority{-1};
+    float knockbackResistance{};
+    int slowImmunity{-1}, slowPriority{-1}; // Original StatBuff+A8/+B0.
+    float slowResistance{}; // +C0; independent of knockback resistance.
+    int gravityPriority{-1}; // +B8.
+    float gravityResistance{}; // +C4.
+    float dodgeChance{}; // StatBuff+104, sampled before incoming damage/armor.
+    float incomingDamageRatio{}; // StatBuff+114: minimum per non-additive group.
+    float incomingDamageAmplificationRatio{}; // StatBuff+118: maximum per group.
+    float periodicDamage{}, periodicDamageInterval{}, periodicDamageRadius{}; // +160/+164/+168.
+    float speed{}, absoluteSpeed{}, periodicRecovery{}, periodicInterval{}, extraClip{}, cooldownReduction{};
+    bool infiniteAmmo{};
     std::shared_ptr<CSOLScenarioBuffCondition> condition;
     std::vector<std::int32_t> labels;
     bool Active(float now) const { return !(expires > 0 && now >= expires); }
@@ -206,6 +243,15 @@ struct CSOLScenarioDisplayAbilities
     std::optional<std::uint8_t> feature28;
     std::optional<float> feature29;
     std::shared_ptr<csol::scenario::Feature3> feature3;
+};
+
+struct CSOLScenarioSkillCloak
+{
+    std::uint64_t identity{}, buff{};
+    int subtype{};
+    std::int32_t label{};
+    std::uint8_t phases{};
+    float opacity{}, endingSpeed{}, endingSpeedDuration{}, recoveryFraction{}, recoveryRadius{};
 };
 
 // Local dedicated-server provenance, not an original account/network field.
@@ -249,6 +295,11 @@ struct CSOLScenarioPlayerRuntimeState
     // Independent effect17 movement entry; never a character invulnerability.
     float monsterTrapUntil{}, monsterTrapSavedGravity{1.0f};
     bool monsterTrapMovementApplied{}, monsterTrapPending{};
+    csol::scenario::PlayerMotionRing monsterMotion;
+    bool monsterMotionApplied{};
+    // Original +2E94 changes only on the ordinary weapon-speed branch.
+    // Switching weapons during an active ring changes its final cap, not B.
+    float monsterMotionWeaponSpeed{};
     int classId{-1};
     CSOLScenarioPlayerProfile profile;
     CSOLScenarioClassModSource classModSource{CSOLScenarioClassModSource::Uninitialized};
@@ -279,6 +330,23 @@ struct CSOLScenarioPlayerRuntimeState
     std::vector<std::int32_t> publishedLabels;
     bool labelsDirty{}, updatingBuffs{};
     std::uint64_t buffsRevision{};
+    std::uint64_t skillLifeSerial{};
+    // Original action-constraint lock, never inferred from godmode or a HUD
+    // label. The currently installed character action33 does not set it.
+    bool actionKnockbackBlocked{};
+    CSOLScenarioSkillHealing skillHealing;
+    float nextSkillStatus{};
+    std::map<std::int32_t, float> nextBuffRecovery;
+    std::map<std::int32_t, float> nextBuffDamage;
+    std::map<int, int> savedSkillAmmo;
+    std::set<int> expandedSkillWeapons;
+    EHANDLE skillAmmoWeapon;
+    bool skillInfiniteAmmo{}, updatingCharacterSkill{}, disablingCharacterSkill{};
+    bool retiringCharacterSkillEffects{};
+    std::map<int, CSOLScenarioSkillCloak> skillCloaks;
+    bool skillCloakRenderHeld{};
+    csol::scenario::skills::EnergyShield skillShield;
+    float skillTemporaryHealth{}, skillTemporaryHealthUntil{};
     // Constructor evidence: original +3518 is zero. Do not reset it on every
     // hit or profile update; real timer producers and Spawn resets are separate.
     double recoveryBlockedUntil{};
@@ -300,6 +368,7 @@ struct CSOLScenarioPlayerRuntimeState
     // This is distinct from an absent/stale initialization and must not make
     // ordinary weapon damage leave a zero-health monster outside death flow.
     bool activeSkillUnavailable{};
+    std::string skillFailure;
     bool updatingHud{}, hudReplayPending{};
     CSOLScenarioAddonDamageInputs addonDamage;
     // Shared module flag written during pre-damage and consumed after health
@@ -320,11 +389,17 @@ class CSOLPlayerRecoveryCall
 {
 public:
     CSOLPlayerRecoveryCall(std::shared_ptr<CCSOLScenarioRuntime> runtime, EHANDLE player,
-        bool (*ownerValid)(const void*) = nullptr, const void* ownerContext = nullptr);
+        bool (*ownerValid)(const void*) = nullptr, const void* ownerContext = nullptr,
+        std::optional<EHANDLE> source = std::nullopt);
+    // Explicitly source-less recovery; a stale or empty EHANDLE remains an
+    // invalid player source and must never silently become this case.
+    CSOLPlayerRecoveryCall(std::shared_ptr<CCSOLScenarioRuntime> runtime, EHANDLE player,
+        bool (*ownerValid)(const void*), const void* ownerContext, std::nullptr_t);
     CBasePlayer* Current() const;
     CBasePlayer* Player() const { return Current(); }
     std::shared_ptr<CCSOLScenarioRuntime> Runtime() const { return m_runtime; }
     const EHANDLE& PlayerHandle() const { return m_player; }
+    CBasePlayer* Source() const { return Current() ? m_source.Get<CBasePlayer>() : nullptr; }
     bool Cancel() { m_cancelled = true; return false; }
     bool Cancelled() const { return m_cancelled; }
 private:
@@ -332,11 +407,13 @@ private:
     std::shared_ptr<CCSOLScenarioSession> m_session;
     std::shared_ptr<CCSOLScenarioPlayerRuntime> m_players;
     std::shared_ptr<const CSOLScenarioPlayerRuntimeState> m_state;
-    EHANDLE m_player;
+    EHANDLE m_player, m_source;
+    std::shared_ptr<const CSOLScenarioPlayerRuntimeState> m_sourceState;
     std::uint64_t m_runtimeGeneration{}, m_roundGeneration{};
+    std::uint64_t m_playerLifeSerial{}, m_sourceLifeSerial{};
     bool (*m_ownerValid)(const void*);
     const void* m_ownerContext{};
-    bool m_cancelled{};
+    bool m_cancelled{}, m_withoutSource{};
 };
 
 class CCSOLScenarioPlayerRuntime final : public std::enable_shared_from_this<CCSOLScenarioPlayerRuntime>
@@ -363,6 +440,10 @@ public:
     bool CurrentClassModPair(const EHANDLE& player, int type, int subtype,
         std::optional<csol::scenario::ClassModDefinition>& result, csol::scenario::ConfigError& error);
     std::shared_ptr<const CSOLScenarioPlayerRuntimeState> Find(const EHANDLE& player) const;
+    // Map-local server identity for elite ownership/contributions. Stable
+    // across respawn and character changes, never a client-supplied CSO oid.
+    bool ReadLocalIdentity(const EHANDLE& player, std::int32_t& identity,
+        csol::scenario::ConfigError& error) const;
     // Current character/effect-adjusted level, read by inventory rule consumers.
     bool ReadUpgradeStat(const EHANDLE& player, csol::scenario::UpgradeStat stat, float& value) const;
     // Disconnect detaches profiles before the SDK sets has_disconnected.
@@ -376,6 +457,8 @@ public:
     bool ClearPointProtectionEnabled() const { return m_clearPointProtection; }
     std::uint64_t ClearPointProtectionRevision() const { return m_protectionOperation; }
     bool ProtectionBlocksDamage(const EHANDLE& player, float now) const;
+    bool ApplyProtectionDamage(const EHANDLE& player, float now,
+        int damageType, float& damage) const;
     bool UpdatePlayerBuffs(CBasePlayer& player, float now);
     bool MonsterTrapActive(const EHANDLE& player, float now) const;
     std::optional<std::pair<std::uint64_t, std::uint64_t>> MonsterSkillLife(const EHANDLE& player) const;
@@ -384,11 +467,54 @@ public:
         const std::function<bool()>& prepare, bool& caught,
         csol::scenario::ConfigError& error);
     bool ApplyMonsterTrapMovement(CBasePlayer& player, float now);
+    bool TryMonsterFrost(const EHANDLE& player, float duration, float speed,
+        bool& applied, csol::scenario::ConfigError& error);
+    bool ApplyMonsterStatusMovement(CBasePlayer& player, float weaponSpeed, float now,
+        bool& active, csol::scenario::ConfigError& error);
+    bool RemoveMonsterFrost(const EHANDLE& player);
     bool ResetMonsterSkillState(const EHANDLE& player);
+    bool ActivateCharacterSkill(CSOLPlayerRecoveryCall& call, bool& activated,
+        csol::scenario::ConfigError& error);
+    bool UpdateCharacterSkill(CSOLPlayerRecoveryCall& call, csol::scenario::ConfigError& error);
+    bool ResetCharacterSkillState(const EHANDLE& player, csol::scenario::ConfigError& error);
+    void DisableCharacterSkill(const EHANDLE& player, const char* reason);
+    bool InstallSkillHealing(const EHANDLE& player, float duration,
+        float interval, float ratio, csol::scenario::ConfigError& error);
+    std::int32_t InstallSkillLabel(const EHANDLE& player, int type, int group,
+        float duration, std::uint64_t buff = 0);
+    bool RemoveSkillLabel(const EHANDLE& player, std::int32_t label);
+    bool HoldSkillProtectionRender(const EHANDLE& player, std::uint64_t buff,
+        csol::scenario::ConfigError& error);
+    bool RefreshSkillAmmo(const EHANDLE& player, bool expandClip, bool forcePublish,
+        csol::scenario::ConfigError& error);
+    bool CompleteSkillReload(CBasePlayerWeapon& weapon, csol::scenario::ConfigError& error);
+    float SkillSpeed(const EHANDLE& player, float now) const;
+    float SkillAbsoluteSpeed(const EHANDLE& player, float now) const;
+    float SkillCooldownReduction(const EHANDLE& player, float now) const;
+    bool StartCloakSkill(const EHANDLE& player, int key, std::uint64_t identity,
+        csol::scenario::ConfigError& error, int subtype = 0);
+    bool UpdateSkillCloaks(CSOLPlayerRecoveryCall& call, csol::scenario::ConfigError& error);
+    bool ReleaseSkillCloakRender(const EHANDLE& player);
+    bool NotifySkillCloaking(const EHANDLE& player, bool started,
+        const EHANDLE& source, csol::scenario::ConfigError& error);
+    bool InstallSkillTemporaryHealth(const EHANDLE& player, float amount, float duration,
+        csol::scenario::ConfigError& error);
+    float SkillTemporaryHealth(const EHANDLE& player, float now) const;
+    bool InstallSkillShield(const EHANDLE& player, int amount, float duration,
+        csol::scenario::ConfigError& error,
+        csol::scenario::skills::EnergyShield::Callback callback = {});
+    bool AbsorbSkillShield(const EHANDLE& player, float& damage, bool& absorbed,
+        csol::scenario::ConfigError& error);
+    bool RetireSkillShields(const EHANDLE& player,
+        const std::vector<csol::scenario::skills::EnergyShield::Retired>& retired,
+        csol::scenario::ConfigError& error);
     // Trusted server producers only. Display/render ownership is installed by
     // its concrete producer, never accepted through this damage-data entry.
     std::uint64_t InstallStatBuff(const EHANDLE& player, CSOLScenarioStatBuff buff);
     bool RemoveStatBuff(const EHANDLE& player, std::uint64_t token);
+    // Called while the old player/skill is still registered. Always removes
+    // that skill's tagged recipient buffs, even if its visual cleanup fails.
+    bool RetireCharacterSkillEffects(const EHANDLE& player, csol::scenario::ConfigError& error);
     // Separate original phases: critical before weapon properties / attacked
     // notification; attack ratio after that notification, before hit rewards.
     bool ApplyCriticalBuffDamage(CSOLMonsterDamageCall& call,
@@ -427,6 +553,8 @@ public:
     // No monster identity is fabricated for deferred player updates.
     bool ApplyRecovery(CSOLPlayerRecoveryCall& call, float amount, bool& applied,
         csol::scenario::ConfigError& error);
+    bool ApplyRecoveryContext(CSOLPlayerRecoveryCall& call, float amount, bool& applied,
+        CSOLMonsterDeathContext context, csol::scenario::ConfigError& error);
     bool AddBloodSucking(const EHANDLE& player, float amount);
     bool SetBloodSuckingCap(const EHANDLE& player, float percentage);
     bool SetBloodSuckingEnabled(const EHANDLE& player, bool enabled);
@@ -468,6 +596,10 @@ public:
         std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error);
     bool StopCharacterCloaking(CSOLMonsterDamageCall& call,
         const CSOLScenarioActiveSkill* skill, csol::scenario::ConfigError& error);
+    bool ReadCharacterSkillSource(CSOLMonsterDamageCall& call, int& weapon,
+        csol::scenario::ConfigError& error);
+    bool StopCharacterSkillCloaking(CSOLMonsterDamageCall& call, int key,
+        csol::scenario::ConfigError& error);
     bool RecordMonsterDamage(CSOLMonsterDamageCall& call,
         std::shared_ptr<CCSOLScenarioRuntime> runtime, bool boss, float amount,
         csol::scenario::ConfigError& error);
@@ -518,6 +650,8 @@ public:
 
 private:
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> Resolve(const EHANDLE& player) const;
+    bool AddMonsterMotionStatus(const EHANDLE& player, int id, float duration,
+        float speed, float gravity, bool& applied, csol::scenario::ConfigError& error);
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> Ensure(CBasePlayer& player);
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> ResolveDamageStatisticPlayer(CSOLMonsterDamageCall& call,
         const std::shared_ptr<CCSOLScenarioRuntime>& runtime, csol::scenario::ConfigError& error);
@@ -533,6 +667,9 @@ private:
     bool RemoveProtectionSource(CSOLScenarioPlayerRuntimeState& state, CBasePlayer& player,
         std::int32_t source, std::int32_t subsource);
     bool RemoveProtectionAt(CSOLScenarioPlayerRuntimeState& state, CBasePlayer& player, std::size_t index);
+    bool RetireCharacterSkillState(const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state,
+        csol::scenario::ConfigError& error);
+    bool UpdatePeriodicBuffs(CSOLPlayerRecoveryCall& call, csol::scenario::ConfigError& error);
     bool PublishLabels(const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state, float now);
     bool ReadKillEntitySource(CSOLMonsterDeathCall& call, CBaseEntity& entity, int& value,
         csol::scenario::ConfigError& error);

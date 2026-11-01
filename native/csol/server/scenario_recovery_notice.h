@@ -10,6 +10,9 @@
 class CCSOLScenarioRecoveryNotice final : public CSOLScenarioRecoveryNotice
 {
 public:
+    bool NotifyRecovery(CSOLPlayerRecoveryCall& call, float amount,
+        CSOLMonsterDeathContext& context, csol::scenario::ConfigError& error,
+        bool (*ownerValid)(const void*), const void* ownerContext) override;
     explicit CCSOLScenarioRecoveryNotice(std::weak_ptr<CCSOLScenarioRuntime> runtime)
         : m_runtime(std::move(runtime)) {}
     bool NotifySelfRecovery(CSOLPlayerRecoveryCall& call, float amount,

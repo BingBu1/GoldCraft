@@ -8,6 +8,7 @@ class CCSOLScenarioRuntime;
 class CCSOLScenarioSession;
 class CCSOLScenarioGameplay;
 class CCSOLScenarioDeathServices;
+class CCSOLOberonServices;
 
 // The ordinary behavior holds this provider weakly. A pinned provider retains
 // the session, death service and gameplay managers until the entry unwinds;
@@ -30,7 +31,14 @@ public:
         csol::scenario::ConfigError& error) override;
     std::unique_ptr<CCSOLMonsterSpawnBehavior> CreateBoss(CSOLMonsterSpawnCall& call,
         std::int32_t recordId, csol::scenario::ConfigError& error) override;
+    bool SupportsElite() const override;
+    std::unique_ptr<CCSOLMonsterSpawnBehavior> CreateElite(CSOLMonsterSpawnCall& call,
+        bool follower, csol::scenario::ConfigError& error) override;
+    bool UpdateEliteSchedule(csol::scenario::ConfigError& error) override;
     std::span<const std::size_t> ProtectedSlots() const override;
+    bool ResetRoundDamage(csol::scenario::ConfigError& error) override;
+    bool UpdateHealthSummary(float now, csol::scenario::ConfigError& error) override;
+    bool AttributesApplied(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) override;
     bool ClearSpawnEffects(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) override;
     bool ResolveSpawnOverlap(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) override;
     bool RulesMonsterSpawned(CSOLMonsterSpawnCall& call, csol::scenario::ConfigError& error) override;
@@ -62,6 +70,7 @@ private:
     std::shared_ptr<CCSOLScenarioDeathServices> m_deaths;
     std::shared_ptr<CCSOLScenarioGameplay> m_gameplay;
     std::shared_ptr<CCSOLMonsterDamageServices> m_damage;
+    std::shared_ptr<CCSOLOberonServices> m_oberon;
     // Original manager owns four smoke deadline slots, independent of actual
     // particle lifetime. Reset on a new round, not when a monster dies.
     std::array<float, 4> m_smokeUntil{};

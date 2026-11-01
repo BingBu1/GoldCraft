@@ -29,11 +29,89 @@ def boss_contract(header):
         raise ValueError('Incomplete boss resource contract')
     type_id, model, body = int(type_match[1]), model_match[1], dependencies_match[1]
     dependencies = re.findall(r'"([^"]+)"', body)
-    return type_id, model, {model, *dependencies}
+    expected = {model, *dependencies}
+    if 'CSOLOberonKnifeEffectModel' in text:
+        knife = re.findall(r'CSOLOberonKnifeEffectModel\[\]\s*=\s*"([^"]+)"', text)
+        if len(knife) != 1:
+            raise ValueError('Incomplete Oberon knife effect resource contract')
+        name = resource_name(knife[0])
+        if not name.startswith('models/') or not name.endswith('.mdl'):
+            raise ValueError('Oberon knife effect must be a model resource')
+        expected.add(name)
+    return type_id, model, expected
+
+
+def boss_attack_contract(source):
+    """Read the map-load attack contract from the selected DLL source tree."""
+    header = source / 'native/csol/server/scenario_oberon_resources.h'
+    if not header.exists():
+        return set(), None  # Older frozen builds do not own these attacks.
+    text = header.read_text(encoding='utf-8-sig')
+    keys = ('CSOLOberonAttackModels', 'CSOLOberonAttackSounds')
+    if not any(key in text for key in keys):
+        return set(), None
+    pairs = re.findall(r'inline constexpr char (\w+)\[\]\s*=\s*"([^"\n]+)";', text)
+    constants = dict(pairs)
+    if len(constants) != len(pairs):
+        raise ValueError('Duplicate Oberon attack resource constant')
+    result = set()
+    for key, prefix in zip(keys, ('', 'sound/')):
+        blocks = re.findall(r'\b' + key + r'\s*\{([^}]+)\}', text, re.S)
+        if len(blocks) != 1:
+            raise ValueError(f'Missing or ambiguous Oberon attack contract: {key}')
+        for token in blocks[0].split(','):
+            value = constants.get(token.strip())
+            if value is None:
+                raise ValueError(f'Unresolved Oberon attack resource: {token}')
+            path = resource_name(prefix + value)
+            if prefix:
+                valid = path.startswith('sound/') and path.endswith('.wav')
+            else:
+                valid = ((path.startswith('models/') and path.endswith('.mdl')) or
+                         (path.startswith('sprites/') and path.endswith('.spr')))
+            if not valid or path in result:
+                raise ValueError(f'Invalid or duplicate Oberon attack resource: {path}')
+            result.add(path)
+    return result, dict(path=str(header), sha256=digest(header))
+
+
+def boss_hint_contract(source):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'csol::oberon_hint::Sprite' not in session:
+        return set(), None  # This frozen source has no hint precheck/consumer.
+    header = source / 'native/csol/oberon_hint.hpp'
+    values = re.findall(r'char Sprite\[\]\s*=\s*"([^"]+)"', header.read_text(encoding='utf-8-sig'))
+    if len(values) != 1:
+        raise ValueError('Incomplete Oberon start hint sprite contract')
+    name = resource_name(values[0])
+    if not name.startswith('sprites/') or not name.endswith('.spr'):
+        raise ValueError('Oberon start hint must be a sprite resource')
+    return {name}, dict(path='native/csol/oberon_hint.hpp', sha256=digest(header))
 
 
 def select_boss_models(catalog, type_id, model):
     return [model] if any(row['id'] == type_id for row in catalog['effectiveTypes']) else []
+
+
+def frozen_death_contract(source):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'csol::frozen_death::IceModel' not in session:
+        return set(), []  # Older frozen DLLs do not consume these messages.
+    resources, inputs = set(), []
+    for filename, symbol, prefix, suffix in [
+            ('frozen_death.hpp', 'IceModel', 'models/', '.mdl'),
+            ('frozen_smoke.hpp', 'SmokeSprite', 'sprites/', '.spr')]:
+        name = 'native/csol/' + filename
+        header = source / name
+        values = re.findall(r'char ' + symbol + r'\[\]\s*=\s*"([^"]+)"', header.read_text(encoding='utf-8-sig'))
+        if len(values) != 1:
+            raise ValueError(f'Incomplete frozen-death resource contract: {symbol}')
+        resource = resource_name(values[0])
+        if not resource.startswith(prefix) or not resource.endswith(suffix):
+            raise ValueError(f'Invalid frozen-death resource: {resource}')
+        resources.add(resource)
+        inputs.append(dict(path=name, sha256=digest(header)))
+    return resources, inputs
 
 
 def skill_contract(source):
@@ -85,6 +163,34 @@ def smoke_event_contract(source):
     return name, script
 
 
+def elite_contract(source):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'MakeEliteMonsterType' not in session:
+        return set()
+    # The synthetic type is not an effective row in the map CSV. Resolve its
+    # real appearance through the same source catalog used by model precache.
+    catalog = (source / 'native/csol/scenario/monster_appearances.cpp').read_text(encoding='utf-8-sig')
+    matches = re.findall(r'\{\d+,\s*"zbs_elite_01",(.*?)(?=\n\s*\{\d+,)', catalog, re.S)
+    if len(matches) != 1:
+        raise ValueError('Missing or ambiguous synthetic elite model')
+    appearance = re.findall(r'"([^"]*)"', matches[0])
+    if len(appearance) not in (2, 3) or not appearance[0].startswith('models/'):
+        raise ValueError('Incomplete synthetic elite appearance/sound contract')
+    resources = {resource_name(appearance[0])}
+    resources.update(resource_name('sound/' + name) for name in appearance[1:] if name)
+    header = (source / 'native/csol/elite_visual_resources.hpp').read_text(encoding='utf-8-sig')
+    for kind in ('Models', 'Sounds'):
+        block = re.findall(r'\b' + kind + r'\s*\{([^}]+)\}', header, re.S)
+        if len(block) != 1:
+            raise ValueError(f'Missing elite visual {kind} contract')
+        for token in block[0].split(','):
+            match = re.fullmatch(r'\s*"([^"]+)"\s*', token)
+            if not match:
+                raise ValueError(f'Unresolved elite resource: {token}')
+            resources.add(resource_name(match[1]))
+    return resources
+
+
 def command(program, *args):
     result = subprocess.run([str(program.resolve()), *map(str, args)], check=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -131,6 +237,20 @@ def dialogue_contract(source, common, reader, wave):
         readerSha256=digest(reader), headerSha256=digest(header))
 
 
+def respawn_ui_contract(source):
+    """Collect the exact shared HUD list consumed by this server version."""
+    session = source / 'native/csol/server/scenario_session.cpp'
+    if '#include "../scenario_respawn_resources.hpp"' not in session.read_text(encoding='utf-8-sig'):
+        return set(), None
+    header = source / 'native/csol/scenario_respawn_resources.hpp'
+    text = header.read_text(encoding='utf-8-sig')
+    resources = {resource_name(name) for name in re.findall(
+        r'"((?:resource|sprites|sound)/[^"\r\n]+\.(?:tga|spr|txt|wav))"', text)}
+    if not resources:
+        raise ValueError('Empty scenario revival HUD resource contract')
+    return resources, dict(resources=sorted(resources), headerSha256=digest(header))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('common', type=Path)
@@ -152,21 +272,37 @@ def main():
     boss = boss_contract(header)
     smoke_event = smoke_event_contract(source_root)
     dialogue, dialogue_info = dialogue_contract(source_root, common, args.dialogue_reader, args.wave_resource)
+    respawn_ui, respawn_ui_info = respawn_ui_contract(source_root)
     catalog = command(args.catalog_reader, '--catalog', common)
     boss_models = select_boss_models(catalog, boss[0], boss[1]) if boss else []
+    if boss_models:
+        boss_models = sorted(name for name in boss[2] if name.endswith('.mdl'))
     models = boss_models.copy()
     entries = command(args.collector, common, '--relocatable-json', *models) if models else []
     actual = {row['path'] for row in entries}
     expected = boss[2] if boss else set()
     if models and actual != expected:
         raise ValueError(f'Boss precheck closure drift: new={actual-expected}, stale={expected-actual}')
-    skills = skill_contract(source_root)
+    hints, hint_contract = boss_hint_contract(source_root) if boss_models else (set(), None)
+    entries += [{'path': name} for name in sorted(hints)]
+    attacks, attack_contract = boss_attack_contract(source_root) if boss_models else (set(), None)
+    attack_models = sorted(name for name in attacks if name.endswith('.mdl'))
+    attack_entries = command(args.collector, common, '--relocatable-json', *attack_models) if attack_models else []
+    attack_closure = {row['path'] for row in attack_entries} | attacks
+    if not set(attack_models).issubset({row['path'] for row in attack_entries}):
+        raise ValueError('Collector omitted an Oberon attack model')
+    entries += attack_entries + [{'path': name} for name in sorted(attacks) if not name.endswith('.mdl')]
+    models += attack_models
+    elite = elite_contract(source_root)
+    frozen, frozen_inputs = frozen_death_contract(source_root)
+    skills = skill_contract(source_root) | elite | frozen
     skill_models = sorted(name for name in skills if name.endswith('.mdl'))
     skill_entries = command(args.collector, common, '--relocatable-json', *skill_models) if skill_models else []
     if not set(skill_models).issubset({row['path'] for row in skill_entries}):
         raise ValueError('Collector omitted a monster skill model')
     entries += skill_entries + [{'path': name} for name in sorted(skills) if not name.endswith('.mdl')]
     entries += [{'path': name} for name in sorted(dialogue)]
+    entries += [{'path': name} for name in sorted(respawn_ui)]
     models += skill_models
     previous = json.loads(args.previous_plan.read_text(encoding='utf-8-sig'))
     if previous.get('blocked'):
@@ -213,13 +349,27 @@ def main():
                   fileCount=len(rows),
                   monsterSkillClosure=dict(roots=sorted(skills), resources=sorted({r['path'] for r in skill_entries} | skills)))
     if boss:
-        result['bossClosure'] = dict(typeId=boss[0], roots=boss_models, resources=sorted(actual))
+        result['bossClosure'] = dict(typeId=boss[0], roots=boss_models + attack_models,
+            resources=sorted(actual | attack_closure | hints))
+    if hint_contract:
+        result['bossHintClosure'] = dict(resources=sorted(hints), contract=hint_contract)
+    if attack_contract:
+        result['bossAttackClosure'] = dict(roots=sorted(attacks), resources=sorted(attack_closure),
+            contract=attack_contract)
     if smoke_event:
         result['smokeEvent'] = dict(path=smoke_event[0],
             headerSha256=digest(source_root / 'native/csol/scenario_smoke.hpp'),
             scriptSha256=digest(smoke_event[1]))
     if dialogue_info:
         result['dialogueClosure'] = dialogue_info
+    if respawn_ui_info:
+        result['respawnUiClosure'] = respawn_ui_info
+    if elite:
+        result['eliteClosure'] = dict(roots=sorted(elite),
+            headerSha256=digest(source_root / 'native/csol/elite_visual_resources.hpp'),
+            appearanceCatalogSha256=digest(source_root / 'native/csol/scenario/monster_appearances.cpp'))
+    if frozen:
+        result['frozenDeathClosure'] = dict(roots=sorted(frozen), sources=frozen_inputs)
     args.output.mkdir(parents=True, exist_ok=False)
     def save(name, data):
         (args.output / name).write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')

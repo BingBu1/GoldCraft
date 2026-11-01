@@ -53,6 +53,7 @@ public:
     bool SetConditions(std::int32_t key, std::shared_ptr<const Feature3Condition> first,
         std::shared_ptr<const Feature3Condition> second);
     bool Remove(std::int32_t key);
+    bool ReadTiming(std::int32_t key, Feature3Timing& timing) const;
     void Invalidate();
     bool Valid() const { return m_valid; }
     bool Classify(std::int32_t key, const Feature3Query& query, int& category, ConfigError& error);

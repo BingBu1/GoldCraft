@@ -5,13 +5,19 @@
 #include "../scenario_monster_effects.hpp"
 #include "scenario_drops.h"
 #include "scenario_monster_resources.h"
+#include "../oberon_hint.hpp"
+#include "scenario_oberon_resources.h"
 #include "../status_icons.hpp"
 #include "../scenario_kill.hpp"
 #include "../scenario_healing.hpp"
 #include "../scenario_smoke.hpp"
+#include "../frozen_death.hpp"
+#include "../frozen_smoke.hpp"
 #include "../scenario_upgrades.hpp"
 #include "../scenario_abilities.hpp"
+#include "../buy_zone_hint.hpp"
 #include "../scenario_round_hud.hpp"
+#include "../scenario_respawn_resources.hpp"
 #include "../scenario/dialogue_resources.hpp"
 
 #include <utility>
@@ -96,6 +102,8 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     }
     if (!m_equipmentResources.Snapshot()->weaponDropDifficulty || !mapTables->mapId)
         return Fail({"maps/ZBS.json", {0, "scenario monster disarm requires restrictWeaponDrop.default.Difficulty and a map ID"}});
+    if (!m_eliteSettings.Load(files, resourceError)) return Fail(std::move(resourceError));
+    if (!m_map.EntityAccessAllowed()) return false;
     const auto skillAccess = m_map.EntityAccess();
     const auto skillsCurrent = [&]
     {
@@ -129,12 +137,9 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     if (!m_map.EntityAccessAllowed()) return false;
     if (!m_damageDisplayModes.Load(files, resourceError)) return Fail(std::move(resourceError));
     if (!m_map.EntityAccessAllowed()) return false;
-    // The original protection label is a generic downloadable TGA, not a
-    // model/sprite index. Keep it in the server/HTTP resource closure.
+    // Status labels and keyboard hints are generic downloadable TGAs.
     if (!g_engfuncs.pfnPrecacheGeneric)
         return Fail({csol::status::ProtectionImage, {0, "scenario status image download registration is unavailable"}});
-    PRECACHE_GENERIC(csol::status::ProtectionImage);
-    if (!m_map.EntityAccessAllowed()) return false;
     for (const auto& image : csol::scenario_kill::Resources)
     {
         if (!g_engfuncs.pfnGetFileSize)
@@ -152,10 +157,19 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     std::set<std::string> hudPaths{csol::upgrades::FontPath, csol::upgrades::DigitSpritePath};
     for (const auto& image : csol::upgrades::Resources) hudPaths.emplace(image.path);
     for (const auto* image : csol::abilities::DownloadResources) hudPaths.emplace(image);
+    for (std::size_t type = 0; type < csol::status::ImageCount; ++type)
+        hudPaths.emplace(std::string(csol::status::ImagePrefix) + std::to_string(type) + ".tga");
+    for (const auto* image : csol::buy_hint::Images) hudPaths.emplace(image);
+    hudPaths.emplace(csol::buy_hint::Font);
     for (const auto& image : csol::scenario_hud::Resources) hudPaths.emplace(image.path);
     hudPaths.emplace(csol::scenario_hud::MessagePath);
     hudPaths.emplace(csol::scenario_hud::LocalizationPath);
     hudPaths.emplace(csol::scenario_hud::FontPath);
+    for (const auto& image : csol::scenario_respawn_ui::Outcomes) hudPaths.emplace(image.path);
+    for (const auto& image : csol::scenario_respawn_ui::RetryImages) hudPaths.emplace(image.path);
+    hudPaths.emplace(csol::scenario_respawn_ui::ItemSprite);
+    hudPaths.emplace(csol::scenario_respawn_ui::CenterBackground.path);
+    hudPaths.emplace(csol::scenario_respawn_ui::LocalizationPath);
     csol::scenario::DialogueResources dialogue;
     const auto collectDialogue = [&]
     {
@@ -187,6 +201,16 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         PRECACHE_GENERIC(path.c_str());
         if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
     }
+    for (const auto* sound : csol::scenario_respawn_ui::RetrySounds)
+    {
+        const int size = g_engfuncs.pfnGetFileSize(sound);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        if (size <= 0) return Fail({sound, {0, "required scenario retry sound is missing or empty"}});
+        // Filesystem/download paths retain sound/, while the engine sound
+        // precache API owns that root itself.
+        PRECACHE_SOUND(sound + sizeof("sound/") - 1);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    }
     const std::string upgradeSound = std::string("sound/") + csol::upgrades::SoundPath;
     const int upgradeSoundSize = g_engfuncs.pfnGetFileSize(upgradeSound.c_str());
     if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
@@ -209,12 +233,23 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     if (!g_engfuncs.pfnGetFileSize)
         return Fail({"", {0, "scenario model filesystem check is unavailable"}});
     std::set<std::string> modelPaths{CSOLScenarioInitialMonsterModel};
+    std::shared_ptr<const csol::scenario::MonsterType> eliteType;
+    csol::scenario::ConfigError eliteError;
+    if (!m_eliteSettings.Snapshot() || !csol::scenario::MakeEliteMonsterType(
+        *m_eliteSettings.Snapshot(), difficulty, eliteType, eliteError))
+        return Fail({"maps/ZBS.json", std::move(eliteError)});
+    const auto* eliteAppearance = csol::scenario::FindMonsterAppearance(eliteType->appearance);
+    if (!eliteAppearance)
+        return Fail({"maps/ZBS.json", {0, "scenario synthetic elite model is unavailable"}});
+    modelPaths.emplace(eliteAppearance->model);
     modelPaths.emplace("sprites/320_pain.spr");
     modelPaths.emplace("sprites/640_pain.spr");
     for (const auto* asset : {CSOLMonsterTrapModel, CSOLMonsterDisarmModel,
         CSOLMonsterDisarmTrail, csol::monster_effects::ImpactSprite}) modelPaths.emplace(asset);
     for (const auto* sprite : csol::healing::Sprites) modelPaths.emplace(sprite);
     modelPaths.emplace(csol::smoke::Sprite);
+    modelPaths.emplace(csol::frozen_death::IceModel);
+    modelPaths.emplace(csol::frozen_smoke::SmokeSprite);
     const auto& types = m_map.Tables()->monsterTypes;
     for (const auto& [id, row] : types.byId)
     {
@@ -224,13 +259,24 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         if (!appearance)
             return Fail({"", {0, "scenario monster appearance is not in the original catalog"}});
         modelPaths.emplace(appearance->model);
+        if (types.rows[row].id == CSOLOberonMonsterTypeId)
+        {
+            modelPaths.emplace(CSOLOberonBlackHoleModel);
+            modelPaths.emplace(CSOLOberonKnifeEffectModel);
+            modelPaths.emplace(csol::oberon_hint::Sprite);
+            for (const auto* dependency : CSOLOberonBlackHoleDependencies) modelPaths.emplace(dependency);
+            for (const auto* asset : CSOLOberonAttackModels) modelPaths.emplace(asset);
+            // Check attack sounds before any engine model precache too.
+            for (const auto* sound : CSOLOberonAttackSounds)
+                modelPaths.emplace(std::string("sound/") + sound);
+        }
     }
     for (const auto& path : modelPaths)
     {
         const int size = g_engfuncs.pfnGetFileSize(path.c_str());
         if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
         if (size <= 0)
-            return Fail({path, {0, "required scenario monster model is missing or empty: " + path}});
+            return Fail({path, {0, "required scenario monster resource is missing or empty: " + path}});
     }
     csol::scenario::ConfigError error;
     for (const auto* asset : {CSOLMonsterTrapModel, CSOLMonsterDisarmModel,
@@ -257,6 +303,12 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     }
     PRECACHE_MODEL(csol::smoke::Sprite);
     if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    for (const auto* asset : {csol::frozen_death::IceModel, csol::frozen_smoke::SmokeSprite})
+    {
+        const int index = PRECACHE_MODEL(asset);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        if (index <= 0) return Fail({asset, {0, "frozen death resource precache failed"}});
+    }
     constexpr auto smokeEvent = csol::smoke::EventPath;
     const int eventSize = g_engfuncs.pfnGetFileSize(smokeEvent);
     if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
@@ -265,7 +317,7 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     // Register after WeaponsPrecache so the extra event cannot shift any
     // stock client's cached prediction indices after a mode/map change.
     // ServerActivate still runs while ReHLDS is loading the resource table.
-    if (!m_models.Precache(m_map.Tables()->monsterTypes, error))
+    if (!m_models.Precache(m_map.Tables()->monsterTypes, error, eliteType.get()))
         return Fail({"", std::move(error)});
     if (!m_map.EntityAccessAllowed()) return false;
     CCSOLScenarioDrops::Precache();
@@ -359,7 +411,8 @@ bool CCSOLScenarioSession::Deactivate()
         return Fail({"", {0, "scenario model cache is busy during shutdown"}});
     if (!m_difficulty.Clear() || !m_dropItems.Clear() || !m_upgrades.Clear() ||
         !m_equipmentResources.Clear() || !m_classMods.Clear() || !m_classModPresets.Clear() ||
-        !m_announcements.Clear() || !m_damageDisplayModes.Clear() || !m_bossSkills.Clear())
+        !m_announcements.Clear() || !m_damageDisplayModes.Clear() || !m_bossSkills.Clear() ||
+        !m_eliteSettings.Clear())
         return Fail({"", {0, "scenario difficulty resources are busy during shutdown"}});
     m_messages = {};
     m_error = {};
