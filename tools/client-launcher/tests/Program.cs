@@ -9,11 +9,22 @@ if(args.Length==4 && args[0]=="--live-download")
 {
     await DownloadChecks.Live(args[1],args[2],args[3]);return;
 }
+if(args.Length is 2 or 3 && args[0]=="--resolve-game")
+{
+    var cfg=JsonData.Read<BundleConfig>(File.ReadAllBytes(args[1]));
+    using var launchUpdates=new Updates(cfg,cfg.UpdateBase);
+    var signed=args.Length==3?launchUpdates.VerifyRelease(File.ReadAllBytes(args[2]),0):null;
+    string resolved=await GameLaunch.ResolveAddress(signed?.GameAddress??cfg.GameAddress,CancellationToken.None);
+    var info=GameLaunch.StartInfo(Path.GetFullPath("."),resolved);
+    Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new{address=resolved,arguments=info.ArgumentList,
+        sequence=signed?.Sequence,signatureVerified=signed!=null,gameStarted=false}));return;
+}
 int checks=0;
 void Check(bool value,string name){checks++;if(!value)throw new Exception(name);}
 void Reject(Action action,string name){try{action();}catch(Exception ex)when(ex is IOException or InvalidDataException or ArgumentException or FormatException){checks++;return;}throw new Exception("Expected rejection: "+name);}
 string root=SafeFiles.Plain(args[0]);Directory.CreateDirectory(root);
 await DownloadChecks.Run(Check,root);
+await LaunchChecks.Run(Check,root);
 string game=Path.Combine(root,"game"),work=Path.Combine(root,"work");Directory.CreateDirectory(game);Directory.CreateDirectory(work);
 Directory.CreateDirectory(Path.Combine(game,"cstrike/cl_dlls"));
 File.WriteAllText(Path.Combine(game,"hl.exe"),"test fixture; never execute");

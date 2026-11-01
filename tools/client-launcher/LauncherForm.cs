@@ -65,8 +65,9 @@ public sealed class LauncherForm : Form
             string path=NormalizeGame();using var updates=new Updates(bundle.Config,updateBase);var report=new Progress<string>(SetStatus);
             var release=await Task.Run(()=>updates.Apply(path,data,bundle,report,token),token);token.ThrowIfCancellationRequested();
             if(Process.GetProcessesByName("steam").Length==0)throw new IOException("请先打开 Steam 并登录，再启动游戏。");
-            SafeFiles.GameStopped(path);var info=new ProcessStartInfo(SafeFiles.Under(path,"MetaHook.exe")){WorkingDirectory=path,UseShellExecute=false};
-            foreach(string arg in new[]{"-game","cstrike","-insecure","+connect",Updates.GameAddress(release.GameAddress)})info.ArgumentList.Add(arg);
+            SetStatus("正在连接游戏服务器…");
+            string address=await GameLaunch.ResolveAddress(release.GameAddress,token);token.ThrowIfCancellationRequested();
+            SafeFiles.GameStopped(path);var info=GameLaunch.StartInfo(path,address);
             Process.Start(info);SetStatus("游戏已启动，正在进入服务器。");
         });
         cancel.Click+=(_,_)=>{work?.Cancel();SetStatus("正在取消，请稍候…");};refresh.Click+=async(_,_)=>await RefreshServer();timer.Tick+=async(_,_)=>await RefreshServer();

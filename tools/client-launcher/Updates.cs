@@ -23,7 +23,7 @@ public sealed class Updates : IDisposable
     }
     public static string GameAddress(string value)
     {
-        if(string.IsNullOrEmpty(value)||!Regex.IsMatch(value,@"^[A-Za-z0-9.-]+:[0-9]{1,5}$") ||
+        if(string.IsNullOrEmpty(value)||!Regex.IsMatch(value,@"\A[A-Za-z0-9.-]+:[0-9]{1,5}\z") ||
             !int.TryParse(value[(value.LastIndexOf(':')+1)..],out int port)||port<1||port>65535)
             throw new InvalidDataException("服务器游戏地址无效。");
         return value;
