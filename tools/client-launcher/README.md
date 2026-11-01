@@ -1,17 +1,17 @@
-# GoldCraft 单文件启动器
+# 冰桑启动器
 
-Windows 10/11 x64 启动器，内置 MetaHook 安装资源和 .NET 运行时。玩家只需一个 `GoldCraftLauncher.exe`；无需安装 Python、PowerShell 7 或 .NET。
+Windows 10/11 x64 启动器，内置 MetaHook 安装资源和 .NET 运行时。玩家只需一个 `冰桑启动器.exe`；无需安装 Python、PowerShell 7 或 .NET。
 
-当前为候选版：完整安装与更新事务已自动验证，服务端同端口路由须随配套 ReHLDS 引擎部署后才能从公网更新。原游戏资产由服务器既有 FastDL 提供，Minecraft 整合包独立管理。
+当前为候选版：35 项安装/更新/地址脱敏检查已通过。配套 ReHLDS 引擎已完成构建，本地真实状态接口返回 200；公网服仍需应用服务端配套包才能提供更新。原游戏资产由服务器既有 FastDL 提供，Minecraft 整合包独立管理。
 
 ## 玩家使用
 
 1. 正常打开 Steam 并登录。
-2. 打开启动器。它从 Steam 注册表、库目录和 CS 安装清单查找游戏；未找到时点“选择目录”，选择包含 `hl.exe`、`hw.dll`、`cstrike` 的文件夹，也可选择其 `cstrike` 子目录。
+2. 打开启动器。它从 Steam 注册表、库目录和 CS 安装清单查找游戏；未找到时点“更换”，选择包含 `hl.exe`、`hw.dll`、`cstrike` 的文件夹，也可选择其 `cstrike` 子目录。
 3. 首次点击“安装 MetaHook”。安装完成并验证全部资源后，“启动游戏”才会可用。
 4. 点击“启动游戏”，自动检查服务器签名清单，只下载变动的核心 DLL，完成后通过 MetaHook 连接服务器。
 
-每 20 秒刷新服务器名称、地图和人数，也可手动刷新。下载地址在“服务器设置”中修改，格式为 `http(s)://主机:端口/goldcraft/`。
+每 20 秒刷新服务器名称、地图和人数，也可手动刷新。深色窗体只显示玩家需要的状态；不提供下载地址设置，也不在错误信息或用户偏好文件中显示、保存下载地址。服务器更换下载入口时，由服主重新生成启动器。网络请求的目的地址仍可通过抓包发现，界面隐藏不等于地址保密；更新真实性依靠签名和文件白名单。
 
 安装保留原有 `config.cfg`、账号、按键和无关插件，合并 MetaHook 插件顺序及库搜索路径。旧 CPU 别名可能优先于新 DLL 加载，因此会备份并移除本包管理的过时别名。安装与更新最多保留两份完整备份；写入使用独立临时文件和原子替换，不原地修改硬链接。
 
@@ -30,10 +30,10 @@ Windows 10/11 x64 启动器，内置 MetaHook 安装资源和 .NET 运行时。�
 
 不增加监听端口或穿透隧道。在包含新路由的 ReHLDS 引擎上，`launcher-public` 放在 **`cstrike` 的同级目录**。对于现有双服包就是 `GoldCraft-Servers/cs/launcher-public`，不是 `cstrike/launcher-public`。
 
-在现有 `server.cfg` 中设置游戏公网地址：
+如其他管理工具需要状态 JSON 中的游戏地址，可在现有 `server.cfg` 中设置实际公网游戏地址（以下为格式示例，启动器通过签名清单取得连接地址，此项并非启用的必要条件）：
 
 ```text
-gc_launcher_game_address "frp-dog.com:46344"
+gc_launcher_game_address "游戏服务器的公网域名:端口"
 ```
 
 沿用原来的 `mc_http_download`、`mc_http_bind`、`mc_http_port`、`mc_http_public_url`；公网 TCP 隧道仍指向现有 HTTP 监听端口。首次替换引擎要正常停服、备份、再启动。以后只发布 DLL 文件和清单，不需重启服务端 HTTP。
@@ -50,7 +50,7 @@ gc_launcher_game_address "frp-dog.com:46344"
 
 ## 制作和发布下一次核心更新
 
-以下命令在开发工作站的 PowerShell 7 执行。签名私钥仅保留在工作站并另行安全备份，不能复制到发布目录、服务器包或 Git。
+以下命令在开发工作站的 PowerShell 7 执行。服主提前在本机设置 `BINGSANG_GAME_ADDRESS`（游戏连接地址）与 `BINGSANG_DOWNLOAD_URL`（既有下载入口，路径以 `/goldcraft/` 结尾），不要将真实入口写入面向玩家的说明。签名私钥仅保留在工作站并另行安全备份，不能复制到发布目录、服务器包或 Git。
 
 ```powershell
 ./tools/client-launcher/Publish-Update.ps1 `
@@ -59,7 +59,7 @@ gc_launcher_game_address "frp-dog.com:46344"
   -Output ./build/client-launcher-next/launcher-public `
   -PrivateKey ./.tools/launcher-signing/release-private.pem `
   -Sequence 2026110102 -Version '2026.11.01.2' `
-  -GameAddress 'frp-dog.com:46344'
+  -GameAddress $env:BINGSANG_GAME_ADDRESS
 ```
 
 将生成目录中的新 `blobs` 先上传，再原子替换 `manifest.json`。保留旧哈希文件，避免正在更新的玩家下载到一半失效。发布脚本检查静态资源合同和基础游戏哈希、DLL x86 架构、精确核心白名单、文件长度及递增版本号。不能给需要新 shader、EXE 或其他新资源的 DLL 沿用旧资源合同；这类更新需重新制作启动器。
@@ -79,22 +79,22 @@ python ./tools/client-launcher/package.py `
   --deployed-resource-zip ./server-packages/update-20261024/GoldCraft-CS-GUI-20261024-CSOL.zip `
   --public-key ./.tools/launcher-signing/release-public.pem `
   --output ./build/client-launcher-next/assets `
-  --server-url 'http://frp-add.com:28080/goldcraft/' `
-  --game-address 'frp-dog.com:46344' --version '2026.11.01.2'
+  --server-url $env:BINGSANG_DOWNLOAD_URL `
+  --game-address $env:BINGSANG_GAME_ADDRESS --version '2026.11.01.2'
 
 ./tools/client-launcher/Build.ps1 `
   -Assets ./build/client-launcher-next/assets `
   -Output ./build/client-launcher-next/publish
 ```
 
-旧资源 ZIP 仅提供完整安装资源清单；DLL 字节取自指定隔离运行目录。`--deployed-resource-zip` 必须提供与 GoldCraft DLL 精确匹配的后处理资源合同，不应直接使用未部署的新源码合同。交付 `publish/GoldCraftLauncher.exe`；`sources.json` 是本机溯源文件，不对外分发。
+旧资源 ZIP 仅提供完整安装资源清单；DLL 字节取自指定隔离运行目录。`--deployed-resource-zip` 必须提供与 GoldCraft DLL 精确匹配的后处理资源合同，不应直接使用未部署的新源码合同。交付 `publish/冰桑启动器.exe`；`sources.json` 是本机溯源文件，不对外分发。
 
 ## 实现与验证位置
 
 | 功能 | 源码 | 证据 |
 | --- | --- | --- |
 | 安装与启动门槛 | `Bundle.cs`、`SteamDiscovery.cs` | 完整 374 文件安装、旧 CPU 别名、DLL 搜索路径检查 |
-| 更新和失败恢复 | `Updates.cs`、`SafeFiles.cs` | 真 HTTP 签名/哈希、回滚、断电恢复日志、硬链接独立替换测试 |
+| 更新和失败恢复 | `Updates.cs`、`SafeFiles.cs` | 真 HTTP 签名/哈希、回滚、预置中断事务日志恢复、硬链接独立替换测试 |
 | 同端口服务 | `native/engine/launcher_http.cpp` 及 HTTP 接线 | 三组原生回归，包括真 socket 请求、路径限制和既有下载隔离 |
 | 窗体 | `LauncherForm.cs` | 应用自己的布局位图；尚非玩家点击和真实入服验收 |
 

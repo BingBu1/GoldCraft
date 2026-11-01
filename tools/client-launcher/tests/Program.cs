@@ -96,7 +96,12 @@ if(args.Length>=3)
         Check(fullBundle.Installed(fullGame)?.Sequence==shipped.Sequence&&endpoint.BlobReads==before,"actual signed release accepted without redundant DLL download");
     }
 }
-Console.WriteLine($"{checks} checks passed; signed HTTP update, install gating, rollback, path restrictions and hard-link isolation verified.");
+const string privateEndpoint="http://downloads.example.test:28080/goldcraft/";
+string visible=UserMessages.Clean("Failed at "+privateEndpoint+"; host downloads.example.test:28080",privateEndpoint);
+Check(!visible.Contains("http",StringComparison.OrdinalIgnoreCase)&&!visible.Contains("example.test"),"HTTP URLs and host names removed from visible messages");
+Check(!UserMessages.Error(new HttpRequestException("Failed "+privateEndpoint),privateEndpoint).Contains("example.test"),"raw network error is not displayed");
+Check(!Encoding.UTF8.GetString(JsonData.Write(new Preferences("test-game"))).Contains("updateBase"),"user preferences do not persist download address");
+Console.WriteLine($"{checks} checks passed; signed HTTP update, install gating, rollback, path restrictions, hard-link isolation and private UI messages verified.");
 
 static class Native{[System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true)]public static extern bool CreateHardLink(string name,string existing,IntPtr security);}
 sealed class FixtureHttp:IDisposable

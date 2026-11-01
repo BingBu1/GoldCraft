@@ -18,7 +18,7 @@ function Plain([string]$Path) {
 function Atomic([string]$Path,[byte[]]$Bytes) {
     $temp=$Path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
     [IO.File]::WriteAllBytes($temp,$Bytes)
-    try { if([IO.File]::Exists($Path)) { [IO.File]::Replace($temp,$Path,$null) } else { [IO.File]::Move($temp,$Path) } }
+    try { if([IO.File]::Exists($Path)) { [IO.File]::Replace($temp,$Path,[NullString]::Value) } else { [IO.File]::Move($temp,$Path) } }
     finally { if([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
 }
 $root=Plain $Output

@@ -5,7 +5,10 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>GoldCraftLauncher</AssemblyName>
+    <AssemblyName>冰桑启动器</AssemblyName>
+    <Product>冰桑启动器</Product>
+    <Title>冰桑启动器</Title>
+    <Description>冰桑游戏启动与组件更新</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <DebugType>none</DebugType>

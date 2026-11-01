@@ -9,11 +9,11 @@ internal static class Program
         try
         {
             string? Option(string name){int i=Array.IndexOf(args,name);return i>=0&&i+1<args.Length?args[i+1]:null;}
-            string data=Option("--data-root")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"GoldCraftLauncher");
+            string data=Option("--data-root")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"BingSangLauncher");
             SafeFiles.Plain(data);Directory.CreateDirectory(data);
-            using var single=new Mutex(true,@"Local\GoldCraftLauncher-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(data.ToUpperInvariant())))[..16],out bool first);
-            if(!first){MessageBox.Show("启动器已经打开。","GoldCraft",MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
-            var form=new LauncherForm(Bundle.Embedded(),data,Option("--game-directory"),Option("--server-url"));
+            using var single=new Mutex(true,@"Local\BingSangLauncher-"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(data.ToUpperInvariant())))[..16],out bool first);
+            if(!first){MessageBox.Show("启动器已经打开。","冰桑启动器",MessageBoxButtons.OK,MessageBoxIcon.Information);return;}
+            var form=new LauncherForm(Bundle.Embedded(),data,Option("--game-directory"));
             // Developer layout check of this app only; does not capture the desktop or operate other windows.
             if(Option("--render-preview") is string preview)
                 form.Shown+=async(_,_)=>
@@ -26,6 +26,6 @@ internal static class Program
                 };
             Application.Run(form);
         }
-        catch(Exception ex){MessageBox.Show(ex.Message,"无法打开 GoldCraft 启动器",MessageBoxButtons.OK,MessageBoxIcon.Error);}
+        catch(Exception){MessageBox.Show("启动器暂时无法打开，请确认文件完整且运行目录可写。","冰桑启动器",MessageBoxButtons.OK,MessageBoxIcon.Error);}
     }
 }

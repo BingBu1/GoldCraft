@@ -12,7 +12,7 @@ public sealed record Release(int Schema, string BundleId, long Sequence, string 
 public sealed record ServerStatus(int Schema, bool Online, string Name, string Map,
     int Players, int MaxPlayers, string GameAddress);
 public sealed record InstallState(string BundleId, long Sequence, string Version, Asset[] CoreFiles);
-public sealed record Preferences(string GameDirectory = "", string UpdateBase = "");
+public sealed record Preferences(string GameDirectory = "");
 public static class JsonData
 {
     public static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
