@@ -10,7 +10,10 @@ try {
     foreach($rel in @('Start.cmd','server-settings.json','scripts/Start-Servers.ps1','scripts/Common.ps1','scripts/Run-Server.ps1','cs/hlds.exe','cs/cstrike/server.cfg','cs/cstrike/addons/amxmodx/configs/plugins.ini')){
         if(!(Test-Path -LiteralPath (Under $target $rel) -PathType Leaf)){throw "Select the existing server package root. Missing: $rel"}
     }
-    $state=Under $target '.bingsang-updates';$latest=Under $state 'latest.json'
+    $manifest=Text (Under $package 'update-manifest.json')|ConvertFrom-Json
+    if($manifest.schema -ne 1 -or $manifest.scope -notin @('remote-scenario-delta','remote-scenario-resources')){throw 'Wrong update package'}
+    $resourcesOnly=$manifest.scope -eq 'remote-scenario-resources'
+    $state=Under $target $(if($resourcesOnly){'.bingsang-resource-updates'}else{'.bingsang-updates'});$latest=Under $state 'latest.json'
     if(!$Plan){
         Stopped $target;[IO.Directory]::CreateDirectory($state)|Out-Null
         $lock=[IO.File]::Open((Under $state 'operation.lock'),'OpenOrCreate','ReadWrite','None')
@@ -25,11 +28,14 @@ try {
         if($journal.status -ne 'installed'){throw 'Latest update is not installed'}
         Restore-Files $target $backup $journal;Write-Host 'Restored the previous server version and mode.';exit 0
     }
-    $manifest=Text (Under $package 'update-manifest.json')|ConvertFrom-Json
-    if($manifest.schema -ne 1 -or $manifest.scope -ne 'remote-scenario-delta'){throw 'Wrong update package'}
+    if($resourcesOnly){
+        $settings=Text (Under $target 'server-settings.json')|ConvertFrom-Json
+        if(!$settings.PSObject.Properties['csolGameMode'] -or [int]$settings.csolGameMode -ne 2 -or $settings.map -ne 'zs_deadend'){throw 'Apply the scenario mode update first. Expected native mode 2 and zs_deadend.'}
+    }
     Write-Host 'Checking changed files and required baseline resources...'
     $sources=@{};$hashes=@{};$allowed=@{};$count=0
     foreach($row in $manifest.files){
+        if($resourcesOnly -and ($row.path -notmatch '^cs/cstrike/' -or [IO.Path]::GetExtension($row.path).ToLowerInvariant() -notin @('.json','.csv','.cso','.jsoo','.txt','.sc','.tga','.bmp','.mdl','.wav','.spr'))){throw 'Resource patch contains a non-resource target'}
         $dest=Under $target $row.path;$src=Under $package ('payload/'+$row.path)
         if($sources.ContainsKey($row.path)){throw 'Duplicate payload destination'}
         if((Get-Item -LiteralPath $src).Length -ne $row.bytes -or (Hash $src) -ne $row.sha256){throw "Package integrity failure: $($row.path)"}
@@ -40,12 +46,15 @@ try {
     foreach($file in Get-ChildItem -LiteralPath (Under $package 'payload') -Recurse -Force){
         [void](Plain $file.FullName);if(!$file.PSIsContainer -and !$allowed.ContainsKey($file.FullName)){throw 'Unlisted payload file'}
     }
+    $checked=0
     $missing=@(foreach($row in $manifest.requiredBaseline){
         $file=Under $target $row.path
         if(!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -ne $row.bytes -or (Hash $file) -ne $row.sha256){$row.path}
+        $checked++;if(($checked%50) -eq 0){Write-Progress -Activity 'Checking installed baseline' -Status "$checked / $($manifest.requiredBaseline.Count)" -PercentComplete ($checked*100/$manifest.requiredBaseline.Count)}
     })
+    Write-Progress -Activity 'Checking installed baseline' -Completed
     if($missing.Count){throw ('Baseline mismatch; nothing installed. Restore these files from the confirmed previous update: '+($missing -join ', '))}
-    $configs=Configure-Scenario $target $manifest;$bytes=@{}
+    $configs=if($resourcesOnly){@{}}else{Configure-Scenario $target $manifest};$bytes=@{}
     foreach($rel in $configs.Keys){$bytes[$rel]=[Text.UTF8Encoding]::new($false).GetBytes($configs[$rel]);$hashes[$rel]=Hash-Bytes $bytes[$rel];$sources.Remove($rel)}
     # Existing, byte-identical files are hashed once and never backed up or copied.
     $rows=@(foreach($rel in @($hashes.Keys|Sort-Object)){
