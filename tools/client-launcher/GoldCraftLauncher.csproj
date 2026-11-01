@@ -10,6 +10,7 @@
     <Title>冰桑启动器</Title>
     <Description>冰桑游戏启动与组件更新</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>$(LauncherIcon)</ApplicationIcon>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <DebugType>none</DebugType>
     <PublishSingleFile>true</PublishSingleFile>
@@ -20,8 +21,10 @@
     <Compile Include="*.cs" />
     <EmbeddedResource Include="$(LauncherAssets)/bundle.json" LogicalName="bundle.json" />
     <EmbeddedResource Include="$(LauncherAssets)/payload.zip" LogicalName="payload.zip" />
+    <EmbeddedResource Include="$(LauncherIcon)" LogicalName="launcher.ico" />
   </ItemGroup>
   <Target Name="CheckBundle" BeforeTargets="PrepareForBuild">
     <Error Condition="!Exists('$(LauncherAssets)/bundle.json')" Text="Run package.py and supply LauncherAssets." />
+    <Error Condition="!Exists('$(LauncherIcon)')" Text="Run icon.py and supply LauncherIcon." />
   </Target>
 </Project>

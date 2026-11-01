@@ -84,25 +84,12 @@ public sealed class Updates : IDisposable
             var changes=new List<Change>();long done=0,total=wanted.Sum(x=>x.Bytes);
             foreach(var asset in wanted)
             {
-                using var timeout=CancellationTokenSource.CreateLinkedTokenSource(cancel);
-                timeout.CancelAfter(TimeSpan.FromSeconds(120));var downloadToken=timeout.Token;
                 string file=SafeFiles.Under(stage,asset.Path);Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                 string route="blobs/"+asset.Sha256+"/"+Path.GetFileName(asset.Path);
-                using var response=await http.GetAsync(new Uri(endpoint,route),HttpCompletionOption.ResponseHeadersRead,downloadToken);
-                response.EnsureSuccessStatusCode();
-                if(response.Content.Headers.ContentLength is long length && length!=asset.Bytes)throw new InvalidDataException("下载长度不匹配。");
-                await using(var input=await response.Content.ReadAsStreamAsync(downloadToken))
-                await using(var output=new FileStream(file,FileMode.CreateNew))
-                {
-                    byte[] buffer=new byte[65536];int n;long size=0;
-                    while((n=await input.ReadAsync(buffer,downloadToken))>0)
-                    {
-                        size+=n;if(size>asset.Bytes)throw new InvalidDataException("下载超过清单长度。");
-                        await output.WriteAsync(buffer.AsMemory(0,n),downloadToken);done+=n;
-                        progress.Report($"正在下载核心插件 {done/1048576.0:0.0} / {total/1048576.0:0.0} MB");
-                    }
-                }
-                SafeFiles.Verify(file,asset);changes.Add(new(asset.Path,file));
+                await CoreDownload.Fetch(http,new Uri(endpoint,route),file,asset,
+                    size=>progress.Report($"正在下载核心插件 {(done+size)/1048576.0:0.0} / {total/1048576.0:0.0} MB"),
+                    ()=>progress.Report("下载内容异常，正在自动分段重试…"),cancel);
+                done+=asset.Bytes;changes.Add(new(asset.Path,file));
             }
             var state=new InstallState(config.BundleId,release.Sequence,release.Version,release.Files);
             string stateFile=SafeFiles.Under(stage,"installed.json");File.WriteAllBytes(stateFile,JsonData.Write(state));

@@ -5,10 +5,15 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
+if(args.Length==4 && args[0]=="--live-download")
+{
+    await DownloadChecks.Live(args[1],args[2],args[3]);return;
+}
 int checks=0;
 void Check(bool value,string name){checks++;if(!value)throw new Exception(name);}
 void Reject(Action action,string name){try{action();}catch(Exception ex)when(ex is IOException or InvalidDataException or ArgumentException or FormatException){checks++;return;}throw new Exception("Expected rejection: "+name);}
 string root=SafeFiles.Plain(args[0]);Directory.CreateDirectory(root);
+await DownloadChecks.Run(Check,root);
 string game=Path.Combine(root,"game"),work=Path.Combine(root,"work");Directory.CreateDirectory(game);Directory.CreateDirectory(work);
 Directory.CreateDirectory(Path.Combine(game,"cstrike/cl_dlls"));
 File.WriteAllText(Path.Combine(game,"hl.exe"),"test fixture; never execute");

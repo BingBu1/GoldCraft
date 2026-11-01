@@ -25,6 +25,8 @@ public sealed class LauncherForm : Form
     public LauncherForm(Bundle bundle,string data,string? initialGame)
     {
         this.bundle=bundle;this.data=data;updateBase=bundle.Config.UpdateBase;
+        using(var iconStream=typeof(LauncherForm).Assembly.GetManifestResourceStream("launcher.ico"))
+        using(var embedded=new Icon(iconStream!)){Icon=(Icon)embedded.Clone();}
         var preferences=LoadPreferences();
         Text="冰桑启动器";ClientSize=new(970,640);MinimumSize=new(970,640);StartPosition=FormStartPosition.CenterScreen;
         FormBorderStyle=FormBorderStyle.None;MaximizeBox=false;DoubleBuffered=true;KeyPreview=true;
