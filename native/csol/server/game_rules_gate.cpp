@@ -28,6 +28,7 @@
 #include "scenario_trigger.h"
 #include "scenario_weapon_state.h"
 #include "wpn_k3.h"
+#include "wpn_melee.h"
 #include "weapon_slots.h"
 #include "weapons.h"
 #include "../k3.hpp"
@@ -2768,6 +2769,16 @@ bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
     return weapons && weapons->Current() && weapons->SetItemIdentity(weapon, csol::k3::ItemId) && scope.Current();
 }
 
+bool CSOL_ScenarioSetMeleeIdentity(CBasePlayerWeapon& weapon)
+{
+    CSOLScenarioSdkScope scope;
+    const auto item = CSOL_MeleeItemIdentity(weapon);
+    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() || !item ||
+        (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer) return false;
+    const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+    const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
+    return weapons && weapons->Current() && weapons->SetItemIdentity(weapon, item) && scope.Current();
+}
 
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity)
 {

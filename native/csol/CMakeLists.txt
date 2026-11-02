@@ -11,6 +11,7 @@ set(SDK "${METAHOOK_ROOT}/MetaHook/include")
 add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
     client/projectiles.cpp client/cannon.cpp client/k3.cpp client/scenario_music.cpp scenario_music.cpp
+    client/melee.cpp melee_attacks.cpp
     client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario_smoke.cpp scenario_smoke.cpp
     client/elite_visuals.cpp
@@ -188,7 +189,7 @@ if(CSOL_BUILD_SCENE_TESTS)
 endif()
 if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     add_executable(csol_weapon_client_tests ../../tests/csol-weapon-slots/client.cpp
-        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp client/k3.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
+        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp client/k3.cpp client/melee.cpp melee_attacks.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
     target_compile_features(csol_weapon_client_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SLOT_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SLOT_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)

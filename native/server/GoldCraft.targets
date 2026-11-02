@@ -195,6 +195,14 @@
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\melee_attacks.cpp;$(GoldCraftRoot)\native\csol\melee_damage.cpp;$(GoldCraftRoot)\native\csol\server\melee_trace.cpp;$(GoldCraftRoot)\native\csol\server\wpn_melee.cpp;$(GoldCraftRoot)\native\csol\server\melee_purchase.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /wd4828 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemGroup>
   <ItemDefinitionGroup Condition="'$(GoldCraftCsolWeaponTests)' == 'true'">
     <ClCompile>
       <PreprocessorDefinitions>GOLDCRAFT_CSOL_WEAPON_TESTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>

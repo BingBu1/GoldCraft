@@ -3,6 +3,8 @@
 #include "scenario_weapon_state.h"
 #include "scenario_monster_damage.h"
 #include "weapons.h"
+#include "wpn_melee.h"
+#include "../melee_identity.hpp"
 #include "game_rules_gate.h"
 #include "scenario_runtime.h"
 #include "scenario_player_runtime.h"
@@ -1005,7 +1007,15 @@ bool CCSOLScenarioWeaponState::SetItemIdentity(CBasePlayerWeapon& weapon, std::i
     if (!Current() || !Live(&weapon)) return false;
     const auto found = m_catalog.find(item);
     if (found == m_catalog.end() || !found->second.equipment) return false;
-    if (weapon.m_iId == WEAPON_KNIFE || weapon.m_iId == WEAPON_HEGRENADE)
+    const auto meleeItem = CSOL_MeleeItemIdentity(weapon);
+    if (meleeItem)
+    {
+        // Original item.csv retains knifeType in InGameId: 4016/4010.
+        // The native knife's default selection (4000) remains a separate case.
+        const int inGame = meleeItem == csol::melee::DragonSwordItemId ? 4016 : 4010;
+        if (item != meleeItem || found->second.category != 11 || found->second.inGame != inGame) return false;
+    }
+    else if (weapon.m_iId == WEAPON_KNIFE || weapon.m_iId == WEAPON_HEGRENADE)
     { if (!NativeSelectionItem(item, weapon.m_iId)) return false; }
     else if (found->second.category == 7 || found->second.inGame != Alias(weapon.m_iId)) return false;
     if (auto* state = Edit(weapon)) { state->item = item; return true; }
@@ -1082,6 +1092,19 @@ bool CCSOLScenarioWeaponState::Item(CBasePlayer& attacker, int source, std::int3
     item = 0;
     if (!Current()) return false;
     if (!source) return true;
+    // Bridge knives keep distinct inventory IDs. Their original item identity
+    // is assigned to the actual instance before Touch, not guessed from a
+    // numeric range or the player's default native-knife selection.
+    if (csol::melee::IsWeapon(source))
+    {
+        const auto* weapon = CarriedSource(attacker, source);
+        if (!weapon) return true;
+        if (CSOL_MeleeItemIdentity(*weapon))
+            if (const auto* state = Find(*weapon); state && state->item)
+            { item = *state->item; return true; }
+        error.message = "CSOL melee item identity is unresolved";
+        return false;
+    }
     if (source == WEAPON_KNIFE || source == WEAPON_HEGRENADE)
     {
         if (Live(&attacker) && !attacker.has_disconnected)

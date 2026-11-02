@@ -5,6 +5,10 @@
 #include "wpn_beamgun.h"
 #include "wpn_cannon.h"
 #include "wpn_k3.h"
+#include "wpn_melee.h"
+#include "melee_purchase.h"
+#include "../melee_identity.hpp"
+#include "../melee_resources.hpp"
 #include "weapon_service.h"
 #include "characters.h"
 #include "game_rules_gate.h"
@@ -24,16 +28,16 @@ bool ShopHuman(CBasePlayer* player)
 }
 // Touch/Deploy hooks may synchronously request another purchase. In particular,
 // the original cannon is temporarily outside the inventory during replacement.
-class CannonPurchaseGuard {
+class WeaponPurchaseGuard {
 public:
-    explicit CannonPurchaseGuard(int index)
+    explicit WeaponPurchaseGuard(int index)
     {
         if(index>0 && index<int(busy.size())) {
             flag=&busy[index];
             if(!*flag) { *flag=true;entered=true; }
         }
     }
-    ~CannonPurchaseGuard() { if(entered)*flag=false; }
+    ~WeaponPurchaseGuard() { if(entered)*flag=false; }
     bool Allowed() const { return !flag || entered; }
 private:
     inline static std::array<bool,33> busy{};
@@ -54,6 +58,8 @@ const char* WeaponName(int id)
     case CSOL_WEAPON_BEAMGUNLE: return "weapon_beamgunle";
     case CSOL_WEAPON_CANNON: return "weapon_cannon";
     case CSOL_WEAPON_K3: return "weapon_k3";
+    case csol::melee::DragonSwordId: return csol::melee::DragonSwordResources.classname;
+    case csol::melee::SkullAxeId: return csol::melee::SkullAxeResources.classname;
     default: return nullptr;
     }
 }
@@ -378,7 +384,9 @@ public:
         return WeaponName(weapon) && player && player->IsAlive() && human &&
             CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
             !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
-            (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready());
+            (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready()) &&
+            (!csol::melee::IsWeapon(weapon) ||
+                (CSOL_MeleeReady(weapon) && !CSOL_HasWeapon(player,weapon)));
     }
     int Buy(int index, int weapon) override
     {
@@ -387,9 +395,10 @@ public:
     int Deliver(int index, int weapon, bool scenario)
     {
         if (!CanDeliver(index, weapon, scenario)) return 0;
-        CannonPurchaseGuard guard(weapon==CSOL_WEAPON_CANNON || (scenario && weapon==CSOL_WEAPON_K3) ? index : 0);
+        WeaponPurchaseGuard guard(index);
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
+        if(csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
         if(scenario && weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);
         const char* name = WeaponName(weapon);
         if(weapon==CSOL_WEAPON_CANNON && CSOL_HasWeapon(player,weapon))
@@ -490,6 +499,7 @@ bool CSOL_ZombieHuman(CBasePlayer* player)
     return index > 0 && index < int(roles.size()) && roles[index].value == 1 &&
         roles[index].userid == GETPLAYERUSERID(player->edict());
 }
+
 void CSOL_ResetWeaponService() { zombieMode = false; roles = {}; }
 bool CSOL_ZombieMode() { return zombieMode; }
 bool CSOL_CanDeliverScenarioWeapon(CBasePlayer* player,int weapon)

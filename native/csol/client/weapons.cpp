@@ -10,6 +10,7 @@
 #include "cannon.hpp"
 #include "../cannon.hpp"
 #include "k3.hpp"
+#include "melee.hpp"
 #include "../k3.hpp"
 #include <usercmd.h>
 #include <in_buttons.h>
@@ -508,6 +509,7 @@ void InitializeWeapons()
     InitializeBeamgun();
     InitializeCannon();
     InitializeK3();
+    InitializeMeleeWeapons();
     oldWeaponList=api->HookUserMsg("WeaponList",WeaponList);
     oldCurWeapon=api->HookUserMsg("CurWeapon",CurWeapon);
     oldAmmo=api->HookUserMsg("AmmoX",Ammo);
@@ -526,6 +528,7 @@ void ResetWeapons(bool forgetRegistration)
     ResetBeamgun();
     ResetCannon();
     ResetK3();
+    ResetMeleeWeapons();
     ResetCannonEffects();
     active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
@@ -550,6 +553,7 @@ void WeaponVideoInit()
     BeamgunVideoInit();
     ResetCannonEffects();
     ResetK3();
+    ResetMeleeWeapons();
     for(auto& sprite:digits)sprite={};
     std::fill(std::begin(nativeDigitSprites),std::end(nativeDigitSprites),0);
     for(auto& sprite:nativeDigits)sprite={};
@@ -680,6 +684,7 @@ void WeaponDiagnostics(std::ostream& out)
     BeamgunDiagnostics(out);
     CannonDiagnostics(out);
     K3Diagnostics(out);
+    MeleeDiagnostics(out);
 }
 
 void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int runFunctions,double time,unsigned int seed)
@@ -695,6 +700,7 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
     if(PredictBeamgun(from,to,cmd,runFunctions,time,seed))return;
     if(PredictCannon(from,to,cmd,runFunctions,time,seed))return;
     if(PredictK3(from,to,cmd,runFunctions,time,seed))return;
+    if(PredictMeleeWeapon(from,to,cmd,runFunctions,time,seed))return;
     if(!registered || from->client.m_iId!=KnifeId || from->weapondata[ActiveWeaponSlot].m_iId!=KnifeId)
     {
         if(ExtendedWeaponId(from->client.m_iId))
@@ -799,6 +805,7 @@ void ReceiveExtendedWeaponState(const WeaponCurrent& current)
     ReceiveBeamgunState(current);
     ReceiveCannonState(current);
     ReceiveK3State(current);
+    ReceiveMeleeState(current);
     active=current.state?current.id:0;clip=current.clip;reserve=current.reserve;
     ApplyNativeWeaponVisibility();
     predictedClip=predictedTotal=-1;

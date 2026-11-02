@@ -5,6 +5,9 @@
 #include "wpn_beamgun.h"
 #include "wpn_cannon.h"
 #include "wpn_k3.h"
+#include "wpn_melee.h"
+#include "../melee_identity.hpp"
+#include "../melee_resources.hpp"
 #include "characters.h"
 #include "../projectile_effects.hpp"
 #include <typeinfo>
@@ -603,6 +606,7 @@ void CSOL_InitWeapons()
     CSOL_InitBeamWeapons();
     CSOL_InitCannon();
     CSOL_InitK3();
+    CSOL_InitMeleeWeapons();
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CVAR_REGISTER(&csol_projectile_trace);
     ADD_SERVER_COMMAND("tknife_projectile_test", CThrowingKnife::TestProjectile);
@@ -619,11 +623,17 @@ bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
         (weapon->m_iId == CSOL_WEAPON_BEAMGUN && !Q_strcmp(name, "weapon_beamgun")) ||
         (weapon->m_iId == CSOL_WEAPON_BEAMGUNLE && !Q_strcmp(name, "weapon_beamgunle")) ||
         (weapon->m_iId == CSOL_WEAPON_CANNON && !Q_strcmp(name, "weapon_cannon")) ||
-        (weapon->m_iId == CSOL_WEAPON_K3 && !Q_strcmp(name, "weapon_k3"));
+        (weapon->m_iId == CSOL_WEAPON_K3 && !Q_strcmp(name, "weapon_k3")) ||
+        (csol::melee::IsWeapon(weapon->m_iId) &&
+            !Q_strcmp(name, csol::melee::Resource(csol::melee::WeaponVariant(weapon->m_iId)).classname));
 }
 
 const char* CSOL_WorldModel(const CBasePlayerItem* item)
 {
+    if (item && csol::melee::IsWeapon(item->m_iId)) {
+        const auto& resource = csol::melee::Resource(csol::melee::WeaponVariant(item->m_iId));
+        if (FClassnameIs(item->pev, resource.classname)) return resource.worldModel;
+    }
     if (item && item->m_iId == CSOL_WEAPON_K3 && FClassnameIs(item->pev, "weapon_k3"))
         return "models/w_k3.mdl";
     if (item && item->m_iId == CSOL_WEAPON_CANNON && FClassnameIs(item->pev, "weapon_cannon"))
@@ -652,6 +662,7 @@ void CSOL_PrecacheWeapons()
         CSOL_PrecacheBeamWeapons();
         CSOL_PrecacheCannon();
         CSOL_PrecacheK3();
+        CSOL_PrecacheMeleeWeapons();
     }
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CSOL_PrecacheWeaponTests();

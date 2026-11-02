@@ -9,7 +9,7 @@
 #include <vector>
 struct CBaseEntity;struct CBasePlayer;struct CBasePlayerItem;struct CBasePlayerWeapon;struct CWeaponBox;
 using WeaponIdType=int;
-constexpr int MAX_ITEM_TYPES=6,PRIMARY_WEAPON_SLOT=1,CSOL_WEAPON_CANNON=144,SF_NORESPAWN=1,FL_KILLME=1<<30,HIDEHUD_WEAPONS=1;
+constexpr int MAX_ITEM_TYPES=6,PRIMARY_WEAPON_SLOT=1,CSOL_WEAPON_CANNON=144,SF_NORESPAWN=1,FL_KILLME=1<<30,HIDEHUD_WEAPONS=1,CT=2;
 #define STRING(value) (value)
 struct Vec {float x{},y{},z{};};
 struct edict_t;
@@ -37,7 +37,7 @@ struct CBasePlayerWeapon:CBasePlayerItem {
 };
 struct CBasePlayer:CBaseEntity {
     CBasePlayerItem* m_rgpPlayerItems[MAX_ITEM_TYPES]{};CBasePlayerItem* m_pActiveItem{},*m_pLastItem{};
-    float m_flNextAttack=.12f;int index{},userid{},m_iHideHUD=33;bool alive=true,role=true,dormant=false;int updates{},switches{};
+    float m_flNextAttack=.12f;int index{},userid{},m_iHideHUD=33,m_iTeam=CT;bool alive=true,role=true,dormant=false;int updates{},switches{};
     CBasePlayerItem* GetItemById(int id){for(auto* first:m_rgpPlayerItems)for(auto* p=first;p;p=p->m_pNext)if(p->id==id)return p;return nullptr;}
     bool IsAlive(){return alive;}bool IsDormant(){return dormant;}int entindex(){return index;}
     CBaseEntity* DropPlayerItem(const char*);int AddPlayerItem(CBasePlayerItem*);int RemovePlayerItem(CBasePlayerItem*);
@@ -56,6 +56,7 @@ CBasePlayer* Player(int index){return index>0 && index<=2 && players[index] && !
 CBaseEntity* UTIL_PlayerByIndex(int index){return Player(index);}
 int GETPLAYERUSERID(edict_t* e){return static_cast<CBasePlayer*>(e->object)->userid;}
 bool CSOL_ZombieHuman(CBasePlayer* p){return p->alive && p->role;}
+bool CSOL_ScenarioCanBuy(){return false;}
 bool CSOL_ClipAmmo(CBasePlayerWeapon* p){return p && p->id==144 && !std::strcmp(p->pev->classname,"weapon_cannon");}
 bool CSOL_HasWeapon(CBasePlayer* p,int id){return p->GetItemById(id)!=nullptr;}
 void CSOL_UpdateWeaponInventory(CBasePlayer* p){++p->updates;}
@@ -137,9 +138,9 @@ int main(){
     reset();touchRefuses=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"afterDrop"))box->pev->flags|=FL_KILLME;};check(CannonPurchaseBackup(players[1]).Replace()==0,"pending deleted box fails restore");check(!players[1]->GetItemById(144),"no resurrect from pending deleted box");
     reset();touchRefuses=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"touch")){box->m_rgpPlayerItems[1]=nullptr;players[2]->AddPlayerItem(initial);initial->AttachToPlayer(players[2]);}};check(CannonPurchaseBackup(players[1]).Replace()==0,"transferred original fails restore");check(players[2]->GetItemById(144)==initial && initial->pev->owner==players[2]->edict(),"other player's gun retained");
     reset();addPostFalse=true;removeRefuses=true;check(CannonPurchaseBackup(players[1]).Replace()==0,"remove rejection fails purchase");check(players[1]->GetItemById(144)==fresh && !(fresh->pev->flags&FL_KILLME),"never remove still-linked fresh entity");check(box->m_rgpPlayerItems[1]==initial,"original retained in box on remove refusal");
-    reset();{CannonPurchaseGuard first(1);check(first.Allowed(),"first cannon entry allowed");CannonPurchaseGuard nested(1);check(!nested.Allowed(),"same buyer nested cannon denied");CannonPurchaseGuard other(2);check(other.Allowed(),"different buyer entry independent");}
-    {CannonPurchaseGuard next(1);check(next.Allowed(),"guard releases after scope");}
-    reset();touchRefuses=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"touch")){CannonPurchaseGuard nested(1);check(!nested.Allowed(),"reentry denied inside Touch callback");}};
-    {CannonPurchaseGuard outer(1);check(CannonPurchaseBackup(players[1]).Replace()==0,"guarded refused purchase");}preserved();
+    reset();{WeaponPurchaseGuard first(1);check(first.Allowed(),"first cannon entry allowed");WeaponPurchaseGuard nested(1);check(!nested.Allowed(),"same buyer nested cannon denied");WeaponPurchaseGuard other(2);check(other.Allowed(),"different buyer entry independent");}
+    {WeaponPurchaseGuard next(1);check(next.Allowed(),"guard releases after scope");}
+    reset();touchRefuses=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"touch")){WeaponPurchaseGuard nested(1);check(!nested.Allowed(),"reentry denied inside Touch callback");}};
+    {WeaponPurchaseGuard outer(1);check(CannonPurchaseBackup(players[1]).Replace()==0,"guarded refused purchase");}preserved();
     std::printf("%s cannon purchase backup %d checks; %d failures\n",failures?"FAIL":"PASS",checks,failures);return failures?1:0;
 }

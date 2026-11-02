@@ -11,6 +11,7 @@
 #include "scenario_character_skills/elite_manager.hpp"
 #include "../scenario/monster_appearances.hpp"
 #include "weapons.h"
+#include "wpn_melee.h"
 
 #include <cmath>
 #include <algorithm>
@@ -21,6 +22,8 @@
 #include <bit>
 
 #pragma clang fp contract(off)
+
+
 
 namespace
 {
@@ -587,7 +590,8 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
                     type == typeid(CDEAGLE) || type == typeid(CSG552) || type == typeid(CAK47) ||
                     type == typeid(CP90) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
                     CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
-                    CSOL_K3EmptyMonsterKillCallbacks(*weapon)) // CK3 v230 is also xor al,al; ret.
+                    CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon))
+                    // CK3 v230 and both knife helpers have a verified zero result.
                     return true;
                 error.message = "scenario weapon melee-type predicate is not implemented";
                 return false;
