@@ -8,6 +8,7 @@
 #include "texture_model.hpp"
 #include "weapon_resources.hpp"
 #include "melee_resources.hpp"
+#include "studio_sound.hpp"
 #include "material_source.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
@@ -172,6 +173,7 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
                 // sample name. Event5004 and ordinary sound events do not.
                 else if(Lower(options).ends_with(".wav"))
                 {
+                    if(SkipStudioSound(name,id,options))continue;
                     if(id==5005 && options.size()<=3)throw std::runtime_error("invalid event5005 sound");
                     add("sound/"+(id==5005?options.substr(3):options));
                 }

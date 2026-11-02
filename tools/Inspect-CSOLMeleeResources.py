@@ -148,7 +148,7 @@ def main():
         hud_rows.append(dict(variant=variant,selection=dict(atlas=sprite,rect=list(map(int,(x,y,w,h)))),
             death=dict(symbol=symbol,resolution=int(row[1]),atlas=row[2],rect=list(map(int,row[3:])))))
     models=sorted(n for n in records if n.endswith('.mdl'))
-    missing_sounds=set();model_metadata=[]
+    missing_sounds=set();model_metadata=[];omitted_events=[]
     for model in models:
         raw=read(common/model)
         if raw[:4]!=b'IDST' or struct.unpack_from('<i',raw,4)[0]!=10:raise ValueError('Model needs codec before independent event audit')
@@ -163,6 +163,11 @@ def main():
                 events.append(dict(sequence=sequence,id=kind,frame=word(event),options=option,offset=event))
                 if option.lower().endswith('.wav'):
                     sample=option[3:] if kind==5005 else option
+                    if (model.lower()=='models/v_dragonsword.mdl' and kind==5004 and
+                            sample.replace('\\','/').lower()=='weapons/dragonsword_stab.wav'):
+                        omitted_events.append(dict(model=model,sequence=sequence,event=kind,
+                            sample=sample,reason='User-approved omission of archive-absent original cue'))
+                        continue
                     add('sound/'+sample,model+f' event {kind} seq {sequence} offset {event}')
                     if not (common/'sound'/sample).is_file():missing_sounds.add('sound/'+sample)
         textures=[dict(name=name(word(184)+index*80,64),offset=word(184)+index*80) for index in range(word(180))]
@@ -202,7 +207,7 @@ def main():
     result=dict(closureComplete=not missing,deployable=False,precacheCalls=call_count,eventScriptCalls=0,
         sources=[inputs[str(p).lower()] for p in (server,client,header,hud_header)],collector=identity(collector),
         resources=sorted(records.values(),key=lambda x:x['destination']),dependencyEdges=edges,
-        modelMetadata=model_metadata,hudRows=hud_rows,collectorRuns=audits,
+        modelMetadata=model_metadata,hudRows=hud_rows,collectorRuns=audits,omittedEvents=omitted_events,
         collectorContextInputs=[str(path) for path in context_inputs],
         missing=missing,inputs=list(inputs.values()),inputsUnchanged=True,
         limitations=['No runtime files were deployed or assets exported.',

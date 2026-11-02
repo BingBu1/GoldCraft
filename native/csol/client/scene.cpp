@@ -16,6 +16,7 @@
 #include "../events.hpp"
 #include "../parts.hpp"
 #include "../presentation.hpp"
+#include "../studio_sound.hpp"
 #include <IMetaRenderer.h>
 #include <IMetaRendererPostScene.h>
 #include <algorithm>
@@ -675,6 +676,9 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
 }
 void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
 {
+    if(event && entity && entity->model && SkipStudioSound(
+        {entity->model->name,strnlen(entity->model->name,sizeof(entity->model->name))},event->event,
+        {event->options,strnlen(event->options,sizeof(event->options))}))return;
     if(CannonStudioEvent(event,entity))return;
     if(event && entity && event->options[0]!='#' && (event->event==5005 || event->event==5008))
     {
