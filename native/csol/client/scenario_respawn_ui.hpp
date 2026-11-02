@@ -41,9 +41,11 @@ inline std::wstring FormatRetryBudget(const RetryBudget& budget, std::wstring_vi
 }
 inline constexpr std::array<int, 4> ItemTops{1, 29, 57, 90};
 inline constexpr std::array<int, 4> ItemY{273, 316, 359, 402};
-inline constexpr std::array<std::string_view, 5> CenterTokens{
+inline constexpr unsigned GoldenSpawnedToken = 5, GoldenKilledToken = 6;
+inline constexpr std::array<std::string_view, 7> CenterTokens{
     "#CSO_ZBS_AutoRespawnWait", "#CSO_ZBS_CantRespawnAnymore",
-    "#CSO_ZBS_RespawnWait", "#CSO_ZBS_UseRetryItem", "#CSO_CongAllRoundClear"
+    "#CSO_ZBS_RespawnWait", "#CSO_ZBS_UseRetryItem", "#CSO_CongAllRoundClear",
+    "#CSO_ZBS_SpawnedGoldenZB", "#CSO_ZBS_KilledGoldenZB"
 };
 inline unsigned Byte(std::byte value) { return std::to_integer<unsigned>(value); }
 inline unsigned Word(std::span<const std::byte> b, unsigned at)
@@ -105,6 +107,41 @@ inline ParseResult DecodeMP(std::span<const std::byte> b, Message& out)
 }
 
 struct CenterMessage { unsigned token{}; int seconds{}; };
+inline std::array<int, 3> CenterColor(const CenterMessage& message)
+{
+    // Original golden float RGB is (1, .843f, 0). Round to the nearest
+    // channel value for the host's integer VGUI API; this is host quantization.
+    return message.token == GoldenSpawnedToken || message.token == GoldenKilledToken
+        ? std::array<int, 3>{255, 215, 0} : std::array<int, 3>{255, 180, 30};
+}
+inline ParseResult DecodeGoldenText(std::span<const std::byte> b, CenterMessage& out)
+{
+    if (b.empty() || Byte(b[0]) != 4) return ParseResult::Unrelated;
+    // Recognize the fixed key before claiming ownership of malformed packets.
+    // The stock adapter has one destination byte; CSO has exactly {4,0,7,0}.
+    for (const std::size_t start : {std::size_t{1}, std::size_t{4}})
+    {
+        if (start >= b.size()) continue;
+        // A stock literal can contain a Golden key after three characters.
+        // Claim the extended layout only when its metadata identifies it;
+        // printable prefixes must continue through the ordinary text chain.
+        if (start == 4 && Byte(b[1]) != 0 && !(Byte(b[2]) == 7 && Byte(b[3]) == 0)) continue;
+        const std::string_view tail{reinterpret_cast<const char*>(b.data() + start), b.size() - start};
+        for (const unsigned token : {GoldenSpawnedToken, GoldenKilledToken})
+        {
+            const auto key = CenterTokens[token];
+            if (!tail.starts_with(key) || (tail.size() > key.size() && tail[key.size()] != '\0')) continue;
+            // Golden carries no parameters or duration override. Byte 7 is
+            // the color selector, not a channel or a seven-second lifetime.
+            if (tail.size() != key.size() + 1 || (start == 4 &&
+                (Byte(b[1]) != 0 || Byte(b[2]) != 7 || Byte(b[3]) != 0)))
+                return ParseResult::Malformed;
+            out = {token, 0};
+            return ParseResult::Accepted;
+        }
+    }
+    return ParseResult::Unrelated;
+}
 inline ParseResult DecodeReloadWait(std::span<const std::byte> b, std::int32_t& out)
 {
     if (b.empty() || Byte(b[0]) != 0x1c) return ParseResult::Unrelated;
@@ -116,6 +153,8 @@ inline ParseResult DecodeReloadWait(std::span<const std::byte> b, std::int32_t& 
 }
 inline ParseResult DecodeText(std::span<const std::byte> b, CenterMessage& out)
 {
+    const auto golden = DecodeGoldenText(b, out);
+    if (golden != ParseResult::Unrelated) return golden;
     if (b.empty() || Byte(b[0]) != 4) return ParseResult::Unrelated;
     // CSO TextMsg has three metadata bytes after destination. The current
     // ReGameDLL TextMsg retains the native CS destination + strings format.
@@ -133,10 +172,15 @@ inline ParseResult DecodeText(std::span<const std::byte> b, CenterMessage& out)
     };
     std::string_view token;
     if (!read(token)) return ParseResult::Malformed;
-    auto found = std::find(CenterTokens.begin(), CenterTokens.end(), token);
+    // Golden is accepted only by its exact-layout decoder above. This legacy
+    // metadata heuristic must not re-accept a packet that decoder declined.
+    // Ambiguous control prefixes remain on the stock chain without changing
+    // our center state; recognizable malformed Golden headers are rejected.
+    const auto legacyEnd = CenterTokens.begin() + GoldenSpawnedToken;
+    auto found = std::find(CenterTokens.begin(), legacyEnd, token);
     // The existing server sends this literal through stock TextMsg.
     const bool clearLiteral = token == "恭喜！！您已经成功通关！";
-    if (found == CenterTokens.end() && !clearLiteral) return ParseResult::Unrelated;
+    if (found == legacyEnd && !clearLiteral) return ParseResult::Unrelated;
     CenterMessage m{clearLiteral ? 4u : unsigned(found - CenterTokens.begin()), 0};
     std::array<std::string_view, 4> arguments{};
     unsigned count{};

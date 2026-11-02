@@ -262,14 +262,16 @@ void Paint()
                 {layout.numbers.x + layout.numbers.width - i * digitWidth,
                     layout.numbers.y, digitWidth, layout.numbers.height}, 255);
     }
-    if (state.Center(frameTime) && centerFont && !centerText.empty())
+    const auto* center = state.Center(frameTime);
+    if (center && centerFont && !centerText.empty())
     {
         // 02A8E940: centered background covers 60% of screen width, y-10..y+23.
         const int y = int(height * .614583), backgroundWidth = int(width * .6);
         Quad(textures[2], {(width - backgroundWidth) / 2, y - 10, backgroundWidth, 33}, 255);
         int textWidth{}, textHeight{};
         surface->GetTextSize(centerFont, centerText.c_str(), textWidth, textHeight);
-        surface->DrawSetTextFont(centerFont); surface->DrawSetTextColor(255, 180, 30, 255);
+        const auto rgb = hud::CenterColor(*center);
+        surface->DrawSetTextFont(centerFont); surface->DrawSetTextColor(rgb[0], rgb[1], rgb[2], 255);
         surface->DrawSetTextPos(int(width * .5f - textWidth * .5f), y);
         surface->DrawPrintText(centerText.c_str(), int(centerText.size()));
     }
@@ -396,8 +398,16 @@ int Text(const char* name, int size, void* data)
     if (data && size >= 0)
     {
         hud::CenterMessage message;
-        const auto result = hud::DecodeText({static_cast<const std::byte*>(data), std::size_t(size)}, message);
-        if (result == hud::ParseResult::Malformed) ++malformed;
+        const std::span<const std::byte> bytes{static_cast<const std::byte*>(data), std::size_t(size)};
+        const auto golden = hud::DecodeGoldenText(bytes, message);
+        const auto result = golden == hud::ParseResult::Unrelated ? hud::DecodeText(bytes, message) : golden;
+        if (result == hud::ParseResult::Malformed)
+        {
+            ++malformed;
+            // Only a recognized Golden key is ours to reject outright. Keep
+            // ordinary TextMsg traffic on the existing message chain.
+            if (golden == hud::ParseResult::Malformed) return 1;
+        }
         if (result == hud::ParseResult::Accepted)
         {
             const double now = engine.GetClientTime();
