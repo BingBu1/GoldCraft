@@ -21,6 +21,8 @@ void Reject(const std::string& value)
 {bool failed=false;try{(void)csol::hud_style::ParseCatalog(value);}catch(const std::exception&){failed=true;}Check(failed,"malformed catalog rejected");}
 std::vector<std::byte> Bytes(std::uint32_t value,unsigned length)
 {std::vector<std::byte> bytes;for(unsigned i=0;i<length;++i)bytes.push_back(std::byte(value>>(i*8)));return bytes;}
+std::vector<std::byte> MoneyPacket(std::uint32_t value,unsigned track=1)
+{auto bytes=Bytes(value,4);bytes.push_back(std::byte(track));return bytes;}
 bool Near(float a,float b){return std::abs(a-b)<.001f;}
 }
 int main()
@@ -47,8 +49,9 @@ int main()
     const auto paths=ResourcePaths(parsed);
     const std::set<std::string> unique(paths.begin(),paths.end());
     Check(unique.size()==paths.size() && std::is_sorted(paths.begin(),paths.end()),"precache order deterministic and deduplicated");
-    for(const char* path:{CatalogPath,FontPath,"resource/csol/hud/v1/cannon.tga","resource/csol/hud/v1/ammo.tga","resource/csol/hud/v1/p1.tga"})
-        Check(unique.contains(path),"closure includes catalog/font/dynamic weapon/portrait");
+    for(const char* path:{CatalogPath,FontPath,SchemePath,"resource/csol/hud/v1/cannon.tga","resource/csol/hud/v1/ammo.tga","resource/csol/hud/v1/p1.tga"})
+        Check(unique.contains(path),"closure includes catalog/font/scheme/dynamic weapon/portrait");
+    Check(!unique.contains("resource/font/df_gb_y9.ttf"),"retained rollback font is not an active download dependency");
     for(const auto& resource:Resources)Check(unique.contains(resource.path),"closure includes fixed artwork");
     Check(!unique.contains(""),"optional empty ammo excluded");
     auto duplicate=parsed;duplicate.weapons.emplace("weapon_other",parsed.weapons.at("weapon_cannon"));
@@ -68,11 +71,50 @@ int main()
     for(auto value:{0x80000000u,0xffffffffu})
     {Check(!vitals.Health(Bytes(value,4))&&vitals.health==saved.health,"negative LONG HP rejected");Check(!vitals.Armor(Bytes(value,4))&&vitals.armor==saved.armor,"negative LONG Armor rejected");}
     vitals={};Check(!vitals.healthKnown&&!vitals.armorKnown&&!vitals.health&&!vitals.armor,"life reset clears knowledge and values");
+    Money money;
+    Check(!money.known&&!money.changed&&!money.trackChange,"fresh money has no invented balance or income");
+    Check(money.ApplyMoney(MoneyPacket(7500))&&money.amount==7500&&money.known&&money.delta==0&&!money.changed&&!money.trackChange,
+        "first tracked signon balance is not earned income");
+    Check(money.ApplyMoney(MoneyPacket(9000))&&money.amount==9000&&money.delta==1500&&money.changed&&money.trackChange,
+        "tracked income comes from authoritative adjacent balances");
+    const auto moneySaved=money;
+    for(unsigned length:{0u,1u,2u,3u,4u,6u,7u})
+        Check(!money.ApplyMoney(std::vector<std::byte>(length))&&money.amount==moneySaved.amount&&money.delta==moneySaved.delta&&
+            money.known==moneySaved.known&&money.changed==moneySaved.changed&&money.trackChange==moneySaved.trackChange,
+            "malformed Money length preserves all state transactionally");
+    Check(money.ApplyMoney(MoneyPacket(4250))&&money.delta==-4750&&money.trackChange,"purchase preserves signed expense");
+    Check(money.ApplyMoney(MoneyPacket(32000,0))&&money.amount==32000&&money.delta==27750&&money.changed&&!money.trackChange,
+        "untracked update changes balance without change notification");
+    Check(money.ApplyMoney(MoneyPacket(32000))&&money.delta==0&&!money.changed&&!money.trackChange,"repeated balance does not create income");
+    for(auto hidden:{0xffffffffu,0x80000000u})
+    {
+        Check(money.ApplyMoney(MoneyPacket(hidden))&&money.known&&money.amount<0&&money.delta==0&&!money.changed&&!money.trackChange,
+            "negative signed balance remains known but cannot create unsigned money or a delta");
+        Check(money.ApplyMoney(MoneyPacket(7500))&&money.amount==7500&&money.delta==0&&!money.changed&&!money.trackChange,
+            "recovery from hidden balance does not award artificial income");
+    }
+    Check(money.ApplyMoney(MoneyPacket(0))&&money.delta==-7500,"zero balance remains a valid tracked expense");
+    Check(money.ApplyMoney(MoneyPacket(2147483647u,255))&&money.delta==2147483647&&money.trackChange,
+        "maximum signed amount and nonzero track flag are accepted without truncation");
+    Check(money.ApplyMoney(MoneyPacket(0))&&money.delta==-2147483647,"maximum expense does not overflow signed delta");
+    money={};Check(!money.known&&!money.changed&&!money.trackChange&&!money.amount&&!money.delta,"session reset clears all money knowledge");
+    for(float scale:{.5f,1.f,2.f})for(bool scenario:{false,true})
+    {
+        const auto panel=MoneyBackground(scale,scenario);
+        Check(Near(panel.x,0)&&Near(panel.y,(scenario?195.f:154.f)*scale)&&Near(panel.width,191*scale)&&Near(panel.height,28*scale),
+            "original money panel is anchored at left with independent scenario offset");
+    }
     const auto normal=MakeLayout(1280,720,1);
     Check(Near(normal.scale,1)&&Near(normal.character.x,0)&&Near(normal.character.y+normal.character.height,712),"original character panel retains eight-unit bottom gap");
     Check(Near(normal.weapon.x+normal.weapon.width,1280)&&Near(normal.weapon.y+normal.weapon.height,712),"original weapon panel retains eight-unit bottom gap");
     Check(Near(normal.portrait.y,564)&&Near(normal.portrait.width,99)&&Near(normal.portrait.height,116),"original portrait rectangle is 99 by 116 at H minus 156");
     Check(Near(normal.card.x,1106)&&Near(normal.card.y,571)&&Near(normal.card.width,170)&&Near(normal.card.height,61),"original selection card uses 61-unit row height");
+    for(auto dimensions:{std::array<int,2>{640,480},{800,600},{1024,768},{1280,720},{1920,1080},{3440,1440}})
+    {
+        const auto fixed=MakeLayout(dimensions[0],dimensions[1],1);
+        Check(Near(fixed.scale,1)&&Near(fixed.card.width,170)&&Near(fixed.card.height,61)&&Near(fixed.portrait.width,99),
+            "normal resolutions retain original fixed-pixel panel and glyph sizing");
+    }
     for(auto dimensions:{std::array<int,2>{640,480},{800,600},{1024,768},{1920,1080},{3440,1440},{320,200}})
         for(float user:{-1.f,0.f,.5f,1.f,2.f,100.f,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()})
         {

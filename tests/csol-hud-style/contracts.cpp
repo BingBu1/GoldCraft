@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -30,16 +31,25 @@ std::array<Sprite,2> nativeAmmo;
 #include "generated/native_state.inc"
 csol::hud_style::Vitals vitalValues{1700,700,true,true};
 SCREENINFO screen{};
-bool drawingNative=true,vitals=true,weapon=true,adjustMoney=true,moneyAnchor{};
+bool drawingNative=true,vitals=true,weapon=true,moneyVisible=true,adjustMoney=true,moneyAnchor{};
 int currentSprite{},moneyX{},moneyY{},moneyHeight=22,shiftedMoneySprites{};
-struct {bool enabled{},hasClip{};int y{},clipX{},width{},height{},shift{};} wideAmmo;
+struct {bool enabled{},drawn{},hasClip{},infinite{};int value{},x{},clipX{},y{},width{},height{},shift{};} wideAmmo;
+int nativeDigitSprites[10]{},spriteR{},spriteG{},spriteB{},active{},wideAmmoDraws{};
+Sprite ammoIcon;
+cl_enginefunc_t engine{};
 struct FillCall {int x,y,w,h;};
 std::vector<FillCall> fills;
+struct SpriteCall {int frame,x,y;wrect_t rect;};
+std::vector<SpriteCall> spriteCalls;
 bool HudStyleVitalsVisible(){return vitals;}
 csol::hud_style::Vitals HudStyleVitalsState(){return vitalValues;}
 bool HudStyleWeaponVisible(){return weapon;}
+bool HudStyleMoneyVisible(){return moneyVisible;}
 float HudStyleScale(){return 1;}
 bool AmmoArea(int,int){return false;}
+bool DrawCharacterSkillInfiniteAmmo(int,int,int,int,int,int){return false;}
+void originalSet(int,int,int,int){}
+void originalDraw(int frame,int x,int y,const wrect_t* rect){spriteCalls.push_back({frame,x,y,rect?*rect:wrect_t{}});}
 void originalFill(int x,int y,int w,int h,int,int,int,int){fills.push_back({x,y,w,h});}
 #include "generated/native_draw.inc"
 void Run()
@@ -75,13 +85,44 @@ void Run()
     Fill(1166,base,2,22,255,160,0,255);Check(fills.size()==4,"same-location later fill is not consumed twice");
     weapon=false;Fill(1166,base,2,22,255,160,0,255);Check(fills.size()==5,"disabled replacement retains divider");weapon=true;
     const int field=1280-5*20-16,account=720-3*22,delta=account-22-11;
-    currentSprite=1;Check(MoneySpriteY(field,account,&nativeDigits[4].rect)==account,"account digit needs its dollar anchor");
-    Check(MoneySpriteY(field-20,account,&currency[0].rect)==548,"account icon shifted above style card");
-    Check(MoneySpriteY(field,account,&nativeDigits[4].rect)==548,"account numeric row follows its anchor");
-    Check(MoneySpriteY(field,delta,&nativeDigits[4].rect)==515,"income or purchase delta keeps its relative offset");
+    currentSprite=1;Check(!NativeMoneySprite(field,account,&nativeDigits[4].rect),"account digit needs its dollar anchor");
+    Check(NativeMoneySprite(field-20,account,&currency[0].rect),"native dollar establishes exact account anchor");
+    Check(NativeMoneySprite(field,account,&nativeDigits[4].rect),"native account numeric row follows dollar anchor");
+    Check(NativeMoneySprite(field,delta,&nativeDigits[4].rect),"income or purchase delta keeps its distinct original row");
+    Check(NativeMoneySprite(field-20,delta,&currency[1].rect)&&NativeMoneySprite(field-20,delta,&currency[2].rect),"native plus and minus are classified only at delta symbol anchor");
+    Check(!NativeMoneySprite(field+5*20,account,&nativeDigits[4].rect)&&!NativeMoneySprite(field-20,delta+1,&currency[1].rect),"sixth cell and nearby sign are not account sprites");
+    Check(!NativeMoneySprite(field,account,nullptr),"null crop cannot claim money ownership");
+    Check(MoneySpriteY(field-20,account,&currency[0].rect)==account-22,"legacy beam fallback moves native money by exactly one line");
+    Check(MoneySpriteY(field,account,&nativeDigits[4].rect)==account-22,"legacy account number follows one-line displacement");
+    Check(MoneySpriteY(field,delta,&nativeDigits[4].rect)==delta-22,"legacy delta retains relative offset after one-line displacement");
     Check(MoneySpriteY(field+1,account,&nativeDigits[4].rect)==account,"unaligned shared glyph retained");
     Check(MoneySpriteY(field,base,&nativeDigits[4].rect)==base,"ammo row not shifted as money");
     currentSprite=99;Check(MoneySpriteY(field,account,&nativeDigits[4].rect)==account,"foreign atlas not shifted");
+    // Exercise the exact DrawSprite call site, not just its classifier.
+    currentSprite=1;moneyAnchor=false;spriteCalls.clear();
+    DrawSprite(0,field,account,&nativeDigits[4].rect);
+    Check(spriteCalls.size()==1&&spriteCalls.back().y==account,"unanchored shared glyph reaches downstream unchanged");
+    DrawSprite(0,field-20,account,&currency[0].rect);
+    for(int digit=0;digit<5;++digit)DrawSprite(0,field+20*digit,account,&nativeDigits[digit].rect);
+    DrawSprite(0,field-20,delta,&currency[1].rect);DrawSprite(0,field,delta,&nativeDigits[7].rect);
+    Check(spriteCalls.size()==1,"modern account hides exact native dollar amount and expense row");
+    DrawSprite(0,field+1,account,&nativeDigits[4].rect);DrawSprite(0,field,account+1,&nativeDigits[4].rect);
+    currentSprite=99;DrawSprite(0,field,account,&nativeDigits[4].rect);
+    Check(spriteCalls.size()==4,"modern account does not swallow unrelated positions or atlases");
+    currentSprite=1;moneyVisible=false;moneyAnchor=false;
+    DrawSprite(0,field-20,account,&currency[0].rect);DrawSprite(0,field,delta,&nativeDigits[4].rect);
+    Check(spriteCalls.size()==6&&spriteCalls[4].y==account-22&&spriteCalls[5].y==delta-22,"disabled modern money preserves old beam fallback path");
+    adjustMoney=false;moneyAnchor=false;DrawSprite(0,field-20,account,&currency[0].rect);
+    DrawSprite(0,field,account,&nativeDigits[4].rect);
+    Check(spriteCalls.size()==8&&spriteCalls[6].y==account&&spriteCalls[7].y==account,"no modern money or secondary ammo keeps original account coordinates");
+    moneyVisible=adjustMoney=true;moneyAnchor=false;drawingNative=false;
+    DrawSprite(0,field-20,account,&currency[0].rect);Check(spriteCalls.size()==9&&spriteCalls.back().y==account,"foreign draw outside native redraw retains money-looking art");drawingNative=true;
+    for(int width:{320,480,640,1280})for(int rows:{3,5})
+    {
+        screen.iWidth=width;moneyAnchor=false;const int x=width-5*20-(width>=640?16:12),y=720-rows*22;
+        Check(NativeMoneySprite(x-20,y,&currency[0].rect),"both stock money baselines and resolution offsets are recognized");
+        Check(NativeMoneySprite(x+80,y,&nativeDigits[9].rect)&&NativeMoneySprite(x,y-33,&nativeDigits[2].rect),"last amount cell and delta remain classified across native resolutions");
+    }
     // Wide values must consume the exact digit run past the screen midline.
     // A later timer on the same baseline/atlas must remain drawable.
     weapon=false;vitalValues.health=vitalValues.armor=2147483647;

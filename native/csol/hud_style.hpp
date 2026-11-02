@@ -11,9 +11,11 @@
 namespace csol::hud_style
 {
 inline constexpr char CatalogPath[] = "models/csol/hud_v1.json";
-inline constexpr char FontPath[] = "resource/font/df_gb_y9.ttf";
+inline constexpr char FontPath[] = "resource/Font/sarasa_ui_sc.ttf";
+inline constexpr char SchemePath[] = "resource/csol/hud/v1/CSOLHudScheme.res";
 enum class Art : unsigned { CharacterTop, CharacterBottom, WeaponTop, WeaponBottom,
-    WeaponCard, Infinite, WhiteDigits, Health, Armor, Count };
+    WeaponCard, Infinite, WhiteDigits, Health, Armor,
+    MoneyBackground, MoneyDigits, MoneyDollar, MoneyPlus, MoneyMinus, Count };
 struct Resource { const char* path; unsigned width, height; };
 inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
     {"resource/csol/hud/v1/hud_character_bg_new_top.tga",288,85},
@@ -25,6 +27,11 @@ inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
     {"resource/csol/hud/v1/digits.tga",170,22},
     {"resource/csol/hud/v1/health.tga",16,16},
     {"resource/csol/hud/v1/armor.tga",16,16},
+    {"resource/csol/hud/v1/money_bg.tga",191,28},
+    {"resource/csol/hud/v1/money_digits.tga",130,18},
+    {"resource/csol/hud/v1/money_dollar.tga",18,18},
+    {"resource/csol/hud/v1/money_plus.tga",13,18},
+    {"resource/csol/hud/v1/money_minus.tga",13,18},
 }};
 struct WeaponArt { std::string title, weapon, ammo, ammo2; };
 struct Catalog
@@ -50,6 +57,12 @@ struct Vitals
     bool Health(std::span<const std::byte> bytes);
     bool Armor(std::span<const std::byte> bytes);
 };
+struct Money
+{
+    int amount{}, delta{};
+    bool known{}, changed{}, trackChange{};
+    bool ApplyMoney(std::span<const std::byte> bytes);
+};
 struct Rect { float x{}, y{}, width{}, height{}; };
 struct Layout
 {
@@ -57,4 +70,5 @@ struct Layout
     Rect character, portrait, weapon, card;
 };
 Layout MakeLayout(int width, int height, float userScale);
+Rect MoneyBackground(float scale, bool scenario);
 }

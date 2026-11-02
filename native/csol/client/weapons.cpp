@@ -133,31 +133,31 @@ bool Matches(const Sprite& sprite, const wrect_t* rect)
         sprite.rect.left==rect->left && sprite.rect.right==rect->right &&
         sprite.rect.top==rect->top && sprite.rect.bottom==rect->bottom;
 }
-int MoneySpriteY(int x, int y, const wrect_t* rect)
+bool NativeMoneySprite(int x, int y, const wrect_t* rect)
 {
-    if(!drawingNative || !adjustMoney || moneyHeight<=0)return y;
+    if(!drawingNative || !adjustMoney || moneyHeight<=0)return false;
     const int width=nativeDigits[0].rect.right-nativeDigits[0].rect.left;
-    if(width<=0)return y;
+    if(width<=0)return false;
     const int fieldX=screen.iWidth-5*width-(screen.iWidth>=640?16:12);
     // Stock account Draw starts with its dollar icon, followed by this row's
     // digits and an optional income/expense row. Never classify by atlas alone.
     if(Matches(currency[0],rect) && x==fieldX-(rect->right-rect->left) &&
         (y==screen.iHeight-3*moneyHeight || y==screen.iHeight-5*moneyHeight))
     {moneyAnchor=true;moneyX=fieldX;moneyY=y;}
-    if(!moneyAnchor)return y;
+    if(!moneyAnchor)return false;
     const int deltaY=moneyY-moneyHeight-moneyHeight/2;
     bool account=Matches(currency[0],rect) && x==moneyX-(rect->right-rect->left) && y==moneyY;
     for(const auto& digit:nativeDigits)
         if(Matches(digit,rect) && x>=moneyX && x<moneyX+5*width && (x-moneyX)%width==0 && (y==moneyY || y==deltaY))account=true;
     for(int i=1;i<3;++i)
         if(Matches(currency[i],rect) && x==moneyX-(rect->right-rect->left) && y==deltaY)account=true;
-    if(account)
-    {
-        ++shiftedMoneySprites;
-        const int shift=HudStyleWeaponVisible()?
-            std::max(0,moneyY-int(screen.iHeight-172*HudStyleScale())):moneyHeight;
-        return y-shift;
-    }
+    return account;
+}
+int MoneySpriteY(int x,int y,const wrect_t* rect)
+{
+    // Only the legacy secondary-ammo row needs this one-line displacement.
+    // The modern account panel has its own visibility and a fixed left anchor.
+    if(NativeMoneySprite(x,y,rect)) {++shiftedMoneySprites;return y-moneyHeight;}
     return y;
 }
 bool Inside(const Sprite& sprite,const wrect_t* rect)
@@ -289,6 +289,7 @@ void DrawSprite(int frame,int x,int y,const wrect_t* rect)
     }
     bool digit=false;for(const int sprite:nativeDigitSprites)if(sprite==currentSprite)digit=true;
     if(AmmoArea(x,y) && (digit || currentSprite==ammoIcon.handle))return;
+    if(HudStyleMoneyVisible() && NativeMoneySprite(x,y,rect))return;
     originalDraw(frame,x,MoneySpriteY(x,y,rect),rect);
 }
 void Fill(int x,int y,int width,int height,int r,int g,int b,int a)
@@ -561,7 +562,7 @@ void WeaponVideoInit()
 int WeaponRedraw(float time,int intermission)
 {
     BeginHudStyle(hidden,intermission);
-    if(HudStyleVitalsVisible() || HudStyleWeaponVisible())
+    if(HudStyleVitalsVisible() || HudStyleWeaponVisible() || HudStyleMoneyVisible())
     {
         if(!nativeHudLoaded)LoadNativeHudSprites();
         LoadNativeAmmo();
@@ -572,7 +573,9 @@ int WeaponRedraw(float time,int intermission)
             [](const Sprite& sprite){return sprite.handle!=0;}),
             ExtendedWeaponId(active) || (digitsReady && definition &&
                 (definition->ammo1<0 || nativeAmmo[0].handle) &&
-                (definition->ammo2<0 || WeaponReserveAmmo(definition->ammo2)<=0 || nativeAmmo[1].handle)));
+                (definition->ammo2<0 || WeaponReserveAmmo(definition->ammo2)<=0 || nativeAmmo[1].handle)),
+            digitsReady && std::all_of(std::begin(currency),std::end(currency),
+                [](const Sprite& sprite){return sprite.handle!=0;}));
     }
     nativeVitalRuns={};
     const auto* styledDefinition=FindWeaponDefinition(active);
@@ -582,7 +585,7 @@ int WeaponRedraw(float time,int intermission)
     // Preserve the ordinary HUD and selection. Only replace the selected
     // weapon's bottom-right ammo sprites and divider while it is being drawn.
     if((Custom() || K3Active()) && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
-    adjustMoney=HudStyleWeaponVisible() || BeamgunSecondaryAmmoVisible(hidden,intermission);
+    adjustMoney=HudStyleMoneyVisible() || (!HudStyleWeaponVisible() && BeamgunSecondaryAmmoVisible(hidden,intermission));
     if(adjustMoney && !nativeHudLoaded)LoadNativeHudSprites();
     PrepareWideAmmo(intermission);
     moneyAnchor=false;

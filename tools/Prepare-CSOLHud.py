@@ -18,6 +18,9 @@ import struct
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = 'resource/csol/hud/v1/'
 CATALOG = 'models/csol/hud_v1.json'
+FONT = 'resource/Font/sarasa_ui_sc.ttf'
+SCHEME = RESOURCE + 'CSOLHudScheme.res'
+ENGINE_FONT_SHA = 'b76ff01219fee0900aa216b681b9e96dd5fed0fe6190c4261a09d5b2131e9323'
 BACKGROUNDS = (
     'hud_character_bg_new_top', 'hud_character_bg_new_bottom',
     'hud_weapon_bg_top', 'hud_weapon_bg_bottom', 'hud_weapon_off_bg',
@@ -54,6 +57,53 @@ def relative(name):
 
 def text_bytes(data):
     return data.decode('utf-16' if data[:2] in (b'\xff\xfe', b'\xfe\xff') else 'utf-8-sig')
+
+
+def scheme_block(data, name):
+    """Return a uniquely named original block, including its exact whitespace."""
+    matches = list(re.finditer(rb'(?m)^[ \t]*"' + re.escape(name.encode('ascii')) + rb'"[ \t]*\r?$', data))
+    if len(matches) != 1:
+        raise ValueError(f'Expected one original scheme block: {name}')
+    start = matches[0].start()
+    at = matches[0].end()
+    while at < len(data) and data[at] in b' \t\r\n':
+        at += 1
+    if data[at:at+1] != b'{':
+        raise ValueError(f'Expected scheme block body: {name}')
+    depth = 0
+    for token in re.finditer(rb'//[^\r\n]*|"(?:\\.|[^"\\])*"|[{}]', data[at:]):
+        value = token.group()
+        if value == b'{':
+            depth += 1
+        elif value == b'}':
+            depth -= 1
+            if depth == 0:
+                end = at + token.end()
+                if data[end:end+2] == b'\r\n':
+                    end += 2
+                elif data[end:end+1] == b'\n':
+                    end += 1
+                return data[start:end], start, end
+    raise ValueError(f'Unterminated original scheme block: {name}')
+
+
+def hud_scheme(data):
+    _, fonts_start, fonts_end = scheme_block(data, 'Fonts')
+    block, start, end = scheme_block(data, 'EngineFont')
+    if not fonts_start < start < end <= fonts_end or sha(block) != ENGINE_FONT_SHA:
+        raise ValueError('Original EngineFont block changed; review its complete fields before exporting')
+    custom, _, _ = scheme_block(data, 'CustomFontFiles')
+    matches = list(re.finditer(rb'(?m)^[ \t]*"[^"\r\n]+"[ \t]+"' +
+        re.escape(FONT.encode('ascii')) + rb'"[ \t]*\r?$', custom))
+    if len(matches) != 1:
+        raise ValueError('Original EngineFont custom font registration is missing or ambiguous')
+    registration = matches[0].group().rstrip(b'\r') + b'\n'
+    minimal = (b'"Scheme"\n{\n\t"BaseSettings"\n\t{\n\t\t"CSOLHudRevision" "1"\n\t}\n'
+        b'\t"CustomFontFiles"\n\t{\n' + registration + b'\t}\n\t"Fonts"\n\t{\n' + block + b'\t}\n}\n')
+    return minimal, dict(alias='EngineFont', source='resource/trackerscheme.res', output=SCHEME,
+        byteStart=start, byteEnd=end, bytes=len(block), sha256=sha(block),
+        firstLine=data[:start].count(b'\n')+1, lastLine=data[:end].count(b'\n'),
+        font=FONT, revision='1', conversion='complete original font block copied verbatim; isolated scheme wrapper')
 
 
 def tokens(data):
@@ -289,7 +339,9 @@ def prepare(source, output, stock_source=None):
         weapons.append(item)
 
     rows = sprite_rows(common('sprites/hud.txt'),
-        {*(f'number_{index}_new' for index in range(10)), 'cross_new', 'suit_full_new', 'infinite'})
+        {*(f'number_{index}_new' for index in range(10)),
+         *(f'dollarNum_{index}_new'.lower() for index in range(10)),
+         'dollar_new', 'plus_new', 'minus_new', 'cross_new', 'suit_full_new', 'infinite'})
     digits = []
     for index in range(10):
         row = rows.get((f'number_{index}_new', 640))
@@ -299,6 +351,25 @@ def prepare(source, output, stock_source=None):
         digits.append(crop(row, f'number_{index}_new'))
     digit_pixels = b''.join(digit[j*17*4:(j+1)*17*4] for j in range(22) for digit in digits)
     add(RESOURCE + 'digits.tga', tga(170,22,digit_pixels))
+    # Account digits are a separate 13x18 SPR row, not the 17x22 vitals
+    # font. Keep their original additive contribution and exact cell order.
+    money_digits = []
+    for index in range(10):
+        key = f'dollarNum_{index}_new'
+        row = rows.get((key.lower(),640))
+        expected = dict(atlas='sprites/640hud8.spr', x=80+13*index, y=71, width=13, height=18)
+        if row != expected:
+            raise ValueError(f'Original money digit contract changed: {index}')
+        money_digits.append(crop(row,key))
+    money_pixels = b''.join(digit[j*13*4:(j+1)*13*4] for j in range(18) for digit in money_digits)
+    add(RESOURCE + 'money_digits.tga', tga(130,18,money_pixels))
+    for key, filename, x, width in (('dollar_new','money_dollar',36,18),
+                                   ('minus_new','money_minus',54,13),
+                                   ('plus_new','money_plus',67,13)):
+        row = rows.get((key,640))
+        if row != dict(atlas='sprites/640hud8.spr', x=x, y=71, width=width, height=18):
+            raise ValueError(f'Original money icon contract changed: {key}')
+        add(RESOURCE + filename + '.tga', tga(width,18,crop(row,key)))
     for key, filename, x, y in (('cross_new','health',204,0), ('suit_full_new','armor',187,144)):
         row = rows.get((key,640))
         if row != dict(atlas='sprites/640hud8.spr', x=x, y=y, width=16, height=16):
@@ -315,9 +386,23 @@ def prepare(source, output, stock_source=None):
         destination = RESOURCE + name + '.tga'
         add(destination, common(origin))
         originals.append(dict(source=origin, output=destination, conversion='verbatim'))
+    origin, destination = 'resource/Hud/hud_dollar_bg.tga', RESOURCE + 'money_bg.tga'
+    money_background = common(origin)
+    if (len(money_background) < 18 or money_background[2] not in (2,10) or
+            struct.unpack_from('<HHB',money_background,12) != (191,28,32)):
+        raise ValueError('Original money background dimensions/format changed')
+    add(destination,money_background)
+    originals.append(dict(source=origin,output=destination,conversion='verbatim'))
     font = 'resource/font/df_gb_y9.ttf'
     add(font, common(font))
     originals.append(dict(source=font, output=font, conversion='verbatim'))
+    # Keep the old font bytes for rollback, but the active HUD title uses the
+    # original EngineFont scheme. Its yres/weight/shadow/AA rules are not rebuilt
+    # from guessed point sizes or from the unrelated HUD image scaling factor.
+    add(FONT, common(FONT))
+    originals.append(dict(source=FONT, output=FONT, conversion='verbatim'))
+    scheme, scheme_source = hud_scheme(common('resource/trackerscheme.res'))
+    add(SCHEME, scheme)
 
     characters = json.loads(read(ROOT / 'native/csol/config/characters.json'))['characters']
     portraits, seen = [], set()
@@ -358,7 +443,7 @@ def prepare(source, output, stock_source=None):
         files.append(dict(path=name,bytes=len(data),sha256=sha(data)))
     audit = dict(version=1,source=str(source),stockSource=str(stock_source) if stock_source else None,
         output=str(output),inputs=list(inputs.values()),files=files,
-        originalCopies=originals,spriteConversions=conversions,titleKeys=title_sources,missingPortraits=missing,
+        originalCopies=originals,spriteConversions=conversions,titleKeys=title_sources,missingPortraits=missing,schemes=[scheme_source],
         missingWeapons=missing_weapons,
         summary=dict(weapons=len(weapons),portraits=len(portraits),missingPortraits=len(missing),files=len(files),
                      bytes=sum(item['bytes'] for item in files)),

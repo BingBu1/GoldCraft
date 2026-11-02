@@ -2,7 +2,6 @@
 #include "runtime.hpp"
 #include "user_message_chain.hpp"
 #include "scenario_upgrades.hpp"
-#include "hud_style.hpp"
 #include "../scenario_upgrades.hpp"
 #include "../image_codec.hpp"
 #include <algorithm>
@@ -108,8 +107,6 @@ void Paint()
     for(unsigned i=0;i<frame.count;++i)
     {
         const auto& q=frame.quads[i];
-        if(HudStyleLevelVisible() && (q.image==upgrades::Image::LevelBackground ||
-            q.image==upgrades::Image::LevelLabel || q.image==upgrades::Image::Digits))continue;
         const int texture=q.additive?digits[std::clamp(int(std::lround(q.u0*10)),0,9)]:textures[unsigned(q.image)];
         if(!texture||q.width<=0||q.height<=0)continue;
         surface->DrawSetColor(int(q.color[0]*255),int(q.color[1]*255),int(q.color[2]*255),int(q.color[3]*255));
@@ -141,7 +138,6 @@ void Paint()
         for(unsigned i=0;i<frame.count;++i)
         {
             const auto& q=frame.quads[i];if(!q.additive)continue;
-            if(HudStyleLevelVisible() && q.image==upgrades::Image::Digits)continue;
             const int digit=std::clamp(int(std::lround(q.u0*10)),0,9);
             wrect_t rectangle{80+digit*13,93+digit*13,71,89};
             engine.pfnSPR_Set(digitSprite,int(q.color[0]*255),int(q.color[1]*255),int(q.color[2]*255));

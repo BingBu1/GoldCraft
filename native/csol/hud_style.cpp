@@ -2,6 +2,7 @@
 #include "hud_style.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -72,7 +73,7 @@ Catalog ParseCatalog(std::string_view json)
 }
 std::vector<std::string> ResourcePaths(const Catalog& catalog)
 {
-    std::set<std::string> paths{CatalogPath,FontPath};
+    std::set<std::string> paths{CatalogPath,FontPath,SchemePath};
     for(const auto& resource:Resources)paths.emplace(resource.path);
     for(const auto& [name,weapon]:catalog.weapons)
     {
@@ -87,13 +88,34 @@ bool Vitals::Health(std::span<const std::byte> bytes)
 { if (!Scalar(bytes,1,health)) return false; healthKnown=true; return true; }
 bool Vitals::Armor(std::span<const std::byte> bytes)
 { if (!Scalar(bytes,2,armor)) return false; armorKnown=true; return true; }
+bool Money::ApplyMoney(std::span<const std::byte> bytes)
+{
+    if (bytes.size()!=5) return false;
+    std::uint32_t raw{};
+    for (unsigned i=0;i<4;++i)
+        raw|=std::uint32_t(std::to_integer<unsigned>(bytes[i]))<<(8*i);
+    const int next=std::bit_cast<std::int32_t>(raw);
+    // A first sign-on balance is not earned income. Negative balances are
+    // unavailable, and must not become a huge unsigned amount or delta.
+    changed=known && amount>=0 && next>=0 && next!=amount;
+    delta=changed?next-amount:0;
+    amount=next; known=true;
+    trackChange=changed && bytes[4]!=std::byte{};
+    return true;
+}
+Rect MoneyBackground(float scale,bool scenario)
+{
+    // Modern CSO account panel: the scenario mode adds 41 to the base Y.
+    return {0,(154+(scenario?41:0))*scale,191*scale,28*scale};
+}
 Layout MakeLayout(int width, int height, float userScale)
 {
     if (width <= 0 || height <= 0) return {};
     if (!std::isfinite(userScale)) userScale = 1;
     const float fit = std::min(float(width)/640, float(height)/360);
-    const float scale = std::min(fit, std::min(float(width)/1280, float(height)/720) *
-        std::clamp(userScale, .5f, 2.f));
+    // Original panel and sprite draws use screen coordinates with fixed pixel
+    // sizes. Resolution alone must not rescale their glyphs or rectangles.
+    const float scale = std::min(fit, std::clamp(userScale, .5f, 2.f));
     // Original client panel owner retains an eight-unit bottom margin.
     return {scale, {0,height-93*scale,288*scale,85*scale},
         {0,height-156*scale,99*scale,116*scale},

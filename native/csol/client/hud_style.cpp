@@ -7,6 +7,7 @@
 #include "scenario_upgrades.hpp"
 #include "../image_codec.hpp"
 #include <VGUI/ISurface.h>
+#include <VGUI/IScheme.h>
 #include <IVGUI2Extension.h>
 #include <algorithm>
 #include <charconv>
@@ -20,31 +21,37 @@ namespace
 {
 namespace hud = hud_style;
 vgui::ISurface* surface{};
+vgui::ISchemeManager* schemes{};
 IVGUI2Extension* extension{};
 HANDLE privateFont{};
-std::array<vgui::HFont,65> fonts{};
+vgui::HScheme hudScheme{};
 cvar_t* styleOption{};
 cvar_t* scaleOption{};
 hud::Catalog catalog;
 hud::Vitals vitals;
+hud::Money money;
+double moneyChangedAt{};
+bool moneyFadeActive{};
 hud::Layout layout;
 hud::WeaponState weapon;
 struct Texture { int id{}; unsigned width{}, height{}; };
 std::array<Texture,unsigned(hud::Art::Count)> art{};
 std::array<Texture,10> digits{};
+std::array<Texture,10> moneyDigits{};
 Texture portrait, weaponImage, ammoImage, secondaryImage;
 std::string portraitPath, weaponName;
 std::wstring weaponTitle;
-vgui::HFont titleFont{}, textFont{};
+vgui::HFont titleFont{};
 int* nativeHealth{};
 int* nativeArmor{};
-pfnUserMsgHook previousHealth{}, previousArmor{}, previousReset{}, previousInit{};
+pfnUserMsgHook previousHealth{}, previousArmor{}, previousMoney{}, previousReset{}, previousInit{};
 bool pendingVitals{}, loaded{}, reported{}, gameUI{}, console{}, requested{}, additiveSurface{};
-bool vitalsVisible{}, weaponVisible{};
+bool vitalsVisible{}, weaponVisible{}, moneyVisible{}, moneyLoaded{}, moneyReported{};
 int screenWidth{}, screenHeight{}, portraitId{};
 ULONGLONG retryAfter{};
 ULONGLONG selectionRetryAfter{};
 ULONGLONG portraitRetryAfter{};
+ULONGLONG moneyRetryAfter{};
 unsigned draws{}, rejected{};
 
 void Delete(Texture& texture)
@@ -63,15 +70,22 @@ Texture Upload(const Image& image)
 }
 Texture Load(const char* path)
 { return Upload(DecodeTGA(ReadResource(path))); }
-void Release()
+void ReleaseBase()
 {
-    for (auto& texture : art) Delete(texture);
+    for (unsigned i=0;i<unsigned(hud::Art::MoneyBackground);++i) Delete(art[i]);
     for (auto& texture : digits) Delete(texture);
     Delete(portrait); Delete(weaponImage); Delete(ammoImage); Delete(secondaryImage);
     portraitId=0; portraitPath.clear(); weaponName.clear(); weaponTitle.clear();
     selectionRetryAfter=portraitRetryAfter=0;
     loaded=false; requested=vitalsVisible=weaponVisible=false;
 }
+void ReleaseMoney()
+{
+    for (unsigned i=unsigned(hud::Art::MoneyBackground);i<art.size();++i) Delete(art[i]);
+    for (auto& texture:moneyDigits) Delete(texture);
+    moneyLoaded=moneyVisible=false;
+}
+void Release(){ReleaseBase();ReleaseMoney();}
 std::wstring Wide(const std::string& text)
 {
     const int count=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),nullptr,0);
@@ -80,27 +94,20 @@ std::wstring Wide(const std::string& text)
     MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),result.data(),count);
     return result;
 }
-vgui::HFont Font(int height)
+vgui::HFont EngineFont()
 {
-    height=std::clamp(height,8,64);
-    auto& font=fonts[height];
-    if (!font && privateFont)
-    {
-        font=surface->CreateFont();
-        if (font && !surface->AddGlyphSetToFont(font,"DFYuanW9-GB",height,0,0,0,
-            vgui::FONTFLAG_ANTIALIAS,0,0xffff)) font=0;
-    }
-    return font;
+    auto* scheme=schemes && hudScheme?schemes->GetIScheme(hudScheme):nullptr;
+    return scheme?scheme->GetFont("EngineFont",true):0;
 }
 void Prepare()
 {
-    if (!surface || loaded || GetTickCount64()<retryAfter) return;
+    if (!surface || !schemes || loaded || GetTickCount64()<retryAfter) return;
     retryAfter=GetTickCount64()+5000;
     try
     {
         const auto bytes=ReadResource(hud::CatalogPath);
         auto candidate=hud::ParseCatalog({reinterpret_cast<const char*>(bytes.data()),bytes.size()});
-        for (unsigned i=0;i<art.size();++i)
+        for (unsigned i=0;i<unsigned(hud::Art::MoneyBackground);++i)
         {
             if (art[i].id) continue;
             const auto& resource=hud::Resources[i];
@@ -127,14 +134,55 @@ void Prepare()
             privateFont=AddFontMemResourceEx(const_cast<std::byte*>(font.data()),DWORD(font.size()),nullptr,&count);
             if (!privateFont) throw std::runtime_error("cannot load CSOL HUD font");
         }
+        // Use CSO's complete EngineFont scheme entry. The VGUI scheme owns
+        // resolution ranges, weight and shadow; do not guess or shrink fonts.
+        if (ReadResource(hud::SchemePath).empty()) throw std::runtime_error("missing CSOL HUD scheme");
+        hudScheme=schemes->LoadSchemeFromFile(hud::SchemePath,"CSOLHudV1");
+        auto* scheme=hudScheme?schemes->GetIScheme(hudScheme):nullptr;
+        const auto* revision=scheme?scheme->GetResourceString("CSOLHudRevision"):nullptr;
+        if (!revision || std::string_view(revision)!="1" || !EngineFont())
+            throw std::runtime_error("cannot load original CSOL EngineFont");
         catalog=std::move(candidate); loaded=true;
     }
     catch (const std::exception& error)
     {
         // Do not suppress a usable native HUD while downloads are incomplete.
-        Release();
+        ReleaseBase();
         if (!reported) engine.Con_DPrintf("CSOLSupport: HUD style: %s\n",error.what());
         reported=true;
+    }
+}
+void PrepareMoney()
+{
+    if (!surface || moneyLoaded || GetTickCount64()<moneyRetryAfter) return;
+    moneyRetryAfter=GetTickCount64()+5000;
+    try
+    {
+        for (unsigned i=unsigned(hud::Art::MoneyBackground);i<art.size();++i)
+        {
+            const auto& resource=hud::Resources[i];
+            const auto image=DecodeTGA(ReadResource(resource.path));
+            if (image.Width!=resource.width || image.Height!=resource.height)
+                throw std::runtime_error("original money image dimensions changed");
+            if (i==unsigned(hud::Art::MoneyDigits))
+            {
+                Image cell{13,18,std::vector<std::uint8_t>(13*18*4)};
+                for (unsigned digit=0;digit<moneyDigits.size();++digit)
+                {
+                    for (unsigned y=0;y<18;++y)
+                        std::copy_n(image.RGBA.data()+(y*130+digit*13)*4,13*4,cell.RGBA.data()+y*13*4);
+                    moneyDigits[digit]=Upload(cell);
+                }
+            }
+            else art[i]=Upload(image);
+        }
+        moneyLoaded=true;
+    }
+    catch (const std::exception& error)
+    {
+        ReleaseMoney();
+        if (!moneyReported) engine.Con_DPrintf("CSOLSupport: HUD money: %s\n",error.what());
+        moneyReported=true;
     }
 }
 void PrepareSelection()
@@ -211,31 +259,72 @@ void Sprite(const Texture& texture,float x,float y,float width,float height)
 void Text(const wchar_t* text,float x,float y,vgui::HFont font)
 {
     if (!font) return;
-    surface->DrawSetTextFont(font); surface->DrawSetTextColor(235,235,235,255);
+    surface->DrawSetTextFont(font); surface->DrawSetTextColor(255,255,255,255);
     surface->DrawSetTextPos(int(x),int(y)); surface->DrawPrintText(text,int(std::wcslen(text)));
     surface->DrawFlushText();
 }
-void Number(int value,float x,float y,bool blue=false,bool right=false,float size=1)
+void Number(int value,float x,float y,bool blue=false,bool right=false,unsigned maxDigits=10)
 {
     char text[16]; const auto end=std::to_chars(text,text+sizeof(text),std::max(0,value)).ptr;
-    const int count=int(end-text);
-    const float scale=layout.scale*size;
+    const auto first=end-std::min(unsigned(end-text),maxDigits);
+    const int count=int(end-first);
+    const float scale=layout.scale;
     if (right) x-=count*17*scale;
     if (value<=0) surface->DrawSetColor(75,75,75,255);
     else surface->DrawSetColor(blue?114:255,blue?197:255,255,255);
-    for (auto p=text;p!=end;++p,x+=17*scale)
+    for (auto p=first;p!=end;++p,x+=17*scale)
         Sprite(digits[unsigned(*p-'0')],x,y,17*scale,22*scale);
+    surface->DrawSetColor(255,255,255,255);
+}
+void MoneyNumber(int value,float x,float y)
+{
+    char text[16];const auto end=std::to_chars(text,text+sizeof(text),value).ptr;
+    const float s=layout.scale;
+    // Original DrawHudNumber uses "%5i": leading blanks reserve five cells.
+    x+=std::max(0,5-int(end-text))*13*s;
+    for (auto p=text;p!=end;++p,x+=13*s)
+        Sprite(moneyDigits[unsigned(*p-'0')],x,y,13*s,18*s);
+}
+void PaintMoney()
+{
+    const float s=layout.scale;
+    const auto panel=hud::MoneyBackground(s,ScenarioHudLevel()>=0);
+    Art(hud::Art::MoneyBackground,panel);
+    const double now=engine.GetClientTime?engine.GetClientTime():moneyChangedAt;
+    const double age=std::isfinite(now) && now>=moneyChangedAt?now-moneyChangedAt:5;
+    if (age>=5) moneyFadeActive=false;
+    const float remaining=moneyFadeActive?std::clamp(float(1-age/5),0.f,1.f):0;
+    const std::array<int,3> accent=money.delta>0?std::array<int,3>{180,225,92}:
+        money.delta<0?std::array<int,3>{231,26,26}:std::array<int,3>{255,255,255};
+    // Original Account draw first interpolates integer RGB, then applies
+    // ScaleColors with a separately truncated 100+128*remaining brightness.
+    const float brightness=moneyFadeActive?float(int(100+128*remaining))/255.f:1.f;
+    std::array<int,3> color{};
+    for (unsigned i=0;i<color.size();++i)
+        color[i]=int(int(255*(1-remaining)+accent[i]*remaining)*brightness);
+    surface->DrawSetColor(color[0],color[1],color[2],255);
+    const float x=69*s,y=panel.y+5*s;
+    Sprite(art[unsigned(hud::Art::MoneyDollar)],51*s,y,18*s,18*s);
+    MoneyNumber(money.amount,x,y);
+    if (money.trackChange && age<2.5)
+    {
+        const float fade=float(int(std::clamp(1-age/2.5,0.0,1.0)*256))/255.f;
+        surface->DrawSetColor(int(color[0]*fade),int(color[1]*fade),int(color[2]*fade),255);
+        Sprite(art[unsigned(money.delta>0?hud::Art::MoneyPlus:hud::Art::MoneyMinus)],56*s,y+27*s,13*s,18*s);
+        MoneyNumber(money.delta>0?money.delta:-money.delta,x,y+27*s);
+    }
     surface->DrawSetColor(255,255,255,255);
 }
 void Paint()
 {
     if (!requested) return;
     requested=false;
-    if (!surface || gameUI || console || !loaded || engine.pfnGetCvarFloat("hud_draw")==0) return;
+    if (!surface || gameUI || console || (!loaded && !moneyLoaded) || engine.pfnGetCvarFloat("hud_draw")==0) return;
     const auto root=surface->GetEmbeddedPanel(); if (!root) return;
     surface->PushMakeCurrent(root,false);
     surface->DrawSetColor(255,255,255,255);
     const float s=layout.scale;
+    if (moneyVisible) PaintMoney();
     if (vitalsVisible)
     {
         surface->DrawSetColor(255,255,255,225);
@@ -245,11 +334,6 @@ void Paint()
         const float portraitU=portrait.width==portrait.height?1.f-99.f/116.f:0;
         Quad(portrait,layout.portrait.x,layout.portrait.y,layout.portrait.width,layout.portrait.height,portraitU);
         surface->DrawSetColor(255,255,255,255);
-        if (ScenarioHudLevel()>=0)
-        {
-            Text(L"Lv.",10*s,screenHeight-60*s,textFont);
-            Number(ScenarioHudLevel(),38*s,screenHeight-59*s,false,false,.65f);
-        }
         Sprite(art[unsigned(hud::Art::Health)],9*s,screenHeight-34*s,16*s,16*s);
         Number(vitals.health,28*s,screenHeight-39*s);
         Sprite(art[unsigned(hud::Art::Armor)],160*s,screenHeight-34*s,16*s,16*s);
@@ -266,32 +350,44 @@ void Paint()
         Sprite(weaponImage,layout.card.x,layout.card.y+15*s,weaponImage.width*s,weaponImage.height*s);
         const float y=screenHeight-39*s;
         const float reserveRight=screenWidth-(10+ammoImage.width)*s;
-        const auto ammo=[&](int value,float right,bool infinite,bool blue)
+        const auto infinity=[&](float x,float top,bool blue)
         {
-            if (infinite)
-            {
-                surface->DrawSetColor(blue?114:255,blue?197:255,255,255);
-                Sprite(art[unsigned(hud::Art::Infinite)],right-36*s,y,36*s,24*s);
-                surface->DrawSetColor(255,255,255,255);
-            }
-            else Number(value,right,y,blue,true);
+            surface->DrawSetColor(blue?114:255,blue?197:255,255,255);
+            Sprite(art[unsigned(hud::Art::Infinite)],x,top,36*s,24*s);
+            surface->DrawSetColor(255,255,255,255);
         };
         if (weapon.kind==hud::AmmoKind::Magazine)
         {
-            ammo(weapon.clip,screenWidth-110*s,false,false);
+            Number(weapon.clip,screenWidth-110*s,y,false,true);
             surface->DrawSetColor(75,75,75,255);
             surface->DrawFilledRect(int(screenWidth-106*s),int(y),int(screenWidth-104*s),int(y+22*s));
             surface->DrawSetColor(255,255,255,255);
-            ammo(weapon.reserve,reserveRight,weapon.infinite,false);
+            if (weapon.infinite)
+                infinity(screenWidth-(72+ammoImage.width)*s,y+2*s,false);
+            else Number(weapon.reserve,reserveRight,y,false,true);
         }
         else if (weapon.kind==hud::AmmoKind::Total)
-            ammo(weapon.total,reserveRight,weapon.infinite,weapon.specialAmmo);
+        {
+            // CSO's no-clip and special branches reserve three forward cells
+            // starting at W-4*digitWidth-iconWidth. It does not use the
+            // magazine reserve's W-10-iconWidth right edge.
+            if (weapon.infinite)
+                infinity(screenWidth-(72+ammoImage.width)*s,y+2*s,weapon.specialAmmo);
+            else Number(weapon.total,screenWidth-(17+ammoImage.width)*s,y,weapon.specialAmmo,true,3);
+        }
         if (weapon.kind!=hud::AmmoKind::None)
+        {
+            surface->DrawSetColor(weapon.specialAmmo?114:255,weapon.specialAmmo?197:255,255,255);
             Sprite(ammoImage,screenWidth-(8+ammoImage.width)*s,screenHeight-41*s,ammoImage.width*s,ammoImage.height*s);
+            surface->DrawSetColor(255,255,255,255);
+        }
         if (weapon.secondary>0 && secondaryImage.id)
         {
-            ammo(weapon.secondary,screenWidth-208*s,weapon.secondary==255,true);
+            if (weapon.secondary==255) infinity(screenWidth-(206+36)*s,y,true);
+            else Number(weapon.secondary,screenWidth-208*s,y,true,true);
+            surface->DrawSetColor(114,197,255,255);
             Sprite(secondaryImage,screenWidth-206*s,screenHeight-41*s,secondaryImage.width*s,secondaryImage.height*s);
+            surface->DrawSetColor(255,255,255,255);
         }
     }
     surface->PopMakeCurrent(root); ++draws;
@@ -302,7 +398,7 @@ public:
     int GetAltitude()const override{return 21;}
     void Initialize(CreateInterfaceFn*,int)override{}
     void Start(cl_enginefuncs_s*,int)override{}
-    void Shutdown()override{ResetHudStyle();Release();surface=nullptr;fonts={};}
+    void Shutdown()override{ResetHudStyle();Release();surface=nullptr;hudScheme=0;}
     void Key_Event(int&,int&,const char*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceWndProc(void*&,unsigned int&,unsigned int&,long&,VGUI2Extension_CallbackContext*)override{}
@@ -324,6 +420,19 @@ int Armor(const char* name,int size,void* data)
     if (data && size>=0 && !vitals.Armor({static_cast<const std::byte*>(data),std::size_t(size)})) ++rejected;
     return previousArmor?previousArmor(name,size,data):1;
 }
+int MoneyMessage(const char* name,int size,void* data)
+{
+    SynchronizeSession();
+    if (!data || size<0 || !money.ApplyMoney({static_cast<const std::byte*>(data),std::size_t(size)})) ++rejected;
+    else if (money.changed)
+    {
+        const double now=engine.GetClientTime?engine.GetClientTime():0;
+        moneyChangedAt=std::isfinite(now)?now:0;
+        moneyFadeActive=true;
+    }
+    else if (money.amount<0) moneyFadeActive=false;
+    return previousMoney?previousMoney(name,size,data):1;
+}
 int Reset(const char* name,int size,void* data)
 { ResetHudStyle(); return previousReset?previousReset(name,size,data):1; }
 int Init(const char* name,int size,void* data)
@@ -340,10 +449,12 @@ void InitializeHudStyle()
     if (!scaleOption) scaleOption=engine.pfnRegisterVariable("csol_hud_scale","1",FCVAR_ARCHIVE);
     InstallChainedUserMessage("ResetHUD",Reset,previousReset);
     InstallChainedUserMessage("InitHUD",Init,previousInit);
+    InstallChainedUserMessage("Money",MoneyMessage,previousMoney);
     if (!extension)
     {
         const auto factory=api->GetEngineFactory();
         surface=factory?static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION,nullptr)):nullptr;
+        schemes=factory?static_cast<vgui::ISchemeManager*>(factory(VGUI_SCHEME_INTERFACE_VERSION,nullptr)):nullptr;
         const auto module=api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");
         const auto pluginFactory=module?Sys_GetFactory(module):nullptr;
         extension=pluginFactory?static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
@@ -352,7 +463,7 @@ void InitializeHudStyle()
 }
 void HudStyleFrame()
 {
-    requested=vitalsVisible=weaponVisible=false;
+    requested=vitalsVisible=weaponVisible=moneyVisible=false;
     if (pendingVitals)
     {
         pendingVitals=false;
@@ -372,28 +483,22 @@ void HudStyleFrame()
     if (nativeArmor) {vitals.armor=std::max(0,*nativeArmor);vitals.armorKnown=true;}
     if (!surface || !extension || !additiveSurface || !styleOption || styleOption->value==0) return;
     const auto level=engine.pfnGetLevelName(); if (!level || !*level) return;
-    Prepare(); if (!loaded) return;
+    Prepare(); PrepareMoney(); if (!loaded && !moneyLoaded) return;
     surface->GetScreenSize(screenWidth,screenHeight);
     layout=hud::MakeLayout(screenWidth,screenHeight,scaleOption?scaleOption->value:1);
+    if (!loaded) return;
     PrepareSelection();
-    textFont=Font(int(std::lround(20*layout.scale)));
-    int height=std::max(8,int(std::lround(13*layout.scale)));
-    titleFont=Font(height);
-    int width{},tall{};
-    while (titleFont && height>8)
-    {
-        surface->GetTextSize(titleFont,weaponTitle.c_str(),width,tall);
-        if (width<=145*layout.scale) break;
-        titleFont=Font(--height);
-    }
+    titleFont=EngineFont();
 }
 void BeginHudStyle(int hidden,int intermission)
 {
-    vitalsVisible=weaponVisible=false;
-    if (!loaded || !surface || !extension || !additiveSurface || !textFont || !styleOption || styleOption->value==0 ||
+    vitalsVisible=weaponVisible=moneyVisible=false;
+    if (!surface || !extension || !additiveSurface || !styleOption || styleOption->value==0 ||
         layout.scale<=0 || !surface->GetEmbeddedPanel() ||
         gameUI || console || intermission || view.spectator || view.health<=0 || (hidden&4) ||
         engine.pfnGetCvarFloat("hud_draw")==0) return;
+    moneyVisible=moneyLoaded && money.known && money.amount>=0 && !(hidden&32);
+    if (!loaded || !titleFont) return;
     vitalsVisible=!(hidden&8) && vitals.healthKnown && vitals.armorKnown;
     weapon=CurrentWeaponHudState();
     const auto* definition=FindWeaponDefinition(weapon.id);
@@ -403,26 +508,28 @@ void BeginHudStyle(int hidden,int intermission)
 }
 bool HudStyleVitalsVisible(){return vitalsVisible;}
 hud_style::Vitals HudStyleVitalsState(){return vitals;}
-void ConstrainHudStyle(bool nativeVitalsReady,bool nativeWeaponReady)
-{vitalsVisible=vitalsVisible&&nativeVitalsReady;weaponVisible=weaponVisible&&nativeWeaponReady;}
+void ConstrainHudStyle(bool nativeVitalsReady,bool nativeWeaponReady,bool nativeMoneyReady)
+{vitalsVisible=vitalsVisible&&nativeVitalsReady;weaponVisible=weaponVisible&&nativeWeaponReady;moneyVisible=moneyVisible&&nativeMoneyReady;}
 bool HudStyleWeaponVisible(){return weaponVisible;}
-bool HudStyleLevelVisible(){return vitalsVisible && ScenarioHudLevel()>=0;}
+bool HudStyleMoneyVisible(){return moneyVisible;}
+hud_style::Money HudStyleMoneyState(){return money;}
 float HudStyleScale(){return layout.scale;}
-void DrawHudStyle(){requested=vitalsVisible || weaponVisible;}
-void ResetHudStyle(){vitals={};weapon={};requested=vitalsVisible=weaponVisible=false;}
-void HudStyleVideoInit(){Release();retryAfter=0;reported=false;}
+void DrawHudStyle(){requested=vitalsVisible || weaponVisible || moneyVisible;}
+void ResetHudStyle(){vitals={};weapon={};money={};moneyChangedAt=0;moneyFadeActive=false;requested=vitalsVisible=weaponVisible=moneyVisible=false;}
+void HudStyleVideoInit(){Release();retryAfter=moneyRetryAfter=0;reported=moneyReported=false;}
 void ShutdownHudStyle()
 {
     ResetHudStyle();Release();catalog={};
     if (extension && surface) extension->UnregisterBaseUICallbacks(&overlay);
     if (privateFont) RemoveFontMemResourceEx(privateFont);
-    privateFont=nullptr;fonts={};surface=nullptr;extension=nullptr;
+    privateFont=nullptr;hudScheme=0;surface=nullptr;schemes=nullptr;extension=nullptr;
     nativeHealth=nativeArmor=nullptr;pendingVitals=false;gameUI=console=false;
     additiveSurface=false;
 }
 void HudStyleDiagnostics(std::ostream& out)
 {
     out<<"hudStyle ready="<<loaded<<" vitals="<<vitalsVisible<<" weapon="<<weaponVisible
+       <<" money="<<moneyVisible<<" moneyReady="<<moneyLoaded<<" balance="<<money.amount
        <<" health="<<vitals.health<<" armor="<<vitals.armor<<" id="<<weapon.id
        <<" scale="<<layout.scale<<" additive="<<additiveSurface<<" draws="<<draws<<" rejected="<<rejected<<'\n';
 }

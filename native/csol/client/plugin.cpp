@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "user_message_chain.hpp"
+#include "command_chain.hpp"
 #include "hd_spray.hpp"
 #include "weapons.hpp"
 #include "hud_style.hpp"
@@ -296,8 +297,10 @@ static void Init()
     MountResources();
     InitializeDeathNotices();
     const auto messageHeads=CaptureChainedUserMessageHeads();
+    const auto commandHeads=CaptureChainedCommandHeads();
     downstream.HUD_Init();
     RefreshChainedUserMessageHeads(messageHeads);
+    RefreshChainedCommandHeads(commandHeads);
     studioBoneCache=engine.pfnGetCvarPointer("r_studio_bone_caches");
     engine.pfnAddCommand("csol_info",Report);
     engine.pfnAddCommand("csol_scenario_hud_info",ScenarioHudInfo);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "weapon_inventory.hpp"
+#include "command_chain.hpp"
+#include "user_message_chain.hpp"
 #include "pickup_history.hpp"
 #include "scenario_abilities.hpp"
 #include "scenario_respawn_ui.hpp"
@@ -236,15 +238,20 @@ void InitializeWeaponInventory()
     engine.pfnHookUserMsg(WeaponCurrentMessage,Current);
     engine.pfnHookUserMsg(WeaponPickupMessage,Pickup);
     engine.pfnHookUserMsg("CSOGuard",Guard);
-    originalSlots[0]=api->HookCmd("slot1",SlotCommand<0>);originalSlots[1]=api->HookCmd("slot2",SlotCommand<1>);
-    originalSlots[2]=api->HookCmd("slot3",SlotCommand<2>);originalSlots[3]=api->HookCmd("slot4",SlotCommand<3>);
-    originalSlots[4]=api->HookCmd("slot5",SlotCommand<4>);
-    originalSlots[5]=api->HookCmd("slot6",SlotCommand<5>);originalSlots[6]=api->HookCmd("slot7",SlotCommand<6>);
-    originalSlots[7]=api->HookCmd("slot8",SlotCommand<7>);originalSlots[8]=api->HookCmd("slot9",SlotCommand<8>);
-    originalSlots[9]=api->HookCmd("slot10",SlotCommand<9>);
-    originalNext=api->HookCmd("invnext",Next);originalPrevious=api->HookCmd("invprev",Previous);
-    originalCancel=api->HookCmd("cancelselect",Cancel);
-    oldShowMenu=api->HookUserMsg("ShowMenu",ShowMenu);
+    InstallChainedCommand("slot1",SlotCommand<0>,originalSlots[0]);
+    InstallChainedCommand("slot2",SlotCommand<1>,originalSlots[1]);
+    InstallChainedCommand("slot3",SlotCommand<2>,originalSlots[2]);
+    InstallChainedCommand("slot4",SlotCommand<3>,originalSlots[3]);
+    InstallChainedCommand("slot5",SlotCommand<4>,originalSlots[4]);
+    InstallChainedCommand("slot6",SlotCommand<5>,originalSlots[5]);
+    InstallChainedCommand("slot7",SlotCommand<6>,originalSlots[6]);
+    InstallChainedCommand("slot8",SlotCommand<7>,originalSlots[7]);
+    InstallChainedCommand("slot9",SlotCommand<8>,originalSlots[8]);
+    InstallChainedCommand("slot10",SlotCommand<9>,originalSlots[9]);
+    InstallChainedCommand("invnext",Next,originalNext);
+    InstallChainedCommand("invprev",Previous,originalPrevious);
+    InstallChainedCommand("cancelselect",Cancel,originalCancel);
+    InstallChainedUserMessage("ShowMenu",ShowMenu,oldShowMenu);
 }
 void ResetWeaponInventory(bool forgetDefinitions)
 {

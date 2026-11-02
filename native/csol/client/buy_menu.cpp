@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "buy_menu.hpp"
+#include "command_chain.hpp"
 #include "weapon_inventory.hpp"
 #include "../buy_menu.hpp"
 #include "../image_codec.hpp"
@@ -241,12 +242,13 @@ void Layout()
     surface->AddGlyphSetToFont(font,name,height,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);surface->AddGlyphSetToFont(titleFont,name,std::max(11,int(11*scale)),800,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
     if(searchEntry)searchEntry->SetFont(font);
 }
+MenuRect CloseRect(){return {presentation.width-25,5,20,20};}
 int Hit(int x,int y)
 {
     const float px=(x-left)/scale,py=(y-top)/scale;
     for(int i=0;i<10;++i)if(presentation.slots[i].Contains(px,py))return i;
     if(presentation.previous.Contains(px,py))return 10;if(presentation.next.Contains(px,py))return 11;
-    if(MenuRect{presentation.width-25,5,20,20}.Contains(px,py))return 12;
+    if(CloseRect().Contains(px,py))return 12;
     for(int i=0;i<2;++i)if(presentation.teams[i].Contains(px,py))return 20+i;
     for(int i=0;i<8;++i)if(presentation.favorites[i].Contains(px,py))return 30+i;
     if(presentation.search.Contains(px,py))return 40;
@@ -280,6 +282,8 @@ void Paint()
     int screenWidth,screenHeight;surface->GetScreenSize(screenWidth,screenHeight);surface->DrawSetColor(0,0,0,100);surface->DrawFilledRect(0,0,screenWidth,screenHeight);
     const auto& f=presentation.frame;const int xs[]{0,f[0].width,presentation.width-f[2].width,presentation.width},ys[]{0,f[0].height,presentation.height-f[6].height,presentation.height};
     for(int i=0;i<9;++i){int x=i%3,y=i/3;Image(f[i],{xs[x],ys[y],xs[x+1]-xs[x],ys[y+1]-ys[y]});}
+    const int closeState=hover==12?(input&&input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):0;
+    Image(presentation.close[closeState],CloseRect());
     const auto title=Wide(presentation.title);int titleWidth,titleHeight;surface->GetTextSize(titleFont,title.c_str(),titleWidth,titleHeight);Text((presentation.width-int(titleWidth/scale))/2,3,title,"basetext",true);
     Text(14,24,L"玩家武器列表");
     for(int i=0;i<2;++i){const auto& r=presentation.teams[i];Button(r,i?L"查看CT阵营武器":L"查看T阵营武器",20+i);if(team==i+1){surface->DrawSetColor(170,190,210,240);surface->DrawFilledRect(X(r.x),Y(r.y+r.h-1),X(r.x+r.w),Y(r.y+r.h));}}
@@ -337,14 +341,9 @@ void InitializeBuyMenu()
     favoriteCvars[0]=engine.pfnRegisterVariable("csol_buy_favorites_t","0,0,0,0,0,0,0,0",FCVAR_ARCHIVE);
     favoriteCvars[1]=engine.pfnRegisterVariable("csol_buy_favorites_ct","0,0,0,0,0,0,0,0",FCVAR_ARCHIVE);
     engine.pfnHookUserMsg(csol::buy::Message,Receive);
-    const auto previousBuy=api->HookCmd("buy",Open);
-    if(previousBuy!=Open)oldBuy=previousBuy;
-    const auto previousCancel=api->HookCmd("cancelselect",Cancel);
-    if(previousCancel!=Cancel)oldCancel=previousCancel;
-    const auto previousRebuy=api->HookCmd("rebuy",Rebuy);
-    if(previousRebuy!=Rebuy)oldRebuy=previousRebuy;
-    if(!previousRebuy)engine.pfnAddCommand("rebuy",Rebuy);
-    if(!oldBuy)engine.pfnAddCommand("buy",Open);
+    InstallChainedCommand("buy",Open,oldBuy,true);
+    InstallChainedCommand("cancelselect",Cancel,oldCancel);
+    InstallChainedCommand("rebuy",Rebuy,oldRebuy,true);
     engine.pfnAddCommand("csol_buymenu",Open);
     const auto previousVGUI=api->HookUserMsg("VGUIMenu",VGUI);
     if(previousVGUI!=VGUI)oldVGUI=previousVGUI;

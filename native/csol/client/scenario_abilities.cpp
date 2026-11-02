@@ -3,6 +3,7 @@
 #include "scenario_abilities.hpp"
 #include "character_skill_input.hpp"
 #include "user_message_chain.hpp"
+#include "command_chain.hpp"
 #include "characters.hpp"
 #include "buy_menu.hpp"
 #include "weapon_inventory.hpp"
@@ -284,11 +285,7 @@ void InitializeScenarioAbilities()
     Install("CsoSkState",Snapshot,previousSnapshot);
     Install(skillgate::MessageName,Gate,previousGate);
     if(api->HookCmd)
-    {
-        const auto old=api->HookCmd("buffclass_skill",Activate);
-        if(old!=Activate)previousActivate=old;
-        if(!old&&engine.pfnAddCommand)engine.pfnAddCommand("buffclass_skill",Activate);
-    }
+        InstallChainedCommand("buffclass_skill",Activate,previousActivate,true);
     if(!extension)
     {
         const auto factory=api->GetEngineFactory();
