@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "status_icons.hpp"
+#include "hud_style.hpp"
 
 namespace csol::client
 {
@@ -63,7 +64,8 @@ void DrawStatusIcons(float time)
     SCREENINFO screen{};
     screen.iSize = sizeof(screen);
     if (!engine.pfnGetScreenInfo(&screen)) return;
-    DrawStatusIconGraphics(icons, screen.iWidth, screen.iHeight);
+    DrawStatusIconGraphics(icons, screen.iWidth, screen.iHeight,
+        HudStyleVitalsVisible() || HudStyleWeaponVisible()?HudStyleScale():0);
 }
 void ShutdownStatusIcons() { ResetStatusIcons(); }
 }

@@ -15,5 +15,5 @@ void ShutdownStatusIcons();
 // message state. A video mode refresh must not discard server-owned labels.
 void PrepareStatusIconGraphics(const status::StatusIcons& icons);
 void ResetStatusIconGraphics();
-void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height);
+void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height, float hudScale = 0);
 }

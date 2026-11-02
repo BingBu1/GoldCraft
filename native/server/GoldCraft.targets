@@ -41,6 +41,13 @@
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\hud_style.cpp">
+      <ObjectFileName>$(IntDir)csol_hud_style_data.obj</ObjectFileName>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\server\buy_menu.cpp;$(GoldCraftRoot)\native\csol\server\scenario_inventory_capacity.cpp;$(GoldCraftRoot)\native\csol\server\scenario_native_weapons.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>

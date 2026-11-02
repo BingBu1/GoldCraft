@@ -16,7 +16,8 @@ unsigned BeamEffectIdentity(const cl_entity_t* entity);
 void PruneBeamEffects();
 bool PredictBeamgun(local_state_t* from, local_state_t* to, usercmd_t* command,
     int runFunctions, double time, unsigned seed);
-void DrawBeamgunHUD(int hidden, int intermission);
+void DrawBeamgunHUD(int hidden, int intermission, bool drawAmmo = true);
+WeaponCurrent BeamgunHudState();
 bool BeamgunSecondaryAmmoVisible(int hidden, int intermission);
 void BeamgunDiagnostics(std::ostream& output);
 void DrawBeamScope(int weapon, int width, int height, float ratio);

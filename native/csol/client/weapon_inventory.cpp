@@ -342,6 +342,7 @@ void WeaponSelectionVisibility(int hidden,int intermission)
 }
 void ObserveSelectionAmmo(int type,int count){if(type>=0 && type<int(ammo.size()))ammo[type]=std::max(0,count);}
 void ObserveSelectionClip(int id,int count){if(ValidWeaponId(id))clips[id]=count;}
+int WeaponReserveAmmo(int type){return type>=0 && type<int(ammo.size())?ammo[type]:0;}
 void WeaponInventoryVideoInit(){sprites={};buckets={};selectionFrame={};selectionIds.clear();selected=0;guardSprite=0;}
 void DrawWeaponGuard(int hidden,int intermission)
 {

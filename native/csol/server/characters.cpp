@@ -6,6 +6,7 @@
 #include "game_rules_gate.h"
 #include "../character_catalog.hpp"
 #include "../character_protocol.hpp"
+#include "../hud_style.hpp"
 #include <array>
 #include <sstream>
 #include <set>
@@ -53,9 +54,30 @@ void Broadcast(const csol::CharacterState& state)
 {
     for(int i=1;i<=gpGlobals->maxClients;++i){auto* p=static_cast<CBasePlayer*>(UTIL_PlayerByIndex(i));if(p && !p->IsDormant())Send(p,state);}
 }
+void PrecacheHudStyle()
+{
+    // Presentation is optional for old installations. Validate the entire
+    // closure before adding it to FastDL; a partial style keeps the stock HUD.
+    const auto json=Load(csol::hud_style::CatalogPath);
+    if(json.empty())return;
+    try
+    {
+        const auto paths=csol::hud_style::ResourcePaths(csol::hud_style::ParseCatalog(json));
+        for(const auto& path:paths)
+        {
+            int length{};auto* bytes=LOAD_FILE_FOR_ME(path.c_str(),&length);
+            if(bytes)FREE_FILE(bytes);
+            if(!bytes || length<=0)throw std::runtime_error("missing HUD dependency: "+path);
+        }
+        for(const auto& path:paths)PRECACHE_GENERIC(path.c_str());
+    }
+    catch(const std::exception& error)
+    {ALERT(at_error,"[CSOL] Optional HUD style disabled: %s\n",error.what());}
+}
 }
 void CSOL_PrecacheCharacters()
 {
+    PrecacheHudStyle();
     ready=false;catalog.clear();states={};message=REG_USER_MSG(csol::CharacterMessage,csol::CharacterMessageBytes);
     const auto json=Load("models/csol/characters.json");if(json.empty())return;
     try {

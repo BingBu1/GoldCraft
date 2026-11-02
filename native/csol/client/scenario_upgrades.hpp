@@ -10,4 +10,5 @@ void ScenarioUpgradesFrame();
 void ScenarioUpgradesVideoInit();
 void DrawScenarioUpgrades(float time,int intermission);
 void ScenarioUpgradesDiagnostics(std::ostream&);
+int ScenarioHudLevel(); // -1 on servers without scenario upgrade state.
 }

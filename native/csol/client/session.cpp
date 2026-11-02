@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include "hd_spray.hpp"
 #include "weapons.hpp"
+#include "hud_style.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
 #include "characters.hpp"
@@ -36,6 +37,7 @@ void ResetSession()
 {
     ClearScene();
     ResetWeapons(true);
+    ResetHudStyle();
     ResetCamera();
     ResetProjectiles();
     ResetCharacters();

@@ -466,17 +466,25 @@ bool PredictBeamgun(local_state_t* from, local_state_t* to, usercmd_t* cmd, int 
 
 bool BeamgunSecondaryAmmoVisible(int hidden, int intermission)
 {
-    if (!BeamWeaponId(current.id) || !current.state || (hidden & 5) || intermission || view.health <= 0 || view.spectator ||
+    if (current.id!=ActiveWeaponHudId() || !BeamWeaponId(current.id) || !current.state || (hidden & 5) || intermission || view.health <= 0 || view.spectator ||
         engine.pfnGetCvarFloat("hud_draw") == 0) return false;
     return (havePrediction && engine.pfnGetCvarFloat("cl_lw") != 0 ? predicted.energy : current.secondary) > 0;
 }
-void DrawBeamgunHUD(int hidden, int intermission)
+WeaponCurrent BeamgunHudState()
 {
-    if (!BeamWeaponId(current.id) || !current.state || (hidden & 5) || intermission || view.health <= 0 || view.spectator ||
+    auto value=current;
+    if (havePrediction && engine.pfnGetCvarFloat("cl_lw")!=0)
+    {value.clip=predicted.clip;value.reserve=predictedReserve;value.secondary=predicted.energy;}
+    return value;
+}
+void DrawBeamgunHUD(int hidden, int intermission, bool drawAmmo)
+{
+    if (current.id!=ActiveWeaponHudId() || !BeamWeaponId(current.id) || !current.state || (hidden & 5) || intermission || view.health <= 0 || view.spectator ||
         engine.pfnGetCvarFloat("hud_draw") == 0) return;
     if (!digits[0].handle) LoadSprites();
     if (!(hidden & 64)) DrawBeamScope(current.id, screen.iWidth, screen.iHeight,
         havePrediction && predicted.Charged() ? predicted.chargeTime / (predicted.charge == BeamCharge::Beta ? 7.f : 2.5f) : 0);
+    if (!drawAmmo) return;
     if (!digits[0].handle || !ammo.handle || !energy.handle) return;
     const bool usePrediction = havePrediction && engine.pfnGetCvarFloat("cl_lw") != 0;
     const int clip = usePrediction ? predicted.clip : current.clip;

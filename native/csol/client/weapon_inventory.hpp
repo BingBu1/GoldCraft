@@ -13,6 +13,7 @@ void ClearNativeWeaponSelection();
 void WeaponSelectionVisibility(int hidden,int intermission);
 void ObserveSelectionAmmo(int type,int count);
 void ObserveSelectionClip(int id,int count);
+int WeaponReserveAmmo(int type);
 void InitializeWeaponInventory();
 void ResetWeaponInventory(bool forgetDefinitions);
 void ObserveLegacyWeaponDefinition(int size,void* data);

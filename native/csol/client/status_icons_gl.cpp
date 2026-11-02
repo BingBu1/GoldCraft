@@ -135,7 +135,7 @@ void PrepareStatusIconGraphics(const status::StatusIcons& icons)
     }
 }
 
-void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height)
+void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int height, float hudScale)
 {
     if (!program || context != wglGetCurrentContext()) return;
     std::array<status::Quad, status::Capacity * 2> quads;
@@ -145,7 +145,15 @@ void DrawStatusIconGraphics(const status::StatusIcons& icons, int width, int hei
     std::size_t used{};
     for (std::size_t i = 0; i < count; ++i)
     {
-        const auto& q = quads[i];
+        auto q = quads[i];
+        if(hudScale>0)
+        {
+            const float center=float(width)*.5f;
+            q.left=center+(q.left-center)*hudScale;
+            q.right=center+(q.right-center)*hudScale;
+            q.top=height-(height-q.top+10)*hudScale;
+            q.bottom=height-(height-q.bottom+10)*hudScale;
+        }
         const StatusIconVertex tl{q.left,q.top,0,q.v0,q.alpha}, tr{q.right,q.top,q.u1,q.v0,q.alpha};
         const StatusIconVertex bl{q.left,q.bottom,0,q.v1,q.alpha}, br{q.right,q.bottom,q.u1,q.v1,q.alpha};
         for (const auto& v : {tl,tr,br,tl,br,bl}) vertices[used++] = v;

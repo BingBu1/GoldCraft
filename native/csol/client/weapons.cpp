@@ -2,6 +2,7 @@
 #include "weapons.hpp"
 #include "user_message_chain.hpp"
 #include "weapon_inventory.hpp"
+#include "hud_style.hpp"
 #include "character_skill_effects.hpp"
 #include "crosshair.hpp"
 #include "pickup_history.hpp"
@@ -16,6 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <charconv>
 #include <ostream>
 
 namespace csol::client
@@ -32,6 +34,20 @@ SCREENINFO screen{};
 struct Sprite { int handle{}; wrect_t rect{}; } digits[10], ammoIcon;
 int nativeDigitSprites[10]{};
 Sprite nativeDigits[10], currency[3]; // dollar, minus, plus from the active hud.txt resolution
+std::array<Sprite,5> nativeVitals;
+std::array<Sprite,2> nativeAmmo;
+struct NativeVitalRun
+{
+    std::array<char,10> text{};
+    int x{}, y{}, position{}, count{};
+};
+std::array<NativeVitalRun,2> nativeVitalRuns{};
+struct NativeAmmoRun { int x{}, y{}; unsigned consumed{}; bool enabled{}; };
+struct NativeAmmoIcon { int x{}, y{}; bool enabled{}; };
+std::array<NativeAmmoRun,3> nativeAmmoRuns{};
+std::array<NativeAmmoIcon,2> nativeAmmoIcons{};
+struct { int x{}, y{}, width{}, height{}; bool enabled{}; } nativeAmmoDivider;
+int nativeAmmoWeapon{};
 bool nativeHudLoaded{}, adjustMoney{}, moneyAnchor{};
 int moneyX{}, moneyY{}, moneyHeight{}, shiftedMoneySprites{};
 struct { int numberX{}, numberY{}, iconX{}, iconY{}; } hudLayout;
@@ -135,11 +151,108 @@ int MoneySpriteY(int x, int y, const wrect_t* rect)
         if(Matches(digit,rect) && x>=moneyX && x<moneyX+5*width && (x-moneyX)%width==0 && (y==moneyY || y==deltaY))account=true;
     for(int i=1;i<3;++i)
         if(Matches(currency[i],rect) && x==moneyX-(rect->right-rect->left) && y==deltaY)account=true;
-    if(account){++shiftedMoneySprites;return y-moneyHeight;}
+    if(account)
+    {
+        ++shiftedMoneySprites;
+        const int shift=HudStyleWeaponVisible()?
+            std::max(0,moneyY-int(screen.iHeight-172*HudStyleScale())):moneyHeight;
+        return y-shift;
+    }
     return y;
+}
+bool Inside(const Sprite& sprite,const wrect_t* rect)
+{
+    return rect && sprite.handle && currentSprite==sprite.handle &&
+        rect->left>=sprite.rect.left && rect->right<=sprite.rect.right &&
+        rect->top>=sprite.rect.top && rect->bottom<=sprite.rect.bottom &&
+        rect->right>rect->left && rect->bottom>rect->top;
+}
+void PrepareStyledNativeAmmo(bool hasClip,bool hasPrimary,bool hasSecondary)
+{
+    nativeAmmoRuns={};nativeAmmoIcons={};nativeAmmoDivider={};
+    if(!HudStyleWeaponVisible())return;
+    const int width=nativeDigits[0].rect.right-nativeDigits[0].rect.left;
+    const int height=nativeDigits[0].rect.bottom-nativeDigits[0].rect.top;
+    if(width<=0 || height<=0)return;
+    const int baseline=screen.iHeight-height-height/2;
+    if(hasPrimary && nativeAmmo[0].handle)
+    {
+        const int iconWidth=nativeAmmo[0].rect.right-nativeAmmo[0].rect.left;
+        const int iconHeight=nativeAmmo[0].rect.bottom-nativeAmmo[0].rect.top;
+        int reserveX=screen.iWidth-4*width-iconWidth;
+        if(hasClip)
+        {
+            const int clipX=screen.iWidth-8*width-iconWidth;
+            const int dividerX=clipX+3*width+width/2;
+            nativeAmmoRuns[0]={clipX,baseline,0,true};
+            nativeAmmoDivider={dividerX,baseline,width/10,height,true};
+            reserveX=dividerX+width/10+width/2;
+        }
+        nativeAmmoRuns[1]={reserveX,baseline,0,true};
+        nativeAmmoIcons[0]={reserveX+3*width,baseline-iconHeight/8,true};
+    }
+    if(hasSecondary && nativeAmmo[1].handle)
+    {
+        const int iconWidth=nativeAmmo[1].rect.right-nativeAmmo[1].rect.left;
+        const int iconHeight=nativeAmmo[1].rect.bottom-nativeAmmo[1].rect.top;
+        const int x=screen.iWidth-4*width-iconWidth,y=baseline-height-height/4;
+        nativeAmmoRuns[2]={x,y,0,true};
+        nativeAmmoIcons[1]={x+3*width,y-iconHeight/8,true};
+    }
+}
+bool HideStyledSprite(int x,int y,const wrect_t* rect)
+{
+    if(!drawingNative)return false;
+    const int width=nativeDigits[0].rect.right-nativeDigits[0].rect.left;
+    const int height=nativeDigits[0].rect.bottom-nativeDigits[0].rect.top;
+    if(width<=0 || height<=0)return false;
+    const auto glyph=std::find_if(std::begin(nativeDigits),std::end(nativeDigits),
+        [&](const Sprite& sprite){return Matches(sprite,rect);});
+    const bool digit=glyph!=std::end(nativeDigits);
+    if(HudStyleVitalsVisible())
+    {
+        const int baseline=screen.iHeight-height-height/2;
+        if(y>=screen.iHeight-2*height && x<screen.iWidth/2)
+            for(unsigned i=0;i<nativeVitals.size();++i)if(Inside(nativeVitals[i],rect))
+            {
+                const int iconWidth=nativeVitals[i].rect.right-nativeVitals[i].rect.left;
+                if(x!=(i==0?iconWidth/2:screen.iWidth/5))continue;
+                const auto values=HudStyleVitalsState();
+                auto& run=nativeVitalRuns[i==0?0:1];
+                const int value=std::max(0,i==0?values.health:values.armor);
+                run.count=int(std::to_chars(run.text.data(),run.text.data()+run.text.size(),value).ptr-run.text.data());
+                run.position=0;run.y=baseline;
+                run.x=(i==0?iconWidth+width/2:x+iconWidth)+std::max(0,3-run.count)*width;
+                return true;
+            }
+        if(digit)for(auto& run:nativeVitalRuns)
+            if(run.position<run.count && x==run.x && y==run.y &&
+                glyph-std::begin(nativeDigits)==run.text[run.position]-'0')
+            {run.x+=width;++run.position;return true;}
+    }
+    if(HudStyleWeaponVisible())
+    {
+        for(unsigned i=0;i<nativeAmmoIcons.size();++i)
+        {
+            auto& icon=nativeAmmoIcons[i];
+            if(icon.enabled && x==icon.x && y==icon.y && Matches(nativeAmmo[i],rect))
+            {icon.enabled=false;return true;}
+        }
+        // These are the native client's three-cell fields, not the CSO
+        // overlay's coordinates. Consume each cell once per native draw.
+        if(digit)for(auto& run:nativeAmmoRuns)
+        {
+            const int offset=x-run.x;
+            if(!run.enabled || y!=run.y || offset<0 || offset>=3*width || offset%width)continue;
+            const unsigned bit=1u<<(offset/width);
+            if(!(run.consumed&bit)){run.consumed|=bit;return true;}
+        }
+    }
+    return false;
 }
 void DrawSprite(int frame,int x,int y,const wrect_t* rect)
 {
+    if(HideStyledSprite(x,y,rect))return;
     // Only substitute the exact ordinary-ammo glyph cells emitted by CS.
     // Keep its icon, clip, fade color, crosshair and all unrelated HUD draws.
     if(drawingNative && wideAmmo.enabled && y==wideAmmo.y)
@@ -180,6 +293,12 @@ void DrawSprite(int frame,int x,int y,const wrect_t* rect)
 }
 void Fill(int x,int y,int width,int height,int r,int g,int b,int a)
 {
+    if(drawingNative && HudStyleWeaponVisible())
+    {
+        if(nativeAmmoDivider.enabled && x==nativeAmmoDivider.x && y==nativeAmmoDivider.y &&
+            width==nativeAmmoDivider.width && height==nativeAmmoDivider.height)
+        {nativeAmmoDivider.enabled=false;return;}
+    }
     if(drawingNative && wideAmmo.enabled && wideAmmo.hasClip && y==wideAmmo.y &&
         x==wideAmmo.clipX+3*wideAmmo.width+wideAmmo.width/2 &&
         width==wideAmmo.width/10 && height==wideAmmo.height)
@@ -245,7 +364,8 @@ void LoadNativeHudSprites()
     nativeHudLoaded=true;
     screen.iSize=sizeof(screen);engine.pfnGetScreenInfo(&screen);
     int count=0;
-    auto* list=engine.pfnSPR_GetList("sprites/hud.txt",&count);
+    char hudPath[]="sprites/hud.txt";
+    auto* list=engine.pfnSPR_GetList(hudPath,&count);
     const int resolution=screen.iWidth<640?320:640;
     for(int i=0;list && i<count;++i)
     {
@@ -264,8 +384,34 @@ void LoadNativeHudSprites()
             char path[160];std::snprintf(path,sizeof(path),"sprites/%s.spr",list[i].szSprite);
             currency[c]={engine.pfnSPR_Load(path),list[i].rc};
         }
+        constexpr const char* vitals[]{"cross","suit_full","suit_empty","suithelmet_full","suithelmet_empty"};
+        for(unsigned v=0;v<nativeVitals.size();++v)if(!std::strcmp(list[i].szName,vitals[v]))
+        {
+            char path[160];std::snprintf(path,sizeof(path),"sprites/%s.spr",list[i].szSprite);
+            nativeVitals[v]={engine.pfnSPR_Load(path),list[i].rc};
+        }
     }
     moneyHeight=nativeDigits[0].handle?nativeDigits[0].rect.bottom-nativeDigits[0].rect.top:0;
+}
+void LoadNativeAmmo()
+{
+    if(nativeAmmoWeapon==active)return;
+    nativeAmmo={};nativeAmmoWeapon=active;
+    const auto* definition=FindWeaponDefinition(active);if(!definition)return;
+    int count{};auto path="sprites/"+definition->name+".txt";
+    const auto* list=engine.pfnSPR_GetList(path.data(),&count);
+    for(int i=0;list && i<count;++i)
+    {
+        if(list[i].iRes!=(screen.iWidth<640?320:640) ||
+            !std::memchr(list[i].szName,0,sizeof(list[i].szName)) ||
+            !std::memchr(list[i].szSprite,0,sizeof(list[i].szSprite)))continue;
+        const int kind=!std::strcmp(list[i].szName,"ammo")?0:!std::strcmp(list[i].szName,"ammo2")?1:-1;
+        if(kind<0)continue;
+        const std::string name=list[i].szSprite;
+        if(name.empty() || name.find("..")!=name.npos || name.front()=='/' || name.find_first_of(":\\")!=name.npos)continue;
+        const auto sprite="sprites/"+name+".spr";
+        nativeAmmo[kind]={engine.pfnSPR_Load(sprite.c_str()),list[i].rc};
+    }
 }
 void LoadSprites()
 {
@@ -382,6 +528,7 @@ void ResetWeapons(bool forgetRegistration)
     ResetCannonEffects();
     active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
+    nativeAmmo={};nativeAmmoWeapon=0;nativeVitalRuns={};
     adjustMoney=moneyAnchor=false;
     crosshairState={};fieldOfView=90;nightVision=false;playerFlags=0x200;playerSpeed=0;
     if(forgetRegistration){registered=false;ammoType=-1;}
@@ -406,16 +553,36 @@ void WeaponVideoInit()
     std::fill(std::begin(nativeDigitSprites),std::end(nativeDigitSprites),0);
     for(auto& sprite:nativeDigits)sprite={};
     for(auto& sprite:currency)sprite={};
+    nativeVitals={};nativeAmmo={};nativeAmmoWeapon=0;
     nativeHudLoaded=adjustMoney=moneyAnchor=false;moneyHeight=0;
     ammoIcon={};loadedAmmoId=0;screen={};hudLayout={};
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
 }
 int WeaponRedraw(float time,int intermission)
 {
+    BeginHudStyle(hidden,intermission);
+    if(HudStyleVitalsVisible() || HudStyleWeaponVisible())
+    {
+        if(!nativeHudLoaded)LoadNativeHudSprites();
+        LoadNativeAmmo();
+        const bool digitsReady=std::all_of(std::begin(nativeDigits),std::end(nativeDigits),
+            [](const Sprite& sprite){return sprite.handle!=0;});
+        const auto* definition=FindWeaponDefinition(active);
+        ConstrainHudStyle(digitsReady && std::all_of(nativeVitals.begin(),nativeVitals.end(),
+            [](const Sprite& sprite){return sprite.handle!=0;}),
+            ExtendedWeaponId(active) || (digitsReady && definition &&
+                (definition->ammo1<0 || nativeAmmo[0].handle) &&
+                (definition->ammo2<0 || WeaponReserveAmmo(definition->ammo2)<=0 || nativeAmmo[1].handle)));
+    }
+    nativeVitalRuns={};
+    const auto* styledDefinition=FindWeaponDefinition(active);
+    const bool nativeWeapon=styledDefinition && !ExtendedWeaponId(active);
+    PrepareStyledNativeAmmo(clip>=0,nativeWeapon && styledDefinition->ammo1>=0,
+        nativeWeapon && styledDefinition->ammo2>=0 && WeaponReserveAmmo(styledDefinition->ammo2)>0);
     // Preserve the ordinary HUD and selection. Only replace the selected
     // weapon's bottom-right ammo sprites and divider while it is being drawn.
     if((Custom() || K3Active()) && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
-    adjustMoney=BeamgunSecondaryAmmoVisible(hidden,intermission);
+    adjustMoney=HudStyleWeaponVisible() || BeamgunSecondaryAmmoVisible(hidden,intermission);
     if(adjustMoney && !nativeHudLoaded)LoadNativeHudSprites();
     PrepareWideAmmo(intermission);
     moneyAnchor=false;
@@ -428,9 +595,10 @@ int WeaponRedraw(float time,int intermission)
     DrawWeaponGuard(hidden,intermission);
     DrawPickupHistory(hidden,intermission);
     DrawCrosshair(intermission);
-    DrawBeamgunHUD(hidden,intermission);
-    DrawK3Ammo(intermission);
-    if(!Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
+    DrawBeamgunHUD(hidden,intermission,!HudStyleWeaponVisible());
+    if(!HudStyleWeaponVisible())DrawK3Ammo(intermission);
+    DrawHudStyle();
+    if(HudStyleWeaponVisible() || !Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
         (view.health<=0) || engine.pfnGetCvarFloat("hud_draw")==0)return result;
     const int width=digits[0].rect.right-digits[0].rect.left;
     const int height=digits[0].rect.bottom-digits[0].rect.top;
@@ -456,6 +624,37 @@ int WeaponRedraw(float time,int intermission)
         }
     originalSet(ammoIcon.handle,BlueR,BlueG,BlueB);originalDraw(0,iconX,iconY,&ammoIcon.rect);
     ++hudDraws;
+    return result;
+}
+
+int ActiveWeaponHudId(){return active;}
+hud_style::WeaponState CurrentWeaponHudState()
+{
+    hud_style::WeaponState result;
+    const auto* definition=FindWeaponDefinition(active);
+    if(!definition)return result;
+    result.id=active;result.slot=definition->slot;result.clip=clip;
+    result.reserve=WeaponReserveAmmo(definition->ammo1);
+    result.secondary=WeaponReserveAmmo(definition->ammo2);
+    const auto& current=CurrentExtendedWeapon();
+    if(current.state && current.id==active)
+    {result.reserve=current.reserve;result.secondary=current.secondary;}
+    if(active==BeamgunId || active==BeamgunLEId)
+    {
+        const auto beam=BeamgunHudState();
+        if(beam.state && beam.id==active)
+        {result.clip=beam.clip;result.reserve=beam.reserve;result.secondary=beam.secondary;}
+    }
+    else if(K3Active() && engine.pfnGetCvarFloat("cl_lw")!=0 && K3PredictedAmmo()>=0)
+    {result.clip=K3PredictedAmmo();result.reserve=std::max(0,K3PredictedReserve());}
+    result.infinite=CharacterSkillInfiniteAmmoFor(active);
+    if(Custom())
+    {result.kind=hud_style::AmmoKind::Total;result.total=AmmoTotal();result.specialAmmo=true;}
+    else if(definition->ammo1>=0)
+    {
+        result.kind=result.clip>=0?hud_style::AmmoKind::Magazine:hud_style::AmmoKind::Total;
+        result.total=std::max(0,result.reserve);
+    }
     return result;
 }
 
