@@ -38,18 +38,24 @@ def main():
     output.mkdir(parents=True)
     client = ROOT / 'native/csol/client/buy_menu.cpp'
     inputs = [client, ROOT / 'native/csol/buy_menu.cpp', ROOT / 'native/csol/buy_menu.hpp',
-              ROOT / 'native/csol/character_menu.hpp', ROOT / 'tests/csol-buy-menu/main.cpp']
+              ROOT / 'native/csol/character_menu.hpp', ROOT / 'tests/csol-buy-menu/main.cpp',
+              ROOT / 'native/csol/client/command_chain.hpp']
     before = [identity(path) for path in inputs]
     source = client.read_text(encoding='utf8')
-    signatures = ['void LoadFavorites()', 'void SaveFavorites()', 'std::wstring Wide(',
+    signatures = ['void LoadFavorites()', 'void SaveFavorites()', 'std::wstring Wide(', 'bool Load()',
                   'void RestoreMouse()', 'void Close(', 'void Refresh()', 'void OpenMenu(',
+                  'void Open()', 'void Cancel()',
                   'const std::vector<const Item*>& Rows()', 'void Purchase(', 'void Select(',
-                  'void RememberPurchase(', 'void ContinueRebuy()', 'int Receive(', 'int Hit(',
+                  'void RememberPurchase(', 'void ContinueRebuy()', 'void StartRebuy()', 'void Rebuy()',
+                  'int Receive(', 'int VGUI(', 'int ShowMenu(', 'MenuRect CloseRect()', 'int Hit(',
                   'void Click(', 'void EditFavorite(', 'void ResetBuyMenu()',
                   'void BuyMenuFrame()', 'void BuyMenuCreateMove(']
     chunks = [extract(source, signature) for signature in signatures]
     (output / 'actual_controller.inc').write_text('\n\n'.join(chunks) + '\n', encoding='utf8')
     (output / 'actual_key.inc').write_text(extract(source, 'void Key_Event(') + '\n', encoding='utf8')
+    (output / 'actual_initialize.inc').write_text(extract(source, 'void InitializeBuyMenu()') + '\n', encoding='utf8')
+    chain=(ROOT/'native/csol/client/command_chain.hpp').read_text(encoding='utf8')
+    (output/'actual_command_chain.inc').write_text(chain.replace('#include "runtime.hpp"',''),encoding='utf8')
     rapidjson = ROOT / 'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include'
     executable = output / 'buy-menu-tests.exe'
     command = [str(args.compiler), '/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/EHsc',

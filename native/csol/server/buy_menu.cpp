@@ -33,12 +33,12 @@ int Price(CBasePlayer* player,const Item& item)
     // The stock item consumer discounts a helmet/vest already owned.
     if(item.id==1002)return player->pev->armorvalue>=100?HELMET_PRICE:
         player->m_iKevlar==ARMOR_VESTHELM?KEVLAR_PRICE:ASSAULTSUIT_PRICE;
-    if(item.id>=1000 || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
+    if(!IsWeapon(item) || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
     auto* info=GetWeaponInfo(item.id);return info?info->cost:0;
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
-    if(item.id>=1000)return true;
+    if(!IsWeapon(item))return true;
     if(CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
     auto* info=GetWeaponInfo(item.id);
     return info&&info->entityName&&CanBuyWeaponByMaptype(player->m_iTeam,static_cast<WeaponIdType>(item.id),CSGameRules()->m_bMapHasVIPSafetyZone==TRUE);
@@ -71,7 +71,7 @@ bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
     // Scenario participants remain CT. The T/CT tabs classify equipment;
     // choosing a T weapon must not temporarily change authoritative team state.
     const auto* item=csol::buy::Find(weaponId);
-    return CSOL_UsesScenarioRules()&&playerTeam==CT&&item&&item->id<1000&&!CSOL_ExtendedWeapon(item->id);
+    return CSOL_UsesScenarioRules()&&playerTeam==CT&&item&&csol::buy::IsWeapon(*item)&&!CSOL_ExtendedWeapon(item->id);
 }
 bool CSOL_PrecacheBuyMenu()
 {
@@ -121,8 +121,8 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     const auto* item=Find(id);if(!item)return true;
     const int price=Price(player,*item);bool success=false;Result result=Result::Failed;
     if(!Available(player,*item)||!current())result=Result::Unavailable;
-    else if(item->id<2000&&player->m_iAccount<price)result=Result::Insufficient;
-    else if(item->id>=2000){
+    else if(!IsAmmunition(item->id)&&player->m_iAccount<price)result=Result::Insufficient;
+    else if(IsAmmunition(item->id)){
         const int slot=item->id==2001?PRIMARY_WEAPON_SLOT:PISTOL_SLOT;
         const auto ammoState=[&](){
             std::array<int,MAX_AMMO_SLOTS+2> ammo{};
@@ -149,7 +149,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
             first=false;
         }
     }
-    else if(item->id>=1000){
+    else if(IsEquipment(item->id)){
         const int before=player->m_iAccount;
         constexpr int slots[]{MENU_SLOT_ITEM_VEST,MENU_SLOT_ITEM_VESTHELM,MENU_SLOT_ITEM_HEGREN,MENU_SLOT_ITEM_FLASHGREN,MENU_SLOT_ITEM_SMOKEGREN};
         BuyItem(player,slots[item->id-1001]);if(current())success=player->m_iAccount<before;

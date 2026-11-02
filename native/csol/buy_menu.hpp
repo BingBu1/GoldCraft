@@ -16,7 +16,26 @@ enum class Result:std::uint8_t {Available,Unavailable,Insufficient,Success,Faile
 struct Packet {Kind kind{};std::uint16_t request{},id{};std::int32_t price{},balance{};Result result{};std::uint8_t team{};};
 std::array<std::uint8_t,MessageBytes> Encode(const Packet& packet);
 bool Decode(std::span<const std::uint8_t> bytes,Packet& packet);
-struct Item {std::uint16_t id;int category;const char* alias;const char* name;const char* image;int extendedPrice;};
+enum class WeaponSlot : std::uint8_t { ByCategory, Primary, Secondary, Melee };
+struct Item {
+    std::uint16_t id;int category;const char* alias;const char* name;const char* image;int extendedPrice;
+    WeaponSlot slot{WeaponSlot::ByCategory};
+};
+// Purchase IDs share a namespace with extended weapons. A high weapon ID is
+// not an equipment-array index (the two CSOL knife bridges use 1022/1023).
+constexpr bool IsEquipment(int id) { return id >= 1001 && id <= 1005; }
+constexpr bool IsAmmunition(int id) { return id == 2001 || id == 2002; }
+constexpr bool IsWeapon(const Item& item) { return !IsEquipment(item.id) && !IsAmmunition(item.id); }
+constexpr int RebuySlot(const Item& item)
+{
+    if (!IsWeapon(item)) return item.id == 1002 ? 1001 : int(item.id);
+    if (item.slot == WeaponSlot::Melee) return 3;
+    if (item.slot == WeaponSlot::Secondary) return 1;
+    if (item.slot == WeaponSlot::Primary) return 2;
+    return item.category == 1 ? 1 : 2;
+}
+constexpr int RebuyOrder(const Item& item)
+{ return IsAmmunition(item.id) ? 2 : IsEquipment(item.id) ? 1 : 0; }
 std::span<const Item> Catalog();
 const Item* Find(int id);
 struct Presentation {

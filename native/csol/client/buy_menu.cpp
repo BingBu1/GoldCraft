@@ -112,7 +112,7 @@ void Cancel(){if(visible)Close();else if(oldCancel)oldCancel();}
 const std::vector<const Item*>& Rows()
 {
     if(rowsCategory!=category){visibleRows.clear();visibleRows.reserve(Catalog().size());rowsCategory=category;
-        for(const auto& item:Catalog())if(InTeamList(item,team)&&item.id<2000&&(query.empty()?item.category==category:true)){
+        for(const auto& item:Catalog())if(InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
             auto text=Wide(item.name)+L" "+Wide(item.alias);std::transform(text.begin(),text.end(),text.begin(),std::towlower);
             auto needle=query;std::transform(needle.begin(),needle.end(),needle.begin(),std::towlower);
             if(needle.empty()||text.find(needle)!=text.npos)visibleRows.push_back(&item);
@@ -136,8 +136,7 @@ void Select(int row)
 }
 void RememberPurchase(int id){
     if(rebuying)return;const auto* item=Find(id);if(!item)return;
-    const auto slot=[](const Item& v){return v.id>=1000?v.id==1002?1001:int(v.id):v.category==1?1:2;};
-    std::erase_if(lastPurchases,[&](int previous){const auto* p=Find(previous);return p&&slot(*p)==slot(*item);});lastPurchases.push_back(id);
+    std::erase_if(lastPurchases,[&](int previous){const auto* p=Find(previous);return p&&RebuySlot(*p)==RebuySlot(*item);});lastPurchases.push_back(id);
 }
 void ContinueRebuy(){
     if(!rebuying||waiting||!catalogReady)return;
@@ -153,7 +152,7 @@ void StartRebuy()
     if(waiting||rebuying||lastPurchases.empty())return;
     rebuyQueue=lastPurchases;
     // Replacement weapons precede their remembered ammunition.
-    const auto rank=[](int id){return id>=2000?2:id>=1000?1:0;};
+    const auto rank=[](int id){const auto* item=Find(id);return item?RebuyOrder(*item):0;};
     std::stable_sort(rebuyQueue.begin(),rebuyQueue.end(),[&](int a,int b){return rank(a)<rank(b);});
     rebuying=true;ContinueRebuy();
 }

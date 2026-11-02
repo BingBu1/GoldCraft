@@ -121,6 +121,11 @@ int main(){try{
     Reset(p);Command(p,{"csol_buy_menu","29"});ammoCallback=[](){alive=false;};Command(p,{"csol_buy","29","2001"});Check(ammoCalls==1&&ammoPurchaseCount==1);
     Reset(p);p.m_iAccount=400;p.pev->armorvalue=100;Command(p,{"csol_buy_menu","13"});Command(p,{"csol_buy","13","1002"});Check(itemCalls==1&&p.m_iAccount==50&&Last().result==Result::Success);
     Reset(p);Command(p,{"csol_buy_menu","14"});Command(p,{"csol_buy","14","22"});Check(weaponCalls==1&&p.m_iAccount==2500&&Last().result==Result::Success);
+    Reset(p);p.m_iAccount=9500;Command(p,{"csol_buy_menu","30"});Command(p,{"csol_buy","30","197"});Check(p.m_iAccount==4750&&deliveries==1&&Last().price==4750&&Last().result==Result::Success);
+    Command(p,{"csol_buy","30","197"});Check(deliveries==1&&charges==1&&p.m_iAccount==4750);
+    Command(p,{"csol_buy_menu","31"});Command(p,{"csol_buy","31","197"});Check(deliveries==2&&p.m_iAccount==0&&Last().result==Result::Success);
+    Reset(p);p.m_iAccount=4749;Command(p,{"csol_buy_menu","32"});Command(p,{"csol_buy","32","197"});Check(deliveries==0&&charges==0&&Last().result==Result::Insufficient);
+    Reset(p);delivery=false;Command(p,{"csol_buy_menu","33"});Command(p,{"csol_buy","33","197"});Check(p.m_iAccount==5000&&debits==std::vector<int>({-4750,4750}));
     Reset(p);Command(p,{"csol_buy_menu","65536"});Check(packets.empty());Command(p,{"csol_buy_menu","-1"});Check(packets.empty());
     std::cout<<"buy menu server: "<<checks<<" checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<" after "<<checks<<" checks\n";return 1;}}
