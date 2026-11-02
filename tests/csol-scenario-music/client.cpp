@@ -58,14 +58,14 @@ int main(int argc,char** argv)
         const auto musicHook=hooks.at(music::MessageName),initHook=hooks.at("InitHUD");
         Check(musicHook&&musicHook!=Previous);Check(initHook&&initHook!=Previous);
         Check(Dispatch("InitHUD",0,nullptr)==(existing?42:1));Check(forwards==(existing?1:0));
-        InitializeScenarioMusic();Check(hookLookups==4);Check(fallbacks==(existing?0:2));
+        InitializeScenarioMusic();Check(hookLookups==2);Check(fallbacks==(existing?0:2));
         Check(missingLookups==(!existing&&!registeredNull?2:0));
         Check(hooks.at(music::MessageName)==musicHook);Check(hooks.at("InitHUD")==initHook);
         Check(Dispatch("InitHUD",0,nullptr)==(existing?42:1));Check(forwards==(existing?2:0));
         Check(commands.empty());
         Send(music::Action::Fade,1);Check(commands.empty());
         Send(music::Action::Loop,2,"bgm/Scenario_Normal.mp3");Check(commands.back()=="mp3 loop \"bgm/Scenario_Normal.mp3\"\n");
-        const auto first=commands.size();InitializeScenarioMusic();Check(hookLookups==6);
+        const auto first=commands.size();InitializeScenarioMusic();Check(hookLookups==2);
         Check(fallbacks==(existing?0:2));Check(commands.size()==first);
         Send(music::Action::Loop,2,"bgm/Scenario_Normal.mp3");Check(commands.size()==first);
         Send(music::Action::Loop,1,"bgm/Scenario_Rush.mp3");Check(commands.size()==first);
@@ -104,7 +104,8 @@ int main(int argc,char** argv)
         Check(music::FindTrack(5)->filename=="Scenario_Normal.mp3");
         Check(music::FindTrack(6)->filename=="Scenario_Rush.mp3");
         for(unsigned id=0;id<256;++id)Check(bool(music::FindTrack(std::uint8_t(id)))==(id<39&&id!=25));
-        ShutdownScenarioMusic();Check(commands.back()=="mp3 stop\n");
+        const auto commandsBeforeExit=commands.size();
+        ShutdownScenarioMusic();Check(commands.size()==commandsBeforeExit);
         const auto stoppedCount=commands.size();ShutdownScenarioMusic();ResetScenarioMusic();Check(commands.size()==stoppedCount);
         std::cout<<"PASS BGM actual client/protocol "<<checks<<" checks; audio device not exercised\n";
     } catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}

@@ -62,5 +62,10 @@ void ResetScenarioMusic()
     if(owned && engine.pfnClientCmd)engine.pfnClientCmd("mp3 stop\n");
     owned=false;revision=0;
 }
-void ShutdownScenarioMusic(){ResetScenarioMusic();level.clear();}
+void ShutdownScenarioMusic()
+{
+    // MetaHook ExitGame runs after the engine has destroyed its command buffer.
+    // Normal map/session resets still stop owned music while the engine lives.
+    owned=false;revision=0;level.clear();
+}
 }
