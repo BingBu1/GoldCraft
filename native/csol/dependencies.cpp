@@ -7,6 +7,7 @@
 #include "sequences.hpp"
 #include "texture_model.hpp"
 #include "weapon_resources.hpp"
+#include "melee_resources.hpp"
 #include "material_source.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
@@ -60,6 +61,21 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         const auto name=queue.back();queue.pop_back();if(!visited.insert(name).second)continue;
         if(Lower(name)=="models/v_tknifeex2.mdl")for(const auto* file:TKnifeEx2Resources)add(file);
         if(Lower(name)=="models/v_cannon.mdl")for(const auto* file:CannonResources)add(file);
+        if(Lower(name)=="models/v_m249ex.mdl")for(const auto* file:M249EXResources)add(file);
+        if(Lower(name)=="models/v_balrog11.mdl")for(const auto* file:Balrog11Resources)add(file);
+        if(Lower(name)=="models/v_dragonsword.mdl" || Lower(name)=="models/v_skullaxe.mdl")
+        {
+            const bool dragon=Lower(name)=="models/v_dragonsword.mdl";
+            const auto& resources=melee::Resource(dragon?melee::Variant::DragonSword:melee::Variant::SkullAxe);
+            add(resources.playerModel);add(resources.worldModel);
+            for(const auto* file:dragon?DragonSwordHudResources:SkullAxeHudResources)add(file);
+            if(dragon)
+            {
+                add("models/ef_dragonsword.mdl");
+                for(const auto* sound:melee::DragonSwordSounds)add(std::string("sound/")+sound);
+            }
+            else for(const auto* sound:melee::SkullAxeSounds)add(std::string("sound/")+sound);
+        }
         if(Lower(name)=="models/v_beamgun.mdl" || Lower(name)=="models/v_beamgunle.mdl")
         {
             const auto& resources=Lower(name)=="models/v_beamgunle.mdl"?BeamgunLEResources:BeamgunResources;

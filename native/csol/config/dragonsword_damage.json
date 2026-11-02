@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "PriFullDmg": 95,
+  "PriFastDmg": 95,
+  "SndDmg": 91,
+  "ZombieGroupMultiplier": 8,
+  "Modes11And13Multiplier": 8,
+  "ScenarioGroupMultiplier": 5.5,
+  "Mode18Multiplier": 1
+}

@@ -4,6 +4,8 @@
 #include <string_view>
 #include "beamgun_resources.hpp"
 #include "cannon_resources.hpp"
+#include "melee_hud_resources.hpp"
+#include "skull_balrog_resources.hpp"
 
 namespace csol
 {
@@ -20,6 +22,8 @@ inline constexpr std::array TKnifeEx2Resources{
 // Keep CSO's ammo and number atlases out of the stock CS namespace.
 inline std::string_view WeaponResourceSource(std::string_view path)
 {
+    if(const auto source=MeleeResourceSource(path);source!=path)return source;
+    if(const auto source=SkullBalrogResourceSource(path);source!=path)return source;
     if(path=="sprites/csol/640hud69.spr")return "sprites/640hud69.spr";
     if(path=="sprites/csol/640hud2.spr")return "sprites/640hud2.spr";
     if(path=="sprites/csol/640hud6.spr")return "sprites/640hud6.spr";
@@ -34,6 +38,8 @@ inline constexpr std::string_view TKnifeEx2HUD =
     "3\nweapon 640 csol/640hud97 0 0 170 45\nweapon_s 640 csol/640hud97 0 45 170 45\nammo 640 csol/640hud12 49 231 24 24\n";
 inline std::string_view GeneratedWeaponResource(std::string_view path)
 {
+    if(const auto content=GeneratedMeleeResource(path);!content.empty())return content;
+    if(const auto content=GeneratedSkullBalrogResource(path);!content.empty())return content;
     if(path=="sprites/weapon_tknifeex2.txt")return TKnifeEx2HUD;
     if(path=="sprites/weapon_beamgun.txt")return BeamgunHUD;
     if(path=="sprites/weapon_beamgunle.txt")return BeamgunLEHUD;

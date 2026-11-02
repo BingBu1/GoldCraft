@@ -33,7 +33,8 @@ TITLE_KEYS = {
     'usp': 'usp45', 'deagle': 'deserteagle', 'elite': 'elites',
     'mp5navy': 'mp5', 'hegrenade': 'he_grenade', 'smokegrenade': 'smoke_grenade',
 }
-VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle'))
+VERIFIED_COMMON_KNIVES = frozenset(('dragonsword', 'skullaxe'))
+VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle')) | VERIFIED_COMMON_KNIVES
 
 
 def sha(data):
@@ -243,7 +244,23 @@ def catalog_weapons(data):
             raise ValueError(f'Invalid weapon classname: {alias}')
         # Purchase IDs (e.g. 1003 for HE) are not gameplay weapon IDs.
         names.append(name)
-    return sorted(set(names + ['knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4']))
+    # Equipped knives also need HUD art before a shop price has been verified.
+    # Exporting their card does not add them to the purchase catalog.
+    return sorted(set(names + ['knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4']) | VERIFIED_COMMON_KNIVES)
+
+
+def knife_sprite_rows(data, name):
+    lines = data.decode('ascii').splitlines()
+    if len(lines) != 2 or lines[1].strip() != 'd_' + name:
+        raise ValueError(f'Invalid original knife descriptor: {name}')
+    fields = lines[0].split()
+    if len(fields) != 5 or not re.fullmatch(r'[a-z0-9_]+', fields[0]):
+        raise ValueError(f'Invalid original knife card: {name}')
+    x, y, width, height = map(int, fields[1:])
+    if min(x, y) < 0 or (width, height) != (170, 45):
+        raise ValueError(f'Original knife card dimensions changed: {name}')
+    return {('weapon', 640): dict(atlas='sprites/' + fields[0] + '.spr',
+        x=x, y=y, width=width, height=height)}
 
 
 def prepare(source, output, stock_source=None):
@@ -323,7 +340,9 @@ def prepare(source, output, stock_source=None):
             missing_weapons.append(dict(name='weapon_'+name,
                 reason='No isolated stock table/atlas source supplied; mismatched common stock art is not exported'))
             continue
-        rows = sprite_rows(read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','ammo','ammo2'})
+        rows = (knife_sprite_rows(read(atlas_root/f'sprites/knife_{name}.txt'), name)
+            if name in VERIFIED_COMMON_KNIVES else
+            sprite_rows(read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','ammo','ammo2'}))
         item = dict(name='weapon_' + name, title=title)
         for kind, dimensions in (('weapon', (170,45)), ('ammo', (24,24)), ('ammo2', (24,24))):
             row = rows.get((kind, 640))

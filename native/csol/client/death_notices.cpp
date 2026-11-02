@@ -22,7 +22,11 @@ client_sprite_t* GetSpriteList(char* path, int* count)
     {
         hudSprites.assign(original, original + *count);
         struct Entry {const char *name,*sprite;int y;};
-        const Entry entries[]{{"d_tknifeex2","csol/640hud12",32},{"d_beamgun","csol/640hud266",0},{"d_beamgunle","csol/640hud266",16},{"d_cannon","csol/640hud6",160},{"d_k3","csol/640hud11",64}};
+        const Entry entries[]{
+            {"d_tknifeex2","csol/640hud12",32},{"d_beamgun","csol/640hud266",0},
+            {"d_beamgunle","csol/640hud266",16},{"d_cannon","csol/640hud6",160},
+            {"d_k3","csol/640hud11",64},
+            {"d_dragonsword","csol/640hud10",160},{"d_skullaxe","csol/640hud4",96}};
         for (const auto& entry : entries) for (const int resolution : {320, 640})
         {
             const bool present = std::any_of(hudSprites.begin(), hudSprites.end(), [=](const auto& icon)
