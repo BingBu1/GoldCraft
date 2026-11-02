@@ -3,9 +3,12 @@
 
 #include "scenario_death_owner.h"
 #include "scenario_spawn_occupancy.h"
+#include "../scenario/champions.hpp"
 
 #include <list>
 #include <map>
+
+namespace csol::scenario { struct GoldenReplacement; }
 
 // Runtime slot data belongs to the factory, not the immutable CSV record.
 struct CSOLMonsterSpawnState : std::enable_shared_from_this<CSOLMonsterSpawnState>
@@ -18,6 +21,11 @@ struct CSOLMonsterSpawnState : std::enable_shared_from_this<CSOLMonsterSpawnStat
     std::uint8_t rowArgument{};
     float updateAt{}, animationAt{}, ambientAt{};
     bool shortDeath{};
+    // Golden owns a private color-only type while this lease is active. The
+    // source record belongs to the map/champion table. Reset releases these
+    // records only after the pool has invalidated every remaining type borrow.
+    const csol::scenario::MonsterType* goldenOriginal{};
+    std::shared_ptr<const csol::scenario::MonsterType> goldenType;
 };
 
 // A path follower retains SpawnCall copies. Keep only a weak owner identity,
@@ -121,9 +129,12 @@ struct CSOLMonsterReplacement
 {
     csol::scenario::MonsterType type;
     float start{}, end{}, interval{}, next{};
+    float timeOrigin{};
     std::int16_t remaining{};
     // Original runtime type +58, distinct from CSV column18 (+59).
     bool useRecordIdentity{};
+    // Created by ScheduleReplacement, shared only with this entry's borrows.
+    std::shared_ptr<csol::scenario::ChampionBudget> budget;
 };
 
 enum class CSOLMonsterSpawnResult { Spawned, Skipped, Cancelled, Failed };
@@ -153,9 +164,22 @@ public:
     bool ReplaceEliteSpawnType(CSOLMonsterSpawnCall& call, CSOLMonsterSpawnState& state,
         std::shared_ptr<const csol::scenario::MonsterType> type,
         csol::scenario::ConfigError& error);
+    // RulesMonsterSpawned only, after overlap and the positive-health gate.
+    // No engine callbacks, model reload, animation reset or immediate speed write.
+    bool ApplyGoldenReplacement(CSOLMonsterSpawnCall& call,
+        const csol::scenario::GoldenReplacement& replacement, csol::scenario::ConfigError& error);
+    // Common-death tail, before Golden membership/clone is released. Restores
+    // the original pointer only; current attributes and render state survive.
+    bool RestoreGoldenType(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error);
     // The manager schedules these records; the wrapper updates next before
     // trying creation, and decrements remaining only for successful creation.
     bool ScheduleReplacement(CSOLMonsterReplacement replacement);
+    // BeginRound reloads the exact difficulty rows in unsigned type-key order.
+    // This is called after Reset, with no remaining borrows of the old table.
+    // Zero preserves MP's absolute engine clock. Explicit same-map replay
+    // uses its challenge origin; subsequent stages retain that same origin.
+    bool ScheduleChampions(const csol::scenario::ChampionTable& table, std::uint16_t difficulty,
+        float timeOrigin = 0);
     // Reset only after RestartRound/Shutdown has invalidated every live type.
     bool Reset();
     const CSOLMonsterSpawnState* State(const CCSOLScenarioMonster& monster) const;
@@ -169,7 +193,8 @@ private:
     CSOLMonsterSpawnResult Create(int team, int requestedType, int point, int rowArgument,
         const csol::scenario::SpawnPoint& location, const csol::scenario::MonsterType& type,
         bool useRecordIdentity, const csol::scenario::RoundMonsterDeltas& delta,
-        bool eliteFollower = false, EHANDLE* created = nullptr);
+        bool eliteFollower = false, EHANDLE* created = nullptr,
+        std::shared_ptr<csol::scenario::ChampionLease> champion = {});
     bool FireSpawnTargets(CSOLMonsterSpawnCall& call, int recordId);
     bool ResolveSequences(CSOLMonsterSpawnCall& call, const csol::scenario::MonsterType& type,
         csol::scenario::MonsterSequences& output, bool refreshOberon = false);
@@ -192,6 +217,7 @@ private:
     // Parked monsters and cached sequences still borrow these records.
     std::vector<std::shared_ptr<const csol::scenario::MonsterType>> m_runtimeTypes;
     const CSOLMonsterSpawnState* m_initializingState{};
+    const CSOLMonsterSpawnState* m_ruleSpawnState{};
     csol::scenario::ConfigError m_error;
     bool m_busy{};
 };

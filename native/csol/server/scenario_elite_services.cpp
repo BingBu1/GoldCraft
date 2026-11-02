@@ -78,7 +78,7 @@ bool CCSOLScenarioEliteServices::Current() const { return Call(*this).Current();
 
 void CCSOLScenarioEliteServices::Invalidate() { m_state.reset(); }
 
-bool CCSOLScenarioEliteServices::BeginRound(float now, ConfigError& error)
+bool CCSOLScenarioEliteServices::BeginRound(float now, ConfigError& error, bool replay)
 {
     Call call(*this);
     if (!call.MapCurrent() || !error.message.empty()) return false;
@@ -88,7 +88,16 @@ bool CCSOLScenarioEliteServices::BeginRound(float now, ConfigError& error)
         return Fail(error, "elite services require the next formal round generation");
     if (!std::isfinite(now)) return Fail(error, "elite services round clock is invalid");
     auto next = std::make_shared<State>(*call.state);
-    if (next->roundStarted > 0)
+    if (replay)
+    {
+        next->previousRoundDuration = 0;
+        next->fragRateReference = 0;
+        next->savedElapsed = 0;
+        next->retryCountdown = -1;
+        m_baseType.reset();
+        m_typeDifficulty = -1;
+    }
+    else if (next->roundStarted > 0)
     {
         next->previousRoundDuration = now - next->roundStarted;
         if (!std::isfinite(next->previousRoundDuration))
@@ -185,7 +194,8 @@ bool CCSOLScenarioEliteServices::ReadSpawnClock(CCSOLScenarioEliteManager::Spawn
     // in selection/waiting. Do not substitute true or current CT population.
     result.enabled = rules->IsGameStarted();
     result.elapsed = call.state->savedElapsed > 0 ?
-        (now - call.state->roundStarted) + static_cast<float>(call.state->savedElapsed) : now;
+        (now - call.state->roundStarted) + static_cast<float>(call.state->savedElapsed) :
+        now - call.session->ChallengeTimeOrigin();
     result.fragRateReference = call.state->fragRateReference;
     if (!std::isfinite(result.elapsed)) return Fail(error, "elite spawn elapsed time is invalid");
     clock = result;

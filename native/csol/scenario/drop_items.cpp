@@ -189,6 +189,22 @@ bool ReadDropItemResource(std::span<const std::byte> encoded, std::int32_t diffi
     return ReadDropItemRules(plain, difficulty, output, error);
 }
 
+bool DropItemResources::PrepareSelection(std::int32_t difficulty,
+    DropItemResources& output, ConfigError& error) const
+{
+    error = {};
+    if (loading_ || output.loading_ || &output == this || difficulty < 1)
+    {
+        error.message = "scenario drops cannot change selection during a load";
+        return false;
+    }
+    DropItemResources candidate;
+    if (!ReadDropItemRules(rules_.source.sourceBytes, difficulty, candidate.rules_, error)) return false;
+    candidate.present_ = present_;
+    output = std::move(candidate);
+    return true;
+}
+
 bool DropItemResources::Clear()
 {
     if (loading_) return false;

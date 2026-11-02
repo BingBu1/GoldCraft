@@ -19,7 +19,7 @@ public:
 
     // Call once after the formal map BeginRound advances RoundGeneration.
     //10828560 preserves the previous round duration;11382DB6 clears point230.
-    bool BeginRound(float now, csol::scenario::ConfigError& error);
+    bool BeginRound(float now, csol::scenario::ConfigError& error, bool replay = false);
     bool QualifiedPlayers(CSOLMonsterSpawnCall& call, int& count,
         csol::scenario::ConfigError& error) const;
     // Call immediately after the successful RulesMonsterSpawned callback in

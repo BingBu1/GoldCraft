@@ -152,12 +152,14 @@ bool MapResources::Reload(ResourceFileApi files, ResourceError& error)
         if (!ReadFile("maps/ZBS_TRG_" + mapName_ + ".cso", files,
             *candidate.triggerRules, ReadTriggerRuleResource, error)) return false;
     }
+    auto baseTypes = candidate.monsterTypes;
     tables_ = std::move(candidate);
-    difficultyApplied_ = false;
+    baseMonsterTypes_ = std::move(baseTypes);
+    appliedDifficulty_.reset();
     return true;
 }
 
-bool MapResources::ApplyDifficulty(const DifficultyResources& difficulty, ConfigError& error)
+bool MapResources::CheckDifficulty(const DifficultyResources& difficulty, ConfigError& error) const
 {
     error = {};
     if (!tables_)
@@ -165,9 +167,29 @@ bool MapResources::ApplyDifficulty(const DifficultyResources& difficulty, Config
         error.message = "monster difficulty requires loaded map types";
         return false;
     }
-    if (difficultyApplied_) return true;
-    if (!ApplyMonsterDifficulty(tables_->monsterTypes, difficulty, error)) return false;
-    difficultyApplied_ = true;
+    auto candidate = baseMonsterTypes_;
+    return ApplyMonsterDifficulty(candidate, difficulty, error);
+}
+
+bool MapResources::ApplyDifficulty(const DifficultyResources& difficulty, ConfigError& error)
+{
+    error = {};
+    if (!tables_ || tables_->monsterTypes.rows.size() != baseMonsterTypes_.rows.size())
+    {
+        error.message = "monster difficulty requires the original map type records";
+        return false;
+    }
+    if (appliedDifficulty_ == difficulty.SelectedRow()) return true;
+    auto candidate = baseMonsterTypes_;
+    if (!ApplyMonsterDifficulty(candidate, difficulty, error)) return false;
+    // Behaviors and model caches borrow records. Keep every record address
+    // stable; only these two fields are scaled by the original loader.
+    for (std::size_t i = 0; i < candidate.rows.size(); ++i)
+    {
+        tables_->monsterTypes.rows[i].health = candidate.rows[i].health;
+        tables_->monsterTypes.rows[i].speed = candidate.rows[i].speed;
+    }
+    appliedDifficulty_ = difficulty.SelectedRow();
     return true;
 }
 
@@ -178,6 +200,7 @@ void MapResources::Clear()
     scenarioType_.reset();
     mapId_.reset();
     difficultyLimit_.reset();
-    difficultyApplied_ = false;
+    baseMonsterTypes_ = {};
+    appliedDifficulty_.reset();
 }
 }

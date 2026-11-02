@@ -10,10 +10,10 @@ bool MonsterIncomingDamageFactor(const MonsterType& attacker,
     const DifficultyResources& difficulty, float& factor, ConfigError& error)
 {
     if (!error.message.empty()) return false;
-    // The test is against record.id, not the column20 lookup alias. Record
-    // byte58 is column18; the factory's separate runtime flag is unrelated.
+    // The test is against record.id, not the column20 lookup alias. MP reads
+    // the champion loader's byte+58; optional CSV column18 lives at byte+59.
     float candidate = 1.0f;
-    if (attacker.id != 32800 && !attacker.column18 &&
+    if (attacker.id != 32800 && !attacker.champion &&
         attacker.priority >= 0 && attacker.priority <= 2)
     {
         const auto column = static_cast<std::size_t>(9 + attacker.priority * 3);

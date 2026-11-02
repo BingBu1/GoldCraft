@@ -35,7 +35,8 @@ bool CCSOLMonsterModels::Reset()
 }
 
 bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
-    csol::scenario::ConfigError& error, const csol::scenario::MonsterType* elite)
+    csol::scenario::ConfigError& error, const csol::scenario::MonsterType* elite,
+    const csol::scenario::ChampionTable* champions)
 {
     error = {};
     if (m_busy) return Fail(error, "scenario monster model operation is already active");
@@ -59,6 +60,19 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
         if (elite->id != 32800 || !appearance || appearance->name != "zbs_elite_01")
             return Fail(error, "scenario synthetic elite appearance is invalid");
         needed[appearance->index] = true;
+    }
+    if (champions)
+    {
+        std::map<std::pair<std::int16_t, std::uint16_t>, const csol::scenario::MonsterType*> effective;
+        for (const auto& row : champions->rows)
+            effective[{row.difficulty, static_cast<std::uint16_t>(row.type.id)}] = &row.type;
+        for (const auto& [key, type] : effective)
+        {
+            const auto* appearance = csol::scenario::FindMonsterAppearance(type->appearance);
+            if (!appearance) return Fail(error, "scenario champion appearance is not in the original catalog");
+            needed[appearance->index] = true;
+            needsOberon = needsOberon || type->id == CSOLOberonMonsterTypeId;
+        }
     }
     const auto catalog = csol::scenario::MonsterAppearances();
     std::array<int, csol::scenario::MonsterAppearanceCount> candidate{};

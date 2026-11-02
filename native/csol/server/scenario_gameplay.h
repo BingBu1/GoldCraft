@@ -24,7 +24,7 @@ public:
     // the next round. Player respawns and map cleanup are the caller's next
     // two operations, in that order. Continuation must not enter this method.
     bool BeginRound(std::size_t roundIndex, float now, float freezeTime,
-        csol::scenario::TriggerWaveEvents& events);
+        csol::scenario::TriggerWaveEvents& events, CCSOLScenarioReplaySettings* replay = nullptr);
     bool Update(CHalfLifeMultiplay& rules, float thinkTime, int aliveCtCount,
         csol::scenario::TriggerWaveEvents& events);
     // Enter through the complete gameplay update so pending end-round deaths

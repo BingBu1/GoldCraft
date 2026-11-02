@@ -259,6 +259,7 @@ void CCSOLScenarioMonster::OnDestroy()
     m_behaviorReady = false;
     m_speed.reset();
     m_touchComponents.reset();
+    m_championLease.reset();
     auto effects = std::move(m_damageEffects);
     if (owner) owner->EntityDestroyed(*this);
     auto behavior = std::move(m_behavior);
@@ -484,6 +485,8 @@ bool CCSOLMonsterPool::Return(std::size_t slot, bool clearCallbacks)
     {
         if (!m_active || !m_category[record.priority])
             return Fail("scenario monster pool counters are inconsistent");
+        if (monster->m_championLease) monster->m_championLease->Return();
+        monster->m_championLease.reset();
         Park(*monster, clearCallbacks);
         record.borrowed = false;
         --m_active;

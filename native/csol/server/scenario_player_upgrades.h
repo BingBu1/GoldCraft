@@ -4,6 +4,7 @@
 #include "scenario_messages.h"
 #include "scenario_wall_rewards.h"
 #include "../scenario/upgrade_progress.hpp"
+#include "../scenario/join_level.hpp"
 #include <array>
 #include <optional>
 
@@ -46,6 +47,12 @@ public:
     // half-second intervals. force replays XP after an engine HUD reset.
     bool Update(float now, bool force = false);
     bool AddExperience(int amount);
+    // Consume an accepted initialization, even if its time/start gate skips
+    // compensation. Ordinary respawns/class refreshes do not rearm this gate.
+    // Explicit reentry/accepted reselection may rearm it, as MP player+1954.
+    bool ArmJoinLevelInitialization();
+    bool ApplyJoinLevel(int maximumOtherEffectiveLevel, float ratio,
+        const csol::scenario::JoinLevelContext& context);
     bool ModifyMoney(int& amount);
     bool ApplyMovement(float weaponSpeed);
     // Called from the real Spawn equipment stage after native health=100.
@@ -81,7 +88,7 @@ private:
     float m_nextUpdate{};
     int m_experiencePercent{};
     int m_classId{-1};
-    bool m_valid{true}, m_busy{};
+    bool m_valid{true}, m_busy{}, m_joinLevelConsumed{};
 };
 
 // Rules own one registry per map. Disconnect/replace invalidates the previous
@@ -99,6 +106,10 @@ public:
     bool AddExperience(const EHANDLE& player, int amount) override;
     std::shared_ptr<CCSOLScenarioPlayerUpgrades> Upgrades(const EHANDLE& player) const;
     bool CountDamageScalePlayers(int& count) const;
+    bool MaximumOtherEffectiveLevel(const EHANDLE& player, int& level) const;
+    bool ArmJoinLevelInitialization(const EHANDLE& player);
+    bool ApplyJoinLevel(const EHANDLE& player, float ratio,
+        const csol::scenario::JoinLevelContext& context);
 private:
     std::array<std::shared_ptr<CCSOLScenarioPlayerUpgrades>, 33> m_players;
 };

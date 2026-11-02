@@ -4,6 +4,13 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_map_vote.cpp;$(GoldCraftRoot)\native\csol\scenario\map_vote.cpp;$(GoldCraftRoot)\native\csol\map_vote_presentation.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)csol_vote_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_player_motion.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -119,7 +126,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\announce.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty_monsters.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\announce.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty_monsters.cpp;$(GoldCraftRoot)\native\csol\scenario\champions.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>

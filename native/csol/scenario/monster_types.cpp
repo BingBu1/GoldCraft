@@ -136,6 +136,52 @@ const MonsterType* MonsterTypeTable::Find(std::int32_t id) const
     return found == byId.end() ? nullptr : &rows[found->second];
 }
 
+bool ReadMonsterTypeRecord(const CsvRecord& record, std::size_t recordIndex,
+    MonsterType& output, ConfigError& error)
+{
+    error = {};
+    const auto fail = [&](const CsvRecord& source, std::string message)
+    {
+        error = {source.byteOffset, std::move(message)};
+        return false;
+    };
+    // Original scalar int/float getters do not write on absent/empty data.
+    // Their caller leaves these fields uninitialized; reject that input.
+    for (const auto column : {0u, 1u, 4u, 5u, 6u, 11u, 15u, 17u})
+        if (Field(record, column).empty()) return fail(record, "missing core monster type field");
+    MonsterType row;
+    row.recordIndex = recordIndex;
+    row.appearance = Field(record, 1);
+    if (!Integer(Field(record, 0), row.id) ||
+        !NarrowInteger(record, 2, row.attackDamage) ||
+        !NarrowInteger(record, 3, row.attackRange) ||
+        !Float(Field(record, 4), row.attackInterval) ||
+        !Integer(Field(record, 5), row.health) ||
+        !Integer(Field(record, 6), row.armor) ||
+        !NarrowInteger(record, 7, row.speed) ||
+        !NarrowInteger(record, 8, row.bonusMoney) ||
+        !NarrowInteger(record, 9, row.priority) ||
+        !NarrowInteger(record, 10, row.skill) ||
+        !DigitRuns(Field(record, 11), row.color, true) ||
+        !NarrowInteger(record, 12, row.killType) ||
+        !NarrowInteger(record, 13, row.eventClass) ||
+        !NarrowInteger(record, 14, row.propensity) ||
+        !Float(Field(record, 15), row.clearPoint) ||
+        !DropItems(Field(record, 16), row.dropItems) ||
+        !Integer(Field(record, 17), row.experience))
+        return fail(record, "invalid monster type value");
+    std::int32_t enabled{};
+    if (!DefaultInteger(record, 18, 0, enabled) ||
+        !DefaultInteger(record, 19, -1, row.column19) ||
+        !DefaultInteger(record, 20, -1, row.column20) ||
+        !DigitRuns(Field(record, 21), row.column21, false) ||
+        !DefaultInteger(record, 22, -1, row.column22))
+        return fail(record, "invalid monster type extension");
+    row.column18 = enabled == 1;
+    output = std::move(row);
+    return true;
+}
+
 bool ReadMonsterTypes(std::string_view bytes, MonsterTypeTable& output, ConfigError& error)
 {
     MonsterTypeTable candidate;
@@ -165,39 +211,8 @@ bool ReadMonsterTypes(std::string_view bytes, MonsterTypeTable& output, ConfigEr
         const auto& record = candidate.source.records[i];
         if (std::all_of(record.fields.begin(), record.fields.end(),
             [](const auto& value) { return LeadingSpace(value).empty(); })) continue;
-        // Original scalar int/float getters do not write on absent/empty data.
-        // Their caller leaves these fields uninitialized; reject that input.
-        for (const auto column : {0u, 1u, 4u, 5u, 6u, 11u, 15u, 17u})
-            if (Field(record, column).empty()) return fail(record, "missing core monster type field");
         MonsterType row;
-        row.recordIndex = i;
-        row.appearance = Field(record, 1);
-        if (!Integer(Field(record, 0), row.id) ||
-            !NarrowInteger(record, 2, row.attackDamage) ||
-            !NarrowInteger(record, 3, row.attackRange) ||
-            !Float(Field(record, 4), row.attackInterval) ||
-            !Integer(Field(record, 5), row.health) ||
-            !Integer(Field(record, 6), row.armor) ||
-            !NarrowInteger(record, 7, row.speed) ||
-            !NarrowInteger(record, 8, row.bonusMoney) ||
-            !NarrowInteger(record, 9, row.priority) ||
-            !NarrowInteger(record, 10, row.skill) ||
-            !DigitRuns(Field(record, 11), row.color, true) ||
-            !NarrowInteger(record, 12, row.killType) ||
-            !NarrowInteger(record, 13, row.eventClass) ||
-            !NarrowInteger(record, 14, row.propensity) ||
-            !Float(Field(record, 15), row.clearPoint) ||
-            !DropItems(Field(record, 16), row.dropItems) ||
-            !Integer(Field(record, 17), row.experience))
-            return fail(record, "invalid monster type value");
-        std::int32_t enabled{};
-        if (!DefaultInteger(record, 18, 0, enabled) ||
-            !DefaultInteger(record, 19, -1, row.column19) ||
-            !DefaultInteger(record, 20, -1, row.column20) ||
-            !DigitRuns(Field(record, 21), row.column21, false) ||
-            !DefaultInteger(record, 22, -1, row.column22))
-            return fail(record, "invalid monster type extension");
-        row.column18 = enabled == 1;
+        if (!ReadMonsterTypeRecord(record, i, row, error)) return false;
         candidate.byId[row.Key()] = candidate.rows.size();
         candidate.rows.push_back(std::move(row));
     }

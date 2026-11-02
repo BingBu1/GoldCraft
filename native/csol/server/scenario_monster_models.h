@@ -3,6 +3,7 @@
 
 #include "../scenario/monster_appearances.hpp"
 #include "../scenario/monster_attributes.hpp"
+#include "../scenario/champions.hpp"
 
 class CCSOLScenarioMonster;
 
@@ -15,7 +16,8 @@ public:
     // The elite type is synthesized from ZBS.json rather than the map CSV.
     // Include its appearance without inserting it into or mutating that table.
     bool Precache(const csol::scenario::MonsterTypeTable& types, csol::scenario::ConfigError& error,
-        const csol::scenario::MonsterType* elite = nullptr);
+        const csol::scenario::MonsterType* elite = nullptr,
+        const csol::scenario::ChampionTable* champions = nullptr);
     bool Reset();
     bool Ready() const { return m_ready; }
     int ModelIndex(const csol::scenario::MonsterAppearance& appearance) const;

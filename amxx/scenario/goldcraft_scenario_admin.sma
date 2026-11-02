@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <amxmodx>
 #include <amxmisc>
+#include <reapi>
 #include <csol_game_mode>
 #include <csol_scenario_admin>
 
@@ -16,14 +17,16 @@ new const g_DifficultyNames[][] = { "", "入门", "普通", "困难", "噩梦", 
 public plugin_init()
 {
     for (new id; id < sizeof g_Menu; id++) g_Menu[id] = -1;
-    register_plugin(PLUGIN_NAME, "0.2.0", "GoldCraft contributors");
+    register_plugin(PLUGIN_NAME, "0.4.0", "GoldCraft contributors");
+    register_clcmd("chooseteam", "CommandChooseTeam", -1, "", 0);
     register_concmd("amx_scenario_menu", "CommandMenu", ADMIN_CFG, "打开大灾变管理", 0);
-    register_concmd("amx_scenario_difficulty", "CommandDifficulty", ADMIN_CFG, "[1..7] 查看或设置下次载图难度", 0);
-    register_concmd("amx_scenario_finish", "CommandFinish", ADMIN_CFG, "<0=通关后留图游玩|1=通关后换图>", 0);
+    register_concmd("amx_scenario_difficulty", "CommandDifficulty", ADMIN_CFG, "[1..7] 设置下次重玩难度", 0);
+    register_concmd("amx_scenario_replay", "CommandReplay", ADMIN_CFG, "按待用难度重玩当前地图，无需重新载图", 0);
+    register_concmd("amx_scenario_finish", "CommandFinish", ADMIN_CFG, "<0=留图游玩|1=换图|2=同图重玩|3=投票换图>", 0);
     register_concmd("amx_scenario_nextmap", "CommandNextMap", ADMIN_CFG, "<地图名> 设置通关后的目标地图", 0);
     g_FinishAction = get_cvar_pointer("csol_scenario_finish_action");
     g_NextMap = get_cvar_pointer("csol_scenario_nextmap");
-    if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1)
+    if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1 || csol_scenario_replay_api_version() != 1)
         set_fail_state("服务端缺少大灾变管理接口，请更新配套 mp.dll 和 GoldCraft AMXX 模块");
 }
 
@@ -55,6 +58,17 @@ public plugin_cfg()
 bool:ScenarioActive()
 {
     return csol_game_mode_api_version() == 1 && csol_game_mode_current() == _:CSOL_MODE_SCENARIO;
+}
+
+public CommandChooseTeam(id)
+{
+    // M retains its native chooseteam binding. Only a joined scenario admin
+    // consumes the command; initial character selection must still finish.
+    if (id < 1 || id > 32 || !is_user_connected(id) || !ScenarioActive() ||
+        !(get_user_flags(id) & ADMIN_CFG) || get_member(id, m_iJoiningState) != JOINED)
+        return PLUGIN_CONTINUE;
+    ShowFinishMenu(id);
+    return PLUGIN_HANDLED;
 }
 
 bool:MapNameValid(const name[])
@@ -97,15 +111,21 @@ ShowFinishMenu(id)
     new stateText[48];
     if (equal(action, "0")) copy(stateText, charsmax(stateText), "留在本图游玩");
     else if (equal(action, "1")) copy(stateText, charsmax(stateText), "切换目标地图");
+    else if (equal(action, "2")) copy(stateText, charsmax(stateText), "同图重新挑战");
+    else if (equal(action, "3")) copy(stateText, charsmax(stateText), "投票选择下一张地图");
     else copy(stateText, charsmax(stateText), "设置无效，将留图游玩");
     formatex(title, charsmax(title), "大灾变管理^n通关：%s^n目标：%s^n通关策略在结算等待结束时生效", stateText, map);
     new menu = menu_create(title, "FinishMenuHandler");
     g_Menu[id] = menu;
+    new active, requested, maximum, mapId;
+    g_MenuMap[id] = DifficultyInfo(active, requested, maximum, mapId) ? mapId : 0;
     menu_additem(menu, "通关后留在本图游玩");
     menu_additem(menu, "通关后切换目标地图");
     menu_additem(menu, "通关后重新挑战本图");
     menu_additem(menu, "查看目标地图设置命令");
-    menu_additem(menu, "大灾变难度（下次完整载图生效）");
+    menu_additem(menu, "大灾变难度（下次重玩生效）");
+    menu_additem(menu, "立即重玩本图（应用待用难度）");
+    menu_additem(menu, "通关后投票切换地图（默认）");
     menu_setprop(menu, MPROP_EXITNAME, "关闭");
     menu_display(id, menu);
 }
@@ -113,6 +133,7 @@ ShowFinishMenu(id)
 public FinishMenuHandler(id, menu, item)
 {
     if (id < 1 || id >= sizeof g_Menu || g_Menu[id] != menu) return PLUGIN_HANDLED;
+    new mapId = g_MenuMap[id];
     g_Menu[id] = -1;
     menu_destroy(menu);
     // Menu access can change while the menu is open. Never trust the earlier
@@ -123,14 +144,8 @@ public FinishMenuHandler(id, menu, item)
     {
         case 0: set_pcvar_string(g_FinishAction, "0");
         case 1: set_pcvar_string(g_FinishAction, "1");
-        case 2:
-        {
-            new map[64];
-            get_mapname(map, charsmax(map));
-            if (!MapNameValid(map)) return PLUGIN_HANDLED;
-            set_pcvar_string(g_NextMap, map);
-            set_pcvar_string(g_FinishAction, "1");
-        }
+        case 2: set_pcvar_string(g_FinishAction, "2");
+        case 6: set_pcvar_string(g_FinishAction, "3");
         case 3:
         {
             client_print(id, print_chat, "[大灾变] 控制台：amx_scenario_nextmap <地图名>，目标须为已接入的灾变地图。");
@@ -140,6 +155,11 @@ public FinishMenuHandler(id, menu, item)
         case 4:
         {
             ShowDifficultyMenu(id);
+            return PLUGIN_HANDLED;
+        }
+        case 5:
+        {
+            SubmitReplay(id, mapId);
             return PLUGIN_HANDLED;
         }
         default: return PLUGIN_HANDLED;
@@ -169,7 +189,7 @@ ShowDifficultyMenu(id)
     new title[256], pending[48];
     if (requested) copy(pending, charsmax(pending), g_DifficultyNames[requested]);
     else copy(pending, charsmax(pending), "待用设置无效");
-    formatex(title, charsmax(title), "大灾变难度^n当前：%s^n待用：%s^n重新载入地图后生效，重开回合不生效",
+    formatex(title, charsmax(title), "大灾变难度^n当前：%s^n待用：%s^n选择后在管理页重玩本图即可生效",
         g_DifficultyNames[active], pending);
     new menu = menu_create(title, "DifficultyMenuHandler");
     g_Menu[id] = menu;
@@ -202,7 +222,7 @@ public DifficultyMenuHandler(id, menu, item)
     else
     {
         log_amx("管理员 %d 设置地图 %d 的待用难度为 %d", get_user_userid(id), mapId, difficulty);
-        client_print(id, print_chat, "[大灾变] 待用难度已设置；重新载入地图后生效，当前战斗难度保持不变。");
+        client_print(id, print_chat, "[大灾变] 待用难度已设置；选择“立即重玩本图”后生效，无需重新载图。");
     }
     ShowDifficultyMenu(id);
     return PLUGIN_HANDLED;
@@ -232,7 +252,33 @@ public CommandDifficulty(id, level, cid)
         return PLUGIN_HANDLED;
     }
     log_amx("管理员 %d 设置地图 %d 的待用难度为 %s", id ? get_user_userid(id) : 0, mapId, value);
-    console_print(id, "待用难度已设为 %s；重新载入地图后生效，sv_restart 不会改变当前难度。", g_DifficultyNames[value[0] - '0']);
+    console_print(id, "待用难度已设为 %s；用 amx_scenario_replay 重玩本图后生效，无需重新载图。", g_DifficultyNames[value[0] - '0']);
+    return PLUGIN_HANDLED;
+}
+
+SubmitReplay(id, mapId)
+{
+    if (!mapId || !csol_scenario_replay(mapId))
+    {
+        console_print(id, "无法重玩：地图状态已改变、难度资源无效或已有重玩请求。");
+        if (id) client_print(id, print_chat, "[大灾变] 重玩请求未接受，请重新打开管理菜单。");
+        return;
+    }
+    log_amx("管理员 %d 请求按待用难度重玩地图 %d", id ? get_user_userid(id) : 0, mapId);
+    console_print(id, "已请求重玩当前地图，服务端将在安全帧重置关卡、资金与升级。");
+    client_print(0, print_chat, "[大灾变] 管理员已请求按待用难度重新挑战本图。");
+}
+
+public CommandReplay(id, level, cid)
+{
+    if (!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED;
+    new active, requested, maximum, mapId;
+    if (!DifficultyInfo(active, requested, maximum, mapId))
+    {
+        console_print(id, "当前不是已就绪的大灾变地图。");
+        return PLUGIN_HANDLED;
+    }
+    SubmitReplay(id, mapId);
     return PLUGIN_HANDLED;
 }
 
@@ -242,9 +288,9 @@ public CommandFinish(id, level, cid)
     if (!ScenarioActive()) { console_print(id, "当前不是大灾变模式。"); return PLUGIN_HANDLED; }
     new action[64];
     read_argv(1, action, charsmax(action));
-    if (!equal(action, "0") && !equal(action, "1"))
+    if (!equal(action, "0") && !equal(action, "1") && !equal(action, "2") && !equal(action, "3"))
     {
-        console_print(id, "仅允许 0（留图游玩）或 1（切换目标地图）。");
+        console_print(id, "仅允许 0（留图游玩）、1（切换目标地图）、2（同图重玩）或 3（投票换图）。");
         return PLUGIN_HANDLED;
     }
     set_pcvar_string(g_FinishAction, action);

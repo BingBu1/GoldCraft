@@ -8,6 +8,7 @@
 #include "scenario_monster_gait.h"
 #include "scenario_monster_speed.h"
 #include "../scenario/monster_types.hpp"
+#include "../scenario/champion_budget.hpp"
 
 #include <array>
 #include <cstdint>
@@ -42,6 +43,9 @@ struct CSOLMonsterHostState
     float frozenRemaining{};
     float moveAfter{};
     float enhancedUntil{-1.0f};
+    // CSOL entvars +1EC: armor cap/proportion denominator. Ordinary attribute
+    // setup writes armorvalue only; Golden's positive override writes both.
+    float armorCapacity{};
     std::int16_t activeSkill{};
     // Presence of the original +1328 SK-table row, not the ordinary skill ID.
     // Ordinary pool reuse preserves it. Boss row ownership is separate.
@@ -135,6 +139,7 @@ private:
     CSOLMonsterHostState m_host;
     CSOLMonsterGaitState m_gait;
     std::shared_ptr<CCSOLMonsterEffects> m_damageEffects;
+    std::shared_ptr<csol::scenario::ChampionLease> m_championLease;
     // Explicit reset is required when the engine releases private data.
     std::optional<std::array<std::shared_ptr<CCSOLMonsterTouchComponent>, 6>> m_touchComponents{std::in_place};
     bool m_behaviorReady{};

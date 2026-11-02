@@ -19,7 +19,17 @@ public:
     // pending CVAR; active remains the difficulty used by all loaded services.
     virtual bool DifficultyInfo(ScenarioDifficultyInfo& output) const = 0;
     // Trusted server-plugin call. Pawn must enforce administrator permissions.
-    // Checks the current map and available rows before writing a next-map request.
+    // Checks current map/rows before writing the next replay/map request.
     virtual bool RequestDifficulty(int mapId, int difficulty) = 0;
+};
+
+// Separate extension preserves Admin001's deployed vtable contract.
+constexpr const char* ScenarioReplayServiceVersion = "CSOLScenarioReplay001";
+class IScenarioReplayService : public IBaseInterface
+{
+public:
+    // Queues a complete new challenge on this loaded map. Work executes at
+    // the next safe GameRules frame; true is acceptance, not completion.
+    virtual bool RequestReplay(int mapId) = 0;
 };
 }

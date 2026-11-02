@@ -50,6 +50,9 @@ public:
     std::shared_ptr<const CSOLScenarioEntityAccess> EntityAccess() const { return m_entityAccess; }
     bool CollectEntities();
     bool ApplyDifficulty(const csol::scenario::DifficultyResources& difficulty);
+    bool CheckDifficulty(const csol::scenario::DifficultyResources& difficulty,
+        csol::scenario::ConfigError& error) const
+    { return EntityAccessAllowed() && !Busy() && m_resources.CheckDifficulty(difficulty, error); }
     bool BeginRound(std::size_t roundIndex, float now, float freezeTime,
         csol::scenario::TriggerWaveEvents& events);
     // Called from scenario GameRules after its continuation timers. Read actual
@@ -81,6 +84,7 @@ public:
     // Subtype1 keeps these ushort counters across formal stages. They belong
     // to the attacker's native team, independently of the monster's team.
     bool RecordTeamMonsterKill(int team);
+    bool ResetChallengeCounters();
     std::uint16_t TeamMonsterKills(int team) const
     { return team == 1 || team == 2 ? m_teamMonsterKills[team - 1] : 0; }
     // The manager retains a stable team filter across nested death callbacks.

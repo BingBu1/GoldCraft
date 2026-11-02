@@ -4,6 +4,7 @@
 #include "game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
+#include "scenario_map_vote.h"
 #include "scenario_player_runtime.h"
 #include "scenario_playerclip.h"
 #include "scenario_active_skill.h"
@@ -36,6 +37,7 @@
 #include "../scenario/round_settings.hpp"
 #include "../scenario/round_clock.hpp"
 #include "../scenario/automatic_respawn.hpp"
+#include "../scenario/continuation.hpp"
 #include "../scenario/map_catalog.hpp"
 #include "../scenario/player_defense.hpp"
 #include "interface.h"
@@ -253,6 +255,9 @@ public:
         m_bGameStarted = false;
         m_bFreezePeriod = TRUE;
         m_bRoundTerminating = false;
+        // Options::v1C4 returns the authoritative room's initial money
+        // (HW +39A u16), not a revival price or a player's current balance.
+        m_runtime->room.moneyOption = csol::scenario::InitialMoney;
     }
     const char* GetGameDescription() override { return "GoldCraft - Zombie Scenario"; }
     std::shared_ptr<const CSOLScenarioEntityAccess> EntityAccess() const { return m_runtime->session->Map().EntityAccess(); }
@@ -263,6 +268,7 @@ public:
         return upgrades && upgrades->classes.Find(classId);
     }
     std::shared_ptr<CCSOLScenarioRuntime> Runtime() const { return m_runtime; }
+    bool ConsumablesPrepared() const { return Ready() && m_itemsPrepared && !m_bRoundTerminating; }
     bool PublishPlayerClips(CBasePlayer* player = nullptr)
     {
         CSOLScenarioSdkScope scope(this);
@@ -294,8 +300,60 @@ public:
             session->Map().RoundGeneration() == round &&
             (!player || recipient.Get<CBasePlayer>() == player) && sent;
     }
+    bool PublishRetryBudget(CBasePlayer* player = nullptr)
+    {
+        if (!Ready()) return false;
+        if (m_continuation.Initial() == -2) return true;
+        const auto session = m_runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE recipient(player);
+        const bool sent = session->Messages().SendRetryBudget(m_continuation.Remaining(),
+            m_continuation.Initial(), player ? player->edict() : nullptr);
+        return Ready() && m_runtime->session == session && access->Allowed() &&
+            session->Map().EntityAccess() == access && session->Map().RoundGeneration() == round &&
+            (!player || recipient.Get<CBasePlayer>() == player) && sent;
+    }
+    bool PublishTeamKills(CBasePlayer* player = nullptr)
+    {
+        if (!Ready() || !gpGlobals || !std::isfinite(gpGlobals->time)) return false;
+        const float now = gpGlobals->time;
+        if (!player && now <= m_teamKillsNext) return true;
+        const auto session = m_runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE recipient(player);
+        const auto current = [&]()
+        {
+            return Ready() && m_runtime->session == session && access->Allowed() &&
+                session->Map().EntityAccess() == access && session->Map().RoundGeneration() == round &&
+                (!player || recipient.Get<CBasePlayer>() == player);
+        };
+        if (!player) m_teamKillsNext = now + 0.2f;
+        for (int team = 1; team <= 2; ++team)
+        {
+            const auto count = session->Map().TeamMonsterKills(team);
+            if (!player && m_teamKillsSent[team - 1] == count) continue;
+            const bool sent = session->Messages().SendTeamMonsterKills(team, count,
+                player ? player->edict() : nullptr);
+            if (!current()) return false;
+            if (!sent)
+            {
+                CSOL_RejectGameRules("Scenario team monster kills could not be published.");
+                return false;
+            }
+            if (!player) m_teamKillsSent[team - 1] = count;
+        }
+        return true;
+    }
     void Precache()
     {
+        if (!OwnsRules()) return;
+        CSOL_ResetScenarioMapVote();
+        const bool voteResourcesReady = CSOL_PrecacheScenarioMapVote();
+        if (!OwnsRules()) return;
+        if (!voteResourcesReady && g_engfuncs.pfnAlertMessage)
+            ALERT(at_console, "[CSOL] Map-vote presentation unavailable; completion will retain the map.\n");
         if (!OwnsRules()) return;
         if (g_engfuncs.pfnGetGameDir)
         {
@@ -466,6 +524,7 @@ public:
     void ServerDeactivate() override
     {
         CSOLScenarioSdkScope scope(this);
+        CSOL_ResetScenarioMapVote();
         m_runtime->RequestClose();
         // No resource destruction inside a callback. The engine does not wait
         // for gameplay to unwind before beginning its private-data frees.
@@ -474,9 +533,26 @@ public:
     void ScenarioThink()
     {
         if (!SelectionReady() || m_completing || m_restarting || m_applyingFinish) return;
+        if (m_replaySettings && Ready() && !m_runtime->gameplay->Busy())
+        {
+            CSOL_CancelScenarioMapVote();
+            CSOL_UpdateScenarioMapVote();
+            if (!Ready()) return;
+            m_mapVoteStarted = false;
+            // Never reset pooled entities inside the AMXX/menu callback that
+            // submitted this request. Keep the native ReAPI restart wrapper.
+            RestartRound();
+            return;
+        }
         if (!PublishPlayerClips()) return;
         m_VoiceGameMgr.Update(gpGlobals->frametime);
         if (!Ready()) return;
+        // MP114BFD30 opens root+214 one second before the ordinary mode15
+        // preparation ends. It remains latched even though thaw resets the
+        // native round-start time; a new round explicitly clears it below.
+        if (!m_itemsPrepared && m_phase == Phase::Playing && IsGameStarted() &&
+            !m_bRoundTerminating && std::isfinite(gpGlobals->time) && gpGlobals->time >= m_freezeUntil - 1.0f)
+            m_itemsPrepared = true;
         CheckWinConditions();
         if (!Ready()) return;
         // MP runs the manager (including a due end-round drain batch) before
@@ -492,6 +568,7 @@ public:
             }
             if (!Ready()) return;
         }
+        if (!PublishTeamKills()) return;
         // ReAPI callbacks may schedule a new round. Enter its normal wrapper,
         // not this method recursively from a wave/trigger callback.
         if (m_flRestartRoundTime > 0 && gpGlobals->time >= m_flRestartRoundTime)
@@ -633,13 +710,29 @@ public:
         value = m_damageScale;
         return true;
     }
+    bool RequestReplay(int mapId)
+    {
+        if (!Ready() || m_replaySettings || m_restarting || m_completing || m_applyingFinish ||
+            m_runtime->gameplay->Busy() || m_runtime->session->Busy()) return false;
+        const auto session = m_runtime->session;
+        const auto* tables = session->Map().Tables();
+        std::uint16_t requested{};
+        if (!tables || !tables->mapId || *tables->mapId != mapId ||
+            !CSOL_RequestedScenarioDifficulty(requested)) return false;
+        csol::scenario::ConfigError error;
+        auto settings = session->PrepareReplaySettings(requested, error);
+        if (!settings) return false;
+        m_replaySettings = std::move(settings);
+        return true;
+    }
     void ScenarioRestartRound()
     {
-        if (!Ready() || m_restarting || m_completing || m_applyingFinish || m_phase == Phase::FreePlay || m_phase == Phase::Complete ||
-            m_phase == Phase::Completing || m_runtime->gameplay->Busy()) return;
+        if (!Ready() || m_restarting || m_completing || m_applyingFinish ||
+            (!m_replaySettings && (m_phase == Phase::FreePlay || m_phase == Phase::Complete ||
+                m_phase == Phase::Completing)) || m_runtime->gameplay->Busy()) return;
         struct RestartScope { bool& flag; ~RestartScope() { flag = false; } } scope{m_restarting};
         m_restarting = true;
-        if (m_phase == Phase::Advancing && !m_pendingRound)
+        if (!m_replaySettings && m_phase == Phase::Advancing && !m_pendingRound)
         {
             CSOL_RejectGameRules("Scenario next stage has no committed completion.");
             return;
@@ -651,7 +744,8 @@ public:
         const auto access = session->Map().EntityAccess();
         const auto previousRound = session->Map().RoundGeneration();
         const auto pending = m_pendingRound;
-        const auto nextRound = m_phase == Phase::Advancing ? *pending : m_roundIndex;
+        auto replay = std::move(m_replaySettings);
+        const auto nextRound = replay ? 0 : m_phase == Phase::Advancing ? *pending : m_roundIndex;
         const auto ownerCurrent = [&]()
         {
             return Ready() && m_runtime == runtime && runtime->session == session &&
@@ -662,6 +756,22 @@ public:
         { return ownerCurrent() && session->Map().RoundGeneration() == previousRound && m_pendingRound == pending; };
         ReadMultiplayCvars();
         if (!oldRoundCurrent()) return;
+        if (replay)
+        {
+            // Settle/remove old drops with their captured old owners before
+            // resetting challenge state or applying a different drop table.
+            if (runtime->drops) runtime->drops->RemoveItems();
+            if (!oldRoundCurrent()) return;
+            m_bCompleteReset = true;
+            m_respawns = {};
+            m_automaticSpawn = static_cast<CBaseEntity*>(nullptr);
+            m_automaticSpawnLife = m_automaticSpawnRound = 0;
+            m_iTotalRoundsPlayed = 0;
+            m_iNumTerroristWins = m_iNumCTWins = 0;
+            m_iNumConsecutiveTerroristLoses = m_iNumConsecutiveCTLoses = 0;
+            UpdateTeamScores();
+            if (!oldRoundCurrent()) return;
+        }
         // MP114BD6A4 chooses20 seconds for ordinary scenario mode15 before
         // reading the intro timer. Apply that rule locally: the host's CS/ZP
         // mp_freezetime setting must not erase preparation or leak between modes.
@@ -682,8 +792,9 @@ public:
         m_fRoundStartTime = m_fRoundStartTimeReal = now;
         m_iRoundTimeSecs = m_iIntroRoundTime;
         m_freezeUntil = now + freeze;
+        m_itemsPrepared = false;
         if (!UpdateSpawnCapacity(nextRound) || !oldRoundCurrent()) return;
-        const bool started = gameplay->BeginRound(nextRound, now, freeze, *this);
+        const bool started = gameplay->BeginRound(nextRound, now, freeze, *this, replay.get());
         if (!ownerCurrent()) return;
         if (!started)
         {
@@ -704,7 +815,7 @@ public:
         if (!ownerCurrent() || runtime->eliteManager != elites ||
             session->Map().RoundGeneration() != previousRound + 1) return;
         const auto eliteServices = runtime->eliteServices;
-        if (!eliteServices || !eliteServices->BeginRound(now, eliteError))
+        if (!eliteServices || !eliteServices->BeginRound(now, eliteError, replay != nullptr))
         {
             if (ownerCurrent()) CSOL_RejectGameRules(eliteError.message.empty() ?
                 "Scenario elite services could not initialize the round." : eliteError.message.c_str());
@@ -713,12 +824,16 @@ public:
         if (!ownerCurrent() || runtime->eliteServices != eliteServices ||
             session->Map().RoundGeneration() != previousRound + 1) return;
         const auto* tables = session->Map().Tables();
-        if (!tables || !m_roundClock.BeginRound(nextRound, tables->rounds.rows.size(), now))
+        // A committed same-map replay is a new challenge. Ordinary stage
+        // progression keeps the original origin; cancelled replay never gets
+        // here and must not erase the old challenge's elapsed time.
+        if (!tables || !m_roundClock.BeginRound(nextRound, tables->rounds.rows.size(), now, replay != nullptr))
         {
             CSOL_RejectGameRules("Scenario round clock metadata is invalid.");
             return;
         }
         m_roundIndex = nextRound;
+        if (replay) { m_teamKillsSent = {}; m_teamKillsNext = -1.0f; }
         m_pendingRound.reset();
         m_completionLocked = false;
         m_phase = Phase::Playing;
@@ -735,14 +850,22 @@ public:
             const EHANDLE handle(&player);
             const bool spawnable = Spawnable(player);
             if (!current() || handle.Get<CBaseEntity>() != &player || !spawnable) return;
-            if (!PreparePlayer(player) || !current() || handle.Get<CBaseEntity>() != &player) return;
-            if (m_bCompleteReset)
+            if (replay)
+            {
+                // A new challenge uses the native full player reset, including
+                // custom inventory removal, score and initial money. Ordinary
+                // stage progression must retain the current inventory.
+                player.Reset();
+                if (!current() || handle.Get<CBaseEntity>() != &player) return;
+            }
+            else if (m_bCompleteReset)
             {
                 // AddAccount's reset reason replaces the balance. Ordinary
                 // stage progression preserves the player's earned money.
                 player.AddAccount(CSOL_AccountStartMoney(int(startmoney.value)), RT_PLAYER_RESET, false);
                 if (!current() || handle.Get<CBaseEntity>() != &player) return;
             }
+            if (!PreparePlayer(player) || !current() || handle.Get<CBaseEntity>() != &player) return;
             player.m_iNumSpawns = 0;
             player.m_bTeamChanged = false;
             player.RoundRespawn();
@@ -757,6 +880,29 @@ public:
         if (!unprotected)
         {
             if (Ready()) CSOL_RejectGameRules("Scenario completion protection could not be removed.");
+            return;
+        }
+        float wallHealth{};
+        csol::scenario::ConfigError wallError;
+        if (!session->Difficulty().Parameter(15, 19, wallHealth, wallError) ||
+            !session->Walls().ApplyRoundDifficulty(wallHealth, round, wallError))
+        {
+            if (current()) CSOL_RejectGameRules(wallError.message.c_str());
+            return;
+        }
+        float retryLimit{};
+        if (!session->Difficulty().Parameter(15, 4, retryLimit, wallError) ||
+            !m_continuation.InitializeBudget(retryLimit, replay != nullptr))
+        {
+            if (current()) CSOL_RejectGameRules("Invalid scenario continuation limit.");
+            return;
+        }
+        const bool budgetSent = session->Messages().SendRetryBudget(
+            m_continuation.Remaining(), m_continuation.Initial());
+        if (!current()) return;
+        if (!budgetSent)
+        {
+            CSOL_RejectGameRules("Scenario continuation budget could not be published.");
             return;
         }
         m_bCompleteReset = false;
@@ -793,8 +939,34 @@ public:
                 m_runtime->players->DisableCharacterSkill(EHANDLE(&player), skillError.message.c_str());
             if (!OwnsRules()) return true;
         }
-        const auto players = m_runtime->session->Players();
-        const auto upgrades = players ? players->Upgrades(EHANDLE(&player)) : nullptr;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const EHANDLE handle(&player);
+        const auto players = session->Players();
+        const auto current = [&]()
+        {
+            return Ready() && m_runtime == runtime && runtime->session == session &&
+                access->Allowed() && session->Map().EntityAccess() == access &&
+                session->Map().RoundGeneration() == round && session->Players() == players &&
+                handle.Get<CBaseEntity>() == &player;
+        };
+        // A host replay creates all new upgrade records in slot order. Do not
+        // mistake later slots for late joiners. Ordinary stage changes retain
+        // each record's consumed entry gate. No restored-progress producer is
+        // installed here; connection alone does not mean original +33B1=true.
+        const csol::scenario::JoinLevelContext joining{
+            IsGameStarted() && !(m_restarting && m_bCompleteReset), false, gpGlobals->time};
+        const bool joined = current() && players &&
+            players->ApplyJoinLevel(handle, session->JoinLevelRatio(), joining);
+        if (!current()) return true;
+        if (!joined)
+        {
+            CSOL_RejectGameRules("Scenario joining level could not be initialized.");
+            return true;
+        }
+        const auto upgrades = players->Upgrades(handle);
         if (!upgrades || !upgrades->ApplySpawnHealth())
         {
             if (OwnsRules()) CSOL_RejectGameRules("Scenario spawn health could not be applied.");
@@ -1461,8 +1633,69 @@ private:
         m_flRestartRoundTime = 0;
         CSOLScenarioFinishPolicy policy;
         const char* warning{};
-        if (!CSOL_RequestedScenarioFinishPolicy(policy))
+        bool policyValid = CSOL_RequestedScenarioFinishPolicy(policy);
+        if (policyValid && policy.action == CSOLScenarioFinishAction::Vote)
+        {
+            if (!m_mapVoteStarted)
+            {
+                m_mapVoteStarted = CSOL_StartScenarioMapVote();
+                if (!current()) return;
+            }
+            if (m_mapVoteStarted)
+            {
+                const auto winner = CSOL_UpdateScenarioMapVote();
+                if (!current()) return;
+                // A menu/cvar hook can override policy while a packet is sent.
+                // Re-read before committing a vote-selected ChangeLevel.
+                policyValid = CSOL_RequestedScenarioFinishPolicy(policy);
+                if (policyValid && policy.action == CSOLScenarioFinishAction::Vote)
+                {
+                    if (CSOL_ScenarioMapVoteActive())
+                    {
+                        m_phase = Phase::Completing;
+                        m_flRestartRoundTime = std::max(0.001f, gpGlobals->time);
+                        return;
+                    }
+                    if (winner)
+                    {
+                        policy.action = CSOLScenarioFinishAction::ChangeMap;
+                        std::copy(winner->mapName.begin(), winner->mapName.end(), policy.nextMap.begin());
+                    }
+                    else policy.action = CSOLScenarioFinishAction::FreePlay;
+                }
+                else
+                {
+                    CSOL_CancelScenarioMapVote();
+                    CSOL_UpdateScenarioMapVote();
+                    if (!current()) return;
+                }
+            }
+            else
+            {
+                policy.action = CSOLScenarioFinishAction::FreePlay;
+                warning = "No other validated scenario destination is available; retaining this map for free play.";
+            }
+        }
+        else if (m_mapVoteStarted)
+        {
+            CSOL_CancelScenarioMapVote();
+            CSOL_UpdateScenarioMapVote();
+            if (!current()) return;
+        }
+        m_mapVoteStarted = false;
+        if (!policyValid)
             warning = "Invalid finish policy or next mode; retaining this scenario for free play.";
+        else if (policy.action == CSOLScenarioFinishAction::Replay)
+        {
+            const auto* tables = session->Map().Tables();
+            // Release the completion guard only around the queued request;
+            // no callbacks or gameplay reset execute from RequestReplay.
+            m_applyingFinish = false;
+            const bool accepted = tables && tables->mapId && RequestReplay(*tables->mapId);
+            m_applyingFinish = true;
+            if (accepted) return;
+            warning = "Scenario replay settings are unavailable; retaining this map for free play.";
+        }
         else if (policy.action == CSOLScenarioFinishAction::ChangeMap)
         {
             // A syntactically valid filename is insufficient: ordinary maps
@@ -1705,8 +1938,13 @@ private:
     std::weak_ptr<csol::scenario::TriggerWaveEvents> m_boundWaveEvents;
     std::weak_ptr<CCSOLScenarioGameplay> m_boundGameplay;
     Phase m_phase{Phase::Loading};
+    bool m_mapVoteStarted{};
     std::size_t m_roundIndex{};
     std::optional<std::size_t> m_pendingRound;
+    std::unique_ptr<CCSOLScenarioReplaySettings> m_replaySettings;
+    csol::scenario::consumables::Continuation m_continuation;
+    std::array<std::optional<std::uint16_t>, 2> m_teamKillsSent;
+    float m_teamKillsNext{-1.0f};
     std::int32_t m_rewardRound{};
     bool m_shortFinalDelay{};
     int m_aliveCt{};
@@ -1720,6 +1958,7 @@ private:
     EHANDLE m_automaticSpawn;
     std::uint64_t m_automaticSpawnRound{}, m_automaticSpawnLife{};
     bool m_respawning{};
+    bool m_itemsPrepared{};
 };
 }
 
@@ -2073,6 +2312,8 @@ bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force)
         auto* rules = dynamic_cast<CCSOLScenarioRules*>(record->rules);
         if (!rules || !rules->PublishPlayerClips(&player) || !scope.Current() ||
             handle.Get<CBaseEntity>() != &player || !rules->PublishRoundClock(&player) || !scope.Current() ||
+            handle.Get<CBaseEntity>() != &player || !rules->PublishRetryBudget(&player) || !scope.Current() ||
+            handle.Get<CBaseEntity>() != &player || !rules->PublishTeamKills(&player) || !scope.Current() ||
             handle.Get<CBaseEntity>() != &player) return false;
         const auto service = std::dynamic_pointer_cast<CCSOLScenarioDamageServices>(
             record->runtime->monsterDamageServices);
@@ -2459,6 +2700,23 @@ ScenarioAdminService scenarioAdmin;
 using csol::IScenarioAdminService;
 EXPOSE_SINGLE_INTERFACE_GLOBALVAR(ScenarioAdminService, IScenarioAdminService,
     csol::ScenarioAdminServiceVersion, scenarioAdmin);
+
+class ScenarioReplayService final : public csol::IScenarioReplayService
+{
+public:
+    bool RequestReplay(int mapId) override
+    {
+        CSOLScenarioSdkScope scope;
+        if (!scope.Scenario() || !scope.Current() || CSOL_LockedGameMode() != 2 ||
+            !CSOL_GameModeIsolationReady() || CSOL_RulesRejected()) return false;
+        auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+        return rules && rules->RequestReplay(mapId) && scope.Current();
+    }
+};
+ScenarioReplayService scenarioReplay;
+using csol::IScenarioReplayService;
+EXPOSE_SINGLE_INTERFACE_GLOBALVAR(ScenarioReplayService, IScenarioReplayService,
+    csol::ScenarioReplayServiceVersion, scenarioReplay);
 }
 
 bool CSOL_ScenarioThink(CHalfLifeMultiplay& rules)
@@ -2509,6 +2767,7 @@ bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
     const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
     return weapons && weapons->Current() && weapons->SetItemIdentity(weapon, csol::k3::ItemId) && scope.Current();
 }
+
 
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity)
 {

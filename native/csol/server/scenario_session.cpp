@@ -19,9 +19,11 @@
 #include "../scenario_round_hud.hpp"
 #include "../scenario_respawn_resources.hpp"
 #include "../scenario/dialogue_resources.hpp"
+#include "../scenario/continuation.hpp"
 
 #include <utility>
 #include <set>
+#include <cmath>
 
 namespace
 {
@@ -102,6 +104,10 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     }
     if (!m_equipmentResources.Snapshot()->weaponDropDifficulty || !mapTables->mapId)
         return Fail({"maps/ZBS.json", {0, "scenario monster disarm requires restrictWeaponDrop.default.Difficulty and a map ID"}});
+    std::string championPath;
+    if (!csol::scenario::LoadChampions(mapName, files, m_champions, championPath, resourceError))
+        return Fail(std::move(resourceError));
+    if (!m_map.EntityAccessAllowed()) return false;
     if (!m_eliteSettings.Load(files, resourceError)) return Fail(std::move(resourceError));
     if (!m_map.EntityAccessAllowed()) return false;
     const auto skillAccess = m_map.EntityAccess();
@@ -251,6 +257,15 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     modelPaths.emplace(csol::frozen_death::IceModel);
     modelPaths.emplace(csol::frozen_smoke::SmokeSprite);
     const auto& types = m_map.Tables()->monsterTypes;
+    for (const auto& champion : m_champions.rows)
+    {
+        const auto* appearance = csol::scenario::FindMonsterAppearance(champion.type.appearance);
+        if (!appearance) return Fail({championPath, {0, "unknown champion appearance"}});
+        modelPaths.emplace(appearance->model);
+        if (!appearance->deathSound.empty()) modelPaths.emplace("sound/" + std::string(appearance->deathSound));
+        if (!appearance->ambientSound.empty()) modelPaths.emplace("sound/" + std::string(appearance->ambientSound));
+        if (appearance->name == "zombiedog") modelPaths.emplace("sound/zombi/zombiedog_howls.wav");
+    }
     for (const auto& [id, row] : types.byId)
     {
         if (row >= types.rows.size() || types.rows[row].Key() != id)
@@ -317,7 +332,7 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     // Register after WeaponsPrecache so the extra event cannot shift any
     // stock client's cached prediction indices after a mode/map change.
     // ServerActivate still runs while ReHLDS is loading the resource table.
-    if (!m_models.Precache(m_map.Tables()->monsterTypes, error, eliteType.get()))
+    if (!m_models.Precache(m_map.Tables()->monsterTypes, error, eliteType.get(), &m_champions))
         return Fail({"", std::move(error)});
     if (!m_map.EntityAccessAllowed()) return false;
     CCSOLScenarioDrops::Precache();
@@ -415,6 +430,8 @@ bool CCSOLScenarioSession::Deactivate()
         !m_eliteSettings.Clear())
         return Fail({"", {0, "scenario difficulty resources are busy during shutdown"}});
     m_messages = {};
+    m_champions = {};
+    m_challengeTimeOrigin = 0;
     m_error = {};
     m_state = CSOLScenarioSessionState::Empty;
     return true;
@@ -437,8 +454,9 @@ bool CCSOLScenarioSession::BindUpgradeServices(std::shared_ptr<CCSOLScenarioUpgr
 {
     if (!m_map.EntityAccessAllowed() || m_busy || m_state != CSOLScenarioSessionState::Active || !services || !m_upgrades.Snapshot()) return false;
     csol::scenario::ConfigError error;
-    float ratio{};
-    if (!m_difficulty.Parameter(15, 0x12, ratio, error)) return Fail({"", std::move(error)});
+    float ratio{}, joinLevelRatio{};
+    if (!m_difficulty.Parameter(15, 0x12, ratio, error) ||
+        !m_difficulty.Parameter(15, 8, joinLevelRatio, error)) return Fail({"", std::move(error)});
     auto players = std::make_shared<CCSOLScenarioPlayers>();
     auto rewards = CCSOLMonsterHitRewards::Create(m_difficulty, players, error);
     if (!rewards) return Fail({"", std::move(error)});
@@ -451,6 +469,7 @@ bool CCSOLScenarioSession::BindUpgradeServices(std::shared_ptr<CCSOLScenarioUpgr
     m_hitRewards = std::move(rewards);
     m_upgradeServices = std::move(services);
     m_experienceRatio = ratio;
+    m_joinLevelRatio = joinLevelRatio;
     return true;
 }
 
@@ -496,6 +515,76 @@ void CCSOLScenarioSession::RemovePlayer(const EHANDLE& player)
 {
     if (m_equipment) m_equipment->RemovePlayer(player);
     if (m_players) m_players->Remove(player);
+}
+
+std::unique_ptr<CCSOLScenarioReplaySettings> CCSOLScenarioSession::PrepareReplaySettings(
+    std::uint16_t difficulty, csol::scenario::ConfigError& error) const
+{
+    error = {};
+    const auto* tables = m_map.Tables();
+    if (Busy() || !m_map.EntityAccessAllowed() || m_state != CSOLScenarioSessionState::Active ||
+        m_scope != CSOLScenarioResourceScope::Combat || !m_players || !m_upgradeServices ||
+        !tables || !tables->difficultyLimit || difficulty < 1 || difficulty > *tables->difficultyLimit)
+    {
+        error.message = "scenario replay requires an idle active map and an allowed difficulty";
+        return {};
+    }
+    auto candidate = std::make_unique<CCSOLScenarioReplaySettings>();
+    if (!m_difficulty.PrepareSelection(difficulty, candidate->difficulty, error) ||
+        !m_dropItems.PrepareSelection(difficulty, candidate->drops, error) ||
+        !m_map.CheckDifficulty(candidate->difficulty, error) ||
+        !candidate->difficulty.Parameter(15, 18, candidate->experienceRatio, error) ||
+        !candidate->difficulty.Parameter(15, 8, candidate->joinLevelRatio, error)) return {};
+    // These parameters are consumed later by deaths, items and incoming damage.
+    // Reject a missing row before retiring any current gameplay state.
+    for (const std::size_t column : {4u, 6u, 7u, 9u, 12u, 15u, 19u})
+    {
+        float parameter{};
+        if (!candidate->difficulty.Parameter(15, column, parameter, error)) return {};
+        if (column == 4 && !csol::scenario::consumables::Continuation::ValidLimit(parameter))
+        {
+            error.message = "scenario continuation limit is outside its signed integer range";
+            return {};
+        }
+    }
+    const auto elites = m_eliteSettings.Snapshot();
+    std::shared_ptr<const csol::scenario::MonsterType> eliteType;
+    if (!elites || !csol::scenario::MakeEliteMonsterType(*elites, difficulty, eliteType, error)) return {};
+    candidate->walls = CCSOLScenarioWallRewards::Create(tables->rounds,
+        candidate->difficulty, m_players, error);
+    candidate->hits = CCSOLMonsterHitRewards::Create(candidate->difficulty, m_players, error);
+    if (!candidate->walls || !candidate->hits) return {};
+    candidate->players = m_players;
+    candidate->access = m_map.EntityAccess();
+    candidate->round = m_map.RoundGeneration();
+    return candidate;
+}
+
+bool CCSOLScenarioSession::CommitReplaySettings(CCSOLScenarioReplaySettings& settings, float now)
+{
+    if (Busy() || m_state != CSOLScenarioSessionState::Active || settings.consumed ||
+        !std::isfinite(now) || now < 0 ||
+        !settings.access || !settings.access->Allowed() || m_map.EntityAccess() != settings.access ||
+        m_map.RoundGeneration() != settings.round || m_players != settings.players ||
+        !settings.walls || !settings.hits) return false;
+    SessionOperation operation(m_busy);
+    if (!m_map.ApplyDifficulty(settings.difficulty)) return Fail(m_map.Error());
+    if (!m_map.ResetChallengeCounters()) return Fail({"", {0, "scenario challenge counters could not be reset"}});
+    if (!m_walls.BindRules(settings.walls)) return Fail({"", {0, "scenario replay wall rules could not be installed"}});
+    if (m_hitRewards) m_hitRewards->Invalidate();
+    m_hitRewards = std::move(settings.hits);
+    m_wallRewards = std::move(settings.walls);
+    m_difficulty = std::move(settings.difficulty);
+    m_dropItems = std::move(settings.drops);
+    m_experienceRatio = settings.experienceRatio;
+    m_joinLevelRatio = settings.joinLevelRatio;
+    m_challengeTimeOrigin = now;
+    // A replay is a new challenge; ordinary stage changes retain this registry.
+    // Character/loadout ownership stays in the runtime and is rebound on spawn.
+    m_players->Clear();
+    settings.consumed = true;
+    m_error = {};
+    return true;
 }
 
 bool CCSOLScenarioSession::BeginRound(std::size_t roundIndex, float now, float freezeTime,

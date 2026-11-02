@@ -15,7 +15,7 @@ namespace
 cvar_t requestedMode{"csol_game_mode", "1", FCVAR_SERVER};
 cvar_t requestedDifficulty{"csol_scenario_difficulty", "1", FCVAR_SERVER};
 cvar_t shortFinalDelay{"csol_scenario_short_final_delay", "0", FCVAR_SERVER};
-cvar_t finishAction{"csol_scenario_finish_action", "0", FCVAR_SERVER};
+cvar_t finishAction{"csol_scenario_finish_action", "3", FCVAR_SERVER};
 cvar_t nextScenarioMap{"csol_scenario_nextmap", "zs_deadend", FCVAR_SERVER};
 bool registered{};
 
@@ -113,6 +113,19 @@ bool CSOL_RequestedScenarioFinishPolicy(CSOLScenarioFinishPolicy& output)
     const std::string_view action(finishAction.string);
     CSOLScenarioFinishPolicy candidate;
     if (action == "0") { output = candidate; return true; }
+    if (action == "3")
+    {
+        if (!requestedMode.string || std::string_view(requestedMode.string) != "2") return false;
+        candidate.action = CSOLScenarioFinishAction::Vote;
+        output = candidate;
+        return true;
+    }
+    if (action == "2")
+    {
+        candidate.action = CSOLScenarioFinishAction::Replay;
+        output = candidate;
+        return true;
+    }
     if (action != "1" || !nextScenarioMap.string || !requestedMode.string ||
         std::string_view(requestedMode.string) != "2") return false;
     const std::string_view map(nextScenarioMap.string);

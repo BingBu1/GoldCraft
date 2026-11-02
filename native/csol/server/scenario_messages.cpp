@@ -40,6 +40,7 @@ bool CCSOLScenarioMessages::Register()
     m_consumableIconMessageId = 0;
     m_respawnTextMessageId = 0;
     m_respawnHintMessageId = 0;
+    m_valueSyncMessageId = 0;
     if (!g_engfuncs.pfnRegUserMsg) return false;
     const int id = REG_USER_MSG("MPToCL", -1);
     // GoldSrc transmits a user-message number as a byte. A failed registration
@@ -67,6 +68,8 @@ bool CCSOLScenarioMessages::Register()
     if (respawnText < 64 || respawnText > 255) return false;
     const int respawnHint = REG_USER_MSG("HudTextArgs", -1);
     if (respawnHint < 64 || respawnHint > 255) return false;
+    const int valueSync = REG_USER_MSG("ValueSync", -1);
+    if (valueSync < 64 || valueSync > 255) return false;
     m_messageId = id;
     m_upgradeMessageId = upgrades;
     m_statusMessageId = status;
@@ -78,6 +81,7 @@ bool CCSOLScenarioMessages::Register()
     m_consumableIconMessageId = consumableIcon;
     m_respawnTextMessageId = respawnText;
     m_respawnHintMessageId = respawnHint;
+    m_valueSyncMessageId = valueSync;
     return true;
 }
 
@@ -750,6 +754,23 @@ bool CCSOLScenarioMessages::SendRetryAnnouncement(int playerIndex, int oneBasedR
     return true;
 }
 
+bool CCSOLScenarioMessages::SendGoldenNotice(bool killed) const
+{
+    if (g_scenarioMessageOpen || !m_respawnTextMessageId ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteString) return false;
+    const int id = m_respawnTextMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_BROADCAST, id);
+    WRITE_BYTE(4);
+    WRITE_BYTE(0);
+    WRITE_BYTE(7);
+    WRITE_BYTE(0);
+    WRITE_STRING(killed ? "#CSO_ZBS_KilledGoldenZB" : "#CSO_ZBS_SpawnedGoldenZB");
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::SendAllRoundsClear(int textMessageId) const
 {
     const int id = textMessageId;
@@ -762,6 +783,37 @@ bool CCSOLScenarioMessages::SendAllRoundsClear(int textMessageId) const
     // CSO_CongAllRoundClear from common/resource/cso_chn.txt. The native CS
     // client lacks that token; use its Chinese text without a CSO-only prefix.
     WRITE_STRING("恭喜！！您已经成功通关！");
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendRetryBudget(int remaining, int initial, edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || remaining < -1 || initial < -1 ||
+        (recipient && recipient->free) || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(recipient ? MSG_ONE : MSG_ALL, id, nullptr, recipient);
+    WRITE_BYTE(27);
+    WRITE_BYTE(29);
+    WRITE_LONG(remaining);
+    WRITE_LONG(initial);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendTeamMonsterKills(int team, std::uint16_t count, edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_valueSyncMessageId || (team != 1 && team != 2) ||
+        (recipient && recipient->free) || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort) return false;
+    const int id = m_valueSyncMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(recipient ? MSG_ONE : MSG_ALL, id, nullptr, recipient);
+    WRITE_BYTE(team + 4); // Original manager1298/129A: keys5/6, player0.
+    WRITE_BYTE(0);
+    WRITE_SHORT(count);
     MESSAGE_END();
     return true;
 }

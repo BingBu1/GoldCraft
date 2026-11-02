@@ -54,6 +54,7 @@ class DropItemResources
 {
 public:
     bool Load(std::int32_t difficulty, ResourceFileApi files, ResourceError& error);
+    bool PrepareSelection(std::int32_t difficulty, DropItemResources& output, ConfigError& error) const;
     bool Clear();
     const DropItemTable& Rules() const { return rules_; }
     bool Present() const { return present_; }

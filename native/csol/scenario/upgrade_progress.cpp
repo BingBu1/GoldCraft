@@ -143,6 +143,54 @@ bool UpgradeProgress::RefreshBonuses(std::shared_ptr<UpgradeEvents> events, Conf
     return Bonuses(state, *events, error);
 }
 
+bool UpgradeProgress::Increase(const StatePtr& state, UpgradeEvents& events, ConfigError& error)
+{
+    auto& value = state->value;
+    auto stat = state->type->order[value.cursor];
+    const auto& pending = value.attributes[static_cast<std::size_t>(stat)];
+    if (static_cast<std::int64_t>(pending.level) + pending.bonus >= pending.cap)
+    {
+        if (!NextAttribute(*state, error)) return false;
+        stat = state->type->order[value.cursor];
+    }
+    ++value.attributes[static_cast<std::size_t>(stat)].level;
+    ++value.level;
+    if (!Bonuses(state, events, error)) return false;
+    const bool applied = events.LevelIncreased(stat, value);
+    if (!Current(state, events)) return false;
+    if (!applied) return Fail(error, "scenario level increase could not update the player");
+    if (value.level + value.bonus >= value.cap)
+    {
+        const bool reached = events.ReachedEffectiveCap(value);
+        if (!Current(state, events)) return false;
+        if (!reached) return Fail(error, "scenario full upgrade event failed");
+        if (value.bonus > 0 && !NextAttribute(*state, error)) return false;
+    }
+    else
+    {
+        if (!NextAttribute(*state, error)) return false;
+        const bool healed = events.HealAfterUpgrade();
+        if (!Current(state, events)) return false;
+        if (!healed) return Fail(error, "scenario level healing failed");
+    }
+    return true;
+}
+
+bool UpgradeProgress::ApplyJoinLevel(std::int32_t target,
+    std::shared_ptr<UpgradeEvents> events, ConfigError& error)
+{
+    error = {};
+    auto state = m_state;
+    if (!events || !Current(state, *events) || state->busy) return false;
+    Busy busy(state->busy);
+    // This initial comparison is not repeated after each award. In particular,
+    // INITIAL_* effects may start above one: preserve the MP's target-1 loop.
+    if (target <= state->value.level + state->value.bonus) return true;
+    for (std::int32_t ordinal = 1; ordinal < target && state->value.level < state->value.cap; ++ordinal)
+        if (!Increase(state, *events, error)) return false;
+    return true;
+}
+
 bool UpgradeProgress::AddAdjustedExperience(std::int32_t amount,
     std::shared_ptr<UpgradeEvents> events, ConfigError& error)
 {
@@ -164,33 +212,7 @@ bool UpgradeProgress::AddAdjustedExperience(std::int32_t amount,
         if (value.experience < threshold) break;
         if (value.level >= value.cap)
         { value.level = value.cap; value.experience = 0; return true; }
-        auto stat = state->type->order[value.cursor];
-        const auto& pending = value.attributes[static_cast<std::size_t>(stat)];
-        if (static_cast<std::int64_t>(pending.level) + pending.bonus >= pending.cap)
-        {
-            if (!NextAttribute(*state, error)) return false;
-            stat = state->type->order[value.cursor];
-        }
-        ++value.attributes[static_cast<std::size_t>(stat)].level;
-        ++value.level;
-        if (!Bonuses(state, *events, error)) return false;
-        const bool applied = events->LevelIncreased(stat, value);
-        if (!Current(state, *events)) return false;
-        if (!applied) return Fail(error, "scenario level increase could not update the player");
-        if (value.level + value.bonus >= value.cap)
-        {
-            const bool reached = events->ReachedEffectiveCap(value);
-            if (!Current(state, *events)) return false;
-            if (!reached) return Fail(error, "scenario full upgrade event failed");
-            if (value.bonus > 0 && !NextAttribute(*state, error)) return false;
-        }
-        else
-        {
-            if (!NextAttribute(*state, error)) return false;
-            const bool healed = events->HealAfterUpgrade();
-            if (!Current(state, *events)) return false;
-            if (!healed) return Fail(error, "scenario level healing failed");
-        }
+        if (!Increase(state, *events, error)) return false;
         value.experience = WrapAdd(value.experience, -threshold);
     }
     if (value.level >= value.cap) value.experience = 0;

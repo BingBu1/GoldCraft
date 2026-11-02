@@ -20,9 +20,26 @@
 #include "../scenario/damage_display_modes.hpp"
 #include "../scenario/boss_skills.hpp"
 #include "../scenario/elite.hpp"
+#include "../scenario/champions.hpp"
 
 enum class CSOLScenarioSessionState { Empty, Precached, Active, Failed };
 enum class CSOLScenarioResourceScope { Selection, Combat };
+
+// Prepared from this map's already loaded resources. Only Session can build
+// and consume it; a retired map/round cannot install its pending selection.
+class CCSOLScenarioReplaySettings
+{
+    friend class CCSOLScenarioSession;
+    csol::scenario::DifficultyResources difficulty;
+    csol::scenario::DropItemResources drops;
+    std::shared_ptr<CCSOLScenarioWallRewards> walls;
+    std::shared_ptr<CCSOLMonsterHitRewards> hits;
+    std::shared_ptr<CCSOLScenarioPlayers> players;
+    std::shared_ptr<const CSOLScenarioEntityAccess> access;
+    std::uint64_t round{};
+    float experienceRatio{}, joinLevelRatio{};
+    bool consumed{};
+};
 
 // Owned by the selected GameRules. Precache must run after g_pGameRules has
 // been assigned, while the engine still permits model precaching. In
@@ -47,6 +64,10 @@ public:
     // loaded champion types. Continuation uses its separate original path.
     bool BeginRound(std::size_t roundIndex, float now, float freezeTime,
         csol::scenario::TriggerWaveEvents& events);
+    std::unique_ptr<CCSOLScenarioReplaySettings> PrepareReplaySettings(std::uint16_t difficulty,
+        csol::scenario::ConfigError& error) const;
+    // Gameplay calls after cancelling old deaths and returning every pool slot.
+    bool CommitReplaySettings(CCSOLScenarioReplaySettings& settings, float now);
     // Irrevocable engine notification. This never waits for a callback and
     // never clears borrowed tables. OnDestroy can still unregister entities.
     void RevokeEntityAccess() { m_map.RevokeEntityAccess(); }
@@ -66,6 +87,11 @@ public:
     std::shared_ptr<CCSOLScenarioMusic> Music() const { return m_music; }
     unsigned short SmokeEvent() const { return m_smokeEvent; }
     const csol::scenario::DifficultyResources& Difficulty() const { return m_difficulty; }
+    float JoinLevelRatio() const { return m_joinLevelRatio; }
+    const csol::scenario::ChampionTable& Champions() const { return m_champions; }
+    // Original first-map schedules use absolute engine time. An explicit host
+    // replay starts a new challenge clock without resetting gpGlobals->time.
+    float ChallengeTimeOrigin() const { return m_challengeTimeOrigin; }
     const csol::scenario::DropItemTable& DropRules() const { return m_dropItems.Rules(); }
     std::shared_ptr<const CCSOLMonsterNavigation> Navigation() const { return m_navigation; }
     std::shared_ptr<const CCSOLScenarioNavigation> ScenarioNavigation() const { return m_navigation; }
@@ -90,6 +116,7 @@ private:
     // The pool is destroyed first, before the map's borrowed type table.
     CCSOLScenarioMap m_map;
     csol::scenario::DifficultyResources m_difficulty;
+    csol::scenario::ChampionTable m_champions;
     csol::scenario::DropItemResources m_dropItems;
     csol::scenario::UpgradeResources m_upgrades;
     csol::scenario::EquipmentResources m_equipmentResources;
@@ -112,7 +139,8 @@ private:
     std::shared_ptr<CCSOLMonsterHitRewards> m_hitRewards;
     std::shared_ptr<CCSOLScenarioWeaponState> m_weapons;
     std::uint64_t m_nextPlayerGeneration{};
-    float m_experienceRatio{};
+    float m_experienceRatio{}, m_joinLevelRatio{};
+    float m_challengeTimeOrigin{};
     CCSOLMonsterPool m_monsters;
     csol::scenario::ResourceError m_error;
     CSOLScenarioSessionState m_state{CSOLScenarioSessionState::Empty};

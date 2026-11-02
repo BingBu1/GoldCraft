@@ -301,6 +301,15 @@ bool CCSOLScenarioMap::RecordTeamMonsterKill(int team)
     return true;
 }
 
+bool CCSOLScenarioMap::ResetChallengeCounters()
+{
+    if (!EntityAccessAllowed() || Busy() ||
+        (m_state != CSOLScenarioMapState::EntitiesCollected && m_state != CSOLScenarioMapState::RoundActive))
+        return false;
+    m_teamMonsterKills = {};
+    return true;
+}
+
 bool CCSOLScenarioMap::ScheduleMonsterDrain(float now, std::int8_t team)
 {
     if (!EntityAccessAllowed() || m_state != CSOLScenarioMapState::RoundActive ||

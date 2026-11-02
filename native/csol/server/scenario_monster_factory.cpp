@@ -195,9 +195,43 @@ bool CCSOLMonsterFactory::ScheduleReplacement(CSOLMonsterReplacement replacement
     if (m_busy || !m_error.message.empty()) return false;
     if (!std::isfinite(replacement.start) || !std::isfinite(replacement.end) ||
         !std::isfinite(replacement.interval) || !std::isfinite(replacement.next) ||
+        !std::isfinite(replacement.timeOrigin) ||
         replacement.type.priority < 0 || replacement.type.priority > 2)
         return Fail("scenario replacement schedule is invalid");
+    replacement.budget = std::make_shared<csol::scenario::ChampionBudget>();
+    replacement.type.champion = replacement.useRecordIdentity;
+    replacement.budget->available = replacement.remaining;
     m_replacements.push_back(std::move(replacement));
+    return true;
+}
+
+bool CCSOLMonsterFactory::ScheduleChampions(const csol::scenario::ChampionTable& table,
+    std::uint16_t difficulty, float timeOrigin)
+{
+    if (m_busy || !m_error.message.empty() || !m_replacements.empty() || m_pool.ActiveCount())
+        return Fail("scenario champions must be installed after the old round is reset");
+    if (!std::isfinite(timeOrigin)) return Fail("scenario champion clock origin is invalid");
+    std::list<CSOLMonsterReplacement> candidate;
+    for (const auto& [key, index] : table.Select(difficulty))
+    {
+        const auto& row = table.rows[index];
+        if (!std::isfinite(row.start) || !std::isfinite(row.end) || !std::isfinite(row.interval) ||
+            row.type.priority < 0 || row.type.priority > 2)
+            return Fail("scenario champion schedule is invalid");
+        CSOLMonsterReplacement entry;
+        entry.type = row.type;
+        entry.type.champion = true;
+        entry.timeOrigin = timeOrigin;
+        entry.start = entry.next = row.start;
+        entry.end = row.end;
+        entry.interval = row.interval;
+        entry.remaining = row.maximum;
+        entry.useRecordIdentity = true;
+        entry.budget = std::make_shared<csol::scenario::ChampionBudget>();
+        entry.budget->available = row.maximum;
+        candidate.push_back(std::move(entry));
+    }
+    m_replacements = std::move(candidate);
     return true;
 }
 
@@ -239,16 +273,18 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, i
 
     if (type->priority == 0 && !ExcludesReplacement(type->appearance))
     {
-        const float now = gpGlobals->time;
         for (auto& entry : m_replacements)
         {
-            if (!(now > entry.start && entry.end > now && now > entry.next && entry.remaining > 0)) continue;
+            const float now = gpGlobals->time - entry.timeOrigin;
+            if (!std::isfinite(now)) { Fail("scenario champion clock is not finite"); return Result::Failed; }
+            if (!(now > entry.start && entry.end > now && now > entry.next && entry.budget->available > 0)) continue;
             const float next = now + entry.interval;
             if (!std::isfinite(next)) { Fail("scenario replacement deadline is not finite"); return Result::Failed; }
             entry.next = next;
+            auto lease = std::make_shared<csol::scenario::ChampionLease>(entry.budget);
             const auto result = Create(team, requestedType, point, rowArgument, location, entry.type,
-                entry.useRecordIdentity, delta);
-            if (result == Result::Spawned) { --entry.remaining; return result; }
+                entry.useRecordIdentity, delta, false, nullptr, lease);
+            if (result == Result::Spawned) { lease->Commit(); return result; }
             if (result == Result::Failed || result == Result::Cancelled) return result;
             // Ordinary inability to allocate keeps the new deadline/count,
             // falls back to the original type, and never tries another entry.
@@ -452,7 +488,7 @@ bool CCSOLMonsterFactory::FireSpawnTargets(CSOLMonsterSpawnCall& call, int recor
 CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, int point,
     int rowArgument, const csol::scenario::SpawnPoint& location, const csol::scenario::MonsterType& type,
     bool useRecordIdentity, const csol::scenario::RoundMonsterDeltas& delta,
-    bool eliteFollower, EHANDLE* created)
+    bool eliteFollower, EHANDLE* created, std::shared_ptr<csol::scenario::ChampionLease> champion)
 {
     using Result = CSOLMonsterSpawnResult;
     // Category2/4/5 and other maps have separate behavior contracts. Do not
@@ -538,6 +574,12 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
         Fail("scenario allocated monster is unavailable before spawn initialization");
         return Result::Failed;
     }
+    // Acquire returns the previous type for behavior selection below. A
+    // parked Golden clone belongs to the old state, so retain that state
+    // until selection has finished even after publishing this new lease.
+    const auto previousSpawnState = m_states[monster->Slot()];
+    if (previousSpawnState && previousSpawnState->goldenType)
+        m_sequences.erase(previousSpawnState->goldenType.get());
     m_states[monster->Slot()] = spawnState;
     auto& state = *spawnState;
     struct InitializingScope
@@ -551,6 +593,7 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
     state.type = &type;
     state.skill = type.skill;
     monster->pev->team = team;
+    monster->m_championLease = std::move(champion);
     monster->m_typeId = useRecordIdentity || type.column20 > 0 ? type.id : requestedType;
     csol::scenario::ConfigError error;
     const auto valid = [&] { return call.Current() != nullptr; };
@@ -681,6 +724,7 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
             if (!step(m_map.EnableMonsterClearPoint(call.Current()->Type()->clearPoint),
                 "scenario spawn clear-point activation failed")) return false;
             call.Current()->HostState().navigationExpired = false;
+            InitializingScope rulesSpawn(m_ruleSpawnState, state);
             if (!step(m_services.RulesMonsterSpawned(call, error), "scenario spawn rules callback failed")) return false;
         }
         return true;

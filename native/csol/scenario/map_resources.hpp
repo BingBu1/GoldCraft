@@ -61,9 +61,10 @@ public:
     // can use BeginMap above. Reload never re-reads a changed map catalog.
     bool BeginMapFromCatalog(std::string_view mapName, ResourceFileApi files, ResourceError& error);
     bool Reload(ResourceFileApi files, ResourceError& error);
-    // Once for each successfully loaded set of type records, before a round
-    // dispatches its first monster. Reload restores unscaled records.
+    // Recalculate from immutable source attributes, never from a previous
+    // difficulty's scaled values. Call only after old monsters are retired.
     bool ApplyDifficulty(const DifficultyResources& difficulty, ConfigError& error);
+    bool CheckDifficulty(const DifficultyResources& difficulty, ConfigError& error) const;
     void Clear();
     std::string_view MapName() const { return mapName_; }
     const MapTables* Tables() const { return tables_ ? &*tables_ : nullptr; }
@@ -74,6 +75,7 @@ private:
     std::optional<int> mapId_;
     std::optional<int> difficultyLimit_;
     std::optional<MapTables> tables_;
-    bool difficultyApplied_{};
+    MonsterTypeTable baseMonsterTypes_;
+    std::optional<std::uint16_t> appliedDifficulty_;
 };
 }

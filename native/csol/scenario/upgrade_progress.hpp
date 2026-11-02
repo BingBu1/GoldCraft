@@ -45,6 +45,9 @@ public:
     // separate int truncation at each original boundary. Negative modifiers
     // are retained here; the raw XP entry's negative-input gate is earlier.
     bool AddAdjustedExperience(std::int32_t amount, std::shared_ptr<UpgradeEvents> events, ConfigError& error);
+    // Original late-entry compensation awards target-1 individual increases
+    // after the initial effective-level comparison. It does not consume XP.
+    bool ApplyJoinLevel(std::int32_t target, std::shared_ptr<UpgradeEvents> events, ConfigError& error);
     bool RefreshBonuses(std::shared_ptr<UpgradeEvents> events, ConfigError& error);
     const UpgradeProgressState* State() const { return m_state ? &m_state->value : nullptr; }
     bool StatValue(UpgradeStat stat, float& output) const;
@@ -60,6 +63,7 @@ private:
     bool Current(const StatePtr& state, const UpgradeEvents& events) const;
     bool Bonuses(const StatePtr& state, UpgradeEvents& events, ConfigError& error);
     bool NextAttribute(StateData& state, ConfigError& error);
+    bool Increase(const StatePtr& state, UpgradeEvents& events, ConfigError& error);
     StatePtr m_state;
 };
 }

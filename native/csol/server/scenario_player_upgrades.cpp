@@ -217,6 +217,31 @@ bool CCSOLScenarioPlayerUpgrades::AddExperience(int amount)
     return m_progress.AddAdjustedExperience(Truncate(scaled), keepAlive, m_error);
 }
 
+bool CCSOLScenarioPlayerUpgrades::ArmJoinLevelInitialization()
+{
+    if (m_busy || !Current()) return false;
+    m_joinLevelConsumed = false;
+    return true;
+}
+
+bool CCSOLScenarioPlayerUpgrades::ApplyJoinLevel(int maximumOtherEffectiveLevel, float ratio,
+    const csol::scenario::JoinLevelContext& context)
+{
+    auto keepAlive = shared_from_this();
+    if (m_busy || !Current() || !m_progress.State() || m_classId < 0) return false;
+    if (m_joinLevelConsumed) return true;
+    Busy busy(m_busy);
+    m_error = {};
+    if (!std::isfinite(context.mapTime) || !std::isfinite(ratio) || maximumOtherEffectiveLevel < 1)
+        return Fail("scenario join level context is invalid");
+    // The original clears the first-entry flag before calling 108FA680. A
+    // cancelled operation must not replay partially issued level rewards.
+    m_joinLevelConsumed = true;
+    if (!csol::scenario::JoinLevelEligible(context)) return true;
+    return m_progress.ApplyJoinLevel(csol::scenario::JoinLevelTarget(maximumOtherEffectiveLevel, ratio),
+        keepAlive, m_error);
+}
+
 bool CCSOLScenarioPlayerUpgrades::ModifyMoney(int& amount)
 {
     auto keepAlive = shared_from_this();
@@ -404,6 +429,49 @@ bool CCSOLScenarioPlayers::CountDamageScalePlayers(int& count) const
     }
     count = eligible;
     return true;
+}
+
+bool CCSOLScenarioPlayers::MaximumOtherEffectiveLevel(const EHANDLE& player, int& level) const
+{
+    if (!gpGlobals || !g_engfuncs.pfnIndexOfEdict) return false;
+    const auto joining = Upgrades(player);
+    if (!joining) return false;
+    const int limit = std::min(gpGlobals->maxClients, static_cast<int>(m_players.size()) - 1);
+    int maximum = 1;
+    for (int index = 1; index <= limit; ++index)
+    {
+        const auto state = m_players[index];
+        if (!state || state == joining || !state->Current() || m_players[index] != state ||
+            state->ConfiguredClass() <= 0) continue;
+        auto* entity = state->WallState()->player.Get<CBaseEntity>();
+        if (!entity || (entity->pev->flags & FL_DORMANT)) continue;
+        const int actualIndex = entity->entindex();
+        if (!state->Current() || m_players[index] != state || state->ConfiguredClass() <= 0) continue;
+        entity = state->WallState()->player.Get<CBaseEntity>();
+        if (actualIndex != index || !entity || (entity->pev->flags & FL_DORMANT)) continue;
+        const auto* progress = state->State();
+        // MP 108FA74A uses both base and bonus, including dead players. There
+        // is no team/alive filter and the joining player's own state is skipped.
+        maximum = std::max(maximum, progress->level + progress->bonus);
+    }
+    if (!joining->Current() || Upgrades(player) != joining) return false;
+    level = maximum;
+    return true;
+}
+
+bool CCSOLScenarioPlayers::ApplyJoinLevel(const EHANDLE& player, float ratio,
+    const csol::scenario::JoinLevelContext& context)
+{
+    const auto state = Upgrades(player);
+    int maximum{};
+    if (!state || !MaximumOtherEffectiveLevel(player, maximum) || Upgrades(player) != state) return false;
+    return state->ApplyJoinLevel(maximum, ratio, context) && state->Current() && Upgrades(player) == state;
+}
+
+bool CCSOLScenarioPlayers::ArmJoinLevelInitialization(const EHANDLE& player)
+{
+    const auto state = Upgrades(player);
+    return state && state->ArmJoinLevelInitialization() && Upgrades(player) == state;
 }
 
 bool CCSOLScenarioPlayers::ModifyMoney(const EHANDLE& player, int& amount)

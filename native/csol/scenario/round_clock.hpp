@@ -16,17 +16,20 @@ struct RoundClockSnapshot
 };
 
 // MP11382BC9/11385FAE: the game clock begins with the first BeginRound,
-// including preparation, and survives stage changes and continuation.
-// Keep this with the rules session; Reset only for a new game or map.
+// including preparation, and survives ordinary stage changes. Subtype3's
+// separate continuation restore is not an ordinary BeginRound operation.
+// Keep this with the rules session; a new challenge starts a fresh clock.
 class RoundClock
 {
 public:
-    bool BeginRound(std::size_t zeroBasedRound, std::size_t total, float now)
+    bool BeginRound(std::size_t zeroBasedRound, std::size_t total, float now,
+        bool newChallenge = false)
     {
         if (!std::isfinite(now) || now < 0 || !total || total > 255 ||
             zeroBasedRound >= total) return false;
         // Preserve CSO's zero sentinel even if the first start is at time0.
-        if (!m_started || m_start == 0) m_start = now;
+        // Validate the entire candidate above before replacing old authority.
+        if (newChallenge || !m_started || m_start == 0) m_start = now;
         m_round = static_cast<std::uint8_t>(zeroBasedRound + 1);
         m_total = static_cast<std::uint8_t>(total);
         m_started = true;

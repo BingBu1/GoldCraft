@@ -59,6 +59,11 @@ struct MonsterTypeTable
 // Reject missing core fields/color components whose original loader otherwise
 // reads uninitialized stack memory. Failure preserves the previous table.
 bool ReadMonsterTypes(std::string_view bytes, MonsterTypeTable& output, ConfigError& error);
+// The champion table embeds the same first 18 fields after its schedule.
+// Exposed at the row boundary so both loaders retain identical narrowing,
+// digit-run colors and list handling without serializing a second CSV.
+bool ReadMonsterTypeRecord(const CsvRecord& record, std::size_t recordIndex,
+    MonsterType& output, ConfigError& error);
 bool ReadMonsterTypeResource(std::span<const std::byte> encoded,
     MonsterTypeTable& output, ConfigError& error);
 }

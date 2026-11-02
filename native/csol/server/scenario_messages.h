@@ -46,6 +46,10 @@ public:
     // Adapt the original final-clear TextMsg to stock CS's single-byte
     // destination format. CSO's extra three bytes require its own decoder.
     bool SendAllRoundsClear(int textMessageId) const;
+    // Original Golden TextMsg broadcast: {4,0,7,0} and one fixed key.
+    // CSOLSupport owns this extended layout; no player name or reward payload.
+    // The lifecycle owner calls this after conversion or for a valid killer.
+    bool SendGoldenNotice(bool killed) const;
     bool SendRoundOutcome(bool success) const;
     // Original MPToCL 27/4: byte slot, raw float32 cooldown, signed short count.
     // Call only with the authoritative inventory result; sending is not a debit.
@@ -60,6 +64,9 @@ public:
     // Original MPToCL 27/15 and 27/16 are all-client broadcasts.
     bool SendRetryCountdown(int seconds) const;
     bool SendRetryAnnouncement(int playerIndex, int oneBasedRound) const;
+    // MP10829020 and the client's case29 reader: two signed LONG values.
+    bool SendRetryBudget(int remaining, int initial, edict_s* recipient = nullptr) const;
+    bool SendTeamMonsterKills(int team, std::uint16_t count, edict_s* recipient = nullptr) const;
     bool SendRoundRewardState(bool pastRewardRound) const;
     // Original10828CC0: ZBSVer2 { BYTE0x18 (24), STRING, five signed LONGs }.
     // The result owner supplies verified statistics, never guessed defaults.
@@ -147,4 +154,5 @@ private:
     int m_consumableIconMessageId{};
     int m_respawnTextMessageId{};
     int m_respawnHintMessageId{};
+    int m_valueSyncMessageId{};
 };

@@ -57,7 +57,7 @@ bool CCSOLScenarioGameplay::Activate()
 }
 
 bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float freezeTime,
-    csol::scenario::TriggerWaveEvents& events)
+    csol::scenario::TriggerWaveEvents& events, CCSOLScenarioReplaySettings* replay)
 {
     const auto owner = m_owner.lock();
     if (!Active() || m_updating || m_resetting || m_selecting) return false;
@@ -70,6 +70,11 @@ bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float 
     if (!m_deaths.Reset()) return Fail(m_deaths.Error().message.c_str());
     if (!m_session.Monsters().RestartRound()) return Fail(m_session.Monsters().Error().c_str());
     if (!m_factory.Reset()) return Fail(m_factory.Error().message.c_str());
+    if (replay && !m_session.CommitReplaySettings(*replay, now))
+        return Fail("scenario replay settings could not be committed");
+    if (!m_factory.ScheduleChampions(m_session.Champions(), m_session.Difficulty().SelectedRow(),
+        m_session.ChallengeTimeOrigin()))
+        return Fail(m_factory.Error().message.c_str());
     if (!m_occupancy.ResetGrid()) return Fail(m_occupancy.Error().c_str());
     m_spawnGroupOffset = 0; // mode15/subtype1; the next round supplies its own group.
     csol::scenario::ConfigError damageError;
