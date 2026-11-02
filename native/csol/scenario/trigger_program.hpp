@@ -3,6 +3,7 @@
 
 #include "trigger_rules.hpp"
 
+#include <optional>
 #include <span>
 
 namespace csol::scenario
@@ -45,6 +46,9 @@ public:
     TriggerResult CheckPlayer(const std::array<float, 3>& origin, float elapsed,
         int aliveCtCount, TriggerActions& actions);
     TriggerResult ExecuteTrigger(int id, float elapsed, int aliveCtCount, TriggerActions& actions);
+    // Current record, including one-shot disabling and records retained from
+    // previous groups. A geometry-only record is resolved by the map adapter.
+    std::optional<std::int16_t> RuntimeCooldown(int id) const;
     std::span<const std::int16_t> UsedTriggers() const { return used_; }
     std::uint32_t Arrivals() const { return arrivals_; }
     bool IsExecuting() const { return executing_; }

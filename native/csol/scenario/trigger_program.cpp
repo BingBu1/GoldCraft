@@ -49,7 +49,8 @@ bool TriggerProgram::Install(const TriggerRuleTable& table, const TriggerVolumes
                 return false;
             }
             State state;
-            if (const auto old = states.find(rule.trigger); old != states.end())
+            if (const auto old = states.find(rule.trigger);
+                old != states.end() && old->second.rule.command != 0)
                 state.volume = old->second.volume;
             else if (const auto* volume = volumes.Find(rule.trigger)) state.volume = *volume;
             else state.volume.id = rule.trigger; // Original missing key creates a zero box.
@@ -94,6 +95,13 @@ void TriggerProgram::BeginMap()
 void TriggerProgram::ClearUsedTriggers()
 {
     if (!executing_) used_.clear();
+}
+
+std::optional<std::int16_t> TriggerProgram::RuntimeCooldown(int id) const
+{
+    const auto found = states_.find(TriggerKey(id));
+    if (found == states_.end()) return std::nullopt;
+    return found->second.rule.cooldown;
 }
 
 bool TriggerProgram::Execute(State& state, float elapsed, bool spatial,
@@ -161,14 +169,16 @@ TriggerResult TriggerProgram::ExecuteTrigger(int id, float elapsed, int aliveCtC
     TriggerActions& actions)
 {
     if (executing_ || !std::isfinite(elapsed) || !actions.Current()) return {};
-    const auto found = states_.find(TriggerKey(id));
-    if (found == states_.end()) return {true, 0, false};
+    // MP1139DB67 inserts a default record for an unknown ID. Its command is
+    // zero, so this is neither an empty wave command nor a spatial trigger.
+    const auto found = states_.try_emplace(TriggerKey(id)).first;
     ExecutionScope scope(executing_);
     if (found->second.rule.command == 'g')
     {
         const bool reached = CountGoal(found->second, aliveCtCount, actions);
         return {actions.Current(), 0, reached};
     }
+    if (found->second.rule.command != 'w') return {true, 0, false};
     bool changed = false;
     const bool executed = Execute(found->second, elapsed, false, actions, changed);
     if (!actions.Current()) return {};

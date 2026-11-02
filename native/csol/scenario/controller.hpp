@@ -28,6 +28,10 @@ public:
     // round's global source table contains it. Activation never loads source data.
     bool ActivateWave(std::uint16_t id, float elapsed, ConfigError& error);
     bool EndWave(std::uint16_t id);
+    // Golden lookup creates an empty runtime for an absent ID. It must not
+    // restart clocks, activate a wave or import a different round's source.
+    // Insertion is also safe during dispatch: map references remain stable.
+    bool EnsureWaveRuntime(std::uint16_t id, ConfigError& error);
 
     std::span<const std::uint16_t> ActiveWaves() const { return active_; }
     std::span<const std::uint16_t> MissingWaves() const { return missing_; }

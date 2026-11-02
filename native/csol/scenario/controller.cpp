@@ -82,6 +82,18 @@ bool WaveController::EndWave(std::uint16_t id)
     return true;
 }
 
+bool WaveController::EnsureWaveRuntime(std::uint16_t id, ConfigError& error)
+{
+    error = {};
+    if (!loaded_)
+    {
+        error.message = "cannot query Golden wave runtime before round initialization";
+        return false;
+    }
+    if (!waves_.contains(id)) waves_.emplace(id, WaveRunner::Empty(id));
+    return true;
+}
+
 WaveTickResult WaveController::Tick(float elapsed, WaveRunner::Dispatch dispatch, void* context,
     WaveRunner::Current current, const void* ownerContext)
 {

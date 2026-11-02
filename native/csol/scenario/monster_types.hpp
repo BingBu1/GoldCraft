@@ -29,6 +29,10 @@ struct MonsterType
     std::vector<std::int32_t> dropItems;
     std::int32_t experience{};
 
+    // Runtime record byte+58 is set by the champion loader. It is distinct
+    // from the following optional CSV column18 (byte+59).
+    bool champion{};
+
     // These mode-15 extension columns have verified storage/defaults, but
     // their gameplay meanings are still under investigation. Keep that clear
     // rather than inventing labels. Positive column20 overrides the map key,
