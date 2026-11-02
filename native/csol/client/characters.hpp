@@ -10,6 +10,7 @@ void ResetCharacters();
 void CharacterFrame();
 void CharacterCreateMove(float frame,usercmd_s* cmd,int active);
 bool CharacterMenuVisible();
+void CloseCharacterMenuForOverlay();
 const Character* ViewCharacter();
 void CharacterDiagnostics(std::ostream& output);
 }

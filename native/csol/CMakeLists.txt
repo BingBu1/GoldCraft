@@ -22,6 +22,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/boss_health.cpp boss_health.cpp client/oberon_hint.cpp
     client/scenario_round_hud_client.cpp scenario_round_hud.cpp scenario_localization.cpp
     client/scenario_respawn_ui.cpp
+    client/scenario_map_vote.cpp map_vote_presentation.cpp scenario/map_vote.cpp
     scenario/message_table.cpp scenario/message_resource.cpp scenario/config.cpp scenario/spawn_points.cpp
     scenario/dialogue_resources.cpp scenario/wave_events.cpp
     client/playerclip.cpp
@@ -36,6 +37,7 @@ target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
 set_source_files_properties(client/characters.cpp client/wall_status.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp client/character_skill_display.cpp client/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 set_source_files_properties(client/scenario_round_hud_client.cpp client/scenario_respawn_ui.cpp client/hud_style.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario_map_vote.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"
     "${SDK}/HLSDK/pm_shared" "${SDK}/HLSDK/public" "${SDK}/SourceSDK"

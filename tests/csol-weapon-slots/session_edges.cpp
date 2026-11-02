@@ -6,6 +6,7 @@ void ResetDamageDisplay(){}
 void ResetWallStatus(){}
 void ResetBuyMenu(){}
 void ResetScenarioKill(){}
+void ResetScenarioMapVote(){}
 void ResetScenarioEffects(){}
 void ResetScenarioSmoke(){}
 void ResetScenarioUpgrades(){}

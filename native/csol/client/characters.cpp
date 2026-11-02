@@ -59,14 +59,14 @@ std::wstring Wide(const std::string& text)
     if(size<=0)return L"";
     std::wstring out(size,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),out.data(),size);return out;
 }
-void Close()
+void Close(bool activateMouse=true)
 {
     if(!visible)return;
     visible=false;lastButtons=0;selectionPending=false;focusSuspended=false;
     appearanceMenu=false;
     pendingId=0;hovered=-1;
     if(surface)surface->SetCursor(1);
-    if(downstream.IN_ActivateMouse)downstream.IN_ActivateMouse();
+    if(activateMouse&&downstream.IN_ActivateMouse)downstream.IN_ActivateMouse();
 }
 void UpdateFocus(bool focused)
 {
@@ -495,6 +495,7 @@ void CharacterCreateMove(float frame,usercmd_t* cmd,int active)
     std::copy_n(menuAngles,3,cmd->viewangles);engine.SetViewAngles(menuAngles);
 }
 bool CharacterMenuVisible(){return visible;}
+void CloseCharacterMenuForOverlay(){Close(false);}
 const Character* ViewCharacter()
 {
     const int index=view.playernum+1;

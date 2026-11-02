@@ -11,6 +11,7 @@
 #include "buy_menu.hpp"
 #include "damage_display.hpp"
 #include "scenario_kill.hpp"
+#include "scenario_map_vote.hpp"
 #include "scenario_effects.hpp"
 #include "character_skill_effects.hpp"
 #include "scenario_smoke.hpp"
@@ -44,6 +45,7 @@ void ResetSession()
     ResetStatusIcons();
     ResetWallStatus();
     ResetBuyMenu();
+    ResetScenarioMapVote();
     ResetDamageDisplay();
     ResetSpray();
     ResetScenarioKill();

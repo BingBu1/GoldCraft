@@ -25,6 +25,7 @@
 #include "buy_menu.hpp"
 #include "damage_display.hpp"
 #include "scenario_music.hpp"
+#include "scenario_map_vote.hpp"
 #include "scenario_kill.hpp"
 #include "scenario_effects.hpp"
 #include "character_skill_effects.hpp"
@@ -283,6 +284,7 @@ static void ScenarioHudInfo()
     std::ostringstream report;
     ScenarioUpgradesDiagnostics(report);
     ScenarioAbilitiesDiagnostics(report);
+    ScenarioMapVoteDiagnostics(report);
     BossHealthDiagnostics(report);
     ScenarioRoundHudDiagnostics(report);
     ScenarioRespawnUiDiagnostics(report);
@@ -313,6 +315,7 @@ static void Init()
     InitializeStatusIcons();
     InitializeWallStatus();
     InitializeBuyMenu();
+    InitializeScenarioMapVote();
     InitializeDamageDisplay();
     InitializeSpray();
     InitializeScenarioMusic();
@@ -364,6 +367,7 @@ static void HudShutdown()
     ShutdownScenarioRespawnUi();
     ShutdownEliteVisuals();
     ShutdownHudStyle();
+    ShutdownScenarioMapVote();
     if(downstream.HUD_Shutdown)downstream.HUD_Shutdown();
     // Renderer is the outer export wrapper and removes its own studio detours
     // after this returns. Remove our later outer detours first.
@@ -390,6 +394,7 @@ static void Frame(double time)
     DamageDisplayFrame();
     SprayFrame();
     BuyMenuFrame();
+    ScenarioMapVoteFrame();
     HudStyleFrame();
 }
 static void CreateMove(float frame, usercmd_t* cmd, int active)
@@ -397,6 +402,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
     BossImpactCreateMove(active);
     CharacterCreateMove(frame, cmd, active);
     BuyMenuCreateMove(cmd, active);
+    ScenarioMapVoteCreateMove(cmd, active);
 }
 static int Redraw(float time, int intermission)
 {
@@ -482,6 +488,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){csol::client::ShutdownSpray();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

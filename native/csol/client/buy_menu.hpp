@@ -9,5 +9,6 @@ void ResetBuyMenu();
 void BuyMenuFrame();
 void BuyMenuCreateMove(usercmd_s* cmd,int active);
 bool BuyMenuVisible();
+void CloseBuyMenuForOverlay();
 void BuyMenuDiagnostics(std::ostream& output);
 }
