@@ -115,6 +115,16 @@ bool CCSOLScenarioBreakable::StatusHealth(int& health) const
     return true;
 }
 
+bool CCSOLScenarioBreakable::DifficultyHealth(float multiplier, float& result) const
+{
+    result = pev->health;
+    if (!FStrEq(STRING(pev->classname), "zbsbreak") ||
+        !(m_playerRatio > 0.0f) || m_monsterRatio != 0.0f) return true;
+    if (!m_valid || !std::isfinite(multiplier) || !std::isfinite(result)) return false;
+    result *= multiplier;
+    return std::isfinite(result);
+}
+
 void CCSOLScenarioBreakable::ConfigureTouch()
 {
     if (m_playerRatio == 0.0f && m_monsterRatio == 0.0f)
@@ -406,9 +416,46 @@ bool CCSOLScenarioWalls::BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules
     return true;
 }
 
+bool CCSOLScenarioWalls::ApplyRoundDifficulty(float multiplier, std::uint64_t round,
+    csol::scenario::ConfigError& error)
+{
+    error = {};
+    if (!m_access || !m_access->Allowed() || m_busy || !std::isfinite(multiplier))
+    {
+        error.message = "scenario wall difficulty requires an active idle map";
+        return false;
+    }
+    if (m_difficultyRound == round) return true;
+    if (m_difficultyRound && round < *m_difficultyRound)
+    {
+        error.message = "scenario wall difficulty belongs to an expired round";
+        return false;
+    }
+    // Check the entire collection before writing any health. There are no
+    // callbacks between validation and commit; original max_health is untouched.
+    std::vector<std::pair<CCSOLScenarioBreakable*, float>> health;
+    health.reserve(m_walls.size());
+    for (const auto& handle : m_walls)
+    {
+        auto* wall = handle.Get<CCSOLScenarioBreakable>();
+        if (!wall || (wall->pev->flags & FL_KILLME)) continue;
+        float value{};
+        if (!wall->DifficultyHealth(multiplier, value))
+        {
+            error.message = "scenario wall difficulty produced invalid health";
+            return false;
+        }
+        health.emplace_back(wall, value);
+    }
+    for (const auto& [wall, value] : health) wall->pev->health = value;
+    m_difficultyRound = round;
+    return true;
+}
+
 void CCSOLScenarioWalls::Reset()
 {
     ++m_generation;
+    m_difficultyRound.reset();
     if (m_rules) m_rules->Invalidate();
     for (const auto& handle : m_walls)
     {

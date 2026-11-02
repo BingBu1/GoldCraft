@@ -23,15 +23,20 @@ bool ReadDifficultyResource(std::span<const std::byte> encoded,
 
 enum class DifficultyState { Empty, Loading, Ready, Failed };
 
-// The selected room value is captured at BeginMap. Reload changes only the
-// table, as in the original independent reload function. GameRules/admin code
-// owns allowed values, map limits and when a new selection takes effect.
+// BeginMap captures the room value. Reload changes only the table, as in the
+// original independent reload function. Explicit replay prepares a selection
+// from the loaded table; GameRules owns validation and the commit boundary.
 class DifficultyResources
 {
 public:
     DifficultyResources() = default;
     DifficultyResources(const DifficultyResources&) = delete;
     DifficultyResources& operator=(const DifficultyResources&) = delete;
+    DifficultyResources(DifficultyResources&&) noexcept = default;
+    DifficultyResources& operator=(DifficultyResources&&) noexcept = default;
+    // Prepare a different room selection from the captured table. No file I/O
+    // and no mutation of the active selection until the round owner commits it.
+    bool PrepareSelection(std::uint16_t row, DifficultyResources& output, ConfigError& error) const;
     bool BeginMap(std::string_view mapName, std::uint16_t difficulty,
         ResourceFileApi files, ResourceError& error);
     bool Reload(std::string_view mapName, ResourceFileApi files, ResourceError& error);

@@ -222,6 +222,25 @@ bool DifficultyResources::Clear()
     return true;
 }
 
+bool DifficultyResources::PrepareSelection(std::uint16_t row,
+    DifficultyResources& output, ConfigError& error) const
+{
+    error = {};
+    if (state_ != DifficultyState::Ready || !table_ || !row || row >= table_->source.records.size() ||
+        &output == this || output.state_ == DifficultyState::Loading)
+    {
+        error.message = "scenario difficulty selection requires an available gameplay row";
+        return false;
+    }
+    DifficultyResources candidate;
+    candidate.table_ = table_;
+    candidate.path_ = path_;
+    candidate.difficulty_ = row;
+    candidate.state_ = DifficultyState::Ready;
+    output = std::move(candidate);
+    return true;
+}
+
 bool DifficultyResources::BeginMap(std::string_view mapName, std::uint16_t difficulty,
     ResourceFileApi files, ResourceError& error)
 {

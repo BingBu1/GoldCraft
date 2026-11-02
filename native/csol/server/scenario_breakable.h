@@ -7,6 +7,7 @@
 #include "../scenario/config.hpp"
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 class CCSOLScenarioBreakable;
@@ -49,6 +50,9 @@ public:
     // CZBSBreak's original target-info pair is {3, trunc(health)}. Pure
     // monster-touch triggers (both ratios zero) publish no information.
     bool StatusHealth(int& health) const;
+    // MP10826860 scales only player-only zbsbreak health after map Restart.
+    // zbstarget, mixed-damage walls and the saved restart baseline stay intact.
+    bool DifficultyHealth(float multiplier, float& result) const;
     void BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules);
     static TYPEDESCRIPTION m_SaveData[];
 private:
@@ -98,6 +102,8 @@ public:
     void BindEntityAccess(std::shared_ptr<const CSOLScenarioEntityAccess> access) { m_access = std::move(access); }
     bool Collect(csol::scenario::ConfigError& error);
     bool BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules);
+    bool ApplyRoundDifficulty(float multiplier, std::uint64_t round,
+        csol::scenario::ConfigError& error);
     void CancelPending();
     void Reset();
     std::size_t Count() const { return m_walls.size(); }
@@ -106,6 +112,7 @@ private:
     std::vector<EntityHandle<CCSOLScenarioBreakable>> m_walls;
     std::shared_ptr<CCSOLScenarioWallRules> m_rules;
     std::uint64_t m_generation{};
+    std::optional<std::uint64_t> m_difficultyRound;
     bool m_busy{};
     std::shared_ptr<const CSOLScenarioEntityAccess> m_access{std::make_shared<CSOLScenarioEntityAccess>()};
 };
