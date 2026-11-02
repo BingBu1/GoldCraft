@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "scenario_respawn_ui.hpp"
+#include "scenario_retry_scoreboard.hpp"
 #include "scenario_round_hud_client.hpp"
 #include "user_message_chain.hpp"
 #include "buy_menu.hpp"
@@ -12,6 +13,8 @@
 #include <ostream>
 #include <VGUI/ISurface.h>
 #include <VGUI/IScheme.h>
+#include <VGUI/IPanel.h>
+#include <VGUI/IVGui.h>
 #include <IVGUI2Extension.h>
 
 namespace csol::client
@@ -22,22 +25,28 @@ namespace hud = scenario_respawn_ui;
 hud::State state;
 vgui::ISurface* surface{};
 vgui::ISchemeManager* schemes{};
+vgui::IPanel* panels{};
+vgui::IVGui* panelGui{};
+hud::RetryScoreboard retryScoreboard;
 IVGUI2Extension* extension{};
 std::array<int, 3 + hud::RetryImages.size()> textures{};
 vgui::HFont centerFont{}, hintFont{};
+vgui::HFont budgetTitleFont{}, budgetCountFont{};
+vgui::HScheme budgetScheme{};
 int itemSprite{};
 std::array<std::wstring, hud::CenterTokens.size()> centerTemplates;
 std::array<std::wstring, hud::HintTokens.size()> hintTexts;
 std::wstring centerText;
 std::wstring reloadWaitTemplate;
 std::wstring retryTemplate;
+std::wstring budgetTitle, budgetUnlimited, budgetText;
 constexpr std::string_view ReloadWaitToken = "#CSO_ZBSVER2_ReviveNotCooled";
 constexpr std::string_view RetryToken = "#CSO_ZBS_RoundWillRestart";
 bool localized{}, reported{}, requested{}, gameUI{}, console{}, intermission{};
 ULONGLONG retryAt{};
 double frameTime{};
 int hidden{};
-std::uint64_t accepted{}, malformed{}, draws{}, commands{};
+std::uint64_t accepted{}, malformed{}, draws{}, commands{}, budgetDraws{};
 pfnUserMsgHook previousMP{}, previousIcon{}, previousText{}, previousHint{}, previousHintArgs{};
 pfnUserMsgHook previousInit{}, previousReset{}, previousHide{};
 pfnUserMsgHook previousWait{};
@@ -65,6 +74,8 @@ void FormatCenter(double now)
     const auto marker = centerText.find(L"%s1");
     if (marker != centerText.npos) centerText.replace(marker, 3, std::to_wstring(message->seconds));
 }
+void FormatBudget()
+{ budgetText = hud::FormatRetryBudget(state.Budget(), budgetUnlimited); }
 void LoadLocalization()
 {
     scenario_hud::LocalizedTokens tokens;
@@ -73,6 +84,8 @@ void LoadLocalization()
     for (auto token : hud::HintTokens) wanted.insert(TokenKey(token));
     wanted.insert(TokenKey(ReloadWaitToken));
     wanted.insert(TokenKey(RetryToken));
+    wanted.insert(TokenKey(hud::RetryBudgetTitleToken));
+    wanted.insert(TokenKey(hud::RetryBudgetUnlimitedToken));
     std::string error;
     if (!scenario_hud::ReadLocalizedTokens(ReadLocalization(), wanted, tokens, error))
         throw std::runtime_error(error);
@@ -91,13 +104,19 @@ void LoadLocalization()
     reloadWaitTemplate.assign(reloadText.begin(), reloadText.end());
     const auto& retryText = tokens.at(TokenKey(RetryToken));
     retryTemplate.assign(retryText.begin(), retryText.end());
+    const auto& title = tokens.at(TokenKey(hud::RetryBudgetTitleToken));
+    budgetTitle.assign(title.begin(), title.end());
+    const auto& unlimited = tokens.at(TokenKey(hud::RetryBudgetUnlimitedToken));
+    budgetUnlimited.assign(unlimited.begin(), unlimited.end());
     localized = true;
     FormatCenter(engine.GetClientTime());
+    FormatBudget();
 }
 void ReleaseImages()
 {
     if (surface) for (int texture : textures) if (texture) surface->DeleteTextureByID(texture);
     textures = {}; itemSprite = {}; centerFont = hintFont = 0; retryAt = 0;
+    retryScoreboard.Reset(); budgetTitleFont = budgetCountFont = 0; budgetScheme = 0;
 }
 void Prepare()
 {
@@ -171,6 +190,51 @@ void PaintHint(int token, int width, int height)
         x += a + b + c;
     }
 }
+void PaintBudgetText(vgui::HFont font, const std::wstring& text, const hud::Rect& bounds)
+{
+    if (!font || text.empty()) return;
+    int width{}, height{};
+    surface->GetTextSize(font, text.c_str(), width, height);
+    surface->DrawSetTextFont(font); surface->DrawSetTextColor(255, 255, 255, 255);
+    surface->DrawSetTextPos(bounds.x + (bounds.width - width) / 2, bounds.y + (bounds.height - height) / 2);
+    surface->DrawPrintText(text.c_str(), int(text.size()));
+}
+void PaintRetryBudget(vgui::VPANEL root, int width, int height)
+{
+    if (!localized || !panels || !panelGui || !schemes) return;
+    const auto board = retryScoreboard.Visible(*panels, *panelGui, root, GetTickCount64());
+    if (!board) return;
+    hud::Rect bounds;
+    panels->GetAbsPos(board, bounds.x, bounds.y);
+    panels->GetSize(board, bounds.width, bounds.height);
+    int rootX{}, rootY{};
+    panels->GetAbsPos(root, rootX, rootY);
+    bounds.x -= rootX; bounds.y -= rootY;
+    const auto footer = hud::RetryBudgetFooter(bounds, width, height);
+    if (!footer.width) return;
+    const auto schemeId = panels->GetScheme(board);
+    if (schemeId != budgetScheme || !budgetTitleFont || !budgetCountFont)
+    {
+        budgetScheme = schemeId;
+        budgetTitleFont = budgetCountFont = 0;
+        if (auto* scheme = schemes->GetIScheme(schemeId ? schemeId : schemes->GetDefaultScheme()))
+        {
+            // Native scoreboard adaptation: these verified host fonts are not
+            // claimed to be the as-yet unresolved original CSOL inherited font.
+            budgetTitleFont = scheme->GetFont("Default", false);
+            budgetCountFont = scheme->GetFont("DefaultSmall", false);
+        }
+    }
+    surface->DrawSetColor(0, 0, 0, 190);
+    surface->DrawFilledRect(footer.x, footer.y, footer.x + footer.width, footer.y + footer.height);
+    surface->DrawSetColor(130, 130, 130, 220);
+    surface->DrawOutlinedRect(footer.x, footer.y, footer.x + footer.width, footer.y + footer.height);
+    const auto label = [&](const hud::Rect& child)
+    { return hud::Rect{footer.x + child.x, footer.y + child.y, child.width, child.height}; };
+    PaintBudgetText(budgetTitleFont, budgetTitle, label(hud::OriginalRetryTitle));
+    PaintBudgetText(budgetCountFont, budgetText, label(hud::OriginalRetryCount));
+    ++budgetDraws;
+}
 void Paint()
 {
     if (!requested) return;
@@ -211,6 +275,7 @@ void Paint()
     }
     const int hint = state.Hint(frameTime);
     if (hint >= 0) PaintHint(hint, width, height);
+    PaintRetryBudget(root, width, height);
     surface->DrawFlushText(); surface->PopMakeCurrent(root); ++draws;
 }
 void Sprite(wrect_t rectangle, int x, int y, float tint)
@@ -253,7 +318,8 @@ public:
     int GetAltitude() const override { return 25; }
     void Initialize(CreateInterfaceFn*, int) override {}
     void Start(cl_enginefuncs_s*, int) override {}
-    void Shutdown() override { ResetScenarioRespawnUi(); ReleaseImages(); surface = nullptr; schemes = nullptr; }
+    void Shutdown() override
+    { ResetScenarioRespawnUi(); ReleaseImages(); surface = nullptr; schemes = nullptr; panels = nullptr; panelGui = nullptr; }
     void Key_Event(int&, int&, const char*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceAppProc(void*&, void*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceWndProc(void*&, unsigned int&, unsigned int&, long&, VGUI2Extension_CallbackContext*) override {}
@@ -283,7 +349,8 @@ std::wstring RetryPlayerName(unsigned index)
 }
 void ApplyRetry(const hud::Message& message)
 {
-    if (message.kind == hud::Kind::RetryCountdown)
+    if (message.kind == hud::Kind::RetryBudget) FormatBudget();
+    else if (message.kind == hud::Kind::RetryCountdown)
     {
         if (const auto* sound = hud::RetrySound(message.count); sound && engine.pfnPlaySoundByNameAtPitch)
             engine.pfnPlaySoundByNameAtPitch(sound, 1, 100);
@@ -410,6 +477,12 @@ void InitializeScenarioRespawnUi()
         const auto factory = api->GetEngineFactory();
         surface = factory ? static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION, nullptr)) : nullptr;
         schemes = factory ? static_cast<vgui::ISchemeManager*>(factory(VGUI_SCHEME_INTERFACE_VERSION, nullptr)) : nullptr;
+        // VGUI2Extension's BaseUI uses the loaded vgui2 factory for these
+        // public interfaces. Do not cast the unrelated native ClientVGUI ABI.
+        const auto vguiModule = reinterpret_cast<HINTERFACEMODULE>(GetModuleHandleA("vgui2.dll"));
+        const auto vguiFactory = vguiModule ? Sys_GetFactory(vguiModule) : nullptr;
+        panels = vguiFactory ? static_cast<vgui::IPanel*>(vguiFactory(VGUI_PANEL_INTERFACE_VERSION, nullptr)) : nullptr;
+        panelGui = vguiFactory ? static_cast<vgui::IVGui*>(vguiFactory(VGUI_IVGUI_INTERFACE_VERSION, nullptr)) : nullptr;
         const auto module = api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");
         const auto pluginFactory = module ? Sys_GetFactory(module) : nullptr;
         extension = pluginFactory ? static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION, nullptr)) : nullptr;
@@ -419,6 +492,8 @@ void InitializeScenarioRespawnUi()
 void ResetScenarioRespawnUi()
 {
     state.Reset(); centerText.clear(); reloadWaitTemplate.clear(); retryTemplate.clear(); centerTemplates = {}; hintTexts = {};
+    budgetTitle.clear(); budgetUnlimited.clear(); budgetText.clear(); retryScoreboard.Reset();
+    budgetTitleFont = budgetCountFont = 0; budgetScheme = 0;
     localized = reported = requested = intermission = false; hidden = 0; frameTime = 0; retryAt = 0;
 }
 void ScenarioRespawnUiFrame() { Prepare(); }
@@ -445,12 +520,15 @@ void ShutdownScenarioRespawnUi()
     ResetScenarioRespawnUi(); ReleaseImages();
     if (extension && surface) extension->UnregisterBaseUICallbacks(&overlay);
     extension = nullptr; surface = nullptr; schemes = nullptr; gameUI = console = false;
+    panels = nullptr; panelGui = nullptr;
 }
 void ScenarioRespawnUiDiagnostics(std::ostream& out)
 {
     out << "scenarioRevival active=" << state.Active() << " mask=" << state.Mask()
         << " localized=" << localized << " sprite=" << itemSprite << " fonts=" << centerFont << ',' << hintFont
         << " retry=" << state.RetryCountdown()
+        << " retryBudget=" << state.Budget().remaining << '/' << state.Budget().initial
+        << " retryBudgetDraws=" << budgetDraws << " scoreboardApi=" << (panels && panelGui)
         << " accepted=" << accepted << " malformed=" << malformed << " draws=" << draws << " commands=" << commands << '\n';
 }
 }

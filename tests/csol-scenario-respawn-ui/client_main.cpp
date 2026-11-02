@@ -43,6 +43,13 @@ std::vector<std::byte> Item(unsigned index,float cooldown,int count)
     for(unsigned shift:{0u,8u,16u,24u})b.push_back(std::byte(bits>>shift));
     b.push_back(std::byte(unsigned(count)));b.push_back(std::byte(unsigned(count)>>8));return b;
 }
+std::vector<std::byte> Budget(std::int32_t remaining,std::int32_t initial)
+{
+    auto b=Bytes({27,29});
+    for(auto value:{remaining,initial})
+        for(unsigned shift:{0u,8u,16u,24u})b.push_back(std::byte(std::bit_cast<std::uint32_t>(value)>>shift));
+    return b;
+}
 }
 CreateInterfaceFn Sys_GetFactory(HINTERFACEMODULE){return nullptr;}
 namespace csol
@@ -122,6 +129,38 @@ int wmain(int argc,wchar_t**argv)
         LoadLocalization();
         Check(localized&&reads==1&&centerText==L"复活剩余时间 (30秒)","actual Chinese resource formats authoritative countdown");
         Check(hintTexts[0]==L"使用复活道具即可立即复活 (按键：R)","actual original revival hint localized");
+        Check(budgetTitle==L"回合重置可使用次数"&&budgetUnlimited==L"：无限制",
+            "actual original retry budget title and unlimited resource tokens localized");
+        Check(Send("MPToCL",Budget(70000,90000))==73&&state.Budget().remaining==70000&&
+            state.Budget().initial==90000&&budgetText==L"70000/90000",
+            "actual receiver retains both LONGs above signed16 range and forwards the message");
+        Check(Send("MPToCL",Budget(0,0))==73&&budgetText==L"0/0","zero limit remains visible without granting retry");
+        Check(Send("MPToCL",Budget(0,-1))==73&&budgetText==L"：无限制",
+            "original unlimited label is selected by initial LONG");
+        Check(Send("MPToCL",Budget(7,-2))==73&&budgetText.empty()&&!budgetTitle.empty(),
+            "original minus2 initial clears count while retaining title");
+        Check(Send("MPToCL",Budget(2147483647,2147483647))==73&&budgetText==L"2147483647/2147483647",
+            "signed32 maximum is not narrowed or reformatted as unsigned16");
+        Send("MPToCL",Budget(70000,90000));
+        count=accepted;oldForwards=forwards;
+        const auto budgetSounds=sounds.size();const auto budgetNotices=noticeCount;
+        for(unsigned length=2;length<10;++length)
+        {
+            auto malformedBudget=Budget(1,2);malformedBudget.resize(length);
+            Check(Send("MPToCL",malformedBudget)==1&&accepted==count&&forwards==oldForwards&&
+                state.Budget().remaining==70000&&budgetText==L"70000/90000",
+                "truncated or old SHORT budget cannot mutate actual consumer or reach downstream");
+        }
+        auto trailingBudget=Budget(1,2);trailingBudget.push_back(std::byte{});
+        Check(Send("MPToCL",trailingBudget)==1&&accepted==count&&forwards==oldForwards,
+            "budget trailing byte is rejected");
+        for(const auto& invalidBudget:{Budget(-3,2),Budget(1,-3),Budget(INT32_MIN,2),Budget(1,INT32_MIN)})
+            Check(Send("MPToCL",invalidBudget)==1&&accepted==count&&forwards==oldForwards&&
+                state.Budget().remaining==70000&&budgetText==L"70000/90000","unknown budget sentinel preserves prior state");
+        Send("MPToCL",Bytes({27,3,2,0,0,0,0,0}));
+        Check(state.Budget().remaining==70000&&state.Budget().initial==90000&&budgetText==L"70000/90000"&&
+            sounds.size()==budgetSounds&&noticeCount==budgetNotices,
+            "ordinary round notification neither refills budget nor plays retry sound or announcement");
         Check(Send("ZBSVer2",Bytes({0x1c,45,0,0,0}))==1&&noticeCount==1&&noticeChannel==6&&
             noticeText==L"道具冷却时间剩余45秒，无法立即复活"&&noticeColor==std::array<std::uint8_t,3>{255,195,35},
             "original R cooldown notice uses localized channel6 and original RGB");
@@ -170,15 +209,24 @@ int wmain(int argc,wchar_t**argv)
         Check(state.Active()&&state.Mask()==1&&state.Items()[0].count==11&&state.Items()[0].cooldownEnd==160,
             "real ResetHUD preserves authoritative consumables and timer");
         Check(state.Outcome()<0&&state.Hint(now)<0&&!state.Center(now)&&centerText.empty(),"real ResetHUD clears old life presentation");
+        Check(state.Budget().remaining==70000&&state.Budget().initial==90000&&budgetText==L"70000/90000",
+            "real ResetHUD preserves authoritative challenge budget");
         ScenarioRespawnUiVideoInit();Check(itemSprite==0&&state.Items()[0].count==11&&localized,"video reset retires graphics but keeps authoritative data");
+        Check(state.Budget().remaining==70000&&budgetText==L"70000/90000","video reset preserves retry budget and localized count");
         ScenarioRespawnUiFrame();Check(reads==1,"no-surface frame does not attempt graphics IO");
         Send("MPToCL",Bytes({25,9}));DrawScenarioRespawnUi(now,1);
         Check(requested&&intermission,"round outcome survives intermission while input is blocked");
         Send("InitHUD",Bytes({0}));
         Check(!state.Active()&&!state.Mask()&&!localized&&!TryScenarioHealingSlot(5),"same-map reconnect fully resets and releases slots");
+        Check(state.Budget().initial==-2&&state.Budget().remaining==-2&&budgetText.empty()&&budgetTitle.empty(),
+            "InitHUD clears previous session budget and localization");
+        Send("MPToCL",Budget(1,3));
+        Check(state.Budget().remaining==1&&state.Budget().initial==3&&budgetText==L"1/3",
+            "late join snapshot installs remaining count without inferring a refill");
         Send("MPToCL",Item(1,0,7));newSession=true;
         Send("HudIcon",Bytes({2,0}));
         Check(!state.Active()&&state.Mask()==2&&state.Items()[1].count==-1,"session is reset before accepting new early mask");
+        Check(state.Budget().initial==-2&&budgetText.empty(),"new-session synchronization retires old retry snapshot before next message");
         ShutdownScenarioRespawnUi();Check(!state.Active()&&!surface&&!extension&&!requested,"shutdown retires UI state");
         std::cout<<"scenario_respawn_client checks="<<checks<<" failures="<<failures<<'\n';return failures?1:0;
     }

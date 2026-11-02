@@ -16,14 +16,29 @@
 namespace csol::scenario_respawn_ui
 {
 enum class ParseResult { Unrelated, Malformed, Accepted };
-enum class Kind { Round, Outcome, Consumable, RetryCountdown, RetryAnnouncement };
+enum class Kind { Round, Outcome, Consumable, RetryCountdown, RetryAnnouncement, RetryBudget };
+struct RetryBudget
+{
+    std::int32_t remaining{-2}, initial{-2};
+    bool Valid() const { return remaining >= -2 && initial >= -2; }
+};
 struct Message
 {
     Kind kind{};
     unsigned index{};
     int count{-1};
     float cooldown{};
+    RetryBudget budget;
 };
+inline constexpr std::string_view RetryBudgetTitleToken = "#CSO_ZBS_RetryCountText";
+inline constexpr std::string_view RetryBudgetUnlimitedToken = "#CSO_ZBS_RetryCountTextunlimit";
+inline std::wstring FormatRetryBudget(const RetryBudget& budget, std::wstring_view unlimited)
+{
+    // Original client02A05510 selects both sentinel forms from the second LONG.
+    if (budget.initial == -2) return {};
+    if (budget.initial == -1) return std::wstring(unlimited);
+    return std::to_wstring(budget.remaining) + L"/" + std::to_wstring(budget.initial);
+}
 inline constexpr std::array<int, 4> ItemTops{1, 29, 57, 90};
 inline constexpr std::array<int, 4> ItemY{273, 316, 359, 402};
 inline constexpr std::array<std::string_view, 5> CenterTokens{
@@ -74,6 +89,15 @@ inline ParseResult DecodeMP(std::span<const std::byte> b, Message& out)
         if (b.size() != 4 || Byte(b[2]) < 1 || Byte(b[2]) > 32 || Byte(b[3]) == 0)
             return ParseResult::Malformed;
         m.kind = Kind::RetryAnnouncement; m.index = Byte(b[2]); m.count = int(Byte(b[3]));
+    }
+    else if (Byte(b[1]) == 29)
+    {
+        // 02A5BCAA calls READ_LONG02AA4590 twice, never READ_SHORT.
+        if (b.size() != 10) return ParseResult::Malformed;
+        m.kind = Kind::RetryBudget;
+        m.budget.remaining = std::bit_cast<std::int32_t>(Word(b, 2) | (Word(b, 4) << 16));
+        m.budget.initial = std::bit_cast<std::int32_t>(Word(b, 6) | (Word(b, 8) << 16));
+        if (!m.budget.Valid()) return ParseResult::Malformed;
     }
     else return ParseResult::Unrelated;
     out = m;
@@ -248,6 +272,11 @@ public:
             if (m.index < 1 || m.index > 32 || m.count < 1 || m.count > 255) return false;
             active_ = true; return true;
         }
+        if (m.kind == Kind::RetryBudget)
+        {
+            if (!m.budget.Valid()) return false;
+            active_ = true; budget_ = m.budget; return true;
+        }
         if (m.index >= items_.size() || !std::isfinite(m.cooldown) || m.cooldown < 0 ||
             m.count < -32768 || m.count > 32767 || !std::isfinite(now + m.cooldown)) return false;
         active_ = true;
@@ -286,6 +315,7 @@ public:
     const auto& Items() const { return items_; }
     int Outcome() const { return outcome_; }
     int RetryCountdown() const { return retry_; }
+    const RetryBudget& Budget() const { return budget_; }
     int OutcomeAlpha(double now) const
     {
         if (outcome_ < 0 || !std::isfinite(now)) return 0;
@@ -317,6 +347,7 @@ public:
     }
 private:
     std::array<Consumable, 4> items_{};
+    RetryBudget budget_;
     CenterMessage center_{};
     double centerAt_{}, centerUntil_{}, outcomeAt_{}, hintAt_{};
     unsigned mask_{};

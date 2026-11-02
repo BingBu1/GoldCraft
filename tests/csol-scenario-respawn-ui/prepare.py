@@ -52,8 +52,11 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--common', type=Path, required=True)
     parser.add_argument('--passed-core', type=Path, help='Reuse an unchanged successful core check; only client and routing execute')
-    parser.add_argument('--only', choices=('round-text', 'retry-ui'), help='Execute only round text or the changed retry UI consumers')
+    parser.add_argument('--only', choices=('round-text', 'retry-ui', 'retry-budget'),
+                        help='Select round text, retry UI, or client/budget/continuation checks')
     args = parser.parse_args()
+    if args.only == 'retry-budget' and args.passed_core:
+        raise ValueError('The budget batch has its own changed client and panel checks')
     out = args.output.resolve()
     if out.exists() or not out.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a new workspace build directory')
@@ -64,7 +67,11 @@ def main():
     source = out / 'source'
     audit = read(BASE / 'revision-02/dependency-audit-02.json')
     assert audit['success'] and audit['sourceConsumptionComplete']
-    pending = [ROOT / f'tests/csol-scenario-respawn-ui/{name}' for name in ('main.cpp', 'client_main.cpp', 'slot_main.cpp', 'round_text_main.cpp', 'prepare.py')]
+    entries = ('client_main.cpp', 'retry_budget_main.cpp', 'continuation_main.cpp', 'prepare.py') if args.only == 'retry-budget' else (
+        'main.cpp', 'client_main.cpp', 'slot_main.cpp', 'round_text_main.cpp', 'retry_budget_main.cpp', 'prepare.py')
+    pending = [ROOT / f'tests/csol-scenario-respawn-ui/{name}' for name in entries]
+    if args.only == 'retry-budget':
+        pending.extend(ROOT / path for path in ('native/csol/server/scenario_consumables.cpp', 'native/csol/server/persistence/types.cpp'))
     pending.append(ROOT / 'native/csol/scenario_localization.cpp')
     frozen = []
     copied = set()
@@ -124,15 +131,19 @@ def main():
         assert identity(source / relative)['sha256'] == identity(BASE / 'source' / relative)['sha256']
     reused = CLIENT / data['output']
     save(out / 'reused-object.json', dict(object=identity(reused), source=identity(Path(data['file'])), compileCommand=data))
-    slots = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/weapon_slots.cpp'))
-    slot_object = CLIENT / slots['output']
-    for name in ('weapon_slots.cpp', 'weapon_slots.hpp'):
-        relative = 'native/csol/' + name
-        assert identity(ROOT / relative)['sha256'] == identity(BASE / 'source' / relative)['sha256']
-    save(out / 'reused-slots.json', dict(object=identity(slot_object), source=identity(Path(slots['file'])), compileCommand=slots))
+    slot_objects = []
+    slot_record = {}
+    if args.only != 'retry-budget':
+        slots = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/weapon_slots.cpp'))
+        slot_objects.append(CLIENT / slots['output'])
+        for name in ('weapon_slots.cpp', 'weapon_slots.hpp'):
+            relative = 'native/csol/' + name
+            assert identity(ROOT / relative)['sha256'] == identity(BASE / 'source' / relative)['sha256']
+        slot_record = dict(object=identity(slot_objects[0]), source=identity(Path(slots['file'])), compileCommand=slots)
+    save(out / 'reused-slots.json', slot_record)
     round_objects = []
     round_records = []
-    round_inputs = () if args.only == 'retry-ui' else ('scenario_round_hud.cpp', 'scenario/config.cpp', 'scenario/spawn_points.cpp',
+    round_inputs = () if args.only in ('retry-ui', 'retry-budget') else ('scenario_round_hud.cpp', 'scenario/config.cpp', 'scenario/spawn_points.cpp',
         'scenario/message_table.cpp', 'scenario/message_resource.cpp', 'scenario/dialogue_resources.cpp', 'scenario/wave_events.cpp')
     for name in round_inputs:
         relative = 'native/csol/' + name
@@ -142,9 +153,10 @@ def main():
         round_objects.append(obj)
         round_records.append(dict(object=identity(obj), source=identity(Path(entry['file'])), compileCommand=entry))
     save(out / 'reused-round.json', round_records)
-    assets = [args.common / path for path in ('resource/cso_chn.txt', 'resource/Hud/Hud_string_bg.tga',
-        'resource/Hud/ZBS/roundclear.tga', 'resource/Hud/ZBS/roundfail.tga', 'sprites/zbs_level.spr')]
-    contract = (source / 'native/csol/scenario_respawn_resources.hpp').read_text('utf-8')
+    asset_paths = ('resource/cso_chn.txt',) if args.only == 'retry-budget' else ('resource/cso_chn.txt', 'resource/Hud/Hud_string_bg.tga',
+        'resource/Hud/ZBS/roundclear.tga', 'resource/Hud/ZBS/roundfail.tga', 'sprites/zbs_level.spr')
+    assets = [args.common / path for path in asset_paths]
+    contract = '' if args.only == 'retry-budget' else (source / 'native/csol/scenario_respawn_resources.hpp').read_text('utf-8')
     import struct
     for path, width, height in re.findall(r'\{"([^"]+\.tga)", (\d+), (\d+)\}', contract):
         resource = args.common / path
@@ -163,8 +175,9 @@ def main():
     groups = [
         ('core', 'main.cpp', [], [], 'scenario_respawn_ui checks='),
         ('client', 'client_main.cpp', [reused], [args.common.resolve()], 'scenario_respawn_client checks='),
-        ('slots', 'slot_main.cpp', [reused, slot_object], [], 'scenario_respawn_slots checks='),
-        ('round-text', 'round_text_main.cpp', [reused, *round_objects], [args.common.resolve()], 'scenario_respawn_round_text newChecks=')]
+        ('slots', 'slot_main.cpp', [reused, *slot_objects], [], 'scenario_respawn_slots checks='),
+        ('round-text', 'round_text_main.cpp', [reused, *round_objects], [args.common.resolve()], 'scenario_respawn_round_text newChecks='),
+        ('retry-budget', 'retry_budget_main.cpp', [], [], 'scenario_retry_budget checks=')]
     previous_core = []
     if args.passed_core:
         previous = args.passed_core.resolve()
@@ -180,6 +193,8 @@ def main():
             continue
         if args.only == 'retry-ui' and name == 'round-text':
             continue
+        if args.only == 'retry-budget' and name not in ('client', 'retry-budget'):
+            continue
         obj = output / (name + '.obj')
         binary = output / (name + '.exe')
         jobs.append(dict(name='compile-' + name, kind='compile', seconds=120, expectExit=0,
@@ -190,10 +205,37 @@ def main():
                 '/opt:icf', '/opt:lldltojobs=1', '/threads:1', '/out:' + str(binary), '/pdb:' + str(output / (name + '.pdb')),
                 str(obj), *map(str, others), 'kernel32.lib', 'user32.lib', 'gdi32.lib', 'shell32.lib', 'ole32.lib', 'advapi32.lib']))
         jobs.append(dict(name='run-' + name, kind='run', seconds=60, expectExit=0, marker=marker, command=[str(binary), *map(str, arguments)]))
+    if args.only == 'retry-budget':
+        continuation_objects = []
+        for name, relative in (
+            ('continuation', 'tests/csol-scenario-respawn-ui/continuation_main.cpp'),
+            ('consumables', 'native/csol/server/scenario_consumables.cpp'),
+            ('persistence-types', 'native/csol/server/persistence/types.cpp')):
+            obj = output / (name + '.obj')
+            continuation_objects.append(obj)
+            jobs.append(dict(name='compile-' + name, kind='compile', seconds=120, expectExit=0,
+                command=[compiler, *flags, '/showIncludes', '-I' + str(source), '/Fo' + str(obj),
+                    '/Fd' + str(output / (name + '.compile.pdb')), '-c', '--', str(source / relative)]))
+        binary = output / 'continuation.exe'
+        jobs.append(dict(name='link-continuation', kind='link', seconds=180, expectExit=0,
+            command=[linker, '/nologo', '/subsystem:console', '/machine:x86', '/debug', '/incremental:no', '/opt:ref',
+                '/opt:icf', '/opt:lldltojobs=1', '/threads:1', '/out:' + str(binary), '/pdb:' + str(output / 'continuation.pdb'),
+                *map(str, continuation_objects), 'kernel32.lib', 'bcrypt.lib']))
+        jobs.append(dict(name='run-continuation', kind='run', seconds=60, expectExit=0,
+            marker='scenario_retry_continuation checks=', command=[str(binary)]))
     runner = ROOT / 'build/csol-character-skills-completion-20261031/status-buy-narrow-20261101-02/run.py'
-    shutil.copy2(runner, out / 'run.py')
+    runner_text = runner.read_text('utf-8')
+    for old, new in (
+        ("            if time.monotonic() - started > plan['maxSeconds']:\n",
+         "            remaining = plan['maxSeconds'] - (time.monotonic() - started)\n            if remaining <= 0:\n"),
+        ("process.communicate(timeout=job['seconds'])", "process.communicate(timeout=min(job['seconds'], remaining))")):
+        if runner_text.count(old) != 1:
+            raise ValueError('Unexpected source runner deadline contract')
+        runner_text = runner_text.replace(old, new, 1)
+    (out / 'run.py').write_text(runner_text, encoding='utf-8')
     save(out / 'source-changes.json', frozen)
-    direct = [row['frozen'] for row in frozen] + [identity(path) for path in assets] + [identity(reused), identity(slot_object)] + previous_core
+    direct = [row['frozen'] for row in frozen] + [identity(path) for path in assets] + [identity(reused)] + previous_core
+    direct.extend(identity(path) for path in slot_objects)
     direct.extend(identity(path) for path in round_objects)
     direct.extend(identity(path) for path in (overlay, out / 'run.py', out / 'source-changes.json', out / 'resources.json',
         out / 'external-inputs.json', out / 'reused-object.json', out / 'reused-slots.json', out / 'reused-round.json', BASE / 'source-manifest-final.json', BASE / 'environment.json',
@@ -202,9 +244,9 @@ def main():
         productionManifest=identity(BASE / 'source-manifest-final.json'), externalManifest=identity(out / 'external-inputs.json'),
         environment=identity(BASE / 'environment.json'), overlay=identity(overlay), jobs=jobs, maxSeconds=600,
         output=str(output), compiler=compiler, originalCompile=origin, compileFlags=flags, previousCore=previous_core,
-        compiled=False, deployed=False))
+        selectedGroup=args.only, compiled=False, deployed=False))
     print(json.dumps(dict(proposal=identity(out / 'proposal.json'), independentSources=len(frozen),
-        jobs=len(jobs), reusedObjects=2+len(round_objects), compilerInvoked=False), indent=2))
+        jobs=len(jobs), reusedObjects=1+len(slot_objects)+len(round_objects), compilerInvoked=False), indent=2))
 
 
 if __name__ == '__main__':
