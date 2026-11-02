@@ -236,20 +236,21 @@ index 22e7b6a..535f5e6 100644
  		Q_strlcpy(destInfo, srcInfo, maxsize);
  		Info_RemovePrefixedKeys(destInfo, '_');
 diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
-index e69d2c9..44419bd 100644
+index e69d2c9..e8434e8 100644
 --- a/rehlds/engine/model.cpp
 +++ b/rehlds/engine/model.cpp
-@@ -27,6 +27,9 @@
+@@ -27,6 +27,10 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
 +#include "csol_loader.h"
++#include "csol_bsp_hulls.h"
 +#include "csol_sequence_guard.h"
  
  model_t *loadmodel;
  char loadname[MAX_MODEL_NAME];
-@@ -114,8 +117,9 @@ void Mod_ClearAll(void)
+@@ -114,8 +118,9 @@ void Mod_ClearAll(void)
  {
  	int i;
  	model_t *mod;
@@ -260,7 +261,7 @@ index e69d2c9..44419bd 100644
  		if (mod->type != mod_alias && mod->needload != (NL_NEEDS_LOADED | NL_UNREFERENCED))
  		{
  			mod->needload = NL_UNREFERENCED;
-@@ -129,7 +133,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -129,7 +134,7 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  {
  	mod_known_info_t *p;
  
@@ -269,7 +270,7 @@ index e69d2c9..44419bd 100644
  	p->shouldCRC = trackCRC;
  	p->firstCRCDone = 0;
  	p->initialCRC = 0;
-@@ -137,48 +141,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
+@@ -137,48 +142,18 @@ void Mod_FillInCRCInfo(qboolean trackCRC, int model_number)
  
  model_t *Mod_FindName(qboolean trackCRC, const char *name)
  {
@@ -327,7 +328,7 @@ index e69d2c9..44419bd 100644
  }
  
  NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
-@@ -188,7 +162,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
+@@ -188,7 +163,7 @@ NOXREF qboolean Mod_ValidateCRC(const char *name, CRC32_t crc)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(TRUE, name);
@@ -336,7 +337,7 @@ index e69d2c9..44419bd 100644
  
  	if (p->firstCRCDone)
  	{
-@@ -205,7 +179,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
+@@ -205,7 +180,7 @@ NOXREF void Mod_NeedCRC(const char *name, qboolean needCRC)
  	mod_known_info_t *p;
  
  	mod = Mod_FindName(FALSE, name);
@@ -345,7 +346,7 @@ index e69d2c9..44419bd 100644
  
  	p->shouldCRC = needCRC;
  }
-@@ -296,7 +270,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -296,7 +271,7 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  
  	if (trackCRC)
  	{
@@ -354,7 +355,7 @@ index e69d2c9..44419bd 100644
  		if (p->shouldCRC)
  		{
  			CRC32_Init(&currentCRC);
-@@ -348,11 +322,16 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -348,11 +323,16 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  		Mod_LoadAliasModel(mod, buf);
  		break;
  	case IDSPRITEHEADER:
@@ -373,7 +374,26 @@ index e69d2c9..44419bd 100644
  	default:
  		Mod_LoadBrushModel(mod, buf);
  		break;
-@@ -1888,8 +1867,9 @@ void Mod_Print(void)
+@@ -1122,6 +1102,18 @@ void Mod_LoadClipnodes(lump_t *l)
+ 	hull->clip_maxs[0] = 32;
+ 	hull->clip_maxs[1] = 32;
+ 	hull->clip_maxs[2] = 32;
++	// Imported scenario BSPs were compiled for CSOL's large hull. Stock
++	// dimensions put Oberon inside the floor even with a valid spawn point.
++	// Submodels inherit these dimensions in Mod_LoadBrushModel below.
++	if (loadmodel->entities && csol::bsp::HasScenarioEntities(loadmodel->entities))
++	{
++		const auto bounds = csol::bsp::ScenarioHullForMap(loadmodel->name);
++		for (int axis = 0; axis < 3; ++axis)
++		{
++			hull->clip_mins[axis] = bounds.mins[axis];
++			hull->clip_maxs[axis] = bounds.maxs[axis];
++		}
++	}
+ 
+ 	hull = &loadmodel->hulls[3];
+ 	hull->clipnodes = out;
+@@ -1888,8 +1880,9 @@ void Mod_Print(void)
  	int i;
  	model_t *mod;
  	Con_Printf("Cached models:\n");
@@ -384,7 +404,7 @@ index e69d2c9..44419bd 100644
  		Con_Printf("%8p : %s", mod->cache.data, mod->name);
  		if (mod->needload & NL_UNREFERENCED)
  			Con_Printf(" (!R)");
-@@ -1908,7 +1888,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1908,7 +1901,7 @@ NOXREF void Mod_ChangeGame(void)
  
  	for (i = 0; i < mod_numknown; i++)
  	{
@@ -393,7 +413,7 @@ index e69d2c9..44419bd 100644
  
  		if (mod->type == mod_studio)
  		{
-@@ -1916,7 +1896,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1916,7 +1909,7 @@ NOXREF void Mod_ChangeGame(void)
  				Cache_Free(&mod->cache);
  		}
  
@@ -402,7 +422,7 @@ index e69d2c9..44419bd 100644
  
  		p->firstCRCDone = FALSE;
  		p->initialCRC = 0;
-@@ -1926,12 +1906,12 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1926,12 +1919,12 @@ NOXREF void Mod_ChangeGame(void)
  model_t *Mod_Handle(int modelindex)
  {
  #ifdef REHLDS_FIXES
@@ -2368,19 +2388,33 @@ index 1c62ebc..4d8fdfb 100644
  NOXREF void Sys_ShutdownLauncherInterface();
  void Sys_InitAuthentication();
 diff --git a/rehlds/engine/world.cpp b/rehlds/engine/world.cpp
-index 8038ab7..05faef7 100644
+index 8038ab7..4d735fb 100644
 --- a/rehlds/engine/world.cpp
 +++ b/rehlds/engine/world.cpp
-@@ -27,6 +27,8 @@
+@@ -27,6 +27,9 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
 +#include "map_physics.h"
++#include "csol_bsp_hulls.h"
  
  hull_t box_hull;
  hull_t beam_hull;
-@@ -297,6 +299,7 @@ areanode_t *SV_CreateAreaNode(int depth, vec_t *mins, vec_t *maxs)
+@@ -214,6 +217,12 @@ hull_t *SV_HullForBsp(edict_t *ent, const vec_t *mins, const vec_t *maxs, vec_t
+ 		// calculate an offset value to center the origin
+ 		VectorSubtract(hull->clip_mins, mins, offset);
+ 
++		// CSOL SV_HullForBsp 37965E80 centers non-point hulls in XY, retaining
++		// the vertical correction. Select by this model's loaded profile so
++		// ordinary CS maps keep their existing hull-centering policy.
++		if (csol::bsp::IsScenarioLargeHull(model->hulls[2].clip_mins, model->hulls[2].clip_maxs))
++			offset[0] = offset[1] = 0.0f;
++
+ #ifdef REHLDS_FIXES
+ 		if (sv_rehlds_hull_centering.value && (mins[0] + maxs[0]) == 0.0f)
+ 			offset[0] = 0.0f;
+@@ -297,6 +306,7 @@ areanode_t *SV_CreateAreaNode(int depth, vec_t *mins, vec_t *maxs)
  // called after the world model has been loaded, before linking any entities
  void SV_ClearWorld()
  {
@@ -2388,7 +2422,7 @@ index 8038ab7..05faef7 100644
  	SV_InitBoxHull();
  
  	Q_memset(sv_areanodes, 0, sizeof(sv_areanodes));
-@@ -694,7 +697,9 @@ int SV_LinkContents(areanode_t *node, const vec_t *pos)
+@@ -694,7 +704,9 @@ int SV_LinkContents(areanode_t *node, const vec_t *pos)
  // does not check any entities at all
  int SV_PointContents(const vec_t *p)
  {
@@ -2399,7 +2433,7 @@ index 8038ab7..05faef7 100644
  	if (cont <= CONTENTS_CURRENT_0 && cont >= CONTENTS_CURRENT_DOWN)
  	{
  		cont = CONTENTS_WATER;
-@@ -1036,7 +1041,7 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
+@@ -1036,7 +1048,7 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
  #ifdef REHLDS_FIXES
  	if (Mod_GetType(ent->v.modelindex) == mod_studio)
  #else
@@ -2408,7 +2442,7 @@ index 8038ab7..05faef7 100644
  #endif // REHLDS_FIXES
  	{
  		// get the clipping hull from studio model
-@@ -1080,7 +1085,8 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
+@@ -1080,7 +1092,8 @@ void SV_SingleClipMoveToEntity(edict_t *ent, const vec_t *start, const vec_t *mi
  	// trace a line through the appropriate clipping hull
  	if (numhulls == 1)
  	{
@@ -2418,7 +2452,7 @@ index 8038ab7..05faef7 100644
  	}
  	else
  	{
-@@ -1452,8 +1458,9 @@ void SV_SingleClipMoveToPoint(const vec_t *start, const vec_t *end, trace_t *tra
+@@ -1452,8 +1465,9 @@ void SV_SingleClipMoveToPoint(const vec_t *start, const vec_t *end, trace_t *tra
  	trace->allsolid = TRUE;
  	VectorCopy(end, trace->endpos);
  
