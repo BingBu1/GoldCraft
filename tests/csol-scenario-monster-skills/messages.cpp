@@ -59,6 +59,7 @@ void Payloads()
     Install(); CCSOLScenarioMessages messages;edict_t player{};
     const float origin[]{-12.25f, 100.5f, 43.125f};
     Check(!messages.SendMonsterDisarmImpact(origin)&&begins==0);
+    Check(!messages.SendMonsterZombieBomb(origin)&&begins==0);
     Check(!messages.SendMonsterTrapDirection(&player,origin)&&begins==0);
     Check(messages.Register());
     Check(registrations.at("CsoMonFX").second==7);
@@ -68,6 +69,17 @@ void Payloads()
     Check(pvs==std::array<float,3>{-12.25f,100.5f,43.125f});
     Check(coordinates==std::vector<float>{-12.25f,100.5f,23.125f});
     Check(bytes==std::vector<unsigned char>{1,158,255,36,3,185,0});
+    Clear();Check(messages.SendMonsterZombieBomb(origin));
+    Check(begins==1&&ends==1&&destination==MSG_PVS&&type==registrations.at("CsoMonFX").first);
+    Check(hasOrigin&&!recipient&&pvs==std::array<float,3>{-12.25f,100.5f,43.125f});
+    Check(coordinates==std::vector<float>{-12.25f,100.5f,43.125f});
+    Check(bytes==std::vector<unsigned char>{3,158,255,36,3,89,1});
+    for(const std::array<float,3> edge : {std::array<float,3>{-4096,4095.875f,0},std::array<float,3>{.125f,-.125f,4095.875f}})
+    {
+        Clear();Check(messages.SendMonsterZombieBomb(edge.data()));
+        Check(coordinates==std::vector<float>(edge.begin(),edge.end()));
+        Check(pvs==edge&&bytes.size()==7&&bytes[0]==3&&begins==1&&ends==1);
+    }
     Clear();Check(messages.SendMonsterTrapDirection(&player,origin));
     Check(begins==1&&ends==1&&destination==MSG_ONE&&recipient==&player&&!hasOrigin);
     Check(bytes==std::vector<unsigned char>{2,158,255,36,3,89,1});
@@ -80,6 +92,7 @@ void Invalid()
     Install();CCSOLScenarioMessages messages;edict_t player{};
     Check(messages.Register());float origin[]{1,2,3};
     Check(!messages.SendMonsterDisarmImpact(nullptr)&&begins==0);
+    Check(!messages.SendMonsterZombieBomb(nullptr)&&begins==0);
     Check(!messages.SendMonsterTrapDirection(nullptr,origin)&&begins==0);
     Check(!messages.SendMonsterTrapDirection(&player,nullptr)&&begins==0);
     Check(!messages.SendMonsterSkillShake(nullptr)&&begins==0);
@@ -91,6 +104,7 @@ void Invalid()
         {
             origin[axis]=value;
             Check(!messages.SendMonsterDisarmImpact(origin)&&begins==0);
+            Check(!messages.SendMonsterZombieBomb(origin)&&begins==0);
             Check(!messages.SendMonsterTrapDirection(&player,origin)&&begins==0);
             origin[axis]=float(axis+1);
         }
@@ -108,12 +122,14 @@ void Invalid()
         if(missing<4)
         {
             Check(!messages.SendMonsterDisarmImpact(origin)&&begins==0);
+            Check(!messages.SendMonsterZombieBomb(origin)&&begins==0);
             Check(!messages.SendMonsterTrapDirection(&player,origin)&&begins==0);
         }
         if(missing<2||missing==4)Check(!messages.SendMonsterSkillShake(&player)&&begins==0);
     }
     g_engfuncs=complete;registrationFailure="CsoMonFX";Clear();Check(!messages.Register());
     Check(!messages.SendMonsterDisarmImpact(origin)&&begins==0);
+    Check(!messages.SendMonsterZombieBomb(origin)&&begins==0);
     Check(!messages.SendMonsterTrapDirection(&player,origin)&&begins==0);
 }
 void Reentry()
@@ -124,6 +140,7 @@ void Reentry()
     {
         const int before=begins;
         Check(!other.SendMonsterDisarmImpact(origin));
+        Check(!other.SendMonsterZombieBomb(origin));
         Check(!other.SendMonsterTrapDirection(&player,origin));
         Check(!other.SendMonsterSkillShake(&player));
         Check(begins==before);
@@ -132,6 +149,11 @@ void Reentry()
     Check(messages.SendMonsterDisarmImpact(origin));
     Check(begins==1&&ends==1&&coordinates==std::vector<float>{1,2,3});
     onBegin={};onEnd={};Clear();Check(messages.SendMonsterDisarmImpact(origin)&&begins==1&&ends==1);
+    Clear();origin[0]=1;origin[2]=23;
+    onBegin=[&]{rejectNested();origin[0]=1000;origin[2]=2000;};onEnd=rejectNested;
+    Check(messages.SendMonsterZombieBomb(origin));
+    Check(begins==1&&ends==1&&coordinates==std::vector<float>{1,2,23});
+    onBegin={};onEnd={};Clear();Check(messages.SendMonsterZombieBomb(origin)&&begins==1&&ends==1);
 }
 }
 int main()

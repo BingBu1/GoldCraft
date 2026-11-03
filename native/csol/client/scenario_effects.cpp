@@ -229,7 +229,8 @@ int ReceiveMonsterEffect(const char*, int size, void* data)
     SynchronizeSession();
     if (!data || size != 7) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);
-    if (bytes[0] != monster_effects::Impact && bytes[0] != monster_effects::TrapDirection) return 1;
+    if (bytes[0] != monster_effects::Impact && bytes[0] != monster_effects::TrapDirection &&
+        bytes[0] != monster_effects::ZombieBomb) return 1;
     float origin[3];
     for (int i = 0; i < 3; ++i)
     {
@@ -242,7 +243,10 @@ int ReceiveMonsterEffect(const char*, int size, void* data)
     auto* ev = engine.pEventAPI;
     if (fx && fx->R_DefaultSprite && fx->R_Sprite_Explode && ev && ev->EV_FindModelIndex)
     {
-        const int index = ev->EV_FindModelIndex(monster_effects::ImpactSprite);
+        // Original TE128's second byte selects the sprite: zero is the
+        // zombie bomb, one is Deimos. Both use the same additive explosion.
+        const int index = ev->EV_FindModelIndex(bytes[0] == monster_effects::ZombieBomb ?
+            monster_effects::ZombieBombSprite : monster_effects::ImpactSprite);
         if (index > 0)
             if (auto* temp = fx->R_DefaultSprite(origin, index, 30.0f))
                 fx->R_Sprite_Explode(temp, 2.5f, 0);

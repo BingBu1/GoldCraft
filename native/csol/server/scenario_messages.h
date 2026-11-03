@@ -116,6 +116,7 @@ public:
     // SHORT entity and BYTE effect (13 self, 9 another monster).
     bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
     bool SendMonsterDisarmImpact(const float* origin) const;
+    bool SendMonsterZombieBomb(const float* origin) const;
     bool SendMonsterSkillShake(edict_t* recipient) const;
     bool SendMonsterTrapDirection(edict_t* recipient, const float* origin) const;
     // One packet per call: false sends the original view kick (3), true
@@ -142,6 +143,7 @@ private:
     // The traversal resolves OFFSET and checks its session immediately after
     // that engine callback. This private entry performs no second lookup.
     bool WriteMonsterDeath(edict_s* recipient, int monsterIndex) const;
+    bool WriteMonsterExplosion(const float* origin, int effect, float zOffset) const;
     bool SendRespawnText(edict_s* recipient, const char* token, const char* argument) const;
     int m_messageId{};
     int m_upgradeMessageId{};

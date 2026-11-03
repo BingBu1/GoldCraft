@@ -3,6 +3,9 @@
 #include "../../native/csol/client/runtime.hpp"
 #include "../../native/csol/client/scenario_effects.hpp"
 #include "../../native/csol/scenario_monster_effects.hpp"
+#include "../../native/csol/client/frozen_death.hpp"
+#include "../../native/csol/client/frozen_smoke.hpp"
+#include "../../native/csol/client/oberon_hint.hpp"
 #include "../../native/include/goldcraft/vitals_protocol.hpp"
 #include <r_efx.h>
 #include <event_api.h>
@@ -41,6 +44,7 @@ event_api_t events{};
 Vec spriteOrigin{}, soundOrigin{};
 float fps{}, scale{};
 int explodeFlags{};
+std::string expectedModel{"sprites/deimosexp.spr"};
 void Check(bool value, const std::source_location where = std::source_location::current())
 {
     ++checks;
@@ -117,7 +121,7 @@ void Install(bool withWideHud = false)
     engine.pEfxAPI = &fx;
     engine.pEventAPI = &events;
     events.EV_FindModelIndex = [](const char* name)
-    { Check(std::string(name) == "sprites/deimosexp.spr"); calls.emplace_back("model"); return spriteIndex; };
+    { Check(std::string(name) == expectedModel); calls.emplace_back("model"); return spriteIndex; };
     fx.R_DefaultSprite = [](float* origin, int model, float rate) -> TEMPENTITY*
     {
         Check(model == 41); calls.emplace_back("sprite");
@@ -238,28 +242,50 @@ void HealthLifecycle()
     const int finalHooks=healthHooks;
     ResetScenarioEffects(); ScenarioEffectsFrame(); Check(healthHooks==finalHooks);
 }
-void Impact()
+void Impact(int effect, const char* model)
 {
     Clean();
-    Effect(1, {-123.25f, 4095.875f, -70.125f});
+    expectedModel = model;
+    Effect(effect, {-123.25f, 4095.875f, -70.125f});
     Check(calls == std::vector<std::string>({"model", "sprite", "explode", "sound"}));
     Check(spriteOrigin == Vec{-123.25f, 4095.875f, -50.125f} && soundOrigin == spriteOrigin);
     Check(temp.entity.origin[2] == -40.125f && fps == 30 && scale == 2.5f && explodeFlags == 0);
-    calls.clear(); auto bytes = Packet(1, {1,2,3});
+    for (const Vec origin : {Vec{-4096,-4096,-4096}, Vec{4095.875f,4095.875f,4095.875f}, Vec{-.125f,0,.125f}})
+    {
+        calls.clear(); Effect(effect, origin);
+        Check(calls == std::vector<std::string>({"model", "sprite", "explode", "sound"}));
+        Check(spriteOrigin == Vec{origin[0], origin[1], origin[2] + 20} && soundOrigin == spriteOrigin);
+        Check(temp.entity.origin[2] == origin[2] + 30);
+    }
+    calls.clear(); auto bytes = Packet(effect, {1,2,3});
     for (int size : {0,1,2,3,4,5,6,8,9})
     { auto invalid = bytes; invalid.resize(size); Send("CsoMonFX", invalid); }
-    Effect(0, {1,2,3}); Effect(3, {1,2,3}); Effect(255, {1,2,3});
+    Effect(0, {1,2,3}); Effect(4, {1,2,3}); Effect(255, {1,2,3});
     Check(calls.empty());
     Check(receivers.at("CsoMonFX")("CsoMonFX", 7, nullptr) == 1 && calls.empty());
-    spriteIndex = 0; Effect(1, {1,2,3});
+    spriteIndex = 0; Effect(effect, {1,2,3});
     Check(calls == std::vector<std::string>({"model", "sound"}));
-    calls.clear(); spriteIndex = 41; allocationFails = true; Effect(1, {1,2,3});
+    calls.clear(); spriteIndex = 41; allocationFails = true; Effect(effect, {1,2,3});
     Check(calls == std::vector<std::string>({"model", "sprite", "sound"}));
-    calls.clear(); csol::client::engine.pEfxAPI = nullptr; Effect(1, {1,2,3});
+    calls.clear(); csol::client::engine.pEfxAPI = nullptr; Effect(effect, {1,2,3});
     Check(calls == std::vector<std::string>({"sound"}));
     csol::client::engine.pEfxAPI = &fx;
-    calls.clear(); csol::client::engine.pEventAPI = nullptr; Effect(1, {1,2,3}); Check(calls.empty());
+    calls.clear(); csol::client::engine.pEventAPI = nullptr; Effect(effect, {1,2,3}); Check(calls.empty());
     csol::client::engine.pEventAPI = &events;
+    allocationFails = false;
+    const auto completeFx = fx;
+    const auto completeEvents = events;
+    for (int missing = 0; missing < 4; ++missing)
+    {
+        calls.clear(); fx = completeFx; events = completeEvents;
+        if (missing == 0) fx.R_DefaultSprite = nullptr;
+        if (missing == 1) fx.R_Sprite_Explode = nullptr;
+        if (missing == 2) events.EV_FindModelIndex = nullptr;
+        if (missing == 3) events.EV_PlaySound = nullptr;
+        Effect(effect, {1,2,3});
+        Check(calls == (missing == 3 ? std::vector<std::string>{"model", "sprite", "explode"} : std::vector<std::string>{"sound"}));
+    }
+    fx = completeFx; events = completeEvents;
 }
 void Layout()
 {
@@ -319,6 +345,15 @@ namespace csol::client
 metahook_api_t* api{};
 cl_enginefunc_t engine{};
 ref_params_t view{};
+// Unrelated effect owners are explicit link boundaries in this explosion /
+// trap suite. Their decoders and rendering are covered by their own suites.
+void InitializeFrozenDeath() {}
+void ResetFrozenDeath() {}
+bool ConsumeFrozenSmoke(int, const void*) { throw std::runtime_error("unexpected frozen-smoke packet"); }
+void ResetFrozenSmoke() {}
+void FrozenSmokeFrame() {}
+bool ConsumeOberonHint(int, const void*) { throw std::runtime_error("unexpected Oberon hint packet"); }
+void ResetOberonHints() {}
 void SynchronizeSession()
 {
     ++fixture::syncs;
@@ -333,7 +368,12 @@ int main(int argc, char** argv)
         fixture::Check(mode.empty() || mode=="--health" || mode=="--health-legacy");
         fixture::Install(mode=="--health");
         if (!mode.empty()) fixture::HealthLifecycle();
-        else { fixture::Impact(); fixture::Layout(); fixture::DirectionsAndLifecycle(); }
+        else
+        {
+            fixture::Impact(csol::monster_effects::Impact, "sprites/deimosexp.spr");
+            fixture::Impact(csol::monster_effects::ZombieBomb, "sprites/zombiebomb.spr");
+            fixture::Layout(); fixture::DirectionsAndLifecycle();
+        }
         std::cout << "monster-fx-client " << fixture::checks << " checks passed\n";
         return 0;
     }

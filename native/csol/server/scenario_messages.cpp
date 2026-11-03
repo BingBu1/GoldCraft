@@ -87,6 +87,18 @@ bool CCSOLScenarioMessages::Register()
 
 bool CCSOLScenarioMessages::SendMonsterDisarmImpact(const float* origin) const
 {
+    return WriteMonsterExplosion(origin, csol::monster_effects::Impact, -20.0f);
+}
+
+bool CCSOLScenarioMessages::SendMonsterZombieBomb(const float* origin) const
+{
+    // MP114A7E80 sends the unshifted projectile origin. The later damage
+    // routine moves its own origin down by 20; it must not move this effect.
+    return WriteMonsterExplosion(origin, csol::monster_effects::ZombieBomb, 0.0f);
+}
+
+bool CCSOLScenarioMessages::WriteMonsterExplosion(const float* origin, int effect, float zOffset) const
+{
     if (g_scenarioMessageOpen || !m_monsterEffectId || !origin ||
         !std::isfinite(origin[0]) || !std::isfinite(origin[1]) || !std::isfinite(origin[2]) ||
         !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
@@ -95,10 +107,10 @@ bool CCSOLScenarioMessages::SendMonsterDisarmImpact(const float* origin) const
     const Vector position(origin);
     const ScenarioMessageScope scope;
     MESSAGE_BEGIN(MSG_PVS, id, position);
-    WRITE_BYTE(csol::monster_effects::Impact);
+    WRITE_BYTE(effect);
     WRITE_COORD(position.x);
     WRITE_COORD(position.y);
-    WRITE_COORD(position.z - 20.0f);
+    WRITE_COORD(position.z + zOffset);
     MESSAGE_END();
     return true;
 }
