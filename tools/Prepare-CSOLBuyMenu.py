@@ -35,8 +35,25 @@ def main():
         name='gfx/vgui/basket/'+icon
         if not (source/(name+'.tga')).is_file():name='gfx/vgui/'+icon
         if (source/(name+'.tga')).is_file():images.append(dict(id=int(ident),**texture(name,'w'+ident)))
-    for i,price in [(144,4100),(220,30)]:
-        token='cstrike_'+('cannon' if i==144 else 'tknifeex2')+'price';assert int(re.search(r'\d+',text[token])[0])==price
+    # K3's price is backed by original HW IGBuyMenuMgr record weapon197,+0x18.
+    # Localization is only an export-time cross-check of that purchase record.
+    # The original mode-15 override table has neither M249EX nor Balrog-XI;
+    # their default purchase records therefore also apply in Scenario.
+    price_text_differences=[]
+    for name,price in [('cannon',4100),('tknifeex2',30),('k3',4750),('m249ex',9000),('balrog11',5750),('skull1',1200),('skull2',1550),('skull5',6000)]:
+        token='cstrike_'+name+'price'
+        # Original HW record312,+0x18 is1550; mode15 has no override.
+        # Its static Chinese price token says2200. Preserve that discrepancy
+        # in the export audit instead of using UI text as runtime pricing.
+        expected_text=2200 if name=='skull2' else price
+        localized_price=int(re.search(r'\d+',text[token])[0])
+        if localized_price!=expected_text:
+            raise ValueError(f'Unexpected original price text {token}: {localized_price}, expected {expected_text}')
+        if localized_price!=price:
+            price_text_differences.append(dict(weapon=name,token=token,localizedPrice=localized_price,runtimePrice=price))
+    for ident in (96,112,130,144,197,203,220,312,725,726):
+        if not any(image['id']==ident for image in images):
+            raise ValueError(f'Missing original purchase image for weapon {ident}')
     for n in ['beamgun','beamgunle']:assert json.loads(read('weapons/weapon_'+n+'.json'))['price']==6100
     # ver7 declares the detail/rebuy/account controls. Its runtime-created list
     # and eight favorites are measured from the supplied modern CSOL screenshot,
@@ -52,10 +69,16 @@ def main():
               buttons=[[texture(theme['button'][edge+state],'b'+str(i)+str(j)) for j,edge in enumerate(['left','center','right'])] for i,state in enumerate(['n','o','c'])],
               close=[texture('resource/control/frame/btn_default_close@'+s,'x'+str(i)) for i,s in enumerate(['n','o','c'])],
               colors={k:[int(x) for x in scheme['colors'][k].split()] for k in ['basetext','brightcontroltext','labeldimtext','windowbg','borderbright']},images=images)
-    generated['models/csol/buymenu.json']=json.dumps(menu,ensure_ascii=False,separators=(',',':')).encode('utf8')
+    # Share the exact revision with both native consumers. Reusing the old
+    # filename leaves already connected clients with an incompatible cached file.
+    contract=(ROOT/'native/csol/buy_menu.hpp').read_text(encoding='utf8')
+    resource=re.search(r'PresentationResource\[\]="(models/csol/buymenu_v\d+\.json)";',contract)
+    if not resource:raise ValueError('Missing versioned purchase presentation contract')
+    generated[resource.group(1)]=json.dumps(menu,ensure_ascii=False,separators=(',',':')).encode('utf8')
     output.mkdir(parents=True);files=[]
     for name,data in generated.items():
         path=output/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(data);files.append(dict(path=name,bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
-    output.with_suffix('.manifest.json').write_text(json.dumps(dict(inputs=inputs,files=files),indent=2),encoding='utf8')
+    output.with_suffix('.manifest.json').write_text(json.dumps(dict(inputs=inputs,files=files,
+        priceTextDifferences=price_text_differences),indent=2),encoding='utf8')
     print(json.dumps(dict(files=len(files),images=len(images),bytes=sum(x['bytes'] for x in files))))
 if __name__=='__main__':main()

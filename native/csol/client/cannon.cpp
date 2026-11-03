@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "cannon.hpp"
+#include "weapon_module.hpp"
 #include "camera.hpp"
 #include "weapon_inventory.hpp"
 #include "../cannon.hpp"
@@ -374,5 +375,22 @@ void CannonDiagnostics(std::ostream& out)
         <<",\"muzzleSmokes\":"<<muzzleSmokes<<",\"muzzleFlashes\":"<<muzzleFlashes
         <<",\"predictedFires\":"<<predictedFires<<",\"suppressedFires\":"<<suppressedFires
         <<",\"droppedSmoke\":"<<droppedSmoke<<",\"rejected\":"<<rejected<<'}';
+}
+}
+
+namespace csol::client {
+namespace {
+constexpr int ModuleIds[]{cannon::Id};
+constinit const WeaponModule Module{
+    .ids=ModuleIds,.order=20,
+    .initialize=InitializeCannon,.reset=ResetCannon,
+    .afterReset=ResetCannonEffects,
+    .videoInit=ResetCannonEffects,.receive=ReceiveCannonState,
+    .predict=PredictCannon,.diagnostics=CannonDiagnostics,
+    .ammoKind=hud_style::AmmoKind::Total,
+    .ammoSprite="sprites/csol/640hud2.spr",.ammoRect={73,97,231,255},
+    .crosshair={6,3,0,3},.crosshairShot=CannonCrosshairShot,
+    .predictedClip=CannonPredictedAmmo};
+const WeaponModuleRegistration Registration{Module};
 }
 }

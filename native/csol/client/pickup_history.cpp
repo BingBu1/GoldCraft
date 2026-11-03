@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../weapon_hud_paths.hpp"
 #include "runtime.hpp"
 #include "weapon_inventory.hpp"
 #include "pickup_history.hpp"
@@ -70,7 +71,7 @@ void Load(Entry& e,int resolution)
     if(e.loaded)return;
     const auto* d=FindWeaponDefinition(e.id);if(!d)return;
     e.loaded=true;
-    std::string path="sprites/"+d->name+".txt";int count=0;
+    std::string path=WeaponHudList(d->name);int count=0;
     const auto* list=engine.pfnSPR_GetList(path.data(),&count);
     const char* role=e.kind==Kind::Weapon?"weapon":e.secondary?"ammo2":"ammo";
     for(int pass=0;pass<(resolution==640?1:2);++pass)

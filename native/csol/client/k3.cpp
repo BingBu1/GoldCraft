@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "k3.hpp"
+#include "weapon_module.hpp"
 #include "shared_random.hpp"
 #include "weapon_inventory.hpp"
 #include "../k3.hpp"
@@ -319,5 +320,23 @@ void K3Diagnostics(std::ostream& out)
         <<",\"predictionCalls\":"<<predictionCalls<<",\"effects\":"<<effects
         <<",\"localEffects\":"<<localEffects<<",\"remoteEffects\":"<<remoteEffects
         <<",\"shells\":"<<shells<<",\"impacts\":"<<impacts<<",\"rejected\":"<<rejected<<'}';
+}
+}
+
+namespace csol::client {
+namespace {
+constexpr int ModuleIds[]{k3::Id};
+constinit const WeaponModule Module{
+    .ids=ModuleIds,.order=30,
+    .initialize=InitializeK3,.reset=ResetK3,
+    .videoInit=ResetK3,.receive=ReceiveK3State,
+    .predict=PredictK3,.diagnostics=K3Diagnostics,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/csol/640hud7_v2.spr",.ammoRect={0,24,96,120},
+    .ammoColor={255,160,0},
+    .crosshair={6,3,140,3},.crosshairShot=K3CrosshairShot,
+    .predictedClip=K3PredictedAmmo,
+    .predictedReserve=K3PredictedReserve};
+const WeaponModuleRegistration Registration{Module};
 }
 }

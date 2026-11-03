@@ -17,7 +17,7 @@ import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = 'resource/csol/hud/v1/'
-CATALOG = 'models/csol/hud_v1.json'
+CATALOG = 'models/csol/hud_v5.json'
 FONT = 'resource/Font/sarasa_ui_sc.ttf'
 SCHEME = RESOURCE + 'CSOLHudScheme.res'
 ENGINE_FONT_SHA = 'b76ff01219fee0900aa216b681b9e96dd5fed0fe6190c4261a09d5b2131e9323'
@@ -34,7 +34,8 @@ TITLE_KEYS = {
     'mp5navy': 'mp5', 'hegrenade': 'he_grenade', 'smokegrenade': 'smoke_grenade',
 }
 VERIFIED_COMMON_KNIVES = frozenset(('dragonsword', 'skullaxe'))
-VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle')) | VERIFIED_COMMON_KNIVES
+VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle',
+    'm249ex', 'balrog11', 'skull1', 'skull2', 'skull5')) | VERIFIED_COMMON_KNIVES
 
 
 def sha(data):
@@ -354,7 +355,9 @@ def prepare(source, output, stock_source=None):
             if (row['width'], row['height']) != dimensions:
                 raise ValueError(f'Original sprite dimensions changed: {name}/{kind}')
             pixels = crop(row, name + '/' + kind, atlas_root)
-            item[kind] = add(RESOURCE + name + '_' + kind + '.tga', tga(*dimensions, pixels))
+            # Only this CSO atlas changed source; keep unrelated and stock paths stable.
+            revision = '_v2' if atlas_root == source and row['atlas'] == 'sprites/640hud7.spr' else ''
+            item[kind] = add(RESOURCE + name + '_' + kind + revision + '.tga', tga(*dimensions, pixels))
         weapons.append(item)
 
     rows = sprite_rows(common('sprites/hud.txt'),

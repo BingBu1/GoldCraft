@@ -2,7 +2,14 @@
 #include "precompiled.h"
 #include "weapon_slots.h"
 #include "weapon_service.h"
+#include "weapons.h"
 #include "wpn_beamgun.h"
+#include "wpn_balrog11.h"
+#include "../m249ex.hpp"
+#include "../skull1.hpp"
+#include "../skull2.hpp"
+#include "../skull5.hpp"
+#include "../balrog11.hpp"
 #include "../weapon_slots.hpp"
 #include "../k3.hpp"
 
@@ -43,6 +50,14 @@ void InitMessages()
 }
 }
 unsigned int CSOL_LegacyWeaponMask(int id){return csol::LegacyWeaponMask(id);}
+void CSOL_BeforeWeaponDrop(CBasePlayerItem* item)
+{
+    if(auto* lifecycle=dynamic_cast<CSOLWeaponLifecycle*>(item))lifecycle->BeforeWeaponDrop();
+}
+void CSOL_WeaponReloadCompleted(CBasePlayerWeapon& weapon,int loaded)
+{
+    if(auto* lifecycle=dynamic_cast<CSOLWeaponLifecycle*>(&weapon))lifecycle->WeaponReloadCompleted(loaded);
+}
 bool CSOL_ExtendedWeapon(int id){return csol::ExtendedWeaponId(id);}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* player)
 {
@@ -164,6 +179,8 @@ void CSOL_UpdateWeaponInventory(CBasePlayer* player)
             current.id=weapon->m_iId;current.state=1;current.clip=weapon->m_iClip;
             const auto ammo=[source](int id){return id>=0&&id<MAX_AMMO_SLOTS?source->m_rgAmmo[id]:0;};
             current.reserve=ammo(weapon->m_iPrimaryAmmoType);current.secondary=ammo(weapon->m_iSecondaryAmmoType);
+            // Earned flame shots belong to the weapon, not buckbcs reserve.
+            if (CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon)) current.secondary=CSOL_Balrog11Charges(weapon);
         }
     }
     if(!cached.initialized || !player->m_fWeapon || current!=cached.current)
@@ -184,6 +201,10 @@ bool CSOL_SendWeaponPickup(CBasePlayer* player,int id)
 }
 bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
+    if (id == csol::m249ex::Id) { price=csol::m249ex::AmmoCost;count=csol::m249ex::AmmoBuyAmount;return true; }
+    if (id == csol::skull1::Id || id == csol::skull2::Id) { price=csol::skull1::AmmoCost;count=csol::skull1::AmmoBuyAmount;return true; }
+    if (id == csol::skull5::Id) { price=csol::skull5::AmmoCost;count=csol::skull5::AmmoBuyAmount;return true; }
+    if (id == csol::balrog11::Id) { price=csol::balrog11::AmmoCost;count=csol::balrog11::AmmoBuyAmount;return true; }
     // Original HW ammo record 11: 556NatoBox, cost 60, box of 30.
     if (id == csol::k3::Id) { price=60;count=30;return true; }
     if (id == 144) { price=180;count=1;return true; }

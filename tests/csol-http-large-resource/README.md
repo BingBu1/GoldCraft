@@ -13,3 +13,5 @@ python tests/csol-http-large-resource/run.py build/http-large-test
 ```
 
 完整套件另用新的 `--output` 并加 `--full-suite`。可选 `--source-manifest` 接受带 `path`（项目相对路径）和 `sha256` 的数组，用于要求特定评审版本。准备过程不编译；运行遇首败保留日志并停止，产物仅在指定 build 目录。不能把这两个套件当作真人客户端的首次下载或地图玩法验收。
+
+人物表情语音的精确路由专项使用 `--sentences <common/sound/sentences.json>`，无需字体和 scheme 参数。它只覆盖 `sound/sentences.json` 的真实 HTTP 广告/正文/HEAD/Range、其他 sound JSON 与非法路径拒绝，重置或未广告时返回 404；普通 WAV 路由保持可用。默认要求新版返回 200；对照旧源码时加 `--sentences-expected old` 要求 404。测试原文件为 146,922 字节并逐字及 SHA 验证，不启动游戏。

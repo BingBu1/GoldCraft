@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "Damage": 54,
+  "DamageZombie": 82,
+  "DamageScenario": 300,
+  "SP_Damage": 34,
+  "SP_DamageZombie": 72,
+  "SP_DamageScenario": 260
+}

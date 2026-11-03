@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../weapon_hud_paths.hpp"
 #include "weapons.hpp"
+#include "weapon_module.hpp"
 #include "user_message_chain.hpp"
 #include "weapon_inventory.hpp"
 #include "hud_style.hpp"
 #include "character_skill_effects.hpp"
 #include "crosshair.hpp"
 #include "pickup_history.hpp"
-#include "beamgun.hpp"
-#include "cannon.hpp"
-#include "../cannon.hpp"
-#include "k3.hpp"
-#include "melee.hpp"
-#include "../k3.hpp"
 #include <usercmd.h>
 #include <in_buttons.h>
 #include <algorithm>
@@ -71,8 +67,17 @@ decltype(engine.pfnSPR_Set) originalSet{};
 decltype(engine.pfnSPR_DrawAdditive) originalDraw{};
 decltype(engine.pfnFillRGBA) originalFill{};
 
-bool Custom() { return (registered && active==KnifeId) || (active==cannon::Id && FindWeaponDefinition(active)); }
-bool K3Active() { return active==k3::Id && FindWeaponDefinition(active); }
+bool Custom()
+{
+    const auto* module=FindWeaponModule(active);
+    return (registered && active==KnifeId) ||
+        (module && module->ammoKind==hud_style::AmmoKind::Total && FindWeaponDefinition(active));
+}
+bool MagazineActive()
+{
+    const auto* module=FindWeaponModule(active);
+    return module && module->ammoKind==hud_style::AmmoKind::Magazine && FindWeaponDefinition(active);
+}
 int SetFov(const char* name,int size,void* data)
 {
     if(size==1 && data){fieldOfView=*static_cast<unsigned char*>(data);if(!fieldOfView)fieldOfView=90;}
@@ -85,7 +90,7 @@ int NightVision(const char* name,int size,void* data)
 }
 void DrawCrosshair(int intermission)
 {
-    if((!Custom() && !K3Active()) || intermission || (hidden&69) || view.health<=0 || view.spectator ||
+    if((!Custom() && !MagazineActive()) || intermission || (hidden&69) || view.health<=0 || view.spectator ||
         fieldOfView<90 || engine.pfnGetCvarFloat("hud_draw")==0)return;
     // CS draws this dynamic crosshair itself. The engine's `crosshair`
     // cvar controls its separate sprite path, not CHudAmmo::DrawCrosshair.
@@ -99,10 +104,9 @@ void DrawCrosshair(int intermission)
     style.translucent=engine.pfnGetCvarFloat("cl_crosshair_translucent")!=0;
     if(nightVision){style.r=250;style.g=style.b=50;style.translucent=false;}
     const bool dynamic=engine.pfnGetCvarFloat("cl_dynamiccrosshair")!=0;
-    const auto parameters=K3Active()?crosshair::Parameters{6,3,140,3}:
-        active==cannon::Id?crosshair::Parameters{6,3,0,3}:crosshair::ThrowingKnife;
-    if(active==cannon::Id && CannonCrosshairShot())crosshairState.shot=true;
-    if(K3Active() && K3CrosshairShot())crosshairState.shot=true;
+    const auto* module=FindWeaponModule(active);
+    const auto parameters=module?module->crosshair:crosshair::ThrowingKnife;
+    if(module && module->crosshairShot && module->crosshairShot())crosshairState.shot=true;
     crosshair::Advance(crosshairState,parameters,playerFlags,playerSpeed,dynamic);
     crosshair::Draw(crosshairState,crosshair::BaseGap(parameters,playerFlags,playerSpeed,dynamic),
         style,style.translucent?originalFill:engine.pfnFillRGBABlend);
@@ -119,7 +123,9 @@ void ApplyNativeWeaponVisibility()
 }
 int AmmoTotal()
 {
-    if(active==cannon::Id)return std::max(0,engine.pfnGetCvarFloat("cl_lw")!=0 && CannonPredictedAmmo()>=0?CannonPredictedAmmo():clip);
+    if(const auto* module=FindWeaponModule(active);module && module->ammoKind==hud_style::AmmoKind::Total)
+        return std::max(0,engine.pfnGetCvarFloat("cl_lw")!=0 && module->predictedClip && module->predictedClip()>=0?
+            module->predictedClip():clip);
     if(predictedTotal>=0 && engine.pfnGetCvarFloat("cl_lw")!=0)return predictedTotal;
     return std::max(0,clip)+std::max(0,reserve);
 }
@@ -400,7 +406,7 @@ void LoadNativeAmmo()
     if(nativeAmmoWeapon==active)return;
     nativeAmmo={};nativeAmmoWeapon=active;
     const auto* definition=FindWeaponDefinition(active);if(!definition)return;
-    int count{};auto path="sprites/"+definition->name+".txt";
+    int count{};auto path=WeaponHudList(definition->name);
     const auto* list=engine.pfnSPR_GetList(path.data(),&count);
     for(int i=0;list && i<count;++i)
     {
@@ -421,21 +427,23 @@ void LoadSprites()
     // CSO hud.txt: number_0..9 use 20x25 cells in 640hud7. Stock CS
     // uses the same rectangles but different pixels; keep its atlas intact.
     constexpr int digitLeft[]{0,23,47,70,95,119,144,169,192,216};
-    const int atlas=engine.pfnSPR_Load("sprites/csol/640hud7.spr");
+    const int atlas=engine.pfnSPR_Load("sprites/csol/640hud7_v2.spr");
     for(int digit=0;digit<10;++digit)
         digits[digit]={atlas,{digitLeft[digit],digitLeft[digit]+20,0,25}};
-    if(K3Active())ammoIcon={atlas,{0,24,96,120}};
-    else if(active==cannon::Id)ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud2.spr"),{73,97,231,255}};
+    if(const auto* module=FindWeaponModule(active);module && module->ammoSprite)
+        ammoIcon={std::strcmp(module->ammoSprite,"sprites/csol/640hud7_v2.spr")==0?atlas:
+            engine.pfnSPR_Load(module->ammoSprite),module->ammoRect};
     else ammoIcon={engine.pfnSPR_Load("sprites/csol/640hud12.spr"),{49,73,231,255}};
     loadedAmmoId=active;
 }
-void DrawK3Ammo(int intermission)
+void DrawMagazineAmmo(int intermission)
 {
-    if(!K3Active() || intermission || (hidden&5) || view.health<=0 || view.spectator ||
+    if(!MagazineActive() || intermission || (hidden&5) || view.health<=0 || view.spectator ||
         !digits[0].handle || !ammoIcon.handle || engine.pfnGetCvarFloat("hud_draw")==0)return;
-    const bool prediction=engine.pfnGetCvarFloat("cl_lw")!=0 && K3PredictedAmmo()>=0;
-    const int currentClip=std::max(0,prediction?K3PredictedAmmo():clip);
-    const int currentReserve=std::max(0,prediction?K3PredictedReserve():reserve);
+    const auto current=CurrentWeaponHudState();
+    const int currentClip=std::max(0,current.clip),currentReserve=std::max(0,current.reserve);
+    const auto* module=FindWeaponModule(active);
+    const int red=module->ammoColor[0],green=module->ammoColor[1],blue=module->ammoColor[2];
     char clipText[16],reserveText[16];
     std::snprintf(clipText,sizeof(clipText),"%d",currentClip);
     std::snprintf(reserveText,sizeof(reserveText),"%d",currentReserve);
@@ -453,15 +461,15 @@ void DrawK3Ammo(int intermission)
         x+=(cells-int(std::strlen(text)))*width;
         for(const char* digit=text;*digit;++digit)
         {
-            const auto& sprite=digits[*digit-'0'];originalSet(sprite.handle,255,160,0);
+            const auto& sprite=digits[*digit-'0'];originalSet(sprite.handle,red,green,blue);
             originalDraw(0,x,y,&sprite.rect);x+=width;
         }
     };
     number(clipText,clipX,clipCells);
-    if(!infinite||!DrawCharacterSkillInfiniteAmmo(active,reserveX+reserveSpan,y,255,160,0))
+    if(!infinite||!DrawCharacterSkillInfiniteAmmo(active,reserveX+reserveSpan,y,red,green,blue))
         number(reserveText,reserveX,reserveCells);
-    originalFill(dividerX,y,dividerWidth,height,255,160,0,255);
-    originalSet(ammoIcon.handle,255,160,0);
+    originalFill(dividerX,y,dividerWidth,height,red,green,blue,255);
+    originalSet(ammoIcon.handle,red,green,blue);
     originalDraw(0,reserveX+reserveSpan,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
     ++hudDraws;
 }
@@ -486,7 +494,7 @@ void PrepareWideAmmo(int intermission)
     if(wideAmmoWeapon!=active)
     {
         wideAmmoWeapon=active;wideAmmoIconWidth=0;
-        int count{};std::string path="sprites/"+definition->name+".txt";
+        int count{};std::string path=WeaponHudList(definition->name);
         const auto* list=engine.pfnSPR_GetList(path.data(),&count);
         const int resolution=screen.iWidth<640?320:640;
         for(int i=0;list && i<count;++i)
@@ -506,10 +514,7 @@ void PrepareWideAmmo(int intermission)
 void InitializeWeapons()
 {
     InitializePickupHistory();
-    InitializeBeamgun();
-    InitializeCannon();
-    InitializeK3();
-    InitializeMeleeWeapons();
+    InitializeWeaponModules();
     oldWeaponList=api->HookUserMsg("WeaponList",WeaponList);
     oldCurWeapon=api->HookUserMsg("CurWeapon",CurWeapon);
     oldAmmo=api->HookUserMsg("AmmoX",Ammo);
@@ -525,11 +530,7 @@ void ResetWeapons(bool forgetRegistration)
 {
     ResetWeaponInventory(forgetRegistration);
     ResetPickupHistory();
-    ResetBeamgun();
-    ResetCannon();
-    ResetK3();
-    ResetMeleeWeapons();
-    ResetCannonEffects();
+    ResetWeaponModules();
     active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
     nativeAmmo={};nativeAmmoWeapon=0;nativeVitalRuns={};
@@ -550,10 +551,7 @@ void WeaponVideoInit()
 {
     WeaponInventoryVideoInit();
     PickupHistoryVideoInit();
-    BeamgunVideoInit();
-    ResetCannonEffects();
-    ResetK3();
-    ResetMeleeWeapons();
+    WeaponModulesVideoInit();
     for(auto& sprite:digits)sprite={};
     std::fill(std::begin(nativeDigitSprites),std::end(nativeDigitSprites),0);
     for(auto& sprite:nativeDigits)sprite={};
@@ -588,8 +586,10 @@ int WeaponRedraw(float time,int intermission)
         nativeWeapon && styledDefinition->ammo2>=0 && WeaponReserveAmmo(styledDefinition->ammo2)>0);
     // Preserve the ordinary HUD and selection. Only replace the selected
     // weapon's bottom-right ammo sprites and divider while it is being drawn.
-    if((Custom() || K3Active()) && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
-    adjustMoney=HudStyleMoneyVisible() || (!HudStyleWeaponVisible() && BeamgunSecondaryAmmoVisible(hidden,intermission));
+    if((Custom() || MagazineActive()) && (!ammoIcon.handle || loadedAmmoId!=active))LoadSprites();
+    const auto* module=FindWeaponModule(active);
+    adjustMoney=HudStyleMoneyVisible() || (!HudStyleWeaponVisible() && module &&
+        module->secondaryVisible && module->secondaryVisible(hidden,intermission));
     if(adjustMoney && !nativeHudLoaded)LoadNativeHudSprites();
     PrepareWideAmmo(intermission);
     moneyAnchor=false;
@@ -602,8 +602,9 @@ int WeaponRedraw(float time,int intermission)
     DrawWeaponGuard(hidden,intermission);
     DrawPickupHistory(hidden,intermission);
     DrawCrosshair(intermission);
-    DrawBeamgunHUD(hidden,intermission,!HudStyleWeaponVisible());
-    if(!HudStyleWeaponVisible())DrawK3Ammo(intermission);
+    for(const auto* item:WeaponModules())if(item->drawHud)
+        item->drawHud(hidden,intermission,!HudStyleWeaponVisible());
+    if(!HudStyleWeaponVisible())DrawMagazineAmmo(intermission);
     DrawHudStyle();
     if(HudStyleWeaponVisible() || !Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
         (view.health<=0) || engine.pfnGetCvarFloat("hud_draw")==0)return result;
@@ -646,14 +647,17 @@ hud_style::WeaponState CurrentWeaponHudState()
     const auto& current=CurrentExtendedWeapon();
     if(current.state && current.id==active)
     {result.reserve=current.reserve;result.secondary=current.secondary;}
-    if(active==BeamgunId || active==BeamgunLEId)
+    if(const auto* module=FindWeaponModule(active))
     {
-        const auto beam=BeamgunHudState();
-        if(beam.state && beam.id==active)
-        {result.clip=beam.clip;result.reserve=beam.reserve;result.secondary=beam.secondary;}
+        if(module->hudState)module->hudState(result);
+        else if(engine.pfnGetCvarFloat("cl_lw")!=0 && module->predictedClip && module->predictedClip()>=0 &&
+            module->ammoKind==hud_style::AmmoKind::Magazine)
+        {
+            result.clip=module->predictedClip();
+            if(module->predictedReserve)result.reserve=std::max(0,module->predictedReserve());
+            if(module->predictedSecondary)result.secondary=std::max(0,module->predictedSecondary());
+        }
     }
-    else if(K3Active() && engine.pfnGetCvarFloat("cl_lw")!=0 && K3PredictedAmmo()>=0)
-    {result.clip=K3PredictedAmmo();result.reserve=std::max(0,K3PredictedReserve());}
     result.infinite=CharacterSkillInfiniteAmmoFor(active);
     if(Custom())
     {result.kind=hud_style::AmmoKind::Total;result.total=AmmoTotal();result.specialAmmo=true;}
@@ -681,10 +685,7 @@ void WeaponDiagnostics(std::ostream& out)
     PickupHistoryDiagnostics(out);
     WeaponSelectionDiagnostics(out);
     SessionDiagnostics(out);
-    BeamgunDiagnostics(out);
-    CannonDiagnostics(out);
-    K3Diagnostics(out);
-    MeleeDiagnostics(out);
+    for(const auto* module:WeaponModules())if(module->diagnostics)module->diagnostics(out);
 }
 
 void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int runFunctions,double time,unsigned int seed)
@@ -697,10 +698,8 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
     // catches up. Simulate old commands silently in either direction: stock
     // CS also reconciles animations when returning from an extended weapon.
     if(!WeaponPresentationAllowed(sourceWeaponId))runFunctions=0;
-    if(PredictBeamgun(from,to,cmd,runFunctions,time,seed))return;
-    if(PredictCannon(from,to,cmd,runFunctions,time,seed))return;
-    if(PredictK3(from,to,cmd,runFunctions,time,seed))return;
-    if(PredictMeleeWeapon(from,to,cmd,runFunctions,time,seed))return;
+    for(const auto* module:WeaponModules())
+        if(module->predict && module->predict(from,to,cmd,runFunctions,time,seed))return;
     if(!registered || from->client.m_iId!=KnifeId || from->weapondata[ActiveWeaponSlot].m_iId!=KnifeId)
     {
         if(ExtendedWeaponId(from->client.m_iId))
@@ -802,10 +801,7 @@ void ReceiveExtendedWeaponDefinition(const WeaponDefinition& definition)
 }
 void ReceiveExtendedWeaponState(const WeaponCurrent& current)
 {
-    ReceiveBeamgunState(current);
-    ReceiveCannonState(current);
-    ReceiveK3State(current);
-    ReceiveMeleeState(current);
+    for(const auto* module:WeaponModules())if(module->receive)module->receive(current);
     active=current.state?current.id:0;clip=current.clip;reserve=current.reserve;
     ApplyNativeWeaponVisibility();
     predictedClip=predictedTotal=-1;

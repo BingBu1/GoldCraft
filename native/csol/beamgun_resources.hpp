@@ -22,7 +22,7 @@ inline constexpr std::array BeamgunResources{
     "models/ef_beamgun_wingman.mdl", "sprites/ef_beamgun_wingman.spr",
     "sprites/ef_beamgun_shootA_hit.spr", "sprites/ef_beamgun_charge_shootA.spr",
     "sprites/ef_beamgun_chargeshootAhit.spr", "sprites/ef_beamgun_shootB2_exp2.spr",
-    "sprites/weapon_beamgun.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7.spr",
+    "sprites/weapon_beamgun.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
     "sprites/huntbow_aim_default1.tga", "sprites/huntbow_aim_default2.tga", "sprites/huntbow_aim_default3.tga",
     "sprites/beamgun_gauge_bg.tga", "sprites/beamgun_gauge.tga", "sprites/beamgun_gauge_fx.webm"
 };
@@ -34,7 +34,7 @@ inline constexpr std::array BeamgunLEResources{
     "models/ef_beamgunle_wingman.mdl", "sprites/ef_beamgunle_wingman.spr",
     "sprites/ef_beamgunle_shootA_hit.spr", "sprites/ef_beamgunle_charge_shootA.spr",
     "sprites/ef_beamgunle_chargeshootAhit.spr", "sprites/ef_beamgunle_shootB2_exp2.spr",
-    "sprites/weapon_beamgunle.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7.spr",
+    "sprites/weapon_beamgunle.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
     "sprites/huntbow_aim_default1.tga", "sprites/huntbow_aim_default2.tga", "sprites/huntbow_aim_default3.tga",
     "sprites/beamgunle_gauge_bg.tga", "sprites/beamgunle_gauge.tga", "sprites/beamgunle_gauge_fx.webm"
 };

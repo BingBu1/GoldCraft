@@ -16,6 +16,11 @@
 #include "../scenario/difficulty_monsters.hpp"
 #include "weapons.h"
 #include "wpn_melee.h"
+#include "wpn_m249ex.h"
+#include "wpn_skull1.h"
+#include "wpn_skull2.h"
+#include "wpn_skull5.h"
+#include "wpn_balrog11.h"
 
 #include <cmath>
 #include <algorithm>
@@ -117,7 +122,14 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
     // Both helpers belong to original CKnife (ID29). Its v22C at
     // 1192FCC8 points to 105FFBE0 (xor al,al; ret), independently of v230.
     if (CSOL_MeleeEmptyMonsterKillCallbacks(*weapon)) return true;
-    switch (weapon->m_iId)
+    // CM249EX/CBalrog11/CSkull5 point at 105FFBE0; match their compiled types.
+    if (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) ||
+        CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull5(*weapon)) return true;
+    std::array<float,5> knockback{1100,500,700,400,.9f};
+    // SKULL-1 v22C is true and overrides vD4 with scenario-specific force.
+    // Its v230 remains false; that independent predicate is handled below.
+    if (!CSOL_Skull1ScenarioKnockback(*weapon,knockback) &&
+        !CSOL_Skull2MonsterKnockback(*weapon,knockback)) switch (weapon->m_iId)
     {
     case WEAPON_P228: case WEAPON_SCOUT: case WEAPON_HEGRENADE:
     case WEAPON_XM1014: case WEAPON_C4: case WEAPON_MAC10: case WEAPON_AUG:
@@ -136,10 +148,10 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
         return false;
     }
     if (monster->HostState().knockbackBlocked || call.context.bytes[5]) return true;
-    // HW WeaponMgr record 144: +48/+4C/+50/+54 = 1100/500/700/400;
-    // +58 is float32 0x3F666666. MP vD4 writes recovery, then v190 halves it
+    // Cannon retains HW record144; SKULL-1 uses its verified vD4 override.
+    // MP vD4 writes recovery, then v190 halves it
     // even when the later airborne direction gate rejects velocity changes.
-    monster->SpeedState().recovery = 0.9f * 0.5f;
+    monster->SpeedState().recovery = knockback[4] * 0.5f;
     const Vector offset = monster->pev->origin - player->pev->origin;
     const float lengthSquared = (offset.y * offset.y + offset.x * offset.x) + offset.z * offset.z;
     if (!std::isfinite(lengthSquared) || lengthSquared < 0)
@@ -159,7 +171,7 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
     {
         const int group = monster->HostState().lastHitgroup;
         force = (monster->pev->flags & FL_DUCKING) || group == HITGROUP_LEFTLEG ||
-            group == HITGROUP_RIGHTLEG ? 400.0f : 1100.0f;
+            group == HITGROUP_RIGHTLEG ? knockback[3] : knockback[0];
     }
     else
     {
@@ -168,7 +180,7 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
         if (!(dot < 0)) return true;
         const float planarSquared = velocity.y * velocity.y + velocity.x * velocity.x;
         const float planarSpeed = static_cast<float>(std::sqrt(static_cast<double>(planarSquared)));
-        force = planarSpeed < 0.2f ? 500.0f : 700.0f;
+        force = planarSpeed < 0.2f ? knockback[1] : knockback[2];
     }
     monster->pev->velocity.x = direction.x * force;
     monster->pev->velocity.y = direction.y * force;
@@ -654,7 +666,9 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
                     type == typeid(CDEAGLE) || type == typeid(CSG552) || type == typeid(CAK47) ||
                     type == typeid(CP90) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
                     CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
-                    CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon))
+                    CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon) ||
+                    CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) || CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) ||
+                    CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull5(*weapon))
                     // CK3 v230 and both knife helpers have a verified zero result.
                     return true;
                 error.message = "scenario weapon melee-type predicate is not implemented";

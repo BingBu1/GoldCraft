@@ -22,9 +22,15 @@ int wmain(int argc,wchar_t** argv)
         if(json)++first;if(first>=argc)throw std::runtime_error("no models supplied");
         auto physical=[&](const std::string& name){const auto file=csol::WeaponResourceSource(name);
             return !overlay.empty() && std::filesystem::is_regular_file(overlay/file)?overlay/file:root/file;};
-        auto exists=[&](const std::string& name){return std::filesystem::is_regular_file(physical(name));};
+        auto exists=[&](const std::string& name){return !csol::GeneratedWeaponResource(name).empty() ||
+            std::filesystem::is_regular_file(physical(name));};
         auto read=[&](const std::string& name)
         {
+            if(const auto content=csol::GeneratedWeaponResource(name);!content.empty())
+            {
+                const auto* begin=reinterpret_cast<const std::byte*>(content.data());
+                return std::vector<std::byte>(begin,begin+content.size());
+            }
             std::ifstream file(physical(name),std::ios::binary|std::ios::ate);if(!file)throw std::runtime_error("missing resource: "+name);
             const auto size=file.tellg();if(size<0 || size>128*1024*1024)throw std::runtime_error("resource exceeds budget");
             std::vector<std::byte> bytes(size_t(size),std::byte{});file.seekg(0);file.read((char*)bytes.data(),size);if(!file)throw std::runtime_error("short resource read");return bytes;

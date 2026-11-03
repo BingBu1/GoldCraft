@@ -7,9 +7,11 @@
 #include "../game_rules_gate.h"
 #include "../characters.h"
 #include "../../character_catalog.hpp"
+#include "../../character_voice.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <set>
 #include <string>
 
 namespace csol::scenario::skills
@@ -23,8 +25,17 @@ struct Resources
     CharacterActionTable actions;
     std::vector<csol::Character> characters;
     std::array<int, 2> viewmodels{};
+    // Resolved CSO titles bodies by radio_text key; empty when the optional
+    // table is absent, in which case the original key itself is sent.
+    std::map<std::string, std::string> emotionMenus;
 };
 std::shared_ptr<Resources> resources;
+// The original client localizes these keys from CSO titles.txt. A stock CS
+// client lacks them, so the server sends the same body text instead.
+constexpr char EmotionTitlesPath[] = "resource/csol/cso_titles.txt";
+// MP stores 15 in player+E10 (m_iMenu) for the cheer menu. ReGameDLL's
+// _Menu ends at Menu_ClientBuy=14, so 15 does not alias a stock menu.
+constexpr int EmotionMenu = 15;
 
 bool LoadFile(const char* path, std::string& output, ConfigError& error)
 {
@@ -42,12 +53,14 @@ bool LoadFile(const char* path, std::string& output, ConfigError& error)
 
 class Action;
 std::array<std::weak_ptr<Action>, 33> actions;
+// J emotions have no skill host to own them; keep the last started one.
+std::array<std::shared_ptr<Action>, 33> emotions;
 
 class Action final : public std::enable_shared_from_this<Action>
 {
 public:
     Action(const std::shared_ptr<CCSOLScenarioPlayerRuntime>& players,
-        const std::shared_ptr<CSOLScenarioPlayerRuntimeState>& state,
+        const std::shared_ptr<const CSOLScenarioPlayerRuntimeState>& state,
         const std::shared_ptr<CCSOLScenarioSession>& session,
         const CSOLScenarioActiveSkill* owner)
         : players(players), state(state), session(session), player(state->player),
@@ -72,21 +85,37 @@ public:
         return access && access->Allowed() && p && p->Active() && s && map &&
             map->Map().EntityAccess() == access && s->generation == generation &&
             (!operationDepth || s->skillLifeSerial == operationLife) &&
-            p->Find(player) == s && s->activeSkill.get() == owner && player.Get<CBasePlayer>();
+            p->Find(player) == s && (!owner || s->activeSkill.get() == owner) && player.Get<CBasePlayer>();
     }
     CBasePlayer* Player() const { return Current() ? player.Get<CBasePlayer>() : nullptr; }
-    bool Start(bool& started, ConfigError& error)
+    // A skill action and a J emotion are separate objects for one player.
+    bool OtherActionPlaying(CBasePlayer& p) const
+    {
+        const int index = p.entindex();
+        if (index < 1 || index > 32) return false;
+        const auto other = actions[index].lock();
+        return other && other.get() != this && other->player.Get<CBasePlayer>() == &p &&
+            other->Current() && other->playing;
+    }
+    // Slot 5 is the skill action5; menuselect case 15 passes slots 1..count.
+    // Both share 114D01B0 and one per-player playing flag (player+3000).
+    bool Start(int slot, bool& started, ConfigError& error)
     {
         LifeScope life(*this);
         started = false;
         auto* p = Player();
         if (!p || !gpGlobals) return false;
-        if (playing || p->pev->deadflag != DEAD_NO || p->pev->health <= 0) return true;
+        if (playing || OtherActionPlaying(*p) || p->pev->deadflag != DEAD_NO || p->pev->health <= 0) return true;
         auto* item = p->m_pActiveItem;
         if (!item || item->m_flStartThrow > 0 || item->m_flReleaseThrow > 0) return true;
         // Until the original per-weapon zoom flag is imported, preserve a
         // scoped weapon's state. The stock ItemInfo flags are another enum.
-        if (p->m_iFOV != 90 && p->m_iFOV != 0) return true;
+        // 114D0300: only non-action5 slots print the zoom notice.
+        if (p->m_iFOV != 90 && p->m_iFOV != 0)
+        {
+            if (slot != 5) ClientPrint(p->pev, HUD_PRINTCENTER, "当前状态下无法使用表情");
+            return Current();
+        }
         if (!ActionButtonsAllowed(static_cast<std::uint32_t>(p->pev->button), constraint.Active(gpGlobals->time))) return true;
         const EHANDLE itemHandle(item);
         if (!item->CanDeploy()) return Current();
@@ -99,10 +128,15 @@ public:
         if (found == data->actions.end())
         { error.message = "selected character has no original action5"; return false; }
         const auto row = found->second;
+        // Skill action5 exists even on a four-item J menu. A menu request
+        // must still pass MP's 1..count check, including slot 5.
+        if ((!owner || slot != 5) && (slot < 1 || slot > row.emotionCount)) return Current();
+        const CharacterEmotionAction entry = slot == 5 ?
+            CharacterEmotionAction{row.sequence, row.weaponAnimation, row.frameRate} : row.emotions[slot];
         // Verify the deployed, appended model rather than trusting the CSV.
         const auto* header = static_cast<const studiohdr_t*>(GET_MODEL_PTR(p->edict()));
         if (!Current() || itemHandle.Get<CBasePlayerItem>() != item || Player()->m_pActiveItem != item) return false;
-        if (!header || row.sequence >= header->numseq || !data->viewmodels[row.viewModel])
+        if (!header || entry.sequence >= header->numseq || !data->viewmodels[row.viewModel])
         { error.message = "character skill sequence/viewmodel is not precached"; return false; }
         struct StartRollback
         {
@@ -119,15 +153,15 @@ public:
                 }
             }
         } rollback{*this, started};
-        playing = true; sequence = row.sequence; weapon = itemHandle;
+        playing = true; sequence = entry.sequence; weapon = itemHandle;
         p->pev->sequence = sequence;
         p->pev->frame = 0;
         p->ResetSequenceInfo();
         if (!Current() || itemHandle.Get<CBasePlayerItem>() != item || Player()->m_pActiveItem != item) return false;
         p = Player();
-        p->m_flFrameRate = row.frameRate;
-        p->pev->weaponanim = row.weaponAnimation;
-        if (!WeaponAnimation(*p, row.weaponAnimation))
+        p->m_flFrameRate = entry.frameRate;
+        p->pev->weaponanim = entry.weaponAnimation;
+        if (!WeaponAnimation(*p, entry.weaponAnimation))
         { error.message = "character skill WeaponAnim sender is unavailable"; return false; }
         if (!Current() || itemHandle.Get<CBasePlayerItem>() != item || Player()->m_pActiveItem != item) return false;
         p = Player();
@@ -228,7 +262,7 @@ public:
         return true;
     }
     std::weak_ptr<CCSOLScenarioPlayerRuntime> players;
-    std::weak_ptr<CSOLScenarioPlayerRuntimeState> state;
+    std::weak_ptr<const CSOLScenarioPlayerRuntimeState> state;
     std::weak_ptr<CCSOLScenarioSession> session;
     EHANDLE player, weapon;
     std::shared_ptr<const CSOLScenarioEntityAccess> access;
@@ -273,7 +307,7 @@ public:
         return Current();
     }
     bool StartCharacterAction5(bool& started, ConfigError& error) override
-    { return action->Start(started, error); }
+    { return action->Start(5, started, error); }
     bool PrepareEffects(ActivationState& state, bool& prepared, ConfigError& error) override
     { return Current() && effects->Prepare(state, prepared, error); }
     bool AddActionConstraint33(float duration, ConfigError& error) override
@@ -332,6 +366,54 @@ bool PrecacheCharacterActions(const std::shared_ptr<CCSOLScenarioSession>& sessi
         !LoadFile("models/csol/characters.json", catalog, error) || !candidate->access->Allowed()) return false;
     try { candidate->characters = csol::ParseCharacters(catalog); }
     catch (const std::exception& e) { error.message = e.what(); return false; }
+    if (!g_engfuncs.pfnGetFileSize) { error.message = "character emotion file API is unavailable"; return false; }
+    const int titlesSize = g_engfuncs.pfnGetFileSize(EmotionTitlesPath);
+    if (!candidate->access->Allowed()) return false;
+    if (titlesSize > 0)
+    {
+        std::string titles;
+        if (!LoadFile(EmotionTitlesPath, titles, error) || !candidate->access->Allowed()) return false;
+        for (const auto& [id, row] : candidate->actions)
+        {
+            if (!row.emotionCount || candidate->emotionMenus.contains(row.emotionMenu)) continue;
+            std::string body;
+            if (!ReadTitleMessage(titles, std::string_view(row.emotionMenu).substr(1), body))
+            { error.message = "character emotion menu is missing from CSO titles: " + row.emotionMenu; return false; }
+            candidate->emotionMenus.emplace(row.emotionMenu, std::move(body));
+        }
+    }
+    // Client 5050 (02A41BAD) reads sound/sentences.json locally and plays the
+    // view character's voice. Advertise the table and every emotion wav a
+    // catalog character can select; absent files only stay silent.
+    {
+        std::string text;
+        csol::voice::SentenceTable sentences;
+        if (!LoadFile("sound/sentences.json", text, error) || !candidate->access->Allowed()) return false;
+        if (!csol::voice::ReadSentences(text, sentences, "MRAD_EMOTION"))
+        { error.message = "character emotion sentence table is invalid"; return false; }
+        csol::voice::ExpandTemplates(sentences,
+            [](const std::string& path) { return g_engfuncs.pfnGetFileSize(path.c_str()) > 0; });
+        if (!candidate->access->Allowed()) return false;
+        std::set<std::string_view> voices;
+        for (const auto& c : candidate->characters) voices.insert(csol::voice::CharacterVoiceKey(c.id, c.male));
+        PRECACHE_GENERIC(const_cast<char*>("sound/sentences.json"));
+        if (!candidate->access->Allowed()) return false;
+        std::set<std::string> files;
+        int missing{};
+        for (const auto& [name, entry] : sentences)
+            for (const auto& [voice, list] : entry)
+                if (voices.contains(voice)) files.insert(list.begin(), list.end());
+        for (const auto& file : files)
+        {
+            const auto full = "sound/" + file;
+            const int size = g_engfuncs.pfnGetFileSize(full.c_str());
+            if (!candidate->access->Allowed()) return false;
+            if (size <= 0) { ++missing; continue; }
+            PRECACHE_GENERIC(const_cast<char*>(full.c_str()));
+            if (!candidate->access->Allowed()) return false;
+        }
+        if (missing) ALERT(at_console, "CSOL emotion voices: %d of %d wav files are missing\n", missing, int(files.size()));
+    }
     const std::array<const char*, 2> paths{"models/v_emotion0.mdl", "models/v_emotion1.mdl"};
     for (unsigned i = 0; i < paths.size(); ++i)
     {
@@ -341,7 +423,7 @@ bool PrecacheCharacterActions(const std::shared_ptr<CCSOLScenarioSession>& sessi
         candidate->viewmodels[i] = ALLOC_STRING(paths[i]);
         if (!candidate->access->Allowed()) return false;
     }
-    resources = std::move(candidate); actions = {};
+    resources = std::move(candidate); actions = {}; emotions = {};
     return true;
 }
 
@@ -405,5 +487,40 @@ float CharacterActionMaxSpeed(CBasePlayer& player, float speed)
     const auto action = FindAction(player);
     return action && action->Current() && gpGlobals && action->constraint.Active(gpGlobals->time)
         ? std::min(speed, 1.0f) : speed;
+}
+bool OpenCharacterEmotionMenu(CBasePlayer& player)
+{
+    // cheer 11410660..11410723 on mode15 ordinary maps: no alive check here;
+    // the row must exist with count>0, then ShowMenu and m_iMenu=15.
+    const auto data = resources;
+    int modelId{};
+    if (!data || !data->access || !data->access->Allowed() || !SkillCharacterModelId(player, modelId)) return false;
+    const auto found = data->actions.find(modelId);
+    if (found == data->actions.end() || found->second.emotionCount <= 0) return false;
+    const auto& row = found->second;
+    const auto menu = data->emotionMenus.find(row.emotionMenu);
+    std::string text = menu != data->emotionMenus.end() ? menu->second : row.emotionMenu;
+    ShowMenu(&player, EmotionMenuKeys(row.emotionCount), -1, FALSE, text.data());
+    if (!data->access->Allowed()) return false;
+    player.m_iMenu = static_cast<_Menu>(EmotionMenu);
+    return true;
+}
+bool CharacterEmotionMenuOpen(const CBasePlayer& player) { return player.m_iMenu == EmotionMenu; }
+bool SelectCharacterEmotion(const std::shared_ptr<CCSOLScenarioPlayerRuntime>& players,
+    const std::shared_ptr<const CSOLScenarioPlayerRuntimeState>& state,
+    const std::shared_ptr<CCSOLScenarioSession>& session, int slot, ConfigError& error)
+{
+    // menuselect case 15 (1140EFA5): the same gate and commit as action5,
+    // with the row's slot, an extra flag of 0 and no duration.
+    if (!players || !state || !session || !resources || resources->session.lock() != session ||
+        players->Find(state->player) != state) return false;
+    auto action = std::make_shared<Action>(players, state, session, nullptr);
+    auto* p = action->Player();
+    if (!p) return false;
+    const int index = p->entindex();
+    bool started{};
+    if (!action->Start(slot, started, error)) return false;
+    if (started && index >= 1 && index <= 32) emotions[index] = std::move(action);
+    return true;
 }
 }

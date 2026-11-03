@@ -7,7 +7,9 @@
 #include "weapons.hpp"
 #include "beamgun.hpp"
 #include "cannon.hpp"
+#include "emotion_voice.hpp"
 #include "scenario_smoke.hpp"
+#include "balrog11_flame.hpp"
 #include "elite_visuals.hpp"
 #include "frozen_smoke.hpp"
 #include "camera.hpp"
@@ -680,6 +682,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
         {entity->model->name,strnlen(entity->model->name,sizeof(entity->model->name))},event->event,
         {event->options,strnlen(event->options,sizeof(event->options))}))return;
     if(CannonStudioEvent(event,entity))return;
+    if(EmotionVoiceStudioEvent(event,entity))return;
     if(event && entity && event->options[0]!='#' && (event->event==5005 || event->event==5008))
     {
         const std::string_view options(event->options,strnlen(event->options,sizeof(event->options)));
@@ -744,7 +747,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     }
     catch(const std::exception& error){engine.Con_Printf("CSOLSupport: event: %s\n",error.what());}
 }
-void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();DrawEliteVisuals();DrawFrozenSmoke();}}
+void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();DrawEliteVisuals();DrawFrozenSmoke();DrawBalrog11Flame();}}
 bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {
@@ -757,6 +760,8 @@ void InitializeScene()
 }
 void ClearScene()
 {
+    ResetEmotionVoices();
+    ResetBalrog11Flame();
     if(postRenderer)postRenderer->UnregisterPostSceneCallbacks(&worldCallbacks);
     postRenderer=nullptr;postFrame=nullptr;worldDraws={};
     states.clear();effects.clear();failures.clear();parts={};
@@ -793,7 +798,7 @@ void SceneFrame()
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);
+    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);
     const auto* hands=ViewCharacter() && state && state->asset?state->asset:nullptr;
     const int handBody=ent?ent->curstate.body:0;
     file<<",\"handAdapter\":{\"meshes\":"<<(hands?hands->adaptedMeshes:0)<<",\"bones\":"<<(hands?hands->adaptedBones:0)

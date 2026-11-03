@@ -47,6 +47,18 @@ public:
 protected:
     ~CSOLWeaponMonsterMelee() = default;
 };
+// CSO has separate virtual callbacks for completed reloads (v1DC) and an
+// explicit DropPlayerItem (v1BC). Keep them distinct from Holster and death.
+class CSOLWeaponLifecycle
+{
+public:
+    virtual void BeforeWeaponDrop() = 0;
+    virtual void WeaponReloadCompleted(int loaded) = 0;
+protected:
+    ~CSOLWeaponLifecycle() = default;
+};
+void CSOL_BeforeWeaponDrop(CBasePlayerItem* item);
+void CSOL_WeaponReloadCompleted(CBasePlayerWeapon& weapon, int loaded);
 int CSOL_DamageWeaponId(CBaseEntity* inflictor, CBasePlayer* attacker);
 // Exact compiled types whose original v1E4/v1E8 are both ret 8. Each matcher
 // lives with its class definition; IDs/classnames alone are not type proof.

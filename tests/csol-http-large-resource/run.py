@@ -40,6 +40,16 @@ def main():
             body=identity(out/'run/font-http-body.bin')
             assert body['sha256']==plan['resources'][0]['sha256'] and body['bytes']==22309736
             result.update(body=body,header=identity(out/'run/font-http-header.txt'))
+        elif plan['suite'] == 'sentences':
+            status=int((out/'run/sentences-status.txt').read_text().strip())
+            expected=200 if plan['sentencesExpected']=='fixed' else 404
+            assert status==expected
+            body=identity(out/'run/sentences-body.bin')
+            if status==200:
+                assert body['sha256']==plan['resources'][0]['sha256'] and body['bytes']==146922
+            else:
+                assert body['bytes']==0
+            result.update(status=status,body=body,header=identity(out/'run/sentences-header.txt'))
         result.update(success=True,executable=identity(out/'large_http.exe'),
             testOutput=(out/'test.log').read_text(encoding='utf-8'))
     except BaseException as error:

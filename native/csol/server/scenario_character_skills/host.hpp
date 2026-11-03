@@ -63,4 +63,11 @@ bool CharacterActionPostThink(CBasePlayer&);
 bool PreserveCharacterAction(CBasePlayer&, int requestedActivity);
 bool CancelCharacterAction(CBasePlayer&, bool restoreWeapon);
 float CharacterActionMaxSpeed(CBasePlayer&, float nativeSpeed);
+// J key: "cheer" opens the character's emotion menu; menuselect while it is
+// open starts that slot through the same action gate as the skill action5.
+bool OpenCharacterEmotionMenu(CBasePlayer&);
+bool CharacterEmotionMenuOpen(const CBasePlayer&);
+bool SelectCharacterEmotion(const std::shared_ptr<CCSOLScenarioPlayerRuntime>& players,
+    const std::shared_ptr<const CSOLScenarioPlayerRuntimeState>& state,
+    const std::shared_ptr<CCSOLScenarioSession>& session, int slot, ConfigError&);
 }

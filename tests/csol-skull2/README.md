@@ -27,3 +27,15 @@ python tests/csol-skull2/run_core.py --evidence $evidence --source-manifest $man
 core03新增`capture_helpers.py`：在同一个匹配原模块中直接执行Primary到Fire参数边界、Fire的门限和精度前缀，共320组Spread和480组trigger/accuracy，逐float位核对，包括两种特殊玩家状态优先级。core03完整核心组25520项/0失败，保留旧core01反例；另测shots整数缩放的表示不变量及非有限输入，不将这些称为真实网络编码器测试。
 
 动画与目录常量仍按已保存IDA合同核对。普通Fire后半段的弹道、伤害、第三人称模型、基础类回调、完整SDK实例容量、实际预测与delta、购买拾取和图形效果不属于本核心验收；生命周期研究和真实SDK编译结果另行记录，不把纯核心成功当成整把武器交付。
+
+## 客户端与资源追加验证
+
+These tests execute the actual weapon translation units against the pinned SDK. Engine effects are recorded at explicit boundaries; passing them does not establish rendered gameplay or networking.
+
+- `client_sdk.py`: compile frozen SKULL2/SKULL5 units and run `client.cpp`; use `--smoke-overlay` for the separate SKULL1/2/5 command test in `smoke.cpp`, once per initialization permutation in fresh processes.
+- `collector_sdk.py`: compile the actual resource collector from a frozen weapon manifest and a verified compiler/SDK baseline.
+- `resources.py`: collect dependencies from extracted common, compare original HUD rectangles, check model-event sounds, and stage independent files under a new workspace build directory.
+
+All output directories must be new. Keep failures intact and use another directory for a corrected run. Frozen source, compiler parameters, real includes, hashes, logs and executable identities are recorded. Client tests explicitly exclude server-only paths from an integration manifest because those are not client compilation inputs.
+
+For the 2026-11-03 runs and validation limits, see `docs/2026-11-03_验证-SKULL2客户端与资源-report.md`. Historical successful client source and fixtures remain frozen in their original run directories even when the editable fixtures gain additional checks.

@@ -10,7 +10,7 @@ inline constexpr char Message[]="CSOBuy";
 inline constexpr std::size_t MessageBytes=16;
 // GoldSrc retains downloads by path. Change this resource revision when the
 // generated layout or required catalogue images change; the JSON schema is separate.
-inline constexpr char PresentationResource[]="models/csol/buymenu_v3.json";
+inline constexpr char PresentationResource[]="models/csol/buymenu_v7.json";
 enum class Kind:std::uint8_t {Capability,Begin,Item,End,Result};
 enum class Result:std::uint8_t {Available,Unavailable,Insufficient,Success,Failed};
 struct Packet {Kind kind{};std::uint16_t request{},id{};std::int32_t price{},balance{};Result result{};std::uint8_t team{};};

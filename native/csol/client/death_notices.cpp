@@ -21,11 +21,14 @@ client_sprite_t* GetSpriteList(char* path, int* count)
     if (hudSprites.empty())
     {
         hudSprites.assign(original, original + *count);
-        struct Entry {const char *name,*sprite;int y;};
+        struct Entry {const char *name,*sprite;int y;int x{172};int width{48};};
         const Entry entries[]{
             {"d_tknifeex2","csol/640hud12",32},{"d_beamgun","csol/640hud266",0},
             {"d_beamgunle","csol/640hud266",16},{"d_cannon","csol/640hud6",160},
-            {"d_k3","csol/640hud11",64},
+            {"d_k3","csol/640hud11",64},{"d_skull1","csol/640hud4",48,220,32},
+            {"d_skull5","csol/640hud4",144},
+            {"d_skull2","csol/640hud38",0},
+            {"d_m249ex","csol/640hud3",240,122},{"d_balrog11","csol/640hud11",144},
             {"d_dragonsword","csol/640hud10",160},{"d_skullaxe","csol/640hud4",96}};
         for (const auto& entry : entries) for (const int resolution : {320, 640})
         {
@@ -36,8 +39,8 @@ client_sprite_t* GetSpriteList(char* path, int* count)
             std::strcpy(icon.szName, entry.name);
             std::strcpy(icon.szSprite, entry.sprite);
             icon.iRes = resolution;
-            // Original CSO hud.txt: shared x=172, width=48, height=16; per-icon y.
-            icon.rc = {172, 220, entry.y, entry.y+16};
+            // Original hud.txt has per-weapon widths (SKULL-1 is 32 by 16).
+            icon.rc = {entry.x, entry.x+entry.width, entry.y, entry.y+16};
             hudSprites.push_back(icon);
         }
     }

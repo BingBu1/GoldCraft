@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "beamgun.hpp"
+#include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
 #include "character_skill_effects.hpp"
 #include "camera.hpp"
@@ -234,7 +235,7 @@ void LoadSprites()
 {
     screen.iSize = sizeof(screen); engine.pfnGetScreenInfo(&screen);
     constexpr int left[]{0,23,47,70,95,119,144,169,192,216};
-    const int font = engine.pfnSPR_Load("sprites/csol/640hud7.spr");
+    const int font = engine.pfnSPR_Load("sprites/csol/640hud7_v2.spr");
     for (int i = 0; i < 10; ++i) digits[i] = {font, {left[i],left[i]+20,0,25}};
     // The native HUD supplies its 320-resolution font on small viewports.
     // Keep the CSO atlas fallback if that legacy font is absent.
@@ -522,5 +523,23 @@ void BeamgunDiagnostics(std::ostream& output)
         << ",\"predictionCalls\":" << predictionCalls << ",\"draws\":" << draws
         << ",\"charge\":" << int(predicted.charge) << ",\"chargeTime\":" << predicted.chargeTime
         << ",\"effects\":" << effectMessages << ",\"rejected\":" << rejectedEffects << '}';
+}
+}
+
+namespace csol::client {
+namespace {
+void UpdateModuleHud(hud_style::WeaponState& result)
+{
+    const auto beam=BeamgunHudState();
+    if(beam.state && beam.id==result.id)
+    {result.clip=beam.clip;result.reserve=beam.reserve;result.secondary=beam.secondary;}
+}
+constexpr int ModuleIds[]{BeamgunId,BeamgunLEId};
+constinit const WeaponModule Module{
+    .ids=ModuleIds,.order=10,
+    .initialize=InitializeBeamgun,.reset=ResetBeamgun,.videoInit=BeamgunVideoInit,
+    .receive=ReceiveBeamgunState,.predict=PredictBeamgun,.diagnostics=BeamgunDiagnostics,
+    .hudState=UpdateModuleHud,.secondaryVisible=BeamgunSecondaryAmmoVisible,.drawHud=DrawBeamgunHUD};
+const WeaponModuleRegistration Registration{Module};
 }
 }

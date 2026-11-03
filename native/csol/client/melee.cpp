@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "melee.hpp"
+#include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
 #include "../melee_identity.hpp"
 #include "../melee_prediction.hpp"
@@ -239,5 +240,16 @@ void MeleeDiagnostics(std::ostream& out)
     out << ",\"melee\":{\"weapon\":" << presentedWeapon << ",\"attacks\":" << predictedAttacks
         << ",\"completions\":" << completions << ",\"dragonEffects\":" << dragonEffects
         << ",\"rejected\":" << rejected << '}';
+}
+}
+
+namespace csol::client {
+namespace {
+constexpr int ModuleIds[]{melee::DragonSwordId,melee::SkullAxeId};
+constinit const WeaponModule Module{
+    .ids=ModuleIds,.order=40,
+    .initialize=InitializeMeleeWeapons,.reset=ResetMeleeWeapons,.videoInit=ResetMeleeWeapons,
+    .receive=ReceiveMeleeState,.predict=PredictMeleeWeapon,.diagnostics=MeleeDiagnostics};
+const WeaponModuleRegistration Registration{Module};
 }
 }

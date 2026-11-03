@@ -155,11 +155,11 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
     if source_overlay:
         sources[str(source_overlay)] = identity(source_overlay)
 
-    def add(name, group, source_name=None, token=None, common_required=False, optional=False):
+    def add(name, group, source_name=None, token=None, common_required=False, optional=False, common_name=None):
         name = relative(name)
         if source_name:
             literal(source, source_name, token or name, sources)
-        path, original = deployed / name, common / name
+        path, original = deployed / name, common / relative(common_name or name)
         if optional and not path.exists() and not original.exists():
             absent.append(name)
             return
@@ -207,6 +207,10 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
     ]
     for name, owner in direct:
         add(name, 'server-tables', scenario + owner, common_required=True)
+    action_host = 'native/csol/server/scenario_character_skills/host.cpp'
+    if 'resource/csol/cso_titles.txt' in literal(source, action_host, 'namespace', sources):
+        add('resource/csol/cso_titles.txt', 'server-tables', action_host,
+            common_required=True, optional=True, common_name='titles.txt')
     for prefix, owner, optional in [
             ('zbs_wave_', 'map_resources.cpp', False), ('zbs_', 'map_resources.cpp', False),
             ('ZBS_ZT_', 'map_resources.cpp', False), ('ZBS_TRG_', 'map_resources.cpp', False),

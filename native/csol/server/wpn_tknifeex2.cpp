@@ -6,6 +6,16 @@
 #include "wpn_cannon.h"
 #include "wpn_k3.h"
 #include "wpn_melee.h"
+#include "wpn_m249ex.h"
+#include "wpn_skull1.h"
+#include "wpn_skull2.h"
+#include "wpn_skull5.h"
+#include "wpn_balrog11.h"
+#include "../m249ex.hpp"
+#include "../skull1.hpp"
+#include "../skull2.hpp"
+#include "../skull5.hpp"
+#include "../balrog11.hpp"
 #include "../melee_identity.hpp"
 #include "../melee_resources.hpp"
 #include "characters.h"
@@ -84,7 +94,9 @@ const char* CSOL_DeathWeapon(const entvars_t* inflictor)
 {
     // The projectile keeps its weapon identity even if its owner switches
     // weapons before impact. Melee already uses the active weapon's name.
-    return inflictor && FStrEq(STRING(inflictor->classname), "throwingknife_entity") ? "tknifeex2" : nullptr;
+    if (!inflictor) return nullptr;
+    if (FStrEq(STRING(inflictor->classname), "balrog11_cannon")) return "balrog11";
+    return FStrEq(STRING(inflictor->classname), "throwingknife_entity") ? "tknifeex2" : nullptr;
 }
 
 void CThrowingKnife::Precache()
@@ -471,7 +483,7 @@ void CTKnifeEx2::Precache()
     PRECACHE_GENERIC("sprites/weapon_tknifeex2.txt");
     PRECACHE_MODEL("sprites/csol/640hud97.spr");
     PRECACHE_MODEL("sprites/csol/640hud12.spr");
-    PRECACHE_MODEL("sprites/csol/640hud7.spr");
+    PRECACHE_MODEL("sprites/csol/640hud7_v2.spr");
 }
 
 int CTKnifeEx2::GetItemInfo(ItemInfo* info)
@@ -607,6 +619,11 @@ void CSOL_InitWeapons()
     CSOL_InitCannon();
     CSOL_InitK3();
     CSOL_InitMeleeWeapons();
+    CSOL_InitM249EX();
+    CSOL_InitSkull1();
+    CSOL_InitSkull2();
+    CSOL_InitSkull5();
+    CSOL_InitBalrog11();
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CVAR_REGISTER(&csol_projectile_trace);
     ADD_SERVER_COMMAND("tknife_projectile_test", CThrowingKnife::TestProjectile);
@@ -624,12 +641,24 @@ bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
         (weapon->m_iId == CSOL_WEAPON_BEAMGUNLE && !Q_strcmp(name, "weapon_beamgunle")) ||
         (weapon->m_iId == CSOL_WEAPON_CANNON && !Q_strcmp(name, "weapon_cannon")) ||
         (weapon->m_iId == CSOL_WEAPON_K3 && !Q_strcmp(name, "weapon_k3")) ||
+        (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::m249ex::Classname)) ||
+        (CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::skull1::Classname)) ||
+        (CSOL_IsSkull2(*weapon) && !Q_strcmp(name, csol::skull2::Classname)) ||
+        (CSOL_IsSkull5(*weapon) && !Q_strcmp(name, csol::skull5::Classname)) ||
+        (CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::balrog11::Classname)) ||
         (csol::melee::IsWeapon(weapon->m_iId) &&
             !Q_strcmp(name, csol::melee::Resource(csol::melee::WeaponVariant(weapon->m_iId)).classname));
 }
 
 const char* CSOL_WorldModel(const CBasePlayerItem* item)
 {
+    if (const auto* weapon = dynamic_cast<const CBasePlayerWeapon*>(item)) {
+        if (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon)) return csol::m249ex::WorldModel;
+        if (CSOL_Skull1EmptyMonsterKillCallbacks(*weapon)) return csol::skull1::WorldModel;
+        if (CSOL_IsSkull2(*weapon)) return csol::skull2::WorldModel;
+        if (CSOL_IsSkull5(*weapon)) return csol::skull5::WorldModel;
+        if (CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon)) return csol::balrog11::WorldModel;
+    }
     if (item && csol::melee::IsWeapon(item->m_iId)) {
         const auto& resource = csol::melee::Resource(csol::melee::WeaponVariant(item->m_iId));
         if (FClassnameIs(item->pev, resource.classname)) return resource.worldModel;
@@ -663,6 +692,11 @@ void CSOL_PrecacheWeapons()
         CSOL_PrecacheCannon();
         CSOL_PrecacheK3();
         CSOL_PrecacheMeleeWeapons();
+        CSOL_PrecacheM249EX();
+        CSOL_PrecacheSkull1();
+        CSOL_PrecacheSkull2();
+        CSOL_PrecacheSkull5();
+        CSOL_PrecacheBalrog11();
     }
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CSOL_PrecacheWeaponTests();

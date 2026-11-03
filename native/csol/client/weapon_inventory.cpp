@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../weapon_hud_paths.hpp"
 #include "runtime.hpp"
 #include "weapon_inventory.hpp"
 #include "command_chain.hpp"
@@ -100,7 +101,7 @@ void PrepareSelection()
     for(const int id:selectionIds)
     {
         auto& image=sprites[id];if(image.normal.handle && image.selected.handle)continue;
-        std::string path="sprites/"+definitions[id].name+".txt";int count=0;
+        std::string path=WeaponHudList(definitions[id].name);int count=0;
         const auto* list=engine.pfnSPR_GetList(path.data(),&count);
         // CSO weapon lists can contain only 640 sprites; retain that fallback.
         for(int pass=0;pass<2;++pass)for(int i=0;list && i<count;++i)

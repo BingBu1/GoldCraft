@@ -32,6 +32,7 @@
 #include "character_skill_effects.hpp"
 #include "character_skill_display.hpp"
 #include "scenario_smoke.hpp"
+#include "balrog11_flame.hpp"
 #include "elite_visuals.hpp"
 #include "frozen_death.hpp"
 #include "frozen_smoke.hpp"
@@ -324,6 +325,7 @@ static void Init()
     InitializeScenarioEffects();
     InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
+    InitializeBalrog11Flame();
     InitializeEliteVisuals();
     InitializeScenarioUpgrades();
     InitializeScenarioAbilities();
@@ -388,6 +390,7 @@ static void Frame(double time)
     ScenarioRoundHudFrame();
     ScenarioRespawnUiFrame();
     EliteVisualsFrame();
+    Balrog11FlameFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();

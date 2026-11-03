@@ -144,6 +144,7 @@ bool resource_name(const std::string& name) {
            lower(name) == "maps/zbs_message.cso" ||
            (root == "models" && (ext == ".mdl" || ext == ".seq" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
+           lower(name) == "sound/sentences.json" ||
            (root == "bgm" && ext == ".mp3") ||
            (root == "resource" && (ext == ".tga" ||
                (ext == ".ttf" && (lower(name).compare(0, 14, "resource/font/") == 0 ||

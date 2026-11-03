@@ -10,7 +10,9 @@
 
 namespace csol::hud_style
 {
-inline constexpr char CatalogPath[] = "models/csol/hud_v1.json";
+// Resource revision changes when weapon rows are added; cached v1 catalogs
+// cannot advertise their new silhouettes or secondary-ammunition textures.
+inline constexpr char CatalogPath[] = "models/csol/hud_v5.json";
 inline constexpr char FontPath[] = "resource/Font/sarasa_ui_sc.ttf";
 inline constexpr char SchemePath[] = "resource/csol/hud/v1/CSOLHudScheme.res";
 enum class Art : unsigned { CharacterTop, CharacterBottom, WeaponTop, WeaponBottom,

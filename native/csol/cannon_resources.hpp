@@ -8,7 +8,7 @@ inline constexpr std::array CannonResources{
     "sprites/flame_puff01.spr", "sprites/black_smoke4.spr",
     "sprites/pistol_smoke1.spr", "sprites/pistol_smoke2.spr", "sprites/muzzleflash12.spr",
     "sprites/weapon_cannon.txt", "sprites/csol/640hud69.spr", "sprites/csol/640hud2.spr",
-    "sprites/csol/640hud6.spr", "sprites/csol/640hud7.spr",
+    "sprites/csol/640hud6.spr", "sprites/csol/640hud7_v2.spr",
     "sound/weapons/cannon-1.wav", "sound/weapons/cannon_draw.wav"
 };
 inline constexpr std::string_view CannonHUD=

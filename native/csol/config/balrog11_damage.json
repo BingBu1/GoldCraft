@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "Damage": 20,
+  "DamageZombie": 60,
+  "DamageScenario": 80,
+  "CannonDamage": 35,
+  "CannonDamageZombie": 1125,
+  "CannonDamageScenario": 2400
+}

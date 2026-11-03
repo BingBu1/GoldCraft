@@ -13,6 +13,11 @@
 #include "scenario_native_weapons.h"
 #include "weapons.h"
 #include "wpn_melee.h"
+#include "wpn_m249ex.h"
+#include "wpn_skull1.h"
+#include "wpn_skull2.h"
+#include "wpn_skull5.h"
+#include "wpn_balrog11.h"
 #include "../scenario/monster_appearances.hpp"
 #include "../scenario/player_protection.hpp"
 #include "../scenario_abilities.hpp"
@@ -2189,7 +2194,9 @@ bool CCSOLScenarioPlayerRuntime::ReadEntitySource(CBaseEntity& entity, int& valu
         if (CSOL_NativeWeaponMonsterCallbacks(*weapon) ||
             CSOL_CannonEmptyMonsterKillCallbacks(*weapon) || CSOL_BeamEmptyMonsterKillCallbacks(*weapon) ||
             CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) || CSOL_K3EmptyMonsterKillCallbacks(*weapon) ||
-            CSOL_MeleeEmptyMonsterKillCallbacks(*weapon))
+            CSOL_MeleeEmptyMonsterKillCallbacks(*weapon) ||
+            CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) || CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) ||
+            CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull5(*weapon))
         { value = weapon->m_iId; return true; }
     }
     const auto weapons = m_session->Weapons();
@@ -3317,7 +3324,9 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterKill(CSOLMonsterDeathCall& call,
         // coverage, not a fabricated return value from the original method.
         if (CSOL_NativeWeaponMonsterCallbacks(*weapon) || CSOL_CannonEmptyMonsterKillCallbacks(*weapon) ||
             CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
-            CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon)) return true;
+            CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon) ||
+            CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) || CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) ||
+            CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull5(*weapon)) return true;
         error.message = active ? "scenario active weapon kill callback is unsupported" :
             "scenario source weapon kill callback is unsupported";
         return false;

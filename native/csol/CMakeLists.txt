@@ -8,10 +8,11 @@ endif()
 get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
-add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
+add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/weapon_module.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
-    client/projectiles.cpp client/cannon.cpp client/k3.cpp client/shared_random.cpp client/scenario_music.cpp scenario_music.cpp
+    client/projectiles.cpp client/cannon.cpp client/emotion_voice.cpp client/k3.cpp client/shared_random.cpp client/gun_smoke.cpp client/scenario_music.cpp scenario_music.cpp
     client/melee.cpp melee_attacks.cpp
+    client/m249ex.cpp client/skull1.cpp client/skull2.cpp client/skull5.cpp client/balrog11.cpp client/balrog11_flame.cpp
     client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario_smoke.cpp scenario_smoke.cpp
     client/elite_visuals.cpp
@@ -189,7 +190,7 @@ if(CSOL_BUILD_SCENE_TESTS)
 endif()
 if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     add_executable(csol_weapon_client_tests ../../tests/csol-weapon-slots/client.cpp
-        client/weapons.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp client/k3.cpp client/melee.cpp melee_attacks.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
+        client/weapons.cpp client/weapon_module.cpp client/gun_smoke.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp client/k3.cpp client/melee.cpp client/m249ex.cpp client/skull1.cpp client/skull2.cpp client/skull5.cpp client/balrog11.cpp melee_attacks.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
     target_compile_features(csol_weapon_client_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SLOT_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SLOT_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)

@@ -2,6 +2,8 @@
 #pragma once
 class CBasePlayer;
 bool CSOL_ZombieHuman(CBasePlayer* player);
+// Authenticated zombie role, including dead players with in-flight attacks.
+bool CSOL_ZombiePlayer(CBasePlayer* player);
 bool CSOL_ZombieMode();
 void CSOL_ResetWeaponService();
 // Delivery only; the C++ scenario shop validates eligibility and charges money.

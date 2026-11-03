@@ -6,7 +6,18 @@
 #include "wpn_cannon.h"
 #include "wpn_k3.h"
 #include "wpn_melee.h"
+#include "wpn_m249ex.h"
+#include "wpn_skull1.h"
+#include "wpn_skull2.h"
+#include "wpn_skull5.h"
+#include "wpn_balrog11.h"
+#include "../m249ex.hpp"
+#include "../skull1.hpp"
+#include "../skull2.hpp"
+#include "../skull5.hpp"
+#include "../balrog11.hpp"
 #include "melee_purchase.h"
+#include "primary_purchase.h"
 #include "../melee_identity.hpp"
 #include "../melee_resources.hpp"
 #include "weapon_service.h"
@@ -58,6 +69,11 @@ const char* WeaponName(int id)
     case CSOL_WEAPON_BEAMGUNLE: return "weapon_beamgunle";
     case CSOL_WEAPON_CANNON: return "weapon_cannon";
     case CSOL_WEAPON_K3: return "weapon_k3";
+    case csol::m249ex::Id: return csol::m249ex::Classname;
+    case csol::skull1::Id: return csol::skull1::Classname;
+    case csol::skull2::Id: return csol::skull2::Classname;
+    case csol::skull5::Id: return csol::skull5::Classname;
+    case csol::balrog11::Id: return csol::balrog11::Classname;
     case csol::melee::DragonSwordId: return csol::melee::DragonSwordResources.classname;
     case csol::melee::SkullAxeId: return csol::melee::SkullAxeResources.classname;
     default: return nullptr;
@@ -385,6 +401,11 @@ public:
             CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
             !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
             (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready()) &&
+            (weapon != csol::m249ex::Id || CSOL_M249EXReady()) &&
+            (weapon != csol::skull1::Id || CSOL_Skull1Ready()) &&
+            (weapon != csol::skull2::Id || CSOL_Skull2Ready()) &&
+            (weapon != csol::skull5::Id || CSOL_Skull5Ready()) &&
+            (weapon != csol::balrog11::Id || CSOL_Balrog11Ready()) &&
             (!csol::melee::IsWeapon(weapon) ||
                 (CSOL_MeleeReady(weapon) && !CSOL_HasWeapon(player,weapon)));
     }
@@ -399,6 +420,8 @@ public:
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
         if(csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
+        if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull5::Id)
+            return CSOL_DeliverSkullBalrog(*player,weapon);
         if(scenario && weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);
         const char* name = WeaponName(weapon);
         if(weapon==CSOL_WEAPON_CANNON && CSOL_HasWeapon(player,weapon))
@@ -499,7 +522,13 @@ bool CSOL_ZombieHuman(CBasePlayer* player)
     return index > 0 && index < int(roles.size()) && roles[index].value == 1 &&
         roles[index].userid == GETPLAYERUSERID(player->edict());
 }
-
+bool CSOL_ZombiePlayer(CBasePlayer* player)
+{
+    if (!zombieMode || !player) return false;
+    const int index = player->entindex();
+    return index > 0 && index < int(roles.size()) && roles[index].value == 2 &&
+        roles[index].userid == GETPLAYERUSERID(player->edict());
+}
 void CSOL_ResetWeaponService() { zombieMode = false; roles = {}; }
 bool CSOL_ZombieMode() { return zombieMode; }
 bool CSOL_CanDeliverScenarioWeapon(CBasePlayer* player,int weapon)

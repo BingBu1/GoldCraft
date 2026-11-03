@@ -2437,7 +2437,13 @@ void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player)
 
 bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command)
 {
-    if (!command || Q_strcmp(command, "buffclass_skill")) return false;
+    if (!command) return false;
+    const bool cheer = !Q_strcmp(command, "cheer");
+    // Only menuselect for the open emotion menu (m_iMenu 15) is ours; every
+    // stock menu keeps ReGameDLL's own menuselect handling.
+    const bool select = !Q_strcmp(command, "menuselect") &&
+        csol::scenario::skills::CharacterEmotionMenuOpen(player);
+    if (!cheer && !select && Q_strcmp(command, "buffclass_skill")) return false;
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario()) return false;
     if (!scope.Current()) return true;
@@ -2445,6 +2451,24 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     if (!record || record->retired || record->runtime->Closing()) return true;
     const auto runtime = record->runtime;
     const auto players = runtime->players;
+    if (cheer)
+    {
+        csol::scenario::skills::OpenCharacterEmotionMenu(player);
+        return true;
+    }
+    if (select)
+    {
+        const int slot = Q_atoi(CMD_ARGV_(1));
+        // Same as ReGameDLL's JOINED menuselect: 10 closes the menu.
+        if (slot == 10) { player.m_iMenu = Menu_OFF; return true; }
+        const auto state = players && players->Active() ? players->Find(EHANDLE(&player)) : nullptr;
+        if (!state) return true;
+        csol::scenario::ConfigError error;
+        if (!csol::scenario::skills::SelectCharacterEmotion(players, state, runtime->session, slot, error) &&
+            !error.message.empty())
+            ALERT(at_console, "CSOL emotion rejected: %s\n", error.message.c_str());
+        return true;
+    }
     if (!players || !players->Active() || !players->Find(EHANDLE(&player))) return true;
     CSOLPlayerRecoveryCall call(runtime, EHANDLE(&player),
         [](const void* value) { return static_cast<const CSOLScenarioSdkScope*>(value)->Current(); }, &scope);
