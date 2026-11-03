@@ -146,7 +146,8 @@ bool resource_name(const std::string& name) {
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
            (root == "bgm" && ext == ".mp3") ||
            (root == "resource" && (ext == ".tga" ||
-               (ext == ".ttf" && lower(name).compare(0, 14, "resource/font/") == 0))) ||
+               (ext == ".ttf" && (lower(name).compare(0, 14, "resource/font/") == 0 ||
+                                  lower(name).compare(0, 14, "resource/csol/") == 0)))) ||
            lower(name) == "resource/csol/hud/v1/csolhudscheme.res" ||
            lower(name) == "resource/cso_chn.txt" ||
            (root == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||

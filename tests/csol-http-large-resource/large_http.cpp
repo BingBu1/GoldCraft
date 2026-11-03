@@ -93,20 +93,28 @@ static void large_adapter(const std::filesystem::path& font_path,const std::file
     const std::filesystem::path& output)
 {
     const std::string font="resource/Font/sarasa_ui_sc.ttf";
+    const std::string mapfont="resource/csol/mapvote/v1/df_gb_y9.ttf";
     const std::string scheme="resource/csol/hud/v1/CSOLHudScheme.res";
     files[font].bytes=read_file(font_path);files[scheme].bytes=read_file(scheme_path);
+    // Reuse the supplied real font payload to exercise the other advertised
+    // font namespace through the actual HTTP adapter, including its size.
+    files[mapfont].bytes=files[font].bytes;
     REQUIRE(files[font].bytes.size()==22309736);
     for(auto v:{&sv_downloadurl,&sv_allow_download,&sv_send_resources,&sv_allow_dlfile})Cvar_RegisterVariable(v);
     for(auto key:{"GOLDCRAFT_HTTP_ENABLED","GOLDCRAFT_HTTP_BIND","GOLDCRAFT_HTTP_PORT","GOLDCRAFT_HTTP_PUBLIC_URL"})_putenv_s(key,"");
     Server probe;REQUIRE(probe.start("127.0.0.1",0,{}));auto port=probe.port();probe.stop();
     GC_HttpInit();Cvar_Set("mc_http_port",std::to_string(port).c_str());Cvar_Set("mc_http_bind","127.0.0.1");
     add(font.c_str(),t_generic,files[font].bytes.size());add(scheme.c_str(),t_generic,files[scheme].bytes.size());
+    add(mapfont.c_str(),t_generic,files[mapfont].bytes.size());
     for(const auto* invalid:{"resource/csol/hud/v1/other.res","resource/csol/hud/v2/CSOLHudScheme.res",
         "resource/csol/hud/v1/CSOLHudScheme.res.bak","resource/csol/hud/v1/CSOLHudScheme.res.exe",
-        "resource/clientscheme.res","resource/trackerscheme.res","resource/private.res"})
+        "resource/clientscheme.res","resource/trackerscheme.res","resource/private.res",
+        "resource/private.ttf","resource/csol/mapvote/v1/font.ttf.bak","resource/csol/mapvote/v1/font.ttf.exe"})
     {files[invalid].bytes=Bytes{1,2};add(invalid,t_generic,2);REQUIRE(!resource_name(invalid));}
     REQUIRE(resource_name(scheme));
     REQUIRE(resource_name("RESOURCE/CSOL/HUD/V1/CSOLHUDSCHEME.RES"));
+    REQUIRE(resource_name(mapfont));
+    REQUIRE(resource_name("RESOURCE/CSOL/MAPVOTE/V1/DF_GB_Y9.TTF"));
     GC_HttpResources();frame();
     auto future=async_request(port,font);auto response=pump(future);
     REQUIRE(response.status==200);exact_length(response,files[font].bytes.size());
@@ -114,6 +122,9 @@ static void large_adapter(const std::filesystem::path& font_path,const std::file
     std::ofstream(output/"font-http-body.bin",std::ios::binary).write(reinterpret_cast<const char*>(response.body.data()),response.body.size());
     std::ofstream(output/"font-http-header.txt")<<response.header;
     REQUIRE(largest_read_frame==256*1024 && seeks>=86 && opens==closes);
+    future=async_request(port,mapfont);response=pump(future);
+    REQUIRE(response.status==200);exact_length(response,files[mapfont].bytes.size());
+    REQUIRE(response.body==files[mapfont].bytes);
     for(const auto& range:{std::string("bytes=16777200-16777280"),std::string("bytes=-4097"),std::string("bytes=22309700-")})
     {
         future=std::async(std::launch::async,[=]{return request(port,"/goldcraft/"+font,"Range: "+range+"\r\n");});
@@ -133,7 +144,8 @@ static void large_adapter(const std::filesystem::path& font_path,const std::file
     for(const auto* invalid:{"resource/csol/hud/v1/other.res","resource/csol/hud/v2/CSOLHudScheme.res",
         "resource/csol/hud/v1/CSOLHudScheme.res.bak","resource/csol/hud/v1/CSOLHudScheme.res.exe",
         "resource/clientscheme.res","resource/trackerscheme.res","resource/private.res",
-        "resource/csol/hud/v1/../CSOLHudScheme.res","resource/csol/hud/v1/CSOLHudScheme.res?x=1"})
+        "resource/csol/hud/v1/../CSOLHudScheme.res","resource/csol/hud/v1/CSOLHudScheme.res?x=1",
+        "resource/private.ttf","resource/csol/mapvote/v1/font.ttf.exe","resource/csol/../private.ttf"})
     {future=async_request(port,invalid);REQUIRE(pump(future).status==404);}
     REQUIRE(opens==before);
     // A queued request is cancelled through the actual adapter reset, not by
