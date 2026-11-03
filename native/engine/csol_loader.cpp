@@ -180,7 +180,9 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))
     {
         const auto* textures=(const mstudiotexture_t*)((const byte*)header+header->textureindex);
-        for(int i=0;i<header->numtextures;++i)special|=textures[i].name[0]=='$' || textures[i].name[0]=='#' || textures[i].name[0]=='@' || !strncmp(textures[i].name,"cso_",4);
+        // CSO authors use both CSO_HighQ_* and cso_highq_* names. Match the
+        // dependency resolver so embedded textures cannot hide event sounds.
+        for(int i=0;i<header->numtextures;++i)special|=textures[i].name[0]=='$' || textures[i].name[0]=='#' || textures[i].name[0]=='@' || !Q_strnicmp(textures[i].name,"cso_",4);
     }
     if(!special)return;
     try
