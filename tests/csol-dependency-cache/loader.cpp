@@ -16,6 +16,9 @@
 #include <filesystem>
 #include <fstream>
 
+CreateInterfaceFn g_FileSystemFactory{};
+IFileSystem* g_pFileSystem{};
+
 static bool failHash;
 static unsigned hashCalls;
 static NTSTATUS WINAPI FixtureHash(BCRYPT_ALG_HANDLE algorithm, PUCHAR secret, ULONG secretSize,
@@ -44,7 +47,7 @@ namespace fixture {
 using Bytes = std::vector<std::byte>;
 unsigned checks, failures, opens, closes;
 struct Fatal : std::runtime_error {using std::runtime_error::runtime_error;};
-struct Entry {Bytes bytes; std::size_t virtualSize{}; unsigned char fill{};};
+struct Entry {Bytes bytes; std::size_t virtualSize{}; unsigned char fill{}; std::uint64_t generation{};};
 std::map<std::string,Entry> vfs, pack;
 bool packFirst;
 std::set<std::string> cannotOpen, shortRead;
@@ -54,14 +57,17 @@ std::vector<std::string> batchTrace;
 bool recordBatch;
 std::filesystem::path common;
 std::map<std::string,std::pair<std::size_t,std::array<unsigned char,32>>> realInputs;
-struct Handle {std::string name;Entry entry;};
+struct Handle {std::string name;Entry entry;bool packed{};};
+std::uint64_t generation;
+bool metadataMode;
+std::string mutateOpened;
 
-void Check(bool ok, const char* text)
+void Check(bool ok, const char* text, unsigned line)
 {
     ++checks;
-    if (!ok) {++failures;throw std::runtime_error(std::string("check failed: ")+text);}
+    if (!ok) {++failures;throw std::runtime_error(std::string("check failed at ")+std::to_string(line)+": "+text);}
 }
-#define CHECK(x) fixture::Check(bool(x), #x)
+#define CHECK(x) fixture::Check(bool(x), #x, __LINE__)
 
 Bytes Text(std::string_view text)
 {return {reinterpret_cast<const std::byte*>(text.data()),reinterpret_cast<const std::byte*>(text.data()+text.size())};}
@@ -89,7 +95,7 @@ Bytes Sequence(std::string_view sound)
     Put(result,100+48,1);Put(result,100+56,1);Put(result,100+120,1);Put(result,100+124,84);
     return result;
 }
-void Set(std::string name,Bytes bytes){vfs[std::move(name)]={std::move(bytes)};}
+void Set(std::string name,Bytes bytes){vfs[std::move(name)]={std::move(bytes),0,0,++generation};}
 void Set(std::string name,std::string_view bytes){Set(std::move(name),Text(bytes));}
 const Entry* Locate(const std::string& name)
 {
@@ -133,6 +139,7 @@ void Reset()
 {
     resourceBatch.reset();dependencyCache=DependencyCache{};vfs.clear();pack.clear();
     packFirst=false;failHash=false;common.clear();realInputs.clear();cannotOpen.clear();shortRead.clear();ResetCounters();
+    g_FileSystemFactory=nullptr;g_pFileSystem=nullptr;metadataMode=false;mutateOpened.clear();
 }
 void Base()
 {
@@ -343,13 +350,16 @@ void BatchAdapter()
 }
 }
 
+#include "metadata.inc"
+
 int FS_FileExists(const char* name){++fixture::existsCalls[name];return fixture::Has(name);}
 FileHandle_t FS_Open(const char* name,const char* options)
 {
     CHECK(std::string(options)=="rb");if(fixture::cannotOpen.contains(name))return nullptr;
     const auto* entry=fixture::Locate(name);fixture::Entry data;
     if(entry)data=*entry;else {if(!fixture::Has(name))return nullptr;data.bytes=fixture::ReadDisk(name);}
-    ++fixture::opens;return reinterpret_cast<FileHandle_t>(new fixture::Handle{name,std::move(data)});
+    const auto packed=fixture::pack.find(name);
+    ++fixture::opens;return reinterpret_cast<FileHandle_t>(new fixture::Handle{name,std::move(data),packed!=fixture::pack.end() && entry==&packed->second});
 }
 void FS_Close(FileHandle_t handle){CHECK(handle);++fixture::closes;delete reinterpret_cast<fixture::Handle*>(handle);}
 unsigned FS_Size(FileHandle_t handle)
@@ -358,6 +368,7 @@ int FS_Read(void* output,int size,int count,FileHandle_t handle)
 {
     auto& h=*reinterpret_cast<fixture::Handle*>(handle);++fixture::readCalls[h.name];CHECK(count==1);CHECK(size==int(FS_Size(handle)));
     if(h.entry.virtualSize)std::memset(output,h.entry.fill,size);else std::memcpy(output,h.entry.bytes.data(),size);
+    if(fixture::mutateOpened==h.name)++h.entry.generation;
     return fixture::shortRead.contains(h.name)?size-1:size;
 }
 int PF_precache_generic_I(const char* name){fixture::advertised.emplace_back(name);if(fixture::recordBatch)fixture::batchTrace.emplace_back(std::string("generic:")+name);return int(fixture::advertised.size());}
@@ -372,10 +383,15 @@ void* Hunk_AllocName(int,const char*){throw std::runtime_error("unexpected sprit
 int main(int argc,char** argv)
 {
     try {
+        if(argc==2 && std::string_view(argv[1])=="--mixed-only"){
+            fixture::MetadataMixedMethods();return 0;
+        }
         if(argc==3 && std::string_view(argv[1])=="--common-only"){
             fixture::RealResources(argv[2]);std::printf("dependency-cache checks=%u failures=%u\n",fixture::checks,fixture::failures);return 0;
         }
         fixture::ColdWarm();fixture::Invalidation();fixture::Failures();fixture::Budgets();fixture::CacheLimits();fixture::BatchAdapter();
+        fixture::MetadataCases();
+        fixture::MetadataMixedMethods();
         if(argc==2)fixture::RealResources(argv[1]);
         std::printf("dependency-cache checks=%u failures=%u\n",fixture::checks,fixture::failures);return 0;
     } catch(const std::exception& e) {

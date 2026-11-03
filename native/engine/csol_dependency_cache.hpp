@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "goldcraft/resource_stamp.hpp"
 
 namespace goldcraft::csol_resources
 {
@@ -15,6 +16,8 @@ struct Stamp
 {
     bool exists{}, read{}, reusable{true};
     std::array<unsigned char,32> digest{};
+    bool metadata{};
+    goldcraft::filesystem::ResourceStamp identity{};
     bool operator==(const Stamp&) const = default;
 };
 using Inputs = std::map<std::string,Stamp>;

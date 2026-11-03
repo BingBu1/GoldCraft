@@ -28,7 +28,30 @@ struct ResourceBatch
     std::unordered_map<std::string,Input> inputs;
     std::set<std::string> advertised;
     std::size_t retained{},reads{},readBytes{},models{},hits{},rebuilt{};
+    const goldcraft::filesystem::ResourceStampAPI* metadata=nullptr;
     std::chrono::steady_clock::time_point started=std::chrono::steady_clock::now();
+
+    ResourceBatch()
+    {
+        if(g_FileSystemFactory)
+        {
+            const auto* api=reinterpret_cast<const goldcraft::filesystem::ResourceStampAPI*>(
+                g_FileSystemFactory(goldcraft::filesystem::ResourceStampVersion,nullptr));
+            if(api && api->size==sizeof(*api) && api->query && api->opened)metadata=api;
+        }
+    }
+
+    Stamp Metadata(const std::string& name,FileHandle_t file=nullptr) const
+    {
+        Stamp stamp{true,true,false};
+        if(metadata)
+        {
+            const bool ok=file?metadata->opened(g_pFileSystem,file,&stamp.identity,sizeof(stamp.identity))!=0:
+                metadata->query(g_pFileSystem,name.c_str(),&stamp.identity,sizeof(stamp.identity))!=0;
+            stamp.metadata=stamp.reusable=ok;
+        }
+        return stamp;
+    }
 
     bool Exists(const std::string& name)
     {
@@ -45,6 +68,7 @@ struct ResourceBatch
         if(found!=inputs.end() && found->second.bytes)return *found->second.bytes;
         auto file=FS_Open(name.c_str(),"rb");
         if(!file)throw std::runtime_error("missing resource: "+name);
+        const auto before=Metadata(name,file);
         const auto size=FS_Size(file);
         if(size<1 || size>128*1024*1024){FS_Close(file);throw std::runtime_error("resource size outside budget");}
         std::vector<std::byte> bytes;
@@ -54,16 +78,26 @@ struct ResourceBatch
             if(FS_Read(bytes.data(),size,1,file)!=size)throw std::runtime_error("short resource read");
         }
         catch(...){FS_Close(file);throw;}
+        const auto after=Metadata(name,file);
         FS_Close(file);++reads;readBytes+=bytes.size();
-        Stamp stamp{true,true,false};
+        if(before.metadata && after.metadata && before!=after)
+            throw std::runtime_error("resource changed during dependency preparation: "+name);
+        Stamp stamp=before.metadata && before==after?after:Stamp{true,true,false};
 #ifdef _WIN32
-        stamp.reusable=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,
+        if(!stamp.metadata)stamp.reusable=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,
             reinterpret_cast<PUCHAR>(bytes.data()),static_cast<ULONG>(bytes.size()),
             stamp.digest.data(),static_cast<ULONG>(stamp.digest.size()))>=0;
 #endif
-        if(found!=inputs.end() && found->second.stamp.read && found->second.stamp.reusable &&
-            stamp.reusable && found->second.stamp!=stamp)
-            throw std::runtime_error("resource changed during dependency preparation: "+name);
+        if(found!=inputs.end() && found->second.stamp.read && !found->second.stamp.reusable)
+            stamp.reusable=false;
+        if(found!=inputs.end() && found->second.stamp.read && found->second.stamp.reusable && stamp.reusable)
+        {
+            // A provider failure changes the validation method, not necessarily
+            // the resource. Keep the parsed result but do not retain this entry.
+            if(found->second.stamp.metadata!=stamp.metadata)stamp.reusable=false;
+            else if(found->second.stamp!=stamp)
+                throw std::runtime_error("resource changed during dependency preparation: "+name);
+        }
         if(found!=inputs.end() || inputs.size()<65536)
         {
             auto& input=inputs[name];input.stamp=stamp;
@@ -84,6 +118,12 @@ struct ResourceBatch
         auto found=inputs.find(name);
         if(found==inputs.end() || !found->second.stamp.read)
         {
+            const auto stamp=Metadata(name);
+            if(stamp.metadata && (found!=inputs.end() || inputs.size()<65536))
+            {
+                inputs[name].stamp=stamp;
+                return stamp;
+            }
             Read(name);found=inputs.find(name);
         }
         // Hitting a batch budget disables reuse; it never drops dependencies.

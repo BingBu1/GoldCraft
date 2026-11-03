@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'filesystem_stdio'">
+    <ClCompile Include="$(GoldCraftRoot)\native\filesystem\resource_stamp.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+  </ItemGroup>
+  <ItemDefinitionGroup Condition="'$(MSBuildProjectName)' == 'filesystem_stdio'">
+    <ClCompile><AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
+  </ItemDefinitionGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
     <ClCompile Include="$(GoldCraftRoot)\native\engine\launcher_http.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\engine\csol_loader.cpp;$(GoldCraftRoot)\native\engine\csol_sequence_guard.cpp;$(GoldCraftRoot)\native\csol\model_codec.cpp;$(GoldCraftRoot)\native\csol\sprite_codec.cpp;$(GoldCraftRoot)\native\csol\dependencies.cpp;$(GoldCraftRoot)\native\csol\texture_model.cpp;$(GoldCraftRoot)\native\csol\model_json.cpp;$(GoldCraftRoot)\native\csol\events.cpp;$(GoldCraftRoot)\native\csol\model_source.cpp;$(GoldCraftRoot)\native\csol\sequences.cpp">

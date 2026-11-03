@@ -23,6 +23,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--candidate',type=Path,required=True)
+    parser.add_argument('--baseline-candidate',type=Path,help='Candidate directory whose before loader is the original uncached baseline')
+    parser.add_argument('--case',choices=['full','mixed'],default='full',help='Full regression or only mixed fingerprint-method regression')
     parser.add_argument('--compiler',type=Path,required=True)
     parser.add_argument('--linker',type=Path,required=True)
     parser.add_argument('--environment',type=Path,required=True)
@@ -45,8 +47,10 @@ def main():
         inputs.append(dict(relative=relative,original=identity(source),frozen=identity(target)))
     for relative in expected:copy(relative)
     copy('native/engine/precache.h')
-    before=args.candidate.resolve().parent/'before/native/engine/csol_loader.cpp'
-    before_expected=next(r for r in read(args.candidate.resolve().parent/'before.json') if r['path']=='native/engine/csol_loader.cpp')
+    copy('tests/csol-dependency-cache/metadata.inc')
+    baseline_candidate=(args.baseline_candidate or args.candidate).resolve()
+    before=baseline_candidate.parent/'before/native/engine/csol_loader.cpp'
+    before_expected=next(r for r in read(baseline_candidate.parent/'before.json') if r['path']=='native/engine/csol_loader.cpp')
     assert identity(before)['sha256']==before_expected['sha256']
     baseline=frozen/'native/engine/before_csol_loader.cpp';baseline.write_bytes(before.read_bytes())
     inputs.append(dict(relative='native/engine/before_csol_loader.cpp',original=identity(before),frozen=identity(baseline)))
@@ -89,12 +93,17 @@ def main():
             assert any(s['name']==name and s['exit']==0 for s in previous_result['steps'])
             normalized=[a.replace(str(args.reuse_collector.resolve()/'source'),str(frozen)).replace(str(args.reuse_collector.resolve()/'output'),str(output)) for a in old['argv']]
             assert normalized==command['argv'],name
-            for row in previous_result['actualIncludes']:
+            step=next(s for s in previous_result['steps'] if s['name']==name)
+            old_log=Path(step['log']['path'])
+            assert identity(old_log)==step['log']
+            registry={os.path.normcase(r['path']):r for r in previous_result['actualIncludes']}
+            actual_paths=set(re.findall(r'Note: including file:\s*(.+)',old_log.read_text(encoding='utf-8',errors='replace')))
+            for include_path in actual_paths:
+                row=registry[os.path.normcase(str(Path(include_path.strip()).resolve()))]
                 p=Path(row['path'])
                 if p.is_relative_to(args.reuse_collector.resolve()/'source'):
                     other=frozen/p.relative_to(args.reuse_collector.resolve()/'source')
-                    if other.exists() and p.name not in ('loader.cpp','batch_function.inc'):
-                        assert identity(other)['sha256']==row['sha256'],str(other)
+                    assert identity(other)['sha256']==row['sha256'],str(other)
             oldsource=next(r['frozen'] for r in previous['inputs'] if r['relative']==unit)
             assert identity(frozen/unit)['sha256']==oldsource['sha256']
             obj=identity(args.reuse_collector/'output'/(name+'.obj'));reused.append(obj);objects.append(obj['path'])
@@ -102,8 +111,8 @@ def main():
     commands.append(dict(name='link',seconds=180,argv=[str(linker),'/nologo','/machine:x86','/debug','/opt:ref','/opt:icf',
         '/out:'+str(output/'dependency_cache.exe'),'/pdb:'+str(output/'dependency_cache.pdb'),
         *objects,str(ROOT/'external/ReHLDS/rehlds/lib/libacof32.lib')]))
-    commands.append(dict(name='synthetic',seconds=120,argv=[str(output/'dependency_cache.exe')]))
-    if args.common:commands.append(dict(name='common',seconds=180,argv=[str(output/'dependency_cache.exe'),'--common-only',str(args.common.resolve())]))
+    commands.append(dict(name='synthetic',seconds=120,argv=[str(output/'dependency_cache.exe')]+(['--mixed-only'] if args.case=='mixed' else [])))
+    if args.common and args.case=='full':commands.append(dict(name='common',seconds=180,argv=[str(output/'dependency_cache.exe'),'--common-only',str(args.common.resolve())]))
     # Snapshot system input hashes before compilation; actualIncludes must match this registry.
     system={}
     resource=subprocess.check_output([str(compiler),'-print-resource-dir'],text=True).strip()

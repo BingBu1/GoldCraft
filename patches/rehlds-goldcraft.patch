@@ -2699,10 +2699,56 @@ index 8c7b437..d496e95 100644
  NOXREF void Cache_Print_Models_And_Totals();
  NOXREF void Cache_Print_Sounds_And_Totals();
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
-index 85c04cb..5b189a1 100644
+index 85c04cb..42936a6 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
 +++ b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
-@@ -1367,7 +1367,7 @@ bool CBaseFileSystem::FindNextFileHelper(FindData_t *pFindData)
+@@ -295,7 +295,7 @@ bool CBaseFileSystem::IsDirectory(const char *pFileName)
+ }
+ 
+ // The base file search goes through here
+-FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName, const char *pOptions, bool bFromCache)
++FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName, const char *pOptions, bool bFromCache, bool metadataOnly)
+ {
+ 	CFileHandle *fh = nullptr;
+ 	if (path->IsPackFile())
+@@ -317,7 +317,8 @@ FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName,
+ 		}
+ 
+ 		CPackFileEntry result = path->m_PackFiles[searchresult];
+-		FS_fseek(path->m_hPackFile->m_pFile, path->m_hPackFile->m_nStartOffset + result.m_nPosition, FILESYSTEM_SEEK_HEAD);
++		if (!metadataOnly)
++			FS_fseek(path->m_hPackFile->m_pFile, path->m_hPackFile->m_nStartOffset + result.m_nPosition, FILESYSTEM_SEEK_HEAD);
+ 
+ 		fh                  = new CFileHandle;
+ 		fh->m_pFile         = path->m_hPackFile->m_pFile;
+@@ -936,7 +937,7 @@ bool CBaseFileSystem::AddPackFileFromPath(const char *pPath, const char *pakfile
+ 		FS_fseek(fh->m_pFile, -signed(sizeof(appended)), FILESYSTEM_SEEK_TAIL);
+ 		FS_fread(&appended, 1, sizeof(appended), fh->m_pFile);
+ 
+-		if (Q_strcmp(appended.id, "PACKAPPE") != 0)
++		if (Q_strncmp(appended.id, "PACKAPPE", sizeof(appended.id)) != 0)
+ 		{
+ 			m_SearchPaths.Remove(newIndex);
+ 			return false;
+@@ -992,7 +993,7 @@ bool CBaseFileSystem::PreparePackFile(CSearchPath &packfile, int64_t offsetofpac
+ 		}
+ 
+ 		FS_fseek(packfile.m_hPackFile->m_pFile, packfile.m_hPackFile->m_nStartOffset + header.dirofs + offsetofpackinmetafile, FILESYSTEM_SEEK_HEAD);
+-		Read(newfiles, header.dirlen, packfile.m_hPackFile->m_pFile);
++		FS_fread(newfiles, 1, header.dirlen, packfile.m_hPackFile->m_pFile);
+ 
+ 		for (int i = 0; i < numpackfiles; i++)
+ 		{
+@@ -1042,7 +1043,7 @@ bool CBaseFileSystem::Prepare64BitPackFile(CSearchPath &packfile, int64_t offset
+ 		}
+ 
+ 		FS_fseek(packfile.m_hPackFile->m_pFile, packfile.m_hPackFile->m_nStartOffset + header.dirofs + offsetofpackinmetafile, FILESYSTEM_SEEK_HEAD);
+-		Read(newfiles, header.dirlen, packfile.m_hPackFile->m_pFile);
++		FS_fread(newfiles, 1, header.dirlen, packfile.m_hPackFile->m_pFile);
+ 
+ 		for (int i = 0; i < numpackfiles; i++)
+ 		{
+@@ -1367,7 +1368,7 @@ bool CBaseFileSystem::FindNextFileHelper(FindData_t *pFindData)
  
  		if (pFindData->m_LimitedPathID != -1)
  		{
@@ -2711,6 +2757,14 @@ index 85c04cb..5b189a1 100644
  				return false;
  			}
  		}
+@@ -1671,6 +1672,6 @@ CBaseFileSystem::CSearchPath::~CSearchPath()
+ 	if (m_bIsPackFile && m_hPackFile)
+ 	{
+ 		BaseFileSystem()->m_PackFileHandles.FindAndRemove(m_hPackFile->m_pFile);
+-		BaseFileSystem()->Close(m_hPackFile->m_pFile);
++		BaseFileSystem()->Close(reinterpret_cast<FileHandle_t>(m_hPackFile));
+ 	}
+ }
 diff --git a/rehlds/msvc/ReHLDS.vcxproj b/rehlds/msvc/ReHLDS.vcxproj
 index f86a59e..25a18ad 100644
 --- a/rehlds/msvc/ReHLDS.vcxproj
@@ -3027,3 +3081,90 @@ index 859c1dc..df19d7b 100644
  TEST(IsSafeFileExtension, SecurityChecks, 1000)
  {
  	struct testdata_t
+diff --git a/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt b/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
+index e82d5ff..99e9e1d 100644
+--- a/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
++++ b/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
+@@ -3,7 +3,7 @@ project(filesystem_stdio CXX)
+ 
+ option(DEBUG "Build with debug information." OFF)
+ 
+-set(CMAKE_CXX_STANDARD 14)
++set(CMAKE_CXX_STANDARD 20)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
+ # Avoid -fPIC option
+@@ -77,8 +77,10 @@ set(FILESYSTEM_STDIO_SRCS
+ )
+ 
+ add_library(filesystem_stdio SHARED ${FILESYSTEM_STDIO_SRCS})
++target_sources(filesystem_stdio PRIVATE "${PROJECT_SOURCE_DIR}/../../../../../native/filesystem/resource_stamp.cpp")
+ 
+ target_include_directories(filesystem_stdio PRIVATE
++	"${PROJECT_SOURCE_DIR}/../../../../../native/include"
+ 	${PROJECT_SRC_DIR}
+ 	${PROJECT_PUBLIC_DIR}
+ )
+diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
+index 5ae37e8..2fa95e6 100644
+--- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
++++ b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
+@@ -61,6 +61,8 @@ public:
+ 	// opens a file
+ 	// if pathID is NULL, all paths will be searched for the file
+ 	virtual FileHandle_t Open(const char *pFileName, const char *pOptions, const char *pathID = 0L);
++	bool GoldCraftResourceStamp(const char *name, void *output, unsigned int size);
++	bool GoldCraftOpenedResourceStamp(void *handle, void *output, unsigned int size);
+ 
+ 	// open a file but force the data to come from the steam cache, NOT from disk
+ 	virtual FileHandle_t OpenFromCacheForRead(const char *pFileName, const char *pOptions, const char *pathID = 0L);
+@@ -304,7 +306,7 @@ protected:
+ 	void FixPath(char *str);
+ 	void StripFilename(char *path);
+ 	CSearchPath *GetWritePath(const char *pathID);
+-	FileHandle_t FindFile(CSearchPath *path, const char *pFileName, const char *pOptions, bool bFromCache = false);
++	FileHandle_t FindFile(CSearchPath *path, const char *pFileName, const char *pOptions, bool bFromCache = false, bool metadataOnly = false);
+ 	int FastFindFileSize(CSearchPath *path, const char *pFileName);
+ 	void RemoveAllMapSearchPaths();
+ 	void AddPackFiles(const char *pPath);
+diff --git a/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp b/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
+index 7fba395..abbb150 100644
+--- a/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
++++ b/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "goldcraft/resource_stamp.hpp"
+ 
+ CFileSystem_Stdio::CFileSystem_Stdio()
+ {
+@@ -228,3 +229,28 @@ bool CFileSystem_Stdio::IsAppReadyForOfflinePlay(int appID)
+ }
+ 
+ EXPOSE_SINGLE_INTERFACE(CFileSystem_Stdio, IFileSystem, FILESYSTEM_INTERFACE_VERSION);
++
++namespace
++{
++int QueryGoldCraftResourceStamp(const void* owner,const char* name,
++    goldcraft::filesystem::ResourceStamp* result,std::uint32_t size)
++{
++    auto& filesystem=__g_CFileSystem_Stdio_singleton;
++    if(owner!=static_cast<IFileSystem*>(&filesystem))return 0;
++    return filesystem.GoldCraftResourceStamp(name,result,size)?1:0;
++}
++IBaseInterface* GoldCraftResourceStampFactory()
++{
++    static const goldcraft::filesystem::ResourceStampAPI api{
++        sizeof(goldcraft::filesystem::ResourceStampAPI),QueryGoldCraftResourceStamp,
++        [](const void* owner,void* file,goldcraft::filesystem::ResourceStamp* result,std::uint32_t size)->int
++        {
++            auto& filesystem=__g_CFileSystem_Stdio_singleton;
++            if(owner!=static_cast<IFileSystem*>(&filesystem))return 0;
++            return filesystem.GoldCraftOpenedResourceStamp(file,result,size)?1:0;
++        }};
++    return reinterpret_cast<IBaseInterface*>(const_cast<goldcraft::filesystem::ResourceStampAPI*>(&api));
++}
++}
++EXPOSE_INTERFACE_FN(GoldCraftResourceStampFactory,GoldCraftResourceStamp,
++    goldcraft::filesystem::ResourceStampVersion);
