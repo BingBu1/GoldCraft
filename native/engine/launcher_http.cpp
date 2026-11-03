@@ -87,7 +87,8 @@ Body LauncherFiles::request(const std::string& name) const {
     std::error_code ec;
     if (!std::filesystem::is_regular_file(path, ec)) return {};
     const auto size = std::filesystem::file_size(path, ec);
-    const std::size_t limit = name == "launcher/v1/manifest.json" ? 1024*1024 : max_file_size;
+    // Launcher payloads keep their own limit when game resources grow.
+    const std::size_t limit = name == "launcher/v1/manifest.json" ? 1024*1024 : (1u << 24) - 1;
     if (ec || !size || size > limit) return {};
     std::ifstream stream(path, std::ios::binary);
     if (!stream) return {};

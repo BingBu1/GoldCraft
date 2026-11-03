@@ -82,6 +82,38 @@ void socket_timeout(Socket socket) {
     setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &value, sizeof(value));
 #endif
 }
+// A blocking Winsock send can time out after bytes have already entered the
+// stream. Retrying the same buffer then duplicates data. All caller-owned
+// sockets here are blocking; use explicit readiness only while sending, then
+// restore the mode for the relay's bounded receives.
+class NonblockingSend {
+public:
+    explicit NonblockingSend(Socket socket) : socket_(socket) {
+#ifdef _WIN32
+        u_long mode = 1;
+        valid_ = ioctlsocket(socket_, FIONBIO, &mode) == 0;
+#else
+        flags_ = fcntl(socket_, F_GETFL, 0);
+        valid_ = flags_ != -1 && fcntl(socket_, F_SETFL, flags_ | O_NONBLOCK) == 0;
+#endif
+    }
+    ~NonblockingSend() {
+        if (!valid_) return;
+#ifdef _WIN32
+        u_long mode = 0;
+        ioctlsocket(socket_, FIONBIO, &mode);
+#else
+        fcntl(socket_, F_SETFL, flags_);
+#endif
+    }
+    explicit operator bool() const { return valid_; }
+private:
+    Socket socket_;
+    bool valid_ = false;
+#ifndef _WIN32
+    int flags_ = 0;
+#endif
+};
 } // namespace
 
 bool resource_name(const std::string& name) {
@@ -109,11 +141,14 @@ bool resource_name(const std::string& name) {
     }
     const auto root = lower(name.substr(0, slash));
     return (root == "maps" && (ext == ".bsp" || ext == ".res" || ext == ".txt")) ||
+           lower(name) == "maps/zbs_message.cso" ||
            (root == "models" && (ext == ".mdl" || ext == ".seq" || ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "sound" && (ext == ".wav" || ext == ".mp3")) ||
            (root == "bgm" && ext == ".mp3") ||
            (root == "resource" && (ext == ".tga" ||
                (ext == ".ttf" && lower(name).compare(0, 14, "resource/font/") == 0))) ||
+           lower(name) == "resource/csol/hud/v1/csolhudscheme.res" ||
+           lower(name) == "resource/cso_chn.txt" ||
            (root == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||
            (root == "gfx" && (ext == ".tga" || ext == ".bmp")) ||
            lower(name) == "gfx/tattoo/tattoo.cso" ||
@@ -162,6 +197,9 @@ struct Server::Impl {
 #endif
 
     bool send_all(Socket socket, const void* data, std::size_t size, Clock::time_point deadline) {
+        if (!size) return true;
+        const NonblockingSend mode(socket);
+        if (!mode) return false;
         const auto* p = static_cast<const char*>(data);
         auto progress = Clock::now();
         while (size && !stopping && Clock::now() < deadline && Clock::now() - progress < std::chrono::seconds(5)) {
@@ -172,19 +210,40 @@ struct Server::Impl {
             const auto sent = send(socket, p, count, MSG_NOSIGNAL);
 #endif
             if (sent > 0) { p += sent; size -= sent; bytes += sent; progress = Clock::now(); }
-            else if (sent == 0 || !retry_socket()) return false;
+            else {
+                if (sent == 0) return false;
+#ifdef _WIN32
+                const auto error = WSAGetLastError();
+                if (error == WSAEINTR) continue;
+                if (error != WSAEWOULDBLOCK) return false;
+#else
+                if (errno == EINTR) continue;
+                if (errno != EAGAIN && errno != EWOULDBLOCK) return false;
+#endif
+                fd_set writable;
+                FD_ZERO(&writable); FD_SET(socket, &writable);
+                timeval wait{0, 100000};
+                const auto ready = select(static_cast<int>(socket) + 1, nullptr, &writable, nullptr, &wait);
+                if (ready < 0) {
+#ifdef _WIN32
+                    if (WSAGetLastError() != WSAEINTR) return false;
+#else
+                    if (errno != EINTR) return false;
+#endif
+                }
+            }
         }
         return size == 0;
     }
-    void reply(Socket socket, int status, std::size_t length = 0, const std::string& extra = {}) {
+    bool reply(Socket socket, int status, std::size_t length = 0, const std::string& extra = {}) {
         const char* reason = status == 200 ? "OK" : status == 206 ? "Partial Content" :
             status == 404 ? "Not Found" : status == 405 ? "Method Not Allowed" :
             status == 416 ? "Range Not Satisfiable" : status == 503 ? "Service Unavailable" : "Bad Request";
         const auto header = "HTTP/1.1 " + std::to_string(status) + " " + reason +
             "\r\nServer: GoldCraftFastDL/2\r\nContent-Type: application/octet-stream\r\nContent-Length: " +
             std::to_string(length) + "\r\nConnection: close\r\nCache-Control: no-store\r\nAccept-Ranges: bytes\r\n" + extra + "\r\n";
-        send_all(socket, header.data(), header.size(), Clock::now() + std::chrono::seconds(5));
         if (status >= 400) ++rejected;
+        return send_all(socket, header.data(), header.size(), Clock::now() + std::chrono::seconds(5));
     }
     void spray(Socket client, const std::string& header, std::size_t line, std::size_t end,
                const std::string& method, const std::string& target) {
@@ -297,7 +356,7 @@ struct Server::Impl {
         }
         const auto initial = response.size() - head_end - 4;
         if (!body_length || body_size > limit || ((upload || code != 200) && body_size) || initial > body_size) return;
-        reply(client, static_cast<int>(code), body_size);
+        if (!reply(client, static_cast<int>(code), body_size)) return;
         if (!send_all(client, response.data() + head_end + 4, initial, deadline)) return;
         for (auto remaining = body_size - initial; remaining;) {
             const auto n = receive(backend, buffer.data(), std::min(remaining, buffer.size()));
@@ -377,7 +436,7 @@ struct Server::Impl {
             status = 206;
             extra = "Content-Range: bytes " + std::to_string(begin) + "-" + std::to_string(finish) + "/" + std::to_string(body->size()) + "\r\n";
         }
-        reply(socket, status, finish - begin + 1, extra);
+        if (!reply(socket, status, finish - begin + 1, extra)) return;
         if (method == "GET") send_all(socket, body->data() + begin, finish - begin + 1, Clock::now() + std::chrono::seconds(120));
     }
 };

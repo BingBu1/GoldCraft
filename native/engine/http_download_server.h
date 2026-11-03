@@ -10,7 +10,9 @@ namespace goldcraft::http {
 using Bytes = std::vector<std::uint8_t>;
 using Body = std::shared_ptr<const Bytes>;
 using Provider = std::function<Body(const std::string&)>;
-constexpr std::size_t max_file_size = (1u << 24) - 1;
+// The resource-list size is only a 24-bit progress estimate. Ordinary HTTP
+// downloads use the response body length; bound them by the store's budget.
+constexpr std::size_t max_file_size = 64u * 1024u * 1024u;
 bool resource_name(const std::string& name);
 // Accept only an explicit http URL. TLS may terminate at the tunnel proxy.
 bool public_url(const std::string& url);
