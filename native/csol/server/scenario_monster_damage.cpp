@@ -53,6 +53,9 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
     if (!weapon || (weapon->pev->flags & FL_KILLME)) return true;
     // These actual MP v22C implementations return false. Nonzero values in
     // the shared weapon table alone do not enable ordinary-monster knockback.
+    // Both helpers belong to original CKnife (ID29). Its v22C at
+    // 1192FCC8 points to 105FFBE0 (xor al,al; ret), independently of v230.
+    if (CSOL_MeleeEmptyMonsterKillCallbacks(*weapon)) return true;
     switch (weapon->m_iId)
     {
     case WEAPON_P228: case WEAPON_SCOUT: case WEAPON_HEGRENADE:
