@@ -182,6 +182,15 @@ def main():
                     "kind": "global", "payload": {"gv_rva": clock["stateRva"], "gv_va": hex(address),
                         "gv_sig": "D9 05 ?? ?? ?? ?? C3", "gv_sig_va": hex(IMAGE_BASE + int(clock["accessorRva"], 16)),
                         "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
+    shared_random = json.loads((ROOT / "native/client/shared_random_10210.json").read_text())
+    if shared_random["clientSha256"] != identity["sha256"]:
+        raise ValueError("Shared random catalog identity mismatch")
+    for entry in shared_random["verification"]:
+        if hashlib.sha256(raw(int(entry["rva"], 16), int(entry["size"], 16))).hexdigest() != entry["sha256"]:
+            raise ValueError("Shared random native code or data changed: " + entry["name"])
+    for entry in shared_random["functions"]:
+        records.append({"platform": "windows", "module": "client", "symbolName": entry["name"],
+                        "kind": "function", "payload": {"func_rva": entry["rva"], "func_size": entry["size"]}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

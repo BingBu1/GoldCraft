@@ -4,6 +4,7 @@
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
 #include "weapons.hpp"
+#include "shared_random.hpp"
 #include "hud_style.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
@@ -462,7 +463,7 @@ void IPluginsV4::LoadEngine(cl_enginefunc_t* functions)
 void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
 {
     using namespace csol::client;
-    try { InstallSequenceClientGuards(); }
+    try { InitializeSharedRandom(); InstallSequenceClientGuards(); }
     catch(const std::exception& error)
     {
         RemoveHooks();
@@ -487,7 +488,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownSpray();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

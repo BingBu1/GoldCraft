@@ -1,0 +1,51 @@
+{
+  "clientSha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "functions": [
+    {
+      "name": "UTIL_SharedRandomFloat",
+      "rva": "0x47c40",
+      "size": "0xba",
+      "sha256": "6fbe71c4bb28f9c383d6fb65559e68827072f32a45be1357304ed85b5b01a698"
+    }
+  ],
+  "verification": [
+    {
+      "name": "UTIL_SharedRandomFloat",
+      "rva": "0x47c40",
+      "size": "0xba",
+      "sha256": "6fbe71c4bb28f9c383d6fb65559e68827072f32a45be1357304ed85b5b01a698"
+    },
+    {
+      "name": "float_to_integer",
+      "rva": "0xb4950",
+      "size": "0x6d",
+      "sha256": "48c85f356fc095140232b1d9a4cf679ce7fc94c816a3c5bfa31065303df1059a"
+    },
+    {
+      "name": "seed_table",
+      "rva": "0x105f38",
+      "size": "0x400",
+      "sha256": "b83bb6df061acf7c9663634eea54e8c32301a9b73ccda9fa9f0e4cc19446de89"
+    },
+    {
+      "name": "fraction_scale",
+      "rva": "0xcefb8",
+      "size": "0x8",
+      "sha256": "0d74047c56871c3fa5fc799e64a6b584a892a0a57488747bd6504f1deab45a05"
+    },
+    {
+      "name": "unsigned_adjustment",
+      "rva": "0xcbbf0",
+      "size": "0x10",
+      "sha256": "7b8d1a6d4433104f72eac25961772761e58ce663d392e3164660b3e8fb2b47f4"
+    }
+  ],
+  "abi": "float __cdecl(unsigned int seed, float low, float high)",
+  "stateRva": "0x11c2dc",
+  "notes": [
+    "Internal client function; not a PE export. Resolve by the identity-matched MetaHook catalog.",
+    "Every call seeds from seed plus float bit patterns. Float range is converted to unsigned integer before scaling.",
+    "Caller owns the 12 argument bytes. Result returns through x87 ST(0).",
+    "Only the original shared float and shared integer routines reference the RNG state; both reseed on every call."
+  ]
+}

@@ -10,7 +10,7 @@ set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
 add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
-    client/projectiles.cpp client/cannon.cpp client/k3.cpp client/scenario_music.cpp scenario_music.cpp
+    client/projectiles.cpp client/cannon.cpp client/k3.cpp client/shared_random.cpp client/scenario_music.cpp scenario_music.cpp
     client/melee.cpp melee_attacks.cpp
     client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario_smoke.cpp scenario_smoke.cpp
