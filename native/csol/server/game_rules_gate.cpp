@@ -570,6 +570,8 @@ public:
             if (!Ready()) return;
         }
         if (!PublishTeamKills()) return;
+        CheckSurvivalTimeout();
+        if (!Ready()) return;
         // ReAPI callbacks may schedule a new round. Enter its normal wrapper,
         // not this method recursively from a wave/trigger callback.
         if (m_flRestartRoundTime > 0 && gpGlobals->time >= m_flRestartRoundTime)
@@ -604,7 +606,9 @@ public:
             m_bFreezePeriod = FALSE;
             m_fRoundStartTime = m_fRoundStartTimeReal = gpGlobals->time;
             m_musicCountdown.Thaw(gpGlobals->time);
-            m_iRoundTimeSecs = 0; // Scenario time is sent by its own HUD owner.
+            // MP11382771 leaves subtype0's metadata duration intact; subtype1
+            // has no survival deadline. Preparation is not part of 180 seconds.
+            m_iRoundTimeSecs = session->Map().Tables()->scenarioType == 0 ? m_iRoundTime : 0;
             ForPlayers([&](CBasePlayer& player)
             {
                 if (!current()) return;
@@ -618,6 +622,19 @@ public:
             });
         }
         UpdateMusic();
+    }
+    void CheckSurvivalTimeout()
+    {
+        if (!Ready() || m_phase != Phase::Playing || m_bFreezePeriod ||
+            m_bRoundTerminating || !IsGameStarted() || m_completionLocked || !gpGlobals)
+            return;
+        const auto* tables = m_runtime->session->Map().Tables();
+        // MP107258A0 -> 11381B00 chooses CT success for subtype0 when the
+        // native round timer expires. Empty wave lists are not that condition.
+        // All-dead failure was resolved by CheckWinConditions before this tail.
+        if (!tables || tables->scenarioType != 0 || m_aliveCt <= 0 ||
+            !std::isfinite(gpGlobals->time) || !std::isfinite(m_fRoundStartTime)) return;
+        if (GetRoundRemainingTime() <= 0.0f) GoalReached();
     }
     void UpdateMusic()
     {
@@ -757,6 +774,19 @@ public:
         { return ownerCurrent() && session->Map().RoundGeneration() == previousRound && m_pendingRound == pending; };
         ReadMultiplayCvars();
         if (!oldRoundCurrent()) return;
+        const auto* roundTables = session->Map().Tables();
+        std::int32_t survivalSeconds{};
+        csol::scenario::ConfigError timeError;
+        if (!roundTables || (roundTables->scenarioType == 0 &&
+            (!csol::scenario::ReadRoundTime(roundTables->rounds, survivalSeconds, timeError) ||
+                survivalSeconds <= 0)))
+        {
+            CSOL_RejectGameRules("Scenario survival duration is missing or invalid.");
+            return;
+        }
+        // Preserve the user's mp_roundtime: only this rules instance consumes
+        // the original table, and the next ordinary CS instance reads its CVAR.
+        m_iRoundTime = survivalSeconds;
         if (replay)
         {
             // Settle/remove old drops with their captured old owners before
@@ -1147,8 +1177,9 @@ public:
         };
         if (!eligible()) return OwnsRules();
         const auto* tables = session->Map().Tables();
-        // Gameplay currently supports subtype1 only. Do not claim that the
-        // other modes' fixed-ten-second/options branches are installed.
+        // The original subtype0 branch does not perform timed automatic
+        // revival. Its dead players return through the next native round reset.
+        // Other modes' fixed-ten-second/options branches remain separate.
         if (!tables || !csol::scenario::respawn::TimedSubtype(tables->scenarioType)) return true;
         struct Respawning { bool& value; ~Respawning() { value = false; } } guard{m_respawning};
         m_respawning = true;
@@ -2399,6 +2430,8 @@ void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario() || !scope.Current()) return;
+    if (const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get()))
+        players->PlayerSpawnStarted(EHANDLE(&player));
     if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules())) rules->SpawnStarted(player);
 }
 

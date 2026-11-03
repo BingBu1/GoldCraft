@@ -117,6 +117,8 @@ public:
     bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
     bool SendMonsterDisarmImpact(const float* origin) const;
     bool SendMonsterZombieBomb(const float* origin) const;
+    // Original MP114EEAE0: MPToCL54/type0, raw duration, grey RGBA.
+    bool SendZombieBombProtection(edict_s* recipient, float duration) const;
     bool SendMonsterSkillShake(edict_t* recipient) const;
     bool SendMonsterTrapDirection(edict_t* recipient, const float* origin) const;
     // One packet per call: false sends the original view kick (3), true

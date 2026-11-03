@@ -19,6 +19,8 @@ class CSOLPlayerRecoveryCall;
 class CBasePlayerWeapon;
 class CBasePlayer;
 class CCSOLScenarioRuntime;
+struct CSOLMonsterSkillGuard;
+struct CSOLScenarioPlayerRuntimeState;
 
 // Raw metadata uses Number() == 0 in CSO. Only the double alternative is a
 // numeric modifier; a raw64 payload must never be reinterpreted as a double.
@@ -117,6 +119,11 @@ public:
     bool RecordPartBloodSucking(CSOLMonsterDamageCall& call,
         std::shared_ptr<CCSOLScenarioRuntime> runtime, csol::scenario::ConfigError& error) const;
     bool BloodSuckingLimit(CSOLPlayerRecoveryCall& call, double& percentage,
+        csol::scenario::ConfigError& error) const;
+    // Original receiver source0 collector: current active first, then carried
+    // passive records. IsWeapon callbacks precede the original re-reads.
+    bool CollectPlayerParts(CBasePlayer& player, const CSOLScenarioPlayerRuntimeState& state,
+        int kind, CSOLMonsterSkillGuard guard, std::vector<CSOLWeaponPartEffect>& output,
         csol::scenario::ConfigError& error) const;
 
     // These are item-catalog keys, not inventory/HUD weapon IDs. The first

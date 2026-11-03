@@ -8,6 +8,7 @@
 #include "game_rules_gate.h"
 #include "scenario_runtime.h"
 #include "scenario_player_runtime.h"
+#include "scenario_monster_skills.h"
 
 #include <algorithm>
 #include <bit>
@@ -832,52 +833,12 @@ bool CCSOLScenarioWeaponState::BloodSuckingLimit(CSOLPlayerRecoveryCall& call,
     auto* player = call.Player();
     const auto state = runtime->players->Find(call.PlayerHandle());
     std::vector<CSOLWeaponPartEffect> records;
-    const auto blocked = [&]
-    { return state->profile.weaponEffectsBlocked21F2 != 0 || state->profile.weaponEffectsBlocked34F0; };
     try
     {
-        // source0: IsWeapon precedes a SECOND read of the current active
-        // handle. A callback may switch guns; the new gun supplies parts.
-        if (!blocked())
-        {
-            auto* item = player->m_pActiveItem;
-            if (Live(item))
-            {
-                const EHANDLE previous(item);
-                const bool weapon = item->IsWeapon() != FALSE;
-                if (!current()) return call.Cancel();
-                if (player->m_pActiveItem == item &&
-                    (previous.Get<CBaseEntity>() != item || !Live(item))) return call.Cancel();
-                if (weapon)
-                    if (auto* active = Active(*player)) AppendParts(*active, false, 15, 9, records);
-            }
-        }
-        // The passive collector checks flags again, then checks IsWeapon on
-        // each inventory node. It does not select only the damage-source gun.
-        if (!blocked())
-        {
-            const auto append = [&](CBasePlayerItem* item)
-            {
-                if (!Live(item)) return true;
-                const EHANDLE handle(item);
-                const bool weapon = item->IsWeapon() != FALSE;
-                if (!current() || handle.Get<CBaseEntity>() != item || !Live(item)) return call.Cancel();
-                if (weapon)
-                    if (auto* active = dynamic_cast<CBasePlayerWeapon*>(item)) AppendParts(*active, true, 15, 9, records);
-                return true;
-            };
-            for (int slot = PRIMARY_WEAPON_SLOT; slot <= KNIFE_SLOT; ++slot)
-                if (!append(player->m_rgpPlayerItems[slot])) return false;
-            if (!gpGlobals || gpGlobals->maxEntities <= 0)
-            { error.message = "scenario blood-sucking inventory bound is unavailable"; return false; }
-            int remaining = gpGlobals->maxEntities;
-            for (auto* item = player->m_rgpPlayerItems[GRENADE_SLOT]; Live(item); item = item->m_pNext)
-            {
-                if (--remaining < 0)
-                { error.message = "scenario blood-sucking grenade chain is cyclic"; return false; }
-                if (!append(item)) return false;
-            }
-        }
+        const CSOLMonsterSkillGuard guard{
+            [](const void* value) { return (*static_cast<const decltype(current)*>(value))(); }, &current};
+        if (!CollectPlayerParts(*player, *state, 9, guard, records, error))
+            return current() ? false : call.Cancel();
         for (const auto& record : records) percentage += record.parameters[1];
         if (!std::isfinite(percentage))
         { error.message = "scenario blood-sucking percentage overflowed"; return false; }
@@ -888,6 +849,60 @@ bool CCSOLScenarioWeaponState::BloodSuckingLimit(CSOLPlayerRecoveryCall& call,
         if (!current()) return call.Cancel();
         throw;
     }
+}
+
+bool CCSOLScenarioWeaponState::CollectPlayerParts(CBasePlayer& player,
+    const CSOLScenarioPlayerRuntimeState& state, int kind, CSOLMonsterSkillGuard guard,
+    std::vector<CSOLWeaponPartEffect>& records, csol::scenario::ConfigError& error) const
+{
+    records.clear();
+    const auto current = [&] { return Current() && guard.Current(); };
+    if (!current()) return false;
+    const auto blocked = [&]
+    { return state.profile.weaponEffectsBlocked21F2 != 0 || state.profile.weaponEffectsBlocked34F0; };
+    // source0: IsWeapon precedes a SECOND read of the current active
+    // handle. A callback may switch guns; the new gun supplies parts.
+    if (!blocked())
+    {
+        auto* item = player.m_pActiveItem;
+        if (Live(item))
+        {
+            const EHANDLE previous(item);
+            const bool weapon = item->IsWeapon() != FALSE;
+            if (!current()) return false;
+            if (player.m_pActiveItem == item &&
+                (previous.Get<CBaseEntity>() != item || !Live(item))) return false;
+            if (weapon)
+                if (auto* active = Active(player)) AppendParts(*active, false, 15, kind, records);
+        }
+    }
+    // The passive collector checks flags again, then checks IsWeapon on
+    // each inventory node. It does not select only the damage-source gun.
+    if (!blocked())
+    {
+        const auto append = [&](CBasePlayerItem* item)
+        {
+            if (!Live(item)) return true;
+            const EHANDLE handle(item);
+            const bool weapon = item->IsWeapon() != FALSE;
+            if (!current() || handle.Get<CBaseEntity>() != item || !Live(item)) return false;
+            if (weapon)
+                if (auto* active = dynamic_cast<CBasePlayerWeapon*>(item)) AppendParts(*active, true, 15, kind, records);
+            return true;
+        };
+        for (int slot = PRIMARY_WEAPON_SLOT; slot <= KNIFE_SLOT; ++slot)
+            if (!append(player.m_rgpPlayerItems[slot])) return false;
+        if (!gpGlobals || gpGlobals->maxEntities <= 0)
+        { error.message = "scenario player part inventory bound is unavailable"; return false; }
+        int remaining = gpGlobals->maxEntities;
+        for (auto* item = player.m_rgpPlayerItems[GRENADE_SLOT]; Live(item); item = item->m_pNext)
+        {
+            if (--remaining < 0)
+            { error.message = "scenario player part grenade chain is cyclic"; return false; }
+            if (!append(item)) return false;
+        }
+    }
+    return current();
 }
 
 bool CCSOLScenarioWeaponState::ApplyPartHitEffects(CSOLMonsterDamageCall& call,

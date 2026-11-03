@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "../scenario/map_support.hpp"
 #include "scenario_monster_damage.h"
+#include "scenario_incoming_damage.h"
+#include "scenario_zombie_bomb.h"
 #include "game_rules_gate.h"
 #include "scenario_monster_ordinary.h"
 #include "scenario_entity_lookup.h"
@@ -10,6 +13,7 @@
 #include "scenario_death_services.h"
 #include "scenario_character_skills/elite_manager.hpp"
 #include "../scenario/monster_appearances.hpp"
+#include "../scenario/difficulty_monsters.hpp"
 #include "weapons.h"
 #include "wpn_melee.h"
 
@@ -23,7 +27,64 @@
 
 #pragma clang fp contract(off)
 
-
+bool CSOL_ScenarioApplyMonsterIncomingDamage(CBasePlayer& player,
+    entvars_t* attacker, float& damage, int damageType, entvars_t* inflictor)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario()) return true;
+    if (!scope.Current()) return false;
+    const EHANDLE victim(&player);
+    const EHANDLE source(attacker ? CBaseEntity::Instance(attacker) : nullptr);
+    if (!scope.Current() || victim.Get<CBasePlayer>() != &player) return false;
+    auto* monster = dynamic_cast<CCSOLScenarioMonster*>(source.Get<CBaseEntity>());
+    if (!monster) return true;
+    const auto runtime = CSOL_ScenarioRuntimeForAccess(scope.EntityAccess().get());
+    const auto session = runtime ? runtime->session : nullptr;
+    const auto players = runtime ? runtime->players : nullptr;
+    if (!runtime || !session || !players || runtime->Closing()) return false;
+    const auto state = players->Find(victim);
+    const auto life = state ? state->skillLifeSerial : 0;
+    const auto round = session->Map().RoundGeneration();
+    const auto current = [&]
+    {
+        return scope.Current() && !runtime->Closing() && runtime->session == session &&
+            runtime->players == players && players->Active() &&
+            session->Map().RoundGeneration() == round && victim.Get<CBasePlayer>() == &player &&
+            !(player.pev->flags & FL_KILLME) && players->Find(victim) == state &&
+            (!state || state->skillLifeSerial == life);
+    };
+    if (!current()) return false;
+    if (!state || monster->Pool() != &session->Monsters() || !monster->Type() ||
+        !session->Monsters().Borrowed(*monster) ||
+        (monster->pev->flags & FL_KILLME)) return false;
+    const auto lease = session->Monsters().Lease(*monster);
+    const auto* type = monster->Type();
+    csol::scenario::ConfigError error;
+    float factor{};
+    if (!csol::scenario::MonsterIncomingDamageFactor(*type, session->Difficulty(), factor, error)) return false;
+    const auto equipment = session->EquipmentState();
+    if (!equipment) return false;
+    float candidate = damage;
+    // MP10826F4F tests inflictor v138==4 and dmg==999 after the separate
+    // Classify17 attacker gate. The resistance also applies to DMG_BLAST.
+    const EHANDLE projectile(inflictor ? CBaseEntity::Instance(inflictor) : nullptr);
+    if (!current()) return false;
+    const auto* bomb = dynamic_cast<CCSOLZombieBomb*>(projectile.Get<CBaseEntity>());
+    const bool zombieBomb = bomb && bomb->IsDamageSource();
+    // A pre-damage hook may retire or reuse the throwing monster's slot.
+    // Reject that stale credit before reading the replacement's modifiers.
+    if (bomb && (!zombieBomb || bomb->DamageCreator() != monster)) return false;
+    const bool suicideBomb = type->appearance == "boomer_zombi_host" ||
+        type->appearance == "boomer_zombi_origin";
+    if (!equipment->ModifyIncomingDamage(victim, (damageType & DMG_EXPLOSION) != 0,
+        suicideBomb, zombieBomb, candidate) || !current() || session->EquipmentState() != equipment ||
+        source.Get<CBaseEntity>() != monster || !session->Monsters().Borrowed(*monster) ||
+        session->Monsters().Lease(*monster) != lease) return false;
+    candidate *= factor;
+    if (!std::isfinite(candidate)) return false;
+    damage = candidate;
+    return true;
+}
 
 namespace
 {
@@ -343,8 +404,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     };
     if (!services || !rewards || !players || !equipment || !weapons || !weapons->Current())
         return fail("ordinary damage requires mode15 rules, upgrades, equipment, weapons and hit rewards");
-    if (!m_map.Tables() || m_map.Tables()->mapName != "zs_deadend" || m_map.Tables()->scenarioType != 1)
-        return fail("ordinary damage policy requires zs_deadend subtype1");
+    if (!m_map.Tables() || !csol::scenario::HasMapGameplay(m_map.Tables()->mapName, m_map.Tables()->scenarioType))
+        return fail("ordinary damage policy requires an implemented map and matching subtype");
     if (!error.message.empty()) return FALSE;
     if (!std::isfinite(input)) return fail("ordinary damage input is not finite");
     EHANDLE source, actor;

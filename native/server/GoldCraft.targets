@@ -101,7 +101,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_healing.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_events.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skills.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skill_entities.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_healing.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_events.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skills.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario_zombie_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario_zombie_bomb_damage.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_bomb_protection.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skill_entities.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>

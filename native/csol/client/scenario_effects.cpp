@@ -8,6 +8,7 @@
 #include "../frozen_smoke.hpp"
 #include "../scenario_healing.hpp"
 #include "../scenario_monster_effects.hpp"
+#include "../scenario_part_effects.hpp"
 #include <r_efx.h>
 #include <event_api.h>
 #include <bit>
@@ -26,13 +27,18 @@ std::array<float, 4> pain{};
 int painSprite{}, painResolution{}, health{100}, hidden{};
 bool healthKnown{}, healthHookPending{};
 double painTime{};
-struct Owned { TEMPENTITY* entity{}; int token{}; };
+struct Owned { TEMPENTITY* entity{}; int token{}, type{}; };
 std::array<Owned, 512> attached;
 int nextToken{};
+std::uint64_t effectEpoch{};
 
 void Follow(TEMPENTITY* temp, float, float now)
 {
+    const auto generation = effectEpoch;
+    const int token = temp->entity.curstate.iuser4;
     const auto* owner = engine.GetEntityByIndex ? engine.GetEntityByIndex(temp->clientIndex) : nullptr;
+    if (generation != effectEpoch || temp->callback != Follow ||
+        temp->entity.curstate.iuser4 != token) return;
     if (!owner || !owner->model)
     {
         temp->die = now;
@@ -46,39 +52,85 @@ bool Owns(const Owned& effect)
     return effect.entity && effect.entity->callback == Follow &&
         effect.entity->entity.curstate.iuser4 == effect.token;
 }
+auto AvailableAttachment(double now)
+{
+    return std::find_if(attached.begin(), attached.end(), [&](const Owned& effect)
+    { return !Owns(effect) || now > effect.entity->die + 1.0; });
+}
+void RetireUnclaimedSprite(TEMPENTITY* temp)
+{
+    if (!temp->callback && !temp->entity.curstate.iuser4)
+    {
+        temp->die = -1;
+        temp->flags |= FTENT_NOMODEL;
+    }
+}
+bool AcceptAllocatedSprite(TEMPENTITY* temp, std::uint64_t generation)
+{
+    if (!temp) return false;
+    // An allocation can finish after a reset. Retire only the unclaimed
+    // result; a nested consumer may already have reused this engine slot.
+    if (generation == effectEpoch)
+        return !temp->callback && !temp->entity.curstate.iuser4;
+    RetireUnclaimedSprite(temp);
+    return false;
+}
 void AttachedSprite(int ownerIndex, float height, float duration, int type)
 {
-    if (!std::isfinite(height) || !std::isfinite(duration) || duration < 0 ||
+    if (!std::isfinite(height) || !std::isfinite(duration) ||
         !engine.GetEntityByIndex || !engine.CL_LoadModel || !engine.GetClientTime ||
         !engine.pEfxAPI || !engine.pEfxAPI->CL_TempEntAllocHigh) return;
+    const auto generation = effectEpoch;
+    const int part = part_effects::Index(type);
+    // Original43 has zero hold time.46/47/53 start their one-second fade
+    // at max(0,duration-1), including a duration shorter than one second.
+    if (part >= 0) duration = type == 43 ? 0.0f : std::max(0.0f, duration - 1.0f);
+    else if (duration < 0) return;
     const auto* owner = engine.GetEntityByIndex(ownerIndex);
+    if (generation != effectEpoch) return;
     if (!owner || !owner->model) return;
+    // Original0281C1D0 clears only table79/81/82, not an earlier table90.
+    // Keep ownership checks so a recycled engine temp slot is never killed.
+    if (part >= 0)
+        for (auto& effect : attached)
+            if (Owns(effect) && effect.entity->clientIndex == ownerIndex &&
+                (effect.type == 43 || effect.type == 46 || effect.type == 47))
+            {
+                effect.entity->die = -1;
+                effect.entity->flags |= FTENT_NOMODEL;
+                effect = {};
+            }
     int index{};
-    const char* path = type == 60 ? "sprites/DoubleSideA.spr" : type == 61 ? "sprites/DoubleSideB.spr" :
+    const char* path = part >= 0 ? part_effects::Sprites[part] :
+        type == 60 ? "sprites/DoubleSideA.spr" : type == 61 ? "sprites/DoubleSideB.spr" :
         type == 112 ? "sprites/zbt_invincibility.spr" : "sprites/ef_sbmine_debuff.spr";
     auto* model = engine.CL_LoadModel(path, &index);
+    if (generation != effectEpoch) return;
     if (!model || model->type != mod_sprite || model->numframes <= 0) return;
     const float now = static_cast<float>(engine.GetClientTime());
+    if (generation != effectEpoch) return;
     if (!std::isfinite(now) || !std::isfinite(now + duration)) return;
     // Original199/62 first expires this owner's existing table102 effect.
     if (type == 62)
         for (auto& effect : attached)
             if (Owns(effect) && effect.entity->clientIndex == ownerIndex && effect.entity->entity.model == model)
                 effect.entity->die = now;
-    const auto slot = std::find_if(attached.begin(), attached.end(), [&](const Owned& effect)
-    { return !Owns(effect) || now > effect.entity->die + 1.0; });
-    if (slot == attached.end()) return;
+    if (AvailableAttachment(now) == attached.end()) return;
     float position[]{owner->origin[0], owner->origin[1], owner->origin[2] + height};
     auto* temp = engine.pEfxAPI->CL_TempEntAllocHigh(position, model);
-    if (!temp) return;
+    if (!AcceptAllocatedSprite(temp, generation)) return;
+    // The allocator may dispatch another effect. Select ownership only
+    // after it returns so both allocations retain their reset records.
+    const auto slot = AvailableAttachment(now);
+    if (slot == attached.end()) { RetireUnclaimedSprite(temp); return; }
     nextToken = nextToken == INT_MAX ? 1 : nextToken + 1;
-    *slot = {temp, nextToken};
+    *slot = {temp, nextToken, type};
     temp->entity.curstate.iuser4 = nextToken;
     temp->flags = FTENT_PERSIST | FTENT_CLIENTCUSTOM;
     // Original 60/61 use static frame0 (0x10A000);112 loops without a
     // fade (0x11A100). Only slow-wall62 uses the timed fade-out0x11A180.
-    if (type == 62 || type == 112) temp->flags |= FTENT_SPRANIMATE | FTENT_SPRANIMATELOOP;
-    if (type == 62) temp->flags |= FTENT_FADEOUT;
+    if (part >= 0 || type == 62 || type == 112) temp->flags |= FTENT_SPRANIMATE | FTENT_SPRANIMATELOOP;
+    if (part >= 0 || type == 62) temp->flags |= FTENT_FADEOUT;
     temp->callback = Follow;
     temp->clientIndex = static_cast<short>(ownerIndex);
     temp->tentOffset[0] = temp->tentOffset[1] = 0;
@@ -97,7 +149,9 @@ void Heal(int ownerIndex, int type)
 {
     if (!engine.GetEntityByIndex || !engine.CL_LoadModel || !engine.GetClientTime ||
         !engine.pEfxAPI || !engine.pEfxAPI->CL_TempEntAllocHigh) return;
+    const auto generation = effectEpoch;
     const auto* owner = engine.GetEntityByIndex(ownerIndex);
+    if (generation != effectEpoch) return;
     if (!owner || !owner->model) return;
     int index{};
     const bool self = type == 13;
@@ -105,15 +159,17 @@ void Heal(int ownerIndex, int type)
     const char* path = type == 40 ? "sprites/zb_skill_hpbuff.spr" :
         type == 44 ? "sprites/zombiarmorheal_head.spr" : healing::Sprites[self ? 1 : 0];
     auto* model = engine.CL_LoadModel(path, &index);
+    if (generation != effectEpoch) return;
     if (!model || model->type != mod_sprite || model->numframes <= 0) return;
     const double now = engine.GetClientTime();
-    const auto slot = std::find_if(attached.begin(), attached.end(), [&](const Owned& effect)
-    { return !Owns(effect) || now > effect.entity->die + 1.0; });
-    if (slot == attached.end()) return;
+    if (generation != effectEpoch || !std::isfinite(now)) return;
+    if (AvailableAttachment(now) == attached.end()) return;
     const float offset = type == 40 || type == 44 ? 60.0f : self ? 25.0f : 40.0f;
     float position[]{owner->origin[0], owner->origin[1], owner->origin[2] + offset};
     auto* temp = engine.pEfxAPI->CL_TempEntAllocHigh(position, model);
-    if (!temp) return;
+    if (!AcceptAllocatedSprite(temp, generation)) return;
+    const auto slot = AvailableAttachment(now);
+    if (slot == attached.end()) { RetireUnclaimedSprite(temp); return; }
     nextToken = nextToken == INT_MAX ? 1 : nextToken + 1;
     *slot = {temp, nextToken};
     temp->entity.curstate.iuser4 = nextToken;
@@ -153,7 +209,8 @@ int Receive(const char* name, int size, void* data)
     if (bytes[0] == 199)
     {
         if (size < 4) return 1;
-        if (bytes[3] != 60 && bytes[3] != 61 && bytes[3] != 62) return previousMP ? previousMP(name, size, data) : 1;
+        if (part_effects::Index(bytes[3]) < 0 && bytes[3] != 60 && bytes[3] != 61 && bytes[3] != 62)
+            return previousMP ? previousMP(name, size, data) : 1;
         if (size != 12) return 1;
         const int owner = bytes[1] | (int(bytes[2]) << 8);
         const auto number = [&](int offset)
@@ -295,6 +352,7 @@ void ScenarioEffectsFrame()
 }
 void ResetScenarioEffects()
 {
+    ++effectEpoch;
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ResetOberonHints();

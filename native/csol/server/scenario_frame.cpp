@@ -109,7 +109,8 @@ CSOLScenarioFrame CCSOLScenarioMap::UpdateFrame(CHalfLifeMultiplay& rules,
     // negative-clock return above never reaches that common continuation.
     // A row callback can change any rule gate. Re-read all of them before
     // spatial scanning; skipped scans must not advance the player cursor.
-    if (!rules.IsGameStarted() || rules.IsFreezePeriod() || rules.m_bRoundTerminating)
+    if (!rules.IsGameStarted() || rules.IsFreezePeriod() || rules.m_bRoundTerminating ||
+        !m_round.Group())
     {
         result.managerTailReached = true;
         return result;

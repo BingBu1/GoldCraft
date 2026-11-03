@@ -407,10 +407,10 @@ bool CCSOLScenarioWalls::Collect(csol::scenario::ConfigError& error)
 
 bool CCSOLScenarioWalls::BindRules(std::shared_ptr<CCSOLScenarioWallRules> rules)
 {
-    if (!m_access || !m_access->Allowed() || m_busy || !rules) return false;
+    if (!m_access || !m_access->Allowed() || m_busy || (!rules && !m_walls.empty())) return false;
     if (m_rules && m_rules != rules) m_rules->Invalidate();
     m_rules = std::move(rules);
-    m_rules->BindEntityAccess(m_access);
+    if (m_rules) m_rules->BindEntityAccess(m_access);
     for (const auto& handle : m_walls)
         if (auto* wall = handle.Get<CCSOLScenarioBreakable>()) wall->BindRules(m_rules);
     return true;

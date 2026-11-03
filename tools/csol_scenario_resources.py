@@ -114,16 +114,39 @@ def frozen_death_contract(source):
     return resources, inputs
 
 
+def skill_contract_sources(source):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    names = ['native/csol/server/scenario_monster_skills.h',
+             'native/csol/scenario_monster_effects.hpp',
+             'native/csol/server/scenario_session.cpp']
+    if 'CSOLZombieBombModel' in session:
+        names.append('native/csol/server/scenario_zombie_bomb.h')
+    if 'csol::part_effects::Sprites' in session:
+        names.append('native/csol/scenario_part_effects.hpp')
+    return names
+
+
 def skill_contract(source):
     """Read the exact skill precache lists; reject unresolved C++ expressions."""
     headers = [('native/csol/server/scenario_monster_skills.h', ''),
                ('native/csol/scenario_monster_effects.hpp', 'csol::monster_effects::')]
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'CSOLZombieBombModel' in session:
+        headers.append(('native/csol/server/scenario_zombie_bomb.h', ''))
     constants = {}
     for name, prefix in headers:
         text = (source / name).read_text(encoding='utf-8-sig')
         for key, value in re.findall(r'inline constexpr const char\*\s+(\w+)\s*=\s*"([^"]+)"', text):
             constants[prefix + key] = value
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+        if name.endswith('/scenario_zombie_bomb.h'):
+            blocks = re.findall(r'\bCSOLZombieBombBounceSounds\s*\{([^}]+)\}', text, re.S)
+            if len(blocks) != 1:
+                raise ValueError('Missing or ambiguous zombie bomb sound contract')
+            for index, token in enumerate(blocks[0].split(',')):
+                match = re.fullmatch(r'\s*"([^"]+)"\s*', token)
+                if not match:
+                    raise ValueError(f'Unresolved zombie bomb sound: {token}')
+                constants[f'CSOLZombieBombBounceSounds[{index}]'] = match[1]
     resources = set()
     for variable, prefix in [('asset', ''), ('sound', 'sound/')]:
         lists = re.findall(r'for\s*\(const auto\* ' + variable + r'\s*:\s*\{([^}]+)\}\)\s*\{', session)
@@ -138,6 +161,24 @@ def skill_contract(source):
             if value is None:
                 raise ValueError(f'Unresolved monster skill asset: {token}')
             resources.add(resource_name(prefix + value))
+    if 'CSOLZombieBombEvent' in session:
+        value = constants.get('CSOLZombieBombEvent')
+        if not value or not value.startswith('events/') or not value.endswith('.sc'):
+            raise ValueError('Missing or invalid zombie bomb event contract')
+        resources.add(resource_name(value))
+    if 'csol::part_effects::Sprites' in session:
+        text = (source / 'native/csol/scenario_part_effects.hpp').read_text(encoding='utf-8-sig')
+        blocks = re.findall(r'\bSprites\s*\{([^}]+)\}', text, re.S)
+        if len(blocks) != 1:
+            raise ValueError('Missing or ambiguous part effect sprite contract')
+        for token in blocks[0].split(','):
+            match = re.fullmatch(r'\s*"([^"]+)"\s*', token)
+            if not match:
+                raise ValueError(f'Unresolved part effect sprite: {token}')
+            name = resource_name(match[1])
+            if not name.startswith('sprites/') or not name.endswith('.spr'):
+                raise ValueError(f'Invalid part effect sprite: {name}')
+            resources.add(name)
     return resources
 
 
@@ -237,6 +278,37 @@ def dialogue_contract(source, common, reader, wave):
         readerSha256=digest(reader), headerSha256=digest(header))
 
 
+def champion_contract(source, common, reader, wave):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'csol::scenario::LoadChampions(' not in session:
+        return set(), None
+    if reader is None or wave is None:
+        raise ValueError('This DLL needs --champion-reader and --wave-resource for all difficulty appearances')
+    match = re.fullmatch(r'maps/zbs_wave_([A-Za-z0-9_-]{1,63})\.cso', resource_name(wave))
+    if not match:
+        raise ValueError('Champion closure requires this map\'s exact wave resource')
+    name = 'maps/ZBS_Champ_ZT_' + match[1] + '.cso'
+    path = common / name
+    if not path.is_file() or path.stat().st_size == 0:
+        name = 'maps/ZBS_Champ_ZT_Default.cso'
+        path = common / name
+    for part in (path, *path.parents):
+        if part.is_symlink() or part.is_junction():
+            raise ValueError(f'Linked champion source: {part}')
+    path.resolve(strict=True).relative_to(common)
+    data = path.read_bytes()
+    if not data or len(data) > 8 * 1024 * 1024:
+        raise ValueError('Invalid champion resource size')
+    result = subprocess.run([str(reader.resolve(strict=True))], input=data, check=True,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    paths = {resource_name(line) for line in result.stdout.decode('utf-8').splitlines()}
+    if any(not ((p.startswith('models/') and p.endswith('.mdl')) or
+                (p.startswith('sound/') and p.endswith('.wav'))) for p in paths):
+        raise ValueError('Unexpected champion appearance resource')
+    return paths, dict(table=name, sha256=digest(path), readerSha256=digest(reader),
+                       resources=sorted(paths), allDifficulties=True)
+
+
 def respawn_ui_contract(source):
     """Collect the exact shared HUD list consumed by this server version."""
     session = source / 'native/csol/server/scenario_session.cpp'
@@ -262,6 +334,8 @@ def main():
                         help='Use the exact frozen production source for resource contracts')
     parser.add_argument('--dialogue-reader', type=Path,
                         help='Matching csol_scenario_hud_resources executable')
+    parser.add_argument('--champion-reader', type=Path,
+                        help='Matching csol_scenario_champion_resources executable')
     parser.add_argument('--wave-resource',
                         help='Exact encrypted wave filename from this map catalog, relative to common')
     args = parser.parse_args()
@@ -273,6 +347,7 @@ def main():
     smoke_event = smoke_event_contract(source_root)
     dialogue, dialogue_info = dialogue_contract(source_root, common, args.dialogue_reader, args.wave_resource)
     respawn_ui, respawn_ui_info = respawn_ui_contract(source_root)
+    champions, champion_info = champion_contract(source_root, common, args.champion_reader, args.wave_resource)
     catalog = command(args.catalog_reader, '--catalog', common)
     boss_models = select_boss_models(catalog, boss[0], boss[1]) if boss else []
     if boss_models:
@@ -295,7 +370,7 @@ def main():
     models += attack_models
     elite = elite_contract(source_root)
     frozen, frozen_inputs = frozen_death_contract(source_root)
-    skills = skill_contract(source_root) | elite | frozen
+    skills = skill_contract(source_root) | elite | frozen | champions
     skill_models = sorted(name for name in skills if name.endswith('.mdl'))
     skill_entries = command(args.collector, common, '--relocatable-json', *skill_models) if skill_models else []
     if not set(skill_models).issubset({row['path'] for row in skill_entries}):
@@ -364,6 +439,8 @@ def main():
         result['dialogueClosure'] = dialogue_info
     if respawn_ui_info:
         result['respawnUiClosure'] = respawn_ui_info
+    if champion_info:
+        result['championClosure'] = champion_info
     if elite:
         result['eliteClosure'] = dict(roots=sorted(elite),
             headerSha256=digest(source_root / 'native/csol/elite_visual_resources.hpp'),
@@ -378,9 +455,8 @@ def main():
     save('runtime-closure.json', closure)
     save('manifest.json', dict(models=result['models'], effectiveTypes=catalog['effectiveTypes'],
         files=result['files'], added=added, headerSha256=digest(header), bossContractAvailable=boss is not None,
-        skillContractSources=[dict(path=name, sha256=digest(source_root / name)) for name in
-            ('native/csol/server/scenario_monster_skills.h', 'native/csol/scenario_monster_effects.hpp',
-             'native/csol/server/scenario_session.cpp')],
+        skillContractSources=[dict(path=name, sha256=digest(source_root / name))
+            for name in skill_contract_sources(source_root)],
         previousPlanSha256=digest(args.previous_plan), collectorSha256=digest(args.collector),
         catalogReaderSha256=digest(args.catalog_reader), physicalCopies=0, deployment=False))
     print(json.dumps(dict(files=len(rows), added=added, models=len(result['models']),

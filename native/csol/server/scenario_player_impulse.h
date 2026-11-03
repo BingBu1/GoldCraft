@@ -13,3 +13,9 @@ using EHANDLE = EntityHandle<CBaseEntity>;
 bool CSOL_ApplyScenarioPlayerImpulse(const std::shared_ptr<CCSOLScenarioSession>& session,
     const EHANDLE& target, const Vector& requested, bool& applied,
     csol::scenario::ConfigError& error);
+
+// Original zombie-bomb velocity consumer is distinct from the ordinary
+// impulse entry: minimum priority1, without mode15 action rejection.
+bool CSOL_ApplyZombieBombPlayerImpulse(const std::shared_ptr<CCSOLScenarioSession>& session,
+    const EHANDLE& target, const Vector& requested, bool useModifiers, bool& applied,
+    csol::scenario::ConfigError& error);

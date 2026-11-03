@@ -56,7 +56,7 @@ std::shared_ptr<CCSOLScenarioRuntime> CCSOLScenarioDeathServices::Pin(CSOLMonste
     if (!runtime || runtime->Closing() || runtime->deathServices.get() != this || !runtime->session ||
         !call.BelongsTo(runtime->session->Map()) || !call.Current()) return {};
     const auto tables = runtime->session->Map().Tables();
-    if (!tables || tables->scenarioType != 1 || !m_cachedMapId || *m_cachedMapId <= 0 ||
+    if (!tables || (tables->scenarioType != 0 && tables->scenarioType != 1) || !m_cachedMapId || *m_cachedMapId <= 0 ||
         !tables->mapId || *tables->mapId <= 0 || !m_golden.EmptyPlan()) return {};
     return runtime;
 }

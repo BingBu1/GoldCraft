@@ -292,6 +292,12 @@ struct CSOLScenarioPlayerRuntimeState
     EHANDLE player;
     std::uint64_t generation{}, profileRevision{}, appliedRevision{};
     std::uint64_t monsterLifeSerial{};
+    // Spawn-entry cancellation identity; death alone does not change it.
+    std::uint64_t nativeSpawnSerial{};
+    // MP +3538/+3540/+3548: player-owned kind15 protection. Death/Spawn do
+    // not clear these; the normal updater expires the double deadline.
+    double zombieBombProtectionUntil{}, zombieBombProtectionRatio{1.0};
+    std::uint32_t zombieBombProtectionPart{};
     // Independent effect17 movement entry; never a character invulnerability.
     float monsterTrapUntil{}, monsterTrapSavedGravity{1.0f};
     bool monsterTrapMovementApplied{}, monsterTrapPending{};
@@ -460,12 +466,19 @@ public:
     bool ApplyProtectionDamage(const EHANDLE& player, float now,
         int damageType, float& damage) const;
     bool UpdatePlayerBuffs(CBasePlayer& player, float now);
+    void PlayerSpawnStarted(const EHANDLE& player);
     bool MonsterTrapActive(const EHANDLE& player, float now) const;
     std::optional<std::pair<std::uint64_t, std::uint64_t>> MonsterSkillLife(const EHANDLE& player) const;
     bool MonsterWeaponDropBlocked(const EHANDLE& player, float now) const;
     bool TryMonsterTrap(const EHANDLE& player, float duration, CSOLMonsterSkillGuard guard,
         const std::function<bool()>& prepare, bool& caught,
         csol::scenario::ConfigError& error);
+    // Sentinel999, nonzero-damage branch only. false is cancellation/error;
+    // true+immune suppresses damage, impulse and the two hit messages.
+    // The optional seed replaces only _time64's low32 entropy boundary.
+    bool PrepareZombieBombHit(const EHANDLE& player, CSOLMonsterSkillGuard guard,
+        float& damage, float& force, bool& immune, csol::scenario::ConfigError& error,
+        std::uint32_t (*seed)() = nullptr);
     bool ApplyMonsterTrapMovement(CBasePlayer& player, float now);
     bool TryMonsterFrost(const EHANDLE& player, float duration, float speed,
         bool& applied, csol::scenario::ConfigError& error);
@@ -650,6 +663,8 @@ public:
 
 private:
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> Resolve(const EHANDLE& player) const;
+    bool CheckMonsterAddon13(const EHANDLE& player, CSOLMonsterSkillGuard guard,
+        bool& immune, csol::scenario::ConfigError& error);
     bool AddMonsterMotionStatus(const EHANDLE& player, int id, float duration,
         float speed, float gravity, bool& applied, csol::scenario::ConfigError& error);
     std::shared_ptr<CSOLScenarioPlayerRuntimeState> Ensure(CBasePlayer& player);

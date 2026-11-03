@@ -519,6 +519,22 @@ bool CCSOLScenarioMessages::SendMonsterHeadHits(edict_t* recipient, std::int32_t
     return true;
 }
 
+bool CCSOLScenarioMessages::SendZombieBombProtection(edict_t* recipient, float duration) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||
+        !std::isfinite(duration) || duration < 0 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteLong) return false;
+    const int id = m_messageId;
+    const auto bits = std::bit_cast<std::int32_t>(duration);
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(54); WRITE_BYTE(0); WRITE_LONG(bits);
+    WRITE_BYTE(190); WRITE_BYTE(190); WRITE_BYTE(190); WRITE_BYTE(255);
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::SendMonsterDamageEffect(edict_t* recipient, int monsterIndex,
     int subtype, float height, float magnitude) const
 {

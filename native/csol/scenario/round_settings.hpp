@@ -19,4 +19,7 @@ bool ReadRoundSettings(const RoundTable& table, std::size_t index,
 // Original manager+284: integer cell column1/row5, independent of the
 // per-round row and its music/spawn settings. Zero disables reward markers.
 bool ReadRewardRound(const RoundTable& table, std::int32_t& output, ConfigError& error);
+// MP1138E181: whole-map survival duration is positional column1/row1.
+// It is unrelated to per-round GoalKillCount and to the native CS CVAR.
+bool ReadRoundTime(const RoundTable& table, std::int32_t& output, ConfigError& error);
 }

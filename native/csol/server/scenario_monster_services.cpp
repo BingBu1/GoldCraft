@@ -10,6 +10,7 @@
 #include "scenario_death_services.h"
 #include "scenario_player_runtime.h"
 #include "scenario_player_impulse.h"
+#include "scenario_monster_bomb.h"
 #include "scenario_monster_effects.h"
 #include "scenario_elite_services.h"
 #include "scenario_monster_elite.h"
@@ -18,6 +19,7 @@
 #include "game_rules_gate.h"
 #include "../frozen_death.hpp"
 #include "../frozen_smoke.hpp"
+#include "../scenario/map_support.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -54,7 +56,7 @@ bool CCSOLScenarioMonsterServices::Assemble(std::shared_ptr<CCSOLMonsterDamageSe
     if (m_gameplay || !damage || runtime->monsterDamageServices != damage ||
         m_session->State() != CSOLScenarioSessionState::Precached ||
         m_session->ResourceScope() != CSOLScenarioResourceScope::Combat || !tables ||
-        tables->mapName != "zs_deadend" || tables->scenarioType != 1 || !tables->mapId || *tables->mapId <= 0)
+        !csol::scenario::HasMapGameplay(tables->mapName, tables->scenarioType) || !tables->mapId || *tables->mapId <= 0)
     {
         error.message = "scenario monster assembly needs fresh combat resources, map ID and real damage services";
         return false;
@@ -417,10 +419,10 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
     #pragma clang fp contract(off)
     const auto runtime = Pin();
     if (!runtime || !Current(call) || !gpGlobals) return false;
-    if (call.Current()->Type()->skill == 8)
+    if (call.Current()->Type()->skill == 6 || call.Current()->Type()->skill == 8)
     {
         const auto* spawn = m_gameplay->Factory().State(*call.Current());
-        if (!spawn) { error.message = "scenario disarm spawn state is unavailable"; return false; }
+        if (!spawn) { error.message = "scenario projectile skill spawn state is unavailable"; return false; }
         struct Owner
         {
             const CCSOLScenarioMonsterServices& services;
@@ -428,13 +430,15 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
             CSOLMonsterSpawnCall& call;
             const CSOLMonsterSpawnState* spawn;
         } owner{*this, runtime.get(), call, spawn};
-        return CSOL_UseMonsterDisarm(call, state, *spawn, runtime,
-            {[](const void* context)
+        const CSOLMonsterSkillGuard guard{[](const void* context)
             {
                 const auto& owner = *static_cast<const Owner*>(context);
                 return owner.services.Pin().get() == owner.runtime && owner.services.Current(owner.call) &&
                     owner.services.m_gameplay->Factory().State(*owner.call.Current()) == owner.spawn;
-            }, &owner}, error);
+            }, &owner};
+        if (call.Current()->Type()->skill == 6)
+            return CSOL_UseMonsterZombieBomb(call, state, *spawn, runtime, DamageSuppressed(), guard, error);
+        return CSOL_UseMonsterDisarm(call, state, *spawn, runtime, guard, error);
     }
     if (call.Current()->Type()->skill == 3)
     {

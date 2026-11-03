@@ -147,9 +147,9 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
 {
     if (!m_error.message.empty()) return false;
     if (monster.Pool() != &m_pool || !m_map.Tables() ||
-        m_map.Tables()->scenarioType != 1 || m_mapId <= 0)
+        (m_map.Tables()->scenarioType != 0 && m_map.Tables()->scenarioType != 1) || m_mapId <= 0)
     {
-        m_error.message = "scenario death owner requires the selected mode15/subtype1 map and pool";
+        m_error.message = "scenario death owner requires the selected mode15/subtype0-or-1 map and pool";
         return false;
     }
     CSOLMonsterDeathCall call(m_map, m_requests, monster, arguments);

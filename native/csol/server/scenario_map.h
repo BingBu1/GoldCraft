@@ -33,7 +33,7 @@ struct CSOLActiveWave
     float offset{};
 };
 
-// Owns the engine-backed resources and snapshots for one subtype 1 map. The
+// Owns the engine-backed resources and snapshots for one subtype 0/1 map. The
 // owning GameRules must call CollectEntities after ServerActivate's classname
 // registration, and BeginRound before respawning players. This is not a mode
 // selector and must not consume ordinary CS/ZP map markers automatically.

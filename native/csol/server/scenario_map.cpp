@@ -124,10 +124,10 @@ bool CCSOLScenarioMap::BeginMap(std::string_view mapName)
     }
     if (!EntityAccessAllowed()) return false;
     const auto* tables = m_resources.Tables();
-    if (tables->scenarioType != 1)
-        return Fail("scenario map lifecycle currently supports subtype 1 only");
-    if (!tables->triggerRules || tables->rounds.rows.empty())
-        return Fail("scenario map requires trigger rules and at least one round");
+    if (tables->scenarioType != 0 && tables->scenarioType != 1)
+        return Fail("scenario map lifecycle currently supports subtypes 0 and 1 only");
+    if ((tables->scenarioType == 1 && !tables->triggerRules) || tables->rounds.rows.empty())
+        return Fail("scenario map requires its subtype's rules and at least one round");
     if (!m_deathRules.BeginMap(nextMap, files, m_error))
     {
         m_state = CSOLScenarioMapState::Failed;
@@ -156,10 +156,15 @@ bool CCSOLScenarioMap::CollectEntities()
     }
     if (points != CSOLPointCollection::Ready)
         return Fail("scenario map needs the unsupported SP spawn-file fallback");
-    const auto volumes = m_volumes.CollectMap();
-    if (!EntityAccessAllowed()) return false;
-    if (volumes != CSOLTriggerCollection::Ready)
-        return Fail("scenario map needs the unsupported MAP_TRG volume-file fallback");
+    // Ordinary survival maps use native player points and zombiespawn markers
+    // without TRG volumes. An empty zbstrigger list is valid for that subtype.
+    if (m_resources.Tables()->scenarioType == 1)
+    {
+        const auto volumes = m_volumes.CollectMap();
+        if (!EntityAccessAllowed()) return false;
+        if (volumes != CSOLTriggerCollection::Ready)
+            return Fail("scenario map needs the unsupported MAP_TRG volume-file fallback");
+    }
     m_error = {};
     m_state = CSOLScenarioMapState::EntitiesCollected;
     return true;
@@ -204,8 +209,12 @@ bool CCSOLScenarioMap::BeginRound(std::size_t roundIndex, float now, float freez
     csol::scenario::ConfigError detail;
     WaveEvents notifications(*this, events);
     bool committed{};
-    if (!m_round.Begin(tables->waves, *tables->triggerRules, m_volumes.Volumes(),
-        tables->rounds.rows[roundIndex], now, freezeTime, m_points.Points(), notifications, detail, &committed))
+    const bool started = tables->scenarioType == 0 ?
+        m_round.BeginOrdinary(tables->waves, tables->rounds.rows[roundIndex], now, freezeTime,
+            m_points.Points(), notifications, detail, &committed) :
+        m_round.Begin(tables->waves, *tables->triggerRules, m_volumes.Volumes(),
+            tables->rounds.rows[roundIndex], now, freezeTime, m_points.Points(), notifications, detail, &committed);
+    if (!started)
     {
         if (!EntityAccessAllowed()) return false;
         if (committed)

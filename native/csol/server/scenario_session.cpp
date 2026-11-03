@@ -2,7 +2,9 @@
 #include "precompiled.h"
 #include "scenario_session.h"
 #include "scenario_monster_skills.h"
+#include "scenario_zombie_bomb.h"
 #include "../scenario_monster_effects.hpp"
+#include "../scenario_part_effects.hpp"
 #include "scenario_drops.h"
 #include "scenario_monster_resources.h"
 #include "../oberon_hint.hpp"
@@ -251,8 +253,10 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     modelPaths.emplace("sprites/320_pain.spr");
     modelPaths.emplace("sprites/640_pain.spr");
     for (const auto* asset : {CSOLMonsterTrapModel, CSOLMonsterDisarmModel,
-        CSOLMonsterDisarmTrail, csol::monster_effects::ImpactSprite}) modelPaths.emplace(asset);
+        CSOLMonsterDisarmTrail, csol::monster_effects::ImpactSprite,
+        CSOLZombieBombModel, csol::monster_effects::ZombieBombSprite, "models/grenade.mdl"}) modelPaths.emplace(asset);
     for (const auto* sprite : csol::healing::Sprites) modelPaths.emplace(sprite);
+    for (const auto* sprite : csol::part_effects::Sprites) modelPaths.emplace(sprite);
     modelPaths.emplace(csol::smoke::Sprite);
     modelPaths.emplace(csol::frozen_death::IceModel);
     modelPaths.emplace(csol::frozen_smoke::SmokeSprite);
@@ -295,14 +299,21 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     }
     csol::scenario::ConfigError error;
     for (const auto* asset : {CSOLMonsterTrapModel, CSOLMonsterDisarmModel,
-        CSOLMonsterDisarmTrail, csol::monster_effects::ImpactSprite, "sprites/320_pain.spr", "sprites/640_pain.spr"})
+        CSOLMonsterDisarmTrail, csol::monster_effects::ImpactSprite,
+        CSOLZombieBombModel, csol::monster_effects::ZombieBombSprite, "models/grenade.mdl",
+        "sprites/320_pain.spr", "sprites/640_pain.spr"})
     {
         PRECACHE_MODEL(asset);
         if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
     }
+    for (const auto* sprite : csol::part_effects::Sprites)
+    {
+        PRECACHE_MODEL(sprite);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    }
     for (const auto* sound : {"zombi/Heavy_newTrap.wav", "zombi/deimos_skill_hit.wav",
         "zombi/Zombi_Trapped.wav", "zombi/Zombi_Trapped_Female.wav",
-        csol::monster_effects::ImpactSound})
+        csol::monster_effects::ImpactSound, CSOLZombieBombBounceSounds[0], CSOLZombieBombBounceSounds[1]})
     {
         const std::string path = std::string("sound/") + sound;
         const int size = g_engfuncs.pfnGetFileSize(path.c_str());
@@ -329,6 +340,10 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
     if (eventSize <= 0 || !g_engfuncs.pfnPrecacheEvent)
         return Fail({smokeEvent, {0, "scenario smoke event is missing or cannot be registered"}});
+    const int bombEventSize = g_engfuncs.pfnGetFileSize(CSOLZombieBombEvent);
+    if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+    if (bombEventSize <= 0)
+        return Fail({CSOLZombieBombEvent, {0, "scenario zombie bomb event is missing"}});
     // Register after WeaponsPrecache so the extra event cannot shift any
     // stock client's cached prediction indices after a mode/map change.
     // ServerActivate still runs while ReHLDS is loading the resource table.
@@ -379,6 +394,12 @@ bool CCSOLScenarioSession::Activate()
         if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
         if (!event) return Fail({smokeEvent, {0, "scenario smoke event lookup failed"}});
         m_smokeEvent = event;
+        // Original constructor registers "createexplo". The canonical
+        // GoldSrc resource path is appended after native weapon events.
+        const auto bombEvent = PRECACHE_EVENT(1, CSOLZombieBombEvent);
+        if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        if (!bombEvent) return Fail({CSOLZombieBombEvent, {0, "scenario zombie bomb event lookup failed"}});
+        m_zombieBombEvent = bombEvent;
     }
     if (!m_map.CollectEntities()) return Fail(m_map.Error());
     csol::scenario::ConfigError wallError;
@@ -403,6 +424,7 @@ bool CCSOLScenarioSession::Deactivate()
     if (m_music) m_music->Reset();
     m_music.reset();
     m_smokeEvent = 0;
+    m_zombieBombEvent = 0;
     // Shutdown detaches the behavior/owner pointers before engine removals.
     // Do not clear the table first: behaviors still borrow its type records.
     if (m_navigation) m_navigation->Invalidate();
@@ -442,6 +464,16 @@ bool CCSOLScenarioSession::BindWallPlayers(std::shared_ptr<CCSOLScenarioWallPlay
     if (!m_map.EntityAccessAllowed() || m_busy || m_state != CSOLScenarioSessionState::Active || !m_map.Tables()) return false;
     SessionOperation operation(m_busy);
     csol::scenario::ConfigError error;
+    // Survival maps such as lostcity have no zbsbreak entities and their
+    // original round table has zero wall rewards. Do not install an unused
+    // damage/reward loop; real walls still require a positive threshold.
+    if (m_walls.Count() == 0)
+    {
+        if (!players || !m_walls.BindRules(nullptr)) return false;
+        m_wallRewards.reset();
+        m_error = {};
+        return true;
+    }
     auto rules = CCSOLScenarioWallRewards::Create(m_map.Tables()->rounds, m_difficulty, std::move(players), error);
     if (!rules) return Fail({"", std::move(error)});
     if (!m_walls.BindRules(rules)) return Fail({"", {0, "scenario wall rules could not be bound"}});
@@ -550,10 +582,14 @@ std::unique_ptr<CCSOLScenarioReplaySettings> CCSOLScenarioSession::PrepareReplay
     const auto elites = m_eliteSettings.Snapshot();
     std::shared_ptr<const csol::scenario::MonsterType> eliteType;
     if (!elites || !csol::scenario::MakeEliteMonsterType(*elites, difficulty, eliteType, error)) return {};
-    candidate->walls = CCSOLScenarioWallRewards::Create(tables->rounds,
-        candidate->difficulty, m_players, error);
+    if (m_walls.Count() != 0)
+    {
+        candidate->walls = CCSOLScenarioWallRewards::Create(tables->rounds,
+            candidate->difficulty, m_players, error);
+        if (!candidate->walls) return {};
+    }
     candidate->hits = CCSOLMonsterHitRewards::Create(candidate->difficulty, m_players, error);
-    if (!candidate->walls || !candidate->hits) return {};
+    if (!candidate->hits) return {};
     candidate->players = m_players;
     candidate->access = m_map.EntityAccess();
     candidate->round = m_map.RoundGeneration();
@@ -566,7 +602,7 @@ bool CCSOLScenarioSession::CommitReplaySettings(CCSOLScenarioReplaySettings& set
         !std::isfinite(now) || now < 0 ||
         !settings.access || !settings.access->Allowed() || m_map.EntityAccess() != settings.access ||
         m_map.RoundGeneration() != settings.round || m_players != settings.players ||
-        !settings.walls || !settings.hits) return false;
+        (!settings.walls && m_walls.Count() != 0) || !settings.hits) return false;
     SessionOperation operation(m_busy);
     if (!m_map.ApplyDifficulty(settings.difficulty)) return Fail(m_map.Error());
     if (!m_map.ResetChallengeCounters()) return Fail({"", {0, "scenario challenge counters could not be reset"}});

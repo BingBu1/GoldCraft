@@ -86,6 +86,7 @@ public:
     const CCSOLScenarioMessages& Messages() const { return m_messages; }
     std::shared_ptr<CCSOLScenarioMusic> Music() const { return m_music; }
     unsigned short SmokeEvent() const { return m_smokeEvent; }
+    unsigned short ZombieBombEvent() const { return m_zombieBombEvent; }
     const csol::scenario::DifficultyResources& Difficulty() const { return m_difficulty; }
     float JoinLevelRatio() const { return m_joinLevelRatio; }
     const csol::scenario::ChampionTable& Champions() const { return m_champions; }
@@ -130,6 +131,7 @@ private:
     CCSOLScenarioMessages m_messages;
     std::shared_ptr<CCSOLScenarioMusic> m_music;
     unsigned short m_smokeEvent{};
+    unsigned short m_zombieBombEvent{};
     std::shared_ptr<CCSOLScenarioNavigation> m_navigation;
     CCSOLScenarioWalls m_walls;
     std::shared_ptr<CCSOLScenarioWallRewards> m_wallRewards;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_factory.h"
+#include "../scenario/map_support.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -250,10 +251,10 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, i
     if (m_busy || !m_error.message.empty()) return Result::Failed;
     FactoryOperation operation(m_busy);
     if (m_map.State() != CSOLScenarioMapState::RoundActive || !m_map.Tables() ||
-        m_map.Tables()->scenarioType != 1 || m_map.Tables()->mapName != "zs_deadend" ||
+        !csol::scenario::HasMapGameplay(m_map.Tables()->mapName, m_map.Tables()->scenarioType) ||
         !m_map.RoundIndex() || m_pool.State() != CSOLMonsterPoolState::Ready || !gpGlobals)
     {
-        Fail("scenario factory requires the active zs_deadend subtype1 round");
+        Fail("scenario factory requires an active implemented map round");
         return Result::Failed;
     }
     // The original wrapper selects the point before it looks up a type, and
@@ -305,10 +306,10 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::SpawnElite(
     if (m_busy || !m_error.message.empty()) return Result::Failed;
     FactoryOperation operation(m_busy);
     if (m_map.State() != CSOLScenarioMapState::RoundActive || !m_map.Tables() ||
-        m_map.Tables()->scenarioType != 1 || m_map.Tables()->mapName != "zs_deadend" ||
+        !csol::scenario::HasMapGameplay(m_map.Tables()->mapName, m_map.Tables()->scenarioType) ||
         !m_map.RoundIndex() || m_pool.State() != CSOLMonsterPoolState::Ready || !gpGlobals)
     {
-        Fail("scenario elite factory requires the active zs_deadend subtype1 round");
+        Fail("scenario elite factory requires an active implemented map round");
         return Result::Failed;
     }
     if (point <= 0) return Result::Skipped;

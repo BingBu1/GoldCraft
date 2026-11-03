@@ -68,4 +68,19 @@ bool ReadRewardRound(const RoundTable& table, std::int32_t& output, ConfigError&
     output = value;
     return true;
 }
+
+bool ReadRoundTime(const RoundTable& table, std::int32_t& output, ConfigError& error)
+{
+    error = {};
+    if (table.headerRecord != 6 || table.source.records.size() <= 1)
+    { error.message = "scenario round time has no metadata row"; return false; }
+    const auto& record = table.source.records[1];
+    std::int32_t value{};
+    if (record.fields.size() <= 1 || record.fields[1].empty())
+    { error = {record.byteOffset, "scenario round time metadata is empty"}; return false; }
+    if (!IntegerCell(record, 1, value))
+    { error = {record.byteOffset, "scenario round time overflows the original int32 getter"}; return false; }
+    output = value;
+    return true;
+}
 }

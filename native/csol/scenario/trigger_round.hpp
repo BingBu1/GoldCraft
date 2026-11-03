@@ -7,7 +7,7 @@
 
 namespace csol::scenario
 {
-// The shared wave/trigger portion of subtype 1 round initialization. Selecting
+// The shared wave/trigger portion of scenario round initialization. Selecting
 // the round, spawning players, map restart, termination and progression belong
 // to GameRules; a finished/empty active-wave list is not a victory condition.
 class TriggerRound
@@ -16,6 +16,11 @@ public:
     bool BeginMap();
     bool Begin(const WaveTable& table, const TriggerRuleTable& rules,
         const TriggerVolumes& volumes, const RoundRow& round,
+        float now, float freezeTime, SpawnPoints& points,
+        TriggerWaveEvents& events, ConfigError& error, bool* committed = nullptr);
+    // MP113A1F77: ordinary subtypes copy every waveTypes ID into the active
+    // list. They have no temporary TRG group or spatial trigger program.
+    bool BeginOrdinary(const WaveTable& table, const RoundRow& round,
         float now, float freezeTime, SpawnPoints& points,
         TriggerWaveEvents& events, ConfigError& error, bool* committed = nullptr);
 

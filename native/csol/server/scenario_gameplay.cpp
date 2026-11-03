@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "scenario_gameplay.h"
 #include "../scenario/wave_events.hpp"
+#include "../scenario/map_support.hpp"
 
 #include <cstdlib>
 #include <list>
@@ -39,8 +40,8 @@ bool CCSOLScenarioGameplay::Activate()
         m_session.State() != CSOLScenarioSessionState::Active)
         return Fail("scenario gameplay activated outside its collected map session");
     const auto* tables = m_session.Map().Tables();
-    if (!tables || !SupportsMap(tables->mapName, tables->scenarioType))
-        return Fail("scenario gameplay currently requires zs_deadend subtype1");
+    if (!tables || !csol::scenario::HasMapGameplay(tables->mapName, tables->scenarioType))
+        return Fail("scenario gameplay requires an implemented map and matching subtype");
     const auto navigation = m_session.ScenarioNavigation();
     if (!navigation || !navigation->World().Ready())
         return Fail("scenario gameplay needs its loaded navigation graph");

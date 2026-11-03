@@ -15,6 +15,46 @@ bool TriggerRound::BeginMap()
     return true;
 }
 
+bool TriggerRound::BeginOrdinary(const WaveTable& table, const RoundRow& round,
+    float now, float freezeTime, SpawnPoints& points, TriggerWaveEvents& events,
+    ConfigError& error, bool* committed)
+{
+    error = {};
+    if (committed) *committed = false;
+    if (!events.Check(error)) return false;
+    if (IsBusy())
+    {
+        error.message = "cannot begin a scenario round during dispatch";
+        return false;
+    }
+    auto schedule = schedule_;
+    if (!BeginWaveRound(schedule, now, freezeTime))
+    {
+        error.message = "invalid scenario round time origin";
+        return false;
+    }
+    std::vector<std::uint16_t> ids;
+    ids.reserve(round.waves.size());
+    for (const auto id : round.waves) ids.push_back(WaveKey(id));
+    WaveController waves;
+    if (!waves.Activate(table, ids, error)) return false;
+    struct StartScope
+    {
+        bool& starting;
+        explicit StartScope(bool& value) : starting(value) { starting = true; }
+        ~StartScope() { starting = false; }
+    } scope(starting_);
+    schedule_ = schedule;
+    waves_ = std::move(waves);
+    triggers_ = {};
+    group_.reset();
+    if (committed) *committed = true;
+    events.WavesChanged(waves_.ActiveWaves());
+    if (!events.Check(error)) return false;
+    points.ResetMonsterQuotas();
+    return true;
+}
+
 bool TriggerRound::Begin(const WaveTable& table, const TriggerRuleTable& rules,
     const TriggerVolumes& volumes, const RoundRow& round, float now, float freezeTime,
     SpawnPoints& points, TriggerWaveEvents& events, ConfigError& error, bool* committed)

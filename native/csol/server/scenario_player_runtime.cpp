@@ -1390,6 +1390,11 @@ bool CCSOLScenarioPlayerRuntime::PublishLabels(
     return true;
 }
 
+void CCSOLScenarioPlayerRuntime::PlayerSpawnStarted(const EHANDLE& handle)
+{
+    if (const auto state = Resolve(handle)) ++state->nativeSpawnSerial;
+}
+
 bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(CBasePlayer& player, float now)
 {
     auto keepAlive = shared_from_this();
@@ -1399,6 +1404,13 @@ bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(CBasePlayer& player, float no
     if (state->updatingBuffs) return true; // Retain dirty work for the next frame.
     struct Updating { bool& value; ~Updating() { value = false; } } updating{state->updatingBuffs};
     state->updatingBuffs = true;
+    // MP 114E385E calls the zero-duration installer at equality. Its ratio
+    // write precedes the early return; the old part ID is not cleared.
+    if (state->zombieBombProtectionUntil > 0 && double(now) >= state->zombieBombProtectionUntil)
+    {
+        state->zombieBombProtectionRatio = .01;
+        state->zombieBombProtectionUntil = 0;
+    }
     // Expiry can expose another ring entry, including an expired middle one.
     // At equality keep the entry, but return to the ordinary speed branch.
     if (state->monsterMotion.HasExpiredEnd(now) ||
@@ -1476,6 +1488,49 @@ bool CCSOLScenarioPlayerRuntime::ApplyMonsterTrapMovement(CBasePlayer& player, f
     return ApplyMonsterStatusMovement(player, player.pev->maxspeed, now, active, error) && active;
 }
 
+bool CCSOLScenarioPlayerRuntime::CheckMonsterAddon13(const EHANDLE& handle,
+    CSOLMonsterSkillGuard guard, bool& immune, csol::scenario::ConfigError& error)
+{
+#pragma clang fp contract(off)
+    immune = false;
+    const auto keepAlive = shared_from_this();
+    const auto state = Resolve(handle);
+    auto* player = state ? dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()) : nullptr;
+    if (!player) return false;
+    const auto life = state->monsterLifeSerial;
+    const auto spawnSerial = state->nativeSpawnSerial;
+    const auto lifecycle = m_lifecycle;
+    const int spawn = player->m_iNumSpawns;
+    const auto current = [&]
+    { return guard.Current() && m_lifecycle == lifecycle && Resolve(handle) == state &&
+        state->monsterLifeSerial == life && state->nativeSpawnSerial == spawnSerial &&
+        handle.Get<CBaseEntity>() == player &&
+        player->m_iNumSpawns == spawn; };
+    if (!current()) return false;
+    const auto level = state->profile.equipment.addonLevels.find(13);
+    if (level == state->profile.equipment.addonLevels.end() || level->second <= 0) return true;
+    if (!g_engfuncs.pfnRandomLong)
+    { error.message = "scenario addon13 resistance random service is unavailable"; return false; }
+    // MP 107AA160 draws first, then 107AA390 re-reads the active addon level.
+    const int sample = RANDOM_LONG(0, 99);
+    if (!current()) return false;
+    const auto tables = m_session ? m_session->Equipment() : nullptr;
+    if (!tables || tables->addons.size() <= 13)
+    { error.message = "scenario addon13 resistance parameters are unavailable"; return false; }
+    const auto& addon = tables->addons[13];
+    const auto currentLevel = state->profile.equipment.addonLevels.find(13);
+    const int amount = currentLevel == state->profile.equipment.addonLevels.end() ? 0 : currentLevel->second;
+    float percent = amount > 0 ? addon.Parameter("Percent") : 0;
+    if (amount > 1)
+    {
+        // Original 107AA5CC/5D1 are separate mulss/addss, not x87 or FMA.
+        const float increment = addon.Parameter("PercentAdd") * static_cast<float>(amount - 1);
+        percent = increment + percent;
+    }
+    immune = percent > static_cast<float>(sample);
+    return current();
+}
+
 bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float duration,
     CSOLMonsterSkillGuard guard, const std::function<bool()>& prepare,
     bool& caught, csol::scenario::ConfigError& error)
@@ -1499,25 +1554,11 @@ bool CCSOLScenarioPlayerRuntime::TryMonsterTrap(const EHANDLE& handle, float dur
     const auto current = [&]
     { return guard.Current() && Resolve(handle) == state && state->monsterLifeSerial == life &&
         handle.Get<CBaseEntity>() == player && player->pev->deadflag == DEAD_NO && player->pev->health > 0; };
-    const auto level = state->profile.equipment.addonLevels.find(13);
-    if (level != state->profile.equipment.addonLevels.end() && level->second > 0)
-    {
-        if (!g_engfuncs.pfnRandomLong)
-        { error.message = "scenario trap resistance random service is unavailable"; return false; }
-        const int sample = RANDOM_LONG(0, 99);
-        if (!current()) return false;
-        const auto tables = m_session->Equipment();
-        if (!tables || tables->addons.size() <= 13 || !g_engfuncs.pfnRandomLong)
-        { error.message = "scenario trap resistance requires addon13 and the engine random service"; return false; }
-        const auto& addon = tables->addons[13];
-        const auto currentLevel = state->profile.equipment.addonLevels.find(13);
-        const int amount = currentLevel == state->profile.equipment.addonLevels.end() ? 0 : currentLevel->second;
-        float percent = amount > 0 ? addon.Parameter("Percent") : 0;
-        if (amount > 1)
-            percent = AddonProductAdd(addon.Parameter("PercentAdd"),
-                static_cast<float>(amount - 1), percent);
-        if (percent > static_cast<float>(sample)) return true;
-    }
+    bool immune{};
+    const CSOLMonsterSkillGuard resistanceGuard{
+        [](const void* value) { return (*static_cast<const decltype(current)*>(value))(); }, &current};
+    if (!CheckMonsterAddon13(handle, resistanceGuard, immune, error) || !current()) return false;
+    if (immune) return true;
     // Native Touch clears collision and starts the trap animation before the
     // hold is installed. Reserve this life through those engine callbacks.
     if (!current() || !prepare() || !current()) return false;
