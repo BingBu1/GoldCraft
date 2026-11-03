@@ -66,6 +66,7 @@ public:
 private:
     EHANDLE m_owner;
     std::shared_ptr<FlameVolley> m_volley;
+    Vector m_launchVelocity;
     float m_expire{}, m_lastFrame{}, m_damage{};
     int m_frames{1};
 };
@@ -105,7 +106,8 @@ void CBalrog11Flame::Shoot(CBasePlayer& owner, const Vector& origin, const Vecto
     flame->m_damage = damage;
     flame->pev->owner = owner.edict();
     UTIL_SetOrigin(flame->pev, origin);
-    flame->pev->velocity = direction * csol::balrog11::FlameSpeed;
+    flame->m_launchVelocity = direction * csol::balrog11::FlameSpeed;
+    flame->pev->velocity = flame->m_launchVelocity;
     flame->pev->angles = UTIL_VecToAngles(direction);
     flame->pev->angles.z = RANDOM_LONG(0, 180);
     flame->pev->avelocity.z = RANDOM_LONG(5, 50) * (RANDOM_LONG(0, 1) ? -1 : 1);
@@ -132,6 +134,10 @@ void CBalrog11Flame::AnimationThink()
         UTIL_Remove(this);
         return;
     }
+    // MP 106243F9 restores the launch velocity every think. GoldSrc clips
+    // FLYMISSILE velocity on monster impact even for this trigger projectile.
+    // Restore the original direction after clipping; BSP contacts still remove it.
+    pev->velocity = m_launchVelocity;
     pev->frame += (gpGlobals->time - m_lastFrame) * pev->framerate;
     const float lastFrame = static_cast<float>(std::max(1, m_frames - 1));
     if (pev->frame > lastFrame) pev->frame = std::fmod(pev->frame, lastFrame);
@@ -263,7 +269,9 @@ void CBalrog11::Event(bool secondary, float volume)
 {
     float zero[3]{};
     PLAYBACK_EVENT_FULL(FEV_NOTHOST, m_pPlayer->edict(), m_fireEvent, 0, zero, zero,
-        volume, csol::balrog11::Spread, 7, int(m_pPlayer->pev->punchangle.x * 100),
+        // MP initializes weapon+0x1A4 to zero; it is not player punch pitch.
+        // The client event applies iparam2 to yaw, not pitch.
+        volume, csol::balrog11::Spread, 7, 0,
         secondary, FALSE);
 }
 void CBalrog11::Fired(float interval)

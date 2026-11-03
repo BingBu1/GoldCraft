@@ -296,7 +296,9 @@ bool PredictBalrog11(local_state_t* from, local_state_t* to, usercmd_t* command,
             std::copy_n(command->viewangles, 3, args.angles);
             std::copy_n(to->client.velocity, 3, args.velocity);
             args.iparam1 = 7;
-            args.iparam2 = int(source.punchangle[0] * 100);
+            // Original weapon+0x1A4 defaults to zero. Player punch pitch
+            // must not become the event's yaw offset.
+            args.iparam2 = 0;
             args.bparam1 = secondary;
             args.bparam2 = 0;
             args.fparam1 = volume;
