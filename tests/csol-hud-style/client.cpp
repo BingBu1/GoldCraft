@@ -446,7 +446,9 @@ void ExerciseWeaponSamples()
     definition=savedDefinition;state=savedState;PrepareSelection();
 }
 }
+#ifndef CSOL_INTERFACE_TEST
 CreateInterfaceFn Sys_GetFactory(HINTERFACEMODULE){return nullptr;}
+#endif
 namespace csol::client {
 metahook_api_t* api{};cl_enginefunc_t engine{};ref_params_t view{};
 void SynchronizeSession(){++fixture::syncs;if(fixture::newSession){fixture::newSession=false;ResetHudStyle();}}

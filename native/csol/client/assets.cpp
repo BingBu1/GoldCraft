@@ -82,7 +82,8 @@ Environment LoadEnvironment(std::string_view name)
 
 void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
 {
-    const auto materialFile=ModelMaterialSource(asset.name);
+    const auto materialFile=ResolveModelMaterialSource(asset.name,
+        [](const std::string& path){return Exists(path.c_str());});
     const bool preparedMaterials=Exists(materialFile.c_str());
     rapidjson::Document localMaterials;
     if(preparedMaterials){

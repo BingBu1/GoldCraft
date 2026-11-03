@@ -66,7 +66,7 @@ def verify(args):
     rejects('Reject malformed common table', [dict(path='materials/common.json', content='{"Materials":{}}')], {})
     malformed = [dict(path='models/test.mdl', content='model'),
                  dict(path='materials/common.json', content='{"Materials":[]}'),
-                 dict(path='models/test.mat.json', content='conflicting existing mapping')]
+                 dict(path='models/test_mat.json', content='conflicting existing mapping')]
     rejects('Reject existing sidecar collision', malformed, {})
 
     all_inputs = {}
@@ -104,7 +104,7 @@ def verify(args):
         check(basename + ': source SEQ remains byte-identical',
               bool(sequence_names) and all(payloads.get(n) == inputs[n] for n in sequence_names))
         check(basename + ': global material table is not published', 'materials/common.json' not in payloads)
-        local_name = model[:-4] + '.mat.json'
+        local_name = model[:-4] + '_mat.json'
         prepared = json.loads(payloads[local_name])['Materials']
         originals = json.loads(inputs['materials/common.json'])['Materials']
         matching = [row for row in originals if isinstance(row, dict) and
@@ -145,7 +145,7 @@ def verify(args):
 
     combined, conversions = stage.prepare_materials(all_entries, all_inputs.__getitem__)
     check('Combined six-model plan has six isolated sidecars',
-          sum(n.endswith('.mat.json') for n in combined) == 6)
+          sum(n.endswith('_mat.json') for n in combined) == 6)
     check('Combined six-model plan has six pixel conversions', len(conversions) == 6)
     check('Combined six-model names remain within network budget', all(len(n.encode('ascii')) <= 63 for n in combined))
     evidence['summary'] = dict(checks=len(evidence['checks']),

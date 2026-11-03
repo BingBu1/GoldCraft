@@ -486,11 +486,11 @@ void InitializeScenarioRespawnUi()
     {
         const auto factory = api->GetEngineFactory();
         surface = factory ? static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION, nullptr)) : nullptr;
-        schemes = factory ? static_cast<vgui::ISchemeManager*>(factory(VGUI_SCHEME_INTERFACE_VERSION, nullptr)) : nullptr;
         // VGUI2Extension's BaseUI uses the loaded vgui2 factory for these
         // public interfaces. Do not cast the unrelated native ClientVGUI ABI.
         const auto vguiModule = reinterpret_cast<HINTERFACEMODULE>(GetModuleHandleA("vgui2.dll"));
         const auto vguiFactory = vguiModule ? Sys_GetFactory(vguiModule) : nullptr;
+        schemes = vguiFactory ? static_cast<vgui::ISchemeManager*>(vguiFactory(VGUI_SCHEME_INTERFACE_VERSION, nullptr)) : nullptr;
         panels = vguiFactory ? static_cast<vgui::IPanel*>(vguiFactory(VGUI_PANEL_INTERFACE_VERSION, nullptr)) : nullptr;
         panelGui = vguiFactory ? static_cast<vgui::IVGui*>(vguiFactory(VGUI_IVGUI_INTERFACE_VERSION, nullptr)) : nullptr;
         const auto module = api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");

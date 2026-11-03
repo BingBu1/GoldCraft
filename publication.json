@@ -175,6 +175,7 @@
     "docs/2026-11-03_交付-服务器换图加速差异包-report.md",
     "docs/2026-11-03_优化-换图模型依赖缓存-report.md",
     "docs/2026-11-03_优化-文件系统资源版本缓存-report.md",
+    "docs/2026-11-03_修复-HUD方案接口与龙炎回归-report.md",
     "docs/2026-11-03_修复-大字体与HUD样式HTTP下载-report.md",
     "docs/2026-11-03_修复-模型资源大小写门-report.md",
     "docs/2026-11-03_修复-表情语音HTTP路由-report.md",

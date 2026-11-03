@@ -121,7 +121,7 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         if(textures<0 || textures>4096 || sequences<1 || sequences>2048)throw std::runtime_error("invalid dependency table count");
         ModelJSON config;const auto json=name.substr(0,name.size()-4)+".json";
         if(exists(json)){add(json);config=ParseModelJSON(Text(read,json),textures,sequences);}
-        const auto materialFile=ModelMaterialSource(name);
+        const auto materialFile=ResolveModelMaterialSource(name,exists);
         rapidjson::Document localMaterials;
         const bool preparedMaterials=exists(materialFile);
         if(preparedMaterials)

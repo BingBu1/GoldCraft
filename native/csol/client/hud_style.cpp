@@ -454,7 +454,11 @@ void InitializeHudStyle()
     {
         const auto factory=api->GetEngineFactory();
         surface=factory?static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION,nullptr)):nullptr;
-        schemes=factory?static_cast<vgui::ISchemeManager*>(factory(VGUI_SCHEME_INTERFACE_VERSION,nullptr)):nullptr;
+        // Like VGUI2Extension's BaseUI, obtain schemes from vgui2.dll.
+        // The engine factory supplies the surface, but not the scheme manager.
+        const auto vguiModule=reinterpret_cast<HINTERFACEMODULE>(GetModuleHandleA("vgui2.dll"));
+        const auto vguiFactory=vguiModule?Sys_GetFactory(vguiModule):nullptr;
+        schemes=vguiFactory?static_cast<vgui::ISchemeManager*>(vguiFactory(VGUI_SCHEME_INTERFACE_VERSION,nullptr)):nullptr;
         const auto module=api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");
         const auto pluginFactory=module?Sys_GetFactory(module):nullptr;
         extension=pluginFactory?static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
@@ -532,5 +536,9 @@ void HudStyleDiagnostics(std::ostream& out)
        <<" money="<<moneyVisible<<" moneyReady="<<moneyLoaded<<" balance="<<money.amount
        <<" health="<<vitals.health<<" armor="<<vitals.armor<<" id="<<weapon.id
        <<" scale="<<layout.scale<<" additive="<<additiveSurface<<" draws="<<draws<<" rejected="<<rejected<<'\n';
+    out<<"hudStyle interfaces surface="<<(surface!=nullptr)<<" schemes="<<(schemes!=nullptr)
+       <<" extension="<<(extension!=nullptr)<<" font="<<titleFont<<" portrait="<<portrait.id
+       <<" weaponImage="<<weaponImage.id<<" ammoImage="<<ammoImage.id<<" secondaryImage="<<secondaryImage.id
+       <<" clip="<<weapon.clip<<" reserve="<<weapon.reserve<<" secondary="<<weapon.secondary<<'\n';
 }
 }

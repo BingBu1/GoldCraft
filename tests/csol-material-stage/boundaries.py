@@ -44,8 +44,9 @@ def mixed_local_and_global():
              'materials/common.json': encode({'Materials': [stale_a, b]}),
              'materials/short/a.tga': b'a-image', 'materials/short/b.tga': b'b-image'}
     result, _ = plan(files)
-    assert json.loads(result['models/a.mat.json'])['Materials'] == [a], 'Local table lost priority'
-    assert json.loads(result['models/b.mat.json'])['Materials'] == [b], 'Global table lost model B'
+    assert json.loads(result['models/a_mat.json'])['Materials'] == [a], 'Local table lost priority'
+    assert json.loads(result['models/b_mat.json'])['Materials'] == [b], 'Global table lost model B'
+    assert 'models/a.mat.json' not in result, 'Legacy spelling was republished'
 
 
 def five_fields():
@@ -60,7 +61,7 @@ def five_fields():
         files[name] = dds
     files['materials/common.json'] = encode({'Materials': [row]})
     result, conversions = plan(files)
-    actual = json.loads(result['models/test.mat.json'])['Materials'][0]
+    actual = json.loads(result['models/test_mat.json'])['Materials'][0]
     assert len(conversions) == 5
     assert {k: v for k, v in row.items() if k not in fields} == {k: v for k, v in actual.items() if k not in fields}
     for field in fields:
@@ -114,6 +115,35 @@ def reject_shared_long_name():
     raise AssertionError('Unsupported non-material long-path reference was silently renamed')
 
 
+def canonical_over_legacy():
+    current = {'OriginalTexture': 'models/a.mdl/skin.bmp', 'BaseTexture': 'materials/a.tga',
+               'BlendMode': 'Additive', 'BaseColor': [.2, .3, .4, .5]}
+    files = {'models/a.mdl': b'model', 'models/a1.seq': b'sequence',
+             'models/a_mat.json': encode({'Materials': [current]}),
+             'models/a.mat.json': b'invalid stale legacy table',
+             'materials/common.json': encode({'Materials': []}), 'materials/a.tga': b'pixels'}
+    result, conversions = plan(files)
+    assert json.loads(result['models/a_mat.json'])['Materials'] == [current]
+    assert 'models/a.mat.json' not in result and not conversions
+    assert result['materials/a.tga'] == b'pixels' and result['models/a1.seq'] == b'sequence'
+    repeated, _ = plan(result)
+    assert repeated == result, 'Canonical staging must be idempotent'
+    files['models/a_mat.json'] = encode({'Materials': []})
+    result, _ = plan(files)
+    assert json.loads(result['models/a_mat.json'])['Materials'] == [], 'Empty canonical table must win'
+
+
+def legacy_table_migration():
+    row = {'OriginalTexture': 'models/a.mdl/skin.bmp', 'BaseTexture': 'materials/a.tga',
+           'BlendMode': 'Translucent', 'Unknown': {'preserve': [1, 2]}}
+    files = {'models/a.mdl': b'model', 'models/a.mat.json': encode({'Materials': [row]}),
+             'materials/a.tga': b'pixels'}
+    result, conversions = plan(files)
+    assert result['models/a_mat.json'] == files['models/a.mat.json']
+    assert 'models/a.mat.json' not in result and not conversions
+    assert result['models/a.mdl'] == b'model' and result['materials/a.tga'] == b'pixels'
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
@@ -125,7 +155,7 @@ if __name__ == '__main__':
                   sourceSha256=hashlib.sha256(source_before).hexdigest(),
                   testsSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), cases=[])
     for case in (mixed_local_and_global, five_fields, alias_collision,
-                 preserve_shared_short_name, reject_shared_long_name):
+                 preserve_shared_short_name, reject_shared_long_name, canonical_over_legacy, legacy_table_migration):
         try:
             case()
             result['cases'].append(dict(name=case.__name__, passed=True))

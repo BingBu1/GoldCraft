@@ -174,7 +174,7 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     auto& batch=resourceBatch?*resourceBatch:standalone;
     const auto exists=[&](const std::string& file){return batch.Exists(file);};
     const std::string model=name,json=model.substr(0,model.size()-4)+".json";
-    bool special=model=="models/v_tknifeex2.mdl" || exists(json) || exists(csol::ModelMaterialSource(model)) || exists(csol::ModelSourceDescriptor(model)) || !csol::PartsProfile(model).Actions.empty()
+    bool special=model=="models/v_tknifeex2.mdl" || exists(json) || exists(csol::ResolveModelMaterialSource(model,exists)) || exists(csol::ModelSourceDescriptor(model)) || !csol::PartsProfile(model).Actions.empty()
         || !csol::SequenceFiles(model,exists).empty();
     if(header->textureindex>0 && header->numtextures>0 && header->textureindex<=header->length &&
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))

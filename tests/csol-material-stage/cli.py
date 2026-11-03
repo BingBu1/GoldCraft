@@ -95,7 +95,7 @@ def main(args):
         check('Strict collector includes all requested models', set(models).issubset(strict_paths))
         check('Strict collector needs no absent resource', strict_paths.issubset(paths))
         check('Strict collector uses per-model material tables', all(
-            n in strict_paths for n in paths if n.endswith('.mat.json')))
+            n in strict_paths for n in paths if n.endswith('_mat.json')))
         check('No original overlong material references remain', all(len(n.encode('ascii')) <= 63 for n in strict_paths))
         check('Oberon sound excludes three event parameter bytes', 'sound/zombi/oberon/appear.wav' in strict_paths
               and 'sound/200zombi/oberon/appear.wav' not in strict_paths)

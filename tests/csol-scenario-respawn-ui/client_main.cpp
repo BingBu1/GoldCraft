@@ -51,12 +51,14 @@ std::vector<std::byte> Budget(std::int32_t remaining,std::int32_t initial)
     return b;
 }
 }
+#ifndef CSOL_INTERFACE_TEST
 CreateInterfaceFn Sys_GetFactory(HINTERFACEMODULE){return nullptr;}
 namespace csol
 {
 Image DecodeTGA(std::span<const std::byte>)
 {throw std::runtime_error("image decode must not run without surface");}
 }
+#endif
 namespace csol::client
 {
 metahook_api_t* api{};
@@ -78,6 +80,7 @@ std::vector<std::byte> ReadResource(const char* path)
     std::vector<std::byte>b;for(char c;f.get(c);)b.push_back(std::byte(static_cast<unsigned char>(c)));return b;
 }
 }
+#ifndef CSOL_INTERFACE_TEST
 int wmain(int argc,wchar_t**argv)
 {
     try
@@ -232,3 +235,4 @@ int wmain(int argc,wchar_t**argv)
     }
     catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 2;}
 }
+#endif

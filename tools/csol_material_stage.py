@@ -37,7 +37,10 @@ def prepare_materials(entries, read):
     models = [name for name in originals if name.lower().endswith('.mdl')]
     selected, references = {}, set()
     for model in models:
-        local = model[:-4] + '.mat.json'
+        local = model[:-4] + '_mat.json'
+        legacy = model[:-4] + '.mat.json'
+        if local not in originals and legacy in originals:
+            local = legacy
         table = material_table(originals[local]) if local in originals else common
         if table is None:
             continue
@@ -103,7 +106,10 @@ def prepare_materials(entries, read):
             for field in FIELDS:
                 if row.get(field) in aliases:
                     row[field] = aliases[row[field]]
-        name = resource_name(model[:-4] + '.mat.json')
+        # GoldSrc rejects multiple dots even for an otherwise safe JSON path.
+        # Read old local tables above, but publish only the canonical spelling.
+        payloads.pop(model[:-4] + '.mat.json', None)
+        name = resource_name(model[:-4] + '_mat.json')
         data = json.dumps(table, ensure_ascii=False, separators=(',', ':')).encode('utf8')
         payloads[name] = data
     seen = set()
