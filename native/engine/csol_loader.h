@@ -7,4 +7,6 @@
 std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name);
 bool GoldCraftLoadCsolSprite(model_t* model, std::span<const std::byte> bytes);
 void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header);
+void GoldCraftBeginCsolResources();
+void GoldCraftEndCsolResources();
 void GoldCraftCsolSequenceDelta(delta_t* delta);

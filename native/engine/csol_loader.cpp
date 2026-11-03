@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "csol_loader.h"
+#include "csol_dependency_cache.hpp"
 #include "../csol/model_codec.hpp"
 #include "../csol/sprite_codec.hpp"
 #include "../csol/dependencies.hpp"
@@ -7,6 +8,107 @@
 #include "../csol/sequences.hpp"
 #include "../csol/sequence_safety.hpp"
 #include "../csol/material_source.hpp"
+#include <chrono>
+#include <set>
+#ifdef _WIN32
+#include <bcrypt.h>
+#pragma comment(lib,"bcrypt.lib")
+#endif
+
+namespace
+{
+using namespace goldcraft::csol_resources;
+DependencyCache dependencyCache;
+
+// A batch is one synchronous PrecacheModelSpecifiedFiles pass. Its raw data
+// is released at the end; only bounded dependency lists survive a map change.
+struct ResourceBatch
+{
+    struct Input {Stamp stamp;std::shared_ptr<const std::vector<std::byte>> bytes;};
+    std::unordered_map<std::string,Input> inputs;
+    std::set<std::string> advertised;
+    std::size_t retained{},reads{},readBytes{},models{},hits{},rebuilt{};
+    std::chrono::steady_clock::time_point started=std::chrono::steady_clock::now();
+
+    bool Exists(const std::string& name)
+    {
+        const auto found=inputs.find(name);
+        if(found!=inputs.end())return found->second.stamp.exists;
+        const bool exists=FS_FileExists(name.c_str())!=0;
+        if(inputs.size()<65536)inputs.emplace(name,Input{Stamp{exists},{}});
+        return exists;
+    }
+
+    std::vector<std::byte> Read(const std::string& name)
+    {
+        auto found=inputs.find(name);
+        if(found!=inputs.end() && found->second.bytes)return *found->second.bytes;
+        auto file=FS_Open(name.c_str(),"rb");
+        if(!file)throw std::runtime_error("missing resource: "+name);
+        const auto size=FS_Size(file);
+        if(size<1 || size>128*1024*1024){FS_Close(file);throw std::runtime_error("resource size outside budget");}
+        std::vector<std::byte> bytes;
+        try
+        {
+            bytes.resize(size);
+            if(FS_Read(bytes.data(),size,1,file)!=size)throw std::runtime_error("short resource read");
+        }
+        catch(...){FS_Close(file);throw;}
+        FS_Close(file);++reads;readBytes+=bytes.size();
+        Stamp stamp{true,true,false};
+#ifdef _WIN32
+        stamp.reusable=BCryptHash(BCRYPT_SHA256_ALG_HANDLE,nullptr,0,
+            reinterpret_cast<PUCHAR>(bytes.data()),static_cast<ULONG>(bytes.size()),
+            stamp.digest.data(),static_cast<ULONG>(stamp.digest.size()))>=0;
+#endif
+        if(found!=inputs.end() && found->second.stamp.read && found->second.stamp.reusable &&
+            stamp.reusable && found->second.stamp!=stamp)
+            throw std::runtime_error("resource changed during dependency preparation: "+name);
+        if(found!=inputs.end() || inputs.size()<65536)
+        {
+            auto& input=inputs[name];input.stamp=stamp;
+            constexpr std::size_t budget=64u*1024u*1024u;
+            if(bytes.size()<=budget-retained)
+            {
+                input.bytes=std::make_shared<const std::vector<std::byte>>(bytes);
+                retained+=bytes.size();
+            }
+        }
+        return bytes;
+    }
+
+    Stamp Probe(const std::string& name,bool content)
+    {
+        if(!Exists(name))return Stamp{false};
+        if(!content)return Stamp{true};
+        auto found=inputs.find(name);
+        if(found==inputs.end() || !found->second.stamp.read)
+        {
+            Read(name);found=inputs.find(name);
+        }
+        // Hitting a batch budget disables reuse; it never drops dependencies.
+        return found==inputs.end()?Stamp{true,true,false}:found->second.stamp;
+    }
+};
+std::unique_ptr<ResourceBatch> resourceBatch;
+}
+
+void GoldCraftBeginCsolResources()
+{
+    resourceBatch=std::make_unique<ResourceBatch>();
+}
+
+void GoldCraftEndCsolResources()
+{
+    if(!resourceBatch)return;
+    const auto& batch=*resourceBatch;
+    if(batch.models)
+        Con_Printf("CSOL: dependencies models=%u cache_hits=%u rebuilt=%u downloads=%u reads=%u (%.1f MiB) time=%.3fs\n",
+            unsigned(batch.models),unsigned(batch.hits),unsigned(batch.rebuilt),unsigned(batch.advertised.size()),
+            unsigned(batch.reads),double(batch.readBytes)/(1024.0*1024.0),
+            std::chrono::duration<double>(std::chrono::steady_clock::now()-batch.started).count());
+    resourceBatch.reset();
+}
 
 void GoldCraftCsolSequenceDelta(delta_t* delta)
 {
@@ -28,9 +130,12 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
 {
     static_assert(offsetof(studiohdr_t,numtextures)==180 && offsetof(studiohdr_t,numseq)==164);
     static_assert(sizeof(mstudiotexture_t)==80 && sizeof(mstudioseqdesc_t)==176 && sizeof(mstudioevent_t)==76);
+    ResourceBatch standalone;
+    auto& batch=resourceBatch?*resourceBatch:standalone;
+    const auto exists=[&](const std::string& file){return batch.Exists(file);};
     const std::string model=name,json=model.substr(0,model.size()-4)+".json";
-    bool special=model=="models/v_tknifeex2.mdl" || FS_FileExists(json.c_str()) || FS_FileExists(csol::ModelMaterialSource(model).c_str()) || FS_FileExists(csol::ModelSourceDescriptor(model).c_str()) || !csol::PartsProfile(model).Actions.empty()
-        || !csol::SequenceFiles(model,[](const std::string& path){return FS_FileExists(path.c_str())!=0;}).empty();
+    bool special=model=="models/v_tknifeex2.mdl" || exists(json) || exists(csol::ModelMaterialSource(model)) || exists(csol::ModelSourceDescriptor(model)) || !csol::PartsProfile(model).Actions.empty()
+        || !csol::SequenceFiles(model,exists).empty();
     if(header->textureindex>0 && header->numtextures>0 && header->textureindex<=header->length &&
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))
     {
@@ -40,18 +145,29 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     if(!special)return;
     try
     {
-        auto exists=[](const std::string& file){return FS_FileExists(file.c_str())!=0;};
-        auto read=[](const std::string& name)
+        ++batch.models;
+        const auto probe=[&](const std::string& file,bool content){return batch.Probe(file,content);};
+        auto files=dependencyCache.Find(model,probe);
+        if(files)++batch.hits;
+        else
         {
-            auto file=FS_Open(name.c_str(),"rb");if(!file)throw std::runtime_error("missing resource: "+name);
-            const auto size=FS_Size(file);if(size<1 || size>128*1024*1024){FS_Close(file);throw std::runtime_error("resource size outside budget");}
-            std::vector<std::byte> bytes;
-            try{bytes.resize(size);const auto got=FS_Read(bytes.data(),size,1,file);if(got!=size)throw std::runtime_error("short resource read");}
-            catch(...){FS_Close(file);throw;}FS_Close(file);return bytes;
-        };
-        const auto files=csol::WeaponDependencies(model,read,exists);
-        for(const auto& file:files)if(file!=model)PF_precache_generic_I(file.c_str());
-        Con_Printf("CSOL: %s dependencies=%u added to downloads\n",name,unsigned(files.size()-1));
+            ++batch.rebuilt;
+            Inputs inputs;
+            const auto trackedExists=[&](const std::string& file)
+            {
+                const auto stamp=probe(file,false);
+                if(!inputs[file].read)inputs[file]=stamp;
+                return stamp.exists;
+            };
+            const auto read=[&](const std::string& file)
+            {
+                auto bytes=batch.Read(file);inputs[file]=probe(file,true);return bytes;
+            };
+            files=std::make_shared<const Files>(csol::WeaponDependencies(model,read,trackedExists));
+            dependencyCache.Store(model,files,std::move(inputs),probe);
+        }
+        for(const auto& file:*files)
+            if(file!=model && batch.advertised.insert(file).second)PF_precache_generic_I(file.c_str());
     }
     catch(const std::exception& error){Sys_Error("CSOL dependency preparation failed: %s: %s",name,error.what());}
 }
@@ -88,7 +204,7 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
         auto result=csol::AppendSequences(bytes,sequences,policy);
         if(csol::ReadSequenceSafety(result,safety,policy)!=csol::SequenceSafetyStatus::Ready)
             throw std::runtime_error("converted studio model lacks valid sequence safety data");
-        Con_Printf("CSOL: %s appended %u SEQ files\n",name,unsigned(files.size()));
+        Con_DPrintf("CSOL: %s appended %u SEQ files\n",name,unsigned(files.size()));
         return result;
     }
     catch (const std::exception& error)
