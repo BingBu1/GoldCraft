@@ -2198,12 +2198,19 @@ bool CCSOLScenarioPlayerRuntime::ReadEntitySource(CBaseEntity& entity, int& valu
             CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) || CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) ||
             CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull5(*weapon))
         { value = weapon->m_iId; return true; }
+        // Other weapon implementations have no verified kill callbacks.
+        error.message = "scenario source entity has no verified source adapter";
+        return false;
     }
     const auto weapons = m_session->Weapons();
     if (weapons && weapons->Current()) value = weapons->ProjectileSource(entity);
     if (value) return true;
-    error.message = "scenario source entity has no verified source adapter";
-    return false;
+    // Original MP v138 (vtable +0x138): CGrenade 10622D80, inherited by
+    // CAirtank/CMortar, returns 4 for every grenade, not only recorded HE throws.
+    if (dynamic_cast<const CGrenade*>(&entity)) { value = WEAPON_HEGRENADE; return true; }
+    // CBaseEntity's default 10608050 returns 0. Breakables, env_explosion,
+    // trigger_hurt, doors and trains inherit it: a source of 0, not an error.
+    return true;
 }
 
 bool CCSOLScenarioPlayerRuntime::RootMonsterKilled(CSOLMonsterDeathCall& call,

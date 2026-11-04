@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <typeinfo>
+#include <initializer_list>
 #include <memory>
 #include <vector>
 #include <string>
@@ -36,6 +37,19 @@ struct CSOLWeaponMonsterKillCallbacks
 bool CSOL_CannonEmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
 bool CSOL_BeamEmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
 bool CSOL_TKnifeEmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_K3EmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_MeleeEmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_M249EXEmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_Balrog11EmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_Skull1EmptyMonsterKillCallbacks(const CBasePlayerWeapon&) { return false; }
+bool CSOL_IsSkull2(const CBasePlayerWeapon&) { return false; }
+bool CSOL_IsSkull5(const CBasePlayerWeapon&) { return false; }
+// ReGameDLL hierarchy: CGrenade derives from CBaseMonster; airtank/mortar from CGrenade.
+struct CGrenade : CBaseEntity {};
+struct CAirtank : CGrenade {};
+struct CMortar : CGrenade {};
+struct CBreakable : CBaseEntity {};
+struct CTriggerHurt : CBaseEntity {};
 namespace csol::scenario { struct ConfigError { std::string message; }; }
 struct WeaponCatalog { bool Current()const{return true;} int ProjectileSource(CBaseEntity&)const{return 0;} } catalog;
 struct Session { WeaponCatalog* Weapons()const{return &catalog;} } session;
@@ -85,6 +99,15 @@ int main()
     error={}; Check(!Notify(&unknown,false) && error.message=="scenario source weapon kill callback is unsupported");
     CCSOLScenarioPlayerRuntime runtime; int source{}; error={};
     Check(!runtime.ReadEntitySource(unknown,source,error) && error.message=="scenario source entity has no verified source adapter");
+    // Original MP v138: every CGrenade (and airtank/mortar) returns 4; the
+    // CBaseEntity default returns 0 for map entities such as breakables.
+    for (CGrenade* grenade : std::initializer_list<CGrenade*>{new CGrenade, new CAirtank, new CMortar})
+    { source=-1; error={}; Check(runtime.ReadEntitySource(*grenade,source,error) && source==WEAPON_HEGRENADE && error.message.empty()); delete grenade; }
+    CBreakable breakable; CTriggerHurt hurt; CBaseEntity plain;
+    for (CBaseEntity* entity : std::initializer_list<CBaseEntity*>{&breakable, &hurt, &plain})
+    { source=-1; error={}; Check(runtime.ReadEntitySource(*entity,source,error) && source==0 && error.message.empty()); }
+    source=-1; error={}; Check(runtime.ReadEntitySource(owner,source,error) && source==0);
+    source=-1; error={}; Check(runtime.ReadEntitySource(monster,source,error) && source==0);
     CUSP mismatched; mismatched.m_pPlayer=nullptr; error={};
     Check(!Notify(&mismatched,true) && error.message=="scenario kill notification weapon owner is invalid");
     Check(Notify(nullptr,true)); unknown.pev->flags=FL_KILLME; Check(Notify(&unknown,true));
