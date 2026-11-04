@@ -347,7 +347,7 @@ constinit const WeaponModule Module{
     .videoInit=ResetBalrog11,.receive=ReceiveBalrog11State,
     .predict=PredictBalrog11,.diagnostics=Balrog11Diagnostics,
     .ammoKind=hud_style::AmmoKind::Magazine,
-    .ammoSprite="sprites/csol/640hud3.spr",.ammoRect={222,246,112,136},
+    .ammoSprite="sprites/csol/640hud3_v2.spr",.ammoRect={222,246,112,136},
     .crosshair={9,4,0,0},.crosshairShot=Balrog11CrosshairShot,
     .predictedClip=Balrog11PredictedAmmo,
     .predictedReserve=Balrog11PredictedReserve,

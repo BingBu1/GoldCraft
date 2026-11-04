@@ -2,11 +2,16 @@
 #include "client/projectiles.hpp"
 #include "client/death_notices.hpp"
 #include "projectile_effects.hpp"
+#include "weapon_resources.hpp"
 #include <r_efx.h>
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace csol::client
 {
@@ -14,10 +19,11 @@ cl_enginefunc_t engine{};
 cl_exportfuncs_t downstream{};
 void* spriteListHook{};
 void* spriteListOriginal{};
-void Hook(void*, void* replacement, void** original)
+hook_t* Hook(void*, void* replacement, void** original)
 {
     spriteListHook = replacement;
     *original = spriteListOriginal;
+    return nullptr;
 }
 }
 namespace
@@ -32,10 +38,10 @@ BEAM beam{};
 efx_api_t effects{};
 cl_entity_t entity{};
 std::array<client_sprite_t, 2> originalSprites{};
-void Check(bool value)
+void Check(bool value, const char* reason = "")
 {
     ++checks;
-    if (!value) { std::fprintf(stderr, "FAIL check=%d\n", checks); std::exit(1); }
+    if (!value) { std::fprintf(stderr, "FAIL check=%d %s\n", checks, reason); std::exit(1); }
 }
 void Reset()
 {
@@ -54,8 +60,43 @@ void Add(float x)
     entity.origin[0]=x;
     ProjectileAddEntity(0,&entity,knife.name);
 }
+struct IconContract
+{
+    const char* name;
+    std::span<const char* const> resources;
+    const char* originalTable{"sprites/hud.txt"};
+    const char* originalRole{};
+};
+const IconContract contracts[]{
+    {"d_tknifeex2",csol::TKnifeEx2Resources}, {"d_beamgun",csol::BeamgunResources,"sprites/weapon_beamgun.txt","kill"},
+    {"d_beamgunle",csol::BeamgunLEResources,"sprites/weapon_beamgunle.txt","kill"}, {"d_cannon",csol::CannonResources},
+    {"d_k3",csol::K3Resources}, {"d_skull1",csol::Skull1Resources}, {"d_skull2",csol::Skull2Resources},
+    {"d_skull5",csol::Skull5Resources}, {"d_m249ex",csol::M249EXResources}, {"d_balrog11",csol::Balrog11Resources},
+    {"d_dragonsword",csol::DragonSwordHudResources}, {"d_skullaxe",csol::SkullAxeHudResources}};
+
+void CheckOriginalIcon(const std::filesystem::path& common, const IconContract& contract, const client_sprite_t& icon)
+{
+    std::ifstream table(common / contract.originalTable);
+    Check(table.good(), contract.originalTable);
+    const std::string resource="sprites/"+std::string(icon.szSprite)+".spr";
+    const auto originalSource=csol::WeaponResourceSource(resource);
+    std::string line;
+    int matches{};
+    while(std::getline(table,line))
+    {
+        std::istringstream row(line);
+        std::string role,atlas;int resolution{},x{},y{},w{},h{};
+        if(!(row>>role>>resolution>>atlas>>x>>y>>w>>h) || resolution!=640 ||
+            role!=(contract.originalRole ? contract.originalRole : contract.name))continue;
+        ++matches;
+        Check(originalSource=="sprites/"+atlas+".spr",contract.name);
+        Check(icon.rc.left==x && icon.rc.right==x+w && icon.rc.top==y && icon.rc.bottom==y+h,contract.name);
+    }
+    Check(matches==1,contract.name);
+    Check(std::filesystem::is_regular_file(common/originalSource),contract.name);
 }
-int main()
+}
+int wmain(int argc,wchar_t** argv)
 {
     using namespace csol::client;
     std::strcpy(knife.name,"models/tknifeb.mdl"); knife.type=mod_studio; sprite.type=mod_sprite;
@@ -95,17 +136,25 @@ int main()
     auto list=reinterpret_cast<decltype(engine.pfnSPR_GetList)>(spriteListHook);
     char hudPath[]="sprites/hud.txt", weaponPath[]="sprites/weapon_ak47.txt";
     int count=0; Check(list(weaponPath,&count)==originalSprites.data() && count==2);
-    auto* extended=list(hudPath,&count); Check(count==8);
+    const int expectedCount=int(originalSprites.size()+std::size(contracts)*2);
+    auto* extended=list(hudPath,&count); Check(count==expectedCount);
     Check(std::memcmp(extended,originalSprites.data(),sizeof(originalSprites))==0);
-    Check(std::strcmp(extended[3].szName,"d_tknifeex2")==0 && extended[3].iRes==640);
-    Check(std::strcmp(extended[3].szSprite,"csol/640hud12")==0);
-    Check(extended[3].rc.left==172 && extended[3].rc.top==32 &&
-        extended[3].rc.right==220 && extended[3].rc.bottom==48);
-    Check(std::strcmp(extended[5].szName,"d_beamgun")==0&&extended[5].rc.top==0);
-    Check(std::strcmp(extended[7].szName,"d_beamgunle")==0&&extended[7].rc.top==16);
-    Check(std::strcmp(extended[7].szSprite,"csol/640hud266")==0);
-    for (int i=0;i<3;++i) Check(list(hudPath,&count)==extended && count==8);
-    ResetProjectiles(); Check(list(hudPath,&count)==extended && count==8);
-    InitializeDeathNotices(); Check(list(hudPath,&count)==extended && count==8);
+    for(const auto& contract:contracts)for(int resolution:{320,640})
+    {
+        const auto matches=[&](const client_sprite_t& icon){return icon.iRes==resolution && !std::strcmp(icon.szName,contract.name);};
+        Check(std::count_if(extended,extended+count,matches)==1,contract.name);
+        const auto& icon=*std::find_if(extended,extended+count,matches);
+        const std::string resource="sprites/"+std::string(icon.szSprite)+".spr";
+        Check(std::any_of(contract.resources.begin(),contract.resources.end(),[&](auto path){return resource==path;}),contract.name);
+        Check(icon.rc.right>icon.rc.left && icon.rc.bottom>icon.rc.top,contract.name);
+        if(argc>1)CheckOriginalIcon(argv[1],contract,icon);
+    }
+    const auto stable=[&]{
+        Check(list(hudPath,&count)==extended && count==expectedCount);
+        Check(std::memcmp(extended,originalSprites.data(),sizeof(originalSprites))==0);
+    };
+    for(int i=0;i<3;++i)stable();
+    ResetProjectiles();stable();
+    InitializeDeathNotices();stable();
     std::printf("PASS projectile checks=%d\n",checks);
 }

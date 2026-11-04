@@ -13,11 +13,12 @@ import json
 import re
 import stat
 import struct
+from csol_resource_order import MOUNT_ORDER
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = 'resource/csol/hud/v1/'
-CATALOG = 'models/csol/hud_v5.json'
+CATALOG = 'models/csol/hud_v6.json'
 FONT = 'resource/Font/sarasa_ui_sc.ttf'
 SCHEME = RESOURCE + 'CSOLHudScheme.res'
 ENGINE_FONT_SHA = 'b76ff01219fee0900aa216b681b9e96dd5fed0fe6190c4261a09d5b2131e9323'
@@ -55,6 +56,26 @@ def relative(name):
     if not name or path.is_absolute() or '..' in path.parts or '\\' in name or ':' in name:
         raise ValueError(f'Invalid relative resource path: {name}')
     return path
+
+
+def common_resource(source, name):
+    """Use extracted locale overrides before the merged common fallback."""
+    name = relative(name)
+    roots = (source.parent / mount for mount in MOUNT_ORDER) if source.name.casefold() == 'common' else (source,)
+    for root in roots:
+        path = root / name
+        no_reparse(path)
+        if path.is_file():
+            return path
+    raise FileNotFoundError(source / name)
+
+
+def validate_weapon_pixels(pixels, label):
+    # Valve's fallback atlas contains uniform gray rectangles where the CSO
+    # weapon table expects an ammo icon. Fail before exporting that mismatch.
+    first = pixels[:4]
+    if not first or all(pixels[at:at+4] == first for at in range(0, len(pixels), 4)):
+        raise ValueError(f'Uniform placeholder in weapon HUD: {label}; check extracted mount priority')
 
 
 def text_bytes(data):
@@ -233,7 +254,7 @@ def catalog_weapons(data):
     match = re.search(r'constexpr Item items\[\]\s*\{(.*?)\n\};', data.decode('utf-8-sig'), re.S)
     if not match:
         raise ValueError('Missing buy::Catalog items declaration')
-    rows = re.findall(r'\{\s*(\d+),\s*(\d+),\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)",\s*(\d+)\s*\}', match[1])
+    rows = re.findall(r'\{\s*(\d+),\s*(\d+),\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)",\s*(\d+)\s*(?:,\s*WeaponSlot::Melee\s*)?\}', match[1])
     if len(rows) != match[1].count('{'):
         raise ValueError('Unsupported buy::Catalog row syntax')
     names = []
@@ -297,7 +318,7 @@ def prepare(source, output, stock_source=None):
         return data
 
     def common(name):
-        return read(source / relative(name))
+        return read(common_resource(source, name))
 
     def add(name, data):
         relative(name)
@@ -308,7 +329,7 @@ def prepare(source, output, stock_source=None):
 
     def crop(row, label, atlas_root=source):
         name = row['atlas']
-        path = atlas_root / relative(name)
+        path = common_resource(source, name) if atlas_root == source else atlas_root / relative(name)
         if path not in sprites:
             sprites[path] = decode_sprite(read(path))
         sw, sh, rgba, metadata = sprites[path]
@@ -316,7 +337,7 @@ def prepare(source, output, stock_source=None):
         if min(x, y) < 0 or min(width, height) <= 0 or x + width > sw or y + height > sh:
             raise ValueError(f'Sprite crop outside atlas: {label}')
         pixels = b''.join(rgba[((y + j) * sw + x) * 4:((y + j) * sw + x + width) * 4] for j in range(height))
-        conversions.append(dict(label=label, source=name, sourceRoot=str(atlas_root), cropXYWH=[x,y,width,height], **metadata,
+        conversions.append(dict(label=label, source=name, sourceRoot=str(atlas_root), resolvedSource=str(path), cropXYWH=[x,y,width,height], **metadata,
             alphaMin=min(pixels[3::4]), alphaMax=max(pixels[3::4]), transparentPixels=pixels[3::4].count(0)))
         return pixels
 
@@ -341,9 +362,10 @@ def prepare(source, output, stock_source=None):
             missing_weapons.append(dict(name='weapon_'+name,
                 reason='No isolated stock table/atlas source supplied; mismatched common stock art is not exported'))
             continue
-        rows = (knife_sprite_rows(read(atlas_root/f'sprites/knife_{name}.txt'), name)
+        rows = (knife_sprite_rows(common(f'sprites/knife_{name}.txt'), name)
             if name in VERIFIED_COMMON_KNIVES else
-            sprite_rows(read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','ammo','ammo2'}))
+            sprite_rows(common(f'sprites/weapon_{name}.txt') if atlas_root == source else
+                read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','ammo','ammo2'}))
         item = dict(name='weapon_' + name, title=title)
         for kind, dimensions in (('weapon', (170,45)), ('ammo', (24,24)), ('ammo2', (24,24))):
             row = rows.get((kind, 640))
@@ -355,8 +377,10 @@ def prepare(source, output, stock_source=None):
             if (row['width'], row['height']) != dimensions:
                 raise ValueError(f'Original sprite dimensions changed: {name}/{kind}')
             pixels = crop(row, name + '/' + kind, atlas_root)
+            validate_weapon_pixels(pixels, name + '/' + kind)
             # Only this CSO atlas changed source; keep unrelated and stock paths stable.
-            revision = '_v2' if atlas_root == source and row['atlas'] == 'sprites/640hud7.spr' else ''
+            revision = '_v2' if atlas_root == source and row['atlas'] in (
+                'sprites/640hud3.spr', 'sprites/640hud7.spr', 'sprites/640hud266.spr') else ''
             item[kind] = add(RESOURCE + name + '_' + kind + revision + '.tga', tga(*dimensions, pixels))
         weapons.append(item)
 

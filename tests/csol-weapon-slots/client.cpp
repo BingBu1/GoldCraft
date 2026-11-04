@@ -254,6 +254,8 @@ void CannonChecks()
     now+=.3f;drawSmoke();Check(smokeFrames==std::vector<int>{1});
     now+=.45f;drawSmoke();Check(tracerVertices.empty());
     for(auto& temp:temps){Check(temp.entity.curstate.rendermode==kRenderTransAdd && temp.entity.curstate.renderamt==150);
+        Check(temp.entity.angles[0]==-512 && temp.entity.angles[1]==-256 && temp.entity.angles[2]==-256);
+        for(float angularSpeed:temp.entity.baseline.angles)Check(angularSpeed==0);
         Check(temp.entity.origin[0]==40 && temp.entity.origin[2]==-9 && temp.clientIndex==2);
         Check((temp.flags&(FTENT_COLLIDEALL|FTENT_ROTATE|FTENT_CLIENTCUSTOM))==(FTENT_COLLIDEALL|FTENT_ROTATE|FTENT_CLIENTCUSTOM));
         const float scale=temp.entity.curstate.scale,velocity=temp.entity.baseline.origin[0];

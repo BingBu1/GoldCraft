@@ -255,7 +255,7 @@ void LoadSprites()
         if (std::all_of(std::begin(lowResolution), std::end(lowResolution), [](const Sprite& digit){return digit.handle != 0;}))
             std::copy(std::begin(lowResolution), std::end(lowResolution), std::begin(digits));
     }
-    ammo = {engine.pfnSPR_Load("sprites/csol/640hud266.spr"), {1,25,231,255}};
+    ammo = {engine.pfnSPR_Load("sprites/csol/640hud266_v2.spr"), {1,25,231,255}};
     energy = {engine.pfnSPR_Load("sprites/csol/640hud224.spr"), {49,73,231,255}};
 }
 void Number(int value, int x, int y, bool blue = false)

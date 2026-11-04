@@ -131,6 +131,9 @@ void HitFlame(TEMPENTITY* temp, pmtrace_s*)
 }
 bool FireEffect(int owner, bool ducking, float* origin, float* angles, const float* velocity)
 {
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#endif
     auto* ev=engine.pEventAPI;
     auto* fx=engine.pEfxAPI;
     if(!ev || !fx || !ev->EV_FindModelIndex || !ev->EV_PlaySound || !fx->R_DefaultSprite ||
@@ -158,23 +161,29 @@ bool FireEffect(int owner, bool ducking, float* origin, float* angles, const flo
         auto* temp=fx->R_DefaultSprite(muzzle,sprite,20);
         if(!temp)break;
         temp->flags|=FTENT_CLIENTCUSTOM|FTENT_COLLIDEALL|FTENT_ROTATE;
-        temp->entity.baseline.angles[0]=engine.pfnRandomFloat(-512,511);
-        temp->entity.baseline.angles[1]=engine.pfnRandomFloat(-256,255);
-        temp->entity.baseline.angles[2]=engine.pfnRandomFloat(-256,255);
+        // Original 0256779A writes the initial orientation, not angular speed.
+        // R_DefaultSprite leaves baseline.angles zero; FTENT_ROTATE retains it.
+        temp->entity.angles[0]=engine.pfnRandomFloat(-512,511);
+        temp->entity.angles[1]=engine.pfnRandomFloat(-256,255);
+        temp->entity.angles[2]=engine.pfnRandomFloat(-256,255);
         temp->entity.curstate.scale=engine.pfnRandomFloat(.3f,.8f);
         temp->entity.prevstate.scale=engine.pfnRandomFloat(1.5f,2);
         temp->callback=GrowFlame;temp->hitcallback=HitFlame;
         temp->entity.curstate.rendermode=kRenderTransAdd;
         temp->entity.curstate.renderamt=150;
-        temp->entity.baseline.renderamt=150;
         temp->entity.curstate.renderfx=kRenderFxFadeSlow;
         temp->entity.curstate.rendercolor={255,255,255};
-        constexpr double radians=3.14159265358979323846/180;
+        constexpr double radians=0.01745287222222222; // Original client 030D1030.
         const float angle=float((engine.pfnRandomLong(0,4)-2)*10*radians);
         const float cosine=float(std::cos(double(angle))),sine=float(std::sin(double(angle)));
-        temp->entity.baseline.origin[0]=(forward[0]*cosine-forward[1]*sine)*engine.pfnRandomLong(130,400)+velocity[0]*.9f;
-        temp->entity.baseline.origin[1]=(forward[0]*sine+forward[1]*cosine)*engine.pfnRandomLong(130,400)+velocity[1]*.9f;
-        temp->entity.baseline.origin[2]=forward[2]*engine.pfnRandomLong(30,200)+velocity[2]*.3f;
+        // Round each launch speed to float before the original double-precision
+        // player-velocity contribution (02567996), without FMA contraction.
+        const float launchX=(forward[0]*cosine-forward[1]*sine)*engine.pfnRandomLong(130,400);
+        const float launchY=(forward[0]*sine+forward[1]*cosine)*engine.pfnRandomLong(130,400);
+        const float launchZ=forward[2]*engine.pfnRandomLong(30,200);
+        temp->entity.baseline.origin[0]=float(double(launchX)+double(velocity[0])*.9);
+        temp->entity.baseline.origin[1]=float(double(launchY)+double(velocity[1])*.9);
+        temp->entity.baseline.origin[2]=float(double(launchZ)+double(velocity[2])*.3);
         temp->clientIndex=short(owner);
         ++flames;
     }

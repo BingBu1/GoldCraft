@@ -28,7 +28,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     scenario/message_table.cpp scenario/message_resource.cpp scenario/config.cpp scenario/spawn_points.cpp
     scenario/dialogue_resources.cpp scenario/wave_events.cpp
     client/playerclip.cpp
-    client/status_icons.cpp client/status_icons_gl.cpp client/wall_status.cpp client/overlay_layers.cpp
+    client/status_icons.cpp client/status_icons_gl.cpp client/wall_status.cpp client/overlay_layers.cpp client/crash_recorder.cpp
     client/damage_numbers.cpp client/damage_styles.cpp client/damage_display.cpp client/damage_options.cpp
     client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/beamgun_scope.cpp beamgun_state.cpp weapon_slots.cpp
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
@@ -197,6 +197,12 @@ if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     target_include_directories(csol_weapon_client_tests PRIVATE ${CSOL_SLOT_INCLUDES} "${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(csol_weapon_client_tests PRIVATE ${CSOL_SLOT_DEFINITIONS})
     target_compile_options(csol_weapon_client_tests PRIVATE /utf-8 /W3)
+    # stdin/stdout probe used by the independent original-DLL flame oracle.
+    add_executable(csol_cannon_effects_probe ../../tests/csol-weapon-slots/cannon_effects.cpp)
+    target_compile_features(csol_cannon_effects_probe PRIVATE cxx_std_20)
+    target_include_directories(csol_cannon_effects_probe PRIVATE ${CSOL_SLOT_INCLUDES})
+    target_compile_definitions(csol_cannon_effects_probe PRIVATE ${CSOL_SLOT_DEFINITIONS})
+    target_compile_options(csol_cannon_effects_probe PRIVATE /utf-8 /W3)
     enable_testing()
     add_test(NAME csol_weapon_client COMMAND csol_weapon_client_tests)
     add_executable(csol_cannon_math_tests ../../tests/csol-weapon-slots/cannon_math.cpp)

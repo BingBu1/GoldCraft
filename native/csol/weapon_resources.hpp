@@ -38,7 +38,7 @@ inline std::string_view WeaponResourceSource(std::string_view path)
     if(path=="sprites/csol/640hud12.spr")return "sprites/640hud12.spr";
     if(path=="sprites/csol/640hud7_v2.spr")return "sprites/640hud7.spr";
     if(path=="sprites/csol/640hud97.spr")return "sprites/640hud97.spr";
-    if(path=="sprites/csol/640hud266.spr")return "sprites/640hud266.spr";
+    if(path=="sprites/csol/640hud266_v2.spr")return "sprites/640hud266.spr";
     if(path=="sprites/csol/640hud224.spr")return "sprites/640hud224.spr";
     return path;
 }
@@ -57,8 +57,8 @@ inline std::string_view GeneratedWeaponResource(std::string_view path)
         return "// SKULL-2 native event handler.\n";
     if(path=="sprites/csol/weapon_skull5_v1.txt")return Skull5HUD;
     if(path=="sprites/weapon_tknifeex2.txt")return TKnifeEx2HUD;
-    if(path=="sprites/weapon_beamgun.txt")return BeamgunHUD;
-    if(path=="sprites/weapon_beamgunle.txt")return BeamgunLEHUD;
+    if(path=="sprites/csol/weapon_beamgun_v2.txt")return BeamgunHUD;
+    if(path=="sprites/csol/weapon_beamgunle_v2.txt")return BeamgunLEHUD;
     if(path=="sprites/weapon_cannon.txt")return CannonHUD;
     return {};
 }

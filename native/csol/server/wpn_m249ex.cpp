@@ -82,7 +82,7 @@ void CM249EX::Precache()
 {
     for (const char* path : {csol::m249ex::ViewModel, csol::m249ex::PlayerModel,
         csol::m249ex::WorldModel, csol::m249ex::ShellModel,
-        "sprites/csol/640hud51.spr", "sprites/csol/640hud3.spr", "sprites/csol/640hud7_v2.spr", "sprites/csol/crosshairs.spr"})
+        "sprites/csol/640hud51.spr", "sprites/csol/640hud3_v2.spr", "sprites/csol/640hud7_v2.spr", "sprites/csol/crosshairs.spr"})
         PRECACHE_MODEL(const_cast<char*>(path));
     for (const char* path : {csol::m249ex::FireSound, "weapons/zoom.wav", "weapons/m249ex_clipout1.wav",
         "weapons/m249ex_clipout2.wav", "weapons/m249ex_clipin1.wav", "weapons/m249ex_clipin2.wav",

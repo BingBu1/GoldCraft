@@ -22,7 +22,7 @@ inline constexpr std::array BeamgunResources{
     "models/ef_beamgun_wingman.mdl", "sprites/ef_beamgun_wingman.spr",
     "sprites/ef_beamgun_shootA_hit.spr", "sprites/ef_beamgun_charge_shootA.spr",
     "sprites/ef_beamgun_chargeshootAhit.spr", "sprites/ef_beamgun_shootB2_exp2.spr",
-    "sprites/weapon_beamgun.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
+    "sprites/csol/weapon_beamgun_v2.txt", "sprites/csol/640hud266_v2.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
     "sprites/huntbow_aim_default1.tga", "sprites/huntbow_aim_default2.tga", "sprites/huntbow_aim_default3.tga",
     "sprites/beamgun_gauge_bg.tga", "sprites/beamgun_gauge.tga", "sprites/beamgun_gauge_fx.webm"
 };
@@ -34,14 +34,14 @@ inline constexpr std::array BeamgunLEResources{
     "models/ef_beamgunle_wingman.mdl", "sprites/ef_beamgunle_wingman.spr",
     "sprites/ef_beamgunle_shootA_hit.spr", "sprites/ef_beamgunle_charge_shootA.spr",
     "sprites/ef_beamgunle_chargeshootAhit.spr", "sprites/ef_beamgunle_shootB2_exp2.spr",
-    "sprites/weapon_beamgunle.txt", "sprites/csol/640hud266.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
+    "sprites/csol/weapon_beamgunle_v2.txt", "sprites/csol/640hud266_v2.spr", "sprites/csol/640hud224.spr", "sprites/csol/640hud7_v2.spr",
     "sprites/huntbow_aim_default1.tga", "sprites/huntbow_aim_default2.tga", "sprites/huntbow_aim_default3.tga",
     "sprites/beamgunle_gauge_bg.tga", "sprites/beamgunle_gauge.tga", "sprites/beamgunle_gauge_fx.webm"
 };
 inline constexpr std::string_view BeamgunHUD =
-    "5\nweapon 640 csol/640hud266 0 0 170 45\nweapon_s 640 csol/640hud266 0 45 170 45\n"
-    "ammo 640 csol/640hud266 1 231 24 24\nammo2 640 csol/640hud224 49 231 24 24\nkill 640 csol/640hud266 172 0 48 16\n";
+    "5\nweapon 640 csol/640hud266_v2 0 0 170 45\nweapon_s 640 csol/640hud266_v2 0 45 170 45\n"
+    "ammo 640 csol/640hud266_v2 1 231 24 24\nammo2 640 csol/640hud224 49 231 24 24\nkill 640 csol/640hud266_v2 172 0 48 16\n";
 inline constexpr std::string_view BeamgunLEHUD =
-    "5\nweapon 640 csol/640hud266 0 90 170 45\nweapon_s 640 csol/640hud266 0 135 170 45\n"
-    "ammo 640 csol/640hud266 1 231 24 24\nammo2 640 csol/640hud224 49 231 24 24\nkill 640 csol/640hud266 172 16 48 16\n";
+    "5\nweapon 640 csol/640hud266_v2 0 90 170 45\nweapon_s 640 csol/640hud266_v2 0 135 170 45\n"
+    "ammo 640 csol/640hud266_v2 1 231 24 24\nammo2 640 csol/640hud224 49 231 24 24\nkill 640 csol/640hud266_v2 172 16 48 16\n";
 }

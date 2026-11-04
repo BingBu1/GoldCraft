@@ -219,13 +219,13 @@ void CBalrog11::Precache()
 {
     for (const char* path : {csol::balrog11::ViewModel, csol::balrog11::PlayerModel,
         csol::balrog11::WorldModel, FlameModel, "models/shotgunshell.mdl", "models/shell_bcs.mdl",
-        "sprites/csol/640hud89.spr", "sprites/csol/640hud3.spr", "sprites/csol/640hud7_v2.spr", "sprites/csol/640hud11.spr",
+        "sprites/csol/640hud89.spr", "sprites/csol/640hud3_v2.spr", "sprites/csol/640hud7_v2.spr", "sprites/csol/640hud11.spr",
         "sprites/muzzleflash17.spr", "sprites/muzzleflash27.spr"})
         PRECACHE_MODEL(const_cast<char*>(path));
     for (const char* path : {"weapons/balrog11-1.wav", "weapons/balrog11-2.wav",
         "weapons/balrog11_insert.wav", "weapons/balrog11_draw.wav", ChargeSound})
         PRECACHE_SOUND(const_cast<char*>(path));
-    PRECACHE_GENERIC("sprites/csol/weapon_balrog11_v2.txt");
+    PRECACHE_GENERIC("sprites/csol/weapon_balrog11_v3.txt");
     m_fireEvent = PRECACHE_EVENT(1, csol::balrog11::Event);
 }
 void CBalrog11::Spawn()
