@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include "user_message_chain.hpp"
 #include "scenario_effects.hpp"
+#include "monster_impact.hpp"
 #include "oberon_hint.hpp"
 #include "frozen_death.hpp"
 #include "frozen_smoke.hpp"
@@ -284,6 +285,7 @@ void TrapDirection(const float* origin)
 int ReceiveMonsterEffect(const char*, int size, void* data)
 {
     SynchronizeSession();
+    if (ConsumeMonsterImpact(size, data)) return 1;
     if (!data || size != 7) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);
     if (bytes[0] != monster_effects::Impact && bytes[0] != monster_effects::TrapDirection &&

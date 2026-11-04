@@ -310,6 +310,30 @@ void Layout()
     Clean(); Effect(2, {150,0,0}); Paint(); Check(draws.size() == 4); // Closed 50-unit near sphere.
     Clean(); Effect(2, {150.125f,0,0}); Paint(); Check(draws.size() == 1 && draws[0].frame == 0);
 }
+void MonsterHits()
+{
+    Clean();
+    const auto oldFind=events.EV_FindModelIndex;
+    int bloodCount=0,sparkCount=0;Vec hit{};float amount{};
+    // Noncapturing API callbacks use an explicit test observation cell.
+    struct Capture { int blood{},spark{};Vec position{};int color{},spray{},drop{},count{},low{},high{};float amount{}; };
+    static Capture capture;capture={};
+    events.EV_FindModelIndex=[](const char* name){if(std::string_view(name)=="sprites/bloodspray.spr")return 21;if(std::string_view(name)=="sprites/blood.spr")return 22;throw std::runtime_error("unexpected hit sprite");};
+    fx.R_BloodSprite=[](float* p,int color,int spray,int drop,float amount){++capture.blood;std::copy_n(p,3,capture.position.begin());capture.color=color;capture.spray=spray;capture.drop=drop;capture.amount=amount;};
+    fx.R_SparkEffect=[](float* p,int count,int low,int high){++capture.spark;std::copy_n(p,3,capture.position.begin());capture.count=count;capture.low=low;capture.high=high;};
+    auto blood=Packet(4,{12.125f,-34.25f,56.5f});blood.insert(blood.begin()+1,4);
+    auto spark=Packet(5,{12.125f,-34.25f,56.5f});spark.insert(spark.begin()+1,16);
+    Check(Send("CsoMonFX",blood)==1);Check(capture.blood==1&&capture.spark==0&&capture.position==Vec{12.125f,-34.25f,56.5f});
+    Check(capture.color==247&&capture.spray==21&&capture.drop==22&&capture.amount==4);
+    Check(calls.empty()); // No old explosion sprite/audio/+20 offset.
+    Check(Send("CsoMonFX",spark)==1);Check(capture.spark==1&&capture.count==16&&capture.low==0&&capture.high==500);
+    for(auto packet:{blood,spark}){
+        for(int n=1;n<8;++n)Check(Send("CsoMonFX",std::vector<unsigned char>(packet.begin(),packet.begin()+n))==1);
+        packet.push_back(0);Check(Send("CsoMonFX",packet)==1);
+    }
+    Check(capture.blood==1&&capture.spark==1&&calls.empty());
+    events.EV_FindModelIndex=oldFind;
+}
 void DirectionsAndLifecycle()
 {
     constexpr Vec sources[]{{200,0,0},{100,100,0},{-100,0,0},{100,-100,0}};
@@ -372,7 +396,7 @@ int main(int argc, char** argv)
         {
             fixture::Impact(csol::monster_effects::Impact, "sprites/deimosexp.spr");
             fixture::Impact(csol::monster_effects::ZombieBomb, "sprites/zombiebomb.spr");
-            fixture::Layout(); fixture::DirectionsAndLifecycle();
+            fixture::MonsterHits(); fixture::Layout(); fixture::DirectionsAndLifecycle();
         }
         std::cout << "monster-fx-client " << fixture::checks << " checks passed\n";
         return 0;

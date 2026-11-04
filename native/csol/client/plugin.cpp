@@ -5,6 +5,7 @@
 #include "hd_spray.hpp"
 #include "weapons.hpp"
 #include "shared_random.hpp"
+#include "monster_impact.hpp"
 #include "hud_style.hpp"
 #include "camera.hpp"
 #include "projectiles.hpp"
@@ -323,6 +324,7 @@ static void Init()
     InitializeScenarioMusic();
     InitializeScenarioKill();
     InitializeScenarioEffects();
+    InitializeMonsterImpact();
     InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
     InitializeBalrog11Flame();

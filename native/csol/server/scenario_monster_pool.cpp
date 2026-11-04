@@ -4,6 +4,9 @@
 #include "scenario_monster_resources.h"
 #include "scenario_monster_effects.h"
 #include "game_rules_gate.h"
+#include "scenario_runtime.h"
+#include "scenario_session.h"
+#include "../monster_impact.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -130,10 +133,30 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
     default: break;
     }
     if (!std::isfinite(damage)) return;
+    // Confirmed hits share one monster-owned effect path. No weapon event
+    // needs a blood callback, and delayed projectiles never read active guns.
+    const auto runtime = CSOL_ScenarioRuntimeForAccess(access.get());
+    const auto session = runtime ? runtime->session : nullptr;
+    const auto generation = runtime ? runtime->Generation() : 0;
+    const auto round = session ? session->Map().RoundGeneration() : 0;
+    const auto messages = session ? session->Messages() : CCSOLScenarioMessages{};
+    const Vector position = trace->vecEndPos;
+    csol::monster_impact::Effect impact;
+    if (damage > 0 && trace->pHit == edict() &&
+        csol::monster_impact::DirectHit(damageType))
+        impact = csol::monster_impact::Classify("monster", STRING(pev->model),
+            pev->solid, trace->iHitgroup, csol::monster_impact::UnknownBullet);
     AddMultiDamage(attacker, this, damage, damageType);
-    // The copied MP's ordinary v17C returns false and its regular blood
-    // helper is empty. Do not inject stock CS blood/TE9 packets: CSO's TE9
-    // has a different wire layout. Special effect/context paths are separate.
+    // AddMultiDamage may flush another victim, whose hooks can change map,
+    // restart the round, destroy this entity or reuse its pool slot.
+    if (impact.kind == csol::monster_impact::Kind::None || !session || !runtime ||
+        !scope.Current() || !access->Allowed() || runtime->Closing() ||
+        runtime->Generation() != generation || runtime->session != session ||
+        &session->Monsters() != pool || pool->EntityAccess() != access ||
+        session->Map().RoundGeneration() != round ||
+        self.Get<CBaseEntity>() != this || m_pool != pool || !pool->Borrowed(*this) ||
+        pool->Lease(*this) != lease || m_behavior != behavior) return;
+    messages.SendMonsterHit(position, impact.kind == csol::monster_impact::Kind::Spark, impact.amount);
 }
 
 BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,

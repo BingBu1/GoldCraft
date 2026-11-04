@@ -52,7 +52,7 @@ bool CCSOLScenarioMessages::Register()
     if (status < 64 || status > 255) return false;
     const int skillSnapshot = REG_USER_MSG("CsoSkState", 15);
     if (skillSnapshot < 64 || skillSnapshot > 255) return false;
-    const int monsterEffect = REG_USER_MSG(csol::monster_effects::Message, 7);
+    const int monsterEffect = REG_USER_MSG(csol::monster_effects::Message, -1);
     if (monsterEffect < 64 || monsterEffect > 255) return false;
     const int playerClip = REG_USER_MSG(csol::playerclip::Message, -1);
     if (playerClip < 64 || playerClip > 255) return false;
@@ -88,6 +88,28 @@ bool CCSOLScenarioMessages::Register()
 bool CCSOLScenarioMessages::SendMonsterDisarmImpact(const float* origin) const
 {
     return WriteMonsterExplosion(origin, csol::monster_effects::Impact, -20.0f);
+}
+
+bool CCSOLScenarioMessages::SendMonsterHit(const float* origin, bool metal, int amount) const
+{
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !origin || amount <= 0 ||
+        amount > (metal ? 60 : 15) || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteCoord)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (!std::isfinite(origin[i]) || origin[i] < -4096.0f || origin[i] > 4095.875f) return false;
+    // Copy before any engine callback; message hooks can retire this session.
+    const int id = m_monsterEffectId;
+    const Vector position(origin);
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, id, position);
+    WRITE_BYTE(metal ? csol::monster_effects::Spark : csol::monster_effects::Blood);
+    WRITE_BYTE(amount);
+    WRITE_COORD(position.x);
+    WRITE_COORD(position.y);
+    WRITE_COORD(position.z);
+    MESSAGE_END();
+    return true;
 }
 
 bool CCSOLScenarioMessages::SendMonsterZombieBomb(const float* origin) const

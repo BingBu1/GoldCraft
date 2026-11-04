@@ -2,6 +2,7 @@
 // Real scenario_messages.cpp and ReGameDLL ABI, controlled engine serialization only.
 #include "precompiled.h"
 #include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/damage_numbers.h"
 #include <array>
 #include <functional>
 #include <iostream>
@@ -13,6 +14,9 @@
 enginefuncs_t g_engfuncs{};
 bool g_bAllowedCSBot{};
 int gmsgShake{111};
+// Unrelated damage-number path is deliberately outside this effect suite.
+bool CSOLWriteDamageNumber(int, edict_t*, CSOLDamageNumber)
+{ throw std::runtime_error("unexpected floating damage message"); }
 namespace
 {
 int checks{}, begins{}, ends{}, destination{}, type{}, nextId{96};
@@ -62,7 +66,7 @@ void Payloads()
     Check(!messages.SendMonsterZombieBomb(origin)&&begins==0);
     Check(!messages.SendMonsterTrapDirection(&player,origin)&&begins==0);
     Check(messages.Register());
-    Check(registrations.at("CsoMonFX").second==7);
+    Check(registrations.at("CsoMonFX").second==-1);
     Check(messages.SendMonsterDisarmImpact(origin));
     Check(begins==1&&ends==1&&destination==MSG_PVS&&type==registrations.at("CsoMonFX").first);
     Check(type>=64&&type!=SVC_TEMPENTITY&&hasOrigin&&!recipient);
@@ -87,6 +91,36 @@ void Payloads()
     Check(type==gmsgShake&&destination==MSG_ONE&&recipient==&player&&!hasOrigin);
     Check(bytes==std::vector<unsigned char>{0,160,0,32,0,100}&&begins==1&&ends==1);
 }
+void Hits()
+{
+    Install();CCSOLScenarioMessages messages;float origin[]{-12.25f,100.5f,43.125f};
+    Check(!messages.SendMonsterHit(origin,false,4)&&begins==0);Check(messages.Register());
+    for(bool metal:{false,true})
+    {
+        Clear();Check(messages.SendMonsterHit(origin,metal,metal?16:4));
+        Check(begins==1&&ends==1&&destination==MSG_PVS&&type==registrations.at("CsoMonFX").first);
+        Check(hasOrigin&&!recipient&&pvs==std::array<float,3>{-12.25f,100.5f,43.125f});
+        Check(bytes==std::vector<unsigned char>{static_cast<unsigned char>(metal?5:4),static_cast<unsigned char>(metal?16:4),158,255,36,3,89,1});
+        Check(coordinates==std::vector<float>{-12.25f,100.5f,43.125f});
+    }
+    Clear();Check(!messages.SendMonsterHit(nullptr,false,4)&&begins==0);
+    for(bool metal:{false,true})for(int value:{-1,0,metal?61:16,256})Check(!messages.SendMonsterHit(origin,metal,value)&&begins==0);
+    for(int axis=0;axis<3;++axis)for(float value:{-4096.125f,4096.f,std::numeric_limits<float>::infinity(),std::numeric_limits<float>::quiet_NaN()}){
+        auto old=origin[axis];origin[axis]=value;Check(!messages.SendMonsterHit(origin,false,4)&&begins==0);origin[axis]=old;
+    }
+    const auto full=g_engfuncs;
+    for(int missing=0;missing<4;++missing){g_engfuncs=full;
+        if(missing==0)g_engfuncs.pfnMessageBegin=nullptr;if(missing==1)g_engfuncs.pfnMessageEnd=nullptr;
+        if(missing==2)g_engfuncs.pfnWriteByte=nullptr;if(missing==3)g_engfuncs.pfnWriteCoord=nullptr;
+        Check(!messages.SendMonsterHit(origin,false,4)&&begins==0);
+    }g_engfuncs=full;
+    CCSOLScenarioMessages other;Check(other.Register());
+    onBegin=[&]{Check(!other.SendMonsterHit(origin,false,4));origin[0]=300;messages={};};
+    onEnd=[&]{Check(!other.SendMonsterHit(origin,true,16));};
+    Check(messages.SendMonsterHit(origin,false,4));Check(begins==1&&ends==1&&coordinates==std::vector<float>{-12.25f,100.5f,43.125f});
+    onBegin={};onEnd={};Clear();Check(other.SendMonsterHit(origin,false,4)&&begins==1&&ends==1);
+}
+
 void Invalid()
 {
     Install();CCSOLScenarioMessages messages;edict_t player{};
@@ -158,6 +192,6 @@ void Reentry()
 }
 int main()
 {
-    try { Payloads();Invalid();Reentry();std::cout<<"monster-fx-messages "<<checks<<" checks passed\n";return 0; }
+    try { Payloads();Hits();Invalid();Reentry();std::cout<<"monster-fx-messages "<<checks<<" checks passed\n";return 0; }
     catch(const std::exception& error){std::cerr<<error.what()<<" after "<<checks<<" checks\n";return 1;}
 }

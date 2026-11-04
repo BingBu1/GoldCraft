@@ -116,6 +116,7 @@ public:
     // SHORT entity and BYTE effect (13 self, 9 another monster).
     bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
     bool SendMonsterDisarmImpact(const float* origin) const;
+    bool SendMonsterHit(const float* origin, bool metal, int amount) const;
     bool SendMonsterZombieBomb(const float* origin) const;
     // Original MP114EEAE0: MPToCL54/type0, raw duration, grey RGBA.
     bool SendZombieBombProtection(edict_s* recipient, float duration) const;
