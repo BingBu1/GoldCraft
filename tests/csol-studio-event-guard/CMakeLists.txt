@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(csol_studio_event_guard LANGUAGES CXX)
+enable_testing()
+add_executable(csol_studio_event_guard main.cpp)
+target_compile_features(csol_studio_event_guard PRIVATE cxx_std_20)
+add_test(NAME csol_studio_event_guard COMMAND csol_studio_event_guard)

@@ -19,6 +19,8 @@
 #include "../parts.hpp"
 #include "../presentation.hpp"
 #include "../studio_sound.hpp"
+#include "../studio_event_guard.hpp"
+#include "studio_event_context.hpp"
 #include <IMetaRenderer.h>
 #include <IMetaRendererPostScene.h>
 #include <algorithm>
@@ -26,12 +28,14 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <sstream>
 #include <unordered_set>
 
 namespace csol::client
 {
 namespace
 {
+StudioEventRepeatGuard studioEventGuard;
 IMetaRenderer* renderer{};
 IMetaRendererPostScene* postRenderer{};
 const MetaRendererPostSceneFrame* postFrame{};
@@ -122,6 +126,84 @@ model_t* presentationModel{};
 std::filesystem::path diagnosticPath;
 double nextDiagnostic{};
 cvar_t* enabled{};
+cvar_t* studioSoundDiagnostics{};
+struct StudioSoundRecord
+{
+    unsigned long long serial{};
+    const cl_entity_t* entity{};
+    const model_t* model{};
+    int index{},sequence{},event{},eventFrame{},renderFrame{},message{};
+    float frame{},animtime{},sequencetime{},prevanimtime{},rate{};
+    double time{};
+    unsigned phase{};
+    std::array<char,64> modelName{},options{};
+};
+std::array<StudioSoundRecord,128> studioSounds;
+unsigned long long studioSoundSerial{},studioSoundDuplicates{};
+std::array<unsigned long long,3> studioSoundCounts{};
+unsigned long long ObserveStudioSound(const mstudioevent_t* event,const cl_entity_t* entity)
+{
+    if(!studioSoundDiagnostics || studioSoundDiagnostics->value<=0 || !event || !entity ||
+        (event->event!=5004 && event->event!=5005 && event->event!=5008))return 0;
+    StudioSoundRecord record{};
+    record.serial=++studioSoundSerial;record.entity=entity;record.model=entity->model;
+    record.index=entity->index;record.sequence=entity->curstate.sequence;record.event=event->event;
+    record.eventFrame=event->frame;record.frame=entity->curstate.frame;record.animtime=entity->curstate.animtime;
+    record.sequencetime=entity->latched.sequencetime;record.prevanimtime=entity->latched.prevanimtime;
+    record.rate=entity->curstate.framerate;record.message=entity->curstate.messagenum;
+    double old{};if(studio.GetTimes)studio.GetTimes(&record.renderFrame,&record.time,&old);
+    if(entity->model)std::copy_n(entity->model->name,std::min(sizeof(entity->model->name),record.modelName.size()-1),record.modelName.begin());
+    std::copy_n(event->options,record.options.size()-1,record.options.begin());
+    for(const auto& previous:studioSounds)
+        if(previous.serial && previous.entity==record.entity && previous.model==record.model &&
+            previous.sequence==record.sequence && previous.event==record.event && previous.eventFrame==record.eventFrame &&
+            previous.renderFrame==record.renderFrame && previous.animtime==record.animtime &&
+            previous.sequencetime==record.sequencetime && previous.options==record.options)
+        {++studioSoundDuplicates;break;}
+    ++studioSoundCounts[event->event==5004?0:event->event==5005?1:2];
+    studioSounds[(record.serial-1)%studioSounds.size()]=record;
+    return record.serial;
+}
+void StudioSoundPhase(unsigned long long serial,unsigned phase)
+{
+    if(!serial)return;
+    auto& record=studioSounds[(serial-1)%studioSounds.size()];
+    if(record.serial==serial)record.phase|=phase;
+}
+void StudioSoundDiagnostics(std::ostream& out)
+{
+    const auto number=[&](double value){if(std::isfinite(value))out<<value;else out<<"null";};
+    const auto string=[&](const auto& value)
+    {
+        out<<'"';
+        for(const unsigned char character:value)
+        {
+            if(!character)break;
+            if(character=='"' || character=='\\')out<<'\\';
+            out<<(character>=32 && character<127?char(character):'?');
+        }
+        out<<'"';
+    };
+    out<<",\"studioSound\":{\"enabled\":"<<(studioSoundDiagnostics && studioSoundDiagnostics->value>0?1:0)
+        <<",\"received\":"<<studioSoundSerial<<",\"sameFrameDuplicates\":"<<studioSoundDuplicates
+        <<",\"suppressedEvents\":"<<studioEventGuard.Suppressed()
+        <<",\"event5004\":"<<studioSoundCounts[0]<<",\"event5005\":"<<studioSoundCounts[1]
+        <<",\"event5008\":"<<studioSoundCounts[2]<<",\"trace\":[";
+    const auto begin=studioSoundSerial>studioSounds.size()?studioSoundSerial-studioSounds.size():0;
+    for(auto serial=begin;serial<studioSoundSerial;++serial)
+    {
+        if(serial!=begin)out<<',';
+        const auto& record=studioSounds[serial%studioSounds.size()];
+        out<<"{\"serial\":"<<record.serial<<",\"entity\":"<<record.index<<",\"sequence\":"<<record.sequence
+            <<",\"event\":"<<record.event<<",\"eventFrame\":"<<record.eventFrame<<",\"renderFrame\":"<<record.renderFrame
+            <<",\"message\":"<<record.message<<",\"phase\":"<<record.phase<<",\"time\":";number(record.time);
+        out<<",\"frame\":";number(record.frame);out<<",\"animtime\":";number(record.animtime);
+        out<<",\"sequencetime\":";number(record.sequencetime);out<<",\"prevanimtime\":";number(record.prevanimtime);
+        out<<",\"rate\":";number(record.rate);out<<",\"model\":";string(record.modelName);
+        out<<",\"options\":";string(record.options);out<<'}';
+    }
+    out<<"]}";
+}
 
 bool EnsureGL()
 {
@@ -676,13 +758,36 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
     catch(const std::exception& error){failures.insert(ent->model);engine.Con_Printf("CSOLSupport: %s: %s\n",name,error.what());}
     return true;
 }
+void ObserveStudioEventSequence(const cl_entity_t* entity,model_t* model,int flags)
+{
+    if(!(flags&STUDIO_EVENTS) || !entity || !model || model->type!=mod_studio || !studio.Mod_Extradata)return;
+    const auto* header=static_cast<const studiohdr_t*>(studio.Mod_Extradata(model));
+    const auto* sequence=StudioSequence(header,entity->curstate.sequence);
+    if(!sequence)return;
+    studioEventGuard.Observe(entity,model,entity->curstate.sequence,(sequence->flags&STUDIO_LOOPING)!=0,
+        entity->curstate.frame,entity->curstate.animtime,entity->curstate.framerate,entity->curstate.messagenum,
+        engine.GetViewModel && entity==engine.GetViewModel());
+}
 void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
 {
+    if(event && entity && currentStudioModel && currentStudioModel->type==mod_studio &&
+        studio.GetCurrentEntity && studio.Mod_Extradata)
+    {
+        bool looping{};
+        if(StudioEventLooping(event,entity,studio.GetCurrentEntity(),currentStudioModel,
+            static_cast<const studiohdr_t*>(currentStudioHeader),studio.Mod_Extradata(currentStudioModel),looping))
+        {
+            ObserveStudioEventSequence(entity,currentStudioModel,STUDIO_EVENTS);
+            if(studioEventGuard.Repeated(entity,currentStudioModel,entity->curstate.sequence,looping,
+                entity->latched.sequencetime,entity->curstate.animtime,event))return;
+        }
+    }
     if(event && entity && entity->model && SkipStudioSound(
         {entity->model->name,strnlen(entity->model->name,sizeof(entity->model->name))},event->event,
         {event->options,strnlen(event->options,sizeof(event->options))}))return;
     if(CannonStudioEvent(event,entity))return;
     if(EmotionVoiceStudioEvent(event,entity))return;
+    const auto soundDiagnostic=ObserveStudioSound(event,entity);
     if(event && entity && event->options[0]!='#' && (event->event==5005 || event->event==5008))
     {
         const std::string_view options(event->options,strnlen(event->options,sizeof(event->options)));
@@ -696,7 +801,9 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
                 const float volume=(float(static_cast<signed char>(options[1]))*.1f+
                     float(static_cast<signed char>(options[0])))+float(static_cast<signed char>(options[2]))*.01f;
                 float position[3];std::copy_n(entity->attachment[0],3,position);
+                StudioSoundPhase(soundDiagnostic,1);
                 engine.pfnPlaySoundByNameAtLocation(event->options+3,volume,position);
+                StudioSoundPhase(soundDiagnostic,2);
             }
             return;
         }
@@ -715,11 +822,18 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
         if(sound && engine.pfnPlaySoundByNameAtLocation)
         {
             float position[3];std::copy_n(entity->origin,3,position);
+            StudioSoundPhase(soundDiagnostic,1);
             engine.pfnPlaySoundByNameAtLocation(sound,1,position);
+            StudioSoundPhase(soundDiagnostic,2);
         }
         return;
     }
-    if(!event || event->options[0]!='#'){if(downstream.HUD_StudioEvent)downstream.HUD_StudioEvent(event,entity);return;}
+    if(!event || event->options[0]!='#')
+    {
+        if(downstream.HUD_StudioEvent)
+        {StudioSoundPhase(soundDiagnostic,4);downstream.HUD_StudioEvent(event,entity);StudioSoundPhase(soundDiagnostic,8);}
+        return;
+    }
     try
     {
         if(event->event<5000 || event->event>5639)
@@ -752,6 +866,7 @@ bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {
     enabled=engine.pfnRegisterVariable("csol_enable","1",FCVAR_ARCHIVE);InitializeHands();
+    studioSoundDiagnostics=engine.pfnRegisterVariable("csol_studio_sound_diagnostics","0",0);
     // HookUserMsg only replaces an existing message; CsolPart is a new message.
     engine.pfnHookUserMsg("CsolPart",PartMessage);
     engine.pfnHookUserMsg("CsolView",ViewMessage);
@@ -760,8 +875,10 @@ void InitializeScene()
 }
 void ClearScene()
 {
+    studioEventGuard.Clear();
     ResetEmotionVoices();
     ResetBalrog11Flame();
+    studioSounds={};studioSoundSerial=studioSoundDuplicates=0;studioSoundCounts={};
     if(postRenderer)postRenderer->UnregisterPostSceneCallbacks(&worldCallbacks);
     postRenderer=nullptr;postFrame=nullptr;worldDraws={};
     states.clear();effects.clear();failures.clear();parts={};
@@ -798,12 +915,24 @@ void SceneFrame()
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);
+    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);StudioSoundDiagnostics(file);
     const auto* hands=ViewCharacter() && state && state->asset?state->asset:nullptr;
     const int handBody=ent?ent->curstate.body:0;
     file<<",\"handAdapter\":{\"meshes\":"<<(hands?hands->adaptedMeshes:0)<<",\"bones\":"<<(hands?hands->adaptedBones:0)
         <<",\"body\":"<<handBody<<",\"conditionalGroups\":"<<(hands?hands->handBodygroups.size():0)
         <<",\"submodel\":"<<(hands && !hands->handBodygroups.empty()?CharacterHandSubmodel(*hands,hands->Header().numbodyparts-1,0,handBody):-1)<<'}';file<<'}';
 }
-void Report(){engine.Con_Printf("CSOLSupport independent DLL: assets=%u draws=%d events=%d active=%u rendererAPI=%d partMessages=%d viewMessages=%d rejected=%d\n",unsigned(AssetCount()),draws,eventCount,unsigned(effects.size()),renderer!=nullptr,partMessages,viewMessages,rejectedMessages);}
+void Report()
+{
+    engine.Con_Printf("CSOLSupport independent DLL: assets=%u draws=%d events=%d active=%u rendererAPI=%d partMessages=%d viewMessages=%d rejected=%d\n",unsigned(AssetCount()),draws,eventCount,unsigned(effects.size()),renderer!=nullptr,partMessages,viewMessages,rejectedMessages);
+    if(studioSoundDiagnostics && studioSoundDiagnostics->value>0)
+    {
+        std::ostringstream report;report<<"{\"diagnostic\":\"model-sound\"";StudioSoundDiagnostics(report);report<<'}';
+        const auto text=report.str();
+        // Con_Printf's bounded format buffer must not truncate the event ring.
+        for(std::size_t offset=0;offset<text.size();offset+=512)
+            engine.Con_Printf("%s",text.substr(offset,512).c_str());
+        engine.Con_Printf("\n");
+    }
+}
 }

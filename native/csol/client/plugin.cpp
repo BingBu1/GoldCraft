@@ -14,6 +14,8 @@
 #include "characters.hpp"
 #include "player_animation.hpp"
 #include "sequence_guard.hpp"
+#include "overlay_layers.hpp"
+#include "studio_event_context.hpp"
 #include <ostream>
 #include <sstream>
 #include <iomanip>
@@ -173,12 +175,16 @@ static int StudioDrawPlayer(int flags,entity_state_t* player)
     const auto* minmodels=engine.pfnGetCvarPointer("cl_minmodels");
     if(!model || (minmodels && minmodels->value!=0) ||
         !std::string_view(model->name,strnlen(model->name,sizeof(model->name))).starts_with("models/player/csol"))
+    {
+        ObserveStudioEventSequence(entity,model,flags);
         return originalDrawPlayer(flags,player);
+    }
     ++playerDraws;playerSequence=entity->curstate.sequence;playerGait=player->gaitsequence;
     if(!studioBoneCache)studioBoneCache=engine.pfnGetCvarPointer("r_studio_bone_caches");
     PlayerBoneCacheScope boneCache(studioBoneCache);
     PlayerSequenceScope sequence(static_cast<studiohdr_t*>(studio.Mod_Extradata(model)),entity,player);
     if(sequence.Mapped())++playerAliases;
+    ObserveStudioEventSequence(entity,model,flags);
     return originalDrawPlayer(flags,player);
 }
 void PlayerAnimationDiagnostics(std::ostream& out)
@@ -254,6 +260,7 @@ static int StudioDrawModel(int flags)
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
     ObserveViewAnimation(entity,flags);
+    ObserveStudioEventSequence(entity,entity?entity->model:nullptr,flags);
     try { if(entity && DrawModel(entity,flags,originalDrawModel)) return 1; }
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: %s\n",e.what());}
     NativeHandFrameGrid(entity);
@@ -300,6 +307,7 @@ static void Init()
     animationProbe=GetEnvironmentVariableA("CSOL_DIAGNOSTIC_PATH",nullptr,0)>0;
     viewAnimationSerial=0;
     MountResources();
+    InitializeOverlayCompositor();
     InitializeDeathNotices();
     const auto messageHeads=CaptureChainedUserMessageHeads();
     const auto commandHeads=CaptureChainedCommandHeads();

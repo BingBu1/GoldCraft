@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "overlay_layers.hpp"
 #include "user_message_chain.hpp"
 #include "boss_health.hpp"
 #include "../boss_health.hpp"
@@ -27,6 +28,7 @@ pfnUserMsgHook previousMessage{}, previousInit{}, previousHide{}, previousReset{
 bool prepared{}, requested{}, gameUI{}, console{};
 int hidden{};
 std::uint64_t accepted{}, malformed{};
+std::uint64_t drawRequests{}, paintCallbacks{}, draws{};
 std::array<float, 2> impact{}; // Original second CRT draw=pitch, first=yaw.
 std::uint64_t impacts{}, stuns{};
 
@@ -124,6 +126,7 @@ void PaintAbilities(int width, int height, int panelX)
 }
 void Paint()
 {
+    ++paintCallbacks;
     if (!requested) return;
     requested = false;
     const auto* current = state.Current();
@@ -152,6 +155,7 @@ void Paint()
     PaintAbilities(width, height, layout.background[0].x);
     surface->DrawFlushText();
     surface->PopMakeCurrent(root);
+    ++draws;
 }
 class BossOverlay final : public IVGUI2Extension_BaseUICallbacks
 {
@@ -164,7 +168,7 @@ public:
     void CallEngineSurfaceAppProc(void*&, void*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceWndProc(void*&, unsigned int&, unsigned int&, long&, VGUI2Extension_CallbackContext*) override {}
     void Paint(int&, int&, int&, int&, VGUI2Extension_CallbackContext* context) override
-    { if (context->IsPost) csol::client::Paint(); }
+    { if (context->IsPost) QueueOverlayPaint(OverlayLayer::BossHealth, csol::client::Paint); }
     void HideGameUI(VGUI2Extension_CallbackContext* context) override { if (context->IsPost) gameUI = false; }
     void ActivateGameUI(VGUI2Extension_CallbackContext* context) override { if (!context->IsPost) gameUI = true; }
     void HideConsole(VGUI2Extension_CallbackContext* context) override { if (context->IsPost) console = false; }
@@ -262,7 +266,11 @@ void BossImpactCreateMove(int active)
     engine.SetViewAngles(angles);
 }
 void BossHealthVideoInit() { Release(); }
-void DrawBossHealth(int intermission) { requested = !intermission && state.Current(); }
+void DrawBossHealth(int intermission)
+{
+    requested = !intermission && state.Current();
+    if (requested) ++drawRequests;
+}
 void ShutdownBossHealth()
 {
     ResetBossHealth(); Release();
@@ -277,6 +285,14 @@ void BossHealthDiagnostics(std::ostream& out)
     out << "bossHealth appearance=" << state.Appearance() << " entity=" << (current ? current->entity : 0)
         << " ratio=" << (current ? current->ratio : 0) << " prepared=" << prepared
         << " accepted=" << accepted << " rejected=" << malformed << " impacts=" << impacts
-        << " stuns=" << stuns << '\n';
+        << " stuns=" << stuns << " surface=" << (surface != nullptr)
+        << " extension=" << (extension != nullptr) << " gameUI=" << gameUI
+        << " console=" << console << " hidden=" << hidden
+        << " requests=" << drawRequests << " callbacks=" << paintCallbacks << " draws=" << draws
+        << " textures=";
+    for (const auto texture : textures) out << (texture != 0);
+    out << " abilityTextures=";
+    for (const auto texture : abilityTextures) out << (texture != 0);
+    out << " abilityFont=" << (abilityFont != 0) << '\n';
 }
 }
