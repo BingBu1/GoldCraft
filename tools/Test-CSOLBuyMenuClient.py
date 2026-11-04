@@ -30,13 +30,17 @@ def main():
     p.add_argument('--menu', type=Path, required=True)
     p.add_argument('--compiler', type=Path, required=True)
     p.add_argument('--environment', type=Path, required=True)
+    p.add_argument('--client-source', type=Path,
+                   help='Optional unchanged archived client controller for behavioral comparison')
     p.add_argument('--server-teams', action='store_true')
     args = p.parse_args()
     output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh build output')
     output.mkdir(parents=True)
-    client = ROOT / 'native/csol/client/buy_menu.cpp'
+    client = args.client_source.resolve() if args.client_source else ROOT / 'native/csol/client/buy_menu.cpp'
+    if not client.is_file() or not client.is_relative_to(ROOT):
+        raise ValueError('Controller source must be an existing workspace file')
     inputs = [client, ROOT / 'native/csol/buy_menu.cpp', ROOT / 'native/csol/buy_menu.hpp',
               ROOT / 'native/csol/character_menu.hpp', ROOT / 'tests/csol-buy-menu/main.cpp',
               ROOT / 'native/csol/client/command_chain.hpp']
@@ -50,6 +54,8 @@ def main():
                   'int Receive(', 'int VGUI(', 'int ShowMenu(', 'MenuRect CloseRect()', 'int Hit(',
                   'void Click(', 'void EditFavorite(', 'void ResetBuyMenu()',
                   'void BuyMenuFrame()', 'void BuyMenuCreateMove(']
+    if 'bool ExpireRequest()' in source:
+        signatures.insert(signatures.index('void Refresh()'), 'bool ExpireRequest()')
     chunks = [extract(source, signature) for signature in signatures]
     (output / 'actual_controller.inc').write_text('\n\n'.join(chunks) + '\n', encoding='utf8')
     (output / 'actual_key.inc').write_text(extract(source, 'void Key_Event(') + '\n', encoding='utf8')

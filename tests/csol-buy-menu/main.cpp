@@ -63,13 +63,14 @@ std::vector<std::byte> ReadResource(const char* path){
 bool focused=true,consoleVisible{};
 double clockTime{};
 int activated{},deactivated{},cleared{},hidden{},syncs{},captureCleared{},cursorLocked{};
+int cursorChanges{},cursorUnlocked{},selectionCleared{},layouts{},angleSets{};
 struct Engine {
     void Con_Printf(const char*,...){++resourceErrors;}
     double(*GetClientTime)()=[](){return clockTime;};
     int(*pfnServerCmd)(char*)=[](char* s){commands.emplace_back(s);return 0;};
     int(*pfnClientCmd)(char*)=[](char* s){clientCommands.emplace_back(s);return 0;};
     int(*Con_IsVisible)()=[](){return int(consoleVisible);};
-    void(*SetViewAngles)(float*)=[](float*){};
+    void(*SetViewAngles)(float*)=[](float*){++angleSets;};
     void(*GetViewAngles)(float*)=[](float* values){std::fill_n(values,3,0);};
     void(*Cvar_Set)(const char*,const char*)=[](const char* name,const char* value){int i=!std::strcmp(name,"ct");cvarValues[i]=value;cv[i].string=cvarValues[i].c_str();};
     Cvar*(*pfnRegisterVariable)(const char*,const char*,int)=[](const char* name,const char*,int flags)->Cvar*{
@@ -92,7 +93,7 @@ struct Input {
 } inputValue,*input=&inputValue;
 struct Surface {
     unsigned GetEmbeddedPanel(){return 1;}
-    void SetCursor(int){} void LockCursor(){++cursorLocked;} void UnlockCursor(){}
+    void SetCursor(int){++cursorChanges;} void LockCursor(){++cursorLocked;} void UnlockCursor(){++cursorUnlocked;}
     void DeleteTextureByID(int){}
 } surfaceValue,*surface=&surfaceValue;
 struct ClientUI {void HideAllVGUIMenu(){++hidden;}} clientValue,*clientUI=&clientValue;
@@ -144,9 +145,9 @@ bool Focused(){return focused;}
 void(*oldBuy)(){},(*oldCancel)(){},(*oldRebuy)(){};
 MessageHook oldVGUI{};
 int(*oldShowMenu)(const char*,int,void*){};
-void ClearNativeWeaponSelection(){}
+void ClearNativeWeaponSelection(){++selectionCleared;}
 void SynchronizeSession(){++syncs;}
-void Layout(){}
+void Layout(){++layouts;}
 enum class VGUI2Extension_Result {NONE,SUPERCEDE_SKIP_PLUGINS};
 struct VGUI2Extension_CallbackContext {bool IsPost{};void* pPluginReturnValue{};VGUI2Extension_Result Result{};};
 struct BaseOverlay {virtual void Key_Event(int&,int&,const char*&,VGUI2Extension_CallbackContext*)=0;};
@@ -167,6 +168,7 @@ void Reset(){
     category=-1;page=0;hover=-1;rowsCategory=-2;team=2;balance=32000;request=7;clockTime=requestedAt=0;
     commands.clear();clientCommands.clear();lastPurchases.clear();rebuyQueue.clear();offers.clear();visibleRows.clear();textures.clear();query.clear();status.clear();favorites={};search={};
     focused=true;consoleVisible=false;activated=deactivated=cleared=hidden=captureCleared=cursorLocked=0;inputValue={};inputValue.x=inputValue.y=-100;
+    cursorChanges=cursorUnlocked=selectionCleared=layouts=angleSets=0;
     view={};originalRebuys=originalBuys=originalCancels=0;
     for(const auto& item:Catalog())offers.emplace(item.id,Packet{Kind::Item,request,item.id,item.id>=2000?0:100,32000,Result::Available,2});
 }
@@ -330,14 +332,16 @@ void RebuyHookTests(){
     Reset();visible=false;capability=false;BoundRebuy();
     Check(originalRebuys==1&&commands.empty()&&!visible,"ordinary server uses original rebuy callback");
     Reset();visible=false;RememberPurchase(144);RememberPurchase(220);BoundRebuy();
-    Check(visible&&rebuying&&!waiting&&!catalogReady&&commands==std::vector<std::string>{"csol_buy_menu 8\n"},"F2 command opens authoritative catalog before buying");
+    Check(!visible&&rebuying&&!waiting&&!catalogReady&&commands==std::vector<std::string>{"csol_buy_menu 8\n"},"F2 requests authoritative catalog without opening menu");
     BoundRebuy();Check(commands.size()==1,"repeated F2 does not open a second catalog or duplicate queue");
     Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::Item,220);Deliver(Kind::End);BuyMenuFrame();
     Check(waiting&&commands.back()=="csol_buy 8 144\n","F2 waits for complete fresh catalog before first item");
     Deliver(Kind::Result,144,Result::Success);Deliver(Kind::Begin);Deliver(Kind::Item,220);Deliver(Kind::End);BuyMenuFrame();
     Check(waiting&&commands.back()=="csol_buy 9 220\n","F2 rebuy refreshes ownership for next item");
     Deliver(Kind::Result,220,Result::Success);Deliver(Kind::Begin);Deliver(Kind::End);BuyMenuFrame();
-    Check(!visible&&!rebuying&&rebuyQueue.empty()&&activated==1,"completed F2 queue closes and restores mouse");
+    Check(!visible&&!rebuying&&rebuyQueue.empty()&&activated==0&&deactivated==0&&hidden==0&&
+        captureCleared==0&&cursorLocked==0&&cursorChanges==0&&cursorUnlocked==0&&selectionCleared==0,
+        "completed hidden F2 queue never changes game UI or mouse ownership");
     for(int invalid=0;invalid<3;++invalid){
         Reset();visible=false;if(invalid!=2)RememberPurchase(144);if(invalid==0)view.health=0;if(invalid==1)view.spectator=true;
         BoundRebuy();Check(!visible&&!rebuying&&commands.empty(),"dead spectator or empty history cannot start rebuy");
@@ -362,4 +366,66 @@ void RebuyHookTests(){
     Reset();visible=false;capability=false;BoundRebuy();
     Check(commands==std::vector<std::string>{"rebuy\n"}&&originalRebuys==0&&!visible,"no native callback falls back to original server command");
 }
-int main(int argc,char**argv){try{if(argc!=2)throw std::runtime_error("require exported menu JSON");std::ifstream f(argv[1],std::ios::binary);std::ostringstream text;text<<f.rdbuf();presentation=ParsePresentation(text.str());JsonTests(text.str());CachedResourceTests(text.str());FavoriteTests();ControllerTests();RebuyHookTests();ProductIdentityTests();std::cout<<"buy menu: "<<checks<<" checks passed\n";return 0;}catch(const std::exception&e){std::cerr<<"FAIL "<<checks<<": "<<e.what()<<'\n';return 1;}}
+void SilentRebuyLifecycleTests(){
+    InstallNativeCommands(true);
+    const auto start=[](){Reset();visible=false;RememberPurchase(144);RememberPurchase(220);BoundRebuy();};
+    const auto noUi=[](){Check(!visible&&activated==0&&deactivated==0&&cleared==0&&hidden==0&&
+        captureCleared==0&&cursorLocked==0&&cursorChanges==0&&cursorUnlocked==0&&selectionCleared==0&&
+        layouts==0&&!restoreMouse&&!swallowMouse,"silent transaction preserves native UI and input ownership");};
+    start();noUi();
+    usercmd_t command{IN_ATTACK|IN_ATTACK2,123,-45,7,{12,34,56}};
+    const auto original=command;BuyMenuCreateMove(&command,1);
+    Check(!std::memcmp(&command,&original,sizeof(command))&&angleSets==0,"hidden rebuy does not consume gameplay commands");
+    noUi();
+    // The command path must not load a menu or depend on VGUI being available.
+    Reset();visible=false;loaded=false;RememberPurchase(144);
+    auto* savedSurface=surface;auto* savedInput=input;auto* savedExtension=extension;
+    surface=nullptr;input=nullptr;extension=nullptr;const auto resourceBefore=resourceErrors;
+    BoundRebuy();Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);BuyMenuFrame();
+    Check(waiting&&commands.back()=="csol_buy 8 144\n"&&!loaded&&resourceErrors==resourceBefore,
+        "silent rebuy progresses without presentation resources or VGUI interfaces");
+    Deliver(Kind::Result,144,Result::Success);Deliver(Kind::Begin);Deliver(Kind::End);BuyMenuFrame();noUi();
+    surface=savedSurface;input=savedInput;extension=savedExtension;
+    for(bool waitingForResult:{false,true}){
+        start();if(waitingForResult){Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);BuyMenuFrame();}
+        const auto oldRequest=request;const auto issued=commands.size();clockTime=6;BuyMenuFrame();
+        Check(!rebuying&&!waiting&&!catalogReady&&rebuyQueue.empty()&&commands.size()==issued,
+            "hidden catalog and result timeouts retire pending work without UI");noUi();
+        Deliver(Kind::Begin,0,Result::Available,oldRequest);Deliver(Kind::Item,220,Result::Available,oldRequest);
+        Deliver(Kind::End,0,Result::Available,oldRequest);Deliver(Kind::Result,144,Result::Success,oldRequest);BuyMenuFrame();
+        Check(commands.size()==issued&&!rebuying&&!waiting,"late packets cannot revive expired background rebuy");
+    }
+    // A complete catalog arriving after its deadline must not reset that deadline by purchasing.
+    start();const auto lateIssued=commands.size();clockTime=6;
+    Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);BuyMenuFrame();
+    Check(!rebuying&&!waiting&&commands.size()==lateIssued,"late catalog cannot purchase after the request deadline");noUi();
+    for(bool spectator:{false,true})for(int stage=0;stage<3;++stage){
+        start();if(stage){Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);if(stage==2)BuyMenuFrame();}
+        const auto issued=commands.size();if(spectator)view.spectator=true;else view.health=0;BuyMenuFrame();
+        Check(!rebuying&&!waiting&&!catalogReady&&rebuyQueue.empty()&&commands.size()==issued,
+            "death or spectator state retires hidden work at every asynchronous stage");noUi();
+        Deliver(Kind::Result,144,Result::Success);Deliver(Kind::End);BuyMenuFrame();
+        Check(commands.size()==issued&&!rebuying,"post-death packets cannot restart buying");
+    }
+    for(bool waitingForResult:{false,true}){
+        start();if(waitingForResult){Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);BuyMenuFrame();}
+        const auto issued=commands.size();ResetBuyMenu();
+        Check(!rebuying&&!waiting&&!catalogReady&&rebuyQueue.empty()&&!capability&&request==0&&lastPurchases.empty(),
+            "session reset clears hidden transaction independently of panel visibility");noUi();
+        Deliver(Kind::Result,144,Result::Success,8);BuyMenuFrame();Check(commands.size()==issued,"old session receipt cannot continue reset queue");
+    }
+    // B takes ownership with a different request, and an old receipt cannot close it.
+    start();Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);BuyMenuFrame();const auto oldRequest=request;
+    commandHooks.at("buy")();
+    Check(visible&&!rebuying&&!waiting&&!catalogReady&&rebuyQueue.empty()&&request!=oldRequest&&deactivated==1,
+        "B cancels hidden rebuy and opens a fresh interactive request");
+    const auto issued=commands.size();Deliver(Kind::Result,144,Result::Success,oldRequest);Deliver(Kind::End,0,Result::Available,oldRequest);
+    Check(visible&&!rebuying&&!waiting&&!catalogReady&&commands.size()==issued,"old background packets do not affect newly opened B menu");
+    Deliver(Kind::Begin);Deliver(Kind::Item,144);Deliver(Kind::End);Key('r');
+    Check(visible&&rebuying&&waiting&&commands.back()=="csol_buy "+std::to_string(request)+" 144\n",
+        "interactive R still uses the visible menu catalog");
+    Reset();search.focus=search.keyboard=true;RememberPurchase(144);Key('r');
+    Check(!rebuying&&commands.empty(),"typing R in focused search does not purchase");
+    start();Close(false);Check(!rebuying&&!waiting&&!catalogReady&&rebuyQueue.empty(),"overlay closure also cancels hidden rebuy");noUi();
+}
+int main(int argc,char**argv){try{if(argc!=2)throw std::runtime_error("require exported menu JSON");std::ifstream f(argv[1],std::ios::binary);std::ostringstream text;text<<f.rdbuf();presentation=ParsePresentation(text.str());JsonTests(text.str());CachedResourceTests(text.str());FavoriteTests();ControllerTests();RebuyHookTests();ProductIdentityTests();SilentRebuyLifecycleTests();std::cout<<"buy menu: "<<checks<<" checks passed\n";return 0;}catch(const std::exception&e){std::cerr<<"FAIL "<<checks<<": "<<e.what()<<'\n';return 1;}}

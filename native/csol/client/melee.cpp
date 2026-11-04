@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "melee.hpp"
+#include "camera.hpp"
 #include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
 #include "../melee_identity.hpp"
@@ -70,6 +71,9 @@ bool OwnsDragonVisual(const DragonVisual& visual)
 }
 void DragonEffect(int subtype, float animationTime)
 {
+    // Original 02563390 -> 02A444E0 rejects CL_IsThirdPerson before allocation.
+    // Existing effects retain their original callback and fade lifetime.
+    if (CameraIsThirdPerson()) return;
     if ((subtype != 0 && subtype != 2) || !engine.pEfxAPI || !engine.pEfxAPI->R_TempModel ||
         !engine.pEventAPI || !engine.pEventAPI->EV_FindModelIndex) return;
     const auto* viewModel = engine.GetViewModel ? engine.GetViewModel() : nullptr;

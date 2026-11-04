@@ -72,9 +72,11 @@ void RestoreMouse()
 }
 void Close(bool gameplay=true)
 {
-    if(!visible)return;
-    visible=false;waiting=false;catalogReady=false;hover=-1;swallowMouse=true;
-    rebuying=false;rebuyQueue.clear();if(searchEntry){searchEntry->SetVisible(false);searchEntry->SetKeyBoardInputEnabled(false);}
+    const bool hadMenu=visible;
+    visible=false;waiting=false;catalogReady=false;rebuying=false;rebuyQueue.clear();
+    if(!hadMenu)return;
+    hover=-1;swallowMouse=true;
+    if(searchEntry){searchEntry->SetVisible(false);searchEntry->SetKeyBoardInputEnabled(false);}
     // A stock VGUI Buy panel can own SDL/VGUI input after its children close.
     // Hide that owner before handing the cursor back to native game input.
     if(clientUI)clientUI->HideAllVGUIMenu();
@@ -92,10 +94,19 @@ void Refresh()
     if(++request==0)++request;offers.clear();catalogReady=false;waiting=false;
     requestedAt=engine.GetClientTime();std::string command="csol_buy_menu "+std::to_string(request)+"\n";engine.pfnServerCmd(command.data());
 }
+bool ExpireRequest()
+{
+    if((!visible&&!rebuying)||(!waiting&&catalogReady)||engine.GetClientTime()-requestedAt<=5)return false;
+    if(!visible)Close();
+    else{waiting=false;catalogReady=false;rebuying=false;rebuyQueue.clear();status=L"购买请求超时；请关闭后重试";}
+    return true;
+}
 void OpenMenu(bool fallback)
 {
     if(visible){Close();return;}
     if(!capability||!surface||!input||!extension||!Load()){if(fallback){if(oldBuy)oldBuy();else engine.pfnServerCmd("buy\n");}return;}
+    // A visible menu owns a fresh request; stop any background rebuy first.
+    Close(false);
     if(clientUI)clientUI->HideAllVGUIMenu();
     ClearNativeWeaponSelection();
     if(oldShowMenu){unsigned char clear[5]{};oldShowMenu("ShowMenu",sizeof(clear),clear);}
@@ -160,16 +171,19 @@ void StartRebuy()
 void Rebuy()
 {
     if(!capability){if(oldRebuy)oldRebuy();else engine.pfnServerCmd("rebuy\n");return;}
-    if(view.health<=0||view.spectator||lastPurchases.empty())return;
-    if(!visible)OpenMenu(false);
-    if(visible)StartRebuy();
+    if(view.health<=0||view.spectator||lastPurchases.empty()||waiting||rebuying)return;
+    // Original ordinary branch 02A6AF29 queues cl_rebuy without opening a panel.
+    // The host's extended catalog remains server-authoritative and asynchronous.
+    if(!visible)Refresh();
+    StartRebuy();
 }
 int Receive(const char*,int size,void* data)
 {
     SynchronizeSession();Packet p;
     if(!data||size<0||!Decode({static_cast<const std::uint8_t*>(data),std::size_t(size)},p)){++rejected;return 0;}
     if(p.kind==Kind::Capability){capability=true;return 1;}
-    if(!visible||p.request!=request)return 1;
+    if((!visible&&!rebuying)||p.request!=request)return 1;
+    if(ExpireRequest())return 1;
     balance=p.balance;
     switch(p.kind){
     case Kind::Begin:offers.clear();catalogReady=false;break;
@@ -363,13 +377,17 @@ void ResetBuyMenu()
 void ShutdownBuyMenu(){ResetBuyMenu();if(searchEntry){searchEntry->MarkForDeletion();searchEntry=nullptr;}if(extension)extension->UnregisterBaseUICallbacks(&overlay);if(privateFont)RemoveFontMemResourceEx(privateFont);privateFont=nullptr;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;}
 void BuyMenuFrame()
 {
-    if(!visible)return;if(!Focused()){Close(false);return;}Layout();
-    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
-    int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);const bool pressed=input->IsMouseDown(vgui::MOUSE_LEFT);if(pressed&&!mouseHeld)Click(hover);mouseHeld=pressed;
-    const bool right=input->IsMouseDown(vgui::MOUSE_RIGHT);if(right&&!rightHeld)EditFavorite(hover);rightHeld=right;
-    if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
+    if(!visible&&!rebuying)return;
+    if(view.health<=0||view.spectator){Close();return;}
+    if(ExpireRequest())return;
+    if(visible){
+        if(!Focused()){Close(false);return;}Layout();
+        if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
+        int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);const bool pressed=input->IsMouseDown(vgui::MOUSE_LEFT);if(pressed&&!mouseHeld)Click(hover);mouseHeld=pressed;
+        const bool right=input->IsMouseDown(vgui::MOUSE_RIGHT);if(right&&!rightHeld)EditFavorite(hover);rightHeld=right;
+        if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
+    }
     ContinueRebuy();
-    if((waiting||!catalogReady)&&engine.GetClientTime()-requestedAt>5){waiting=false;catalogReady=false;rebuying=false;rebuyQueue.clear();status=L"购买请求超时；请关闭后重试";}
 }
 void BuyMenuCreateMove(usercmd_t* cmd,int active)
 {

@@ -35,6 +35,7 @@ int main()
     using namespace csol::client;using namespace csol::buy;using fixture::Check;
     try{
         clientUI=&fixture::ui;engine.Con_IsVisible=[](){return fixture::console?1:0;};
+        engine.GetClientTime=[](){return 0.0f;};
         downstream.IN_ClearStates=[](){fixture::order.push_back(2);};downstream.IN_ActivateMouse=[](){fixture::order.push_back(3);};
         oldBuy=[](){++fixture::fallbacks;};engine.pfnServerCmd=[](const char*){++fixture::sent;return 1;};
         visible=true;waiting=true;request=77;

@@ -17,6 +17,8 @@ WeaponDefinition definitions[2]{{melee::DragonSwordId,2,1,-1,-1,-1,-1,-1,0,"weap
     {melee::SkullAxeId,2,1,-1,-1,-1,-1,-1,0,"weapon_skullaxe"}};
 WeaponCurrent current{};
 bool presentation = true;
+int cameraMode{};
+int CameraIsThirdPerson() { return cameraMode; }
 const WeaponDefinition* FindWeaponDefinition(int id)
 { return id == melee::DragonSwordId ? &definitions[0] : id == melee::SkullAxeId ? &definitions[1] : nullptr; }
 const WeaponCurrent& CurrentExtendedWeapon() { return current; }
@@ -259,6 +261,57 @@ void EffectLifecycle()
     }
     allocatedTemp=&temp;haveViewModel=true;rightHand=1;State(melee::DragonSwordId);
 }
+void ThirdPersonCreationGate()
+{
+    // The original factory rejects CL_IsThirdPerson before allocation. Its
+    // callback does not recheck the camera, so existing lifetimes stay intact.
+    for(int mode:{1,2})for(float hand:{0.f,1.f})for(int animation:{1,4}) {
+        State(melee::DragonSwordId);cameraMode=mode;rightHand=hand;
+        const int allocations=temporaryCalls;
+        Check(Complete(melee::DragonSwordId,600,animation,0)==1,
+            "third-person completion is consumed without rejecting the authority message");
+        Check(temporaryCalls==allocations,"third-person factory never allocates a viewmodel effect");
+        cameraMode=0;
+        Check(Complete(melee::DragonSwordId,600,animation,0)==1 && temporaryCalls==allocations,
+            "returning to first person cannot replay the suppressed completion");
+        Check(Complete(melee::DragonSwordId,601,animation,0)==1 && temporaryCalls==allocations+1,
+            "new first-person completion creates its own effect");
+        Check(temp.entity.curstate.sequence==(animation==1?0:2)+(hand==0?1:0),
+            "first-person subtype and handedness remain unchanged after camera switch");
+    }
+    for(int animation:{1,4}) {
+        State(melee::DragonSwordId);cameraMode=0;rightHand=1;
+        Complete(melee::DragonSwordId,700,animation,0);
+        const int allocations=temporaryCalls;
+        const float lifetime=temp.die,animationTime=temp.entity.curstate.animtime;
+        temp.entity.curstate.frame=.125f;
+        const int alpha=temp.entity.curstate.renderamt;
+        const auto callback=temp.callback;
+        for(int mode:{1,2,0}) {
+            cameraMode=mode;Pose(viewModel,70+mode,-40-mode,125+mode,-9,17,3);
+            temp.callback(&temp,.01f,timeNow);
+            CheckPose(temp.entity,viewModel,"existing callback continues across camera changes");
+            Pose(viewModel,75+mode,-45-mode,132+mode,19,-27,-8);
+            PrepareMeleeEffectDraw(&temp.entity);
+            CheckPose(temp.entity,viewModel,"existing draw refresh continues across camera changes");
+            Check(temp.callback==callback && temporaryCalls==allocations && Near(temp.die,lifetime) &&
+                Near(temp.entity.curstate.animtime,animationTime) && Near(temp.entity.curstate.frame,.125f) &&
+                temp.entity.curstate.renderamt==alpha,
+                "camera changes do not cancel or restart an already-created effect");
+        }
+        // Simulate state after the engine faded/expired the entity; this checks
+        // callback non-resurrection only, not the engine's pool-recycling code.
+        temp.entity.curstate.renderamt=0;timeNow=lifetime+.5f;
+        for(int mode:{2,0,1,0}) {
+            cameraMode=mode;temp.callback(&temp,.01f,timeNow);PrepareMeleeEffectDraw(&temp.entity);
+            Check(temp.entity.curstate.renderamt==0 && Near(temp.die,lifetime) &&
+                Near(temp.entity.curstate.animtime,animationTime) && Near(temp.entity.curstate.frame,.125f) &&
+                temporaryCalls==allocations,
+                "camera changes cannot restore expired alpha, lifetime or allocation");
+        }
+    }
+    cameraMode=0;rightHand=1;State(melee::DragonSwordId);
+}
 }
 int main()
 {
@@ -331,6 +384,7 @@ int main()
     Check(Complete(melee::DragonSwordId,1,8,0)==0 && Complete(melee::DragonSwordId,1,1,3)==0,"invalid animation/contact rejected");
     Check(receiver("CSOMelee",0,nullptr)==0,"bad packet rejected");
     EffectLifecycle();
+    ThirdPersonCreationGate();
     std::cout<<"melee client "<<checks<<" checks, "<<failures<<" failures\n";
     return failures?1:0;
 }
