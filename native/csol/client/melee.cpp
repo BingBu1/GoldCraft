@@ -14,13 +14,17 @@
 #include <cmath>
 #include <cstring>
 #include <ostream>
+#include <vector>
 
 namespace csol::client {
 namespace {
 int presentedWeapon{}, presentedModel{}, presentedAnimation{-1};
 std::uint16_t presentedSerial{};
 int predictedAttacks{}, completions{}, dragonEffects{}, rejected{};
+int effectPoseUpdates{};
 unsigned effectEpoch{};
+struct DragonVisual { TEMPENTITY* temp; model_t* model; unsigned epoch; };
+std::vector<DragonVisual> dragonVisuals;
 std::array<std::uint16_t, 2> consumedSerial{};
 std::array<bool, 2> haveConsumedSerial{};
 int authoritativeAnimation{-1};
@@ -35,6 +39,7 @@ void ClearPresentation()
     presentedWeapon = presentedModel = 0;
     presentedAnimation = authoritativeAnimation = -1; presentedSerial = 0;
     ++effectEpoch;
+    dragonVisuals.clear();
 }
 
 void PresentAnimation(int sequence)
@@ -45,34 +50,45 @@ void PresentAnimation(int sequence)
 }
 void FollowDragonEffect(TEMPENTITY* temp, float, float now)
 {
+    const auto* model = engine.GetViewModel ? engine.GetViewModel() : nullptr;
     if (std::uint32_t(temp->entity.curstate.iuser4) != effectEpoch ||
-        CurrentExtendedWeapon().id != melee::DragonSwordId || !CurrentExtendedWeapon().state) {
+        CurrentExtendedWeapon().id != melee::DragonSwordId || !CurrentExtendedWeapon().state || !model) {
         temp->die = now; temp->entity.curstate.renderamt = 0; return;
     }
-    // Original 02563560 copies the local render origin/angles every update.
-    // This is a camera-bound first-person effect, not a weapon attachment.
-    std::copy_n(view.vieworg, 3, temp->entity.origin);
-    std::copy_n(view.viewangles, 3, temp->entity.angles);
+    // Original 02563560 -> 02A445C0 -> hw 37830540 reads GetViewModel,
+    // including its pitch, bob and shake. ref_params is a different pose.
+    std::copy_n(model->origin, 3, temp->entity.origin);
+    std::copy_n(model->angles, 3, temp->entity.angles);
+    // Host StudioSetUpTransform (100686F0) reads curstate for MOVETYPE_NONE.
+    std::copy_n(model->angles, 3, temp->entity.curstate.angles);
+}
+bool OwnsDragonVisual(const DragonVisual& visual)
+{
+    return visual.epoch == effectEpoch && visual.temp->callback == FollowDragonEffect &&
+        (visual.temp->flags & FTENT_CLIENTCUSTOM) && visual.temp->entity.model == visual.model &&
+        std::uint32_t(visual.temp->entity.curstate.iuser4) == visual.epoch;
 }
 void DragonEffect(int subtype, float animationTime)
 {
     if ((subtype != 0 && subtype != 2) || !engine.pEfxAPI || !engine.pEfxAPI->R_TempModel ||
         !engine.pEventAPI || !engine.pEventAPI->EV_FindModelIndex) return;
+    const auto* viewModel = engine.GetViewModel ? engine.GetViewModel() : nullptr;
+    if (!viewModel) return;
     const int model = engine.pEventAPI->EV_FindModelIndex("models/ef_dragonsword.mdl");
     if (model <= 0) return;
     float origin[3], angles[3]{}, velocity[3]{};
-    std::copy_n(view.vieworg, 3, origin); origin[2] += 16;
+    std::copy_n(viewModel->origin, 3, origin); origin[2] += 16;
     auto* temp = engine.pEfxAPI->R_TempModel(origin, velocity, angles, .35f, model, 0);
     if (!temp) return;
     // Original client 02563390: R_TempModel .35, fade 3, additive alpha128,
-    // frameMax256 and a callback that follows the view. No stock gravity.
+    // frameMax256 and a callback that follows the viewmodel. No stock gravity.
     temp->flags &= ~(FTENT_GRAVITY | FTENT_COLLIDEWORLD);
     temp->flags |= FTENT_CLIENTCUSTOM | FTENT_SPRANIMATE | FTENT_FADEOUT;
     temp->callback = FollowDragonEffect;
     temp->tentOffset[2] = 16;
-    const auto* local = engine.GetLocalPlayer ? engine.GetLocalPlayer() : nullptr;
-    temp->clientIndex = local ? short(local->index) : 0;
-    std::copy_n(view.viewangles, 3, temp->entity.angles);
+    temp->clientIndex = short(viewModel->index);
+    std::copy_n(viewModel->angles, 3, temp->entity.angles);
+    std::copy_n(viewModel->angles, 3, temp->entity.curstate.angles);
     temp->entity.curstate.body = 0;
     temp->entity.curstate.frame = 0;
     temp->fadeSpeed = 3;
@@ -84,6 +100,12 @@ void DragonEffect(int subtype, float animationTime)
     const bool right = !engine.pfnGetCvarFloat || engine.pfnGetCvarFloat("cl_righthand") != 0;
     temp->entity.curstate.sequence = subtype + (right ? 0 : 1);
     temp->entity.curstate.iuser4 = int(effectEpoch);
+    // The engine owns this pool. Discard old leases when it recycles a slot;
+    // never infer ownership just from a model name on a network entity.
+    std::erase_if(dragonVisuals, [temp](const DragonVisual& visual) {
+        return visual.temp == temp || !OwnsDragonVisual(visual);
+    });
+    dragonVisuals.push_back({temp, temp->entity.model, effectEpoch});
     ++dragonEffects;
 }
 int ReceiveCompletion(const char*, int size, void* pointer)
@@ -153,6 +175,18 @@ melee::Contact PredictedContact(const melee::Attack& attack, const clientdata_t&
     // message corrects lateral-target hits that the local trace cannot know.
     return result;
 }
+}
+void PrepareMeleeEffectDraw(cl_entity_t* entity)
+{
+    if (!entity) return;
+    for (const auto& visual : dragonVisuals) {
+        if (&visual.temp->entity != entity || !OwnsDragonVisual(visual)) continue;
+        // Host adaptation: its TempEntUpdate precedes this frame's CalcRefdef.
+        // Refresh the original viewmodel pose at the actual draw boundary.
+        FollowDragonEffect(visual.temp, 0, engine.GetClientTime ? float(engine.GetClientTime()) : 0);
+        ++effectPoseUpdates;
+        return;
+    }
 }
 MeleeHandScope::MeleeHandScope(cl_entity_t* entity, int flags)
 {
@@ -260,6 +294,7 @@ void MeleeDiagnostics(std::ostream& out)
 {
     out << ",\"melee\":{\"weapon\":" << presentedWeapon << ",\"attacks\":" << predictedAttacks
         << ",\"completions\":" << completions << ",\"dragonEffects\":" << dragonEffects
+        << ",\"effectPoseUpdates\":" << effectPoseUpdates
         << ",\"rejected\":" << rejected << '}';
 }
 }

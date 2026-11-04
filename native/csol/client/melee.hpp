@@ -10,6 +10,7 @@ void ReceiveMeleeState(const WeaponCurrent& current);
 bool PredictMeleeWeapon(local_state_t* from, local_state_t* to, usercmd_t* command,
     int runFunctions, double time, unsigned seed);
 void MeleeDiagnostics(std::ostream& out);
+void PrepareMeleeEffectDraw(cl_entity_t* entity);
 
 // CSO knife variants invert the handedness used by studio bone setup. This
 // temporary value belongs only to the custom viewmodel draw, never prediction.

@@ -4,6 +4,7 @@
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
 #include "weapons.hpp"
+#include "melee.hpp"
 #include "shared_random.hpp"
 #include "monster_impact.hpp"
 #include "hud_style.hpp"
@@ -260,6 +261,7 @@ static int StudioDrawModel(int flags)
     try{InstallSequenceStudioGuards();}
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
+    PrepareMeleeEffectDraw(entity);
     ObserveViewAnimation(entity,flags);
     ObserveStudioEventSequence(entity,entity?entity->model:nullptr,flags);
     try { if(entity && DrawModel(entity,flags,originalDrawModel)) return 1; }

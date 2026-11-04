@@ -5,6 +5,12 @@
 #include <iostream>
 #include <limits>
 
+// The historical implementation has no draw-boundary entry. A no-op adapter
+// lets the same behavior suite run against its unchanged source as a negative.
+#ifdef CSOL_MELEE_LEGACY_DRAW_ENTRY
+namespace csol::client { void PrepareMeleeEffectDraw(cl_entity_t*) {} }
+#endif
+
 namespace csol::client {
 cl_enginefunc_t engine{}; cl_exportfuncs_t downstream{}; ref_params_t view{};
 WeaponDefinition definitions[2]{{melee::DragonSwordId,2,1,-1,-1,-1,-1,-1,0,"weapon_dragonsword"},
@@ -25,14 +31,39 @@ float rightHand{1}, localPrediction{1}, timeNow{30};
 bool hitWorld{};
 efx_api_t effects{}; event_api_t events{}; TEMPENTITY temp{};
 cl_entity_t local{}, viewModel{};
+model_t effectModel{}, recycledModel{};
+TEMPENTITY* allocatedTemp = &temp;
+bool haveViewModel = true;
 pfnUserMsgHook receiver{};
 void Check(bool good, const char* text)
 { ++checks; if (!good) { ++failures; std::cerr << "FAIL " << text << '\n'; } }
 bool Near(float a, float b) { return std::abs(a-b) < .0001f; }
+void Pose(cl_entity_t& entity, float x, float y, float z, float pitch, float yaw, float roll)
+{
+    entity.origin[0]=x;entity.origin[1]=y;entity.origin[2]=z;
+    entity.angles[0]=pitch;entity.angles[1]=yaw;entity.angles[2]=roll;
+}
+void CheckPose(const cl_entity_t& actual, const cl_entity_t& expected, const char* message, float zOffset=0)
+{
+    for(int i=0;i<3;++i) {
+        Check(Near(actual.origin[i],expected.origin[i]+(i==2?zOffset:0)),message);
+        Check(Near(actual.angles[i],expected.angles[i]),message);
+        // Actual host StudioSetUpTransform reads these for MOVETYPE_NONE.
+        Check(Near(actual.curstate.angles[i],expected.angles[i]),message);
+    }
+}
+template<class T> auto Bytes(const T& value)
+{
+    std::array<unsigned char,sizeof(T)> bytes{};
+    std::memcpy(bytes.data(),&value,sizeof(T));return bytes;
+}
 void Setup()
 {
-    local.index=1; viewModel.curstate.body=4;
-    engine.GetLocalPlayer=[](){return &local;}; engine.GetViewModel=[](){return &viewModel;};
+    local.index=1; viewModel.index=91;viewModel.curstate.body=4;
+    Pose(viewModel,17,-31,112,-28,47,6);
+    view.vieworg[0]=-101;view.vieworg[1]=203;view.vieworg[2]=9;
+    view.viewangles[0]=42;view.viewangles[1]=-65;view.viewangles[2]=-13;
+    engine.GetLocalPlayer=[](){return &local;}; engine.GetViewModel=[](){return haveViewModel?&viewModel:nullptr;};
     engine.GetClientTime=[](){return timeNow;};
     engine.pfnGetCvarFloat=[](const char* name){return !std::strcmp(name,"cl_lw")?localPrediction:rightHand;};
     engine.pfnHookUserMsg=[](const char* name,pfnUserMsgHook callback){Check(!std::strcmp(name,"CSOMelee"),"independent message name");receiver=callback;return 1;};
@@ -45,9 +76,21 @@ void Setup()
     events.EV_SetTraceHull=[](int hull){wantedHull=hull;};
     events.EV_PlayerTrace=[](float*,float*,int flags,int ignore,pmtrace_t* trace){
         Check(flags==PM_NORMAL && ignore==-1,"prediction trace contract");trace->fraction=hitWorld?.5f:1;trace->ent=0;};
-    effects.R_TempModel=[](float* origin,float*,float*,float life,int index,int bounce){
+    effects.R_TempModel=[](float* origin,float* velocity,float* angles,float life,int index,int bounce){
         ++temporaryCalls;Check(Near(life,.35f)&&index==7&&!bounce,"original temp model lifetime");
-        Check(Near(origin[2],view.vieworg[2]+16),"original initial view z offset");temp={};return &temp;};
+        for(int i=0;i<3;++i) {
+            Check(Near(origin[i],viewModel.origin[i]+(i==2?16:0)),"original initial viewmodel origin with one z offset");
+            Check(!velocity[i]&&!angles[i],"original allocation has zero velocity and initial angle argument");
+        }
+        if(!allocatedTemp)return static_cast<TEMPENTITY*>(nullptr);
+        *allocatedTemp={};allocatedTemp->entity.model=&effectModel;
+        allocatedTemp->entity.curstate.angles[0]=91;
+        allocatedTemp->entity.curstate.angles[1]=-121;
+        allocatedTemp->entity.curstate.angles[2]=37;
+        std::copy_n(origin,3,allocatedTemp->entity.origin);
+        std::copy_n(velocity,3,allocatedTemp->entity.baseline.origin);
+        allocatedTemp->die=timeNow+life;
+        return allocatedTemp;};
     downstream.HUD_PostRunCmd=[](local_state_t* from,local_state_t* to,usercmd_t*,int,double,unsigned){
         Check(from->client.m_iId==0,"extended ID hidden from stock predictor");*to=*from;to->client.weaponanim=99;to->client.viewmodel=99;};
     InitializeMeleeWeapons();Check(receiver!=nullptr,"message callback installed");
@@ -116,6 +159,106 @@ void Handedness()
     Check(std::isnan(hand.value),"invalid cvar remains unchanged");
     engine.pfnGetCvarPointer=nullptr;viewModel.model=nullptr;
 }
+void EffectLifecycle()
+{
+    // Original client 02563390/02563560 and hw 37830540 select the viewmodel;
+    // the draw refresh below is the host ordering adaptation, not a depth test.
+    std::array<TEMPENTITY,3> pool{};
+    State(melee::DragonSwordId);rightHand=1;haveViewModel=true;
+    Pose(viewModel,120,-90,44,-34,82,-7);
+    for(int i=0;i<2;++i) {
+        allocatedTemp=&pool[i];
+        Check(Complete(melee::DragonSwordId,100+i,1,0)==1,"independent authoritative effect accepted");
+        CheckPose(pool[i].entity,viewModel,"initial pose uses actual viewmodel",16);
+        Check(pool[i].clientIndex==viewModel.index && pool[i].clientIndex!=local.index,
+            "temp client index belongs to viewmodel rather than local player");
+    }
+    const auto untouched=Bytes(pool[1]);
+    pool[0].callback(&pool[0],.01f,timeNow);
+    CheckPose(pool[0].entity,viewModel,"callback removes creation-only offset");
+    Check(Bytes(pool[1])==untouched,"one callback does not move another effect");
+    const float lifetime=pool[0].die;
+    const float animationTime=pool[0].entity.curstate.animtime;
+    const int alpha=pool[0].entity.curstate.renderamt;
+    // TempEntUpdate sees the old pose; CalcRefdef then supplies a jump/turn.
+    Pose(viewModel,128,-86,91,-51,119,13);
+    PrepareMeleeEffectDraw(&pool[0].entity);
+    CheckPose(pool[0].entity,viewModel,"draw refresh sees this frame's jump and complete angles");
+    Check(Bytes(pool[1])==untouched,"draw refresh updates only the selected temp entity");
+    PrepareMeleeEffectDraw(&pool[1].entity);
+    CheckPose(pool[1].entity,viewModel,"each live effect refreshes independently");
+    for(float z:{134.f,80.f,-12.f}) {
+        Pose(viewModel,140-z,-65+z,z,17-z,125+z,9-z);
+        pool[0].callback(&pool[0],.02f,timeNow);
+        CheckPose(pool[0].entity,viewModel,"callback follows rising and falling viewmodel pose");
+        PrepareMeleeEffectDraw(&pool[0].entity);
+        CheckPose(pool[0].entity,viewModel,"same-frame redraw does not accumulate offset");
+    }
+    Check(Near(pool[0].die,lifetime)&&Near(pool[0].entity.curstate.animtime,animationTime)&&
+        pool[0].entity.curstate.renderamt==alpha,"pose refresh preserves lifetime and animation/fade state");
+    cl_entity_t unrelated=pool[0].entity;const auto unrelatedBefore=Bytes(unrelated);
+    PrepareMeleeEffectDraw(&unrelated);PrepareMeleeEffectDraw(nullptr);
+    Check(Bytes(unrelated)==unrelatedBefore,"copied model identity is not a temp-pool lease");
+
+    for(int mutation=0;mutation<4;++mutation) {
+        State(melee::DragonSwordId);
+        for(int i=0;i<2;++i) {
+            allocatedTemp=&pool[i];Complete(melee::DragonSwordId,200+i,1,0);
+        }
+        if(mutation==0)pool[0].callback=[](TEMPENTITY*,float,float){};
+        if(mutation==1)pool[0].entity.model=&recycledModel;
+        if(mutation==2)++pool[0].entity.curstate.iuser4;
+        if(mutation==3)pool[0].flags&=~FTENT_CLIENTCUSTOM;
+        const auto recycled=Bytes(pool[0]);
+        Pose(viewModel,100+mutation,-100-mutation,250+mutation,-60,131,21);
+        PrepareMeleeEffectDraw(&pool[0].entity);
+        Check(Bytes(pool[0])==recycled,"changed callback/model/session/flags cannot retain ownership");
+        PrepareMeleeEffectDraw(&pool[1].entity);
+        CheckPose(pool[1].entity,viewModel,"recycling one pool slot preserves other effects");
+        allocatedTemp=&pool[0];Complete(melee::DragonSwordId,202,1,0);
+        Pose(viewModel,500,600,700,80,-150,-30);
+        PrepareMeleeEffectDraw(&pool[0].entity);
+        CheckPose(pool[0].entity,viewModel,"reallocated slot receives exactly its new lease");
+        PrepareMeleeEffectDraw(&pool[1].entity);
+        CheckPose(pool[1].entity,viewModel,"new lease preserves other valid pool records");
+    }
+
+    for(int missing=0;missing<2;++missing) {
+        State(melee::DragonSwordId);allocatedTemp=&pool[0];
+        const auto getter=engine.GetViewModel;
+        if(missing==0)haveViewModel=false;else engine.GetViewModel=nullptr;
+        const int calls=temporaryCalls;
+        Complete(melee::DragonSwordId,300,1,0);
+        Check(temporaryCalls==calls,"missing viewmodel cannot allocate a camera-based effect");
+        haveViewModel=true;engine.GetViewModel=getter;
+        Complete(melee::DragonSwordId,301,1,0);
+        if(missing==0)haveViewModel=false;else engine.GetViewModel=nullptr;
+        PrepareMeleeEffectDraw(&pool[0].entity);
+        Check(Near(pool[0].die,timeNow)&&pool[0].entity.curstate.renderamt==0,
+            "missing viewmodel retires an already-owned effect");
+        haveViewModel=true;engine.GetViewModel=getter;
+    }
+    State(melee::DragonSwordId);allocatedTemp=nullptr;
+    const int allocationAttempts=temporaryCalls;
+    Complete(melee::DragonSwordId,400,1,0);
+    Check(temporaryCalls==allocationAttempts+1,"allocation failure is a completed safe attempt");
+
+    for(int boundary=0;boundary<4;++boundary) {
+        auto state=State(melee::DragonSwordId);state=Predict(state,0);
+        allocatedTemp=&pool[0];Complete(melee::DragonSwordId,500,1,0);
+        const auto before=Bytes(pool[0]);
+        if(boundary==0){current={29,1,-1,0,0};ReceiveMeleeState(current);}
+        if(boundary==1){current.state=0;ReceiveMeleeState(current);}
+        if(boundary==2){state.client.health=0;Predict(state,0);}
+        if(boundary==3)ResetMeleeWeapons();
+        PrepareMeleeEffectDraw(&pool[0].entity);
+        Check(Bytes(pool[0])==before,"cleared leases cannot modify stale pool storage at draw time");
+        pool[0].callback(&pool[0],.01f,timeNow);
+        Check(Near(pool[0].die,timeNow)&&pool[0].entity.curstate.renderamt==0,
+            "switch/death/reset invalidates callback and removes old effect");
+    }
+    allocatedTemp=&temp;haveViewModel=true;rightHand=1;State(melee::DragonSwordId);
+}
 }
 int main()
 {
@@ -151,8 +294,8 @@ int main()
     Check(temp.entity.curstate.sequence==0 && temp.entity.curstate.renderamt==128 &&
         temp.entity.curstate.rendermode==kRenderTransAdd && Near(temp.fadeSpeed,3),"original additive/alpha/fade contract");
     Check(Complete(melee::DragonSwordId,1,1,0)==1 && temporaryCalls==1,"duplicate completion never duplicates effect");
-    view.vieworg[0]=23;view.viewangles[1]=42;temp.callback(&temp,0,timeNow);
-    Check(Near(temp.entity.origin[0],23)&&Near(temp.entity.angles[1],42),"effect follows current view each frame");
+    Pose(viewModel,23,-11,105,-24,42,7);temp.callback(&temp,0,timeNow);
+    CheckPose(temp.entity,viewModel,"effect follows actual viewmodel each frame");
     state.weapondata[0].m_flNextPrimaryAttack=state.weapondata[0].m_flNextSecondaryAttack=-.001f;
     state=Predict(state,IN_ATTACK);Check(lastAnimation==2 && Near(state.weapondata[0].fuser1/8,.29f),"alternate slash uses original shorter hit delay");
     Check(Complete(melee::DragonSwordId,2,2,0)==1 && temporaryCalls==1,"alternate slash does not invent type84 effect");
@@ -187,6 +330,7 @@ int main()
     presentation=true;state=State(melee::DragonSwordId);
     Check(Complete(melee::DragonSwordId,1,8,0)==0 && Complete(melee::DragonSwordId,1,1,3)==0,"invalid animation/contact rejected");
     Check(receiver("CSOMelee",0,nullptr)==0,"bad packet rejected");
+    EffectLifecycle();
     std::cout<<"melee client "<<checks<<" checks, "<<failures<<" failures\n";
     return failures?1:0;
 }
