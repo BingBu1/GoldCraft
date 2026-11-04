@@ -9,12 +9,14 @@ import subprocess
 ROOT=Path(__file__).resolve().parent.parent
 PRELUDE=r'''
 #include "BUY_PROTOCOL_HEADER"
+#include "WEAPON_SLOTS_HEADER"
 #include <algorithm>
 #include <array>
 #include <cstring>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 using std::max;
 constexpr int FL_KILLME=1,FL_DORMANT=2,FL_FAKECLIENT=4,CT=2,TRUE=1,Menu_OFF=0;
@@ -43,13 +45,17 @@ struct CBasePlayerItem {virtual ~CBasePlayerItem()=default;virtual CBasePlayerIt
 struct CBasePlayerWeapon:CBasePlayerItem {int m_iClip{};CBasePlayerItem* GetWeaponPtr()override{return this;}};
 struct CBasePlayer: CBaseEntity {
     entvars_t vars;entvars_t* pev=&vars;edict_t entity;bool has_disconnected{};int m_iTeam=CT,m_iAccount=5000,m_iMenu=1,m_iKevlar{};
-    int m_rgAmmo[MAX_AMMO_SLOTS]{};CBasePlayerItem* m_rgpPlayerItems[6]{};
+    int m_iNumSpawns=1;int m_rgAmmo[MAX_AMMO_SLOTS]{};CBasePlayerItem* m_rgpPlayerItems[6]{};
     CBasePlayer(){entity.object=this;}int entindex(){return 1;}bool IsAlive(){return alive;}bool CanPlayerBuy(bool){return canBuy;}
     void AddAccount(int amount,int,bool track){++charges;debits.push_back(amount);trackFlags.push_back(track);m_iAccount=std::clamp(m_iAccount+amount,0,16000);if(accountCallback){auto f=std::move(accountCallback);f();}}
 };
 CBaseEntity* CBaseEntity::Instance(edict_t* e){return e->object;}
-struct EHANDLE {CBasePlayer* p;int serial;EHANDLE(CBasePlayer* q):p(q),serial(q->entity.serial){}template<class T>T* Get()const{return p->entity.serial==serial?dynamic_cast<T*>(p):nullptr;}};
-struct CSOLScenarioSdkScope {std::uint64_t saved=generation;bool Current(){return saved==generation;}bool Scenario(){return scenario;}};
+struct EHANDLE {CBasePlayer* p;int serial;EHANDLE(CBasePlayer* q):p(q),serial(q->entity.serial){}edict_t* Get()const{return p->entity.serial==serial?&p->entity:nullptr;}template<class T>T* Get()const{return p->entity.serial==serial?dynamic_cast<T*>(p):nullptr;}};
+struct PlayerState {std::uint64_t generation=1;};
+struct Registry {std::shared_ptr<PlayerState> state=std::make_shared<PlayerState>();bool Active(){return true;}std::shared_ptr<PlayerState> Find(const EHANDLE& h){return h.Get()?state:nullptr;}};
+auto authority=std::make_shared<Registry>();
+auto CSOL_ScenarioPlayerAuthority(const void*){return authority;}
+struct CSOLScenarioSdkScope {std::uint64_t saved=generation;bool Current(){return saved==generation;}bool Scenario(){return scenario;}std::shared_ptr<int> EntityAccess(){return {};}};
 struct Info {int cost=2500;const char* entityName="weapon";}info;
 struct Rules {bool m_bMapHasVIPSafetyZone{};}rules;
 Rules* CSGameRules(){return &rules;}
@@ -57,7 +63,7 @@ Info* GetWeaponInfo(int){return &info;}
 bool CSOL_UsesScenarioRules(){return scenario;}
 bool CSOL_ScenarioCanBuy(){return scenario;}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer*){return true;}
-bool CSOL_ExtendedWeapon(int id){return id>=32&&id<1000;}
+bool CSOL_ExtendedWeapon(int id){return csol::ExtendedWeaponId(id);}
 bool CSOL_CanDeliverScenarioWeapon(CBasePlayer*,int){return canDeliver;}
 bool CanBuyWeaponByMaptype(int,WeaponIdType,bool){return true;}
 bool CSOL_DeliverScenarioWeapon(CBasePlayer*,int){++deliveries;if(deliveryCallback){auto f=std::move(deliveryCallback);f();}return delivery;}
@@ -126,6 +132,14 @@ int main(){try{
     Command(p,{"csol_buy_menu","31"});Command(p,{"csol_buy","31","197"});Check(deliveries==2&&p.m_iAccount==0&&Last().result==Result::Success);
     Reset(p);p.m_iAccount=4749;Command(p,{"csol_buy_menu","32"});Command(p,{"csol_buy","32","197"});Check(deliveries==0&&charges==0&&Last().result==Result::Insufficient);
     Reset(p);delivery=false;Command(p,{"csol_buy_menu","33"});Command(p,{"csol_buy","33","197"});Check(p.m_iAccount==5000&&debits==std::vector<int>({-4750,4750}));
+    for(int id:{1022,1023}){
+        const auto text=std::to_string(id);Reset(p);p.m_iAccount=0;
+        Check(CSOL_ExtendedWeapon(id));Command(p,{"csol_buy_menu","34"});Command(p,{"csol_buy","34",text.c_str()});
+        Check(deliveries==1&&weaponCalls==0&&itemCalls==0&&p.m_iAccount==0&&Last().price==0&&Last().result==Result::Success);
+        const auto attempts=charges;Command(p,{"csol_buy","34",text.c_str()});Check(deliveries==1&&charges==attempts);
+        Reset(p);delivery=false;Command(p,{"csol_buy_menu","35"});Command(p,{"csol_buy","35",text.c_str()});
+        Check(deliveries==1&&p.m_iAccount==5000&&Last().result==Result::Failed);
+    }
     Reset(p);Command(p,{"csol_buy_menu","65536"});Check(packets.empty());Command(p,{"csol_buy_menu","-1"});Check(packets.empty());
     std::cout<<"buy menu server: "<<checks<<" checks passed\n";return 0;
 }catch(const std::exception& e){std::cerr<<e.what()<<" after "<<checks<<" checks\n";return 1;}}
@@ -135,7 +149,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--clang',required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();out=a.output.resolve()
     if not out.is_relative_to(ROOT/'build'):raise ValueError('Output must stay in workspace build')
     out.mkdir(parents=True,exist_ok=True);source=ROOT/'native/csol/server/buy_menu.cpp';body=source.read_text(encoding='utf8');body=re.sub(r'^#include[^\n]*\n','',body,flags=re.M)
-    prelude=PRELUDE.replace('BUY_PROTOCOL_HEADER',(ROOT/'native/csol/buy_menu.hpp').as_posix())
+    prelude=PRELUDE.replace('BUY_PROTOCOL_HEADER',(ROOT/'native/csol/buy_menu.hpp').as_posix()).replace('WEAPON_SLOTS_HEADER',(ROOT/'native/csol/weapon_slots.hpp').as_posix())
     cpp=out/'server-fixture.cpp';cpp.write_text(prelude+body+TESTS,encoding='utf8')
     flags=['--target=i686-pc-windows-msvc','/nologo','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3','/clang:-flto=thin','/arch:AVX2','/fp:precise']
     commands=[[a.clang,*flags,'/c',str(cpp),'/Fo'+str(out/'server-fixture.obj')],

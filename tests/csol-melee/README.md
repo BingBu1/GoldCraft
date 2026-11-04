@@ -4,6 +4,10 @@
 
 `wire.hpp` 由 ReGameDLL 的实际 `weapon_data_t` delta 块生成字段表，应用项目既有的武器 ID/弹夹位宽扩展。未传输的字段清零，传输字段按位宽和倍率量化；遍历全部 65,536 个序号，验证动画、序号与交替奇偶状态。此测试不等于实际网络连接。
 
+`menu_sdk.cpp` 用完整生产 SDK 对象执行实际 B 菜单命令、WeaponService、两刀实体、库存、Deploy 和 AddAccount；注入真实 ReAPI 回调，检查零资金购买、重复请求、同种刀冷却保持、两刀往返替换、主副武器保留及回滚/生命变化。只有规则的购买阶段谓词在独立冻结规则 TU 中替换成受控许可；真实规则注册、玩家身份、Selection 会话和武器目录仍执行生产代码。因此这组测试不代表整张地图进入可购买阶段、真实资源下载或画面验收。
+
+先运行 `python tests/csol-melee/prepare_menu_sdk.py --baseline <已验证完整服务端构建> --template <实际SDK编译环境及依赖模板> --edges <匹配SDK生成的引擎边界目录> --menu <已导出的购买JSON> --output <新的build子目录>`，再运行 `python tests/csol-melee/run_menu_sdk.py <该目录>`。目录保存冻结源、完整对象身份、受控谓词原文、include闭包和每组结果；`--compile-only` 用于错开完整链接。2026-11-04 的 `build/csol-melee-menu-sdk-20261104-02` 为8组48行为断言/4184 SDK检查，零失败；01保留复用Combat夹具缺冠军表的首败，未进入购买，不是生产购买失败。
+
 运行 `python tools/Test-CSOLMelee.py prepare sdk-new --compiler <clang-cl.exe> --environment <environment.json>`，再运行 `python tools/Test-CSOLMelee.py execute sdk-new`。环境 JSON 使用匹配 x86 MSVC/Windows SDK 的 `INCLUDE`、`LIB`、`LIBPATH`；编译器采用项目指定 Clang。脚本将任务源独立冻结，通过 VFS 保持头文件逻辑身份，单任务执行，并记录实际 include、输入哈希和结果。输出仅位于 `build/csol-melee-20261102`。
 
 2026-11-02 检查点：核心28项；实际客户端119项（含上述全序号循环）；8个真实服务端 SDK TU、2个真实客户端 TU 编译通过。证据为该目录的 `core-01`、`sdk-05`前6项、`sdk-06`及`sdk-07/audit-corrected.json`。05的第7项因冻结头与原路径重复包含而失败，06改VFS；06编译/测试全过，但外部client TU缺两个头的预登记，07单独重编该TU。07最初审计误把Windows路径大小写当变化，补审计确认588依赖的内容均未变；原失败记录保留。

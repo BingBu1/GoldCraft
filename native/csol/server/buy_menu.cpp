@@ -4,6 +4,7 @@
 #include "game_rules_gate.h"
 #include "weapon_service.h"
 #include "weapon_slots.h"
+#include "scenario_player_runtime.h"
 #include "../buy_menu.hpp"
 #include <array>
 #include <limits>
@@ -33,12 +34,12 @@ int Price(CBasePlayer* player,const Item& item)
     // The stock item consumer discounts a helmet/vest already owned.
     if(item.id==1002)return player->pev->armorvalue>=100?HELMET_PRICE:
         player->m_iKevlar==ARMOR_VESTHELM?KEVLAR_PRICE:ASSAULTSUIT_PRICE;
-    if(item.id>=1000 || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
+    if(!IsWeapon(item) || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
     auto* info=GetWeaponInfo(item.id);return info?info->cost:0;
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
-    if(item.id>=1000)return true;
+    if(!IsWeapon(item))return true;
     if(CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
     auto* info=GetWeaponInfo(item.id);
     return info&&info->entityName&&CanBuyWeaponByMaptype(player->m_iTeam,static_cast<WeaponIdType>(item.id),CSGameRules()->m_bMapHasVIPSafetyZone==TRUE);
@@ -71,7 +72,7 @@ bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
     // Scenario participants remain CT. The T/CT tabs classify equipment;
     // choosing a T weapon must not temporarily change authoritative team state.
     const auto* item=csol::buy::Find(weaponId);
-    return CSOL_UsesScenarioRules()&&playerTeam==CT&&item&&item->id<1000&&!CSOL_ExtendedWeapon(item->id);
+    return CSOL_UsesScenarioRules()&&playerTeam==CT&&item&&csol::buy::IsWeapon(*item)&&!CSOL_ExtendedWeapon(item->id);
 }
 bool CSOL_PrecacheBuyMenu()
 {
@@ -81,7 +82,9 @@ bool CSOL_PrecacheBuyMenu()
     try{resources=csol::buy::Resources(csol::buy::ParsePresentation({reinterpret_cast<const char*>(file),std::size_t(length)}));}
     catch(const std::exception& e){FREE_FILE(file);ALERT(at_error,"CSOL buy menu: %s\n",e.what());return false;}
     FREE_FILE(file);
-    for(const auto& path:resources){int size{};auto* bytes=LOAD_FILE_FOR_ME(path.c_str(),&size);if(!bytes||size<=0){if(bytes)FREE_FILE(bytes);ALERT(at_error,"CSOL buy resource missing: %s\n",path.c_str());return false;}FREE_FILE(bytes);}
+    for(const auto& path:resources)
+        if(!g_engfuncs.pfnGetFileSize || GET_FILE_SIZE(path.c_str())<=0)
+        {ALERT(at_error,"CSOL buy resource missing: %s\n",path.c_str());return false;}
     for(const auto& path:resources)PRECACHE_GENERIC(const_cast<char*>(path.c_str()));
     if(!message)message=REG_USER_MSG(csol::buy::Message,static_cast<int>(csol::buy::MessageBytes));
     hintMessage=REG_USER_MSG("ZBSVer2",-1);
@@ -101,7 +104,19 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     if(state.busy)return true;state.busy=true;
     struct Finish {Client& c;int user;~Finish(){if(c.userid==user)c.busy=false;}}finish{state,userid};
     const EHANDLE handle(player);
-    const auto current=[&](){return scope.Current()&&state.userid==userid&&handle.Get<CBaseEntity>()==player&&!player->has_disconnected&&!(player->pev->flags&FL_KILLME);};
+    const int spawns=player->m_iNumSpawns;
+    const auto authority=CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
+    const auto life=authority?authority->Find(handle):nullptr;
+    if(!scope.Current() || !life)return true;
+    const auto generation=life->generation;
+    const auto current=[&](){
+        if(!scope.Current() || state.userid!=userid || handle.Get<CBaseEntity>()!=player)return false;
+        const int now=GETPLAYERUSERID(handle.Get());
+        return scope.Current() && state.userid==userid && handle.Get<CBaseEntity>()==player &&
+            now==userid && !player->has_disconnected && !(player->pev->flags&FL_KILLME) &&
+            player->m_iNumSpawns==spawns && authority->Active() && authority->Find(handle)==life &&
+            life->generation==generation;
+    };
     if(!Eligible(player)||!player->CanPlayerBuy(false)||!current()){
         if(current())Send({Kind::Result,request,id,0,std::max(0,player->m_iAccount),Result::Unavailable,2},player);return true;
     }
@@ -121,8 +136,8 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     const auto* item=Find(id);if(!item)return true;
     const int price=Price(player,*item);bool success=false;Result result=Result::Failed;
     if(!Available(player,*item)||!current())result=Result::Unavailable;
-    else if(item->id<2000&&player->m_iAccount<price)result=Result::Insufficient;
-    else if(item->id>=2000){
+    else if(!IsAmmunition(item->id)&&player->m_iAccount<price)result=Result::Insufficient;
+    else if(IsAmmunition(item->id)){
         const int slot=item->id==2001?PRIMARY_WEAPON_SLOT:PISTOL_SLOT;
         const auto ammoState=[&](){
             std::array<int,MAX_AMMO_SLOTS+2> ammo{};
@@ -149,7 +164,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
             first=false;
         }
     }
-    else if(item->id>=1000){
+    else if(IsEquipment(item->id)){
         const int before=player->m_iAccount;
         constexpr int slots[]{MENU_SLOT_ITEM_VEST,MENU_SLOT_ITEM_VESTHELM,MENU_SLOT_ITEM_HEGREN,MENU_SLOT_ITEM_FLASHGREN,MENU_SLOT_ITEM_SMOKEGREN};
         BuyItem(player,slots[item->id-1001]);if(current())success=player->m_iAccount<before;

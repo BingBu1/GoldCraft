@@ -65,9 +65,8 @@ void PrecacheHudStyle()
         const auto paths=csol::hud_style::ResourcePaths(csol::hud_style::ParseCatalog(json));
         for(const auto& path:paths)
         {
-            int length{};auto* bytes=LOAD_FILE_FOR_ME(path.c_str(),&length);
-            if(bytes)FREE_FILE(bytes);
-            if(!bytes || length<=0)throw std::runtime_error("missing HUD dependency: "+path);
+            if(!g_engfuncs.pfnGetFileSize || GET_FILE_SIZE(path.c_str())<=0)
+                throw std::runtime_error("missing HUD dependency: "+path);
         }
         for(const auto& path:paths)PRECACHE_GENERIC(path.c_str());
     }
@@ -89,7 +88,10 @@ void CSOL_PrecacheCharacters()
             if(name.empty())continue;
             if(name.size()>=64 || name.front()=='/' || name.find("..")!=name.npos || name.find_first_of(":\\\"\t ")!=name.npos || !unique.insert(name).second || names.size()>=4096)
                 throw std::runtime_error("invalid character download manifest");
-            int length=0;auto* bytes=LOAD_FILE_FOR_ME(name.data(),&length);if(!bytes)throw std::runtime_error("missing character dependency: "+name);FREE_FILE(bytes);
+            // COM_FileSize opens through the engine VFS, including PAK entries.
+            // This existence check must not read every model body on each map.
+            if(!g_engfuncs.pfnGetFileSize || GET_FILE_SIZE(name.c_str())<0)
+                throw std::runtime_error("missing character dependency: "+name);
             names.push_back(name);
         }
         for(const auto& c:parsed)if(!unique.contains(c.ModelPath()) || !unique.contains(c.portrait))throw std::runtime_error("incomplete character manifest");

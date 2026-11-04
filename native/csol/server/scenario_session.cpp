@@ -18,6 +18,7 @@
 #include "../scenario_upgrades.hpp"
 #include "../scenario_abilities.hpp"
 #include "../buy_zone_hint.hpp"
+#include "../boss_health.hpp"
 #include "../scenario_round_hud.hpp"
 #include "../scenario_respawn_resources.hpp"
 #include "../scenario/dialogue_resources.hpp"
@@ -165,6 +166,8 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     std::set<std::string> hudPaths{csol::upgrades::FontPath, csol::upgrades::DigitSpritePath};
     for (const auto& image : csol::upgrades::Resources) hudPaths.emplace(image.path);
     for (const auto* image : csol::abilities::DownloadResources) hudPaths.emplace(image);
+    for (const auto* image : csol::boss_health::Resources) hudPaths.emplace(image);
+    for (const auto* image : csol::boss_health::AbilityResources) hudPaths.emplace(image);
     for (std::size_t type = 0; type < csol::status::ImageCount; ++type)
         hudPaths.emplace(std::string(csol::status::ImagePrefix) + std::to_string(type) + ".tga");
     for (const auto* image : csol::buy_hint::Images) hudPaths.emplace(image);

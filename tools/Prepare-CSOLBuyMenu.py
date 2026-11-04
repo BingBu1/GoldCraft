@@ -30,7 +30,7 @@ def main():
     theme=scheme['basesettings'];edges=['topleft','topcenter','topright','middleleft','middlecenter','middleright','bottomleft','bottomcenter','bottomright']
     images=[]
     catalog=(ROOT/'native/csol/buy_menu.cpp').read_text(encoding='utf-8')
-    for ident,icon in re.findall(r'\{(\d+),\d+,"[^"]*","[^"]*","([^"]*)",\d+\}',catalog):
+    for ident,icon in re.findall(r'\{(\d+),\d+,"[^"]*","[^"]*","([^"]*)",\d+(?:,WeaponSlot::\w+)?\}',catalog):
         if not icon:continue
         name='gfx/vgui/basket/'+icon
         if not (source/(name+'.tga')).is_file():name='gfx/vgui/'+icon
@@ -51,7 +51,7 @@ def main():
             raise ValueError(f'Unexpected original price text {token}: {localized_price}, expected {expected_text}')
         if localized_price!=price:
             price_text_differences.append(dict(weapon=name,token=token,localizedPrice=localized_price,runtimePrice=price))
-    for ident in (96,112,130,144,197,203,220,312,725,726):
+    for ident in (96,112,130,144,197,203,220,312,725,726,1022,1023):
         if not any(image['id']==ident for image in images):
             raise ValueError(f'Missing original purchase image for weapon {ident}')
     for n in ['beamgun','beamgunle']:assert json.loads(read('weapons/weapon_'+n+'.json'))['price']==6100

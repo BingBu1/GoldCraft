@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Both the current and pinned upstream map-buy tables are included by runner.
 #include "../../native/csol/buy_menu.hpp"
+#include "../../native/csol/weapon_slots.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
@@ -8,7 +9,7 @@
 constexpr int CT=2,TERRORIST=1;
 bool scenario{};
 bool CSOL_UsesScenarioRules(){return scenario;}
-bool CSOL_ExtendedWeapon(int id){return id==144||id==220||id==725||id==726;}
+bool CSOL_ExtendedWeapon(int id){return csol::ExtendedWeaponId(id);}
 #include "actual_team_helper.inc"
 #include "actual_team_table.inc"
 #include "upstream_team_table.inc"

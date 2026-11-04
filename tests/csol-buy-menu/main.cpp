@@ -177,6 +177,8 @@ void Key(int key,const char* binding=nullptr){TestOverlay overlay;int down=1,res
 void JsonTests(const std::string& original){
     auto p=ParsePresentation(original);Check(p.width==606&&p.favorites.size()==8,"modern dimensions and eight slots");
     Check(p.images.contains(197)&&p.images.at(197).path=="gfx/csol/buy/w197.tga","K3 original purchase image present");
+    Check(p.images.contains(1022)&&p.images.at(1022).path=="gfx/csol/buy/w1022.tga"&&
+        p.images.contains(1023)&&p.images.at(1023).path=="gfx/csol/buy/w1023.tga","both CSOL knife purchase images present");
     const auto resources=Resources(p);Check(std::find(resources.begin(),resources.end(),p.keyboard.path)!=resources.end(),"keyboard texture advertised");
     Check(std::find(resources.begin(),resources.end(),PresentationResource)!=resources.end(),"versioned menu advertised to downloads");
     Check(std::find(resources.begin(),resources.end(),"models/csol/buymenu.json")==resources.end(),"old cached menu is not current download");
@@ -189,6 +191,13 @@ void JsonTests(const std::string& original){
     d.Parse(original.c_str());d["favorites"][0][0].SetInt(600);bool caught=false;try{ParsePresentation(serialize());}catch(...){caught=true;}Check(caught,"out-of-panel favorite rejected");
     d.Parse(original.c_str());d["keyboard"]["path"].SetString("gfx/csol/buy/../outside.tga",d.GetAllocator());caught=false;try{ParsePresentation(serialize());}catch(...){caught=true;}Check(caught,"path traversal rejected");
     d.Parse(original.c_str());d["version"].SetInt(3);caught=false;try{ParsePresentation(serialize());}catch(...){caught=true;}Check(caught,"unknown schema rejected");
+    for(int id:{1022,1023}){
+        d.Parse(original.c_str());auto& images=d["images"];
+        for(auto it=images.Begin();it!=images.End();++it)if((*it)["id"].GetInt()==id){images.Erase(it);break;}
+        caught=false;try{ParsePresentation(serialize());}catch(...){caught=true;}
+        Check(caught,"missing either knife image rejects incomplete presentation");
+        Check(std::find(resources.begin(),resources.end(),p.images.at(id).path)!=resources.end(),"knife image advertised for first-time download");
+    }
 }
 void CachedResourceTests(const std::string& original){
     rapidjson::Document old;old.Parse(original.c_str());auto& images=old["images"];
@@ -269,6 +278,20 @@ void ProductIdentityTests()
     for(int id:{1001,1002,1003,1004,1005})Check(IsEquipment(id)&&RebuyOrder(*Find(id))==1,"only five native equipment IDs select BuyItem");
     for(int id:{1000,1006,1022,1023,1999,2001,2002,65535})Check(!IsEquipment(id),"other IDs cannot index the equipment array");
     for(int id:{2001,2002})Check(IsAmmunition(id)&&RebuyOrder(*Find(id))==2,"ammo fills after weapons and equipment");
+    for(int id:{1022,1023}){
+        const auto* knife=Find(id);
+        Check(knife&&knife->category==9&&knife->slot==WeaponSlot::Melee&&knife->extendedPrice==0&&InTeamList(*knife,1)&&InTeamList(*knife,2),
+            "production catalog lists both CSOL knives under melee for both teams at $0");
+    }
+    Reset();Select(8);Check(category==9&&Rows().size()==2&&Rows()[0]->id==1022&&Rows()[1]->id==1023,"melee category shows both knives");
+    for(int id:{1022,1023}){
+        Reset();balance=0;offers.at(id).price=0;
+        Purchase(*Find(id));Check(waiting&&commands.back()=="csol_buy 7 "+std::to_string(id)+"\n","free knife remains purchasable with zero money");
+        Deliver(Kind::Result,id,Result::Success,-1,0);
+        Check(!visible&&lastPurchases==std::vector<int>{id},"free knife success closes menu and enters rebuy history");
+    }
+    Reset();RememberPurchase(144);RememberPurchase(220);RememberPurchase(1022);RememberPurchase(1023);
+    Check(lastPurchases==std::vector<int>({144,220,1023}),"real knife catalog replaces only melee rebuy entry");
 }
 void OriginalBuy(){++originalBuys;}
 void OriginalCancel(){++originalCancels;}
