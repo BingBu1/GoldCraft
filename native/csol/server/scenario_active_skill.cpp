@@ -130,7 +130,13 @@ public:
         csol::skillgate::Snapshot candidate;
         candidate.subtype = static_cast<std::uint16_t>(m_type);
         if (!m_traits.automaticTrigger) candidate.flags |= csol::skillgate::Manual;
-        const bool preparing = m_timers.effects.pendingAt >= 0;
+        // 106E4B30 retains pendingAt when action5 is cancelled; 106E1D10
+        // still permits the next cast once its original cooldown expires.
+        // A retained timestamp alone must not lock the client's activation key.
+        bool preparing{};
+        if (m_timers.effects.pendingAt >= 0 &&
+            (!m_host->CharacterActionPlaying(preparing, error) || !Current() ||
+                m_state.lock()->skillLifeSerial != life || !error.message.empty())) return false;
         if (preparing)
         {
             candidate.flags |= csol::skillgate::Preparing;
