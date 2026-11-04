@@ -3,6 +3,7 @@
 #include "../../native/csol/client/melee.cpp"
 #include "wire.hpp"
 #include <iostream>
+#include <limits>
 
 namespace csol::client {
 cl_enginefunc_t engine{}; cl_exportfuncs_t downstream{}; ref_params_t view{};
@@ -70,6 +71,51 @@ int Complete(int id,int serial,int animation,int contact,int offset=0)
     unsigned char data[]{1,byte(id),byte(id>>8),byte(serial),byte(serial>>8),byte(animation),byte(contact),byte(offset),byte(offset>>8)};
     return receiver("CSOMelee",sizeof(data),data);
 }
+void Handedness()
+{
+    static cvar_t hand{};
+    static const char* directory = "cstrike";
+    model_t model{}; model.type = mod_studio; viewModel.model = &model;
+    char setting[] = "1"; hand.string = setting; hand.flags = 7;
+    engine.pfnGetCvarPointer = [](const char* name) { return !std::strcmp(name,"cl_righthand") ? &hand : nullptr; };
+    engine.pfnGetGameDirectory = []() { return directory; };
+    for (int id : {melee::DragonSwordId, melee::SkullAxeId}) {
+        current = {id,1,-1,0,0};
+        std::strcpy(model.name, melee::Resource(melee::WeaponVariant(id)).viewModel);
+        for (float value : {0.f,1.f,.5f,-1.f,2.f}) for (int flags : {0,STUDIO_RENDER,STUDIO_EVENTS,STUDIO_RENDER|STUDIO_EVENTS}) {
+            hand.value = value;
+            {
+                MeleeHandScope scope(&viewModel,flags);
+                Check(hand.value == (flags ? (std::trunc(value)==0 ? 1.f : 0.f) : value),
+                    "CSO knife handedness covers both render and event bone sampling");
+                Check(hand.string==setting && hand.flags==7 && viewModel.model==&model,
+                    "hand scope preserves cvar text, flags and model identity");
+            }
+            Check(hand.value==value,"hand scope restores exact user value");
+            try { MeleeHandScope scope(&viewModel,flags); throw 5; }
+            catch(int) { Check(hand.value==value,"hand scope restores after draw failure"); }
+        }
+        for (int boundary=0;boundary<6;++boundary) {
+            hand.value=1;current={id,1,-1,0,0};directory="cstrike";
+            std::strcpy(model.name,melee::Resource(melee::WeaponVariant(id)).viewModel);
+            cl_entity_t other=viewModel;auto* entity=&viewModel;
+            if(boundary==0)entity=&other;
+            if(boundary==1)current.state=0;
+            if(boundary==2)current.id=29;
+            if(boundary==3)directory="czero";
+            if(boundary==4)std::strcpy(model.name,"models/v_k3.mdl");
+            if(boundary==5)entity=nullptr;
+            { MeleeHandScope scope(entity,STUDIO_RENDER);Check(hand.value==1,"unrelated draw or stale identity never flips handedness"); }
+            Check(hand.value==1,"excluded draw preserves setting");
+        }
+    }
+    current={melee::DragonSwordId,1,-1,0,0};directory="cstrike";
+    std::strcpy(model.name,melee::DragonSwordResources.viewModel);
+    hand.value=std::numeric_limits<float>::quiet_NaN();
+    { MeleeHandScope scope(&viewModel,STUDIO_RENDER);Check(std::isnan(hand.value),"invalid cvar is not rewritten"); }
+    Check(std::isnan(hand.value),"invalid cvar remains unchanged");
+    engine.pfnGetCvarPointer=nullptr;viewModel.model=nullptr;
+}
 }
 int main()
 {
@@ -86,6 +132,7 @@ int main()
     const auto lost=wire::RoundTrip(unsent);
     Check(!lost.iuser2 && !lost.iuser3 && lost.iuser1!=300,"original unmapped fields and scaled ordinal are not wire-safe");
     Setup();
+    Handedness();
     auto state=Predict(State(melee::DragonSwordId),IN_ATTACK);
     state.weapondata[0]=wire::RoundTrip(state.weapondata[0]);
     Check(lastAnimation==1 && recordedBody==4,"first dragon slash preserves character hands");

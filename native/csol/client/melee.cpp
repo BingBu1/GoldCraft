@@ -154,6 +154,27 @@ melee::Contact PredictedContact(const melee::Attack& attack, const clientdata_t&
     return result;
 }
 }
+MeleeHandScope::MeleeHandScope(cl_entity_t* entity, int flags)
+{
+    const auto& current = CurrentExtendedWeapon();
+    if (!(flags & (STUDIO_RENDER | STUDIO_EVENTS)) || !current.state || !melee::IsWeapon(current.id) ||
+        !entity || !entity->model || !engine.GetViewModel || entity != engine.GetViewModel() ||
+        !engine.pfnGetGameDirectory || !engine.pfnGetCvarPointer) return;
+    const char* game = engine.pfnGetGameDirectory();
+    if (!game || _stricmp(game, "cstrike") ||
+        std::strcmp(entity->model->name, melee::Resource(melee::WeaponVariant(current.id)).viewModel)) return;
+    auto* value = engine.pfnGetCvarPointer("cl_righthand");
+    if (!value || !std::isfinite(value->value)) return;
+    // Original CSO client 02ACA81F..02ACA9B6: knife variants 10 and 16 use
+    // integer zero/nonzero inversion for RENDER or EVENTS; 02ACB99E restores
+    // it after drawing. The host bone-only call deliberately omits both flags.
+    handedness = value; savedHandedness = value->value;
+    value->value = std::trunc(savedHandedness) == 0 ? 1.f : 0.f;
+}
+MeleeHandScope::~MeleeHandScope()
+{
+    if (handedness) handedness->value = savedHandedness;
+}
 void InitializeMeleeWeapons() { engine.pfnHookUserMsg(melee::EffectMessage, ReceiveCompletion); }
 void ResetMeleeWeapons()
 {

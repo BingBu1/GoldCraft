@@ -29,6 +29,7 @@
 #include "scenario_weapon_state.h"
 #include "wpn_k3.h"
 #include "wpn_melee.h"
+#include "melee_purchase.h"
 #include "weapon_slots.h"
 #include "weapons.h"
 #include "../k3.hpp"
@@ -2835,6 +2836,24 @@ bool CSOL_ScenarioSetMeleeIdentity(CBasePlayerWeapon& weapon)
     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
     const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
     return weapons && weapons->Current() && weapons->SetItemIdentity(weapon, item) && scope.Current();
+}
+
+bool CSOL_ScenarioRefreshMeleeSelection(CBasePlayer& player, CBasePlayerWeapon& weapon)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy()) return false;
+    const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+    const auto runtime = rules ? rules->Runtime() : nullptr;
+    const auto players = runtime ? runtime->players : nullptr;
+    const auto session = runtime ? runtime->session : nullptr;
+    const auto weapons = session ? session->Weapons() : nullptr;
+    const EHANDLE handle(&player);
+    const auto state = players ? players->Find(handle) : nullptr;
+    if (!state || !weapons) return false;
+    const auto generation = state->generation;
+    return weapons->RefreshMeleeSelection(player, generation, weapon) && scope.Current() &&
+        runtime->players == players && runtime->session == session && session->Weapons() == weapons &&
+        players->Find(handle) == state && state->generation == generation;
 }
 
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity)

@@ -139,7 +139,24 @@ public:
     // registered here; other selections require their real implementation.
     std::array<std::int32_t, 2> DefaultSelection() const { return m_defaultSelection; }
     bool ValidSelection(std::array<std::int32_t, 2> items) const;
+    // This is the registered player-session generation, not a respawn/life
+    // serial. Repeated Prepare/profile selection must retain imported maps.
     bool SelectItems(CBasePlayer& player, std::uint64_t generation, std::array<std::int32_t, 2> items);
+    // Trusted complete snapshots of the player's selection metadata. Paint
+    // keys/values retain their original signed width; part keys have already
+    // undergone the original uint16 conversion. This is not the unresolved
+    // account loader or its alias expansion. A registered selection must exist.
+    bool ReplaceSelectionMetadata(CBasePlayer& player, std::uint64_t generation,
+        std::map<std::int32_t, std::int32_t> paints,
+        std::map<std::uint16_t, std::array<std::uint32_t, 2>> parts);
+    // Original selection common tail. The exact owned knife may coexist with
+    // the previous knife during the host replacement transaction. No attack,
+    // deployment, attribute-key or enhancement state is reset here.
+    bool RefreshMeleeSelection(CBasePlayer& player, std::uint64_t generation,
+        CBasePlayerWeapon& weapon);
+    // CSO's independent weaponpainttype field; not standard CS entvars iuser1.
+    // Its client transport/rendering remains separate from this server state.
+    std::int32_t PaintType(const CBasePlayerWeapon& weapon) const;
     void RemovePlayer(const EHANDLE& player, std::uint64_t generation);
     // Called only by the actual native HE creation path, never by classname.
     bool RecordHeGrenade(CBaseEntity& grenade);
@@ -163,6 +180,7 @@ private:
         std::uint32_t attributeKey{};
         std::uint16_t enhancementLevel{};
         std::optional<std::int32_t> addonInput;
+        std::int32_t paintType{};
     };
     struct AttributeCounters { std::uint32_t sequence{}, live{}; };
     struct AttributeRecord
@@ -186,7 +204,10 @@ private:
         EHANDLE player;
         std::uint64_t generation{};
         std::array<std::int32_t, 2> items{};
+        std::map<std::int32_t, std::int32_t> paints;
+        std::map<std::uint16_t, std::array<std::uint32_t, 2>> parts;
     };
+    Selection* FindSelection(CBasePlayer& player, std::uint64_t generation);
     bool NativeSelectionItem(std::int32_t item, int source) const;
     Weapon* Edit(CBasePlayerWeapon& weapon);
     const Weapon* Find(const CBasePlayerWeapon& weapon) const;

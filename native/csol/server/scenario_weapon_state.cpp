@@ -1059,11 +1059,82 @@ bool CCSOLScenarioWeaponState::SelectItems(CBasePlayer& player, std::uint64_t ge
         if (state.player.Get<CBaseEntity>() == &player)
         {
             if (state.generation > generation) return false;
-            state = {EHANDLE(&player), generation, items};
+            if (state.generation == generation) state.items = items;
+            else state = {EHANDLE(&player), generation, items, {}, {}};
             return true;
         }
-    m_selections.push_back({EHANDLE(&player), generation, items});
+    m_selections.push_back({EHANDLE(&player), generation, items, {}, {}});
     return true;
+}
+
+CCSOLScenarioWeaponState::Selection* CCSOLScenarioWeaponState::FindSelection(
+    CBasePlayer& player, std::uint64_t generation)
+{
+    if (!Current() || !generation || !Live(&player) || player.has_disconnected) return nullptr;
+    for (auto& state : m_selections)
+        if (state.generation == generation && state.player.Get<CBaseEntity>() == &player) return &state;
+    return nullptr;
+}
+
+bool CCSOLScenarioWeaponState::ReplaceSelectionMetadata(CBasePlayer& player,
+    std::uint64_t generation, std::map<std::int32_t, std::int32_t> paints,
+    std::map<std::uint16_t, std::array<std::uint32_t, 2>> parts)
+{
+    auto* state = FindSelection(player, generation);
+    if (!state) return false;
+    state->paints = std::move(paints);
+    state->parts = std::move(parts);
+    return true;
+}
+
+bool CCSOLScenarioWeaponState::RefreshMeleeSelection(CBasePlayer& player,
+    std::uint64_t generation, CBasePlayerWeapon& weapon)
+{
+    if (!Current() || !Live(&player) || !Live(&weapon) || !gpGlobals || gpGlobals->maxEntities <= 0)
+        return false;
+    const EHANDLE playerHandle(&player), weaponHandle(&weapon);
+    const auto item = CSOL_MeleeItemIdentity(weapon);
+    if (!item || !Current() || playerHandle.Get<CBaseEntity>() != &player ||
+        weaponHandle.Get<CBaseEntity>() != &weapon || !Live(&weapon)) return false;
+    const auto* selection = FindSelection(player, generation);
+    if (!selection || weapon.m_pPlayer != &player || weapon.pev->owner != player.edict()) return false;
+    const auto catalog = m_catalog.find(item);
+    const auto inGame = item == csol::melee::DragonSwordItemId ? 4016 : 4010;
+    if (catalog == m_catalog.end() || !catalog->second.equipment ||
+        catalog->second.category != 11 || catalog->second.inGame != inGame) return false;
+
+    // Only the exact owned instance is refreshed. A replacement may still
+    // share the knife chain with the old type; duplicate links/IDs and cycles
+    // are invalid host inventory, rather than a successful selection miss.
+    int matches{}, remaining = gpGlobals->maxEntities;
+    for (int slot = 0; slot < MAX_ITEM_TYPES; ++slot)
+        for (auto* carried = player.m_rgpPlayerItems[slot]; carried; carried = carried->m_pNext)
+        {
+            if (remaining-- <= 0 || !Live(carried)) return false;
+            if (carried == &weapon)
+            {
+                if (slot != KNIFE_SLOT || ++matches != 1) return false;
+            }
+            else if (carried->m_iId == weapon.m_iId) return false;
+        }
+    if (matches != 1) return false;
+
+    // MP 1141A810/114D4BD0 reads the knife directory's record+4. Parts use
+    // the separate catalog identity narrowed at 1141AAA2, not that source ID.
+    const auto paint = selection->paints.find(catalog->second.inGame);
+    const auto parts = selection->parts.find(static_cast<std::uint16_t>(item));
+    auto* state = Edit(weapon);
+    if (!state) return false;
+    state->paintType = paint == selection->paints.end() ? 0 : paint->second;
+    state->parts = parts == selection->parts.end() ? std::array<std::uint32_t, 2>{} : parts->second;
+    state->item = item;
+    return true;
+}
+
+std::int32_t CCSOLScenarioWeaponState::PaintType(const CBasePlayerWeapon& weapon) const
+{
+    const auto* state = Current() && Live(&weapon) ? Find(weapon) : nullptr;
+    return state ? state->paintType : 0;
 }
 
 void CCSOLScenarioWeaponState::RemovePlayer(const EHANDLE& player, std::uint64_t generation)

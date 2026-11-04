@@ -407,7 +407,7 @@ public:
             (weapon != csol::skull5::Id || CSOL_Skull5Ready()) &&
             (weapon != csol::balrog11::Id || CSOL_Balrog11Ready()) &&
             (!csol::melee::IsWeapon(weapon) ||
-                (CSOL_MeleeReady(weapon) && !CSOL_HasWeapon(player,weapon)));
+                CSOL_MeleeReady(weapon));
     }
     int Buy(int index, int weapon) override
     {

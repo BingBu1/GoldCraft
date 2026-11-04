@@ -10,6 +10,7 @@
 #include "../melee_identity.hpp"
 #include "../melee_resources.hpp"
 #include <array>
+#include <typeinfo>
 #include <vector>
 
 namespace {
@@ -54,6 +55,43 @@ bool Linked(const CSOLScenarioSdkScope& sdk, const CBaseEntity* entity)
     }
     return false;
 }
+bool ValidKnife(const CBasePlayerWeapon& weapon)
+{
+    return CSOL_MeleeItemIdentity(weapon) ||
+        (typeid(weapon) == typeid(CKnife) && weapon.m_iId == WEAPON_KNIFE &&
+            FClassnameIs(weapon.pev, "weapon_knife"));
+}
+// CSO MP 114D8671..8683 reuses an existing knife without Touch. Our two
+// concrete weapon classes require replacement; omit only its extra native
+// pickup/autoswitch effects, for this exact pair during the Touch call.
+class ReplacementTouch {
+public:
+    ReplacementTouch(const CSOLScenarioSdkScope& sdk, CBasePlayer& player,
+        CBasePlayerWeapon& oldItem, CBasePlayerWeapon& newItem) :
+        sdk(sdk), player(&player), oldItem(&oldItem), newItem(&newItem),
+        spawns(player.m_iNumSpawns), previous(current) { current = this; }
+    ~ReplacementTouch() { current = previous; }
+    bool Matches(const CBasePlayer& owner, const CBasePlayerItem& item) const
+    {
+        if (!sdk.Current() || player.Get<CBaseEntity>() != &owner ||
+            newItem.Get<CBaseEntity>() != &item || owner.has_disconnected ||
+            owner.m_iNumSpawns != spawns) return false;
+        const auto* old = dynamic_cast<CBasePlayerWeapon*>(oldItem.Get<CBaseEntity>());
+        const auto* fresh = dynamic_cast<const CBasePlayerWeapon*>(&item);
+        return old && fresh && !(old->pev->flags & FL_KILLME) &&
+            !(item.pev->flags & FL_KILLME) && ValidKnife(*old) &&
+            CSOL_MeleeItemIdentity(*fresh) && old->m_pPlayer == &owner &&
+            old->pev->owner == player.Get() && Contains(owner, old) &&
+            (!item.m_pPlayer || item.m_pPlayer == &owner) &&
+            (!item.pev->owner || item.pev->owner == player.Get());
+    }
+    inline static const ReplacementTouch* current{};
+private:
+    const CSOLScenarioSdkScope& sdk;
+    EHANDLE player, oldItem, newItem;
+    int spawns;
+    const ReplacementTouch* previous;
+};
 // Undo only this transaction's insertion. ReAPI may return FALSE after the
 // native AddPlayerItem inserted the weapon, and may then veto removal. A
 // failed grant must not leave a free item or a pointer to an entity we delete.
@@ -86,13 +124,19 @@ struct Timers {
     float primary, secondary, idle, lastFire, previousAttack, decreaseShots, accuracy, nextReload;
     int shots, inReload, specialReload;
     bool delay;
+    decltype(CBaseEntity::m_pfnThink) think;
+    float nextThink;
+    CSOLMeleePurchaseState melee{};
+    bool customMelee;
     explicit Timers(CBasePlayerWeapon& weapon) : handle(&weapon),
         primary(weapon.m_flNextPrimaryAttack), secondary(weapon.m_flNextSecondaryAttack),
         idle(weapon.m_flTimeWeaponIdle), lastFire(weapon.m_flLastFireTime),
         previousAttack(weapon.m_flPrevPrimaryAttack), decreaseShots(weapon.m_flDecreaseShotsFired),
         accuracy(weapon.m_flAccuracy), nextReload(weapon.m_flNextReload),
         shots(weapon.m_iShotsFired), inReload(weapon.m_fInReload),
-        specialReload(weapon.m_fInSpecialReload), delay(weapon.m_bDelayFire) {}
+        specialReload(weapon.m_fInSpecialReload), delay(weapon.m_bDelayFire),
+        think(weapon.m_pfnThink), nextThink(weapon.pev->nextthink),
+        customMelee(CSOL_SaveMeleePurchaseState(weapon, melee)) {}
     void Restore(CBasePlayer& player) const
     {
         auto* weapon = dynamic_cast<CBasePlayerWeapon*>(handle.Get<CBaseEntity>());
@@ -104,8 +148,17 @@ struct Timers {
         weapon->m_flAccuracy = accuracy; weapon->m_flNextReload = nextReload;
         weapon->m_iShotsFired = shots; weapon->m_fInReload = inReload;
         weapon->m_fInSpecialReload = specialReload; weapon->m_bDelayFire = delay;
+        if (customMelee && CSOL_RestoreMeleePurchaseState(*weapon, melee)) {
+            weapon->m_pfnThink = think;
+            weapon->pev->nextthink = nextThink;
+        }
     }
 };
+}
+
+bool CSOL_IsMeleeReplacement(const CBasePlayer& player, const CBasePlayerItem& item)
+{
+    return ReplacementTouch::current && ReplacementTouch::current->Matches(player, item);
 }
 
 bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
@@ -137,15 +190,33 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
                 state->generation == generation && buyer.m_iTeam == CT && CSOL_ScenarioCanBuy() :
                 CSOL_ZombieHuman(&buyer)) && samePlayer();
     };
-    // A knife has no replenishable ammunition. Reacquiring the same kind is
-    // rejected before Spawn, so neither cooldown nor completion serial resets.
-    if (!current() || CSOL_HasWeapon(&buyer, weaponId)) return false;
+    if (!current()) return false;
     auto* prior = dynamic_cast<CBasePlayerWeapon*>(buyer.m_rgpPlayerItems[KNIFE_SLOT]);
     if (buyer.m_rgpPlayerItems[KNIFE_SLOT] &&
-        (!prior || prior->m_pNext || prior->m_pPlayer != &buyer || prior->pev->owner != buyer.edict())) return false;
+        (!prior || !ValidKnife(*prior) || (prior->pev->flags & FL_KILLME) || prior->m_pNext ||
+            prior->m_pPlayer != &buyer || prior->pev->owner != buyer.edict())) return false;
     EHANDLE original(prior), active(buyer.m_pActiveItem), last(buyer.m_pLastItem), fresh;
+    if (prior && prior->m_iId == weaponId) {
+        // MP 114D8759 skips recreation/Deploy, but 1140D44F still executes
+        // the selection common tail. Do not reset an in-flight knife attack.
+        if (sdk.Scenario() && !CSOL_ScenarioRefreshMeleeSelection(buyer, *prior)) return false;
+        const auto retained = [&]() {
+            return current() && original.Get<CBaseEntity>() == prior &&
+                buyer.m_rgpPlayerItems[KNIFE_SLOT] == prior && !prior->m_pNext &&
+                !(prior->pev->flags & FL_KILLME) && prior->m_pPlayer == &buyer &&
+                prior->pev->owner == playerHandle.Get() && prior->m_iId == weaponId &&
+                CSOL_MeleeItemIdentity(*prior);
+        };
+        if (!retained()) return false;
+        CSOL_UpdateWeaponInventory(&buyer);
+        return retained();
+    }
+    const bool selectReplacement = prior && buyer.m_pActiveItem == prior;
+    const bool hadActive = buyer.m_pActiveItem != nullptr;
     CBaseEntity* createdObject{};
     const float nextAttack = buyer.m_flNextAttack;
+    const int viewModel = buyer.pev->viewmodel, playerModel = buyer.pev->weaponmodel;
+    const int animation = buyer.pev->weaponanim;
     const int priorMask = prior ? CSOL_LegacyWeaponMask(prior->m_iId) : 0;
     const int priorMaskValue = buyer.pev->weapons & priorMask;
     const int hiddenWeapons = buyer.m_iHideHUD & HIDEHUD_WEAPONS;
@@ -169,7 +240,17 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     const auto selected = [&]() {
         if (!acquired()) return false;
         auto* weapon = live(fresh);
-        return weapon && buyer.m_pActiveItem == weapon && CSOL_MeleeDeploymentComplete(*weapon);
+        if (selectReplacement || (!prior && buyer.m_pActiveItem == weapon))
+            return weapon && buyer.m_pActiveItem == weapon && CSOL_MeleeDeploymentComplete(*weapon);
+        // MP 114D8775/114D8897: changing the carried knife must not deploy
+        // it or interrupt the gun currently held by the player.
+        auto* previous = live(active);
+        // First delivery follows the native FShouldSwitchWeapon result:
+        // MP 114CE6D1 -> 114BB9D0 compares weights and autowepswitch; it
+        // does not force an acquired knife over the gun already held.
+        return (previous || !hadActive) && buyer.m_pActiveItem == previous && (!previous ||
+            (previous->m_pPlayer == &buyer && previous->pev->owner == playerHandle.Get() &&
+                Contains(buyer, previous)));
     };
     const auto freshOwned = [&]() -> CBasePlayerWeapon* {
         const bool ownPlayer = samePlayer();
@@ -232,6 +313,15 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
             buyer.m_pLastItem = previousLast;
         buyer.m_flNextAttack = nextAttack;
         for (const auto& saved : timers) saved.Restore(buyer);
+        if (auto* previous = live(active); previous && buyer.m_pActiveItem == previous &&
+            previous->m_pPlayer == &buyer && previous->pev->owner == playerHandle.Get() &&
+            Contains(buyer, previous)) {
+            buyer.pev->viewmodel = viewModel;
+            buyer.pev->weaponmodel = playerModel;
+            if (buyer.pev->weaponanim != animation)
+                previous->SendWeaponAnim(animation, previous->UseDecrement());
+            if (!current()) return false;
+        }
         if (old && old == prior && live(original) == old && Contains(buyer, old))
             buyer.pev->weapons = (buyer.pev->weapons & ~priorMask) | priorMaskValue;
         buyer.m_iHideHUD = (buyer.m_iHideHUD & ~HIDEHUD_WEAPONS) | hiddenWeapons;
@@ -256,9 +346,15 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     auto* weapon = live(fresh);
     if (spawned < 0 || !weapon || weapon->m_iId != weaponId || !CSOL_MeleeItemIdentity(*weapon) ||
         (sdk.Scenario() && !CSOL_ScenarioSetMeleeIdentity(*weapon))) return reject();
-    DispatchTouch(fresh.Get(), playerHandle.Get());
+    if (auto* old = live(original)) {
+        ReplacementTouch touch(sdk, buyer, *old, *weapon);
+        DispatchTouch(fresh.Get(), playerHandle.Get());
+    } else {
+        if (prior) return reject();
+        DispatchTouch(fresh.Get(), playerHandle.Get());
+    }
     if (!acquired()) return reject();
-    buyer.SelectItem(resource.classname);
+    if (selectReplacement && buyer.m_pActiveItem != live(fresh)) buyer.SelectItem(resource.classname);
     if (!selected()) return reject();
     if (auto* old = live(original)) {
         if (!Contains(buyer, old) || old->m_pPlayer != &buyer || old->pev->owner != playerHandle.Get()) return reject();
@@ -275,6 +371,18 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     }
     auto* added = live(fresh);
     if (!selected() || buyer.m_rgpPlayerItems[KNIFE_SLOT] != added || added->m_pNext) return reject();
+    if (sdk.Scenario() && !CSOL_ScenarioRefreshMeleeSelection(buyer, *added)) return reject();
+    if (!selected()) return reject();
+    if (prior) {
+        // Original keeps the knife entity, so lastinv still refers to that
+        // slot. Map only that pointer across our concrete-class replacement.
+        auto* previousLast = live(last);
+        if (previousLast == prior) buyer.m_pLastItem = added;
+        else if (!previousLast || (previousLast->m_pPlayer == &buyer &&
+            previousLast->pev->owner == playerHandle.Get() && Contains(buyer, previousLast)))
+            buyer.m_pLastItem = previousLast;
+        else return reject();
+    }
     // Commit. The new knife is the sole slot owner before the original is
     // destroyed; no DropPlayerItem call can leave an undroppable duplicate.
     if (auto* old = live(original); unlinkAttempted && old) {

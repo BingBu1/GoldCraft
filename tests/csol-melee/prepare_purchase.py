@@ -45,7 +45,11 @@ def prepare(root, source):
         'template<typename T = CBasePlayerItem, typename Functor>\n\tT *ForEachItem(const Functor &func) const'))
     write('purchase_deploy.inc', '\n'.join(extract('native/csol/server/wpn_melee.cpp', signature)
         for signature in ('void CCSOLMelee::CancelAttack()', 'BOOL CCSOLMelee::Deploy()',
-            'void CCSOLMelee::Holster(', 'bool CSOL_MeleeDeploymentComplete(')))
+            'void CCSOLMelee::Holster(', 'bool CSOL_MeleeDeploymentComplete(',
+            'bool CSOL_SaveMeleePurchaseState(', 'bool CSOL_RestoreMeleePurchaseState(')))
+    write('purchase_state.inc', '\n'.join(extract('native/csol/server/wpn_melee.cpp', signature)
+        for signature in ('CSOLMeleePurchaseState PurchaseState() const',
+            'void RestorePurchaseState(')))
     relative = 'native/csol/server/melee_purchase.cpp'
     text = (source/relative).read_text(encoding='utf8')
     start = text.index('namespace {')

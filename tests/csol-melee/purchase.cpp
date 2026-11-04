@@ -13,6 +13,12 @@
 #include "../../native/csol/melee_identity.hpp"
 #include "../../native/csol/melee_resources.hpp"
 #include "../../native/csol/melee_prediction.hpp"
+#include "../../native/csol/server/wpn_melee.h"
+#include "../../native/csol/m249ex.hpp"
+#include "../../native/csol/skull1.hpp"
+#include "../../native/csol/skull2.hpp"
+#include "../../native/csol/skull5.hpp"
+#include "../../native/csol/balrog11.hpp"
 
 using BOOL=int; using WeaponIdType=int;
 constexpr int TRUE=1,FALSE=0,MAX_ITEM_TYPES=6,PRIMARY_WEAPON_SLOT=1,KNIFE_SLOT=3;
@@ -23,19 +29,19 @@ constexpr int USE_TOGGLE=3,MSG_ONE=1,CHAN_ITEM=3,VOL_NORM=1,ATTN_NORM=1;
 #define REGAMEDLL_FIXES
 #define EXT_FUNC
 #define __API_HOOK(name) name##_OrigFunc
-struct CBaseEntity; struct CBasePlayer; struct CBasePlayerItem; struct CBasePlayerWeapon;
+struct CBaseEntity; struct CBasePlayer; struct CBasePlayerItem; class CBasePlayerWeapon;
 struct edict_t;
 struct Vars {
     std::array<float,3> origin{};
-    int flags{},spawnflags{},weapons{},viewmodel{},weaponmodel{},movetype{},solid{},effects{},modelindex{},model{},gamestate{};
+    int flags{},spawnflags{},weapons{},viewmodel{},weaponmodel{},weaponanim{},movetype{},solid{},effects{},modelindex{},model{},gamestate{};
     float nextthink{},fov{};
     const char* classname="";
     edict_t* owner{},*aiment{},*containing{};
 };
 struct edict_t { Vars v{}; bool free{}; int serialnumber=1; CBaseEntity* pvPrivateData{}; };
-bool validWorld=true,scenarioMode{},eligible=true,ready=true,identityAllowed=true,allowPickup=true,autoSwitch=true;
+bool validWorld=true,scenarioMode{},eligible=true,ready=true,identityAllowed=true,refreshAllowed=true,allowPickup=true,autoSwitch=true;
 bool addReject{},addPostFalse{},freshRemoveReject{},oldRemoveReject{},oldRemovePostFalse{},spawnReject{},retireReject{};
-int generation=1,checks{},failures{},creates{},removes{},pickups{},updates{},closedActions{},gmsgWeapPickup{};
+int generation=1,checks{},failures{},creates{},removes{},pickups{},pickupSounds{},refreshes{},updates{},closedActions{},gmsgWeapPickup{};
 std::function<void(const char*,CBaseEntity*)> callback;
 void Event(const char* stage,CBaseEntity* object) { if(callback)callback(stage,object); }
 void Boundary() { if(!validWorld){++closedActions;throw std::runtime_error("entity operation after closed map");} }
@@ -47,7 +53,9 @@ struct CBaseEntity {
     static CBaseEntity* Instance(edict_t* value){Boundary();return value?value->pvPrivateData:nullptr;}
     virtual BOOL IsPlayer(){return FALSE;}
     virtual BOOL AddPlayerItem(CBasePlayerItem*){throw std::runtime_error("unexpected nonplayer Add");}
-    template<class T>void SetThink(T){}
+    void (CBaseEntity::*m_pfnThink)(){};
+    template<class T>void SetThink(void (T::*fn)()){m_pfnThink=static_cast<void(CBaseEntity::*)()>(fn);}
+    void SetThink(std::nullptr_t){m_pfnThink=nullptr;}
     template<class T>void SetTouch(T){}
     void SUB_UseTargets(CBaseEntity*,int,float){Event("targets",this);}
 };
@@ -76,7 +84,8 @@ struct CBasePlayerItem:CBaseEntity {
     void AttachToPlayer(CBasePlayer*);
     void DefaultTouch(CBaseEntity*);
 };
-struct CBasePlayerWeapon:CBasePlayerItem {
+class CBasePlayerWeapon:public CBasePlayerItem {
+public:
     float m_flNextPrimaryAttack=7,m_flNextSecondaryAttack=8,m_flTimeWeaponIdle=9,m_flLastFireTime=10,
         m_flPrevPrimaryAttack=11,m_flDecreaseShotsFired=12,m_flAccuracy=.4f,m_flNextReload=13;
     int m_iShotsFired=4,m_fInReload=1,m_fInSpecialReload=1,m_iWeaponState{},m_iPrimaryAmmoType{},m_iSecondaryAmmoType{};
@@ -87,12 +96,18 @@ struct CBasePlayerWeapon:CBasePlayerItem {
     BOOL AddWeapon(){return TRUE;}
     BOOL UseDecrement(){return TRUE;}
     BOOL DefaultDeploy(char*,char*,int,char*,int){Event("defaultDeploy",this);return deployResult;}
+    void SendWeaponAnim(int animation,int);
 };
+class CKnife:public CBasePlayerWeapon {};
 class CCSOLMelee:public CBasePlayerWeapon {
 public:
     csol::melee::Variant Variant()const{return csol::melee::WeaponVariant(m_iId);}
     BOOL Deploy()override;void Holster(int=0)override;
     bool DeploymentComplete()const{return deploymentComplete;}
+    void TestThink(){}
+    void TestPending(){prediction={3,41,4,.29f};pev->nextthink=12;SetThink(&CCSOLMelee::TestThink);}
+    csol::melee::Prediction TestPrediction()const{return prediction;}
+#include "purchase_state.inc"
 private:
     void CancelAttack();
     csol::melee::Prediction prediction;
@@ -117,6 +132,7 @@ struct CBasePlayer:CBaseEntity {
     CBaseEntity* GiveNamedItemEx(const char*){throw std::runtime_error("unexpected nonmelee grant");}
     CBaseEntity* DropPlayerItem(const char*){throw std::runtime_error("unexpected DropPlayerItem");}
 };
+void CBasePlayerWeapon::SendWeaponAnim(int animation,int){if(m_pPlayer)m_pPlayer->pev->weaponanim=animation;}
 struct Rules {
     bool CanHavePlayerItem(CBasePlayer*,CBasePlayerItem*){return allowPickup;}
     void PlayerGotWeapon(CBasePlayer*,CBasePlayerItem*){}
@@ -138,7 +154,14 @@ int CSOL_LegacyWeaponMask(int id){return id>0&&id<32?int(1u<<id):0;}
 #define MESSAGE_BEGIN(...) ((void)0)
 #define WRITE_BYTE(...) ((void)0)
 #define MESSAGE_END(...) ((void)0)
-#define EMIT_SOUND(...) ((void)0)
+bool CSOL_IsMeleeReplacement(const CBasePlayer&,const CBasePlayerItem&);
+struct CSOLScenarioSdkScope {
+    int epoch=generation;
+    bool Current()const{return validWorld&&epoch==generation;}
+    bool Scenario()const{return scenarioMode;}
+    std::shared_ptr<int> EntityAccess()const{return {};}
+};
+#define EMIT_SOUND(entity,channel,sample,volume,attenuation) do{if(!std::strcmp(sample,"items/gunpickup2.wav"))++pickupSounds;}while(false)
 #include "purchase_sdk_methods.inc"
 BOOL CBasePlayerItem::Deploy(){if(m_pPlayer)m_pPlayer->m_flNextAttack=.75f;Event("deploy",this);return deployResult;}
 BOOL CBasePlayer::AddPlayerItem(CBasePlayerItem* item){
@@ -159,15 +182,10 @@ struct Registry {
     std::shared_ptr<PlayerState> Find(const EHANDLE& h){return h.Get()?state:nullptr;}
 };
 auto authority=std::make_shared<Registry>();
-struct CSOLScenarioSdkScope {
-    int epoch=generation;
-    bool Current()const{return validWorld&&epoch==generation;}
-    bool Scenario()const{return scenarioMode;}
-    std::shared_ptr<int> EntityAccess()const{return {};}
-};
 auto CSOL_ScenarioPlayerAuthority(const void*){return authority;}
 bool CSOL_ScenarioCanBuy(){return eligible;}
 bool CSOL_ScenarioSetMeleeIdentity(CBasePlayerWeapon&){return identityAllowed;}
+bool CSOL_ScenarioRefreshMeleeSelection(CBasePlayer&,CBasePlayerWeapon& weapon){++refreshes;Event("refresh",&weapon);return refreshAllowed;}
 bool CSOL_WeaponsReady(){return ready;}
 bool CSOL_MeleeReady(int){return ready;}
 bool CSOL_ZombieHuman(CBasePlayer* p){return eligible&&p&&p->alive;}
@@ -210,6 +228,10 @@ struct Role{int userid{},value{};};std::array<Role,33>roles{};bool zombieMode{};
 struct ItemInfo{const char* pszName="weapon";} itemInfo;
 const ItemInfo* CSOL_ItemInfo(int){return &itemInfo;}
 bool CSOL_CannonReady(){return true;}bool CSOL_K3Ready(){return true;}
+bool CSOL_M249EXReady(){return true;}bool CSOL_Skull1Ready(){return true;}
+bool CSOL_Skull2Ready(){return true;}bool CSOL_Skull5Ready(){return true;}
+bool CSOL_Balrog11Ready(){return true;}
+int CSOL_DeliverSkullBalrog(CBasePlayer&,int){throw std::runtime_error("unexpected SKULL/BALROG grant");}
 struct CannonPurchaseBackup {explicit CannonPurchaseBackup(CBasePlayer*){}int Replace(){throw std::runtime_error("unexpected cannon");}};
 int DeliverScenarioK3(CBasePlayer&){throw std::runtime_error("unexpected K3");}
 void CVAR_SET_FLOAT(const char*,int){}void CSOL_ResetBeamGuard(CBasePlayer*){}void CSOL_CharacterRoleChanged(CBasePlayer*){}
@@ -218,11 +240,11 @@ void CVAR_SET_FLOAT(const char*,int){}void CSOL_ResetBeamGuard(CBasePlayer*){}vo
 void Check(bool value,const char* text){++checks;if(!value){++failures;std::printf("FAIL %s\n",text);}}
 void Reset(int existing=29){
     callback={};objects.clear();players={};spawnedWeapon=nullptr;
-    validWorld=eligible=ready=identityAllowed=allowPickup=autoSwitch=true;scenarioMode=false;++generation;
+    validWorld=eligible=ready=identityAllowed=refreshAllowed=allowPickup=autoSwitch=true;scenarioMode=false;++generation;
     addReject=addPostFalse=freshRemoveReject=oldRemoveReject=oldRemovePostFalse=spawnReject=retireReject=false;
-    creates=removes=pickups=updates=closedActions=0;authority=std::make_shared<Registry>();
+    creates=removes=pickups=pickupSounds=refreshes=updates=closedActions=0;authority=std::make_shared<Registry>();
     for(int i=1;i<=2;++i){players[i]=Make<CBasePlayer>();players[i]->index=i;players[i]->userid=100+i;}
-    auto* p=players[1];initial=existing==29?Make<CBasePlayerWeapon>():Make<CCSOLMelee>();initial->m_iId=existing;
+    auto* p=players[1];initial=existing==29?static_cast<CBasePlayerWeapon*>(Make<CKnife>()):Make<CCSOLMelee>();initial->m_iId=existing;
     initial->pev->classname=existing==29?"weapon_knife":csol::melee::Resource(csol::melee::WeaponVariant(existing)).classname;
     initial->m_pPlayer=p;initial->pev->owner=p->edict();p->m_rgpPlayerItems[KNIFE_SLOT]=initial;
     p->m_pActiveItem=p->m_pClientActiveItem=initial;p->pev->weapons=CSOL_LegacyWeaponMask(existing);
@@ -244,9 +266,28 @@ int main(){
         Check(initial->pev->flags&FL_KILLME,"old knife retired at commit");
         Check(players[1]->m_pLastItem!=initial,"removed old knife not left as last item");
         Check(players[1]->m_pClientActiveItem!=initial,"removed old knife not left as client active item");
-        Reset(id);Check(!Deliver(id),"same-kind delivery denied");Check(creates==0&&initial->pending,"same-kind no Spawn/Holster/pending reset");Preserved();
+        Reset(id);scenarioMode=true;auto* same=static_cast<CCSOLMelee*>(initial);same->TestPending();
+        const auto before=same->TestPrediction();
+        Check(Deliver(id),"same-kind selection succeeds and executes its common tail");
+        const auto after=same->TestPrediction();
+        Check(creates==0&&removes==0&&pickups==0&&pickupSounds==0&&refreshes==1,"same-kind refresh does not create, touch or retire an entity");
+        Check(before.serial==after.serial&&before.pendingAnimation==after.pendingAnimation&&
+            before.pendingTime==after.pendingTime&&before.primaryOrdinal==after.primaryOrdinal&&same->pev->nextthink==12,
+            "same-kind selection preserves real extracted prediction and pending Think deadline");
+        Preserved();
         Reset(id==1022?1023:1022);Check(Deliver(id),"different extended knife replaces existing one");
+        Check(pickupSounds==0,"existing knife replacement emits no extra native pickup sound");
     }
+    Reset();players[1]->m_rgpPlayerItems[KNIFE_SLOT]=nullptr;players[1]->m_pActiveItem=players[1]->m_pClientActiveItem=nullptr;
+    initial->m_pPlayer=nullptr;initial->pev->owner=nullptr;initial->pev->flags|=FL_KILLME;
+    Check(Deliver(),"ordinary delivery with no old knife succeeds");
+    Check(pickupSounds==1&&!CSOL_IsMeleeReplacement(*players[1],*spawnedWeapon),"first grant retains pickup audio and suppression ends after Touch");
+    Reset(1022);scenarioMode=true;refreshAllowed=false;
+    Check(!Deliver(1022)&&refreshes==1&&creates==0,"failed same-kind metadata refresh is not reported as no-op success");Preserved();
+    Reset(1022);scenarioMode=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"refresh"))++players[1]->m_iNumSpawns;};
+    Check(!Deliver(1022)&&creates==0,"same-kind metadata refresh invalidated by a new life cannot publish success");
+    Reset(1022);scenarioMode=true;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"refresh"))validWorld=false;};
+    Check(!Deliver(1022)&&closedActions==0,"same-kind refresh map closure stops before more SDK actions");validWorld=true;
     Reset();addReject=true;Check(!Deliver(),"Add pre-hook refusal");Preserved();
     Reset();addPostFalse=true;Check(!Deliver(),"Add post-hook FALSE");Preserved();
     Reset();addPostFalse=freshRemoveReject=true;Check(!Deliver(),"rollback removal veto");Preserved();
@@ -263,6 +304,15 @@ int main(){
         Reset();autoSwitch=automatic;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"spawn"))spawnedWeapon->deployResult=false;};
         Check(!Deliver(),"actual Deploy FALSE despite selected active pointer rejects delivery");Preserved();
     }
+    Reset(1022);auto* delayed=static_cast<CCSOLMelee*>(initial);delayed->TestPending();
+    const auto beforeRollback=delayed->TestPrediction();const auto beforeThink=delayed->m_pfnThink;
+    callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"spawn"))spawnedWeapon->deployResult=false;};
+    Check(!Deliver(1023),"host replacement refuses a failed alternate Deploy while old attack is pending");Preserved();
+    const auto afterRollback=delayed->TestPrediction();
+    Check(beforeRollback.serial==afterRollback.serial&&beforeRollback.pendingAnimation==afterRollback.pendingAnimation&&
+        beforeRollback.pendingTime==afterRollback.pendingTime&&beforeRollback.primaryOrdinal==afterRollback.primaryOrdinal&&
+        delayed->m_pfnThink==beforeThink&&delayed->pev->nextthink==12,
+        "host rollback restores exact private prediction and scheduled Think after old Holster cancelled them");
     Reset();autoSwitch=false;callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"spawn"))spawnedWeapon->deployable=false;};
     Check(!Deliver(),"actual SelectItem CanDeploy rejection");Preserved();
     Reset();callback=[](const char* stage,CBaseEntity*){if(!std::strcmp(stage,"defaultDeploy"))players[1]->alive=false;};
@@ -288,7 +338,7 @@ int main(){
     }};
     {WeaponService service;Check(service.Buy(1,1022)==1,"actual service forwards melee delivery");}
     Reset();{WeaponService service;Check(!service.CanBuy(1,9999),"actual service rejects unknown ID");}
-    Reset(1022);{WeaponService service;Check(!service.CanBuy(1,1022)&&!service.Buy(1,1022)&&creates==0,"actual service same-kind pre-gate");}
+    Reset(1022);{WeaponService service;Check(service.CanBuy(1,1022)&&service.Buy(1,1022)&&creates==0,"actual service accepts same-kind selection without rebuilding it");}
     Reset();addPostFalse=true;{WeaponService service;Check(service.Buy(1,1022)==0,"actual service propagates false, no debit authorization");}Preserved();
     Reset();oldRemovePostFalse=true;callback=[](const char* stage,CBaseEntity* entity){if(!std::strcmp(stage,"afterRemoveOld")){
         auto* w=static_cast<CBasePlayerWeapon*>(entity);w->m_pNext=nullptr;w->m_pPlayer=players[2];w->pev->owner=players[2]->edict();players[2]->m_rgpPlayerItems[KNIFE_SLOT]=w;

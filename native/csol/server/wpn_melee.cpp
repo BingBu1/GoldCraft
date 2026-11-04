@@ -72,6 +72,41 @@ Vector MeleeBodyTarget(CBaseEntity& target, const Vector& origin, float)
     if (target.IsPlayer()) return target.Center() + target.pev->view_ofs * RANDOM_FLOAT(.5f, 1.1f);
     return target.BodyTarget(origin);
 }
+template<class Current>
+bool PlayAttackSound(CBasePlayer& player, const Attack& attack, Contact contact, const Current& current)
+{
+    const char* sample;
+    int channel = CHAN_WEAPON, pitch = PITCH_NORM;
+    if (attack.variant == Variant::DragonSword) {
+        // MP 39f962f3, 110B7C2C/110B7E2F and 110B851C/110B870C:
+        // type16's hit and miss table slots, not the sample's filename.
+        const bool secondSlash = attack.button == Button::Primary && attack.animation == 2;
+        if (contact == Contact::Damageable)
+            sample = secondSlash ? "weapons/dragonsword_hit2.wav" : "weapons/dragonsword_hit1.wav";
+        else if (contact == Contact::World) sample = "weapons/skullaxe_wall.wav";
+        else if (attack.button == Button::Secondary) sample = "weapons/dragonsword_stab_hit.wav";
+        else sample = secondSlash ? "weapons/dragonsword_slash2.wav" : "weapons/dragonsword_slash1.wav";
+    } else {
+        // Type10 has three miss entries, but one wall and one hit entry.
+        // Preserve the original RNG bounds even for those singleton lists.
+        const auto choose = [](const auto& sounds) {
+            return sounds[RANDOM_LONG(0, int(sounds.size()) - 1)];
+        };
+        if (contact == Contact::Damageable)
+            sample = choose(std::array{"weapons/skullaxe_hit.wav"});
+        else if (contact == Contact::World)
+            sample = choose(std::array{"weapons/skullaxe_wall.wav"});
+        else {
+            sample = choose(std::array{"weapons/skullaxe_slash1.wav", "weapons/skullaxe_slash2.wav",
+                "weapons/skullaxe_miss.wav"});
+            // MP 110D3376/110D3CD9: empty swings use AUTO and pitch94.
+            channel = CHAN_AUTO; pitch = 94;
+        }
+    }
+    if (!current()) return false; // RANDOM_LONG is an engine boundary too.
+    EMIT_SOUND_DYN(player.edict(), channel, sample, 1, ATTN_NORM, 0, pitch);
+    return current();
+}
 }
 
 class CCSOLMelee : public CBasePlayerWeapon {
@@ -94,6 +129,9 @@ public:
     void DelayedAttack();
     void Pack(weapon_data_s& data) const;
     bool DeploymentComplete() const { return deploymentComplete; }
+    CSOLMeleePurchaseState PurchaseState() const { return {prediction, deploymentComplete}; }
+    void RestorePurchaseState(const CSOLMeleePurchaseState& state)
+    { prediction = state.prediction; deploymentComplete = state.deploymentComplete; }
 private:
     void Begin(csol::melee::Button button);
     void CancelAttack();
@@ -128,6 +166,18 @@ bool CSOL_MeleeDeploymentComplete(const CBasePlayerWeapon& weapon)
 {
     return CSOL_MeleeItemIdentity(weapon) != 0 &&
         static_cast<const CCSOLMelee&>(weapon).DeploymentComplete();
+}
+bool CSOL_SaveMeleePurchaseState(const CBasePlayerWeapon& weapon, CSOLMeleePurchaseState& state)
+{
+    if (!CSOL_MeleeItemIdentity(weapon)) return false;
+    state = static_cast<const CCSOLMelee&>(weapon).PurchaseState();
+    return true;
+}
+bool CSOL_RestoreMeleePurchaseState(CBasePlayerWeapon& weapon, const CSOLMeleePurchaseState& state)
+{
+    if (!CSOL_MeleeItemIdentity(weapon)) return false;
+    static_cast<CCSOLMelee&>(weapon).RestorePurchaseState(state);
+    return true;
 }
 
 void CCSOLMelee::Precache()
@@ -311,6 +361,13 @@ void CCSOLMelee::DelayedAttack()
         const auto* monster = dynamic_cast<CCSOLScenarioMonster*>(target);
         auto* pool = monster ? monster->Pool() : nullptr;
         const auto lease = pool ? pool->Lease(*monster) : 0;
+        // SkullAxe emits its hit cue for each accepted target before damage
+        // (MP 110D2E6B/110D3838); DragonSword emits once after the sector scan.
+        if (Variant() == Variant::SkullAxe) {
+            if (!PlayAttackSound(*m_pPlayer, attack, Contact::Damageable, current)) return;
+            if (receiver.Get<CBaseEntity>() != target || (pool &&
+                (monster->Pool() != pool || pool->Lease(*monster) != lease))) continue;
+        }
         ClearMultiDamage();
         // Original 0x20001002 has CSO-only attack metadata. The shared native
         // damage semantics are BULLET|NEVERGIB; CS high bits mean other things.
@@ -331,6 +388,10 @@ void CCSOLMelee::DelayedAttack()
         if (!current()) return;
         if (wall.flFraction != 1) contact = Contact::World;
     }
+    // Original callbacks emit the result cue before completion timers and
+    // the follow-through sequence. Skull flesh hits were emitted per target.
+    if ((Variant() == Variant::DragonSword || contact != Contact::Damageable) &&
+        !PlayAttackSound(*m_pPlayer, attack, contact, current)) return;
     const auto complete = CompleteAttack(attack, contact);
     m_flNextPrimaryAttack = complete.remaining.primary;
     m_flNextSecondaryAttack = complete.remaining.secondary;
@@ -338,15 +399,6 @@ void CCSOLMelee::DelayedAttack()
     if (complete.playerAttackAnimation) m_pPlayer->SetAnimation(PLAYER_ATTACK1);
     if (!current()) return;
     if (complete.animation >= 0) SendWeaponAnim(complete.animation, UseDecrement());
-    if (!current()) return;
-    const char* sound = nullptr;
-    if (contact == Contact::World) sound = "weapons/skullaxe_wall.wav";
-    else if (contact == Contact::Damageable) {
-        if (Variant() == Variant::SkullAxe) sound = "weapons/skullaxe_hit.wav";
-        else if (attack.button == Button::Secondary) sound = "weapons/dragonsword_stab_hit.wav";
-        else sound = RANDOM_LONG(0, 1) ? "weapons/dragonsword_hit1.wav" : "weapons/dragonsword_hit2.wav";
-    } else if (Variant() == Variant::SkullAxe) sound = "weapons/skullaxe_miss.wav";
-    if (sound) EMIT_SOUND_DYN(m_pPlayer->edict(), CHAN_WEAPON, sound, 1, ATTN_NORM, 0, PITCH_NORM);
     if (!current()) return;
     const int id = m_iId, serial = prediction.serial;
     const int animOffset = int((m_pPlayer->pev->animtime - gpGlobals->time) * 100);

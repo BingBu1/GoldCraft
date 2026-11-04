@@ -26,6 +26,7 @@ def main():
  captured=[]
  for rel in fixtures+overrides:
   src=root/rel;dst=out/'source'/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
+  assert src.read_bytes()==dst.read_bytes() and dst.stat().st_nlink==1 and dst.stat().st_ino!=src.stat().st_ino
   captured.append(dict(relative=rel,original=row(src),frozen=row(dst)));selected[rel]=dst
  # Only the map phase predicate is controlled. All original menu, lifecycle,
  # registry, rules ownership, native SDK and actual ReAPI hook bodies remain.
@@ -76,7 +77,11 @@ def main():
  (out/'resources').mkdir()
  for src,name in [(a.menu,'menu.json')]+[(root/('native/csol/config/'+n+'_damage.json'),n+'_damage.json') for n in ('dragonsword','skullaxe')]:
   dst=out/'resources'/name;shutil.copy2(src,dst);inputs[key(dst)]=row(dst)
- write(out/'prepared.json',dict(jobs=jobs,inputs=list(inputs.values()),environment=read(base/'environment.json'),groups=list(map(str,range(8))),sources=captured,
+ inputs[key(Path(__file__))]=row(Path(__file__))
+ cases=['active-knife','deploy-rejected','add-post-rejected','remove-post-rejected','nested-purchase',
+  'death-in-add','respawn-in-add','map-close-in-add','holding-m4','holding-usp','no-knife','no-knife-holding-m4',
+  'holding-m4-last-knife','pending-attack-deploy-rollback']
+ write(out/'prepared.json',dict(jobs=jobs,inputs=list(inputs.values()),environment=read(base/'environment.json'),groups=list(map(str,range(len(cases)))),caseNames=cases,sources=captured,
   baseline=str(base),boundary='Actual complete SDK menu/service/weapon/inventory/account objects and real ReAPI callbacks. Only scenario phase CanBuy predicate replaced in an isolated rules TU; engine APIs controlled. No full-map readiness, runtime deployment, network, GPU or gameplay acceptance.'))
  print(json.dumps(dict(inputs=len(inputs),jobs=len(jobs),output=str(out))))
 if __name__=='__main__':main()

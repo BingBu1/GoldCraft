@@ -7,6 +7,7 @@
 #include "weapons.hpp"
 #include "beamgun.hpp"
 #include "cannon.hpp"
+#include "melee.hpp"
 #include "emotion_voice.hpp"
 #include "scenario_smoke.hpp"
 #include "balrog11_flame.hpp"
@@ -748,6 +749,7 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
     const int beamSkin=BeamgunViewSkin(ent);
     if(beamSkin>=0 && beamSkin<asset->Header().numskinfamilies)ent->curstate.skin=short(beamSkin);
     stockHands.PrepareCustomRender(flags);
+    MeleeHandScope meleeHands(ent, flags);
     if(!original(flags & ~(STUDIO_RENDER|STUDIO_EVENTS)))return true;
     try
     {

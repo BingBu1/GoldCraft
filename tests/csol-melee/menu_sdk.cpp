@@ -7,8 +7,10 @@
 #include "../../native/csol/server/weapon_slots.h"
 #include "../../native/csol/server/weapons.h"
 #include "../../native/csol/server/wpn_melee.h"
+#include "../../native/csol/server/melee_purchase.h"
 #include "../../native/csol/buy_menu.hpp"
 #include "../../native/csol/melee_identity.hpp"
+#include "../../native/csol/melee_prediction.hpp"
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -20,26 +22,33 @@ std::shared_ptr<CCSOLScenarioRuntime> CSOL_TestScenarioRuntimeForAccess(const CS
 namespace {
 using namespace sdk_test;
 using namespace csol::buy;
-int assertions{},failed{},fault{},adds{},removes{},deploys{},msgId{};
+int assertions{},failed{},fault{},adds{},removes{},deploys{},pickupSounds{},msgId{};
 CBasePlayerWeapon* original{};
 std::vector<int> debits;
 std::vector<std::string> args;
 std::vector<std::vector<std::uint8_t>> packets;
 std::function<void()> transition;
+bool TraceEnabled(){return std::getenv("CSOL_PURCHASE_TRACE")!=nullptr;}
 void Expect(bool good,const char* label){++assertions;if(!good){++failed;std::cerr<<"ASSERT "<<label<<'\n';}}
 void Animation(IReGameHook_CBasePlayer_SetAnimation*,CBasePlayer*,PLAYER_ANIM) {}
 void Account(IReGameHook_CBasePlayer_AddAccount* chain,CBasePlayer* p,int amount,RewardType reason,bool track)
 {debits.push_back(amount);chain->callNext(p,amount,reason,track);}
 BOOL Add(IReGameHook_CBasePlayer_AddPlayerItem* chain,CBasePlayer* p,CBasePlayerItem* item){
+ if(!adds){
+  Expect(CSOL_IsMeleeReplacement(*p,*item)==(original!=nullptr),"replacement suppression exists only for delivery with an owned prior knife");
+  auto* unrelated=p->m_rgpPlayerItems[PRIMARY_WEAPON_SLOT];
+  Expect(unrelated&&!CSOL_IsMeleeReplacement(*p,*unrelated),"active replacement scope does not match an unrelated carried firearm");
+ }
  ++adds;const auto ok=chain->callNext(p,item);
+ if(TraceEnabled())std::cerr<<"ADD id="<<item->m_iId<<" ok="<<ok<<" active="<<(p->m_pActiveItem?p->m_pActiveItem->m_iId:0)<<'\n';
  if(item!=original&&transition){auto cb=std::move(transition);cb();}
  return item!=original&&fault==2?FALSE:ok;
 }
 BOOL Remove(IReGameHook_CBasePlayer_RemovePlayerItem* chain,CBasePlayer* p,CBasePlayerItem* item){
- ++removes;const auto ok=chain->callNext(p,item);return item==original&&fault==3?FALSE:ok;
+ ++removes;const auto ok=chain->callNext(p,item);if(TraceEnabled())std::cerr<<"REMOVE id="<<item->m_iId<<" ok="<<ok<<'\n';return item==original&&fault==3?FALSE:ok;
 }
 BOOL Deploy(IReGameHook_CBasePlayerWeapon_DefaultDeploy* chain,CBasePlayerWeapon* w,char* view,char* player,int sequence,char* extension,int skip){
- ++deploys;if(w!=original&&fault==1)return FALSE;return chain->callNext(w,view,player,sequence,extension,skip);
+ ++deploys;if(w!=original&&fault==1)return FALSE;const auto ok=chain->callNext(w,view,player,sequence,extension,skip);if(TraceEnabled())std::cerr<<"DEPLOY id="<<w->m_iId<<" ok="<<ok<<'\n';return ok;
 }
 void Hooks(bool on){
  if(on){
@@ -59,11 +68,53 @@ void Hooks(bool on){
 std::string Read(const std::filesystem::path& path){std::ifstream f(path,std::ios::binary);Require(bool(f),"frozen test resource exists");std::ostringstream text;text<<f.rdbuf();return text.str();}
 void Command(CBasePlayer& p,std::initializer_list<std::string> command){
  args.assign(command);Require(CSOL_BuyMenuCommand(p.edict(),args[0].c_str()),"real menu consumes command");
+ Require(!CSOL_RulesRejected(),CSOL_RulesRejectionReason());
+ if(TraceEnabled()){
+  Packet response{};if(!packets.empty())Decode(packets.back(),response);
+  std::cerr<<"COMMAND";for(const auto& arg:args)std::cerr<<' '<<arg;
+  std::cerr<<" response="<<int(response.kind)<<'/'<<int(response.result)<<" active="<<(p.m_pActiveItem?p.m_pActiveItem->m_iId:0)
+   <<" last="<<(p.m_pLastItem?p.m_pLastItem->m_iId:0)<<" knife="<<(p.m_rgpPlayerItems[KNIFE_SLOT]?p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId:0)<<'\n';
+ }
 }
 Packet Last(){Packet p;Require(!packets.empty()&&Decode(packets.back(),p),"real response decodes");return p;}
 Packet Offer(int id){for(auto it=packets.rbegin();it!=packets.rend();++it){Packet p;if(Decode(*it,p)&&p.kind==Kind::Item&&p.id==id)return p;}throw std::runtime_error("menu omitted requested offer");}
 CBasePlayerWeapon* Held(CBasePlayer& p,int slot){return dynamic_cast<CBasePlayerWeapon*>(p.m_rgpPlayerItems[slot]);}
-void Sole(CBasePlayer& p,int id){auto* w=Held(p,KNIFE_SLOT);Expect(w&&w->m_iId==id&&!w->m_pNext&&w->m_pPlayer==&p&&w->pev->owner==p.edict()&&p.m_pActiveItem==w,"actual purchase selects exactly one owned knife");}
+void Sole(CBasePlayer& p,int id){auto* w=Held(p,KNIFE_SLOT);Expect(w&&w->m_iId==id&&!w->m_pNext&&w->m_pPlayer==&p&&w->pev->owner==p.edict(),"actual purchase leaves exactly one owned knife");}
+struct WeaponSnapshot {
+ CBasePlayerWeapon& weapon;
+ std::array<float,9> timers;
+ std::array<int,5> state;
+ bool delay;
+ decltype(CBaseEntity::m_pfnThink) think;
+ weapon_data_t prediction{};
+ CSOLMeleePurchaseState privateState{};bool customMelee{};
+ explicit WeaponSnapshot(CBasePlayerWeapon& value):weapon(value),
+  timers{value.m_flNextPrimaryAttack,value.m_flNextSecondaryAttack,value.m_flTimeWeaponIdle,
+   value.m_flLastFireTime,value.m_flPrevPrimaryAttack,value.m_flDecreaseShotsFired,value.m_flAccuracy,
+   value.m_flNextReload,value.pev->nextthink},
+  state{value.m_iShotsFired,value.m_fInReload,value.m_fInSpecialReload,value.m_iWeaponState,value.m_iClip},
+  delay(value.m_bDelayFire),think(value.m_pfnThink){CSOL_PackMeleeWeapon(&value,&prediction);customMelee=CSOL_SaveMeleePurchaseState(value,privateState);}
+ bool Unchanged()const{
+  const WeaponSnapshot current(weapon);
+  return timers==current.timers&&state==current.state&&delay==current.delay&&think==current.think&&
+   customMelee==current.customMelee&&(!customMelee||(
+    privateState.prediction.primaryOrdinal==current.privateState.prediction.primaryOrdinal&&
+    privateState.prediction.serial==current.privateState.prediction.serial&&
+    privateState.prediction.pendingAnimation==current.privateState.prediction.pendingAnimation&&
+    privateState.prediction.pendingTime==current.privateState.prediction.pendingTime&&
+    privateState.deploymentComplete==current.privateState.deploymentComplete))&&
+   prediction.m_iWeaponState==current.prediction.m_iWeaponState&&prediction.fuser1==current.prediction.fuser1&&
+   prediction.fuser2==current.prediction.fuser2;
+ }
+};
+struct PlayerSnapshot {
+ CBasePlayer& player;CBasePlayerItem *active,*last;float nextAttack;int viewmodel,weaponmodel,animation;
+ explicit PlayerSnapshot(CBasePlayer& p):player(p),active(p.m_pActiveItem),last(p.m_pLastItem),
+  nextAttack(p.m_flNextAttack),viewmodel(p.pev->viewmodel),weaponmodel(p.pev->weaponmodel),animation(p.pev->weaponanim){}
+ bool UnchangedExceptLast(CBasePlayerItem* expectedLast)const{return player.m_pActiveItem==active&&player.m_pLastItem==expectedLast&&player.m_flNextAttack==nextAttack&&
+  static_cast<int>(player.pev->viewmodel)==viewmodel&&static_cast<int>(player.pev->weaponmodel)==weaponmodel&&player.pev->weaponanim==animation;}
+ bool Unchanged()const{return UnchangedExceptLast(last);}
+};
 struct Fixture {
  std::unique_ptr<Engine> storage=std::make_unique<Engine>();Engine& engine=*storage;
  std::shared_ptr<CCSOLScenarioRuntime> runtime;
@@ -99,6 +150,7 @@ void Run(const std::filesystem::path& frozen,int mode){
   for(const char* name:{"dragonsword","skullaxe"})files[std::string("csol/weapons/")+name+"_damage.json"]=Read(frozen/(std::string(name)+"_damage.json"));
  });
  auto& e=f.engine;auto& p=f.Player();
+ e.onSound=[](edict_t*,const char* sample){if(!std::strcmp(sample,"items/gunpickup2.wav"))++pickupSounds;};
  g_engfuncs.pfnInfoKeyValue=[](char*,const char* name)->char*{return const_cast<char*>(!std::strcmp(name,"csol_protocol")?"1":"");};
  g_engfuncs.pfnCanSkipPlayer=[](const edict_t*){return 0;};
  g_engfuncs.pfnRandomLong=[](int32 low,int32)->int32{return low;};
@@ -112,10 +164,24 @@ void Run(const std::filesystem::path& frozen,int mode){
  CSOL_InitWeapons();e.Set("csol_weapons","1");CSOL_ResetWeaponRegistry();CSOL_PrecacheWeapons();
  Require(CSOL_WeaponsReady()&&CSOL_MeleeReady(1022)&&CSOL_MeleeReady(1023),"actual two-knife config/registry ready");
  Require(CSOL_PrecacheBuyMenu(),"actual menu resource validation and registration");
- auto own=[&](const char* name,int slot){auto* ed=Engine::Create(Engine::String(name));auto* w=dynamic_cast<CBasePlayerWeapon*>(CBaseEntity::Instance(ed));Require(w,"actual initial weapon factory");w->CBasePlayerWeapon::Spawn();w->m_pPlayer=&p;w->pev->owner=p.edict();p.m_rgpPlayerItems[slot]=w;return w;};
- original=own("weapon_knife",KNIFE_SLOT);auto* primary=own("weapon_m4a1",PRIMARY_WEAPON_SLOT);auto* pistol=own("weapon_usp",PISTOL_SLOT);
- p.m_pActiveItem=original;p.m_iAccount=mode?7500:0;p.m_flNextAttack=17;
- original->m_flNextPrimaryAttack=18;original->m_flNextSecondaryAttack=19;original->m_flTimeWeaponIdle=20;
+ auto own=[&](const char* name,int slot,int id){auto* ed=Engine::Create(Engine::String(name));auto* w=dynamic_cast<CBasePlayerWeapon*>(CBaseEntity::Instance(ed));Require(w,"actual initial weapon factory");w->CBasePlayerWeapon::Spawn();w->m_iId=static_cast<WeaponIdType>(id);Require(w->GetItemInfo(&CBasePlayerItem::m_ItemInfoArray[id]),"actual native weapon metadata includes its real selection weight");w->m_pPlayer=&p;w->pev->owner=p.edict();p.m_rgpPlayerItems[slot]=w;return w;};
+ const bool noKnife=mode==10||mode==11;
+ original=noKnife?nullptr:own("weapon_knife",KNIFE_SLOT,WEAPON_KNIFE);
+ auto* primary=own("weapon_m4a1",PRIMARY_WEAPON_SLOT,WEAPON_M4A1);auto* pistol=own("weapon_usp",PISTOL_SLOT,WEAPON_USP);
+ const bool holdingGun=mode==8||mode==9||mode==11||mode==12;
+ auto* gun=mode==9?pistol:primary;
+ p.m_pActiveItem=holdingGun?gun:original;p.m_pLastItem=holdingGun?(mode==9?primary:pistol):pistol;
+ if(mode==12)p.m_pLastItem=original;
+ p.m_iAccount=mode?7500:0;p.m_flNextAttack=17;p.m_iAutoWepSwitch=1;
+ if(original){original->m_flNextPrimaryAttack=18;original->m_flNextSecondaryAttack=19;original->m_flTimeWeaponIdle=20;}
+ gun->m_flNextPrimaryAttack=31;gun->m_flNextSecondaryAttack=32;gun->m_flTimeWeaponIdle=33;
+ gun->m_fInReload=TRUE;gun->m_iShotsFired=7;gun->m_flNextReload=34;gun->m_flAccuracy=.375f;
+ const WeaponSnapshot firearm(*gun);const PlayerSnapshot beforePlayer(p);
+ const auto keptGun=[&]{return firearm.Unchanged()&&(mode==12?beforePlayer.UnchangedExceptLast(Held(p,KNIFE_SLOT)):beforePlayer.Unchanged());};
+ const auto weapons=f.session->Weapons();const auto authority=f.players->Find(EHANDLE(&p));
+ Require(weapons&&authority,"actual registered player and weapon metadata services");
+ Require(weapons->ReplaceSelectionMetadata(p,authority->generation,{{4016,71},{4010,72}},{{483,{11,12}},{363,{21,22}}}),
+  "trusted complete player metadata snapshot is distinct from current weapon state");
  p.m_signals.Signal(SIGNAL_BUY);p.m_signals.Update();
  Require(p.CanPlayerBuy(false),"real native buyzone gate accepts eligible player in controlled phase");
  Hooks(true);fault=mode;
@@ -126,15 +192,80 @@ void Run(const std::filesystem::path& frozen,int mode){
  if(mode==6)transition=[&]{++p.m_iNumSpawns;};
  if(mode==7)transition=[&]{f.runtime->RequestClose();};
  Command(p,{"csol_buy","1","1022"});
- if(mode==0||mode==4){
+ if(mode==0||mode==4||mode>=8){
   Expect(Last().result==Result::Success&&Last().price==0&&p.m_iAccount==(mode?7500:0),"zero-priced menu delivery succeeds without balance change");Sole(p,1022);
+  Expect(pickupSounds==(noKnife?1:0),"only normal no-knife delivery emits its native pickup sound");
+  if(holdingGun)Expect(keptGun(),"selecting a knife while holding a gun preserves active, mapped last, reload, presentation and cooldown");
+  if(noKnife&&!holdingGun)Expect(p.m_pActiveItem==Held(p,KNIFE_SLOT),"native auto-selection deploys the first knife when there is no active item");
+  if(!holdingGun&&!noKnife)Expect(p.m_pActiveItem==Held(p,KNIFE_SLOT),"changing the active knife deploys the replacement");
   auto* sword=Held(p,KNIFE_SLOT);const auto attempts=adds;const auto moneyCalls=debits.size();
+  const auto attributeKey=weapons->CreateAttributes(483,17);
+  Require(attributeKey&&weapons->SetAttributeKey(*sword,*attributeKey)&&weapons->SetEnhancementLevel(*sword,9)&&
+   weapons->SetAddonWeaponInput(*sword,-17),"bind independent attribute, enhancement and addon state to the exact knife");
+  Expect(weapons->Parts(*sword)==std::array<std::uint32_t,2>{11,12}&&weapons->PaintType(*sword)==71,
+   "first selection consumes exact catalog parts and source-key paint from authority");
+  Require(weapons->ReplaceSelectionMetadata(p,authority->generation,{{4016,81},{4010,82}},{{483,{31,32}},{363,{41,42}}}),
+   "update authority without mutating current weapon until a fresh selection");
+  Require(weapons->SelectItems(p,authority->generation,weapons->DefaultSelection()),
+   "reselecting native loadout on the same player generation is valid");
+  CSOLScenarioPlayerProfile refreshedProfile;refreshedProfile.equipment.classModsComplete=true;
+  refreshedProfile.selectedWeapons=weapons->DefaultSelection();
+  Require(f.players->SetProfile(p,std::move(refreshedProfile))&&f.players->Find(EHANDLE(&p))==authority,
+   "real profile update preserves the exact registered player generation");
   Command(p,{"csol_buy","1","1022"});Expect(adds==attempts&&debits.size()==moneyCalls&&Held(p,KNIFE_SLOT)==sword,"repeated receipt never repeats entity or money transaction");
-  sword->m_flNextPrimaryAttack=91;sword->m_flTimeWeaponIdle=92;
-  Command(p,{"csol_buy_menu","2"});Expect(Offer(1022).result==Result::Unavailable&&Offer(1023).result==Result::Available,"current knife unavailable and other knife available");
-  Command(p,{"csol_buy","2","1022"});Expect(Last().result==Result::Unavailable&&Held(p,KNIFE_SLOT)==sword&&sword->m_flNextPrimaryAttack==91&&sword->m_flTimeWeaponIdle==92,"same-kind new request does not reset cooldown");
-  Command(p,{"csol_buy","2","1023"});Expect(Last().result==Result::Success,"failed same-kind attempt does not lock different knife purchase");Sole(p,1023);
-  Command(p,{"csol_buy_menu","3"});Command(p,{"csol_buy","3","1022"});Expect(Last().result==Result::Success,"opposite knife can be selected again through fresh catalog");Sole(p,1022);
+  Expect(weapons->Parts(*sword)==std::array<std::uint32_t,2>{11,12}&&weapons->PaintType(*sword)==71,
+   "receipt replay does not execute the selection metadata tail twice");
+  if(p.m_pActiveItem==sword){
+   // This fixture owns Selection resources, not Combat's movement upgrades.
+   // Start a real delayed attack, then restore the pre-existing rule phase;
+   // the resulting prediction and scheduled Think remain untouched.
+   const auto freeze=g_pGameRules->m_bFreezePeriod;const auto canShoot=p.m_bCanShoot;
+   g_pGameRules->m_bFreezePeriod=FALSE;p.m_bCanShoot=true;sword->PrimaryAttack();
+   g_pGameRules->m_bFreezePeriod=freeze;p.m_bCanShoot=canShoot;
+   weapon_data_t pending{};CSOL_PackMeleeWeapon(sword,&pending);
+   Expect(csol::melee::ReadPrediction(pending).pendingAnimation!=0&&sword->m_pfnThink&&sword->pev->nextthink>gpGlobals->time,
+    "same-kind regression starts a real delayed melee attack before reselection");
+  }
+  const WeaponSnapshot pending(*sword);const PlayerSnapshot selection(p);const EHANDLE identity(sword);
+  const auto created=e.allocations;const auto removed=removes;const auto deployed=deploys;const auto sounds=pickupSounds;
+  Command(p,{"csol_buy_menu","2"});Expect(Offer(1022).result==Result::Available&&Offer(1023).result==Result::Available,"same-kind and alternate selection remain available");
+  Command(p,{"csol_buy","2","1022"});Expect(Last().result==Result::Success&&identity.Get<CBaseEntity>()==sword&&Held(p,KNIFE_SLOT)==sword,
+   "same-kind new request succeeds on the existing exact entity");
+  Expect(pending.Unchanged()&&selection.Unchanged()&&e.allocations==created&&adds==attempts&&removes==removed&&deploys==deployed&&pickupSounds==sounds,
+   "same-kind refresh preserves pending attack, serial, timers and presentation without Spawn, Touch or Deploy");
+  Expect(weapons->Parts(*sword)==std::array<std::uint32_t,2>{31,32}&&weapons->PaintType(*sword)==81,
+   "same-kind fresh selection actually refreshes metadata instead of returning a no-op success");
+  Expect(weapons->AttributeKey(*sword)==*attributeKey&&weapons->EnhancementLevel(*sword)==9&&weapons->AddonWeaponInput(*sword)==-17,
+   "selection metadata refresh does not erase unrelated weapon attributes, enhancement or addon input");
+  Command(p,{"csol_buy_menu","3"});
+  if(mode==13){
+   fault=1;Command(p,{"csol_buy","3","1023"});
+   Expect(Last().result==Result::Failed&&identity.Get<CBaseEntity>()==sword&&Held(p,KNIFE_SLOT)==sword,
+    "failed alternate Deploy keeps the exact pending-attack knife owned");
+   Expect(pending.Unchanged()&&selection.Unchanged(),"host transaction rollback restores the old real pending attack and presentation after Deploy refusal");
+   fault=0;
+  }
+  Command(p,{"csol_buy","3","1023"});Expect(Last().result==Result::Success,"fresh catalog selects the opposite knife");Sole(p,1023);
+  Expect(weapons->Parts(*Held(p,KNIFE_SLOT))==std::array<std::uint32_t,2>{41,42}&&weapons->PaintType(*Held(p,KNIFE_SLOT))==82,
+   "alternate knife uses its own catalog and paint-source identity");
+  if(holdingGun)Expect(keptGun(),"alternate knife selection while holding a firearm never switches or cancels reload");
+  Expect(pickupSounds==sounds,"existing knife replacement does not add a pickup sound");
+  Command(p,{"csol_buy_menu","4"});Command(p,{"csol_buy","4","1022"});Expect(Last().result==Result::Success,"opposite knife can be selected again through fresh catalog");Sole(p,1022);
+  Expect(pickupSounds==sounds,"replacement sound suppression covers both directions");
+  sword=Held(p,KNIFE_SLOT);const WeaponSnapshot beforeMissing(*sword);
+  Require(weapons->ReplaceSelectionMetadata(p,authority->generation,{},{}),"explicit complete empty selection map represents a real lookup miss");
+  Command(p,{"csol_buy_menu","5"});Command(p,{"csol_buy","5","1022"});
+  Expect(Last().result==Result::Success&&beforeMissing.Unchanged()&&weapons->Parts(*sword)==std::array<std::uint32_t,2>{}&&weapons->PaintType(*sword)==0,
+   "known map miss clears only selected metadata without resetting attacks");
+  Expect(!CSOL_IsMeleeReplacement(p,*sword)&&!CSOL_IsMeleeReplacement(p,*primary),"replacement scope never escapes into later pickups");
+  const EHANDLE beforeUnknown(sword);const WeaponSnapshot unknownState(*sword);
+  weapons->RemovePlayer(EHANDLE(&p),authority->generation);
+  Expect(!weapons->ReplaceSelectionMetadata(p,authority->generation,{{4016,99}},{{483,{91,92}}})&&
+   !weapons->RefreshMeleeSelection(p,authority->generation,*sword),
+   "retired selection cannot accept imports or refresh under its old generation");
+  Command(p,{"csol_buy_menu","6"});Command(p,{"csol_buy","6","1022"});
+  Expect(Last().result==Result::Failed&&beforeUnknown.Get<CBaseEntity>()==sword&&Held(p,KNIFE_SLOT)==sword&&unknownState.Unchanged(),
+   "missing authority is a failed selection, not an invented empty-map success");
  }else{
   Expect(Last().kind!=Kind::Result||Last().result!=Result::Success,"native hook failure or lifecycle transition cannot publish success");
   Expect(p.m_iAccount==7500,"failed free delivery cannot charge/refund extra funds");
