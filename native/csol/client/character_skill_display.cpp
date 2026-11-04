@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "overlay_layers.hpp"
 #include "character_skill_display.hpp"
 #include "user_message_chain.hpp"
 #include "../character_skill_display.hpp"
@@ -121,7 +122,7 @@ public:
     void Key_Event(int&, int&, const char*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceAppProc(void*&, void*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceWndProc(void*&, unsigned int&, unsigned int&, long&, VGUI2Extension_CallbackContext*) override {}
-    void Paint(int&, int&, int&, int&, VGUI2Extension_CallbackContext* context) override { if (context->IsPost) PaintSkills(); }
+    void Paint(int&, int&, int&, int&, VGUI2Extension_CallbackContext* context) override { if (context->IsPost) QueueOverlayPaint(OverlayLayer::CharacterSkills, PaintSkills); }
     void HideGameUI(VGUI2Extension_CallbackContext* context) override { if (context->IsPost) gameUI = false; }
     void ActivateGameUI(VGUI2Extension_CallbackContext* context) override { if (!context->IsPost) gameUI = true; }
     void HideConsole(VGUI2Extension_CallbackContext* context) override { if (context->IsPost) console = false; }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "overlay_layers.hpp"
 #include "characters.hpp"
 #include "weapon_inventory.hpp"
 #include "../character_protocol.hpp"
@@ -430,7 +431,7 @@ public:
         if(message==WM_KILLFOCUS || (message==WM_ACTIVATEAPP && !wparam))UpdateFocus(false);
         else if(message==WM_SETFOCUS || (message==WM_ACTIVATEAPP && wparam))UpdateFocus(true);
     }
-    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)csol::client::Paint();}
+    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)QueueOverlayPaint(OverlayLayer::CharacterMenu,csol::client::Paint);}
     void HideGameUI(VGUI2Extension_CallbackContext*)override{}
     void ActivateGameUI(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Cancel();}
     void HideConsole(VGUI2Extension_CallbackContext*)override{}

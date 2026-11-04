@@ -47,3 +47,17 @@ resources-06 独立资源检查已完成 1978 项、零失败：原来的 235 �
 ```
 
 该脚本要求新的 build 子目录和 resources-06 的完整237文件导出，独立复制候选源；十个TU全部重编，不复用OBJ，随后五次链接、五组测试，单job/总900秒/首败停。脚本本身只生成提案，不执行编译器、测试、部署或界面操作。
+
+## 2026-11-04 切枪首帧专项
+
+`switch.cpp` 复用实际 SDK、完整 HUD consumer、Init、TGA decoder 和 Paint 捕获夹具，只运行 `HudStyleFrame(旧武器) → CurrentWeapon 更新 → BeginHudStyle/Draw/Paint` 时序，切枪前不显式调用 `PrepareSelection`。覆盖 K3、黑龙炮、普通 M4 与刀的 12 种双向转换、同一 Frame 内连续换回、消息后弹药变化、绘制数值和蓝/白图标、隐藏/菜单/控制台及真实缺图回退、资源恢复和纹理释放。旧黄弹药可能来自扩展武器自己的 fallback，不把测试边界描述为只验证 stock HUD。
+
+`run_switch.py` 会直接执行这组独立编译及回归，逐步保留命令和日志；它不运行历史整套测试、不构建完整 DLL、不部署或操作游戏。当前本机结果在 `build/csol-hud-switch-20261104/sdk02/result.json`：工作源和实际部署源仅加入 `BeginHudStyle` 准备调用的组合各 1039 检查 / 0 失败；HEAD `c4c3b79e74b194a67ad84e1bbaf656fbfe832c6d` 与实际部署旧源码相同（SHA `b15e93a5…`），两种旧配置均 744 检查 / 208 失败。旧版 37 次首绘的 `HudStyleWeaponVisible()` 错误为 false，并伴随资源、标题和数值缺失；这不是一次实际旧 renderer 的绘制测试。
+
+两个通过配置分开验证，不能相加作为不同功能的检查数量。部署组合没有工作树里尚未发布的 `QueueOverlayPaint` 合成器改动，证明本修复不依赖该改动。所有测试期间的源输入 SHA 保持；实际 GPU、网络库存时序和游戏画面仍须父任务验证。父任务提供的 SDK 提案和已部署源码快照属于本机证据，公开仓库不包含这些构建产物。
+
+```powershell
+python tests/csol-hud-style/run_switch.py --proposal build/csol-hud-style-20261102/prepare-money-01/proposal.json --output build/csol-hud-switch-20261104/repro --deployed-source build/csol-material-download-20261103/client-full-02/source/native/csol/client/hud_style.cpp --old-ref c4c3b79e74b194a67ad84e1bbaf656fbfe832c6d
+```
+
+输出目录必须尚不存在。最初误选的 `ida-review-05/proposal.json` 不含构建环境，准备阶段拒绝，未启动编译器；改用已有 `prepare-money-01` 编译提案后上述四配置均按预期结束。

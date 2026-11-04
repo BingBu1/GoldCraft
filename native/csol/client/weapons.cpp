@@ -23,7 +23,7 @@ namespace
 {
 constexpr int KnifeId = ThrowingKnifeId;
 constexpr int BlueR = 114, BlueG = 197, BlueB = 255;
-bool registered{}, drawingNative{};
+bool registered{}, drawingNative{}, nativeDeadHud{};
 int active{}, clip{}, ammoType=-1, reserve{}, hidden{};
 int predictedClip=-1, predictedTotal=-1;
 int hudDraws{}, predictionCalls{}, postRunCalls{}, sourceWeaponId{};
@@ -118,7 +118,11 @@ void ApplyNativeWeaponVisibility()
     // Stock CurWeapon ID zero clears only the crosshair in this CS build;
     // its active HUD pointer remains. HIDEHUD_WEAPONS suppresses that HUD
     // without hiding health/armor or changing the server's requested mask.
-    unsigned char mask = static_cast<unsigned char>(hidden | (ExtendedWeaponId(active) ? 1 : 0));
+    // A dead player waiting in Scenario is not an observer, so stock CS would
+    // keep drawing 0 health/armor and its weapon HUD. CSO hides the bottom
+    // bars while dead; add WEAPONS|HEALTH only for the local stock client.
+    unsigned char mask = static_cast<unsigned char>(hidden | (ExtendedWeaponId(active) ? 1 : 0) |
+        (nativeDeadHud ? 1 | 8 : 0));
     oldHide("HideWeapon", sizeof(mask), &mask);
 }
 int AmmoTotal()
@@ -531,7 +535,7 @@ void ResetWeapons(bool forgetRegistration)
     ResetWeaponInventory(forgetRegistration);
     ResetPickupHistory();
     ResetWeaponModules();
-    active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;
+    active=clip=reserve=hidden=0;predictedClip=predictedTotal=-1;nativeDeadHud=false;
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
     nativeAmmo={};nativeAmmoWeapon=0;nativeVitalRuns={};
     adjustMoney=moneyAnchor=false;
@@ -563,6 +567,13 @@ void WeaponVideoInit()
 }
 int WeaponRedraw(float time,int intermission)
 {
+    // Observers are already hidden by stock iuser1 checks; only the dead
+    // non-observer local player changes the mask forwarded to stock CS.
+    if(const bool dead=view.health<=0 && !view.spectator;dead!=nativeDeadHud)
+    {
+        nativeDeadHud=dead;
+        ApplyNativeWeaponVisibility();
+    }
     BeginHudStyle(hidden,intermission);
     if(HudStyleVitalsVisible() || HudStyleWeaponVisible() || HudStyleMoneyVisible())
     {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "overlay_layers.hpp"
 #include "buy_menu.hpp"
 #include "command_chain.hpp"
 #include "weapon_inventory.hpp"
@@ -329,7 +330,7 @@ public:
     }
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceWndProc(void*&,unsigned int& message,unsigned int& wparam,long&,VGUI2Extension_CallbackContext* context)override{if(visible&&!context->IsPost&&(message==WM_KILLFOCUS||(message==WM_ACTIVATEAPP&&!wparam)))Close(false);}
-    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)csol::client::Paint();}
+    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)QueueOverlayPaint(OverlayLayer::BuyMenu,csol::client::Paint);}
     void HideGameUI(VGUI2Extension_CallbackContext*)override{}void HideConsole(VGUI2Extension_CallbackContext*)override{}
     void ActivateGameUI(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Close(false);}
     void ShowConsole(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Close(false);}

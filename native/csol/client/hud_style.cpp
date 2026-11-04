@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "overlay_layers.hpp"
 #include "hud_style.hpp"
 #include "user_message_chain.hpp"
 #include "weapon_inventory.hpp"
@@ -402,7 +403,7 @@ public:
     void Key_Event(int&,int&,const char*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceWndProc(void*&,unsigned int&,unsigned int&,long&,VGUI2Extension_CallbackContext*)override{}
-    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)csol::client::Paint();}
+    void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)QueueOverlayPaint(OverlayLayer::HudStyle,csol::client::Paint);}
     void HideGameUI(VGUI2Extension_CallbackContext* context)override{if(context->IsPost)gameUI=false;}
     void ActivateGameUI(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)gameUI=true;}
     void HideConsole(VGUI2Extension_CallbackContext* context)override{if(context->IsPost)console=false;}
@@ -505,6 +506,10 @@ void BeginHudStyle(int hidden,int intermission)
     if (!loaded || !titleFont) return;
     vitalsVisible=!(hidden&8) && vitals.healthKnown && vitals.armorKnown;
     weapon=CurrentWeaponHudState();
+    // Prediction/CurWeapon can change the selection after HUD_Frame prepared
+    // its textures. Resolve that change before deciding this draw's ownership;
+    // otherwise one frame falls back to the old yellow ammo HUD on every switch.
+    PrepareSelection();
     const auto* definition=FindWeaponDefinition(weapon.id);
     weaponVisible=!(hidden&1) && weapon.id>0 && definition && definition->name==weaponName &&
         weaponImage.id && titleFont && !weaponTitle.empty() &&
