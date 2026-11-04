@@ -53,7 +53,11 @@ std::string install_failure;
 unsigned manifest_total = 0, manifest_next = 0, manifests = 0, resets = 0;
 unsigned high_model_reads = 0, high_sound_reads = 0, high_model_lookups = 0;
 unsigned last_model_read = 0, last_sound_read = 0, last_model_lookup = 0;
-std::vector<model_t*> models(512);
+// CL_LoadModel (HL10210 10196110) scans from slot 1 to the first null
+// pointer, without reading a capacity. Keep its terminator outside the
+// addressable model slots, including when the manifest fills every slot.
+std::vector<model_t*> models(513);
+size_t model_slots() { return models.size() - 1; }
 std::vector<Sound*> sounds(512);
 std::vector<resource_t*> resources;
 std::vector<Consistency> checks;
@@ -174,7 +178,7 @@ void update_tables() {
         api->WriteDWORD(patch.address, DWORD(base) + patch.offset);
     }
     api->WriteDWORD(sound_end_patch, DWORD(sounds.data() + sounds.size()));
-    for (auto patch : model_limits) api->WriteDWORD(patch, DWORD(models.size()));
+    for (auto patch : model_limits) api->WriteDWORD(patch, DWORD(model_slots()));
 }
 
 void set_extension(bool active) {
@@ -219,7 +223,7 @@ model_t* model_at(int index) {
     return index >= 1024 && size_t(index - 1024) < extra_models.size() ?
         &extra_models[index - 1024]->model : nullptr;
 }
-int model_capacity() { return extended ? int(models.size()) : 512; }
+int model_capacity() { return extended ? int(model_slots()) : 512; }
 
 CRC* model_crc(model_t* model) {
     const int index = model_index(model);
@@ -412,7 +416,7 @@ Sound* __cdecl find_sound(const char* name, int* cached) {
 
 model_t* __cdecl model_for_index(int index) {
     if (!extended) return model_for_index_original(index);
-    if (index < 0 || size_t(index) >= models.size()) return nullptr;
+    if (index < 0 || size_t(index) >= model_slots()) return nullptr;
     if (unsigned(index) >= precache::media_escape) { ++high_model_lookups; last_model_lookup = unsigned(index); }
     return model_for_index_original(index);
 }
@@ -428,7 +432,7 @@ int __cdecl read_brass_model() {
     if (!extended) return client_read_short();
     std::uint32_t index = 0;
     if (!precache::read_media_index(client_read_short, client_read_long,
-        [] { return *client_bad_read != 0; }, extended, index) || index >= models.size())
+        [] { return *client_bad_read != 0; }, extended, index) || index >= model_slots())
         malformed("invalid Brass model index");
     ++brass_reads;
     if (index >= precache::media_escape) ++high_brass_reads;
@@ -440,7 +444,7 @@ int __cdecl read_brass_model() {
 
 int __cdecl read_model_index() {
     const auto index = read_media_short();
-    if (index >= models.size()) malformed("model index outside received manifest");
+    if (index >= model_slots()) malformed("model index outside received manifest");
     last_model_read = index;
     if (index >= precache::media_escape) ++high_model_reads;
     return int(index);
@@ -522,7 +526,7 @@ void reset_client() {
     high_model_reads = high_sound_reads = high_model_lookups = 0;
     last_model_read = last_sound_read = last_model_lookup = 0;
     manifest_next = manifest_total = 0; receiving = legacy_manifest_received = false;
-    models.assign(512, nullptr);
+    models.assign(513, nullptr);
     sounds.assign(512, nullptr);
     *consistency_count = *force_consistency = 0;
     ++resets;
@@ -608,7 +612,7 @@ void __cdecl parse_resources() {
         set_extension(true); manifest_total = total; receiving = true;
     } else if (!extended || !is_extended) malformed("mixed resource formats");
 
-    size_t model_size = models.size(), sound_size = sounds.size();
+    size_t model_size = model_slots(), sound_size = sounds.size();
     for (unsigned i = 0; i < count; ++i) {
         resource_t record{};
         record.type = static_cast<resourcetype_t>(read_bits(4));
@@ -641,9 +645,9 @@ void __cdecl parse_resources() {
         needed->pPrev = resource;
         resources.push_back(resource);
     }
-    if (model_size != models.size() || sound_size != sounds.size()) {
+    if (model_size != model_slots() || sound_size != sounds.size()) {
         const char* allocation_error = nullptr;
-        try { models.resize(model_size); sounds.resize(sound_size); }
+        try { models.resize(model_size + 1); sounds.resize(sound_size); }
         catch (const std::bad_alloc&) { allocation_error = "insufficient memory for media tables"; }
         catch (const std::length_error&) { allocation_error = "media tables exceed process address space"; }
         // The first resize can succeed before the second fails. Restore every
@@ -663,7 +667,7 @@ void __cdecl parse_resources() {
 
 void stats() {
     gEngfuncs.Con_Printf("GoldCraft precache v%u: extended=%d receiving=%d resources=%u/%u models=%u sounds=%u cached_models=%d cached_sounds=%u consistency=%u manifests=%u resets=%u\n",
-        precache::version, extended, receiving, unsigned(resources.size()), manifest_total, unsigned(models.size()), unsigned(sounds.size()),
+        precache::version, extended, receiving, unsigned(resources.size()), manifest_total, unsigned(model_slots()), unsigned(sounds.size()),
         model_count(), unsigned(*original_sound_count + extra_sounds.size()), unsigned(checks.size()), manifests, resets);
 }
 
@@ -755,7 +759,7 @@ bool install(metahook_api_t* value) {
         static_parser_slot = resolve("static_parser_slot", MH_GAMESYMBOL_KIND_PATCH);
         if (*static_cast<void**>(static_parser_slot) != resolve("CL_ParseStatic", MH_GAMESYMBOL_KIND_FUNCTION))
             throw std::runtime_error("changed static entity parser");
-        std::memcpy(models.data(), old_models, models.size() * sizeof(model_t*));
+        std::memcpy(models.data(), old_models, model_slots() * sizeof(model_t*));
         std::memcpy(sounds.data(), old_sounds, sounds.size() * sizeof(Sound*));
     } catch (const std::exception& error) {
         table_patches.clear();
@@ -842,7 +846,7 @@ void write_status(std::ostream& out) {
     out << "\"precache\":{\"version\":" << precache::version << ",\"enabled\":" << enabled
         << ",\"clientMedia\":" << client_media_enabled << ",\"brassReads\":" << brass_reads
         << ",\"highBrassReads\":" << high_brass_reads << ",\"lastBrassModel\":" << last_brass_model
-        << ",\"lastBrassName\":" << std::quoted(last_brass_model < models.size() && models[last_brass_model] ? models[last_brass_model]->name : "")
+        << ",\"lastBrassName\":" << std::quoted(last_brass_model < model_slots() && models[last_brass_model] ? models[last_brass_model]->name : "")
         << ",\"error\":" << std::quoted(install_failure) << ",\"extended\":" << extended
         << ",\"storage\":" << std::quoted(extended ? "goldcraft" : "native")
         << ",\"shadowIndex\":" << shadow_index << ",\"shadowName\":" << std::quoted(shadow ? shadow->name : "")

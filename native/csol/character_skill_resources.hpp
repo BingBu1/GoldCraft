@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <array>
+#include <span>
 
 namespace csol::skillfx
 {
@@ -15,7 +16,12 @@ inline constexpr std::array Models{
     "models/ef_scorpion_hole.mdl",
     "sprites/ef_buffclass23s3tr_skill01.spr", "sprites/ef_buffclass23s3ct_skill01.spr",
     "models/ef_y21s3buffclassct.mdl", "sprites/ef_sbmine_debuff.spr",
-    "models/ef_buffclass22s4tr.mdl", "models/ef_buffclass22s4ct.mdl"};
+    "models/ef_buffclass22s4tr.mdl", "models/ef_buffclass22s4ct.mdl",
+    "sprites/zombiarmorheal_head.spr", "sprites/zb_skill_hpbuff.spr",
+    "sprites/zbt_invincibility.spr", "sprites/DoubleSideA.spr", "sprites/DoubleSideB.spr"};
+// CL_LoadModel needs model indices for these world effects. Register the
+// appended entries after the existing models so their indices stay stable.
+inline constexpr auto ClientWorldSprites = std::span{Models}.last<5>();
 // Recursive dependencies of Models, verified by csol_resources. These must
 // reach clients before the corresponding model is first used.
 inline constexpr std::array Dependencies{
@@ -34,14 +40,13 @@ inline constexpr std::array Sounds{
     "sound/zs_skill/zs_skill1.wav", "sound/zs_skill/buffclass22s2ct_zbs_skill.wav",
     "sound/weapons/gunkata_skill_last_exp.wav"};
 inline constexpr std::array ClientResources{
-    "sprites/zombiarmorheal_head.spr", "sprites/zb_skill_hpbuff.spr", "sprites/csol/640hud12.spr",
+    "sprites/csol/640hud12.spr",
     "resource/ZBSVER2/buffclassskill_heal.tga", "resource/ZBSVER2/buffclassskill_damage.tga",
     "resource/ZBSVER2/buffclassskill_buffup.tga", "resource/ZBSVER2/buffclassskill_shield.tga",
     "resource/ZBSVER2/buffclassskill_maxhealth.tga", "resource/ZBSVER2/buffclassskill_invincible.tga",
     "resource/zombi/directitem.tga", "resource/ZBSVER2/buffclassskill_damage_shield.tga",
     "resource/ZBSVER2/buffclassskill_damage_heal.tga", "resource/ZBSVER2/reflect.tga",
     "resource/ZBSVER2/reflect_damage.tga",
-    "sprites/zbt_invincibility.spr", "sprites/DoubleSideA.spr", "sprites/DoubleSideB.spr",
     "resource/Hud/ZBS/bossreinforce_bg_left.tga", "resource/Hud/ZBS/bossreinforce_bg_center.tga",
     "resource/Hud/ZBS/bossreinforce_bg_right.tga", "resource/helperHud/BossHP_bg_left_jun00.tga"};
 inline constexpr std::array ServerTables{

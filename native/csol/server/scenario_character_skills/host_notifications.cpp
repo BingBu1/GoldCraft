@@ -284,6 +284,13 @@ bool PrecacheSkillHost(const std::shared_ptr<CCSOLScenarioSession>& session, Con
         !candidate->pulseHealModel || candidate->buffSkillModel <= 0 ||
         candidate->buffSkillModel > 0xffff || !slowWall || !slowDebuff)
         return Fail(error, "character skill effect model is unavailable");
+    for (const auto* path : csol::skillfx::ClientWorldSprites)
+    {
+        const int index = PRECACHE_MODEL(const_cast<char*>(path));
+        if (!current()) return false;
+        if (index <= 0 || index > 0xffff)
+        { error.message = std::string("character skill sprite precache failed: ") + path; return false; }
+    }
     for (const auto* path : csol::skillfx::Sounds)
     { PRECACHE_SOUND(const_cast<char*>(path + 6)); if (!current()) return false; }
     resources = std::move(candidate);

@@ -11,6 +11,8 @@ std::vector<byte> packet;
 size_t bit_cursor;
 int native_parses, downloads, native_count;
 int cursor, truncated, consistency, force;
+unsigned sentinel_checks = 0, sentinel_failures = 0;
+std::vector<std::unique_ptr<resource_t>> allocated_resources;
 void __cdecl parse_error(const char*, ...) { throw std::runtime_error("malformed packet"); }
 
 void __cdecl begin_bits(void*) { bit_cursor = size_t(cursor) * 8; }
@@ -44,9 +46,156 @@ void valid_manifest() {
         {goldcraft::precache::version, 8}, {0, 32}, {0, 32}, {0, 16}, {0, 1}});
     parse_resources();
 }
+
+void check_sentinel(bool condition, const char* label) {
+    ++sentinel_checks;
+    if (!condition) {
+        ++sentinel_failures;
+        std::cerr << "model terminator: " << label << '\n';
+    }
 }
 
-int main() {
+void resource_chunk(unsigned total, unsigned first, const std::vector<unsigned>& indices) {
+    packet.assign(1, 0xCC);
+    size_t position = 8;
+    const auto put = [&](unsigned value, unsigned width) {
+        for (unsigned i = 0; i < width; ++i, ++position) {
+            if (position / 8 >= packet.size()) packet.push_back(0);
+            packet[position / 8] |= byte(((value >> i) & 1) << (position % 8));
+        }
+    };
+    put(goldcraft::precache::marker, 12); put(goldcraft::precache::magic, 32);
+    put(goldcraft::precache::version, 8); put(total, 32); put(first, 32);
+    put(unsigned(indices.size()), 16);
+    for (const auto index : indices) {
+        put(t_model, 4);
+        const auto name = "models/terminator_" + std::to_string(index) + ".mdl";
+        for (const auto character : name) put(byte(character), 8);
+        put(0, 8); put(index, 32); put(32, 24); put(0, 3); put(0, 1);
+    }
+    if (first + indices.size() == total) put(0, 1); // No consistency list.
+    cursor = 1; truncated = 0;
+    parse_resources();
+}
+
+// Match the documented native name scan in C++, with an instrumented storage
+// boundary. An old table fails safely instead of dereferencing unowned memory.
+int native_name_lookup(model_t* const* slot_one, const char* name, unsigned& compared) {
+    compared = 0;
+    for (unsigned index = 1; index < models.size(); ++index) {
+        const auto* model = slot_one[index - 1];
+        if (!model) {
+            check_sentinel(true, "native missing-name search reached NULL within physical storage");
+            return -1;
+        }
+        ++compared;
+        if (!_stricmp(model->name, name)) return int(index);
+    }
+    check_sentinel(false, "native missing-name search exhausted physical storage without NULL");
+    return -2;
+}
+
+void model_terminator_tests(DWORD& model_operand, const std::array<DWORD, 5>& limits) {
+    resource_t list{};
+    needed = &list;
+    read_string = []() -> const char* {
+        static std::string value;
+        value.clear();
+        for (unsigned count = 0; count < 64; ++count) {
+            const auto character = bits(8);
+            if (truncated || !character) return value.c_str();
+            value.push_back(char(character));
+        }
+        throw std::runtime_error("fixture resource name overflow");
+    };
+    zero_alloc = [](unsigned size) -> void* {
+        assert(size == sizeof(resource_t));
+        allocated_resources.push_back(std::make_unique<resource_t>());
+        return allocated_resources.back().get();
+    };
+    model_for_index_original = [](int index) -> model_t* { return models.at(index); };
+    int client_bad = 0;
+    client_bad_read = &client_bad;
+    client_read_short = []() { return int(bits(16)); };
+    client_read_long = []() { return int(bits(32)); };
+    read_short = client_read_short;
+    read_long = client_read_long;
+
+    model_t ordinary{}, final{};
+    std::strcpy(ordinary.name, "models/ordinary.mdl");
+    std::strcpy(final.name, "models/final.mdl");
+    for (const unsigned slots : {512u, 513u, 879u, 4096u, 65535u, 65536u, 70001u}) {
+        reset_client();
+        list.pNext = list.pPrev = &list;
+        allocated_resources.clear();
+        check_sentinel(model_capacity() == 512, "reset preserves the stock API capacity");
+        // Actual resource parser grows the production vector; no second parser
+        // or manually resized replacement table participates in these cases.
+        resource_chunk(2, 0, {1});
+        check_sentinel(receiving && manifest_next == 1 && resources.size() == 1,
+            "first chunk keeps the download pending");
+        resource_chunk(2, 1, {slots - 1});
+        check_sentinel(!receiving && resources.size() == 2 && model_capacity() == int(slots),
+            "final chunk exposes only the advertised model slots");
+        check_sentinel(models.size() == size_t(slots) + 1,
+            "one extra physical slot exists outside the public index range");
+        check_sentinel(std::all_of(limits.begin(), limits.end(), [slots](DWORD value) { return value == slots; }),
+            "every engine index limit excludes the terminator");
+        check_sentinel(model_operand == DWORD(models.data()), "growth refreshes the engine table operand");
+        // The native loader populates model handles through that operand.
+        auto* const storage = reinterpret_cast<model_t**>(model_operand);
+        for (unsigned index = 1; index < slots; ++index) storage[index] = &ordinary;
+        storage[slots - 1] = &final;
+        unsigned compared = 0;
+        check_sentinel(native_name_lookup(storage + 1, "sprites/not_precached.spr", compared) == -1 && compared == slots - 1,
+            "a missing name stops after all loaded entries");
+        check_sentinel(native_name_lookup(storage + 1, "MODELS/FINAL.MDL", compared) == int(slots - 1),
+            "the last legal model remains case-insensitively findable");
+        check_sentinel(model_for_index(int(slots - 1)) == &final && model_for_index(int(slots)) == nullptr,
+            "native index lookup rejects the terminator");
+        for (const auto index : {slots - 1, slots}) {
+            const auto load_index = [&] {
+                if (index < goldcraft::precache::media_escape) load_packet({{index, 16}});
+                else load_packet({{goldcraft::precache::media_escape, 16}, {index, 32}});
+                begin_bits(nullptr);
+            };
+            bool rejected = false;
+            load_index();
+            try { check_sentinel(read_model_index() == index, "wire reader preserves the last valid index"); }
+            catch (const std::runtime_error&) { rejected = true; }
+            check_sentinel(rejected == (index == slots), "wire reader rejects exactly the public upper bound");
+            rejected = false;
+            load_index();
+            try { check_sentinel(read_brass_model() == int(index), "Brass reader preserves the last valid index"); }
+            catch (const std::runtime_error&) { rejected = true; }
+            check_sentinel(rejected == (index == slots), "Brass reader rejects exactly the public upper bound");
+        }
+        // Append a further chunk in a fresh connection after populating the
+        // first table, so its old terminator becomes a legal model slot.
+        reset_client();
+        list.pNext = list.pPrev = &list;
+        allocated_resources.clear();
+        resource_chunk(2, 0, {slots - 1});
+        auto* const before_growth = reinterpret_cast<model_t**>(model_operand);
+        for (unsigned index = 1; index < slots; ++index) before_growth[index] = &ordinary;
+        resource_chunk(2, 1, {slots + 7});
+        auto* const grown = reinterpret_cast<model_t**>(model_operand);
+        check_sentinel(model_capacity() == int(slots + 8) && grown[slots - 1] == &ordinary,
+            "later chunk preserves old loaded handles");
+        for (unsigned index = slots; index < slots + 8; ++index) grown[index] = &ordinary;
+        check_sentinel(native_name_lookup(grown + 1, "sprites/not_precached.spr", compared) == -1 && compared == slots + 7,
+            "growing a populated table moves the NULL terminator");
+    }
+    reset_client();
+    allocated_resources.clear();
+    check_sentinel(model_capacity() == 512 && models.size() == 513 && models.back() == nullptr,
+        "teardown shrinks logical storage and clears the terminator");
+    reset_client();
+    check_sentinel(models.size() == 513 && models.back() == nullptr, "repeated teardown preserves the terminator");
+}
+}
+
+int main(int argc, char**) {
     metahook_api_t fake_api{};
     fake_api.WriteDWORD = [](void* address, DWORD value) { std::memcpy(address, &value, 4); };
     fake_api.WriteMemory = [](void* address, void* value, DWORD size) -> DWORD {
@@ -80,6 +229,11 @@ int main() {
     const std::array<byte, 4> replacement{9, 8, 7, 6};
     prepare_patch(code.data() + 1, replacement.data(), unsigned(replacement.size()));
     assert(code == original_code && !extended); // Installation stays inert.
+    if (argc > 1) {
+        model_terminator_tests(model_operand, limits);
+        std::cout << "model terminator: " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+        return sentinel_failures ? 1 : 0;
+    }
 
     load_packet({{120, 12}, {0xFFFFFFFF, 32}}); parse_resources();
     assert(native_parses == 1 && native_count == 120 && !extended && downloads == 0);
@@ -109,7 +263,7 @@ int main() {
     assert(extended && !receiving && downloads == 1 && native_parses == 3);
     assert(std::equal(replacement.begin(), replacement.end(), code.begin() + 1));
     assert(model_operand == DWORD(models.data()) && consistency_bits == 32);
-    models.resize(70000); sounds.resize(70001); update_tables();
+    models.resize(70001); sounds.resize(70001); update_tables();
     assert(model_operand == DWORD(models.data()) && sound_operand == DWORD(sounds.data()) + 4);
     assert(limits[0] == 70000 && sound_end == DWORD(sounds.data() + sounds.size()));
     clear_client_original = []() -> int {
@@ -121,7 +275,7 @@ int main() {
     assert(sound_operand == DWORD(stock_sounds.data()) + 4 && sound_end == legacy_sound_end);
     assert(consistency_table == legacy_consistency_table && consistency_bits == 12);
     assert(limits == (std::array<DWORD, 5>{512, 512, 512, 512, 512}));
-    assert(models.size() == 512 && sounds.size() == 512 && manifest_total == 0);
+    assert(models.size() == 513 && sounds.size() == 512 && manifest_total == 0);
 
     load_packet({{180, 12}}); parse_resources();
     assert(native_parses == 4 && native_count == 180 && !extended && code == original_code);
@@ -136,4 +290,7 @@ int main() {
     client_read_short = []() { return -1; };
     assert(read_brass_model() == -1); // Stock signed READ_SHORT semantics.
     std::cout << "Production native/extended parser routing and byte-exact teardown passed\n";
+    model_terminator_tests(model_operand, limits);
+    std::cout << "model terminator: " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+    return sentinel_failures ? 1 : 0;
 }
