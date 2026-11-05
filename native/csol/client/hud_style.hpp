@@ -20,6 +20,7 @@ bool HudStyleWeaponVisible();
 bool HudStyleMoneyVisible();
 hud_style::Money HudStyleMoneyState();
 float HudStyleScale();
+bool HudProportionalValue(int normalized,int& scaled);
 void DrawHudStyle();
 void HudStyleDiagnostics(std::ostream&);
 hud_style::WeaponState CurrentWeaponHudState();

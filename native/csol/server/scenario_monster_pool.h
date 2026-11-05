@@ -90,6 +90,7 @@ class CCSOLScenarioMonster : public CBaseAnimating
 public:
     void Precache() override;
     void Spawn() override;
+    bool RefreshTraceHull();
     int Classify() override { return 17; }
     void TraceAttack(entvars_t* attacker, float damage, Vector direction,
         TraceResult* trace, int damageType) override;

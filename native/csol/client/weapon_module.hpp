@@ -18,6 +18,9 @@ struct WeaponModule
     void (*reset)(){};
     void (*afterReset)(){};
     void (*videoInit)(){};
+    void (*shutdown)(){};
+    // Release extended presentation before stock CurWeapon installs its own.
+    void (*nativeWeaponChanged)(int id){};
     void (*receive)(const WeaponCurrent&){};
     bool (*predict)(local_state_t*,local_state_t*,usercmd_t*,int,double,unsigned){};
     void (*diagnostics)(std::ostream&){};
@@ -26,6 +29,7 @@ struct WeaponModule
     const char* ammoSprite{};
     wrect_t ammoRect{};
     std::array<int,3> ammoColor{255,255,255};
+    bool dynamicCrosshair{true};
     crosshair::Parameters crosshair{};
     bool (*crosshairShot)(){};
     int (*predictedClip)(){};
@@ -48,4 +52,5 @@ const WeaponModule* FindWeaponModule(int id) noexcept;
 void InitializeWeaponModules();
 void ResetWeaponModules();
 void WeaponModulesVideoInit();
+void ShutdownWeaponModules();
 }

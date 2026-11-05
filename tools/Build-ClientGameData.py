@@ -191,6 +191,33 @@ def main():
     for entry in shared_random["functions"]:
         records.append({"platform": "windows", "module": "client", "symbolName": entry["name"],
                         "kind": "function", "payload": {"func_rva": entry["rva"], "func_size": entry["size"]}})
+    # The extended predictor must consume the host client's CRT stream,
+    # not a second /MT runtime in the plugin. Verify the exact PE import.
+    import_rva, import_size = struct.unpack_from("<II", data, pe + 24 + 96 + 8)
+    for entry in shared_random["imports"]:
+        iat, name_rva = int(entry["iatRva"], 16), int(entry["nameRva"], 16)
+        matched = False
+        for offset in range(0, import_size - 19, 20):
+            lookup, _, _, module, address = struct.unpack("<IIIII", raw(import_rva + offset, 20))
+            if not module:
+                break
+            module_name = entry["module"].encode("ascii") + b"\0"
+            if raw(module, len(module_name)).lower() != module_name.lower() or iat < address:
+                continue
+            displacement = iat - address
+            if displacement % 4:
+                continue
+            imported = struct.unpack("<I", raw((lookup or address) + displacement, 4))[0]
+            if imported != name_rva or struct.unpack("<I", raw(iat, 4))[0] != name_rva:
+                continue
+            expected = entry["importName"].encode("ascii") + b"\0"
+            matched = raw(name_rva + 2, len(expected)) == expected
+            if matched:
+                break
+        if not matched:
+            raise ValueError("Client CRT import changed: " + entry["name"])
+        records.append({"platform": "windows", "module": "client", "symbolName": entry["name"],
+                        "kind": "global", "payload": {"gv_rva": hex(iat), "gv_va": hex(IMAGE_BASE + iat)}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)

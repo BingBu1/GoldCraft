@@ -20,7 +20,7 @@
 
 namespace csol::client {
 namespace {
-int predictedClip=-1, predictedReserve=-1, presentedModel{}, authoritativeAnimation=-1;
+int predictedClip=-1, predictedReserve=-1, presentedModel{}, presentedAnimation=-1;
 bool presented{}, shot{}, emptySoundReady=true;
 unsigned predictionCalls{}, effects{}, localEffects{}, remoteEffects{}, muzzleSmokes{}, impacts{}, rejected{};
 std::unordered_map<std::string,char> materials;
@@ -217,7 +217,7 @@ void InitializeSkull1()
 }
 void ResetSkull1()
 {
-    predictedClip=predictedReserve=-1;presentedModel=0;authoritativeAnimation=-1;presented=shot=false;emptySoundReady=true;
+    predictedClip=predictedReserve=-1;presentedModel=0;presentedAnimation=-1;presented=shot=false;emptySoundReady=true;
 }
 void ReceiveSkull1State(const WeaponCurrent& current)
 {
@@ -241,6 +241,9 @@ bool PredictSkull1(local_state_t* from,local_state_t* to,usercmd_t* command,int 
     from->client.m_iId=skull1::Id;to->client.m_iId=skull1::Id;
     to->client.viewmodel=source.viewmodel;to->client.weaponanim=source.weaponanim;
     to->client.m_flNextAttack=source.m_flNextAttack;to->client.iuser3=source.iuser3;to->client.fov=source.fov;
+    // Original 025D9341 -> ItemPostFrame -> 025D9A25 carries punch through
+    // every prediction, including replay commands with runFunctions == 0.
+    std::copy_n(source.punchangle,3,to->client.punchangle);
     std::copy_n(source.vuser4,3,to->client.vuser4);to->playerstate.oldbuttons=command->buttons;
     int animation=-1;bool fired=false,empty=false,rapid=false;float spread=0;
     const bool alive=source.health>0 && !source.deadflag;
@@ -294,11 +297,13 @@ bool PredictSkull1(local_state_t* from,local_state_t* to,usercmd_t* command,int 
     if(runFunctions && alive)
     {
         auto* model=engine.GetViewModel?engine.GetViewModel():nullptr;const int sequence=to->client.weaponanim;
-        const bool reconcile=predict?animation>=0:source.weaponanim!=authoritativeAnimation;
+        // Original 025D9A4A also reconciles an already-reloading state.
+        // Compare the last presented output, not just this command's events.
+        const bool reconcile=animation>=0 || sequence!=presentedAnimation;
         if(!fired && sequence>=skull1::Idle && sequence<=skull1::Draw && engine.pfnWeaponAnim &&
             (reconcile || !presented || presentedModel!=source.viewmodel))
             engine.pfnWeaponAnim(sequence,model?model->curstate.body:0);
-        presented=true;presentedModel=source.viewmodel;authoritativeAnimation=source.weaponanim;
+        presented=true;presentedModel=source.viewmodel;presentedAnimation=sequence;
         const auto* local=engine.GetLocalPlayer?engine.GetLocalPlayer():nullptr;
         if(fired && local)
         {
@@ -317,6 +322,21 @@ bool PredictSkull1(local_state_t* from,local_state_t* to,usercmd_t* command,int 
         }
     }
     else if(runFunctions)presented=false;
+    // Original Fire dispatches its event before applying recoil. Keep the
+    // unmodified punch in the event and the new punch in prediction output.
+    if(fired)
+    {
+        if(rapid)
+        {
+            std::array<int,6> random{};
+            for(auto& value:random)value=ClientCRTRandom();
+            const auto punch=skull1::RapidRecoil(skull1::Recoil(
+                (source.flags&FL_ONGROUND)!=0,std::hypot(source.velocity[0],source.velocity[1])>0,
+                (source.flags&FL_DUCKING)!=0),shots,{source.punchangle[0],source.punchangle[1]},random);
+            to->client.punchangle[0]=punch[0];to->client.punchangle[1]=punch[1];
+        }
+        else to->client.punchangle[0]-=2;
+    }
     const float dt=command->msec/1000.f;
     weapon.m_flNextPrimaryAttack=std::max(-.001f,weapon.m_flNextPrimaryAttack-dt);
     weapon.m_flNextSecondaryAttack=std::max(-.001f,weapon.m_flNextSecondaryAttack-dt);

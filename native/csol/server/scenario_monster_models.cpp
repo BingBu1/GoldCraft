@@ -204,6 +204,16 @@ bool CCSOLMonsterModels::Apply(CCSOLScenarioMonster& monster,
     current = pool->At(slot);
     if (current != &monster || !current || !pool->Borrowed(*current))
         return Fail(error, "scenario monster was invalidated during model setup");
+    // A pooled slot can change from an ordinary zombie to a Boss and back.
+    // Re-evaluate the actual model; never retain the previous shield policy.
+    const bool traceHullReady = current->RefreshTraceHull();
+    if (sessionCheck && !sessionCheck(sessionContext))
+        return Fail(error, "scenario changed during monster trace hull setup");
+    current = pool->At(slot);
+    if (current != &monster || !current || !pool->Borrowed(*current) || pool->Lease(*current) != lease)
+        return Fail(error, "scenario monster was invalidated during trace hull setup");
+    if (!traceHullReady)
+        return Fail(error, "scenario monster model changed during trace hull setup");
     const Vector mins(appearance->mins.data());
     const Vector maxs(appearance->maxs.data());
     SET_SIZE(current->edict(), mins, maxs);

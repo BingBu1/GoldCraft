@@ -8,7 +8,7 @@ inline constexpr std::array Skull5Resources{
     "models/v_skull5.mdl","models/p_skull5.mdl","models/w_skull5.mdl","models/rshell.mdl",
     "events/skull5.sc","sprites/csol/weapon_skull5_v1.txt",
     "sprites/csol/640hud57.spr","sprites/csol/640hud4.spr","sprites/csol/640hud7_v2.spr",
-    "sprites/csol/crosshairs.spr","sprites/csol/sniper_scope.spr",
+    "sprites/csol/crosshairs.spr","sprites/csol/sniper_scope.spr","sprites/scope_arc.tga",
     "sound/weapons/skull5-1.wav","sound/weapons/zoom.wav","sound/weapons/dryfire_rifle.wav",
     "sprites/rifle_smoke1.spr","sprites/rifle_smoke2.spr","sprites/rifle_smoke3.spr",
     "sprites/wall_puff1.spr","sprites/wall_puff2.spr","sprites/wall_puff3.spr","sprites/wall_puff4.spr"

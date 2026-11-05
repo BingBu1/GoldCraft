@@ -8,6 +8,15 @@
       "sha256": "6fbe71c4bb28f9c383d6fb65559e68827072f32a45be1357304ed85b5b01a698"
     }
   ],
+  "imports": [
+    {
+      "name": "CSOL_ClientCRTRand",
+      "module": "api-ms-win-crt-utility-l1-1-0.dll",
+      "importName": "rand",
+      "iatRva": "0xbf220",
+      "nameRva": "0xe9ad8"
+    }
+  ],
   "verification": [
     {
       "name": "UTIL_SharedRandomFloat",

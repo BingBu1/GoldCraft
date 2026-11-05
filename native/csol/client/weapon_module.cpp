@@ -64,4 +64,8 @@ void WeaponModulesVideoInit()
 {
     for(const auto* module:WeaponModules())if(module->videoInit)module->videoInit();
 }
+void ShutdownWeaponModules()
+{
+    for(const auto* module:WeaponModules())if(module->shutdown)module->shutdown();
+}
 }

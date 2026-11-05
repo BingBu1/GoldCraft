@@ -89,6 +89,41 @@ void CCSOLScenarioMonster::Spawn()
     SetThink(nullptr);
     SetTouch(nullptr);
     SET_MODEL(edict(), CSOLScenarioInitialMonsterModel);
+    if (access->Allowed() && self.Get<CBaseEntity>() == this && Live(this)) RefreshTraceHull();
+}
+
+bool CCSOLScenarioMonster::RefreshTraceHull()
+{
+    // Original CMonster::Spawn 113848BA sets pev+268 to 1; engine
+    // 378EC297 consumes it to omit the player's final shield hitbox.
+    // ReHLDS blindly subtracts one hull. Restrict this host adaptation to
+    // layouts whose final shield box it can omit without removing any other
+    // box (ordinary/elite models have 21 or 20). Preserve all Boss boxes.
+    auto* pool = m_pool;
+    const auto access = pool ? pool->EntityAccess() : spawningAccess;
+    if (!access || !access->Allowed() || (pool && !pool->Borrowed(*this))) return false;
+    const EHANDLE self(this);
+    const auto lease = pool ? pool->Lease(*this) : 0;
+    const auto slot = m_slot;
+    const auto* type = m_type;
+    const auto model = pev->model;
+    const auto modelIndex = pev->modelindex;
+    const auto* header = static_cast<const studiohdr_t*>(GET_MODEL_PTR(edict()));
+    // GET_MODEL_PTR crosses an engine/plugin boundary. Access authority must
+    // be checked before touching an owner or edict that it could retire.
+    if (!access->Allowed() || self.Get<CBaseEntity>() != this || !Live(this) ||
+        m_pool != pool || m_slot != slot || m_type != type ||
+        pev->model != model || pev->modelindex != modelIndex) return false;
+    if (pool && (pool->EntityAccess() != access || !pool->Borrowed(*this) ||
+        pool->Lease(*this) != lease)) return false;
+    pev->gamestate = HITGROUP_SHIELD_ENABLED;
+    if (!header || header->numhitboxes <= 0 || header->numhitboxes > 21 || header->hitboxindex < 0 ||
+        header->length < header->hitboxindex ||
+        header->length - header->hitboxindex < header->numhitboxes * int(sizeof(mstudiobbox_t))) return true;
+    const auto* boxes = reinterpret_cast<const mstudiobbox_t*>(
+        reinterpret_cast<const byte*>(header) + header->hitboxindex);
+    if (boxes[header->numhitboxes - 1].group == HITGROUP_SHIELD) pev->gamestate = HITGROUP_SHIELD_DISABLED;
+    return true;
 }
 
 bool CCSOLScenarioMonster::InstallBehavior(std::unique_ptr<CCSOLMonsterBehavior> behavior)

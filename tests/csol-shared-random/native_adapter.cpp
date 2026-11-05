@@ -17,6 +17,8 @@ using namespace native_random_test;
 namespace csol::client {metahook_api_t* api{};}
 namespace {
 int checks{},failures{},resolves{};void* module{};void* selected{};
+int __cdecl UnusedCRT(){return 16384;}
+using CRT=int(__cdecl*)();CRT crtSlot=UnusedCRT;
 mh_gamesymbol_status_t status=MH_GAMESYMBOL_OK;bool requestValid=true;
 void Check(bool ok,const char* label){++checks;if(!ok){++failures;std::printf("FAIL %s\n",label);}}
 using Function=float(__cdecl*)(unsigned,float,float);
@@ -52,10 +54,15 @@ int main(int argc,char** argv){
         static metahook_api_t sdk{};csol::client::api=&sdk;
         sdk.GetClientBase=[](){return module;};
         sdk.ResolveGameSymbol=[](void* base,const char* name,mh_gamesymbol_kind_t kind,void** address){
-            ++resolves;requestValid=requestValid&&base==module&&!std::strcmp(name,"UTIL_SharedRandomFloat")&&kind==MH_GAMESYMBOL_KIND_FUNCTION;
+            ++resolves;
+            if(!std::strcmp(name,"CSOL_ClientCRTRand")){
+                requestValid=requestValid&&base==module&&kind==MH_GAMESYMBOL_KIND_GLOBAL;
+                *address=&crtSlot;return MH_GAMESYMBOL_OK;
+            }
+            requestValid=requestValid&&base==module&&!std::strcmp(name,"UTIL_SharedRandomFloat")&&kind==MH_GAMESYMBOL_KIND_FUNCTION;
             *address=selected;return status;};
         csol::client::ShutdownSharedRandom();Check(ThrowsLogic(),"use before initialize rejected");
-        csol::client::InitializeSharedRandom();Check(requestValid&&resolves==1,"exact host module/name/function-kind resolved");
+        csol::client::InitializeSharedRandom();Check(requestValid&&resolves==2,"exact host module/function and CRT import resolved");
         for(unsigned capabilityLevel:{0u,1u,5u}){
             *capability=capabilityLevel;
             for(unsigned page:{0u,256u,65536u,0x7fffff00u,0xffffff00u})for(unsigned i=0;i<256;++i){

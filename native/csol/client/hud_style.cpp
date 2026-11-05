@@ -466,6 +466,12 @@ void InitializeHudStyle()
         if (extension && surface) extension->RegisterBaseUICallbacks(&overlay);
     }
 }
+bool HudProportionalValue(int normalized,int& scaled)
+{
+    if(!schemes)return false;
+    scaled=schemes->GetProportionalScaledValue(normalized);
+    return true;
+}
 void HudStyleFrame()
 {
     requested=vitalsVisible=weaponVisible=moneyVisible=false;

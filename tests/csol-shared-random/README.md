@@ -13,3 +13,14 @@ python tests/csol-shared-random/build.py --compiler <clang-cl.exe> --sdk-root <M
 测试覆盖完整低位种子、unsigned 边界、固定散布逐位一致、额外范围与 float 位模式、cdecl 栈平衡，以及适配器初始化失败、重新初始化、关闭。转换辅助函数覆盖原始默认 SSE 分支（CPU level 0、1、5）；不宣称覆盖 AVX512 分支。
 
 `prepare_native.py` 从身份匹配的原 PE 生成仅用于测试的种子表与参考计算，不依赖旧构建快照。参考计算明确禁用融合乘加，以保持原函数的分步舍入。生成的 `.inc`、可执行程序和报告不应提交 Git。`result.json` 记录实际编译日志、退出码和输入哈希；这些结果不代替完整插件或实机验证。
+
+
+宿主 CRT 的随机流与共享散布独立。`crt_adapter.cpp` 执行实际生产适配器的初始化、错误拒绝、导入槽读取及关闭；`crt_lifetime.cpp` 另覆盖解析失败时输出的无效指针、新模块重新绑定及关闭后失效槽不再被访问。
+
+```powershell
+python tests/csol-shared-random/run_adapter.py --baseline <已配置x86-SDK-proposal.json> --fixture crt_adapter --output <新输出目录>
+python tests/csol-shared-random/run_adapter.py --baseline <已配置x86-SDK-proposal.json> --fixture crt_lifetime --output <另一新输出目录>
+python tests/csol-shared-random/test_catalog.py --client <匹配client.dll> --output <新输出目录>
+```
+
+上述两组适配器测试分别为63和17项；受控回调不证明原版随机序列或游戏后坐力。目录生成器另有7项正反例：错误导入模块、名称、IAT位置/对齐、名字RVA及样本身份必须拒绝且不输出目录。完整DLL和实机验证仍单独进行。

@@ -4,6 +4,8 @@
 #include "shared_random.hpp"
 #include "weapon_inventory.hpp"
 #include "gun_smoke.hpp"
+#include "hud_style.hpp"
+#include "sniper_scope.hpp"
 #include "../skull5.hpp"
 #include <event_api.h>
 #include <event_args.h>
@@ -21,6 +23,39 @@
 namespace csol::client {
 namespace {
 int predictedClip=-1, predictedReserve=-1, presentedModel{}, authoritativeAnimation=-1;
+int scopeSprite{};
+bool ownsScopeCenter{};
+void ClearScopeCenter()
+{
+    if(!ownsScopeCenter)return;
+    if(engine.pfnSetCrosshair)engine.pfnSetCrosshair(0,{},0,0,0);
+    ownsScopeCenter=false;
+}
+void NativeWeaponChanged(int id)
+{
+    if(id!=skull5::Id)ClearScopeCenter();
+}
+void DrawScope(int hidden,int intermission,bool)
+{
+    if(ActiveWeaponHudId()!=skull5::Id || intermission || (hidden&69) ||
+        view.health<=0 || view.spectator || WeaponFieldOfView()>=90 ||
+        engine.pfnGetCvarFloat("hud_draw")==0)
+    {ClearScopeCenter();return;}
+    SCREENINFO screen{};screen.iSize=sizeof(screen);
+    int gap{};
+    // The archived CSOL scheme has an extended ABI. Use the host's actual
+    // proportional metric rather than guessing that original v40's base.
+    if(!engine.pfnGetScreenInfo(&screen) || !HudProportionalValue(10,gap))return;
+    if(!scopeSprite && engine.pfnSPR_Load)scopeSprite=engine.pfnSPR_Load("sprites/csol/sniper_scope.spr");
+    // Preserve the native engine's center projection and SPR alpha consumer.
+    // Apply after the stock HUD, which suppresses unknown extended IDs.
+    if(scopeSprite && engine.pfnSetCrosshair)
+    {
+        engine.pfnSetCrosshair(scopeSprite,{0,256,0,256},255,255,255);
+        ownsScopeCenter=true;
+    }
+    DrawSniperScope(screen.iWidth,screen.iHeight,gap);
+}
 bool presented{}, shot{}, emptySoundReady=true;
 unsigned predictionCalls{}, effects{}, localEffects{}, remoteEffects{}, muzzleSmokes{}, shells{}, impacts{}, rejected{};
 std::unordered_map<std::string,char> materials;
@@ -242,6 +277,7 @@ void InitializeSkull5()
 }
 void ResetSkull5()
 {
+    ClearScopeCenter();
     predictedClip=predictedReserve=-1;presentedModel=0;authoritativeAnimation=-1;
     presented=shot=false;emptySoundReady=true;
 }
@@ -253,6 +289,8 @@ void ReceiveSkull5State(const WeaponCurrent& current)
 int Skull5PredictedAmmo(){return predictedClip;}
 int Skull5PredictedReserve(){return predictedReserve;}
 bool Skull5CrosshairShot(){const bool value=shot;shot=false;return value;}
+void Skull5VideoInit(){ResetSkull5();scopeSprite=0;ResetSniperScope();}
+void Skull5Shutdown(){ResetSkull5();scopeSprite=0;ResetSniperScope();}
 
 bool PredictSkull5(local_state_t* from,local_state_t* to,usercmd_t* command,int runFunctions,double time,unsigned seed)
 {
@@ -375,13 +413,17 @@ constexpr int ModuleIds[]{skull5::Id};
 constinit const WeaponModule Module{
     .ids=ModuleIds,.order=70,
     .initialize=InitializeSkull5,.reset=ResetSkull5,
-    .videoInit=ResetSkull5,.receive=ReceiveSkull5State,
+    .videoInit=Skull5VideoInit,.shutdown=Skull5Shutdown,
+    .nativeWeaponChanged=NativeWeaponChanged,.receive=ReceiveSkull5State,
     .predict=PredictSkull5,.diagnostics=Skull5Diagnostics,
     .ammoKind=hud_style::AmmoKind::Magazine,
     .ammoSprite="sprites/csol/640hud7_v2.spr",.ammoRect={230,254,96,120},
+    // Original record flags 0x18097: client 02A226D6 suppresses the
+    // ordinary dynamic crosshair when bit 4 is set, including unzoomed.
+    .dynamicCrosshair=false,
     .crosshair={6,4,0,3},.crosshairShot=Skull5CrosshairShot,
     .predictedClip=Skull5PredictedAmmo,
-    .predictedReserve=Skull5PredictedReserve};
+    .predictedReserve=Skull5PredictedReserve,.drawHud=DrawScope};
 const WeaponModuleRegistration Registration{Module};
 }
 }

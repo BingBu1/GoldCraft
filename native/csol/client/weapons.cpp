@@ -92,6 +92,8 @@ void DrawCrosshair(int intermission)
 {
     if((!Custom() && !MagazineActive()) || intermission || (hidden&69) || view.health<=0 || view.spectator ||
         fieldOfView<90 || engine.pfnGetCvarFloat("hud_draw")==0)return;
+    const auto* module=FindWeaponModule(active);
+    if(module && !module->dynamicCrosshair)return;
     // CS draws this dynamic crosshair itself. The engine's `crosshair`
     // cvar controls its separate sprite path, not CHudAmmo::DrawCrosshair.
     crosshair::Style style;
@@ -104,7 +106,6 @@ void DrawCrosshair(int intermission)
     style.translucent=engine.pfnGetCvarFloat("cl_crosshair_translucent")!=0;
     if(nightVision){style.r=250;style.g=style.b=50;style.translucent=false;}
     const bool dynamic=engine.pfnGetCvarFloat("cl_dynamiccrosshair")!=0;
-    const auto* module=FindWeaponModule(active);
     const auto parameters=module?module->crosshair:crosshair::ThrowingKnife;
     if(module && module->crosshairShot && module->crosshairShot())crosshairState.shot=true;
     crosshair::Advance(crosshairState,parameters,playerFlags,playerSpeed,dynamic);
@@ -340,6 +341,9 @@ int CurWeapon(const char* name,int size,void* data)
         if(b[1]>=LegacyWeaponLimit && b[1]!=255)return 1;
         ObserveSelectionClip(b[1],static_cast<signed char>(b[2]));
         if(b[1]==0 && ExtendedWeaponActive())return 1;
+        if(b[0] || b[1]==255)
+            for(const auto* module:WeaponModules())if(module->nativeWeaponChanged)
+                module->nativeWeaponChanged(b[1]==255?0:b[1]);
         if(b[0]) {active=b[1];clip=static_cast<signed char>(b[2]);predictedClip=predictedTotal=-1;}
         if(b[1]==255){active=0;predictedClip=predictedTotal=-1;}
     }
@@ -545,6 +549,7 @@ void ResetWeapons(bool forgetRegistration)
     // Clearing only our fields leaves the stock slot commands hidden as well.
     ApplyNativeWeaponVisibility();
 }
+void ShutdownWeapons() { ShutdownWeaponModules(); }
 void ClearNativeWeaponSelection()
 {
     // HideWeapon clears stock gpActiveSel. Restore the effective mask at
@@ -565,6 +570,7 @@ void WeaponVideoInit()
     ammoIcon={};loadedAmmoId=0;screen={};hudLayout={};
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
 }
+int WeaponFieldOfView() { return fieldOfView; }
 int WeaponRedraw(float time,int intermission)
 {
     // Observers are already hidden by stock iuser1 checks; only the dead
