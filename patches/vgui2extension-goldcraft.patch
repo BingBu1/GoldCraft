@@ -18,6 +18,18 @@ index f116de4..b8437b9 100644
          target_compile_options(${test} PRIVATE /W4 /WX /UNDEBUG)
          add_test(NAME ${test} COMMAND ${test})
      endforeach()
+diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
+index a0123d1..0437c90 100644
+--- a/cmake/Sources.cmake
++++ b/cmake/Sources.cmake
+@@ -18,6 +18,7 @@ set(VGUI2EXTENSION_SOURCES
+     "src/FontAmalgam.cpp"
+     "src/FontManager.cpp"
+     "src/FontTextureCache.cpp"
++    "src/ResourceRefresh.cpp"
+     "src/GameUI.cpp"
+     "src/KeyValuesSystemHook.cpp"
+     "src/plugins.cpp"
 diff --git a/src/ClientVGUI.cpp b/src/ClientVGUI.cpp
 index bb8cbc7..ec93507 100644
 --- a/src/ClientVGUI.cpp
@@ -123,6 +135,388 @@ index bb8cbc7..ec93507 100644
      Uninstall_Hook(ClientVGUI_RichText_SetTextW);
  }
  
+diff --git a/src/FontManager.cpp b/src/FontManager.cpp
+index 74d6184..4a560f3 100644
+--- a/src/FontManager.cpp
++++ b/src/FontManager.cpp
+@@ -3,6 +3,8 @@
+ #include <tier0/dbg.h>
+ #include <vgui/ISurface.h>
+ #include "vgui_internal.h"
++#include <algorithm>
++#include <memory>
+ 
+ static CFontManager s_FontManager;
+ 
+@@ -15,6 +17,7 @@ CFontManager::CFontManager(void)
+ {
+     m_FontAmalgams.EnsureCapacity(100);
+     m_FontAmalgams.AddToTail();
++    m_FontSpecs.emplace_back();
+     m_Win32Fonts.EnsureCapacity(100);
+     m_szLanguage[0] = 0;
+ }
+@@ -40,20 +43,39 @@ void CFontManager::ClearAllFonts(void)
+ 
+ vgui::HFont CFontManager::CreateFont(void)
+ {
++    if (!m_OwnerThread) m_OwnerThread = GetCurrentThreadId();
++    m_FontSpecs.emplace_back();
+     return m_FontAmalgams.AddToTail();
+ }
+ 
+ bool CFontManager::AddGlyphSetToFont(HFont font, const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags, int lowRange, int highRange)
+ {
++    if (font >= static_cast<HFont>(m_FontAmalgams.Count()) || !windowsFontName)
++        return false;
++    if (m_Refreshing && (FamilySuspended(windowsFontName) ||
++        std::find(m_RefreshHandles.begin(), m_RefreshHandles.end(), font) != m_RefreshHandles.end()))
++        return false;
+     if (m_FontAmalgams[font].GetCount() > 0)
+         return false;
+ 
++    FontSpec spec{windowsFontName, tall, weight, blur, scanlines, flags, lowRange, highRange, true};
++    const bool result = ConfigureFont(m_FontAmalgams[font], spec);
++    if (result && m_FontAmalgams[font].GetCount()) m_FontSpecs[font] = std::move(spec);
++    return result;
++}
++
++bool CFontManager::ConfigureFont(CFontAmalgam& amalgam, const FontSpec& spec)
++{
++    const char* windowsFontName = spec.name.c_str();
++    const int tall = spec.tall, weight = spec.weight, blur = spec.blur;
++    const int scanlines = spec.scanlines, flags = spec.flags;
++
+     CWin32Font* winFont = CreateOrFindWin32Font(windowsFontName, tall, weight, blur, scanlines, flags);
+ 
+     if (flags & vgui::FONTFLAG_CUSTOM)
+     {
+         if (winFont)
+-            m_FontAmalgams[font].AddFont(winFont, 0x0, 0xFFFF);
++            amalgam.AddFont(winFont, 0x0, 0xFFFF);
+ 
+         return true;
+     }
+@@ -64,7 +86,7 @@ bool CFontManager::AddGlyphSetToFont(HFont font, const char* windowsFontName, in
+         {
+             if (winFont)
+             {
+-                m_FontAmalgams[font].AddFont(winFont, 0x0, 0xFFFF);
++                amalgam.AddFont(winFont, 0x0, 0xFFFF);
+                 return true;
+             }
+         }
+@@ -74,7 +96,7 @@ bool CFontManager::AddGlyphSetToFont(HFont font, const char* windowsFontName, in
+ 
+             if (winFont && !stricmp(localizedFontName, windowsFontName))
+             {
+-                m_FontAmalgams[font].AddFont(winFont, 0x0, 0xFFFF);
++                amalgam.AddFont(winFont, 0x0, 0xFFFF);
+                 return true;
+             }
+ 
+@@ -82,13 +104,13 @@ bool CFontManager::AddGlyphSetToFont(HFont font, const char* windowsFontName, in
+ 
+             if (winFont && asianFont)
+             {
+-                m_FontAmalgams[font].AddFont(winFont, 0x0, 0xFF);
+-                m_FontAmalgams[font].AddFont(asianFont, 0x100, 0xFFFF);
++                amalgam.AddFont(winFont, 0x0, 0xFF);
++                amalgam.AddFont(asianFont, 0x100, 0xFFFF);
+                 return true;
+             }
+             else if (asianFont)
+             {
+-                m_FontAmalgams[font].AddFont(asianFont, 0x0, 0xFFFF);
++                amalgam.AddFont(asianFont, 0x0, 0xFFFF);
+                 return true;
+             }
+         }
+@@ -308,25 +330,87 @@ CWin32Font* CFontManager::CreateOrFindWin32Font(const char* windowsFontName, int
+ 
+     if (!winFont)
+     {
+-        int i           = m_Win32Fonts.AddToTail();
+-        m_Win32Fonts[i] = new CWin32Font();
++        auto candidate = std::make_unique<CWin32Font>();
++        if (!candidate->Create(windowsFontName, tall, weight, blur, scanlines, flags)) return nullptr;
++        winFont = candidate.get();
++        m_Win32Fonts.AddToTail(candidate.release());
++    }
+ 
+-        if (m_Win32Fonts[i]->Create(windowsFontName, tall, weight, blur, scanlines, flags))
+-        {
+-            winFont = m_Win32Fonts[i];
+-        }
+-        else
++    return winFont;
++}
++
++bool CFontManager::AddCustomFontFile(const char* fontFileName)
++{
++    // A scheme may reload while the client is displaying the update screen.
++    // It must not reinstall the old VFS path in the middle of a transaction.
++    if (IsCustomFontFileSuspended(fontFileName)) return false;
++    return RegisterFontFile(fontFileName);
++}
++
++bool CFontManager::RegisterFontFile(const char* fontFileName)
++{
++    if (!fontFileName) return false;
++    for (auto& file : m_FontFiles)
++    {
++        if (!stricmp(file.path.c_str(), fontFileName))
+         {
+-            delete m_Win32Fonts[i];
+-            m_Win32Fonts.Remove(i);
+-            return NULL;
++            if (::AddFontResourceA(fontFileName) <= 0) return false;
++            ++file.count;
++            return true;
+         }
+     }
++    // Allocate the ownership record before touching GDI so allocation failure
++    // cannot leave an untracked registration behind.
++    m_FontFiles.push_back({fontFileName, 0});
++    if (::AddFontResourceA(fontFileName) <= 0) { m_FontFiles.pop_back(); return false; }
++    m_FontFiles.back().count = 1;
++    return true;
++}
+ 
+-    return winFont;
++void CFontManager::RemoveCustomFontFiles()
++{
++    for (auto& file : m_FontFiles)
++        while (file.count && ::RemoveFontResourceA(file.path.c_str())) --file.count;
++    m_FontFiles.erase(std::remove_if(m_FontFiles.begin(), m_FontFiles.end(),
++        [](const auto& file) { return !file.count; }), m_FontFiles.end());
+ }
+ 
+-bool CFontManager::AddCustomFontFile(const char* fontFileName)
++bool CFontManager::FamilySuspended(const char* name) const
+ {
+-    return (::AddFontResource(fontFileName) > 0);
+-}
+\ No newline at end of file
++    if (!name) return false;
++    return std::any_of(m_RefreshFamilies.begin(), m_RefreshFamilies.end(),
++        [name](const auto& family) { return !stricmp(family.c_str(), name); });
++}
++
++bool CFontManager::IsCustomFontFileSuspended(const char* path) const
++{
++    if (!m_Refreshing || !path) return false;
++    return std::any_of(m_RefreshFontPaths.begin(), m_RefreshFontPaths.end(), [path](const auto& value)
++    {
++        const char* a = value.c_str(); const char* b = path;
++        for (; *a && *b; ++a, ++b)
++        {
++            const auto left = *a == '\\' ? '/' : *a;
++            const auto right = *b == '\\' ? '/' : *b;
++            if (tolower(static_cast<unsigned char>(left)) != tolower(static_cast<unsigned char>(right))) return false;
++        }
++        return *a == *b;
++    });
++}
++
++void CFontManager::CollectUnusedFonts()
++{
++    for (int index = m_Win32Fonts.Count() - 1; index >= 0; --index)
++    {
++        auto* font = m_Win32Fonts[index];
++        bool used = false;
++        for (int handle = 1; handle < m_FontAmalgams.Count() && !used; ++handle)
++            for (int range = 0; range < m_FontAmalgams[handle].m_Fonts.Count(); ++range)
++                used |= m_FontAmalgams[handle].m_Fonts[range].font == font;
++        if (!used)
++        {
++            delete font;
++            m_Win32Fonts.Remove(index);
++        }
++    }
++}
+diff --git a/src/FontManager.h b/src/FontManager.h
+index 0d0be7b..417287b 100644
+--- a/src/FontManager.h
++++ b/src/FontManager.h
+@@ -1,5 +1,8 @@
++#pragma once
+ #include <vgui/VGUI.h>
+ #include "FontAmalgam.h"
++#include <string>
++#include <vector>
+ 
+ #ifdef CreateFont
+ #    undef CreateFont
+@@ -11,7 +14,14 @@ class CWin32Font;
+ 
+ class CFontManager
+ {
++    friend class CFontResourceUpdate;
+ public:
++    struct FontSpec
++    {
++        std::string name;
++        int tall{}, weight{}, blur{}, scanlines{}, flags{}, lowRange{}, highRange{};
++        bool valid{};
++    };
+     CFontManager(void);
+     ~CFontManager(void);
+ 
+@@ -37,14 +47,28 @@ public:
+     bool        GetFontAdditive(HFont font);
+     CWin32Font* CreateOrFindWin32Font(const char* windowsFontName, int tall, int weight, int blur, int scanlines, int flags);
+     bool        AddCustomFontFile(const char* fontFileName);
++    void        RemoveCustomFontFiles();
++    bool        IsCustomFontFileSuspended(const char* path) const;
+ 
+ private:
+     const char* GetIconTitleFontName(void);
++    bool ConfigureFont(CFontAmalgam& amalgam, const FontSpec& spec);
++    void CollectUnusedFonts();
++    bool FamilySuspended(const char* name) const;
++    bool RegisterFontFile(const char* path);
++    struct FontFile { std::string path; unsigned int count{}; };
+ 
+ private:
+     CUtlVector<CFontAmalgam> m_FontAmalgams;
+     CUtlVector<CWin32Font*>  m_Win32Fonts;
+     char                     m_szLanguage[64];
++    std::vector<FontSpec> m_FontSpecs;
++    std::vector<FontFile> m_FontFiles;
++    std::vector<HFont> m_RefreshHandles;
++    std::vector<std::string> m_RefreshFamilies;
++    std::vector<std::string> m_RefreshFontPaths;
++    unsigned long m_OwnerThread{};
++    bool m_Refreshing{};
+ };
+ 
+-extern CFontManager& FontManager(void);
+\ No newline at end of file
++extern CFontManager& FontManager(void);
+diff --git a/src/FontTextureCache.cpp b/src/FontTextureCache.cpp
+index 30331ba..21ac76b 100644
+--- a/src/FontTextureCache.cpp
++++ b/src/FontTextureCache.cpp
+@@ -2,6 +2,7 @@
+ #include "FontTextureCache.h"
+ #include <IEngineSurface.h>
+ #include "vgui_internal.h"
++#include <algorithm>
+ 
+ extern IEngineSurface*      staticSurface;
+ extern IEngineSurface_HL25* staticSurface_HL25;
+@@ -100,6 +101,19 @@ bool CFontTextureCache::GetTextureForChar(HFont font, wchar_t wch, int* textureI
+ bool CFontTextureCache::AllocatePageForChar(int charWide, int charTall, int& pageIndex, int& drawX, int& drawY, int& twide, int& ttall)
+ {
+     int nPageType = ComputePageType(charTall);
++    if (nPageType < 0 || charWide < 0 || charWide > 255 || charTall < 0)
++        return false;
++    for (auto it = m_FreeGlyphRects.begin(); it != m_FreeGlyphRects.end(); ++it)
++    {
++        const auto& page = m_PageList[it->page];
++        if (page.fontHeight != s_pFontPageSize[nPageType] || it->wide < charWide + 1)
++            continue;
++        pageIndex = it->page; drawX = it->x; drawY = it->y;
++        twide = page.wide; ttall = page.tall;
++        it->x += charWide + 1; it->wide -= charWide + 1;
++        if (!it->wide) m_FreeGlyphRects.erase(it);
++        return true;
++    }
+     pageIndex     = m_pCurrPage[nPageType];
+ 
+     int  nNextX        = 0;
+@@ -122,6 +136,8 @@ bool CFontTextureCache::AllocatePageForChar(int charWide, int charTall, int& pag
+ 
+     if (bNeedsNewPage)
+     {
++        // CacheEntry_t stores its page index in one byte.
++        if (m_PageList.Count() >= 256) return false;
+         pageIndex              = m_PageList.AddToTail();
+         Page_t& newPage        = m_PageList[pageIndex];
+         m_pCurrPage[nPageType] = pageIndex;
+@@ -158,6 +174,45 @@ bool CFontTextureCache::AllocatePageForChar(int charWide, int charTall, int& pag
+     return true;
+ }
+ 
++void CFontTextureCache::InvalidateFonts(const std::vector<HFont>& fonts)
++{
++    // All allocation precedes removal; an allocation failure cannot leave a
++    // partially invalidated cache with lost reusable rectangles.
++    m_FreeGlyphRects.reserve(m_FreeGlyphRects.size() + m_CharCache.Count());
++    for (auto index = m_CharCache.FirstInorder(); m_CharCache.IsValidIndex(index);)
++    {
++        const auto next = m_CharCache.NextInorder(index);
++        const auto& entry = m_CharCache[index];
++        if (index != m_LRUListHeadIndex &&
++            std::find(fonts.begin(), fonts.end(), entry.font) != fonts.end())
++        {
++            const auto& page = m_PageList[entry.page];
++            const int x = static_cast<int>(entry.texCoords[0] * page.wide + .5f);
++            const int y = static_cast<int>(entry.texCoords[1] * page.tall + .5f);
++            const int end = static_cast<int>(entry.texCoords[2] * page.wide + .5f);
++            m_FreeGlyphRects.push_back({entry.page, x, y, end - x + 1});
++            m_CharCache.RemoveAt(index);
++        }
++        index = next;
++    }
++    std::sort(m_FreeGlyphRects.begin(), m_FreeGlyphRects.end(), [](const auto& a, const auto& b)
++    {
++        if (a.page != b.page) return a.page < b.page;
++        return a.y != b.y ? a.y < b.y : a.x < b.x;
++    });
++    for (std::size_t i = 1; i < m_FreeGlyphRects.size();)
++    {
++        auto& previous = m_FreeGlyphRects[i - 1];
++        const auto& current = m_FreeGlyphRects[i];
++        if (previous.page == current.page && previous.y == current.y && previous.x + previous.wide == current.x)
++        {
++            previous.wide += current.wide;
++            m_FreeGlyphRects.erase(m_FreeGlyphRects.begin() + i);
++        }
++        else ++i;
++    }
++}
++
+ int CFontTextureCache::ComputePageType(int charTall) const
+ {
+     for (int i = 0; i < FONT_PAGE_SIZE_COUNT; ++i)
+@@ -177,4 +232,4 @@ bool CFontTextureCache::CacheEntryLessFunc(CacheEntry_t const& lhs, CacheEntry_t
+         return false;
+ 
+     return (lhs.wch < rhs.wch);
+-}
+\ No newline at end of file
++}
+diff --git a/src/FontTextureCache.h b/src/FontTextureCache.h
+index b0c5644..91c4075 100644
+--- a/src/FontTextureCache.h
++++ b/src/FontTextureCache.h
+@@ -1,3 +1,4 @@
++#pragma once
+ #include "FontManager.h"
+ #include "tier1/utlrbtree.h"
+ #include <vgui/ISurface.h>
+@@ -12,6 +13,7 @@ public:
+     bool GetTextureForChar(HFont font, wchar_t wch, int* textureID, float** texCoords);
+     bool AllocatePageForChar(int charWide, int charTall, int& pageIndex, int& drawX, int& drawY, int& twide, int& ttall);
+     int  ComputePageType(int charTall) const;
++    void InvalidateFonts(const std::vector<HFont>& fonts);
+ 
+ public:
+     enum
+@@ -55,6 +57,9 @@ public:
+     int                                   m_pCurrPage[FONT_PAGE_SIZE_COUNT];
+     HCacheEntry                           m_LRUListHeadIndex;
+     static int                            s_pFontPageSize[FONT_PAGE_SIZE_COUNT];
++private:
++    struct FreeGlyphRect { int page, x, y, wide; };
++    std::vector<FreeGlyphRect> m_FreeGlyphRects;
+ };
+ 
+-extern CFontTextureCache g_FontTextureCache;
+\ No newline at end of file
++extern CFontTextureCache g_FontTextureCache;
 diff --git a/src/GameUI.cpp b/src/GameUI.cpp
 index 13be5fa..1f45c3b 100644
 --- a/src/GameUI.cpp
@@ -161,6 +555,334 @@ index 13be5fa..1f45c3b 100644
                  }                                                                                                                \
              }                                                                                                                    \
          }                                                                                                                        \
+diff --git a/src/Scheme2.cpp b/src/Scheme2.cpp
+index 3d55fc7..1d2bb1a 100644
+--- a/src/Scheme2.cpp
++++ b/src/Scheme2.cpp
+@@ -143,6 +143,10 @@ HScheme CSchemeManager::LoadSchemeFromFileEx(VPANEL sizingPanel, const char* fil
+     {
+         CScheme* pScheme = static_cast<CScheme*>(GetIScheme(hScheme));
+ 
++        // The resource owner retired this overlay scheme. Only a later resource
++        // transaction may revive it after registering the matching font files.
++        if (pScheme && pScheme->m_ResourceRetired) return 0;
++
+         if (IsPC() && pScheme)
+             pScheme->ReloadFontGlyphs();
+ 
+@@ -409,15 +413,26 @@ void CScheme::LoadFromFile(VPANEL sizingPanel, const char* inFilename, const cha
+         surface()->SetHDProportionalBase(ProportionalBaseWidthHD, ProportionalBaseHeightHD);
+     }
+ 
++    PrepareSettings(m_pData, inTag);
++
++    LoadFonts();
++    LoadBorders();
++}
++
++void CScheme::PrepareSettings(KeyValues* data, const char* schemeTag)
++{
++    auto* base = data->FindKey("BaseSettings", true);
++    auto* colors = data->FindKey("Colors", true);
++    data->FindKey("Name", true)->SetString("Name", schemeTag);
+     for (int i = 0; i < ARRAYSIZE(g_SchemeTranslation); i++)
+     {
+-        if (!m_pkvBaseSettings->FindKey(g_SchemeTranslation[i].pchNewEntry, false))
++        if (!base->FindKey(g_SchemeTranslation[i].pchNewEntry, false))
+         {
+             const char* pchColor;
+ 
+             if (g_SchemeTranslation[i].pchOldEntry)
+             {
+-                pchColor = LookupSchemeSetting(g_SchemeTranslation[i].pchOldEntry);
++                pchColor = LookupSchemeSetting(base, colors, g_SchemeTranslation[i].pchOldEntry);
+             }
+             else
+             {
+@@ -426,12 +441,10 @@ void CScheme::LoadFromFile(VPANEL sizingPanel, const char* inFilename, const cha
+ 
+             Assert(pchColor);
+ 
+-            m_pkvBaseSettings->SetString(g_SchemeTranslation[i].pchNewEntry, pchColor);
++            base->SetString(g_SchemeTranslation[i].pchNewEntry, pchColor);
+         }
+     }
+ 
+-    LoadFonts();
+-    LoadBorders();
+ }
+ 
+ void CScheme::LoadFonts(void)
+@@ -479,6 +492,13 @@ void CScheme::LoadFonts(void)
+ 
+ void CScheme::ReloadFontGlyphs(void)
+ {
++    if (m_ResourceRetired) return;
++    BuildFontGlyphs(m_pData, nullptr);
++}
++
++bool CScheme::BuildFontGlyphs(KeyValues* data, std::vector<CFontManager::FontSpec>* plans)
++{
++    if (plans) { plans->clear(); plans->reserve(m_FontAliases.Count()); }
+     if (m_SizingPanel != 0)
+     {
+         ipanel()->GetSize(m_SizingPanel, m_nScreenWide, m_nScreenTall);
+@@ -490,10 +510,11 @@ void CScheme::ReloadFontGlyphs(void)
+ 
+     int minimumFontHeight = GetMinimumFontHeightForCurrentLanguage();
+ 
+-    KeyValues* fonts = m_pData->FindKey("Fonts", true);
++    KeyValues* fonts = data->FindKey("Fonts", true);
+ 
+     for (int i = 0; i < m_FontAliases.Count(); i++)
+     {
++        bool selected = false;
+         KeyValues* kv = fonts->FindKey(m_FontAliases[i]._trueFontName.String(), true);
+ 
+         for (KeyValues* fontdata = kv->GetFirstSubKey(); fontdata != NULL; fontdata = fontdata->GetNextKey())
+@@ -595,11 +616,17 @@ void CScheme::ReloadFontGlyphs(void)
+             auto fontName   = fontdata->GetString("name");
+             auto fontWeight = fontdata->GetInt("weight");
+ 
+-            surface()->AddGlyphSetToFont(m_FontAliases[i]._font, fontName, tall, fontWeight, blur, scanlines, flags);
++            if (plans)
++                plans->push_back({fontName, tall, fontWeight, blur, scanlines, flags, 0, 0xffff, true});
++            else
++                surface()->AddGlyphSetToFont(m_FontAliases[i]._font, fontName, tall, fontWeight, blur, scanlines, flags);
+ 
++            selected = true;
+             break;
+         }
++        if (plans && !selected) return false;
+     }
++    return true;
+ }
+ 
+ void CScheme::LoadBorders(void)
+@@ -1239,6 +1266,11 @@ Color CScheme::GetColor(const char* colorName, Color defaultColor)
+ }
+ 
+ const char* CScheme::LookupSchemeSetting(const char* pchSetting)
++{
++    return LookupSchemeSetting(m_pkvBaseSettings, m_pkvColors, pchSetting);
++}
++
++const char* CScheme::LookupSchemeSetting(KeyValues* base, KeyValues* colors, const char* pchSetting)
+ {
+     int r, g, b, a = 0;
+     int res = sscanf(pchSetting, "%d %d %d %d", &r, &g, &b, &a);
+@@ -1246,15 +1278,15 @@ const char* CScheme::LookupSchemeSetting(const char* pchSetting)
+     if (res >= 3)
+         return pchSetting;
+ 
+-    const char* colStr = m_pkvColors->GetString(pchSetting, NULL);
++    const char* colStr = colors->GetString(pchSetting, NULL);
+ 
+     if (colStr)
+         return colStr;
+ 
+-    colStr = m_pkvBaseSettings->GetString(pchSetting, NULL);
++    colStr = base->GetString(pchSetting, NULL);
+ 
+     if (colStr)
+-        return LookupSchemeSetting(colStr);
++        return LookupSchemeSetting(base, colors, colStr);
+ 
+     return pchSetting;
+ }
+@@ -1273,4 +1305,4 @@ int CScheme::GetMinimumFontHeightForCurrentLanguage(void)
+     }
+ 
+     return 0;
+-}
+\ No newline at end of file
++}
+diff --git a/src/Scheme2.h b/src/Scheme2.h
+index 08c31cc..b373e35 100644
+--- a/src/Scheme2.h
++++ b/src/Scheme2.h
+@@ -21,6 +21,9 @@
+ #include "Color.h"
+ 
+ #include <IScheme2.h>
++#include "FontManager.h"
++
++class CFontResourceUpdate;
+ 
+ namespace vgui
+ {
+@@ -39,6 +42,8 @@ class IImage;
+ 
+ class CScheme : public IScheme2
+ {
++    friend class ::CFontResourceUpdate;
++    friend class CSchemeManager;
+ public:
+     CScheme(void);
+ 
+@@ -60,12 +65,15 @@ public:
+ 
+ private:
+     const char* LookupSchemeSetting(const char* pchSetting);
++    static const char* LookupSchemeSetting(KeyValues* base, KeyValues* colors, const char* setting);
++    static void PrepareSettings(KeyValues* data, const char* schemeTag);
+     const char* GetMungedFontName(const char* fontName, const char* scheme, bool proportional);
+     const char* GetMungedHDFontName(const char* fontName, const char* scheme, bool proportional, bool hd);
+     void        LoadFonts(void);
+     void        LoadBorders(void);
+     HFont       FindFontInAliasList(const char* fontName);
+     int         GetMinimumFontHeightForCurrentLanguage(void);
++    bool        BuildFontGlyphs(KeyValues* data, std::vector<CFontManager::FontSpec>* plans);
+ 
+ private:
+     char fileName[256];
+@@ -103,10 +111,12 @@ private:
+     VPANEL                  m_SizingPanel;
+     int                     m_nScreenWide;
+     int                     m_nScreenTall;
++    bool                    m_ResourceRetired{};
+ };
+ 
+ class CSchemeManager : public ISchemeManager2
+ {
++    friend class ::CFontResourceUpdate;
+ public:
+     CSchemeManager(void);
+     ~CSchemeManager(void);
+@@ -201,4 +211,4 @@ private:
+ 
+ } // namespace vgui
+ 
+-#endif // CSCHEME_H
+\ No newline at end of file
++#endif // CSCHEME_H
+diff --git a/src/SurfaceHook.cpp b/src/SurfaceHook.cpp
+index e738366..4834891 100644
+--- a/src/SurfaceHook.cpp
++++ b/src/SurfaceHook.cpp
+@@ -212,16 +212,9 @@ void CSurfaceProxy::Shutdown(void)
+ {
+     m_pfnSurface_Shutdown(this, 0);
+ 
+-    for (int i = 0; i < m_CustomFontFileNames.Count(); i++)
+-    {
+-        int nRetries = 0;
+-
+-        while (::RemoveFontResource(m_CustomFontFileNames[i].String()) && (nRetries < 10))
+-        {
+-            nRetries++;
+-            Msg("Removed font resource %s on attempt %d.\n", m_CustomFontFileNames[i].String(), nRetries);
+-        }
+-    }
++    // Release only registrations owned by this module, including refreshed
++    // VFS paths. Other font owners may have registered the same file.
++    FontManager().RemoveCustomFontFiles();
+ 
+     m_CustomFontFileNames.RemoveAll();
+ 
+@@ -785,6 +778,7 @@ bool CSurfaceProxy::AddGlyphSetToFont(HFont font, const char* windowsFontName, i
+ 
+ bool CSurfaceProxy::AddCustomFontFile(const char* fontFileName)
+ {
++    if (FontManager().IsCustomFontFileSuspended(fontFileName)) return false;
+     char fullPath[MAX_PATH];
+ 
+     if (!g_pFullFileSystem->GetLocalPath(fontFileName, fullPath, sizeof(fullPath)))
+@@ -1177,16 +1171,9 @@ void CSurfaceProxy_HL25::Shutdown(void)
+ {
+     m_pfnSurface_Shutdown(this, 0);
+ 
+-    for (int i = 0; i < m_CustomFontFileNames.Count(); i++)
+-    {
+-        int nRetries = 0;
+-
+-        while (::RemoveFontResource(m_CustomFontFileNames[i].String()) && (nRetries < 10))
+-        {
+-            nRetries++;
+-            Msg("Removed font resource %s on attempt %d.\n", m_CustomFontFileNames[i].String(), nRetries);
+-        }
+-    }
++    // Release only registrations owned by this module, including refreshed
++    // VFS paths. Other font owners may have registered the same file.
++    FontManager().RemoveCustomFontFiles();
+ 
+     m_CustomFontFileNames.RemoveAll();
+ 
+@@ -1675,6 +1662,7 @@ bool CSurfaceProxy_HL25::AddGlyphSetToFont(HFont font, const char* windowsFontNa
+ 
+ bool CSurfaceProxy_HL25::AddCustomFontFile(const char* fontFileName)
+ {
++    if (FontManager().IsCustomFontFileSuspended(fontFileName)) return false;
+     char fullPath[MAX_PATH];
+ 
+     if (!g_pFullFileSystem->GetLocalPath(fontFileName, fullPath, sizeof(fullPath)))
+@@ -2078,4 +2066,4 @@ void Surface_UninstallHooks(void)
+             g_phook_CSurface[i] = NULL;
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/src/Win32Font.cpp b/src/Win32Font.cpp
+index fd2f741..442e2c7 100644
+--- a/src/Win32Font.cpp
++++ b/src/Win32Font.cpp
+@@ -68,12 +68,14 @@ CWin32Font::CWin32Font(void) : m_ExtendedABCWidthsCache(256, 0, &ExtendedABCWidt
+ 
+ CWin32Font::~CWin32Font(void)
+ {
+-    if (m_hFont)
+-        ::DeleteObject(m_hFont);
+-
++    // The font and bitmap are selected into this DC. Release the DC first;
++    // DeleteObject on a selected GDI object otherwise leaves it allocated.
+     if (m_hDC)
+         ::DeleteDC(m_hDC);
+ 
++    if (m_hFont)
++        ::DeleteObject(m_hFont);
++
+     if (m_hDIB)
+         ::DeleteObject(m_hDIB);
+ 
+@@ -128,11 +130,7 @@ bool CWin32Font::Create(const char* windowsFontName, int tall, int weight, int b
+     g_bFontFound = false;
+     ::EnumFontFamiliesEx(m_hDC, &LogFont, &FontEnumProc, 0, 0);
+ 
+-    if (!g_bFontFound)
+-    {
+-        m_szName[0] = 0;
+-        return false;
+-    }
++    const bool enumerated = g_bFontFound;
+ 
+     m_hFont = ::CreateFontA(
+         tall,
+@@ -157,6 +155,17 @@ bool CWin32Font::Create(const char* windowsFontName, int tall, int weight, int b
+ 
+     ::SetMapMode(m_hDC, MM_TEXT);
+     ::SelectObject(m_hDC, m_hFont);
++    if (!enumerated)
++    {
++        // AddFontMemResourceEx fonts are intentionally not enumerable. Accept
++        // them only when GDI selected the requested face, never its fallback.
++        char selectedFace[LF_FACESIZE]{};
++        if (!::GetTextFaceA(m_hDC, sizeof(selectedFace), selectedFace) || stricmp(selectedFace, m_szName))
++        {
++            m_szName[0] = 0;
++            return false;
++        }
++    }
+     ::SetTextAlign(m_hDC, TA_LEFT | TA_TOP | TA_UPDATECP);
+ 
+     ::TEXTMETRIC tm;
+@@ -677,4 +686,4 @@ bool CWin32Font::GetAdditive(void)
+ int CWin32Font::GetAscent(void)
+ {
+     return m_iAscent;
+-}
+\ No newline at end of file
++}
 diff --git a/src/plugins.cpp b/src/plugins.cpp
 index e64d98b..ba923da 100644
 --- a/src/plugins.cpp
@@ -395,3 +1117,555 @@ index 0000000..6b14471
 +#if defined(__clang__)
 +#    pragma clang diagnostic pop
 +#endif
+diff --git a/include/Interface/VGUI/IResourceRefresh.h b/include/Interface/VGUI/IResourceRefresh.h
+new file mode 100644
+index 0000000..36a7f0d
+--- /dev/null
++++ b/include/Interface/VGUI/IResourceRefresh.h
+@@ -0,0 +1,57 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++#pragma once
++#include <interface.h>
++#include "VGUI.h"
++
++namespace vgui
++{
++enum class ResourceRefreshResult : unsigned int
++{
++    Success, InvalidRequest, Busy, WrongThread, FileUnavailable,
++    UnsupportedScheme, FontUnavailable, StaleToken
++};
++
++struct ResourceRefreshRequest
++{
++    unsigned int size;
++    const char* const* fontFamilies;
++    unsigned int fontFamilyCount;
++    const char* const* fontFiles;
++    unsigned int fontFileCount;
++    const char* schemeFile;
++};
++
++struct ResourceFontDefinition
++{
++    unsigned int size;
++    const char* name;
++    int tall, weight, blur, scanlines, flags, lowRange, highRange;
++};
++
++// UI-thread resource boundary only; never call from a paint callback.
++// Existing HFont/HScheme handles remain valid. The caller owns private font
++// registrations: remove them AFTER Begin; install replacements BEFORE Commit.
++// A failed Begin with token != 0 has already started suspension and also needs
++// Abort. An empty request is valid when no owner has loaded any font yet.
++// On Commit failure the token remains pending. Restore the old VFS and private
++// registrations before Abort. A failed Abort must not resume normal drawing.
++// Only pure-font schemes with the same aliases/files/base scales are supported.
++class IResourceRefresh : public IBaseInterface
++{
++public:
++    virtual ResourceRefreshResult BeginUpdate(const ResourceRefreshRequest& request, unsigned long long& token) = 0;
++    virtual ResourceRefreshResult CommitUpdate(unsigned long long token) = 0;
++    virtual ResourceRefreshResult AbortUpdate(unsigned long long token) = 0;
++    virtual const char* LastError() const = 0;
++    // Stage an owner's changed recipe without allocating another HFont.
++    // The handle must have been selected by Begin. Abort uses its old recipe.
++    virtual ResourceRefreshResult StageFont(unsigned long long token, HFont font, const ResourceFontDefinition& definition) = 0;
++    // After the caller restored base VFS and removed its private registrations,
++    // retire the selected scheme and rebuild available base fonts. Missing CSOL
++    // files are intentional here. Handles/recipes remain dormant for reentry;
++    // the next Begin must include this same scheme/families and Commit revives it.
++    virtual ResourceRefreshResult CommitRemoval(unsigned long long token) = 0;
++};
++
++#define VGUI_RESOURCE_REFRESH_INTERFACE_VERSION "VGUI_ResourceRefresh_001"
++}
+diff --git a/src/ResourceRefresh.cpp b/src/ResourceRefresh.cpp
+new file mode 100644
+index 0000000..98ba515
+--- /dev/null
++++ b/src/ResourceRefresh.cpp
+@@ -0,0 +1,483 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++#include <utility>
++// The pinned SDK's CUtlVector::Swap uses an unqualified swap.
++using std::swap;
++#include <metahook.h>
++#include <IFileSystem.h>
++#include <VGUI/ISurface.h>
++#include <VGUI/IResourceRefresh.h>
++#include <vgui_controls/Controls.h>
++#include "vgui_internal.h"
++#include "FontManager.h"
++#include "FontTextureCache.h"
++#include "Scheme2.h"
++#include <algorithm>
++#include <memory>
++#include <string>
++#include <vector>
++
++extern vgui::ISchemeManager2* g_pVGuiSchemeManager2;
++using vgui::ResourceRefreshResult;
++
++class CFontResourceUpdate final : public vgui::IResourceRefresh
++{
++    struct Plan { HFont handle; CFontManager::FontSpec spec; bool dormant{}; };
++    struct File
++    {
++        std::string relative, original, installed;
++        unsigned int count{}, removed{}, added{};
++        bool dormant{};
++    };
++    struct DeleteKeys { void operator()(KeyValues* p) const { if (p) p->deleteThis(); } };
++    using Keys = std::unique_ptr<KeyValues, DeleteKeys>;
++    std::vector<Plan> m_Plans;
++    std::vector<Plan> m_Staged;
++    std::vector<File> m_Files;
++    std::vector<File> m_DormantFiles;
++    vgui::CScheme* m_Scheme{};
++    std::string m_SchemeFile;
++    const char* m_Error = "";
++    unsigned long long m_Token{}, m_NextToken{};
++    DWORD m_Thread{};
++    bool m_FontsSuspended{}, m_Rollback{};
++
++    ResourceRefreshResult Fail(ResourceRefreshResult result, const char* error) noexcept
++    { m_Error = error; return result; }
++    static bool Same(const std::string& a, const char* b) { return !stricmp(a.c_str(), b); }
++    static bool HasChildren(KeyValues* parent, const char* name)
++    { auto* child = parent->FindKey(name, false); return child && child->GetFirstSubKey(); }
++    static bool Name(const char* value, std::size_t maximum)
++    { return value && *value && strnlen(value, maximum) < maximum; }
++    static bool Relative(const char* value)
++    {
++        if (!Name(value, MAX_PATH) || value[0] == '/' || value[0] == '\\') return false;
++        return !strstr(value, "..") && !strchr(value, ':');
++    }
++    static bool Pure(vgui::CScheme& scheme)
++    {
++        return scheme.m_pData && !scheme.m_BorderList.Count() && !scheme.m_pBaseBorder &&
++            !HasChildren(scheme.m_pData, "Borders");
++    }
++    static bool BaseFamilyAvailable(const CFontManager::FontSpec& spec, bool& available)
++    {
++        HDC dc = ::CreateCompatibleDC(nullptr);
++        if (!dc) return false;
++        HFONT font = ::CreateFontA(spec.tall, 0, 0, 0, spec.weight, false, false, false,
++            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
++            DEFAULT_PITCH | FF_DONTCARE, spec.name.c_str());
++        if (!font) { ::DeleteDC(dc); return false; }
++        const auto previous = ::SelectObject(dc, font);
++        char selected[LF_FACESIZE]{};
++        const bool read = previous && previous != HGDI_ERROR && ::GetTextFaceA(dc, sizeof(selected), selected);
++        available = read && !stricmp(selected, spec.name.c_str());
++        ::DeleteDC(dc); ::DeleteObject(font);
++        return read;
++    }
++    static bool UniqueChildren(KeyValues* keys)
++    {
++        for (auto* a = keys->GetFirstSubKey(); a; a = a->GetNextKey())
++            for (auto* b = a->GetNextKey(); b; b = b->GetNextKey())
++                if (!stricmp(a->GetName(), b->GetName())) return false;
++        return true;
++    }
++    bool Compatible(KeyValues* keys) const
++    {
++        if (!Pure(*m_Scheme) || HasChildren(keys, "Borders")) return false;
++        auto* oldBase = m_Scheme->m_pData->FindKey("BaseSettings", true);
++        auto* base = keys->FindKey("BaseSettings", true);
++        for (auto key : {"ProportionalBaseWidth", "ProportionalBaseHeight", "ProportionalBaseWidthHD", "ProportionalBaseHeightHD"})
++            if (strcmp(oldBase->GetString(key, ""), base->GetString(key, ""))) return false;
++        auto* oldFiles = m_Scheme->m_pData->FindKey("CustomFontFiles", true);
++        auto* files = keys->FindKey("CustomFontFiles", true);
++        auto* old = oldFiles->GetFirstSubKey(); auto* next = files->GetFirstSubKey();
++        for (; old && next; old = old->GetNextKey(), next = next->GetNextKey())
++            if (stricmp(old->GetName(), next->GetName()) || stricmp(old->GetString(), next->GetString())) return false;
++        if (old || next) return false;
++        auto* oldFonts = m_Scheme->m_pData->FindKey("Fonts", true);
++        auto* fonts = keys->FindKey("Fonts", true);
++        if (!UniqueChildren(oldFonts) || !UniqueChildren(fonts)) return false;
++        unsigned int count{};
++        for (auto* font = fonts->GetFirstSubKey(); font; font = font->GetNextKey())
++        {
++            if (!oldFonts->FindKey(font->GetName(), false)) return false;
++            ++count;
++        }
++        unsigned int previous{};
++        for (auto* font = oldFonts->GetFirstSubKey(); font; font = font->GetNextKey()) ++previous;
++        return count == previous && count * 3 == m_Scheme->m_FontAliases.Count();
++    }
++    void Clear() noexcept
++    {
++        auto& manager = FontManager();
++        manager.m_Refreshing = false;
++        manager.m_RefreshHandles.clear(); manager.m_RefreshFamilies.clear();
++        manager.m_RefreshFontPaths.clear();
++        m_Plans.clear(); m_Staged.clear(); m_Files.clear(); m_Scheme = nullptr; m_SchemeFile.clear();
++        m_Token = 0; m_Thread = 0; m_FontsSuspended = m_Rollback = false;
++    }
++    bool CollectFile(const char* relative)
++    {
++        if (!Relative(relative)) return false;
++        FontManager().m_RefreshFontPaths.emplace_back(relative);
++        for (const auto& file : m_Files) if (Same(file.relative, relative)) return true;
++        for (const auto& file : m_DormantFiles)
++            if (Same(file.relative, relative))
++            {
++                m_Files.push_back({file.relative, file.original, {}, file.count, file.count, 0, true});
++                FontManager().m_RefreshFontPaths.push_back(file.original);
++                return true;
++            }
++        char path[MAX_PATH]{};
++        if (!g_pFullFileSystem->GetLocalPath(relative, path, sizeof(path))) return true;
++        FontManager().m_RefreshFontPaths.emplace_back(path);
++        for (const auto& owned : FontManager().m_FontFiles)
++            if (owned.count && Same(owned.path, path))
++            {
++                // Different relative aliases may resolve to one registration.
++                for (const auto& file : m_Files) if (Same(file.original, path)) return true;
++                m_Files.push_back({relative, path, {}, owned.count});
++                break;
++            }
++        return true;
++    }
++    bool RemoveRegistration(const char* path)
++    {
++        auto& manager = FontManager();
++        for (auto& owned : manager.m_FontFiles)
++            if (Same(owned.path, path) && owned.count)
++            {
++                if (!::RemoveFontResourceA(path)) return false;
++                --owned.count; return true;
++            }
++        return false;
++    }
++    bool SuspendFiles()
++    {
++        for (auto& file : m_Files)
++            while (file.removed < file.count)
++            {
++                if (!RemoveRegistration(file.original.c_str())) return false;
++                ++file.removed;
++            }
++        return true;
++    }
++    bool RemoveInstalledFiles()
++    {
++        for (auto& file : m_Files)
++            while (file.added)
++            {
++                if (!RemoveRegistration(file.installed.c_str())) return false;
++                --file.added;
++            }
++        return true;
++    }
++    bool InstallFiles()
++    {
++        for (auto& file : m_Files)
++        {
++            char path[MAX_PATH]{};
++            if (!g_pFullFileSystem->GetLocalPath(file.relative.c_str(), path, sizeof(path))) return false;
++            file.installed = path;
++            while (file.added < file.count)
++            {
++                if (!FontManager().RegisterFontFile(path)) return false;
++                ++file.added;
++            }
++        }
++        return true;
++    }
++    bool RestoreFiles()
++    {
++        for (auto& file : m_Files)
++        {
++            if (file.dormant) continue;
++            while (file.removed)
++            {
++                if (!FontManager().RegisterFontFile(file.original.c_str())) return false;
++                --file.removed;
++            }
++        }
++        return true;
++    }
++    void SuspendFonts()
++    {
++        if (m_FontsSuspended) return;
++        auto& manager = FontManager();
++        vgui::surface()->DrawFlushText();
++        g_FontTextureCache.InvalidateFonts(manager.m_RefreshHandles);
++        for (auto handle : manager.m_RefreshHandles)
++        {
++            auto& font = manager.m_FontAmalgams[handle];
++            font.m_Fonts.RemoveAll(); font.m_iMaxWidth = font.m_iMaxHeight = 0;
++        }
++        manager.CollectUnusedFonts();
++        m_FontsSuspended = true;
++    }
++    ResourceRefreshResult Finish(unsigned long long token, bool rollback)
++    {
++        if (!token || token != m_Token) return Fail(ResourceRefreshResult::StaleToken, "Resource update token is not active");
++        if (GetCurrentThreadId() != m_Thread) return Fail(ResourceRefreshResult::WrongThread, "Resource update must finish on its UI thread");
++        if (m_Rollback && !rollback) return Fail(ResourceRefreshResult::InvalidRequest, "An aborted update can only retry Abort");
++        m_Rollback |= rollback;
++        auto& manager = FontManager();
++        std::vector<std::unique_ptr<CFontAmalgam>> candidates;
++        try
++        {
++            SuspendFonts();
++            if (!RemoveInstalledFiles()) return Fail(ResourceRefreshResult::FileUnavailable, "Previous custom-font registration cleanup failed; update remains suspended");
++            auto plans = m_Plans;
++            if (!rollback)
++                for (const auto& staged : m_Staged)
++                    for (auto& plan : plans) if (plan.handle == staged.handle) plan.spec = staged.spec;
++            Keys candidate;
++            KeyValues *base{}, *colors{}, *borders{};
++            if (!rollback && m_Scheme)
++            {
++                candidate.reset(new KeyValues("Scheme")); candidate->UsesEscapeSequences(true);
++                if (!candidate->LoadFromFile(g_pFullFileSystem, m_SchemeFile.c_str(), "SKIN") &&
++                    !candidate->LoadFromFile(g_pFullFileSystem, m_SchemeFile.c_str(), nullptr))
++                    return Fail(ResourceRefreshResult::FileUnavailable, "Updated scheme could not be read");
++                if (!Compatible(candidate.get()))
++                    return Fail(ResourceRefreshResult::UnsupportedScheme, "Resource refresh requires unchanged font aliases/files/base and no borders");
++                std::vector<CFontManager::FontSpec> definitions;
++                if (!m_Scheme->BuildFontGlyphs(candidate.get(), &definitions))
++                    return Fail(ResourceRefreshResult::UnsupportedScheme, "Updated scheme has no matching font definition at this resolution");
++                for (int i = 0; i < m_Scheme->m_FontAliases.Count(); ++i)
++                {
++                    auto handle = m_Scheme->m_FontAliases[i]._font;
++                    auto found = std::find_if(plans.begin(), plans.end(), [handle](const auto& p) { return p.handle == handle; });
++                    if (found == plans.end()) return Fail(ResourceRefreshResult::InvalidRequest, "Scheme font ownership changed during refresh");
++                    found->spec = std::move(definitions[i]);
++                }
++                m_Scheme->PrepareSettings(candidate.get(), m_Scheme->tag);
++                base = candidate->FindKey("BaseSettings", true);
++                colors = candidate->FindKey("Colors", true);
++                borders = candidate->FindKey("Borders", true);
++            }
++            for (const auto& plan : plans)
++                if (plan.spec.valid && (!Name(plan.spec.name.c_str(), 32) || plan.spec.tall < 1 || plan.spec.tall > 127))
++                    return Fail(ResourceRefreshResult::FontUnavailable, "Font definition is outside the supported GDI glyph range");
++            if (rollback ? !RestoreFiles() : (!SuspendFiles() || !InstallFiles()))
++            {
++                if (!rollback && !RemoveInstalledFiles())
++                    return Fail(ResourceRefreshResult::FileUnavailable, "Custom-font registration failed and cleanup needs retry");
++                return Fail(ResourceRefreshResult::FileUnavailable, "Custom-font registration failed; update remains suspended");
++            }
++            candidates.reserve(plans.size());
++            for (const auto& plan : plans)
++            {
++                auto amalgam = std::make_unique<CFontAmalgam>();
++                if (plan.spec.valid && !(rollback && plan.dormant) &&
++                    (!manager.ConfigureFont(*amalgam, plan.spec) || !amalgam->GetCount()))
++                {
++                    candidates.clear(); amalgam.reset(); manager.CollectUnusedFonts();
++                    if (!rollback && !RemoveInstalledFiles())
++                        return Fail(ResourceRefreshResult::FileUnavailable, "Replacement font failed and registration cleanup needs retry");
++                    return Fail(ResourceRefreshResult::FontUnavailable, "Replacement font could not be created; update remains suspended");
++                }
++                candidates.push_back(std::move(amalgam));
++            }
++            // All allocation/registration/font creation completed. Publication
++            // below only swaps owned ranges and moves existing strings.
++            for (std::size_t i = 0; i < plans.size(); ++i)
++            {
++                auto& destination = manager.m_FontAmalgams[plans[i].handle];
++                destination.m_Fonts.Swap(candidates[i]->m_Fonts);
++                destination.m_iMaxHeight = candidates[i]->m_iMaxHeight;
++                destination.m_iMaxWidth = candidates[i]->m_iMaxWidth;
++                manager.m_FontSpecs[plans[i].handle] = std::move(plans[i].spec);
++            }
++            if (candidate)
++            {
++                Keys previous(m_Scheme->m_pData);
++                m_Scheme->m_pData = candidate.release();
++                m_Scheme->m_pkvBaseSettings = base; m_Scheme->m_pkvColors = colors; m_Scheme->m_pkvBorders = borders;
++                m_Scheme->m_ResourceRetired = false;
++            }
++            manager.m_FontFiles.erase(std::remove_if(manager.m_FontFiles.begin(), manager.m_FontFiles.end(),
++                [](const auto& file) { return !file.count; }), manager.m_FontFiles.end());
++            if (!rollback)
++                m_DormantFiles.erase(std::remove_if(m_DormantFiles.begin(), m_DormantFiles.end(), [&](const auto& dormant)
++                {
++                    return std::any_of(m_Files.begin(), m_Files.end(), [&](const auto& active) { return Same(dormant.relative, active.relative.c_str()); });
++                }), m_DormantFiles.end());
++            Clear(); m_Error = "";
++            return ResourceRefreshResult::Success;
++        }
++        catch (...)
++        {
++            candidates.clear(); manager.CollectUnusedFonts();
++            if (!rollback && !RemoveInstalledFiles())
++                return Fail(ResourceRefreshResult::FileUnavailable, "Resource refresh allocation failed and registration cleanup needs retry");
++            return Fail(ResourceRefreshResult::FontUnavailable, "Resource refresh allocation failed; update remains suspended");
++        }
++    }
++
++public:
++    ResourceRefreshResult BeginUpdate(const vgui::ResourceRefreshRequest& request, unsigned long long& token) override
++    {
++        token = 0;
++        if (m_Token) return Fail(ResourceRefreshResult::Busy, "Another VGUI resource update is pending");
++        auto& manager = FontManager();
++        if (manager.m_OwnerThread && GetCurrentThreadId() != manager.m_OwnerThread)
++            return Fail(ResourceRefreshResult::WrongThread, "Resource update must begin on the font owner's UI thread");
++        if (request.size != sizeof(request) || request.fontFamilyCount > 64 || request.fontFileCount > 64 ||
++            (request.fontFamilyCount && !request.fontFamilies) || (request.fontFileCount && !request.fontFiles))
++            return Fail(ResourceRefreshResult::InvalidRequest, "Invalid VGUI resource update request");
++        if (!g_pFullFileSystem || !vgui::surface() || !g_pVGuiSchemeManager2)
++            return Fail(ResourceRefreshResult::InvalidRequest, "VGUI resource services are unavailable");
++        for (unsigned int i = 0; i < request.fontFamilyCount; ++i)
++            if (!Name(request.fontFamilies[i], 32)) return Fail(ResourceRefreshResult::InvalidRequest, "Invalid font family");
++        try
++        {
++            std::vector<std::string> families;
++            for (unsigned int i = 0; i < request.fontFamilyCount; ++i) families.emplace_back(request.fontFamilies[i]);
++            if (request.schemeFile)
++            {
++                if (!Relative(request.schemeFile)) return Fail(ResourceRefreshResult::InvalidRequest, "Invalid scheme filename");
++                auto* schemes = static_cast<vgui::CSchemeManager*>(g_pVGuiSchemeManager2);
++                auto handle = schemes->FindLoadedScheme(request.schemeFile);
++                if (handle)
++                {
++                    m_Scheme = schemes->m_Schemes[handle];
++                    if (!Pure(*m_Scheme)) { Clear(); return Fail(ResourceRefreshResult::UnsupportedScheme, "Only a loaded pure-font scheme can be refreshed in place"); }
++                    m_SchemeFile = request.schemeFile;
++                    for (int alias = 0; alias < m_Scheme->m_FontAliases.Count(); ++alias)
++                        families.push_back(manager.m_FontSpecs[m_Scheme->m_FontAliases[alias]._font].name);
++                    for (auto* file = m_Scheme->m_pData->FindKey("CustomFontFiles", true)->GetFirstSubKey(); file; file = file->GetNextKey())
++                        if (!CollectFile(file->GetString())) { Clear(); return Fail(ResourceRefreshResult::InvalidRequest, "Invalid scheme custom-font filename"); }
++                }
++                // An unloaded scheme owns no cache. Its normal first load will
++                // read the committed VFS; do not create it just for an update.
++            }
++            for (unsigned int i = 0; i < request.fontFileCount; ++i)
++                if (!CollectFile(request.fontFiles[i])) { Clear(); return Fail(ResourceRefreshResult::InvalidRequest, "Invalid custom-font filename"); }
++            std::vector<HFont> handles;
++            for (int handle = 1; handle < manager.m_FontAmalgams.Count(); ++handle)
++            {
++                bool selected = false;
++                for (const auto& family : families)
++                {
++                    selected |= Same(manager.m_FontSpecs[handle].name, family.c_str());
++                    for (int range = 0; range < manager.m_FontAmalgams[handle].GetCount(); ++range)
++                        selected |= !stricmp(manager.m_FontAmalgams[handle].GetFontName(range), family.c_str());
++                }
++                if (m_Scheme)
++                    for (int alias = 0; alias < m_Scheme->m_FontAliases.Count(); ++alias)
++                        selected |= m_Scheme->m_FontAliases[alias]._font == handle;
++                if (selected)
++                {
++                    m_Plans.push_back({static_cast<HFont>(handle), manager.m_FontSpecs[handle],
++                        !manager.m_FontAmalgams[handle].GetCount()});
++                    handles.push_back(handle);
++                }
++            }
++            manager.m_RefreshHandles = std::move(handles);
++            manager.m_RefreshFamilies = std::move(families);
++            manager.m_Refreshing = true;
++            m_Thread = GetCurrentThreadId();
++            if (!++m_NextToken) ++m_NextToken;
++            token = m_Token = m_NextToken;
++            SuspendFonts();
++            if (!SuspendFiles()) return Fail(ResourceRefreshResult::FileUnavailable, "Could not suspend owned font registrations; nonzero token requires Abort");
++            m_Error = "";
++            return ResourceRefreshResult::Success;
++        }
++        catch (...)
++        {
++            if (!m_Token) Clear();
++            return Fail(ResourceRefreshResult::FontUnavailable, "Resource refresh allocation failed; a nonzero token requires Abort");
++        }
++    }
++    ResourceRefreshResult CommitUpdate(unsigned long long token) override { return Finish(token, false); }
++    ResourceRefreshResult AbortUpdate(unsigned long long token) override { return Finish(token, true); }
++    const char* LastError() const override { return m_Error; }
++    ResourceRefreshResult StageFont(unsigned long long token, HFont font, const vgui::ResourceFontDefinition& definition) override
++    {
++        if (!token || token != m_Token) return Fail(ResourceRefreshResult::StaleToken, "Resource update token is not active");
++        if (GetCurrentThreadId() != m_Thread) return Fail(ResourceRefreshResult::WrongThread, "Font staging must use its UI thread");
++        if (m_Rollback || definition.size != sizeof(definition) || !Name(definition.name, 32) ||
++            definition.tall < 1 || definition.tall > 127 || definition.blur < 0 || definition.blur > 127)
++            return Fail(ResourceRefreshResult::InvalidRequest, "Invalid staged font definition");
++        if (std::none_of(m_Plans.begin(), m_Plans.end(), [font](const auto& plan) { return plan.handle == font; }))
++            return Fail(ResourceRefreshResult::InvalidRequest, "Font was not selected by Begin");
++        if (m_Scheme)
++            for (int alias = 0; alias < m_Scheme->m_FontAliases.Count(); ++alias)
++                if (m_Scheme->m_FontAliases[alias]._font == font)
++                    return Fail(ResourceRefreshResult::InvalidRequest, "Scheme aliases take their definition from the scheme file");
++        try
++        {
++            Plan staged{font, {definition.name, definition.tall, definition.weight, definition.blur,
++                definition.scanlines, definition.flags, definition.lowRange, definition.highRange, true}};
++            for (auto& plan : m_Staged)
++                if (plan.handle == font) { plan = std::move(staged); return ResourceRefreshResult::Success; }
++            m_Staged.push_back(std::move(staged));
++            return ResourceRefreshResult::Success;
++        }
++        catch (...) { return Fail(ResourceRefreshResult::FontUnavailable, "Could not store staged font definition"); }
++    }
++    ResourceRefreshResult CommitRemoval(unsigned long long token) override
++    {
++        if (!token || token != m_Token) return Fail(ResourceRefreshResult::StaleToken, "Resource update token is not active");
++        if (GetCurrentThreadId() != m_Thread) return Fail(ResourceRefreshResult::WrongThread, "Resource removal must use its UI thread");
++        if (m_Rollback) return Fail(ResourceRefreshResult::InvalidRequest, "An aborted update can only retry Abort");
++        auto& manager = FontManager();
++        std::vector<std::unique_ptr<CFontAmalgam>> candidates;
++        try
++        {
++            SuspendFonts();
++            if (!RemoveInstalledFiles() || !SuspendFiles())
++                return Fail(ResourceRefreshResult::FileUnavailable, "Font registration removal failed; update remains suspended");
++            candidates.reserve(m_Plans.size());
++            auto dormantFiles = m_DormantFiles;
++            for (const auto& file : m_Files)
++                if (std::none_of(dormantFiles.begin(), dormantFiles.end(), [&](const auto& dormant) { return Same(dormant.relative, file.relative.c_str()); }))
++                    dormantFiles.push_back({file.relative, file.original, {}, file.count, file.count, 0, true});
++            for (const auto& plan : m_Plans)
++            {
++                auto font = std::make_unique<CFontAmalgam>();
++                bool schemeAlias = false;
++                if (m_Scheme)
++                    for (int i = 0; i < m_Scheme->m_FontAliases.Count(); ++i)
++                        schemeAlias |= m_Scheme->m_FontAliases[i]._font == plan.handle;
++                // Ordinary/shared system families stay usable. Missing custom
++                // families and the retired CSOL aliases intentionally stay empty.
++                if (plan.spec.valid && !schemeAlias)
++                {
++                    bool available = false;
++                    if (!BaseFamilyAvailable(plan.spec, available))
++                    {
++                        candidates.clear(); font.reset(); manager.CollectUnusedFonts();
++                        return Fail(ResourceRefreshResult::FontUnavailable, "Cannot inspect base font availability; update remains suspended");
++                    }
++                    if (available && (!manager.ConfigureFont(*font, plan.spec) || !font->GetCount()))
++                    {
++                        candidates.clear(); font.reset(); manager.CollectUnusedFonts();
++                        return Fail(ResourceRefreshResult::FontUnavailable, "Available base font could not be restored; update remains suspended");
++                    }
++                }
++                candidates.push_back(std::move(font));
++            }
++            for (std::size_t i = 0; i < m_Plans.size(); ++i)
++            {
++                auto& destination = manager.m_FontAmalgams[m_Plans[i].handle];
++                destination.m_Fonts.Swap(candidates[i]->m_Fonts);
++                destination.m_iMaxHeight = candidates[i]->m_iMaxHeight;
++                destination.m_iMaxWidth = candidates[i]->m_iMaxWidth;
++            }
++            manager.CollectUnusedFonts();
++            if (m_Scheme) m_Scheme->m_ResourceRetired = true;
++            m_DormantFiles = std::move(dormantFiles);
++            Clear(); m_Error = "";
++            return ResourceRefreshResult::Success;
++        }
++        catch (...)
++        {
++            candidates.clear(); manager.CollectUnusedFonts();
++            return Fail(ResourceRefreshResult::FontUnavailable, "Resource removal allocation failed; update remains suspended");
++        }
++    }
++};
++
++using vgui::IResourceRefresh;
++EXPOSE_SINGLE_INTERFACE(CFontResourceUpdate, IResourceRefresh, VGUI_RESOURCE_REFRESH_INTERFACE_VERSION);

@@ -122,7 +122,9 @@
       "patch": "patches/vgui2extension-goldcraft.patch",
       "newFiles": [
         "src/TeamMenuMapPageHook.h",
-        "tests/team_menu_abi_tests.cpp"
+        "tests/team_menu_abi_tests.cpp",
+        "include/Interface/VGUI/IResourceRefresh.h",
+        "src/ResourceRefresh.cpp"
       ]
     },
     "InterpFix": {
