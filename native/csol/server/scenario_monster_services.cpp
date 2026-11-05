@@ -86,7 +86,7 @@ std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateO
         return {};
     }
     auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
-        rewards, players, equipment, weapons, m_damage);
+        players, equipment, weapons, m_damage);
     return std::make_unique<CCSOLOrdinaryMonsterBehavior>(shared_from_this(), std::move(damage));
 }
 
@@ -115,7 +115,7 @@ std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateB
         m_oberon = std::move(services);
     }
     auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
-        rewards, players, equipment, weapons, m_damage);
+        players, equipment, weapons, m_damage);
     return std::make_unique<CCSOLOberonBehavior>(m_oberon, std::move(damage), skills);
 }
 
@@ -199,7 +199,7 @@ std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateE
     bindings.publishEntityEffect = csol::scenario::skills::PublishEliteEntityVisual;
     bindings.publishAreaEffect = csol::scenario::skills::PublishEliteAreaVisual;
     auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
-        rewards, players, equipment, weapons, m_damage);
+        players, equipment, weapons, m_damage);
     return std::make_unique<CCSOLEliteMonsterBehavior>(shared_from_this(), std::move(damage),
         runtime, settings, std::move(bindings));
 }

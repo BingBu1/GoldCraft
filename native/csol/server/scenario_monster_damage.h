@@ -45,6 +45,9 @@ private:
 
 struct CSOLMonsterHitAccount
 {
+    // Resolve at the hit's original reward stage, not when a pooled behavior
+    // is created: same-map replay replaces the difficulty/reward owner.
+    std::shared_ptr<CCSOLMonsterHitRewards> rewards;
     bool moneyExtractor{};
     int roomOption{};
 };
@@ -144,12 +147,11 @@ class CCSOLOrdinaryMonsterDamage final
 {
 public:
     CCSOLOrdinaryMonsterDamage(CCSOLScenarioMap& map, CCSOLMonsterDeathRequests& deaths,
-        std::shared_ptr<CCSOLMonsterHitRewards> rewards,
         std::shared_ptr<CCSOLScenarioPlayers> players,
         std::shared_ptr<CCSOLScenarioEquipment> equipment,
         std::shared_ptr<CCSOLScenarioWeaponState> weapons,
         std::shared_ptr<CCSOLMonsterDamageServices> services)
-        : m_map(map), m_deaths(deaths), m_rewards(std::move(rewards)),
+        : m_map(map), m_deaths(deaths),
           m_players(std::move(players)), m_equipment(std::move(equipment)),
           m_weapons(std::move(weapons)), m_services(std::move(services)) {}
     void Invalidate() { m_valid = false; }
@@ -160,7 +162,6 @@ public:
 private:
     CCSOLScenarioMap& m_map;
     CCSOLMonsterDeathRequests& m_deaths;
-    std::shared_ptr<CCSOLMonsterHitRewards> m_rewards;
     std::shared_ptr<CCSOLScenarioPlayers> m_players;
     std::shared_ptr<CCSOLScenarioEquipment> m_equipment;
     std::shared_ptr<CCSOLScenarioWeaponState> m_weapons;

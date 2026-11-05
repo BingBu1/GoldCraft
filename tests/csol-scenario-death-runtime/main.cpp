@@ -4715,13 +4715,14 @@ void ConcreteDamageNonPlayerAndGolden(Engine& engine)
     auto& host = f.monster->HostState(); host.damageEffect = 10; host.damageEffectMagnitude = 7;
     CSOLMonsterDamageCall world(sample.spawn, {}, {}, 8, DMG_BLAST, {}, sample.ownerActive,
         [](const void* p) { return static_cast<const DamageSample*>(p)->ownerActive; }, &sample);
-    ConfigError error; CSOLMonsterHitAccount account{true, 999};
+    ConfigError error; CSOLMonsterHitAccount account{.moneyExtractor = true, .roomOption = 999};
     runtime->players.reset();
     Check(services->RulesAfterAttackDamage(world, 0, error) && services->BeforeHitReward(world, account, error) &&
         services->AfterHitReward(world, error) && services->AfterHealthDamage(world, error) &&
-        error.message.empty() && !world.Cancelled() && !account.moneyExtractor && account.roomOption == 0 &&
+        error.message.empty() && !world.Cancelled() && account.rewards == f.session->HitRewards() &&
+        account.rewards && !account.moneyExtractor && account.roomOption == 0 &&
         host.damageEffect == 10 && host.damageEffectMagnitude == 7,
-        "nonplayer stages skip all player effects without requiring registry, preserving ordinary target tail and untouched effect");
+        "nonplayer stages bind the current session hit rewards, skip player effects without requiring registry, and preserve target tail");
     runtime->players = f.players;
     const auto deaths = runtime->deathServices; StatisticsWire wire; int indices{};
     wire.onEntIndex = [&](const edict_t* ed)

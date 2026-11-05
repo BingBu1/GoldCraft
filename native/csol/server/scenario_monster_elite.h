@@ -57,6 +57,9 @@ public:
         std::weak_ptr<CCSOLScenarioRuntime> runtime,
         std::shared_ptr<const csol::scenario::EliteSettings> settings,
         CSOLEliteMonsterBindings bindings);
+    // MP 11803454+114 -> 106129F0 returns true. Unlike the ordinary base,
+    // an elite behavior must be recreated even after round reset clears Type.
+    bool RecreateForSpawn() const override { return true; }
     bool ResetForSpawn(CSOLMonsterSpawnCall&, CSOLMonsterSpawnState&,
         csol::scenario::ConfigError&) override;
     bool BeforeDeath(CSOLMonsterDeathCall&, csol::scenario::ConfigError&) override;

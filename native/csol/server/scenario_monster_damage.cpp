@@ -401,7 +401,6 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
 {
     auto services = m_services.lock();
     if (!services) return FALSE;
-    auto rewards = m_rewards;
     auto players = m_players;
     auto equipment = m_equipment;
     auto weapons = m_weapons;
@@ -415,8 +414,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         if (valid() && error.message.empty()) error.message = reason;
         return FALSE;
     };
-    if (!services || !rewards || !players || !equipment || !weapons || !weapons->Current())
-        return fail("ordinary damage requires mode15 rules, upgrades, equipment, weapons and hit rewards");
+    if (!players || !equipment || !weapons || !weapons->Current())
+        return fail("ordinary damage requires mode15 rules, upgrades, equipment and weapons");
     if (!m_map.Tables() || !csol::scenario::HasMapGameplay(m_map.Tables()->mapName, m_map.Tables()->scenarioType))
         return fail("ordinary damage policy requires an implemented map and matching subtype");
     if (!error.message.empty()) return FALSE;
@@ -559,6 +558,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         }
         CSOLMonsterHitAccount account;
         if (!step(services->BeforeHitReward(call, account, stageError), "ordinary player damage effects failed")) return FALSE;
+        const auto rewards = account.rewards;
+        if (!rewards) return fail("ordinary damage requires current hit rewards");
         const auto credited = rewards->Credit(spawn, actor, source, call.damage,
             account.moneyExtractor, account.roomOption, [](const void* pointer)
             {
@@ -1125,8 +1126,13 @@ bool CCSOLScenarioDamageServices::BeforeHitReward(CSOLMonsterDamageCall& call,
     const auto runtime = Pin(call);
     if (!runtime) return call.Cancel();
     const auto keepAlive = runtime->monsterDamageServices;
-    if (!call.Player()) return true;
     const auto session = runtime->session;
+    // MP 11386B9A..11386C08 reads the current difficulty through 10823570.
+    // Keep this hit's owner pinned; replay still invalidates it to cancel an
+    // old callback, while the next hit resolves the replacement normally.
+    account.rewards = session->HitRewards();
+    if (!account.rewards) { error.message = "scenario hit reward owner is unavailable"; return false; }
+    if (!call.Player()) return true;
     const auto players = runtime->players;
     const auto weapons = session->Weapons();
     if (!players || !weapons) { error.message = "scenario pre-hit owners are unavailable"; return false; }
