@@ -74,6 +74,10 @@ bool CCSOLScenarioWallRewards::CreditPlayerDamage(const EHANDLE& player, float s
     } finish{state, playerGeneration};
     if (!csol::scenario::AccumulateWallDamage(state->accumulatedDamage, scaledDamage, state->accumulatedDamage))
         return Fail("scenario wall damage accumulation is nonfinite");
+    // The original loop never ends with a nonpositive threshold. Host safety:
+    // stop the rules instead of hanging the authoritative server.
+    if (m_settings.threshold <= 0 && state->accumulatedDamage >= m_settings.threshold)
+        return Fail("scenario wall reward threshold is nonpositive");
     while (state->accumulatedDamage >= m_settings.threshold)
     {
         int money{}, experience{};

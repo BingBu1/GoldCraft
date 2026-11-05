@@ -50,7 +50,7 @@ def function(raw, signature):
     raise ValueError('unbalanced production function')
 
 
-def prepare(out):
+def prepare(out, suite='difficulty', common=None):
     assert out.is_relative_to(ROOT / 'build') and not out.exists()
     no_links(out)
     out.mkdir(parents=True)
@@ -105,8 +105,43 @@ def prepare(out):
         sources.append(copy(Path('native/csol/server') / (name + '.cpp')))
     for name in ('difficulty', 'wall_damage'):
         sources.append(copy(Path('native/csol/scenario') / (name + '.cpp')))
-    for name in ('fixture.cpp', 'sdk-boundary.cpp', 'difficulty-boundary.cpp', 'difficulty-main.cpp'):
+    test_names = ('fixture.cpp', 'sdk-boundary.cpp', 'difficulty-boundary.cpp') + (
+        ('numeric.cpp', 'gate-main.cpp') if suite == '2gate' else ('difficulty-main.cpp',))
+    for name in test_names:
         sources.append(copy(Path('tests/csol-scenario-walls') / name))
+    if suite == '2gate':
+        if common is None:
+            raise ValueError('--common is required for the actual zs_2gate wall suite')
+        import importlib.util
+        generator = ROOT / 'tests/csol-scenario-2gate/prepare.py'
+        register(generator)
+        spec = importlib.util.spec_from_file_location('gate_entities', generator)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        bsp = common / 'maps/zs_2gate.bsp'
+        register(bsp)
+        raw = bsp.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != module.BSP_SHA256:
+            raise ValueError('Unexpected original zs_2gate BSP identity')
+        entities, _ = module.entities(raw)
+        walls = [row for row in entities if row.get('classname') == 'zbsbreak']
+        assert len(walls) == 27 and all(row.get('hmdmgratio') == '0' for row in walls)
+        generated = ['struct GateWall { const char* human; const char* monster; float health; int material; };',
+                     'constexpr GateWall GateWalls[] = {']
+        for row in walls:
+            assert not row.get('target') and not row.get('master') and not row.get('spawnflags')
+            assert row.get('spawnobject') == '0' and row.get('explodemagnitude') == '0'
+            generated.append('{%s,%s,%sf,%s},' % (json.dumps(row['hmdmgratio']), json.dumps(row['zbdmgratio']),
+                str(float(row['health'])), row['material']))
+        generated.append('};')
+        write(Path('tests/csol-scenario-walls/actual_2gate_walls.inc'), ('\n'.join(generated)+'\n').encode())
+        for name in ('config', 'resources', 'spawn_points', 'boss_skills',
+                     'monster_types', 'trigger_rules', 'upgrade_tables'):
+            sources.append(copy(Path('native/csol/scenario') / (name + '.cpp')))
+        for relative in ('maps/zbs_zs_2gate.cso', 'maps/ZBS_Difficulty_Default.cso'):
+            origin = common / relative
+            register(origin)
+            # Preserve immutable test input inside the fixture; no runtime resources are changed.
+            write(Path('resources') / relative, origin.read_bytes())
     sources.append(copy(Path('tests/csol-scenario-entities/engine_stubs.cpp')))
     sources.append(copy(SDK_REL / 'regamedll/hookchains_impl.cpp'))
 
@@ -236,12 +271,17 @@ def prepare(out):
         objects.append(str(obj))
         commands.append(dict(name=f'compile-{index:02}-{source.stem}', kind='compile', timeout=120,
             argv=[str(compiler), *flags, '/Fo' + str(obj), '/Fd' + str(obj.with_suffix('.pdb')), str(source)]))
-    exe = out / 'wall-difficulty.exe'
+    exe = out / ('wall-2gate.exe' if suite == '2gate' else 'wall-difficulty.exe')
     commands.append(dict(name='link', kind='link', timeout=180, argv=[str(linker), '/nologo', '/machine:X86',
         '/subsystem:console', '/incremental:no', '/debug', '/OPT:REF', '/OPT:ICF', '/OPT:LLDLTO=3',
         '/threads:1', '/opt:lldltojobs=1', '/verbose', '/out:' + str(exe), '/pdb:' + str(exe.with_suffix('.pdb')),
         *[row['resolvedByFrozenSearchOrder']['path'] for row in libraries if row['explicitArgument']], *objects]))
-    commands.append(dict(name='round-difficulty', kind='test', timeout=30, argv=[str(exe)]))
+    if suite == '2gate':
+        for group in ('numeric', 'metadata', '2gate', 'nonpositive'):
+            commands.append(dict(name=group, kind='test', timeout=30,
+                argv=[str(exe), group, str(candidate / 'resources')]))
+    else:
+        commands.append(dict(name='round-difficulty', kind='test', timeout=30, argv=[str(exe)]))
     # Every local source is an independent snapshot. Host SDK/toolchain files
     # are read-only identity inputs, never hard-linked or copied back.
     save(out / 'inputs.json', list(input_rows.values()))
@@ -250,7 +290,9 @@ def prepare(out):
         sourceCount=len(sources), reusedObjects=0, maxJobs=1, maxSeconds=600,
         builtinIncludeRoots=[str(p) for p in builtin_dirs], includeNextHandled=True,
         literalUnresolvedIncludes=sorted(unresolved), compiled=False, executed=False,
-        scope='Actual current SDK and wall/reward/account code. Controlled engine services, GameRules ownership, character money and XP consumer. No complete Gate, full DLL, game or old test groups.'))
+        scope=('Actual current SDK and wall/reward/account code. Controlled engine services, GameRules ownership, character money and XP consumer. '
+               + ('Original zs_2gate wall and round resources, numeric/metadata regression. ' if suite == '2gate' else 'Round difficulty regression. ')
+               + 'No complete Gate, full DLL or game.')))
     ast.parse(Path(__file__).read_text('utf-8-sig'))
     for row in input_rows.values():
         assert identity(row['path']) == row, row['path']
@@ -315,8 +357,10 @@ if __name__ == '__main__':
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument('--prepare', type=Path)
     action.add_argument('--run', type=Path)
+    parser.add_argument('--suite', choices=('difficulty', '2gate'), default='difficulty')
+    parser.add_argument('--common', type=Path)
     args = parser.parse_args()
     if args.prepare:
-        prepare(args.prepare.resolve())
+        prepare(args.prepare.resolve(), args.suite, args.common.resolve() if args.common else None)
     else:
         run(args.run.resolve())

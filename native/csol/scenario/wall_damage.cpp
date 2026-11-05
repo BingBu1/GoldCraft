@@ -43,10 +43,10 @@ bool ReadWallRewardSettings(const RoundTable& rounds, const DifficultyResources&
         if (parsed.ec != std::errc{} && parsed.ec != std::errc::invalid_argument)
         { error = {row.byteOffset, "scenario wall reward exceeds int32"}; return false; }
     }
-    // The original loops forever with a nonpositive threshold. Reject this
-    // broken configuration instead of hanging the authoritative server.
-    if (candidate.threshold <= 0)
-    { error.message = "scenario wall reward threshold must be positive"; return false; }
+    // The original reads this field without validation. zs_2gate ships 0 with
+    // walls whose human ratio is 0, so player credit (the only consumer,
+    // after "scaled<=0 returns 0") is unreachable there. The consumer, not
+    // the loader, refuses the nonpositive loop the original would hang in.
     if (!difficulty.Parameter(15, 0x15, candidate.moneyRatio, error) ||
         !difficulty.Parameter(15, 0x14, candidate.experienceRatio, error)) return false;
     output = candidate;

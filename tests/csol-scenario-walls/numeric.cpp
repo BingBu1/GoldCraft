@@ -44,7 +44,14 @@ void MetadataCases()
     Check(csol::scenario::ReadWallRewardSettings(f.rounds,f.difficulty,s,error)&&s.threshold==125&&s.money==200&&s.experience==50&&s.moneyRatio==1.25f&&s.experienceRatio==2,"physical round rows and difficulty columns, independent of labels");
     f.rounds.source.records[2].fields[1]=" \t+125trailing";
     Check(csol::scenario::ReadWallRewardSettings(f.rounds,f.difficulty,s,error)&&s.threshold==125,"original atoi prefix metadata semantics");
-    for(const char* bad:{"0","-1","garbage","2147483648",""})
+    // Original atoi: zero/negative/non-numeric load (zs_2gate ships "0"); the
+    // credit consumer refuses a nonpositive loop instead of the loader.
+    for(const auto& [text,value]:{std::pair<const char*,int>{"0",0},{"-1",-1},{"garbage",0}})
+    {
+        f.rounds.source.records[2].fields[1]=text;s.threshold=999;
+        Check(csol::scenario::ReadWallRewardSettings(f.rounds,f.difficulty,s,error)&&s.threshold==value,"nonpositive threshold loads with atoi value");
+    }
+    for(const char* bad:{"2147483648",""})
     {
         f.rounds.source.records[2].fields[1]=bad;s.threshold=999;
         Check(!csol::scenario::ReadWallRewardSettings(f.rounds,f.difficulty,s,error)&&s.threshold==999&&!error.message.empty(),"invalid threshold rejects atomically");
