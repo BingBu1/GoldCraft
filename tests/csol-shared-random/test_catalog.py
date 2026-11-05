@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import runpy
+import struct
 import sys
 from pathlib import Path
 
@@ -81,7 +82,26 @@ def main():
                 catalog = json.loads((destination / 'cs-client-10210-goldcraft.json').read_text('utf-8'))
                 matches = [r for r in catalog['records'] if r['symbolName'] == 'CSOL_ClientCRTRand']
                 assert len(matches) == 1 and matches[0]['kind'] == 'global'
-                assert matches[0]['payload'] == {'gv_rva': '0xbf220', 'gv_va': '0x100bf220'}
+                payload = matches[0]['payload']
+                assert payload == {
+                    'gv_rva': '0xbf220', 'gv_va': '0x100bf220',
+                    'gv_sig': 'FF 15 ?? ?? ?? ??', 'gv_sig_va': '0x1003743a',
+                    'gv_inst_offset': '0x0', 'gv_inst_disp': '0x2', 'gv_inst_length': '0x6'}
+                # Verify the emitted operand against the exact original PE,
+                # independently of the publisher's instruction validation.
+                image = client.read_bytes()
+                pe = struct.unpack_from('<I', image, 0x3c)[0]
+                count = struct.unpack_from('<H', image, pe + 6)[0]
+                optional = struct.unpack_from('<H', image, pe + 20)[0]
+                reference = int(payload['gv_sig_va'], 16) - 0x10000000
+                instruction = None
+                for section in range(count):
+                    offset = pe + 24 + optional + section * 40
+                    _, rva, size, raw = struct.unpack_from('<IIII', image, offset + 8)
+                    if rva <= reference and reference + 6 <= rva + size:
+                        instruction = image[raw + reference - rva:raw + reference - rva + 6]
+                assert instruction == bytes.fromhex('FF 15 20 F2 0B 10')
+                assert struct.unpack_from('<I', instruction, int(payload['gv_inst_disp'], 16))[0] == int(payload['gv_va'], 16)
             else:
                 assert not destination.exists(), 'rejected metadata must not publish output'
                 assert error == ('Shared random catalog identity mismatch' if key == 'clientSha256'

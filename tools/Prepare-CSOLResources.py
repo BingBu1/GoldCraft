@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 from csol_material_stage import prepare_materials, resource_name
+from csol_resource_sources import ResourceSources
 
 
 def main():
@@ -13,11 +14,14 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--server-game', type=Path, required=True)
     parser.add_argument('--manifest', type=Path, required=True)
+    parser.add_argument('--source-overrides', type=Path,
+                        help='Reviewed HUD atlas sources with exact candidate and current-base SHA-256/size')
     parser.add_argument('--relocate-materials', action='store_true',
                         help='Stage model-local materials with short paths in a new workspace build directory')
     parser.add_argument('models', nargs='+')
     args = parser.parse_args()
     source, destination = args.source.resolve(), args.server_game.resolve()
+    sources = ResourceSources(args.source, args.source_overrides)
     if source == destination or source.is_relative_to(destination) or destination.is_relative_to(source):
         raise ValueError('Source and server resource directories must be separate')
     if args.relocate_materials and (destination.exists() or
@@ -33,10 +37,7 @@ def main():
     inputs = {}
     def read(name):
         resource_name(name, 128)
-        path = (source / name).resolve()
-        if not path.is_relative_to(source):
-            raise ValueError('Source resource escaped its directory')
-        data = path.read_bytes()
+        data = sources.read(name)
         inputs[name] = dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
         return data
     entries = json.loads(result.stdout)
@@ -54,7 +55,7 @@ def main():
         incoming, outgoing = (source / original).resolve(), (destination / relative).resolve()
         if not incoming.is_relative_to(source) or not outgoing.is_relative_to(destination):
             raise ValueError('Resource escaped its directory')
-        data = entry['content'].encode('utf-8') if 'content' in entry else incoming.read_bytes()
+        data = entry['content'].encode('utf-8') if 'content' in entry else read(entry.get('source', name))
         digest = hashlib.sha256(data).hexdigest()
         if outgoing.exists() and hashlib.sha256(outgoing.read_bytes()).hexdigest() != digest:
             raise ValueError('Existing server resource differs; resolve version explicitly: ' + name)
@@ -65,6 +66,7 @@ def main():
         payloads[name] = data
         rows.append({'path': name, 'source': entry.get('source'), 'generated': 'content' in entry,
                      'bytes': len(data), 'sha256': digest})
+    sources.finish()
     for row in rows:
         outgoing = destination / row['path']
         if not outgoing.exists():
@@ -83,7 +85,8 @@ def main():
                 raise ValueError('Prepared runtime dependency is missing: ' + name)
     args.manifest.parent.mkdir(parents=True, exist_ok=True)
     args.manifest.write_text(json.dumps({'models': args.models, 'files': rows,
-        'materialRelocation': args.relocate_materials, 'inputs': inputs, 'conversions': conversions}, indent=2), encoding='utf-8')
+        'materialRelocation': args.relocate_materials, 'inputs': inputs, 'conversions': conversions,
+        'resolvedSources': sources.records, 'sourceOverrideManifest': sources.override_manifest}, indent=2), encoding='utf-8')
     print(json.dumps({'files': len(rows), 'bytes': sum(row['bytes'] for row in rows)}))
 
 

@@ -216,8 +216,17 @@ def main():
                 break
         if not matched:
             raise ValueError("Client CRT import changed: " + entry["name"])
+        # IDA: the matched host's direct rand call at 1003743A references
+        # 100BF220. NormalizeGlobal requires the complete operand contract,
+        # even when the resolver will use the exact module's RVA directly.
+        reference_rva = 0x3743A
+        if raw(reference_rva, 6) != b"\xff\x15" + struct.pack("<I", IMAGE_BASE + iat):
+            raise ValueError("Client CRT import reference changed: " + entry["name"])
         records.append({"platform": "windows", "module": "client", "symbolName": entry["name"],
-                        "kind": "global", "payload": {"gv_rva": hex(iat), "gv_va": hex(IMAGE_BASE + iat)}})
+                        "kind": "global", "payload": {
+                            "gv_rva": hex(iat), "gv_va": hex(IMAGE_BASE + iat),
+                            "gv_sig": "FF 15 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + reference_rva),
+                            "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)
