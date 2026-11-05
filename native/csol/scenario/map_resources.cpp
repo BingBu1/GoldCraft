@@ -152,6 +152,14 @@ bool MapResources::Reload(ResourceFileApi files, ResourceError& error)
         if (!ReadFile("maps/ZBS_TRG_" + mapName_ + ".cso", files,
             *candidate.triggerRules, ReadTriggerRuleResource, error)) return false;
     }
+    if (scenarioType_ == 4)
+    {
+        // MP1138B5D0/1138B5D7 loads TRG before RRR; 1138D2CF gates RRR
+        // on subtype 4. The original file helper 1148E2F0 adds ".cso".
+        candidate.chaosRoutes.emplace();
+        if (!ReadFile("maps/ZBS_RRR_" + mapName_ + ".cso", files,
+            *candidate.chaosRoutes, ReadChaosRouteResource, error)) return false;
+    }
     auto baseTypes = candidate.monsterTypes;
     tables_ = std::move(candidate);
     baseMonsterTypes_ = std::move(baseTypes);

@@ -38,7 +38,19 @@ bool Same(const MapTables& a, const MapTables& b)
     if (a.mapName != b.mapName || a.scenarioType != b.scenarioType || !Same(a.waves.source, b.waves.source) || !Same(a.rounds.source, b.rounds.source) ||
         !Same(a.monsterTypes.source, b.monsterTypes.source) || a.waves.groups != b.waves.groups || a.rounds.headerRecord != b.rounds.headerRecord ||
         a.monsterTypes.byId != b.monsterTypes.byId || a.triggerRules.has_value() != b.triggerRules.has_value() || a.waves.rows.size() != b.waves.rows.size() ||
-        a.rounds.rows.size() != b.rounds.rows.size() || a.monsterTypes.rows.size() != b.monsterTypes.rows.size()) return false;
+        a.rounds.rows.size() != b.rounds.rows.size() || a.monsterTypes.rows.size() != b.monsterTypes.rows.size() ||
+        a.chaosRoutes.has_value() != b.chaosRoutes.has_value()) return false;
+    if (a.chaosRoutes)
+    {
+        if (!Same(a.chaosRoutes->source, b.chaosRoutes->source) ||
+            a.chaosRoutes->routes.size() != b.chaosRoutes->routes.size()) return false;
+        for (std::size_t i = 0; i < a.chaosRoutes->routes.size(); ++i)
+        {
+            const auto& x = a.chaosRoutes->routes[i]; const auto& y = b.chaosRoutes->routes[i];
+            if (std::tie(x.startRoom, x.endRoom, x.exits, x.waves, x.endWaves) !=
+                std::tie(y.startRoom, y.endRoom, y.exits, y.waves, y.endWaves)) return false;
+        }
+    }
     for (std::size_t i = 0; i < a.waves.rows.size(); ++i)
     {
         const auto& x = a.waves.rows[i]; const auto& y = b.waves.rows[i];
@@ -132,13 +144,15 @@ void Calls(const Engine& engine, const std::vector<std::string>& paths, std::siz
 }
 void Profiles()
 {
-    for (int type : {1, 3, 4, 10})
+    for (int type : {1, 3, 10})
     {
         Engine engine; engine.Configure("zs_profile"); MapResources resources; ResourceError error{"old", {33, "old"}};
-        Check(resources.BeginMap("zs_profile", engine.Api(), error, type), "all four supported resolved subtypes require TRG");
+        Check(resources.BeginMap("zs_profile", engine.Api(), error, type), "TRG-only subtypes require four tables");
         Calls(engine, Paths("zs_profile"), 4);
         Check(error.path.empty() && error.detail.byteOffset == 0 && error.detail.message.empty(), "successful fourth-table load clears old diagnostic");
-        Check(resources.Tables() && resources.Tables()->scenarioType == type && resources.Tables()->triggerRules && resources.Tables()->triggerRules->rows[0].waves == std::vector<std::uint16_t>{1}, "profile and owned fourth table committed together");
+        Check(resources.Tables() && resources.Tables()->scenarioType == type && resources.Tables()->triggerRules &&
+            !resources.Tables()->chaosRoutes && resources.Tables()->triggerRules->rows[0].waves == std::vector<std::uint16_t>{1},
+            "profile and owned fourth table committed together without RRR");
         engine.Reset(); Check(resources.Reload(engine.Api(), error), "reload retains explicit subtype"); Calls(engine, Paths("zs_profile"), 4);
     }
     for (int type : {-1, 0, 2, 5, 9, 11, 15, 65537, INT32_MAX})
@@ -204,8 +218,71 @@ void Lifecycle()
     engine.Reset(); engine.Configure("zs_other", true);
     Check(resources.BeginMap("zs_other", engine.Api(), error, 10) && resources.Tables()->mapName == "zs_other" && resources.Tables()->triggerRules->rows[0].command == 'g', "new map binds its own explicit subtype and fourth table"); Calls(engine, Paths("zs_other"), 4);
 }
+void MissingChaosRoute()
+{
+    Engine engine; engine.Configure("zs_profile"); MapResources resources; ResourceError error;
+    auto paths = Paths("zs_profile"); paths.push_back("maps/ZBS_RRR_zs_profile.cso");
+    Check(!resources.BeginMap("zs_profile", engine.Api(), error, 4), "subtype four cannot silently omit RRR");
+    Calls(engine, paths, 4);
+    Check(!resources.Tables() && error.path == paths.back(), "missing RRR prevents partial new-session commit");
+}
 std::string Read(const char* path)
 { std::ifstream file(path, std::ios::binary); if (!file) throw std::runtime_error("cannot read actual resource"); return {std::istreambuf_iterator<char>(file), {}}; }
+void ChaosResource(char** files)
+{
+    // Actual RRR/independent original decode; the other four tables are
+    // synthetic. This validates resource ownership, not Chaos gameplay.
+    const auto encoded = Read(files[0]), plain = Read(files[1]);
+    Engine engine; engine.Configure("zs_profile"); MapResources resources; ResourceError error;
+    auto paths = Paths("zs_profile"); paths.push_back("maps/ZBS_RRR_zs_profile.cso");
+    engine.files[paths.back()] = File(encoded);
+    Check(resources.BeginMap("zs_profile", engine.Api(), error, 4, 85), "subtype four loads actual encrypted RRR");
+    Calls(engine, paths, 5);
+    if (!resources.Tables() || !resources.Tables()->chaosRoutes)
+    { Check(false, "RRR table was committed"); return; }
+    const auto before = *resources.Tables(); const auto* pointer = resources.Tables();
+    const auto& routes = before.chaosRoutes->routes;
+    Check(before.chaosRoutes->source.sourceBytes == plain, "RRR bytes match original engine decode after callback free");
+    Check(routes.size() == 3 && routes[0].startRoom == 6 && routes[1].startRoom == 1 &&
+        routes[2].startRoom == 4 && routes[0].endRoom == 7 && routes[1].endRoom == 7 && routes[2].endRoom == 7,
+        "all three original routes retained without choosing a route");
+    Check(before.triggerRules->rows[0].waves == std::vector<std::uint16_t>{1} && before.mapId == 85,
+        "loading RRR preserves unselected TRG and catalog identity");
+    for (int failure = 0; failure < 10; ++failure)
+    {
+        engine.Reset(); engine.Configure("zs_profile", true); auto& file = engine.files[paths.back()];
+        file = File(encoded);
+        if (failure == 0) { file.present = false; file.length = 999; }
+        if (failure == 1) file.length = 0;
+        if (failure == 2) file.length = -8;
+        if (failure == 3) file.length = 7;
+        if (failure == 4) file.length = 8 * 1024 * 1024 + 8;
+        if (failure == 5) file.writeLength = false;
+        if (failure == 6) file.bytes = Unhex(fixtures::empty);
+        if (failure == 7) file.bytes = Unhex(fixtures::invalidRule);
+        if (failure == 8) file.bytes = Unhex(fixtures::embeddedNul);
+        if (failure == 9) file.bytes.assign(8, '\0');
+        Check(!resources.Reload(engine.Api(), error), "invalid fifth table rejects full candidate");
+        Calls(engine, paths, failure == 0 ? 4 : 5);
+        Check(resources.Tables() == pointer && Same(*resources.Tables(), before) && resources.Tables()->mapId == 85,
+            "RRR failure preserves all five previous tables and selection identity");
+        Check(error.path == paths.back() && !error.detail.message.empty(), "RRR failure reports the fifth path");
+    }
+    engine.Reset(); engine.files[paths.back()] = File(encoded);
+    Check(resources.Reload(engine.Api(), error), "repair RRR allows the complete candidate commit");
+    Calls(engine, paths, 5);
+    Check(resources.Tables()->waves.rows[0].waveId == 2 && resources.Tables()->rounds.rows[0].round == 2 &&
+        resources.Tables()->monsterTypes.rows[0].id == 2 && resources.Tables()->triggerRules->rows[0].trigger == 2 &&
+        resources.Tables()->chaosRoutes->source.sourceBytes == plain, "four pending changed tables commit together with repaired RRR");
+    engine.Reset(); engine.files[paths.back()].length = -8;
+    Check(resources.BeginMap(resources.MapName(), engine.Api(), error, 1) && !resources.Tables()->chaosRoutes,
+        "same map changing to subtype one discards RRR without reading it");
+    Calls(engine, {paths.begin(), paths.begin() + 4}, 4);
+    engine.Reset();
+    Check(!resources.BeginMap(resources.MapName(), engine.Api(), error, 4) && !resources.Tables(),
+        "failed new subtype-four session cannot retain previous tables");
+    Calls(engine, paths, 5);
+}
 void Actual(char** paths)
 {
     Engine engine; const auto names = Paths("zs_deadend");
@@ -230,9 +307,10 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc == 1) { Profiles(); FourthFailures(); Lifecycle(); }
+        if (argc == 1) { Profiles(); FourthFailures(); Lifecycle(); MissingChaosRoute(); }
+        else if (argc == 4 && std::string_view(argv[1]) == "--chaos-resource") ChaosResource(argv + 2);
         else if (argc == 7 && std::string_view(argv[1]) == "--actual") Actual(argv + 2);
-        else throw std::runtime_error("usage: map_profile_tests [--actual commonWave commonRound commonZT commonTRG independentDecodedTRG]");
+        else throw std::runtime_error("usage: map_profile_tests [--actual commonWave commonRound commonZT commonTRG independentDecodedTRG | --chaos-resource RRR independentDecodedRRR]");
     }
     catch (const std::exception& error) { ++failures; std::cerr << "EXCEPTION: " << error.what() << '\n'; }
     std::cout << "map_profile checks=" << checks << " failures=" << failures << '\n'; return failures ? 1 : 0;

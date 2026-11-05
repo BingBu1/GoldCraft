@@ -2,6 +2,7 @@
 #include "resources.hpp"
 #include "monster_types.hpp"
 #include "trigger_rules.hpp"
+#include "chaos_routes.hpp"
 #include "upgrade_tables.hpp"
 #include "boss_skills.hpp"
 
@@ -60,6 +61,12 @@ bool ReadTriggerRuleResource(std::span<const std::byte> encoded, TriggerRuleTabl
 {
     std::string plain;
     return DecodeResource(encoded, plain, error) && ReadTriggerRules(plain, output, error);
+}
+
+bool ReadChaosRouteResource(std::span<const std::byte> encoded, ChaosRouteTable& output, ConfigError& error)
+{
+    std::string plain;
+    return DecodeResource(encoded, plain, error) && ReadChaosRoutes(plain, output, error);
 }
 
 bool ReadUpgradeLevelResource(std::span<const std::byte> encoded, UpgradeLevels& output, ConfigError& error)

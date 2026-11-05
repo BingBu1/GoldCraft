@@ -8,6 +8,7 @@
 namespace csol::scenario
 {
 struct TriggerRuleTable;
+struct ChaosRouteTable;
 // Import raw .cso resource bytes from the game filesystem. The caller selects
 // encrypted input explicitly; there is no reliable format magic to autodetect.
 // Decode a private copy, trim only terminal NUL padding, then validate the CSV.
@@ -15,4 +16,5 @@ struct TriggerRuleTable;
 bool ReadWaveResource(std::span<const std::byte> encoded, WaveTable& output, ConfigError& error);
 bool ReadRoundResource(std::span<const std::byte> encoded, RoundTable& output, ConfigError& error);
 bool ReadTriggerRuleResource(std::span<const std::byte> encoded, TriggerRuleTable& output, ConfigError& error);
+bool ReadChaosRouteResource(std::span<const std::byte> encoded, ChaosRouteTable& output, ConfigError& error);
 }

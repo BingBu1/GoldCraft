@@ -4,6 +4,7 @@
 #include "resources.hpp"
 #include "monster_types.hpp"
 #include "trigger_rules.hpp"
+#include "chaos_routes.hpp"
 
 #include <optional>
 
@@ -34,6 +35,9 @@ struct MapTables
     // Only manager subtypes 1/3/4/10 load this file in the original engine.
     // Presence means loaded successfully, not that all its commands are supported.
     std::optional<TriggerRuleTable> triggerRules;
+    // MP1138D260: subtype 4 only. This is the immutable route catalog;
+    // loading it neither chooses a route nor rewrites the original TRG rows.
+    std::optional<ChaosRouteTable> chaosRoutes;
     // Host selection identity, distinct from the manager subtype. Missing
     // means the filename was ambiguous or the caller supplied only a subtype.
     std::optional<int> mapId;
@@ -44,7 +48,7 @@ struct MapTables
 
 // Own one map session. BeginMap always drops the old session, even when the
 // same map is restarted or the new files fail. Reload preserves the working
-// tables on failure. All required tables, including optional TRG, commit together.
+// tables on failure. All subtype-required TRG/RRR tables commit together.
 // This loads data, without activating gameplay.
 class MapResources
 {
