@@ -15,6 +15,10 @@ struct ChaosRouteTable;
 // Failure preserves both the original bytes and the previously loaded table.
 bool ReadWaveResource(std::span<const std::byte> encoded, WaveTable& output, ConfigError& error);
 bool ReadRoundResource(std::span<const std::byte> encoded, RoundTable& output, ConfigError& error);
+// Explicit original service mode for MP1138E0C0's physical row/column layout.
+// It is not the scenario subtype. Keep the named-column entry above unchanged.
+bool ReadPositionalRoundResource(std::span<const std::byte> encoded, int originalServiceMode,
+    RoundTable& output, ConfigError& error);
 bool ReadTriggerRuleResource(std::span<const std::byte> encoded, TriggerRuleTable& output, ConfigError& error);
 bool ReadChaosRouteResource(std::span<const std::byte> encoded, ChaosRouteTable& output, ConfigError& error);
 }

@@ -51,6 +51,14 @@ bool ReadRoundResource(std::span<const std::byte> encoded, RoundTable& output, C
     return DecodeResource(encoded, plain, error) && ReadRounds(plain, output, error);
 }
 
+bool ReadPositionalRoundResource(std::span<const std::byte> encoded, int originalServiceMode,
+    RoundTable& output, ConfigError& error)
+{
+    std::string plain;
+    return DecodeResource(encoded, plain, error) &&
+        ReadPositionalRounds(plain, originalServiceMode, output, error);
+}
+
 bool ReadMonsterTypeResource(std::span<const std::byte> encoded, MonsterTypeTable& output, ConfigError& error)
 {
     std::string plain;
