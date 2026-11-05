@@ -1,0 +1,147 @@
+{
+  "sha256": "9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295",
+  "crc64": "6ef7192cd8254e2d",
+  "records": [
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_resource_url",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1408d50",
+        "gv_va": "0x11408d50",
+        "gv_sig": "68 ?? ?? ?? ??",
+        "gv_sig_va": "0x101a7865",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_client_state",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1408de0",
+        "gv_va": "0x11408de0",
+        "gv_sig": "83 3D ?? ?? ?? ?? 04",
+        "gv_sig_va": "0x101a8892",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0x7"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_client_uploading",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x140e87c",
+        "gv_va": "0x1140e87c",
+        "gv_sig": "83 3D ?? ?? ?? ?? 00",
+        "gv_sig_va": "0x101a8889",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0x7"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_sprite_handles",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x32e5bc",
+        "gv_va": "0x1032e5bc",
+        "gv_sig": "A1 ?? ?? ?? ??",
+        "gv_sig_va": "0x1019cf9e",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_sprite_capacity",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x32e5c0",
+        "gv_va": "0x1032e5c0",
+        "gv_sig": "8B 15 ?? ?? ?? ??",
+        "gv_sig_va": "0x1019cfab",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0x6"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_SPR_Load",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x19cf80",
+        "func_size": "0x107"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_Mod_UnloadSpriteTextures",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x2417b0",
+        "func_size": "0x75"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_S_StopAllSounds",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1fea30",
+        "func_size": "0x1b4"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_COM_LoadCacheFile",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1b81b0",
+        "func_size": "0x1be"
+      }
+    }
+  ],
+  "verification": [
+    {
+      "rva": "0x1a785f",
+      "bytes": "68 80 00 00 00 56 68 50 8d 40 11 ff 15 20 25 2b 10 83 c4 0c c6 05"
+    },
+    {
+      "rva": "0x1a8880",
+      "bytes": "83 3d fc e7 40 11 00 75 32 83 3d 7c e8 40 11 00 75 09 83 3d e0 8d 40 11 04 75 20"
+    },
+    {
+      "rva": "0x19cf80",
+      "bytes": "55 8b ec 53 56 8d 45 08 57 50 ff 15 a8 b9 31 10 8b 4d 08 83 c4 04 85 c9 0f 84 e2 00 00 00 a1 bc e5 32 10 85 c0 0f 84 d5 00 00 00 8b 15 c0 e5 32 10 85 d2 0f 8e c7 00 00 00 33 ff 85 d2 0f 8e ab 00 00 00 33 f6 83 3c 06 00 75 2b 51 e8 2f e2 01 00 40 50 e8 18 d4 03 00 8b 0d bc e5 32 10 89 44 0e 04 ff 75 08 50 e8 85 e1 01 00 8b 4d 08 83 c4 10 a1 bc e5 32 10 ff 74 06 04 51 e8 70 e0 01 00 83 c4 08 85 c0 74 16 47 83 c6 0c 3b 3d c0 e5 32 10 7d 5b 8b 4d 08 a1 bc e5 32 10 eb a8 8b 35 bc e5 32 10 8d 1c 7f 6a 01 6a 00 ff 75 08 c7 05 74 9e 31 10 00 00 00 00 e8 f4 18 0a 00 89 04 9e 83 c4 0c c7 05 74 9e 31 10 01 00 00 00 8b 04 9e 85 c0 74 2d 50 e8 27 75 05 00 8b 0d bc e5 32 10 83 c4 04 89 44 99 08 8d 47 01 5f 5e 5b 5d c3 68 00 01 00 00 68 04 56 2b 10 e8 a3 2b 08 00 83 c4 08 5f 5e 33 c0 5b 5d c3"
+    },
+    {
+      "rva": "0x2417b0",
+      "bytes": "55 8b ec 81 ec 04 01 00 00 a1 34 47 32 10 33 c5 89 45 fc 57 8b 7d 08 83 7f 44 01 75 49 53 8b 9f 84 01 00 00 c7 47 40 01 00 00 00 85 db 74 36 56 33 f6 39 73 0c 7e 2d 56 57 68 60 d0 2c 10 8d 85 fc fe ff ff 68 00 01 00 00 50 e8 41 08 f5 ff 8d 85 fc fe ff ff 50 e8 25 b6 ff ff 46 83 c4 18 3b 73 0c 7c d3 5e 5b 8b 4d fc 33 cd 5f e8 e6 9e 06 00 8b e5 5d c3"
+    },
+    {
+      "rva": "0x1fea30",
+      "bytes": "55 8b ec 83 ec 08 83 3d b0 0c 53 10 00 0f 84 9d 01 00 00 56 c7 05 b4 2e 1c 11 24 00 00 00 be c0 2e 1c 11 83 3e 00 74 09 56 e8 a2 2a 00 00 83 c4 04 83 c6 40 81 fe c0 4e 1c 11 7c e7 68 00 20 00 00 6a 00 68 c0 2e 1c 11 e8 a3 c5 fb ff 83 c4 0c e8 7b 43 00 00 83 7d 08 00 0f 84 50 01 00 00 83 3d b0 0c 53 10 00 0f 84 43 01 00 00 a1 a4 0c 53 10 85 c0 0f 84 36 01 00 00 83 78 28 00 75 0d 83 3d 68 0f 1a 11 00 0f 84 23 01 00 00 a1 a4 0c 53 10 b9 80 00 00 00 57 33 ff 8b 40 1c 83 f8 08 0f 44 f9 8b 0d 68 0f 1a 11 85 c9 0f 84 d0 00 00 00 8b 01 8d 55 f8 33 f6 56 56 8b 40 2c 56 52 8d 55 fc 52 ff 35 64 0f 1a 11 56 51 ff d0 85 c0 74 3b 3d 96 00 78 88 0f 85 8d 00 00 00 46 81 fe 10 27 00 00 7f 6c a1 68 0f 1a 11 8d 55 f8 6a 00 6a 00 6a 00 8b 08 52 8d 55 fc 52 ff 35 64 0f 1a 11 6a 00 50 8b 41 2c ff d0 85 c0 75 c5 a1 a4 0c 53 10 8b 40 1c 8b 0d a4 0c 53 10 0f af 41 10 99 83 e2 07 03 c2 c1 f8 03 50 57 ff 75 fc e8 c0 c4 fb ff a1 68 0f 1a 11 83 c4 0c 8b 08 6a 00 6a 00 ff 75 f8 ff 75 fc 50 8b 41 4c ff d0 5f 5e 8b e5 5d c3 68 4c 29 2c 10 e8 e6 d4 fb ff 83 c4 04 e8 ae f6 ff ff 5f 5e 8b e5 5d c3 68 1c 29 2c 10 e8 ce d4 fb ff 83 c4 04 e8 96 f6 ff ff 5f 5e 8b e5 5d c3 a1 a4 0c 53 10 8b 40 1c 8b 0d a4 0c 53 10 0f af 41 10 99 83 e2 07 03 c2 c1 f8 03 50 a1 a4 0c 53 10 57 8b 40 28 50 e8 45 c4 fb ff 83 c4 0c 5f 5e 8b e5 5d c3"
+    },
+    {
+      "rva": "0x1b81b0",
+      "bytes": "55 8b ec 81 ec 14 01 00 00 a1 34 47 32 10 33 c5 89 45 fc 8b 45 0c 8b 4d 08 a3 30 bf 24 11 8d 85 f0 fe ff ff 50 8d 85 ec fe ff ff c7 85 f0 fe ff ff 00 00 00 00 50 8d 85 f4 fe ff ff c7 85 ec fe ff ff 03 00 00 00 50 89 8d f4 fe ff ff ff 15 e4 ba 31 10 8b 85 f0 fe ff ff 83 c4 0c 85 c0 74 06 c7 00 00 00 00 00 57 68 28 64 30 10 ff b5 f4 fe ff ff e8 e9 fd 00 00 8b f8 83 c4 08 85 ff 0f 84 2b 01 00 00 56 57 e8 25 01 01 00 8b f0 8d 85 f8 fe ff ff 68 04 01 00 00 50 ff b5 f4 fe ff ff e8 ac f6 ff ff 83 c4 10 85 c0 75 10 ff b5 f4 fe ff ff 68 d8 9e 2b 10 e9 e5 00 00 00 8b 85 ec fe ff ff c6 85 18 ff ff ff 00 83 f8 01 75 15 8d 85 f8 fe ff ff 50 8d 46 01 50 e8 23 00 08 00 83 c4 08 eb 6f 83 f8 02 75 0b 8d 46 01 50 e8 f0 03 08 00 eb 5c 85 c0 75 0b 8d 46 01 50 e8 21 06 08 00 eb 4d 83 f8 03 75 1b 8d 85 f8 fe ff ff 50 8d 46 01 50 ff 35 30 bf 24 11 e8 94 fa 07 00 83 c4 0c eb 30 83 f8 04 75 1a 8d 46 01 3b 05 28 bf 24 11 7e 08 50 e8 a9 03 08 00 eb 15 a1 2c bf 24 11 eb 11 83 f8 05 75 43 8d 46 01 50 e8 f2 20 02 00 83 c4 04 85 c0 74 40 57 6a 01 56 50 c6 04 06 00 e8 dd fd 00 00 57 e8 77 f8 00 00 8b 85 f0 fe ff ff 83 c4 14 85 c0 74 38 89 30 5e 5f 8b 4d fc 33 cd e8 d3 33 0f 00 8b e5 5d c3 68 fc 9e 2b 10 e8 de 78 06 00 83 c4 04 ff b5 f4 fe ff ff 68 18 9f 2b 10 e8 cb 78 06 00 57 e8 35 f8 00 00 83 c4 0c 5e 8b 4d fc 33 cd 5f e8 9d 33 0f 00 8b e5 5d c3"
+    }
+  ]
+}

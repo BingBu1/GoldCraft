@@ -28,6 +28,11 @@ def main():
         raise ValueError("Studio sampler catalog engine identity mismatch")
     config["records"].extend(sequences["records"])
     config["verification"].extend(sequences["verification"])
+    resource_sync = json.loads((ROOT / "native/client/resource_sync_10210.json").read_text(encoding="utf-8"))
+    if (resource_sync["sha256"], resource_sync["crc64"]) != (config["sha256"], config["crc64"]):
+        raise ValueError("Resource sync catalog engine identity mismatch")
+    config["records"].extend(resource_sync["records"])
+    config["verification"].extend(resource_sync["verification"])
     identity = runpy.run_path(str(ROOT / "tools/Inspect-EngineIdentity.py"))["inspect"](engine)
     if (identity["sha256"] != config["sha256"] or
             identity["crc64xz"].lower() != config["crc64"]):
