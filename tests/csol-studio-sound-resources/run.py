@@ -11,10 +11,20 @@ def identity(path):
 def save(path,value):path.write_text(json.dumps(value,ensure_ascii=False,indent=2),encoding='utf8')
 def verify(row):assert identity(row['path'])==row,row['path']
 
+def build_path(path):
+    path = Path(path).absolute()
+    for candidate in (path, *path.parents):
+        if candidate.is_symlink() or candidate.is_junction():
+            raise ValueError('SDK snapshots must not traverse links: ' + str(candidate))
+    path = path.resolve()
+    if not path.is_relative_to(ROOT/'build'):
+        raise ValueError('SDK snapshots must remain inside the workspace build directory')
+    return path
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('baseline','before','common','output'):parser.add_argument('--'+name,type=Path,required=True)
-    args=parser.parse_args();baseline=args.baseline.resolve();out=args.output.resolve()
+    args=parser.parse_args();baseline=build_path(args.baseline);out=build_path(args.output)
     assert out.is_relative_to(ROOT/'build') and not out.exists();out.mkdir(parents=True)
     source=out/'source';output=out/'output';output.mkdir()
     previous=read(baseline/'output/result.json');assert previous['success'] and previous['inputsUnchanged']
@@ -23,7 +33,11 @@ def main():
     # Only verified immutable baseline snapshots are linked. Replaced candidates
     # use a new independent file and os.replace, never writes through a link.
     for item in plan['inputs']:
-        verify(item['frozen']);src=Path(item['frozen']['path']);dest=source/item['relative'];dest.parent.mkdir(parents=True,exist_ok=True)
+        verify(item['frozen']);src=build_path(item['frozen']['path'])
+        relative=Path(item['relative'])
+        if relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('Invalid frozen SDK relative path')
+        dest=build_path(source/relative);dest.parent.mkdir(parents=True,exist_ok=True)
         os.link(src,dest);assert src.stat().st_ino==dest.stat().st_ino
         copies[item['relative']]=dict(original=item['frozen'],frozen=identity(dest));linked.append(item['relative'])
     def copy(relative,src):
