@@ -12,6 +12,7 @@
 #include "material_source.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <set>
 #include <sstream>
@@ -174,6 +175,22 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
                 const auto event=Record(bytes,events,e,count,76);const auto options=Name(bytes,event+12,64);const int id=Word(bytes,event+4);
                 if(id>=5000 && id<=5639 && options.starts_with('#'))
                 {if(const auto rule=ParseSpriteEvent(id,options)){add(rule->ResourceName());if(rule->Alternate)add("sprites/muzzleflash"+std::to_string(rule->Alternate)+".spr");}}
+                else if(id==5008)
+                {
+                    // Original client 02A419D6..02A41A97: numeric world
+                    // footsteps have no literal WAV in the model. strtol
+                    // preserves atoi's empty/prefix parsing without signed
+                    // conversion overflow; only results 0..4 select sounds.
+                    switch(std::strtol(options.c_str(),nullptr,10))
+                    {
+                    case 0:case 3:
+                        add("sound/zombi/boss_footstep_1.wav");
+                        add("sound/zombi/boss_footstep_2.wav");break;
+                    case 1:add("sound/zombi/oberon/knife_walk1.wav");break;
+                    case 2:add("sound/zombi/oberon/knife_walk2.wav");break;
+                    case 4:add("sound/zombi/boss_footstep_1.wav");break;
+                    }
+                }
                 // CSO event5005 consumes three parameter bytes before its
                 // sample name. Event5004 and ordinary sound events do not.
                 else if(Lower(options).ends_with(".wav"))

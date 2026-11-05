@@ -184,6 +184,27 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
         // dependency resolver so embedded textures cannot hide event sounds.
         for(int i=0;i<header->numtextures;++i)special|=textures[i].name[0]=='$' || textures[i].name[0]=='#' || textures[i].name[0]=='@' || !Q_strnicmp(textures[i].name,"cso_",4);
     }
+    // Numeric 5008 footsteps name no WAV and need no external textures.
+    // Admit them from the loaded model so generic bosses use the same closure
+    // and cache as other CSO resources (client 02A419D6..02A41A97).
+    if(!special && header->length>=sizeof(studiohdr_t) && header->seqindex>0 &&
+        header->seqindex<=header->length && header->numseq>0 && header->numseq<=2048 &&
+        size_t(header->numseq)<=(header->length-header->seqindex)/sizeof(mstudioseqdesc_t))
+    {
+        const auto* sequences=reinterpret_cast<const mstudioseqdesc_t*>(
+            reinterpret_cast<const byte*>(header)+header->seqindex);
+        for(int i=0;i<header->numseq && !special;++i)
+        {
+            const auto& sequence=sequences[i];
+            if(sequence.eventindex<0 || sequence.eventindex>header->length ||
+                sequence.numevents<0 || sequence.numevents>4096 ||
+                size_t(sequence.numevents)>(header->length-sequence.eventindex)/sizeof(mstudioevent_t))continue;
+            const auto* events=reinterpret_cast<const mstudioevent_t*>(
+                reinterpret_cast<const byte*>(header)+sequence.eventindex);
+            for(int e=0;e<sequence.numevents && !special;++e)
+                special=events[e].event==5008 && events[e].options[0]!='#';
+        }
+    }
     if(!special)return;
     try
     {
