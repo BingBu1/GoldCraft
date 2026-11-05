@@ -118,6 +118,10 @@ public:
     bool SendMonsterDisarmImpact(const float* origin) const;
     bool SendMonsterHit(const float* origin, bool metal, int amount) const;
     bool SendMonsterZombieBomb(const float* origin) const;
+    // Original CTentacle effect writers; the owner selects recipients and RNG.
+    bool SendBloodScreen(edict_s* recipient) const;
+    bool SendTeddyTentacleShake(edict_s* recipient) const;
+    bool SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const;
     // Original MP114EEAE0: MPToCL54/type0, raw duration, grey RGBA.
     bool SendZombieBombProtection(edict_s* recipient, float duration) const;
     bool SendMonsterSkillShake(edict_t* recipient) const;

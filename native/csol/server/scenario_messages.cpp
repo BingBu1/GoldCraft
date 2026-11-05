@@ -1038,3 +1038,64 @@ bool CCSOLScenarioMessages::WriteMonsterDeath(edict_t* recipient, int monsterInd
     MESSAGE_END();
     return true;
 }
+
+bool CCSOLScenarioMessages::SendBloodScreen(edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte)
+        return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(50);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendTeddyTentacleShake(edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !recipient || recipient->free || gmsgShake < 64 || gmsgShake > 255 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteShort)
+        return false;
+    const int id = gmsgShake;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_SHORT(0x4000);
+    WRITE_SHORT(0x1000);
+    WRITE_SHORT(0x0300);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const
+{
+    if (g_scenarioMessageOpen || !origin || modelIndex <= 0 || modelIndex > 32767 ||
+        (count != 3 && count != 4) || !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteCoord)
+        return false;
+    for (int axis = 0; axis != 3; ++axis)
+        if (!std::isfinite(origin[axis]) || origin[axis] < -4096.0f || origin[axis] > 4095.875f)
+            return false;
+    // MP113E9760 -> 113E7810. The caller consumes RandomLong(3,4) at
+    // its original position; serialization neither draws RNG nor looks up a model.
+    const Vector position(origin);
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, SVC_TEMPENTITY, position);
+    WRITE_BYTE(TE_BREAKMODEL);
+    WRITE_COORD(position.x);
+    WRITE_COORD(position.y);
+    WRITE_COORD(position.z);
+    WRITE_COORD(6);
+    WRITE_COORD(6);
+    WRITE_COORD(2);
+    WRITE_COORD(5);
+    WRITE_COORD(5);
+    WRITE_COORD(40);
+    WRITE_BYTE(5);
+    WRITE_SHORT(modelIndex);
+    WRITE_BYTE(count);
+    WRITE_BYTE(3); // Original truncation of .3 seconds * 10.
+    WRITE_BYTE(64);
+    MESSAGE_END();
+    return true;
+}
