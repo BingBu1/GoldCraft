@@ -832,7 +832,7 @@ index 63c012a..6debb2d 100644
            "GameStudioRenderer_StudioRenderFinal": "virtualFunction",
            "GameStudioRenderer_StudioRenderModel": "virtualFunction",
 diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
-index 06bf06e..a032924 100644
+index 06bf06e..3c36564 100644
 --- a/src/exportfuncs.cpp
 +++ b/src/exportfuncs.cpp
 @@ -3,6 +3,7 @@
@@ -962,14 +962,16 @@ index 06bf06e..a032924 100644
  
      ClientStudio_FillAddress(ppinterface);
      ClientStudio_InstallHooks();
-@@ -303,12 +308,14 @@ void HUD_PlayerMoveInit(struct playermove_s* ppmove)
+@@ -303,12 +308,16 @@ void HUD_PlayerMoveInit(struct playermove_s* ppmove)
  
  void HUD_Frame(double frametime)
  {
 +    worldedit::BeginUploadFrame();
      R_GameFrameStart();
  
++    R_ResourceRefreshFrame(true);
      gExportfuncs.HUD_Frame(frametime);
++    R_ResourceRefreshFrame(false);
  
      float time = gEngfuncs.GetAbsoluteTime();
  
@@ -1568,7 +1570,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..62a36ba 100644
+index d59b139..1d354f6 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,10 @@
@@ -1647,16 +1649,18 @@ index d59b139..62a36ba 100644
      R_EndRingBufferFrame();
  }
  
-@@ -3055,6 +3071,8 @@ void GL_Finish2D()
+@@ -3055,6 +3071,10 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
++    // Also closes a HUD_Frame interrupted by the engine's Host_Error longjmp.
++    R_ResourceRefreshFrame(false);
 +    R_ProfileFrameBegin();
 +    RProfileScope profileScope(RProfileStage::Setup);
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3151,16 @@ void R_PreRenderView()
+@@ -3133,10 +3153,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -1676,7 +1680,7 @@ index d59b139..62a36ba 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,6 +3415,60 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,6 +3417,60 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -1737,7 +1741,7 @@ index d59b139..62a36ba 100644
  void R_RenderView_SvEngine(int viewIdx)
  {
      const bool wasRenderingView = g_bIsRenderingView;
-@@ -3434,14 +3512,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3514,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -1765,7 +1769,7 @@ index d59b139..62a36ba 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3506,7 +3595,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3597,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -1777,7 +1781,7 @@ index d59b139..62a36ba 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3642,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3644,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -1790,7 +1794,7 @@ index d59b139..62a36ba 100644
  }
  
  #if 0
-@@ -3734,6 +3830,7 @@ void R_InitCvars(void)
+@@ -3734,6 +3832,7 @@ void R_InitCvars(void)
      r_studio_parallel_load = gEngfuncs.pfnRegisterVariable("r_studio_parallel_load", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      r_wsurf_parallax_scale = gEngfuncs.pfnRegisterVariable("r_wsurf_parallax_scale", "-0.02", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
@@ -1798,7 +1802,11 @@ index d59b139..62a36ba 100644
      r_wsurf_sky_fog        = gEngfuncs.pfnRegisterVariable("r_wsurf_sky_fog", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      /*
-@@ -3767,6 +3864,7 @@ void R_Init(void)
+@@ -3764,9 +3863,11 @@ void R_InitCvars(void)
+ 
+ void R_Init(void)
+ {
++    R_ResourceRefreshInit();
      Mod_Init();
  
      R_InitCvars();
@@ -1806,16 +1814,17 @@ index d59b139..62a36ba 100644
  
      R_InitWater();
      R_InitStudio();
-@@ -3783,6 +3881,8 @@ void R_Init(void)
+@@ -3783,6 +3884,9 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
++    R_ResourceRefreshShutdown();
 +    R_ProfileShutdown();
 +    R_ShutdownDrawParameters();
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -3832,6 +3932,7 @@ void R_ForceCVars(qboolean mp)
+@@ -3832,6 +3936,7 @@ void R_ForceCVars(qboolean mp)
  void R_NewMap(void)
  {
      memset(&r_params, 0, sizeof(r_params));
@@ -1823,7 +1832,7 @@ index d59b139..62a36ba 100644
  
      R_GenerateSceneUBO();
      R_FreeWorldResources();
-@@ -4367,6 +4468,8 @@ void R_SetupGL(void)
+@@ -4367,6 +4472,8 @@ void R_SetupGL(void)
          }
      }
  
@@ -1832,7 +1841,7 @@ index d59b139..62a36ba 100644
      glCullFace(GL_FRONT);
  
      if (!gl_cull->value)
-@@ -4667,6 +4770,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4774,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -1843,7 +1852,7 @@ index d59b139..62a36ba 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4789,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4793,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -1859,7 +1868,7 @@ index d59b139..62a36ba 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4833,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4837,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -1877,7 +1886,7 @@ index d59b139..62a36ba 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4852,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4856,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -1885,7 +1894,7 @@ index d59b139..62a36ba 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4863,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4867,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -1893,7 +1902,7 @@ index d59b139..62a36ba 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,6 +4917,7 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,6 +4921,7 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -1901,7 +1910,7 @@ index d59b139..62a36ba 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_MODELS_SVENGINE;
  
-@@ -5464,6 +5584,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5588,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -1912,7 +1921,7 @@ index d59b139..62a36ba 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6725,82 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6729,82 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -2515,7 +2524,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..71f70f2 100644
+index fa85f25..99ad554 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,7 @@
@@ -3670,11 +3679,17 @@ index fa85f25..71f70f2 100644
  }
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
+@@ -5040,3 +5111,5 @@ void UpdatePlayerPitch(cl_entity_t* ent, float a2)
+     //Sniber NMSL
+     return;
+ }
++
++#include "resource_refresh.inc"
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..bd0ef54 100644
+index eeb137d..7455f59 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
-@@ -9,6 +9,7 @@
+@@ -9,9 +9,14 @@
  #    include <set>
  #    include <unordered_map>
  #    include <memory>
@@ -3682,7 +3697,14 @@ index eeb137d..bd0ef54 100644
  
  #    define MAX_STUDIO_BONE_CACHES 1024
  
-@@ -50,6 +51,8 @@ typedef struct studio_program_s
++void R_ResourceRefreshInit();
++void R_ResourceRefreshShutdown();
++void R_ResourceRefreshFrame(bool active);
++
+ #    define STUDIO_DIFFUSE_TEXTURE  0
+ #    define STUDIO_NORMAL_TEXTURE   1
+ #    define STUDIO_PARALLAX_TEXTURE 2
+@@ -50,6 +55,8 @@ typedef struct studio_program_s
      int r_packed_index{-1};
      int r_framerate_numframes{-1};
      int r_nearplaneclip{-1};
@@ -3691,7 +3713,7 @@ index eeb137d..bd0ef54 100644
  } studio_program_t;
  
  class studiovertexbase_t
-@@ -87,6 +90,53 @@ public:
+@@ -87,6 +94,53 @@ public:
      size_t nMeshOffset{0};
  };
  
@@ -3745,7 +3767,7 @@ index eeb137d..bd0ef54 100644
  class CStudioModelRenderSubModel
  {
  public:
-@@ -96,6 +146,7 @@ public:
+@@ -96,6 +150,7 @@ public:
  
      size_t                              m_SubmodelOffset{};
      std::vector<CStudioModelRenderMesh> vMesh;
@@ -3753,7 +3775,7 @@ index eeb137d..bd0ef54 100644
  };
  
  class CStudioModelRenderMaterial
-@@ -225,8 +276,8 @@ public:
+@@ -225,8 +280,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -3764,7 +3786,7 @@ index eeb137d..bd0ef54 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +293,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +297,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -3797,7 +3819,7 @@ index eeb137d..bd0ef54 100644
          return base;
      }
  };
-@@ -347,6 +400,7 @@ void     R_StudioFlushAllSkins();
+@@ -347,6 +404,7 @@ void     R_StudioFlushAllSkins();
  void     R_ShutdownStudio(void);
  void     R_InitStudio(void);
  void     R_StudioStartFrame(void);
@@ -3805,7 +3827,7 @@ index eeb137d..bd0ef54 100644
  void     R_StudioEndFrame(void);
  void     R_SaveStudioProgramStates(void);
  void     R_LoadStudioProgramStates(void);
-@@ -356,20 +410,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +414,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);
@@ -25629,3 +25651,163 @@ index 0000000..053c80b
 +a.output.write_text('\n\n'.join(parts), encoding='utf-8')
 +print(json.dumps({'production': hashlib.sha256(studio.encode()).hexdigest(),
 +                  'extracted': hashlib.sha256(a.output.read_bytes()).hexdigest()}))
+diff --git a/src/resource_refresh.inc b/src/resource_refresh.inc
+new file mode 100644
+index 0000000..a78ddf3
+--- /dev/null
++++ b/src/resource_refresh.inc
+@@ -0,0 +1,154 @@
++// Resource ownership extension for an admission-time verified content change.
++// Included by gl_studio.cpp to keep cache ownership within the Renderer.
++#include <goldcraft/renderer_resource_api.hpp>
++#include <goldcraft/precache_api.h>
++#include <unordered_set>
++
++namespace {
++DWORD resourceThread{};
++HGLRC resourceContext{};
++bool resourceFrame{}, resourceReleasing{};
++
++bool ResourceAvailable() { return resourceThread && resourceContext && GoldCraftModelOwnersInterface(); }
++
++const char* ResourceValidate(model_t* const* models, std::uint32_t count)
++{
++    if (!ResourceAvailable() || GetCurrentThreadId() != resourceThread ||
++        wglGetCurrentContext() != resourceContext || !resourceFrame ||
++        g_bIsRenderingView || g_StudioOutlineMask || resourceReleasing)
++        return "Renderer resource update requires the main HUD_Frame GL boundary";
++    const auto* owners = GoldCraftModelOwnersInterface();
++    if (!owners->index_limit || !owners->model_index || !owners->model_at)
++        return "Renderer model ownership interface is incomplete";
++    const auto known = owners->index_limit();
++    if (known < 0 || count > static_cast<std::uint32_t>(known) || (count && !models))
++        return "Invalid Renderer model collection";
++    try {
++        std::unordered_set<model_t*> unique;
++        for (std::uint32_t i = 0; i < count; ++i) {
++            auto* model = models[i];
++            if (!model || !unique.insert(model).second)
++                return "Duplicate or null Renderer model";
++            const auto index = owners->model_index(model);
++            if (index < 0 || index >= known || owners->model_at(index) != model ||
++                (model->type != mod_studio && model->type != mod_sprite))
++                return "Renderer model is outside the known Studio/SPR collection";
++            if (model->type == mod_studio && model->cache.data) {
++                const auto* header = static_cast<const studiohdr_t*>(model->cache.data);
++                if (header->length < static_cast<int>(sizeof(studiohdr_t)) || header->numtextures < 0 ||
++                    header->textureindex < 0 || static_cast<std::uint64_t>(header->textureindex) +
++                    static_cast<std::uint64_t>(header->numtextures) * sizeof(mstudiotexture_t) >
++                    static_cast<std::uint64_t>(header->length))
++                    return "Invalid loaded Studio texture table";
++            } else if (model->type == mod_sprite && model->cache.data) {
++                const auto* sprite = static_cast<const msprite_t*>(model->cache.data);
++                if (sprite->numframes < 0) return "Invalid loaded sprite frame table";
++                for (int f = 0; f < sprite->numframes; ++f) {
++                    const auto& frame = sprite->frames[f];
++                    if (!frame.frameptr || (frame.type != SPR_SINGLE && frame.type != SPR_GROUP))
++                        return "Invalid loaded sprite frame";
++                    if (frame.type == SPR_GROUP) {
++                        const auto* group = reinterpret_cast<const mspritegroup_t*>(frame.frameptr);
++                        if (group->numframes < 0) return "Invalid loaded sprite group";
++                        for (int n = 0; n < group->numframes; ++n)
++                            if (!group->frames[n]) return "Invalid loaded sprite group frame";
++                    }
++                }
++            }
++        }
++        for (int i = 0; i < known; ++i) {
++            auto* model = owners->model_at(i);
++            if (model && (model->type == mod_studio || model->type == mod_sprite) && !unique.contains(model))
++                return "Renderer resource update requires the complete Studio/SPR dependency set";
++        }
++    } catch (const std::bad_alloc&) { return "Cannot prepare Renderer resource validation"; }
++    return nullptr;
++}
++
++const char* ResourceRelease(model_t* const* models, std::uint32_t count)
++{
++    if (const auto* error = ResourceValidate(models, count)) return error;
++    // Build every allocation-bearing part before retiring any resource.
++    std::vector<int> textures;
++    std::vector<std::shared_ptr<CStudioModelRenderData>> studioOwners;
++    try {
++        studioOwners = g_StudioRenderDataCache;
++        if (g_CurrentRenderData && std::find(studioOwners.begin(), studioOwners.end(), g_CurrentRenderData) == studioOwners.end())
++            studioOwners.push_back(g_CurrentRenderData);
++        for (std::uint32_t i = 0; i < count; ++i) {
++            const auto* model = models[i];
++            if (model->type == mod_studio && model->cache.data) {
++                const auto* header = static_cast<const studiohdr_t*>(model->cache.data);
++                const auto* table = reinterpret_cast<const mstudiotexture_t*>(
++                    reinterpret_cast<const byte*>(header) + header->textureindex);
++                for (int t = 0; t < header->numtextures; ++t) textures.push_back(table[t].index);
++            } else if (model->type == mod_sprite && model->cache.data) {
++                const auto* sprite = static_cast<const msprite_t*>(model->cache.data);
++                for (int f = 0; f < sprite->numframes; ++f) {
++                    const auto& frame = sprite->frames[f];
++                    if (frame.type == SPR_SINGLE) textures.push_back(frame.frameptr->gl_texturenum);
++                    else {
++                        const auto* group = reinterpret_cast<const mspritegroup_t*>(frame.frameptr);
++                        for (int n = 0; n < group->numframes; ++n) textures.push_back(group->frames[n]->gl_texturenum);
++                    }
++                }
++            }
++        }
++        for (const auto& data : studioOwners) if (data)
++            for (const auto& [key, material] : data->mStudioMaterials) if (material)
++                for (const auto& texture : material->textures) textures.push_back(texture.gltexturenum);
++        for (const auto& [key, cache] : g_StudioSkinCache) if (cache)
++            for (const auto& skin : cache->skins) textures.push_back(skin.gl_index);
++        for (std::uint32_t i = 0; i < count; ++i) if (models[i]->type == mod_sprite) {
++            const auto data = R_GetSpriteRenderDataFromModel(models[i]);
++            if (data) for (const auto& material : data->vSpriteMaterials) if (material)
++                for (const auto& texture : material->textures) textures.push_back(texture.gltexturenum);
++        }
++        std::sort(textures.begin(), textures.end());
++        textures.erase(std::unique(textures.begin(), textures.end()), textures.end());
++    } catch (const std::bad_alloc&) { return "Cannot prepare Renderer texture retirement"; }
++
++    resourceReleasing = true;
++    // Mark the entire set first, then wait; queued uploads cannot resurrect it.
++    for (const auto& data : studioOwners) if (data) data->bIsClosing.store(true);
++    for (const auto& data : studioOwners) if (data) data->ReleaseAsyncLoadTask();
++    for (const auto& data : studioOwners) if (data) {
++        // Scheduled tasks may still own this object. Retire GL now and leave
++        // their eventual destructor with zero handles rather than delaying it.
++        if (data->hVAO) { GL_DeleteVAO(data->hVAO); data->hVAO = 0; }
++        if (data->hEBO) { GL_DeleteBuffer(data->hEBO); data->hEBO = 0; }
++        for (auto& buffer : data->hVBO) if (buffer) { GL_DeleteBuffer(buffer); buffer = 0; }
++        data->mStudioMaterials.clear();
++    }
++    g_CurrentRenderData.reset();
++    g_StudioRenderDataCache.clear();
++    for (std::uint32_t i = 0; i < count; ++i)
++        if (models[i]->type == mod_sprite) R_FreeSpriteRenderData(models[i]);
++    for (auto& model : model_texture_cache)
++        for (auto& skin : model) if (skin.data) Cache_Free(&skin);
++    R_StudioFlushAllSkins();
++    R_StudioClearAllBoneCaches();
++    for (const auto texture : textures) if (texture > 0) GL_UnloadTextureByTextureId(texture);
++    if (pstudiohdr) *pstudiohdr = nullptr;
++    if (psubmodel) *psubmodel = nullptr;
++    resourceReleasing = false;
++    return nullptr;
++}
++
++goldcraft::renderer_resources::Api resourceApi{
++    sizeof(goldcraft::renderer_resources::Api), goldcraft::renderer_resources::api_version,
++    ResourceAvailable, ResourceValidate, ResourceRelease};
++IBaseInterface* CreateResourceInterface() { return reinterpret_cast<IBaseInterface*>(&resourceApi); }
++InterfaceReg resourceRegistration(CreateResourceInterface, goldcraft::renderer_resources::interface_name);
++}
++
++void R_ResourceRefreshInit()
++{
++    resourceThread = GetCurrentThreadId(); resourceContext = wglGetCurrentContext();
++    resourceFrame = resourceReleasing = false;
++}
++void R_ResourceRefreshShutdown()
++{
++    resourceFrame = resourceReleasing = false; resourceThread = 0; resourceContext = nullptr;
++}
++void R_ResourceRefreshFrame(bool value) { resourceFrame = value; }

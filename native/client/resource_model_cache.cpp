@@ -120,7 +120,9 @@ Result Invalidate(std::span<const Model> models,
     // hunk pointer; the low-hunk lifecycle, never Cache_Free, owns its memory.
     for (const auto& entry : models) {
         if (entry.value->type == mod_sprite) {
-            engine.unload_sprite_textures(entry.value);
+            // Mod_ClearAll has already nulled ordinary sprite headers after
+            // disconnect. The native unload entry dereferences that header.
+            if (entry.value->cache.data) engine.unload_sprite_textures(entry.value);
             entry.value->cache.data = nullptr;
             ++result.sprites;
         }

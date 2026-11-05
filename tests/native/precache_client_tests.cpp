@@ -12,6 +12,10 @@ size_t bit_cursor;
 int native_parses, downloads, native_count;
 int cursor, truncated, consistency, force;
 unsigned sentinel_checks = 0, sentinel_failures = 0;
+unsigned sync_checks{}, sync_begins{}, sync_cancels{};
+bool sync_available = true;
+std::vector<goldcraft::resource_update::Resource> captured;
+std::uint64_t captured_generation{};
 std::vector<std::unique_ptr<resource_t>> allocated_resources;
 void __cdecl parse_error(const char*, ...) { throw std::runtime_error("malformed packet"); }
 
@@ -193,6 +197,118 @@ void model_terminator_tests(DWORD& model_operand, const std::array<DWORD, 5>& li
     reset_client();
     check_sentinel(models.size() == 513 && models.back() == nullptr, "repeated teardown preserves the terminator");
 }
+
+void resource_sync_tests() {
+    using goldcraft::resource_sync::manifest_version;
+    resource_t list{};
+    needed = &list;
+    const auto clean = [&] {
+        reset_client(); list.pPrev = list.pNext = &list; allocated_resources.clear(); captured.clear();
+    };
+    set_resource_sync({[] { return sync_available; },
+        [](std::uint64_t generation, const std::vector<goldcraft::resource_update::Resource>& items) -> const char* {
+            // Parsing must finish before the asynchronous receiver can inspect
+            // the manifest, and it must not have started native downloading.
+            assert(!receiving && sync_waiting && bit_cursor <= std::size_t(cursor) * 8);
+            captured = items; captured_generation = generation; ++sync_begins; return nullptr;
+        }, [] { ++sync_cancels; }});
+    read_data = [](void* output, int count) { for (int i=0;i<count;++i) static_cast<byte*>(output)[i]=byte(bits(8)); return count; };
+    const auto make = [&](unsigned total, unsigned first, unsigned count, std::uint64_t generation,
+                          unsigned version=manifest_version, bool required=true, unsigned size=22000000,
+                          unsigned type=t_generic, unsigned flags=0) {
+        packet.assign(1, 0xcc); std::size_t position=8;
+        const auto put = [&](unsigned value, unsigned width) {
+            for(unsigned i=0;i<width;++i,++position) {
+                if(position/8>=packet.size())packet.push_back(0);
+                packet[position/8]|=byte(((value>>i)&1)<<(position%8));
+            }
+        };
+        put(goldcraft::precache::marker,12);put(goldcraft::precache::magic,32);put(version,8);
+        put(total,32);put(first,32);put(count,16);
+        if(version==manifest_version){put(unsigned(generation),32);put(unsigned(generation>>32),32);}
+        for(unsigned i=0;i<count;++i) {
+            put(type,4);const std::string name=type==t_sound?"effect.wav":"models/update.mdl";
+            for(unsigned char c:name)put(c,8);put(0,8);put(first+i+1,32);put(size,24);put(flags,3);
+            if(flags&RES_CUSTOM)for(int j=0;j<16;++j)put(0,8);
+            put(0,1);
+            if(version==manifest_version) {
+                put(required,1);if(required){put(size,32);for(unsigned j=0;j<32;++j)put(j+first+i,8);}
+            }
+        }
+        if(first+count==total)put(0,1);
+        cursor=1;truncated=0;
+    };
+    const auto check=[&](bool value){++sync_checks;assert(value);};
+    clean();const int before=downloads;
+    make(2,0,1,0x1234567800000001ULL);parse_resources();
+    check(receiving && !sync_waiting && downloads==before && sync_begins==0);
+    make(2,1,1,0x1234567800000001ULL);parse_resources();
+    check(!receiving && sync_waiting && downloads==before && sync_begins==1);
+    check(captured.size()==2 && captured_generation==0x1234567800000001ULL);
+    check(captured[0].expected.size==22000000 && resources[0]->nDownloadSize==22000000);
+    check(captured[1].expected.sha256[31]==32 && captured[0].name=="models/update.mdl");
+    check(resume_resource_sync() && downloads==before+1);
+    check(!resume_resource_sync() && downloads==before+1);
+    clean();check(!sync_waiting && sync_resources.empty() && !resume_resource_sync());
+    make(1,0,1,1,manifest_version,true,32,t_sound);parse_resources();
+    check(captured.size()==1 && captured[0].name=="sound/effect.wav");
+    clean();make(1,0,1,1,manifest_version,false,32,t_decal);parse_resources();
+    check(captured.empty() && sync_waiting);
+    for(unsigned scenario=0;scenario<9;++scenario) {
+        clean();bool rejected=false;
+        if(scenario==0)sync_available=false;
+        if(scenario==1 || scenario==2) {make(2,0,1,1);parse_resources();}
+        make(scenario==1||scenario==2?2:1,scenario==1||scenario==2?1:0,1,
+             scenario==3?0:scenario==1?2:1,scenario==2?goldcraft::precache::version:manifest_version,
+             true,scenario==4?0:scenario==5?goldcraft::resource_sync::max_file_size+1:32,
+             scenario==6?t_decal:t_generic,scenario==7?RES_CUSTOM:0);
+        if(scenario==8)packet.resize(packet.size()-8);
+        try {parse_resources();}catch(const std::runtime_error&){rejected=true;}
+        check(rejected);sync_available=true;
+    }
+    clean();set_resource_sync({});
+    check(sync_cancels>0);
+    valid_manifest();check(!sync_waiting && downloads==before+2); // v3 still native.
+    clean();needed=nullptr;
+    std::cout << "resource sync parser: " << sync_checks << " checks, 0 failures\n";
+}
+}
+
+void model_owner_tests() {
+    std::array<model_t, 2> originals{};
+    int count = int(originals.size());
+    original_models = originals.data(); original_model_count = &count;
+    extra_models.clear(); extra_model_indices.clear();
+    enabled = false;
+    check_sentinel(!GoldCraft_GetModelOwnersAPI(), "uninstalled owner API unavailable");
+    enabled = true;
+    const auto* api = GoldCraft_GetModelOwnersAPI();
+    check_sentinel(api && api->version == 1 && api->size == sizeof(*api), "owner ABI identity");
+    check_sentinel(api->index_limit() == count, "original-only owner range");
+    for (int i = 0; i < 2; ++i) {
+        auto value = std::make_unique<Model>();
+        value->model.type = i == 0 ? mod_studio : mod_sprite;
+        extra_model_indices.emplace(&value->model, unsigned(extra_models.size()));
+        extra_models.push_back(std::move(value));
+    }
+    for (bool connected : {true, false}) {
+        extended = connected;
+        check_sentinel(model_count() == count + (connected ? 2 : 0), "connection API retains old range");
+        check_sentinel(api->index_limit() == 1026, "owner range survives disconnect");
+        check_sentinel(api->model_at(2) == nullptr && api->model_at(1023) == nullptr,
+                       "sparse unused original slots are not synthetic owners");
+        for (int i = 0; i < 2; ++i) {
+            check_sentinel(api->model_at(i) == &originals[i], "original owner retained");
+            auto* model = &extra_models[i]->model;
+            check_sentinel(api->model_at(1024 + i) == model && api->model_index(model) == 1024 + i,
+                           "extra owner round trip after disconnect");
+        }
+        check_sentinel(!api->model_at(-1) && !api->model_at(1026), "owner bounds rejected");
+    }
+    model_t foreign{};
+    check_sentinel(api->model_index(&foreign) == -1, "foreign owner rejected");
+    extra_models.clear(); extra_model_indices.clear();
+    original_models = nullptr; original_model_count = nullptr; enabled = false;
 }
 
 int main(int argc, char**) {
@@ -292,5 +408,8 @@ int main(int argc, char**) {
     std::cout << "Production native/extended parser routing and byte-exact teardown passed\n";
     model_terminator_tests(model_operand, limits);
     std::cout << "model terminator: " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+    resource_sync_tests();
+    model_owner_tests();
+    std::cout << "model ownership: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
     return sentinel_failures ? 1 : 0;
 }

@@ -103,7 +103,8 @@
         "include/Interface/IMetaRendererStudioOutline.h",
         "src/studio_outline.inc",
         "tests/studio_outline_gl_tests.cpp",
-        "tests/extract_studio_outline.py"
+        "tests/extract_studio_outline.py",
+        "src/resource_refresh.inc"
       ]
     },
     "BulletPhysics": {

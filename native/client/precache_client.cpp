@@ -7,6 +7,7 @@
 #include "precache_client.hpp"
 #include "goldcraft/precache_protocol.hpp"
 #include "goldcraft/precache_api.h"
+#include "goldcraft/resource_sync.hpp"
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -44,6 +45,11 @@ bool enabled = false, extended = false, receiving = false;
 void (*reset_observer)() = nullptr;
 bool legacy_manifest_received = false;
 bool client_media_enabled = false;
+ResourceSyncCallbacks sync_callbacks;
+std::vector<resource_update::Resource> sync_resources;
+std::uint64_t manifest_generation{};
+unsigned manifest_version{};
+bool sync_waiting{};
 unsigned brass_reads = 0, high_brass_reads = 0, last_brass_model = 0;
 int (__cdecl* client_read_short)() = nullptr;
 int (__cdecl* client_read_long)() = nullptr;
@@ -210,6 +216,7 @@ void set_extension(bool active) {
 }
 
 int model_count() { return *original_model_count + (extended ? int(extra_models.size()) : 0); }
+int owned_model_limit() { return extra_models.empty() ? *original_model_count : 1024 + int(extra_models.size()); }
 int model_index(const model_t* model) {
     const auto address = reinterpret_cast<uintptr_t>(model);
     const auto first = reinterpret_cast<uintptr_t>(original_models);
@@ -516,6 +523,8 @@ void __cdecl parse_static_entity() {
 }
 
 void reset_client() {
+    if (sync_callbacks.cancel) sync_callbacks.cancel();
+    sync_resources.clear(); manifest_generation = 0; manifest_version = 0; sync_waiting = false;
     if (reset_observer) reset_observer();
     set_extension(false);
     resources.clear(); checks.clear();
@@ -582,16 +591,27 @@ void __cdecl parse_resources() {
     start_bits(net_message);
     unsigned count = read_bits(12);
     unsigned total = count, first = 0;
+    unsigned version = precache::version;
+    std::uint64_t generation{};
     bool is_extended = false;
     if (count == precache::marker) {
         is_extended = read_bits(32) == precache::magic;
         if (is_extended) {
             if (legacy_manifest_received) malformed("mixed resource formats");
-            if (read_bits(8) != precache::version) malformed("unsupported manifest version");
+            version = read_bits(8);
+            if (!resource_sync::supported_manifest(version)) malformed("unsupported manifest version");
             if (!client_media_enabled) malformed("extended manifest requires the matched client media parser");
             total = read_bits(32); first = read_bits(32); count = read_bits(16);
+            if (version == resource_sync::manifest_version) {
+                const auto low = read_bits(32), high = read_bits(32);
+                generation = std::uint64_t(low) | (std::uint64_t(high) << 32);
+                if (!generation || total > 16384 || !sync_callbacks.available || !sync_callbacks.available() ||
+                    !sync_callbacks.begin || !sync_callbacks.cancel)
+                    malformed("resource update capability is unavailable");
+            }
             precache::ManifestChunk chunk{total, first, count};
-            if (!chunk.valid(manifest_next) || (receiving && total != manifest_total))
+            if (!chunk.valid(manifest_next) || (receiving && (total != manifest_total ||
+                version != manifest_version || generation != manifest_generation)))
                 malformed("out-of-order resource manifest");
         }
     }
@@ -610,6 +630,7 @@ void __cdecl parse_resources() {
     if (!first) {
         if (!resources.empty()) malformed("duplicate resource manifest");
         set_extension(true); manifest_total = total; receiving = true;
+        manifest_version = version; manifest_generation = generation; sync_resources.clear();
     } else if (!extended || !is_extended) malformed("mixed resource formats");
 
     size_t model_size = model_slots(), sound_size = sounds.size();
@@ -630,6 +651,23 @@ void __cdecl parse_resources() {
         record.ucFlags = static_cast<byte>(read_bits(3) & ~RES_WASMISSING);
         if (record.ucFlags & RES_CUSTOM) read_data(record.rgucMD5_hash, 16);
         if (read_bits(1)) read_data(record.rguc_reserved, 32);
+        if (version == resource_sync::manifest_version) {
+            resource_sync::Entry expected;
+            expected.required = read_bits(1) != 0;
+            if (expected.required) {
+                expected.size = read_bits(32);
+                read_data(expected.sha256.data(), int(expected.sha256.size()));
+                if (!expected.size || expected.size > resource_sync::max_file_size ||
+                    (expected.size & 0xffffffu) != unsigned(record.nDownloadSize) ||
+                    (record.ucFlags & RES_CUSTOM) || record.szFileName[0] == '*' || record.szFileName[0] == '!' ||
+                    !(record.type == t_sound || record.type == t_model || record.type == t_generic || record.type == t_eventscript))
+                    malformed("invalid resource update entry");
+                // The ordinary wire length is only24 bits. v4's checked full
+                // length also feeds the original downloader's progress input.
+                record.nDownloadSize = int(expected.size);
+                sync_resources.push_back({std::string(record.type == t_sound ? "sound/" : "") + record.szFileName, expected});
+            }
+        }
         if (*bad_read) malformed("truncated resource entry");
         if (record.type == t_model) model_size = std::max(model_size, size_t(index) + 1);
         if (record.type == t_sound) sound_size = std::max(sound_size, size_t(index) + 1);
@@ -662,6 +700,11 @@ void __cdecl parse_resources() {
     if (manifest_next != total) return;
     receiving = false; ++manifests;
     loading_text("#GameUI_VerifyingResources");
+    if (version == resource_sync::manifest_version) {
+        sync_waiting = true;
+        if (const auto* error = sync_callbacks.begin(manifest_generation, sync_resources)) malformed(error);
+        return;
+    }
     start_download("Verifying and downloading resources...\n", 0);
 }
 
@@ -832,7 +875,18 @@ void register_commands() {
     // Registration only stores the cvar. A real set populates GoldSrc's
     // connection userinfo, including when the value equals its default.
     gEngfuncs.Cvar_SetValue(precache::capability, client_media_enabled ? float(precache::version) : 0.f);
+    const bool can_update = client_media_enabled && sync_callbacks.available && sync_callbacks.available();
+    gEngfuncs.pfnRegisterVariable(resource_sync::capability, can_update ? resource_sync::capability_value : "0", FCVAR_USERINFO);
+    gEngfuncs.Cvar_SetValue(resource_sync::capability, can_update ? 1.f : 0.f);
     gEngfuncs.pfnAddCommand("gc_precache_stats", stats);
+}
+
+void set_resource_sync(ResourceSyncCallbacks callbacks) { sync_callbacks = callbacks; }
+bool resume_resource_sync() {
+    if (!sync_waiting || receiving || !extended || manifest_version != resource_sync::manifest_version) return false;
+    sync_waiting = false;
+    start_download("Verifying and downloading resources...\n", 0);
+    return true;
 }
 
 void create_entities() {
@@ -892,5 +946,12 @@ extern "C" const GoldCraftPrecacheAPI* GoldCraft_GetPrecacheAPI() {
     using namespace goldcraft::client_precache;
     static const GoldCraftPrecacheAPI result{sizeof(GoldCraftPrecacheAPI), 1,
         model_count, model_index, model_at, model_capacity};
+    return enabled ? &result : nullptr;
+}
+
+extern "C" const GoldCraftModelOwnersAPI* GoldCraft_GetModelOwnersAPI() {
+    using namespace goldcraft::client_precache;
+    static const GoldCraftModelOwnersAPI result{sizeof(GoldCraftModelOwnersAPI), 1,
+        owned_model_limit, model_index, model_at};
     return enabled ? &result : nullptr;
 }

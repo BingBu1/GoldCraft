@@ -50,7 +50,7 @@ struct Fixture {
     std::unordered_set<cache_user_t*> owned;
     std::vector<std::string> operations;
     const char* validation_error{};
-    bool release_ok{true}, reenter{}, released{}, sound_stopped{};
+    bool release_ok{true}, reenter{}, released{}, sound_stopped{}, sprite_cleared{};
     std::array<Model, 3> selected;
     std::array<cache_user_t*, 3> selected_sounds;
     Engine engine;
@@ -91,7 +91,9 @@ struct Fixture {
         auto& self = *static_cast<Fixture*>(context);
         self.operations.emplace_back("release");
         for (const auto& model : models)
-            check(model.value->cache.data != nullptr, "all GPU readers retain valid headers through owner release");
+            check(model.value->cache.data != nullptr ||
+                  (self.sprite_cleared && model.value == &self.sprite.model),
+                  "owner release reads current headers after native disconnect");
         check(self.studio.sequences[15].data != nullptr, "external sequences retained while owners release");
         self.released = self.release_ok;
         return self.release_ok;
@@ -156,6 +158,20 @@ int main() {
               "unselected models and CRC are preserved");
         check(f.operations[0] == "validate" && f.operations[1] == "release" && f.operations[2] == "stop",
               "preflight and owners finish before sound and native caches");
+    }
+    {
+        Fixture f;
+        // Mod_ClearAll nulled this hunk-backed header before the next Frame.
+        // Native R_UnloadSpriteTextures would dereference it unconditionally.
+        f.sprite.model.cache.data = nullptr;
+        f.sprite_cleared = true;
+        const auto result = Invalidate(f.selected, {}, f.engine, f.owners);
+        check(bool(result) && result.consumers_released && result.sprites == 1,
+              "disconnected sprite still retires its renderer ownership");
+        check(std::find(f.operations.begin(), f.operations.end(), "sprite") == f.operations.end(),
+              "cleared sprite header never enters native texture unload");
+        check(f.sprite.model.needload == 1 && f.sprite.checked == 0 && f.sprite.crc == 0,
+              "cleared sprite can load a verified replacement with normal CRC checks");
     }
     for (int missing = 0; missing < 5; ++missing) {
         Fixture f;
