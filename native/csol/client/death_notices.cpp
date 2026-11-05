@@ -28,6 +28,7 @@ client_sprite_t* GetSpriteList(char* path, int* count)
             {"d_k3","csol/640hud11",64},{"d_skull1","csol/640hud4",48,220,32},
             {"d_skull5","csol/640hud4",144},
             {"d_skull2","csol/640hud38",0},
+            {"d_skull3","csol/640hud6",128},{"d_skull3d","csol/640hud6",144},
             {"d_m249ex","csol/640hud3_v2",240,122},{"d_balrog11","csol/640hud11",144},
             {"d_dragonsword","csol/640hud10",160},{"d_skullaxe","csol/640hud4",96}};
         for (const auto& entry : entries) for (const int resolution : {320, 640})

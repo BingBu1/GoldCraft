@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../weapon_hud_paths.hpp"
+#include "../skull3.hpp"
 #include "runtime.hpp"
 #include "weapon_inventory.hpp"
 #include "command_chain.hpp"
@@ -32,6 +33,8 @@ std::array<int,WeaponIdLimit> clips;
 std::array<int,32768> ammo;
 int selectionHidden{},selectionIntermission{};
 WeaponInventoryReceiver inventory;
+std::array<int,8> slotHeads{};
+bool slotHeadsDirty=true;
 WeaponCurrent current;
 bool available{}, textMenu{}, currentReceived{};
 std::uint64_t animationSyncGeneration{};
@@ -168,7 +171,7 @@ int Definition(const char*,int size,void* data)
     SynchronizeSession();WeaponDefinition def;
     if(!DecodeWeaponDefinition(Bytes(size,data),def) || !ExtendedWeaponId(def.id))return 1;
     if(definitions[def.id].id && definitions[def.id].name!=def.name)return 1;
-    definitions[def.id]=def;available=true;
+    definitions[def.id]=def;available=true;slotHeadsDirty=true;
     const auto [command,first]=commandNames.insert(def.name);
     if(first)engine.pfnAddCommand(command->c_str(),NamedWeapon);
     ReceiveExtendedWeaponDefinition(def);return 1;
@@ -177,6 +180,7 @@ int Inventory(const char*,int size,void* data)
 {
     SynchronizeSession();if(available && inventory.Receive(Bytes(size,data)))
     {
+        slotHeadsDirty=true;
         if(selected && !inventory.Owned()[selected])selected=0;
         else if(selected)PrepareSelection();
     }
@@ -256,7 +260,7 @@ void InitializeWeaponInventory()
 }
 void ResetWeaponInventory(bool forgetDefinitions)
 {
-    inventory.Reset();current={};currentReceived=false;selected=0;textMenu=false;menuSlots=0;
+    inventory.Reset();slotHeads={};slotHeadsDirty=true;current={};currentReceived=false;selected=0;textMenu=false;menuSlots=0;
     animationSyncWeapon=0;++animationSyncGeneration;
     if(!animationSyncGeneration)++animationSyncGeneration;
     guardUntil=0;
@@ -275,7 +279,7 @@ void ObserveLegacyWeaponDefinition(int size,void* data)
     def.maxAmmo1=end[2]==255?-1:end[2];def.maxAmmo2=end[4]==255?-1:end[4];
     def.name.assign(reinterpret_cast<const char*>(begin),end-begin);
     // Validate even ordinary definitions before using their names as commands.
-    if(!EncodeWeaponDefinition(def).empty())definitions[def.id]=std::move(def);
+    if(!EncodeWeaponDefinition(def).empty()){definitions[def.id]=std::move(def);slotHeadsDirty=true;}
 }
 void WeaponInventoryCreateMove(float frame,usercmd_t* cmd,int active)
 {
@@ -379,6 +383,28 @@ void WeaponSelectionDiagnostics(std::ostream& out)
     out<<"],\"guardUntil\":"<<guardUntil<<",\"guardDraws\":"<<guardDraws<<'}';
 }
 const WeaponDefinition* FindWeaponDefinition(int id){return ValidWeaponId(id)&&definitions[id].id?&definitions[id]:nullptr;}
+const WeaponDefinition* FindWeaponTitleDefinition(int id)
+{
+    const auto* definition=FindWeaponDefinition(id);
+    if(!definition || id!=skull3::DualId)return definition;
+    if(slotHeadsDirty)
+    {
+        slotHeads={};
+        for(int owned=1;owned<WeaponIdLimit;++owned)
+        {
+            if(!inventory.Owned()[owned] || !definitions[owned].id)continue;
+            const auto& item=definitions[owned];
+            auto& first=slotHeads[item.slot];
+            if(!first || item.position<definitions[first].position)first=owned;
+        }
+        slotHeadsDirty=false;
+    }
+    const auto* first=FindWeaponDefinition(slotHeads[definition->slot]);
+    // client 02A263D0..02A2644B / 02A25D30: recurse only from the actual
+    // first same-slot item whose catalog pairedId points at the current id.
+    // SKULL3 A->D is the verified pair; no custom-item title service is mapped.
+    return first && first->id==skull3::Id?first:definition;
+}
 bool WeaponHasAmmo(int id)
 {
     const auto* def=FindWeaponDefinition(id);

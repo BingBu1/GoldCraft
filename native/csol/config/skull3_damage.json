@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "Damage": 30,
+  "DamageZombieMode": 37,
+  "DamageScenario": 56,
+  "Damage_Dual": 36,
+  "DamageZombieMode_Dual": 48,
+  "DamageScenario_Dual": 74
+}

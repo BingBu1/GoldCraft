@@ -20,10 +20,21 @@ int wmain(int argc,wchar_t** argv)
         const bool relocatable=std::wstring_view(argv[first])==L"--relocatable-json";
         const bool json=relocatable || std::wstring_view(argv[first])==L"--json";
         if(json)++first;if(first>=argc)throw std::runtime_error("no models supplied");
-        auto physical=[&](const std::string& name){const auto file=csol::WeaponResourceSource(name);
-            return !overlay.empty() && std::filesystem::is_regular_file(overlay/file)?overlay/file:root/file;};
+        auto resource=[&](const std::string& name)
+        {
+            // A prepared root already contains canonical paths. Source atlas
+            // aliases are only for unpacked originals, never a forced rewrite.
+            for(const auto& file:{std::string_view(name),csol::WeaponResourceSource(name)})
+            {
+                if(!overlay.empty() && std::filesystem::is_regular_file(overlay/file))
+                    return std::pair{overlay/file,std::string(file)};
+                if(std::filesystem::is_regular_file(root/file))return std::pair{root/file,std::string(file)};
+            }
+            const auto file=csol::WeaponResourceSource(name);
+            return std::pair{root/file,std::string(file)};
+        };
         auto exists=[&](const std::string& name){return !csol::GeneratedWeaponResource(name).empty() ||
-            std::filesystem::is_regular_file(physical(name));};
+            std::filesystem::is_regular_file(resource(name).first);};
         auto read=[&](const std::string& name)
         {
             if(const auto content=csol::GeneratedWeaponResource(name);!content.empty())
@@ -31,7 +42,7 @@ int wmain(int argc,wchar_t** argv)
                 const auto* begin=reinterpret_cast<const std::byte*>(content.data());
                 return std::vector<std::byte>(begin,begin+content.size());
             }
-            std::ifstream file(physical(name),std::ios::binary|std::ios::ate);if(!file)throw std::runtime_error("missing resource: "+name);
+            std::ifstream file(resource(name).first,std::ios::binary|std::ios::ate);if(!file)throw std::runtime_error("missing resource: "+name);
             const auto size=file.tellg();if(size<0 || size>128*1024*1024)throw std::runtime_error("resource exceeds budget");
             std::vector<std::byte> bytes(size_t(size),std::byte{});file.seekg(0);file.read((char*)bytes.data(),size);if(!file)throw std::runtime_error("short resource read");return bytes;
         };
@@ -57,7 +68,7 @@ int wmain(int argc,wchar_t** argv)
             csol::ModelSource source{file,file,file};if(std::string_view(file).ends_with(".mdl"))source=csol::ResolveModelSource(file,read,exists,configured);
             writer.StartObject();field("path",file);
             if(const auto content=csol::GeneratedWeaponResource(file);!content.empty())field("content",std::string(content));
-            else field("source",std::string(csol::WeaponResourceSource(source.File)));
+            else field("source",resource(source.File).second);
             writer.EndObject();
             if(source.Redirected)
             {

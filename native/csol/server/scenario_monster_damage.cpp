@@ -20,6 +20,7 @@
 #include "wpn_skull1.h"
 #include "wpn_skull2.h"
 #include "wpn_skull5.h"
+#include "wpn_skull3.h"
 #include "wpn_balrog11.h"
 
 #include <cmath>
@@ -124,7 +125,7 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
     if (CSOL_MeleeEmptyMonsterKillCallbacks(*weapon)) return true;
     // CM249EX/CBalrog11/CSkull5 point at 105FFBE0; match their compiled types.
     if (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) ||
-        CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull5(*weapon)) return true;
+        CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull3(*weapon) || CSOL_IsSkull5(*weapon)) return true;
     std::array<float,5> knockback{1100,500,700,400,.9f};
     // SKULL-1 v22C is true and overrides vD4 with scenario-specific force.
     // Its v230 remains false; that independent predicate is handled below.
@@ -668,7 +669,7 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
                     CSOL_BeamEmptyMonsterKillCallbacks(*weapon) || CSOL_TKnifeEmptyMonsterKillCallbacks(*weapon) ||
                     CSOL_K3EmptyMonsterKillCallbacks(*weapon) || CSOL_MeleeEmptyMonsterKillCallbacks(*weapon) ||
                     CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) || CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) ||
-                    CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull5(*weapon))
+                    CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) || CSOL_IsSkull2(*weapon) || CSOL_IsSkull3(*weapon) || CSOL_IsSkull5(*weapon))
                     // CK3 v230 and both knife helpers have a verified zero result.
                     return true;
                 error.message = "scenario weapon melee-type predicate is not implemented";

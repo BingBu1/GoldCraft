@@ -41,6 +41,7 @@ std::array<Texture,10> digits{};
 std::array<Texture,10> moneyDigits{};
 Texture portrait, weaponImage, ammoImage, secondaryImage;
 std::string portraitPath, weaponName;
+int weaponTitleId{},weaponTitleSlot=-1;
 std::wstring weaponTitle;
 vgui::HFont titleFont{};
 int* nativeHealth{};
@@ -77,6 +78,7 @@ void ReleaseBase()
     for (auto& texture : digits) Delete(texture);
     Delete(portrait); Delete(weaponImage); Delete(ammoImage); Delete(secondaryImage);
     portraitId=0; portraitPath.clear(); weaponName.clear(); weaponTitle.clear();
+    weaponTitleId=0;weaponTitleSlot=-1;
     selectionRetryAfter=portraitRetryAfter=0;
     loaded=false; requested=vitalsVisible=weaponVisible=false;
 }
@@ -195,7 +197,24 @@ void PrepareSelection()
     {
         Delete(weaponImage); Delete(ammoImage); Delete(secondaryImage);
         weaponName=name; weaponTitle.clear();
+        weaponTitleId=0;weaponTitleSlot=-1;
         selectionRetryAfter=0;
+    }
+    const auto* titleDefinition=definition?FindWeaponTitleDefinition(definition->id):nullptr;
+    if(titleDefinition && (weaponTitleId!=titleDefinition->id || weaponTitleSlot!=titleDefinition->slot))
+    {
+        weaponTitle.clear();weaponTitleId=titleDefinition->id;weaponTitleSlot=titleDefinition->slot;
+        if(const auto found=catalog.weapons.find(titleDefinition->name);found!=catalog.weapons.end())
+        {
+            // Re-evaluate inventory ownership even when the equipped id did
+            // not change. Only the title follows CSO's paired-slot fallback.
+            try{weaponTitle=std::to_wstring(titleDefinition->slot+1)+L" "+Wide(found->second.title);}
+            catch(const std::exception& error)
+            {
+                if(!reported)engine.Con_DPrintf("CSOLSupport: HUD title: %s\n",error.what());
+                reported=true;
+            }
+        }
     }
     if (const auto found=catalog.weapons.find(name); found!=catalog.weapons.end() &&
         !weaponImage.id && GetTickCount64()>=selectionRetryAfter)
@@ -207,11 +226,10 @@ void PrepareSelection()
         try
         {
             const auto& item=found->second;
-            auto title=std::to_wstring(definition->slot+1)+L" "+Wide(item.title);
             image=Load(item.weapon.c_str());
             if (!item.ammo.empty()) ammo=Load(item.ammo.c_str());
             if (!item.ammo2.empty()) secondary=Load(item.ammo2.c_str());
-            weaponTitle=std::move(title); weaponImage=image; ammoImage=ammo; secondaryImage=secondary;
+            weaponImage=image; ammoImage=ammo; secondaryImage=secondary;
         }
         catch (const std::exception& error)
         {

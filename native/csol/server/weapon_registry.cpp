@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "weapon_slots.h"
+#include "weapon_slot_position.h"
 #include "weapon_service.h"
 #include "weapons.h"
 #include "wpn_beamgun.h"
 #include "wpn_balrog11.h"
+#include "wpn_skull3.h"
 #include "../m249ex.hpp"
 #include "../skull1.hpp"
 #include "../skull2.hpp"
+#include "../skull3.hpp"
 #include "../skull5.hpp"
 #include "../balrog11.hpp"
 #include "../weapon_slots.hpp"
 #include "../k3.hpp"
+#include "../cannon.hpp"
 
 namespace
 {
@@ -66,6 +70,45 @@ bool CSOL_CanUseExtendedWeapons(CBasePlayer* player)
     return version && !Q_strcmp(version,"1");
 }
 int CSOL_PredictionSlot(int id,bool active){return csol::PredictionSlot(id,active);}
+void CSOL_RememberWeaponSlotPosition(CBasePlayerItem& item)
+{
+    auto* weapon = dynamic_cast<CBasePlayerWeapon*>(&item);
+    if (!weapon || !weapon->m_pPlayer) return;
+    byte position{};
+    if (CSOL_IsSkull3(*weapon))
+        position = csol::skull3::Position(weapon->m_iId == csol::skull3::DualId);
+    else
+    {
+        // Original HW records, verified in CATALOG-05 / POSITION-07. The host
+        // assigns distinct HUD columns to stock guns; CSO position is one.
+        // MP5's host classname differs from the original weapon_mp5.
+        struct Entry { int id; const char* classname; };
+        static constexpr Entry primary[]{
+            {WEAPON_AUG, "weapon_aug"}, {WEAPON_SG552, "weapon_sg552"},
+            {WEAPON_GALIL, "weapon_galil"}, {WEAPON_FAMAS, "weapon_famas"},
+            {WEAPON_M3, "weapon_m3"}, {WEAPON_XM1014, "weapon_xm1014"},
+            {WEAPON_MP5N, "weapon_mp5navy"}, {WEAPON_TMP, "weapon_tmp"},
+            {WEAPON_P90, "weapon_p90"}, {WEAPON_MAC10, "weapon_mac10"},
+            {WEAPON_UMP45, "weapon_ump45"}, {WEAPON_SCOUT, "weapon_scout"},
+            {WEAPON_AWP, "weapon_awp"}, {WEAPON_G3SG1, "weapon_g3sg1"},
+            {WEAPON_SG550, "weapon_sg550"}, {WEAPON_M249, "weapon_m249"},
+            {WEAPON_M4A1, "weapon_m4a1"}, {WEAPON_AK47, "weapon_ak47"},
+            {csol::m249ex::Id, csol::m249ex::Classname},
+            {csol::k3::Id, csol::k3::Classname}, {csol::cannon::Id, "weapon_cannon"},
+            {csol::skull5::Id, csol::skull5::Classname},
+            {csol::balrog11::Id, csol::balrog11::Classname},
+            // HW 37A4F2D0 -> 37A90D70 -> MP item slot/position getters.
+            {csol::BeamgunId, "weapon_beamgun"}, {csol::BeamgunLEId, "weapon_beamgunle"}
+        };
+        for (const auto& entry : primary)
+            if (weapon->m_iId == entry.id && FClassnameIs(weapon->pev, entry.classname))
+            { position = 1; break; }
+    }
+    // Unknown weapon metadata must not overwrite a verified remembered mode.
+    if (position)
+        weapon->m_pPlayer->m_csolSlotPos[PRIMARY_WEAPON_SLOT - 1] =
+            weapon->m_pPlayer->m_csolValidSlotPos[PRIMARY_WEAPON_SLOT - 1] = position;
+}
 bool CSOL_HasWeapon(CBasePlayer* player,int id)
 {
     return player && csol::ValidWeaponId(id) && player->GetItemById(static_cast<WeaponIdType>(id));
@@ -203,6 +246,7 @@ bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
     if (id == csol::m249ex::Id) { price=csol::m249ex::AmmoCost;count=csol::m249ex::AmmoBuyAmount;return true; }
     if (id == csol::skull1::Id || id == csol::skull2::Id) { price=csol::skull1::AmmoCost;count=csol::skull1::AmmoBuyAmount;return true; }
+    if (csol::skull3::IsWeapon(id)) { price=csol::skull3::AmmoCost;count=csol::skull3::AmmoBuyAmount;return true; }
     if (id == csol::skull5::Id) { price=csol::skull5::AmmoCost;count=csol::skull5::AmmoBuyAmount;return true; }
     if (id == csol::balrog11::Id) { price=csol::balrog11::AmmoCost;count=csol::balrog11::AmmoBuyAmount;return true; }
     // Original HW ammo record 11: 556NatoBox, cost 60, box of 30.

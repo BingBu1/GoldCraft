@@ -18,6 +18,7 @@ constexpr Item items[]{
     {5,2,"xm1014","XM1014","xm1014",0},{21,2,"m3","M3","m3",0},
     {203,2,"balrog11","龙炎Balrog-Ⅺ","balrog11",5750},
     {7,3,"mac10","MAC-10","mac10",0},{12,3,"ump45","UMP45","ump45",0},
+    {142,3,"skull3","喋血SKULL-3","skull3",4000},
     {19,3,"mp5","MP5","mp5",0},{23,3,"tmp","TMP","tmp",0},{30,3,"p90","P90","p90",0},
     {3,4,"scout","Scout","scout",0},{8,4,"aug","AUG","aug",0},{13,4,"sg550","SG550","sg550",0},
     {14,4,"galil","Galil","galil",0},{15,4,"famas","FAMAS","famas",0},{18,4,"awp","AWP","awp",0},

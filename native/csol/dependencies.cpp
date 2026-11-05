@@ -66,6 +66,7 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         if(Lower(name)=="models/v_m249ex.mdl")for(const auto* file:M249EXResources)add(file);
         if(Lower(name)=="models/v_skull1.mdl")for(const auto* file:Skull1Resources)add(file);
         if(Lower(name)=="models/v_skull2.mdl")for(const auto* file:Skull2Resources)add(file);
+        if(Lower(name)=="models/v_skull3.mdl")for(const auto* file:Skull3Resources)add(file);
         if(Lower(name)=="models/v_skull5.mdl")for(const auto* file:Skull5Resources)add(file);
         if(Lower(name)=="models/v_balrog11.mdl")for(const auto* file:Balrog11Resources)add(file);
         if(Lower(name)=="models/v_dragonsword.mdl" || Lower(name)=="models/v_skullaxe.mdl")

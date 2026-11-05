@@ -22,6 +22,9 @@ void DrawWeaponSelection(int hidden,int intermission);
 void DrawWeaponGuard(int hidden,int intermission);
 void WeaponInventoryVideoInit();
 const WeaponDefinition* FindWeaponDefinition(int id);
+// Original default title follows a paired item only when that item is the
+// first owned weapon in the same HUD slot. Presentation textures stay on id.
+const WeaponDefinition* FindWeaponTitleDefinition(int id);
 const WeaponCurrent& CurrentExtendedWeapon();
 // Prediction may still replay the previous weapon after a newer current-
 // weapon message. Keep its state simulation, but do not present it on the

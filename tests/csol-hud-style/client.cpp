@@ -22,6 +22,7 @@ float clientTime=100;
 int scenarioLevel=121;
 std::map<std::string,std::vector<std::byte>> files;
 csol::WeaponDefinition definition{};
+const csol::WeaponDefinition* titleDefinition{};
 csol::hud_style::WeaponState state{};
 csol::Character character{};
 bool haveCharacter=true;
@@ -455,6 +456,8 @@ void SynchronizeSession(){++fixture::syncs;if(fixture::newSession){fixture::newS
 std::vector<std::byte> ReadResource(const char* path)
 {++fixture::reads;const auto it=fixture::files.find(path);if(it==fixture::files.end())throw std::runtime_error("controlled missing resource");return it->second;}
 const WeaponDefinition* FindWeaponDefinition(int id){return id==fixture::definition.id?&fixture::definition:nullptr;}
+const WeaponDefinition* FindWeaponTitleDefinition(int id)
+{return fixture::titleDefinition?fixture::titleDefinition:FindWeaponDefinition(id);}
 hud_style::WeaponState CurrentWeaponHudState(){return fixture::state;}
 const Character* ViewCharacter(){return fixture::haveCharacter?&fixture::character:nullptr;}
 int ScenarioHudLevel(){return fixture::scenarioLevel;}

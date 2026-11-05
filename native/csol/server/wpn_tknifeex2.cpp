@@ -9,11 +9,13 @@
 #include "wpn_m249ex.h"
 #include "wpn_skull1.h"
 #include "wpn_skull2.h"
+#include "wpn_skull3.h"
 #include "wpn_skull5.h"
 #include "wpn_balrog11.h"
 #include "../m249ex.hpp"
 #include "../skull1.hpp"
 #include "../skull2.hpp"
+#include "../skull3.hpp"
 #include "../skull5.hpp"
 #include "../balrog11.hpp"
 #include "../melee_identity.hpp"
@@ -622,6 +624,7 @@ void CSOL_InitWeapons()
     CSOL_InitM249EX();
     CSOL_InitSkull1();
     CSOL_InitSkull2();
+    CSOL_InitSkull3();
     CSOL_InitSkull5();
     CSOL_InitBalrog11();
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
@@ -644,6 +647,7 @@ bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
         (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::m249ex::Classname)) ||
         (CSOL_Skull1EmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::skull1::Classname)) ||
         (CSOL_IsSkull2(*weapon) && !Q_strcmp(name, csol::skull2::Classname)) ||
+        CSOL_IsSkull3(*weapon) ||
         (CSOL_IsSkull5(*weapon) && !Q_strcmp(name, csol::skull5::Classname)) ||
         (CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon) && !Q_strcmp(name, csol::balrog11::Classname)) ||
         (csol::melee::IsWeapon(weapon->m_iId) &&
@@ -656,6 +660,7 @@ const char* CSOL_WorldModel(const CBasePlayerItem* item)
         if (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon)) return csol::m249ex::WorldModel;
         if (CSOL_Skull1EmptyMonsterKillCallbacks(*weapon)) return csol::skull1::WorldModel;
         if (CSOL_IsSkull2(*weapon)) return csol::skull2::WorldModel;
+        if (CSOL_IsSkull3(*weapon)) return csol::skull3::WorldModel;
         if (CSOL_IsSkull5(*weapon)) return csol::skull5::WorldModel;
         if (CSOL_Balrog11EmptyMonsterKillCallbacks(*weapon)) return csol::balrog11::WorldModel;
     }
@@ -695,6 +700,7 @@ void CSOL_PrecacheWeapons()
         CSOL_PrecacheM249EX();
         CSOL_PrecacheSkull1();
         CSOL_PrecacheSkull2();
+        CSOL_PrecacheSkull3();
         CSOL_PrecacheSkull5();
         CSOL_PrecacheBalrog11();
     }

@@ -9,11 +9,13 @@
 #include "wpn_m249ex.h"
 #include "wpn_skull1.h"
 #include "wpn_skull2.h"
+#include "wpn_skull3.h"
 #include "wpn_skull5.h"
 #include "wpn_balrog11.h"
 #include "../m249ex.hpp"
 #include "../skull1.hpp"
 #include "../skull2.hpp"
+#include "../skull3.hpp"
 #include "../skull5.hpp"
 #include "../balrog11.hpp"
 #include "melee_purchase.h"
@@ -72,6 +74,7 @@ const char* WeaponName(int id)
     case csol::m249ex::Id: return csol::m249ex::Classname;
     case csol::skull1::Id: return csol::skull1::Classname;
     case csol::skull2::Id: return csol::skull2::Classname;
+    case csol::skull3::Id: return csol::skull3::Classname;
     case csol::skull5::Id: return csol::skull5::Classname;
     case csol::balrog11::Id: return csol::balrog11::Classname;
     case csol::melee::DragonSwordId: return csol::melee::DragonSwordResources.classname;
@@ -404,6 +407,7 @@ public:
             (weapon != csol::m249ex::Id || CSOL_M249EXReady()) &&
             (weapon != csol::skull1::Id || CSOL_Skull1Ready()) &&
             (weapon != csol::skull2::Id || CSOL_Skull2Ready()) &&
+            (weapon != csol::skull3::Id || CSOL_Skull3Ready()) &&
             (weapon != csol::skull5::Id || CSOL_Skull5Ready()) &&
             (weapon != csol::balrog11::Id || CSOL_Balrog11Ready()) &&
             (!csol::melee::IsWeapon(weapon) ||
@@ -420,7 +424,7 @@ public:
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
         if(csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
-        if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull5::Id)
+        if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull3::Id || weapon==csol::skull5::Id)
             return CSOL_DeliverSkullBalrog(*player,weapon);
         if(scenario && weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);
         const char* name = WeaponName(weapon);

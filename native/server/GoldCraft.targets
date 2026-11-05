@@ -204,7 +204,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\skull_balrog_damage.cpp;$(GoldCraftRoot)\native\csol\server\skull_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\wpn_m249ex.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull1.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull2.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull5.cpp;$(GoldCraftRoot)\native\csol\server\wpn_balrog11.cpp;$(GoldCraftRoot)\native\csol\server\primary_purchase.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\skull_balrog_damage.cpp;$(GoldCraftRoot)\native\csol\server\skull_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\wpn_m249ex.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull1.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull2.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull3.cpp;$(GoldCraftRoot)\native\csol\server\skull3_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\weapon_call_guard.cpp;$(GoldCraftRoot)\native\csol\server\paired_inventory.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull5.cpp;$(GoldCraftRoot)\native\csol\server\wpn_balrog11.cpp;$(GoldCraftRoot)\native\csol\server\primary_purchase.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

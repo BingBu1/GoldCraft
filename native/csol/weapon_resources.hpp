@@ -9,6 +9,7 @@
 #include "skull_balrog_resources.hpp"
 #include "skull1_resources.hpp"
 #include "skull2_resources.hpp"
+#include "skull3_resources.hpp"
 #include "skull5_resources.hpp"
 
 namespace csol
@@ -33,6 +34,7 @@ inline std::string_view WeaponResourceSource(std::string_view path)
     if(const auto source=SkullBalrogResourceSource(path);source!=path)return source;
     if(path=="sprites/csol/640hud85.spr")return "sprites/640hud85.spr";
     if(path=="sprites/csol/640hud69.spr")return "sprites/640hud69.spr";
+    if(path=="sprites/csol/640hud68.spr")return "sprites/640hud68.spr";
     if(path=="sprites/csol/640hud2.spr")return "sprites/640hud2.spr";
     if(path=="sprites/csol/640hud6.spr")return "sprites/640hud6.spr";
     if(path=="sprites/csol/640hud12.spr")return "sprites/640hud12.spr";
@@ -51,6 +53,8 @@ inline std::string_view GeneratedWeaponResource(std::string_view path)
     if(path=="sprites/csol/weapon_k3_v2.txt")return K3HUD;
     if(path=="sprites/csol/weapon_skull1_v1.txt")return Skull1HUD;
     if(path=="sprites/csol/weapon_skull2_v1.txt")return Skull2HUD;
+    if(path=="sprites/csol/weapon_skull3_v1.txt")return Skull3HUD;
+    if(path=="sprites/csol/weapon_skull3d_v1.txt")return Skull3DualHUD;
     // GoldSrc requires an event-script resource; CSO registers these three
     // events by bare name. Their behavior lives in the compiled handlers.
     if(path=="events/skull2_a.sc"||path=="events/skull2_left.sc"||path=="events/skull2_right.sc")

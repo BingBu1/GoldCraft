@@ -40,7 +40,7 @@ def main():
     # The original mode-15 override table has neither M249EX nor Balrog-XI;
     # their default purchase records therefore also apply in Scenario.
     price_text_differences=[]
-    for name,price in [('cannon',4100),('tknifeex2',30),('k3',4750),('m249ex',9000),('balrog11',5750),('skull1',1200),('skull2',1550),('skull5',6000)]:
+    for name,price in [('cannon',4100),('tknifeex2',30),('k3',4750),('m249ex',9000),('balrog11',5750),('skull1',1200),('skull2',1550),('skull3',4000),('skull5',6000)]:
         token='cstrike_'+name+'price'
         # Original HW record312,+0x18 is1550; mode15 has no override.
         # Its static Chinese price token says2200. Preserve that discrepancy
@@ -51,7 +51,7 @@ def main():
             raise ValueError(f'Unexpected original price text {token}: {localized_price}, expected {expected_text}')
         if localized_price!=price:
             price_text_differences.append(dict(weapon=name,token=token,localizedPrice=localized_price,runtimePrice=price))
-    for ident in (96,112,130,144,197,203,220,312,725,726,1022,1023):
+    for ident in (96,112,130,142,144,197,203,220,312,725,726,1022,1023):
         if not any(image['id']==ident for image in images):
             raise ValueError(f'Missing original purchase image for weapon {ident}')
     for n in ['beamgun','beamgunle']:assert json.loads(read('weapons/weapon_'+n+'.json'))['price']==6100

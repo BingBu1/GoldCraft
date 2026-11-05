@@ -18,7 +18,7 @@ from csol_resource_order import MOUNT_ORDER
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCE = 'resource/csol/hud/v1/'
-CATALOG = 'models/csol/hud_v6.json'
+CATALOG = 'models/csol/hud_v7.json'
 FONT = 'resource/Font/sarasa_ui_sc.ttf'
 SCHEME = RESOURCE + 'CSOLHudScheme.res'
 ENGINE_FONT_SHA = 'b76ff01219fee0900aa216b681b9e96dd5fed0fe6190c4261a09d5b2131e9323'
@@ -33,10 +33,12 @@ WEAPON_NAMES = {
 TITLE_KEYS = {
     'usp': 'usp45', 'deagle': 'deserteagle', 'elite': 'elites',
     'mp5navy': 'mp5', 'hegrenade': 'he_grenade', 'smokegrenade': 'smoke_grenade',
+    # HW 38312AD8+10 -> #CSO_SKULL3; 379ED940/379EAAB0 consume this field.
+    'skull3d': 'skull3',
 }
 VERIFIED_COMMON_KNIVES = frozenset(('dragonsword', 'skullaxe'))
 VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle',
-    'm249ex', 'balrog11', 'skull1', 'skull2', 'skull5')) | VERIFIED_COMMON_KNIVES
+    'm249ex', 'balrog11', 'skull1', 'skull2', 'skull3', 'skull3d', 'skull5')) | VERIFIED_COMMON_KNIVES
 
 
 def sha(data):
@@ -268,7 +270,9 @@ def catalog_weapons(data):
         names.append(name)
     # Equipped knives also need HUD art before a shop price has been verified.
     # Exporting their card does not add them to the purchase catalog.
-    return sorted(set(names + ['knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4']) | VERIFIED_COMMON_KNIVES)
+    # SKULL-3's second entity has its own HUD card but is not a second product.
+    peers = ['skull3d'] if 'skull3' in names else []
+    return sorted(set(names + peers + ['knife', 'hegrenade', 'flashbang', 'smokegrenade', 'c4']) | VERIFIED_COMMON_KNIVES)
 
 
 def knife_sprite_rows(data, name):
