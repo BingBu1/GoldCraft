@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] 完成第一季地图运行接线与实机：Chaos路线、物理房间表及显式加密入口已独立验证，继续原mode生产者/MapResources接线、目标出口及Session/Replay；Nightmare触手/血屏待共享接线，黑暗之门/Lastclue待资源闭包与实服。见 [模式与资源入口](docs/2026-11-05_补证-灾变服务模式与物理表资源入口-report.md)。
+- [ ] 完成第一季地图运行接线与实机：黑暗之门/Lastclue/Touch完整DLL已构建，待资源/引擎更新及实服；Chaos继续mode/MapResources/出口/Session，Nightmare触手/血屏待共享接线。见 [合批构建](docs/2026-11-05_构建-第一季地图精确合批-report.md)。
 
 - [ ] 接通入服旧资源 SHA 自动更新：独立下载 473 项、真实 VFS/HTTP/回退 277 项、模型缓存 547 项通过；VGUI 字体组件 324 项与完整 DLL 通过；断线模型 owner 与 Renderer 退休已通过组件/实际 SDK；原生 HUD、完整接线/双端 DLL 和实机升级仍待，v4 未启用。通关自动重载首轮已过，第二轮被管理员改为投票中止，需补有效样本。见 [缓存阶段](docs/2026-11-05_实现-资源校验缓存与失败回退-report.md)。
 
