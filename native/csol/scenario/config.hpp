@@ -81,6 +81,14 @@ struct RoundTable
 bool ReadWaves(std::string_view bytes, WaveTable& output, ConfigError& error);
 bool ReadRounds(std::string_view bytes, RoundTable& output, ConfigError& error);
 
+// Original MP1138E0C0 uses physical rows and fixed column1, including for the
+// Chaos room/trigger table. Service modes15/48 start at row7; others at row6.
+// This is the original service mode, not the scenario subtype. Column0 is not
+// consumed: RoundRow.round remains0, not a valid diagnostic/gameplay ID. Read
+// its actual label through source.records[recordIndex] when needed.
+bool ReadPositionalRounds(std::string_view bytes, int originalServiceMode,
+    RoundTable& output, ConfigError& error);
+
 enum class MissingReferenceKind { Wave, MonsterPoint };
 struct MissingReference
 {

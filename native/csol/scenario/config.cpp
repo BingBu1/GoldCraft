@@ -267,6 +267,52 @@ bool ReadRounds(std::string_view bytes, RoundTable& output, ConfigError& error)
     return true;
 }
 
+bool ReadPositionalRounds(std::string_view bytes, int originalServiceMode,
+    RoundTable& output, ConfigError& error)
+{
+    RoundTable candidate;
+    if (!ReadCsv(bytes, candidate.source, error)) return false;
+    const std::size_t first = originalServiceMode == 15 || originalServiceMode == 48 ? 7 : 6;
+    const auto& records = candidate.source.records;
+    if (records.size() < first)
+        return Fail(error, bytes.size(), "positional round metadata is incomplete");
+    // Original HW constructs a rectangular table. A short row has an empty
+    // cell1 only when that column exists elsewhere; an entirely absent column
+    // returns null, leaving the MP scanner's count unspecified. Reject it.
+    if (std::none_of(records.begin(), records.end(),
+        [](const CsvRecord& record) { return record.fields.size() > 1; }))
+        return Fail(error, 0, "positional round table has no list column");
+
+    candidate.headerRecord = first - 1;
+    candidate.rows.reserve(records.size() - first);
+    for (auto i = first; i < records.size(); ++i)
+    {
+        const auto& record = records[i];
+        RoundRow row;
+        row.recordIndex = i;
+        std::string_view value = record.fields.size() > 1 ? record.fields[1] : std::string_view{};
+        // MP11391EF0 scans decimal runs separated by any nondigit; the round
+        // loader then stores each low16. Keep physical empty rows and lists.
+        while (!value.empty())
+        {
+            const auto begin = value.find_first_of("0123456789");
+            if (begin == value.npos) break;
+            value.remove_prefix(begin);
+            const auto end = value.find_first_not_of("0123456789");
+            const auto run = value.substr(0, end);
+            int parsed{};
+            if (run.size() >= 10 || !Integer(run, parsed))
+                return Fail(error, record.byteOffset, "positional round list exceeds the original numeric scanner");
+            row.waves.push_back(static_cast<std::uint16_t>(parsed));
+            if (end == value.npos) break;
+            value.remove_prefix(end);
+        }
+        candidate.rows.push_back(std::move(row));
+    }
+    output = std::move(candidate);
+    return true;
+}
+
 std::vector<MissingReference> FindMissingReferences(const RoundTable& rounds,
     const WaveTable& waves, const SpawnPoints& points, int monsterTeam)
 {
