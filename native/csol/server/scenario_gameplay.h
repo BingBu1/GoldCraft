@@ -4,6 +4,7 @@
 #include "scenario_session.h"
 #include "scenario_monster_factory.h"
 #include "scenario_event_sink.h"
+#include "../scenario/map_support.hpp"
 
 // One live composition of the already implemented map, death dispatcher,
 // occupancy grid and factory. Services must be the concrete rules owners;
@@ -14,7 +15,7 @@ public:
     // Keep automatic destination validation aligned with actual gameplay
     // support as more scenario maps and managers are implemented.
     static bool SupportsMap(std::string_view name, int subtype)
-    { return name == "zs_deadend" && subtype == 1; }
+    { return csol::scenario::HasMapGameplay(name, subtype); }
     CCSOLScenarioGameplay(CCSOLScenarioSession& session,
         CCSOLMonsterDeathServices& deathServices, CCSOLSpawnClearDeaths& spawnDeaths,
         CCSOLMonsterFactoryServices& factoryServices, int mapId,

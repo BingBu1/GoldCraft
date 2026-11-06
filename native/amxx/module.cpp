@@ -16,6 +16,20 @@ csol::IWeaponAmmoService* weaponAmmo=nullptr;
 csol::IGameModeService* gameModes=nullptr;
 csol::IScenarioAdminService* scenarioAdmin=nullptr;
 csol::IScenarioReplayService* scenarioReplay=nullptr;
+csol::IScenarioMapVoteService* scenarioMapVote=nullptr;
+bool ResolveScenarioMapVote(){
+    if(scenarioMapVote)return true;
+    auto module=GetModuleHandleA("mp.dll");
+    auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
+    scenarioMapVote=factory?static_cast<csol::IScenarioMapVoteService*>(factory(csol::ScenarioMapVoteServiceVersion,nullptr)):nullptr;
+    return scenarioMapVote!=nullptr;
+}
+cell AMX_NATIVE_CALL ScenarioMapVoteVersion(AMX*,cell* p){
+    return p && p[0]==0 && ResolveScenarioMapVote()?1:0;
+}
+cell AMX_NATIVE_CALL ScenarioMapVoteRequest(AMX*,cell* p){
+    return p && p[0]==sizeof(cell) && ResolveScenarioMapVote() && scenarioMapVote->RequestMapVote(p[1]);
+}
 bool ResolveScenarioReplay(){
     if(scenarioReplay)return true;
     auto module=GetModuleHandleA("mp.dll");
@@ -116,6 +130,8 @@ const AMX_NATIVE_INFO natives[]={
     {"csol_scenario_difficulty_request",ScenarioDifficultyRequest},
     {"csol_scenario_replay_api_version",ScenarioReplayVersion},
     {"csol_scenario_replay",ScenarioReplayRequest},
+    {"csol_scenario_map_vote_api_version",ScenarioMapVoteVersion},
+    {"csol_scenario_map_vote",ScenarioMapVoteRequest},
     {"csol_game_mode_api_version",GameModeVersion},{"csol_game_mode_current",GameModeCurrent},
     {"csol_game_mode_confirm",GameModeConfirm},
     {"csol_weapon_api_version",WeaponVersion},{"csol_weapon_can_buy",WeaponCanBuy},{"csol_weapon_buy",WeaponBuy},
@@ -145,4 +161,4 @@ void OnPluginsUnloading(){
     changed_forward=guard_forward=attack_forward=-1;
     if(gameModes)gameModes->EndMap();
 }
-void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;scenarioAdmin=nullptr;scenarioReplay=nullptr;}
+void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;scenarioAdmin=nullptr;scenarioReplay=nullptr;scenarioMapVote=nullptr;}

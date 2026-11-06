@@ -34,13 +34,13 @@ int Price(CBasePlayer* player,const Item& item)
     // The stock item consumer discounts a helmet/vest already owned.
     if(item.id==1002)return player->pev->armorvalue>=100?HELMET_PRICE:
         player->m_iKevlar==ARMOR_VESTHELM?KEVLAR_PRICE:ASSAULTSUIT_PRICE;
-    if(!IsWeapon(item) || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
+    if(!IsWeapon(item) || item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
     auto* info=GetWeaponInfo(item.id);return info?info->cost:0;
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
     if(!IsWeapon(item))return true;
-    if(CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
+    if(item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
     auto* info=GetWeaponInfo(item.id);
     return info&&info->entityName&&CanBuyWeaponByMaptype(player->m_iTeam,static_cast<WeaponIdType>(item.id),CSGameRules()->m_bMapHasVIPSafetyZone==TRUE);
 }
@@ -168,7 +168,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
         const int before=player->m_iAccount;
         constexpr int slots[]{MENU_SLOT_ITEM_VEST,MENU_SLOT_ITEM_VESTHELM,MENU_SLOT_ITEM_HEGREN,MENU_SLOT_ITEM_FLASHGREN,MENU_SLOT_ITEM_SMOKEGREN};
         BuyItem(player,slots[item->id-1001]);if(current())success=player->m_iAccount<before;
-    }else if(!CSOL_ExtendedWeapon(item->id)){
+    }else if(item->id!=WEAPON_KNIFE && !CSOL_ExtendedWeapon(item->id)){
         success=BuyWeaponByWeaponID(player,static_cast<WeaponIdType>(item->id))!=nullptr;
     }else{
         // Reserve funds before the hookable delivery so reentrant purchases

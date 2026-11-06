@@ -66,7 +66,7 @@ void Validation()
         Check(!vote.Begin(1,choices,"zs_trap",now,20),"finite nonnegative clock required");
     Check(!vote.Begin(0,choices,"zs_trap",0,20),"nonzero generation required");
     Check(!vote.Begin(1,{},"zs_trap",0,20),"empty slate rejected");
-    Check(!vote.Begin(1,choices,"zs_deadend",0,20),"current-map destination excluded");
+    Check(!vote.Begin(1,choices,"../zs_deadend",0,20),"invalid current-map identity rejected");
     auto invalid=choices;invalid[0].id=0;
     Check(!vote.Begin(1,invalid,"zs_trap",0,20),"zero candidate id rejected");
     invalid=choices;invalid[0].id=invalid[1].id;
@@ -136,5 +136,38 @@ void ClientCountdown()
     Check(clock.Observe(packet,30)&&clock.Remaining(30)==10,"new generation gets independent deadline");
     Check(!clock.Observe(packet,29)&&clock.Remaining(31)==0,"client time rollback fails closed");
 }
+void CurrentMap()
+{
+    Vote vote;
+    const bool opened=vote.Begin(1,choices,"zs_deadend",0,20);
+    Check(opened,"validated current map participates alongside other destinations");
+    if(!opened)return;
+    Check(vote.Connect(1,101)&&vote.Connect(2,102),"current-map electorate registers");
+    Check(vote.Cast(1,101,1,98,1)==Ballot::Accepted&&
+        vote.Cast(2,102,1,74,1)==Ballot::Accepted,"current and alternative maps both receive votes");
+    Check(vote.Cast(2,102,1,98,2)==Ballot::Accepted,"revote can select the current map");
+    const auto snapshot=vote.View(1,101,2);
+    Check(snapshot.selection==98&&snapshot.choices[2].votes==2&&snapshot.choices[0].votes==0,
+        "current-map votes retain ordinary accounting");
+    const auto winner=vote.Finish(20,0);
+    Check(winner&&winner->id==98&&winner->mapName=="zs_deadend","current-map plurality wins");
+    Check(!vote.Finish(21,0),"current-map result dispatches only once");
+    const std::array one{Choice{98,"zs_deadend"}};
+    Check(vote.Begin(2,one,"zs_deadend",30,20),"current map can be the only validated destination");
+    Check(vote.Connect(1,101),"new round registers the continuing connection");
+    Check(vote.Cast(1,101,1,98,31)==Ballot::Stale,"previous generation cannot vote in a same-map ballot");
+    Check(vote.Cast(1,101,2,98,31)==Ballot::Accepted,"new generation can vote for its only map");
+    const auto single=vote.Finish(50,99);
+    Check(single&&single->id==98,"single current-map winner ignores tie random magnitude");
+    const std::array duplicateName{Choice{98,"zs_deadend"},Choice{99,"zs_deadend"}};
+    const std::array duplicateId{Choice{98,"zs_deadend"},Choice{98,"zs_lostcity"}};
+    const std::array duplicateEntry{Choice{98,"zs_deadend"},Choice{98,"zs_deadend"}};
+    Check(!vote.Begin(3,duplicateName,"zs_deadend",60,20),"repeated current map under different IDs is rejected");
+    Check(!vote.Begin(3,duplicateId,"zs_deadend",60,20),"repeated current map ID under different names is rejected");
+    Check(!vote.Begin(3,duplicateEntry,"zs_deadend",60,20),"repeated identical current-map entry is rejected");
+    Check(vote.Begin(3,one,"zs_deadend",60,20),"rejected duplicate lists do not consume next generation");
+    const auto zero=vote.Finish(80,UINT32_MAX);
+    Check(zero&&zero->id==98,"zero-vote single current map still settles at deadline");
 }
-int main(){Lifecycle();Validation();Wire();ClientCountdown();std::cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;}
+}
+int main(){Lifecycle();Validation();Wire();ClientCountdown();CurrentMap();std::cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;}

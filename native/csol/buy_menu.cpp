@@ -33,6 +33,9 @@ constexpr Item items[]{
     {1001,8,"vest","防弹衣","kevlar",650},{1002,8,"vesthelm","防弹衣与头盔","assaultsuit",1000},
     {1003,8,"hegren","高爆手雷","hegrenade",300},{1004,8,"flash","闪光弹","flashbang",200},
     {1005,8,"sgren","烟雾弹","smokegrenade",300},
+    // MP 1140D370: the mode-15 knife selection path has no money debit.
+    // HW 380D4738 maps default knife index 0 to item 161 / InGameID 4000.
+    {29,9,"knife","海豹短刀","defaultknife",0,WeaponSlot::Melee},
     // Original CSOL equips knives from the inventory; the HW 40-byte knife
     // records (380D48C8/380D49B8) are not 0x30 price records. The human chose
     // $0 on 2026-11-04 until an original purchase price is found.
@@ -103,7 +106,7 @@ Presentation ParsePresentation(std::string_view json){
     for(const auto& r:p.slots)Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);
     const auto inside=[&](const MenuRect& r){Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);};
     for(const auto& r:p.favorites)inside(r);for(const auto& r:p.teams)inside(r);inside(p.search);inside(p.rebuy);inside(p.account);
-    for(const auto& i:Catalog())if(i.id==96||i.id==144||i.id==197||i.id==203||i.id==220||i.id==725||i.id==726||i.id==1022||i.id==1023)Require(p.images.contains(i.id));
+    for(const auto& i:Catalog())if(i.id==29||i.id==96||i.id==144||i.id==197||i.id==203||i.id==220||i.id==725||i.id==726||i.id==1022||i.id==1023)Require(p.images.contains(i.id));
     return p;
 }
 std::vector<std::string> Resources(const Presentation& p){

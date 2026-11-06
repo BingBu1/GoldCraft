@@ -19,12 +19,15 @@ void Check(bool ok,const char* text){++checks;if(!ok){++failures;std::cerr<<"FAI
 cell* Addr(AMX* amx,cell value){cell* p{};if(amx_GetAddr(amx,value,&p))throw std::runtime_error("bad AMX address");return p;}
 std::string Read(AMX* amx,cell value){std::string s;for(auto* p=Addr(amx,value);*p;++p)s+=static_cast<char>(*p);return s;}
 cell Write(AMX* amx,cell value,const std::string& text,int max){auto* p=Addr(amx,value);auto count=std::min(text.size(),std::size_t(std::max(0,max)));for(std::size_t i=0;i<count;++i)p[i]=static_cast<unsigned char>(text[i]);p[count]=0;return static_cast<cell>(count);}
-struct Menu{std::string title,handler;std::vector<std::pair<std::string,std::string>> items;bool destroyed{};};
+struct Menu{std::string title,handler;std::vector<std::pair<std::string,std::string>> items;bool destroyed{};int perPage{7},exitMode{};};
 struct Context{
     int mode{2},flags{AdminCfg},active{2},pending{4},maximum{6},map{98},nextMenu{1},shown{-1},requests{},writes{},destroys{};
     bool connected{true},available{true},replayPending{};
     int joining{},replayRequests{},replays{}; // Matched ReAPI JoinState: JOINED = 0.
     std::vector<int> replayMaps;
+    bool votePending{};
+    int voteRequests{},votes{};
+    std::vector<int> voteMaps;
     std::function<void()> onDestroy;
     std::vector<std::string> args{"amx_scenario_difficulty"};
     std::map<int,Menu> menus;
@@ -60,10 +63,12 @@ cell AMX_NATIVE_CALL MenuCreate(AMX* amx,cell* p){auto& c=*context;const int id=
 cell AMX_NATIVE_CALL MenuAdd(AMX* amx,cell* p){auto& menu=context->menus.at(p[1]);Check(!menu.destroyed,"add item to live menu");menu.items.emplace_back(Read(amx,p[2]),Read(amx,p[3]));return 1;}
 cell AMX_NATIVE_CALL MenuDisplay(AMX*,cell* p){Check(!context->menus.at(p[2]).destroyed,"display live menu");context->shown=p[2];return 1;}
 cell AMX_NATIVE_CALL MenuDestroy(AMX*,cell* p){auto& menu=context->menus.at(p[1]);Check(!menu.destroyed,"destroy menu exactly once");menu.destroyed=true;++context->destroys;auto callback=context->onDestroy;if(callback)callback();return 1;}
+cell AMX_NATIVE_CALL MenuProperty(AMX* amx,cell* p){auto& menu=context->menus.at(p[1]);Check(!menu.destroyed,"set property on live menu");if(p[2]==1)menu.perPage=*Addr(amx,p[3]);if(p[2]==6)menu.exitMode=*Addr(amx,p[3]);return 1;}
 cell AMX_NATIVE_CALL MenuInfo(AMX* amx,cell* p){auto& menu=context->menus.at(p[1]);Check(!menu.destroyed,"read item before menu destruction");if(p[2]<0||p[2]>=static_cast<int>(menu.items.size()))return 0;*Addr(amx,p[3])=0;Write(amx,p[4],menu.items[p[2]].second,p[5]);*Addr(amx,p[8])=-1;return 1;}
 cell AMX_NATIVE_CALL Info(AMX* amx,cell* p){auto& c=*context;if(!c.available)return 0;*Addr(amx,p[1])=c.active;*Addr(amx,p[2])=c.pending;*Addr(amx,p[3])=c.maximum;*Addr(amx,p[4])=c.map;return 1;}
 cell AMX_NATIVE_CALL Request(AMX*,cell* p){auto& c=*context;++c.requests;c.submissions.emplace_back(p[1],p[2]);if(!c.available||p[1]!=c.map||p[2]<1||p[2]>c.maximum)return 0;c.pending=p[2];++c.writes;return 1;}
 cell AMX_NATIVE_CALL Replay(AMX*,cell* p){auto& c=*context;++c.replayRequests;c.replayMaps.push_back(p[1]);if(!c.available||c.replayPending||p[1]!=c.map||c.pending<1||c.pending>c.maximum)return 0;c.replayPending=true;++c.replays;return 1;}
+cell AMX_NATIVE_CALL MapVote(AMX*,cell* p){auto& c=*context;++c.voteRequests;c.voteMaps.push_back(p[1]);if(!c.available||c.votePending||c.replayPending||p[1]!=c.map)return 0;c.votePending=true;++c.votes;return 1;}
 const AMX_NATIVE_INFO natives[]{
     {"get_user_flags",Flags},{"is_dedicated_server",One},{"console_print",One},{"client_print",One},
     {"read_argc",Argc},{"read_argv",Argv},{"register_plugin",One},{"register_concmd",One},{"register_clcmd",One},{"get_cvar_pointer",Pointer},
@@ -71,9 +76,10 @@ const AMX_NATIVE_INFO natives[]{
     {"set_fail_state",Reject},{"strlen",Length},{"copy",Copy},{"equal",Equal},{"formatex",Format},
     {"get_pcvar_string",GetCvar},{"set_pcvar_string",SetCvar},{"get_mapname",MapName},{"is_map_valid",One},
     {"menu_create",MenuCreate},{"menu_additem",MenuAdd},{"menu_display",MenuDisplay},{"menu_destroy",MenuDestroy},
-    {"menu_setprop",One},{"menu_item_getinfo",MenuInfo},{"is_user_connected",Connected},{"get_user_userid",One},
+    {"menu_setprop",MenuProperty},{"menu_item_getinfo",MenuInfo},{"is_user_connected",Connected},{"get_user_userid",One},
     {"csol_scenario_difficulty_info",Info},{"csol_scenario_difficulty_request",Request},
     {"csol_scenario_replay_api_version",One},{"csol_scenario_replay",Replay},{"get_member",Member},{"get_member_s",Member},
+    {"csol_scenario_map_vote_api_version",One},{"csol_scenario_map_vote",MapVote},
     {"num_to_str",NumToStr},{"str_to_num",StrToNum},{"log_amx",One},{nullptr,nullptr}};
 std::vector<unsigned char> bytecode;
 struct VM{
@@ -89,6 +95,7 @@ struct VM{
     int Open(){Command({"amx_scenario_difficulty"});return state.shown;}
     int OpenFinish(){state.args={"amx_scenario_menu"};Call("CommandMenu",{1,AdminCfg,1});return state.shown;}
     void ReplayCommand(int player=1){state.args={"amx_scenario_replay"};Call("CommandReplay",{player,AdminCfg,1});}
+    void MapVoteCommand(int player=1){state.args={"amx_scenario_vote"};Call("CommandMapVote",{player,AdminCfg,1});}
     void Choose(int menu,int item){Call("DifficultyMenuHandler",{1,menu,item});}
 };
 void Cases(){
@@ -113,7 +120,7 @@ void ReplayCases(){
         v.ReplayCommand(0);Check(v.state.replayRequests==2&&v.state.replays==1,"duplicate command reaches provider refusal without claiming another replay");}
     for(int variant=0;variant<2;++variant){VM v;if(variant==0)v.state.available=false;else v.state.mode=1;v.ReplayCommand();
         Check(v.state.replayRequests==0,"unready provider and non-scenario mode cannot queue replay");}
-    {VM v;int menu=v.OpenFinish();Check(v.state.menus.at(menu).items.size()==7&&v.state.menus.at(menu).items[5].first.find("立即重玩本图")!=std::string::npos,"actual management menu exposes same-map replay");
+    {VM v;int menu=v.OpenFinish();Check(v.state.menus.at(menu).items.size()==8&&v.state.menus.at(menu).items[5].first.find("立即重玩本图")!=std::string::npos,"actual management menu exposes same-map replay");
         v.Call("FinishMenuHandler",{1,menu,5});Check(v.state.replays==1&&v.state.replayMaps==std::vector<int>{98}&&v.state.menus.at(menu).destroyed,"menu queues captured map once and releases ownership");
         int destroys=v.state.destroys;v.Call("FinishMenuHandler",{1,menu,5});Check(v.state.replayRequests==1&&v.state.destroys==destroys,"duplicate old replay callback is ignored without another destroy");}
     for(int variant=0;variant<3;++variant){VM v;int menu=v.OpenFinish();if(variant==0)v.state.flags=0;else if(variant==1)v.state.connected=false;else v.state.mode=1;
@@ -154,9 +161,42 @@ void VoteCases(){
         Check(v.state.cvars.at(1)==original&&v.state.shown==fresh&&!v.state.menus.at(fresh).destroyed,"old vote callback cannot consume or retarget replacement menu");}
 }
 
+void DirectVoteCases(){
+    {VM v;v.state.flags=0;v.MapVoteCommand();Check(v.state.voteRequests==0,"ordinary client cannot start vote through actual cmd_access");
+        v.MapVoteCommand(0);Check(v.state.votes==1&&v.state.voteMaps==std::vector<int>{98}&&v.state.cvars.at(1)=="0","dedicated console queues current map without changing finish policy");
+        v.MapVoteCommand(0);Check(v.state.voteRequests==2&&v.state.votes==1,"duplicate immediate vote is refused by provider");}
+    for(int variant=0;variant<3;++variant){VM v;if(variant==0)v.state.available=false;else if(variant==1)v.state.mode=1;else v.state.connected=false;v.MapVoteCommand();
+        Check(v.state.voteRequests==0,"unready map non-scenario and disconnected client cannot request vote");}
+    for(int id:{-1,33}){VM v;v.MapVoteCommand(id);Check(v.state.voteRequests==0,"out-of-range client does not reach service");}
+    for(const auto& args:std::vector<std::vector<std::string>>{{"amx_scenario_vote","98"},{"amx_scenario_vote",";changelevel","de_dust2"}}){VM v;v.state.args=args;v.Call("CommandMapVote",{1,AdminCfg,1});
+        Check(v.state.voteRequests==0,"direct vote command accepts no trailing arguments");}
+    {VM v;int menu=v.OpenFinish();const auto& m=v.state.menus.at(menu);
+        Check(m.items.size()==8&&m.items[7].first=="立即发起选图投票"&&m.perPage==0&&m.exitMode==2,"direct vote is visible with all eight actions and forced exit");
+        v.Call("FinishMenuHandler",{1,menu,7});Check(v.state.votes==1&&v.state.voteMaps==std::vector<int>{98}&&v.state.menus.at(menu).destroyed&&v.state.shown==menu,
+            "direct vote releases AMXX menu and does not reopen it over visual ballot");
+        const int destroys=v.state.destroys;v.Call("FinishMenuHandler",{1,menu,7});Check(v.state.voteRequests==1&&v.state.destroys==destroys,"late duplicate callback neither votes nor destroys again");}
+    for(int variant=0;variant<3;++variant){VM v;int menu=v.OpenFinish();if(variant==0)v.state.flags=0;else if(variant==1)v.state.connected=false;else v.state.mode=1;
+        v.Call("FinishMenuHandler",{1,menu,7});Check(v.state.voteRequests==0&&v.state.menus.at(menu).destroyed,"direct vote handler rechecks permission connection and mode");}
+    {VM v;int menu=v.OpenFinish();v.state.map=75;v.Call("FinishMenuHandler",{1,menu,7});
+        Check(v.state.voteRequests==1&&v.state.votes==0&&v.state.voteMaps==std::vector<int>{98},"stale menu submits captured identity and provider rejects it");}
+    {VM v;int old=v.OpenFinish(),fresh=v.OpenFinish();const int destroys=v.state.destroys;v.Call("FinishMenuHandler",{1,old,7});
+        Check(v.state.voteRequests==0&&v.state.destroys==destroys&&!v.state.menus.at(fresh).destroyed,"old direct vote callback cannot consume replacement menu");}
+    {VM v;int menu=v.OpenFinish();v.Call("client_disconnected",{1});const int destroys=v.state.destroys;v.Call("FinishMenuHandler",{1,menu,7});
+        Check(v.state.voteRequests==0&&v.state.destroys==destroys,"disconnect retires direct vote menu before late callback");}
+    {VM v;int menu=v.OpenFinish();v.MapVoteCommand();Check(v.state.votes==1&&v.state.menus.at(menu).destroyed&&v.state.shown==menu,"console vote closes existing management menu without reopening");}
+    for(int variant=0;variant<3;++variant){VM v;v.OpenFinish();v.state.onDestroy=[&]{if(variant==0)v.state.flags=0;else if(variant==1)v.state.connected=false;else v.state.mode=1;};
+        v.MapVoteCommand();v.state.onDestroy={};Check(v.state.voteRequests==0,"console vote rechecks authority after synchronous menu destruction");}
+    {VM v;int menu=v.OpenFinish();bool once=true;v.state.onDestroy=[&]{if(once){once=false;v.state.map=75;v.OpenFinish();}};
+        v.MapVoteCommand();v.state.onDestroy={};Check(v.state.votes==0&&v.state.voteMaps==std::vector<int>{98}&&v.state.shown!=menu&&!v.state.menus.at(v.state.shown).destroyed,
+            "destroy callback cannot retarget command or destroy newly created menu");}
+    {VM v;v.OpenFinish();bool once=true;v.state.onDestroy=[&]{if(once){once=false;v.MapVoteCommand();}};
+        v.MapVoteCommand();v.state.onDestroy={};Check(v.state.voteRequests==2&&v.state.votes==1,"reentrant console requests produce one accepted vote");}
+    {VM v;v.state.replayPending=true;v.MapVoteCommand();Check(v.state.voteRequests==1&&v.state.votes==0,"pending replay prevents simultaneous direct vote");}
+}
+
 }
 int main(int argc,char** argv){static_assert(sizeof(void*)==4&&sizeof(cell)==4);if(argc!=2)return 2;
-    try{std::ifstream f(argv[1],std::ios::binary);bytecode.assign(std::istreambuf_iterator<char>(f),{});if(bytecode.size()<sizeof(AMX_HEADER))throw std::runtime_error("missing bytecode");Cases();ReplayCases();VoteCases();}
+    try{std::ifstream f(argv[1],std::ios::binary);bytecode.assign(std::istreambuf_iterator<char>(f),{});if(bytecode.size()<sizeof(AMX_HEADER))throw std::runtime_error("missing bytecode");Cases();ReplayCases();VoteCases();DirectVoteCases();}
     catch(const std::exception& e){++failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}
     std::cout<<"scenario-admin pawn "<<checks<<" checks "<<failures<<" failures\n";return failures?1:0;
 }

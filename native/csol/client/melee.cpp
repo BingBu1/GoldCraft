@@ -309,7 +309,9 @@ constexpr int ModuleIds[]{melee::DragonSwordId,melee::SkullAxeId};
 constinit const WeaponModule Module{
     .ids=ModuleIds,.order=40,
     .initialize=InitializeMeleeWeapons,.reset=ResetMeleeWeapons,.videoInit=ResetMeleeWeapons,
-    .receive=ReceiveMeleeState,.predict=PredictMeleeWeapon,.diagnostics=MeleeDiagnostics};
+    .receive=ReceiveMeleeState,.predict=PredictMeleeWeapon,.diagnostics=MeleeDiagnostics,
+    // Original weapon 29: HW 37A8EED6 -> 37A77A50, record +3C/+40/+5C/+60.
+    .crosshair={7,3,0,0}};
 const WeaponModuleRegistration Registration{Module};
 }
 }

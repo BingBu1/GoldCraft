@@ -51,7 +51,7 @@ class Vote final
 {
 public:
     // The caller supplies only server-validated playable destinations. Begin
-    // rejects duplicate identities/current-map entries; it never adds a map.
+    // rejects duplicate identities; the current map may be selected to replay.
     bool Begin(std::uint32_t generation, std::span<const Choice> choices,
         std::string_view currentMap, double now, unsigned seconds);
     // slot is 1..32; token is the engine's current connection userid, never

@@ -30,12 +30,17 @@ def main():
     args = parser.parse_args()
     raw = args.source.read_bytes()
     text = raw.decode('utf8')
-    parts = [extract(text, signature) for signature in SIGNATURES]
+    signatures = list(SIGNATURES)
+    if 'double VoteClock()' in text:
+        signatures.insert(0, 'double VoteClock()')
+    if 'void Suspend()' in text:
+        signatures.insert(signatures.index('void Open()'), 'void Suspend()')
+    parts = [extract(text, signature) for signature in signatures]
     args.output.write_text('\n\n'.join(parts)+'\n', encoding='utf8')
     args.output.with_suffix('.manifest.json').write_text(json.dumps(dict(
         sourceSha256=hashlib.sha256(raw).hexdigest(),
         functions=[dict(signature=s, sha256=hashlib.sha256(p.encode()).hexdigest())
-                   for s, p in zip(SIGNATURES, parts)]), indent=2), encoding='utf8')
+                   for s, p in zip(signatures, parts)]), indent=2), encoding='utf8')
 
 
 if __name__ == '__main__':

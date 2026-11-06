@@ -8,6 +8,7 @@
 #include "../../native/csol/server/weapons.h"
 #include "../../native/csol/server/wpn_melee.h"
 #include "../../native/csol/server/melee_purchase.h"
+#include "../../native/csol/server/knife_selection.h"
 #include "../../native/csol/buy_menu.hpp"
 #include "../../native/csol/melee_identity.hpp"
 #include "../../native/csol/melee_prediction.hpp"
@@ -48,7 +49,7 @@ BOOL Remove(IReGameHook_CBasePlayer_RemovePlayerItem* chain,CBasePlayer* p,CBase
  ++removes;const auto ok=chain->callNext(p,item);if(TraceEnabled())std::cerr<<"REMOVE id="<<item->m_iId<<" ok="<<ok<<'\n';return item==original&&fault==3?FALSE:ok;
 }
 BOOL Deploy(IReGameHook_CBasePlayerWeapon_DefaultDeploy* chain,CBasePlayerWeapon* w,char* view,char* player,int sequence,char* extension,int skip){
- ++deploys;if(w!=original&&fault==1)return FALSE;const auto ok=chain->callNext(w,view,player,sequence,extension,skip);if(TraceEnabled())std::cerr<<"DEPLOY id="<<w->m_iId<<" ok="<<ok<<'\n';return ok;
+ ++deploys;if(w!=original&&fault==1)return FALSE;const auto ok=chain->callNext(w,view,player,sequence,extension,skip);if(TraceEnabled())std::cerr<<"DEPLOY id="<<w->m_iId<<" ok="<<ok<<'\n';return w!=original&&fault==14?FALSE:ok;
 }
 void Hooks(bool on){
  if(on){
@@ -162,13 +163,15 @@ void Run(const std::filesystem::path& frozen,int mode){
  // Init creates messages before menu registration; install a real entry first.
  e.messages[Message]=230;
  CSOL_InitWeapons();e.Set("csol_weapons","1");CSOL_ResetWeaponRegistry();CSOL_PrecacheWeapons();
+ UTIL_PrecacheOtherWeapon("weapon_knife");
  Require(CSOL_WeaponsReady()&&CSOL_MeleeReady(1022)&&CSOL_MeleeReady(1023),"actual two-knife config/registry ready");
  Require(CSOL_PrecacheBuyMenu(),"actual menu resource validation and registration");
  auto own=[&](const char* name,int slot,int id){auto* ed=Engine::Create(Engine::String(name));auto* w=dynamic_cast<CBasePlayerWeapon*>(CBaseEntity::Instance(ed));Require(w,"actual initial weapon factory");w->CBasePlayerWeapon::Spawn();w->m_iId=static_cast<WeaponIdType>(id);Require(w->GetItemInfo(&CBasePlayerItem::m_ItemInfoArray[id]),"actual native weapon metadata includes its real selection weight");w->m_pPlayer=&p;w->pev->owner=p.edict();p.m_rgpPlayerItems[slot]=w;return w;};
- const bool noKnife=mode==10||mode==11;
+ const bool nativeFirst=mode==14||mode==15;
+ const bool noKnife=mode==10||mode==11||nativeFirst;
  original=noKnife?nullptr:own("weapon_knife",KNIFE_SLOT,WEAPON_KNIFE);
  auto* primary=own("weapon_m4a1",PRIMARY_WEAPON_SLOT,WEAPON_M4A1);auto* pistol=own("weapon_usp",PISTOL_SLOT,WEAPON_USP);
- const bool holdingGun=mode==8||mode==9||mode==11||mode==12;
+ const bool holdingGun=mode==8||mode==9||mode==11||mode==12||mode==15;
  auto* gun=mode==9?pistol:primary;
  p.m_pActiveItem=holdingGun?gun:original;p.m_pLastItem=holdingGun?(mode==9?primary:pistol):pistol;
  if(mode==12)p.m_pLastItem=original;
@@ -184,9 +187,19 @@ void Run(const std::filesystem::path& frozen,int mode){
   "trusted complete player metadata snapshot is distinct from current weapon state");
  p.m_signals.Signal(SIGNAL_BUY);p.m_signals.Update();
  Require(p.CanPlayerBuy(false),"real native buyzone gate accepts eligible player in controlled phase");
- Hooks(true);fault=mode;
+ Hooks(true);fault=nativeFirst?0:mode;
  Command(p,{"csol_buy_menu","1"});
  Expect(Offer(1022).result==Result::Available&&Offer(1023).result==Result::Available&&Offer(1022).price==0&&Offer(1023).price==0,"actual Available and Price expose both free knives");
+ Expect(Offer(29).result==Result::Available&&Offer(29).price==0,"real menu offers the default knife for zero cost");
+ if(nativeFirst){
+  Command(p,{"csol_buy","1","29"});
+  Expect(Last().result==Result::Success&&p.m_iAccount==7500,"default knife first grant succeeds through the real menu");Sole(p,29);
+  Expect(CSOL_MeleeSelectionItem(*Held(p,KNIFE_SLOT))==161,"first native grant has exact default catalog identity");
+  Expect(pickupSounds==1,"first native grant keeps normal pickup effects");
+  if(holdingGun)Expect(keptGun(),"native default first grant respects firearm weight and preserves its state");
+  else Expect(p.m_pActiveItem==Held(p,KNIFE_SLOT)&&deploys==1,"no active item deploys first native knife once");
+  Hooks(false);return;
+ }
  if(mode==4)transition=[&]{const auto saved=args;Command(p,{"csol_buy","1","1023"});args=saved;};
  if(mode==5)transition=[&]{p.pev->deadflag=DEAD_DEAD;p.pev->health=0;};
  if(mode==6)transition=[&]{++p.m_iNumSpawns;};
@@ -258,6 +271,36 @@ void Run(const std::filesystem::path& frozen,int mode){
   Expect(Last().result==Result::Success&&beforeMissing.Unchanged()&&weapons->Parts(*sword)==std::array<std::uint32_t,2>{}&&weapons->PaintType(*sword)==0,
    "known map miss clears only selected metadata without resetting attacks");
   Expect(!CSOL_IsMeleeReplacement(p,*sword)&&!CSOL_IsMeleeReplacement(p,*primary),"replacement scope never escapes into later pickups");
+  // Restore the initial knife through the actual menu, not a direct grant.
+  Require(weapons->ReplaceSelectionMetadata(p,authority->generation,{{4000,91}},{{161,{51,52}}}),
+   "default knife metadata is provided by the same authoritative selection service");
+  if(!holdingGun){
+   original=sword;
+   const EHANDLE keep(sword);const WeaponSnapshot oldKnife(*sword);const PlayerSnapshot oldPlayer(p);
+   for(int rejectFault:{1,14,2,3}){
+    fault=rejectFault;Command(p,{"csol_buy_menu",std::to_string(20+rejectFault)});Command(p,{"csol_buy",std::to_string(20+rejectFault),"29"});
+    Expect(Last().result==Result::Failed&&keep.Get<CBaseEntity>()==sword&&Held(p,KNIFE_SLOT)==sword,
+     "native knife rejected Deploy/Add/Remove never commits or loses the previous knife");
+    Expect(oldKnife.Unchanged()&&oldPlayer.Unchanged(),"default-knife rejection restores original attack and player presentation");
+   }
+   fault=0;
+  }
+  Command(p,{"csol_buy_menu","40"});Command(p,{"csol_buy","40","29"});
+  Expect(Last().result==Result::Success,"default knife can be bought back after a custom knife");Sole(p,29);
+  auto* normal=Held(p,KNIFE_SLOT);const EHANDLE normalIdentity(normal);const WeaponSnapshot normalState(*normal);const PlayerSnapshot normalPlayer(p);
+  Expect(CSOL_MeleeSelectionItem(*normal)==161&&weapons->Parts(*normal)==std::array<std::uint32_t,2>{51,52}&&weapons->PaintType(*normal)==91,
+   "default knife consumes its real catalog161 and paint4000 metadata");
+  if(holdingGun)Expect(keptGun(),"restoring default knife preserves a held firearm and mapped lastinv");
+  const auto nativeAdds=adds,nativeDeploys=deploys,nativeSounds=pickupSounds;const auto nativeAllocations=e.allocations;
+  Require(weapons->ReplaceSelectionMetadata(p,authority->generation,{{4000,92}},{{161,{61,62}}}),"fresh default metadata available");
+  Command(p,{"csol_buy_menu","41"});Command(p,{"csol_buy","41","29"});
+  Expect(Last().result==Result::Success&&normalIdentity.Get<CBaseEntity>()==normal&&normalState.Unchanged()&&normalPlayer.Unchanged()&&
+   adds==nativeAdds&&deploys==nativeDeploys&&pickupSounds==nativeSounds&&e.allocations==nativeAllocations,
+   "same default knife preserves entity, timers and presentation without Spawn Touch Deploy");
+  Expect(weapons->Parts(*normal)==std::array<std::uint32_t,2>{61,62}&&weapons->PaintType(*normal)==92,
+   "same default knife runs the real common metadata tail");
+  Command(p,{"csol_buy_menu","42"});Command(p,{"csol_buy","42","1022"});
+  Expect(Last().result==Result::Success,"special knife remains purchasable after default restoration");Sole(p,1022);sword=Held(p,KNIFE_SLOT);
   const EHANDLE beforeUnknown(sword);const WeaponSnapshot unknownState(*sword);
   weapons->RemovePlayer(EHANDLE(&p),authority->generation);
   Expect(!weapons->ReplaceSelectionMetadata(p,authority->generation,{{4016,99}},{{483,{91,92}}})&&

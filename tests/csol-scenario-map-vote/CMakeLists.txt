@@ -39,13 +39,20 @@ if(CSOL_MAP_VOTE_RESOURCES)
   add_test(NAME map_vote_original_assets COMMAND csol_map_vote_presentation "${CSOL_MAP_VOTE_RESOURCES}")
   if(WIN32)
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/actual_client.inc"
-      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/extract_client.py"
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/extract_client_lifecycle.py"
         "${CMAKE_CURRENT_SOURCE_DIR}/../../native/csol/client/scenario_map_vote.cpp"
         "${CMAKE_CURRENT_BINARY_DIR}/actual_client.inc"
-      DEPENDS extract_client.py ../../native/csol/client/scenario_map_vote.cpp VERBATIM)
+        --session "${CMAKE_CURRENT_SOURCE_DIR}/../../native/csol/client/session.cpp"
+        --plugin "${CMAKE_CURRENT_SOURCE_DIR}/../../native/csol/client/plugin.cpp"
+      BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/actual_overlay.inc"
+        "${CMAKE_CURRENT_BINARY_DIR}/actual_session.inc"
+        "${CMAKE_CURRENT_BINARY_DIR}/actual_session.manifest.json"
+      DEPENDS extract_client_lifecycle.py extract_client.py ../../native/csol/client/scenario_map_vote.cpp
+        ../../native/csol/client/session.cpp ../../native/csol/client/plugin.cpp VERBATIM)
     add_executable(csol_map_vote_client client.cpp "${CMAKE_CURRENT_BINARY_DIR}/actual_client.inc"
       ../../native/csol/map_vote_presentation.cpp ../../native/csol/scenario/map_vote.cpp)
     target_compile_features(csol_map_vote_client PRIVATE cxx_std_20)
+    target_compile_definitions(csol_map_vote_client PRIVATE CSOL_MAP_VOTE_TEST_RESET)
     if(MSVC)
       target_compile_options(csol_map_vote_client PRIVATE /utf-8)
     endif()

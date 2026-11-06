@@ -17,16 +17,18 @@ new const g_DifficultyNames[][] = { "", "入门", "普通", "困难", "噩梦", 
 public plugin_init()
 {
     for (new id; id < sizeof g_Menu; id++) g_Menu[id] = -1;
-    register_plugin(PLUGIN_NAME, "0.4.0", "GoldCraft contributors");
+    register_plugin(PLUGIN_NAME, "0.5.0", "GoldCraft contributors");
     register_clcmd("chooseteam", "CommandChooseTeam", -1, "", 0);
     register_concmd("amx_scenario_menu", "CommandMenu", ADMIN_CFG, "打开大灾变管理", 0);
     register_concmd("amx_scenario_difficulty", "CommandDifficulty", ADMIN_CFG, "[1..7] 设置下次重玩难度", 0);
     register_concmd("amx_scenario_replay", "CommandReplay", ADMIN_CFG, "按待用难度重玩当前地图，无需重新载图", 0);
+    register_concmd("amx_scenario_vote", "CommandMapVote", ADMIN_CFG, "立即发起可视化选图投票", 0);
     register_concmd("amx_scenario_finish", "CommandFinish", ADMIN_CFG, "<0=留图游玩|1=换图|2=同图重玩|3=投票换图>", 0);
     register_concmd("amx_scenario_nextmap", "CommandNextMap", ADMIN_CFG, "<地图名> 设置通关后的目标地图", 0);
     g_FinishAction = get_cvar_pointer("csol_scenario_finish_action");
     g_NextMap = get_cvar_pointer("csol_scenario_nextmap");
-    if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1 || csol_scenario_replay_api_version() != 1)
+    if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1 ||
+        csol_scenario_replay_api_version() != 1 || csol_scenario_map_vote_api_version() != 1)
         set_fail_state("服务端缺少大灾变管理接口，请更新配套 mp.dll 和 GoldCraft AMXX 模块");
 }
 
@@ -94,7 +96,7 @@ public CommandMenu(id, level, cid)
     }
     if (!id)
     {
-        console_print(id, "控制台请使用 amx_scenario_difficulty、amx_scenario_finish 或 amx_scenario_nextmap。");
+        console_print(id, "控制台可用 amx_scenario_vote 立即投票，或 amx_scenario_difficulty、amx_scenario_finish、amx_scenario_nextmap。");
         return PLUGIN_HANDLED;
     }
     ShowFinishMenu(id);
@@ -126,6 +128,11 @@ ShowFinishMenu(id)
     menu_additem(menu, "大灾变难度（下次重玩生效）");
     menu_additem(menu, "立即重玩本图（应用待用难度）");
     menu_additem(menu, "通关后投票切换地图（默认）");
+    menu_additem(menu, "立即发起选图投票");
+    // Keep all eight actions visible; the default seven-item page would hide
+    // the direct vote on a second page. The matching AMXX API permits this.
+    menu_setprop(menu, MPROP_PERPAGE, 0);
+    menu_setprop(menu, MPROP_EXIT, MEXIT_FORCE);
     menu_setprop(menu, MPROP_EXITNAME, "关闭");
     menu_display(id, menu);
 }
@@ -160,6 +167,11 @@ public FinishMenuHandler(id, menu, item)
         case 5:
         {
             SubmitReplay(id, mapId);
+            return PLUGIN_HANDLED;
+        }
+        case 7:
+        {
+            SubmitMapVote(id, mapId);
             return PLUGIN_HANDLED;
         }
         default: return PLUGIN_HANDLED;
@@ -279,6 +291,43 @@ public CommandReplay(id, level, cid)
         return PLUGIN_HANDLED;
     }
     SubmitReplay(id, mapId);
+    return PLUGIN_HANDLED;
+}
+
+SubmitMapVote(id, mapId)
+{
+    if (!mapId || !csol_scenario_map_vote(mapId))
+    {
+        console_print(id, "无法发起投票：地图尚未就绪、状态已改变，或已有投票／重玩请求。");
+        if (id) client_print(id, print_chat, "[大灾变] 选图投票请求未接受，请重新打开管理菜单。");
+        return;
+    }
+    log_amx("管理员 %d 请求立即发起地图 %d 的选图投票", id ? get_user_userid(id) : 0, mapId);
+    console_print(id, "选图投票请求已接受，服务端将在安全帧检查候选地图并发起投票。");
+    client_print(0, print_chat, "[大灾变] 管理员已请求发起选图投票。");
+}
+
+public CommandMapVote(id, level, cid)
+{
+    if (!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED;
+    if (read_argc() != 1)
+    {
+        console_print(id, "用法：amx_scenario_vote（无需参数）。");
+        return PLUGIN_HANDLED;
+    }
+    if (id && (id < 1 || id > 32 || !is_user_connected(id))) return PLUGIN_HANDLED;
+    new active, requested, maximum, mapId;
+    if (!DifficultyInfo(active, requested, maximum, mapId))
+    {
+        console_print(id, "当前不是已就绪的大灾变地图。");
+        return PLUGIN_HANDLED;
+    }
+    // Destroy can synchronously call a menu handler. Capture mapId before it,
+    // then recheck access; the service rejects a stale map or duplicate vote.
+    if (id) CloseFinishMenu(id);
+    if (!ScenarioActive() || (id && (!is_user_connected(id) || !(get_user_flags(id) & ADMIN_CFG))))
+        return PLUGIN_HANDLED;
+    SubmitMapVote(id, mapId);
     return PLUGIN_HANDLED;
 }
 

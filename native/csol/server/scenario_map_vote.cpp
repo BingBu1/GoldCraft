@@ -105,7 +105,6 @@ bool CSOL_StartScenarioMapVote(unsigned seconds)
     std::vector<Choice> candidates;
     for (const auto& [id,name]:seasonOne)
     {
-        if (currentMap==name) continue;
         const auto* entry=catalog.Find(id);
         int subtype{};
         if (!entry || entry->fileName!=name || catalog.UniqueMapId(name)!=id ||

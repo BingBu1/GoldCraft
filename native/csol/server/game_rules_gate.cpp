@@ -31,6 +31,7 @@
 #include "wpn_k3.h"
 #include "wpn_melee.h"
 #include "melee_purchase.h"
+#include "knife_selection.h"
 #include "weapon_slots.h"
 #include "weapons.h"
 #include "../k3.hpp"
@@ -558,6 +559,7 @@ public:
         if (!SelectionReady() || m_completing || m_restarting || m_applyingFinish) return;
         if (m_replaySettings && Ready() && !m_runtime->gameplay->Busy())
         {
+            m_adminMapVote = AdminMapVote::Idle;
             CSOL_CancelScenarioMapVote();
             CSOL_UpdateScenarioMapVote();
             if (!Ready()) return;
@@ -567,6 +569,7 @@ public:
             RestartRound();
             return;
         }
+        if (!UpdateAdminMapVote()) return;
         if (!PublishPlayerClips()) return;
         m_VoiceGameMgr.Update(gpGlobals->frametime);
         if (!Ready()) return;
@@ -605,7 +608,7 @@ public:
             }
             if (m_phase == Phase::Completing)
             {
-                ApplyFinishPolicy();
+                if (m_adminMapVote == AdminMapVote::Idle) ApplyFinishPolicy();
                 return;
             }
         }
@@ -750,6 +753,19 @@ public:
         value = m_damageScale;
         return true;
     }
+    bool RequestMapVote(int mapId)
+    {
+        // GoldCraft administrator extension: queue only. File loading and
+        // message callbacks must run from the rules frame, not a Pawn native.
+        if (!Ready() || m_bGameOver || m_adminMapVote != AdminMapVote::Idle ||
+            m_mapVoteStarted || CSOL_ScenarioMapVoteActive() || m_replaySettings ||
+            m_restarting || m_completing || m_applyingFinish ||
+            m_runtime->gameplay->Busy() || m_runtime->session->Busy()) return false;
+        const auto* tables = m_runtime->session->Map().Tables();
+        if (!tables || !tables->mapId || *tables->mapId != mapId) return false;
+        m_adminMapVote = AdminMapVote::Requested;
+        return true;
+    }
     bool RequestReplay(int mapId)
     {
         if (!Ready() || m_replaySettings || m_restarting || m_completing || m_applyingFinish ||
@@ -794,6 +810,13 @@ public:
         };
         const auto oldRoundCurrent = [&]()
         { return ownerCurrent() && session->Map().RoundGeneration() == previousRound && m_pendingRound == pending; };
+        if (m_adminMapVote != AdminMapVote::Idle)
+        {
+            m_adminMapVote = AdminMapVote::Idle;
+            CSOL_CancelScenarioMapVote();
+            CSOL_UpdateScenarioMapVote();
+            if (!oldRoundCurrent()) return;
+        }
         ReadMultiplayCvars();
         if (!oldRoundCurrent()) return;
         const auto* roundTables = session->Map().Tables();
@@ -1673,6 +1696,87 @@ public:
         }
     }
 private:
+    bool ChangeScenarioMap(const char* name)
+    {
+        if (!Ready() || m_bGameOver || !name || !csol::scenario::map_vote::ValidMapName(name) ||
+            !g_engfuncs.pfnLoadFileForMe || !g_engfuncs.pfnFreeFile ||
+            !g_engfuncs.pfnIsMapValid || !g_engfuncs.pfnChangeLevel) return false;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto gameplay = runtime->gameplay;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const auto current = [&]()
+        {
+            return Ready() && m_runtime == runtime && runtime->session == session && runtime->gameplay == gameplay &&
+                session->Map().EntityAccess() == access && access->Allowed() &&
+                session->Map().RoundGeneration() == round;
+        };
+        int length{};
+        const auto release = g_engfuncs.pfnFreeFile;
+        std::unique_ptr<unsigned char, decltype(release)> bytes(
+            g_engfuncs.pfnLoadFileForMe("resource/maplist.csv", &length), release);
+        if (!current() || !bytes || length <= 0 || length > 8 * 1024 * 1024) return false;
+        csol::scenario::MapCatalog catalog;
+        csol::scenario::ConfigError error;
+        int subtype{};
+        if (!csol::scenario::ReadMapCatalog(
+                std::string_view(reinterpret_cast<const char*>(bytes.get()), length), catalog, error) ||
+            !catalog.ResolveScenarioType(name, subtype, error) || !catalog.UniqueMapId(name) ||
+            !CCSOLScenarioGameplay::SupportsMap(name, subtype)) return false;
+        bytes.reset();
+        if (!current()) return false;
+        const bool exists = IS_MAP_VALID(const_cast<char*>(name)) != FALSE;
+        if (!current() || !exists) return false;
+        // Consume the request before entering the engine, which can invoke
+        // hooks and retire these rules. A void return is not map-load success.
+        m_phase = Phase::Complete;
+        m_flRestartRoundTime = 0;
+        m_bGameOver = true;
+        CHANGE_LEVEL(const_cast<char*>(name), nullptr);
+        return true;
+    }
+    bool UpdateAdminMapVote()
+    {
+        if (m_adminMapVote == AdminMapVote::Idle) return !m_bGameOver;
+        if (!Ready() || m_runtime->gameplay->Busy() || m_runtime->session->Busy()) return false;
+        const auto runtime = m_runtime;
+        const auto session = runtime->session;
+        const auto gameplay = runtime->gameplay;
+        const auto access = session->Map().EntityAccess();
+        const auto round = session->Map().RoundGeneration();
+        const auto current = [&]()
+        {
+            return Ready() && m_runtime == runtime && runtime->session == session && runtime->gameplay == gameplay &&
+                session->Map().EntityAccess() == access && access->Allowed() &&
+                session->Map().RoundGeneration() == round;
+        };
+        m_applyingFinish = true;
+        struct FinishScope { bool& flag; ~FinishScope() { flag = false; } } scope{m_applyingFinish};
+        if (m_adminMapVote == AdminMapVote::Requested)
+        {
+            const bool started = CSOL_StartScenarioMapVote();
+            if (!current()) return false;
+            m_adminMapVote = started ? AdminMapVote::Open : AdminMapVote::Idle;
+            if (!started)
+            {
+                UTIL_ClientPrintAll(HUD_PRINTTALK,
+                    "[大灾变] 无法发起投票：没有其他可用地图或投票资源未就绪。\n");
+                return current();
+            }
+        }
+        const auto winner = CSOL_UpdateScenarioMapVote();
+        if (!current()) return false;
+        if (CSOL_ScenarioMapVoteActive()) return true;
+        m_adminMapVote = AdminMapVote::Idle;
+        if (winner)
+        {
+            if (ChangeScenarioMap(winner->mapName.c_str()) || !current()) return false;
+            UTIL_ClientPrintAll(HUD_PRINTTALK,
+                "[大灾变] 投票选中的地图已不可用，继续当前地图。\n");
+        }
+        return current();
+    }
     void ApplyFinishPolicy()
     {
         if (!Ready() || m_phase != Phase::Completing || m_applyingFinish || m_runtime->gameplay->Busy()) return;
@@ -1759,43 +1863,7 @@ private:
         }
         else if (policy.action == CSOLScenarioFinishAction::ChangeMap)
         {
-            // A syntactically valid filename is insufficient: ordinary maps
-            // and unimplemented scenario managers cannot be automatic targets.
-            bool valid{};
-            if (g_engfuncs.pfnLoadFileForMe && g_engfuncs.pfnFreeFile &&
-                g_engfuncs.pfnIsMapValid && g_engfuncs.pfnChangeLevel)
-            {
-                int length{};
-                const auto release = g_engfuncs.pfnFreeFile;
-                std::unique_ptr<unsigned char, decltype(release)> bytes(
-                    g_engfuncs.pfnLoadFileForMe("resource/maplist.csv", &length), release);
-                if (!current()) return;
-                if (bytes && length > 0 && length <= 8 * 1024 * 1024)
-                {
-                    csol::scenario::MapCatalog catalog;
-                    csol::scenario::ConfigError error;
-                    int subtype{};
-                    valid = csol::scenario::ReadMapCatalog(
-                        std::string_view(reinterpret_cast<const char*>(bytes.get()), length), catalog, error) &&
-                        catalog.ResolveScenarioType(policy.nextMap.data(), subtype, error) &&
-                        catalog.UniqueMapId(policy.nextMap.data()).has_value() &&
-                        CCSOLScenarioGameplay::SupportsMap(policy.nextMap.data(), subtype);
-                }
-            }
-            if (!current()) return;
-            if (valid)
-            {
-                const bool exists = IS_MAP_VALID(policy.nextMap.data()) != FALSE;
-                if (!current()) return;
-                if (exists)
-                {
-                    // ReHLDS queues this once per spawncount. Its void return
-                    // is a request, not evidence that a new map has loaded.
-                    m_bGameOver = true;
-                    CHANGE_LEVEL(policy.nextMap.data(), nullptr);
-                    return;
-                }
-            }
+            if (ChangeScenarioMap(policy.nextMap.data()) || !current()) return;
             warning = "Next scenario map is unavailable or unsupported; retaining this map for free play.";
         }
         if (!current()) return;
@@ -1999,6 +2067,8 @@ private:
     std::weak_ptr<csol::scenario::TriggerWaveEvents> m_boundWaveEvents;
     std::weak_ptr<CCSOLScenarioGameplay> m_boundGameplay;
     Phase m_phase{Phase::Loading};
+    enum class AdminMapVote { Idle, Requested, Open };
+    AdminMapVote m_adminMapVote{AdminMapVote::Idle};
     bool m_mapVoteStarted{};
     std::size_t m_roundIndex{};
     std::optional<std::size_t> m_pendingRound;
@@ -2804,6 +2874,23 @@ ScenarioReplayService scenarioReplay;
 using csol::IScenarioReplayService;
 EXPOSE_SINGLE_INTERFACE_GLOBALVAR(ScenarioReplayService, IScenarioReplayService,
     csol::ScenarioReplayServiceVersion, scenarioReplay);
+
+class ScenarioMapVoteService final : public csol::IScenarioMapVoteService
+{
+public:
+    bool RequestMapVote(int mapId) override
+    {
+        CSOLScenarioSdkScope scope;
+        if (!scope.Scenario() || !scope.Current() || CSOL_LockedGameMode() != 2 ||
+            !CSOL_GameModeIsolationReady() || CSOL_RulesRejected()) return false;
+        auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+        return rules && rules->RequestMapVote(mapId) && scope.Current();
+    }
+};
+ScenarioMapVoteService scenarioMapVote;
+using csol::IScenarioMapVoteService;
+EXPOSE_SINGLE_INTERFACE_GLOBALVAR(ScenarioMapVoteService, IScenarioMapVoteService,
+    csol::ScenarioMapVoteServiceVersion, scenarioMapVote);
 }
 
 bool CSOL_ScenarioThink(CHalfLifeMultiplay& rules)
@@ -2858,7 +2945,7 @@ bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
 bool CSOL_ScenarioSetMeleeIdentity(CBasePlayerWeapon& weapon)
 {
     CSOLScenarioSdkScope scope;
-    const auto item = CSOL_MeleeItemIdentity(weapon);
+    const auto item = CSOL_MeleeSelectionItem(weapon);
     if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() || !item ||
         (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer) return false;
     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());

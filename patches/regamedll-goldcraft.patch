@@ -4899,16 +4899,30 @@ index cc4a3de..b58cfde 100644
  	{
  		// display the game title if this key is set
 diff --git a/regamedll/dlls/wpn_shared/wpn_knife.cpp b/regamedll/dlls/wpn_shared/wpn_knife.cpp
-index 45269d5..ce86f88 100644
+index 45269d5..7d6a96e 100644
 --- a/regamedll/dlls/wpn_shared/wpn_knife.cpp
 +++ b/regamedll/dlls/wpn_shared/wpn_knife.cpp
-@@ -1,4 +1,5 @@
+@@ -1,4 +1,6 @@
  #include "precompiled.h"
 +#include "../../../../../native/server/bridge.h"
++#include "../../../../../native/csol/server/knife_selection.h"
  
  LINK_ENTITY_TO_CLASS(weapon_knife, CKnife, CCSKnife)
  
-@@ -391,7 +392,7 @@ BOOL CKnife::Swing(BOOL fFirst)
+@@ -89,10 +91,10 @@
+ 
+ 	if (m_pPlayer->HasShield())
+ 	{
+-		return DefaultDeploy("models/shield/v_shield_knife.mdl", "models/shield/p_shield_knife.mdl", KNIFE_SHIELD_DRAW, "shieldknife", UseDecrement() != FALSE);
++		return CSOL_NativeKnifeDeployment(*this, DefaultDeploy("models/shield/v_shield_knife.mdl", "models/shield/p_shield_knife.mdl", KNIFE_SHIELD_DRAW, "shieldknife", UseDecrement() != FALSE));
+ 	}
+ 	else
+-		return DefaultDeploy("models/v_knife.mdl", "models/p_knife.mdl", KNIFE_DRAW, "knife", UseDecrement() != FALSE);
++		return CSOL_NativeKnifeDeployment(*this, DefaultDeploy("models/v_knife.mdl", "models/p_knife.mdl", KNIFE_DRAW, "knife", UseDecrement() != FALSE));
+ }
+ 
+ void CKnife::Holster(int skiplocal)
+@@ -391,7 +393,7 @@
  		ClearMultiDamage();
  
  		pEntity->TraceAttack(m_pPlayer->pev,
@@ -4917,7 +4931,7 @@ index 45269d5..ce86f88 100644
  			gpGlobals->v_forward,
  			&tr,
  			(DMG_NEVERGIB | DMG_BULLET));
-@@ -560,7 +561,7 @@ BOOL CKnife::Stab(BOOL fFirst)
+@@ -560,7 +562,7 @@
  		// player "shoot" animation
  		m_pPlayer->SetAnimation(PLAYER_ATTACK1);
  

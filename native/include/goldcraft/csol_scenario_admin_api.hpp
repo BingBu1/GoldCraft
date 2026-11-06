@@ -32,4 +32,15 @@ public:
     // the next safe GameRules frame; true is acceptance, not completion.
     virtual bool RequestReplay(int mapId) = 0;
 };
+
+// User-requested GoldCraft administration; not an original CSOL rule.
+// A separate extension preserves the deployed Admin001/Replay001 vtables.
+constexpr const char* ScenarioMapVoteServiceVersion = "CSOLScenarioMapVote001";
+class IScenarioMapVoteService : public IBaseInterface
+{
+public:
+    // Trusted plugin call: Pawn checks administrator permissions. True only
+    // accepts a request for the current map; a safe rules frame starts voting.
+    virtual bool RequestMapVote(int mapId) = 0;
+};
 }

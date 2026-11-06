@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "melee_purchase.h"
+#include "knife_selection.h"
 #include "wpn_melee.h"
 #include "weapons.h"
 #include "weapon_slots.h"
@@ -57,10 +58,23 @@ bool Linked(const CSOLScenarioSdkScope& sdk, const CBaseEntity* entity)
 }
 bool ValidKnife(const CBasePlayerWeapon& weapon)
 {
-    return CSOL_MeleeItemIdentity(weapon) ||
-        (typeid(weapon) == typeid(CKnife) && weapon.m_iId == WEAPON_KNIFE &&
-            FClassnameIs(weapon.pev, "weapon_knife"));
+    return CSOL_MeleeSelectionItem(weapon) != 0;
 }
+class NativeDeployment {
+public:
+    NativeDeployment() : previous(current) { current = this; }
+    ~NativeDeployment() { current = previous; }
+    void Bind(CBasePlayerWeapon& weapon) { handle = &weapon; succeeded = false; }
+    bool Complete(const CBasePlayerWeapon& weapon) const
+    { return handle.Get<CBaseEntity>() == &weapon && succeeded; }
+    void Record(CBasePlayerWeapon& weapon, bool success)
+    { if (handle.Get<CBaseEntity>() == &weapon) succeeded = success; }
+    inline static NativeDeployment* current{};
+private:
+    EHANDLE handle;
+    bool succeeded{};
+    NativeDeployment* previous;
+};
 // CSO MP 114D8671..8683 reuses an existing knife without Touch. Our two
 // concrete weapon classes require replacement; omit only its extra native
 // pickup/autoswitch effects, for this exact pair during the Touch call.
@@ -80,7 +94,7 @@ public:
         const auto* fresh = dynamic_cast<const CBasePlayerWeapon*>(&item);
         return old && fresh && !(old->pev->flags & FL_KILLME) &&
             !(item.pev->flags & FL_KILLME) && ValidKnife(*old) &&
-            CSOL_MeleeItemIdentity(*fresh) && old->m_pPlayer == &owner &&
+            ValidKnife(*fresh) && old->m_pPlayer == &owner &&
             old->pev->owner == player.Get() && Contains(owner, old) &&
             (!item.m_pPlayer || item.m_pPlayer == &owner) &&
             (!item.pev->owner || item.pev->owner == player.Get());
@@ -161,11 +175,29 @@ bool CSOL_IsMeleeReplacement(const CBasePlayer& player, const CBasePlayerItem& i
     return ReplacementTouch::current && ReplacementTouch::current->Matches(player, item);
 }
 
+int CSOL_MeleeSelectionItem(const CBasePlayerWeapon& weapon)
+{
+    if (const auto item = CSOL_MeleeItemIdentity(weapon)) return item;
+    // HW 380D4738 / 379EB870: selection index 0 is catalog 161,
+    // InGameID 4000. Do not treat arbitrary ID-29 subclasses as this knife.
+    return typeid(weapon) == typeid(CKnife) && weapon.m_iId == WEAPON_KNIFE &&
+        FClassnameIs(weapon.pev, "weapon_knife") ? 161 : 0;
+}
+
+int CSOL_NativeKnifeDeployment(CBasePlayerWeapon& weapon, int result)
+{
+    if (NativeDeployment::current) NativeDeployment::current->Record(weapon, result != FALSE);
+    return result;
+}
+
 bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
 {
     CSOLScenarioSdkScope sdk;
-    if (!sdk.Current() || !gpGlobals || !csol::melee::IsWeapon(weaponId) ||
-        !CSOL_WeaponsReady() || !CSOL_MeleeReady(weaponId) || !CSOL_CanUseExtendedWeapons(&buyer)) return false;
+    const bool nativeKnife = weaponId == WEAPON_KNIFE;
+    const auto* info = CSOL_ItemInfo(weaponId);
+    if (!sdk.Current() || !gpGlobals || (!nativeKnife && !csol::melee::IsWeapon(weaponId)) ||
+        !CSOL_WeaponsReady() || !info || !info->pszName ||
+        (!nativeKnife && !CSOL_MeleeReady(weaponId)) || !CSOL_CanUseExtendedWeapons(&buyer)) return false;
     const PurchaseGuard guard(buyer.entindex());
     if (!guard || !sdk.Current()) return false;
     const EHANDLE playerHandle(&buyer);
@@ -205,7 +237,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
                 buyer.m_rgpPlayerItems[KNIFE_SLOT] == prior && !prior->m_pNext &&
                 !(prior->pev->flags & FL_KILLME) && prior->m_pPlayer == &buyer &&
                 prior->pev->owner == playerHandle.Get() && prior->m_iId == weaponId &&
-                CSOL_MeleeItemIdentity(*prior);
+                ValidKnife(*prior);
         };
         if (!retained()) return false;
         CSOL_UpdateWeaponInventory(&buyer);
@@ -213,6 +245,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     }
     const bool selectReplacement = prior && buyer.m_pActiveItem == prior;
     const bool hadActive = buyer.m_pActiveItem != nullptr;
+    NativeDeployment nativeDeployment;
     CBaseEntity* createdObject{};
     const float nextAttack = buyer.m_flNextAttack;
     const int viewModel = buyer.pev->viewmodel, playerModel = buyer.pev->weaponmodel;
@@ -234,14 +267,15 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     const auto acquired = [&]() {
         if (!current()) return false;
         auto* weapon = live(fresh);
-        return weapon && weapon == createdObject && CSOL_MeleeItemIdentity(*weapon) && weapon->m_iId == weaponId &&
+        return weapon && weapon == createdObject && ValidKnife(*weapon) && weapon->m_iId == weaponId &&
             weapon->m_pPlayer == &buyer && weapon->pev->owner == playerHandle.Get() && Contains(buyer, weapon);
     };
     const auto selected = [&]() {
         if (!acquired()) return false;
         auto* weapon = live(fresh);
         if (selectReplacement || (!prior && buyer.m_pActiveItem == weapon))
-            return weapon && buyer.m_pActiveItem == weapon && CSOL_MeleeDeploymentComplete(*weapon);
+            return weapon && buyer.m_pActiveItem == weapon && (nativeKnife ?
+                nativeDeployment.Complete(*weapon) : CSOL_MeleeDeploymentComplete(*weapon));
         // MP 114D8775/114D8897: changing the carried knife must not deploy
         // it or interrupt the gun currently held by the player.
         auto* previous = live(active);
@@ -328,8 +362,9 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
         CSOL_UpdateWeaponInventory(&buyer);
         return false;
     };
-    const auto& resource = csol::melee::Resource(csol::melee::WeaponVariant(weaponId));
-    const auto name = ALLOC_STRING(resource.classname);
+    const char* classname = nativeKnife ? "weapon_knife" :
+        csol::melee::Resource(csol::melee::WeaponVariant(weaponId)).classname;
+    const auto name = ALLOC_STRING(classname);
     if (!current()) return false;
     auto* entity = CREATE_NAMED_ENTITY(name);
     // A closed map token forbids dereferencing the returned edict. Engine map
@@ -344,8 +379,9 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     const int spawned = DispatchSpawn(entity);
     if (!current()) return reject();
     auto* weapon = live(fresh);
-    if (spawned < 0 || !weapon || weapon->m_iId != weaponId || !CSOL_MeleeItemIdentity(*weapon) ||
+    if (spawned < 0 || !weapon || weapon->m_iId != weaponId || !ValidKnife(*weapon) ||
         (sdk.Scenario() && !CSOL_ScenarioSetMeleeIdentity(*weapon))) return reject();
+    if (nativeKnife) nativeDeployment.Bind(*weapon);
     if (auto* old = live(original)) {
         ReplacementTouch touch(sdk, buyer, *old, *weapon);
         DispatchTouch(fresh.Get(), playerHandle.Get());
@@ -354,7 +390,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
         DispatchTouch(fresh.Get(), playerHandle.Get());
     }
     if (!acquired()) return reject();
-    if (selectReplacement && buyer.m_pActiveItem != live(fresh)) buyer.SelectItem(resource.classname);
+    if (selectReplacement && buyer.m_pActiveItem != live(fresh)) buyer.SelectItem(classname);
     if (!selected()) return reject();
     if (auto* old = live(original)) {
         if (!Contains(buyer, old) || old->m_pPlayer != &buyer || old->pev->owner != playerHandle.Get()) return reject();

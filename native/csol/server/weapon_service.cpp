@@ -66,6 +66,7 @@ CBasePlayer* Player(int index)
 const char* WeaponName(int id)
 {
     switch (id) {
+    case WEAPON_KNIFE: return "weapon_knife";
     case CSOL_WEAPON_TKNIFEEX2: return "weapon_tknifeex2";
     case CSOL_WEAPON_BEAMGUN: return "weapon_beamgun";
     case CSOL_WEAPON_BEAMGUNLE: return "weapon_beamgunle";
@@ -423,7 +424,7 @@ public:
         WeaponPurchaseGuard guard(index);
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
-        if(csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
+        if(weapon==WEAPON_KNIFE || csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
         if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull3::Id || weapon==csol::skull5::Id)
             return CSOL_DeliverSkullBalrog(*player,weapon);
         if(scenario && weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);

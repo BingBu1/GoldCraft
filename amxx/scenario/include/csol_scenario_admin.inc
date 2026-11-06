@@ -15,3 +15,8 @@ native csol_scenario_replay_api_version();
 // Queues a new challenge using pending difficulty without reloading the map.
 // True means queued; duplicate requests and stale/unavailable maps are rejected.
 native bool:csol_scenario_replay(mapId);
+native csol_scenario_map_vote_api_version();
+// GoldCraft administrator request, independent of the post-clear policy.
+// Check administrator permissions before calling. True means queued for a
+// safe frame, not that the vote opened or that a map change has completed.
+native bool:csol_scenario_map_vote(mapId);

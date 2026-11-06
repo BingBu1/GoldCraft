@@ -119,7 +119,7 @@ bool Vote::Begin(std::uint32_t generation,std::span<const Choice> choices,
         choices.empty() || choices.size() > MaxChoices || !ValidMapName(currentMap)) return false;
     for (std::size_t i = 0; i < choices.size(); ++i)
     {
-        if (!choices[i].id || !ValidMapName(choices[i].mapName) || choices[i].mapName == currentMap) return false;
+        if (!choices[i].id || !ValidMapName(choices[i].mapName)) return false;
         for (std::size_t j = 0; j < i; ++j)
             if (choices[j].id == choices[i].id || choices[j].mapName == choices[i].mapName) return false;
     }

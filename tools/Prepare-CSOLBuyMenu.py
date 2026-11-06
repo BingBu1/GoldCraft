@@ -51,7 +51,7 @@ def main():
             raise ValueError(f'Unexpected original price text {token}: {localized_price}, expected {expected_text}')
         if localized_price!=price:
             price_text_differences.append(dict(weapon=name,token=token,localizedPrice=localized_price,runtimePrice=price))
-    for ident in (96,112,130,142,144,197,203,220,312,725,726,1022,1023):
+    for ident in (29,96,112,130,142,144,197,203,220,312,725,726,1022,1023):
         if not any(image['id']==ident for image in images):
             raise ValueError(f'Missing original purchase image for weapon {ident}')
     for n in ['beamgun','beamgunle']:assert json.loads(read('weapons/weapon_'+n+'.json'))['price']==6100

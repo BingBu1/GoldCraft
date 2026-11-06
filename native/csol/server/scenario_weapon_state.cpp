@@ -4,6 +4,7 @@
 #include "scenario_monster_damage.h"
 #include "weapons.h"
 #include "wpn_melee.h"
+#include "knife_selection.h"
 #include "../melee_identity.hpp"
 #include "game_rules_gate.h"
 #include "scenario_runtime.h"
@@ -1093,13 +1094,13 @@ bool CCSOLScenarioWeaponState::RefreshMeleeSelection(CBasePlayer& player,
     if (!Current() || !Live(&player) || !Live(&weapon) || !gpGlobals || gpGlobals->maxEntities <= 0)
         return false;
     const EHANDLE playerHandle(&player), weaponHandle(&weapon);
-    const auto item = CSOL_MeleeItemIdentity(weapon);
+    const auto item = CSOL_MeleeSelectionItem(weapon);
     if (!item || !Current() || playerHandle.Get<CBaseEntity>() != &player ||
         weaponHandle.Get<CBaseEntity>() != &weapon || !Live(&weapon)) return false;
     const auto* selection = FindSelection(player, generation);
     if (!selection || weapon.m_pPlayer != &player || weapon.pev->owner != player.edict()) return false;
     const auto catalog = m_catalog.find(item);
-    const auto inGame = item == csol::melee::DragonSwordItemId ? 4016 : 4010;
+    const auto inGame = item == 161 ? 4000 : item == csol::melee::DragonSwordItemId ? 4016 : 4010;
     if (catalog == m_catalog.end() || !catalog->second.equipment ||
         catalog->second.category != 11 || catalog->second.inGame != inGame) return false;
 

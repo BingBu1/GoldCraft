@@ -90,9 +90,11 @@ int NightVision(const char* name,int size,void* data)
 }
 void DrawCrosshair(int intermission)
 {
-    if((!Custom() && !MagazineActive()) || intermission || (hidden&69) || view.health<=0 || view.spectator ||
-        fieldOfView<90 || engine.pfnGetCvarFloat("hud_draw")==0)return;
     const auto* module=FindWeaponModule(active);
+    // CSO chooses the crosshair from the weapon record, including knife 29.
+    // AmmoKind::None must not exclude a registered melee presentation.
+    if((!Custom() && !(module && FindWeaponDefinition(active))) || intermission || (hidden&69) ||
+        view.health<=0 || view.spectator || fieldOfView<90 || engine.pfnGetCvarFloat("hud_draw")==0)return;
     if(module && !module->dynamicCrosshair)return;
     // CS draws this dynamic crosshair itself. The engine's `crosshair`
     // cvar controls its separate sprite path, not CHudAmmo::DrawCrosshair.
