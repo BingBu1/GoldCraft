@@ -33,6 +33,11 @@ def main():
         raise ValueError("Resource sync catalog engine identity mismatch")
     config["records"].extend(resource_sync["records"])
     config["verification"].extend(resource_sync["verification"])
+    native_hud = json.loads((ROOT / "native/client/native_hud_engine_10210.json").read_text())
+    if (native_hud["sha256"], native_hud["crc64"]) != (config["sha256"], config["crc64"]):
+        raise ValueError("Native HUD engine catalog identity mismatch")
+    config["records"].extend(native_hud["records"])
+    config["verification"].extend(native_hud["verification"])
     identity = runpy.run_path(str(ROOT / "tools/Inspect-EngineIdentity.py"))["inspect"](engine)
     if (identity["sha256"] != config["sha256"] or
             identity["crc64xz"].lower() != config["crc64"]):
@@ -53,6 +58,30 @@ def main():
         expected = bytes.fromhex(check["bytes"])
         if read_rva(int(check["rva"], 16), len(expected)) != expected:
             raise ValueError(f"Reviewed instruction changed at {check['rva']}")
+    # Pair SPR_GetList's calloc with the original engine's free. Enumerate each
+    # descriptor only to its own terminator; adjacent IATs are different owners.
+    imports = {}
+    import_rva, import_size = struct.unpack_from("<II", data, pe + 24 + 96 + 8)
+
+    def cstring(rva):
+        value = bytearray()
+        while (byte := read_rva(rva + len(value), 1)) != b"\0":
+            value.extend(byte)
+        return value.decode("ascii")
+
+    for offset in range(0, import_size - 19, 20):
+        lookup, _, _, module, address = struct.unpack("<IIIII", read_rva(import_rva + offset, 20))
+        if not module:
+            break
+        owner = cstring(module).lower()
+        displacement = 0
+        while (entry := struct.unpack("<I", read_rva((lookup or address) + displacement, 4))[0]):
+            if not entry & 0x80000000:
+                imports[address + displacement] = (owner, cstring(entry + 2))
+            displacement += 4
+    for entry in native_hud["imports"]:
+        if imports.get(int(entry["iatRva"], 16)) != (entry["module"].lower(), entry["name"]):
+            raise ValueError("Native HUD engine allocator import changed: " + entry["name"])
     records = {record["symbolName"]: record for record in config["records"]}
     readers = 0
     for name, record in records.items():

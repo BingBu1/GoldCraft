@@ -36,7 +36,8 @@ def main():
     fixture = out / 'root'
     files = ['tools/Build-ClientGameData.py', 'tools/Inspect-EngineIdentity.py']
     files += ['native/client/' + name for name in ('vitals_10210.json', 'motion_10210.json',
-        'spectator_menu_10210.json', 'hud_clock_10210.json', 'shared_random_10210.json')]
+        'spectator_menu_10210.json', 'hud_clock_10210.json', 'shared_random_10210.json',
+        'native_hud_client_10210.json')]
     snapshots = []
     for relative in files:
         original = ROOT / relative

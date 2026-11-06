@@ -1,0 +1,21 @@
+{
+  "sha256": "9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295",
+  "crc64": "6ef7192cd8254e2d",
+  "records": [
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraftNativeHud_SourceFree",
+      "kind": "function",
+      "payload": {"func_rva": "0x1da3e0", "func_size": "0x6"}
+    }
+  ],
+  "verification": [
+    {"rva": "0x195cb0", "bytes": "69 cb 98 00 00 00 6a 01 51 ff 15 38 24 2b 10"},
+    {"rva": "0x1da3e0", "bytes": "ff 25 2c 24 2b 10"}
+  ],
+  "imports": [
+    {"iatRva": "0x2b2438", "module": "api-ms-win-crt-heap-l1-1-0.dll", "name": "calloc"},
+    {"iatRva": "0x2b242c", "module": "api-ms-win-crt-heap-l1-1-0.dll", "name": "free"}
+  ]
+}

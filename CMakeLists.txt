@@ -243,6 +243,8 @@ if(GOLDCRAFT_BUILD_CLIENT)
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
     target_sources(GoldCraft PRIVATE native/client/spectator_menu.cpp)
     target_sources(GoldCraft PRIVATE native/client/hud_clock.cpp)
+    target_sources(GoldCraft PRIVATE native/client/resource_native_hud.cpp
+        native/client/resource_native_hud_host.cpp)
     target_include_directories(GoldCraft PRIVATE
         "${METAHOOK_SOURCE_PATH}/include" "${METAHOOK_SOURCE_PATH}/include/Interface"
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common" "${METAHOOK_SOURCE_PATH}/include/HLSDK/cl_dll"

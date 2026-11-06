@@ -1,0 +1,52 @@
+{
+  "sha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "crc64": "124d6034a6b28b40",
+  "records": [
+    {
+      "platform": "windows",
+      "module": "client",
+      "symbolName": "GoldCraftNativeHud_State",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x117b48",
+        "gv_va": "0x10117b48",
+        "gv_sig": "B9 ?? ?? ?? ??",
+        "gv_sig_va": "0x10047790",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "client",
+      "symbolName": "GoldCraftNativeHud_VidInit",
+      "kind": "function",
+      "payload": {"func_rva": "0x47790", "func_size": "0x10"}
+    },
+    {
+      "platform": "windows",
+      "module": "client",
+      "symbolName": "GoldCraftNativeHud_DeleteArray",
+      "kind": "function",
+      "payload": {"func_rva": "0xb4919", "func_size": "0x5"}
+    },
+    {
+      "platform": "windows",
+      "module": "client",
+      "symbolName": "GoldCraftNativeHud_GetSurface",
+      "kind": "function",
+      "payload": {"func_rva": "0x78320", "func_size": "0x6"}
+    }
+  ],
+  "verification": [
+    {"rva": "0x47790", "bytes": "b9 48 7b 11 10 e8 06 99 00 00 b8 01 00 00 00 c3"},
+    {"rva": "0x50424", "bytes": "ff b7 78 01 00 00 e8 ea 44 06 00 ff b7 7c 01 00 00 e8 df 44 06 00 ff b7 80 01 00 00 e8 d4 44 06 00"},
+    {"rva": "0xb4919", "bytes": "e9 b6 0b 00 00"},
+    {"rva": "0xb54d4", "bytes": "e9 cb 01 00 00"},
+    {"rva": "0x78320", "bytes": "a1 e4 55 13 10 c3"},
+    {"rva": "0x78087", "bytes": "6a 00 68 b0 25 0d 10 ff d0 83 c4 08"},
+    {"rva": "0x78266", "bytes": "a3 e4 55 13 10 e9 3e fe ff ff"},
+    {"rva": "0xd25b0", "bytes": "56 47 55 49 5f 53 75 72 66 61 63 65 30 32 36 00"}
+  ]
+}

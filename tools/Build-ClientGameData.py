@@ -227,6 +227,17 @@ def main():
                             "gv_rva": hex(iat), "gv_va": hex(IMAGE_BASE + iat),
                             "gv_sig": "FF 15 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + reference_rva),
                             "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
+    # Native HUD owners are specific to this client, including its delete[]
+    # thunk and VGUI_Surface026 instance. Never borrow the plugin CRT/surface.
+    native_hud = json.loads((ROOT / "native/client/native_hud_client_10210.json").read_text())
+    if (native_hud["sha256"] != identity["sha256"] or
+            native_hud["crc64"].lower() != identity["crc64xz"].lower()):
+        raise ValueError("Native HUD client catalog identity mismatch")
+    for check in native_hud["verification"]:
+        expected = bytes.fromhex(check["bytes"])
+        if raw(int(check["rva"], 16), len(expected)) != expected:
+            raise ValueError("Native HUD client instruction changed at " + check["rva"])
+    records.extend(native_hud["records"])
     provided = set()
     if args.existing_catalog:
         catalog = args.existing_catalog.resolve(strict=True)
