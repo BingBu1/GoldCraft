@@ -16,12 +16,16 @@
 #include "../weapon_slots.hpp"
 #include "../k3.hpp"
 #include "../cannon.hpp"
+#include "../render_settings.hpp"
 
 namespace
 {
 ItemInfo extendedInfo[csol::WeaponIdLimit - csol::LegacyWeaponLimit]{};
 WeaponSlotInfo extendedSlots[csol::WeaponIdLimit - csol::LegacyWeaponLimit]{};
-int definitionMessage{}, inventoryMessage{}, currentMessage{}, pickupMessage{}, ammoPickupMessage{};
+int definitionMessage{}, inventoryMessage{}, currentMessage{}, pickupMessage{}, ammoPickupMessage{}, renderMessage{};
+// Host adaptation: force the client Renderer gamma-space blending the original
+// CSO engine uses. Read once per map when the sign-on buffer is written.
+cvar_t csol_gamma_blend{"csol_gamma_blend", "1", FCVAR_SERVER};
 struct ClientInventory
 {
     int userid{};
@@ -51,6 +55,14 @@ void InitMessages()
     currentMessage=REG_USER_MSG(csol::WeaponCurrentMessage,10);
     pickupMessage=REG_USER_MSG(csol::WeaponPickupMessage,3);
     ammoPickupMessage=REG_USER_MSG(csol::AmmoPickupMessage,6);
+    renderMessage=REG_USER_MSG(csol::render::Message,csol::render::MessageBytes);
+}
+void WriteRenderSettings()
+{
+    if(!renderMessage)return;
+    auto value=csol::render::EncodeGammaBlend(csol_gamma_blend.value);
+    if(!value){ALERT(at_error,"[CSOL] csol_gamma_blend must be -1, 0 or 1; clients are not forced\n");value=csol::render::NoForce;}
+    MESSAGE_BEGIN(MSG_INIT,renderMessage);WRITE_BYTE(*value);MESSAGE_END();
 }
 }
 unsigned int CSOL_LegacyWeaponMask(int id){return csol::LegacyWeaponMask(id);}
@@ -178,8 +190,11 @@ void CSOL_ResetWeaponRegistry()
     Q_memset(extendedSlots,0,sizeof(extendedSlots));
     Q_memset(extendedInfo,0,sizeof(extendedInfo));clients={};haveExtendedDefinitions=false;InitMessages();
 }
+void CSOL_InitRenderSettings(){CVAR_REGISTER(&csol_gamma_blend);}
 void CSOL_WriteWeaponDefinitions()
 {
+    // Every new connection replays the sign-on buffer, including map changes.
+    WriteRenderSettings();
     if(!haveExtendedDefinitions)return;
     for(const auto& info:extendedInfo)
     {

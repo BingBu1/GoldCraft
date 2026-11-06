@@ -38,6 +38,7 @@
 #include "character_skill_display.hpp"
 #include "scenario_smoke.hpp"
 #include "balrog11_flame.hpp"
+#include "render_settings.hpp"
 #include "elite_visuals.hpp"
 #include "frozen_death.hpp"
 #include "frozen_smoke.hpp"
@@ -339,6 +340,7 @@ static void Init()
     InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
     InitializeBalrog11Flame();
+    InitializeRenderSettings();
     InitializeEliteVisuals();
     InitializeScenarioUpgrades();
     InitializeScenarioAbilities();
@@ -406,6 +408,7 @@ static void Frame(double time)
     ScenarioRespawnUiFrame();
     EliteVisualsFrame();
     Balrog11FlameFrame();
+    RenderSettingsFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
     CharacterFrame();
@@ -443,6 +446,11 @@ static void CalcRefdef(ref_params_t* params)
     downstream.V_CalcRefdef(params);
     CameraRefdef(params);
     view=*params;
+}
+static void Normal()
+{
+    if(downstream.HUD_DrawNormalTriangles)downstream.HUD_DrawNormalTriangles();
+    DrawOwnedOpaque();
 }
 static void Transparent()
 {
@@ -500,6 +508,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;
     functions->HUD_DrawTransparentTriangles=Transparent;
+    functions->HUD_DrawNormalTriangles=Normal;
     functions->HUD_Redraw=Redraw;
     functions->HUD_PostRunCmd=WeaponPostRunCmd;
     functions->CL_CreateMove=CreateMove;

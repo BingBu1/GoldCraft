@@ -16,7 +16,8 @@ FBO_Container_t* target=reinterpret_cast<FBO_Container_t*>(&targetTag);
 std::array<float,16> world{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1},projection=world;
 cl_entity_t* current{};
 cl_entity_t* local{};
-bool thirdPerson{},cannonEventHandled{};
+bool thirdPerson{},cannonEventHandled{},gammaTarget{};
+cvar_t gammaSetting{},textureGamma{},savedGammaBlend{};
 int cannonEventCalls{},nativeEventCalls{};
 cl_entity_t entity{},viewmodel{},ordinary{};
 model_t model{},ordinaryModel{},sprite{};
@@ -49,6 +50,15 @@ model_t* LoadEngineModel(const char*){return nullptr;}
 int BeamgunViewSkin(const cl_entity_t*){return -1;}
 unsigned BeamEffectIdentity(const cl_entity_t* entity){return entity==&fixture::entity?fixture::identity:0;}
 void PruneBeamEffects(){}void DrawBeamgunTracers(){}void DrawCannonSmoke(){}
+// Independent particle systems are outside this mesh/event routing fixture.
+void DrawScenarioSmoke(){}void DrawEliteVisuals(){}void DrawFrozenSmoke(){}
+void DrawBalrog11Flame(){}void ResetBalrog11Flame(){}void ResetEmotionVoices(){}
+void Balrog11FlameDiagnostics(std::ostream&){}void RenderSettingsDiagnostics(std::ostream&){}
+// Voice and weapon handedness are isolated boundaries of this mesh fixture.
+bool EmotionVoiceStudioEvent(const mstudioevent_t*,const cl_entity_t*){return false;}
+MeleeHandScope::MeleeHandScope(cl_entity_t*,int){}
+MeleeHandScope::~MeleeHandScope(){}
+void BuyMenuDiagnostics(std::ostream&){}
 bool CannonStudioEvent(const mstudioevent_t*,const cl_entity_t*){++fixture::cannonEventCalls;return fixture::cannonEventHandled;}
 void WeaponDiagnostics(std::ostream&){}void CameraDiagnostics(std::ostream&){}void ProjectileDiagnostics(std::ostream&){}
 void CharacterDiagnostics(std::ostream&){}void PlayerAnimationDiagnostics(std::ostream&){}
@@ -73,6 +83,7 @@ void EnsureGeometry(Asset& a)
 int main(int argc,char** argv)
 {
     using namespace csol;using namespace csol::client;using namespace fixture;
+    const bool opaqueGamma=argc>=2 && std::string_view(argv[1])=="--opaque-gamma";
     check(glfwInit()!=0);glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
     glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);auto* window=glfwCreateWindow(32,32,"CSOL scene regression",nullptr,nullptr);check(window!=nullptr);
     glfwMakeContextCurrent(window);glewExperimental=GL_TRUE;check(glewInit()==GLEW_OK);while(glGetError()){}
@@ -83,10 +94,12 @@ int main(int argc,char** argv)
     engine.GetLocalPlayer=[](){return local;};
     downstream.HUD_StudioEvent=[](const mstudioevent_t*,const cl_entity_t*){++nativeEventCalls;};
     mstudioevent_t numeric{};numeric.event=5001;std::strcpy(numeric.options,"103112");
+    if(!opaqueGamma){
     cannonEventHandled=true;StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==1&&nativeEventCalls==0);
     cannonEventHandled=false;StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==2&&nativeEventCalls==1);
     numeric.event=5004;std::strcpy(numeric.options,"weapons/cannon_draw.wav");StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==3&&nativeEventCalls==2);
     StudioEvent(nullptr,&viewmodel);check(cannonEventCalls==4&&nativeEventCalls==3);
+    }
     engine.pfnGetCvarPointer=[](const char*)->cvar_t*{return nullptr;};
     engine.Con_Printf=console;
     studio.GetTimes=[](int* f,double* t,double* old){*f=frame;*t=sceneTime;*old=sceneTime-.01;};
@@ -118,6 +131,54 @@ int main(int argc,char** argv)
     auto pixel=[](){std::array<unsigned char,4> p{};glReadPixels(16,16,1,1,GL_RGBA,GL_UNSIGNED_BYTE,p.data());return p;};
     auto clear=[&](double z=1){glDepthMask(1);glStencilMask(255);glClearColor(0,0,1,1);glClearDepth(z);glClearStencil(73);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);};
     auto queue=[&](){current=&entity;check(DrawModel(&entity,STUDIO_RENDER|STUDIO_EVENTS,pose));};
+    if(opaqueGamma)
+    {
+        // A fullbright mid-grey texel becomes 128 in a gamma target and about
+        // 64 in a linear target with both exponents set to 2. The expected
+        // bytes are independent of the production Camera() source selection.
+        const int scenario=argc==3?std::atoi(argv[2]):0;check(scenario>=0&&scenario<6);
+        gammaSetting.value=textureGamma.value=2;
+        engine.pfnGetCvarPointer=[](const char* name)->cvar_t*
+        {
+            if(!std::strcmp(name,"gamma"))return &gammaSetting;
+            if(!std::strcmp(name,"texgamma"))return &textureGamma;
+            if(!std::strcmp(name,"r_gamma_blend"))return &savedGammaBlend;
+            return nullptr;
+        };
+        auto& opaque=asset.materials[0];opaque.blend=Blend::Opaque;opaque.depth=true;opaque.flags|=STUDIO_NF_FULLBRIGHT;
+        glBindTexture(GL_TEXTURE_2D,opaque.texture);const unsigned char grey[]{128,128,128,255};
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,grey);
+        EnsureGeometry(asset);Program();
+        auto history=[&](bool gamma)
+        {descriptor.flags=gamma?META_POST_SCENE_GAMMA:META_POST_SCENE_LINEAR;DrawOwnedWorld(descriptor);};
+        auto render=[&](bool gamma,bool saved,const char* label)
+        {
+            gammaTarget=gamma;savedGammaBlend.value=saved?1.f:0.f;
+            ++frame;sceneTime+=.1;descriptor.frame_number=frame;clear();queue();
+            const int lightCount=lightingCalls;
+            DrawOwnedOpaque();const auto actual=pixel();const int expected=gamma?128:64;
+            std::printf("opaque gamma case=%d %s target=%d saved=%d rgb=%d,%d,%d expected=%d\n",
+                scenario,label,int(gamma),int(saved),actual[0],actual[1],actual[2],expected);
+            for(int channel=0;channel<3;++channel)check(std::abs(int(actual[channel])-expected)<=1);
+            check(lightingCalls==lightCount);
+            float writtenDepth;glReadPixels(16,16,1,1,GL_DEPTH_COMPONENT,GL_FLOAT,&writtenDepth);check(writtenDepth<.51f);
+            descriptor.flags=gamma?META_POST_SCENE_GAMMA:META_POST_SCENE_LINEAR;
+            DrawOwnedWorld(descriptor);check(pixel()==actual);check(glGetError()==GL_NO_ERROR);
+        };
+        if(scenario==0)render(false,true,"first-linear");
+        if(scenario==1)render(true,false,"first-gamma");
+        if(scenario==2){history(true);render(false,false,"previous-gamma");}
+        if(scenario==3){history(false);render(true,true,"previous-linear");}
+        if(scenario==4){render(false,false,"before-toggle");render(true,true,"after-toggle");}
+        if(scenario==5)
+        {
+            history(true);ClearScene();
+            glewReady=true;graphicsContext=wglGetCurrentContext();renderer=&host;postRenderer=&post;
+            Program();render(false,false,"new-session");
+        }
+        std::printf("PASS opaque gamma %d checks; GPU=%s\n",checks,glGetString(GL_RENDERER));
+        ClearScene();glfwDestroyWindow(window);glfwTerminate();return 0;
+    }
     check(!DrawModel(&ordinary,STUDIO_RENDER,pose));check(poses==0);
     clear();queue();check(geometryCalls==1&&entity.curstate.scale==.5f);check(std::abs(states[&entity].bones[0][0][0]-.5f)<1e-6f);
     const int lightBefore=lightingCalls;current=&ordinary;ordinaryModel.type=mod_brush;

@@ -11,6 +11,7 @@
 #include "emotion_voice.hpp"
 #include "scenario_smoke.hpp"
 #include "balrog11_flame.hpp"
+#include "render_settings.hpp"
 #include "elite_visuals.hpp"
 #include "frozen_smoke.hpp"
 #include "camera.hpp"
@@ -49,9 +50,14 @@ struct WorldDraw
 {
     cl_entity_t* entity{};unsigned identity{};int frame{};bool events{};
     FBO_Container_t* target{};
+    // Opaque meshes already drawn in the host opaque phase (DrawOwnedOpaque).
+    bool opaqueDrawn{};
     std::array<float,16> world{},projection{};
 };
 std::array<WorldDraw,256> worldDraws;
+// Opaque prepass reuses captured lighting and the renderer's current target
+// color space; a previous frame can belong to another target or session.
+bool opaquePrepass{};std::uint64_t opaquePrepassDraws{};
 HGLRC graphicsContext{};
 cvar_t* colorSettings[6]{};
 GLuint program{},quadVAO{},quadVBO{};
@@ -283,7 +289,8 @@ void Camera()
     glUseProgram(program);
     if(!colorSettings[0]){const char* names[]{"gamma","texgamma","lightgamma","r_gamma_blend","brightness","lambert"};for(int i=0;i<6;++i)colorSettings[i]=engine.pfnGetCvarPointer(names[i]);}
     auto setting=[](int index,float fallback){const auto* v=colorSettings[index];return v && std::isfinite(v->value)?v->value:fallback;};
-    glUniform4f(uniform.gamma,std::max(.1f,setting(0,2.2f)),std::max(.1f,setting(1,2.f)),std::max(.1f,setting(2,2.5f)),!renderer || setting(3,1)>0?1.f:0.f);
+    const bool gammaSpace=opaquePrepass && renderer ? renderer->IsDrawGammaBlendEnabled() : (!renderer || setting(3,1)>0);
+    glUniform4f(uniform.gamma,std::max(.1f,setting(0,2.2f)),std::max(.1f,setting(1,2.f)),std::max(.1f,setting(2,2.5f)),gammaSpace?1.f:0.f);
     glUniform2f(uniform.lighting,std::max(0.f,setting(4,0)),std::max(1.f,setting(5,1.5f)));
     if(postFrame)
     {
@@ -467,7 +474,7 @@ void Blending(Blend blend)
 void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
 {
     const auto& h=asset.Header();Camera();glUniform4fv(uniform.bones,h.numbones*3,(float*)state.bones.data());
-    if(!postFrame)
+    if(!postFrame && !opaquePrepass)
     {
         alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
         std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
@@ -587,7 +594,7 @@ void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept
         std::sort(visible.begin(),visible.begin()+count,[&](const auto& a,const auto& b){return distance(a)>distance(b);});
         // World weapon bodies participate in occlusion before any transparent
         // weapon/effect layer. TEMPENTITY effects never write scene depth.
-        for(size_t i=0;i<count;++i)if(WorldWeaponFor(visible[i].entity))
+        for(size_t i=0;i<count;++i)if(WorldWeaponFor(visible[i].entity) && !visible[i].opaqueDrawn)
         {
             const auto found=states.find(visible[i].entity);
             if(found!=states.end())DrawAsset(visible[i].entity,*found->second.asset,found->second,0);
@@ -616,12 +623,46 @@ void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept
                 memcpy(studio.StudioGetBoneTransform(),previousBones.data(),sizeof(Bones));
                 memcpy(studio.StudioGetLightTransform(),previousLights.data(),sizeof(Bones));
             }
-            DrawAsset(entity,*state.asset,state,WorldWeaponFor(entity)?1:-1);DrawEffects(entity,state.time);
+            DrawAsset(entity,*state.asset,state,WorldWeaponFor(entity) || visible[i].opaqueDrawn?1:-1);DrawEffects(entity,state.time);
         }
     }
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: world effects: %s\n",e.what());}
     postFrame=nullptr;
 }
+}
+
+// HUD_DrawNormalTriangles: the host opaque phase, after the GBuffer resolve
+// and before any translucent entity, TriAPI effect or particle. Drawing the
+// opaque meshes of renderer-owned studio models (CSOL monsters, map effects,
+// world weapons) here lets fire, smoke and fog in front of them cover them.
+// Post-scene still draws their translucent meshes and effects afterwards.
+void DrawOwnedOpaque()
+{
+    if(!enabled || !enabled->value || !program || !renderer || !postRenderer || !EnsureGL())return;
+    auto* target=renderer->GetCurrentSceneFBO();
+    // Main-view color targets only; shadow, water and portal passes keep
+    // their existing behaviour (post-scene is likewise main-view only).
+    if(!target || (target!=renderer->GetBackBufferFBO() && target!=renderer->GetBackBufferFBO3()))return;
+    int frame;double now,old;studio.GetTimes(&frame,&now,&old);
+    const float* world=renderer->GetWorldMatrix();const float* projection=renderer->GetProjectionMatrix();
+    if(!world || !projection)return;
+    try
+    {
+        GLState save;opaquePrepass=true;
+        struct Reset{~Reset(){opaquePrepass=false;}} reset;
+        glDisable(GL_STENCIL_TEST);glDepthFunc(GL_LEQUAL);
+        for(auto& draw:worldDraws)
+        {
+            if(!draw.entity || draw.opaqueDrawn || draw.frame!=frame || WorldIdentity(draw.entity)!=draw.identity ||
+                draw.target!=target || !std::equal(draw.world.begin(),draw.world.end(),world) ||
+                !std::equal(draw.projection.begin(),draw.projection.end(),projection))continue;
+            const auto found=states.find(draw.entity);
+            if(found==states.end() || !found->second.asset)continue;
+            DrawAsset(draw.entity,*found->second.asset,found->second,0);
+            draw.opaqueDrawn=true;++opaquePrepassDraws;
+        }
+    }
+    catch(const std::exception& e){engine.Con_Printf("CSOLSupport: opaque world: %s\n",e.what());}
 }
 
 bool DrawWorldWeaponPoints()
@@ -911,13 +952,13 @@ void SceneFrame()
     const double now=engine.GetClientTime();if(now<nextDiagnostic)return;nextDiagnostic=now+.1;
     const auto* ent=engine.GetViewModel();const auto found=states.find(ent);const State* state=found==states.end()?nullptr:&found->second;
     std::ofstream file(diagnosticPath,std::ios::trunc);if(!file)return;
-    file<<"{\"time\":"<<now<<",\"draws\":"<<draws<<",\"events\":"<<eventCount<<",\"effects\":"<<effects.size()
+    file<<"{\"time\":"<<now<<",\"draws\":"<<draws<<",\"opaquePrepass\":"<<opaquePrepassDraws<<",\"events\":"<<eventCount<<",\"effects\":"<<effects.size()
         <<",\"failures\":"<<failures.size()<<",\"partMessages\":"<<partMessages<<",\"viewMessages\":"<<viewMessages<<",\"rejectedMessages\":"<<rejectedMessages
         <<",\"skin\":"<<(viewState?int(viewState->Skin):ent?int(ent->curstate.skin):-1)<<",\"sequence\":"<<(state?state->sequence:-1)<<",\"parts\":[";
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);StudioSoundDiagnostics(file);
+    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);RenderSettingsDiagnostics(file);StudioSoundDiagnostics(file);
     const auto* hands=ViewCharacter() && state && state->asset?state->asset:nullptr;
     const int handBody=ent?ent->curstate.body:0;
     file<<",\"handAdapter\":{\"meshes\":"<<(hands?hands->adaptedMeshes:0)<<",\"bones\":"<<(hands?hands->adaptedBones:0)

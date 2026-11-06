@@ -9,6 +9,9 @@ methods = re.findall(r'virtual\s+([^;]+?)\s*=\s*0\s*;', source)
 overrides = {
     'GetCurrentSceneFBO': 'return fixture::target;',
     'GetCurrentRenderingFBO': 'return fixture::target;',
+    'GetBackBufferFBO': 'return fixture::target;',
+    'GetBackBufferFBO3': 'return fixture::target;',
+    'IsDrawGammaBlendEnabled': 'return fixture::gammaTarget;',
     'GetWorldMatrix': 'return fixture::world.data();',
     'GetProjectionMatrix': 'return fixture::projection.data();',
     'SetCurrentEntity': 'fixture::current = entity;',

@@ -17,6 +17,8 @@ bool CSOL_RegisterItemInfo(const ItemInfo& info);
 int CSOL_MaxAmmoCarry(const char* ammo);
 void CSOL_ResetWeaponRegistry();
 void CSOL_WriteWeaponDefinitions();
+// GameDLL init: registers csol_gamma_blend (-1 off, 0/1 forced client r_gamma_blend).
+void CSOL_InitRenderSettings();
 void CSOL_UpdateWeaponInventory(CBasePlayer* player);
 bool CSOL_SendWeaponPickup(CBasePlayer* player, int id);
 bool CSOL_SendAmmoPickup(CBasePlayer* player, const char* ammo, int amount);

@@ -616,6 +616,7 @@ void CTKnifeEx2::WeaponIdle()
 void CSOL_InitWeapons()
 {
     CVAR_REGISTER(&csol_weapons);
+    CSOL_InitRenderSettings();
     CSOL_InitBeamDamage();
     CSOL_InitBeamWeapons();
     CSOL_InitCannon();

@@ -22,6 +22,7 @@
 #include "scenario_round_hud_client.hpp"
 #include "scenario_respawn_ui.hpp"
 #include "playerclip.hpp"
+#include "render_settings.hpp"
 #include <ostream>
 #include <algorithm>
 
@@ -59,6 +60,7 @@ void ResetSession()
     ResetScenarioRoundHud();
     ResetScenarioRespawnUi();
     ResetPlayerClips();
+    ResetRenderSettings();
 }
 }
 

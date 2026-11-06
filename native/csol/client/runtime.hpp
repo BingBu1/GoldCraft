@@ -45,6 +45,7 @@ void SceneFrame();
 bool EnsureGraphics();
 bool DrawModel(cl_entity_t* entity, int flags, int (*original)(int));
 bool DrawWorldWeaponPoints();
+void DrawOwnedOpaque();
 extern void* currentStudioHeader;
 extern model_t* currentStudioModel;
 void StudioEvent(const mstudioevent_t* event, const cl_entity_t* entity);
