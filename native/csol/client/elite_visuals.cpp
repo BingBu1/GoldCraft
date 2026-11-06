@@ -54,7 +54,9 @@ void Add(const elitefx::Emitter& parameters)
     if (!engine.GetClientTime || !engine.GetEntityByIndex) return;
     const float now = static_cast<float>(engine.GetClientTime());
     if (!std::isfinite(now)) return;
-    if (haveTime && now < lastTime) ResetEliteVisuals();
+    // Messages observe packet time, normally behind the last interpolated
+    // frame. Do not treat that as a rewind: it cleared every live trail on
+    // each new emitter (same defect measured live for Balrog11 TempEmit).
     if (!Models()) return;
     const auto* owner = engine.GetEntityByIndex(parameters.owner);
     if (!owner || !owner->model) return;
@@ -170,8 +172,11 @@ void EliteVisualsFrame()
     if (!engine.GetClientTime || !engine.GetEntityByIndex || !engine.GetLocalPlayer ||
         !engine.pfnRandomFloat || !engine.pfnRandomLong) return;
     const float now = static_cast<float>(engine.GetClientTime());
-    if (!std::isfinite(now) || (haveTime && now < lastTime)) { ResetEliteVisuals(); return; }
-    if (haveTime && now == lastTime) return;
+    if (!std::isfinite(now)) { ResetEliteVisuals(); return; }
+    // Preserve the last integrated time until the corrected clock catches up;
+    // otherwise particles can acquire negative frames or move twice over the
+    // same interval. InitHUD/ResetHUD and session changes own clearing.
+    if (haveTime && now <= lastTime) return;
     const float delta = haveTime ? now - lastTime : 0;
     lastTime = now; haveTime = true;
     const auto* local = engine.GetLocalPlayer();

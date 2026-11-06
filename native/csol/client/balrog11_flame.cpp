@@ -44,7 +44,10 @@ int Receive(const char* name, int size, void* data)
     auto generation = epoch;
     const float now = static_cast<float>(engine.GetClientTime());
     if (generation != epoch || !std::isfinite(now)) { ++invalid; return 1; }
-    if (haveTime && now < lastTime) { ResetBalrog11Flame(); generation = epoch; }
+    // User messages observe packet time, which normally lags the previous
+    // frame's interpolated cl.time. That is not a clock rewind: clearing here
+    // wiped every live trail on each new TempEmit (live B 2026-11-05:
+    // 25 received, 105 emitted, 0 retired). Level changes reset via session.
     const auto free = std::find_if(emitters.begin(), emitters.end(), [](const auto& e) { return !e.active; });
     if (free == emitters.end()) { ++exhausted; return 1; }
     // TempEmit precedes the new entity's first snapshot. Resolve its model
@@ -60,8 +63,11 @@ void Advance()
     const auto generation = epoch;
     const float now = static_cast<float>(engine.GetClientTime());
     if (generation != epoch) return;
-    if (!std::isfinite(now) || (haveTime && now < lastTime)) { ResetBalrog11Flame(); return; }
-    if (haveTime && now == lastTime) return;
+    if (!std::isfinite(now)) { ResetBalrog11Flame(); return; }
+    // Keep the last integrated time across clock corrections. Lowering it
+    // would integrate the same interval twice and can make age/frame negative
+    // for particles born before the correction. Session reset owns clearing.
+    if (haveTime && now <= lastTime) return;
     const float before = haveTime ? lastTime : now;
     lastTime = now; haveTime = true;
     if (!sprite && engine.CL_LoadModel)
