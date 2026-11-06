@@ -13,6 +13,9 @@ struct ResourceSyncCallbacks {
 void set_resource_sync(ResourceSyncCallbacks callbacks);
 bool resume_resource_sync();
 void set_reset_observer(void (*callback)());
+// Only the real CL_ClearState original return reports this fact. The observer
+// must not release resources or assume Host_Error has already unwound.
+void set_clear_state_observer(void (*callback)());
 bool install(metahook_api_s* api);
 bool install_client();
 const char* install_error();

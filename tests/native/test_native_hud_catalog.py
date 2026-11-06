@@ -76,12 +76,12 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes())
         frozen.append(dict(original=identity(source), frozen=identity(target)))
-    # Compare only the ten new catalog windows with saved IDA and exact PE.
+    # Compare only the native HUD catalog windows with saved IDA and exact PE.
     captures = {
         'client': ['client-hud-original-bytes.json', 'client-ctor-dtor-original-bytes.json',
                    'client-hud-final-original-bytes.json', 'client-allocator-original-bytes.json',
                    'client-native-surface-getter-original-bytes.json', 'client-native-surface-provider-original-bytes.json'],
-        'engine': ['hw-directory-allocator-original-bytes.json'],
+        'engine': ['hw-directory-allocator-original-bytes.json', '../host-unwind-20261106/ida-evidence.json'],
     }
     spans = []
     for role, binary in [('client', args.client), ('engine', args.engine)]:
@@ -94,8 +94,12 @@ def main():
             path = args.evidence / name
             inputs.append(identity(path))
             capture = json.loads(path.read_text('utf-8-sig'))
-            assert capture['sha256'] == actual['sha256']
-            regions += capture['response']['result']['structuredContent']['result']
+            if 'queries' in capture:
+                assert capture['expected_sha256'] == actual['sha256']
+                regions += capture['queries']['original_bytes']['result']
+            else:
+                assert capture['sha256'] == actual['sha256']
+                regions += capture['response']['result']['structuredContent']['result']
         for entry in metadata['verification']:
             rva, expected = int(entry['rva'], 16), bytes.fromhex(entry['bytes'])
             assert raw(rva, len(expected)) == expected

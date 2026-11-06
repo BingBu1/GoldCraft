@@ -43,6 +43,7 @@ metahook_api_t* api = nullptr;
 void* engine = nullptr;
 bool enabled = false, extended = false, receiving = false;
 void (*reset_observer)() = nullptr;
+void (*clear_state_observer)() = nullptr;
 bool legacy_manifest_received = false;
 bool client_media_enabled = false;
 ResourceSyncCallbacks sync_callbacks;
@@ -543,6 +544,7 @@ void reset_client() {
 int __cdecl clear_client() {
     // The engine must release the old connection while its tables are valid.
     const int result = clear_client_original();
+    if (clear_state_observer) clear_state_observer();
     reset_client();
     return result;
 }
@@ -726,6 +728,7 @@ void jump_patch(const char* name, void* target, unsigned size, void*& resume) {
 }
 
 void set_reset_observer(void (*callback)()) { reset_observer = callback; }
+void set_clear_state_observer(void (*callback)()) { clear_state_observer = callback; }
 
 bool install(metahook_api_t* value) {
     if (enabled) return true;

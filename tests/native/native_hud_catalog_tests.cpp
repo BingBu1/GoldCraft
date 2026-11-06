@@ -26,6 +26,7 @@ constexpr std::array expected{
     Expected{"GoldCraftNativeHud_DeleteArray", 0, MH_GAMESYMBOL_KIND_FUNCTION, 0xb4919, 5},
     Expected{"GoldCraftNativeHud_GetSurface", 0, MH_GAMESYMBOL_KIND_FUNCTION, 0x78320, 6},
     Expected{"GoldCraftNativeHud_SourceFree", 1, MH_GAMESYMBOL_KIND_FUNCTION, 0x1da3e0, 6},
+    Expected{"GoldCraftNativeHud_HostFrame", 1, MH_GAMESYMBOL_KIND_FUNCTION, 0x1d28b0, 0x283},
 };
 constexpr std::array<std::uint64_t, 2> crcs{0x124d6034a6b28b40, 0x6ef7192cd8254e2d};
 constexpr std::array<DWORD, 2> sizes{0x153000, 0x14aa000};

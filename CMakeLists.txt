@@ -244,7 +244,7 @@ if(GOLDCRAFT_BUILD_CLIENT)
     target_sources(GoldCraft PRIVATE native/client/spectator_menu.cpp)
     target_sources(GoldCraft PRIVATE native/client/hud_clock.cpp)
     target_sources(GoldCraft PRIVATE native/client/resource_native_hud.cpp
-        native/client/resource_native_hud_host.cpp)
+        native/client/resource_native_hud_host.cpp native/client/resource_lifecycle.cpp)
     target_include_directories(GoldCraft PRIVATE
         "${METAHOOK_SOURCE_PATH}/include" "${METAHOOK_SOURCE_PATH}/include/Interface"
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common" "${METAHOOK_SOURCE_PATH}/include/HLSDK/cl_dll"
