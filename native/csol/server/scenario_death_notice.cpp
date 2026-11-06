@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_death_notice.h"
+#include "scenario_monster_effects.h"
 
 bool CCSOLScenarioDeathNotice::Send(CCSOLMonsterDeathStages& death,
     csol::scenario::ConfigError& error)
@@ -17,8 +18,18 @@ bool CCSOLScenarioDeathNotice::Send(CCSOLMonsterDeathStages& death,
             m_map.RoundGeneration() == roundGeneration &&
             m_requests.Generation() == requestGeneration &&
             m_map.State() == CSOLScenarioMapState::RoundActive &&
-            m_requests.Error().empty() && death.Current();
+            m_requests.Error().empty() ? death.Current() : nullptr;
     };
+    const CSOLMonsterEffectGuard guard{[](const void* context) -> CCSOLScenarioMonster*
+        { return (*static_cast<const decltype(current)*>(context))(); }, &current};
+    return CSOL_SendMonsterDeathNotice(m_messages, guard, error);
+}
+
+bool CSOL_SendMonsterDeathNotice(const CCSOLScenarioMessages& messages,
+    const CSOLMonsterEffectGuard& guard, csol::scenario::ConfigError& error)
+{
+    error = {};
+    const auto current = [&] { return guard.Current(); };
     const auto fail = [&](const char* reason)
     {
         error.message = reason;
@@ -29,7 +40,7 @@ bool CCSOLScenarioDeathNotice::Send(CCSOLMonsterDeathStages& death,
         !g_engfuncs.pfnEntOffsetOfPEntity)
         return fail("scenario death notice player lookup is unavailable");
 
-    const int monsterIndex = ENTINDEX(death.Current()->edict());
+    const int monsterIndex = ENTINDEX(current()->edict());
     if (!current()) return fail("scenario changed while resolving death notice entity");
     if (monsterIndex <= 0 || monsterIndex > 0xffff)
         return fail("scenario death notice entity index is not representable");
@@ -57,7 +68,7 @@ bool CCSOLScenarioDeathNotice::Send(CCSOLMonsterDeathStages& death,
         if (!offset || handle.Get<CBaseEntity>() != player) continue;
         // No alive, team, dormant, attacker or ordinary-sound filter belongs
         // here. Each valid client gets a separate MSG_ONE notification.
-        const bool sent = m_messages.WriteMonsterDeath(recipient, monsterIndex);
+        const bool sent = messages.WriteMonsterDeath(recipient, monsterIndex);
         if (!current()) return fail("scenario changed in a death notice callback");
         if (!sent) return fail("scenario death notice packet could not be sent");
     }

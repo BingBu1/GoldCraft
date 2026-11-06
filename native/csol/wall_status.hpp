@@ -9,6 +9,7 @@ namespace csol::wallstatus
 {
 inline constexpr char MessageName[] = "StatusValue";
 inline constexpr int WallType = 3;
+inline constexpr int WallUpgradeType = 9;
 enum class ParseResult { Legacy, Extended, Malformed };
 struct Field { std::uint8_t index{}; std::int32_t value{}; };
 
@@ -35,19 +36,22 @@ inline ParseResult Decode(std::span<const std::byte> bytes, Field& output)
 class State
 {
 public:
-    void Reset() { type_ = health_ = 0; }
+    void Reset() { type_ = health_ = 0; hasValue_ = false; }
     void Apply(Field field)
     {
         if (field.index == 0)
         {
-            if (type_ != field.value) health_ = 0;
+            if (type_ != field.value) { health_ = 0; hasValue_ = false; }
             type_ = field.value;
         }
-        else if (field.index == 1) health_ = field.value;
+        else if (field.index == 1) { health_ = field.value; hasValue_ = true; }
     }
-    bool Visible() const { return type_ == WallType && health_ > 0; }
+    bool Visible() const { return hasValue_ &&
+        ((type_ == WallType && health_ > 0) || type_ == WallUpgradeType); }
+    bool Upgrade() const { return type_ == WallUpgradeType; }
     std::int32_t Health() const { return health_; }
 private:
     std::int32_t type_{}, health_{};
+    bool hasValue_{};
 };
 }

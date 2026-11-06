@@ -44,9 +44,10 @@ std::vector<Vertex> Clip(std::vector<Vertex> poly,int axis,float bound,bool grea
 void Build(Geometry& g,model_t* map){
     const auto& p=g.placement;V n=p.normal;
     const V right=Unit(Cross(std::abs(n[2])>.99f?V{0,1,0}:V{0,0,1},n)),up=Cross(n,right);
-    // One original image pixel occupies one GoldSrc world unit. Texture
-    // downsampling affects bandwidth/quality, never the wall footprint.
-    const float width=float(p.original.width),height=float(p.original.height);
+    // Restore the requested compact footprint; keep the original aspect ratio
+    // independently of texture resolution and GIF frame count.
+    const float scale=48.0f/float(std::max(p.original.width,p.original.height));
+    const float width=float(p.original.width)*scale,height=float(p.original.height)*scale;
     const size_t stride=api->GetEngineType()==ENGINE_GOLDSRC_HL25?sizeof(msurface_hl25_t):sizeof(msurface_t);
     const int first=p.entity?map->firstmodelsurface:0,count=p.entity?map->nummodelsurfaces:map->numsurfaces;
     if(first<0||count<0||first>map->numsurfaces||count>map->numsurfaces-first)return;

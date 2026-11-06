@@ -3,7 +3,10 @@
 #include "user_message_chain.hpp"
 #include "scenario_effects.hpp"
 #include "monster_impact.hpp"
+#include "cso_tent.hpp"
 #include "oberon_hint.hpp"
+#include "wall_upgrade_hint.hpp"
+#include "wall_upgrade_hud.hpp"
 #include "frozen_death.hpp"
 #include "frozen_smoke.hpp"
 #include "../frozen_smoke.hpp"
@@ -197,6 +200,8 @@ int Receive(const char* name, int size, void* data)
     SynchronizeSession();
     if (!data || size <= 0) return previousMP ? previousMP(name, size, data) : 1;
     if (ConsumeOberonHint(size, data)) return 1;
+    if (ConsumeWallUpgradeHint(size, data)) return 1;
+    if (ConsumeWallUpgradeHud(size, data)) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);
     if (bytes[0] == 112)
     {
@@ -286,6 +291,7 @@ int ReceiveMonsterEffect(const char*, int size, void* data)
 {
     SynchronizeSession();
     if (ConsumeMonsterImpact(size, data)) return 1;
+    if (ConsumeCsoTent(size, data)) return 1;
     if (!data || size != 7) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);
     if (bytes[0] != monster_effects::Impact && bytes[0] != monster_effects::TrapDirection &&
@@ -358,6 +364,7 @@ void ResetScenarioEffects()
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ResetOberonHints();
+    ResetWallUpgradeHints();
     pain = {};
     painSprite = painResolution = hidden = 0;
     health = 100;

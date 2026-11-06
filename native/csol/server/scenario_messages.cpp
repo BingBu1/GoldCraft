@@ -4,10 +4,12 @@
 #include "damage_numbers.h"
 #include "../scenario_abilities.hpp"
 #include "../scenario_monster_effects.hpp"
+#include "../cso_tent.hpp"
 #include "../playerclip.hpp"
 #include "../oberon_hint.hpp"
 #include "../frozen_death.hpp"
 #include "../frozen_smoke.hpp"
+#include "../wall_upgrade.hpp"
 
 #include <bit>
 #include <algorithm>
@@ -119,6 +121,38 @@ bool CCSOLScenarioMessages::SendMonsterZombieBomb(const float* origin) const
     return WriteMonsterExplosion(origin, csol::monster_effects::ZombieBomb, 0.0f);
 }
 
+bool CCSOLScenarioMessages::SendCsoTent(const csol::cso_tent::Model& tent, const Vector& pvsOrigin) const
+{
+    std::size_t size{};
+    const auto payload = csol::cso_tent::Write(tent, size);
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !payload ||
+        !std::isfinite(pvsOrigin.x) || !std::isfinite(pvsOrigin.y) || !std::isfinite(pvsOrigin.z) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_monsterEffectId;
+    const Vector position(pvsOrigin);
+    const ScenarioMessageScope scope;
+    // MP1155CA50/1155CCF0: pev->origin selects the PVS independently of
+    // payload coordinates (TE133 lowers the visible poison to the floor).
+    MESSAGE_BEGIN(MSG_PVS, id, position);
+    for (std::size_t i = 0; i < size; ++i) WRITE_BYTE((*payload)[i]);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendCsoTent(const csol::cso_tent::Sprite& tent) const
+{
+    const auto payload = csol::cso_tent::Write(tent);
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !payload ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_monsterEffectId;
+    const ScenarioMessageScope scope;
+    // MP1155CBD0/1155CDE0: MessageBegin(MSG_BROADCAST=0, ..., null, null).
+    MESSAGE_BEGIN(MSG_BROADCAST, id);
+    for (const auto byte : *payload) WRITE_BYTE(byte);
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::WriteMonsterExplosion(const float* origin, int effect, float zOffset) const
 {
     if (g_scenarioMessageOpen || !m_monsterEffectId || !origin ||
@@ -152,6 +186,67 @@ bool CCSOLScenarioMessages::SendRoundClock(int round, int total, float elapsed,
     WRITE_BYTE(round);
     WRITE_BYTE(total);
     WRITE_LONG(std::bit_cast<std::int32_t>(elapsed));
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendWallUpgradeState(bool enabled, int level, edict_s* recipient) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || level < csol::wall_upgrade::InitialLevel ||
+        level > csol::wall_upgrade::MaximumLevel || (recipient && recipient->free) ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(recipient ? MSG_ONE : MSG_ALL, id, nullptr, recipient);
+    WRITE_BYTE(27);
+    WRITE_BYTE(10);
+    WRITE_BYTE(enabled ? 1 : 0);
+    WRITE_BYTE(level);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendWallUpgrader(int playerIndex) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || playerIndex < 1 || playerIndex > 32 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ALL, id, nullptr, static_cast<edict_t*>(nullptr));
+    WRITE_BYTE(27);
+    WRITE_BYTE(11);
+    WRITE_BYTE(playerIndex);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendWallUpgradeDenied(edict_s* recipient) const
+{
+    // MP114C0199 uses center TextMsg; keep the same existing stock-CS TextMsg
+    // adaptation as the original scenario revival/continuation messages.
+    return SendRespawnText(recipient, csol::wall_upgrade::DeniedText, nullptr);
+}
+
+bool CCSOLScenarioMessages::SendWallUpgradeIndicator(edict_s* recipient, int entityIndex, bool remove) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !recipient || recipient->free ||
+        entityIndex < 1 || entityIndex > 32767 || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort ||
+        (!remove && (!g_engfuncs.pfnWriteCoord || !g_engfuncs.pfnWriteLong))) return false;
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, id, nullptr, recipient);
+    WRITE_BYTE(remove ? 96 : 90);
+    if (!remove) WRITE_BYTE(0);
+    WRITE_SHORT(entityIndex);
+    if (!remove)
+    {
+        WRITE_BYTE(51);
+        for (const float offset : csol::wall_upgrade::IndicatorOffset) WRITE_COORD(offset);
+        WRITE_LONG(std::bit_cast<std::int32_t>(csol::wall_upgrade::IndicatorDuration));
+        WRITE_BYTE(1);
+        WRITE_LONG(std::bit_cast<std::int32_t>(csol::wall_upgrade::IndicatorScale));
+    }
     MESSAGE_END();
     return true;
 }
@@ -582,6 +677,18 @@ bool CCSOLScenarioMessages::SendMonsterDamageEffect(edict_t* recipient, int mons
     WRITE_LONG(second);
     MESSAGE_END();
     return true;
+}
+
+bool CSOLWriteGuardedDamageNumber(int messageId, edict_t* recipient, CSOLDamageNumber message)
+{
+    if (g_scenarioMessageOpen) return false;
+    const ScenarioMessageScope scope;
+    return CSOLWriteDamageNumber(messageId, recipient, message);
+}
+
+bool CCSOLScenarioMessages::SendAttackNumber(edict_t* recipient, CSOLDamageNumber message) const
+{
+    return CSOLWriteGuardedDamageNumber(m_messageId, recipient, message);
 }
 
 bool CCSOLScenarioMessages::SendRecoveryNumber(edict_t* recipient, int playerIndex,

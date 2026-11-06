@@ -20,6 +20,7 @@
 #include "scenario_entity_lookup.h"
 #include "scenario_runtime.h"
 #include "scenario_death_services.h"
+#include "scenario_wall_upgrade_services.h"
 #include "scenario_monster_services.h"
 #include "scenario_monster_damage.h"
 #include "scenario_wave_services.h"
@@ -172,6 +173,7 @@ bool CCSOLScenarioRuntime::TryFinalize()
             m_archiveError.clear();
         }
         deathServices.reset();
+        wallUpgradeServices.reset();
         drops.reset();
         players.reset();
         m_finalized = true;
@@ -479,6 +481,15 @@ public:
             return false;
         }
         if (!OwnsRules()) return false;
+        if (m_runtime->session->ResourceScope() == CSOLScenarioResourceScope::Combat)
+        {
+            m_runtime->wallUpgradeServices = std::make_shared<CCSOLScenarioWallUpgradeServices>(m_runtime);
+            if (!m_runtime->session->BindWallUpgradeServices(m_runtime->wallUpgradeServices))
+            {
+                CSOL_RejectGameRules("Scenario wall upgrade services could not bind.");
+                return false;
+            }
+        }
         m_runtime->drops = std::make_shared<CCSOLScenarioDrops>(m_runtime->session, m_runtime->players);
         if (!m_runtime->drops->Activate())
         {
@@ -520,6 +531,16 @@ public:
         const EHANDLE handle(player);
         CHalfLifeMultiplay::InitHUD(player);
         if (!scope.Current() || !player || handle.Get<CBaseEntity>() != player) return;
+        if (m_runtime->session->ResourceScope() == CSOLScenarioResourceScope::Combat)
+        {
+            const bool initialized = m_runtime->session->InitializeWallUpgradePlayer(*player);
+            if (!scope.Current() || handle.Get<CBaseEntity>() != player) return;
+            if (!initialized)
+            {
+                if (!m_runtime->session->Error().detail.message.empty()) FailSession();
+                return;
+            }
+        }
         const auto music = m_runtime->session->Music();
         if (music) music->Replay(*player);
     }
@@ -874,6 +895,13 @@ public:
         const auto current = [&]()
         { return ownerCurrent() && session->Map().RoundGeneration() == round && m_phase == Phase::Playing; };
         if (!PublishRoundClock() || !current()) return;
+        // MP11382C37 sends the round clock before advancing participation;
+        // ordinary rounds retain the independent wall-upgrade level.
+        if (!session->AdvanceWallUpgradeRound() || !current())
+        {
+            if (current()) CSOL_RejectGameRules("Scenario wall upgrade round state could not advance.");
+            return;
+        }
         // BeginRound has now installed PlayerSpawn/TRG/waves. Use the real
         // player round transaction; teleporting alone leaves old life state.
         ForPlayers([&](CBasePlayer& player)

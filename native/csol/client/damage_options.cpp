@@ -176,7 +176,9 @@ public:
     }
     void OnThink() override
     {
+        vgui::Panel::OnThink();
         int width{},height{};vgui::surface()->GetScreenSize(width,height);SetBounds(0,0,width,height);
+        Repaint();
     }
     void Paint() override
     {

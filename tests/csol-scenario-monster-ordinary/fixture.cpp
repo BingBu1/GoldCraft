@@ -37,6 +37,8 @@ bool Services::UseSkill(CSOLMonsterSpawnCall&, CSOLOrdinaryMonsterState& state, 
 { observed = &state; Require(bool(onSkill), "skill execution needs an explicit test observer"); onSkill(state); return true; }
 bool Services::ApplyContactImpulse(CSOLMonsterSpawnCall&, const EHANDLE&, const Vector&, ConfigError&)
 { throw std::runtime_error("contact impulse outside ordinary fixture"); }
+bool Services::ExplodeOnFree(CSOLMonsterSpawnCall&, float, ConfigError&)
+{ Require(false, "Free explosion is outside the ordinary fixture"); return false; }
 bool Services::FrozenDeath(CSOLMonsterDeathCall&, ConfigError&)
 { throw std::runtime_error("frozen-death business chain outside owner fixture"); }
 bool DeathServices::RulesDeath(CSOLMonsterDeathCall&, ConfigError&)

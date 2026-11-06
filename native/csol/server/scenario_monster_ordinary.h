@@ -56,6 +56,10 @@ public:
         bool& excluded, csol::scenario::ConfigError& error) = 0;
     virtual bool UseSkill(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterState& state,
         csol::scenario::ConfigError& error) = 0;
+    // Original Free prefix 1137D843..D899 for skill11/13 rows: unless the
+    // rules are in their freeze period, run 1155CFC0 with the given damage.
+    virtual bool ExplodeOnFree(CSOLMonsterSpawnCall& call, float damage,
+        csol::scenario::ConfigError& error) = 0;
     // Original 114ECF00 with weapon/source/category/force = -1/null/-1/false.
     // Apply real rule/player-effect gates and interpolate the requested
     // velocity. A permitted rule rejection still returns true: the caller
@@ -80,6 +84,7 @@ public:
         csol::scenario::ConfigError& error) override;
     void Think(CCSOLScenarioMonster& monster) override;
     void Touch(CCSOLScenarioMonster& monster, CBaseEntity* other) override;
+    void BeforeFree(CCSOLScenarioMonster& monster) override;
     BOOL TakeDamage(CCSOLScenarioMonster& monster, entvars_t* inflictor,
         entvars_t* attacker, float damage, int damageType) override;
     BOOL TakeDamageWithContext(CCSOLScenarioMonster& monster, entvars_t* inflictor,
@@ -111,6 +116,8 @@ public:
     { return m_state ? std::string_view(m_state->error.message) : std::string_view{}; }
 
 protected:
+    // The outer damage notification pins this existing state across callbacks.
+    friend class CCSOLScenarioMonster;
     struct State : CSOLOrdinaryMonsterState
     {
         std::shared_ptr<CSOLMonsterSpawnState> spawn;

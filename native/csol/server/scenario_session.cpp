@@ -40,6 +40,7 @@ struct SessionOperation
 
 CCSOLScenarioSession::~CCSOLScenarioSession()
 {
+    if (m_wallUpgrade) m_wallUpgrade->Invalidate();
     if (m_weapons) m_weapons->Invalidate();
     if (m_hitRewards) m_hitRewards->Invalidate();
     if (m_equipment) m_equipment->Invalidate();
@@ -47,6 +48,7 @@ CCSOLScenarioSession::~CCSOLScenarioSession()
 
 bool CCSOLScenarioSession::Fail(csol::scenario::ResourceError error)
 {
+    if (m_wallUpgrade) m_wallUpgrade->Invalidate();
     if (m_weapons) m_weapons->Invalidate();
     if (m_hitRewards) m_hitRewards->Invalidate();
     if (m_equipment) m_equipment->Invalidate();
@@ -104,6 +106,19 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     {
         m_state = CSOLScenarioSessionState::Precached;
         return true;
+    }
+    // The original creates the machine on first player initialization, after
+    // loading. GoldSrc must have its actual model/sprite indices beforehand.
+    for (const char* path : {csol::wall_upgrade::Model, csol::wall_upgrade::Sprite})
+    {
+        if (!g_engfuncs.pfnGetFileSize || !g_engfuncs.pfnPrecacheModel)
+            return Fail({path, {0, "scenario wall upgrade precache is unavailable"}});
+        const int size = g_engfuncs.pfnGetFileSize(path);
+        if (!m_map.EntityAccessAllowed()) return false;
+        if (size <= 0) return Fail({path, {0, "required scenario wall upgrade resource is missing or empty"}});
+        const int index = PRECACHE_MODEL(const_cast<char*>(path));
+        if (!m_map.EntityAccessAllowed()) return false;
+        if (index <= 0) return Fail({path, {0, "scenario wall upgrade resource precache failed"}});
     }
     if (!m_equipmentResources.Snapshot()->weaponDropDifficulty || !mapTables->mapId)
         return Fail({"maps/ZBS.json", {0, "scenario monster disarm requires restrictWeaponDrop.default.Difficulty and a map ID"}});
@@ -264,11 +279,19 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     modelPaths.emplace(csol::frozen_death::IceModel);
     modelPaths.emplace(csol::frozen_smoke::SmokeSprite);
     const auto& types = m_map.Tables()->monsterTypes;
+    // Original MP1155D720 precaches these with the boomer class on every
+    // map. Host adaptation: require them only when a skill11/13 row exists.
+    bool boomerEffects{};
     for (const auto& champion : m_champions.rows)
     {
         const auto* appearance = csol::scenario::FindMonsterAppearance(champion.type.appearance);
         if (!appearance) return Fail({championPath, {0, "unknown champion appearance"}});
         modelPaths.emplace(appearance->model);
+        if (champion.type.skill == 11 || champion.type.skill == 13)
+        {
+            boomerEffects = true;
+            for (const auto* asset : CSOLBoomerEffectAssets) modelPaths.emplace(asset);
+        }
         if (!appearance->deathSound.empty()) modelPaths.emplace("sound/" + std::string(appearance->deathSound));
         if (!appearance->ambientSound.empty()) modelPaths.emplace("sound/" + std::string(appearance->ambientSound));
         if (appearance->name == "zombiedog") modelPaths.emplace("sound/zombi/zombiedog_howls.wav");
@@ -281,6 +304,11 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         if (!appearance)
             return Fail({"", {0, "scenario monster appearance is not in the original catalog"}});
         modelPaths.emplace(appearance->model);
+        if (types.rows[row].skill == 11 || types.rows[row].skill == 13)
+        {
+            boomerEffects = true;
+            for (const auto* asset : CSOLBoomerEffectAssets) modelPaths.emplace(asset);
+        }
         if (types.rows[row].id == CSOLOberonMonsterTypeId)
         {
             modelPaths.emplace(CSOLOberonBlackHoleModel);
@@ -314,6 +342,12 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         PRECACHE_MODEL(sprite);
         if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
     }
+    if (boomerEffects)
+        for (const auto* asset : CSOLBoomerEffectAssets)
+        {
+            PRECACHE_MODEL(asset);
+            if (!m_map.EntityAccessAllowed() || m_map.EntityAccess() != access) return false;
+        }
     for (const auto* sound : {"zombi/Heavy_newTrap.wav", "zombi/deimos_skill_hit.wav",
         "zombi/Zombi_Trapped.wav", "zombi/Zombi_Trapped_Female.wav",
         csol::monster_effects::ImpactSound, CSOLZombieBombBounceSounds[0], CSOLZombieBombBounceSounds[1]})
@@ -424,6 +458,7 @@ bool CCSOLScenarioSession::Deactivate()
 {
     if (m_busy) return false;
     SessionOperation operation(m_busy);
+    ClearWallUpgrade();
     if (m_music) m_music->Reset();
     m_music.reset();
     m_smokeEvent = 0;
@@ -479,6 +514,7 @@ bool CCSOLScenarioSession::BindWallPlayers(std::shared_ptr<CCSOLScenarioWallPlay
     }
     auto rules = CCSOLScenarioWallRewards::Create(m_map.Tables()->rounds, m_difficulty, std::move(players), error);
     if (!rules) return Fail({"", std::move(error)});
+    if (m_wallUpgrade) rules->SetMonsterLevel(m_wallUpgrade->Level());
     if (!m_walls.BindRules(rules)) return Fail({"", {0, "scenario wall rules could not be bound"}});
     m_wallRewards = std::move(rules);
     m_error = {};
@@ -548,6 +584,8 @@ bool CCSOLScenarioSession::PreparePlayer(CBasePlayer& player, int classId, std::
 
 void CCSOLScenarioSession::RemovePlayer(const EHANDLE& player)
 {
+    for (auto& participant : m_wallParticipants)
+        if (participant.player.Get() == player.Get()) participant = {};
     if (m_equipment) m_equipment->RemovePlayer(player);
     if (m_players) m_players->Remove(player);
 }
@@ -621,6 +659,7 @@ bool CCSOLScenarioSession::CommitReplaySettings(CCSOLScenarioReplaySettings& set
     // A replay is a new challenge; ordinary stage changes retain this registry.
     // Character/loadout ownership stays in the runtime and is rebound on spawn.
     m_players->Clear();
+    if (!ResetWallUpgradeChallenge()) return false;
     settings.consumed = true;
     m_error = {};
     return true;

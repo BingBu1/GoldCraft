@@ -4,6 +4,7 @@
 #include "game_rules_gate.h"
 #include "scenario_breakable_guard.h"
 #include "scenario_entity_lookup.h"
+#include "damage_notice.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -36,13 +37,14 @@ class CSOLScenarioWallCall
         std::shared_ptr<const CSOLScenarioEntityAccess> access;
         std::shared_ptr<CCSOLScenarioWallRules> rules;
         std::uint64_t generation, serial;
-        bool Current() const
+        bool IdentityCurrent() const
         {
             return (!access || access->Allowed()) && lifetime && *lifetime == life &&
                 (!rules || (rules->EntityAccessAllowed() && rules->Generation() == generation)) &&
-                handle.Get<CBaseEntity>() == wall && !(wall->pev->flags & FL_KILLME) &&
+                handle.Get<CBaseEntity>() == wall &&
                 wall->m_serial == serial;
         }
+        bool Current() const { return IdentityCurrent() && !(wall->pev->flags & FL_KILLME); }
     };
 public:
     explicit CSOLScenarioWallCall(CCSOLScenarioBreakable& wall, bool newOperation = false,
@@ -52,6 +54,7 @@ public:
               wall.m_rules ? wall.m_rules->Generation() : 0, wall.m_serial},
           m_scope([state = m_state]() { return state.Current(); }, newOperation) {}
     bool Current() const { return m_state.Current() && CSOLBreakableScope::Current(nullptr); }
+    bool IdentityCurrent() const { return m_state.IdentityCurrent(); }
 private:
     State m_state;
     CSOLBreakableScope m_scope;
@@ -212,6 +215,9 @@ BOOL CCSOLScenarioBreakable::TakeDamage(entvars_t* inflictor, entvars_t* attacke
     auto rules = m_rules;
     if (!rules || !m_valid || m_damaging || !inflictor || !attacker || !std::isfinite(damage)) return FALSE;
     CSOLScenarioWallCall call(*this);
+    const CSOLAttackNumberCall number(*this, attacker,
+        [](const void* value) { return static_cast<const CSOLScenarioWallCall*>(value)->IdentityCurrent(); }, &call);
+    const float before = pev->health;
     EHANDLE source(CBaseEntity::Instance(inflictor)), actor(CBaseEntity::Instance(attacker));
     const auto current = [&]() { return call.Current(); };
     if (!source.Get<CBaseEntity>() || !actor.Get<CBaseEntity>()) return FALSE;
@@ -247,6 +253,13 @@ BOOL CCSOLScenarioBreakable::TakeDamage(entvars_t* inflictor, entvars_t* attacke
     if (pev->takedamage == DAMAGE_NO) return FALSE;
     const float delay = m_flDelay;
     const BOOL result = CBreakable::TakeDamage(originator->pev, entity->pev, scaled, bits);
+    // A broken wall can be pending removal and still be the original valid
+    // edict. The identity/round guard rejects reuse without dropping its last hit.
+    if (number.Current())
+    {
+        const float amount = before - pev->health;
+        if (amount > 0) number.Notify(amount, bits, HITGROUP_GENERIC, 0, false);
+    }
     // Base sends targets once. Restore only its delay mutation, without
     // replaying targets or touching a replacement map/round entity.
     if (!current()) return FALSE;

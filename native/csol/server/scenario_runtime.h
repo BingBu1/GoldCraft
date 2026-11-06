@@ -20,6 +20,7 @@ class CCSOLScenarioMonsterServices;
 class CCSOLMonsterDamageServices;
 class CSOLScenarioRecoveryNotice;
 class CSOLScenarioSdkScope;
+class CCSOLScenarioWallUpgradeServices;
 namespace csol::scenario { class TriggerWaveEvents; }
 
 struct CSOLScenarioCtCounts
@@ -77,6 +78,8 @@ public:
     std::shared_ptr<CCSOLScenarioDrops> drops;
     std::shared_ptr<CCSOLScenarioGameplay> gameplay;
     std::shared_ptr<CCSOLScenarioDeathServices> deathServices;
+    // Retained through shutdown archival; contains pending external event51.
+    std::shared_ptr<CCSOLScenarioWallUpgradeServices> wallUpgradeServices;
     std::shared_ptr<CCSOLScenarioMonsterServices> monsterServices;
     // The concrete damage stages are installed before Precache chooses its
     // resource scope. Gameplay is assembled only after those tables/models

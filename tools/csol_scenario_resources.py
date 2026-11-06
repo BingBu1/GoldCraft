@@ -93,6 +93,51 @@ def select_boss_models(catalog, type_id, model):
     return [model] if any(row['id'] == type_id for row in catalog['effectiveTypes']) else []
 
 
+def wall_upgrade_contract(source):
+    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    if 'csol::wall_upgrade::Model' not in session:
+        return set(), None
+    name = 'native/csol/wall_upgrade.hpp'
+    header = source / name
+    text = header.read_text(encoding='utf-8-sig')
+    resources = set()
+    for symbol, prefix, suffix in [('Model', 'models/', '.mdl'), ('Sprite', 'sprites/', '.spr')]:
+        values = re.findall(r'char ' + symbol + r'\[\]\s*=\s*"([^"]+)"', text)
+        if len(values) != 1:
+            raise ValueError(f'Incomplete wall-upgrade resource contract: {symbol}')
+        resource = resource_name(values[0])
+        if not resource.startswith(prefix) or not resource.endswith(suffix):
+            raise ValueError(f'Invalid wall-upgrade resource: {resource}')
+        resources.add(resource)
+    # Follow the exact server download consumer. Older frozen source sets
+    # have the machine without its level panel, so do not add a new asset to
+    # their manifests retroactively.
+    for panel in ('resource/Hud/ZBS/zbslevelupwallbg.tga',
+                  'resource/csol/wall/v1/WallUpgradeScheme.res'):
+        if re.search(r'hudPaths\.emplace\(\s*"' + re.escape(panel) + r'"\s*\)', session):
+            resources.add(panel)
+    return resources, dict(path=name, sha256=digest(header))
+
+
+def wall_scheme_source(prepared, previous):
+    """Resolve the generated v1 scheme, never an assumed file in common."""
+    name = 'resource/csol/wall/v1/WallUpgradeScheme.res'
+    if prepared is not None:
+        path = Path(prepared).absolute() / name
+    elif name.lower() in previous:
+        path = Path(previous[name.lower()]['source']).absolute()
+    else:
+        raise ValueError('Prepare the wall font scheme with Prepare-CSOLWallScheme.py and pass --wall-scheme')
+    for part in (path, *path.parents):
+        if part.is_symlink() or part.is_junction():
+            raise ValueError(f'Linked wall scheme source: {part}')
+    # Exact output of the verified original Default block plus the v1 wrapper.
+    # Accepting a different layout requires a new resource revision/contract.
+    if path.stat().st_size != 222 or digest(path) != '570c4a2ea8238ca635195c8a788afb18050f0bfb4deff516459552d1ffef3bf2':
+        raise ValueError('Wall font scheme v1 identity changed')
+    return path.resolve(strict=True)
+
+
 def frozen_death_contract(source):
     session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'csol::frozen_death::IceModel' not in session:
@@ -338,6 +383,8 @@ def main():
                         help='Matching csol_scenario_champion_resources executable')
     parser.add_argument('--wave-resource',
                         help='Exact encrypted wave filename from this map catalog, relative to common')
+    parser.add_argument('--wall-scheme', type=Path,
+                        help='Output directory of Prepare-CSOLWallScheme.py; reusable from the previous plan')
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     common = args.common.resolve(strict=True)
@@ -370,7 +417,8 @@ def main():
     models += attack_models
     elite = elite_contract(source_root)
     frozen, frozen_inputs = frozen_death_contract(source_root)
-    skills = skill_contract(source_root) | elite | frozen | champions
+    wall_upgrade, wall_upgrade_input = wall_upgrade_contract(source_root)
+    skills = skill_contract(source_root) | elite | frozen | champions | wall_upgrade
     skill_models = sorted(name for name in skills if name.endswith('.mdl'))
     skill_entries = command(args.collector, common, '--relocatable-json', *skill_models) if skill_models else []
     if not set(skill_models).issubset({row['path'] for row in skill_entries}):
@@ -396,13 +444,17 @@ def main():
         name = resource_name(entry['path'])
         if 'content' in entry:
             raise ValueError(f'Unexpected generated boss asset: {name}')
-        source = common / entry.get('source', name)
-        source.resolve(strict=True).relative_to(common)
+        derived_wall_scheme = name == 'resource/csol/wall/v1/WallUpgradeScheme.res'
+        source = (wall_scheme_source(args.wall_scheme, rows) if derived_wall_scheme
+                  else common / entry.get('source', name))
+        if not derived_wall_scheme:
+            source.resolve(strict=True).relative_to(common)
         for part in [source, *source.parents]:
             if part.is_symlink() or part.is_junction():
                 raise ValueError(f'Linked source path: {part}')
         row = dict(source=str(source), destination=name, bytes=source.stat().st_size,
-                   sha256=digest(source), reuse='verified-common')
+                   sha256=digest(source),
+                   reuse='verified-wall-scheme-v1' if derived_wall_scheme else 'verified-common')
         old = rows.get(name.lower())
         if old and (old['sha256'] != row['sha256'] or old['bytes'] != row['bytes']):
             raise ValueError(f'Conflicting previous boss resource: {name}')
@@ -447,6 +499,8 @@ def main():
             appearanceCatalogSha256=digest(source_root / 'native/csol/scenario/monster_appearances.cpp'))
     if frozen:
         result['frozenDeathClosure'] = dict(roots=sorted(frozen), sources=frozen_inputs)
+    if wall_upgrade:
+        result['wallUpgradeClosure'] = dict(roots=sorted(wall_upgrade), contract=wall_upgrade_input)
     args.output.mkdir(parents=True, exist_ok=False)
     def save(name, data):
         (args.output / name).write_text(json.dumps(data, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')

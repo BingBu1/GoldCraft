@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_death_services.h"
+#include "scenario_wall_upgrade_services.h"
 #include "scenario_runtime.h"
 #include "scenario_player_runtime.h"
 #include "scenario_drops.h"
@@ -318,10 +319,12 @@ std::string ShutdownSnapshot(const CCSOLScenarioRuntime& runtime)
     const auto deaths = runtime.deathServices;
     const auto drops = runtime.drops;
     const auto players = runtime.players;
+    const auto wallUpgrades = runtime.wallUpgradeServices;
     const auto statistics = players ? players->StatisticsSnapshot() : std::vector<CSOLScenarioPlayerStatistics>{};
     if ((!deaths || deaths->Records().empty()) &&
         (!drops || (drops->Rewards().empty() && drops->PendingRewards().empty())) && statistics.empty() &&
-        (!players || (players->KillPositions().empty() && players->KillChainRecords().empty()))) return {};
+        (!players || (players->KillPositions().empty() && players->KillChainRecords().empty())) &&
+        (!wallUpgrades || wallUpgrades->Records().empty())) return {};
     std::ostringstream out;
     out.exceptions(std::ios::badbit | std::ios::failbit);
     out.imbue(std::locale::classic());
@@ -347,6 +350,15 @@ std::string ShutdownSnapshot(const CCSOLScenarioRuntime& runtime)
             << "],\"ribbon_count\":" << value.ribbonCount << ",\"ribbons\":[";
         for (std::size_t i = 0; i < value.ribbons.size(); ++i) { if (i) out << ','; out << unsigned(value.ribbons[i]); }
         out << "]}\n";
+    }
+    if (wallUpgrades) for (const auto& value : wallUpgrades->Records())
+    {
+        out << "{\"channel\":\"wall-upgrade-service\",\"sequence\":" << value.sequence
+            << ",\"map_generation\":" << value.mapGeneration << ",\"round_generation\":" << value.roundGeneration
+            << ",\"player_index\":" << value.playerIndex << ",\"local_userid\":" << value.userid
+            << ",\"event\":" << value.event << ",\"status\":\"awaiting-external-handler\",\"player_name\":";
+        JsonString(out, value.playerName);
+        out << "}\n";
     }
     const auto reward = [&](const CSOLScenarioDropReward& value, bool submitted)
     {

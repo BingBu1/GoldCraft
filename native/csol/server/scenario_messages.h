@@ -6,6 +6,11 @@
 #include <string_view>
 
 struct edict_s;
+struct CSOLDamageNumber;
+bool CSOLWriteGuardedDamageNumber(int messageId, edict_s* recipient, CSOLDamageNumber message);
+struct CSOLMonsterEffectGuard;
+namespace csol::scenario { struct ConfigError; }
+namespace csol::cso_tent { struct Model; struct Sprite; }
 namespace csol::abilities { struct Snapshot; }
 namespace csol::oberon_hint { struct Event; }
 namespace csol::frozen_death { struct IceEvent; }
@@ -17,11 +22,17 @@ class CCSOLScenarioMessages
 {
 public:
     bool Register();
+    bool SendAttackNumber(edict_s* recipient, CSOLDamageNumber message) const;
     bool SendWaveEvent(std::span<const std::uint8_t, 4> payload) const;
     // Original MP11385F80: 27/3, one-based round, total rounds, and a raw
     // float32 game elapsed time. A recipient is used for authoritative replay.
     bool SendRoundClock(int round, int total, float elapsed,
         edict_s* recipient = nullptr) const;
+    bool SendWallUpgradeState(bool enabled, int level, edict_s* recipient = nullptr) const;
+    bool SendWallUpgrader(int playerIndex) const;
+    bool SendWallUpgradeDenied(edict_s* recipient) const;
+    // MP11534F20/11535050: caller owns exact valid-client traversal.
+    bool SendWallUpgradeIndicator(edict_s* recipient, int entityIndex, bool remove) const;
     bool PlayerClipsReady() const { return m_playerClipMessageId != 0; }
     bool SendPlayerClip(std::span<const std::uint8_t> payload, edict_s* recipient = nullptr) const;
     // Original Boss selection: MPToCL { BYTE27, BYTE7, SHORT id }. There is
@@ -122,6 +133,10 @@ public:
     bool SendBloodScreen(edict_s* recipient) const;
     bool SendTeddyTentacleShake(edict_s* recipient) const;
     bool SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const;
+    // CSO private TE133/138 (MSG_PVS at the origin) and TE137 (MSG_BROADCAST),
+    // as used by the boomer Free explosion 1155CFC0, carried in CsoMonFX.
+    bool SendCsoTent(const csol::cso_tent::Model& tent, const Vector& pvsOrigin) const;
+    bool SendCsoTent(const csol::cso_tent::Sprite& tent) const;
     // Original MP114EEAE0: MPToCL54/type0, raw duration, grey RGBA.
     bool SendZombieBombProtection(edict_s* recipient, float duration) const;
     bool SendMonsterSkillShake(edict_t* recipient) const;
@@ -147,6 +162,8 @@ public:
     int MessageId() const { return m_messageId; }
 private:
     friend class CCSOLScenarioDeathNotice;
+    friend bool CSOL_SendMonsterDeathNotice(const CCSOLScenarioMessages&,
+        const CSOLMonsterEffectGuard&, csol::scenario::ConfigError&);
     // The traversal resolves OFFSET and checks its session immediately after
     // that engine callback. This private entry performs no second lookup.
     bool WriteMonsterDeath(edict_s* recipient, int monsterIndex) const;

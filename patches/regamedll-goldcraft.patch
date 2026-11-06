@@ -469,9 +469,10 @@ index 70cdd7d..4ad0af7 100644
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
-@@ -1,4 +1,26 @@
+@@ -1,4 +1,27 @@
  #include "precompiled.h"
 +#include "../../../../native/csol/server/hd_spray.h"
++#include "../../../../native/csol/server/damage_notice.h"
 +#include "../../../../native/csol/server/scenario_inventory_capacity.h"
 +#include "../../../../native/csol/server/scenario_money.h"
 +#include "../../../../native/server/bridge.h"
@@ -496,7 +497,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  int gmsgWeapPickup = 0;
  int gmsgHudText = 0;
-@@ -138,7 +160,7 @@
+@@ -138,7 +161,7 @@
  bool g_bItemCreatedByBuying = false;
  PLAYERPVSSTATUS g_PVSStatus[MAX_CLIENTS];
  unsigned short m_usResetDecals;
@@ -505,7 +506,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  void LinkUserMessages()
  {
-@@ -149,9 +171,9 @@
+@@ -149,9 +172,9 @@
  	gmsgGeigerRange   = REG_USER_MSG("Geiger", 1);
  	gmsgFlashlight    = REG_USER_MSG("Flashlight", 2);
  	gmsgFlashBattery  = REG_USER_MSG("FlashBat", 1);
@@ -517,7 +518,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	gmsgTrain         = REG_USER_MSG("Train", 1);
  	gmsgHudTextPro    = REG_USER_MSG("HudTextPro", -1);
  	gmsgHudText       = REG_USER_MSG("HudText", -1);
-@@ -205,7 +227,7 @@
+@@ -205,7 +228,7 @@
  	gmsgHostagePos    = REG_USER_MSG("HostagePos", 8);
  	gmsgHostageK      = REG_USER_MSG("HostageK", 1);
  	gmsgHLTV          = REG_USER_MSG("HLTV", 2);
@@ -526,7 +527,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	gmsgForceCam      = REG_USER_MSG("ForceCam", 3);
  	gmsgADStop        = REG_USER_MSG("ADStop", 0);
  	gmsgReceiveW      = REG_USER_MSG("ReceiveW", 1);
-@@ -216,7 +238,7 @@
+@@ -216,7 +239,7 @@
  	gmsgScenarioIcon  = REG_USER_MSG("Scenario", -1);
  	gmsgBotVoice      = REG_USER_MSG("BotVoice", 2);
  	gmsgBuyClose      = REG_USER_MSG("BuyClose", 0);
@@ -535,7 +536,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	gmsgBarTime2      = REG_USER_MSG("BarTime2", 4);
  	gmsgItemStatus    = REG_USER_MSG("ItemStatus", 1);
  	gmsgLocation      = REG_USER_MSG("Location", -1);
-@@ -234,6 +256,7 @@
+@@ -234,6 +257,7 @@
  
  void WriteSigonMessages()
  {
@@ -543,7 +544,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	for (int i = 0; i < MAX_WEAPONS; i++)
  	{
  		ItemInfo &info = CBasePlayerItem::m_ItemInfoArray[i];
-@@ -310,16 +333,41 @@
+@@ -310,16 +334,41 @@
  
  BOOL EXT_FUNC ClientConnect(edict_t *pEntity, const char *pszName, const char *pszAddress, char *szRejectReason)
  {
@@ -585,7 +586,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #ifndef REGAMEDLL_FIXES
  		CSound *pSound = CSoundEnt::SoundPointerForIndex(CSoundEnt::ClientSoundIndex(pEntity));
  
-@@ -333,10 +381,13 @@
+@@ -333,10 +382,13 @@
  		if (pPlayer)
  		{
  			pPlayer->Disconnect();
@@ -599,7 +600,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	}
  
  #ifndef REGAMEDLL_FIXES
-@@ -373,6 +424,15 @@
+@@ -373,6 +425,15 @@
  // Suicide...
  void EXT_FUNC ClientKill(edict_t *pEntity)
  {
@@ -615,7 +616,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -401,6 +461,9 @@
+@@ -401,6 +462,9 @@
  
  void EXT_FUNC __API_HOOK(ShowVGUIMenu)(CBasePlayer *pPlayer, int MenuType, int BitMask, char *szOldMenu)
  {
@@ -625,7 +626,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #ifdef REGAMEDLL_ADD
  	if (CSGameRules()->ShouldSkipShowMenu()) {
  		CSGameRules()->MarkShowMenuSkipped();
-@@ -590,6 +653,7 @@
+@@ -590,6 +654,7 @@
  
  void CheckStartMoney()
  {
@@ -633,7 +634,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	int money = int(startmoney.value);
  
  #ifndef REGAMEDLL_ADD
-@@ -615,11 +679,23 @@
+@@ -615,11 +680,23 @@
  
  void EXT_FUNC ClientPutInServer(edict_t *pEntity)
  {
@@ -657,7 +658,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  	if (!g_pGameRules->IsMultiplayer())
  	{
-@@ -635,15 +711,18 @@
+@@ -635,15 +712,18 @@
  	pPlayer->m_iTeamKills = 0;
  	pPlayer->m_bJustConnected = true;
  	pPlayer->Spawn();
@@ -678,7 +679,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #endif
  
  	pPlayer->m_fGameHUDInitialized = FALSE;
-@@ -672,12 +751,16 @@
+@@ -672,12 +752,16 @@
  	pPlayer->m_rebuyString = nullptr;
  
  	SET_CLIENT_MAXSPEED(ENT(pPlayer->pev), 1);
@@ -696,7 +697,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  #ifndef REGAMEDLL_FIXES
  	if (g_pGameRules && g_pGameRules->IsMultiplayer())
-@@ -690,6 +773,7 @@
+@@ -690,6 +774,7 @@
  	{
  		// find the target (by default info_target) for the camera view direction.
  		pTarget = UTIL_FindEntityByTargetname(nullptr, STRING(pPlayer->m_pIntroCamera->pev->target));
@@ -704,7 +705,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	}
  
  	if (pPlayer->m_pIntroCamera && pTarget)
-@@ -698,6 +782,7 @@
+@@ -698,6 +783,7 @@
  		CamAngles.x = -CamAngles.x;
  
  		UTIL_SetOrigin(pPlayer->pev, pPlayer->m_pIntroCamera->pev->origin);
@@ -712,7 +713,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  		pPlayer->pev->angles = CamAngles;
  		pPlayer->pev->v_angle = pPlayer->pev->angles;
-@@ -718,6 +803,7 @@
+@@ -718,6 +804,7 @@
  		if (g_pGameRules)
  		{
  			g_pGameRules->GetPlayerSpawnSpot(pPlayer);
@@ -720,7 +721,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		}
  
  		pPlayer->m_iTeam = UNASSIGNED;
-@@ -729,6 +815,7 @@
+@@ -729,6 +816,7 @@
  	if (TheBots)
  	{
  		TheBots->OnEvent(EVENT_PLAYER_CHANGED_TEAM, (CBaseEntity *)pPlayer);
@@ -728,7 +729,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	}
  
  	pPlayer->m_iJoiningState = SHOWLTEXT;
-@@ -744,6 +831,7 @@
+@@ -744,6 +832,7 @@
  
  #ifdef REGAMEDLL_API
  	pPlayer->CSPlayer()->OnConnect();
@@ -736,7 +737,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #endif
  
  	UTIL_ClientPrintAll(HUD_PRINTNOTIFY, "#Game_connected", (sName[0] != '\0') ? sName : "<unconnected>");
-@@ -1308,7 +1396,7 @@
+@@ -1308,7 +1397,7 @@
  			return;
  	}
  
@@ -745,7 +746,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	bool bHasHelmet = (pPlayer->m_iKevlar == ARMOR_VESTHELM);
  	bool bEnoughMoney = false;
  
-@@ -1655,6 +1743,9 @@
+@@ -1655,6 +1744,9 @@
  
  void EXT_FUNC __API_HOOK(HandleMenu_ChooseAppearance)(CBasePlayer *pPlayer, int slot)
  {
@@ -755,7 +756,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	int numSkins = AreRunningCZero() ? CZ_NUM_SKIN : CS_NUM_SKIN;
  
  	struct
-@@ -1806,6 +1897,8 @@
+@@ -1806,6 +1898,8 @@
  			pPlayer->MakeVIP();
  		}
  	}
@@ -764,7 +765,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  }
  
  LINK_HOOK_CHAIN(BOOL, HandleMenu_ChooseTeam, (CBasePlayer *pPlayer, int slot), pPlayer, slot)
-@@ -1814,6 +1907,9 @@
+@@ -1814,6 +1908,9 @@
  // can be closed...false if the menu should be displayed again
  BOOL EXT_FUNC __API_HOOK(HandleMenu_ChooseTeam)(CBasePlayer *pPlayer, int slot)
  {
@@ -774,7 +775,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	// If this player is a VIP, don't allow him to switch teams/appearances unless the following conditions are met :
  	// a) There is another TEAM_CT player who is in the queue to be a VIP
  	// b) This player is dead
-@@ -2023,7 +2119,8 @@
+@@ -2023,7 +2120,8 @@
  	// If the code gets this far, the team is not TEAM_UNASSIGNED
  	// Player is switching to a new team (It is possible to switch to the
  	// same team just to choose a new appearance)
@@ -784,7 +785,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	{
  		// The specified team is full
  		// attempt to kick a bot to make room for this player
-@@ -2052,7 +2149,7 @@
+@@ -2052,7 +2150,7 @@
  		return FALSE;
  	}
  
@@ -793,7 +794,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #ifdef REGAMEDLL_ADD
  		&& !(pPlayer->pev->flags & FL_FAKECLIENT) && auto_join_team.value != 1.0f
  #endif
-@@ -2081,7 +2178,7 @@
+@@ -2081,7 +2179,7 @@
  	}
  
  	// If we already died and changed teams once, deny
@@ -802,7 +803,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	{
  		if (pPlayer->pev->deadflag != DEAD_NO)
  		{
-@@ -2101,9 +2198,9 @@
+@@ -2101,9 +2199,9 @@
  
  		// all players start with "mp_startmoney" bucks
  #ifdef REGAMEDLL_ADD
@@ -814,7 +815,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #endif
  
  		pPlayer->pev->solid = SOLID_NOT;
-@@ -2332,35 +2429,43 @@
+@@ -2332,35 +2430,43 @@
  
  	// Ensure that the weapon uses ammo
  	int nAmmo = weapon->PrimaryAmmoIndex();
@@ -867,7 +868,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		return true;
  	}
  
-@@ -2653,6 +2758,9 @@
+@@ -2653,6 +2759,9 @@
  
  void EXT_FUNC InternalCommand(edict_t *pEntity, const char *pcmd, const char *parg1)
  {
@@ -877,7 +878,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	const char *pstr = nullptr;
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = GetClassPtr<CCSPlayer>((CBasePlayer *)pev);
-@@ -3205,7 +3313,8 @@
+@@ -3205,7 +3314,8 @@
  		if (pPlayer->m_iMenu == Menu_ChooseAppearance)
  			return;
  
@@ -887,7 +888,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		{
  			if (pPlayer->pev->deadflag != DEAD_NO)
  			{
-@@ -3217,6 +3326,7 @@
+@@ -3217,6 +3327,7 @@
  		if (!CSGameRules()->IsCareer())
  		{
  			pPlayer->m_iMenu = Menu_ChooseTeam;
@@ -895,7 +896,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  			if (CSGameRules()->m_bMapHasVIPSafetyZone && pPlayer->m_iJoiningState == JOINED && pPlayer->m_iTeam == CT)
  			{
  				if (CSGameRules()->IsFreezePeriod() || pPlayer->pev->deadflag != DEAD_NO)
-@@ -3693,6 +3803,13 @@
+@@ -3693,6 +3804,13 @@
  							pPlayer->GiveAmmo(pInfo->maxRounds, pInfo->ammoName2);
  						}
  					}
@@ -909,7 +910,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  				}
  			}
  #endif
-@@ -3731,6 +3848,9 @@
+@@ -3731,6 +3849,9 @@
  // Use CMD_ARGV, CMD_ARGV, and CMD_ARGC to get pointers the character string command.
  void EXT_FUNC ClientCommand_(edict_t *pEntity)
  {
@@ -919,7 +920,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	// Is the client spawned yet?
  	if (!pEntity->pvPrivateData)
  		return;
-@@ -3738,6 +3858,25 @@
+@@ -3738,6 +3859,25 @@
  	static char command[128] = "";
  	Q_strncpy(command, CMD_ARGV_(0), sizeof command - 1);
  	command[sizeof command - 1] = '\0';
@@ -945,7 +946,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  	g_ReGameHookchains.m_InternalCommand.callChain(InternalCommand, pEntity, command, CMD_ARGV_(1));
  }
-@@ -3745,12 +3884,20 @@
+@@ -3745,12 +3885,20 @@
  // called after the player changes userinfo - gives dll a chance to modify it before it gets sent into the rest of the engine.
  void EXT_FUNC ClientUserInfoChanged(edict_t *pEntity, char *infobuffer)
  {
@@ -966,7 +967,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  	// msg everyone if someone changes their name, and it isn't the first time (changing no name to current name)
  	if (pEntity->v.netname && STRING(pEntity->v.netname)[0] != '\0' && !FStrEq(STRING(pEntity->v.netname), szBufferName))
-@@ -3770,10 +3917,15 @@
+@@ -3770,10 +3918,15 @@
  			szName[0] = '*';
  
  		// Can set it a new name?
@@ -984,10 +985,11 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		}
  	}
  
-@@ -3787,15 +3939,20 @@
+@@ -3787,15 +3940,21 @@
  
  void EXT_FUNC ServerDeactivate()
  {
++	CSOL_ResetDamageNumbers();
 +	CSOL_HDSprayReset();
 +	CSOLScenarioSdkScope scope;
  	// It's possible that the engine will call this function more times than is necessary
@@ -1006,10 +1008,11 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	CLocalNav::Reset();
  
  	if (TheBots)
-@@ -3813,6 +3970,13 @@
+@@ -3813,6 +3972,14 @@
  
  void EXT_FUNC ServerActivate(edict_t *pEdictList, int edictCount, int clientMax)
  {
++	CSOL_ActivateDamageNumbers();
 +	CSOL_HDSprayActivate();
 +	CSOL_CollectRetiredScenarioRules();
 +	CSOLScenarioSdkScope scope;
@@ -1020,7 +1023,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	g_pEdicts = pEdictList;
  
  #ifdef REGAMEDLL_ADD
-@@ -3839,6 +4003,7 @@
+@@ -3839,6 +4006,7 @@
  	// Clients have not been initialized yet
  	for (i = 0; i < edictCount; i++)
  	{
@@ -1028,7 +1031,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		edict_t *pEdict = &pEdictList[i];
  
  		if (pEdict->free)
-@@ -3854,31 +4019,67 @@
+@@ -3854,31 +4022,67 @@
  		if (pClass && !pClass->IsDormant())
  		{
  			AddEntityHashValue(&pEdict->v, STRING(pEdict->v.classname), CLASSNAME);
@@ -1097,7 +1100,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	}
  
  #ifdef REGAMEDLL_ADD
-@@ -3888,6 +4089,9 @@
+@@ -3888,6 +4092,9 @@
  
  void EXT_FUNC PlayerPreThink(edict_t *pEntity)
  {
@@ -1107,7 +1110,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
-@@ -3899,6 +4103,9 @@
+@@ -3899,6 +4106,9 @@
  
  void EXT_FUNC PlayerPostThink(edict_t *pEntity)
  {
@@ -1117,7 +1120,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	entvars_t *pev = &pEntity->v;
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
-@@ -3926,24 +4133,44 @@
+@@ -3926,24 +4136,44 @@
  
  void EXT_FUNC StartFrame()
  {
@@ -1164,7 +1167,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	}
  
  	EndFrame();
-@@ -3956,6 +4183,7 @@
+@@ -3956,6 +4186,7 @@
  
  void ClientPrecache()
  {
@@ -1172,7 +1175,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	int i;
  
  	PRECACHE_SOUND("weapons/dryfire_pistol.wav");
-@@ -4387,6 +4615,7 @@
+@@ -4387,6 +4618,7 @@
  
  void EXT_FUNC PlayerCustomization(edict_t *pEntity, customization_t *pCust)
  {
@@ -1180,7 +1183,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	CBasePlayer *pPlayer = (CBasePlayer *)GET_PRIVATE(pEntity);
  
  	if (!pPlayer)
-@@ -4418,6 +4647,7 @@
+@@ -4418,6 +4650,7 @@
  
  void EXT_FUNC SpectatorConnect(edict_t *pEntity)
  {
@@ -1188,7 +1191,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4428,6 +4658,7 @@
+@@ -4428,6 +4661,7 @@
  
  void EXT_FUNC SpectatorDisconnect(edict_t *pEntity)
  {
@@ -1196,7 +1199,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4438,6 +4669,7 @@
+@@ -4438,6 +4672,7 @@
  
  void EXT_FUNC SpectatorThink(edict_t *pEntity)
  {
@@ -1204,7 +1207,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	CBaseSpectator *pPlayer = (CBaseSpectator *)GET_PRIVATE(pEntity);
  
  	if (pPlayer)
-@@ -4448,6 +4680,13 @@
+@@ -4448,6 +4683,13 @@
  
  void EXT_FUNC SetupVisibility(edict_t *pViewEntity, edict_t *pClient, unsigned char **pvs, unsigned char **pas)
  {
@@ -1218,7 +1221,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	edict_t *pView = pClient;
  
  	// Find the client's PVS
-@@ -4541,6 +4780,7 @@
+@@ -4541,6 +4783,7 @@
  
  BOOL EXT_FUNC AddToFullPack(struct entity_state_s *state, int e, edict_t *ent, edict_t *host, int hostflags, BOOL player, unsigned char *pSet)
  {
@@ -1226,7 +1229,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	if (ent != host)
  	{
  		if ((ent->v.effects & EF_NODRAW) == EF_NODRAW)
-@@ -4567,7 +4807,10 @@
+@@ -4567,7 +4810,10 @@
  
  	int i;
  	int hostnum = ENTINDEX(host) - 1;
@@ -1238,7 +1241,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  		ResetPlayerPVS(host, hostnum);
  
  #ifdef REGAMEDLL_ADD
-@@ -4581,10 +4824,11 @@
+@@ -4581,10 +4827,11 @@
  				if (!ENGINE_CHECK_VISIBILITY(ent, pSet))
  				{
  					MarkEntityInPVS(hostnum, e, 0, false);
@@ -1254,7 +1257,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  			}
  		}
  	}
-@@ -4721,6 +4965,8 @@
+@@ -4721,6 +4968,8 @@
  		state->playerclass = ent->v.playerclass;
  
  	state->iuser4 = ent->v.iuser4;
@@ -1263,7 +1266,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	return TRUE;
  }
  
-@@ -4946,6 +5192,11 @@
+@@ -4946,6 +5195,11 @@
  
  int EXT_FUNC GetWeaponData(edict_t *pEdict, struct weapon_data_s *info)
  {
@@ -1275,7 +1278,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #ifdef CLIENT_WEAPONS
  	entvars_t *pev = &pEdict->v;
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
-@@ -4975,9 +5226,10 @@
+@@ -4975,9 +5229,10 @@
  				weapon->GetItemInfo(&II);
  #endif
  
@@ -1289,7 +1292,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  					item->m_iId = II.iId;
  					item->m_iClip = weapon->m_iClip;
-@@ -4993,9 +5245,18 @@
+@@ -4993,9 +5248,18 @@
  					item->fuser2 = weapon->m_flStartThrow;
  					item->fuser3 = weapon->m_flReleaseThrow;
  					item->iuser1 = weapon->m_iSwing;
@@ -1309,7 +1312,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  					{
  						const WeaponInfoStruct *wpnInfo = GetDefaultWeaponInfo(II.iId);
  
-@@ -5019,6 +5280,17 @@
+@@ -5019,6 +5283,17 @@
  // Data sent to current client only engine sets cd to 0 before calling.
  void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clientdata_s *cd)
  {
@@ -1327,7 +1330,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	if (!ent || !ent->pvPrivateData)
  		return;
  
-@@ -5036,12 +5308,13 @@
+@@ -5036,12 +5311,13 @@
  
  	cd->flags = pev->flags;
  #ifdef REGAMEDLL_FIXES
@@ -1342,7 +1345,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	cd->waterlevel = pev->waterlevel;
  	cd->watertype = pev->watertype;
  	cd->weapons = pev->weapons;
-@@ -5056,8 +5329,24 @@
+@@ -5056,8 +5332,24 @@
  	cd->waterjumptime = int(pev->teleport_time);
  
  	Q_strlcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
@@ -1369,7 +1372,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	cd->fov = pev->fov;
  	cd->weaponanim = pev->weaponanim;
  	cd->pushmsec = pev->pushmsec;
-@@ -5135,6 +5424,9 @@
+@@ -5135,6 +5427,9 @@
  				)
  			{
  				cd->m_iId = II.iId;
@@ -1379,7 +1382,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  
  				if ((unsigned int)weapon->m_iPrimaryAmmoType < MAX_AMMO_SLOTS)
  				{
-@@ -5153,6 +5445,9 @@
+@@ -5153,6 +5448,9 @@
  
  void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsigned int random_seed)
  {
@@ -1389,7 +1392,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5162,11 +5457,20 @@
+@@ -5162,11 +5460,20 @@
  	if (pPlayer->pev->groupinfo)
  		UTIL_SetGroupTrace(pPlayer->pev->groupinfo, GROUP_OP_AND);
  
@@ -1410,7 +1413,7 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5176,6 +5480,7 @@
+@@ -5176,6 +5483,7 @@
  	if (pPlayer->pev->groupinfo)
  		UTIL_UnsetGroupTrace();
  

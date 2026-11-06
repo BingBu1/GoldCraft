@@ -28,9 +28,11 @@
 
 // Included by player.cpp. Exact post-armor tails extracted from the matched ReGameDLL source.
 // Validation, pre hooks, shield and native armor have already run once.
+#include "../csol/server/damage_notice.h"
 BOOL CBasePlayer::GoldCraft_CommitEquipmentDamage(entvars_t *pevInflictor, entvars_t *pevAttacker,
     float flDamage, int bitsDamageType, CBasePlayer *pAttack, BOOL bTeamAttack, int armorHit, bool explosion)
 {
+	if (!CSOL_NotifyPlayerAttackNumber(*this, pevAttacker, flDamage, bitsDamageType)) return FALSE;
 	BOOL bTookDamage;
 	if (explosion)
 	{

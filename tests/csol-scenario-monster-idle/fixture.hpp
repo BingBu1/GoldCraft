@@ -66,6 +66,7 @@ struct Services final : CCSOLOrdinaryMonsterServices
     bool PlayerTargetExcluded(CSOLMonsterSpawnCall&, const EHANDLE&, bool&, ConfigError&) override;
     bool UseSkill(CSOLMonsterSpawnCall&, CSOLOrdinaryMonsterState&, ConfigError&) override;
     bool ApplyContactImpulse(CSOLMonsterSpawnCall&, const EHANDLE&, const Vector&, ConfigError&) override;
+    bool ExplodeOnFree(CSOLMonsterSpawnCall&, float, ConfigError&) override;
     bool FrozenDeath(CSOLMonsterDeathCall&, ConfigError&) override;
 };
 struct FactoryServices final : CCSOLMonsterFactoryServices

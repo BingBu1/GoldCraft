@@ -25,6 +25,7 @@ class CCSOLMonsterModels;
 class CCSOLMonsterFactory;
 class CCSOLMonsterEffects;
 class CSOLMonsterSpawnCall;
+class CCSOLScenarioMessages;
 struct CSOLMonsterDeathContext;
 
 // Six original host component references receive Touch after the behavior.
@@ -80,6 +81,9 @@ public:
     // Original CMonsterImprov vE0=10611F70 is ret4. Derived ordinary behavior
     // has its own skill-specific contact path; this base performs no action.
     virtual void Touch(CCSOLScenarioMonster&, CBaseEntity*) {}
+    // Original Free 1137D840 runs its skill11/13 prefix before the NODRAW
+    // duplicate-return test. Behaviors without that type data do nothing.
+    virtual void BeforeFree(CCSOLScenarioMonster&) {}
     // Read-only diagnostic, independent of engine callbacks. Waiting or
     // retirement has no error; only a failed current behavior reports one.
     virtual std::string_view Failure() const noexcept { return {}; }
@@ -127,6 +131,7 @@ private:
     friend class CCSOLMonsterPool;
     friend class CCSOLMonsterModels;
     friend class CCSOLMonsterFactory;
+    bool CompleteFree();
     CCSOLMonsterPool* m_pool{};
     std::size_t m_slot{};
     int m_typeId{};
@@ -178,7 +183,8 @@ public:
     CCSOLScenarioMonster* Acquire(const csol::scenario::MonsterType& type,
         int point, csol::scenario::SpawnPoints& points,
         std::span<const std::size_t> protectedSlots = {},
-        const csol::scenario::MonsterType** previousType = nullptr);
+        const csol::scenario::MonsterType** previousType = nullptr,
+        const CCSOLScenarioMessages* messages = nullptr);
     // Death animation selection/rewards belong to the behavior. This records
     // the original immediate non-solid state and delayed pool return.
     bool BeginDeath(CCSOLScenarioMonster& monster, float freeAt,
@@ -194,6 +200,7 @@ public:
     // callbacks. A subsequent Acquire always has a different nonzero lease.
     // Zero means that this object has never been borrowed or is no longer ours.
     std::uint64_t Lease(const CCSOLScenarioMonster& monster) const;
+    std::uint64_t Generation() const { return m_generation; }
     std::size_t ActiveCount() const { return m_active; }
     std::size_t AvailableCount() const { return m_idle.size(); }
     std::size_t CategoryCount(std::size_t priority) const;
@@ -233,9 +240,13 @@ private:
     std::size_t m_registered{};
     // Do not reset across Shutdown/Initialize or ForgetMap on this owner.
     std::uint64_t m_lastLease{};
+    std::uint64_t m_generation{};
     CSOLMonsterPoolState m_state{CSOLMonsterPoolState::Empty};
     std::string m_error;
     bool m_busy{};
+    // Eviction callbacks may damage players or retire this session. Only a
+    // nested allocation is excluded; Busy must remain false for SpawnCall.
+    bool m_acquiring{};
     EHANDLE m_damageInflictor;
     bool m_creatingInflictor{};
     std::shared_ptr<const CSOLScenarioEntityAccess> m_entityAccess{std::make_shared<CSOLScenarioEntityAccess>()};

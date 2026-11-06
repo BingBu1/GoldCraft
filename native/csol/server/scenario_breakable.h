@@ -47,6 +47,8 @@ public:
     void OnDestroy() override;
     void EXPORT MonsterTouch(CBaseEntity* other);
     bool ValidConfiguration() const { return m_valid; }
+    // Original manager1137F950 reads this field when discovering wall upgrades.
+    bool AllowsMonsterWallUpgrade() const { return m_valid && m_monsterRatio > 0; }
     // CZBSBreak's original target-info pair is {3, trunc(health)}. Pure
     // monster-touch triggers (both ratios zero) publish no information.
     bool StatusHealth(int& health) const;

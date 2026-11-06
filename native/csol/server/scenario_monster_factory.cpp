@@ -543,7 +543,7 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Create(int team, int requestedType, 
     try { spawnState = std::make_shared<CSOLMonsterSpawnState>(); }
     catch (...) { Fail("scenario spawn state allocation failed"); return Result::Failed; }
     auto* monster = m_pool.Acquire(type, point, m_map.SpawnPoints().Points(),
-        protectedSlots, &previousType);
+        protectedSlots, &previousType, &m_messages);
     // Acquire can invoke effect cleanup while evicting an old slot. Its new
     // SpawnCall must not bless a generation installed by that callback.
     if (!sameSession())

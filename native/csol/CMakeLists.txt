@@ -15,7 +15,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/m249ex.cpp client/skull1.cpp client/skull2.cpp client/skull3.cpp client/skull5.cpp client/balrog11.cpp client/balrog11_flame.cpp client/sniper_scope.cpp
     client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario_smoke.cpp scenario_smoke.cpp
-    client/elite_visuals.cpp client/render_settings.cpp
+    client/elite_visuals.cpp client/cso_tent.cpp client/render_settings.cpp client/wall_upgrade_hint.cpp client/wall_upgrade_hud.cpp
     client/frozen_death.cpp
     client/frozen_smoke.cpp
     client/scenario_upgrades.cpp scenario_upgrades.cpp
@@ -38,7 +38,7 @@ target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cp
 target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
 set_source_files_properties(client/characters.cpp client/wall_status.cpp client/overlay_layers.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp client/character_skill_display.cpp client/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
-set_source_files_properties(client/scenario_round_hud_client.cpp client/scenario_respawn_ui.cpp client/hud_style.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario_round_hud_client.cpp client/scenario_respawn_ui.cpp client/hud_style.cpp client/wall_upgrade_hud.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 set_source_files_properties(client/scenario_map_vote.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"

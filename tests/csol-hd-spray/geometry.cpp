@@ -33,9 +33,10 @@ int main(){try{
         p.position[0]=0;map.surfaces->flags=DrawSky;g={p,{}};Build(g,&map);require(std::abs(Area(g)-1152)<.01f);
         map.surfaces->flags=0;map.surfaces->firstedge=100;g={p,{}};Build(g,&map);require(std::abs(Area(g)-1152)<.01f);
         map.surfaces->firstedge=0;for(auto& point:points){point.position[1]*=64;point.position[2]*=64;}
-        p.original={128,64};image={128,64,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-128*64)<.01f);
-        p.original={256,128};image={256,128,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-256*128)<.01f);
-        p.original={2048,1024};image={512,256,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-2048*1024)<.01f);
+        p.original={128,64};image={128,64,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-48*24)<.01f);
+        p.original={256,128};image={256,128,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-48*24)<.01f);
+        p.original={2048,1024};image={512,256,{}};g={p,{}};Build(g,&map);require(std::abs(Area(g)-48*24)<.01f);
+        p.original={1024,2048};g={p,{}};Build(g,&map);require(std::abs(Area(g)-24*48)<.01f);
     }
     auto animation=std::make_shared<const csol::spray::Animation>(csol::spray::Animation{{{csol::Image{1,1,{1,2,3,255}},100},{csol::Image{1,1,{4,5,6,255}},200}},0});
     SprayPlacement first{1,7,0,1,{0,0,0},{1,0,0},{1,1},10},second=first;second.id=2;second.started=11;

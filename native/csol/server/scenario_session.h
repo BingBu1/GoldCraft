@@ -9,6 +9,7 @@
 #include "scenario_navigation.h"
 #include "scenario_breakable.h"
 #include "scenario_wall_rewards.h"
+#include "scenario_wall_upgrade.h"
 #include "scenario_player_upgrades.h"
 #include "scenario_equipment.h"
 #include "scenario_monster_rewards.h"
@@ -54,6 +55,13 @@ public:
     // Called after ServerActivate has populated the classname hash table.
     bool Activate();
     bool BindWallPlayers(std::shared_ptr<CCSOLScenarioWallPlayers> players);
+    bool BindWallUpgradeServices(std::shared_ptr<CCSOLWallUpgradeServices> services);
+    // Original first-player manager initialization and per-recipient sync.
+    bool InitializeWallUpgradePlayer(CBasePlayer& player);
+    // Called after the formal round clock broadcast, before player respawns.
+    bool AdvanceWallUpgradeRound();
+    bool WallUpgradeParticipation(const EHANDLE& player, std::uint8_t& value) const;
+    std::shared_ptr<CCSOLScenarioWallUpgrade> WallUpgrade() const { return m_wallUpgrade; }
     bool BindUpgradeServices(std::shared_ptr<CCSOLScenarioUpgradeServices> services);
     bool BindEquipmentServices(CCSOLScenarioEquipment::CapEvent capEvent);
     bool PrepareEquippedPlayer(CBasePlayer& player, int classId, std::uint8_t feature,
@@ -113,6 +121,9 @@ public:
 
 private:
     bool Fail(csol::scenario::ResourceError error);
+    bool InitializeWallUpgradeMachine();
+    bool ResetWallUpgradeChallenge();
+    void ClearWallUpgrade();
 
     // The pool is destroyed first, before the map's borrowed type table.
     CCSOLScenarioMap m_map;
@@ -135,6 +146,13 @@ private:
     std::shared_ptr<CCSOLScenarioNavigation> m_navigation;
     CCSOLScenarioWalls m_walls;
     std::shared_ptr<CCSOLScenarioWallRewards> m_wallRewards;
+    std::shared_ptr<CCSOLWallUpgradeServices> m_wallUpgradeServices;
+    std::shared_ptr<CCSOLScenarioWallUpgrade> m_wallUpgrade;
+    EHANDLE m_wallUpgradeMachine;
+    struct WallParticipant { EHANDLE player; int userid{}; std::uint8_t rounds{}; };
+    std::array<WallParticipant, 33> m_wallParticipants{};
+    std::optional<std::uint64_t> m_wallParticipationRound;
+    bool m_wallUpgradeInitialized{};
     std::shared_ptr<CCSOLScenarioPlayers> m_players;
     std::shared_ptr<CCSOLScenarioUpgradeServices> m_upgradeServices;
     std::shared_ptr<CCSOLScenarioEquipment> m_equipment;

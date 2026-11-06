@@ -9,6 +9,7 @@ class CCSOLScenarioSession;
 class CCSOLScenarioGameplay;
 class CCSOLScenarioDeathServices;
 class CCSOLOberonServices;
+class CCSOLZombiBossServices;
 
 // The ordinary behavior holds this provider weakly. A pinned provider retains
 // the session, death service and gameplay managers until the entry unwinds;
@@ -58,6 +59,8 @@ public:
         bool& excluded, csol::scenario::ConfigError& error) override;
     bool UseSkill(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterState& state,
         csol::scenario::ConfigError& error) override;
+    bool ExplodeOnFree(CSOLMonsterSpawnCall& call, float damage,
+        csol::scenario::ConfigError& error) override;
     bool ApplyContactImpulse(CSOLMonsterSpawnCall& call, const EHANDLE& target,
         const Vector& requested, csol::scenario::ConfigError& error) override;
     bool FrozenDeath(CSOLMonsterDeathCall& call, csol::scenario::ConfigError& error) override;
@@ -71,6 +74,7 @@ private:
     std::shared_ptr<CCSOLScenarioGameplay> m_gameplay;
     std::shared_ptr<CCSOLMonsterDamageServices> m_damage;
     std::shared_ptr<CCSOLOberonServices> m_oberon;
+    std::shared_ptr<CCSOLZombiBossServices> m_zombiBoss;
     // Original manager owns four smoke deadline slots, independent of actual
     // particle lifetime. Reset on a new round, not when a monster dies.
     std::array<float, 4> m_smokeUntil{};

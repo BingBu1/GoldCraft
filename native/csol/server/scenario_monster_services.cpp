@@ -4,6 +4,8 @@
 #include "scenario_monster_healing.h"
 #include "scenario_monster_skills.h"
 #include "scenario_oberon.h"
+#include "scenario_zombi_boss.h"
+#include "../scenario/zombi_boss.hpp"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -96,6 +98,26 @@ std::unique_ptr<CCSOLMonsterSpawnBehavior> CCSOLScenarioMonsterServices::CreateB
     const auto runtime = Pin();
     if (!runtime || !Current(call)) return {};
     auto* monster = call.Current();
+    if (monster->Type() && monster->Type()->skill >= 1000 && recordId == monster->TypeId() &&
+        csol::scenario::zombi_boss::FactoryDefaultRecord(recordId))
+    {
+        // MP 113E5400 default branch 113E5496: CZombiBossImprov (117FE46C).
+        const auto rewards = m_session->HitRewards();
+        const auto players = m_session->Players();
+        const auto equipment = m_session->EquipmentState();
+        const auto weapons = m_session->Weapons();
+        const auto skills = m_session->BossSkills();
+        if (!m_damage || !rewards || !players || !equipment || !weapons || !skills)
+        { error.message = "CZombiBossImprov requires active damage/reward/player/equipment/weapon/SK services"; return {}; }
+        if (!m_zombiBoss)
+        {
+            m_zombiBoss = std::make_shared<CCSOLZombiBossServices>(runtime, shared_from_this());
+            if (Pin() != runtime || !Current(call)) return {};
+        }
+        auto damage = std::make_shared<CCSOLOrdinaryMonsterDamage>(m_session->Map(), Deaths(),
+            players, equipment, weapons, m_damage);
+        return std::make_unique<CCSOLZombiBossBehavior>(m_zombiBoss, std::move(damage), skills);
+    }
     if (recordId != 30200 || !monster->Type() || monster->Type()->skill != 1002)
     {
         error.message = "scenario boss behavior is not implemented for record " + std::to_string(recordId);
@@ -419,7 +441,8 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
     #pragma clang fp contract(off)
     const auto runtime = Pin();
     if (!runtime || !Current(call) || !gpGlobals) return false;
-    if (call.Current()->Type()->skill == 6 || call.Current()->Type()->skill == 8)
+    const auto skill = call.Current()->Type()->skill;
+    if (skill == 6 || skill == 8 || skill == 9 || skill == 10 || skill == 12)
     {
         const auto* spawn = m_gameplay->Factory().State(*call.Current());
         if (!spawn) { error.message = "scenario projectile skill spawn state is unavailable"; return false; }
@@ -436,9 +459,14 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
                 return owner.services.Pin().get() == owner.runtime && owner.services.Current(owner.call) &&
                     owner.services.m_gameplay->Factory().State(*owner.call.Current()) == owner.spawn;
             }, &owner};
-        if (call.Current()->Type()->skill == 6)
-            return CSOL_UseMonsterZombieBomb(call, state, *spawn, runtime, DamageSuppressed(), guard, error);
-        return CSOL_UseMonsterDisarm(call, state, *spawn, runtime, guard, error);
+        switch (skill)
+        {
+        case 6: return CSOL_UseMonsterZombieBomb(call, state, *spawn, runtime, DamageSuppressed(), guard, error);
+        case 9: return CSOL_UseMonsterDash(call, state, *spawn, DamageSuppressed(), guard);
+        case 10: return CSOL_UseMonsterPierce(call, state, *spawn, DamageSuppressed(), guard);
+        case 12: return CSOL_UseMonsterLeap(call, state, *spawn, DamageSuppressed(), guard, error);
+        default: return CSOL_UseMonsterDisarm(call, state, *spawn, runtime, guard, error);
+        }
     }
     if (call.Current()->Type()->skill == 3)
     {
@@ -507,11 +535,64 @@ bool CCSOLScenarioMonsterServices::UseSkill(CSOLMonsterSpawnCall& call,
                 return owner.services->Pin().get() == owner.runtime;
             }, &owner}, error);
     }
+    if (call.Current()->Type()->skill == 7)
+    {
+        // MP113F0970 table entry 7 jumps straight to the shared 113F1014
+        // tail: no entity, pose or speed write, only 99999 active and a
+        // 5+jitter retry. The long jump itself runs in target update.
+        const float interval = 5.0f + state.jitter * 5.0f;
+        state.skillActive = {99999.0f, gpGlobals->time + 99999.0f, gpGlobals->time};
+        state.skill = {interval, gpGlobals->time + interval, gpGlobals->time};
+        return true;
+    }
+    if (call.Current()->Type()->skill == 11 || call.Current()->Type()->skill == 13)
+    {
+        // MP113F0970: table 113F1088 entry 11 is 113F1014, the same shared
+        // tail as entry 7, and skill 13 exceeds the 1..12 table (ja 113F1014).
+        // 113F03D0 special-cases only skill 9, so this is the whole activation.
+        const float interval = 5.0f + state.jitter * 5.0f;
+        state.skillActive = {99999.0f, gpGlobals->time + 99999.0f, gpGlobals->time};
+        state.skill = {interval, gpGlobals->time + interval, gpGlobals->time};
+        return true;
+    }
     // Skills 1/2 execute inside OrdinaryBehavior. Keep unsupported producers
     // explicit until their real entities and effects have been implemented.
     error.message = "scenario ordinary skill activation is not implemented for skill " +
         std::to_string(call.Current()->Type()->skill);
     return false;
+}
+
+bool CCSOLScenarioMonsterServices::ExplodeOnFree(CSOLMonsterSpawnCall& call, float damage,
+    csol::scenario::ConfigError& error)
+{
+    #pragma clang fp contract(off)
+    const auto runtime = Pin();
+    if (!runtime || !Current(call)) return false;
+    const auto* rules = dynamic_cast<CHalfLifeMultiplay*>(CSOL_ScenarioOwnerRules(m_session.get()));
+    if (!rules)
+    {
+        error.message = "scenario Free explosion has no rules";
+        CSOL_RejectGameRules(error.message.c_str());
+        return false;
+    }
+    // MP1137D84B: root+4 is CGameRules::m_bFreezePeriod; RestartRound sets it
+    // to 1 before cleanup, so only exactly 1 skips the explosion.
+    if (rules->m_bFreezePeriod == TRUE) return true;
+    struct Owner
+    {
+        const CCSOLScenarioMonsterServices& services;
+        const CCSOLScenarioRuntime* runtime;
+        CSOLMonsterSpawnCall& call;
+    } owner{*this, runtime.get(), call};
+    const CSOLMonsterSkillGuard guard{[](const void* context)
+        {
+            const auto& owner = *static_cast<const Owner*>(context);
+            return owner.services.Pin().get() == owner.runtime && owner.services.Current(owner.call);
+        }, &owner};
+    // 1137D86B..D891: damage, 157.48 (431D7AE1) and force 5.0 (40A00000).
+    const bool exploded = CSOL_ApplyMonsterFreeExplosion(call, damage, 157.48f, 5.0f, Messages(), guard, error);
+    if (!exploded && !error.message.empty()) CSOL_RejectGameRules(error.message.c_str());
+    return exploded;
 }
 
 bool CCSOLScenarioMonsterServices::ApplyContactImpulse(CSOLMonsterSpawnCall& call,

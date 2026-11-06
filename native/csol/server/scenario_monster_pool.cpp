@@ -3,9 +3,12 @@
 #include "scenario_monster_pool.h"
 #include "scenario_monster_resources.h"
 #include "scenario_monster_effects.h"
+#include "scenario_death_notice.h"
 #include "game_rules_gate.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
+#include "damage_notice.h"
+#include "scenario_monster_ordinary.h"
 #include "../monster_impact.hpp"
 
 #include <algorithm>
@@ -35,24 +38,57 @@ bool Live(CBaseEntity* entity)
 {
     return entity && UTIL_IsValidEntity(entity->edict());
 }
+// A pool callback may replay the round without revoking map access. Check the
+// pool generation before resolving old handles, then the complete lease.
+struct PoolCall
+{
+    CCSOLMonsterPool& pool;
+    CSOLScenarioSdkScope scope;
+    std::shared_ptr<const CSOLScenarioEntityAccess> access;
+    std::uint64_t generation, lease;
+    std::size_t slot;
+    CCSOLScenarioMonster* identity;
+    const csol::scenario::MonsterType* type;
+    std::shared_ptr<CCSOLMonsterBehavior> behavior;
+    PoolCall(CCSOLMonsterPool& owner, CCSOLScenarioMonster& monster)
+        : pool(owner), scope(CSOL_ScenarioOwnerRules(&owner)), access(owner.EntityAccess()),
+          generation(owner.Generation()), lease(owner.Lease(monster)), slot(monster.Slot()),
+          identity(&monster), type(monster.Type()), behavior(monster.RetainBehavior()) {}
+    CCSOLScenarioMonster* Current() const
+    {
+        if ((scope.Scenario() && !scope.Current()) || !access || !access->Allowed() ||
+            pool.EntityAccess() != access || pool.Generation() != generation ||
+            pool.State() != CSOLMonsterPoolState::Ready) return nullptr;
+        auto* monster = pool.At(slot);
+        return monster == identity && monster && pool.Lease(*monster) == lease &&
+            monster->Type() == type && monster->Behavior() == behavior.get() ? monster : nullptr;
+    }
+    CSOLMonsterEffectGuard Guard() const
+    {
+        return {[](const void* context) { return static_cast<const PoolCall*>(context)->Current(); }, this};
+    }
+};
+struct FreeDispatch
+{
+    static thread_local FreeDispatch* active;
+    const PoolCall& call;
+    FreeDispatch* previous{active};
+    explicit FreeDispatch(const PoolCall& value) : call(value) { active = this; }
+    ~FreeDispatch() { active = previous; }
+    static bool Contains(const PoolCall& call)
+    {
+        for (auto* entry = active; entry; entry = entry->previous)
+            if (&entry->call.pool == &call.pool && entry->call.slot == call.slot &&
+                entry->call.lease == call.lease) return true;
+        return false;
+    }
+};
+thread_local FreeDispatch* FreeDispatch::active{};
 bool ClearPoolEffects(CCSOLMonsterPool& pool, CCSOLScenarioMonster& monster)
 {
-    struct Capture
-    {
-        CCSOLMonsterPool& pool;
-        std::size_t slot;
-        std::uint64_t lease;
-        const CCSOLScenarioMonster* identity;
-    } capture{pool, monster.Slot(), pool.Lease(monster), &monster};
-    const CSOLMonsterEffectGuard guard{[](const void* value) -> CCSOLScenarioMonster*
-    {
-        const auto& scope = *static_cast<const Capture*>(value);
-        if (scope.pool.State() != CSOLMonsterPoolState::Ready) return nullptr;
-        auto* current = scope.pool.At(scope.slot);
-        return current == scope.identity && current && scope.pool.Lease(*current) == scope.lease ? current : nullptr;
-    }, &capture};
+    const PoolCall call(pool, monster);
     auto effects = monster.DamageEffects();
-    return effects && effects->ClearAll(guard);
+    return effects && effects->ClearAll(call.Guard());
 }
 }
 
@@ -204,7 +240,31 @@ BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
         return FALSE;
     auto behavior = RetainBehavior();
     const auto context = CSOL_ConsumeMonsterDamageContext(*this, inflictor, attacker, damageType);
-    return behavior->TakeDamageWithContext(*this, inflictor, attacker, damage, damageType, context);
+    const PoolCall owner(*m_pool, *this);
+    auto* ordinary = dynamic_cast<CCSOLOrdinaryMonsterBehavior*>(behavior.get());
+    struct NumberOwner
+    {
+        const PoolCall& pool;
+        CCSOLOrdinaryMonsterBehavior* ordinary;
+        CCSOLOrdinaryMonsterBehavior::StatePtr state;
+        bool Current() const
+        {
+            return pool.Current() && (!ordinary || (state && ordinary->SpawnState() == state));
+        }
+    } numberOwner{owner, ordinary, ordinary ? ordinary->SpawnState() : nullptr};
+    const CSOLAttackNumberCall number(*this, attacker,
+        [](const void* value) { return static_cast<const NumberOwner*>(value)->Current(); }, &numberOwner);
+    const float before = pev->health;
+    const BOOL result = behavior->TakeDamageWithContext(*this, inflictor, attacker, damage, damageType, context);
+    // MP11533410 retains v44's return; lethal hits returning FALSE still
+    // notify. The caller's bits are passed to v44 by value in the original.
+    if (number.Current())
+    {
+        const float amount = before - pev->health;
+        if (amount > 0)
+            number.Notify(amount, damageType, m_host.lastHitgroup, m_host.damageEffect, context.bytes[0x1c] != 0);
+    }
+    return result;
 }
 
 void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
@@ -301,9 +361,21 @@ void CCSOLScenarioMonster::Touch(CBaseEntity* other)
 
 void CCSOLScenarioMonster::FreeThink()
 {
-    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
-    if (scope.Scenario() && !scope.Current()) return;
-    if (m_pool) m_pool->Free(*this);
+    CompleteFree();
+}
+
+bool CCSOLScenarioMonster::CompleteFree()
+{
+    if (!m_pool || m_pool->Busy() || !m_pool->EntityAccessAllowed()) return false;
+    const PoolCall call(*m_pool, *this);
+    if (!call.Current() || FreeDispatch::Contains(call)) return false;
+    const FreeDispatch dispatch(call);
+    if (call.behavior) call.behavior->BeforeFree(*this);
+    // The original Free prefix precedes the duplicate-return check. Keep it
+    // valid for ParkForDeath, but pin its behavior and check map authority
+    // before reading an edict which a death callback may have retired.
+    if (!call.Current()) return false;
+    return call.pool.Free(*this);
 }
 
 void CCSOLScenarioMonster::OnDestroy()
@@ -442,6 +514,7 @@ bool CCSOLMonsterPool::Initialize()
 {
     if (!EntityAccessAllowed() || m_busy || m_state != CSOLMonsterPoolState::Empty) return false;
     Operation operation(m_busy);
+    ++m_generation;
     m_error.clear();
     for (std::size_t i = 0; i < m_slots.size(); ++i)
     {
@@ -493,6 +566,7 @@ bool CCSOLMonsterPool::Shutdown()
 {
     if (m_busy) return false;
     Operation operation(m_busy);
+    ++m_generation;
     RemoveOwned();
     // Engine teardown owns the remaining OnDestroy calls after revocation.
     // Their registration records must survive until those calls have returned.
@@ -515,6 +589,7 @@ bool CCSOLMonsterPool::ForgetMap()
     // Never abandon live entities that still point to this owner. Shutdown or
     // actual engine OnDestroy must detach them before forgetting the map.
     if (m_busy || m_registered) return false;
+    ++m_generation;
     m_slots = {};
     m_damageInflictor = static_cast<CBaseEntity*>(nullptr);
     m_idle.clear();
@@ -579,6 +654,7 @@ bool CCSOLMonsterPool::RestartRound()
 {
     if (m_busy || m_state != CSOLMonsterPoolState::Ready) return false;
     Operation operation(m_busy);
+    ++m_generation;
     if (!Validate()) return false;
     // Preserve idle FIFO. Append only borrowed slots, in ascending slot order.
     for (std::size_t i = 0; i < m_slots.size(); ++i)
@@ -594,11 +670,13 @@ bool CCSOLMonsterPool::RestartRound()
 
 CCSOLScenarioMonster* CCSOLMonsterPool::Acquire(const csol::scenario::MonsterType& type,
     int point, csol::scenario::SpawnPoints& points, std::span<const std::size_t> protectedSlots,
-    const csol::scenario::MonsterType** previousType)
+    const csol::scenario::MonsterType** previousType, const CCSOLScenarioMessages* messages)
 {
     if (previousType) *previousType = nullptr;
-    if (m_busy || m_state != CSOLMonsterPoolState::Ready) return nullptr;
-    Operation operation(m_busy);
+    CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(this));
+    if ((scope.Scenario() && !scope.Current()) || !EntityAccessAllowed() ||
+        m_busy || m_acquiring || m_state != CSOLMonsterPoolState::Ready) return nullptr;
+    Operation acquisition(m_acquiring);
     if (!Validate()) return nullptr;
     if (type.priority < 0 || type.priority > 2)
     {
@@ -620,17 +698,38 @@ CCSOLScenarioMonster* CCSOLMonsterPool::Acquire(const csol::scenario::MonsterTyp
             if (!oldType || oldType->priority != 0 ||
                 std::find(protectedSlots.begin(), protectedSlots.end(), i) != protectedSlots.end()) continue;
             auto* old = At(i);
+            const PoolCall call(*this, *old);
+            if (!messages)
+            { Fail("scenario eviction death notice service is unavailable"); return nullptr; }
+            // Original 11384EE0 notifies clients before changing the host.
+            // Copy IDs: a message callback can retire the owning session.
+            const auto notification = *messages;
+            csol::scenario::ConfigError error;
+            const bool sent = CSOL_SendMonsterDeathNotice(notification, call.Guard(), error);
+            if (!call.Current()) return nullptr;
+            if (!sent) { Fail(error.message.c_str()); return nullptr; }
+            old->pev->health = 0;
+            old->pev->movetype = MOVETYPE_TOSS;
+            old->pev->flags &= ~FL_ONGROUND;
             // Original eviction has no alive/solid gate. A dying ordinary
             // monster can return its point quota again here before Free.
             points.ReturnPointQuota(old->pev->team, old->m_spawnPoint);
+            old->pev->takedamage = DAMAGE_NO;
+            old->pev->deadflag = DEAD_DEAD;
             old->pev->solid = SOLID_NOT;
-            if (!Return(i)) return nullptr;
-            if (!ClearPoolEffects(*this, *At(i)))
+            if (!old->CompleteFree() || !call.Current()) return nullptr;
+            old->m_host.nonlethalDamage = 0.0f;
+            old->m_host.damageScaleCount = 0;
+            old->m_host.damageScale = 1.0f;
+            const bool cleared = ClearPoolEffects(*this, *old);
+            if (!call.Current()) return nullptr;
+            if (!cleared)
             { Fail("scenario evicted monster effect cleanup cancelled"); return nullptr; }
             break;
         }
     }
     if (m_idle.empty()) return nullptr;
+    Operation operation(m_busy);
     const auto index = m_idle.front();
     m_idle.pop_front();
     auto* monster = At(index);

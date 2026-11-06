@@ -928,6 +928,30 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
     }
 }
 
+void CCSOLOrdinaryMonsterBehavior::BeforeFree(CCSOLScenarioMonster& entity)
+{
+    #pragma clang fp contract(off)
+    const auto services = m_services.lock();
+    const auto state = m_state;
+    if (!services || !services->OwnerCurrent() || !state || !state->spawn) return;
+    // The dead lease remains readable until a new borrow replaces it.
+    const auto spawn = state->spawn;
+    CSOLMonsterSpawnCall call(services->Map(), services->Pool(), services->Deaths(), entity, this, services);
+    if (call.Current() != &entity || spawn->lease != state->lease) return;
+    // MP1137D85B reads the runtime row +1A skill and +10 attack damage. The
+    // service rejects the rules itself: this lease's AI has already ended.
+    if (spawn->skill != 11 && spawn->skill != 13) return;
+    csol::scenario::ConfigError error;
+    try
+    {
+        services->ExplodeOnFree(call, spawn->attributes.attackDamage * 3.0f, error);
+    }
+    catch (...)
+    {
+        if (call.Current()) state->error.message = "ordinary Free explosion threw";
+    }
+}
+
 BOOL CCSOLOrdinaryMonsterBehavior::TakeDamage(CCSOLScenarioMonster& monster,
     entvars_t* inflictor, entvars_t* attacker, float damage, int damageType)
 {
