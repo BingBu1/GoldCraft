@@ -16,7 +16,7 @@ FBO_Container_t* target=reinterpret_cast<FBO_Container_t*>(&targetTag);
 std::array<float,16> world{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1},projection=world;
 cl_entity_t* current{};
 cl_entity_t* local{};
-bool thirdPerson{},cannonEventHandled{},gammaTarget{};
+bool thirdPerson{},cannonEventHandled{},gammaTarget{},networkEntity=true;
 cvar_t gammaSetting{},textureGamma{},savedGammaBlend{};
 int cannonEventCalls{},nativeEventCalls{};
 cl_entity_t entity{},viewmodel{},ordinary{};
@@ -84,6 +84,7 @@ int main(int argc,char** argv)
 {
     using namespace csol;using namespace csol::client;using namespace fixture;
     const bool opaqueGamma=argc>=2 && std::string_view(argv[1])=="--opaque-gamma";
+    const bool worldTint=argc>=2 && std::string_view(argv[1])=="--world-tint";
     check(glfwInit()!=0);glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR,3);glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR,3);
     glfwWindowHint(GLFW_OPENGL_PROFILE,GLFW_OPENGL_CORE_PROFILE);auto* window=glfwCreateWindow(32,32,"CSOL scene regression",nullptr,nullptr);check(window!=nullptr);
     glfwMakeContextCurrent(window);glewExperimental=GL_TRUE;check(glewInit()==GLEW_OK);while(glGetError()){}
@@ -94,7 +95,7 @@ int main(int argc,char** argv)
     engine.GetLocalPlayer=[](){return local;};
     downstream.HUD_StudioEvent=[](const mstudioevent_t*,const cl_entity_t*){++nativeEventCalls;};
     mstudioevent_t numeric{};numeric.event=5001;std::strcpy(numeric.options,"103112");
-    if(!opaqueGamma){
+    if(!opaqueGamma && !worldTint){
     cannonEventHandled=true;StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==1&&nativeEventCalls==0);
     cannonEventHandled=false;StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==2&&nativeEventCalls==1);
     numeric.event=5004;std::strcpy(numeric.options,"weapons/cannon_draw.wav");StudioEvent(&numeric,&viewmodel);check(cannonEventCalls==3&&nativeEventCalls==2);
@@ -131,6 +132,135 @@ int main(int argc,char** argv)
     auto pixel=[](){std::array<unsigned char,4> p{};glReadPixels(16,16,1,1,GL_RGBA,GL_UNSIGNED_BYTE,p.data());return p;};
     auto clear=[&](double z=1){glDepthMask(1);glStencilMask(255);glClearColor(0,0,1,1);glClearDepth(z);glClearStencil(73);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT);};
     auto queue=[&](){current=&entity;check(DrawModel(&entity,STUDIO_RENDER|STUDIO_EVENTS,pose));};
+    if(worldTint)
+    {
+        // Expected RGB is calculated from fixture inputs, not production
+        // uniforms/state. The original tint stage follows gamma lighting.
+        gammaSetting.value=textureGamma.value=2;
+        static cvar_t lightGamma{},brightness{},lambert{};
+        lightGamma.value=1;brightness.value=0;lambert.value=1.5f;
+        engine.pfnGetCvarPointer=[](const char* name)->cvar_t*
+        {
+            if(!std::strcmp(name,"gamma"))return &gammaSetting;
+            if(!std::strcmp(name,"texgamma"))return &textureGamma;
+            if(!std::strcmp(name,"lightgamma"))return &lightGamma;
+            if(!std::strcmp(name,"brightness"))return &brightness;
+            if(!std::strcmp(name,"lambert"))return &lambert;
+            if(!std::strcmp(name,"r_gamma_blend"))return &savedGammaBlend;
+            return nullptr;
+        };
+        engine.GetEntityByIndex=[](int index)->cl_entity_t*
+        {return networkEntity && index==entity.index?&entity:nullptr;};
+        studio.StudioDynamicLight=[](cl_entity_t* e,alight_t* l)
+        {
+            check(current==e);++lightingCalls;l->ambientlight=144;l->shadelight=48;
+            l->color[0]=.6f;l->color[1]=.8f;l->color[2]=1;
+            l->plightvec[0]=0;l->plightvec[1]=0;l->plightvec[2]=.5f;
+        };
+        model.type=mod_studio;std::strcpy(model.name,"models/monster/tint_fixture.mdl");
+        entity.index=42;entity.player=0;entity.curstate.number=42;
+        entity.curstate.scale=1;entity.curstate.skin=0;entity.curstate.weaponmodel=0;
+        entity.curstate.rendermode=0;entity.curstate.renderfx=0;
+        identity=0;asset.special=true;
+        asset.materials.resize(1);asset.materials.reserve(2);
+        auto& mat=asset.materials[0];
+        const GLuint greyTexture=mat.texture;
+        glBindTexture(GL_TEXTURE_2D,greyTexture);const unsigned char grey[]{128,128,128,255};
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,grey);
+        const auto ordinaryPolicy=ParseMaterialPolicy("ordinary.bmp");
+        const auto setOrdinary=[&]{static_cast<MaterialPolicy&>(mat)=ordinaryPolicy;mat.flags=0;mat.texture=greyTexture;mat.cull=false;mat.depth=true;mat.blend=Blend::Opaque;};
+        setOrdinary();EnsureGeometry(asset);Program();
+        // Ordinary studio surfaces cull GL_FRONT; unlike the earlier special
+        // two-sided fixture, this mesh needs the host's visible winding.
+        const unsigned clockwise[]{0,2,1,0,3,2};
+        glBindVertexArray(asset.vao);glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,asset.ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,sizeof(clockwise),clockwise,GL_STATIC_DRAW);
+        const auto resetEntity=[&]
+        {
+            entity.model=&model;entity.player=0;entity.curstate.weaponmodel=0;
+            entity.curstate.rendermode=0;entity.curstate.renderfx=0;networkEntity=true;
+            std::strcpy(model.name,"models/monster/tint_fixture.mdl");
+            engine.GetViewModel=[](){return &viewmodel;};
+        };
+        const auto expectedPixel=[&](const std::array<unsigned char,3>& tint,bool gamma,bool applies,bool fullbright)
+        {
+            // normal=(0,0,1), light=(0,0,.5): Lambert=(.5+1.5-1)/1.5.
+            const double illumination=144.+48.-48.*(1./1.5);
+            const double level=illumination/255.;
+            const double light=level>.125?.125+(level-.125)/.875*.875:level;
+            const double exponent=gamma?.5:1.;
+            const double lighting[3]={.6,.8,1.};
+            const bool zero=tint==std::array<unsigned char,3>{0,0,0};
+            std::array<int,3> result{};
+            for(int channel=0;channel<3;++channel)
+            {
+                const double modulation=applies && !zero?tint[channel]/255.:1.;
+                const double lit=fullbright?1.:std::pow(lighting[channel]*light,exponent);
+                result[channel]=int(std::lround(255.*std::pow(128./255.,2.*exponent)*lit*
+                    std::pow(modulation,gamma?1.:2.)));
+            }
+            return result;
+        };
+        const auto render=[&](const std::array<unsigned char,3>& tint,bool gamma,bool opaque,bool applies,bool fullbright,const char* label)
+        {
+            ++frame;sceneTime+=.1;descriptor.frame_number=frame;
+            descriptor.flags=gamma?META_POST_SCENE_GAMMA:META_POST_SCENE_LINEAR;
+            gammaTarget=gamma;savedGammaBlend.value=gamma?0.f:1.f;
+            entity.curstate.rendercolor={tint[0],tint[1],tint[2]};
+            current=&entity;currentStudioModel=&model;currentStudioHeader=h;
+            clear();glDisable(GL_STENCIL_TEST);glDepthFunc(GL_LESS);
+            check(DrawWorldWeaponPoints());const int captured=lightingCalls;
+            // Deliberately install another context after capture; draw must
+            // preserve it and must not query scene lighting or source RGB again.
+            entity.curstate.rendercolor={1,2,3};
+            current=&ordinary;currentStudioModel=&ordinaryModel;currentStudioHeader=nullptr;
+            if(opaque)DrawOwnedOpaque();else DrawOwnedWorld(descriptor);
+            const auto actual=pixel();const auto expected=expectedPixel(tint,gamma,applies,fullbright);
+            std::printf("world tint %s gamma=%d opaque=%d rgb=%d,%d,%d expected=%d,%d,%d\n",label,int(gamma),int(opaque),actual[0],actual[1],actual[2],expected[0],expected[1],expected[2]);
+            for(int channel=0;channel<3;++channel)check(std::abs(int(actual[channel])-expected[channel])<=2);
+            check(lightingCalls==captured && current==&ordinary);
+            check(currentStudioModel==&ordinaryModel && currentStudioHeader==nullptr);
+            check(glGetError()==GL_NO_ERROR);
+            if(opaque){DrawOwnedWorld(descriptor);check(pixel()==actual);}
+        };
+        const std::array<unsigned char,3> green{80,228,91},blue{128,128,255},white{255,255,255},zero{0,0,0};
+        for(bool gamma:{true,false})for(bool opaque:{true,false})
+            for(const auto& tint:{green,white,blue,zero,green})render(tint,gamma,opaque,true,false,"alternating");
+        // Ordinary assets must be taken over for a qualifying nonwhite tint.
+        asset.special=false;render(green,true,true,true,false,"ordinary-asset");
+        const auto reject=[&](const std::array<unsigned char,3>& tint)
+        {
+            ++frame;sceneTime+=.1;entity.curstate.rendercolor={tint[0],tint[1],tint[2]};
+            current=&entity;currentStudioModel=&model;currentStudioHeader=h;
+            check(!DrawWorldWeaponPoints());
+        };
+        reject(white);reject(zero);
+        networkEntity=false;reject(green);resetEntity();
+        entity.player=1;reject(green);resetEntity();
+        engine.GetViewModel=[](){return &entity;};reject(green);resetEntity();
+        std::strcpy(model.name,"models/p_tint_fixture.mdl");reject(green);resetEntity();
+        entity.curstate.rendermode=1;reject(green);resetEntity();
+        entity.curstate.renderfx=1;reject(green);resetEntity();
+        mat.flags|=STUDIO_NF_FULLBRIGHT;reject(green);setOrdinary();
+        mat.flags|=STUDIO_NF_CHROME;reject(green);setOrdinary();
+        asset.materials.push_back(mat);asset.materials.back().flags|=STUDIO_NF_CHROME;
+        reject(green);asset.materials.pop_back();
+        static_cast<MaterialPolicy&>(mat)=ParseMaterialPolicy("$0a_special.tga");reject(green);setOrdinary();
+        // Existing special-asset ownership is retained, but excluded surfaces
+        // and non-network entities must not receive the new tint modulation.
+        asset.special=true;
+        for(bool gamma:{true,false})
+        {
+            mat.flags|=STUDIO_NF_FULLBRIGHT;render(green,gamma,true,false,true,"fullbright");setOrdinary();
+            mat.special=true;render(blue,gamma,true,false,true,"special-material");setOrdinary();
+            networkEntity=false;render(green,gamma,true,false,false,"not-network");resetEntity();
+            std::strcpy(model.name,"models/p_tint_fixture.mdl");render(blue,gamma,true,false,false,"attached");resetEntity();
+        }
+        ClearScene();glewReady=true;graphicsContext=wglGetCurrentContext();renderer=&host;postRenderer=&post;
+        Program();render(zero,true,false,true,false,"new-session-zero");render(blue,false,true,true,false,"new-session-blue");
+        std::printf("PASS world tint %d checks; GPU=%s\n",checks,glGetString(GL_RENDERER));
+        ClearScene();glfwDestroyWindow(window);glfwTerminate();return 0;
+    }
     if(opaqueGamma)
     {
         // A fullbright mid-grey texel becomes 128 in a gamma target and about

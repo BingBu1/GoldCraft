@@ -112,6 +112,29 @@ WorldWeapon* WorldWeaponFor(const cl_entity_t* entity)
     for(auto& weapon:worldWeapons)if(&weapon.entity==entity && weapon.source)return &weapon;
     return nullptr;
 }
+bool NetworkWorldTint(const cl_entity_t* entity,bool attached)
+{
+    // Host ownership boundary for the original non-viewmodel color path.
+    // CSO's additional classifier fields have no equivalent in this SDK.
+    return entity && !attached && !entity->player && entity!=engine.GetViewModel() &&
+        entity->index>0 && engine.GetEntityByIndex && engine.GetEntityByIndex(entity->index)==entity &&
+        entity->curstate.rendermode==kRenderNormal && entity->curstate.renderfx==kRenderFxNone;
+}
+bool LitWorldTintMaterial(const Material& material)
+{
+    return !(material.flags&(STUDIO_NF_CHROME|STUDIO_NF_FULLBRIGHT|32)) &&
+        !material.special && material.fade<0 && !material.commonAlpha && !material.commonAdd && !material.environment;
+}
+std::array<float,3> WorldModelTint(const cl_entity_t* entity)
+{
+    const auto* wrapper=WorldWeaponFor(entity);
+    if(!wrapper || !NetworkWorldTint(wrapper->source,wrapper->attached))return {1,1,1};
+    const auto& color=entity->curstate.rendercolor;
+    // client 02ACA637 skips the setter for all-zero RGB. Normal draw cleanup
+    // restores white; keeping this local also prevents cross-entity leakage.
+    if(!(color.r|color.g|color.b))return {1,1,1};
+    return {color.r/255.f,color.g/255.f,color.b/255.f};
+}
 unsigned WorldIdentity(const cl_entity_t* entity)
 {
     if(auto* weapon=WorldWeaponFor(entity))
@@ -474,6 +497,7 @@ void Blending(Blend blend)
 void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
 {
     const auto& h=asset.Header();Camera();glUniform4fv(uniform.bones,h.numbones*3,(float*)state.bones.data());
+    const auto modelTint=WorldModelTint(ent);
     if(!postFrame && !opaquePrepass)
     {
         alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
@@ -509,7 +533,10 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
         auto scroll=state.body.Scroll(batch.group);
         const bool transparent=(m.flags&0x20) || (m.special && m.blend!=Blend::Opaque) || m.fade>=0 || m.commonAlpha || m.commonAdd;
         if(transparent!=(pass==1) || (bodyAlpha && materialAlpha==0))continue;
-        const auto draw=EvaluateMaterial(m,m.flags,m.fade>=0?state.results[m.fade]:FadeResult{},materialAlpha);
+        auto draw=EvaluateMaterial(m,m.flags,m.fade>=0?state.results[m.fade]:FadeResult{},materialAlpha);
+        // HW 378E55A1 applies tint after gamma lighting. The shader's color
+        // conversion preserves that order for both gamma and linear targets.
+        if(LitWorldTintMaterial(m))for(size_t channel=0;channel<3;++channel)draw.color[channel]*=modelTint[channel];
         if(m.fade>=0 && state.results[m.fade].Active)state.fades[m.fade].Observe(state.results[m.fade].MarkCompleted);
         if(materialAlpha<=0)continue;
         GLuint texture=m.texture;float width=float(m.width),height=float(m.height);
@@ -694,7 +721,15 @@ bool DrawWorldWeaponPoints()
     {
         auto [cached,asset]=CachedAsset(model);
         if(!cached){GLState save;asset=GetAsset(model);}
-        if(!asset || !asset->special)return false;
+        if(!asset)return false;
+        if(!asset->special)
+        {
+            const auto& color=source->curstate.rendercolor;
+            const bool colored=(color.r|color.g|color.b) && (color.r!=255 || color.g!=255 || color.b!=255);
+            if(!colored || !NetworkWorldTint(source,attached) ||
+                asset->materials.empty() ||
+                !std::all_of(asset->materials.begin(),asset->materials.end(),LitWorldTintMaterial))return false;
+        }
         if(!asset->vao || !program){GLState save;EnsureGeometry(*asset);Program();}
         int frame;double now,old;studio.GetTimes(&frame,&now,&old);
         auto slot=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& w){return w.source==source && w.weaponModel==model;});
