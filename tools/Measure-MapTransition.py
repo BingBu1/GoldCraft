@@ -94,8 +94,8 @@ def main():
                   "stagesSeconds": stages, "log": path.name, "requestError": request_error,
                   "diagnosticLines": [line for line in lines.splitlines() if "GoldCraft" in line],
                   "cache": RCON.command("gc_cache_stats").strip()}
-        if "spawn" in stages and "activate" in stages:
-            sample["serverLoadSeconds"] = stages["spawn"] + stages["activate"]
+        if "changelevel" in stages:
+            sample["engineChangelevelSeconds"] = stages["changelevel"]
         result["samples"].append(sample)
         output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(sample), flush=True)

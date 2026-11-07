@@ -7,8 +7,9 @@
 class GoldCraftMapLoadTiming
 {
 public:
-    explicit GoldCraftMapLoadTiming(const char* stage) : stage_(stage)
+    explicit GoldCraftMapLoadTiming(const char* stage, bool selected = true) : stage_(stage)
     {
+        if (!selected) return;
         const auto* setting = std::getenv("GOLDCRAFT_MAP_LOAD_TIMING");
         enabled_ = setting && setting[0] == '1' && setting[1] == '\0';
         if (enabled_) start_ = Sys_FloatTime();

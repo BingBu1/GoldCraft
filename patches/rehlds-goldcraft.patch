@@ -1,5 +1,5 @@
 diff --git a/rehlds/common/qlimits.h b/rehlds/common/qlimits.h
-index 1a67bd5..7221e9c 100644
+index 1a67bd5..53618f4 100644
 --- a/rehlds/common/qlimits.h
 +++ b/rehlds/common/qlimits.h
 @@ -39,6 +39,7 @@ constexpr auto MAX_LIGHTSTYLE_SIZE = size_t{64};
@@ -167,18 +167,27 @@ index 9cd73e6..4492521 100644
  		Host_WriteConfiguration();
  
 diff --git a/rehlds/engine/host_cmd.cpp b/rehlds/engine/host_cmd.cpp
-index 04e4fa5..4ef116a 100644
+index 04e4fa5..75fc849 100644
 --- a/rehlds/engine/host_cmd.cpp
 +++ b/rehlds/engine/host_cmd.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "map_load_timing.h"
  
  typedef int(*SV_BLENDING_INTERFACE_FUNC)(int, struct sv_blending_interface_s **, struct server_studio_api_s *, float *, float *);
  
-@@ -3149,9 +3150,9 @@ void Host_ResourcesCount_f()
+@@ -1062,6 +1064,7 @@ void Host_Maps_f(void)
+ 
+ void Host_Changelevel_f(void)
+ {
++	GoldCraftMapLoadTiming timing("changelevel");
+ 	char _level[64];
+ 	char _startspot[64];
+ 
+@@ -3149,9 +3152,9 @@ void Host_ResourcesCount_f()
  	}
  
  	Con_Printf("\n  %-4s    : %-5s %-5s\n\n", "Type", "Total", "Limit");
@@ -1225,18 +1234,19 @@ index 4f88929..2fb7e1c 100644
  
  void EXT_FUNC PF_setspawnparms_I(edict_t *ent)
 diff --git a/rehlds/engine/pr_edict.cpp b/rehlds/engine/pr_edict.cpp
-index 2d380c5..32cf4ab 100644
+index 2d380c5..a86dab6 100644
 --- a/rehlds/engine/pr_edict.cpp
 +++ b/rehlds/engine/pr_edict.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "map_load_timing.h"
  
  void ED_ClearEdict(edict_t *e)
  {
-@@ -284,29 +285,9 @@ char *ED_ParseEdict(char *data, edict_t *ent)
+@@ -284,29 +286,9 @@ char *ED_ParseEdict(char *data, edict_t *ent)
  					// make sure that local model not pre-cached yet
  					if (!SV_LookupModelIndex(com_token))
  					{
@@ -1268,6 +1278,14 @@ index 2d380c5..32cf4ab 100644
  					}
  				}
  			}
+@@ -375,6 +357,7 @@ void ED_LoadFromFile(char *data)
+ 		{
+ 			if (ent->v.classname)
+ 			{
++				GoldCraftMapLoadTiming timing("worldspawn", ent == g_psv.edicts);
+ 				if (gEntityInterface.pfnSpawn(ent) < 0 || (ent->v.flags & FL_KILLME))
+ 				{
+ 					ED_Free(ent);
 diff --git a/rehlds/engine/r_studio.cpp b/rehlds/engine/r_studio.cpp
 index 4124bf6..ab134bf 100644
 --- a/rehlds/engine/r_studio.cpp
@@ -1452,7 +1470,7 @@ index ceffd0d..fb4b7db 100644
  void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
  void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..0d1fe9d 100644
+index dfd68c2..2ebc2bb 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
 @@ -27,6 +27,20 @@
@@ -2234,7 +2252,15 @@ index dfd68c2..0d1fe9d 100644
  			}
  			else
  			{
-@@ -6368,6 +6447,7 @@ void SV_ServerShutdown(void)
+@@ -6356,6 +6435,7 @@ void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
+ 
+ void SV_ServerShutdown(void)
+ {
++	GoldCraftMapLoadTiming timing("deactivate");
+ 	Steam_NotifyOfLevelChange();
+ 	gGlobalVariables.time = g_psv.time;
+ 
+@@ -6368,6 +6448,7 @@ void SV_ServerShutdown(void)
  
  int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  {
@@ -2242,7 +2268,7 @@ index dfd68c2..0d1fe9d 100644
  	client_t *cl;
  	edict_t *ent;
  	int i;
-@@ -6448,6 +6528,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6448,6 +6529,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	SV_AllocClientFrames();
  	Q_memset(&g_psv, 0, sizeof(server_t));
@@ -2250,7 +2276,7 @@ index dfd68c2..0d1fe9d 100644
  
  #ifdef REHLDS_OPT_PEDANTIC
  	g_rehlds_sv.modelsMap.clear();
-@@ -6594,18 +6675,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6594,18 +6676,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  		CM_CalcPAS(g_psv.worldmodel);
  	}
  
@@ -2270,7 +2296,7 @@ index dfd68c2..0d1fe9d 100644
  	g_psv.sound_precache[0] = pr_strings;
  	g_psv.model_precache[0] = pr_strings;
  #ifndef REHLDS_FIXES
-@@ -6613,14 +6684,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6613,14 +6685,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	for (i = 1; i < g_psv.worldmodel->numsubmodels; i++)
  	{
@@ -2288,7 +2314,15 @@ index dfd68c2..0d1fe9d 100644
  		}
  #endif
  	}
-@@ -7821,11 +7891,9 @@ void SV_InactivateClients(void)
+@@ -6649,6 +6720,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+ 
+ void SV_LoadEntities(void)
+ {
++	GoldCraftMapLoadTiming timing("entities");
+ #ifdef REHLDS_FIXES
+ 	if (sv_use_entity_file.value > 0.0f)
+ 	{
+@@ -7821,11 +7893,9 @@ void SV_InactivateClients(void)
  			cl->m_bSentNewResponse = FALSE;
  
  #ifdef REHLDS_FIXES
@@ -2303,7 +2337,7 @@ index dfd68c2..0d1fe9d 100644
  #endif // REHLDS_FIXES
  
  			SZ_Clear(&cl->netchan.message);
-@@ -8172,6 +8240,7 @@ void SV_SetMaxclients(void)
+@@ -8172,6 +8242,7 @@ void SV_SetMaxclients(void)
  	g_psvs.clients = (client_t *)Hunk_AllocName(sizeof(client_t) * g_psvs.maxclientslimit, "clients");
  	for (i = 0, cl = g_psvs.clients; i < g_psvs.maxclientslimit; i++, cl++)
  	{
@@ -2311,7 +2345,7 @@ index dfd68c2..0d1fe9d 100644
  		Q_memset(cl, 0, sizeof(client_t));
  
  		cl->resourcesneeded.pPrev = &cl->resourcesneeded;
-@@ -8311,6 +8380,7 @@ void EXT_FUNC SV_Frame_Internal()
+@@ -8311,6 +8382,7 @@ void EXT_FUNC SV_Frame_Internal()
  	gGlobalVariables.frametime = host_frametime;
  	g_psv.oldtime = g_psv.time;
  	SV_CheckCmdTimes();
@@ -2319,7 +2353,7 @@ index dfd68c2..0d1fe9d 100644
  	SV_ReadPackets();
  	if (SV_IsSimulating())
  	{
-@@ -8351,6 +8421,8 @@ void SV_RegisterDelta(char *name, char *loadfile)
+@@ -8351,6 +8423,8 @@ void SV_RegisterDelta(char *name, char *loadfile)
  	p->delta = pdesc;
  	p->next = g_sv_delta;
  	g_sv_delta = p;
@@ -2328,7 +2362,7 @@ index dfd68c2..0d1fe9d 100644
  
  #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
  	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
-@@ -8417,6 +8489,15 @@ void SV_InitEncoders(void)
+@@ -8417,6 +8491,15 @@ void SV_InitEncoders(void)
  
  void SV_Init(void)
  {
@@ -2344,7 +2378,7 @@ index dfd68c2..0d1fe9d 100644
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
-@@ -8553,6 +8634,7 @@ void SV_Init(void)
+@@ -8553,6 +8636,7 @@ void SV_Init(void)
  	Cvar_RegisterVariable(&sv_rehlds_hull_centering);
  	Cvar_RegisterVariable(&sv_rcon_condebug);
  	Cvar_RegisterVariable(&sv_rehlds_userinfo_transmitted_fields);
@@ -2352,7 +2386,7 @@ index dfd68c2..0d1fe9d 100644
  	Cvar_RegisterVariable(&sv_rehlds_attachedentities_playeranimationspeed_fix);
  	Cvar_RegisterVariable(&sv_rehlds_local_gametime);
  	Cvar_RegisterVariable(&sv_rehlds_send_mapcycle);
-@@ -8605,6 +8687,7 @@ void SV_Init(void)
+@@ -8605,6 +8689,7 @@ void SV_Init(void)
  	{
  		client_t *cl = &g_psvs.clients[i];
  		SV_ClearFrames(&cl->frames);
@@ -3038,7 +3072,7 @@ index 8c7b437..d496e95 100644
  NOXREF void Cache_Print_Models_And_Totals();
  NOXREF void Cache_Print_Sounds_And_Totals();
 diff --git a/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt b/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
-index e82d5ff..2e0553b 100644
+index e82d5ff..99e9e1d 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
 +++ b/rehlds/filesystem/FileSystem_Stdio/CMakeLists.txt
 @@ -3,7 +3,7 @@ project(filesystem_stdio CXX)
@@ -3129,7 +3163,7 @@ index 85c04cb..42936a6 100644
  	}
  }
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
-index 5ae37e8..8f4a16a 100644
+index 5ae37e8..2fa95e6 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
 +++ b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.h
 @@ -61,6 +61,8 @@ public:
@@ -3151,7 +3185,7 @@ index 5ae37e8..8f4a16a 100644
  	void RemoveAllMapSearchPaths();
  	void AddPackFiles(const char *pPath);
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp b/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
-index 7fba395..1610dd8 100644
+index 7fba395..abbb150 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
 +++ b/rehlds/filesystem/FileSystem_Stdio/src/FileSystem_Stdio.cpp
 @@ -27,6 +27,7 @@
@@ -3205,6 +3239,13 @@ index f86a59e..25a18ad 100644
      <ClCompile Include="..\common\BaseSystemModule.cpp" />
      <ClCompile Include="..\common\ObjectList.cpp" />
      <ClCompile Include="..\common\TokenLine.cpp" />
+@@ -796,4 +799,4 @@
+   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+   <ImportGroup Label="ExtensionTargets">
+   </ImportGroup>
+-</Project>
+\ No newline at end of file
++</Project>
 diff --git a/rehlds/rehlds/rehlds_api_impl.cpp b/rehlds/rehlds/rehlds_api_impl.cpp
 index a7d9ec3..0224b67 100644
 --- a/rehlds/rehlds/rehlds_api_impl.cpp
@@ -3440,7 +3481,7 @@ index 1f01cf4..8e00a46 100644
  	ss << " DaylightBias: " << m_Res.DaylightBias
  		<< " }";
 diff --git a/rehlds/unittests/security_tests.cpp b/rehlds/unittests/security_tests.cpp
-index 859c1dc..4adb9e1 100644
+index 859c1dc..df19d7b 100644
 --- a/rehlds/unittests/security_tests.cpp
 +++ b/rehlds/unittests/security_tests.cpp
 @@ -2,6 +2,73 @@
