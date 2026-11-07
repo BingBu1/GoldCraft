@@ -38,10 +38,10 @@ def main():
     common=args.common.resolve();out=args.output.resolve();collector=args.collector.resolve()
     if out.exists() or not out.is_relative_to(ROOT/'build'):raise ValueError('Use a fresh workspace build output')
     out.mkdir(parents=True)
-    server=ROOT/'native/csol/server/wpn_melee.cpp'
-    client=ROOT/'native/csol/client/melee.cpp'
-    header=ROOT/'native/csol/melee_resources.hpp'
-    hud_header=ROOT/'native/csol/melee_hud_resources.hpp'
+    server=ROOT/'native/csol/server/weapons/wpn_melee.cpp'
+    client=ROOT/'native/csol/client/weapons/melee.cpp'
+    header=ROOT/'native/csol/weapons/melee_resources.hpp'
+    hud_header=ROOT/'native/csol/weapons/melee_hud_resources.hpp'
     records={};edges=[];inputs={};audits=[]
     def read(path):
         data=path.read_bytes();key=str(path).lower()
@@ -104,7 +104,7 @@ def main():
         if 'if (Variant() == Variant::DragonSword)' in line:branch=['DragonSword']
         elif '} else {' in line:branch=['SkullAxe']
         if 'PRECACHE_' not in line:continue
-        call_count+=1;reason=f'native/csol/server/wpn_melee.cpp:{startline+relative}'
+        call_count+=1;reason=f'native/csol/server/weapons/wpn_melee.cpp:{startline+relative}'
         literal=re.search(r'PRECACHE_(MODEL|GENERIC|SOUND)\("([^"\n]+)"\)',line)
         field=re.search(r'PRECACHE_(MODEL|GENERIC)\(const_cast<char\*>\(resource\.(\w+)\)\)',line)
         loop=re.search(r'for \(auto\* sound : (DragonSword|SkullAxe)Sounds\) PRECACHE_SOUND\(const_cast<char\*>\(sound\)\)',line)

@@ -12,7 +12,7 @@ for name,signature in targets:
     while depth:
         depth+=(text[end]=='{')-(text[end]=='}');end+=1
     chunks.append(text[start:end]);sources.append(dict(file=str(path),sha256=hashlib.sha256(data).hexdigest(),signature=signature))
-path=source/'native/csol/server/wpn_cannon.cpp'
+path=source/'native/csol/server/weapons/wpn_cannon.cpp'
 data=path.read_bytes();text=data.decode('utf-8')
 for signature in ['bool CSOL_ClipAmmo(', 'int CSOL_GiveClipAmmo(']:
     start=text.index(signature);brace=text.index('{',start);depth=1;end=brace+1

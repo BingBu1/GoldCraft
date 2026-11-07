@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_monster_skills.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_skills.h"
 #include <bit>
 #include <cstdlib>
 #include <functional>

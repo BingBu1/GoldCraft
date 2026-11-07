@@ -2,8 +2,8 @@
 // Complete SDK component replay: real GameRules installs the services and
 // factory, and actual DispatchThink reaches ordinary RunTree and UseSkill.
 #include "trap_fixture.hpp"
-#include "../../native/csol/server/scenario_monster_services.h"
-#include "../../native/csol/server/scenario_gameplay.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_services.h"
+#include "../../native/csol/server/scenario/core/scenario_gameplay.h"
 #include "hostage/hostage.h"
 
 namespace

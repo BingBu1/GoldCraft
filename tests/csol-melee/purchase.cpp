@@ -10,15 +10,15 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
-#include "../../native/csol/melee_identity.hpp"
-#include "../../native/csol/melee_resources.hpp"
-#include "../../native/csol/melee_prediction.hpp"
-#include "../../native/csol/server/wpn_melee.h"
-#include "../../native/csol/m249ex.hpp"
-#include "../../native/csol/skull1.hpp"
-#include "../../native/csol/skull2.hpp"
-#include "../../native/csol/skull5.hpp"
-#include "../../native/csol/balrog11.hpp"
+#include "../../native/csol/weapons/melee_identity.hpp"
+#include "../../native/csol/weapons/melee_resources.hpp"
+#include "../../native/csol/weapons/melee_prediction.hpp"
+#include "../../native/csol/server/weapons/wpn_melee.h"
+#include "../../native/csol/weapons/m249ex.hpp"
+#include "../../native/csol/weapons/skull1.hpp"
+#include "../../native/csol/weapons/skull2.hpp"
+#include "../../native/csol/weapons/skull5.hpp"
+#include "../../native/csol/weapons/balrog11.hpp"
 
 using BOOL=int; using WeaponIdType=int;
 constexpr int TRUE=1,FALSE=0,MAX_ITEM_TYPES=6,PRIMARY_WEAPON_SLOT=1,KNIFE_SLOT=3;

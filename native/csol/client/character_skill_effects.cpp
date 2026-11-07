@@ -4,7 +4,7 @@
 #include "character_skill_effects.hpp"
 #include "character_skill_display.hpp"
 #include "camera.hpp"
-#include "weapon_inventory.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include "../character_skill_protocol.hpp"
 #include <r_efx.h>
 #include <event_api.h>

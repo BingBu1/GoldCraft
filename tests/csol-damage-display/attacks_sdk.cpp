@@ -6,7 +6,7 @@
 #undef main
 #include "../../native/csol/server/damage_notice.h"
 #include "../../native/csol/server/damage_numbers.h"
-#include "../../native/csol/server/scenario_monster_ordinary.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_ordinary.h"
 #include <bit>
 
 namespace attack_test

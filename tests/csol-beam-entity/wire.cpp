@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "beamgun_prediction.hpp"
-#include "beamgun_effects.hpp"
-#include "beamgun_scope.hpp"
+#include "../../native/csol/weapons/beamgun_prediction.hpp"
+#include "../../native/csol/weapons/beamgun_effects.hpp"
+#include "../../native/csol/weapons/beamgun_scope.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>

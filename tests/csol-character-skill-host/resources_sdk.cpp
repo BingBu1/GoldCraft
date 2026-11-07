@@ -2,10 +2,10 @@
 // Execute PrecacheSkillHost from its complete production TU, with the real
 // ReGameDLL SDK/session and disk resources. Only engine boundaries are controlled.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_runtime.h"
-#include "../../native/csol/server/scenario_session.h"
+#include "../../native/csol/server/scenario/core/scenario_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
 #include "../../native/csol/server/scenario_character_skills/host_notifications.hpp"
-#include "../../native/csol/boss_health.hpp"
+#include "../../native/csol/scenario/bosses/boss_health.hpp"
 #include <filesystem>
 #include <fstream>
 #include <set>

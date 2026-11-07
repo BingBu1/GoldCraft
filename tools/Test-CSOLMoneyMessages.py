@@ -31,7 +31,7 @@ def digest(path):
 
 def native_fixture(output, clang):
     source = ROOT / 'external/ReGameDLL_CS/regamedll/dlls/player.cpp'
-    calls, inputs = [], [source, ROOT / 'native/csol/server/scenario_money.h']
+    calls, inputs = [], [source, ROOT / 'native/csol/server/scenario/core/scenario_money.h']
     for i, name in enumerate(CONSUMERS):
         path = ROOT / 'native/csol/server' / name
         inputs.append(path)

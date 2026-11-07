@@ -2,7 +2,7 @@
 #include "runtime.hpp"
 #include "overlay_layers.hpp"
 #include "characters.hpp"
-#include "weapon_inventory.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include "../character_protocol.hpp"
 #include "../character_menu.hpp"
 #include "../image_codec.hpp"

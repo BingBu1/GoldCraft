@@ -117,10 +117,10 @@ class ClosureTests(unittest.TestCase):
     def test_bgm_collects_round_and_trigger_tracks(self):
         source = self.root / 'source'
         for name, content in {
-                'server/scenario_music.cpp': 'PrecacheFile("Scenario_Ready.mp3"',
-                'server/scenario_bgm_trigger.cpp': 'music->PrecacheFile(m_filename',
+                'server/scenario/core/scenario_music.cpp': 'PrecacheFile("Scenario_Ready.mp3"',
+                'server/scenario/core/scenario_bgm_trigger.cpp': 'music->PrecacheFile(m_filename',
                 'scenario_music.cpp': 'ResourcePath', 'music_resources.cpp': 'ResourcePath',
-                'scenario/round_settings.cpp': 'namespace', 'scenario/config.cpp': 'namespace'}.items():
+                'scenario/core/round_settings.cpp': 'namespace', 'scenario/core/config.cpp': 'namespace'}.items():
             file = source / 'native/csol' / name
             file.parent.mkdir(parents=True, exist_ok=True)
             file.write_text(content)

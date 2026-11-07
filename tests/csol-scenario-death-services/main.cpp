@@ -3,15 +3,15 @@
 // code, controlled engine and typed ability edges. Independent provider cases
 // stop at the real clearpoint gate; registered rules also cover Combat assembly.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_death_services.h"
-#include "../../native/csol/server/scenario_runtime.h"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_drops.h"
-#include "../../native/csol/server/scenario_monster_damage.h"
-#include "../../native/csol/server/scenario_monster_factory.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
-#include "../../native/csol/server/weapons.h"
+#include "../../native/csol/server/scenario/core/scenario_death_services.h"
+#include "../../native/csol/server/scenario/core/scenario_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_drops.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_damage.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_factory.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
+#include "../../native/csol/server/weapons/weapons.h"
 #include "../../native/csol/server/characters.h"
 #include "../csol-scenario-navigation-loader/support.hpp"
 #include <rapidjson/document.h>
@@ -603,7 +603,7 @@ struct ArchiveDirectory
             if (next == root) { root.clear(); break; }
             root = next;
         }
-        Require(!root.empty() && std::filesystem::is_regular_file(root / "native/csol/server/scenario_runtime.h"),
+        Require(!root.empty() && std::filesystem::is_regular_file(root / "native/csol/server/scenario/core/scenario_runtime.h"),
             "archive tests must resolve their own workspace source path");
         auto part = root.root_path();
         for (const auto& component : root.relative_path())

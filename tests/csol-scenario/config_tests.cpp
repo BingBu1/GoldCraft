@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercise the actual data-layer library. Actual-resource expectations are
 // independently generated with Python csv and kept outside the source tree.
-#include "config.hpp"
+#include "../../native/csol/scenario/core/config.hpp"
 
 #include <algorithm>
 #include <bit>

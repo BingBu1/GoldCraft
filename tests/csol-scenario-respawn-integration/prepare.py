@@ -101,8 +101,8 @@ def main():
     methods = ['Register', 'SendRoundOutcome', 'SendConsumableState', 'SendConsumableVisibility',
                'SendRespawnText', 'SendRespawnCountdown', 'SendRespawnUnavailable', 'SendRevivalHint',
                'SendRespawnReloadWait', 'SendRetryCountdown', 'SendRetryAnnouncement']
-    producer = ROOT / 'native/csol/server/scenario_messages.cpp'
-    rules = ROOT / 'native/csol/server/game_rules_gate.cpp'
+    producer = ROOT / 'native/csol/server/scenario/core/scenario_messages.cpp'
+    rules = ROOT / 'native/csol/server/scenario/core/game_rules_gate.cpp'
     pending = [ROOT / ('tests/csol-scenario-respawn-integration/' + name) for name in
                ('messages.cpp', 'rules.cpp', 'retry_messages.cpp', 'precache.cpp', 'prepare.py')]
     # Production TUs are copied whole for provenance, but only unchanged named
@@ -143,7 +143,7 @@ def main():
     rules_inc = test_root / 'actual_rules.inc'
     rules_block = extract((source / rules.relative_to(ROOT)).read_text('utf-8-sig'), 'void ScenarioCheckWinConditions()')
     rules_inc.write_text(rules_block + '\n', encoding='utf-8')
-    session = ROOT / 'native/csol/server/scenario_session.cpp'
+    session = ROOT / 'native/csol/server/scenario/core/scenario_session.cpp'
     copy(session)
     session_text = (source / session.relative_to(ROOT)).read_text('utf-8-sig')
     precache_spans = []

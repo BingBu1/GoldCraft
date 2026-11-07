@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual server adapter methods; engine identities, callbacks and transport
 // are controlled. No actual clients, network channel or GameRules is claimed.
-#include "../../native/csol/scenario/map_vote.hpp"
+#include "../../native/csol/scenario/core/map_vote.hpp"
 #include <algorithm>
 #include <charconv>
 #include <climits>

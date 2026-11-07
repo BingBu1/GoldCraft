@@ -3,7 +3,7 @@
 // Real SDK view/message types. Other reset/render stages are controlled counters.
 #include "native/csol/client/runtime.hpp"
 #include "native/csol/client/crosshair.hpp"
-#include "native/csol/weapon_slots.hpp"
+#include "native/csol/weapons/weapon_slots.hpp"
 #include <cstdio>
 #include <cstring>
 #include <vector>

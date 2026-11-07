@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../csol-scenario-player-upgrades/fixture.hpp"
-#include "../../native/csol/server/scenario_equipment.h"
+#include "../../native/csol/server/scenario/core/scenario_equipment.h"
 namespace equipment_test
 {
 using namespace upgrade_test;

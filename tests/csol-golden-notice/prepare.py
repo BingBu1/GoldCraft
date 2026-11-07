@@ -47,7 +47,7 @@ def main():
     out.mkdir(parents=True)
     source, output = out / 'source', out / 'output'
     pending = [ROOT / 'tests/csol-golden-notice/client.cpp', ROOT / 'tests/csol-golden-notice/prepare.py',
-               ROOT / 'tests/csol-golden-notice/README.md', ROOT / 'native/csol/scenario_localization.cpp']
+               ROOT / 'tests/csol-golden-notice/README.md', ROOT / 'native/csol/scenario/core/scenario_localization.cpp']
     sources, copied = [], set()
     while pending:
         original = pending.pop().resolve()
@@ -93,7 +93,7 @@ def main():
     linker = str(Path(compiler).with_name('lld-link.exe'))
     jobs = []
     for name, relative in (('client', 'tests/csol-golden-notice/client.cpp'),
-                           ('localization', 'native/csol/scenario_localization.cpp')):
+                           ('localization', 'native/csol/scenario/core/scenario_localization.cpp')):
         jobs.append(dict(name='compile-' + name, kind='compile', seconds=120, expectExit=0,
             command=[compiler, *flags, '/showIncludes', '-I' + str(source), '/Fo' + str(output / (name + '.obj')),
                 '/Fd' + str(output / (name + '.compile.pdb')), '-c', '--', str(source / relative)]))

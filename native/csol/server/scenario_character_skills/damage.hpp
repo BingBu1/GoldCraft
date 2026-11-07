@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "catalog.hpp"
-#include "../../scenario/config.hpp"
+#include "../../scenario/core/config.hpp"
 #include <cstdint>
 #include <span>
 

@@ -4,10 +4,10 @@
 #define main PreviousLifecycleMain
 #include "lifecycle_sdk.cpp"
 #undef main
-#include "../../native/csol/server/primary_purchase.h"
-#include "../../native/csol/server/weapon_service.h"
+#include "../../native/csol/server/weapons/primary_purchase.h"
+#include "../../native/csol/server/weapons/weapon_service.h"
 #include "../../native/include/goldcraft/csol_weapon_api.hpp"
-#include "../../native/csol/server/wpn_skull1.h"
+#include "../../native/csol/server/weapons/wpn_skull1.h"
 #include <fstream>
 #include <sstream>
 #include <filesystem>

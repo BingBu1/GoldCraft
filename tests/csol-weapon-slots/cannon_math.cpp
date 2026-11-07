@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "cannon.hpp"
+#include "../../native/csol/weapons/cannon.hpp"
 #include <cstring>
 #include <iomanip>
 #include <iostream>

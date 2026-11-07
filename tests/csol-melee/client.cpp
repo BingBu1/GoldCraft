@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercise the complete production client against the real SDK declarations.
-#include "../../native/csol/client/melee.cpp"
+#include "../../native/csol/client/weapons/melee.cpp"
 #include "wire.hpp"
 #include <iostream>
 #include <limits>

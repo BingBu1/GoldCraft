@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "paired_inventory.h"
-#include "wpn_skull3.h"
-#include "game_rules_gate.h"
-#include "weapon_slots.h"
-#include "scenario_player_runtime.h"
-#include "scenario_runtime.h"
-#include "scenario_session.h"
-#include "../skull3.hpp"
+#include "weapons/wpn_skull3.h"
+#include "scenario/core/game_rules_gate.h"
+#include "weapons/weapon_slots.h"
+#include "scenario/core/scenario_player_runtime.h"
+#include "scenario/core/scenario_runtime.h"
+#include "scenario/core/scenario_session.h"
+#include "../weapons/skull3.hpp"
 #include <array>
 
 namespace { const CBasePlayerItem* droppingGroup{}; }

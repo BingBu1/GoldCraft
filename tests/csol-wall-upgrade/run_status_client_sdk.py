@@ -46,24 +46,24 @@ def main():
         inputs.append(identity(args.baseline_manifest))
         support = {row['relative']:row['frozen'] for row in
                    json.loads(args.baseline_manifest.read_text('utf-8'))['files']}
-    candidates = {'native/csol/wall_status.hpp', 'native/csol/client/wall_status.cpp',
-                  'native/csol/client/wall_upgrade_hud.hpp', 'native/csol/client/wall_upgrade_hud.cpp'}
+    candidates = {'native/csol/scenario/core/wall_status.hpp', 'native/csol/client/scenario/core/wall_status.cpp',
+                  'native/csol/client/scenario/core/wall_upgrade_hud.hpp', 'native/csol/client/scenario/core/wall_upgrade_hud.cpp'}
     relatives = ('tests/csol-wall-upgrade/status_client.cpp', 'tests/csol-wall-upgrade/hud_interfaces.cpp',
         'tests/csol-wall-status/surface_stub.hpp',
-        'native/csol/wall_status.hpp', 'native/csol/client/wall_status.hpp',
-        'native/csol/client/wall_status.cpp', 'native/csol/client/runtime.hpp',
-        'native/csol/client/wall_upgrade_hud.hpp', 'native/csol/client/wall_upgrade_hud.cpp',
-        'native/csol/client/scenario_round_hud_client.hpp', 'native/csol/scenario_round_hud.hpp',
-        'native/csol/scenario/message_table.hpp', 'native/csol/scenario/config.hpp',
-        'native/csol/scenario/spawn_points.hpp',
+        'native/csol/scenario/core/wall_status.hpp', 'native/csol/client/scenario/core/wall_status.hpp',
+        'native/csol/client/scenario/core/wall_status.cpp', 'native/csol/client/runtime.hpp',
+        'native/csol/client/scenario/core/wall_upgrade_hud.hpp', 'native/csol/client/scenario/core/wall_upgrade_hud.cpp',
+        'native/csol/client/scenario/core/scenario_round_hud_client.hpp', 'native/csol/scenario/core/scenario_round_hud.hpp',
+        'native/csol/scenario/core/message_table.hpp', 'native/csol/scenario/core/config.hpp',
+        'native/csol/scenario/core/spawn_points.hpp',
         'native/csol/image_codec.hpp', 'native/csol/image_codec.cpp',
         'native/csol/client/resource_refresh.hpp', 'native/csol/client/overlay_layers.hpp',
         'native/csol/client/user_message_chain.hpp', 'native/include/goldcraft/csol_resource_api.hpp',
-        'native/csol/scenario_localization.hpp', 'native/csol/scenario_localization.cpp')
+        'native/csol/scenario/core/scenario_localization.hpp', 'native/csol/scenario/core/scenario_localization.cpp')
     if args.notice_route:
         relatives += ('tests/csol-wall-upgrade/notice_route.cpp',
-            'native/csol/client/scenario_round_hud_client.cpp',
-            'native/csol/scenario_round_hud.cpp', 'native/csol/scenario/dialogue_resources.hpp')
+            'native/csol/client/scenario/core/scenario_round_hud_client.cpp',
+            'native/csol/scenario/core/scenario_round_hud.cpp', 'native/csol/scenario/core/dialogue_resources.hpp')
     for relative in relatives:
         if args.without_resource_v4 and relative in (
                 'native/csol/client/resource_refresh.hpp',
@@ -73,20 +73,20 @@ def main():
         if relative in support and relative not in candidates:
             source = Path(support[relative]['path'])
             assert identity(source) == support[relative]
-        if args.old and relative in ('native/csol/wall_status.hpp', 'native/csol/client/wall_status.cpp'):
+        if args.old and relative in ('native/csol/scenario/core/wall_status.hpp', 'native/csol/client/scenario/core/wall_status.cpp'):
             source = args.old.resolve()/relative
-        if args.status_source and relative == 'native/csol/client/wall_status.cpp':
+        if args.status_source and relative == 'native/csol/client/scenario/core/wall_status.cpp':
             source = args.status_source.resolve()
-        if args.localization_source and relative == 'native/csol/scenario_localization.cpp':
+        if args.localization_source and relative == 'native/csol/scenario/core/scenario_localization.cpp':
             source = args.localization_source.resolve()
-        if args.hud_source and relative == 'native/csol/client/wall_upgrade_hud.cpp':
+        if args.hud_source and relative == 'native/csol/client/scenario/core/wall_upgrade_hud.cpp':
             source = args.hud_source.resolve()
         before = identity(source)
         target.parent.mkdir(parents=True, exist_ok=True)
         content = source.read_bytes()
         if args.without_resource_v4 and relative == 'native/csol/client/overlay_layers.hpp' and relative not in support:
             content = subprocess.check_output(['git','show',baseline+':'+relative],cwd=ROOT)
-        if args.without_resource_v4 and relative == 'native/csol/client/wall_status.cpp':
+        if args.without_resource_v4 and relative == 'native/csol/client/scenario/core/wall_status.cpp':
             text = content.decode('utf-8')
             if 'ResourceContentReadsAllowed()' in text:
                 assert text.count('ResourceContentReadsAllowed() && ') == 1
@@ -106,14 +106,14 @@ def main():
         if token.endswith('tests\\csol-oberon-hint\\main.cpp'):
             token = str(out/'source/tests/csol-wall-upgrade'/('notice_route.cpp' if args.notice_route else 'status_client.cpp'))
         elif token.endswith('native\\csol\\client\\oberon_hint.cpp'):
-            token = str(out/'source/native/csol/scenario_round_hud.cpp' if args.notice_route else out/'source/native/csol/client/wall_status.cpp')
+            token = str(out/'source/native/csol/scenario/core/scenario_round_hud.cpp' if args.notice_route else out/'source/native/csol/client/scenario/core/wall_status.cpp')
         elif token.startswith('/Fo'):
             token = '/Fo'+str(out/'actual-client')+'/'
         elif token.startswith('/Fe'):
             token = '/Fe'+str(out/'actual-client/tests.exe')
         argv.append(token)
     argv[argv.index('/link'):argv.index('/link')] = ['/clang:-ffp-contract=off',
-        str(out/'source/native/csol/scenario_localization.cpp'),
+        str(out/'source/native/csol/scenario/core/scenario_localization.cpp'),
         str(out/'source/tests/csol-wall-upgrade/hud_interfaces.cpp'),
         str(out/'source/native/csol/image_codec.cpp')]
     argv.append('gdi32.lib')

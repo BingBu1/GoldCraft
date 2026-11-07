@@ -78,12 +78,12 @@ def music_paths(source, common, map_name, reader, evidence):
         raise ValueError('Scenario closure requires --music-reader; BGM must not be omitted')
     reader = plain(reader)
     evidence[str(reader)] = identity(reader)
-    literal(source, 'native/csol/server/scenario_music.cpp',
+    literal(source, 'native/csol/server/scenario/core/scenario_music.cpp',
             'PrecacheFile("Scenario_Ready.mp3"', evidence)
-    literal(source, 'native/csol/server/scenario_bgm_trigger.cpp',
+    literal(source, 'native/csol/server/scenario/core/scenario_bgm_trigger.cpp',
             'music->PrecacheFile(m_filename', evidence)
-    for name in ('native/csol/scenario_music.cpp', 'native/csol/music_resources.cpp',
-                 'native/csol/scenario/round_settings.cpp', 'native/csol/scenario/config.cpp'):
+    for name in ('native/csol/scenario/core/scenario_music.cpp', 'native/csol/scenario/core/music_resources.cpp',
+                 'native/csol/scenario/core/round_settings.cpp', 'native/csol/scenario/core/config.cpp'):
         literal(source, name, 'namespace' if name.endswith(('config.cpp', 'round_settings.cpp')) else 'ResourcePath', evidence)
     helper = Path(__file__).with_name('Prepare-CSOLScenarioMusic.py')
     evidence[str(helper)] = identity(helper)
@@ -225,7 +225,7 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
     add(difficulty, 'server-tables', common_required=True)
     add('maps/ZBS_GoldenZombie_dedi.json', 'server-tables', scenario + 'golden.cpp', common_required=True, optional=True)
     for symbol in ('MessagePath', 'LocalizationPath'):
-        text = literal(source, 'native/csol/scenario_round_hud.hpp', symbol, sources)
+        text = literal(source, 'native/csol/scenario/core/scenario_round_hud.hpp', symbol, sources)
         names = re.findall(r'\b' + symbol + r'\[\]\s*=\s*"([^"]+)"', text)
         if len(names) != 1:
             raise ValueError('Ambiguous scenario HUD resource: ' + symbol)
@@ -246,9 +246,9 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
 
     # Independent fixed precache coverage: the generated plan alone is not
     # proof that every source-owned resource entered its historical inputs.
-    owners = ('server/scenario_session.cpp', 'server/scenario_drops.cpp',
-              'server/scenario_monster_skills.h',
-              'server/scenario_monster_resources.h', 'server/scenario_oberon_resources.h',
+    owners = ('server/scenario/core/scenario_session.cpp', 'server/scenario/core/scenario_drops.cpp',
+              'server/scenario/monsters/scenario_monster_skills.h',
+              'server/scenario/monsters/scenario_monster_resources.h', 'server/scenario/bosses/scenario_oberon_resources.h',
               'server/scenario_character_skills/host.cpp',
               'server/scenario_character_skills/host_notifications.cpp',
               'server/scenario_character_skills/elite_visuals.cpp',
@@ -260,7 +260,7 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
     # Historical frozen servers predate this consumer. Include its shared
     # images and sound/-rooted retry audio only when the selected production
     # Session uses it. A current header beside an old Session is not evidence.
-    session = literal(source, 'native/csol/server/scenario_session.cpp', 'SPDX-License-Identifier', sources)
+    session = literal(source, 'native/csol/server/scenario/core/scenario_session.cpp', 'SPDX-License-Identifier', sources)
     if '#include "../scenario_respawn_resources.hpp"' in session:
         owners += ('scenario_respawn_resources.hpp',)
     asset = r'"((?:models|sprites|sound|events|resource|gfx|maps)/[^"\r\n]+\.(?:mdl|spr|wav|txt|sc|json|tga|bmp|cso|csv|ttf|webm))"'
@@ -316,9 +316,9 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
 
     # These files hold reviewed explicit precache lists. Enumerate all exact
     # literals, including damage JSON and event scripts required by K3 spawn.
-    for name in ('native/csol/server/wpn_k3.cpp', 'native/csol/server/wpn_cannon.cpp',
-                 'native/csol/cannon_resources.hpp', 'native/csol/beamgun_resources.hpp',
-                 'native/csol/server/wpn_tknifeex2.cpp'):
+    for name in ('native/csol/server/weapons/wpn_k3.cpp', 'native/csol/server/weapons/wpn_cannon.cpp',
+                 'native/csol/weapons/cannon_resources.hpp', 'native/csol/weapons/beamgun_resources.hpp',
+                 'native/csol/server/weapons/wpn_tknifeex2.cpp'):
         text = literal(source, name, '"', sources)
         for resource in set(re.findall(r'"((?:models|sprites|sound|events|csol|weapons)/[^"\r\n]+\.(?:mdl|spr|wav|txt|sc|json|tga|webm))"', text)):
             if resource.startswith('weapons/'):

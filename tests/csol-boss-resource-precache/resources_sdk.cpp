@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Run the complete production Session::Precache against the matched SDK.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_runtime.h"
-#include "../../native/csol/server/scenario_session.h"
-#include "../../native/csol/boss_health.hpp"
+#include "../../native/csol/server/scenario/core/scenario_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
+#include "../../native/csol/scenario/bosses/boss_health.hpp"
 #include <filesystem>
 #include <fstream>
 #include <limits>

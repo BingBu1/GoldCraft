@@ -8,7 +8,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "../csol-scenario-point-manager/engine_fixture.h"
-#include "../../native/csol/server/scenario_map.h"
+#include "../../native/csol/server/scenario/core/scenario_map.h"
 #include "../csol-scenario-map-session/fixtures.hpp"
 #include "death_fixtures.hpp"
 

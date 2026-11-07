@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../csol-scenario-monster-actions/fixture.hpp"
-#include "../../native/csol/server/scenario_monster_position.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_position.h"
 
 namespace position_test
 {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "csol/scenario_music.hpp"
+#include "../../native/csol/scenario/core/scenario_music.hpp"
 #include <iostream>
 #include <limits>
 #include <source_location>

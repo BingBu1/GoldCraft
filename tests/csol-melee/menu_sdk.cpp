@@ -3,15 +3,15 @@
 // controlled gate; this does not simulate or accept the whole map startup.
 #include "../csol-scenario-monster-skills/trap_fixture.hpp"
 #include "../../native/csol/server/buy_menu.h"
-#include "../../native/csol/server/weapon_service.h"
-#include "../../native/csol/server/weapon_slots.h"
-#include "../../native/csol/server/weapons.h"
-#include "../../native/csol/server/wpn_melee.h"
-#include "../../native/csol/server/melee_purchase.h"
-#include "../../native/csol/server/knife_selection.h"
+#include "../../native/csol/server/weapons/weapon_service.h"
+#include "../../native/csol/server/weapons/weapon_slots.h"
+#include "../../native/csol/server/weapons/weapons.h"
+#include "../../native/csol/server/weapons/wpn_melee.h"
+#include "../../native/csol/server/weapons/melee_purchase.h"
+#include "../../native/csol/server/weapons/knife_selection.h"
 #include "../../native/csol/buy_menu.hpp"
-#include "../../native/csol/melee_identity.hpp"
-#include "../../native/csol/melee_prediction.hpp"
+#include "../../native/csol/weapons/melee_identity.hpp"
+#include "../../native/csol/weapons/melee_prediction.hpp"
 #include <fstream>
 #include <sstream>
 #include <filesystem>

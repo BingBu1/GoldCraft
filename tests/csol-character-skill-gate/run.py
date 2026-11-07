@@ -16,7 +16,7 @@ SOURCE = 'native/csol/server/scenario_active_skill.cpp'
 LINKED = ['native/csol/server/scenario_character_skills/control.cpp',
           'native/csol/server/scenario_character_skills/catalog.cpp',
           'native/csol/server/scenario_active_skill_effects.cpp',
-          'native/csol/scenario_abilities.cpp']
+          'native/csol/scenario/core/scenario_abilities.cpp']
 
 
 def record(path):

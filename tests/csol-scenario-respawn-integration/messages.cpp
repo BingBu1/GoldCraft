@@ -2,13 +2,13 @@
 // Actual SDK callback ABI, unchanged extracted production writers and actual
 // client decoders. Engine writes are captured; no real network/game is used.
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_messages.h"
-#include "../../native/csol/scenario_abilities.hpp"
-#include "../../native/csol/scenario_monster_effects.hpp"
-#include "../../native/csol/playerclip.hpp"
-#include "../../native/csol/frozen_death.hpp"
-#include "../../native/csol/frozen_smoke.hpp"
-#include "../../native/csol/client/scenario_respawn_ui.hpp"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
+#include "../../native/csol/scenario/monsters/scenario_monster_effects.hpp"
+#include "../../native/csol/scenario/core/playerclip.hpp"
+#include "../../native/csol/scenario/monsters/frozen_death.hpp"
+#include "../../native/csol/scenario/monsters/frozen_smoke.hpp"
+#include "../../native/csol/client/scenario/core/scenario_respawn_ui.hpp"
 #include <bit>
 #include <charconv>
 #include <cmath>

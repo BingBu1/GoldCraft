@@ -12,8 +12,8 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include "../../native/csol/scenario/equipment.hpp"
-#include "../../native/csol/scenario_abilities.hpp"
+#include "../../native/csol/scenario/core/equipment.hpp"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
 
 struct Edict {};
 struct CBasePlayer { Edict entity; Edict* edict() { return &entity; } };

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Link the production data layer unchanged. The --oracle protocol lets the
 // independent original-instruction runner supply signed narrowing/quota cases.
-#include "spawn_points.hpp"
+#include "../../native/csol/scenario/core/spawn_points.hpp"
 
 #include <bit>
 #include <cstdint>

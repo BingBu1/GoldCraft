@@ -3,9 +3,9 @@
 // GameRules ownership and Minecraft mining are explicit controlled services;
 // the complete Gate restart transaction is NOT linked by this executable.
 #include "fixture.hpp"
-#include "../../native/csol/server/game_rules_gate.h"
-#include "../../native/csol/server/scenario_grenade_blockers.h"
-#include "../../native/csol/server/scenario_drops.h"
+#include "../../native/csol/server/scenario/core/game_rules_gate.h"
+#include "../../native/csol/server/scenario/core/scenario_grenade_blockers.h"
+#include "../../native/csol/server/scenario/core/scenario_drops.h"
 #include "../../native/server/bridge.h"
 #include <cstdlib>
 

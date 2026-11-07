@@ -3,11 +3,11 @@
 #include "elite_manager.hpp"
 #include "area_damage.hpp"
 #include "host_notifications.hpp"
-#include "../scenario_gameplay.h"
-#include "../scenario_runtime.h"
-#include "../scenario_player_runtime.h"
-#include "../scenario_entity_lookup.h"
-#include "../../scenario/monster_appearances.hpp"
+#include "../scenario/core/scenario_gameplay.h"
+#include "../scenario/core/scenario_runtime.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_entity_lookup.h"
+#include "../../scenario/monsters/monster_appearances.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>

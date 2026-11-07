@@ -2,10 +2,10 @@
 // Layer B links complete production SDK units, real rules/player constructors,
 // real hookchains and API wrappers. Only engine edges and probe entities vary.
 #include "sdk_engine.hpp"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
-#include "../../native/csol/server/scenario_monster_pool.h"
-#include "../../native/csol/server/weapons.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_pool.h"
+#include "../../native/csol/server/weapons/weapons.h"
 #include "../csol-scenario-difficulty/support.hpp"
 #include "../csol-scenario-navigation-loader/support.hpp"
 #include <bit>

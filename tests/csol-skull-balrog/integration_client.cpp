@@ -2,14 +2,14 @@
 // Full production weapon dispatcher, inventory, predictors and death-icon TUs.
 // Engine and unrelated UI services are controlled at their SDK interfaces.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/weapons.hpp"
-#include "../../native/csol/client/weapon_inventory.hpp"
-#include "../../native/csol/client/m249ex.hpp"
-#include "../../native/csol/client/balrog11.hpp"
-#include "../../native/csol/client/death_notices.hpp"
+#include "../../native/csol/client/weapons/weapons.hpp"
+#include "../../native/csol/client/weapons/weapon_inventory.hpp"
+#include "../../native/csol/client/weapons/m249ex.hpp"
+#include "../../native/csol/client/weapons/balrog11.hpp"
+#include "../../native/csol/client/scenario/core/death_notices.hpp"
 #include "../../native/csol/client/hud_style.hpp"
-#include "../../native/csol/m249ex.hpp"
-#include "../../native/csol/balrog11.hpp"
+#include "../../native/csol/weapons/m249ex.hpp"
+#include "../../native/csol/weapons/balrog11.hpp"
 #include <event_api.h>
 #include <r_efx.h>
 #include <pmtrace.h>

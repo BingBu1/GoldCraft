@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual engine/event and weapon precache bodies, with explicit controlled
 // filesystem/entity edges. This does not execute the full ServerActivate.
-#include "native/csol/scenario_smoke.hpp"
+#include "native/csol/scenario/core/scenario_smoke.hpp"
 #include <algorithm>
 #include <cctype>
 #include <cstdio>

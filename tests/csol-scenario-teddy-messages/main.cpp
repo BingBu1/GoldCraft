@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "native/csol/server/scenario_messages.h"
+#include "native/csol/server/scenario/core/scenario_messages.h"
 #include "native/csol/server/damage_numbers.h"
 
 #include <algorithm>

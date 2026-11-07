@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Links the production scenario_effects.cpp. Only engine/render boundaries are controlled.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/scenario_effects.hpp"
-#include "../../native/csol/scenario_monster_effects.hpp"
-#include "../../native/csol/client/frozen_death.hpp"
-#include "../../native/csol/client/frozen_smoke.hpp"
-#include "../../native/csol/client/oberon_hint.hpp"
+#include "../../native/csol/client/scenario/core/scenario_effects.hpp"
+#include "../../native/csol/scenario/monsters/scenario_monster_effects.hpp"
+#include "../../native/csol/client/scenario/monsters/frozen_death.hpp"
+#include "../../native/csol/client/scenario/monsters/frozen_smoke.hpp"
+#include "../../native/csol/client/scenario/bosses/oberon_hint.hpp"
 #include "../../native/include/goldcraft/vitals_protocol.hpp"
 #include <r_efx.h>
 #include <event_api.h>

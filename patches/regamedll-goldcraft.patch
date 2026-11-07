@@ -19,7 +19,7 @@ index cab27a4..555fbf2 100644
  */
  
  #include "precompiled.h"
-+#include "../../../../../native/csol/server/scenario_money.h"
++#include "../../../../../native/csol/server/scenario/core/scenario_money.h"
  
  EXT_FUNC bool CCSPlayer::JoinTeam(TeamName team)
  {
@@ -204,8 +204,8 @@ diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
 @@ -1,4 +1,7 @@
  #include "precompiled.h"
 +#include "../../../../native/server/bridge.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
  
  DLL_FUNCTIONS gFunctionTable =
  {
@@ -473,27 +473,27 @@ diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
  #include "precompiled.h"
 +#include "../../../../native/csol/server/hd_spray.h"
 +#include "../../../../native/csol/server/damage_notice.h"
-+#include "../../../../native/csol/server/scenario_inventory_capacity.h"
-+#include "../../../../native/csol/server/scenario_money.h"
++#include "../../../../native/csol/server/scenario/core/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario/core/scenario_money.h"
 +#include "../../../../native/server/bridge.h"
 +#include "../../../../native/server/vitals.hpp"
-+#include "../../../../native/csol/server/weapons.h"
-+#include "../../../../native/csol/server/wpn_beamgun.h"
-+#include "../../../../native/csol/server/wpn_cannon.h"
-+#include "../../../../native/csol/server/wpn_k3.h"
-+#include "../../../../native/csol/server/wpn_melee.h"
-+#include "../../../../native/csol/server/wpn_m249ex.h"
-+#include "../../../../native/csol/server/wpn_skull1.h"
-+#include "../../../../native/csol/server/wpn_skull2.h"
-+#include "../../../../native/csol/server/wpn_skull3.h"
-+#include "../../../../native/csol/server/wpn_skull5.h"
-+#include "../../../../native/csol/server/wpn_balrog11.h"
-+#include "../../../../native/csol/server/weapon_slots.h"
++#include "../../../../native/csol/server/weapons/weapons.h"
++#include "../../../../native/csol/server/weapons/wpn_beamgun.h"
++#include "../../../../native/csol/server/weapons/wpn_cannon.h"
++#include "../../../../native/csol/server/weapons/wpn_k3.h"
++#include "../../../../native/csol/server/weapons/wpn_melee.h"
++#include "../../../../native/csol/server/weapons/wpn_m249ex.h"
++#include "../../../../native/csol/server/weapons/wpn_skull1.h"
++#include "../../../../native/csol/server/weapons/wpn_skull2.h"
++#include "../../../../native/csol/server/weapons/wpn_skull3.h"
++#include "../../../../native/csol/server/weapons/wpn_skull5.h"
++#include "../../../../native/csol/server/weapons/wpn_balrog11.h"
++#include "../../../../native/csol/server/weapons/weapon_slots.h"
 +#include "../../../../native/csol/server/characters.h"
 +#include "../../../../native/csol/server/buy_menu.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_map_vote.h"
-+#include "../../../../native/csol/server/scenario_performance.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_map_vote.h"
++#include "../../../../native/csol/server/scenario/core/scenario_performance.h"
  
  int gmsgWeapPickup = 0;
  int gmsgHudText = 0;
@@ -1440,8 +1440,8 @@ index fa819f8..fe5ec4a 100644
 +++ b/regamedll/dlls/func_break.cpp
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
-+#include "../../../../native/csol/server/scenario_grenade_blockers.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_grenade_blockers.h"
  
  // Just add more items to the bottom of this array and they will automagically be supported
  // This is done instead of just a classname in the FGD so we can control which entities can
@@ -1643,8 +1643,8 @@ index 3d9f141..80d00d9 100644
 +++ b/regamedll/dlls/gamerules.cpp
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_inventory_capacity.h"
  
  CGameRules *g_pGameRules = nullptr;
  
@@ -1692,7 +1692,7 @@ index c130729..7c1d4a6 100644
 +++ b/regamedll/dlls/ggrenade.cpp
 @@ -1,4 +1,5 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
  
  TYPEDESCRIPTION CGrenade::m_SaveData[] =
  {
@@ -1773,7 +1773,7 @@ index ba138e0..88b32df 100644
 +++ b/regamedll/dlls/items.cpp
 @@ -1,4 +1,5 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario/core/scenario_inventory_capacity.h"
  
  ItemInfo itemInfo[] = {
  	DEFINE_ITEMINFO(ITEM_SHIELDGUN,     "weapon_shield"),
@@ -1832,7 +1832,7 @@ diff --git a/regamedll/dlls/multiplay_gamerules.cpp b/regamedll/dlls/multiplay_g
  #include "precompiled.h"
 +#include "../../../../native/csol/server/paired_inventory.h"
 +#include "../../../../native/server/bridge.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
  
  CCStrikeGameMgrHelper g_GameMgrHelper;
  CHalfLifeMultiplay *g_pMPGameRules = nullptr;
@@ -2027,21 +2027,21 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  
  #include "precompiled.h"
 +#include "../../../../native/csol/server/paired_inventory.h"
-+#include "../../../../native/csol/server/weapon_slot_position.h"
-+#include "../../../../native/csol/server/weapon_call_guard.h"
++#include "../../../../native/csol/server/weapons/weapon_slot_position.h"
++#include "../../../../native/csol/server/weapons/weapon_call_guard.h"
 +#include "../../../../native/csol/server/scenario_character_skills/host.hpp"
 +#include "../../../../native/csol/server/hd_spray.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
 +#include "../../../../native/csol/server/buy_menu.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
-+#include "../../../../native/csol/server/scenario_wall_status.h"
-+#include "../../../../native/csol/server/scenario_incoming_damage.h"
-+#include "../../../../native/csol/server/scenario_inventory_capacity.h"
-+#include "../../../../native/csol/server/scenario_money.h"
-+#include "../../../../native/csol/server/weapons.h"
-+#include "../../../../native/csol/server/melee_purchase.h"
-+#include "../../../../native/csol/server/wpn_beamgun.h"
-+#include "../../../../native/csol/server/wpn_cannon.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_wall_status.h"
++#include "../../../../native/csol/server/scenario/core/scenario_incoming_damage.h"
++#include "../../../../native/csol/server/scenario/core/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/scenario/core/scenario_money.h"
++#include "../../../../native/csol/server/weapons/weapons.h"
++#include "../../../../native/csol/server/weapons/melee_purchase.h"
++#include "../../../../native/csol/server/weapons/wpn_beamgun.h"
++#include "../../../../native/csol/server/weapons/wpn_cannon.h"
 +#include "../../../../native/csol/server/characters.h"
 +#include "../../../../native/server/bridge.h"
 +#include "../../../../native/server/vitals.hpp"
@@ -3356,7 +3356,7 @@ index 514ca64..c55ef13 100644
  */
  
  #include "precompiled.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
  
  TYPEDESCRIPTION g_EntvarsDescription[] =
  {
@@ -3614,7 +3614,7 @@ index 4c938c2..067f818 100644
 +++ b/regamedll/dlls/subs.cpp
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
 +#include <string>
  
  // Landmark class
@@ -3795,9 +3795,9 @@ index 63282c0..fa5900c 100644
 +++ b/regamedll/dlls/triggers.cpp
 @@ -1,4 +1,7 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_trigger.h"
-+#include "../../../../native/csol/server/scenario_playerclip.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_trigger.h"
++#include "../../../../native/csol/server/scenario/core/scenario_playerclip.h"
  
  // Global Savedata for changelevel friction modifier
  TYPEDESCRIPTION CFrictionModifier::m_SaveData[] =
@@ -3924,9 +3924,9 @@ index e0ffed5..9ebd464 100644
 @@ -1,4 +1,10 @@
  #include "precompiled.h"
 +#include "../../../../native/server/bridge.h"
-+#include "../../../../native/csol/server/scenario_drops.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_drops.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
 +#include <string>
 +#include <utility>
  
@@ -4063,16 +4063,16 @@ diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
 -short int g_sModelIndexTGhost;
 -short int g_sModelIndexC4Glow;
 +#include "../../../../native/csol/server/paired_inventory.h"
-+#include "../../../../native/csol/server/weapons.h"
-+#include "../../../../native/csol/server/melee_purchase.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
++#include "../../../../native/csol/server/weapons/weapons.h"
++#include "../../../../native/csol/server/weapons/melee_purchase.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
 +#include "../../../../native/csol/server/scenario_character_skills/host.hpp"
-+#include "../../../../native/csol/server/scenario_inventory_capacity.h"
-+#include "../../../../native/csol/server/wpn_cannon.h"
-+#include "../../../../native/csol/server/wpn_skull3.h"
-+#include "../../../../native/csol/server/weapon_call_guard.h"
-+#include "../../../../native/csol/k3.hpp"
-+#include "../../../../native/csol/skull3.hpp"
++#include "../../../../native/csol/server/scenario/core/scenario_inventory_capacity.h"
++#include "../../../../native/csol/server/weapons/wpn_cannon.h"
++#include "../../../../native/csol/server/weapons/wpn_skull3.h"
++#include "../../../../native/csol/server/weapons/weapon_call_guard.h"
++#include "../../../../native/csol/weapons/k3.hpp"
++#include "../../../../native/csol/weapons/skull3.hpp"
 +#include <cmath>
 +
 +int g_sModelIndexLaser;		// holds the index for the laser beam
@@ -4480,7 +4480,7 @@ index f7294b7..d20c519 100644
  */
  
  #pragma once
-+#include "../../../../native/csol/server/weapon_slots.h"
++#include "../../../../native/csol/server/weapons/weapon_slots.h"
  
  class CBasePlayer;
  
@@ -4533,7 +4533,7 @@ index 08d0495..ab65a42 100644
 +++ b/regamedll/dlls/weapontype.cpp
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/weapon_slots.h"
++#include "../../../../native/csol/server/weapons/weapon_slots.h"
 +#include "../../../../native/csol/server/buy_menu.h"
  
  WeaponStruct g_weaponStruct[MAX_WEAPONS] =
@@ -4589,7 +4589,7 @@ index cc4a3de..b58cfde 100644
 +++ b/regamedll/dlls/world.cpp
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
 +#include "../../../../native/csol/server/buy_menu.h"
  
  edict_t *g_pBodyQueueHead;
@@ -4905,7 +4905,7 @@ index 45269d5..7d6a96e 100644
 @@ -1,4 +1,6 @@
  #include "precompiled.h"
 +#include "../../../../../native/server/bridge.h"
-+#include "../../../../../native/csol/server/knife_selection.h"
++#include "../../../../../native/csol/server/weapons/knife_selection.h"
  
  LINK_ENTITY_TO_CLASS(weapon_knife, CKnife, CCSKnife)
  
@@ -5038,8 +5038,8 @@ index b524513..eb1c107 100644
  #include "precompiled.h"
 +#ifndef CLIENT_DLL
 +#include "../../../../native/server/bridge.h"
-+#include "../../../../native/csol/server/game_rules_gate.h"
-+#include "../../../../native/csol/server/scenario_entity_lookup.h"
++#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
++#include "../../../../native/csol/server/scenario/core/scenario_entity_lookup.h"
 +#include "../../../../native/csol/player_collision.hpp"
 +#endif
  

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "scenario_player_runtime.h"
+#include "scenario/core/scenario_player_runtime.h"
 #include "../character_skill_gate.hpp"
 
 // The capability, its effects and the SDK action host share one installed

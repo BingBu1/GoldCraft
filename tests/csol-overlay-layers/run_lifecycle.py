@@ -61,7 +61,7 @@ def main():
     spec.loader.exec_module(cpp)
     ext = 'external/MetaHookSv-20261007/Plugins/VGUI2Extension/src/VGUI2ExtensionInternal.cpp'
     roots = ['tests/csol-overlay-layers/lifecycle.cpp', 'tests/csol-overlay-layers/death.cpp',
-             'native/csol/client/weapons.cpp', ext]
+             'native/csol/client/weapons/weapons.cpp', ext]
     frozen, pending = {}, [ROOT / name for name in roots]
     while pending:
         path = pending.pop().resolve()

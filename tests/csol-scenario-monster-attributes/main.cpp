@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/monster_attributes.hpp"
+#include "../../native/csol/scenario/monsters/monster_attributes.hpp"
 #include <array>
 #include <bit>
 #include <cstdint>

@@ -12,8 +12,8 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-HEADER = 'native/csol/boss_health.hpp'
-HOST = 'native/csol/server/scenario_session.cpp'
+HEADER = 'native/csol/scenario/bosses/boss_health.hpp'
+HOST = 'native/csol/server/scenario/core/scenario_session.cpp'
 FIXTURE = 'tests/csol-boss-resource-precache/resources_sdk.cpp'
 
 

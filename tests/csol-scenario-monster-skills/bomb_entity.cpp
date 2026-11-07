@@ -2,8 +2,8 @@
 // Actual SDK entity/export/dispatch/Session/Pool. The damage provider is an
 // explicit observer; this suite does not claim player damage or full gameplay.
 #include "trap_fixture.hpp"
-#include "../../native/csol/server/scenario_zombie_bomb.h"
-#include "../../native/csol/server/scenario_grenade_blockers.h"
+#include "../../native/csol/server/scenario/monsters/scenario_zombie_bomb.h"
+#include "../../native/csol/server/scenario/core/scenario_grenade_blockers.h"
 #include "func_break.h"
 #include "soundent.h"
 #include <bit>

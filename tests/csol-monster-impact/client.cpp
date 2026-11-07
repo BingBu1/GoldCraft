@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Complete production decoder and renderer TU, real SDK ABI, recorded draw APIs.
-#include "../../native/csol/client/monster_impact.cpp"
+#include "../../native/csol/client/scenario/monsters/monster_impact.cpp"
 #include <array>
 #include <algorithm>
 #include <cstring>

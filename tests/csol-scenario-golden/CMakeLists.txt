@@ -2,10 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 project(CSOLScenarioGolden LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(DATA ../../native/csol/scenario)
-add_executable(csol_scenario_golden main.cpp ${DATA}/golden.cpp ${DATA}/monster_types.cpp
-    ${DATA}/config.cpp ${DATA}/spawn_points.cpp)
-add_executable(csol_scenario_golden_runtime runtime_main.cpp ${DATA}/controller.cpp
-    ${DATA}/waves.cpp ${DATA}/trigger_program.cpp)
+add_executable(csol_scenario_golden main.cpp ${DATA}/monsters/golden.cpp ${DATA}/monsters/monster_types.cpp
+    ${DATA}/core/config.cpp ${DATA}/core/spawn_points.cpp)
+add_executable(csol_scenario_golden_runtime runtime_main.cpp ${DATA}/core/controller.cpp
+    ${DATA}/core/waves.cpp ${DATA}/core/trigger_program.cpp)
 find_path(RAPIDJSON_INCLUDE_DIR rapidjson/document.h PATHS
     "${CMAKE_CURRENT_SOURCE_DIR}/../../external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include" REQUIRED)
 target_include_directories(csol_scenario_golden PRIVATE "${RAPIDJSON_INCLUDE_DIR}")

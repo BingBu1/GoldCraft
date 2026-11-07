@@ -71,8 +71,8 @@ def main():
         'main.cpp', 'client_main.cpp', 'slot_main.cpp', 'round_text_main.cpp', 'retry_budget_main.cpp', 'prepare.py')
     pending = [ROOT / f'tests/csol-scenario-respawn-ui/{name}' for name in entries]
     if args.only == 'retry-budget':
-        pending.extend(ROOT / path for path in ('native/csol/server/scenario_consumables.cpp', 'native/csol/server/persistence/types.cpp'))
-    pending.append(ROOT / 'native/csol/scenario_localization.cpp')
+        pending.extend(ROOT / path for path in ('native/csol/server/scenario/core/scenario_consumables.cpp', 'native/csol/server/persistence/types.cpp'))
+    pending.append(ROOT / 'native/csol/scenario/core/scenario_localization.cpp')
     frozen = []
     copied = set()
     while pending:
@@ -125,7 +125,7 @@ def main():
         flags.append(arg)
     for required in ('--target=i686-pc-windows-msvc', '/clang:-O3', '/clang:-flto=thin', '/arch:AVX2', '/fp:precise', '-std:c++20', '-MT'):
         assert required in flags
-    data = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/scenario_localization.cpp'))
+    data = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/scenario/core/scenario_localization.cpp'))
     for name in ('scenario_localization.cpp', 'scenario_localization.hpp'):
         relative = 'native/csol/' + name
         assert identity(source / relative)['sha256'] == identity(BASE / 'source' / relative)['sha256']
@@ -134,7 +134,7 @@ def main():
     slot_objects = []
     slot_record = {}
     if args.only != 'retry-budget':
-        slots = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/weapon_slots.cpp'))
+        slots = next(row for row in commands if row['file'].replace('\\', '/').endswith('/native/csol/weapons/weapon_slots.cpp'))
         slot_objects.append(CLIENT / slots['output'])
         for name in ('weapon_slots.cpp', 'weapon_slots.hpp'):
             relative = 'native/csol/' + name
@@ -143,8 +143,8 @@ def main():
     save(out / 'reused-slots.json', slot_record)
     round_objects = []
     round_records = []
-    round_inputs = () if args.only in ('retry-ui', 'retry-budget') else ('scenario_round_hud.cpp', 'scenario/config.cpp', 'scenario/spawn_points.cpp',
-        'scenario/message_table.cpp', 'scenario/message_resource.cpp', 'scenario/dialogue_resources.cpp', 'scenario/wave_events.cpp')
+    round_inputs = () if args.only in ('retry-ui', 'retry-budget') else ('scenario_round_hud.cpp', 'scenario/core/config.cpp', 'scenario/core/spawn_points.cpp',
+        'scenario/core/message_table.cpp', 'scenario/core/message_resource.cpp', 'scenario/core/dialogue_resources.cpp', 'scenario/core/wave_events.cpp')
     for name in round_inputs:
         relative = 'native/csol/' + name
         assert identity(ROOT / relative)['sha256'] == identity(BASE / 'source' / relative)['sha256']
@@ -156,7 +156,7 @@ def main():
     asset_paths = ('resource/cso_chn.txt',) if args.only == 'retry-budget' else ('resource/cso_chn.txt', 'resource/Hud/Hud_string_bg.tga',
         'resource/Hud/ZBS/roundclear.tga', 'resource/Hud/ZBS/roundfail.tga', 'sprites/zbs_level.spr')
     assets = [args.common / path for path in asset_paths]
-    contract = '' if args.only == 'retry-budget' else (source / 'native/csol/scenario_respawn_resources.hpp').read_text('utf-8')
+    contract = '' if args.only == 'retry-budget' else (source / 'native/csol/scenario/core/scenario_respawn_resources.hpp').read_text('utf-8')
     import struct
     for path, width, height in re.findall(r'\{"([^"]+\.tga)", (\d+), (\d+)\}', contract):
         resource = args.common / path
@@ -183,8 +183,8 @@ def main():
         previous = args.passed_core.resolve()
         result = read(previous / 'result.json')
         assert any(row['name'] == 'run-core' and row['exitCode'] == 0 for row in result['results'])
-        for relative in ('tests/csol-scenario-respawn-ui/main.cpp', 'native/csol/client/scenario_respawn_ui.hpp',
-                         'native/csol/scenario_respawn_resources.hpp'):
+        for relative in ('tests/csol-scenario-respawn-ui/main.cpp', 'native/csol/client/scenario/core/scenario_respawn_ui.hpp',
+                         'native/csol/scenario/core/scenario_respawn_resources.hpp'):
             assert identity(source / relative)['sha256'] == identity(previous / 'source' / relative)['sha256']
         previous_core = [identity(previous / 'result.json'), identity(previous / 'run-core.log')]
         groups = groups[1:]
@@ -209,7 +209,7 @@ def main():
         continuation_objects = []
         for name, relative in (
             ('continuation', 'tests/csol-scenario-respawn-ui/continuation_main.cpp'),
-            ('consumables', 'native/csol/server/scenario_consumables.cpp'),
+            ('consumables', 'native/csol/server/scenario/core/scenario_consumables.cpp'),
             ('persistence-types', 'native/csol/server/persistence/types.cpp')):
             obj = output / (name + '.obj')
             continuation_objects.append(obj)

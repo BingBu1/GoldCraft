@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "game_rules_gate.h"
+#include "scenario/core/game_rules_gate.h"
 #include "ehandle.h"
 #include <cstdint>
 #include <memory>

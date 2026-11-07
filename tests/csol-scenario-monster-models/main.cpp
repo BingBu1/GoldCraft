@@ -2,7 +2,7 @@
 // SDK entities/pool and model application are real; engine model services are
 // controlled. No Origin, behavior, animation activation or live model loading.
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_monster_models.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_models.h"
 #include <bit>
 #include <fstream>
 #include <iostream>

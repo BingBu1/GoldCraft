@@ -9,7 +9,7 @@
 #include <limits>
 #include <vector>
 #include <string>
-#include "../../native/csol/scenario_abilities.hpp"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
 
 struct edict_s { bool free{}; };
 using edict_t = edict_s;

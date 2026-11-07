@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "csol/server/scenario_bgm_trigger.h"
-#include "csol/server/scenario_music.h"
+#include "../../native/csol/server/scenario/core/scenario_bgm_trigger.h"
+#include "../../native/csol/server/scenario/core/scenario_music.h"
 #include <cstring>
 #include <cstdlib>
 #include <iostream>

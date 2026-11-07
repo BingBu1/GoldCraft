@@ -2,10 +2,10 @@
 // Real SDK Map/Pool/SpawnCall/animation. Projectile creation is the sole
 // business boundary: this suite does not validate the bomb entity or service.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_monster_bomb.h"
-#include "../../native/csol/server/scenario_monster_ordinary.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_bomb.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_ordinary.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
 #include <bit>
 #include <cmath>
 #include <limits>

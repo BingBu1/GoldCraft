@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_nav_path.h"
-#include "../../native/csol/server/scenario_nav_world.h"
+#include "../../native/csol/server/scenario/core/scenario_nav_path.h"
+#include "../../native/csol/server/scenario/core/scenario_nav_world.h"
 #include <array>
 #include <bit>
 #include <cmath>

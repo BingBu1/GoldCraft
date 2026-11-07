@@ -27,13 +27,13 @@ pieces=[]
 def take(rel,sig):
  r=files[rel];p=Path(r['path']);b=p.read_bytes();assert row(p)['sha256']==r['sha256']
  start,end,body=extract.function(b,sig.encode());pieces.append(dict(source=r,signature=sig,begin=start,end=end,sha256=hashlib.sha256(body).hexdigest()));return body+b'\n'
-runtime='native/csol/server/scenario_player_runtime.cpp';weapons='native/csol/server/scenario_weapon_state.cpp'
+runtime='native/csol/server/scenario/core/scenario_player_runtime.cpp';weapons='native/csol/server/weapons/scenario_weapon_state.cpp'
 text=('#include "'+(out/'source/tests/csol-zombie-bomb-protection/fixture.hpp').as_posix()+'"\n').encode()
 text+=b'namespace {\n'+take(weapons,'bool Live(')+take(weapons,'CBasePlayerWeapon* Active(')+b'}\n'
 for sig in ['CCSOLScenarioWeaponState::AttributeRecord::AttributeRecord(AttributeCounters&','CCSOLScenarioWeaponState::AttributeRecord::AttributeRecord(const AttributeRecord&','CCSOLScenarioWeaponState::AttributeRecord::~AttributeRecord(','CCSOLScenarioWeaponState::CCSOLScenarioWeaponState(','const CCSOLScenarioWeaponState::Weapon* CCSOLScenarioWeaponState::Find(','CCSOLScenarioWeaponState::Weapon* CCSOLScenarioWeaponState::Edit(','bool CCSOLScenarioWeaponState::SetParts(','std::array<std::uint32_t, 2> CCSOLScenarioWeaponState::Parts(','bool CCSOLScenarioWeaponState::ReplacePartEffects(','void CCSOLScenarioWeaponState::AppendParts(','bool CCSOLScenarioWeaponState::CollectPlayerParts(']:text+=take(weapons,sig)
 for sig in ['std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Resolve(','std::shared_ptr<const CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Find(','void CCSOLScenarioPlayerRuntime::PlayerSpawnStarted(','bool CCSOLScenarioPlayerRuntime::CheckMonsterAddon13(','bool CCSOLScenarioPlayerRuntime::UpdatePlayerBuffs(','bool CCSOLScenarioPlayerRuntime::ResetMonsterSkillState(']:text+=take(runtime,sig)
-text+=b'namespace csol::scenario {\n'+take('native/csol/scenario/equipment.cpp','float EquipmentAddon::Parameter(')+b'}\n'
-for file in [files['native/csol/server/scenario_player_bomb_protection.cpp']['path'],str(out/'source/tests/csol-zombie-bomb-protection/edges.inc'),str(out/'source/tests/csol-zombie-bomb-protection/tests.inc')]:text+=('#include "'+Path(file).as_posix()+'"\n').encode()
+text+=b'namespace csol::scenario {\n'+take('native/csol/scenario/core/equipment.cpp','float EquipmentAddon::Parameter(')+b'}\n'
+for file in [files['native/csol/server/scenario/core/scenario_player_bomb_protection.cpp']['path'],str(out/'source/tests/csol-zombie-bomb-protection/edges.inc'),str(out/'source/tests/csol-zombie-bomb-protection/tests.inc')]:text+=('#include "'+Path(file).as_posix()+'"\n').encode()
 main=out/'main.cpp';main.write_bytes(text);added+=[row(main),row(out/'overlay.json')];save(out/'extraction.json',pieces)
 flags=plan['commands'][0]['argv'];flags=[x for x in flags if not x.lower().endswith('.cpp') and not x.startswith('/Fo')]
 flags=[('/clang:'+str(out/'overlay.json')) if x.startswith('/clang:') and x.endswith('overlay.json') else x for x in flags]

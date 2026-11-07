@@ -19,7 +19,7 @@ def main():
     assert out.is_relative_to(ROOT/'build') and not out.exists();out.mkdir(parents=True)
     selected={row['relative']:Path(row['frozen']['path']) for row in read(base/'effective-source-manifest.json')['files']}
     known={key(row['path']):row for row in read(base/'inputs.json')['files']}
-    smoke='native/csol/server/scenario_player_runtime.cpp'
+    smoke='native/csol/server/scenario/core/scenario_player_runtime.cpp'
     original=record(selected[smoke]);data=selected[smoke].read_bytes()
     assert original['sha256']=='adc5abcdb465c53c012810d70cfa4723f57dc5176f37d5fc6234d95ae6c705e6'
     import importlib.util
@@ -88,7 +88,7 @@ def main():
             if (Path(directory)/header).is_file())
         known[key(path)]=record(path)
     result=dict(success=False,baseline=str(base),candidate=record(candidate),original=original,sourceChanges=[smoke],
-        sourceRuntime=record(selected['native/csol/server/scenario_player_runtime.cpp']),jobs=[],runs=[],
+        sourceRuntime=record(selected['native/csol/server/scenario/core/scenario_player_runtime.cpp']),jobs=[],runs=[],
         boundary='Actual complete source-resolver TU and deployed map/smoke/grenade factories/damage callbacks linked from existing SDK objects. Engine and damage-owner boundaries controlled; no deployment or gameplay.')
     write(out/'plan.json',dict(jobs=jobs,inputs=list(known.values()),candidate=result['candidate'],original=original))
     def save():write(out/'result.json',result)

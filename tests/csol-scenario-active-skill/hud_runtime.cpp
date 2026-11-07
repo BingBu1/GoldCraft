@@ -9,8 +9,8 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "../../native/csol/scenario_abilities.hpp"
-#include "../../native/csol/scenario/config.hpp"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
+#include "../../native/csol/scenario/core/config.hpp"
 
 namespace hudruntime
 {

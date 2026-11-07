@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Both the current and pinned upstream map-buy tables are included by runner.
 #include "../../native/csol/buy_menu.hpp"
-#include "../../native/csol/weapon_slots.hpp"
+#include "../../native/csol/weapons/weapon_slots.hpp"
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>

@@ -3,8 +3,8 @@
 // with the real marker class. Type0 has no TRG volumes or clearpoint callback;
 // entering any of these boundaries is a test failure, never a successful stub.
 #include "precompiled.h"
-#include "game_rules_gate.h"
-#include "scenario_breakable_guard.h"
+#include "../../native/csol/server/scenario/core/game_rules_gate.h"
+#include "../../native/csol/server/scenario/core/scenario_breakable_guard.h"
 #include <cstdlib>
 #include <cstdio>
 

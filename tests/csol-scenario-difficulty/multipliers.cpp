@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "support.hpp"
 #include "actual_expected.hpp"
-#include "../../native/csol/scenario/difficulty_monsters.hpp"
+#include "../../native/csol/scenario/monsters/difficulty_monsters.hpp"
 #include "../csol-scenario-rules-session/resources.hpp"
 #include <limits>
 using namespace difficulty_test;

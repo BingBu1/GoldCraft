@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_wall_upgrade.h"
-#include "../../native/csol/scenario/wall_damage.hpp"
-#include "../../native/csol/scenario/difficulty.hpp"
+#include "../../native/csol/server/scenario/core/scenario_wall_upgrade.h"
+#include "../../native/csol/scenario/core/wall_damage.hpp"
+#include "../../native/csol/scenario/core/difficulty.hpp"
 #include <functional>
 #include <iostream>
 #include <string>

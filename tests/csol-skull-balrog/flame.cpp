@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Complete production renderer TU with recording actual SDK boundaries.
-#include "../../native/csol/client/balrog11_flame.cpp"
+#include "../../native/csol/client/weapons/balrog11_flame.cpp"
 #include <fstream>
 #include <functional>
 #include <iomanip>

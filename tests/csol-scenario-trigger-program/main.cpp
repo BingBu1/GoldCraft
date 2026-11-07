@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/trigger_program.hpp"
+#include "../../native/csol/scenario/core/trigger_program.hpp"
 #include <algorithm>
 #include <bit>
 #include <cmath>

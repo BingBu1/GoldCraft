@@ -2,7 +2,7 @@
 // Execute the complete production predictor at the real HLSDK boundary.
 // Recoil expectations come from the original MP instruction oracle, not a
 // second copy of the production arithmetic. CRT input is controlled here.
-#include "../../native/csol/client/skull1.cpp"
+#include "../../native/csol/client/weapons/skull1.cpp"
 #include <bit>
 #include <filesystem>
 #include <fstream>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "controller.hpp"
+#include "../../native/csol/scenario/core/controller.hpp"
 #include <iostream>
 #include <string>
 #include <vector>

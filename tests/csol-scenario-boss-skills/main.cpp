@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Preparation only: pure SK code and controlled resource callbacks, no Boss AI.
-#include "../../native/csol/scenario/boss_skills.hpp"
+#include "../../native/csol/scenario/bosses/boss_skills.hpp"
 #include "../csol-scenario-difficulty/support.hpp"
 #include <cmath>
 

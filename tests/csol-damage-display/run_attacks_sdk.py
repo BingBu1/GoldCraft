@@ -16,10 +16,10 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 DELTA = (
     "native/csol/server/damage_notice.h", "native/csol/server/damage_notice.cpp",
-    "native/csol/server/scenario_messages.h", "native/csol/server/scenario_messages.cpp",
-    "native/csol/server/scenario_monster_pool.cpp", "native/csol/server/scenario_breakable.cpp",
+    "native/csol/server/scenario/core/scenario_messages.h", "native/csol/server/scenario/core/scenario_messages.cpp",
+    "native/csol/server/scenario/monsters/scenario_monster_pool.cpp", "native/csol/server/scenario/core/scenario_breakable.cpp",
     "native/server/native_armor_commit.inc", "external/ReGameDLL_CS/regamedll/dlls/client.cpp",
-    "native/csol/server/scenario_monster_ordinary.h",
+    "native/csol/server/scenario/monsters/scenario_monster_ordinary.h",
 )
 MODES = ("monster", "wall", "player", "reset", "retire", "wall-restart")
 FIXTURE_BASE = ROOT / "build/wall-machine-integration-20261106/independent-session-01/sdk-05/source"

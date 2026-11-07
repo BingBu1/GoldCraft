@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Source preparation only. This exercises the pure production calculation;
 // no result-statistics owner, engine, recipient traversal or UI is substituted.
-#include "../../native/csol/scenario/final_result.hpp"
+#include "../../native/csol/scenario/core/final_result.hpp"
 
 #include <array>
 #include <bit>

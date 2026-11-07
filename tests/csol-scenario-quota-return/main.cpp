@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "spawn_points.hpp"
+#include "../../native/csol/scenario/core/spawn_points.hpp"
 #include <iostream>
 #include <limits>
 #include <string_view>

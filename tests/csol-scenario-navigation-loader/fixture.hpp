@@ -4,7 +4,7 @@
 #include "support.hpp"
 #include "../csol-scenario-point-manager/engine_fixture.h"
 #include "../csol-scenario-monster-ordinary/allocation_probe.hpp"
-#include "../../native/csol/server/scenario_navigation.h"
+#include "../../native/csol/server/scenario/core/scenario_navigation.h"
 
 namespace nav_loader_test
 {

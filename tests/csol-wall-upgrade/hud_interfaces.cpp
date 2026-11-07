@@ -3,5 +3,5 @@
 #include "../../native/csol/client/runtime.hpp"
 namespace fixture { HMODULE WINAPI VGuiModule(const char*); }
 #define GetModuleHandleA fixture::VGuiModule
-#include "../../native/csol/client/wall_upgrade_hud.cpp"
+#include "../../native/csol/client/scenario/core/wall_upgrade_hud.cpp"
 #undef GetModuleHandleA

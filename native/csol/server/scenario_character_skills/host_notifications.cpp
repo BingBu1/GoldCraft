@@ -2,7 +2,7 @@
 #include "precompiled.h"
 #include "host_notifications.hpp"
 #include "host.hpp"
-#include "../scenario_session.h"
+#include "../scenario/core/scenario_session.h"
 #include "../../character_skill_protocol.hpp"
 #include "../../character_skill_resources.hpp"
 #include <rapidjson/document.h>

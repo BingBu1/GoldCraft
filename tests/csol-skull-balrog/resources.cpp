@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/weapon_resources.hpp"
-#include "../../native/csol/weapon_hud_paths.hpp"
+#include "../../native/csol/weapons/weapon_resources.hpp"
+#include "../../native/csol/weapons/weapon_hud_paths.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

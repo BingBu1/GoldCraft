@@ -50,7 +50,7 @@ def main():
     (out / "temp").mkdir()
     manifest = read(base / "effective-source-manifest.json")["files"]
     sources = {}
-    pending = ["tests/csol-skull3/ballistics.cpp", "native/csol/server/skull3_ballistics.cpp", "native/csol/server/skull3_ballistics.h"]
+    pending = ["tests/csol-skull3/ballistics.cpp", "native/csol/server/weapons/skull3_ballistics.cpp", "native/csol/server/weapons/skull3_ballistics.h"]
     while pending:
         relative = pending.pop()
         if relative in sources:

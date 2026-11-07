@@ -15,12 +15,12 @@ def main():
     env=os.environ|json.loads((a.build_base/'environment.json').read_text())
     records=[]
     for name,source in [('new',a.candidate),('old',a.baseline)]:
-        dest=out/name;dest.mkdir();raw=(source/'native/csol/client/weapons.cpp').read_bytes();melee=(source/'native/csol/client/melee.cpp').read_bytes()
+        dest=out/name;dest.mkdir();raw=(source/'native/csol/client/weapons/weapons.cpp').read_bytes();melee=(source/'native/csol/client/weapons/melee.cpp').read_bytes()
         (dest/'actual_crosshair.inc').write_bytes(b'\n'.join(cpp.function(raw,sig)[2] for sig in [b'bool Custom()',b'bool MagazineActive()',b'void DrawCrosshair(int intermission)']))
         begin=melee.index(b'constexpr int ModuleIds[]');end=melee.index(b'const WeaponModuleRegistration Registration{Module};',begin)+len(b'const WeaponModuleRegistration Registration{Module};')
         (dest/'actual_melee_module.inc').write_bytes(melee[begin:end])
         fixture=dest/'test.cpp';fixture.write_bytes((ROOT/'tests/csol-melee/crosshair.cpp').read_bytes())
-        sources=[fixture,ROOT/'native/csol/client/crosshair.cpp',ROOT/'native/csol/client/weapon_module.cpp']
+        sources=[fixture,ROOT/'native/csol/client/crosshair.cpp',ROOT/'native/csol/client/weapons/weapon_module.cpp']
         command=[unit['command'][0],*flags,*map(str,sources),'/Fe'+str(dest/'test.exe'),'/link','/MACHINE:X86']
         result=subprocess.run(command,cwd=dest,env=env,capture_output=True,timeout=120);(dest/'build.log').write_bytes(result.stdout+result.stderr)
         records.append(dict(name=name,command=command,compileExit=result.returncode,inputs=[identity(x)for x in sources]))

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/scenario_kill.hpp"
-#include "../../native/csol/scenario_kill.hpp"
+#include "../../native/csol/client/scenario/core/scenario_kill.hpp"
+#include "../../native/csol/scenario/core/scenario_kill.hpp"
 #include "../csol-wall-status/surface_stub.hpp"
 #include <IVGUI2Extension.h>
 #include <cstring>

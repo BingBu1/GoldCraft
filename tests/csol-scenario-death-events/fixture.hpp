@@ -2,8 +2,8 @@
 #pragma once
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
 #include "../csol-scenario-map-session/fixtures.hpp"
-#include "../../native/csol/server/scenario_death_targets.h"
-#include "../../native/csol/server/scenario_death_notice.h"
+#include "../../native/csol/server/scenario/core/scenario_death_targets.h"
+#include "../../native/csol/server/scenario/core/scenario_death_notice.h"
 #include <deque>
 #include <iostream>
 #include <limits>

@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory)][string]$OutputDirectory,
-    [string]$InventorySource='native/csol/client/weapon_inventory.cpp',
+    [string]$InventorySource='native/csol/client/weapons/weapon_inventory.cpp',
     [string]$Python='python',
     [switch]$ExpectFailure
 )

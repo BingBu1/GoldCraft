@@ -2,7 +2,7 @@
 #include "fixture.hpp"
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
 #include "../csol-scenario-rules-session/resources.hpp"
-#include "../../native/csol/server/scenario_session.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
 
 BotPhraseManager* TheBotPhrases{};
 Place BotPhraseManager::NameToID(const char*) const

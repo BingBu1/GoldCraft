@@ -33,8 +33,8 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     fixture = ROOT / 'tests/csol-weapon-slots/client.cpp'
     production = [ROOT / ('native/csol/' + path) for path in [
-        'client/weapons.cpp', 'client/weapon_inventory.cpp', 'client/crosshair.cpp',
-        'client/pickup_history.cpp', 'client/beamgun.cpp', 'client/cannon.cpp', 'beamgun_state.cpp', 'weapon_slots.cpp']]
+        'client/weapons/weapons.cpp', 'client/weapons/weapon_inventory.cpp', 'client/crosshair.cpp',
+        'client/pickup_history.cpp', 'client/weapons/beamgun.cpp', 'client/weapons/cannon.cpp', 'beamgun_state.cpp', 'weapon_slots.cpp']]
     sources = [fixture, ROOT / 'tests/csol-weapon-slots/session_edges.cpp', *production]
     headers = sorted((ROOT / 'native/csol/client').glob('*.hpp'))
     inputs = [session, *sources, ROOT / 'tests/csol-weapon-slots/session_clock.hpp',

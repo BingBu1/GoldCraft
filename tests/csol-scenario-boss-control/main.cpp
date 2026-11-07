@@ -2,9 +2,9 @@
 // Preparation only. Actual SDK/map/pool/spawn lease and animation chain;
 // explicit control-edge observers do not implement a playable Oberon.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_monster_boss_control.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
+#include "../../native/csol/server/scenario/bosses/scenario_monster_boss_control.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
 #include "../csol-scenario-difficulty/support.hpp"
 #include <optional>
 

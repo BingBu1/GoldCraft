@@ -43,14 +43,14 @@ def prepare(root, source):
     write('purchase_sdk_methods.inc', '\n'.join(extract(*method) for method in methods))
     write('purchase_foreach.inc', extract('external/ReGameDLL_CS/regamedll/dlls/player.h',
         'template<typename T = CBasePlayerItem, typename Functor>\n\tT *ForEachItem(const Functor &func) const'))
-    write('purchase_deploy.inc', '\n'.join(extract('native/csol/server/wpn_melee.cpp', signature)
+    write('purchase_deploy.inc', '\n'.join(extract('native/csol/server/weapons/wpn_melee.cpp', signature)
         for signature in ('void CCSOLMelee::CancelAttack()', 'BOOL CCSOLMelee::Deploy()',
             'void CCSOLMelee::Holster(', 'bool CSOL_MeleeDeploymentComplete(',
             'bool CSOL_SaveMeleePurchaseState(', 'bool CSOL_RestoreMeleePurchaseState(')))
-    write('purchase_state.inc', '\n'.join(extract('native/csol/server/wpn_melee.cpp', signature)
+    write('purchase_state.inc', '\n'.join(extract('native/csol/server/weapons/wpn_melee.cpp', signature)
         for signature in ('CSOLMeleePurchaseState PurchaseState() const',
             'void RestorePurchaseState(')))
-    relative = 'native/csol/server/melee_purchase.cpp'
+    relative = 'native/csol/server/weapons/melee_purchase.cpp'
     text = (source/relative).read_text(encoding='utf8')
     start = text.index('namespace {')
     block = text[start:]
@@ -58,7 +58,7 @@ def prepare(root, source):
         sha256=hashlib.sha256(block.encode()).hexdigest()))
     write('purchase_actual.inc', '#line %d "%s"\n%s' % (
         text[:start].count('\n')+1, (root/relative).as_posix(), block))
-    service = 'native/csol/server/weapon_service.cpp'
+    service = 'native/csol/server/weapons/weapon_service.cpp'
     write('purchase_service.inc', '\n'.join(extract(service, signature, semicolon)
         for signature, semicolon in (
             ('class WeaponPurchaseGuard {', True), ('CBasePlayer* Player(', False),

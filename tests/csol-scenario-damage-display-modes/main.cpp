@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Test preparation only: production parser/owner with controlled file edges.
-#include "../../native/csol/scenario/damage_display_modes.hpp"
+#include "../../native/csol/scenario/core/damage_display_modes.hpp"
 #include "../../native/csol/config_codec.hpp"
 #include "../csol-scenario-difficulty/support.hpp"
 

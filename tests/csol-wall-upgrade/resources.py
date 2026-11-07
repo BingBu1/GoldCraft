@@ -27,7 +27,7 @@ def identity(path):
     return dict(path=str(path.resolve()), bytes=path.stat().st_size,
                 sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
-for name in ('native/csol/server/scenario_session.cpp', 'native/csol/wall_upgrade.hpp'):
+for name in ('native/csol/server/scenario/core/scenario_session.cpp', 'native/csol/scenario/core/wall_upgrade.hpp'):
     path = ROOT / name
     original = identity(path)
     target = snapshot / name
@@ -54,7 +54,7 @@ for name in sorted(roots | {row['path'] for row in closure}):
     assert (derived or path.is_relative_to(args.common.resolve())) and path.stat().st_size > 0
     resources.append(dict(resource=name, **identity(path)))
 
-header = snapshot / 'native/csol/wall_upgrade.hpp'
+header = snapshot / 'native/csol/scenario/core/wall_upgrade.hpp'
 original = header.read_bytes()
 negative = []
 for label, old, replacement in (

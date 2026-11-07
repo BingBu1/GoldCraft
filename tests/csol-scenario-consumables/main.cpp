@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/server/scenario_consumables.h"
+#include "../../native/csol/server/scenario/core/scenario_consumables.h"
 #include <cmath>
 #include <cstdio>
 #include <functional>

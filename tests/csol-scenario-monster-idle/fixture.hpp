@@ -2,7 +2,7 @@
 #pragma once
 #include "../csol-scenario-monster-actions/fixture.hpp"
 #include "../csol-scenario-navigation-loader/fixture.hpp"
-#include "../../native/csol/server/scenario_monster_ordinary.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_ordinary.h"
 
 namespace idle_test
 {

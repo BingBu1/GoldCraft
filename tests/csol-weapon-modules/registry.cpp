@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Link this fixture only with the actual weapon_module.cpp, never fake registry code.
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 #include <climits>
 #include <cstdlib>
 #include <iostream>

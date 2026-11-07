@@ -61,20 +61,20 @@ def main():
     roots = {key(row["name"]): row for row in overlay["roots"]}
     sources = {}
     replacements = {}
-    for rel in ("native/csol/server/paired_inventory.cpp", "native/csol/server/skull3_ballistics.cpp"):
+    for rel in ("native/csol/server/paired_inventory.cpp", "native/csol/server/weapons/skull3_ballistics.cpp"):
         replacements[rel] = identity(ROOT / rel)
     if args.overrides:
         for row in read(args.overrides):
             rel = row["relative"]
             if not rel.endswith(".cpp"):
-                assert rel in ("native/csol/server/weapon_slot_position.h", "native/csol/server/wpn_skull3.h", "native/csol/server/weapon_call_guard.h")
+                assert rel in ("native/csol/server/weapons/weapon_slot_position.h", "native/csol/server/weapons/wpn_skull3.h", "native/csol/server/weapons/weapon_call_guard.h")
                 def declarations(path):
                     text = Path(path).read_text("utf-8-sig")
                     return [line.strip() for line in re.sub(r'/\*.*?\*/|//[^\n]*', '', text, flags=re.S).splitlines() if line.strip()]
                 before = declarations(effective[rel]["path"]) if rel in effective else []
                 after = declarations(row["frozen"]["path"])
                 changed_lines = [line[2:] for line in difflib.ndiff(before, after) if line.startswith(("- ", "+ "))]
-                if rel == "native/csol/server/weapon_call_guard.h":
+                if rel == "native/csol/server/weapons/weapon_call_guard.h":
                     assert rel not in effective, "An existing guard layout change requires a new full baseline"
                 else:
                     assert all(line in ("#pragma once", "class CBasePlayerItem;") or re.fullmatch(r'void CSOL_Remember(?:Skull3Position|WeaponSlotPosition)\(CBasePlayerItem& item\);', line) for line in changed_lines), "Header layout changes require a new full baseline"
@@ -141,7 +141,7 @@ def main():
         if not rel.endswith(".cpp"):
             continue
         matching = [unit for unit in units if unit["source"]["path"].replace("\\", "/").casefold().endswith("/" + rel.casefold())]
-        assert len(matching) == 1 or (not matching and rel == "native/csol/server/weapon_call_guard.cpp"), rel
+        assert len(matching) == 1 or (not matching and rel == "native/csol/server/weapons/weapon_call_guard.cpp"), rel
         name = Path(rel).stem
         cmd = list(command)
         for i, token in enumerate(cmd):

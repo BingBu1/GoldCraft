@@ -2,7 +2,7 @@
 #include "sequence_safety.hpp"
 #include "sequences.hpp"
 #include "model_codec.hpp"
-#include "scenario/monster_sequences.hpp"
+#include "scenario/monsters/monster_sequences.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdlib>

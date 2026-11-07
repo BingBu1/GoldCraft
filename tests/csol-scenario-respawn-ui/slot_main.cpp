@@ -5,7 +5,7 @@
 #define wmain UnusedConsumerEntryPoint
 #include "client_main.cpp"
 #undef wmain
-#include "native/csol/client/weapon_inventory.cpp"
+#include "native/csol/client/weapons/weapon_inventory.cpp"
 
 namespace route_fixture
 {

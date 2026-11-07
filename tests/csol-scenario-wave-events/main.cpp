@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Tests actual wave scheduling and message encoding. The monster query and
 // network sink are controlled interfaces, not claims about live engine wiring.
-#include "wave_events.hpp"
-#include "waves.hpp"
+#include "../../native/csol/scenario/core/wave_events.hpp"
+#include "../../native/csol/scenario/core/waves.hpp"
 #include "../config_codec.hpp"
 
 #include <algorithm>

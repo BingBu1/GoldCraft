@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_breakable.h"
-#include "../../native/csol/server/scenario_breakable_guard.h"
-#include "../../native/csol/server/scenario_wall_rewards.h"
+#include "../../native/csol/server/scenario/core/scenario_breakable.h"
+#include "../../native/csol/server/scenario/core/scenario_breakable_guard.h"
+#include "../../native/csol/server/scenario/core/scenario_wall_rewards.h"
 #include "../csol-scenario-difficulty/support.hpp"
 #include <functional>
 #include <memory>

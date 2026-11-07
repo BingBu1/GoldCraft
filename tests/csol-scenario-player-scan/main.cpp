@@ -11,7 +11,7 @@
 #include <stdexcept>
 #include <vector>
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_player_scan.h"
+#include "../../native/csol/server/scenario/core/scenario_player_scan.h"
 
 using namespace csol::scenario;
 namespace

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Expectations come from fixed MP 11380280/113EE860 and its original table,
 // never from executing the production predicate to manufacture an oracle.
-#include "monster_appearances.hpp"
-#include "monster_types.hpp"
+#include "../../native/csol/scenario/monsters/monster_appearances.hpp"
+#include "../../native/csol/scenario/monsters/monster_types.hpp"
 #include <array>
 #include <bit>
 #include <fstream>

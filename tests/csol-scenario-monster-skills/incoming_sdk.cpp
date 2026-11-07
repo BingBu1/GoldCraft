@@ -2,8 +2,8 @@
 // Whole SDK objects. Controlled engine/filesystem; no replacement production
 // damage, equipment, player authority, rules, Spawn or bomb implementation.
 #include "trap_fixture.hpp"
-#include "../../native/csol/server/scenario_incoming_damage.h"
-#include "../../native/csol/server/scenario_zombie_bomb.h"
+#include "../../native/csol/server/scenario/core/scenario_incoming_damage.h"
+#include "../../native/csol/server/scenario/monsters/scenario_zombie_bomb.h"
 #include <bit>
 #include <cmath>
 #include <limits>

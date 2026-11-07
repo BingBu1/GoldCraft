@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/wall_status.hpp"
-#include "../../native/csol/client/wall_upgrade_hud.hpp"
-#include "../../native/csol/client/scenario_round_hud_client.hpp"
-#include "../../native/csol/wall_status.hpp"
+#include "../../native/csol/client/scenario/core/wall_status.hpp"
+#include "../../native/csol/client/scenario/core/wall_upgrade_hud.hpp"
+#include "../../native/csol/client/scenario/core/scenario_round_hud_client.hpp"
+#include "../../native/csol/scenario/core/wall_status.hpp"
 #include <cstring>
 #include <iostream>
 #include <limits>

@@ -3,9 +3,9 @@
 #include "overlay_layers.hpp"
 #include "hud_style.hpp"
 #include "user_message_chain.hpp"
-#include "weapon_inventory.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include "characters.hpp"
-#include "scenario_upgrades.hpp"
+#include "scenario/core/scenario_upgrades.hpp"
 #include "../image_codec.hpp"
 #include <VGUI/ISurface.h>
 #include <VGUI/IScheme.h>

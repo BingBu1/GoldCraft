@@ -35,11 +35,11 @@ METAHOOK = ROOT / 'external/MetaHookSv-20261007'
 SDK = METAHOOK / 'MetaHook/include'
 TASK = ['melee_attacks.cpp', 'melee_attacks.hpp', 'melee_damage.cpp', 'melee_damage.hpp',
         'melee_identity.hpp', 'melee_prediction.hpp', 'melee_resources.hpp',
-        'server/melee_trace.cpp', 'server/melee_trace.h', 'server/wpn_melee.cpp', 'server/wpn_melee.h',
-        'client/melee.cpp', 'client/melee.hpp', 'client/weapons.cpp',
-        'server/weapons.h', 'server/wpn_tknifeex2.cpp', 'server/scenario_monster_damage.cpp',
-        'server/scenario_player_runtime.cpp', 'server/scenario_weapon_state.cpp',
-        'server/game_rules_gate.cpp', 'server/game_rules_gate.h']
+        'server/weapons/melee_trace.cpp', 'server/weapons/melee_trace.h', 'server/weapons/wpn_melee.cpp', 'server/weapons/wpn_melee.h',
+        'client/weapons/melee.cpp', 'client/weapons/melee.hpp', 'client/weapons/weapons.cpp',
+        'server/weapons/weapons.h', 'server/weapons/wpn_tknifeex2.cpp', 'server/scenario/monsters/scenario_monster_damage.cpp',
+        'server/scenario/core/scenario_player_runtime.cpp', 'server/weapons/scenario_weapon_state.cpp',
+        'server/scenario/core/game_rules_gate.cpp', 'server/scenario/core/game_rules_gate.h']
 
 def identity(p):
     s = p.stat()
@@ -49,8 +49,8 @@ def prepare():
     assert not OUT.exists()
     source = OUT / 'source'
     source.mkdir(parents=True)
-    task_files = ['server/melee_purchase.cpp','server/melee_purchase.h','server/weapon_service.cpp',
-        'server/wpn_melee.cpp','server/wpn_melee.h','melee_identity.hpp','melee_resources.hpp',
+    task_files = ['server/weapons/melee_purchase.cpp','server/weapons/melee_purchase.h','server/weapons/weapon_service.cpp',
+        'server/weapons/wpn_melee.cpp','server/weapons/wpn_melee.h','melee_identity.hpp','melee_resources.hpp',
         'melee_attacks.hpp','melee_prediction.hpp'] if args.purchase else TASK
     files = [NATIVE / name for name in task_files]
     if args.purchase:
@@ -124,9 +124,9 @@ def prepare():
         'REGAMEDLL_CHECKS','UNICODE_FIXES','BUILD_LATEST','BUILD_LATEST_FIXES','CLIENT_WEAPONS','USE_QSTRING','_WINDLL','_MBCS']
     client_definitions = ['WIN32','_WINDOWS','_USRDLL','_MBCS','NO_MALLOC_OVERRIDE','NOMINMAX','GLEW_STATIC','GLEW_NO_GLU']
     commands = []
-    server_tasks = ['server/melee_purchase.cpp','server/weapon_service.cpp','server/wpn_melee.cpp'] if args.purchase else ['server/melee_trace.cpp','server/wpn_melee.cpp','server/wpn_tknifeex2.cpp',
-                 'server/scenario_monster_damage.cpp','server/scenario_player_runtime.cpp',
-                 'server/scenario_weapon_state.cpp','server/game_rules_gate.cpp']
+    server_tasks = ['server/weapons/melee_purchase.cpp','server/weapons/weapon_service.cpp','server/weapons/wpn_melee.cpp'] if args.purchase else ['server/weapons/melee_trace.cpp','server/weapons/wpn_melee.cpp','server/weapons/wpn_tknifeex2.cpp',
+                 'server/scenario/monsters/scenario_monster_damage.cpp','server/scenario/core/scenario_player_runtime.cpp',
+                 'server/weapons/scenario_weapon_state.cpp','server/scenario/core/game_rules_gate.cpp']
     for name in server_tasks:
         commands.append([str(COMPILER),*flags,'/Zc:strictStrings-',*['/D'+x for x in server_definitions],
             *['-I'+str(p) for p in server_includes],'/c',str(source/'native/csol'/name),'/Fo'+str(OUT/(Path(name).stem+'.obj'))])
@@ -181,14 +181,14 @@ def prepare():
 def prepare_existing_client(commands, flags, server_definitions, server_includes, client_definitions, client_includes, source):
     commands.append([str(COMPILER),*flags,'/Zc:strictStrings-',*['/D'+x for x in server_definitions],
         *['-I'+str(p) for p in server_includes],'/c',str(source/'external/ReGameDLL_CS/regamedll/dlls/client.cpp'),'/Fo'+str(OUT/'server_client.obj')])
-    commands.append([str(COMPILER),*flags,'/c',str(source/'native/csol/melee_attacks.cpp'),'/Fo'+str(OUT/'melee_attacks.obj')])
+    commands.append([str(COMPILER),*flags,'/c',str(source/'native/csol/weapons/melee_attacks.cpp'),'/Fo'+str(OUT/'melee_attacks.obj')])
     commands.append([str(COMPILER),*flags,*['/D'+x for x in client_definitions],
         *['-I'+str(p) for p in client_includes],'/c',str(source/'tests/csol-melee/client.cpp'),'/Fo'+str(OUT/'client.obj')])
     commands.append([str(LINKER),'/nologo','/machine:X86','/subsystem:console','/threads:1',
         '/out:'+str(OUT/'client.exe'),str(OUT/'client.obj'),str(OUT/'melee_attacks.obj'),'kernel32.lib'])
     commands.append([str(OUT/'client.exe')])
     commands.append([str(COMPILER),*flags,*['/D'+x for x in client_definitions],
-        *['-I'+str(p) for p in client_includes],'/c',str(source/'native/csol/client/weapons.cpp'),'/Fo'+str(OUT/'client_weapons.obj')])
+        *['-I'+str(p) for p in client_includes],'/c',str(source/'native/csol/client/weapons/weapons.cpp'),'/Fo'+str(OUT/'client_weapons.obj')])
 
 def execute():
     p = json.loads((OUT/'proposal.json').read_text())

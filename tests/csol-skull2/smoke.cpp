@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #define SKULL2_CLIENT_FIXTURE_NO_MAIN
 #include "client.cpp"
-#include "../../native/csol/client/skull1.hpp"
+#include "../../native/csol/client/weapons/skull1.hpp"
 
 int main(int argc,char** argv)
 {

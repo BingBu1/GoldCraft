@@ -4,8 +4,8 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include "../../native/csol/map_vote_presentation.hpp"
-#include "../../native/csol/scenario/map_vote.hpp"
+#include "../../native/csol/scenario/core/map_vote_presentation.hpp"
+#include "../../native/csol/scenario/core/map_vote.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>

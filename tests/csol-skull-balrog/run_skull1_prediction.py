@@ -95,7 +95,7 @@ def main():
                 arg = str(out / "source/tests/csol-skull-balrog/skull1_prediction.cpp")
             command.append(arg)
         if variant == "old":
-            logical = out / "source/native/csol/client/skull1.cpp"
+            logical = out / "source/native/csol/client/weapons/skull1.cpp"
             overlay = out / "old-overlay.json"
             write(overlay, dict(version=0, **{"case-sensitive": False, "use-external-names": False}, roots=[
                 dict(type="file", name=str(logical), **{"external-contents": str(old)})]))

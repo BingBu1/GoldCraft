@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Production sender, real SDK ABI; engine calls are captured, not networked.
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
 #include <array>
 #include <cmath>
 #include <functional>

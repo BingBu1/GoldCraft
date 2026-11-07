@@ -2,8 +2,8 @@
 // Real factory, pool, occupancy, death owner and ReAPI chain. AI/business
 // services below are explicit observation contracts, not gameplay substitutes.
 #include "../csol-scenario-death-events/fixture.hpp"
-#include "../../native/csol/server/scenario_monster_factory.h"
-#include "../../native/csol/server/scenario_monster_effects.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_factory.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_effects.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>

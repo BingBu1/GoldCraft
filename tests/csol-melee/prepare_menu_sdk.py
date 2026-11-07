@@ -22,7 +22,7 @@ def main():
   'tests/csol-scenario-rules-session/sdk_engine.hpp','tests/csol-scenario-rules-session/resources.hpp',
   'tests/csol-scenario-map-session/fixtures.hpp','tests/csol-scenario-navigation-loader/support.hpp',
   'tests/csol-scenario-difficulty/support.hpp']
- overrides=['native/csol/buy_menu.cpp','native/csol/buy_menu.hpp','native/csol/server/buy_menu.cpp','native/csol/server/game_rules_gate.cpp']
+ overrides=['native/csol/buy_menu.cpp','native/csol/buy_menu.hpp','native/csol/server/buy_menu.cpp','native/csol/server/scenario/core/game_rules_gate.cpp']
  captured=[]
  for rel in fixtures+overrides:
   src=root/rel;dst=out/'source'/rel;dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
@@ -30,7 +30,7 @@ def main():
   captured.append(dict(relative=rel,original=row(src),frozen=row(dst)));selected[rel]=dst
  # Only the map phase predicate is controlled. All original menu, lifecycle,
  # registry, rules ownership, native SDK and actual ReAPI hook bodies remain.
- gate=selected['native/csol/server/game_rules_gate.cpp'];text=gate.read_text('utf-8-sig')
+ gate=selected['native/csol/server/scenario/core/game_rules_gate.cpp'];text=gate.read_text('utf-8-sig')
  start=text.index('bool CSOL_ScenarioCanBuy()');body=text.index('{',start);end=body+1;depth=1
  while depth:depth+=(text[end]=='{')-(text[end]=='}');end+=1
  originalGate=text[start:end]

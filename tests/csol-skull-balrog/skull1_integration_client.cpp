@@ -3,11 +3,11 @@
 #define main PreviousClientChecks
 #include "integration_client.cpp"
 #undef main
-#include "../../native/csol/client/skull1.hpp"
+#include "../../native/csol/client/weapons/skull1.hpp"
 #include "../../native/csol/client/shared_random.hpp"
-#include "../../native/csol/skull1.hpp"
-#include "../../native/csol/weapon_resources.hpp"
-#include "../../native/csol/weapon_hud_paths.hpp"
+#include "../../native/csol/weapons/skull1.hpp"
+#include "../../native/csol/weapons/weapon_resources.hpp"
+#include "../../native/csol/weapons/weapon_hud_paths.hpp"
 #include "../../native/csol/client/pickup_history.hpp"
 #include "../csol-shared-random/native_image.hpp"
 #include <filesystem>

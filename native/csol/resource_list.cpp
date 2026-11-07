@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "dependencies.hpp"
-#include "weapon_resources.hpp"
+#include "weapons/weapon_resources.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

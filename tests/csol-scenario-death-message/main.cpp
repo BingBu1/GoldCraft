@@ -2,7 +2,7 @@
 // Real SDK enginefuncs ABI and production one-recipient death-message method.
 // Captured calls are not a network transport or the death-owner player loop.
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
 #include <algorithm>
 #include <array>
 #include <cstdint>

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../scenario_player_runtime.h"
+#include "../scenario/core/scenario_player_runtime.h"
 #include "../scenario_active_skill.h"
-#include "../scenario_runtime.h"
-#include "../scenario_death_owner.h"
-#include "../scenario_entity_lookup.h"
+#include "../scenario/core/scenario_runtime.h"
+#include "../scenario/core/scenario_death_owner.h"
+#include "../scenario/core/scenario_entity_lookup.h"
 #include "host_notifications.hpp"
 #include "host.hpp"
 #include "area_expanded.hpp"
-#include "../../scenario/periodic_damage.hpp"
+#include "../../scenario/core/periodic_damage.hpp"
 #include <algorithm>
 #include <cmath>
 

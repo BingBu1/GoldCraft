@@ -55,8 +55,8 @@ def prepare(previous, out):
     # and all frozen production/test inputs are unchanged.
     before = Path(saved_runner['path']).read_bytes()
     after = runner.read_bytes()
-    old_line = b"        guard + gate + '#include \"../../../../native/csol/server/scenario_money.h\"\\n'))"
-    new_line = b"        guard + gate + '#include \"../../../../native/csol/server/scenario_money.h\"\\n'\n        '#include \"../../../../native/csol/server/scenario_entity_access.h\"\\n'))"
+    old_line = b"        guard + gate + '#include \"../../../../native/csol/server/scenario/core/scenario_money.h\"\\n'))"
+    new_line = b"        guard + gate + '#include \"../../../../native/csol/server/scenario/core/scenario_money.h\"\\n'\n        '#include \"../../../../native/csol/server/scenario/core/scenario_entity_access.h\"\\n'))"
     assert before.count(old_line) == 1 and after == before.replace(old_line, new_line)
     inputs = {}
     for row in rows:
@@ -78,8 +78,8 @@ def prepare(previous, out):
         reuse.append(add(unit['object']['path']))
     source = Path(plan['commands'][16]['argv'][-1])
     fixed = out / 'source' / source.relative_to(previous / 'source')
-    old_include = b'#include "../../../../native/csol/server/scenario_money.h"\n'
-    new_include = old_include + b'#include "../../../../native/csol/server/scenario_entity_access.h"\n'
+    old_include = b'#include "../../../../native/csol/server/scenario/core/scenario_money.h"\n'
+    new_include = old_include + b'#include "../../../../native/csol/server/scenario/core/scenario_entity_access.h"\n'
     original = source.read_bytes()
     assert original.count(old_include) == 1
     write(fixed, original.replace(old_include, new_include)); add(fixed)
@@ -124,7 +124,7 @@ def prepare(previous, out):
     # (line 42 -> characters.h line 3). The extracted account wrapper needs
     # that same complete type without dragging unrelated character code in.
     proposal['productionIncludePath'] = [add(ROOT / 'external/ReGameDLL_CS/regamedll/dlls/player.cpp'),
-        add(ROOT / 'native/csol/server/characters.h'), add(ROOT / 'native/csol/server/scenario_entity_access.h')]
+        add(ROOT / 'native/csol/server/characters.h'), add(ROOT / 'native/csol/server/scenario/core/scenario_entity_access.h')]
     save(out / 'inputs.json', list(inputs.values()))
     proposal['inputs'] = identity(out / 'inputs.json')
     save(out / 'plan.json', proposal)

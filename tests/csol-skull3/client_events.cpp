@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual complete production TU with recorded SDK calls, compared externally
 // to the original client instruction oracle. No game or OpenGL process.
-#include "../../native/csol/client/skull3.cpp"
+#include "../../native/csol/client/weapons/skull3.cpp"
 #include "../../native/csol/client/shared_random.cpp"
-#include "../../native/csol/client/weapon_module.cpp"
-#include "../../native/csol/client/gun_smoke.cpp"
+#include "../../native/csol/client/weapons/weapon_module.cpp"
+#include "../../native/csol/client/weapons/gun_smoke.cpp"
 #include <iostream>
 #include <iomanip>
 #include <map>

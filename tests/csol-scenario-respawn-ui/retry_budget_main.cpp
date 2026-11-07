@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Executes the production scoreboard resolver against controlled public API
 // responses. No binary offsets, synthetic vtables, or graphical acceptance.
-#include "native/csol/client/scenario_retry_scoreboard.hpp"
+#include "native/csol/client/scenario/core/scenario_retry_scoreboard.hpp"
 #include <iostream>
 #include <map>
 #include <source_location>

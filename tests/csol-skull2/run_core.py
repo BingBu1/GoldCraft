@@ -44,7 +44,7 @@ def main():
     source = output / 'source'
     source_manifest = read(args.source_manifest)
     source_rows = source_manifest if isinstance(source_manifest, list) else [source_manifest]
-    frozen = next(row for row in source_rows if row['path'] == 'native/csol/skull2.hpp')
+    frozen = next(row for row in source_rows if row['path'] == 'native/csol/weapons/skull2.hpp')
     header = root / frozen['path']
     assert identity(header)['sha256'] == frozen['sha256']
     assert header.stat().st_size == frozen['bytes']

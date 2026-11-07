@@ -51,7 +51,7 @@ def prepare(out):
  assert identity(header)['sha256']==EXPECTED
  math=ROOT/'build/csol-hd-http-unified-20261031/source/external/ReHLDS/rehlds/engine/mathlib.cpp'
  fixture=Path(__file__).with_name('main.cpp')
- catalog=ROOT/'native/csol/scenario/monster_appearances.cpp'
+ catalog=ROOT/'native/csol/scenario/monsters/monster_appearances.cpp'
  inputs=[identity(p) for p in (model,world,header,math,fixture,catalog,Path(__file__))]
  (out/'main.cpp').write_bytes(fixture.read_bytes());(out/'csol_bsp_hulls.h').write_bytes(header.read_bytes())
  selections=[(math,'real_t _DotProduct('),(math,'float Length('),

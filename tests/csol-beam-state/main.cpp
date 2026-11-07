@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "beamgun_state.hpp"
+#include "../../native/csol/weapons/beamgun_state.hpp"
 #include <rapidjson/document.h>
 #include <cmath>
 #include <filesystem>

@@ -10,8 +10,8 @@ def record(p):
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('--client-sdk',type=Path,required=True);ap.add_argument('--server-sdk',type=Path,required=True);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args()
     out=a.output.resolve();assert out.is_relative_to(ROOT/'build') and not out.exists();out.mkdir()
-    groups={'messages':('server', ['native/csol/server/scenario_messages.cpp','tests/csol-scenario-monster-skills/messages.cpp']),
-            'receiver':('client',['native/csol/client/scenario_effects.cpp','native/csol/client/monster_impact.cpp','tests/csol-scenario-monster-skills/client.cpp'])}
+    groups={'messages':('server', ['native/csol/server/scenario/core/scenario_messages.cpp','tests/csol-scenario-monster-skills/messages.cpp']),
+            'receiver':('client',['native/csol/client/scenario/core/scenario_effects.cpp','native/csol/client/scenario/monsters/monster_impact.cpp','tests/csol-scenario-monster-skills/client.cpp'])}
     bases={'client':a.client_sdk.resolve(),'server':a.server_sdk.resolve()}
     sources={};pending=[ROOT/n for _,ns in groups.values() for n in ns]
     pending += [p for p in (ROOT/'native').rglob('*') if p.is_file() and p.suffix in ('.h','.hpp','.inl','.inc')]

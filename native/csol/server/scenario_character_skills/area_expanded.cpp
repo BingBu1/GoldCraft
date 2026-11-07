@@ -2,8 +2,8 @@
 #include "precompiled.h"
 #include "area_expanded.hpp"
 #include "host_notifications.hpp"
-#include "../scenario_player_runtime.h"
-#include "../scenario_session.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_session.h"
 #include <cmath>
 
 namespace csol::scenario::skills

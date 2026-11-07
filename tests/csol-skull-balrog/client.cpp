@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute the complete production client TU with recording SDK callbacks.
 #ifdef TEST_BALROG11
-#include "../../native/csol/client/balrog11.cpp"
+#include "../../native/csol/client/weapons/balrog11.cpp"
 namespace gun = csol::balrog11;
 #define InitializeGun csol::client::InitializeBalrog11
 #define ResetGun csol::client::ResetBalrog11
@@ -9,7 +9,7 @@ namespace gun = csol::balrog11;
 #define PredictedAmmo csol::client::Balrog11PredictedAmmo
 #define PredictedReserve csol::client::Balrog11PredictedReserve
 #else
-#include "../../native/csol/client/m249ex.cpp"
+#include "../../native/csol/client/weapons/m249ex.cpp"
 namespace gun = csol::m249ex;
 #define InitializeGun csol::client::InitializeM249EX
 #define ResetGun csol::client::ResetM249EX

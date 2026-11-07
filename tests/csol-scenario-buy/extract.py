@@ -27,7 +27,7 @@ def extract(path, signature):
                        "signature": signature, "bodySha256": hashlib.sha256(body.encode()).hexdigest()})
     return body
 
-gate = root / "native/csol/server/game_rules_gate.cpp"
+gate = root / "native/csol/server/scenario/core/game_rules_gate.cpp"
 phase = extract(gate, "enum class Phase") + ";\n"
 phase += extract(gate, "bool CanBuyThroughoutScenario() const")
 (output / "actual_phase.inc").write_text(phase + "\n", encoding="utf-8")

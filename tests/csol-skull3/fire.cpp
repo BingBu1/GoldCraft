@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/skull3.hpp"
+#include "../../native/csol/weapons/skull3.hpp"
 #include <cstdio>
 
 // Expected values are supplied by execution of original MP instructions.

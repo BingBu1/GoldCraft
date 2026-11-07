@@ -6,7 +6,7 @@
 #include <set>
 #include <stdexcept>
 #include "../csol-scenario-point-manager/engine_fixture.h"
-#include "../../native/csol/server/scenario_monster_pool.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_pool.h"
 
 extern "C" void monster_entity(entvars_t*);
 

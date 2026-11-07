@@ -18,7 +18,7 @@ def account_source(add=True):
         start = text.index('void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)', end)
         end = text.index('\n#endif', start)
         original = text[start:end]
-    guard = ROOT / 'native/csol/server/scenario_breakable_guard.cpp'
+    guard = ROOT / 'native/csol/server/scenario/core/scenario_breakable_guard.cpp'
     body = guard.read_text('utf-8')
     body = body[body.index('thread_local CSOLBreakableScope*'):body.index('CSOLBreakableScope::Guard CSOLBreakableScope::Capture()')]
     registry = ROOT / 'external/ReGameDLL_CS/regamedll/regamedll/hookchains_impl.cpp'
@@ -28,6 +28,6 @@ def account_source(add=True):
     inputs = [player, guard, registry, ROOT / 'tests/csol-money/account_edges.hpp',
               ROOT / 'external/ReGameDLL_CS/regamedll/regamedll/hookchains_impl.h',
               ROOT / 'external/ReGameDLL_CS/regamedll/public/regamedll/hookchains.h',
-              ROOT / 'native/csol/server/scenario_money.h', ROOT / 'native/csol/server/game_rules_gate.h',
-              ROOT / 'native/csol/server/scenario_breakable_guard.h', Path(__file__).resolve()]
+              ROOT / 'native/csol/server/scenario/core/scenario_money.h', ROOT / 'native/csol/server/scenario/core/game_rules_gate.h',
+              ROOT / 'native/csol/server/scenario/core/scenario_breakable_guard.h', Path(__file__).resolve()]
     return result, inputs

@@ -31,7 +31,7 @@ def main():
         for path in (candidate/name).rglob('*'):
             if path.is_file() and path.suffix.lower() in suffixes:
                 rel=path.relative_to(candidate).as_posix();chosen[rel]=path
-    for name in ('native/csol/client/scenario_effects.cpp','native/csol/server/scenario_messages.cpp'):
+    for name in ('native/csol/client/scenario/core/scenario_effects.cpp','native/csol/server/scenario/core/scenario_messages.cpp'):
         chosen[name]=candidate/name
     for name in ('client.cpp','messages.cpp'):
         chosen['tests/csol-scenario-monster-skills/'+name]=ROOT/'tests/csol-scenario-monster-skills'/name
@@ -89,8 +89,8 @@ def main():
         'BUILD_LATEST','BUILD_LATEST_FIXES','CLIENT_WEAPONS','USE_QSTRING')]
     commands=[]
     for group,production,fixture,flags,includes in [
-        ('client','native/csol/client/scenario_effects.cpp','tests/csol-scenario-monster-skills/client.cpp',client_flags,includes_client),
-        ('messages','native/csol/server/scenario_messages.cpp','tests/csol-scenario-monster-skills/messages.cpp',server_flags,includes_server)]:
+        ('client','native/csol/client/scenario/core/scenario_effects.cpp','tests/csol-scenario-monster-skills/client.cpp',client_flags,includes_client),
+        ('messages','native/csol/server/scenario/core/scenario_messages.cpp','tests/csol-scenario-monster-skills/messages.cpp',server_flags,includes_server)]:
         objects=[]
         for label,name in [('production',production),('fixture',fixture)]:
             obj=out/(group+'-'+label+'.obj');objects.append(obj)

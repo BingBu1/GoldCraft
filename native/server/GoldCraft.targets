@@ -4,20 +4,20 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_map_vote.cpp;$(GoldCraftRoot)\native\csol\scenario\map_vote.cpp;$(GoldCraftRoot)\native\csol\map_vote_presentation.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_map_vote.cpp;$(GoldCraftRoot)\native\csol\scenario\core\map_vote.cpp;$(GoldCraftRoot)\native\csol\scenario\core\map_vote_presentation.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_vote_%(Filename).obj</ObjectFileName>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_player_motion.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_motion.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\elite.cpp;$(GoldCraftRoot)\native\csol\server\scenario_elite_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_recovery.cpp;$(GoldCraftRoot)\native\csol\server\scenario_character_skills\elite_visuals.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_elite.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monsters\elite.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_elite_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_recovery.cpp;$(GoldCraftRoot)\native\csol\server\scenario_character_skills\elite_visuals.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_elite.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -35,7 +35,7 @@
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario_music.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\core\scenario_music.cpp">
       <ObjectFileName>$(IntDir)csol_scenario_music_data.obj</ObjectFileName>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -55,107 +55,107 @@
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\buy_menu.cpp;$(GoldCraftRoot)\native\csol\server\scenario_inventory_capacity.cpp;$(GoldCraftRoot)\native\csol\server\scenario_native_weapons.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\buy_menu.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_inventory_capacity.cpp;$(GoldCraftRoot)\native\csol\server\weapons\scenario_native_weapons.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\boss_skills.cpp;$(GoldCraftRoot)\native\csol\scenario\final_result.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_boss_control.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\bosses\boss_skills.cpp;$(GoldCraftRoot)\native\csol\scenario\core\final_result.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_monster_boss_control.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_gait.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_effects.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_gait.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_effects.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_damage.cpp;$(GoldCraftRoot)\native\csol\server\scenario_weapon_state.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monsters\monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapons\scenario_weapon_state.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\equipment.cpp;$(GoldCraftRoot)\native\csol\scenario\equipment_resources.cpp;$(GoldCraftRoot)\native\csol\scenario\golden.cpp;$(GoldCraftRoot)\native\csol\scenario\damage_display_modes.cpp;$(GoldCraftRoot)\native\csol\scenario\feature3.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\core\equipment.cpp;$(GoldCraftRoot)\native\csol\scenario\core\equipment_resources.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\golden.cpp;$(GoldCraftRoot)\native\csol\scenario\core\damage_display_modes.cpp;$(GoldCraftRoot)\native\csol\scenario\core\feature3.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_player_upgrades.cpp;$(GoldCraftRoot)\native\csol\server\scenario_equipment.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_upgrades.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_equipment.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\upgrade_tables.cpp;$(GoldCraftRoot)\native\csol\scenario\upgrade_progress.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\core\upgrade_tables.cpp;$(GoldCraftRoot)\native\csol\scenario\core\upgrade_progress.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_breakable.cpp;$(GoldCraftRoot)\native\csol\server\scenario_breakable_guard.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_status.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_upgrade.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_upgrade_state.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_upgrade_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wall_upgrade_services.cpp;$(GoldCraftRoot)\native\csol\scenario\wall_damage.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_breakable.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_breakable_guard.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_rewards.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_status.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_upgrade.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_upgrade_state.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_upgrade_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wall_upgrade_services.cpp;$(GoldCraftRoot)\native\csol\scenario\core\wall_damage.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_navigation.cpp;$(GoldCraftRoot)\native\csol\server\scenario_navigation_ladders.cpp;$(GoldCraftRoot)\native\csol\scenario\navigation.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_navigation.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_navigation_ladders.cpp;$(GoldCraftRoot)\native\csol\scenario\core\navigation.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_healing.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_events.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skills.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario_zombie_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario_zombie_bomb_damage.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_bomb_protection.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_skill_entities.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_ordinary.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_healing.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_obstacles.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_events.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_skills.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_zombie_bomb.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_zombie_bomb_damage.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_bomb_protection.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_skill_entities.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_position.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_position.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_follow.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_speed.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_motion.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_follow.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_speed.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_motion.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_heading.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_melee.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_heading.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_melee.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_monster_animation.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_attack.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_death.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_spawn.cpp;$(GoldCraftRoot)\native\csol\server\scenario_spawn_occupancy.cpp;$(GoldCraftRoot)\native\csol\server\scenario_nav_portal.cpp;$(GoldCraftRoot)\native\csol\server\scenario_nav_path.cpp;$(GoldCraftRoot)\native\csol\server\scenario_nav_search.cpp;$(GoldCraftRoot)\native\csol\server\scenario_nav_world.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_animation.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_attack.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_death.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_spawn.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_spawn_occupancy.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_nav_portal.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_nav_path.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_nav_search.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_nav_world.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\announce.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\difficulty_monsters.cpp;$(GoldCraftRoot)\native\csol\scenario\champions.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\monsters\monster_death.cpp;$(GoldCraftRoot)\native\csol\scenario\core\round_settings.cpp;$(GoldCraftRoot)\native\csol\scenario\core\death_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\core\drop_items.cpp;$(GoldCraftRoot)\native\csol\scenario\core\announce.cpp;$(GoldCraftRoot)\native\csol\scenario\core\difficulty.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\difficulty_monsters.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\champions.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario_music.cpp;$(GoldCraftRoot)\native\csol\server\scenario_bgm_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_impulse.cpp;$(GoldCraftRoot)\native\csol\server\scenario_playerclip.cpp;$(GoldCraftRoot)\native\csol\server\scenario_grenade_blockers.cpp;$(GoldCraftRoot)\native\csol\server\scenario_active_skill.cpp;$(GoldCraftRoot)\native\csol\server\scenario_recovery_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario_death_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_wave_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_factory.cpp;$(GoldCraftRoot)\native\csol\server\scenario_oberon_blackhole.cpp;$(GoldCraftRoot)\native\csol\server\scenario_oberon_knife_effect.cpp;$(GoldCraftRoot)\native\csol\server\scenario_oberon.cpp;$(GoldCraftRoot)\native\csol\server\scenario_oberon_attacks.cpp;$(GoldCraftRoot)\native\csol\server\scenario_oberon_projectile.cpp;$(GoldCraftRoot)\native\csol\scenario\oberon_combat.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\game_rules_gate.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_session.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_music.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_bgm_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_gameplay.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_runtime.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_impulse.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_playerclip.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_grenade_blockers.cpp;$(GoldCraftRoot)\native\csol\server\scenario_active_skill.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_recovery_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_drops.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_requests.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_rules.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_targets.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_owner.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_death_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_wave_services.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_factory.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_oberon_blackhole.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_oberon_knife_effect.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_oberon.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_oberon_attacks.cpp;$(GoldCraftRoot)\native\csol\server\scenario\bosses\scenario_oberon_projectile.cpp;$(GoldCraftRoot)\native\csol\scenario\bosses\oberon_combat.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_playerclip_models.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_playerclip_models.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <ForcedIncludeFiles></ForcedIncludeFiles>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\ReHLDS\rehlds\public\rehlds;$(GoldCraftRoot)\external\ReHLDS\rehlds\public;$(GoldCraftRoot)\external\ReHLDS\rehlds\common;$(GoldCraftRoot)\external\ReHLDS\rehlds\engine;$(GoldCraftRoot)\external\ReHLDS\rehlds\pm_shared;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario_spawn_points.cpp;$(GoldCraftRoot)\native\csol\server\scenario_point_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario_trigger_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario_player_scan.cpp;$(GoldCraftRoot)\native\csol\server\scenario_map.cpp;$(GoldCraftRoot)\native\csol\server\scenario_frame.cpp;$(GoldCraftRoot)\native\csol\server\scenario_messages.cpp;$(GoldCraftRoot)\native\csol\server\damage_numbers.cpp;$(GoldCraftRoot)\native\csol\server\damage_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_pool.cpp;$(GoldCraftRoot)\native\csol\server\scenario_event_sink.cpp;$(GoldCraftRoot)\native\csol\server\scenario_monster_models.cpp;$(GoldCraftRoot)\native\csol\server\game_mode.cpp;$(GoldCraftRoot)\native\csol\server\scenario_performance.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_spawn_points.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_point_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_trigger.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_trigger_manager.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_player_scan.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_map.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_frame.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_messages.cpp;$(GoldCraftRoot)\native\csol\server\damage_numbers.cpp;$(GoldCraftRoot)\native\csol\server\damage_notice.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_pool.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_event_sink.cpp;$(GoldCraftRoot)\native\csol\server\scenario\monsters\scenario_monster_models.cpp;$(GoldCraftRoot)\native\csol\server\game_mode.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_performance.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\config.cpp;$(GoldCraftRoot)\native\csol\scenario\spawn_points.cpp;$(GoldCraftRoot)\native\csol\scenario\waves.cpp;$(GoldCraftRoot)\native\csol\scenario\controller.cpp;$(GoldCraftRoot)\native\csol\scenario\schedule.cpp;$(GoldCraftRoot)\native\csol\scenario\resources.cpp;$(GoldCraftRoot)\native\csol\scenario\map_resources.cpp;$(GoldCraftRoot)\native\csol\scenario\monster_types.cpp;$(GoldCraftRoot)\native\csol\scenario\trigger_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\trigger_program.cpp;$(GoldCraftRoot)\native\csol\scenario\trigger_wave_actions.cpp;$(GoldCraftRoot)\native\csol\scenario\map_catalog.cpp;$(GoldCraftRoot)\native\csol\scenario\trigger_round.cpp;$(GoldCraftRoot)\native\csol\scenario\wave_events.cpp;$(GoldCraftRoot)\native\csol\scenario\message_table.cpp;$(GoldCraftRoot)\native\csol\scenario\message_resource.cpp;$(GoldCraftRoot)\native\csol\scenario\monster_attributes.cpp;$(GoldCraftRoot)\native\csol\scenario\monster_appearances.cpp;$(GoldCraftRoot)\native\csol\scenario\monster_sequences.cpp;$(GoldCraftRoot)\native\csol\scenario\monster_damage.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\core\config.cpp;$(GoldCraftRoot)\native\csol\scenario\core\spawn_points.cpp;$(GoldCraftRoot)\native\csol\scenario\core\waves.cpp;$(GoldCraftRoot)\native\csol\scenario\core\controller.cpp;$(GoldCraftRoot)\native\csol\scenario\core\schedule.cpp;$(GoldCraftRoot)\native\csol\scenario\core\resources.cpp;$(GoldCraftRoot)\native\csol\scenario\core\map_resources.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\monster_types.cpp;$(GoldCraftRoot)\native\csol\scenario\core\trigger_rules.cpp;$(GoldCraftRoot)\native\csol\scenario\core\trigger_program.cpp;$(GoldCraftRoot)\native\csol\scenario\core\trigger_wave_actions.cpp;$(GoldCraftRoot)\native\csol\scenario\core\map_catalog.cpp;$(GoldCraftRoot)\native\csol\scenario\core\trigger_round.cpp;$(GoldCraftRoot)\native\csol\scenario\core\wave_events.cpp;$(GoldCraftRoot)\native\csol\scenario\core\message_table.cpp;$(GoldCraftRoot)\native\csol\scenario\core\message_resource.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\monster_attributes.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\monster_appearances.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\monster_sequences.cpp;$(GoldCraftRoot)\native\csol\scenario\monsters\monster_damage.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_scenario_data_%(Filename).obj</ObjectFileName>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\dialogue_resources.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\core\dialogue_resources.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_scenario_dialogue_resources.obj</ObjectFileName>
@@ -167,12 +167,12 @@
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_service.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\weapon_service.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp;$(GoldCraftRoot)\native\server\map_mining.cpp;$(GoldCraftRoot)\native\server\effect_service_provider.cpp;$(GoldCraftRoot)\native\csol\server\wpn_tknifeex2.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\server\bridge.cpp;$(GoldCraftRoot)\native\server\objects.cpp;$(GoldCraftRoot)\native\server\map_mining.cpp;$(GoldCraftRoot)\native\server\effect_service_provider.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_tknifeex2.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -181,7 +181,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_file.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_runtime.cpp;$(GoldCraftRoot)\native\csol\server\weapon_damage_mode.cpp;$(GoldCraftRoot)\native\csol\server\wpn_cannon.cpp;$(GoldCraftRoot)\native\csol\server\wpn_beamgun.cpp;$(GoldCraftRoot)\native\csol\server\wpn_k3.cpp;$(GoldCraftRoot)\native\csol\beamgun_state.cpp;$(GoldCraftRoot)\native\csol\weapon_slots.cpp;$(GoldCraftRoot)\native\csol\server\weapon_registry.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\weapon_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapons\weapon_damage_file.cpp;$(GoldCraftRoot)\native\csol\server\weapons\weapon_damage_runtime.cpp;$(GoldCraftRoot)\native\csol\server\weapons\weapon_damage_mode.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_cannon.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_beamgun.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_k3.cpp;$(GoldCraftRoot)\native\csol\weapons\beamgun_state.cpp;$(GoldCraftRoot)\native\csol\weapons\weapon_slots.cpp;$(GoldCraftRoot)\native\csol\server\weapons\weapon_registry.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -189,14 +189,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL' and '$(GoldCraftCsolWeaponTests)' == 'true'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapon_tests.cpp;$(GoldCraftRoot)\native\csol\server\bot_tests.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\weapon_tests.cpp;$(GoldCraftRoot)\native\csol\server\bot_tests.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\melee_attacks.cpp;$(GoldCraftRoot)\native\csol\melee_damage.cpp;$(GoldCraftRoot)\native\csol\server\melee_trace.cpp;$(GoldCraftRoot)\native\csol\server\wpn_melee.cpp;$(GoldCraftRoot)\native\csol\server\melee_purchase.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\weapons\melee_attacks.cpp;$(GoldCraftRoot)\native\csol\weapons\melee_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapons\melee_trace.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_melee.cpp;$(GoldCraftRoot)\native\csol\server\weapons\melee_purchase.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -204,7 +204,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\skull_balrog_damage.cpp;$(GoldCraftRoot)\native\csol\server\skull_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\wpn_m249ex.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull1.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull2.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull3.cpp;$(GoldCraftRoot)\native\csol\server\skull3_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\weapon_call_guard.cpp;$(GoldCraftRoot)\native\csol\server\paired_inventory.cpp;$(GoldCraftRoot)\native\csol\server\wpn_skull5.cpp;$(GoldCraftRoot)\native\csol\server\wpn_balrog11.cpp;$(GoldCraftRoot)\native\csol\server\primary_purchase.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\weapons\skull_balrog_damage.cpp;$(GoldCraftRoot)\native\csol\server\weapons\skull_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_m249ex.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_skull1.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_skull2.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_skull3.cpp;$(GoldCraftRoot)\native\csol\server\weapons\skull3_ballistics.cpp;$(GoldCraftRoot)\native\csol\server\weapons\weapon_call_guard.cpp;$(GoldCraftRoot)\native\csol\server\paired_inventory.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_skull5.cpp;$(GoldCraftRoot)\native\csol\server\weapons\wpn_balrog11.cpp;$(GoldCraftRoot)\native\csol\server\weapons\primary_purchase.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>

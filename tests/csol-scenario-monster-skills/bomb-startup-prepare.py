@@ -18,7 +18,7 @@ def row(p):
 def write(p,x):p.write_text(json.dumps(x,indent=2,ensure_ascii=False)+'\n',encoding='utf-8')
 def freeze(relative):
  p=out/'source'/relative;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes((root/relative).read_bytes());assert p.stat().st_nlink==1;return p
-rels=['native/csol/server/scenario_monster_bomb.cpp','native/csol/server/scenario_monster_bomb.h','native/csol/server/scenario_monster_skills.h','tests/csol-scenario-monster-skills/bomb_startup.cpp','tests/csol-scenario-rules-session/sdk_engine.hpp','tests/csol-scenario-rules-session/resources.hpp','tests/csol-scenario-map-session/fixtures.hpp']
+rels=['native/csol/server/scenario/monsters/scenario_monster_bomb.cpp','native/csol/server/scenario/monsters/scenario_monster_bomb.h','native/csol/server/scenario/monsters/scenario_monster_skills.h','tests/csol-scenario-monster-skills/bomb_startup.cpp','tests/csol-scenario-rules-session/sdk_engine.hpp','tests/csol-scenario-rules-session/resources.hpp','tests/csol-scenario-map-session/fixtures.hpp']
 new=[freeze(x) for x in rels]
 edges=args.edges.resolve()
 assert edges.is_dir()
@@ -29,7 +29,7 @@ overlay=json.loads((base/'source-overlay.json').read_text())
 # effective header set. No previous SDK layout is mixed with a new one.
 files=json.loads((base/'effective-source-manifest.json').read_text())['files']
 frozen={x['relative']:x['frozen'] for x in files}
-for r in ['native/csol/server/scenario_monster_factory.h','native/csol/server/scenario_monster_pool.h','native/csol/server/scenario_monster_ordinary.h','native/csol/server/scenario_monster_animation.h']:
+for r in ['native/csol/server/scenario/monsters/scenario_monster_factory.h','native/csol/server/scenario/monsters/scenario_monster_pool.h','native/csol/server/scenario/monsters/scenario_monster_ordinary.h','native/csol/server/scenario/monsters/scenario_monster_animation.h']:
  assert sha(root/r)==frozen[r]['sha256'],r
 for x in files:
  if Path(x['relative']).suffix.lower() in ('.h','.hpp','.inc'):
@@ -45,7 +45,7 @@ cmd+=['/I'+str(root/'external/ReGameDLL_CS/regamedll'/x) for x in ['','hookers',
 cmd+=['/I'+str(root/x) for x in ['native/include','external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include','external/ReGameDLL_CS/dep/cppunitlite/include']]
 cmd+=['/clang:-ivfsoverlay','/clang:'+str(out/'overlay.json')]
 jobs=[]
-for name,r in [('bomb','native/csol/server/scenario_monster_bomb.cpp'),('test','tests/csol-scenario-monster-skills/bomb_startup.cpp')]:
+for name,r in [('bomb','native/csol/server/scenario/monsters/scenario_monster_bomb.cpp'),('test','tests/csol-scenario-monster-skills/bomb_startup.cpp')]:
  jobs.append({'name':name,'command':cmd+[str(out/'source'/r),'/Fo'+str(out/(name+'.obj'))]})
 link=json.loads((base/'build-commands.json').read_text())[-1]['command']
 remove=('/out:','/pdb:','/implib:','/def:','/ltcgout:','/manifest','/natvis:')

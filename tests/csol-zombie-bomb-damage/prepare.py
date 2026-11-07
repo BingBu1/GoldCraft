@@ -34,7 +34,7 @@ for rel,r in files.items():
  if Path(rel).suffix.lower() in ('.h','.hpp','.inc'):
   overlay['roots'].append(dict(type='file',name=str(out/'source'/rel),**{'external-contents':r['path']}))
 save(out/'overlay.json',overlay)
-runtime=files['native/csol/server/scenario_player_runtime.cpp'];pieces=[]
+runtime=files['native/csol/server/scenario/core/scenario_player_runtime.cpp'];pieces=[]
 main=('#include "'+(out/'source/tests/csol-zombie-bomb-damage/fixture.hpp').as_posix()+'"\n').encode()
 for signature in ['std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Resolve(',
  'std::shared_ptr<const CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Find(',
@@ -49,8 +49,8 @@ flags[0]=str(args.compiler.resolve())
 flags.insert(1,'/I'+str(out/'source/native/csol/server'))
 flags=[('/clang:'+str(out/'overlay.json')) if x.startswith('/clang:') and x.endswith('overlay.json') else x for x in flags]
 names=['fixture','damage','impulse','engine','player']
-sources=[out/'main.cpp',out/'source/native/csol/server/scenario_zombie_bomb_damage.cpp',
- out/'source/native/csol/server/scenario_player_impulse.cpp',out/'source/tests/csol-scenario-entities/engine_stubs.cpp',
+sources=[out/'main.cpp',out/'source/native/csol/server/scenario/monsters/scenario_zombie_bomb_damage.cpp',
+ out/'source/native/csol/server/scenario/core/scenario_player_impulse.cpp',out/'source/tests/csol-scenario-entities/engine_stubs.cpp',
  out/'source/tests/csol-scenario-player-scan/player_stubs.cpp']
 commands=[dict(name=n,argv=flags+[str(p),'/Fo'+str(out/(n+'.obj'))])for n,p in zip(names,sources)]
 commands.append(dict(name='link',argv=[flags[0],'--target=i686-pc-windows-msvc','/nologo','/MT','-fuse-ld=lld',

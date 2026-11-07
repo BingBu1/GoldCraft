@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "control.hpp"
-#include "../scenario_death_requests.h"
+#include "../scenario/core/scenario_death_requests.h"
 #include <memory>
 #include <optional>
 

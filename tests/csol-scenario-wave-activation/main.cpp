@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Independent trigger-reactivation checks; no old wave/manager suites run here.
-#include "controller.hpp"
-#include "schedule.hpp"
+#include "../../native/csol/scenario/core/controller.hpp"
+#include "../../native/csol/scenario/core/schedule.hpp"
 
 #include <algorithm>
 #include <bit>

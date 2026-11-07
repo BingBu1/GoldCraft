@@ -12,8 +12,8 @@ p.add_argument("--ammo-source", type=Path)
 a = p.parse_args()
 root = a.source.resolve()
 targets = [
-    ("native/csol/server/wpn_cannon.cpp", "bool CSOL_ClipAmmo("),
-    ("native/csol/server/wpn_cannon.cpp", "int CSOL_GiveClipAmmo("),
+    ("native/csol/server/weapons/wpn_cannon.cpp", "bool CSOL_ClipAmmo("),
+    ("native/csol/server/weapons/wpn_cannon.cpp", "int CSOL_GiveClipAmmo("),
     ("external/ReGameDLL_CS/regamedll/dlls/player.cpp", "int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)"),
     ("external/ReGameDLL_CS/regamedll/dlls/weapons.cpp", "BOOL CBasePlayerWeapon::AddPrimaryAmmo("),
     ("external/ReGameDLL_CS/regamedll/dlls/weapons.cpp", "int CBasePlayerWeapon::ExtractAmmo("),
@@ -42,7 +42,7 @@ for relative, signature in targets:
     chunks.append('#line %d "%s"\n%s' % (text[:start].count("\n") + 1, path.as_posix(), body))
     inputs.append(dict(path=str(path), sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
                        signature=signature, method_sha256=hashlib.sha256(body.encode()).hexdigest()))
-header = root / "native/csol/cannon.hpp"
+header = root / "native/csol/weapons/cannon.hpp"
 chunks.insert(0, '#include "%s"' % header.as_posix())
 a.output.mkdir(parents=True, exist_ok=True)
 (a.output / "pickup.inc").write_text("\n\n".join(chunks), encoding="utf-8")

@@ -48,7 +48,7 @@ def main():
     client_source = next(row for row in old_sources if row['relative'] == 'tests/csol-scenario-respawn-ui/client_main.cpp')
     verify(client_source['original']); verify(client_source['frozen'])
     working_client_sources.append(client_source['original'])
-    production = ROOT / 'native/csol/scenario_localization.cpp'
+    production = ROOT / 'native/csol/scenario/core/scenario_localization.cpp'
     assert identity(production)['sha256'] == args.localization_sha.lower()
     assert key(production) not in {key(row['path']) for row in working_client_sources}
     old_localization = read(previous / 'reused-object.json')
@@ -67,7 +67,7 @@ def main():
     out.mkdir(parents=True)
     source, output = out / 'source', out / 'output'
     changed = []
-    for relative in ('native/csol/scenario_localization.cpp',
+    for relative in ('native/csol/scenario/core/scenario_localization.cpp',
                      'tests/csol-scenario-respawn-ui/localization_main.cpp',
                      'tests/csol-scenario-respawn-ui/localization_catalog_expectations.hpp',
                      'tests/csol-scenario-respawn-ui/prepare_localization_delta.py'):
@@ -100,7 +100,7 @@ def main():
     fixture = output / 'localization-check.obj'
     jobs = []
     for name, relative, obj in (
-        ('localization', 'native/csol/scenario_localization.cpp', new_parser),
+        ('localization', 'native/csol/scenario/core/scenario_localization.cpp', new_parser),
         ('localization-check', 'tests/csol-scenario-respawn-ui/localization_main.cpp', fixture)):
         jobs.append(dict(name='compile-' + name, kind='compile', seconds=120, expectExit=0,
             command=[compiler, *flags, '/showIncludes', '-I' + str(source), '/Fo' + str(obj),

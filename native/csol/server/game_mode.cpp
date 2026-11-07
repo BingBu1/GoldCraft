@@ -2,7 +2,7 @@
 #include "precompiled.h"
 #include "interface.h"
 #include "game_mode.h"
-#include "scenario_performance.h"
+#include "scenario/core/scenario_performance.h"
 #include "../../include/goldcraft/csol_game_mode_api.hpp"
 
 #include <charconv>

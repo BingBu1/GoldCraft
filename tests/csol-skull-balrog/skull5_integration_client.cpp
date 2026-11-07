@@ -3,8 +3,8 @@
 #define wmain PreviousSkull1Checks
 #include "skull1_integration_client.cpp"
 #undef wmain
-#include "../../native/csol/client/skull5.hpp"
-#include "../../native/csol/skull5.hpp"
+#include "../../native/csol/client/weapons/skull5.hpp"
+#include "../../native/csol/weapons/skull5.hpp"
 namespace {
 void LoadSkull5Lists(){
  const auto key=WeaponHudList(skull5::Classname);std::istringstream in{std::string(GeneratedWeaponResource(key))};int count{};in>>count;

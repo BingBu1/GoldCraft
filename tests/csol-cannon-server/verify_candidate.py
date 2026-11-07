@@ -58,7 +58,7 @@ for frozen in (out/"root-v2/inputs.json",out/"pickup-final/pickup-inputs.json"):
 result.update(tested_methods_match=True,tested_method_count=len(methods),tested_methods=methods)
 if a.version==4:
     transaction=json.loads((out/'purchase-backup-v4/inputs.json').read_text())
-    candidate=case/'source/native/csol/server/weapon_service.cpp'
+    candidate=case/'source/native/csol/server/weapons/weapon_service.cpp'
     assert sha(candidate.read_bytes())==transaction['sha256'],"Tested transaction differs"
     result.update(tested_purchase_classes=transaction['classes'],tested_purchase_source_sha256=transaction['sha256'])
 if a.stage=="after":

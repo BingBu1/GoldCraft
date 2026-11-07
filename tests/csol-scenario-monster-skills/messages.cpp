@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Real scenario_messages.cpp and ReGameDLL ABI, controlled engine serialization only.
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
 #include "../../native/csol/server/damage_numbers.h"
 #include <array>
 #include <functional>

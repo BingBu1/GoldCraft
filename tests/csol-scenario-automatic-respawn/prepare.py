@@ -15,7 +15,7 @@ if output.exists() or not output.is_relative_to(root / 'build'):
 for parent in (output, *output.parents):
     if parent.is_symlink() or parent.is_junction():
         raise ValueError('Do not follow reparse paths')
-inputs = ['native/csol/scenario/automatic_respawn.hpp',
+inputs = ['native/csol/scenario/core/automatic_respawn.hpp',
           'tests/csol-scenario-automatic-respawn/main.cpp',
           'tests/csol-scenario-automatic-respawn/CMakeLists.txt',
           'cmake/clang-x86.cmake', 'cmake/cxx20.cmake']

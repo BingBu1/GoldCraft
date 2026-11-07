@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Authored boundary cases in the existing table-test executable. These test
 // production parsing/counting, not original-resource or gameplay equivalence.
-#include "announce.hpp"
+#include "../../native/csol/scenario/core/announce.hpp"
 #include <iostream>
 #include <vector>
 

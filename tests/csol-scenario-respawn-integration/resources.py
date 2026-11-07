@@ -53,7 +53,7 @@ def main():
         else:check(False,label)
     paths,info=resource.respawn_ui_contract(source)
     check(paths==EXPECTED and len(paths)==27,'production shared header yields all 27 original revival/retry assets')
-    header=source/'native/csol/scenario_respawn_resources.hpp';original=header.read_text('utf-8-sig')
+    header=source/'native/csol/scenario/core/scenario_respawn_resources.hpp';original=header.read_text('utf-8-sig')
     check(info['headerSha256']==identity(header)['sha256'],'contract evidence binds actual header bytes')
     historical=resource.respawn_ui_contract(args.old_source.resolve())
     check(historical==(set(),None),'actual frozen old Session does not acquire new resource dependencies')
@@ -76,9 +76,9 @@ def main():
         root=out/name
         for owner in owners:
             path=root/'native/csol'/owner;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n',encoding='utf-8')
-        session=root/'native/csol/server/scenario_session.cpp'
+        session=root/'native/csol/server/scenario/core/scenario_session.cpp'
         session.write_text('// SPDX-License-Identifier: GPL-3.0-or-later\n'+('#include "../scenario_respawn_resources.hpp"\n' if include else ''),encoding='utf-8')
-        if header_text is not None:(root/'native/csol/scenario_respawn_resources.hpp').write_text(header_text,encoding='utf-8')
+        if header_text is not None:(root/'native/csol/scenario/core/scenario_respawn_resources.hpp').write_text(header_text,encoding='utf-8')
         return root
     def fixed(root):
         recorded=[];sources={}
@@ -121,9 +121,9 @@ def main():
         if arguments[0]=='--plan':return {'uniqueDependencyFiles':0}
         raise AssertionError('Unexpected unrelated model collector execution')
     def generator(selected,label):
-        for relative in ('native/csol/server/scenario_monster_resources.h',
-                         'native/csol/server/scenario_monster_skills.h',
-                         'native/csol/scenario_monster_effects.hpp'):
+        for relative in ('native/csol/server/scenario/monsters/scenario_monster_resources.h',
+                         'native/csol/server/scenario/monsters/scenario_monster_skills.h',
+                         'native/csol/scenario/monsters/scenario_monster_effects.hpp'):
             target=selected/relative
             if not target.exists():target.parent.mkdir(parents=True,exist_ok=True);target.write_text('// fixture\n',encoding='utf-8')
         target=out/('main-'+label)
@@ -182,8 +182,8 @@ def main():
                 deployment='same-in-v3' if member and digest==record['sha256'] else 'replace-v3' if member else
                     'same-verified-required-baseline' if need else 'new-resource-required'))
     evidence.update(resourceTool=identity(source/'tools/csol_scenario_resources.py'),closureTool=identity(script),
-        header=identity(header),selectedSession=identity(source/'native/csol/server/scenario_session.cpp'),
-        oldSession=identity(args.old_source/'native/csol/server/scenario_session.cpp'),archive=identity(archive),baselineAudit=identity(args.baseline_audit))
+        header=identity(header),selectedSession=identity(source/'native/csol/server/scenario/core/scenario_session.cpp'),
+        oldSession=identity(args.old_source/'native/csol/server/scenario/core/scenario_session.cpp'),archive=identity(archive),baselineAudit=identity(args.baseline_audit))
     result=dict(success=True,checks=len(checks),labels=checks,expectedRejections=failures,evidence=evidence,
         resources=comparisons,resourceCopy=False,compiled=False,deployed=False,
         boundary='Real respawn contract/fixed-precache/main resource merge; unrelated main contracts/readers controlled, not full map collector')

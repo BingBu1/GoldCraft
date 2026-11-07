@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/automatic_respawn.hpp"
+#include "../../native/csol/scenario/core/automatic_respawn.hpp"
 #include <array>
 #include <cstdio>
 #include <limits>

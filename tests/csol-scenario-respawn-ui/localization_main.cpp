@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Link the actual localization implementation, then read the unchanged full
 // catalog. --catalog-only also permits an exact old-object regression control.
-#include "native/csol/scenario_localization.hpp"
+#include "native/csol/scenario/core/scenario_localization.hpp"
 #include "localization_catalog_expectations.hpp"
 #include <algorithm>
 #include <windows.h>

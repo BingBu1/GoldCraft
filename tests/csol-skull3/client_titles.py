@@ -15,7 +15,7 @@ def main():
  environment_file=baseline/'environment.json';environment_source=ident(environment_file)
  out=a.output.resolve();assert out.is_relative_to(ROOT/'build')and not out.exists();out.mkdir();source=out/'source';(out/'temp').mkdir()
  selected={r['relative']:r['frozen']for r in read(baseline/'effective-source-manifest.json')['files']}
- changed={'native/csol/client/hud_style.cpp','native/csol/client/weapon_inventory.cpp','native/csol/client/weapon_inventory.hpp'}
+ changed={'native/csol/client/hud_style.cpp','native/csol/client/weapons/weapon_inventory.cpp','native/csol/client/weapons/weapon_inventory.hpp'}
  frozen={};known={key(r['path']):r for r in read(baseline/'inputs.json')['files']}
  def freeze(name):
   if name in frozen:return

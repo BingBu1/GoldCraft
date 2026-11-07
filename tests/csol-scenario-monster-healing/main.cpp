@@ -2,8 +2,8 @@
 // Preparation for the matched SDK link: real Pool/SpawnCall/helper/messages.
 // Controlled engine allocation/message callbacks are the only substitutes.
 #include "../csol-scenario-death-events/fixture.hpp"
-#include "../../native/csol/server/scenario_monster_healing.h"
-#include "../../native/csol/server/scenario_monster_ordinary.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_healing.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_ordinary.h"
 #include <cmath>
 
 namespace

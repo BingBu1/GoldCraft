@@ -10,7 +10,7 @@ def main():
  ap=argparse.ArgumentParser();ap.add_argument('--output',type=Path,required=True);ap.add_argument('--oracle',type=Path);ap.add_argument('--baseline',type=Path,required=True);ap.add_argument('--fixture',choices=['events','prediction','bullets','callbacks'],default='events');a=ap.parse_args()
  out=a.output.resolve();assert out.is_relative_to(ROOT/'build')and not out.exists();out.mkdir();(out/'temp').mkdir();source=out/'source';inputs=[]
  paths=list((ROOT/'native/csol').rglob('*.hpp'))+list((ROOT/'native/csol').rglob('*.h'))+list((ROOT/'native/include').rglob('*.h'))
- paths += [ROOT/x for x in ['native/csol/client/skull3.cpp','native/csol/client/shared_random.cpp','native/csol/client/weapon_module.cpp','native/csol/client/gun_smoke.cpp','tests/csol-skull3/client_events.cpp']]
+ paths += [ROOT/x for x in ['native/csol/client/weapons/skull3.cpp','native/csol/client/shared_random.cpp','native/csol/client/weapons/weapon_module.cpp','native/csol/client/weapons/gun_smoke.cpp','tests/csol-skull3/client_events.cpp']]
  if a.fixture!='events':paths.append(ROOT/f'tests/csol-skull3/client_{a.fixture}.cpp')
  for p in paths:
   q=source/p.relative_to(ROOT);q.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(p,q);assert q.stat().st_nlink==1;inputs.append(dict(original=identity(p),frozen=identity(q)))

@@ -24,9 +24,9 @@ INCLUDES = [Path('native/csol'), Path('native/csol/client'), SDK, SDK / 'Interfa
             Path('external/MetaHookSv-20261007/thirdparty/glew_fork/include')]
 SOURCES = ['tests/csol-weapon-prediction/switch_ownership.cpp',
            *('native/csol/' + name for name in (
-               'client/session.cpp', 'client/weapon_inventory.cpp', 'client/weapons.cpp',
-               'client/crosshair.cpp', 'client/pickup_history.cpp', 'client/beamgun.cpp',
-               'client/cannon.cpp', 'client/k3.cpp', 'beamgun_state.cpp', 'weapon_slots.cpp')),
+               'client/session.cpp', 'client/weapons/weapon_inventory.cpp', 'client/weapons/weapons.cpp',
+               'client/crosshair.cpp', 'client/pickup_history.cpp', 'client/weapons/beamgun.cpp',
+               'client/weapons/cannon.cpp', 'client/weapons/k3.cpp', 'beamgun_state.cpp', 'weapon_slots.cpp')),
            'tests/csol-weapon-slots/session_edges.cpp']
 BASELINES = ('weapons', 'k3')
 

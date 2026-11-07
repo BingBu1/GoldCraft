@@ -2,8 +2,8 @@
 // Actual SDK pool -> event dispatcher -> message encoder; engine services and
 // network callbacks are controlled. This is not live network/client evidence.
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_event_sink.h"
-#include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/scenario/core/scenario_event_sink.h"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
 #include <iostream>
 
 using namespace csol::scenario;

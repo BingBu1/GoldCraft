@@ -6,8 +6,8 @@
 #include "parts.hpp"
 #include "sequences.hpp"
 #include "texture_model.hpp"
-#include "weapon_resources.hpp"
-#include "melee_resources.hpp"
+#include "weapons/weapon_resources.hpp"
+#include "weapons/melee_resources.hpp"
 #include "studio_sound.hpp"
 #include "material_source.hpp"
 #include <rapidjson/document.h>

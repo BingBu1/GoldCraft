@@ -107,7 +107,7 @@ def main():
         'sprites/640hud8.spr']
     # Read the named, limited server download set rather than copying all 55
     # icon families and spending precache entries for unimplemented abilities.
-    header=(workspace/'native/csol/scenario_abilities.hpp').read_text(encoding='utf-8')
+    header=(workspace/'native/csol/scenario/core/scenario_abilities.hpp').read_text(encoding='utf-8')
     names=dict(re.findall(r'char (\w+)\[\]="([^"]+)"',header))
     number_block=header.split('NumberImages{{',1)[1].split('}};',1)[0]
     numbers=re.findall(r'"([^"]+\.tga)"',number_block)

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/map_catalog.hpp"
-#include "../../native/csol/scenario/map_resources.hpp"
+#include "../../native/csol/scenario/core/map_catalog.hpp"
+#include "../../native/csol/scenario/core/map_resources.hpp"
 #include "../csol-scenario-rules-session/resources.hpp"
 #include <algorithm>
 #include <cstring>

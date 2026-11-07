@@ -15,7 +15,7 @@ def main():
     parser.add_argument('--new-damage',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args();args.output.mkdir(parents=True)
-    owner=args.source/'native/csol/server/wpn_melee.cpp'
+    owner=args.source/'native/csol/server/weapons/wpn_melee.cpp'
     outputs={
         'knockback_identity.inc':extract(owner,'int CSOL_MeleeItemIdentity(')+extract(owner,'bool CSOL_MeleeEmptyMonsterKillCallbacks('),
         'knockback_new.inc':extract(args.new_damage,'bool ApplyOrdinaryKnockback('),

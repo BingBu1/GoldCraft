@@ -2,10 +2,10 @@
 // Real ReGameDLL objects and complete weapon/base methods. The engine owns
 // controlled edicts/messages/traces; only player animation rendering is spied.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/wpn_skull2.h"
-#include "../../native/csol/server/weapons.h"
-#include "../../native/csol/server/weapon_slots.h"
-#include "../../native/csol/skull2.hpp"
+#include "../../native/csol/server/weapons/wpn_skull2.h"
+#include "../../native/csol/server/weapons/weapons.h"
+#include "../../native/csol/server/weapons/weapon_slots.h"
+#include "../../native/csol/weapons/skull2.hpp"
 #include <bit>
 
 namespace {

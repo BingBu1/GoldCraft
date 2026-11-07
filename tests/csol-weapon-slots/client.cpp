@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "client/weapons.hpp"
-#include "client/weapon_inventory.hpp"
+#include "../../native/csol/client/weapons/weapons.hpp"
+#include "../../native/csol/client/weapons/weapon_inventory.hpp"
 #include "client/pickup_history.hpp"
-#include "client/beamgun.hpp"
-#include "client/cannon.hpp"
-#include "cannon.hpp"
+#include "../../native/csol/client/weapons/beamgun.hpp"
+#include "../../native/csol/client/weapons/cannon.hpp"
+#include "../../native/csol/weapons/cannon.hpp"
 #include <event_api.h>
-#include "beamgun_prediction.hpp"
-#include "beamgun_effects.hpp"
+#include "../../native/csol/weapons/beamgun_prediction.hpp"
+#include "../../native/csol/weapons/beamgun_effects.hpp"
 #include <in_buttons.h>
 #include <r_efx.h>
 #include <pmtrace.h>

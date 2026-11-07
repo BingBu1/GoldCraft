@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercise production encrypted-resource readers. Ciphertext fixtures were
 // generated independently; original HW instruction comparison is separate.
-#include "resources.hpp"
+#include "../../native/csol/scenario/core/resources.hpp"
 #include "../../native/csol/config_codec.hpp"
 
 #include <algorithm>

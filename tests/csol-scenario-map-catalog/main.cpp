@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // New catalog/automatic-loader integration only. Earlier profile suites are separate.
-#include "map_catalog.hpp"
-#include "map_resources.hpp"
+#include "../../native/csol/scenario/core/map_catalog.hpp"
+#include "../../native/csol/scenario/core/map_resources.hpp"
 #include "../csol-scenario-map-profile/fixtures.hpp"
 #include <algorithm>
 #include <array>

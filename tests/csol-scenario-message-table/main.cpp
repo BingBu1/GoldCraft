@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Independent contract fixtures and full-field original resource expectations.
 // No engine, SDK substitute, network or client presentation is involved.
-#include "message_table.hpp"
+#include "../../native/csol/scenario/core/message_table.hpp"
 #include "fixtures.hpp"
 #include <bit>
 #include <fstream>

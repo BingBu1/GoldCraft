@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Fourth-table profile transaction only; existing three-table suites are separate.
-#include "map_resources.hpp"
+#include "../../native/csol/scenario/core/map_resources.hpp"
 #include "fixtures.hpp"
 
 #include <algorithm>

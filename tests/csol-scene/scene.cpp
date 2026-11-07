@@ -2,7 +2,7 @@
 // Production scene.cpp and shaders execute on a real hidden GL context.
 // Engine/asset fixtures supply poses and a small two-skin material mesh.
 #include "../../native/csol/client/scene.cpp"
-#include "../../native/csol/client/beamgun_scope.cpp"
+#include "../../native/csol/client/weapons/beamgun_scope.cpp"
 #include <GLFW/glfw3.h>
 #include <cassert>
 #include <cstdio>

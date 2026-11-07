@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A count-independent inspection boundary for independently decoded resources.
 // Emits the linked production consumers' data for an external Python CSV oracle.
-#include "controller.hpp"
+#include "../../native/csol/scenario/core/controller.hpp"
 
 #include <fstream>
 #include <iostream>

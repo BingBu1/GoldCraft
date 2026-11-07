@@ -21,7 +21,7 @@ selected={};inputs={};manifest=read(a.manifest)
 for row in manifest:
  if row['path'] not in ['native/csol/server/scenario_character_skills/host.cpp','native/csol/server/scenario_character_skills/host_actions.cpp','native/csol/server/scenario_character_skills/host_actions.hpp']:continue
  src=a.manifest.resolve().parent/'source'/row['path'];assert ident(src)['sha256']==row['sha256'];selected[row['path']]=src
-for rel in ['tests/csol-character-skill-host/action_fixture.hpp','tests/csol-character-skill-host/action_main.inc','tests/csol-character-skill-host/emotion_main.inc','native/csol/scenario/config.cpp','native/csol/scenario/spawn_points.cpp']:
+for rel in ['tests/csol-character-skill-host/action_fixture.hpp','tests/csol-character-skill-host/action_main.inc','tests/csol-character-skill-host/emotion_main.inc','native/csol/scenario/core/config.cpp','native/csol/scenario/core/spawn_points.cpp']:
  selected[rel]=root/rel
 for src in (root/'native/csol/scenario').rglob('*.hpp'):selected[src.relative_to(root).as_posix()]=src
 for rel,src in list(selected.items()):
@@ -50,7 +50,7 @@ exe=out/'emotion.exe'
 cmd=[compiler,'/nologo','/std:c++20','/EHsc','/MT','/W4','/utf-8','/showIncludes','/arch:AVX2','/fp:precise',
  '--target=i686-pc-windows-msvc','/clang:-O3','/clang:-flto=thin','/clang:-fuse-ld=lld',str(unit),
  str(selected['native/csol/server/scenario_character_skills/host_actions.cpp']),
- str(selected['native/csol/scenario/config.cpp']),str(selected['native/csol/scenario/spawn_points.cpp']),'/Fe'+str(exe)]
+ str(selected['native/csol/scenario/core/config.cpp']),str(selected['native/csol/scenario/core/spawn_points.cpp']),'/Fe'+str(exe)]
 for f in [Path(__file__),a.manifest,a.sdk_template/'prepared.json',Path(compiler)]:inputs[key(f)]=ident(f)
 result=dict(success=False,sourceHost=ident(selected['native/csol/server/scenario_character_skills/host.cpp']),
  negative=negative,

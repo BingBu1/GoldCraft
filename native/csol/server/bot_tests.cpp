@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Local weapon-test controls; excluded from normal server builds.
 #include "precompiled.h"
-#include "weapons.h"
+#include "weapons/weapons.h"
 #include <array>
 #include <string>
 

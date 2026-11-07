@@ -115,7 +115,7 @@ def main():
         inputs = [*compile_only, *linked_sources, config, Path(__file__).resolve(),
                   *[SERVER / name for name in ('weapon_damage_mode.h', 'weapon_damage.h',
                     'weapon_damage_file.h', 'game_rules_gate.h', 'wpn_beamgun.h')],
-                  ROOT / 'native/csol/cannon.hpp', SDK / 'regamedll/precompiled.h',
+                  ROOT / 'native/csol/weapons/cannon.hpp', SDK / 'regamedll/precompiled.h',
                   RAPIDJSON / 'rapidjson/document.h']
         before = [identity(path) for path in inputs]
         beam, cannon = [path.read_text(encoding='utf-8-sig') for path in compile_only]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_player_upgrades.h"
+#include "../../native/csol/server/scenario/core/scenario_player_upgrades.h"
 #include "../csol-scenario-difficulty/support.hpp"
 #include <functional>
 #include <memory>

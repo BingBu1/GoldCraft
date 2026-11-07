@@ -2,7 +2,7 @@
 // Include the entire production consumer without rewriting its methods. The
 // controlled engine/resource exits permit observing private lifecycle state;
 // ISurface stays absent, so this does not assert a rendered VGUI/GL frame.
-#include "native/csol/client/scenario_round_hud_client.cpp"
+#include "native/csol/client/scenario/core/scenario_round_hud_client.cpp"
 #include <bit>
 #include <filesystem>
 #include <fstream>

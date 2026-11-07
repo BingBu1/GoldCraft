@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "elite_visuals.hpp"
-#include "../scenario_session.h"
+#include "../scenario/core/scenario_session.h"
 #include "../../character_skill_protocol.hpp"
-#include "../../elite_visual_resources.hpp"
+#include "../../scenario/monsters/elite_visual_resources.hpp"
 #include <array>
 #include <bit>
 #include <cmath>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Source preparation only. Real Feature3 owner, controlled clone side effects.
-#include "../../native/csol/scenario/feature3.hpp"
+#include "../../native/csol/scenario/core/feature3.hpp"
 
 #include <cmath>
 #include <functional>

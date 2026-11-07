@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../csol-scenario-death-events/fixture.hpp"
-#include "../../native/csol/server/scenario_monster_follow.h"
-#include "../../native/csol/server/scenario_monster_melee.h"
-#include "../../native/csol/server/scenario_monster_heading.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_follow.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_melee.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_heading.h"
 #include <bit>
 #include <cmath>
 #include <cstring>

@@ -34,7 +34,7 @@ for p in (PREV/'native/csol').rglob('*'):
     # Do not import unrelated server protocols or the newer live Session.
     if 'server' in p.relative_to(PREV/'native/csol').parts:continue
     target=CAND/p.relative_to(PREV);link_or_copy(p,target);linked.append({'origin':identity(p),'candidate':identity(target)})
-for relative in ('native/csol/scenario/difficulty.cpp','external/ReGameDLL_CS/regamedll/regamedll/hookchains_impl.cpp'):
+for relative in ('native/csol/scenario/core/difficulty.cpp','external/ReGameDLL_CS/regamedll/regamedll/hookchains_impl.cpp'):
     source=PREV/relative;target=CAND/relative;write(target,source.read_bytes());copied.append({'origin':identity(source),'candidate':identity(target)})
 for name in ('scenario_breakable.h','scenario_breakable.cpp','scenario_breakable_guard.h','scenario_breakable_guard.cpp','scenario_wall_rewards.h','scenario_wall_rewards.cpp'):
     relative=Path('native/csol/server')/name;row=rows[str(ROOT/relative)];source=Path(row['saved']);actual=identity(source)
@@ -70,7 +70,7 @@ def function(source,signature):
     raise ValueError('unbalanced function')
 def emit(name,selections,guard=False):
     chunks=[b'#include "precompiled.h"\n']
-    if guard:chunks.append(b'#include "../../../../native/csol/server/scenario_breakable_guard.h"\n')
+    if guard:chunks.append(b'#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"\n')
     local=[]
     for source,selector,args in selections:
         a,b,chunk=selector(source,*args);chunks.append(chunk);chunks.append(b'\n')

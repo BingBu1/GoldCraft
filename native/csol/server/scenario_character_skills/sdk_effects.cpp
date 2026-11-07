@@ -7,9 +7,9 @@
 #include "slow_wall.hpp"
 #include "elite_manager.hpp"
 #include "host_notifications.hpp"
-#include "../scenario_player_runtime.h"
-#include "../scenario_runtime.h"
-#include "../scenario_entity_lookup.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_runtime.h"
+#include "../scenario/core/scenario_entity_lookup.h"
 #include <cmath>
 
 namespace csol::scenario::skills

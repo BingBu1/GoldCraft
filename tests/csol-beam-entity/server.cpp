@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "server/weapon_damage.h"
+#include "../../native/csol/server/weapons/weapon_damage.h"
 #include <iostream>
 #include <fstream>
 #include <source_location>
 #include <cstdlib>
 #ifndef CSOL_BEAM_ENTITY_SOURCE
-#define CSOL_BEAM_ENTITY_SOURCE "../../native/csol/server/wpn_beamgun.cpp"
+#define CSOL_BEAM_ENTITY_SOURCE "../../native/csol/server/weapons/wpn_beamgun.cpp"
 #endif
 #include CSOL_BEAM_ENTITY_SOURCE
 

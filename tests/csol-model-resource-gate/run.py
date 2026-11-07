@@ -40,7 +40,7 @@ def closure(rel):
  for token in re.findall(r'^\s*#include\s+"([^"]+)"',dest.read_text('utf8'),re.M):
   child=Path(os.path.normpath(str(Path(rel).parent/token))).as_posix()
   if child.startswith('native/') and ((root/child).is_file() or child in candidate):closure(child)
-closure('native/csol/dependencies.cpp');closure('native/csol/weapon_resources.hpp')
+closure('native/csol/dependencies.cpp');closure('native/csol/weapons/weapon_resources.hpp')
 loader=copy('native/engine/csol_loader.cpp',a.loader)
 if a.negative:
  text=loader.read_text('utf8');before='Q_strnicmp(textures[i].name,"cso_",4)';assert text.count(before)==1

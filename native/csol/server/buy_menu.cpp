@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "buy_menu.h"
-#include "game_rules_gate.h"
-#include "weapon_service.h"
-#include "weapon_slots.h"
-#include "scenario_player_runtime.h"
+#include "scenario/core/game_rules_gate.h"
+#include "weapons/weapon_service.h"
+#include "weapons/weapon_slots.h"
+#include "scenario/core/scenario_player_runtime.h"
 #include "../buy_menu.hpp"
 #include <array>
 #include <limits>

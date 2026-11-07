@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "weapon_damage_file.h"
+#include "../../native/csol/server/weapons/weapon_damage_file.h"
 #include <fstream>
 #include <iostream>
 #include <iterator>

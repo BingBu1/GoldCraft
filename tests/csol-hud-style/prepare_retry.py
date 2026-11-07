@@ -47,7 +47,7 @@ def main():
     for row in source_pairs:
         verify(row['frozen']);original=safe(row['original']['path']);target=source/row['relative']
         data=Path(row['frozen']['path']).read_bytes()
-        if row['relative']=='native/csol/client/weapons.cpp':
+        if row['relative']=='native/csol/client/weapons/weapons.cpp':
             expected=data.replace(b'const auto path="sprites/"+definition->name+".txt";',b'auto path="sprites/"+definition->name+".txt";')
             expected=expected.replace(b'engine.pfnSPR_GetList(path.c_str(),&count)',b'engine.pfnSPR_GetList(path.data(),&count)')
             eol=b'\r\n' if b'\r\n' in data else b'\n'

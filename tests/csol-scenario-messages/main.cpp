@@ -2,9 +2,9 @@
 // Actual SDK enginefuncs ABI and production message methods; engine callbacks
 // capture calls. No live engine, network transport, monster registry or client.
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_messages.h"
+#include "../../native/csol/server/scenario/core/scenario_messages.h"
 #include "../../native/csol/server/damage_numbers.h"
-#include "../../native/csol/scenario/wave_events.hpp"
+#include "../../native/csol/scenario/core/wave_events.hpp"
 
 #include <array>
 #include <iostream>

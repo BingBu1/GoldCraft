@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual consumer and TEMPENTITY callbacks; engine allocation/lookup are controlled.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/scenario_effects.hpp"
-#include "../../native/csol/scenario_healing.hpp"
+#include "../../native/csol/client/scenario/core/scenario_effects.hpp"
+#include "../../native/csol/scenario/core/scenario_healing.hpp"
 #include <r_efx.h>
 #include <algorithm>
 #include <cmath>

@@ -14,7 +14,7 @@ a = p.parse_args()
 source = a.source.resolve()
 a.output.mkdir(parents=True, exist_ok=True)
 targets = {
-    "native/csol/server/wpn_cannon.cpp": [
+    "native/csol/server/weapons/wpn_cannon.cpp": [
         "void CCannon::PrimaryAttack()", "BOOL CCannon::Deploy()", "void CCannon::WeaponIdle()"],
     "external/ReGameDLL_CS/regamedll/dlls/weapons.cpp": [
         "void EXT_FUNC __API_HOOK(ClearMultiDamage)()",
@@ -45,7 +45,7 @@ for relative, signatures in targets.items():
         chunks.append('#line %d "%s"\n%s' % (text[:start].count("\n") + 1, path.as_posix(), body))
         inputs.append(dict(path=str(path), sha256=hashlib.sha256(data).hexdigest(),
                            bytes=len(data), signature=signature, method_sha256=hashlib.sha256(body.encode()).hexdigest()))
-header = source / "native/csol/cannon.hpp"
+header = source / "native/csol/weapons/cannon.hpp"
 chunks.insert(0, '#include "%s"' % header.as_posix())
 (a.output / "actual.inc").write_text("\n\n".join(chunks), encoding="utf-8")
 inputs.append(dict(path=str(header), sha256=hashlib.sha256(header.read_bytes()).hexdigest(), bytes=header.stat().st_size))

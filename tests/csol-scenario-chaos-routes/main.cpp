@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/chaos_routes.hpp"
+#include "../../native/csol/scenario/core/chaos_routes.hpp"
 
 #include <fstream>
 #include <iostream>

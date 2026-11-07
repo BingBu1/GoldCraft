@@ -5,7 +5,7 @@
 #undef ConsumeOberonHint
 #undef main
 #include "../../native/csol/scenario_part_effects.hpp"
-#include "../../native/csol/scenario_healing.hpp"
+#include "../../native/csol/scenario/core/scenario_healing.hpp"
 #include <bit>
 #include <functional>
 #include <limits>

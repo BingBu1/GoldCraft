@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute unchanged production rule methods with explicit SDK callback seams.
 // This is not a full GameDLL, map or graphical-client execution.
-#include "../../native/csol/scenario/automatic_respawn.hpp"
+#include "../../native/csol/scenario/core/automatic_respawn.hpp"
 #include <array>
 #include <cstdio>
 #include <functional>

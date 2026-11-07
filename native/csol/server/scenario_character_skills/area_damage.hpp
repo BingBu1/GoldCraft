@@ -2,7 +2,7 @@
 #pragma once
 #include "control.hpp"
 #include "damage.hpp"
-#include "../scenario_death_requests.h"
+#include "../scenario/core/scenario_death_requests.h"
 #include <memory>
 #include <optional>
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/golden_runtime.hpp"
+#include "../../native/csol/scenario/monsters/golden_runtime.hpp"
 
 #include <iostream>
 #include <stdexcept>

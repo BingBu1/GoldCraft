@@ -119,7 +119,7 @@ def main():
     source = args.source_root.resolve()
     output = args.output.resolve()
     output.relative_to(Path(__file__).resolve().parents[2])
-    sources = [source / 'native/csol/server/game_rules_gate.cpp',
+    sources = [source / 'native/csol/server/scenario/core/game_rules_gate.cpp',
                source / 'external/ReGameDLL_CS/regamedll/dlls/gamerules.h',
                args.common / 'maps/zs_lostcity.bsp']
     inputs = {str(path): digest(path) for path in sources}

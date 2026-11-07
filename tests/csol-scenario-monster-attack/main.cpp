@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_monster_attack.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_attack.h"
 
 #include <array>
 #include <bit>

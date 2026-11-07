@@ -2,8 +2,8 @@
 // Real SDK structures and production wire/injection helpers. This does not
 // execute the engine's hull walker or claim live collision verification.
 #include "precompiled.h"
-#include "../../native/csol/playerclip_movement.hpp"
-#include "../../native/csol/scenario/round_clock.hpp"
+#include "../../native/csol/scenario/core/playerclip_movement.hpp"
+#include "../../native/csol/scenario/core/round_clock.hpp"
 #include <iostream>
 #include <limits>
 #include <memory>

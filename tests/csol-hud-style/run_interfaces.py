@@ -46,7 +46,7 @@ def main():
             continue
         flags.append(value)
     roots = ['tests/csol-hud-style/interfaces.cpp', 'tests/csol-scenario-respawn-ui/interfaces.cpp',
-             'native/csol/hud_style.cpp', 'native/csol/image_codec.cpp', 'native/csol/scenario_localization.cpp']
+             'native/csol/hud_style.cpp', 'native/csol/image_codec.cpp', 'native/csol/scenario/core/scenario_localization.cpp']
     frozen = {}
     overrides = {}
     for name, filename in args.source_override:
@@ -76,7 +76,7 @@ def main():
         {'type': 'file', 'name': str(p), 'external-contents': v['frozen']['path']} for p, v in frozen.items()])
     (out / 'overlay.json').write_text(json.dumps(overlay), encoding='utf8')
     old = json.loads(json.dumps(overlay))
-    for name in ['native/csol/client/hud_style.cpp', 'native/csol/client/scenario_respawn_ui.cpp']:
+    for name in ['native/csol/client/hud_style.cpp', 'native/csol/client/scenario/core/scenario_respawn_ui.cpp']:
         data = subprocess.check_output(['git', 'show', args.old_ref + ':' + name], cwd=ROOT)
         target = out / 'old' / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(data)
         next(row for row in old['roots'] if Path(row['name']) == ROOT / name)['external-contents'] = str(target)

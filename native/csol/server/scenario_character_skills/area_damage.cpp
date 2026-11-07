@@ -6,11 +6,11 @@
 #include "smoke_zone.hpp"
 #include "effects.hpp"
 #include "host_notifications.hpp"
-#include "../scenario_player_runtime.h"
-#include "../scenario_player_impulse.h"
-#include "../scenario_monster_damage.h"
-#include "../scenario_session.h"
-#include "../game_rules_gate.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_player_impulse.h"
+#include "../scenario/monsters/scenario_monster_damage.h"
+#include "../scenario/core/scenario_session.h"
+#include "../scenario/core/game_rules_gate.h"
 #include <algorithm>
 #include <array>
 #include <cmath>

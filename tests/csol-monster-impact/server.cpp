@@ -2,7 +2,7 @@
 // Complete production SDK objects; controlled engine allocation/message edges.
 // Damage aggregation, registered rules, Session, Pool and TraceAttack are real.
 #include "../csol-scenario-monster-skills/trap_fixture.hpp"
-#include "../../native/csol/monster_impact.hpp"
+#include "../../native/csol/scenario/monsters/monster_impact.hpp"
 #include <limits>
 
 namespace {

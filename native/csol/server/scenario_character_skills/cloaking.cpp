@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../scenario_player_runtime.h"
-#include "../scenario_runtime.h"
-#include "../scenario_entity_lookup.h"
-#include "../game_rules_gate.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_runtime.h"
+#include "../scenario/core/scenario_entity_lookup.h"
+#include "../scenario/core/game_rules_gate.h"
 #include "host_notifications.hpp"
 #include "area_expanded.hpp"
 #include "effects.hpp"

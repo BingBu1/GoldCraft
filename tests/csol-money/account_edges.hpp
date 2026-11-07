@@ -8,8 +8,8 @@
 #include <vector>
 #include <functional>
 #include <memory>
-#include "native/csol/server/scenario_money.h"
-#include "native/csol/server/scenario_breakable_guard.h"
+#include "native/csol/server/scenario/core/scenario_money.h"
+#include "native/csol/server/scenario/core/scenario_breakable_guard.h"
 class CSOLScenarioEntityAccess { public: bool allowed=true; bool Allowed() const{return allowed;} };
 class CGameRules { public: bool scenario=true; std::shared_ptr<CSOLScenarioEntityAccess> access=std::make_shared<CSOLScenarioEntityAccess>(); };
 inline CGameRules rulesStorage,otherRulesStorage;

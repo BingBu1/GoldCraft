@@ -29,9 +29,9 @@ def main():
     plan = json.loads((previous/'build-proposal.json').read_text('utf-8'))
     out.mkdir()
     inputs, sources = [], []
-    for relative in ('tests/csol-wall-upgrade/hint.cpp', 'native/csol/wall_upgrade.hpp',
-                     'native/csol/wall_upgrade_hint.hpp', 'native/csol/client/wall_upgrade_hint.hpp',
-                     'native/csol/client/wall_upgrade_hint.cpp', 'native/csol/client/runtime.hpp'):
+    for relative in ('tests/csol-wall-upgrade/hint.cpp', 'native/csol/scenario/core/wall_upgrade.hpp',
+                     'native/csol/scenario/core/wall_upgrade_hint.hpp', 'native/csol/client/scenario/core/wall_upgrade_hint.hpp',
+                     'native/csol/client/scenario/core/wall_upgrade_hint.cpp', 'native/csol/client/runtime.hpp'):
         source, target = ROOT/relative, out/'source'/relative
         before = identity(source)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -48,7 +48,7 @@ def main():
         if token.endswith('tests\\csol-oberon-hint\\main.cpp'):
             token = str(out/'source/tests/csol-wall-upgrade/hint.cpp')
         elif token.endswith('native\\csol\\client\\oberon_hint.cpp'):
-            token = str(out/'source/native/csol/client/wall_upgrade_hint.cpp')
+            token = str(out/'source/native/csol/client/scenario/core/wall_upgrade_hint.cpp')
         elif token.startswith('/Fo'):
             token = '/Fo'+str(out/'actual-client')+'/'
         elif token.startswith('/Fe'):

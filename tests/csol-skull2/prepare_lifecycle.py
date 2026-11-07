@@ -73,8 +73,8 @@ def main():
     for row in read(base/'inputs.json')['files']:
         path=Path(row['path'])
         if path.is_file() and key(path) not in inputs: keep(path)
-    replaced=['native/csol/server/wpn_skull2.cpp','native/csol/server/weapon_registry.cpp',
-        'native/csol/server/wpn_tknifeex2.cpp','external/ReGameDLL_CS/regamedll/dlls/weapons.cpp',
+    replaced=['native/csol/server/weapons/wpn_skull2.cpp','native/csol/server/weapons/weapon_registry.cpp',
+        'native/csol/server/weapons/wpn_tknifeex2.cpp','external/ReGameDLL_CS/regamedll/dlls/weapons.cpp',
         'external/ReGameDLL_CS/regamedll/dlls/player.cpp','external/ReGameDLL_CS/regamedll/dlls/client.cpp']+supplemental
     compiler=oldjobs[0]['command'][0]
     command=[compiler,'--target=i686-pc-windows-msvc','/nologo','/std:c++20','/EHsc','/MT','/utf-8',

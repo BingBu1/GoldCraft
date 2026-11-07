@@ -2,9 +2,9 @@
 // Actual SDK entities, EHANDLE, pool, animation reset and sound wrapper.
 // Engine allocation/model/sound services are controlled; no gameplay claim.
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_monster_death.h"
-#include "../../native/csol/server/scenario_monster_models.h"
-#include "../../native/csol/scenario/monster_death.hpp"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_death.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_models.h"
+#include "../../native/csol/scenario/monsters/monster_death.hpp"
 #include <bit>
 #include <iostream>
 #include <limits>

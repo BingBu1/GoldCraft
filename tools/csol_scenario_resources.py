@@ -43,7 +43,7 @@ def boss_contract(header):
 
 def boss_attack_contract(source):
     """Read the map-load attack contract from the selected DLL source tree."""
-    header = source / 'native/csol/server/scenario_oberon_resources.h'
+    header = source / 'native/csol/server/scenario/bosses/scenario_oberon_resources.h'
     if not header.exists():
         return set(), None  # Older frozen builds do not own these attacks.
     text = header.read_text(encoding='utf-8-sig')
@@ -76,17 +76,17 @@ def boss_attack_contract(source):
 
 
 def boss_hint_contract(source):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'csol::oberon_hint::Sprite' not in session:
         return set(), None  # This frozen source has no hint precheck/consumer.
-    header = source / 'native/csol/oberon_hint.hpp'
+    header = source / 'native/csol/scenario/bosses/oberon_hint.hpp'
     values = re.findall(r'char Sprite\[\]\s*=\s*"([^"]+)"', header.read_text(encoding='utf-8-sig'))
     if len(values) != 1:
         raise ValueError('Incomplete Oberon start hint sprite contract')
     name = resource_name(values[0])
     if not name.startswith('sprites/') or not name.endswith('.spr'):
         raise ValueError('Oberon start hint must be a sprite resource')
-    return {name}, dict(path='native/csol/oberon_hint.hpp', sha256=digest(header))
+    return {name}, dict(path='native/csol/scenario/bosses/oberon_hint.hpp', sha256=digest(header))
 
 
 def select_boss_models(catalog, type_id, model):
@@ -94,10 +94,10 @@ def select_boss_models(catalog, type_id, model):
 
 
 def wall_upgrade_contract(source):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'csol::wall_upgrade::Model' not in session:
         return set(), None
-    name = 'native/csol/wall_upgrade.hpp'
+    name = 'native/csol/scenario/core/wall_upgrade.hpp'
     header = source / name
     text = header.read_text(encoding='utf-8-sig')
     resources = set()
@@ -139,7 +139,7 @@ def wall_scheme_source(prepared, previous):
 
 
 def frozen_death_contract(source):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'csol::frozen_death::IceModel' not in session:
         return set(), []  # Older frozen DLLs do not consume these messages.
     resources, inputs = set(), []
@@ -160,12 +160,12 @@ def frozen_death_contract(source):
 
 
 def skill_contract_sources(source):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
-    names = ['native/csol/server/scenario_monster_skills.h',
-             'native/csol/scenario_monster_effects.hpp',
-             'native/csol/server/scenario_session.cpp']
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    names = ['native/csol/server/scenario/monsters/scenario_monster_skills.h',
+             'native/csol/scenario/monsters/scenario_monster_effects.hpp',
+             'native/csol/server/scenario/core/scenario_session.cpp']
     if 'CSOLZombieBombModel' in session:
-        names.append('native/csol/server/scenario_zombie_bomb.h')
+        names.append('native/csol/server/scenario/monsters/scenario_zombie_bomb.h')
     if 'csol::part_effects::Sprites' in session:
         names.append('native/csol/scenario_part_effects.hpp')
     return names
@@ -173,11 +173,11 @@ def skill_contract_sources(source):
 
 def skill_contract(source):
     """Read the exact skill precache lists; reject unresolved C++ expressions."""
-    headers = [('native/csol/server/scenario_monster_skills.h', ''),
-               ('native/csol/scenario_monster_effects.hpp', 'csol::monster_effects::')]
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    headers = [('native/csol/server/scenario/monsters/scenario_monster_skills.h', ''),
+               ('native/csol/scenario/monsters/scenario_monster_effects.hpp', 'csol::monster_effects::')]
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'CSOLZombieBombModel' in session:
-        headers.append(('native/csol/server/scenario_zombie_bomb.h', ''))
+        headers.append(('native/csol/server/scenario/monsters/scenario_zombie_bomb.h', ''))
     constants = {}
     for name, prefix in headers:
         text = (source / name).read_text(encoding='utf-8-sig')
@@ -229,7 +229,7 @@ def skill_contract(source):
 
 def smoke_event_contract(source):
     """Bind the plugin-owned event to the same source tree as the DLL."""
-    header = source / 'native/csol/scenario_smoke.hpp'
+    header = source / 'native/csol/scenario/core/scenario_smoke.hpp'
     text = header.read_text(encoding='utf-8-sig')
     if 'EventPath' not in text:
         return None  # Earlier builds share the stock smoke event.
@@ -250,12 +250,12 @@ def smoke_event_contract(source):
 
 
 def elite_contract(source):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'MakeEliteMonsterType' not in session:
         return set()
     # The synthetic type is not an effective row in the map CSV. Resolve its
     # real appearance through the same source catalog used by model precache.
-    catalog = (source / 'native/csol/scenario/monster_appearances.cpp').read_text(encoding='utf-8-sig')
+    catalog = (source / 'native/csol/scenario/monsters/monster_appearances.cpp').read_text(encoding='utf-8-sig')
     matches = re.findall(r'\{\d+,\s*"zbs_elite_01",(.*?)(?=\n\s*\{\d+,)', catalog, re.S)
     if len(matches) != 1:
         raise ValueError('Missing or ambiguous synthetic elite model')
@@ -264,7 +264,7 @@ def elite_contract(source):
         raise ValueError('Incomplete synthetic elite appearance/sound contract')
     resources = {resource_name(appearance[0])}
     resources.update(resource_name('sound/' + name) for name in appearance[1:] if name)
-    header = (source / 'native/csol/elite_visual_resources.hpp').read_text(encoding='utf-8-sig')
+    header = (source / 'native/csol/scenario/monsters/elite_visual_resources.hpp').read_text(encoding='utf-8-sig')
     for kind in ('Models', 'Sounds'):
         block = re.findall(r'\b' + kind + r'\s*\{([^}]+)\}', header, re.S)
         if len(block) != 1:
@@ -285,7 +285,7 @@ def command(program, *args):
 
 def dialogue_contract(source, common, reader, wave):
     """Use production decoding/dispatch, never a second Python table parser."""
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'CollectDialogueResources' not in session:
         return set(), None  # Older frozen DLLs do not consume this HUD.
     if reader is None or wave is None:
@@ -293,7 +293,7 @@ def dialogue_contract(source, common, reader, wave):
     name = resource_name(wave)
     if not name.startswith('maps/') or not name.endswith('.cso'):
         raise ValueError('Expected the map catalog wave resource, relative to common/maps')
-    header = source / 'native/csol/scenario_round_hud.hpp'
+    header = source / 'native/csol/scenario/core/scenario_round_hud.hpp'
     text = header.read_text(encoding='utf-8-sig')
     match = re.findall(r'char MessagePath\[\]\s*=\s*"([^"]+)"', text)
     if len(match) != 1:
@@ -324,7 +324,7 @@ def dialogue_contract(source, common, reader, wave):
 
 
 def champion_contract(source, common, reader, wave):
-    session = (source / 'native/csol/server/scenario_session.cpp').read_text(encoding='utf-8-sig')
+    session = (source / 'native/csol/server/scenario/core/scenario_session.cpp').read_text(encoding='utf-8-sig')
     if 'csol::scenario::LoadChampions(' not in session:
         return set(), None
     if reader is None or wave is None:
@@ -356,10 +356,10 @@ def champion_contract(source, common, reader, wave):
 
 def respawn_ui_contract(source):
     """Collect the exact shared HUD list consumed by this server version."""
-    session = source / 'native/csol/server/scenario_session.cpp'
+    session = source / 'native/csol/server/scenario/core/scenario_session.cpp'
     if '#include "../scenario_respawn_resources.hpp"' not in session.read_text(encoding='utf-8-sig'):
         return set(), None
-    header = source / 'native/csol/scenario_respawn_resources.hpp'
+    header = source / 'native/csol/scenario/core/scenario_respawn_resources.hpp'
     text = header.read_text(encoding='utf-8-sig')
     resources = {resource_name(name) for name in re.findall(
         r'"((?:resource|sprites|sound)/[^"\r\n]+\.(?:tga|spr|txt|wav))"', text)}
@@ -389,7 +389,7 @@ def main():
     root = Path(__file__).resolve().parent.parent
     common = args.common.resolve(strict=True)
     source_root = args.source_root.resolve(strict=True) if args.source_root else root
-    header = source_root / 'native/csol/server/scenario_monster_resources.h'
+    header = source_root / 'native/csol/server/scenario/monsters/scenario_monster_resources.h'
     boss = boss_contract(header)
     smoke_event = smoke_event_contract(source_root)
     dialogue, dialogue_info = dialogue_contract(source_root, common, args.dialogue_reader, args.wave_resource)
@@ -485,7 +485,7 @@ def main():
             contract=attack_contract)
     if smoke_event:
         result['smokeEvent'] = dict(path=smoke_event[0],
-            headerSha256=digest(source_root / 'native/csol/scenario_smoke.hpp'),
+            headerSha256=digest(source_root / 'native/csol/scenario/core/scenario_smoke.hpp'),
             scriptSha256=digest(smoke_event[1]))
     if dialogue_info:
         result['dialogueClosure'] = dialogue_info
@@ -495,8 +495,8 @@ def main():
         result['championClosure'] = champion_info
     if elite:
         result['eliteClosure'] = dict(roots=sorted(elite),
-            headerSha256=digest(source_root / 'native/csol/elite_visual_resources.hpp'),
-            appearanceCatalogSha256=digest(source_root / 'native/csol/scenario/monster_appearances.cpp'))
+            headerSha256=digest(source_root / 'native/csol/scenario/monsters/elite_visual_resources.hpp'),
+            appearanceCatalogSha256=digest(source_root / 'native/csol/scenario/monsters/monster_appearances.cpp'))
     if frozen:
         result['frozenDeathClosure'] = dict(roots=sorted(frozen), sources=frozen_inputs)
     if wall_upgrade:

@@ -4,8 +4,8 @@
 // and beamgun translation units are compiled separately in the same plan.
 #include "native/csol/client/runtime.hpp"
 #include "native/csol/hud_style.hpp"
-#include "native/csol/beamgun_prediction.hpp"
-#include "native/csol/beamgun_state.cpp"
+#include "native/csol/weapons/beamgun_prediction.hpp"
+#include "native/csol/weapons/beamgun_state.cpp"
 #include <algorithm>
 #include <array>
 #include <charconv>

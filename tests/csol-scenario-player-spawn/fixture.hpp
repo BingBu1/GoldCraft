@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_spawn_occupancy.h"
-#include "../../native/csol/scenario/round_settings.hpp"
+#include "../../native/csol/server/scenario/core/scenario_spawn_occupancy.h"
+#include "../../native/csol/scenario/core/round_settings.hpp"
 #include <bit>
 #include <cmath>
 #include <cstring>

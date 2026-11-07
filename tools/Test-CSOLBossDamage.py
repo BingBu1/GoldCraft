@@ -17,17 +17,17 @@ args = parser.parse_args()
 out = args.output.resolve()
 out.relative_to(root / "build")
 out.mkdir(parents=True, exist_ok=False)
-damage = args.damage_source.resolve() if args.damage_source else root / "native/csol/server/scenario_monster_damage.cpp"
+damage = args.damage_source.resolve() if args.damage_source else root / "native/csol/server/scenario/monsters/scenario_monster_damage.cpp"
 damage.relative_to(root)
-messages = root / "native/csol/server/scenario_messages.cpp"
+messages = root / "native/csol/server/scenario/core/scenario_messages.cpp"
 fixture = root / "tests/csol-scenario-boss-damage/main.cpp"
-math = root / "native/csol/scenario/monster_damage.cpp"
+math = root / "native/csol/scenario/monsters/monster_damage.cpp"
 inputs = [damage, messages, fixture, math, pathlib.Path(__file__),
-          root / "native/csol/server/scenario_monster_damage_behavior.h",
-          root / "native/csol/server/scenario_monster_damage.h",
-          root / "native/csol/scenario/map_support.hpp",
-          root / "native/csol/server/scenario_entity_access.h",
-          root / "native/csol/server/scenario_messages.h"]
+          root / "native/csol/server/scenario/monsters/scenario_monster_damage_behavior.h",
+          root / "native/csol/server/scenario/monsters/scenario_monster_damage.h",
+          root / "native/csol/scenario/core/map_support.hpp",
+          root / "native/csol/server/scenario/core/scenario_entity_access.h",
+          root / "native/csol/server/scenario/core/scenario_messages.h"]
 def identity():
     return [{"path": str(p.relative_to(root)), "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in inputs]
 before = identity()

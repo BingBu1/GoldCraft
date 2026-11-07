@@ -2,7 +2,7 @@
 #pragma once
 #include "precompiled.h"
 #include "interface.h"
-#include "../../native/csol/server/game_rules_gate.h"
+#include "../../native/csol/server/scenario/core/game_rules_gate.h"
 #include "../../native/csol/server/game_mode.h"
 #include "../../native/include/goldcraft/csol_game_mode_api.hpp"
 #include "resources.hpp"

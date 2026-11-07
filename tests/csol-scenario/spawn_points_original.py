@@ -148,7 +148,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     inputs = [args.mp, args.metadata, args.exe, Path(__file__),
         Path(__file__).with_name("spawn_points_tests.cpp"),
-        root / "native/csol/scenario/spawn_points.hpp", root / "native/csol/scenario/spawn_points.cpp"]
+        root / "native/csol/scenario/core/spawn_points.hpp", root / "native/csol/scenario/core/spawn_points.cpp"]
     output = {"evidenceLevel": "original x86 instructions versus unchanged production data-layer executable",
         "nativeDLLLoaded": False, "liveGameTest": False,
         "substitutedService": "hash-container lookup only; signed key and quota instructions are original",

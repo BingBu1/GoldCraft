@@ -15,8 +15,8 @@
 #include <vector>
 #include <xmmintrin.h>
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_trigger.h"
-#include "../../native/csol/server/scenario_trigger_manager.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger_manager.h"
 
 extern "C" void zbstrigger(entvars_t*);
 namespace

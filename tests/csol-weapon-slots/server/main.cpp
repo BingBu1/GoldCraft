@@ -2,8 +2,8 @@
 #include "precompiled.h"
 void CSOL_ResetWeaponService() {}
 void CSOL_UpdateBeamGuardHUD(CBasePlayer*) {}
-#include "weapon_slots.hpp"
-#include "server/weapon_slots.h"
+#include "../../../native/csol/weapons/weapon_slots.hpp"
+#include "../../../native/csol/server/weapons/weapon_slots.h"
 #include <cstdlib>
 #include <iostream>
 #include <map>

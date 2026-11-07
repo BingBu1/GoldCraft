@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Original row-clock boundaries are explicit cases, independent of production
 // arithmetic. Link the actual library; original-instruction comparison uses stdin.
-#include "waves.hpp"
+#include "../../native/csol/scenario/core/waves.hpp"
 
 #include <algorithm>
 #include <bit>

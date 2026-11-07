@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual production TU and SDK types. Expected fields come from the fixed
 // original SKULL2 event/MP captures, not from the implementation's helpers.
-#include "../../native/csol/client/skull2.cpp"
+#include "../../native/csol/client/weapons/skull2.cpp"
 #include "../../native/csol/client/shared_random.cpp"
-#include "../../native/csol/client/weapon_module.cpp"
-#include "../../native/csol/client/gun_smoke.cpp"
-#include "../../native/csol/client/skull5.hpp"
+#include "../../native/csol/client/weapons/weapon_module.cpp"
+#include "../../native/csol/client/weapons/gun_smoke.cpp"
+#include "../../native/csol/client/weapons/skull5.hpp"
 #include <iostream>
 #include <map>
 #include <limits>

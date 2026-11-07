@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fixture.hpp"
-#include "../../native/csol/server/scenario_monster_effects.h"
-#include "../../native/csol/server/weapons.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_effects.h"
+#include "../../native/csol/server/weapons/weapons.h"
 
 extern "C" void dummy_inflictor(entvars_t*);
 

@@ -2,7 +2,7 @@
 // Real component methods; the synchronous executor is a strict call spy only.
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
 #include "../csol-scenario-frame/frame_fixture.hpp"
-#include "../../native/csol/server/scenario_death_rules.h"
+#include "../../native/csol/server/scenario/core/scenario_death_rules.h"
 #include "death_fixtures.hpp"
 #include <climits>
 #include <deque>

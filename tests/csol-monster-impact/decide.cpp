@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Evaluates the production scenario-monster impact decision for cases read
 // from stdin; run.py compares the output with the original-client oracle.
-#include "../../native/csol/monster_impact.hpp"
+#include "../../native/csol/scenario/monsters/monster_impact.hpp"
 #include <cstdio>
 #include <iostream>
 #include <string>

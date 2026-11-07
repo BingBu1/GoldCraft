@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Normal-load the exact product and inspect only its matching PDB's registry.
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>

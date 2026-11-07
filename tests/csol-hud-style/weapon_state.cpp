@@ -4,9 +4,9 @@
 // used to stand in for the message-to-quantity path here.
 #include "native/csol/client/runtime.hpp"
 #include "native/csol/hud_style.hpp"
-#include "native/csol/weapon_slots.cpp"
-#include "native/csol/k3.hpp"
-#include "native/csol/cannon.hpp"
+#include "native/csol/weapons/weapon_slots.cpp"
+#include "native/csol/weapons/k3.hpp"
+#include "native/csol/weapons/cannon.hpp"
 #include <algorithm>
 #include <cstring>
 #include <iostream>

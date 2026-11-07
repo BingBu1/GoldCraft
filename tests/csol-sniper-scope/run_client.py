@@ -16,7 +16,7 @@ def main():
  while todo:
   rel=todo.pop()
   if rel in sources:continue
-  src=ROOT/rel;selected=args.old_skull5 if args.old_skull5 and rel=='native/csol/client/skull5.cpp'else src;target=out/'source'/rel;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(selected.read_bytes());sources[rel]=dict(original=identity(src),selected=identity(selected),frozen=identity(target))
+  src=ROOT/rel;selected=args.old_skull5 if args.old_skull5 and rel=='native/csol/client/weapons/skull5.cpp'else src;target=out/'source'/rel;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(selected.read_bytes());sources[rel]=dict(original=identity(src),selected=identity(selected),frozen=identity(target))
   for token in re.findall(r'^\s*#include\s+"([^"]+)"',target.read_text('utf-8-sig'),re.M):
    child=(src.parent/token).resolve()
    if child.is_file()and child.is_relative_to(ROOT)and not child.is_relative_to(ROOT/'external'):todo.append(child.relative_to(ROOT).as_posix())

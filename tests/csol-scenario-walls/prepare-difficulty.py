@@ -154,11 +154,11 @@ def prepare(out, suite='difficulty', common=None):
     assert len(omitted) == 4
     sources.append(write(Path('tests/csol-scenario-walls/player-vtable-boundary.cpp'),
                          b''.join(line for line in lines if line not in omitted)))
-    guard = '#include "../../../../native/csol/server/scenario_breakable_guard.h"\n'
-    gate = '#include "../../../../native/csol/server/game_rules_gate.h"\n'
+    guard = '#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"\n'
+    gate = '#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"\n'
     sources.append(extract('wall-difficulty-breakable.cpp', [
         ('dlls/func_break.cpp', b'// Just add more items', b'TYPEDESCRIPTION CPushable::m_SaveData[]')],
-        guard + '#include "../../../../native/csol/server/scenario_grenade_blockers.h"\n'))
+        guard + '#include "../../../../native/csol/server/scenario/core/scenario_grenade_blockers.h"\n'))
     sources.append(extract('wall-difficulty-targets.cpp', [
         ('dlls/subs.cpp', b'// This updates global tables', b'// QuakeEd only writes'),
         ('dlls/subs.cpp', b'void CBaseDelay::DelayThink()', None)], guard + '#include <string>\n'))
@@ -174,7 +174,7 @@ def prepare(out, suite='difficulty', common=None):
                         ('dlls/bmodels.cpp', b'Vector VecBModelOrigin(', None)]
     sources.append(extract('wall-difficulty-services.cpp', service_methods,
         guard + gate + '#include "../../../../native/server/bridge.h"\n'
-        '#include "../../../../native/csol/server/scenario_drops.h"\n'))
+        '#include "../../../../native/csol/server/scenario/core/scenario_drops.h"\n'))
     account = ROOT / SDK_REL / 'dlls/player.cpp'
     raw = account.read_bytes()
     account_start = raw.rfind(b'#ifdef REGAMEDLL_API', 0, raw.index(b'void CBasePlayer::AddAccount('))
@@ -183,8 +183,8 @@ def prepare(out, suite='difficulty', common=None):
     sources.append(extract('wall-difficulty-account.cpp', [
         ('dlls/player.cpp', start_marker, b'void CBasePlayer::ResetMenu()'),
         ('dlls/player.cpp', b'LINK_HOOK_CLASS_CHAIN2(int, CBasePlayer, Classify)', b'LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayer, AddPoints')],
-        guard + gate + '#include "../../../../native/csol/server/scenario_money.h"\n'
-        '#include "../../../../native/csol/server/scenario_entity_access.h"\n'))
+        guard + gate + '#include "../../../../native/csol/server/scenario/core/scenario_money.h"\n'
+        '#include "../../../../native/csol/server/scenario/core/scenario_entity_access.h"\n'))
     api = ROOT / SDK_REL / 'dlls/API/CAPI_Impl.cpp'
     register(api)
     raw = api.read_bytes()
@@ -255,8 +255,8 @@ def prepare(out, suite='difficulty', common=None):
 
     # Capture real Gate/Session/cleanup ordering as review evidence only. It
     # is not compiled into a fake replacement for the full Gate transaction.
-    ordering = [register(ROOT / p) for p in ('native/csol/server/game_rules_gate.cpp',
-        'native/csol/server/scenario_session.cpp', 'external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp')]
+    ordering = [register(ROOT / p) for p in ('native/csol/server/scenario/core/game_rules_gate.cpp',
+        'native/csol/server/scenario/core/scenario_session.cpp', 'external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp')]
     flags = ['/c', '/nologo', '/W4', '/utf-8', '/EHsc', '/MT', '/Gy', '/Gw', '/std:c++20',
         '--target=i686-pc-windows-msvc', '/arch:AVX2', '/O2', '/clang:-O3', '/clang:-flto=thin',
         '/fp:precise', '/showIncludes', '/Zi']

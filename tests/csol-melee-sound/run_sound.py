@@ -13,7 +13,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-HOST = 'native/csol/server/wpn_melee.cpp'
+HOST = 'native/csol/server/weapons/wpn_melee.cpp'
 FIXTURE = 'tests/csol-melee-sound/sdk.cpp'
 EXPECTED_OLD_FAILURES = {
     'ASSERT original per-target or per-completion sound count': 5,

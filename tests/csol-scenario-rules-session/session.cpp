@@ -2,7 +2,7 @@
 // Layer A: real session/map/pool/model/message objects. The inherited old
 // Engine DispatchSpawn and unrelated SDK virtual methods remain substitutes.
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_session.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
 #include "resources.hpp"
 #include <cstring>
 #include <iostream>

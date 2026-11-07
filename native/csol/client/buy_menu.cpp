@@ -3,7 +3,7 @@
 #include "overlay_layers.hpp"
 #include "buy_menu.hpp"
 #include "command_chain.hpp"
-#include "weapon_inventory.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include "../buy_menu.hpp"
 #include "../image_codec.hpp"
 #include <VGUI/ISurface.h>

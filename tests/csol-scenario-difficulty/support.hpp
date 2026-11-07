@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "../../native/csol/scenario/difficulty.hpp"
-#include "../../native/csol/scenario/drop_items.hpp"
+#include "../../native/csol/scenario/core/difficulty.hpp"
+#include "../../native/csol/scenario/core/drop_items.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>

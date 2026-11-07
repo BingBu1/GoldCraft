@@ -14,7 +14,7 @@
 #include <stdexcept>
 #include <string_view>
 #include "../csol-scenario-point-manager/engine_fixture.h"
-#include "../../native/csol/server/scenario_map.h"
+#include "../../native/csol/server/scenario/core/scenario_map.h"
 #include "fixtures.hpp"
 
 extern "C" void zbstrigger(entvars_t*);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "weapon_slots.hpp"
+#include "../../native/csol/weapons/weapon_slots.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <limits>

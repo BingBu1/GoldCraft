@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute extracted production Boss methods. Entity lookup, runtime lifecycle,
 // network writer and appearance directory are explicit SDK boundaries.
-#include "../../native/csol/scenario/config.hpp"
-#include "../../native/csol/scenario/monster_damage.hpp"
-#include "../../native/csol/scenario/map_support.hpp"
-#include "../../native/csol/server/scenario_monster_damage_behavior.h"
-#include "../../native/csol/server/scenario_entity_access.h"
+#include "../../native/csol/scenario/core/config.hpp"
+#include "../../native/csol/scenario/monsters/monster_damage.hpp"
+#include "../../native/csol/scenario/core/map_support.hpp"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_damage_behavior.h"
+#include "../../native/csol/server/scenario/core/scenario_entity_access.h"
 #include <algorithm>
 #include <array>
 #include <bit>

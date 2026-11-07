@@ -149,7 +149,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--clang',required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();out=a.output.resolve()
     if not out.is_relative_to(ROOT/'build'):raise ValueError('Output must stay in workspace build')
     out.mkdir(parents=True,exist_ok=True);source=ROOT/'native/csol/server/buy_menu.cpp';body=source.read_text(encoding='utf8');body=re.sub(r'^#include[^\n]*\n','',body,flags=re.M)
-    prelude=PRELUDE.replace('BUY_PROTOCOL_HEADER',(ROOT/'native/csol/buy_menu.hpp').as_posix()).replace('WEAPON_SLOTS_HEADER',(ROOT/'native/csol/weapon_slots.hpp').as_posix())
+    prelude=PRELUDE.replace('BUY_PROTOCOL_HEADER',(ROOT/'native/csol/buy_menu.hpp').as_posix()).replace('WEAPON_SLOTS_HEADER',(ROOT/'native/csol/weapons/weapon_slots.hpp').as_posix())
     cpp=out/'server-fixture.cpp';cpp.write_text(prelude+body+TESTS,encoding='utf8')
     flags=['--target=i686-pc-windows-msvc','/nologo','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3','/clang:-flto=thin','/arch:AVX2','/fp:precise']
     commands=[[a.clang,*flags,'/c',str(cpp),'/Fo'+str(out/'server-fixture.obj')],

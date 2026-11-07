@@ -43,7 +43,7 @@ def production(relative):
 
 # Only the reviewed empty-stat correction may differ from79fc. No other live
 # production path is read. Keep the old source and its identity in the manifest.
-relative='native/csol/scenario/upgrade_tables.cpp';old=Path(frozen[str(Path(relative))]['path']).read_bytes()
+relative='native/csol/scenario/core/upgrade_tables.cpp';old=Path(frozen[str(Path(relative))]['path']).read_bytes()
 before=b'            if (record.fields[stat + 3].empty() || !Number(record.fields[stat + 3], level.values[stat]))'
 after=(b'            // Real levels 31..100 retain XP but leave the five attributes\n'
        b'            // empty. The original atof path reads these as zero.\n'
@@ -55,29 +55,29 @@ copy(delta,relative)
 delta_record={'base':frozen[str(Path(relative))],'corrected':ident(CAND/relative),
     'review':'stat-empty precheck removed; existing Number empty-to-zero conversion unchanged',
     'originalData':'real physical rows31..100 contain blank attributes; XP and all class numeric columns have no empty cells'}
-for relative in ('native/csol/scenario/upgrade_tables.hpp','native/csol/scenario/upgrade_progress.hpp',
-    'native/csol/scenario/upgrade_progress.cpp','native/csol/scenario/resources.cpp',
-    'native/csol/server/scenario_player_upgrades.h','native/csol/server/scenario_player_upgrades.cpp',
-    'native/csol/server/scenario_messages.h','native/csol/server/scenario_messages.cpp',
-    'native/csol/server/game_rules_gate.h'):
+for relative in ('native/csol/scenario/core/upgrade_tables.hpp','native/csol/scenario/core/upgrade_progress.hpp',
+    'native/csol/scenario/core/upgrade_progress.cpp','native/csol/scenario/core/resources.cpp',
+    'native/csol/server/scenario/core/scenario_player_upgrades.h','native/csol/server/scenario/core/scenario_player_upgrades.cpp',
+    'native/csol/server/scenario/core/scenario_messages.h','native/csol/server/scenario/core/scenario_messages.cpp',
+    'native/csol/server/scenario/core/game_rules_gate.h'):
     production(relative)
 
 # Reuse the already-manifested SDK header tree in place: no scan, copy, hardlink
 # or junction of the SDK. Only a few project headers need local relative paths.
 headers={str(Path(r['candidate']['path']).relative_to(WALL/'candidate')):r['candidate'] for r in wall['immutableHeaderLinks']}
-for relative in ('native/csol/config_codec.hpp','native/csol/scenario/config.hpp','native/csol/scenario/difficulty.hpp',
-    'native/csol/scenario/drop_items.hpp','native/csol/scenario/map_resources.hpp','native/csol/scenario/resources.hpp',
-    'native/csol/scenario/monster_types.hpp','native/csol/scenario/trigger_rules.hpp',
-    'native/csol/scenario/spawn_points.hpp','native/csol/scenario/trigger_volumes.hpp'):
+for relative in ('native/csol/config_codec.hpp','native/csol/scenario/core/config.hpp','native/csol/scenario/core/difficulty.hpp',
+    'native/csol/scenario/core/drop_items.hpp','native/csol/scenario/core/map_resources.hpp','native/csol/scenario/core/resources.hpp',
+    'native/csol/scenario/monsters/monster_types.hpp','native/csol/scenario/core/trigger_rules.hpp',
+    'native/csol/scenario/core/spawn_points.hpp','native/csol/scenario/core/trigger_volumes.hpp'):
     row=headers[str(Path(relative))];copy(row['path'],relative,row)
-slot_source=NAV/'candidate/native/csol/server/weapon_slots.h'
+slot_source=NAV/'candidate/native/csol/server/weapons/weapon_slots.h'
 slot=next(row for row in read(NAV/'inputs.json')['inputs'] if row['path']==str(slot_source))
-copy(slot_source,'native/csol/server/weapon_slots.h',slot)
+copy(slot_source,'native/csol/server/weapons/weapon_slots.h',slot)
 existing={r['candidate']['path']:r['candidate'] for r in wall['copies']}
 existing.update({r['output']['path']:r['output'] for r in wall['extractions']})
-for relative in ('native/csol/scenario/difficulty.cpp','native/csol/scenario/wall_damage.hpp','native/csol/scenario/wall_damage.cpp',
-    'native/csol/server/scenario_breakable.h','native/csol/server/scenario_breakable_guard.h',
-    'native/csol/server/scenario_wall_rewards.h','native/csol/server/scenario_wall_rewards.cpp',
+for relative in ('native/csol/scenario/core/difficulty.cpp','native/csol/scenario/core/wall_damage.hpp','native/csol/scenario/core/wall_damage.cpp',
+    'native/csol/server/scenario/core/scenario_breakable.h','native/csol/server/scenario/core/scenario_breakable_guard.h',
+    'native/csol/server/scenario/core/scenario_wall_rewards.h','native/csol/server/scenario/core/scenario_wall_rewards.cpp',
     'tests/csol-scenario-difficulty/support.hpp','tests/csol-scenario-entities/engine_stubs.cpp',
     'external/ReGameDLL_CS/regamedll/dlls/wall-sdk-account.cpp',
     'external/ReGameDLL_CS/regamedll/regamedll/hookchains_impl.cpp'):
@@ -104,11 +104,11 @@ def emit(name,source,start,end,includes):
         'sliceSHA256':hashlib.sha256(part).hexdigest(),'prefix':includes.decode()})
 emit('upgrade-sdk-speed.cpp',Path(frozen[str(Path('external/ReGameDLL_CS/regamedll/dlls/player.cpp'))]['path']),
     b'LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, ResetMaxSpeed)',b'LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, HintMessageEx',
-    b'#include "precompiled.h"\n#include "../../../../native/csol/server/game_rules_gate.h"\n')
+    b'#include "precompiled.h"\n#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"\n')
 emit('upgrade-sdk-rules-base.cpp',SDK/'gamerules.cpp',b'CGameRules *g_pGameRules = nullptr;',b'BOOL CGameRules::CanHaveAmmo(',b'#include "precompiled.h"\n')
-guard=WALL/'candidate/native/csol/server/scenario_breakable_guard.cpp';verify(existing[str(guard)])
+guard=WALL/'candidate/native/csol/server/scenario/core/scenario_breakable_guard.cpp';verify(existing[str(guard)])
 emit('upgrade-sdk-wall-scope.cpp',guard,b'thread_local CSOLBreakableScope*',b'namespace\n{\nclass CSOLScenarioDelayedUse',
-    b'#include "precompiled.h"\n#include "../../../../native/csol/server/scenario_breakable_guard.h"\n#include <utility>\n#include <vector>\n')
+    b'#include "precompiled.h"\n#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"\n#include <utility>\n#include <vector>\n')
 
 resource_evidence=read(ROOT/'analysis/csol-model-20261017/scenario/wall-upgrade-consumer/tables.json')
 resources=[]

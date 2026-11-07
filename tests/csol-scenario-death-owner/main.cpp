@@ -4,10 +4,10 @@
 // effects use actual installed source records and their notification/lifetime.
 // Execute with the complete matched SDK batch, not the old slices.
 #include "../csol-scenario-death-events/fixture.hpp"
-#include "../../native/csol/server/scenario_death_owner.h"
-#include "../../native/csol/server/scenario_player_upgrades.h"
-#include "../../native/csol/server/scenario_monster_effects.h"
-#include "../../native/csol/scenario/monster_rewards.hpp"
+#include "../../native/csol/server/scenario/core/scenario_death_owner.h"
+#include "../../native/csol/server/scenario/core/scenario_player_upgrades.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_effects.h"
+#include "../../native/csol/scenario/monsters/monster_rewards.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstring>

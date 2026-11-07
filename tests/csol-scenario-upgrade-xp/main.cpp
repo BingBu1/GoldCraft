@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_player_upgrades.h"
+#include "../../native/csol/server/scenario/core/scenario_player_upgrades.h"
 #include <bit>
 #include <cstdlib>
 #include <cstring>

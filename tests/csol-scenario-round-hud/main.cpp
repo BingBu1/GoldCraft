@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Production parsers/state/layout are linked separately. No SDK or GL claim.
-#include "native/csol/scenario_round_hud.hpp"
-#include "native/csol/scenario_localization.hpp"
-#include "native/csol/scenario/dialogue_resources.hpp"
-#include "native/csol/scenario/round_clock.hpp"
+#include "native/csol/scenario/core/scenario_round_hud.hpp"
+#include "native/csol/scenario/core/scenario_localization.hpp"
+#include "native/csol/scenario/core/dialogue_resources.hpp"
+#include "native/csol/scenario/core/round_clock.hpp"
 #include "native/csol/config_codec.hpp"
 #include <algorithm>
 #include <bit>

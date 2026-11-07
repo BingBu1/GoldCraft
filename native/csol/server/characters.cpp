@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "characters.h"
-#include "weapon_service.h"
-#include "weapon_slots.h"
-#include "game_rules_gate.h"
+#include "weapons/weapon_service.h"
+#include "weapons/weapon_slots.h"
+#include "scenario/core/game_rules_gate.h"
 #include "../character_catalog.hpp"
 #include "../character_protocol.hpp"
 #include "../hud_style.hpp"

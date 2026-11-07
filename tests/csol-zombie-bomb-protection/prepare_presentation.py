@@ -62,20 +62,20 @@ def prepare(kind):
   def take(rel,sig):
    r=files[rel];p=Path(r['path']);assert row(p)['sha256']==r['sha256'];start,end,b=extract.function(p.read_bytes(),sig.encode())
    pieces.append(dict(source=r,signature=sig,begin=start,end=end,sha256=hashlib.sha256(b).hexdigest()));return b+b'\n'
-  runtime='native/csol/server/scenario_player_runtime.cpp';weapons='native/csol/server/scenario_weapon_state.cpp'
+  runtime='native/csol/server/scenario/core/scenario_player_runtime.cpp';weapons='native/csol/server/weapons/scenario_weapon_state.cpp'
   body=('#include "'+(dest/'source/tests/csol-zombie-bomb-protection/fixture.hpp').as_posix()+'"\n').encode()
   body+=b'namespace {\n'+take(weapons,'bool Live(')+take(weapons,'CBasePlayerWeapon* Active(')+b'}\n'
   for sig in ['CCSOLScenarioWeaponState::AttributeRecord::AttributeRecord(AttributeCounters&','CCSOLScenarioWeaponState::AttributeRecord::AttributeRecord(const AttributeRecord&','CCSOLScenarioWeaponState::AttributeRecord::~AttributeRecord(','CCSOLScenarioWeaponState::CCSOLScenarioWeaponState(','const CCSOLScenarioWeaponState::Weapon* CCSOLScenarioWeaponState::Find(','CCSOLScenarioWeaponState::Weapon* CCSOLScenarioWeaponState::Edit(','bool CCSOLScenarioWeaponState::SetParts(','std::array<std::uint32_t, 2> CCSOLScenarioWeaponState::Parts(','bool CCSOLScenarioWeaponState::ReplacePartEffects(','void CCSOLScenarioWeaponState::AppendParts(','bool CCSOLScenarioWeaponState::CollectPlayerParts(']:body+=take(weapons,sig)
   for sig in ['std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Resolve(','std::shared_ptr<const CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Find(','void CCSOLScenarioPlayerRuntime::PlayerSpawnStarted(','bool CCSOLScenarioPlayerRuntime::CheckMonsterAddon13(']:body+=take(runtime,sig)
-  body+=b'namespace csol::scenario {\n'+take('native/csol/scenario/equipment.cpp','float EquipmentAddon::Parameter(')+b'}\n'
-  for file in [files['native/csol/server/scenario_player_bomb_protection.cpp']['path'],str(dest/'source/tests/csol-zombie-bomb-protection/edges.inc'),str(dest/'source/tests/csol-zombie-bomb-protection/presentation_server.inc')]:body+=('#include "'+Path(file).as_posix()+'"\n').encode()
+  body+=b'namespace csol::scenario {\n'+take('native/csol/scenario/core/equipment.cpp','float EquipmentAddon::Parameter(')+b'}\n'
+  for file in [files['native/csol/server/scenario/core/scenario_player_bomb_protection.cpp']['path'],str(dest/'source/tests/csol-zombie-bomb-protection/edges.inc'),str(dest/'source/tests/csol-zombie-bomb-protection/presentation_server.inc')]:body+=('#include "'+Path(file).as_posix()+'"\n').encode()
   main=dest/'main.cpp';main.write_bytes(body);added.append(row(main));save(dest/'extraction.json',pieces)
   compile('fixture',main);compile('engine',Path(files[extra[0]]['path']));compile('player',Path(files[extra[1]]['path']))
-  compile('messages',Path(files['native/csol/server/scenario_messages.cpp']['path']));compile('sdk_bomb',Path(files['native/csol/server/scenario_player_bomb_protection.cpp']['path']))
+  compile('messages',Path(files['native/csol/server/scenario/core/scenario_messages.cpp']['path']));compile('sdk_bomb',Path(files['native/csol/server/scenario/core/scenario_player_bomb_protection.cpp']['path']))
   compile('damage_numbers',Path(files['native/csol/server/damage_numbers.cpp']['path']))
   link('server',['fixture','engine','player','messages','damage_numbers'])
  else:
-  for name,rel in [('attachments','native/csol/client/scenario_effects.cpp'),('overlay','native/csol/client/character_skill_display.cpp'),('images','native/csol/image_codec.cpp'),('attachment_fixture','tests/csol-zombie-bomb-protection/presentation_client.cpp'),('overlay_fixture','tests/csol-zombie-bomb-protection/presentation_overlay.cpp')]:
+  for name,rel in [('attachments','native/csol/client/scenario/core/scenario_effects.cpp'),('overlay','native/csol/client/character_skill_display.cpp'),('images','native/csol/image_codec.cpp'),('attachment_fixture','tests/csol-zombie-bomb-protection/presentation_client.cpp'),('overlay_fixture','tests/csol-zombie-bomb-protection/presentation_overlay.cpp')]:
    if rel not in files:raise RuntimeError(rel)
    compile(name,Path(files[rel]['path']))
   link('attachment',['attachments','attachment_fixture']);link('overlay',['overlay','images','overlay_fixture'])

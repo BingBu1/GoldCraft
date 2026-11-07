@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Real core and separately compiled consumers; engine message/time edges are fixtures.
 #include "native/csol/client/runtime.hpp"
-#include "native/csol/client/scenario_abilities.hpp"
-#include "native/csol/client/scenario_upgrades.hpp"
-#include "native/csol/scenario_abilities.hpp"
-#include "native/csol/scenario_upgrades.hpp"
+#include "native/csol/client/scenario/core/scenario_abilities.hpp"
+#include "native/csol/client/scenario/core/scenario_upgrades.hpp"
+#include "native/csol/scenario/core/scenario_abilities.hpp"
+#include "native/csol/scenario/core/scenario_upgrades.hpp"
 #include <bit>
 #include <cmath>
 #include <iostream>

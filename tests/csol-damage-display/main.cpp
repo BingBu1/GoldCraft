@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Source prepared only: execution must be scheduled with the coordinator.
-#include "../../native/csol/client/damage_numbers.hpp"
+#include "../../native/csol/client/scenario/core/damage_numbers.hpp"
 #include "../../native/csol/server/damage_numbers.h"
 
 #include <algorithm>

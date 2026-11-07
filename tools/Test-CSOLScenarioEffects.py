@@ -42,17 +42,17 @@ def main():
         '/Gy', '/Gw', '/DNDEBUG', '/DNOMINMAX', '/D_CRT_SECURE_NO_WARNINGS',
         '/DNO_MALLOC_OVERRIDE', '/DGLEW_STATIC', '/DGLEW_NO_GLU']
     units = {
-        'kill-state': 'native/csol/scenario_kill.cpp',
+        'kill-state': 'native/csol/scenario/core/scenario_kill.cpp',
         'kill-state-test': 'tests/csol-scenario-kill/main.cpp',
-        'kill-client': 'native/csol/client/scenario_kill.cpp',
+        'kill-client': 'native/csol/client/scenario/core/scenario_kill.cpp',
         'kill-client-test': 'tests/csol-scenario-kill/client.cpp',
         'image': 'native/csol/image_codec.cpp',
-        'healing-client': 'native/csol/client/scenario_effects.cpp',
+        'healing-client': 'native/csol/client/scenario/core/scenario_effects.cpp',
         'healing-client-test': 'tests/csol-scenario-monster-healing/client.cpp',
     }
     inputs = set(units.values()) | {
-        'native/csol/scenario_kill.hpp', 'native/csol/scenario_healing.hpp',
-        'native/csol/client/scenario_kill.hpp', 'native/csol/client/scenario_effects.hpp',
+        'native/csol/scenario/core/scenario_kill.hpp', 'native/csol/scenario/core/scenario_healing.hpp',
+        'native/csol/client/scenario/core/scenario_kill.hpp', 'native/csol/client/scenario/core/scenario_effects.hpp',
         'native/csol/client/runtime.hpp', 'native/csol/image_codec.hpp',
         'tests/csol-scenario-kill/original-expectations.hpp'}
 

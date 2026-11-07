@@ -2,11 +2,11 @@ cmake_minimum_required(VERSION 3.24)
 project(GoldCraftCSOLScenario LANGUAGES CXX)
 
 add_library(csol_scenario_config STATIC
-    config.cpp spawn_points.cpp waves.cpp controller.cpp schedule.cpp resources.cpp map_resources.cpp monster_types.cpp
-    trigger_rules.cpp chaos_routes.cpp trigger_program.cpp trigger_wave_actions.cpp trigger_round.cpp map_catalog.cpp wave_events.cpp
-    message_table.cpp message_resource.cpp monster_attributes.cpp monster_appearances.cpp monster_sequences.cpp
-    monster_damage.cpp monster_death.cpp round_settings.cpp death_rules.cpp drop_items.cpp difficulty.cpp difficulty_monsters.cpp navigation.cpp wall_damage.cpp upgrade_tables.cpp upgrade_progress.cpp
-    equipment.cpp equipment_resources.cpp monster_rewards.cpp golden.cpp damage_display_modes.cpp feature3.cpp)
+    core/config.cpp core/spawn_points.cpp core/waves.cpp core/controller.cpp core/schedule.cpp core/resources.cpp core/map_resources.cpp monsters/monster_types.cpp
+    core/trigger_rules.cpp core/chaos_routes.cpp core/trigger_program.cpp core/trigger_wave_actions.cpp core/trigger_round.cpp core/map_catalog.cpp core/wave_events.cpp
+    core/message_table.cpp core/message_resource.cpp monsters/monster_attributes.cpp monsters/monster_appearances.cpp monsters/monster_sequences.cpp
+    monsters/monster_damage.cpp monsters/monster_death.cpp core/round_settings.cpp core/death_rules.cpp core/drop_items.cpp core/difficulty.cpp monsters/difficulty_monsters.cpp core/navigation.cpp core/wall_damage.cpp core/upgrade_tables.cpp core/upgrade_progress.cpp
+    core/equipment.cpp core/equipment_resources.cpp monsters/monster_rewards.cpp monsters/golden.cpp core/damage_display_modes.cpp core/feature3.cpp)
 target_compile_features(csol_scenario_config PUBLIC cxx_std_20)
 target_include_directories(csol_scenario_config PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 find_path(CSOL_SCENARIO_RAPIDJSON_INCLUDE_DIR rapidjson/document.h

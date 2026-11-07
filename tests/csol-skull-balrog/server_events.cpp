@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Complete production TU and real ReGameDLL objects; controlled engine exits.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/wpn_balrog11.cpp"
+#include "../../native/csol/server/weapons/wpn_balrog11.cpp"
 
 namespace regression {
 using namespace sdk_test;

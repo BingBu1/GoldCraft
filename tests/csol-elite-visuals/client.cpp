@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Production message consumer/update/draw, with SDK and triangle API boundaries.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/elite_visuals.hpp"
-#include "../../native/csol/elite_visual_protocol.hpp"
+#include "../../native/csol/client/scenario/monsters/elite_visuals.hpp"
+#include "../../native/csol/scenario/monsters/elite_visual_protocol.hpp"
 #include <triangleapi.h>
 #include <algorithm>
 #include <bit>

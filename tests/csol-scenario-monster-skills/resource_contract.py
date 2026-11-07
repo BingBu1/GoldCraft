@@ -55,7 +55,7 @@ def rejects(name, file, transform, exception=ValueError):
         else: raise AssertionError('accepted malformed contract: '+name)
     finally: path.write_bytes(original)
 
-bomb = 'native/csol/server/scenario_zombie_bomb.h'
+bomb = 'native/csol/server/scenario/monsters/scenario_zombie_bomb.h'
 parts = 'native/csol/scenario_part_effects.hpp'
 rejects('missing model symbol', bomb, lambda s:s.replace('CSOLZombieBombModel =','MissingModel ='))
 rejects('missing second bounce', bomb, lambda s:s.replace(', "zombi/Zombi_Bomb_Bounce_2.wav"',''))

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario_kill.hpp"
+#include "../../native/csol/scenario/core/scenario_kill.hpp"
 #include "original-expectations.hpp"
 #include <cstdio>
 #include <limits>

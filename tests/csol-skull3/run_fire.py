@@ -59,7 +59,7 @@ def main():
     payload = ''.join(' '.join(map(str, row)) + '\n' for row in rows)
     (out / 'input.txt').write_text(payload, encoding='utf8')
     inputs = []
-    for relative in ('native/csol/skull3.hpp', 'tests/csol-skull3/fire.cpp'):
+    for relative in ('native/csol/weapons/skull3.hpp', 'tests/csol-skull3/fire.cpp'):
         source = ROOT / relative
         frozen = out / 'source' / relative
         frozen.parent.mkdir(parents=True, exist_ok=True)

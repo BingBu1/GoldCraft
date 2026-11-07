@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Production MapResources with the exact GoldSrc load/free function signatures.
 // The engine fixture appends a NUL outside the reported encrypted length.
-#include "map_resources.hpp"
+#include "../../native/csol/scenario/core/map_resources.hpp"
 
 #include <algorithm>
 #include <cstring>

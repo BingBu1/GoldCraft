@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/trigger_round.hpp"
-#include "../../native/csol/scenario/round_settings.hpp"
-#include "../../native/csol/scenario/resources.hpp"
-#include "../../native/csol/scenario/monster_types.hpp"
-#include "../../native/csol/scenario/map_support.hpp"
-#include "../../native/csol/scenario/automatic_respawn.hpp"
+#include "../../native/csol/scenario/core/trigger_round.hpp"
+#include "../../native/csol/scenario/core/round_settings.hpp"
+#include "../../native/csol/scenario/core/resources.hpp"
+#include "../../native/csol/scenario/monsters/monster_types.hpp"
+#include "../../native/csol/scenario/core/map_support.hpp"
+#include "../../native/csol/scenario/core/automatic_respawn.hpp"
 #include <cmath>
 #include <filesystem>
 #include <fstream>

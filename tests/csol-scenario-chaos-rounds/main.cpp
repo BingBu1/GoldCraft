@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/config.hpp"
-#include "../../native/csol/scenario/round_settings.hpp"
-#include "../../native/csol/scenario/monster_attributes.hpp"
+#include "../../native/csol/scenario/core/config.hpp"
+#include "../../native/csol/scenario/core/round_settings.hpp"
+#include "../../native/csol/scenario/monsters/monster_attributes.hpp"
 #include "../../native/csol/config_codec.hpp"
 
 #include <array>

@@ -2,10 +2,10 @@
 #include "precompiled.h"
 #include "slow_wall.hpp"
 #include "host_notifications.hpp"
-#include "../scenario_player_runtime.h"
-#include "../scenario_session.h"
-#include "../scenario_monster_pool.h"
-#include "../game_rules_gate.h"
+#include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_session.h"
+#include "../scenario/monsters/scenario_monster_pool.h"
+#include "../scenario/core/game_rules_gate.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>

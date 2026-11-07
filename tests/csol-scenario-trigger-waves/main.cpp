@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Real program -> adapter -> controller/schedule; observers only are captures.
-#include "trigger_wave_actions.hpp"
-#include "resources.hpp"
+#include "../../native/csol/scenario/core/trigger_wave_actions.hpp"
+#include "../../native/csol/scenario/core/resources.hpp"
 
 #include <algorithm>
 #include <bit>

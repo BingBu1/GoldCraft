@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Inspect static registration in the exact linked DLL after normal CRT loading.
 // RVAs and private Registry offsets come from its matching PDB, never fixed game offsets.
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>

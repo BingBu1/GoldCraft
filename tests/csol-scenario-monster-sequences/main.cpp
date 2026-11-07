@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/monster_sequences.hpp"
+#include "../../native/csol/scenario/monsters/monster_sequences.hpp"
 #include <array>
 #include <bit>
 #include <cstddef>

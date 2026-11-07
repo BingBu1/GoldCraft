@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse,hashlib,json
 p=argparse.ArgumentParser();p.add_argument('source',type=Path);p.add_argument('output',type=Path);a=p.parse_args()
-path=a.source.resolve()/'native/csol/server/weapon_service.cpp';data=path.read_bytes();text=data.decode('utf8')
+path=a.source.resolve()/'native/csol/server/weapons/weapon_service.cpp';data=path.read_bytes();text=data.decode('utf8')
 chunks=[];classes=[]
 for signature in ('bool ShopHuman(','class WeaponPurchaseGuard {','class CannonPurchaseBackup {'):
     start=text.index(signature);brace=text.index('{',start);end=brace+1;depth=1

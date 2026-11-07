@@ -2,7 +2,7 @@
 // Complete production weapon TU, actual ReGameDLL owners and engine ABI.
 // The runner grants test-only access to the pending state; no method is replaced.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/wpn_melee.cpp"
+#include "../../native/csol/server/weapons/wpn_melee.cpp"
 #include <tuple>
 
 namespace {

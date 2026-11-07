@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exercise real message decoders, inventory commits and title selection.
-#include "../../native/csol/client/weapon_inventory.cpp"
-#include "../../native/csol/weapon_slots.cpp"
+#include "../../native/csol/client/weapons/weapon_inventory.cpp"
+#include "../../native/csol/weapons/weapon_slots.cpp"
 #include <iostream>
 namespace csol::client {
 cl_enginefunc_t engine{};cl_exportfuncs_t downstream{};ref_params_t view{};metahook_api_t* api{};

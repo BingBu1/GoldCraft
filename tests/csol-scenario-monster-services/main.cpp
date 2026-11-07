@@ -3,15 +3,15 @@
 // services. DamageProbe throws on EVERY method: positive cases establish only
 // construction/registration and never claim an implemented damage/AI chain.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_monster_services.h"
-#include "../../native/csol/server/scenario_death_services.h"
-#include "../../native/csol/server/scenario_wave_services.h"
-#include "../../native/csol/server/scenario_runtime.h"
-#include "../../native/csol/server/scenario_gameplay.h"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_monster_effects.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_services.h"
+#include "../../native/csol/server/scenario/core/scenario_death_services.h"
+#include "../../native/csol/server/scenario/core/scenario_wave_services.h"
+#include "../../native/csol/server/scenario/core/scenario_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_gameplay.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_effects.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
 #include "../csol-scenario-navigation-loader/support.hpp"
 
 namespace

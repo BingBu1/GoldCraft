@@ -2,7 +2,7 @@
 // Link the real status consumer and session.cpp. Only host callbacks and the
 // drawing boundary are controlled; the production parser/state/layout run.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/status_icons.hpp"
+#include "../../native/csol/client/scenario/core/status_icons.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>

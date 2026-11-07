@@ -4,8 +4,8 @@
 #define main ExistingWeaponChecks
 #include "../csol-weapon-slots/client.cpp"
 #undef main
-#include "../../native/csol/client/k3.hpp"
-#include "../../native/csol/k3.hpp"
+#include "../../native/csol/client/weapons/k3.hpp"
+#include "../../native/csol/weapons/k3.hpp"
 #include <pm_defs.h>
 #include <cmath>
 #include <tuple>

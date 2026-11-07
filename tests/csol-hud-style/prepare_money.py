@@ -89,8 +89,8 @@ def main():
         'tests/csol-hud-style/weapon_state.cpp','tests/csol-hud-style/prepare.py',
         'tests/csol-hud-style/prepare_money.py','tests/csol-hud-style/README.md',
         'native/csol/hud_style.cpp','native/csol/image_codec.cpp',
-        'native/csol/client/weapons.cpp','native/csol/client/beamgun.cpp',
-        'native/csol/client/weapon_inventory.cpp','native/csol/client/k3.cpp','native/csol/client/cannon.cpp']
+        'native/csol/client/weapons/weapons.cpp','native/csol/client/weapons/beamgun.cpp',
+        'native/csol/client/weapons/weapon_inventory.cpp','native/csol/client/weapons/k3.cpp','native/csol/client/weapons/cannon.cpp']
     pending = [ROOT/name for name in roots]
     sources, copied = [], set()
 
@@ -126,7 +126,7 @@ def main():
     generated = source/'tests/csol-hud-style/generated'
     generated.mkdir()
     spans, generated_inputs = [], []
-    native_path = source/'native/csol/client/weapons.cpp'
+    native_path = source/'native/csol/client/weapons/weapons.cpp'
     raw = native_path.read_bytes()
     start = raw.index(b'struct NativeVitalRun\r\n') if b'struct NativeVitalRun\r\n' in raw else raw.index(b'struct NativeVitalRun\n')
     end = raw.index(b'int nativeAmmoWeapon{};',start)
@@ -138,23 +138,23 @@ def main():
         byteStart=start,byteEnd=end,firstLine=raw[:start].count(b'\n')+1,lastLine=raw[:end].count(b'\n'),
         bytes=len(section),sha256=hashlib.sha256(section).hexdigest())],generated=identity(state_path)))
     for name,relative,signatures in [
-        ('native_draw.inc','native/csol/client/weapons.cpp',
+        ('native_draw.inc','native/csol/client/weapons/weapons.cpp',
             ['bool Matches(', 'bool NativeMoneySprite(', 'int MoneySpriteY(', 'bool Inside(',
                 'void PrepareStyledNativeAmmo(', 'bool HideStyledSprite(', 'void DrawSprite(', 'void Fill(']),
         ('server_precache.inc','native/csol/server/characters.cpp',['std::string Load(', 'void PrecacheHudStyle(']),
-        ('beam_hud.inc','native/csol/client/beamgun.cpp',['void DrawBeamgunHUD(']),
-        ('inventory_state.inc','native/csol/client/weapon_inventory.cpp',
+        ('beam_hud.inc','native/csol/client/weapons/beamgun.cpp',['void DrawBeamgunHUD(']),
+        ('inventory_state.inc','native/csol/client/weapons/weapon_inventory.cpp',
             ['std::span<const std::byte> Bytes(', 'int Definition(', 'int Current(',
              'void ObserveLegacyWeaponDefinition(', 'void ObserveSelectionAmmo(', 'void ObserveSelectionClip(',
              'int WeaponReserveAmmo(', 'const WeaponDefinition* FindWeaponDefinition(',
              'const WeaponCurrent& CurrentExtendedWeapon(', 'bool ExtendedWeaponActive(']),
-        ('weapon_state.inc','native/csol/client/weapons.cpp',
+        ('weapon_state.inc','native/csol/client/weapons/weapons.cpp',
             ['bool Custom(', 'bool K3Active(', 'void ApplyNativeWeaponVisibility(', 'int AmmoTotal(',
              'int CurWeapon(', 'int Ammo(', 'void ReceiveExtendedWeaponDefinition(',
              'void ReceiveExtendedWeaponState(', 'hud_style::WeaponState CurrentWeaponHudState(']),
-        ('k3_state.inc','native/csol/client/k3.cpp',
+        ('k3_state.inc','native/csol/client/weapons/k3.cpp',
             ['void ResetK3(', 'void ReceiveK3State(', 'int K3PredictedAmmo(', 'int K3PredictedReserve(']),
-        ('cannon_state.inc','native/csol/client/cannon.cpp',
+        ('cannon_state.inc','native/csol/client/weapons/cannon.cpp',
             ['void ReceiveCannonState(', 'int CannonPredictedAmmo('])]:
         section, function_rows = functions(source/relative,signatures)
         path = generated/name
@@ -182,9 +182,9 @@ def main():
     jobs = []
     for name,relative in [('pure','tests/csol-hud-style/pure.cpp'),('client','tests/csol-hud-style/client.cpp'),
         ('contracts','tests/csol-hud-style/contracts.cpp'),('style','native/csol/hud_style.cpp'),
-        ('codec','native/csol/image_codec.cpp'),('weapons-full-tu','native/csol/client/weapons.cpp'),
-        ('beamgun-full-tu','native/csol/client/beamgun.cpp'),('level','tests/csol-hud-style/level.cpp'),
-        ('weapon_state','tests/csol-hud-style/weapon_state.cpp'),('inventory-full-tu','native/csol/client/weapon_inventory.cpp')]:
+        ('codec','native/csol/image_codec.cpp'),('weapons-full-tu','native/csol/client/weapons/weapons.cpp'),
+        ('beamgun-full-tu','native/csol/client/weapons/beamgun.cpp'),('level','tests/csol-hud-style/level.cpp'),
+        ('weapon_state','tests/csol-hud-style/weapon_state.cpp'),('inventory-full-tu','native/csol/client/weapons/weapon_inventory.cpp')]:
         jobs.append(dict(name='compile-'+name,kind='compile',seconds=120,expectExit=0,
             command=[compiler,*flags,'/showIncludes','-I'+str(source),'/Fo'+str(output/(name+'.obj')),
                 '/Fd'+str(output/(name+'.compile.pdb')),'-c','--',str(source/relative)]))
@@ -208,8 +208,8 @@ def main():
         maxSeconds=900,output=str(output),compileFlags=flags,selectedGroup='hud-money',
         previousProposal=identity(previous/'proposal.json'),previousResult=identity(previous/'result.json'),
         resourceRoot=str(resources),resourceInputs=identity(out/'resource-inputs.json'),productionSpans=identity(out/'production-spans.json'),
-        fullTranslationUnits=['client/hud_style.cpp','client/weapons.cpp','client/beamgun.cpp','client/weapon_inventory.cpp',
-            'client/scenario_upgrades.cpp','scenario_upgrades.cpp','weapon_slots.cpp'],
+        fullTranslationUnits=['client/hud_style.cpp','client/weapons/weapons.cpp','client/weapons/beamgun.cpp','client/weapons/weapon_inventory.cpp',
+            'client/scenario/core/scenario_upgrades.cpp','scenario_upgrades.cpp','weapon_slots.cpp'],
         serverBoundary='Exact Load/PrecacheHudStyle spans with controlled engine callbacks; not full server DLL',
         reusedObjects=0,compiled=False,deployed=False)
     for name in ('reusedClient','newLocalization','preservedFailedParserAttempt','previousFailure',

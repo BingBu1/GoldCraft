@@ -2,10 +2,10 @@
 // Real round-HUD receiver, local-text scheduler and fade state. The downstream
 // effects dispatcher and absent graphics surface are explicit test boundaries.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/wall_upgrade_hud.hpp"
+#include "../../native/csol/client/scenario/core/wall_upgrade_hud.hpp"
 namespace fixture { ULONGLONG WINAPI Tick(); }
 #define GetTickCount64 fixture::Tick
-#include "../../native/csol/client/scenario_round_hud_client.cpp"
+#include "../../native/csol/client/scenario/core/scenario_round_hud_client.cpp"
 #undef GetTickCount64
 #include <VGUI/ILocalize.h>
 #include <fstream>

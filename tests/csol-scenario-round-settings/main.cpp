@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/round_settings.hpp"
-#include "../../native/csol/scenario/resources.hpp"
+#include "../../native/csol/scenario/core/round_settings.hpp"
+#include "../../native/csol/scenario/core/resources.hpp"
 
 #include <array>
 #include <fstream>

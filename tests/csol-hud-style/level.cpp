@@ -2,8 +2,8 @@
 // Complete upgrade consumer and state. VGUI/engine boundaries are controlled;
 // this checks original layer ownership and coordinates, not GPU/font pixels.
 namespace csol::client { bool HudStyleLevelVisible(); }
-#include "native/csol/client/scenario_upgrades.cpp"
-#include "native/csol/scenario_upgrades.cpp"
+#include "native/csol/client/scenario/core/scenario_upgrades.cpp"
+#include "native/csol/scenario/core/scenario_upgrades.cpp"
 #include "tests/csol-hud-style/surface_stub.hpp"
 #include <cstring>
 #include <iostream>

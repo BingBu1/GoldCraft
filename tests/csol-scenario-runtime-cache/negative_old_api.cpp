@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Expected to fail against preserved old production. This is never a product target.
-#include "controller.hpp"
+#include "../../native/csol/scenario/core/controller.hpp"
 #include <iostream>
 using namespace csol::scenario;
 int main()

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "trigger_round.hpp"
-#include "resources.hpp"
+#include "../../native/csol/scenario/core/trigger_round.hpp"
+#include "../../native/csol/scenario/core/resources.hpp"
 
 #include <algorithm>
 #include <bit>

@@ -2,10 +2,10 @@
 // Links complete production inventory, pickup and death-notice translation
 // units. Only engine callbacks are controlled; no rendered-pixel claim.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/weapon_inventory.hpp"
+#include "../../native/csol/client/weapons/weapon_inventory.hpp"
 #include "../../native/csol/client/pickup_history.hpp"
-#include "../../native/csol/client/death_notices.hpp"
-#include "../../native/csol/weapon_resources.hpp"
+#include "../../native/csol/client/scenario/core/death_notices.hpp"
+#include "../../native/csol/weapons/weapon_resources.hpp"
 #include <algorithm>
 #include <cstring>
 #include <filesystem>

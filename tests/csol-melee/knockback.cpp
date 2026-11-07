@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Production predicates are extracted verbatim. Entity access, lease validity,
 // vectors and monster state are controlled boundaries, not the SDK ABI.
-#include "native/csol/melee_identity.hpp"
-#include "native/csol/melee_resources.hpp"
+#include "native/csol/weapons/melee_identity.hpp"
+#include "native/csol/weapons/melee_resources.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstring>

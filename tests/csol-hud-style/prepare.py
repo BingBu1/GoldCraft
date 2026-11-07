@@ -78,7 +78,7 @@ def main():
     roots = ['tests/csol-hud-style/pure.cpp','tests/csol-hud-style/client.cpp',
         'tests/csol-hud-style/contracts.cpp','tests/csol-hud-style/prepare.py','tests/csol-hud-style/README.md',
         'native/csol/hud_style.cpp','native/csol/image_codec.cpp',
-        'native/csol/client/weapons.cpp','native/csol/client/beamgun.cpp']
+        'native/csol/client/weapons/weapons.cpp','native/csol/client/weapons/beamgun.cpp']
     pending = [ROOT/name for name in roots]
     sources, copied = [], set()
     while pending:
@@ -117,7 +117,7 @@ def main():
     generated = source/'tests/csol-hud-style/generated'
     generated.mkdir()
     spans,generated_inputs=[],[]
-    native_path=source/'native/csol/client/weapons.cpp'
+    native_path=source/'native/csol/client/weapons/weapons.cpp'
     native_raw=native_path.read_bytes()
     start=native_raw.index(b'struct NativeVitalRun\r\n') if b'struct NativeVitalRun\r\n' in native_raw else native_raw.index(b'struct NativeVitalRun\n')
     end=native_raw.index(b'int nativeAmmoWeapon{};',start)
@@ -127,10 +127,10 @@ def main():
         byteStart=start,byteEnd=end,firstLine=native_raw[:start].count(b'\n')+1,lastLine=native_raw[:end].count(b'\n'),
         bytes=len(state),sha256=hashlib.sha256(state).hexdigest())],generated=identity(state_path)))
     for name,relative,signatures in [
-        ('native_draw.inc','native/csol/client/weapons.cpp',
+        ('native_draw.inc','native/csol/client/weapons/weapons.cpp',
             ['bool Matches(', 'int MoneySpriteY(', 'bool Inside(', 'void PrepareStyledNativeAmmo(', 'bool HideStyledSprite(', 'void Fill(']),
         ('server_precache.inc','native/csol/server/characters.cpp',['std::string Load(', 'void PrecacheHudStyle(']),
-        ('beam_hud.inc','native/csol/client/beamgun.cpp',['void DrawBeamgunHUD('])]:
+        ('beam_hud.inc','native/csol/client/weapons/beamgun.cpp',['void DrawBeamgunHUD('])]:
         raw,functions=extract(source/relative,signatures)
         path=generated/name;path.write_bytes(raw)
         generated_inputs.append(identity(path))
@@ -165,8 +165,8 @@ def main():
     jobs=[]
     for name,relative in [('pure','tests/csol-hud-style/pure.cpp'),('client','tests/csol-hud-style/client.cpp'),
         ('contracts','tests/csol-hud-style/contracts.cpp'),('style','native/csol/hud_style.cpp'),
-        ('codec','native/csol/image_codec.cpp'),('weapons-full-tu','native/csol/client/weapons.cpp'),
-        ('beamgun-full-tu','native/csol/client/beamgun.cpp')]:
+        ('codec','native/csol/image_codec.cpp'),('weapons-full-tu','native/csol/client/weapons/weapons.cpp'),
+        ('beamgun-full-tu','native/csol/client/weapons/beamgun.cpp')]:
         jobs.append(dict(name='compile-'+name,kind='compile',seconds=120,expectExit=0,
             command=[compiler,*flags,'/showIncludes','-I'+str(source),'/Fo'+str(output/(name+'.obj')),
                 '/Fd'+str(output/(name+'.compile.pdb')),'-c','--',str(source/relative)]))
@@ -191,7 +191,7 @@ def main():
         maxSeconds=900,output=str(output),compileFlags=flags,selectedGroup='hud-style',
         previousProposal=identity(previous/'proposal.json'),previousResult=identity(previous/'result.json'),
         resourceRoot=str(resources),resourceInputs=identity(out/'resource-inputs.json'),productionSpans=identity(out/'production-spans.json'),
-        fullTranslationUnits=['client/hud_style.cpp','client/weapons.cpp','client/beamgun.cpp'],
+        fullTranslationUnits=['client/hud_style.cpp','client/weapons/weapons.cpp','client/weapons/beamgun.cpp'],
         serverBoundary='Exact Load/PrecacheHudStyle spans, controlled engine file/precache callbacks; not full server DLL',
         reusedObjects=0,compiled=False,deployed=False)
     for name in ('reusedClient','newLocalization','preservedFailedParserAttempt','previousFailure'):

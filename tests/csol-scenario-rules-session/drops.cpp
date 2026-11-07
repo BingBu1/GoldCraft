@@ -2,12 +2,12 @@
 // Component integration in the complete SDK executable. Engine edges are
 // controlled; no fake UTIL_Remove, player class, Session or entity dispatch.
 #include "sdk_engine.hpp"
-#include "../../native/csol/server/scenario_drops.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
-#include "../../native/csol/server/scenario_entity_lookup.h"
-#include "../../native/csol/server/scenario_monster_factory.h"
-#include "../../native/csol/server/scenario_weapon_state.h"
+#include "../../native/csol/server/scenario/core/scenario_drops.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
+#include "../../native/csol/server/scenario/core/scenario_entity_lookup.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_factory.h"
+#include "../../native/csol/server/weapons/scenario_weapon_state.h"
 #include "../csol-scenario-navigation-loader/support.hpp"
 #include <set>
 

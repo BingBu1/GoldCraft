@@ -2,10 +2,10 @@
 // Real SDK map/smoke/grenade factories, source resolver and damage callback. Only the
 // engine services and the enclosing damage host are controlled boundaries.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_session.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
 #include "../../native/csol/server/scenario_character_skills/damage.hpp"
-#include "../../native/csol/server/weapons.h"
+#include "../../native/csol/server/weapons/weapons.h"
 
 using csol::scenario::ConfigError;
 using namespace csol::scenario::skills;

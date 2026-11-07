@@ -1,6 +1,6 @@
 #include "precompiled.h"
 #include "objects.h"
-#include "../csol/server/weapons.h"
+#include "../csol/server/weapons/weapons.h"
 #include <algorithm>
 #include <map>
 

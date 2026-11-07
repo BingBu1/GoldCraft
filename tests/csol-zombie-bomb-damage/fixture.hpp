@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_zombie_bomb.h"
-#include "../../native/csol/server/scenario_player_impulse.h"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_monster_skills.h"
-#include "../../native/csol/server/scenario_runtime.h"
-#include "../../native/csol/server/game_rules_gate.h"
+#include "../../native/csol/server/scenario/monsters/scenario_zombie_bomb.h"
+#include "../../native/csol/server/scenario/core/scenario_player_impulse.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_skills.h"
+#include "../../native/csol/server/scenario/core/scenario_runtime.h"
+#include "../../native/csol/server/scenario/core/game_rules_gate.h"
 #include <bit>
 #include <cstdlib>
 #include <functional>

@@ -2,12 +2,12 @@
 // Complete SDK components with controlled engine edges. Selection only hosts
 // the real player authority; these cases do not install combat or a manager.
 #include "sdk_engine.hpp"
-#include "../../native/csol/server/scenario_player_runtime.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
-#include "../../native/csol/server/scenario_trigger.h"
-#include "../../native/csol/server/scenario_breakable_guard.h"
-#include "../../native/csol/server/scenario_breakable.h"
-#include "../../native/csol/server/scenario_entity_lookup.h"
+#include "../../native/csol/server/scenario/core/scenario_player_runtime.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_trigger.h"
+#include "../../native/csol/server/scenario/core/scenario_breakable_guard.h"
+#include "../../native/csol/server/scenario/core/scenario_breakable.h"
+#include "../../native/csol/server/scenario/core/scenario_entity_lookup.h"
 #include "../csol-scenario-difficulty/support.hpp"
 #include <bit>
 #include <limits>

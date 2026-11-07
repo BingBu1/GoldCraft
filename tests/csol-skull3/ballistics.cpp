@@ -4,7 +4,7 @@
 #define main Skull3UnusedShieldMain
 #include "../csol-monster-shield/server.cpp"
 #undef main
-#include "../../native/csol/server/skull3_ballistics.cpp"
+#include "../../native/csol/server/weapons/skull3_ballistics.cpp"
 #include <bit>
 
 namespace skull3_ballistics_test

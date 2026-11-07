@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "../scenario/config.hpp"
+#include "../scenario/core/config.hpp"
 
 // State owned by one installed character ability. These are logical fields,
 // not the original private ABI. Repeated combat preparation must not recreate

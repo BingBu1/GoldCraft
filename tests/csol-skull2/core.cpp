@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/skull2.hpp"
+#include "../../native/csol/weapons/skull2.hpp"
 #ifdef SKULL2_EXTENDED
 #define skull2 skull2_core01
 #include "legacy_core.hpp"

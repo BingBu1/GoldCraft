@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "client/runtime.hpp"
-#include "client/weapon_inventory.hpp"
+#include "../../native/csol/client/weapons/weapon_inventory.hpp"
 #include "client/command_chain.hpp"
 #include "client/user_message_chain.hpp"
 #include <cstdlib>

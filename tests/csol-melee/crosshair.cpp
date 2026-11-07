@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exact production DrawCrosshair/Custom and melee descriptor are extracted by
 // run_crosshair.py. Engine drawing and weapon lookup are controlled boundaries.
-#include "client/weapon_module.hpp"
-#include "melee_identity.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
+#include "../../native/csol/weapons/melee_identity.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>

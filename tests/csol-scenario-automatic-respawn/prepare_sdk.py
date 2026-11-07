@@ -16,8 +16,8 @@ if output.exists() or not output.is_relative_to(root / 'build'):
 for parent in (output, *output.parents):
     if parent.is_symlink() or parent.is_junction():
         raise ValueError('Do not follow reparse paths')
-inputs = ['native/csol/scenario/automatic_respawn.hpp',
-          'native/csol/server/game_rules_gate.cpp',
+inputs = ['native/csol/scenario/core/automatic_respawn.hpp',
+          'native/csol/server/scenario/core/game_rules_gate.cpp',
           'external/ReGameDLL_CS/regamedll/dlls/player.cpp',
           'external/ReGameDLL_CS/regamedll/dlls/client.cpp',
           'external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp',
@@ -40,7 +40,7 @@ for relative in inputs:
 spec = importlib.util.spec_from_file_location('existing_extract', output / 'source/tests/csol-scenario-respawn-integration/prepare.py')
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
-producer = output / 'source/native/csol/server/game_rules_gate.cpp'
+producer = output / 'source/native/csol/server/scenario/core/game_rules_gate.cpp'
 text = producer.read_text('utf-8-sig')
 methods = ['struct RespawnSlot', 'bool CanRespawn(CBasePlayer& player) const',
            'bool DeathClock(CBasePlayer& player)', 'void SpawnStarted(CBasePlayer& player)',

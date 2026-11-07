@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../weapon_hud_paths.hpp"
+#include "../weapons/weapon_hud_paths.hpp"
 #include "runtime.hpp"
-#include "weapon_inventory.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include "pickup_history.hpp"
 #include <algorithm>
 #include <cstring>

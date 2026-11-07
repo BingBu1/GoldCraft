@@ -50,12 +50,12 @@ def main():
         *[sdk/part for part in ['HLSDK/cl_dll', 'HLSDK/common', 'HLSDK/engine',
             'HLSDK/pm_shared', 'HLSDK/public', 'SourceSDK', 'SourceSDK/tier0', 'SourceSDK/tier1']],
         sdk_root/'thirdparty/glew_fork/include']
-    sources = [ROOT/'tests/csol-scenario-hud/main.cpp', ROOT/'native/csol/scenario_abilities.cpp',
-        ROOT/'native/csol/client/scenario_abilities.cpp', ROOT/'native/csol/scenario_upgrades.cpp',
-        ROOT/'native/csol/client/scenario_upgrades.cpp', ROOT/'native/csol/image_codec.cpp']
-    inputs = [*sources, Path(__file__).resolve(), ROOT/'native/csol/scenario_abilities.hpp',
-        ROOT/'native/csol/scenario_upgrades.hpp', ROOT/'native/csol/client/runtime.hpp',
-        ROOT/'native/csol/client/scenario_abilities.hpp', ROOT/'native/csol/client/scenario_upgrades.hpp',
+    sources = [ROOT/'tests/csol-scenario-hud/main.cpp', ROOT/'native/csol/scenario/core/scenario_abilities.cpp',
+        ROOT/'native/csol/client/scenario/core/scenario_abilities.cpp', ROOT/'native/csol/scenario/core/scenario_upgrades.cpp',
+        ROOT/'native/csol/client/scenario/core/scenario_upgrades.cpp', ROOT/'native/csol/image_codec.cpp']
+    inputs = [*sources, Path(__file__).resolve(), ROOT/'native/csol/scenario/core/scenario_abilities.hpp',
+        ROOT/'native/csol/scenario/core/scenario_upgrades.hpp', ROOT/'native/csol/client/runtime.hpp',
+        ROOT/'native/csol/client/scenario/core/scenario_abilities.hpp', ROOT/'native/csol/client/scenario/core/scenario_upgrades.hpp',
         ROOT/'native/csol/image_codec.hpp']
     before = [identity(path) for path in inputs]
     output.mkdir(parents=True, exist_ok=False)

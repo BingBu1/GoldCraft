@@ -37,7 +37,7 @@ def main():
     target.write_text('\n'.join(lines), encoding='utf-8')
 
     # Static comparison is explicit about not executing the C++ compiler.
-    production = ROOT / 'native/csol/scenario/monster_appearances.cpp'
+    production = ROOT / 'native/csol/scenario/monsters/monster_appearances.cpp'
     pattern = r'\{(\d+), "([^"]+)", "[^"]+",\s*\{[^}]+\}, \{[^}]+\}, (?:true|false), ([\d.]+)f, "([^"]*)"\}'
     parsed = re.findall(pattern, production.read_text(encoding='utf-8'))
     assert len(parsed) == len(entries)

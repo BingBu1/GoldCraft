@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/wall_upgrade_hint.hpp"
-#include "../../native/csol/wall_upgrade_hint.hpp"
+#include "../../native/csol/client/scenario/core/wall_upgrade_hint.hpp"
+#include "../../native/csol/scenario/core/wall_upgrade_hint.hpp"
 #include <r_efx.h>
 #include <cstdio>
 #include <cstring>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "../scenario_monster_elite.h"
+#include "../scenario/monsters/scenario_monster_elite.h"
 #include <memory>
 
 namespace csol::scenario::skills

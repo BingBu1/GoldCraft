@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tools'))
 sys.dont_write_bytecode = True
 EVENT = 'events/csol_scenario_smoke.sc'
-HEADER = 'native/csol/scenario_smoke.hpp'
+HEADER = 'native/csol/scenario/core/scenario_smoke.hpp'
 
 
 def digest(path):
@@ -78,8 +78,8 @@ def main():
                          old_evidence / 'manifest.json', old_evidence / 'runtime-closure.json',
                          baseline / 'resource-plan-validation-02/handoff.json']
     production_inputs += [old_source / name for name in (HEADER,
-        'native/csol/server/scenario_monster_resources.h', 'native/csol/server/scenario_monster_skills.h',
-        'native/csol/scenario_monster_effects.hpp', 'native/csol/server/scenario_session.cpp')]
+        'native/csol/server/scenario/monsters/scenario_monster_resources.h', 'native/csol/server/scenario/monsters/scenario_monster_skills.h',
+        'native/csol/scenario/monsters/scenario_monster_effects.hpp', 'native/csol/server/scenario/core/scenario_session.cpp')]
     before = [identity(path) for path in production_inputs]
     assertions = []
     external_calls = []
@@ -129,10 +129,10 @@ def main():
     write(common / 'models/zombitrap.mdl', 'model-decoding is a controlled boundary\n')
     write(common / 'sound/zombi/Heavy_newTrap.wav', 'sound-fixture\n')
     write(common / EVENT, '// common is an intentional decoy; never use it for project event\n')
-    write(source / 'native/csol/server/scenario_monster_resources.h', '// no boss contract in this fixture\n')
-    write(source / 'native/csol/server/scenario_monster_skills.h', 'inline constexpr const char* CSOLMonsterTrapModel = "models/zombitrap.mdl";\n')
-    write(source / 'native/csol/scenario_monster_effects.hpp', '// no extra effect constants\n')
-    write(source / 'native/csol/server/scenario_session.cpp',
+    write(source / 'native/csol/server/scenario/monsters/scenario_monster_resources.h', '// no boss contract in this fixture\n')
+    write(source / 'native/csol/server/scenario/monsters/scenario_monster_skills.h', 'inline constexpr const char* CSOLMonsterTrapModel = "models/zombitrap.mdl";\n')
+    write(source / 'native/csol/scenario/monsters/scenario_monster_effects.hpp', '// no extra effect constants\n')
+    write(source / 'native/csol/server/scenario/core/scenario_session.cpp',
           'for (const auto* asset : {CSOLMonsterTrapModel}) { }\nfor (const auto* sound : {"zombi/Heavy_newTrap.wav"}) { }\n')
     write(source / HEADER, (ROOT / HEADER).read_text(encoding='utf-8-sig'))
     script = source / 'native/csol' / EVENT

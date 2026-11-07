@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../character_skill_gate.hpp"
-#include "../scenario_abilities.hpp"
+#include "../scenario/core/scenario_abilities.hpp"
 #include <algorithm>
 
 namespace csol::client

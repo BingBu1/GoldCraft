@@ -8,8 +8,8 @@ root = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 sources = [
-    ("native/csol/server/scenario_inventory_capacity.cpp", "int CSOL_PlayerAmmoCapacity("),
-    ("native/csol/server/scenario_inventory_capacity.cpp", "int CSOL_PlayerArmorCapacity("),
+    ("native/csol/server/scenario/core/scenario_inventory_capacity.cpp", "int CSOL_PlayerAmmoCapacity("),
+    ("native/csol/server/scenario/core/scenario_inventory_capacity.cpp", "int CSOL_PlayerArmorCapacity("),
     ("external/ReGameDLL_CS/regamedll/dlls/gamerules.cpp", "BOOL CGameRules::CanHaveAmmo("),
     ("external/ReGameDLL_CS/regamedll/dlls/weapons.cpp", "int CBasePlayerItem::iMaxAmmo1() const"),
     ("external/ReGameDLL_CS/regamedll/dlls/player.cpp", "int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)("),
@@ -33,10 +33,10 @@ for relative, signature in sources:
                          bodySha256=hashlib.sha256(chunks[-1].encode()).hexdigest()))
 (out / "actual_capacity.inc").write_text("\n\n".join(chunks) + "\n", encoding="utf-8")
 (out / "source.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-native = root / "native/csol/server/scenario_native_weapons.cpp"
+native = root / "native/csol/server/weapons/scenario_native_weapons.cpp"
 native_text = native.read_text(encoding="utf-8")
 (out / "actual_native_weapons.inc").write_text(native_text[native_text.index("bool CSOL_NativeWeaponMonsterCallbacks("):], encoding="utf-8")
-runtime = (root / "native/csol/server/scenario_player_runtime.cpp").read_text(encoding="utf-8")
+runtime = (root / "native/csol/server/scenario/core/scenario_player_runtime.cpp").read_text(encoding="utf-8")
 for signature, output in [("bool CCSOLScenarioPlayerRuntime::ReadEntitySource(", "actual_read_source.inc"),
                           ("const auto notifyWeapon = [&](CBasePlayerWeapon* weapon, bool active)", "actual_notify_weapon.inc")]:
     start = runtime.index(signature)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute the actual status renderer and UploadImage on a hidden driver
 // context. This source is prepared only until an execution window is granted.
-#include "../../native/csol/client/status_icons_gl.cpp"
+#include "../../native/csol/client/scenario/core/status_icons_gl.cpp"
 #include "../../native/csol/client/characters.hpp"
 #include <GLFW/glfw3.h>
 #include <filesystem>

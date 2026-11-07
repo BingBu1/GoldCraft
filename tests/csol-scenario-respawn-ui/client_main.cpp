@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The entire production consumer is compiled with the real client SDK. Only
 // external message/resource/input exits are supplied. No VGUI/GL pixel claim.
-#include "native/csol/client/scenario_respawn_ui.cpp"
+#include "native/csol/client/scenario/core/scenario_respawn_ui.cpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

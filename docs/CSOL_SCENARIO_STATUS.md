@@ -39,4 +39,4 @@
 
 后续验证出生→首波→击杀→破墙→死亡复活及真实客户端下载。怪物池数量不代表首波已激活。界面自动操作在用户按下实体 Escape 后停止，后续须获得恢复指令。BOSS、剧情、结算、其他第一季地图和多人验证仍待完成。
 
-主要源码位于 [灾变逻辑](../native/csol/scenario/config.hpp)、[服务端适配](../native/csol/server/scenario_session.cpp)、[序列转换](../native/csol/sequences.cpp)、[客户端采样检查](../native/csol/client/sequence_guard.cpp) 与 [引擎采样检查](../native/engine/csol_sequence_guard.cpp)。
+主要源码位于 [灾变逻辑](../native/csol/scenario/core/config.hpp)、[服务端适配](../native/csol/server/scenario/core/scenario_session.cpp)、[序列转换](../native/csol/sequences.cpp)、[客户端采样检查](../native/csol/client/sequence_guard.cpp) 与 [引擎采样检查](../native/engine/csol_sequence_guard.cpp)。

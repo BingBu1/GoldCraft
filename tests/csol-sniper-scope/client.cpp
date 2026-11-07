@@ -3,9 +3,9 @@
 #define main PreviousIntegrationMain
 #include "../csol-skull-balrog/integration_client.cpp"
 #undef main
-#include "../../native/csol/client/skull5.hpp"
-#include "../../native/csol/skull5.hpp"
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/skull5.hpp"
+#include "../../native/csol/weapons/skull5.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 namespace scopefixture {
 int scopeDraws{},resets{},metricCalls{},sprite{},color[3]{},width{},height{},gap{},drawStage{},crosshairRects{};
 int requestedWidth=1280,requestedHeight=720,metric=15;

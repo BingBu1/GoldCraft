@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_spawn_points.h"
+#include "../../native/csol/server/scenario/core/scenario_spawn_points.h"
 
 extern "C" void playerspawn(entvars_t*);
 extern "C" void zombiespawn(entvars_t*);

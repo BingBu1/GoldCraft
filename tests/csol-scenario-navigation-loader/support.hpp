@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../csol-scenario-difficulty/support.hpp"
-#include "../../native/csol/scenario/navigation.hpp"
+#include "../../native/csol/scenario/core/navigation.hpp"
 
 namespace nav_loader_test
 {

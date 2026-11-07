@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Link the production controller/schedule. Original arithmetic is compared by
 // the independent x86 runner through the --oracle stdin protocol below.
-#include "controller.hpp"
-#include "schedule.hpp"
+#include "../../native/csol/scenario/core/controller.hpp"
+#include "../../native/csol/scenario/core/schedule.hpp"
 
 #include <algorithm>
 #include <bit>

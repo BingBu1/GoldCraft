@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_nav_portal.h"
+#include "../../native/csol/server/scenario/core/scenario_nav_portal.h"
 #include <array>
 #include <bit>
 #include <cmath>

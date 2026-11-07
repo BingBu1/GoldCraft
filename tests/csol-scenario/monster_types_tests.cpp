@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Independent expectations follow the recovered mode-15 field contract.
 // Actual CSO resources remain external to this source-only test target.
-#include "monster_types.hpp"
+#include "../../native/csol/scenario/monsters/monster_types.hpp"
 
 #include <bit>
 #include <fstream>

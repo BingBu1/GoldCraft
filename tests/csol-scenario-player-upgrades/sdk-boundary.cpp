@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fixture.hpp"
-#include "../../native/csol/server/game_rules_gate.h"
+#include "../../native/csol/server/scenario/core/game_rules_gate.h"
 #include <cstdlib>
 
 // Only the actual SDK speed body's rules query and routing edge are controlled.

@@ -240,9 +240,9 @@ def main():
     rejected('empty-input-table',lambda:production.dialogue_contract(source,fake,reader,WAVE),'Invalid dialogue input size')
     write(messages_path,fake_messages)
     altered=out/'mismatched-source'
-    for name in ['native/csol/server/scenario_session.cpp','native/csol/scenario_round_hud.hpp']:
+    for name in ['native/csol/server/scenario/core/scenario_session.cpp','native/csol/scenario/core/scenario_round_hud.hpp']:
         write(altered/name,(source/name).read_bytes())
-    header=altered/'native/csol/scenario_round_hud.hpp'
+    header=altered/'native/csol/scenario/core/scenario_round_hud.hpp'
     write(header,header.read_text(encoding='utf8').replace('resource/font/df_gb_y9.ttf','resource/font/different.ttf'))
     rejected('helper-source-contract-mismatch',lambda:production.dialogue_contract(altered,common,reader,WAVE),'does not contain')
     check('all pinned real resources/tool inputs unchanged', all(identity(Path(row['path']))==row for row in pinned))

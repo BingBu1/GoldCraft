@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual Precache/Start bodies, actual MapResources/catalog/presentation/vote
 // objects, controlled engine callbacks and read-only server filesystem.
-#include "../../native/csol/scenario/map_resources.hpp"
-#include "../../native/csol/scenario/map_catalog.hpp"
-#include "../../native/csol/scenario/map_support.hpp"
-#include "../../native/csol/scenario/map_vote.hpp"
-#include "../../native/csol/map_vote_presentation.hpp"
+#include "../../native/csol/scenario/core/map_resources.hpp"
+#include "../../native/csol/scenario/core/map_catalog.hpp"
+#include "../../native/csol/scenario/core/map_support.hpp"
+#include "../../native/csol/scenario/core/map_vote.hpp"
+#include "../../native/csol/scenario/core/map_vote_presentation.hpp"
 #include <algorithm>
 #include <climits>
 #include <cstdlib>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
-#include "csol/scenario_music.hpp"
-#include "csol/client/scenario_music.hpp"
+#include "../../native/csol/scenario/core/scenario_music.hpp"
+#include "../../native/csol/client/scenario/core/scenario_music.hpp"
 #include <iostream>
 #include <map>
 #include <source_location>

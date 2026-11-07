@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "scenario_entity_access.h"
+#include "scenario/core/scenario_entity_access.h"
 #include <memory>
 class CBasePlayer;
 struct edict_s;

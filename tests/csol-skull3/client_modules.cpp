@@ -2,16 +2,16 @@
 // Current real controller, eleven descriptors and ten predictor owners.
 // Only unrelated UI/GL boundaries are controlled; scope pixels have separate GPU tests.
 #include "../csol-skull-balrog/skull5_integration_client.cpp"
-#include "../../native/csol/client/cannon.hpp"
-#include "../../native/csol/client/k3.hpp"
-#include "../../native/csol/client/melee.hpp"
-#include "../../native/csol/client/beamgun.hpp"
-#include "../../native/csol/melee_identity.hpp"
+#include "../../native/csol/client/weapons/cannon.hpp"
+#include "../../native/csol/client/weapons/k3.hpp"
+#include "../../native/csol/client/weapons/melee.hpp"
+#include "../../native/csol/client/weapons/beamgun.hpp"
+#include "../../native/csol/weapons/melee_identity.hpp"
 #include <bit>
 #include <fstream>
 #define REGISTRY_AFTER 1
 #if REGISTRY_AFTER
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 #endif
 namespace csol::client {
 void ResetSniperScope(){} void DrawSniperScope(int,int,int){}

@@ -19,7 +19,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--clang', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--inventory', type=Path, default=Path('native/csol/client/weapon_inventory.cpp'))
+    parser.add_argument('--inventory', type=Path, default=Path('native/csol/client/weapons/weapon_inventory.cpp'))
     parser.add_argument('--expect-failure', action='store_true')
     args = parser.parse_args()
     output = args.output.absolute()
@@ -31,9 +31,9 @@ def main():
             parser.error('Linked output refused')
     output.mkdir(parents=True, exist_ok=False)
     fixture = ROOT / 'tests/csol-weapon-slots/menu.cpp'
-    protocol = ROOT / 'native/csol/weapon_slots.cpp'
-    inputs = [inventory, fixture, protocol, ROOT / 'native/csol/weapon_slots.hpp',
-              ROOT / 'native/csol/client/weapon_inventory.hpp', ROOT / 'native/csol/client/runtime.hpp', Path(__file__).resolve()]
+    protocol = ROOT / 'native/csol/weapons/weapon_slots.cpp'
+    inputs = [inventory, fixture, protocol, ROOT / 'native/csol/weapons/weapon_slots.hpp',
+              ROOT / 'native/csol/client/weapons/weapon_inventory.hpp', ROOT / 'native/csol/client/runtime.hpp', Path(__file__).resolve()]
     before = [identity(path) for path in inputs]
     # A byte-identical independent copy freezes the entire production TU for this run.
     actual = output / 'weapon_inventory.cpp'

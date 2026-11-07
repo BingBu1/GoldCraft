@@ -8,8 +8,8 @@
 #include <set>
 #include <string>
 #include <vector>
-#include "../../native/csol/scenario_upgrades.hpp"
-#include "../../native/csol/scenario_abilities.hpp"
+#include "../../native/csol/scenario/core/scenario_upgrades.hpp"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
 namespace
 {
 struct Error { std::string path; struct { int line{}; std::string message; } detail; };

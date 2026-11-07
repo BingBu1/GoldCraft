@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Offline inventory through the actual type decoder and appearance catalog.
 // A listed model/skill is not evidence that a map's gameplay is implemented.
-#include "scenario/monster_types.hpp"
-#include "scenario/monster_appearances.hpp"
+#include "../../native/csol/scenario/monsters/monster_types.hpp"
+#include "../../native/csol/scenario/monsters/monster_appearances.hpp"
 #include "config_codec.hpp"
-#include "server/scenario_monster_resources.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_resources.h"
 #include <filesystem>
 #include <fstream>
 #include <iomanip>

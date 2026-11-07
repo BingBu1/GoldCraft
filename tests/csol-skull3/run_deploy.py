@@ -11,7 +11,7 @@ def main():
  out=args.output.resolve();assert out.is_relative_to(ROOT/'build') and not out.exists();out.mkdir(parents=True);(out/'temp').mkdir()
  oracle=json.loads(args.oracle.read_text('utf8'));assert oracle['failed']==0 and oracle['moduleSHA256']=='39f962f34816411e615f01e5279d914204f7fd07c5a5112b0b303acafe0308b2'
  inputs=[]
- for rel in ['native/csol/skull3.hpp','tests/csol-skull3/deploy.cpp']:
+ for rel in ['native/csol/weapons/skull3.hpp','tests/csol-skull3/deploy.cpp']:
   src=ROOT/rel;dst=out/'source'/rel;dst.parent.mkdir(parents=True,exist_ok=True);dst.write_bytes(src.read_bytes());inputs.append(dict(original=identity(src),frozen=identity(dst)))
  baseline=json.loads(args.environment.read_text('utf-8-sig'));compiler=str(args.compiler.resolve());env=os.environ|baseline.get('environment',baseline);env['TEMP']=env['TMP']=str(out/'temp')
  argv=[compiler,'--target=i686-pc-windows-msvc','/std:c++20','/clang:-O3','/clang:-flto=thin','/arch:AVX2','/fp:precise','/MT','-fuse-ld=lld',str(out/'source/tests/csol-skull3/deploy.cpp'),'/Fo'+str(out/'deploy.obj'),'/Fe'+str(out/'deploy.exe'),'/link','/OPT:LLDLTO=3','/threads:1']

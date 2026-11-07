@@ -2,9 +2,9 @@
 // Unchanged production rules methods, with controlled owner/engine boundaries.
 // Adapter startup is covered separately by startup.cpp; the real vote core is
 // used here to advance deadlines without constructing a game process.
-#include "../../native/csol/scenario/map_catalog.hpp"
-#include "../../native/csol/scenario/map_support.hpp"
-#include "../../native/csol/scenario/map_vote.hpp"
+#include "../../native/csol/scenario/core/map_catalog.hpp"
+#include "../../native/csol/scenario/core/map_support.hpp"
+#include "../../native/csol/scenario/core/map_vote.hpp"
 #include "../../native/csol/server/game_mode.h"
 #include <algorithm>
 #include <cmath>

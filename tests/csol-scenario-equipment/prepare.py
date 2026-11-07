@@ -37,11 +37,11 @@ for name in ('fixture.hpp','fixture.cpp','main.cpp','resources.cpp','selection.c
     if target.suffix=='.cpp':sources.append(str(target))
 # Four small forwarding headers preserve exact already-frozen definitions and
 # relative includes without copying old fixtures or mutating the old candidate.
-for relative in ('tests/csol-scenario-player-upgrades/fixture.hpp','native/csol/scenario/upgrade_tables.hpp','native/csol/server/scenario_player_upgrades.h','native/csol/config_codec.hpp'):
+for relative in ('tests/csol-scenario-player-upgrades/fixture.hpp','native/csol/scenario/core/upgrade_tables.hpp','native/csol/server/scenario/core/scenario_player_upgrades.h','native/csol/config_codec.hpp'):
     source=OLD/'candidate'/relative;target=CAND/relative
     put(target,('#pragma once\n#include "'+source.as_posix()+'"\n').encode('utf-8'))
     forwarders.append({'origin':ident(source),'candidate':ident(target)})
-assert ident(OLD/'candidate/native/csol/scenario/upgrade_tables.cpp')['sha256']==frozen[str(Path('native/csol/scenario/upgrade_tables.cpp'))]['sha256']
+assert ident(OLD/'candidate/native/csol/scenario/core/upgrade_tables.cpp')['sha256']==frozen[str(Path('native/csol/scenario/core/upgrade_tables.cpp'))]['sha256']
 
 buff=read(ROOT/'analysis/csol-model-20261017/scenario/equipment-abilities/buff-resource.json')
 zbs=read(ROOT/'analysis/csol-model-20261017/scenario/upgrade-consumers-final/extraction.json')['resource']

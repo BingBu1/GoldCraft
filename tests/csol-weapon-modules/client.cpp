@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Real controller and eight real module TUs; reuse the controlled SDK engine.
 #include "../csol-skull-balrog/skull5_integration_client.cpp"
-#include "../../native/csol/client/cannon.hpp"
-#include "../../native/csol/client/k3.hpp"
-#include "../../native/csol/client/melee.hpp"
-#include "../../native/csol/client/beamgun.hpp"
-#include "../../native/csol/melee_identity.hpp"
+#include "../../native/csol/client/weapons/cannon.hpp"
+#include "../../native/csol/client/weapons/k3.hpp"
+#include "../../native/csol/client/weapons/melee.hpp"
+#include "../../native/csol/client/weapons/beamgun.hpp"
+#include "../../native/csol/weapons/melee_identity.hpp"
 #include <bit>
 #include <fstream>
 #if REGISTRY_AFTER
-#include "../../native/csol/client/weapon_module.hpp"
+#include "../../native/csol/client/weapons/weapon_module.hpp"
 #endif
 namespace {
 std::ofstream observations;bool capture{},checkPalette{};int spriteR{},spriteG{},spriteB{},paletteSprites{},paletteDividers{};

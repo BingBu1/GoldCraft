@@ -3,7 +3,7 @@
 // damage-number messages are outside its scope; accidental use must fail.
 #include "precompiled.h"
 #include "../../native/csol/server/damage_numbers.h"
-#include "../../native/csol/scenario/upgrade_tables.hpp"
+#include "../../native/csol/scenario/core/upgrade_tables.hpp"
 #include <cstdlib>
 #include <iostream>
 namespace

@@ -53,7 +53,7 @@ def main():
         if process.returncode!=expected or unknown or changed:
             print(process.stdout.decode('utf8','replace')[-6000:]);raise RuntimeError(name+' failed')
     # Client fixture executes the unchanged host random function adapter.
-    pending=['tests/csol-skull-balrog/native_client.cpp','native/csol/client/shared_random.cpp','native/csol/client/weapon_module.cpp']
+    pending=['tests/csol-skull-balrog/native_client.cpp','native/csol/client/shared_random.cpp','native/csol/client/weapons/weapon_module.cpp']
     seen=set()
     while pending:
         relative=pending.pop()
@@ -73,8 +73,8 @@ def main():
             elif arg==client_template[-1]:arg=str(out/'client-source'/relative)
             command.append(arg)
         if old:
-            original=ROOT/'native/csol/client/balrog11.cpp';frozen=out/'client-source/native/csol/client/balrog11.cpp'
-            previous=freeze('native/csol/client/balrog11.cpp','old',True)
+            original=ROOT/'native/csol/client/weapons/balrog11.cpp';frozen=out/'client-source/native/csol/client/weapons/balrog11.cpp'
+            previous=freeze('native/csol/client/weapons/balrog11.cpp','old',True)
             overlay=dict(version=0,**{'case-sensitive':False,'use-external-names':False},roots=[
                 dict(type='file',name=str(p),**{'external-contents':str(previous)}) for p in [original,frozen]])
             ov=out/'client-old-overlay.json';write(ov,overlay);keep(ov)
@@ -82,7 +82,7 @@ def main():
         execute('compile-'+label,command)
     if not args.reuse_client:
         client_compile('adapter','native/csol/client/shared_random.cpp')
-        client_compile('registry','native/csol/client/weapon_module.cpp')
+        client_compile('registry','native/csol/client/weapons/weapon_module.cpp')
     native_test=next(x['argv'] for x in native['commands'] if x['name']=='test')
     for old in [False,True]:
         if args.reuse_client:continue
@@ -100,7 +100,7 @@ def main():
         keep(args.reuse_client/'steps.json')
     # Complete server weapon TU is included in the SDK fixture; replace its old object.
     fixture='tests/csol-skull-balrog/server_events.cpp';frozen_fixture=freeze(fixture)
-    weapon='native/csol/server/wpn_balrog11.cpp';frozen_weapon=freeze(weapon)
+    weapon='native/csol/server/weapons/wpn_balrog11.cpp';frozen_weapon=freeze(weapon)
     for old in [False,True]:
         label='server-old' if old else 'server-new';overlay=read(old_overlay)
         selected=freeze(weapon,'old',True) if old else frozen_weapon

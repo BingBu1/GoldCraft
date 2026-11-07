@@ -55,7 +55,7 @@ def main():
     for entry in inputs:
         assert identity(entry['path']) == entry, entry['path']
     overlay = read(base / 'source-overlay.json')
-    paths = ['native/csol/server/scenario_messages.cpp', 'native/csol/server/scenario_messages.h',
+    paths = ['native/csol/server/scenario/core/scenario_messages.cpp', 'native/csol/server/scenario/core/scenario_messages.h',
              'tests/csol-scenario-teddy-messages/main.cpp']
     selected = []
     for relative in paths:

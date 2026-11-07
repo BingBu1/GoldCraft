@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_active_skill.h"
-#include "scenario_monster_damage.h"
-#include "scenario_death_owner.h"
-#include "../scenario_abilities.hpp"
+#include "scenario/monsters/scenario_monster_damage.h"
+#include "scenario/core/scenario_death_owner.h"
+#include "../scenario/core/scenario_abilities.hpp"
 #include "scenario_character_skills/catalog.hpp"
 #include "scenario_character_skills/control.hpp"
 #include "scenario_character_skills/host.hpp"
 #include "scenario_character_skills/sdk_effects.hpp"
 #include "scenario_character_skills/host_notifications.hpp"
 #include "scenario_character_skills/area_damage.hpp"
-#include "game_rules_gate.h"
-#include "scenario_runtime.h"
+#include "scenario/core/game_rules_gate.h"
+#include "scenario/core/scenario_runtime.h"
 #include <algorithm>
 #include <cmath>
 

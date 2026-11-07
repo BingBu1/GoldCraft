@@ -8,29 +8,29 @@ endif()
 get_filename_component(WORKSPACE "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
-add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons.cpp client/weapon_module.cpp client/camera.cpp
+add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons/weapons.cpp client/weapons/weapon_module.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
-    client/projectiles.cpp client/cannon.cpp client/emotion_voice.cpp client/k3.cpp client/shared_random.cpp client/monster_impact.cpp client/gun_smoke.cpp client/scenario_music.cpp scenario_music.cpp
-    client/melee.cpp melee_attacks.cpp
-    client/m249ex.cpp client/skull1.cpp client/skull2.cpp client/skull3.cpp client/skull5.cpp client/balrog11.cpp client/balrog11_flame.cpp client/sniper_scope.cpp
-    client/death_notices.cpp client/scenario_kill.cpp scenario_kill.cpp client/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
-    client/scenario_smoke.cpp scenario_smoke.cpp
-    client/elite_visuals.cpp client/cso_tent.cpp client/render_settings.cpp client/wall_upgrade_hint.cpp client/wall_upgrade_hud.cpp
-    client/frozen_death.cpp
-    client/frozen_smoke.cpp
-    client/scenario_upgrades.cpp scenario_upgrades.cpp
+    client/weapons/projectiles.cpp client/weapons/cannon.cpp client/emotion_voice.cpp client/weapons/k3.cpp client/shared_random.cpp client/scenario/monsters/monster_impact.cpp client/weapons/gun_smoke.cpp client/scenario/core/scenario_music.cpp scenario/core/scenario_music.cpp
+    client/weapons/melee.cpp weapons/melee_attacks.cpp
+    client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull3.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp client/weapons/balrog11_flame.cpp client/weapons/sniper_scope.cpp
+    client/scenario/core/death_notices.cpp client/scenario/core/scenario_kill.cpp scenario/core/scenario_kill.cpp client/scenario/core/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
+    client/scenario/core/scenario_smoke.cpp scenario/core/scenario_smoke.cpp
+    client/scenario/monsters/elite_visuals.cpp client/cso_tent.cpp client/render_settings.cpp client/scenario/core/wall_upgrade_hint.cpp client/scenario/core/wall_upgrade_hud.cpp
+    client/scenario/monsters/frozen_death.cpp
+    client/scenario/monsters/frozen_smoke.cpp
+    client/scenario/core/scenario_upgrades.cpp scenario/core/scenario_upgrades.cpp
     client/hud_style.cpp hud_style.cpp
-    client/scenario_abilities.cpp scenario_abilities.cpp
-    client/boss_health.cpp boss_health.cpp client/oberon_hint.cpp
-    client/scenario_round_hud_client.cpp scenario_round_hud.cpp scenario_localization.cpp
-    client/scenario_respawn_ui.cpp
-    client/scenario_map_vote.cpp map_vote_presentation.cpp scenario/map_vote.cpp
-    scenario/message_table.cpp scenario/message_resource.cpp scenario/config.cpp scenario/spawn_points.cpp
-    scenario/dialogue_resources.cpp scenario/wave_events.cpp
-    client/playerclip.cpp
-    client/status_icons.cpp client/status_icons_gl.cpp client/wall_status.cpp client/overlay_layers.cpp client/crash_recorder.cpp
-    client/damage_numbers.cpp client/damage_styles.cpp client/damage_display.cpp client/damage_options.cpp
-    client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/beamgun_scope.cpp beamgun_state.cpp weapon_slots.cpp
+    client/scenario/core/scenario_abilities.cpp scenario/core/scenario_abilities.cpp
+    client/scenario/bosses/boss_health.cpp scenario/bosses/boss_health.cpp client/scenario/bosses/oberon_hint.cpp
+    client/scenario/core/scenario_round_hud_client.cpp scenario/core/scenario_round_hud.cpp scenario/core/scenario_localization.cpp
+    client/scenario/core/scenario_respawn_ui.cpp
+    client/scenario/core/scenario_map_vote.cpp scenario/core/map_vote_presentation.cpp scenario/core/map_vote.cpp
+    scenario/core/message_table.cpp scenario/core/message_resource.cpp scenario/core/config.cpp scenario/core/spawn_points.cpp
+    scenario/core/dialogue_resources.cpp scenario/core/wave_events.cpp
+    client/scenario/core/playerclip.cpp
+    client/scenario/core/status_icons.cpp client/scenario/core/status_icons_gl.cpp client/scenario/core/wall_status.cpp client/overlay_layers.cpp client/crash_recorder.cpp
+    client/scenario/core/damage_numbers.cpp client/scenario/core/damage_styles.cpp client/scenario/core/damage_display.cpp client/scenario/core/damage_options.cpp
+    client/weapons/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/weapons/beamgun.cpp client/weapons/beamgun_scope.cpp weapons/beamgun_state.cpp weapons/weapon_slots.cpp
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
@@ -39,10 +39,10 @@ option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verifi
 target_compile_definitions(CSOLSupport PRIVATE CSOL_OPTIMIZE_HOST_CRC=$<BOOL:${CSOL_OPTIMIZE_HOST_CRC}>)
 target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cpp client/hd_spray_options.cpp client/hd_spray_gl.cpp client/hd_spray_http.cpp)
 target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
-set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
-set_source_files_properties(client/characters.cpp client/wall_status.cpp client/overlay_layers.cpp client/buy_menu.cpp client/scenario_kill.cpp client/scenario_upgrades.cpp client/scenario_abilities.cpp client/character_skill_display.cpp client/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
-set_source_files_properties(client/scenario_round_hud_client.cpp client/scenario_respawn_ui.cpp client/hud_style.cpp client/wall_upgrade_hud.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
-set_source_files_properties(client/scenario_map_vote.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/weapons/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
+set_source_files_properties(client/characters.cpp client/scenario/core/wall_status.cpp client/overlay_layers.cpp client/buy_menu.cpp client/scenario/core/scenario_kill.cpp client/scenario/core/scenario_upgrades.cpp client/scenario/core/scenario_abilities.cpp client/character_skill_display.cpp client/scenario/bosses/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario/core/scenario_round_hud_client.cpp client/scenario/core/scenario_respawn_ui.cpp client/hud_style.cpp client/scenario/core/wall_upgrade_hud.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario/core/scenario_map_vote.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"
     "${SDK}/HLSDK/pm_shared" "${SDK}/HLSDK/public" "${SDK}/SourceSDK"
@@ -60,7 +60,7 @@ include(damage_vgui.cmake)
 option(CSOL_BUILD_DAMAGE_TESTS "Build offline damage consumer/session checks" OFF)
 if(CSOL_BUILD_DAMAGE_TESTS)
     add_executable(csol_damage_client_tests ../../tests/csol-damage-display/client.cpp
-        client/damage_display.cpp client/damage_styles.cpp client/damage_numbers.cpp client/session.cpp)
+        client/scenario/core/damage_display.cpp client/scenario/core/damage_styles.cpp client/scenario/core/damage_numbers.cpp client/session.cpp)
     target_compile_features(csol_damage_client_tests PRIVATE cxx_std_20)
     target_include_directories(csol_damage_client_tests PRIVATE ${CSOL_DAMAGE_INCLUDES})
     target_compile_definitions(csol_damage_client_tests PRIVATE WIN32 NOMINMAX NO_MALLOC_OVERRIDE _CRT_SECURE_NO_WARNINGS)
@@ -89,7 +89,7 @@ if(CSOL_BUILD_STATUS_ICON_TESTS OR CSOL_BUILD_STATUS_ICON_GL_TESTS)
 endif()
 if(CSOL_BUILD_STATUS_ICON_TESTS)
     add_executable(csol_status_icon_client_tests ../../tests/csol-status-icons/client.cpp
-        client/status_icons.cpp client/session.cpp ../../tests/csol-damage-display/session_stub.cpp)
+        client/scenario/core/status_icons.cpp client/session.cpp ../../tests/csol-damage-display/session_stub.cpp)
     target_compile_features(csol_status_icon_client_tests PRIVATE cxx_std_20)
     target_include_directories(csol_status_icon_client_tests PRIVATE ${STATUS_INCLUDES})
     target_compile_definitions(csol_status_icon_client_tests PRIVATE ${STATUS_DEFINITIONS})
@@ -193,7 +193,7 @@ if(CSOL_BUILD_SCENE_TESTS)
 endif()
 if(CSOL_BUILD_WEAPON_SLOT_TESTS)
     add_executable(csol_weapon_client_tests ../../tests/csol-weapon-slots/client.cpp
-        client/weapons.cpp client/weapon_module.cpp client/gun_smoke.cpp client/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/beamgun.cpp client/cannon.cpp client/k3.cpp client/melee.cpp client/m249ex.cpp client/skull1.cpp client/skull2.cpp client/skull5.cpp client/balrog11.cpp melee_attacks.cpp beamgun_state.cpp weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
+        client/weapons/weapons.cpp client/weapons/weapon_module.cpp client/weapons/gun_smoke.cpp client/weapons/weapon_inventory.cpp client/session.cpp client/crosshair.cpp client/pickup_history.cpp client/weapons/beamgun.cpp client/weapons/cannon.cpp client/weapons/k3.cpp client/weapons/melee.cpp client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp weapons/melee_attacks.cpp weapons/beamgun_state.cpp weapons/weapon_slots.cpp ../../tests/csol-weapon-slots/session_edges.cpp)
     target_compile_features(csol_weapon_client_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SLOT_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SLOT_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)
@@ -217,7 +217,7 @@ if(CSOL_BUILD_WEAPON_SLOT_TESTS)
 endif()
 if(CSOL_BUILD_PROJECTILE_TESTS)
     enable_testing()
-    add_executable(csol_projectile_tests projectile_tests.cpp client/projectiles.cpp client/death_notices.cpp)
+    add_executable(csol_projectile_tests weapons/projectile_tests.cpp client/weapons/projectiles.cpp client/scenario/core/death_notices.cpp)
     target_compile_features(csol_projectile_tests PRIVATE cxx_std_20)
     get_target_property(CSOL_SDK_INCLUDES CSOLSupport INCLUDE_DIRECTORIES)
     get_target_property(CSOL_SDK_DEFINITIONS CSOLSupport COMPILE_DEFINITIONS)
@@ -226,12 +226,12 @@ if(CSOL_BUILD_PROJECTILE_TESTS)
     target_compile_options(csol_projectile_tests PRIVATE /utf-8 /W3)
     add_test(NAME csol_projectile COMMAND csol_projectile_tests)
 endif()
-add_executable(csol_music_resources music_resources.cpp scenario_music.cpp scenario/config.cpp scenario/round_settings.cpp scenario/spawn_points.cpp)
+add_executable(csol_music_resources scenario/core/music_resources.cpp scenario/core/scenario_music.cpp scenario/core/config.cpp scenario/core/round_settings.cpp scenario/core/spawn_points.cpp)
 target_compile_features(csol_music_resources PRIVATE cxx_std_20)
 target_compile_options(csol_music_resources PRIVATE /utf-8 /W3)
-add_executable(csol_scenario_hud_resources scenario_hud_resources.cpp
-    scenario/config.cpp scenario/spawn_points.cpp scenario/message_table.cpp
-    scenario/message_resource.cpp scenario/dialogue_resources.cpp scenario/wave_events.cpp)
+add_executable(csol_scenario_hud_resources scenario/core/scenario_hud_resources.cpp
+    scenario/core/config.cpp scenario/core/spawn_points.cpp scenario/core/message_table.cpp
+    scenario/core/message_resource.cpp scenario/core/dialogue_resources.cpp scenario/core/wave_events.cpp)
 target_compile_features(csol_scenario_hud_resources PRIVATE cxx_std_20)
 target_compile_options(csol_scenario_hud_resources PRIVATE /utf-8 /W3)
 add_executable(csol_resources resource_list.cpp dependencies.cpp model_codec.cpp model_json.cpp events.cpp model_source.cpp sequences.cpp texture_model.cpp)

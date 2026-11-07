@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual scope renderer, real WGL driver and original instruction draw oracle.
-#include "../../native/csol/client/sniper_scope.cpp"
+#include "../../native/csol/client/weapons/sniper_scope.cpp"
 #include <rapidjson/document.h>
 #include <filesystem>
 #include <fstream>

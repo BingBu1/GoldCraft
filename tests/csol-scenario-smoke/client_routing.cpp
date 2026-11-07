@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Exact production client TU and matching GoldSrc SDK declarations. Engine
 // callback registration/dispatch is controlled; stock graphics is an observer.
-#include "native/csol/client/scenario_smoke.cpp"
+#include "native/csol/client/scenario/core/scenario_smoke.cpp"
 #include <cstring>
 #include <iostream>
 #include <map>

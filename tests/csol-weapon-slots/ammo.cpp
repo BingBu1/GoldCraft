@@ -6,7 +6,7 @@
 #include <vector>
 #include <iostream>
 #include <cstdlib>
-#include "../../native/csol/cannon.hpp"
+#include "../../native/csol/weapons/cannon.hpp"
 #define EXT_FUNC
 #define __API_HOOK(x) x
 #define REGAMEDLL_FIXES

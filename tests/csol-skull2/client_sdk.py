@@ -33,7 +33,7 @@ def main():
     dest=source/original.relative_to(root)
     if not dest.exists():dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,dest)
     inputs[key(dest)]=identity(dest)
- for relative in ('native/csol/client/shared_random.cpp','native/csol/client/weapon_module.cpp','tests/csol-skull2/client.cpp'):
+ for relative in ('native/csol/client/shared_random.cpp','native/csol/client/weapons/weapon_module.cpp','tests/csol-skull2/client.cpp'):
   original=root/relative;dest=source/relative;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,dest)
   inputs[key(original)]=identity(original);inputs[key(dest)]=identity(dest)
  if a.smoke_overlay:
@@ -52,7 +52,7 @@ def main():
   if '/sdk-01/generated' in arg.replace('\\','/'):continue
   common.append(arg)
  commands=[]
- units=[('skull1','native/csol/client/skull1.cpp'),('skull5','native/csol/client/skull5.cpp'),('fixture','tests/csol-skull2/smoke.cpp')] if a.smoke_overlay else [('skull2','native/csol/client/skull2.cpp'),('skull5','native/csol/client/skull5.cpp'),('fixture','tests/csol-skull2/client.cpp')]
+ units=[('skull1','native/csol/client/weapons/skull1.cpp'),('skull5','native/csol/client/weapons/skull5.cpp'),('fixture','tests/csol-skull2/smoke.cpp')] if a.smoke_overlay else [('skull2','native/csol/client/weapons/skull2.cpp'),('skull5','native/csol/client/weapons/skull5.cpp'),('fixture','tests/csol-skull2/client.cpp')]
  for name,relative in units:
   commands.append(dict(name=name,argv=common+['/c',str(source/relative),'/Fo'+str(out/(name+'.obj')),'/Fd'+str(out/(name+'.pdb'))]))
  extra=[str(out/'skull1.obj')] if a.smoke_overlay else []

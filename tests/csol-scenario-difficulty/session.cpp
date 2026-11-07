@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../csol-scenario-monster-pool/pool_fixture.hpp"
-#include "../../native/csol/server/scenario_session.h"
+#include "../../native/csol/server/scenario/core/scenario_session.h"
 #include "../../native/csol/server/game_mode.h"
 #include "../csol-scenario-rules-session/resources.hpp"
 #include "support.hpp"

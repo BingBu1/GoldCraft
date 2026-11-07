@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Executes the production consumer/session against the real resource catalog.
 #include "../../native/csol/client/runtime.hpp"
-#include "../../native/csol/client/damage_display.hpp"
+#include "../../native/csol/client/scenario/core/damage_display.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

@@ -31,9 +31,9 @@ EXPECTED = {
     SCHEME: (222, '570c4a2ea8238ca635195c8a788afb18050f0bfb4deff516459552d1ffef3bf2'),
 }
 NATIVE_INPUTS = (
-    'native/csol/server/scenario_session.cpp',
-    'native/csol/wall_upgrade.hpp',
-    'native/csol/server/scenario_monster_resources.h',
+    'native/csol/server/scenario/core/scenario_session.cpp',
+    'native/csol/scenario/core/wall_upgrade.hpp',
+    'native/csol/server/scenario/monsters/scenario_monster_resources.h',
 )
 TOOL_INPUTS = ('tools/csol_scenario_resources.py', 'tools/csol_material_stage.py')
 
@@ -211,7 +211,7 @@ def main():
             assert {row['destination'] for row in plan['files']} == set(EXPECTED)
             assert plan['models'] == [MODEL]
             assert plan['wallUpgradeClosure'] == dict(roots=sorted(EXPECTED), contract=dict(
-                path='native/csol/wall_upgrade.hpp', sha256=selected['native/csol/wall_upgrade.hpp']['sha256']))
+                path='native/csol/scenario/core/wall_upgrade.hpp', sha256=selected['native/csol/scenario/core/wall_upgrade.hpp']['sha256']))
             assert plan['monsterSkillClosure'] == dict(roots=sorted(EXPECTED), resources=sorted(EXPECTED))
             for row in plan['files']:
                 name = row['destination']

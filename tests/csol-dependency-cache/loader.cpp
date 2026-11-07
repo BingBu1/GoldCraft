@@ -32,7 +32,7 @@ static NTSTATUS WINAPI FixtureHash(BCRYPT_ALG_HANDLE algorithm, PUCHAR secret, U
 #include "../../native/engine/csol_loader.cpp"
 #undef BCryptHash
 #include "../../native/engine/precache.h"
-#include "../../native/csol/weapon_resources.hpp"
+#include "../../native/csol/weapons/weapon_resources.hpp"
 #define GoldCraftCsolSequenceDelta GoldCraftCsolSequenceDeltaBefore
 #define GoldCraftPrecacheCsolResources GoldCraftPrecacheCsolResourcesBefore
 #define GoldCraftDecodeStudio GoldCraftDecodeStudioBefore

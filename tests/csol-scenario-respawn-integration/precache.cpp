@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Execute the exact Session resource statements with the real SDK callbacks.
 #include "precompiled.h"
-#include "../../native/csol/scenario_respawn_resources.hpp"
+#include "../../native/csol/scenario/core/scenario_respawn_resources.hpp"
 #include <algorithm>
 #include <iostream>
 #include <memory>

@@ -54,7 +54,7 @@ def main():
     compiler = Path(config["compilerRoot"]) / "bin/clang-cl.exe"
     linker = compiler.with_name("lld-link.exe")
     old = args.old_client.resolve(strict=True)
-    positive = prepared / "source/native/csol/client/scenario_smoke.cpp"
+    positive = prepared / "source/native/csol/client/scenario/core/scenario_smoke.cpp"
     old_text = old.read_text(encoding="utf-8-sig")
     positive_text = positive.read_text(encoding="utf-8-sig")
     old_hook = 'engine.pfnHookEvent("events/createsmoke.sc", CreateSmoke)'
@@ -93,8 +93,8 @@ def main():
     # The negative includes the exact old TU and only its four neighboring
     # headers, independently copied. Common particle code is linked once.
     negative = out / "negative-source"
-    independent_copy(old, negative / "native/csol/client/scenario_smoke.cpp")
-    for relative in ("native/csol/client/runtime.hpp", "native/csol/client/scenario_smoke.hpp", "native/csol/scenario_smoke.hpp"):
+    independent_copy(old, negative / "native/csol/client/scenario/core/scenario_smoke.cpp")
+    for relative in ("native/csol/client/runtime.hpp", "native/csol/client/scenario/core/scenario_smoke.hpp", "native/csol/scenario/core/scenario_smoke.hpp"):
         independent_copy(prepared / "source" / relative, negative / relative)
     for name in ("plan.py", "run.py"):
         independent_copy(Path(__file__).resolve().parent / name, out / name)
@@ -156,7 +156,7 @@ def main():
                                      "/showIncludes", "/c", str(source), "/Fo" + str(obj)]})
         return obj
 
-    core = compile_one("smoke-core", prepared / "source/native/csol/scenario_smoke.cpp", [prepared / "source"])
+    core = compile_one("smoke-core", prepared / "source/native/csol/scenario/core/scenario_smoke.cpp", [prepared / "source"])
     for name, includes, sources, expected_exit, expected_failures in (
         ("event-order", [prepared, prepared / "source"], [prepared / "event_order.cpp"], 0, []),
         ("client-routing", [prepared / "source", *client_dirs], [prepared / "client_routing.cpp"], 0, []),

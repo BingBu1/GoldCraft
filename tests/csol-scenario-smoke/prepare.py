@@ -62,10 +62,10 @@ def main():
         save(target, "// Exact excerpt from " + relative + "\n" + body + "\n")
         return body
 
-    header = read("native/csol/scenario_smoke.hpp")
+    header = read("native/csol/scenario/core/scenario_smoke.hpp")
     if 'EventPath[] = "events/csol_scenario_smoke.sc"' not in header:
         raise ValueError("candidate does not define the dedicated scenario smoke event")
-    client = read("native/csol/client/scenario_smoke.cpp")
+    client = read("native/csol/client/scenario/core/scenario_smoke.cpp")
     registration = function(client, "void InitializeScenarioSmoke()")
     if "engine.pfnHookEvent(smoke::EventPath, CreateSmoke)" not in registration:
         raise ValueError("candidate client does not register the dedicated smoke event")
@@ -98,13 +98,13 @@ def main():
     save("fixture_stock_globals.inc", "\n".join("int " + name + "{};" for name in indices) + "\n")
     extract("external/ReHLDS/rehlds/engine/pr_cmds.cpp", "unsigned short EXT_FUNC EV_Precache_internal(", "actual_engine_event.inc")
 
-    session = read("native/csol/server/scenario_session.cpp")
+    session = read("native/csol/server/scenario/core/scenario_session.cpp")
     begin = session.index("    constexpr auto smokeEvent = csol::smoke::EventPath;")
     end = session.index("    if (!m_models.Precache(", begin)
-    save("actual_smoke_precache.inc", "// Exact contiguous excerpt from native/csol/server/scenario_session.cpp\n" + session[begin:end])
+    save("actual_smoke_precache.inc", "// Exact contiguous excerpt from native/csol/server/scenario/core/scenario_session.cpp\n" + session[begin:end])
     activate = function(session, "bool CCSOLScenarioSession::Activate()")
     branch = function(activate, "if (m_scope == CSOLScenarioResourceScope::Combat)")
-    save("actual_smoke_activate.inc", "// Exact branch from native/csol/server/scenario_session.cpp\n" + branch + "\n")
+    save("actual_smoke_activate.inc", "// Exact branch from native/csol/server/scenario/core/scenario_session.cpp\n" + branch + "\n")
     save("evidence/session-activate.txt", activate + "\n")
 
     server_main = read("external/ReHLDS/rehlds/engine/sv_main.cpp")
@@ -122,9 +122,9 @@ def main():
     save("registration-source-order.json", json.dumps(registrations, indent=2) + "\n")
 
     freeze = [
-        "native/csol/client/scenario_smoke.cpp", "native/csol/client/scenario_smoke.hpp",
-        "native/csol/client/runtime.hpp", "native/csol/scenario_smoke.cpp",
-        "native/csol/scenario_smoke.hpp", "native/csol/events/csol_scenario_smoke.sc",
+        "native/csol/client/scenario/core/scenario_smoke.cpp", "native/csol/client/scenario/core/scenario_smoke.hpp",
+        "native/csol/client/runtime.hpp", "native/csol/scenario/core/scenario_smoke.cpp",
+        "native/csol/scenario/core/scenario_smoke.hpp", "native/csol/events/csol_scenario_smoke.sc",
     ]
     for relative in freeze:
         read(relative)

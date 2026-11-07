@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 #include "precompiled.h"
-#include "../../native/csol/server/scenario_point_manager.h"
+#include "../../native/csol/server/scenario/core/scenario_point_manager.h"
 
 struct Engine
 {

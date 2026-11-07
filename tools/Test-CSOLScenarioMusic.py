@@ -39,21 +39,21 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
 
     inputs = [ROOT / name for name in (
-        'native/csol/scenario_music.hpp', 'native/csol/scenario_music.cpp',
-        'native/csol/client/runtime.hpp', 'native/csol/client/scenario_music.hpp',
-        'native/csol/client/scenario_music.cpp', 'native/csol/server/scenario_music.h',
-        'native/csol/server/scenario_music.cpp', 'native/csol/server/scenario_bgm_trigger.h',
-        'native/csol/server/scenario_bgm_trigger.cpp',
-        'native/csol/server/scenario_entity_access.h',
-        'native/csol/scenario/round_settings.cpp', 'native/csol/scenario/round_settings.hpp',
-        'native/csol/scenario/map_resources.hpp', 'native/csol/scenario/config.hpp',
-        'native/csol/scenario/resources.hpp', 'native/csol/scenario/monster_types.hpp',
-        'native/csol/scenario/trigger_rules.hpp')]
+        'native/csol/scenario/core/scenario_music.hpp', 'native/csol/scenario/core/scenario_music.cpp',
+        'native/csol/client/runtime.hpp', 'native/csol/client/scenario/core/scenario_music.hpp',
+        'native/csol/client/scenario/core/scenario_music.cpp', 'native/csol/server/scenario/core/scenario_music.h',
+        'native/csol/server/scenario/core/scenario_music.cpp', 'native/csol/server/scenario/core/scenario_bgm_trigger.h',
+        'native/csol/server/scenario/core/scenario_bgm_trigger.cpp',
+        'native/csol/server/scenario/core/scenario_entity_access.h',
+        'native/csol/scenario/core/round_settings.cpp', 'native/csol/scenario/core/round_settings.hpp',
+        'native/csol/scenario/core/map_resources.hpp', 'native/csol/scenario/core/config.hpp',
+        'native/csol/scenario/core/resources.hpp', 'native/csol/scenario/monsters/monster_types.hpp',
+        'native/csol/scenario/core/trigger_rules.hpp')]
     if args.client_only:
         inputs = [ROOT / name for name in (
-            'native/csol/scenario_music.hpp', 'native/csol/scenario_music.cpp',
-            'native/csol/client/runtime.hpp', 'native/csol/client/scenario_music.hpp',
-            'native/csol/client/scenario_music.cpp',
+            'native/csol/scenario/core/scenario_music.hpp', 'native/csol/scenario/core/scenario_music.cpp',
+            'native/csol/client/runtime.hpp', 'native/csol/client/scenario/core/scenario_music.hpp',
+            'native/csol/client/scenario/core/scenario_music.cpp',
             'external/MetaHookSv-20261007/MetaHook/src/metahook.cpp')]
         inputs += [TESTS / 'client.cpp', TESTS / 'README.md']
     else:
@@ -109,11 +109,11 @@ def main():
 
     objects = {}
     units = (
-        ('protocol', ROOT / 'native/csol/scenario_music.cpp', []),
+        ('protocol', ROOT / 'native/csol/scenario/core/scenario_music.cpp', []),
         ('countdown-test', TESTS / 'countdown.cpp', []),
-        ('client', ROOT / 'native/csol/client/scenario_music.cpp', client_includes),
+        ('client', ROOT / 'native/csol/client/scenario/core/scenario_music.cpp', client_includes),
         ('client-test', TESTS / 'client.cpp', client_includes),
-        ('round-settings', ROOT / 'native/csol/scenario/round_settings.cpp', []),
+        ('round-settings', ROOT / 'native/csol/scenario/core/round_settings.cpp', []),
         ('server-test', TESTS / 'server.cpp', []),
         ('trigger-test', TESTS / 'trigger.cpp', [TESTS / 'stubs']))
     for name, source, extra in units:

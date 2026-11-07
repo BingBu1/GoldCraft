@@ -2,12 +2,12 @@
 // Complete production weapon/service/player/box methods with actual ReAPI
 // hooks. Only the engine's controlled entity/message/trace edges are replaced.
 #include "../csol-scenario-rules-session/sdk_engine.hpp"
-#include "../../native/csol/server/wpn_skull3.h"
-#include "../../native/csol/server/weapons.h"
-#include "../../native/csol/server/weapon_service.h"
-#include "../../native/csol/server/weapon_slots.h"
+#include "../../native/csol/server/weapons/wpn_skull3.h"
+#include "../../native/csol/server/weapons/weapons.h"
+#include "../../native/csol/server/weapons/weapon_service.h"
+#include "../../native/csol/server/weapons/weapon_slots.h"
 #include "../../native/csol/server/paired_inventory.h"
-#include "../../native/csol/skull3.hpp"
+#include "../../native/csol/weapons/skull3.hpp"
 #include "../../native/include/goldcraft/csol_weapon_api.hpp"
 #include <filesystem>
 #include <fstream>

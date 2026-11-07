@@ -28,20 +28,20 @@ def main():
             parser.error('Linked output refused')
     output.mkdir(parents=True, exist_ok=False)
     production = ROOT / 'native/csol/server/scenario_active_skill.cpp'
-    header = ROOT / 'native/csol/server/scenario_player_runtime.h'
+    header = ROOT / 'native/csol/server/scenario/core/scenario_player_runtime.h'
     fixture = ROOT / 'tests/csol-scenario-active-skill/main.cpp'
-    runtime = ROOT / 'native/csol/server/scenario_player_runtime.cpp'
-    sender = ROOT / 'native/csol/server/scenario_messages.cpp'
-    sender_header = ROOT / 'native/csol/server/scenario_messages.h'
+    runtime = ROOT / 'native/csol/server/scenario/core/scenario_player_runtime.cpp'
+    sender = ROOT / 'native/csol/server/scenario/core/scenario_messages.cpp'
+    sender_header = ROOT / 'native/csol/server/scenario/core/scenario_messages.h'
     sender_fixture = ROOT / 'tests/csol-scenario-active-skill/sender.cpp'
-    session = ROOT / 'native/csol/server/scenario_session.cpp'
+    session = ROOT / 'native/csol/server/scenario/core/scenario_session.cpp'
     resource_fixture = ROOT / 'tests/csol-scenario-active-skill/resources.cpp'
     hud_fixture = ROOT / 'tests/csol-scenario-active-skill/hud_runtime.cpp'
     inputs = [production, header, fixture, runtime, Path(__file__).resolve(),
               ROOT / 'native/csol/server/scenario_active_skill.h',
-              ROOT / 'native/csol/scenario/equipment.hpp', ROOT / 'native/csol/scenario/config.hpp',
+              ROOT / 'native/csol/scenario/core/equipment.hpp', ROOT / 'native/csol/scenario/core/config.hpp',
               sender, sender_header, sender_fixture, session, resource_fixture,
-              ROOT / 'native/csol/scenario_upgrades.hpp', ROOT / 'native/csol/scenario_abilities.hpp', hud_fixture]
+              ROOT / 'native/csol/scenario/core/scenario_upgrades.hpp', ROOT / 'native/csol/scenario/core/scenario_abilities.hpp', hud_fixture]
     before = [identity(path) for path in inputs]
     source = production.read_text('utf-8')
     marker = 'namespace\n{\nclass CharacterSkill final'

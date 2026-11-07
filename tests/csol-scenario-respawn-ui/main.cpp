@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "native/csol/client/scenario_respawn_ui.hpp"
+#include "native/csol/client/scenario/core/scenario_respawn_ui.hpp"
 #include <iostream>
 #include <limits>
 #include <source_location>

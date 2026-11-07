@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A narrow fixture for the real effect implementation. The independent oracle
 // executes the supplied CSO client/HW instructions with the same engine inputs.
-#include "../../native/csol/client/cannon.cpp"
+#include "../../native/csol/client/weapons/cannon.cpp"
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>

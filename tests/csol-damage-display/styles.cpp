@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/client/damage_styles.hpp"
+#include "../../native/csol/client/scenario/core/damage_styles.hpp"
 #include "../../native/csol/image_codec.hpp"
 #include <filesystem>
 #include <fstream>

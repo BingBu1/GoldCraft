@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "../../native/csol/scenario/map_vote.hpp"
+#include "../../native/csol/scenario/core/map_vote.hpp"
 #include <array>
 #include <iostream>
 #include <limits>

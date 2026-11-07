@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "fixture.hpp"
-#include "../../native/csol/server/scenario_weapon_state.h"
-#include "../../native/csol/server/weapons.h"
+#include "../../native/csol/server/weapons/scenario_weapon_state.h"
+#include "../../native/csol/server/weapons/weapons.h"
 #include <bit>
 #include <cmath>
 #include <cstdlib>

@@ -2,10 +2,10 @@
 #include "precompiled.h"
 #include "damage_notice.h"
 #include "damage_numbers.h"
-#include "scenario_runtime.h"
-#include "scenario_session.h"
-#include "scenario_messages.h"
-#include "../scenario/damage_display_modes.hpp"
+#include "scenario/core/scenario_runtime.h"
+#include "scenario/core/scenario_session.h"
+#include "scenario/core/scenario_messages.h"
+#include "../scenario/core/damage_display_modes.hpp"
 
 namespace
 {
