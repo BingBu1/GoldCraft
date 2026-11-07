@@ -46,3 +46,9 @@
 - CRC启用、资源事务关闭，实际DLL无新刷新接口字符串；核心CRC及字体源码与PDB摘要匹配。
 
 尚未部署，实际Hook/trampoline、同源ON/OFF整图对照、重复缓存释放原因仍待。整候选包含SEQ/墙通知等根源码差异；本次CRC源码提交不代表全部根WIP已发布或玩法验收。
+
+## 本地部署与初次跨图
+
+已完成四文件独立备份/原子替换：CSOLSupport DLL/PDB以及两份匹配符号目录，旧文件均单链接；专服和其他插件保持。单B PID13640实际载入8acebb08，原CRC入口RVA1bc450已挂到CSOLSupport RVA134a40，original调用指针与已登记trampoline一致，266条已登记Hook链检查无异常。证据 `build/csol-client-crc/deployment.json` 和 `live-verification.json`。
+
+直接源码部署前sequence SDK112断言、wall header103/0、当前wall消费者累计196/0通过，81生产/SDK输入与完整DLL一致。单B真实zs_2gate与zs_trap回调恢复分别23.020、24.592秒，最大状态采样间隙5.896、7.910秒；回调恢复不等于显示首帧。当前仍慢，旧版trace和根差异存在，不能将新旧差值归因CRC。相同其余对象的CRC OFF基线仍在准备；缓存反复消失的释放原因仍待。

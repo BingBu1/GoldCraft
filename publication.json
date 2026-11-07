@@ -299,6 +299,7 @@
     "docs/2026-11-07_审计-待提交源码分组.md",
     "docs/2026-11-07_审计-换图计时缺口.md",
     "docs/2026-11-07_诊断-客户端模型缓存换图占用-report.md",
+    "docs/2026-11-07_验证-CSOL客户端直接源码部署前回归-report.md",
     "docs/AMXX_INTEROP.md",
     "docs/ARCHITECTURE.md",
     "docs/BUILD.md",
