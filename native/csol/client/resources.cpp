@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include "gl_state.hpp"
 #include "sequence_guard.hpp"
+#include "model_crc.hpp"
 #include "../model_codec.hpp"
 #include "../sprite_codec.hpp"
 #include "../sequences.hpp"
@@ -152,5 +153,6 @@ void InstallLoaders()
     hostTextureCache=static_cast<int*>(Resolve("currenttexture",MH_GAMESYMBOL_KIND_GLOBAL));
     Hook(mdl,(void*)LoadStudio,(void**)&loadStudio);
     Hook(spr,(void*)LoadSprite,(void**)&loadSprite);
+    InstallModelCrc();
 }
 }

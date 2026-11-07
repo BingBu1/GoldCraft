@@ -34,6 +34,9 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
+target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
+option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)
+target_compile_definitions(CSOLSupport PRIVATE CSOL_OPTIMIZE_HOST_CRC=$<BOOL:${CSOL_OPTIMIZE_HOST_CRC}>)
 target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cpp client/hd_spray_options.cpp client/hd_spray_gl.cpp client/hd_spray_http.cpp)
 target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
 set_source_files_properties(client/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
