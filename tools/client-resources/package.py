@@ -35,6 +35,8 @@ def sha(path):
 
 def selected(name):
     path = PurePosixPath(name)
+    if len(path.parts) == 1 and path.name.lower() in {'cached.wad', 'tempdecal.wad', 'spraypaint.wad'}:
+        return False
     return (path.suffix.lower() in EXTENSIONS and
             (len(path.parts) > 1 and path.parts[0].lower() in DIRECTORIES or
              len(path.parts) == 1 and path.suffix.lower() in {'.wad', '.lmp'}))
