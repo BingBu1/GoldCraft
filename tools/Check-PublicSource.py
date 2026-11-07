@@ -21,23 +21,48 @@ def git(*args):
     return subprocess.check_output(["git", *args], cwd=ROOT)
 
 
-def candidates():
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+def candidates(index_paths=None):
+    manifest = json.loads(git("show", ":publication.json").decode("utf-8")
+                          if index_paths is not None else MANIFEST.read_text(encoding="utf-8"))
     if manifest["format"] != 1:
         raise ValueError("Unknown publication manifest")
     result = set(manifest["files"])
     for directory, extensions in manifest["trees"].items():
-        for file in (ROOT / directory).rglob("*"):
-            if file.is_file() and file.suffix in extensions:
-                result.add(file.relative_to(ROOT).as_posix())
+        if index_paths is not None:
+            prefix = PurePosixPath(directory).parts
+            for name in index_paths:
+                relative = PurePosixPath(name)
+                if relative.parts[:len(prefix)] == prefix and relative.suffix in extensions:
+                    result.add(name)
+        else:
+            for file in (ROOT / directory).rglob("*"):
+                if file.is_file() and file.suffix in extensions:
+                    result.add(file.relative_to(ROOT).as_posix())
     for name in result:
         relative = PurePosixPath(name)
         file = ROOT / name
-        if (relative.is_absolute() or ".." in relative.parts or relative.parts[0] in PRIVATE_TOP
-                or relative.name in DENIED_NAMES or not file.is_file() or file.is_symlink()
-                or not file.resolve().is_relative_to(ROOT)):
+        if (relative.is_absolute() or not relative.parts or ".." in relative.parts
+                or "\\" in name or ":" in name or relative.parts[0] in PRIVATE_TOP
+                or relative.name in DENIED_NAMES):
             raise ValueError(f"Invalid public source path: {name}")
+        if index_paths is None and (not file.is_file() or file.is_symlink()
+                                    or not file.resolve().is_relative_to(ROOT)):
+            raise ValueError(f"Invalid public source file: {name}")
     return sorted(result)
+
+
+def index_paths():
+    names = []
+    for record in git("ls-files", "--stage", "-z").split(b"\0"):
+        if not record:
+            continue
+        metadata, raw_name = record.split(b"\t", 1)
+        mode, _, stage = metadata.split()
+        name = raw_name.decode("utf-8")
+        if stage != b"0" or mode not in (b"100644", b"100755"):
+            raise ValueError(f"Unmerged or non-regular index entry: {name}")
+        names.append(name)
+    return sorted(names)
 
 
 def local_private_values():
@@ -110,10 +135,13 @@ def main():
     parser.add_argument("--staged", action="store_true", help="Inspect exact index blobs and require the full allowlist")
     parser.add_argument("--write-pathspec", action="store_true", help="Write build/public-source-paths.txt as an explicit NUL-separated path list")
     args = parser.parse_args()
-    allowed = set(candidates())
+    staged_names = index_paths() if args.staged else None
+    # Publication is the exact index, including its manifest. Unstaged work
+    # must not force a second checkout or enter a reviewed source checkpoint.
+    allowed = set(candidates(staged_names))
     names = sorted(allowed)
     if args.staged:
-        names = sorted(git("ls-files", "--cached", "-z").decode().rstrip("\0").split("\0"))
+        names = staged_names
         if set(names) != allowed:
             raise ValueError(f"Git index differs from allowlist: extra={sorted(set(names)-allowed)}, missing={sorted(allowed-set(names))}")
     private = local_private_values()

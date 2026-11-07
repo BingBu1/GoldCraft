@@ -2,6 +2,12 @@
 
 当前脚本针对 Windows、x86 GoldSrc、x64 Java 21。所有命令在仓库根目录的 PowerShell 7.5+ 运行。源码仓库不提供 Valve/Mojang 游戏文件、复制的 SDK 或编译产物。使用自己合法拥有的安装；CS 启动时保持 Steam 登录到拥有游戏的账号。
 
+## 源码与输出目录
+
+直接修改项目中的源码，以 Git 保存版本：生产实现位于 `native` 和既有上游源码目录，测试位于 `tests`，构建脚本位于 `tools`。`build` 只保存可重复使用的编译输出、生成的测试适配文件和精简的验证结果，不存放整套源码快照、候选源码树或发布仓库副本；也不把这类副本转移到 `analysis`。
+
+构建记录 Git 提交、实际输入文件的哈希和编译命令，并检查构建前后输入是否变化。需要旧版对照时从 Git 读取对应版本，仅生成该测试需要的适配文件。私有 IDA 原始证据留在 `analysis`，结论与源码对应关系写入 `docs`。阶段完成后在 `main` 提交经核验的源码，保持未完成改动可见且互不覆盖。
+
 ## 安装现成客户端插件包
 
 将 `GoldCraft-MetaHook-Stable.zip` 完整解压到游戏目录外，退出目标 CS 后双击 `Install-GoldCraft.cmd`。它复用官方 MetaHook 安装器发现 Steam CS、部署十插件及配套资源并生成快捷方式；非标准目录可传 `-GameDirectory`，`-Plan` 只预览，`-Restore` 恢复上次安装前的文件。[完整使用及重新打包说明](../tools/client-installer/README.md)
