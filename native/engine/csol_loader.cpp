@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "csol_loader.h"
+#include "csol_studio_resources.h"
 #include "csol_dependency_cache.hpp"
 #include "../csol/model_codec.hpp"
 #include "../csol/sprite_codec.hpp"
@@ -7,9 +8,11 @@
 #include "../csol/parts.hpp"
 #include "../csol/sequences.hpp"
 #include "../csol/sequence_safety.hpp"
+#include "../csol/sequence_owners.hpp"
 #include "../csol/material_source.hpp"
 #include <chrono>
 #include <set>
+#include <limits>
 #ifdef _WIN32
 #include <bcrypt.h>
 #pragma comment(lib,"bcrypt.lib")
@@ -275,6 +278,69 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
         Sys_Error("CSOL: cannot load model %s: %s", name, error.what());
     }
     return {};
+}
+
+GoldCraftStudioResourceFile::~GoldCraftStudioResourceFile()
+{
+    if(file_)Mem_Free(file_);
+}
+
+bool GoldCraftStudioResourceFile::Load(model_t* model)
+{
+    if(file_ || header_)return false;
+    int length=0;
+    file_=COM_LoadFileForMe(model->name,&length);
+    if(!file_ || length<int(sizeof(studiohdr_t)))return false;
+    try
+    {
+        auto bytes=std::span<std::byte>(reinterpret_cast<std::byte*>(file_),std::size_t(length));
+        expanded_=GoldCraftDecodeStudio(bytes,model->name);
+        if(!expanded_.empty())bytes=expanded_;
+        const auto prepared=csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+        const auto* h=reinterpret_cast<const studiohdr_t*>(bytes.data());
+        if(h->numtextures<0 || h->numtextures>4096 ||
+            h->length>std::numeric_limits<int>::max()-1280*h->numtextures)return false;
+        const auto prefix=bytes.first(prepared.RetainedBytes());
+        const auto array=[&](int offset,int count,std::size_t size)
+        {
+            if(offset<0 || count<0)return false;
+            if(!count)return true;
+            return offset>=int(sizeof(studiohdr_t)) && std::size_t(offset)<=prefix.size() &&
+                std::size_t(count)<=(prefix.size()-std::size_t(offset))/size;
+        };
+        // These are all raw-header consumers in PrecacheModelSpecifiedFiles.
+        // Validate them together before advertising anything, so fallback never
+        // duplicates an already emitted subset of the resource list.
+        if(!array(h->textureindex,h->numtextures,sizeof(mstudiotexture_t)) ||
+            !array(h->seqgroupindex,h->numseqgroups,sizeof(mstudioseqgroup_t)) ||
+            !array(h->seqindex,h->numseq,sizeof(mstudioseqdesc_t)))return false;
+        for(int i=1;i<h->numseqgroups;++i)
+        {
+            mstudioseqgroup_t group;
+            std::memcpy(&group,prefix.data()+h->seqgroupindex+std::size_t(i)*sizeof(group),sizeof(group));
+            if(!std::memchr(group.name,0,sizeof(group.name)))return false;
+        }
+        for(int i=0;i<h->numseq;++i)
+        {
+            mstudioseqdesc_t sequence;
+            std::memcpy(&sequence,prefix.data()+h->seqindex+std::size_t(i)*sizeof(sequence),sizeof(sequence));
+            if(!array(sequence.eventindex,sequence.numevents,sizeof(mstudioevent_t)))return false;
+            for(int e=0;e<sequence.numevents;++e)
+            {
+                mstudioevent_t event;
+                std::memcpy(&event,prefix.data()+sequence.eventindex+std::size_t(e)*sizeof(event),sizeof(event));
+                if(event.event==5004 && !std::memchr(event.options,0,sizeof(event.options)))return false;
+            }
+        }
+        header_=reinterpret_cast<studiohdr_t*>(bytes.data());
+        return true;
+    }
+    catch(const std::exception&)
+    {
+        // The ordinary loader remains the authority for unsupported input and
+        // its diagnostics. No resource has been advertised on this path yet.
+        return false;
+    }
 }
 
 bool GoldCraftLoadCsolSprite(model_t* model, std::span<const std::byte> bytes)

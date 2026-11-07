@@ -52,6 +52,7 @@ void PrecacheFixturePad() {
 }
 
 void GoldCraftPrecache::Reset() {
+    GC_ResourceSyncReset();
     userMessageSchemas.fill(UserMediaMessage::unknown);
     currentUserMessage = UserMediaMessage::none;
     manifestClient = nullptr;
@@ -156,6 +157,10 @@ bool GC_CheckPrecacheClient(client_t* client) {
 }
 
 void GC_SendResourceManifest(client_t* client) {
+    if (GC_ResourceSyncClient(client) && !GC_ResourceSyncReady()) {
+        SV_DropClient(client, FALSE, "Server resource update manifest is not ready.");
+        return;
+    }
     const auto total = static_cast<unsigned>(gc_precache.resources.size());
     unsigned first = 0;
     manifestClient = client;
@@ -181,6 +186,7 @@ void GC_SendResourceManifest(client_t* client) {
 
 bool GC_WriteResourceChunk(sizebuf_t* msg) {
         if (!manifestClient) return false;
+        const bool sync = GC_ResourceSyncClient(manifestClient);
         const auto total = static_cast<unsigned>(gc_precache.resources.size());
         const auto first = manifestFirst;
         if (!first) {
@@ -197,10 +203,15 @@ bool GC_WriteResourceChunk(sizebuf_t* msg) {
         MSG_StartBitWriting(msg);
         MSG_WriteBits(goldcraft::precache::marker, 12);
         MSG_WriteBits(goldcraft::precache::magic, 32);
-        MSG_WriteBits(goldcraft::precache::version, 8);
+        MSG_WriteBits(sync ? goldcraft::resource_sync::manifest_version : goldcraft::precache::version, 8);
         MSG_WriteBits(total, 32);
         MSG_WriteBits(first, 32);
         MSG_WriteBits(count, 16);
+        if (sync) {
+            const auto generation = GC_ResourceSyncGeneration();
+            MSG_WriteBits(static_cast<unsigned>(generation), 32);
+            MSG_WriteBits(static_cast<unsigned>(generation >> 32), 32);
+        }
         const byte zero[32]{};
         for (unsigned i = first; i < first + count; ++i) {
             const auto& r = gc_precache.resources[i];
@@ -213,6 +224,14 @@ bool GC_WriteResourceChunk(sizebuf_t* msg) {
             const bool reserved = Q_memcmp(r.rguc_reserved, zero, sizeof(zero)) != 0;
             MSG_WriteBits(reserved, 1);
             if (reserved) MSG_WriteBitData((void*)r.rguc_reserved, sizeof(r.rguc_reserved));
+            if (sync) {
+                const auto* entry = GC_ResourceSyncEntry(i);
+                MSG_WriteBits(entry && entry->required, 1);
+                if (entry && entry->required) {
+                    MSG_WriteBits(entry->size, 32);
+                    MSG_WriteBitData((void*)entry->sha256.data(), int(entry->sha256.size()));
+                }
+            }
         }
         if (first + count == total) SV_SendConsistencyList(msg);
         MSG_EndBitWriting(msg);

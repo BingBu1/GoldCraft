@@ -3,6 +3,8 @@
 #include "http_download.h"
 #include "http_download_store.h"
 #include "launcher_http.h"
+#include "resource_sync.h"
+#include "resource_sync_hash.hpp"
 #include <chrono>
 #include <cmath>
 
@@ -20,6 +22,7 @@ double next_launcher_status = 0;
 goldcraft::http::Store store;
 goldcraft::http::Server server;
 std::shared_ptr<goldcraft::http::Load> loading;
+std::unique_ptr<goldcraft::resource_sync::Hasher> loading_hash;
 FileHandle_t file = nullptr;
 int file_time = 0;
 std::string advertised, bind;
@@ -29,7 +32,19 @@ bool config_checked = false, download_allowed = false;
 
 void CloseRead(bool success) {
     if (file) { FS_Close(file); file = nullptr; }
-    if (loading) { store.finish(loading, success); loading.reset(); }
+    if (loading) {
+        goldcraft::resource_sync::Digest digest{};
+        if (success && loading->integrity.required) {
+            success = loading_hash && loading_hash->Finish(digest);
+            if (success && digest != loading->integrity.sha256) {
+                Con_Printf("GoldCraft HTTP: resource changed after map preparation: %s; reload map before publishing new bytes.\n", loading->name.c_str());
+                success = false;
+            }
+        }
+        store.finish(loading, success, loading->integrity.required ? &digest : nullptr);
+        loading.reset();
+    }
+    loading_hash.reset();
 }
 void ClearAdvertised() {
     if (!advertised.empty() && advertised == sv_downloadurl.string) Cvar_Set("sv_downloadurl", "");
@@ -101,11 +116,14 @@ void GC_HttpResources() {
     CloseRead(false);
     std::vector<goldcraft::http::Resource> resources;
     if (mc_http_download.value != 0 && sv_allow_download.value != 0 && sv_send_resources.value != 0)
-      for (const auto& resource : gc_precache.resources) {
+      for (std::size_t i = 0; i < gc_precache.resources.size(); ++i) {
+        const auto& resource = gc_precache.resources[i];
         if (resource.type == t_decal || resource.nDownloadSize <= 0 ||
             resource.szFileName[0] == '*' || resource.szFileName[0] == '!' || (resource.ucFlags & RES_CUSTOM)) continue;
         const auto name = std::string(resource.type == t_sound ? "sound/" : "") + resource.szFileName;
-        resources.push_back({name, static_cast<std::size_t>(resource.nDownloadSize)});
+        const auto* integrity = GC_ResourceSyncEntry(i);
+        resources.push_back({name, static_cast<std::size_t>(resource.nDownloadSize),
+                             integrity ? *integrity : goldcraft::resource_sync::Entry{}});
     }
     store.publish(resources);
 }
@@ -139,6 +157,7 @@ void GC_HttpFrame() {
             if (!file || FS_Size(file) != loading->size) { CloseRead(false); break; }
             file_time = FS_GetFileTime(loading->name.c_str());
             loading->bytes->reserve(loading->size);
+            if (loading->integrity.required) loading_hash = std::make_unique<goldcraft::resource_sync::Hasher>();
         }
         const auto offset = loading->bytes->size();
         const auto remaining = loading->size - offset;
@@ -148,6 +167,7 @@ void GC_HttpFrame() {
         const auto got = FS_Read(loading->bytes->data() + offset, static_cast<int>(count), 1, file);
         budget -= count;
         if (got != static_cast<int>(count) || !FS_IsOk(file)) { CloseRead(false); break; }
+        if (loading_hash && !loading_hash->Update(loading->bytes->data() + offset, count)) { CloseRead(false); break; }
         if (loading->bytes->size() == loading->size) {
             CloseRead(FS_Size(file) == loading->size && FS_FileSize(loading->name.c_str()) == loading->size &&
                       FS_GetFileTime(loading->name.c_str()) == file_time);

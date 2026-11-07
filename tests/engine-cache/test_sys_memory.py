@@ -112,10 +112,11 @@ int main() {
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--compiler", required=True)
+    parser.add_argument("--source", type=Path, default=SOURCE)
     parser.add_argument("--out", type=Path, default=ROOT / "build/engine-cache-20261029")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    data = SOURCE.read_text(encoding="utf-8")
+    data = args.source.read_text(encoding="utf-8")
     start = data.index("namespace\n{\nvoid *modelCacheMemory;")
     end = data.index("void Sys_InitLauncherInterface", start)
     body = data[start:end]
@@ -132,7 +133,7 @@ def main():
     run = subprocess.run([str(exe)], capture_output=True, text=True)
     (args.out / "sys-memory-result.log").write_text(run.stdout + run.stderr, encoding="utf-8")
     print(run.stdout + run.stderr)
-    result = {"productionSourceSHA256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(), "headerSHA256": hashlib.sha256(HEADER.read_bytes()).hexdigest(), "compileCommand": command, "runExitCode": run.returncode, "bodyUnchanged": True, "osAllocationStubs": True, "liveTest": False}
+    result = {"productionSourceSHA256": hashlib.sha256(args.source.read_bytes()).hexdigest(), "headerSHA256": hashlib.sha256(HEADER.read_bytes()).hexdigest(), "compileCommand": command, "runExitCode": run.returncode, "bodyUnchanged": True, "osAllocationStubs": True, "liveTest": False}
     (args.out / "sys-memory-results.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     raise SystemExit(run.returncode)
 

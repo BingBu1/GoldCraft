@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 #include "goldcraft/precache_protocol.hpp"
+#include "resource_sync.h"
 
 struct GoldCraftPrecache {
     std::vector<const char*> modelNames;

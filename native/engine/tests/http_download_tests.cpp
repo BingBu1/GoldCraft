@@ -6,6 +6,7 @@
 #include "precache.h"
 #include "http_download.h"
 #include "http_download_store.h"
+#include "resource_sync_hash.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdarg>
@@ -27,6 +28,10 @@ template<class F> void until(F predicate, std::chrono::seconds timeout=3s) {
 static const auto main_thread=std::this_thread::get_id();
 static void main_only(){CHECK(std::this_thread::get_id()==main_thread);}
 GoldCraftPrecache gc_precache;
+static std::vector<goldcraft::resource_sync::Entry> sync_entries;
+const goldcraft::resource_sync::Entry* GC_ResourceSyncEntry(std::size_t ordinal) {
+    return ordinal < sync_entries.size() ? &sync_entries[ordinal] : nullptr;
+}
 cvar_t sv_downloadurl{"sv_downloadurl","",0,0,nullptr}, sv_allow_download{"sv_allowdownload","1",0,1,nullptr},
     sv_send_resources{"sv_send_resources","1",0,1,nullptr}, sv_allow_dlfile{"sv_allow_dlfile","1",0,1,nullptr};
 double realtime=0;
@@ -348,6 +353,26 @@ static void adapter_tests(){
     {f=async_request(port,name);CHECK(pump(f).status==404);}
     GC_HttpResources();f=async_request(port,"models/a.mdl");until([&]{frame();return read_frame>0;});auto began=std::chrono::steady_clock::now();GC_HttpShutdown();CHECK(std::chrono::steady_clock::now()-began<1500ms);f.get();CHECK(opens==closes);CHECK(cvars.at("gc_spray_http_front")->value==0);
 }
+static void resource_sync_http_tests() {
+    // Real production HTTP/store/adapter, with a frozen manifest supplied at
+    // its API boundary. Do not delete the old file to manufacture an update.
+    gc_precache.resources.clear(); files.clear(); sync_entries.clear();
+    files["sprites/csol/640hud6.spr"].bytes=pattern(66366,11);
+    add("sprites/csol/640hud6.spr",t_generic,66366);
+    goldcraft::resource_sync::Entry entry{true,66366,{}};
+    { goldcraft::resource_sync::Hasher hash; CHECK(hash.Update(files.begin()->second.bytes.data(),66366)); CHECK(hash.Finish(entry.sha256)); }
+    sync_entries.push_back(entry);
+    Server probe;CHECK(probe.start("127.0.0.1",0,{}));auto port=probe.port();probe.stop();
+    GC_HttpInit();Cvar_Set("mc_http_port",std::to_string(port).c_str());Cvar_Set("mc_http_bind","127.0.0.1");
+    Cvar_Set("sv_allowdownload","1");Cvar_Set("sv_send_resources","1");GC_HttpResources();frame();
+    auto f=async_request(port,"sprites/csol/640hud6.spr");const auto original=pump(f);CHECK(original.status==200&&original.body==files.begin()->second.bytes);
+    files.begin()->second.bytes[0]^=0x80; // same length and same mtime
+    f=async_request(port,"sprites/csol/640hud6.spr");CHECK(pump(f).body==original.body); // immutable verified cached body
+    GC_HttpResources();f=async_request(port,"sprites/csol/640hud6.spr");CHECK(pump(f).status==404); // never old digest/new bytes
+    { goldcraft::resource_sync::Hasher hash; CHECK(hash.Update(files.begin()->second.bytes.data(),66366)); CHECK(hash.Finish(sync_entries[0].sha256)); }
+    GC_HttpResources();f=async_request(port,"sprites/csol/640hud6.spr");auto updated=pump(f);CHECK(updated.status==200&&updated.body==files.begin()->second.bytes&&updated.body!=original.body);
+    GC_HttpShutdown();sync_entries.clear();gc_precache.resources.clear();CHECK(opens==closes);
+}
 int main(int argc,char** argv){try{
     WSADATA w;CHECK(WSAStartup(MAKEWORD(2,2),&w)==0);
     if(argc==2&&std::string_view(argv[1])=="--transport-only"){
@@ -366,6 +391,6 @@ int main(int argc,char** argv){try{
     for(const auto* name:{"resource/private.cfg","resource/payload.dll","resource/combo.tga.exe","resource/../combo.tga","resource/CON.tga"})CHECK(!resource_name(name));
     for(const auto* name:{"resource/other.ttf","resource/font2/a.ttf","resource/font.ttf","resource/font/a.ttf.exe",
         "resource/font/a.otf","resource/font/../other.ttf","resource/font/CON.ttf","resource/font/font.ttf:private"})CHECK(!resource_name(name));
-    transport_tests();server_tests();store_tests();adapter_tests();WSACleanup();
+    transport_tests();server_tests();store_tests();adapter_tests();resource_sync_http_tests();WSACleanup();
     std::cout<<"HTTP production server/store/adapter checks="<<checks.load()<<" passed\n";
 }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;WSACleanup();return 1;}}

@@ -9,7 +9,7 @@ namespace goldcraft::http {
 struct Store::Impl {
     mutable std::mutex mutex;
     std::condition_variable ready;
-    std::unordered_map<std::string, std::size_t> files;
+    std::unordered_map<std::string, Resource> files;
     std::unordered_map<std::string, std::shared_ptr<Load>> cache;
     std::deque<std::shared_ptr<Load>> pending;
     std::shared_ptr<std::atomic<std::size_t>> used = std::make_shared<std::atomic<std::size_t>>(0);
@@ -27,8 +27,9 @@ void Store::publish(const std::vector<Resource>& resources) {
     c.cache.clear(); c.pending.clear(); c.files.clear();
     for (auto& resource : resources) {
         if (c.files.size() == 16384) break;
-        if (resource_name(resource.name) && resource.size && resource.size <= max_file_size)
-            c.files.emplace(resource.name, resource.size);
+        if (resource_name(resource.name) && resource.size && resource.size <= max_file_size &&
+            (!resource.integrity.required || resource.integrity.size == resource.size))
+            c.files.emplace(resource.name, resource);
     }
     c.ready.notify_all();
 }
@@ -39,7 +40,7 @@ Body Store::request(const std::string& name) {
     if (resource == c.files.end()) return {};
     auto found = c.cache.find(name);
     if (found == c.cache.end()) {
-        const auto size = resource->second;
+        const auto size = resource->second.size;
         if (size > c.budget) return {};
         while (c.used->load() + size > c.budget || c.cache.size() >= 256) {
             auto victim = c.cache.end();
@@ -52,6 +53,7 @@ Body Store::request(const std::string& name) {
         }
         auto load = std::make_shared<Load>();
         load->name = name; load->size = size; load->epoch = c.epoch;
+        load->integrity = resource->second.integrity;
         c.used->fetch_add(size);
         load->bytes = std::shared_ptr<Bytes>(new Bytes, [used = c.used, size](Bytes* bytes) {
             delete bytes; used->fetch_sub(size);
@@ -74,10 +76,12 @@ std::shared_ptr<Load> Store::take() {
     auto load = c.pending.front(); c.pending.pop_front();
     return load;
 }
-void Store::finish(const std::shared_ptr<Load>& load, bool success) {
+void Store::finish(const std::shared_ptr<Load>& load, bool success, const goldcraft::resource_sync::Digest* digest) {
     auto& c = *impl_;
     std::lock_guard<std::mutex> lock(c.mutex);
     success = success && load->epoch == c.epoch && load->bytes->size() == load->size;
+    success = success && (!load->integrity.required ||
+        (digest && *digest == load->integrity.sha256 && load->integrity.size == load->size));
     load->phase = success ? Load::Phase::ready : Load::Phase::failed;
     if (!success) ++c.failures;
     c.ready.notify_all();

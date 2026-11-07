@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <string>
 struct cvar_t { const char* name; const char* string; int flags; float value; cvar_t* next; };
-struct model_t {}; struct mod_known_info_t {}; struct client_t { int active{}; }; struct delta_t {}; struct sizebuf_t {};
+struct model_t {}; struct mod_known_info_t {}; struct client_t { int active{}; char userinfo[256]{}; }; struct delta_t {}; struct sizebuf_t {};
 struct fixture_server_static { client_t* clients{}; int maxclients{}; };
 struct fixture_server { int active{}; char name[64]{}; };
 extern fixture_server_static g_psvs;
@@ -32,3 +32,7 @@ int FS_GetFileTime(const char*);
 int FS_IsOk(FileHandle_t);
 void FS_Seek(FileHandle_t, int, FileSystemSeek_t);
 int FS_Read(void*, int, int, FileHandle_t);
+using CreateInterfaceFn = void* (*)(const char*, int*);
+extern CreateInterfaceFn g_FileSystemFactory;
+extern void* g_pFileSystem;
+const char* Info_ValueForKey(const char*, const char*);

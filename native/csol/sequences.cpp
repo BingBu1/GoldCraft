@@ -6,7 +6,6 @@
 #include <cmath>
 #include <cstring>
 #include <stdexcept>
-#include <unordered_map>
 
 namespace csol
 {
@@ -54,8 +53,10 @@ std::vector<std::byte> RescaleAnimation(std::span<const std::byte> block,int ble
     const BoneScales& source,const BoneScales& target)
 {
     std::vector<std::byte> result(block.begin(),block.end());
-    std::unordered_map<size_t,std::byte> written;
-    if(source!=target)for(int blend=0;blend<blends;++blend)for(size_t bone=0;bone<source.size();++bone)
+    const bool rescale=source!=target;
+    // Occupancy is separate from the value: zero and odd/shared bytes are valid.
+    std::vector<unsigned char> written(rescale?block.size():0);
+    if(rescale)for(int blend=0;blend<blends;++blend)for(size_t bone=0;bone<source.size();++bone)
         for(int axis=0;axis<6;++axis)
         {
             const size_t table=(blend*source.size()+bone)*12;
@@ -76,8 +77,8 @@ std::vector<std::byte> RescaleAnimation(std::span<const std::byte> block,int ble
                     std::memcpy(encoded.data(),&quantized,2);
                     for(size_t byte=0;byte<encoded.size();++byte)
                     {
-                        const auto [entry,inserted]=written.emplace(at+byte,encoded[byte]);
-                        Require(inserted || entry->second==encoded[byte],"animation shares incompatible channel scales");
+                        Require(!written[at+byte] || result[at+byte]==encoded[byte],"animation shares incompatible channel scales");
+                        written[at+byte]=1;
                         result[at+byte]=encoded[byte];
                     }
                 }

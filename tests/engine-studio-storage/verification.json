@@ -1,0 +1,73 @@
+{
+  "date": "2026-11-07",
+  "executedCandidate": {
+    "checks": 2714,
+    "failures": 0,
+    "sourceSha256": {
+      "external/ReHLDS/rehlds/engine/l_studio.cpp": "a788e0cf9e92207238277810805dc501b97e9c78376e7ea613dfec6e52da2ca3",
+      "native/engine/csol_sequence_guard.cpp": "54de92355010e075c52aa7c2e0234382ccd50a4f84df2aa676e77b860c88490e",
+      "native/engine/csol_studio_storage.h": "0f66d5176e30d9d908465f40e4422138170c3c532ff0c8a42e99c1dbb6b345d5"
+    },
+    "dependencyObjects": "Six deployed objects had exact source/build identities checked before reuse; the public runner instead rebuilds these from the selected source tree."
+  },
+  "executedLegacy": {
+    "sameFixture": true,
+    "firstFailedCheck": 130,
+    "message": "dedicated allocation must omit texture payload",
+    "laterChecksExecuted": false,
+    "sourceSha256": {
+      "external/ReHLDS/rehlds/engine/l_studio.cpp": "afc79ab909b3c8118c6e3c0795f8dae446c7ca4577e8a956442cad5849184e77",
+      "native/engine/csol_sequence_guard.cpp": "702f3b19b6d13164dc1284b6e3c635685e3db06da9d4f72adfd908b79f048dfd"
+    }
+  },
+  "publicRunnerPackaging": {
+    "pythonSyntax": "passed",
+    "advertiserExtractionComparedWithExecutedFixture": "passed",
+    "prepareOnlySmoke": "passed",
+    "snapshottedProjectInputs": 44,
+    "preparedCommands": 9,
+    "nativeCompilationAfterPackaging": false,
+    "nativeExecutionAfterPackaging": false,
+    "supersededByDirectSourceRunner": true
+  },
+  "fullDllOrGameplayAcceptance": false,
+  "mapTransitionPerformanceEvidence": false,
+  "historicalFixture": {
+    "path": "tests/engine-studio-storage/fixture.cpp",
+    "sha256": "95a4bb345b76661d09ce74a346089dc9a5c8ffd521c3b2d4ca433607edb93ed4",
+    "matchesExecutedFixture": true,
+    "boundary": "Actual public loader wrapper, internal loader and guard; hook registry, cache allocator and filesystem are test boundaries.",
+    "matchesCurrentFixture": false
+  },
+  "currentSinglePlan": {
+    "date": "2026-11-07",
+    "checks": 5879,
+    "failures": 0,
+    "compile": true,
+    "link": true,
+    "x86PE": true,
+    "inputsUnchanged": true,
+    "mode": "loader-only",
+    "directWorkingTree": true,
+    "fullDll": false,
+    "gameplay": false,
+    "negativeControl": {
+      "expectedFailure": "unhooked load must plan exactly once",
+      "actualOutput": "actual Studio loader/guard failure after 2434: unhooked load must plan exactly once",
+      "inputsUnchanged": true,
+      "sourceSha256": {
+        "external/ReHLDS/rehlds/engine/l_studio.cpp": "a788e0cf9e92207238277810805dc501b97e9c78376e7ea613dfec6e52da2ca3",
+        "native/engine/csol_sequence_guard.cpp": "54de92355010e075c52aa7c2e0234382ccd50a4f84df2aa676e77b860c88490e",
+        "native/engine/csol_studio_storage.h": "0f66d5176e30d9d908465f40e4422138170c3c532ff0c8a42e99c1dbb6b345d5"
+      }
+    },
+    "fixtureSha256": "a3706cf6aea3ffbec03e1b7114cff36b383afffbb20b6cf291dabf16ab070f12",
+    "sourceSha256": {
+      "external/ReHLDS/rehlds/engine/l_studio.cpp": "932490b731e8bb91d9658695468ecda77f2e23904e859e5619e602467269277b",
+      "native/engine/csol_sequence_guard.cpp": "832f1deb30d2fec11d62de1b6f5195a145f7205691199b52a95a27c65e32837d",
+      "native/engine/csol_studio_storage.h": "6847024140ef34253830d99bdc6e6a7d4cc6115c4c1c8f680ceabcdb077b372c"
+    },
+    "note": "First run failed because the new direct-public invalid-input test caught HostError instead of the existing std::runtime_error. Test was corrected; production code unchanged.",
+    "runnerSha256": "41f244a9a1c643b32c1a97fe93dc8fa248bbb4a2d0ba83df14912a6f4bd69abe"
+  }
+}

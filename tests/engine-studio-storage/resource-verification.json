@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-07",
+  "checks": 4300,
+  "failures": 0,
+  "checksIncludeByteCanaries": true,
+  "actualIncludeCount": 674,
+  "freshlyCompiledObjects": 7,
+  "inputsUnchangedDuringExecution": true,
+  "oldControlGitRevision": "198789866e437ba0dc523a49526f4077edd5c9a1",
+  "oldControlBodySha256": "12a37650c51bf03eb573fc7ea6f8c592440fdb6662109a185e6c552b26817d80",
+  "stdinSha256": "63bd2daeb0b92f5b4d8d631f43c2416807df34067aa2ae63a3b34044bf21a2f5",
+  "fixtureSha256": "646c40cc63f44b1fba97763c8dd118db04768c3c49e51574a94e963c493c9cd1",
+  "executedRunnerSha256": "ce91fe8eba50bcbad528b8da1605a756ac539e6dcc2a75d21b39b7968edf490c",
+  "runnerBaselineSourceRefinement": {
+    "pythonSyntax": "passed",
+    "prepareOnly": "passed",
+    "oldControlBodyIdentical": true,
+    "completeCompilerStdinIdentical": true,
+    "additionalNativeCompilation": false
+  },
+  "sourceSha256": {
+    "native/engine/csol_loader.cpp": "9a5589ab2544dcf8f7e3e24af9f3a3390d967ea8efc626bca47d757ae04d82ca",
+    "native/engine/csol_studio_resources.h": "57eda210aea74f5152319e8d1f6b39c140ff5d3a642742c09b6a436759d9ec9c",
+    "external/ReHLDS/rehlds/engine/sv_main.cpp": "5c0dcdf29f488ae9d6b23d5040830438fef8f0953f1db69ccc8cd69619210c57",
+    "native/engine/map_load_timing.h": "6e25a448db445618e2dc653786a313a6d80eb13f1055b70773d4447ebf601feb",
+    "external/ReHLDS/rehlds/engine/l_studio.cpp": "932490b731e8bb91d9658695468ecda77f2e23904e859e5619e602467269277b",
+    "native/engine/csol_sequence_guard.cpp": "832f1deb30d2fec11d62de1b6f5195a145f7205691199b52a95a27c65e32837d",
+    "native/engine/csol_studio_storage.h": "6847024140ef34253830d99bdc6e6a7d4cc6115c4c1c8f680ceabcdb077b372c"
+  },
+  "executableSha256": "283e5a651de09aeae4f2bbbf9dd0f9734e8c4f019444781647e0ba50349b4df0",
+  "actualModExtradata": true,
+  "modLoadModelOuterBoundaryStub": true,
+  "realDecodeGuardLoaderInsideBoundary": true,
+  "orderedAdvertisementParity": true,
+  "eligibleFourModelCacheAllocations": 0,
+  "oldFourModelCacheAllocations": 4,
+  "fullEngineBuild": false,
+  "deployment": false,
+  "liveGameplay": false,
+  "measuredMapSpeedup": false
+}

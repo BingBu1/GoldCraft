@@ -1,12 +1,14 @@
 #pragma once
 #include "http_download_server.h"
+#include "goldcraft/resource_sync.hpp"
 #include <cstddef>
 
 namespace goldcraft::http {
-struct Resource { std::string name; std::size_t size = 0; };
+struct Resource { std::string name; std::size_t size = 0; goldcraft::resource_sync::Entry integrity{}; };
 struct Load {
     std::string name;
     std::size_t size = 0;
+    goldcraft::resource_sync::Entry integrity{};
     // Only the main-thread loader may write bytes, until finish().
     std::shared_ptr<Bytes> bytes;
 private:
@@ -23,7 +25,8 @@ public:
     void publish(const std::vector<Resource>& resources);
     Body request(const std::string& name); // worker only; max wait 10 seconds
     std::shared_ptr<Load> take(); // main thread
-    void finish(const std::shared_ptr<Load>& load, bool success); // main thread
+    void finish(const std::shared_ptr<Load>& load, bool success,
+                const goldcraft::resource_sync::Digest* digest = nullptr); // main thread
     StoreStats stats() const;
 private:
     struct Impl;
