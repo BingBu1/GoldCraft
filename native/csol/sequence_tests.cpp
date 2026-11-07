@@ -352,6 +352,60 @@ static void CheckUnits()
     auto badSeq=zeroSeq;badSeq[0][8+48+1]=std::byte{};Rejected(zero,badSeq);
     std::cout<<"PASS zero scales preserved without NaN; equal-unit native/SEQ RLE validation retained\n";
 }
+// Independently enumerate consumer-visible non-animation ranges using the
+// real studio v10 layouts. No production eligibility function is called.
+static void CheckConsumerBytes(const std::vector<std::byte>& base,const std::vector<std::byte>& output)
+{
+    const auto Require=[](bool ok,const char* reason){if(!ok)throw std::runtime_error(reason);};
+    const auto Slice=[&](const std::vector<std::byte>& bytes,size_t at,size_t size){
+        Require(at<=bytes.size() && size<=bytes.size()-at,"consumer range outside model");
+        return std::span<const std::byte>(bytes).subspan(at,size);
+    };
+    const auto Equal=[&](std::span<const std::byte> a,std::span<const std::byte> b,const char* reason){
+        Require(a.size()==b.size() && std::equal(a.begin(),a.end(),b.begin()),reason);
+    };
+    const auto same=[&](size_t at,size_t count,size_t width){Equal(Slice(base,at,count*width),Slice(output,at,count*width),"live geometry bytes changed");};
+    for(size_t i=0;i<244;++i)
+        if(!(i>=72&&i<76)&&!(i>=164&&i<172)&&!(i>=188&&i<192))Require(base[i]==output[i],"authored header changed");
+    for(int bone=0;bone<Word(base,140);++bone)same(Word(base,144)+size_t(bone)*112,1,88);
+    for(auto row:{std::array{148,152,24},std::array{156,160,32},std::array{172,176,104},std::array{212,216,88}})
+        same(Word(base,row[1]),Word(base,row[0]),row[2]);
+    for(int i=0;i<Word(base,164);++i)
+    {
+        const size_t at=Word(base,168)+size_t(i)*176;
+        same(Word(base,at+52),Word(base,at+48),76);
+        same(Word(base,at+64),Word(base,at+60),20);
+    }
+    same(Word(base,200),size_t(Word(base,192))*Word(base,196),2);
+    same(Word(base,240),size_t(Word(base,236))*Word(base,236),1);
+    same(Word(base,208),Word(base,204),76);
+    for(int body=0;body<Word(base,204);++body)
+    {
+        const size_t bp=Word(base,208)+size_t(body)*76;
+        for(int sub=0;sub<Word(base,bp+64);++sub)
+        {
+            const size_t model=Word(base,bp+72)+size_t(sub)*112;same(model,1,112);
+            same(Word(base,model+76),Word(base,model+72),20);
+            same(Word(base,model+84),Word(base,model+80),1);same(Word(base,model+88),Word(base,model+80),12);
+            same(Word(base,model+96),Word(base,model+92),1);same(Word(base,model+100),Word(base,model+92),12);
+            for(int mesh=0;mesh<Word(base,model+72);++mesh)
+            {
+                const size_t ms=Word(base,model+76)+size_t(mesh)*20;size_t cursor=Word(base,ms+4),start=cursor;
+                while(true){const int count=Value<short>(base,cursor);cursor+=2;if(!count)break;Require(count!=-32768,"invalid triangle count");cursor+=size_t(std::abs(count))*8;Slice(base,start,cursor-start);}
+                same(start,cursor-start,1);
+            }
+        }
+    }
+    for(int i=0;i<Word(base,180);++i)
+    {
+        const size_t at=Word(base,184)+size_t(i)*80;same(at,1,76);
+        const auto oldPixel=Word(base,at+76),newPixel=Word(output,at+76);
+        Require(newPixel-Word(output,188)==oldPixel-Word(base,188),"texture relocation changed relative image index");
+    }
+    if(Word(base,180)>0)Equal(Slice(base,Word(base,188),base.size()-Word(base,188)),Slice(output,Word(output,188),output.size()-Word(output,188)),"texture image bytes changed");
+}
+
+
 int wmain(int argc,wchar_t** argv)
 {
     try
@@ -380,14 +434,9 @@ int wmain(int argc,wchar_t** argv)
             const auto oldTextures=Word(base,188),newTextures=Word(merged,188);
             Check(now+count*176==newTextures);
             Check(!memcmp(base.data()+oldTextures,merged.data()+newTextures,Word(base,72)-oldTextures));
-            for(size_t i=244;i<size_t(oldTextures);++i)
-            {
-                const auto relative=int(i)-Word(base,184);
-                if(relative>=0 && relative<Word(base,180)*80 && relative%80>=76)continue;
-                const auto boneRelative=int(i)-Word(base,144);
-                if(boneRelative>=0 && boneRelative<Word(base,140)*112 && boneRelative%112>=88)continue;
-                Check(base[i]==merged[i]);
-            }
+            // Dead original animation/descriptors may be reused. Compare every
+            // live non-animation consumer instead of demanding the old layout.
+            CheckConsumerBytes(base,merged);
             int descriptor=Word(base,164);
             for(const auto& data:seq)
             {
