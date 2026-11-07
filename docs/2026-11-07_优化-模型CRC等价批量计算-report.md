@@ -36,3 +36,14 @@
 采样器修正为新地图/完成清单/fresh view后，要求后续nativeWork时间窗推进且原生HUD_Redraw有调用；prediction仍保存为观察值。该规则验证宿主回调恢复，不能替代视觉、输入或稳定帧率。后续真正客户端卡顿仍需加载阶段计时，完整goal继续开放。
 
 修正后的单B实测zs_2gate→zs_trap：新地图视图状态24.792秒、后续native HUD回调25.258秒，最大状态报告间隙7.887秒；同一MetaHook.exe PID14168、完整清单3429→3325与服务器地图身份通过。最终窗口未在前台，不能作为前台FPS或显示器首帧验收。证据build/map-transition/crc-client-reverse.json。实际GoldCraft.dll匹配Git66e0fb8fae32460921e7649b24c488ffce63341b的plugin.cpp，证实该HUD窗口消费和prediction计数条件；未按当前WIP猜运行行为。
+
+
+## 现客户端原有计时的下一阶段样本
+
+在既有e6a18fd3客户端上启用CSOL_HITCH_TRACE，保持单B；正常退出14168后启动37384。专服、客户端DLL和地图资源未再改。真实zs_trap→zs_2gate新地图视图23.172秒，后续原生HUD回调23.380秒；记录build/map-transition/crc-client-traced.json。CSV为build/map-transition/client-hitch.csv，已固定前294613字节SHA792107908d15a3a47b15e6b2bf29c90e8654293adc4e9510811d2d7ce50b6e27，按前缀复核不要求正在追加的文件全SHA保持。
+
+实际QPC/频率与Python3.14 monotonic同一时基已核。对应区间记录LoadStudio1188次、414个模型名、共4.188秒；其中358名3次、55名2次、1名4次，无LoadStudio彼此嵌套。ReadResource1.783秒为嵌套项，不与LoadStudio相加。最大7.683秒frame-gap内仍有约4.563秒未被已记录scope覆盖，不能把剩余时间猜成SEQ或GPU。已有客户端诊断含100微秒门限，缺席短调用不算零耗时。
+
+下一步追三轮加载的实际消费者和缓存失效/内存淘汰原因，再确定如何避免重复工作；不能只凭同名重复就跳过加载。运行身份与计时入口见本地报告docs/2026-11-07_审查-运行客户端加载计时入口-report.md。最终请求F10正常退出37384被消费但进程仍在，未强杀；CSV前缀是已落盘证据，不宣称最终fclose。客户端停帧与画面验收仍未完成。
+
+维护补记：按只留两份部署备份的规则尝试删除旧engine-177e61795593bcd4和engine-9dd350a9db200d84，工具自动审批返回blocked by policy；未执行删除，未改用其他工具规避。两个目录保留，需用户手动清理。

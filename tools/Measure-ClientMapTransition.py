@@ -88,6 +88,8 @@ def main():
               "samples": [], "passed": False, "visualAcceptance": False}
     output.parent.mkdir(parents=True, exist_ok=True)
     started, wall_started = time.monotonic(), time.time_ns()
+    result["startedMonotonicSeconds"] = started
+    result["startedUnixNs"] = wall_started
     last_stamp, last_report, largest_gap = initial_stamp, started, 0.0
     ready_window = None
     try:
