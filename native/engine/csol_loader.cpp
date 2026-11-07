@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "csol_loader.h"
+#include "model_load_profile.h"
 #include "csol_studio_resources.h"
 #include "csol_dependency_cache.hpp"
 #include "../csol/model_codec.hpp"
@@ -240,6 +241,7 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
 
 std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name)
 {
+    goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Decode);
     try
     {
         if (csol::DecodeStudioModel(bytes))
@@ -248,7 +250,10 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
         // Mod_LoadModel passes this owned result to GoldCraftLoadStudioOwned;
         // all supported engine/GameDLL samplers check the selected track.
         constexpr auto policy=csol::SequenceReadPolicy::AllowUnsupportedTracks;
-        const auto stored=csol::ReadSequenceSafety(bytes,safety,policy);
+        const auto stored=[&] {
+            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::DecodeSafety);
+            return csol::ReadSequenceSafety(bytes,safety,policy);
+        }();
         if(stored==csol::SequenceSafetyStatus::Invalid)
             throw std::runtime_error("invalid studio sequence safety data");
         // Already packed files retain their sequence numbering even when the
@@ -289,14 +294,20 @@ bool GoldCraftStudioResourceFile::Load(model_t* model)
 {
     if(file_ || header_)return false;
     int length=0;
-    file_=COM_LoadFileForMe(model->name,&length);
+    {
+        goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::FileRead);
+        file_=COM_LoadFileForMe(model->name,&length);
+    }
     if(!file_ || length<int(sizeof(studiohdr_t)))return false;
     try
     {
         auto bytes=std::span<std::byte>(reinterpret_cast<std::byte*>(file_),std::size_t(length));
         expanded_=GoldCraftDecodeStudio(bytes,model->name);
         if(!expanded_.empty())bytes=expanded_;
-        const auto prepared=csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+        const auto prepared=[&] {
+            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Prepare);
+            return csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+        }();
         const auto* h=reinterpret_cast<const studiohdr_t*>(bytes.data());
         if(h->numtextures<0 || h->numtextures>4096 ||
             h->length>std::numeric_limits<int>::max()-1280*h->numtextures)return false;

@@ -14,6 +14,8 @@ RCON = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(RCON)
 LOGS = ROOT / "sandbox/cs-server/Half-Life/cstrike/logs"
 STAGE = re.compile(r"GoldCraft mapload stage=(\w+) map=(\w+) seconds=([0-9.]+)")
+MODEL_STAGE = re.compile(
+    r"GoldCraft modelload phase=(\w+) stage=(\w+) calls=(\d+) seconds=([0-9.]+)")
 
 
 def status():
@@ -92,6 +94,9 @@ def main():
             raise RuntimeError("Activation did not record a completed map")
         sample = {"index": index + 1, "observedSeconds": observed,
                   "stagesSeconds": stages, "log": path.name, "requestError": request_error,
+                  "modelStages": [{"phase": phase, "stage": stage, "calls": int(calls),
+                                   "seconds": float(seconds)}
+                                  for phase, stage, calls, seconds in MODEL_STAGE.findall(lines)],
                   "diagnosticLines": [line for line in lines.splitlines() if "GoldCraft" in line],
                   "cache": RCON.command("gc_cache_stats").strip()}
         if "changelevel" in stages:

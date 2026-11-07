@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "csol_sequence_guard.h"
 #include "csol_studio_storage.h"
+#include "model_load_profile.h"
 #include "../csol/sequence_owners.hpp"
 #include "goldcraft/csol_sequence_api.hpp"
 
@@ -47,18 +48,28 @@ void GoldCraftLoadStudioOwned(model_t* model,std::span<std::byte> bytes)
     {
         // Selection and sampling are guarded in both the engine fallback and
         // the matching GameDLL. Unselected unsupported tracks remain inert.
-        auto prepared=csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+        auto prepared=[&] {
+            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Prepare);
+            return csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+        }();
         const auto* header=reinterpret_cast<const studiohdr_t*>(bytes.data());
         if(header->numtextures<0 || header->numtextures>4096)
             throw std::runtime_error("invalid studio texture count");
-        const auto storage=csol::PlanStudioStorage(bytes,g_bIsDedicatedServer!=0);
+        const auto storage=[&] {
+            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Storage);
+            return csol::PlanStudioStorage(bytes,g_bIsDedicatedServer!=0);
+        }();
         token=owners.BeginLoad(Owner(model));
         // No hook can change the validated bytes on this direct path. A
         // populated chain retains the original loader's independent plan.
-        if(g_RehldsHookchains.m_Mod_LoadStudioModel.isEmpty())
-            Mod_LoadStudioModelPlanned(model,bytes.data(),storage);
-        else
-            Mod_LoadStudioModel(model,bytes.data());
+        {
+            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Copy);
+            if(g_RehldsHookchains.m_Mod_LoadStudioModel.isEmpty())
+                Mod_LoadStudioModelPlanned(model,bytes.data(),storage);
+            else
+                Mod_LoadStudioModel(model,bytes.data());
+        }
+        goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Commit);
         if(!owners.CompleteLoad(Owner(model),token,std::move(prepared),Base(model),std::size_t(storage.bytes)))
             throw std::runtime_error("studio allocation/copy receipt mismatch");
     }

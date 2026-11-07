@@ -8,6 +8,8 @@
 
 构建记录 Git 提交、实际输入文件的哈希和编译命令，并检查构建前后输入是否变化。需要旧版对照时从 Git 读取对应版本，仅生成该测试需要的适配文件。私有 IDA 原始证据留在 `analysis`，结论与源码对应关系写入 `docs`。阶段完成后在 `main` 提交经核验的源码，保持未完成改动可见且互不覆盖。
 
+按用户2026-11-07要求，获准委派的子代理使用 `high` 推理强度。该设置不改变任务的授权范围或验证要求。
+
 ## 安装现成客户端插件包
 
 将 `GoldCraft-MetaHook-Stable.zip` 完整解压到游戏目录外，退出目标 CS 后双击 `Install-GoldCraft.cmd`。它复用官方 MetaHook 安装器发现 Steam CS、部署十插件及配套资源并生成快捷方式；非标准目录可传 `-GameDirectory`，`-Plan` 只预览，`-Restore` 恢复上次安装前的文件。[完整使用及重新打包说明](../tools/client-installer/README.md)
