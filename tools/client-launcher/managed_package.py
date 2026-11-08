@@ -12,18 +12,28 @@ spec=importlib.util.spec_from_file_location('launcher_package',Path(__file__).wi
 base=importlib.util.module_from_spec(spec);spec.loader.exec_module(base)
 
 
-def package(publication,output):
+def package(publication,output,baseline=None):
     publication,output=map(base.plain,(publication,output));root=base.ROOT
     if output.exists() or not output.is_relative_to(root/'server-packages'):raise ValueError('Use a fresh server-packages directory')
     envelope=json.loads((publication/'manifest.json').read_text('utf-8-sig'));release=json.loads(base64.b64decode(envelope['payload']))
     if release['schema']!=2:raise ValueError('Requires a managed release')
+    prior=None;prior_files={};reused=[]
+    if baseline is not None:
+        baseline=base.plain(baseline)
+        prior=json.loads(base64.b64decode(json.loads(baseline.read_text('utf-8-sig'))['payload']))
+        if prior['schema']!=2 or prior['bundleId']!=release['bundleId'] or prior['sequence']>=release['sequence']:
+            raise ValueError('Incremental baseline must be an earlier release in the same channel')
+        prior_files={row['path']:row for row in prior['files']}
     stage=output/('BingSang-Launcher-Server-'+str(release['sequence']));stage.mkdir(parents=True)
     sources={'Update-Server.ps1':Path(__file__).with_name('Update-Server.ps1'),
              'Files.ps1':root/'tools/scenario-update/Files.ps1','release-public-key.xml':root/'tools/respawn-release/release-public-key.xml',
              'payload/cs/launcher-public/manifest.json':publication/'manifest.json'}
+    if baseline is not None:sources['baseline-manifest.json']=baseline
     for row in release['files']:
         rel='blobs/'+row['sha256']+'/'+Path(row['path']).name;p=base.plain(publication/rel)
         if base.digest(p)!=row['sha256'] or p.stat().st_size!=row['bytes']:raise ValueError('Core blob mismatch')
+        if prior_files.get(row['path'])==row:
+            reused.append(row);continue
         sources['payload/cs/launcher-public/'+rel]=p
     for rel,source in sources.items():
         target=base.plain(stage/rel);target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(base.plain(source),target)
@@ -31,8 +41,9 @@ def package(publication,output):
     for name,flag in [('Update-Server.cmd',''),('Restore-Server.cmd','-Restore ')]:
         (stage/name).write_bytes(('@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Update-Server.ps1" '+flag+'%*\r\nset "result=%ERRORLEVEL%"\r\npause\r\nexit /b %result%\r\n').encode('ascii'))
     (stage/'README.txt').write_text('冰桑启动器自动更新服务端包 '+release['version']+'\n\n'
-        '解压到服务器目录之外，双击 Update-Server.cmd。默认目录 E:\\cs_MineCraft\\GoldCraft-Servers。\n'
-        '完整包含 '+str(len(release['files']))+' 个核心 DLL 及 '+str(len(release['resources']))+' 个签名符号目录/shader 配套文件。\n'
+        '解压到服务器目录之外，双击 Update-Server.cmd。默认目录 E:\\cs_MineCraft\\GoldCraft-Servers。\n'+
+        ('增量包：须先安装序号 '+str(prior['sequence'])+' 的服务器启动器发布。包含 '+str(len(release['files'])-len(reused))+' 个变动 DLL，逐SHA验证并复用服务器已有 '+str(len(reused))+' 个 DLL；缺失则更新前停止。\n' if prior else '完整包含 '+str(len(release['files']))+' 个核心 DLL。\n')+
+        '签名清单含全部 '+str(len(release['resources']))+' 个符号目录/shader 配套文件。\n'
         '无需重启服务器，不修改端口、密码、管理员和其他游戏配置。\n'
         '玩家本次换用 2026.11.08.2 或更新的冰桑启动器，今后本协议下 DLL/符号目录/shader 更新只需点击启动游戏。\n'
         '旧 2026.11.08.1 及更早 EXE 不支持此协议。地图模型资源仍由原下载渠道管理。\n'
@@ -49,10 +60,12 @@ def package(publication,output):
             with z.open(stage.name+'/'+row['path']) as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
             if digest!=row['sha256']:raise ValueError('ZIP hash mismatch')
     result=dict(sequence=release['sequence'],bundleId=release['bundleId'],coreFiles=len(release['files']),resources=len(release['resources']),files=files,
+                baselineSequence=prior['sequence'] if prior else None,packagedCoreFiles=len(release['files'])-len(reused),reusedCoreFiles=reused,
                 zip=dict(path=str(archive),bytes=archive.stat().st_size,sha256=base.digest(archive)))
     (output/'receipt.json').write_text(json.dumps(result,indent=2)+'\n','utf-8');print(json.dumps(result['zip']))
 
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--publication',required=True,type=Path);p.add_argument('--output',required=True,type=Path)
-    a=p.parse_args();package(a.publication,a.output)
+    p.add_argument('--baseline',type=Path,help='Earlier signed manifest; unchanged DLLs must exist and match on the target server')
+    a=p.parse_args();package(a.publication,a.output,a.baseline)

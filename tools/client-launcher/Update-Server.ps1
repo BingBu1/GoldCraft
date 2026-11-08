@@ -26,7 +26,14 @@ try{
     if((Get-Item -LiteralPath $source).Length -gt 1MB){throw 'Manifest too large for HTTP server'}
     $release=Signed $source
     if($release.schema -ne 2 -or $release.sequence -lt 1 -or $release.bundleId -cne 'ac689085e776441828892db90bd22f09c9ee21c80e0318630ac3ea096c796406' -or @($release.files).Count -lt 19 -or @($release.files).Count -gt 128){throw 'Wrong managed release channel'}
+    $baselinePath=Under $package 'baseline-manifest.json';$baseline=$null;$baselineHash=$null;$baselineFiles=@{}
+    if(Test-Path -LiteralPath $baselinePath){
+        $baseline=Signed $baselinePath;$baselineHash=Hash $baselinePath
+        if($baseline.schema -ne 2 -or $baseline.bundleId -cne $release.bundleId -or $baseline.sequence -ge $release.sequence){throw 'Invalid incremental baseline'}
+        foreach($row in $baseline.files){if($baselineFiles.ContainsKey($row.path)){throw 'Duplicate baseline core'};$baselineFiles[$row.path]=$row}
+    }
     $dest=Under $target 'cs/launcher-public/manifest.json';$before=Hash $dest
+    if($null -ne $baseline -and $before -cne $baselineHash -and $before -cne $after){throw "This incremental update requires installed launcher publication $($baseline.sequence). Install that server package first."}
     if($null -ne $before){
         $previous=Signed $dest
         if($previous.bundleId -cne $release.bundleId -and $previous.bundleId -cne '24af5cde87712fddd2af140f239cd3bda982e0dbf991e3cbc5cf3ce255483005'){throw 'Incompatible installed publication'}
@@ -38,7 +45,13 @@ try{
         [void](Under $target $row.path);$seen[$row.path]=$true
         $rel='cs/launcher-public/blobs/'+$row.sha256+'/'+[IO.Path]::GetFileName($row.path)
         $src=Under $package ('payload/'+$rel);$file=Under $target $rel;$existing=Hash $file
-        if((Hash $src) -cne $row.sha256 -or (Get-Item -LiteralPath $src).Length -ne $row.bytes){throw 'Packaged DLL is missing or corrupt'}
+        if(Test-Path -LiteralPath $src -PathType Leaf){
+            if((Hash $src) -cne $row.sha256 -or (Get-Item -LiteralPath $src).Length -ne $row.bytes){throw 'Packaged DLL is corrupt'}
+        }else{
+            $old=$baselineFiles[$row.path]
+            if($null -eq $old -or $old.sha256 -cne $row.sha256 -or $old.bytes -ne $row.bytes){throw 'Packaged DLL is missing and is not part of the verified incremental baseline'}
+            if($existing -cne $row.sha256 -or (Get-Item -LiteralPath $file).Length -ne $row.bytes){throw "Incremental baseline DLL is missing or corrupt: $($row.path). Reinstall the baseline server package first."}
+        }
         if($null -ne $existing -and $existing -cne $row.sha256){throw 'Existing immutable blob changed'}
         $blobs+=@([pscustomobject]@{source=$src;target=$file;sha256=$row.sha256;missing=($null -eq $existing)})
     }

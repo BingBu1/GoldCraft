@@ -158,3 +158,14 @@ DLL、配套文件、加载顺序、移除项和签名记录在同一事务内�
 修复在线版本不重置已安装序号，也不把新DLL覆盖回内置旧版。
 实现 `ReleasePolicy.cs` / `Updates.cs` / `Bundle.cs`；回归在 `tests/client-launcher-managed`。
 历史协议1可显式使用 `-ProtocolVersion 1`，它仍严格拒绝静态资源改变。
+
+## 只打包变化的 DLL
+
+`managed_package.py` 可附加 `--baseline <上一版签名manifest.json>` 生成增量包。
+它只省略路径、SHA和长度均与该基线一致的DLL；完整新资源合同和旧基线签名仍在包内。
+服务器必须已有对应基线发布，更新器先验基线签名、全部复用blob的SHA和长度，
+缺失/损坏或版本不符时在任何载荷写入前停止。当前版本重复安装可修复包中提供的新blob；
+若缺少被省略的旧blob，须先补齐基线包。省略 `--baseline` 仍生成完整包。
+
+例如0802→0803的ParallelDownload增量包只含1个201216字节DLL，复用19个旧核心；
+266项符号目录/shader全部在新签名清单中，玩家已有2026.11.08.2启动器无需更换EXE。

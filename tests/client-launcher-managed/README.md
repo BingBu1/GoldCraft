@@ -13,3 +13,10 @@ obj/bin 必须用 MSBuild 参数放在工作区 build。
 `test_publisher.py --output <新build目录>` 检查新 DLL/目录仍用同一基线、新插件集合、
 符号索引不配套、静态 bootstrap 改动、错误引擎/x64、shader 名称和生成缓存排除。
 Windows 服务器更新器复用 `tests/client-launcher-upgrade/test_server_update.py --managed` 的实际 WinPS5.1 测试。
+
+真实签名发布之间的窄升级检查：`ManagedTests --publication-upgrade <新输出> <已交付EXE> <隔离运行目录> <旧发布目录> <新发布目录> <预期DLL下载数>`。
+它安装原内嵌资源，经过真实旧/新签名HTTP更新，核对所有DLL和资源、插件顺序与EXE身份，
+不会执行游戏；用于验证新增插件无需更换启动器。
+
+`test_incremental_server.py --package <增量包目录> --baseline <旧完整发布目录> --output <新输出>`
+以真实WinPS5.1验证增量包，包含基线缺失/损坏前置拒绝，以及完整发布后的回滚和幂等边界。

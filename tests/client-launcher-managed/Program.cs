@@ -5,6 +5,9 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
+if(args.Length==7&&args[0]=="--publication-upgrade"){
+    await PublicationUpgrade.Run(args[1],args[2],args[3],args[4],args[5],int.Parse(args[6]));return;
+}
 string root=SafeFiles.Plain(args[0]);if(Directory.Exists(root))throw new IOException("Fresh output required");Directory.CreateDirectory(root);
 var checks=new List<string>();
 void Check(bool value,string name){if(!value)throw new Exception(name);checks.Add(name);}
