@@ -2008,7 +2008,8 @@
     "tools/current-server-update/paired.py",
     "tests/current-server-update/test_paired.py",
     "docs/2026-11-08_交付-当前服务器联合增量包-report.md",
-    "docs/2026-11-08_验证-当前补丁单B入服与重连-report.md"
+    "docs/2026-11-08_验证-当前补丁单B入服与重连-report.md",
+    "docs/2026-11-08_核对-Claude地图与投票准入-report.md"
   ],
   "trees": {
     "native": [
