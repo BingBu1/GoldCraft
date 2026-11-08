@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <iomanip>
 #include <stdexcept>
 #include <thread>
 
@@ -63,9 +64,67 @@ BY_HANDLE_FILE_INFORMATION FileInfo(const fsys::path& path){
 bool SameFile(const BY_HANDLE_FILE_INFORMATION& a,const BY_HANDLE_FILE_INFORMATION& b){
     return a.dwVolumeSerialNumber==b.dwVolumeSerialNumber&&a.nFileIndexHigh==b.nFileIndexHigh&&a.nFileIndexLow==b.nFileIndexLow;
 }
+// Exercise actual captured corruption, including same-size images and WAVs.
+// Only the expected identities are supplied; all replacement bodies must come
+// through the production HTTP worker, never from a repair-package payload.
+int Batch(const fsys::path& binary,const fsys::path& base,const std::string& url){
+    std::ifstream manifest(base/"manifest.txt");
+    std::vector<update::Resource> resources;
+    std::string name,sha;std::uint32_t size{};
+    while(manifest>>std::quoted(name)>>size>>sha)resources.push_back({name,Identity(size,sha)});
+    Check(manifest.eof()&&!resources.empty(),"complete batch manifest");
+    const auto module=LoadLibraryA(binary.string().c_str());Check(module,"batch filesystem module");
+    const auto factory=reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface"));Check(factory,"batch filesystem factory");
+    auto* fs=static_cast<IFileSystem*>(factory("VFileSystem009",nullptr));Check(fs,"batch filesystem interface");
+    fs->Mount();fs->AddSearchPath((base/"game").string().c_str(),"GAME");
+    mh_interface_t interfaces{};interfaces.FileSystem=fs;metahook_api_t api{};api.VFTHook=HookVft;api.UnHook=UnHook;
+    Check(overlay::Install(&api,&interfaces),"batch production overlay install");
+    auto verify=[&](const update::Resource& resource,bool expected){
+        std::vector<std::uint8_t> bytes;
+        Check(overlay::Read(resource.name.c_str(),bytes),"batch actual consumer read");
+        cache::Hash hash;hash.Update(bytes);
+        Check((bytes.size()==resource.expected.size&&hash.Finish()==resource.expected.sha256)==expected,
+              expected?"consumer must read repaired bytes":"corruption must reproduce before update");
+    };
+    for(const auto& resource:resources)verify(resource,false);
+    {
+        update::Session session((base/"cache").string());
+        auto run=[&]{
+            const auto until=std::chrono::steady_clock::now()+180s;
+            std::size_t reported=~std::size_t{};
+            for(;;){
+                session.Pump();const auto& status=session.GetStatus();
+                if(status.downloaded!=reported){reported=status.downloaded;std::cout<<"downloaded "<<reported<<"/"<<status.total<<std::endl;}
+                if(status.phase==update::Phase::failed)throw std::runtime_error(status.error);
+                if(status.phase==update::Phase::ready)break;
+                if(std::chrono::steady_clock::now()>=until)throw std::runtime_error("batch automatic update timeout");
+                std::this_thread::sleep_for(2ms);
+            }
+        };
+        Check(session.Begin(1,url,resources),"batch begin");run();
+        Check(session.GetStatus().downloaded==resources.size(),"all corrupt resources automatically downloaded");
+        Check(session.Changed().size()==resources.size(),"all wrong consumers detected");
+        for(const auto& resource:resources)verify(resource,true);
+        // No game owners in this isolated host; cancelling must restore all
+        // original bad samples, then the verified cache must repair without IO.
+        Check(session.Reset(),"batch cancel");
+        for(const auto& resource:resources)verify(resource,false);
+        Check(session.Begin(2,url,resources),"batch cached retry");run();
+        Check(session.GetStatus().downloaded==0&&session.GetStatus().cached==resources.size(),"cached retry needs no redownload");
+        for(const auto& resource:resources)verify(resource,true);
+        Check(session.Reset(),"batch final reset");
+    }
+    overlay::Shutdown();fs->RemoveAllSearchPaths();fs->Unmount();FreeLibrary(module);
+    std::cout<<"PASS captured-corruption "<<resources.size()<<" files, "<<checks<<" checks\n";
+    return 0;
+}
 }
 int main(int argc,char** argv){
     static_assert(sizeof(void*)==4);
+    if(argc==5&&std::string(argv[4])=="captured-corruption"){
+        try{return Batch(fsys::absolute(argv[1]),fsys::absolute(argv[2]),argv[3]);}
+        catch(const std::exception& error){std::cerr<<"FAIL captured-corruption: "<<error.what()<<'\n';return 1;}
+    }
     if(argc!=9)return 2;
     const fsys::path binary=fsys::absolute(argv[1]),base=fsys::absolute(argv[2]);
     const std::string url=argv[3],mode=argv[4],name=argv[5];

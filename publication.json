@@ -323,6 +323,7 @@
     "docs/2026-11-08_修复-启动器符号目录配套遗漏-report.md",
     "docs/2026-11-08_实现-启动器长期插件更新-report.md",
     "docs/2026-11-08_实现-独立并行下载-contract.md",
+    "docs/2026-11-08_验证-错误资源自动更新与下载计数-report.md",
     "docs/AMXX_INTEROP.md",
     "docs/ARCHITECTURE.md",
     "docs/BUILD.md",

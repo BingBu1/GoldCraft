@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Freeze the production updater and run actual x86 filesystem/HTTP integration."""
+"""Build project sources directly and test actual x86 filesystem/HTTP integration."""
 import argparse
 import hashlib
 import http.server
@@ -33,13 +33,10 @@ def main():
     out.mkdir(parents=True)
     frozen = []
     def freeze(relative):
-        source, target = ROOT / relative, out / 'source' / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
+        source = ROOT / relative
         before = identity(source)
-        shutil.copy2(source, target)
-        assert identity(source) == before and identity(target)['sha256'] == before['sha256']
-        frozen.append(dict(original=before, frozen=identity(target)))
-        return target
+        frozen.append(before)
+        return source
     for component in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']:
         for extension in ['cpp', 'hpp']: freeze('native/client/' + component + '.' + extension)
     freeze('native/include/goldcraft/resource_sync.hpp')
@@ -56,8 +53,8 @@ def main():
     if args.environment: env.update(json.loads(args.environment.read_text('utf-8-sig')))
     env['TEMP'] = env['TMP'] = str(out / 'temp')
     compiler = str(args.compiler.resolve(strict=True))
-    includes = [out / 'source/native/client', out / 'source/native/include']
-    includes += [out / 'source' / sdk / x for x in ['', 'Interface', 'HLSDK/common', 'HLSDK/cl_dll', 'HLSDK/engine', 'HLSDK/public', 'HLSDK/pm_shared', 'HLSDK/dlls', 'SourceSDK', 'SourceSDK/tier1']]
+    includes = [ROOT / 'native/client', ROOT / 'native/include']
+    includes += [ROOT / sdk / x for x in ['', 'Interface', 'HLSDK/common', 'HLSDK/cl_dll', 'HLSDK/engine', 'HLSDK/public', 'HLSDK/pm_shared', 'HLSDK/dlls', 'SourceSDK', 'SourceSDK/tier1']]
     flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/clang:-O3', '/utf-8',
              '/arch:AVX2', '/fp:precise', '/clang:-flto=thin', '/D_CRT_SECURE_NO_WARNINGS', '/DNOMINMAX']
     flags += ['/I' + str(x) for x in includes]
@@ -76,7 +73,7 @@ def main():
     objects = []
     for name, relative in [(x, 'native/client/' + x + '.cpp') for x in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']] + [('fixture', 'tests/resource-update/main.cpp')]:
         obj = out / (name + '.obj'); objects.append(obj)
-        assert execute('compile-' + name, [compiler, *flags, '/c', '/Fo' + str(obj), out / 'source' / relative], 120) == 0
+        assert execute('compile-' + name, [compiler, *flags, '/c', '/Fo' + str(obj), ROOT / relative], 120) == 0
     # Avoid Windows legacy installer-name heuristics for an ordinary test host.
     exe = out / 'resource-check.exe'
     assert execute('link', [compiler, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', *objects,
@@ -148,7 +145,7 @@ def main():
     finally:
         stop.set(); server.shutdown(); server.server_close(); thread.join()
         save('http-requests.json', requests)
-    changed = [x['frozen']['path'] for x in frozen if identity(x['frozen']['path']) != x['frozen']]
+    changed = [x['path'] for x in frozen if identity(x['path']) != x]
     result = dict(success=all(x['passed'] for x in results) and not changed, cases=results, steps=steps,
                   compiler=identity(compiler), executable=identity(exe), frozenChanged=changed,
                   productionModified=False, deployed=False, serverAddress=address,

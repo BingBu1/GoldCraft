@@ -40,6 +40,8 @@ IVGUI2Extension* extension{};
 vgui::ISurface* surface{};
 vgui::IPanel* panel{};
 vgui::HFont font{};
+unsigned uiPaints{}, counterDraws{};
+bool uiReported{};
 
 template<class F> auto FS(F f){
     if(interfaces->FileSystem_HL25)return f(interfaces->FileSystem_HL25);
@@ -88,6 +90,8 @@ void TickImpl(){
         if(!pool)pool=std::make_unique<Pool>();
         running=true;
         engine.Con_Printf("ParallelDownload: start %u files, 8 workers\n",unsigned(jobs.size()));
+        uiReported=false;counterDraws=0;
+        engine.Con_Printf("ParallelDownload: UI surface=%p panel=%p paints=%u draws=%u\n",surface,panel,uiPaints,counterDraws);
     }
     unsigned outstanding=0;
     for(const auto& j:jobs)if(j->submitted&&!j->done.load(std::memory_order_acquire))++outstanding;
@@ -152,6 +156,14 @@ public:
             if(!surface)surface=static_cast<vgui::ISurface*>(factories[i](VGUI_SURFACE_INTERFACE_VERSION,nullptr));
             if(!panel)panel=static_cast<vgui::IPanel*>(factories[i](VGUI_PANEL_INTERFACE_VERSION,nullptr));
         }
+        // BaseUI's factory array exposes the engine surface, but does not
+        // necessarily contain vgui2's factory. IPanel lives in vgui2.dll,
+        // just like the scheme interface acquired by VGUI2Extension/BaseUI.
+        if(!panel){
+            const auto module=GetModuleHandleA("vgui2.dll");
+            auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
+            if(factory)panel=static_cast<vgui::IPanel*>(factory(VGUI_PANEL_INTERFACE_VERSION,nullptr));
+        }
     }
     void Start(cl_enginefuncs_s*,int)override{}
     void Shutdown()override{surface=nullptr;panel=nullptr;font=0;Reset();}
@@ -159,9 +171,14 @@ public:
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceWndProc(void*&,unsigned int&,unsigned int&,long&,VGUI2Extension_CallbackContext*)override{}
     void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* c)override{
+        ++uiPaints;
         if(!c->IsPost||!running||!surface||!panel)return;
         vgui::VPANEL target{};
         for(int i=surface->GetPopupCount()-1;i>=0&&!target;--i)target=FindLoading(surface->GetPopup(i));
+        if(!uiReported){
+            uiReported=true;
+            engine.Con_Printf("ParallelDownload: loading panel=%u popups=%d\n",unsigned(target),surface->GetPopupCount());
+        }
         if(!target)return;
         if(!font){font=surface->CreateFont();surface->AddGlyphSetToFont(font,"Microsoft YaHei",13,400,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);}
         wchar_t text[96]{};
@@ -171,6 +188,8 @@ public:
         surface->DrawSetTextFont(font);surface->DrawSetTextColor(220,225,215,255);
         surface->DrawSetTextPos(std::max(12,width-tw-24),24);
         surface->DrawPrintText(text,int(std::wcslen(text)));surface->DrawFlushText();surface->PopMakeCurrent(target);
+        if(!counterDraws)engine.Con_Printf("ParallelDownload: count drawn in loading panel %dx%d\n",width,height);
+        ++counterDraws;
     }
     void HideGameUI(VGUI2Extension_CallbackContext*)override{}
     void ActivateGameUI(VGUI2Extension_CallbackContext*)override{}
