@@ -17,6 +17,10 @@ namespace csol::cso_tent
 inline constexpr std::uint8_t ModelTent = 6;   // TE133
 inline constexpr std::uint8_t SpriteTent = 7;  // TE137
 inline constexpr std::uint8_t ModelTentEx = 8; // TE138
+inline constexpr std::uint8_t ExplosionTent = 9; // TE3 with CSO sound selector
+inline constexpr std::size_t ExplosionTentSize = 13;
+inline constexpr std::uint8_t MooncakeSound = 2;
+inline constexpr char MooncakeSoundPath[] = "weapons/mooncake_exp.wav";
 inline constexpr std::size_t ModelTentSize = 17, SpriteTentSize = 12, ModelTentExSize = 20;
 
 struct Model
@@ -35,6 +39,15 @@ struct Sprite
     std::array<float, 3> origin{};
     std::uint16_t model{};
     std::uint8_t scale{}, brightness{}, framerate{};
+};
+
+// Only the evidenced extra sound selector is admitted. Other CSO selectors
+// require their own resource-consumer evidence before extending this adapter.
+struct Explosion
+{
+    std::array<float, 3> origin{};
+    std::uint16_t model{};
+    std::uint8_t scale{}, framerate{}, flags{}, sound{MooncakeSound};
 };
 
 namespace detail
@@ -153,4 +166,30 @@ inline std::optional<Sprite> ReadSprite(std::span<const std::uint8_t> bytes)
     tent.framerate = in.Byte();
     return tent;
 }
+inline std::optional<std::array<std::uint8_t, ExplosionTentSize>> Write(const Explosion& tent)
+{
+    if (!tent.model || tent.model > 32767 || tent.sound != MooncakeSound) return std::nullopt;
+    std::array<std::uint8_t, ExplosionTentSize> bytes{};
+    std::array<std::int16_t, 3> coord{};
+    for (unsigned i = 0; i < 3; ++i) if (!detail::Coord(tent.origin[i], coord[i])) return std::nullopt;
+    detail::Writer out{bytes};
+    out.Byte(ExplosionTent);
+    for (auto value : coord) out.Word(std::bit_cast<std::uint16_t>(value));
+    out.Word(tent.model);
+    out.Byte(tent.scale); out.Byte(tent.framerate); out.Byte(tent.flags); out.Byte(tent.sound);
+    return bytes;
+}
+
+inline std::optional<Explosion> ReadExplosion(std::span<const std::uint8_t> bytes)
+{
+    if (bytes.size() != ExplosionTentSize || bytes[0] != ExplosionTent) return std::nullopt;
+    detail::Reader in{bytes, 1};
+    Explosion tent;
+    for (auto& value : tent.origin) value = in.Coord();
+    tent.model = in.Word();
+    tent.scale = in.Byte(); tent.framerate = in.Byte(); tent.flags = in.Byte(); tent.sound = in.Byte();
+    if (!tent.model || tent.model > 32767 || tent.sound != MooncakeSound) return std::nullopt;
+    return tent;
+}
+
 }

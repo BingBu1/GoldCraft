@@ -3,6 +3,7 @@
 #include "cso_tent.hpp"
 #include "../cso_tent.hpp"
 #include <r_efx.h>
+#include <event_api.h>
 #include <cstdint>
 #include <span>
 
@@ -50,6 +51,21 @@ void ModelTent(const cso_tent::Model& tent)
     for (int i = 0; i < 3; ++i) temp->tentOffset[i] = origin[i];
 }
 
+// HW 3785226F -> 37858860: the extra byte selects the sound independently
+// of the ordinary explosion flags. Stock R_Explosion has no sixth argument.
+void ExplosionTent(const cso_tent::Explosion& tent)
+{
+    auto* fx = engine.pEfxAPI;
+    auto* events = engine.pEventAPI;
+    float origin[3]{tent.origin[0], tent.origin[1], tent.origin[2]};
+    if (fx && fx->R_Explosion)
+        fx->R_Explosion(origin, tent.model, float(double(tent.scale) * .1), float(tent.framerate),
+            tent.flags | TE_EXPLFLAG_NOSOUND);
+    // Original emits sound even for scale zero (sound-only explosion).
+    if (!(tent.flags & TE_EXPLFLAG_NOSOUND) && events && events->EV_PlaySound)
+        events->EV_PlaySound(-1, origin, CHAN_AUTO, cso_tent::MooncakeSoundPath, 1.0f, .3f, 0, 100);
+}
+
 // HW 3785289D (TE137): R_TempSprite with zero velocity, TransAdd,
 // FTENT_SPRANIMATE and life 0; the CSO variant 3785C5F0 also takes the rate.
 void SpriteTent(const cso_tent::Sprite& tent)
@@ -71,10 +87,12 @@ bool ConsumeCsoTent(int size, const void* data)
     if (!data || size <= 0) return false;
     const std::span bytes(static_cast<const std::uint8_t*>(data), static_cast<std::size_t>(size));
     const auto type = bytes[0];
-    if (type != cso_tent::ModelTent && type != cso_tent::SpriteTent && type != cso_tent::ModelTentEx)
+    if (type != cso_tent::ModelTent && type != cso_tent::SpriteTent && type != cso_tent::ModelTentEx &&
+        type != cso_tent::ExplosionTent)
         return false;
     if (const auto tent = cso_tent::ReadModel(bytes)) ModelTent(*tent);
     else if (const auto tent = cso_tent::ReadSprite(bytes)) SpriteTent(*tent);
+    else if (const auto tent = cso_tent::ReadExplosion(bytes)) ExplosionTent(*tent);
     return true;
 }
 }

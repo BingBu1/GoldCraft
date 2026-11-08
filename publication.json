@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-cso-tent/run.py",
+    "tests/csol-cso-tent/main.cpp",
+    "docs/2026-11-08_实现-原版扩展爆炸客户端适配-report.md",
     "docs/2026-11-08_分析-泰迪熊地面爆炸扩展音效-report.md",
     "docs/2026-11-08_验证-当前源码灾变会话回归-report.md",
     "docs/2026-11-08_分析-僵尸少女31500原版取证-report.md",
