@@ -7,7 +7,8 @@
 #include <vector>
 namespace fixture {
 bool focused=true;
-HWND foreground(){return reinterpret_cast<HWND>(1);}
+unsigned foreground_queries=0;
+HWND foreground(){++foreground_queries;return reinterpret_cast<HWND>(1);}
 DWORD process(){return 17;}
 DWORD window_process(HWND,LPDWORD value){*value=focused?17:18;return 1;}
 }
@@ -59,6 +60,16 @@ int main(){
     fixture::focused=true;enabled=false;now=300;key();assert(poll_one()&&enabled);
     current={};key();assert(poll_one()&&!enabled&&!session.target);
     assert(starts>=3&&stops>=3);
+    const auto idle_queries=fixture::foreground_queries;
+    const auto idle_starts=starts,idle_stops=stops;
+    for(int i=0;i<1000;++i){key();assert(poll_one());assert(!poll_one());}
+    assert(fixture::foreground_queries==idle_queries&&starts==idle_starts&&stops==idle_stops);
+    // Returning to an MC screen must still check focus and acquire ownership.
+    current={11,23};fixture::focused=false;key();assert(poll_one()&&!session.target&&!enabled);
+    assert(fixture::foreground_queries==idle_queries+1);
+    fixture::focused=true;now=400;text("中",400);
+    assert(!poll_one()&&session.target&&enabled&&delivered.back().first==0x4e2d);
+    current={};key();assert(poll_one()&&!session.target&&!enabled);
     SDL_Event shortcut{};shortcut.key.type=SDL_EVENT_KEY_DOWN;shortcut.key.mod=SDL_KMOD_CTRL;
     mod=SDL_KMOD_NONE;queue.push_back(shortcut);assert(poll_one()&&modifiers(0)==2);
     poll_hook=nullptr;

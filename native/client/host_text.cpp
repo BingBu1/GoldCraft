@@ -43,10 +43,14 @@ std::uint64_t commits=0,characters=0,rejected=0,editing_events=0,candidate_event
 void clear_overlay(){preedit.clear();for(auto& text:candidates)text.clear();candidate_count=0;selected=-1;overlay_dirty=true;}
 text_input::Target target(){
     if(!query||!keyboard_focus)return {};
+    // Native CS and loading screens have no MC text destination. Avoid an OS
+    // foreground query on every SDL event-pump iteration in that common case.
+    const auto c=query();
+    if(!c.world||!c.menu)return {};
     DWORD process=0;GetWindowThreadProcessId(GetForegroundWindow(),&process);
     if(process!=GetCurrentProcessId())return {};
-    const auto c=query();const auto window=keyboard_focus();
-    return c.world&&c.menu&&window?text_input::Target{c.world,c.menu,window_id(window)}:text_input::Target{};
+    const auto window=keyboard_focus();
+    return window?text_input::Target{c.world,c.menu,window_id(window)}:text_input::Target{};
 }
 void sync(){
     const auto next=target();
