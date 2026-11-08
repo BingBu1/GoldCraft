@@ -8,10 +8,13 @@ public sealed record BundleConfig(int Schema, string BundleId, string Version, s
     string[] Plugins, string[] DllPaths, string[] CorePaths, Asset[] Files);
 public sealed record SignedEnvelope(string Payload, string Signature);
 public sealed record Release(int Schema, string BundleId, long Sequence, string Version,
-    string GameAddress, Asset[] Files);
+    string GameAddress, Asset[] Files, InlineResource[]? Resources = null, string[]? Plugins = null,
+    string? EngineSha256 = null, string? ClientSha256 = null);
+public sealed record InlineResource(string Path, long Bytes, string Sha256, string Gzip);
 public sealed record ServerStatus(int Schema, bool Online, string Name, string Map,
     int Players, int MaxPlayers, string GameAddress);
-public sealed record InstallState(string BundleId, long Sequence, string Version, Asset[] CoreFiles);
+public sealed record InstallState(string BundleId, long Sequence, string Version, Asset[] CoreFiles,
+    SignedEnvelope? Publication = null);
 public sealed record Preferences(string GameDirectory = "");
 public static class JsonData
 {

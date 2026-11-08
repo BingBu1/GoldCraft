@@ -5,9 +5,14 @@ param(
     [Parameter(Mandatory)][string]$PrivateKey,
     [Parameter(Mandatory)][long]$Sequence,
     [Parameter(Mandatory)][string]$Version,
-    [Parameter(Mandatory)][string]$GameAddress
+    [Parameter(Mandatory)][string]$GameAddress,
+    [ValidateSet(1,2)][int]$ProtocolVersion=2
 )
 $ErrorActionPreference = 'Stop'
+if($ProtocolVersion -eq 2){
+    & (Join-Path $PSScriptRoot 'Publish-ManagedUpdate.ps1') -Bundle $Bundle -Runtime $Runtime -Output $Output -PrivateKey $PrivateKey -Sequence $Sequence -Version $Version -GameAddress $GameAddress
+    return
+}
 function Plain([string]$Path) {
     $full=[IO.Path]::GetFullPath($Path)
     for($p=$full;$p;$p=[IO.Path]::GetDirectoryName($p)) {

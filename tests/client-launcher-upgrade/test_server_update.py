@@ -14,7 +14,7 @@ def sha(path):
     with path.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 
 
-def run(package,old_publication,output):
+def run(package,old_publication,output,managed=False):
     package,old_publication,output=(x.resolve() for x in (package,old_publication,output))
     if output.exists() or not output.is_relative_to(ROOT/'build'):raise ValueError('Use a fresh build fixture')
     output.mkdir(parents=True);checks=[]
@@ -27,11 +27,16 @@ def run(package,old_publication,output):
     manifest=publication/'manifest.json';old=old_publication/'manifest.json'
     shutil.copy2(old,manifest);old_hash=sha(old)
     new=package/'payload/cs/launcher-public/manifest.json';new_hash=sha(new)
-    state=target/'.bingsang-launcher-update/20261108'
+    if managed:
+        import base64
+        release=json.loads(base64.b64decode(json.loads(new.read_text('utf-8-sig'))['payload']))
+        state=target/('.bingsang-launcher-update/'+str(release['sequence']))
+    else:state=target/'.bingsang-launcher-update/20261108'
+    script='Update-Server.ps1' if managed else 'Update-Launcher.ps1'
     blobs=list((package/'payload/cs/launcher-public/blobs').rglob('*.dll'))
 
     def call(name,*args,ok=True):
-        result=subprocess.run([str(PS),'-NoProfile','-ExecutionPolicy','Bypass','-File',str(package/'Update-Launcher.ps1'),
+        result=subprocess.run([str(PS),'-NoProfile','-ExecutionPolicy','Bypass','-File',str(package/script),
                                '-TargetDirectory',str(target),*args],capture_output=True,timeout=60)
         (output/(f'{len(checks):02d}.log')).write_bytes(result.stdout+result.stderr)
         if (result.returncode==0)!=ok:raise AssertionError((name,result.returncode,result.stdout,result.stderr))
@@ -74,11 +79,12 @@ def run(package,old_publication,output):
     call('fresh publication can be reapplied');assert sha(manifest)==new_hash
     for rel,digest in protected.items():assert sha(target/rel)==digest
     (output/'receipt.json').write_text(json.dumps(dict(passed=True,checks=checks,coreFiles=len(blobs),
-        configurationUnchanged=True,serverExecuted=False,installerSha256=sha(package/'Update-Launcher.ps1')),indent=2)+'\n','utf-8')
+        configurationUnchanged=True,serverExecuted=False,installerSha256=sha(package/script)),indent=2)+'\n','utf-8')
     print(f'{len(checks)} Windows PowerShell installer checks passed; all 19 cores and preserved configuration verified.')
 
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('package','old-publication','output'):p.add_argument('--'+name,required=True,type=Path)
-    a=p.parse_args();run(a.package,a.old_publication,a.output)
+    p.add_argument('--managed',action='store_true')
+    a=p.parse_args();run(a.package,a.old_publication,a.output,a.managed)

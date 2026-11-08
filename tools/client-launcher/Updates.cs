@@ -49,35 +49,26 @@ public sealed class Updates : IDisposable
     }
     public Release VerifyRelease(byte[] envelopeBytes,long previous)
     {
-        var envelope=JsonData.Read<SignedEnvelope>(envelopeBytes);
-        if(string.IsNullOrEmpty(envelope.Payload)||string.IsNullOrEmpty(envelope.Signature))throw new InvalidDataException("更新签名文件不完整。");
-        byte[] payload=Convert.FromBase64String(envelope.Payload),signature=Convert.FromBase64String(envelope.Signature);
-        using var rsa=RSA.Create();rsa.ImportFromPem(config.PublicKeyPem);
-        if(!rsa.VerifyData(payload,signature,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))throw new InvalidDataException("更新签名不正确，已停止更新。");
-        var release=JsonData.Read<Release>(payload);
-        if(release.Schema!=1||release.BundleId!=config.BundleId)throw new InvalidDataException("服务器需要新版启动器，请获取新的单文件启动器。");
-        if(release.Sequence<previous||release.Sequence<1)throw new InvalidDataException("服务器提供了过期版本，已停止更新。");
-        if(string.IsNullOrWhiteSpace(release.Version)||release.Version.Length>80||release.Files==null||release.Files.Length>40)throw new InvalidDataException("更新清单无效。");
-        GameAddress(release.GameAddress);
-        var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);long total=0;
-        foreach(var row in release.Files)
-        {
-            if(row==null||string.IsNullOrEmpty(row.Path)||!config.CorePaths.Contains(row.Path,StringComparer.OrdinalIgnoreCase)||!row.Path.EndsWith(".dll",StringComparison.OrdinalIgnoreCase)||
-                !names.Add(row.Path)||row.Bytes<=0||row.Bytes>16*1024*1024-1||!Regex.IsMatch(row.Sha256??"",@"^[0-9a-f]{64}$"))throw new InvalidDataException("更新清单包含不允许的文件。");
-            total+=row.Bytes;
-        }
-        if(total>256*1024*1024||!names.SetEquals(config.CorePaths))throw new InvalidDataException("核心文件配套不完整。");
-        return release;
+        if(envelopeBytes.Length>ReleasePolicy.ManifestLimit)throw new InvalidDataException("更新清单过大。");
+        return ReleasePolicy.Verify(config,JsonData.Read<SignedEnvelope>(envelopeBytes),previous);
     }
     public async Task<Release> Apply(string game,string work,Bundle bundle,IProgress<string> progress,CancellationToken cancel)
     {
         SafeFiles.GameStopped(game);
         using var gate=Transactions.Lock(game);Transactions.Recover(game);
-        var installed=bundle.Installed(game)??throw new IOException("请先安装或修复 MetaHook。");
-        progress.Report("正在检查核心插件更新…");
-        var release=VerifyRelease(await Small("manifest.json",1024*1024,cancel),installed.Sequence);
-        if(release.Sequence==installed.Sequence && release.Files.Any(x=>!installed.CoreFiles.Any(y=>x.Path==y.Path&&x.Sha256==y.Sha256)))throw new InvalidDataException("相同版本的更新内容发生变化。");
-        var wanted=release.Files.Where(x=>SafeFiles.Hash(SafeFiles.Under(game,x.Path))!=x.Sha256).ToArray();
+        var installed=bundle.ReadState(game)??throw new IOException("请先安装或修复 MetaHook。");
+        if(installed.Publication==null&&bundle.Installed(game)==null)throw new IOException("请先安装或修复 MetaHook。");
+        progress.Report("正在检查插件及配套文件更新…");
+        byte[] envelopeBytes=await Small("manifest.json",ReleasePolicy.ManifestLimit,cancel);
+        var envelope=JsonData.Read<SignedEnvelope>(envelopeBytes);
+        var release=VerifyRelease(envelopeBytes,installed.Sequence);
+        var previous=installed.Publication==null?null:ReleasePolicy.Verify(config,installed.Publication,installed.Sequence);
+        if(previous!=null&&release.Schema!=2)throw new InvalidDataException("不能退回旧版更新协议。");
+        if(release.Sequence==installed.Sequence && (previous!=null
+            ? envelope.Payload!=installed.Publication!.Payload
+            : release.Schema!=1||!release.Files.SequenceEqual(installed.CoreFiles)))throw new InvalidDataException("相同版本的更新内容发生变化。");
+        bool Different(Asset asset){string file=SafeFiles.Under(game,asset.Path);return !File.Exists(file)||SafeFiles.Hash(file)!=asset.Sha256;}
+        var wanted=release.Files.Where(Different).ToArray();
         string stage=SafeFiles.Under(work,"update-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         try
         {
@@ -91,12 +82,36 @@ public sealed class Updates : IDisposable
                     ()=>progress.Report("下载内容异常，正在自动分段重试…"),cancel);
                 done+=asset.Bytes;changes.Add(new(asset.Path,file));
             }
-            var state=new InstallState(config.BundleId,release.Sequence,release.Version,release.Files);
+            if(release.Schema==2)
+            {
+                foreach(var resource in release.Resources!)
+                {
+                    if(!Different(ReleasePolicy.Asset(resource)))continue;
+                    string file=SafeFiles.Under(stage,resource.Path);Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                    File.WriteAllBytes(file,ReleasePolicy.Decode(resource));changes.Add(new(resource.Path,file));
+                }
+                var next=ReleasePolicy.Owned(config,release).Select(x=>x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach(var old in ReleasePolicy.Owned(config,previous))
+                {
+                    if(next.Contains(old.Path))continue;
+                    string file=SafeFiles.Under(game,old.Path);
+                    if(!File.Exists(file))continue;
+                    SafeFiles.Verify(file,old);changes.Add(new(old.Path,null));
+                }
+                string rel="cstrike/metahook/configs/plugins.lst",path=SafeFiles.Under(game,rel);
+                string text=File.Exists(path)?File.ReadAllText(path):"";
+                var retired=(previous?.Plugins??config.Plugins).Except(release.Plugins!,StringComparer.OrdinalIgnoreCase).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                text=string.Join("\n",text.Split('\n').Where(x=>!retired.Contains(x.Split("//")[0].Trim())));
+                string merged=Bundle.MergePlugins(text,release.Plugins!);
+                if(!File.Exists(path)||File.ReadAllText(path)!=merged){string file=SafeFiles.Under(stage,"plugins.lst");File.WriteAllText(file,merged);changes.Add(new(rel,file));}
+            }
+            var state=new InstallState(config.BundleId,release.Sequence,release.Version,release.Files,release.Schema==2?envelope:null);
             string stateFile=SafeFiles.Under(stage,"installed.json");File.WriteAllBytes(stateFile,JsonData.Write(state));
             if(changes.Count>0||installed.Sequence!=release.Sequence)changes.Add(new(".goldcraft-launcher/installed.json",stateFile));
             cancel.ThrowIfCancellationRequested();SafeFiles.GameStopped(game);
             if(changes.Count>0){progress.Report("正在应用更新…");Transactions.Apply(game,changes);}
-            progress.Report("核心插件已是最新版本。");return release;
+            if(bundle.Installed(game)==null)throw new IOException("组件校验未通过，请点击安装 MetaHook 修复后重试。");
+            progress.Report("插件及配套文件已是最新版本。");return release;
         }
         finally{SafeFiles.RemoveTree(work,stage);}
     }

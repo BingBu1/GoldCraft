@@ -59,7 +59,11 @@ public sealed class LauncherForm : Form
         game.Text=initialGame??preferences.GameDirectory;game.Font=LauncherTheme.Font(9);
         browse.TabIndex=0;install.TabIndex=1;launch.TabIndex=2;refresh.TabIndex=3;cancel.TabIndex=4;
         browse.Click+=async(_,_)=>{using var dialog=new FolderBrowserDialog{Description="选择 CS 1.6 游戏文件夹",UseDescriptionForTitle=true,SelectedPath=game.Text};if(dialog.ShowDialog(this)==DialogResult.OK){game.Text=dialog.SelectedPath;await CheckInstalled();}};
-        install.Click+=async(_,_)=>await Run("正在准备组件…",async token=>{string path=NormalizeGame();var report=new Progress<string>(SetStatus);await Task.Run(()=>bundle.Install(path,data,report,token),token);SetStatus("组件已就绪，可以启动游戏。");});
+        install.Click+=async(_,_)=>await Run("正在准备组件…",async token=>{
+            string path=NormalizeGame();var report=new Progress<string>(SetStatus);
+            await Task.Run(()=>bundle.Install(path,data,report,token),token);
+            if(bundle.ReadState(path)?.Publication!=null){using var updates=new Updates(bundle.Config,updateBase);await Task.Run(()=>updates.Apply(path,data,bundle,report,token),token);}
+            SetStatus("组件已就绪，可以启动游戏。");});
         launch.Click+=async(_,_)=>await Run("正在检查更新…",async token=>
         {
             string path=NormalizeGame();using var updates=new Updates(bundle.Config,updateBase);var report=new Progress<string>(SetStatus);

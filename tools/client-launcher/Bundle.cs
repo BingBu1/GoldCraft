@@ -30,17 +30,16 @@ public sealed class Bundle
         if (string.IsNullOrWhiteSpace(game)) return null;
         try
         {
-            ValidateGame(game);
-            var path = SafeFiles.Under(game,".goldcraft-launcher/installed.json");
-            if (!File.Exists(path)) return null;
-            var state = JsonData.Read<InstallState>(File.ReadAllBytes(path));
-            if (state.BundleId != Config.BundleId || state.CoreFiles == null || state.CoreFiles.Any(x=>x==null||string.IsNullOrEmpty(x.Path)) ||
-                !state.CoreFiles.Select(x=>x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(Config.CorePaths)) return null;
-            var files = Config.Files.Where(x => !Config.CorePaths.Contains(x.Path, StringComparer.OrdinalIgnoreCase)).Concat(state.CoreFiles);
+            var state = ReadState(game);
+            if (state == null) return null;
+            var release = state.Publication == null ? null : ReleasePolicy.Verify(Config, state.Publication, state.Sequence);
+            var files = release?.Schema == 2
+                ? Config.Files.Where(x => !Config.CorePaths.Contains(x.Path) && !ReleasePolicy.ResourcePath(x.Path)).Concat(ReleasePolicy.Owned(Config,release))
+                : Config.Files.Where(x => !Config.CorePaths.Contains(x.Path, StringComparer.OrdinalIgnoreCase)).Concat(state.CoreFiles);
             foreach (var row in files) SafeFiles.Verify(SafeFiles.Under(game,row.Path),row);
             string[] plugins = ActiveLines(File.ReadAllText(SafeFiles.Under(game,"cstrike/metahook/configs/plugins.lst")));
             int last = -1;
-            foreach (var plugin in Config.Plugins)
+            foreach (var plugin in release?.Plugins ?? Config.Plugins)
             {
                 int index = Array.FindIndex(plugins, x => x.Equals(plugin,StringComparison.OrdinalIgnoreCase));
                 if (index <= last) return null;
@@ -48,16 +47,32 @@ public sealed class Bundle
             }
             var paths=ActiveLines(File.ReadAllText(SafeFiles.Under(game,"cstrike/metahook/configs/dllpaths.lst"))).ToHashSet(StringComparer.OrdinalIgnoreCase);
             if(!Config.DllPaths.All(paths.Contains))return null;
-            if(ObsoleteAliases(game).Any())return null;
+            if(ObsoleteAliases(game,files,release?.Plugins).Any())return null;
             return state;
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException) { return null; }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException or ArgumentException or FormatException or System.Security.Cryptography.CryptographicException) { return null; }
     }
-    private IEnumerable<string> ObsoleteAliases(string game)
+    public InstallState? ReadState(string game)
     {
-        var supplied=Config.Files.Select(x=>x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        ValidateGame(game);
+        string path=SafeFiles.Under(game,".goldcraft-launcher/installed.json");
+        if(!File.Exists(path))return null;
+        var state=JsonData.Read<InstallState>(File.ReadAllBytes(path));
+        if(state.BundleId!=Config.BundleId || state.CoreFiles==null || state.CoreFiles.Any(x=>x==null||string.IsNullOrEmpty(x.Path)))return null;
+        if(state.Publication!=null)
+        {
+            var release=ReleasePolicy.Verify(Config,state.Publication,state.Sequence);
+            if(release.Schema!=2 || release.Sequence!=state.Sequence || release.Version!=state.Version ||
+                !release.Files.SequenceEqual(state.CoreFiles))throw new InvalidDataException("安装记录与签名清单不一致。");
+        }
+        else if(!state.CoreFiles.Select(x=>x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(Config.CorePaths))return null;
+        return state;
+    }
+    private IEnumerable<string> ObsoleteAliases(string game,IEnumerable<Asset>? files=null,string[]? plugins=null)
+    {
+        var supplied=(files??Config.Files).Select(x=>x.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var candidates=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach(var plugin in Config.Plugins)
+        foreach(var plugin in plugins??Config.Plugins)
         foreach(var stem in new[]{PluginKey(plugin)[..^4],plugin[..^4]}.Distinct(StringComparer.OrdinalIgnoreCase))
         foreach(var suffix in new[]{".dll","_AVX2.dll","_AVX.dll","_SSE2.dll","_SSE.dll"})
         {
@@ -92,6 +107,8 @@ public sealed class Bundle
         ValidateGame(game); SafeFiles.GameStopped(game);
         using var gate=Transactions.Lock(game); Transactions.Recover(game);
         if (Installed(game) != null) { progress.Report("MetaHook 已安装，无需重复安装。"); return; }
+        var existingState=ReadState(game);
+        var installedRelease=existingState?.Publication==null?null:ReleasePolicy.Verify(Config,existingState.Publication,existingState.Sequence);
         string stage=SafeFiles.Under(work,"install-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(stage);
         try
         {
@@ -112,16 +129,18 @@ public sealed class Bundle
                 }
                 if(seen.Count!=expected.Count)throw new InvalidDataException("内置安装包缺少文件。");
             }
-            var changes=Config.Files.Select(x=>new Change(x.Path,SafeFiles.Under(stage,x.Path))).ToList();
+            // Repair bootstrap files without downgrading a signed online release.
+            var repairFiles=installedRelease==null?Config.Files:Config.Files.Where(x=>!Config.CorePaths.Contains(x.Path)&&!ReleasePolicy.ResourcePath(x.Path));
+            var changes=repairFiles.Select(x=>new Change(x.Path,SafeFiles.Under(stage,x.Path))).ToList();
             string plugins="cstrike/metahook/configs/plugins.lst", paths="cstrike/metahook/configs/dllpaths.lst";
             string ReadExisting(string rel)=>File.Exists(SafeFiles.Under(game,rel))?File.ReadAllText(SafeFiles.Under(game,rel)):"";
-            File.WriteAllText(SafeFiles.Under(stage,"plugins.lst"),MergePlugins(ReadExisting(plugins),Config.Plugins),new UTF8Encoding(false));
+            File.WriteAllText(SafeFiles.Under(stage,"plugins.lst"),MergePlugins(ReadExisting(plugins),installedRelease?.Plugins??Config.Plugins),new UTF8Encoding(false));
             var existing=ReadExisting(paths);var active=ActiveLines(existing).ToHashSet(StringComparer.OrdinalIgnoreCase);
             File.WriteAllText(SafeFiles.Under(stage,"dllpaths.lst"),existing.TrimEnd()+"\r\n"+string.Join("\r\n",Config.DllPaths.Where(x=>!active.Contains(x)))+"\r\n",new UTF8Encoding(false));
             changes.Add(new(plugins,SafeFiles.Under(stage,"plugins.lst")));changes.Add(new(paths,SafeFiles.Under(stage,"dllpaths.lst")));
             // Retire only CPU aliases of our plugins; do not edit unrelated addons or CS bindings.
-            foreach(string rel in ObsoleteAliases(game))changes.Add(new(rel,null));
-            var state=new InstallState(Config.BundleId,0,Config.Version,Config.Files.Where(x=>Config.CorePaths.Contains(x.Path,StringComparer.OrdinalIgnoreCase)).ToArray());
+            foreach(string rel in ObsoleteAliases(game,installedRelease==null?null:ReleasePolicy.Owned(Config,installedRelease),installedRelease?.Plugins))changes.Add(new(rel,null));
+            var state=installedRelease==null?new InstallState(Config.BundleId,0,Config.Version,Config.Files.Where(x=>Config.CorePaths.Contains(x.Path,StringComparer.OrdinalIgnoreCase)).ToArray()):existingState!;
             string stateFile=SafeFiles.Under(stage,"installed.json");File.WriteAllBytes(stateFile,JsonData.Write(state));
             changes.Add(new(".goldcraft-launcher/installed.json",stateFile));
             cancel.ThrowIfCancellationRequested();progress.Report("正在安装 MetaHook，请稍候…");
