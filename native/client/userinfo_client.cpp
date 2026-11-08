@@ -213,6 +213,7 @@ void test_command(std::istream& input) {
 void diagnostics(std::ostream& out) {
     out << "\"userinfo\":{\"installed\":" << installed << ",\"capacity\":" << (installed?userinfo::capacity:userinfo::legacy_capacity)
         << ",\"localBytes\":" << std::strlen(local.full.data()) << ",\"legacyBytes\":" << (legacy?std::strlen(legacy):0)
+        << ",\"resourceSyncProjected\":" << (legacy && userinfo::value(legacy,"gc_resource_sync")=="1" ? 1 : 0)
         << ",\"pending\":" << pending.size() << ",\"sent\":" << sent << ",\"received\":" << received
         << ",\"rejected\":" << rejected << ",\"commandGuard\":" << (installed && setinfo_hooked ? 1 : 0)
         << ",\"error\":" << std::quoted(failure);

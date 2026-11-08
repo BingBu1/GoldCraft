@@ -58,7 +58,7 @@ inline bool append(char* dest, std::size_t limit, std::string_view key, std::str
 inline void project(char* dest, std::size_t limit, std::string_view info) {
     dest[0] = 0;
     constexpr std::string_view first[] = {
-        "name", "password", "_pw", "*sid", "*hltv", "gc_precache", "_gcpe",
+        "name", "password", "_pw", "*sid", "*hltv", "gc_precache", "gc_resource_sync", "_gcpe",
         "gc_brushes", "_gcf", "_gcu", "model", "rate", "cl_updaterate",
         "cl_lw", "cl_lc", "topcolor", "bottomcolor", "_vgui_menus"
     };
