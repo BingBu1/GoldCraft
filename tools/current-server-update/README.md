@@ -50,3 +50,12 @@
 恢复会拒绝覆盖更新后被其他工具修改的文件；中断的更新会在重跑时恢复
 已记录的事务后重新安装。更新及恢复均以独立临时文件原子替换，
 不会原地覆盖其他目录共享的硬链接。
+
+维护者注意（2026-11-08）：11 月 7 日包的 DLL 更新没有带上旧启动器所需的新版符号目录，
+旧启动器可能报 `CSOL_CRC32_ProcessBuffer` 缺失。必须配套更新启动器及其签名发布清单，
+不能仅把 JSON 放入普通 FastDL 或跳过引擎匹配。
+`Publish.ps1` 现在要求传入实际旧启动器提取的 `-Bundle` 和候选 `-Runtime`，
+在签名及创建输出前验证静态资源、基础游戏身份和核心白名单。
+符号目录或其他固定文件有变化时拒绝沿用旧 bundleId；新增符号目录也会拒绝。
+重制启动器后使用 `tools/client-launcher/Publish-Update.ps1` 发布与之匹配的新合同。
+预检回归入口：`python tests/current-server-update/test_static_contract.py --output build/<新目录>`。

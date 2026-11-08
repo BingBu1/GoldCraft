@@ -44,7 +44,7 @@ public static class SafeFiles
         {
             File.Copy(source, temp, false); // independent inode, never overwrite a shared hard link
             if (Hash(temp) != Hash(source)) throw new IOException("临时文件校验失败。");
-            if (File.Exists(target)) File.Replace(temp, target, null);
+            if (File.Exists(target)) ReplaceVerified(temp, target);
             else File.Move(temp, target);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -56,9 +56,25 @@ public static class SafeFiles
         try
         {
             File.WriteAllBytes(temp, bytes);
-            if (File.Exists(target)) File.Replace(temp, target, null); else File.Move(temp, target);
+            if (File.Exists(target)) ReplaceVerified(temp, target); else File.Move(temp, target);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+    private static void ReplaceVerified(string temp, string target)
+    {
+        string before = Hash(target), after = Hash(temp);
+        for (int attempt = 0; ; attempt++)
+        {
+            if (attempt > 0 && (Hash(target) != before || Hash(temp) != after))
+                throw new IOException("重试期间文件被其他程序修改，已停止替换。");
+            try { File.Replace(temp, target, null); return; }
+            catch (IOException ex) when (attempt < 4 && (ex.HResult & 0xffff) is 32 or 33 or 1175)
+            {
+                // Windows scanners may briefly retain a sharing lock. Retry only
+                // an unchanged transaction, retaining atomic hard-link isolation.
+                Thread.Sleep(100 << attempt);
+            }
+        }
     }
     public static void RemoveTree(string root, string directory)
     {

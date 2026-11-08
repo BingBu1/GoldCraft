@@ -1,6 +1,8 @@
-param([Parameter(Mandatory)][string]$Plan,[Parameter(Mandatory)][string]$PrivateKey,[Parameter(Mandatory)][string]$Output)
+param([Parameter(Mandatory)][string]$Plan,[Parameter(Mandatory)][string]$PrivateKey,[Parameter(Mandatory)][string]$Output,
+      [Parameter(Mandatory)][string]$Bundle,[Parameter(Mandatory)][string]$Runtime)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '../scenario-update/Files.ps1')
+. (Join-Path $PSScriptRoot 'StaticContract.ps1')
 $planPath=Plain $Plan
 $spec=Text $planPath|ConvertFrom-Json
 $root=Plain $Output
@@ -18,6 +20,7 @@ try {
     if(!$public.VerifyData($bytes,[Convert]::FromBase64String($old.signature),[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1)){throw 'Invalid previous publication signature'}
     $previous=[Text.Encoding]::UTF8.GetString($bytes)|ConvertFrom-Json
     if($previous.sequence -ne 2026110105 -or $previous.bundleId -cne '24af5cde87712fddd2af140f239cd3bda982e0dbf991e3cbc5cf3ce255483005' -or @($previous.files).Count -ne 19){throw 'Unexpected previous release'}
+    Assert-LauncherStaticContract $Bundle $Runtime $previous
     $pins=@{
         'cstrike/metahook/plugins/CSOLSupport.dll'='d585de84ff94d5e1b9ea561ef3586c801c83f6a0e1b7d0a2b6e635525691fe6c'
         'cstrike/metahook/plugins/GoldCraft.dll'='daaf84f876fd57382e54f4eb09f2e4d6982dd43ed8e9b9e3e6d709bb618df16a'
