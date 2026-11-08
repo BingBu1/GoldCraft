@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-08_诊断-首次技能与入服调用栈采样-report.md",
     ".gitattributes",
     ".gitignore",
     "CMakeLists.txt",

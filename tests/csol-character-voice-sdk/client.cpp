@@ -58,11 +58,30 @@ int main(int argc,char** argv){
  Setup(R"({"MRAD_EMOTION_HI":{"woman":"weapons/fallback.wav"}})");character.id=118;Event("%!mrad_emotion_hi");Check(plays==0,"voice19 has no original fallback despite character sex");
  Setup(R"({"MRAD_EMOTION_HI":{"buffdefault":["vox/$buffclassname/emotion/hi1.wav","vox/$buffclassname/emotion/hi2.wav"],"woman":"weapons/fallback.wav"}})");character.id=132;
  existing.insert("sound/vox/buffclass22s2tr/emotion/hi2.wav");Event("%!mrad_emotion_hi");Check(lastSound=="vox/buffclass22s2tr/emotion/hi2.wav","template only adds existing exact character files");
+ Check(probes==2,"first event probes only requested voice candidates, not all 36 voices");
+ Event("%!mrad_emotion_hi");Check(probes==2,"repeat event reuses candidate vector");
+ character.id=133;Event("%!mrad_emotion_hi");Check(probes==4&&lastSound=="weapons/fallback.wav","new character resolves only its own candidates");
+ Event("%!mrad_emotion_hi");Check(probes==4,"negative template result is cached");
+ Event("%!mrad_emotion_absent");Check(probes==4,"absent sentence never scans unrelated templates");
+ existing.insert("sound/vox/buffclass22s2ct/emotion/hi1.wav");ResetEmotionVoices();Event("%!mrad_emotion_hi");
+ Check(probes==6&&lastSound=="vox/buffclass22s2ct/emotion/hi1.wav","resource reset invalidates negative resolution");
  Setup(R"({"MRAD_EMOTION_HI":{"buffdefault":["vox/$buffclassname/emotion/hi1.wav"],"man":"weapons/fallback.wav"}})");character.id=132;Event("%!mrad_emotion_hi");Check(lastSound=="weapons/fallback.wav","missing template uses original voice33 man fallback");
  Setup("{invalid");Event("%!mrad_emotion_hi");Check(plays==0&&warnings==1,"invalid table is silent and logged");
  Setup("{}");throwRead=true;Event("%!mrad_emotion_hi");Check(plays==0&&warnings==1,"resource load failure is contained");
  Setup(R"({"MRAD_EMOTION_HI":{"man":"weapons/man_hi.wav"}})");engine.pfnPlaySoundByName=nullptr;Check(Event("%!mrad_emotion_hi")&&plays==0,"absent playback function is handled");
- if(argc>1){std::ifstream file(argv[1],std::ios::binary);std::string actual((std::istreambuf_iterator<char>(file)),{});Check(!actual.empty(),"real common sentence table loaded");Setup(actual);character.id=114;Event("%!mrad_emotion_hi");Check(lastSound=="weapons/man_hi.wav","real table leechang uses original fallback");}
+ if(argc>1){
+  std::ifstream file(argv[1],std::ios::binary);std::string actual((std::istreambuf_iterator<char>(file)),{});Check(!actual.empty(),"real common sentence table loaded");Setup(actual);character.id=114;Event("%!mrad_emotion_hi");Check(lastSound=="weapons/man_hi.wav","real table leechang uses original fallback");
+  csol::voice::SentenceTable source;Check(csol::voice::ReadSentences(actual,source,"MRAD_EMOTION"),"real table parses for exhaustive equivalence");
+  for(unsigned availability=0;availability<4;++availability){
+   auto exists=[&](const std::string& path){unsigned hash=0;for(unsigned char c:path)hash=hash*33+c;return availability==3||(availability&&hash%3==availability-1);};
+   auto eager=source;csol::voice::ExpandTemplates(eager,exists);csol::voice::SentenceResolver lazy(source);
+   for(const auto& [sentence,voices]:source)for(const auto voice:csol::voice::VoiceNames){
+    const auto* expected=csol::voice::FindSentence(eager,sentence,voice);const auto* resolved=lazy.Find(sentence,voice,exists);
+    Check((!expected&&!resolved)||(expected&&resolved&&*expected==*resolved),"all real sentences/voices match original eager candidate order and fallback");
+    Check(lazy.Find(sentence,voice,[](const std::string&){Check(false,"cached resolution must not reprobe");return false;})==resolved,"repeat resolution preserves result");
+   }
+  }
+ }
  if(argc>2){
   std::ifstream file(argv[2],std::ios::binary);std::string actual((std::istreambuf_iterator<char>(file)),{});rapidjson::Document oracle;oracle.Parse(actual.data(),actual.size());
   Check(!oracle.HasParseError()&&oracle.IsObject(),"original instruction oracle is readable");

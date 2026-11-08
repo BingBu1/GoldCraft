@@ -8,8 +8,10 @@
 #include <cctype>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace csol::voice
@@ -187,4 +189,48 @@ inline const std::vector<std::string>* FindSentence(const SentenceTable& table, 
     const auto generic = entry->second.find(VoiceNames[static_cast<std::size_t>(fallback)]);
     return generic == entry->second.end() || generic->second.empty() ? nullptr : &generic->second;
 }
+
+// Host scheduling adaptation of HW 37540175..37540676: each template vector
+// is independent. Resolve only the requested sentence/voice, including misses,
+// instead of probing every character's files inside the first studio draw.
+// The owner must discard this resolver at the resource-session boundary.
+class SentenceResolver
+{
+public:
+    explicit SentenceResolver(SentenceTable table = {}) : table_(std::move(table)) {}
+
+    template <class Exists>
+    const std::vector<std::string>* Find(std::string_view sentence, std::string_view voice, Exists&& exists)
+    {
+        const auto entry = table_.find(sentence);
+        if (entry == table_.end()) return nullptr;
+        auto& voices = entry->second;
+        const auto own = voices.find(voice);
+        if (own != voices.end() && !own->second.empty()) return &own->second;
+        const auto patterns = voices.find(TemplateVoice);
+        if (patterns != voices.end() &&
+            std::find(TemplateVoices.begin(), TemplateVoices.end(), voice) != TemplateVoices.end())
+        {
+            const auto key = std::pair{std::string(sentence), std::string(voice)};
+            if (!resolved_.contains(key))
+            {
+                std::vector<std::string> paths;
+                for (const auto& pattern : patterns->second)
+                    if (auto path = ExpandTemplate(pattern, voice); !path.empty() && exists("sound/" + path))
+                        paths.push_back(std::move(path));
+                // Publish only a complete vector. A failed probe/allocation may
+                // retry; it must not permanently cache a partial result.
+                voices[std::string(voice)] = std::move(paths);
+                resolved_.insert(key);
+            }
+        }
+        // Original fallback ids are 0/1/3 (not template voices). Keep lookup
+        // and RNG policy in their existing consumers.
+        return FindSentence(table_, sentence, voice);
+    }
+
+private:
+    SentenceTable table_;
+    std::set<std::pair<std::string, std::string>> resolved_;
+};
 }
