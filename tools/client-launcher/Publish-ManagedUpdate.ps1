@@ -1,14 +1,24 @@
 param([Parameter(Mandatory)][string]$Bundle,[Parameter(Mandatory)][string]$Runtime,
     [Parameter(Mandatory)][string]$Output,[Parameter(Mandatory)][string]$PrivateKey,
     [Parameter(Mandatory)][long]$Sequence,[Parameter(Mandatory)][string]$Version,
-    [Parameter(Mandatory)][string]$GameAddress,[string]$Python='python')
+    [Parameter(Mandatory)][string]$GameAddress,[string]$Python='python',[string]$PreparedPlan)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot '../scenario-update/Files.ps1')
 $root=Plain $Output;$key=Plain $PrivateKey;$cfg=Text (Plain $Bundle)|ConvertFrom-Json
 if($key.StartsWith($root.TrimEnd('\')+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Private key must remain outside publication'}
-$prepared=& $Python (Join-Path $PSScriptRoot 'managed_release.py') --bundle $Bundle --runtime $Runtime --sequence $Sequence --version $Version --game-address $GameAddress
-if($LASTEXITCODE){throw 'Managed release preflight failed'}
-$plan=$prepared|ConvertFrom-Json
+if($PreparedPlan){
+    # A separately executed Python preflight supports hosts where the bundled
+    # PowerShell runtime cannot start native child processes. All recorded input
+    # bytes are still checked below before signing and before committing.
+    $plan=Text (Plain $PreparedPlan)|ConvertFrom-Json
+    if($plan.release.schema -ne 2 -or $plan.release.sequence -ne $Sequence -or $plan.release.version -cne $Version -or
+       $plan.release.gameAddress -cne $GameAddress -or $plan.release.bundleId -cne $cfg.bundleId -or
+       !@($plan.auditFiles).Count -or !@($plan.sources).Count){throw 'Prepared release identity does not match requested publication'}
+}else{
+    $prepared=& $Python (Join-Path $PSScriptRoot 'managed_release.py') --bundle $Bundle --runtime $Runtime --sequence $Sequence --version $Version --game-address $GameAddress
+    if($LASTEXITCODE){throw 'Managed release preflight failed'}
+    $plan=$prepared|ConvertFrom-Json
+}
 $rsa=[Security.Cryptography.RSA]::Create();$public=[Security.Cryptography.RSA]::Create();$gate=$null
 try{
     $rsa.ImportFromPem([IO.File]::ReadAllText($key));$public.ImportFromPem($cfg.publicKeyPem)

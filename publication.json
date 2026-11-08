@@ -2002,7 +2002,13 @@
     "tools/update-package/Update-GoldCraft.ps1",
     "tools/update-package/package.py",
     "tools/update-package/server_resources.py",
-    "tools/update-package/test_update.py"
+    "tools/update-package/test_update.py",
+    "tools/current-server-update/Paired-Publication.ps1",
+    "tools/current-server-update/Paired-Update.ps1",
+    "tools/current-server-update/paired.py",
+    "tests/current-server-update/test_paired.py",
+    "docs/2026-11-08_交付-当前服务器联合增量包-report.md",
+    "docs/2026-11-08_验证-当前补丁单B入服与重连-report.md"
   ],
   "trees": {
     "native": [
