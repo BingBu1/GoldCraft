@@ -183,9 +183,14 @@ void* ResolveClient(const char* name,mh_gamesymbol_kind_t kind)
 }
 }
 
-SequenceLoadScope::SequenceLoadScope(model_t* model,std::span<const std::byte> bytes)
-    :model_(model),prepared_(PreparedSequenceModel::Read(bytes,SequenceReadPolicy::AllowUnsupportedTracks)),
-      token_(owners.BeginLoad(Owner(model))){}
+SequenceLoadScope::SequenceLoadScope(model_t* model,std::span<const std::byte> bytes,bool requireTagged)
+    :model_(model),prepared_(PreparedSequenceModel::Read(bytes,SequenceReadPolicy::AllowUnsupportedTracks))
+{
+    // Validate the owned append result once, before replacing an existing owner.
+    if(requireTagged && !prepared_.Tagged())
+        throw std::runtime_error("converted studio model lacks valid sequence safety data");
+    token_=owners.BeginLoad(Owner(model));
+}
 SequenceLoadScope::~SequenceLoadScope(){if(!completed_)owners.CancelLoad(Owner(model_),token_);}
 void SequenceLoadScope::Complete()
 {

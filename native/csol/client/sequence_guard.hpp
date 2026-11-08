@@ -20,7 +20,7 @@ class SequenceLoadScope
     SequenceOwnerRegistry::LoadToken token_{};
     bool completed_{};
 public:
-    SequenceLoadScope(model_t* model,std::span<const std::byte> bytes);
+    SequenceLoadScope(model_t* model,std::span<const std::byte> bytes,bool requireTagged=false);
     ~SequenceLoadScope();
     void Complete();
     SequenceLoadScope(const SequenceLoadScope&)=delete;

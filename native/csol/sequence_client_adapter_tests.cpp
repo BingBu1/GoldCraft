@@ -119,10 +119,10 @@ void Initialize()
     Require(hooks.size()==8,"pre-studio hook set differs");negotiated=true;csol::client::InstallSequenceStudioGuards();
     Require(hooks.size()==12,"studio outer hook count differs");csol::client::InstallSequenceStudioGuards();Require(hooks.size()==12,"double studio installation");
 }
-void Load(model_t& value,const Bytes& bytes)
+void Load(model_t& value,const Bytes& bytes,bool requireTagged=false)
 {
     value.type=mod_studio;std::strcpy(value.name,"models/adapter.mdl");
-    csol::client::SequenceLoadScope load(&value,bytes);
+    csol::client::SequenceLoadScope load(&value,bytes,requireTagged);
     const auto size=Retained(bytes);auto* memory=Installed<decltype(&csol::client::CacheAlloc)>("CSOL_Cache_Alloc")(&value.cache,int(size),value.name);
     std::memcpy(memory,bytes.data(),size);load.Complete();
 }
@@ -130,6 +130,24 @@ void Run()
 {
     using namespace csol::client;
     Initialize();model_t a{},b{},ordinary{};auto packed=Model();Load(a,packed);Load(b,Model(true,true));Load(ordinary,Model(false));
+    // Required append metadata must be checked before BeginLoad can retire the
+    // existing receipt. Exercise the real constructor, not just its parser.
+    const auto originalBase=a.cache.data;
+    const auto rejectRequired=[&](const Bytes& bytes)
+    {
+        bool rejected=false;
+        try{SequenceLoadScope invalid(&a,bytes,true);}
+        catch(const std::runtime_error&){rejected=true;}
+        Require(rejected,"required tagged load accepted missing/corrupt proof");
+        Require(a.cache.data==originalBase &&
+            owners.ModelState(Owner(&a),Base(&a),a.cache.data)==csol::SequenceOwnerCheck::Ready,
+            "rejected preparation retired an existing owner receipt");
+    };
+    rejectRequired(Model(false));
+    auto corrupt=packed;corrupt.resize(20);rejectRequired(corrupt);
+    corrupt=packed;Put(corrupt,Word(corrupt,168)-24,99u);rejectRequired(corrupt);
+    corrupt=packed;corrupt[Word(corrupt,Word(corrupt,168)+124)+48]=std::byte{};rejectRequired(corrupt);
+    Load(a,packed,true);
     Object oa{},ob{},oo{};Bind(oa,a);Bind(ob,b);Bind(oo,ordinary);inner=&ob;
     rawFrame=1.5f;nested=true;Installed<decltype(&ClientSetup)>("GameStudioRenderer_StudioSetupBones")(&oa,0);Require(clientCalls==2,"tagged setup skipped native sampler");
     Require(cache.value==7 && !SamplingScope::current,"nested setup leaked cache/scope");
@@ -173,7 +191,7 @@ void Run()
     {Require(StudioBounds(path,mins,maxs)==0,"invalid/missing path accepted");Require(mins[0]==0 && maxs[2]==0,"failure outputs not cleared");}
     Require(readCalls==2,"invalid/missing path read file");resource=Bytes(20);Require(StudioBounds("models/short.mdl",mins,maxs)==0,"short bounds input accepted");
     resource=packed;Put(resource,72,0x7fffffffu);Rejected([&]{StudioBounds("models/bad.mdl",mins,maxs);},"bounds trusted header length");
-    model_t partial{};Object partialObject{};auto partialBytes=UnsupportedTrack();Load(partial,partialBytes);Bind(partialObject,partial);
+    model_t partial{};Object partialObject{};auto partialBytes=UnsupportedTrack();Load(partial,partialBytes,true);Bind(partialObject,partial);
     selectedIndex=0;ClientSetup(&partialObject,0);const auto partialBefore=clientCalls;
     selectedIndex=1;Rejected([&]{ClientSetup(&partialObject,0);},"unsupported track reached native sampler");
     Require(clientCalls==partialBefore,"unsupported native sampler was called");selectedIndex=0;

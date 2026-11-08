@@ -39,29 +39,26 @@ void LoadStudio(model_t* model,void* bytes)
         if(source->id!=0x54534449 || source->version!=10 || source->length<sizeof(studiohdr_t) ||
             std::size_t(source->length)>owned.size())throw std::runtime_error("unsupported or truncated studio model");
         owned.resize(source->length);
-        SequenceSafetyView safety;
-        // This loader publishes through SequenceLoadScope; actual selections
-        // and bone sampling reject unsupported tracks before stock code runs.
+        // This marker only routes SEQ discovery. SequenceLoadScope fully checks
+        // the final owned bytes before publishing an owner or calling the engine.
+        // Do not scan the same packed animation data twice during this load.
         constexpr auto policy=SequenceReadPolicy::AllowUnsupportedTracks;
-        const auto stored=ReadSequenceSafety(owned,safety,policy);
-        if(stored==SequenceSafetyStatus::Invalid)throw std::runtime_error("invalid studio sequence safety data");
-        // Valid packed models already contain these sequences. Their sidecar
-        // files are not consumed below, so avoid probing them on every reload.
-        const auto sequenceFiles=stored==SequenceSafetyStatus::Ready ? std::vector<std::string>{} :
+        const bool tagged=HasSequenceSafetyMarker(owned);
+        const auto sequenceFiles=tagged ? std::vector<std::string>{} :
             SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
-        if(stored!=SequenceSafetyStatus::Ready && !sequenceFiles.empty())
+        bool requireTagged=false;
+        if(!tagged && !sequenceFiles.empty())
         {
             std::vector<std::vector<std::byte>> sequences;
             for(const auto& file:sequenceFiles)sequences.push_back(ReadResource(file.c_str()));
             owned=AppendSequences(owned,sequences,policy);
-            if(ReadSequenceSafety(owned,safety,policy)!=SequenceSafetyStatus::Ready)
-                throw std::runtime_error("converted studio model lacks valid sequence safety data");
+            requireTagged=true;
         }
         // The stock client writes attachments into cl_entity_t::attachment[4].
         // CSOLSupport retains the full original list in its owned render asset.
         auto* decoded=reinterpret_cast<studiohdr_t*>(owned.data());
         decoded->numattachments=(std::min)(decoded->numattachments,4);
-        SequenceLoadScope sequenceLoad(model,owned);
+        SequenceLoadScope sequenceLoad(model,owned,requireTagged);
         loadStudio(model,owned.data());
         sequenceLoad.Complete();
         engine.Con_DPrintf("CSOLSupport: MDL decoded %s\n",model->name);

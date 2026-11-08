@@ -118,6 +118,20 @@ private:
     std::uint32_t records_{},count_{},bones_{};
 };
 
+// Routing hint only: either magic word means the model needs full tagged
+// validation, including malformed/partial markers. Never use this as a proof
+// of valid records or RLE; ReadSequenceSafety must precede engine publication.
+inline bool HasSequenceSafetyMarker(std::span<const std::byte> bytes)
+{
+    using namespace sequence_safety_detail;
+    if(!Range(bytes,0,244))return false;
+    const auto descriptors=Word(bytes,168);
+    if(descriptors<SequenceSafetyFooterBytes || !Range(bytes,descriptors-SequenceSafetyFooterBytes,SequenceSafetyFooterBytes))
+        return false;
+    const auto footer=descriptors-SequenceSafetyFooterBytes;
+    return Word(bytes,footer)==SequenceSafetyMagic0 || Word(bytes,footer+4)==SequenceSafetyMagic1;
+}
+
 // Call at model-load/ownership boundaries using the actual retained byte span.
 // Validates both the metadata and actual RLE bytes before publishing a view.
 // Runtime users must not manufacture a span from an unchecked header length.
@@ -128,12 +142,10 @@ inline SequenceSafetyStatus ReadSequenceSafety(std::span<const std::byte> bytes,
     using namespace sequence_safety_detail;
     output={};
     if(!Range(bytes,0,244))return SequenceSafetyStatus::Invalid;
+    if(!HasSequenceSafetyMarker(bytes))return SequenceSafetyStatus::Absent;
     const auto descriptors=Word(bytes,168);
-    if(descriptors<SequenceSafetyFooterBytes || !Range(bytes,descriptors-SequenceSafetyFooterBytes,SequenceSafetyFooterBytes))
-        return SequenceSafetyStatus::Absent;
     const auto footer=descriptors-SequenceSafetyFooterBytes;
     const auto magic0=Word(bytes,footer),magic1=Word(bytes,footer+4);
-    if(magic0!=SequenceSafetyMagic0 && magic1!=SequenceSafetyMagic1)return SequenceSafetyStatus::Absent;
     if(magic0!=SequenceSafetyMagic0 || magic1!=SequenceSafetyMagic1 ||
         Word(bytes,footer+8)!=SequenceSafetyVersion || Word(bytes,footer+24)!=SequenceSafetyRecordBytes ||
         Word(bytes,footer+28)!=0 || Word(bytes,0)!=0x54534449 || Word(bytes,4)!=10)

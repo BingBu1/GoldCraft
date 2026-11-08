@@ -1,6 +1,13 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-08_修复-模型加载重复动画校验-report.md",
+    "tests/csol-studio-loader/README.md",
+    "tests/csol-studio-loader/run.py",
+    "tests/csol-studio-loader/main.cpp",
+    "tests/csol-studio-loader/loader.cpp",
+    "tests/csol-studio-loader/append.cpp",
+    "tests/csol-studio-loader/validation.hpp",
     "docs/2026-11-08_修复-入服空闲输入法轮询-report.md",
     "docs/2026-11-08_诊断-首次技能与入服调用栈采样-report.md",
     ".gitattributes",
