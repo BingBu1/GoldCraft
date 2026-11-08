@@ -45,7 +45,10 @@ void LoadStudio(model_t* model,void* bytes)
         constexpr auto policy=SequenceReadPolicy::AllowUnsupportedTracks;
         const auto stored=ReadSequenceSafety(owned,safety,policy);
         if(stored==SequenceSafetyStatus::Invalid)throw std::runtime_error("invalid studio sequence safety data");
-        const auto sequenceFiles=SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
+        // Valid packed models already contain these sequences. Their sidecar
+        // files are not consumed below, so avoid probing them on every reload.
+        const auto sequenceFiles=stored==SequenceSafetyStatus::Ready ? std::vector<std::string>{} :
+            SequenceFiles(model->name,[](const std::string& path){return Exists(path.c_str());});
         if(stored!=SequenceSafetyStatus::Ready && !sequenceFiles.empty())
         {
             std::vector<std::vector<std::byte>> sequences;
