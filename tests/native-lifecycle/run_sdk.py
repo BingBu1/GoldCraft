@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Freeze and test the actual x86 lifecycle wrappers with one compiler job."""
+"""Build project sources directly and test actual x86 lifecycle wrappers."""
 import argparse
 import hashlib
 import json
@@ -20,6 +20,7 @@ SCENARIOS = [
     'capture', 'capture-held', 'foreign-thread', 'foreign-thread-held',
     'foreign-frame', 'foreign-clear', 'wrong-frame', 'frame-bytes',
     'second-hook', 'unhook-failure',
+    'engine-source', 'engine-source-longjmp', 'engine-bytes', 'engine-hook',
 ]
 UNITS = ['native/client/resource_lifecycle.cpp', 'native/client/resource_native_hud_host.cpp',
          'native/client/resource_native_hud.cpp', 'tests/native/resource_lifecycle_tests.cpp',
@@ -86,14 +87,11 @@ def main():
         environment['VSLANG'] = '1033'
         result['inputs'] = [identity(path) for path in [__file__, args.compiler, args.environment, args.include_command,
             args.client, args.engine, args.mapped_client, args.mapped_engine]]
-        snapshot = out / 'runner-snapshot.py'
-        snapshot.write_bytes(Path(__file__).read_bytes())
-        result['inputs'].append(identity(snapshot))
         result['mapping'] = [verify_mapping(args.client, args.mapped_client,
                 'b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2'),
             verify_mapping(args.engine, args.mapped_engine,
                 '9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295')]
-        # Only independent copies: test and all quoted local dependency inputs.
+        # Record direct project sources; build never duplicates editable trees.
         pending, frozen_paths = list(UNITS), set()
         while pending:
             relative = pending.pop()
@@ -103,10 +101,7 @@ def main():
             if relative in frozen_paths:
                 continue
             frozen_paths.add(relative)
-            target = out / 'source' / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(original.read_bytes())
-            result['sources'].append(dict(original=identity(original), frozen=identity(target)))
+            result['sources'].append(dict(original=identity(original), frozen=identity(original)))
             for name in re.findall(r'^\s*#\s*include\s*"([^"]+)"', original.read_text('utf-8-sig'), re.M):
                 candidates = [original.parent / name, ROOT / 'native/include' / name]
                 found = next((p.resolve() for p in candidates if p.is_file()), None)
@@ -114,7 +109,7 @@ def main():
                     raise RuntimeError('unresolved local include: ' + name)
                 pending.append(str(found.relative_to(ROOT)))
         include_command = json.loads(args.include_command.read_text('utf-8-sig'))
-        includes = ['/I' + str(out / 'source/native/include')]
+        includes = ['/I' + str(ROOT / 'native/include')]
         includes += [arg for arg in include_command['arguments'] if arg.startswith(('-I', '/I'))]
         base = [str(args.compiler.resolve()), '--target=i686-pc-windows-msvc', '/nologo', '/std:c++20',
             '/EHsc', '/MT', '/O2', '/clang:-O3', '/clang:-flto=thin', '/arch:AVX2', '/fp:precise',
@@ -171,7 +166,7 @@ def main():
             if Path(unit).stem in reused:
                 continue
             row, _ = execute('dependencies-' + Path(unit).stem,
-                             [*base, '/Zs', str(out / 'source' / unit)])
+                             [*base, '/Zs', str(ROOT / unit)])
             for item in row['includes']:
                 included[item['path']] = item
         result['actualIncludes'] = list(included.values())
@@ -193,7 +188,7 @@ def main():
                 continue
             obj = out / (Path(unit).stem + '.obj')
             row, _ = execute('compile-' + Path(unit).stem,
-                             [*base, '/c', '/Fo' + str(obj), str(out / 'source' / unit)])
+                             [*base, '/c', '/Fo' + str(obj), str(ROOT / unit)])
             assert all(item['path'] in included and item == included[item['path']] for item in row['includes'])
             objects.append(obj)
             result['compiledOutputs'] = [identity(path) for path in objects]

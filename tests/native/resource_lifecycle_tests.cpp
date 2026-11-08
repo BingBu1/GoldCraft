@@ -76,7 +76,7 @@ struct Surface final : vgui::TestSurface {
     bool DeleteTextureByID(int id) override { deleted.push_back(id); return true; }
 };
 using Frame = int (__cdecl*)(float, int, int*);
-enum class Action { none, natural, supplement, nested_frame };
+enum class Action { none, natural, supplement, nested_frame, engine_source };
 enum class NativeMode { normal, abort_frame, abort_outside, nested_export, swap_owner };
 enum class HandlerMode { once, twice, fail_after, fail_before, positive_without_native };
 struct Fixture;
@@ -87,6 +87,8 @@ struct Fixture {
     Surface surface, replacement;
     Frame frame{};
     hud::Host::VidInit entry{};
+    hud::Host::VidInit engine_entry{};
+    void** engine_original_slot{};
     void **frame_original_slot{}, **native_original_slot{};
     unsigned hooks{}, unhooks{}, hook_failure{};
     bool deferred{true}, remove_success{true}, wrong_frame{}, original_clear_jumps{}, disconnect_clears{};
@@ -126,6 +128,7 @@ struct Fixture {
                 {"GoldCraftNativeHud_DeleteArray",false,MH_GAMESYMBOL_KIND_FUNCTION,0xb4919},
                 {"GoldCraftNativeHud_GetSurface",false,MH_GAMESYMBOL_KIND_FUNCTION,0x78320},
                 {"GoldCraftNativeHud_SourceFree",true,MH_GAMESYMBOL_KIND_FUNCTION,0x1da3e0},
+                {"GoldCraftNativeHud_EngineVidInit",true,MH_GAMESYMBOL_KIND_FUNCTION,0x196f70},
                 {"GoldCraftNativeHud_HostFrame",true,MH_GAMESYMBOL_KIND_FUNCTION,0x1d28b0}};
             for (const auto& symbol : symbols) if (!std::strcmp(name, symbol.name)) {
                 auto* owner = symbol.engine ? test->engine.data : test->client.data;
@@ -142,6 +145,8 @@ struct Fixture {
                 f.frame = reinterpret_cast<Frame>(wrapper); f.frame_original_slot = trampoline;
             } else if (original == f.client.data + 0x47790) {
                 f.entry = reinterpret_cast<hud::Host::VidInit>(wrapper); f.native_original_slot = trampoline;
+            } else if (original == f.engine.data + 0x196f70) {
+                f.engine_entry = reinterpret_cast<hud::Host::VidInit>(wrapper); f.engine_original_slot = trampoline;
             } else Check(false, "hooks only exact outer frame and native export");
             Check(wrapper != original && trampoline, "actual installation provides separate wrapper and trampoline slot");
             if (!f.deferred) *trampoline = original == f.engine.data + 0x1d28b0 ?
@@ -149,7 +154,8 @@ struct Fixture {
             return reinterpret_cast<hook_t*>(f.hooks);
         };
         api.UnHook = [](hook_t* hook)->BOOL {
-            Check(hook == reinterpret_cast<hook_t*>(1), "partial install removes exact first hook");
+            Check(hook == reinterpret_cast<hook_t*>(1) || (test->hook_failure == 3 && hook == reinterpret_cast<hook_t*>(2)),
+                  "partial install removes only successfully installed hooks");
             ++test->unhooks; return test->remove_success;
         };
         pc::api = &api;
@@ -180,17 +186,18 @@ struct Fixture {
         Check(after_clear.valid && after_clear.clear_epoch > before_clear.clear_epoch, "returned original clear advances its own epoch");
         Check(cancel_observation.clear_epoch == after_clear.clear_epoch, "new clear observer precedes cancellation/reset callbacks");
     }
-    void Install(bool managed = true) {
+    void Install(bool managed = true, bool observe_engine = false) {
         Check(!life::observe().valid && !life::failure(), "preinstall observation is inert");
-        const auto* failure = managed ? life::install(&api, Screen, {this, Handle}) : life::install(&api, Screen);
+        const auto* failure = managed ? life::install(&api, Screen, {this, Handle}, observe_engine) : life::install(&api, Screen, {}, observe_engine);
         if (failure) throw std::runtime_error(failure);
-        Check(hooks == 2 && frame && entry, "actual install hooks outer frame and original export");
+        Check(hooks == (observe_engine ? 3 : 2) && frame && entry, "actual install hooks requested source boundaries");
         Check(!native_calls && !handler_calls && life::binding().hud.empty(), "deferred install invokes no native code or surface capture");
         *frame_original_slot = reinterpret_cast<void*>(&OriginalFrame);
         *native_original_slot = reinterpret_cast<void*>(&OriginalNative);
+        if(observe_engine)*engine_original_slot = reinterpret_cast<void*>(&OriginalEngine);
         SetSurface(&surface);
         Check(life::observe().valid && !life::observe().clear_epoch, "fresh installed lifecycle has no synthetic clear epoch");
-        Check(life::install(&api, Screen) != nullptr && hooks == 2, "installation is one-shot without replacing active hooks");
+        Check(life::install(&api, Screen) != nullptr && hooks == (observe_engine ? 3 : 2), "installation is one-shot without replacing active hooks");
     }
     static int Handle(void* context, const life::Entry& entry) {
         auto& f = *static_cast<Fixture*>(context); ++f.handler_calls;
@@ -228,6 +235,7 @@ struct Fixture {
         ++f.native_after;
         return f.native_result;
     }
+    static int OriginalEngine() { return test->entry(); }
     static int __cdecl OriginalFrame(float time, int state, int* output) {
         auto& f = *test; ++f.frame_calls; ++f.frame_depth;
         f.time_bits = std::bit_cast<std::uint32_t>(time); f.state_seen = state; f.pointer_seen = output;
@@ -238,6 +246,7 @@ struct Fixture {
             case Action::natural: f.nested_result = f.entry(); break;
             case Action::supplement: f.nested_result = f.saved.vid_init(f.saved.context); break;
             case Action::nested_frame: f.nested_result = f.frame(time, state, output); break;
+            case Action::engine_source: f.nested_result = f.engine_entry(); break;
             default: break;
             }
             ++f.frames_normal;
@@ -256,6 +265,27 @@ struct Fixture {
               "outer wrapper preserves float bits state output pointer and native writes");
     }
 };
+
+void EngineSource(Fixture& f, bool abort) {
+    f.Install(true,true);
+    Check(life::source_release() == reinterpret_cast<hud::Host::Release>(f.engine.data+0x1da3e0),
+          "source allocator comes from the verified original engine");
+    f.Clear(); f.entry();
+    Check(!f.latest.engine_vidinit && !life::observe().initial_vidinit,
+          "direct export after ClearState cannot impersonate engine initialization");
+    f.Clear();f.action=Action::engine_source;
+    if(abort)f.native_mode=NativeMode::abort_frame;
+    f.RunFrame();
+    if(abort){
+        Check(life::observe().completion==life::Completion::frame_returned&&!life::observe().initial_vidinit,
+              "engine wrapper interrupted by Host_Error retains no success");
+        f.native_mode=NativeMode::normal;f.RunFrame();
+    }
+    Check(f.latest.engine_vidinit&&life::observe().initial_vidinit==f.latest.event,
+          "verified engine wrapper provides natural initialization proof");
+    f.entry();
+    Check(!f.latest.engine_vidinit&&!life::failure(),"engine wrapper proof does not leak to later exports");
+}
 
 void Basic(Fixture& f, bool managed) {
     f.Install(managed);
@@ -395,9 +425,12 @@ void InstallFailure(Fixture& f, const std::string& scenario) {
     if (scenario == "frame-bytes") f.engine.data[0x1d28ca] ^= std::byte{1};
     if (scenario == "second-hook" || scenario == "unhook-failure") f.hook_failure = 2;
     if (scenario == "unhook-failure") f.remove_success = false;
-    Check(life::install(&f.api, Fixture::Screen) != nullptr && life::failure(), "incomplete installation is rejected");
+    const bool engine=scenario=="engine-bytes"||scenario=="engine-hook";
+    if(scenario=="engine-bytes")f.engine.data[0x196f77]^=std::byte{1};
+    if(scenario=="engine-hook")f.hook_failure=3;
+    Check(life::install(&f.api, Fixture::Screen, {}, engine) != nullptr && life::failure(), "incomplete installation is rejected");
     Check(!pc::clear_state_observer && !life::observe().valid, "failed installation publishes no clear observer or valid proof");
-    if (f.hook_failure) Check(f.hooks == 2 && f.unhooks == 1, "second-hook failure attempts removal of first hook exactly once");
+    if (f.hook_failure) Check(f.hooks == f.hook_failure && f.unhooks == f.hook_failure-1, "failed hook removes every earlier successful hook once");
     else Check(f.hooks == 0 && !f.unhooks, "wrong outer address or bytes rejected before mutation");
 }
 }
@@ -408,13 +441,14 @@ int main(int argc, char** argv) {
     try {
         Fixture fixture(argv[1], argv[2]);
         if (scenario == "default") Basic(fixture, false);
+        else if (scenario == "engine-source" || scenario == "engine-source-longjmp") EngineSource(fixture,scenario=="engine-source-longjmp");
         else if (scenario == "sequential") Basic(fixture, true);
         else if (scenario == "natural-longjmp") Aborted(fixture, false, false);
         else if (scenario == "supplemental-longjmp") Aborted(fixture, true, false);
         else if (scenario == "unowned-longjmp") Aborted(fixture, true, true);
         else if (scenario == "clear-observer") ClearWrappers(fixture);
         else if (scenario == "handler-failure") HandlerFailure(fixture);
-        else if (scenario == "wrong-frame" || scenario == "frame-bytes" || scenario == "second-hook" || scenario == "unhook-failure") InstallFailure(fixture, scenario);
+        else if (scenario == "wrong-frame" || scenario == "frame-bytes" || scenario == "second-hook" || scenario == "unhook-failure" || scenario == "engine-bytes" || scenario == "engine-hook") InstallFailure(fixture, scenario);
         else Invalid(fixture, scenario);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "fixture error: %s\n", error.what()); return 2;

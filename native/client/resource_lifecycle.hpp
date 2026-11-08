@@ -18,6 +18,7 @@ struct Entry {
     std::uint64_t event{}, frame{};
     Observation previous;
     bool new_clear_state{};
+    bool engine_vidinit{}; // Inside the verified engine wrapper, not just an export call.
 };
 
 struct Handler {
@@ -32,10 +33,12 @@ struct Handler {
 // engine/client callbacks. MetaHook may publish trampolines after LoadClient.
 // Storage lasts until MetaHook removes its hooks on shutdown. No hot reset or
 // uninstallation while an original call can still be on the stack is offered.
-// This observes native entry, NOT its caller: a bridge must independently
-// establish the engine/reset source before setting engine_vidinit=true.
-const char* install(metahook_api_s*, resource_native_hud::Host::ScreenInfo, Handler = {});
+// observe_engine additionally hooks the verified engine VidInit wrapper. Only
+// its active invocation can mark Entry.engine_vidinit; direct exports cannot.
+const char* install(metahook_api_s*, resource_native_hud::Host::ScreenInfo, Handler = {},
+                    bool observe_engine = false);
 resource_native_hud::Binding binding() noexcept;
+resource_native_hud::Host::Release source_release() noexcept;
 Observation observe() noexcept;
 bool current(const Entry&) noexcept;
 const char* failure() noexcept;

@@ -15,15 +15,18 @@ using HostFrame = int (__cdecl*)(float, int, int*);
 Host host;
 HostFrame original_frame{};
 Host::VidInit original_vidinit{};
+Host::VidInit original_engine_vidinit{};
 Handler handler;
 resource_native_hud::Binding native_binding;
 DWORD thread{};
 bool attempted{};
+bool source_required{};
 std::atomic<const char*> error{};
 std::atomic<bool> blocked{};
 std::uint64_t serial{}, clear_epoch{}, initial_vidinit{}, consumed_clear{};
 std::uint64_t active_frame{}, dispatch{}, dispatch_frame{}, dispatch_epoch{};
 bool dispatch_called{};
+std::uint64_t engine_dispatch{}, engine_frame{}, engine_epoch{};
 struct Invocation {
     std::uint64_t id{}, frame{};
     Completion completion{};
@@ -113,7 +116,8 @@ int __cdecl vidinit() {
     const auto previous = observe();
     const auto token = next();
     if (!token) return untracked_vidinit();
-    const Entry entry{token, active_frame, previous, clear_epoch && clear_epoch != consumed_clear};
+    const Entry entry{token, active_frame, previous, clear_epoch && clear_epoch != consumed_clear,
+        engine_dispatch && engine_epoch == clear_epoch && engine_frame == active_frame};
     consumed_clear = clear_epoch;
     dispatch = token;
     dispatch_frame = active_frame;
@@ -127,12 +131,31 @@ int __cdecl vidinit() {
     const int result = capture_error ? untracked_vidinit() :
         (handler.vid_init ? handler.vid_init(handler.context, entry) : invoke(false));
     if (on_thread() && dispatch == token) {
-        if (result > 0 && dispatch_called && clear_epoch && clear_epoch == entry.previous.clear_epoch)
+        if (result > 0 && dispatch_called && clear_epoch && clear_epoch == entry.previous.clear_epoch &&
+            (!source_required || entry.engine_vidinit))
             initial_vidinit = token;
         dispatch = dispatch_frame = dispatch_epoch = 0;
         dispatch_called = false;
     }
     // A handler failure is its result. Never call the original a second time.
+    return result;
+}
+
+int __cdecl engine_vidinit() {
+    if (!on_thread()) return blocked.load(std::memory_order_relaxed) ? 0 : original_engine_vidinit();
+    if (engine_dispatch) {
+        fail("engine HUD wrapper reentered before its previous invocation returned");
+        return blocked.load(std::memory_order_relaxed) ? 0 : original_engine_vidinit();
+    }
+    const auto token = next();
+    if (!token) return blocked.load(std::memory_order_relaxed) ? 0 : original_engine_vidinit();
+    engine_dispatch = token; engine_frame = active_frame; engine_epoch = clear_epoch;
+    // Retain every outer plugin export wrapper and the engine's SPR_Init.
+    // Host_Error may skip the following statements; only frame() may then
+    // close this invocation after the exact original outer frame returns.
+    const int result = original_engine_vidinit();
+    if (on_thread() && engine_dispatch == token)
+        engine_dispatch = engine_frame = engine_epoch = 0;
     return result;
 }
 
@@ -153,6 +176,8 @@ int __cdecl frame(float time, int state, int* output) {
             dispatch = dispatch_frame = dispatch_epoch = 0;
             dispatch_called = false;
         }
+        if (engine_dispatch && engine_frame == token)
+            engine_dispatch = engine_frame = engine_epoch = 0;
         active_frame = 0;
     }
     // This is a return proof only. It does not refresh/free resources, report
@@ -173,9 +198,26 @@ bool frame_bytes(std::byte* base, std::size_t size) noexcept {
         !std::memcmp(base + entry + sizeof(prefix) + sizeof(operand), suffix, sizeof(suffix)) &&
         !std::memcmp(base + caller, callsite, sizeof(callsite));
 }
+
+bool engine_vidinit_bytes(std::byte* base, std::size_t size) noexcept {
+    constexpr std::size_t entry = 0x196f70, exports = 0x145ef48;
+    constexpr unsigned char middle[]{0x00,0x75,0x12,0x68,0x53,0x04,0x00,0x00,0x68};
+    constexpr unsigned char tail[]{0xe8,0x98,0x8c,0x08,0x00,0x83,0xc4,0x08,
+        0xe8,0xb0,0x5f,0x00,0x00,0xff,0x25};
+    if (!base || size < exports + sizeof(void*)) return false;
+    std::uintptr_t first{}, second{}, text{};
+    std::memcpy(&first, base + entry + 2, sizeof(first));
+    std::memcpy(&text, base + entry + 15, sizeof(text));
+    std::memcpy(&second, base + entry + 34, sizeof(second));
+    return base[entry] == std::byte{0x83} && base[entry+1] == std::byte{0x3d} &&
+        first == reinterpret_cast<std::uintptr_t>(base) + exports && second == first &&
+        text == reinterpret_cast<std::uintptr_t>(base) + 0x2b4300 &&
+        !std::memcmp(base + entry + 6, middle, sizeof(middle)) &&
+        !std::memcmp(base + entry + 19, tail, sizeof(tail));
+}
 }
 
-const char* install(metahook_api_s* api, Host::ScreenInfo screen, Handler value) {
+const char* install(metahook_api_s* api, Host::ScreenInfo screen, Handler value, bool observe_engine) {
     if (attempted) return "native resource lifecycle installation is one-shot";
     attempted = true;
     thread = GetCurrentThreadId();
@@ -194,22 +236,43 @@ const char* install(metahook_api_s* api, Host::ScreenInfo screen, Handler value)
         fail("native resource lifecycle requires the verified outer Host_Frame");
         return failure();
     }
+    void* engine_entry{};
+    if (observe_engine && (api->ResolveGameSymbol(engine, "GoldCraftNativeHud_EngineVidInit",
+            MH_GAMESYMBOL_KIND_FUNCTION, &engine_entry) != MH_GAMESYMBOL_OK ||
+            engine_entry != engine + 0x196f70 || !engine_vidinit_bytes(engine, api->GetEngineSize()))) {
+        fail("native resource lifecycle requires the verified engine HUD wrapper");
+        return failure();
+    }
     handler = value;
+    source_required = observe_engine;
     const auto frame_hook = api->InlineHook(address, reinterpret_cast<void*>(frame),
         reinterpret_cast<void**>(&original_frame));
     if (!frame_hook) {
         fail("native resource lifecycle could not hook Host_Frame"); return failure();
     }
-    if (!api->InlineHook(host.Entry(), reinterpret_cast<void*>(vidinit),
-            reinterpret_cast<void**>(&original_vidinit))) {
+    const auto native_hook = api->InlineHook(host.Entry(), reinterpret_cast<void*>(vidinit),
+            reinterpret_cast<void**>(&original_vidinit));
+    if (!native_hook) {
         if (!api->UnHook(frame_hook)) {
             fail("native resource lifecycle partial installation could not be removed");
             return failure();
         }
         fail("native resource lifecycle could not hook HUD_VidInit"); return failure();
     }
+    if (observe_engine && !api->InlineHook(engine_entry, reinterpret_cast<void*>(engine_vidinit),
+            reinterpret_cast<void**>(&original_engine_vidinit))) {
+        const bool native_removed = api->UnHook(native_hook) != FALSE;
+        const bool frame_removed = api->UnHook(frame_hook) != FALSE;
+        fail(native_removed && frame_removed ? "native resource lifecycle could not hook engine HUD wrapper" :
+             "native resource lifecycle engine hook failure could not be rolled back");
+        return failure();
+    }
     client_precache::set_clear_state_observer(clear_returned);
     return nullptr;
+}
+
+Host::Release source_release() noexcept {
+    return on_thread() ? host.SourceRelease() : nullptr;
 }
 
 resource_native_hud::Binding binding() noexcept {
