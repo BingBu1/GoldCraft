@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-08_分析-僵尸少女31500原版取证-report.md",
+    "docs/2026-11-08_实现-僵尸少女纯逻辑层-report.md",
+    "docs/2026-11-08_实现-行为树纯逻辑层-report.md",
     "docs/2026-11-08_修复-模型加载重复动画校验-report.md",
     "tests/csol-studio-loader/README.md",
     "tests/csol-studio-loader/run.py",
