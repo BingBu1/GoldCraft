@@ -118,7 +118,12 @@ void ExtendedExplosion()
     Check(ConsumeCsoTent(int(bad.size()), bad.data()) && explosionOrder.empty(), "negative model rejected");
     shot.sound = 3; Check(!Write(shot), "encoder refuses unsupported selector");
     shot.sound = 2; shot.origin[0] = NAN; Check(!Write(shot), "encoder refuses nonfinite position");
-    shot.origin[0] = 4096; Check(!Write(shot), "encoder refuses overflowing coordinate");
+    shot.origin[0] = 4096; bytes = Write(shot);
+    Check(bytes && ConsumeCsoTent(int(bytes->size()), bytes->data()), "original compact short wrap remains consumable");
+    Check(explosionCall.origin[0] == -4096 && soundCall.origin[0] == -4096,
+        "both original explosion consumers use the decoded signed-short position");
+    explosionOrder.clear();
+    shot.origin[0] = 268435456.f; Check(!Write(shot), "encoder refuses undefined int32 conversion");
     shot.origin[0] = 0; bytes = Write(shot);
     effects.R_Explosion = nullptr;
     ConsumeCsoTent(int(bytes->size()), bytes->data());
@@ -190,7 +195,15 @@ void Wire()
     puff.origin[0] = NAN;
     Check(!Write(puff), "non-finite coordinate rejected");
     puff.origin[0] = 5000.0f;
-    Check(!Write(puff), "out-of-range coordinate rejected");
+    const auto wrapped = Write(puff);
+    Check(wrapped && (*wrapped)[1] == 0x40 && (*wrapped)[2] == 0x9c,
+        "sprite uses original compact low16 bytes outside signed-short range");
+    if (wrapped)
+    {
+        const auto wrappedBack = ReadSprite(*wrapped);
+        Check(wrappedBack && wrappedBack->origin[0] == -3192.f,
+            "sprite decodes the original signed-short wrap");
+    }
 }
 
 void Consumer()

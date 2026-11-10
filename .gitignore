@@ -33,6 +33,7 @@
 /settings.local.json
 /.env*
 /docs/*
+!/docs/2026-11-10_修复-共享触手坐标编码-report.md
 !/docs/BUILD.md
 !/docs/LOCAL_PLAYTEST.md
 !/docs/ARCHITECTURE.md

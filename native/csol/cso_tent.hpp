@@ -52,14 +52,15 @@ struct Explosion
 
 namespace detail
 {
-// ReHLDS MSG_WriteCoord/WriteAngle truncation; HW 378657A0 also uses
-// (int)(angle*256/360) as one byte.
+// HW378C6880 default mode and ReHLDS MSG_WriteCoord truncate to int32
+// and write low16, including signed-short wrap. HW378657A0 also uses
+// (int)(angle*256/360) as one byte. Keep the host C++ conversions defined.
 inline bool Coord(float value, std::int16_t& out)
 {
     if (!std::isfinite(value)) return false;
     const float scaled = value * 8.0f;
-    if (!(scaled > -32769.0f && scaled < 32768.0f)) return false;
-    out = static_cast<std::int16_t>(static_cast<int>(scaled));
+    if (!(scaled >= -2147483648.0f && scaled < 2147483648.0f)) return false;
+    out = std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(static_cast<std::int32_t>(scaled)));
     return true;
 }
 inline bool Angle(float value, std::uint8_t& out)

@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "native/csol/server/scenario/core/scenario_messages.h"
 #include "native/csol/server/damage_numbers.h"
+#include "native/csol/cso_tent.hpp"
 
 #include <algorithm>
 #include <array>
@@ -179,6 +180,62 @@ void Reentry()
         player.free = 0; Check(other.SendBloodScreen(&player) && begins == 1 && ends == 1);
     }
 }
+void CompactCoordinateWire()
+{
+    // HW378C6880 (default mode) -> 37866070 stores low16 after int32
+    // truncation; 37865090 reads signed short / 8. Literal wire vectors
+    // deliberately include values rejected by the former extra short guard.
+    struct Case { float input; std::uint16_t wire; float decoded; };
+    const Case cases[]{
+        {4095.875f, 0x7fff, 4095.875f},
+        {4096.f, 0x8000, -4096.f},
+        {-4096.f, 0x8000, -4096.f},
+        {-4096.125f, 0x7fff, 4095.875f},
+        {-4518.875f, 0x72c9, 3673.125f},
+        {8192.25f, 0x0002, .25f},
+        {-8192.25f, 0xfffe, -.25f},
+        {-268435456.f, 0x0000, 0.f},
+        {268435440.f, 0xff80, -16.f},
+    };
+    Install(); CCSOLScenarioMessages messages; Check(messages.Register());
+    for (const auto& value : cases)
+    {
+        csol::cso_tent::Model model;
+        model.origin = {value.input, 2, 32}; model.model = 123;
+        const Vector route(value.input, 2, 30);
+        Clear();
+        Check(messages.SendCsoTent(model, route));
+        Check(begins == 1 && ends == 1 && destination == MSG_PVS && hasOrigin && !recipient);
+        Check(pvs == std::array{value.input, 2.f, 30.f});
+        Check(bytes.size() == csol::cso_tent::ModelTentSize && bytes[0] == csol::cso_tent::ModelTent);
+        Check(bytes[1] == (value.wire & 255) && bytes[2] == (value.wire >> 8));
+        const auto decoded = csol::cso_tent::ReadModel(bytes);
+        Check(decoded && decoded->origin == std::array{value.decoded, 2.f, 32.f});
+        Check(model.origin == std::array{value.input, 2.f, 32.f});
+
+        const csol::cso_tent::Sprite sprite{{value.input, 2, 32}, 123, 1, 200, 25};
+        const auto spriteBytes = csol::cso_tent::Write(sprite);
+        Check(spriteBytes && (*spriteBytes)[1] == (value.wire & 255) && (*spriteBytes)[2] == (value.wire >> 8));
+        const auto readSprite = csol::cso_tent::ReadSprite(*spriteBytes);
+        Check(readSprite && readSprite->origin == std::array{value.decoded, 2.f, 32.f});
+        const csol::cso_tent::Explosion explosion{{value.input, 2, 32}, 123, 10, 30, 0, 2};
+        const auto explosionBytes = csol::cso_tent::Write(explosion);
+        Check(explosionBytes && (*explosionBytes)[1] == (value.wire & 255) && (*explosionBytes)[2] == (value.wire >> 8));
+        const auto readExplosion = csol::cso_tent::ReadExplosion(*explosionBytes);
+        Check(readExplosion && readExplosion->origin == std::array{value.decoded, 2.f, 32.f});
+    }
+    for (float bad : {268435456.f, -268435488.f,
+        std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::quiet_NaN()})
+        for (unsigned axis = 0; axis != 3; ++axis)
+        {
+            csol::cso_tent::Model model; model.origin[axis] = bad;
+            Clear(); Check(!messages.SendCsoTent(model, Vector(1, 2, 3)) && begins == 0 && ends == 0);
+            const csol::cso_tent::Sprite sprite{model.origin, 123, 1, 200, 25};
+            const csol::cso_tent::Explosion explosion{model.origin, 123, 10, 30, 0, 2};
+            Check(!csol::cso_tent::Write(sprite) && !csol::cso_tent::Write(explosion));
+        }
+}
 void Oracle(const char* path)
 {
     std::ifstream input(path); Check(bool(input));
@@ -215,7 +272,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc == 2) Oracle(argv[1]); else { Payloads(); Invalid(); Reentry(); }
+        if (argc == 2) Oracle(argv[1]); else { Payloads(); Invalid(); Reentry(); CompactCoordinateWire(); }
         std::cout << "teddy messages " << checks << " checks passed\n"; return 0;
     }
     catch (const std::exception& error) { std::cerr << error.what() << " after " << checks << " checks\n"; return 1; }
