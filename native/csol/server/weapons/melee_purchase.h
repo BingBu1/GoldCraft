@@ -13,3 +13,5 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& player, int weaponId);
 bool CSOL_IsMeleeReplacement(const CBasePlayer& player, const CBasePlayerItem& item);
 // Original selection common tail; preserves attack/prediction state.
 bool CSOL_ScenarioRefreshMeleeSelection(CBasePlayer& player, CBasePlayerWeapon& weapon);
+// Independent original rebuy paint-only tail; no grant or selection update.
+void CSOL_ScenarioRefreshMeleePaint(CBasePlayer& player,int selectedWeapon);

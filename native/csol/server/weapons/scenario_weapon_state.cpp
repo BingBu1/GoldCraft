@@ -1138,6 +1138,26 @@ std::int32_t CCSOLScenarioWeaponState::PaintType(const CBasePlayerWeapon& weapon
     return state ? state->paintType : 0;
 }
 
+bool CCSOLScenarioWeaponState::RefreshMeleePaint(CBasePlayer& player,
+    std::uint64_t generation, CBasePlayerWeapon& weapon, std::int32_t selectedItem)
+{
+    if (!Current() || !Live(&player) || !Live(&weapon) || player.has_disconnected ||
+        !CSOL_MeleeSelectionItem(weapon) || player.m_rgpPlayerItems[KNIFE_SLOT] != &weapon ||
+        weapon.m_pPlayer != &player || weapon.pev->owner != player.edict()) return false;
+    const auto* selection = FindSelection(player, generation);
+    const auto catalog = m_catalog.find(selectedItem);
+    const int inGame = selectedItem == 161 ? 4000 :
+        selectedItem == csol::melee::DragonSwordItemId ? 4016 :
+        selectedItem == csol::melee::SkullAxeItemId ? 4010 : 0;
+    if (!selection || !inGame || catalog == m_catalog.end() || !catalog->second.equipment ||
+        catalog->second.category != 11 || catalog->second.inGame != inGame) return false;
+    auto* state = Edit(weapon);
+    if (!state) return false;
+    const auto paint = selection->paints.find(inGame);
+    state->paintType = paint == selection->paints.end() ? 0 : paint->second;
+    return true;
+}
+
 void CCSOLScenarioWeaponState::RemovePlayer(const EHANDLE& player, std::uint64_t generation)
 {
     if (!Current()) return;

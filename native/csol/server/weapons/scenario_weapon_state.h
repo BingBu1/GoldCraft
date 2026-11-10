@@ -154,6 +154,10 @@ public:
     // deployment, attribute-key or enhancement state is reset here.
     bool RefreshMeleeSelection(CBasePlayer& player, std::uint64_t generation,
         CBasePlayerWeapon& weapon);
+    // MP1141A810(29,-1): uses the current selected knife directory, and does
+    // not alter parts, item identity, selection, snapshot or pending attacks.
+    bool RefreshMeleePaint(CBasePlayer& player, std::uint64_t generation,
+        CBasePlayerWeapon& weapon, std::int32_t selectedItem);
     // CSO's independent weaponpainttype field; not standard CS entvars iuser1.
     // Its client transport/rendering remains separate from this server state.
     std::int32_t PaintType(const CBasePlayerWeapon& weapon) const;

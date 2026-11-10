@@ -31,10 +31,12 @@
 #include "../../weapons/wpn_k3.h"
 #include "../../weapons/wpn_melee.h"
 #include "../../weapons/melee_purchase.h"
+#include "../../buy_menu.h"
 #include "../../weapons/knife_selection.h"
 #include "../../weapons/weapon_slots.h"
 #include "../../weapons/weapons.h"
 #include "../../../weapons/k3.hpp"
+#include "../../../weapons/melee_identity.hpp"
 #include <list>
 #include <vector>
 #include "../../characters.h"
@@ -2966,7 +2968,11 @@ bool CSOL_ScenarioRefreshMeleeSelection(CBasePlayer& player, CBasePlayerWeapon& 
     const auto state = players ? players->Find(handle) : nullptr;
     if (!state || !weapons) return false;
     const auto generation = state->generation;
-    return weapons->RefreshMeleeSelection(player, generation, weapon) && scope.Current() &&
+    const bool refreshed = weapons->RefreshMeleeSelection(player, generation, weapon) && scope.Current() &&
+        runtime->players == players && runtime->session == session && session->Weapons() == weapons &&
+        players->Find(handle) == state && state->generation == generation;
+    if (refreshed) CSOL_RebuyMeleeSelected(player, weapon.m_iId);
+    return refreshed && scope.Current() && handle.Get<CBaseEntity>() == &player &&
         runtime->players == players && runtime->session == session && session->Weapons() == weapons &&
         players->Find(handle) == state && state->generation == generation;
 }
@@ -2978,6 +2984,24 @@ int CSOL_ScenarioProjectileSource(const CBaseEntity& entity)
     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
     const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
     return weapons ? weapons->ProjectileSource(entity) : 0;
+}
+
+void CSOL_ScenarioRefreshMeleePaint(CBasePlayer& player,int selectedWeapon)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return;
+    const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+    const auto runtime = rules ? rules->Runtime() : nullptr;
+    const auto players = runtime ? runtime->players : nullptr;
+    const auto weapons = runtime && runtime->session ? runtime->session->Weapons() : nullptr;
+    const EHANDLE handle(&player);
+    const auto state = players ? players->Find(handle) : nullptr;
+    auto* weapon = dynamic_cast<CBasePlayerWeapon*>(player.m_rgpPlayerItems[KNIFE_SLOT]);
+    if (!state || !weapons || !weapon) return;
+    const int item = selectedWeapon == WEAPON_KNIFE ? 161 :
+        selectedWeapon == csol::melee::DragonSwordId ? csol::melee::DragonSwordItemId :
+        selectedWeapon == csol::melee::SkullAxeId ? csol::melee::SkullAxeItemId : 0;
+    if (item && scope.Current()) weapons->RefreshMeleePaint(player, state->generation, *weapon, item);
 }
 
 bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules)

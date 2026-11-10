@@ -10,3 +10,9 @@ void CSOL_ResetBuyMenu();
 bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId);
 // Original buy-zone enter/leave callbacks send ZBSVer2 opcode 16/17.
 void CSOL_BuyZoneHint(CBasePlayer* player,bool inside);
+// Original scenario snapshot/replay replace the stock configurable-order
+// rebuy only under scenario rules. False retains the ordinary CS path.
+bool CSOL_BuildRebuyStruct(CBasePlayer* player);
+bool CSOL_Rebuy(CBasePlayer* player);
+// Independent successful knife-selection setter, including during replay.
+void CSOL_RebuyMeleeSelected(CBasePlayer& player,int weaponId);

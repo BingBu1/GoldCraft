@@ -14,6 +14,7 @@
 #include <in_buttons.h>
 #include <vgui_controls/TextEntry.h>
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <ostream>
 #include <cwctype>
@@ -34,15 +35,18 @@ IVGUI2Extension* extension{};
 vgui::HFont font{},titleFont{};
 HANDLE privateFont{};
 Presentation presentation;
-bool capability{},loaded{},visible{},waiting{},catalogReady{},mouseHeld{},swallowMouse{},restoreMouse{};
-bool rightHeld{},rebuying{};
+bool capability{},loaded{},visible{},catalogReady{},mouseHeld{},swallowMouse{},restoreMouse{};
+bool rightHeld{};
 int team=2;
 cvar_t* favoriteCvars[2]{};
 Favorites favorites{};
-std::vector<int> lastPurchases,rebuyQueue;
 std::wstring query;
 vgui::DHANDLE<vgui::TextEntry> searchEntry;
 std::uint16_t request{};
+// Host CSOBuy acknowledgements are independent of the original local Close.
+// The wire token is 16-bit: fixed 128 KiB storage bounds every outstanding
+// ordinary reply without allocating or locking subsequent menu input.
+std::array<std::uint16_t,1u<<16> submittedPurchases{};
 int category=-1,page{},hover=-1,balance{},fontHeight{},left{},top{};
 float scale=1,angles[3]{};
 double requestedAt{};
@@ -73,7 +77,7 @@ void RestoreMouse()
 void Close(bool gameplay=true)
 {
     const bool hadMenu=visible;
-    visible=false;waiting=false;catalogReady=false;rebuying=false;rebuyQueue.clear();
+    visible=false;catalogReady=false;
     if(!hadMenu)return;
     hover=-1;swallowMouse=true;
     if(searchEntry){searchEntry->SetVisible(false);searchEntry->SetKeyBoardInputEnabled(false);}
@@ -91,21 +95,21 @@ bool Load()
 }
 void Refresh()
 {
-    if(++request==0)++request;offers.clear();catalogReady=false;waiting=false;
+    if(++request==0)++request;
+    submittedPurchases[request]=0;
+    offers.clear();catalogReady=false;
     requestedAt=engine.GetClientTime();std::string command="csol_buy_menu "+std::to_string(request)+"\n";engine.pfnServerCmd(command.data());
 }
 bool ExpireRequest()
 {
-    if((!visible&&!rebuying)||(!waiting&&catalogReady)||engine.GetClientTime()-requestedAt<=5)return false;
-    if(!visible)Close();
-    else{waiting=false;catalogReady=false;rebuying=false;rebuyQueue.clear();status=L"购买请求超时；请关闭后重试";}
+    if(!visible||catalogReady||engine.GetClientTime()-requestedAt<=5)return false;
+    catalogReady=false;status=L"购买请求超时；请关闭后重试";
     return true;
 }
 void OpenMenu(bool fallback)
 {
     if(visible){Close();return;}
     if(!capability||!surface||!input||!extension||!Load()){if(fallback){if(oldBuy)oldBuy();else engine.pfnServerCmd("buy\n");}return;}
-    // A visible menu owns a fresh request; stop any background rebuy first.
     Close(false);
     if(clientUI)clientUI->HideAllVGUIMenu();
     ClearNativeWeaponSelection();
@@ -133,70 +137,60 @@ const std::vector<const Item*>& Rows()
 }
 void Purchase(const Item& item)
 {
-    if(waiting||!catalogReady)return;
+    if(!visible||!catalogReady)return;
     auto it=offers.find(item.id);if(it==offers.end()||it->second.result!=Result::Available){status=L"此商品当前不可购买";return;}
     if(balance<it->second.price){status=L"金钱不足";return;}
-    waiting=true;requestedAt=engine.GetClientTime();status=L"正在购买…";
+    submittedPurchases[request]=item.id;
     std::string command="csol_buy "+std::to_string(request)+" "+std::to_string(item.id)+"\n";engine.pfnServerCmd(command.data());
+    // Original mode15 state0: 18130B754 sends, 18130B75D closes on the same
+    // stack. A later authority reply must not keep input/cursor ownership.
+    Close();
 }
 void Select(int row)
 {
-    if(waiting||row<0||row>=10)return;
+    if(row<0||row>=10)return;
     if(row==9){if(category<0&&query.empty())Close();else{category=-1;query.clear();if(searchEntry)searchEntry->SetText(L"");page=0;rowsCategory=-2;}return;}
     if(category<0&&query.empty()){if(row==5||row==6){const auto* item=Find(row==5?2001:2002);if(item)Purchase(*item);}else{category=row+1;page=0;hover=-1;}return;}
     const auto& rows=Rows();const int index=page*9+row;if(index<int(rows.size()))Purchase(*rows[index]);
 }
-void RememberPurchase(int id){
-    if(rebuying)return;const auto* item=Find(id);if(!item)return;
-    std::erase_if(lastPurchases,[&](int previous){const auto* p=Find(previous);return p&&RebuySlot(*p)==RebuySlot(*item);});lastPurchases.push_back(id);
-}
-void ContinueRebuy(){
-    if(!rebuying||waiting||!catalogReady)return;
-    while(!rebuyQueue.empty()){
-        const auto* item=Find(rebuyQueue.front());rebuyQueue.erase(rebuyQueue.begin());
-        auto offer=item?offers.find(item->id):offers.end();
-        if(item&&offer!=offers.end()&&offer->second.result==Result::Available&&balance>=offer->second.price){Purchase(*item);return;}
-    }
-    Close();
-}
 void StartRebuy()
 {
-    if(waiting||rebuying||lastPurchases.empty())return;
-    rebuyQueue=lastPurchases;
-    // Replacement weapons precede their remembered ammunition.
-    const auto rank=[](int id){const auto* item=Find(id);return item?RebuyOrder(*item):0;};
-    std::stable_sort(rebuyQueue.begin(),rebuyQueue.end(),[&](int a,int b){return rank(a)<rank(b);});
-    rebuying=true;ContinueRebuy();
+    if(!visible)return;
+    // Original menu command18130B455..B4C6 is distinct from the F2 wrapper.
+    engine.pfnServerCmd("rebuy_in\n");
+    Close();
 }
 void Rebuy()
 {
     if(!capability){if(oldRebuy)oldRebuy();else engine.pfnServerCmd("rebuy\n");return;}
-    if(view.health<=0||view.spectator||lastPurchases.empty()||waiting||rebuying)return;
-    // Original ordinary branch 02A6AF29 queues cl_rebuy without opening a panel.
-    // The host's extended catalog remains server-authoritative and asynchronous.
-    if(!visible)Refresh();
-    StartRebuy();
+    // Human-requested deviation2026-11-10: omit the original shared0.1s
+    // input interval. Each invocation reaches the authoritative server.
+    // The server owns the equipment snapshot and completes its entire replay.
+    engine.pfnServerCmd("cl_rebuy\n");
 }
 int Receive(const char*,int size,void* data)
 {
     SynchronizeSession();Packet p;
     if(!data||size<0||!Decode({static_cast<const std::uint8_t*>(data),std::size_t(size)},p)){++rejected;return 0;}
     if(p.kind==Kind::Capability){capability=true;return 1;}
-    if((!visible&&!rebuying)||p.request!=request)return 1;
+    if(p.kind==Kind::Result && p.result!=Result::Available && p.id && submittedPurchases[p.request]==p.id)
+    {
+        submittedPurchases[p.request]=0;
+        if(p.result==Result::Success)++purchases;
+        return 1;
+    }
+    if(!visible||p.request!=request)return 1;
     if(ExpireRequest())return 1;
+    if(p.kind==Kind::Result)
+    {
+        if(p.result==Result::Unavailable && !p.id){Close();return 1;}
+        return 1;
+    }
     balance=p.balance;
     switch(p.kind){
     case Kind::Begin:offers.clear();catalogReady=false;break;
     case Kind::Item:offers[p.id]=p;break;
     case Kind::End:catalogReady=true;status=L"";break;
-    case Kind::Result:
-        waiting=false;
-        if(p.result==Result::Unavailable&&(p.id==0||rebuying)){Close();break;}
-        if(p.result==Result::Success){++purchases;RememberPurchase(p.id);if(rebuying)Refresh();else Close();}
-        else if(p.result==Result::Unavailable){status=L"当前状态无法购买；按 B / Esc 返回";}
-        else{status=p.result==Result::Insufficient?L"金钱不足":L"购买未完成，请检查当前装备";}
-        if(rebuying&&p.result!=Result::Success)Refresh();
-        break;
     default:break;
     }
     return 1;
@@ -242,7 +236,7 @@ void ItemImage(const Item& item,MenuRect area,int alpha=255){
     const auto& image=it->second;const float fit=std::min(float(area.w)/image.width,float(area.h)/image.height);
     const int w=int(image.width*fit),h=int(image.height*fit);Image(image,{area.x+(area.w-w)/2,area.y+(area.h-h)/2,w,h},alpha);
 }
-bool CanPurchase(const Item& item){const auto offer=offers.find(item.id);return catalogReady&&!waiting&&offer!=offers.end()&&offer->second.result==Result::Available&&balance>=offer->second.price;}
+bool CanPurchase(const Item& item){const auto offer=offers.find(item.id);return catalogReady&&offer!=offers.end()&&offer->second.result==Result::Available&&balance>=offer->second.price;}
 void Layout()
 {
     int w,h;surface->GetScreenSize(w,h);scale=std::max(.1f,std::min(float(w)/presentation.width,float(h)/presentation.height));left=(w-int(presentation.width*scale))/2;top=(h-int(presentation.height*scale))/2;
@@ -303,7 +297,7 @@ void Paint()
     for(int i=0;i<2;++i){const auto& r=presentation.teams[i];Button(r,i?L"查看CT阵营武器":L"查看T阵营武器",20+i);if(team==i+1){surface->DrawSetColor(170,190,210,240);surface->DrawFilledRect(X(r.x),Y(r.y+r.h-1),X(r.x+r.w),Y(r.y+r.h));}}
     const auto& rows=Rows();
     for(int i=0;i<10;++i){
-        if(category<0&&query.empty())Slot(presentation.slots[i],categories[i],i,i==9||catalogReady&&!waiting);
+        if(category<0&&query.empty())Slot(presentation.slots[i],categories[i],i,i==9||catalogReady);
         else if(i==9)Slot(presentation.slots[i],L"返回武器分类",i);
         else if(page*9+i<int(rows.size())){const auto* item=rows[page*9+i];Slot(presentation.slots[i],Wide(item->name),i,CanPurchase(*item));}
     }
@@ -325,7 +319,7 @@ void Paint()
     Text(375,202,L"右键点击武器可收藏，右键点击收藏可移除。","labeldimtext");
     const auto& account=presentation.account;surface->DrawSetColor(0,0,0,130);surface->DrawFilledRect(X(account.x),Y(account.y),X(account.x+account.w),Y(account.y+account.h));
     Text(account.x+2,account.y+4,L"当前金钱");const auto money=std::to_wstring(balance);int moneyWidth,moneyHeight;surface->GetTextSize(font,money.c_str(),moneyWidth,moneyHeight);Text(account.x+account.w-4-int(moneyWidth/scale),account.y+4,money,"brightcontroltext");
-    Button(presentation.rebuy,L"重新购买（R）",41,catalogReady&&!waiting&&!lastPurchases.empty());
+    Button(presentation.rebuy,L"重新购买（R）",41,true);
     Text(16,presentation.height-28,status,"labeldimtext");surface->DrawFlushText();surface->PopMakeCurrent(root);
     if(searchEntry)vgui::ipanel()->PaintTraverse(searchEntry->GetVPanel(),true);++draws;
 }
@@ -371,13 +365,13 @@ void InitializeBuyMenu()
 }
 void ResetBuyMenu()
 {
-    Close(false);capability=false;loaded=false;offers.clear();visibleRows.clear();rowsCategory=-2;restoreMouse=false;swallowMouse=false;request=0;presentation={};lastPurchases.clear();query.clear();
+    Close(false);capability=false;loaded=false;offers.clear();visibleRows.clear();rowsCategory=-2;restoreMouse=false;swallowMouse=false;request=0;submittedPurchases={};presentation={};query.clear();
     if(surface)for(const auto& [path,texture]:textures)if(texture)surface->DeleteTextureByID(texture);textures.clear();
 }
 void ShutdownBuyMenu(){ResetBuyMenu();if(searchEntry){searchEntry->MarkForDeletion();searchEntry=nullptr;}if(extension)extension->UnregisterBaseUICallbacks(&overlay);if(privateFont)RemoveFontMemResourceEx(privateFont);privateFont=nullptr;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;}
 void BuyMenuFrame()
 {
-    if(!visible&&!rebuying)return;
+    if(!visible)return;
     if(view.health<=0||view.spectator){Close();return;}
     if(ExpireRequest())return;
     if(visible){
@@ -387,7 +381,6 @@ void BuyMenuFrame()
         const bool right=input->IsMouseDown(vgui::MOUSE_RIGHT);if(right&&!rightHeld)EditFavorite(hover);rightHeld=right;
         if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
     }
-    ContinueRebuy();
 }
 void BuyMenuCreateMove(usercmd_t* cmd,int active)
 {
@@ -397,5 +390,5 @@ void BuyMenuCreateMove(usercmd_t* cmd,int active)
 }
 bool BuyMenuVisible(){return visible;}
 void CloseBuyMenuForOverlay(){Close(false);restoreMouse=false;}
-void BuyMenuDiagnostics(std::ostream& out){out<<",\"buyMenu\":{\"capability\":"<<capability<<",\"visible\":"<<visible<<",\"loaded\":"<<loaded<<",\"waiting\":"<<waiting<<",\"team\":"<<team<<",\"category\":"<<category<<",\"search\":"<<bool(searchEntry)<<",\"offers\":"<<offers.size()<<",\"purchases\":"<<purchases<<",\"rejected\":"<<rejected<<",\"draws\":"<<draws<<",\"mouseRestores\":"<<restores<<'}';}
+void BuyMenuDiagnostics(std::ostream& out){out<<",\"buyMenu\":{\"capability\":"<<capability<<",\"visible\":"<<visible<<",\"loaded\":"<<loaded<<",\"team\":"<<team<<",\"category\":"<<category<<",\"search\":"<<bool(searchEntry)<<",\"offers\":"<<offers.size()<<",\"purchases\":"<<purchases<<",\"rejected\":"<<rejected<<",\"draws\":"<<draws<<",\"mouseRestores\":"<<restores<<'}';}
 }

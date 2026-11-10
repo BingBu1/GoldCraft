@@ -3301,7 +3301,23 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -10569,11 +10745,11 @@
+@@ -10123,6 +10299,7 @@
+ 
+ void CBasePlayer::BuildRebuyStruct()
+ {
++	if (CSOL_BuildRebuyStruct(this)) return;
+ 	if (m_bIsInRebuy)
+ 	{
+ 		// if we are in the middle of a rebuy, we don't want to update the buy struct.
+@@ -10196,6 +10373,7 @@
+ 
+ void CBasePlayer::Rebuy()
+ {
++	if (CSOL_Rebuy(this)) return;
+ 	char *fileData = m_rebuyString;
+ 	char *token;
+ 
+@@ -10569,11 +10747,11 @@
  	}
  
  	if (RemovePlayerItem(pBomb)) {
@@ -3315,7 +3331,7 @@ diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
-@@ -10752,7 +10928,7 @@
+@@ -10752,7 +10930,7 @@
  		m_iAccount = 0;
  #endif
  		CheckStartMoney();
