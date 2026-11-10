@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-10_实现-原版菜单字体配方-report.md",
+    "tests/csol-menu-font/README.md",
+    "tests/csol-menu-font/main.cpp",
+    "tests/csol-menu-font/run.py",
+    "tests/csol-hud-style/allocation_probe.hpp",
     "docs/2026-11-10_实现-CSOL菜单布局与输入基础-report.md",
     "tests/csol-menu-layout/main.cpp",
     "tests/csol-menu-layout/run.py",
