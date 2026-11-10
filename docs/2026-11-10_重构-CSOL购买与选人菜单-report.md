@@ -140,3 +140,24 @@ include仍使用冻结工作区/SDK，不能把它说成独立发布树完整链
 完整大灾变goal保持active；本轮没有部署DLL或改动运行对局。
 
 卡片源码检查点现已发布main `c45750231aff2887263411fbbe8d4dfbeedadb4e`，远端SHA一致，精确index 3257文件/26382604字节扫描0问题，index空。菜单和卡片的编译、SDK回归与未部署边界如上。共享连续性四文件已同步；不通知主调度，待用户要求打包时再协调。
+
+## 2026-11-10 本地部署与下载清单接线
+
+用户要求删除的0.1秒共享门已经随24ece200发布，当前两份完整客户端产物均包含无间隔入口；现运行的单B已更新到开启配套资源接口的`409d4a9888a55a9872b803931e6e375b7ccaf92a54c2e4502f35911f739c4ede`，专服MP为`fc2892e0d0788edfa68887801186aa9c77c46261841edd5a3c54282cf8e311ad`。服务端391链接输入及7项来源信息重核不变；2794项MP构建源中仅五个后续客户端私有文件变化，无服务端/公共源漂移，最终客户端2794项全部核同。本次未重复已通过的同一时刻16次F2或SDK组。
+
+静态审计发现角色导出的新图片未进入服务器实际消费的`shader/csol/characters.txt`。这是宿主下载清单接线问题，不新增CSOL还原行为。`tools/Prepare-CSOLCharacterMenu.py`新增`--character-list`，保留既有清单并合并本次导出，按服务端路径、重复和4096项限制验证。实际重新导出48文件，其中47资源与前版逐SHA一致；清单保留797项并补21项至818，与独立审计候选完全相同。私有审计为`analysis/csol-menu-deployment-20261110/AUDIT.md`及`final-summary.json`。
+
+以后生成可安装的独立选人菜单资源时，传入服务器已有的完整人物清单；示例输出目录必须尚不存在：
+
+```bash
+python tools/Prepare-CSOLCharacterMenu.py \
+  --source /path/to/unpacked/common \
+  --output build/csol-character-menu-next \
+  --character-list sandbox/cs-server/Half-Life/cstrike/shader/csol/characters.txt
+```
+
+本地初次原子更新104文件，包括97项差异资源、角色清单、双端DLL/PDB和两份登记。未向B预填资源。旧硬链接维护脚本已被清理，首轮在共享JSON写入前失败；已删除51个本次新文件并核对所有旧目标回到基线，再独立复制/核内容、元数据与ACL并原子替换，共享资源未被原位改写。第二轮成功回执在`build/csol-menu-integration-20261110-10/deployment.json`。首轮选择默认OFF客户端与沙盒既有GoldCraft资源桥不匹配，导致两份旧JSON无法修复；随后改用已构建的配套ON版本并保留`paired-client-correction.json`，不把OFF运行记为成功更新。
+
+专服已启动穷途末路、灾变mode2、32槽，仅运行一个B。100项真实本地HTTP响应逐SHA核同（包括97差异项、字体、旧w112和角色清单）。B随后完成3199项资源事务，实际下载修复3项旧资源，错误为空；购买消费者`loaded=1`、45项报价，选人消费者151人物、`originalLoaded=1`和私有字体均已加载。原始记录为同目录`http-resources.json`、`native-buy-open.json`和`live-checkpoint.json`。旧loose文件可能仍存在，运行时通过已验证的缓存覆盖；不能把物理路径残留旧字节当成实际VFS仍读旧版。
+
+本次仅使用现有原生引擎测试入口和原生帧捕获。Windows界面工具初始化失败，原生捕获时点不能证明最终菜单合成像素；物理连续点击、输入法、多分辨率、跨图/多人和实际FPS仍待。首次资源检查约10.81秒，`nativeResume`另约9.26秒（包含恢复预缓存），保留性能缺口，不宣称整图加载已优化完成。ON事务本次首次进入成功不代表完整事务生命周期已核收。受保护安装六项基线前后相同，未修改正式服或受保护游戏目录；完整灾变goal保持active。

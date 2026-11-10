@@ -40,10 +40,29 @@ def keyvalues(path):
     return block()
 
 
+def merge_character_list(data, resources):
+    """Keep the server's existing closure and append the exported menu paths."""
+    names = [name for name in data.decode('ascii').splitlines() if name]
+    seen = set()
+    for name in names:
+        if (len(name) >= 64 or name.startswith('/') or '..' in name or
+                any(c in name for c in ':\\"\t ') or name.lower() in seen):
+            raise ValueError('Invalid character download manifest: ' + name)
+        seen.add(name.lower())
+    added = sorted(name for name in resources if name.lower() not in seen)
+    if len(names) + len(added) > 4096:
+        raise ValueError('Character download manifest exceeds the server limit')
+    if not added:
+        return data
+    return data + (b'\n' if data and not data.endswith(b'\n') else b'') + ('\n'.join(added) + '\n').encode('ascii')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--character-list', type=Path,
+                        help='Existing shader/csol/characters.txt to merge into this menu package')
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()
     if output == source or output.is_relative_to(source) or output.exists():
@@ -160,6 +179,12 @@ def main():
             bars=[[210,25+i*19,70,6] for i in range(5)],values=[[283,25+i*19,40,18] for i in range(5)],
             names=[localize(scenario['probressbar'+str(i+1)+'desclabel']['labeltext']) for i in range(5)]))
     generated['models/csol/classmenu2.json'] = json.dumps(menu,ensure_ascii=False,separators=(',',':')).encode('utf8')
+    character_list_input = None
+    if args.character_list:
+        data = args.character_list.read_bytes()
+        character_list_input = dict(bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
+        listing = 'shader/csol/characters.txt'
+        generated[listing] = merge_character_list(data, [*generated, listing])
     output.mkdir(parents=True)
     files=[]
     for name,data in generated.items():
@@ -171,6 +196,8 @@ def main():
         layoutSource='CSO client f4145136: 029EDF10/029ED390/029EF060/029EB2A0, consumed ClassMenu_ver2 and ZBSVer2/ClassSelectDetail; per-panel raw coordinates, no screenshot estimates',
         capSource='ClassModPreset class keys and item.csv columns 21..25, matching server HostDefault profiles; not account modifications',
         defaultCaps=sum('defaultCaps' in d for d in descriptions.values()))
+    if character_list_input:
+        manifest['characterListInput'] = character_list_input
     output.with_suffix('.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf8')
     print(json.dumps(dict(files=len(files),bytes=sum(r['bytes'] for r in files),descriptions=len(descriptions),missing=missing)))
 
