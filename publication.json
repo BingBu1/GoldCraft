@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-10_实现-菜单数据与原资源导出-report.md",
+    "tests/csol-menu-data/run.py",
+    "tests/csol-menu-data/main.cpp",
     "docs/2026-11-10_实现-武器卡片数据与选择状态-report.md",
     "tests/csol-weapon-slots/menu.cpp",
     "docs/2026-11-10_实现-原版菜单字体配方-report.md",

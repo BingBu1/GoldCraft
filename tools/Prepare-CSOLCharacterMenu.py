@@ -64,6 +64,7 @@ def main():
 
     layout = kv('resource/UI/cso_classmenu.res')
     paged = kv('resource/UI/cso_classmenu_ver2.res')
+    scenario = kv('resource/ZBSVer2/ClassSelectDetail.res')
     scheme = kv('resource/clientscheme.res')
     translations = {}
     for name in ['resource/cstrike_chn.txt', 'resource/cso_chn.txt']:
@@ -118,10 +119,11 @@ def main():
         if image is None:
             missing.append(c['id'])
             continue
-        # Modern runtime layout measured against the supplied 1116x780 CSO
-        # screenshot. The legacy RES only describes the old 606x420 panel.
+        # client 029EF060: ordinary details use classes2; Scenario modes 15/48
+        # instead consume ClassSelectDetail.res. Export both, not a screenshot
+        # estimate that silently uses ordinary details in every mode.
         detail = dict(text=localize(info.get('labeltext','')),
-            image=[0, 0, 155, 119], description=[0, 135, 310, 112])
+            image=[0, 0, 256, 196], description=rect(info))
         class_id = c.get('scenarioClass')
         if class_id in preset_ids:
             item = item_by_id.get(class_id)
@@ -130,24 +132,33 @@ def main():
             detail['defaultCaps'] = [cap(v) for v in item[21:26]] if item else [0]*5
         descriptions[str(c['id'])] = detail
     # Runtime font is registered privately from memory, never installed in Windows.
-    read('resource/Font/DF_GB_Y9.TTF')
+    generated['resource/font/df_gb_y9.ttf'] = read('resource/Font/DF_GB_Y9.TTF')
+    generated['sound/events/tab_1.wav'] = read('sound/events/tab_1.wav')
     colors = {key: [int(v) for v in scheme['colors'][key].split()] for key in ['basetext','brightcontroltext','labeldimtext','windowbg','borderbright']}
-    colors.update(statheading=[125,205,255,255],statbar=[237,237,220,255],statvalue=[237,237,220,255])
-    menu = dict(version=4, width=640, height=448,
-        info=[249,60,375,275], slots=[[22,60+round(i*26.5),211,26] for i in range(10)],
-        teams=[[22,42,20,17],[43,42,23,17]], previous=[22,332,59,17], next=[153,332,59,17],
-        labels=dict(teams=['T','CT'],
+    colors.update(statheading=[100,179,255,255],statbar=[255,255,255,255],statvalue=[100,179,255,255])
+    menu = dict(version=5, width=606, height=420, root=[17,30,606,420],
+        info=rect(paged['classinfo']), slots=[rect(paged['slot'+str(i)]) for i in range(10)],
+        previous=rect(paged['prevbtn']), next=rect(paged['nextbtn']),
+        labels=dict(teams=[localize('#CSO_ClsTER'),localize('#CSO_ClsCT')],
             previous=localize(paged['prevbtn']['labeltext']), next=localize(paged['nextbtn']['labeltext'])),
         frame=frame, buttons=buttons, close=close, colors=colors, descriptions=descriptions,
+        tabs=[[texture('resource/control/TabButton/tab_small_'+enabled+'_'+edge+'_'+suffix,'tab'+str(s)+str(e))
+            for e,(edge,suffix) in enumerate(zip(['left','center','right'],suffixes))]
+            for s,(enabled,suffixes) in enumerate([(enabled,suffixes) for enabled in ['abled','disabled'] for suffixes in ['nnn','ooo','occ']])],
         slotBackground=[texture(theme['buybutton'][key], 'slot'+str(i)) for i,key in enumerate(['up','on'])],
         keyboard=texture('resource/control/button_ingame/keyboard','keyboard'),
-        font=dict(name=scheme['fonts']['default']['1']['name'],size=9,weight=0,titleSize=11,titleWeight=0),
+        font=dict(name=scheme['fonts']['default']['1']['name'],
+            size=int(scheme['fonts']['default']['1']['tall']),weight=int(scheme['fonts']['default']['1']['weight']),
+            titleSize=int(scheme['fonts']['title']['1']['tall']),titleWeight=int(scheme['fonts']['title']['1']['weight'])),
         pin=texture('resource/zombi/pin','pin'),
         currentLabel=localize('#CSO_ZI_Current_Selected'),
-        layout=dict(fullScreenFrame=True,title=[22,16,596,16],pageLabel=[85,332,64,17],closeButton=[616,16,15,15]),
-        stats=dict(heading=[417,67,142,12],headingText='Max Level',maximum=30,
-            labels=[[417,86+i*21,51,13] for i in range(5)],bars=[[470,90+i*21,73,5] for i in range(5)],
-            values=[[548,86+i*21,22,13] for i in range(5)],names=['生命值','攻击力','移动速度','防弹衣','备弹']))
+        layout=dict(fullScreenFrame=False),
+        scenario=dict(image=rect(scenario['classimage']),description=rect(scenario['infolabel'])),
+        stats=dict(heading=rect(scenario['maxlevellabel']),headingText=localize(scenario['maxlevellabel']['labeltext']),maximum=30,
+            gauge=texture(scenario['progressbar1']['image'],'classgauge'),
+            labels=[rect(scenario['probressbar'+str(i+1)+'desclabel']) for i in range(5)],
+            bars=[[210,25+i*19,70,6] for i in range(5)],values=[[283,25+i*19,40,18] for i in range(5)],
+            names=[localize(scenario['probressbar'+str(i+1)+'desclabel']['labeltext']) for i in range(5)]))
     generated['models/csol/classmenu2.json'] = json.dumps(menu,ensure_ascii=False,separators=(',',':')).encode('utf8')
     output.mkdir(parents=True)
     files=[]
@@ -157,7 +168,7 @@ def main():
         path.write_bytes(data)
         files.append(dict(path=name,bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
     manifest=dict(inputs=inputs,files=files,descriptions=len(descriptions),missing=missing,
-        layoutSource='Supplied CSO screenshot 1116x780; normalized 640x448, aspect-preserving content and full-screen frame',
+        layoutSource='CSO client f4145136: 029EDF10/029ED390/029EF060/029EB2A0, consumed ClassMenu_ver2 and ZBSVer2/ClassSelectDetail; per-panel raw coordinates, no screenshot estimates',
         capSource='ClassModPreset class keys and item.csv columns 21..25, matching server HostDefault profiles; not account modifications',
         defaultCaps=sum('defaultCaps' in d for d in descriptions.values()))
     output.with_suffix('.manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf8')

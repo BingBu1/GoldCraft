@@ -18,11 +18,18 @@ template<class T,size_t N,class F>void Array(const Value& v,std::array<T,N>& out
 CharacterMenu ParseCharacterMenu(std::string_view json)
 {
     Require(!json.empty() && json.size()<=1024*1024);rapidjson::Document d;d.Parse(json.data(),json.size());Require(!d.HasParseError());
-    const int version=Number(Field(d,"version"));Require(version>=1 && version<=4);CharacterMenu m;
+    const int version=Number(Field(d,"version"));Require(version>=1 && version<=5);CharacterMenu m;
     m.width=Number(Field(d,"width"),320,1280);m.height=Number(Field(d,"height"),240,960);
+    if(version>=5){
+        m.normalizedLayout=true;m.root=Rect(Field(d,"root"));
+        Require(m.root.w==m.width && m.root.h==m.height);
+        m.scenarioImage=Rect(Field(Field(d,"scenario"),"image"));
+        m.scenarioDescription=Rect(Field(Field(d,"scenario"),"description"));
+    }
     m.info=Rect(Field(d,"info"));m.previous=Rect(Field(d,"previous"));m.next=Rect(Field(d,"next"));
-    Array(Field(d,"slots"),m.slots,Rect);Array(Field(d,"teams"),m.teams,Rect);Array(Field(d,"frame"),m.frame,Texture);Array(Field(d,"close"),m.close,Texture);
+    Array(Field(d,"slots"),m.slots,Rect);if(version<5)Array(Field(d,"teams"),m.teams,Rect);Array(Field(d,"frame"),m.frame,Texture);Array(Field(d,"close"),m.close,Texture);
     const auto& buttons=Field(d,"buttons");Require(buttons.IsArray() && buttons.Size()==3);for(int i=0;i<3;++i)Array(buttons[i],m.buttons[i],Texture);
+    if(version>=5){const auto& tabs=Field(d,"tabs");Require(tabs.IsArray() && tabs.Size()==6);for(int i=0;i<6;++i)Array(tabs[i],m.tabs[i],Texture);}
     const auto& labels=Field(d,"labels");Array(Field(labels,"teams"),m.teamNames,[](const Value& v){return Text(v,128);});
     m.previousLabel=Text(Field(labels,"previous"),128);m.nextLabel=Text(Field(labels,"next"),128);m.font=Text(Field(Field(d,"font"),"name"),128);
     if(version>=2){m.pin=Texture(Field(d,"pin"));m.currentLabel=Text(Field(d,"currentLabel"),128);}
@@ -31,10 +38,11 @@ CharacterMenu ParseCharacterMenu(std::string_view json)
         Array(Field(colors,key),m.colors[key],[](const Value& v){return Number(v,0,255);});
     if(version>=4){
         const auto& layout=Field(d,"layout");const auto& full=Field(layout,"fullScreenFrame");Require(full.IsBool());m.fullScreenFrame=full.GetBool();
-        m.title=Rect(Field(layout,"title"));m.pageLabel=Rect(Field(layout,"pageLabel"));m.closeButton=Rect(Field(layout,"closeButton"));
+        if(version<5){m.title=Rect(Field(layout,"title"));m.pageLabel=Rect(Field(layout,"pageLabel"));m.closeButton=Rect(Field(layout,"closeButton"));}
         const auto& font=Field(d,"font");m.fontSize=Number(Field(font,"size"),6,32);m.fontWeight=Number(Field(font,"weight"),0,1000);
         m.titleSize=Number(Field(font,"titleSize"),6,48);m.titleWeight=Number(Field(font,"titleWeight"),0,1000);
         const auto& stats=Field(d,"stats");m.stats.heading=Rect(Field(stats,"heading"));m.stats.headingText=Text(Field(stats,"headingText"),128);
+        if(version>=5)m.stats.gauge=Texture(Field(stats,"gauge"));
         m.stats.maximum=Number(Field(stats,"maximum"),1,255);
         Array(Field(stats,"labels"),m.stats.labels,Rect);Array(Field(stats,"bars"),m.stats.bars,Rect);Array(Field(stats,"values"),m.stats.values,Rect);
         Array(Field(stats,"names"),m.stats.names,[](const Value& v){return Text(v,128);});
@@ -53,10 +61,22 @@ CharacterMenu ParseCharacterMenu(std::string_view json)
     for(const auto& r:m.slots)Require(r.x+r.w<=m.width && r.y+r.h<=m.height);
     if(version>=4){
         const auto inside=[&](const MenuRect& r){Require(r.x+r.w<=m.width && r.y+r.h<=m.height);};
-        for(const auto& r:m.teams)inside(r);inside(m.info);inside(m.previous);inside(m.next);inside(m.title);inside(m.pageLabel);inside(m.closeButton);inside(m.stats.heading);
-        for(const auto& r:m.stats.labels)inside(r);for(const auto& r:m.stats.bars)inside(r);for(const auto& r:m.stats.values)inside(r);
+        for(const auto& r:m.teams)inside(r);inside(m.previous);inside(m.next);inside(m.title);inside(m.pageLabel);inside(m.closeButton);
+        // CSO's ClassInfo extends past its parent (263+400 > 606). It is
+        // clipped by that parent, not resized to fit a guessed content area.
+        if(version<5)inside(m.info);
+        else{
+            Require(m.info.x<m.width && m.info.y<m.height);
+            for(const auto& r:{m.scenarioImage,m.scenarioDescription})Require(r.x+r.w<=m.info.w && r.y+r.h<=m.info.h);
+        }
+        const auto statsInside=[&](const MenuRect& r){
+            if(version<5)inside(r);
+            else Require(r.x+r.w<=m.info.w && r.y+r.h<=m.info.h);
+        };
+        statsInside(m.stats.heading);
+        for(const auto& r:m.stats.labels)statsInside(r);for(const auto& r:m.stats.bars)statsInside(r);for(const auto& r:m.stats.values)statsInside(r);
         for(const auto& [id,detail]:m.descriptions){
-            for(auto r:{detail.image,detail.description}){Require(r.x+r.w<=m.info.w && r.y+r.h<=m.info.h);r.x+=m.info.x;r.y+=m.info.y;inside(r);}
+            for(auto r:{detail.image,detail.description}){Require(r.x+r.w<=m.info.w && r.y+r.h<=m.info.h);if(version<5){r.x+=m.info.x;r.y+=m.info.y;inside(r);}}
         }
     }
     return m;

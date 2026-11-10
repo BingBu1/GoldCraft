@@ -89,30 +89,71 @@ bool Decode(std::span<const std::uint8_t> b,Packet& p){
 }
 Presentation ParsePresentation(std::string_view json){
     Require(!json.empty()&&json.size()<=128*1024);rapidjson::Document d;d.Parse(json.data(),json.size());Require(!d.HasParseError());
-    const int version=Number(Field(d,"version"),1,2);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
+    const int version=Number(Field(d,"version"),1,3);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
     p.title=Text(Field(d,"title"),128);p.font=Text(Field(d,"font"),128);p.info=Rect(Field(d,"info"));p.previous=Rect(Field(d,"previous"));p.next=Rect(Field(d,"next"));p.quit=Rect(Field(d,"quit"));p.account=Rect(Field(d,"account"));
     Array(Field(d,"slots"),p.slots,Rect);Array(Field(d,"frame"),p.frame,Texture);Array(Field(d,"close"),p.close,Texture);
     const auto& buttons=Field(d,"buttons");Require(buttons.IsArray()&&buttons.Size()==3);for(int i=0;i<3;++i)Array(buttons[i],p.buttons[i],Texture);
+    if(version>=3){
+        p.normalizedLayout=true;p.root=Rect(Field(d,"root"));p.listPanel=Rect(Field(d,"listPanel"));p.favoritePanel=Rect(Field(d,"favoritePanel"));
+        Require(p.root.w==p.width && p.root.h==p.height);
+        p.listTitle=Text(Field(d,"listTitle"),128);p.favoriteDescription=Text(Field(d,"favoriteDescription"),256);
+        Array(Field(d,"teamNames"),p.teamNames,[](const Value& v){return Text(v,128);});
+        const auto& tabs=Field(d,"tabs");Require(tabs.IsArray()&&tabs.Size()==6);for(int i=0;i<6;++i)Array(tabs[i],p.tabs[i],Texture);
+    }
     for(int i=0;i<8;++i)p.favorites[i]={374+(i%2)*110,52+(i/2)*35,107,31};
     if(version>=2){
-        p.search=Rect(Field(d,"search"));p.rebuy=Rect(Field(d,"rebuy"));
-        Array(Field(d,"teams"),p.teams,Rect);Array(Field(d,"favorites"),p.favorites,Rect);
+        if(version<3)p.search=Rect(Field(d,"search"));p.rebuy=Rect(Field(d,"rebuy"));
+        if(version<3)Array(Field(d,"teams"),p.teams,Rect);Array(Field(d,"favorites"),p.favorites,Rect);
         Array(Field(d,"slotBackground"),p.slotBackground,Texture);
         p.keyboard=Texture(Field(d,"keyboard"));p.favoriteBackground=Texture(Field(d,"favoriteBackground"));
     }
     for(const auto* key:{"basetext","brightcontroltext","labeldimtext","windowbg","borderbright"})Array(Field(Field(d,"colors"),key),p.colors[key],[](const Value& v){return Number(v,0,255);});
+    if(version>=3){
+        auto& info=p.weaponInfo;const auto& value=Field(d,"weaponInfo");
+        info.priceLabel=Text(Field(value,"priceLabel"),128);
+        Array(Field(value,"attributeLabels"),info.attributeLabels,[](const Value& v){return Text(v,128);});
+        Array(Field(value,"gradeLabels"),info.gradeLabels,[](const Value& v){return Text(v,128);});
+        info.background=Texture(Field(value,"background"));info.divider=Texture(Field(value,"divider"));
+        const auto& scroll=Field(value,"scroll");
+        const auto& colors=Field(scroll,"colors");
+        for(const auto* key:{"richTextFg","richTextBg","barBg","sliderFg","sliderBg",
+                             "arrowFg","arrowBg","arrowArmedFg","arrowArmedBg",
+                             "arrowDepressedFg","arrowDepressedBg"})
+            Array(Field(colors,key),info.scroll.colors[key],[](const Value& v){return Number(v,0,255);});
+        Array(Field(scroll,"slider"),info.scroll.slider,Texture);
+        const auto& grades=Field(value,"grades");Require(grades.IsObject()&&grades.MemberCount()<=9);
+        for(auto it=grades.MemberBegin();it!=grades.MemberEnd();++it){
+            const auto token=Text(it->name,2);int grade{};const auto result=std::from_chars(token.data(),token.data()+token.size(),grade);
+            Require(result.ec==std::errc{}&&result.ptr==token.data()+token.size()&&grade>=0&&grade<=8&&!info.grades.contains(grade));
+            info.grades.emplace(grade,Texture(it->value));
+        }
+        const auto& items=Field(value,"items");Require(items.IsArray()&&items.Size()<=Catalog().size());
+        for(const auto& item:items.GetArray()){
+            const int id=Number(Field(item,"id"),1,65535);Require(Find(id)&&!info.items.contains(id));
+            WeaponInfoItem detail;detail.itemId=Number(Field(item,"itemId"),1,1000000);
+            detail.name=Text(Field(item,"name"),256);detail.description=Text(Field(item,"description"),16384);
+            const auto& table=Field(item,"table");Require(table.IsBool()||table.IsNull());if(table.IsBool())detail.table=table.GetBool();
+            Array(Field(item,"values"),detail.values,[](const Value& v){return Text(v,128);});
+            Array(Field(item,"grade"),detail.grade,[](const Value& v){return Number(v,-1,8);});
+            info.items.emplace(id,std::move(detail));
+        }
+    }
     const auto& images=Field(d,"images");Require(images.IsArray()&&images.Size()<=Catalog().size());
     for(const auto& v:images.GetArray()){const int id=Number(Field(v,"id"),1,65535);Require(Find(id)&&!p.images.contains(id));p.images.emplace(id,Texture(v));}
     for(const auto& r:p.slots)Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);
     const auto inside=[&](const MenuRect& r){Require(r.x+r.w<=p.width&&r.y+r.h<=p.height);};
-    for(const auto& r:p.favorites)inside(r);for(const auto& r:p.teams)inside(r);inside(p.search);inside(p.rebuy);inside(p.account);
+    for(const auto& r:p.favorites){if(version<3)inside(r);else Require(r.x+r.w<=p.favoritePanel.w && r.y+r.h<=p.favoritePanel.h);}
+    for(const auto& r:p.teams)inside(r);inside(p.search);inside(p.rebuy);inside(p.account);
+    if(version>=3){inside(p.listPanel);inside(p.favoritePanel);}
     for(const auto& i:Catalog())if(i.id==29||i.id==96||i.id==144||i.id==197||i.id==203||i.id==220||i.id==725||i.id==726||i.id==1022||i.id==1023)Require(p.images.contains(i.id));
     return p;
 }
 std::vector<std::string> Resources(const Presentation& p){
-    std::vector<std::string> r{PresentationResource};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
+    std::vector<std::string> r{PresentationResource,MenuFontResource,MenuTabClickResource};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& row:p.tabs)for(const auto& t:row)if(!t.path.empty())r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
     for(const auto& t:p.slotBackground)if(!t.path.empty())r.push_back(t.path);
-    for(const auto* t:{&p.keyboard,&p.favoriteBackground})if(!t->path.empty())r.push_back(t->path);
+    for(const auto* t:{&p.keyboard,&p.favoriteBackground,&p.weaponInfo.background,&p.weaponInfo.divider})if(!t->path.empty())r.push_back(t->path);
+    for(const auto& [id,image]:p.weaponInfo.grades)r.push_back(image.path);
+    for(const auto& image:p.weaponInfo.scroll.slider)if(!image.path.empty())r.push_back(image.path);
     std::sort(r.begin(),r.end());r.erase(std::unique(r.begin(),r.end()),r.end());return r;
 }
 }
