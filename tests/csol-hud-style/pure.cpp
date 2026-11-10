@@ -31,6 +31,13 @@ int main()
     const auto parsed=ParseCatalog(valid);
     Check(parsed.weapons.size()==1 && parsed.weapons.at("weapon_cannon").title=="黑龙炮","UTF8 official title retained");
     Check(parsed.portraits.at(1)=="resource/csol/hud/v1/p1.tga","server character identity maps portrait");
+    Check(parsed.weapons.at("weapon_cannon").selected.empty()&&!parsed.weapons.at("weapon_cannon").selectedKnown,"legacy equipped catalogs do not invent selected art");
+    const auto withSelected=ParseCatalog(Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"selected\":\"resource/csol/hud/v1/cannon_s.tga\""));
+    const auto selectedPaths=ResourcePaths(withSelected);
+    Check(std::find(selectedPaths.begin(),selectedPaths.end(),"resource/csol/hud/v1/cannon_s.tga")!=selectedPaths.end(),"selected art participates in resource closure");
+    const auto absentSelected=ParseCatalog(Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"selected\":\"\""));
+    Check(absentSelected.weapons.at("weapon_cannon").selectedKnown&&absentSelected.weapons.at("weapon_cannon").selected.empty(),"explicit absent original weapon_s is distinct from legacy catalog");
+    Reject(Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"selected\":\"../cannon_s.tga\""));
     for(const auto& text:std::vector<std::string>{"","[]","{}",Replace(valid,"\"version\":1","\"version\":2"),
         Replace(valid,"\"version\":1","\"version\":1.0"),Replace(valid,"weapon_cannon","cannon"),
         Replace(valid,"weapon_cannon","weapon_"),Replace(valid,"weapon_cannon","weapon_Cannon"),

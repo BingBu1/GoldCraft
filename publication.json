@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-10_实现-武器卡片数据与选择状态-report.md",
+    "tests/csol-weapon-slots/menu.cpp",
     "docs/2026-11-10_实现-原版菜单字体配方-report.md",
     "tests/csol-menu-font/README.md",
     "tests/csol-menu-font/main.cpp",

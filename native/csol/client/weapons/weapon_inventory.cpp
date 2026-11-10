@@ -40,8 +40,13 @@ bool available{}, textMenu{}, currentReceived{};
 std::uint64_t animationSyncGeneration{};
 int animationSyncWeapon{};
 unsigned menuSlots{};
-double menuUntil{}, selectionUntil{};
+double menuUntil{};
+// -1 adapts the original pointer sentinel1: open, but no weapon in the slot.
 int selected{};
+bool selectionHudVisible{};
+bool selectionHudAvailable{};
+bool extendedOwnershipDirty=true,extendedOwned{};
+std::uint64_t selectionRevision{};
 double guardUntil{};
 int guardSprite{},guardDraws{};
 std::array<xcommand_t,10> originalSlots{};
@@ -55,15 +60,25 @@ std::span<const std::byte> Bytes(int size,void* data)
 bool ManageSelection()
 {
     if(!available || view.health<=0 || view.spectator || (selectionHidden&5) || selectionIntermission)return false;
-    for(int id=LegacyWeaponLimit;id<WeaponIdLimit;++id)
-        if(inventory.Owned()[id] && definitions[id].id)return true;
-    return false;
+    if(extendedOwnershipDirty)
+    {
+        extendedOwnershipDirty=false;extendedOwned=false;
+        for(int id=LegacyWeaponLimit;id<WeaponIdLimit;++id)
+            if(inventory.Owned()[id] && definitions[id].id){extendedOwned=true;break;}
+    }
+    // CSOWpnList establishes server capability. A ready modern HUD may own
+    // stock-only inventory too; ordinary servers keep their native commands.
+    return extendedOwned || selectionHudAvailable;
 }
 void Select(int id)
 {
     if(ValidWeaponId(id) && inventory.Owned()[id] && definitions[id].id)
         engine.pfnServerCmd(definitions[id].name.c_str());
     selected=0;
+}
+void SelectionSound(const char* name)
+{
+    if(engine.pfnPlaySoundByName)engine.pfnPlaySoundByName(name,1.f);
 }
 void NamedWeapon()
 {
@@ -137,17 +152,25 @@ void Cycle(int slot,int direction,xcommand_t original)
     if((slot==4 || slot==5) && TryScenarioHealingSlot(slot+1))return;
     if(slot==6 && TryActivateScenarioAbility())return;
     if(slot>=5 || !ManageSelection()){if(original)original();return;}
-    auto ids=Choices(slot);if(ids.empty())return;
-    if(engine.GetClientTime()>selectionUntil)selected=0;
+    // Original slot routing plays before resolving the slot. Wheel traversal
+    // has no sound call; fastswitch does not synthesize a confirm sound.
+    if(slot>=0)SelectionSound(selected>0 && definitions[selected].slot==slot?
+        "common/wpn_moveselect.wav":"common/wpn_hudon.wav");
+    auto ids=Choices(slot);
+    if(ids.empty())
+    {
+        if(!selected)ClearNativeWeaponSelection();
+        selected=slot>=0?-1:0;PrepareSelection();return;
+    }
     // Number keys start at the first position; wheel cycling starts at the
     // current weapon. Repeated presses advance the pending selection.
-    const int from=selected?selected:slot<0?current.id:0;
+    const int from=selected>0?selected:slot<0?current.id:0;
     auto found=std::find(ids.begin(),ids.end(),from);
     int index=found==ids.end()?(direction>0?-1:0):int(found-ids.begin());
     if(!selected)ClearNativeWeaponSelection();
     selected=ids[(index+direction+int(ids.size()))%ids.size()];
     if(engine.pfnGetCvarFloat("hud_fastswitch")!=0 && slot>=0 && ids.size()==1)Select(selected);
-    else {selectionUntil=engine.GetClientTime()+5;PrepareSelection();}
+    else PrepareSelection();
 }
 template<int Slot>void SlotCommand(){Cycle(Slot,1,originalSlots[Slot]);}
 void Next(){Cycle(-1,1,originalNext);}void Previous(){Cycle(-1,-1,originalPrevious);}
@@ -155,6 +178,7 @@ void Cancel()
 {
     const bool weaponSelection=selected!=0;
     selected=0;
+    if(weaponSelection)SelectionSound("common/wpn_hudoff.wav");
     if(textMenu)
     {
         // Native cancelselect only opens Escape; it does not clear CHudMenu.
@@ -172,6 +196,7 @@ int Definition(const char*,int size,void* data)
     if(!DecodeWeaponDefinition(Bytes(size,data),def) || !ExtendedWeaponId(def.id))return 1;
     if(definitions[def.id].id && definitions[def.id].name!=def.name)return 1;
     definitions[def.id]=def;available=true;slotHeadsDirty=true;
+    extendedOwnershipDirty=true;++selectionRevision;
     const auto [command,first]=commandNames.insert(def.name);
     if(first)engine.pfnAddCommand(command->c_str(),NamedWeapon);
     ReceiveExtendedWeaponDefinition(def);return 1;
@@ -180,8 +205,8 @@ int Inventory(const char*,int size,void* data)
 {
     SynchronizeSession();if(available && inventory.Receive(Bytes(size,data)))
     {
-        slotHeadsDirty=true;
-        if(selected && !inventory.Owned()[selected])selected=0;
+        slotHeadsDirty=true;extendedOwnershipDirty=true;++selectionRevision;
+        if(selected>0 && !inventory.Owned()[selected])selected=0;
         else if(selected)PrepareSelection();
     }
     return 1;
@@ -260,6 +285,7 @@ void InitializeWeaponInventory()
 }
 void ResetWeaponInventory(bool forgetDefinitions)
 {
+    selectionHudVisible=selectionHudAvailable=false;extendedOwnershipDirty=true;extendedOwned=false;++selectionRevision;
     inventory.Reset();slotHeads={};slotHeadsDirty=true;current={};currentReceived=false;selected=0;textMenu=false;menuSlots=0;
     animationSyncWeapon=0;++animationSyncGeneration;
     if(!animationSyncGeneration)++animationSyncGeneration;
@@ -279,14 +305,15 @@ void ObserveLegacyWeaponDefinition(int size,void* data)
     def.maxAmmo1=end[2]==255?-1:end[2];def.maxAmmo2=end[4]==255?-1:end[4];
     def.name.assign(reinterpret_cast<const char*>(begin),end-begin);
     // Validate even ordinary definitions before using their names as commands.
-    if(!EncodeWeaponDefinition(def).empty()){definitions[def.id]=std::move(def);slotHeadsDirty=true;}
+    if(!EncodeWeaponDefinition(def).empty()){definitions[def.id]=std::move(def);slotHeadsDirty=true;++selectionRevision;}
 }
 void WeaponInventoryCreateMove(float frame,usercmd_t* cmd,int active)
 {
     if(downstream.CL_CreateMove)downstream.CL_CreateMove(frame,cmd,active);
     if(!cmd || !active)return;
-    if(selected && (engine.GetClientTime()>selectionUntil || !inventory.Owned()[selected] || !ManageSelection()))selected=0;
-    if(selected && (cmd->buttons&IN_ATTACK)){Select(selected);cmd->buttons&=~IN_ATTACK;}
+    if(selected && ((selected>0 && !inventory.Owned()[selected]) || !ManageSelection()))selected=0;
+    if(selected && (cmd->buttons&IN_ATTACK))
+    {Select(selected);cmd->buttons&=~IN_ATTACK;SelectionSound("common/wpn_select.wav");}
     // Extended IDs are selected by their validated classname command. The
     // unchanged engine usercmd ABI only has an eight-bit weaponselect field.
 }
@@ -295,8 +322,8 @@ void DrawWeaponSelection(int hidden,int intermission)
     WeaponSelectionVisibility(hidden,intermission);
     if(hidden&5 || intermission || view.health<=0 || view.spectator){selected=0;return;}
     if(!selected || engine.pfnGetCvarFloat("hud_draw")==0)return;
-    if(engine.GetClientTime()>selectionUntil){selected=0;return;}
-    const int slot=definitions[selected].slot;
+    if(selectionHudVisible)return;
+    const int slot=selected>0?definitions[selected].slot:-1;
     const int bucketWidth=buckets[0].handle?buckets[0].rect.right-buckets[0].rect.left:20;
     const int bucketHeight=buckets[0].handle?buckets[0].rect.bottom-buckets[0].rect.top:20;
     int selectedWidth=bucketWidth;
@@ -343,6 +370,14 @@ void DrawWeaponSelection(int hidden,int intermission)
     }
     ++selectionDraws;
 }
+WeaponSelectionView WeaponSelectionForHud()
+{
+    if(!selected || !ManageSelection() ||
+        (selected>0 && !inventory.Owned()[selected]) || WeaponTextMenuVisible())return {.revision=selectionRevision};
+    return {selected,selectionIds,selectionRevision};
+}
+void SetWeaponSelectionHudVisible(bool visible){selectionHudVisible=visible;}
+void SetWeaponSelectionHudAvailable(bool available){selectionHudAvailable=available;}
 bool WeaponTextMenuVisible()
 {
     return textMenu && engine.GetClientTime()<=menuUntil;
@@ -355,7 +390,7 @@ void WeaponSelectionVisibility(int hidden,int intermission)
 void ObserveSelectionAmmo(int type,int count){if(type>=0 && type<int(ammo.size()))ammo[type]=std::max(0,count);}
 void ObserveSelectionClip(int id,int count){if(ValidWeaponId(id))clips[id]=count;}
 int WeaponReserveAmmo(int type){return type>=0 && type<int(ammo.size())?ammo[type]:0;}
-void WeaponInventoryVideoInit(){sprites={};buckets={};selectionFrame={};selectionIds.clear();selected=0;guardSprite=0;}
+void WeaponInventoryVideoInit(){selectionHudAvailable=selectionHudVisible=false;sprites={};buckets={};selectionFrame={};selectionIds.clear();selected=0;guardSprite=0;}
 void DrawWeaponGuard(int hidden,int intermission)
 {
     if(engine.GetClientTime()>=guardUntil || (hidden&5) || intermission || view.health<=0 ||

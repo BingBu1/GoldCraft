@@ -25,6 +25,7 @@ ENGINE_FONT_SHA = 'b76ff01219fee0900aa216b681b9e96dd5fed0fe6190c4261a09d5b2131e9
 BACKGROUNDS = (
     'hud_character_bg_new_top', 'hud_character_bg_new_bottom',
     'hud_weapon_bg_top', 'hud_weapon_bg_bottom', 'hud_weapon_off_bg',
+    'hud_weapon_on_bg', 'weapon_list_new',
 )
 WEAPON_NAMES = {
     'elites': 'elite', 'fn57': 'fiveseven', 'glock': 'glock18', 'mp5': 'mp5navy',
@@ -369,7 +370,7 @@ def prepare(source, output, stock_source=None):
         rows = (knife_sprite_rows(common(f'sprites/knife_{name}.txt'), name)
             if name in VERIFIED_COMMON_KNIVES else
             sprite_rows(common(f'sprites/weapon_{name}.txt') if atlas_root == source else
-                read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','ammo','ammo2'}))
+                read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','weapon_s','ammo','ammo2'}))
         item = dict(name='weapon_' + name, title=title)
         for kind, dimensions in (('weapon', (170,45)), ('ammo', (24,24)), ('ammo2', (24,24))):
             row = rows.get((kind, 640))
@@ -386,12 +387,28 @@ def prepare(source, output, stock_source=None):
             revision = '_v2' if atlas_root == source and row['atlas'] in (
                 'sprites/640hud3.spr', 'sprites/640hud7.spr', 'sprites/640hud266.spr') else ''
             item[kind] = add(RESOURCE + name + '_' + kind + revision + '.tga', tga(*dimensions, pixels))
+        # CHudAmmo's selected row consumes weapon_s independently from weapon.
+        # A one-image knife descriptor alone does not prove its selected art.
+        if selected := rows.get(('weapon_s', 640)):
+            if (selected['width'], selected['height']) != (170, 45):
+                raise ValueError(f'Original selected sprite dimensions changed: {name}')
+            pixels = crop(selected, name + '/weapon_s', atlas_root)
+            validate_weapon_pixels(pixels, name + '/weapon_s')
+            item['selected'] = add(RESOURCE + name + '_weapon_s.tga', tga(170, 45, pixels))
+        elif name not in VERIFIED_COMMON_KNIVES:
+            item['selected'] = ''
+        # A custom knife's one-image descriptor does not establish either
+        # selected art or its absence. Omit the field until its consumer closes.
         weapons.append(item)
 
     rows = sprite_rows(common('sprites/hud.txt'),
         {*(f'number_{index}_new' for index in range(10)),
          *(f'dollarNum_{index}_new'.lower() for index in range(10)),
-         'dollar_new', 'plus_new', 'minus_new', 'cross_new', 'suit_full_new', 'infinite'})
+         'dollar_new', 'plus_new', 'minus_new', 'cross_new', 'suit_full_new', 'infinite', 'weapon_selection_new'})
+    selection = rows.get(('weapon_selection_new', 640))
+    if selection != dict(atlas='sprites/640hud8.spr', x=0, y=133, width=170, height=61):
+        raise ValueError('Original modern weapon selection frame changed')
+    add(RESOURCE + 'weapon_selection_new.tga', tga(170, 61, crop(selection, 'weapon_selection_new')))
     digits = []
     for index in range(10):
         row = rows.get((f'number_{index}_new', 640))
@@ -495,6 +512,8 @@ def prepare(source, output, stock_source=None):
         output=str(output),inputs=list(inputs.values()),files=files,
         originalCopies=originals,spriteConversions=conversions,titleKeys=title_sources,missingPortraits=missing,schemes=[scheme_source],
         missingWeapons=missing_weapons,
+        selectionBoundaries=[dict(name=item['name'],reason='Custom knife selected consumer is not yet established')
+                             for item in weapons if 'selected' not in item],
         summary=dict(weapons=len(weapons),portraits=len(portraits),missingPortraits=len(missing),files=len(files),
                      bytes=sum(item['bytes'] for item in files)),
         transparency='SPR additive exported as straight coverage RGBA. Drawing with source-alpha additive blend preserves '

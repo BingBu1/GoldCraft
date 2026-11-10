@@ -58,6 +58,9 @@ Catalog ParseCatalog(std::string_view json)
         Require(name.starts_with("weapon_") && name.size() > 7 &&
             name.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") == name.npos);
         WeaponArt art{Text(row,"title",192),Image(row,"weapon"),Image(row,"ammo",true),Image(row,"ammo2",true)};
+        // An omitted selected field leaves that branch unproven. An explicit
+        // empty field records the original loader's no-weapon_s branch.
+        if(row.HasMember("selected")){art.selected=Image(row,"selected",true);art.selectedKnown=true;}
         Require(!art.title.empty() && art.title.find_first_of("\r\n\t") == art.title.npos);
         Require(result.weapons.emplace(std::move(name), std::move(art)).second);
     }
@@ -78,6 +81,7 @@ std::vector<std::string> ResourcePaths(const Catalog& catalog)
     for(const auto& [name,weapon]:catalog.weapons)
     {
         paths.emplace(weapon.weapon);
+        if(!weapon.selected.empty())paths.emplace(weapon.selected);
         if(!weapon.ammo.empty())paths.emplace(weapon.ammo);
         if(!weapon.ammo2.empty())paths.emplace(weapon.ammo2);
     }

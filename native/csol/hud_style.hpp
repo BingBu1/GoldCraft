@@ -16,7 +16,7 @@ inline constexpr char CatalogPath[] = "models/csol/hud_v7.json";
 inline constexpr char FontPath[] = "resource/Font/sarasa_ui_sc.ttf";
 inline constexpr char SchemePath[] = "resource/csol/hud/v1/CSOLHudScheme.res";
 enum class Art : unsigned { CharacterTop, CharacterBottom, WeaponTop, WeaponBottom,
-    WeaponCard, Infinite, WhiteDigits, Health, Armor,
+    WeaponCard, WeaponSelectedCard, WeaponListRow, WeaponSelectionFrame, Infinite, WhiteDigits, Health, Armor,
     MoneyBackground, MoneyDigits, MoneyDollar, MoneyPlus, MoneyMinus, Count };
 struct Resource { const char* path; unsigned width, height; };
 inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
@@ -25,6 +25,9 @@ inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
     {"resource/csol/hud/v1/hud_weapon_bg_top.tga",288,76},
     {"resource/csol/hud/v1/hud_weapon_bg_bottom.tga",288,76},
     {"resource/csol/hud/v1/hud_weapon_off_bg.tga",170,60},
+    {"resource/csol/hud/v1/hud_weapon_on_bg.tga",170,60},
+    {"resource/csol/hud/v1/weapon_list_new.tga",170,22},
+    {"resource/csol/hud/v1/weapon_selection_new.tga",170,61},
     {"resource/csol/hud/v1/infinite.tga",36,24},
     {"resource/csol/hud/v1/digits.tga",170,22},
     {"resource/csol/hud/v1/health.tga",16,16},
@@ -35,7 +38,7 @@ inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
     {"resource/csol/hud/v1/money_plus.tga",13,18},
     {"resource/csol/hud/v1/money_minus.tga",13,18},
 }};
-struct WeaponArt { std::string title, weapon, ammo, ammo2; };
+struct WeaponArt { std::string title, weapon, ammo, ammo2, selected; bool selectedKnown{}; };
 struct Catalog
 {
     std::unordered_map<std::string, WeaponArt> weapons;

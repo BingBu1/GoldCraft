@@ -2,6 +2,7 @@
 #pragma once
 #include <iosfwd>
 #include <cstdint>
+#include <span>
 #include "../../weapons/weapon_slots.hpp"
 #include <usercmd.h>
 namespace csol::client
@@ -19,6 +20,11 @@ void ResetWeaponInventory(bool forgetDefinitions);
 void ObserveLegacyWeaponDefinition(int size,void* data);
 void WeaponInventoryCreateMove(float frame,usercmd_t* cmd,int active);
 void DrawWeaponSelection(int hidden,int intermission);
+struct WeaponSelectionView { int selected{}; std::span<const int> items; std::uint64_t revision{}; };
+// Borrow the validated, ordered inventory while a local selection is pending.
+WeaponSelectionView WeaponSelectionForHud();
+void SetWeaponSelectionHudVisible(bool visible);
+void SetWeaponSelectionHudAvailable(bool available);
 void DrawWeaponGuard(int hidden,int intermission);
 void WeaponInventoryVideoInit();
 const WeaponDefinition* FindWeaponDefinition(int id);

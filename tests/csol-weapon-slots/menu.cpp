@@ -2,6 +2,7 @@
 #include "client/runtime.hpp"
 #include "../../native/csol/client/weapons/weapon_inventory.hpp"
 #include <in_buttons.h>
+#include <algorithm>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -18,6 +19,8 @@ void ReceiveExtendedWeaponDefinition(const WeaponDefinition&){}
 void ReceiveExtendedWeaponState(const WeaponCurrent&){}
 void AddWeaponPickup(int){}
 void ClearNativeWeaponSelection(){}
+bool TryActivateScenarioAbility(){return false;}
+bool TryScenarioHealingSlot(int){return false;}
 void* Resolve(const char*,mh_gamesymbol_kind_t){return nullptr;}
 }
 namespace
@@ -27,6 +30,7 @@ using namespace csol::client;
 std::map<std::string,pfnUserMsgHook> messages;
 std::map<std::string,xcommand_t> commands;
 std::vector<std::string> sent;
+std::vector<std::pair<std::string,float>> sounds;
 int checks{},failures{},nativeCalls{},cancelCalls{};
 float now=10,fast{};
 bool submenuOnCancel{};
@@ -90,7 +94,7 @@ void Stock(int id,int slot,const char* name)
 void Reset(float fastSwitch)
 {
     ResetWeaponInventory(true);now+=10;fast=fastSwitch;view={};view.health=100;
-    submenuOnCancel=false;nativeCalls=cancelCalls=0;sent.clear();
+    submenuOnCancel=false;nativeCalls=cancelCalls=0;sent.clear();sounds.clear();
     nativeMenuSlots=0;nativeMenuDisplayed=clearPacketExact=mirrorAtClear=nativeAtCancel=mirrorAtCancel=false;
     nativeClearCalls=0;menuCalls.clear();
     Send(WeaponDefinitionMessage,EncodeWeaponDefinition({725,0,8,15,16,200,100,80,0,names[0]}));
@@ -180,6 +184,90 @@ void MenuChecks()
     Reset(1);Menu(1u<<9);ResetWeaponInventory(false);Slot(0);
     Check(!MenuActive()&&nativeCalls==1&&sent.empty(),"inventory reset clears menu and ownership");
 }
+void SelectionViewChecks()
+{
+    Reset(0);Slot(1);
+    const auto pending=WeaponSelectionForHud();
+    Check(pending.selected==220&&std::equal(pending.items.begin(),pending.items.end(),ids.begin(),ids.end()),
+        "HUD borrows real ordered extended and stock inventory without narrowing IDs");
+    const auto revision=pending.revision;Stock(29,2,names[2]);
+    Check(WeaponSelectionForHud().revision!=revision,"definition refresh invalidates prepared HUD rows");
+    Confirm(1,"HUD snapshot confirmation");
+    Check(!WeaponSelectionForHud().selected,"confirmed selection is no longer presented");
+    const auto idleRevision=WeaponSelectionForHud().revision;Stock(29,2,names[2]);
+    Check(!WeaponSelectionForHud().selected&&WeaponSelectionForHud().revision!=idleRevision,
+        "idle HUD keeps definition revision so the equipped off-row cannot retain stale ammo metadata");
+    Reset(0);Slot(0);now+=6;
+    Check(WeaponSelectionForHud().selected==725,"original pending selection has no invented five-second timeout");
+    Reset(0);Slot(0);WeaponSelectionVisibility(1,0);
+    Check(!WeaponSelectionForHud().selected,"server hide closes borrowed selection");
+    Reset(0);Slot(0);view.health=0;
+    Check(!WeaponSelectionForHud().selected,"dead player cannot retain expanded weapon rows");
+    Reset(0);Slot(1);WeaponOwnership owned{};owned[725]=owned[29]=owned[4]=true;
+    for(const auto& part:EncodeWeaponInventory(owned,2))Send(WeaponInventoryMessage,part);
+    Check(!WeaponSelectionForHud().selected,"authoritative removal immediately closes pending weapon");
+    Reset(0);Slot(0);SetWeaponSelectionHudVisible(true);DrawWeaponSelection(0,0);
+    Check(WeaponSelectionForHud().selected==725,"modern rendering never commits or cancels input selection");
+    ResetWeaponInventory(false);Check(!WeaponSelectionForHud().selected,"session reset invalidates borrowed rows");
+}
+void StockOnlyChecks()
+{
+    auto stockOnly=[](bool protocolReady,bool hudReady)
+    {
+        Reset(0);
+        if(!protocolReady){ResetWeaponInventory(true);Stock(29,2,names[2]);Stock(4,3,names[3]);}
+        WeaponOwnership owned{};owned[29]=owned[4]=true;
+        for(const auto& part:EncodeWeaponInventory(owned,2))Send(WeaponInventoryMessage,part);
+        if(protocolReady)Send(WeaponCurrentMessage,EncodeWeaponCurrent({29,1,-1,0,0}));
+        SetWeaponSelectionHudAvailable(hudReady);
+    };
+    stockOnly(true,true);Slot(2);
+    Check(nativeCalls==0&&Selection()==29&&sent.empty(),"protocol and ready HUD own stock-only slot selection");
+    now+=60;Check(WeaponSelectionForHud().selected==29,"stock-only pending survives idle time");
+    Confirm(2,"stock-only original attack confirmation");
+    stockOnly(true,true);commands.at("invnext")();
+    Check(Selection()==4&&nativeCalls==0,"stock-only wheel starts after actual deployed weapon");
+    commands.at("invprev")();Check(Selection()==29,"stock-only reverse wheel follows pending weapon");
+    commands.at("cancelselect")();Check(!Selection()&&!cancelCalls,"stock-only cancel closes locally");
+    stockOnly(true,false);Slot(2);Check(nativeCalls==1&&!Selection(),"missing modern HUD preserves native stock-only input");
+    stockOnly(false,true);Slot(2);Check(nativeCalls==1&&!Selection(),"ready HUD cannot replace ordinary server input without protocol");
+    stockOnly(true,true);Slot(2);SetWeaponSelectionHudAvailable(false);
+    usercmd_t cmd{};cmd.buttons=IN_ATTACK;WeaponInventoryCreateMove(.01f,&cmd,1);
+    Check(!Selection()&&(cmd.buttons&IN_ATTACK)&&sent.empty(),"revoked HUD releases stock-only selection and attack");
+    stockOnly(true,true);WeaponInventoryVideoInit();Slot(2);
+    Check(nativeCalls==1&&!Selection(),"video reset withdraws stock-only HUD capability");
+    stockOnly(true,true);fast=1;Slot(2);
+    Check(sent==std::vector<std::string>{names[2]}&&!Selection(),"single stock weapon respects original fastswitch");
+    stockOnly(true,true);Menu(1u<<9);Slot(2);
+    Check(nativeCalls==1&&!Selection()&&MenuActive(),"ShowMenu retains precedence over stock-only selection");
+}
+void SoundAndEmptySlotChecks()
+{
+    auto sound=[](const char* name){return std::pair{std::string("common/")+name+".wav",1.f};};
+    Reset(0);Slot(0);Slot(0);Slot(1);
+    Check(sounds==std::vector{sound("wpn_hudon"),sound("wpn_moveselect"),sound("wpn_hudon")},
+        "original open/different-slot and same-slot-repeat sounds retain exact volume1");
+    sounds.clear();commands.at("invnext")();commands.at("invprev")();
+    Check(sounds.empty(),"original wheel traversal has no invented input sound");
+    usercmd_t cmd{};cmd.buttons=IN_ATTACK;WeaponInventoryCreateMove(.01f,&cmd,1);
+    Check(sounds==std::vector{sound("wpn_select")},"attack confirmation plays original select once");
+    sounds.clear();commands.at("cancelselect")();Check(sounds.empty(),"idle Escape adds no pending-cancel sound");
+    Reset(1);Slot(0);Check(sounds==std::vector{sound("wpn_hudon")},"fastswitch keeps open sound without synthetic confirm");
+    Reset(0);Slot(0);sounds.clear();Slot(4);
+    Check(Selection()==-1&&WeaponSelectionForHud().selected==-1&&sent.empty(),"empty slot replaces old candidate with explicit pending sentinel");
+    Check(sounds==std::vector{sound("wpn_hudon")},"empty slot retains original open sound");
+    cmd.buttons=IN_ATTACK|IN_JUMP;WeaponInventoryCreateMove(.01f,&cmd,1);
+    Check(!Selection()&&sent.empty()&&!(cmd.buttons&IN_ATTACK)&&(cmd.buttons&IN_JUMP),
+        "empty pending confirmation consumes attack without selecting previous weapon");
+    Check(sounds==std::vector{sound("wpn_hudon"),sound("wpn_select")},"empty confirmation has original select sound");
+    Reset(0);Slot(4);commands.at("cancelselect")();
+    Check(!Selection()&&!cancelCalls&&sounds==std::vector{sound("wpn_hudon"),sound("wpn_hudoff")},"empty pending cancel closes locally with original off sound");
+    Reset(0);Slot(4);commands.at("invnext")();Check(Selection()==220,"wheel after empty sentinel starts from deployed weapon");
+    Reset(0);Menu(1u<<9);Slot(0);commands.at("cancelselect")();Check(sounds.empty(),"ShowMenu-owned input adds no weapon sound");
+    Reset(0);Slot(4);WeaponOwnership own{};for(int id:ids)own[id]=true;
+    for(const auto& part:EncodeWeaponInventory(own,2))Send(WeaponInventoryMessage,part);
+    Check(Selection()==-1,"inventory refresh preserves empty sentinel without indexing it as weapon ID");
+}
 }
 int main()
 {
@@ -199,10 +287,11 @@ int main()
     engine.GetClientTime=[]()->float{return now;};
     engine.pfnGetCvarFloat=[](const char* name)->float{return !std::strcmp(name,"hud_fastswitch")?fast:1.f;};
     engine.pfnServerCmd=[](const char* command)->int{sent.emplace_back(command);return 1;};
+    engine.pfnPlaySoundByName=[](const char* name,float volume){sounds.emplace_back(name,volume);};
     engine.pfnGetScreenInfo=[](SCREENINFO* screen)->int{screen->iWidth=1280;screen->iHeight=720;return 1;};
     engine.pfnSPR_GetList=[](char*,int* count)->client_sprite_t*{*count=0;return nullptr;};
     InitializeWeaponInventory();
-    CancelChecks();MenuChecks();
+    CancelChecks();MenuChecks();SelectionViewChecks();StockOnlyChecks();SoundAndEmptySlotChecks();
     std::cout<<"weapon menu "<<checks<<" checks, "<<failures<<" failures\n";
     return failures?1:0;
 }
