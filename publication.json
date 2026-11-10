@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/PERFORMANCE_POLICY.md",
     "docs/2026-11-10_修复-共享触手坐标编码-report.md",
     "tests/csol-cso-tent/run.py",
     "tests/csol-cso-tent/main.cpp",
