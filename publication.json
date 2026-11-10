@@ -1,6 +1,12 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-10_实现-CSOL菜单布局与输入基础-report.md",
+    "tests/csol-menu-layout/main.cpp",
+    "tests/csol-menu-layout/run.py",
+    "tests/csol-menu-input/README.md",
+    "tests/csol-menu-input/main.cpp",
+    "tests/csol-menu-input/run.py",
     "docs/PERFORMANCE_POLICY.md",
     "docs/2026-11-10_修复-共享触手坐标编码-report.md",
     "tests/csol-cso-tent/run.py",
