@@ -1,6 +1,15 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-buy-menu/DIRECT.md",
+    "tests/csol-buy-menu/direct.cpp",
+    "tests/csol-buy-menu/native_panel.hpp",
+    "tests/csol-buy-menu/native_stubs.hpp",
+    "tests/csol-buy-menu/run_direct.py",
+    "tests/csol-characters/frame.cpp",
+    "tests/csol-characters/panel_fixture.hpp",
+    "tests/csol-menu-presentation/run.py",
+    "docs/2026-11-10_重构-CSOL购买与选人菜单-report.md",
     "tests/csol-oberon-chain/resources.hpp",
     "tests/csol-rebuy/README.md",
     "tests/csol-rebuy/run_sdk.py",

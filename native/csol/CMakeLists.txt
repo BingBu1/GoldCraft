@@ -35,6 +35,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
+target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)
 option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)
 target_compile_definitions(CSOLSupport PRIVATE CSOL_OPTIMIZE_HOST_CRC=$<BOOL:${CSOL_OPTIMIZE_HOST_CRC}>)
 target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cpp client/hd_spray_options.cpp client/hd_spray_gl.cpp client/hd_spray_http.cpp)

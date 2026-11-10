@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "resource_refresh.hpp"
+#include "menu_font.hpp"
+#include "menu_input.hpp"
+#include "menu_panel.hpp"
+#include "../menu_layout.hpp"
 #include "overlay_layers.hpp"
 #include "buy_menu.hpp"
 #include "command_chain.hpp"
@@ -13,11 +18,16 @@
 #include <usercmd.h>
 #include <in_buttons.h>
 #include <vgui_controls/TextEntry.h>
+#include <vgui_controls/RichText.h>
+#include <vgui_controls/ScrollBar.h>
+#include <vgui_controls/ScrollBarSlider.h>
+#include <vgui_controls/Button.h>
 #include <algorithm>
-#include <array>
+#include <cmath>
 #include <cstring>
 #include <ostream>
 #include <cwctype>
+#include <memory>
 #ifdef min
 #undef min
 #endif
@@ -29,19 +39,36 @@ namespace csol::client {
 namespace {
 using namespace csol::buy;
 vgui::ISurface* surface{};
+vgui::ISchemeManager* schemes{};
 vgui::IInput* input{};
 IClientVGUI* clientUI{};
 IVGUI2Extension* extension{};
 vgui::HFont font{},titleFont{};
+vgui::HFont tabFont{},closeFont{};
+MenuFontCache menuFonts;
+int fontRecipeTall{},titleRecipeTall{},tabRecipeTall{};
+menu::Viewport menuViewport{640,480};
+menu::Rect menuRoot;
+std::array<menu::Rect,2> teamPixels;
+menu::SearchPlacement searchPixels;
+int screenW{},screenH{},fontScreenW{},fontScreenH{};
+bool fontRefreshPending{};
 HANDLE privateFont{};
 Presentation presentation;
-bool capability{},loaded{},visible{},catalogReady{},mouseHeld{},swallowMouse{},restoreMouse{};
-bool rightHeld{};
+bool capability{},loaded{},visible{},catalogReady{},swallowMouse{},restoreMouse{};
+MenuButtonInput leftInput,rightInput;
 int team=2;
 cvar_t* favoriteCvars[2]{};
 Favorites favorites{};
 std::wstring query;
 vgui::DHANDLE<vgui::TextEntry> searchEntry;
+class WeaponDescription;
+std::unique_ptr<MenuLayerPanel> menuLayer;
+MenuPaintPanel* detailPanel{};
+WeaponDescription* descriptionPanel{};
+int detailLayoutItem=-1,detailLayoutW{},detailLayoutH{};
+int menuLayerScreenW{},menuLayerScreenH{};
+vgui::HFont detailLayoutFont{};
 std::uint16_t request{};
 // Host CSOBuy acknowledgements are independent of the original local Close.
 // The wire token is 16-bit: fixed 128 KiB storage bounds every outstanding
@@ -50,9 +77,18 @@ std::array<std::uint16_t,1u<<16> submittedPurchases{};
 int category=-1,page{},hover=-1,balance{},fontHeight{},left{},top{};
 float scale=1,angles[3]{};
 double requestedAt{};
-std::wstring status;
+std::wstring status,menuTitle,listTitle,favoriteDescription,balanceText=L"0";
+std::array<std::wstring,2> teamLabels;
+std::unordered_map<int,std::wstring> itemNames,searchNames,priceText;
+struct CachedWeaponInfo {std::wstring description;std::array<std::wstring,10> values;};
+std::unordered_map<int,CachedWeaponInfo> infoItems;
+std::array<std::wstring,10> attributeLabels;
+std::array<std::wstring,3> gradeLabels;
+std::wstring priceLabel;
+int detailItem{};
 std::unordered_map<int,Packet> offers;
 std::unordered_map<std::string,int> textures;
+std::unordered_map<const MenuTexture*,int> imageRefs;
 std::vector<const Item*> visibleRows;
 int rowsCategory=-2;
 xcommand_t oldBuy{},oldCancel{},oldRebuy{};
@@ -61,6 +97,9 @@ unsigned rejected{},purchases{},draws{},restores{};
 constexpr const wchar_t* categories[]{L"手枪",L"霰弹枪",L"微型冲锋枪",L"自动步枪",L"机枪",L"主武器弹药",L"副武器弹药",L"装备",L"近身武器",L"结束武器选择"};
 constexpr char favoriteKeys[]="sdfgzxcv";
 void Layout();
+void PrepareImages();
+void PrepareDetailControls();
+void UpdateDetail();
 void LoadFavorites(){favorites=ParseFavorites(favoriteCvars[team-1]?favoriteCvars[team-1]->string:"");}
 void SaveFavorites(){const auto text=SerializeFavorites(favorites);engine.Cvar_Set(favoriteCvars[team-1]->name,text.c_str());}
 std::wstring Wide(const std::string& text){int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),nullptr,0);if(n<=0)return{};std::wstring s(n,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),s.data(),n);return s;}
@@ -78,8 +117,9 @@ void Close(bool gameplay=true)
 {
     const bool hadMenu=visible;
     visible=false;catalogReady=false;
+    if(menuLayer)menuLayer->SetVisible(false);
     if(!hadMenu)return;
-    hover=-1;swallowMouse=true;
+    hover=-1;swallowMouse=true;leftInput.Reset();rightInput.Reset();
     if(searchEntry){searchEntry->SetVisible(false);searchEntry->SetKeyBoardInputEnabled(false);}
     // A stock VGUI Buy panel can own SDL/VGUI input after its children close.
     // Hide that owner before handing the cursor back to native game input.
@@ -90,7 +130,20 @@ void Close(bool gameplay=true)
 bool Load()
 {
     if(loaded)return true;
-    try{const auto bytes=ReadResource(PresentationResource);presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});loaded=true;return true;}
+    try{const auto bytes=ReadResource(PresentationResource);presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});fontScreenW=fontScreenH=0;
+        menuTitle=Wide(presentation.title);listTitle=Wide(presentation.listTitle);favoriteDescription=Wide(presentation.favoriteDescription);
+        for(int i=0;i<2;++i)teamLabels[i]=Wide(presentation.teamNames[i]);
+        itemNames.clear();searchNames.clear();
+        for(const auto& item:Catalog()){
+            const auto original=presentation.weaponInfo.items.find(item.id);
+            itemNames.emplace(item.id,Wide(original==presentation.weaponInfo.items.end()?item.name:original->second.name));
+            auto search=itemNames.at(item.id)+L" "+Wide(item.alias);std::transform(search.begin(),search.end(),search.begin(),std::towlower);searchNames.emplace(item.id,std::move(search));
+        }
+        infoItems.clear();priceLabel=Wide(presentation.weaponInfo.priceLabel);
+        for(int i=0;i<10;++i)attributeLabels[i]=Wide(presentation.weaponInfo.attributeLabels[i]);
+        for(int i=0;i<3;++i)gradeLabels[i]=Wide(presentation.weaponInfo.gradeLabels[i]);
+        for(const auto& [id,detail]:presentation.weaponInfo.items){CachedWeaponInfo cached;cached.description=Wide(detail.description);for(int i=0;i<10;++i)cached.values[i]=Wide(detail.values[i]);infoItems.emplace(id,std::move(cached));}
+        PrepareImages();loaded=true;return true;}
     catch(const std::exception& e){engine.Con_Printf("CSOL 购买菜单资源：%s\n",e.what());return false;}
 }
 void Refresh()
@@ -114,13 +167,15 @@ void OpenMenu(bool fallback)
     if(clientUI)clientUI->HideAllVGUIMenu();
     ClearNativeWeaponSelection();
     if(oldShowMenu){unsigned char clear[5]{};oldShowMenu("ShowMenu",sizeof(clear),clear);}
-    visible=true;restoreMouse=false;category=-1;page=0;hover=-1;rowsCategory=-2;query.clear();status=L"正在获取商品与余额…";LoadFavorites();
+    visible=true;restoreMouse=false;detailItem=0;category=-1;page=0;hover=-1;rowsCategory=-2;query.clear();status=L"正在获取商品与余额…";LoadFavorites();
     if(!searchEntry&&g_pVGuiInput2&&g_pVGuiSurface2&&g_pVGui&&g_pVGuiPanel){
         searchEntry=new vgui::TextEntry(nullptr,"CSOLBuySearch");searchEntry->SetParent(surface->GetEmbeddedPanel());
+        searchEntry->SetAllowNonAsciiCharacters(true);
         searchEntry->SetMaximumCharCount(48);searchEntry->SetCatchEnterKey(true);searchEntry->SetZPos(300);
     }
     if(searchEntry){searchEntry->SetText(L"");searchEntry->SetVisible(true);searchEntry->SetKeyBoardInputEnabled(false);}
-    engine.GetViewAngles(angles);mouseHeld=input->IsMouseDown(vgui::MOUSE_LEFT);rightHeld=input->IsMouseDown(vgui::MOUSE_RIGHT);
+    PrepareDetailControls();Layout();UpdateDetail();
+    engine.GetViewAngles(angles);leftInput.Reset(input->IsMouseDown(vgui::MOUSE_LEFT));rightInput.Reset(input->IsMouseDown(vgui::MOUSE_RIGHT));
     if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);Refresh();
 }
 void Open(){OpenMenu(true);}
@@ -128,10 +183,9 @@ void Cancel(){if(visible)Close();else if(oldCancel)oldCancel();}
 const std::vector<const Item*>& Rows()
 {
     if(rowsCategory!=category){visibleRows.clear();visibleRows.reserve(Catalog().size());rowsCategory=category;
+        auto needle=query;std::transform(needle.begin(),needle.end(),needle.begin(),std::towlower);
         for(const auto& item:Catalog())if(InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
-            auto text=Wide(item.name)+L" "+Wide(item.alias);std::transform(text.begin(),text.end(),text.begin(),std::towlower);
-            auto needle=query;std::transform(needle.begin(),needle.end(),needle.begin(),std::towlower);
-            if(needle.empty()||text.find(needle)!=text.npos)visibleRows.push_back(&item);
+            if(needle.empty()||searchNames.at(item.id).find(needle)!=std::wstring::npos)visibleRows.push_back(&item);
         }}
     return visibleRows;
 }
@@ -186,10 +240,10 @@ int Receive(const char*,int size,void* data)
         if(p.result==Result::Unavailable && !p.id){Close();return 1;}
         return 1;
     }
-    balance=p.balance;
+    if(balance!=p.balance){balance=p.balance;balanceText=std::to_wstring(balance);}
     switch(p.kind){
     case Kind::Begin:offers.clear();catalogReady=false;break;
-    case Kind::Item:offers[p.id]=p;break;
+    case Kind::Item:offers[p.id]=p;priceText[p.id]=L"$"+std::to_wstring(p.price);break;
     case Kind::End:catalogReady=true;status=L"";break;
     default:break;
     }
@@ -206,26 +260,87 @@ int ShowMenu(const char* name,int size,void* data)
     if(capability&&b&&size==9&&b[3]==0&&!std::memcmp(b+4,"#Buy\0",5)){if(!visible)OpenMenu(false);if(visible)return 1;}
     return oldShowMenu?oldShowMenu(name,size,data):1;
 }
-int X(int x){return left+int(x*scale);}int Y(int y){return top+int(y*scale);}
-void Image(const MenuTexture& t,const MenuRect& r,int alpha=255)
+float HorizontalScale(){return presentation.normalizedLayout?menuViewport.XScale():scale;}
+int X(int x){return left+int(x*HorizontalScale());}int Y(int y){return top+int(y*scale);}
+menu::Rect PixelBounds(const MenuRect& r){return {X(r.x),Y(r.y),int(r.w*HorizontalScale()),int(r.h*scale)};}
+menu::Rect FavoriteBounds(int index)
 {
-    if(t.path.empty())return;
-    auto[it,newly]=textures.try_emplace(t.path,0);
-    if(newly)try{const auto image=DecodeTGA(ReadResource(t.path.c_str()));if(image.Width!=t.width||image.Height!=t.height)throw std::runtime_error("buy image dimensions changed");it->second=surface->CreateNewTextureID(true);surface->DrawSetTextureRGBA(it->second,image.RGBA.data(),image.Width,image.Height,1,true);}catch(const std::exception& e){engine.Con_Printf("CSOL buy image: %s\n",e.what());}
-    if(it->second){surface->DrawSetColor(255,255,255,alpha);surface->DrawSetTexture(it->second);surface->DrawTexturedRect(X(r.x),Y(r.y),X(r.x+r.w),Y(r.y+r.h));}
+    if(!presentation.normalizedLayout)return PixelBounds(presentation.favorites[index]);
+    const auto& parent=presentation.favoritePanel;const auto root=menuViewport.Child(menuRoot,parent.x,parent.y,parent.w,parent.h);
+    const auto& r=presentation.favorites[index];return menuViewport.Child(root,r.x,r.y,r.w,r.h);
 }
-void Text(int x,int y,const std::wstring& s,const char* color="basetext",bool title=false)
+std::array<menu::Rect,2> TeamBounds()
 {
-    const auto& c=presentation.colors.at(color);surface->DrawSetTextFont(title?titleFont:font);surface->DrawSetTextColor(c[0],c[1],c[2],c[3]);surface->DrawSetTextPos(X(x),Y(y));surface->DrawPrintText(s.c_str(),int(s.size()));
+    if(!presentation.normalizedLayout)return {PixelBounds(presentation.teams[0]),PixelBounds(presentation.teams[1])};
+    return teamPixels;
 }
-void Button(const MenuRect& r,const std::wstring& label,int hit,bool enabled=true)
+menu::SearchPlacement SearchBounds()
 {
-    const int state=enabled&&hover==hit?(input&&input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):0;const auto& b=presentation.buttons[state];
+    if(!presentation.normalizedLayout)return {{},PixelBounds(presentation.search),{}};
+    return searchPixels;
+}
+menu::Rect CloseBounds()
+{
+    return presentation.normalizedLayout?menu::CloseButton(menuRoot,screenH):
+        PixelBounds({presentation.width-25,5,20,20});
+}
+void PrepareImage(const MenuTexture& image)
+{
+    if(image.path.empty())return;
+    auto[it,inserted]=textures.try_emplace(image.path,0);
+    if(inserted)try{
+        const auto decoded=DecodeTGA(ReadResource(image.path.c_str()));
+        if(decoded.Width!=image.width||decoded.Height!=image.height)throw std::runtime_error("buy image dimensions changed");
+        it->second=surface->CreateNewTextureID(true);surface->DrawSetTextureRGBA(it->second,decoded.RGBA.data(),decoded.Width,decoded.Height,1,true);
+    }catch(const std::exception& error){engine.Con_Printf("CSOL buy image: %s\n",error.what());}
+    imageRefs.emplace(&image,it->second);
+}
+void PrepareImages()
+{
+    // Called while loading presentation, before visibility; Paint only uses
+    // immutable handles and never performs disk reads, decoding or uploads.
+    imageRefs.clear();
+    for(const auto& image:presentation.frame)PrepareImage(image);
+    for(const auto& group:presentation.buttons)for(const auto& image:group)PrepareImage(image);
+    for(const auto& group:presentation.tabs)for(const auto& image:group)PrepareImage(image);
+    for(const auto& image:presentation.close)PrepareImage(image);
+    for(const auto& image:presentation.slotBackground)PrepareImage(image);
+    PrepareImage(presentation.keyboard);PrepareImage(presentation.favoriteBackground);
+    PrepareImage(presentation.weaponInfo.background);PrepareImage(presentation.weaponInfo.divider);
+    for(const auto& [id,image]:presentation.weaponInfo.grades)PrepareImage(image);
+    for(const auto& image:presentation.weaponInfo.scroll.slider)PrepareImage(image);
+    for(const auto& [id,image]:presentation.images)PrepareImage(image);
+}
+void ImagePixels(const MenuTexture& image,const menu::Rect& r,int alpha=255)
+{
+    const auto it=imageRefs.find(&image);if(it==imageRefs.end()||!it->second)return;
+    surface->DrawSetColor(255,255,255,alpha);surface->DrawSetTexture(it->second);surface->DrawTexturedRect(r.x,r.y,r.x+r.w,r.y+r.h);
+}
+void Image(const MenuTexture& t,const MenuRect& r,int alpha=255){ImagePixels(t,PixelBounds(r),alpha);}
+void Text(int x,int y,std::wstring_view s,const char* color="basetext",bool title=false)
+{
+    const auto& c=MenuColor(presentation.colors,color);surface->DrawSetTextFont(title?titleFont:font);surface->DrawSetTextColor(c[0],c[1],c[2],c[3]);surface->DrawSetTextPos(X(x),Y(y));surface->DrawPrintText(s.data(),int(s.size()));
+}
+void Tab(int index)
+{
+    const int hit=20+index;const bool selected=team==index+1||leftInput.Selected(hit);
+    const bool depressed=team==index+1||leftInput.Depressed(hit);
+    const auto& images=presentation.tabs[TabVisualGroup(selected,leftInput.Armed(hit),depressed)];
+    const auto rect=TeamBounds()[index];const auto pieces=menu::TabSlices(rect,images[0].width);
+    for(int i=0;i<3;++i)ImagePixels(images[i],pieces[i]);
+    const auto& label=teamLabels[index];int width{},height{};surface->GetTextSize(tabFont,label.c_str(),width,height);
+    const auto color=selected?(index?std::array<int,4>{183,202,229,255}:std::array<int,4>{229,188,188,255}):presentation.colors.at("basetext");
+    surface->DrawSetTextFont(tabFont);surface->DrawSetTextColor(color[0],color[1],color[2],color[3]);
+    surface->DrawSetTextPos(rect.x+(rect.w-width)/2,rect.y+(rect.h-height)/2);surface->DrawPrintText(label.c_str(),int(label.size()));
+}
+void Button(const MenuRect& r,std::wstring_view label,int hit,bool enabled=true)
+{
+    const int state=enabled&&hover==hit?(leftInput.Depressed(hit)?2:1):0;const auto& b=presentation.buttons[state];
     Image(b[0],{r.x,r.y,b[0].width,r.h},enabled?255:100);Image(b[1],{r.x+b[0].width,r.y,r.w-b[0].width-b[2].width,r.h},enabled?255:100);Image(b[2],{r.x+r.w-b[2].width,r.y,b[2].width,r.h},enabled?255:100);
     Text(r.x+7,r.y+int((r.h-fontHeight/scale)/2),label,enabled&&hover==hit?"brightcontroltext":enabled?"basetext":"labeldimtext");
 }
-void Slot(const MenuRect& r,const std::wstring& label,int hit,bool enabled=true){
-    if(presentation.keyboard.path.empty()){Button(r,std::to_wstring((hit+1)%10)+L"  "+label,hit,enabled);return;}
+void Slot(const MenuRect& r,std::wstring_view label,int hit,bool enabled=true){
+    if(presentation.keyboard.path.empty()){Button(r,std::to_wstring((hit+1)%10)+L"  "+std::wstring(label),hit,enabled);return;}
     Image(presentation.slotBackground[enabled&&hover==hit?1:0],r,enabled?255:110);
     Image(presentation.keyboard,{r.x+3,r.y+4,17,17},enabled?255:110);
     Text(r.x+10,r.y+7,std::to_wstring((hit+1)%10),enabled?"basetext":"labeldimtext");
@@ -239,20 +354,53 @@ void ItemImage(const Item& item,MenuRect area,int alpha=255){
 bool CanPurchase(const Item& item){const auto offer=offers.find(item.id);return catalogReady&&offer!=offers.end()&&offer->second.result==Result::Available&&balance>=offer->second.price;}
 void Layout()
 {
-    int w,h;surface->GetScreenSize(w,h);scale=std::max(.1f,std::min(float(w)/presentation.width,float(h)/presentation.height));left=(w-int(presentation.width*scale))/2;top=(h-int(presentation.height*scale))/2;
-    if(searchEntry){const auto& r=presentation.search;searchEntry->SetBounds(X(r.x),Y(r.y),int(r.w*scale),int(r.h*scale));}
-    const int height=std::max(9,int(9*scale));if(font&&height==fontHeight)return;
-    if(!font){
-        HMODULE module{};if(GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,reinterpret_cast<LPCSTR>(&InitializeBuyMenu),&module))if(auto r=FindResourceW(module,MAKEINTRESOURCEW(101),MAKEINTRESOURCEW(10)))if(auto d=LoadResource(module,r)){DWORD n{};privateFont=AddFontMemResourceEx(LockResource(d),SizeofResource(module,r),nullptr,&n);}
-        font=surface->CreateFont();titleFont=surface->CreateFont();
+    int w,h;surface->GetScreenSize(w,h);screenW=w;screenH=h;
+    if(presentation.normalizedLayout){
+        menuViewport=menu::Viewport(w,h);const auto& r=presentation.root;menuRoot=menuViewport.Root(r.x,r.y,r.w,r.h);
+        left=menuRoot.x;top=menuRoot.y;scale=menuViewport.YScale();
+    }else{scale=std::max(.1f,std::min(float(w)/presentation.width,float(h)/presentation.height));left=(w-int(presentation.width*scale))/2;top=(h-int(presentation.height*scale))/2;}
+    if(!schemes || !extension)return;
+    if(!privateFont){
+        try{const auto bytes=ReadResource(MenuFontResource);DWORD count{};privateFont=RegisterResourceFont(privateFont,MenuFontResource,presentation.font.c_str(),bytes,&count);}
+        catch(const std::exception& error){engine.Con_DPrintf("CSOL menu font: %s\n",error.what());return;}
+        if(!privateFont)return;
     }
-    const char* name=privateFont?presentation.font.c_str():"Microsoft YaHei";fontHeight=height;
-    surface->AddGlyphSetToFont(font,name,height,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);surface->AddGlyphSetToFont(titleFont,name,std::max(11,int(11*scale)),800,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);
-    if(searchEntry)searchEntry->SetFont(font);
+    if(fontRefreshPending){
+        menuFonts.RebindFamily(font,presentation.font);
+        menuFonts.RebindFamily(titleFont,presentation.font);
+        menuFonts.RebindFamily(tabFont,presentation.font);
+        fontRefreshPending=false;
+    }
+    if(font && titleFont && tabFont && closeFont && fontScreenW==w && fontScreenH==h)return;
+    const auto body=menuFonts.GetCSOScaled(*surface,presentation.font,9,0,vgui::FONTFLAG_ANTIALIAS);
+    const auto title=menuFonts.GetCSOScaled(*surface,presentation.font,12,0,vgui::FONTFLAG_ANTIALIAS);
+    const auto tab=menuFonts.GetCSOScaled(*surface,presentation.font,8,0,vgui::FONTFLAG_ANTIALIAS);
+    const auto close=menuFonts.GetCSOScaled(*surface,"Marlett",11,0,vgui::FONTFLAG_SYMBOL);
+    font=body.handle;titleFont=title.handle;fontHeight=body.tall;
+    tabFont=tab.handle;closeFont=close.handle;fontRecipeTall=body.recipeTall;titleRecipeTall=title.recipeTall;tabRecipeTall=tab.recipeTall;
+    fontScreenW=w;fontScreenH=h;
+    if(presentation.normalizedLayout){
+        std::array<int,2> widths{};for(int i=0;i<2;++i){int height{};const auto& text=teamLabels[i];surface->GetTextSize(tabFont,text.c_str(),widths[i],height);}
+        teamPixels=menu::TeamTabs(menuViewport,menuRoot,16,40,17,widths);
+        int width{},height{};const auto& text=listTitle;surface->GetTextSize(font,text.c_str(),width,height);
+        searchPixels=menu::BuySearch(menuViewport,menuRoot,width,height,presentation.controlScale);
+    }
+    if(searchEntry){searchEntry->SetFont(font);const auto r=SearchBounds().search;searchEntry->SetBounds(r.x-(menuLayer?left:0),r.y-(menuLayer?top:0),r.w,r.h);}
 }
 MenuRect CloseRect(){return {presentation.width-25,5,20,20};}
 int Hit(int x,int y)
 {
+    if(presentation.normalizedLayout){
+        for(int i=0;i<10;++i)if(PixelBounds(presentation.slots[i]).Contains(x,y))return i;
+        if(PixelBounds(presentation.previous).Contains(x,y))return 10;
+        if(PixelBounds(presentation.next).Contains(x,y))return 11;
+        if(CloseBounds().Contains(x,y))return 12;
+        const auto teams=TeamBounds();for(int i=0;i<2;++i)if(teams[i].Contains(x,y))return 20+i;
+        for(int i=0;i<8;++i)if(FavoriteBounds(i).Contains(x,y))return 30+i;
+        if(SearchBounds().search.Contains(x,y))return 40;
+        if(PixelBounds(presentation.rebuy).Contains(x,y))return 41;
+        return -1;
+    }
     const float px=(x-left)/scale,py=(y-top)/scale;
     for(int i=0;i<10;++i)if(presentation.slots[i].Contains(px,py))return i;
     if(presentation.previous.Contains(px,py))return 10;if(presentation.next.Contains(px,py))return 11;
@@ -268,7 +416,7 @@ void Click(int hit)
     if(searchEntry&&hit!=40)searchEntry->SetKeyBoardInputEnabled(false);
     if(hit>=0&&hit<10)Select(hit);
     else if(hit==12)Close();
-    else if(hit==20||hit==21){team=hit-19;page=0;rowsCategory=-2;LoadFavorites();}
+    else if(hit==20||hit==21){surface->PlaySound(MenuTabClickSound);team=hit-19;page=0;rowsCategory=-2;LoadFavorites();}
     else if(hit>=30&&hit<38){if(const auto* item=Find(favorites[hit-30]))Purchase(*item);}
     else if(hit==40){if(searchEntry){searchEntry->SetKeyBoardInputEnabled(true);searchEntry->RequestFocus();}}
     else if(hit==41)StartRebuy();
@@ -284,44 +432,303 @@ void EditFavorite(int hit){
     else{status=L"收藏已满，右键点击收藏武器可移除";return;}
     SaveFavorites();
 }
+void DetailText(const menu::Rect& rect,const std::wstring& value,int alignment=3,bool dim=false,vgui::HFont selectedFont=0)
+{
+    const auto handle=selectedFont?selectedFont:font;int width{},height{};surface->GetTextSize(handle,value.c_str(),width,height);
+    surface->DrawSetTextFont(handle);const int color=dim?168:255;surface->DrawSetTextColor(color,color,color,255);
+    const int x=alignment==5?rect.x+rect.w-width:alignment==4?rect.x+(rect.w-width)/2:rect.x;
+    surface->DrawSetTextPos(x,rect.y+(rect.h-height)/2);surface->DrawPrintText(value.c_str(),int(value.size()));
+}
+Color ScrollColor(std::string_view name)
+{
+    const auto& c=MenuColor(presentation.weaponInfo.scroll.colors,name);
+    return {c[0],c[1],c[2],c[3]};
+}
+class WeaponInfoSlider final:public vgui::ScrollBarSlider {
+public:
+    explicit WeaponInfoSlider(vgui::Panel* parent):vgui::ScrollBarSlider(parent,"WeaponInfoSlider",true){}
+protected:
+    void ApplySchemeSettings(vgui::IScheme* scheme) override
+    {
+        vgui::Panel::ApplySchemeSettings(scheme);
+        SetFgColor(ScrollColor("sliderFg"));SetBgColor(ScrollColor("sliderBg"));SetBorder(nullptr);
+    }
+    void Paint() override
+    {
+        int minimum{},maximum{};GetRange(minimum,maximum);
+        if(maximum-minimum<=GetRangeWindow())return;
+        int first{},last{};GetNobPos(first,last);
+        const int height=last-first;
+        if(height<=0)return;
+        const int cap=height<24?height/2:12;
+        const auto& images=presentation.weaponInfo.scroll.slider;
+        ImagePixels(images[0],{0,first,GetWide()-1,cap});
+        if(height>24)ImagePixels(images[1],{0,first+12,GetWide()-1,height-24});
+        ImagePixels(images[2],{0,last-12,GetWide()-1,cap});
+    }
+    void PaintBackground() override {}
+};
+class WeaponInfoArrow final:public vgui::Button {
+public:
+    WeaponInfoArrow(const char* glyph,int insetY):vgui::Button(nullptr,"WeaponInfoArrow",glyph)
+    {
+        SetButtonActivationType(ACTIVATE_ONPRESSED);SetContentAlignment(vgui::Label::a_center);
+        SetTextInset(1,insetY);SetKeyBoardInputEnabled(false);
+    }
+    void SetArrowFont(vgui::HFont value) {font_=value;if(font_)SetFont(font_);}
+    void OnMouseFocusTicked() override {CallParentFunction(new KeyValues("MouseFocusTicked"));}
+    void OnMousePressed(vgui::MouseCode code) override
+    {
+        if(!IsEnabled()||!IsMouseClickEnabled(code)||!IsUseCaptureMouseEnabled())return;
+        SetSelected(true);Repaint();input->SetMouseCapture(GetVPanel());
+    }
+    void OnMouseReleased(vgui::MouseCode code) override
+    {
+        if(!IsEnabled()||!IsMouseClickEnabled(code)||!IsUseCaptureMouseEnabled())return;
+        SetSelected(false);Repaint();input->SetMouseCapture(0);
+    }
+protected:
+    void ApplySchemeSettings(vgui::IScheme* scheme) override
+    {
+        vgui::Button::ApplySchemeSettings(scheme);
+        SetDefaultBorder(nullptr);SetDepressedBorder(nullptr);SetBorder(nullptr);
+        SetDefaultColor(ScrollColor("arrowFg"),ScrollColor("arrowBg"));
+        SetArmedColor(ScrollColor("arrowArmedFg"),ScrollColor("arrowArmedBg"));
+        SetDepressedColor(ScrollColor("arrowDepressedFg"),ScrollColor("arrowDepressedBg"));
+        if(font_)SetFont(font_);
+    }
+private:
+    vgui::HFont font_{};
+};
+class WeaponInfoBar final:public vgui::ScrollBar {
+public:
+    explicit WeaponInfoBar(vgui::Panel* parent):vgui::ScrollBar(parent,"WeaponInfoScrollBar",true)
+    {
+        auto* old=GetSlider();SetSlider(new WeaponInfoSlider(this));delete old;
+        for(int index=0;index<2;++index){
+            auto* button=GetButton(index);
+            arrows_[index]=new WeaponInfoArrow(index?"u":"t",index?-1:1);
+            SetButton(arrows_[index],index);delete button;
+        }
+        SetKeyBoardInputEnabled(false);
+    }
+    void SetArrowFont(vgui::HFont value)
+    {
+        for(auto* arrow:arrows_)arrow->SetArrowFont(value);
+    }
+protected:
+    void ApplySchemeSettings(vgui::IScheme* scheme) override
+    {
+        // The original ScrollablePanel owns a literal 12px bar. The host
+        // ScrollBar scheme's forced 18px width belongs to a different skin.
+        vgui::Panel::ApplySchemeSettings(scheme);SetBgColor(ScrollColor("barBg"));SetBorder(nullptr);
+    }
+    void PerformLayout() override
+    {
+        const int width=GetWide(),height=GetTall();
+        GetSlider()->SetBounds(2,width,width,height-2*width+1);
+        arrows_[0]->SetBounds(0,0,width,width);
+        arrows_[1]->SetBounds(0,height-width,width,width);
+        GetSlider()->InvalidateLayout();vgui::Panel::PerformLayout();
+    }
+private:
+    std::array<WeaponInfoArrow*,2> arrows_{};
+};
+class WeaponInfoText final:public vgui::RichText {
+public:
+    explicit WeaponInfoText(vgui::Panel* parent):vgui::RichText(parent,"DescText")
+    {
+        SetVerticalScrollbar(false);SetMouseInputEnabled(false);SetKeyBoardInputEnabled(false);
+    }
+    void Prepare(const std::wstring& text,vgui::HFont value,int width,int insetX,int insetY)
+    {
+        font_=value;insetX_=insetX;insetY_=insetY;
+        ApplyAppearance();SetSize(width,GetTall());SetText(text.c_str());
+        // Host RichText defers line breaks to OnThink; the original explicitly
+        // lays them out before SizeToContents. Resolve them at content changes.
+        vgui::RichText::OnThink();SetToFullHeight();vgui::RichText::OnThink();
+    }
+protected:
+    void ApplySchemeSettings(vgui::IScheme* scheme) override
+    {
+        vgui::RichText::ApplySchemeSettings(scheme);ApplyAppearance();
+    }
+private:
+    void ApplyAppearance()
+    {
+        if(font_)SetFont(font_);
+        SetDrawOffsets(insetX_,insetY_);SetFgColor(ScrollColor("richTextFg"));
+        SetBgColor(ScrollColor("richTextBg"));SetBorder(nullptr);
+    }
+    vgui::HFont font_{};
+    int insetX_{},insetY_{};
+};
+class WeaponDescription final:public vgui::Panel {
+public:
+    explicit WeaponDescription(vgui::Panel* parent):vgui::Panel(parent,"WeaponDescription")
+    {
+        SetPaintEnabled(false);SetPaintBackgroundEnabled(false);SetPaintBorderEnabled(false);
+        SetKeyBoardInputEnabled(false);
+        canvas_=new vgui::Panel(this,"ScrollableCanvas");
+        canvas_->SetPaintEnabled(false);canvas_->SetPaintBackgroundEnabled(false);canvas_->SetPaintBorderEnabled(false);
+        canvas_->SetMouseInputEnabled(false);canvas_->SetKeyBoardInputEnabled(false);
+        text_=new WeaponInfoText(canvas_);bar_=new WeaponInfoBar(this);bar_->AddActionSignalTarget(this);
+        SetVisible(false);
+    }
+    void Prepare(const menu::Rect& bounds,const std::wstring& text)
+    {
+        SetBounds(bounds.x,bounds.y,bounds.w,bounds.h);
+        int baseWidth{},baseHeight{};surface->GetProportionalBase(baseWidth,baseHeight);
+        if(baseWidth<=0)return;
+        const float ratio=float(screenW)/float(baseWidth);
+        text_->MakeReadyForUse();
+        text_->Prepare(text,font,bounds.w-10,int(3.0f*ratio),int(ratio));
+        const int contentHeight=text_->GetTall();
+        canvas_->SetBounds(0,0,bounds.w-10,contentHeight);
+        text_->SetPos(0,0);
+        bar_->MakeReadyForUse();bar_->SetArrowFont(closeFont);
+        bar_->SetBounds(bounds.w-12,-1,12,bounds.h+1);
+        step_=int(float(bounds.h)*0.1f);bar_->SetButtonPressedScrollValue(step_);
+        bar_->SetRange(0,contentHeight);bar_->SetRangeWindow(std::min(bounds.h,contentHeight));
+        bar_->SetValue(0);bar_->SetVisible(contentHeight>bounds.h);bar_->InvalidateLayout(true);
+        SetVisible(true);
+    }
+    void OnMessage(const KeyValues* message,vgui::VPANEL from) override
+    {
+        if(!std::strcmp(message->GetName(),"ScrollBarSliderMoved")){canvas_->SetPos(0,-bar_->GetValue());return;}
+        vgui::Panel::OnMessage(message,from);
+    }
+protected:
+    void OnMouseWheeled(int delta) override {bar_->SetValue(bar_->GetValue()-delta*step_);}
+private:
+    vgui::Panel* canvas_{};
+    WeaponInfoText* text_{};
+    WeaponInfoBar* bar_{};
+    int step_{};
+};
+void PaintWeaponInfo();
+void PrepareDetailControls()
+{
+    if(!presentation.normalizedLayout||!g_pVGuiInput2||!g_pVGuiSurface2||!g_pVGui||!g_pVGuiPanel)return;
+    if(!menuLayer){
+        menuLayer=std::make_unique<MenuLayerPanel>(surface->GetEmbeddedPanel(),"CSOLBuyControls");
+        menuLayer->SetZPos(300);
+        detailPanel=new MenuPaintPanel(menuLayer.get(),"WeaponInfo",PaintWeaponInfo);
+        detailPanel->SetMouseInputEnabled(true);
+        descriptionPanel=new WeaponDescription(detailPanel);
+    }
+    if(searchEntry)searchEntry->SetParent(menuLayer.get());
+    detailLayoutItem=-1;menuLayerScreenW=menuLayerScreenH=0;
+}
+void UpdateDetail()
+{
+    const auto& rows=Rows();
+    if((category>=0||!query.empty())&&hover>=0&&hover<9&&page*9+hover<int(rows.size()))detailItem=rows[page*9+hover]->id;
+    else if(hover>=30&&hover<38 && Find(favorites[hover-30]))detailItem=favorites[hover-30];
+    if(!menuLayer)return;
+    menuLayer->SetVisible(visible);
+    const auto root=menuRoot;
+    if(menuLayerScreenW!=screenW||menuLayerScreenH!=screenH){
+        menuLayer->SetBounds(root.x,root.y,root.w,root.h);
+        menuLayerScreenW=screenW;menuLayerScreenH=screenH;
+    }
+    const auto found=presentation.weaponInfo.items.find(detailItem);
+    const auto cached=infoItems.find(detailItem);
+    const bool show=found!=presentation.weaponInfo.items.end()&&cached!=infoItems.end();
+    detailPanel->SetVisible(show);
+    if(!show)return;
+    if(detailLayoutItem==detailItem&&detailLayoutW==screenW&&detailLayoutH==screenH&&detailLayoutFont==font)return;
+    const auto& r=presentation.info;
+    const auto bounds=menuViewport.Child({0,0,root.w,root.h},r.x,r.y,r.w,r.h);
+    detailPanel->SetBounds(bounds.x,bounds.y,bounds.w,bounds.h);
+    const auto& detail=found->second;
+    if(detail.table&&!*detail.table){
+        const bool grade=presentation.weaponInfo.grades.contains(detail.grade[0]);
+        descriptionPanel->Prepare(menuViewport.Child({0,0,bounds.w,bounds.h},8.125f,grade?110.0f:74.375f,142.5f,grade?110.0f:145.625f),cached->second.description);
+    }else descriptionPanel->SetVisible(false);
+    detailLayoutItem=detailItem;detailLayoutW=screenW;detailLayoutH=screenH;detailLayoutFont=font;
+}
+void PaintWeaponInfo()
+{
+    const auto found=presentation.weaponInfo.items.find(detailItem);const auto cached=infoItems.find(detailItem);
+    if(found==presentation.weaponInfo.items.end()||cached==infoItems.end())return;
+    const auto& detail=found->second;const auto& cache=cached->second;const auto& info=presentation.weaponInfo;
+    const menu::Rect root{0,0,detailPanel->GetWide(),detailPanel->GetTall()};
+    const auto rect=[&](float x,float y,float w,float h){return menuViewport.Child(root,x,y,w,h);};
+    // Current client 181307150 constructs these controls in code. The ver7
+    // ItemInfo resource belongs to a separate menu and is not this consumer.
+    const auto image=rect(5,0,147,51);ImagePixels(info.background,image);
+    if(const auto found= presentation.images.find(detailItem);found!=presentation.images.end())ImagePixels(found->second,image);
+    DetailText(rect(51.25f,56.25f,43.75f,10),priceLabel,5);
+    if(const auto price=priceText.find(detailItem);price!=priceText.end())DetailText(rect(103.125f,56.25f,43.75f,10),price->second,5);
+    const bool hasGrade=info.grades.contains(detail.grade[0]);
+    if(hasGrade){
+        for(int i=0;i<3;++i){
+            if(const auto grade=info.grades.find(detail.grade[i]);grade!=info.grades.end())ImagePixels(grade->second,rect((27+74*i)*0.625f,74.375f,29.375f,16.25f));
+            DetailText(rect((17+74*i)*0.625f,91.875f,43.125f,7.5f),gradeLabels[i],4,true,tabFont);
+        }
+        ImagePixels(info.divider,rect(54.375f,74.375f,1.25f,24.375f));
+        ImagePixels(info.divider,rect(100.625f,74.375f,1.25f,24.375f));
+    }
+    if(detail.table && *detail.table){
+        for(int i=0;i<10;++i){
+            DetailText(rect(10,(176+15*i)*0.625f,65.625f,8.125f),attributeLabels[i],5,true);
+            DetailText(rect(82.5f,(176+15*i)*0.625f,65.625f,8.125f),cache.values[i]);
+        }
+    }
+}
 void Paint()
 {
-    if(!visible||!loaded||!surface)return;Layout();const auto root=surface->GetEmbeddedPanel();if(!root)return;surface->PushMakeCurrent(root,false);
+    if(!visible||!loaded||!surface)return;Layout();if(!font||!titleFont)return;const auto root=surface->GetEmbeddedPanel();if(!root)return;surface->PushMakeCurrent(root,false);
     int screenWidth,screenHeight;surface->GetScreenSize(screenWidth,screenHeight);surface->DrawSetColor(0,0,0,100);surface->DrawFilledRect(0,0,screenWidth,screenHeight);
     const auto& f=presentation.frame;const int xs[]{0,f[0].width,presentation.width-f[2].width,presentation.width},ys[]{0,f[0].height,presentation.height-f[6].height,presentation.height};
     for(int i=0;i<9;++i){int x=i%3,y=i/3;Image(f[i],{xs[x],ys[y],xs[x+1]-xs[x],ys[y+1]-ys[y]});}
-    const int closeState=hover==12?(input&&input->IsMouseDown(vgui::MOUSE_LEFT)?2:1):0;
-    Image(presentation.close[closeState],CloseRect());
-    const auto title=Wide(presentation.title);int titleWidth,titleHeight;surface->GetTextSize(titleFont,title.c_str(),titleWidth,titleHeight);Text((presentation.width-int(titleWidth/scale))/2,3,title,"basetext",true);
-    Text(14,24,L"玩家武器列表");
-    for(int i=0;i<2;++i){const auto& r=presentation.teams[i];Button(r,i?L"查看CT阵营武器":L"查看T阵营武器",20+i);if(team==i+1){surface->DrawSetColor(170,190,210,240);surface->DrawFilledRect(X(r.x),Y(r.y+r.h-1),X(r.x+r.w),Y(r.y+r.h));}}
+    const auto& title=menuTitle;int titleWidth{},titleHeight{};surface->GetTextSize(titleFont,title.c_str(),titleWidth,titleHeight);
+    if(presentation.normalizedLayout){
+        const auto& color=presentation.colors.at("basetext");surface->DrawSetTextFont(titleFont);surface->DrawSetTextColor(color[0],color[1],color[2],color[3]);
+        surface->DrawSetTextPos(left+(menuRoot.w-titleWidth)/2,top+12);surface->DrawPrintText(title.c_str(),int(title.size()));
+        const auto& heading=listTitle;const auto place=SearchBounds();surface->DrawSetTextFont(font);surface->DrawSetTextPos(place.title.x,place.title.y);surface->DrawPrintText(heading.c_str(),int(heading.size()));
+        for(int i=0;i<2;++i)Tab(i);
+        const auto close=CloseBounds();const auto& closeColor=presentation.colors.at("borderbright");
+        surface->DrawSetTextFont(closeFont);surface->DrawSetTextColor(closeColor[0],closeColor[1],closeColor[2],closeColor[3]);
+        surface->DrawSetTextPos(close.x+int(std::ceil(2.0f*screenH/480.0f)),close.y+int(std::ceil(float(screenH)/480.0f)));surface->DrawPrintText(L"r",1);
+    }else{
+        const int closeState=hover==12?(leftInput.Depressed(12)?2:1):0;Image(presentation.close[closeState],CloseRect());
+        Text((presentation.width-int(titleWidth/scale))/2,3,title,"basetext",true);Text(14,24,L"玩家武器列表");
+        for(int i=0;i<2;++i)Button(presentation.teams[i],i?L"查看CT阵营武器":L"查看T阵营武器",20+i);
+    }
     const auto& rows=Rows();
     for(int i=0;i<10;++i){
         if(category<0&&query.empty())Slot(presentation.slots[i],categories[i],i,i==9||catalogReady);
         else if(i==9)Slot(presentation.slots[i],L"返回武器分类",i);
-        else if(page*9+i<int(rows.size())){const auto* item=rows[page*9+i];Slot(presentation.slots[i],Wide(item->name),i,CanPurchase(*item));}
+        else if(page*9+i<int(rows.size())){const auto* item=rows[page*9+i];Slot(presentation.slots[i],itemNames.at(item->id),i,CanPurchase(*item));}
     }
     if(category>=0||!query.empty()){if(page>0)Button(presentation.previous,L"上一页",10);if((page+1)*9<int(rows.size()))Button(presentation.next,L"下一页",11);if(rows.empty())Text(presentation.info.x,presentation.info.y,L"暂无可用武器","labeldimtext");}
     const Item* selected=nullptr;if((category>=0||!query.empty())&&hover>=0&&hover<9&&page*9+hover<int(rows.size()))selected=rows[page*9+hover];
     else if((category>=0||!query.empty())&&!rows.empty()&&page*9<int(rows.size()))selected=rows[page*9];
     if(hover>=30&&hover<38)selected=Find(favorites[hover-30]);
-    if(selected){
+    if(!presentation.normalizedLayout&&selected){
         const auto& r=presentation.info;ItemImage(*selected,{r.x,r.y,r.w,r.h-35});
         Text(presentation.info.x,presentation.info.y+presentation.info.h-25,Wide(selected->name),"brightcontroltext");
         auto offer=offers.find(selected->id);if(offer!=offers.end())Text(presentation.info.x,presentation.info.y+presentation.info.h-7,L"价格：$"+std::to_wstring(offer->second.price));
     }
-    Text(414,32,L"收藏武器");
+    const int savedLeft=left,savedTop=top;
+    if(presentation.normalizedLayout){const auto& r=presentation.favoritePanel;const auto origin=menuViewport.Child(menuRoot,r.x,r.y,r.w,r.h);left=origin.x;top=origin.y;}
+    if(!presentation.normalizedLayout)Text(414,32,L"收藏武器");
     for(int i=0;i<8;++i){const auto& r=presentation.favorites[i];const auto* item=Find(favorites[i]);
         Image(presentation.favoriteBackground,r);if(hover==30+i)Image(presentation.slotBackground[1],r,130);
         Image(presentation.keyboard,{r.x+3,r.y+7,17,17});Text(r.x+9,r.y+11,std::wstring(1,wchar_t(std::towupper(favoriteKeys[i]))));
         if(item)ItemImage(*item,{r.x+24,r.y+2,r.w-27,r.h-4},CanPurchase(*item)?255:110);
     }
-    Text(375,202,L"右键点击武器可收藏，右键点击收藏可移除。","labeldimtext");
+    left=savedLeft;top=savedTop;
+    Text(375,202,presentation.normalizedLayout?std::wstring_view(favoriteDescription):L"右键点击武器可收藏，右键点击收藏可移除。","labeldimtext");
     const auto& account=presentation.account;surface->DrawSetColor(0,0,0,130);surface->DrawFilledRect(X(account.x),Y(account.y),X(account.x+account.w),Y(account.y+account.h));
-    Text(account.x+2,account.y+4,L"当前金钱");const auto money=std::to_wstring(balance);int moneyWidth,moneyHeight;surface->GetTextSize(font,money.c_str(),moneyWidth,moneyHeight);Text(account.x+account.w-4-int(moneyWidth/scale),account.y+4,money,"brightcontroltext");
+    Text(account.x+2,account.y+4,L"当前金钱");int moneyWidth,moneyHeight;surface->GetTextSize(font,balanceText.c_str(),moneyWidth,moneyHeight);Text(account.x+account.w-4-int(moneyWidth/scale),account.y+4,balanceText,"brightcontroltext");
     Button(presentation.rebuy,L"重新购买（R）",41,true);
     Text(16,presentation.height-28,status,"labeldimtext");surface->DrawFlushText();surface->PopMakeCurrent(root);
-    if(searchEntry)vgui::ipanel()->PaintTraverse(searchEntry->GetVPanel(),true);++draws;
+    if(menuLayer)menuLayer->PaintOverlay();
+    else if(searchEntry)vgui::ipanel()->PaintTraverse(searchEntry->GetVPanel(),true);
+    ++draws;
 }
 class Overlay final:public IVGUI2Extension_BaseUICallbacks {
 public:
@@ -331,9 +738,10 @@ public:
         if(!visible||context->IsPost)return;
         // Let the native VGUI text entry own Unicode/IME, editing, and paste.
         // Its key focus consumes bindings instead of interpreting B/R as buys.
-        if(searchEntry&&searchEntry->HasFocus()&&key!=27)return;
+        if(searchEntry&&searchEntry->IsKeyBoardInputEnabled()&&searchEntry->HasFocus()&&key!=27&&key!=241&&key!=242)return;
         if(binding&&(!std::strcmp(binding,"toggleconsole")||!std::strcmp(binding,"snapshot")||!std::strcmp(binding,"screenshot"))){if(down){if(!std::strcmp(binding,"toggleconsole"))Close(false);std::string command=std::string(binding)+"\n";engine.pfnClientCmd(command.data());}}
-        else if(down){if(key==27||(binding&&!std::strcmp(binding,"buy")))Close();else if(key>='0'&&key<='9')Select(key=='0'?9:key-'1');else if(key==241){int x,y;input->GetCursorPos(x,y);mouseHeld=true;Click(Hit(x,y));}else if(key==242){int x,y;input->GetCursorPos(x,y);rightHeld=true;EditFavorite(Hit(x,y));}else if(key==149||key==150)Click(key==149?11:10);else if(key=='j')Click(team==1?21:20);else if(key=='r')Click(41);else if(key>0&&key<128&&std::strchr(favoriteKeys,key))Click(30+int(std::strchr(favoriteKeys,key)-favoriteKeys));else if(key==8)Select(9);}
+        else if(key==241||key==242){int x,y;input->GetCursorPos(x,y);const int hit=Hit(x,y);hover=hit;const int clicked=(key==241?leftInput:rightInput).Event(down!=0,hit);if(clicked>=0){if(key==241)Click(clicked);else EditFavorite(clicked);}}
+        else if(down){if(key==27||(binding&&!std::strcmp(binding,"buy")))Close();else if(key>='0'&&key<='9')Select(key=='0'?9:key-'1');else if(key==149||key==150)Click(key==149?11:10);else if(key=='j')Click(team==1?21:20);else if(key=='r')Click(41);else if(key>0&&key<128&&std::strchr(favoriteKeys,key))Click(30+int(std::strchr(favoriteKeys,key)-favoriteKeys));else if(key==8)Select(9);}
         if(context->pPluginReturnValue)*static_cast<int*>(context->pPluginReturnValue)=1;context->Result=VGUI2Extension_Result::SUPERCEDE_SKIP_PLUGINS;
     }
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
@@ -360,15 +768,33 @@ void InitializeBuyMenu()
     const auto factory=api->GetEngineFactory();surface=factory?static_cast<vgui::ISurface*>(factory(VGUI_SURFACE_INTERFACE_VERSION,nullptr)):nullptr;
     const auto clientFactory=api->GetClientFactory();clientUI=clientFactory?static_cast<IClientVGUI*>(clientFactory(CLIENTVGUI_INTERFACE_VERSION,nullptr)):nullptr;
     auto module=GetModuleHandleA("vgui2.dll");const auto inputFactory=module?Sys_GetFactory(reinterpret_cast<HINTERFACEMODULE>(module)):nullptr;input=inputFactory?static_cast<vgui::IInput*>(inputFactory(VGUI_INPUT_INTERFACE_VERSION,nullptr)):nullptr;
+    schemes=inputFactory?static_cast<vgui::ISchemeManager*>(inputFactory(VGUI_SCHEME_INTERFACE_VERSION,nullptr)):nullptr;
     const auto plugin=api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");const auto pluginFactory=plugin?Sys_GetFactory(plugin):nullptr;extension=pluginFactory?static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
     if(extension&&surface&&input)extension->RegisterBaseUICallbacks(&overlay);
 }
 void ResetBuyMenu()
 {
     Close(false);capability=false;loaded=false;offers.clear();visibleRows.clear();rowsCategory=-2;restoreMouse=false;swallowMouse=false;request=0;submittedPurchases={};presentation={};query.clear();
-    if(surface)for(const auto& [path,texture]:textures)if(texture)surface->DeleteTextureByID(texture);textures.clear();
+    if(surface)for(const auto& [path,texture]:textures)if(texture)surface->DeleteTextureByID(texture);textures.clear();imageRefs.clear();fontScreenW=fontScreenH=0;
 }
-void ShutdownBuyMenu(){ResetBuyMenu();if(searchEntry){searchEntry->MarkForDeletion();searchEntry=nullptr;}if(extension)extension->UnregisterBaseUICallbacks(&overlay);if(privateFont)RemoveFontMemResourceEx(privateFont);privateFont=nullptr;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;}
+void InvalidateBuyResources()
+{
+    Close(false);loaded=false;visibleRows.clear();rowsCategory=-2;presentation={};
+    menuFonts.InvalidateFailures();fontRefreshPending=true;fontScreenW=fontScreenH=0;
+    if(surface)for(const auto& [path,texture]:textures)if(texture)surface->DeleteTextureByID(texture);
+    textures.clear();imageRefs.clear();
+}
+void PrepareBuyResourceFonts(ResourceFontPreparation& output)
+{
+    if(!surface||!font||!ResourceFontIsTracked(&privateFont))return;
+    const auto bytes=ReadResource(PresentationResource);
+    const auto next=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});
+    output.sources.push_back({&privateFont,MenuFontResource,next.font});
+    output.recipes.push_back({font,next.font,fontRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
+    if(titleFont && titleFont!=font)output.recipes.push_back({titleFont,next.font,titleRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
+    if(tabFont && tabFont!=font && tabFont!=titleFont)output.recipes.push_back({tabFont,next.font,tabRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
+}
+void ShutdownBuyMenu(){ResetBuyMenu();menuLayer.reset();detailPanel=nullptr;descriptionPanel=nullptr;if(searchEntry){searchEntry->MarkForDeletion();searchEntry=nullptr;}if(extension)extension->UnregisterBaseUICallbacks(&overlay);if(privateFont)RemoveFontMemResourceEx(privateFont);privateFont=nullptr;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;schemes=nullptr;menuFonts.Invalidate();font=titleFont=tabFont=closeFont=0;fontScreenW=fontScreenH=0;}
 void BuyMenuFrame()
 {
     if(!visible)return;
@@ -377,8 +803,11 @@ void BuyMenuFrame()
     if(visible){
         if(!Focused()){Close(false);return;}Layout();
         if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
-        int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);const bool pressed=input->IsMouseDown(vgui::MOUSE_LEFT);if(pressed&&!mouseHeld)Click(hover);mouseHeld=pressed;
-        const bool right=input->IsMouseDown(vgui::MOUSE_RIGHT);if(right&&!rightHeld)EditFavorite(hover);rightHeld=right;
+        int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);
+        const int leftClick=leftInput.Poll(input->IsMouseDown(vgui::MOUSE_LEFT),hover);if(leftClick>=0)Click(leftClick);
+        if(!visible)return;
+        UpdateDetail();
+        const int rightClick=rightInput.Poll(input->IsMouseDown(vgui::MOUSE_RIGHT),hover);if(rightClick>=0)EditFavorite(rightClick);
         if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
     }
 }

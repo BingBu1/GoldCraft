@@ -69,6 +69,24 @@ public:
         return configured ? handle : 0;
     }
 
+    // The resource transaction rebuilds an existing HFont in place. Publish
+    // its new family only after resource reads resume, including on rollback.
+    // Forgetting the recipe here would allocate another permanent host HFont.
+    void RebindFamily(vgui::HFont handle, const std::string& family)
+    {
+        if (!handle) return;
+        for (auto& font : fonts_)
+            if (font.handle == handle) {
+                font.family = family;
+                return;
+            }
+    }
+
+    void InvalidateFailures()
+    {
+        std::erase_if(fonts_, [](const auto& font) { return !font.handle; });
+    }
+
     void Invalidate() { fonts_.clear(); }
 
 private:

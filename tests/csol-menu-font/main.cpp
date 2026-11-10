@@ -82,9 +82,11 @@ int main() {
     auto marlett=cache.GetHostScaled(surface,schemes,"english","Marlett",11,0,vgui::FONTFLAG_SYMBOL,true);
     Check(marlett.handle && marlett.recipeTall==16 && marlett.tall==18,"Marlett SYMBOL recipe/metric");
     surface.expectedFlags=aa;
+    const auto retainedBeforeFailure=get(9).handle;
     surface.fail=true;
     Check(!get(23).handle && get(23).tall==0,"configuration failure hidden");
-    surface.fail=false; cache.Invalidate();
+    surface.fail=false; cache.InvalidateFailures();
+    Check(get(9).handle==retainedBeforeFailure,"failure invalidation discarded a successful permanent HFont");
     Check(get(23).handle!=0,"resource refresh did not permit retry");
     // Counterexample for the withdrawn caller lifecycle: AddGlyphSet on an
     // already configured handle fails and leaves the original height intact.
@@ -133,12 +135,42 @@ int main() {
     allocation_probe::active=false;
     Check(allocation_probe::calls==0&&cso.added==beforeAdded&&cso.screenReads==beforeScreenReads&&cso.measured==beforeMeasured+1000,"warm current CSO font path allocates/rebuilds/reads viewport or skips real metrics");
     std::cout<<"current CSO SDK recipe checks passed: 9/12/8/11 -> 14/19/12/17; warm1000 allocations="<<allocation_probe::calls<<" glyph registrations="<<cso.added-beforeAdded<<" screen reads="<<cso.screenReads-beforeScreenReads<<'\n';
+
+    // Provider Commit/Abort rebuilds retained HFonts. Reopening the menus must
+    // look up those same handles under the committed (or restored) family.
+    const std::string originalFamily="DFYuanW9-GB",replacementFamily="Fixture Replacement Family";
+    const auto beforeRefreshCreated=cso.next;
+    const auto beforeRefreshAdded=cso.added;
+    for(int round=0;round<32;++round){
+        const auto reopen=[&](const std::string& publishedFamily,int metricOffset){
+            for(int i=0;i<3;++i){
+                originalCache.RebindFamily(handles[i],publishedFamily);
+                cso.heights[handles[i]]=expected[i]+metricOffset;
+            }
+            for(int i=0;i<4;++i){
+                const auto flags=i==3?vgui::FONTFLAG_SYMBOL:aa;
+                cso.expectedFlags=flags;
+                const auto value=originalCache.GetCSOScaled(cso,i==3?family:publishedFamily,normalized[i],0,flags);
+                Check(value.handle==handles[i]&&value.recipeTall==expected[i],"refresh reopen allocated a permanent HFont or changed its recipe");
+                Check(value.tall==expected[i]+(i==3?0:metricOffset),"refresh reopen did not measure the retained replacement font");
+            }
+        };
+        reopen(originalFamily,round%3);       // unchanged family, new bytes/metrics
+        reopen(replacementFamily,2);          // committed family update
+        reopen(originalFamily,0);            // cancelled update restores old family
+        Check(cso.next==beforeRefreshCreated&&cso.added==beforeRefreshAdded,"refresh/rollback loop increased CreateFont or AddGlyphSetToFont calls");
+    }
+    std::cout<<"refresh rounds=32; CreateFont delta="<<cso.next-beforeRefreshCreated<<"; AddGlyphSet delta="<<cso.added-beforeRefreshAdded<<'\n';
     cso.fail=true;
     const auto failed=originalCache.GetCSOScaled(cso,family,7,0,vgui::FONTFLAG_SYMBOL);
     Check(!failed.handle&&failed.tall==0&&failed.recipeTall==11,"current CSO glyph configuration failure hidden");
-    cso.fail=false;originalCache.Invalidate();
+    cso.fail=false;originalCache.InvalidateFailures();
+    const auto recovered=originalCache.GetCSOScaled(cso,family,7,0,vgui::FONTFLAG_SYMBOL);
+    Check(recovered.handle&&recovered.recipeTall==11&&recovered.tall==13,"repaired resource did not retry the exact failed CSO recipe");
+    Check(originalCache.GetCSOScaled(cso,family,11,0,vgui::FONTFLAG_SYMBOL).handle==handles[3],"failed recipe cleanup discarded successful CSO font cache entries");
+    originalCache.Invalidate();
     const auto refreshed=originalCache.GetCSOScaled(cso,family,11,0,vgui::FONTFLAG_SYMBOL);
-    Check(refreshed.handle!=handles[3]&&refreshed.recipeTall==17&&refreshed.tall==19,"current CSO resource refresh reused retired recipe handle or assumed metrics");
+    Check(refreshed.handle!=handles[3]&&refreshed.recipeTall==17&&refreshed.tall==19,"shutdown invalidation reused a retired recipe handle or assumed metrics");
     std::cout << "host adapter SDK regression passed: immutable resize, language, metrics, refresh, old-code rejection\n";
     std::cout<<"checks="<<checks<<" failures=0\n";
 }
