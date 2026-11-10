@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Entire production consumer and real TGA codec. Engine, surface and font
 // handles are controlled boundaries; this is not a GL/font pixel test.
+#include "allocation_probe.hpp"
 #include "native/csol/client/hud_style.cpp"
 #include "tests/csol-hud-style/surface_stub.hpp"
 #include <cstring>
@@ -23,6 +24,12 @@ int scenarioLevel=121;
 std::map<std::string,std::vector<std::byte>> files;
 csol::WeaponDefinition definition{};
 const csol::WeaponDefinition* titleDefinition{};
+std::map<int,csol::WeaponDefinition> selectionDefinitions;
+std::vector<int> selectionItems;
+int selectionPending{};
+bool selectionHudOwner{};
+std::map<int,int> selectionReserve;
+std::set<int> selectionEmpty;
 csol::hud_style::WeaponState state{};
 csol::Character character{};
 bool haveCharacter=true;
@@ -60,6 +67,7 @@ struct Text {std::wstring value;int x{},y{};vgui::HFont font{};std::array<int,4>
 struct Filled {int x{},y{},right{},bottom{};std::array<int,4> color{};};
 struct Surface final:vgui::HudTestSurface
 {
+    bool record=true;
     int width=1280,height=720,current{},next=10,pushes{},pops{},root=1,x{},y{};
     std::array<int,4> color{};
     std::array<int,4> textColor{};
@@ -80,17 +88,17 @@ struct Surface final:vgui::HudTestSurface
     {Check(live.contains(id)&&rgba&&w>0&&h>0,"real TGA bytes uploaded to an owned texture");uploads[id]={unsigned(w),unsigned(h),{rgba,rgba+w*h*4}};}
     void DrawSetTexture(int id)override{current=id;}
     void DrawSetColor(int r,int g,int b,int a)override{color={r,g,b,a};}
-    void DrawFilledRect(int x0,int y0,int x1,int y1)override{fills.push_back({x0,y0,x1,y1,color});}
+    void DrawFilledRect(int x0,int y0,int x1,int y1)override{if(record)fills.push_back({x0,y0,x1,y1,color});}
     void DrawTexturedPolygon(vgui::VGuiVertex* v,int count)override
-    {Check(count==4,"HUD uses four vertices");quads.push_back({current,v[0].GetX(),v[0].GetY(),v[2].GetX(),v[2].GetY(),v[0].GetU(),v[2].GetU(),color});}
+    {Check(count==4,"HUD uses four vertices");if(record)quads.push_back({current,v[0].GetX(),v[0].GetY(),v[2].GetX(),v[2].GetY(),v[0].GetU(),v[2].GetU(),color});}
     void DrawTexturedRectAdd(int x0,int y0,int x1,int y1)override
-    {quads.push_back({current,x0,y0,x1,y1,0,1,color,true});}
+    {if(record)quads.push_back({current,x0,y0,x1,y1,0,1,color,true});}
     vgui::HFont CreateFont()override{++fontCreations;return 99;}
     void GetTextSize(vgui::HFont,const wchar_t* t,int& w,int& h)override{++textMeasurements;w=int(std::wcslen(t))*9;h=13;}
     void DrawSetTextFont(vgui::HFont font)override{currentFont=font;}
     void DrawSetTextColor(int r,int g,int b,int a)override{textColor={r,g,b,a};}
     void DrawSetTextPos(int a,int b)override{x=a;y=b;}
-    void DrawPrintText(const wchar_t* t,int n)override{texts.push_back({std::wstring(t,n),x,y,currentFont,textColor});}
+    void DrawPrintText(const wchar_t* t,int n)override{if(record)texts.push_back({std::wstring(t,n),x,y,currentFont,textColor});}
 } capture;
 struct Scheme final:vgui::IScheme
 {
@@ -183,6 +191,16 @@ void Draw()
     capture.quads.clear();capture.texts.clear();capture.fills.clear();BeginHudStyle(0,0);DrawHudStyle();Paint();
     Check(capture.pushes==capture.pops,"surface context always balanced");
 }
+void InvalidateSelectedRow()
+{
+    using namespace csol::client;
+    if(auto found=selectionCards.find(state.id);found!=selectionCards.end())
+    {
+        auto& card=found->second;
+        Delete(card.image);Delete(card.ammo);Delete(card.secondary);
+        card.equippedReady=false;card.imageRetryAfter=0;card.titleId=0;
+    }
+}
 std::string DigitsAt(int y)
 {
     std::string result;
@@ -250,11 +268,11 @@ void ExerciseMoney()
     PrepareSelection();Draw();Check(SameMoneyGeometry(stable),"unknown weapon cannot move money panel");
     state=savedState;definition.name="weapon_unlisted";PrepareSelection();Draw();
     Check(!HudStyleWeaponVisible()&&SameMoneyGeometry(stable),"uncatalogued weapon cannot move money panel");
-    definition.name=savedDefinition;auto savedAmmo=files.at(ammo);files.erase(ammo);PrepareSelection();Draw();
+    definition.name=savedDefinition;auto savedAmmo=files.at(ammo);files.erase(ammo);InvalidateSelectedRow();PrepareSelection();Draw();
     Check(!HudStyleWeaponVisible()&&SameMoneyGeometry(stable),"missing weapon ammo art cannot move money panel");
-    files[ammo]={std::byte{1}};selectionRetryAfter=0;PrepareSelection();Draw();
+    files[ammo]={std::byte{1}};InvalidateSelectedRow();PrepareSelection();Draw();
     Check(!HudStyleWeaponVisible()&&SameMoneyGeometry(stable),"corrupt weapon ammo art cannot move money panel");
-    files[ammo]=std::move(savedAmmo);selectionRetryAfter=0;PrepareSelection();
+    files[ammo]=std::move(savedAmmo);InvalidateSelectedRow();PrepareSelection();
     state.kind=csol::hud_style::AmmoKind::None;Draw();
     Check(HudStyleWeaponVisible()&&SameMoneyGeometry(stable),"melee without ammunition keeps independent account geometry");state=savedState;
     scenarioLevel=-1;Draw();Check(MoneyAt(159)=="7500"&&MoneyAt(200).empty(),"ordinary mode removes original 41-pixel scenario offset");scenarioLevel=121;
@@ -357,12 +375,12 @@ void ExerciseScheme()
     }
     auto& title=catalog.weapons.at(definition.name).title;const auto savedTitle=title;
     title="这是用于验证原版字体不能被自动缩小的非常长武器名称";
-    weaponName.clear();PrepareSelection();HudStyleFrame();Draw();
+    InvalidateSelectedRow();PrepareSelection();HudStyleFrame();Draw();
     Check(std::any_of(capture.texts.begin(),capture.texts.end(),[](const auto& t)
         {return t.value==L"1 这是用于验证原版字体不能被自动缩小的非常长武器名称"&&t.font==7&&t.color==std::array<int,4>{255,255,255,255};}),
         "long official title keeps complete text and original font/color without adaptive shrinking");
     Check(!capture.fontCreations&&!capture.textMeasurements,"long title does not allocate synthetic glyph sets");
-    title=savedTitle;weaponName.clear();PrepareSelection();
+    title=savedTitle;InvalidateSelectedRow();PrepareSelection();
     for(const auto dimensions:{std::array<int,2>{640,480},{800,600},{1024,768},{1280,720},{1920,1080}})
     {
         capture.width=dimensions[0];capture.height=dimensions[1];HudStyleFrame();Draw();
@@ -455,7 +473,14 @@ metahook_api_t* api{};cl_enginefunc_t engine{};ref_params_t view{};
 void SynchronizeSession(){++fixture::syncs;if(fixture::newSession){fixture::newSession=false;ResetHudStyle();}}
 std::vector<std::byte> ReadResource(const char* path)
 {++fixture::reads;const auto it=fixture::files.find(path);if(it==fixture::files.end())throw std::runtime_error("controlled missing resource");return it->second;}
-const WeaponDefinition* FindWeaponDefinition(int id){return id==fixture::definition.id?&fixture::definition:nullptr;}
+const WeaponDefinition* FindWeaponDefinition(int id)
+{if(id==fixture::definition.id)return &fixture::definition;
+ const auto it=fixture::selectionDefinitions.find(id);return it==fixture::selectionDefinitions.end()?nullptr:&it->second;}
+WeaponSelectionView WeaponSelectionForHud(){return {fixture::selectionPending,fixture::selectionItems};}
+void SetWeaponSelectionHudVisible(bool visible){fixture::selectionHudOwner=visible;}
+void SetWeaponSelectionHudAvailable(bool){}
+bool WeaponHasAmmo(int id){return !fixture::selectionEmpty.contains(id);}
+int WeaponReserveAmmo(int type){const auto it=fixture::selectionReserve.find(type);return it==fixture::selectionReserve.end()?0:it->second;}
 const WeaponDefinition* FindWeaponTitleDefinition(int id)
 {return fixture::titleDefinition?fixture::titleDefinition:FindWeaponDefinition(id);}
 hud_style::WeaponState CurrentWeaponHudState(){return fixture::state;}
@@ -539,12 +564,12 @@ int main(int argc,char** argv)
     scenarioLevel=-1;Draw();Check(std::none_of(capture.texts.begin(),capture.texts.end(),[](const auto& t){return t.value.starts_with(L"Lv.");}),"ordinary server does not invent a level label");scenarioLevel=121;
     definition.name="weapon_unlisted";PrepareSelection();BeginHudStyle(0,0);
     Check(HudStyleVitalsVisible()&&!HudStyleWeaponVisible()&&!weaponImage.id,"unknown weapon falls back independently of vitals");
-    definition.name="weapon_cannon";files.erase(ammo);PrepareSelection();BeginHudStyle(0,0);
+    definition.name="weapon_cannon";files.erase(ammo);InvalidateSelectedRow();PrepareSelection();BeginHudStyle(0,0);
     Check(!weaponImage.id&&!ammoImage.id&&!HudStyleWeaponVisible(),"missing selected ammo cannot partially own weapon HUD");
     const auto rowReads=reads;PrepareSelection();Check(reads==rowReads,"failed selection does not read every frame");
-    files[ammo]={std::byte{1},std::byte{2}};selectionRetryAfter=0;PrepareSelection();BeginHudStyle(0,0);
+    files[ammo]={std::byte{1},std::byte{2}};InvalidateSelectedRow();PrepareSelection();BeginHudStyle(0,0);
     Check(!weaponImage.id&&!ammoImage.id&&!HudStyleWeaponVisible(),"corrupt TGA rejected by real decoder without partial replacement");
-    files[ammo]=Tga(24,24);selectionRetryAfter=0;PrepareSelection();BeginHudStyle(0,0);Check(HudStyleWeaponVisible(),"downloaded weapon row recovers");
+    files[ammo]=Tga(24,24);InvalidateSelectedRow();PrepareSelection();BeginHudStyle(0,0);Check(HudStyleWeaponVisible(),"downloaded weapon row recovers");
     state.id=999;PrepareSelection();BeginHudStyle(0,0);Check(!HudStyleWeaponVisible()&&!weaponImage.id,"switch to unregistered weapon retires prior art");state.id=400;PrepareSelection();
     state.kind=csol::hud_style::AmmoKind::Total;state.total=30;Draw();Check(DigitsAt(681).ends_with("30"),"total-ammo weapon keeps all thirty throws");
     for(const auto& q:capture.quads)if(q.y==681&&q.x>1000&&(q.texture==digits[3].id||q.texture==digits[0].id))
@@ -605,7 +630,9 @@ int main(int argc,char** argv)
             const std::vector<char> value(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>{});
             Put(entry.path().lexically_relative(root).generic_string(),std::string(value.begin(),value.end()));
         }
-        Prepare();PrepareMoney();Check(loaded&&moneyLoaded&&catalog.weapons.size()==34&&catalog.portraits.size()==149,"real resources-06 export decoded with actual production parser and money loader");
+        const auto& catalogBytes=files.at(csol::hud_style::CatalogPath);
+        const auto expectedCatalog=csol::hud_style::ParseCatalog({reinterpret_cast<const char*>(catalogBytes.data()),catalogBytes.size()});
+        Prepare();PrepareMoney();Check(loaded&&moneyLoaded&&catalog.weapons.size()==expectedCatalog.weapons.size()&&catalog.portraits.size()==expectedCatalog.portraits.size(),"real export decoded with actual production parser and money loader");
         previousHealth=previousArmor=previousMoney=Previous;
         nativeHealth=nativeArmor=nullptr;Seed();SendMoney(32000,0);state.kind=csol::hud_style::AmmoKind::Magazine;
         for(const auto& [name,row]:catalog.weapons)
@@ -627,7 +654,12 @@ int main(int argc,char** argv)
                 Check(std::any_of(capture.quads.begin(),capture.quads.end(),[](const auto& q)
                     {return q.texture==ammoImage.id&&q.color==std::array<int,4>{114,197,255,255};}),"real exported special icon stays blue");
             }
-            state=saved;
+            state.kind=csol::hud_style::AmmoKind::None;selectionItems={definition.id};selectionPending=definition.id;
+            preparedSelection=0;Draw();
+            Check(selectionHudOwner==row.selectedKnown,"every real selected branch requires explicit catalog evidence");
+            if(row.selectedKnown&&!row.selected.empty())
+                Check(selectionCards.at(definition.id).selectedImage.id>0,"every exported real weapon_s decodes through production preparation");
+            selectionPending=0;Draw();state=saved;
         }
         for(const auto& [id,path]:catalog.portraits){character.id=id;PrepareSelection();Check(portrait.id>0,"every generated portrait decodes through real TGA loader");}
         for(int id:{39,40}){character.id=id;PrepareSelection();BeginHudStyle(0,0);Check(!portrait.id&&HudStyleVitalsVisible(),"missing original portrait never substitutes wrong person or removes vitals");}

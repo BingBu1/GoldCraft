@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-hud-style/weapon_selection.cpp",
+    "tests/csol-hud-style/run_selection.py",
     "tests/csol-buy-menu/DIRECT.md",
     "tests/csol-buy-menu/direct.cpp",
     "tests/csol-buy-menu/native_panel.hpp",

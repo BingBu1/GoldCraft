@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "resource_refresh.hpp"
 #include "overlay_layers.hpp"
 #include "hud_style.hpp"
 #include "user_message_chain.hpp"
@@ -40,9 +41,37 @@ std::array<Texture,unsigned(hud::Art::Count)> art{};
 std::array<Texture,10> digits{};
 std::array<Texture,10> moneyDigits{};
 Texture portrait, weaponImage, ammoImage, secondaryImage;
-std::string portraitPath, weaponName;
+std::string portraitPath;
+std::string_view weaponName;
 int weaponTitleId{},weaponTitleSlot=-1;
-std::wstring weaponTitle;
+std::wstring_view weaponTitle;
+struct SelectionCard
+{
+    std::string name;
+    std::wstring title;
+    int titleId{},titleSlot=-1;
+    Texture image,selectedImage,ammo,secondary;
+    bool equippedReady{},selectedKnown{},selectedAbsent{};
+    ULONGLONG imageRetryAfter{},selectedRetryAfter{};
+};
+std::unordered_map<int,SelectionCard> selectionCards;
+std::array<SelectionCard*,WeaponIdLimit> preparedCards{};
+std::uint64_t cardsRevision=~std::uint64_t{};
+ULONGLONG cardsRetryAfter{};
+struct SelectionRow
+{
+    int id{};
+    bool expanded{},selected{};
+    const SelectionCard* card{};
+    int ammo1=-1,ammo2=-1,maxAmmo1=-1,maxAmmo2=-1,reserve1{},reserve2{};
+    bool hasAmmo{};
+    bool equipped{};
+};
+std::vector<SelectionRow> selectionRows;
+bool selectionReady{};
+int preparedSelection{},preparedEquipped{};
+std::uint64_t preparedSelectionRevision{};
+ULONGLONG listRetryAfter{};
 vgui::HFont titleFont{};
 int* nativeHealth{};
 int* nativeArmor{};
@@ -51,7 +80,6 @@ bool pendingVitals{}, loaded{}, reported{}, gameUI{}, console{}, requested{}, ad
 bool vitalsVisible{}, weaponVisible{}, moneyVisible{}, moneyLoaded{}, moneyReported{};
 int screenWidth{}, screenHeight{}, portraitId{};
 ULONGLONG retryAfter{};
-ULONGLONG selectionRetryAfter{};
 ULONGLONG portraitRetryAfter{};
 ULONGLONG moneyRetryAfter{};
 unsigned draws{}, rejected{};
@@ -76,10 +104,15 @@ void ReleaseBase()
 {
     for (unsigned i=0;i<unsigned(hud::Art::MoneyBackground);++i) Delete(art[i]);
     for (auto& texture : digits) Delete(texture);
-    Delete(portrait); Delete(weaponImage); Delete(ammoImage); Delete(secondaryImage);
-    portraitId=0; portraitPath.clear(); weaponName.clear(); weaponTitle.clear();
+    Delete(portrait);weaponImage=ammoImage=secondaryImage={};
+    for(auto& [id,card]:selectionCards){Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);}
+    preparedCards={};cardsRevision=~std::uint64_t{};cardsRetryAfter=0;
+    selectionCards.clear();selectionRows.clear();selectionReady=false;preparedSelection=0;listRetryAfter=0;
+    SetWeaponSelectionHudVisible(false);
+    SetWeaponSelectionHudAvailable(false);
+    portraitId=0; portraitPath.clear(); weaponName={}; weaponTitle={};
     weaponTitleId=0;weaponTitleSlot=-1;
-    selectionRetryAfter=portraitRetryAfter=0;
+    portraitRetryAfter=0;
     loaded=false; requested=vitalsVisible=weaponVisible=false;
 }
 void ReleaseMoney()
@@ -134,7 +167,7 @@ void Prepare()
         if (!privateFont)
         {
             const auto font=ReadResource(hud::FontPath); DWORD count{};
-            privateFont=AddFontMemResourceEx(const_cast<std::byte*>(font.data()),DWORD(font.size()),nullptr,&count);
+            privateFont=RegisterResourceFont(privateFont,hud::FontPath,nullptr,font,&count);
             if (!privateFont) throw std::runtime_error("cannot load CSOL HUD font");
         }
         // Use CSO's complete EngineFont scheme entry. The VGUI scheme owns
@@ -188,56 +221,124 @@ void PrepareMoney()
         moneyReported=true;
     }
 }
+// Original x86 CHudAmmo 02A25500..02A25C49; current x64 18140FDC0.
+// Deploy publishes MPToCL83's player weapon identity (MP1153D7BB), holster
+// publishes -1 (11541B8C). CHudAmmo keeps that off-row before pending items.
+void PrepareWeaponCard(int id)
+{
+    const auto* definition=FindWeaponDefinition(id);
+    if(!definition || !ValidWeaponId(id))return;
+    const auto image=catalog.weapons.find(definition->name);
+    if(image==catalog.weapons.end())return;
+    const auto* titleDefinition=FindWeaponTitleDefinition(id);
+    const auto title=titleDefinition?catalog.weapons.find(titleDefinition->name):catalog.weapons.end();
+    if(title==catalog.weapons.end())return;
+    auto& card=selectionCards[id];
+    if(card.name!=definition->name)
+    {
+        Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);
+        card={};card.name=definition->name;
+    }
+    preparedCards[id]=&card;
+    try
+    {
+        if(card.titleId!=titleDefinition->id || card.titleSlot!=titleDefinition->slot)
+        {
+            card.title=std::to_wstring(titleDefinition->slot+1)+L" "+Wide(title->second.title);
+            card.titleId=titleDefinition->id;card.titleSlot=titleDefinition->slot;
+        }
+        const auto now=GetTickCount64();
+        if(!card.equippedReady && now>=card.imageRetryAfter)
+        {
+            card.imageRetryAfter=now+5000;
+            // Stage the entire equipped row; no partial ammo ownership.
+            Texture normal,primary,secondary;
+            try
+            {
+                if(!card.image.id)normal=Load(image->second.weapon.c_str());
+                if(!image->second.ammo.empty() && !card.ammo.id)primary=Load(image->second.ammo.c_str());
+                if(!image->second.ammo2.empty() && !card.secondary.id)secondary=Load(image->second.ammo2.c_str());
+                if(normal.id)card.image=normal;if(primary.id)card.ammo=primary;if(secondary.id)card.secondary=secondary;
+                card.equippedReady=true;
+            }
+            catch(...){Delete(normal);Delete(primary);Delete(secondary);throw;}
+        }
+        card.selectedKnown=image->second.selectedKnown;
+        card.selectedAbsent=card.selectedKnown && image->second.selected.empty();
+        if(!card.selectedImage.id && !image->second.selected.empty() && now>=card.selectedRetryAfter)
+        {
+            card.selectedRetryAfter=now+5000;card.selectedImage=Load(image->second.selected.c_str());
+        }
+    }
+    catch(const std::exception& error)
+    {
+        if(!reported)engine.Con_DPrintf("CSOLSupport: HUD weapon preparation: %s\n",error.what());
+        reported=true;
+    }
+}
+void UsePreparedWeapon(int id)
+{
+    const auto* definition=FindWeaponDefinition(id);
+    const auto* card=ValidWeaponId(id)?preparedCards[id]:nullptr;
+    if(!definition || !card || card->name!=definition->name || !card->equippedReady)
+    {weaponImage=ammoImage=secondaryImage={};weaponName={};weaponTitle={};weaponTitleId=0;weaponTitleSlot=-1;return;}
+    weaponImage=card->image;ammoImage=card->ammo;secondaryImage=card->secondary;
+    weaponName=card->name;weaponTitle=card->title;weaponTitleId=card->titleId;weaponTitleSlot=card->titleSlot;
+}
+void PrepareWeaponList()
+{
+    const auto pending=WeaponSelectionForHud();
+    if(pending.selected==preparedSelection && weapon.id==preparedEquipped && pending.revision==preparedSelectionRevision &&
+        (selectionReady || GetTickCount64()<listRetryAfter))return;
+    selectionRows.clear();selectionReady=false;preparedSelection=pending.selected;
+    preparedEquipped=weapon.id;
+    preparedSelectionRevision=pending.revision;listRetryAfter=GetTickCount64()+5000;
+    if(const auto* current=FindWeaponDefinition(weapon.id))
+        selectionRows.push_back({.id=current->id,.expanded=true,.ammo1=current->ammo1,.ammo2=current->ammo2,
+            .maxAmmo1=current->maxAmmo1,.maxAmmo2=current->maxAmmo2,.equipped=true});
+    const auto* chosen=FindWeaponDefinition(pending.selected);
+    if(!pending.selected || (pending.selected>0 && (!chosen || chosen->slot<0 || chosen->slot>4)))
+    {selectionReady=!pending.selected && !selectionRows.empty();return;}
+    bool complete=true;
+    for(auto it=pending.items.rbegin();it!=pending.items.rend();++it)
+    {
+        const auto* definition=FindWeaponDefinition(*it);
+        if(!definition || definition->slot<0 || definition->slot>4)continue;
+        const bool expanded=chosen && definition->slot==chosen->slot;
+        // The source table reserves index zero; bridge positions are ordered
+        // by their actual WeaponList definition. Its first item is the head.
+        const auto* next=it+1==pending.items.rend()?nullptr:FindWeaponDefinition(*(it+1));
+        const bool first=!next || next->slot!=definition->slot;
+        if(!expanded && definition->slot!=4 && !first)continue;
+        const auto* cached=preparedCards[definition->id];
+        if(!cached || cached->name!=definition->name){complete=false;continue;}
+        const auto& card=*cached;
+        const auto& texture=definition->id==pending.selected?card.selectedImage:card.image;
+        const bool absentSelected=definition->id==pending.selected && card.selectedAbsent;
+        // 02A27ADF explicitly stores handle0 when weapon_s is absent. This is
+        // distinct from a missing download or a legacy catalog without schema.
+        if(card.title.empty() || (expanded && !texture.id && !absentSelected)){complete=false;continue;}
+        selectionRows.push_back({definition->id,expanded,definition->id==pending.selected,&card,
+            definition->ammo1,definition->ammo2,definition->maxAmmo1,definition->maxAmmo2});
+    }
+    selectionReady=complete && !selectionRows.empty();
+}
 void PrepareSelection()
 {
-    const auto* definition=FindWeaponDefinition(CurrentWeaponHudState().id);
     static const std::string empty;
-    const auto& name=definition?definition->name:empty;
-    if (weaponName!=name)
+    const auto pending=WeaponSelectionForHud();
+    const auto now=GetTickCount64();
+    if(cardsRevision!=pending.revision || now>=cardsRetryAfter)
     {
-        Delete(weaponImage); Delete(ammoImage); Delete(secondaryImage);
-        weaponName=name; weaponTitle.clear();
-        weaponTitleId=0;weaponTitleSlot=-1;
-        selectionRetryAfter=0;
+        cardsRevision=pending.revision;cardsRetryAfter=now+5000;
+        // Definitions arrive at sign-on, before ownership/CurWeapon. Warm all
+        // supported definitions here, so a later draw can switch with no I/O.
+        for(int id=1;id<WeaponIdLimit;++id)PrepareWeaponCard(id);
     }
-    const auto* titleDefinition=definition?FindWeaponTitleDefinition(definition->id):nullptr;
-    if(titleDefinition && (weaponTitleId!=titleDefinition->id || weaponTitleSlot!=titleDefinition->slot))
-    {
-        weaponTitle.clear();weaponTitleId=titleDefinition->id;weaponTitleSlot=titleDefinition->slot;
-        if(const auto found=catalog.weapons.find(titleDefinition->name);found!=catalog.weapons.end())
-        {
-            // Re-evaluate inventory ownership even when the equipped id did
-            // not change. Only the title follows CSO's paired-slot fallback.
-            try{weaponTitle=std::to_wstring(titleDefinition->slot+1)+L" "+Wide(found->second.title);}
-            catch(const std::exception& error)
-            {
-                if(!reported)engine.Con_DPrintf("CSOLSupport: HUD title: %s\n",error.what());
-                reported=true;
-            }
-        }
-    }
-    if (const auto found=catalog.weapons.find(name); found!=catalog.weapons.end() &&
-        !weaponImage.id && GetTickCount64()>=selectionRetryAfter)
-    {
-        selectionRetryAfter=GetTickCount64()+5000;
-        // Commit the complete row together. A missing ammo icon must not
-        // discard the native ammo display while showing only a silhouette.
-        Texture image, ammo, secondary;
-        try
-        {
-            const auto& item=found->second;
-            image=Load(item.weapon.c_str());
-            if (!item.ammo.empty()) ammo=Load(item.ammo.c_str());
-            if (!item.ammo2.empty()) secondary=Load(item.ammo2.c_str());
-            weaponImage=image; ammoImage=ammo; secondaryImage=secondary;
-        }
-        catch (const std::exception& error)
-        {
-            Delete(image); Delete(ammo); Delete(secondary);
-            if (!reported) engine.Con_DPrintf("CSOLSupport: HUD weapon: %s\n",error.what());
-            reported=true;
-        }
-    }
+    const int active=CurrentWeaponHudState().id;
+    PrepareWeaponCard(active);UsePreparedWeapon(active);
+    // Capacity is fixed outside draw even for a late pending/sentinel change.
+    if(selectionRows.capacity()<WeaponIdLimit+1)selectionRows.reserve(WeaponIdLimit+1);
     const auto* character=ViewCharacter();
     const int id=character?character->id:0;
     const auto found=catalog.portraits.find(id);
@@ -334,6 +435,58 @@ void PaintMoney()
     }
     surface->DrawSetColor(255,255,255,255);
 }
+void PaintSelectionAmmo(const SelectionRow& row,float x,float y,float s)
+{
+    // 02A23B50: secondary bars exist only after a nonempty primary reserve.
+    if(row.ammo1<0 || row.reserve1<=0)return;
+    const int width=screenWidth>=640?20:10,height=screenWidth>=640?4:2;
+    auto bar=[&](int count,int maximum)
+    {
+        // 02A23C10: float division/clamp and truncation, then a one-pixel
+        // minimum for a nonzero fraction. The remainder uses HUD RGB/alpha128.
+        const float fraction=std::clamp(float(count)/float(maximum),0.0f,1.0f);
+        const int filled=fraction>0?std::max(1,int(float(width)*fraction)):(std::isnan(fraction)?1:0);
+        if(filled)
+        {
+            surface->DrawSetColor(0,160,0,255);
+            surface->DrawFilledRect(int(x),int(y),int(x+filled*s),int(y+height*s));
+        }
+        surface->DrawSetColor(255,255,255,128);
+        surface->DrawFilledRect(int(x+filled*s),int(y),int(x+width*s),int(y+height*s));
+        x+=(width+5)*s;
+    };
+    x+=float(width/2)*s;
+    bar(row.reserve1,row.maxAmmo1);
+    if(row.ammo2>=0)bar(row.reserve2,row.maxAmmo2);
+}
+void PaintWeaponList()
+{
+    const float s=layout.scale,x=screenWidth-174*s;
+    float bottom=screenHeight-88*s;
+    for(const auto& row:selectionRows)
+    {
+        const float top=bottom-(row.expanded?61:22)*s;
+        surface->DrawSetColor(255,255,255,row.selected?100:225);
+        Art(row.expanded?(row.selected?hud::Art::WeaponSelectedCard:hud::Art::WeaponCard):
+            hud::Art::WeaponListRow,{x,top,170*s,bottom-top});
+        // 02A25850..02A258F5, ScaleColors02A6D020. The supported normal/
+        // Scenario modes take VidInit02A5E82D's white default. Original gold
+        // modes11/18/21/25/38/39 have no host mode metadata and are unsupported.
+        surface->DrawSetColor(row.hasAmmo?192:128,row.hasAmmo?192:8,row.hasAmmo?192:8,255);
+        if(row.expanded)
+        {
+            // 02A25981..02A259F8: selected background and additive frame
+            // are separate consumers. Never stretch the 60px TGA as a frame.
+            if(row.selected)Sprite(art[unsigned(hud::Art::WeaponSelectionFrame)],x,top,170*s,61*s);
+            const auto& image=row.equipped?weaponImage:row.selected?row.card->selectedImage:row.card->image;
+            Sprite(image,x,top+15*s,image.width*s,image.height*s);
+            PaintSelectionAmmo(row,x,top+18*s,s);
+        }
+        const auto& title=row.equipped?weaponTitle:row.card->title;
+        Text(title.data(),x+8*s,top+(row.expanded?4:6)*s,titleFont);
+        bottom=top-4*s;
+    }
+}
 void Paint()
 {
     if (!requested) return;
@@ -362,11 +515,15 @@ void Paint()
     {
         surface->DrawSetColor(255,255,255,225);
         Art(hud::Art::WeaponBottom,layout.weapon); Art(hud::Art::WeaponTop,layout.weapon);
-        surface->DrawSetColor(255,255,255,225);
-        Art(hud::Art::WeaponCard,{layout.card.x,layout.card.y,170*s,60*s});
-        surface->DrawSetColor(255,255,255,255);
-        Text(weaponTitle.c_str(),layout.card.x+8*s,layout.card.y+4*s,titleFont);
-        Sprite(weaponImage,layout.card.x,layout.card.y+15*s,weaponImage.width*s,weaponImage.height*s);
+        if(selectionReady)PaintWeaponList();
+        else
+        {
+            surface->DrawSetColor(255,255,255,225);
+            Art(hud::Art::WeaponCard,{layout.card.x,layout.card.y,170*s,60*s});
+            surface->DrawSetColor(255,255,255,255);
+            Text(weaponTitle.data(),layout.card.x+8*s,layout.card.y+4*s,titleFont);
+            Sprite(weaponImage,layout.card.x,layout.card.y+15*s,weaponImage.width*s,weaponImage.height*s);
+        }
         const float y=screenHeight-39*s;
         const float reserveRight=screenWidth-(10+ammoImage.width)*s;
         const auto infinity=[&](float x,float top,bool blue)
@@ -522,6 +679,8 @@ void HudStyleFrame()
 void BeginHudStyle(int hidden,int intermission)
 {
     vitalsVisible=weaponVisible=moneyVisible=false;
+    SetWeaponSelectionHudVisible(false);
+    SetWeaponSelectionHudAvailable(false);
     if (!surface || !extension || !additiveSurface || !styleOption || styleOption->value==0 ||
         layout.scale<=0 || !surface->GetEmbeddedPanel() ||
         gameUI || console || intermission || view.spectator || view.health<=0 || (hidden&4) ||
@@ -530,26 +689,40 @@ void BeginHudStyle(int hidden,int intermission)
     if (!loaded || !titleFont) return;
     vitalsVisible=!(hidden&8) && vitals.healthKnown && vitals.armorKnown;
     weapon=CurrentWeaponHudState();
-    // Prediction/CurWeapon can change the selection after HUD_Frame prepared
-    // its textures. Resolve that change before deciding this draw's ownership;
-    // otherwise one frame falls back to the old yellow ammo HUD on every switch.
-    PrepareSelection();
+    // Only select immutable resources prepared by HUD_Frame. All supported
+    // definitions were warmed there, including a CurWeapon arriving later.
+    UsePreparedWeapon(weapon.id);
     const auto* definition=FindWeaponDefinition(weapon.id);
     weaponVisible=!(hidden&1) && weapon.id>0 && definition && definition->name==weaponName &&
         weaponImage.id && titleFont && !weaponTitle.empty() &&
         (weapon.kind==hud::AmmoKind::None || ammoImage.id);
+    SetWeaponSelectionHudAvailable(weaponVisible);
+    if(weaponVisible)PrepareWeaponList();
+    if(weaponVisible && selectionReady)for(auto& row:selectionRows)if(row.expanded)
+    {
+        row.hasAmmo=WeaponHasAmmo(row.id);
+        row.reserve1=WeaponReserveAmmo(row.ammo1);row.reserve2=WeaponReserveAmmo(row.ammo2);
+    }
+    SetWeaponSelectionHudVisible(weaponVisible && selectionReady && preparedSelection!=0);
 }
 bool HudStyleVitalsVisible(){return vitalsVisible;}
 hud_style::Vitals HudStyleVitalsState(){return vitals;}
 void ConstrainHudStyle(bool nativeVitalsReady,bool nativeWeaponReady,bool nativeMoneyReady)
-{vitalsVisible=vitalsVisible&&nativeVitalsReady;weaponVisible=weaponVisible&&nativeWeaponReady;moneyVisible=moneyVisible&&nativeMoneyReady;}
+{vitalsVisible=vitalsVisible&&nativeVitalsReady;weaponVisible=weaponVisible&&nativeWeaponReady;moneyVisible=moneyVisible&&nativeMoneyReady;
+    SetWeaponSelectionHudAvailable(weaponVisible);
+    SetWeaponSelectionHudVisible(weaponVisible && selectionReady && preparedSelection!=0);}
 bool HudStyleWeaponVisible(){return weaponVisible;}
 bool HudStyleMoneyVisible(){return moneyVisible;}
 hud_style::Money HudStyleMoneyState(){return money;}
 float HudStyleScale(){return layout.scale;}
 void DrawHudStyle(){requested=vitalsVisible || weaponVisible || moneyVisible;}
-void ResetHudStyle(){vitals={};weapon={};money={};moneyChangedAt=0;moneyFadeActive=false;requested=vitalsVisible=weaponVisible=moneyVisible=false;}
+void ResetHudStyle(){selectionRows.clear();selectionReady=false;preparedSelection=0;listRetryAfter=0;SetWeaponSelectionHudVisible(false);SetWeaponSelectionHudAvailable(false);vitals={};weapon={};money={};moneyChangedAt=0;moneyFadeActive=false;requested=vitalsVisible=weaponVisible=moneyVisible=false;}
 void HudStyleVideoInit(){Release();retryAfter=moneyRetryAfter=0;reported=moneyReported=false;}
+void InvalidateHudStyleResources()
+{
+    HudStyleVideoInit();catalog={};layout={};
+}
+const char* ActiveHudResourceScheme(){return hudScheme?hud::SchemePath:nullptr;}
 void ShutdownHudStyle()
 {
     ResetHudStyle();Release();catalog={};
