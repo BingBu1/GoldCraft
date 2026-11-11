@@ -15,6 +15,16 @@
 | model-evidence/original-consumer.json：匹配 CSO client SHA `f4145136edbd229c219ea793bb3a6dcacea0b406ccc1e610138abbb8063bcbfd` 的 `StudioMergeBones` VA `02ACCA80` | 按骨名复制人物矩阵，未匹配骨才拼接局部变换 | 可复用真正绑定 `Bip01 R Hand` 的原版 P 模型；不能把 W 重命名冒充 P |
 | model-evidence/police-models.json、action-inventory.json | 另有 15 个原版 P；CSO 男女同名动作可能具有不同序号和帧长 | tools/Prepare-CryOfFearPlayerModels.py；动作按完整 label 和真实 descriptor 选择，禁止跨角色固定索引 |
 
+## 双手枪、冷资源与枪口组件检查点
+
+Glock/P345 已实现为实际 ReGameDLL 武器类，但尚未注册进游戏。Glock 的 43 个模型序列已经覆盖，P345 补上独立 Fidget；两枪随机闲置的机瞄检查与 RNG 次序不同，未按 CS 习惯补自动 Idle。详细证据和原指令/SDK 边界见 [双手枪生命周期](2026-11-11_验证-CoF双手枪生命周期-report.md)。Glock 为 160 射击、180 世界、105 transition 和 2556 SDK 检查；P345 为 160、180、279 Fidget 和 3026 SDK 检查，另六条公共顺序回放；均零失败。
+
+`native/guest/cof/magazine_model.*` 从冷准备的完整 Studio v10 资源计算真实序列时长，保留原 `1000F390` 的 float 转换和除法顺序。4138 原指令场景、四模型共124个真实序列及48项拒绝/事务检查通过。Glock 容量修复后的普通弹匣动作17334场景/48保护检查仍通过。P345 真实资源准备 `native/csol/server/weapons/guest_cof_resources.*` 使用 VFS 与引擎 precache/STRING 服务，570检查、39真实资源及87回调边界通过；generic 索引0有效，失败保留旧输出。CoF 松散目录未找到 w_9mmclip，夹具显式使用工作区 Valve 模型作为宿主输入；没有声称查明原继承来源。
+
+`native/guest/cof/client/muzzle_flash.*` 实现已证 P345 本地/世界枪口请求、单事件锁存和32条独立点光池；785个完整原字节输出场景与六条原生锁存检查零差异。本地清 sequence、保留 frame，世界保留两者；真实自定义光绘制仍待，池本身不能报告 renderer ready。父代理重新核对六文件、33既有窗口及139新增窗口，均匹配正确模块；服务端另343个原证窗与五组当前输入回执均核同。独立收据位于 `root-component-review`；公开源码不包含私有原指令或资源。
+
+本阶段没有替换客户端/服务端 DLL、启用整枪或进行实机/性能验收。接下来补实际工厂、全部效果消费者、命名空间声音、owner-frame、持续枪烟存储及购买/JSON伤害链。Ironsights xyz 在64条完整原视模探针中零读取，133新窗核同、88个 HUD 基址即时消费者已分类；未穷尽动态别名，不编造平移。Aurora 空节点继续保留，置零授权不扩展到删除、TTL或改计数。
+
 ## 用户授权的宿主差异
 
 灾变伤害不是 CoF 原版数值，使用服务器 JSON 单独配置，保留现有权威命中、护甲、升级和模式伤害链；不为每把枪添加 cvar。购买分类、中文前缀、CS/CSO 人物动作和缺失 P 模型制作属于宿主适配，不能声称是 CoF 原版第三人称实现。

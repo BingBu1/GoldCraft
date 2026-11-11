@@ -43,7 +43,9 @@ struct MagazineActionHost
 // for a one-frame sequence; presence is represented separately.
 struct MagazineSequenceTimes
 {
-    std::array<float, 38> duration{};
+    // Glock's original jump exit uses sequence42. This is host storage, not
+    // a request to play every sequence on every weapon (P345 ends at33).
+    std::array<float, 43> duration{};
     std::uint64_t present{};
 };
 

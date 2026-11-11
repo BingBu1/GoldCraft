@@ -2092,7 +2092,13 @@
     "tests/cryoffear-audio-bridge/README.md",
     "tests/cryoffear-particle-bridge/README.md",
     "tests/cryoffear-aurora/README.md",
-    "docs/2026-11-11_还原-CoF-Aurora-viewpunch-report.md"
+    "docs/2026-11-11_还原-CoF-Aurora-viewpunch-report.md",
+    "docs/2026-11-11_验证-CoF双手枪生命周期-report.md",
+    "tests/cryoffear-glock-weapon/README.md",
+    "tests/cryoffear-magazine-model/README.md",
+    "tests/cryoffear-muzzle-flash/README.md",
+    "tests/cryoffear-p345-weapon/README.md",
+    "tests/cryoffear-resource-preparation/README.md"
   ],
   "trees": {
     "native": [

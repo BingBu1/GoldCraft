@@ -9,6 +9,8 @@
 namespace guest::cof
 {
 // Authored CS inventory placement. CoF's original HUD slot is not a CS slot.
+inline constexpr int GlockHudSlot = 1;
+inline constexpr int GlockHudPosition = 0;
 inline constexpr int P345HudSlot = 1;
 inline constexpr int P345HudPosition = 1;
 

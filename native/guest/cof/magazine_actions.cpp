@@ -33,7 +33,8 @@ bool Valid(const MagazineActionState& state, Pistol pistol, float now) noexcept
 }
 bool HasSequence(const MagazineSequenceTimes& times, int sequence) noexcept
 {
-    return (times.present & (std::uint64_t{1} << sequence)) &&
+    return static_cast<unsigned>(sequence) < times.duration.size() &&
+        (times.present & (std::uint64_t{1} << sequence)) &&
         std::isfinite(times.duration[sequence]) && times.duration[sequence] >= 0;
 }
 MagazineActionResult CheckHost(const MagazineActionHost& host) noexcept
