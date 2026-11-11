@@ -48,6 +48,7 @@
 #include "scenario/core/scenario_upgrades.hpp"
 #include "scenario/core/scenario_abilities.hpp"
 #include "scenario/bosses/boss_health.hpp"
+#include "scenario/bosses/teddy_sparks.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
 #include "scenario/core/scenario_respawn_ui.hpp"
 #include "scenario/core/playerclip.hpp"
@@ -306,6 +307,7 @@ static void ScenarioHudInfo()
     ScenarioRoundHudDiagnostics(report);
     ScenarioRespawnUiDiagnostics(report);
     FrozenSmokeDiagnostics(report);
+    TeddySparksDiagnostics(report);
     HudStyleDiagnostics(report);
     engine.Con_Printf("%s", report.str().c_str());
 }
@@ -346,6 +348,7 @@ static void Init()
     InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
     InitializeBalrog11Flame();
+    InitializeTeddySparks();
     InitializeRenderSettings();
     InitializeEliteVisuals();
     InitializeScenarioUpgrades();
@@ -391,6 +394,7 @@ static void HudShutdown()
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ShutdownPlayerClips();
+    ResetTeddySparks();
     ShutdownSpray();
     ShutdownBossHealth();
     ShutdownScenarioRoundHud();
@@ -420,6 +424,7 @@ static void Frame(double time)
     ScenarioRespawnUiFrame();
     EliteVisualsFrame();
     Balrog11FlameFrame();
+    TeddySparksFrame();
     RenderSettingsFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();

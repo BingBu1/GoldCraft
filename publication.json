@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-11_实现-泰迪熊出生火花-report.md",
+    "tests/csol-teddy-sparks/README.md",
     "tests/csol-sequence-arena/cli_policy.py",
     "tools/Inspect-CryOfFearWeapons.py",
     "tools/Prepare-CryOfFearPlayerModels.py",

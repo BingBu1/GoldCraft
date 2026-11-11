@@ -43,6 +43,7 @@ target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_particles.cpp
     ../guest/cof/particle_protocol.cpp ../guest/cof/client/aurora.cpp
     ../guest/cof/client/aurora_render.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
+target_sources(CSOLSupport PRIVATE client/scenario/bosses/teddy_sparks.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)
 option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)
 target_compile_definitions(CSOLSupport PRIVATE CSOL_OPTIMIZE_HOST_CRC=$<BOOL:${CSOL_OPTIMIZE_HOST_CRC}>)

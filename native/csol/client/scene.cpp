@@ -14,6 +14,7 @@
 #include "render_settings.hpp"
 #include "scenario/monsters/elite_visuals.hpp"
 #include "scenario/monsters/frozen_smoke.hpp"
+#include "scenario/bosses/teddy_sparks.hpp"
 #include "camera.hpp"
 #include "weapons/projectiles.hpp"
 #include "gl_state.hpp"
@@ -939,7 +940,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     }
     catch(const std::exception& error){engine.Con_Printf("CSOLSupport: event: %s\n",error.what());}
 }
-void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();DrawEliteVisuals();DrawFrozenSmoke();DrawBalrog11Flame();}}
+void DrawWorldEffects(){if(enabled && enabled->value && EnsureGL()){GLState save;DrawBeamgunTracers();DrawCannonSmoke();DrawScenarioSmoke();DrawEliteVisuals();DrawFrozenSmoke();DrawBalrog11Flame();DrawTeddySparks();}}
 bool EnsureGraphics(){return EnsureGL();}
 void InitializeScene()
 {
@@ -956,6 +957,7 @@ void ClearScene()
     studioEventGuard.Clear();
     ResetEmotionVoices();
     ResetBalrog11Flame();
+    ResetTeddySparks();
     studioSounds={};studioSoundSerial=studioSoundDuplicates=0;studioSoundCounts={};
     if(postRenderer)postRenderer->UnregisterPostSceneCallbacks(&worldCallbacks);
     postRenderer=nullptr;postFrame=nullptr;worldDraws={};
