@@ -109,6 +109,20 @@ int PurchaseIdentity(const CBasePlayerWeapon& weapon)
     // after that write. Both owned SKULL3 entities replay the paired purchase.
     return weapon.m_iId==csol::skull3::DualId?csol::skull3::Id:weapon.m_iId;
 }
+bool OwnsGun(CBasePlayer& player,int id)
+{
+    // MP1140D853..1140D8B0 scans every non-knife inventory chain. Compare
+    // actual IDs: SKULL3's A remains linked while its D entity is active.
+    for(int slot=0;slot<MAX_ITEM_TYPES;++slot){
+        if(slot==KNIFE_SLOT)continue;
+        for(auto* item=player.m_rgpPlayerItems[slot];item;item=item->m_pNext){
+            const auto* gun=dynamic_cast<const CBasePlayerWeapon*>(item);
+            if(gun&&gun->m_iId==id&&!(gun->pev->flags&FL_KILLME)&&
+                gun->m_pPlayer==&player&&gun->pev->owner==player.edict())return true;
+        }
+    }
+    return false;
+}
 int SnapshotValue(int value){return static_cast<std::int16_t>(value);}
 void NativeCommand(CBasePlayer& player,const char* command)
 {
@@ -119,6 +133,14 @@ template<class Current>
 Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current& current)
 {
     if(!current()||!Eligible(&player)||!current()||!player.CanPlayerBuy(false)||!current())return Result::Unavailable;
+    // The native weapon buyer already rejects owned guns. Its extension
+    // delivery counterpart can replace them, so restore the original common
+    // purchase gate here, before availability, balance and any debit/grant.
+    // MP1140D916..1140D959 returns failure; knife selection has its own tail.
+    if(CSOL_ExtendedWeapon(item.id)&&!csol::melee::IsWeapon(item.id)&&OwnsGun(player,item.id)){
+        if(g_bClientPrintEnable)ClientPrint(player.pev,HUD_PRINTCENTER,"#Cstrike_Already_Own_Weapon");
+        return Result::Failed;
+    }
     if(!Available(&player,item)||!current())return Result::Unavailable;
     const int price=Price(&player,item);
     if(!IsAmmunition(item.id)&&player.m_iAccount<price)return Result::Insufficient;

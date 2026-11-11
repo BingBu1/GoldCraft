@@ -1,5 +1,18 @@
 # CSOL 底部 HUD 独立回归
 
+2026-11-11 标题字体消费者复核：当前原版 IDA 固定 1024×768 后选择 `EngineFont` 的 768–1023 档，recipe 为 Sarasa UI SC / 14 / 600 / DROPSHADOW；早期按宿主实时分辨率选字号的结论已被此证据取代。完整生产 HUD consumer 的新受控回归通过 client 9118/0、selection 274/0、pure 376/0，实际原始 TTF/GDI 注册与 298 文件导出组通过 11425/0。两轮均输入 SHA 保持；本机收据为 `build/csol-card-font-20261111-hud-04/receipt.json` 和 `build/csol-card-font-20261111-resources-02/receipt.json`。
+
+新覆盖保留标题与图像坐标，检查八档分辨率（含 1920×1200）、固定 recipe、无逐帧重查/分配、VideoInit 复用，以及实际 `AddGlyphSetToFont` 失败时原生 HUD 继续拥有显示权、五秒既有重试门后恢复。真实资源分支调用生产 `RegisterResourceFont` 和 Windows GDI，并检查 `SnapshotResourceFonts` 的 owner、资源名、Sarasa family、完整原始 TTF bytes、VideoInit 保留和 shutdown 退休。VGUI scheme、surface 和 engine 仍是受控边界；fixture 从未注册 UI callback，因此 shutdown 前清除 extension 哨兵。此组不证明完整 ResourceRefresh 事务、字体像素、GPU、实机/FPS 或部署结果。新旧源码对照为旧组 9027/21；旧 runner 首败后未执行 selection/pure。
+
+当前命令直接编译工作源码，不复制源码树，输出目录必须未存在：
+
+```bash
+python -X utf8 -B tests/csol-hud-style/run_selection.py --compile-commands build/resource-bridge-20261108/csol/compile_commands.json --environment build/csol-season2-trace-20261109/compiler-env.json --output build/csol-card-font-repro --suite hud
+build/csol-card-font-repro/client.exe build/csol-menu-weapon-selection-20261110-resources-03
+```
+
+第二条需完整真实导出（含原始 TTF），独立核验导出文件、EXE 和消费源前后 SHA；不能以假 privateFont 或字符串查找替代 GDI/注册表消费者验证。下文保留历史结果及冻结准备流程，不代表当前执行方式或当前原版字号结论。
+
 2026-11-02 金钱、原版字体、弹药数量与原等级面板回归已通过：pure 369/0、完整 HUD client 10119/0、contracts 683/0、level 145/0、weapon_state 89/0，共 11405 项检查零失败。`prepare-money-01` 全新编译十个 TU、五次链接、五组测试全部退出 0，用时 62.6655 秒；未复用 OBJ。51 对工作树/冻结源保持一致，571 个唯一实读 include 全部已登记，所有冻结输入前后 SHA 保持。证据为本地 `build/csol-hud-style-20261102/prepare-money-01/{result.json,execution-handoff.json}`。没有构建完整 DLL、部署或游戏/GPU/字体像素验收。
 
 原版武器标题使用 `EngineFont`，金额色值和有限/无限弹药位置依据原字节证据；下文各项“候选”描述现均已由上述五组离线测试执行。准备脚本仍只生成冻结提案，不自行启动编译器。下文 5721 项为历史结果，不替代本轮证据。

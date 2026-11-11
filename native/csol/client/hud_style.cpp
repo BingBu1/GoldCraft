@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "resource_refresh.hpp"
+#include "menu_font.hpp"
 #include "overlay_layers.hpp"
 #include "hud_style.hpp"
 #include "user_message_chain.hpp"
@@ -27,6 +28,8 @@ vgui::ISchemeManager* schemes{};
 IVGUI2Extension* extension{};
 HANDLE privateFont{};
 vgui::HScheme hudScheme{};
+MenuFontCache titleFonts;
+constexpr char engineFontFamily[]="Sarasa UI SC";
 cvar_t* styleOption{};
 cvar_t* scaleOption{};
 hud::Catalog catalog;
@@ -113,6 +116,7 @@ void ReleaseBase()
     portraitId=0; portraitPath.clear(); weaponName={}; weaponTitle={};
     weaponTitleId=0;weaponTitleSlot=-1;
     portraitRetryAfter=0;
+    titleFont=0;
     loaded=false; requested=vitalsVisible=weaponVisible=false;
 }
 void ReleaseMoney()
@@ -167,17 +171,21 @@ void Prepare()
         if (!privateFont)
         {
             const auto font=ReadResource(hud::FontPath); DWORD count{};
-            privateFont=RegisterResourceFont(privateFont,hud::FontPath,nullptr,font,&count);
+            privateFont=RegisterResourceFont(privateFont,hud::FontPath,engineFontFamily,font,&count);
             if (!privateFont) throw std::runtime_error("cannot load CSOL HUD font");
         }
-        // Use CSO's complete EngineFont scheme entry. The VGUI scheme owns
-        // resolution ranges, weight and shadow; do not guess or shrink fonts.
+        // Keep the resource/revision gate. Current CSO vgui2 180030B10 fixes
+        // its font viewport at 1024x768 before the EngineFont yres selection;
+        // the host scheme instead selects by live resolution (24 at 1200).
         if (ReadResource(hud::SchemePath).empty()) throw std::runtime_error("missing CSOL HUD scheme");
         hudScheme=schemes->LoadSchemeFromFile(hud::SchemePath,"CSOLHudV1");
         auto* scheme=hudScheme?schemes->GetIScheme(hudScheme):nullptr;
         const auto* revision=scheme?scheme->GetResourceString("CSOLHudRevision"):nullptr;
         if (!revision || std::string_view(revision)!="1" || !EngineFont())
             throw std::runtime_error("cannot load original CSOL EngineFont");
+        titleFonts.InvalidateFailures();
+        titleFont=titleFonts.Get(*surface,engineFontFamily,14,600,vgui::FONTFLAG_DROPSHADOW);
+        if (!titleFont) throw std::runtime_error("cannot prepare CSOL EngineFont recipe");
         catalog=std::move(candidate); loaded=true;
     }
     catch (const std::exception& error)
@@ -674,7 +682,6 @@ void HudStyleFrame()
     layout=hud::MakeLayout(screenWidth,screenHeight,scaleOption?scaleOption->value:1);
     if (!loaded) return;
     PrepareSelection();
-    titleFont=EngineFont();
 }
 void BeginHudStyle(int hidden,int intermission)
 {
@@ -728,6 +735,7 @@ void ShutdownHudStyle()
     ResetHudStyle();Release();catalog={};
     if (extension && surface) extension->UnregisterBaseUICallbacks(&overlay);
     if (privateFont) RemoveFontMemResourceEx(privateFont);
+    titleFonts.Invalidate();
     privateFont=nullptr;hudScheme=0;surface=nullptr;schemes=nullptr;extension=nullptr;
     nativeHealth=nativeArmor=nullptr;pendingVitals=false;gameUI=console=false;
     additiveSurface=false;

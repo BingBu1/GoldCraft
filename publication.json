@@ -17,6 +17,7 @@
     "tests/csol-rebuy/run_sdk.py",
     "tests/csol-rebuy/sdk.cpp",
     "docs/2026-11-10_实现-F2服务端装备重购-report.md",
+    "docs/2026-11-10_修复-F2重复扣款与武器卡片文字-report.md",
     "docs/2026-11-10_实现-菜单数据与原资源导出-report.md",
     "tests/csol-menu-data/run.py",
     "tests/csol-menu-data/main.cpp",

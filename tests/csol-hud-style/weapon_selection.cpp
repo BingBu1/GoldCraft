@@ -34,6 +34,9 @@ int main()
     Check(quad(Art::WeaponListRow,480,502,225)&&quad(Art::WeaponListRow,454,476,225),"compact original22px rows retain4px gaps");
     Check(std::any_of(capture.texts.begin(),capture.texts.end(),[](const auto& t){return t.value==L"3 Knife"&&t.x==1114&&t.y==510;}),"expanded title offset is8,4");
     Check(std::any_of(capture.texts.begin(),capture.texts.end(),[](const auto& t){return t.value==L"2 USP45"&&t.x==1114&&t.y==486;}),"compact title offset is8,6");
+    Check(titleFont==99&&capture.fontRecipes.size()==1&&capture.fontRecipes[0].tall==14&&
+        std::all_of(capture.texts.begin(),capture.texts.end(),[](const auto& t){return t.font==99;}),
+        "expanded and compact actual card consumers use the original fixed14 font recipe");
     Check(std::any_of(capture.quads.begin(),capture.quads.end(),[](const auto& q){return q.texture==weaponImage.id&&q.y==586;}),"pending list preserves deployed card and its current ammunition");
     Check(WeaponDigits()=="130","pending knife selection does not replace equipped firearm ammunition");
     Check(std::any_of(capture.quads.begin(),capture.quads.end(),[](const auto& q)

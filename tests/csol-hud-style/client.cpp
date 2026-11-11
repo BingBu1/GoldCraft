@@ -3,6 +3,7 @@
 // handles are controlled boundaries; this is not a GL/font pixel test.
 #include "allocation_probe.hpp"
 #include "native/csol/client/hud_style.cpp"
+#include "native/csol/client/resource_font_memory.hpp"
 #include "tests/csol-hud-style/surface_stub.hpp"
 #include <cstring>
 #include <filesystem>
@@ -65,9 +66,10 @@ const std::string json=R"({"version":1,"weapons":[{"name":"weapon_cannon","title
 struct Quad {int texture{},x{},y{},right{},bottom{};float u0{},u1{};std::array<int,4> color{};bool additive{};};
 struct Text {std::wstring value;int x{},y{};vgui::HFont font{};std::array<int,4> color{};};
 struct Filled {int x{},y{},right{},bottom{};std::array<int,4> color{};};
+struct FontRecipe {vgui::HFont handle{};std::string family;int tall{},weight{},blur{},scanlines{},flags{},low{},high{};};
 struct Surface final:vgui::HudTestSurface
 {
-    bool record=true;
+    bool record=true,glyphsReady=true;
     int width=1280,height=720,current{},next=10,pushes{},pops{},root=1,x{},y{};
     std::array<int,4> color{};
     std::array<int,4> textColor{};
@@ -78,6 +80,7 @@ struct Surface final:vgui::HudTestSurface
     std::vector<Quad> quads;
     std::vector<Text> texts;
     std::vector<Filled> fills;
+    std::vector<FontRecipe> fontRecipes;
     vgui::VPANEL GetEmbeddedPanel()override{return root;}
     void GetScreenSize(int& w,int& h)override{w=width;h=height;}
     void PushMakeCurrent(vgui::VPANEL,bool)override{++pushes;}
@@ -94,6 +97,9 @@ struct Surface final:vgui::HudTestSurface
     void DrawTexturedRectAdd(int x0,int y0,int x1,int y1)override
     {if(record)quads.push_back({current,x0,y0,x1,y1,0,1,color,true});}
     vgui::HFont CreateFont()override{++fontCreations;return 99;}
+    bool AddGlyphSetToFont(vgui::HFont handle,const char* family,int tall,int weight,int blur,int scanlines,int flags,int low,int high)override
+    {fontRecipes.push_back({handle,family,tall,weight,blur,scanlines,flags,low,high});return glyphsReady;}
+    int GetFontTall(vgui::HFont handle)override{return handle==99?15:24;}
     void GetTextSize(vgui::HFont,const wchar_t* t,int& w,int& h)override{++textMeasurements;w=int(std::wcslen(t))*9;h=13;}
     void DrawSetTextFont(vgui::HFont font)override{currentFont=font;}
     void DrawSetTextColor(int r,int g,int b,int a)override{textColor={r,g,b,a};}
@@ -354,7 +360,12 @@ void ExerciseScheme()
     HudStyleFrame();const auto warmLoads=schemeManager.loads;
     for(int frame=0;frame<5;++frame)HudStyleFrame();
     Check(schemeManager.loads==warmLoads,"ready HUD does not load a scheme every frame");
-    Check(titleFont==scheme.font&&!capture.fontCreations&&!capture.textMeasurements,"title uses VGUI-owned EngineFont without synthetic font or shrink measurement");
+    Check(titleFont==99&&capture.fontCreations==1&&!capture.textMeasurements,"title uses one immutable current-original EngineFont recipe without shrink measurement");
+    Check(capture.fontRecipes.size()==1&&capture.fontRecipes[0].family=="Sarasa UI SC"&&
+        capture.fontRecipes[0].tall==14&&capture.fontRecipes[0].weight==600&&
+        capture.fontRecipes[0].flags==vgui::FONTFLAG_DROPSHADOW&&capture.fontRecipes[0].blur==0&&
+        capture.fontRecipes[0].scanlines==0&&capture.fontRecipes[0].low==0&&capture.fontRecipes[0].high==0xffff,
+        "fixed768 yres branch submits14/600/shadow with no AA or second proportional scale");
     for(int failure:{0,1,2,3,4,5,6})
     {
         ReleaseBase();retryAfter=0;
@@ -371,27 +382,29 @@ void ExerciseScheme()
         const auto attempts=schemeManager.loads;Prepare();Check(schemeManager.loads==attempts,"failed scheme retry is bounded");
         files[csol::hud_style::SchemePath]=saved;schemeManager.result=19;schemeManager.available=true;scheme.revision="1";scheme.font=7;
         retryAfter=0;HudStyleFrame();Draw();
-        Check(loaded&&HudStyleVitalsVisible()&&HudStyleWeaponVisible()&&titleFont==7,"valid original scheme recovers after download or font readiness");
+        Check(loaded&&HudStyleVitalsVisible()&&HudStyleWeaponVisible()&&titleFont==99,"valid original scheme recovers after download or font readiness");
     }
     auto& title=catalog.weapons.at(definition.name).title;const auto savedTitle=title;
     title="这是用于验证原版字体不能被自动缩小的非常长武器名称";
     InvalidateSelectedRow();PrepareSelection();HudStyleFrame();Draw();
     Check(std::any_of(capture.texts.begin(),capture.texts.end(),[](const auto& t)
-        {return t.value==L"1 这是用于验证原版字体不能被自动缩小的非常长武器名称"&&t.font==7&&t.color==std::array<int,4>{255,255,255,255};}),
+        {return t.value==L"1 这是用于验证原版字体不能被自动缩小的非常长武器名称"&&t.font==99&&t.color==std::array<int,4>{255,255,255,255};}),
         "long official title keeps complete text and original font/color without adaptive shrinking");
-    Check(!capture.fontCreations&&!capture.textMeasurements,"long title does not allocate synthetic glyph sets");
+    Check(capture.fontCreations==1&&!capture.textMeasurements,"long title reuses the immutable glyph recipe");
     title=savedTitle;InvalidateSelectedRow();PrepareSelection();
-    for(const auto dimensions:{std::array<int,2>{640,480},{800,600},{1024,768},{1280,720},{1920,1080}})
+    const auto preparedFonts=capture.fontCreations,preparedRequests=scheme.fontRequests;
+    for(const auto dimensions:{std::array<int,2>{640,480},{800,600},{1024,768},{1280,720},{1920,1080},{1920,1200},{2560,1440},{3840,2160}})
     {
         capture.width=dimensions[0];capture.height=dimensions[1];HudStyleFrame();Draw();
         Check(layout.scale==1,"normal viewport keeps original fixed-pixel HUD dimensions");
         Check(std::any_of(capture.quads.begin(),capture.quads.end(),[&](const auto& q)
             {return q.texture==weaponImage.id&&q.x==dimensions[0]-174&&q.y==dimensions[1]-134&&q.right-q.x==170&&q.bottom-q.y==45;}),
             "weapon art retains original pixel dimensions across supported resolutions");
-        Check(titleFont==7,"font size is owned by VGUI scheme resolution ranges");
+        Check(titleFont==99&&capture.fontCreations==preparedFonts&&scheme.fontRequests==preparedRequests,
+            "live resolution never reselects EngineFont yres or allocates another HFont");
     }
     capture.width=1280;capture.height=720;scale.value=.5f;HudStyleFrame();Draw();
-    Check(layout.scale==.5f&&titleFont==7,"explicit image scaling does not synthesize a smaller EngineFont");
+    Check(layout.scale==.5f&&titleFont==99,"explicit image scaling does not synthesize a smaller EngineFont");
     scale.value=1;HudStyleFrame();
 }
 std::string WeaponDigits()
@@ -606,7 +619,7 @@ int main(int argc,char** argv)
     auto moneyPacket=MoneyPacket(7500);const auto moneyCalls=forwards;
     Check(messages["Money"].function("Money",5,moneyPacket.data())==73&&forwards==moneyCalls+1&&money.amount==7500,"immediate engine Money chain receives signon balance exactly once");
     HudStyleFrame();Check(installs==5&&messages["Health"].function==Health&&messages["Battery"].function==Armor,"first frame installs only two deferred observers");
-    Check(schemeManager.loads==beforeReload+1&&titleFont==scheme.font,"video reload reacquires original scheme once before drawing");
+    Check(schemeManager.loads==beforeReload+1&&titleFont==99&&capture.fontCreations==1,"video reload reacquires original scheme once and reuses its fixed font recipe");
     Check(vitals.health==1900&&vitals.armor==400,"deferred install seeds exact wide native globals");
     auto packet=Bytes(1800,4);const auto calls=forwards;
     Check(messages["Health"].function("Health",4,packet.data())==73&&forwards==calls+1&&vitals.health==1800,"engine head executes observer then preserved original handler");
@@ -621,6 +634,29 @@ int main(int argc,char** argv)
     const auto replacedCalls=forwards;
     Check(messages["Money"].function("Money",5,moneyPacket.data())==91&&forwards==replacedCalls+1&&money.amount==7500,"replaced native Money handler remains reachable exactly once");
     HudStyleVideoInit();Check(capture.live.empty(),"reinitialized resources also released");
+    // Exercise the actual consumer's failed glyph setup and its existing
+    // wall-clock retry gate. Do not reset the deadline to manufacture recovery.
+    previousHealth=previousArmor=Previous;
+    Seed();state.id=400;state.kind=csol::hud_style::AmmoKind::Magazine;
+    titleFonts.Invalidate();capture.glyphsReady=false;
+    const auto beforeFailedGlyphs=capture.fontCreations;
+    HudStyleFrame();Draw();
+    Check(!loaded&&!titleFont&&!HudStyleVitalsVisible()&&!HudStyleWeaponVisible()&&HudStyleMoneyVisible(),
+        "failed AddGlyphSetToFont preserves native base HUD and independent money");
+    Check(capture.fontCreations==beforeFailedGlyphs+1&&capture.texts.empty(),
+        "failed glyph recipe never draws a stale title");
+    const auto failedReads=reads,failedGlyphs=capture.fontCreations;
+    capture.glyphsReady=true;HudStyleFrame();Draw();
+    Check(!loaded&&reads==failedReads&&capture.fontCreations==failedGlyphs,
+        "glyph failure respects the existing retry deadline after readiness changes");
+    const auto now=GetTickCount64();
+    Check(retryAfter>=now&&retryAfter-now<=5000,"glyph retry uses the existing bounded five-second gate");
+    if(retryAfter>=now&&retryAfter-now<=5000)Sleep(DWORD(retryAfter-now+1));
+    HudStyleFrame();Draw();
+    Check(loaded&&titleFont==99&&HudStyleVitalsVisible()&&HudStyleWeaponVisible()&&
+        capture.fontCreations==failedGlyphs+1&&!capture.texts.empty(),
+        "actual timed retry discards only the failed glyph recipe and restores the HUD");
+    HudStyleVideoInit();
     if(argc==2)
     {
         files.clear();const std::filesystem::path root=argv[1];
@@ -632,7 +668,20 @@ int main(int argc,char** argv)
         }
         const auto& catalogBytes=files.at(csol::hud_style::CatalogPath);
         const auto expectedCatalog=csol::hud_style::ParseCatalog({reinterpret_cast<const char*>(catalogBytes.data()),catalogBytes.size()});
+        // The synthetic-resource suite uses a controlled already-registered
+        // owner. This branch instead registers the supplied real TTF through
+        // production RegisterResourceFont and Windows GDI.
+        privateFont=nullptr;
         Prepare();PrepareMoney();Check(loaded&&moneyLoaded&&catalog.weapons.size()==expectedCatalog.weapons.size()&&catalog.portraits.size()==expectedCatalog.portraits.size(),"real export decoded with actual production parser and money loader");
+#if CSOL_RESOURCE_REFRESH
+        const auto registeredFonts=SnapshotResourceFonts();
+        Check(registeredFonts.size()==1&&registeredFonts[0].owner==&privateFont&&
+            registeredFonts[0].handle==privateFont&&privateFont&&
+            registeredFonts[0].resource==csol::hud_style::FontPath&&
+            registeredFonts[0].family=="Sarasa UI SC"&&registeredFonts[0].bytes&&
+            *registeredFonts[0].bytes==files.at(csol::hud_style::FontPath),
+            "actual HUD TTF owner publishes Sarasa family and exact bytes to ResourceRefresh snapshot");
+#endif
         previousHealth=previousArmor=previousMoney=Previous;
         nativeHealth=nativeArmor=nullptr;Seed();SendMoney(32000,0);state.kind=csol::hud_style::AmmoKind::Magazine;
         for(const auto& [name,row]:catalog.weapons)
@@ -664,6 +713,17 @@ int main(int argc,char** argv)
         for(const auto& [id,path]:catalog.portraits){character.id=id;PrepareSelection();Check(portrait.id>0,"every generated portrait decodes through real TGA loader");}
         for(int id:{39,40}){character.id=id;PrepareSelection();BeginHudStyle(0,0);Check(!portrait.id&&HudStyleVitalsVisible(),"missing original portrait never substitutes wrong person or removes vitals");}
         HudStyleVideoInit();Check(capture.live.empty(),"real catalog texture lifecycle has no outstanding ownership");
+#if CSOL_RESOURCE_REFRESH
+        const auto videoFonts=SnapshotResourceFonts();
+        Check(videoFonts.size()==1&&videoFonts[0].handle==privateFont,
+            "VideoInit retains the tracked private font until owner shutdown");
+#endif
+        // This fixture calls Paint directly and never registered a UI callback.
+        extension=nullptr;ShutdownHudStyle();
+#if CSOL_RESOURCE_REFRESH
+        Check(SnapshotResourceFonts().empty()&&!privateFont,
+            "actual owner shutdown retires the GDI registration from ResourceRefresh");
+#endif
     }
     privateFont=nullptr;extension=nullptr;surface=nullptr;schemes=nullptr;
     std::cout<<"hud_style_client checks="<<checks<<" failures="<<failures<<'\n';return failures?1:0;
