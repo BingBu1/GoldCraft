@@ -1,6 +1,15 @@
 {
   "format": 1,
   "files": [
+    "tools/Inspect-CryOfFearWeapons.py",
+    "tools/Prepare-CryOfFearPlayerModels.py",
+    "tools/Generate-CryOfFearPlayerModel.py",
+    "tools/cryoffear_studio.py",
+    "docs/2026-11-11_接入-CryOfFear武器-report.md",
+    "tests/cryoffear-actions/README.md",
+    "tests/cryoffear-aim/README.md",
+    "tests/cryoffear-models/README.md",
+    "tests/cryoffear-spread/README.md",
     "tests/csol-hud-style/weapon_selection.cpp",
     "tests/csol-hud-style/run_selection.py",
     "tests/csol-buy-menu/DIRECT.md",
