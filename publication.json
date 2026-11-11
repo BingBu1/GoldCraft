@@ -2066,7 +2066,14 @@
     "docs/2026-11-11_修复-两刀切换列表旧式回退-report.md",
     "docs/2026-11-11_修复-旋风斧人物动画单位-report.md",
     "tests/csol-hud-style/knife_selection.cpp",
-    "tests/csol-hud-style/run_knife_selection.py"
+    "tests/csol-hud-style/run_knife_selection.py",
+    "native/csol/scenario/bosses/teddy_model_effect.hpp",
+    "tests/csol-scenario-teddy-messages/attack_model.cpp",
+    "tests/csol-scenario-teddy-messages/attack_model_oracle.py",
+    "tests/csol-scenario-teddy-messages/ground_oracle.py",
+    "tests/csol-scenario-teddy-messages/run_attack_model.py",
+    "tests/csol-scenario-teddy-messages/ATTACK_MODEL.md",
+    "docs/2026-11-11_实现-泰迪熊重击与黑洞模型事件-report.md"
   ],
   "trees": {
     "native": [
