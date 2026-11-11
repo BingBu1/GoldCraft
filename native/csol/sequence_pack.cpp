@@ -18,14 +18,22 @@ int wmain(int argc,wchar_t** argv)
 {
     try
     {
-        const bool extended=argc>1 && std::wstring_view(argv[1])==L"--extended";
-        const int first=extended?2:1;
-        if(argc<first+2)throw std::runtime_error("usage: csol_sequence_pack [--extended] OUTPUT NEW_BASE_MODEL [SEQUENCE...]");
+        bool extended=false;
+        auto layout=csol::SequencePackingLayout::ReuseVerifiedArena;
+        int first=1;
+        for(;first<argc;++first)
+        {
+            const std::wstring_view option(argv[first]);
+            if(option==L"--extended")extended=true;
+            else if(option==L"--append-only")layout=csol::SequencePackingLayout::AppendOnly;
+            else break;
+        }
+        if(argc<first+2)throw std::runtime_error("usage: csol_sequence_pack [--extended] [--append-only] OUTPUT NEW_BASE_MODEL [SEQUENCE...]");
         const std::filesystem::path output=argv[first];if(std::filesystem::exists(output))throw std::runtime_error("output already exists");
         auto base=Read(argv[first+1]);csol::DecodeStudioModel(base);
         std::vector<std::vector<std::byte>> sequences;
         for(int i=first+2;i<argc;++i)sequences.push_back(Read(argv[i]));
-        const auto merged=csol::AppendSequences(base,sequences);
+        const auto merged=csol::AppendSequences(base,sequences,csol::SequenceReadPolicy::StrictAllTracks,layout);
         int count,index;std::memcpy(&count,merged.data()+164,4);std::memcpy(&index,merged.data()+168,4);
         if(count>(extended?2048:256))throw std::runtime_error("player sequences exceed selected network format");
         std::filesystem::create_directories(output.parent_path());

@@ -2054,6 +2054,7 @@
     "docs/2026-11-08_验证-当前补丁单B入服与重连-report.md",
     "docs/2026-11-08_核对-Claude地图与投票准入-report.md",
     "docs/2026-11-11_修复-两刀切换列表旧式回退-report.md",
+    "docs/2026-11-11_修复-旋风斧人物动画单位-report.md",
     "tests/csol-hud-style/knife_selection.cpp",
     "tests/csol-hud-style/run_knife_selection.py"
   ],

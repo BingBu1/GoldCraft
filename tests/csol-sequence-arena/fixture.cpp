@@ -102,6 +102,9 @@ void Case(const char* name,Fixture f,bool reuse,bool fallback=false)
     const auto untouched=f.model;
     const auto old=csol::OldAppendSequences(f.model,f.seq,csol::SequenceReadPolicy::StrictAllTracks);
     const auto now=csol::AppendSequences(f.model,f.seq);
+    const auto appended=csol::AppendSequences(f.model,f.seq,csol::SequenceReadPolicy::StrictAllTracks,
+        csol::SequencePackingLayout::AppendOnly);
+    Equal(old,appended,"explicit append layout differs from preserved implementation");
     Compare(f.model,f.seq,old,now);Require(f.model==untouched,"input mutated");
     // Match the header-relative FindTransition table read, including a legacy
     // node outside the declared matrix. Eligibility must preserve that read.
@@ -175,6 +178,9 @@ void Resource(const std::filesystem::path& path)
     try{now=csol::AppendSequences(model,seq,csol::SequenceReadPolicy::AllowUnsupportedTracks);}catch(const std::exception& e){newError=e.what();}
     Require(oldError==newError,"candidate changed resource rejection");
     if(!oldError.empty()){std::cout<<"RESOURCE rejected-equally "<<oldError<<'\n';return;}
+    const auto appended=csol::AppendSequences(model,seq,csol::SequenceReadPolicy::AllowUnsupportedTracks,
+        csol::SequencePackingLayout::AppendOnly);
+    Equal(old,appended,"explicit append layout differs on original resource");
     Compare(model,seq,old,now,csol::SequenceReadPolicy::AllowUnsupportedTracks);
     csol::SequenceSafetyView oldView,newView;
     Require(csol::ReadSequenceSafety(old,oldView,csol::SequenceReadPolicy::AllowUnsupportedTracks)==csol::SequenceSafetyStatus::Ready,"old audit view invalid");

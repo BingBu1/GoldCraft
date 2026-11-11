@@ -63,6 +63,7 @@ def main():
     parser.add_argument("--packer", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--alias", action="append", help="Only stage these aliases; default all corpus rows")
+    parser.add_argument("--append-only", action="store_true", help="Keep animation data appended instead of reusing the original arena")
     parser.add_argument("--run", action="store_true", help="Without this flag only prepare a plan")
     args = parser.parse_args()
     output = Path(os.path.abspath(args.output))
@@ -120,7 +121,7 @@ def main():
     plan = dict(corpus=corpus_identity, packer=packer, catalog=catalog_identity,
                 script=identity(__file__), rows=plan_rows, inputs=list(inputs.values()),
                 notInCorpus=sorted(known - {r["alias"] for r in corpus["rows"]}),
-                selectedOnly=bool(args.alias), deployed=False)
+                selectedOnly=bool(args.alias), appendOnly=args.append_only, deployed=False)
     save(output / "plan.json", plan)
     if not args.run:
         print(json.dumps(dict(prepared=len(rows), compiled=False, deployed=False)))
@@ -130,7 +131,8 @@ def main():
     try:
         for row in plan_rows:
             target = output / row["target"]
-            command = [packer["path"], "--extended", str(target), row["source"]["path"],
+            command = [packer["path"], "--extended", *(["--append-only"] if args.append_only else []),
+                       str(target), row["source"]["path"],
                        *(r["path"] for r in row["sequences"])]
             log = output / (row["alias"] + ".log")
             try:

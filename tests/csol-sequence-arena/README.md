@@ -5,6 +5,12 @@ The fixture compares the current packer to append-only revision
 `git show` and compiled through stdin with only its two exported function names
 renamed. No historical source tree or old source file is saved.
 
+The explicit `SequencePackingLayout::AppendOnly` path must also produce bytes
+identical to that immutable revision for every synthetic case and original
+resource. `csol_character_pack --extended --append-only` and
+`Repack-CSOLCharacterModels.py --append-only` expose this offline layout choice
+without changing the runtime entry point, channel units or strict validation.
+
 `fixture.cpp` reuses the existing bounded animation sampler, unit conversion
 oracle around sequence indices 197/198, and safety tests. Additional checks
 compare animation bytes including terminal padding, descriptors, events,

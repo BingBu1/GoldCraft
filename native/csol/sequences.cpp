@@ -279,6 +279,13 @@ std::vector<std::string> SequenceFiles(const std::string& model, const ResourceE
 std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
     const std::vector<std::vector<std::byte>>& sequences,SequenceReadPolicy policy)
 {
+    return AppendSequences(model,sequences,policy,SequencePackingLayout::ReuseVerifiedArena);
+}
+
+std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
+    const std::vector<std::vector<std::byte>>& sequences,SequenceReadPolicy policy,
+    SequencePackingLayout layout)
+{
     Require(model.size() >= 244 && model.size() <= MaxBytes, "invalid studio size for SEQ append");
     Require(Word(model, 0) == 0x54534449 && Word(model, 4) == 10, "SEQ requires a decoded IDST model");
     const int length = Word(model, 72), bones = Word(model, 140);
@@ -369,7 +376,8 @@ std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
     // All conversions read immutable model bytes before any original slot is
     // reused. Independent output tracks retain padding and monotonic metadata.
     const auto alignedBegin=(arena.begin+3)&~size_t{3};
-    const bool reuse=alignedBegin<=arena.end && packedNativeBytes<=arena.end-alignedBegin &&
+    const bool reuse=layout==SequencePackingLayout::ReuseVerifiedArena &&
+        alignedBegin<=arena.end && packedNativeBytes<=arena.end-alignedBegin &&
         CanReuseAnimationArena(model,arena,sequences);
     size_t cursor=alignedBegin;
     for(int i=0;i<count;++i)

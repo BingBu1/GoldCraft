@@ -20,4 +20,11 @@ std::vector<std::string> SequenceFiles(const std::string& model, const ResourceE
 std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
     const std::vector<std::vector<std::byte>>& sequences,
     SequenceReadPolicy policy=SequenceReadPolicy::StrictAllTracks);
+
+// Offline exporters can retain the append layout independently of animation
+// units and read validation. The existing runtime entry keeps its layout policy.
+enum class SequencePackingLayout { ReuseVerifiedArena, AppendOnly };
+std::vector<std::byte> AppendSequences(std::span<const std::byte> model,
+    const std::vector<std::vector<std::byte>>& sequences,
+    SequenceReadPolicy policy, SequencePackingLayout layout);
 }
