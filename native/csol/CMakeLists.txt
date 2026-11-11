@@ -34,6 +34,9 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     model_codec.cpp sprite_codec.cpp model_json.cpp image_codec.cpp events.cpp dependencies.cpp model_source.cpp sequences.cpp texture_model.cpp
     "${SDK}/HLSDK/common/interface.cpp")
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
+target_sources(CSOLSupport PRIVATE client/weapons/guest_cof.cpp
+    ../guest/cof/aim_fov.cpp ../guest/cof/presentation_protocol.cpp
+    ../guest/cof/client/presentation.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)
 option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)

@@ -2,6 +2,7 @@
 #include "runtime.hpp"
 #include "hd_spray.hpp"
 #include "weapons/weapons.hpp"
+#include "weapons/guest_cof.hpp"
 #include "hud_style.hpp"
 #include "camera.hpp"
 #include "weapons/projectiles.hpp"
@@ -37,6 +38,7 @@ double largestCorrection{};
 
 void ResetSession()
 {
+    ResetGuestCof();
     ClearScene();
     ResetWeapons(true);
     ResetHudStyle();
@@ -62,6 +64,13 @@ void ResetSession()
     ResetPlayerClips();
     ResetRenderSettings();
 }
+}
+
+void ResetResourceSession()
+{
+    // Resource-overlay removal is a real connection boundary. Use the same
+    // owner resets as the existing level lifecycle, without unregistering hooks.
+    ResetSession();level.clear();frameTime=-1;
 }
 
 void SynchronizeSession()

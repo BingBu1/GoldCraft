@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "weapons/guest_cof.hpp"
 #include "user_message_chain.hpp"
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
@@ -323,6 +324,7 @@ static void Init()
     engine.pfnAddCommand("csol_scenario_hud_info",ScenarioHudInfo);
     InitializeScene();
     InitializeWeapons();
+    InitializeGuestCof();
     InitializeWeaponInventory();
     InitializeCamera();
     InitializeProjectiles();
@@ -352,6 +354,7 @@ static void Init()
 }
 static int VidInit()
 {
+    GuestCofVideoInit();
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ResetCamera();
@@ -376,6 +379,7 @@ static int VidInit()
 }
 static void HudShutdown()
 {
+    ShutdownGuestCof();
     ShutdownWeapons();
     ResetFrozenDeath();
     ResetFrozenSmoke();
@@ -507,6 +511,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_GetStudioModelInterface=GetStudioInterface;
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;
+    functions->HUD_UpdateClientData=GuestCofUpdateClientData;
     functions->HUD_DrawTransparentTriangles=Transparent;
     functions->HUD_DrawNormalTriangles=Normal;
     functions->HUD_Redraw=Redraw;
@@ -516,7 +521,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

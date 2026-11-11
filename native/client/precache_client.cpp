@@ -7,6 +7,7 @@
 #include "precache_client.hpp"
 #include "goldcraft/precache_protocol.hpp"
 #include "goldcraft/precache_api.h"
+#include "goldcraft/connection_api.h"
 #include "goldcraft/resource_sync.hpp"
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <cstring>
 #include <deque>
 #include <iomanip>
+#include <limits>
 #include <ostream>
 #include <memory>
 #include <stdexcept>
@@ -42,6 +44,14 @@ static_assert(sizeof(Sound) == 72 && sizeof(Consistency) == 44);
 metahook_api_t* api = nullptr;
 void* engine = nullptr;
 bool enabled = false, extended = false, receiving = false;
+std::uint64_t connection_generation_value = 1;
+bool connection_hooks_ready = false;
+DWORD connection_owner_thread = 0;
+void retire_connection() noexcept {
+    if (connection_generation_value)
+        connection_generation_value = connection_generation_value == std::numeric_limits<std::uint64_t>::max() ?
+            0 : connection_generation_value + 1;
+}
 void (*reset_observer)() = nullptr;
 void (*clear_state_observer)() = nullptr;
 bool legacy_manifest_received = false;
@@ -141,10 +151,14 @@ template<class T> void function(T& target, const char* name) {
 template<class T> void global(T& target, const char* name) {
     target = reinterpret_cast<T>(resolve(name, MH_GAMESYMBOL_KIND_GLOBAL));
 }
-template<class T> void hook(const char* name, T replacement, T& original) {
+template<class T> bool hook(const char* name, T replacement, T& original) {
     if (!api->InlineHook(resolve(name, MH_GAMESYMBOL_KIND_FUNCTION),
         reinterpret_cast<void*>(replacement), reinterpret_cast<void**>(&original)))
+    {
         api->SysError("GoldCraft: failed to install %s", name);
+        return false;
+    }
+    return true;
 }
 
 enum class Table { models, sounds };
@@ -523,7 +537,8 @@ void __cdecl parse_static_entity() {
     static_entities.push_back(entity);
 }
 
-void reset_client() {
+void reset_client(bool retire = true) {
+    if (retire) retire_connection();
     if (sync_callbacks.cancel) sync_callbacks.cancel();
     sync_resources.clear(); manifest_generation = 0; manifest_version = 0; sync_waiting = false;
     if (reset_observer) reset_observer();
@@ -542,15 +557,17 @@ void reset_client() {
     ++resets;
 }
 int __cdecl clear_client() {
+    retire_connection();
     // The engine must release the old connection while its tables are valid.
     const int result = clear_client_original();
     if (clear_state_observer) clear_state_observer();
-    reset_client();
+    reset_client(false);
     return result;
 }
 void __cdecl disconnect() {
+    retire_connection();
     disconnect_original();
-    reset_client();
+    reset_client(false);
 }
 
 void parse_consistency() {
@@ -728,6 +745,14 @@ void jump_patch(const char* name, void* target, unsigned size, void*& resume) {
 }
 
 void set_reset_observer(void (*callback)()) { reset_observer = callback; }
+std::uint64_t connection_generation() noexcept {
+    return connection_hooks_ready && connection_owner_thread == GetCurrentThreadId() ?
+        connection_generation_value : 0;
+}
+void invalidate_connection_observer() noexcept {
+    connection_hooks_ready = false;
+    connection_generation_value = 0;
+}
 void set_clear_state_observer(void (*callback)()) { clear_state_observer = callback; }
 
 bool install(metahook_api_t* value) {
@@ -825,13 +850,18 @@ bool install(metahook_api_t* value) {
     hook("Mod_FindName", find_model, find_model_original);
     hook("Mod_ClearAll", clear_models, clear_models_original);
     hook("S_FindName", find_sound, find_sound_original);
-    hook("CL_ClearState", clear_client, clear_client_original);
-    hook("CL_Disconnect", disconnect, disconnect_original);
+    if (!hook("CL_ClearState", clear_client, clear_client_original) ||
+        !hook("CL_Disconnect", disconnect, disconnect_original)) {
+        install_failure = "connection cleanup hooks are unavailable";
+        return false;
+    }
     hook("CL_ModelForIndex", model_for_index, model_for_index_original);
     hook("CL_ParseResourceList", parse_resources, parse_resources_original);
     hook("Mod_NeedCRC", need_crc, need_crc_original);
     hook("Mod_ValidateCRC", validate_crc, validate_crc_original);
     enabled = true;
+    connection_owner_thread = GetCurrentThreadId();
+    connection_hooks_ready = true;
     install_failure.clear();
     return true;
 }
@@ -950,6 +980,14 @@ extern "C" const GoldCraftPrecacheAPI* GoldCraft_GetPrecacheAPI() {
     static const GoldCraftPrecacheAPI result{sizeof(GoldCraftPrecacheAPI), 1,
         model_count, model_index, model_at, model_capacity};
     return enabled ? &result : nullptr;
+}
+
+extern "C" const GoldCraftConnectionAPI* GoldCraft_GetConnectionAPI() {
+    using namespace goldcraft::client_precache;
+    static const GoldCraftConnectionAPI result{sizeof(GoldCraftConnectionAPI), 1, connection_generation};
+    // The token is observable only after the existing identity-gated cleanup
+    // hooks are installed. It does not depend on the resource refresh feature.
+    return connection_hooks_ready ? &result : nullptr;
 }
 
 extern "C" const GoldCraftModelOwnersAPI* GoldCraft_GetModelOwnersAPI() {

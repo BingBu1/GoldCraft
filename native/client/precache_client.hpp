@@ -1,8 +1,15 @@
 #pragma once
 #include <iosfwd>
+#include <cstdint>
 #include "resource_update.hpp"
 struct metahook_api_s;
 namespace goldcraft::client_precache {
+// Opaque main-thread connection token, independent of resource/overlay state.
+// Starts at one; zero is terminal exhaustion. Observe through the public API.
+std::uint64_t connection_generation() noexcept;
+// Final plugin teardown only; cached API pointers subsequently return zero.
+void invalidate_connection_observer() noexcept;
+
 struct ResourceSyncCallbacks {
     bool (*available)(){};
     // Returns null on success. The receiver copies values before returning;

@@ -2,3 +2,4 @@ EXPORTS
     GoldCraft_GetPrecacheAPI
     GoldCraft_GetModelOwnersAPI
     GoldCraft_GetVisibleEntitiesAPI
+    GoldCraft_GetConnectionAPI

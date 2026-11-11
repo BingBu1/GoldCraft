@@ -38,6 +38,7 @@ metahook_api_t* api{};
 void ClearScene(){}
 void MountResources(){++fixture::mounts;}
 void ResetWeapons(bool){}
+void ResetGuestCof(){}
 void ResetCamera(){}
 void ResetProjectiles(){}
 void ResetCharacters(){}

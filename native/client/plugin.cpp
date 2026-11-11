@@ -2211,6 +2211,7 @@ void CreateEntities() {
 }
 void DrawTransparent() { gExportfuncs.HUD_DrawTransparentTriangles(); Draw(true); }
 void ShutdownClient() {
+    client_precache::invalidate_connection_observer();
     // Engine shutdown still calls Steam after unloading the client DLL. Release
     // context hooks while their IAT slots and client descriptors remain mapped.
     steam_async::shutdown();
@@ -2269,6 +2270,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     Log("LoadClient complete, engine build "+std::to_string(api->GetEngineBuildnum()));
 }
 void IPluginsV4::ExitGame(int) {
+    goldcraft::client_precache::invalidate_connection_observer();
     // MetaHook unloads hw.dll between ExitGame and Shutdown. Restore engine
     // patches and release every engine/renderer callback while it is mapped.
     goldcraft::steam_async::shutdown();
@@ -2289,6 +2291,7 @@ void IPluginsV4::ExitGame(int) {
     Log("ExitGame");
 }
 void IPluginsV4::Shutdown() {
+    goldcraft::client_precache::invalidate_connection_observer();
     // Only plugin-owned services are valid after engine unload. In particular,
     // repeating StopPostScene here calls Cvar_SetValue in the unloaded module.
     discovery.stop();

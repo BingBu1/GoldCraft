@@ -138,6 +138,7 @@ unsigned clockCorrections{},largeClockCorrections{};
 double largestCorrection{};
 void ClearScene(){}
 void ResetWeapons(bool){}
+void ResetGuestCof(){}
 void ResetHudStyle(){}
 void ResetCamera(){}
 void ResetProjectiles(){}

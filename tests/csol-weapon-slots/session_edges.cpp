@@ -2,6 +2,7 @@
 // Non-weapon UI owners are outside the session/weapon persistence contract.
 namespace csol::client
 {
+void ResetGuestCof(){}
 void ResetDamageDisplay(){}
 void ResetWallStatus(){}
 void ResetBuyMenu(){}

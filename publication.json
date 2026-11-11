@@ -2078,7 +2078,15 @@
     "tests/cryoffear-weapon-melee/README.md",
     "tests/cryoffear-magazine-actions/README.md",
     "tests/cryoffear-player-animation/precompiled.h",
-    "tests/cryoffear-player-animation/README.md"
+    "tests/cryoffear-player-animation/README.md",
+    "tests/cryoffear-audio/README.md",
+    "tests/cryoffear-client-bridge/README.md",
+    "tests/cryoffear-client-presentation/README.md",
+    "tests/cryoffear-connection-boundary/provider.def",
+    "tests/cryoffear-connection-boundary/README.md",
+    "tests/cryoffear-protocol/README.md",
+    "tests/cryoffear-view-punch/README.md",
+    "tests/cryoffear-weapon-effects/README.md"
   ],
   "trees": {
     "native": [

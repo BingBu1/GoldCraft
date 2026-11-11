@@ -1,0 +1,4 @@
+EXPORTS
+    GoldCraft_GetConnectionAPI
+    ConfigureConnectionFixture
+    ConnectionFixtureQueries
