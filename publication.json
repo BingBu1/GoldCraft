@@ -2101,7 +2101,8 @@
     "tests/cryoffear-magazine-model/README.md",
     "tests/cryoffear-muzzle-flash/README.md",
     "tests/cryoffear-p345-weapon/README.md",
-    "tests/cryoffear-resource-preparation/README.md"
+    "tests/cryoffear-resource-preparation/README.md",
+    "tests/cryoffear-sound-dispatch/README.md"
   ],
   "trees": {
     "native": [

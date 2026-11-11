@@ -108,3 +108,21 @@ Studio事件5004/5006/5080的生产消费者已用真实字段编译。5006从at
 新增 particle_protocol.* 和 guest_cof_particles.* 接实际消息、视频清理、CalcRefdef 的 nextView gate 与 HUD_DrawTransparentTriangles。原入口是透明绘制，早期交接中 DrawNormal 的文字已纠正；时间差按原先后采样、夹到 0..0.5，普通相机使用 GetViewAngles→AngleVectors。原 ViewEntity 是独立 SHORT 消息，不能借用 CS spectator 字段；新的隔离传输保存其值，ResetHUD 仅按原清该值，不删除粒子。已证观战分支还存在另一未初始化角度，不在本次授权范围，明确 Unsupported。冷 plan 提供实际已加载的 sprites/guest/cof/fog2.spr handle，使用局部 engine table 重映射原 fog2 路径，不覆盖全局引擎入口。build/cof-particle-bridge-20261111-01 的 194 项实际 SDK 检查与 plugin TU 编译通过；build/cof-protocol-20261111-05 的 196,786 项消息/全 signed-short 域检查通过。
 
 生命周期仍有明确未完：原 P345 没有 DelPart 发送者或每发 KillWpnPart；自然 drain 后空系统仍留链表。组件 64 系统上界是显式宿主限制，尚不足以持续开火，不能用去重、计时删除或驱逐替代。冷音频/粒子 plan 尚未由实际整枪资源准入调用，完整 muzzle/custom-light、机瞄视模、鼠标输入与全部整枪注册仍未完成。没有更新 DLL 或启游戏，声音听感、视觉、持续开火、多人和真实 CPU/帧时验收均未完成。
+
+## 近战命名空间声音检查点
+
+手枪近战的八个声音改由冷资源 owner 提供完整静态样本表，真实 P345 表引用已准备的 guest/cof 命名空间；缺失或空项在攻击前拒绝，不回退原公共路径。原 `100F9790`、`100F5DB0`、`100FC9F0` 的样本身份、完整分支和顺序已经重新核对；只改变宿主资源位置，RNG、通道、音量、命中和 shake 顺序保持。生命周期必须覆盖借用字符串，当前 constexpr 表满足要求。
+
+实际近战 TU 的 512 个原函数场景和 3307 项 SDK 检查通过，包含十二组命名空间真实发声及全部缺失项拒绝。Glock06 为 2696 项、P34522 为 3167 项 SDK 检查，各增加十七种整表或单字段缺失输入，冷 Spawn、Bind、AddToPlayer 和攻击都拒绝。两枪夹具的 Melee 是控制边界，其端到端声音由近战 TU 单独验证，不冒称整枪声音已实测。父复核 M05 的 567、G06/P22 各591 个编译依赖，当前哈希均未变化；私证 `root-melee-resources/accepted-checkpoint.json` 与 `model-evidence/melee-samples-review.md`。低层声音 Precache helper 本身不提供代次保护，不能替代真实冷 owner。
+
+当前仍未部署整枪、开放购买或进行游戏内声音、模型和性能验收；继续真实发送链、客户端全部效果准入和注册。
+
+## 服务端真实声音与效果发送检查点
+
+已按同一 CoF hl.dll（SHA-256 `0036b91c01e92ed205513f52563053a55a66a32d257efb5f476b8f1f3dde0e63`，PE32，基址 `10000000`）接入 `sound_dispatch.*`、`effects_dispatch.*` 与共用单线程消息保护 `engine_message.hpp`。原 `10116A40`／`10119680`／`1013F5F0` 确认 Cooperative 先取枪口位置，仅大小写敏感的任意位置 `weapons` 子串且 broadcast 时逐接收者发送；其余分支保留 remote0／index1。逻辑声音名与下载命名空间分开，不能把预处理后的资源路径传回原判词。
+
+原弹壳 helper `1011CF70` 的 PVS、六坐标、angle、model、bounce 和 life25，以及 recoil `100F91B0` 的 Cooperative 分支已对应实际引擎消息／事件。原 flags16 对应匹配 SDK 的 `FEV_HOSTONLY`；未成功构建的 `FEV_RELIABLE` 候选已撤回，原失败记录保留。angle 只拒非有限值，不能用额外 int32 限制改变原引擎先 fmod 的行为。枪烟发送使用已有 CoFParticle 本地 owner 协议，未新增 TTL、清空或去重。
+
+真实 SDK 回归 `build/cof-sound-dispatch-20261111-04` 比较256完整声音原函数场景、128原弹壳／recoil场景，6919检查零失败；8种坏 oracle 均被拒绝。父独立复核594实际编译输入无漂移，之后只补接口生命期注释及 README，不改已测逻辑。私证为 `root-effects-dispatch`、`server-evidence/EFFECTS_DISPATCH_REVIEW.md`，旧03的 const Vector ABI 编译失败与未构建的角度／事件标志候选均保留。
+
+发送过程使用栈快照，无应用堆分配、磁盘读取或资源查表；开始的包完整写完后才报告退役。guard只协调本家发送器，并非引擎全局锁；authority context必须由调用者保活至返回。原版规则生产者、事件／消息注册、资源准入和整枪 effects 仍待接线。本组未部署、未验收可听／可见效果，也没有真实游戏性能采样。
