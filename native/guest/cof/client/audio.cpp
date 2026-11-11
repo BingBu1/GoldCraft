@@ -26,6 +26,12 @@ namespace
 {
 constexpr std::uint32_t NoVoice = std::numeric_limits<std::uint32_t>::max();
 static_assert(std::atomic<HRESULT>::is_always_lock_free);
+struct DispatchScope
+{
+    bool& active;
+    explicit DispatchScope(bool& value) noexcept : active(value) { active = true; }
+    ~DispatchScope() { active = false; }
+};
 bool ValidKey(std::string_view key) noexcept
 {
     return !key.empty() && key.size() <= 255 && key.find('\0') == key.npos;
@@ -164,6 +170,7 @@ LocalAudio::~LocalAudio() = default;
 
 AudioResult LocalAudio::Initialize(AudioLimits limits, AudioProviders providers) noexcept
 {
+    if (!lifecycle_) return AudioResult::Inactive;
     if (impl_) return impl_->Owner() ? AudioResult::Inactive : AudioResult::WrongThread;
     if (!limits.samples || limits.samples > 256 || !limits.voices || limits.voices > 2048 ||
         !limits.pcmBytes || limits.pcmBytes > 256u * 1024u * 1024u || !providers.volume || !providers.randomFloat)
@@ -248,6 +255,8 @@ AudioResult LocalAudio::Play(const LocalSound& request) noexcept
     if (!impl_) return AudioResult::Inactive;
     auto& p = *impl_;
     if (!p.Owner()) return AudioResult::WrongThread;
+    if (dispatching_) return AudioResult::Inactive;
+    const DispatchScope dispatch{dispatching_};
     if (p.Failed()) return AudioResult::DeviceFailure;
     if (!p.ready) return AudioResult::Inactive;
     if (!ValidKey(request.sample)) return AudioResult::InvalidSample;
@@ -273,8 +282,13 @@ AudioResult LocalAudio::Play(const LocalSound& request) noexcept
     if (selected == NoVoice) return AudioResult::Capacity;
     auto& v = p.voices[selected];
     if (request.mode == 1) p.loopSlot = selected;
-    const float volume = Volume(p.providers.volume(p.providers.context));
-    const float random = p.providers.randomFloat(p.providers.context, -0.1f, 0.1f);
+    const auto* expected = impl_.get();
+    const auto lifecycle = lifecycle_;
+    const auto providers = p.providers;
+    const float volume = Volume(providers.volume(providers.context));
+    if (lifecycle_ != lifecycle || impl_.get() != expected) return AudioResult::Inactive;
+    const float random = providers.randomFloat(providers.context, -0.1f, 0.1f);
+    if (lifecycle_ != lifecycle || impl_.get() != expected) return AudioResult::Inactive;
     const float speed = static_cast<float>(static_cast<double>(random) + 1.0);
     XAUDIO2_BUFFER buffer{};
     buffer.Flags = XAUDIO2_END_OF_STREAM; buffer.AudioBytes = s.bytes;
@@ -296,12 +310,18 @@ AudioResult LocalAudio::Update() noexcept
     if (!impl_) return AudioResult::Inactive;
     auto& p = *impl_;
     if (!p.Owner()) return AudioResult::WrongThread;
+    if (dispatching_) return AudioResult::Inactive;
+    const DispatchScope dispatch{dispatching_};
     if (p.Failed()) return AudioResult::DeviceFailure;
     if (!p.ready) return AudioResult::Inactive;
     if (p.loopSlot != NoVoice)
     {
         auto& v = p.voices[p.loopSlot];
-        const float volume = Volume(p.providers.volume(p.providers.context));
+        const auto* expected = impl_.get();
+        const auto lifecycle = lifecycle_;
+        const auto providers = p.providers;
+        const float volume = Volume(providers.volume(providers.context));
+        if (lifecycle_ != lifecycle || impl_.get() != expected) return AudioResult::Inactive;
         if (FAILED(v.audio->SetVolume(volume))) return AudioResult::DeviceFailure;
         v.requestedVolume = volume;
     }
@@ -333,6 +353,7 @@ AudioResult LocalAudio::Shutdown() noexcept
 {
     if (!impl_) return AudioResult::Applied;
     if (!impl_->Owner()) return AudioResult::WrongThread;
+    lifecycle_ = lifecycle_ == std::numeric_limits<std::uint64_t>::max() ? 0 : lifecycle_ + 1;
     impl_.reset();
     return AudioResult::Applied;
 }

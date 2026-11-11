@@ -82,5 +82,10 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
+    // Host callbacks may retire/reprepare the service. This identity stays
+    // outside Impl so even an allocator reusing its address cannot revive a
+    // pending operation's references. Owner-thread only, no atomic hot cost.
+    std::uint64_t lifecycle_{1};
+    bool dispatching_{};
 };
 }

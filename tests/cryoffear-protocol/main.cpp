@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/guest/cof/presentation_protocol.hpp"
 #include "../../native/guest/cof/catalog.hpp"
+#include "../../native/guest/cof/particle_protocol.hpp"
 #include "../../native/guest/cof/client/presentation.hpp"
 
 #include <array>
@@ -128,6 +129,75 @@ void Catalog()
     Check(!FindPistol(Pistol::Count), "invalid typed identity rejects");
 }
 
+void Particles()
+{
+    const ParticleMessageData add{ParticleOperation::Add, 7, false, -32768};
+    ParticlePacket packet{};
+    Check(EncodeParticle(add, packet), "local gunsmoke transport encodes");
+    constexpr std::array<unsigned char, ParticleBytes> expected{1,1,7,0,0,128,0,0};
+    Check(!std::memcmp(packet.data(), expected.data(), packet.size()), "literal particle wire fixture");
+    ParticleMessageData decoded{};
+    Check(DecodeParticle(packet, decoded) && decoded == add, "particle round trip");
+    for (const auto& value : {
+        ParticleMessageData{ParticleOperation::Add, 3, false, 0},
+        ParticleMessageData{ParticleOperation::Add, 19, false, 32767},
+        ParticleMessageData{ParticleOperation::Add, 21, false, 1},
+        ParticleMessageData{ParticleOperation::DeleteOwner, 0, false, 0},
+        ParticleMessageData{ParticleOperation::KillLocal, 0, false, 0},
+        ParticleMessageData{ParticleOperation::KillLocal, 0, true, 0}})
+        Check(EncodeParticle(value, packet) && DecodeParticle(packet, decoded) && decoded == value,
+            "supported commands include viewmodel owner zero and both kill modes");
+    for (int word = -32768; word <= 32767; ++word)
+    {
+        const ParticleMessageData value{ParticleOperation::DeleteOwner, 0, false, std::int16_t(word)};
+        Check(EncodeParticle(value, packet) && DecodeParticle(packet, decoded) && decoded == value,
+            "all original owner short words preserved");
+        const auto camera = EncodeViewEntity(std::int16_t(word));
+        std::int16_t cameraEntity{};
+        Check(DecodeViewEntity(camera, cameraEntity) && cameraEntity == word,
+            "all original ViewEntity signed short words preserved");
+    }
+    auto camera = EncodeViewEntity(-123);
+    std::int16_t cameraEntity{19};
+    for (std::size_t size = 0; size < camera.size(); ++size)
+        Check(!DecodeViewEntity(std::span(camera).first(size), cameraEntity) && cameraEntity == 19,
+            "truncated ViewEntity preserves output");
+    camera[0] = std::byte{2};
+    Check(!DecodeViewEntity(camera, cameraEntity) && cameraEntity == 19,
+        "unknown ViewEntity version preserves output");
+    camera = EncodeViewEntity(-123); camera[1] = std::byte{1};
+    Check(!DecodeViewEntity(camera, cameraEntity), "ViewEntity reserved field rejected");
+    Check(EncodeParticle(add, packet), "restore add fixture");
+    for (std::size_t size = 0; size < packet.size(); ++size)
+    {
+        const auto before = decoded;
+        Check(!DecodeParticle(std::span(packet).first(size), decoded) && decoded == before,
+            "particle truncation is transactional");
+    }
+    for (const auto index : {0U,1U,2U,3U,6U,7U})
+    {
+        auto corrupted = packet;
+        corrupted[index] = std::byte{255};
+        const auto before = decoded;
+        Check(!DecodeParticle(corrupted, decoded) && decoded == before,
+            "unknown particle version/operation/model/flags/attachment rejected");
+    }
+    std::array<std::byte, ParticleBytes + 1> oversized{};
+    Check(!DecodeParticle(oversized, decoded), "trailing particle byte rejected");
+    for (const auto& value : {
+        ParticleMessageData{ParticleOperation(255), 0, false, 0},
+        ParticleMessageData{ParticleOperation::Add, 0, false, 0},
+        ParticleMessageData{ParticleOperation::Add, 7, true, 0},
+        ParticleMessageData{ParticleOperation::DeleteOwner, 7, false, 1},
+        ParticleMessageData{ParticleOperation::DeleteOwner, 0, true, 1},
+        ParticleMessageData{ParticleOperation::KillLocal, 0, true, 1},
+        ParticleMessageData{ParticleOperation::KillLocal, 3, false, 0}})
+    {
+        const auto before = packet;
+        Check(!EncodeParticle(value, packet) && packet == before, "invalid particle command preserves output");
+    }
+}
+
 struct SoundCapture
 {
     std::array<char, 272> sample{};
@@ -251,7 +321,7 @@ void GlobalSound()
 
 int main()
 {
-    StateLifecycle(); InvalidPackets(); Catalog(); GlobalSound();
+    StateLifecycle(); InvalidPackets(); Catalog(); GlobalSound(); Particles();
     std::printf("%u checks, %u failures\n", checks, failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

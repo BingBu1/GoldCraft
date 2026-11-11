@@ -37,6 +37,11 @@ target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 target_sources(CSOLSupport PRIVATE client/weapons/guest_cof.cpp
     ../guest/cof/aim_fov.cpp ../guest/cof/presentation_protocol.cpp
     ../guest/cof/client/presentation.cpp)
+target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_audio.cpp
+    ../guest/cof/sound_protocol.cpp ../guest/cof/client/audio.cpp)
+target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_particles.cpp
+    ../guest/cof/particle_protocol.cpp ../guest/cof/client/aurora.cpp
+    ../guest/cof/client/aurora_render.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)
 option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)

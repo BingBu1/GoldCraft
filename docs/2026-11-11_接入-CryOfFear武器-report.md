@@ -87,3 +87,14 @@ Studio事件5004/5006/5080的生产消费者已用真实字段编译。5006从at
 连接生产者另以真实两种feature宏各112项清理检查通过，含原callback重入/longjmp、空或非空overlay、缺hook/非线程/耗尽/最终失效；真实Win32模块导出冷查找另通过。为排除未发布资源刷新依赖，Git HEAD加连接窄hunk在内存经compiler stdin编译/链接/运行，不复制源码，见 build/cof-connection-head-20261111-01；核心plugin仅三处退出失效调用同样以HEAD闭包编译通过，见 build/cof-connection-plugin-head-20261111-02。当前player-animation-07重新编译真实SDK，受控9880项通过；公开README随后仅去除本机编译器路径，编译输入逻辑未改。
 
 2026-11-11 用户明确批准将已证Aurora未初始化控制字段与旧位置规范化为0，限定这些字段并保留其余原逻辑。这是修复原版缺陷的明确移植差异；完整枪烟仍在实现/验证，不随此独立组件检查点激活。
+
+
+## 枪烟授权、实际声音与粒子入口检查点
+
+人类授权仅把原 Aurora Type 的 bounce/yaw/inherit/water 控制字段及首次池位置初始化为 0；复用粒子槽的旧位置、随机数顺序、运动、淡出与原删除条件保持。核收时发现候选多加了 owner>0 限制，原 Particle local 分支直接使用 GetViewModel().index，允许 0；该限制已撤回并按原自由粒子分支修正，未部署过旧候选。最终 19 个冻结文件和新增 26 个原字节窗口由父代理独立复核，样本 SHA 与正文开头一致。Aurora 对照扩为 11 组 3,561 连续原指令帧零差异，renderer 2,362 组保持通过。证据见 client-evidence/source-handoff-manifest.json、aurora-viewentity-producer-byte-verification.json 与 root-particle-bridge/accepted-inputs.json。
+
+新增 native/csol/client/weapons/guest_cof_audio.* 实际 CoFSFX 全局消息消费者，原 volume cvar 与 changes-only paused 路径已核；冷准备复制 PCM、预建 voice 并要求真实 native soundcache 证明，远端固定命名空间映射，消息/绘制/输入不读文件或创建 voice。受控回调在 volume 读取中退役音源的负对照确实访问异常（build/cof-audio-bridge-20261111-04-negative），现以 owner-thread 生命周期代次和嵌套调用保护阻断旧 Impl/Voice 访问，旧 Update 的结果不会关闭重新准备后的音源。这是宿主内存安全适配，不改变原声音算法。build/cof-audio-bridge-20261111-05 的 116 项真实 SDK/XAudio2 检查通过；build/cof-client-audio-20261111-03 的 27 实际 WAV、108 voices 与 35 原参数场景重新通过，70 个提交浮点字一致。
+
+新增 particle_protocol.* 和 guest_cof_particles.* 接实际消息、视频清理、CalcRefdef 的 nextView gate 与 HUD_DrawTransparentTriangles。原入口是透明绘制，早期交接中 DrawNormal 的文字已纠正；时间差按原先后采样、夹到 0..0.5，普通相机使用 GetViewAngles→AngleVectors。原 ViewEntity 是独立 SHORT 消息，不能借用 CS spectator 字段；新的隔离传输保存其值，ResetHUD 仅按原清该值，不删除粒子。已证观战分支还存在另一未初始化角度，不在本次授权范围，明确 Unsupported。冷 plan 提供实际已加载的 sprites/guest/cof/fog2.spr handle，使用局部 engine table 重映射原 fog2 路径，不覆盖全局引擎入口。build/cof-particle-bridge-20261111-01 的 194 项实际 SDK 检查与 plugin TU 编译通过；build/cof-protocol-20261111-05 的 196,786 项消息/全 signed-short 域检查通过。
+
+生命周期仍有明确未完：原 P345 没有 DelPart 发送者或每发 KillWpnPart；自然 drain 后空系统仍留链表。组件 64 系统上界是显式宿主限制，尚不足以持续开火，不能用去重、计时删除或驱逐替代。冷音频/粒子 plan 尚未由实际整枪资源准入调用，完整 muzzle/custom-light、机瞄视模、鼠标输入与全部整枪注册仍未完成。没有更新 DLL 或启游戏，声音听感、视觉、持续开火、多人和真实 CPU/帧时验收均未完成。

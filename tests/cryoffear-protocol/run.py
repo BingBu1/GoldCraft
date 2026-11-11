@@ -14,6 +14,7 @@ SOURCES = (
     "native/guest/cof/aim_fov.cpp", "native/guest/cof/presentation_protocol.hpp",
     "native/guest/cof/presentation_protocol.cpp",
     "native/guest/cof/sound_protocol.hpp", "native/guest/cof/sound_protocol.cpp",
+    "native/guest/cof/particle_protocol.hpp", "native/guest/cof/particle_protocol.cpp",
     "native/guest/cof/client/presentation.hpp", "native/guest/cof/client/presentation.cpp",
     "tests/cryoffear-protocol/main.cpp", "tests/cryoffear-protocol/run.py")
 

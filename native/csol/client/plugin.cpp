@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "weapons/guest_cof.hpp"
+#include "weapons/guest_cof_audio.hpp"
+#include "weapons/guest_cof_particles.hpp"
 #include "user_message_chain.hpp"
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
@@ -325,6 +327,8 @@ static void Init()
     InitializeScene();
     InitializeWeapons();
     InitializeGuestCof();
+    InitializeGuestCofAudio();
+    InitializeGuestCofParticles();
     InitializeWeaponInventory();
     InitializeCamera();
     InitializeProjectiles();
@@ -355,6 +359,7 @@ static void Init()
 static int VidInit()
 {
     GuestCofVideoInit();
+    GuestCofParticlesVideoInit();
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ResetCamera();
@@ -380,6 +385,8 @@ static int VidInit()
 static void HudShutdown()
 {
     ShutdownGuestCof();
+    ShutdownGuestCofAudio();
+    ShutdownGuestCofParticles();
     ShutdownWeapons();
     ResetFrozenDeath();
     ResetFrozenSmoke();
@@ -400,6 +407,7 @@ static void HudShutdown()
 static void Frame(double time)
 {
     SynchronizeFrameSession();
+    GuestCofAudioFrame();
     ScenarioEffectsFrame();
     ScenarioMusicFrame();
     ScenarioKillFrame();
@@ -447,6 +455,8 @@ static int Redraw(float time, int intermission)
 }
 static void CalcRefdef(ref_params_t* params)
 {
+    GuestCofParticlesViewStage(*params);
+    GuestCofAudioPause(params->paused != 0);
     downstream.V_CalcRefdef(params);
     CameraRefdef(params);
     view=*params;
@@ -459,6 +469,7 @@ static void Normal()
 static void Transparent()
 {
     downstream.HUD_DrawTransparentTriangles();
+    DrawGuestCofParticles(true);
     DrawWorldEffects();
     DrawSprays();
 }
@@ -521,7 +532,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);
