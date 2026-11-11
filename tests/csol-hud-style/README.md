@@ -4,6 +4,16 @@
 
 新覆盖保留标题与图像坐标，检查八档分辨率（含 1920×1200）、固定 recipe、无逐帧重查/分配、VideoInit 复用，以及实际 `AddGlyphSetToFont` 失败时原生 HUD 继续拥有显示权、五秒既有重试门后恢复。真实资源分支调用生产 `RegisterResourceFont` 和 Windows GDI，并检查 `SnapshotResourceFonts` 的 owner、资源名、Sarasa family、完整原始 TTF bytes、VideoInit 保留和 shutdown 退休。VGUI scheme、surface 和 engine 仍是受控边界；fixture 从未注册 UI callback，因此 shutdown 前清除 extension 哨兵。此组不证明完整 ResourceRefresh 事务、字体像素、GPU、实机/FPS 或部署结果。新旧源码对照为旧组 9027/21；旧 runner 首败后未执行 selection/pure。
 
+两把合成刀的选择回归使用真实 `Prepare-CSOLHud.py` 导出，再经实际目录解析、TGA 解码、`weapon_inventory.cpp` 的 `slot3` 命令及 HUD/黄色后备绘制路径。它通过原生 WeaponList 接收刀29、扩展消息接收1022/1023，验证持有三把刀时反复3的顺序、当前装备 off 行、选中图与未知 selected schema 继续回退；引擎输入传输和绘制接口受控，不等于物理键盘或 GPU 验收。原版依据是匹配 client 的 `02A5D130` setter 同时写 normal/selected handle 与 rect，详见主报告；该差分依据与宿主接口回归分开记录。
+
+```bash
+python -X utf8 -B tests/csol-hud-style/run_knife_selection.py --compile-commands build/resource-bridge-20261108/csol/compile_commands.json --environment build/csol-season2-trace-20261109/compiler-env.json --source 'G:/New NARTOOL/CsolTools/pak解压/UnCsoPak/lstrike/common' --stock-source sandbox/cs-client-b/Half-Life/cstrike --output build/csol-knife-selection-repro
+```
+
+`--expect-failure` 用于保留旧 exporter 的预期失败；`--reuse-build <先前收据目录>` 逐个核对先前真实 include 输入与 EXE 的 SHA 后，仅重新导出和执行，避免无变化重复编译。目录必须全新。有效旧版反例是本地 `build/csol-knife-selection-20261111-old-04`：编译/链接通过，200检查/22预期失败，真实三刀定义、持有和反复slot3顺序通过；所有558编译依赖及导出输入前后不变。old01工具中断、old02消息注册缺口与old03错误使用扩展消息发送stock29是保留的夹具失败，不作为生产反例。
+
+新导出 `build/csol-knife-selection-20261111-new-01` 复用 old04 同一 EXE，222检查/0失败，输入不变。7次真实slot3加恢复分支的8次现代列表不绘黄色后备，1次未知selected负例实际绘制黄色后备。新旧均298资源文件，只有目录JSON从17234B/89e4b765变为17345B/85e2bb12；两刀selected直接引用已有weapon路径，没有新增或改变图像资源。此结果不替代完整DLL、真实键盘、像素与性能验收。
+
 当前命令直接编译工作源码，不复制源码树，输出目录必须未存在：
 
 ```bash

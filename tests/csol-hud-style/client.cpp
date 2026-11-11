@@ -486,6 +486,7 @@ metahook_api_t* api{};cl_enginefunc_t engine{};ref_params_t view{};
 void SynchronizeSession(){++fixture::syncs;if(fixture::newSession){fixture::newSession=false;ResetHudStyle();}}
 std::vector<std::byte> ReadResource(const char* path)
 {++fixture::reads;const auto it=fixture::files.find(path);if(it==fixture::files.end())throw std::runtime_error("controlled missing resource");return it->second;}
+#ifndef CSOL_INVENTORY_TEST
 const WeaponDefinition* FindWeaponDefinition(int id)
 {if(id==fixture::definition.id)return &fixture::definition;
  const auto it=fixture::selectionDefinitions.find(id);return it==fixture::selectionDefinitions.end()?nullptr:&it->second;}
@@ -496,6 +497,7 @@ bool WeaponHasAmmo(int id){return !fixture::selectionEmpty.contains(id);}
 int WeaponReserveAmmo(int type){const auto it=fixture::selectionReserve.find(type);return it==fixture::selectionReserve.end()?0:it->second;}
 const WeaponDefinition* FindWeaponTitleDefinition(int id)
 {return fixture::titleDefinition?fixture::titleDefinition:FindWeaponDefinition(id);}
+#endif
 hud_style::WeaponState CurrentWeaponHudState(){return fixture::state;}
 const Character* ViewCharacter(){return fixture::haveCharacter?&fixture::character:nullptr;}
 int ScenarioHudLevel(){return fixture::scenarioLevel;}

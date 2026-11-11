@@ -387,18 +387,19 @@ def prepare(source, output, stock_source=None):
             revision = '_v2' if atlas_root == source and row['atlas'] in (
                 'sprites/640hud3.spr', 'sprites/640hud7.spr', 'sprites/640hud266.spr') else ''
             item[kind] = add(RESOURCE + name + '_' + kind + revision + '.tga', tga(*dimensions, pixels))
-        # CHudAmmo's selected row consumes weapon_s independently from weapon.
-        # A one-image knife descriptor alone does not prove its selected art.
-        if selected := rows.get(('weapon_s', 640)):
+        # Original client 02A5D130 binds the knife directory's same handle and
+        # rectangle to ID29's selected +BC/+C0 and normal +D0/+D4 fields.
+        # Reuse the exported card; ordinary weapons still load weapon_s apart.
+        if name in VERIFIED_COMMON_KNIVES:
+            item['selected'] = item['weapon']
+        elif selected := rows.get(('weapon_s', 640)):
             if (selected['width'], selected['height']) != (170, 45):
                 raise ValueError(f'Original selected sprite dimensions changed: {name}')
             pixels = crop(selected, name + '/weapon_s', atlas_root)
             validate_weapon_pixels(pixels, name + '/weapon_s')
             item['selected'] = add(RESOURCE + name + '_weapon_s.tga', tga(170, 45, pixels))
-        elif name not in VERIFIED_COMMON_KNIVES:
+        else:
             item['selected'] = ''
-        # A custom knife's one-image descriptor does not establish either
-        # selected art or its absence. Omit the field until its consumer closes.
         weapons.append(item)
 
     rows = sprite_rows(common('sprites/hud.txt'),
