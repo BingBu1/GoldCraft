@@ -10,8 +10,10 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = (
     ('urban', '5a369b9657705a5283a918685ead66ee3ffed78bb463d18713cda0a3aa27dc8c'),
-    ('csol95', 'c175fd2ab39e8d7e24f3322c080aa2fa52d83d82f18febda48e1f4dca0b40e55'),
-    ('csol168', 'caa894e1472dfe3ce232c7034a1e5d4536680794db9527843205773fb8cc5666'),
+    # Exact authorized unit-repair deployment identities; see character-unit-
+    # baseline-change.json in private model evidence, never disable SHA checks.
+    ('csol95', '20c9be8ba35270d6649ea00280a6d54c78965fb4bda6c9a2e885ad5e25bc04ca'),
+    ('csol168', '1fa7b00afdcb043f5ab4846a01e1c19ce37f0ec02155887cfc6e9ce1b1d2ae9b'),
 )
 
 

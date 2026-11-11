@@ -2073,7 +2073,12 @@
     "tests/csol-scenario-teddy-messages/ground_oracle.py",
     "tests/csol-scenario-teddy-messages/run_attack_model.py",
     "tests/csol-scenario-teddy-messages/ATTACK_MODEL.md",
-    "docs/2026-11-11_实现-泰迪熊重击与黑洞模型事件-report.md"
+    "docs/2026-11-11_实现-泰迪熊重击与黑洞模型事件-report.md",
+    "tests/cryoffear-ballistics/README.md",
+    "tests/cryoffear-weapon-melee/README.md",
+    "tests/cryoffear-magazine-actions/README.md",
+    "tests/cryoffear-player-animation/precompiled.h",
+    "tests/cryoffear-player-animation/README.md"
   ],
   "trees": {
     "native": [
