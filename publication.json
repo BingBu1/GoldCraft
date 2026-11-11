@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-sequence-arena/cli_policy.py",
     "tools/Inspect-CryOfFearWeapons.py",
     "tools/Prepare-CryOfFearPlayerModels.py",
     "tools/Generate-CryOfFearPlayerModel.py",

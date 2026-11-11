@@ -44,3 +44,15 @@ csol87 has 45 unsupported tracks (indices 308–352), so only the other 149 mode
 receive that numerical check. The fixture prints each unsupported label and
 checks equal old/new endpoint refusal and equal strict rejection; a passing
 permissive test never authorizes strict resource generation or gameplay support.
+
+The offline CLI and repack tool expose `--allow-unsupported-tracks` as a separate,
+explicit host policy. It preserves incompatible blocks and their sequence numbers
+with unsampleable metadata; it does not repair their unknown encoding. Use it only
+with the client/ReHLDS/GameDLL selection and sampler guards. Bounds readers and the
+default exporter remain strict. A character's supported axe tracks can therefore
+be corrected without deleting or pretending to support its unrelated bad tracks.
+
+`cli_policy.py` exercises the actual exporter against the pinned csol87/csol89
+inputs: default rejection, explicit opt-in, option order, all-ready byte equality,
+and exact preservation of every unsupported authored block. Supply `--corpus`,
+`--packer`, `--reference` (strict CLI), and a fresh workspace `--output` directory.
