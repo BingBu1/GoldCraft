@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] 完成Nightmare泰迪熊剩余表现、owner发布闭包与实机：黑洞碎片/grounded震屏/可靠88烟及客户端固定128槽/碰撞独立组件已过原包和SDK；继续全局manager获取/每帧运行/换图断线清理、滑行03C2C054、Meteor/rules354与HTTP/完整玩法，完整广域候选须统一重建，未验不开放投票。见 docs/2026-11-11_实现-泰迪熊黑洞碎片震屏与烟雾-report.md。
+- [ ] 完成Nightmare泰迪熊owner发布闭包、共享manager接线与实机：Meteor双手/stop原包25/37及SDK7543/456275已过；继续运行/换图断线清理、滑行03C2C054、rules354与HTTP/完整玩法，未验不开放投票。见 docs/2026-11-11_实现-泰迪熊流星手部与停止事件-report.md。
 
 - [ ] 完成 Cry of Fear 客串武器整枪注册、原机瞄/推搡/丢拾/渲染与输入接线、真实资源及23/18效果消费者、owner-frame、持续枪烟容量语义、P握姿与CSO动作、购买及灾变JSON伤害；Glock/P345生命周期/冷资源/枪口组件已过原指令与SDK，仍待整DLL、专服多人/声音画面与实机性能。见 docs/2026-11-11_接入-CryOfFear武器-report.md。
 

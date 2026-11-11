@@ -17,3 +17,5 @@ inline constexpr std::array CSOLTeddySpawnSprites{"sprites/spark2.spr", "sprites
 inline constexpr const char* CSOLTeddySlidingSprite = "sprites/ef_bat.spr";
 // MP10997A90 event1 ->114931C0: reliable MPToCL/88 ring smoke.
 inline constexpr const char* CSOLTeddyBlackholeSmokeSprite = "sprites/smoke_ia.spr";
+// MP10995D20 ->10996880 ->11493000: both Meteor hand attachments.
+inline constexpr const char* CSOLTeddyMeteorSprite = "sprites/burn5.spr";
