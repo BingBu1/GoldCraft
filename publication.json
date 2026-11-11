@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "tools/Build-CSOLServerCheckpoint.py",
+    "tests/csol-teddy-sliding/README.md",
+    "docs/2026-11-11_实现-泰迪熊滑行粒子与消息-report.md",
     "docs/2026-11-11_实现-泰迪熊出生火花-report.md",
     "tests/csol-teddy-sparks/README.md",
     "tests/csol-sequence-arena/cli_policy.py",
