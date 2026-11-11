@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-teddy-blackhole-smoke/README.md",
+    "docs/2026-11-11_实现-泰迪熊黑洞碎片震屏与烟雾-report.md",
     "tools/Build-CSOLServerCheckpoint.py",
     "tests/csol-teddy-sliding/README.md",
     "docs/2026-11-11_实现-泰迪熊滑行粒子与消息-report.md",

@@ -133,6 +133,9 @@ public:
     bool SendBloodScreen(edict_s* recipient) const;
     bool SendTeddyTentacleShake(edict_s* recipient) const;
     bool SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const;
+    // MP10997A90 event1: cached-origin debris then reliable MPToCL/88 smoke.
+    bool SendTeddyBlackholeDebris(const float* origin, int modelIndex) const;
+    bool SendTeddyBlackholeSmoke(const float* origin) const;
     // CSO private TE133/138 (MSG_PVS at the origin) and TE137 (MSG_BROADCAST),
     // as used by the boomer Free explosion 1155CFC0, carried in CsoMonFX.
     bool SendCsoTent(const csol::cso_tent::Model& tent, const Vector& pvsOrigin) const;

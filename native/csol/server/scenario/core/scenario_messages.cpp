@@ -10,6 +10,7 @@
 #include "../../../scenario/monsters/frozen_death.hpp"
 #include "../../../scenario/monsters/frozen_smoke.hpp"
 #include "../../../scenario/core/wall_upgrade.hpp"
+#include "../bosses/scenario_teddy_resources.h"
 
 #include <bit>
 #include <algorithm>
@@ -22,6 +23,7 @@ namespace
 // GoldSrc messages run on the server thread. Keep the open-packet guard outside
 // a map-owned object: a message hook can reset/replace that object before End.
 bool g_scenarioMessageOpen{};
+void WriteRawFloat(float value) { WRITE_LONG(std::bit_cast<std::int32_t>(value)); }
 struct ScenarioMessageScope
 {
     ScenarioMessageScope() { g_scenarioMessageOpen = true; }
@@ -1203,6 +1205,72 @@ bool CCSOLScenarioMessages::SendTeddyTentacleDebris(const float* origin, int mod
     WRITE_BYTE(count);
     WRITE_BYTE(3); // Original truncation of .3 seconds * 10.
     WRITE_BYTE(64);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendTeddyBlackholeDebris(const float* origin, int modelIndex) const
+{
+    if (g_scenarioMessageOpen || !origin || modelIndex <= 0 || modelIndex > 32767 ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte ||
+        !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteCoord) return false;
+    Vector encoded;
+    for (unsigned axis = 0; axis != 3; ++axis)
+    {
+        std::int16_t coordinate{};
+        if (!csol::cso_tent::detail::Coord(origin[axis], coordinate)) return false;
+        encoded[axis] = static_cast<float>(coordinate) * .125f;
+    }
+    const Vector position(origin); // PVS routing retains the unquantized snapshot.
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, SVC_TEMPENTITY, position);
+    WRITE_BYTE(TE_BREAKMODEL);
+    WRITE_COORD(encoded.x); WRITE_COORD(encoded.y); WRITE_COORD(encoded.z);
+    WRITE_COORD(150); WRITE_COORD(150); WRITE_COORD(2);
+    WRITE_COORD(0); WRITE_COORD(0); WRITE_COORD(150);
+    WRITE_BYTE(5);
+    WRITE_SHORT(modelIndex);
+    WRITE_BYTE(20);
+    WRITE_BYTE(5);
+    WRITE_BYTE(64);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendTeddyBlackholeSmoke(const float* origin) const
+{
+    if (g_scenarioMessageOpen || !m_messageId || !origin || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteLong ||
+        !g_engfuncs.pfnWriteCoord || !g_engfuncs.pfnWriteString) return false;
+    Vector encoded;
+    for (unsigned axis = 0; axis != 3; ++axis)
+    {
+        std::int16_t coordinate{};
+        if (!csol::cso_tent::detail::Coord(origin[axis], coordinate)) return false;
+        encoded[axis] = static_cast<float>(coordinate) * .125f;
+    }
+    const int id = m_messageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ALL, id);
+    WRITE_BYTE(88);
+    WRITE_STRING(CSOLTeddyBlackholeSmokeSprite);
+    WriteRawFloat(100.0f);
+    WriteRawFloat(std::bit_cast<float>(std::uint32_t{0x3E32B8C0}));
+    WriteRawFloat(40.0f);
+    WRITE_LONG(5);
+    WriteRawFloat(.09f);
+    WriteRawFloat(1.0f);
+    WRITE_LONG(50); WRITE_LONG(70);
+    WriteRawFloat(.02f);
+    WriteRawFloat(.5f);
+    WRITE_LONG(2); WRITE_LONG(5);
+    WRITE_LONG(10);
+    WRITE_LONG(1);
+    WRITE_LONG(0x34);
+    WRITE_LONG(36);
+    WriteRawFloat(50.0f);
+    WRITE_BYTE(150); WRITE_BYTE(150); WRITE_BYTE(150);
+    WRITE_COORD(encoded.x); WRITE_COORD(encoded.y); WRITE_COORD(encoded.z);
     MESSAGE_END();
     return true;
 }
