@@ -2180,7 +2180,8 @@
     "tests/cryoffear-mouse-input/README.md",
     "tests/cryoffear-mouse-bridge/README.md",
     "tests/cryoffear-ironsight/README.md",
-    "tests/cryoffear-effects-bridge/README.md"
+    "tests/cryoffear-effects-bridge/README.md",
+    "docs/2026-11-12_实现-BOSS共享房间缓存与构造接线-report.md"
   ],
   "trees": {
     "native": [

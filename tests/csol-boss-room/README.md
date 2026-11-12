@@ -6,10 +6,14 @@
 - `entity`：每次创建缺省id0，十组精确id/atoi边界、五组未知键；一次SetModel，验证
   movetype/solid先写、EF_NODRAW后写，保留引擎返回的brush范围和模型索引。
 - `retirement`：SetModel回调删除实体并复用同edict，旧Spawn不得修改替代实体。
+- `cache`：首个匹配、缓存命中零查找、缺失时保持输出和旧缓存、构造仅复位id/min、
+  id=-1的原特殊分支、引擎范围修改/实体移除后再次查询。
+- `cancellation`：查找内撤权、嵌套查询、查找中另一个控制器构造、offset回调退役，旧查询不写新状态。
 
 使用 `tests/csol-rebuy/run_sdk.py` 及成功完整服务端的receipt、source清单、MSBuild日志、
 环境和420项链接输入seal。fixture指向此处 `sdk.cpp`，groups为 `entity,retirement`，
 resources指向本目录，adapter-dir提供匹配SDK的engine-edge生成头；所有输出使用新build目录。
+完整groups为 `entity,retirement,cache,cancellation`。
 它编译本夹具并复用真实生产对象，不重建/部署完整DLL。
 当前整个工作区包含其他领域WIP，不能据这组测试声称公开HEAD完整服务端已可独立交付。
 
@@ -22,3 +26,10 @@ HTTP、真实画面或实机性能。
 [房间纠正报告](../../docs/2026-11-12_修正-泰迪熊陨石房间与实体注册-report.md)。
 实际entity 40/69与retirement 3/32均0失败；父独立核995个实际输入未变。
 15组键值/1组Spawn对应60条原IDA指令全部执行并与生产SDK输出一致。
+
+2026-11-12缓存阶段：`build/boss-room-cache-sdk-20261112-01/receipt.json`四组共
+90行为/272 SDK检查0失败，编译/链接/执行与全部输入稳定封存均通过。
+原输出对照增加 `--cache-log build/boss-room-cache-sdk-20261112-01/cache.log`，
+11次查询/两次构造复位输出一致；151条原IDA起点中146条实际执行。
+回执 `build/boss-room-cache-original-20261112-01/result.json` 的`cache`字段保留逐场景输出。
+实际Teddy/Oberon/Zombi构造与Meteor入口由领域大SDK另验，不并入本组件的计数。

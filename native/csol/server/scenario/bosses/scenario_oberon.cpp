@@ -9,6 +9,7 @@
 #include "../monsters/scenario_monster_effects.h"
 #include "../core/scenario_gameplay.h"
 #include "../core/scenario_runtime.h"
+#include "../core/scenario_session.h"
 #include "../core/game_rules_gate.h"
 #include "hostage/hostage.h"
 #include <algorithm>
@@ -63,7 +64,14 @@ bool CCSOLOberonServices::RulesSkillStarted(CSOLMonsterSpawnCall&, csol::scenari
 CCSOLOberonBehavior::CCSOLOberonBehavior(std::shared_ptr<CCSOLOberonServices> services,
     std::shared_ptr<CCSOLOrdinaryMonsterDamage> damage, std::shared_ptr<csol::scenario::BossSkills> skills)
     : m_services(services), m_damage(std::move(damage)), m_skills(std::move(skills)),
-      m_control(std::make_shared<CCSOLMonsterBossControl>(m_skills, services)) {}
+      m_control(std::make_shared<CCSOLMonsterBossControl>(m_skills, services))
+{
+    // MP113D65AE ->113E4940, before any Oberon skill queries a room.
+    const auto runtime = services ? services->Runtime() : nullptr;
+    if (!runtime || !runtime->session ||
+        !runtime->session->BossRooms().ControllerConstructed(runtime->session->Map().EntityAccess()))
+        throw std::runtime_error("Oberon room cache requires its live session");
+}
 
 CCSOLScenarioMonster* CCSOLOberonBehavior::Current(CSOLMonsterSpawnCall& call, const StatePtr& state) const
 {

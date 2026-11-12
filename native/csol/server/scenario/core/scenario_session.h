@@ -4,6 +4,7 @@
 #include "scenario_map.h"
 #include "scenario_messages.h"
 #include "scenario_music.h"
+#include "scenario_boss_room.h"
 #include "../monsters/scenario_monster_models.h"
 #include "../monsters/scenario_monster_pool.h"
 #include "scenario_navigation.h"
@@ -90,6 +91,7 @@ public:
     CCSOLScenarioMap& Map() { return m_map; }
     const CCSOLScenarioMap& Map() const { return m_map; }
     CCSOLMonsterPool& Monsters() { return m_monsters; }
+    CCSOLBossRoomCache& BossRooms() { return m_bossRooms; }
     CCSOLMonsterModels& Models() { return m_models; }
     const CCSOLScenarioMessages& Messages() const { return m_messages; }
     std::shared_ptr<CCSOLScenarioMusic> Music() const { return m_music; }
@@ -127,6 +129,7 @@ private:
 
     // The pool is destroyed first, before the map's borrowed type table.
     CCSOLScenarioMap m_map;
+    CCSOLBossRoomCache m_bossRooms;
     csol::scenario::DifficultyResources m_difficulty;
     csol::scenario::ChampionTable m_champions;
     csol::scenario::DropItemResources m_dropItems;

@@ -55,7 +55,7 @@ class Original:
         self.u.mem_map(0x500000, 0x200000)
         self.allowed = {}
         self.inputs = [identity(module), identity(Path(__file__))]
-        for label in ('room-keyvalue', 'room-spawn'):
+        for label in ('room-keyvalue', 'room-spawn', 'room-get', 'room-select', 'cache-constructor'):
             auxiliary_path = evidence / (label + '-aux.json')
             auxiliary = json.loads(auxiliary_path.read_text('utf8'))
             assert auxiliary['sha256'] == EXPECTED
@@ -88,6 +88,8 @@ class Original:
         self.word(0x122785ac, self.set_model)
         self.word(0x117402bc, self.atoi)
         self.calls = []
+        self.rooms = {}
+        self.finds = []
         self.executed = set()
         self.u.hook_add(UC_HOOK_CODE, self.hook)
 
@@ -100,6 +102,29 @@ class Original:
     def hook(self, u, address, size, _):
         if address == self.stop:
             u.emu_stop()
+            return
+        if address == 0x1152e590:
+            sp = u.reg_read(UC_X86_REG_ESP)
+            previous, classname = struct.unpack('<2I', u.mem_read(sp + 4, 8))
+            assert bytes(u.mem_read(classname, 10)) == b'boss_room\0'
+            self.finds.append(previous)
+            ordered = sorted(self.rooms)
+            if previous:
+                old_slot = (previous - 0x680000) // 0x200
+                assert previous == 0x680000 + old_slot * 0x200
+                ordered = [slot for slot in ordered if slot > old_slot]
+            found = 0x680000 + ordered[0] * 0x200 if ordered else 0
+            u.reg_write(UC_X86_REG_EAX, found)
+            u.reg_write(UC_X86_REG_EIP, self.read(sp))
+            u.reg_write(UC_X86_REG_ESP, sp + 4)
+            return
+        if address in (0x113eb3a0, 0x113eaf60):
+            # Constructor's base/auxiliary initialization are explicit control
+            # boundaries; the real caller still performs every cache store.
+            sp = u.reg_read(UC_X86_REG_ESP)
+            u.reg_write(UC_X86_REG_EAX, self.entity if address == 0x113eb3a0 else 0)
+            u.reg_write(UC_X86_REG_EIP, self.read(sp))
+            u.reg_write(UC_X86_REG_ESP, sp + (8 if address == 0x113eb3a0 else 4))
             return
         if address not in (self.set_model, self.atoi):
             assert self.allowed.get(address) == size, ('unverified instruction', hex(address))
@@ -157,11 +182,54 @@ class Original:
             self.read(self.entity + 0xb0)] + list(struct.unpack('<3I', self.u.mem_read(self.pev + 8, 12))) + list(
             struct.unpack('<6I', self.u.mem_read(self.pev + 0xec, 24)))
 
+    def cache_query(self, request, before):
+        self.u.mem_write(self.data, struct.pack('<6I', *before))
+        self.u.mem_write(self.stack, struct.pack('<4I', self.stop, self.data, self.data + 12, request & 0xffffffff))
+        self.finds = []
+        self.u.reg_write(UC_X86_REG_ESP, self.stack)
+        self.u.emu_start(0x113e6d70, 0, count=10000)
+        assert self.u.reg_read(UC_X86_REG_EIP) == self.stop
+        returned = self.u.reg_read(UC_X86_REG_EAX) & 255
+        assert returned in (0, 1)
+        return [0 if returned else 1, len(self.finds), *before,
+                *struct.unpack('<6I', self.u.mem_read(self.data, 24))]
+
+    def cache_log(self, path):
+        self.word(0x11d9cde0, 0xffffffff)
+        self.u.mem_write(0x11d9d518, bytes(24))
+        checked, resets, records = 0, 0, []
+        for line in path.read_text('utf8').splitlines():
+            if line.startswith('ROOM_DATA '):
+                slot, ident, *bounds = map(int, line.split()[1:])
+                assert len(bounds) == 6 and 0 <= slot < 64
+                entity, pev = 0x680000 + slot * 0x200, 0x6c0000 + slot * 0x100
+                self.rooms[slot] = ident
+                self.word(entity + 8, pev)
+                self.word(entity + 0xb0, ident)
+                self.u.mem_write(pev + 0xec, struct.pack('<6I', *bounds))
+            elif line.startswith('ROOM_DELETE '):
+                del self.rooms[int(line.split()[1])]
+            elif line == 'ROOM_RESET':
+                self.call(0x113e4940, 0)
+                resets += 1
+            elif line.startswith('ROOM_QUERY '):
+                request, *actual = map(int, line.split()[1:])
+                assert len(actual) == 14
+                expected = self.cache_query(request, actual[2:8])
+                assert expected == actual, dict(query=checked, requested=request, original=expected, sdk=actual)
+                records.append(dict(request=request, output=actual))
+                checked += 1
+        assert checked > 0 and resets > 0
+        self.inputs.append(identity(path))
+        return dict(queries=checked, controllerResets=resets, records=records,
+                    originalConstructorBoundary='base and auxiliary construction controlled; actual cache stores execute')
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('module', 'evidence', 'sdk-log', 'output'):
         parser.add_argument('--' + key, type=Path, required=True)
+    parser.add_argument('--cache-log', type=Path)
     args = parser.parse_args()
     if args.output.exists():
         raise FileExistsError(args.output)
@@ -182,6 +250,7 @@ def main():
             actual_spawns.append(list(map(int, line.split()[1:])))
     assert actual_keys == expected_keys, (actual_keys, expected_keys)
     assert actual_spawns == [expected_spawn], (actual_spawns, expected_spawn)
+    cache = original.cache_log(args.cache_log) if args.cache_log else None
     original.inputs += [identity(args.sdk_log), identity(ROOT / 'tests/csol-boss-room/sdk.cpp'),
                         identity(ROOT / 'native/csol/server/scenario/core/scenario_boss_room.cpp'),
                         identity(ROOT / 'native/csol/server/scenario/core/scenario_boss_room.h')]
@@ -190,6 +259,7 @@ def main():
                   keyCases=len(key_cases), spawnCases=1, idaInstructions=len(original.allowed),
                   executedInstructions=len(original.executed), imports='controlled atoi and SetModel ABI',
                   keys=actual_keys, spawn=expected_spawn, inputs=original.inputs,
+                  cache=cache,
                   deployment=False, gameplay=False, performanceAccepted=False)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', 'utf8')
