@@ -199,7 +199,8 @@
     "ReAPI": {
       "url": "https://github.com/rehlds/ReAPI",
       "commit": "1c448d06e8c1cebaea061d6b81b94e85f6262649",
-      "path": "external/ReAPI"
+      "path": "external/ReAPI",
+      "patch": "patches/reapi-null-attacker.patch"
     },
     "SyPB": {
       "url": "https://github.com/CCNHsK-Dev/SyPB",

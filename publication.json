@@ -2194,7 +2194,16 @@
     "docs/2026-11-12_修复-CoF原效果的Core渲染适配-report.md",
     "docs/2026-11-12_修复-CoF鼠标钩子延迟提交-report.md",
     "docs/2026-11-12_修复-礼盒火花速度与重力-report.md",
-    "tests/csol-teddy-sparks/gift_oracle.py"
+    "tests/csol-teddy-sparks/gift_oracle.py",
+    "patches/reapi-null-attacker.patch",
+    "docs/2026-11-12_修复-保留空攻击者的伤害死亡链-report.md",
+    "tests/csol-null-attacker/main.cpp",
+    "tests/csol-null-attacker/run_sdk.py",
+    "tests/csol-null-attacker/reapi.cpp",
+    "tests/csol-null-attacker/run_reapi.py",
+    "tests/csol-null-attacker/README.md",
+    "tests/csol-null-attacker/run_full_reapi.py",
+    "tests/csol-null-attacker/retry_full_reapi_link.py"
   ],
   "trees": {
     "native": [

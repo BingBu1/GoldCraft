@@ -1,0 +1,49 @@
+diff --git a/reapi/src/hook_callback.cpp b/reapi/src/hook_callback.cpp
+index ea1267d..c35361b 100644
+--- a/reapi/src/hook_callback.cpp
++++ b/reapi/src/hook_callback.cpp
+@@ -320,7 +320,7 @@ int CBasePlayer_TakeDamage(IReGameHook_CBasePlayer_TakeDamage *chain, CBasePlaye
+ 		return chain->callNext(getPrivate<CBasePlayer>(_pthis), PEV(_pevInflictor), PEV(_pevAttacker), const_cast<float&>(_flDamage), _bitsDamageType);
+ 	};
+ 
+-	return callForward<int>(RG_CBasePlayer_TakeDamage, original, indexOfEdict(pthis->pev), indexOfEdict(pevInflictor), indexOfEdict(pevAttacker), flDamage, bitsDamageType);
++	return callForward<int>(RG_CBasePlayer_TakeDamage, original, indexOfEdict(pthis->pev), indexOfEdictAmx(pevInflictor), indexOfEdictAmx(pevAttacker), flDamage, bitsDamageType);
+ }
+ 
+ int CBasePlayer_TakeHealth(IReGameHook_CBasePlayer_TakeHealth *chain, CBasePlayer *pthis, float flHealth, int bitsDamageType)
+@@ -340,7 +340,7 @@ void CBasePlayer_Killed(IReGameHook_CBasePlayer_Killed *chain, CBasePlayer *pthi
+ 		chain->callNext(getPrivate<CBasePlayer>(_pthis), PEV(_pevAttacker), _iGib);
+ 	};
+ 
+-	callVoidForward(RG_CBasePlayer_Killed, original, indexOfEdict(pthis->pev), indexOfEdict(pevAttacker), iGib);
++	callVoidForward(RG_CBasePlayer_Killed, original, indexOfEdict(pthis->pev), indexOfEdictAmx(pevAttacker), iGib);
+ }
+ 
+ void CBasePlayer_AddPoints(IReGameHook_CBasePlayer_AddPoints *chain, CBasePlayer *pthis, int score, BOOL bAllowNegativeScore)
+@@ -845,7 +845,7 @@ BOOL CSGameRules_FPlayerCanTakeDamage(IReGameHook_CSGameRules_FPlayerCanTakeDama
+ 		return chain->callNext(getPrivate<CBasePlayer>(_pPlayer), getPrivate<CBaseEntity>(_pAttacker));
+ 	};
+ 
+-	return callForward<BOOL>(RG_CSGameRules_FPlayerCanTakeDamage, original, indexOfEdict(pPlayer->pev), indexOfEdict(pAttacker->pev));
++	return callForward<BOOL>(RG_CSGameRules_FPlayerCanTakeDamage, original, indexOfEdict(pPlayer->pev), indexOfPDataAmx(pAttacker));
+ }
+ 
+ void CSGameRules_PlayerSpawn(IReGameHook_CSGameRules_PlayerSpawn *chain, CBasePlayer *pPlayer)
+@@ -895,7 +895,7 @@ void CSGameRules_PlayerKilled(IReGameHook_CSGameRules_PlayerKilled *chain, CBase
+ 		chain->callNext(getPrivate<CBasePlayer>(_pVictim), PEV(_pevKiller), PEV(_pevInflictor));
+ 	};
+ 
+-	callVoidForward(RG_CSGameRules_PlayerKilled, original, indexOfEdict(pVictim->pev), indexOfEdict(pevKiller), indexOfEdictAmx(pevInflictor));
++	callVoidForward(RG_CSGameRules_PlayerKilled, original, indexOfEdict(pVictim->pev), indexOfEdictAmx(pevKiller), indexOfEdictAmx(pevInflictor));
+ }
+ 
+ void CSGameRules_DeathNotice(IReGameHook_CSGameRules_DeathNotice *chain, CBasePlayer *pVictim, entvars_t *pevKiller, entvars_t *pevInflictor)
+@@ -905,7 +905,7 @@ void CSGameRules_DeathNotice(IReGameHook_CSGameRules_DeathNotice *chain, CBasePl
+ 		chain->callNext(getPrivate<CBasePlayer>(_pVictim), PEV(_pevKiller), PEV(_pevInflictor));
+ 	};
+ 
+-	callVoidForward(RG_CSGameRules_DeathNotice, original, indexOfEdict(pVictim->pev), indexOfEdict(pevKiller), indexOfEdictAmx(pevInflictor));
++	callVoidForward(RG_CSGameRules_DeathNotice, original, indexOfEdict(pVictim->pev), indexOfEdictAmx(pevKiller), indexOfEdictAmx(pevInflictor));
+ }
+ 
+ int CSGameRules_CanHavePlayerItem(IReGameHook_CSGameRules_CanHavePlayerItem *chain, CBasePlayer *pPlayer, CBasePlayerItem *pItem)

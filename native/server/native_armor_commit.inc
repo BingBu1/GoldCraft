@@ -66,7 +66,7 @@ BOOL CBasePlayer::GoldCraft_CommitEquipmentDamage(entvars_t *pevInflictor, entva
 
 			if (TheCareerTasks)
 			{
-				CBasePlayer *pPlayerAttacker = CBasePlayer::Instance(pevAttacker);
+				CBasePlayer *pPlayerAttacker = pevAttacker ? CBasePlayer::Instance(pevAttacker) : nullptr;
 				if (pPlayerAttacker && !pPlayerAttacker->IsBot() && pPlayerAttacker->m_iTeam != m_iTeam)
 				{
 					TheCareerTasks->HandleEnemyInjury(GetKillerWeaponName(pevInflictor, pevAttacker), pPlayerAttacker->HasShield(), pPlayerAttacker);
@@ -135,7 +135,7 @@ BOOL CBasePlayer::GoldCraft_CommitEquipmentDamage(entvars_t *pevInflictor, entva
 
 		if (TheCareerTasks)
 		{
-			CBasePlayer *pPlayerAttacker = CBasePlayer::Instance(pevAttacker);
+			CBasePlayer *pPlayerAttacker = pevAttacker ? CBasePlayer::Instance(pevAttacker) : nullptr;
 			if (pPlayerAttacker && !pPlayerAttacker->IsBot() && pPlayerAttacker->m_iTeam != m_iTeam)
 			{
 				TheCareerTasks->HandleEnemyInjury(GetKillerWeaponName(pevInflictor, pevAttacker), pPlayerAttacker->HasShield(), pPlayerAttacker);
