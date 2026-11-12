@@ -1,5 +1,30 @@
 # Teddy spawn spark original instruction oracle
 
+## Current callback integration
+
+The current actual SDK TU uses the verified `TemporaryPool` and `OrdinaryPool`
+instead of the historical per-effect array scans. Emission runs through
+`TeddySparksUpdateClientData`; transparent drawing owns particle update,
+retirement and distance sorting. `TeddySparksHudTime` supplies the independent
+Redraw cache, read after the engine's SPR/model callbacks. Same-time transparent
+passes still draw without emitting or integrating a second time.
+
+`build/teddy-sparks-runtime-20261112-03/result.json` records 1,367 SDK checks,
+12 original packets / 180 fields, and 52 unchanged actual workspace include
+dependencies. The checks cover missing-model count consumption, full pools,
+clock separation and rewinds, cross-texture distance order, exact-die drawing,
+and callback resets/reentry. The older 126-check descriptions below refer to
+the superseded array adapter; its receipts are retained as history. Current
+message loading uses `pfnSPR_Load` / `GetSpritePointer` on each accepted Add,
+letting the engine own its resource cache.
+
+The pure Spawn/Tick/Corners line protocols below remain unchanged. Shared
+MPToCL88/model producers, full original frustum visibility, enhanced renderer,
+auxiliary lists and original disconnect lifecycle are still outside this
+integration. Existing host scene/shutdown cleanup remains an explicitly named
+host adaptation. Neither these checks nor the full DLL build establish real
+rendering, gameplay or performance acceptance.
+
 `emitter_oracle.py` executes the unchanged x86 client TempEmit parser `02AA54A0`, message readers `02AA4240`–`02AA467D`, initializer `02519CF0`, Add `02AA49B0` and Frame `02AA6650` from the pinned original client SHA-256 `f4145136edbd229c219ea793bb3a6dcacea0b406ccc1e610138abbb8063bcbfd` (image base `01900000`, addresses are VA). It requires local private sample/evidence inputs and emits no binary or disassembly in source control.
 
 Run from Git Bash using workspace Python with `unicorn` and `capstone`:

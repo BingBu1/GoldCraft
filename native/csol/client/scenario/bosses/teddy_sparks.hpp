@@ -6,7 +6,8 @@ namespace csol::client
 {
 void InitializeTeddySparks();
 void ResetTeddySparks();
-void TeddySparksFrame();
+void TeddySparksHudTime(float time);
+void TeddySparksUpdateClientData();
 void DrawTeddySparks();
 void TeddySparksDiagnostics(std::ostream&);
 }

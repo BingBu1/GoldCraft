@@ -20,20 +20,23 @@ namespace test
 {
 using namespace csol::client;
 namespace spark = csol::teddy_sparks;
-unsigned checks{}, timeCalls{}, loadCalls{}, rngCalls{}, chainCalls{}, hookCalls{}, begins{}, ends{}, vertices{}, pvsCalls{};
+unsigned checks{}, timeCalls{}, loadCalls{}, modelCalls{}, rngCalls{}, chainCalls{}, hookCalls{}, begins{}, ends{}, vertices{}, pvsCalls{}, localCalls{};
 unsigned rngAxis{};
 float clockNow{10};
 std::string resetAt;
-bool reenterRandom{}, resetRandom{};
+bool reenterRandom{}, resetRandom{}, noModel{}, inPvs{true};
 model_t models[2]{};
+cl_entity_t local{};
 movevars_t movement{};
 triangleapi_t triangles{};
 metahook_api_t hookApi{};
 std::vector<std::array<float, 2>> randomBounds, uv;
 std::vector<std::array<float, 4>> colors;
 std::vector<std::array<int, 2>> binds;
-std::vector<std::array<float, 3>> positions;
+std::vector<std::array<float, 3>> positions, angleInputs;
 std::vector<int> modes, culls;
+std::vector<float> samples;
+std::size_t sampleAt{};
 std::vector<std::uint8_t> reentryPacket;
 
 void Check(bool good, const char* why)
@@ -61,41 +64,59 @@ std::vector<std::uint8_t> Packet(unsigned sprite = 0)
     return b;
 }
 int Send(std::vector<std::uint8_t>& p) { return Receive(spark::Message, static_cast<int>(p.size()), p.data()); }
+unsigned Pending()
+{
+    unsigned count{};
+    for (const auto& r : emitters.Records()) count += r.remaining > 0 || r.total == -1;
+    return count;
+}
+void ClearDraw()
+{
+    begins = ends = vertices = 0;
+    uv.clear(); colors.clear(); binds.clear(); positions.clear(); modes.clear(); culls.clear(); angleInputs.clear();
+}
 void Fresh()
 {
-    ResetTeddySparks();
-    received = emitted = invalid = exhausted = draws = 0;
-    timeCalls = loadCalls = rngCalls = chainCalls = hookCalls = begins = ends = vertices = pvsCalls = 0;
-    rngAxis = 0;
-    randomBounds.clear(); uv.clear(); colors.clear(); binds.clear(); positions.clear(); modes.clear(); culls.clear();
-    resetAt.clear(); reenterRandom = resetRandom = false; clockNow = 10;
-    models[0] = {}; models[1] = {};
+    ResetTeddySparks(); emitters.Initialize();
+    resetAt.clear(); reenterRandom = resetRandom = noModel = false; inPvs = true;
+    models[0] = {}; models[1] = {}; local = {};
     for (auto& model : models) model.type = mod_sprite;
     models[0].numframes = 29; models[1].numframes = 17;
     movement = {}; movement.gravity = 800;
     view = {}; view.movevars = &movement;
-    engine = {}; triangles = {}; hookApi = {};
-    api = &hookApi;
-    previous = Previous;
-    engine.GetClientTime = []() { ++timeCalls; ResetCallback("time"); return clockNow; };
-    engine.CL_LoadModel = [](const char* path, int* index) -> model_t*
+    view.viewangles[0] = 27; view.viewangles[1] = -49;
+    engine = {}; triangles = {}; hookApi = {}; api = &hookApi; previous = Previous;
+    samples.clear(); sampleAt = 0;
+    engine.GetClientTime = []()
+    {
+        ++timeCalls; ResetCallback("time");
+        return sampleAt < samples.size() ? samples[sampleAt++] : clockNow;
+    };
+    engine.pfnSPR_Load = [](const char* path)
     {
         ++loadCalls; ResetCallback("load");
         const unsigned n = std::string_view(path) == spark::Sprites[1] ? 1 : 0;
-        *index = n + 2; return &models[n];
+        return int(n + 2);
+    };
+    engine.GetSpritePointer = [](int handle) -> const model_t*
+    {
+        ++modelCalls; ResetCallback("model");
+        return noModel ? nullptr : &models[handle == 3 ? 1 : 0];
     };
     engine.pfnRandomFloat = [](float lo, float hi)
     {
         static constexpr float xyz[]{-1, .25f, 1};
         const float value = lo == 1 ? 1.25f : xyz[rngAxis++ % 3]; ++rngCalls;
         randomBounds.push_back({lo, hi});
-        if (reenterRandom) { reenterRandom = false; Send(reentryPacket); TeddySparksFrame(); DrawTeddySparks(); }
+        if (reenterRandom) { reenterRandom = false; Send(reentryPacket); TeddySparksUpdateClientData(); DrawTeddySparks(); }
         if (resetRandom) { resetRandom = false; ResetTeddySparks(); }
         Check(lo <= value && value <= hi, "RNG boundary/order");
         return value;
     };
-    engine.pfnAngleVectors = [](const float*, float* forward, float* right, float* up)
+    engine.GetLocalPlayer = []() -> cl_entity_t* { ++localCalls; ResetCallback("local"); return &local; };
+    engine.pfnAngleVectors = [](const float* angles, float* forward, float* right, float* up)
     {
+        angleInputs.push_back({angles[0], angles[1], angles[2]});
         for (unsigned i = 0; i < 3; ++i) { forward[i] = i == 2; right[i] = i == 0; up[i] = i == 1; }
         ResetCallback("angles");
     };
@@ -107,24 +128,33 @@ void Fresh()
     triangles.Color4f = [](float r, float g, float b, float a) { colors.push_back({r,g,b,a}); ResetCallback("color"); };
     triangles.TexCoord2f = [](float u, float v) { uv.push_back({u,v}); ResetCallback("tex"); };
     triangles.Vertex3f = [](float x, float y, float z) { ++vertices; positions.push_back({x,y,z}); ResetCallback("vertex"); };
-    triangles.BoxInPVS = [](float*, float*) { ++pvsCalls; ResetCallback("pvs"); return 1; };
+    triangles.BoxInPVS = [](float*, float*) { ++pvsCalls; ResetCallback("pvs"); return int(inPvs); };
     engine.pTriAPI = &triangles;
     hookApi.HookUserMsg = [](const char* name, pfnUserMsgHook fn) { ++hookCalls; Check(std::string_view(name) == "TempEmit" && fn == Receive, "actual hook installation"); return Previous; };
     message_chain::installed.clear();
+    // Empty transparent passes establish the independent prior-time clock.
+    // Clear/VidInit intentionally do not reset that original clock.
+    clockNow = 9; DrawTeddySparks(); clockNow = 10; DrawTeddySparks();
+    received = emitted = invalid = exhausted = draws = 0;
+    timeCalls = loadCalls = modelCalls = rngCalls = chainCalls = hookCalls = pvsCalls = localCalls = 0;
+    rngAxis = 0; randomBounds.clear(); ClearDraw(); TeddySparksHudTime(10);
 }
-void Frame(float now) { clockNow = now; TeddySparksFrame(); }
+void Frame(float now) { clockNow = now; TeddySparksUpdateClientData(); }
+Slot* Seed(float x, unsigned sprite = 0, float die = 20)
+{
+    auto* s = particlePool.Allocate(true);
+    Check(s != nullptr, "fixture allocation");
+    *s = {};
+    s->model = &models[sprite]; s->nextPvsCheck = 100; s->inPvs = true;
+    s->particle.sprite = static_cast<std::uint8_t>(sprite); s->particle.frame = 2;
+    s->particle.color = {250,123,70}; s->particle.alpha = 240;
+    s->particle.origin = {x,20,30}; s->particle.size = 180;
+    s->particle.born = 9; s->particle.die = die;
+    return s;
+}
 void DrawSeed()
 {
-    Fresh();
-    sprites = {&models[0], &models[1]}; haveTime = true; lastTime = clockNow;
-    particleEnd = 3;
-    for (unsigned i = 0; i < particleEnd; ++i)
-    {
-        particles[i] = {}; particles[i].active = true; particles[i].inPvs = true;
-        auto& p = particles[i].particle;
-        p.sprite = i == 2 ? 1 : 0; p.frame = 2; p.color = {250,123,70}; p.alpha = 240;
-        p.origin = {10,20,30}; p.size = 180;
-    }
+    Fresh(); Seed(10); Seed(30,1); Seed(20);
 }
 void Cases()
 {
@@ -133,65 +163,88 @@ void Cases()
     Check(hookCalls == 1 && previous == Previous, "message chain once");
     std::vector<std::uint8_t> other{1,2,3};
     Check(Send(other) == 73 && chainCalls == 1, "non-owned message preserved");
-    auto bad = p0; bad.pop_back(); Check(Send(bad) == 1 && invalid == 1 && !emitterEnd && !loadCalls, "owned malformed rejected");
-    for (unsigned at : {19u, 33u, 39u, 43u, 47u, 48u, 49u, 50u, 54u, 58u, 62u, 66u, 70u, 74u, 78u})
-    { bad = p0; bad[at] ^= 0x40; Check(Send(bad) == 1 && !emitterEnd, "malformed field rejected"); }
-    bad = p0; bad[51] = 0; Check(Send(bad) == 1 && !emitterEnd, "out-of-range RGB rejected");
-    Check(Send(p0) == 1 && Send(p1) == 1 && emitterEnd == 2 && loadCalls == 2, "dual packet actual Receive");
-    Check(emitters[0].remaining == 3 && emitters[1].parameters.sprite == 1, "dual emitter state");
+    auto bad = p0; bad.pop_back(); Check(Send(bad) == 1 && invalid == 1 && !Pending() && !loadCalls, "owned malformed rejected");
+    for (unsigned at : {19u,33u,39u,43u,47u,48u,49u,50u,54u,58u,62u,66u,70u,74u,78u})
+    { bad = p0; bad[at] ^= 0x40; Check(Send(bad) == 1 && !Pending(), "malformed field rejected"); }
+    bad = p0; bad[51] = 0; Check(Send(bad) == 1 && !Pending(), "out-of-range RGB rejected");
+    Check(Send(p0) == 1 && Send(p1) == 1 && Pending() == 2 && loadCalls == 2 && modelCalls == 2, "dual packet actual Receive");
+    Check(!timeCalls && !rngCalls && !particlePool.ActiveCount(), "message uses HUD cache, not live time or simulation");
     Frame(10); Check(!emitted && !rngCalls, "strict initial equal");
-    Frame(10.5f); Check(emitted == 2 && rngCalls == 8 && emitters[0].remaining == 2, "one per emitter due");
-    const auto strict = emitters[0].next; Frame(strict); Check(emitted == 2, "strict next equal");
-    Frame(100); Check(emitted == 4 && emitters[0].remaining == 1 && emitters[1].remaining == 1, "no catchup");
-    Frame(101); Check(emitted == 6 && !emitterEnd, "three emissions total");
-    Check(loadCalls == 2, "no frame resource IO");
+    Frame(10.5f); Check(emitted == 2 && rngCalls == 8 && emitters.Records()[0].remaining == 2, "one emission per due emitter");
+    Check(particlePool.ActiveCount() == 2 && particlePool.PreviousTime() == 10 && !pvsCalls, "UpdateClientData does not advance particles");
+    const auto strict = emitters.Records()[0].next; Frame(strict); Check(emitted == 2, "strict next equal");
+    Frame(100); Check(emitted == 4 && emitters.Records()[0].remaining == 1, "no catchup");
+    Frame(101); Check(emitted == 6 && !Pending(), "three emissions total");
+    Check(loadCalls == 2 && modelCalls == 2, "no frame resource IO");
 
-    Fresh(); clockNow = 0; Send(p0); Frame(1); Check(!emitted && emitters[0].remaining == 3, "zero-next disabled");
+    Fresh(); clockNow = 200; Send(p0);
+    Check(emitters.Records()[0].next == 10 && !timeCalls, "Add time independent from live engine clock");
+    Fresh(); engine.GetSpritePointer = [](int) -> const model_t* { ++modelCalls; TeddySparksHudTime(30); return &models[0]; };
+    Send(p0); Check(emitters.Records()[0].next == 30, "Add reads HUD cache after model callback");
+    Fresh(); TeddySparksHudTime(0); Send(p0); Frame(1);
+    Check(!emitted && emitters.Records()[0].remaining == 3, "zero-next disabled");
+    Fresh(); noModel = true; Send(p0); Frame(10.5f);
+    Check(received == 1 && emitters.Records()[0].remaining == 2 && invalid == 1 && !rngCalls, "missing model retains original consumed emitter");
     Fresh(); for (unsigned i = 0; i < 128; ++i) Send(p0);
-    Check(emitterEnd == 128 && received == 128 && loadCalls == 1, "128 emitter pool/cache");
-    Send(p1); Check(exhausted == 1 && received == 128 && loadCalls == 1, "full emitter does not load");
-    emitters[7].remaining = emitters[41].remaining = 0; Send(p1);
-    Check(emitters[7].remaining == 3 && emitters[7].parameters.sprite == 1 && emitters[41].remaining == 0, "first free emitter");
+    Check(Pending() == 128 && received == 128 && loadCalls == 128, "128 shared records load through engine cache");
+    Send(p1); Check(exhausted == 1 && loadCalls == 128 && modelCalls == 128, "full pool does not load");
+    ResetTeddySparks(); Check(!Pending() && !particlePool.ActiveCount(), "host reset clears particle then emitter records");
+    Check(particlePool.PreviousTime() == 10, "clear preserves previous clock");
 
-    Fresh(); Send(p0); Send(p1); particleEnd = spark::ParticleCapacity;
-    for (auto& slot : particles) { slot = {}; slot.active = true; slot.particle.born = 10; slot.particle.die = 20; }
+    Fresh(); Send(p0); Send(p1);
+    for (unsigned i = 0; i < 1200; ++i) Seed(float(i));
     Frame(10.5f);
-    Check(exhausted == 1 && emitters[0].remaining == 2 && emitters[1].remaining == 3 && !rngCalls, "1200 factory full consumes then ends pass");
-    particles[13].active = false; Frame(10.51f);
-    Check(emitted == 1 && particles[13].active && particles[13].particle.sprite == 1 && emitters[1].remaining == 2, "pending emitter uses first free particle");
-
-    Fresh(); Frame(100); Frame(200);
-    Check(!loadCalls && !rngCalls && !pvsCalls && timeCalls == 2 && lastTime == 200, "empty frame O1 clock only");
-    clockNow = 200; Send(p0); const float now = 200.016f; Frame(now);
-    Check(particleEnd == 1 && particles[0].active, "idle spawn remains active");
-    Check(particles[0].particle.origin[0] == 10.f + (-30.f) * (now - 200.f), "idle gap delta only current frame");
-    const auto before = particles[0].particle; const auto oldLast = lastTime;
-    clockNow = 199; Send(p1);
-    Check(particleEnd == 1 && particles[0].particle.origin == before.origin && lastTime == oldLast, "lagged message preserves live effects/time");
+    Check(exhausted == 1 && emitters.Records()[0].remaining == 2 && emitters.Records()[1].remaining == 3 && !rngCalls, "factory full consumes and stops pass");
+    Fresh(); DrawTeddySparks(); Check(!rngCalls && !loadCalls && !pvsCalls && timeCalls == 2, "empty transparent pass advances independent clock");
+    Send(p0); Frame(10.01f);
+    float bornX{};
+    auto readOrigin = [&](const Slot& s) { bornX = s.particle.origin[0]; };
+    particlePool.VisitActive(readOrigin);
+    Check(bornX == 10, "emission has not integrated before transparent phase");
+    DrawTeddySparks(); particlePool.VisitActive(readOrigin);
+    Check(bornX == 10 + -30.f * (clockNow - 10), "transparent phase integrates original delta");
+    const auto oldDraws = draws; const auto oldRng = rngCalls; DrawTeddySparks(); particlePool.VisitActive(readOrigin);
+    Check(draws == oldDraws + 1 && rngCalls == oldRng && bornX == 10 + -30.f * (clockNow - 10), "same-clock redraw without update or emission");
 
     Fresh(); Send(p0); resetRandom = true; Frame(10.5f);
-    Check(!emitterEnd && !particleEnd && !sprites[0] && rngCalls == 1, "RNG reset aborts stale slot commit");
-    clockNow = 20; Send(p1); Frame(20.01f); Check(particleEnd == 1 && particles[0].particle.sprite == 1, "session reset overwrites retired slot");
+    Check(!Pending() && !particlePool.ActiveCount() && rngCalls == 1 && !emitted, "RNG reset invalidates allocation");
     Fresh(); Send(p0); reentryPacket = p1; reenterRandom = true; Frame(10.5f);
-    Check(invalid == 1 && received == 1 && emitted == 1 && rngCalls == 4, "RNG reentry blocked without duplicate emission");
-    Fresh(); resetAt = "load"; Send(p0); Check(!emitterEnd && !sprites[0], "loader reset aborts stale resource");
-    Fresh(); Send(p0); resetAt = "pvs"; Frame(10.5f); Check(!particleEnd && !emitterEnd, "PVS reset aborts live integration");
+    Check(invalid == 1 && received == 1 && emitted == 1 && rngCalls == 4, "RNG reentry rejected");
+    for (const char* stage : {"load","model"})
+    { Fresh(); resetAt = stage; Send(p0); Check(!received && !Pending() && !particlePool.ActiveCount(), "resource callback invalidates Add"); }
 
     DrawSeed(); DrawTeddySparks();
-    Check(begins == 2 && ends == 2 && vertices == 12 && binds.size() == 2, "state-compatible dual sprite batches");
-    Check(binds[0] == std::array<int,2>{0,2} && binds[1] == std::array<int,2>{1,2}, "sprite frame texture binding");
-    Check(colors.size() == 4 && colors[0] == std::array<float,4>{250.f/255,123.f/255,70.f/255,240.f/255}, "additive RGB alpha");
+    Check(begins == 3 && ends == 3 && vertices == 12 && binds.size() == 3, "all sorted particles drawn once");
+    Check(binds[0][0] == 1 && binds[1][0] == 0 && binds[2][0] == 0 &&
+        positions[0][0] == -60 && positions[4][0] == -70 && positions[8][0] == -80, "distance order preserved across sprite groups");
+    Check(colors[0] == std::array<float,4>{250.f/255,123.f/255,70.f/255,240.f/255}, "additive RGB alpha");
     Check(modes.front() == kRenderTransAdd && modes.back() == kRenderNormal && culls.back() == TRI_FRONT, "draw API state restore");
     Check(uv[0] == std::array<float,2>{0,0} && uv[1] == std::array<float,2>{0,1} && uv[2] == std::array<float,2>{1,1} && uv[3] == std::array<float,2>{1,0}, "quad UV order");
-    Check(!loadCalls && !rngCalls, "draw does not perform resource IO or RNG at same time");
-    for (const char* stage : {"mode","cull","sprite","begin","angles","color","tex","vertex","end"})
+    view.viewangles[0] = 45; DrawTeddySparks();
+    Check(angleInputs.back()[0] == 27, "equal time keeps original camera cache");
+    Check(!loadCalls && !rngCalls, "same-clock draw has no resource IO or RNG");
+    for (const char* stage : {"time","local","angles","sprite","mode","cull","begin","color","tex","vertex","end"})
     {
         DrawSeed(); resetAt = stage; DrawTeddySparks();
-        Check(begins == ends && modes.back() == kRenderNormal && culls.back() == TRI_FRONT, "callback reset balances BeginEnd/restores state");
-        Check(!particleEnd && !emitterEnd, "callback reset leaves no live stale effects");
+        Check(begins == ends && !particlePool.ActiveCount() && !Pending(), "callback reset balances draws and invalidates traversal");
     }
-    DrawSeed(); particles[0].particle.frame = models[0].numframes; particles[1].active = particles[2].active = false;
-    DrawTeddySparks(); Check(binds.size() == 1 && binds[0][1] == 29, "draw preserves frame==frames");
+    Fresh(); auto* s = Seed(10); s->nextPvsCheck = 0; resetAt = "pvs"; DrawTeddySparks();
+    Check(!particlePool.ActiveCount() && !vertices, "PVS reset aborts particle traversal");
+    Fresh(); s = Seed(10,0,10); DrawTeddySparks();
+    Check(!particlePool.ActiveCount() && !vertices, "queued dying particle skips exact-die Draw");
+    Fresh(); s = Seed(10,0,9); DrawTeddySparks();
+    Check(!particlePool.ActiveCount() && vertices == 4, "queued already-expired particle preserves original equality-only Draw gate");
+    Fresh(); s = Seed(10); s->particle.frame = models[0].numframes; DrawTeddySparks();
+    Check(binds.size() == 1 && binds[0][1] == 29, "draw preserves frame==frames");
+
+    Fresh(); clockNow = 9; DrawTeddySparks(); s = Seed(10); s->particle.velocity = {5,0,0};
+    samples = {10,10,10,9,10}; sampleAt = 0; clockNow = 10; DrawTeddySparks();
+    Check(s->particle.origin[0] == 10 && particlePool.PreviousTime() == 10, "per-particle equal sample skips update using original previous time");
+    samples.clear(); sampleAt = 0; clockNow = 9.5f; DrawTeddySparks();
+    Check(s->particle.origin[0] == 7.5f, "rewind still updates with initial snapshot");
+    Fresh(); s = Seed(10); s->nextPvsCheck = 0; inPvs = false; clockNow = 10.1f; DrawTeddySparks();
+    Check(!vertices && s->particle.size > 180, "invisible particle still updates");
+
     spark::Particle boundary; boundary.born = 10; boundary.die = 20;
     Check(spark::Tick(boundary, 11, 10, 800, 17, 17) && boundary.frame == 17, "strict finite animation equality");
     Check(!spark::Tick(boundary, std::nextafter(11.f, 12.f), 11, 800, 17, 17), "strict finite animation after bound");
@@ -203,8 +256,8 @@ void EmitterOracle()
     {
         Fresh(); std::vector<std::uint8_t> packet;
         for (std::size_t i = 0; i < raw.size(); i += 2) packet.push_back(static_cast<std::uint8_t>(std::stoul(raw.substr(i,2), nullptr, 16)));
-        Send(packet); Check(emitterEnd == 1, "oracle raw packet accepted");
-        const auto event = emitters[0].parameters; Random random{epoch};
+        Send(packet); Check(Pending() == 1, "oracle raw packet accepted");
+        const auto event = emitters.Records()[0].payload; Random random{epoch};
         const auto p = spark::Spawn(event, 10.5f, random);
         std::cout << '[' << unsigned(event.sprite) << ',' << unsigned(event.rotation) << ',' << event.interval;
         for (float f : event.origin) std::cout << ',' << f;
@@ -214,6 +267,7 @@ void EmitterOracle()
     }
 }
 }
+
 
 int main(int argc, char** argv)
 {

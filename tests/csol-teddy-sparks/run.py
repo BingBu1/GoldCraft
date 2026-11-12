@@ -110,7 +110,7 @@ def main():
                     failures.append(dict(index=index, actual=actual_values, expected=wanted))
             comparison = dict(success=not failures, oracle=identity(args.oracle), cases=len(values),
                               fields=sum(map(len, expected)), failures=failures,
-                              boundary='Actual Receive parser and actual Spawn against original parser/Add/Frame initialization; actual Frame integrates after spawning and is tested separately')
+                              boundary='Actual Receive parser and actual Spawn against original parser/Add/Frame initialization; UpdateClientData emission and transparent particle integration are tested separately')
             (out / 'emitter-comparison.json').write_text(json.dumps(comparison, indent=2), 'utf8')
             assert not failures, 'Original emitter initialization mismatch'
         assert all(identity(Path(item['path'])) == item for item in actual)

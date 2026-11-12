@@ -3,6 +3,7 @@
 #include "weapons/guest_cof.hpp"
 #include "weapons/guest_cof_audio.hpp"
 #include "weapons/guest_cof_particles.hpp"
+#include "resource_refresh.hpp"
 #include "user_message_chain.hpp"
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
@@ -424,7 +425,6 @@ static void Frame(double time)
     ScenarioRespawnUiFrame();
     EliteVisualsFrame();
     Balrog11FlameFrame();
-    TeddySparksFrame();
     RenderSettingsFrame();
     if(downstream.HUD_Frame)downstream.HUD_Frame(time);
     SceneFrame();
@@ -445,6 +445,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
 }
 static int Redraw(float time, int intermission)
 {
+    TeddySparksHudTime(time);
     const int result = WeaponRedraw(time, intermission);
     DrawStatusIcons(time);
     DrawWallStatus(intermission);
@@ -456,6 +457,14 @@ static int Redraw(float time, int intermission)
     DrawBossHealth(intermission);
     DrawScenarioRoundHud(time, intermission);
     DrawScenarioRespawnUi(time, intermission);
+    return result;
+}
+static int UpdateClientData(client_data_s* data, float time)
+{
+    // Keep the existing session/FOV wrapper. Original CSOL schedules emitter
+    // Think through HUD_UpdateClientData; HUD_Frame does not own this step.
+    const int result = GuestCofUpdateClientData(data, time);
+    if(ResourceReadsAllowed())TeddySparksUpdateClientData();
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -527,7 +536,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_GetStudioModelInterface=GetStudioInterface;
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;
-    functions->HUD_UpdateClientData=GuestCofUpdateClientData;
+    functions->HUD_UpdateClientData=UpdateClientData;
     functions->HUD_DrawTransparentTriangles=Transparent;
     functions->HUD_DrawNormalTriangles=Normal;
     functions->HUD_Redraw=Redraw;

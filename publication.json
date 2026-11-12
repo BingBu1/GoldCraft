@@ -2126,7 +2126,8 @@
     "native/guest/cof/server/glock_weapon.hpp",
     "native/guest/cof/server/glock_weapon.cpp",
     "tests/cryoffear-glock-weapon/main.cpp",
-    "docs/2026-11-12_验证-CoF震屏枪烟与操作准入-report.md"
+    "docs/2026-11-12_验证-CoF震屏枪烟与操作准入-report.md",
+    "docs/2026-11-12_实现-出生火花运行回调与共享池接线-report.md"
   ],
   "trees": {
     "native": [
