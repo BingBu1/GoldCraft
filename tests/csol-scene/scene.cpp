@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <source_location>
+static_assert(offsetof(engine_studio_api_t,StudioSetHeader)==0x8c);
+static_assert(offsetof(engine_studio_api_t,SetRenderModel)==0x90);
 namespace fixture {
 using namespace csol::client;
 int targetTag,frame=1,checks,poses,lightingCalls,eventCalls,geometryCalls;
@@ -53,6 +55,11 @@ void PruneBeamEffects(){}void DrawBeamgunTracers(){}void DrawCannonSmoke(){}
 // Independent particle systems are outside this mesh/event routing fixture.
 void DrawScenarioSmoke(){}void DrawEliteVisuals(){}void DrawFrozenSmoke(){}
 void DrawBalrog11Flame(){}void ResetBalrog11Flame(){}void ResetEmotionVoices(){}
+void DrawGuestCofOpaqueScene() noexcept{}void DrawParticleEffects(){}void ResetParticleEffects(){}
+void InvalidateGuestCofAdmission() noexcept{}void ClearGuestCofScene() noexcept{}void GuestCofSceneFrame() noexcept{}
+void GuestCofAdmissionDiagnostics(std::ostream&){}
+bool GuestCofMuzzleStudioEvent(const mstudioevent_t*,const cl_entity_t*) noexcept{return false;}
+bool GuestCofStudioEvent(const mstudioevent_t*,const cl_entity_t*) noexcept{return false;}
 void Balrog11FlameDiagnostics(std::ostream&){}void RenderSettingsDiagnostics(std::ostream&){}
 // Voice and weapon handedness are isolated boundaries of this mesh fixture.
 bool EmotionVoiceStudioEvent(const mstudioevent_t*,const cl_entity_t*){return false;}
@@ -354,6 +361,19 @@ int main(int argc,char** argv)
     currentStudioHeader=nullptr;check(!DrawWorldWeaponPoints());
     currentStudioHeader=asset.bytes.data();++frame;sceneTime+=.1;descriptor.frame_number=frame;clear();
     check(DrawWorldWeaponPoints());DrawOwnedWorld(descriptor);check(pixel()[0]>=127);
+    // Namespaced held models follow the actual weapon/header identity too.
+    const std::string oldPlayerName=ordinaryModel.name;entity.player=1;
+    std::strcpy(ordinaryModel.name,"models/player/csol_fixture.mdl");
+    for(const char* path:{"models/guest/cof/glock/p_glock.mdl","models/mod/held.mdl"})
+    {
+        std::strcpy(model.name,path);++frame;sceneTime+=.1;descriptor.frame_number=frame;clear();
+        currentStudioHeader=asset.bytes.data();check(DrawWorldWeaponPoints());
+        DrawOwnedWorld(descriptor);check(pixel()[0]>=127);
+        check(currentStudioModel==&ordinaryModel&&entity.model==&ordinaryModel);
+        currentStudioHeader=nullptr;check(!DrawWorldWeaponPoints());
+    }
+    std::strcpy(model.name,"models/p_fixture.mdl");
+    std::strcpy(ordinaryModel.name,oldPlayerName.c_str());entity.player=0;currentStudioHeader=asset.bytes.data();
     // Local first-person lower-body draws must fall through to the host's
     // clipping. Remote/third-person held weapons retain custom materials.
     local=&entity;clear();check(!DrawWorldWeaponPoints());DrawOwnedWorld(descriptor);

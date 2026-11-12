@@ -701,14 +701,14 @@ bool DrawWorldWeaponPoints()
     // CS changes the studio header for a merged held weapon without updating
     // SetRenderModel (which still identifies the player). Match the active
     // header to that player's precached weapon before taking over its meshes.
-    if(!name.starts_with("models/p_") && source->curstate.weaponmodel>0)
+    bool attached=name.starts_with("models/p_");
+    if(!attached && source->curstate.weaponmodel>0)
     {
         auto* held=studio.GetModelByIndex(source->curstate.weaponmodel);
-        if(held && held->type==mod_studio && std::string_view(held->name,strnlen(held->name,sizeof(held->name))).starts_with("models/p_") &&
+        if(held && held->type==mod_studio &&
             studio.Mod_Extradata(held)==currentStudioHeader)
-        {model=held;name=std::string_view(model->name,strnlen(model->name,sizeof(model->name)));}
+        {model=held;name=std::string_view(model->name,strnlen(model->name,sizeof(model->name)));attached=true;}
     }
-    const bool attached=name.starts_with("models/p_");
     const bool character=source->player && name.starts_with("models/player/csol");
     // CSOL map effects and monsters carry the same external material policy
     // as weapons (for example ef_hole's $0a textures). Let the asset decide
