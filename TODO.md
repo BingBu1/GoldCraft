@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] 完成Nightmare泰迪熊owner发布闭包与玩法：Meteor双手/stop已共池，6793SDK/原输出/客户端通过、三精灵冷SDK78过；核收完整server稳定封存及Precache/Session资源WIP，补boss_room/CMeteor、rules354/HTTP、增强renderer/辅助列表/VXL53/断线和真实专服/多人/性能，未验不开放投票。见 docs/2026-11-12_实现-流星燃烧与分组停止运行接线-report.md。
+- [ ] 完成Nightmare泰迪熊owner发布闭包与玩法：Meteor双手/stop已共池，6793SDK/原输出与双端完整构建封存通过、三精灵冷SDK78过；核收完整owner及Precache/Session资源WIP，补boss_room/CMeteor、rules354/HTTP、增强renderer/辅助列表/VXL53/断线和真实专服/多人/性能，未验不开放投票。见 docs/2026-11-12_实现-流星燃烧与分组停止运行接线-report.md。
 
 - [ ] 完成 Cry of Fear 客串武器整枪注册、原机瞄/推搡/丢拾/渲染与输入接线、真实资源及23/18效果消费者、owner-frame、持续枪烟容量语义、P握姿与CSO动作、购买及灾变JSON伤害；Glock/P345生命周期/冷资源/枪口组件已过原指令与SDK，仍待整DLL、专服多人/声音画面与实机性能。见 docs/2026-11-11_接入-CryOfFear武器-report.md。
 
