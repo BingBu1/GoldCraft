@@ -77,3 +77,10 @@ python tests/cryoffear-crosshair-sender/run.py \
 
 
 最终当前源码客户端已封存：SHA-256 `a53b982caa4c7ab295c672c3f4dd384d075d4fdae10563ef6879191e1daf7620`（PE32/x86，5223424B），`build/cof-client-checkpoint-20261112-crosshair-03/receipt.json` 的输入核同。第二轮实际编链成功，但期间其他地图资源头变化使广域收据拒绝；第三轮同 DLL 稳定封存，没有伪造前次成功。屏幕冷缓存542、更新后共同runner准入10260、FOV128和mouse671均为当前源有效结果；11个暂存native blob核同编译输入。服务端仍在同一完整编链，另行保留最终状态。
+
+
+## 双端最终封存
+
+完整服务端已完成，SHA-256 `b013070fb51285ce95f2c405f838b5a25f38f027d45c2fa066934e12b4187951`（PE32/x86，5846528B），最终 `build/cof-server-checkpoint-20261112-crosshair-02/receipt.json` 的源/控制输入核同。首轮编链0错误，但期间 client crosshair 冷缓存修改使全域封存拒绝；保留失败收据，待该进程真实终止后才运行增量。最终 client `a53b982c` 与 MP `b013070f` 的当前文件完整 SHA、PE32/x86和独立文件身份已重新核对，配套收据为 `build/cof-paired-candidate-20261112-crosshair-01/receipt.json`。
+
+Glock50资源、8项购买/HUD与1份灾变伤害JSON共59文件、4,510,909B已逐SHA核对并形成 `build/cof-runtime-plan-20261112-crosshair-01/resource-plan.json`，未写入运行目录。实际部署还须核核心/Renderer和新原生目录配套、保留授权/普通武器路径；当前无游戏/声音/人物握姿/多人或实机性能验收。源码组件已发布main `973e289`，完整map/runtime owner闭包仍按单独范围接续，Goal active。
