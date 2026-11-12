@@ -65,16 +65,21 @@ def main():
     # client's actual observer and two independently updated view-angle vectors.
     # IDA: HUD_ProcessPlayerState100489A0; normal-view slice1006BBFA..1006BC48.
     particle_fields = (
-        ("Observer", 0x110E10, 0x48B12, bytes.fromhex("a3 10 0e 11 10")),
-        ("RenderAngles", 0x134AF8, 0x6BC09, bytes.fromhex("f3 0f 11 05 f8 4a 13 10")),
-        ("ChaseAngles", 0x134AEC, 0x6BC30, bytes.fromhex("f3 0f 11 05 ec 4a 13 10")),
+        ("Observer", 0x110E10, 0x48B12, bytes.fromhex("a3 10 0e 11 10"), 1),
+        ("RenderAngles", 0x134AF8, 0x6BC09, bytes.fromhex("f3 0f 11 05 f8 4a 13 10"), 4),
+        ("ChaseAngles", 0x134AEC, 0x6BC30, bytes.fromhex("f3 0f 11 05 ec 4a 13 10"), 4),
     )
-    for name, rva, reference, expected in particle_fields:
+    for name, rva, reference, expected, operand in particle_fields:
         if raw(reference, len(expected)) != expected:
             raise ValueError("Matched particle camera reference changed: " + name)
+        signature = " ".join(f"{byte:02X}" if index < operand else "??"
+                             for index, byte in enumerate(expected))
         records.append({"platform": "windows", "module": "client",
                         "symbolName": "GoldCraftParticle_" + name, "kind": "global",
-                        "payload": {"gv_rva": hex(rva), "gv_va": hex(IMAGE_BASE + rva)}})
+                        "payload": {"gv_rva": hex(rva), "gv_va": hex(IMAGE_BASE + rva),
+                            "gv_sig": signature, "gv_sig_va": hex(IMAGE_BASE + reference),
+                            "gv_inst_offset": "0x0", "gv_inst_disp": hex(operand),
+                            "gv_inst_length": hex(len(expected))}})
     # The three observer values are a checked contiguous group, not a guessed
     # entity-state offset shared with the incompatible CSOL client layout.
     if raw(0x48B1D, 5) != bytes.fromhex("a3 14 0e 11 10") or \

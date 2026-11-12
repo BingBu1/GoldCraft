@@ -1,0 +1,22 @@
+{
+  "sound/weapons_new/p345/p345_click.wav": "8b5795f01e723a880753ca7ff697ce30cd4331a11bad4c9e79b79216bbd532a9",
+  "sound/weapons_new/p345/p345_magin.wav": "42ec705fd1df763aa5fa24edc6392cb6b759ee1bf1e8ca2f7ca44f1ab1049ee6",
+  "sound/weapons_new/p345/p345_magout.wav": "983040c34b276c567e8ec184d6b47bfd20c2f68c5889bebe33a4af0f3a804af2",
+  "sound/weapons_new/p345/p345_magplace.wav": "0158f4cd2999ec347db7e66dd9537413ed75c8f447c2383d0ee32435d4798b9e",
+  "sound/weapons_new/p345/p345_rackback.wav": "2d0af9bd17929edb1f617fb73275a2a909294d82a39370c3e0bb34e00efcf612",
+  "sound/weapons_new/p345/p345_slide.wav": "ebeb9241bb1aa3e69721f24b01b527f53fd8f492aca99583d601c6f4a84abc60",
+  "sound/weapons_new/p345/p345_fire.wav": "b10cdc51dca8fdde716cc2178b60ad24a5d93c70e5bf7531ac077f87651f0428",
+  "sound/weapons_new/glock/glock_switch.wav": "48d7d2cdf962fcb5dfee268af7f4bef46d00f084ea818664d25e65c078ea8d97",
+  "sound/weapons_new/glock/glock_magin.wav": "37288e494487664217faa403f88312941e58735a3a34165e520c6914d72c2c43",
+  "sound/weapons_new/glock/glock_magout.wav": "f7509ff95166bd626a9a0ded256d3350e6d0573127192b849b977a7d6fc86b7d",
+  "sound/weapons_new/glock/glock_magplace.wav": "e1e20819fc6fcf3d0bc3cdc10826efaf960a51f543130b61c1df22fcecf759ec",
+  "sound/weapons_new/glock/glock_rackback.wav": "49b75747d04e6e5a38c91fff93b0ee942d34943358e6b82ac10827ab15c868ae",
+  "sound/weapons_new/glock/glock_slide.wav": "93be99d0687b8e589b0d3cc1cbc3efe6a9853dd2693ef66cfa2e383d96ae26ed",
+  "sound/weapons_new/glock/glock_fire.wav": "5e475b56ae3c41a512a9e75be00248aa9c5714a5e7472cefcb9f4a15ff3880c9",
+  "aurora/gunsmoke.aur": "e37c7e21896e7d206ca020d60b263bac1dac193c600bbb18d7ca4d205f299fb7",
+  "gfx/decals/shot1.tga": "1942371dee349f9d7468644a1ebc3c7f44d97b3f1d305f1af40d79b1e589e1ab",
+  "gfx/decals/shot2.tga": "ca19ecbc94ba986e4ad5c6fa1a40fe8d57591112a5de6211854aab3bfca835ed",
+  "gfx/decals/shot3.tga": "d0ddd8c6f875d8f23e93a86d359ae435d0716f0bc4e12d11eadcf19093781aba",
+  "gfx/decals/shot4.tga": "fe0c41d78383d4609697d960567ecdc2f13042c255d33a2ec2ab4b0df138856c",
+  "gfx/decals/shot5.tga": "1942371dee349f9d7468644a1ebc3c7f44d97b3f1d305f1af40d79b1e589e1ab"
+}

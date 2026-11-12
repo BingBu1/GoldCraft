@@ -21,8 +21,8 @@ struct GuestCofAudioPlan
     guest::cof::client::AudioLimits limits;
     std::span<const GuestCofSoundAsset> assets;
     void* context{};
-    // Cold-only query against the actual native signon sound cache. File
-    // existence or a server's promise is not evidence that playback is ready.
+    // Cold query against this connection's actual native signon table. Native
+    // PCM may remain lazy; local WAV decoding and voice preparation are separate.
     bool (*remotePrecached)(void*, std::string_view asset) noexcept {};
 };
 
