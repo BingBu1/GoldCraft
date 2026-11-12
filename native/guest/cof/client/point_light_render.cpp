@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "point_light_render.hpp"
+#include "core_gl.hpp"
 #include <metahook.h>
 #include <com_model.h>
 #include <GL/gl.h>
@@ -226,6 +227,11 @@ struct PointLightRenderer::Impl
     model_t* world{};std::size_t stride{};std::vector<Surface> surfaces;std::vector<std::array<float,7>> vertices;
     std::vector<DrawSurface> draws;std::size_t drawCount{};
     HGLRC context{};DWORD thread{};GLFunctions gl{};std::array<GLuint,5> textures{};GLint units{},alphaBits{};bool nv{},ready{};
+    core_gl::Api coreApi{};bool core{};GLuint program{},vao{},vbo{};
+    GLint worldUniform{},projectionUniform{},modelUniform{},basisUniform{},planeUniform{},colorUniform{},passUniform{};
+    bool InitializeCore() noexcept;
+    void CoreBatch(const PointLight&,const PointLightFrame&,const std::array<float,16>&,bool) noexcept;
+    PointLightDrawResult DrawCore(const PointLightFrame&,const PointLightState&) noexcept;
     const msurface_t* SurfaceAt(std::size_t i) const noexcept {return reinterpret_cast<const msurface_t*>(reinterpret_cast<const char*>(world->surfaces)+i*stride);}
     bool Owner() const noexcept {return ready&&context==wglGetCurrentContext()&&thread==GetCurrentThreadId();}
     bool Brushes(const PointLightFrame& f) const noexcept {
@@ -241,7 +247,7 @@ struct PointLightRenderer::Impl
         if(f.visibleBrushes.empty())return true;if(!f.brushLifecycleEstablished)return false;
         for(const auto* entity:f.visibleBrushes)if(entity&&entity->model&&entity->model->type==mod_brush&&!MainBrush(*entity))return false;return true;
     }
-    bool FixedArrays() const noexcept {GLint vao=0;if(gl.bindVertexArray)glGetIntegerv(VertexArrayBinding,&vao);return vao==0;}
+    bool FixedArrays() const noexcept {if(core)return true;GLint vao=0;if(gl.bindVertexArray)glGetIntegerv(VertexArrayBinding,&vao);return vao==0;}
     bool Scene(const PointLightFrame& f) const noexcept {return f.stage==PointLightStage::OpaqueBeforeTransparency&&f.space==PointLightSpace::OriginalGamma&&f.matchingOpaqueDepth&&f.visibilityEstablished;}
     void Arrays(unsigned unit,int mode) noexcept {
         gl.clientActive(Texture0+unit);
@@ -329,12 +335,91 @@ bool PointLightRenderer::PrepareMap(model_s& model,bool hl25,std::size_t maximum
         if(texture&&texture->anim_min==-666&&texture->anim_next)std::memcpy(&dst.normal,reinterpret_cast<const char*>(texture->anim_next)+16,sizeof(dst.normal));
         for(int j=0;j<dst.count;++j){std::array<float,7> v;std::memcpy(v.data(),s->polys->verts[j],sizeof(v));r.vertices.push_back(v);}
     }
+    if(r.core&&r.Owner()){
+        GLint previous{};glGetIntegerv(ArrayBinding,&previous);r.coreApi.bindBuffer(ArrayBuffer,r.vbo);
+        r.coreApi.bufferData(ArrayBuffer,std::ptrdiff_t(r.vertices.size()*sizeof(r.vertices[0])),r.vertices.data(),core_gl::StaticDraw);
+        r.coreApi.bindBuffer(ArrayBuffer,GLuint(previous));
+    }
     return true;
 }
 void PointLightRenderer::ClearMap() noexcept {auto& r=*impl_;r.world=nullptr;r.surfaces.clear();r.vertices.clear();r.drawCount=0;}
+bool PointLightRenderer::Impl::InitializeCore() noexcept
+{
+    if(!coreApi.Initialize()||vertices.empty())return false;
+    const auto image3D=core_gl::Proc<decltype(gl.image3D)>("glTexImage3D");if(!image3D)return false;
+    constexpr auto vertex=R"(#version 330 core
+layout(location=0) in vec3 position;layout(location=1) in vec2 texcoord;
+uniform mat4 world;uniform mat4 projection;uniform mat4 model;uniform mat4 basis;uniform vec4 planes[3];
+out vec2 uv;out vec3 direction;out vec3 attenuation;
+void main(){vec4 p=vec4(position,1.0);uv=texcoord;direction=(basis*p).xyz;attenuation=vec3(dot(planes[0],p),dot(planes[1],p),dot(planes[2],p));gl_Position=projection*(world*(model*p));}
+)";
+    constexpr auto fragment=R"(#version 330 core
+uniform samplerCube directions;uniform sampler2D normals;uniform sampler3D volume;
+uniform sampler1D axis;uniform sampler2D plane;uniform vec3 lightColor;uniform int pass;
+in vec2 uv;in vec3 direction;in vec3 attenuation;out vec4 color;
+void main(){
+ if(pass==2){float alpha=clamp(texture(axis,attenuation.z).r+texture(plane,attenuation.xy).r,0.0,1.0);color=vec4(texture(plane,attenuation.xy).rrr,alpha);return;}
+ if(pass==3){color=vec4(lightColor,1.0);return;}
+ float diffuse=clamp(4.0*dot(texture(directions,direction).rgb-vec3(0.5),texture(normals,uv).rgb-vec3(0.5)),0.0,1.0);
+ color=pass==1?vec4(diffuse):vec4(clamp(vec3(diffuse)*texture(volume,attenuation).rgb,0.0,1.0)*lightColor,diffuse);
+}
+)";
+    core_gl::State guard(coreApi);program=coreApi.Program(vertex,fragment);if(!program)return false;
+    worldUniform=coreApi.uniform(program,"world");projectionUniform=coreApi.uniform(program,"projection");modelUniform=coreApi.uniform(program,"model");basisUniform=coreApi.uniform(program,"basis");planeUniform=coreApi.uniform(program,"planes");colorUniform=coreApi.uniform(program,"lightColor");passUniform=coreApi.uniform(program,"pass");
+    coreApi.use(program);for(const auto& binding:std::array<std::pair<const char*,int>,5>{{{"directions",0},{"normals",1},{"volume",2},{"axis",3},{"plane",1}}})coreApi.integer(coreApi.uniform(program,binding.first),binding.second);
+    coreApi.genArrays(1,&vao);coreApi.genBuffers(1,&vbo);glGenTextures(GLsizei(textures.size()),textures.data());
+    const auto cleanup=[&]{if(vbo)coreApi.deleteBuffers(1,&vbo);if(vao)coreApi.deleteArrays(1,&vao);coreApi.deleteProgram(program);glDeleteTextures(GLsizei(textures.size()),textures.data());program=vao=vbo=0;textures={};};
+    if(!vao||!vbo||std::ranges::any_of(textures,[](GLuint id){return !id;})){cleanup();return false;}
+    coreApi.bindArray(vao);coreApi.bindBuffer(core_gl::ArrayBuffer,vbo);coreApi.bufferData(core_gl::ArrayBuffer,std::ptrdiff_t(vertices.size()*sizeof(vertices[0])),vertices.data(),core_gl::StaticDraw);
+    coreApi.enableAttribute(0);coreApi.attribute(0,3,GL_FLOAT,GL_FALSE,28,nullptr);coreApi.enableAttribute(1);coreApi.attribute(1,2,GL_FLOAT,GL_FALSE,28,reinterpret_cast<void*>(12));
+    std::array<std::uint8_t,128> a1;BuildPointLightAttenuation1D(a1);glBindTexture(GL_TEXTURE_1D,textures[0]);glTexImage1D(GL_TEXTURE_1D,0,0x8229,128,0,0x1903,GL_UNSIGNED_BYTE,a1.data());Parameters(GL_TEXTURE_1D,GL_NEAREST);
+    std::array<std::uint8_t,128*128> a2;BuildPointLightAttenuation2D(a2);glBindTexture(GL_TEXTURE_2D,textures[1]);glTexImage2D(GL_TEXTURE_2D,0,0x8229,128,128,0,0x1903,GL_UNSIGNED_BYTE,a2.data());Parameters(GL_TEXTURE_2D,GL_NEAREST);
+    std::array<std::uint8_t,32*32*32*3> a3;BuildPointLightAttenuation3D(a3);glBindTexture(Texture3D,textures[2]);image3D(Texture3D,0,0x8051,32,32,32,0,GL_RGB,GL_UNSIGNED_BYTE,a3.data());Parameters(Texture3D,GL_LINEAR,true);
+    std::array<std::uint8_t,16*16*3> normal;for(unsigned i=0;i<16*16;++i){normal[i*3]=127;normal[i*3+1]=127;normal[i*3+2]=255;}glBindTexture(GL_TEXTURE_2D,textures[3]);glTexImage2D(GL_TEXTURE_2D,0,0x8051,16,16,0,GL_RGB,GL_UNSIGNED_BYTE,normal.data());glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    std::array<std::uint8_t,6*32*32*3> cube;BuildPointLightCube(cube);glBindTexture(Cube,textures[4]);for(unsigned face=0;face<6;++face)glTexImage2D(0x8515+face,0,0x8051,32,32,0,GL_RGB,GL_UNSIGNED_BYTE,cube.data()+face*32*32*3);Parameters(Cube,GL_LINEAR);
+    if(glGetError()!=GL_NO_ERROR){cleanup();return false;}
+    GLint framebuffer{},drawBuffer{};glGetIntegerv(0x8CA6,&framebuffer);glGetIntegerv(0x8825,&drawBuffer);
+    const GLenum attachment=framebuffer?GLenum(drawBuffer):(drawBuffer==GL_BACK?0x0402:0x0400);
+    coreApi.attachment(0x8CA9,attachment,0x8215,&alphaBits);
+    if(glGetError()!=GL_NO_ERROR){cleanup();return false;}
+    units=4;context=wglGetCurrentContext();thread=GetCurrentThreadId();ready=true;return true;
+}
+void PointLightRenderer::Impl::CoreBatch(const PointLight& light,const PointLightFrame& frame,const std::array<float,16>& model,bool fallback) noexcept
+{
+    const Vec color{PointLightColor(light.color[0],frame.gamma),PointLightColor(light.color[1],frame.gamma),PointLightColor(light.color[2],frame.gamma)};
+    std::array<float,12> planes{};for(unsigned axis=0;axis<3;++axis){const auto p=PointLightPlane(axis,light);std::copy(p.begin(),p.end(),planes.begin()+axis*4);}
+    coreApi.vector3(colorUniform,1,color.data());coreApi.vector4(planeUniform,3,planes.data());coreApi.matrix(modelUniform,1,GL_FALSE,model.data());
+    coreApi.active(Texture0);glBindTexture(Cube,textures[4]);coreApi.active(Texture0+2);glBindTexture(Texture3D,textures[2]);
+    coreApi.integer(passUniform,fallback?1:0);glEnable(GL_BLEND);glDepthMask(GL_FALSE);
+    if(fallback){glBlendFunc(GL_ONE,GL_ZERO);glColorMask(0,0,0,1);}else glBlendFunc(GL_ONE,GL_ONE);
+    for(std::size_t i=0;i<drawCount;++i){const auto& s=surfaces[draws[i].index];coreApi.active(Texture0+1);glBindTexture(GL_TEXTURE_2D,s.normal?s.normal:textures[3]);const auto basis=PointLightMatrix(s.basis,light.origin);coreApi.matrix(basisUniform,1,GL_FALSE,basis.data());glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+    if(!fallback)return;
+    coreApi.integer(passUniform,2);coreApi.active(Texture0+3);glBindTexture(GL_TEXTURE_1D,textures[0]);coreApi.active(Texture0+1);glBindTexture(GL_TEXTURE_2D,textures[1]);glBlendFunc(GL_ZERO,GL_ONE_MINUS_SRC_ALPHA);
+    for(std::size_t i=drawCount;i>0;--i){const auto& s=surfaces[draws[i-1].index];glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+    coreApi.integer(passUniform,3);glBlendFunc(GL_DST_ALPHA,GL_ONE);glColorMask(1,1,1,0);
+    for(std::size_t i=drawCount;i>0;--i){const auto& s=surfaces[draws[i-1].index];glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+}
+PointLightDrawResult PointLightRenderer::Impl::DrawCore(const PointLightFrame& frame,const PointLightState& state) noexcept
+{
+    if(!frame.authenticatedMatrices)return PointLightDrawResult::UnsupportedScene;
+    bool any=false;for(const auto& light:state.lights)if(!(frame.time>light.die)&&light.radius!=0.0F){any=true;if(light.rendererFields[20]!=std::byte{})return PointLightDrawResult::UnsupportedLight;}
+    if(!any)return PointLightDrawResult::NoLights;
+    core_gl::State guard(coreApi);coreApi.use(program);coreApi.bindArray(vao);coreApi.equation(0x8006,0x8006);glEnable(GL_DEPTH_TEST);glDepthFunc(GL_EQUAL);glStencilMask(0);
+    coreApi.matrix(worldUniform,1,GL_FALSE,frame.worldMatrix.data());coreApi.matrix(projectionUniform,1,GL_FALSE,frame.projectionMatrix.data());
+    const bool fallback=frame.forceTwoPass!=0.0F;
+    for(const auto& light:state.lights){if(frame.time>light.die||light.radius==0.0F)continue;drawCount=0;
+        if(!WorldNode(world->nodes,frame,light))return PointLightDrawResult::CapacityExceeded;
+        if(frame.glBmodels!=0.0F)for(const auto* entity:frame.visibleBrushes){if(!entity||!entity->model||entity->model->type!=mod_brush||!MainBrush(*entity))continue;float mins[3],maxs[3];for(unsigned i=0;i<3;++i){mins[i]=entity->model->mins[i]+entity->origin[i];maxs[i]=entity->model->maxs[i]+entity->origin[i];}if(!Outside(mins,maxs,light)&&!Brush(entity->model,frame,light))return PointLightDrawResult::CapacityExceeded;}
+        if(frame.glBmodels!=0.0F)for(const auto& brush:frame.drawnBrushes){if(!MainBrush(brush))continue;if(!Outside(brush.model->mins,brush.model->maxs,light)&&!Brush(brush.model,frame,light,&brush.localView))return PointLightDrawResult::CapacityExceeded;}
+        CoreBatch(light,frame,core_gl::Identity,fallback);
+    }
+    if(frame.glBmodels!=0.0F)for(const auto& brush:frame.drawnBrushes){if(MainBrush(brush))continue;for(const auto& light:state.lights){if(frame.time>light.die||light.radius==0.0F)continue;float mins[3],maxs[3];for(unsigned i=0;i<3;++i){mins[i]=brush.origin[i]+(brush.rotated?-brush.model->radius:brush.model->mins[i]);maxs[i]=brush.origin[i]+(brush.rotated?brush.model->radius:brush.model->maxs[i]);}if(Outside(mins,maxs,light))continue;PointLight local=light;local.origin=PointLightBrushOrigin(brush,light.origin);drawCount=0;if(!Brush(brush.model,frame,local,&brush.localView))return PointLightDrawResult::CapacityExceeded;CoreBatch(local,frame,brush.modelToWorld,fallback);}}
+    return PointLightDrawResult::Drawn;
+}
 bool PointLightRenderer::InitializeGL() noexcept
 {
     auto& r=*impl_;if(r.Owner())return true;if(r.ready||!wglGetCurrentContext())return false;
+    r.core=core_gl::IsCore();if(r.core)return r.InitializeCore();
     r.gl.active=Proc<decltype(r.gl.active)>("glActiveTexture");r.gl.clientActive=Proc<decltype(r.gl.clientActive)>("glClientActiveTexture");
     r.gl.image3D=Proc<decltype(r.gl.image3D)>("glTexImage3D");r.gl.bindBuffer=Proc<decltype(r.gl.bindBuffer)>("glBindBuffer");
     r.gl.useProgram=Proc<decltype(r.gl.useProgram)>("glUseProgram");r.gl.bindVertexArray=Proc<decltype(r.gl.bindVertexArray)>("glBindVertexArray");
@@ -361,9 +446,9 @@ bool PointLightRenderer::InitializeGL() noexcept
     if(glGetError()!=GL_NO_ERROR){glDeleteTextures(GLsizei(r.textures.size()),r.textures.data());r.textures={};return false;}
     r.context=wglGetCurrentContext();r.thread=GetCurrentThreadId();r.ready=true;return true;
 }
-bool PointLightRenderer::ReleaseGL() noexcept {auto& r=*impl_;if(!r.ready)return true;if(!r.Owner())return false;glDeleteTextures(GLsizei(r.textures.size()),r.textures.data());AbandonGL();return true;}
-void PointLightRenderer::AbandonGL() noexcept {auto& r=*impl_;r.textures={};r.context=nullptr;r.thread=0;r.ready=false;}
-bool PointLightRenderer::Ready(const PointLightFrame& f) const noexcept {const auto& r=*impl_;return r.Owner()&&r.world&&!r.vertices.empty()&&r.Scene(f)&&r.Brushes(f)&&r.FixedArrays()&&((f.forceTwoPass==0.0F&&r.textures[2])||r.alphaBits>0);}
+bool PointLightRenderer::ReleaseGL() noexcept {auto& r=*impl_;if(!r.ready)return true;if(!r.Owner())return false;glDeleteTextures(GLsizei(r.textures.size()),r.textures.data());if(r.core){r.coreApi.deleteBuffers(1,&r.vbo);r.coreApi.deleteArrays(1,&r.vao);r.coreApi.deleteProgram(r.program);}AbandonGL();return true;}
+void PointLightRenderer::AbandonGL() noexcept {auto& r=*impl_;r.textures={};r.context=nullptr;r.thread=0;r.ready=false;r.program=r.vao=r.vbo=0;r.core=false;}
+bool PointLightRenderer::Ready(const PointLightFrame& f) const noexcept {const auto& r=*impl_;return r.Owner()&&r.world&&!r.vertices.empty()&&r.Scene(f)&&r.Brushes(f)&&r.FixedArrays()&&(!r.core||f.authenticatedMatrices)&&((f.forceTwoPass==0.0F&&r.textures[2])||r.alphaBits>0);}
 void PointLightRenderer::Impl::Finish(const PointLight& light,bool fallback,const Vec& color,bool disableNv) noexcept
 {
     gl.active(Texture0);glDisable(Cube);glMatrixMode(GL_TEXTURE);glLoadIdentity();glMatrixMode(GL_MODELVIEW);
@@ -406,6 +491,7 @@ PointLightDrawResult PointLightRenderer::Draw(const PointLightFrame& frame,const
     if(!r.Owner()||!r.world||r.vertices.empty())return PointLightDrawResult::MissingResources;
     if(!r.Scene(frame)||!r.FixedArrays())return PointLightDrawResult::UnsupportedScene;
     if(!r.Brushes(frame))return PointLightDrawResult::UnsupportedBrushLifecycle;
+    if(r.core)return r.DrawCore(frame,state);
     bool any=false;for(const auto& l:state.lights)if(!(frame.time>l.die)&&l.radius!=0.0F){any=true;if(l.rendererFields[20]!=std::byte{})return PointLightDrawResult::UnsupportedLight;}
     if(!any)return PointLightDrawResult::NoLights;
     const bool fallback=frame.forceTwoPass!=0.0F||!r.textures[2]||r.units<4;

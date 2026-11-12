@@ -60,6 +60,8 @@ struct PointLightFrame
     // Actual host PVS membership, indexed by model global index. Prefer these
     // read-only masks to engine stamps when the host owns its visibility cache.
     std::span<const std::uint64_t> visibleSurfaceWords{}, visibleNodeWords{};
+    bool authenticatedMatrices{};
+    std::array<float,16> worldMatrix{},projectionMatrix{};
 };
 enum class PointLightDrawResult
 {

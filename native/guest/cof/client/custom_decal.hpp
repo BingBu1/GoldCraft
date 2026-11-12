@@ -46,6 +46,8 @@ struct CustomDecalFrame
     // Optional host PVS bitset, indexed by actual world model surface index.
     // Renderer maintains this directly; it need not mutate engine visframe.
     std::span<const std::uint64_t> visibleSurfaceWords{};
+    bool authenticatedMatrices{};
+    std::array<float,16> worldMatrix{},projectionMatrix{};
 };
 enum class CustomDecalDrawResult { Drawn, Empty, Disabled, MissingResources, UnsupportedScene };
 // Dynamic "shot" only: original client 10059450 -> 10057DA0, 100586C0.
@@ -70,6 +72,9 @@ public:
     // Supply actual shot1..shot5 TGA bytes after resource preparation. Owns GL
     // textures; call on the render thread, outside draw/message callbacks.
     bool InitializeGL(const std::array<std::span<const std::uint8_t>, 5>&);
+    // Upload changed mark geometry once before drawing, on the owning thread.
+    bool PrepareFrameGL() noexcept;
+    bool CoreProfile() const noexcept;
     bool ReleaseGL() noexcept;
     void AbandonGL() noexcept;
     CustomDecalDrawResult Draw(const CustomDecalFrame&, float enabled) noexcept;
