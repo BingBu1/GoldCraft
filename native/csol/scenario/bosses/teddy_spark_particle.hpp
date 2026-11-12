@@ -12,6 +12,7 @@ struct Particle
 {
     Vec3 origin{}, velocity{};
     float born{}, die{}, size{180}, growth{2}, alpha{240}, roll{1}, rotationVelocity{};
+    float gravity{.1f};
     std::array<std::uint8_t, 3> color{};
     std::uint8_t sprite{};
     int frame{};
@@ -23,11 +24,12 @@ Particle Spawn(const Emitter& event, float now, Random& random)
     Particle particle;
     particle.origin = event.origin;
     for (unsigned axis = 0; axis < 3; ++axis)
-        particle.velocity[axis] = random(-1, 1) * 30.0f + (axis == 2 ? 200.0f : 0.0f);
+        particle.velocity[axis] = random(-1, 1) * 30.0f + event.velocity[axis];
     random(1, 1.5f); // Original consumes mass even for this noncolliding sprite.
     particle.born = now;
     particle.die = now + 1.8f;
     particle.rotationVelocity = static_cast<float>(event.rotation) * .1f;
+    particle.gravity = event.gravity;
     particle.color = event.color;
     particle.sprite = event.sprite;
     return particle;
@@ -53,7 +55,7 @@ inline bool Tick(Particle& particle, float now, float previousTime, float gravit
     const float speed = std::sqrt(particle.rotationVelocity * particle.rotationVelocity);
     particle.roll = 1.0f + (age * (speed * 30.0f)) * particle.rotationVelocity;
     const float delta = now - previousTime;
-    const float acceleration = ((-delta) * gravity) * .1f;
+    const float acceleration = ((-delta) * gravity) * particle.gravity;
     for (unsigned axis = 0; axis < 3; ++axis)
         particle.origin[axis] += particle.velocity[axis] * delta;
     particle.velocity[2] += acceleration;

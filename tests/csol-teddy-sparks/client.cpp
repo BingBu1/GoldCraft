@@ -7,6 +7,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <limits>
 
 namespace csol::client
 {
@@ -847,6 +848,56 @@ void EmitterOracle()
         std::cout << ',' << p.born << ',' << p.die << ',' << p.rotationVelocity << "]\n";
     }
 }
+
+void GiftCases()
+{
+    Fresh(); auto gift=Packet();
+    gift[31]=gift[32]=0;
+    const auto setGravity=[&](float value)
+    { const auto bits=std::bit_cast<std::uint32_t>(value);for(unsigned i=0;i<4;++i)gift[62+i]=static_cast<std::uint8_t>(bits>>(8*i)); };
+    Check(!spark::Read(gift),"zero-speed gift cannot use spawn gravity");
+    setGravity(.01f);
+    const auto parsed=spark::Read(gift);
+    Check(parsed && parsed->velocity==spark::Vec3{} && parsed->gravity==.01f,"gift velocity and gravity preserved");
+    Send(gift);Frame(10.01f);
+    Check(particlePool.ActiveCount()==1,"gift uses the actual shared ordinary pool");
+    auto inspect=[](const Slot& slot)
+    {
+        const auto& p=std::get<spark::Particle>(slot.particle);
+        Check(p.velocity==spark::Vec3{-30,7.5f,30} && p.gravity==.01f,"actual gift Spawn uses message fields");
+    };
+    particlePool.VisitActive(inspect);
+    gift[31]=0x40;gift[32]=0x06;
+    Check(!spark::Read(gift),"spawn velocity cannot use gift gravity");
+    setGravity(std::numeric_limits<float>::quiet_NaN());Check(!spark::Read(gift),"nonfinite gravity rejected");
+    setGravity(.01f);gift[31]=gift[32]=0;gift[27]=1;
+    Check(!spark::Read(gift),"unproved gift horizontal speed rejected");
+    gift[27]=0;gift.pop_back();Check(!spark::Read(gift),"truncated gift rejected");
+}
+
+void GiftRuntimeOracle()
+{
+    std::string raw;
+    while(std::cin>>raw)
+    {
+        const float now=InputBits(),previousTime=InputBits(),gravity=InputBits();
+        Fresh();auto bytes=HexPacket(raw);Send(bytes);
+        Check(Pending()==1,"gift oracle actual Receive accepted");Frame(10.01f);
+        Check(particlePool.ActiveCount()==1,"gift oracle actual shared Frame emitted");
+        auto print=[&](const Slot& slot)
+        {
+            auto p=std::get<spark::Particle>(slot.particle);
+            const bool alive=spark::Tick(p,now,previousTime,gravity,
+                std::get<spark::Emitter>(emitters.Records()[0].payload).sprite?17:16,slot.model->numframes);
+            std::cout<<'['<<(alive?1:0);
+            for(float value:{p.size,p.alpha,p.roll,p.die,p.origin[0],p.origin[1],p.origin[2],
+                p.velocity[0],p.velocity[1],p.velocity[2],static_cast<float>(p.frame),p.born,p.growth,p.rotationVelocity,p.gravity})
+                std::cout<<','<<std::bit_cast<std::uint32_t>(value);
+            std::cout<<"]\n";
+        };
+        particlePool.VisitActive(print);
+    }
+}
 }
 
 
@@ -864,6 +915,7 @@ int main(int argc, char** argv)
     if (argc == 2 && std::string(argv[1]) == "--math-identity") { test::MathIdentity(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--smoke-ring-oracle") { test::SmokeRingOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--emitter-oracle") { test::EmitterOracle(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--gift-runtime-oracle") { test::GiftRuntimeOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--geometry-oracle")
     {
         float a[10];
@@ -899,6 +951,6 @@ int main(int argc, char** argv)
         }
         return 0;
     }
-    try { test::Cases(); test::SharedCases(); test::FrustumCases(); test::SlidingCases(); test::MeteorCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
+    try { test::Cases(); test::SharedCases(); test::FrustumCases(); test::SlidingCases(); test::MeteorCases(); test::GiftCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

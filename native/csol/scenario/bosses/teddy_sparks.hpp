@@ -18,7 +18,9 @@ using Vec3 = std::array<float, 3>;
 struct Emitter
 {
     Vec3 origin{};
+    Vec3 velocity{0, 0, 200};
     float interval{};
+    float gravity{.1f};
     std::array<std::uint8_t, 3> color{};
     std::uint8_t sprite{}, rotation{};
 };
@@ -34,7 +36,7 @@ inline std::optional<std::uint8_t> Identify(std::span<const std::uint8_t> bytes)
     return {};
 }
 
-// Only the original Teddy SpawnEvent form. Other TempEmit consumers keep their
+// Original Teddy SpawnEvent and GiftBox firework forms. Other consumers keep their
 // own message-chain entries; this does not infer a general particle protocol.
 inline std::optional<Emitter> Read(std::span<const std::uint8_t> bytes)
 {
@@ -50,8 +52,10 @@ inline std::optional<Emitter> Read(std::span<const std::uint8_t> bytes)
     event.sprite = *sprite;
     for (float& coordinate : event.origin)
         coordinate = static_cast<float>(std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(word()))) * .125f;
-    for (float expected : {0.0f, 0.0f, 200.0f})
-        if (static_cast<float>(std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(word()))) * .125f != expected) return {};
+    for (float& coordinate : event.velocity)
+        coordinate = static_cast<float>(std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(word()))) * .125f;
+    if (event.velocity[0] != 0 || event.velocity[1] != 0 ||
+        (event.velocity[2] != 0 && event.velocity[2] != 200)) return {};
     if (word() != 3) return {};
     event.interval = real();
     if (!std::isfinite(event.interval) || event.interval < .1f || event.interval > .3f ||
@@ -63,7 +67,10 @@ inline std::optional<Emitter> Read(std::span<const std::uint8_t> bytes)
         channel = byte();
         if (channel < 70 || channel > 250) return {};
     }
-    for (float expected : {30.0f, 180.0f, .1f, .1f, 2.0f, 0.0f, 0.0f})
+    if (real() != 30.0f || real() != 180.0f) return {};
+    event.gravity = real();
+    if (event.gravity != (event.velocity[2] == 0 ? .01f : .1f)) return {};
+    for (float expected : {.1f, 2.0f, 0.0f, 0.0f})
         if (real() != expected) return {};
     return at == bytes.size() ? std::optional{event} : std::nullopt;
 }

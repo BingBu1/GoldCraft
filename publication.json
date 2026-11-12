@@ -2192,7 +2192,9 @@
     "docs/2026-11-12_修复-CoF购买准入与符号目录-report.md",
     "tests/cryoffear-core-render/README.md",
     "docs/2026-11-12_修复-CoF原效果的Core渲染适配-report.md",
-    "docs/2026-11-12_修复-CoF鼠标钩子延迟提交-report.md"
+    "docs/2026-11-12_修复-CoF鼠标钩子延迟提交-report.md",
+    "docs/2026-11-12_修复-礼盒火花速度与重力-report.md",
+    "tests/csol-teddy-sparks/gift_oracle.py"
   ],
   "trees": {
     "native": [
