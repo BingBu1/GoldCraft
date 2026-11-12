@@ -7,6 +7,7 @@ namespace csol::client
 bool InitializeGuestCofMouse();
 bool InitializeGuestCofMouse(const GoldCraftConnectionAPI*);
 bool GuestCofMouseReady() noexcept;
+const char* GuestCofMouseInitialization() noexcept;
 // Authenticated presentation output only, after the original FOV update stage.
 bool SetGuestCofMouseFrame(guest::cof::AuthorityKey, int wholeFov, int defaultFov,
                            float hudSensitivity) noexcept;

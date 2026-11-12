@@ -90,7 +90,7 @@ def prepare(original_root, baseline_root, output):
     menu_path = menu_path[1]
     baseline_hud = json.loads(read(baseline_root/hud.CATALOG))
     baseline_menu = json.loads(read(baseline_root/menu_path))
-    if baseline_hud.get('version') != 1 or baseline_menu.get('version') != 3:
+    if baseline_hud.get('version') != 1 or baseline_menu.get('version') not in (3, 4):
         raise ValueError('Unsupported host presentation schema')
     result_hud, result_menu = copy.deepcopy(baseline_hud), copy.deepcopy(baseline_menu)
     rows = result_hud['weapons']

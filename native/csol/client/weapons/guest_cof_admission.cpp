@@ -97,6 +97,7 @@ bool GuestCofAdmitted() noexcept
 void GuestCofAdmissionDiagnostics(std::ostream& out)
 {
     out << ",\"cofAdmission\":{\"ready\":" << GuestCofAdmitted() << ",\"generation\":" << generation
-        << ",\"resources\":" << resources << ",\"menuPrepared\":" << menuPrepared << '}';
+        << ",\"resources\":" << resources << ",\"menuPrepared\":" << menuPrepared
+        << ",\"mouseInitialization\":\"" << GuestCofMouseInitialization() << "\"}";
 }
 }

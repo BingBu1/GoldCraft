@@ -31,6 +31,7 @@ constexpr std::size_t ImageBytes=4096;
 std::uint64_t generation{5};
 bool resolve{true},revoke{},shutdownInside{},replaceFrame{},queryReentry{};
 bool retireOnInstall{};
+bool deferTrampoline{};void** deferredTrampoline{};
 cvar_t filter{},sensitivity{},yaw{};
 cvar_t defaultFov{},zoomSpeed{},zoomRatio{},multiplier{};
 float clockTime=1;
@@ -173,11 +174,13 @@ namespace csol::client
 {
 hook_t* Hook(void* address,void* next,void** original)
 {
-    CHECK(address==image);++hooks;replacement=next;*original=reinterpret_cast<void*>(Native);
+    CHECK(address==image);++hooks;replacement=next;
+    if(deferTrampoline){deferredTrampoline=original;*original=nullptr;}
+    else *original=reinterpret_cast<void*>(Native);
     if(retireOnInstall){ShutdownGuestCofMouse();GuestCofMouseFrame();}
     return reinterpret_cast<hook_t*>(1);
 }
-void RemoveHook(hook_t* pointer){CHECK(pointer==reinterpret_cast<hook_t*>(1));++removes;}
+void RemoveHook(hook_t* pointer){CHECK(pointer==reinterpret_cast<hook_t*>(1));++removes;deferredTrampoline=nullptr;}
 }
 int main()
 {
@@ -242,6 +245,14 @@ int main()
     CHECK(GuestCofUpdateClientData(&data,clockTime)==37&&data.fov==90);
     const auto nativeAgain=nativeCalls;Execute();CHECK(nativeCalls==nativeAgain+1&&resumes==routed+1);
     ShutdownGuestCof();CHECK(!GuestCofMouseReady());
+    deferTrampoline=true;const auto removedBefore=removes;
+    CHECK(InitializeGuestCofMouse(&provider)&&!GuestCofMouseReady()&&deferredTrampoline);
+    CHECK(!SetGuestCofMouseFrame({3,4,6},50,90,.5F)&&removes==removedBefore);
+    *deferredTrampoline=reinterpret_cast<void*>(Native);deferredTrampoline=nullptr;
+    GuestCofMouseFrame();CHECK(GuestCofMouseReady());
+    ShutdownGuestCofMouse();CHECK(!GuestCofMouseReady()&&removes==removedBefore+1);
+    CHECK(InitializeGuestCofMouse(&provider)&&deferredTrampoline&&!GuestCofMouseReady());
+    ShutdownGuestCofMouse();CHECK(!deferredTrampoline&&!GuestCofMouseReady());
     VirtualFree(image,0,MEM_RELEASE);
     std::printf("actual mouse stage SDK/thunk checks=%u failures=%u; native device/runtime integration separate\n",checks,failures);
     return failures?1:0;

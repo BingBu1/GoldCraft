@@ -25,6 +25,7 @@ cvar_t *filter{}, *sensitivity{}, *yaw{};
 int wholeFov{}, defaultFov{};
 float hudSensitivity{};
 bool enabled{}, retiring{}, inHook{}, installing{};
+const char* initialization="not started";
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
 void Advance() noexcept
 {
@@ -129,6 +130,7 @@ __declspec(naked) void AtMouseStage()
 bool InitializeGuestCofMouse() { return InitializeGuestCofMouse(GoldCraftConnectionInterface()); }
 bool InitializeGuestCofMouse(const GoldCraftConnectionAPI* provider)
 {
+    initialization="provider or API";
     if (ownerThread && !Owner()) return false;
     if (installing) return false;
     if (hook) return provider == connection && GuestCofMouseReady();
@@ -140,6 +142,7 @@ bool InitializeGuestCofMouse(const GoldCraftConnectionAPI* provider)
     auto* output = Resolve("GoldCraftCof_MouseDeltasReference");
     auto* accum = Resolve("GoldCraftCof_MouseAccumReference");
     auto* yawReference = Resolve("GoldCraftCof_MouseYawReference");
+    initialization="instruction prefixes";
     if (!Prefix(stage, {0xa1}) || !Prefix(next, {0x8b,0x0d}) ||
         !Prefix(old, {0x89,0x35}) || !Prefix(static_cast<std::byte*>(old)+6, {0x89,0x3d}) ||
         !Prefix(output, {0xf3,0x0f,0x11,0x05}) || !Prefix(static_cast<std::byte*>(output)+8, {0xf3,0x0f,0x11,0x15}) ||
@@ -156,25 +159,32 @@ bool InitializeGuestCofMouse(const GoldCraftConnectionAPI* provider)
     std::uint32_t zero1{}, zero2{};
     std::memcpy(&zero1, static_cast<std::byte*>(accum)+6, 4);
     std::memcpy(&zero2, static_cast<std::byte*>(accum)+16, 4);
+    initialization="operand ranges";
     if (!previous || previousY != previous+1 || !result || resultY != result+1 ||
         !pending || pendingY != pending+1 || !filterSlot || !yawSlot || zero1 || zero2) return false;
     auto* f = engine.pfnGetCvarPointer("m_filter");
     auto* s = engine.pfnGetCvarPointer("sensitivity");
     auto* y = engine.pfnGetCvarPointer("m_yaw");
+    initialization="native cvar identity";
     if (!f || !s || !y || *filterSlot != f || *yawSlot != y) return false;
     ownerThread = GetCurrentThreadId(); connection = provider;
     history = previous;
     accumulated = pending; deltas = result; filter = f; sensitivity = s; yaw = y; resume = next;
     enabled = retiring = false;
     const auto revision = serial;
+    initialization="native detour";
     installing = true;
     try { hook = Hook(stage, reinterpret_cast<void*>(AtMouseStage), &nativeStage); }
     catch (...) { installing=false; Remove(); return false; }
     installing = false;
-    if (!hook || !nativeStage || retiring || serial != revision) { Remove(); return false; }
+    if (!hook || retiring || serial != revision) { Remove(); return false; }
+    // MetaHook publishes pOriginalCall only when its active transaction commits.
+    // Retain the queued hook; no input can use it before that pointer exists.
+    initialization=nativeStage?"ready":"awaiting trampoline";
     return true;
 }
-bool GuestCofMouseReady() noexcept { return Owner() && hook && !retiring && serial; }
+bool GuestCofMouseReady() noexcept { return Owner() && hook && nativeStage && !retiring && serial; }
+const char* GuestCofMouseInitialization() noexcept {return initialization;}
 bool SetGuestCofMouseFrame(guest::cof::AuthorityKey key, int current, int normal, float value) noexcept
 {
     if (!GuestCofMouseReady() || !guest::cof::Valid(key) || normal < 1 || normal > 179 ||
@@ -194,7 +204,12 @@ void ResetGuestCofMouse() noexcept
     if (!Owner()) return;
     Advance(); enabled = false; authority = {}; frameGeneration = 0;
 }
-void GuestCofMouseFrame() noexcept { if (Owner() && retiring && !inHook && !installing) Remove(); }
+void GuestCofMouseFrame() noexcept
+{
+    if (!Owner())return;
+    if(retiring&&!inHook&&!installing)Remove();
+    else if(hook&&nativeStage)initialization="ready";
+}
 void ShutdownGuestCofMouse() noexcept
 {
     if (!Owner()) return;
