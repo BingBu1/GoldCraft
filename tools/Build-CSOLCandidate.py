@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -16,7 +17,7 @@ import urllib.request
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE_DIRS = ('native/csol', 'native/engine', 'native/include', 'native/server', 'native/common',
+SOURCE_DIRS = ('native/csol', 'native/guest/cof', 'native/engine', 'native/include', 'native/server', 'native/common',
                'native/amxx', 'external/ReHLDS/rehlds', 'external/ReHLDS/dep',
                'external/ReGameDLL_CS/regamedll', 'external/ReGameDLL_CS/dep',
                'external/MetaHookSv-20261007/MetaHook/include',
@@ -74,7 +75,7 @@ def write_new(path, value):
 def source_files():
     paths = {ROOT / 'CMakeLists.txt', ROOT / 'amxbuild.yml', ROOT / 'sources.lock.json',
              ROOT / 'tools/ClangToolchain.ps1', ROOT / 'tools/SandboxPaths.ps1',
-             ROOT / 'tools/Inspect-EngineIdentity.py', ROOT / 'native/csol/sequence_engine_10210.json',
+             ROOT / 'tools/Inspect-EngineIdentity.py', ROOT / 'tools/Verify-CSOLPresentationPair.py', ROOT / 'native/csol/sequence_engine_10210.json',
              ROOT / 'native/client/precache_10210.json', ROOT / 'native/client/userinfo_10210.json'}
     paths.update((ROOT / 'tools').glob('Build-*'))
     for directory in SOURCE_DIRS:
@@ -204,9 +205,22 @@ def plan(output, resource_plan, server, client, http_url, http_port, resource_ro
         if source.stat().st_size != row['bytes'] or sha(source) != row['sha256']:
             raise ValueError(f'Resource input changed: {source}')
         add(source, server / 'cstrike' / relative_resource(row['destination']), 'resource')
+    # Check this exact candidate before any runtime writes.
+    pair_spec = importlib.util.spec_from_file_location(
+        'presentation_pair', ROOT / 'tools/Verify-CSOLPresentationPair.py')
+    pair_guard = importlib.util.module_from_spec(pair_spec)
+    pair_spec.loader.exec_module(pair_guard)
+    paired_resources = {Path(row['target']).relative_to(server / 'cstrike').as_posix():
+                        Path(row['source']['path']) for row in rows
+                        if row['category'] == 'resource'}
+    presentation_pair = pair_guard.verify_pair(
+        output / 'server/regamedll/mp.dll', output / 'client/CSOLSupport.dll', paired_resources)
+    write_new(output / 'presentation-pair.json', presentation_pair)
+
     game_modes = ROOT / 'amxx/game_modes/configs/game_modes.ini'
     add(game_modes, server / 'cstrike/addons/amxmodx/configs/goldcraft/game_modes.ini', 'configuration')
     add(ROOT / 'amxx/scenario/configs/scenario_admin.cfg', server / 'cstrike/addons/amxmodx/configs/scenario_admin.cfg', 'configuration')
+    add(ROOT / 'native/csol/config/k3_damage.json', server / 'cstrike/csol/weapons/k3_damage.json', 'configuration')
 
     configs = server / 'cstrike/addons/amxmodx/configs'
     active = [path for path in configs.glob('plugins*.ini') if path.name == 'plugins.ini' or path.name.startswith('plugins-')]

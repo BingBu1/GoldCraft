@@ -2205,7 +2205,9 @@
     "tests/csol-null-attacker/run_full_reapi.py",
     "tests/csol-null-attacker/retry_full_reapi_link.py",
     "docs/2026-11-12_修复-CoF灾变备弹导致装备失效-report.md",
-    "docs/2026-11-12_修复-CoF机瞄输入顺序与持枪模型身份-report.md"
+    "docs/2026-11-12_修复-CoF机瞄输入顺序与持枪模型身份-report.md",
+    "tools/Verify-CSOLPresentationPair.py",
+    "docs/2026-11-12_修复-购买菜单双端版本与资源闭包-report.md"
   ],
   "trees": {
     "native": [
