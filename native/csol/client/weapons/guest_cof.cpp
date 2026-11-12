@@ -3,6 +3,7 @@
 #include "guest_cof.hpp"
 #include "guest_cof_ironsight.hpp"
 #include "guest_cof_mouse.hpp"
+#include "guest_cof_crosshair.hpp"
 #include "guest_cof_effects.hpp"
 #include "../../../guest/cof/client/presentation.hpp"
 #include "../../../guest/cof/presentation_protocol.hpp"
@@ -55,6 +56,7 @@ int Receive(const char*, int size, void* bytes)
         guest::cof::StateAcceptance::Accepted) return 1;
     pending = next;
     received = true;
+    GuestCofCrosshairPresentation(next);
     return 1;
 }
 bool SettingsValid() noexcept
@@ -112,6 +114,7 @@ void ShutdownGuestCof()
 
 void ResetGuestCof()
 {
+    ResetGuestCofCrosshair();
     ResetGuestCofIronsight();
     ResetGuestCofMouse();
     SetGuestCofEffectsWeapon(guest::cof::client::Weapon::None);

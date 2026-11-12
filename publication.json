@@ -2181,7 +2181,11 @@
     "tests/cryoffear-mouse-bridge/README.md",
     "tests/cryoffear-ironsight/README.md",
     "tests/cryoffear-effects-bridge/README.md",
-    "docs/2026-11-12_实现-BOSS共享房间缓存与构造接线-report.md"
+    "docs/2026-11-12_实现-BOSS共享房间缓存与构造接线-report.md",
+    "docs/2026-11-12_实现-CoF准星快照与原版三线绘制-report.md",
+    "tests/cryoffear-crosshair/README.md",
+    "tests/cryoffear-crosshair-bridge/README.md",
+    "tests/cryoffear-crosshair-sender/README.md"
   ],
   "trees": {
     "native": [

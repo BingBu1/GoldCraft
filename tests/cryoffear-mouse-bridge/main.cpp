@@ -17,6 +17,8 @@ namespace csol::client {
 metahook_api_t* api{};cl_enginefunc_t engine{};ref_params_t view{};cl_exportfuncs_t downstream{};
 void SynchronizeSession(){} // One controlled session; real-session cases are in the FOV bridge fixture.
 void SetGuestCofEffectsWeapon(guest::cof::client::Weapon) noexcept{} // Rendering is outside this input fixture.
+void ResetGuestCofCrosshair() noexcept{} // Crosshair integration has its own actual message/SDK test.
+void GuestCofCrosshairPresentation(const guest::cof::PresentationState&) noexcept{}
 }
 namespace
 {

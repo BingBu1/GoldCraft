@@ -29,7 +29,7 @@ using namespace csol::client;
 unsigned checks{}, failures{}, publications{}, menuLoads{};
 std::uint64_t generation{1}, resourceSerial{7};
 bool& allowReads=resource_refresh_detail::readsAllowed;
-bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mouse{true},
+bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mouse{true}, crosshair{true},
      control{true}, ironsight{true}, hud{true}, menu{true}, retireInMenu{};
 cvar_t protocol{};
 GuestCofResourceState resources;
@@ -73,6 +73,8 @@ bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
 bool GuestCofMouseReady() noexcept{return mouse;}
 void GuestCofMouseFrame() noexcept{}
+bool GuestCofCrosshairReady() noexcept{return crosshair;}
+void GuestCofCrosshairFrame() noexcept{}
 bool HudStyleWeaponResourcesReady(int id) noexcept{CHECK(id==896);return hud;}
 bool PrepareBuyMenuItem(int id){CHECK(id==896);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
@@ -121,7 +123,7 @@ int main(int argc,char** argv)
     allowReads=true;CHECK(GuestCofAdmitted());
     const auto published=publications;for(int i=0;i<10000;++i)GuestCofAdmissionFrame();
     CHECK(publications==published&&menuLoads==1);
-    for(bool* gate:{&allowReads,&audio,&particles,&effects,&muzzle,&points,&control,&ironsight,&mouse,&hud})
+    for(bool* gate:{&allowReads,&audio,&particles,&effects,&muzzle,&points,&control,&ironsight,&mouse,&crosshair,&hud})
     {
         *gate=false;GuestCofAdmissionFrame();
         if(GuestCofAdmitted()||protocol.value!=0)std::printf("gate=%td remained admitted=%d protocol=%g\n",gate==&allowReads?0:gate==&audio?1:gate==&particles?2:gate==&effects?3:gate==&muzzle?4:gate==&points?5:gate==&control?6:gate==&ironsight?7:8,GuestCofAdmitted(),protocol.value);

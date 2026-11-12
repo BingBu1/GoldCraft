@@ -46,6 +46,9 @@ target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_ironsight.cpp
     client/weapons/guest_cof_effects.cpp client/weapons/guest_cof_mouse.cpp
     ../guest/cof/client/view_punch.cpp ../guest/cof/client/weapon_effects.cpp
     ../guest/cof/client/forward_displacement.cpp ../guest/cof/client/mouse_input.cpp)
+target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_crosshair.cpp
+    client/weapons/guest_cof_hud.cpp ../guest/cof/crosshair_protocol.cpp
+    ../guest/cof/client/crosshair.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
 target_sources(CSOLSupport PRIVATE client/scenario/core/particle_effects.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)

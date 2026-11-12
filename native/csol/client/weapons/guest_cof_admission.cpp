@@ -12,6 +12,7 @@
 #include "guest_cof_input.hpp"
 #include "guest_cof_ironsight.hpp"
 #include "guest_cof_mouse.hpp"
+#include "guest_cof_crosshair.hpp"
 #include "../../../guest/cof/catalog.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include <ostream>
@@ -62,6 +63,7 @@ void ShutdownGuestCofAdmission() noexcept
 void GuestCofAdmissionFrame() noexcept
 {
     GuestCofMouseFrame();
+    GuestCofCrosshairFrame();
     if (!Owner() || !connection || !protocol) return;
     const auto current = connection->generation();
     const auto effect = GuestCofEffectsResourceSerial();
@@ -74,7 +76,7 @@ void GuestCofAdmissionFrame() noexcept
     const bool ready = state.status == GuestCofResourceStatus::Prepared && state.generation == current &&
         state.studioAndRecoilPrepared && state.decalsPrepared && GuestCofParticlesReady() &&
         GuestCofEffectsReady() && GuestCofMuzzleReady() && GuestCofPointLightsReady() &&
-        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofInputReady() &&
+        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofCrosshairReady() && GuestCofInputReady() &&
         HudStyleWeaponResourcesReady(guest::cof::Pistols[0].hostId);
     if (!ready) { Publish(false); return; }
     if (!menuAttempted)

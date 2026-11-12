@@ -45,6 +45,8 @@ void ResetScenarioRoundHud() {}
 void ResetScenarioRespawnUi() {}
 void ResetPlayerClips() {}
 void ResetRenderSettings() {}
+void ResetGuestCofCrosshair() noexcept{}
+void GuestCofCrosshairPresentation(const guest::cof::PresentationState&) noexcept{}
 void ResetResourceSession();
 // The fixture has no matched host catalogue. Missing resolution must leave the
 // real ironsight adapter inactive, before any native instruction hook request.
