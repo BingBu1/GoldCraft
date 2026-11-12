@@ -2151,7 +2151,15 @@
     "tests/csol-teddy-sparks/shared_oracle.py",
     "tests/csol-teddy-sparks/camera_oracle.py",
     "tests/csol-teddy-blackhole-smoke/oracle.py",
-    "docs/2026-11-12_实现-黑洞烟雾与出生火花共享运行池-report.md"
+    "docs/2026-11-12_实现-黑洞烟雾与出生火花共享运行池-report.md",
+    "native/guest/cof/client/point_light_render.hpp",
+    "native/guest/cof/client/point_light_render.cpp",
+    "tests/cryoffear-point-light-render/README.md",
+    "tests/cryoffear-point-light-render/main.cpp",
+    "tests/cryoffear-point-light-render/gl.cpp",
+    "tests/cryoffear-point-light-render/oracle.py",
+    "tests/cryoffear-point-light-render/run.py",
+    "docs/2026-11-12_实现-CoF动态刷子点光-report.md"
   ],
   "trees": {
     "native": [
