@@ -2162,7 +2162,9 @@
     "docs/2026-11-12_实现-CoF动态刷子点光-report.md",
     "native/csol/scenario/core/particle_visibility.hpp",
     "tests/csol-teddy-sparks/visibility_oracle.py",
-    "docs/2026-11-12_实现-公共粒子六平面裁剪-report.md"
+    "docs/2026-11-12_实现-公共粒子六平面裁剪-report.md",
+    "tests/csol-teddy-sparks/sliding_runtime_oracle.py",
+    "docs/2026-11-12_实现-滑行接口与共享粒子运行接线-report.md"
   ],
   "trees": {
     "native": [

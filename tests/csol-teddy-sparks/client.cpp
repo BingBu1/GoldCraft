@@ -26,7 +26,11 @@ unsigned rngAxis{};
 float clockNow{10};
 std::string resetAt;
 bool reenterRandom{}, resetRandom{}, noModel{}, inPvs{true};
-model_t models[3]{};
+model_t models[4]{};
+int currentParseCount{77};
+cl_entity_t emitterOwner{};
+bool ownerNull{};
+unsigned ownerCalls{};
 event_api_t events{};
 unsigned hullCalls{}, traceCalls{}, ringRngCalls{}, viewAngleCalls{}, symbolCalls{};
 int observerState[3]{};
@@ -88,9 +92,9 @@ void Fresh()
 {
     ResetParticleEffects(); emitters.Initialize();
     resetAt.clear(); reenterRandom = resetRandom = noModel = false; inPvs = true;
-    models[0] = {}; models[1] = {}; models[2] = {}; local = {};
+    models[0] = {}; models[1] = {}; models[2] = {}; models[3] = {}; local = {};emitterOwner={};
     for (auto& model : models) model.type = mod_sprite;
-    models[0].numframes = 29; models[1].numframes = 17; models[2].numframes = 12;
+    models[0].numframes = 29; models[1].numframes = 17; models[2].numframes = 12; models[3].numframes=15;
     movement = {}; movement.gravity = 800;
     view = {}; view.movevars = &movement;
     view.viewangles[0] = 27; view.viewangles[1] = -49;
@@ -104,13 +108,13 @@ void Fresh()
     engine.pfnSPR_Load = [](const char* path)
     {
         ++loadCalls; ResetCallback("load");
-        const unsigned n = std::string_view(path) == smoke::Sprite ? 2 : std::string_view(path) == spark::Sprites[1] ? 1 : 0;
+        const unsigned n = std::string_view(path) == sliding::Sprite ? 3 : std::string_view(path) == smoke::Sprite ? 2 : std::string_view(path) == spark::Sprites[1] ? 1 : 0;
         return int(n + 2);
     };
     engine.GetSpritePointer = [](int handle) -> const model_t*
     {
         ++modelCalls; ResetCallback("model");
-        return noModel ? nullptr : &models[handle == 4 ? 2 : handle == 3 ? 1 : 0];
+        return noModel ? nullptr : &models[handle == 5 ? 3 : handle == 4 ? 2 : handle == 3 ? 1 : 0];
     };
     engine.pfnRandomFloat = [](float lo, float hi)
     {
@@ -130,10 +134,14 @@ void Fresh()
     cameraFields={observerState,renderCamera,chaseCamera};
     client_data_s initialData{};for(unsigned i=0;i<3;++i)initialData.viewangles[i]=view.viewangles[i];CacheParticleClientData(initialData);
     viewAngleCalls=symbolCalls=0;
+    currentParseCount=77;parseCount=&currentParseCount;ownerNull=false;ownerCalls=0;
+    emitterOwner.index=44;emitterOwner.curstate.messagenum=77;emitterOwner.origin[0]=100;emitterOwner.origin[1]=200;emitterOwner.origin[2]=300;
+    engine.GetEntityByIndex=[](int index)->cl_entity_t*{ ++ownerCalls;Check(index==44,"actual owner index getter");ResetCallback("owner");return ownerNull?nullptr:&emitterOwner;};
+    hookApi.GetEngineBase=[]()->void* { return reinterpret_cast<void*>(0x20000000); };
     hookApi.GetClientBase=[]()->void* { return reinterpret_cast<void*>(0x10000000); };
     hookApi.ResolveGameSymbol=[](void* base,const char* name,mh_gamesymbol_kind_t kind,void** out)
-    { Check(base==reinterpret_cast<void*>(0x10000000) && kind==MH_GAMESYMBOL_KIND_GLOBAL,"matched camera symbol API");++symbolCalls;
-      const auto key=std::string_view(name);*out=key=="GoldCraftParticle_Observer"?static_cast<void*>(observerState):key=="GoldCraftParticle_RenderAngles"?static_cast<void*>(renderCamera):key=="GoldCraftParticle_ChaseAngles"?static_cast<void*>(chaseCamera):nullptr;
+    { Check(base==reinterpret_cast<void*>(std::string_view(name)=="cl_parsecount"?0x20000000:0x10000000) && kind==MH_GAMESYMBOL_KIND_GLOBAL,"matched camera/owner symbol API");++symbolCalls;
+      const auto key=std::string_view(name);*out=key=="cl_parsecount"?static_cast<void*>(&currentParseCount):key=="GoldCraftParticle_Observer"?static_cast<void*>(observerState):key=="GoldCraftParticle_RenderAngles"?static_cast<void*>(renderCamera):key=="GoldCraftParticle_ChaseAngles"?static_cast<void*>(chaseCamera):nullptr;
       return *out?MH_GAMESYMBOL_OK:MH_GAMESYMBOL_SYMBOL_NOT_FOUND; };
     engine.GetLocalPlayer = []() -> cl_entity_t* { ++localCalls; ResetCallback("local"); return &local; };
     engine.pfnAngleVectors = [](const float* angles, float* forward, float* right, float* up)
@@ -148,7 +156,7 @@ void Fresh()
       const auto& m=name==0xba7?projectionMatrix:modelMatrix;for(unsigned i=0;i<16;++i)out[i]=m[i];ResetCallback(name==0xba7?"projection":"modelMatrix"); };
     triangles.RenderMode = [](int mode) { modes.push_back(mode); ResetCallback("mode"); };
     triangles.CullFace = [](TRICULLSTYLE style) { culls.push_back(style); ResetCallback("cull"); };
-    triangles.SpriteTexture = [](model_t* model, int frame) { binds.push_back({model == &models[2] ? 2 : model == &models[1] ? 1 : 0, frame}); ResetCallback("sprite"); return 1; };
+    triangles.SpriteTexture = [](model_t* model, int frame) { binds.push_back({model == &models[3] ? 3 : model == &models[2] ? 2 : model == &models[1] ? 1 : 0, frame}); ResetCallback("sprite"); return 1; };
     triangles.Begin = [](int primitive) { Check(primitive == TRI_QUADS, "quad primitive"); ++begins; ResetCallback("begin"); };
     triangles.End = []() { ++ends; ResetCallback("end"); };
     triangles.Color4f = [](float r, float g, float b, float a) { colors.push_back({r,g,b,a}); ResetCallback("color"); };
@@ -168,7 +176,7 @@ void Fresh()
     // Empty transparent passes establish the independent prior-time clock.
     // Clear/VidInit intentionally do not reset that original clock.
     clockNow = 9; DrawParticleEffects(); clockNow = 10; DrawParticleEffects();
-    received = emitted = invalid = exhausted = draws = smokeMessages = smokeEmitted = 0;
+    received = emitted = invalid = exhausted = draws = smokeMessages = smokeEmitted = slidingEmitted = ownerMismatches = 0;
     timeCalls = loadCalls = modelCalls = rngCalls = chainCalls = hookCalls = pvsCalls = localCalls = 0;
     rngAxis = 0; randomBounds.clear(); ClearDraw(); matrixQueries.clear();CacheParticleHudTime(10);
 }
@@ -395,6 +403,114 @@ void SharedCases()
 
 
 
+
+std::vector<std::uint8_t> SlidingPacket()
+{
+    std::vector<std::uint8_t> b(sliding::Sprite.begin(),sliding::Sprite.end());b.push_back(0);
+    const auto number=[&](std::uint32_t v,unsigned width){for(unsigned i=0;i<width;++i)b.push_back(std::uint8_t(v>>(8*i)));};
+    const auto real=[&](float f){number(std::bit_cast<std::uint32_t>(f),4);};
+    number(44,2);
+    for(int n:{32,-40,48,56,-64,72})number(std::uint16_t(n),2);
+    number(3,2);real(.1f);real(.5f);number(0x30,4);
+    for(unsigned n:{0,30,5,255,255,255,255})number(n,1);
+    for(float n:{0.f,50.f,0.f,.2f,.2f,0.f,0.f})real(n);
+    Check(b.size()==82,"sliding actual packet length");return b;
+}
+void SlidingCases()
+{
+    Fresh();auto slide=SlidingPacket(),sparks=Packet(),smokePacket=SmokePacket();
+    InitializeParticleEffects();Check(parseCount==&currentParseCount,"matched native parsecount resolved");
+    Send(slide);Check(Pending()==1 && !ownerCalls && !rngCalls && std::get<sliding::Emitter>(emitters.Records()[0].payload).owner==44,
+        "sliding parses owner without premature query");
+    Frame(10);Check(!emitted && !ownerCalls,"owner not checked before strict emission time");
+    Frame(10.01f);Check(slidingEmitted==1 && ownerCalls==1 && rngCalls==4,"zero spread still consumes all four RNG calls");
+    spark::Particle first{};
+    auto capture=[&](const Slot& s){if(const auto* p=std::get_if<SlidingParticle>(&s.particle))first=p->value;};
+    particlePool.VisitActive(capture);
+    Check(first.origin==std::array<float,3>{104,195,306} && first.velocity==std::array<float,3>{7,-8,9} &&
+        first.alpha==250 && first.growth==.2f && first.size==50 && first.die==10.01f+.5f,"sliding original world offset/clamp/fields");
+    emitterOwner.origin[0]=200;emitterOwner.origin[1]=400;emitterOwner.origin[2]=600;
+    emitterOwner.angles[0]=90;emitterOwner.angles[1]=180;emitterOwner.angles[2]=270;
+    Frame(10.2f);Check(slidingEmitted==2 && ownerCalls==2,"moving owner emits at each current sample");
+    unsigned old{},moved{};auto scan=[&](const Slot& s)
+    {if(const auto* p=std::get_if<SlidingParticle>(&s.particle)){old+=p->value.origin==std::array<float,3>{104,195,306};moved+=p->value.origin==std::array<float,3>{204,395,606};}};
+    particlePool.VisitActive(scan);
+    Check(old==1 && moved==1,"offset not rotated, emitted particles never reattach");
+    currentParseCount=78;local.curstate.messagenum=77;Frame(10.4f);
+    Check(slidingEmitted==2 && ownerMismatches==1 && !Pending() &&
+        emitters.Records()[0].total==0 && emitters.Records()[0].remaining==0 &&
+        std::get<sliding::Emitter>(emitters.Records()[0].payload).owner==44 &&
+        emitters.Records()[0].next==10.4f+.1f && particlePool.ActiveCount()==2,"mismatch consumes schedule then clears counts only");
+    Fresh();currentParseCount=77;local.curstate.messagenum=1000;Send(slide);Frame(10.01f);
+    Check(slidingEmitted==1,"global parsecount is independent from local-player messagenum");
+    Fresh();Send(slide);Send(sparks);ownerNull=true;Frame(10.01f);
+    Check(invalid==1 && !emitted && emitters.Records()[0].remaining==2 && emitters.Records()[1].remaining==3,
+        "null owner host safety stops pass without invented stamp or success");
+    Fresh();Send(slide);resetAt="owner";Frame(10.01f);
+    Check(!Pending() && !particlePool.ActiveCount() && !emitted,"owner callback reset invalidates emission");
+    Fresh();Send(slide);samples={10.01f,10.02f,10.03f};sampleAt=0;Frame(10.01f);
+    particlePool.VisitActive(capture);
+    Check(first.born==10.03f && first.die==10.01f+.5f,"separate factory birth and emitter lifetime clocks");
+    float pvsTime{};auto pvs=[&](const Slot& s){pvsTime=s.nextPvsCheck;};particlePool.VisitActive(pvs);
+    Check(pvsTime==10.02f,"factory has separate PVS-time sample");
+    Fresh();Send(slide);Frame(10.01f);clockNow=10.31f;DrawParticleEffects();
+    particlePool.VisitActive(capture);
+    Check(first.frame==9 && first.roll==1 && first.alpha<250 && !traceCalls && !hullCalls,
+        "sliding uses loop30 animation and no collision trace");
+    for(float now:{10.2f,10.4f})Frame(now);
+    Check(slidingEmitted==3 && !Pending(),"sliding three strict attempts");
+    Fresh();Send(sparks);Send(slide);SendSmoke(smokePacket);Frame(10.01f);
+    Check(emitted==38 && slidingEmitted==1 && smokeEmitted==36 && particlePool.ActiveCount()==38,
+        "three kinds share actual ordinary pool");
+    Fresh();for(unsigned i=0;i<128;++i)Send(slide);Send(sparks);
+    Check(Pending()==128 && received==128 && exhausted==1 && loadCalls==128,"sliding shares emitter capacity with sparks");
+    Fresh();Send(slide);Send(sparks);for(unsigned i=0;i<1200;++i)Seed(float(i));Frame(10.01f);
+    Check(exhausted==1 && !rngCalls && emitters.Records()[0].remaining==2 && emitters.Records()[1].remaining==3,
+        "sliding failed factory consumes count and stops later producers");
+}
+
+
+void SlidingRuntimeOracle()
+{
+    std::string raw;int scenario;
+    while(std::cin>>raw>>scenario)
+    {
+        Fresh();std::vector<std::uint8_t> bytes;
+        for(std::size_t at=0;at<raw.size();at+=2)bytes.push_back(std::uint8_t(std::stoul(raw.substr(at,2),nullptr,16)));
+        Send(bytes);
+        Check(std::holds_alternative<sliding::Emitter>(emitters.Records()[0].payload),"sliding oracle receiver");
+        if(scenario==4)for(unsigned i=0;i<1200;++i)Seed(float(i));
+        const float times[]{10.f,10.01f,10.11f,10.2f,10.4f};
+        std::cout << "{\"states\":[";
+        for(unsigned step=0;step<5;++step)
+        {
+            if(step)std::cout << ',';
+            if(scenario==1 && step>=2){emitterOwner.origin[0]=200;emitterOwner.origin[1]=400;emitterOwner.origin[2]=600;
+                emitterOwner.angles[0]=90;emitterOwner.angles[1]=180;emitterOwner.angles[2]=270;}
+            if((scenario==2 && step>=1)||(scenario==3 && step>=2))currentParseCount=78;
+            Frame(times[step]);
+            const auto& record=emitters.Records()[0];
+            std::cout << '[' << record.total << ',' << record.remaining << ','
+                << std::bit_cast<std::uint32_t>(record.next) << ',' << std::get<sliding::Emitter>(record.payload).owner << ']';
+        }
+        std::array<const Slot*,particles::OrdinaryCapacity> slots{};std::size_t count{};
+        auto scan=[&](const Slot& slot){if(std::holds_alternative<SlidingParticle>(slot.particle))slots[count++]=&slot;};
+        particlePool.VisitActive(scan);
+        std::cout << "],\"particles\":[";
+        for(std::size_t i=0;i<count;++i)
+        {
+            if(i)std::cout << ',';
+            const auto& p=std::get<SlidingParticle>(slots[count-i-1]->particle).value;
+            std::cout << '[';bool first=true;
+            for(float v:{p.origin[0],p.origin[1],p.origin[2],p.velocity[0],p.velocity[1],p.velocity[2],
+                         p.born,p.die,p.size,p.growth,p.alpha,p.roll})
+            {if(!first)std::cout << ',';first=false;std::cout << std::bit_cast<std::uint32_t>(v);}
+            std::cout << ']';
+        }
+        std::cout << "],\"rng\":" << rngCalls << "}\n";
+    }
+}
+
 void FrustumCases()
 {
     Fresh(); Seed(10); DrawParticleEffects();
@@ -547,6 +663,7 @@ void EmitterOracle()
 int main(int argc, char** argv)
 {
     std::cout << std::setprecision(9);
+    if (argc == 2 && std::string(argv[1]) == "--sliding-runtime-oracle") { test::SlidingRuntimeOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--frustum-oracle") { test::FrustumOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--visibility-oracle") { test::VisibilityOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--camera-oracle") { test::CameraOracle(); return 0; }
@@ -589,6 +706,6 @@ int main(int argc, char** argv)
         }
         return 0;
     }
-    try { test::Cases(); test::SharedCases(); test::FrustumCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
+    try { test::Cases(); test::SharedCases(); test::FrustumCases(); test::SlidingCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

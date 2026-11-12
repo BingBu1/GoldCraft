@@ -5,6 +5,7 @@
 #include "precise_trigonometry.hpp"
 #include "../../../scenario/bosses/teddy_spark_particle.hpp"
 #include "../../../scenario/bosses/teddy_blackhole_smoke.hpp"
+#include "../../../scenario/bosses/teddy_sliding.hpp"
 #include "../../../scenario/core/emitter_runtime.hpp"
 #include "../../../scenario/core/particle_runtime.hpp"
 #include "../../../scenario/core/particle_visibility.hpp"
@@ -23,8 +24,10 @@ namespace
 {
 namespace spark = teddy_sparks;
 namespace smoke = teddy_blackhole_smoke;
-using EmitterData = std::variant<spark::Emitter, smoke::Emitter>;
-using ParticleData = std::variant<std::monostate, spark::Particle, smoke::Particle>;
+namespace sliding = teddy_sliding;
+using EmitterData = std::variant<spark::Emitter, smoke::Emitter, sliding::Emitter>;
+struct SlidingParticle { spark::Particle value; };
+using ParticleData = std::variant<std::monostate, spark::Particle, smoke::Particle, SlidingParticle>;
 struct Slot
 {
     ParticleData particle;
@@ -36,6 +39,11 @@ struct Slot
 particles::TemporaryPool<EmitterData, const model_t*> emitters;
 particles::OrdinaryPool<Slot> particlePool;
 particles::Frustum frustum;
+const int* parseCount{};
+static_assert(offsetof(cl_entity_t, curstate) == 0x2b0);
+static_assert(offsetof(entity_state_t, messagenum) == 0x0c);
+static_assert(offsetof(cl_entity_t, origin) == 0xb48);
+static_assert(sizeof(cl_entity_t) == 0xbb8);
 using Record = decltype(emitters)::Record;
 PreciseTrigonometry preciseMath;
 struct NativeCameraFields
@@ -65,6 +73,7 @@ pfnUserMsgHook previous{}, previousSmoke{};
 float hudTime{};
 bool busy{};
 std::uint64_t epoch{}, received{}, emitted{}, invalid{}, exhausted{}, draws{}, smokeMessages{}, smokeEmitted{};
+std::uint64_t slidingEmitted{}, ownerMismatches{};
 struct Operation { Operation() { busy = true; } ~Operation() { busy = false; } };
 struct Cancelled {};
 void CheckGeneration(std::uint64_t generation)
@@ -82,24 +91,33 @@ struct Random
         return value;
     }
 };
+const spark::Particle* SparkValue(const Slot& slot)
+{
+    if (const auto* p = std::get_if<spark::Particle>(&slot.particle)) return p;
+    const auto* p = std::get_if<SlidingParticle>(&slot.particle);
+    return p ? &p->value : nullptr;
+}
 const particles::Vec3& Position(const Slot& slot)
 {
-    if (const auto* p = std::get_if<spark::Particle>(&slot.particle)) return p->origin;
+    if (const auto* p = SparkValue(slot)) return p->origin;
     return std::get<smoke::Particle>(slot.particle).origin;
 }
 float Size(const Slot& slot)
 {
-    if (const auto* p = std::get_if<spark::Particle>(&slot.particle)) return p->size;
+    if (const auto* p = SparkValue(slot)) return p->size;
     return std::get<smoke::Particle>(slot.particle).size;
 }
 struct AddHost
 {
     std::uint64_t generation;
     bool isSmoke{};
+    bool isSliding{};
     int LoadSprite(const Record& record)
     {
         isSmoke = std::holds_alternative<smoke::Emitter>(record.payload);
+        isSliding = std::holds_alternative<sliding::Emitter>(record.payload);
         const auto path = isSmoke ? smoke::Sprite.data() :
+            isSliding ? sliding::Sprite.data() :
             spark::Sprites[std::get<spark::Emitter>(record.payload).sprite].data();
         return engine.pfnSPR_Load(path);
     }
@@ -109,7 +127,8 @@ struct AddHost
         if (generation != epoch || !model || model->type != mod_sprite || model->numframes < 1 ||
             model->numframes > static_cast<int>(spark::FrameCapacity)) return nullptr;
         // The fixed smoke consumer was proved against its twelve-frame resource.
-        return isSmoke && model->numframes != smoke::Particle::Frames ? nullptr : model;
+        return (isSmoke && model->numframes != smoke::Particle::Frames) ||
+            (isSliding && model->numframes != 15) ? nullptr : model;
     }
     float HudTime() const { return hudTime; }
     void Overflow(const Record&) const { ++exhausted; }
@@ -131,16 +150,21 @@ std::span<const std::uint8_t> Bytes(int size, void* data)
 int Receive(const char* name, int size, void* data)
 {
     const auto bytes = Bytes(size, data);
-    if (!spark::Identify(bytes)) return previous ? previous(name, size, data) : 1;
+    const bool isSliding = bytes.size() > sliding::Sprite.size() && bytes[sliding::Sprite.size()] == 0 &&
+        std::string_view(reinterpret_cast<const char*>(bytes.data()), sliding::Sprite.size()) == sliding::Sprite;
+    if (!spark::Identify(bytes) && !isSliding) return previous ? previous(name, size, data) : 1;
     const auto event = spark::Read(bytes);
-    if (!event || busy || !engine.pfnSPR_Load || !engine.GetSpritePointer) { ++invalid; return 1; }
+    const auto slide = isSliding ? sliding::Read(bytes) : std::optional<sliding::Emitter>{};
+    if ((!event && !slide) || busy || !engine.pfnSPR_Load || !engine.GetSpritePointer ||
+        (isSliding && (!parseCount || !engine.GetEntityByIndex))) { ++invalid; return 1; }
     Operation operation;
     SynchronizeSession();
     Record record;
     record.total = 3;
     record.burst = 1;
-    record.interval = event->interval;
-    record.payload = *event;
+    record.interval = isSliding ? .1f : event->interval;
+    if (slide) record.payload = *slide;
+    else record.payload = *event;
     try { AddRecord(record); }
     catch (const Cancelled&) {}
     return 1;
@@ -180,24 +204,54 @@ int ReceiveSmoke(const char* name, int size, void* data)
 struct EmitHost
 {
     std::uint64_t generation;
+    particles::Vec3 ownerOrigin{};
     float Time() const { return static_cast<float>(engine.GetClientTime()); }
     void BadSprite(const Record&) const { ++invalid; }
-    particles::EmitterPrepare Prepare(Record&, float) const
-    { return particles::EmitterPrepare::Emit; } // Both supported packets are ownerless.
+    particles::EmitterPrepare Prepare(Record& record, float)
+    {
+        if (const auto* event = std::get_if<sliding::Emitter>(&record.payload))
+        {
+            const auto* owner = engine.GetEntityByIndex(event->owner);
+            CheckGeneration(generation);
+            // Original dereferences a null owner. Stop this host frame safely;
+            // do not manufacture a stamp or claim an original graceful skip.
+            if (!owner) { ++invalid; return particles::EmitterPrepare::StopFrame; }
+            if (owner->curstate.messagenum != *parseCount)
+            {
+                record.total = record.remaining = 0;
+                ++ownerMismatches;
+                return particles::EmitterPrepare::NextRecord;
+            }
+            ownerOrigin = {owner->origin[0], owner->origin[1], owner->origin[2]};
+        }
+        return particles::EmitterPrepare::Emit;
+    }
     bool Create(const Record& record, float now) const
     {
         auto* slot = particlePool.Allocate(true);
         if (!slot) { ++exhausted; return false; }
         Random random{generation};
         ParticleData particle;
+        float nextPvs = now;
         if (const auto* event = std::get_if<spark::Emitter>(&record.payload))
             particle = spark::Spawn(*event, now, random);
+        else if (const auto* event = std::get_if<sliding::Emitter>(&record.payload))
+        {
+            nextPvs = Time();
+            CheckGeneration(generation);
+            const float born = Time();
+            CheckGeneration(generation);
+            auto value = sliding::Spawn(*event, ownerOrigin, born, random);
+            value.die = now + .5f;
+            particle = SlidingParticle{value};
+        }
         else
             particle = smoke::Spawn(std::get<smoke::Emitter>(record.payload), now, random);
         CheckGeneration(generation);
-        *slot = {particle, record.model, {0, 0, 1}, now, true};
+        *slot = {particle, record.model, {0, 0, 1}, nextPvs, true};
         ++emitted;
         smokeEmitted += std::holds_alternative<smoke::Particle>(particle);
+        slidingEmitted += std::holds_alternative<SlidingParticle>(particle);
         return true;
     }
 };
@@ -297,6 +351,14 @@ struct ParticleHost
             angleVectors(view);
             slot.angles = {view[0], view[1], p->roll};
         }
+        else if (auto* p = std::get_if<SlidingParticle>(&slot.particle))
+        {
+            sliding::Tick(p->value, snapshot, particlePool.PreviousTime(), particlePool.Gravity(),
+                30, slot.model->numframes);
+            const particles::Vec3 view{camera()[0], camera()[1], camera()[2]};
+            angleVectors(view);
+            slot.angles = {view[0], view[1], p->value.roll};
+        }
         else
         {
             World world{generation};
@@ -306,7 +368,7 @@ struct ParticleHost
     }
     float Die(const Slot& slot) const
     {
-        if (const auto* p = std::get_if<spark::Particle>(&slot.particle)) return p->die;
+        if (const auto* p = SparkValue(slot)) return p->die;
         return std::get<smoke::Particle>(slot.particle).die;
     }
     // Both fixed consumers have extraFlags0:02AD36D0 ->38FC ->01DE2F00 ret0.
@@ -317,7 +379,7 @@ struct ParticleHost
         CheckGeneration(generation);
         if (Die(slot) == now) return;
         auto* tri = engine.pTriAPI;
-        const auto* sparkParticle = std::get_if<spark::Particle>(&slot.particle);
+        const auto* sparkParticle = SparkValue(slot);
         const auto angles = sparkParticle ? slot.angles : std::get<smoke::Particle>(slot.particle).angles;
         particles::Vec3 forward, right, up;
         engine.pfnAngleVectors(angles.data(), forward.data(), right.data(), up.data());
@@ -381,11 +443,15 @@ struct ParticleHost
 
 void InitializeParticleEffects()
 {
-    if (!preciseMath.Initialize() || !cameraFields.Initialize())
+    void* count{};
+    const bool ownerReady = api->ResolveGameSymbol(api->GetEngineBase(), "cl_parsecount",
+        MH_GAMESYMBOL_KIND_GLOBAL, &count) == MH_GAMESYMBOL_OK && count;
+    if (!preciseMath.Initialize() || !cameraFields.Initialize() || !ownerReady)
     {
         api->SysError("CSOLSupport: matched particle camera symbols or precise math exports are unavailable");
         std::abort();
     }
+    parseCount = static_cast<const int*>(count);
     particlePool.Prepare();
     emitters.Initialize();
     InstallChainedUserMessage(spark::Message, Receive, previous);
@@ -404,6 +470,7 @@ void ShutdownParticleEffects()
     ResetParticleEffects();
     preciseMath.Shutdown(); // Explicit host plugin ownership, not map cleanup.
     cameraFields = {};
+    parseCount = nullptr;
 }
 void CacheParticleHudTime(float time) { hudTime = time; }
 void CacheParticleClientData(const client_data_s& data)
@@ -452,5 +519,6 @@ void ParticleEffectsDiagnostics(std::ostream& out)
     out << "particles received=" << received << " emitted=" << emitted << " active=" << particlePool.ActiveCount()
         << " pending=" << pending << " invalid=" << invalid << " exhausted=" << exhausted << " draws=" << draws
         << " blackholeMessages=" << smokeMessages << " blackholeEmitted=" << smokeEmitted << '\n';
+    out << "particles slidingEmitted=" << slidingEmitted << " ownerMismatches=" << ownerMismatches << '\n';
 }
 }

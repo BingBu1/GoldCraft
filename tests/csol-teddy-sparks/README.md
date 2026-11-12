@@ -1,5 +1,25 @@
 # Teddy spawn spark original instruction oracle
 
+## Sliding owner runtime
+
+Sliding `sprites/ef_bat.spr` now shares the same actual emitter and particle
+owners. Its original acquisition chain was closed through HUD base plus the
+member offset, not a guessed local-player stamp. Runtime resolves the existing
+matched engine `cl_parsecount` and uses real SDK named owner origin/message
+fields. The current SDK receipt is `build/teddy-sliding-runtime-sdk-20261112-04/result.json`:5288
+checks,58 unchanged actual include inputs. SDK covers moving owner/world offset,
+three strict emissions, alpha250/loop animation, global count independent from
+local-player state, mismatches after count/time consumption, null-owner host
+safety cancellation, separate born/PVS/life clocks and three-kind contention.
+
+`sliding_runtime_oracle.py` compares actual parser/Add/factory/Frame instructions
+to the actual SDK runtime EXE through `--sliding-runtime-oracle`:10 scenarios /50
+emission frames, including zero/nonzero offsets, motion, first/later stale
+owner and factory exhaustion. Engine entity/stamp/time/RNG/allocation are
+explicit controlled interfaces; matching acquisition/native ABI evidence is
+recorded separately. This is not actual graphics/network/gameplay acceptance.
+
+
 ## Fixed six-plane visibility
 
 The actual shared runtime now prepares the original six planes once per view
