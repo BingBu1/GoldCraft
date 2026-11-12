@@ -42,11 +42,11 @@ public:
     bool Prepare(CBasePlayer& player, std::span<const std::byte> validatedModel,
                  PlayerModelGeneration generation, Pistol weapon,
                  const PlayerAnimationPlan& plan, PlayerActionLabelCompare hostCompare,
-                 std::string& error);
+                 std::string& error, PlayerModelExtent extent = PlayerModelExtent::CompleteFile);
     bool Prepare(CBasePlayer& player, std::span<const std::byte> validatedModel,
                  PlayerModelGeneration generation, LongGun weapon,
                  const PlayerAnimationPlan& plan, PlayerActionLabelCompare hostCompare,
-                 std::string& error);
+                 std::string& error, PlayerModelExtent extent = PlayerModelExtent::CompleteFile);
 
     // Apply after the native player movement/animation decision. Preserve its
     // gait, swim/jump/death/flinch authority. Hold/Move/IronSight never interrupt
@@ -70,7 +70,7 @@ private:
     static constexpr unsigned WeaponCount = static_cast<unsigned>(Pistol::Count) + static_cast<unsigned>(LongGun::Count);
     bool PrepareWeapon(CBasePlayer&, std::span<const std::byte>, PlayerModelGeneration,
                        unsigned weapon, const PlayerAnimationPlan&, PlayerActionLabelCompare,
-                       std::string& error);
+                       std::string& error, PlayerModelExtent);
     PlayerAnimationResult ApplyWeapon(CBasePlayer&, PlayerModelGeneration, unsigned weapon,
                                       PlayerAction, float now) const;
     std::optional<PlayerActionSequence> SelectWeapon(PlayerModelGeneration, unsigned weapon,

@@ -254,6 +254,63 @@ void LoopingReload(const Model& source)
           f.player.m_Activity == ACT_RUN && f.player.m_IdealActivity == ACT_RUN && f.vars.gaitsequence == 5,
           "Explicit movement pose changed native run/gait");
 }
+void CachePrefix(const Model& model)
+{
+    const auto header = Object<studiohdr_t>(model, 0);
+    Check(header.numtextures > 0 && header.texturedataindex > int(sizeof(header)) &&
+          std::size_t(header.texturedataindex) < model.size(), "Actual model has no dedicated non-pixel prefix");
+    if (header.numtextures <= 0 || header.texturedataindex <= int(sizeof(header)) ||
+        std::size_t(header.texturedataindex) >= model.size()) return;
+    const auto prefix = std::span<const std::byte>(model).first(header.texturedataindex);
+    const auto plan = Plan("ref_shoot_knife", "crouch_shoot_knife");
+    Fixture f(model);
+    Check(f.Prepare(model, Pistol::Glock, plan), "Full model baseline rejected");
+    std::array<PlayerActionSequence, PlayerActionCount * 2> baseline{};
+    for (unsigned i = 0; i < PlayerActionCount; ++i)
+        for (bool crouch : {false, true})
+        {
+            const auto sequence = f.adapter.Select(Generation, Pistol::Glock, PlayerAction(i), crouch);
+            Check(sequence.has_value(), "Full model sequence missing");
+            if (sequence) baseline[i * 2 + crouch] = *sequence;
+        }
+    Check(!f.adapter.Prepare(f.player, prefix, Generation, Pistol::Glock, plan, Compare, f.error),
+          "Default full-file contract accepted a truncated cache");
+    Check(f.adapter.Prepare(f.player, prefix, Generation, Pistol::Glock, plan, Compare, f.error,
+                            PlayerModelExtent::ValidatedCachePrefix), "Exact dedicated prefix rejected");
+    for (unsigned i = 0; i < PlayerActionCount; ++i)
+        for (bool crouch : {false, true})
+        {
+            const auto sequence = f.adapter.Select(Generation, Pistol::Glock, PlayerAction(i), crouch);
+            const auto& expected = baseline[i * 2 + crouch];
+            Check(sequence && sequence->sequence == expected.sequence && sequence->frames == expected.frames &&
+                  sequence->flags == expected.flags && Bits(sequence->fps, expected.fps) &&
+                  Bits(sequence->sdkDuration, expected.sdkDuration) &&
+                  Bits(sequence->normalizedFrameRate, expected.normalizedFrameRate), "Prefix changed cached action semantics");
+        }
+    Check(f.Apply(Pistol::Glock, PlayerAction::Fire) == PlayerAnimationResult::Applied,
+          "Real SDK could not apply a cache-prefix action");
+    Metadata(f, model, "ref_shoot_onehanded");
+    for (const auto bytes : {prefix.size() - 1, prefix.size() + 1, model.size()})
+        Check(!f.adapter.Prepare(f.player, std::span<const std::byte>(model).first(bytes), Generation,
+              Pistol::Glock, plan, Compare, f.error, PlayerModelExtent::ValidatedCachePrefix),
+              "Inexact dedicated cache extent accepted");
+    for (unsigned mutation = 0; mutation < 5; ++mutation)
+    {
+        Model bad(prefix.begin(), prefix.end());
+        auto h = header;
+        if (mutation == 0) h.length = int(prefix.size()) - 1;
+        if (mutation == 1) h.numtextures = 0;
+        if (mutation == 2) h.textureindex = 1;
+        if (mutation == 3) h.boneindex = h.texturedataindex - 1;
+        if (mutation == 4) h.seqindex = h.texturedataindex - 1;
+        std::memcpy(bad.data(), static_cast<const void*>(&h), sizeof(h));
+        Fixture invalid(bad);
+        Check(!invalid.adapter.Prepare(invalid.player, bad, Generation, Pistol::Glock, plan, Compare, invalid.error,
+              PlayerModelExtent::ValidatedCachePrefix), "Malformed dedicated prefix accepted");
+        Check(!invalid.adapter.Select(Generation, Pistol::Glock, PlayerAction::Fire, false),
+              "Malformed prefix left an action cache active");
+    }
+}
 }
 int main(int argc, char** argv)
 {
@@ -262,7 +319,8 @@ int main(int argc, char** argv)
     {
         const auto urban = Read(argv[1]), male = Read(argv[2]), female = Read(argv[3]);
         const auto stock = Plan("ref_shoot_knife", "crouch_shoot_knife");
-        for (const auto* model : {&urban, &male, &female}) { Actions(*model, stock); Guards(*model); LoopingReload(*model); }
+        for (const auto* model : {&urban, &male, &female})
+        { Actions(*model, stock); Guards(*model); LoopingReload(*model); CachePrefix(*model); }
         for (const auto* model : {&urban, &male, &female}) LongGunActions(*model, PistolAnimationRig::Stock);
         for (const auto* model : {&male, &female})
         {

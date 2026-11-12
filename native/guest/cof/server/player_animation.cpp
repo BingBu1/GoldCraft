@@ -71,27 +71,27 @@ void PlayerAnimationAdapter::Reset() noexcept
 bool PlayerAnimationAdapter::Prepare(CBasePlayer& player, std::span<const std::byte> model,
                                     PlayerModelGeneration generation, Pistol weapon,
                                     const PlayerAnimationPlan& plan, PlayerActionLabelCompare compare,
-                                    std::string& error)
+                                    std::string& error, PlayerModelExtent extent)
 {
     return PrepareWeapon(player, model, generation,
                          weapon < Pistol::Count ? static_cast<unsigned>(weapon) : WeaponCount,
-                         plan, compare, error);
+                         plan, compare, error, extent);
 }
 
 bool PlayerAnimationAdapter::Prepare(CBasePlayer& player, std::span<const std::byte> model,
                                     PlayerModelGeneration generation, LongGun weapon,
                                     const PlayerAnimationPlan& plan, PlayerActionLabelCompare compare,
-                                    std::string& error)
+                                    std::string& error, PlayerModelExtent extent)
 {
     return PrepareWeapon(player, model, generation,
                          weapon < LongGun::Count ? static_cast<unsigned>(Pistol::Count) + static_cast<unsigned>(weapon) : WeaponCount,
-                         plan, compare, error);
+                         plan, compare, error, extent);
 }
 
 bool PlayerAnimationAdapter::PrepareWeapon(CBasePlayer& player, std::span<const std::byte> model,
                                           PlayerModelGeneration generation, unsigned weapon,
                                           const PlayerAnimationPlan& plan, PlayerActionLabelCompare compare,
-                                          std::string& error)
+                                          std::string& error, PlayerModelExtent extent)
 {
     Reset();
     if (!player.pev || !player.edict() || player.pev->modelindex <= 0 || weapon >= WeaponCount ||
@@ -100,7 +100,7 @@ bool PlayerAnimationAdapter::PrepareWeapon(CBasePlayer& player, std::span<const 
         error = "Player animation requires a current owner, model and weapon";
         return false;
     }
-    if (!bindings_.Bind(model, generation, plan, compare, error)) return false;
+    if (!bindings_.Bind(model, generation, plan, compare, error, extent)) return false;
     owner_ = &player;
     ownerSerial_ = player.edict()->serialnumber;
     modelIndex_ = player.pev->modelindex;

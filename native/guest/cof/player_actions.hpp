@@ -33,6 +33,9 @@ struct PlayerActionSequence
 // Supply the actual host Q_stricmp implementation, including its configured
 // optimized/CRT branch. Invoked only while cold binding, never by Select.
 using PlayerActionLabelCompare = int (*)(const char*, const char*);
+// Dedicated ReHLDS may retain only the validated non-pixel model prefix.
+// This is a host storage contract, independent of original action selection.
+enum class PlayerModelExtent : unsigned char { CompleteFile, ValidatedCachePrefix };
 
 class PlayerActionBindings
 {
@@ -47,7 +50,8 @@ public:
     bool Bind(std::span<const std::byte> validatedModel,
               PlayerModelGeneration generation,
               std::span<const PlayerActionLabels> labels,
-              PlayerActionLabelCompare compare, std::string& error);
+              PlayerActionLabelCompare compare, std::string& error,
+              PlayerModelExtent extent = PlayerModelExtent::CompleteFile);
 
     // O(1), no allocations, I/O or source-model access. Missing action, stale
     // generation or unbound state returns nullopt, never sequence zero.

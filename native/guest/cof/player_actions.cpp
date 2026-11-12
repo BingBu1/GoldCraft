@@ -49,7 +49,8 @@ void PlayerActionBindings::Reset() noexcept
 bool PlayerActionBindings::Bind(std::span<const std::byte> data,
                                 PlayerModelGeneration generation,
                                 std::span<const PlayerActionLabels> labels,
-                                PlayerActionLabelCompare compare, std::string& error)
+                                PlayerActionLabelCompare compare, std::string& error,
+                                PlayerModelExtent extent)
 {
     Reset();
     error.clear();
@@ -58,9 +59,19 @@ bool PlayerActionBindings::Bind(std::span<const std::byte> data,
         labels.empty() || labels.size() > Capacity)
         return reject("Invalid player action generation, comparator or action count");
     if (data.size() < HeaderBytes || data.size() > std::size_t(std::numeric_limits<std::int32_t>::max()) ||
-        Word(data, 0) != 0x54534449 || Integer(data, 4) != 10 ||
-        Integer(data, 72) != static_cast<std::int32_t>(data.size()))
+        Word(data, 0) != 0x54534449 || Integer(data, 4) != 10)
         return reject("Player actions require a complete validated studio v10 model");
+    const auto logicalBytes = Integer(data, 72);
+    if (extent == PlayerModelExtent::CompleteFile)
+    {
+        if (logicalBytes != static_cast<std::int32_t>(data.size()))
+            return reject("Player action model file length is inconsistent");
+    }
+    else if (extent != PlayerModelExtent::ValidatedCachePrefix ||
+        logicalBytes < static_cast<std::int32_t>(data.size()) || Integer(data, 180) <= 0 ||
+        Integer(data, 184) < static_cast<std::int32_t>(HeaderBytes) ||
+        Integer(data, 188) != static_cast<std::int32_t>(data.size()))
+        return reject("Player action cache requires the exact validated non-pixel prefix");
 
     const auto bones = Integer(data, 140), boneIndex = Integer(data, 144);
     const auto sequences = Integer(data, 164), sequenceIndex = Integer(data, 168);

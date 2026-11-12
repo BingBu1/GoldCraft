@@ -2136,7 +2136,13 @@
     "tests/cryoffear-resource-preparation/run.py",
     "tests/cryoffear-resource-pack/run.py",
     "tests/cryoffear-resource-pack/README.md",
-    "docs/2026-11-12_实现-CoF冷枪口资源与Glock闭包-report.md"
+    "docs/2026-11-12_实现-CoF冷枪口资源与Glock闭包-report.md",
+    "native/guest/cof/player_actions.cpp",
+    "native/guest/cof/player_actions.hpp",
+    "native/guest/cof/server/player_animation.cpp",
+    "native/guest/cof/server/player_animation.hpp",
+    "tests/cryoffear-player-animation/main.cpp",
+    "docs/2026-11-12_修复-CoF专服人物缓存前缀-report.md"
   ],
   "trees": {
     "native": [
