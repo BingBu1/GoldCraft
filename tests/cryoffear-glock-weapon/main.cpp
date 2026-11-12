@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -618,6 +619,20 @@ int main(int argc,char** argv)
     }
     Initialize();globals.time=10;weapon.m_iClip=0;weapon.m_fFireOnEmpty=1;frame.pressed=1;events.clear();weapon.PrimaryAttack();Check(!events.empty());
     events.clear();globals.time=10.5f;weapon.PrimaryAttack();Check(events.size()==3&&events[0]==3);events.clear();globals.time=11;weapon.PrimaryAttack();Check(events.size()>3);
+    // Native Scenario buys can exceed CoF's metadata capacity. That limit is
+    // enforced when granting ammo, never by disabling a valid inventory item.
+    for(int reserve:{151,500,800,65535,std::numeric_limits<int>::max()})
+    {
+        Initialize();player.m_rgAmmo[1]=reserve;weapon.m_iClip=14;
+        Check(weapon.CanDeploy()&&weapon.Deploy());globals.time=10;
+        weapon.Reload();Check(weapon.m_fInReload&&weapon.ActionState().loading&&weapon.m_iClip==0&&player.m_rgAmmo[1]==reserve);
+        globals.time=weapon.ActionState().ownerAttack+.01f;weapon.ItemPostFrame();
+        Check(weapon.m_iClip==15&&player.m_rgAmmo[1]==reserve-15&&!weapon.m_fInReload);
+        globals.time+=5;weapon.Holster();Check(weapon.Status()==GlockStatus::Applied);
+        player.m_pActiveItem=nullptr;Check(weapon.CanDeploy());player.m_pActiveItem=&weapon;
+        Check(weapon.Deploy()&&weapon.m_iClip==15&&player.m_rgAmmo[1]==reserve-15);
+    }
+    Initialize();player.m_rgAmmo[1]=-1;Check(!weapon.CanDeploy()&&weapon.Status()==GlockStatus::InvalidInput);
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==896&&weapon.m_iId==896&&info.iMaxClip==15&&info.iMaxAmmo1==150&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<transitionRows<<" original transition cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }

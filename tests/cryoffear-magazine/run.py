@@ -135,7 +135,7 @@ def main():
     cases, expected = [], []
     for capacity in (8, 15, 18):
         for clip, reserve, flags, loading, offset in itertools.product(
-                range(capacity+1), (0, 1, capacity-1, capacity, capacity+3, 180), (0, 0x20), (0, 1), (-1, 0, 1)):
+                range(capacity+1), (0, 1, capacity-1, capacity, capacity+3, 151, 180, 500, 800, 65535, 2147483647), (0, 0x20), (0, 1), (-1, 0, 1)):
             deadline = u32(struct.pack('<f', 10.25), 0)
             case = (clip, reserve, capacity, flags, deadline+offset, deadline, loading)
             cases.append(case)

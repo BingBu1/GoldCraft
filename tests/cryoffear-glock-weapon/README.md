@@ -31,3 +31,9 @@ Private samples, original instruction evidence and game models are excluded
 from publication. Compiler-discovered inputs are hashed before/after; no source
 tree copies are created. Four malformed or incorrect primary oracle inputs
 must reject with their specified exit codes.
+
+Scenario reserve grants above CoF metadata capacity (151/500/800/65535/INT_MAX)
+exercise actual CanDeploy, Deploy, reload completion, Holster and redeploy.
+Original reload clears the old magazine before transferring from reserve; its
+150-round metadata is not a current-inventory invariant. Negative reserve still
+rejects. See the 2026-11-12 scenario reserve correction report.
