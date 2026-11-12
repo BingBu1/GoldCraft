@@ -2106,7 +2106,9 @@
     "tests/cryoffear-muzzle-flash/README.md",
     "tests/cryoffear-p345-weapon/README.md",
     "tests/cryoffear-resource-preparation/README.md",
-    "tests/cryoffear-sound-dispatch/README.md"
+    "tests/cryoffear-sound-dispatch/README.md",
+    "docs/2026-11-12_实现-共享普通粒子池与双时钟-report.md",
+    "tests/csol-particle-runtime/README.md"
   ],
   "trees": {
     "native": [
