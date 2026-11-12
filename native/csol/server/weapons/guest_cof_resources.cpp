@@ -5,6 +5,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <utility>
 
@@ -57,7 +58,8 @@ private:
     bool failed_{};
 };
 
-bool Metadata(std::string_view text, P345Resources& value) noexcept
+template<class Resources>
+bool Metadata(std::string_view text, std::string_view classname, Resources& value) noexcept
 {
     if (text.empty() || text.size() > 16384 || text.find('\0') != text.npos) return false;
     Tokens tokens(text);
@@ -77,7 +79,7 @@ bool Metadata(std::string_view text, P345Resources& value) noexcept
         if (!bit) continue;
         if (found & bit) return false;
         found |= bit;
-        if (bit == 16) { if (data != "weapon_p345") return false; }
+        if (bit == 16) { if (data != classname) return false; }
         else if (bit == 8)
         {
             int number{};
@@ -109,9 +111,63 @@ struct File
     void (*release)(void*){};
     ~File() { if (bytes) release(bytes); }
 };
-}
 
-ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Resources& output) noexcept
+bool ClipTexture(std::span<const byte> bytes) noexcept
+{
+    if (bytes.size() < sizeof(studiohdr_t) ||
+        bytes.size() > std::size_t(std::numeric_limits<int>::max())) return false;
+    studiohdr_t header;
+    std::memcpy(static_cast<void*>(&header), bytes.data(), sizeof(header));
+    if (std::memcmp(bytes.data(), "IDST", 4) || header.version != 10 ||
+        header.length != static_cast<int>(bytes.size()) || header.numtextures <= 0 ||
+        header.texturedataindex < int(sizeof(header)) ||
+        header.texturedataindex > header.length ||
+        header.numskinref <= 0 || header.numskinfamilies <= 0) return false;
+    const auto prefix = std::size_t(header.texturedataindex);
+    const auto table = [&](int offset, int count, std::size_t stride) {
+        return offset >= int(sizeof(header)) && count > 0 &&
+            std::size_t(offset) <= prefix &&
+            std::size_t(count) <= (prefix - std::size_t(offset)) / stride;
+    };
+    if (!table(header.textureindex, header.numtextures, sizeof(mstudiotexture_t)) ||
+        !table(header.skinindex, header.numskinref,
+            std::size_t(header.numskinfamilies) * sizeof(short))) return false;
+    const auto skins = std::size_t(header.numskinref) * std::size_t(header.numskinfamilies);
+    for (std::size_t i = 0; i < skins; ++i)
+    {
+        unsigned short texture;
+        std::memcpy(&texture, bytes.data() + header.skinindex + i * sizeof(texture), sizeof(texture));
+        if (texture >= header.numtextures) return false;
+    }
+    // ReHLDS l_studio.cpp reads pixels and 256 RGB palette entries sequentially
+    // from texturedataindex. The client also consumes each descriptor's index.
+    auto cursor = prefix;
+    for (int i = 0; i < header.numtextures; ++i)
+    {
+        mstudiotexture_t texture;
+        std::memcpy(&texture, bytes.data() + header.textureindex +
+            std::size_t(i) * sizeof(texture), sizeof(texture));
+        if (texture.width <= 0 || texture.height <= 0 ||
+            !std::memchr(texture.name, '\0', sizeof(texture.name)) ||
+            std::size_t(texture.width) > std::size_t(std::numeric_limits<int>::max()) /
+                std::size_t(texture.height)) return false;
+        const auto pixels = std::size_t(texture.width) * std::size_t(texture.height);
+        constexpr std::size_t PaletteBytes = 256 * 3;
+        if (cursor > bytes.size() || pixels > bytes.size() - cursor ||
+            PaletteBytes > bytes.size() - cursor - pixels ||
+            texture.index < header.texturedataindex || std::size_t(texture.index) > bytes.size() ||
+            pixels > bytes.size() - std::size_t(texture.index) ||
+            PaletteBytes > bytes.size() - std::size_t(texture.index) - pixels) return false;
+        cursor += pixels + PaletteBytes;
+    }
+    return true;
+}
+template<class Resources, std::size_t Models, std::size_t Sounds, std::size_t Waves, std::size_t Events>
+ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& output,
+    const std::array<ResourcePath, Models>& models, const std::array<ResourcePath, Sounds>& sounds,
+    const std::array<ResourcePath, Waves>& waves, const std::array<ResourcePath, Events>& events,
+    const ResourcePath& inventory, const ResourcePath& particle, const ResourcePath& clipTexture,
+    unsigned sequenceCount, std::string_view classname) noexcept
 {
     const auto lease = authority;
     const auto current = [&] { return lease.current(lease.context); };
@@ -128,72 +184,94 @@ ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Reso
         const int size = g_engfuncs.pfnGetFileSize(path);
         return current() && size > 0;
     };
-    for (const auto& p : P345Models)
+    for (const auto& p : models)
         if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
-    for (const auto& p : P345Sounds)
+    for (const auto& p : sounds)
     {
         std::array<char, 128> full{};
         std::memcpy(full.data(), "sound/", 6);
         std::memcpy(full.data() + 6, p.host, std::strlen(p.host) + 1);
         if (!exists(full.data())) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
     }
-    for (const auto& p : P345LocalWaves)
+    for (const auto& p : waves)
         if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
-    for (const auto& p : P345Events)
+    for (const auto& p : events)
         if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
-    for (const auto* p : {P345Inventory.host, P345Particle.host})
+    for (const auto* p : {inventory.host, particle.host})
         if (!exists(p)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p};
+    if (!exists(clipTexture.host))
+        return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, clipTexture.host};
+    if constexpr (requires { output.decalDownloads; })
+        for (const auto& p : ShotDecals)
+            if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
 
-    P345Resources value{};
+    Resources value{};
     value.generation = lease.generation;
     {
         File file{nullptr, 0, g_engfuncs.pfnFreeFile};
-        file.bytes = g_engfuncs.pfnLoadFileForMe(P345Inventory.host, &file.size);
-        if (!current()) return {ResourceStatus::Cancelled, P345Inventory.host};
+        file.bytes = g_engfuncs.pfnLoadFileForMe(inventory.host, &file.size);
+        if (!current()) return {ResourceStatus::Cancelled, inventory.host};
         if (!file.bytes || file.size <= 0 || !Metadata(
-            {reinterpret_cast<const char*>(file.bytes), static_cast<std::size_t>(file.size)}, value))
-            return {ResourceStatus::InvalidMetadata, P345Inventory.host};
+            {reinterpret_cast<const char*>(file.bytes), static_cast<std::size_t>(file.size)}, classname, value))
+            return {ResourceStatus::InvalidMetadata, inventory.host};
     }
     if (!current()) return {ResourceStatus::Cancelled};
     {
-        const auto* path = P345Models[static_cast<unsigned>(P345Model::View)].host;
+        const auto* path = models[0].host;
         File file{nullptr, 0, g_engfuncs.pfnFreeFile};
         file.bytes = g_engfuncs.pfnLoadFileForMe(path, &file.size);
         if (!current()) return {ResourceStatus::Cancelled, path};
         if (!file.bytes || file.size <= 0 || guest::cof::PrepareMagazineSequenceTimes(
             {reinterpret_cast<const std::byte*>(file.bytes), static_cast<std::size_t>(file.size)},
-            34, value.sequences) != guest::cof::MagazineModelResult::Prepared)
+            sequenceCount, value.sequences) != guest::cof::MagazineModelResult::Prepared)
             return {ResourceStatus::InvalidModel, path};
     }
     if (!current()) return {ResourceStatus::Cancelled};
 
-    for (std::size_t i = 0; i < P345Models.size(); ++i)
     {
-        value.models[i] = g_engfuncs.pfnPrecacheModel(P345Models[i].host);
-        if (!current()) return {ResourceStatus::Cancelled, P345Models[i].host};
-        if (value.models[i] <= 0) return {ResourceStatus::EngineRejected, P345Models[i].host};
+        File file{nullptr, 0, g_engfuncs.pfnFreeFile};
+        file.bytes = g_engfuncs.pfnLoadFileForMe(clipTexture.host, &file.size);
+        if (!current()) return {ResourceStatus::Cancelled, clipTexture.host};
+        if (!file.bytes || file.size <= 0 || !ClipTexture(
+            {file.bytes, static_cast<std::size_t>(file.size)}))
+            return {ResourceStatus::InvalidModel, clipTexture.host};
     }
-    for (std::size_t i = 0; i < P345Sounds.size(); ++i)
+    if (!current()) return {ResourceStatus::Cancelled};
+
+    for (std::size_t i = 0; i < models.size(); ++i)
     {
-        value.sounds[i] = g_engfuncs.pfnPrecacheSound(P345Sounds[i].host);
-        if (!current()) return {ResourceStatus::Cancelled, P345Sounds[i].host};
-        if (value.sounds[i] <= 0) return {ResourceStatus::EngineRejected, P345Sounds[i].host};
+        value.models[i] = g_engfuncs.pfnPrecacheModel(models[i].host);
+        if (!current()) return {ResourceStatus::Cancelled, models[i].host};
+        if (value.models[i] <= 0) return {ResourceStatus::EngineRejected, models[i].host};
     }
-    for (std::size_t i = 0; i < P345LocalWaves.size(); ++i)
+    for (std::size_t i = 0; i < sounds.size(); ++i)
     {
-        value.localWaveDownloads[i] = g_engfuncs.pfnPrecacheGeneric(P345LocalWaves[i].host);
-        if (!current()) return {ResourceStatus::Cancelled, P345LocalWaves[i].host};
-        if (value.localWaveDownloads[i] < 0) return {ResourceStatus::EngineRejected, P345LocalWaves[i].host};
+        value.sounds[i] = g_engfuncs.pfnPrecacheSound(sounds[i].host);
+        if (!current()) return {ResourceStatus::Cancelled, sounds[i].host};
+        if (value.sounds[i] <= 0) return {ResourceStatus::EngineRejected, sounds[i].host};
     }
-    for (std::size_t i = 0; i < P345Events.size(); ++i)
+    for (std::size_t i = 0; i < waves.size(); ++i)
     {
-        value.events[i] = g_engfuncs.pfnPrecacheEvent(1, P345Events[i].host);
-        if (!current()) return {ResourceStatus::Cancelled, P345Events[i].host};
-        if (!value.events[i]) return {ResourceStatus::EngineRejected, P345Events[i].host};
+        value.localWaveDownloads[i] = g_engfuncs.pfnPrecacheGeneric(waves[i].host);
+        if (!current()) return {ResourceStatus::Cancelled, waves[i].host};
+        if (value.localWaveDownloads[i] < 0) return {ResourceStatus::EngineRejected, waves[i].host};
+    }
+    if constexpr (requires { value.decalDownloads; })
+        for (std::size_t i = 0; i < ShotDecals.size(); ++i)
+        {
+            value.decalDownloads[i] = g_engfuncs.pfnPrecacheGeneric(ShotDecals[i].host);
+            if (!current()) return {ResourceStatus::Cancelled, ShotDecals[i].host};
+            if (value.decalDownloads[i] < 0) return {ResourceStatus::EngineRejected, ShotDecals[i].host};
+        }
+    for (std::size_t i = 0; i < events.size(); ++i)
+    {
+        value.events[i] = g_engfuncs.pfnPrecacheEvent(1, events[i].host);
+        if (!current()) return {ResourceStatus::Cancelled, events[i].host};
+        if (!value.events[i]) return {ResourceStatus::EngineRejected, events[i].host};
     }
     for (const auto [path, destination] : {
-        std::pair{P345Inventory.host, &value.inventoryDownload},
-        std::pair{P345Particle.host, &value.particleDownload}})
+        std::pair{inventory.host, &value.inventoryDownload},
+        std::pair{particle.host, &value.particleDownload}})
     {
         *destination = g_engfuncs.pfnPrecacheGeneric(path);
         if (!current()) return {ResourceStatus::Cancelled, path};
@@ -202,11 +280,11 @@ ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Reso
         if (*destination < 0) return {ResourceStatus::EngineRejected, path};
     }
     for (const auto [path, destination] : {
-        std::pair{P345Models[0].host, &value.viewModelString},
-        std::pair{P345Models[1].host, &value.worldModelString},
-        std::pair{P345Models[2].host, &value.playerModelString},
-        std::pair{P345Inventory.host, &value.inventoryItemString},
-        std::pair{P345Particle.host, &value.particleScriptString}})
+        std::pair{models[0].host, &value.viewModelString},
+        std::pair{models[1].host, &value.worldModelString},
+        std::pair{models[2].host, &value.playerModelString},
+        std::pair{inventory.host, &value.inventoryItemString},
+        std::pair{particle.host, &value.particleScriptString}})
     {
         *destination = g_engfuncs.pfnAllocString(path);
         if (!current()) return {ResourceStatus::Cancelled, path};
@@ -214,5 +292,18 @@ ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Reso
     }
     output = value;
     return {ResourceStatus::Prepared};
+}
+}
+
+ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Resources& output) noexcept
+{
+    return PrepareResources(authority, output, P345Models, P345Sounds, P345LocalWaves, P345Events,
+        P345Inventory, P345Particle, P345ClipTexture, 34, "weapon_p345");
+}
+
+ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
+{
+    return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,
+        GlockInventory, GlockParticle, GlockClipTexture, 43, "weapon_glock");
 }
 }

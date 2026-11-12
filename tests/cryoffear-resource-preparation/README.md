@@ -1,4 +1,12 @@
-# P345 cold resource preparation
+# P345 and Glock cold resource preparation
+
+Current muzzle-resource checkpoint: both outputs contain ten model/sprite IDs,
+including the original client consumers' `flash1.mdl` and `gunsmoke.spr` in the
+guest namespace. Glock also carries the five shot-decal generic IDs. The current
+real-SDK suite passes P345 689 checks and Glock 787 checks (1,476 total), with
+42/50 actual files and 94/110 callback edges respectively. Every missing resource
+still rejects before precache; no full weapon/render/gameplay readiness follows.
+The earlier eight-model counts below describe the preserved previous checkpoints.
 
 Before implementation gate (2026-11-11): the copied original x86 hl.dll has SHA256 0036b91c01e92ed205513f52563053a55a66a32d257efb5f476b8f1f3dde0e63, base 0x10000000. All 33 previously IDA-verified intervals (17013 bytes) were rehashed against the copied PE before writing production code. Private evidence is analysis/cof-weapons-20261111/server-evidence/p345-byte-verification.json and P345_BACKENDS.md. The Precache consumer 1005EB90 explicitly uses the full police/models/weapons/p345/p_p345.mdl string; no substring fallback is accepted. Its complete model/sound arguments were recovered from the saved IDA instruction addresses and current matching PE.
 
@@ -8,7 +16,7 @@ The helper prepares actual SDK engine model/sound/event/generic and ALLOC_STRING
 
 Only cold preparation may read files. The caller owns generation authentication and caches the immutable result. Failures preserve the prior output; engine precache side effects cannot be rolled back. Original custom models and inventory capacity/pickup rules remain outside this helper.
 
-Validation and exact command will be appended after the actual SDK fixture completes. No deployment, gameplay or performance acceptance is implied.
+The historical and current validation checkpoints are recorded below. No deployment, gameplay or performance acceptance is implied.
 
 The implemented API is csol::server::cof::PrepareP345Resources(ResourceAuthority, P345Resources). Authority snapshots map/content generation and checks it around every external engine callback, including file-release boundaries. Output contains eight model indices, twenty engine sound indices, seven local PCM download indices, two event indices, five engine string IDs, two generic file indices, thirty-four sequence durations and the parsed aim fields. Generic indices are zero-based: actual ReHLDS PF_precache_generic_I/AddGeneric accepts zero. No readiness boolean is inferred from these indices.
 
@@ -20,10 +28,33 @@ Run directly from Git Bash (use the copied exact original module for COF_HL_SAMP
 python tests/cryoffear-resource-preparation/run.py \
   --sample "$COF_HL_SAMPLE" --original "$COF_RESOURCE_ROOT" \
   --clip sandbox/cs-server/Half-Life/valve/models/w_9mmclip.mdl \
+  --clip-texture sandbox/cs-server/Half-Life/valve/models/w_9mmclipT.mdl \
   --environment build/csol-season2-trace-20261109/compiler-env.json \
-  --output build/cof-resource-preparation-20261111-05
+  --output build/cof-resource-preparation-20261111-12
 ~~~
 
 The named clip resource is absent from the original loose CoF directory. The fixture explicitly uses the existing workspace valve MDL as a host common dependency; this does not prove the original CoF inherited VFS source. The original police P file is present and is read directly by this fixture, with no candidate substitution or grip acceptance. The controlled SDK fixture maps original bytes to the documented host paths in memory. No resource installer, live engine precache, registry/factory, deployment, game, client native sound-cache/voice/particle preparation or real performance test ran. The final receipt hashes every compiler-discovered input, original window, resource, compiler and toolchain configuration before/after; no source snapshot is made.
 
 Integration boundaries: the existing native PistolMelee sound consumer still uses original non-namespaced paths until its separately owned samples interface is connected. The unchanged original V-model has seven Studio5004 events using magout/magplace/magin/slide original weapons/p345 keys. Client audio plans must map those to their prepared weapons_new keys and namespaced host assets. ReHLDS sv_auto_precache_sounds_in_models defaults0; enabling its generic original-key scan is a separate closure concern. The helper does not claim these consumers are connected. The parent owns their exact mapping, other backend admission, publication and shared continuity.
+
+## Clip texture dependency before gate (2026-11-11)
+
+The actual matching ReHLDS PrecacheModelTexture consumer returns when textureindex is nonzero; otherwise it replaces the model's .mdl suffix with T.mdl and calls PF_precache_generic_I. The Windows branch performs no alternate lowercase lookup. Actual SDK studiohdr_t textureindex is offset184. The explicitly selected inherited clip has textureindex0, so the exact namespaced companion is models/guest/cof/common/w_9mmclipT.mdl. Its verified complete5096 bytes have SHA256 18ce87d7f1e23f69f479a99a2e5c49ee5ea95e2712ade3b4c6496fbc172bae3d. The original clip itself remains one of39 primary files; this is its one dependency, not a new model slot or gameplay effect. Source/full-function identities and actual model headers are frozen in the private p345-clip-texture-before-gate.json before this patch.
+
+The resource39 preflight previously omitted that companion. The follow-up adds its VFS existence and structural dependency gate before any engine precache. Host adaptation validates the complete IDST10 header, SDK texture/skin table spans and indexed pixel/palette spans consumed by ReHLDS l_studio.cpp. Production does not pin a SHA or5096-byte size, so structurally valid user texture updates remain admissible. The existing PrecacheModelSpecifiedFiles consumer automatically registers T.mdl; no competing generic call or output field is added. The extra complete file read happens only in cold preparation and never establishes client/render/backend admission.
+
+The companion-closure follow-up passed661 actual SDK checks with40 real VFS files and90 callback edges in build08. Every missing file rejects before body loads/precache, every successful-path callback can retire the generation, and malformed complete headers, table spans, skin references, dimensions, texture indices, pixel and palette payloads reject transactionally before precache. A changed payload with a different complete file size passes; no production SHA/size pin or new generic/index is present. Build06 retains a compile failure from using STUDIO_VERSION absent in the game SDK; using the verified v10 value fixed it. Build07 passed655 checks, then build08 added three independent payload-truncation cases. The final frozen documentation rerun is build09. These tests use controlled engine callbacks, not a live ReHLDS automatic download test or runtime/performance acceptance.
+
+## Glock map snapshot and common cold parser (2026-11-11)
+
+The private before-implementation gate is analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json, with the owner/lifecycle design in cold-resources-owner-design.md. The same copied x86 hl.dll identity applies. All86 saved Glock IDA chunks (9987 bytes) match the current PE. Original vtable101B0524+30 points to Precache10046CB0 (227 bytes), called by Spawn10047780 at1004779A;100478E0 is the separate suicide action and is not treated as Precache. Aim consumers10045F20/10045C40 call100DFF70; exact weapon_glock metadata is645 bytes, SHA2566feaf3751ef40181e87f69912af7b817b9a1b93c2143aa7281276f2007b424d8. Its forward/right/up/zoom values are0.05/-20/13.75/50.
+
+PrepareGlockResources(ResourceAuthority, GlockResources) returns eight model IDs,23 native sound IDs, seven local PCM download IDs, two events, five strings, two generic metadata/particle IDs and all43 sequence timings. There are42 primary files and one shared clip texture dependency. The unchanged1489976-byte original V-model has SHA25680cc917866e61fbb23337f6a990dc72f42277f2bd3d5a1d77201d1d57a406ffe. The full original police P-model is read from police/models/weapons/glock/p_glock.mdl; presence and engine IDs do not establish grip calibration. Both public functions now use one internal normal-VFS, strict metadata, sequence and texture preparation implementation. P345 retains its output type, inputs and90-callback operation order.
+
+Original Glock Primary10046E58/F55 calls virtual+190, whose verified target1011E4A0 selects weapons/weapon_fire_empty.wav when weapon+1B4 is nonzero and weapons/weapon_fire_empty_noclick.wav otherwise, then clears that field. The complete81-byte IDA capture matches current PE SHA25651e0036139e5dcbab727b54b5c4f79362d315c696de13fa3e32d683f35b2922f. Both resources are precached; this helper does not implement playback or its state changes. The original Glock rifle_insert resource is retained. Twelve Studio5004 events retain the original MDL options; the seven local keys are switch, magin, magout, magplace, rackback, slide and fire. No public original-key sound alias or edited MDL is introduced.
+
+The parameterized actual SDK suite preserves all prior P345661 checks and extends event/generic output and required-prefix/truncated-view coverage for both weapons. Build11 passed P345668/0 with40 files and90 callbacks, Glock716/0 with43 files and96 callbacks:1384 total, zero failures. Every missing resource rejects before body reads/precache; every successful-path callback supports cancellation, and every callback failure convention preserves the prior output. Checks include bitwise timing/aim values, native/local IDs, strict classname/field parsing, malformed full models,42-sequence Glock rejection, texture tables/payloads, changed valid texture contents/size and repeated normal cache IDs. Build10 passed1378 checks before adding explicit view truncation cases. The final documentation-frozen rerun is build12.
+
+The runner revalidates the33 P345 windows,86 Glock chunks and complete EmptyClick helper against the copied PE, checks original Glock direct Precache resources and metadata against the prior evidence, and hashes654 compiler-discovered/evidence/resource inputs before/after. Production has no SHA/size pin. Compilation uses the actual x86 ReGameDLL SDK and configured C++20 Clang O3/ThinLTO/AVX2 with precise floating point. No source copies or build trees are created.
+
+Only map/content cold work changes: fixed output storage and three complete VFS reads per weapon; no added draw/input/per-entity I/O or readiness flags. No CPU, allocation, I/O profile or real frame-time acceptance is claimed. Caller integration must configure the factory before UTIL_PrecacheOtherWeapon calls Precache without Spawn; use a long-lived map context, separately bind each owner model/life generation using GET_MODEL_PTR, and independently admit actual client native cache/PCM voices/particles and P-model grip. No live engine, registry, resource installer, deployment, gameplay, performance or full feature acceptance ran.

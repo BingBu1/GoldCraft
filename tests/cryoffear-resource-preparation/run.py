@@ -18,7 +18,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def verify_original(sample, proof_path):
+def verify_original(sample, proof_path, regions=None):
     data = sample.read_bytes()
     proof = json.loads(proof_path.read_text('utf-8'))
     if sha(sample) != SAMPLE_SHA or proof['sampleSha256'] != SAMPLE_SHA:
@@ -31,7 +31,10 @@ def verify_original(sample, proof_path):
         raise ValueError('Original base differs')
     sections = opt + struct.unpack_from('<H', data, nt+20)[0]
     rows = []
-    for row in proof['regions']:
+    for row in (regions if regions is not None else proof.get('regions', proof.get('glockRawChunks', []))):
+        row = dict(row)
+        if 'rva' not in row:
+            row['rva'] = int(row['va'], 16) - 0x10000000
         found = None
         for i in range(count):
             rva, size, raw = struct.unpack_from('<III', data, sections+40*i+12)
@@ -48,7 +51,7 @@ def verify_original(sample, proof_path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ('sample', 'original', 'clip', 'environment', 'output'):
+    for name in ('sample', 'original', 'clip', 'clip-texture', 'environment', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -59,12 +62,42 @@ def main():
         raise ValueError('Use a fresh workspace build directory')
     proof = ROOT/'analysis/cof-weapons-20261111/server-evidence/p345-byte-verification.json'
     rows = verify_original(args.sample, proof)
+    glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
+    glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
+    glock_rows = verify_original(args.sample, glock_proof)
+    raw = json.loads(glock_raw.read_text('utf-8'))
+    if len(glock_rows) != 86 or sum(r['size'] for r in glock_rows) != 9987:
+        raise ValueError('Incomplete Glock original gate')
+    if [hashlib.sha256(bytes.fromhex(c['data'])).hexdigest() for c in raw['chunks']] != [r['sha256'] for r in glock_rows]:
+        raise ValueError('Original Glock IDA capture differs')
+    gate = json.loads(glock_proof.read_text('utf-8'))
+    empty = dict(gate['authorizedNarrowImplementation']['emptyHelper'])
+    empty_bytes = ROOT/'analysis/cof-weapons-20261111'/empty['idaByteCapture']
+    empty_verification = ROOT/'analysis/cof-weapons-20261111'/empty['storedVerification']
+    captured = json.loads(empty_bytes.read_text('utf-8'))
+    checked = json.loads(empty_verification.read_text('utf-8'))
+    if (int(captured['addr'], 16) != int(empty['va'], 16) or
+        len(bytes.fromhex(captured['hex'])) != empty['size'] or
+        hashlib.sha256(bytes.fromhex(captured['hex'])).hexdigest() != empty['sha256'] or
+        checked['sha256'] != empty['sha256'] or not checked['equal']):
+        raise ValueError('Complete original EmptyClick IDA capture differs')
+    empty['idaEqualsPE'] = checked['equal']
+    empty_rows = verify_original(args.sample, glock_proof, [empty])
+    for argument in gate['glockPrecache']['literalArguments']:
+        if argument.get('missing'):
+            continue
+        path = args.original/('sound/' if argument['value'].endswith('.wav') else '')/argument['value']
+        if sha(path) != argument['sha256'] or path.stat().st_size != argument['bytes']:
+            raise ValueError('Glock original Precache resource identity differs')
+    glock_metadata = args.original/'inventoryitems/weapons/weapon_glock.txt'
+    if sha(glock_metadata) != '6feaf3751ef40181e87f69912af7b817b9a1b93c2143aa7281276f2007b424d8':
+        raise ValueError('Original Glock inventory metadata identity differs')
     metadata = args.original/'inventoryitems/weapons/weapon_p345.txt'
     if sha(metadata) != '376a05dad38387981be4a7f88a1a6444582f5781afd209df9a3d5a7ea18bb2fe':
         raise ValueError('Original inventory metadata identity differs')
     sources = [ROOT/'native/csol/server/weapons/guest_cof_resources.cpp',
                ROOT/'native/guest/cof/magazine_model.cpp', Path(__file__).with_name('main.cpp')]
-    header = ROOT/'native/csol/server/weapons/guest_cof_resources.hpp'
+    header = ROOT/'native/guest/cof/resource_catalog.hpp'
     pairs = re.findall(r'\{"([^"]+)", "([^"]+)"\}', header.read_text('utf-8'))
     resources = []
     for original, host in pairs:
@@ -73,12 +106,14 @@ def main():
         else:
             source = args.original/('sound/' if original.endswith('.wav') else '')/original
         resources.append(dict(original=original, host=host, path=str(source.resolve()), sha256=sha(source)))
-    for original in ('inventoryitems/weapons/weapon_p345.txt', 'aurora/gunsmoke.aur'):
+    for original in ('inventoryitems/weapons/weapon_p345.txt', 'inventoryitems/weapons/weapon_glock.txt', 'aurora/gunsmoke.aur'):
         path = args.original/original
         resources.append(dict(original=original, path=str(path.resolve()), sha256=sha(path)))
+    resources.append(dict(original='models/w_9mmclipT.mdl', host='models/guest/cof/common/w_9mmclipT.mdl',
+        path=str(args.clip_texture.resolve()), sha256=sha(args.clip_texture)))
     project = SDK/'msvc/ReGameDLL.vcxproj'
     inputs = set(sources) | {header, Path(__file__).resolve(), Path(__file__).with_name('README.md'),
-        args.sample.resolve(), proof, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
+        args.sample.resolve(), proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
     includes = re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>',
@@ -120,14 +155,15 @@ def main():
     (output/'compile.log').write_text(compile_run.stdout+compile_run.stderr, 'utf-8')
     test = None
     if not compile_run.returncode:
-        test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve())],
+        test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve()),
+                               str(args.clip_texture.resolve())],
                               cwd=output, capture_output=True, text=True, timeout=30)
         (output/'test.log').write_text(test.stdout+test.stderr, 'utf-8')
     after = {str(p): sha(p) for p in sorted(inputs)}
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')
