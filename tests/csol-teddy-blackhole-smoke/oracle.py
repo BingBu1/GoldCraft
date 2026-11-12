@@ -73,7 +73,7 @@ def main():
   if row['expected']!=actual:raise AssertionError('Update '+str(i)+' mismatch: '+json.dumps(dict(expected=row['expected'],actual=actual)))
  geometry_rows=[];geometry_expected=[];geometry_original=[]
  now=f32(first['born']+.5);_,chained=step(p,first,dict(now=now,previous=f32(now-.016),gravity=800.,fraction=1.,normal=[0,0,1]))
- for state,time in ((first,first['born']),(first,now),(first,first['die']),(chained,now)):
+ for state,time in ((first,first['born']),(first,now),(first,first['die']),(first,f32(first['die']+.125)),(chained,now)):
   apply(p,state);p.template=bytes(p.u.mem_read(p.shared.PARTICLE,0x1e0));draw=p.render(time)['draw'];commands=draw['commands'];geometry_original.append(draw)
   geometry_rows.append([*state['origin'],state['size'],state['alpha'],state['die'],time,0,-1,0,0,0,1])
   if not commands:geometry_expected.append([])

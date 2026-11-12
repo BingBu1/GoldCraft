@@ -1,5 +1,13 @@
 # Teddy Blackhole smoke component
 
+The runtime integration now uses
+`native/csol/client/scenario/core/particle_effects.cpp`; the suite described
+here still tests the independent pure helper. The new runtime's SDK and real
+CRT-boundary comparisons are documented in `tests/csol-teddy-sparks/README.md`.
+The Draw comparison now includes five original executions, adding a time after
+die. The original Draw skips equality, while manager expiry remains a separate
+nonzero-die `now >= die` predicate; these must not be merged.
+
 This suite checks the independent subtype88 smoke component. It does not install a message hook, acquire the global particle manager, bind an engine trace ABI or render into a live game.
 
 The original x86 client must have SHA-256 f4145136edbd229c219ea793bb3a6dcacea0b406ccc1e610138abbb8063bcbfd, image base0x01900000. The private matching IDA evidence is required and remains excluded from publication. Original DLLs are read as data in Unicorn; they are never loaded natively.

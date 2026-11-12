@@ -1,6 +1,54 @@
 # Teddy spawn spark original instruction oracle
 
-## Current callback integration
+## Shared spark and Blackhole runtime
+
+The production implementation now lives in
+`native/csol/client/scenario/core/particle_effects.cpp/.hpp`. Both the fixed
+TempEmit spark and MPToCL88 ring use this actual 128-record emitter owner and
+independent ordinary 1200-active / 10000-prepared particle owner. The earlier
+`scenario/bosses/teddy_sparks.cpp/.hpp` entrypoint has moved; the pure particle
+and decoder helpers retain their original paths.
+
+`build/teddy-blackhole-runtime-sdk-20261112-09/result.json` records 3,523 actual
+SDK checks, 12 original spark packets / 180 initialization fields and 56
+unchanged include dependencies. Coverage adds shared contention, ring RNG on
+overflow, actual system CRT XMM0 ABI, mode4 alongside additive sparks, real SDK
+trace arguments/reflection/floor settling, stored object angles, trace/resource
+callback invalidation and lifetime equality. The SDK world still supplies
+controlled collision results; it is not gameplay evidence.
+
+The actual system `_libm_sse2_cos_precise` and `_libm_sse2_sin_precise` exports
+are loaded during cold initialization. The verifier gets the x86 module's file
+path through a real handle, avoiding WOW64 System32 redirection in its 64-bit
+Python reader. No original game DLL is loaded as executable code.
+
+`shared_oracle.py` executes original case88/readers/Add instructions with the
+real host CRT outputs, then compares the actual SDK receiver's ring records:
+5 packets, 180 records, 1,800 float32 fields. The CRT module and source inputs
+are hashed before/after. This proves the host register ABI and surrounding
+algorithm against that actual numeric boundary; it does not prove a different
+machine's CRT is byte-identical to the original game's installation.
+
+```bash
+.tools/hlam-venv/Scripts/python.exe -B -X utf8 tests/csol-teddy-sparks/shared_oracle.py \
+  --executable build/teddy-blackhole-runtime-sdk-20261112-09/client.exe \
+  --client analysis/csol-model-20261017/balrog-visual-20261104/client.dll \
+  --evidence analysis/teddy-blackhole-client-20261111 \
+  --output build/teddy-shared-ring-repro/result.json
+```
+
+The EXE also exposes `--smoke-ring-oracle`, `--math-values` and
+`--math-identity`. Math outputs are uint64 bit patterns: consumers must parse
+them as exact integers, not JavaScript `Number`. General TempEmit/PEmitter,
+other MPToCL88 resources, original VXL/mode53 camera providers, complete original frustum/disconnect lifecycle,
+enhanced renderer and auxiliary lists remain outside this checkpoint.
+
+The additional camera oracle compares 81 ordinary-gameplay/observer states against
+the complete original getter and uses three matched native camera globals;
+the ordinary-pool environment cache and live per-particle getter remain separate.
+The native game-data generator now emits the three required aliases.
+
+## Earlier spark callback checkpoint
 
 The current actual SDK TU uses the verified `TemporaryPool` and `OrdinaryPool`
 instead of the historical per-effect array scans. Emission runs through
@@ -46,7 +94,7 @@ Time and its Add global are explicit fixtures. Engine sprite lookup returns fixt
 
 ## Exercise the actual client TU
 
-`client.cpp` directly includes `native/csol/client/scenario/bosses/teddy_sparks.cpp`, its real `runtime.hpp`, production pure helpers and the matched MetaHook SDK. It defines SDK-compatible engine/API fixtures and a no-op `SynchronizeSession`; no replacement runtime or source copy is generated.
+`client.cpp` directly includes `native/csol/client/scenario/core/particle_effects.cpp`, its real `runtime.hpp`, production pure helpers and the matched MetaHook SDK. It defines SDK-compatible engine/API fixtures and a no-op `SynchronizeSession`; no replacement runtime or source copy is generated.
 
 ```bash
 .tools/hlam-venv/Scripts/python.exe -B -X utf8 tests/csol-teddy-sparks/run.py \

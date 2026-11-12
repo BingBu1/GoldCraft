@@ -49,7 +49,7 @@
 #include "scenario/core/scenario_upgrades.hpp"
 #include "scenario/core/scenario_abilities.hpp"
 #include "scenario/bosses/boss_health.hpp"
-#include "scenario/bosses/teddy_sparks.hpp"
+#include "scenario/core/particle_effects.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
 #include "scenario/core/scenario_respawn_ui.hpp"
 #include "scenario/core/playerclip.hpp"
@@ -308,7 +308,7 @@ static void ScenarioHudInfo()
     ScenarioRoundHudDiagnostics(report);
     ScenarioRespawnUiDiagnostics(report);
     FrozenSmokeDiagnostics(report);
-    TeddySparksDiagnostics(report);
+    ParticleEffectsDiagnostics(report);
     HudStyleDiagnostics(report);
     engine.Con_Printf("%s", report.str().c_str());
 }
@@ -349,7 +349,7 @@ static void Init()
     InitializeCharacterSkillEffects();
     InitializeScenarioSmoke();
     InitializeBalrog11Flame();
-    InitializeTeddySparks();
+    InitializeParticleEffects();
     InitializeRenderSettings();
     InitializeEliteVisuals();
     InitializeScenarioUpgrades();
@@ -395,7 +395,7 @@ static void HudShutdown()
     ResetFrozenDeath();
     ResetFrozenSmoke();
     ShutdownPlayerClips();
-    ResetTeddySparks();
+    ResetParticleEffects();
     ShutdownSpray();
     ShutdownBossHealth();
     ShutdownScenarioRoundHud();
@@ -445,7 +445,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
 }
 static int Redraw(float time, int intermission)
 {
-    TeddySparksHudTime(time);
+    CacheParticleHudTime(time);
     const int result = WeaponRedraw(time, intermission);
     DrawStatusIcons(time);
     DrawWallStatus(intermission);
@@ -463,8 +463,9 @@ static int UpdateClientData(client_data_s* data, float time)
 {
     // Keep the existing session/FOV wrapper. Original CSOL schedules emitter
     // Think through HUD_UpdateClientData; HUD_Frame does not own this step.
+    if(data)CacheParticleClientData(*data);
     const int result = GuestCofUpdateClientData(data, time);
-    if(ResourceReadsAllowed())TeddySparksUpdateClientData();
+    if(ResourceReadsAllowed())UpdateParticleEmitters();
     return result;
 }
 static void CalcRefdef(ref_params_t* params)
@@ -546,7 +547,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

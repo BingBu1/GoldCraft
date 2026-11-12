@@ -256,7 +256,7 @@ struct DrawData
 inline std::optional<DrawData> PrepareDraw(const Particle &particle, float now, const Vec3 &right,
                                            const Vec3 &up)
 {
-    if (now >= particle.die)
+    if (now == particle.die)
         return {};
     return DrawData{Corners(particle, right, up),
                     {150.f / 255.f, 150.f / 255.f, 150.f / 255.f, particle.alpha / 255.f},

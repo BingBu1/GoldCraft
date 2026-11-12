@@ -60,6 +60,26 @@ def main():
         raise ValueError(f"RVA {rva:#x} not in a file-backed section")
 
     records = []
+    # Particle camera host mapping. Original CSOL camera selection is separate
+    # from its ordinary-pool time cache. These globals are the matched native
+    # client's actual observer and two independently updated view-angle vectors.
+    # IDA: HUD_ProcessPlayerState100489A0; normal-view slice1006BBFA..1006BC48.
+    particle_fields = (
+        ("Observer", 0x110E10, 0x48B12, bytes.fromhex("a3 10 0e 11 10")),
+        ("RenderAngles", 0x134AF8, 0x6BC09, bytes.fromhex("f3 0f 11 05 f8 4a 13 10")),
+        ("ChaseAngles", 0x134AEC, 0x6BC30, bytes.fromhex("f3 0f 11 05 ec 4a 13 10")),
+    )
+    for name, rva, reference, expected in particle_fields:
+        if raw(reference, len(expected)) != expected:
+            raise ValueError("Matched particle camera reference changed: " + name)
+        records.append({"platform": "windows", "module": "client",
+                        "symbolName": "GoldCraftParticle_" + name, "kind": "global",
+                        "payload": {"gv_rva": hex(rva), "gv_va": hex(IMAGE_BASE + rva)}})
+    # The three observer values are a checked contiguous group, not a guessed
+    # entity-state offset shared with the incompatible CSOL client layout.
+    if raw(0x48B1D, 5) != bytes.fromhex("a3 14 0e 11 10") or \
+            raw(0x48B28, 5) != bytes.fromhex("a3 18 0e 11 10"):
+        raise ValueError("Matched particle observer group changed")
     for name, slot, rva, size in FUNCTIONS:
         target = struct.unpack("<I", raw(VTABLE_RVA + slot * 4, 4))[0]
         if target != IMAGE_BASE + rva:
