@@ -143,7 +143,7 @@ void Initialize()
     Check(plan.has_value()&&animations.Prepare(player,model,{1,1},Pistol::Glock,*plan,_stricmp,error));
     prepared={};prepared.sequences.present=(std::uint64_t{1}<<43)-1;
     prepared.sequences.duration.fill(1);
-    prepared.ballistics={77,31};prepared.melee={78,true,Recoil,nullptr};
+    prepared.ballistics={77,31};prepared.melee={78,true,Recoil,nullptr,OriginalPistolMeleeSamples};
     prepared.aimOffset={1,2,3};prepared.aimZoom=55;prepared.viewModelString=1;
     prepared.playerModelString=32;prepared.shellModel=31;prepared.worldModelString=64;prepared.inventoryItemString=96;prepared.hostSlot=1;prepared.hostPosition=0;
     prepared.modelsReady=prepared.soundsReady=prepared.particleReady=prepared.aimMetadataReady=true;
@@ -182,6 +182,7 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
 {
     Check(&owner==&player&&r.world==MeleeWorld::Multiplayer&&r.damage==frame.meleeDamage);
+    Check(ValidPistolMeleeSamples(fx.samples));
     return fx.recoil&&fx.soundsReady&&call.current&&call.current(call.context)?MeleeStatus::Ready:MeleeStatus::MissingEffects;
 }
 MeleeStatus PistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
@@ -360,20 +361,64 @@ int main(int argc,char** argv)
             !std::strcmp(info.pszName,"weapon_cof_glock")&&!std::strcmp(info.pszAmmo1,"cof_glock"));
         Check(!ownerless.ResourcesReady()&&!ownerless.GetItemInfo(nullptr));
     }
-    for(int mutation=0;mutation<10;++mutation)
+    // Melee samples are mandatory at the reachable melee operation, while
+    // an ownerless world item and ordinary deployment do not consume them.
+    for(int mutation=0;mutation<17;++mutation)
+    {
+        Initialize();auto p=prepared;
+        if(mutation==16)p.melee.samples={};
+        else p.melee.samples[mutation%8]=mutation<8?nullptr:"";
+        Check(p.melee.soundsReady&&!ValidPistolMeleeSamples(p.melee.samples));
+        Check(weapon.Bind(player,p,backends)==GlockStatus::Ready&&weapon.Deploy());
+        globals.time=10;events.clear();weapon.SecondaryAttack();
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&
+            weapon.m_pfnThink==nullptr&&weapon.m_iClip==15);
+    }
+    for(int mutation=0;mutation<6;++mutation)
     {
         Initialize();weapon.m_pEntity=&itemWrapper;
         weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
         g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};
         g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
         switch(mutation){case 0:prepared.worldModelString=0;break;case 1:prepared.inventoryItemString=0;break;
-        case 2:prepared.inventoryReady=false;break;case 3:prepared.pickupSoundReady=false;break;
-        case 4:prepared.deployPreludeReady=false;break;case 5:prepared.hostSlot=0;break;
-        case 6:prepared.hostPosition=2;break;case 7:prepared.sequences.present=0;break;
-        case 8:prepared.modelsReady=false;break;case 9:prepared.particleReady=false;break;}
+        case 2:prepared.inventoryReady=false;break;case 3:prepared.hostSlot=0;break;
+        case 4:prepared.hostPosition=2;break;case 5:prepared.modelsReady=false;break;}
         weapon.Spawn();Check(!weapon.ResourcesReady()&&weapon.m_pfnThink==nullptr&&weapon.m_pfnTouch==nullptr&&weapon.m_pfnUse==nullptr);
         Check(weapon.AddToPlayer(&player)==FALSE);
     }
+    // Conditional operation resources never masquerade as ready: they admit
+    // the world item only and reject their actual operation before mutation.
+    for(int missing=0;missing<7;++missing)
+    {
+        Initialize();auto p=prepared;
+        switch(missing){case 0:p.particleReady=false;break;case 1:p.aimMetadataReady=false;break;
+        case 2:p.taclightSoundsReady=false;break;case 3:p.melee.recoil=nullptr;break;
+        case 4:p.deployPreludeReady=false;break;case 5:p.soundsReady=false;break;
+        case 6:p.sequences.present=0;break;}
+        Check(weapon.Prepare(p)==GlockStatus::Ready);
+        Check(weapon.Bind(player,p,backends)==GlockStatus::Ready);
+        if(missing==5)weapon.pev->armorvalue=1; // Original suppresses the sleeve sound.
+        events.clear();deployOrder.clear();deployRandom.clear();traceDeploy=true;
+        const bool deployed=weapon.Deploy()!=FALSE;traceDeploy=false;
+        if(missing==4||missing==6)
+        {Check(!deployed&&deployOrder.empty()&&deployRandom.empty());continue;}
+        Check(deployed);globals.time=10;events.clear();
+        if(missing==0||missing==5){frame.pressed=1;weapon.PrimaryAttack();}
+        else if(missing==1){frame.pressed=0x40;player.pev->button=0x40;weapon.ItemPostFrame();}
+        else if(missing==2)Check(weapon.RequestTaclightAttachment()==GlockStatus::MissingBackend);
+        else weapon.SecondaryAttack();
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==15&&
+            !weapon.ActionState().aiming&&weapon.m_pfnThink==nullptr);
+    }
+    Initialize();weapon.m_pEntity=&itemWrapper;
+    prepared.particleReady=prepared.aimMetadataReady=prepared.taclightSoundsReady=false;
+    prepared.melee={};prepared.ballistics={};prepared.sequences.present=0;
+    weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+    g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};
+    g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
+    weapon.Spawn();Check(weapon.ResourcesReady()&&weapon.m_pfnThink!=nullptr&&weapon.m_pfnUse!=nullptr);
+    // This world-ready item still has no view sequences or combat backend.
+    Check(weapon.AddToPlayer(&player));events.clear();Check(!weapon.Deploy()&&events.empty());
     for(auto prepare:{MissingColdPrepare,CancelColdPrepare})
     {
         Initialize();weapon.m_pEntity=&itemWrapper;
@@ -450,17 +495,118 @@ int main(int argc,char** argv)
     globals.time=10.4f;weapon.Reload();Check(weapon.ActionState().pendingReload&&weapon.m_iClip==15);
     globals.time=11;frame.pressed=0;player.pev->button=0;weapon.ItemPostFrame();Check(!weapon.ActionState().aiming&&weapon.ActionState().pendingReload);
     globals.time=12;weapon.ItemPostFrame();Check(!weapon.ActionState().pendingReload&&weapon.m_iClip==15&&!weapon.m_fInReload);
-    for(int kind=0;kind<static_cast<int>(GlockEffect::Count);++kind)
+    const auto bit=[](GlockEffect effect){return 1u<<unsigned(effect);};
+    const auto effects=[](std::initializer_list<GlockEffect> values)
+    {std::uint32_t mask{};for(auto value:values)mask|=1u<<unsigned(value);return mask;};
+    // Each loaded shot capability rejects before smoke, ammunition, player
+    // animation, spread, damage or RNG. Unrelated attachment capabilities do
+    // not block this original branch.
+    for(auto missing:{GlockEffect::Gunsmoke,GlockEffect::FireEvent,GlockEffect::Recoil,
+        GlockEffect::Shake,GlockEffect::ShotState,GlockEffect::FireSound,GlockEffect::ShotLatch})
     {
-        Initialize();auto bad=backends;bad.preparedEffects&=~(1u<<kind);
-        Check(weapon.Bind(player,prepared,bad)==GlockStatus::MissingBackend);events.clear();weapon.PrimaryAttack();Check(events.empty()&&weapon.m_iClip==15);
+        Initialize();auto b=backends;b.preparedEffects&=~bit(missing);
+        Check(weapon.Bind(player,prepared,b)==GlockStatus::Ready&&weapon.Deploy());
+        globals.time=10;frame.pressed=1;events.clear();const auto spread=weapon.Spread();
+        const auto action=weapon.ActionState();weapon.PrimaryAttack();
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==15&&
+            Bits(weapon.Spread().scalar)==Bits(spread.scalar)&&Bits(weapon.ActionState().primary)==Bits(action.primary));
+        // ItemPostFrame must not emit its earlier InventoryChanged first.
+        player.pev->button=1;weapon.ItemPostFrame();
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==15);
     }
-    for(int missing=0;missing<9;++missing)
+    const auto ordinary=GlockRequiredEffects&~effects({GlockEffect::Body,GlockEffect::LightState,
+        GlockEffect::Tutorial,GlockEffect::AttachmentSound});
+    Initialize();auto ordinaryBackend=backends;ordinaryBackend.preparedEffects=ordinary;
+    auto ordinaryPrepared=prepared;ordinaryPrepared.taclightSoundsReady=false;
+    Check(weapon.Bind(player,ordinaryPrepared,ordinaryBackend)==GlockStatus::Ready&&weapon.Deploy());
+    globals.time=10;frame.pressed=1;events.clear();weapon.PrimaryAttack();
+    Check(weapon.Status()==GlockStatus::Applied&&weapon.m_iClip==14&&!events.empty());
+    globals.time=11;frame.pressed=0;events.clear();weapon.WeaponIdle();Check(weapon.Status()==GlockStatus::Applied);
+    Check(weapon.RequestTaclightAttachment()==GlockStatus::MissingBackend&&!weapon.TaclightInstalled());
+    // Conditional deployment capabilities are admitted before selected/body,
+    // sentinel normalization, first-draw state, event delivery or sleeve RNG.
+    for(auto missing:{GlockEffect::DeployPrelude,GlockEffect::DeployReset,GlockEffect::InventoryChanged,
+        GlockEffect::ReserveHud,GlockEffect::Sleeve,GlockEffect::ViewAnimation,GlockEffect::FirstDraw,GlockEffect::Body})
+    {
+        Initialize();auto b=backends;b.preparedEffects&=~bit(missing);
+        Check(weapon.Bind(player,prepared,b)==GlockStatus::Ready);
+        if(missing==GlockEffect::ReserveHud)player.m_rgAmmo[1]=39;
+        if(missing==GlockEffect::FirstDraw)frame.firstDrawn=false;
+        if(missing==GlockEffect::Body)weapon.pev->body=1;
+        events.clear();deployOrder.clear();deployRandom.clear();traceDeploy=true;
+        Check(!weapon.Deploy());traceDeploy=false;
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&deployOrder.empty()&&deployRandom.empty()&&
+            weapon.m_iClip==15&&weapon.pev->body==(missing==GlockEffect::Body?1:0));
+    }
+    // Same firstDraw/reserve/sleeve capabilities are unnecessary when their
+    // exact original branches are absent; no forced-success Emit is inserted.
+    Initialize();auto conditional=backends;
+    conditional.preparedEffects&=~effects({GlockEffect::FirstDraw,GlockEffect::ReserveHud,GlockEffect::Sleeve});
+    Check(weapon.Bind(player,prepared,conditional)==GlockStatus::Ready);weapon.pev->armorvalue=1;
+    Check(weapon.Deploy()&&weapon.pev->armorvalue==0);
+    // Reload, delayed melee and idle reject missing operation resources before
+    // any clip/loading/player-think changes, even though Bind/Deploy succeed.
+    for(int operation=0;operation<4;++operation)
+    {
+        Initialize();auto p=prepared;
+        const int sequence=operation==0?5:operation==1?4:operation==2?27:0;
+        p.sequences.present&=~(std::uint64_t{1}<<sequence);
+        Check(weapon.Bind(player,p,backends)==GlockStatus::Ready&&weapon.Deploy());globals.time=10;
+        weapon.m_iClip=operation==0?0:4;events.clear();const int clip=weapon.m_iClip;
+        const auto action=weapon.ActionState();
+        if(operation<2)weapon.Reload();else if(operation==2)weapon.SecondaryAttack();else weapon.WeaponIdle();
+        Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==clip&&
+            !weapon.m_fInReload&&weapon.m_pfnThink==nullptr&&Bits(weapon.ActionState().primary)==Bits(action.primary));
+    }
+    // Every requested attachment dependency is checked before setting pending,
+    // so failed requests cannot silently start later through ItemPostFrame.
+    for(auto missing:{GlockEffect::AttachmentSound,GlockEffect::Body,GlockEffect::Tutorial})
+    {
+        Initialize();auto b=backends;b.preparedEffects&=~bit(missing);
+        Check(weapon.Bind(player,prepared,b)==GlockStatus::Ready&&weapon.Deploy());globals.time=10;events.clear();
+        Check(weapon.RequestTaclightAttachment()==GlockStatus::MissingBackend&&events.empty());
+        weapon.ItemPostFrame();Check(!weapon.TaclightInstalled()&&weapon.m_pfnThink==nullptr&&events.empty());
+    }
+    // The first-draw consumer remains required for an actual first draw; the
+    // host advertises its proven MP early-return implementation independently
+    // of the tactical Tutorial capability.
+    Initialize();auto firstDraw=backends;firstDraw.preparedEffects&=~bit(GlockEffect::Tutorial);
+    frame.firstDrawn=false;Check(weapon.Bind(player,prepared,firstDraw)==GlockStatus::Ready&&weapon.Deploy());
+    Check(frame.firstDrawn);
+    // Duplicate ammunition cannot deduct the item/default ammo or fill clip
+    // before discovering an absent pickup sound consumer.
+    for(bool missingResource:{false,true})
     {
         Initialize();auto p=prepared;auto b=backends;
-        switch(missing){case 0:p.modelsReady=false;break;case 1:p.soundsReady=false;break;case 2:p.particleReady=false;break;
-        case 3:p.aimMetadataReady=false;break;case 4:p.melee.recoil=nullptr;break;case 5:b.playerAnimation=nullptr;break;
-        case 6:b.ownerFrame=nullptr;break;case 7:b.effect=nullptr;break;case 8:p.world=MeleeWorld::UnsupportedSingleplayer;break;}
+        if(missingResource)p.pickupSoundReady=false;else b.preparedEffects&=~bit(GlockEffect::AmmoPickupSound);
+        Check(weapon.Bind(player,p,b)==GlockStatus::Ready&&weapon.Deploy());
+        player.m_rgpPlayerItems[PISTOL_SLOT]=&weapon;weapon.m_pNext=nullptr;
+        weapon.m_iClip=0;weapon.m_iDefaultAmmo=15;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+        Check(weapon.Bind(player,p,b)==GlockStatus::Ready);events.clear();const int reserve=player.m_rgAmmo[1];
+        Check(!weapon.ExtractAmmo(&weapon)&&events.empty()&&weapon.m_iClip==0&&weapon.m_iDefaultAmmo==15&&
+            player.m_rgAmmo[1]==reserve&&weapon.Status()==GlockStatus::MissingBackend);
+    }
+    // Optional animation adapter is admitted only by actual animated actions.
+    Initialize();auto noAnimation=backends;noAnimation.playerAnimation=nullptr;
+    Check(weapon.Bind(player,prepared,noAnimation)==GlockStatus::Ready&&weapon.Deploy());
+    globals.time=10;frame.pressed=1;events.clear();weapon.PrimaryAttack();
+    Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==15);
+    weapon.SecondaryAttack();Check(events.empty()&&weapon.m_pfnThink==nullptr);
+    weapon.m_iClip=4;weapon.Reload();Check(events.empty()&&weapon.m_iClip==4&&!weapon.m_fInReload);
+    // Dry attempts need no loaded-shot effects, but their click branch must be
+    // ready before the preceding view animation. The strict deadline remains.
+    Initialize();auto dry=backends;dry.preparedEffects=bit(GlockEffect::ViewAnimation)|bit(GlockEffect::DeployPrelude)|
+        bit(GlockEffect::DeployReset)|bit(GlockEffect::InventoryChanged)|bit(GlockEffect::Sleeve);
+    Check(weapon.Bind(player,prepared,dry)==GlockStatus::Ready&&weapon.Deploy());
+    globals.time=10;frame.pressed=1;weapon.m_iClip=0;weapon.m_fFireOnEmpty=1;events.clear();weapon.PrimaryAttack();
+    Check(weapon.Status()==GlockStatus::MissingBackend&&events.empty()&&weapon.m_iClip==0);
+    // Binding still rejects absent fundamental identity/lifetime interfaces.
+    for(int missing=0;missing<5;++missing)
+    {
+        Initialize();auto p=prepared;auto b=backends;
+        switch(missing){case 0:p.modelsReady=false;break;case 1:b.ownerFrame=nullptr;break;
+        case 2:b.effect=nullptr;break;case 3:b.current=nullptr;break;case 4:p.world=MeleeWorld::UnsupportedSingleplayer;break;}
         Check(weapon.Bind(player,p,b)==GlockStatus::MissingBackend);events.clear();weapon.PrimaryAttack();Check(events.empty()&&weapon.m_iClip==15);
     }
     Initialize();globals.time=10;frame.pressed=1;frame.sourceMode=PistolSource::UnsupportedOriginalOverride;

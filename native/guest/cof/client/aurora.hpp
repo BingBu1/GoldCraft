@@ -30,19 +30,29 @@ struct AuroraParticle
 struct AuroraSystem
 {
     bool used{},kill{};
-    int next{-1},owner{},state{},attachment{},head{-1},free{},main{-1};
+    int owner{},state{},attachment{},head{-1},free{},main{-1};
     float deadline{},fadeStart{},fadeDuration{};
     std::array<char,128> model{};
     std::array<AuroraParticle,20> particles{};
+private:
+    friend class Aurora;
+    AuroraSystem* next_{};
 };
-// Isolated first-four-pistol local gunsmoke. Single owner thread, no hot allocation.
+// Isolated first-four-pistol local gunsmoke. Single owner thread.
+// Full retained nodes use stable 64-system slabs: cold initial allocation, rare Add
+// growth, no Frame allocation. Empty systems retain their original logical life.
 // The human authorized initializing proven raw Type controls and initial poolpos0;
 // all other supported original defaults/order and reused slot positions persist.
 class Aurora
 {
 public:
-    static constexpr unsigned MaxSystems=64;
+    static constexpr unsigned SystemsPerSlab=64;
     explicit Aurora(cl_enginefuncs_s* engine) noexcept : engine_(engine) {}
+    ~Aurora() noexcept;
+    Aurora(const Aurora&)=delete;
+    Aurora& operator=(const Aurora&)=delete;
+    Aurora(Aurora&&)=delete;
+    Aurora& operator=(Aurora&&)=delete;
     AuroraResult Prepare(std::string_view script) noexcept;
     AuroraResult Add(int owner,std::string_view script,int local,
                      std::string_view model,int attachment,float particleLimit) noexcept;
@@ -52,20 +62,24 @@ public:
     void VideoInit() noexcept; // Original HUD_VidInit clears systems; resource must be prepared again.
     AuroraResult Frame(float elapsed,int mode,const std::array<float,3>& right,
                        const std::array<float,3>& up) noexcept;
-    const AuroraSystem* First() const noexcept { return head_<0?nullptr:&systems_[head_]; }
-    const AuroraSystem* Next(const AuroraSystem& s) const noexcept {return s.next<0?nullptr:&systems_[s.next];}
+    const AuroraSystem* First() const noexcept { return head_; }
+    const AuroraSystem* Next(const AuroraSystem& s) const noexcept {return s.next_;}
     const std::array<AuroraType,2>& Types() const noexcept {return types_;}
 private:
+    struct Slab;
+    bool Grow() noexcept;
+    void Release(AuroraSystem&) noexcept;
     float Random(const AuroraType&,AuroraField) noexcept;
     int Create(AuroraSystem&,int type) noexcept;
     void Drain(AuroraSystem&) noexcept;
     bool Update(AuroraSystem&,AuroraParticle&,float) noexcept;
     cl_enginefuncs_s* engine_{};
     std::array<AuroraType,2> types_{};
-    std::array<AuroraSystem,MaxSystems> systems_{};
+    Slab* slabs_{};
+    AuroraSystem* free_{};
     AuroraDegreeTable table_{};
     const model_s* sprite_{};
     bool prepared_{};
-    int head_{-1};
+    AuroraSystem* head_{};
 };
 }

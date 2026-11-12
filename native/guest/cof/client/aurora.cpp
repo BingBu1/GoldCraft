@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #pragma clang fp contract(off)
 namespace guest::cof::client
 {
@@ -65,9 +66,30 @@ template<std::size_t N> bool Copy(std::array<char,N>& out,std::string_view text)
 float Delta(float end,float start,float inverse) noexcept
 {return static_cast<float>((static_cast<double>(end)-static_cast<double>(start))*static_cast<double>(inverse));}
 }
+struct Aurora::Slab
+{
+    Slab* next{};
+    std::array<AuroraSystem,SystemsPerSlab> systems{};
+};
+Aurora::~Aurora() noexcept
+{
+    while(slabs_){auto* next=slabs_->next;delete slabs_;slabs_=next;}
+}
+bool Aurora::Grow() noexcept
+{
+    auto* slab=new(std::nothrow) Slab;
+    if(!slab)return false;
+    slab->next=slabs_;slabs_=slab;
+    for(unsigned i=0;i<SystemsPerSlab;++i)
+        slab->systems[i].next_=i+1<SystemsPerSlab?&slab->systems[i+1]:free_;
+    free_=&slab->systems[0];
+    return true;
+}
+void Aurora::Release(AuroraSystem& s) noexcept
+{s.used=false;s.next_=free_;free_=&s;}
 AuroraResult Aurora::Prepare(std::string_view script) noexcept
 {
-    if(head_>=0)return AuroraResult::InvalidInput;
+    if(head_)return AuroraResult::InvalidInput;
     if(!engine_ || !engine_->pfnSPR_Load || !engine_->GetSpritePointer || !engine_->pfnRandomFloat ||
        !engine_->GetClientTime || !engine_->GetViewModel || !engine_->GetEntityByIndex ||
        !engine_->GetLocalPlayer || !engine_->pTriAPI)return AuroraResult::MissingBackend;
@@ -134,6 +156,7 @@ AuroraResult Aurora::Prepare(std::string_view script) noexcept
     const int handle=engine_->pfnSPR_Load("sprites/fog2.spr");
     auto* sprite=handle?engine_->GetSpritePointer(handle):nullptr;
     if(!sprite || sprite->numframes<=0)return AuroraResult::ResourceFailed;
+    if(!slabs_ && !Grow())return AuroraResult::CapacityExceeded;
     types_=types;sprite_=sprite;PrepareAuroraDegreeTable(table_);prepared_=true;
     return AuroraResult::Applied;
 }
@@ -145,13 +168,13 @@ AuroraResult Aurora::Add(int owner,std::string_view script,int local,std::string
     if(owner<0 || !std::isfinite(particleLimit) || model.empty() || model.size()>=128 ||
        model.find(char(0))!=model.npos)return AuroraResult::InvalidInput;
     unsigned limited=0;
-    for(int i=head_;i>=0;i=systems_[i].next)
-    {const auto& s=systems_[i];if(s.main>=0){const auto& p=s.particles[s.main];if(p.life>=0 && p.life>p.age)++limited;}}
-    auto found=std::find_if(systems_.begin(),systems_.end(),[](const auto& s){return !s.used;});
-    if(found==systems_.end())return AuroraResult::CapacityExceeded;
+    for(const auto* s=head_;s;s=s->next_)
+    {if(s->main>=0){const auto& p=s->particles[s->main];if(p.life>=0 && p.life>p.age)++limited;}}
+    if(!free_ && !Grow())return AuroraResult::CapacityExceeded;
+    auto* found=free_;free_=found->next_;
     *found={};found->used=true;found->owner=owner;found->attachment=attachment;
     Copy(found->model,model);found->state=static_cast<float>(limited)>particleLimit?2:0;
-    found->next=head_;head_=static_cast<int>(found-systems_.begin());
+    found->next_=head_;head_=found;
     for(int i=0;i<20;++i)found->particles[i].next=i==19?-1:i+1;
     return AuroraResult::Applied;
 }
@@ -248,19 +271,27 @@ bool Aurora::Update(AuroraSystem& s,AuroraParticle& p,float dt) noexcept
 }
 bool Aurora::DeleteOwner(int owner) noexcept
 {
-    int previous=-1;
-    for(int i=head_;i>=0;i=systems_[i].next)
-    {auto& s=systems_[i];if(s.owner==owner){if(previous<0)head_=s.next;else systems_[previous].next=s.next;
-        s.used=false;return true;}previous=i;}
+    AuroraSystem* previous=nullptr;
+    for(auto* s=head_;s;s=s->next_)
+    {if(s->owner==owner){if(!previous)head_=s->next_;else previous->next_=s->next_;
+        Release(*s);return true;}previous=s;}
     return false;
 }
 void Aurora::KillLocal(bool immediate) noexcept
 {
-    for(int i=head_;i>=0;i=systems_[i].next)
-    {auto& s=systems_[i];if(s.main<0)continue;if(immediate)s.state=2;else if(s.state!=1)s.kill=true;}
+    for(auto* s=head_;s;s=s->next_)
+    {if(s->main<0)continue;if(immediate)s->state=2;else if(s->state!=1)s->kill=true;}
 }
 void Aurora::Clear() noexcept
-{for(auto& s:systems_)s.used=false;head_=-1;}
+{
+    head_=nullptr;free_=nullptr;
+    // Keep one slab for a prepared manager; map/video cleanup retires overflow.
+    while(slabs_ && slabs_->next){auto* next=slabs_->next;delete slabs_;slabs_=next;}
+    if(slabs_)for(unsigned i=0;i<SystemsPerSlab;++i)
+    {auto& s=slabs_->systems[i];s.used=false;
+     s.next_=i+1<SystemsPerSlab?&slabs_->systems[i+1]:nullptr;}
+    if(slabs_)free_=&slabs_->systems[0];
+}
 void Aurora::VideoInit() noexcept
 {Clear();prepared_=false;sprite_=nullptr;}
 AuroraResult Aurora::Frame(float elapsed,int mode,const std::array<float,3>& right,
@@ -272,18 +303,19 @@ AuroraResult Aurora::Frame(float elapsed,int mode,const std::array<float,3>& rig
     struct RestoreMode { triangleapi_s* api; ~RestoreMode(){FinishAuroraFrame(api);} };
     const RestoreMode restore{engine_->pTriAPI};
     const auto* local=engine_->GetLocalPlayer();if(!local)return AuroraResult::MissingBackend;
-    int previous=-1;bool renderFailed=false;
-    for(int i=head_;i>=0;)
+    AuroraSystem* previous=nullptr;bool renderFailed=false;
+    for(auto* i=head_;i;)
     {
-        auto& s=systems_[i];const int next=s.next;
+        auto& s=*i;auto* next=s.next_;
         const auto* owner=engine_->GetEntityByIndex(s.owner);
         if(!owner)return AuroraResult::InvalidInput;
         if(owner->curstate.skin==666)return AuroraResult::Unsupported;
-        if(mode!=0 || owner->curstate.body==70 || owner->curstate.body==184 || owner->curstate.body==137)
+        if(mode!=0 || owner->curstate.renderfx==70 || owner->curstate.renderfx==184 || owner->curstate.renderfx==137)
         {previous=i;i=next;continue;}
-        if(s.state==2)
-        {if(previous<0)head_=next;else systems_[previous].next=next;s.used=false;i=next;continue;}
+        // Original UpdateSystem resolves the local entity before state2 retirement.
         const auto* view=engine_->GetViewModel();
+        if(s.state==2)
+        {if(!previous)head_=next;else previous->next_=next;Release(s);i=next;continue;}
         if(view)
         {
             if(s.main<0){s.main=Create(s,0);if(s.main>=0)s.particles[s.main].owner=s.owner;}

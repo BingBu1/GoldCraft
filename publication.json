@@ -2110,7 +2110,23 @@
     "docs/2026-11-12_实现-共享普通粒子池与双时钟-report.md",
     "tests/csol-particle-runtime/README.md",
     "docs/2026-11-12_实现-共享临时发射器与次数时序-report.md",
-    "tests/csol-emitter-runtime/README.md"
+    "tests/csol-emitter-runtime/README.md",
+    "native/guest/cof/server/screen_shake.hpp",
+    "native/guest/cof/server/screen_shake.cpp",
+    "tests/cryoffear-screen-shake/main.cpp",
+    "tests/cryoffear-screen-shake/oracle.py",
+    "tests/cryoffear-screen-shake/run.py",
+    "tests/cryoffear-screen-shake/README.md",
+    "native/guest/cof/client/aurora.hpp",
+    "native/guest/cof/client/aurora.cpp",
+    "tests/cryoffear-aurora/main.cpp",
+    "tests/cryoffear-aurora/run.py",
+    "tests/cryoffear-aurora/retention.cpp",
+    "tests/cryoffear-aurora/retention_oracle.py",
+    "native/guest/cof/server/glock_weapon.hpp",
+    "native/guest/cof/server/glock_weapon.cpp",
+    "tests/cryoffear-glock-weapon/main.cpp",
+    "docs/2026-11-12_验证-CoF震屏枪烟与操作准入-report.md"
   ],
   "trees": {
     "native": [

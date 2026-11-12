@@ -21,6 +21,10 @@ bool Finite(const Vector& v) noexcept
 }
 float AddDouble(float now, double delay) noexcept { return static_cast<float>(double(now) + delay); }
 constexpr unsigned OriginalId = 3;
+constexpr std::uint32_t EffectBit(GlockEffect effect) noexcept
+{ return 1u << static_cast<unsigned>(effect); }
+template<class... T> constexpr std::uint32_t Effects(T... effects) noexcept
+{ return (EffectBit(effects) | ...); }
 }
 
 bool GlockWeapon::Current(void* context) noexcept
@@ -58,21 +62,18 @@ GlockStatus GlockWeapon::Prepare(const GlockPrepared& p) noexcept
 {
     preparedReady_ = false;
     status_ = GlockStatus::MissingBackend;
-    if (!p.modelsReady || !p.soundsReady || !p.particleReady || !p.aimMetadataReady ||
-        !p.inventoryReady || !p.pickupSoundReady || !p.deployPreludeReady || !p.taclightSoundsReady ||
-        p.world != MeleeWorld::Multiplayer || !p.worldModelString || !p.inventoryItemString ||
-        !p.viewModelString || !p.playerModelString || p.shellModel <= 0 ||
-        !p.melee.recoil || !p.melee.soundsReady || p.melee.shakeMessage <= 0 ||
-        p.ballistics.customDecalMessage <= 0 || p.ballistics.bubbleModel <= 0 ||
-        !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnSetModel ||
-        !g_engfuncs.pfnIndexOfEdict)
+    // World/inventory identity is unconditional. Combat, aim and attachment
+    // resources are admitted by the operation that actually consumes them.
+    if (!p.modelsReady || !p.inventoryReady || p.world != MeleeWorld::Multiplayer ||
+        !p.worldModelString || !p.inventoryItemString || !p.viewModelString || !p.playerModelString ||
+        !g_engfuncs.pfnSetModel)
         return status_;
-    if (!Finite(p.aimOffset) || p.aimZoom < 0 || p.aimZoom > 255 ||
+    if ((p.aimMetadataReady && (!Finite(p.aimOffset) || p.aimZoom < 0 || p.aimZoom > 255)) ||
         p.hostSlot != GlockHudSlot || p.hostPosition != GlockHudPosition)
         return status_ = GlockStatus::InvalidInput;
     for (int i = 0; i <= 42; ++i)
-        if (!(p.sequences.present & (std::uint64_t{1} << i)) ||
-            !std::isfinite(p.sequences.duration[i]) || p.sequences.duration[i] < 0)
+        if ((p.sequences.present & (std::uint64_t{1} << i)) &&
+            (!std::isfinite(p.sequences.duration[i]) || p.sequences.duration[i] < 0))
             return status_ = GlockStatus::InvalidInput;
     prepared_ = p;
     m_iShellId = p.shellModel;
@@ -97,17 +98,12 @@ GlockStatus GlockWeapon::Bind(CBasePlayer& owner, const GlockPrepared& p,
 {
     bound_ = selected_ = meleePending_ = false;
     status_ = GlockStatus::MissingBackend;
-    if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
-        backends.preparedEffects != GlockRequiredEffects || !backends.playerAnimation)
+    if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect)
         return status_;
     if (Prepare(p) != GlockStatus::Ready) return status_;
     if (m_iPrimaryAmmoType < 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
         return status_ = GlockStatus::InvalidInput;
     status_ = GlockStatus::MissingBackend;
-    for (unsigned i = 0; i < PlayerActionCount; ++i)
-        for (bool crouch : {false, true})
-            if (!backends.playerAnimation->Select(backends.playerModelGeneration, Pistol::Glock,
-                static_cast<PlayerAction>(i), crouch)) return status_;
     const Lease l{owner.edict(), edict(), &owner, this, owner.edict()->serialnumber,
         edict()->serialnumber, owner.pev->modelindex, backends.context, backends.current};
     if (!Current(const_cast<Lease*>(&l))) return status_ = GlockStatus::Cancelled;
@@ -241,6 +237,21 @@ void GlockWeapon::WorldTouch(CBaseEntity* other)
     if (!current() || !g_pGameRules) return;
     const bool canHave = g_pGameRules->CanHavePlayerItem(player, this) != FALSE;
     if (!current() || !canHave) return;
+    GlockBackends pickupBackends{};
+    GlockOwnerFrame pickupFrame{};
+    if (!host.ownerBackends || !host.ownerBackends(host.context, *player, pickupBackends) || !current() ||
+        !pickupBackends.current || !pickupBackends.current(pickupBackends.context) || !current() ||
+        !pickupBackends.ownerFrame || !pickupBackends.effect ||
+        !pickupBackends.ownerFrame(pickupBackends.context, pickupFrame) || !current() ||
+        !pickupBackends.current(pickupBackends.context))
+    { status_ = GlockStatus::MissingBackend; return; }
+    const bool alreadyOwned = player->HasPlayerItem(this);
+    if (!current()) return;
+    if ((!alreadyOwned && (!(pickupBackends.preparedEffects & EffectBit(GlockEffect::PickupSound)) ||
+            (!pickupFrame.quietAudio && pev->armorvalue != 1 && !prepared_.pickupSoundReady))) ||
+        (alreadyOwned && pev->armorvalue != 1 && (!prepared_.pickupSoundReady ||
+            !(pickupBackends.preparedEffects & EffectBit(GlockEffect::AmmoPickupSound)))))
+    { status_ = GlockStatus::MissingBackend; return; }
     if (pev->iuser4 == 1) pev->iuser4 = 0;
     const bool inventory = host.inventoryPickup(host.context, *player, *this, prepared_.inventoryItemString);
     if (!current()) return;
@@ -275,6 +286,11 @@ int GlockWeapon::AddToPlayer(CBasePlayer* player)
     if (!Check(frame, false) || m_iDefaultAmmo < 0 ||
         reinterpret_cast<std::uintptr_t>(pev->aiment) == 0x44268000u) return FALSE;
     const auto ownerLease = lease_;
+    const bool alreadyOwned = player->HasPlayerItem(this);
+    if (!Current(const_cast<Lease*>(&ownerLease))) return FALSE;
+    if (alreadyOwned && pev->armorvalue != 1 &&
+        (!prepared_.pickupSoundReady || !RequireEffects(EffectBit(GlockEffect::AmmoPickupSound))))
+    { status_ = GlockStatus::MissingBackend; return FALSE; }
     const bool added = CBasePlayerWeapon::AddToPlayer(player) != FALSE;
     if (!Current(const_cast<Lease*>(&ownerLease))) return FALSE;
     if (!added || m_iPrimaryAmmoType <= 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
@@ -313,6 +329,11 @@ int GlockWeapon::ExtractAmmo(CBasePlayerWeapon* weapon)
     // Original aiment was also used for the exceptional666 owner branch.
     // The normal host follow attachment has a real aiment edict, so only its
     // raw original numeric sentinel is unsupported, never dereferenced here.
+    const bool alreadyOwned = owner.player->HasPlayerItem(target);
+    if (!current()) return FALSE;
+    if (alreadyOwned && target->pev->armorvalue != 1 &&
+        (!target->prepared_.pickupSoundReady || !target->RequireEffects(EffectBit(GlockEffect::AmmoPickupSound))))
+    { status_ = GlockStatus::MissingBackend; return FALSE; }
     int amount = m_iDefaultAmmo;
     if (target->m_iClip == 0)
     {
@@ -325,8 +346,6 @@ int GlockWeapon::ExtractAmmo(CBasePlayerWeapon* weapon)
     m_iDefaultAmmo = 0;
     if (ammo <= 0) return FALSE;
     target->m_iPrimaryAmmoType = ammo;
-    const bool alreadyOwned = owner.player->HasPlayerItem(target);
-    if (!current()) return FALSE;
     if (alreadyOwned && target->pev->armorvalue != 1)
         if (!target->Emit({GlockEffect::AmmoPickupSound})) return FALSE;
     return TRUE;
@@ -397,11 +416,92 @@ bool GlockWeapon::Check(GlockOwnerFrame& frame, bool active) noexcept
     return true;
 }
 
+bool GlockWeapon::RequireEffects(std::uint32_t effects) noexcept
+{
+    if ((backends_.preparedEffects & effects) == effects) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
+bool GlockWeapon::RequireSequence(int sequence) noexcept
+{
+    if (RequireEffects(EffectBit(GlockEffect::ViewAnimation)) && sequence >= 0 && sequence <= 42 &&
+        (prepared_.sequences.present & (std::uint64_t{1} << sequence))) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
+bool GlockWeapon::RequireAnimation(PlayerAction action) noexcept
+{
+    if (backends_.playerAnimation && backends_.playerAnimation->Select(backends_.playerModelGeneration,
+        Pistol::Glock, action, (m_pPlayer->pev->flags & FL_DUCKING) != 0)) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
+bool GlockWeapon::ReloadReady(bool resumePending) noexcept
+{
+    const float now = gpGlobals->time;
+    if (action_.reserve <= 0 || action_.primary > now || action_.action == 1 ||
+        action_.action > 2 || action_.special || (action_.pendingReload && !resumePending) || action_.aiming || action_.clip == 15)
+        return true;
+    return RequireSequence(action_.clip ? 4 : 5) && RequireAnimation(PlayerAction::Reload) &&
+        RequireEffects(EffectBit(GlockEffect::InventoryChanged));
+}
+bool GlockWeapon::MeleeReady(const GlockOwnerFrame& frame) noexcept
+{
+    const float now = gpGlobals->time;
+    if (action_.primary > now || action_.secondary > now || action_.action || action_.special || action_.aiming)
+        return true;
+    if (!RequireSequence(action_.clip ? 27 : 28) || !RequireAnimation(PlayerAction::WeaponMelee)) return false;
+    if (!prepared_.melee.soundsReady || !ValidPistolMeleeSamples(prepared_.melee.samples))
+    { status_ = GlockStatus::MissingBackend; return false; }
+    Lease l = lease_; l.active = true;
+    if (CheckPistolWeaponMelee(*m_pPlayer, {frame.meleeDamage, frame.quietAudio, MeleeWorld::Multiplayer},
+        prepared_.melee, {Current, &l}) == MeleeStatus::Ready) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
+bool GlockWeapon::PrimaryReady(const GlockOwnerFrame& frame, bool forceEmpty) noexcept
+{
+    const float now = gpGlobals->time;
+    if (action_.primary > now || !(frame.pressed & 1u) || action_.action) return true;
+    if (m_pPlayer->pev->waterlevel == 3 || action_.clip <= 0)
+    {
+        if (m_pPlayer->pev->waterlevel != 3 && !m_fFireOnEmpty && !forceEmpty) return ReloadReady();
+        if (!RequireSequence(action_.aiming ? 35 : 20)) return false;
+        if (now <= emptyDeadline_) return true;
+        if (prepared_.soundsReady && RequireEffects(EffectBit(GlockEffect::EmptyClick))) return true;
+        status_ = GlockStatus::MissingBackend;
+        return false;
+    }
+    if (!prepared_.particleReady || !prepared_.soundsReady || prepared_.shellModel <= 0 ||
+        !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnIndexOfEdict)
+    { status_ = GlockStatus::MissingBackend; return false; }
+    if (!RequireEffects(Effects(GlockEffect::Gunsmoke, GlockEffect::FireEvent, GlockEffect::Recoil,
+        GlockEffect::Shake, GlockEffect::ShotState, GlockEffect::FireSound, GlockEffect::ShotLatch)) ||
+        !RequireSequence(action_.aiming ? ((frame.infiniteAmmo || action_.clip > 1) ? 34 : 38) :
+            ((frame.infiniteAmmo || action_.clip > 1) ? 2 : 3)) ||
+        !RequireAnimation(PlayerAction::Fire) || !RequireAnimation(PlayerAction::Move)) return false;
+    const PistolBallistics shot{{}, {1,0,0}, {spread_.vector[0],spread_.vector[1],spread_.vector[2]},
+        {0,1,0}, {0,0,1}, frame.randomSeed, frame.bulletDamage, action_.aiming,
+        PistolPlayerHits::OriginalCooperativeSkipPlayers, frame.sourceMode};
+    Lease l = lease_; l.active = true;
+    if (CheckPistolBallistics(shot, prepared_.ballistics, {Current, &l}) == BallisticsStatus::Ready) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
+bool GlockWeapon::AttachmentReady() noexcept
+{
+    if (!prepared_.taclightSoundsReady ||
+        !RequireEffects(Effects(GlockEffect::AttachmentSound, GlockEffect::Body, GlockEffect::Tutorial)) ||
+        !RequireSequence(action_.clip ? 8 : 9) || !RequireSequence(action_.clip ? 6 : 7))
+    { status_ = GlockStatus::MissingBackend; return false; }
+    return true;
+}
+
 bool GlockWeapon::Emit(GlockEvent event) noexcept
 {
     Lease l = lease_; l.active = selected_;
     auto effect = backends_.effect;
-    if (!Current(&l)) return false;
+    if (!Current(&l) || !RequireEffects(EffectBit(event.kind))) return false;
     const bool delivered = effect(l.context, *l.player, *this, event);
     if (!Current(&l)) return false;
     if (!delivered) status_ = GlockStatus::MissingBackend;
@@ -410,13 +510,14 @@ bool GlockWeapon::Emit(GlockEvent event) noexcept
 bool GlockWeapon::Animate(PlayerAction action) noexcept
 {
     Lease l = lease_; l.active = selected_;
-    if (!Current(&l)) return false;
+    if (!Current(&l) || !RequireAnimation(action)) return false;
     const auto result = backends_.playerAnimation->Apply(*l.player,
         backends_.playerModelGeneration, Pistol::Glock, action, gpGlobals->time);
     return Current(const_cast<Lease*>(&l)) && result != PlayerAnimationResult::Rejected;
 }
 bool GlockWeapon::View(int sequence) noexcept
 {
+    if (!RequireSequence(sequence)) return false;
     GlockEvent event{GlockEffect::ViewAnimation}; event.value = sequence;
     return Emit(event);
 }
@@ -454,6 +555,15 @@ BOOL GlockWeapon::Deploy()
 {
     GlockOwnerFrame frame{};
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
+    std::uint32_t effects = Effects(GlockEffect::DeployPrelude, GlockEffect::DeployReset, GlockEffect::InventoryChanged);
+    if (!frame.firstDrawn) effects |= EffectBit(GlockEffect::FirstDraw);
+    if (reserveHud_ != action_.reserve) effects |= EffectBit(GlockEffect::ReserveHud);
+    if (pev->armorvalue != 1) effects |= EffectBit(GlockEffect::Sleeve);
+    if (taclightInstalled_ || pev->body != 0) effects |= EffectBit(GlockEffect::Body);
+    if (!prepared_.deployPreludeReady || (pev->armorvalue != 1 && !prepared_.soundsReady) ||
+        !g_engfuncs.pfnRandomLong ||
+        !RequireEffects(effects) || !RequireSequence(frame.firstDrawn ? (action_.clip ? 6 : 7) : 29))
+    { status_ = GlockStatus::MissingBackend; return FALSE; }
     selected_ = true;
     if (!UpdateBody(frame.lightOn)) return FALSE;
     if (action_.clip == -666) { action_.clip = 0; WriteAmmo(); }
@@ -475,7 +585,7 @@ BOOL GlockWeapon::Deploy()
     Lease sleeveLease = lease_; sleeveLease.active = true;
     const int pitch = g_engfuncs.pfnRandomLong(-5, 5) + 100;
     if (!Current(&sleeveLease)) return FALSE;
-    if (pev->armorvalue == 0)
+    if (pev->armorvalue != 1)
     {
         const int sleeve = g_engfuncs.pfnRandomLong(0, 2);
         if (!Current(&sleeveLease)) return FALSE;
@@ -503,6 +613,8 @@ void GlockWeapon::Holster(int)
 {
     GlockOwnerFrame frame{};
     if (!Check(frame, false)) return;
+    if (!RequireSequence(action_.clip ? 8 : 9) ||
+        (frame.lightOn && !RequireEffects(EffectBit(GlockEffect::LightState)))) return;
     // Safety adaptation: original normal Holster did not clear the player think.
     // A detached CoF weapon may never damage as a subsequently selected CS item.
     meleePending_ = false;
@@ -552,7 +664,7 @@ void GlockWeapon::SetResult(MagazineActionResult result) noexcept
 }
 void GlockWeapon::Reload()
 {
-    GlockOwnerFrame frame{}; if (!Check(frame)) return;
+    GlockOwnerFrame frame{}; if (!Check(frame) || !ReloadReady()) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     const auto result = StartMagazineReload(Pistol::Glock, action_, gpGlobals->time,
                                            prepared_.sequences, ActionHost(bridge));
@@ -561,11 +673,8 @@ void GlockWeapon::Reload()
 }
 void GlockWeapon::SecondaryAttack()
 {
-    GlockOwnerFrame frame{}; if (!Check(frame)) return;
+    GlockOwnerFrame frame{}; if (!Check(frame) || !MeleeReady(frame)) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
-    if (CheckPistolWeaponMelee(*m_pPlayer, {frame.meleeDamage, frame.quietAudio, MeleeWorld::Multiplayer},
-        prepared_.melee, {Current, &bridge.lease}) != MeleeStatus::Ready)
-    { status_ = GlockStatus::MissingBackend; return; }
     const auto result = StartPistolMelee(Pistol::Glock, action_, gpGlobals->time, ActionHost(bridge));
     if (!Current(&bridge.lease)) return;
     WriteAmmo(); MirrorTimers(true); SetResult(result);
@@ -574,6 +683,10 @@ void GlockWeapon::DelayedMelee()
 {
     GlockOwnerFrame frame{}; if (!Check(frame) || !meleePending_) return;
     if (gpGlobals->time < pev->nextthink) { status_ = GlockStatus::Ineligible; return; }
+    Lease check = lease_; check.active = true;
+    if (CheckPistolWeaponMelee(*m_pPlayer, {frame.meleeDamage, frame.quietAudio, MeleeWorld::Multiplayer},
+        prepared_.melee, {Current, &check}) != MeleeStatus::Ready)
+    { status_ = GlockStatus::MissingBackend; return; }
     meleePending_ = false; SetThink(nullptr); pev->nextthink = 0;
     Lease l = lease_; l.active = true;
     const auto result = PistolWeaponMelee(*m_pPlayer,
@@ -583,8 +696,16 @@ void GlockWeapon::DelayedMelee()
         result == MeleeStatus::Cancelled ? GlockStatus::Cancelled : GlockStatus::MissingBackend;
 }
 
+bool GlockWeapon::AimReady(bool enabled) noexcept
+{
+    if (prepared_.aimMetadataReady && RequireEffects(EffectBit(GlockEffect::Aim)) &&
+        RequireSequence((enabled ? 30 : 36) + (action_.clip == 0))) return true;
+    status_ = GlockStatus::MissingBackend;
+    return false;
+}
 bool GlockWeapon::SetAim(bool enabled) noexcept
 {
+    if (!AimReady(enabled)) return false;
     // All ordinary callers set the aim bit before entering the original
     // entry/exit method (F980 toggle, pending reload and hold-aim release).
     action_.aiming = enabled;
@@ -604,7 +725,7 @@ bool GlockWeapon::SetAim(bool enabled) noexcept
 
 void GlockWeapon::PrimaryAttack()
 {
-    GlockOwnerFrame frame{}; if (!Check(frame)) return;
+    GlockOwnerFrame frame{}; if (!Check(frame) || !PrimaryReady(frame)) return;
     const float now = gpGlobals->time;
     if (action_.primary > now || !(frame.pressed & 1u) || action_.action)
     { status_ = GlockStatus::Ineligible; return; }
@@ -628,8 +749,6 @@ void GlockWeapon::PrimaryAttack()
         {0,1,0}, {0,0,1}, frame.randomSeed, frame.bulletDamage, action_.aiming,
         PistolPlayerHits::OriginalCooperativeSkipPlayers, frame.sourceMode};
     Lease l = lease_; l.active = true;
-    if (CheckPistolBallistics(shot, prepared_.ballistics, {Current,&l}) != BallisticsStatus::Ready)
-    { status_ = GlockStatus::MissingBackend; return; }
     GlockEvent smoke{GlockEffect::Gunsmoke};
     smoke.value = g_engfuncs.pfnIndexOfEdict(l.weapon);
     if (!Current(&l)) return;
@@ -679,6 +798,9 @@ bool GlockWeapon::Fidget() noexcept
     const float now = gpGlobals->time;
     if (action_.primary > now || action_.secondary > now || action_.idle > now ||
         action_.action || action_.aiming) return true;
+    if (!g_engfuncs.pfnRandomLong || !RequireSequence(21 + (action_.clip == 0)) ||
+        !RequireSequence(23 + (action_.clip == 0)) || !RequireSequence(25 + (action_.clip == 0)))
+    { status_ = GlockStatus::MissingBackend; return false; }
     Lease l = lease_; l.active = true;
     const int chance = g_engfuncs.pfnRandomLong(0,599);
     if (!Current(&l)) return false;
@@ -691,6 +813,7 @@ bool GlockWeapon::UpdateBody(bool lightOn) noexcept
 {
     const int body = taclightInstalled_ ? (lightOn ? 2 : 1) : 0;
     if (!taclightInstalled_ && pev->body == 0) return true;
+    if (!RequireEffects(EffectBit(GlockEffect::Body))) return false;
     pev->body = body;
     GlockEvent event{GlockEffect::Body}; event.value = body;
     return Emit(event);
@@ -698,7 +821,7 @@ bool GlockWeapon::UpdateBody(bool lightOn) noexcept
 GlockStatus GlockWeapon::RequestTaclightAttachment() noexcept
 {
     GlockOwnerFrame frame{};
-    if (!Check(frame,false)) return status_;
+    if (!Check(frame,false) || !AttachmentReady()) return status_;
     // Original inventory combine100E3020 writes the pending byte on gun id3.
     // The parent must first validate and consume the actual inventory recipe.
     taclightAttachPending_ = true;
@@ -711,6 +834,8 @@ void GlockWeapon::WeaponFunction()
     if (action_.primary > now || action_.secondary > now || !taclightInstalled_ ||
         action_.aiming || action_.action)
     { status_ = GlockStatus::Ineligible; return; }
+    if (!RequireEffects(Effects(GlockEffect::LightState, GlockEffect::Body)) ||
+        !RequireSequence(action_.clip ? 17 : 18)) return;
     if (!View(action_.clip ? 17 : 18)) return;
     lightThink_ = 1; SetThink(&GlockWeapon::ToggleSwitch); pev->nextthink = now + .3f;
     action_.primary = action_.secondary = action_.idle = AddDouble(now,.66);
@@ -720,6 +845,7 @@ void GlockWeapon::ToggleSwitch()
 {
     GlockOwnerFrame frame{}; if (!Check(frame) || lightThink_ != 1) return;
     if (gpGlobals->time < pev->nextthink) { status_ = GlockStatus::Ineligible; return; }
+    if (!RequireEffects(EffectBit(GlockEffect::LightState))) return;
     lightThink_ = 0; SetThink(nullptr); pev->nextthink = 0;
     GlockEvent event{GlockEffect::LightState}; event.enabled = !frame.lightOn;
     if (Emit(event)) status_ = GlockStatus::Applied;
@@ -728,6 +854,7 @@ void GlockWeapon::MidAttachTaclight()
 {
     GlockOwnerFrame frame{}; if (!Check(frame) || lightThink_ != 2) return;
     if (gpGlobals->time < pev->nextthink) { status_ = GlockStatus::Ineligible; return; }
+    if (!AttachmentReady()) return;
     GlockEvent sound{GlockEffect::AttachmentSound}; sound.value = 1;
     if (!Emit(sound)) return;
     lightThink_ = 3; SetThink(&GlockWeapon::AttachTaclight); pev->nextthink = gpGlobals->time + 1.0f;
@@ -738,6 +865,7 @@ void GlockWeapon::AttachTaclight()
 {
     GlockOwnerFrame frame{}; if (!Check(frame) || lightThink_ != 3) return;
     if (gpGlobals->time < pev->nextthink) { status_ = GlockStatus::Ineligible; return; }
+    if (!AttachmentReady()) return;
     GlockEvent sound{GlockEffect::AttachmentSound}; sound.value = 2;
     if (!Emit(sound)) return;
     taclightInstalled_ = true;
@@ -771,6 +899,7 @@ void GlockWeapon::ItemPostFrame()
     Lease l = lease_; l.active = true;
     const float now = gpGlobals->time;
     if (now < action_.ownerAttack) { status_ = GlockStatus::Ineligible; return; }
+    if (taclightAttachPending_ && !AttachmentReady()) return;
     if (!action_.action && now > action_.primary && now > action_.secondary && now > action_.extra &&
         !frame.toggleAim && action_.aiming &&
         !((m_pPlayer->pev->button | frame.pressed | frame.released) & 0x40u))
@@ -779,7 +908,11 @@ void GlockWeapon::ItemPostFrame()
         action_.primary <= now && action_.secondary <= now && action_.extra <= now && !action_.action)
     {
         if (action_.aiming) { if (!SetAim(false)) return; }
-        else { action_.pendingReload = false; Reload(); if (!Current(&l)) return; }
+        else
+        {
+            if (!ReloadReady(true)) return;
+            action_.pendingReload = false; Reload(); if (!Current(&l)) return;
+        }
     }
     if (!UpdateBody(frame.lightOn)) return;
     if (taclightAttachPending_ && !frame.pendingGate && frame.pendingGateTime <= now &&
@@ -803,7 +936,8 @@ void GlockWeapon::ItemPostFrame()
         {
             if (!action_.action)
             {
-                action_.action = 5; const int seq = action_.clip ? 39 : 40;
+                const int seq = action_.clip ? 39 : 40; if (!RequireSequence(seq)) return;
+                action_.action = 5;
                 if (!View(seq)) return;
                 const float duration = prepared_.sequences.duration[seq];
                 action_.primary = static_cast<float>(double(now) + double(duration)*.5);
@@ -818,7 +952,8 @@ void GlockWeapon::ItemPostFrame()
         const bool sprint = (frame.originalFlags & 0x40000u) && speed > 0;
         if (sprint && action_.action != 5 && action_.action != 1)
         {
-            action_.action = 1; const int seq = action_.clip ? 10 : 11; if (!View(seq)) return;
+            const int seq = action_.clip ? 10 : 11; if (!RequireSequence(seq)) return;
+            action_.action = 1; if (!View(seq)) return;
             const float duration = prepared_.sequences.duration[seq];
             action_.primary = static_cast<float>(double(now) + double(duration)*.5);
             actionDeadline_ = now + duration;
@@ -846,6 +981,7 @@ void GlockWeapon::ItemPostFrame()
     }
     if (action_.loading)
     {
+        if (!RequireEffects(EffectBit(GlockEffect::InventoryChanged))) return;
         MagazineReload reload{action_.clip,action_.reserve,action_.ownerAttack,true};
         ActionBridge bridge{this, lease_}; bridge.lease.active = true;
         CommitMagazineReload(reload,15,0,now,ReloadCommitted,&bridge);
@@ -858,19 +994,21 @@ void GlockWeapon::ItemPostFrame()
     const bool allowed = frame.activityBlock <= 0 && m_pPlayer->pev->movetype != 5;
     if ((buttons & 0x800u) && frame.activityBlock <= 0 && action_.secondary <= now)
     {
-        if (allowed) { if (!Emit({GlockEffect::InventoryChanged})) return; SecondaryAttack(); }
+        if (allowed) { if (!MeleeReady(frame) || !Emit({GlockEffect::InventoryChanged})) return; SecondaryAttack(); }
     }
     else if ((buttons & 0x40u) && allowed && action_.ownerAttack <= now)
     {
-        if (!Emit({GlockEffect::InventoryChanged})) return;
-        if (action_.primary <= now && action_.secondary <= now && action_.extra <= now && !action_.action &&
-            (frame.pressed & 0x40u) && (frame.toggleAim || !action_.aiming))
+        const bool changeAim = action_.primary <= now && action_.secondary <= now && action_.extra <= now && !action_.action &&
+            (frame.pressed & 0x40u) && (frame.toggleAim || !action_.aiming);
+        if ((changeAim && !AimReady(!action_.aiming)) || !Emit({GlockEffect::InventoryChanged})) return;
+        if (changeAim)
             if (!SetAim(!action_.aiming)) return;
     }
     else if ((buttons & 1u) && frame.activityBlock <= 0 && action_.primary <= now)
     {
         if (allowed)
         {
+            if (!PrimaryReady(frame, !action_.clip) || !RequireEffects(EffectBit(GlockEffect::InventoryChanged))) return;
             if (!action_.clip) m_fFireOnEmpty = 1;
             if (!Emit({GlockEffect::InventoryChanged})) return;
             PrimaryAttack();
@@ -886,6 +1024,8 @@ void GlockWeapon::WeaponIdle()
 {
     GlockOwnerFrame frame{}; if (!Check(frame)) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
+    if (action_.idle <= gpGlobals->time && !action_.action && !action_.special &&
+        !RequireSequence((action_.aiming ? 32 : 0) + (action_.clip == 0))) return;
     const auto result = MagazineIdle(Pistol::Glock, action_, gpGlobals->time, prepared_.sequences, ActionHost(bridge));
     if (!Current(&bridge.lease)) return;
     MirrorTimers(true); SetResult(result);

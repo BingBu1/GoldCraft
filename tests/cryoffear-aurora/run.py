@@ -12,8 +12,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 INPUTS = ("native/guest/cof/client/aurora.hpp", "native/guest/cof/client/aurora.cpp",
           "native/guest/cof/client/aurora_render.hpp", "native/guest/cof/client/aurora_render.cpp",
-          "tests/cryoffear-aurora/main.cpp", "tests/cryoffear-aurora/run.py",
-          "tests/cryoffear-aurora/oracle.py", "tests/cryoffear-aurora/evidence_probe.py", "tests/cryoffear-aim/oracle.py")
+          "tests/cryoffear-aurora/main.cpp", "tests/cryoffear-aurora/retention.cpp", "tests/cryoffear-aurora/run.py",
+          "tests/cryoffear-aurora/oracle.py", "tests/cryoffear-aurora/retention_oracle.py", "tests/cryoffear-aurora/evidence_probe.py", "tests/cryoffear-aim/oracle.py")
 
 
 def sha(path):
@@ -36,6 +36,7 @@ def main():
     loaded = json.loads(args.environment.read_text(encoding="utf-8-sig"))
     environment.update({k: v for k, v in loaded.items() if k in ("INCLUDE", "LIB", "LIBPATH", "PATH")})
     before = {p: sha(ROOT / p) for p in INPUTS}
+    (out / "inputs-before.json").write_text(json.dumps(before, indent=2), encoding="utf-8")
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     sdk = ROOT / "external/MetaHookSv-20261007/MetaHook/include"
     includes = [sdk, sdk / "Interface", *[sdk / "HLSDK" / p for p in
@@ -48,7 +49,10 @@ def main():
                  "/Fo" + str(out) + os.sep, *[str(ROOT / p) for p in INPUTS if p.endswith(".cpp")]],
                 [str(linker), "/nologo", "/machine:X86", "/subsystem:console", "/incremental:no",
                  "/OPT:REF", "/OPT:ICF", "/out:" + str(out / "aurora.exe"),
-                 str(out / "aurora.obj"), str(out / "aurora_render.obj"), str(out / "main.obj")]]
+                 str(out / "aurora.obj"), str(out / "aurora_render.obj"), str(out / "main.obj")],
+                [str(linker), "/nologo", "/machine:X86", "/subsystem:console", "/incremental:no",
+                 "/OPT:REF", "/OPT:ICF", "/out:" + str(out / "retention.exe"),
+                 str(out / "aurora.obj"), str(out / "aurora_render.obj"), str(out / "retention.obj")]]
     logs = []
     for argv in commands:
         result = subprocess.run(argv, cwd=ROOT, env=environment, capture_output=True, text=True)
@@ -61,9 +65,16 @@ def main():
     (out / "lifecycle.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
     result.check_returncode()
     print(result.stdout.strip())
+    result = subprocess.run([str(out / "retention.exe"), str(args.sample.parent.parent / "aurora-gunsmoke-original.txt")], capture_output=True, text=True)
+    (out / "retention.txt").write_text(result.stdout + result.stderr, encoding="utf-8")
+    result.check_returncode()
+    print(result.stdout.strip())
     subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-aurora/oracle.py"),
                     "--sample", str(args.sample.resolve()), "--runner", str(out / "aurora.exe"),
                     "--output", str(out / "aurora-differential.json")], check=True)
+    subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-aurora/retention_oracle.py"),
+                    "--sample", str(args.sample.resolve()), "--runner", str(out / "retention.exe"),
+                    "--output", str(out / "retention-differential.json")], check=True)
     data = (out / "aurora.exe").read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
     assert struct.unpack_from("<H", data, pe + 4)[0] == 0x14C
@@ -74,6 +85,8 @@ def main():
     receipt = dict(revision=revision, sourcesBefore=before, sourcesAfter=after, sdkInputs=sdk_files,
                    compilerVersion=config["version"].splitlines()[0], compilerSha256=sha(compiler),
                    linkerSha256=sha(linker), flags=flags, architecture="PE32 x86", executableSha256=sha(out / "aurora.exe"),
+                   retentionExecutableSha256=sha(out / "retention.exe"),
+                   retentionDifferential=sha(out / "retention-differential.json"),
                    sourceSnapshots=False, gameplay=False, performance=False)
     (out / "compile-receipt.json").write_text(json.dumps(receipt, indent=2), encoding="utf-8")
 

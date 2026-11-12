@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <io.h>
 using namespace guest::cof::client;
+static_assert(offsetof(cl_entity_t,curstate)+offsetof(entity_state_t,renderfx)==0x304);
+static_assert(offsetof(cl_entity_t,curstate)+offsetof(entity_state_t,body)==0x314);
 namespace
 {
 float now;unsigned randomCalls,loads,quads;cl_entity_t view,owner,local;model_t model,sprite;
@@ -72,7 +74,7 @@ int main(int argc,char** argv)
         _setmode(_fileno(stdin),_O_BINARY);_setmode(_fileno(stdout),_O_BINARY);Input input;
         while(std::fread(&input,sizeof(input),1,stdin)==1)
         {
-            now=input.time;std::memcpy(view.attachment[0],input.attachment,12);owner.curstate.body=input.body;
+            now=input.time;std::memcpy(view.attachment[0],input.attachment,12);owner.curstate.renderfx=input.body;
             if(input.command==1)effects.KillLocal(false);if(input.command==2)effects.KillLocal(true);
             if(input.command==3)effects.DeleteOwner(effectOwner);if(input.command==4)effects.Clear();
             if(input.command==5)std::strcpy(model.name,"models/other.mdl");
@@ -92,9 +94,9 @@ int main(int argc,char** argv)
     now=.08F;CHECK(effects.Frame(.04F,0,{0,1,0},{0,0,1})==AuroraResult::Applied);CHECK(quads>0);
     CHECK(loads==1);owner.curstate.skin=666;lastMode=5;
     CHECK(effects.Frame(.1F,0,{0,1,0},{0,0,1})==AuroraResult::Unsupported);CHECK(lastMode==0);
-    owner.curstate.skin=0;effects.KillLocal(true);owner.curstate.body=70;
+    owner.curstate.skin=0;effects.KillLocal(true);owner.curstate.renderfx=70;
     CHECK(effects.Frame(.1F,0,{0,1,0},{0,0,1})==AuroraResult::Applied);CHECK(effects.First());
-    owner.curstate.body=0;CHECK(effects.Frame(.1F,0,{0,1,0},{0,0,1})==AuroraResult::Applied);CHECK(!effects.First());
+    owner.curstate.renderfx=0;CHECK(effects.Frame(.1F,0,{0,1,0},{0,0,1})==AuroraResult::Applied);CHECK(!effects.First());
     CHECK(effects.Add(5,"aurora/gunsmoke.aur",0,"models/test.mdl",0,5)==AuroraResult::Unsupported);
     CHECK(effects.Add(-1,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::InvalidInput);
     CHECK(effects.Add(0,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::Applied);
@@ -104,8 +106,8 @@ int main(int argc,char** argv)
     CHECK(zeroSystem->particles[zeroSystem->main].owner==0);
     CHECK(zeroSystem->particles[zeroSystem->main].render.position[0]==0);
     CHECK(effects.DeleteOwner(0));CHECK(!effects.First());
-    for(unsigned i=0;i<Aurora::MaxSystems;++i)CHECK(effects.Add(5,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::Applied);
-    CHECK(effects.Add(5,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::CapacityExceeded);
+    for(unsigned i=0;i<Aurora::SystemsPerSlab;++i)CHECK(effects.Add(5,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::Applied);
+    CHECK(effects.Add(5,"aurora/gunsmoke.aur",1,"models/test.mdl",0,5)==AuroraResult::Applied);
     CHECK(effects.DeleteOwner(5));CHECK(effects.First());effects.VideoInit();CHECK(!effects.First());
     CHECK(effects.Frame(.1F,0,{0,1,0},{0,0,1})==AuroraResult::NotPrepared);
     auto unknown=script;unknown.replace(unknown.find("gravity"),7,"mystery");

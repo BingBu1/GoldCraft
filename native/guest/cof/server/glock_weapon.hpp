@@ -37,6 +37,8 @@ struct GlockEvent
     // The script is the fixed original aurora/gunsmoke.aur resource.
     int modelString{};
 };
+// Complete effect catalog for providers; individual operations require only
+// their reachable bits. This is deliberately not a Bind admission condition.
 inline constexpr std::uint32_t GlockRequiredEffects =
     (1u << static_cast<unsigned>(GlockEffect::Count)) - 1u;
 
@@ -102,9 +104,10 @@ class GlockWeapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle
 public:
     void ConfigureColdHost(GlockColdHost host) noexcept;
     GlockStatus Prepare(const GlockPrepared&) noexcept;
+    // World/inventory resources only; this never promises combat/aim/light readiness.
     bool ResourcesReady() const noexcept;
-    // Cold operation after real model/resource/backend preparation. No fallback
-    // for absent aim, recoil, particles, sequences or player animation labels.
+    // Cold identity binding; each operation admits its reachable original effects
+    // and resources before its first visible mutation. Missing consumers reject.
     GlockStatus Bind(CBasePlayer&, const GlockPrepared&, const GlockBackends&) noexcept;
     void Spawn() override;
     void Precache() override;
@@ -185,6 +188,14 @@ private:
     static bool MagazineEvent(void*, const guest::cof::MagazineEvent&) noexcept;
     static void ReloadCommitted(void*, const MagazineReload&) noexcept;
     bool Check(GlockOwnerFrame&, bool active = true) noexcept;
+    bool RequireEffects(std::uint32_t) noexcept;
+    bool RequireSequence(int) noexcept;
+    bool RequireAnimation(PlayerAction) noexcept;
+    bool ReloadReady(bool resumePending = false) noexcept;
+    bool PrimaryReady(const GlockOwnerFrame&, bool forceEmpty = false) noexcept;
+    bool MeleeReady(const GlockOwnerFrame&) noexcept;
+    bool AttachmentReady() noexcept;
+    bool AimReady(bool) noexcept;
     bool Emit(GlockEvent) noexcept;
     bool Animate(PlayerAction) noexcept;
     bool View(int) noexcept;
