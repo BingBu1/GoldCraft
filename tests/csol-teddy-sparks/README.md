@@ -1,5 +1,34 @@
 # Teddy spawn spark original instruction oracle
 
+## Meteor hands and group stop
+
+The actual shared runtime now handles the fixed original85-byte burn5 Meteor
+emitter and47-byte dot group2/owner0 stop command. Both hand attachments remain
+separate emitters. Each qualified attempt consumes the original four Float and
+one Long samples before the factory, then three spread Float and one mass
+sample only after allocation. Three companion burn models are prepared at the
+accepted Add boundary in this FastDL host; Frame/Draw never load models.
+
+The new strict decoder/particle helper is
+`native/csol/scenario/bosses/teddy_meteor.hpp`. `TemporaryPool::StopTagged`
+clears tag/active/remaining/total only, preserving issued ordinary particles
+and the other emitter fields. Owner0 is a group wildcard, positive owners
+filter that group. The runtime receiver consumes only the proved group2 form;
+other producers/stop messages retain their chain.
+
+`build/teddy-meteor-runtime-sdk-20261112-05/result.json` records6793 actual SDK
+checks,59 unchanged include inputs and the existing12 spark packets/180 fields.
+`meteor_runtime_oracle.py` compares the actual SDK emitter receiver/Frame,
+pure Meteor update and common tagged stop to sealed original instruction
+outputs:8 spawn/failure/clock cases,60 updates and3 stop filters/384 records.
+It rejects stale original inputs before comparing. Explicit current EXE modes
+are `--meteor-runtime-oracle`, `--meteor-update-oracle`, `--meteor-stop-oracle`.
+
+Neither interface tests nor original comparison establish network delivery,
+original random-generator internals, live rendering, complete map/disconnect
+lifecycle or CPU/GL performance. See the2026-11-12 Meteor integration report
+for the exact original identities, shared-runtime scope and cold-resource gate.
+
 ## Sliding owner runtime
 
 Sliding `sprites/ef_bat.spr` now shares the same actual emitter and particle

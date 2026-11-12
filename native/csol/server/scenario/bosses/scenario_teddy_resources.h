@@ -17,5 +17,8 @@ inline constexpr std::array CSOLTeddySpawnSprites{"sprites/spark2.spr", "sprites
 inline constexpr const char* CSOLTeddySlidingSprite = "sprites/ef_bat.spr";
 // MP10997A90 event1 ->114931C0: reliable MPToCL/88 ring smoke.
 inline constexpr const char* CSOLTeddyBlackholeSmokeSprite = "sprites/smoke_ia.spr";
-// MP10995D20 ->10996880 ->11493000: both Meteor hand attachments.
-inline constexpr const char* CSOLTeddyMeteorSprite = "sprites/burn5.spr";
+// MP10995D20 ->10996880 ->11493000 names burn5 for both attachments.
+// Client02AA6B19 selects all three common VidInit models for source flag1000.
+inline constexpr std::array CSOLTeddyMeteorSprites{
+    "sprites/burn5.spr", "sprites/burn6.spr", "sprites/burn7.spr"};
+inline constexpr const char* CSOLTeddyMeteorSprite = CSOLTeddyMeteorSprites[0];

@@ -26,7 +26,10 @@ unsigned rngAxis{};
 float clockNow{10};
 std::string resetAt;
 bool reenterRandom{}, resetRandom{}, noModel{}, inPvs{true};
-model_t models[4]{};
+model_t models[7]{};
+int expectedOwner{44},meteorChoice{};
+unsigned longRngCalls{};
+std::vector<float> selectedRandom;std::size_t selectedRandomAt{};
 int currentParseCount{77};
 cl_entity_t emitterOwner{};
 bool ownerNull{};
@@ -92,9 +95,9 @@ void Fresh()
 {
     ResetParticleEffects(); emitters.Initialize();
     resetAt.clear(); reenterRandom = resetRandom = noModel = false; inPvs = true;
-    models[0] = {}; models[1] = {}; models[2] = {}; models[3] = {}; local = {};emitterOwner={};
+    models[0] = {}; models[1] = {}; models[2] = {}; models[3] = {}; models[4]={};models[5]={};models[6]={};local = {};emitterOwner={};
     for (auto& model : models) model.type = mod_sprite;
-    models[0].numframes = 29; models[1].numframes = 17; models[2].numframes = 12; models[3].numframes=15;
+    models[0].numframes = 29; models[1].numframes = 17; models[2].numframes = 12; models[3].numframes=15;models[4].numframes=models[5].numframes=models[6].numframes=1;
     movement = {}; movement.gravity = 800;
     view = {}; view.movevars = &movement;
     view.viewangles[0] = 27; view.viewangles[1] = -49;
@@ -108,16 +111,17 @@ void Fresh()
     engine.pfnSPR_Load = [](const char* path)
     {
         ++loadCalls; ResetCallback("load");
-        const unsigned n = std::string_view(path) == sliding::Sprite ? 3 : std::string_view(path) == smoke::Sprite ? 2 : std::string_view(path) == spark::Sprites[1] ? 1 : 0;
+        const unsigned n = std::string_view(path) == meteor::Sprites[0] ? 4 : std::string_view(path) == meteor::Sprites[1] ? 5 : std::string_view(path) == meteor::Sprites[2] ? 6 : std::string_view(path) == sliding::Sprite ? 3 : std::string_view(path) == smoke::Sprite ? 2 : std::string_view(path) == spark::Sprites[1] ? 1 : 0;
         return int(n + 2);
     };
     engine.GetSpritePointer = [](int handle) -> const model_t*
     {
         ++modelCalls; ResetCallback("model");
-        return noModel ? nullptr : &models[handle == 5 ? 3 : handle == 4 ? 2 : handle == 3 ? 1 : 0];
+        return noModel ? nullptr : &models[handle>=2 && handle<=8 ? handle-2 : 0];
     };
     engine.pfnRandomFloat = [](float lo, float hi)
     {
+        if(selectedRandomAt<selectedRandom.size()){const float value=selectedRandom[selectedRandomAt++];++rngCalls;Check(lo<=value && value<=hi,"explicit Meteor RNG bounds");return value;}
         if ((lo == -32 && hi == 32) || (lo == 50 && hi == 70) || (lo == 2 && hi == 5))
         { ++rngCalls; ++ringRngCalls; if (resetRandom) { resetRandom=false; ResetParticleEffects(); } return lo == -32 ? 0.f : lo == 50 ? 60.f : 3.5f; }
         static constexpr float xyz[]{-1, .25f, 1};
@@ -128,6 +132,8 @@ void Fresh()
         Check(lo <= value && value <= hi, "RNG boundary/order");
         return value;
     };
+    engine.pfnRandomLong=[](int low,int high){++longRngCalls;Check(low==0 && high==2 && meteorChoice>=0 && meteorChoice<=2,"original Meteor integer RNG");ResetCallback("integer");return meteorChoice;};
+    selectedRandom.clear();selectedRandomAt=0;longRngCalls=0;meteorChoice=0;expectedOwner=44;
     engine.GetViewAngles=[](float* out){ ++viewAngleCalls; for(unsigned i=0;i<3;++i)out[i]=view.viewangles[i];ResetCallback("camera"); };
     observerState[0]=observerState[1]=observerState[2]=0;
     for(unsigned i=0;i<3;++i){renderCamera[i]=float(i+40);chaseCamera[i]=float(i+60);}
@@ -136,7 +142,8 @@ void Fresh()
     viewAngleCalls=symbolCalls=0;
     currentParseCount=77;parseCount=&currentParseCount;ownerNull=false;ownerCalls=0;
     emitterOwner.index=44;emitterOwner.curstate.messagenum=77;emitterOwner.origin[0]=100;emitterOwner.origin[1]=200;emitterOwner.origin[2]=300;
-    engine.GetEntityByIndex=[](int index)->cl_entity_t*{ ++ownerCalls;Check(index==44,"actual owner index getter");ResetCallback("owner");return ownerNull?nullptr:&emitterOwner;};
+    const float hand[2][3]{{110,220,330},{440,550,660}};for(unsigned i=0;i<2;++i)for(unsigned j=0;j<3;++j)emitterOwner.attachment[i][j]=hand[i][j];
+    engine.GetEntityByIndex=[](int index)->cl_entity_t*{ ++ownerCalls;Check(index==expectedOwner,"actual owner index getter");ResetCallback("owner");return ownerNull?nullptr:&emitterOwner;};
     hookApi.GetEngineBase=[]()->void* { return reinterpret_cast<void*>(0x20000000); };
     hookApi.GetClientBase=[]()->void* { return reinterpret_cast<void*>(0x10000000); };
     hookApi.ResolveGameSymbol=[](void* base,const char* name,mh_gamesymbol_kind_t kind,void** out)
@@ -156,7 +163,7 @@ void Fresh()
       const auto& m=name==0xba7?projectionMatrix:modelMatrix;for(unsigned i=0;i<16;++i)out[i]=m[i];ResetCallback(name==0xba7?"projection":"modelMatrix"); };
     triangles.RenderMode = [](int mode) { modes.push_back(mode); ResetCallback("mode"); };
     triangles.CullFace = [](TRICULLSTYLE style) { culls.push_back(style); ResetCallback("cull"); };
-    triangles.SpriteTexture = [](model_t* model, int frame) { binds.push_back({model == &models[3] ? 3 : model == &models[2] ? 2 : model == &models[1] ? 1 : 0, frame}); ResetCallback("sprite"); return 1; };
+    triangles.SpriteTexture = [](model_t* model, int frame) { binds.push_back({int(model-models), frame}); ResetCallback("sprite"); return 1; };
     triangles.Begin = [](int primitive) { Check(primitive == TRI_QUADS, "quad primitive"); ++begins; ResetCallback("begin"); };
     triangles.End = []() { ++ends; ResetCallback("end"); };
     triangles.Color4f = [](float r, float g, float b, float a) { colors.push_back({r,g,b,a}); ResetCallback("color"); };
@@ -176,7 +183,7 @@ void Fresh()
     // Empty transparent passes establish the independent prior-time clock.
     // Clear/VidInit intentionally do not reset that original clock.
     clockNow = 9; DrawParticleEffects(); clockNow = 10; DrawParticleEffects();
-    received = emitted = invalid = exhausted = draws = smokeMessages = smokeEmitted = slidingEmitted = ownerMismatches = 0;
+    received = emitted = invalid = exhausted = draws = smokeMessages = smokeEmitted = slidingEmitted = ownerMismatches = meteorEmitted = emitterStops = 0;
     timeCalls = loadCalls = modelCalls = rngCalls = chainCalls = hookCalls = pvsCalls = localCalls = 0;
     rngAxis = 0; randomBounds.clear(); ClearDraw(); matrixQueries.clear();CacheParticleHudTime(10);
 }
@@ -511,6 +518,107 @@ void SlidingRuntimeOracle()
     }
 }
 
+
+std::vector<std::uint8_t> HexPacket(std::string_view text)
+{
+    std::vector<std::uint8_t> bytes;
+    for(std::size_t i=0;i<text.size();i+=2)bytes.push_back(std::uint8_t(std::stoul(std::string(text.substr(i,2)),nullptr,16)));
+    return bytes;
+}
+std::vector<std::uint8_t> MeteorPacket(unsigned attachment=0)
+{
+    auto bytes=HexPacket(attachment?
+        "737072697465732f6275726e352e737072000100000000000000000000000000ffff0ad7233ccdcc4c3e301c000001020001000f05faffffff000000420000b84100000000000000000000a0400000000000000000":
+        "737072697465732f6275726e352e737072000100000000000000000000000000ffff0ad7233ccdcc4c3e301c000000020001000f05faffffff000040410000a0410000000000000000000000400000000000000000");
+    bytes[meteor::Sprites[0].size()+1]=44;
+    return bytes;
+}
+std::vector<std::uint8_t> StopPacket()
+{
+    return HexPacket("737072697465732f646f742e7370720000000000000000000000000000000000000000000000000000040000020000");
+}
+void SetMeteorRandom(unsigned emissions=1)
+{
+    selectedRandom.clear();selectedRandomAt=0;
+    for(unsigned i=0;i<emissions;++i)
+        for(float v:{1.25f,7.5f,-2.5f,3.5f,-.5f,.25f,1.f,1.125f})selectedRandom.push_back(v);
+}
+void MeteorCases()
+{
+    Fresh();auto left=MeteorPacket(),right=MeteorPacket(1),stop=StopPacket();
+    Check(meteor::Read(left)->attachment==0 && meteor::Read(right)->attachment==1 &&
+        meteor::ReadStop(stop),"original Meteor hand and short stop forms decode");
+    for(std::size_t n=0;n<stop.size();++n)Check(!meteor::ReadStop(std::span(stop).first(n)),"truncated stop is never a complete command");
+    for(std::size_t n=0;n<left.size();++n)Check(!meteor::Read(std::span(left).first(n)),"truncated hand emitter rejected");
+    Send(left);Send(right);
+    Check(Pending()==2 && loadCalls==5 && modelCalls==5 && !ownerCalls &&
+        emitters.Records()[0].tag==2 && emitters.Records()[0].total==-1 &&
+        emitters.Records()[0].remaining==-1,"two hands share unlimited group2 records and cold companions");
+    const auto loads=loadCalls;SetMeteorRandom(2);meteorChoice=2;Frame(10.01f);
+    Check(meteorEmitted==2 && rngCalls==16 && longRngCalls==2 && ownerCalls==2 &&
+        loadCalls==loads && Pending()==2,"successful fireball consumes eight Float and one Long per hand");
+    std::array<meteor::Particle,2> before{};unsigned count{};
+    auto capture=[&](const Slot& s){if(const auto* p=std::get_if<meteor::Particle>(&s.particle))before[count++]=*p;};
+    particlePool.VisitActive(capture);
+    Check(count==2 && before[0].value.origin==std::array<float,3>{443.5f,547.5f,667.5f} &&
+        before[1].value.origin==std::array<float,3>{113.5f,217.5f,337.5f} &&
+        before[0].value.size==24.25f && before[1].value.size==21.25f &&
+        before[0].mass==1.125f && before[1].value.velocity==std::array<float,3>{-6,3,12},
+        "both actual hand attachments use original random model, offsets, size and spread");
+    const auto firstNext=emitters.Records()[0].next;const auto* firstModel=emitters.Records()[0].model;
+    Send(stop);
+    Check(!Pending() && particlePool.ActiveCount()==2 && emitterStops==1 && loadCalls==loads &&
+        emitters.Records()[0].tag==0 && emitters.Records()[0].active==0 &&
+        emitters.Records()[0].next==firstNext && emitters.Records()[0].model==firstModel &&
+        std::get<meteor::Emitter>(emitters.Records()[0].payload).owner==44,"stop clears four fields and retains live particles, next, model and owner");
+    std::array<meteor::Particle,2> after{};count=0;
+    auto afterCapture=[&](const Slot& s){if(const auto* p=std::get_if<meteor::Particle>(&s.particle))after[count++]=*p;};
+    particlePool.VisitActive(afterCapture);
+    for(unsigned i=0;i<2;++i)Check(before[i].value.origin==after[i].value.origin && before[i].value.velocity==after[i].value.velocity &&
+        before[i].value.born==after[i].value.born && before[i].value.die==after[i].value.die &&
+        before[i].value.size==after[i].value.size && before[i].value.alpha==after[i].value.alpha,"stop never modifies an issued particle");
+    Frame(10.1f);Check(meteorEmitted==2 && !Pending(),"stopped hands do not resume on later frames");
+    DrawParticleEffects();
+    Check(vertices==8 && !traceCalls && !hullCalls && binds[0][0]==6 && binds[1][0]==6,
+        "issued random burn sprites keep ordinary update/draw after stop");
+    Fresh();Send(left);Send(right);SetMeteorRandom(2);Frame(10.01f);emitterOwner.attachment[0][0]=999;
+    Send(stop);clockNow=10.1f;DrawParticleEffects();count=0;particlePool.VisitActive(afterCapture);
+    Check(after[1].value.origin[0]!=999 && after[1].value.alpha<250 && after[1].value.alpha>0,
+        "issued Meteor particles drift and fade without reattaching");
+
+    Fresh();auto sparks=Packet(),slide=SlidingPacket();Send(sparks);Send(left);Send(slide);Send(stop);
+    Check(Pending()==2 && emitters.Records()[0].remaining==3 && emitters.Records()[2].remaining==3,
+        "group stop leaves unrelated world and owner records");
+    Fresh();auto other=left;other[meteor::Sprites[0].size()+1]=55;Send(left);Send(other);
+    Check(emitters.StopTagged(2,44,EmitterOwner)==particles::EmitterResult::Complete &&
+        emitters.Records()[0].total==0 && emitters.Records()[1].total==-1 &&
+        std::get<meteor::Emitter>(emitters.Records()[1].payload).owner==55,"positive owner filter preserves other owner in same group");
+    Send(stop);Check(!Pending(),"owner0 stop covers all remaining owners in group2");
+    Fresh();Send(left);SetMeteorRandom();selectedRandom.resize(4);meteorChoice=1;
+    for(unsigned i=0;i<1200;++i)Seed(float(i));Frame(10.01f);
+    Check(!meteorEmitted && exhausted==1 && rngCalls==4 && longRngCalls==1 &&
+        emitters.Records()[0].next==10.01f+.01f && emitters.Records()[0].remaining==-1,
+        "allocation failure preserves pre-RNG but never consumes post-factory XYZ/mass");
+    Fresh();models[5].numframes=0;Send(left);SetMeteorRandom();selectedRandom.resize(4);meteorChoice=1;Frame(10.01f);
+    Check(!meteorEmitted && invalid==1 && rngCalls==4 && longRngCalls==1 && !particlePool.ActiveCount(),
+        "missing selected companion fails after original pre-RNG without substitute");
+    for(const char* stage:{"load","model","owner","integer"})
+    {
+        Fresh();if(std::string_view(stage)=="load"||std::string_view(stage)=="model")resetAt=stage;
+        Send(left);if(std::string_view(stage)=="owner"||std::string_view(stage)=="integer"){resetAt=stage;SetMeteorRandom();Frame(10.01f);}
+        Check(std::all_of(emitters.Records().begin(),emitters.Records().end(),[](const Record& r)
+            {return r.active!=1 && (r.next==0 || (r.total==0 && r.remaining==0));}) &&
+            !particlePool.ActiveCount() && !meteorEmitted,"Meteor callback reset preserves original inactive bytes without a live schedule");
+        Frame(20);Check(!meteorEmitted,"retired or zero-next Meteor record cannot emit later");
+    }
+    Fresh();Send(left);SetMeteorRandom();samples={10.01f,10.011f,10.012f};sampleAt=0;Frame(10.01f);count=0;particlePool.VisitActive(afterCapture);
+    float pvs{};auto pvsCapture=[&](const Slot& s){pvs=s.nextPvsCheck;};particlePool.VisitActive(pvsCapture);
+    Check(after[0].value.born==10.012f && after[0].value.die==10.01f+.2f && pvs==10.011f,
+        "Meteor preserves all three original time samples");
+    Fresh();Send(left);SetMeteorRandom();Frame(10.01f);Send(stop);clockNow=10.21f;DrawParticleEffects();
+    Check(!particlePool.ActiveCount() && !vertices,"Meteor dies through ordinary pool after alpha/lifetime update");
+}
+
 void FrustumCases()
 {
     Fresh(); Seed(10); DrawParticleEffects();
@@ -562,6 +670,88 @@ void VisibilityOracle()
         for(auto& plane:planes)for(float& value:plane)value=InputBits();
         int pvs;Check(bool(std::cin>>pvs),"missing PVS");
         std::cout << (particles::FixedBoundsVisible(origin,size/5.f,planes,pvs!=0)?1:0) << '\n';
+    }
+}
+
+
+void MeteorRuntimeOracle()
+{
+    std::string raw;int choice,fail;
+    while(std::cin>>raw>>choice>>fail)
+    {
+        Fresh();auto bytes=HexPacket(raw);
+        const auto event=meteor::Read(bytes);Check(bool(event),"actual Meteor raw packet");
+        expectedOwner=event->owner;emitterOwner.index=expectedOwner;meteorChoice=choice;
+        samples={InputBits(),InputBits(),InputBits()};sampleAt=0;
+        for(unsigned i=0;i<8;++i)selectedRandom.push_back(InputBits());
+        Send(bytes);
+        if(fail)for(unsigned i=0;i<1200;++i)Seed(float(i));
+        Frame(samples[0]);
+        const auto& record=emitters.Records()[0];
+        std::cout << "{\"record\":[" << record.tag << ',' << record.total << ',' << record.remaining << ','
+            << record.active << ',' << std::bit_cast<std::uint32_t>(record.next) << "],\"particles\":[";
+        bool firstParticle=true;
+        auto print=[&](const Slot& slot)
+        {
+            if(const auto* p=std::get_if<meteor::Particle>(&slot.particle))
+            {
+                if(!firstParticle)std::cout << ',';firstParticle=false;std::cout << '[';bool first=true;
+                for(float value:{p->value.origin[0],p->value.origin[1],p->value.origin[2],p->value.velocity[0],
+                    p->value.velocity[1],p->value.velocity[2],p->value.born,p->value.die,p->value.size,
+                    p->initialSize,p->value.growth,p->value.alpha,p->mass,p->value.roll,slot.nextPvsCheck})
+                {if(!first)std::cout << ',';first=false;std::cout << std::bit_cast<std::uint32_t>(value);}
+                std::cout << ',' << p->value.frame << ',' << unsigned(p->value.sprite) << ']';
+            }
+        };
+        particlePool.VisitActive(print);
+        std::cout << "],\"rng\":" << rngCalls << ",\"long\":" << longRngCalls << ",\"time\":" << timeCalls << "}\n";
+    }
+}
+void MeteorUpdateOracle()
+{
+    std::uint32_t first;
+    while(std::cin>>first)
+    {
+        float a[17];a[0]=std::bit_cast<float>(first);
+        for(unsigned i=1;i<17;++i)a[i]=InputBits();
+        meteor::Particle p;
+        p.value.origin={a[0],a[1],a[2]};p.value.velocity={a[3],a[4],a[5]};
+        p.value.born=a[6];p.value.die=a[7];p.value.size=a[8];p.initialSize=a[9];
+        p.value.growth=a[10];p.value.alpha=a[11];p.mass=a[12];p.value.roll=a[13];
+        meteor::Tick(p,a[14],a[15],a[16],1);
+        std::cout << '[';bool firstValue=true;
+        for(float value:{p.value.born,p.value.die,p.value.size,p.value.alpha,p.value.roll,
+            p.value.origin[0],p.value.origin[1],p.value.origin[2],p.value.velocity[0],p.value.velocity[1],p.value.velocity[2],
+            p.initialSize,p.value.growth,p.mass})
+        {if(!firstValue)std::cout << ',';firstValue=false;std::cout << std::bit_cast<std::uint32_t>(value);}
+        std::cout << ',' << p.value.frame << "]\n";
+    }
+}
+void MeteorStopOracle()
+{
+    unsigned owner;
+    while(std::cin>>owner)
+    {
+        Fresh();
+        for(unsigned i=0;i<128;++i)
+        {
+            auto& r=const_cast<Record&>(emitters.Records()[i]);
+            r={};r.tag=i%3==0?2:i%3==1?99:0;r.total=-1;r.remaining=3;r.active=i%3;
+            meteor::Emitter event;event.owner=std::uint16_t((i/3)%3==0?0:(i/3)%3==1?1:7);
+            event.size=20;event.spread=12;event.growth=2;
+            r.payload=event;r.model=&models[4];r.next=10.f+float(i)*.125f;r.interval=.01f;
+        }
+        emitters.StopTagged(2,std::uint16_t(owner),EmitterOwner);
+        std::cout << '[';
+        for(unsigned i=0;i<128;++i)
+        {
+            if(i)std::cout << ',';
+            const auto& r=emitters.Records()[i];
+            std::cout << '[' << r.tag << ',' << EmitterOwner(r.payload) << ',' << r.total << ',' << r.remaining << ','
+                << r.active << ',' << std::bit_cast<std::uint32_t>(r.next) << ','
+                << std::bit_cast<std::uint32_t>(r.interval) << ',' << (r.model==&models[4]?1:0) << ']';
+        }
+        std::cout << "]\n";
     }
 }
 
@@ -666,6 +856,9 @@ int main(int argc, char** argv)
     if (argc == 2 && std::string(argv[1]) == "--sliding-runtime-oracle") { test::SlidingRuntimeOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--frustum-oracle") { test::FrustumOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--visibility-oracle") { test::VisibilityOracle(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--meteor-runtime-oracle") { test::MeteorRuntimeOracle(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--meteor-update-oracle") { test::MeteorUpdateOracle(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--meteor-stop-oracle") { test::MeteorStopOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--camera-oracle") { test::CameraOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--math-values") { test::MathValues(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--math-identity") { test::MathIdentity(); return 0; }
@@ -706,6 +899,6 @@ int main(int argc, char** argv)
         }
         return 0;
     }
-    try { test::Cases(); test::SharedCases(); test::FrustumCases(); test::SlidingCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
+    try { test::Cases(); test::SharedCases(); test::FrustumCases(); test::SlidingCases(); test::MeteorCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

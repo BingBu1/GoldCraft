@@ -6,6 +6,7 @@
 #include "../../../scenario/bosses/teddy_spark_particle.hpp"
 #include "../../../scenario/bosses/teddy_blackhole_smoke.hpp"
 #include "../../../scenario/bosses/teddy_sliding.hpp"
+#include "../../../scenario/bosses/teddy_meteor.hpp"
 #include "../../../scenario/core/emitter_runtime.hpp"
 #include "../../../scenario/core/particle_runtime.hpp"
 #include "../../../scenario/core/particle_visibility.hpp"
@@ -25,9 +26,10 @@ namespace
 namespace spark = teddy_sparks;
 namespace smoke = teddy_blackhole_smoke;
 namespace sliding = teddy_sliding;
-using EmitterData = std::variant<spark::Emitter, smoke::Emitter, sliding::Emitter>;
+namespace meteor = teddy_meteor;
+using EmitterData = std::variant<spark::Emitter, smoke::Emitter, sliding::Emitter, meteor::Emitter>;
 struct SlidingParticle { spark::Particle value; };
-using ParticleData = std::variant<std::monostate, spark::Particle, smoke::Particle, SlidingParticle>;
+using ParticleData = std::variant<std::monostate, spark::Particle, smoke::Particle, SlidingParticle, meteor::Particle>;
 struct Slot
 {
     ParticleData particle;
@@ -39,6 +41,8 @@ struct Slot
 particles::TemporaryPool<EmitterData, const model_t*> emitters;
 particles::OrdinaryPool<Slot> particlePool;
 particles::Frustum frustum;
+std::array<const model_t*,3> burnSprites{};
+bool burnPrepared{};
 const int* parseCount{};
 static_assert(offsetof(cl_entity_t, curstate) == 0x2b0);
 static_assert(offsetof(entity_state_t, messagenum) == 0x0c);
@@ -74,6 +78,7 @@ float hudTime{};
 bool busy{};
 std::uint64_t epoch{}, received{}, emitted{}, invalid{}, exhausted{}, draws{}, smokeMessages{}, smokeEmitted{};
 std::uint64_t slidingEmitted{}, ownerMismatches{};
+std::uint64_t meteorEmitted{}, emitterStops{};
 struct Operation { Operation() { busy = true; } ~Operation() { busy = false; } };
 struct Cancelled {};
 void CheckGeneration(std::uint64_t generation)
@@ -91,9 +96,42 @@ struct Random
         return value;
     }
 };
+struct IntegerRandom
+{
+    std::uint64_t generation;
+    int operator()(int low,int high) const
+    {
+        CheckGeneration(generation);
+        const int value=engine.pfnRandomLong(low,high);
+        CheckGeneration(generation);
+        return value;
+    }
+};
+void PrepareBurnSprites(std::uint64_t generation)
+{
+    if(burnPrepared)return;
+    std::array<const model_t*,3> loaded{};
+    for(unsigned i=0;i<loaded.size();++i)
+    {
+        const auto handle=engine.pfnSPR_Load(meteor::Sprites[i].data());
+        CheckGeneration(generation);
+        const auto* model=engine.GetSpritePointer(handle);
+        CheckGeneration(generation);
+        if(model && model->type==mod_sprite && model->numframes==1)loaded[i]=model;
+    }
+    burnSprites=loaded;
+    burnPrepared=true;
+}
+std::uint16_t EmitterOwner(const EmitterData& payload)
+{
+    if(const auto* event=std::get_if<sliding::Emitter>(&payload))return event->owner;
+    if(const auto* event=std::get_if<meteor::Emitter>(&payload))return event->owner;
+    return 0;
+}
 const spark::Particle* SparkValue(const Slot& slot)
 {
     if (const auto* p = std::get_if<spark::Particle>(&slot.particle)) return p;
+    if (const auto* p = std::get_if<meteor::Particle>(&slot.particle)) return &p->value;
     const auto* p = std::get_if<SlidingParticle>(&slot.particle);
     return p ? &p->value : nullptr;
 }
@@ -112,12 +150,19 @@ struct AddHost
     std::uint64_t generation;
     bool isSmoke{};
     bool isSliding{};
+    bool isMeteor{};
     int LoadSprite(const Record& record)
     {
         isSmoke = std::holds_alternative<smoke::Emitter>(record.payload);
         isSliding = std::holds_alternative<sliding::Emitter>(record.payload);
+        isMeteor = std::holds_alternative<meteor::Emitter>(record.payload);
+        // Original companions are bundled and prepared at VidInit. Prepare at
+        // accepted Add in this FastDL host, after assets can have arrived. No
+        // frame/draw loading or missing-model substitution is introduced.
+        if(isMeteor)PrepareBurnSprites(generation);
         const auto path = isSmoke ? smoke::Sprite.data() :
             isSliding ? sliding::Sprite.data() :
+            isMeteor ? meteor::Sprites[0].data() :
             spark::Sprites[std::get<spark::Emitter>(record.payload).sprite].data();
         return engine.pfnSPR_Load(path);
     }
@@ -128,6 +173,7 @@ struct AddHost
             model->numframes > static_cast<int>(spark::FrameCapacity)) return nullptr;
         // The fixed smoke consumer was proved against its twelve-frame resource.
         return (isSmoke && model->numframes != smoke::Particle::Frames) ||
+            (isMeteor && model->numframes != 1) ||
             (isSliding && model->numframes != 15) ? nullptr : model;
     }
     float HudTime() const { return hudTime; }
@@ -150,20 +196,32 @@ std::span<const std::uint8_t> Bytes(int size, void* data)
 int Receive(const char* name, int size, void* data)
 {
     const auto bytes = Bytes(size, data);
+    if(meteor::ReadStop(bytes))
+    {
+        if(busy){++invalid;return 1;}
+        Operation operation;
+        SynchronizeSession();
+        emitters.StopTagged(meteor::Group,0,EmitterOwner);
+        ++emitterStops;
+        return 1;
+    }
+    const auto burn=meteor::Read(bytes);
     const bool isSliding = bytes.size() > sliding::Sprite.size() && bytes[sliding::Sprite.size()] == 0 &&
         std::string_view(reinterpret_cast<const char*>(bytes.data()), sliding::Sprite.size()) == sliding::Sprite;
-    if (!spark::Identify(bytes) && !isSliding) return previous ? previous(name, size, data) : 1;
+    if (!spark::Identify(bytes) && !isSliding && !burn) return previous ? previous(name, size, data) : 1;
     const auto event = spark::Read(bytes);
     const auto slide = isSliding ? sliding::Read(bytes) : std::optional<sliding::Emitter>{};
-    if ((!event && !slide) || busy || !engine.pfnSPR_Load || !engine.GetSpritePointer ||
-        (isSliding && (!parseCount || !engine.GetEntityByIndex))) { ++invalid; return 1; }
+    if ((!event && !slide && !burn) || busy || !engine.pfnSPR_Load || !engine.GetSpritePointer ||
+        ((isSliding || burn) && (!parseCount || !engine.GetEntityByIndex)) ||
+        (burn && (!engine.pfnRandomLong || !engine.pfnRandomFloat))) { ++invalid; return 1; }
     Operation operation;
     SynchronizeSession();
     Record record;
-    record.total = 3;
+    record.total = burn ? -1 : 3;
     record.burst = 1;
-    record.interval = isSliding ? .1f : event->interval;
-    if (slide) record.payload = *slide;
+    record.interval = burn ? .01f : isSliding ? .1f : event->interval;
+    if (burn) {record.payload=*burn;record.tag=meteor::Group;}
+    else if (slide) record.payload = *slide;
     else record.payload = *event;
     try { AddRecord(record); }
     catch (const Cancelled&) {}
@@ -209,9 +267,10 @@ struct EmitHost
     void BadSprite(const Record&) const { ++invalid; }
     particles::EmitterPrepare Prepare(Record& record, float)
     {
-        if (const auto* event = std::get_if<sliding::Emitter>(&record.payload))
+        const auto ownerIndex=EmitterOwner(record.payload);
+        if (ownerIndex)
         {
-            const auto* owner = engine.GetEntityByIndex(event->owner);
+            const auto* owner = engine.GetEntityByIndex(ownerIndex);
             CheckGeneration(generation);
             // Original dereferences a null owner. Stop this host frame safely;
             // do not manufacture a stamp or claim an original graceful skip.
@@ -222,17 +281,29 @@ struct EmitHost
                 ++ownerMismatches;
                 return particles::EmitterPrepare::NextRecord;
             }
-            ownerOrigin = {owner->origin[0], owner->origin[1], owner->origin[2]};
+            const auto* burn=std::get_if<meteor::Emitter>(&record.payload);
+            const auto* origin=burn?owner->attachment[burn->attachment]:owner->origin;
+            ownerOrigin = {origin[0],origin[1],origin[2]};
         }
         return particles::EmitterPrepare::Emit;
     }
     bool Create(const Record& record, float now) const
     {
+        Random random{generation};
+        std::optional<meteor::Prepared> prepared;
+        const auto* burn=std::get_if<meteor::Emitter>(&record.payload);
+        if(burn)
+        {
+            IntegerRandom integer{generation};
+            prepared=meteor::Prepare(*burn,ownerOrigin,random,integer);
+            // Original factory rejects its selected null model after pre-RNG.
+            if(!burnSprites[prepared->sprite]){++invalid;return false;}
+        }
         auto* slot = particlePool.Allocate(true);
         if (!slot) { ++exhausted; return false; }
-        Random random{generation};
         ParticleData particle;
         float nextPvs = now;
+        const model_t* model=record.model;
         if (const auto* event = std::get_if<spark::Emitter>(&record.payload))
             particle = spark::Spawn(*event, now, random);
         else if (const auto* event = std::get_if<sliding::Emitter>(&record.payload))
@@ -245,13 +316,21 @@ struct EmitHost
             value.die = now + .5f;
             particle = SlidingParticle{value};
         }
+        else if(burn)
+        {
+            nextPvs=Time();CheckGeneration(generation);
+            const float born=Time();CheckGeneration(generation);
+            particle=meteor::Spawn(*burn,*prepared,now,born,random);
+            model=burnSprites[prepared->sprite];
+        }
         else
             particle = smoke::Spawn(std::get<smoke::Emitter>(record.payload), now, random);
         CheckGeneration(generation);
-        *slot = {particle, record.model, {0, 0, 1}, nextPvs, true};
+        *slot = {particle, model, {0, 0, 1}, nextPvs, true};
         ++emitted;
         smokeEmitted += std::holds_alternative<smoke::Particle>(particle);
         slidingEmitted += std::holds_alternative<SlidingParticle>(particle);
+        meteorEmitted += std::holds_alternative<meteor::Particle>(particle);
         return true;
     }
 };
@@ -359,6 +438,13 @@ struct ParticleHost
             angleVectors(view);
             slot.angles = {view[0], view[1], p->value.roll};
         }
+        else if (auto* p = std::get_if<meteor::Particle>(&slot.particle))
+        {
+            meteor::Tick(*p,snapshot,particlePool.PreviousTime(),particlePool.Gravity(),1);
+            const particles::Vec3 view{camera()[0],camera()[1],camera()[2]};
+            angleVectors(view);
+            slot.angles={view[0],view[1],p->value.roll};
+        }
         else
         {
             World world{generation};
@@ -464,6 +550,7 @@ void ResetParticleEffects()
     ++epoch;
     particlePool.Clear();
     emitters.ResetVideoRecords();
+    burnSprites={};burnPrepared=false;
 }
 void ShutdownParticleEffects()
 {
@@ -520,5 +607,6 @@ void ParticleEffectsDiagnostics(std::ostream& out)
         << " pending=" << pending << " invalid=" << invalid << " exhausted=" << exhausted << " draws=" << draws
         << " blackholeMessages=" << smokeMessages << " blackholeEmitted=" << smokeEmitted << '\n';
     out << "particles slidingEmitted=" << slidingEmitted << " ownerMismatches=" << ownerMismatches << '\n';
+    out << "particles meteorEmitted=" << meteorEmitted << " stops=" << emitterStops << '\n';
 }
 }

@@ -61,6 +61,26 @@ public:
             }
     }
 
+    // Original02AA57F0: owner0 matches every owner in the requested group.
+    // This clears only temporary records, never already allocated particles.
+    // Owner is a side-effect-free typed accessor for the caller's payload.
+    template<class Owner> EmitterResult StopTagged(std::uint32_t tag, std::uint16_t owner, Owner ownerOf)
+    {
+        if (adding_ || thinking_) return EmitterResult::Reentrant;
+        Guard guard{thinking_};
+        const auto epoch = ++epoch_;
+        for (auto& record : records_)
+            if (record.tag == tag && (!owner || ownerOf(record.payload) == owner))
+            {
+                if (epoch != epoch_) return EmitterResult::Invalidated;
+                record.tag = 0;
+                record.active = 0;
+                record.remaining = 0;
+                record.total = 0;
+            }
+        return EmitterResult::Complete;
+    }
+
     // Host exposes LoadSprite(record), GetModel(handle), HudTime(), Overflow.
     // HudTime reads the Redraw cache AFTER resource callbacks, not Frame time.
     template <class Host> EmitterResult Add(const Record &input, Host &host)

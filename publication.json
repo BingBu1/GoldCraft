@@ -2167,7 +2167,12 @@
     "docs/2026-11-12_实现-滑行接口与共享粒子运行接线-report.md",
     "tools/Prepare-CryOfFearPresentation.py",
     "tests/cryoffear-host-admission/README.md",
-    "docs/2026-11-12_实现-CoF机瞄输入与购买HUD准入-report.md"
+    "docs/2026-11-12_实现-CoF机瞄输入与购买HUD准入-report.md",
+    "native/csol/scenario/bosses/teddy_meteor.hpp",
+    "native/csol/scenario/core/emitter_runtime.hpp",
+    "native/csol/server/scenario/bosses/scenario_teddy_resources.h",
+    "tests/csol-teddy-sparks/meteor_runtime_oracle.py",
+    "docs/2026-11-12_实现-流星燃烧与分组停止运行接线-report.md"
   ],
   "trees": {
     "native": [
