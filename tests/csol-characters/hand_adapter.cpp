@@ -36,12 +36,41 @@ model_t* LoadEngineModel(const char*){throw std::runtime_error("unexpected sprit
 }
 int main(int argc,char** argv){using namespace csol;using namespace csol::client;using fixture::Check;
 try {
-    Check(argc==3);fixture::stock=argv[1];fixture::resources=argv[2];
+    Check(argc==3 || argc==6);fixture::stock=argv[1];fixture::resources=argv[2];
     Check(glfwInit()!=0);glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);auto* window=glfwCreateWindow(64,64,"Hand adapter GL",nullptr,nullptr);Check(window);
     glfwMakeContextCurrent(window);glewExperimental=true;Check(glewInit()==GLEW_OK);while(glGetError()){}
     engine.Con_Printf=fixture::Console;event_api_t event{};event.EV_FindModelIndex=[](const char*){return fixture::advertised?1:0;};engine.pEventAPI=&event;
     const auto data=ReadResource("models/csol/characters.json");auto catalog=ParseCharacters({(char*)data.data(),data.size()});
     fixture::character=&catalog.front();const auto donor=ReadResource("models/csol/hands/v_hegrenade.mdl");
+    if(argc==6) {
+        constexpr char targetPath[]="models/guest/cof/glock/v_glock.mdl";
+        fixture::injected[targetPath]=fixture::Read(argv[3]);
+        fixture::injected["models/csol/hands/v_cof_authored.mdl"]=fixture::Read(argv[4]);
+        fixture::injected["models/guest/cof/glock/v_glock_hands.json"]=fixture::Read(argv[5]);
+        model_t model{};strcpy_s(model.name,targetPath);auto* original=GetAsset(&model);Check(original);
+        const auto bytes=original->bytes;const auto header=original->Header();
+        auto* adapted=ViewHandAsset(original);Check(adapted!=original&&adapted->vao&&adapted->adaptedHands==nullptr);
+        Check(adapted->adaptedMeshes>0&&adapted->adaptedBones>0);
+        Check(original->bytes==bytes&&!memcmp(adapted->bytes.data()+sizeof(studiohdr_t),bytes.data()+sizeof(studiohdr_t),bytes.size()-sizeof(studiohdr_t)));
+        Check(adapted->Header().numbones==header.numbones&&adapted->Header().seqindex==header.seqindex&&adapted->Header().numseq==header.numseq);
+        Check(adapted->Header().attachmentindex==header.attachmentindex&&adapted->Header().numattachments==header.numattachments);
+        const int hands=adapted->Header().numbodyparts-1;
+        for(const auto& c:catalog) {
+            fixture::character=&c;UpdateHands();
+            Check(CharacterHandSubmodel(*adapted,hands,0)==(c.male?0:1));
+            Check(ViewHandAsset(original)==adapted);
+            for(const auto& batch:adapted->batches)if(batch.group==hands&&batch.submodel==(c.male?0:1)){
+                const auto skins=adapted->Data<int16_t>(adapted->Header().skinindex,adapted->Header().numskinref);
+                const auto& material=adapted->materials[skins[batch.skinref]];Check(material.hand>=0);
+                GLuint texture=material.texture;float w=float(material.width),h=float(material.height),uv[2]{};
+                ApplyHand(material,texture,w,h,uv);Check(c.hand.empty()?texture==material.texture:texture!=material.texture);
+            }
+        }
+        fixture::character=nullptr;Check(ViewHandAsset(original)==original);
+        Check(glGetError()==GL_NO_ERROR);ClearAssets();
+        std::cout<<"PASS CoF authored hand adapter "<<fixture::checks<<" checks / "<<catalog.size()<<" roles; GL "<<glGetString(GL_RENDERER)<<';'<<" visual/gameplay pending\n";
+        glfwDestroyWindow(window);glfwTerminate();return 0;
+    }
     int models{};
     for(const char* file:{"models/zombie_plague/v_grenade_fire.mdl","models/zombie_plague/v_grenade_frost.mdl","models/zombie_plague/v_grenade_flare.mdl","models/v_ak47.mdl","models/v_m4a1.mdl","models/v_glock18.mdl"}) {
         model_t model{};strcpy_s(model.name,file);auto* original=GetAsset(&model);Check(original);
