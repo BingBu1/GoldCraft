@@ -7,6 +7,7 @@
 #include "../../../scenario/bosses/teddy_blackhole_smoke.hpp"
 #include "../../../scenario/core/emitter_runtime.hpp"
 #include "../../../scenario/core/particle_runtime.hpp"
+#include "../../../scenario/core/particle_visibility.hpp"
 #include <event_api.h>
 #include <pmtrace.h>
 #include <pm_movevars.h>
@@ -34,6 +35,7 @@ struct Slot
 };
 particles::TemporaryPool<EmitterData, const model_t*> emitters;
 particles::OrdinaryPool<Slot> particlePool;
+particles::Frustum frustum;
 using Record = decltype(emitters)::Record;
 PreciseTrigonometry preciseMath;
 struct NativeCameraFields
@@ -253,12 +255,12 @@ struct ParticleHost
     float Time() const { return static_cast<float>(engine.GetClientTime()); }
     bool Visible(Slot& slot) const
     {
+        const float extent = Size(slot) / 5.f;
         const float now = Time();
         CheckGeneration(generation);
         auto* tri = engine.pTriAPI;
         if (now >= slot.nextPvsCheck && tri->BoxInPVS)
         {
-            const float extent = Size(slot) / 5.f;
             const auto& origin = csol::client::Position(slot);
             float mins[3], maxs[3];
             for (unsigned axis = 0; axis < 3; ++axis)
@@ -273,7 +275,7 @@ struct ParticleHost
             CheckGeneration(generation);
             slot.nextPvsCheck = static_cast<float>(static_cast<double>(resampled) + static_cast<double>(.1f));
         }
-        return slot.inPvs;
+        return particles::FixedBoundsVisible(csol::client::Position(slot), extent, frustum, slot.inPvs);
     }
     particles::Vec3 SortOrigin() const
     {
@@ -422,7 +424,7 @@ void DrawParticleEffects()
         !engine.GetLocalPlayer || !view.movevars || !cameraFields.observer) return;
     auto* tri = engine.pTriAPI;
     if (!tri || !tri->SpriteTexture || !tri->RenderMode || !tri->CullFace ||
-        !tri->Begin || !tri->End || !tri->Color4f || !tri->TexCoord2f || !tri->Vertex3f) return;
+        !tri->Begin || !tri->End || !tri->Color4f || !tri->TexCoord2f || !tri->Vertex3f || !tri->GetMatrix) return;
     Operation operation;
     const auto generation = epoch;
     auto clock = [] { return static_cast<float>(engine.GetClientTime()); };
@@ -430,6 +432,14 @@ void DrawParticleEffects()
     const auto angles = mode == 0 || mode == 3 ? clientDataAngles :
         particles::Vec3{cameraFields.render[0], cameraFields.render[1], cameraFields.render[2]};
     if (!particlePool.SetEnvironment(view.movevars->gravity, angles, clock) || generation != epoch) return;
+    // Original outer render stage prepares six planes once for this view,
+    // before traversing particles. The SDK owns the actual matrix read ABI.
+    particles::Matrix projection, model;
+    tri->GetMatrix(0x0ba7, projection.data());
+    if (generation != epoch) return;
+    tri->GetMatrix(0x0ba6, model.data());
+    if (generation != epoch) return;
+    frustum = particles::GenerateFrustum(projection, model);
     ParticleHost host{generation};
     try { particlePool.Frame(host); }
     catch (const Cancelled&) {}

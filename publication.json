@@ -2159,7 +2159,10 @@
     "tests/cryoffear-point-light-render/gl.cpp",
     "tests/cryoffear-point-light-render/oracle.py",
     "tests/cryoffear-point-light-render/run.py",
-    "docs/2026-11-12_实现-CoF动态刷子点光-report.md"
+    "docs/2026-11-12_实现-CoF动态刷子点光-report.md",
+    "native/csol/scenario/core/particle_visibility.hpp",
+    "tests/csol-teddy-sparks/visibility_oracle.py",
+    "docs/2026-11-12_实现-公共粒子六平面裁剪-report.md"
   ],
   "trees": {
     "native": [

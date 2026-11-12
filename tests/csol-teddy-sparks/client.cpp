@@ -20,6 +20,7 @@ namespace test
 {
 using namespace csol::client;
 namespace spark = csol::teddy_sparks;
+namespace particles = csol::particles;
 unsigned checks{}, timeCalls{}, loadCalls{}, modelCalls{}, rngCalls{}, chainCalls{}, hookCalls{}, begins{}, ends{}, vertices{}, pvsCalls{}, localCalls{};
 unsigned rngAxis{};
 float clockNow{10};
@@ -42,6 +43,8 @@ std::vector<std::array<int, 2>> binds;
 std::vector<std::array<float, 3>> positions, angleInputs;
 std::vector<int> modes, culls;
 std::vector<float> samples;
+csol::particles::Matrix projectionMatrix{}, modelMatrix{};
+std::vector<int> matrixQueries;
 std::size_t sampleAt{};
 std::vector<std::uint8_t> reentryPacket;
 
@@ -139,6 +142,10 @@ void Fresh()
         for (unsigned i = 0; i < 3; ++i) { forward[i] = i == 2; right[i] = i == 0; up[i] = i == 1; }
         ResetCallback("angles");
     };
+    projectionMatrix={};modelMatrix={};for(unsigned i=0;i<16;i+=5){projectionMatrix[i]=i==15?1.f:.0001f;modelMatrix[i]=1;}
+    matrixQueries.clear();
+    triangles.GetMatrix=[](const int name,float* out){ Check(name==0xba7 || name==0xba6,"SDK original matrix query enum");matrixQueries.push_back(name);
+      const auto& m=name==0xba7?projectionMatrix:modelMatrix;for(unsigned i=0;i<16;++i)out[i]=m[i];ResetCallback(name==0xba7?"projection":"modelMatrix"); };
     triangles.RenderMode = [](int mode) { modes.push_back(mode); ResetCallback("mode"); };
     triangles.CullFace = [](TRICULLSTYLE style) { culls.push_back(style); ResetCallback("cull"); };
     triangles.SpriteTexture = [](model_t* model, int frame) { binds.push_back({model == &models[2] ? 2 : model == &models[1] ? 1 : 0, frame}); ResetCallback("sprite"); return 1; };
@@ -163,7 +170,7 @@ void Fresh()
     clockNow = 9; DrawParticleEffects(); clockNow = 10; DrawParticleEffects();
     received = emitted = invalid = exhausted = draws = smokeMessages = smokeEmitted = 0;
     timeCalls = loadCalls = modelCalls = rngCalls = chainCalls = hookCalls = pvsCalls = localCalls = 0;
-    rngAxis = 0; randomBounds.clear(); ClearDraw(); CacheParticleHudTime(10);
+    rngAxis = 0; randomBounds.clear(); ClearDraw(); matrixQueries.clear();CacheParticleHudTime(10);
 }
 void Frame(float now) { clockNow = now; UpdateParticleEmitters(); }
 Slot* Seed(float x, unsigned sprite = 0, float die = 20)
@@ -330,6 +337,7 @@ void SharedCases()
         std::count(modes.begin(),modes.end(),kRenderTransAlpha) == 36 &&
         std::count(modes.begin(),modes.end(),kRenderTransAdd) == 1, "smoke trace and mode4 coexist with additive sparks");
     Check(loadCalls == 37 && modelCalls == 37 && ringRngCalls == 108, "draw does not load or rebuild rings");
+    Check(matrixQueries==std::vector<int>{0xba7,0xba6},"two matrix reads per view, never per particle");
     for (float now : {10.2f,10.4f,10.6f,10.8f}) Frame(now);
     Check(smokeEmitted == 180 && emitted == 183 && !Pending(), "ring five emissions with spark three emissions");
 
@@ -385,6 +393,61 @@ void SharedCases()
         smoke::PrepareDraw(lifetime,11,{},{}).has_value(), "Draw equality gate is separate from manager retirement");
 }
 
+
+
+void FrustumCases()
+{
+    Fresh(); Seed(10); DrawParticleEffects();
+    Check(matrixQueries==std::vector<int>{0xba7,0xba6},"frustum prepared once per transparent view");
+    for(const char* stage : {"projection","modelMatrix"})
+    {
+        Fresh(); Seed(10);resetAt=stage;DrawParticleEffects();
+        Check(!particlePool.ActiveCount() && !vertices,"matrix callback invalidates stale view");
+    }
+    Fresh(); projectionMatrix=modelMatrix; auto* slot=Seed(40);std::get<spark::Particle>(slot->particle).size=5;
+    std::get<spark::Particle>(slot->particle).origin={3,0,0};
+    DrawParticleEffects();
+    Check(!vertices && particlePool.ActiveCount()==1,"PVS true cannot override frustum outside");
+    std::get<spark::Particle>(slot->particle).origin={0,0,0};DrawParticleEffects();
+    Check(vertices==4,"inside fixed AABB remains visible");
+    Fresh(); projectionMatrix=modelMatrix; slot=Seed(1);std::get<spark::Particle>(slot->particle).size=0;
+    std::get<spark::Particle>(slot->particle).origin={1,0,0};DrawParticleEffects();
+    Check(!vertices,"exact frustum plane is outside for zero extent");
+}
+float InputBits()
+{
+    std::uint32_t bits;
+    Check(bool(std::cin>>bits),"missing float32 bits");
+    return std::bit_cast<float>(bits);
+}
+void FrustumOracle()
+{
+    std::uint32_t first;
+    while(std::cin>>first)
+    {
+        particles::Matrix projection,model;
+        projection[0]=std::bit_cast<float>(first);
+        for(unsigned i=1;i<16;++i)projection[i]=InputBits();
+        for(float& value:model)value=InputBits();
+        const auto planes=particles::GenerateFrustum(projection,model);
+        std::cout << '[';
+        for(unsigned i=0;i<24;++i)std::cout << (i?",":"") << std::bit_cast<std::uint32_t>(planes[i/4][i%4]);
+        std::cout << "]\n";
+    }
+}
+void VisibilityOracle()
+{
+    std::uint32_t first;
+    while(std::cin>>first)
+    {
+        particles::Vec3 origin{std::bit_cast<float>(first),InputBits(),InputBits()};
+        const float size=InputBits();
+        particles::Frustum planes;
+        for(auto& plane:planes)for(float& value:plane)value=InputBits();
+        int pvs;Check(bool(std::cin>>pvs),"missing PVS");
+        std::cout << (particles::FixedBoundsVisible(origin,size/5.f,planes,pvs!=0)?1:0) << '\n';
+    }
+}
 
 void CameraOracle()
 {
@@ -484,6 +547,8 @@ void EmitterOracle()
 int main(int argc, char** argv)
 {
     std::cout << std::setprecision(9);
+    if (argc == 2 && std::string(argv[1]) == "--frustum-oracle") { test::FrustumOracle(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--visibility-oracle") { test::VisibilityOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--camera-oracle") { test::CameraOracle(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--math-values") { test::MathValues(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--math-identity") { test::MathIdentity(); return 0; }
@@ -524,6 +589,6 @@ int main(int argc, char** argv)
         }
         return 0;
     }
-    try { test::Cases(); test::SharedCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
+    try { test::Cases(); test::SharedCases(); test::FrustumCases(); std::cout << "{\"success\":true,\"checks\":" << test::checks << "}\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

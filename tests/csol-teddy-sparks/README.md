@@ -1,5 +1,22 @@
 # Teddy spawn spark original instruction oracle
 
+## Fixed six-plane visibility
+
+The actual shared runtime now prepares the original six planes once per view
+using the SDK GetMatrix projection/modelview calls, then combines fixed
+drawFlags1C AABB visibility with cached PVS. Boundary equality is outside.
+The current SDK result is `build/teddy-frustum-sdk-20261112-02/result.json`:3819
+checks,57 unchanged actual workspace includes. `visibility_oracle.py` checks
+84 original matrix cases /2016 float32 fields and578 original visibility cases;
+full463/201 IDA instruction starts and2257/760 original byte windows are checked.
+It deliberately does not implement unproved sphere/point flag variants.
+
+The same actual SDK EXE exposes `--frustum-oracle` (32 uint32 float bits to24
+plane bits) and `--visibility-oracle` (origin3,size,planes24 float bits plus PVS
+integer to boolean0/1). No matrices are queried per particle. Real GL/CPU/frame
+time and gameplay remain unverified; see the2026-11-12 frustum domain report.
+
+
 ## Shared spark and Blackhole runtime
 
 The production implementation now lives in
