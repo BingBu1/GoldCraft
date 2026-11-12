@@ -818,6 +818,14 @@ void BuyMenuCreateMove(usercmd_t* cmd,int active)
     cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;std::copy_n(angles,3,cmd->viewangles);engine.SetViewAngles(angles);
 }
 bool BuyMenuVisible(){return visible;}
+bool PrepareBuyMenuItem(int id)
+{
+    if (!ResourceReadsAllowed() || !surface || !extension || !Load()) return false;
+    const auto found = presentation.images.find(id);
+    if (found == presentation.images.end() || !presentation.weaponInfo.items.contains(id)) return false;
+    const auto image = imageRefs.find(&found->second);
+    return image != imageRefs.end() && image->second != 0;
+}
 void CloseBuyMenuForOverlay(){Close(false);restoreMouse=false;}
 void BuyMenuDiagnostics(std::ostream& out){out<<",\"buyMenu\":{\"capability\":"<<capability<<",\"visible\":"<<visible<<",\"loaded\":"<<loaded<<",\"team\":"<<team<<",\"category\":"<<category<<",\"search\":"<<bool(searchEntry)<<",\"offers\":"<<offers.size()<<",\"purchases\":"<<purchases<<",\"rejected\":"<<rejected<<",\"draws\":"<<draws<<",\"mouseRestores\":"<<restores<<'}';}
 }

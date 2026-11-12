@@ -262,6 +262,10 @@ def catalog_weapons(data):
         raise ValueError('Unsupported buy::Catalog row syntax')
     names = []
     for ident, category, alias, title, icon, price in rows:
+        # Authored foreign-game art is supplied by its own resource exporter.
+        # It has no original CSO translation or weapon/knife table identity.
+        if (int(ident), alias) == (896, 'cof_glock'):
+            continue
         if int(category) in (6, 7) or alias in ('vest', 'vesthelm'):
             continue
         name = WEAPON_NAMES.get(alias, alias)

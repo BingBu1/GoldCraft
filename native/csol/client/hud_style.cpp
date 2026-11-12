@@ -683,6 +683,13 @@ void HudStyleFrame()
     if (!loaded) return;
     PrepareSelection();
 }
+bool HudStyleWeaponResourcesReady(int id) noexcept
+{
+    if (!loaded || !titleFont || !ValidWeaponId(id)) return false;
+    const auto* card = preparedCards[id];
+    return card && card->equippedReady && card->image.id && card->ammo.id &&
+        card->selectedKnown && (card->selectedAbsent || card->selectedImage.id) && !card->title.empty();
+}
 void BeginHudStyle(int hidden,int intermission)
 {
     vitalsVisible=weaponVisible=moneyVisible=false;

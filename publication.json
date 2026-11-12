@@ -2164,7 +2164,10 @@
     "tests/csol-teddy-sparks/visibility_oracle.py",
     "docs/2026-11-12_实现-公共粒子六平面裁剪-report.md",
     "tests/csol-teddy-sparks/sliding_runtime_oracle.py",
-    "docs/2026-11-12_实现-滑行接口与共享粒子运行接线-report.md"
+    "docs/2026-11-12_实现-滑行接口与共享粒子运行接线-report.md",
+    "tools/Prepare-CryOfFearPresentation.py",
+    "tests/cryoffear-host-admission/README.md",
+    "docs/2026-11-12_实现-CoF机瞄输入与购买HUD准入-report.md"
   ],
   "trees": {
     "native": [
