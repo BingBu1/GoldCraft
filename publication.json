@@ -2172,7 +2172,9 @@
     "native/csol/scenario/core/emitter_runtime.hpp",
     "native/csol/server/scenario/bosses/scenario_teddy_resources.h",
     "tests/csol-teddy-sparks/meteor_runtime_oracle.py",
-    "docs/2026-11-12_实现-流星燃烧与分组停止运行接线-report.md"
+    "docs/2026-11-12_实现-流星燃烧与分组停止运行接线-report.md",
+    "tests/csol-boss-room/README.md",
+    "docs/2026-11-12_修正-泰迪熊陨石房间与实体注册-report.md"
   ],
   "trees": {
     "native": [
