@@ -63,6 +63,18 @@ std::string Read(const std::string& path)
 }
 namespace csol::client
 {
+namespace {bool visible{},buyVisible{},voteVisible{};float menuAngles[3]{};unsigned nativeMoves{};}
+void WeaponInventoryCreateMove(float,usercmd_t* cmd,int)
+{
+    ++nativeMoves;
+    if(cmd){*cmd={};cmd->buttons=IN_USE|IN_ATTACK2|IN_FORWARD;}
+}
+bool CharacterMenuVisible(){return visible;}
+void BossImpactCreateMove(int){}
+void BuyMenuCreateMove(usercmd_t* cmd,int){if(cmd&&buyVisible)cmd->buttons=0;}
+void ScenarioMapVoteCreateMove(usercmd_t* cmd,int){if(cmd&&voteVisible)cmd->buttons=0;}
+void ChainAngles(float*){}
+#include "native-create-move-chain.inc"
 std::uint64_t GuestCofEffectsResourceSerial() noexcept{return resourceSerial;}
 GuestCofResourceState GuestCofResourcesState() noexcept{return resources;}
 bool GuestCofParticlesReady() noexcept{return particles;}
@@ -73,6 +85,7 @@ bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
 bool GuestCofMouseReady() noexcept{return mouse;}
 void GuestCofMouseFrame() noexcept{}
+const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
 bool HudStyleWeaponResourcesReady(int id) noexcept{CHECK(id==896);return hud;}
@@ -84,7 +97,7 @@ int main(int argc,char** argv)
     if(argc!=2)return 2;
     const std::string root=argv[1];
     const auto catalog=csol::hud_style::ParseCatalog(Read(root+"/models/csol/hud_v7.json"));
-    const auto buy=csol::buy::ParsePresentation(Read(root+"/models/csol/buymenu_v11.json"));
+    const auto buy=csol::buy::ParsePresentation(Read(root+"/"+csol::buy::PresentationResource));
     CHECK(catalog.weapons.contains("weapon_cof_glock"));
     const auto& art=catalog.weapons.at("weapon_cof_glock");
     CHECK(art.title=="客串武器·Glock 19"&&art.selectedKnown&&art.selected==art.weapon&&!art.ammo.empty());
@@ -117,6 +130,18 @@ int main(int argc,char** argv)
     resources.studioAndRecoilPrepared=resources.decalsPrepared=true;
     InitializeGuestCofAdmission(&provider);CHECK(!GuestCofAdmitted()&&protocol.value==0);
     GuestCofAdmissionFrame();CHECK(GuestCofAdmitted()&&protocol.value==1&&menuLoads==1);
+    engine.SetViewAngles=ChainAngles;
+    usercmd_t chain{};
+    Press();CreateMove(.01f,&chain,1);CHECK((chain.buttons&IN_CANCEL)&&nativeMoves==1);
+    CHECK((chain.buttons&(IN_USE|IN_ATTACK2|IN_FORWARD))==(IN_USE|IN_ATTACK2|IN_FORWARD));
+    Release();CreateMove(.01f,&chain,1);CHECK(!(chain.buttons&IN_CANCEL)&&nativeMoves==2);
+    for(bool* panel:{&visible,&buyVisible,&voteVisible})
+    {
+        Press();*panel=true;CreateMove(.01f,&chain,1);CHECK(chain.buttons==0);
+        Release();*panel=false;CreateMove(.01f,&chain,1);CHECK(!(chain.buttons&IN_CANCEL));
+    }
+    Press();CreateMove(.01f,&chain,0);CHECK(!(chain.buttons&IN_CANCEL));
+    Release();
     // The outer HUD_Frame deliberately returns during resource replacement;
     // input must stop immediately without waiting for that skipped callback.
     allowReads=false;CHECK(!GuestCofAdmitted());

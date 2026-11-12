@@ -42,8 +42,19 @@ def main():
            '/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','-Wno-overriding-option',
            '/DNDEBUG',*[s for s in tokens if s.startswith('-D')],
            *['/imsvc'+s[2:] for s in tokens if s.startswith('-I')]]
+    flags.append('/I'+str(output))
+    # Compile the real orchestration bodies; native input is an explicit overwrite boundary.
+    chain_sources=[ROOT/'native/csol/client/plugin.cpp',ROOT/'native/csol/client/characters.cpp']
+    def function(path, signature):
+        text=path.read_text('utf-8-sig');start=text.index(signature);at=text.index('{',start);end=at+1;depth=1
+        while depth:
+            depth+=(text[end]=='{')-(text[end]=='}');end+=1
+        return text[start:end]
+    (output/'native-create-move-chain.inc').write_text(
+        function(chain_sources[1],'void CharacterCreateMove(')+'\n'+
+        function(chain_sources[0],'static void CreateMove(')+'\n','utf8')
     sources=[ROOT/p for p in SOURCES]
-    inputs=set(sources)|{Path(__file__).resolve(),args.commands.resolve(),args.environment.resolve(),
+    inputs=set(sources)|set(chain_sources)|{Path(__file__).resolve(),args.commands.resolve(),args.environment.resolve(),
                           config,compiler,compiler.with_name('lld-link.exe')}
     inputs.update(ROOT/p for p in EXTRA_INPUTS)
     if args.presentation:inputs.update(p.resolve() for p in args.presentation.rglob('*') if p.is_file())

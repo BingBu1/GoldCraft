@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "weapons/guest_cof.hpp"
+#include "weapons/guest_cof_input.hpp"
+#include "weapons/guest_cof_admission.hpp"
 #include "weapons/guest_cof_audio.hpp"
 #include "weapons/guest_cof_particles.hpp"
 #include "resource_refresh.hpp"
@@ -440,6 +442,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
 {
     BossImpactCreateMove(active);
     CharacterCreateMove(frame, cmd, active);
+    GuestCofCreateMove(cmd, active && !CharacterMenuVisible(), GuestCofAdmitted());
     BuyMenuCreateMove(cmd, active);
     ScenarioMapVoteCreateMove(cmd, active);
 }

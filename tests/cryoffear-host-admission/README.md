@@ -13,3 +13,9 @@ Run the two commands in the linked report with a fresh build directory:
 The report also records the original SHA-pinned IDA command/bit consumers,
 host-only UI adaptations and publication boundaries. Original binaries,
 disassembly, assets and machine-specific build outputs are not published.
+
+The fixture compiles the production CreateMove and CharacterCreateMove bodies
+against a native command-rebuild boundary. It checks the aim bit after native
+input, all three menu suppression paths, release, inactive input and preservation
+of Use/right-click/movement. The presentation filename comes from the compiled
+contract. This component does not establish full plugin/weapon activation.
