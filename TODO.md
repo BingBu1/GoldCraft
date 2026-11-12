@@ -1,6 +1,6 @@
 # TODO
 
-- [ ] 完成Nightmare泰迪熊owner发布闭包与玩法：room实体/共享cache及真实构造/Meteor房间分支已原证和SDK通过，继续CMeteor/礼盒伤害奖励、rules354/HTTP、完整owner及Precache/Session发布、增强renderer/辅助列表/VXL53/断线与真实专服/多人/性能；未验不开放投票。见 docs/2026-11-12_实现-BOSS共享房间缓存与构造接线-report.md。
+- [ ] 完成Nightmare泰迪熊地图：人类11-12授权礼盒发枪/三奖励枪延期；现房间/实体/取消/火花/真实伤害SDK210/16476过，继续移出11奖励模型冷门、显式subtype1准入、完整owner发布与HTTP/整图实测。账号仓库未接入；rules354/renderer/断线/多人性能及最终原版奖励保留。见 docs/2026-11-12_调整-泰迪熊奖励武器延期-report.md。
 
 - [ ] 完成 Cry of Fear 客串武器整枪注册、原机瞄/推搡/丢拾/渲染与输入接线、真实资源及23/18效果消费者、owner-frame、持续枪烟容量语义、P握姿与CSO动作、购买及灾变JSON伤害；Glock/P345生命周期/冷资源/枪口组件已过原指令与SDK，仍待整DLL、专服多人/声音画面与实机性能。见 docs/2026-11-11_接入-CryOfFear武器-report.md。
 
