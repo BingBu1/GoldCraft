@@ -55,3 +55,21 @@ python tests/cryoffear-host-admission/run.py \
 尚须验证配套实际后端、服务端购买及灾变 JSON 契约、弹药/重购/丢拾、CSO 男女握姿与动作、机瞄灵敏度和原准星、所有特效/声音、多人及真实 CPU/帧时间。其他 CoF 武器及缺失 P 模型范围保持；当前没有新增可玩验收数量。
 
 主连续性文档的精确更新单独保留在本领域私有 `shared-document-updates.json`，等待共享编辑窗口；遵照用户要求，本次不向主调度发送非打包消息。2026-11-12 时间线：恢复核验 → 新输入 IDA 字节复核 → 客串资源/实际准入实现 → fixture 纠正并通过 → 完整构建与源码封存核验。
+
+
+## 最终构建、发布与界面阻塞
+
+独立输入/界面/准入组件已提交并推送 `main` 的 `5a915b85f5822fa77269c65fb51b753e4c4bb6e9`，远端核同；25 个路径，完整 index 3,540 项扫描零问题，17 个已编译输入与暂存 blob 完全相同。生产回调接线仍保留在工作区，不把这份组件提交冒称整枪已公开交付。
+
+配套候选现已完成实际编链和当前文件 SHA/PE32/x86/独立文件身份核对，收据为 `build/cof-paired-candidate-20261112-admission-01/receipt.json`：
+
+| 模块 | SHA-256 | 验证 |
+| --- | --- | --- |
+| CSOLSupport.dll | `e662ee41273cf6f7b0fac5d3f9ace26f998b3cdeb5e70c3ec729779e663ed26c` | 完整编链，输入不变 |
+| GoldCraft.dll | `bb2f0a1cdeb330086268d9f31de277cf7cf139307ef265845ba86568e1cfb7ed` | 完整编链，额外封存真实 native/client 输入，三个连接/声音/就绪导出均存在 |
+| mp.dll | `1fda481ae8db903af5580f3434a2ecc9f1a99e2f434e51873fa73ffbb8419161` | 完整编链，输入不变；随后增量重建保持相同 SHA |
+| Renderer.dll | `637f206673f885e46dd717a4c9566bb0421a9997df0b41fe5ba8d7bd5a178da2` | 复核先前已构建的实际点光/opaque 接口候选，与其收据相同 |
+
+服务端第二、三轮失败的直接原因不是新武器的编译错误：Microsoft.CppCommon.targets 的 ClCompile 在预期独立编译 PDB 不存在时删除 PCH，而 clang-cl 将 CodeView 写进对象；tracker 又跳过已编译的 PCH 创建源。本任务生成的隔离构建配置改用 OldStyle `/Z7`，保留 linker PDB，没有创建空 PDB 或绕过编译。第四轮完整构建通过，第五轮增量重建用时约 15.44 秒、PCH 保留、DLL SHA 不变。这个数字是构建耗时，不是游戏性能。通用模板的推广属于共享编辑范围，保留在精确交接中。
+
+实际 B 当前核心库缺少新接口，因此后续必须按候选一起更新，不能只替换 CSOLSupport.dll。界面助手随后连续两次返回 `Computer Use native pipe is unavailable: failed to connect native pipe`，系统错误 2；按其 recovery 指南停止 UI。没有启动 B、更新沙盒运行文件或变更正式服务器，亦没有游戏画面、听感、真人多人或实机性能验收。下一步恢复界面助手后核对配套资源/目录并进行单 B 全链测试，同时继续原准星、灵敏度与 P 握姿的证据和实现；可玩验收仍为 0。

@@ -1,6 +1,6 @@
 # Cry of Fear 客串武器接入
 
-当前为原版取证、资源准备和独立模块开发阶段，尚未交付可购买武器或更新运行中的 DLL。用户要求保留机瞄和推搡、补第三人称模型，并使用合理的 CS/CSO 人物动作（包括 CSO 扩展动作）；名称使用“客串武器·”前缀，按实际枪种和近战分类。
+当前已推进到 Glock 原证整链、客户端资源/输入/购买与双端配套候选构建，尚未部署或交付可玩验收。用户要求保留机瞄和推搡、补第三人称模型，并使用合理的 CS/CSO 人物动作（包括 CSO 扩展动作）；名称使用“客串武器·”前缀，按实际枪种和近战分类。
 
 ## 修改前证据与实现边界
 
@@ -126,3 +126,59 @@ Studio事件5004/5006/5080的生产消费者已用真实字段编译。5006从at
 真实 SDK 回归 `build/cof-sound-dispatch-20261111-04` 比较256完整声音原函数场景、128原弹壳／recoil场景，6919检查零失败；8种坏 oracle 均被拒绝。父独立复核594实际编译输入无漂移，之后只补接口生命期注释及 README，不改已测逻辑。私证为 `root-effects-dispatch`、`server-evidence/EFFECTS_DISPATCH_REVIEW.md`，旧03的 const Vector ABI 编译失败与未构建的角度／事件标志候选均保留。
 
 发送过程使用栈快照，无应用堆分配、磁盘读取或资源查表；开始的包完整写完后才报告退役。guard只协调本家发送器，并非引擎全局锁；authority context必须由调用者保活至返回。原版规则生产者、事件／消息注册、资源准入和整枪 effects 仍待接线。本组未部署、未验收可听／可见效果，也没有真实游戏性能采样。
+
+
+## 2026-11-12 集中 Glock 整枪接线
+
+当前仍没有任何 CoF 武器完成注册、购买、部署或可玩验收。实施顺序收敛为先打通 Glock，再推广其他武器。既有组件的检查数量不能作为武器完成数量。
+
+客户端完整 DLL 已构建为93375fe955ac64d494922f47234fe045ee62f08be71378b236148850a6ac379c（PE32 x86，3857920B），ResourceRefresh=TRUE；build/cof-client-integrated-build-20261111-01/receipt.json 记录2898实际源码/工具/头文件稳定与1396 Ninja依赖全覆盖。compile_commands.json由CMake正常再生成单独分类，不冒充源漂移或源码快照。真实bridge128、cold resource owner1017、effects241项零失败。此构建未部署，且不含11月12日新增control/customdecal接线。
+
+Glock map/life/model资源runtime、真实SDK工厂与五类native声音已实现；runtime SDK34项通过，606实际依赖稳定；native声音216原场景/2785SDK及56退役边界通过。回执与原证分别见build/cof-runtime-20261111-03、build/cof-glock-native-effects-20261111-05及server-evidence/2026-11-11_实现-Glock-map-runtime-report.md。资源/factory/sound在runtime组合测试仍有受控seam，不能据此称全链通过。真实old-entity释放、上游player五阶段和实际effect consumer继续接线。
+
+原Aurora Frame10080CC2的owner+304是curstate.renderfx，body为+314。旧候选误读body，已按匹配client字节修改原guard；独立body/renderfx回归可检出旧错误（旧field FAIL98），修复后34454生命周期/容量检查通过。原3561完整连续帧对照再次零差异；retention 原对照后续已完成：790 事件、最多 192 节点，原始状态/RNG/view 回调零差异；原 runner 中断保留，补充收据 completion-review.json 单独核验。早前两轮测试因传错sample目录缺失script导致68失败，作为无效调用保留，不把它算生产缺陷。
+
+新增真实ScreenShake发送器保留原10119DE0/101166D0/10119680的地面/严格半径、浮点顺序、fixed-word溢出与消息顺序。96完整原函数场景、893实际SDK检查零失败（build/cof-screen-shake-20261112-03/receipt.json），含消息begin内退役后完整finish和嵌套busy；首轮原夹具缺PEntity引擎槽、二轮夹具open命名冲突的失败日志均保留，未放宽生产。代码成本为至多32玩家扫描、栈消息、无堆分配/文件I/O；尚无实机性能证据。
+
+原FirstDraw教学在CHalfLifeMultiplay的vtable+20真时自然返回；firstDrawn外层写状态仍保留。InventoryChanged实际是TabulateAmmo，当前cof_glock命名空间还需更新实际扩展HUD缓存。原ShotLatch是AI声音标志；目标REGAMEDLL_FIXES不建立soundent且不调用UpdatePlayerSound，不能只写两个字段就称AI消费完成。私证两份server-evidence/2026-11-12_逆向-Glock-*-report.md。
+
+Control已新增真实WeaponBody、WeaponDeploy与ShotState消费者：全局连接代次内生效，body不在空VM时缓存重放，Deploy只KillLocal(true)且保留resources；普通相机按unsigned byte减pitch并真实SetViewAngles，未猜wheelchair。control04实际SDK2106项通过；sender02真实TU557输入稳定。原forward displacement宿主尚无生产/消费，状态明确指出缺失，不能假ack完整。
+
+动态shot贴花真实SDK几何与兼容GL独立模块已完成，2476原指令bit/order对照和隐藏WGL乘色像素、可见性与多textureunit状态恢复通过。build/cof-custom-decal-20261112回执；原basis为Cross(normal,reference)再Cross(normal,T)，早期摘要方向已纠正。实际消息/cold资源与Renderer同depth、gamma和可见面stamp的接线仍在进行。原Glock type3枪口事件与P345 type7不能仅换ID复用，第三人称type3另有弹壳分支；未用callback存在或pool存在冒充实际ready。
+
+未更新本地游戏或正式服务器，无UI输入；受保护安装保持只读。完整Glock、其余CoF武器、购买分类与P握姿、多人、视觉/听感和真实CPU/帧时间仍未验收。下一步实际消费后端/按原可达分支准入→服务器/客户端整链→隔离专服单B。
+
+
+## 2026-11-12 实际宿主回调检查点
+
+人类要求不使用子代理，后续由父代理独自推进。地图 owner、人物五阶段、模型替换前状态捕获、死亡/断线/实体释放和中断帧接线已写入实际 SDK；九个生产翻译单元编译通过，666 输入不变。完整文件与专服缓存前缀 10,021 项、原生 owner 140 项、实际 Glock/人物组合 180 项零失败。native/guest/cof 已补进候选构建输入校验。以上宿主接线尚未整 DLL 链接或部署，客户端 capability 继续关闭。
+
+Glock 当前完整原场景组合重新通过 160/180/105 场景与 2,747 SDK 检查，震屏和枪烟的发布范围及性能边界见 [独立检查点](2026-11-12_验证-CoF震屏枪烟与操作准入-report.md)。下一步实际枪口/点光/骨骼 attachment、冷资源、购买/灾变合约和整枪配套验证；仍为 0 把 CoF 可玩。
+
+
+## 2026-11-12 冷枪口资源与完整客户端链接
+
+两批源码已推送 main：a19f42220cbcf81c9a98bc5c10222379344bc188（震屏/枪烟/Glock分支准入）、f18712877fa5ff39a0dcfaaf7acb2599049c8ddc（资源闭包）；远端SHA核同。具体资源及测试见 [冷资源检查点](2026-11-12_实现-CoF冷枪口资源与Glock闭包-report.md)。Glock实际候选包50文件/4312878B，P345包47文件，189项/21种CLI、1476实际SDK冷资源检查通过。
+
+客户端缓存句柄适配通过effects256项及单一owner1187项（实际14WAV/XAudio2），完整CSOLSupport.dll已于当前源码链接为a970ed26bb6dbe968dbe1dd1937f991084dc2ca6a69c6ab29cc2a6ac72b8d8e4（5140992B），2913输入编译前后不变，收据build/cof-client-checkpoint-20261112-cold-01/receipt.json。未部署、未打开游戏；不包含尚未完成的实际枪口光照及购买/灾变接入，0把可玩边界保持。
+
+原Studio事件1004C6C0及光照生产者1005A110/10060690共4633完整字节已匹配client原PE。宿主Renderer的R_RotateForEntity含移动插值，因此动态刷子不能直接拿网络origin/angles重算后宣称与opaque depth一致；实际渲染矩阵、刷子可见面和帧生命周期接线仍待。私证root-complete-*及root-light-studio-byte-verification-20261112.json。
+
+
+模型前缀适配已单独推送main 57fe6619df6ec3466ad8e180e4cb7ce4f895c33c，远端SHA核同，精确index3505项扫描0问题。当前新依赖回归10021/0、909输入不变。完整服务端host01首败为client/cbase搜索不到新增host头，已改为项目原有相对include方式；host02完整编译后链接缺particle_protocol.cpp，已补入独立CoF源组并启动host03。两次失败保留，未部署，不能称服务端构建已过。
+
+
+## 双端完整链接检查点
+
+完整客户端候选a970ed26bb6dbe968dbe1dd1937f991084dc2ca6a69c6ab29cc2a6ac72b8d8e4（5140992B）、服务端候选b230e69ff514e62056c42ad29f77743f7e1166b46244731f9230b69c3f4303c8（5830144B）均已实际链接，独立复核PE32/x86及当前产物SHA，2913源码输入编译前后不变。见build/cof-client-checkpoint-20261112-cold-01/receipt.json和build/cof-server-checkpoint-20261112-host-03/receipt.json。host01缺include路径、host02缺粒子编码TU两次首败保留；host03修正后完整通过。
+
+这两个构建来自当前混合工作区，包含未发布运行接线及其他领域改动，不是GitHub拆分HEAD的完整可复现构建。没有部署、启动客户端或输入；实际枪口/点光/骨骼附件、购买/灾变客串合约和扩展弹药HUD仍未完成，0把可玩。
+
+
+## 2026-11-12 机瞄输入、购买 HUD 与最终配套候选
+
+原客户端 +attack3 的 0x40、Use 的 0x20 与右键 0x800 已在实现前重新取证并核原字节。独立机瞄命令、购买卡片/弹药图集、原 CSO 导出分离及按连接/资源实际准入已完成；10250 SDK/生产解析器检查、66 真 P 模型枪口检查及 8 项资源完整 SHA/原有条目相等通过。独立组件已发布 main 5a915b8，25 路径且精确 index 扫描零问题；公开 HEAD 的整枪目标尚未激活。
+
+完整 CSOLSupport e662ee41、核心 GoldCraft bb2f0a1c、服务端 MP 1fda481a 与先前 Renderer 637f2066 已核当前 SHA/PE32/x86，候选配套收据见 build/cof-paired-candidate-20261112-admission-01/receipt.json。本地构建配置已解决 clang 编译 PDB 缺失导致的 PCH 删除，后续增量约 15.44 秒、同 DLL SHA；非游戏性能数据。连续两次界面 native pipe 不存在（错误 2）使 UI 验证不可用，未启动/部署游戏或改正式服务器。
+
+完整原准星/灵敏度、P 握姿/动作、整枪操作和多人/实机性能仍须验收；0 把可玩验收。详细原证、失败收据、宿主差异与接续见 [本轮记录](2026-11-12_实现-CoF机瞄输入与购买HUD准入-report.md)。共享主文档的精确更新已写领域交接，未发非打包跨聊消息。
