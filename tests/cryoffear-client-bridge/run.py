@@ -15,9 +15,14 @@ import struct
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-CPP = ("native/csol/client/weapons/guest_cof.cpp", "native/guest/cof/aim_fov.cpp",
+CPP = ("native/csol/client/weapons/guest_cof.cpp", "native/csol/client/weapons/guest_cof_ironsight.cpp", "native/guest/cof/aim_fov.cpp",
        "native/guest/cof/presentation_protocol.cpp", "native/guest/cof/client/presentation.cpp",
-       "native/csol/client/session.cpp", "tests/cryoffear-client-bridge/main.cpp")
+       "native/csol/client/session.cpp", "native/csol/client/weapons/guest_cof_effects.cpp",
+       "native/csol/client/weapons/guest_cof_audio.cpp", "native/guest/cof/client/audio.cpp",
+       "native/guest/cof/sound_protocol.cpp", "native/guest/cof/client/weapon_effects.cpp",
+       "native/guest/cof/client/view_punch.cpp", "native/guest/cof/client/forward_displacement.cpp",
+       "native/csol/client/weapons/guest_cof_mouse.cpp", "native/guest/cof/client/mouse_input.cpp",
+       "tests/cryoffear-client-bridge/main.cpp")
 INPUTS = (*CPP, "native/csol/client/weapons/guest_cof.hpp", "native/csol/client/runtime.hpp",
           "native/csol/client/plugin.cpp", "native/csol/client/session.cpp", "native/csol/CMakeLists.txt",
           "native/guest/cof/aim_fov.hpp", "native/guest/cof/authority.hpp", "native/guest/cof/catalog.hpp",
@@ -87,7 +92,7 @@ def main():
             result.check_returncode()
     argv = [str(linker), "/nologo", "/machine:X86", "/subsystem:console", "/incremental:no",
             "/OPT:REF", "/OPT:ICF", "/out:" + str(output / "bridge.exe"),
-            *[str(output / (Path(p).stem + ".obj")) for p in CPP]]
+            *[str(output / (Path(p).stem + ".obj")) for p in CPP], "ole32.lib"]
     result = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True)
     logs.append(dict(stage="link", exitCode=result.returncode, stdout=result.stdout, stderr=result.stderr))
     (output / "build-log.json").write_text(json.dumps(logs, indent=2), encoding="utf-8")

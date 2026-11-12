@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../runtime.hpp"
 #include "guest_cof.hpp"
+#include "guest_cof_ironsight.hpp"
+#include "guest_cof_mouse.hpp"
+#include "guest_cof_effects.hpp"
 #include "../../../guest/cof/client/presentation.hpp"
 #include "../../../guest/cof/presentation_protocol.hpp"
 #include "../../../include/goldcraft/connection_api.h"
@@ -90,6 +93,10 @@ void InitializeGuestCof(const GoldCraftConnectionAPI* provider)
         throw std::runtime_error("CoF state message already has a consumer");
     }
     ResetGuestCof();
+    // A missing matched host patch leaves this partial adapter inactive. It
+    // never substitutes a guessed aim transform or changes ordinary CS views.
+    InitializeGuestCofIronsight();
+    InitializeGuestCofMouse(provider);
 }
 
 bool GuestCofConnectionReady() noexcept { return connection && connection->generation() != 0; }
@@ -97,12 +104,17 @@ bool GuestCofConnectionReady() noexcept { return connection && connection->gener
 void ShutdownGuestCof()
 {
     ResetGuestCof();
+    ShutdownGuestCofIronsight();
+    ShutdownGuestCofMouse();
     connection = nullptr;
     connectionGeneration = 0;
 }
 
 void ResetGuestCof()
 {
+    ResetGuestCofIronsight();
+    ResetGuestCofMouse();
+    SetGuestCofEffectsWeapon(guest::cof::client::Weapon::None);
     receiver.Reset();
     presentation.EndAuthority();
     received = applied = active = false;
@@ -111,7 +123,7 @@ void ResetGuestCof()
     revision = 0;
 }
 
-void GuestCofVideoInit() { presentation.VideoInit(); }
+void GuestCofVideoInit() { presentation.VideoInit(); ResetGuestCofMouse(); }
 
 namespace
 {
@@ -126,6 +138,9 @@ void UpdateFov(client_data_s* data)
             // including its sniper scopes. Never infer this from CurWeapon.
             presentation.EndAuthority();
             active = false;
+            SetGuestCofIronsight(false, false);
+            ResetGuestCofMouse();
+            SetGuestCofEffectsWeapon(guest::cof::client::Weapon::None);
         }
         else
         {
@@ -144,16 +159,22 @@ void UpdateFov(client_data_s* data)
                 pending.fovMode, pending.zoomSpeedEighths * 0.125f};
             if (presentation.Receive(state) != guest::cof::client::Result::Applied) return;
             active = true;
+            SetGuestCofIronsight(true, pending.aimEnabled);
+            SetGuestCofEffectsWeapon(static_cast<guest::cof::client::Weapon>(pending.originalWeapon));
         }
         applied = true;
         key = pending.key;
         revision = pending.revision;
     }
-    if (!active || !SettingsValid()) return;
+    if (!active || !SettingsValid()) { ResetGuestCofMouse(); return; }
     guest::cof::AimFovOutput output{};
     if (presentation.UpdateClientData({int(defaultFov->value), engine.GetClientTime(), zoomSpeed->value,
         sensitivity->value, zoomRatio->value, multiplier->value}, output))
+    {
         data->fov = output.clientFov;
+        if (!SetGuestCofMouseFrame(key, output.wholeFov, int(defaultFov->value), output.sensitivity))
+            ResetGuestCofMouse();
+    }
 }
 }
 

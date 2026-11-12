@@ -80,6 +80,38 @@ def main():
     if raw(0x48B1D, 5) != bytes.fromhex("a3 14 0e 11 10") or \
             raw(0x48B28, 5) != bytes.fromhex("a3 18 0e 11 10"):
         raise ValueError("Matched particle observer group changed")
+    # Original CoF aim-enabled gate suppresses VM bob. The matched native CS
+    # instruction below loads only the VM scalar, after camera bob; retain all
+    # native camera, FOV, shake, stairs and subsequent smoothing instructions.
+    bob_load = 0x6B67C
+    if raw(bob_load, 6) != bytes.fromhex("f3 0f 10 74 24 2c"):
+        raise ValueError("CoF host viewmodel bob instruction changed")
+    records.append({"platform": "windows", "module": "client",
+                    "symbolName": "GoldCraftCof_ViewmodelBobLoad", "kind": "patch",
+                    "payload": {"patch_rva": hex(bob_load)}})
+    punch_stage = 0x6B80E
+    if raw(punch_stage, 7) != bytes.fromhex("83 be c4 00 00 00 00"):
+        raise ValueError("CoF host post-punch view stage changed")
+    records.append({"platform": "windows", "module": "client",
+                    "symbolName": "GoldCraftCof_AfterNativePunch", "kind": "patch",
+                    "payload": {"patch_rva": hex(punch_stage)}})
+    # Matched native mouse entry and its actual input references. Runtime
+    # validates loaded operands after relocation; these are disk-image checks.
+    mouse_sites = (
+        ("Stage", 0x3605D, "a1 3c 0f 11 10"),
+        ("Resume", 0x362A9, "8b 0d 30 77 12 10"),
+        ("HistoryReference", 0x360EE, "89 35 54 0f 11 10 89 3d 58 0f 11 10"),
+        ("DeltasReference", 0x360DE, "f3 0f 11 05 64 0f 11 10 f3 0f 11 15 68 0f 11 10"),
+        ("AccumReference", 0x36065, "c7 05 5c 0f 11 10 00 00 00 00 c7 05 60 0f 11 10 00 00 00 00"),
+        ("YawReference", 0x36280, "8b 15 64 76 12 10"),
+    )
+    for name, rva, encoded in mouse_sites:
+        expected = bytes.fromhex(encoded)
+        if raw(rva, len(expected)) != expected:
+            raise ValueError("CoF native mouse reference changed: " + name)
+        records.append({"platform": "windows", "module": "client",
+                        "symbolName": "GoldCraftCof_Mouse" + name, "kind": "patch",
+                        "payload": {"patch_rva": hex(rva)}})
     for name, slot, rva, size in FUNCTIONS:
         target = struct.unpack("<I", raw(VTABLE_RVA + slot * 4, 4))[0]
         if target != IMAGE_BASE + rva:

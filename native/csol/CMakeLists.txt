@@ -42,6 +42,10 @@ target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_audio.cpp
 target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_particles.cpp
     ../guest/cof/particle_protocol.cpp ../guest/cof/client/aurora.cpp
     ../guest/cof/client/aurora_render.cpp)
+target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_ironsight.cpp
+    client/weapons/guest_cof_effects.cpp client/weapons/guest_cof_mouse.cpp
+    ../guest/cof/client/view_punch.cpp ../guest/cof/client/weapon_effects.cpp
+    ../guest/cof/client/forward_displacement.cpp ../guest/cof/client/mouse_input.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
 target_sources(CSOLSupport PRIVATE client/scenario/core/particle_effects.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)

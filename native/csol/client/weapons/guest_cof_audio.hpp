@@ -32,7 +32,11 @@ void InitializeGuestCofAudio(const GoldCraftConnectionAPI*);
 // and PCM can be released on return; any failure leaves playback inactive.
 guest::cof::client::AudioResult PrepareGuestCofAudio(const GuestCofAudioPlan&) noexcept;
 bool GuestCofAudioReady() noexcept;
+// Studio5004 uses the same prepared local PCM and session/thread checks.
+bool PlayGuestCofLocalSound(const guest::cof::client::LocalSound&) noexcept;
 void GuestCofAudioFrame() noexcept;
 void GuestCofAudioPause(bool paused) noexcept;
+// Retire prepared data while preserving thread, connection and message hooks.
+void InvalidateGuestCofAudioResources() noexcept;
 void ShutdownGuestCofAudio() noexcept;
 }

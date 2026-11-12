@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/runtime.hpp"
 #include "../../native/csol/client/weapons/guest_cof.hpp"
+#include "../../native/csol/client/weapons/guest_cof_effects.hpp"
 #include "../../native/guest/cof/presentation_protocol.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
 
@@ -8,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <limits>
 #include <type_traits>
 
@@ -16,6 +18,8 @@ namespace csol::client
 metahook_api_t* api{};
 cl_enginefunc_t engine{};
 cl_exportfuncs_t downstream{};
+engine_studio_api_t studio{};
+ref_params_t view{};
 static unsigned sceneResets{};
 void ClearScene() { ++sceneResets; }
 void ResetWeapons(bool) {}
@@ -42,6 +46,10 @@ void ResetScenarioRespawnUi() {}
 void ResetPlayerClips() {}
 void ResetRenderSettings() {}
 void ResetResourceSession();
+// The fixture has no matched host catalogue. Missing resolution must leave the
+// real ironsight adapter inactive, before any native instruction hook request.
+hook_t* Hook(void*, void*, void**) { std::abort(); }
+void RemoveHook(hook_t*) { std::abort(); }
 }
 
 namespace
@@ -157,6 +165,10 @@ int main()
     zoomSpeed.value = 100;
     multiplier.value = 1;
     const GoldCraftConnectionAPI connection{sizeof(GoldCraftConnectionAPI), 1, ConnectionGeneration};
+    // The real effects adapter cannot prepare without an installed matched
+    // host patch/event consumer; FOV authority remains independently usable.
+    CHECK(!InitializeGuestCofEffects(&connection));
+    CHECK(!PrepareGuestCofEffects() && !GuestCofEffectsReady());
     InitializeGuestCof(&connection);
     CHECK(GuestCofConnectionReady());
     CHECK(registrations == 2 && lookups == 5 && installed);
@@ -257,6 +269,7 @@ int main()
     Deliver({{1, 1, 1}, 2, 7, true, 2, 0});
     CHECK(Frame(5, 95) == 95 && missingConnectionWarnings == 1);
     ShutdownGuestCof();
+    ShutdownGuestCofEffects();
     CHECK(!GuestCofConnectionReady() && Frame(5.125f, 80) == 80);
     std::printf("checks=%u failures=%u\n", checks, failures);
     return failures ? 1 : 0;

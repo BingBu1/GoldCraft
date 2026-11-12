@@ -194,6 +194,7 @@ AudioResult PrepareGuestCofAudio(const GuestCofAudioPlan& plan) noexcept
 }
 
 bool GuestCofAudioReady() noexcept { return Synchronize(); }
+bool PlayGuestCofLocalSound(const LocalSound& sound) noexcept { return Local(nullptr, sound); }
 
 void GuestCofAudioFrame() noexcept
 {
@@ -207,6 +208,11 @@ void GuestCofAudioPause(bool next) noexcept
     if (!Synchronize() || next == paused) return;
     if (audio.SetPaused(next) != AudioResult::Applied) Retire();
     else paused = next;
+}
+
+void InvalidateGuestCofAudioResources() noexcept
+{
+    if (ownerThread && ownerThread == GetCurrentThreadId()) Retire();
 }
 
 void ShutdownGuestCofAudio() noexcept
