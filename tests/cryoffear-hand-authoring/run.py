@@ -5,6 +5,7 @@ import argparse
 import copy
 import importlib.util
 import json
+import math
 from pathlib import Path
 import struct
 import sys
@@ -70,6 +71,34 @@ def main():
     bad=copy.deepcopy(profile);bad['bones'].append(bad['bones'][0]);rejects('duplicate binding',bad)
     for label,matrix in [('shear',[1,.1,0,0,0,1,0,0,0,0,1,0]),('reflection',[-1,0,0,0,0,1,0,0,0,0,1,0]),('nonuniform',[2,0,0,0,0,1,0,0,0,0,1,0])]:
         bad=copy.deepcopy(profile);bad['bones'][0]['transform']=matrix;rejects(label,bad)
+    # Explicit nonuniform authoring preserves normal direction and length under
+    # the inverse transpose. Uniform/default profiles still reject this matrix.
+    affine=copy.deepcopy(profile)
+    for row in affine["bones"]:
+        row["geometry"]="affine";row["transform"]=[2,0,0,3,0,3,0,-5,0,0,4,7]
+    path.write_text(json.dumps(affine),"utf8");affine_bytes,_=author.prepare(args.model,args.model,path);affine_model=Studio(affine_bytes)
+    for original,adapted in zip(hands["models"],affine_model.bodyparts[0]["models"]):
+        for kind in ("vertices","normals"):
+            for a,b in zip(original[kind],adapted[kind]):
+                if kind=="vertices":expected=(a[0]*2+3,a[1]*3-5,a[2]*4+7)
+                else:
+                    scaled=(a[0]/2,a[1]/3,a[2]/4);factor=math.hypot(*a)/math.hypot(*scaled)
+                    expected=tuple(x*factor for x in scaled)
+                assert all(abs(x-y)<=1e-5 for x,y in zip(expected,b));checks+=1
+    # Independent normal/tangent orthogonality check for a rotated stretch.
+    rotated=copy.deepcopy(affine)
+    for row in rotated["bones"]:row["transform"]=[0,-3,0,3,2,0,0,-5,0,0,4,7]
+    path.write_text(json.dumps(rotated),"utf8");rotated_bytes,_=author.prepare(args.model,args.model,path);rotated_model=Studio(rotated_bytes)
+    for original,adapted in zip(hands["models"],rotated_model.bodyparts[0]["models"]):
+        for a,b in zip(original["normals"],adapted["normals"]):
+            scaled=(-a[1]/3,a[0]/2,a[2]/4);factor=math.hypot(*a)/math.hypot(*scaled)
+            assert all(abs(x*factor-y)<=1e-5 for x,y in zip(scaled,b));checks+=1
+            tangent=(a[1],-a[0],0);moved=(3*a[0],2*a[1],0)
+            assert abs(sum(x*y for x,y in zip(moved,b)))<1e-5;checks+=1
+    bad=copy.deepcopy(affine);bad["bones"][0]["transform"][0]=0;rejects("singular affine",bad)
+    bad=copy.deepcopy(affine);bad["bones"][0]["transform"][0]=-2;rejects("mirrored affine",bad)
+    bad=copy.deepcopy(affine);bad["bones"][0]["transform"][0]=1e-8;rejects("ill-conditioned affine",bad)
+    bad=copy.deepcopy(profile);bad["bones"][0]["geometry"]="unknown";rejects("unknown geometry mode",bad)
     assert author.digest(args.model.read_bytes())==source.sha256
     after={str(p):author.digest(p.read_bytes()) for p in controls}
     assert before==after

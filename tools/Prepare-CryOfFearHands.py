@@ -34,6 +34,28 @@ def similarity(value):
         raise ValueError('Mirrored hand geometry is not an implicit conversion')
     return matrix,scale
 
+def geometry_transform(row):
+    mode=row.get("geometry", "uniform")
+    if mode=="uniform":
+        matrix,scale=similarity(row["transform"])
+        return matrix,scale,None
+    if mode!="affine":raise ValueError("Unknown authored geometry transform")
+    value=row["transform"]
+    if not isinstance(value,list) or len(value)!=12 or any(type(x) not in (int,float) or not math.isfinite(x) for x in value):
+        raise ValueError("Each authored transform requires twelve finite coefficients")
+    a=[list(map(float,value[i:i+4])) for i in (0,4,8)]
+    # Cofactors form the inverse transpose; this is geometry authoring only.
+    c=[[a[(i+1)%3][(j+1)%3]*a[(i+2)%3][(j+2)%3]-a[(i+1)%3][(j+2)%3]*a[(i+2)%3][(j+1)%3] for j in range(3)] for i in range(3)]
+    determinant=sum(a[0][j]*c[0][j] for j in range(3))
+    bound=math.sqrt(sum(a[i][j]**2 for i in range(3) for j in range(3)))
+    if not 0 < bound <= 64 or not determinant>1e-9*bound**3:
+        raise ValueError("Invalid, mirrored or singular authored geometry")
+    normal=[[c[i][j]/determinant for j in range(3)]+[0.] for i in range(3)]
+    inverse_bound=math.sqrt(sum(normal[i][j]**2 for i in range(3) for j in range(3)))
+    if inverse_bound>1024 or bound*inverse_bound>10000:
+        raise ValueError("Ill-conditioned authored geometry")
+    return a,bound,normal
+
 class Writer:
     def __init__(self, source):self.data=bytearray(source)
     def append(self, value):
@@ -54,7 +76,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     for row in profile['bones']:
         index=donor.bone_index(row['donor']);to=target.bone_index(row['target'])
         if index in bindings:raise ValueError('Duplicate authored donor bone')
-        matrix,scale=similarity(row['transform']);bindings[index]=(to,matrix,scale)
+        matrix,scale,normal=geometry_transform(row);bindings[index]=(to,matrix,scale,normal)
     hand_models=groups[0]['models']
     used={i for model in hand_models for kind in ('vertices','normals') for i in model[kind+'Bones']}
     if not used.issubset(bindings):raise ValueError('Every weighted hand bone needs an explicit authored transform')
@@ -78,8 +100,14 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
         for kind,n_at,bone_at,vector_at in [('vertices',80,84,88),('normals',92,96,100)]:
             positions=[];indices=[]
             for index,point in zip(model[kind+'Bones'],model[kind]):
-                to,matrix,scale=bindings[index];p=transform(matrix,point,normal=kind=='normals')
-                if kind=='normals':p=tuple(v/scale for v in p)
+                to,matrix,scale,normal=bindings[index]
+                p=transform(normal if kind=='normals' and normal else matrix,point,normal=kind=='normals')
+                if kind=='normals':
+                    if normal:
+                        length=math.hypot(*p)
+                        if not length>0:raise ValueError('Invalid authored normal')
+                        factor=math.hypot(*point)/length;p=tuple(v*factor for v in p)
+                    else:p=tuple(v/scale for v in p)
                 if any(not math.isfinite(v) or abs(v)>1e6 for v in p):raise ValueError('Invalid authored geometry')
                 positions.append(p);indices.append(to)
             struct.pack_into('<iii',descriptor,n_at,len(indices),writer.append(bytes(indices)),writer.append(b''.join(struct.pack('<3f',*p) for p in positions)))

@@ -2242,7 +2242,8 @@
     "tests/cryoffear-custom-decal/README.md",
     "docs/2026-11-13_接线-CoF原服务与场景生命周期-report.md",
     "native/csol/config/gameplay.example.json",
-    "docs/2026-11-13_更新-单文件分组玩法配置-report.md"
+    "docs/2026-11-13_更新-单文件分组玩法配置-report.md",
+    "docs/2026-11-13_验证-CoF实机与手模几何作者-report.md"
   ],
   "trees": {
     "native": [
