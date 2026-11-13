@@ -1,0 +1,15 @@
+cmake_minimum_required(VERSION 3.24)
+cmake_policy(SET CMP0091 NEW)
+project(CSOLCustomSettingsTests LANGUAGES CXX)
+set(CMAKE_MSVC_RUNTIME_LIBRARY MultiThreaded)
+add_executable(csol_custom_settings_tests main.cpp
+    ../../native/csol/scenario/custom/settings.cpp)
+target_compile_features(csol_custom_settings_tests PRIVATE cxx_std_20)
+target_include_directories(csol_custom_settings_tests PRIVATE
+    ../../external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include)
+if(MSVC)
+    target_compile_options(csol_custom_settings_tests PRIVATE /utf-8 /W4 /fp:precise /arch:AVX2 /clang:-O3 /clang:-flto=thin)
+    target_link_options(csol_custom_settings_tests PRIVATE /opt:lldltojobs=1)
+endif()
+enable_testing()
+add_test(NAME csol_custom_settings COMMAND csol_custom_settings_tests)
