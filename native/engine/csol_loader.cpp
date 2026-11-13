@@ -30,7 +30,7 @@ struct ResourceBatch
 {
     struct Input {Stamp stamp;std::shared_ptr<const std::vector<std::byte>> bytes;};
     std::unordered_map<std::string,Input> inputs;
-    std::set<std::string> advertised;
+    std::set<std::string> advertised,registeredHands;
     std::size_t retained{},reads{},readBytes{},models{},hits{},rebuilt{};
     const goldcraft::filesystem::ResourceStampAPI* metadata=nullptr;
     std::chrono::steady_clock::time_point started=std::chrono::steady_clock::now();
@@ -146,6 +146,9 @@ void GoldCraftEndCsolResources()
 {
     if(!resourceBatch)return;
     const auto& batch=*resourceBatch;
+    // Mod_ForName may evict studio cache storage. Register only after the
+    // outer pass releases every borrowed header used by its sound collector.
+    for(const auto& donor:batch.registeredHands)PF_precache_model_I(donor.c_str());
     if(batch.models)
         Con_Printf("CSOL: dependencies models=%u cache_hits=%u rebuilt=%u downloads=%u reads=%u (%.1f MiB) time=%.3fs\n",
             unsigned(batch.models),unsigned(batch.hits),unsigned(batch.rebuilt),unsigned(batch.advertised.size()),
@@ -178,7 +181,7 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     auto& batch=resourceBatch?*resourceBatch:standalone;
     const auto exists=[&](const std::string& file){return batch.Exists(file);};
     const std::string model=name,json=model.substr(0,model.size()-4)+".json";
-    bool special=model=="models/v_tknifeex2.mdl" || exists(json) || exists(csol::ResolveModelMaterialSource(model,exists)) || exists(csol::ModelSourceDescriptor(model)) || !csol::PartsProfile(model).Actions.empty()
+    bool special=model=="models/v_tknifeex2.mdl" || exists(model.substr(0,model.size()-4)+"_hands.json") || exists(json) || exists(csol::ResolveModelMaterialSource(model,exists)) || exists(csol::ModelSourceDescriptor(model)) || !csol::PartsProfile(model).Actions.empty()
         || !csol::SequenceFiles(model,exists).empty();
     if(header->textureindex>0 && header->numtextures>0 && header->textureindex<=header->length &&
         size_t(header->numtextures)<=(header->length-header->textureindex)/sizeof(mstudiotexture_t))
@@ -214,7 +217,8 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     {
         ++batch.models;
         const auto probe=[&](const std::string& file,bool content){return batch.Probe(file,content);};
-        auto files=dependencyCache.Find(model,probe);
+        Result handModels;
+        auto files=dependencyCache.Find(model,probe,&handModels);
         if(files)++batch.hits;
         else
         {
@@ -230,11 +234,17 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
             {
                 auto bytes=batch.Read(file);inputs[file]=probe(file,true);return bytes;
             };
-            files=std::make_shared<const Files>(csol::WeaponDependencies(model,read,trackedExists));
-            dependencyCache.Store(model,files,std::move(inputs),probe);
+            auto plan=csol::WeaponPresentationDependencies(model,read,trackedExists);
+            files=std::make_shared<const Files>(std::move(plan.files));
+            handModels=std::make_shared<const Files>(std::move(plan.handModels));
+            dependencyCache.Store(model,files,std::move(inputs),probe,handModels);
         }
+        if(handModels)batch.registeredHands.insert(handModels->begin(),handModels->end());
         for(const auto& file:*files)
-            if(file!=model && batch.advertised.insert(file).second)PF_precache_generic_I(file.c_str());
+            if(file!=model && (!handModels || !std::binary_search(handModels->begin(),handModels->end(),file)) &&
+               batch.advertised.insert(file).second)PF_precache_generic_I(file.c_str());
+        if(!resourceBatch)for(const auto& donor:batch.registeredHands)PF_precache_model_I(donor.c_str());
+
     }
     catch(const std::exception& error){Sys_Error("CSOL dependency preparation failed: %s: %s",name,error.what());}
 }

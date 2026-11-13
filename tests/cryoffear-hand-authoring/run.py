@@ -29,7 +29,11 @@ def main():
     profile=dict(version=1,targetSha256=source.sha256,donorSha256=source.sha256,bones=[dict(donor=source.bones[b]['name'],target=source.bones[b]['name'],transform=[1,0,0,0,0,1,0,0,0,0,1,0]) for b in used])
     path=output/'profile.json';path.write_text(json.dumps(profile),'utf8');checks=0
     data,receipt=author.prepare(args.model,args.model,path);result=Studio(data)
-    assert result.i(164)==source.i(164) and result.i(168)==source.i(168)
+    assert result.i(164)==source.i(164) and result.i(168)!=source.i(168)
+    for sequence in range(result.i(164)):
+        at=result.i(168)+176*sequence
+        assert result.i(at+48)==0 and result.i(at+52)==0
+        assert result.i(at+124)==source.i(source.i(168)+176*sequence+124)
     assert data[244:len(source.data)]==source.data[244:];checks+=1
     for original,adapted in zip(hands['models'],result.bodyparts[0]['models']):
         for kind in ('vertices','normals'):

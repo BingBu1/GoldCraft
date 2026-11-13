@@ -44,10 +44,10 @@ std::string ExternalTexture(const std::string& model,std::string texture,bool re
     const auto source=ResolveTextureSource({model,model,model},texture,replacement?texture:"",exists);
     return !source.Resource.empty() && exists(source.Resource)?source.Resource:std::string{};
 }
-std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured,size_t pathLimit)
+WeaponDependencyPlan WeaponPresentationDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured,size_t pathLimit)
 {
     if(pathLimit<1 || pathLimit>128)throw std::runtime_error("invalid dependency path budget");
-    std::set<std::string> files,visited;std::vector<std::string> queue;
+    std::set<std::string> files,visited,handModels;std::vector<std::string> queue;
     auto add=[&](const std::string& path,bool required=true,bool inspectModel=true)
     {
         if(!Safe(path,pathLimit))throw std::runtime_error("invalid weapon dependency: "+path);
@@ -102,7 +102,7 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
             std::string donor="models/csol/hands/v_hegrenade.mdl";
             if(hands.HasMember("donor")){if(!hands["donor"].IsString())throw std::runtime_error("invalid hand donor");donor=hands["donor"].GetString();}
             if(!donor.starts_with("models/csol/hands/") || !donor.ends_with(".mdl"))throw std::runtime_error("invalid hand donor path");
-            add(donor);
+            add(donor);handModels.insert(donor);
         }
         auto bytes=read(source.File);DecodeStudioModel(bytes);
         if(Word(bytes,0)!=0x54534449 || Word(bytes,4)!=10)throw std::runtime_error("unsupported dependency model");
@@ -208,6 +208,10 @@ std::vector<std::string> WeaponDependencies(const std::string& model,const Resou
         }
         if(name=="models/v_revivegun.mdl")for(const auto* action:{"idle","draw"})for(const auto* variant:{"1","2"})for(const auto* hand:{"","_left"})add("sprites/ef_revivegun_"+std::string(action)+variant+hand+".spr");
     }
-    return {files.begin(),files.end()};
+    return {{files.begin(),files.end()},{handModels.begin(),handModels.end()}};
+}
+std::vector<std::string> WeaponDependencies(const std::string& model,const ResourceReader& read,const ResourceExists& exists,const std::vector<ModelRedirect>& configured,size_t pathLimit)
+{
+    return WeaponPresentationDependencies(model,read,exists,configured,pathLimit).files;
 }
 }

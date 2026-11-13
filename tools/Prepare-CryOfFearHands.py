@@ -98,16 +98,23 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
         struct.pack_into('<ii',descriptor,72,len(meshes),writer.append(b''.join(meshes)))
         struct.pack_into('<f',descriptor,68,model['radius']*max(v[2] for v in bindings.values()))
         models.append(descriptor)
+    # This is an offline geometry donor, never an event producer. Keep the
+    # original bytes and animation channels, but point to event-free descriptors
+    # so dependency collection cannot request the target weapon's old sounds.
+    sequence_table=bytearray(target.data[target.i(168):target.i(168)+target.i(164)*176])
+    for sequence in range(target.i(164)):
+        struct.pack_into('<ii',sequence_table,sequence*176+48,0,0)
+    donor_sequences=writer.append(sequence_table)
     model_table=writer.append(b''.join(models));group=bytearray(76);group[:5]=b'hands'
     struct.pack_into('<iii',group,64,2,1,model_table);group_table=writer.append(group)
-    for offset,value in [(180,len(textures)),(184,texture_table),(188,texture_pixels),(192,len(textures)),(196,1),(200,skin_table),(204,1),(208,group_table),(72,len(writer.data))]:writer.integer(offset,value)
+    for offset,value in [(180,len(textures)),(184,texture_table),(188,texture_pixels),(192,len(textures)),(196,1),(200,skin_table),(204,1),(208,group_table),(168,donor_sequences),(72,len(writer.data))]:writer.integer(offset,value)
     result=bytes(writer.data);check=Studio(result)
     if result[244:len(target.data)]!=target.data[244:]:raise ValueError('Original target payload changed')
-    for offset in (140,144,148,152,164,168,172,176,212,216):
+    for offset in (140,144,148,152,164,172,176,212,216):
         if check.i(offset)!=target.i(offset):raise ValueError('Target animation/skeleton/attachment identity changed')
     return result,dict(targetSha256=target.sha256,donorSha256=donor.sha256,profileSha256=digest(profile_path.read_bytes()),
         outputSha256=digest(result),vertices=vertices_total,triangles=triangles_total,mappedBones=len(used),
-        originalPayloadPreserved=True,skeletonAnimationPreserved=True,visualAccepted=False,gameplayAccepted=False)
+        originalPayloadPreserved=True,skeletonAnimationPreserved=True,geometryDonorEventsDetached=True,visualAccepted=False,gameplayAccepted=False)
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)

@@ -2214,7 +2214,9 @@
     "docs/2026-11-13_修复-CoF左右手与切枪镜像上下文-report.md",
     "tests/cryoffear-viewmodel-context/README.md",
     "docs/2026-11-13_修复-CoF世界枪口持枪回调-report.md",
-    "tests/cryoffear-muzzle-bridge/README.md"
+    "tests/cryoffear-muzzle-bridge/README.md",
+    "docs/2026-11-13_实现-CoF手模供体预缓存-report.md",
+    "tests/csol-hand-precache/README.md"
   ],
   "trees": {
     "native": [
