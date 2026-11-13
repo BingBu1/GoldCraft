@@ -2346,7 +2346,11 @@
     "tests/cryoffear-revolver-weapon/README.md",
     "tools/csol_resource_capabilities.py",
     "tests/csol-resource-capabilities/run.py",
-    "docs/2026-11-13_修复-HUD回退与资源刷新能力丢失-report.md"
+    "docs/2026-11-13_修复-HUD回退与资源刷新能力丢失-report.md",
+    "docs/2026-11-13_接入-Revolver冷资源与原声音消费者-report.md",
+    "tests/cryoffear-revolver-owner/README.md",
+    "tests/cryoffear-revolver-native-effects/README.md",
+    "tests/cryoffear-revolver-events/README.md"
   ],
   "trees": {
     "native": [

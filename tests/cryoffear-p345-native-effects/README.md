@@ -21,3 +21,5 @@ this does not prove audible gameplay, networking, deployment or live performance
 
 All resources are cold-prepared immutable paths. No path rewriting, resource
 lookup, allocation, file access or RNG is added to native sound dispatch.
+
+Use `--weapon revolver` to run the actual Revolver native consumer with its verified EmptyPlay vtable and own resource indices; default P345 behavior is retained. The shared original consumers and both default paths are separately validated.

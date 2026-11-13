@@ -301,6 +301,13 @@ ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Reso
         P345Inventory, P345Particle, P345ClipTexture, 34, "weapon_p345");
 }
 
+ResourceResult PrepareRevolverResources(const ResourceAuthority& authority, RevolverResources& output) noexcept
+{
+    // Actual 22 view sequences; cylinder reload remains its separate state machine.
+    return PrepareResources(authority, output, RevolverModels, RevolverSounds, RevolverLocalWaves, RevolverEvents,
+        RevolverInventory, RevolverParticle, RevolverClipTexture, 22, "weapon_revolver");
+}
+
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {
     return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,

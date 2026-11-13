@@ -144,6 +144,65 @@ inline constexpr std::array<ResourcePath, 7> GlockLocalWaves{{
     {"weapons_new/glock/glock_slide.wav", "sound/guest/cof/weapons_new/glock/glock_slide.wav"},
     {"weapons_new/glock/glock_fire.wav", "sound/guest/cof/weapons_new/glock/glock_fire.wav"}
 }};
+
+enum class RevolverModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(RevolverModel::Count)> RevolverModels{{
+    {"models/weapons/revolver/v_revolver.mdl", "models/guest/cof/revolver/v_revolver.mdl"},
+    {"models/weapons/revolver/w_revolver.mdl", "models/guest/cof/revolver/w_revolver.mdl"},
+    {"police/models/weapons/revolver/p_revolver.mdl", "models/guest/cof/revolver/p_revolver.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shell.mdl", "models/guest/cof/common/shell.mdl"},
+    {"models/w_9mmclip.mdl", "models/guest/cof/common/w_9mmclip.mdl"},
+    {"sprites/bubble.spr", "sprites/guest/cof/bubble.spr"},
+    {"sprites/fog2.spr", "sprites/guest/cof/fog2.spr"},
+    {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
+    {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
+}};
+enum class RevolverSound : unsigned
+{
+    Fire, Shell, CylinderOpen, Insert, CylinderClose, ItemGet, WeaponGet,
+    Sleeve1, Sleeve2, Sleeve3, Swing1, Swing2, Swing3, Swing4, Swing5, Swing6,
+    PunchSwing, PunchSmack, EmptyClick, EmptyNoClick, Count
+};
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(RevolverSound::Count)> RevolverSounds{{
+    {"weapons/revolver/revolver_fire.wav", "guest/cof/weapons/revolver/revolver_fire.wav"},
+    {"weapons/revolver/revolver_shell.wav", "guest/cof/weapons/revolver/revolver_shell.wav"},
+    {"weapons/revolver/revolver_cylinder_open.wav", "guest/cof/weapons/revolver/revolver_cylinder_open.wav"},
+    {"weapons/revolver/revolver_insert.wav", "guest/cof/weapons/revolver/revolver_insert.wav"},
+    {"weapons/revolver/revolver_cylinder_close.wav", "guest/cof/weapons/revolver/revolver_cylinder_close.wav"},
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/weapon_get.wav", "guest/cof/weapons/weapon_get.wav"},
+    {"weapons/sleeve_generic1.wav", "guest/cof/weapons/sleeve_generic1.wav"},
+    {"weapons/sleeve_generic2.wav", "guest/cof/weapons/sleeve_generic2.wav"},
+    {"weapons/sleeve_generic3.wav", "guest/cof/weapons/sleeve_generic3.wav"},
+    {"player/police/Swing/Swing1.wav", "guest/cof/player/police/Swing/Swing1.wav"},
+    {"player/police/Swing/Swing2.wav", "guest/cof/player/police/Swing/Swing2.wav"},
+    {"player/police/Swing/Swing3.wav", "guest/cof/player/police/Swing/Swing3.wav"},
+    {"player/police/Swing/Swing4.wav", "guest/cof/player/police/Swing/Swing4.wav"},
+    {"player/police/Swing/Swing5.wav", "guest/cof/player/police/Swing/Swing5.wav"},
+    {"player/police/Swing/Swing6.wav", "guest/cof/player/police/Swing/Swing6.wav"},
+    {"weapons/mobile/punch_swing.wav", "guest/cof/weapons/mobile/punch_swing.wav"},
+    {"weapons/mobile/punch_smack.wav", "guest/cof/weapons/mobile/punch_smack.wav"},
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
+}};
+inline constexpr std::array<ResourcePath, 4> RevolverLocalWaves{{
+    {"weapons_new/revolver/revolver_fire.wav", "sound/guest/cof/weapons_new/revolver/fire.wav"},
+    {"weapons_new/revolver/revolver_cylinder_open.wav", "sound/guest/cof/weapons_new/revolver/cylinder_open.wav"},
+    {"weapons_new/revolver/revolver_insert.wav", "sound/guest/cof/weapons_new/revolver/insert.wav"},
+    {"weapons_new/revolver/revolver_cylinder_close.wav", "sound/guest/cof/weapons_new/revolver/cylinder_close.wav"}
+}};
+inline constexpr std::array<ResourcePath, 3> RevolverEvents{{
+    {"events/muzzleflash.sc", "events/guest/cof/muzzleflash.sc"},
+    {"events/viewpunch.sc", "events/guest/cof/viewpunch.sc"},
+    {"events/revolvershells.sc", "events/guest/cof/revolvershells.sc"}
+}};
+inline constexpr ResourcePath RevolverInventory{
+    "inventoryitems/weapons/weapon_revolver.txt", "inventoryitems/guest/cof/weapons/weapon_revolver.txt"};
+inline constexpr ResourcePath RevolverParticle{
+    "aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
+inline constexpr auto RevolverClipTexture = P345ClipTexture;
+
 // Original Studio5004 rebuilds these pistol keys as weapons_new/<suffix>.
 // Cold dependency discovery must follow the actual local audio consumer rather
 // than require a second, unconsumed copy at sound/weapons/<suffix>.
@@ -165,6 +224,7 @@ constexpr std::string_view StudioLocalSoundResource(std::string_view model, int 
     };
     if (model == GlockModels[static_cast<unsigned>(GlockModel::View)].host) return find(GlockLocalWaves);
     if (model == P345Models[static_cast<unsigned>(P345Model::View)].host) return find(P345LocalWaves);
+    if (model == RevolverModels[static_cast<unsigned>(RevolverModel::View)].host) return find(RevolverLocalWaves);
     return {};
 }
 inline constexpr auto GlockEvents = P345Events;
@@ -207,4 +267,15 @@ consteval auto AudioResources(const std::array<ResourcePath, LocalCount>& local,
 }
 inline constexpr auto P345AudioResources = AudioResources(P345LocalWaves, P345Sounds);
 inline constexpr auto GlockAudioResources = AudioResources(GlockLocalWaves, GlockSounds);
+inline constexpr auto RevolverAudioResources = AudioResources(RevolverLocalWaves, RevolverSounds);
+// Actual engine resource_t/PF_precache_generic ABI includes the terminating NUL.
+template<std::size_t N>
+consteval bool ResourceNamesFit(const std::array<ResourcePath,N>& entries)
+{
+    for(const auto& entry:entries)if(std::string_view(entry.host).size()>=64)return false;
+    return true;
+}
+static_assert(ResourceNamesFit(P345Models)&&ResourceNamesFit(P345Sounds)&&ResourceNamesFit(P345LocalWaves)&&ResourceNamesFit(P345Events));
+static_assert(ResourceNamesFit(GlockModels)&&ResourceNamesFit(GlockSounds)&&ResourceNamesFit(GlockLocalWaves)&&ResourceNamesFit(GlockEvents));
+static_assert(ResourceNamesFit(RevolverModels)&&ResourceNamesFit(RevolverSounds)&&ResourceNamesFit(RevolverLocalWaves)&&ResourceNamesFit(RevolverEvents));
 }

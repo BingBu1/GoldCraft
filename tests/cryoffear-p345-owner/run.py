@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument("--weapon",choices=("p345","revolver"),default="p345")
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
@@ -47,9 +48,9 @@ def main():
     for model, (_, expected) in zip(models, model_specs):
         if sha(model) != expected:
             raise ValueError('Actual model identity changed: ' + str(model))
-    sources = [ROOT / 'tests/cryoffear-p345-owner/main.cpp',
+    sources = [ROOT / ('tests/cryoffear-'+args.weapon+'-owner/main.cpp'),
         ROOT / 'native/csol/server/weapons/guest_cof_owner_runtime.cpp',
-        ROOT / 'native/csol/server/weapons/guest_cof_p345_owner.cpp',
+        ROOT / ('native/csol/server/weapons/guest_cof_'+args.weapon+'_owner.cpp'),
         ROOT / 'native/csol/server/weapons/guest_cof_owner.cpp',
         ROOT / 'native/guest/cof/server/owner_state.cpp',
         ROOT / 'native/guest/cof/server/glock_weapon.cpp',

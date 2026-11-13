@@ -62,6 +62,8 @@ def main():
         raise ValueError('Use a fresh workspace build directory')
     proof = ROOT/'analysis/cof-weapons-20261111/server-evidence/p345-byte-verification.json'
     rows = verify_original(args.sample, proof)
+    revolver_proof = ROOT/'analysis/cof-weapons-20261111/revolver-integration-20261113/resource-byte-proof.json'
+    revolver_rows = verify_original(args.sample, revolver_proof)
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)
@@ -106,14 +108,14 @@ def main():
         else:
             source = args.original/('sound/' if original.endswith('.wav') else '')/original
         resources.append(dict(original=original, host=host, path=str(source.resolve()), sha256=sha(source)))
-    for original in ('inventoryitems/weapons/weapon_p345.txt', 'inventoryitems/weapons/weapon_glock.txt', 'aurora/gunsmoke.aur'):
+    for original in ('inventoryitems/weapons/weapon_p345.txt', 'inventoryitems/weapons/weapon_glock.txt', 'inventoryitems/weapons/weapon_revolver.txt', 'aurora/gunsmoke.aur'):
         path = args.original/original
         resources.append(dict(original=original, path=str(path.resolve()), sha256=sha(path)))
     resources.append(dict(original='models/w_9mmclipT.mdl', host='models/guest/cof/common/w_9mmclipT.mdl',
         path=str(args.clip_texture.resolve()), sha256=sha(args.clip_texture)))
     project = SDK/'msvc/ReGameDLL.vcxproj'
     inputs = set(sources) | {header, Path(__file__).resolve(), Path(__file__).with_name('README.md'),
-        args.sample.resolve(), proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
+        args.sample.resolve(), proof, revolver_proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
     includes = re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>',
@@ -163,7 +165,7 @@ def main():
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')

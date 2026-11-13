@@ -21,12 +21,13 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--sample',type=Path,required=True)
+    p.add_argument('--weapon',choices=('p345','revolver'),default='p345')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use fresh workspace build directory')
     output.mkdir(parents=True)
-    sources=[ROOT/'tests/cryoffear-p345-native-effects/main.cpp',ROOT/'native/csol/server/weapons/guest_cof_p345_native_effects.cpp',ROOT/'native/guest/cof/server/p345_weapon.cpp',
+    sources=[ROOT/('tests/cryoffear-'+a.weapon+'-native-effects/main.cpp'),ROOT/('native/csol/server/weapons/guest_cof_'+a.weapon+'_native_effects.cpp'),ROOT/('native/guest/cof/server/'+a.weapon+'_weapon.cpp'),
              ROOT/'native/guest/cof/magazine_actions.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
@@ -36,7 +37,7 @@ def main():
     sample=a.sample.resolve()
     oraclePath=ROOT/'tests/cryoffear-p345-native-effects/oracle.py';inputs.update((sample,oraclePath,ROOT/'tests/cryoffear-ballistics/oracle.py'))
     spec=importlib.util.spec_from_file_location('native_sound_original',oraclePath);oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
-    with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:original=oracle.generate(sample,cases,expected)
+    with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:original=oracle.generate(sample,cases,expected,a.weapon)
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),

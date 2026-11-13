@@ -57,9 +57,13 @@ def main():
     glock_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root, output=output/'glock'/'candidate',
         plan=output/'glock'/'plan.json', server_model_sounds='disabled', component='glock-and-shot-decals'))
+    revolver_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root, output=output/'revolver'/'candidate',
+        plan=output/'revolver'/'plan.json', server_model_sounds='disabled', component='revolver-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
-              *(Path(p['source']) for p in glock_baseline['assets'])}
+              *(Path(p['source']) for p in glock_baseline['assets']),
+              *(Path(p['source']) for p in revolver_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -69,8 +73,8 @@ def main():
     plan = json.loads(plan_path.read_bytes())
     candidate = output/'accepted'/'candidate'
     check(not candidate.exists(), 'dry-run writes no candidate')
-    check(len(plan['assets']) == 47 and plan['primaryAssets'] == 46 and plan['dependencyAssets'] == 1,
-          '41 P345 resources, five decals and actual clip texture dependency')
+    check(len(plan['assets']) == 49 and plan['primaryAssets'] == 48 and plan['dependencyAssets'] == 1,
+          '43 P345 resources, five decals and actual clip texture dependency')
     check(plan['policy']['serverAutoModelSoundsRequired'] == 0 and not plan['policy']['liveServerConfigurationVerified'] and
           not plan['policy']['publicSoundAliases'] and not plan['policy']['weaponBackendReady'], 'policy does not claim live/backend readiness')
     check(len(plan['studio5004']) == 7 and all(e['localLogicalKey'].startswith('weapons_new/p345/') and
@@ -163,7 +167,7 @@ def main():
 
     written = invoke('write', ['--write', '--expected-plan-sha256', dry_result['planSha256']],
         expected=0, candidate=candidate, plan_path=plan_path)
-    check(json.loads(written.stdout)['files'] == 47, 'write CLI reports actual47 assets')
+    check(json.loads(written.stdout)['files'] == 49, 'write CLI reports actual49 assets')
     manifest = json.loads((candidate/'manifest.json').read_bytes())
     check(manifest['status'] == 'candidate-only' and manifest['validation']['independentCopies'], 'candidate manifest status')
     expected_paths = {p['destination'] for p in manifest['assets']} | {'manifest.json'}
@@ -203,17 +207,44 @@ def main():
     glock_source = next(p for p in glock_plan['assets'] if p['original'] == 'models/weapons/glock/v_glock.mdl')
     check((output/'glock'/'candidate'/glock_source['destination']).read_bytes() == Path(glock_source['source']).read_bytes(),
           'all original Glock model events and geometry preserved')
+    revolver_dry = invoke('revolver', ['--component', 'revolver-and-shot-decals'], expected=0)
+    revolver_plan_path = output/'revolver'/'plan.json'
+    revolver_plan = json.loads(revolver_plan_path.read_bytes())
+    check(revolver_plan['weapon'] == 'Revolver' and revolver_plan['primaryAssets'] == 44 and
+          revolver_plan['dependencyAssets'] == 1 and len(revolver_plan['assets']) == 45,
+          '39 Revolver resources, five decals and one texture companion')
+    check(len(revolver_plan['studio5004']) == 7 and all(
+        e['localLogicalKey'].startswith('weapons_new/revolver/') and
+        e['localAsset'].startswith('sound/guest/cof/weapons_new/revolver/')
+        for e in revolver_plan['studio5004']), 'all original Revolver local Studio samples mapped')
+    expected_revolver = {'events/guest/cof/revolvershells.sc', 'sound/guest/cof/weapons/revolver/revolver_shell.wav'}
+    check(expected_revolver.issubset(p['destination'] for p in revolver_plan['assets']) and
+          not any(p['destination']=='sound/guest/cof/weapons_new/revolver/revolver_shell.wav'
+                  for p in revolver_plan['assets']), 'ordinary shell event and exact four local samples kept separate')
+    revolver_written = invoke('revolver-write', ['--component', 'revolver-and-shot-decals', '--write',
+        '--expected-plan-sha256', json.loads(revolver_dry.stdout)['planSha256']], expected=0,
+        candidate=output/'revolver'/'candidate', plan_path=revolver_plan_path)
+    check(json.loads(revolver_written.stdout)['files'] == 45, 'Revolver candidate CLI actual count')
+    for row in revolver_plan['assets']:
+        copied = output/'revolver'/'candidate'/row['destination']
+        check(sha(copied)==row['sha256'] and copied.stat().st_size==row['bytes'],
+              'actual Revolver candidate identity '+row['destination'])
+    revolver_source=next(p for p in revolver_plan['assets'] if p['original']=='models/weapons/revolver/v_revolver.mdl')
+    check((output/'revolver'/'candidate'/revolver_source['destination']).read_bytes()==Path(revolver_source['source']).read_bytes(),
+          'all original Revolver model events and geometry preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=46, dependencyAssets=1, sourceCopies=0, resourceCopies=97,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=144,
+        revolverPrimaryAssets=44, revolverDependencyAssets=1,
         glockPrimaryAssets=49, glockDependencyAssets=1,
         boundary='Real resource candidate copy and refusals only; no live cvar verification, deployment, original P grip, audio/particle admission, weapon backend, gameplay or performance acceptance.')
     (output/'receipt.json').write_text(json.dumps(receipt, indent=2), 'utf-8')
     print(json.dumps(dict(success=receipt['success'], checks=len(checks), failed=[p['name'] for p in checks if not p['passed']],
-        cliCases=len(commands), inputs=len(inputs), primaryAssets=46, dependencyAssets=1,
+        cliCases=len(commands), inputs=len(inputs), primaryAssets=48, dependencyAssets=1,
+        revolverPrimaryAssets=44, revolverDependencyAssets=1,
         glockPrimaryAssets=49, glockDependencyAssets=1)))
     raise SystemExit(0 if receipt['success'] else 1)
 

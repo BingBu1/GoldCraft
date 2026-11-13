@@ -20,3 +20,5 @@ the generic guest-frame capability once, and retires it on owner invalidation.
 Cold preparation and synchronous engine/authority consumers are explicit test
 boundaries. This does not claim installed host hooks, whole-weapon registration,
 shop admission, gameplay, multiplayer or live frame performance.
+
+The shared driver also accepts `--weapon revolver` for the actual Revolver owner view. It requires explicit cylinder/first-draw state and borrows the same canonical player clock. No implicit original spawn/reset seed is supplied.

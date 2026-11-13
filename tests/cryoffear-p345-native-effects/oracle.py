@@ -14,10 +14,11 @@ SAMPLES={
  'weapons/weapon_get.wav':9,'weapons/item_get.wav':8,'weapons/rifle/rifle_insert.wav':7}
 
 class Original(shared.Original):
-    def __init__(self,sample):
+    def __init__(self,sample,weapon="p345"):
         super().__init__(sample)
-        if self.read(0x101b55f4)!=0x1011e4a0:
-            raise ValueError('Original P345 EmptyPlay virtual target differs')
+        slot={'p345':0x101b55f4,'revolver':0x101b71cc}[weapon]
+        if self.read(slot)!=0x1011e4a0:
+            raise ValueError('Original '+weapon+' EmptyPlay virtual target differs')
         self.write(self.weapon+4,self.pev(4));self.write(self.weapon+0x160,self.obj(1))
         self.write(0x10222fbc,EDGE+0x74);self.write(0x102230b0,EDGE+0x168)
 
@@ -55,8 +56,8 @@ class Original(shared.Original):
         if self.uc.reg_read(UC_X86_REG_EIP)!=end:raise ValueError('Original consumer truncated')
         return [self.read(self.weapon+0x1b4),self.read(self.pev(4)+0x1b4),len(self.rng),len(self.calls)//7,*self.calls]
 
-def generate(sample,cases,expected):
-    original=Original(sample);count=0
+def generate(sample,cases,expected,weapon="p345"):
+    original=Original(sample,weapon);count=0
     for kind in (4,16,14,17):
         for quiet in (0,1):
             for armor in (bits(-2),bits(0),bits(.5),bits(1),bits(2),0x7fc00001):

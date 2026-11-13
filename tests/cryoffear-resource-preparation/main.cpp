@@ -164,7 +164,7 @@ int main(int argc, char** argv)
         const auto calls = fixture.calls;
         Check(fixture.loads == 3 && fixture.frees == 3, "three cold reads, all released");
         constexpr auto decalCount = std::is_same_v<Resources, GlockResources> ? ShotDecals.size() : 0;
-        Check(fixture.models.size() == 10 && fixture.generics.size() == 9 + decalCount &&
+        Check(fixture.models.size() == 10 && fixture.generics.size() == waves.size() + 2 + decalCount &&
             !fixture.generics.contains(texturePath.host), "engine retains sole automatic companion registration");
         Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
             std::string_view(models[9].original) == "sprites/gunsmoke.spr" &&
@@ -211,7 +211,7 @@ int main(int argc, char** argv)
                 std::string_view(waves[6].original) == "weapons_new/p345/p345_fire.wav",
                 "voice remote local logical namespaces retained");
         }
-        else
+        else if constexpr (std::is_same_v<Resources, GlockResources>)
         {
             Check(std::string_view(models[2].original) == "police/models/weapons/glock/p_glock.mdl",
                 "full original Glock police P identity");
@@ -221,12 +221,24 @@ int main(int argc, char** argv)
                 std::string_view(waves[0].original) == "weapons_new/glock/glock_switch.wav",
                 "Glock empty virtual variants rifle and local keys retained");
         }
+        if constexpr (std::is_same_v<Resources, RevolverResources>)
+        {
+            Check(std::string_view(models[2].original) == "police/models/weapons/revolver/p_revolver.mdl",
+                "original Revolver police P identity");
+            Check(events.size() == 3 && std::string_view(events[2].original) == "events/revolvershells.sc" &&
+                std::string_view(sounds[1].original) == "weapons/revolver/revolver_shell.wav" && waves.size() == 4,
+                "original delayed native shell sound is distinct from four local samples");
+        }
         for (std::size_t i = 0; i < events.size(); ++i)
             Check(fixture.events.at(events[i].host) == prepared.events[i], "actual event IDs preserved");
         Check(fixture.generics.at(inventory.host) == prepared.inventoryDownload &&
             fixture.generics.at(particle.host) == prepared.particleDownload, "actual metadata and particle generic IDs");
         for (const auto& [path, bytes] : fixture.files)
-            Check(path.size() < 64 && !bytes.empty(), "bounded actual VFS dependency");
+        {
+            const auto registered=path.starts_with("sound/")&&fixture.sounds.contains(path.substr(6))?
+                std::string_view(path).substr(6):std::string_view(path);
+            Check(registered.size()<MAX_QPATH&&!bytes.empty(), "actual engine resource filename bound");
+        }
 
         Resources sentinel;
         std::memset(static_cast<void*>(&sentinel), 0x5a, sizeof(sentinel));
@@ -379,6 +391,12 @@ int main(int argc, char** argv)
         exercise.template operator()<GlockResources>(GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,
             GlockInventory, GlockParticle, GlockClipTexture, PrepareGlockResources, 43, -20, 13.75f,
             "weapon_glock", "\"13.75\"", "Glock");
+        fixture = Fixture{};
+        Inputs(argv[1], argv[2], argv[3], RevolverModels, RevolverSounds, RevolverLocalWaves, RevolverEvents,
+            RevolverInventory, RevolverParticle, RevolverClipTexture);
+        exercise.template operator()<RevolverResources>(RevolverModels, RevolverSounds, RevolverLocalWaves, RevolverEvents,
+            RevolverInventory, RevolverParticle, RevolverClipTexture, PrepareRevolverResources, 22, -6, 4.5f,
+            "weapon_revolver", "\"4.5\"", "Revolver");
     }
     catch (const std::exception& e) { std::printf("%s\n", e.what()); return 3; }
     std::printf("%u total checks, %u failures\n", checks, failures);
