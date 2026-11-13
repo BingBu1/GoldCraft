@@ -580,11 +580,22 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         if (!step(services->BeforeHitReward(call, account, stageError), "ordinary player damage effects failed")) return FALSE;
         const auto rewards = account.rewards;
         if (!rewards) return fail("ordinary damage requires current hit rewards");
+        struct RewardOwner
+        {
+            const CSOLMonsterDamageCall* call;
+            const CSOLMonsterHitAccount* account;
+            const EHANDLE* actor;
+        } rewardOwner{&call, &account, &actor};
         const auto credited = rewards->Credit(spawn, actor, source, call.damage,
             account.moneyExtractor, account.roomOption, [](const void* pointer)
             {
-                return static_cast<const CSOLMonsterDamageCall*>(pointer)->Current() != nullptr;
-            }, &call);
+                const auto& owner = *static_cast<const RewardOwner*>(pointer);
+                if (!owner.call->Current()) return false;
+                const auto& account = *owner.account;
+                return !account.refundRegistry || (account.refundRegistration &&
+                    account.refundRegistration->generation == account.refundGeneration &&
+                    account.refundRegistry->Find(*owner.actor) == account.refundRegistration);
+            }, &rewardOwner, account.refundPlayer);
         if (!current() || credited == CSOLMonsterRewardResult::Cancelled) return FALSE;
         if (credited == CSOLMonsterRewardResult::Failed)
             return fail(rewards->Error().message.c_str());
@@ -1178,6 +1189,16 @@ bool CCSOLScenarioDamageServices::BeforeHitReward(CSOLMonsterDamageCall& call,
             !step(CSOL_ConsumeMonsterDamageEffect(call, runtime, error)) ||
             !step(players->ApplyAttackBuffDamage(call, runtime, error)))) return false;
         account.moneyExtractor = state->profile.moneyExtractor;
+        if (session->DamageRefunds())
+        {
+            account.refundRegistry = players;
+            account.refundRegistration = state;
+            account.refundGeneration = state->generation;
+            const auto identity = session->DamageRefundPlayer(static_cast<unsigned>(call.Player()->entindex()), state);
+            if (!current()) return call.Cancel();
+            if (!identity) { error.message = "scenario refund registration identity is unavailable"; return false; }
+            account.refundPlayer = *identity;
+        }
         if (account.moneyExtractor)
         {
             if (!runtime->room.moneyOption)

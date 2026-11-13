@@ -2,6 +2,8 @@
 #include "precompiled.h"
 #include "scenario_session.h"
 #include "human_kick.h"
+#include "../../custom/gameplay_settings.h"
+#include "scenario_player_runtime.h"
 #include "../monsters/scenario_monster_skills.h"
 #include "../monsters/scenario_zombie_bomb.h"
 #include "../../../scenario/monsters/scenario_monster_effects.hpp"
@@ -41,6 +43,7 @@ struct SessionOperation
 
 CCSOLScenarioSession::~CCSOLScenarioSession()
 {
+    if (m_damageRefunds) m_damageRefunds->Invalidate();
     if (m_wallUpgrade) m_wallUpgrade->Invalidate();
     if (m_weapons) m_weapons->Invalidate();
     if (m_hitRewards) m_hitRewards->Invalidate();
@@ -49,6 +52,7 @@ CCSOLScenarioSession::~CCSOLScenarioSession()
 
 bool CCSOLScenarioSession::Fail(csol::scenario::ResourceError error)
 {
+    if (m_damageRefunds) m_damageRefunds->Invalidate();
     if (m_wallUpgrade) m_wallUpgrade->Invalidate();
     if (m_weapons) m_weapons->Invalidate();
     if (m_hitRewards) m_hitRewards->Invalidate();
@@ -66,6 +70,15 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     m_error = {};
     m_scope = scope;
     if (!m_map.BeginMap(mapName)) return Fail(m_map.Error());
+    // NextMapSession: settings edits and replay never repin this map's policy.
+    const auto customSettings = CSOL_CustomSettings();
+    if (customSettings && customSettings->Enabled(csol::scenario::custom::Feature::DamageRefundCap))
+    {
+        const auto limit = customSettings->Number(csol::scenario::custom::Setting::DamageRefundMaximumPerMonster);
+        if (!limit || !std::isfinite(*limit) || *limit < 0 || *limit > 32000 || std::floor(*limit) != *limit)
+            return Fail({"", {0, "scenario damage refund limit is unavailable"}});
+        m_damageRefunds = std::make_shared<csol::scenario::custom::RefundCap>(static_cast<int>(*limit));
+    }
     if (!m_monsters.BindEntityAccess(m_map.EntityAccess()))
         return Fail({"", {0, "scenario monster pool could not bind map access"}});
     m_walls.BindEntityAccess(m_map.EntityAccess());
@@ -478,6 +491,8 @@ bool CCSOLScenarioSession::Deactivate()
     m_weapons.reset();
     if (m_hitRewards) m_hitRewards->Invalidate();
     m_hitRewards.reset();
+    if (m_damageRefunds) m_damageRefunds->Invalidate();
+    m_damageRefunds.reset();
     if (m_equipment) m_equipment->Invalidate();
     m_equipment.reset();
     if (m_players) m_players->Clear();
@@ -537,7 +552,7 @@ bool CCSOLScenarioSession::BindUpgradeServices(std::shared_ptr<CCSOLScenarioUpgr
     if (!m_difficulty.Parameter(15, 0x12, ratio, error) ||
         !m_difficulty.Parameter(15, 8, joinLevelRatio, error)) return Fail({"", std::move(error)});
     auto players = std::make_shared<CCSOLScenarioPlayers>();
-    auto rewards = CCSOLMonsterHitRewards::Create(m_difficulty, players, error);
+    auto rewards = CCSOLMonsterHitRewards::Create(m_difficulty, players, error, m_damageRefunds);
     if (!rewards) return Fail({"", std::move(error)});
     if (!BindWallPlayers(players)) return false;
     if (m_hitRewards) m_hitRewards->Invalidate();
@@ -559,6 +574,20 @@ bool CCSOLScenarioSession::BindEquipmentServices(CCSOLScenarioEquipment::CapEven
     if (!BindUpgradeServices(equipment)) return false;
     m_equipment = std::move(equipment);
     return true;
+}
+
+std::optional<csol::scenario::custom::RefundPlayer> CCSOLScenarioSession::DamageRefundPlayer(unsigned slot,
+    const std::shared_ptr<const CSOLScenarioPlayerRuntimeState>& registration)
+{
+    if (!m_damageRefunds || m_state != CSOLScenarioSessionState::Active || !m_map.EntityAccessAllowed() ||
+        !slot || slot >= m_refundPlayers.size() || !registration || !registration->generation) return {};
+    auto& player = m_refundPlayers[slot];
+    if (player.owner.lock() != registration)
+    {
+        if (m_nextRefundPlayer == UINT64_MAX) return {};
+        player = {registration, ++m_nextRefundPlayer};
+    }
+    return csol::scenario::custom::RefundPlayer{slot, player.token};
 }
 
 bool CCSOLScenarioSession::PrepareEquippedPlayer(CBasePlayer& player, int classId,
@@ -637,7 +666,7 @@ std::unique_ptr<CCSOLScenarioReplaySettings> CCSOLScenarioSession::PrepareReplay
             candidate->difficulty, m_players, error);
         if (!candidate->walls) return {};
     }
-    candidate->hits = CCSOLMonsterHitRewards::Create(candidate->difficulty, m_players, error);
+    candidate->hits = CCSOLMonsterHitRewards::Create(candidate->difficulty, m_players, error, m_damageRefunds);
     if (!candidate->hits) return {};
     candidate->players = m_players;
     candidate->access = m_map.EntityAccess();

@@ -2354,7 +2354,18 @@
     "tests/csol-scenario-rules-session/sdk_engine.hpp",
     "tests/csol-map-bootstrap/sdk.cpp",
     "tests/csol-map-bootstrap/README.md",
-    "docs/2026-11-13_修复-灾变首图地图编号初始化-report.md"
+    "docs/2026-11-13_修复-灾变首图地图编号初始化-report.md",
+    "native/csol/scenario/custom/refund_cap.cpp",
+    "native/csol/scenario/custom/refund_cap.hpp",
+    "native/csol/server/custom/damage_refund_account.cpp",
+    "native/csol/server/custom/damage_refund_account.h",
+    "docs/2026-11-13_实现-单怪伤害返金上限-report.md",
+    "tests/csol-damage-refund/main.cpp",
+    "tests/csol-damage-refund/account.cpp",
+    "tests/csol-damage-refund/sdk.cpp",
+    "tests/csol-damage-refund/run.py",
+    "tests/csol-damage-refund/run_account.py",
+    "tests/csol-damage-refund/README.md"
   ],
   "trees": {
     "native": [

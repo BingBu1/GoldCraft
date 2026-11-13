@@ -26,6 +26,7 @@
 
 enum class CSOLScenarioSessionState { Empty, Precached, Active, Failed };
 enum class CSOLScenarioResourceScope { Selection, Combat };
+struct CSOLScenarioPlayerRuntimeState;
 
 // Prepared from this map's already loaded resources. Only Session can build
 // and consume it; a retired map/round cannot install its pending selection.
@@ -115,6 +116,9 @@ public:
     std::shared_ptr<CCSOLScenarioPlayers> Players() const { return m_players; }
     std::shared_ptr<CCSOLScenarioEquipment> EquipmentState() const { return m_equipment; }
     std::shared_ptr<CCSOLMonsterHitRewards> HitRewards() const { return m_hitRewards; }
+    std::shared_ptr<csol::scenario::custom::RefundCap> DamageRefunds() const { return m_damageRefunds; }
+    std::optional<csol::scenario::custom::RefundPlayer> DamageRefundPlayer(unsigned slot,
+        const std::shared_ptr<const CSOLScenarioPlayerRuntimeState>& registration);
     std::shared_ptr<CCSOLScenarioWeaponState> Weapons() const { return m_weapons; }
     std::shared_ptr<const csol::scenario::AnnounceTable> Announcements() const { return m_announcements.Snapshot(); }
     std::shared_ptr<const csol::scenario::DamageDisplayModes> DamageDisplayModes() const { return m_damageDisplayModes.Snapshot(); }
@@ -160,6 +164,10 @@ private:
     std::shared_ptr<CCSOLScenarioUpgradeServices> m_upgradeServices;
     std::shared_ptr<CCSOLScenarioEquipment> m_equipment;
     std::shared_ptr<CCSOLMonsterHitRewards> m_hitRewards;
+    std::shared_ptr<csol::scenario::custom::RefundCap> m_damageRefunds;
+    struct RefundRegistration { std::weak_ptr<const CSOLScenarioPlayerRuntimeState> owner; std::uint64_t token{}; };
+    std::array<RefundRegistration, csol::scenario::custom::RefundCap::PlayerCount> m_refundPlayers;
+    std::uint64_t m_nextRefundPlayer{};
     std::shared_ptr<CCSOLScenarioWeaponState> m_weapons;
     std::uint64_t m_nextPlayerGeneration{};
     float m_experienceRatio{}, m_joinLevelRatio{};

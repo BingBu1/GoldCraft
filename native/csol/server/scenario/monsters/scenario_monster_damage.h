@@ -52,6 +52,8 @@ private:
     const void* m_ownerContext{};
 };
 
+class CCSOLScenarioPlayerRuntime;
+struct CSOLScenarioPlayerRuntimeState;
 struct CSOLMonsterHitAccount
 {
     // Resolve at the hit's original reward stage, not when a pooled behavior
@@ -59,6 +61,10 @@ struct CSOLMonsterHitAccount
     std::shared_ptr<CCSOLMonsterHitRewards> rewards;
     bool moneyExtractor{};
     int roomOption{};
+    csol::scenario::custom::RefundPlayer refundPlayer;
+    std::uint64_t refundGeneration{};
+    std::shared_ptr<CCSOLScenarioPlayerRuntime> refundRegistry;
+    std::shared_ptr<const CSOLScenarioPlayerRuntimeState> refundRegistration;
 };
 
 class CCSOLScenarioRuntime;

@@ -37,7 +37,8 @@ inline std::vector<std::vector<unsigned char>> messages;
 inline void Begin(int,int,const float*,entvars_t*){messages.emplace_back();}
 inline void Long(int value){for(int i=0;i<4;++i)messages.back().push_back(static_cast<std::uint32_t>(value)>>(8*i));}
 inline void Byte(int value){messages.back().push_back(value);}
-inline void End(){}
+inline std::function<void()> onAccountMessage;
+inline void End(){if(onAccountMessage)onAccountMessage();}
 [[noreturn]] inline void Sys_Error(const char*,...){std::abort();}
 #define __FUNC__ __FUNCTION__
 #define Q_memset std::memset
