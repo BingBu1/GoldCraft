@@ -14,6 +14,8 @@ parser.add_argument('--output',type=Path,required=True)
 parser.add_argument('--plugin',type=Path,required=True)
 parser.add_argument('--environment',type=Path,required=True)
 parser.add_argument('--compiler',type=Path,required=True)
+parser.add_argument('--group',choices=('root','all','layout','suite'),default='root')
+parser.add_argument('--catalog',type=Path,default=root/'native/csol/config/gameplay.example.json')
 args=parser.parse_args()
 out=args.output.resolve()
 assert out.is_relative_to(root/'build') and not out.exists()
@@ -31,6 +33,7 @@ plugin=args.plugin.resolve()
 assert plugin.is_relative_to(root/'build')
 paths=[root/'amxx/scenario/goldcraft_scenario_admin.sma',root/'amxx/scenario/include/csol_scenario_admin.inc',
        root/'tests/csol-custom-admin/pawn.cpp',root/'tests/csol-scenario-admin/pawn.cpp',compiler,linker,Path(__file__),plugin,environment]
+if args.group in ('layout','suite'):paths.append(args.catalog.resolve(strict=True))
 include=root/'external/amxmodx/compiler/amxxpc'
 paths+=list(include.glob('*.h'))+[include/'amx.cpp']
 for dirname in config['INCLUDE'].split(';'):
@@ -68,7 +71,15 @@ try:
             '/DHAVE_STDINT_H','/DAMX_NODYNALOAD','/DNDEBUG','/D_CRT_SECURE_NO_WARNINGS','/I'+str(include),'/Fo'+str(obj),source])
     executable=out/'pawn.exe'
     run('link',[linker,'/subsystem:console','/machine:x86','/threads:1','/opt:lldltojobs=1','/out:'+str(executable),*objects,*libraries])
-    run('tests-root',[executable,out/'admin.amx','root'])
+    if args.group in ('layout','suite'):
+        catalog=json.loads(args.catalog.read_text('utf8'))
+        keys=[*catalog['features'],*[key for group in catalog['features'].values() for key in group['values']]]
+        assert len(keys)==48 and len(set(keys))==48 and all(re.fullmatch('[a-z0-9_]+',key) for key in keys)
+        catalogFile=out/'catalog-keys.txt';catalogFile.write_text('\n'.join(keys)+'\n','utf8')
+    for group in ('root','all','layout') if args.group=='suite' else (args.group,):
+        command=[executable,out/'admin.amx',group]
+        if group=='layout':command.append(catalogFile)
+        run('tests-'+group,command)
     receipt['success']=True
 finally:
     receipt['changedInputs']=[row['path'] for row in inputs.values() if identity(Path(row['path']))!=row]

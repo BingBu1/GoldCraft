@@ -58,7 +58,7 @@ struct State
     int nativeSpawns{}, modelIndex{}, activeModel{}, sequence{-1}, slot{};
     std::uint8_t sentFlags{255};
     kick::Clock clock;
-    bool busy{}, retired{}, locked{}, resumable{}, restoring{};
+    bool busy{}, retired{}, locked{}, resumable{}, restoring{}, resumePending{};
 
     CBasePlayer* Current() const
     {
@@ -220,14 +220,15 @@ bool Finish(const std::shared_ptr<State>& state, bool restore)
         {
             const auto result = action->ResumeWeaponAction(state->action);
             applied = result == csol::scenario::custom::ActionResumeResult::Applied;
-            if (result == csol::scenario::custom::ActionResumeResult::Rejected && ownsLock &&
+            if (result == csol::scenario::custom::ActionResumeResult::Rejected &&
                 state->Current() == player && player->m_pActiveItem == item &&
-                player->pev->viewmodel == resources.viewmodel && player->m_flNextAttack > 100000.0f)
+                player->pev->deadflag == DEAD_NO && player->pev->health > 0)
             {
                 // A rejected observer may have already committed the real
                 // reload. Retain this overlay for a presentation-only retry;
                 // never lose the token or unlock a still-suspended guest gun.
-                state->locked = true;
+                state->locked = ownsLock;
+                state->resumePending = true;
                 state->clock.BeginEmergency(gpGlobals->time);
                 return true;
             }
@@ -235,8 +236,14 @@ bool Finish(const std::shared_ptr<State>& state, bool restore)
         else action->CancelWeaponAction(state->action);
         player = state->Current();
         if (!player || state->weapon.Get<CBasePlayerItem>() != item) return false;
+        // Selecting a replacement weapon from a legitimate observer cancels
+        // this presentation owner. Its new models/timer are a successful
+        // handoff, not a failed restoration of the old gun.
+        if (player->m_pActiveItem != item || player->pev->deadflag != DEAD_NO || player->pev->health <= 0)
+            applied = true;
     }
-    if (resume && (!state->resumable || !applied))
+    if (resume && player->m_pActiveItem == item && player->pev->deadflag == DEAD_NO &&
+        player->pev->health > 0 && (!state->resumable || !applied))
     {
         // Resume native presentation only. Deploy would restart its cooldown
         // and may discard/repeat the in-flight reload or attack.
@@ -250,7 +257,7 @@ bool Finish(const std::shared_ptr<State>& state, bool restore)
         player = state->Current();
         if (!player || state->weapon.Get<CBasePlayerItem>() != item) return false;
     }
-    state->resumable = false; state->action = {};
+    state->resumable = state->resumePending = false; state->action = {};
     // A callback may have selected another weapon or installed another timer.
     // Preserve it. Only the still-owned large action lock is released here.
     if (ownsLock && player->m_pActiveItem == item && player->m_flNextAttack > 100000.0f)
@@ -438,7 +445,7 @@ bool CSOL_UpdateHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
         const bool sameWeapon = player.m_pActiveItem == state->weapon.Get<CBasePlayerItem>();
         if (!alive || !sameWeapon)
         { if (!Finish(state, false)) return false; }
-        else if (!policyEnabled)
+        else if (state->resumePending || !policyEnabled)
         { if (!Finish(state, true)) return false; }
         else if (player.pev->modelindex != state->activeModel)
         { if (!Finish(state, true)) return false; }

@@ -23,6 +23,8 @@ struct State : Context
         {"dusk_speed_multiplier","黄昏移速自定义倍率。",2,1.05f,.001f,1000,1},
         {"sprint_maximum","未知原体力，不提供猜测默认。",2,0,.001f,1000000,1,0}};
     std::vector<std::string> notices, commands;
+    std::vector<std::string> consoleLines;
+    std::map<int,std::map<int,std::string>> menuNames;
     struct Dispatch {int player;std::string command,arg1,arg2;bool menuDestroyed;};
     std::vector<Dispatch> engineCommands;
     std::map<int,std::string> tasks;
@@ -43,6 +45,19 @@ cell AMX_NATIVE_CALL Notice(AMX* amx,cell* p)
     state->notices.push_back(std::move(text));return 1;
 }
 cell AMX_NATIVE_CALL Command(AMX* amx,cell* p){state->commands.push_back(Read(amx,p[2]));return 1;}
+cell AMX_NATIVE_CALL ConsoleNotice(AMX* amx,cell* p)
+{
+    auto text=Read(amx,p[2]);int argument=3;
+    for(auto at=text.find("%s");at!=text.npos&&argument<=p[0]/cell(sizeof(cell));at=text.find("%s",at))
+    {const auto value=Read(amx,p[argument++]);text.replace(at,2,value);at+=value.size();}
+    state->consoleLines.push_back(std::move(text));return 1;
+}
+cell AMX_NATIVE_CALL Minimum(AMX*,cell* p){return std::min(p[1],p[2]);}
+cell AMX_NATIVE_CALL Property(AMX* amx,cell* p)
+{
+    if(p[2]>=2&&p[2]<=4)state->menuNames[p[1]][p[2]]=Read(amx,p[3]);
+    return MenuProperty(amx,p);
+}
 cell AMX_NATIVE_CALL EngineCommand(AMX* amx,cell* p)
 {
     state->engineCommands.push_back({p[1],Read(amx,p[2]),Read(amx,p[3]),Read(amx,p[4]),
@@ -107,7 +122,8 @@ cell AMX_NATIVE_CALL Edit(AMX*,cell* p)
     return 1;
 }
 const AMX_NATIVE_INFO overrides[]{
-    {"get_user_userid",Userid},{"client_print",Notice},{"client_cmd",Command},{"engclient_cmd",EngineCommand},{"formatex",Format},
+    {"get_user_userid",Userid},{"client_print",Notice},{"console_print",ConsoleNotice},{"min",Minimum},
+    {"menu_setprop",Property},{"client_cmd",Command},{"engclient_cmd",EngineCommand},{"formatex",Format},
     {"set_task",Task},{"remove_task",RemoveTask},{"float",Float},{"floatround",FloatRound},{"str_to_float",FloatString},
     {"floatcmp",FloatCmp},{"floatadd",FloatAdd},{"floatsub",FloatSub},{"floatmul",FloatMul},{"floatdiv",FloatDiv},
     {"read_args",Args},{"remove_quotes",Quotes},{"trim",Trim},
@@ -192,6 +208,66 @@ void RootCases()
         const auto destroys=v.s.destroys;v.Call("PlayerMenuHandler",{1,old,0});
         Check(v.s.engineCommands.empty()&&v.s.shown==fresh&&v.s.destroys==destroys,"old root handler cannot close newer root or dispatch a command");}
 }
+bool CompleteUtf8(std::string_view text)
+{
+    unsigned remaining{};
+    for(unsigned char value:text)
+    {
+        if(remaining){if((value&0xc0)!=0x80)return false;--remaining;}
+        else if(value<0x80)continue;
+        else if(value>=0xc2&&value<=0xdf)remaining=1;
+        else if(value>=0xe0&&value<=0xef)remaining=2;
+        else if(value>=0xf0&&value<=0xf4)remaining=3;
+        else return false;
+    }
+    return remaining==0;
+}
+void LayoutCases(const char* catalog)
+{
+    VM v;v.s.fields.clear();std::ifstream input(catalog);std::string key;
+    std::string explanation="a";for(unsigned i=0;i<166;++i)explanation+="说";
+    while(std::getline(input,key))if(!key.empty())
+        v.s.fields.push_back({key,explanation,v.s.fields.size()<11?0:2,1000000000.f,0,1000000000.f,1,1});
+    Check(v.s.fields.size()==48,"layout fixture uses actual complete48-field JSON catalog");
+    const int index=v.Settings();const auto& menu=v.s.menus.at(index);
+    Check(menu.perPage==5&&menu.items.size()==48,"actual Pawn keeps all48 fields with five rows per page");
+    Check(menu.title.size()<255&&CompleteUtf8(menu.title),"actual AMXX255-byte title remains complete UTF8");
+    Check(menu.items[0].first.find("范围踢击")!=std::string::npos&&
+        menu.items.back().first.find("单怪伤害返金上限")!=std::string::npos,
+        "first and last actual settings map to short Chinese labels");
+    for(const auto& entry:menu.items)
+        Check(entry.first.size()<96&&CompleteUtf8(entry.first)&&entry.first.find('_')==std::string::npos&&
+            entry.first.find("说")==std::string::npos,"long explanations and raw keys cannot consume menu rows");
+    const auto& names=v.s.menuNames.at(index);
+    Check(names.at(2)=="上一页"&&names.at(3)=="下一页"&&names.at(4)=="返回管理",
+        "actual Pawn supplies complete page/back controls");
+    std::size_t maximum{};
+    // Match the pinned AMXX auto-color envelope. The511-byte transport
+    // compatibility budget includes first/last disabled navigation and exit.
+    const std::size_t pages=(menu.items.size()+4)/5;
+    for(std::size_t page=0;page<pages;++page)
+    {
+        auto payload="\\y"+menu.title+" "+std::to_string(page+1)+"/"+std::to_string(pages)+"\n\\w\n";
+        for(std::size_t i=page*5;i<std::min(menu.items.size(),(page+1)*5);++i)
+            payload+="\\r"+std::to_string(i%5+1)+".\\w "+menu.items[i].first+"\n";
+        payload+="\n\\d6. 上一页\n\\w\\r7. \\w下一页\n\\r0. \\w返回管理\n";
+        maximum=std::max(maximum,payload.size());
+        Check(payload.size()<=511&&CompleteUtf8(payload),"all menu rows and footer fit conservative native transport budget");
+    }
+    v.Call("CustomSettingsHandler",{1,index,47});
+    const auto& detail=v.s.menus.at(v.s.shown);
+    Check(detail.title.size()<192&&detail.items.size()==1&&detail.title.find(explanation.substr(0,12))==std::string::npos,
+        "detail menu keeps input control visible and moves full explanation out of title");
+    std::string reconstructed;
+    for(std::size_t i=1;i<v.s.consoleLines.size();++i)
+    {
+        Check(v.s.consoleLines[i].size()<=120&&CompleteUtf8(v.s.consoleLines[i]),
+            "each actual console explanation chunk preserves whole UTF8 codepoints");
+        reconstructed+=v.s.consoleLines[i];
+    }
+    Check(reconstructed==explanation,"long Chinese explanation is preserved without losing characters");
+    std::cout<<"layoutPages="<<pages<<" maxMenuBytes="<<maximum<<'\n';
+}
 void Cases()
 {
     {VM v;v.s.flags=0;Check(v.Call("CommandChooseTeam",{1})==1,"joined ordinary Scenario player gets M homepage");
@@ -240,10 +316,11 @@ int main(int argc,char** argv)
 {
     try
     {
-        if(argc<2||argc>3)throw std::runtime_error("provide extracted current administrator .amx [root|all]");
+        if(argc<2||argc>4)throw std::runtime_error("provide extracted administrator .amx [root|all|layout catalog]");
         std::ifstream file(argv[1],std::ios::binary);bytecode.assign(std::istreambuf_iterator<char>(file),{});
         if(bytecode.empty())throw std::runtime_error("empty bytecode");
         if(argc==3&&std::string_view(argv[2])=="root")custom_menu_test::RootCases();
+        else if(argc==4&&std::string_view(argv[2])=="layout")custom_menu_test::LayoutCases(argv[3]);
         else custom_menu_test::Cases();
     }
     catch(const std::exception& error){++failures;std::cerr<<"ERROR "<<error.what()<<'\n';}

@@ -18,13 +18,114 @@ new g_InputKey[33][64];
 new g_PendingUserid[33], g_PendingRevision[33], g_PendingSetting[33], g_PendingPolls[33];
 new Float:g_PendingValue[33];
 const TASK_CUSTOM_SAVE = 27400;
+new const g_CustomKeys[][] = {
+    "kick",
+    "time_cycle",
+    "blind_box",
+    "mastery",
+    "cof_sprint",
+    "blood",
+    "dusk_buff",
+    "night_buff",
+    "zombie_population",
+    "random_horde",
+    "damage_refund_cap",
+    "midday_seconds",
+    "dusk_seconds",
+    "blind_box_price_1",
+    "blind_box_price_2",
+    "blind_box_price_3",
+    "mastery_threshold_1",
+    "mastery_threshold_2",
+    "mastery_threshold_3",
+    "mastery_reload_1",
+    "mastery_reload_2",
+    "mastery_damage_2",
+    "mastery_damage_3",
+    "mastery_fire_rate_3",
+    "sprint_maximum",
+    "sprint_drain_per_second",
+    "sprint_recovery_per_second",
+    "sprint_speed",
+    "walk_speed",
+    "jump_cost",
+    "kick_cost",
+    "dusk_maximum_multiplier",
+    "dusk_recovery_multiplier",
+    "blood_lifetime_seconds",
+    "blood_maximum",
+    "dusk_speed_multiplier",
+    "dusk_regen_per_second",
+    "night_damage_multiplier",
+    "night_speed_multiplier",
+    "night_regen_per_second",
+    "midday_zombie_base",
+    "dusk_zombie_base",
+    "night_zombie_base",
+    "zombies_per_player",
+    "horde_interval_seconds",
+    "horde_probability",
+    "horde_duration_seconds",
+    "damage_refund_max_per_monster"
+};
+new const g_CustomNames[][] = {
+    "范围踢击",
+    "时间系统",
+    "武器盲盒",
+    "武器熟练度",
+    "体力与奔跑",
+    "血迹效果",
+    "黄昏强化",
+    "永夜强化",
+    "僵尸数量",
+    "随机尸潮",
+    "伤害返金限制",
+    "正午时长",
+    "黄昏时长",
+    "CoF盲盒价格",
+    "CS盲盒价格",
+    "CSOL盲盒价格",
+    "熟练度一档击杀",
+    "熟练度二档击杀",
+    "熟练度三档击杀",
+    "一档换弹倍率",
+    "二档换弹倍率",
+    "二档伤害倍率",
+    "三档伤害倍率",
+    "三档射速倍率",
+    "体力上限",
+    "奔跑体力消耗",
+    "体力恢复速度",
+    "奔跑速度",
+    "普通行走速度",
+    "跳跃体力消耗",
+    "踢击体力消耗",
+    "黄昏体力倍率",
+    "黄昏恢复倍率",
+    "血迹保留时长",
+    "血迹数量上限",
+    "黄昏移速倍率",
+    "黄昏每秒回血",
+    "永夜伤害倍率",
+    "永夜移速倍率",
+    "永夜每秒回血",
+    "正午基础怪量",
+    "黄昏基础怪量",
+    "永夜基础怪量",
+    "每人增加怪量",
+    "尸潮抽样间隔",
+    "尸潮触发概率",
+    "尸潮持续时长",
+    "单怪伤害返金上限"
+};
+
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.
 new const g_DifficultyNames[][] = { "", "入门", "普通", "困难", "噩梦", "地狱", "炼狱", "炼狱Ⅰ" };
 
 public plugin_init()
 {
     for (new id; id < sizeof g_Menu; id++) g_Menu[id] = -1;
-    register_plugin(PLUGIN_NAME, "0.6.0", "GoldCraft contributors");
+    register_plugin(PLUGIN_NAME, "0.6.1", "GoldCraft contributors");
     register_clcmd("chooseteam", "CommandChooseTeam", -1, "", 0);
     register_concmd("amx_scenario_menu", "CommandMenu", ADMIN_CFG, "打开大灾变管理", 0);
     register_concmd("amx_scenario_difficulty", "CommandDifficulty", ADMIN_CFG, "[1..7] 设置下次重玩难度", 0);
@@ -456,6 +557,30 @@ bool:CustomInfo(&revision, &count, &busy, &result, error[], length)
         revision > 0 && count > 0 && count <= 128;
 }
 
+CustomName(index, const key[], output[], length)
+{
+    if (index >= 0 && index < sizeof g_CustomKeys && equal(key, g_CustomKeys[index]))
+        copy(output, length, g_CustomNames[index]);
+    else copy(output, min(length, 24), key);
+}
+
+CustomExplain(id, const key[], const comment[])
+{
+    console_print(id, "[大灾变] %s", key);
+    new offset, total = strlen(comment), line[128];
+    while (offset < total)
+    {
+        new length = min(total - offset, 120);
+        // The provider validates UTF8. End every console message at a complete
+        // codepoint; long explanations never occupy the native menu buffer.
+        while (offset + length < total && length > 0 && (comment[offset + length] & 0xC0) == 0x80) length--;
+        if (!length) break;
+        copy(line, length, comment[offset]);
+        console_print(id, "%s", line);
+        offset += length;
+    }
+}
+
 ShowCustomSettings(id)
 {
     if (!Administrator(id)) return;
@@ -468,15 +593,15 @@ ShowCustomSettings(id)
     }
     new userid = get_user_userid(id);
     CloseFinishMenu(id);
-    new title[256];
-    formatex(title, charsmax(title), "持久玩法设置  修订 %d^n%s^n点击开关或编辑数值；保存失败不改原文件", revision,
-        busy ? "正在写入，请稍候刷新" : "修改通过校验后异步保存到JSON");
+    new title[128];
+    formatex(title, charsmax(title), "持久玩法设置  修订 %d^n%s  *换图生效", revision,
+        busy ? "正在保存" : "点击编辑");
     new menu = menu_create(title, "CustomSettingsHandler");
     g_Menu[id] = menu;
     g_MenuUserid[id] = userid;
     g_MenuRevision[id] = revision;
     new key[64], comment[512], type, nextMap, available, Float:value, Float:minimum, Float:maximum;
-    new label[192], number[12];
+    new label[96], name[40], number[12];
     for (new index; index < count; index++)
     {
         if (!csol_custom_read(index, key, charsmax(key), comment, charsmax(comment), type, value, minimum, maximum, nextMap, available) ||
@@ -485,11 +610,12 @@ ShowCustomSettings(id)
             CloseFinishMenu(id);
             return;
         }
+        CustomName(index, key, name, charsmax(name));
         if (type == CSOL_CUSTOM_BOOLEAN)
-            formatex(label, charsmax(label), "[%s] %s%s", value == 0.0 ? "关闭" : "开启", comment, nextMap ? " [下次本图会话]" : "");
+            formatex(label, charsmax(label), "[%s] %s%s", value == 0.0 ? "关闭" : "开启", name, nextMap ? " *" : "");
         else if (available)
-            formatex(label, charsmax(label), "%s：%.3f%s", key, value, nextMap ? " [下次本图会话]" : "");
-        else formatex(label, charsmax(label), "%s：尚未设置%s", key, nextMap ? " [下次本图会话]" : "");
+            formatex(label, charsmax(label), "%s：%.3f%s", name, value, nextMap ? " *" : "");
+        else formatex(label, charsmax(label), "%s：未设置%s", name, nextMap ? " *" : "");
         num_to_str(index, number, charsmax(number));
         menu_additem(menu, label, number);
     }
@@ -502,6 +628,9 @@ ShowCustomSettings(id)
         return;
     }
     menu_setprop(menu, MPROP_EXITNAME, "返回管理");
+    menu_setprop(menu, MPROP_PERPAGE, 5);
+    menu_setprop(menu, MPROP_BACKNAME, "上一页");
+    menu_setprop(menu, MPROP_NEXTNAME, "下一页");
     menu_display(id, menu);
 }
 
@@ -538,17 +667,19 @@ ShowCustomEntry(id, index, expectedRevision)
     new userid = get_user_userid(id);
     if (!csol_custom_read(index, key, charsmax(key), comment, charsmax(comment), type, value, minimum, maximum, nextMap, available) ||
         !Administrator(id, userid)) return;
+    CustomExplain(id, key, comment);
     if (type == CSOL_CUSTOM_BOOLEAN)
     {
         SubmitCustomEdit(id, userid, revision, index, value == 0.0 ? 1.0 : 0.0);
         return;
     }
     if (type != CSOL_CUSTOM_INTEGER && type != CSOL_CUSTOM_REAL) return;
-    new title[768], current[64];
+    new title[192], current[32], name[40];
+    CustomName(index, key, name, charsmax(name));
     if (available) formatex(current, charsmax(current), "%.6f", value);
     else copy(current, charsmax(current), "尚未设置");
-    formatex(title, charsmax(title), "%s^n%s^n当前：%s^n允许：%.3f..%.3f^n%s", key, comment, current, minimum, maximum,
-        nextMap ? "保存后在下次本图会话生效" : "保存成功后由配套消费者应用");
+    formatex(title, charsmax(title), "%s^n当前：%s^n范围：%.3f..%.3f^n%s^n详细说明已输出到控制台", name, current, minimum, maximum,
+        nextMap ? "*换图后生效" : "保存后生效");
     CloseFinishMenu(id);
     new menu = menu_create(title, "CustomEntryHandler");
     g_Menu[id] = menu;

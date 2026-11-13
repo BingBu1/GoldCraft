@@ -191,6 +191,42 @@ void ConfigurationScope()
     Expect(CSOL_ActionStaminaView(c.f.runtime, c.player)->amount == 70,
         "retired map policy now consumes actually saved thirty-point cost");
 }
+CoF* swapCase{};
+bool SwapOnReload(void* context, CBasePlayer& player, CBasePlayerWeapon& item,
+    const guest::cof::server::GlockEvent& event) noexcept
+{
+    const bool delivered = CoF::Effect(context, player, item, event);
+    if (swapCase && event.kind == guest::cof::server::GlockEffect::InventoryChanged)
+    {
+        swapCase = nullptr;
+        // A real player weapon selection synchronously calls both ordinary
+        // Holster and stock AK Deploy inside the reload observer.
+        player.SelectItem("weapon_ak47");
+    }
+    return delivered;
+}
+void SwapDuringResume()
+{
+    CoF c;
+    const guest::cof::server::GlockBackends backend{
+        &c, CoF::Current, CoF::OwnerFrame, SwapOnReload,
+        guest::cof::server::GlockRequiredEffects, &c.animations, {1, 1}};
+    Require(c.glock->Bind(c.host.player, c.prepared, backend) ==
+        guest::cof::server::GlockStatus::Ready && c.glock->Deploy(),
+        "real CoF backend records the synchronous inventory observer");
+    c.Advance(1.25f); c.glock->m_iClip = 5; c.glock->Reload();
+    c.Command(); Require(c.Active(), "actual emergency starts during reload");
+    swapCase = &c; c.Advance(4); Complete(c.host);
+    Expect(!swapCase && c.host.player.m_pActiveItem == c.host.weapon,
+        "reload observer really selected the inventory AK");
+    Expect(std::string_view(STRING(c.host.player.pev->viewmodel)) == "models/v_ak47.mdl" &&
+        c.host.player.m_flNextAttack == .75f && c.host.deploys == 1,
+        "outer recovery cannot overwrite callback-selected gun presentation or its draw delay");
+    Expect(c.glock->m_iClip == 15 && c.host.player.m_rgAmmo[1] == 25,
+        "committed current reload is retained when an observer changes weapons");
+    Expect(!c.glock->ActionState().loading && !c.glock->m_fInReload,
+        "observer retirement cannot leave the already committed reload pending");
+}
 }
 int main(int argc, char** argv)
 {
@@ -205,6 +241,7 @@ int main(int argc, char** argv)
         else if (group == "noon-life") emergency_integration::NoonAndLife();
         else if (group == "budget-life") emergency_integration::BudgetAndLife();
         else if (group == "config-scope") emergency_integration::ConfigurationScope();
+        else if (group == "swap-resume") emergency_integration::SwapDuringResume();
         else throw std::runtime_error("unknown emergency integration group");
     }
     catch (const std::exception& error)

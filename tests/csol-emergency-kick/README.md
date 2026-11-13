@@ -2,6 +2,8 @@
 
 Run run.py --seal <accepted-current-server/link-inputs.json> --adapter-dir <generated-SDK-edges> --output <fresh-build-directory> from Git Bash. The full baseline must include the current Glock class layout and RTTI. Older support objects can omit its new action capability even if a newer Glock translation unit links successfully.
 
+For final acceptance add --sealed-production to reuse every actual accepted server object and compile only the fixture. Every consumed production header must then match that full build's recorded input. This also exercises synchronous real inventory selection from the reload observer and verifies the replacement gun retains its models/draw timer while the old reload remains consumed.
+
 The fixture executes the actual controller, native CS weapon, CoF Glock, Session/player owner, settings service and stamina state. Explicit engine boundaries provide studio metadata, geometry and effect transport. Each behavior group has a separate game directory and process. The runner records actual includes, source/object/tool identities and unchanged inputs; it does not create source snapshots or deploy a server.
 
 Groups cover native reload/attack/zoom interruption, pending/elapsed CoF reload and current ammunition, aimed and loaded attacks, noon, finite budget/token/life and actual permanent-save scope. Recovery cannot use normal Deploy, rewind inventory, reset attack deadlines or duplicate a completed reload.

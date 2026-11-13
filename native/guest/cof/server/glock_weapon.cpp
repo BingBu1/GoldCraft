@@ -1090,6 +1090,16 @@ void GlockWeapon::ReloadCommitted(void* context, const MagazineReload& state) no
     auto& bridge = *static_cast<ActionBridge*>(context);
     auto& self = *bridge.item;
     self.action_.clip = state.clip; self.action_.reserve = state.reserve;
+    if (self.overlay_.token.generation && self.overlay_.resuming)
+    {
+        // Emergency resume owns this additional transaction boundary. An
+        // observer can synchronously Holster/select another gun, so consume
+        // this committed reload before it can retire the overlay. Ordinary
+        // CoF reload keeps its original observer ordering.
+        self.action_.loading = false;
+        if (self.action_.action == 2) self.action_.action = 0;
+        self.viewSequence_ = (self.action_.aiming ? 32 : 0) + (state.clip == 0);
+    }
     self.WriteAmmo();
     bridge.callbackFailed = !self.Emit({GlockEffect::InventoryChanged});
 }

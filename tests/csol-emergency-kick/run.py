@@ -19,6 +19,8 @@ def main():
         parser.add_argument("--" + key, type=Path, required=True)
     parser.add_argument("--glock-receipt", type=Path,
                         help="Optional independent component object; omit for a coherent current full-server baseline")
+    parser.add_argument("--sealed-production", action="store_true",
+                        help="Reuse all actual accepted server objects; compile only the new SDK fixture")
     args = parser.parse_args()
     spec = importlib.util.spec_from_file_location("sdk", ROOT / "tests/csol-rebuy/run_sdk.py")
     sdk = importlib.util.module_from_spec(spec)
@@ -28,12 +30,16 @@ def main():
     out = sdk.checked(args.output, exists=False)
     if out.exists() or not out.is_relative_to(ROOT / "build"):
         raise ValueError("Fresh workspace build output required")
-    replaced = {"csol_kick_human_kick.obj", "guest_cof_glock_weapon.obj",
-                "csol_custom_action_stamina.obj", "csol_custom_stamina.obj"}
+    if args.sealed_production and glock:
+        raise ValueError("An independent guest object cannot replace a sealed-production baseline")
+    replaced = set() if args.sealed_production else {
+        "csol_kick_human_kick.obj", "guest_cof_glock_weapon.obj",
+        "csol_custom_action_stamina.obj", "csol_custom_stamina.obj"}
     support = [row for row in seal["linkInputs"] if Path(row["path"]).name.casefold() not in replaced]
     removed = [Path(row["path"]).name.casefold() for row in seal["linkInputs"]
                if Path(row["path"]).name.casefold() in replaced]
-    if removed.count("csol_kick_human_kick.obj") != 1 or removed.count("guest_cof_glock_weapon.obj") != 1:
+    if not args.sealed_production and (
+        removed.count("csol_kick_human_kick.obj") != 1 or removed.count("guest_cof_glock_weapon.obj") != 1):
         raise ValueError("Expected exactly one controller and one guest gun")
     if glock:
         gun = next(row for row in glock["products"] if Path(row["path"]).name == "glock.obj")
@@ -63,6 +69,9 @@ def main():
         "action-stamina": ROOT / "native/csol/server/custom/action_stamina.cpp",
         "stamina": ROOT / "native/csol/scenario/custom/stamina.cpp",
     }
+    if args.sealed_production:
+        units = {"fixture": units["fixture"]}
+    baseline = {row["path"].casefold(): row for row in sdk.read(seal["sourceInventory"]["path"])}
     tracked = {}
     for directory in ("native", "external/ReGameDLL_CS", "tests"):
         for path in (ROOT / directory).rglob("*"):
@@ -81,6 +90,7 @@ def main():
     receipt = dict(success=False, inputsUnchanged=False, fullDLL=False, sourceCopies=0,
                    deployed=False, gameplay=False, support=support, gunObject=gun,
                    controls=controls, steps=[], products=[],
+                   sealedProductionObjects=args.sealed_production,
                    boundary="Current controller/stamina/gun SDK components; not a current whole-server or visual/performance acceptance")
 
     def save():
@@ -115,6 +125,10 @@ def main():
                     before = tracked.get(current["path"].casefold())
                     if before != current:
                         raise ValueError("Actual compiler input changed or was unrecorded: " + str(path))
+                    if args.sealed_production and not path.is_relative_to(ROOT / "tests"):
+                        compiled = baseline.get(current["path"].casefold())
+                        if not compiled or compiled["sha256"] != current["sha256"]:
+                            raise ValueError("Fixture production header differs from the actual server build: " + str(path))
                     consumed[current["path"].casefold()] = current
         if kind in ("compile", "link") and result.returncode == 0:
             prefix = "/fo" if kind == "compile" else "/out:"
@@ -145,9 +159,9 @@ def main():
                 and Path(x).name.casefold() not in replaced]
         exe = out / "emergency-integration.exe"
         run("link", link + ["/SUBSYSTEM:CONSOLE", "/OUT:" + str(exe), "/PDB:" + str(out / "integration.pdb"),
-                            "/threads:4", "/opt:lldltojobs=4", gun["path"],
+                            "/threads:4", "/opt:lldltojobs=4", *([] if args.sealed_production else [gun["path"]]),
                             *[str(out / (name + ".obj")) for name in units]], "link")
-        for group in ("stock", "reload-pending", "reload-elapsed", "aim-attack", "noon-life", "budget-life", "config-scope"):
+        for group in ("stock", "reload-pending", "reload-elapsed", "aim-attack", "noon-life", "budget-life", "config-scope", "swap-resume"):
             data = out / ("data-" + group)
             data.mkdir()
             run(group, [str(exe), group], "behavior", data)
