@@ -27,6 +27,7 @@ public:
     // death rules, Golden cleanup and PostDeath with no attacker.
     void RevokeAttacker() { m_arguments.attacker = static_cast<CBaseEntity*>(nullptr); }
     const CSOLMonsterDeathContext& Context() const { return m_arguments.context; }
+    CSOLMonsterActionKind Action() const { return m_arguments.action.kind; }
     bool SuppressSound() const { return m_arguments.suppressSound; }
 
 private:

@@ -19,6 +19,7 @@
 #include "scenario/monsters/elite_visuals.hpp"
 #include "scenario/core/scenario_upgrades.hpp"
 #include "scenario/core/scenario_abilities.hpp"
+#include "scenario/core/human_kick.hpp"
 #include "scenario/bosses/boss_health.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
 #include "scenario/core/scenario_respawn_ui.hpp"
@@ -58,6 +59,7 @@ void ResetSession()
     ResetEliteVisuals();
     ResetScenarioUpgrades();
     ResetScenarioAbilities();
+    ResetHumanKick();
     ResetBossHealth();
     ResetScenarioRoundHud();
     ResetScenarioRespawnUi();

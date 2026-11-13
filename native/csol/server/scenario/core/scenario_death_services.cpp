@@ -157,7 +157,8 @@ bool CCSOLScenarioDeathServices::PlayerKilledMonster(CSOLMonsterDeathCall& call,
 
     const auto run = [&]() -> bool
     {
-        if (!players->RootMonsterKilled(call, error) || !current()) return false;
+        const bool humanKick = call.Action() == CSOLMonsterActionKind::HumanKick;
+        if (!humanKick && (!players->RootMonsterKilled(call, error) || !current())) return false;
         if (!CSOL_CompleteScenarioMonsterClearPoint(call, error) || !current()) return false;
         // Completion may enter Advancing/Completing. It does not invalidate this
         // death unless it actually closes/replaces the map, round or player.
@@ -165,13 +166,13 @@ bool CCSOLScenarioDeathServices::PlayerKilledMonster(CSOLMonsterDeathCall& call,
         bool fragIncremented{};
         if (!players->AddMonsterFrag(call, fragIncremented, error) || !current()) return false;
         CSOLScenarioKillSource attribution;
-        if (!players->ResolveKillSource(call, CSOLScenarioKillSourcePhase::Attribution, attribution, error) ||
-            !current()) return false;
+        if (!humanKick && (!players->ResolveKillSource(call, CSOLScenarioKillSourcePhase::Attribution, attribution, error) ||
+            !current())) return false;
 
         // 11391690: the two Classify calls are observable, ordered calls. The
         // mode17 third call is outside this mode15 provider.
         std::uint16_t flags = (hitgroup == 1 ? 1 : 0) | (attribution.weapon == 29 ? 2 : 0);
-        if (auto* inflictor = call.Inflictor())
+        if (auto* inflictor = call.Inflictor(); !humanKick && inflictor)
         {
             const auto sourceCurrent = [&]()
             { return current() && call.Inflictor() == inflictor && !(inflictor->pev->flags & FL_KILLME); };
@@ -187,11 +188,14 @@ bool CCSOLScenarioDeathServices::PlayerKilledMonster(CSOLMonsterDeathCall& call,
             }
         }
         auto record = base;
-        record.kind = CSOLScenarioDeathRecord::Kind::Kill;
+        record.kind = humanKick ? CSOLScenarioDeathRecord::Kind::HumanKickKill : CSOLScenarioDeathRecord::Kind::Kill;
         record.flags = flags;
-        record.source = attribution.weapon;
-        record.item = attribution.item;
-        record.wireItem = static_cast<std::uint16_t>(attribution.item);
+        if (!humanKick)
+        {
+            record.source = attribution.weapon;
+            record.item = attribution.item;
+            record.wireItem = static_cast<std::uint16_t>(attribution.item);
+        }
         record.attackerTeam = player->m_iTeam;
         record.monsterTeam = call.Current()->pev->team;
         if (!Append(record, error) || !current()) return false;
@@ -246,6 +250,7 @@ bool CCSOLScenarioDeathServices::PlayerKilledMonster(CSOLMonsterDeathCall& call,
             if (!current()) return false;
         }
         CSOLScenarioKillSource notification;
+        if (humanKick) return current(); // No numeric source or active/source-gun callbacks.
         if (!players->ResolveKillSource(call, CSOLScenarioKillSourcePhase::Notification, notification, error) ||
             !current()) return false;
         return players->NotifyMonsterKill(call, notification.weapon, error) && current();
@@ -343,9 +348,12 @@ std::string ShutdownSnapshot(const CCSOLScenarioRuntime& runtime)
         out << "{\"channel\":\"death\",\"sequence\":" << value.sequence
             << ",\"death\":" << value.death << ",\"map_generation\":" << value.mapGeneration
             << ",\"round_generation\":" << value.roundGeneration << ",\"player_generation\":" << value.playerGeneration
-            << ",\"kind\":" << static_cast<int>(value.kind) << ",\"source\":" << value.source
-            << ",\"item\":" << value.item << ",\"flags\":" << value.flags << ",\"wire_item\":" << value.wireItem
-            << ",\"attacker_team\":" << value.attackerTeam << ",\"monster_team\":" << value.monsterTeam
+            << ",\"kind\":" << static_cast<int>(value.kind);
+        if (value.kind == CSOLScenarioDeathRecord::Kind::HumanKickKill)
+            out << ",\"action\":\"human_kick\",\"flags\":" << value.flags;
+        else out << ",\"source\":" << value.source << ",\"item\":" << value.item
+            << ",\"flags\":" << value.flags << ",\"wire_item\":" << value.wireItem;
+        out << ",\"attacker_team\":" << value.attackerTeam << ",\"monster_team\":" << value.monsterTeam
             << ",\"frags\":" << value.frags << ",\"event20\":[" << value.event20[0] << ',' << value.event20[1]
             << "],\"ribbon_count\":" << value.ribbonCount << ",\"ribbons\":[";
         for (std::size_t i = 0; i < value.ribbons.size(); ++i) { if (i) out << ','; out << unsigned(value.ribbons[i]); }

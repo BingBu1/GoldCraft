@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../monsters/scenario_monster_pool.h"
+#include "human_kick_damage.h"
 
 #include <optional>
 #include <vector>
@@ -22,6 +23,7 @@ struct CSOLMonsterDeathArguments
     EHANDLE attacker;
     bool suppressSound{};
     CSOLMonsterDeathContext context;
+    CSOLMonsterActionCredit action;
 };
 
 class CCSOLMonsterDeathExecutor

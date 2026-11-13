@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "melee.hpp"
 #include "../camera.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
 #include "../../weapons/melee_identity.hpp"
@@ -138,6 +139,15 @@ int ReceiveCompletion(const char*, int size, void* pointer)
         std::uint16_t(presentedSerial - serial) < 32768) { ++rejected; return 0; }
     const auto attack = melee::PendingAttack(variant, animation);
     const auto complete = melee::CompleteAttack(attack, melee::Contact(contact));
+    // Host adaptation: the authoritative CSOL foot action owns the temporary
+    // viewmodel while Active. Consume this delayed completion, including its
+    // serial/effect lifetime, without replaying the melee weapon animation
+    // after the foot action restores the native weapon.
+    if (HumanKickActive()) {
+        if (presentedWeapon) ClearPresentation();
+        consumedSerial[index] = serial; haveConsumedSerial[index] = true;
+        ++completions; return 1;
+    }
     consumedSerial[index] = serial; haveConsumedSerial[index] = true;
     if (complete.animation >= 0 && presentedAnimation != complete.animation) PresentAnimation(complete.animation);
     if (complete.dragonEffect >= 0 && engine.GetClientTime)
@@ -245,8 +255,19 @@ bool PredictMeleeWeapon(local_state_t* from, local_state_t* to, usercmd_t* comma
     to->playerstate.oldbuttons = command->buttons;
     const bool alive = source.health > 0 && !source.deadflag;
     const bool predict = !engine.pfnGetCvarFloat || engine.pfnGetCvarFloat("cl_lw") != 0;
+    const bool humanKickActive = HumanKickActive();
     int animation = -1;
-    if (predict && alive && prediction.pendingAnimation && prediction.pendingTime <= 0) {
+    if (humanKickActive && runFunctions && presentedWeapon) ClearPresentation();
+    if (humanKickActive && prediction.pendingAnimation) {
+        // Host action arbitration cancels only the pending presentation. Its
+        // native weapon timers keep their normal countdown below.
+        if (runFunctions) {
+            const auto index = WeaponIndex(id);
+            consumedSerial[index] = prediction.serial; haveConsumedSerial[index] = true;
+        }
+        prediction.pendingAnimation = 0; prediction.pendingTime = -1;
+    }
+    if (!humanKickActive && predict && alive && prediction.pendingAnimation && prediction.pendingTime <= 0) {
         const auto attack = melee::PendingAttack(variant, prediction.pendingAnimation);
         const auto complete = melee::CompleteAttack(attack, PredictedContact(attack, source, *command));
         prediction.pendingAnimation = 0; prediction.pendingTime = -1;
@@ -255,7 +276,7 @@ bool PredictMeleeWeapon(local_state_t* from, local_state_t* to, usercmd_t* comma
         weapon.m_flTimeWeaponIdle = complete.remaining.idle;
         animation = complete.animation;
     }
-    if (predict && alive && source.m_flNextAttack <= 0 && !prediction.pendingAnimation) {
+    if (!humanKickActive && predict && alive && source.m_flNextAttack <= 0 && !prediction.pendingAnimation) {
         const bool canShoot = (source.iuser3 & 1) && !(source.iuser3 & 2);
         const bool secondary = (command->buttons & IN_ATTACK2) && weapon.m_flNextSecondaryAttack <= 0;
         const bool primary = (command->buttons & IN_ATTACK) && weapon.m_flNextPrimaryAttack <= 0;
@@ -277,13 +298,13 @@ bool PredictMeleeWeapon(local_state_t* from, local_state_t* to, usercmd_t* comma
         }
     }
     if (animation >= 0) to->client.weaponanim = animation;
-    if (runFunctions && alive && WeaponPresentationAllowed(id)) {
+    if (!humanKickActive && runFunctions && alive && WeaponPresentationAllowed(id)) {
         if (animation >= 0 || presentedWeapon != id || presentedModel != source.viewmodel ||
             (!predict && authoritativeAnimation != source.weaponanim))
             PresentAnimation(to->client.weaponanim);
         presentedWeapon = id; presentedModel = source.viewmodel; presentedSerial = prediction.serial;
         authoritativeAnimation = source.weaponanim;
-    } else if (runFunctions && presentedWeapon) ClearPresentation();
+    } else if (!humanKickActive && runFunctions && presentedWeapon) ClearPresentation();
     const float dt = command->msec / 1000.f;
     weapon.m_flNextPrimaryAttack = std::max(-.001f, weapon.m_flNextPrimaryAttack - dt);
     weapon.m_flNextSecondaryAttack = std::max(-.001f, weapon.m_flNextSecondaryAttack - dt);

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_session.h"
+#include "human_kick.h"
 #include "../monsters/scenario_monster_skills.h"
 #include "../monsters/scenario_zombie_bomb.h"
 #include "../../../scenario/monsters/scenario_monster_effects.hpp"
@@ -107,6 +108,10 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         m_state = CSOLScenarioSessionState::Precached;
         return true;
     }
+    csol::scenario::ConfigError kickError;
+    if (!CSOL_PrecacheHumanKick(m_map.EntityAccess(), kickError))
+        return m_map.EntityAccessAllowed() ? Fail({"", std::move(kickError)}) : false;
+    if (!m_map.EntityAccessAllowed()) return false;
     // The original creates the machine on first player initialization, after
     // loading. GoldSrc must have its actual model/sprite indices beforehand.
     for (const char* path : {csol::wall_upgrade::Model, csol::wall_upgrade::Sprite})

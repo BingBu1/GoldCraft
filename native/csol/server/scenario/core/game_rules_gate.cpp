@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "game_rules_gate.h"
+#include "human_kick.h"
 #include "../../game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -2461,6 +2462,10 @@ bool CSOL_UpdateScenarioHud(CBasePlayer& player, bool force)
                 return false;
             }
         }
+        csol::scenario::ConfigError kickError;
+        if (!CSOL_UpdateHumanKick(record->runtime, player, kickError, true) && scope.Current() &&
+            handle.Get<CBaseEntity>() == &player && !kickError.message.empty())
+            ALERT(at_console, "CSOL kick state: %s\n", kickError.message.c_str());
     }
     return updated;
 }
@@ -2477,6 +2482,15 @@ bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
     if (!players || !players->Active()) return true;
     const EHANDLE handle(&player);
     if (!players->Find(handle)) return true; // No module before player preparation.
+    csol::scenario::ConfigError kickError;
+    if (!CSOL_UpdateHumanKick(runtime, player, kickError) && !kickError.message.empty())
+    {
+        if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
+        CSOL_ResetHumanKick(player);
+        if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
+        ALERT(at_console, "CSOL kick cancelled: %s\n", kickError.message.c_str());
+    }
+    if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
     CSOLPlayerRecoveryCall call(runtime, handle,
         [](const void* value) { return static_cast<const CSOLScenarioSdkScope*>(value)->Current(); }, &scope);
     csol::scenario::ConfigError error;
@@ -2531,6 +2545,7 @@ void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario() || !scope.Current()) return;
+    CSOL_ResetHumanKick(player, false);
     if (const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get()))
         players->PlayerSpawnStarted(EHANDLE(&player));
     if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules())) rules->SpawnStarted(player);
@@ -2539,12 +2554,13 @@ void CSOL_ScenarioPlayerSpawnStarted(CBasePlayer& player)
 bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command)
 {
     if (!command) return false;
+    const bool kick = !Q_strcmp(command, "csol_kick");
     const bool cheer = !Q_strcmp(command, "cheer");
     // Only menuselect for the open emotion menu (m_iMenu 15) is ours; every
     // stock menu keeps ReGameDLL's own menuselect handling.
     const bool select = !Q_strcmp(command, "menuselect") &&
         csol::scenario::skills::CharacterEmotionMenuOpen(player);
-    if (!cheer && !select && Q_strcmp(command, "buffclass_skill")) return false;
+    if (!kick && !cheer && !select && Q_strcmp(command, "buffclass_skill")) return false;
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario()) return false;
     if (!scope.Current()) return true;
@@ -2552,6 +2568,19 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     if (!record || record->retired || record->runtime->Closing()) return true;
     const auto runtime = record->runtime;
     const auto players = runtime->players;
+    if (kick)
+    {
+        csol::scenario::ConfigError error;
+        const EHANDLE handle(&player);
+        if (!CSOL_TryHumanKick(runtime, player, error) && scope.Current() &&
+            handle.Get<CBaseEntity>() == &player)
+        {
+            CSOL_ResetHumanKick(player);
+            if (scope.Current() && handle.Get<CBaseEntity>() == &player && !error.message.empty())
+                ALERT(at_console, "CSOL kick rejected: %s\n", error.message.c_str());
+        }
+        return true;
+    }
     if (cheer)
     {
         csol::scenario::skills::OpenCharacterEmotionMenu(player);
@@ -2754,6 +2783,7 @@ void CSOL_ScenarioPlayerSkillDied(CBasePlayer& player)
 {
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario() || !scope.Current()) return;
+    CSOL_ResetHumanKick(player, false);
     const auto players = CSOL_ScenarioPlayerAuthority(scope.EntityAccess().get());
     if (!players) return;
     csol::scenario::ConfigError error;
@@ -3107,6 +3137,7 @@ void CSOL_ScenarioPlayerDisconnected(CBasePlayer& player)
 {
     CSOLScenarioSdkScope sdkScope;
     if (sdkScope.Scenario() && !sdkScope.Current()) return;
+    CSOL_ResetHumanKick(player, false);
     if (auto* scenario = dynamic_cast<CCSOLScenarioRules*>(g_pGameRules)) scenario->RemovePlayer(player);
 }
 

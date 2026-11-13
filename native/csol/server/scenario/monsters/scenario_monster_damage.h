@@ -5,6 +5,7 @@
 #include "../core/scenario_equipment.h"
 #include "../../weapons/scenario_weapon_state.h"
 #include "../../../scenario/monsters/monster_damage.hpp"
+#include "../core/human_kick_damage.h"
 
 // A hit owns its context and entity handles. Rules must re-resolve Current()
 // after callbacks before using either the victim or its attacker/inflictor.
@@ -28,10 +29,18 @@ public:
     const EHANDLE& InflictorHandle() const { return m_inflictor; }
     const EHANDLE& AttackerHandle() const { return m_attacker; }
     float OriginalDamage() const { return m_originalDamage; }
+    CSOLMonsterActionKind Action() const { return m_action.kind; }
+    const CSOLMonsterActionCredit& ActionCredit() const { return m_action; }
     float damage{};
     int bits{};
     CSOLMonsterDeathContext context;
 private:
+    friend bool CSOL_CaptureHumanKickDamage(CSOLMonsterDamageCall&);
+    friend void CSOL_CommitHumanKickHealth(CSOLMonsterDamageCall&);
+    friend void CSOL_FinishHumanKickDamage(CSOLMonsterDamageCall&, bool);
+    CSOLMonsterActionCredit m_action;
+    bool (*m_actionCurrent)(const void*){};
+    const void* m_actionContext{};
     CSOLMonsterSpawnCall& m_spawn;
     EHANDLE m_inflictor, m_attacker;
     const CCSOLMonsterBehavior* m_behavior{};

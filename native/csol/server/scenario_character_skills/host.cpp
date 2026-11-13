@@ -5,6 +5,7 @@
 #include "host_notifications.hpp"
 #include "../scenario/core/scenario_player_runtime.h"
 #include "../scenario/core/game_rules_gate.h"
+#include "../scenario/core/human_kick.h"
 #include "../characters.h"
 #include "../../character_catalog.hpp"
 #include "../../character_voice.hpp"
@@ -476,6 +477,7 @@ bool CharacterActionPostThink(CBasePlayer& player)
 { const auto action = FindAction(player); return !action || action->Tick(); }
 bool PreserveCharacterAction(CBasePlayer& player, int activity)
 {
+    if (CSOL_PreserveHumanKickAnimation(player, activity)) return true;
     const auto action = FindAction(player);
     return action && action->Current() && action->playing && activity != PLAYER_DIE &&
         player.pev->deadflag == DEAD_NO && player.pev->health > 0;

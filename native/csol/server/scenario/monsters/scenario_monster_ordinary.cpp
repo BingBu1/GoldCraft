@@ -838,7 +838,9 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         state->spawn->updateAt = gpGlobals->time + 0.1f;
         monster = CurrentAlive(call, state);
         if (!monster) return;
-        if (monster->HostState().frozenRemaining <= 0 && !UpdateBehavior(call, state, *services)) return;
+        if (monster->HostState().frozenRemaining <= 0 &&
+            !CSOL_HumanKickMonsterStaggered(*monster, gpGlobals->time) &&
+            !UpdateBehavior(call, state, *services)) return;
         if (!CurrentAlive(call, state)) return;
         UpdateAmbientAndEffects(call, state, *services);
     }

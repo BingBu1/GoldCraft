@@ -206,16 +206,23 @@ CCSOLScenarioMonster* CSOLMonsterDamageCall::Current() const
 {
     // Spawn checks map/round/death generation before accessing old edicts.
     if (m_cancelled || !m_ownerActive) return nullptr;
+    if (m_actionCurrent && !m_actionCurrent(m_actionContext)) return nullptr;
     auto* monster = m_spawn.Current();
     if (!monster || !m_ownerValid || !m_ownerValid(m_ownerContext)) return nullptr;
     if (!monster || monster->Behavior() != m_behavior || !monster->Pool()->Borrowed(*monster) ||
         monster->pev->deadflag != DEAD_NO || monster->pev->takedamage == DAMAGE_NO ||
         (monster->pev->effects & EF_NODRAW) || (monster->pev->flags & FL_KILLME)) return nullptr;
-    if ((m_hadInflictor && !Live(m_inflictor)) || (m_hadAttacker && !Live(m_attacker))) return nullptr;
+    if (Action() == CSOLMonsterActionKind::None &&
+        ((m_hadInflictor && !Live(m_inflictor)) || (m_hadAttacker && !Live(m_attacker)))) return nullptr;
     return monster;
 }
 CBaseEntity* CSOLMonsterDamageCall::Inflictor() const { return Current() ? Live(m_inflictor) : nullptr; }
-CBaseEntity* CSOLMonsterDamageCall::Attacker() const { return Current() ? Live(m_attacker) : nullptr; }
+CBaseEntity* CSOLMonsterDamageCall::Attacker() const
+{
+    if (Action() == CSOLMonsterActionKind::HumanKick &&
+        !CSOL_HumanKickCreditCurrent(m_action, m_attacker.Get<CBasePlayer>())) return nullptr;
+    return Current() ? Live(m_attacker) : nullptr;
+}
 CBasePlayer* CSOLMonsterDamageCall::Player() const { return dynamic_cast<CBasePlayer*>(Attacker()); }
 
 bool CSOL_ConsumeMonsterDamageEffect(CSOLMonsterDamageCall& call,
@@ -427,6 +434,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     if (!valid()) return FALSE;
     if ((inflictor && !Live(source)) || (attacker && !Live(actor))) return FALSE;
     CSOLMonsterDamageCall call(spawn, source, actor, input, bits, context, m_valid, ownerValid, ownerContext);
+    CSOL_CaptureHumanKickDamage(call);
+    const bool humanKick = call.Action() == CSOLMonsterActionKind::HumanKick;
     // Providers may report an error before a later callback cancels the hit.
     // Keep it local until the still-current stage commits its failure, so an
     // abandoned hit cannot permanently stop this monster's Think chain.
@@ -463,12 +472,16 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
                     players->Upgrades(actor) == upgrades && current();
             };
             if (!samePlayer()) return fail("scenario attacker upgrade state is unavailable");
-            const int capturedSource = CSOL_DamageWeaponId(call.Inflictor(), call.Player());
-            if (!samePlayer()) return FALSE;
-            const bool blocked = services->WeaponEffectsBlocked21F2(call);
-            if (!samePlayer()) return FALSE;
-            if (!step(weapons->ApplyItemMultiplier(call, capturedSource, blocked, stageError), "mode15 weapon damage rules failed") ||
-                !samePlayer()) return FALSE;
+            int capturedSource{};
+            if (!humanKick)
+            {
+                capturedSource = CSOL_DamageWeaponId(call.Inflictor(), call.Player());
+                if (!samePlayer()) return FALSE;
+                const bool blocked = services->WeaponEffectsBlocked21F2(call);
+                if (!samePlayer()) return FALSE;
+                if (!step(weapons->ApplyItemMultiplier(call, capturedSource, blocked, stageError), "mode15 weapon damage rules failed") ||
+                    !samePlayer()) return FALSE;
+            }
             // Map98 has neither the FrozenWrath nor the map219..275 gate.
             // All its Classify17 creatures take modern stat1 here, including
             // projectile hits. Do not gate this multiplier on direct damage.
@@ -496,8 +509,11 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             if (!step(scaled, "scenario player-count damage scale owner is unavailable")) return FALSE;
             call.damage *= ratio;
             if (!step(true, "scenario player-count damage scale failed")) return FALSE;
-            if (!step(services->RulesAfterAttackDamage(call, capturedSource, stageError), "mode15 addon/statistics stage failed") ||
-                !samePlayer()) return FALSE;
+            if (!humanKick)
+            {
+                if (!samePlayer() || !step(services->RulesAfterAttackDamage(call, capturedSource, stageError),
+                    "mode15 addon/statistics stage failed") || !samePlayer()) return FALSE;
+            }
         }
         monster = current();
         if (auto* entity = call.Attacker(); entity && Team(*entity) == monster->pev->team) return FALSE;
@@ -523,16 +539,19 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         // Both verified v150 entries are empty. The host clears/reuses its
         // hitgroup before calling the actual behavior's v154 modifier.
         const auto flags = static_cast<std::uint32_t>(call.bits);
-        if (!flags || (flags & 0x01000060u) || ((flags & 0x08000000u) && !call.context.bytes[6]))
+        if (humanKick || !flags || (flags & 0x01000060u) || ((flags & 0x08000000u) && !call.context.bytes[6]))
             monster->HostState().lastHitgroup = 0;
-        int weaponId{};
-        if (auto* player = call.Player(); player && call.Inflictor() == player)
+        if (!humanKick)
         {
-            auto* weapon = player->m_pActiveItem;
-            if (weapon && !(weapon->pev->flags & FL_KILLME)) weaponId = weapon->m_iId;
+            int weaponId{};
+            if (auto* player = call.Player(); player && call.Inflictor() == player)
+            {
+                auto* weapon = player->m_pActiveItem;
+                if (weapon && !(weapon->pev->flags & FL_KILLME)) weaponId = weapon->m_iId;
+            }
+            if (!step(damageBehavior->ResolveHitDamage(call, weaponId, stageError),
+                    "monster hitgroup damage is invalid")) return FALSE;
         }
-        if (!step(damageBehavior->ResolveHitDamage(call, weaponId, stageError),
-                "monster hitgroup damage is invalid")) return FALSE;
         // MP113863D3 invokes v158 before113863D9 begins the armor stage.
         if (!step(damageBehavior->ResolvePreArmorDamage(call, stageError),
                 "monster pre-armor damage is invalid")) return FALSE;
@@ -542,12 +561,13 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             return fail("ordinary armor damage is invalid");
         monster->pev->armorvalue = armor.remainingArmor;
         call.damage = armor.healthDamage; // Verified v15C preserves this value.
-        if (call.damage == 0.0f) return TRUE;
+        if (call.damage == 0.0f)
+        { CSOL_FinishHumanKickDamage(call, false); return TRUE; }
         if (monster->HostState().damageScaleCount > 0)
             call.damage *= monster->HostState().damageScale;
         if (!step(true, "ordinary timed damage multiplier failed")) return FALSE;
 
-        if (call.Player())
+        if (!humanKick && call.Player())
         {
             const bool blocked21F2 = services->WeaponEffectsBlocked21F2(call);
             if (!current()) return FALSE;
@@ -581,6 +601,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         const float health = monster->pev->health - call.damage;
         if (!std::isfinite(health)) return fail("ordinary health subtraction overflowed");
         monster->pev->health = health;
+        CSOL_CommitHumanKickHealth(call);
         // Both verified v160 entries are empty. Rules v1DC and the statistics run
         // before deciding whether to dispatch a death or play a flinch.
         if (!step(services->AfterHealthDamage(call, stageError), "mode15 post-damage rules failed")) return FALSE;
@@ -592,9 +613,12 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             arguments.inflictor = source;
             arguments.attacker = actor;
             arguments.context = call.context;
+            arguments.action = call.ActionCredit();
             const auto result = m_deaths.Request(*monster, arguments);
             if (m_valid && spawn.SameSession() && result == CSOLDeathRequestResult::Failed)
                 fail(m_deaths.Error().c_str());
+            if (result == CSOLDeathRequestResult::Executed || result == CSOLDeathRequestResult::Deferred)
+                CSOL_FinishHumanKickDamage(call, true);
             // Original TakeDamage returns FALSE for a lethal hit, including
             // deferred death. Never Free/Killed/delete around the dispatcher.
             return FALSE;
@@ -604,7 +628,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         if (monster->HostState().frozenRemaining <= 0 && monster->HostState().flinchEnabled &&
             !appearance->healthSummary && monster->TypeId() <= 29999)
             if (!step(damageBehavior->DamageFlinch(spawn, stageError), "monster flinch failed")) return FALSE;
-        if (!step(ApplyOrdinaryKnockback(call, knockbackAttribution, stageError), "ordinary weapon knockback failed")) return FALSE;
+        if (!humanKick && !step(ApplyOrdinaryKnockback(call, knockbackAttribution, stageError), "ordinary weapon knockback failed")) return FALSE;
+        CSOL_FinishHumanKickDamage(call, false);
         return TRUE;
     }
     catch (...)
@@ -1146,11 +1171,12 @@ bool CCSOLScenarioDamageServices::BeforeHitReward(CSOLMonsterDamageCall& call,
     { if (!current()) return call.Cancel(); return result && error.message.empty(); };
     try
     {
-        if (!step(weapons->ApplyPartHitEffects(call, runtime, error)) ||
+        if (call.Action() != CSOLMonsterActionKind::HumanKick &&
+            (!step(weapons->ApplyPartHitEffects(call, runtime, error)) ||
             !step(players->ApplyCriticalBuffDamage(call, runtime, error)) ||
             !step(weapons->ApplyAttributeDamage(call, runtime, error)) ||
             !step(CSOL_ConsumeMonsterDamageEffect(call, runtime, error)) ||
-            !step(players->ApplyAttackBuffDamage(call, runtime, error))) return false;
+            !step(players->ApplyAttackBuffDamage(call, runtime, error)))) return false;
         account.moneyExtractor = state->profile.moneyExtractor;
         if (account.moneyExtractor)
         {
@@ -1172,6 +1198,7 @@ bool CCSOLScenarioDamageServices::AfterHitReward(CSOLMonsterDamageCall& call,
 {
     const auto runtime = Pin(call);
     if (!runtime) return call.Cancel();
+    if (call.Action() == CSOLMonsterActionKind::HumanKick) return true;
     const auto keepAlive = runtime->monsterDamageServices;
     if (!call.Player()) return true; // Mode15's later1143DD80 has no side effects.
     const auto session = runtime->session;
@@ -1224,11 +1251,19 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
             const int hitgroup = call.Current()->HostState().lastHitgroup;
             const float damage = call.damage;
             const int cachedMap = *deaths->CachedMapId(), currentMap = *tables->mapId;
-            if (!step(players->FinishAddonDamage(call, runtime, error)) ||
-                !step(players->RecordMonsterHeadHit(call, hitgroup, runtime, error)) ||
-                !step(players->RecordMonsterKillChain(call, runtime, cachedMap, currentMap, error))) return false;
+            const bool humanKick = call.Action() == CSOLMonsterActionKind::HumanKick;
+            if (!humanKick && (!step(players->FinishAddonDamage(call, runtime, error)) ||
+                !step(players->RecordMonsterHeadHit(call, hitgroup, runtime, error)))) return false;
+            if (!step(players->RecordMonsterKillChain(call, runtime, cachedMap, currentMap, error))) return false;
             bool boss{};
             if (!csol::scenario::MonsterStatisticsBoss(call.Current()->Type(), cachedMap, currentMap, boss, error)) return false;
+            if (humanKick)
+            {
+                if (!step(players->RecordMonsterDamage(call, runtime, boss, damage, error))) return false;
+                if (boss && !step(RecordBossParticipation(call, error))) return false;
+            }
+            else
+            {
             if (!step(deaths->GoldenHit(call, error))) return false;
             // MP108258A5..108258CD: after the Golden hit callback and before
             // the active skill. Only the resolved player's type32800 hit is
@@ -1268,6 +1303,7 @@ bool CCSOLScenarioDamageServices::AfterHealthDamage(CSOLMonsterDamageCall& call,
             if (!csol::scenario::MonsterStatisticsBoss(call.Current()->Type(), cachedMap, currentMap, boss, error)) return false;
             if (boss && !step(RecordBossParticipation(call, error))) return false;
             if (!step(players->NotifyClassModMonsterDamage(call, runtime, error))) return false;
+            }
         }
         catch (...)
         {

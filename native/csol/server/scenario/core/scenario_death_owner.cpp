@@ -44,6 +44,8 @@ CBaseEntity* CSOLMonsterDeathCall::Inflictor() const
 
 CBaseEntity* CSOLMonsterDeathCall::Attacker() const
 {
+    if (m_arguments.action.kind == CSOLMonsterActionKind::HumanKick &&
+        !CSOL_HumanKickCreditCurrent(m_arguments.action, m_arguments.attacker.Get<CBasePlayer>())) return nullptr;
     return Current() ? m_arguments.attacker.Get<CBaseEntity>() : nullptr;
 }
 

@@ -233,6 +233,7 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
 BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
     float damage, int damageType)
 {
+    CSOLHumanKickDamageEntry actionEntry(*this, inflictor, attacker);
     CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
     if (scope.Scenario() && !scope.Current()) return FALSE;
     if (!m_pool || m_pool->Busy() || !m_pool->Borrowed(*this) || !m_behaviorReady || !m_behavior ||

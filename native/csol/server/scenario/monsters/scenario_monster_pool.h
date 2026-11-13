@@ -43,6 +43,9 @@ struct CSOLMonsterHostState
 {
     float frozenRemaining{};
     float moveAfter{};
+    // User-authorized kick stagger. A reused slot must not inherit this lease.
+    std::uint64_t humanKickLease{};
+    float humanKickUntil{};
     float enhancedUntil{-1.0f};
     // CSOL entvars +1EC: armor cap/proportion denominator. Ordinary attribute
     // setup writes armorvalue only; Golden's positive override writes both.

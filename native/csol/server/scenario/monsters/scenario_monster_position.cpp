@@ -3,6 +3,7 @@
 #include "scenario_monster_position.h"
 #include "scenario_monster_heading.h"
 #include "../core/scenario_performance.h"
+#include "../core/human_kick_damage.h"
 
 #include <bit>
 #include <cmath>
@@ -83,6 +84,7 @@ CSOLMonsterPositionResult CSOL_UpdateOrdinaryMonsterPosition(CSOLMonsterSpawnCal
     if (state.worldGeneration && state.worldGeneration != generation) return Result::Cancelled;
     state.worldGeneration = generation;
     const float now = gpGlobals->time;
+    if (CSOL_HumanKickMonsterStaggered(*owner, now)) return Result::Skipped;
     if (!(now > state.updateAfter) || owner->Type()->speed == 0 || hostMoveAfter > now)
         return Result::Skipped;
     const auto current = [&] { return state.updateSerial == serial &&

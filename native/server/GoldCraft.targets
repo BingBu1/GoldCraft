@@ -4,6 +4,12 @@
     <GoldCraftCommonLibrary Condition="'$(GoldCraftCommonLibrary)' == ''">$(GoldCraftRoot)\build\native-x86\$(Configuration)\goldcraft_common.lib</GoldCraftCommonLibrary>
   </PropertyGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\human_kick.cpp;$(GoldCraftRoot)\native\csol\server\scenario\core\human_kick_damage.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)csol_kick_%(Filename).obj</ObjectFileName>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\server\scenario\core\scenario_boss_room.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
