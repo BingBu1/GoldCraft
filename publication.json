@@ -2340,7 +2340,10 @@
     "tests/cryoffear-glock-native-effects/README.md",
     "tests/cryoffear-p345-runtime/README.md",
     "tests/cryoffear-p345-effect-dispatch/README.md",
-    "tests/cryoffear-p345-presentation/README.md"
+    "tests/cryoffear-p345-presentation/README.md",
+    "docs/2026-11-13_接入-Revolver原生工厂与弹巢回滚-report.md",
+    "tests/cryoffear-revolver-factory/README.md",
+    "tests/cryoffear-revolver-weapon/README.md"
   ],
   "trees": {
     "native": [

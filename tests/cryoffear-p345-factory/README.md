@@ -21,3 +21,5 @@ python tests/cryoffear-p345-factory/run.py \
 
 Generated SDK adapters and compiler-discovered input receipts remain in build.
 No source tree copy, original game resource or toolchain environment is published.
+
+The same actual SDK construction driver accepts `--weapon revolver` to run `tests/cryoffear-revolver-factory/main.cpp` against the Revolver subclass and native factory. The default remains P345; this flag does not register either gun in the live host.

@@ -20,12 +20,13 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--weapon',choices=('p345','revolver'),default='p345',help='Actual native factory/subclass to exercise')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use fresh workspace build directory')
     output.mkdir(parents=True)
-    sources=[ROOT/'tests/cryoffear-p345-factory/main.cpp',ROOT/'native/csol/server/weapons/guest_cof_p345_factory.cpp',ROOT/'native/guest/cof/server/p345_weapon.cpp',
+    sources=[ROOT/('tests/cryoffear-'+a.weapon+'-factory/main.cpp'),ROOT/('native/csol/server/weapons/guest_cof_'+a.weapon+'_factory.cpp'),ROOT/('native/guest/cof/server/'+a.weapon+'_weapon.cpp'),
              ROOT/'native/guest/cof/magazine_actions.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
@@ -105,7 +106,7 @@ def main():
     success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
     receipt=dict(success=success,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
-                 negative=negative,sourceCopies=0,pistol='p345',boundary='Actual GetClassPtr/OnCreate/CCSPlayerWeapon construction and real guest Precache; controlled engine private allocator and component edges; no registry/shop/transport/deployment/live acceptance')
+                 negative=negative,sourceCopies=0,pistol=a.weapon,boundary='Actual GetClassPtr/OnCreate/CCSPlayerWeapon construction and real guest Precache; controlled engine private allocator and component edges; no registry/shop/transport/deployment/live acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')
     print((tested.stdout+tested.stderr) if tested else compiled.stdout+compiled.stderr)
     raise SystemExit(0 if success else 1)
