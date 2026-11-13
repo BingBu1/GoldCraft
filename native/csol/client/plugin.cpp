@@ -281,6 +281,7 @@ static int StudioDrawModel(int flags)
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
     GuestCofViewmodelScope guestHand(entity,flags);
+    GuestCofPrepareStudioModel(entity,ActiveWeaponHudId());
     PrepareMeleeEffectDraw(entity);
     ObserveViewAnimation(entity,flags);
     ObserveStudioEventSequence(entity,entity?entity->model:nullptr,flags);

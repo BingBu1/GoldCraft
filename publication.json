@@ -2373,7 +2373,8 @@
     "native/csol/scenario/custom/challenge_cycle.hpp",
     "tests/csol-challenge-phase/sdk.cpp",
     "tests/csol-challenge-phase/README.md",
-    "docs/2026-11-13_接入-挑战阶段权威与踢击体力-report.md"
+    "docs/2026-11-13_接入-挑战阶段权威与踢击体力-report.md",
+    "docs/2026-11-13_接入-Revolver弹巢权威消息与Studio入口-report.md"
   ],
   "trees": {
     "native": [

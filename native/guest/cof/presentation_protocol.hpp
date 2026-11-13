@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace guest::cof
@@ -14,6 +15,8 @@ inline constexpr char StateMessage[] = "CoFWpnState";
 inline constexpr char SoundMessage[] = "CoFSFX";
 inline constexpr std::uint8_t StateProtocol = 1;
 inline constexpr std::size_t StateBytes = 24;
+inline constexpr std::uint8_t RevolverStateProtocol = 2;
+inline constexpr std::size_t RevolverStateBytes = 28;
 
 struct PresentationState
 {
@@ -26,11 +29,16 @@ struct PresentationState
     std::uint16_t fovMode{};
     // Original CameraZoom uses signed short coordinates in eighths.
     std::int16_t zoomSpeedEighths{};
+    // Original player angle, before the client performs the controller math.
+    // Present only for Revolver; never inferred from animation or clip count.
+    std::optional<float> revolverAngle{};
     bool operator==(const PresentationState&) const noexcept = default;
 };
 
 using StatePacket = std::array<std::byte, StateBytes>;
+using RevolverStatePacket = std::array<std::byte, RevolverStateBytes>;
 bool EncodeState(const PresentationState& state, StatePacket& output) noexcept;
+bool EncodeState(const PresentationState& state, RevolverStatePacket& output) noexcept;
 bool DecodeState(std::span<const std::byte> bytes, PresentationState& output) noexcept;
 
 enum class StateAcceptance { Accepted, Invalid, PreviousSession, PreviousLife, PreviousInstance, Replayed };

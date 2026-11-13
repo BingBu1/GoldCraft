@@ -111,7 +111,7 @@ int RegisterPresentationMessage(const PlaySfxCall& authority) noexcept
     const auto call = authority;
     if (detail::messageOpen || !call.current || !g_engfuncs.pfnRegUserMsg ||
         !call.current(call.context)) return 0;
-    const int message = REG_USER_MSG(StateMessage, StateBytes);
+    const int message = REG_USER_MSG(StateMessage, -1);
     return message >= 64 && message <= 255 && call.current(call.context) ? message : 0;
 }
 
@@ -123,8 +123,19 @@ WeaponEffectStatus SendPresentationState(CBasePlayer& player, const Presentation
     if (!call.current || !player.pev) return WeaponEffectStatus::InvalidInput;
     if (!call.current(call.context)) return WeaponEffectStatus::Cancelled;
     if (preparedMessage < 64 || preparedMessage > 255) return WeaponEffectStatus::MissingMessage;
-    StatePacket bytes{};
-    if (!EncodeState(state, bytes)) return WeaponEffectStatus::InvalidInput;
+    StatePacket legacy{};
+    RevolverStatePacket revolver{};
+    std::span<const std::byte> bytes;
+    if (state.revolverAngle)
+    {
+        if (!EncodeState(state, revolver)) return WeaponEffectStatus::InvalidInput;
+        bytes = revolver;
+    }
+    else
+    {
+        if (!EncodeState(state, legacy)) return WeaponEffectStatus::InvalidInput;
+        bytes = legacy;
+    }
     if (!g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte)
         return WeaponEffectStatus::MissingEngine;
     const EntityHandle<CBasePlayer> lease(&player);

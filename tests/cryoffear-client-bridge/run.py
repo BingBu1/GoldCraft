@@ -17,6 +17,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 CPP = ("native/csol/client/weapons/guest_cof.cpp", "native/csol/client/weapons/guest_cof_ironsight.cpp", "native/guest/cof/aim_fov.cpp",
        "native/guest/cof/presentation_protocol.cpp", "native/guest/cof/client/presentation.cpp",
+       "native/guest/cof/client/revolver_cylinder.cpp",
        "native/csol/client/session.cpp", "native/csol/client/weapons/guest_cof_effects.cpp",
        "native/csol/client/weapons/guest_cof_audio.cpp", "native/guest/cof/client/audio.cpp",
        "native/guest/cof/sound_protocol.cpp", "native/guest/cof/client/weapon_effects.cpp",

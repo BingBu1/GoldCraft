@@ -41,9 +41,9 @@ P345 原生四类声音2563 SDK、canonical玩家视图69、原Glock所有者180
 | `weapon_mobile` | Mobile Phone | 缺独立 P，须制作/校准 | 整枪接通与全部验收待完成 |
 | `weapon_mp5` | MP5A3 | 缺独立 P，须制作/校准 | 整枪接通与全部验收待完成 |
 | `weapon_nightstick` | Nightstick | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
-| `weapon_p345` | P345 .45 | 已有原 P，待动作/接触校准 | 当前双端/57资源第一轮已部署；实际HTTP检出5项下载闭包缺口，修复源码/组件已过、完整构建与全HTTP及整枪待验 |
+| `weapon_p345` | P345 .45 | 已有原 P，待动作/接触校准 | 配套引擎/双端已部署；五项下载缺口修复后57/57实际HTTP完整核同，单B自动下载/整枪、多人与性能待验 |
 | `weapon_radio` | Police radio | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
-| `weapon_revolver` | Taurus .357 MAG | 已有原 P，待动作/接触校准 | 工厂/回滚/45项冷资源/玩家视图/原生及退壳事件声音通过组件检查；真实弹巢显示、生命周期种子、整枪接线与实机待完成 |
+| `weapon_revolver` | Taurus .357 MAG | 已有原 P，待动作/接触校准 | 工厂/回滚/45项冷资源/玩家视图/声音及原弹巢消息/Studio入口已过组件；生命周期种子、整枪准入与实机待完成 |
 | `weapon_rifle` | Hunting Rifle | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_shotgun` | Remington 870 | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_sledgehammer` | Pickaxe | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |

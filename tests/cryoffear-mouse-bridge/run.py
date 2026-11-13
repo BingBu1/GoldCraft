@@ -43,7 +43,7 @@ def main():
         'native/csol/client/weapons/guest_cof_mouse.cpp','native/guest/cof/client/mouse_input.cpp',
         'native/csol/client/weapons/guest_cof.cpp','native/csol/client/weapons/guest_cof_ironsight.cpp',
         'native/guest/cof/aim_fov.cpp','native/guest/cof/presentation_protocol.cpp',
-        'native/guest/cof/client/presentation.cpp')]
+        'native/guest/cof/client/presentation.cpp','native/guest/cof/client/revolver_cylinder.cpp')]
     inputs=set(sources)|{Path(__file__).resolve(),args.commands.resolve(),args.environment.resolve(),
                           config,compiler,compiler.with_name('lld-link.exe')}
     env=os.environ|json.loads(args.environment.read_text('utf-8-sig'))

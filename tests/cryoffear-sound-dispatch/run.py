@@ -89,7 +89,7 @@ def main():
     # "dispatch" contains the Windows installer-heuristic word "patch".
     # This ordinary SDK test requires no elevation; use an unambiguous name.
     executable = output/'cof-sound-sender.exe'
-    sources = (inputs[2], inputs[4], inputs[10],
+    sources = (inputs[2], inputs[4], inputs[10], ROOT/'native/guest/cof/presentation_protocol.cpp',
                ROOT/'native/guest/cof/server/effects_dispatch.cpp', ROOT/'native/guest/cof/particle_protocol.cpp')
     command = [str(args.compiler), *flags, *(str(source) for source in sources),
                '/Fe:'+str(executable), '/link', '/machine:x86', '/threads:1', '/opt:ref']

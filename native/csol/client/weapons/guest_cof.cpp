@@ -7,6 +7,8 @@
 #include "guest_cof_effects.hpp"
 #include "../../../guest/cof/client/presentation.hpp"
 #include "../../../guest/cof/presentation_protocol.hpp"
+#include "../../../guest/cof/catalog.hpp"
+#include "../../../guest/cof/client/revolver_cylinder.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 
 #include <cdll_int.h>
@@ -41,7 +43,7 @@ bool SynchronizeConnection() noexcept
 int Receive(const char*, int size, void* bytes)
 {
     SynchronizeSession();
-    if (!bytes || size != guest::cof::StateBytes) return 1;
+    if (!bytes || (size != guest::cof::StateBytes && size != guest::cof::RevolverStateBytes)) return 1;
     if (!SynchronizeConnection())
     {
         if (!reportedMissingConnection)
@@ -188,5 +190,16 @@ int GuestCofUpdateClientData(client_data_s* data, float time)
     const int result = downstream.HUD_UpdateClientData(data, time);
     UpdateFov(data);
     return result;
+}
+
+bool GuestCofPrepareStudioModel(cl_entity_s* entity, int hostWeaponId) noexcept
+{
+    if (!entity || !connection || !connectionGeneration ||
+        connection->generation() != connectionGeneration || !engine.GetViewModel) return false;
+    const auto* state = receiver.Current();
+    const auto* definition = guest::cof::FindPistol(guest::cof::Pistol::Revolver);
+    if (hostWeaponId != definition->hostId || !state || !state->revolverAngle) return false;
+    return guest::cof::client::ApplyRevolverCylinder(*entity, engine.GetViewModel(),
+        state->originalWeapon, *state->revolverAngle);
 }
 }

@@ -37,6 +37,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
 target_compile_features(CSOLSupport PRIVATE cxx_std_20)
 target_sources(CSOLSupport PRIVATE client/weapons/guest_cof.cpp
     ../guest/cof/aim_fov.cpp ../guest/cof/presentation_protocol.cpp
+    ../guest/cof/client/revolver_cylinder.cpp
     ../guest/cof/client/presentation.cpp)
 target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_audio.cpp
     ../guest/cof/sound_protocol.cpp ../guest/cof/client/audio.cpp)

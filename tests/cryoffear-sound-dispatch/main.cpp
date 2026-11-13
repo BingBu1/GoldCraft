@@ -310,6 +310,94 @@ void EffectGuards()
     Check(SendLocalGunsmoke(players[1], 7, 200, 78, call) == WeaponEffectStatus::Cancelled && !began);
 }
 
+PresentationState expectedState, *mutateState{};
+int registeredStateMessage{79};
+int StateRegister(const char* name, int size)
+{
+    Check(std::string_view(name) == StateMessage && size == -1);
+    Edge();
+    return registeredStateMessage;
+}
+void StateBegin(int kind, int message, const float* origin, edict_t* entity)
+{
+    Check(!began && kind == MSG_ONE && message == 79 && !origin && entity == &edicts[1]);
+    began = true; packet.clear(); Edge();
+    if (mutateState) *mutateState = {};
+    if (duringPacket) duringPacket();
+}
+void StateEnd()
+{
+    PresentationState decoded{};
+    Check(began && DecodeState(packet, decoded) && decoded == expectedState);
+    began = false; ++packetCount; Edge();
+}
+void StateReset()
+{
+    Reset();
+    mutateState = nullptr; registeredStateMessage = 79;
+    expectedState = {{0x12345678, 0x23456789, 0x3456789a}, 0x456789ab, 3, true, 50, 2800};
+    g_engfuncs.pfnRegUserMsg = StateRegister;
+    g_engfuncs.pfnMessageBegin = StateBegin;
+    g_engfuncs.pfnMessageEnd = StateEnd;
+}
+void StateBusy()
+{
+    const PlaySfxCall call{nullptr, Current};
+    Check(RegisterPresentationMessage(call) == 0);
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Busy);
+}
+void PresentationGuards()
+{
+    const PlaySfxCall call{nullptr, Current};
+    StateReset(); Check(RegisterPresentationMessage(call) == 79);
+    for (int id : {0, 1, 63, 256})
+    {
+        StateReset(); registeredStateMessage = id;
+        Check(RegisterPresentationMessage(call) == 0);
+        Check(SendPresentationState(players[1], expectedState, id, call) == WeaponEffectStatus::MissingMessage);
+    }
+    StateReset(); cancelEdge = 1; Check(RegisterPresentationMessage(call) == 0);
+    StateReset(); g_engfuncs.pfnWriteByte = nullptr;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::MissingEngine);
+    StateReset(); auto bad = expectedState; bad.key.lifeEpoch = 0;
+    Check(SendPresentationState(players[1], bad, 79, call) == WeaponEffectStatus::InvalidInput && !began);
+    bad = expectedState; bad.originalWeapon = 255;
+    Check(SendPresentationState(players[1], bad, 79, call) == WeaponEffectStatus::InvalidInput && !began);
+    StateReset();
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Issued && packetCount == 1);
+    const int packetEdges = edge;
+    for (int cut = 1; cut <= packetEdges; ++cut)
+    {
+        StateReset(); cancelEdge = cut;
+        Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Cancelled &&
+            !began && packetCount == 1);
+    }
+    StateReset(); auto changed = expectedState; mutateState = &changed;
+    Check(SendPresentationState(players[1], changed, 79, call) == WeaponEffectStatus::Issued && changed.revision == 0);
+    StateReset(); duringPacket = StateBusy;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Issued && !began);
+    StateReset(); recycleEdge = 1; recycleTarget = 1;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Cancelled && !began);
+    StateReset(); expectedState.originalWeapon = 0; expectedState.aimEnabled = false;
+    expectedState.fovMode = 0; expectedState.zoomSpeedEighths = 0;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Issued);
+    StateReset(); expectedState.originalWeapon = 21; expectedState.revolverAngle = 72.0F;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Issued &&
+        packet.size() == RevolverStateBytes && packetCount == 1);
+    const int revolverEdges = edge;
+    for (int cut = 1; cut <= revolverEdges; ++cut)
+    {
+        StateReset(); expectedState.originalWeapon = 21; expectedState.revolverAngle = 144.0F;
+        cancelEdge = cut;
+        Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::Cancelled &&
+            !began && packetCount == 1);
+    }
+    StateReset(); expectedState.originalWeapon = 21;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::InvalidInput && !began);
+    StateReset(); expectedState.revolverAngle = 72.0F;
+    Check(SendPresentationState(players[1], expectedState, 79, call) == WeaponEffectStatus::InvalidInput && !began);
+}
+
 int EffectReplay(const char* input, const char* result)
 {
     std::ifstream cases(input), expected(result);
@@ -383,6 +471,7 @@ int main(int argc, char** argv)
     Guards();
     const int effects = EffectReplay(argv[3], argv[4]);
     if (effects) return effects;
+    PresentationGuards();
     std::cout << count << " original sound sender cases; 128 original shell/recoil cases; "
               << checks << " SDK checks; 0 failures\n";
 }

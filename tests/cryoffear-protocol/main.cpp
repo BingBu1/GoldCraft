@@ -111,6 +111,82 @@ void InvalidPackets()
     Check(!EncodeState(invalid, sentinel) && sentinel == before, "invalid encode is transactional");
 }
 
+void RevolverTransport()
+{
+    PresentationState state{{0x01020304,5,6},7,21,true,50,2800,72.0F};
+    RevolverStatePacket packet{};
+    constexpr std::array<unsigned char, RevolverStateBytes> expected{
+        2,21,1,0,4,3,2,1,5,0,0,0,6,0,0,0,7,0,0,0,50,0,240,10,0,0,144,66};
+    Check(EncodeState(state,packet) && !std::memcmp(packet.data(),expected.data(),expected.size()),
+        "literal 28-byte revolver packet contains the original float angle");
+    PresentationState output{};
+    Check(DecodeState(packet,output) && output==state,"revolver snapshot roundtrip");
+    for (std::size_t length=0; length<packet.size(); ++length)
+    {
+        const auto before=output;
+        Check(!DecodeState(std::span(packet).first(length),output) && output==before,
+            "all revolver truncations reject transactionally, including legacy length");
+    }
+    for (unsigned index : {0U,1U,2U,3U})
+    {
+        auto corrupt=packet;corrupt[index]=std::byte{255};const auto before=output;
+        Check(!DecodeState(corrupt,output) && output==before,"invalid extended header preserves state");
+    }
+    auto wrong=packet;wrong[0]=std::byte{1};
+    Check(!DecodeState(wrong,output),"legacy protocol cannot carry an unannounced trailer");
+    wrong=packet;wrong[1]=std::byte{3};
+    Check(!DecodeState(wrong,output),"another pistol cannot own revolver angle");
+    wrong=packet;wrong[1]=std::byte{};wrong[2]=std::byte{};
+    Check(!DecodeState(wrong,output),"release cannot leave a cylinder extension");
+    StatePacket legacy{};legacy.fill(std::byte{0xA5});const auto oldLegacy=legacy;
+    Check(!EncodeState(state,legacy) && legacy==oldLegacy,"revolver cannot silently lose its angle");
+    RevolverStatePacket sentinel{};sentinel.fill(std::byte{0xA5});const auto oldSentinel=sentinel;
+    auto invalid=state;invalid.revolverAngle.reset();
+    Check(!EncodeState(invalid,sentinel) && sentinel==oldSentinel,"missing explicit seed is invalid");
+    invalid=state;invalid.originalWeapon=3;
+    Check(!EncodeState(invalid,sentinel) && sentinel==oldSentinel,"angle for another pistol is invalid");
+
+    // Raw bit patterns preserve signed zero, subnormal, NaN payload and x86
+    // conversion inputs; transport does not clamp original controller math.
+    std::uint32_t bits=0;
+    for (unsigned i=0;i<2048;++i)
+    {
+        if (i<8) bits=std::array<std::uint32_t,8>{0,0x80000000,1,0x7F800000,
+            0xFF800000,0x7FC12345,0xFFC12345,0x7F7FFFFF}[i];
+        else bits=bits*1664525U+1013904223U;
+        state.revolverAngle=std::bit_cast<float>(bits);
+        Check(EncodeState(state,packet) && DecodeState(packet,output) && output.revolverAngle &&
+            std::bit_cast<std::uint32_t>(*output.revolverAngle)==bits,"original float bits survive the wire");
+    }
+    state.revolverAngle=144.0F;
+    PresentationReceiver receiver;
+    Check(EncodeState(state,packet) && receiver.Receive(packet,output)==StateAcceptance::Accepted,
+        "revolver uses existing authority stream");
+    const auto accepted=output;
+    Check(receiver.Receive(packet,output)==StateAcceptance::Replayed && output==accepted,
+        "duplicate extended packet cannot replay or mutate");
+    const auto reject=[&](PresentationState next,StateAcceptance expectedResult)
+    {
+        const auto before=output;
+        Check(EncodeState(next,packet) && receiver.Receive(packet,output)==expectedResult && output==before,
+            "old extended scope preserves current state");
+    };
+    auto stale=state;--stale.key.sessionEpoch;stale.key.lifeEpoch=1000;
+    reject(stale,StateAcceptance::PreviousSession);
+    stale=state;--stale.key.lifeEpoch;stale.key.generation=1000;
+    reject(stale,StateAcceptance::PreviousLife);
+    stale=state;--stale.key.generation;stale.revision=1000;
+    reject(stale,StateAcceptance::PreviousInstance);
+    PresentationState release{state.key,state.revision+1,0,false,0,0};
+    Check(EncodeState(release,legacy) && receiver.Receive(legacy,output)==StateAcceptance::Accepted &&
+        !output.revolverAngle,"legacy release clears the cylinder within the same revision stream");
+    reject(state,StateAcceptance::Replayed);
+    state.key.generation++;state.revision=1;
+    Check(EncodeState(state,packet) && receiver.Receive(packet,output)==StateAcceptance::Accepted,
+        "new instance accepts authenticated explicit cylinder state");
+    receiver.Reset();Check(!receiver.Current(),"connection teardown removes cylinder authority");
+}
+
 void Catalog()
 {
     for (const auto& definition : Pistols)
@@ -321,7 +397,7 @@ void GlobalSound()
 
 int main()
 {
-    StateLifecycle(); InvalidPackets(); Catalog(); GlobalSound(); Particles();
+    StateLifecycle(); InvalidPackets(); RevolverTransport(); Catalog(); GlobalSound(); Particles();
     std::printf("%u checks, %u failures\n", checks, failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

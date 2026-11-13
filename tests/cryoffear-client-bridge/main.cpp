@@ -3,6 +3,7 @@
 #include "../../native/csol/client/weapons/guest_cof.hpp"
 #include "../../native/csol/client/weapons/guest_cof_effects.hpp"
 #include "../../native/guest/cof/presentation_protocol.hpp"
+#include "../../native/guest/cof/catalog.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
 
 #include <cdll_int.h>
@@ -42,6 +43,8 @@ void ResetScenarioUpgrades() {}
 void ResetScenarioAbilities() {}
 void ResetBossHealth() {}
 void ResetScenarioRoundHud() {}
+void ResetZeCounterHud() {}
+void ResetHumanKick() {}
 void ResetScenarioRespawnUi() {}
 void ResetPlayerClips() {}
 void ResetRenderSettings() {}
@@ -62,6 +65,8 @@ unsigned checks{}, failures{}, lookups{}, registrations{}, downstreamCalls{};
 unsigned missingConnectionWarnings{};
 std::uint64_t nativeConnectionGeneration = 5;
 float clockTime{1.0f}, nativeFov{90.0f}, receivedTime{};
+cl_entity_t cylinderView{}, cylinderOther{};
+cl_entity_t* currentView = &cylinderView;
 bool optionalPresent{};
 const char* levelName = "maps/cof_bridge_test.bsp";
 pfnUserMsgHook installed{};
@@ -115,6 +120,7 @@ int RegisterMessage(const char* name, pfnUserMsgHook replacement)
 }
 
 float Clock() { return clockTime; }
+cl_entity_t* ViewModel() { return currentView; }
 std::uint64_t ConnectionGeneration() { return nativeConnectionGeneration; }
 const char* LevelName() { return levelName; }
 void Console(const char*, ...) { ++missingConnectionWarnings; }
@@ -129,6 +135,13 @@ int OtherConsumer(const char*, int, void*) { return 1; }
 
 void Deliver(PresentationState state)
 {
+    if (state.revolverAngle)
+    {
+        RevolverStatePacket bytes{};
+        CHECK(EncodeState(state,bytes));
+        CHECK(installed && installed(StateMessage,int(bytes.size()),bytes.data())==1);
+        return;
+    }
     StatePacket bytes{};
     CHECK(EncodeState(state, bytes));
     CHECK(installed && installed(StateMessage, int(bytes.size()), bytes.data()) == 1);
@@ -158,6 +171,7 @@ int main()
     engine.pfnRegisterVariable = Register;
     engine.pfnHookUserMsg = RegisterMessage;
     engine.GetClientTime = Clock;
+    engine.GetViewModel = ViewModel;
     engine.pfnGetLevelName = LevelName;
     engine.Con_Printf = Console;
     downstream.HUD_UpdateClientData = NativeData;
@@ -203,6 +217,7 @@ int main()
     state.key.generation = 1;
     state.revision = 1;
     state.originalWeapon = 21;
+    state.revolverAngle = 72.0F;
     state.aimEnabled = true;
     Deliver(state);
     CHECK(Frame(2, 100) == 100); // New life starts from the actual downstream value.
@@ -216,6 +231,7 @@ int main()
     previousLife.revision = 900;
     previousLife.originalWeapon = 0;
     previousLife.aimEnabled = false;
+    previousLife.revolverAngle.reset();
     Deliver(previousLife);
     CHECK(Frame(2.25f, 115) < 100);
 
@@ -259,6 +275,40 @@ int main()
     InitializeGuestCof(&connection); // Same consumer is safe; no duplicate cvars.
     CHECK(registrations == priorRegistrations);
     CHECK(Frame(4, 88) == 88);
+
+    ResetGuestCof();
+    const int revolverId=guest::cof::FindPistol(guest::cof::Pistol::Revolver)->hostId;
+    const PresentationState cylinder{{10,11,12},1,21,false,0,0,72.0F};
+    cylinderView.curstate.controller[3]=19;
+    cylinderView.latched.prevcontroller[3]=27;
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    Deliver(cylinder);
+    CHECK(!GuestCofPrepareStudioModel(nullptr,revolverId));
+    CHECK(!GuestCofPrepareStudioModel(&cylinderOther,revolverId));
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,896));
+    CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    for (unsigned i=0;i<3;++i)
+        CHECK(cylinderView.curstate.controller[i]==204 && cylinderView.latched.prevcontroller[i]==204);
+    CHECK(cylinderView.curstate.controller[3]==19 && cylinderView.latched.prevcontroller[3]==27);
+    auto late=cylinder;late.revolverAngle=144.0F;
+    Deliver(late); // Same revision is stale even if its angle changed.
+    CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId) && cylinderView.curstate.controller[0]==204);
+    late.revision++;Deliver(late);
+    CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId) && cylinderView.curstate.controller[0]==153);
+    ++nativeConnectionGeneration;
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId)); // Reject before a HUD update resets cache.
+    CHECK(Frame(4.125F,88)==88);
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    Deliver(cylinder);
+    currentView=nullptr;CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));currentView=&cylinderView;
+    CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    Deliver({cylinder.key,2,0,false,0,0});
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    Deliver(cylinder);CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    late=cylinder;late.key.lifeEpoch++;late.revision=1;Deliver(late);
+    CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    GuestCofVideoInit();CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    ResetGuestCof();CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
     installed = OtherConsumer;
     bool collision{};
     try { InitializeGuestCof(&connection); } catch (const std::runtime_error&) { collision = true; }
