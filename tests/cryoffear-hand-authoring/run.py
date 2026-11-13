@@ -99,6 +99,49 @@ def main():
     bad=copy.deepcopy(affine);bad["bones"][0]["transform"][0]=-2;rejects("mirrored affine",bad)
     bad=copy.deepcopy(affine);bad["bones"][0]["transform"][0]=1e-8;rejects("ill-conditioned affine",bad)
     bad=copy.deepcopy(profile);bad["bones"][0]["geometry"]="unknown";rejects("unknown geometry mode",bad)
+    # Explicit geometry edits act in the authored target-bone space. They never
+    # change the donor topology, the original rig or its animation channels.
+    edited=copy.deepcopy(affine)
+    edited["meshEdits"]=[dict(model=0,vertices=[dict(index=0,offset=[1,-2,3])],
+                              normals=[dict(index=0,direction=[0,2,0])]),
+                          dict(model=1,vertices=[dict(index=0,offset=[-3,2,-1])])]
+    path.write_text(json.dumps(edited),"utf8");edited_bytes,_=author.prepare(args.model,args.model,path);edited_model=Studio(edited_bytes)
+    assert edited_bytes[244:len(source.data)]==source.data[244:];checks+=1
+    for sex,offset in enumerate(((1,-2,3),(-3,2,-1))):
+        base=affine_model.bodyparts[0]["models"][sex];part=edited_model.bodyparts[0]["models"][sex]
+        for i,(a,b) in enumerate(zip(base["vertices"],part["vertices"])):
+            want=tuple(x+y for x,y in zip(a,offset)) if i==0 else a
+            assert all(abs(x-y)<=1e-5 for x,y in zip(want,b));checks+=1
+        for i,(a,b) in enumerate(zip(base["normals"],part["normals"])):
+            want=(0,math.hypot(*a),0) if sex==0 and i==0 else a
+            assert all(abs(x-y)<=1e-5 for x,y in zip(want,b));checks+=1
+        assert part['verticesBones']==base['verticesBones'] and part['normalsBones']==base['normalsBones'];checks+=1
+        assert [m['triangles'] for m in part['meshes']]==[m['triangles'] for m in base['meshes']];checks+=1
+    for sequence in range(source.i(164)):
+        at=source.i(168)+176*sequence
+        for blend in range(source.i(at+120)):
+            for frame in range(source.i(at+56)):
+                assert source.channels(sequence,frame,blend)==edited_model.channels(sequence,frame,blend);checks+=1
+    for label,rows in [
+        ("bad mesh list",{}),("unknown mesh field",[dict(model=0,typo=[])]),
+        ("missing model",[dict(vertices=[])]),("bool model",[dict(model=True)]),
+        ("negative model",[dict(model=-1)]),("large model",[dict(model=2)]),
+        ("duplicate model",[dict(model=0),dict(model=0)]),
+        ("bad vertex list",[dict(model=0,vertices={})]),
+        ("bad vector fields",[dict(model=0,vertices=[dict(index=0,direction=[1,0,0])])]),
+        ("negative vertex",[dict(model=0,vertices=[dict(index=-1,offset=[0,0,0])])]),
+        ("large vertex",[dict(model=0,vertices=[dict(index=999999,offset=[0,0,0])])]),
+        ("bool vertex",[dict(model=0,vertices=[dict(index=False,offset=[0,0,0])])]),
+        ("duplicate vertex",[dict(model=0,vertices=[dict(index=0,offset=[0,0,0])]*2)]),
+        ("bad vector size",[dict(model=0,vertices=[dict(index=0,offset=[1,2])])]),
+        ("bool component",[dict(model=0,vertices=[dict(index=0,offset=[False,0,0])])]),
+        ("nan component",[dict(model=0,vertices=[dict(index=0,offset=[float('nan'),0,0])])]),
+        ("unbounded offset",[dict(model=0,vertices=[dict(index=0,offset=[65,0,0])])]),
+        ("zero direction",[dict(model=0,normals=[dict(index=0,direction=[0,0,0])])]),
+        ("tiny direction",[dict(model=0,normals=[dict(index=0,direction=[1e-12,0,0])])]),
+        ("huge direction",[dict(model=0,normals=[dict(index=0,direction=[65,0,0])])]),
+        ("duplicate normal",[dict(model=0,normals=[dict(index=0,direction=[1,0,0])]*2)])]:
+        bad=copy.deepcopy(profile);bad['meshEdits']=rows;rejects(label,bad)
     assert author.digest(args.model.read_bytes())==source.sha256
     after={str(p):author.digest(p.read_bytes()) for p in controls}
     assert before==after

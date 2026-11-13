@@ -56,6 +56,41 @@ def geometry_transform(row):
         raise ValueError("Ill-conditioned authored geometry")
     return a,bound,normal
 
+def mesh_edits(profile, models):
+    edits=[{"vertices":{},"normals":{},"radius":0.} for _ in models]
+    rows=profile.get("meshEdits",[])
+    if not isinstance(rows,list) or len(rows)>len(models):raise ValueError("Invalid authored mesh edits")
+    seen=set()
+    for row in rows:
+        if not isinstance(row,dict) or set(row)-{"model","vertices","normals"}:
+            raise ValueError("Unknown authored mesh edit field")
+        model=row.get("model")
+        if type(model) is not int or not 0<=model<len(models) or model in seen:
+            raise ValueError("Invalid or duplicate authored mesh model")
+        seen.add(model)
+        for kind,key in (("vertices","offset"),("normals","direction")):
+            values=row.get(kind,[])
+            if not isinstance(values,list) or len(values)>len(models[model][kind]):
+                raise ValueError("Invalid authored mesh vector list")
+            for value in values:
+                if not isinstance(value,dict) or set(value)!={"index",key}:
+                    raise ValueError("Invalid authored mesh vector fields")
+                index,vector=value["index"],value[key]
+                if type(index) is not int or not 0<=index<len(models[model][kind]) or index in edits[model][kind]:
+                    raise ValueError("Invalid or duplicate authored mesh vector index")
+                if not isinstance(vector,list) or len(vector)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in vector):
+                    raise ValueError("Authored mesh vectors require three finite numbers")
+                length=math.hypot(*vector)
+                if kind=="vertices":
+                    # Authoring limit in target-model units; no gameplay meaning.
+                    if length>64:raise ValueError("Authored vertex offset exceeds geometry budget")
+                    edits[model]["radius"]=max(edits[model]["radius"],length)
+                else:
+                    if not 1e-9<length<=64:raise ValueError("Invalid authored normal direction")
+                    vector=[v/length for v in vector]
+                edits[model][kind][index]=vector
+    return edits
+
 class Writer:
     def __init__(self, source):self.data=bytearray(source)
     def append(self, value):
@@ -80,6 +115,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     hand_models=groups[0]['models']
     used={i for model in hand_models for kind in ('vertices','normals') for i in model[kind+'Bones']}
     if not used.issubset(bindings):raise ValueError('Every weighted hand bone needs an explicit authored transform')
+    edits=mesh_edits(profile,hand_models)
     selected=sorted({donor.skins[0][mesh['skinref']] for model in hand_models for mesh in model['meshes']})
     writer=Writer(target.data);texture_map={};textures=[]
     # Keep original target bytes and absolute sequence/attachment offsets intact.
@@ -99,7 +135,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
         descriptor[:len(name)]=name
         for kind,n_at,bone_at,vector_at in [('vertices',80,84,88),('normals',92,96,100)]:
             positions=[];indices=[]
-            for index,point in zip(model[kind+'Bones'],model[kind]):
+            for vertex,(index,point) in enumerate(zip(model[kind+'Bones'],model[kind])):
                 to,matrix,scale,normal=bindings[index]
                 p=transform(normal if kind=='normals' and normal else matrix,point,normal=kind=='normals')
                 if kind=='normals':
@@ -108,6 +144,10 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
                         if not length>0:raise ValueError('Invalid authored normal')
                         factor=math.hypot(*point)/length;p=tuple(v*factor for v in p)
                     else:p=tuple(v/scale for v in p)
+                if change:=edits[gender][kind].get(vertex):
+                    if kind=='vertices':p=tuple(a+b for a,b in zip(p,change))
+                    else:
+                        length=math.hypot(*p);p=tuple(v*length for v in change)
                 if any(not math.isfinite(v) or abs(v)>1e6 for v in p):raise ValueError('Invalid authored geometry')
                 positions.append(p);indices.append(to)
             struct.pack_into('<iii',descriptor,n_at,len(indices),writer.append(bytes(indices)),writer.append(b''.join(struct.pack('<3f',*p) for p in positions)))
@@ -124,7 +164,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
             material=texture_map[donor.skins[0][mesh['skinref']]]
             meshes.append(struct.pack('<5i',len(mesh['triangles']),writer.append(commands),material,mesh['normalCount'],0))
         struct.pack_into('<ii',descriptor,72,len(meshes),writer.append(b''.join(meshes)))
-        struct.pack_into('<f',descriptor,68,model['radius']*max(v[2] for v in bindings.values()))
+        struct.pack_into('<f',descriptor,68,model['radius']*max(v[2] for v in bindings.values())+edits[gender]['radius'])
         models.append(descriptor)
     # This is an offline geometry donor, never an event producer. Keep the
     # original bytes and animation channels, but point to event-free descriptors
