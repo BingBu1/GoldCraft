@@ -211,7 +211,7 @@ int gmsgWeapPickup{};
 // Controlled protocol boundary: validate the extension identity and record
 // every actual SDK pickup notification. No packet transport is claimed.
 bool CSOL_SendWeaponPickup(CBasePlayer* p,int id){Check(p==&player&&id==896);Event(105,id);return true;}
-bool CSOL_ExtendedWeapon(int id){Check(id==896);return true;}
+bool CSOL_ExtendedWeapon(int id){Check(id==896||id==WEAPON_USP);return id==896;}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* p){Check(p==&player);return extendedAllowed;}
 unsigned CSOL_LegacyWeaponMask(int id){Check(id==896);return 0;}
 

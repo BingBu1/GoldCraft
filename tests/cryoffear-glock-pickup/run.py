@@ -24,6 +24,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','compiler','environment','output'):
         parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--full-touch',action='store_true',help='Execute the complete native box Touch body with controlled rules and engine edges')
     args=parser.parse_args();out=args.output.absolute()
     if out.exists() or not out.resolve().is_relative_to(ROOT/'build') or any(p.is_symlink() or p.is_junction() for p in (out,*out.parents)):
         raise ValueError('Fresh output inside workspace build required')
@@ -50,6 +51,10 @@ def main():
         (SDK/'dlls/weapons.cpp','BOOL CWeaponBox::PackWeapon('),
         (SDK/'dlls/weapons.cpp','BOOL CWeaponBox::HasWeapon(')):
         actual.append(helper.body(path,signature));controls.add(path)
+    if args.full_touch:
+        actual.append(helper.body(SDK/'dlls/weapons.cpp','void CWeaponBox::Touch('))
+        sound=SDK/'dlls/sound.cpp';controls.add(sound)
+        actual.append(helper.body(sound,'void EMIT_SOUND_DYN('))
     (out/'pickup-native.inc').write_text('\n'.join(actual),'utf8')
     aborts=(out/'sdk-abort-virtuals.inc').read_text()
     replaced=('BOOL CBasePlayer::AddPlayerItem(','BOOL CBasePlayer::RemovePlayerItem(',
@@ -61,12 +66,13 @@ def main():
         sig=re.sub(r'\s*=\s*[^,)]+','',sig).strip()
         m=re.fullmatch(r'(.*?)([A-Za-z_][A-Za-z_0-9]*)(\s*\(.*)',sig)
         if not m:raise ValueError('Unparsed weaponbox virtual: '+sig)
+        if args.full_touch and m[2]=='Touch':continue
         aborts+='\n'+m[1]+'CWeaponBox::'+m[2]+m[3]+' { std::abort(); }'
     (out/'sdk-abort-virtuals.inc').write_text(aborts,'utf8')
     rules=SDK/'dlls/gamerules.h';text=rules.read_text('utf-8-sig');controls.add(rules)
     start=text.index('class CGameRules\n');end=text.index('\n};',start)
     definitions=['CGameRules::CGameRules() {}','CGameRules::~CGameRules() {}']
-    derived=['class PickupRules final:public CGameRules { public:']
+    derived=['class PickupRules final:public '+('CHalfLifeMultiplay' if args.full_touch else 'CGameRules')+' { public:']
     for sig in re.findall(r'virtual\s+([^;{}\n]+);',text[start:end]):
         if '~CGameRules' in sig:continue
         sig=re.sub(r'\s*=\s*[^,)]+','',sig).strip()
@@ -76,9 +82,27 @@ def main():
                    'FShouldSwitchWeapon':'++pickup::switches;return FALSE;'}.get(m[2],'std::abort();')
         derived.append(sig+' override { '+operation+' }')
         definitions.append(m[1]+'CGameRules::'+m[2]+m[3]+' { std::abort(); }')
+    if args.full_touch:
+        definitions.append('CHalfLifeMultiplay::CHalfLifeMultiplay() {}')
+        start=text.index('class CHalfLifeMultiplay:');end=text.index('\n};',start)
+        for sig in re.findall(r'(?:virtual|VFUNC)\s+([^;{}\n]+);',text[start:end]):
+            sig=re.sub(r'\s*=\s*[^,)]+','',sig).strip()
+            m=re.fullmatch(r'(.*?)([A-Za-z_][A-Za-z_0-9]*)(\s*\(.*)',sig)
+            if not m:raise ValueError('Unparsed multiplayer rule virtual: '+sig)
+            definitions.append(m[1]+'CHalfLifeMultiplay::'+m[2]+m[3]+' { std::abort(); }')
+        api_player=SDK/'public/regamedll/API/CSPlayer.h';controls.add(api_player)
+        api_text=api_player.read_text('utf-8-sig')
+        for sig in re.findall(r'virtual\s+([^;{}\n]+);',api_text):
+            sig=re.sub(r'\s*=\s*[^,)]+','',sig).strip()
+            m=re.fullmatch(r'(.*?)([A-Za-z_][A-Za-z_0-9]*)(\s*\(.*)',sig)
+            if not m:raise ValueError('Unparsed player API virtual: '+sig)
+            definitions.append(m[1]+'CCSPlayer::'+m[2]+m[3]+' { std::abort(); }')
     (out/'pickup-rules.inc').write_text('\n'.join(definitions+derived+['};']),'utf8')
     command=[str(ROOT/'tests/cryoffear-glock-pickup/main.cpp') if value.replace('\\','/').endswith('/tests/cryoffear-glock-weapon/main.cpp') else
              '/Fe:'+str(out/'pickup.exe') if value.startswith('/Fe:') else value for value in plan['command']]
+    if args.full_touch:
+        command.insert(1,'/DCOF_FULL_TOUCH=1')
+        command.append('/errorlimit:0')
     inputs={Path(p) for p in plan['inputs']}|controls|set(out.glob('*.inc'))
     before={str(p):sha(p) for p in sorted(inputs)}
     env=os.environ|json.loads(args.environment.read_text('utf-8-sig'));env.update(TEMP=str(out/'temp'),TMP=str(out/'temp'))
@@ -94,7 +118,8 @@ def main():
                 command=command,compiled=build.returncode,tested=tested.returncode if tested else None,
                 before=before,after=after,inputsUnchanged=before==after,sourceCopies=0,
                 compilerSha256=compiler_before,compilerUnchanged=compiler_before==compiler_after,
-                boundary='Actual native inventory Add/Remove and CWeaponBox Pack/Has, real guest class; game-rule policy/engine effects are explicit doubles; no Touch/physics/hook/network/gameplay/performance acceptance')
+                fullTouch=args.full_touch,
+                boundary='Actual native inventory Add/Remove and CWeaponBox Pack/Has'+('/Touch' if args.full_touch else '')+', real guest class; game-rule policy/engine effects are explicit doubles; no physics/hook/network/gameplay/performance acceptance')
     (out/'receipt.json').write_text(json.dumps(result,indent=2)+'\n','utf8')
     print((tested.stdout+tested.stderr) if tested else build.stdout+build.stderr)
     raise SystemExit(0 if result['success'] else 1)

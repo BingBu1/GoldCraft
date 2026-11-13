@@ -4611,6 +4611,23 @@ index 6663e2e..b66b049 100644
  	pPlayer->OnTouchingWeapon(this);
  
  	bool bRemove = true;
+@@ -2068,6 +2176,16 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
+ 				return;
+ #endif
+ 
++			// AddToPlayer rejects unsupported extensions. Keep them in the box
++			// instead of reaching the native loop's unconditional unlink below.
++			if (CSOL_ExtendedWeapon(pItem->m_iId) && !CSOL_CanUseExtendedWeapons(pPlayer))
++			{
++				bRemove = false;
++				pPrev = pItem;
++				pItem = pItem->m_pNext;
++				continue;
++			}
++
+ 			if (FClassnameIs(pItem->pev, "weapon_c4"))
+ 			{
+ #ifdef REGAMEDLL_FIXES
 @@ -2142,7 +2250,7 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
  				}
  			}
