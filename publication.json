@@ -2375,7 +2375,8 @@
     "tests/csol-challenge-phase/README.md",
     "docs/2026-11-13_接入-挑战阶段权威与踢击体力-report.md",
     "docs/2026-11-13_接入-Revolver弹巢权威消息与Studio入口-report.md",
-    "docs/2026-11-13_接入-Revolver地图运行时与状态绑定-report.md"
+    "docs/2026-11-13_接入-Revolver地图运行时与状态绑定-report.md",
+    "docs/2026-11-13_优化-并行构建跟踪日志隔离-report.md"
   ],
   "trees": {
     "native": [

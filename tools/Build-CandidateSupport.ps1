@@ -21,6 +21,7 @@ function New-GoldCraftCandidateTargets([string]$Destination, [int]$MaxJobs) {
   <Import Project="__IMPORT__" />
   <PropertyGroup>
     <IntDir>__OBJECTS__\$(MSBuildProjectName)\$(Configuration)\</IntDir>
+    <TLogLocation>$(IntDir)$(MSBuildProjectName).tlog\</TLogLocation>
     <MultiProcessorCompilation>false</MultiProcessorCompilation>
     <UseMultiToolTask>true</UseMultiToolTask>
     <EnforceProcessCountAcrossBuilds>true</EnforceProcessCountAcrossBuilds>
