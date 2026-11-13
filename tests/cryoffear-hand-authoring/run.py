@@ -30,6 +30,13 @@ def main():
     profile=dict(version=1,targetSha256=source.sha256,donorSha256=source.sha256,bones=[dict(donor=source.bones[b]['name'],target=source.bones[b]['name'],transform=[1,0,0,0,0,1,0,0,0,0,1,0]) for b in used])
     path=output/'profile.json';path.write_text(json.dumps(profile),'utf8');checks=0
     data,receipt=author.prepare(args.model,args.model,path);result=Studio(data)
+    prefix=result.i(188);cursor=prefix
+    for i,texture in enumerate(result.textures):
+        assert result.i(184)+(i+1)*80<=prefix
+        assert result.i(result.i(184)+i*80+76)==cursor
+        cursor+=texture['width']*texture['height']+768
+    assert cursor==len(data) and result.i(168)+result.i(164)*176<=prefix
+    assert result.i(208)+76<=prefix
     assert result.i(164)==source.i(164) and result.i(168)!=source.i(168)
     for sequence in range(result.i(164)):
         at=result.i(168)+176*sequence

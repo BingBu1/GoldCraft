@@ -11,6 +11,7 @@
 #include "../csol/sequence_safety.hpp"
 #include "../csol/sequence_owners.hpp"
 #include "../csol/material_source.hpp"
+#include "../guest/cof/resource_catalog.hpp"
 #include <chrono>
 #include <set>
 #include <limits>
@@ -135,6 +136,14 @@ struct ResourceBatch
     }
 };
 std::unique_ptr<ResourceBatch> resourceBatch;
+}
+
+const char* GoldCraftStudioSoundResource(const char* model,int event,const char* sample)
+{
+    if(!model || !sample)return nullptr;
+    const auto resource=guest::cof::resources::StudioLocalSoundResource(model,event,
+        std::string_view(sample,strnlen(sample,64)));
+    return resource.empty()?nullptr:resource.data();
 }
 
 void GoldCraftBeginCsolResources()

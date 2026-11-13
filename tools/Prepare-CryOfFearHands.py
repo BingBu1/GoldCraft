@@ -117,16 +117,16 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     if not used.issubset(bindings):raise ValueError('Every weighted hand bone needs an explicit authored transform')
     edits=mesh_edits(profile,hand_models)
     selected=sorted({donor.skins[0][mesh['skinref']] for model in hand_models for mesh in model['meshes']})
-    writer=Writer(target.data);texture_map={};textures=[]
+    writer=Writer(target.data);texture_map={};textures=[];texels=[]
     # Keep original target bytes and absolute sequence/attachment offsets intact.
     # The generated donor references only the appended hand mesh/texture tables.
     for index in selected:
         source=donor.textures[index];at=donor.i(184)+index*80
         descriptor=bytearray(donor.data[at:at+80]);pixels=donor.i(at+76);count=source['width']*source['height']+768
         donor.span(pixels,count,1,64*1024*1024)
-        struct.pack_into('<i',descriptor,76,writer.append(donor.data[pixels:pixels+count]))
+        texels.append(donor.data[pixels:pixels+count])
+        struct.pack_into('<i',descriptor,76,0)
         texture_map[index]=len(textures);textures.append(descriptor)
-    texture_pixels=struct.unpack_from('<i',textures[0],76)[0]
     texture_table=writer.append(b''.join(textures))
     skin_table=writer.append(struct.pack('<'+'h'*len(textures),*range(len(textures))))
     models=[];vertices_total=0;triangles_total=0
@@ -175,6 +175,11 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     donor_sequences=writer.append(sequence_table)
     model_table=writer.append(b''.join(models));group=bytearray(76);group[:5]=b'hands'
     struct.pack_into('<iii',group,64,2,1,model_table);group_table=writer.append(group)
+    # Native GoldSrc retains the complete non-pixel prefix and expands palettes
+    # from one tightly packed tail. Every descriptor must precede this boundary.
+    texture_pixels=writer.append(b''.join(texels));cursor=texture_pixels
+    for i,pixels in enumerate(texels):
+        writer.integer(texture_table+i*80+76,cursor);cursor+=len(pixels)
     for offset,value in [(180,len(textures)),(184,texture_table),(188,texture_pixels),(192,len(textures)),(196,1),(200,skin_table),(204,1),(208,group_table),(168,donor_sequences),(72,len(writer.data))]:writer.integer(offset,value)
     result=bytes(writer.data);check=Studio(result)
     if result[244:len(target.data)]!=target.data[244:]:raise ValueError('Original target payload changed')

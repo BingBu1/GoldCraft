@@ -3,6 +3,7 @@
 // Cache allocation and public hook dispatch are explicit host boundaries.
 #include "precompiled.h"
 #include <functional>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <span>
@@ -189,6 +190,30 @@ void ExpectedPalette(model_t& model,const Bytes& source)
     }
     Require(allocations.at(&model.cache)->bytes==expected.size(),"non-dedicated allocation changed");
     Require(std::memcmp(model.cache.data,expected.data(),expected.size())==0,"non-dedicated converted bytes changed");
+}
+void ActualModel(const char* path)
+{
+    std::ifstream file(path,std::ios::binary|std::ios::ate);
+    Require(bool(file),"actual model could not be opened");
+    const auto size=file.tellg();Require(size>=244 && size<=64*1024*1024,"actual model size outside fixture budget");
+    Bytes bytes(static_cast<std::size_t>(size));file.seekg(0);
+    file.read(reinterpret_cast<char*>(bytes.data()),size);Require(bool(file),"short actual model read");
+    hookPresent=false;skipOriginal=false;
+    for(bool dedicated:{true,false})
+    {
+        model_t model{};g_bIsDedicatedServer=dedicated;
+        Load(model,bytes);
+        if(dedicated)
+        {
+            const auto plan=csol::PlanStudioStorage(bytes,true);
+            Require(plan.prefix,"authored hand descriptor lies after pixel boundary");
+            Require(allocations.at(&model.cache)->bytes==std::size_t(plan.bytes),"actual model prefix allocation differs");
+            Require(std::memcmp(model.cache.data,bytes.data(),plan.bytes)==0,"actual model prefix copy differs");
+        }
+        else ExpectedPalette(model,bytes);
+        allocations.erase(&model.cache);
+    }
+    g_bIsDedicatedServer=TRUE;
 }
 void StorageBoundaries()
 {
@@ -417,6 +442,7 @@ void Run()
 
 qboolean g_bIsDedicatedServer=TRUE;
 unsigned char texgammatable[256]{};
+double Sys_FloatTime(){return 0;} // Profiling clock boundary; no timing claim.
 int IdentityLong(int value){return value;}
 int(*LittleLong)(int)=IdentityLong;
 void* Cache_Alloc(cache_user_t* owner,int bytes,char*)
@@ -446,6 +472,7 @@ unsigned int FS_Size(FileHandle_t file){return unsigned(reinterpret_cast<adapter
 int FS_Read(void* output,int size,int count,FileHandle_t file)
 {auto& bytes=*reinterpret_cast<adapter_test::Bytes*>(file);const auto n=std::min(bytes.size(),std::size_t(size)*count);std::memcpy(output,bytes.data(),n);return int(n);}
 int PF_precache_generic_I(const char* name){loader_test::advertised.emplace_back(name);return int(loader_test::advertised.size());}
+int PF_precache_model_I(const char*){throw std::runtime_error("unexpected model registration in storage fixture");}
 void ForwardSlashes(char* name){for(;*name;++name)if(*name=='\\')*name='/';}
 char* va(char* format,...){static char buffer[1024];va_list args;va_start(args,format);std::vsnprintf(buffer,sizeof(buffer),format,args);va_end(args);return buffer;}
 void Con_Printf(const char*,...){}
@@ -457,8 +484,8 @@ extern "C" int A_stricmp(const char* left,const char* right){return _stricmp(lef
 InterfaceReg* InterfaceReg::s_pInterfaceRegs{};
 InterfaceReg::InterfaceReg(InstantiateInterfaceFn factory,const char* name)
     :m_CreateFn(factory),m_pName(name),m_pNext(s_pInterfaceRegs){s_pInterfaceRegs=this;}
-int main()
+int main(int argc,char** argv)
 {
-    try{loader_test::Run();std::cout<<"actual Studio loader/guard: "<<adapter_test::checks<<" checks passed; guarded SDK boundaries; no live game evidence\n";return 0;}
+    try{loader_test::Run();for(int i=1;i<argc;++i)loader_test::ActualModel(argv[i]);std::cout<<"actual Studio loader/guard: "<<adapter_test::checks<<" checks passed; actual models="<<argc-1<<"; guarded SDK boundaries; no live game evidence\n";return 0;}
     catch(const std::exception& error){std::cerr<<"actual Studio loader/guard failure after "<<adapter_test::checks<<": "<<error.what()<<'\n';return 1;}
 }

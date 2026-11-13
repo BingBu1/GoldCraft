@@ -1515,7 +1515,7 @@ index ceffd0d..fb4b7db 100644
  void SV_WriteMovevarsToClient(sizebuf_t *message, struct movevars_s *movevars);
  void SV_WriteDeltaDescriptionsToClient(sizebuf_t *msg);
 diff --git a/rehlds/engine/sv_main.cpp b/rehlds/engine/sv_main.cpp
-index dfd68c2..5ddcca1 100644
+index dfd68c2bc0fb929be8874053cb0f66dc865a8235..cb6f3fa4e6f28d2b95494995c10788768cc5a123 100644
 --- a/rehlds/engine/sv_main.cpp
 +++ b/rehlds/engine/sv_main.cpp
 @@ -27,6 +27,21 @@
@@ -2235,8 +2235,31 @@ index dfd68c2..5ddcca1 100644
  NOXREF void SV_ReconnectAllClients(void)
  {
  	NOXREFCHECK;
-@@ -6182,26 +6249,40 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
+@@ -6162,7 +6229,7 @@ void PrecacheModelSeqGroups(studiohdr_t *pStudioHeader)
+ 	}
+ }
  
+-void PrecacheModelSounds(studiohdr_t *pStudioHeader)
++static void PrecacheModelSoundsForFile(const char *name, studiohdr_t *pStudioHeader)
+ {
+ 	mstudioseqdesc_t *pSeqDesc = (mstudioseqdesc_t *)((uintptr_t)pStudioHeader + pStudioHeader->seqindex);
+ 	for (int index = 0; index < pStudioHeader->numseq; index++)
+@@ -6175,33 +6242,53 @@ void PrecacheModelSounds(studiohdr_t *pStudioHeader)
+ 			if (pEvent[i].options[0] == '\0')
+ 				continue;
+ 
+-			PF_precache_generic_I(va("sound/%s", pEvent[i].options));
++			const char *resource = GoldCraftStudioSoundResource(name, pEvent[i].event, pEvent[i].options);
++			PF_precache_generic_I(resource ? resource : va("sound/%s", pEvent[i].options));
+ 		}
+ 	}
+ }
+ 
++void PrecacheModelSounds(studiohdr_t *pStudioHeader)
++{
++	PrecacheModelSoundsForFile(nullptr, pStudioHeader);
++}
++
  void PrecacheModelSpecifiedFiles()
  {
 -	const char **s = &g_psv.model_precache[1];
@@ -2267,7 +2290,8 @@ index dfd68c2..5ddcca1 100644
  		PrecacheModelSeqGroups(pStudioHeader);
 +		GoldCraftPrecacheCsolResources(*s,pStudioHeader);
  		if (sv_auto_precache_sounds_in_models.value)
- 			PrecacheModelSounds(pStudioHeader);
+-			PrecacheModelSounds(pStudioHeader);
++			PrecacheModelSoundsForFile(*s, pStudioHeader);
  	}
 +	GoldCraftEndCsolResources();
  }
@@ -2281,7 +2305,7 @@ index dfd68c2..5ddcca1 100644
  	size_t j = 0;
  	for (size_t i = 0; i < (size_t)g_psv.num_resources; i++)
  	{
-@@ -6251,6 +6332,7 @@ void SV_ActivateServer(int runPhysics)
+@@ -6251,6 +6338,7 @@ void SV_ActivateServer(int runPhysics)
  
  void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
  {
@@ -2289,7 +2313,7 @@ index dfd68c2..5ddcca1 100644
  	int i;
  	unsigned char data[NET_MAX_PAYLOAD];
  	sizebuf_t msg;
-@@ -6319,8 +6401,7 @@ void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
+@@ -6319,8 +6407,7 @@ void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
  			Netchan_Clear(&cl->netchan);
  			if (g_psvs.maxclients > 1)
  			{
@@ -2299,7 +2323,7 @@ index dfd68c2..5ddcca1 100644
  			}
  			else
  			{
-@@ -6356,6 +6437,7 @@ void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
+@@ -6356,6 +6443,7 @@ void EXT_FUNC SV_ActivateServer_internal(int runPhysics)
  
  void SV_ServerShutdown(void)
  {
@@ -2307,7 +2331,7 @@ index dfd68c2..5ddcca1 100644
  	Steam_NotifyOfLevelChange();
  	gGlobalVariables.time = g_psv.time;
  
-@@ -6368,6 +6450,7 @@ void SV_ServerShutdown(void)
+@@ -6368,6 +6456,7 @@ void SV_ServerShutdown(void)
  
  int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  {
@@ -2315,7 +2339,7 @@ index dfd68c2..5ddcca1 100644
  	client_t *cl;
  	edict_t *ent;
  	int i;
-@@ -6448,6 +6531,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6448,6 +6537,7 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	SV_AllocClientFrames();
  	Q_memset(&g_psv, 0, sizeof(server_t));
@@ -2323,7 +2347,7 @@ index dfd68c2..5ddcca1 100644
  
  #ifdef REHLDS_OPT_PEDANTIC
  	g_rehlds_sv.modelsMap.clear();
-@@ -6594,18 +6678,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6594,18 +6684,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  		CM_CalcPAS(g_psv.worldmodel);
  	}
  
@@ -2343,7 +2367,7 @@ index dfd68c2..5ddcca1 100644
  	g_psv.sound_precache[0] = pr_strings;
  	g_psv.model_precache[0] = pr_strings;
  #ifndef REHLDS_FIXES
-@@ -6613,14 +6687,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6613,14 +6693,13 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  	for (i = 1; i < g_psv.worldmodel->numsubmodels; i++)
  	{
@@ -2361,7 +2385,7 @@ index dfd68c2..5ddcca1 100644
  		}
  #endif
  	}
-@@ -6649,6 +6722,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
+@@ -6649,6 +6728,8 @@ int SV_SpawnServer(qboolean bIsDemo, char *server, char *startspot)
  
  void SV_LoadEntities(void)
  {
@@ -2370,7 +2394,7 @@ index dfd68c2..5ddcca1 100644
  #ifdef REHLDS_FIXES
  	if (sv_use_entity_file.value > 0.0f)
  	{
-@@ -7821,11 +7896,9 @@ void SV_InactivateClients(void)
+@@ -7821,11 +7902,9 @@ void SV_InactivateClients(void)
  			cl->m_bSentNewResponse = FALSE;
  
  #ifdef REHLDS_FIXES
@@ -2385,7 +2409,7 @@ index dfd68c2..5ddcca1 100644
  #endif // REHLDS_FIXES
  
  			SZ_Clear(&cl->netchan.message);
-@@ -8172,6 +8245,7 @@ void SV_SetMaxclients(void)
+@@ -8172,6 +8251,7 @@ void SV_SetMaxclients(void)
  	g_psvs.clients = (client_t *)Hunk_AllocName(sizeof(client_t) * g_psvs.maxclientslimit, "clients");
  	for (i = 0, cl = g_psvs.clients; i < g_psvs.maxclientslimit; i++, cl++)
  	{
@@ -2393,7 +2417,7 @@ index dfd68c2..5ddcca1 100644
  		Q_memset(cl, 0, sizeof(client_t));
  
  		cl->resourcesneeded.pPrev = &cl->resourcesneeded;
-@@ -8311,6 +8385,7 @@ void EXT_FUNC SV_Frame_Internal()
+@@ -8311,6 +8391,7 @@ void EXT_FUNC SV_Frame_Internal()
  	gGlobalVariables.frametime = host_frametime;
  	g_psv.oldtime = g_psv.time;
  	SV_CheckCmdTimes();
@@ -2401,7 +2425,7 @@ index dfd68c2..5ddcca1 100644
  	SV_ReadPackets();
  	if (SV_IsSimulating())
  	{
-@@ -8351,6 +8426,8 @@ void SV_RegisterDelta(char *name, char *loadfile)
+@@ -8351,6 +8432,8 @@ void SV_RegisterDelta(char *name, char *loadfile)
  	p->delta = pdesc;
  	p->next = g_sv_delta;
  	g_sv_delta = p;
@@ -2410,7 +2434,7 @@ index dfd68c2..5ddcca1 100644
  
  #if (defined(REHLDS_OPT_PEDANTIC) || defined(REHLDS_FIXES)) && defined REHLDS_JIT
  	g_DeltaJitRegistry.CreateAndRegisterDeltaJIT(pdesc);
-@@ -8417,6 +8494,15 @@ void SV_InitEncoders(void)
+@@ -8417,6 +8500,15 @@ void SV_InitEncoders(void)
  
  void SV_Init(void)
  {
@@ -2426,7 +2450,7 @@ index dfd68c2..5ddcca1 100644
  	Cmd_AddCommand("banid", SV_BanId_f);
  	Cmd_AddCommand("removeid", SV_RemoveId_f);
  	Cmd_AddCommand("listid", SV_ListId_f);
-@@ -8553,6 +8639,7 @@ void SV_Init(void)
+@@ -8553,6 +8645,7 @@ void SV_Init(void)
  	Cvar_RegisterVariable(&sv_rehlds_hull_centering);
  	Cvar_RegisterVariable(&sv_rcon_condebug);
  	Cvar_RegisterVariable(&sv_rehlds_userinfo_transmitted_fields);
@@ -2434,7 +2458,7 @@ index dfd68c2..5ddcca1 100644
  	Cvar_RegisterVariable(&sv_rehlds_attachedentities_playeranimationspeed_fix);
  	Cvar_RegisterVariable(&sv_rehlds_local_gametime);
  	Cvar_RegisterVariable(&sv_rehlds_send_mapcycle);
-@@ -8605,6 +8692,7 @@ void SV_Init(void)
+@@ -8605,6 +8698,7 @@ void SV_Init(void)
  	{
  		client_t *cl = &g_psvs.clients[i];
  		SV_ClearFrames(&cl->frames);

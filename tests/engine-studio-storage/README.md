@@ -6,13 +6,15 @@
 
 需要 Windows、Python 3.10+、AVX2 处理器、项目配置的 Arkari Clang 和 x86 MSVC/Windows SDK 环境。使用 C++20、O3、ThinLTO、AVX2、精确浮点，编译与链接均为单任务。
 
-```powershell
+```bash
 python tests/engine-studio-storage/run.py --out build/engine-studio-storage-tests --loader-only
 ```
 
 可以通过 `--compiler` 指定 `clang-cl.exe`，通过 `--environment-json` 读取本机已有环境字典。环境变量值不会写入报告。输出路径必须在项目 `build` 内，允许重复使用。项目源码、测试和头文件均从工作树直接读取；不生成 `source/before/after` 副本。输出只包含必要的 include 适配文件、对象、程序、日志和输入身份清单。
 
 默认还会编译六个真实依赖实现并运行下载广告对照。`--loader-only` 仅运行加载器和动画保护测试；资源轻读整合测试另见同目录的资源夹具。`--prepare-only` 只生成命令与 include 适配文件，不编译或运行。每次运行都重新记录输入 SHA-256，并检查编译期间项目输入是否变化。
+
+可重复指定 `--model path/to/authored.mdl`（最多16份），对本地实际作者资源执行相同保护页加载，同时检查专服完整前缀与非专服调色板展开。实际资源身份加入输入收据，不发布模型文件。此分支能发现几何／GL夹具未覆盖的原生二进制布局错误；仍不等于游戏视觉或性能验收。
 
 ## 实际执行边界
 

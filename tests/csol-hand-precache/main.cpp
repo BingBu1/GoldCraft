@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include "../../native/engine/csol_loader.cpp"
+#include "native_studio_sounds.inc"
 CreateInterfaceFn g_FileSystemFactory{};
 IFileSystem* g_pFileSystem{};
 namespace fixture {
@@ -39,6 +40,42 @@ void Reset(){resourceBatch.reset();dependencyCache=DependencyCache{};files.clear
 void Setup(){
  Reset();files["models/custom/v_fixture.mdl"]=Model();files["models/csol/hands/declared.mdl"]=Model();
  files["models/custom/v_fixture_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+}
+void CofSoundCases(){
+ using namespace guest::cof::resources;
+ const char* view=GlockModels[static_cast<unsigned>(GlockModel::View)].host;
+ constexpr char sample[]="weapons/glock/glock_magout.wav";
+ constexpr char mapped[]="sound/guest/cof/weapons_new/glock/glock_magout.wav";
+ CHECK(StudioLocalSoundResource(view,5004,sample)==mapped);
+ CHECK(StudioLocalSoundResource("models/v_glock18.mdl",5004,sample).empty());
+ CHECK(StudioLocalSoundResource(view,5005,sample).empty());
+ CHECK(StudioLocalSoundResource(view,5004,"weapons/glock/unknown.wav").empty());
+ CHECK(GoldCraftStudioSoundResource(nullptr,5004,sample)==nullptr);
+ CHECK(GoldCraftStudioSoundResource(view,5004,nullptr)==nullptr);
+ for(const auto& wave:GlockLocalWaves){
+  const std::string original="weapons/"+std::string(std::string_view(wave.original).substr(12));
+  CHECK(StudioLocalSoundResource(view,5004,original)==wave.host);
+ }
+ const char* p345=P345Models[static_cast<unsigned>(P345Model::View)].host;
+ for(const auto& wave:P345LocalWaves){
+  const std::string original="weapons/"+std::string(std::string_view(wave.original).substr(12));
+  CHECK(StudioLocalSoundResource(p345,5004,original)==wave.host);
+ }
+ Setup();auto model=Model();Put(model,356+48,1);Put(model,356+52,532);
+ Put(model,532+4,5004);std::memcpy(model.data()+532+12,sample,sizeof(sample));
+ files[view]=model;files[std::string(view).substr(0,std::strlen(view)-4)+"_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+ files[mapped]=Text("PCM endpoint fixture; not audio validation");
+ GoldCraftBeginCsolResources();Precache(view);
+ CHECK(std::find(generic.begin(),generic.end(),mapped)!=generic.end());
+ CHECK(std::find(generic.begin(),generic.end(),"sound/weapons/glock/glock_magout.wav")==generic.end());
+ GoldCraftEndCsolResources();CHECK(models==std::vector<std::string>{"models/csol/hands/declared.mdl"});
+ generic.clear();PrecacheModelSoundsForFile(view,reinterpret_cast<studiohdr_t*>(model.data()));
+ CHECK(generic==std::vector<std::string>{mapped});
+ generic.clear();PrecacheModelSounds(reinterpret_cast<studiohdr_t*>(model.data()));
+ CHECK(generic==std::vector<std::string>{"sound/weapons/glock/glock_magout.wav"});
+ files.erase(mapped);bool rejected=false;GoldCraftBeginCsolResources();
+ try{Precache(view);}catch(const std::exception&){rejected=true;}
+ CHECK(rejected);resourceBatch.reset();
 }
 void Cases(){
  Setup();const auto before=files;
@@ -113,4 +150,5 @@ byte* COM_LoadFileForMe(const char*,int*){throw std::runtime_error("unexpected m
 void* Hunk_AllocName(int,const char*){throw std::runtime_error("unexpected sprite allocation");}
 double Sys_FloatTime(){return 0;}
 char loadname[MAX_MODEL_NAME]{};
-int main(){try{fixture::Cases();std::printf("hand-precache checks=%u; actual loader/collector/cache; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}
+char* va(char* format,...){static char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);return text;}
+int main(){try{fixture::Cases();fixture::CofSoundCases();std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}

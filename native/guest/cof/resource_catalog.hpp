@@ -141,6 +141,29 @@ inline constexpr std::array<ResourcePath, 7> GlockLocalWaves{{
     {"weapons_new/glock/glock_slide.wav", "sound/guest/cof/weapons_new/glock/glock_slide.wav"},
     {"weapons_new/glock/glock_fire.wav", "sound/guest/cof/weapons_new/glock/glock_fire.wav"}
 }};
+// Original Studio5004 rebuilds these pistol keys as weapons_new/<suffix>.
+// Cold dependency discovery must follow the actual local audio consumer rather
+// than require a second, unconsumed copy at sound/weapons/<suffix>.
+constexpr std::string_view StudioLocalSoundResource(std::string_view model, int event,
+                                                   std::string_view sample) noexcept
+{
+    if (event != 5004 || sample.find("weapons/") == sample.npos) return {};
+    const auto separator = sample.find_first_of("/\\");
+    if (separator == sample.npos) return {};
+    const auto suffix = sample.substr(separator + 1);
+    const auto find = [suffix](const auto& waves) -> std::string_view {
+        constexpr std::string_view prefix = "weapons_new/";
+        for (const auto& wave : waves)
+        {
+            const std::string_view key = wave.original;
+            if (key.starts_with(prefix) && key.substr(prefix.size()) == suffix) return wave.host;
+        }
+        return {};
+    };
+    if (model == GlockModels[static_cast<unsigned>(GlockModel::View)].host) return find(GlockLocalWaves);
+    if (model == P345Models[static_cast<unsigned>(P345Model::View)].host) return find(P345LocalWaves);
+    return {};
+}
 inline constexpr auto GlockEvents = P345Events;
 inline constexpr ResourcePath GlockInventory{
     "inventoryitems/weapons/weapon_glock.txt", "inventoryitems/guest/cof/weapons/weapon_glock.txt"};

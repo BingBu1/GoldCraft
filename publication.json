@@ -2307,7 +2307,8 @@
     "tests/csol-cof-kick/RESUME_CONTRACT.md",
     "tests/csol-cof-kick/EMERGENCY_DESIGN.md",
     "tools/win32_processes.py",
-    "docs/2026-11-13_实现-应急踢击动作恢复与体力-report.md"
+    "docs/2026-11-13_实现-应急踢击动作恢复与体力-report.md",
+    "docs/2026-11-13_修复-CoF手模原生布局与声音依赖-report.md"
   ],
   "trees": {
     "native": [

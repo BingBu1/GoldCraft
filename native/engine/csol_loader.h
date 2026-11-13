@@ -9,4 +9,5 @@ bool GoldCraftLoadCsolSprite(model_t* model, std::span<const std::byte> bytes);
 void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header);
 void GoldCraftBeginCsolResources();
 void GoldCraftEndCsolResources();
+const char* GoldCraftStudioSoundResource(const char* model,int event,const char* sample);
 void GoldCraftCsolSequenceDelta(delta_t* delta);

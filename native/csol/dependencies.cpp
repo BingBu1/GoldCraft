@@ -9,6 +9,7 @@
 #include "weapons/weapon_resources.hpp"
 #include "weapons/melee_resources.hpp"
 #include "studio_sound.hpp"
+#include "../guest/cof/resource_catalog.hpp"
 #include "material_source.hpp"
 #include <rapidjson/document.h>
 #include <algorithm>
@@ -197,7 +198,8 @@ WeaponDependencyPlan WeaponPresentationDependencies(const std::string& model,con
                 {
                     if(SkipStudioSound(name,id,options))continue;
                     if(id==5005 && options.size()<=3)throw std::runtime_error("invalid event5005 sound");
-                    add("sound/"+(id==5005?options.substr(3):options));
+                    const auto local=guest::cof::resources::StudioLocalSoundResource(name,id,options);
+                    add(local.empty()?"sound/"+(id==5005?options.substr(3):options):std::string(local));
                 }
             }
         }

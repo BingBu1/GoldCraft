@@ -120,6 +120,7 @@ def main() -> int:
     parser.add_argument("--compiler", default="clang-cl.exe")
     parser.add_argument("--environment-json", type=Path, help="optional private environment dictionary; values are not logged")
     parser.add_argument("--loader-only", action="store_true", help="omit download/dependency tests")
+    parser.add_argument("--model", type=Path, action="append", default=[], help="actual authored MDL to load with source/cache guard pages")
     parser.add_argument("--expect-legacy", action="store_true", help="require the old allocation assertion to fail")
     parser.add_argument("--expect-double-plan", action="store_true", help="require the old duplicate-plan assertion to fail")
     parser.add_argument("--prepare-only", action="store_true", help="write include adapters and commands without compiling")
@@ -178,7 +179,9 @@ def main() -> int:
         inputs.add(svmain)
         data = svmain.read_bytes()
         snippets, ranges = [], []
-        for name in ("PrecacheModelTexture", "PrecacheModelSeqGroups", "PrecacheModelSounds"):
+        names=["PrecacheModelTexture", "PrecacheModelSeqGroups"]
+        if b"void PrecacheModelSoundsForFile(" in data:names.append("PrecacheModelSoundsForFile")
+        for name in (*names,"PrecacheModelSounds"):
             start, end = function_span(data, name)
             snippets.append(data[start:end])
             ranges.append({"name": name, "startByte": start, "endByte": end,
@@ -211,7 +214,8 @@ def main() -> int:
     commands.append({"name": "link", "argv": [str(compiler), "--target=i686-pc-windows-msvc", "-fuse-ld=lld", "/MT",
                                                *objects, f"/Fe{executable}", "/link", "/OPT:REF", "/OPT:ICF",
                                                "/OPT:LLDLTO=3", "/threads:1"]})
-    commands.append({"name": "test", "argv": [str(executable)]})
+    if len(args.model)>16:raise ValueError("Actual model fixture budget exceeded")
+    commands.append({"name": "test", "argv": [str(executable),*[str(path.resolve(strict=True)) for path in args.model]]})
     # Register SDK headers before compilation, then verify the actual consumed
     # inputs as well as the recursive project-source closure after the run.
     for directory in (sdk, rapidjson):
@@ -220,6 +224,7 @@ def main() -> int:
                 inputs.records[str(path.resolve())] = identity(path)
     generated_inputs = [identity(p) for p in output.glob("*.inc")]
     tracked_inputs = [*inputs.records.values(), *generated_inputs, identity(compiler)]
+    tracked_inputs += [identity(path) for path in args.model]
     plan = {"commands": commands, "sources": list(inputs.records.values()), "extractions": extractions,
             "generatedInputs": generated_inputs, "compiler": identity(compiler), "prepareOnly": args.prepare_only,
             "expectedLegacyFailure": args.expect_legacy, "expectedDoublePlanFailure": args.expect_double_plan,

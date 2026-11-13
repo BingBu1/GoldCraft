@@ -10,6 +10,16 @@ def main():
  out=a.output.absolute()
  if out.exists() or not out.resolve().is_relative_to(ROOT/'build'):raise ValueError('Fresh workspace output required')
  out.mkdir(parents=True);(out/'temp').mkdir()
+ # Only exact production function bodies form this generated SDK adapter.
+ native=ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp';native_text=native.read_text('utf-8')
+ def body(signature):
+  start=native_text.index(signature);opening=native_text.index('{',start);depth=1;end=opening+1
+  while depth:
+   if native_text[end]=='{':depth+=1
+   elif native_text[end]=='}':depth-=1
+   end+=1
+  return native_text[start:end]+'\n'
+ (out/'native_studio_sounds.inc').write_text(body('static void PrecacheModelSoundsForFile(')+body('void PrecacheModelSounds('),'utf8')
  env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));env.update(TEMP=str(out/'temp'),TMP=str(out/'temp'))
  compiler=Path(json.loads((ROOT/'.tools/clang-toolchain.json').read_text('utf-8-sig'))['root'])/'bin/clang-cl.exe'
  include=['native/engine','native/include','external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include']
@@ -17,9 +27,9 @@ def main():
  include+=['external/ReHLDS/dep/bzip2/include','external/ReHLDS/dep/cppunitlite/include']
  flags=['/nologo','/TP','/std:c++20','/EHsc','/MT','/Z7','/utf-8','/Gy','/Gw','/arch:AVX2','/fp:precise','/clang:-O3','/clang:-flto=thin','/clang:-ffp-contract=off','--target=i686-pc-windows-msvc','/D_CRT_SECURE_NO_WARNINGS','/DNOMINMAX']
  flags+=['/D'+x for x in ('REHLDS_API','REHLDS_FIXES','REHLDS_SSE','REHLDS_OPT_PEDANTIC','REHLDS_SELF','REHLDS_CHECKS','HAVE_OPT_STRTOOLS','USE_BREAKPAD_HANDLER','DEDICATED','SWDS','_MBCS')]
- flags+=['/imsvc'+str(ROOT/x) for x in include]
+ flags+=['/imsvc'+str(ROOT/x) for x in include]+['/I'+str(out)]
  sources=[ROOT/'tests/csol-hand-precache/main.cpp']+[ROOT/('native/csol/'+n+'.cpp') for n in ('dependencies','model_codec','sprite_codec','texture_model','model_json','events','model_source','sequences')]
- inputs=set(sources)|{Path(__file__).resolve(),a.environment.resolve(),compiler,compiler.with_name('lld-link.exe'),ROOT/'external/ReHLDS/rehlds/lib/libacof32.lib'}
+ inputs=set(sources)|{Path(__file__).resolve(),a.environment.resolve(),compiler,compiler.with_name('lld-link.exe'),ROOT/'external/ReHLDS/rehlds/lib/libacof32.lib',native,out/'native_studio_sounds.inc'}
  for i,src in enumerate(sources):
   dep=out/(str(i)+'.d');cmd=[str(compiler),*flags,'/clang:-M','/clang:-MF','/clang:'+str(dep),str(src)]
   proc=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True,timeout=90);(out/(str(i)+'-headers.log')).write_text(proc.stdout+proc.stderr,'utf8');proc.check_returncode()
