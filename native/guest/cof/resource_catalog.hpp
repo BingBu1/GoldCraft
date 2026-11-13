@@ -37,7 +37,7 @@ enum class P345Sound : unsigned
 {
     Click, MagIn, MagOut, MagPlace, RackBack, Slide, Fire, ItemGet, WeaponGet,
     Sleeve1, Sleeve2, Sleeve3, Swing1, Swing2, Swing3, Swing4, Swing5, Swing6,
-    PunchSwing, PunchSmack, Count
+    PunchSwing, PunchSmack, EmptyClick, EmptyNoClick, Count
 };
 // Engine sound paths omit sound/. Logical original keys remain separate from
 // namespaced host assets, including the melee CHAN_VOICE samples.
@@ -61,7 +61,10 @@ inline constexpr std::array<ResourcePath, static_cast<unsigned>(P345Sound::Count
     {"player/police/Swing/Swing5.wav", "guest/cof/player/police/Swing/Swing5.wav"},
     {"player/police/Swing/Swing6.wav", "guest/cof/player/police/Swing/Swing6.wav"},
     {"weapons/mobile/punch_swing.wav", "guest/cof/weapons/mobile/punch_swing.wav"},
-    {"weapons/mobile/punch_smack.wav", "guest/cof/weapons/mobile/punch_smack.wav"}
+    {"weapons/mobile/punch_smack.wav", "guest/cof/weapons/mobile/punch_smack.wav"},
+    // P345 also uses virtual +190 -> 1011E4A0, not p345_click.wav.
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
 }};
 // Studio5004 and PlaySFX local rewrites consume weapons_new keys. These seven
 // PCM assets are downloaded generically; this does not create client voices.

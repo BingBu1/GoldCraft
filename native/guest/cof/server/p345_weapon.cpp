@@ -157,7 +157,8 @@ P345Status P345Weapon::Prepare(const P345Prepared& p) noexcept
         !p.inventoryReady || !p.pickupSoundReady || !p.deployPreludeReady ||
         p.world != MeleeWorld::Multiplayer || !p.worldModelString || !p.inventoryItemString ||
         !p.viewModelString || !p.playerModelString || p.shellModel <= 0 ||
-        !p.melee.recoil || !p.melee.soundsReady || p.melee.shakeMessage <= 0 ||
+        !p.melee.recoil || !p.melee.soundsReady || !ValidPistolMeleeSamples(p.melee.samples) ||
+        p.melee.shakeMessage <= 0 ||
         p.ballistics.customDecalMessage <= 0 || p.ballistics.bubbleModel <= 0 ||
         !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnSetModel ||
         !g_engfuncs.pfnIndexOfEdict)
@@ -567,7 +568,7 @@ BOOL P345Weapon::Deploy()
     Lease sleeveLease = lease_; sleeveLease.active = true;
     const int pitch = g_engfuncs.pfnRandomLong(-5, 5) + 100;
     if (!Current(&sleeveLease)) return FALSE;
-    if (pev->armorvalue == 0)
+    if (pev->armorvalue != 1)
     {
         const int sleeve = g_engfuncs.pfnRandomLong(0, 2);
         if (!Current(&sleeveLease)) return FALSE;

@@ -139,7 +139,7 @@ void Initialize()
     Check(plan.has_value()&&animations.Prepare(player,model,{1,1},Pistol::P345,*plan,_stricmp,error));
     prepared={};prepared.sequences.present=(std::uint64_t{1}<<34)-1;
     prepared.sequences.duration.fill(1);
-    prepared.ballistics={77,31};prepared.melee={78,true,Recoil,nullptr};
+    prepared.ballistics={77,31};prepared.melee={78,true,Recoil,nullptr,OriginalPistolMeleeSamples};
     prepared.aimOffset={1,2,3};prepared.aimZoom=55;prepared.viewModelString=1;
     prepared.playerModelString=32;prepared.shellModel=31;prepared.worldModelString=64;prepared.inventoryItemString=96;prepared.hostSlot=1;prepared.hostPosition=1;
     prepared.modelsReady=prepared.soundsReady=prepared.particleReady=prepared.aimMetadataReady=true;
@@ -178,6 +178,7 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
 {
     Check(&owner==&player&&r.world==MeleeWorld::Multiplayer&&r.damage==frame.meleeDamage);
+    Check(ValidPistolMeleeSamples(fx.samples));
     return fx.recoil&&fx.soundsReady&&call.current&&call.current(call.context)?MeleeStatus::Ready:MeleeStatus::MissingEffects;
 }
 MeleeStatus PistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
@@ -434,6 +435,25 @@ int main(int argc,char** argv)
             info.iSlot==P345HudSlot&&info.iPosition==P345HudPosition&&info.pszAmmo2==nullptr&&
             !std::strcmp(info.pszName,"weapon_cof_p345")&&!std::strcmp(info.pszAmmo1,"cof_p345"));
         Check(!ownerless.ResourcesReady()&&!ownerless.GetItemInfo(nullptr));
+    }
+    // All eight samples are mandatory even with soundsReady=true. Reject each
+    // missing/empty field and the entire absent table before any world/input
+    // effects; never substitute the original resource names as a fallback.
+    for(int mutation=0;mutation<17;++mutation)
+    {
+        Initialize();auto p=prepared;
+        if(mutation==16)p.melee.samples={};
+        else p.melee.samples[mutation%8]=mutation<8?nullptr:"";
+        Check(p.melee.soundsReady&&!ValidPistolMeleeSamples(p.melee.samples));
+        prepared=p;weapon.m_pEntity=&itemWrapper;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+        weapon.Spawn();
+        Check(!weapon.ResourcesReady()&&weapon.Status()==P345Status::MissingBackend&&
+            weapon.m_pfnThink==nullptr&&weapon.m_pfnTouch==nullptr&&weapon.m_pfnUse==nullptr);
+        events.clear();Check(weapon.AddToPlayer(&player)==FALSE&&events.empty());
+        Check(weapon.Bind(player,p,backends)==P345Status::MissingBackend);
+        events.clear();weapon.PrimaryAttack();weapon.SecondaryAttack();
+        Check(events.empty()&&weapon.m_pfnThink==nullptr&&!weapon.ResourcesReady());
     }
     for(int mutation=0;mutation<10;++mutation)
     {

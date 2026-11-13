@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "vector.h"
+#include <array>
 
 class CBasePlayer;
 namespace guest::cof
@@ -17,6 +18,19 @@ struct PistolMeleeRequest
     bool quietAudio;
     MeleeWorld world;
 };
+using PistolMeleeSamples = std::array<const char*, 8>;
+inline constexpr PistolMeleeSamples OriginalPistolMeleeSamples{
+    "player/police/Swing/Swing1.wav", "player/police/Swing/Swing2.wav",
+    "player/police/Swing/Swing3.wav", "player/police/Swing/Swing4.wav",
+    "player/police/Swing/Swing5.wav", "player/police/Swing/Swing6.wav",
+    "weapons/mobile/punch_swing.wav", "weapons/mobile/punch_smack.wav"
+};
+inline bool ValidPistolMeleeSamples(const PistolMeleeSamples& samples) noexcept
+{
+    for (const char* sample : samples)
+        if (!sample || !*sample) return false;
+    return true;
+}
 struct PistolMeleeEffects
 {
     int shakeMessage;
@@ -24,6 +38,10 @@ struct PistolMeleeEffects
     // Required original viewpunch.sc backend; never mapped to stock punchangle.
     void (*recoil)(void*, CBasePlayer&, const Vector&) noexcept;
     void* context;
+    // Cold resource owner supplies all eight prepared paths, in original order.
+    // Their NUL-terminated immutable storage must outlive this binding. A missing
+    // table cannot silently fall back to unprepared original resource names.
+    PistolMeleeSamples samples{};
 };
 struct MeleeCall
 {
@@ -32,7 +50,7 @@ struct MeleeCall
     void* context;
 };
 // Cold resource preparation, before the weapon becomes usable.
-bool PrecachePistolMeleeSounds() noexcept;
+bool PrecachePistolMeleeSounds(const PistolMeleeSamples&) noexcept;
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer&, const PistolMeleeRequest&,
     const PistolMeleeEffects&, const MeleeCall&) noexcept;
 // Executes the already scheduled original multiplayer WeaponMelee callback.

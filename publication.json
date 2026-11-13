@@ -2328,7 +2328,13 @@
     "tests/csol-kick-animation/run.py",
     "tools/Build-CSOLClientCheckpoint.py",
     "docs/2026-11-13_修复-踢击结束重播武器攻击-report.md",
-    "native/csol/client/weapons/skull3.cpp"
+    "native/csol/client/weapons/skull3.cpp",
+    "docs/2026-11-13_接入-P345声音与共用玩家帧-report.md",
+    "tests/cryoffear-p345-native-effects/README.md",
+    "tests/cryoffear-p345-owner/README.md",
+    "tests/cryoffear-native-owner/README.md",
+    "tests/cryoffear-owner-runtime/README.md",
+    "tests/cryoffear-owner-state/README.md"
   ],
   "trees": {
     "native": [

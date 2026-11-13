@@ -226,6 +226,20 @@ PINS = [
         "sha256": "70164307237d414829ca9a7edbda804c5050e845f977688cb7cd25d6b1d83657"
     },
     {
+        "group": "P345Sounds",
+        "original": "weapons/weapon_fire_empty.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty.wav",
+        "bytes": 22340,
+        "sha256": "b4d1f0ef30b30276bc2a1b0c7dfc222e00251abce594df6e791d8b0937fcf629"
+    },
+    {
+        "group": "P345Sounds",
+        "original": "weapons/weapon_fire_empty_noclick.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty_noclick.wav",
+        "bytes": 18228,
+        "sha256": "de0ae838bdbfa7f75bc1b10b35814b4aa19a574d589adf36f071061b63d9ed8f"
+    },
+    {
         "group": "P345LocalWaves",
         "original": "weapons_new/p345/p345_click.wav",
         "host": "sound/guest/cof/weapons_new/p345/p345_click.wav",

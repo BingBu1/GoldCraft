@@ -53,6 +53,13 @@ PrepareGlockResources(ResourceAuthority, GlockResources) returns eight model IDs
 
 Original Glock Primary10046E58/F55 calls virtual+190, whose verified target1011E4A0 selects weapons/weapon_fire_empty.wav when weapon+1B4 is nonzero and weapons/weapon_fire_empty_noclick.wav otherwise, then clears that field. The complete81-byte IDA capture matches current PE SHA25651e0036139e5dcbab727b54b5c4f79362d315c696de13fa3e32d683f35b2922f. Both resources are precached; this helper does not implement playback or its state changes. The original Glock rifle_insert resource is retained. Twelve Studio5004 events retain the original MDL options; the seven local keys are switch, magin, magout, magplace, rackback, slide and fire. No public original-key sound alias or edited MDL is introduced.
 
+P345's actual virtual table101B5464+190 resolves that same EmptyPlay consumer.
+Its cold catalog now also includes both generic empty-state sounds, alongside
+the existing p345_click Studio/local asset. They have distinct consumers; a
+filename does not establish which sound the empty-shot branch uses. Current
+resource candidates include 49 P345/shot-decal/dependency files. Historical
+39-file receipts above describe the earlier catalog, not the current closure.
+
 The parameterized actual SDK suite preserves all prior P345661 checks and extends event/generic output and required-prefix/truncated-view coverage for both weapons. Build11 passed P345668/0 with40 files and90 callbacks, Glock716/0 with43 files and96 callbacks:1384 total, zero failures. Every missing resource rejects before body reads/precache; every successful-path callback supports cancellation, and every callback failure convention preserves the prior output. Checks include bitwise timing/aim values, native/local IDs, strict classname/field parsing, malformed full models,42-sequence Glock rejection, texture tables/payloads, changed valid texture contents/size and repeated normal cache IDs. Build10 passed1378 checks before adding explicit view truncation cases. The final documentation-frozen rerun is build12.
 
 The runner revalidates the33 P345 windows,86 Glock chunks and complete EmptyClick helper against the copied PE, checks original Glock direct Precache resources and metadata against the prior evidence, and hashes654 compiler-discovered/evidence/resource inputs before/after. Production has no SHA/size pin. Compilation uses the actual x86 ReGameDLL SDK and configured C++20 Clang O3/ThinLTO/AVX2 with precise floating point. No source copies or build trees are created.

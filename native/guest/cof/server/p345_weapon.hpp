@@ -10,6 +10,7 @@
 #include "ballistics.hpp"
 #include "player_animation.hpp"
 #include "weapon_melee.hpp"
+#include "owner_frame_weapon.hpp"
 #include "native/csol/server/weapons/weapons.h"
 
 namespace guest::cof::server
@@ -99,7 +100,8 @@ struct P345Backends
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
 // outside this translation unit. Original IDs never index CS's weapon tables.
 class P345Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
-    public goldcraft::scenario::GuestWeapon, public goldcraft::inventory::RestorableWeapon
+    public goldcraft::scenario::GuestWeapon, public goldcraft::inventory::RestorableWeapon,
+    public OwnerFrameWeapon
 {
 public:
     goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept override;
@@ -146,11 +148,11 @@ public:
     // Parent calls once from the original-equivalent player frame, before the
     // weapon input path, even while ownerAttack locks ItemPostFrame. Per-player
     // spread transitions are an explicit host multiplayer isolation adaptation.
-    void AdvanceOwnerFrame() noexcept;
+    void AdvanceOwnerFrame() noexcept override;
     void EXPORT DelayedMelee();
     // Must be called on death, map/life change and ownership removal. Host
     // generation must also change; invalidation alone is not an identity token.
-    void Invalidate() noexcept;
+    void Invalidate() noexcept override;
     P345Status Status() const noexcept { return status_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const SpreadState& Spread() const noexcept { return spread_; }

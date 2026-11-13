@@ -8,12 +8,6 @@ namespace guest::cof
 {
 namespace
 {
-constexpr std::array<const char*, 8> Sounds{
-    "player/police/Swing/Swing1.wav", "player/police/Swing/Swing2.wav",
-    "player/police/Swing/Swing3.wav", "player/police/Swing/Swing4.wav",
-    "player/police/Swing/Swing5.wav", "player/police/Swing/Swing6.wav",
-    "weapons/mobile/punch_swing.wav", "weapons/mobile/punch_smack.wav"
-};
 constexpr int DamageFlags = 0x04001000;
 bool Finite(const Vector& v) noexcept
 {
@@ -37,11 +31,12 @@ public:
 private:
     MULTIDAMAGE previous_;
 };
-void Sound(edict_t* owner, int channel, int index, bool quiet) noexcept
+void Sound(edict_t* owner, int channel, int index, bool quiet,
+    const PistolMeleeSamples& samples) noexcept
 {
     // 100FC9F0 converts through double*.25 for these ordinary WAV paths.
     const float volume = quiet ? static_cast<float>(1.0 * 0.25) : 1.0f;
-    EMIT_SOUND_DYN2(owner, channel, Sounds[index], volume, 0.8f, 0, 100);
+    EMIT_SOUND_DYN2(owner, channel, samples[index], volume, 0.8f, 0, 100);
 }
 float OriginalLength(const Vector& v) noexcept
 {
@@ -105,10 +100,11 @@ bool Shake(CBasePlayer& player, const PistolMeleeEffects& effects, bool shortDur
 }
 }
 
-bool PrecachePistolMeleeSounds() noexcept
+bool PrecachePistolMeleeSounds(const PistolMeleeSamples& samples) noexcept
 {
+    if (!ValidPistolMeleeSamples(samples) || !g_engfuncs.pfnPrecacheSound) return false;
     bool ready = true;
-    for (const char* sound : Sounds)
+    for (const char* sound : samples)
         if (PRECACHE_SOUND(const_cast<char*>(sound)) <= 0) ready = false;
     return ready;
 }
@@ -119,7 +115,8 @@ MeleeStatus CheckPistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest
     if (!player.pev || !gpGlobals || gpGlobals->maxClients < 1 || gpGlobals->maxClients > MAX_CLIENTS ||
         !call.current || request.damage < 0 || !Finite(player.pev->v_angle) || !Finite(player.pev->origin))
         return MeleeStatus::InvalidInput;
-    if (!effects.soundsReady || !effects.recoil || effects.shakeMessage < 64 || effects.shakeMessage > 255)
+    if (!effects.soundsReady || !ValidPistolMeleeSamples(effects.samples) ||
+        !effects.recoil || effects.shakeMessage < 64 || effects.shakeMessage > 255)
         return MeleeStatus::MissingEffects;
     if (!call.current(call.context)) return MeleeStatus::Cancelled;
     return player.m_pActiveItem ? MeleeStatus::Ready : MeleeStatus::NoActiveWeapon;
@@ -136,9 +133,9 @@ MeleeStatus PistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest& req
     const int breath = RANDOM_LONG(0,5);
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
     if (breath < 0 || breath > 5) return MeleeStatus::InvalidInput;
-    Sound(ownerEdict, CHAN_VOICE, breath, request.quietAudio);
+    Sound(ownerEdict, CHAN_VOICE, breath, request.quietAudio, effects.samples);
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
-    Sound(ownerEdict, CHAN_AUTO, 6, request.quietAudio);
+    Sound(ownerEdict, CHAN_AUTO, 6, request.quietAudio, effects.samples);
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
     effects.recoil(effects.context, player, {1,1,8});
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
@@ -192,14 +189,14 @@ MeleeStatus PistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest& req
     }
     if (shortDuration)
     {
-        Sound(ownerEdict, CHAN_AUTO, 7, request.quietAudio);
+        Sound(ownerEdict, CHAN_AUTO, 7, request.quietAudio, effects.samples);
         if (!Current(call, owner)) return MeleeStatus::Cancelled;
         if (!Shake(player, effects, true, call, owner)) return MeleeStatus::Cancelled;
     }
     else
     {
         if (!Shake(player, effects, false, call, owner)) return MeleeStatus::Cancelled;
-        Sound(ownerEdict, CHAN_AUTO, 7, request.quietAudio);
+        Sound(ownerEdict, CHAN_AUTO, 7, request.quietAudio, effects.samples);
         if (!Current(call, owner)) return MeleeStatus::Cancelled;
     }
     return MeleeStatus::Hit;

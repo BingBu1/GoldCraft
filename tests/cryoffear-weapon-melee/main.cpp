@@ -2,6 +2,7 @@
 // Production adapter and actual SDK classes; controlled engine/entity edges.
 #include "precompiled.h"
 #include "native/guest/cof/server/weapon_melee.hpp"
+#include "native/csol/server/weapons/guest_cof_melee.hpp"
 #include <array>
 #include <bit>
 #include <cstdlib>
@@ -26,6 +27,7 @@ std::array<edict_t,6> edicts{};
 Vector gun{}, forward{};
 int mode{}, breath{}, line{}, classCalls{}, firstClass{}, secondClass{}, checks{}, cancelEvent{}, recycleEvent{}, recycleEntity{};
 bool valid=true, removePrivate{}, replacePrivate{};
+bool namespacedSounds{};
 void* replacementPrivate{};
 int cancelOccurrence=1, cancelSeen{}, precacheFail=-1;
 void (*nested)(){};
@@ -46,7 +48,12 @@ constexpr std::array<std::string_view,8> Sounds{
     "weapons/mobile/punch_swing.wav","weapons/mobile/punch_smack.wav"};
 int SoundIndex(const char* value)
 {
-    for(int i=0;i<8;++i)if(Sounds[i]==value)return i;
+    for(int i=0;i<8;++i)
+    {
+        const std::string_view expected = namespacedSounds ?
+            csol::server::cof::P345MeleeSamples[i] : Sounds[i];
+        if(expected==value)return i;
+    }
     std::abort();
 }
 struct Target final:CBasePlayer
@@ -138,7 +145,7 @@ int main(int argc,char** argv)
     Initialize();
     std::ifstream input(argv[1]),expected(argv[2]);if(!input||!expected)return 1;
     using namespace guest::cof;
-    const PistolMeleeEffects fx{78,true,Recoil,nullptr};const MeleeCall call{Current,nullptr};
+    const PistolMeleeEffects fx{78,true,Recoil,nullptr,OriginalPistolMeleeSamples};const MeleeCall call{Current,nullptr};
     std::size_t rows{};
     while(input>>std::ws&&input.peek()!=std::char_traits<char>::eof())
     {
@@ -179,9 +186,48 @@ int main(int argc,char** argv)
         edicts[3].pvPrivateData=nullptr;targets[1].m_pActiveItem=reinterpret_cast<CBasePlayerItem*>(1);
         gMultiDamage={};gMultiDamage.amount=123;gMultiDamage.type=456;
     };
-    reset();Check(PrecachePistolMeleeSounds());Check(events.size()==24);
+    reset();Check(PrecachePistolMeleeSounds(OriginalPistolMeleeSamples));Check(events.size()==24);
     for(int i=0;i<8;++i)Check(events[i*3]==28&&events[i*3+2]==static_cast<std::uint32_t>(i));
-    events.clear();precacheFail=2;Check(!PrecachePistolMeleeSounds()&&events.size()==24);precacheFail=-1;
+    events.clear();precacheFail=2;Check(!PrecachePistolMeleeSounds(OriginalPistolMeleeSamples)&&events.size()==24);precacheFail=-1;
+    // Actual namespaced sample pointers are consumed by engine callbacks; the
+    // callback rejects every original path in this mode, so no fallback passes.
+    constexpr std::array<std::string_view,8> expectedHost{
+        "guest/cof/player/police/Swing/Swing1.wav", "guest/cof/player/police/Swing/Swing2.wav",
+        "guest/cof/player/police/Swing/Swing3.wav", "guest/cof/player/police/Swing/Swing4.wav",
+        "guest/cof/player/police/Swing/Swing5.wav", "guest/cof/player/police/Swing/Swing6.wav",
+        "guest/cof/weapons/mobile/punch_swing.wav", "guest/cof/weapons/mobile/punch_smack.wav"
+    };
+    for(int i=0;i<8;++i)Check(expectedHost[i]==csol::server::cof::P345MeleeSamples[i]);
+    namespacedSounds=true;
+    reset();Check(PrecachePistolMeleeSounds(csol::server::cof::P345MeleeSamples));Check(events.size()==24);
+    for(int i=0;i<8;++i)Check(events[i*3]==28&&events[i*3+2]==static_cast<std::uint32_t>(i));
+    for(bool quiet:{false,true})for(int voice=0;voice<6;++voice)
+    {
+        reset();breath=voice;
+        auto host=fx;host.samples=csol::server::cof::P345MeleeSamples;
+        Check(PistolWeaponMelee(targets[1],{35,quiet,MeleeWorld::Multiplayer},host,call)==MeleeStatus::Hit);
+        int soundCount=0;
+        for(std::size_t pos=0;pos<events.size();pos+=events[pos+1]+2)if(events[pos]==23)
+        {
+            const int expectedIndex=soundCount==0?voice:soundCount==1?6:7;
+            Check(events[pos+4]==static_cast<std::uint32_t>(expectedIndex));
+            Check(events[pos+5]==Bits(quiet?.25f:1.0f));
+            ++soundCount;
+        }
+        Check(soundCount==3);
+    }
+    namespacedSounds=false;
+    // Reject every absent/empty sample before RNG, audio, precache or damage.
+    for(int i=0;i<8;++i)for(const char* missing:{static_cast<const char*>(nullptr),""})
+    {
+        reset();auto invalid=fx;invalid.samples[i]=missing;
+        Check(!PrecachePistolMeleeSounds(invalid.samples));
+        Check(PistolWeaponMelee(targets[1],baseline,invalid,call)==MeleeStatus::MissingEffects);
+        Check(events.empty()&&gMultiDamage.amount==123&&gMultiDamage.type==456);
+    }
+    reset();const auto precache=g_engfuncs.pfnPrecacheSound;g_engfuncs.pfnPrecacheSound=nullptr;
+    Check(!PrecachePistolMeleeSounds(OriginalPistolMeleeSamples)&&events.empty());
+    g_engfuncs.pfnPrecacheSound=precache;
     // Cancellation at engine, entity, recoil and packet edges. Entered Apply
     // completes its own TakeDamage, and an entered packet always reaches End.
     constexpr std::array<std::array<int,2>,23> cancellations{{
@@ -234,7 +280,7 @@ int main(int argc,char** argv)
     {
         nested=nullptr;const auto saved=gMultiDamage;const int oldLine=line,oldCalls=classCalls;
         line=classCalls=0;
-        Check(PistolWeaponMelee(targets[1],{1,true,MeleeWorld::Multiplayer},{78,true,Recoil,nullptr},{Current,nullptr})==MeleeStatus::Hit);
+        Check(PistolWeaponMelee(targets[1],{1,true,MeleeWorld::Multiplayer},{78,true,Recoil,nullptr,OriginalPistolMeleeSamples},{Current,nullptr})==MeleeStatus::Hit);
         Check(gMultiDamage.hEntity.Get<CBaseEntity>()==saved.hEntity.Get<CBaseEntity>()&&gMultiDamage.amount==saved.amount&&gMultiDamage.type==saved.type);
         line=oldLine;classCalls=oldCalls;
     };

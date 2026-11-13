@@ -11,6 +11,7 @@
 #include "ballistics.hpp"
 #include "player_animation.hpp"
 #include "weapon_melee.hpp"
+#include "owner_frame_weapon.hpp"
 #include "native/csol/server/weapons/weapons.h"
 
 namespace guest::cof::server
@@ -104,7 +105,7 @@ struct GlockBackends
 // outside this translation unit. Original IDs never index CS's weapon tables.
 class GlockWeapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
     public goldcraft::scenario::GuestWeapon, public goldcraft::inventory::RestorableWeapon,
-    public csol::scenario::custom::ResumableWeaponAction
+    public csol::scenario::custom::ResumableWeaponAction, public OwnerFrameWeapon
 {
 public:
     csol::scenario::custom::ActionResumeResult SuspendWeaponAction(
@@ -157,7 +158,7 @@ public:
     // Parent calls once from the original-equivalent player frame, before the
     // weapon input path, even while ownerAttack locks ItemPostFrame. Per-player
     // spread transitions are an explicit host multiplayer isolation adaptation.
-    void AdvanceOwnerFrame() noexcept;
+    void AdvanceOwnerFrame() noexcept override;
     void EXPORT DelayedMelee();
     // Called only after the authenticated inventory combine consumes a taclight.
     // Original100E3020 sets Glock+1F8 after the glockwithtaclight branch.
@@ -169,7 +170,7 @@ public:
     bool TaclightInstalled() const noexcept { return taclightInstalled_; }
     // Must be called on death, map/life change and ownership removal. Host
     // generation must also change; invalidation alone is not an identity token.
-    void Invalidate() noexcept;
+    void Invalidate() noexcept override;
     GlockStatus Status() const noexcept { return status_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const SpreadState& Spread() const noexcept { return spread_; }
