@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/runtime.hpp"
+#include "../../native/csol/client/resource_refresh.hpp"
 #include "../../native/csol/client/weapons/guest_cof_muzzle.hpp"
 #include "../../native/csol/client/weapons/guest_cof_effects.hpp"
 #include "../../native/csol/client/weapons/guest_cof_scene.hpp"
@@ -17,7 +18,7 @@ namespace
 using namespace csol::client;
 using namespace guest::cof::client;
 using namespace guest::cof::resources;
-unsigned checks{},failures{},modelQueries{},visible{},shells{},engineLights{},customLights{},randoms{};
+unsigned checks{},failures{},modelQueries{},visible{},shells{},engineLights{},customLights{},randoms{},lightReads{},boneReads{},nativeDraws{};
 std::uint64_t generation{1};
 std::uint64_t effectResources{1};
 bool effectsReady{true},pointReady{true},mainView{true},retireVisible{},retireEffects{},retireModel{},localOwned{true};
@@ -29,7 +30,10 @@ std::vector<std::byte> playerBytes;
 PointLightState pool;
 dlight_t dlight{};
 std::array<float,3> shellOrigin{},shellVelocity{};
-float bones[MAXSTUDIOBONES][3][4]{};
+float bones[MAXSTUDIOBONES][3][4]{},wrongBones[MAXSTUDIOBONES][3][4]{};
+cl_entity_t* CurrentEntity(){return &remote;}
+float**** LightMatrices(){++lightReads;return reinterpret_cast<float****>(bones);}
+float**** BoneMatrices(){++boneReads;return reinterpret_cast<float****>(wrongBones); }
 void (*eventCallback)(event_args_s*);
 cvar_t cheap{};
 void Check(bool ok,int line){++checks;if(!ok){++failures;std::printf("FAIL %d\n",line);}}
@@ -72,6 +76,13 @@ cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept{return effectsReady?&muzzleEng
 bool GuestCofPointLightsReady() noexcept{return pointReady;}
 bool GuestCofMainStudioView() noexcept{return mainView;}
 PointLight* AllocateGuestCofPointLight(int key) noexcept{++customLights;return &AllocatePointLight(pool,key,Time());}
+void* currentStudioHeader{};model_t* currentStudioModel{};
+static void ObservePlayerPose(){}
+static void ObserveHeldPose(){}
+bool DrawWorldWeaponPoints(){return false;}
+static void NativePoints(){++nativeDraws;}
+static void (*originalDrawPoints)()=NativePoints;
+#include "native-studio-points.inc"
 }
 int main(int argc,char** argv)
 {
@@ -146,6 +157,18 @@ int main(int argc,char** argv)
  CHECK(shellVelocity==std::array<float,3>{1,-2,3}&&shellOrigin==Transform(attachment[1]));
  GuestCofMuzzleWorldPoints(&remote,&bodyModel,header,bones);
  CHECK(visible==mergedVisible+1&&shells==mergedShells+1);
+ ShutdownGuestCofMuzzle();
+ // Execute the unchanged production StudioDrawPoints callback: the native
+ // light and geometry matrices deliberately disagree. Only light transforms
+ // may position the original attachments; a wrong getter fails this case.
+ InitializeGuestCofMuzzle(&provider);CHECK(PrepareGuestCofMuzzle());
+ studio.GetCurrentEntity=CurrentEntity;studio.StudioGetLightTransform=LightMatrices;studio.StudioGetBoneTransform=BoneMatrices;
+ for(auto& bone:wrongBones)for(unsigned i=0;i<3;++i){bone[i][i]=1;bone[i][3]=9000.0F+float(i);}
+ currentStudioModel=&bodyModel;currentStudioHeader=header;const auto boundaryShells=shells,boundaryVisible=visible;
+ eventCallback(&event);StudioDrawPoints();
+ CHECK(shells==boundaryShells+1&&visible==boundaryVisible+1&&lightReads==1&&boneReads==0&&nativeDraws==1);
+ CHECK(shellOrigin==Transform(attachment[1]));
+ StudioDrawPoints();CHECK(lightReads==1&&nativeDraws==2&&shells==boundaryShells+1);
  ShutdownGuestCofMuzzle();
  std::printf("checks=%u failures=%u actualGlockPlayerModel=yes sceneServices=controlled live=no performance=no\n",checks,failures);
  return failures?1:0;

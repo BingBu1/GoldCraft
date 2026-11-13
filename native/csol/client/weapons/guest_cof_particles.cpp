@@ -179,9 +179,16 @@ AuroraResult PrepareGuestCofParticles(const GuestCofParticlePlan& plan) noexcept
 }
 
 bool GuestCofParticlesReady() noexcept { return Synchronize() && ready; }
+bool KillGuestCofLocalParticles(bool immediate) noexcept
+{
+    if (!Synchronize()) return false;
+    particles.KillLocal(immediate);
+    return true;
+}
 AuroraResult GuestCofParticleStatus() noexcept { return status; }
 
 void GuestCofParticlesVideoInit() noexcept { if (Owner()) Retire(true); }
+void InvalidateGuestCofParticleResources() noexcept { if (Owner()) Retire(true); }
 
 void GuestCofParticlesViewStage(const ref_params_s& params) noexcept
 {

@@ -15,7 +15,7 @@ bool GuestCofMuzzleReady() noexcept;
 bool GuestCofMuzzleWorldPending() noexcept;
 bool GuestCofMuzzleStudioEvent(const mstudioevent_s*,const cl_entity_s*) noexcept;
 // Actual StudioDrawPoints boundary, after the held model's bone merge.
-// Matrices are the current SDK StudioGetBoneTransform result, borrowed here.
+// Matrices are the current SDK StudioGetLightTransform result, borrowed here.
 void GuestCofMuzzleWorldPoints(const cl_entity_s*,const model_s*,const void* studioHeader,
                               const float (*bones)[3][4]) noexcept;
 }

@@ -2,6 +2,13 @@
 #include "runtime.hpp"
 #include "weapons/guest_cof.hpp"
 #include "weapons/guest_cof_input.hpp"
+#include "weapons/guest_cof_viewmodel.hpp"
+#include "weapons/guest_cof_control.hpp"
+#include "weapons/guest_cof_decals.hpp"
+#include "weapons/guest_cof_resources.hpp"
+#include "weapons/guest_cof_ironsight.hpp"
+#include "weapons/guest_cof_effects.hpp"
+#include "weapons/guest_cof_muzzle.hpp"
 #include "weapons/guest_cof_admission.hpp"
 #include "weapons/guest_cof_audio.hpp"
 #include "weapons/guest_cof_particles.hpp"
@@ -236,6 +243,9 @@ static void StudioDrawPoints()
 {
     ObservePlayerPose();
     ObserveHeldPose();
+    if(GuestCofMuzzleWorldPending())
+        GuestCofMuzzleWorldPoints(studio.GetCurrentEntity(),currentStudioModel,currentStudioHeader,
+            reinterpret_cast<const float (*)[3][4]>(studio.StudioGetLightTransform()));
     if(!DrawWorldWeaponPoints())originalDrawPoints();
 }
 
@@ -269,6 +279,7 @@ static int StudioDrawModel(int flags)
     try{InstallSequenceStudioGuards();}
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
+    GuestCofViewmodelScope guestHand(entity,flags);
     PrepareMeleeEffectDraw(entity);
     ObserveViewAnimation(entity,flags);
     ObserveStudioEventSequence(entity,entity?entity->model:nullptr,flags);
@@ -334,6 +345,15 @@ static void Init()
     InitializeGuestCof();
     InitializeGuestCofAudio();
     InitializeGuestCofParticles();
+    InitializeGuestCofControl();
+    InitializeGuestCofDecals();
+    InitializeGuestCofEffects();
+    InitializeGuestCofMuzzle();
+    // Host budget; original audio and particle timing remains in the consumers.
+    InitializeGuestCofResources({32, 16u * 1024u * 1024u});
+    InitializeGuestCofInput();
+    InitializeGuestCofViewmodel();
+    InitializeGuestCofAdmission();
     InitializeWeaponInventory();
     InitializeCamera();
     InitializeProjectiles();
@@ -364,6 +384,10 @@ static void Init()
 }
 static int VidInit()
 {
+    InvalidateGuestCofAdmission();
+    GuestCofEffectsVideoInit();
+    InvalidateGuestCofMuzzle();
+    GuestCofDecalsVideoInit();
     GuestCofVideoInit();
     GuestCofParticlesVideoInit();
     ResetFrozenDeath();
@@ -386,10 +410,18 @@ static int VidInit()
     ScenarioRoundHudVideoInit();
     ScenarioRespawnUiVideoInit();
     HudStyleVideoInit();
-    return downstream.HUD_VidInit();
+    const int result=downstream.HUD_VidInit();
+    GuestCofResourcesVideoInit();
+    return result;
 }
 static void HudShutdown()
 {
+    ShutdownGuestCofAdmission();
+    ShutdownGuestCofInput();ShutdownGuestCofViewmodel();
+    ShutdownGuestCofMuzzle();
+    ShutdownGuestCofDecals();ShutdownGuestCofResources();
+    ShutdownGuestCofEffects();
+    ShutdownGuestCofControl();
     ShutdownGuestCof();
     ShutdownGuestCofAudio();
     ShutdownGuestCofParticles();
@@ -437,6 +469,7 @@ static void Frame(double time)
     BuyMenuFrame();
     ScenarioMapVoteFrame();
     HudStyleFrame();
+    GuestCofAdmissionFrame();
 }
 static void CreateMove(float frame, usercmd_t* cmd, int active)
 {
@@ -475,7 +508,12 @@ static void CalcRefdef(ref_params_t* params)
 {
     GuestCofParticlesViewStage(*params);
     GuestCofAudioPause(params->paused != 0);
-    downstream.V_CalcRefdef(params);
+    {
+        GuestCofIronsightViewScope ironsight(*params);
+        GuestCofEffectsViewScope effects(*params);
+        downstream.V_CalcRefdef(params);
+    }
+    GuestCofForwardDisplacementViewStage(*params);
     CameraRefdef(params);
     view=*params;
 }
@@ -550,7 +588,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

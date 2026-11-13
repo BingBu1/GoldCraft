@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import importlib.util
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,6 +28,12 @@ def main():
     if sha(args.model) != 'ac158045589ac76fcff9f99ce057872f8037ccdcb8f77acb6314cafca65e9d49':
         raise ValueError('Actual original Glock P model differs')
     output.mkdir(parents=True)
+    helper=ROOT/"tests/common/cpp_function.py"
+    spec=importlib.util.spec_from_file_location("cpp_function",helper)
+    extractor=importlib.util.module_from_spec(spec);spec.loader.exec_module(extractor)
+    plugin=ROOT/"native/csol/client/plugin.cpp"
+    _,_,callback=extractor.function(plugin.read_bytes(),b"static void StudioDrawPoints()")
+    (output/"native-studio-points.inc").write_bytes(callback+b"\n")
     config = json.loads((ROOT/'.tools/clang-toolchain.json').read_text('utf-8-sig'))
     compiler = Path(config['root'])/'bin/clang-cl.exe'
     database = json.loads(args.commands.read_text('utf-8'))
@@ -35,12 +42,12 @@ def main():
     flags = ['/nologo','/TP','/std:c++20','/EHsc','/MT','/utf-8','/W3','/WX',
              '--target=i686-pc-windows-msvc','/O2','/clang:-O3','/clang:-flto=thin',
              '/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','-Wno-overriding-option',
-             '/DNDEBUG',*[s for s in tokens if s.startswith('-D')],
+             '/DNDEBUG','/I'+str(output),*[s for s in tokens if s.startswith('-D')],
              *['/imsvc'+s[2:] for s in tokens if s.startswith('-I')]]
     sources = [ROOT/'tests/cryoffear-muzzle-bridge/main.cpp',
                ROOT/'native/csol/client/weapons/guest_cof_muzzle.cpp',
                ROOT/'native/guest/cof/client/muzzle_flash.cpp']
-    inputs = set(sources)|{Path(__file__).resolve(), args.commands.resolve(),args.environment.resolve(),
+    inputs = set(sources)|{plugin,helper,Path(__file__).resolve(), args.commands.resolve(),args.environment.resolve(),
                           args.model.resolve(),compiler,compiler.with_name('lld-link.exe')}
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))

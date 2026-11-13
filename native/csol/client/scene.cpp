@@ -7,6 +7,10 @@
 #include "weapons/weapons.hpp"
 #include "weapons/beamgun.hpp"
 #include "weapons/cannon.hpp"
+#include "weapons/guest_cof_effects.hpp"
+#include "weapons/guest_cof_muzzle.hpp"
+#include "weapons/guest_cof_admission.hpp"
+#include "weapons/guest_cof_scene.hpp"
 #include "weapons/melee.hpp"
 #include "emotion_voice.hpp"
 #include "scenario/core/scenario_smoke.hpp"
@@ -666,6 +670,7 @@ void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept
 // Post-scene still draws their translucent meshes and effects afterwards.
 void DrawOwnedOpaque()
 {
+    DrawGuestCofOpaqueScene();
     if(!enabled || !enabled->value || !program || !renderer || !postRenderer || !EnsureGL())return;
     auto* target=renderer->GetCurrentSceneFBO();
     // Main-view color targets only; shadow, water and portal passes keep
@@ -864,6 +869,8 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     if(event && entity && entity->model && SkipStudioSound(
         {entity->model->name,strnlen(entity->model->name,sizeof(entity->model->name))},event->event,
         {event->options,strnlen(event->options,sizeof(event->options))}))return;
+    if(GuestCofMuzzleStudioEvent(event,entity))return;
+    if(GuestCofStudioEvent(event,entity))return;
     if(CannonStudioEvent(event,entity))return;
     if(EmotionVoiceStudioEvent(event,entity))return;
     const auto soundDiagnostic=ObserveStudioSound(event,entity);
@@ -954,6 +961,8 @@ void InitializeScene()
 }
 void ClearScene()
 {
+    InvalidateGuestCofAdmission();
+    ClearGuestCofScene();
     studioEventGuard.Clear();
     ResetEmotionVoices();
     ResetBalrog11Flame();
@@ -980,6 +989,7 @@ void ForgetSceneEntity(const cl_entity_t* entity)
 }
 void SceneFrame()
 {
+    GuestCofSceneFrame();
     PruneBeamEffects();
     int frame;double time,old;studio.GetTimes(&frame,&time,&old);
     for(auto& weapon:worldWeapons)if(weapon.source && (weapon.frame+2<frame || frame<weapon.frame))
@@ -995,7 +1005,7 @@ void SceneFrame()
     for(size_t i=0;i<parts.slots.size();++i){if(i)file<<',';file<<(parts.slots[i].model?parts.slots[i].sequence:-1);}
     file<<"],\"bodyGroups\":[";
     if(state)for(size_t i=0;i<state->body.Groups.size();++i){if(i)file<<',';const auto& group=state->body.Groups[i];file<<'['<<group.Body<<','<<group.Alpha<<']';}
-    file<<']';WeaponDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);RenderSettingsDiagnostics(file);StudioSoundDiagnostics(file);
+    file<<']';WeaponDiagnostics(file);GuestCofAdmissionDiagnostics(file);CameraDiagnostics(file);ProjectileDiagnostics(file);CharacterDiagnostics(file);PlayerAnimationDiagnostics(file);StockHandDiagnostics(file);BuyMenuDiagnostics(file);Balrog11FlameDiagnostics(file);RenderSettingsDiagnostics(file);StudioSoundDiagnostics(file);
     const auto* hands=ViewCharacter() && state && state->asset?state->asset:nullptr;
     const int handBody=ent?ent->curstate.body:0;
     file<<",\"handAdapter\":{\"meshes\":"<<(hands?hands->adaptedMeshes:0)<<",\"bones\":"<<(hands?hands->adaptedBones:0)

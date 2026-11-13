@@ -16,7 +16,7 @@ struct GuestCofDecalState
     std::size_t marks{}, pending{};
     guest::cof::client::CustomDecalResult message{guest::cof::client::CustomDecalResult::NoSurface};
     guest::cof::client::CustomDecalDrawResult draw{guest::cof::client::CustomDecalDrawResult::MissingResources};
-    bool resourcesPrepared{}, mapPrepared{};
+    bool resourcesPrepared{}, mapPrepared{}, coreProfile{};
 };
 // Installs only the namespaced message, never original/ordinary CS messages.
 void InitializeGuestCofDecals();
@@ -28,6 +28,7 @@ bool PrepareGuestCofDecalResources(const std::array<std::span<const std::uint8_t
 // World identity alone never establishes draw visibility/depth readiness.
 bool PrepareGuestCofDecalMap(model_s&, bool hl25) noexcept;
 void DrawGuestCofDecals(const model_s&, const guest::cof::client::CustomDecalFrame&) noexcept;
+void PrepareGuestCofDecalFrame() noexcept;
 // Scene's world retirement may occur after signon preparation. Retire only the
 // map/marks here, retaining admitted textures; connection retirement is below.
 void ClearGuestCofDecalMap() noexcept;

@@ -19,8 +19,12 @@ void InitializeGuestCofParticles();
 void InitializeGuestCofParticles(const GoldCraftConnectionAPI*);
 guest::cof::client::AuroraResult PrepareGuestCofParticles(const GuestCofParticlePlan&) noexcept;
 bool GuestCofParticlesReady() noexcept;
+// Original global manager operation; does not invalidate prepared resources.
+bool KillGuestCofLocalParticles(bool immediate) noexcept;
 guest::cof::client::AuroraResult GuestCofParticleStatus() noexcept;
 void GuestCofParticlesVideoInit() noexcept;
+// Retire prepared data while preserving thread, connection and message hooks.
+void InvalidateGuestCofParticleResources() noexcept;
 // Capture nextView before the native CalcRefdef can consume it. No view
 // modification occurs here; the original early branch suppresses particles.
 void GuestCofParticlesViewStage(const ref_params_s&) noexcept;

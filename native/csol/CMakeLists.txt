@@ -273,3 +273,12 @@ if(CSOL_BUILD_CODEC_TESTS)
     target_compile_options(csol_codec_tests PRIVATE /utf-8 /W3)
     target_link_libraries(csol_codec_tests PRIVATE bcrypt)
 endif()
+
+# CoF runtime adapters use the same native input, signon and Studio lifecycle.
+target_sources(CSOLSupport PRIVATE
+    client/weapons/guest_cof_resources.cpp client/weapons/guest_cof_input.cpp
+    client/weapons/guest_cof_viewmodel.cpp client/weapons/guest_cof_admission.cpp
+    client/weapons/guest_cof_control.cpp ../guest/cof/control_protocol.cpp
+    client/weapons/guest_cof_muzzle.cpp ../guest/cof/client/muzzle_flash.cpp
+    ../guest/cof/client/point_light_render.cpp client/weapons/guest_cof_scene.cpp
+    client/weapons/guest_cof_decals.cpp ../guest/cof/client/custom_decal.cpp)
