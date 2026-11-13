@@ -29,3 +29,11 @@ P-01：path_type=callflow。原MP索引（E-02）→namespaced事件接收→own
 本次仅发布独立适配器、发射组件与测试，plugin／scene／CMake完整服务接线另批审计。没有部署本轮merged-P修复，未验第一人称、真实远端玩家、丢拾或整枪表现。FEV_NOTHOST＋cl_lw以及自身P模绘制阶段仍须沿原HW继续闭合，不擅自切换事件或增加本地发射器。
 
 时间线：11月12日原发射器／锁存取证及组件→11月13日复核宿主header/model差异→新增真实merged-P检查→旧版2失败／修复版81通过→原1145零差→保留第一人称未知。完整CoFGoal保持进行。
+
+## 后续配套与第一人称排除取证
+
+完整运行接线随后已发布，最终客户端d2226daf经新鲜广域输入及1431实际依赖复核后部署单B；107项菜单资源通过真实HTTP与SHA。有限玩法及手模作者边界见[后续实机记录](2026-11-13_验证-CoF实机与手模几何作者-report.md)。用户确认默认右手、切枪和枪口特效已修复，不将此确认扩大为弹壳、手模或整枪验收。
+
+E-05：继续核对同一原client SHA，1006D759以cl_lw调用引擎GetCvarPointer，1006D771保存指针到10542A74；1004F826处读取值的回调实际使用weapons/egon_windup2.wav、weapons/egon_run3.wav与sprites/xbeam1.spr，随后建立两条beam。该分支不能证明Glock本地抛壳、修改cl_lw或活动Glock走weaponshoot事件。私有cl-lw-init-ida.json与cl-lw-consumer-ida.json保留原字节及225个IDA指令；未由这个排除结论修改生产行为。
+
+原活动muzzleflash事件的自身玩家接收／P绘制时序仍未闭合，继续沿原HW与玩家渲染入口查明。保留已证世界附件发射器，不增加猜测的视模附件、预测旗标或强制下半身绘制。此次仅补取证与文档，没有重新部署或进行新玩法／性能验收。
