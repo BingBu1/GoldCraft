@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <optional>
 #include <cstdint>
 #include <array>
 
@@ -17,6 +18,8 @@ bool CSOL_RequestedScenarioDifficulty(std::uint16_t& output);
 bool CSOL_WriteScenarioDifficultyRequest(std::uint16_t difficulty);
 // Local explicit mapping of the original final-result delay selector.
 // Default 0 selects30s; this is not a claim about CSO's unknown room default.
+// csol_scenario_map_id: nullopt for 0 (unique file-name lookup).
+bool CSOL_RequestedScenarioMapId(std::optional<int>& output);
 bool CSOL_RequestedScenarioShortFinalDelay(bool& output);
 
 // Local dedicated-server policy, read once when the final wait expires.

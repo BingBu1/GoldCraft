@@ -2350,7 +2350,11 @@
     "docs/2026-11-13_接入-Revolver冷资源与原声音消费者-report.md",
     "tests/cryoffear-revolver-owner/README.md",
     "tests/cryoffear-revolver-native-effects/README.md",
-    "tests/cryoffear-revolver-events/README.md"
+    "tests/cryoffear-revolver-events/README.md",
+    "tests/csol-scenario-rules-session/sdk_engine.hpp",
+    "tests/csol-map-bootstrap/sdk.cpp",
+    "tests/csol-map-bootstrap/README.md",
+    "docs/2026-11-13_修复-灾变首图地图编号初始化-report.md"
   ],
   "trees": {
     "native": [

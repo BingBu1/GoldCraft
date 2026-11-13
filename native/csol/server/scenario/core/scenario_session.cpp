@@ -84,7 +84,10 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
     if (!difficulty || difficulty >= m_difficulty.Table()->source.records.size())
         return Fail({std::string(m_difficulty.SourcePath()), {0, "selected scenario difficulty row is unavailable"}});
     const auto* mapTables = m_map.Tables();
-    if (!mapTables || !mapTables->difficultyLimit || difficulty > *mapTables->difficultyLimit)
+    if (!mapTables || !mapTables->mapId || !mapTables->difficultyLimit)
+        return Fail({"resource/maplist.csv", {0,
+            "scenario map identity is ambiguous; select its maplist ID with -csol_scenario_map_id before the first map"}});
+    if (difficulty > *mapTables->difficultyLimit)
         return Fail({"resource/maplist.csv", {0, "selected scenario difficulty is not allowed by this map"}});
     if (!m_upgrades.Load(files, resourceError)) return Fail(std::move(resourceError));
     if (!m_map.EntityAccessAllowed()) return false;

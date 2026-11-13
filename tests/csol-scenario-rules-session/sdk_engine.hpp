@@ -53,6 +53,7 @@ struct Engine
 {
     static constexpr int Capacity = 512;
     inline static Engine* self{};
+    inline static std::map<std::string,std::optional<std::string>> startupArguments;
     globalvars_t globals{};
     std::array<edict_t, Capacity> edicts{};
     std::array<char, 1024 * 1024> strings{};
@@ -171,10 +172,15 @@ struct Engine
         g_engfuncs.pfnGetPlayerAuthId = [](edict_t*) { return "STEAM_ID_LAN"; };
         g_engfuncs.pfnSetClientMaxspeed = [](edict_t* ed,float speed) { ed->v.maxspeed=speed; };
         g_engfuncs.pfnTime = [] { return gpGlobals->time; };
-        // This controlled engine has no startup command-line arguments.
-        // ReHLDS EngCheckParm also clears next when the token is absent.
+        // Empty by default. Match ReHLDS's found token/nullable next argument
+        // contract; a fixture can declare startup options before real init.
         g_engfuncs.pfnEngCheckParm = [](const char* token,char** next) {
-            self->Record(std::string("argument:")+token);if(next)*next=nullptr;return 0;
+            self->Record(std::string("argument:")+token);
+            if (!std::strcmp(token,"-csol_scenario_map_id") || !std::strcmp(token,"+csol_scenario_map_id"))
+                Require(self->Var("csol_scenario_map_id").registered != nullptr,"map ID is registered before startup lookup");
+            const auto found=startupArguments.find(token);
+            if(next)*next=found!=startupArguments.end()&&found->second?const_cast<char*>(found->second->c_str()):nullptr;
+            return found!=startupArguments.end()?1:0;
         };
         Set("skill","1"); Set("mp_roundtime","5"); Set("mp_freezetime","6"); Set("mp_c4timer","35");
         Set("mp_limitteams","2"); Set("mp_windifference","1"); Set("tutor_enable","0");

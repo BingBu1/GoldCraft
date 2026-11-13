@@ -18,7 +18,27 @@ cvar_t requestedDifficulty{"csol_scenario_difficulty", "1", FCVAR_SERVER};
 cvar_t shortFinalDelay{"csol_scenario_short_final_delay", "0", FCVAR_SERVER};
 cvar_t finishAction{"csol_scenario_finish_action", "3", FCVAR_SERVER};
 cvar_t nextScenarioMap{"csol_scenario_nextmap", "zs_deadend", FCVAR_SERVER};
+// Original rooms select a maplist row by numeric ID. 0 keeps the unique-name
+// lookup; a positive ID is required when maplist names a file twice (e.g.
+// zs_decoy 113 and event 197) and must name the loading map.
+cvar_t scenarioMapId{"csol_scenario_map_id", "0", FCVAR_SERVER};
 bool registered{};
+
+void InitialScenarioMapId()
+{
+    if (!g_engfuncs.pfnEngCheckParm) return;
+    char* initial{};
+    // Original CSO rooms pass a numeric map identity directly. ReHLDS loads
+    // the first world before command-buffer +cvars are a reliable contract.
+    // Prefer the explicit host option and retain existing deployment +syntax.
+    if (!ENG_CHECK_PARM("-csol_scenario_map_id", &initial) &&
+        !ENG_CHECK_PARM("+csol_scenario_map_id", &initial)) return;
+    const std::string_view text = initial ? initial : "";
+    unsigned value{};
+    const auto parsed = std::from_chars(text.data(),text.data()+text.size(),value);
+    const bool valid = !text.empty() && parsed.ec == std::errc{} && parsed.ptr == text.data()+text.size() && value <= 65535;
+    CVAR_SET_STRING("csol_scenario_map_id",valid ? initial : "invalid");
+}
 
 class GameModeService final : public csol::IGameModeService
 {
@@ -63,6 +83,7 @@ void CSOL_InitGameModes()
     CVAR_REGISTER(&shortFinalDelay);
     CVAR_REGISTER(&finishAction);
     CVAR_REGISTER(&nextScenarioMap);
+    CVAR_REGISTER(&scenarioMapId);
     CSOL_InitGameplaySettings();
     // Command-buffer +cvar ordering is not a first-map contract. The launcher
     // supplies this explicit option, consumed once after real registration and
@@ -73,6 +94,7 @@ void CSOL_InitGameModes()
         const bool valid = initialMode && initialMode[0] >= '0' && initialMode[0] <= '2' && !initialMode[1];
         CVAR_SET_STRING("csol_game_mode", valid ? initialMode : "invalid");
     }
+    InitialScenarioMapId();
     registered = true;
 }
 
@@ -88,6 +110,26 @@ bool CSOL_RequestedScenarioDifficulty(std::uint16_t& output)
     if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
         value == 0 || value > 65535) return false;
     output = static_cast<std::uint16_t>(value);
+    return true;
+}
+
+bool CSOL_RequestedScenarioShortFinalDelay(bool& output)
+{
+    if (!registered || !shortFinalDelay.string) return false;
+    const std::string_view text(shortFinalDelay.string);
+    if (text != "0" && text != "1") return false;
+    output = text == "1";
+    return true;
+}
+
+bool CSOL_RequestedScenarioMapId(std::optional<int>& output)
+{
+    if (!registered || !scenarioMapId.string) return false;
+    const std::string_view text(scenarioMapId.string);
+    unsigned int value{};
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if (result.ec != std::errc{} || result.ptr != text.data() + text.size() || value > 65535) return false;
+    output = value ? std::optional<int>(static_cast<int>(value)) : std::nullopt;
     return true;
 }
 
