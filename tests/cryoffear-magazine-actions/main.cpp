@@ -69,7 +69,7 @@ void Safety()
         require(invoke(Pistol::P345, state, std::numeric_limits<float>::quiet_NaN(), times,
             context.Host()) == MagazineActionResult::InvalidInput);
         require(Save(state) == saved);
-        state.clip = 9;
+        state.clip = -1;
         require(invoke(Pistol::P345, state, 10, times, context.Host()) == MagazineActionResult::InvalidInput);
         state = initial;
         if (operation != 1)
@@ -86,6 +86,18 @@ void Safety()
             if (operation == 2) require(state.idle == 0);
             if (operation == 0 && stop == 1) require(!state.loading);
         }
+    }
+    for(Pistol pistol:{Pistol::Glock,Pistol::P345,Pistol::VP70})
+    {
+        auto state=initial;state.clip=75;Context context{&state};const auto saved=Save(state);
+        require(StartMagazineReload(pistol,state,10,times,context.Host())==MagazineActionResult::Ineligible);
+        require(Save(state)==saved&&context.count==0);
+        require(StartPistolMelee(pistol,state,10,context.Host())==MagazineActionResult::Applied);
+        require(state.clip==75&&state.reserve==initial.reserve&&context.count==3);
+        state=initial;state.clip=75;context=Context{&state};
+        const auto idle=MagazineIdle(pistol,state,10,times,context.Host());
+        require(idle==(pistol==Pistol::VP70?MagazineActionResult::Ineligible:MagazineActionResult::Applied));
+        require(state.clip==75&&state.reserve==initial.reserve);
     }
     std::cout << "safety=" << checks << '\n';
 }

@@ -2289,7 +2289,8 @@
     "tests/cryoffear-hand-joints/run.py",
     "tests/cryoffear-hand-joints/README.md",
     "tests/csol-custom-admin/run_pawn.py",
-    "docs/2026-11-13_修复-M玩家购买与管理员两级入口-report.md"
+    "docs/2026-11-13_修复-M玩家购买与管理员两级入口-report.md",
+    "docs/2026-11-13_修复-CoF技能扩容导致武器停用-report.md"
   ],
   "trees": {
     "native": [

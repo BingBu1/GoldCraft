@@ -389,7 +389,7 @@ bool P345Weapon::Check(P345OwnerFrame& frame, bool active) noexcept
         !Finite(m_pPlayer->pev->v_angle) || !Finite(m_pPlayer->pev->punchangle))
     { status_ = P345Status::InvalidInput; return false; }
     ReadAmmo();
-    if ((action_.clip < 0 && (active || action_.clip != -666)) || action_.clip > 8 ||
+    if ((action_.clip < 0 && (active || action_.clip != -666)) ||
         action_.reserve < 0 || action_.reserve > 80)
     { status_ = P345Status::InvalidInput; return false; }
     status_ = P345Status::Ready;

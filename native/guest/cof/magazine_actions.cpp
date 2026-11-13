@@ -23,9 +23,9 @@ constexpr int OriginalId(Pistol pistol) noexcept
 {
     return pistol == Pistol::Glock ? 3 : pistol == Pistol::P345 ? 7 : 19;
 }
-bool Valid(const MagazineActionState& state, Pistol pistol, float now) noexcept
+bool Valid(const MagazineActionState& state, float now) noexcept
 {
-    return std::isfinite(now) && state.clip >= 0 && state.clip <= Capacity(pistol) &&
+    return std::isfinite(now) && state.clip >= 0 &&
         state.reserve >= 0 && state.action >= 0 && state.special >= 0 &&
         state.shotPhase >= 0 && state.burstShots >= 0 &&
         std::isfinite(state.primary) && std::isfinite(state.secondary) &&
@@ -52,9 +52,12 @@ MagazineActionResult StartMagazineReload(Pistol pistol, MagazineActionState& sta
     float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept
 {
     if (!Supported(pistol)) return MagazineActionResult::UnsupportedWeapon;
-    if (!Valid(state, pistol, now)) return MagazineActionResult::InvalidInput;
+    if (!Valid(state, now)) return MagazineActionResult::InvalidInput;
     const auto ready = CheckHost(host);
     if (ready != MagazineActionResult::Applied) return ready;
+    // A host skill may have granted an overfilled magazine. Keep those rounds
+    // until used; a physical-magazine reload cannot replace them with fewer.
+    if (state.clip > Capacity(pistol)) return MagazineActionResult::Ineligible;
     if (state.reserve <= 0 || state.primary > now || state.action == 1 ||
         state.action > 2 || state.special || state.pendingReload)
         return MagazineActionResult::Ineligible;
@@ -101,7 +104,7 @@ MagazineActionResult StartPistolMelee(Pistol pistol, MagazineActionState& state,
     float now, const MagazineActionHost& host) noexcept
 {
     if (!Supported(pistol)) return MagazineActionResult::UnsupportedWeapon;
-    if (!Valid(state, pistol, now) || !std::isfinite(now + 1.0f))
+    if (!Valid(state, now) || !std::isfinite(now + 1.0f))
         return MagazineActionResult::InvalidInput;
     const auto ready = CheckHost(host);
     if (ready != MagazineActionResult::Applied) return ready;
@@ -122,7 +125,7 @@ MagazineActionResult MagazineIdle(Pistol pistol, MagazineActionState& state,
     float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept
 {
     if (!Supported(pistol)) return MagazineActionResult::UnsupportedWeapon;
-    if (!Valid(state, pistol, now)) return MagazineActionResult::InvalidInput;
+    if (!Valid(state, now)) return MagazineActionResult::InvalidInput;
     const auto ready = CheckHost(host);
     if (ready != MagazineActionResult::Applied) return ready;
     if (pistol == Pistol::VP70) return MagazineActionResult::Ineligible;

@@ -409,9 +409,9 @@ bool GlockWeapon::Check(GlockOwnerFrame& frame, bool active) noexcept
         !Finite(m_pPlayer->pev->v_angle) || !Finite(m_pPlayer->pev->punchangle))
     { status_ = GlockStatus::InvalidInput; return false; }
     ReadAmmo();
-    // Native CS owns the reserve count. Scenario's authoritative GiveAmmo may
-    // grant more than CoF metadata150; original reload takes min(missing,reserve).
-    if ((action_.clip < 0 && (active || action_.clip != -666)) || action_.clip > 15 ||
+    // Native CS owns both counts. Scenario skills can overfill the physical
+    // magazine; that trusted state remains usable after the buff expires.
+    if ((action_.clip < 0 && (active || action_.clip != -666)) ||
         action_.reserve < 0)
     { status_ = GlockStatus::InvalidInput; return false; }
     status_ = GlockStatus::Ready;

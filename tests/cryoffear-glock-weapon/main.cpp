@@ -632,6 +632,26 @@ int main(int argc,char** argv)
         player.m_pActiveItem=nullptr;Check(weapon.CanDeploy());player.m_pActiveItem=&weapon;
         Check(weapon.Deploy()&&weapon.m_iClip==15&&player.m_rgAmmo[1]==reserve-15);
     }
+    // Skill grants are authoritative loaded rounds, not corrupt physical-mag
+    // counts. They must survive fire, idle, melee, holster and a later reselect.
+    for(int clip:{16,45,75,255,65535,std::numeric_limits<int>::max()})
+    {
+        Initialize();weapon.m_iClip=clip;Check(weapon.CanDeploy()&&weapon.Deploy());
+        globals.time=10;frame.pressed=1;weapon.PrimaryAttack();
+        Check(weapon.m_iClip==clip-1&&weapon.Status()==GlockStatus::Applied);
+        const int remaining=weapon.m_iClip;const int reserve=player.m_rgAmmo[1];
+        globals.time+=5;weapon.Reload();
+        Check(!weapon.m_fInReload&&weapon.m_iClip==remaining&&player.m_rgAmmo[1]==reserve);
+        globals.time+=5;weapon.WeaponIdle();Check(weapon.Status()!=GlockStatus::InvalidInput);
+        globals.time+=5;weapon.SecondaryAttack();Check(weapon.Status()==GlockStatus::Applied&&weapon.m_iClip==remaining);
+        globals.time+=5;weapon.Holster();Check(weapon.Status()==GlockStatus::Applied);
+        player.m_pActiveItem=nullptr;Check(weapon.CanDeploy());player.m_pActiveItem=&weapon;
+        Check(weapon.Deploy()&&weapon.m_iClip==remaining);
+    }
+    Initialize();globals.time=10;weapon.m_iClip=0;player.m_rgAmmo[1]=500;
+    weapon.Reload();Check(weapon.m_fInReload);weapon.m_iClip=75;
+    globals.time=weapon.ActionState().ownerAttack+.01f;weapon.ItemPostFrame();
+    Check(weapon.m_iClip==75&&player.m_rgAmmo[1]==500&&!weapon.m_fInReload);
     Initialize();player.m_rgAmmo[1]=-1;Check(!weapon.CanDeploy()&&weapon.Status()==GlockStatus::InvalidInput);
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==896&&weapon.m_iId==896&&info.iMaxClip==15&&info.iMaxAmmo1==150&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<transitionRows<<" original transition cases; "<<checks<<" actual SDK checks; 0 failures\n";

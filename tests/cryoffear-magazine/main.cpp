@@ -4,6 +4,7 @@
 #include <bit>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <limits>
 
 namespace
@@ -21,7 +22,7 @@ void Observe(void* opaque, const guest::cof::MagazineReload& state) noexcept
 bool RejectedHostInputs()
 {
     using namespace guest::cof;
-    MagazineReload invalid[]{ {-1, 2, 1, true}, {16, 2, 1, true}, {0, -1, 1, true},
+    MagazineReload invalid[]{ {-1, 2, 1, true}, {0, -1, 1, true},
         {0, 1, std::numeric_limits<float>::infinity(), true} };
     for (auto& state : invalid)
     {
@@ -37,13 +38,28 @@ bool RejectedHostInputs()
         CommitMagazineReload(state, 15, 0, std::numeric_limits<float>::quiet_NaN()).status ==
             ReloadCommitStatus::Invalid && state.clip == 0 && state.reserve == 10 && state.loading;
 }
+bool AuthoritativeOverfill()
+{
+    using namespace guest::cof;
+    for(int capacity:{8,15,18})for(int clip:{capacity+1,capacity*5,std::numeric_limits<int>::max()})
+    {
+        MagazineReload state{clip,500,1,true};Observation observed;
+        const auto result=CommitMagazineReload(state,capacity,0,2,Observe,&observed);
+        if(result.status!=ReloadCommitStatus::Committed || result.rounds!=0 ||
+           state.clip!=clip || state.reserve!=500 || state.loading || observed.count!=1 ||
+           observed.clip!=clip || observed.reserve!=500) return false;
+        Observation again;const auto repeated=CommitMagazineReload(state,capacity,0,3,Observe,&again);
+        if(repeated.status==ReloadCommitStatus::Committed || again.count || state.clip!=clip || state.reserve!=500)return false;
+    }
+    return true;
+}
 }
 
 // Batch driver for the original-byte oracle. No original binary or generated
 // third-party instructions are copied into public source.
 int main()
 {
-    if (!RejectedHostInputs()) return 2;
+    if (!RejectedHostInputs() || !AuthoritativeOverfill()) return 2;
     int clip{}, reserve{}, capacity{}, loading{};
     unsigned flags{}, nowBits{}, deadlineBits{};
     while (std::scanf("%d %d %d %u %u %u %d", &clip, &reserve, &capacity,
