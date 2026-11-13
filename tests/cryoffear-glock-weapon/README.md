@@ -9,6 +9,12 @@ loaded/empty Fidget choices. Original timing fields and ordered effects are
 compared directly. Shared animation, damage, model and engine edges are explicit
 controlled boundaries; separate component tests remain required.
 
+First-person effects follow the human-selected original cooperative mode. The
+PrimaryAttack oracle installs the original multiplayer rule table and executes
+its actual rules+0x20 function; it does not obtain the same shell-branch result
+merely by leaving the rules pointer null. This does not establish the original
+own-player world-model drawing or first-person shell lifecycle.
+
 The actual SDK fixture also covers Spawn/AddToPlayer/Attach, extended metadata,
 deploy RNG/effect order, reload completion and callback ordering, delayed melee,
 ownership recycling and missing backends. Tactical-light stages additionally

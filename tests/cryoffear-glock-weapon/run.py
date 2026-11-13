@@ -23,6 +23,7 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--prepare-only',action='store_true',help='Generate SDK boundary adapters and exact compilation inputs without compiling or running')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -88,7 +89,9 @@ def main():
     defs='REGAMEDLL_ADD REGAMEDLL_API REGAMEDLL_FIXES REGAMEDLL_SSE REGAMEDLL_SELF REGAMEDLL_CHECKS UNICODE_FIXES BUILD_LATEST BUILD_LATEST_FIXES CLIENT_WEAPONS USE_QSTRING _CRT_SECURE_NO_WARNINGS NDEBUG'.split()
     flags=['/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3',
            '/clang:-flto=thin','/clang:-fuse-ld=lld','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','/Gy','/Gw',
-           *('/D'+d for d in defs),*('/I'+str(v) for v in includes),'/I'+str(ROOT),'/I'+str(output)]
+           *('/D'+d for d in defs),*('/I'+str(v) for v in includes),'/I'+str(ROOT),'/I'+str(output),
+           '/I'+str(ROOT/'native/include'),
+           '/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include')]
     env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));temp=output/'temp';temp.mkdir();env.update(TEMP=str(temp),TMP=str(temp))
     deps=set(inputs);commands=[]
     for i,source in enumerate(sources):
@@ -101,6 +104,12 @@ def main():
     deps.update(output.glob('*.inc'))
     before={str(v):sha(v) for v in sorted(deps)};compilerBefore=sha(a.compiler)
     exe=output/'glock.exe';command=[str(a.compiler),*flags,*map(str,sources),'/Fe:'+str(exe),'/link','/machine:x86','/threads:1','/opt:ref']
+    if a.prepare_only:
+        (output/'sdk-build-plan.json').write_text(json.dumps(dict(command=command,inputs=before,
+            compilerSha256=compilerBefore,model=str(model),sampleSha256=sha(a.sample),
+            sourceCopies=0,compiled=False,tested=False),indent=2),'utf-8')
+        print('Prepared exact SDK adapters and compiler inputs; not compiled or tested')
+        return
     compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=120)
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:

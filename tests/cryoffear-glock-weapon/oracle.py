@@ -14,6 +14,15 @@ bits, number = shared.bits, shared.number
 class Glock(shared.Original):
     def __init__(self, sample):
         super().__init__(sample)
+        # Exercise the actual original multiplayer rule, rather than skipping
+        # the same shell branch through a null rules pointer. The human chose
+        # cooperative presentation; 101D608C+20 -> 100C90B0 returns one.
+        if self.read(0x101d608c + 0x20) != 0x100c90b0:
+            raise ValueError('Original multiplayer rule identity differs')
+        if bytes(self.uc.mem_read(0x100c90b0, 6)) != bytes.fromhex('b8 01 00 00 00 c3'):
+            raise ValueError('Original multiplayer rule body differs')
+        self.write(0x10222ee4, WORK+0xc0000)
+        self.write(WORK+0xc0000, 0x101d608c)
         self.write(self.weapon, WORK+0xa0000)
         self.write(self.weapon+4, self.pev(4))
         self.write(self.weapon+0x160, self.obj(1))
@@ -113,4 +122,5 @@ def generate(sample,cases,expected):
         cases.write(' '.join(f'{v:08x}' for v in row)+'\n')
         expected.write(' '.join(f'{v:08x}' for v in result)+'\n')
     return dict(sampleSha256=shared.SHA,originalFunction='10046DC0',cases=160,
+                rulesTable='101D608C',multiplayerRule='100C90B0',presentation='cooperative',
                 boundary='Full PrimaryAttack instructions; previously verified ballistics, animation, recoil, audio and engine consumers are controlled edges')

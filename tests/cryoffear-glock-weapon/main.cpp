@@ -215,6 +215,39 @@ bool CSOL_ExtendedWeapon(int id){Check(id==896);return true;}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* p){Check(p==&player);return extendedAllowed;}
 unsigned CSOL_LegacyWeaponMask(int id){Check(id==896);return 0;}
 
+void InventoryRestoreCases()
+{
+    const auto prepareOwned=[] {
+        Initialize();
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+        weapon.Precache();
+        Check(weapon.Bind(player,prepared,backends)==GlockStatus::Ready);
+        weapon.AttachToPlayer(&player);Check(weapon.pev->owner==player.edict());
+        Check(weapon.Deploy());globals.time=5;
+    };
+    prepareOwned();frame.pressed=1;weapon.PrimaryAttack();
+    Check(weapon.m_iClip==14);
+    const float deadline=weapon.m_flNextPrimaryAttack;
+    goldcraft::inventory::Snapshot snapshot;
+    Check(weapon.SaveInventorySnapshot(snapshot));
+    weapon.BeforeWeaponDrop();Check(weapon.Status()==GlockStatus::Cancelled);
+    Check(weapon.RestoreInventoryBinding(player));Check(weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.m_iClip==14&&weapon.m_flNextPrimaryAttack==deadline);
+    events.clear();globals.time=5.001F;weapon.PrimaryAttack();
+    Check(events.empty()&&weapon.m_iClip==14);
+    globals.time=deadline+.001F;weapon.PrimaryAttack();Check(weapon.m_iClip==13);
+    auto invalid=snapshot;invalid.kind=0;Check(!weapon.RestoreInventorySnapshot(invalid));
+    invalid=snapshot;--invalid.bytes;Check(!weapon.RestoreInventorySnapshot(invalid));
+    ++ownerEdict.serialnumber;Check(!weapon.RestoreInventorySnapshot(snapshot));--ownerEdict.serialnumber;
+    prepareOwned();weapon.SecondaryAttack();
+    const float pending=weapon.pev->nextthink;Check(pending>globals.time);
+    Check(weapon.SaveInventorySnapshot(snapshot));weapon.BeforeWeaponDrop();Check(weapon.pev->nextthink==0);
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.pev->nextthink==pending&&weapon.m_pfnThink!=nullptr);
+    const auto before=meleeCalls;globals.time=pending+.001F;weapon.Think();
+    Check(meleeCalls==before+1&&weapon.m_pfnThink==nullptr);
+}
+
 int main(int argc,char** argv)
 {
     if(argc!=8)return 1;
@@ -654,5 +687,6 @@ int main(int argc,char** argv)
     Check(weapon.m_iClip==75&&player.m_rgAmmo[1]==500&&!weapon.m_fInReload);
     Initialize();player.m_rgAmmo[1]=-1;Check(!weapon.CanDeploy()&&weapon.Status()==GlockStatus::InvalidInput);
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==896&&weapon.m_iId==896&&info.iMaxClip==15&&info.iMaxAmmo1==150&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
+    InventoryRestoreCases();
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<transitionRows<<" original transition cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }
