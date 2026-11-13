@@ -4,6 +4,7 @@
 #include "guest_cof_owner_runtime.hpp"
 #include "guest_cof_resources.hpp"
 #include "guest_cof_p345_owner.hpp"
+#include "guest_cof_revolver_owner.hpp"
 #include <memory>
 #include <optional>
 
@@ -17,6 +18,13 @@ struct P345RuntimeHost
     bool (*prepare)(void*,const P345Resources&,guest::cof::server::P345Prepared&) noexcept {};
     bool (*effect)(void*,const P345Resources&,const OwnerBinding&,
         CBasePlayer&,CBasePlayerWeapon&,const guest::cof::server::P345Event&) noexcept {};
+    std::uint32_t effects{};
+};
+struct RevolverRuntimeHost
+{
+    bool (*prepare)(void*,const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept {};
+    bool (*effect)(void*,const RevolverResources&,const OwnerBinding&,
+        CBasePlayer&,CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&) noexcept {};
     std::uint32_t effects{};
 };
 
@@ -39,6 +47,7 @@ struct GlockRuntimeHost
     bool pickupSuppressed{};
     P345RuntimeHost p345{};
     bool (*weaponCurrent)(void*,CBasePlayer&,int hostId) noexcept {};
+    RevolverRuntimeHost revolver{};
 };
 
 struct GlockPlayerPreparation
@@ -51,6 +60,8 @@ struct GlockPlayerPreparation
     guest::cof::PlayerActionLabelCompare compare;
     guest::cof::PlayerModelExtent extent{guest::cof::PlayerModelExtent::CompleteFile};
     std::optional<NativeOwnerRules> p345Rules;
+    struct RevolverPreparation { NativeOwnerRules rules; RevolverOwnerState state; };
+    std::optional<RevolverPreparation> revolver;
 };
 
 class GlockRuntime final
@@ -78,6 +89,7 @@ public:
     std::uint64_t LastIssuedMapEpoch() const noexcept;
     const GlockResources* Resources() const noexcept;
     const P345Resources* PreparedP345Resources() const noexcept;
+    const RevolverResources* PreparedRevolverResources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -87,9 +99,11 @@ public:
     void PlayerDisconnected(CBasePlayer&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::GlockBackends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::P345Backends&) noexcept;
+    bool Backend(CBasePlayer&, guest::cof::server::RevolverBackends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;
+    bool PersistentState(CBasePlayer&, RevolverOwnerState&) noexcept;
     bool BeginPreThink(CBasePlayer&) noexcept;
     bool BeginInput(CBasePlayer&) noexcept;
     bool AcceptedJump(CBasePlayer&) noexcept;

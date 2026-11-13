@@ -26,7 +26,7 @@
 - `build/cof-revolver-transport-server-20261113-01/receipt.json`：256 原声音、128 原 shell/recoil 场景及 7128 实际 SDK 检查零失败；真实可变消息登记、两种长度、发送中重入/源变化/每个取消边界、实体回收与缺角度拒绝均覆盖。
 - `build/cof-revolver-transport-mouse-20261113-01/receipt.json`：707 实际鼠标 SDK/thunk 检查零失败，共用机瞄链未退化。
 
-每条左轮消息比既有状态多四字节，使用固定栈缓冲区；绘制入口不分配、不查资源、不访问磁盘/网络，只做身份门和已证标量数学/六次写入。保持 C++20/O3/ThinLTO/AVX2/precise、FP contraction off。没有完整新 DLL 部署或前台实机 CPU/网络/画面/多人验收，不以组件执行时间代替性能通过。
+左轮消息体由 24 增至 28 字节，使用固定栈缓冲区；可变 user message 另有引擎的一字节长度，相比原固定长度消息，普通 v1 总传输多一字节、左轮多五字节。绘制入口不分配、不查资源、不访问磁盘/网络，只做身份门和已证标量数学/六次写入。保持 C++20/O3/ThinLTO/AVX2/precise、FP contraction off。没有完整新 DLL 部署或前台实机 CPU/网络/画面/多人验收，不以组件执行时间代替性能通过。
 
 ## 下一步与共享文档交接
 

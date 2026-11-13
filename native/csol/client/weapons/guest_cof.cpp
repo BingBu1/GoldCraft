@@ -194,11 +194,11 @@ int GuestCofUpdateClientData(client_data_s* data, float time)
 
 bool GuestCofPrepareStudioModel(cl_entity_s* entity, int hostWeaponId) noexcept
 {
-    if (!entity || !connection || !connectionGeneration ||
+    constexpr auto revolverId = guest::cof::FindPistol(guest::cof::Pistol::Revolver)->hostId;
+    if (!entity || hostWeaponId != revolverId || !connection || !connectionGeneration ||
         connection->generation() != connectionGeneration || !engine.GetViewModel) return false;
     const auto* state = receiver.Current();
-    const auto* definition = guest::cof::FindPistol(guest::cof::Pistol::Revolver);
-    if (hostWeaponId != definition->hostId || !state || !state->revolverAngle) return false;
+    if (!state || !state->revolverAngle) return false;
     return guest::cof::client::ApplyRevolverCylinder(*entity, engine.GetViewModel(),
         state->originalWeapon, *state->revolverAngle);
 }

@@ -18,4 +18,14 @@ inline constexpr guest::cof::PistolMeleeSamples P345MeleeSamples{
     P345Sounds[static_cast<unsigned>(P345Sound::PunchSwing)].host,
     P345Sounds[static_cast<unsigned>(P345Sound::PunchSmack)].host
 };
+inline constexpr guest::cof::PistolMeleeSamples RevolverMeleeSamples{
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing1)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing2)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing3)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing4)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing5)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::Swing6)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::PunchSwing)].host,
+    RevolverSounds[static_cast<unsigned>(RevolverSound::PunchSmack)].host
+};
 }

@@ -32,8 +32,8 @@ def main():
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
     sources=[ROOT/'tests/cryoffear-p345-runtime/main.cpp',
-        *[ROOT/('native/csol/server/weapons/'+name+'.cpp') for name in ('guest_cof_runtime','guest_cof_factory','guest_cof_p345_factory','guest_cof_native_effects','guest_cof_p345_native_effects','guest_cof_owner_runtime','guest_cof_owner','guest_cof_p345_owner','guest_cof_resources')],
-        *[ROOT/('native/guest/cof/server/'+name+'.cpp') for name in ('glock_weapon','p345_weapon','owner_state','player_animation')],
+        *[ROOT/('native/csol/server/weapons/'+name+'.cpp') for name in ('guest_cof_runtime','guest_cof_factory','guest_cof_p345_factory','guest_cof_native_effects','guest_cof_p345_native_effects','guest_cof_owner_runtime','guest_cof_owner','guest_cof_p345_owner','guest_cof_resources','guest_cof_revolver_factory','guest_cof_revolver_owner','guest_cof_revolver_native_effects')],
+        *[ROOT/('native/guest/cof/server/'+name+'.cpp') for name in ('glock_weapon','p345_weapon','revolver_weapon','owner_state','player_animation')],
         *[ROOT/('native/guest/cof/'+name+'.cpp') for name in ('magazine_actions','magazine_reload','magazine_model','spread','player_actions')]]
     factory_fixture=ROOT/'tests/cryoffear-glock-factory/main.cpp'
     prefix=factory_fixture.read_text('utf-8-sig').split('int main(int argc,char** argv)',1)[0]
@@ -48,7 +48,7 @@ def main():
     resource_tool=ROOT/'tools/Prepare-CryOfFearResourcePack.py';inputs.add(resource_tool)
     resource_spec=importlib.util.spec_from_file_location('resource_catalog',resource_tool)
     resource_module=importlib.util.module_from_spec(resource_spec);resource_spec.loader.exec_module(resource_module)
-    for row in resource_module.PINS+resource_module.GLOCK_PINS+resource_module.SHOT_DECAL_PINS+[resource_module.CLIP_TEXTURE]:
+    for row in resource_module.PINS+resource_module.GLOCK_PINS+resource_module.REVOLVER_PINS+resource_module.SHOT_DECAL_PINS+[resource_module.CLIP_TEXTURE]:
         name=('sound/' if row.get('group','').endswith('Sounds') else '')+row['host']
         path=a.resources/name
         if not path.is_file():path=a.deployed_root/name

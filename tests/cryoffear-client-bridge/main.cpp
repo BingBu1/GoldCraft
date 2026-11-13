@@ -45,6 +45,7 @@ void ResetBossHealth() {}
 void ResetScenarioRoundHud() {}
 void ResetZeCounterHud() {}
 void ResetHumanKick() {}
+void ResetChallengePhase() {}
 void ResetScenarioRespawnUi() {}
 void ResetPlayerClips() {}
 void ResetRenderSettings() {}
@@ -63,6 +64,7 @@ using namespace csol::client;
 using namespace guest::cof;
 unsigned checks{}, failures{}, lookups{}, registrations{}, downstreamCalls{};
 unsigned missingConnectionWarnings{};
+unsigned connectionQueries{};
 std::uint64_t nativeConnectionGeneration = 5;
 float clockTime{1.0f}, nativeFov{90.0f}, receivedTime{};
 cl_entity_t cylinderView{}, cylinderOther{};
@@ -121,7 +123,7 @@ int RegisterMessage(const char* name, pfnUserMsgHook replacement)
 
 float Clock() { return clockTime; }
 cl_entity_t* ViewModel() { return currentView; }
-std::uint64_t ConnectionGeneration() { return nativeConnectionGeneration; }
+std::uint64_t ConnectionGeneration() { ++connectionQueries; return nativeConnectionGeneration; }
 const char* LevelName() { return levelName; }
 void Console(const char*, ...) { ++missingConnectionWarnings; }
 int NativeData(client_data_t* data, float time)
@@ -285,7 +287,8 @@ int main()
     Deliver(cylinder);
     CHECK(!GuestCofPrepareStudioModel(nullptr,revolverId));
     CHECK(!GuestCofPrepareStudioModel(&cylinderOther,revolverId));
-    CHECK(!GuestCofPrepareStudioModel(&cylinderView,896));
+    const auto beforeOrdinaryDraw=connectionQueries;
+    CHECK(!GuestCofPrepareStudioModel(&cylinderView,896) && connectionQueries==beforeOrdinaryDraw);
     CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
     for (unsigned i=0;i<3;++i)
         CHECK(cylinderView.curstate.controller[i]==204 && cylinderView.latched.prevcontroller[i]==204);

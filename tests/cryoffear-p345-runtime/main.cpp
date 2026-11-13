@@ -4,6 +4,8 @@
 #include "native/csol/server/weapons/guest_cof_p345_factory.hpp"
 #include "native/csol/server/weapons/guest_cof_p345_native_effects.hpp"
 #include "native/csol/server/weapons/guest_cof_native_effects.hpp"
+#include "native/csol/server/weapons/guest_cof_revolver_factory.hpp"
+#include "native/csol/server/weapons/guest_cof_revolver_native_effects.hpp"
 #include "shared-factory-sdk.inc"
 #include <filesystem>
 #include <map>
@@ -18,6 +20,9 @@ struct Context
     std::uint64_t epoch{};
     bool active{true},retireOnRecoil{},releaseWhileBorrowed{};
     unsigned loads{},frees{},sounds{},p345Effects{},glockEffects{};
+    unsigned revolverEffects{};
+    std::vector<RevolverEffect> revolverOrder;
+    bool retireRevolver{};
     std::vector<P345Effect> order;
     std::vector<std::byte> strings;
     std::map<std::string,std::vector<byte>> files;
@@ -46,6 +51,7 @@ void Resources(const fs::path& candidate,const fs::path& deployed)
     };
     family(GlockModels,GlockSounds,GlockLocalWaves,GlockEvents,GlockInventory,GlockParticle,GlockClipTexture);
     family(P345Models,P345Sounds,P345LocalWaves,P345Events,P345Inventory,P345Particle,P345ClipTexture);
+    family(RevolverModels,RevolverSounds,RevolverLocalWaves,RevolverEvents,RevolverInventory,RevolverParticle,RevolverClipTexture);
     for(const auto& p:ShotDecals)put(p.host);
 }
 int String(const char* text)
@@ -77,6 +83,12 @@ bool PrepareP345(void*,const P345Resources&,P345Prepared& value) noexcept
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
 }
+bool PrepareRevolver(void*,const RevolverResources&,RevolverPrepared& value) noexcept
+{
+    value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
+    value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;
+    value.cylinderReady=value.ejectEventReady=value.reloadStagesReady=value.ammoXReady=true;return true;
+}
 bool GlockEffectBoundary(void*,const GlockResources&,const OwnerBinding& binding,CBasePlayer& actor,
     CBasePlayerWeapon& item,const GlockEvent&) noexcept
 {
@@ -97,18 +109,38 @@ bool P345EffectBoundary(void*,const P345Resources& resources,const OwnerBinding&
     }
     return true;
 }
-GlockRuntimeHost Callbacks(bool p345)
+bool RevolverEffectBoundary(void*,const RevolverResources&,const OwnerBinding& binding,CBasePlayer& actor,
+    CBasePlayerWeapon& item,const RevolverEvent& event) noexcept
+{
+    Check(binding.runtime&&binding.runtime->Current(binding)&&&actor==&player&&item.m_pPlayer==&player&&item.m_iId==898);
+    ++context.revolverEffects;context.revolverOrder.push_back(event.kind);
+    if(event.kind==RevolverEffect::FirstDraw||event.kind==RevolverEffect::Cylinder)
+    {
+        RevolverOwnerState value{};Check(context.runtime->PersistentState(actor,value));
+        if(event.kind==RevolverEffect::FirstDraw)Check(value.firstDrawn);
+        else Check(value.cylinderAngle==event.a&&(!event.enabled||value.cylinderGate==event.b));
+    }
+    if(event.kind==RevolverEffect::Recoil&&context.retireRevolver)
+    {
+        context.runtime->EndMap();
+        context.releaseWhileBorrowed=context.runtime->EngineEntitiesReleased(context.epoch);
+    }
+    return true;
+}
+GlockRuntimeHost Callbacks(bool p345,bool revolver=false)
 {
     GlockRuntimeHost host{nullptr,CurrentMap,CurrentOwner,PrepareGlock,GlockEffectBoundary,
         GlockRequiredEffects&~GlockNativeSoundEffects,false};
     if(p345)host.p345={PrepareP345,P345EffectBoundary,P345RequiredEffects&~P345NativeSoundEffects};
+    if(revolver)host.revolver={PrepareRevolver,RevolverEffectBoundary,RevolverRequiredEffects&~RevolverNativeSoundEffects};
     return host;
 }
-GlockPlayerPreparation PlayerPreparation(bool p345)
+GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false)
 {
     GlockPlayerPreparation request{{OwnerMovement::NativeCounterStrike,true,true,true,true,true},
         {true,37,11,45},{true,false},PistolAnimationRig::Stock,model,_stricmp};
     if(p345)request.p345Rules=NativeOwnerRules{true,61,11,24};
+    if(revolver)request.revolver=GlockPlayerPreparation::RevolverPreparation{{true,89,13,15},{false,144,12.5F}};
     return request;
 }
 void Engine()
@@ -143,13 +175,17 @@ void Engine()
         Check(!std::strcmp(sample,P345Sounds[unsigned(P345Sound::Sleeve3)].host));++context.sounds;
     };
     CBasePlayerItem::m_AmmoInfoArray[2].pszName="cof_p345";
+    CBasePlayerItem::m_AmmoInfoArray[3].pszName="cof_revolver";
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
 }
 void DestroyP345()
 {
     for(auto* memory:privateAllocations)
     {
-        auto* p=static_cast<P345Weapon*>(memory);delete p->m_pEntity;p->~P345Weapon();std::free(memory);
+        auto* p=static_cast<CBasePlayerWeapon*>(memory);delete p->m_pEntity;
+        if(auto* revolver=dynamic_cast<RevolverWeapon*>(p))revolver->~RevolverWeapon();
+        else static_cast<P345Weapon*>(p)->~P345Weapon();
+        std::free(memory);
     }
     privateAllocations.clear();
 }
@@ -202,5 +238,49 @@ int main(int argc,char** argv)
     DestroyP345();entity.pvPrivateData=nullptr;
     Check(runtime.EngineEntitiesReleased(2));
     Check(!runtime.EngineEntitiesReleased(2));
-    std::cout<<"P345 actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
+
+    context.retireOnRecoil=false;context.epoch=3;
+    auto invalidHost=Callbacks(true,true);invalidHost.revolver.effect=nullptr;
+    Check(!runtime.BeginMap(invalidHost)&&runtime.LastIssuedMapEpoch()==2);
+    Check(bool(runtime.BeginMap(Callbacks(true,true)))&&runtime.PreparedRevolverResources()&&runtime.PreparedP345Resources());
+    auto request=PlayerPreparation(true,true);Check(runtime.PlayerSpawned(player,request,error));
+    RevolverBackends revolverBackend{};Check(runtime.Backend(player,revolverBackend));
+    RevolverOwnerFrame revolverFrame{};Check(revolverBackend.ownerFrame(revolverBackend.context,revolverFrame));
+    Check(revolverFrame.bulletDamage==89&&revolverFrame.reserveLimit==15&&!revolverFrame.firstDrawn&&
+        revolverFrame.cylinderAngle==144&&revolverFrame.cylinderGate==12.5F);
+    edict_t revolverEntity{};InitEdict(revolverEntity);auto* revolver=CreateRevolver(revolverEntity.v);Check(revolver);
+    revolver->Spawn();Check(revolver->ResourcesReady()&&revolver->m_iId==898&&revolver->m_iDefaultAmmo==5);
+    Check(revolver->AddToPlayer(&player)&&revolver->m_iClip==5&&revolver->m_iPrimaryAmmoType==3);
+    revolver->AttachToPlayer(&player);player.m_rgpPlayerItems[PISTOL_SLOT]=revolver;player.m_pActiveItem=revolver;
+    globals.time=60;Check(revolver->Deploy());
+    RevolverOwnerState saved{};Check(runtime.PersistentState(player,saved)&&saved.firstDrawn&&saved.cylinderAngle==144);
+    globals.time=70;player.pev->button=IN_ATTACK;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+    revolver->PrimaryAttack();Check(revolver->Status()==RevolverStatus::Applied&&revolver->m_iClip==4);
+    Check(runtime.EndPostThink(player)&&runtime.PersistentState(player,saved));
+    Check(saved.cylinderAngle!=144&&saved.cylinderGate>70);
+    const auto loadsBefore=context.loads,effectsBefore=context.revolverEffects;
+    player.m_pActiveItem=&weapon;Check(runtime.PersistentState(player,saved));player.m_pActiveItem=revolver;
+    request.revolver->state=saved;
+    Check(runtime.PlayerModelChanged(player,request,error)&&!revolverBackend.current(revolverBackend.context));
+    Check(context.loads==loadsBefore&&context.revolverEffects==effectsBefore);
+    RevolverBackends rebound{};Check(runtime.Backend(player,rebound)&&rebound.context!=revolverBackend.context);
+    Check(revolver->RestoreInventoryBinding(player)&&revolver->CanDeploy());
+    RevolverOwnerState preserved{};Check(runtime.PersistentState(player,preserved)&&preserved.firstDrawn==saved.firstDrawn&&
+        preserved.cylinderAngle==saved.cylinderAngle&&preserved.cylinderGate==saved.cylinderGate);
+    Check(context.loads==loadsBefore&&context.revolverEffects==effectsBefore+2&&
+        context.revolverOrder[context.revolverOrder.size()-2]==RevolverEffect::Aim&&
+        context.revolverOrder.back()==RevolverEffect::Body);
+    globals.time=80;player.pev->button=0;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player)&&runtime.EndPostThink(player));
+    globals.time=85;player.pev->button=IN_ATTACK;context.retireRevolver=true;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+    revolver->PrimaryAttack();Check(revolver->Status()==RevolverStatus::Cancelled&&!context.releaseWhileBorrowed);
+    Check(!runtime.PreparedRevolverResources()&&!rebound.current(rebound.context));
+    player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
+    DestroyP345();revolverEntity.pvPrivateData=nullptr;Check(runtime.EngineEntitiesReleased(3));
+    context.epoch=4;context.files.erase(RevolverInventory.host);
+    Check(!runtime.BeginMap(Callbacks(true,true))&&!runtime.PreparedRevolverResources());
+    Check(runtime.EngineEntitiesReleased(4));
+    std::cout<<"P345/Revolver actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
 }
