@@ -17,6 +17,7 @@
 #include "../../weapons/k3.hpp"
 #include "../../weapons/cannon.hpp"
 #include "../../render_settings.hpp"
+#include "../../../guest/cof/catalog.hpp"
 
 namespace
 {
@@ -259,6 +260,9 @@ bool CSOL_SendWeaponPickup(CBasePlayer* player,int id)
 }
 bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
+    if(const auto* guest=::guest::cof::FindPistol(id)) {
+        price=guest->ammunitionPrice;count=guest->ammunitionCount;return true;
+    }
     if (id == csol::m249ex::Id) { price=csol::m249ex::AmmoCost;count=csol::m249ex::AmmoBuyAmount;return true; }
     if (id == csol::skull1::Id || id == csol::skull2::Id) { price=csol::skull1::AmmoCost;count=csol::skull1::AmmoBuyAmount;return true; }
     if (csol::skull3::IsWeapon(id)) { price=csol::skull3::AmmoCost;count=csol::skull3::AmmoBuyAmount;return true; }

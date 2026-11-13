@@ -93,6 +93,14 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
+#if defined(COF_RUNTIME_P345_FIXTURE)
+        if(!std::strcmp(name,"cof_p345"))
+        {
+            Check(amount>=0&&(maximum==24||maximum==80));
+            const int add=std::min(amount,maximum-m_rgAmmo[2]);if(add<0)return -1;
+            m_rgAmmo[2]+=add;Event(104,amount,maximum);return 2;
+        }
+#endif
         Check(amount>=0&&!std::strcmp(name,"cof_glock")&&(maximum==45||maximum==150));
         const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
         m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
@@ -210,10 +218,18 @@ AmmoInfo CBasePlayerItem::m_AmmoInfoArray[MAX_AMMO_SLOTS]{};
 int gmsgWeapPickup{};
 // Controlled protocol boundary: validate the extension identity and record
 // every actual SDK pickup notification. No packet transport is claimed.
-bool CSOL_SendWeaponPickup(CBasePlayer* p,int id){Check(p==&player&&id==896);Event(105,id);return true;}
-bool CSOL_ExtendedWeapon(int id){Check(id==896||id==WEAPON_USP);return id==896;}
+constexpr bool FixtureGuestId(int id) noexcept
+{
+#if defined(COF_RUNTIME_P345_FIXTURE)
+    return id==896||id==897;
+#else
+    return id==896;
+#endif
+}
+bool CSOL_SendWeaponPickup(CBasePlayer* p,int id){Check(p==&player&&FixtureGuestId(id));Event(105,id);return true;}
+bool CSOL_ExtendedWeapon(int id){Check(FixtureGuestId(id)||id==WEAPON_USP);return FixtureGuestId(id);}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* p){Check(p==&player);return extendedAllowed;}
-unsigned CSOL_LegacyWeaponMask(int id){Check(id==896);return 0;}
+unsigned CSOL_LegacyWeaponMask(int id){Check(FixtureGuestId(id));return 0;}
 
 void InventoryRestoreCases()
 {

@@ -105,4 +105,36 @@ WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalW
     }
     return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
 }
+
+int RegisterPresentationMessage(const PlaySfxCall& authority) noexcept
+{
+    const auto call = authority;
+    if (detail::messageOpen || !call.current || !g_engfuncs.pfnRegUserMsg ||
+        !call.current(call.context)) return 0;
+    const int message = REG_USER_MSG(StateMessage, StateBytes);
+    return message >= 64 && message <= 255 && call.current(call.context) ? message : 0;
+}
+
+WeaponEffectStatus SendPresentationState(CBasePlayer& player, const PresentationState& state,
+    int preparedMessage, const PlaySfxCall& authority) noexcept
+{
+    if (detail::messageOpen) return WeaponEffectStatus::Busy;
+    const auto call = authority;
+    if (!call.current || !player.pev) return WeaponEffectStatus::InvalidInput;
+    if (!call.current(call.context)) return WeaponEffectStatus::Cancelled;
+    if (preparedMessage < 64 || preparedMessage > 255) return WeaponEffectStatus::MissingMessage;
+    StatePacket bytes{};
+    if (!EncodeState(state, bytes)) return WeaponEffectStatus::InvalidInput;
+    if (!g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte)
+        return WeaponEffectStatus::MissingEngine;
+    const EntityHandle<CBasePlayer> lease(&player);
+    if (!Current(call, lease, &player)) return WeaponEffectStatus::Cancelled;
+    {
+        detail::MessagePacket packet;
+        MESSAGE_BEGIN(MSG_ONE, preparedMessage, nullptr, player.edict());
+        for (const auto byte : bytes) WRITE_BYTE(std::to_integer<unsigned char>(byte));
+        MESSAGE_END();
+    }
+    return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
+}
 }

@@ -2334,7 +2334,12 @@
     "tests/cryoffear-p345-owner/README.md",
     "tests/cryoffear-native-owner/README.md",
     "tests/cryoffear-owner-runtime/README.md",
-    "tests/cryoffear-owner-state/README.md"
+    "tests/cryoffear-owner-state/README.md",
+    "docs/2026-11-13_接入-P345双端运行与购买闭包-report.md",
+    "tests/cryoffear-glock-factory/README.md",
+    "tests/cryoffear-glock-native-effects/README.md",
+    "tests/cryoffear-p345-runtime/README.md",
+    "tests/cryoffear-p345-effect-dispatch/README.md"
   ],
   "trees": {
     "native": [

@@ -250,4 +250,14 @@
   <PropertyGroup Condition="'$(GoldCraftHeadlessFixture)' == 'true'">
     <IntDir>$(GoldCraftRoot)\build\regamedll-headless\obj\$(MSBuildProjectName)\$(Configuration)\</IntDir>
   </PropertyGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <!-- Independent guest source group; original IDs never index native CS tables. -->
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_host.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_effects.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_factory.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_owner.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_owner_runtime.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_runtime.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_resources.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_native_effects.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_sound_field.cpp;$(GoldCraftRoot)\native\guest\cof\server\ballistics.cpp;$(GoldCraftRoot)\native\guest\cof\server\control_dispatch.cpp;$(GoldCraftRoot)\native\guest\cof\server\crosshair_dispatch.cpp;$(GoldCraftRoot)\native\guest\cof\crosshair_protocol.cpp;$(GoldCraftRoot)\native\guest\cof\server\effects_dispatch.cpp;$(GoldCraftRoot)\native\guest\cof\server\glock_weapon.cpp;$(GoldCraftRoot)\native\guest\cof\server\p345_weapon.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_p345_factory.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_p345_owner.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_p345_native_effects.cpp;$(GoldCraftRoot)\native\guest\cof\server\owner_state.cpp;$(GoldCraftRoot)\native\guest\cof\server\player_animation.cpp;$(GoldCraftRoot)\native\guest\cof\server\screen_shake.cpp;$(GoldCraftRoot)\native\guest\cof\server\sound_dispatch.cpp;$(GoldCraftRoot)\native\guest\cof\server\weapon_melee.cpp;$(GoldCraftRoot)\native\guest\cof\magazine_actions.cpp;$(GoldCraftRoot)\native\guest\cof\magazine_model.cpp;$(GoldCraftRoot)\native\guest\cof\magazine_reload.cpp;$(GoldCraftRoot)\native\guest\cof\player_actions.cpp;$(GoldCraftRoot)\native\guest\cof\scenario_damage.cpp;$(GoldCraftRoot)\native\guest\cof\spread.cpp;$(GoldCraftRoot)\native\guest\cof\presentation_protocol.cpp;$(GoldCraftRoot)\native\guest\cof\control_protocol.cpp;$(GoldCraftRoot)\native\guest\cof\particle_protocol.cpp;$(GoldCraftRoot)\native\guest\cof\sound_protocol.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);$(GoldCraftRoot)\external\MetaHookSv-20261007\MetaHook\thirdparty\rapidjson\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemGroup>
 </Project>

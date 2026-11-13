@@ -2,6 +2,7 @@
 #pragma once
 
 #include "sound_dispatch.hpp"
+#include "../presentation_protocol.hpp"
 #include <cstdint>
 
 namespace guest::cof
@@ -28,4 +29,9 @@ WeaponEffectStatus CooperativeViewRecoil(CBasePlayer&, const Vector& impulse,
     unsigned short preparedEvent, const PlaySfxCall&) noexcept;
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer&, std::uint8_t originalWeapon,
     std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall&) noexcept;
+// Cold registration and actual owning-player transport for the authenticated
+// FOV/aim bridge. Key/revision management belongs to the authoritative owner.
+int RegisterPresentationMessage(const PlaySfxCall&) noexcept;
+WeaponEffectStatus SendPresentationState(CBasePlayer&, const PresentationState&,
+    int preparedMessage, const PlaySfxCall&) noexcept;
 }
