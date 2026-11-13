@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -259,6 +260,35 @@ void InventoryRestoreCases()
     Check(weapon.ActionState().aiming&&player.pev->fov==55&&weapon.m_flNextPrimaryAttack==aimDeadline&&player.pev->weaponanim==animation);
     Check(deployOrder==std::vector<unsigned>({unsigned(P345Effect::Aim),unsigned(P345Effect::Aim)}));
     current=false;Check(!weapon.RestoreInventoryBinding(player)&&!weapon.RestoreInventorySnapshot(snapshot));
+}
+
+void HostAmmoGrantCases()
+{
+    for(int reserve:{81,500,800,65535,std::numeric_limits<int>::max()})
+    {
+        Initialize();player.m_rgAmmo[1]=reserve;weapon.m_iClip=7;
+        Check(weapon.CanDeploy()&&weapon.Deploy());globals.time=10;
+        weapon.Reload();Check(weapon.m_fInReload&&weapon.m_iClip==0&&player.m_rgAmmo[1]==reserve);
+        globals.time=weapon.ActionState().ownerAttack+.01F;weapon.ItemPostFrame();
+        Check(weapon.m_iClip==8&&player.m_rgAmmo[1]==reserve-8&&!weapon.m_fInReload);
+        weapon.ItemPostFrame();Check(weapon.ActionState().action==0);
+        globals.time+=5;frame.pressed=1;weapon.PrimaryAttack();
+        Check(weapon.m_iClip==7&&player.m_rgAmmo[1]==reserve-8&&weapon.Status()==P345Status::Applied);
+        globals.time+=5;weapon.Holster();Check(weapon.Status()==P345Status::Applied);
+        Check(weapon.Deploy()&&weapon.m_iClip==7&&player.m_rgAmmo[1]==reserve-8);
+    }
+    for(int clip:{9,24,40,75,255,65535,std::numeric_limits<int>::max()})
+    {
+        Initialize();weapon.m_iClip=clip;Check(weapon.CanDeploy()&&weapon.Deploy());
+        globals.time=10;frame.pressed=1;weapon.PrimaryAttack();
+        Check(weapon.m_iClip==clip-1&&weapon.Status()==P345Status::Applied);
+        const int remaining=weapon.m_iClip,reserve=player.m_rgAmmo[1];
+        globals.time+=5;weapon.Reload();
+        Check(!weapon.m_fInReload&&weapon.m_iClip==remaining&&player.m_rgAmmo[1]==reserve);
+        globals.time+=5;weapon.Holster();Check(weapon.Deploy()&&weapon.m_iClip==remaining);
+    }
+    Initialize();player.m_rgAmmo[1]=-1;
+    Check(!weapon.CanDeploy()&&weapon.Status()==P345Status::InvalidInput);
 }
 
 int main(int argc,char** argv)
@@ -519,5 +549,6 @@ int main(int argc,char** argv)
     events.clear();globals.time=10.5f;weapon.PrimaryAttack();Check(events.empty());globals.time=std::nextafter(10.5f,INFINITY);weapon.PrimaryAttack();Check(!events.empty());
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==897&&weapon.m_iId==897&&info.iMaxClip==8&&info.iMaxAmmo1==80&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     InventoryRestoreCases();
+    HostAmmoGrantCases();
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<fidgetRows<<" original Fidget cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }

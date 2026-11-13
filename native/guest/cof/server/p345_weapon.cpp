@@ -485,7 +485,7 @@ bool P345Weapon::Check(P345OwnerFrame& frame, bool active) noexcept
     { status_ = P345Status::InvalidInput; return false; }
     ReadAmmo();
     if ((action_.clip < 0 && (active || action_.clip != -666)) ||
-        action_.reserve < 0 || action_.reserve > 80)
+        action_.reserve < 0)
     { status_ = P345Status::InvalidInput; return false; }
     status_ = P345Status::Ready;
     return true;

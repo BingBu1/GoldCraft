@@ -47,6 +47,12 @@ Rebinding validates map/owner/life/model/weapon identity. Restoring aim republis
 its existing state without replaying the transition animation or restarting its
 lock. The foreign-weapon profile deliberately has no CSO item identity.
 
+Native scenario reserve grants above metadata80 and authoritative skill magazines
+above the base eight rounds remain usable. Tests cover reload/firing/reselection,
+INT_MAX bounds and negative reserve rejection, including the original following
+frame that clears the completed reload action. Metadata is not a current-stock
+invariant; grant policy and original base magazine capacity remain separate.
+
 Run from Git Bash in the workspace, using a fresh build output directory.
 Set `COF_COMPILER` to the local x86 Arkari Clang executable first:
 
