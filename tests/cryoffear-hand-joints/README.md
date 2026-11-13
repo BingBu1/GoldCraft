@@ -16,6 +16,6 @@ python tests/cryoffear-hand-joints/run.py \
   --output build/hand-joints-tests
 ```
 
-Output paths must be new, inside `build`, and free of junctions or symbolic links. Input game resources are supplied locally and are not distributed here. The test uses the actual author and parser, injects a large connected-bone displacement, and verifies rejection of changed source payload, sequence timing and triangle topology. Game resources remain unchanged.
+Output paths must be new, inside `build`, and free of junctions or symbolic links. Input game resources are supplied locally and are not distributed here. The test uses the actual author and parser, injects a large connected-bone displacement, and verifies rejection of changed source payload, sequence timing, animation channels and triangle topology. Game resources remain unchanged.
 
 The audit retains only the current pose, current model vertices and eight worst measurements per hand model. Reported scale ratios are geometric measurements: different source units and intended animation deformation still require review. This tool adds no game draw or input work. Offline inspection and the OpenGL adapter test do not replace actual gameplay or performance acceptance.

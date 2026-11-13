@@ -37,3 +37,5 @@ P-01：path_type=callflow。原MP索引（E-02）→namespaced事件接收→own
 E-05：继续核对同一原client SHA，1006D759以cl_lw调用引擎GetCvarPointer，1006D771保存指针到10542A74；1004F826处读取值的回调实际使用weapons/egon_windup2.wav、weapons/egon_run3.wav与sprites/xbeam1.spr，随后建立两条beam。该分支不能证明Glock本地抛壳、修改cl_lw或活动Glock走weaponshoot事件。私有cl-lw-init-ida.json与cl-lw-consumer-ida.json保留原字节及225个IDA指令；未由这个排除结论修改生产行为。
 
 原活动muzzleflash事件的自身玩家接收／P绘制时序仍未闭合，继续沿原HW与玩家渲染入口查明。保留已证世界附件发射器，不增加猜测的视模附件、预测旗标或强制下半身绘制。此次仅补取证与文档，没有重新部署或进行新玩法／性能验收。
+
+后续原调用扫描确认MP1004742E也会调用1011CF70，但1004727D..10047292在规则为空或rules+20返回非零时跳过；已核原多人虚表对应100C90B0返回1。这个服务器TE抛壳属于单人分支，不能直接塞进当前多人路径。原HUD_PostRunCmd只做状态／视角更新，没有预测发射；HW01D22CEA仅在缺少TxferPredictionData回调时清cl_lw，也不支持强制关预测的猜测。原IDA字节／分支及完整调用扫描保留在私有own-player-next-exclusions.json、player-shell-all-calls.json；自身P绘制问题仍未据此关闭。

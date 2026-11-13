@@ -82,6 +82,18 @@ def main():
     bad = bytearray(data)
     bad[candidate.i(168)+32] ^= 1
     reject("changed-timing", bad, "sequence timing")
+    changed_sequence = next(sequence for sequence in range(model.i(164))
+                            if any(any(value for channel in model.channels(sequence, frame, blend) for value in channel)
+                                   for blend in range(model.i(model.i(168)+sequence*176+120))
+                                   for frame in range(model.i(model.i(168)+sequence*176+56))))
+    bad = bytearray(data)
+    sequence_at = candidate.i(168)+changed_sequence*176
+    bad.extend(bytes(-len(bad) % 4))
+    animation_at = len(bad)
+    bad.extend(bytes(len(candidate.bones)*candidate.i(sequence_at+120)*12))
+    struct.pack_into("<i", bad, sequence_at+124, animation_at)
+    struct.pack_into("<i", bad, 72, len(bad))
+    reject("changed-channels", bad, "channels changed")
     bad = bytearray(data)
     group = candidate.i(208)
     model_at = candidate.i(group+72)
