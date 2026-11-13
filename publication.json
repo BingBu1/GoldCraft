@@ -2367,7 +2367,9 @@
     "tests/csol-damage-refund/run_account.py",
     "tests/csol-damage-refund/README.md",
     "docs/2026-11-13_修复-CoF资源自动下载闭包-report.md",
-    "tests/cryoffear-download-contract/README.md"
+    "tests/cryoffear-download-contract/README.md",
+    "tests/cryoffear-revolver-cylinder/README.md",
+    "docs/2026-11-13_实现-Revolver原弹巢控制器显示-report.md"
   ],
   "trees": {
     "native": [

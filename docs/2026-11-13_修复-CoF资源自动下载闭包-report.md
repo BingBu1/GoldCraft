@@ -42,7 +42,7 @@
 
 已用匹配独立原MP/client完整IDA分析副本核实：DLL_FUNCTIONS的Spawn4/ClientPutInServer72/UpdateClientData152/FullPack156/GetWeaponData168偏移由真实SDK编译取得。Spawn→100167D0→玩家虚槽2C→100F4090；ClientPutInServer1001D830使用同一虚槽。原玩家factory100125E0通过实际引擎分配10268字节后设置vtable/pev；零初始化和复用尚需匹配hw消费者证据。
 
-100F443D仅在global10222F14非零时清32字节首次拔枪标志，不能无条件在每次重生清。1001ED60将原owner pev294写到clientdata472，已建立真实网络生产阶段；准确客户端弹巢显示/恢复路径仍未闭合，不把NativeCS字段名或偏移直接套用。原证与未知在 lifecycle-review/，没有猜写生产初始化。
+更正：100F443D仅在global10222F14非零时，将32字节首次拔枪标志全部设为1（原xmmword101DDB00的16字节全为01），并非清零；不能无条件在每次重生清。此前“清32字节”的文字误读已撤回，未进入新增初始化代码。1001ED60将原owner pev294写到clientdata472，已建立真实网络生产阶段；准确客户端弹巢显示/恢复路径仍未闭合，不把NativeCS字段名或偏移直接套用。原证与未知在 lifecycle-review/，没有猜写生产初始化。
 
 ## 下一步与共享文档精确交接
 
