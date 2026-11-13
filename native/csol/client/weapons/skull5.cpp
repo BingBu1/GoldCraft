@@ -3,6 +3,7 @@
 #include "weapon_module.hpp"
 #include "../shared_random.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "gun_smoke.hpp"
 #include "../hud_style.hpp"
 #include "sniper_scope.hpp"
@@ -365,7 +366,7 @@ bool PredictSkull5(local_state_t* from,local_state_t* to,usercmd_t* command,int 
         const bool reconcile=predict?animation>=0:source.weaponanim!=authoritativeAnimation;
         if(!fired && sequence>=skull5::Idle && sequence<=skull5::Draw && engine.pfnWeaponAnim &&
             (reconcile || !presented || presentedModel!=source.viewmodel))
-            engine.pfnWeaponAnim(sequence,model?model->curstate.body:0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,sequence,model?model->curstate.body:0,animation>=0);
         presented=true;presentedModel=source.viewmodel;authoritativeAnimation=source.weaponanim;
         const auto* local=engine.GetLocalPlayer?engine.GetLocalPlayer():nullptr;
         if(fired && local)

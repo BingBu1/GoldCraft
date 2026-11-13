@@ -21,7 +21,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/scenario/core/scenario_upgrades.cpp scenario/core/scenario_upgrades.cpp
     client/hud_style.cpp hud_style.cpp
     client/scenario/core/scenario_abilities.cpp scenario/core/scenario_abilities.cpp
-    client/scenario/core/human_kick.cpp
+    client/scenario/core/human_kick.cpp client/scenario/core/human_kick_animation.cpp
     client/scenario/bosses/boss_health.cpp scenario/bosses/boss_health.cpp client/scenario/bosses/oberon_hint.cpp
     client/scenario/core/scenario_round_hud_client.cpp scenario/core/scenario_round_hud.cpp scenario/core/scenario_localization.cpp
     client/scenario/core/scenario_respawn_ui.cpp

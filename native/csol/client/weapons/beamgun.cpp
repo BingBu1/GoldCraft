@@ -2,6 +2,7 @@
 #include "beamgun.hpp"
 #include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../character_skill_effects.hpp"
 #include "../camera.hpp"
 #include "../../weapons/beamgun_prediction.hpp"
@@ -450,7 +451,7 @@ bool PredictBeamgun(local_state_t* from, local_state_t* to, usercmd_t* cmd, int 
         // to restart an animation on another user command.
         if (animation >= BeamIdle && animation <= BeamChargeDraw &&
             (animated || presentedWeapon != id || presentedModel != source.viewmodel))
-            engine.pfnWeaponAnim(animation, model ? model->curstate.body : 0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,animation,model ? model->curstate.body : 0,animated);
         presentedWeapon = id; presentedModel = source.viewmodel;
     }
     else if (runFunctions) presentedWeapon = presentedModel = 0;

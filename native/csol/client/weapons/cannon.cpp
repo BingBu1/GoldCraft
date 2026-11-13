@@ -3,6 +3,7 @@
 #include "weapon_module.hpp"
 #include "../camera.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../../weapons/cannon.hpp"
 #include <r_efx.h>
 #include <event_api.h>
@@ -353,7 +354,7 @@ bool PredictCannon(local_state_t* from,local_state_t* to,usercmd_t* command,int 
         // The engine commits viewmodel.curstate after prediction. A mismatch
         // there is not a new animation and must not reset weaponstarttime.
         if(sequence>=0 && sequence<=2 && (animation>=0 || !presented || presentedModel!=source.viewmodel))
-            engine.pfnWeaponAnim(sequence,model?model->curstate.body:0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,sequence,model?model->curstate.body:0,animation>=0);
         presented=true;presentedModel=source.viewmodel;
         if(animation==1)
         {

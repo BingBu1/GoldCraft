@@ -228,7 +228,7 @@ void SwapDuringResume()
         "observer retirement cannot leave the already committed reload pending");
 }
 }
-int main(int argc, char** argv)
+int CsolEmergencyTestMain(int argc, char** argv)
 {
     try
     {
@@ -250,3 +250,6 @@ int main(int argc, char** argv)
         << " failures=" << sdk_test::failures << '\n';
     return sdk_test::failures ? 1 : 0;
 }
+#ifndef CSOL_EMERGENCY_FIXTURE_ONLY
+int main(int argc, char** argv) { return CsolEmergencyTestMain(argc, argv); }
+#endif

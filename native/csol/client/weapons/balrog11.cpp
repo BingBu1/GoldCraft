@@ -3,6 +3,7 @@
 #include "weapon_module.hpp"
 #include "../shared_random.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../../weapons/balrog11.hpp"
 #include <event_api.h>
 #include <event_args.h>
@@ -282,7 +283,7 @@ bool PredictBalrog11(local_state_t* from, local_state_t* to, usercmd_t* command,
         const bool reconcile = predict ? animation >= 0 : source.weaponanim != authoritativeAnimation;
         if (!fired && sequence >= balrog11::Idle && sequence <= balrog11::Draw && engine.pfnWeaponAnim &&
             (reconcile || !presented || presentedModel != source.viewmodel))
-            engine.pfnWeaponAnim(sequence, model ? model->curstate.body : 0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,sequence,model ? model->curstate.body : 0,animation>=0);
         presented = true;
         presentedModel = source.viewmodel;
         authoritativeAnimation = source.weaponanim;

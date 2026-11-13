@@ -21,7 +21,8 @@ struct WorldFixture
     std::shared_ptr<CCSOLScenarioPlayerRuntime> players;
     CBasePlayer* actor{};
     inline static std::map<std::string,trap_test::Fixture::Registration> registrations;
-    explicit WorldFixture()
+    using ResourceSetup = void (*)(std::map<std::string, std::string>&);
+    explicit WorldFixture(ResourceSetup setup = nullptr)
     {
         constexpr int priority=0;constexpr float attack=1;
         for(const auto& [name,entry]:registrations)
@@ -54,7 +55,9 @@ struct WorldFixture
         e.files["resource/ZBSVER2/ZBS_class.cso"]=Encrypt(
             "id,hp,damage,speed,armor,ammo,order\r\n0,20,20,20,20,20,hdsam\r\n");
         e.files["maps/ZBS_DropItem.cso"]=Encrypt("id,diff,effect,p,owner,count,remove,reward\r\n");
+        if (setup) setup(e.files);
         e.globals.mapname=Engine::String("zs_deadend");e.globals.time=100;e.Prepare("2");
+        g_engfuncs.pfnGetInfoKeyBuffer=[](edict_t*) -> char* {return const_cast<char*>("controlled-userinfo");};
         e.onTrace=[](edict_t*,TraceResult& trace){trace.flFraction=.5f;trace.vecEndPos=Vector(0,0,0);};
         gmsgCurWeapon=0;
         auto* world=e.Reserve(0,"worldspawn");worldspawn(&world->v);

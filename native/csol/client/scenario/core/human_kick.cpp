@@ -127,9 +127,11 @@ int Receive(const char* name, int size, void* data)
 {
     if (!Owner()) return previousSnapshot ? previousSnapshot(name, size, data) : 1;
     SynchronizeSession();
+    const auto previous = state.Value();
     if (!data || size < 0 || !state.Receive({static_cast<const std::byte*>(data), std::size_t(size)}))
     { ++malformed; return 1; }
     ++accepted;
+    HumanKickAnimationSnapshot(previous, state.Value());
     return previousSnapshot ? previousSnapshot(name, size, data) : 1;
 }
 int Init(const char* name, int size, void* data)
@@ -146,6 +148,7 @@ void InitializeHumanKick()
 {
     if (ownerThread && !Owner()) return;
     ownerThread = GetCurrentThreadId();
+    InitializeHumanKickAnimation();
     InstallChainedCommand("impulse", Impulse, previousImpulse);
     InstallChainedUserMessage(scenario::human_kick::MessageName, Receive, previousSnapshot);
     InstallChainedUserMessage("InitHUD", Init, previousInit);
@@ -166,13 +169,14 @@ void ResetHumanKick()
 {
     if (!Owner()) return;
     state.Reset(); requested = false; hidden = 0;
+    ResetHumanKickAnimation();
 }
 void HumanKickFrame()
 {
     if (Owner() && state.Enabled()) Prepare();
 }
 void HumanKickVideoInit() { prepared = false; }
-void InvalidateHumanKickResources() { HumanKickVideoInit(); requested = false; }
+void InvalidateHumanKickResources() { HumanKickVideoInit(); requested = false; ResetHumanKickAnimation(); }
 void DrawHumanKick(float, int intermission)
 { requested = Owner() && !intermission && state.Ready(); }
 void ShutdownHumanKick()

@@ -2314,7 +2314,21 @@
     "docs/2026-11-13_验证-CoF合作基准与武器箱回收-report.md",
     "docs/2026-11-13_实现-CoF手模显式蒙皮绑定-report.md",
     "tests/cryoffear-p345-factory/README.md",
-    "docs/2026-11-13_接入-P345原生实体与购买状态-report.md"
+    "docs/2026-11-13_接入-P345原生实体与购买状态-report.md",
+    "native/csol/client/scenario/core/human_kick_animation.cpp",
+    "native/csol/client/scenario/core/human_kick_animation_state.hpp",
+    "native/csol/client/weapons/m249ex.cpp",
+    "native/csol/client/weapons/skull1.cpp",
+    "native/csol/client/weapons/skull2.cpp",
+    "native/csol/client/weapons/skull5.cpp",
+    "native/csol/client/weapons/balrog11.cpp",
+    "tests/csol-kick-animation/host.cpp",
+    "tests/csol-kick-animation/predictor.cpp",
+    "tests/csol-kick-animation/server.cpp",
+    "tests/csol-kick-animation/run.py",
+    "tools/Build-CSOLClientCheckpoint.py",
+    "docs/2026-11-13_修复-踢击结束重播武器攻击-report.md",
+    "native/csol/client/weapons/skull3.cpp"
   ],
   "trees": {
     "native": [

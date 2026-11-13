@@ -3,6 +3,7 @@
 #include "weapon_module.hpp"
 #include "../shared_random.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../../weapons/k3.hpp"
 #include <event_api.h>
 #include <event_args.h>
@@ -284,7 +285,7 @@ bool PredictK3(local_state_t* from,local_state_t* to,usercmd_t* command,int runF
             source.weaponanim!=authoritativeAnimation;
         if(!fired && sequence>=k3::Idle && sequence<=k3::Draw && engine.pfnWeaponAnim &&
             (reconcile || !presented || presentedModel!=source.viewmodel))
-            engine.pfnWeaponAnim(sequence,model?model->curstate.body:0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,sequence,model?model->curstate.body:0,animation>=0);
         presented=true;presentedModel=source.viewmodel;authoritativeAnimation=source.weaponanim;
         const auto* local=engine.GetLocalPlayer?engine.GetLocalPlayer():nullptr;
         if(fired && local)

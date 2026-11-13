@@ -4,6 +4,7 @@
 #include "weapon_module.hpp"
 #include "../user_message_chain.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../hud_style.hpp"
 #include "../character_skill_effects.hpp"
 #include "../crosshair.hpp"
@@ -717,6 +718,12 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
     // catches up. Simulate old commands silently in either direction: stock
     // CS also reconciles animations when returning from an extended weapon.
     if(!WeaponPresentationAllowed(sourceWeaponId))runFunctions=0;
+    if(!HumanKickWeaponPresentationAllowed(sourceWeaponId,from->client.viewmodel))runFunctions=0;
+    struct CompleteKickPresentation
+    {
+        int weapon, model; bool presented;
+        ~CompleteKickPresentation() { HumanKickPredictionFinished(weapon,model,presented); }
+    } kickPresentation{sourceWeaponId,from->client.viewmodel,runFunctions!=0};
     for(const auto* module:WeaponModules())
         if(module->predict && module->predict(from,to,cmd,runFunctions,time,seed))return;
     if(!registered || from->client.m_iId!=KnifeId || from->weapondata[ActiveWeaponSlot].m_iId!=KnifeId)
@@ -751,7 +758,7 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
                 engine.GetViewModel && engine.pfnWeaponAnim)
             {
                 if(auto* model=engine.GetViewModel();model && ConsumeWeaponAnimationSync(sync,sourceWeaponId))
-                    engine.pfnWeaponAnim(to->client.weaponanim,model->curstate.body);
+                    ReconcileWeaponAnimation(sourceWeaponId,to->client.viewmodel,to->client.weaponanim,model->curstate.body);
             }
         }
         return;

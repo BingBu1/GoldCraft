@@ -32,7 +32,8 @@ inline constexpr std::array HitSounds{
 inline constexpr char MessageName[] = "CsoKick";
 inline constexpr std::uint8_t Version = 1;
 inline constexpr std::size_t MessageSize = 10;
-enum Flag : std::uint8_t { Enabled = 1, Ready = 2, Active = 4 };
+// ResumePhase is emitted only to clients advertising csol_kick_phase1.
+enum Flag : std::uint8_t { Enabled = 1, Ready = 2, Active = 4, ResumePhase = 8 };
 struct Snapshot
 {
     std::uint32_t life{};
@@ -41,9 +42,10 @@ struct Snapshot
 };
 inline bool Valid(const Snapshot& value)
 {
-    return value.life && !(value.flags & ~(Enabled | Ready | Active)) &&
-        (!(value.flags & (Ready | Active)) || (value.flags & Enabled)) &&
+    return value.life && !(value.flags & ~(Enabled | Ready | Active | ResumePhase)) &&
+        (!(value.flags & (Ready | Active | ResumePhase)) || (value.flags & Enabled)) &&
         !((value.flags & Ready) && (value.flags & Active)) &&
+        !((value.flags & Active) && (value.flags & ResumePhase)) &&
         std::isfinite(value.remaining) && value.remaining >= 0 &&
         value.remaining <= Cooldown && (!(value.flags & Ready) || value.remaining == 0);
 }

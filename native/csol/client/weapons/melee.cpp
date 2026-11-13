@@ -301,7 +301,10 @@ bool PredictMeleeWeapon(local_state_t* from, local_state_t* to, usercmd_t* comma
     if (!humanKickActive && runFunctions && alive && WeaponPresentationAllowed(id)) {
         if (animation >= 0 || presentedWeapon != id || presentedModel != source.viewmodel ||
             (!predict && authoritativeAnimation != source.weaponanim))
-            PresentAnimation(to->client.weaponanim);
+        {
+            auto* model = engine.GetViewModel ? engine.GetViewModel() : nullptr;
+            ReconcileWeaponAnimation(id,source.viewmodel,to->client.weaponanim,model ? model->curstate.body : 0,animation>=0);
+        }
         presentedWeapon = id; presentedModel = source.viewmodel; presentedSerial = prediction.serial;
         authoritativeAnimation = source.weaponanim;
     } else if (!humanKickActive && runFunctions && presentedWeapon) ClearPresentation();

@@ -2,6 +2,7 @@
 #include "skull3.hpp"
 #include "weapon_module.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/human_kick.hpp"
 #include "../shared_random.hpp"
 #include "gun_smoke.hpp"
 #include "../../weapons/skull3.hpp"
@@ -410,7 +411,7 @@ bool PredictSkull3(local_state_t* from,local_state_t* to,usercmd_t* command,int 
             // SendWeaponAnim uses the weapon's body, unlike Fire's body2.
             // The host viewmodel carries the current character's body state.
             const auto* model=engine.GetViewModel?engine.GetViewModel():nullptr;
-            engine.pfnWeaponAnim(sequence,model?model->curstate.body:0);
+            ReconcileWeaponAnimation(source.m_iId,source.viewmodel,sequence,model?model->curstate.body:0,animation>=0);
         }
         presented=true;presentedId=id;presentedModel=source.viewmodel;authoritativeAnimation=source.weaponanim;
         const auto* local=engine.GetLocalPlayer?engine.GetLocalPlayer():nullptr;

@@ -21,7 +21,13 @@ def main():
                         help="Optional independent component object; omit for a coherent current full-server baseline")
     parser.add_argument("--sealed-production", action="store_true",
                         help="Reuse all actual accepted server objects; compile only the new SDK fixture")
+    parser.add_argument("--fixture", type=Path, help="Alternate in-place SDK fixture under tests")
+    parser.add_argument("--groups", nargs="+", help="Explicit groups for the alternate fixture")
     args = parser.parse_args()
+    if bool(args.fixture) != bool(args.groups):
+        raise ValueError("An alternate fixture and explicit groups must be supplied together")
+    if args.fixture and (not args.fixture.resolve().is_relative_to(ROOT / "tests") or not args.fixture.is_file()):
+        raise ValueError("The alternate SDK fixture must be an existing workspace test")
     spec = importlib.util.spec_from_file_location("sdk", ROOT / "tests/csol-rebuy/run_sdk.py")
     sdk = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(sdk)
@@ -64,7 +70,7 @@ def main():
                 del env[old]
         env[key] = value
     units = {
-        "fixture": ROOT / "tests/csol-emergency-kick/sdk.cpp",
+        "fixture": args.fixture.resolve() if args.fixture else ROOT / "tests/csol-emergency-kick/sdk.cpp",
         "controller": ROOT / "native/csol/server/scenario/core/human_kick.cpp",
         "action-stamina": ROOT / "native/csol/server/custom/action_stamina.cpp",
         "stamina": ROOT / "native/csol/scenario/custom/stamina.cpp",
@@ -161,7 +167,7 @@ def main():
         run("link", link + ["/SUBSYSTEM:CONSOLE", "/OUT:" + str(exe), "/PDB:" + str(out / "integration.pdb"),
                             "/threads:4", "/opt:lldltojobs=4", *([] if args.sealed_production else [gun["path"]]),
                             *[str(out / (name + ".obj")) for name in units]], "link")
-        for group in ("stock", "reload-pending", "reload-elapsed", "aim-attack", "noon-life", "budget-life", "config-scope", "swap-resume"):
+        for group in args.groups or ("stock", "reload-pending", "reload-elapsed", "aim-attack", "noon-life", "budget-life", "config-scope", "swap-resume"):
             data = out / ("data-" + group)
             data.mkdir()
             run(group, [str(exe), group], "behavior", data)

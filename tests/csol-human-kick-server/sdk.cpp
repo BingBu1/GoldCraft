@@ -82,7 +82,7 @@ struct Case
     int spheres{}, lines{}, deploys{}, modelReads{}, weaponAnims{};
     bool open{}, rejectDeploy{}, blocked{}, permitCallback{true};
 
-    Case()
+    explicit Case(kick_world_test::WorldFixture::ResourceSetup setup = nullptr) : f(setup)
     {
         Require(!active, "one kick SDK fixture"); active = this;
         CSOL_SetHumanKickPolicy(true);

@@ -8,6 +8,13 @@ namespace csol::client
 // Read-only presentation arbitration supplied by the authoritative kick
 // snapshot. This never starts, completes or predicts a kick locally.
 bool HumanKickActive() noexcept;
+void InitializeHumanKickAnimation();
+void ResetHumanKickAnimation();
+void HumanKickAnimationSnapshot(const scenario::human_kick::Snapshot& previous,
+    const scenario::human_kick::Snapshot& current);
+bool HumanKickWeaponPresentationAllowed(int weapon, int viewmodel);
+void HumanKickPredictionFinished(int weapon, int viewmodel, bool presented);
+void ReconcileWeaponAnimation(int weapon, int viewmodel, int sequence, int body, bool newAction = false);
 namespace human_kick_detail
 {
 // Host snapshots own availability. The native engine routes chat text before

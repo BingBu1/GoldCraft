@@ -58,7 +58,7 @@ struct State
     int nativeSpawns{}, modelIndex{}, activeModel{}, sequence{-1}, slot{};
     std::uint8_t sentFlags{255};
     kick::Clock clock;
-    bool busy{}, retired{}, locked{}, resumable{}, restoring{}, resumePending{};
+    bool busy{}, retired{}, locked{}, resumable{}, restoring{}, resumePending{}, phaseClient{}, resumePresentation{};
 
     CBasePlayer* Current() const
     {
@@ -175,15 +175,30 @@ bool Publish(const std::shared_ptr<State>& state, bool force = false)
         if (state->clock.ActiveNow()) flags |= kick::Active;
         else if (Ready(*state, *player)) flags |= kick::Ready;
     }
-    if (!force && state->sentFlags == flags) return true;
-    const auto bytes = kick::Encode({state->revision, flags, state->clock.Remaining(gpGlobals->time)});
+    const bool phase = state->phaseClient && state->resumePresentation && (flags & kick::Enabled);
+    if (!force && state->sentFlags == flags && !phase) return true;
+    const auto bytes = kick::Encode({state->revision, static_cast<std::uint8_t>(flags | (phase ? kick::ResumePhase : 0)),
+        state->clock.Remaining(gpGlobals->time)});
     if (!bytes || sending || resources.message < 64 || resources.message > 255) return false;
     Busy guard(sending);
     MESSAGE_BEGIN(MSG_ONE, resources.message, nullptr, player->pev);
     for (const auto byte : *bytes) WRITE_BYTE(std::to_integer<unsigned>(byte));
     MESSAGE_END();
     if (!state->Current()) return false;
+    if (phase)
+    {
+        // Userinfo can survive a client DLL rollback. Follow the optional
+        // phase acknowledgement with a plain v1 snapshot so an older decoder
+        // always clears Active, even if it rejects the extension bit.
+        const auto legacy = kick::Encode({state->revision, flags, state->clock.Remaining(gpGlobals->time)});
+        if (!legacy) return false;
+        MESSAGE_BEGIN(MSG_ONE, resources.message, nullptr, player->pev);
+        for (const auto byte : *legacy) WRITE_BYTE(std::to_integer<unsigned>(byte));
+        MESSAGE_END();
+        if (!state->Current()) return false;
+    }
     state->sentFlags = flags;
+    state->resumePresentation = false;
     return true;
 }
 bool Animation(const std::shared_ptr<State>& state, int sequence)
@@ -263,6 +278,7 @@ bool Finish(const std::shared_ptr<State>& state, bool restore)
     if (ownsLock && player->m_pActiveItem == item && player->m_flNextAttack > 100000.0f)
         player->m_flNextAttack = std::max(-1.0f,
             state->savedOwnerAttack - (gpGlobals->time - state->startedAt));
+    state->resumePresentation = resume && applied && player->m_pActiveItem == item;
     return applied;
 }
 
@@ -467,7 +483,17 @@ bool CSOL_TryHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     if (!CSOL_TickActionStamina(runtime, player, gpGlobals->time, error)) return false;
     if (!Ready(*state, player)) return true;
     auto* weapon = player.m_pActiveItem;
-    if (!weapon || !state->clock.BeginEmergency(gpGlobals->time)) return true;
+    if (!weapon) return true;
+    state->phaseClient = false;
+    if (g_engfuncs.pfnGetInfoKeyBuffer && g_engfuncs.pfnInfoKeyValue)
+    {
+        auto* info = GET_INFO_BUFFER(player.edict());
+        if (state->Current() != &player || player.m_pActiveItem != weapon) return false;
+        const auto* phase = info ? GET_KEY_VALUE(info, "csol_kick_phase") : nullptr;
+        if (state->Current() != &player || player.m_pActiveItem != weapon) return false;
+        state->phaseClient = phase && !std::strcmp(phase, "1");
+    }
+    if (!state->clock.BeginEmergency(gpGlobals->time)) return true;
     state->weapon = weapon;
     state->action = {++nextAction};
     state->startedAt = gpGlobals->time; state->savedOwnerAttack = player.m_flNextAttack;
@@ -500,8 +526,8 @@ bool CSOL_TryHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     player.pev->viewmodel = resources.viewmodel; player.pev->weaponmodel = 0;
     player.pev->fov = 90; player.m_iFOV = 90;
     player.pev->weaponanim = 1; player.pev->framerate = 1;
-    if (!Animation(state, 1)) return false;
     if (!Publish(state, true)) return false;
+    if (!Animation(state, 1)) return false;
     return Attack(state, error);
 }
 

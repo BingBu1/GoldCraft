@@ -60,6 +60,11 @@ int main()
         "rejected retired-life Ready cannot reenable the hint or own native input");
     Apply(state, {3, kick::Enabled | kick::Ready, 0});
     Check(state.Ready(), "new authoritative life can reenable the hint");
+    Apply(state, {3, kick::Enabled | kick::Ready | kick::ResumePhase, 0});
+    Check(state.Ready(), "phase restoration acknowledgement preserves authoritative Ready");
+    Check(!kick::Encode({3, kick::Enabled | kick::Active | kick::ResumePhase, 0}),
+        "an active kick cannot simultaneously acknowledge restoration");
+    Check(!kick::Encode({3, kick::ResumePhase, 0}), "disabled state cannot claim a restored phase");
     state.Reset();
     Check(!state.Enabled() && !state.Ready() && state.Value().life == 0,
         "ResetHUD/session retirement clears authority");
