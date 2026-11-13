@@ -38,7 +38,7 @@ struct MuzzleLatch
     int owner{};
     std::array<float, 3> eventVector{};
 };
-enum class MuzzleResult { RequestsIssued, Ignored, Unsupported, InvalidInput, MissingBackend, BackendFailed };
+enum class MuzzleResult { RequestsIssued, Ignored, Unsupported, InvalidInput, MissingBackend, BackendFailed, Cancelled };
 struct MuzzleHost
 {
     cl_enginefuncs_s* engine{};
@@ -52,6 +52,8 @@ struct MuzzleHost
     bool (*customPointLightsReady)(void*) noexcept {};
     // Called once per original allocation; owns its own GetClientTime call.
     PointLight* (*allocatePointLight)(void*, int key) noexcept {};
+    // Host lifetime guard; optional only for standalone original replay.
+    bool (*current)(void*) noexcept {};
 };
 // Host authenticates P345 ownership/model, owner thread, and original Studio
 // stage. This component does not make the entire weapon or renderer Ready.
@@ -69,8 +71,26 @@ public:
     // to the host adapter; no weapon/death timer is invented here.
     static bool Take(MuzzleLatch&, int currentEntityIndex) noexcept;
 private:
+    friend class GlockMuzzle;
     bool Ready(bool cheapSmoke) const noexcept;
+    bool Current() const noexcept;
     MuzzleResult Lights(const float* origin) const noexcept;
+    MuzzleHost host_;
+};
+// Glock type3 has the same proved local default as P345, but a distinct world
+// shell consumer. Its event vector is divided by20, never normalized.
+class GlockMuzzle
+{
+public:
+    explicit GlockMuzzle(MuzzleHost host) noexcept : base_(host), host_(host) {}
+    MuzzleResult Local(const cl_entity_s& view, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& flashAttachment,
+        const std::array<float,3>& shellAttachment, const std::array<float,3>& eventVector, float scale) const noexcept;
+    // Original secondary-entity field path. The host playback-event adapter uses
+    // explicit authoritative transport instead of treating modelindex as entity.
+    MuzzleResult Latch(MuzzleLatch&, const event_args_s&) const noexcept;
+private:
+    P345Muzzle base_;
     MuzzleHost host_;
 };
 }

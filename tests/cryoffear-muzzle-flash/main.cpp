@@ -26,6 +26,12 @@ std::array<std::uint32_t, 16> calls{};
 unsigned callCount{}, timeIndex{}, randomIndex{};
 float now{}, sizeRandom{}, rollRandom{};
 bool ready{true};
+void Call(unsigned);
+void Angles(const float*,float*,float*,float*) { Call(9); }
+TEMPENTITY* Shell(float* origin,float* velocity,float* angles,float life,int index,int sound) {
+    Call(10);for(unsigned i=0;i<3;++i){sprite[i]=std::bit_cast<unsigned>(origin[i]);sprite[i+3]=std::bit_cast<unsigned>(velocity[i]);direction[i]=angles[i];}
+    sprite[6]=std::bit_cast<unsigned>(life);sprite[7]=unsigned(index);sprite[8]=unsigned(sound);return nullptr;
+}
 void Call(unsigned id) { calls[callCount++] = id; }
 float Time() { Call(1); return now + static_cast<float>(timeIndex++) * 0.00001F; }
 cl_entity_t* Local() { Call(2); return &local; }
@@ -50,7 +56,7 @@ int main() {
     engine.GetLocalPlayer=Local; engine.CL_LoadModel=Model; engine.pfnRandomFloat=Random;
     engine.CL_CreateVisibleEntity=Visible; engine.GetClientTime=Time; engine.pEfxAPI=&effects;
     engine.pEventAPI=&events; engine.GetEntityByIndex=Entity;
-    effects.CL_AllocDlight=Dlight; effects.R_TempSprite=Sprite; events.EV_FindModelIndex=Find;
+    engine.pfnAngleVectors=Angles;effects.R_TempModel=Shell;effects.CL_AllocDlight=Dlight; effects.R_TempSprite=Sprite; events.EV_FindModelIndex=Find;
     MuzzleLatch latch{true,33,99,{1,2,3}};
     P345Muzzle latchConsumer({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate});
     event_args_t event{}; event.iparam1=7; event.entindex=1;
@@ -76,6 +82,13 @@ int main() {
         MuzzleResult result=MuzzleResult::RequestsIssued; int selected=-1;
         if(op==0 || op==6) result=muzzle.Local(view,attachment,scale,cheap);
         else if(op==1) result=muzzle.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale);
+        else if(op==7 || op==8) {
+            GlockMuzzle glock({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate});
+            if(op==7)result=glock.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},
+                {view.attachment[1][0],view.attachment[1][1],view.attachment[1][2]},
+                {view.angles[0],view.angles[1],view.angles[2]},scale);
+            else result=glock.Local(view,attachment,scale,cheap);
+        }
         else if(op==2) selected=static_cast<int>(&AllocatePointLight(pool,static_cast<int>(attachment),now)-pool.lights.data());
         else if(op==3) AdvancePointLights(pool,now);
         else if(op==4) selected=HasPointLights(pool,now) ? 1 : 0;

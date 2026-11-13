@@ -2212,7 +2212,9 @@
     "docs/2026-11-12_实现-CoF角色手模离线适配-report.md",
     "docs/2026-11-12_调整-泰迪熊奖励武器延期-report.md",
     "docs/2026-11-13_修复-CoF左右手与切枪镜像上下文-report.md",
-    "tests/cryoffear-viewmodel-context/README.md"
+    "tests/cryoffear-viewmodel-context/README.md",
+    "docs/2026-11-13_修复-CoF世界枪口持枪回调-report.md",
+    "tests/cryoffear-muzzle-bridge/README.md"
   ],
   "trees": {
     "native": [
