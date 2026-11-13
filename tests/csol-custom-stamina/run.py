@@ -28,7 +28,7 @@ def main():
     out.mkdir(parents=True)
     domain = ROOT / 'native/csol/scenario/custom'
     sources = [ROOT / 'tests/csol-custom-stamina/main.cpp', domain / 'phase.cpp', domain / 'stamina.cpp']
-    paths = [*sources, domain / 'phase.hpp', domain / 'stamina.hpp', Path(__file__).resolve(),
+    paths = [*sources, domain / 'phase.hpp', domain / 'challenge_cycle.hpp', domain / 'stamina.hpp', Path(__file__).resolve(),
              args.compiler.resolve(), args.environment.resolve()]
     before = [identity(path) for path in paths]
     command = [str(args.compiler.resolve()), '/nologo', '--target=i686-pc-windows-msvc',

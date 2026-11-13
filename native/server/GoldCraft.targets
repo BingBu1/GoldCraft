@@ -10,7 +10,7 @@
       <ObjectFileName>$(IntDir)csol_kick_%(Filename).obj</ObjectFileName>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
-    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\custom\settings.cpp;$(GoldCraftRoot)\native\csol\scenario\custom\stamina.cpp;$(GoldCraftRoot)\native\csol\scenario\custom\refund_cap.cpp;$(GoldCraftRoot)\native\csol\server\custom\damage_refund_account.cpp;$(GoldCraftRoot)\native\csol\server\custom\settings_store.cpp;$(GoldCraftRoot)\native\csol\server\custom\gameplay_settings.cpp;$(GoldCraftRoot)\native\csol\server\custom\action_stamina.cpp">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\scenario\custom\settings.cpp;$(GoldCraftRoot)\native\csol\scenario\custom\stamina.cpp;$(GoldCraftRoot)\native\csol\scenario\custom\phase.cpp;$(GoldCraftRoot)\native\csol\scenario\custom\refund_cap.cpp;$(GoldCraftRoot)\native\csol\server\custom\damage_refund_account.cpp;$(GoldCraftRoot)\native\csol\server\custom\settings_store.cpp;$(GoldCraftRoot)\native\csol\server\custom\gameplay_settings.cpp;$(GoldCraftRoot)\native\csol\server\custom\action_stamina.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <ObjectFileName>$(IntDir)csol_custom_%(Filename).obj</ObjectFileName>

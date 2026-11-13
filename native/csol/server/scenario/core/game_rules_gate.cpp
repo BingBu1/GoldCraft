@@ -3,6 +3,8 @@
 #include "game_rules_gate.h"
 #include "human_kick.h"
 #include "../../custom/gameplay_settings.h"
+#include "../../custom/action_stamina.h"
+#include "../../../scenario/custom/challenge_cycle.hpp"
 #include "../../game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -358,6 +360,17 @@ public:
     void Precache()
     {
         if (!OwnsRules()) return;
+        m_timeSettings = CSOL_CustomSettings();
+        if (m_timeSettings && m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle))
+        {
+            const auto noon = m_timeSettings->Number(csol::scenario::custom::Setting::MiddaySeconds);
+            const auto dusk = m_timeSettings->Number(csol::scenario::custom::Setting::DuskSeconds);
+            if (!noon || !dusk || !m_timeCycle.Configure({static_cast<float>(*noon), static_cast<float>(*dusk)}))
+            {
+                CSOL_RejectGameRules("Scenario custom challenge clock configuration is invalid.");
+                return;
+            }
+        }
         CSOL_ResetScenarioMapVote();
         const bool voteResourcesReady = CSOL_PrecacheScenarioMapVote();
         if (!OwnsRules()) return;
@@ -585,6 +598,7 @@ public:
             m_itemsPrepared = true;
         CheckWinConditions();
         if (!Ready()) return;
+        if (!UpdateCustomTime()) return;
         // MP runs the manager (including a due end-round drain batch) before
         // testing final-result and ordinary restart deadlines. Do not discard
         // that final batch by immediately rebuilding the next round here.
@@ -650,7 +664,41 @@ public:
                 player.SyncRoundTimer();
             });
         }
+        if (!UpdateCustomTime()) return;
         UpdateMusic();
+    }
+    bool ReadCustomTime(csol::scenario::custom::ChallengePhaseView& output) const
+    {
+        if (!Ready() || !m_timeSettings ||
+            !m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle)) return false;
+        const auto value = m_timeCycle.View({m_runtime->Generation(), m_runtime->session->Map().RoundGeneration()});
+        if (!value) return false;
+        output = *value; return true;
+    }
+    bool UpdateCustomTime()
+    {
+        namespace custom = csol::scenario::custom;
+        if (!m_timeSettings || !m_timeSettings->Enabled(custom::Feature::TimeCycle) ||
+            !m_timeRound || !Ready()) return true;
+        const auto round = m_runtime->session->Map().RoundGeneration();
+        const bool ended = m_phase == Phase::Failed || m_phase == Phase::Completing ||
+            m_phase == Phase::Complete || m_phase == Phase::FreePlay;
+        const auto value = m_timeCycle.Advance({m_runtime->Generation(), round}, gpGlobals->time,
+            m_phase == Phase::Playing && !m_bFreezePeriod && !m_bRoundTerminating, ended);
+        if (!value)
+        {
+            CSOL_RejectGameRules("Scenario custom challenge clock lost its current stage.");
+            return false;
+        }
+        if (m_timePublishedRound == round && m_timePublishedPhase == value->time.phase) return true;
+        const bool active = value->time.phase != custom::Phase::Ended;
+        if (!CSOL_SetChallengeStaminaPhase(m_runtime, active ? value->time.phase : custom::Phase::Night, active))
+        {
+            CSOL_RejectGameRules("Scenario custom challenge phase could not reach stamina authority.");
+            return false;
+        }
+        m_timePublishedRound = round; m_timePublishedPhase = value->time.phase;
+        return true;
     }
     void CheckSurvivalTimeout()
     {
@@ -917,6 +965,15 @@ public:
         m_pendingRound.reset();
         m_completionLocked = false;
         m_phase = Phase::Playing;
+        if (m_timeSettings && m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle))
+        {
+            m_timeRound = session->Map().RoundGeneration();
+            if (!m_timeCycle.Stage({runtime->Generation(), m_timeRound}, replay != nullptr) || !UpdateCustomTime())
+            {
+                if (ownerCurrent()) CSOL_RejectGameRules("Scenario custom challenge stage could not begin.");
+                return;
+            }
+        }
         m_musicCountdown.Restart(now);
         const auto round = session->Map().RoundGeneration();
         const auto current = [&]()
@@ -2086,6 +2143,10 @@ private:
     float m_freezeUntil{};
     csol::scenario::RoundClock m_roundClock;
     csol::music::Countdown m_musicCountdown;
+    csol::scenario::custom::SnapshotPtr m_timeSettings;
+    csol::scenario::custom::ChallengeCycle m_timeCycle;
+    std::uint64_t m_timeRound{}, m_timePublishedRound{};
+    csol::scenario::custom::Phase m_timePublishedPhase{csol::scenario::custom::Phase::Ended};
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
     std::array<bool, 33> m_givingDefaultPrimary{};
@@ -2362,6 +2423,15 @@ bool CSOL_ActivateGameRules()
 bool CSOL_UsesScenarioRules()
 {
     return dynamic_cast<CCSOLScenarioRules*>(g_pGameRules) != nullptr;
+}
+
+bool CSOL_ReadChallengePhase(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    csol::scenario::custom::ChallengePhaseView& output)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current() || !runtime || runtime->Closing()) return false;
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+    return rules && rules->Runtime() == runtime && rules->ReadCustomTime(output);
 }
 
 bool CSOL_ScenarioCanBuy()

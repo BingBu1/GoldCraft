@@ -15,6 +15,7 @@ class CCSOLScenarioPlayerRuntime;
 class CCSOLScenarioRuntime;
 class CSOLMonsterDeathCall;
 namespace csol::scenario { struct ConfigError; }
+namespace csol::scenario::custom { struct ChallengePhaseView; }
 struct edict_s;
 struct entvars_s;
 struct playermove_s;
@@ -91,6 +92,10 @@ CGameRules* CSOL_CreateGameRules();
 void CSOL_PrecacheGameRules();
 bool CSOL_ActivateGameRules();
 bool CSOL_UsesScenarioRules();
+// Server-owned time only. Missing/disabled/unstarted or retired owners return
+// false without changing output. Rendering/population remain separate consumers.
+bool CSOL_ReadChallengePhase(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    csol::scenario::custom::ChallengePhaseView& output);
 bool CSOL_ScenarioCanBuy();
 bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);

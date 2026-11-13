@@ -2369,7 +2369,11 @@
     "docs/2026-11-13_修复-CoF资源自动下载闭包-report.md",
     "tests/cryoffear-download-contract/README.md",
     "tests/cryoffear-revolver-cylinder/README.md",
-    "docs/2026-11-13_实现-Revolver原弹巢控制器显示-report.md"
+    "docs/2026-11-13_实现-Revolver原弹巢控制器显示-report.md",
+    "native/csol/scenario/custom/challenge_cycle.hpp",
+    "tests/csol-challenge-phase/sdk.cpp",
+    "tests/csol-challenge-phase/README.md",
+    "docs/2026-11-13_接入-挑战阶段权威与踢击体力-report.md"
   ],
   "trees": {
     "native": [

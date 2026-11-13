@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/scenario/custom/phase.hpp"
+#include "../../native/csol/scenario/custom/challenge_cycle.hpp"
 #include "../../native/csol/scenario/custom/stamina.hpp"
 #include <bit>
 #include <cmath>
@@ -44,6 +45,47 @@ void Phases()
     clock.Reset(); Check(!clock.Sample(Round, 400), "map reset retires phase owner");
     Check(!clock.Begin({}, 0) && !clock.Begin(Round, 0, {0, 120}) &&
         !clock.Begin(Round, std::numeric_limits<float>::max()), "invalid duration or lost float deadline rejected");
+}
+void ChallengeStages()
+{
+    ChallengeCycle clock;
+    Check(!clock.Stage(Round, false), "stage requires a cold prepared clock");
+    Check(!clock.Configure({0,120}) && !clock.Configure({180,std::numeric_limits<float>::infinity()}),
+        "invalid durations never configure a challenge");
+    Check(clock.Configure({180,120}) && clock.Stage(Round,false), "first committed map stage starts a pending challenge");
+    const auto waiting=clock.Advance(Round,100,false,false);
+    Check(waiting && waiting->preparing && waiting->time.phase==Phase::Noon && waiting->challenge==1,
+        "preparation publishes noon without advancing its clock");
+    Equal(waiting->time.remaining,180,"preparation has all180 seconds left");
+    Check(!clock.Configure({1,1}) && !clock.Stage(Round,true), "configuration and duplicate stage cannot refill an active map");
+    const auto first=clock.Advance(Round,120,true,false);
+    Check(first && !first->preparing && first->challenge==1,"first actual combat frame starts the challenge");
+    Equal(first->time.remaining,180,"first thaw owns the exact origin");
+    Check(clock.Advance(Round,300,true,false)->time.phase==Phase::Dusk,"exact combat180 boundary enters dusk");
+    const RoundKey next{Round.session,Round.round+1};
+    Check(clock.Stage(next,false),"ordinary next map stage binds its own generation");
+    Check(!clock.Advance(Round,301,true,false) && !clock.View(Round),"old stage cannot sample or mutate a new stage");
+    const auto nextPrepare=clock.Advance(next,310,false,false);
+    Check(nextPrepare && !nextPrepare->preparing && nextPrepare->time.phase==Phase::Dusk && nextPrepare->challenge==1,
+        "intermediate Boss preparation retains the original challenge clock");
+    Equal(nextPrepare->time.remaining,110,"stage progression never grants another180 seconds");
+    Check(clock.Advance(next,420,true,false)->time.phase==Phase::Night,"300 combat seconds enter eternal night");
+    Check(clock.Advance(next,10000,true,false)->time.phase==Phase::Night,"night has no fabricated loop");
+    Check(!clock.Advance(next,9999,true,false),"backward engine clock cannot restore an old phase");
+    Check(clock.Advance(next,10000,false,true)->time.phase==Phase::Ended,"final result ends the challenge once");
+    Check(clock.Advance(next,10001,true,false)->time.phase==Phase::Ended,"late combat callback cannot restart final-result time");
+    const RoundKey replay{Round.session,Round.round+2};
+    Check(!clock.Stage(replay,false) && clock.Stage(replay,true),"only committed replay can reset a finished challenge");
+    const auto reset=clock.Advance(replay,10020,false,false);
+    Check(reset && reset->preparing && reset->challenge==2 && reset->time.phase==Phase::Noon,
+        "replay creates one new pending challenge");
+    Equal(reset->time.remaining,180,"new challenge receives configured noon duration");
+    Check(!clock.Stage({Round.session+1,replay.round+1},false),"foreign map cannot reuse this owner");
+    Check(!clock.Advance(replay,std::numeric_limits<float>::quiet_NaN(),true,false),"nonfinite frame cannot start time");
+    ChallengeCycle overflow;
+    Check(overflow.Configure({180,120}) && overflow.Stage(Round,false),"prepare overflow regression");
+    Check(!overflow.Advance(Round,std::numeric_limits<float>::max(),true,false),"lost float deadline cannot publish started state");
+    Check(overflow.View(Round)->preparing,"failed first frame leaves the pending state intact");
 }
 void AcceptedEventsAndLives()
 {
@@ -169,6 +211,6 @@ void PrecisionAndInvalidInputs()
 }
 int main()
 {
-    Phases(); AcceptedEventsAndLives(); PhaseCapacityAndRecovery(); SprintCycles(); PrecisionAndInvalidInputs();
+    Phases(); ChallengeStages(); AcceptedEventsAndLives(); PhaseCapacityAndRecovery(); SprintCycles(); PrecisionAndInvalidInputs();
     std::printf("custom phase/stamina: %u checks passed\n", checks);
 }
