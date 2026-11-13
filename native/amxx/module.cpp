@@ -6,6 +6,7 @@
 #include "goldcraft/csol_weapon_api.hpp"
 #include "goldcraft/csol_game_mode_api.hpp"
 #include "goldcraft/csol_scenario_admin_api.hpp"
+#include "goldcraft/csol_gameplay_settings_api.hpp"
 #include "effect_adapter.hpp"
 
 namespace {
@@ -17,6 +18,53 @@ csol::IGameModeService* gameModes=nullptr;
 csol::IScenarioAdminService* scenarioAdmin=nullptr;
 csol::IScenarioReplayService* scenarioReplay=nullptr;
 csol::IScenarioMapVoteService* scenarioMapVote=nullptr;
+csol::IGameplaySettingsService* gameplaySettings=nullptr;
+bool ResolveGameplaySettings(){
+    if(gameplaySettings)return true;
+    auto module=GetModuleHandleA("mp.dll");
+    auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
+    gameplaySettings=factory?static_cast<csol::IGameplaySettingsService*>(factory(csol::GameplaySettingsServiceVersion,nullptr)):nullptr;
+    return gameplaySettings!=nullptr;
+}
+cell AMX_NATIVE_CALL CustomVersion(AMX*,cell* p){
+    return p && p[0]==0 && ResolveGameplaySettings()?1:0;
+}
+cell AMX_NATIVE_CALL CustomInfo(AMX* amx,cell* p){
+    if(!p || p[0]!=6*sizeof(cell) || p[6]<0 || p[6]>4096 || !ResolveGameplaySettings())return 0;
+    csol::GameplaySettingsStatus status;
+    const bool available=gameplaySettings->Status(status);
+    *MF_GetAmxAddr(amx,p[1])=static_cast<cell>(status.revision);
+    *MF_GetAmxAddr(amx,p[2])=status.count;
+    *MF_GetAmxAddr(amx,p[3])=status.busy;
+    *MF_GetAmxAddr(amx,p[4])=static_cast<cell>(status.result);
+    MF_SetAmxString(amx,p[5],status.error,p[6]);
+    return available;
+}
+cell AMX_NATIVE_CALL CustomRead(AMX* amx,cell* p){
+    if(!p || p[0]!=11*sizeof(cell) || p[3]<0 || p[3]>4096 || p[5]<0 || p[5]>4096 ||
+        !ResolveGameplaySettings())return 0;
+    csol::GameplaySetting entry;
+    if(!gameplaySettings->Read(p[1],entry))return 0;
+    MF_SetAmxString(amx,p[2],entry.key,p[3]);
+    MF_SetAmxString(amx,p[4],entry.comment,p[5]);
+    *MF_GetAmxAddr(amx,p[6])=static_cast<cell>(entry.type);
+    *MF_GetAmxAddr(amx,p[7])=amx_ftoc(static_cast<float>(entry.value));
+    *MF_GetAmxAddr(amx,p[8])=amx_ftoc(static_cast<float>(entry.minimum));
+    *MF_GetAmxAddr(amx,p[9])=amx_ftoc(static_cast<float>(entry.maximum));
+    *MF_GetAmxAddr(amx,p[10])=entry.nextMap;
+    *MF_GetAmxAddr(amx,p[11])=entry.available;
+    return 1;
+}
+cell AMX_NATIVE_CALL CustomEdit(AMX*,cell* p){
+    // ADMIN_CFG is flag h (1<<7) in the pinned amxconst.inc. The actor must
+    // remain live and privileged after the engine userid query as well.
+    constexpr int AdminCfg=1<<7;
+    if(!p || p[0]!=5*sizeof(cell) || p[1]<1 || p[1]>32 || p[2]<=0 ||
+        !MF_IsPlayerIngame(p[1]) || !(MF_GetPlayerFlags(p[1])&AdminCfg) ||
+        !ResolveGameplaySettings() || gameplaySettings->UserId(p[1])!=p[2] ||
+        !MF_IsPlayerIngame(p[1]) || !(MF_GetPlayerFlags(p[1])&AdminCfg))return -1;
+    return static_cast<cell>(gameplaySettings->Edit(p[1],p[2],static_cast<std::uint32_t>(p[3]),p[4],amx_ctof(p[5])));
+}
 bool ResolveScenarioMapVote(){
     if(scenarioMapVote)return true;
     auto module=GetModuleHandleA("mp.dll");
@@ -125,6 +173,10 @@ void FormChanged(int player,int previous,int current){
     if(changed_forward>=0)MF_ExecuteForward(changed_forward,player,previous,current);
 }
 const AMX_NATIVE_INFO natives[]={
+    {"csol_custom_api_version",CustomVersion},
+    {"csol_custom_info",CustomInfo},
+    {"csol_custom_read",CustomRead},
+    {"csol_custom_edit",CustomEdit},
     {"csol_scenario_admin_api_version",ScenarioAdminVersion},
     {"csol_scenario_difficulty_info",ScenarioDifficultyInfo},
     {"csol_scenario_difficulty_request",ScenarioDifficultyRequest},
@@ -161,4 +213,4 @@ void OnPluginsUnloading(){
     changed_forward=guard_forward=attack_forward=-1;
     if(gameModes)gameModes->EndMap();
 }
-void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;scenarioAdmin=nullptr;scenarioReplay=nullptr;scenarioMapVote=nullptr;}
+void OnAmxxDetach(){OnPluginsUnloading();server=nullptr;gameplay=nullptr;weapons=nullptr;weaponAmmo=nullptr;gameModes=nullptr;scenarioAdmin=nullptr;scenarioReplay=nullptr;scenarioMapVote=nullptr;gameplaySettings=nullptr;}

@@ -2268,7 +2268,18 @@
     "tests/csol-human-kick-server/README.md",
     "tests/csol-human-kick-server/run_components.py",
     "tests/csol-human-kick-server/sdk.cpp",
-    "tests/csol-scenario-teddy-bear/fixture_resources.hpp"
+    "tests/csol-scenario-teddy-bear/fixture_resources.hpp",
+    "native/csol/server/custom/gameplay_settings.cpp",
+    "native/csol/server/custom/gameplay_settings.h",
+    "native/include/goldcraft/csol_gameplay_settings_api.hpp",
+    "tests/csol-custom-admin/README.md",
+    "tests/csol-custom-admin/native.cpp",
+    "tests/csol-custom-admin/pawn.cpp",
+    "tests/csol-custom-admin/provider.cpp",
+    "tests/csol-custom-admin/run.py",
+    "tests/csol-gameplay-settings-server/README.md",
+    "tests/csol-gameplay-settings-server/main.cpp",
+    "tests/csol-gameplay-settings-server/run.py"
   ],
   "trees": {
     "native": [

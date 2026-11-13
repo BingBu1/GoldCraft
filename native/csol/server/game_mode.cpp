@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "interface.h"
 #include "game_mode.h"
+#include "custom/gameplay_settings.h"
 #include "scenario/core/scenario_performance.h"
 #include "../../include/goldcraft/csol_game_mode_api.hpp"
 
@@ -62,6 +63,7 @@ void CSOL_InitGameModes()
     CVAR_REGISTER(&shortFinalDelay);
     CVAR_REGISTER(&finishAction);
     CVAR_REGISTER(&nextScenarioMap);
+    CSOL_InitGameplaySettings();
     // Command-buffer +cvar ordering is not a first-map contract. The launcher
     // supplies this explicit option, consumed once after real registration and
     // before AMXX's OnPluginsLoaded locks the initial map's mode.

@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "game_rules_gate.h"
 #include "human_kick.h"
+#include "../../custom/gameplay_settings.h"
 #include "../../game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -2304,6 +2305,7 @@ void CSOL_ShutdownScenarioRules()
     // Normal shutdown does not otherwise call FreeGameRules for current rules.
     CSOL_RetireScenarioRules(&g_pGameRules);
     CSOL_CollectRetiredScenarioRules();
+    CSOL_ShutdownGameplaySettings();
 }
 
 bool CSOL_RulesRejected() { return rejection[0] != '\0'; }
@@ -2927,6 +2929,7 @@ EXPOSE_SINGLE_INTERFACE_GLOBALVAR(ScenarioMapVoteService, IScenarioMapVoteServic
 
 bool CSOL_ScenarioThink(CHalfLifeMultiplay& rules)
 {
+    CSOL_PollGameplaySettings();
     CSOLScenarioSdkScope sdkScope(&rules);
     if (sdkScope.Scenario() && !sdkScope.Current()) return true;
     auto* scenario = dynamic_cast<CCSOLScenarioRules*>(&rules);
