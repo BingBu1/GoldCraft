@@ -2210,7 +2210,9 @@
     "docs/2026-11-12_修复-购买菜单双端版本与资源闭包-report.md",
     "tools/Prepare-CryOfFearHands.py",
     "docs/2026-11-12_实现-CoF角色手模离线适配-report.md",
-    "docs/2026-11-12_调整-泰迪熊奖励武器延期-report.md"
+    "docs/2026-11-12_调整-泰迪熊奖励武器延期-report.md",
+    "docs/2026-11-13_修复-CoF左右手与切枪镜像上下文-report.md",
+    "tests/cryoffear-viewmodel-context/README.md"
   ],
   "trees": {
     "native": [

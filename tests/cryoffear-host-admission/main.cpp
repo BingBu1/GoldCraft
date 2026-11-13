@@ -30,7 +30,7 @@ unsigned checks{}, failures{}, publications{}, menuLoads{};
 std::uint64_t generation{1}, resourceSerial{7};
 bool& allowReads=resource_refresh_detail::readsAllowed;
 bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mouse{true}, crosshair{true},
-     control{true}, ironsight{true}, hud{true}, menu{true}, retireInMenu{};
+     control{true}, ironsight{true}, viewmodel{true}, hud{true}, menu{true}, retireInMenu{};
 cvar_t protocol{};
 GuestCofResourceState resources;
 csol::WeaponCurrent current;
@@ -83,6 +83,7 @@ bool GuestCofMuzzleReady() noexcept{return muzzle;}
 bool GuestCofPointLightsReady() noexcept{return points;}
 bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
+bool GuestCofViewmodelReady() noexcept{return viewmodel;}
 bool GuestCofMouseReady() noexcept{return mouse;}
 void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
@@ -148,7 +149,7 @@ int main(int argc,char** argv)
     allowReads=true;CHECK(GuestCofAdmitted());
     const auto published=publications;for(int i=0;i<10000;++i)GuestCofAdmissionFrame();
     CHECK(publications==published&&menuLoads==1);
-    for(bool* gate:{&allowReads,&audio,&particles,&effects,&muzzle,&points,&control,&ironsight,&mouse,&crosshair,&hud})
+    for(bool* gate:{&allowReads,&audio,&particles,&effects,&muzzle,&points,&control,&ironsight,&viewmodel,&mouse,&crosshair,&hud})
     {
         *gate=false;GuestCofAdmissionFrame();
         if(GuestCofAdmitted()||protocol.value!=0)std::printf("gate=%td remained admitted=%d protocol=%g\n",gate==&allowReads?0:gate==&audio?1:gate==&particles?2:gate==&effects?3:gate==&muzzle?4:gate==&points?5:gate==&control?6:gate==&ironsight?7:8,GuestCofAdmitted(),protocol.value);

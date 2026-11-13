@@ -10,6 +10,7 @@
 #include "guest_cof_scene.hpp"
 #include "guest_cof_control.hpp"
 #include "guest_cof_input.hpp"
+#include "guest_cof_viewmodel.hpp"
 #include "guest_cof_ironsight.hpp"
 #include "guest_cof_mouse.hpp"
 #include "guest_cof_crosshair.hpp"
@@ -76,7 +77,7 @@ void GuestCofAdmissionFrame() noexcept
     const bool ready = state.status == GuestCofResourceStatus::Prepared && state.generation == current &&
         state.studioAndRecoilPrepared && state.decalsPrepared && GuestCofParticlesReady() &&
         GuestCofEffectsReady() && GuestCofMuzzleReady() && GuestCofPointLightsReady() &&
-        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofCrosshairReady() && GuestCofInputReady() &&
+        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofCrosshairReady() && GuestCofInputReady() && GuestCofViewmodelReady() &&
         HudStyleWeaponResourcesReady(guest::cof::Pistols[0].hostId);
     if (!ready) { Publish(false); return; }
     if (!menuAttempted)
@@ -96,8 +97,18 @@ bool GuestCofAdmitted() noexcept
 }
 void GuestCofAdmissionDiagnostics(std::ostream& out)
 {
+    const auto state = GuestCofResourcesState();
     out << ",\"cofAdmission\":{\"ready\":" << GuestCofAdmitted() << ",\"generation\":" << generation
         << ",\"resources\":" << resources << ",\"menuPrepared\":" << menuPrepared
-        << ",\"mouseInitialization\":\"" << GuestCofMouseInitialization() << "\"}";
+        << ",\"mouseInitialization\":\"" << GuestCofMouseInitialization() << "\""
+        << ",\"resourceStatus\":" << int(state.status)
+        << ",\"resourceGeneration\":" << state.generation << ",\"readsAllowed\":" << ResourceReadsAllowed()
+        << ",\"studioRecoil\":" << state.studioAndRecoilPrepared << ",\"decals\":" << state.decalsPrepared
+        << ",\"particles\":" << GuestCofParticlesReady() << ",\"effects\":" << GuestCofEffectsReady()
+        << ",\"muzzle\":" << GuestCofMuzzleReady() << ",\"pointLights\":" << GuestCofPointLightsReady()
+        << ",\"control\":" << GuestCofControlReady() << ",\"ironsight\":" << GuestCofIronsightReady()
+        << ",\"mouse\":" << GuestCofMouseReady() << ",\"crosshair\":" << GuestCofCrosshairReady()
+        << ",\"input\":" << GuestCofInputReady() << ",\"viewmodelContext\":" << GuestCofViewmodelReady()
+        << ",\"hud\":" << HudStyleWeaponResourcesReady(guest::cof::Pistols[0].hostId) << '}';
 }
 }

@@ -284,6 +284,19 @@ def main():
                             "gv_rva": hex(iat), "gv_va": hex(IMAGE_BASE + iat),
                             "gv_sig": "FF 15 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + reference_rva),
                             "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
+    # Native viewmodel mirror controls: their producers identify knife29 and
+    # Elite state bit3; native StudioDrawModel mutates handedness only on RENDER.
+    for name, rva, reference, expected in (
+        ("KnifeMirrorFlag", 0x10F861, 0x66BF9, bytes.fromhex("80 3d 61 f8 10 10 01")),
+        ("EliteLeftFlag", 0x10F860, 0x66BCF, bytes.fromhex("80 3d 60 f8 10 10 00"))):
+        if raw(reference, len(expected)) != expected:
+            raise ValueError("Native viewmodel mirror reference changed: " + name)
+        records.append({"platform": "windows", "module": "client",
+                        "symbolName": "GoldCraftViewmodel_" + name, "kind": "global",
+                        "payload": {"gv_rva": hex(rva), "gv_va": hex(IMAGE_BASE + rva),
+                            "gv_sig": "80 3D ?? ?? ?? ?? " + f"{expected[-1]:02X}",
+                            "gv_sig_va": hex(IMAGE_BASE + reference), "gv_inst_offset": "0x0",
+                            "gv_inst_disp": "0x2", "gv_inst_length": "0x7"}})
     # Native HUD owners are specific to this client, including its delete[]
     # thunk and VGUI_Surface026 instance. Never borrow the plugin CRT/surface.
     native_hud = json.loads((ROOT / "native/client/native_hud_client_10210.json").read_text())
